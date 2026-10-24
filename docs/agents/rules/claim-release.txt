@@ -1,0 +1,41 @@
+FINISHED WITH A GUARDED FILE? RELEASE IT.
+
+  node scripts/session-arbiter.js release <path>
+
+YOUR COMMIT USUALLY DOES IT FOR YOU (#2058, #2148). post-commit gives back your
+whole-file claim on every path the commit touched where all your own hunks have
+landed, a neighbour's uncommitted hunks or not, and prints `Released …` or
+`Kept …` with why. Release by hand only where that did not happen: a commit in a
+rebase or cherry-pick, a region claim on docs/doc-map.md, or a file you finished
+without committing. Release after the commit: it refuses while a change of yours
+is uncommitted. Kept as unprovable, and the dirt all another session's?
+`release --not-mine <path>`.
+
+A ZERO EXIT DOES NOT PROVE THE CLAIM WAS DROPPED. Read the output. A watched
+path under no claim prints `No claim on <path>`; an unwatched or mistyped path
+prints nothing at all. Every refusal prints its reason — and a release REFUSED
+still warns about a clobber, every refusal that can answer at all doing so
+(mantahostels#337, mantahostels#420). On any refusal the claim and its pin both stand, so the recovery
+keeps.
+
+BLOCKED ON THE COMMIT ITSELF? Set the edit aside instead:
+
+  node scripts/session-arbiter.js release --park <path>
+
+That restores the file, releases the claim and prints how to get the work back
+(mantahostels#1405).
+
+THE RELEASE WARNING IS THE LAST ONE. It drops the pin that holds your prior
+bytes, so if it names a change you did not make — a `cp`, a `git restore`, a
+heredoc, a neighbour — recover then, not later. On a dirty refusal, diff the
+recovered copy before you commit or discard: committing puts somebody else's
+bytes under your message.
+
+Your next write to the file re-claims it automatically.
+
+`node scripts/status-report.js` PRINTS how many claims stand whose holder has stopped
+running, itemising only those whose file carries uncommitted work (mantahostels#1747) — and
+where `git status` cannot answer it says so rather than calling them clean. A
+run that cannot read which sessions are live reports nothing rather than calling
+a claim dead. `node scripts/check-stranded-file-claims.js` names them all. It only ever reports —
+mantahostels#318 refused expiry outright.

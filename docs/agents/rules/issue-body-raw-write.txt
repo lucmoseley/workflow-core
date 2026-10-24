@@ -1,0 +1,1 @@
+**Every issue-body edit goes through `scripts/issue-body.js`.** Run it with no arguments for the subcommands and their flags.

@@ -1,0 +1,8 @@
+COUNT CLAUDE PROCESSES BY `argv[0]`, NEVER `comm`. A backgrounded session's
+`comm` is its version number (`2.1.234`), so a `comm` matcher — `pgrep claude`
+without `-f`, `ps -C claude`, a `comm` column, `/proc/*/comm` — finds no
+session at all.
+
+Match all three `argv[0]` shapes: bare `claude`/`claude.exe`, the launcher
+`.../bin/claude`, and the versioned binary a resumed session runs. Counting
+sessions, not processes: `docs/environment.md` §5.

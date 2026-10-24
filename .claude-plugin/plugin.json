@@ -1,0 +1,13 @@
+{
+	"name": "workflow-core",
+	"version": "1.3.18",
+	"description": "The shared agent workflow: guards, the session arbiter, and the pick-next, wayfinder and implement skills.",
+	"author": {
+		"name": "Luc Moseley"
+	},
+	"repository": "https://github.com/lucmoseley/workflow-core",
+	"skills": "./.claude/skills",
+	"outputStyles": "./.claude/output-styles",
+	"agents": ["./.claude/agents/code-reviewer.md"],
+	"types": "./.claude/skills/wfc-liveness/types/index.d.ts"
+}

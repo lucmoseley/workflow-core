@@ -1,0 +1,20 @@
+{
+	".claude/skills/concision-pass/scripts/check-facts.js:12": "cc71eccf5ee3ae9b",
+	"scripts/check-hook-liveness.js:397": "6eeec2425fcb3c5e",
+	"scripts/check-open-maps.js:55-56": "416679ab483c16a9",
+	"scripts/lib/agent-liveness.js:86": "a71918578a74fed9",
+	"scripts/lib/agent-liveness.js:92": "a71918578a74fed9",
+	"scripts/lib/check.js:15-25": "d855b25d285148ea",
+	"scripts/lib/check.js:1686-1689": "4891f620dcace37c",
+	"scripts/lib/check.js:196-197": "f731e1f760430284",
+	"scripts/lib/check.js:35-38": "d7df7b3f13554e77",
+	"scripts/lib/check.js:40-44": "b6e1b941856eec63",
+	"scripts/lib/check.js:8-13": "bc624cdf147db90c",
+	"scripts/lib/gh.js:289": "74904d00bd2c2475",
+	"scripts/lib/guard-parse.sh:313-319": "f111900b79cb4e51",
+	"scripts/lib/hook-block.js:23-25": "c074107efa2a3f47",
+	"scripts/lib/standards-pins.js:176": "7033c4610b0d5372",
+	"scripts/lib/suite-handoff.js:162-180": "ea1e777eb0edd406",
+	"scripts/lib/test-pass-marker.js:1258": "53c88662a6833e4d",
+	"scripts/session-arbiter.js:167-176": "9241507b3791aa18"
+}

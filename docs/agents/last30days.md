@@ -1,0 +1,13 @@
+# last30days
+
+`last30days` runs in a subagent only — one invocation costs ~87k tokens, and `scripts/guard-last30days.sh` denies the call from a main session. Spawn an Agent (`general-purpose`) and have it run the skill, returning only its findings. Give the prompt an `Artefact:` line — `Artefact: .claude/tmp/last30days-<slug>.md` — and tell the agent to append findings there as they land: watch that file with one backgrounded `node scripts/watch-artefact.js <file> 120`, whose `STALLED` or `MISSING` triggers the stall fallback below; when the agent's completion notification arrives, `TaskStop` the watcher first. Hand the absolute path instead where the agent works in a throwaway worktree, a relative one resolving inside that worktree rather than the checkout you are watching.
+
+**The plugin's own `SessionStart` hook is switched off, outside this repo** (mantahostels#1817). It printed `/last30days: Ready — 8 sources active.` into every session that started — 465 firings in four days, addressed to a main session `guard-last30days.sh` forbids to call the skill. Every `~/.claude*/plugins/cache/last30days-skill/last30days/<version>/hooks/hooks.json` now holds `{"hooks": {}}`. **A plugin update restores it and nothing reports that**, so run `scripts/silence-last30days-hook.sh` after one — the version is in the path, so an update lands in a fresh directory carrying the original file, and there are three plugin caches to reach, one per config dir (`docs/environment.md` §13). Disabling the plugin in `.claude/settings.json` is not the same act and is wrong here — it would take the skill with it.
+
+**Stall fallback:** re-dispatch once. A second stall is unrecoverable, the main-session call being barred: report the research not obtained and carry on without it.
+
+Config lives at `~/.config/last30days/.env` — mode 600, outside the repo — and **does hold credentials**: a ScrapeCreators key and a Bluesky app password, neither bought and no card on file (mantahostels#637, the audit that recorded them). Never put either in a project-scoped `.claude/last30days.env`, which sits inside the repo.
+
+A valid ScrapeCreators key on its own activates nothing: `INCLUDE_SOURCES` must also name `tiktok`/`instagram`.
+
+**The ScrapeCreators allocation is 100 credits, one-time — it does not reset monthly**; paid plans start at $10 (mantahostels#643). When the credits run out `tiktok` and `instagram` go quiet rather than charging anyone, and a run that returns nothing from those two has an exhausted balance as its first suspect — not a broken key. The Bluesky app password has no such limit. Keeping the key on those terms is deliberate (mantahostels#643) — do not strip it as a free-keyless breach.

@@ -1,0 +1,30 @@
+RECONCILE THE SHARED `main` WITH `landing` BY FAST-FORWARD OR NOT AT ALL.
+
+  git pull --ff-only   # takes origin/landing, the tree's upstream
+
+The working tree is repo-global, so a rebase or a merge here rewrites or
+re-parents commits other live sessions hold — the same failure as mantahostels#63 and mantahostels#87,
+reached through the ref.
+
+`git fetch` is always safe — it moves no local ref.
+
+A REFUSAL MEANS `main` HAS DIVERGED FROM `landing`, AND IS NOT A STOP.
+Reconcile in a throwaway worktree, then fast-forward the shared tree onto the
+result:
+
+  R=.claude/worktrees/reconcile   # ONE Bash call: an unset $R merges HERE
+  git worktree add -b reconcile-<n> "$R" main
+  ln -s "$PWD/node_modules" "$R/node_modules"
+  git -C "$R" merge origin/landing   # conflicts HERE; --abort to unwind
+  # resolved a conflict by hand? (cd "$R" && npm run test) (#2517)
+  git merge --ff-only reconcile-<n>   # refuses? someone pushed — redo
+  git push origin main:landing
+  git worktree remove --force "$R" && git branch -d reconcile-<n>
+
+A conflict you cannot resolve is the founder's call: report both sides.
+
+A MERGE OR A REBASE IN THE SHARED TREE IS REFUSED, `git merge origin/landing`
+too. `--ff-only`, `--abort`, `--continue`, `--quit` and `--skip` pass.
+
+SPELL THE WORKTREE LITERALLY. A merge or rebase whose `-C` or `cd` target I
+cannot expand is refused too (#301).

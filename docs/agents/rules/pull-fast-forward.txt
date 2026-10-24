@@ -1,0 +1,32 @@
+RECONCILE THE SHARED `main` BY FAST-FORWARD OR NOT AT ALL.
+
+  git pull --ff-only
+
+The working tree is repo-global, so a rebase or a merge here rewrites or
+re-parents commits other live sessions hold — the same failure as mantahostels#63 and mantahostels#87,
+reached through the ref. It happened once: a `git pull --rebase` on 2026-08-03
+re-picked a commit in the shared tree, benign only because the commits were
+local.
+
+`git fetch` is always safe — it moves no local ref.
+
+A REFUSAL MEANS `main` HAS DIVERGED, AND IS NOT A STOP. Reconcile in a throwaway
+worktree, then fast-forward the shared tree onto the result:
+
+  R=.claude/worktrees/reconcile   # ONE Bash call: an unset $R merges HERE
+  git worktree add -b reconcile-<n> "$R" main
+  ln -s "$PWD/node_modules" "$R/node_modules"
+  git -C "$R" merge origin/main   # conflicts HERE; --abort to unwind
+  (cd "$R" && npm run test -- --full=sha-moved)
+  git merge --ff-only reconcile-<n>   # refuses? someone pushed — redo
+  git push origin main
+  git worktree remove --force "$R" && git branch -d reconcile-<n>
+
+A conflict you cannot resolve is the founder's call — report it with both sides
+named.
+
+A MERGE OR A REBASE IN THE SHARED TREE IS REFUSED, `git merge origin/main` too.
+`--ff-only`, `--abort`, `--continue`, `--quit` and `--skip` pass.
+
+SPELL THE WORKTREE LITERALLY. A merge or rebase whose `-C` or `cd` target I
+cannot expand is refused too (#301).

@@ -1,0 +1,54 @@
+#!/usr/bin/env sh
+# pre-push — the suite-pass warning, the mods' plugin tests, the landing
+# queue's refusal and the public code repo's refusal on a push
+# (mantahostels#987, workflow-core#857, workflow-core#2409, workflow-core#1954).
+#
+# Four checks on the commits being pushed:
+#
+# 1. Warn when the suite has not been shown to pass on them (mantahostels#987,
+#    on mantahostels#908's ruling). It runs NO TESTS and never refuses — why, in
+#    scripts/lib/test-pass-marker.js.
+# 2. Run each mod's `claude plugin test` where the range touches its folder
+#    (scripts/run-mod-tests.js's MODS), and refuse the push on a failing test
+#    (workflow-core#857).
+# 3. With the `landing` module on, refuse a push to `main` of a sha the
+#    lander's green ledger does not hold (scripts/landing-push-gate.js).
+# 4. Where `codeRepo` differs from `tracker`, refuse a push to the code repo of
+#    a sha that shares history with the tracker's, which would publish it
+#    (scripts/public-push-gate.js).
+#
+# git feeds the ref list on stdin, read once here and handed to each.
+#
+# It FIRES IN A WORKTREE TOO, deliberately: package.json's `prepare` pins
+# core.hooksPath absolute (mantahostels#344), and the marker store sits in the canonical
+# checkout, so a green run in either tree is visible to a push from either. The
+# caveat that a worktree run tested that worktree's bytes is the same one the
+# dirty-tree flag already carries.
+#
+# IMPLICIT:  reads the test-pass marker store on every push and warns when nothing records a green suite on the sha being pushed; where the range touches a mod folder in scripts/run-mod-tests.js's MODS, runs that mod's plugin tests at the pushed sha and refuses the push on a failure; with the `landing` module on, reads the lander's green ledger and refuses a push to `main` of a sha it does not hold; where the code repo is apart from the tracker, reads every ref of a remote naming the tracker and refuses a push to the code repo of a sha sharing history with one.
+# JUSTIFIED: fail-safe — since mantahostels#910 no suite run is keyed to a push, so an unproven push is otherwise silent; and the mods' tests otherwise run only in the scheduled sweep (workflow-core#1854), hours after the push, so this catches a broken mod before adopters can pull it; and the publish guard sees only Claude Code's Bash route, so this is the one local refusal of an untested `main` from the founder's terminal or a script (workflow-core#2261); and nothing on the public code repo can refuse a push carrying the tracker's history, which once pushed is published for good (workflow-core#1954).
+# DEFEAT:    `git push --no-verify` skips all four, and nothing denies it. The mod check warns and passes where the `claude` binary is missing, unusable or its run cannot finish, and refuses only on its own exit 2, so a crashed or unreachable checker never fails a push; the landing gate likewise refuses only on its exit 2, and passes, printed, where it cannot read the config, the ref list or the repo root; the public-repo gate passes, printed, where it cannot read the config, the ref list or the repo root, and past the destination check refuses on any fault, a clone with no remote naming the tracker included.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (workflow-core#745)
+
+root="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")"
+refs="$(cat)"
+
+# `|| :`, so a checker that cannot run — an adopter's stale plugin path, or
+# its own BROKEN exit 2 — still refuses no push under `set -e` (workflow-core#1444).
+printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/check-test-marker.js" || :
+
+# Ahead of the mod tests, so a push it refuses spends none of their run.
+rc=0
+printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/landing-push-gate.js" || rc=$?
+[ "$rc" -ne 2 ] || exit 1
+
+rc=0
+printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/public-push-gate.js" "$2" || rc=$?
+[ "$rc" -ne 2 ] || exit 1
+
+rc=0
+printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/run-mod-tests.js" || rc=$?
+[ "$rc" -ne 2 ] || exit 1
+
+exit 0

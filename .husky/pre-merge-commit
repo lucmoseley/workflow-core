@@ -1,0 +1,53 @@
+#!/usr/bin/env sh
+# pre-merge-commit — runs pre-commit's whole gate stack over a merge's content
+# (mantahostels#1679).
+#
+# `git merge` runs THIS hook, never `pre-commit` — so until mantahostels#1679 an
+# auto-resolving merge landed having run none of pre-commit's ~14 gates,
+# gitleaks among them. The conflicted shape was never affected: git runs no hook
+# on the failed merge, and the resolution `git commit` is an ordinary gated
+# commit. Measurements on mantahostels#1679.
+#
+# IMPLICIT:  runs the whole of .husky/pre-commit over the merge's own content.
+# JUSTIFIED: fail-safe — a merge is the only route onto main that ran no gate at
+#            all, and a committed key is permanent (AGENTS.md §Secrets boundary).
+#            The whole stack rather than gitleaks alone, because a merge RESULT
+#            can break a cross-file check that both parents pass on their own:
+#            the doc map's coverage, the roadmap/digest version pair, the
+#            guard registry. `git diff --cached` here is the merge delta against
+#            `ours`, not the tree, so every `--staged`/`--cached` read in
+#            pre-commit is already scoped to it.
+# DEFEAT:    `git merge --no-verify` skips this hook and `commit-msg` both —
+#            but no longer skips the gates: `.husky/prepare-commit-msg` runs
+#            them instead, that being the one hook the flag cannot turn off,
+#            and `scripts/guard-commit-form.sh` now denies the spelling in an
+#            agent session too (mantahostels#1705). What is left is `HUSKY=0` and
+#            `core.hooksPath` pointed off `.husky/_`, which turn off every hook
+#            at once — the whole list is that guard's LIMITS (workflow-core#800).
+#
+# A refusal leaves the merge IN PROGRESS: git writes MERGE_HEAD after this hook
+# returns, so the hook cannot `git merge --abort` on its own behalf — it fails
+# with "no merge to abort". Until someone aborts, every commit in THAT TREE must
+# be pathspec-less, `git commit -m … -- <paths>` dying with "cannot do a partial
+# commit during a merge". MERGE_HEAD is per-worktree, so a merge-back refused in
+# a throwaway worktree strands only that worktree; refuse one in the shared tree
+# and it strands every parallel session until it is cleared.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (workflow-core#745)
+
+here="$(dirname "$0")"
+
+# `sh -e` rather than a `.` source: pre-commit's control flow depends on
+# errexit, and a subshell keeps its `trap … EXIT` off this hook. The status is
+# passed through rather than collapsed to 1, so pre-commit's BROKEN exits stay
+# distinguishable from a finding.
+status=0
+sh -e "$here/pre-commit" || status=$?
+if [ "$status" -eq 0 ]; then
+  exit 0
+fi
+
+echo "pre-merge-commit: the gates above refused this merge's content." >&2
+echo "  The merge is still in progress and this tree cannot take a pathspec commit until it is cleared." >&2
+echo "  'git merge --abort' to clear it, or fix the finding and 'git commit', which runs the same gates." >&2
+exit "$status"

@@ -1,0 +1,11 @@
+A PUSH TO `landing` IS TESTED BY THE LANDER, NOT ON YOUR SHA ALONE.
+
+The lander runs the full suite on `landing`'s tip, one batch at a time, and
+moves `main` only to a green tip; a red batch is bisected and its culprit
+reverted on `landing`. Run `node scripts/landing-status.js` ONCE after every
+push, docs-only included, and read it: each of your commits reads `landed:`,
+`queued:` or `reverted by <sha>:`. Reread it only to report a final state, never
+in a wait loop; a commit stays queued for 25–60 min (#2217).
+
+Where a scheduled sweep runs, `npm run check:ci` reads it, and it tests `main`:
+its verdict covers what has landed, never what you just pushed.

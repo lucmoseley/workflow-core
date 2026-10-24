@@ -1,0 +1,6 @@
+THE REPO'S LINT NEVER SEES A SHELL FILE, SO A GREEN LINT SAYS NOTHING ABOUT THE
+ONE YOU JUST WROTE.
+
+Shellcheck over the shell files `formatters.js` lists is `npm run check:sh`:
+run it before you call a shell edit checked. Why the severity gate and the
+`shell=` line: `package.json`'s `comments["scripts.check:sh"]`.

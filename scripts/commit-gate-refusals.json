@@ -1,0 +1,311 @@
+{
+	"_comment": [
+		"commit-gate-refusals.json — each pre-commit gate's own refusal lines, any one of",
+		"which names it, read by scripts/lib/arm-secondary.js to say which gate refused a commit",
+		"(#2175). scripts/lib/arm-secondary.test.ts counts each line in the gate's source, so",
+		"rewording a refusal at any of its sites fails it until this file follows (#2298).",
+		"",
+		"A line is a literal string printed at one site, or an object: `sites` where it prints",
+		"at more than one; `from` and `via` where the source builds it, `from` being the",
+		"source's own spelling with its one `$name` hole filled by the gate's id, which",
+		".husky/pre-commit passes to the shell function `via`. A gate with `tool` prints",
+		"through a third-party binary, so its lines are checked against no source."
+	],
+	"gates": [
+		{
+			"id": "branch",
+			"lines": ["pre-commit: the shared working tree is on '"]
+		},
+		{
+			"id": "biome",
+			"tool": "Biome",
+			"lines": ["Some errors were emitted while running checks."]
+		},
+		{
+			"id": "gitleaks",
+			"tool": "gitleaks",
+			"lines": ["leaks found: "]
+		},
+		{
+			"id": "stale-write-back",
+			"lines": ["the stale-write-back gate refused this commit"]
+		},
+		{
+			"id": "review-hold",
+			"lines": ["the review hold refused this commit (rule:review-hold)"]
+		},
+		{
+			"id": "roadmap-pair",
+			"lines": ["roadmap edit(s) staged without the digest"]
+		},
+		{
+			"id": "roadmap-valid",
+			"lines": [
+				{
+					"text": "structurally invalid",
+					"sites": 2
+				},
+				"roadmap error(s)"
+			]
+		},
+		{
+			"id": "citation-tracker",
+			"lines": ["mis-tracked citation"]
+		},
+		{
+			"id": "gate-switches",
+			"lines": ["gate(s) switched off over a subject the tree holds"]
+		},
+		{
+			"id": "lockfile-sync",
+			"lines": ["lockfile disagreement(s)"]
+		},
+		{
+			"id": "research-added",
+			"lines": ["added research file(s)"]
+		},
+		{
+			"id": "digest-version",
+			"lines": [
+				"version line(s) drifted",
+				{
+					"text": "the digest-version check reads ",
+					"from": "the $1 check reads ",
+					"via": "staged_gate"
+				}
+			]
+		},
+		{
+			"id": "digest-render",
+			"lines": [
+				"The digest is generated, never hand-edited:",
+				{
+					"text": "the digest-render check reads ",
+					"from": "the $1 check reads ",
+					"via": "staged_gate"
+				}
+			]
+		},
+		{
+			"id": "vendored-skills",
+			"lines": [
+				"is not in the vendored manifest — it was added locally after",
+				"but now matches the vendored bytes — the edit was reverted",
+				"and nothing says the edit was deliberate",
+				"has been edited again since it was declared"
+			]
+		},
+		{
+			"id": "upstream-record",
+			"lines": [
+				"upstream-record finding(s)",
+				{
+					"text": "the upstream-record check reads ",
+					"from": "the $1 check reads ",
+					"via": "staged_gate"
+				}
+			]
+		},
+		{
+			"id": "guard-registry",
+			"lines": [
+				"Fix the rule or fix the claim",
+				"so its own header must say what",
+				"has two parts that must agree",
+				"decides whether a hook's script is"
+			]
+		},
+		{
+			"id": "hook-liveness",
+			"lines": ["hook that is wired and not running"]
+		},
+		{
+			"id": "plugin-hooks",
+			"lines": [
+				{
+					"text": "generate-plugin-hooks: ",
+					"sites": 4
+				}
+			]
+		},
+		{
+			"id": "guard-test-isolation",
+			"lines": ["without setting CLAUDE_CONFIG_DIR, so a fail-open it provokes"]
+		},
+		{
+			"id": "host-root-test-isolation",
+			"lines": ["without setting CLAUDE_PROJECT_DIR, so the child roots itself"]
+		},
+		{
+			"id": "git-fixture-identity",
+			"lines": ["with no identity set for it, so it fails on a runner"]
+		},
+		{
+			"id": "host-root",
+			"lines": [
+				{
+					"text": "Use hostRoot() from lib/host-root.js",
+					"sites": 2
+				},
+				"Source lib/guard-root.sh and call gr_root.",
+				"reached through the host root",
+				"reached through the HOST root"
+			]
+		},
+		{
+			"id": "test-read-edges",
+			"lines": ["changed their reader set:"]
+		},
+		{
+			"id": "rule-fragments",
+			"lines": [
+				{
+					"text": "generate-rule-fragments: ",
+					"sites": 4
+				}
+			]
+		},
+		{
+			"id": "website-copy",
+			"lines": ["These are banned tells from"]
+		},
+		{
+			"id": "skill-body-size",
+			"lines": ["unescaped $<digit> token(s) in a skill or command body"]
+		},
+		{
+			"id": "skill-frontmatter",
+			"lines": ["A strict YAML reader drops this skill (#887)."]
+		},
+		{
+			"id": "registrations",
+			"lines": [
+				"is run by no hook in .claude/settings.json",
+				"is run by no husky hook, workflow,",
+				"has no `hooks` row",
+				"the `hooks` row for ",
+				{
+					"text": "has no sibling test (scripts/",
+					"sites": 2
+				},
+				"`calledElsewhere` names "
+			]
+		},
+		{
+			"id": "workflow-permissions",
+			"lines": ["workflow autonomy finding(s)"]
+		},
+		{
+			"id": "cli-args",
+			"lines": ["fall through to the default action"]
+		},
+		{
+			"id": "doc-map",
+			"lines": [
+				{
+					"text": "the doc-map fault(s) below are NOT in HEAD",
+					"from": "the $gd_noun fault(s) below are NOT in HEAD",
+					"via": "gate_direction"
+				},
+				{
+					"text": "could not tell inherited doc-map faults from new ones",
+					"from": "could not tell inherited $gd_noun faults from new ones",
+					"via": "gate_direction"
+				},
+				{
+					"text": "no readable HEAD baseline for the doc-map check",
+					"from": "no readable HEAD baseline for the $1 check",
+					"via": "gate_no_baseline"
+				},
+				"this commit adds the doc-map ",
+				{
+					"text": "the doc-map check reads ",
+					"from": "the $1 check reads ",
+					"via": "gate_check_deleted"
+				}
+			]
+		},
+		{
+			"id": "context-budget",
+			"lines": ["ALWAYS-LOADED POOL — "]
+		},
+		{
+			"id": "injector-margin",
+			"lines": [
+				"← OVER: this payload is persisted to a file",
+				"which a session follows about a tenth of the time"
+			]
+		},
+		{
+			"id": "superseded-needle",
+			"lines": [
+				"Those paths are staged copies of docs/doc-map.md and docs/doc-map-superseded.json.",
+				{
+					"text": "the superseded-needle check reads ",
+					"from": "the $1 check reads ",
+					"via": "staged_gate"
+				}
+			]
+		},
+		{
+			"id": "eslint",
+			"lines": [
+				"pre-commit: ESLint failed on this commit's own app/ or lib/ paths."
+			]
+		},
+		{
+			"id": "shellcheck",
+			"lines": [
+				"shellcheck failed on this commit's own shell paths.",
+				"could not list this commit's shell files, so the shell gate refused it."
+			]
+		},
+		{
+			"id": "actionlint",
+			"lines": ["actionlint failed on this commit's own workflow paths."]
+		},
+		{
+			"id": "ruff",
+			"lines": [
+				{
+					"text": "the ruff gate refused this commit",
+					"sites": 2
+				}
+			]
+		},
+		{
+			"id": "swallowed-errors",
+			"lines": ["the swallowed-error gate refused this commit"]
+		},
+		{
+			"id": "format",
+			"lines": [
+				{
+					"text": "the format gate refused this commit",
+					"sites": 2
+				}
+			]
+		},
+		{
+			"id": "test",
+			"lines": [
+				"the declared test command is RED",
+				"before the suite gave a verdict, so this commit is refused."
+			]
+		},
+		{
+			"id": "mutation-hold",
+			"lines": ["the mutation hold refused this commit (rule:mutation-hold)"]
+		},
+		{
+			"id": "pre-commit-local",
+			"lines": [
+				".husky/pre-commit.local calls a script this repo does not have:"
+			]
+		},
+		{
+			"id": "staged-paths",
+			"lines": ["could not read this commit's staged paths from git"]
+		}
+	]
+}

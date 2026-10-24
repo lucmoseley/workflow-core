@@ -1,0 +1,18 @@
+NEVER MOVE `main` BACKWARDS, FROM ANY TREE.
+
+`main` is one ref every session commits to. A `git reset <commit>`, a
+`git update-ref refs/heads/main`, a `git branch -f`/`-D`/`-m` naming it, or a
+`git checkout -B main` drops every commit after the one you name — a
+neighbour's included, if it landed in the seconds since you looked (#765).
+A force-push to `main` (`--force`, `--force-with-lease`, a `+` refspec) or
+deleting it on the remote does the same to everyone's `origin/main`, and an
+amend you hoped to force over is already public once a neighbour pushes.
+
+UNDO A COMMIT WITH A FOLLOW-UP COMMIT — `git revert <sha>`, or the fix itself.
+
+These move no branch, and pass:
+
+  git reset -- <path>        # unstage one path; `git reset HEAD <path>` too
+  git reset                  # unstage everything
+
+A reset inside a throwaway worktree moves that worktree's own branch, and passes.

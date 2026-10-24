@@ -1,0 +1,7 @@
+COMMIT `docs/reference-roadmap.html` AND `docs/roadmap-digest.md` TOGETHER.
+
+`scripts/check-digest-version.js` fails when the digest's version line drifts
+from the roadmap's. It runs in `.github/workflows/roadmap-digest.yml` and — since
+mantahostels#910, which is where it fires first — in `.husky/pre-commit`.
+
+One of the two alone is the drift.

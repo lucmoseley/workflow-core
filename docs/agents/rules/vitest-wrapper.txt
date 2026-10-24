@@ -1,0 +1,22 @@
+A vitest run outside `scripts/run-vitest.js` has no stall watchdog.
+
+A synchronous call that never returns parks a worker for good, and vitest cannot
+time one out: `testTimeout` is enforced on the event loop that call never yields
+to. The run then produces no output and no error, for as long as you wait.
+`scripts/run-vitest.js` kills it after five minutes of silence and names the file
+it parked in; `npm run test` and `npm run test:changed` go through it.
+
+So run a one-shot through the wrapper, which forwards every argument after
+prepending `run` for you:
+
+  NODE_OPTIONS=--max-old-space-size=2048 node scripts/run-vitest.js scripts/foo.test.ts -t "some name"
+
+Raise or disable the ceiling with WFC_TEST_STALL_MS=<ms>, 0 to disable — the
+one case that wants no ceiling is a debugger attached to a worker.
+
+A watcher, `vitest watch` or `--watch`, is deliberately outside all of this: an idle watcher is
+silent by design, so a silence watchdog would kill it between runs. `vitest
+bench` and `vitest related` are outside it for a different reason — the wrapper
+hardcodes `run`, and would turn either into `vitest run bench`. All three stay
+unbounded, as does any launcher but `npx`: `pnpm vitest` and `yarn vitest` pass
+this guard unseen.

@@ -1,0 +1,54 @@
+A FILE A LIVE SESSION HAS WRITTEN IS TAKEN. Leave it until that session
+releases it, its own commit lands all its hunks (#2058, #2148), or its process ends.
+
+Writing the file is what takes the claim. A clean `git status` alone says
+nothing about whether a file is free: a file reads clean between one session's
+own writes (mantahostels#66, an incident in its closing comment — its title names other work).
+
+TWO TIERS, and only the first ever refuses:
+
+  docs/ .claude/ CLAUDE.md AGENTS.md   deny — the write is refused outright
+  scripts/                             detect only — the claim is taken and
+                                       recorded, and nothing is ever refused
+                                       on it (mantahostels#287)
+
+Everything else is left to git.
+
+On docs/doc-map.md alone the claim is per REGION — one `### B<n>` entry, one §A
+register row, or one top-level section (mantahostels#848, mantahostels#970).
+
+YOUR PRIOR BYTES ARE PINNED, so a clobber by any route is reported at your next
+write and again at release, with the recovery command below. A claim keeps the
+ten versions before this one; an unclaimed write — a detect-only path's second
+writer, or any Bash-route write — gets one, re-minted each write:
+
+  node scripts/session-arbiter.js versions <path>
+
+DENIED? Wait on the holder in the background, never by asking the founder, and
+take another subject meanwhile (mantahostels#1682):
+
+  node scripts/session-arbiter.js wait <path>
+
+It exits DEADLOCK at once on the hold-while-waiting ring of mantahostels#1406.
+
+STILL BLOCKED, AND THE FILE IS THE TICKET? The escape, and the last move rather
+than the first (mantahostels#411):
+
+  node scripts/session-arbiter.js release --force <path>
+
+It is for a holder that has FINISHED while its host runs on. It refuses while
+the holder is live — every attempt measured (mantahostels#444, mantahostels#1686) — refuses on a dirty
+file, and never releases on doubt. Wait hit its ceiling, claim still held? Ask its
+holder, in band, and carry on with the rest of your ticket (mantahostels#1702):
+
+  node scripts/session-arbiter.js request <path> "<one line on why>"
+
+Only once that too refuses or goes unanswered: abandon that one edit, finish the
+rest of the ticket, and record the blocked edit as a visible debt.
+
+CONTENDED, OR NEEDING MORE THAN ONE SUBJECT? Take them together or not at all,
+in one fixed order:
+
+  node scripts/session-arbiter.js claim-all <path>...
+
+Read what is held before you start: `node scripts/session-arbiter.js list`.
