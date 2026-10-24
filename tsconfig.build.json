@@ -1,0 +1,14 @@
+{
+	// The tsconfig `next build` type-checks with, and only that — every other
+	// type check still reads tsconfig.json (mantahostels#1062's `npm run typecheck`, which
+	// this file extends), so every opted-in script stays checked as before.
+	//
+	// tsconfig.json includes `scripts/**/*.js` on purpose, so that a script
+	// opting in with `// @ts-check` is checked. Next reuses the project
+	// tsconfig during a production build, and Vercel builds every push to
+	// `main` and deploys it, so that include let a dev script's type error
+	// fail the production deploy (mantahostels#1464).
+	"extends": "./tsconfig.json",
+	// `hooks` is the plugin's entry module, checked by its own tsconfig (#946).
+	"exclude": ["node_modules", "scripts", ".claude", "hooks"]
+}

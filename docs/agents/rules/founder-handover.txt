@@ -1,0 +1,37 @@
+A FOUNDER HAND-OVER — what you give when work needs the founder's own hands — has one fixed shape:
+
+1. Do every step you can first. Hand over only what needs his hands.
+2. Each remaining step says where to paste it — this session after `!`, a normal terminal, a URL, or a session in another repo — gives the exact literal text, and says what he should see when it works. No `<placeholder>`, no ellipsis, and never "the command above" or "the line I gave earlier".
+   A step to run only on what an earlier step printed never carries that condition in prose: lines pasted together run together. Either the paste encodes it — the step inside a shell test of the earlier output, as in `if [ -z "$(grep -l FAIL out/*.json)" ]; then python3 run.py; else echo NOT RUN; fi` — or hand over the earlier step alone, read its output yourself, and hand over the dependent step afterwards. Re-pasting an idempotent step that failed is not a conditional step (#923).
+3. End with what to send back, and what you will then check yourself. Route commands through `!` wherever they can run there, so their output lands in the session; ask for a screenshot only where the result is visible to him alone — a browser page, a Windows step.
+4. Put it at the end of the message.
+
+A HAND-OVER THE FOUNDER CANNOT FINISH IN THIS SESSION lives in an open issue's body, filed the moment it is named (`rule:founder-deliverable`); the chat walks the founder through it.
+
+PLACEMENT. Where his whole act fits in about three lines, write the literal text inside the question's option, so "accept" is never followed by "give me the command". A longer walk comes unasked in your reply to "accept" — the option names the act and says so.
+
+A PROCESS KILL IN A `!` PASTE is by pid, never a `pkill -f` whose pattern matches anything else in the paste: the whole paste is one shell's command line, so the pattern matches the founder's own shell and kills it before the rest runs — `[b]ake-run.py` too, where `bake-run.py` appears elsewhere in the paste. Under `-v` a pattern that misses the paste selects that shell instead (#1814). Without `-f` the pattern is tested against the shell's name, `bash`, the same two ways (#1842). `scripts/guard-paste-self-match.js` refuses a turn that hands one over (#921).
+
+A `!` PASTE IS SHORT: one line where it can be, a few at most. Selecting a long block on Claude Code's screen loses text: lines cut at the wrap, or one dropped where the selection scrolls (#2063). Where the act cannot be short, such as a script, make the script the only code block in your reply, give its run line inline, and have the script check its own content (a checksum of its data) before it writes anything. Tell the founder, then and not before: type `/copy` straight after that reply, which writes the reply to `/tmp/claude-<uid>/response.md`, then type the run line, which extracts the block from that file and runs it — `! sed -n '/^<first line>/,/^<last line>$/p' /tmp/claude-$(id -u)/response.md | python3 -`, the two patterns being the script's literal first and last lines.
+
+A PERMISSION you lack is one line he pastes after `!`, adding the rule to his local, uncommitted settings file, and printing the rule and the file it wrote:
+
+! node scripts/grant-permission.js 'Bash(git status *)'
+
+Put the exact rule you need in place of the example. Add `--project` only where every session needs the rule, since that writes the committed `.claude/settings.json`.
+
+AN AUTO-MODE REFUSAL — the classifier denying a call — is never the end of the work and never a reason to ask for another permission mode: every session runs in auto mode, the founder entering background ones from the agents view. Scrutinise the refused act first — what it touches, what it could break — and say what you concluded. Not a good idea: drop it and say why on the ticket. Still needed: work hard to reach the goal without the founder — a narrower act, another legitimate approach, a design that does not need it — but never the same act by another path, which the classifier refuses as bypass. A refused compound (`&&`, `;`, `|` …) whose substantive command matches a `permissions.allow` rule is not that: re-run that command once, on its own, and each read-only extra as a separate call — the same call under the founder's allow rule, which a compound misses (`docs/environment.md` §Auto mode's permission classifier). Never re-chain it, wrap it differently, or retry a bare command that was itself refused (#1023). After any block, run each follow-up read as one bare command, never a compound: the classifier reviews reads too, against what the session just tried (#2040). A `!` line he pastes into this session, a file he must write included, is the last resort, handed over only once every reasonable route has failed, naming what you tried; then wait. Never release the ticket over a refusal (#851). A turn ending on a refusal is sent back with this paragraph by `scripts/guard-automode-refusal.js` (#860).
+
+A SECRET he must supply — an API key, a token — never enters the chat, so it is never a `!` line. It is one line he pastes into a normal terminal, which asks for the value with typing hidden, writes it into the repository's `.env`, and prints the variable's name and the file it wrote, never the value:
+
+cd {host-root} && node {script:write-secret.js} AI_GATEWAY_API_KEY
+
+Put the exact variable name you need in place of the example. Then check it landed without reading it — this prints a count, and 1 or more means it is set:
+
+grep -cE '^[[:space:]]*(export[[:space:]]+)?AI_GATEWAY_API_KEY[[:space:]]*=' {host-root}/.env
+
+Never `cat`, `source` or print any line of `.env`.
+
+NEVER ASK WHO DOES IT where nothing stops you: act, then report. A "you or me?" round — "you do it" against "I do it" — carries a line of its own, `Blocked: <the refusal you hit, quoted, or the act only a person can do>`. A preference to ask first is not a block.
+
+WORK IN ANOTHER REPOSITORY is handed over as a paste-ready prompt for a fresh session there, which files its own ticket.

@@ -1,0 +1,2049 @@
+{
+	".claude/agents/code-reviewer.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The code-review axis agent: pins both review axes to Opus 5.5 at high effort through its frontmatter (#363)",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	".claude/guard-registry-anchors.json": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/output-styles/core-voice.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "docs/working-contract.md",
+				"gloss": "§Working patterns: the reader model it took over"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/plugin-context-cost.json": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/settings.json": {
+		"section": "Skills & settings",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/THIRD-PARTY-NOTICES.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Licence notices for the vendored skills",
+		"route": "Upstream's licence text, verbatim, one `## <source>` section per `skills-lock.json` source, its `Skills:` line matching the lock; `scripts/check-vendored-skills.js` and the release render refuse a mismatch (#1939)",
+		"consumes": null,
+		"reader": "human"
+	},
+	".claude/skills/animate": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored from `emilkowalski/skills`",
+		"consumes": [
+			{
+				"kind": "external",
+				"ref": "mantahostels:docs/inspiration/catalogue.json",
+				"gloss": "hard rule 6 reads the entries' motion blocks once step 2 has named a purpose"
+			},
+			{
+				"kind": "external",
+				"ref": "~/design-vault/data/gallery.json",
+				"gloss": "hard rule 6's source where a repo has no catalogue"
+			}
+		]
+	},
+	".claude/skills/architecture-scan/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".agents/skills/improve-codebase-architecture/SKILL.md",
+				"gloss": "the vendored scan it wraps"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/report-arch-scan-due.js",
+				"gloss": "§1 and §Close: the counter it reads"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/data/arch-scan-runs.jsonl",
+				"gloss": "§8 and §Close: which it appends"
+			},
+			{
+				"kind": "issue",
+				"ref": "1348",
+				"gloss": "the spec it shipped under"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/ask-matt": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored from `mattpocock/skills` — re-vendor rather than hand-edit; local changes are lost on update",
+		"consumes": null
+	},
+	".claude/skills/browser-ladder/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/browse.py",
+				"gloss": "rung 2"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/agents/rules/founder-handover.txt",
+				"gloss": "the auto-mode refusal rule and the acts the founder does by hand"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/working-contract.md",
+				"gloss": "the ban on paid research and data services"
+			},
+			{
+				"kind": "issue",
+				"ref": "1063",
+				"gloss": "the spec it shipped under"
+			},
+			{
+				"kind": "issue",
+				"ref": "1092",
+				"gloss": "the spec behind its climbing rules and send hand-over"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/burn-mode/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/burn-mode.sh",
+				"gloss": "the toggle it wraps"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/effort-guide.md",
+				"gloss": "§Burn mode, the rule it drives"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/capture-drain/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "docs/doc-map.md",
+				"gloss": "§Capture and placement: the rule it applies"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/capture-drain.js",
+				"gloss": "the queue and the mark"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/card-close/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".claude/skills/roadmap-edit/SKILL.md",
+				"gloss": "the loop it delegates to"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/agents/issue-tracker.md",
+				"gloss": "title convention"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/code-review": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored (as above)",
+		"consumes": null
+	},
+	".claude/skills/codebase-design": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/concision-pass/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "working-contract.md",
+				"gloss": "the standard it enforces"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/concision-pass/scripts/check-facts.js": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/concision-pass/scripts/check-facts.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "check-facts.js"
+			}
+		]
+	},
+	".claude/skills/concision-pass/scripts/concision-scope.js": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "SKILL.md",
+				"gloss": "the floor it compares against"
+			}
+		]
+	},
+	".claude/skills/concision-pass/scripts/concision-scope.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "concision-scope.js"
+			}
+		]
+	},
+	".claude/skills/concision-pass/scripts/mark-pass.js": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/concision-pass/scripts/mark-pass.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": null
+	},
+	".claude/skills/concision-pass/scripts/tenure.js": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "SKILL.md",
+				"gloss": "the reading it hands back"
+			}
+		]
+	},
+	".claude/skills/concision-pass/scripts/tenure.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend when a new failure mode is found",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "tenure.js"
+			}
+		]
+	},
+	".claude/skills/design-mode/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/design-mode.sh",
+				"gloss": "the toggle it wraps"
+			},
+			{
+				"kind": "external",
+				"ref": "~/.claude/statusline.sh",
+				"gloss": "outside the repo; reads the same boolean — see `claude-user-settings.md`"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/diagnosing-bugs": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/domain-modeling": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/grill-me": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/grill-with-docs": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/grilling": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/handoff": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/implement": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/improve-codebase-architecture": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/manual-sync/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	".claude/skills/new-repo/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	".claude/skills/new-repo/scripts/new-repo-page.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": null
+	},
+	".claude/skills/new-repo/scripts/new-repo.js": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/new-repo/scripts/new-repo.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": null
+	},
+	".claude/skills/pick-next/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/pick-next.js",
+				"gloss": "the shortlist it wraps"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/agents/issue-tracker.md",
+				"gloss": "the frontier rules it inherits"
+			},
+			{
+				"kind": "path",
+				"ref": "references/measured-figures.md",
+				"gloss": "the figures its steps cite"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/pick-next/references/measured-figures.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct — a re-measurement supersedes the paragraph it lands in, condition and all; never quote a figure without it",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/pick-next.js"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/measure-bundle-cost.js",
+				"gloss": "mantahostels#1094's measurement — the two the figures are read off"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/pressure-test/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".agents/skills/writing-for-agents/SKILL.md",
+				"gloss": "the prose levers"
+			},
+			{
+				"kind": "path",
+				"ref": "CLAUDE.md",
+				"gloss": "§Subagent dispatch: the stall fallback"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/prototype": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": [
+			{
+				"kind": "external",
+				"ref": "mantahostels:docs/inspiration/catalogue.json",
+				"gloss": "`UI.md` §2 reads the surface's group before drafting variants"
+			}
+		]
+	},
+	".claude/skills/rescue-sessions/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/rescue-sessions.js",
+				"gloss": "the engine it drives — list, snapshot, stop, probe, takeover"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/dispatch-sessions.sh",
+				"gloss": "how the successor sessions are launched"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/rescue-sessions/references/RESUMPTION.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	".claude/skills/research": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/retire-to-roadmap/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "roadmap-edit/SKILL.md",
+				"gloss": "the loop it defers to"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/called-cards.md",
+				"gloss": "which cards are open for work"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/retro": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/retro-sweep/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".agents/skills/retro/SKILL.md",
+				"gloss": "the per-session retro it wraps"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/pick-retro-sessions.js",
+				"gloss": "the picker"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/retro-transcript.js",
+				"gloss": "the log reducer"
+			},
+			{
+				"kind": "issue",
+				"ref": "948",
+				"gloss": "the spec it carries out"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/retro-sweep/brief.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The per-session subagent brief retro-sweep fills and dispatches: retro as written, this machine's substitutions, the coverage pass and the artefact order.",
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".claude/skills/retro-sweep/SKILL.md",
+				"gloss": "§4: which fills it"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/roadmap-edit/FIELDS.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "reference-roadmap.html",
+				"gloss": "the shape it describes"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/roadmap-edit/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "FIELDS.md",
+				"gloss": "the schema it defers to"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "gen-roadmap-digest.js"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/reference-roadmap.html"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/roadmap-digest.md",
+				"gloss": "the smoke case"
+			}
+		]
+	},
+	".claude/skills/roadmap-edit/scripts/roadmap-fixture.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; mirror any change to the HTML's `ITEMS`/`AREAS`/`PHASES` shape",
+		"consumes": null
+	},
+	".claude/skills/roadmap-edit/scripts/validate.js": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/roadmap-edit/scripts/validate.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend when a new failure mode is found",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "validate.js"
+			},
+			{
+				"kind": "path",
+				"ref": "reference-roadmap.html",
+				"gloss": "smoke case"
+			}
+		]
+	},
+	".claude/skills/setup-matt-pocock-skills": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/tdd": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/teach": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/to-questionnaire": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/to-spec": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/to-tickets": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/triage": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/wait-what/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct. **De-vendored at mantahostels#1502**: the body is repo-owned now, so a pack refresh must not re-link it. **The upstream copy is gone (mantahostels#1757)**: `.agents/skills/wait-what/` and its `skills-lock.json` entry were both deleted, the entry being what a pack refresh would have re-fetched from",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".claude/output-styles/core-voice.md",
+				"gloss": "§Comprehension: the no-bare-references rule it enforces on demand"
+			}
+		],
+		"reader": "agent"
+	},
+	".claude/skills/wayfinder": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/skills/wfc-delivery/*": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The delivery mod (#849, #854, #855, #856): a thin loop that appends a report this session's own start produced, a release request against a file it holds, or a sweep verdict that changed mid-session, into the live session; README states the tested version, the floor and the off-switch",
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/deliver-to-session.js",
+				"gloss": "the script it runs each changed tick"
+			}
+		]
+	},
+	".claude/skills/wfc-liveness/*": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The liveness mod (#863, #865, #866): names a stalled subagent in the status line as a fact and lists every subagent in a pane on /liveness; README states the tested version, the floor, how to open the pane and the off-switch",
+		"route": null,
+		"consumes": null
+	},
+	".claude/skills/writing-for-agents": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Vendored",
+		"consumes": null
+	},
+	".claude/workflow-core.json": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The adopter's config — contract, modules, commands",
+		"route": null,
+		"consumes": null
+	},
+	"CLAUDE.md": {
+		"section": "Repo-root contracts",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/adr/*": {
+		"section": "Domain decisions",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null
+	},
+	"docs/agents/adopter-upgrade.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/agents/autonomy-ceiling.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct, and only on a founder ruling — the line is not an agent's to move",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "CLAUDE.md",
+				"gloss": "§Conventions: the write-scope rule that bars R3, and the *driven session* the definition serves"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/blind-dispatch.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/agents/dependabot.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/agents/domain.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/agents/guard-authoring.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Settled at mantahostels#1239, which refused a generator; surface 7, the fire-needles entry, added at mantahostels#1418",
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/hook-registrations.test.ts",
+				"gloss": "the wiring evidence it quotes"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/guard-fire-needles.json",
+				"gloss": "surface 7"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/check-guard-registry.js",
+				"gloss": "the gate on surface 8"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/effort-guide.md",
+				"gloss": "a rule region outside the always-loaded pool"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/guard-registry.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The enforcement record of rules a guard prints at need, kept out of the always-loaded pool (#1942): each rule's marker, guard path and citations, in a guard-registry region `scripts/check-guard-registry.js` reads. A new guard's rule sentence lands here by default.",
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/check-guard-registry.js",
+				"gloss": "the checker that reads its region"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/helper-surface.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/lib/resolve-core.js",
+				"gloss": "the resolver whose CI variable the recipe sets"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/lib/helper-surface-ci.test.ts",
+				"gloss": "runs the recipe steps as written"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/issue-tracker.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "reference-roadmap.html",
+				"gloss": "card state"
+			},
+			{
+				"kind": "note",
+				"ref": "its close, placement, claiming and labelling rules are backstopped by seven report-only checks, none of which may write to a tracked file"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/check-issue-card-drift.js"
+			},
+			{
+				"kind": "path",
+				"ref": "check-ticket-criteria.js"
+			},
+			{
+				"kind": "path",
+				"ref": "check-issue-citations.js"
+			},
+			{
+				"kind": "path",
+				"ref": "check-issue-orphans.js"
+			},
+			{
+				"kind": "path",
+				"ref": "check-issue-labels.js"
+			},
+			{
+				"kind": "path",
+				"ref": "check-stale-claims.js"
+			},
+			{
+				"kind": "path",
+				"ref": "check-clobbered-bodies.js"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/last30days.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/agents/mutation-testing.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "external",
+				"ref": "mantahostels:AGENTS.md",
+				"gloss": "§Supervision priors: the loop it qualifies"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/partial-commit.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "docs/agents/rules/commit-pathspec.txt",
+				"gloss": "the rule it extends"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/lib/arbiter-locks.js",
+				"gloss": "the `park()` it clears as the only working-tree restorer"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/rules/*": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Only the HAND-WRITTEN files under `docs/agents/rules/` — `README.md`, and every fragment with no row of its own",
+		"route": "Direct, and ONLY for a file with no row of its own: a hand edit to a generated fragment is overwritten silently by `npm run gen:rule-fragments` (mantahostels#2586). However it is authored, a fragment reaches a session by one of two routes, or `scripts/check-guard-registry.js` FAILs. Printed: it lands alongside the accessor call in a wired emitter (a guard, a hook, a workflow, or a lib one of them reaches), or UNPRINTED-RULE. Session-fetched: `docs/agents/rules/manifest.json` lists it and a wired command index names it, or UNINDEXED-RULE (mantahostels#2496). A `rule:<id>` trigger naming no fragment FAILs on ORPHAN-TRIGGER, and a manifest id naming none on MANIFEST-ORPHAN. **Nothing asserts that a fragment keeps a trigger line** (mantahostels#2006, which retired the ORPHAN-FRAGMENT warn), so never keep one believing a gate requires it",
+		"consumes": [
+			{
+				"kind": "external",
+				"ref": "mantahostels#1644",
+				"gloss": "the ticket that built the store"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels#1641",
+				"gloss": "the spec relocating the guard-backed rules"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/lib/rule-text.js"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/lib/rule-text.sh"
+			}
+		]
+	},
+	"docs/agents/rules/card-close-route.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/citation-inferred-number.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/citation-number-first.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/close-outstanding-line.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/commit-closes-keyword.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/create-command-shape.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/decisions-search-first.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/dependency-edge-false-success.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/founder-deliverable.txt": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Founder deliverable — agent rule: how a founder-facing item is filed at once, under which takes: label, and the takes:human body template ending in a Close-when line (#983, spec #958)",
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/guard-issue-create-label.sh",
+				"gloss": "refuses a takes:human body without the Close-when line, printing this"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/file-issue.js",
+				"gloss": "prints this whenever it applies takes:human"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/guard-session-ceiling.js",
+				"gloss": "prints this in full on a ceiling band's first block, a pointer to it on every repeat"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/guard-inventory.js",
+				"gloss": "prints this under every refused founder inventory"
+			}
+		]
+	},
+	"docs/agents/rules/gh-cli-limits.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/gh-job-dir-unreadable.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/issue-body-raw-write.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/issue-body-success-signal.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/issue-claim-scope.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/issue-created-assigned.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/issue-parent-unplaced.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/issue-title-card-id.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/kind-label-vocabulary.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/manifest.json": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": "The rule store's index — every generated fragment, its id and the anchored region it came from",
+		"route": "`npm run gen:rule-fragments`, which re-derives it from the generator's own `TRIGGERS` table and each anchor's source path. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/research-artefact-scratch.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/roadmap-gating.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/spec-only-contract.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/takes-label-nuances.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/takes-value-vocabulary.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/test-reads-visible.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/code-standards-base.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/test-run-cost.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/code-standards-base.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/test-time-seam.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/code-standards-base.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/ticket-criteria-unticked.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/waiting-external-vocabulary.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/triage-labels.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/rules/wayfinder-ops-shapes.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/agents/tool-output.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/guard-wide-read.sh",
+				"gloss": "the warn-only hook it registers"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/guard-echo-call.sh",
+				"gloss": "the sibling PreToolUse Bash|Read hook it registers, mantahostels#2615"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/agents/guard-authoring.md",
+				"gloss": "the eight surfaces that hook satisfies"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/guard-image-budget.sh",
+				"gloss": "the PostToolUse Read hook it registers, #1784"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/tracker-fields.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; add a row whenever a skill starts writing a new field, and name the consumer",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "docs/agents/issue-tracker.md",
+				"gloss": "the rule, which points here"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/agents/triage-labels.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/agents/verification.md": {
+		"section": "Agent-skill configuration",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "mutation-testing.md",
+				"gloss": "the craft its tested-guarantee branch reaches"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/always-loaded-passes.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The newest concision pass over the always-loaded pool. `scripts/check-always-loaded-pass.js` reads it on `npm run status` and reports when a pass is due — a calendar month on, or the pool's headroom under its 220 B margin.",
+		"route": "Replaced by the session that ran the pass, in the commit carrying the cuts",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/check-always-loaded-pass.js",
+				"gloss": "the checker that reads it"
+			},
+			{
+				"kind": "path",
+				"ref": ".claude/skills/concision-pass/SKILL.md",
+				"gloss": "§6: which writes it"
+			}
+		]
+	},
+	"docs/called-cards.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct, by any session. A row is added only for a card the founder has called, never to unblock a session; removed once its card is done or set down (mantahostels#3483)",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/guard-issue-phase-scope.sh",
+				"gloss": "the hook that reads it"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/reference-roadmap.html",
+				"gloss": "which supplies each card's phase"
+			}
+		],
+		"reader": "both"
+	},
+	"docs/claude-user-settings.md": {
+		"section": "Skills & settings",
+		"class": "derived",
+		"classQualifier": "the JSON and file blocks only; the prose around them is edited directly, to describe the keys as the live file uses them (#358) and to hold the procedures the browser guard's refusals point to (#2041)",
+		"role": null,
+		"route": "**Re-copy only** for the JSON and file blocks, from `~/.claude/settings.json`, `~/.claude/statusline.sh`, `~/.claude/hooks/browser-profile-guard.sh`, `~/.claude/hooks/practice-guard.sh`, `~/.claude/CLAUDE.md` and `~/.claude/practice-crafts.md`, and re-date it. Never edit a block here to change behaviour — edit the live file, then re-copy. No **CI** guard is possible — the source is outside the repo, so a runner could only skip. Guarded **locally** instead by `scripts/check-user-settings-drift.js` (semantic JSON compare, text compare for the file blocks; warn-only in pre-commit, hard via `npm run check:settings`; SKIPs where the source is absent)",
+		"consumes": [
+			{
+				"kind": "external",
+				"ref": "~/.claude/settings.json",
+				"gloss": "outside the repo"
+			},
+			{
+				"kind": "external",
+				"ref": "~/.claude/statusline.sh",
+				"gloss": "outside the repo"
+			},
+			{
+				"kind": "external",
+				"ref": "~/.claude/hooks/browser-profile-guard.sh",
+				"gloss": "outside the repo"
+			},
+			{
+				"kind": "external",
+				"ref": "~/.claude/hooks/practice-guard.sh",
+				"gloss": "outside the repo"
+			},
+			{
+				"kind": "external",
+				"ref": "~/.claude/CLAUDE.md",
+				"gloss": "outside the repo"
+			},
+			{
+				"kind": "external",
+				"ref": "~/.claude/practice-crafts.md",
+				"gloss": "outside the repo"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/clobber-reviewed.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "This repo's settled issue-body clobber SUSPECTs, keyed by the check's `#N<TAB><edit time>` identity, each value naming what the deliberate rewrite did (#1700, #1877). `scripts/check-clobbered-bodies.js`'s header owns the shape.",
+		"route": "Direct, one entry per SUSPECT judged a rewrite from the issue's `userContentEdits`; a race is restored on the issue instead",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/check-clobbered-bodies.js",
+				"gloss": "the checker that reads it"
+			}
+		]
+	},
+	"docs/code-standards-base.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The code-standards base the plugin ships and every repo's review reads in place (#947): the rules true in any repo, routed by code kind, with stack clauses keyed to a tool's tell and house clauses on by default. Its line pins resolve at the plugin root, anchored in `scripts/code-standards-base-anchors.json`.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/code-standards.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The core's local standards file, read beside `code-standards-base.md` (#967): its changes to the base (exception rows only), route rows sending its Python tests to test and its other Python to program, and the core's own sections. **§W is the live tooling matrix** (mantahostels#1537), the check a candidate rule passes before it is written: which checker sees which surface, which CI gate runs each checker and whether it refuses, and what is not measured by decision; the pre-commit floor is base §0's. Then Smells not raised and Out of scope. Never shipped: an adopter keeps its own.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/data/arch-scan-runs.jsonl": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "One JSON line per architecture-scan event, oldest first (#1362, spec #1348): a seed line's since, a scan line's head, growth, threshold and hot files, a close line's yield and nextThreshold.",
+		"route": "Appended by the architecture-scan run or close step that produced it, committed by pathspec in that session",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/report-arch-scan-due.js",
+				"gloss": "the counter that reads it"
+			}
+		]
+	},
+	"docs/data/close-rounds-2026-10-09/answered-close-rounds.json": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#1091's close-round baseline: the 82 close rounds the founder answered from 27 Sep to 9 Oct 2026 (session, time, each close question's gap, bands and escape line), 26 of them followed by a separation prompt. The week-one reading compares against its 26-of-82.",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/close-rounds-2026-10-09/separation-prompts.json": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#1091's separation-prompt baseline: the 31 founder messages from 27 Sep to 9 Oct 2026 telling a session to check or research more before he picks, each with its text, session and whether it is his stock prompt (23) or not (8). #1091's week-one reporter is to test its stock-prompt regex against it.",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/issue-title-search-2026-09-27/queries.json": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#500's similar-title sample: the 30 query titles, each with its known overlap and the issues the measured ranking showed, which `scripts/file-issue.test.ts` asserts `file-issue --check` reproduces.",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/issue-title-search-2026-09-27/titles.json": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#500's similar-title sample: the 520 issue titles and their states, the frequencies and candidates `scripts/file-issue.test.ts` re-runs `file-issue --check` against, holding the threshold 6 and the top-3 cut in `scripts/lib/similar-titles.js`.",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/lost-deny-census-2026-09-05/rates.md": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The lost-deny census's true deny rate per deny-capable guard, 5 Sep 2026 (mantahostels#3261): the table `scripts/lib/guard-deny-rates.js`'s RATES copies, kept so its test can diff the copy.",
+		"route": "Replaced whole when the census is re-run",
+		"consumes": [
+			{
+				"gloss": "the test that reads it",
+				"kind": "path",
+				"ref": "scripts/lib/guard-deny-rates.test.ts"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/data/retro-runs.jsonl": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "One JSON line per retro-sweep run, oldest first: mode, week, each pick with its signals, class counts and token cost, the issues filed and the low-value findings recorded unfiled (#964, spec #948). The weekly due reporter reads the newest weekly line's date; the fourth weekly line triggers the flip check.",
+		"route": "Appended by the retro-sweep run that produced it, committed by pathspec in that session",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".claude/skills/retro-sweep/SKILL.md",
+				"gloss": "§7: which writes it"
+			}
+		]
+	},
+	"docs/data/round-sendbacks-2026-10-14/rounds.json": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#1691's baseline for the under-researched-round refusal: #1682's 851 hand-classed round–reply pairs from 30 Sep to 14 Oct 2026, text-free, each with its tool calls since the founder's previous message.",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/session-cost-table.json": {
+		"section": "Non-prose",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": "Per-session cost table the capped launch reads (#371, #372): mean and 41 quantiles of what a dispatched Opus 5.5 or Sonnet 5 session spends, subagents included, advisor not. The mean times points-per-dollar is the per-session bar figure; the quantiles give a running session's expected remainder.",
+		"route": "`node scripts/measure-session-cost.js --write`, re-derived from the dispatch ledger and every seat's transcripts; never hand-edited, never run at launch.",
+		"consumes": null
+	},
+	"docs/data/session-memory-2026-09-21/procs.csv.gz": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#333's session-memory sample — recompute with `python3 scripts/sample_session_memory.py analyse docs/data/session-memory-2026-09-21`",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/session-memory-2026-09-21/samples.csv.gz": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#333's session-memory sample — recompute with `python3 scripts/sample_session_memory.py analyse docs/data/session-memory-2026-09-21`",
+		"route": null,
+		"consumes": null
+	},
+	"docs/data/session-memory-2026-09-21/sessions.csv.gz": {
+		"section": "Evidence & data",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "#333's session-memory sample — recompute with `python3 scripts/sample_session_memory.py analyse docs/data/session-memory-2026-09-21`",
+		"route": null,
+		"consumes": null
+	},
+	"docs/doc-map-admissions.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The admission record mantahostels#2884 asked for and mantahostels#3225 gated: one row per §B entry admitted since 6 September 2026, naming the settling issue, what the founder answered and the permalink of the comment recording it. Rows are never deleted, so a later-removed id keeps its record.",
+		"route": "Direct, in the same commit that adds the `### B<n>` entry — never after it; `check-doc-map.js` assertion 29 FAILs a birth with no row",
+		"consumes": null
+	},
+	"docs/doc-map-classes.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct, or `node scripts/register-doc.js <path> --class <token> --section <name>` for a new key, which claims `A:<path>` first and refuses a `--section` §A does not already carry unless `--new-section` is given",
+		"consumes": [
+			{
+				"kind": "external",
+				"ref": "mantahostels#1808"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels#1848"
+			}
+		]
+	},
+	"docs/doc-map-high-water.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The high-water mark: the highest §B id ever removed. A new id sits above it, so a removed id is never reused (mantahostels#892); `check-doc-map.js` assertions 12 and 13.",
+		"route": "Direct, in the commit that removes a `### B<n>` entry above it; never lowered",
+		"consumes": null
+	},
+	"docs/doc-map-restatements.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "This file, not the entry, is where a reader finds which part of each file holds the copy (mantahostels#1474); a `reference-roadmap.html` path's `locator` is the bare card id, ruled at mantahostels#1573 and set out in §B's preamble.",
+		"route": "Direct, alongside the §B entry it serves",
+		"consumes": null
+	},
+	"docs/doc-map-retired-vocabulary.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct, alongside the §B entry it serves",
+		"consumes": null
+	},
+	"docs/doc-map-superseded.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct, alongside the §B entry it serves",
+		"consumes": null
+	},
+	"docs/doc-map.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; bump the stamp's version and date on every edit — the hand-written regions only. A §A row rendered by `npm run gen:doc-map-section-a` needs no bump: the generator never touches the stamp, and mantahostels#845 left the version hand-set because the MAJOR/MINOR split cannot be read off the file (mantahostels#2313).",
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/effort-guide.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "external",
+				"ref": "mantahostels:research/claude-model-lineup-2026-08.md"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels:research/max-plan-limits-and-ultrareview.md"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels:research/opus-effort-lever-status.md"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels:research/opusplan-plan-mode-gate.md"
+			}
+		],
+		"reader": "both"
+	},
+	"docs/environment.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; re-verify against the live system, never from recall",
+		"consumes": null,
+		"reader": "both"
+	},
+	"docs/machinery-superseded.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "§B registers Manta's world and earns these no entry (mantahostels#1440); the checker's header owns the shape, including the rule that a share carries both the percent and the decimal-fraction spelling",
+		"route": "Direct, alongside the figure it retires; the checker exempts it from its own scan",
+		"consumes": null
+	},
+	"docs/new-repo.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "What /new-repo does, what the founder approves and gets, and what to do when a run stops part-way (#713, #724)",
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": ".claude/skills/new-repo/scripts/new-repo.js",
+				"gloss": "the script whose resume form and exit codes it quotes"
+			}
+		],
+		"reader": "human"
+	},
+	"docs/pool-admission-ledger.json": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The admission ledger (#1943): one entry per top-level rule in the always-loaded pool, keyed by file and headline, giving its removal claim and route — no-trigger, trigger with the ticket whose guard will print it, or pre-first-tool-call. `scripts/check-context-budget.js --against HEAD` refuses a commit adding a pool rule with no entry.",
+		"route": "Direct, in the same commit that adds or rewords the pool rule; a headline reworded moves its entry",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "scripts/check-context-budget.js",
+				"gloss": "the gate that reads it"
+			}
+		]
+	},
+	"docs/practice/*": {
+		"section": "Domain decisions",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Every file under `docs/practice/` — one practice note per craft, `docs/practice/<craft>.md`, holding what leading professionals of that craft do and use, under one `Researched:` date (#2258)",
+		"route": "Direct. A refresh rewrites the note in place, git history the record",
+		"consumes": null
+	},
+	"docs/reference-roadmap.html": {
+		"section": "The roadmap triple",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "**`roadmap-edit` skill only.** Never hand-edit",
+		"consumes": null,
+		"reader": "both"
+	},
+	"docs/research/adopter-suite-cost.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": "How long fantasy-books' and design-vault's suites take and what share is boundary cost a core would remove (#2238): fantasy-books 810 s serial, program-spawn share 0.70, measured cut 23-48%; design-vault 1,061 s, spawn share 0.13, Chromium 0.78, cut 7-11%. Splits one program call into node start, own git, logic. Holds the node:test and Python instrument.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/always-loaded-shed-candidates.md": {
+		"section": "Research runs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The standing register of always-loaded shed candidates — Register I (C1–C11), II (R1–R21) and III (G1–G7), all spent but G7 — with each tranche's behavioural trigger audit, fragment and span bytes, and the shed that landed. Route (f) cut 50–71% of a cluster where route (e) landed 38.8%. `guard-push-rules.sh`'s **220** fires against `guard-pull-form.sh`'s **17** (12.9:1) bear out the >5:1 push-over-pull prediction.",
+		"route": "Replaced whole when the shed ledger is re-measured; read by context-budget-pathspecs.js and count-guard-fires.js",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "docs/doc-map.md",
+				"gloss": "§Capture and placement §3: the routes it classifies against; §5: the ledger of prior sheds it must not re-propose"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels:docs/research/context-reread-composition.md",
+				"gloss": "mantahostels#1081, what a pool KB costs"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/check-context-budget.js"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels#1225",
+				"gloss": "the ticket that takes these cuts"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels#2140",
+				"gloss": "the guard-fire counts it reads off"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/research/core-movable-logic.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": "How much logic in the 20 costliest test files and 10 bash guards could move to an in-process core behind ports, and what it saves (#2205): 3,586 of 3,706 cases movable, 102-274 s at measured prices, guard-parse.sh the main unit to port.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/guard-port-cut-band.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": "How much of the bash-guard test time a Node core removes (#2202): guard is 74-99% of 11 measured files' time, predicted class cut 72-87% (wide 59-96%), about 280-340 s of CI Vitest; read a port on its own files' guard share, never CI wall. Holds the measuring instrument.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/hexagonal-testing.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": "What published research and practice say about ports and adapters, functional core / imperative shell and the test-shape models (#2192): no measured run-time or defect effect, no sourced end-to-end count, and a contract test for every owned fake; plus the gh stub drift (#2220).",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/injected-tracker-docs-shed-candidates.md": {
+		"section": "Research runs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Headline: **11,589 B available, 20% of the 57,652 B surface**, and **only three of the twelve candidates are route (e)**, route (a) being closed by the vendored hash lock. **Subset injection returns no headroom at all**, a scope change being byte-neutral […]",
+		"route": "Replaced whole when the shed ledger is re-measured; read by context-budget-pathspecs.js and count-guard-fires.js",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "docs/research/always-loaded-shed-candidates.md",
+				"gloss": "mantahostels#1222, the pool's equivalent list and the shape this follows"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/doc-map.md",
+				"gloss": "§Capture and placement §3: the routes it classifies against; §4: the injection cap and its named residual"
+			},
+			{
+				"kind": "external",
+				"ref": "mantahostels:docs/research/tracker-index-prototype.md",
+				"gloss": "mantahostels#1118, the cheaper alternative it defers to"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/inject-tracker-docs.sh",
+				"gloss": "the subject"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/check-context-budget.js"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/research/instruction-surface-census-2026-10-15.md": {
+		"section": "Research runs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The census `scripts/check-instruction-surface.js` reads (#1604): 49 always-loaded rules (39 printed by nothing at need), 126 hook entries, 65 guards each fed a triggering payload, 40 skill directories. Its first section lists the guard defects the measurement found, filed at #1717.",
+		"route": "Replaced whole by the next census; anchored by scripts/instruction-surface-anchors.json",
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/primitives-heresies-exemplars.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": "#2198's survey of published codebases and factories that declare primitives (Dodds' term: the one way to do a recurring job, with an exemplar) and police heresies (Yegge's term: agent-spread wrong patterns), ranked by form: lint whose message names the primitive, with a ratchet; a checked primitives map that risk-labels each PR; scheduled agent sweeps; named heresies in priming; LLM review criteria. ⚠ No study isolates agents copying a bad pattern from neighbouring files.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/repeated-review-runs.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/startup-load-before-after-test.md": {
+		"section": "Research runs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Design of the one before/after rule-following test of a cut startup load: tasks, arms, score, runs per arm, cost (#1940)",
+		"route": "Rewritten in place while the before/after test it specifies runs (#1996)",
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/test-cost-practices.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": "Which test-cost practices precedent and published guidance support, and the efficacy fault each caused (#1792): build once with fresh copies, the in-process seam with one real-boundary case, one pass with a byte-identical check, timing reported never refused.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/research/test-wait.md": {
+		"section": "Research runs",
+		"class": "free-edit",
+		"classQualifier": null,
+		"role": "Where test wait falls in workflow-core and mantahostels, and how much is boundary cost (#2194): push-selected runs and queue wait dominate locally, CI Vitest is 82% of the job and bounded by total file-seconds, bash-guard tests 26% of CI file-seconds.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/roadmap-digest.md": {
+		"section": "The roadmap triple",
+		"class": "derived",
+		"classQualifier": null,
+		"role": null,
+		"route": "`gen-roadmap-digest.js`, committed with the HTML. `check-digest-version.js` fails on a drifted version line, `check-digest-render.js` on bytes differing from a fresh render — of the HTML, the digest and the generator as the index holds them, never the worktree. A generator that will not run refuses too, and so does a staged deletion of any of the three (mantahostels#2894); only a path that was never in the index makes the gate skip. `roadmap-digest.yml` runs it on the sweeps as well (mantahostels#2895)",
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "reference-roadmap.html"
+			}
+		],
+		"reader": "agent"
+	},
+	"docs/test-read-edges.json": {
+		"section": "Non-prose",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": "The read-graph vitest cannot see: a tracked file mapped to the test files reaching it through readFileSync rather than an import. `--changed` unions these in, so a doc change selects the tests asserting over it instead of the zero it selected at mantahostels#2031.",
+		"route": "`npm run gen:test-read-edges`, re-derived from the tracked test corpus; never hand-edited. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"docs/working-contract.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "How work is sequenced and approved; style and self-containment live in `.claude/output-styles/core-voice.md` (mantahostels#1504, mantahostels#1618)",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"hooks/hooks.json": {
+		"section": "Non-prose",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": "The plugin's hook manifest: self-plugin/hooks/hooks.json's hooks, less the self-plugin's marker writer, with every scripts/ path spelled through the plugin root, quoted in shell form and bare in exec form. What a --plugin-dir load of this repo registers; a release renders its own copy.",
+		"route": "`node scripts/generate-plugin-hooks.js`, re-derived from self-plugin/hooks/hooks.json; never hand-edited. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
+	"hooks/register.ts": {
+		"section": "Non-prose",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The plugin's entry module: imports each shipped mod's register and calls it with on, so an adopter loads both mods from the install cache. hooks/hooks.json names it under modules; the core itself never enables the plugin.",
+		"route": "Edited directly. A new mod is one import and one call here, plus the tests that list each mod; npm run typecheck's fifth pass checks it.",
+		"consumes": null
+	},
+	"hooks/tsconfig.json": {
+		"section": "Non-prose",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Type-checks hooks/register.ts, with the liveness mod's copy of the engine's declarations and its state contract.",
+		"route": "Edited directly; npm run typecheck runs it as its fifth pass.",
+		"consumes": null
+	},
+	"self-plugin/.claude-plugin/marketplace.json": {
+		"section": "Non-prose",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The wfc-self local marketplace: one plugin entry whose source is its own directory, so self-plugin/ loads in place as a plugin carrying only hooks/hooks.json. No plugin.json; this entry is the manifest.",
+		"route": "Edited directly. Each machine registers it once, by the setup step in docs/environment.md §13; never shipped to adopters.",
+		"consumes": null
+	},
+	"self-plugin/hooks/hooks.json": {
+		"section": "Non-prose",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The core's own hook registration: every hook workflow-core runs on itself, loaded in place as the wfc-self plugin at session start. .claude/settings.json keeps only the canary that refuses a session this did not load.",
+		"route": "Edited directly, an ordinary repo edit with no permission prompt; then re-render hooks/hooks.json with `node scripts/generate-plugin-hooks.js`, which also writes each PreToolUse hook's `onFailure`, `block` on exactly the deny-capable ones (#2670). check-registrations.js refuses a command registered here and in .claude/settings.json.",
+		"consumes": null
+	}
+}

@@ -1,0 +1,8521 @@
+{
+	"note": {
+		"baseline_of": "#1691 (how the under-researched-round refusal is measured): the reading compares refused-then-answered rounds, and rounds asked after 10 or more tool calls, against these rows. The tool-call cut is #1684's ruling.",
+		"extracted": "2026-10-15, by #1684's extractor (.claude/tmp/1684-b0175974-extract.py, local scratch) over the 2403 top-level transcripts #1682 read (all three config seats, main chain only, from 2026-09-30T00:00:00), founder replies cut off at 2026-10-14T14:30:00. Reproduces #1682's 851 pairs and its hand-class table exactly.",
+		"row": "i: #1682's pair index, which .claude/tmp/1682-hand.txt keys. repo: the transcript's project directory less -home-lucmo-. session, round_time, reply_time: the round message and the founder reply after it. tools_before: tool_use blocks on the main chain since the founder's previous message. close: the round was close under #472's test (#1682's tgt_close). class: #1682's hand class of the reply, a answered, b sent back for checks or research, c premise challenged, d clarification asked, e other, f rewritten on taste; a bare accept-recommendation reply was keyword-classed a and every one of the 477 is a.",
+		"excluded": "Reply and round text, deliberately: the raw pairs held a credential the founder had pasted (#1682). One hand classer; rounds answered on GitHub are absent.",
+		"figures": "Not-close rounds, answered or sent back (classes a-c): below 10 tool calls 65 of 226 sent back (28.8%); at 10 or more 40 of 392 (10.2%)."
+	},
+	"rows": [
+		{
+			"i": 0,
+			"repo": "mantahostels",
+			"session": "01f80842",
+			"round_time": "2026-10-10T13:12:27.111Z",
+			"reply_time": "2026-10-10T13:13:10.589Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 1,
+			"repo": "mantahostels",
+			"session": "05d847c9",
+			"round_time": "2026-10-11T13:25:03.791Z",
+			"reply_time": "2026-10-11T13:26:50.456Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 2,
+			"repo": "mantahostels",
+			"session": "0b18edf5",
+			"round_time": "2026-10-10T08:56:36.203Z",
+			"reply_time": "2026-10-10T09:07:08.255Z",
+			"tools_before": 55,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 3,
+			"repo": "mantahostels",
+			"session": "0f4faa17",
+			"round_time": "2026-10-10T14:32:35.856Z",
+			"reply_time": "2026-10-10T14:42:59.938Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 4,
+			"repo": "mantahostels",
+			"session": "145f7237",
+			"round_time": "2026-10-10T09:38:01.630Z",
+			"reply_time": "2026-10-10T09:38:34.492Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 5,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T05:01:12.058Z",
+			"reply_time": "2026-10-10T05:06:41.246Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 6,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T05:07:06.763Z",
+			"reply_time": "2026-10-10T05:08:08.278Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 7,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T05:22:55.701Z",
+			"reply_time": "2026-10-10T05:24:23.988Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 8,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T05:27:07.597Z",
+			"reply_time": "2026-10-10T05:28:14.901Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 9,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T05:41:20.895Z",
+			"reply_time": "2026-10-10T05:42:24.148Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 10,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T05:42:43.252Z",
+			"reply_time": "2026-10-10T05:45:37.265Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 11,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T05:48:12.680Z",
+			"reply_time": "2026-10-10T05:59:00.893Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 12,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T06:02:10.256Z",
+			"reply_time": "2026-10-10T06:04:46.615Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 13,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T06:09:17.253Z",
+			"reply_time": "2026-10-10T06:26:35.148Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 14,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T06:27:13.106Z",
+			"reply_time": "2026-10-10T06:29:08.011Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 15,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T06:36:52.872Z",
+			"reply_time": "2026-10-10T06:45:56.456Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 16,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T06:47:31.669Z",
+			"reply_time": "2026-10-10T06:51:19.212Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 17,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T06:52:56.065Z",
+			"reply_time": "2026-10-10T06:57:14.580Z",
+			"tools_before": 6,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 18,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T06:58:33.931Z",
+			"reply_time": "2026-10-10T07:16:04.279Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 19,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T07:41:44.180Z",
+			"reply_time": "2026-10-10T07:50:48.186Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 20,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T07:53:40.430Z",
+			"reply_time": "2026-10-10T08:12:51.945Z",
+			"tools_before": 9,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 21,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T08:13:27.613Z",
+			"reply_time": "2026-10-10T08:18:18.281Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "f"
+		},
+		{
+			"i": 22,
+			"repo": "mantahostels",
+			"session": "148f1af2",
+			"round_time": "2026-10-10T08:23:56.521Z",
+			"reply_time": "2026-10-10T08:27:17.530Z",
+			"tools_before": 6,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 23,
+			"repo": "mantahostels",
+			"session": "25355ad0",
+			"round_time": "2026-10-12T05:59:32.968Z",
+			"reply_time": "2026-10-12T06:04:49.361Z",
+			"tools_before": 44,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 24,
+			"repo": "mantahostels",
+			"session": "2695718b",
+			"round_time": "2026-10-10T13:35:09.236Z",
+			"reply_time": "2026-10-10T13:39:24.417Z",
+			"tools_before": 58,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 25,
+			"repo": "mantahostels",
+			"session": "2695718b",
+			"round_time": "2026-10-10T13:40:05.459Z",
+			"reply_time": "2026-10-10T13:41:38.493Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 26,
+			"repo": "mantahostels",
+			"session": "2695718b",
+			"round_time": "2026-10-10T13:49:47.185Z",
+			"reply_time": "2026-10-10T13:51:24.788Z",
+			"tools_before": 81,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 27,
+			"repo": "mantahostels",
+			"session": "26961826",
+			"round_time": "2026-10-11T07:25:49.136Z",
+			"reply_time": "2026-10-11T07:26:30.085Z",
+			"tools_before": 76,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 28,
+			"repo": "mantahostels",
+			"session": "2928bdad",
+			"round_time": "2026-10-11T12:36:15.597Z",
+			"reply_time": "2026-10-11T13:11:39.115Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 29,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-06T10:33:05.644Z",
+			"reply_time": "2026-10-06T10:34:16.732Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 30,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-06T10:35:39.757Z",
+			"reply_time": "2026-10-06T10:42:42.592Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 31,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-06T10:56:40.255Z",
+			"reply_time": "2026-10-08T06:47:28.718Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 32,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T06:50:14.373Z",
+			"reply_time": "2026-10-08T06:54:24.476Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 33,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T06:55:20.095Z",
+			"reply_time": "2026-10-08T06:55:20.459Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 34,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T06:55:50.391Z",
+			"reply_time": "2026-10-08T06:59:43.719Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 35,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T07:00:14.788Z",
+			"reply_time": "2026-10-08T07:05:27.497Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 36,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T07:06:05.989Z",
+			"reply_time": "2026-10-08T07:07:50.824Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 37,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T07:08:16.824Z",
+			"reply_time": "2026-10-08T07:09:24.694Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 38,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T07:11:46.339Z",
+			"reply_time": "2026-10-08T07:45:09.879Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 39,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T07:56:43.130Z",
+			"reply_time": "2026-10-08T07:58:59.714Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 40,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T08:00:53.576Z",
+			"reply_time": "2026-10-08T08:00:53.878Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 41,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T08:11:37.925Z",
+			"reply_time": "2026-10-08T08:24:11.872Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 42,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T08:25:15.269Z",
+			"reply_time": "2026-10-08T08:27:35.096Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 43,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T08:30:04.291Z",
+			"reply_time": "2026-10-08T08:30:13.125Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 44,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T08:31:42.973Z",
+			"reply_time": "2026-10-08T08:33:48.012Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 45,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T08:47:23.370Z",
+			"reply_time": "2026-10-08T09:00:09.648Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 46,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T09:04:49.008Z",
+			"reply_time": "2026-10-08T09:17:46.492Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 47,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T09:18:11.164Z",
+			"reply_time": "2026-10-08T09:19:13.955Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 48,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T09:20:44.132Z",
+			"reply_time": "2026-10-08T09:26:54.150Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 49,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T09:27:28.587Z",
+			"reply_time": "2026-10-08T09:29:43.428Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 50,
+			"repo": "mantahostels",
+			"session": "2a9feecc",
+			"round_time": "2026-10-08T09:41:43.622Z",
+			"reply_time": "2026-10-08T09:41:50.763Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 51,
+			"repo": "mantahostels",
+			"session": "2d1f22dc",
+			"round_time": "2026-10-11T02:20:13.579Z",
+			"reply_time": "2026-10-11T02:38:07.063Z",
+			"tools_before": 34,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 52,
+			"repo": "mantahostels",
+			"session": "2d1f22dc",
+			"round_time": "2026-10-11T02:38:54.101Z",
+			"reply_time": "2026-10-11T02:42:40.801Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 53,
+			"repo": "mantahostels",
+			"session": "2d1f22dc",
+			"round_time": "2026-10-11T02:43:33.056Z",
+			"reply_time": "2026-10-11T02:47:48.005Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 54,
+			"repo": "mantahostels",
+			"session": "2d1f22dc",
+			"round_time": "2026-10-11T02:48:39.571Z",
+			"reply_time": "2026-10-11T02:50:39.569Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 55,
+			"repo": "mantahostels",
+			"session": "2d1f22dc",
+			"round_time": "2026-10-11T05:40:46.547Z",
+			"reply_time": "2026-10-11T05:41:30.954Z",
+			"tools_before": 42,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 56,
+			"repo": "mantahostels",
+			"session": "2d1f22dc",
+			"round_time": "2026-10-11T05:53:29.079Z",
+			"reply_time": "2026-10-11T05:53:55.720Z",
+			"tools_before": 15,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 57,
+			"repo": "mantahostels",
+			"session": "2dfa1871",
+			"round_time": "2026-10-13T05:43:47.758Z",
+			"reply_time": "2026-10-13T05:50:01.494Z",
+			"tools_before": 24,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 58,
+			"repo": "mantahostels",
+			"session": "2dfa1871",
+			"round_time": "2026-10-13T05:53:42.575Z",
+			"reply_time": "2026-10-13T05:57:24.255Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 59,
+			"repo": "mantahostels",
+			"session": "3122334a",
+			"round_time": "2026-10-11T09:03:11.913Z",
+			"reply_time": "2026-10-11T09:03:34.975Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 60,
+			"repo": "mantahostels",
+			"session": "39b71feb",
+			"round_time": "2026-10-10T13:40:52.338Z",
+			"reply_time": "2026-10-10T13:40:52.685Z",
+			"tools_before": 76,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 61,
+			"repo": "mantahostels",
+			"session": "39b71feb",
+			"round_time": "2026-10-10T13:41:44.696Z",
+			"reply_time": "2026-10-10T13:43:26.555Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 62,
+			"repo": "mantahostels",
+			"session": "39b71feb",
+			"round_time": "2026-10-10T14:12:44.332Z",
+			"reply_time": "2026-10-10T14:14:45.460Z",
+			"tools_before": 43,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 63,
+			"repo": "mantahostels",
+			"session": "3ce7ea37",
+			"round_time": "2026-10-12T08:41:35.706Z",
+			"reply_time": "2026-10-12T08:43:41.865Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 64,
+			"repo": "mantahostels",
+			"session": "3dfabc0c",
+			"round_time": "2026-10-11T13:18:53.456Z",
+			"reply_time": "2026-10-11T13:19:19.411Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 65,
+			"repo": "mantahostels",
+			"session": "41560e33",
+			"round_time": "2026-10-08T14:06:16.904Z",
+			"reply_time": "2026-10-08T14:07:10.693Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 66,
+			"repo": "mantahostels",
+			"session": "43909b39",
+			"round_time": "2026-10-08T14:31:26.415Z",
+			"reply_time": "2026-10-08T14:32:02.202Z",
+			"tools_before": 91,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 67,
+			"repo": "mantahostels",
+			"session": "4b6c2010",
+			"round_time": "2026-10-13T05:38:20.769Z",
+			"reply_time": "2026-10-13T05:43:45.251Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 68,
+			"repo": "mantahostels",
+			"session": "4b6c2010",
+			"round_time": "2026-10-13T05:45:23.661Z",
+			"reply_time": "2026-10-13T05:51:15.462Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 69,
+			"repo": "mantahostels",
+			"session": "4eeb21da",
+			"round_time": "2026-10-06T10:19:38.271Z",
+			"reply_time": "2026-10-06T10:21:23.441Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 70,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:14:09.046Z",
+			"reply_time": "2026-10-08T12:15:11.547Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 71,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:15:41.424Z",
+			"reply_time": "2026-10-08T12:18:13.831Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 72,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:18:25.311Z",
+			"reply_time": "2026-10-08T12:19:00.381Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 73,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:19:08.596Z",
+			"reply_time": "2026-10-08T12:20:26.697Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 74,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:20:41.648Z",
+			"reply_time": "2026-10-08T12:20:57.154Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 75,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:21:03.765Z",
+			"reply_time": "2026-10-08T12:22:44.569Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 76,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:23:07.367Z",
+			"reply_time": "2026-10-08T12:28:35.844Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 77,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:28:42.054Z",
+			"reply_time": "2026-10-08T12:29:21.962Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 78,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:29:36.718Z",
+			"reply_time": "2026-10-08T12:29:49.456Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 79,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:30:01.740Z",
+			"reply_time": "2026-10-08T12:30:18.674Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 80,
+			"repo": "mantahostels",
+			"session": "51742242",
+			"round_time": "2026-10-08T12:31:07.559Z",
+			"reply_time": "2026-10-08T12:32:56.200Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 81,
+			"repo": "mantahostels",
+			"session": "578cbc49",
+			"round_time": "2026-10-10T15:44:58.779Z",
+			"reply_time": "2026-10-10T15:47:29.444Z",
+			"tools_before": 68,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 82,
+			"repo": "mantahostels",
+			"session": "58dabab2",
+			"round_time": "2026-10-11T09:04:51.423Z",
+			"reply_time": "2026-10-11T09:09:51.662Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 83,
+			"repo": "mantahostels",
+			"session": "59d48934",
+			"round_time": "2026-10-11T13:54:44.344Z",
+			"reply_time": "2026-10-11T13:55:22.991Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 84,
+			"repo": "mantahostels",
+			"session": "5ff42425",
+			"round_time": "2026-10-11T08:38:09.754Z",
+			"reply_time": "2026-10-11T08:40:14.257Z",
+			"tools_before": 38,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 85,
+			"repo": "mantahostels",
+			"session": "6e2ba5ed",
+			"round_time": "2026-10-11T09:02:38.522Z",
+			"reply_time": "2026-10-11T09:03:23.900Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 86,
+			"repo": "mantahostels",
+			"session": "746c8dc3",
+			"round_time": "2026-10-11T09:01:49.752Z",
+			"reply_time": "2026-10-11T09:03:13.630Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 87,
+			"repo": "mantahostels",
+			"session": "7dcb541d",
+			"round_time": "2026-10-10T13:11:53.944Z",
+			"reply_time": "2026-10-10T13:12:17.961Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 88,
+			"repo": "mantahostels",
+			"session": "80454a8c",
+			"round_time": "2026-10-12T03:59:03.472Z",
+			"reply_time": "2026-10-12T04:01:07.851Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 89,
+			"repo": "mantahostels",
+			"session": "83fc677e",
+			"round_time": "2026-10-12T04:33:43.931Z",
+			"reply_time": "2026-10-12T04:51:09.987Z",
+			"tools_before": 41,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 90,
+			"repo": "mantahostels",
+			"session": "84699daf",
+			"round_time": "2026-10-10T08:49:31.704Z",
+			"reply_time": "2026-10-10T09:09:04.039Z",
+			"tools_before": 11,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 91,
+			"repo": "mantahostels",
+			"session": "84699daf",
+			"round_time": "2026-10-10T09:12:53.284Z",
+			"reply_time": "2026-10-10T09:14:26.295Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 92,
+			"repo": "mantahostels",
+			"session": "8b3f5a3c",
+			"round_time": "2026-10-10T15:50:38.739Z",
+			"reply_time": "2026-10-10T15:54:02.390Z",
+			"tools_before": 88,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 93,
+			"repo": "mantahostels",
+			"session": "90f79fb1",
+			"round_time": "2026-09-30T06:47:28.628Z",
+			"reply_time": "2026-09-30T06:55:39.729Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 94,
+			"repo": "mantahostels",
+			"session": "90f79fb1",
+			"round_time": "2026-09-30T06:56:00.067Z",
+			"reply_time": "2026-09-30T07:02:26.769Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 95,
+			"repo": "mantahostels",
+			"session": "90f79fb1",
+			"round_time": "2026-09-30T07:03:32.178Z",
+			"reply_time": "2026-09-30T07:05:15.672Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 96,
+			"repo": "mantahostels",
+			"session": "90f79fb1",
+			"round_time": "2026-09-30T07:07:09.273Z",
+			"reply_time": "2026-09-30T07:17:44.059Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 97,
+			"repo": "mantahostels",
+			"session": "9160986b",
+			"round_time": "2026-10-11T13:41:42.043Z",
+			"reply_time": "2026-10-11T13:44:44.401Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 98,
+			"repo": "mantahostels",
+			"session": "948493ce",
+			"round_time": "2026-10-08T14:12:41.195Z",
+			"reply_time": "2026-10-08T14:14:19.202Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 99,
+			"repo": "mantahostels",
+			"session": "948493ce",
+			"round_time": "2026-10-08T14:14:29.755Z",
+			"reply_time": "2026-10-08T14:14:59.580Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 100,
+			"repo": "mantahostels",
+			"session": "9d653b7d",
+			"round_time": "2026-10-11T14:05:35.571Z",
+			"reply_time": "2026-10-11T14:07:24.069Z",
+			"tools_before": 62,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 101,
+			"repo": "mantahostels",
+			"session": "9d7e6a8e",
+			"round_time": "2026-10-11T07:51:10.473Z",
+			"reply_time": "2026-10-11T07:56:37.814Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 102,
+			"repo": "mantahostels",
+			"session": "a08ad5d1",
+			"round_time": "2026-10-10T12:32:21.498Z",
+			"reply_time": "2026-10-10T12:57:28.558Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 103,
+			"repo": "mantahostels",
+			"session": "a1dbb22b",
+			"round_time": "2026-10-11T12:34:26.785Z",
+			"reply_time": "2026-10-11T13:11:31.500Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 104,
+			"repo": "mantahostels",
+			"session": "a3d0d78d",
+			"round_time": "2026-10-11T12:33:23.649Z",
+			"reply_time": "2026-10-11T13:11:27.141Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 105,
+			"repo": "mantahostels",
+			"session": "a9c8ca64",
+			"round_time": "2026-10-08T14:39:50.432Z",
+			"reply_time": "2026-10-08T14:41:15.349Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 106,
+			"repo": "mantahostels",
+			"session": "abff6bdc",
+			"round_time": "2026-10-10T12:32:33.790Z",
+			"reply_time": "2026-10-10T12:57:35.925Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 107,
+			"repo": "mantahostels",
+			"session": "b0d29b0c",
+			"round_time": "2026-10-08T14:19:44.459Z",
+			"reply_time": "2026-10-08T14:24:17.781Z",
+			"tools_before": 29,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 108,
+			"repo": "mantahostels",
+			"session": "b50d218d",
+			"round_time": "2026-10-12T05:09:03.031Z",
+			"reply_time": "2026-10-12T05:15:07.523Z",
+			"tools_before": 42,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 109,
+			"repo": "mantahostels",
+			"session": "ba9b019c",
+			"round_time": "2026-10-11T09:01:37.498Z",
+			"reply_time": "2026-10-11T09:03:06.865Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 110,
+			"repo": "mantahostels",
+			"session": "bc39e051",
+			"round_time": "2026-10-08T14:02:17.198Z",
+			"reply_time": "2026-10-08T14:03:44.668Z",
+			"tools_before": 37,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 111,
+			"repo": "mantahostels",
+			"session": "bc39e051",
+			"round_time": "2026-10-08T14:04:46.150Z",
+			"reply_time": "2026-10-08T14:06:29.043Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 112,
+			"repo": "mantahostels",
+			"session": "be93a4a8",
+			"round_time": "2026-10-13T07:52:36.118Z",
+			"reply_time": "2026-10-13T07:56:33.902Z",
+			"tools_before": 30,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 113,
+			"repo": "mantahostels",
+			"session": "be93a4a8",
+			"round_time": "2026-10-13T08:04:39.235Z",
+			"reply_time": "2026-10-13T08:06:32.671Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 114,
+			"repo": "mantahostels",
+			"session": "be9e9d5b",
+			"round_time": "2026-10-13T04:28:57.688Z",
+			"reply_time": "2026-10-13T04:40:06.565Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 115,
+			"repo": "mantahostels",
+			"session": "c4e28fce",
+			"round_time": "2026-10-11T12:33:07.391Z",
+			"reply_time": "2026-10-11T13:11:22.135Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 116,
+			"repo": "mantahostels",
+			"session": "c7417006",
+			"round_time": "2026-10-11T07:40:18.269Z",
+			"reply_time": "2026-10-11T07:56:28.763Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 117,
+			"repo": "mantahostels",
+			"session": "d090de9c",
+			"round_time": "2026-09-30T14:52:30.564Z",
+			"reply_time": "2026-09-30T14:55:54.259Z",
+			"tools_before": 54,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 118,
+			"repo": "mantahostels",
+			"session": "d4d6e3d7",
+			"round_time": "2026-10-13T08:30:11.983Z",
+			"reply_time": "2026-10-13T08:32:21.706Z",
+			"tools_before": 18,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 119,
+			"repo": "mantahostels",
+			"session": "d9084a1c",
+			"round_time": "2026-10-10T08:55:00.523Z",
+			"reply_time": "2026-10-10T09:07:55.483Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 120,
+			"repo": "mantahostels",
+			"session": "ec088df3",
+			"round_time": "2026-10-08T14:05:54.371Z",
+			"reply_time": "2026-10-08T14:07:02.810Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 121,
+			"repo": "mantahostels",
+			"session": "f6284f41",
+			"round_time": "2026-10-11T09:02:11.590Z",
+			"reply_time": "2026-10-11T09:03:18.748Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 122,
+			"repo": "mantahostels",
+			"session": "f860eeee",
+			"round_time": "2026-10-10T13:11:18.214Z",
+			"reply_time": "2026-10-10T13:12:06.225Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 123,
+			"repo": "design-vault",
+			"session": "02b880fd",
+			"round_time": "2026-09-30T09:33:43.611Z",
+			"reply_time": "2026-09-30T09:38:53.607Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 124,
+			"repo": "design-vault",
+			"session": "043ae141",
+			"round_time": "2026-09-30T08:21:10.279Z",
+			"reply_time": "2026-09-30T08:21:23.579Z",
+			"tools_before": 36,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 125,
+			"repo": "design-vault",
+			"session": "04f22d12",
+			"round_time": "2026-09-30T09:34:06.960Z",
+			"reply_time": "2026-09-30T09:37:49.258Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 126,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:18:35.019Z",
+			"reply_time": "2026-09-30T11:19:11.916Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 127,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:21:16.212Z",
+			"reply_time": "2026-09-30T11:24:05.393Z",
+			"tools_before": 4,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 128,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:27:58.850Z",
+			"reply_time": "2026-09-30T11:28:52.908Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 129,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:32:00.643Z",
+			"reply_time": "2026-09-30T11:37:26.846Z",
+			"tools_before": 17,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 130,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:40:06.199Z",
+			"reply_time": "2026-09-30T11:43:27.611Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 131,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:44:40.129Z",
+			"reply_time": "2026-09-30T11:45:22.470Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 132,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:46:09.289Z",
+			"reply_time": "2026-09-30T11:47:31.756Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 133,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:50:20.541Z",
+			"reply_time": "2026-09-30T11:54:48.015Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 134,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:55:38.167Z",
+			"reply_time": "2026-09-30T11:57:12.161Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 135,
+			"repo": "design-vault",
+			"session": "13a48cf0",
+			"round_time": "2026-09-30T11:59:03.260Z",
+			"reply_time": "2026-09-30T11:59:28.865Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 136,
+			"repo": "design-vault",
+			"session": "20775794",
+			"round_time": "2026-09-30T08:14:22.368Z",
+			"reply_time": "2026-09-30T08:15:39.143Z",
+			"tools_before": 20,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 137,
+			"repo": "design-vault",
+			"session": "21c8c6e7",
+			"round_time": "2026-10-13T13:12:13.467Z",
+			"reply_time": "2026-10-13T13:47:28.875Z",
+			"tools_before": 18,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 138,
+			"repo": "design-vault",
+			"session": "22dcd74e",
+			"round_time": "2026-09-30T06:51:06.772Z",
+			"reply_time": "2026-09-30T07:02:49.559Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 139,
+			"repo": "design-vault",
+			"session": "22dcd74e",
+			"round_time": "2026-09-30T07:26:07.283Z",
+			"reply_time": "2026-09-30T07:26:32.784Z",
+			"tools_before": 63,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 140,
+			"repo": "design-vault",
+			"session": "291e209a",
+			"round_time": "2026-09-30T07:32:28.138Z",
+			"reply_time": "2026-09-30T08:02:11.870Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 141,
+			"repo": "design-vault",
+			"session": "2b0bb596",
+			"round_time": "2026-09-30T08:25:50.697Z",
+			"reply_time": "2026-09-30T08:26:52.423Z",
+			"tools_before": 69,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 142,
+			"repo": "design-vault",
+			"session": "2b0bb596",
+			"round_time": "2026-09-30T08:30:39.213Z",
+			"reply_time": "2026-09-30T08:31:35.703Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 143,
+			"repo": "design-vault",
+			"session": "2b0bb596",
+			"round_time": "2026-09-30T09:12:33.803Z",
+			"reply_time": "2026-09-30T09:14:50.827Z",
+			"tools_before": 3,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 144,
+			"repo": "design-vault",
+			"session": "2f307d60",
+			"round_time": "2026-09-30T05:24:00.808Z",
+			"reply_time": "2026-09-30T05:31:42.127Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 145,
+			"repo": "design-vault",
+			"session": "2f307d60",
+			"round_time": "2026-09-30T05:51:20.687Z",
+			"reply_time": "2026-09-30T06:34:39.392Z",
+			"tools_before": 108,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 146,
+			"repo": "design-vault",
+			"session": "348b550a",
+			"round_time": "2026-10-14T05:27:23.454Z",
+			"reply_time": "2026-10-14T05:28:36.433Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 147,
+			"repo": "design-vault",
+			"session": "3f189c32",
+			"round_time": "2026-10-14T04:51:26.269Z",
+			"reply_time": "2026-10-14T04:53:31.561Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 148,
+			"repo": "design-vault",
+			"session": "4530715c",
+			"round_time": "2026-10-14T12:30:59.935Z",
+			"reply_time": "2026-10-14T12:33:14.818Z",
+			"tools_before": 74,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 149,
+			"repo": "design-vault",
+			"session": "4f77b916",
+			"round_time": "2026-10-14T04:51:35.665Z",
+			"reply_time": "2026-10-14T04:55:31.289Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 150,
+			"repo": "design-vault",
+			"session": "4f77b916",
+			"round_time": "2026-10-14T04:58:10.611Z",
+			"reply_time": "2026-10-14T04:59:34.229Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 151,
+			"repo": "design-vault",
+			"session": "50da4656",
+			"round_time": "2026-09-30T08:13:26.018Z",
+			"reply_time": "2026-09-30T08:15:01.298Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 152,
+			"repo": "design-vault",
+			"session": "50da4656",
+			"round_time": "2026-09-30T08:15:35.775Z",
+			"reply_time": "2026-09-30T08:16:14.800Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 153,
+			"repo": "design-vault",
+			"session": "50da4656",
+			"round_time": "2026-09-30T08:17:44.159Z",
+			"reply_time": "2026-09-30T08:19:23.516Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 154,
+			"repo": "design-vault",
+			"session": "5256b9c5",
+			"round_time": "2026-09-30T12:47:03.466Z",
+			"reply_time": "2026-09-30T12:55:56.502Z",
+			"tools_before": 22,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 155,
+			"repo": "design-vault",
+			"session": "5256b9c5",
+			"round_time": "2026-09-30T13:26:23.024Z",
+			"reply_time": "2026-09-30T13:31:07.071Z",
+			"tools_before": 33,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 156,
+			"repo": "design-vault",
+			"session": "5256b9c5",
+			"round_time": "2026-09-30T13:31:35.352Z",
+			"reply_time": "2026-09-30T13:32:38.689Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 157,
+			"repo": "design-vault",
+			"session": "5256b9c5",
+			"round_time": "2026-09-30T13:33:21.658Z",
+			"reply_time": "2026-09-30T13:35:13.659Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 158,
+			"repo": "design-vault",
+			"session": "610bb599",
+			"round_time": "2026-10-14T13:24:23.897Z",
+			"reply_time": "2026-10-14T13:25:42.849Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 159,
+			"repo": "design-vault",
+			"session": "610bb599",
+			"round_time": "2026-10-14T13:25:57.486Z",
+			"reply_time": "2026-10-14T13:26:20.602Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 160,
+			"repo": "design-vault",
+			"session": "610bb599",
+			"round_time": "2026-10-14T13:29:08.986Z",
+			"reply_time": "2026-10-14T13:30:41.462Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 161,
+			"repo": "design-vault",
+			"session": "610bb599",
+			"round_time": "2026-10-14T13:31:42.484Z",
+			"reply_time": "2026-10-14T13:31:55.092Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 162,
+			"repo": "design-vault",
+			"session": "610bb599",
+			"round_time": "2026-10-14T14:05:21.399Z",
+			"reply_time": "2026-10-14T14:07:57.194Z",
+			"tools_before": 35,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 163,
+			"repo": "design-vault",
+			"session": "6e1853c1",
+			"round_time": "2026-09-30T09:53:39.188Z",
+			"reply_time": "2026-09-30T09:55:17.200Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 164,
+			"repo": "design-vault",
+			"session": "6f8b896c",
+			"round_time": "2026-09-30T10:07:47.104Z",
+			"reply_time": "2026-09-30T10:09:55.384Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 165,
+			"repo": "design-vault",
+			"session": "7f71a347",
+			"round_time": "2026-09-30T08:15:41.444Z",
+			"reply_time": "2026-09-30T08:17:21.080Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 166,
+			"repo": "design-vault",
+			"session": "7f71a347",
+			"round_time": "2026-09-30T08:18:36.469Z",
+			"reply_time": "2026-09-30T08:19:35.603Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 167,
+			"repo": "design-vault",
+			"session": "7f91b2b0",
+			"round_time": "2026-10-14T13:52:01.060Z",
+			"reply_time": "2026-10-14T13:53:06.654Z",
+			"tools_before": 85,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 168,
+			"repo": "design-vault",
+			"session": "81061f01",
+			"round_time": "2026-10-14T11:59:18.332Z",
+			"reply_time": "2026-10-14T12:01:39.143Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 169,
+			"repo": "design-vault",
+			"session": "89164a2a",
+			"round_time": "2026-09-30T12:09:54.027Z",
+			"reply_time": "2026-09-30T12:12:06.254Z",
+			"tools_before": 71,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 170,
+			"repo": "design-vault",
+			"session": "89164a2a",
+			"round_time": "2026-09-30T12:12:28.866Z",
+			"reply_time": "2026-09-30T12:12:51.942Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "d"
+		},
+		{
+			"i": 171,
+			"repo": "design-vault",
+			"session": "9bd1be4d",
+			"round_time": "2026-09-30T08:36:51.092Z",
+			"reply_time": "2026-09-30T09:02:06.413Z",
+			"tools_before": 28,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 172,
+			"repo": "design-vault",
+			"session": "9f9f80d2",
+			"round_time": "2026-10-14T04:52:50.555Z",
+			"reply_time": "2026-10-14T04:59:11.507Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 173,
+			"repo": "design-vault",
+			"session": "a00da230",
+			"round_time": "2026-09-30T07:33:22.283Z",
+			"reply_time": "2026-09-30T08:03:57.704Z",
+			"tools_before": 14,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 174,
+			"repo": "design-vault",
+			"session": "a2dff203",
+			"round_time": "2026-09-30T08:37:21.104Z",
+			"reply_time": "2026-09-30T09:02:47.197Z",
+			"tools_before": 26,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 175,
+			"repo": "design-vault",
+			"session": "a2dff203",
+			"round_time": "2026-09-30T09:03:51.148Z",
+			"reply_time": "2026-09-30T09:05:38.190Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 176,
+			"repo": "design-vault",
+			"session": "aa0970d9",
+			"round_time": "2026-10-13T13:11:26.801Z",
+			"reply_time": "2026-10-13T13:47:17.951Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 177,
+			"repo": "design-vault",
+			"session": "c5cba534",
+			"round_time": "2026-09-30T09:07:39.403Z",
+			"reply_time": "2026-09-30T09:13:04.579Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 178,
+			"repo": "design-vault",
+			"session": "c7109a80",
+			"round_time": "2026-10-13T13:12:49.134Z",
+			"reply_time": "2026-10-13T13:46:45.593Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 179,
+			"repo": "design-vault",
+			"session": "d450423c",
+			"round_time": "2026-10-14T04:53:31.058Z",
+			"reply_time": "2026-10-14T04:58:24.707Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 180,
+			"repo": "design-vault",
+			"session": "d5daf8d0",
+			"round_time": "2026-10-13T13:11:21.473Z",
+			"reply_time": "2026-10-13T13:46:53.657Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 181,
+			"repo": "design-vault",
+			"session": "e5f8128a",
+			"round_time": "2026-09-30T07:07:07.187Z",
+			"reply_time": "2026-09-30T07:18:19.656Z",
+			"tools_before": 85,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 182,
+			"repo": "design-vault",
+			"session": "ffac8106",
+			"round_time": "2026-09-30T10:31:10.640Z",
+			"reply_time": "2026-09-30T10:32:54.417Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 183,
+			"repo": "fantasy-books",
+			"session": "06b49dbc",
+			"round_time": "2026-10-10T15:08:11.210Z",
+			"reply_time": "2026-10-10T15:27:22.192Z",
+			"tools_before": 55,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 184,
+			"repo": "fantasy-books",
+			"session": "29514096",
+			"round_time": "2026-10-10T09:54:11.944Z",
+			"reply_time": "2026-10-10T09:54:40.118Z",
+			"tools_before": 139,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 185,
+			"repo": "fantasy-books",
+			"session": "29514096",
+			"round_time": "2026-10-10T09:56:31.017Z",
+			"reply_time": "2026-10-10T12:28:38.323Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 186,
+			"repo": "fantasy-books",
+			"session": "2d55fdbf",
+			"round_time": "2026-10-10T14:10:39.840Z",
+			"reply_time": "2026-10-10T14:11:50.394Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 187,
+			"repo": "fantasy-books",
+			"session": "326f3439",
+			"round_time": "2026-10-10T08:29:19.976Z",
+			"reply_time": "2026-10-10T08:30:45.157Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 188,
+			"repo": "fantasy-books",
+			"session": "3857fa10",
+			"round_time": "2026-09-30T02:54:05.759Z",
+			"reply_time": "2026-09-30T03:22:22.474Z",
+			"tools_before": 32,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 189,
+			"repo": "fantasy-books",
+			"session": "404b49df",
+			"round_time": "2026-10-10T16:42:49.647Z",
+			"reply_time": "2026-10-10T16:48:43.302Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 190,
+			"repo": "fantasy-books",
+			"session": "46cf4f05",
+			"round_time": "2026-10-10T09:45:24.008Z",
+			"reply_time": "2026-10-10T09:45:46.975Z",
+			"tools_before": 45,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 191,
+			"repo": "fantasy-books",
+			"session": "4f2adce6",
+			"round_time": "2026-10-10T14:11:52.975Z",
+			"reply_time": "2026-10-10T14:14:03.721Z",
+			"tools_before": 17,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 192,
+			"repo": "fantasy-books",
+			"session": "558893b7",
+			"round_time": "2026-10-11T02:13:34.732Z",
+			"reply_time": "2026-10-11T02:14:19.475Z",
+			"tools_before": 56,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 193,
+			"repo": "fantasy-books",
+			"session": "56ece931",
+			"round_time": "2026-10-10T16:33:30.146Z",
+			"reply_time": "2026-10-10T16:35:22.105Z",
+			"tools_before": 96,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 194,
+			"repo": "fantasy-books",
+			"session": "5707267c",
+			"round_time": "2026-10-10T09:23:02.407Z",
+			"reply_time": "2026-10-10T09:24:51.503Z",
+			"tools_before": 35,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 195,
+			"repo": "fantasy-books",
+			"session": "5707267c",
+			"round_time": "2026-10-10T09:49:03.803Z",
+			"reply_time": "2026-10-10T09:49:07.325Z",
+			"tools_before": 0,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 196,
+			"repo": "fantasy-books",
+			"session": "58b98f54",
+			"round_time": "2026-10-10T13:21:56.732Z",
+			"reply_time": "2026-10-10T13:23:21.689Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 197,
+			"repo": "fantasy-books",
+			"session": "70cb396e",
+			"round_time": "2026-10-11T03:02:42.931Z",
+			"reply_time": "2026-10-11T03:03:34.818Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 198,
+			"repo": "fantasy-books",
+			"session": "724c9565",
+			"round_time": "2026-10-10T14:59:56.290Z",
+			"reply_time": "2026-10-10T15:00:57.872Z",
+			"tools_before": 53,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 199,
+			"repo": "fantasy-books",
+			"session": "80e00bf1",
+			"round_time": "2026-09-30T03:43:16.919Z",
+			"reply_time": "2026-09-30T04:20:18.898Z",
+			"tools_before": 66,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 200,
+			"repo": "fantasy-books",
+			"session": "80e00bf1",
+			"round_time": "2026-09-30T04:26:16.145Z",
+			"reply_time": "2026-09-30T04:26:36.007Z",
+			"tools_before": 19,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 201,
+			"repo": "fantasy-books",
+			"session": "82383fbe",
+			"round_time": "2026-10-11T02:02:32.033Z",
+			"reply_time": "2026-10-11T02:04:18.755Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 202,
+			"repo": "fantasy-books",
+			"session": "8b69c99d",
+			"round_time": "2026-09-30T03:37:39.068Z",
+			"reply_time": "2026-09-30T03:38:02.939Z",
+			"tools_before": 35,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 203,
+			"repo": "fantasy-books",
+			"session": "926e6c3c",
+			"round_time": "2026-10-11T01:57:18.315Z",
+			"reply_time": "2026-10-11T01:58:16.365Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 204,
+			"repo": "fantasy-books",
+			"session": "9ac592c2",
+			"round_time": "2026-10-10T08:37:44.810Z",
+			"reply_time": "2026-10-10T08:38:11.059Z",
+			"tools_before": 43,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 205,
+			"repo": "fantasy-books",
+			"session": "a6a50fed",
+			"round_time": "2026-10-10T09:24:17.409Z",
+			"reply_time": "2026-10-10T09:26:38.807Z",
+			"tools_before": 40,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 206,
+			"repo": "fantasy-books",
+			"session": "a6a50fed",
+			"round_time": "2026-10-10T09:31:23.058Z",
+			"reply_time": "2026-10-10T09:32:55.259Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 207,
+			"repo": "fantasy-books",
+			"session": "a6a50fed",
+			"round_time": "2026-10-10T09:35:14.726Z",
+			"reply_time": "2026-10-10T09:37:02.537Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 208,
+			"repo": "fantasy-books",
+			"session": "a724711d",
+			"round_time": "2026-10-10T14:47:20.547Z",
+			"reply_time": "2026-10-10T14:48:03.638Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 209,
+			"repo": "fantasy-books",
+			"session": "a9e5ee54",
+			"round_time": "2026-10-10T15:08:19.767Z",
+			"reply_time": "2026-10-10T15:27:26.340Z",
+			"tools_before": 47,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 210,
+			"repo": "fantasy-books",
+			"session": "aa80e5d6",
+			"round_time": "2026-10-11T01:56:15.365Z",
+			"reply_time": "2026-10-11T01:57:58.549Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 211,
+			"repo": "fantasy-books",
+			"session": "bf11080f",
+			"round_time": "2026-10-10T13:37:19.038Z",
+			"reply_time": "2026-10-10T13:41:30.536Z",
+			"tools_before": 50,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 212,
+			"repo": "fantasy-books",
+			"session": "c2241664",
+			"round_time": "2026-10-10T08:28:34.924Z",
+			"reply_time": "2026-10-10T08:30:38.047Z",
+			"tools_before": 15,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 213,
+			"repo": "fantasy-books",
+			"session": "c3aa8479",
+			"round_time": "2026-10-10T14:49:47.819Z",
+			"reply_time": "2026-10-10T15:00:43.920Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 214,
+			"repo": "fantasy-books",
+			"session": "d24df3c9",
+			"round_time": "2026-10-11T03:00:19.705Z",
+			"reply_time": "2026-10-11T03:01:03.723Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 215,
+			"repo": "fantasy-books",
+			"session": "e177afa7",
+			"round_time": "2026-10-11T03:00:31.653Z",
+			"reply_time": "2026-10-11T03:01:08.412Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 216,
+			"repo": "fantasy-books",
+			"session": "ec640e83",
+			"round_time": "2026-10-10T15:17:59.520Z",
+			"reply_time": "2026-10-10T15:27:41.550Z",
+			"tools_before": 93,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 217,
+			"repo": "fantasy-books",
+			"session": "f714ff3d",
+			"round_time": "2026-10-10T09:18:57.644Z",
+			"reply_time": "2026-10-10T09:20:05.169Z",
+			"tools_before": 28,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 218,
+			"repo": "fantasy-books",
+			"session": "f9dac6e2",
+			"round_time": "2026-10-10T09:18:58.444Z",
+			"reply_time": "2026-10-10T09:19:30.801Z",
+			"tools_before": 33,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 219,
+			"repo": "fantasy-books",
+			"session": "fac07783",
+			"round_time": "2026-10-10T09:17:57.985Z",
+			"reply_time": "2026-10-10T09:18:43.533Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 220,
+			"repo": "health-and-fitness",
+			"session": "09390c31",
+			"round_time": "2026-10-11T09:53:42.315Z",
+			"reply_time": "2026-10-11T10:01:26.837Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 221,
+			"repo": "health-and-fitness",
+			"session": "09390c31",
+			"round_time": "2026-10-11T10:03:58.782Z",
+			"reply_time": "2026-10-11T10:06:27.413Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 222,
+			"repo": "health-and-fitness",
+			"session": "0b4117a4",
+			"round_time": "2026-10-11T13:27:29.545Z",
+			"reply_time": "2026-10-11T13:40:01.574Z",
+			"tools_before": 27,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 223,
+			"repo": "health-and-fitness",
+			"session": "0b4117a4",
+			"round_time": "2026-10-11T13:42:52.832Z",
+			"reply_time": "2026-10-11T13:47:30.542Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 224,
+			"repo": "health-and-fitness",
+			"session": "0b4117a4",
+			"round_time": "2026-10-11T13:50:04.223Z",
+			"reply_time": "2026-10-11T13:50:56.367Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 225,
+			"repo": "health-and-fitness",
+			"session": "0b756493",
+			"round_time": "2026-10-11T07:08:39.114Z",
+			"reply_time": "2026-10-11T07:26:04.332Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 226,
+			"repo": "health-and-fitness",
+			"session": "0b756493",
+			"round_time": "2026-10-11T07:27:42.363Z",
+			"reply_time": "2026-10-11T07:35:17.783Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 227,
+			"repo": "health-and-fitness",
+			"session": "2c177579",
+			"round_time": "2026-10-14T14:16:44.986Z",
+			"reply_time": "2026-10-14T14:19:31.423Z",
+			"tools_before": 44,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 228,
+			"repo": "health-and-fitness",
+			"session": "2c177579",
+			"round_time": "2026-10-14T14:19:50.587Z",
+			"reply_time": "2026-10-14T14:21:26.660Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 229,
+			"repo": "health-and-fitness",
+			"session": "38c8b60d",
+			"round_time": "2026-10-11T08:06:34.913Z",
+			"reply_time": "2026-10-11T08:23:53.356Z",
+			"tools_before": 17,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 230,
+			"repo": "health-and-fitness",
+			"session": "38c8b60d",
+			"round_time": "2026-10-11T08:46:51.325Z",
+			"reply_time": "2026-10-11T08:51:16.634Z",
+			"tools_before": 29,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 231,
+			"repo": "health-and-fitness",
+			"session": "38c8b60d",
+			"round_time": "2026-10-11T08:56:42.512Z",
+			"reply_time": "2026-10-11T08:58:40.382Z",
+			"tools_before": 23,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 232,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:02:43.830Z",
+			"reply_time": "2026-10-11T10:04:24.871Z",
+			"tools_before": 26,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 233,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:24:56.142Z",
+			"reply_time": "2026-10-11T10:34:24.155Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 234,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:36:55.421Z",
+			"reply_time": "2026-10-11T10:42:53.286Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 235,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:44:18.423Z",
+			"reply_time": "2026-10-11T10:45:45.318Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 236,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:48:31.765Z",
+			"reply_time": "2026-10-11T10:48:41.854Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 237,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:54:49.290Z",
+			"reply_time": "2026-10-11T10:55:41.197Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 238,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:58:07.984Z",
+			"reply_time": "2026-10-11T10:58:10.677Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 239,
+			"repo": "health-and-fitness",
+			"session": "3d71beb0",
+			"round_time": "2026-10-11T10:58:35.401Z",
+			"reply_time": "2026-10-11T10:59:09.276Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 240,
+			"repo": "health-and-fitness",
+			"session": "5ce789c2",
+			"round_time": "2026-10-11T13:31:09.443Z",
+			"reply_time": "2026-10-11T13:44:10.037Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 241,
+			"repo": "health-and-fitness",
+			"session": "6d4393e3",
+			"round_time": "2026-10-11T05:49:16.286Z",
+			"reply_time": "2026-10-11T05:50:45.942Z",
+			"tools_before": 22,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 242,
+			"repo": "health-and-fitness",
+			"session": "6d4393e3",
+			"round_time": "2026-10-11T05:54:36.475Z",
+			"reply_time": "2026-10-11T05:56:14.143Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 243,
+			"repo": "health-and-fitness",
+			"session": "6d4393e3",
+			"round_time": "2026-10-11T06:07:10.087Z",
+			"reply_time": "2026-10-11T06:11:41.226Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 244,
+			"repo": "health-and-fitness",
+			"session": "74e2cb2a",
+			"round_time": "2026-10-11T08:04:32.969Z",
+			"reply_time": "2026-10-11T08:11:11.089Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 245,
+			"repo": "health-and-fitness",
+			"session": "8bbfdc35",
+			"round_time": "2026-10-11T09:52:12.567Z",
+			"reply_time": "2026-10-11T09:54:02.198Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 246,
+			"repo": "health-and-fitness",
+			"session": "8bbfdc35",
+			"round_time": "2026-10-11T09:55:26.331Z",
+			"reply_time": "2026-10-11T09:56:58.586Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 247,
+			"repo": "health-and-fitness",
+			"session": "8bbfdc35",
+			"round_time": "2026-10-11T09:58:08.255Z",
+			"reply_time": "2026-10-11T10:01:56.046Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 248,
+			"repo": "health-and-fitness",
+			"session": "9a3fd3d0",
+			"round_time": "2026-10-11T07:06:49.556Z",
+			"reply_time": "2026-10-11T07:29:04.422Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 249,
+			"repo": "health-and-fitness",
+			"session": "9a3fd3d0",
+			"round_time": "2026-10-11T07:34:20.707Z",
+			"reply_time": "2026-10-11T07:37:57.403Z",
+			"tools_before": 36,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 250,
+			"repo": "health-and-fitness",
+			"session": "9c7b2fff",
+			"round_time": "2026-10-11T13:27:35.295Z",
+			"reply_time": "2026-10-11T13:40:54.588Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 251,
+			"repo": "health-and-fitness",
+			"session": "9c7b2fff",
+			"round_time": "2026-10-11T13:42:27.237Z",
+			"reply_time": "2026-10-11T13:50:00.955Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 252,
+			"repo": "health-and-fitness",
+			"session": "9f650a9c",
+			"round_time": "2026-10-13T15:28:29.901Z",
+			"reply_time": "2026-10-13T15:31:14.453Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 253,
+			"repo": "health-and-fitness",
+			"session": "9f650a9c",
+			"round_time": "2026-10-13T15:33:54.398Z",
+			"reply_time": "2026-10-13T15:35:59.224Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 254,
+			"repo": "health-and-fitness",
+			"session": "9f650a9c",
+			"round_time": "2026-10-13T15:36:50.208Z",
+			"reply_time": "2026-10-13T15:46:43.961Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 255,
+			"repo": "health-and-fitness",
+			"session": "a952e432",
+			"round_time": "2026-10-11T09:47:37.313Z",
+			"reply_time": "2026-10-11T09:52:30.320Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 256,
+			"repo": "health-and-fitness",
+			"session": "a952e432",
+			"round_time": "2026-10-11T09:53:40.355Z",
+			"reply_time": "2026-10-11T10:27:13.308Z",
+			"tools_before": 3,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 257,
+			"repo": "health-and-fitness",
+			"session": "b3d96a16",
+			"round_time": "2026-10-11T09:48:19.568Z",
+			"reply_time": "2026-10-11T09:52:38.254Z",
+			"tools_before": 28,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 258,
+			"repo": "health-and-fitness",
+			"session": "c40c5e8c",
+			"round_time": "2026-10-11T08:04:39.610Z",
+			"reply_time": "2026-10-11T08:09:37.358Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 259,
+			"repo": "health-and-fitness",
+			"session": "c40c5e8c",
+			"round_time": "2026-10-11T08:13:23.718Z",
+			"reply_time": "2026-10-11T08:23:23.659Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 260,
+			"repo": "health-and-fitness",
+			"session": "c40c5e8c",
+			"round_time": "2026-10-11T08:25:07.656Z",
+			"reply_time": "2026-10-11T08:33:34.706Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 261,
+			"repo": "health-and-fitness",
+			"session": "c40c5e8c",
+			"round_time": "2026-10-11T09:05:29.222Z",
+			"reply_time": "2026-10-11T09:09:18.154Z",
+			"tools_before": 40,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 262,
+			"repo": "health-and-fitness",
+			"session": "c44187f4",
+			"round_time": "2026-10-11T13:38:24.051Z",
+			"reply_time": "2026-10-11T13:53:28.789Z",
+			"tools_before": 32,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 263,
+			"repo": "health-and-fitness",
+			"session": "c44187f4",
+			"round_time": "2026-10-11T13:56:12.054Z",
+			"reply_time": "2026-10-11T13:57:52.227Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 264,
+			"repo": "health-and-fitness",
+			"session": "c79f0eb6",
+			"round_time": "2026-10-11T07:06:57.786Z",
+			"reply_time": "2026-10-11T07:15:02.282Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 265,
+			"repo": "health-and-fitness",
+			"session": "c79f0eb6",
+			"round_time": "2026-10-11T07:18:27.215Z",
+			"reply_time": "2026-10-11T07:55:45.454Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 266,
+			"repo": "health-and-fitness",
+			"session": "e0b8b1ff",
+			"round_time": "2026-10-11T09:49:10.293Z",
+			"reply_time": "2026-10-11T09:56:16.832Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 267,
+			"repo": "health-and-fitness",
+			"session": "e0b8b1ff",
+			"round_time": "2026-10-11T10:00:00.036Z",
+			"reply_time": "2026-10-11T10:03:51.500Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 268,
+			"repo": "health-and-fitness",
+			"session": "e0b8b1ff",
+			"round_time": "2026-10-11T10:04:44.078Z",
+			"reply_time": "2026-10-11T10:06:56.271Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 269,
+			"repo": "health-and-fitness",
+			"session": "e0b8b1ff",
+			"round_time": "2026-10-11T10:32:28.377Z",
+			"reply_time": "2026-10-11T10:38:22.999Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 270,
+			"repo": "mmm-infra",
+			"session": "2ca95581",
+			"round_time": "2026-10-10T01:58:56.295Z",
+			"reply_time": "2026-10-10T02:04:34.483Z",
+			"tools_before": 35,
+			"close": true,
+			"class": "d"
+		},
+		{
+			"i": 271,
+			"repo": "mmm-infra",
+			"session": "2ca95581",
+			"round_time": "2026-10-10T02:05:20.597Z",
+			"reply_time": "2026-10-10T02:07:08.752Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 272,
+			"repo": "mmm-infra",
+			"session": "2ca95581",
+			"round_time": "2026-10-10T02:41:02.434Z",
+			"reply_time": "2026-10-10T02:48:17.477Z",
+			"tools_before": 93,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 273,
+			"repo": "mmm-infra",
+			"session": "2ca95581",
+			"round_time": "2026-10-10T05:00:52.490Z",
+			"reply_time": "2026-10-10T05:04:34.233Z",
+			"tools_before": 74,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 274,
+			"repo": "mmm-infra",
+			"session": "3048f225",
+			"round_time": "2026-10-14T05:57:39.915Z",
+			"reply_time": "2026-10-14T05:59:47.082Z",
+			"tools_before": 143,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 275,
+			"repo": "mmm-infra",
+			"session": "416f8394",
+			"round_time": "2026-10-14T05:18:25.048Z",
+			"reply_time": "2026-10-14T05:19:00.596Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 276,
+			"repo": "mmm-infra",
+			"session": "76b594d7",
+			"round_time": "2026-10-10T13:17:21.254Z",
+			"reply_time": "2026-10-10T13:17:21.743Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 277,
+			"repo": "mmm-infra",
+			"session": "76b594d7",
+			"round_time": "2026-10-10T13:19:04.666Z",
+			"reply_time": "2026-10-10T13:21:13.537Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 278,
+			"repo": "mmm-infra",
+			"session": "76b594d7",
+			"round_time": "2026-10-10T13:23:30.701Z",
+			"reply_time": "2026-10-10T13:24:12.918Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 279,
+			"repo": "mmm-infra",
+			"session": "80db786b",
+			"round_time": "2026-10-10T08:34:57.725Z",
+			"reply_time": "2026-10-10T08:37:57.297Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 280,
+			"repo": "mmm-infra",
+			"session": "80db786b",
+			"round_time": "2026-10-10T08:58:27.449Z",
+			"reply_time": "2026-10-10T08:59:13.160Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 281,
+			"repo": "mmm-infra",
+			"session": "aaca35d8",
+			"round_time": "2026-10-09T15:48:05.559Z",
+			"reply_time": "2026-10-09T15:57:39.712Z",
+			"tools_before": 28,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 282,
+			"repo": "mmm-infra",
+			"session": "aaca35d8",
+			"round_time": "2026-10-09T16:20:21.556Z",
+			"reply_time": "2026-10-09T16:27:47.060Z",
+			"tools_before": 71,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 283,
+			"repo": "mmm-infra",
+			"session": "aaca35d8",
+			"round_time": "2026-10-09T16:41:48.260Z",
+			"reply_time": "2026-10-09T16:46:27.924Z",
+			"tools_before": 79,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 284,
+			"repo": "mmm-infra",
+			"session": "e4314260",
+			"round_time": "2026-10-10T06:42:36.421Z",
+			"reply_time": "2026-10-10T06:58:09.362Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 285,
+			"repo": "mmm-infra",
+			"session": "e4314260",
+			"round_time": "2026-10-10T07:28:58.745Z",
+			"reply_time": "2026-10-10T07:32:19.069Z",
+			"tools_before": 33,
+			"close": false,
+			"class": "f"
+		},
+		{
+			"i": 286,
+			"repo": "mmm-infra",
+			"session": "f409e0ea",
+			"round_time": "2026-10-10T14:57:07.870Z",
+			"reply_time": "2026-10-10T15:01:43.721Z",
+			"tools_before": 39,
+			"close": true,
+			"class": "d"
+		},
+		{
+			"i": 287,
+			"repo": "mmm-infra",
+			"session": "f409e0ea",
+			"round_time": "2026-10-10T15:01:57.264Z",
+			"reply_time": "2026-10-10T15:04:10.211Z",
+			"tools_before": 0,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 288,
+			"repo": "wfc-new-repo-trial",
+			"session": "926a9586",
+			"round_time": "2026-09-30T07:21:32.690Z",
+			"reply_time": "2026-09-30T07:22:21.672Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 289,
+			"repo": "wfc-new-repo-trial",
+			"session": "926a9586",
+			"round_time": "2026-09-30T07:40:02.870Z",
+			"reply_time": "2026-09-30T08:00:50.279Z",
+			"tools_before": 57,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 290,
+			"repo": "wfc-new-repo-trial",
+			"session": "ccf819fc",
+			"round_time": "2026-09-30T08:36:31.624Z",
+			"reply_time": "2026-09-30T09:01:30.089Z",
+			"tools_before": 26,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 291,
+			"repo": "wfc-new-repo-trial",
+			"session": "d6e67622",
+			"round_time": "2026-09-30T08:33:34.428Z",
+			"reply_time": "2026-09-30T08:55:40.819Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 292,
+			"repo": "workflow-core",
+			"session": "025ddc14",
+			"round_time": "2026-10-14T01:47:33.481Z",
+			"reply_time": "2026-10-14T02:37:46.127Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 293,
+			"repo": "workflow-core",
+			"session": "032d1ce2",
+			"round_time": "2026-10-10T02:40:19.890Z",
+			"reply_time": "2026-10-10T02:40:30.229Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 294,
+			"repo": "workflow-core",
+			"session": "03e96f0e",
+			"round_time": "2026-10-11T09:22:12.916Z",
+			"reply_time": "2026-10-11T09:22:43.117Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 295,
+			"repo": "workflow-core",
+			"session": "079b221d",
+			"round_time": "2026-10-11T07:38:11.526Z",
+			"reply_time": "2026-10-11T07:38:25.257Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 296,
+			"repo": "workflow-core",
+			"session": "07d9852e",
+			"round_time": "2026-10-11T07:16:50.273Z",
+			"reply_time": "2026-10-11T07:17:01.953Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 297,
+			"repo": "workflow-core",
+			"session": "07d9852e",
+			"round_time": "2026-10-11T07:18:07.020Z",
+			"reply_time": "2026-10-11T07:26:23.153Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 298,
+			"repo": "workflow-core",
+			"session": "08ffca2d",
+			"round_time": "2026-10-10T00:38:53.579Z",
+			"reply_time": "2026-10-10T01:01:11.936Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 299,
+			"repo": "workflow-core",
+			"session": "08ffca2d",
+			"round_time": "2026-10-10T01:02:28.901Z",
+			"reply_time": "2026-10-10T01:02:50.586Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 300,
+			"repo": "workflow-core",
+			"session": "08ffca2d",
+			"round_time": "2026-10-10T01:04:15.696Z",
+			"reply_time": "2026-10-10T01:18:34.751Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 301,
+			"repo": "workflow-core",
+			"session": "0b01be84",
+			"round_time": "2026-10-13T15:51:24.015Z",
+			"reply_time": "2026-10-13T15:52:44.584Z",
+			"tools_before": 19,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 302,
+			"repo": "workflow-core",
+			"session": "0c9bf6d0",
+			"round_time": "2026-10-14T02:23:03.700Z",
+			"reply_time": "2026-10-14T02:37:39.609Z",
+			"tools_before": 126,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 303,
+			"repo": "workflow-core",
+			"session": "0cf78af7",
+			"round_time": "2026-10-13T15:41:19.641Z",
+			"reply_time": "2026-10-13T15:44:23.801Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 304,
+			"repo": "workflow-core",
+			"session": "0f9a6a66",
+			"round_time": "2026-10-11T02:12:51.421Z",
+			"reply_time": "2026-10-11T02:13:20.109Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 305,
+			"repo": "workflow-core",
+			"session": "170d4f72",
+			"round_time": "2026-10-11T10:49:51.134Z",
+			"reply_time": "2026-10-11T10:50:27.260Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 306,
+			"repo": "workflow-core",
+			"session": "1b69ed45",
+			"round_time": "2026-10-11T05:30:04.338Z",
+			"reply_time": "2026-10-11T05:30:35.839Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 307,
+			"repo": "workflow-core",
+			"session": "1b69ed45",
+			"round_time": "2026-10-11T05:30:52.620Z",
+			"reply_time": "2026-10-11T05:30:59.118Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 308,
+			"repo": "workflow-core",
+			"session": "1b69ed45",
+			"round_time": "2026-10-11T05:32:48.558Z",
+			"reply_time": "2026-10-11T05:33:36.509Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 309,
+			"repo": "workflow-core",
+			"session": "1b69ed45",
+			"round_time": "2026-10-11T05:34:10.717Z",
+			"reply_time": "2026-10-11T05:34:24.206Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 310,
+			"repo": "workflow-core",
+			"session": "1b69ed45",
+			"round_time": "2026-10-11T05:35:24.228Z",
+			"reply_time": "2026-10-11T05:35:53.309Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 311,
+			"repo": "workflow-core",
+			"session": "1ebcd25c",
+			"round_time": "2026-10-14T10:23:59.015Z",
+			"reply_time": "2026-10-14T10:25:46.875Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 312,
+			"repo": "workflow-core",
+			"session": "25abcf93",
+			"round_time": "2026-09-30T10:56:13.926Z",
+			"reply_time": "2026-09-30T10:57:02.156Z",
+			"tools_before": 67,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 313,
+			"repo": "workflow-core",
+			"session": "26a1f1b3",
+			"round_time": "2026-10-10T02:21:21.875Z",
+			"reply_time": "2026-10-10T02:33:39.813Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 314,
+			"repo": "workflow-core",
+			"session": "27525c13",
+			"round_time": "2026-10-10T00:39:21.520Z",
+			"reply_time": "2026-10-10T01:01:18.456Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 315,
+			"repo": "workflow-core",
+			"session": "2872a787",
+			"round_time": "2026-10-11T05:39:29.083Z",
+			"reply_time": "2026-10-11T05:39:44.505Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 316,
+			"repo": "workflow-core",
+			"session": "2b697996",
+			"round_time": "2026-10-10T13:06:07.064Z",
+			"reply_time": "2026-10-10T13:07:56.992Z",
+			"tools_before": 24,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 317,
+			"repo": "workflow-core",
+			"session": "2cd08541",
+			"round_time": "2026-10-11T09:19:43.301Z",
+			"reply_time": "2026-10-11T09:20:55.293Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 318,
+			"repo": "workflow-core",
+			"session": "2e9fe54c",
+			"round_time": "2026-09-30T09:48:02.382Z",
+			"reply_time": "2026-09-30T09:48:18.056Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 319,
+			"repo": "workflow-core",
+			"session": "330e7ffa",
+			"round_time": "2026-10-09T16:46:45.283Z",
+			"reply_time": "2026-10-09T16:48:52.468Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 320,
+			"repo": "workflow-core",
+			"session": "35dd75c1",
+			"round_time": "2026-10-11T09:18:37.476Z",
+			"reply_time": "2026-10-11T09:20:46.602Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 321,
+			"repo": "workflow-core",
+			"session": "371abb6a",
+			"round_time": "2026-10-14T10:51:15.669Z",
+			"reply_time": "2026-10-14T10:55:23.393Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 322,
+			"repo": "workflow-core",
+			"session": "38a0a0a1",
+			"round_time": "2026-09-30T05:17:07.270Z",
+			"reply_time": "2026-09-30T05:17:55.071Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 323,
+			"repo": "workflow-core",
+			"session": "38a0a0a1",
+			"round_time": "2026-09-30T05:18:08.042Z",
+			"reply_time": "2026-09-30T05:18:57.206Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 324,
+			"repo": "workflow-core",
+			"session": "38a0a0a1",
+			"round_time": "2026-09-30T05:19:25.844Z",
+			"reply_time": "2026-09-30T05:20:02.734Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 325,
+			"repo": "workflow-core",
+			"session": "38a0a0a1",
+			"round_time": "2026-09-30T05:20:13.557Z",
+			"reply_time": "2026-09-30T05:20:19.787Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 326,
+			"repo": "workflow-core",
+			"session": "38a0a0a1",
+			"round_time": "2026-09-30T05:22:22.868Z",
+			"reply_time": "2026-09-30T05:22:23.100Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 327,
+			"repo": "workflow-core",
+			"session": "38a0a0a1",
+			"round_time": "2026-09-30T05:26:02.610Z",
+			"reply_time": "2026-09-30T05:47:26.499Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 328,
+			"repo": "workflow-core",
+			"session": "3c457a01",
+			"round_time": "2026-10-09T15:52:56.805Z",
+			"reply_time": "2026-10-09T15:58:24.612Z",
+			"tools_before": 26,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 329,
+			"repo": "workflow-core",
+			"session": "4108c3d2",
+			"round_time": "2026-10-14T09:05:10.299Z",
+			"reply_time": "2026-10-14T09:05:35.497Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 330,
+			"repo": "workflow-core",
+			"session": "4184a752",
+			"round_time": "2026-10-09T16:56:42.980Z",
+			"reply_time": "2026-10-10T00:33:52.686Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 331,
+			"repo": "workflow-core",
+			"session": "4184a752",
+			"round_time": "2026-10-10T00:35:29.291Z",
+			"reply_time": "2026-10-10T01:02:36.878Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 332,
+			"repo": "workflow-core",
+			"session": "4a8a597a",
+			"round_time": "2026-10-13T15:52:56.965Z",
+			"reply_time": "2026-10-13T15:57:01.683Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 333,
+			"repo": "workflow-core",
+			"session": "4a9b1f8e",
+			"round_time": "2026-09-30T09:50:34.486Z",
+			"reply_time": "2026-09-30T09:52:41.027Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 334,
+			"repo": "workflow-core",
+			"session": "4b5c8baf",
+			"round_time": "2026-10-04T12:00:37.148Z",
+			"reply_time": "2026-10-04T12:02:02.011Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 335,
+			"repo": "workflow-core",
+			"session": "4b5c8baf",
+			"round_time": "2026-10-04T12:02:08.565Z",
+			"reply_time": "2026-10-04T12:02:20.351Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 336,
+			"repo": "workflow-core",
+			"session": "4b5c8baf",
+			"round_time": "2026-10-04T12:02:35.242Z",
+			"reply_time": "2026-10-04T12:03:40.436Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 337,
+			"repo": "workflow-core",
+			"session": "4b5c8baf",
+			"round_time": "2026-10-04T12:03:52.374Z",
+			"reply_time": "2026-10-04T12:04:12.940Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 338,
+			"repo": "workflow-core",
+			"session": "4b5c8baf",
+			"round_time": "2026-10-04T12:04:24.786Z",
+			"reply_time": "2026-10-04T12:06:02.236Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 339,
+			"repo": "workflow-core",
+			"session": "4b5c8baf",
+			"round_time": "2026-10-04T12:06:48.490Z",
+			"reply_time": "2026-10-04T12:06:57.881Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 340,
+			"repo": "workflow-core",
+			"session": "50126a3c",
+			"round_time": "2026-10-09T16:34:56.955Z",
+			"reply_time": "2026-10-09T16:35:09.512Z",
+			"tools_before": 69,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 341,
+			"repo": "workflow-core",
+			"session": "50a3dce9",
+			"round_time": "2026-10-10T14:24:08.120Z",
+			"reply_time": "2026-10-10T14:25:38.804Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 342,
+			"repo": "workflow-core",
+			"session": "57163985",
+			"round_time": "2026-10-14T03:43:53.676Z",
+			"reply_time": "2026-10-14T03:44:15.821Z",
+			"tools_before": 78,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 343,
+			"repo": "workflow-core",
+			"session": "575928ac",
+			"round_time": "2026-10-10T02:15:58.646Z",
+			"reply_time": "2026-10-10T02:33:13.984Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 344,
+			"repo": "workflow-core",
+			"session": "58e42466",
+			"round_time": "2026-10-09T17:01:24.872Z",
+			"reply_time": "2026-10-10T00:34:33.071Z",
+			"tools_before": 37,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 345,
+			"repo": "workflow-core",
+			"session": "5b49417e",
+			"round_time": "2026-10-11T09:18:53.772Z",
+			"reply_time": "2026-10-11T09:20:50.999Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 346,
+			"repo": "workflow-core",
+			"session": "5cf90b70",
+			"round_time": "2026-10-10T06:06:25.791Z",
+			"reply_time": "2026-10-10T06:25:17.389Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 347,
+			"repo": "workflow-core",
+			"session": "5e1398bc",
+			"round_time": "2026-10-10T08:23:39.217Z",
+			"reply_time": "2026-10-10T09:09:40.579Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 348,
+			"repo": "workflow-core",
+			"session": "5e1398bc",
+			"round_time": "2026-10-10T09:41:09.260Z",
+			"reply_time": "2026-10-10T09:43:12.274Z",
+			"tools_before": 74,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 349,
+			"repo": "workflow-core",
+			"session": "5e5c3268",
+			"round_time": "2026-10-10T07:20:16.778Z",
+			"reply_time": "2026-10-10T07:24:02.108Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 350,
+			"repo": "workflow-core",
+			"session": "6066a171",
+			"round_time": "2026-10-14T03:14:51.243Z",
+			"reply_time": "2026-10-14T03:15:11.084Z",
+			"tools_before": 74,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 351,
+			"repo": "workflow-core",
+			"session": "611ca4d8",
+			"round_time": "2026-10-13T17:18:05.784Z",
+			"reply_time": "2026-10-13T17:18:12.989Z",
+			"tools_before": 131,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 352,
+			"repo": "workflow-core",
+			"session": "64881449",
+			"round_time": "2026-10-13T16:14:39.504Z",
+			"reply_time": "2026-10-13T16:30:45.280Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 353,
+			"repo": "workflow-core",
+			"session": "6624c499",
+			"round_time": "2026-10-11T09:40:23.461Z",
+			"reply_time": "2026-10-11T09:44:59.355Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 354,
+			"repo": "workflow-core",
+			"session": "663168be",
+			"round_time": "2026-10-10T01:11:00.495Z",
+			"reply_time": "2026-10-10T01:18:15.236Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 355,
+			"repo": "workflow-core",
+			"session": "67c2c770",
+			"round_time": "2026-09-30T12:26:02.003Z",
+			"reply_time": "2026-09-30T12:39:22.715Z",
+			"tools_before": 82,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 356,
+			"repo": "workflow-core",
+			"session": "6955a29c",
+			"round_time": "2026-10-14T10:07:53.372Z",
+			"reply_time": "2026-10-14T10:16:10.877Z",
+			"tools_before": 33,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 357,
+			"repo": "workflow-core",
+			"session": "6b824995",
+			"round_time": "2026-10-10T00:42:08.569Z",
+			"reply_time": "2026-10-10T01:03:30.676Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 358,
+			"repo": "workflow-core",
+			"session": "72d2d0e0",
+			"round_time": "2026-10-13T16:20:12.951Z",
+			"reply_time": "2026-10-13T16:31:08.344Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 359,
+			"repo": "workflow-core",
+			"session": "7373a277",
+			"round_time": "2026-10-13T13:56:53.031Z",
+			"reply_time": "2026-10-13T14:00:07.766Z",
+			"tools_before": 23,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 360,
+			"repo": "workflow-core",
+			"session": "7373a277",
+			"round_time": "2026-10-13T14:01:50.499Z",
+			"reply_time": "2026-10-13T14:02:28.567Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 361,
+			"repo": "workflow-core",
+			"session": "79cebb8e",
+			"round_time": "2026-10-13T17:45:55.337Z",
+			"reply_time": "2026-10-14T01:07:34.676Z",
+			"tools_before": 67,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 362,
+			"repo": "workflow-core",
+			"session": "804bc670",
+			"round_time": "2026-10-09T16:56:14.459Z",
+			"reply_time": "2026-10-10T00:33:39.455Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 363,
+			"repo": "workflow-core",
+			"session": "81943248",
+			"round_time": "2026-10-10T03:10:24.991Z",
+			"reply_time": "2026-10-10T03:48:23.038Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 364,
+			"repo": "workflow-core",
+			"session": "89d24891",
+			"round_time": "2026-10-09T15:53:58.390Z",
+			"reply_time": "2026-10-09T15:58:39.663Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 365,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:35:45.626Z",
+			"reply_time": "2026-09-30T06:36:11.352Z",
+			"tools_before": 45,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 366,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:36:15.508Z",
+			"reply_time": "2026-09-30T06:36:21.607Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 367,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:36:26.179Z",
+			"reply_time": "2026-09-30T06:36:38.191Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 368,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:36:41.592Z",
+			"reply_time": "2026-09-30T06:36:47.144Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 369,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:36:52.415Z",
+			"reply_time": "2026-09-30T06:37:01.073Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 370,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:37:07.049Z",
+			"reply_time": "2026-09-30T06:38:20.651Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 371,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:38:41.697Z",
+			"reply_time": "2026-09-30T06:38:53.580Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 372,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T06:53:02.405Z",
+			"reply_time": "2026-09-30T07:02:57.664Z",
+			"tools_before": 34,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 373,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T07:07:34.121Z",
+			"reply_time": "2026-09-30T08:02:45.221Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 374,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T08:03:33.316Z",
+			"reply_time": "2026-09-30T08:04:53.340Z",
+			"tools_before": 2,
+			"close": true,
+			"class": "d"
+		},
+		{
+			"i": 375,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T08:05:27.672Z",
+			"reply_time": "2026-09-30T09:27:10.209Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 376,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T09:33:06.263Z",
+			"reply_time": "2026-09-30T09:40:05.757Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 377,
+			"repo": "workflow-core",
+			"session": "89de35b8",
+			"round_time": "2026-09-30T09:40:25.571Z",
+			"reply_time": "2026-09-30T09:41:15.460Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 378,
+			"repo": "workflow-core",
+			"session": "8ba075b5",
+			"round_time": "2026-10-10T04:29:38.052Z",
+			"reply_time": "2026-10-10T04:30:00.988Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 379,
+			"repo": "workflow-core",
+			"session": "8f26c43b",
+			"round_time": "2026-10-10T15:40:03.668Z",
+			"reply_time": "2026-10-10T15:47:05.384Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 380,
+			"repo": "workflow-core",
+			"session": "925025b2",
+			"round_time": "2026-10-10T02:41:51.384Z",
+			"reply_time": "2026-10-10T02:42:22.569Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 381,
+			"repo": "workflow-core",
+			"session": "93fffbce",
+			"round_time": "2026-10-11T13:24:52.602Z",
+			"reply_time": "2026-10-11T13:26:11.332Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 382,
+			"repo": "workflow-core",
+			"session": "99fc946f",
+			"round_time": "2026-10-09T15:38:38.808Z",
+			"reply_time": "2026-10-09T15:39:24.911Z",
+			"tools_before": 93,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 383,
+			"repo": "workflow-core",
+			"session": "99fc946f",
+			"round_time": "2026-10-09T15:43:00.508Z",
+			"reply_time": "2026-10-09T15:43:23.207Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 384,
+			"repo": "workflow-core",
+			"session": "9a823663",
+			"round_time": "2026-10-10T15:13:34.109Z",
+			"reply_time": "2026-10-10T15:28:48.920Z",
+			"tools_before": 173,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 385,
+			"repo": "workflow-core",
+			"session": "9a823663",
+			"round_time": "2026-10-10T15:30:29.146Z",
+			"reply_time": "2026-10-10T15:30:44.041Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 386,
+			"repo": "workflow-core",
+			"session": "9a823663",
+			"round_time": "2026-10-10T15:31:57.646Z",
+			"reply_time": "2026-10-10T15:33:09.028Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 387,
+			"repo": "workflow-core",
+			"session": "9a823663",
+			"round_time": "2026-10-10T15:34:00.333Z",
+			"reply_time": "2026-10-10T15:34:36.919Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 388,
+			"repo": "workflow-core",
+			"session": "9a823663",
+			"round_time": "2026-10-10T15:35:21.233Z",
+			"reply_time": "2026-10-10T15:35:56.935Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 389,
+			"repo": "workflow-core",
+			"session": "9a823663",
+			"round_time": "2026-10-10T15:38:12.695Z",
+			"reply_time": "2026-10-10T15:47:13.073Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 390,
+			"repo": "workflow-core",
+			"session": "9c8de42c",
+			"round_time": "2026-10-14T03:51:12.135Z",
+			"reply_time": "2026-10-14T04:07:14.722Z",
+			"tools_before": 65,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 391,
+			"repo": "workflow-core",
+			"session": "9e7b3139",
+			"round_time": "2026-10-10T00:41:03.382Z",
+			"reply_time": "2026-10-10T01:01:31.663Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 392,
+			"repo": "workflow-core",
+			"session": "a6ed0faf",
+			"round_time": "2026-10-14T03:01:42.552Z",
+			"reply_time": "2026-10-14T03:04:07.760Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 393,
+			"repo": "workflow-core",
+			"session": "aadec08b",
+			"round_time": "2026-10-14T07:54:30.199Z",
+			"reply_time": "2026-10-14T08:42:51.760Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 394,
+			"repo": "workflow-core",
+			"session": "ac12544c",
+			"round_time": "2026-10-10T00:07:12.962Z",
+			"reply_time": "2026-10-10T00:34:56.638Z",
+			"tools_before": 46,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 395,
+			"repo": "workflow-core",
+			"session": "add80287",
+			"round_time": "2026-10-14T07:24:23.399Z",
+			"reply_time": "2026-10-14T07:47:49.791Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 396,
+			"repo": "workflow-core",
+			"session": "aee7bf30",
+			"round_time": "2026-10-13T17:27:18.483Z",
+			"reply_time": "2026-10-14T01:08:03.459Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 397,
+			"repo": "workflow-core",
+			"session": "b0620e8d",
+			"round_time": "2026-10-09T16:59:44.047Z",
+			"reply_time": "2026-10-10T00:34:08.242Z",
+			"tools_before": 16,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 398,
+			"repo": "workflow-core",
+			"session": "b1c79be9",
+			"round_time": "2026-10-11T02:49:56.111Z",
+			"reply_time": "2026-10-11T02:54:23.379Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 399,
+			"repo": "workflow-core",
+			"session": "b22f8b2c",
+			"round_time": "2026-10-10T00:39:08.994Z",
+			"reply_time": "2026-10-10T01:00:01.667Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 400,
+			"repo": "workflow-core",
+			"session": "b44d3e82",
+			"round_time": "2026-10-13T15:37:47.654Z",
+			"reply_time": "2026-10-13T15:40:30.584Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 401,
+			"repo": "workflow-core",
+			"session": "b44d3e82",
+			"round_time": "2026-10-13T15:42:15.253Z",
+			"reply_time": "2026-10-13T15:44:30.111Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 402,
+			"repo": "workflow-core",
+			"session": "b5b1e008",
+			"round_time": "2026-09-30T11:58:37.958Z",
+			"reply_time": "2026-09-30T11:59:15.300Z",
+			"tools_before": 99,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 403,
+			"repo": "workflow-core",
+			"session": "b61b5915",
+			"round_time": "2026-10-11T08:16:30.527Z",
+			"reply_time": "2026-10-11T08:20:19.973Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 404,
+			"repo": "workflow-core",
+			"session": "b895cebb",
+			"round_time": "2026-10-14T01:50:05.792Z",
+			"reply_time": "2026-10-14T02:37:33.322Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 405,
+			"repo": "workflow-core",
+			"session": "bcb0c5c4",
+			"round_time": "2026-10-10T13:09:31.004Z",
+			"reply_time": "2026-10-10T13:10:17.302Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 406,
+			"repo": "workflow-core",
+			"session": "bcb0c5c4",
+			"round_time": "2026-10-10T13:23:33.041Z",
+			"reply_time": "2026-10-10T13:24:30.753Z",
+			"tools_before": 55,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 407,
+			"repo": "workflow-core",
+			"session": "c614df39",
+			"round_time": "2026-10-09T15:01:21.808Z",
+			"reply_time": "2026-10-09T15:06:51.872Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 408,
+			"repo": "workflow-core",
+			"session": "c8102aad",
+			"round_time": "2026-10-11T09:20:34.025Z",
+			"reply_time": "2026-10-11T09:21:10.676Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 409,
+			"repo": "workflow-core",
+			"session": "caa16fbe",
+			"round_time": "2026-10-10T02:16:13.673Z",
+			"reply_time": "2026-10-10T02:33:24.884Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 410,
+			"repo": "workflow-core",
+			"session": "ccb50dc6",
+			"round_time": "2026-10-11T09:22:34.379Z",
+			"reply_time": "2026-10-11T09:22:58.034Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 411,
+			"repo": "workflow-core",
+			"session": "ce1d27d1",
+			"round_time": "2026-10-11T11:42:14.658Z",
+			"reply_time": "2026-10-11T11:42:17.004Z",
+			"tools_before": 28,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 412,
+			"repo": "workflow-core",
+			"session": "cebde8e3",
+			"round_time": "2026-10-14T03:36:00.084Z",
+			"reply_time": "2026-10-14T03:38:58.636Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 413,
+			"repo": "workflow-core",
+			"session": "cf471fb9",
+			"round_time": "2026-10-13T16:12:18.985Z",
+			"reply_time": "2026-10-13T16:30:24.583Z",
+			"tools_before": 68,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 414,
+			"repo": "workflow-core",
+			"session": "d3c1feec",
+			"round_time": "2026-10-09T15:03:00.204Z",
+			"reply_time": "2026-10-09T15:07:22.250Z",
+			"tools_before": 33,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 415,
+			"repo": "workflow-core",
+			"session": "d794dcd3",
+			"round_time": "2026-10-09T15:47:47.070Z",
+			"reply_time": "2026-10-09T15:57:32.159Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 416,
+			"repo": "workflow-core",
+			"session": "d911b9a4",
+			"round_time": "2026-10-09T17:14:37.521Z",
+			"reply_time": "2026-10-10T00:34:45.660Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 417,
+			"repo": "workflow-core",
+			"session": "d911b9a4",
+			"round_time": "2026-10-10T00:37:47.529Z",
+			"reply_time": "2026-10-10T01:03:11.539Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 418,
+			"repo": "workflow-core",
+			"session": "da608fa8",
+			"round_time": "2026-10-14T02:57:34.608Z",
+			"reply_time": "2026-10-14T03:00:24.935Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 419,
+			"repo": "workflow-core",
+			"session": "e19909a3",
+			"round_time": "2026-10-10T02:39:49.486Z",
+			"reply_time": "2026-10-10T02:40:17.004Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 420,
+			"repo": "workflow-core",
+			"session": "e9d1674f",
+			"round_time": "2026-10-14T08:48:59.945Z",
+			"reply_time": "2026-10-14T08:52:07.251Z",
+			"tools_before": 181,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 421,
+			"repo": "workflow-core",
+			"session": "f12aab21",
+			"round_time": "2026-10-14T14:06:52.208Z",
+			"reply_time": "2026-10-14T14:07:02.724Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 422,
+			"repo": "workflow-core",
+			"session": "f3c42a22",
+			"round_time": "2026-10-10T06:54:02.854Z",
+			"reply_time": "2026-10-10T06:57:29.598Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 423,
+			"repo": "workflow-core",
+			"session": "f420daf2",
+			"round_time": "2026-10-14T03:23:22.833Z",
+			"reply_time": "2026-10-14T03:23:58.629Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 424,
+			"repo": "workflow-core",
+			"session": "f633ca76",
+			"round_time": "2026-10-10T06:38:10.041Z",
+			"reply_time": "2026-10-10T06:39:57.540Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 425,
+			"repo": "workflow-core",
+			"session": "fa7a9d03",
+			"round_time": "2026-09-30T12:22:37.221Z",
+			"reply_time": "2026-09-30T12:22:58.944Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 426,
+			"repo": "workflow-core",
+			"session": "fcc6ea09",
+			"round_time": "2026-10-13T17:26:09.223Z",
+			"reply_time": "2026-10-14T01:09:30.258Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 427,
+			"repo": "workflow-core",
+			"session": "fd2a56c4",
+			"round_time": "2026-10-14T03:25:18.723Z",
+			"reply_time": "2026-10-14T03:25:44.153Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 428,
+			"repo": "workflow-core",
+			"session": "fdaa9d87",
+			"round_time": "2026-10-14T01:48:58.090Z",
+			"reply_time": "2026-10-14T02:37:27.128Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 429,
+			"repo": "design-vault",
+			"session": "04d7c260",
+			"round_time": "2026-10-13T08:55:47.107Z",
+			"reply_time": "2026-10-13T08:56:27.654Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 430,
+			"repo": "design-vault",
+			"session": "04d7c260",
+			"round_time": "2026-10-13T08:58:24.551Z",
+			"reply_time": "2026-10-13T09:05:07.950Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 431,
+			"repo": "design-vault",
+			"session": "1b2846d9",
+			"round_time": "2026-09-30T14:20:29.181Z",
+			"reply_time": "2026-09-30T14:20:46.731Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 432,
+			"repo": "design-vault",
+			"session": "217302b2",
+			"round_time": "2026-09-30T15:14:48.361Z",
+			"reply_time": "2026-09-30T15:24:11.123Z",
+			"tools_before": 54,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 433,
+			"repo": "design-vault",
+			"session": "27360c8b",
+			"round_time": "2026-10-13T08:58:15.466Z",
+			"reply_time": "2026-10-13T09:03:59.702Z",
+			"tools_before": 31,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 434,
+			"repo": "design-vault",
+			"session": "27360c8b",
+			"round_time": "2026-10-13T09:05:27.484Z",
+			"reply_time": "2026-10-13T09:06:16.972Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 435,
+			"repo": "design-vault",
+			"session": "27360c8b",
+			"round_time": "2026-10-13T09:24:49.791Z",
+			"reply_time": "2026-10-13T09:25:37.828Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 436,
+			"repo": "design-vault",
+			"session": "69db1767",
+			"round_time": "2026-10-08T08:54:58.507Z",
+			"reply_time": "2026-10-08T09:00:35.519Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 437,
+			"repo": "design-vault",
+			"session": "69db1767",
+			"round_time": "2026-10-08T09:01:11.169Z",
+			"reply_time": "2026-10-08T09:01:11.486Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 438,
+			"repo": "design-vault",
+			"session": "69db1767",
+			"round_time": "2026-10-08T09:01:38.748Z",
+			"reply_time": "2026-10-08T09:02:13.991Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 439,
+			"repo": "design-vault",
+			"session": "69db1767",
+			"round_time": "2026-10-08T09:04:27.449Z",
+			"reply_time": "2026-10-08T09:08:05.582Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 440,
+			"repo": "design-vault",
+			"session": "69db1767",
+			"round_time": "2026-10-08T09:11:52.354Z",
+			"reply_time": "2026-10-08T09:12:59.538Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 441,
+			"repo": "design-vault",
+			"session": "69db1767",
+			"round_time": "2026-10-08T09:18:45.310Z",
+			"reply_time": "2026-10-08T09:22:09.041Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 442,
+			"repo": "design-vault",
+			"session": "69db1767",
+			"round_time": "2026-10-08T09:45:09.234Z",
+			"reply_time": "2026-10-08T09:46:37.032Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 443,
+			"repo": "design-vault",
+			"session": "6a3fe559",
+			"round_time": "2026-10-13T10:34:17.126Z",
+			"reply_time": "2026-10-13T10:35:05.977Z",
+			"tools_before": 92,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 444,
+			"repo": "design-vault",
+			"session": "afab86a8",
+			"round_time": "2026-09-30T16:18:07.335Z",
+			"reply_time": "2026-09-30T16:21:39.067Z",
+			"tools_before": 45,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 445,
+			"repo": "design-vault",
+			"session": "b40bfea0",
+			"round_time": "2026-09-30T13:55:31.764Z",
+			"reply_time": "2026-09-30T13:58:50.317Z",
+			"tools_before": 31,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 446,
+			"repo": "design-vault",
+			"session": "b40bfea0",
+			"round_time": "2026-09-30T14:03:13.964Z",
+			"reply_time": "2026-09-30T14:05:38.000Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 447,
+			"repo": "design-vault",
+			"session": "b40bfea0",
+			"round_time": "2026-09-30T14:06:26.813Z",
+			"reply_time": "2026-09-30T14:09:47.691Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 448,
+			"repo": "design-vault",
+			"session": "b40bfea0",
+			"round_time": "2026-09-30T14:10:12.760Z",
+			"reply_time": "2026-09-30T14:10:36.307Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 449,
+			"repo": "design-vault",
+			"session": "c6c8e00a",
+			"round_time": "2026-10-13T12:00:31.357Z",
+			"reply_time": "2026-10-13T12:02:35.504Z",
+			"tools_before": 35,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 450,
+			"repo": "design-vault",
+			"session": "c853681a",
+			"round_time": "2026-10-13T09:59:50.171Z",
+			"reply_time": "2026-10-13T10:03:04.874Z",
+			"tools_before": 84,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 451,
+			"repo": "design-vault",
+			"session": "c94e91bf",
+			"round_time": "2026-10-13T09:30:31.283Z",
+			"reply_time": "2026-10-13T09:43:21.515Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 452,
+			"repo": "design-vault",
+			"session": "cfbe105a",
+			"round_time": "2026-10-06T12:17:01.153Z",
+			"reply_time": "2026-10-06T15:36:21.293Z",
+			"tools_before": 119,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 453,
+			"repo": "design-vault",
+			"session": "cfc45a17",
+			"round_time": "2026-10-13T15:19:32.754Z",
+			"reply_time": "2026-10-13T15:19:58.288Z",
+			"tools_before": 97,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 454,
+			"repo": "design-vault",
+			"session": "d150363b",
+			"round_time": "2026-09-30T14:21:03.772Z",
+			"reply_time": "2026-09-30T14:21:50.177Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 455,
+			"repo": "design-vault",
+			"session": "e86237d6",
+			"round_time": "2026-10-13T08:53:37.159Z",
+			"reply_time": "2026-10-13T08:56:16.481Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 456,
+			"repo": "design-vault",
+			"session": "fb066af0",
+			"round_time": "2026-10-13T09:13:31.887Z",
+			"reply_time": "2026-10-13T09:16:03.737Z",
+			"tools_before": 60,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 457,
+			"repo": "fantasy-books",
+			"session": "255476e9",
+			"round_time": "2026-10-12T02:44:49.620Z",
+			"reply_time": "2026-10-12T02:45:34.082Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 458,
+			"repo": "fantasy-books",
+			"session": "306cceb9",
+			"round_time": "2026-10-11T16:57:37.473Z",
+			"reply_time": "2026-10-12T02:27:48.469Z",
+			"tools_before": 51,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 459,
+			"repo": "fantasy-books",
+			"session": "3213abb5",
+			"round_time": "2026-10-11T14:48:13.884Z",
+			"reply_time": "2026-10-11T14:54:20.455Z",
+			"tools_before": 40,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 460,
+			"repo": "fantasy-books",
+			"session": "3b7ac976",
+			"round_time": "2026-10-11T14:50:39.227Z",
+			"reply_time": "2026-10-11T14:54:30.704Z",
+			"tools_before": 32,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 461,
+			"repo": "fantasy-books",
+			"session": "79eafc0c",
+			"round_time": "2026-10-11T16:58:37.005Z",
+			"reply_time": "2026-10-12T02:28:02.468Z",
+			"tools_before": 54,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 462,
+			"repo": "fantasy-books",
+			"session": "8f4b4914",
+			"round_time": "2026-10-11T17:10:51.311Z",
+			"reply_time": "2026-10-12T02:28:10.647Z",
+			"tools_before": 77,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 463,
+			"repo": "fantasy-books",
+			"session": "8f840b3c",
+			"round_time": "2026-10-11T14:54:47.549Z",
+			"reply_time": "2026-10-11T14:55:04.190Z",
+			"tools_before": 81,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 464,
+			"repo": "fantasy-books",
+			"session": "b0b60107",
+			"round_time": "2026-10-11T17:14:22.450Z",
+			"reply_time": "2026-10-12T02:28:21.993Z",
+			"tools_before": 63,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 465,
+			"repo": "fantasy-books",
+			"session": "bde00c25",
+			"round_time": "2026-10-12T02:47:29.332Z",
+			"reply_time": "2026-10-12T02:54:17.772Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 466,
+			"repo": "health-and-fitness",
+			"session": "01c6d46f",
+			"round_time": "2026-10-12T05:51:36.331Z",
+			"reply_time": "2026-10-12T05:51:37.712Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 467,
+			"repo": "health-and-fitness",
+			"session": "01c6d46f",
+			"round_time": "2026-10-12T06:37:57.460Z",
+			"reply_time": "2026-10-12T06:38:08.514Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 468,
+			"repo": "health-and-fitness",
+			"session": "01c6d46f",
+			"round_time": "2026-10-12T08:46:15.740Z",
+			"reply_time": "2026-10-12T09:01:51.661Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 469,
+			"repo": "health-and-fitness",
+			"session": "01c6d46f",
+			"round_time": "2026-10-12T09:03:21.888Z",
+			"reply_time": "2026-10-12T09:07:58.422Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 470,
+			"repo": "health-and-fitness",
+			"session": "13088fe7",
+			"round_time": "2026-10-11T14:13:48.787Z",
+			"reply_time": "2026-10-11T14:18:20.586Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 471,
+			"repo": "health-and-fitness",
+			"session": "1a6d5957",
+			"round_time": "2026-10-13T05:32:34.046Z",
+			"reply_time": "2026-10-13T05:34:57.470Z",
+			"tools_before": 50,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 472,
+			"repo": "health-and-fitness",
+			"session": "545ba701",
+			"round_time": "2026-10-11T14:16:15.866Z",
+			"reply_time": "2026-10-11T14:22:55.812Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 473,
+			"repo": "health-and-fitness",
+			"session": "545ba701",
+			"round_time": "2026-10-11T14:24:00.065Z",
+			"reply_time": "2026-10-11T14:24:16.564Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 474,
+			"repo": "health-and-fitness",
+			"session": "559d8677",
+			"round_time": "2026-10-13T05:28:57.436Z",
+			"reply_time": "2026-10-13T05:32:07.101Z",
+			"tools_before": 41,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 475,
+			"repo": "health-and-fitness",
+			"session": "68cc43a5",
+			"round_time": "2026-10-11T14:13:53.760Z",
+			"reply_time": "2026-10-11T14:18:36.500Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 476,
+			"repo": "health-and-fitness",
+			"session": "832bfe6a",
+			"round_time": "2026-10-12T15:41:54.052Z",
+			"reply_time": "2026-10-12T15:46:11.478Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 477,
+			"repo": "health-and-fitness",
+			"session": "832bfe6a",
+			"round_time": "2026-10-12T15:47:18.123Z",
+			"reply_time": "2026-10-12T15:51:21.953Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 478,
+			"repo": "health-and-fitness",
+			"session": "832bfe6a",
+			"round_time": "2026-10-12T15:52:21.764Z",
+			"reply_time": "2026-10-12T15:52:31.367Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 479,
+			"repo": "health-and-fitness",
+			"session": "832bfe6a",
+			"round_time": "2026-10-12T15:54:37.712Z",
+			"reply_time": "2026-10-12T15:55:21.204Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 480,
+			"repo": "health-and-fitness",
+			"session": "832bfe6a",
+			"round_time": "2026-10-12T15:57:09.514Z",
+			"reply_time": "2026-10-12T15:57:28.735Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 481,
+			"repo": "health-and-fitness",
+			"session": "86e3a847",
+			"round_time": "2026-10-11T14:18:14.138Z",
+			"reply_time": "2026-10-11T14:21:03.131Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 482,
+			"repo": "health-and-fitness",
+			"session": "86e3a847",
+			"round_time": "2026-10-11T14:21:30.179Z",
+			"reply_time": "2026-10-11T14:23:41.396Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 483,
+			"repo": "health-and-fitness",
+			"session": "b1238ecc",
+			"round_time": "2026-10-11T14:15:38.607Z",
+			"reply_time": "2026-10-11T14:17:52.912Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 484,
+			"repo": "health-and-fitness",
+			"session": "c4d3d409",
+			"round_time": "2026-10-12T08:52:19.965Z",
+			"reply_time": "2026-10-12T08:58:20.558Z",
+			"tools_before": 56,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 485,
+			"repo": "health-and-fitness",
+			"session": "c4d3d409",
+			"round_time": "2026-10-12T09:43:38.325Z",
+			"reply_time": "2026-10-12T09:44:34.430Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 486,
+			"repo": "health-and-fitness",
+			"session": "c4d3d409",
+			"round_time": "2026-10-12T09:46:46.314Z",
+			"reply_time": "2026-10-12T10:13:06.279Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 487,
+			"repo": "health-and-fitness",
+			"session": "c4d3d409",
+			"round_time": "2026-10-12T14:42:02.743Z",
+			"reply_time": "2026-10-12T14:44:47.881Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 488,
+			"repo": "health-and-fitness",
+			"session": "c4d3d409",
+			"round_time": "2026-10-12T15:08:11.891Z",
+			"reply_time": "2026-10-12T15:09:01.650Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 489,
+			"repo": "health-and-fitness",
+			"session": "c4fd2932",
+			"round_time": "2026-10-12T16:03:15.575Z",
+			"reply_time": "2026-10-12T16:05:33.142Z",
+			"tools_before": 58,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 490,
+			"repo": "health-and-fitness",
+			"session": "c4fd2932",
+			"round_time": "2026-10-12T16:08:18.610Z",
+			"reply_time": "2026-10-12T16:23:18.962Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 491,
+			"repo": "health-and-fitness",
+			"session": "c4fd2932",
+			"round_time": "2026-10-12T16:24:27.142Z",
+			"reply_time": "2026-10-12T16:27:36.767Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 492,
+			"repo": "mmm-infra",
+			"session": "0f5ce7d9",
+			"round_time": "2026-10-09T04:10:19.312Z",
+			"reply_time": "2026-10-09T04:18:45.073Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 493,
+			"repo": "mmm-infra",
+			"session": "1bbd72cf",
+			"round_time": "2026-10-05T07:24:16.633Z",
+			"reply_time": "2026-10-05T07:27:42.488Z",
+			"tools_before": 14,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 494,
+			"repo": "mmm-infra",
+			"session": "1e02f7bc",
+			"round_time": "2026-10-09T03:21:23.475Z",
+			"reply_time": "2026-10-09T04:03:29.228Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 495,
+			"repo": "mmm-infra",
+			"session": "24feac31",
+			"round_time": "2026-10-04T12:58:54.473Z",
+			"reply_time": "2026-10-04T13:01:27.930Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 496,
+			"repo": "mmm-infra",
+			"session": "24feac31",
+			"round_time": "2026-10-04T13:03:11.748Z",
+			"reply_time": "2026-10-04T13:04:39.054Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 497,
+			"repo": "mmm-infra",
+			"session": "24feac31",
+			"round_time": "2026-10-04T13:05:13.806Z",
+			"reply_time": "2026-10-04T13:05:16.686Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 498,
+			"repo": "mmm-infra",
+			"session": "24feac31",
+			"round_time": "2026-10-04T13:07:29.191Z",
+			"reply_time": "2026-10-04T13:08:47.393Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 499,
+			"repo": "mmm-infra",
+			"session": "24feac31",
+			"round_time": "2026-10-04T13:09:46.962Z",
+			"reply_time": "2026-10-04T13:10:42.524Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 500,
+			"repo": "mmm-infra",
+			"session": "24feac31",
+			"round_time": "2026-10-04T13:12:16.075Z",
+			"reply_time": "2026-10-04T13:13:32.286Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 501,
+			"repo": "mmm-infra",
+			"session": "24feac31",
+			"round_time": "2026-10-04T13:14:21.042Z",
+			"reply_time": "2026-10-04T13:14:41.110Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 502,
+			"repo": "mmm-infra",
+			"session": "25002955",
+			"round_time": "2026-10-08T14:54:12.017Z",
+			"reply_time": "2026-10-08T15:00:55.926Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 503,
+			"repo": "mmm-infra",
+			"session": "25002955",
+			"round_time": "2026-10-08T15:02:17.135Z",
+			"reply_time": "2026-10-08T15:05:07.238Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 504,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T04:35:49.863Z",
+			"reply_time": "2026-10-09T04:36:30.221Z",
+			"tools_before": 2,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 505,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T04:37:43.887Z",
+			"reply_time": "2026-10-09T04:51:23.911Z",
+			"tools_before": 11,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 506,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T04:53:11.804Z",
+			"reply_time": "2026-10-09T05:10:27.015Z",
+			"tools_before": 8,
+			"close": true,
+			"class": "f"
+		},
+		{
+			"i": 507,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T05:13:34.845Z",
+			"reply_time": "2026-10-09T05:14:48.608Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 508,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T05:41:06.339Z",
+			"reply_time": "2026-10-09T05:41:07.380Z",
+			"tools_before": 71,
+			"close": true,
+			"class": "d"
+		},
+		{
+			"i": 509,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T05:42:25.189Z",
+			"reply_time": "2026-10-09T05:44:06.880Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "f"
+		},
+		{
+			"i": 510,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T05:44:37.691Z",
+			"reply_time": "2026-10-09T06:00:22.141Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "f"
+		},
+		{
+			"i": 511,
+			"repo": "mmm-infra",
+			"session": "2cfe57f4",
+			"round_time": "2026-10-09T06:17:05.323Z",
+			"reply_time": "2026-10-09T07:59:33.603Z",
+			"tools_before": 20,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 512,
+			"repo": "mmm-infra",
+			"session": "30b6bc74",
+			"round_time": "2026-10-05T08:22:43.422Z",
+			"reply_time": "2026-10-05T08:24:06.480Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 513,
+			"repo": "mmm-infra",
+			"session": "454739af",
+			"round_time": "2026-10-04T12:12:47.983Z",
+			"reply_time": "2026-10-04T12:16:59.055Z",
+			"tools_before": 17,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 514,
+			"repo": "mmm-infra",
+			"session": "454739af",
+			"round_time": "2026-10-04T12:18:19.257Z",
+			"reply_time": "2026-10-04T12:23:51.077Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 515,
+			"repo": "mmm-infra",
+			"session": "454739af",
+			"round_time": "2026-10-04T12:24:36.714Z",
+			"reply_time": "2026-10-04T12:24:37.002Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 516,
+			"repo": "mmm-infra",
+			"session": "50c3dea1",
+			"round_time": "2026-10-08T16:30:16.258Z",
+			"reply_time": "2026-10-08T16:31:45.250Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 517,
+			"repo": "mmm-infra",
+			"session": "50c3dea1",
+			"round_time": "2026-10-08T16:32:10.315Z",
+			"reply_time": "2026-10-08T16:32:18.696Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 518,
+			"repo": "mmm-infra",
+			"session": "6212cdfa",
+			"round_time": "2026-10-08T10:02:50.650Z",
+			"reply_time": "2026-10-08T10:02:55.542Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 519,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-05T10:57:06.645Z",
+			"reply_time": "2026-10-05T13:42:07.177Z",
+			"tools_before": 50,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 520,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-05T14:07:31.682Z",
+			"reply_time": "2026-10-05T14:12:48.027Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 521,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-05T14:16:58.538Z",
+			"reply_time": "2026-10-05T14:36:10.658Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 522,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-05T14:44:33.927Z",
+			"reply_time": "2026-10-05T14:44:48.045Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 523,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-05T15:14:17.766Z",
+			"reply_time": "2026-10-05T15:18:04.455Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "f"
+		},
+		{
+			"i": 524,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-05T20:55:28.344Z",
+			"reply_time": "2026-10-06T10:17:38.784Z",
+			"tools_before": 389,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 525,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-06T10:51:36.654Z",
+			"reply_time": "2026-10-06T10:53:42.243Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 526,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-06T14:27:27.889Z",
+			"reply_time": "2026-10-06T14:27:28.607Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 527,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-06T14:32:29.234Z",
+			"reply_time": "2026-10-06T14:32:29.782Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 528,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-06T14:40:48.569Z",
+			"reply_time": "2026-10-06T14:46:46.515Z",
+			"tools_before": 19,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 529,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-07T16:29:27.359Z",
+			"reply_time": "2026-10-08T02:39:33.017Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 530,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T02:41:54.853Z",
+			"reply_time": "2026-10-08T03:00:21.468Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 531,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T03:10:46.939Z",
+			"reply_time": "2026-10-08T03:19:56.706Z",
+			"tools_before": 27,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 532,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T03:20:12.804Z",
+			"reply_time": "2026-10-08T03:21:31.357Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 533,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T03:32:39.037Z",
+			"reply_time": "2026-10-08T03:51:44.520Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 534,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T04:01:47.083Z",
+			"reply_time": "2026-10-08T04:04:15.123Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 535,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T04:09:17.071Z",
+			"reply_time": "2026-10-08T04:11:01.010Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 536,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T04:13:13.798Z",
+			"reply_time": "2026-10-08T04:14:04.448Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 537,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T04:14:41.272Z",
+			"reply_time": "2026-10-08T04:17:41.067Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 538,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T05:36:17.827Z",
+			"reply_time": "2026-10-08T05:38:40.776Z",
+			"tools_before": 111,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 539,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T05:50:47.915Z",
+			"reply_time": "2026-10-08T05:51:43.668Z",
+			"tools_before": 63,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 540,
+			"repo": "mmm-infra",
+			"session": "631cff6d",
+			"round_time": "2026-10-08T06:00:57.737Z",
+			"reply_time": "2026-10-08T06:02:28.043Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 541,
+			"repo": "mmm-infra",
+			"session": "6a96e0c1",
+			"round_time": "2026-10-05T07:24:57.331Z",
+			"reply_time": "2026-10-05T07:29:35.610Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 542,
+			"repo": "mmm-infra",
+			"session": "6a96e0c1",
+			"round_time": "2026-10-05T07:30:34.594Z",
+			"reply_time": "2026-10-05T07:32:00.944Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 543,
+			"repo": "mmm-infra",
+			"session": "6a96e0c1",
+			"round_time": "2026-10-05T07:49:52.640Z",
+			"reply_time": "2026-10-05T07:56:52.321Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 544,
+			"repo": "mmm-infra",
+			"session": "6a96e0c1",
+			"round_time": "2026-10-05T07:57:54.726Z",
+			"reply_time": "2026-10-05T08:07:31.082Z",
+			"tools_before": 3,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 545,
+			"repo": "mmm-infra",
+			"session": "6a96e0c1",
+			"round_time": "2026-10-05T08:17:25.710Z",
+			"reply_time": "2026-10-05T08:18:01.519Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 546,
+			"repo": "mmm-infra",
+			"session": "7dc55449",
+			"round_time": "2026-10-08T14:52:02.730Z",
+			"reply_time": "2026-10-08T14:53:31.260Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 547,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-04T13:24:16.052Z",
+			"reply_time": "2026-10-04T13:25:48.383Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 548,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-04T13:26:27.537Z",
+			"reply_time": "2026-10-04T13:50:01.818Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 549,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-04T13:50:37.655Z",
+			"reply_time": "2026-10-04T13:55:28.682Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 550,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-04T13:55:46.911Z",
+			"reply_time": "2026-10-04T14:12:38.613Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 551,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-05T03:20:39.966Z",
+			"reply_time": "2026-10-05T03:23:32.413Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 552,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-05T03:33:36.058Z",
+			"reply_time": "2026-10-05T03:36:13.548Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 553,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-05T03:39:27.244Z",
+			"reply_time": "2026-10-05T05:05:19.588Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 554,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-05T05:06:44.561Z",
+			"reply_time": "2026-10-05T05:20:25.066Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 555,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-05T05:21:30.091Z",
+			"reply_time": "2026-10-05T05:22:25.404Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 556,
+			"repo": "mmm-infra",
+			"session": "8221599a",
+			"round_time": "2026-10-05T05:24:10.179Z",
+			"reply_time": "2026-10-05T05:45:58.330Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 557,
+			"repo": "mmm-infra",
+			"session": "8ad05cae",
+			"round_time": "2026-10-04T13:30:06.533Z",
+			"reply_time": "2026-10-04T13:49:32.382Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 558,
+			"repo": "mmm-infra",
+			"session": "8ad05cae",
+			"round_time": "2026-10-04T13:50:05.328Z",
+			"reply_time": "2026-10-04T13:53:05.127Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 559,
+			"repo": "mmm-infra",
+			"session": "8c2c8bf9",
+			"round_time": "2026-10-04T14:30:37.550Z",
+			"reply_time": "2026-10-05T03:20:15.375Z",
+			"tools_before": 60,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 560,
+			"repo": "mmm-infra",
+			"session": "8c2c8bf9",
+			"round_time": "2026-10-05T03:21:11.777Z",
+			"reply_time": "2026-10-05T04:56:23.003Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 561,
+			"repo": "mmm-infra",
+			"session": "8c2c8bf9",
+			"round_time": "2026-10-05T04:59:15.919Z",
+			"reply_time": "2026-10-05T05:02:16.808Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 562,
+			"repo": "mmm-infra",
+			"session": "a0d78fee",
+			"round_time": "2026-10-08T18:16:15.548Z",
+			"reply_time": "2026-10-09T01:41:15.202Z",
+			"tools_before": 177,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 563,
+			"repo": "mmm-infra",
+			"session": "a317fdb2",
+			"round_time": "2026-10-09T14:43:46.052Z",
+			"reply_time": "2026-10-09T14:47:51.037Z",
+			"tools_before": 346,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 564,
+			"repo": "mmm-infra",
+			"session": "a317fdb2",
+			"round_time": "2026-10-09T14:51:21.176Z",
+			"reply_time": "2026-10-09T15:04:45.590Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 565,
+			"repo": "mmm-infra",
+			"session": "a32b107d",
+			"round_time": "2026-10-09T09:31:59.717Z",
+			"reply_time": "2026-10-09T09:32:34.942Z",
+			"tools_before": 91,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 566,
+			"repo": "mmm-infra",
+			"session": "a6d9243a",
+			"round_time": "2026-10-09T01:52:16.613Z",
+			"reply_time": "2026-10-09T02:02:10.187Z",
+			"tools_before": 55,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 567,
+			"repo": "mmm-infra",
+			"session": "e0962be8",
+			"round_time": "2026-10-09T10:24:38.699Z",
+			"reply_time": "2026-10-09T10:25:20.822Z",
+			"tools_before": 50,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 568,
+			"repo": "mmm-infra",
+			"session": "ef9936fe",
+			"round_time": "2026-10-09T02:50:46.820Z",
+			"reply_time": "2026-10-09T02:51:29.474Z",
+			"tools_before": 29,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 569,
+			"repo": "mmm-infra",
+			"session": "ef9936fe",
+			"round_time": "2026-10-09T02:54:26.851Z",
+			"reply_time": "2026-10-09T03:09:00.536Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 570,
+			"repo": "mmm-infra",
+			"session": "f84e2526",
+			"round_time": "2026-10-09T02:47:30.888Z",
+			"reply_time": "2026-10-09T02:48:54.204Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 571,
+			"repo": "mmm-infra",
+			"session": "ff5a3c16",
+			"round_time": "2026-10-09T08:53:31.502Z",
+			"reply_time": "2026-10-09T08:54:03.356Z",
+			"tools_before": 94,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 572,
+			"repo": "mmm-infra",
+			"session": "ff5a3c16",
+			"round_time": "2026-10-09T09:08:16.667Z",
+			"reply_time": "2026-10-09T09:08:56.076Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 573,
+			"repo": "workflow-core",
+			"session": "02029295",
+			"round_time": "2026-10-08T12:14:24.282Z",
+			"reply_time": "2026-10-08T12:27:16.483Z",
+			"tools_before": 7,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 574,
+			"repo": "workflow-core",
+			"session": "02029295",
+			"round_time": "2026-10-08T12:36:31.964Z",
+			"reply_time": "2026-10-08T12:39:32.547Z",
+			"tools_before": 14,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 575,
+			"repo": "workflow-core",
+			"session": "02ce15d0",
+			"round_time": "2026-10-09T05:27:18.255Z",
+			"reply_time": "2026-10-09T05:31:54.845Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 576,
+			"repo": "workflow-core",
+			"session": "0321bf2b",
+			"round_time": "2026-10-08T08:53:24.091Z",
+			"reply_time": "2026-10-08T08:57:46.398Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 577,
+			"repo": "workflow-core",
+			"session": "0321bf2b",
+			"round_time": "2026-10-08T09:09:45.124Z",
+			"reply_time": "2026-10-08T09:15:40.871Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 578,
+			"repo": "workflow-core",
+			"session": "04443900",
+			"round_time": "2026-10-09T08:56:50.214Z",
+			"reply_time": "2026-10-09T08:59:02.504Z",
+			"tools_before": 81,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 579,
+			"repo": "workflow-core",
+			"session": "04ede1d8",
+			"round_time": "2026-10-09T04:40:23.855Z",
+			"reply_time": "2026-10-09T04:46:25.048Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 580,
+			"repo": "workflow-core",
+			"session": "079960b4",
+			"round_time": "2026-10-09T05:27:31.619Z",
+			"reply_time": "2026-10-09T05:32:02.094Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 581,
+			"repo": "workflow-core",
+			"session": "083d1f72",
+			"round_time": "2026-09-30T16:46:22.703Z",
+			"reply_time": "2026-09-30T16:48:03.412Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 582,
+			"repo": "workflow-core",
+			"session": "0925f8aa",
+			"round_time": "2026-10-09T10:18:26.141Z",
+			"reply_time": "2026-10-09T10:19:12.229Z",
+			"tools_before": 20,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 583,
+			"repo": "workflow-core",
+			"session": "09eaafc1",
+			"round_time": "2026-10-09T04:13:02.946Z",
+			"reply_time": "2026-10-09T04:19:19.221Z",
+			"tools_before": 20,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 584,
+			"repo": "workflow-core",
+			"session": "09eaafc1",
+			"round_time": "2026-10-09T04:24:06.371Z",
+			"reply_time": "2026-10-09T04:24:41.112Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 585,
+			"repo": "workflow-core",
+			"session": "09eaafc1",
+			"round_time": "2026-10-09T04:26:53.217Z",
+			"reply_time": "2026-10-09T04:34:22.401Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 586,
+			"repo": "workflow-core",
+			"session": "09f3c161",
+			"round_time": "2026-10-01T14:17:17.347Z",
+			"reply_time": "2026-10-01T14:21:51.661Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 587,
+			"repo": "workflow-core",
+			"session": "09f51120",
+			"round_time": "2026-10-09T14:43:41.361Z",
+			"reply_time": "2026-10-09T14:44:41.751Z",
+			"tools_before": 119,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 588,
+			"repo": "workflow-core",
+			"session": "0e250826",
+			"round_time": "2026-10-02T06:44:45.413Z",
+			"reply_time": "2026-10-02T06:46:16.754Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 589,
+			"repo": "workflow-core",
+			"session": "0e250826",
+			"round_time": "2026-10-02T06:47:05.466Z",
+			"reply_time": "2026-10-02T06:47:05.699Z",
+			"tools_before": 2,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 590,
+			"repo": "workflow-core",
+			"session": "0e250826",
+			"round_time": "2026-10-02T06:47:40.952Z",
+			"reply_time": "2026-10-02T06:48:11.318Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 591,
+			"repo": "workflow-core",
+			"session": "0e250826",
+			"round_time": "2026-10-04T12:12:51.427Z",
+			"reply_time": "2026-10-04T12:25:58.656Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 592,
+			"repo": "workflow-core",
+			"session": "0e250826",
+			"round_time": "2026-10-04T12:27:19.274Z",
+			"reply_time": "2026-10-04T12:27:38.200Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 593,
+			"repo": "workflow-core",
+			"session": "0e78dd3b",
+			"round_time": "2026-10-08T08:50:57.850Z",
+			"reply_time": "2026-10-08T08:56:09.674Z",
+			"tools_before": 12,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 594,
+			"repo": "workflow-core",
+			"session": "0e78dd3b",
+			"round_time": "2026-10-08T09:04:18.265Z",
+			"reply_time": "2026-10-08T09:05:17.731Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 595,
+			"repo": "workflow-core",
+			"session": "0eefb0e0",
+			"round_time": "2026-10-12T15:20:51.301Z",
+			"reply_time": "2026-10-12T15:29:59.347Z",
+			"tools_before": 59,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 596,
+			"repo": "workflow-core",
+			"session": "0f3ecfaf",
+			"round_time": "2026-10-13T10:13:09.269Z",
+			"reply_time": "2026-10-13T10:15:46.099Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 597,
+			"repo": "workflow-core",
+			"session": "0f440ab5",
+			"round_time": "2026-10-09T09:36:24.606Z",
+			"reply_time": "2026-10-09T09:36:50.902Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 598,
+			"repo": "workflow-core",
+			"session": "0f6d6d4b",
+			"round_time": "2026-10-08T12:53:05.070Z",
+			"reply_time": "2026-10-08T12:55:20.932Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 599,
+			"repo": "workflow-core",
+			"session": "0f8774a8",
+			"round_time": "2026-10-09T13:28:32.371Z",
+			"reply_time": "2026-10-09T13:29:28.473Z",
+			"tools_before": 38,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 600,
+			"repo": "workflow-core",
+			"session": "10be2c7a",
+			"round_time": "2026-10-01T12:53:28.091Z",
+			"reply_time": "2026-10-01T12:54:13.970Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 601,
+			"repo": "workflow-core",
+			"session": "10c94b02",
+			"round_time": "2026-10-13T06:09:49.751Z",
+			"reply_time": "2026-10-13T06:14:18.429Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 602,
+			"repo": "workflow-core",
+			"session": "124aa662",
+			"round_time": "2026-10-12T11:31:06.246Z",
+			"reply_time": "2026-10-12T11:31:18.162Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 603,
+			"repo": "workflow-core",
+			"session": "15fca7fc",
+			"round_time": "2026-10-13T02:10:54.192Z",
+			"reply_time": "2026-10-13T02:23:49.784Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 604,
+			"repo": "workflow-core",
+			"session": "17647f26",
+			"round_time": "2026-09-30T16:48:09.185Z",
+			"reply_time": "2026-09-30T16:49:33.011Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 605,
+			"repo": "workflow-core",
+			"session": "17647f26",
+			"round_time": "2026-09-30T16:53:33.840Z",
+			"reply_time": "2026-09-30T16:54:02.085Z",
+			"tools_before": 11,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 606,
+			"repo": "workflow-core",
+			"session": "190ab9ea",
+			"round_time": "2026-10-05T05:11:20.939Z",
+			"reply_time": "2026-10-05T05:17:45.826Z",
+			"tools_before": 14,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 607,
+			"repo": "workflow-core",
+			"session": "1924406b",
+			"round_time": "2026-10-08T17:57:12.278Z",
+			"reply_time": "2026-10-09T01:40:38.284Z",
+			"tools_before": 179,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 608,
+			"repo": "workflow-core",
+			"session": "1b237140",
+			"round_time": "2026-10-09T05:25:26.909Z",
+			"reply_time": "2026-10-09T05:31:35.867Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 609,
+			"repo": "workflow-core",
+			"session": "1b5c3c13",
+			"round_time": "2026-10-09T09:35:14.241Z",
+			"reply_time": "2026-10-09T09:35:29.888Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 610,
+			"repo": "workflow-core",
+			"session": "1b99be27",
+			"round_time": "2026-10-09T04:43:10.069Z",
+			"reply_time": "2026-10-09T04:47:38.299Z",
+			"tools_before": 30,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 611,
+			"repo": "workflow-core",
+			"session": "1b99be27",
+			"round_time": "2026-10-09T04:58:20.282Z",
+			"reply_time": "2026-10-09T05:12:25.198Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 612,
+			"repo": "workflow-core",
+			"session": "1b99be27",
+			"round_time": "2026-10-09T05:12:50.134Z",
+			"reply_time": "2026-10-09T05:13:12.765Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 613,
+			"repo": "workflow-core",
+			"session": "1ca7bff7",
+			"round_time": "2026-10-08T12:15:10.496Z",
+			"reply_time": "2026-10-08T12:23:27.813Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 614,
+			"repo": "workflow-core",
+			"session": "1e692297",
+			"round_time": "2026-09-30T16:25:02.254Z",
+			"reply_time": "2026-09-30T16:25:23.641Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 615,
+			"repo": "workflow-core",
+			"session": "1e7e67a4",
+			"round_time": "2026-10-12T15:59:02.076Z",
+			"reply_time": "2026-10-12T16:03:56.154Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 616,
+			"repo": "workflow-core",
+			"session": "2148ca69",
+			"round_time": "2026-10-12T06:51:15.906Z",
+			"reply_time": "2026-10-12T06:51:36.852Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 617,
+			"repo": "workflow-core",
+			"session": "217a385e",
+			"round_time": "2026-10-13T02:35:08.545Z",
+			"reply_time": "2026-10-13T02:36:11.912Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 618,
+			"repo": "workflow-core",
+			"session": "21d8545b",
+			"round_time": "2026-10-08T15:21:25.387Z",
+			"reply_time": "2026-10-08T15:24:05.344Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 619,
+			"repo": "workflow-core",
+			"session": "237f651c",
+			"round_time": "2026-10-12T13:21:38.135Z",
+			"reply_time": "2026-10-12T13:23:16.584Z",
+			"tools_before": 26,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 620,
+			"repo": "workflow-core",
+			"session": "2540156a",
+			"round_time": "2026-10-13T02:09:46.501Z",
+			"reply_time": "2026-10-13T02:24:22.210Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 621,
+			"repo": "workflow-core",
+			"session": "27215aff",
+			"round_time": "2026-10-05T01:51:34.756Z",
+			"reply_time": "2026-10-05T02:31:54.385Z",
+			"tools_before": 40,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 622,
+			"repo": "workflow-core",
+			"session": "27b7f741",
+			"round_time": "2026-10-13T02:08:18.896Z",
+			"reply_time": "2026-10-13T02:22:48.866Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 623,
+			"repo": "workflow-core",
+			"session": "27bbb227",
+			"round_time": "2026-10-13T02:10:40.329Z",
+			"reply_time": "2026-10-13T02:23:07.490Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 624,
+			"repo": "workflow-core",
+			"session": "28b1923c",
+			"round_time": "2026-10-12T08:50:11.718Z",
+			"reply_time": "2026-10-12T09:01:57.458Z",
+			"tools_before": 28,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 625,
+			"repo": "workflow-core",
+			"session": "28c7ac83",
+			"round_time": "2026-10-05T07:34:28.051Z",
+			"reply_time": "2026-10-05T07:35:00.088Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 626,
+			"repo": "workflow-core",
+			"session": "28c7ac83",
+			"round_time": "2026-10-05T07:37:28.863Z",
+			"reply_time": "2026-10-05T07:40:48.560Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 627,
+			"repo": "workflow-core",
+			"session": "28c7ac83",
+			"round_time": "2026-10-05T07:47:56.005Z",
+			"reply_time": "2026-10-05T07:50:04.424Z",
+			"tools_before": 36,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 628,
+			"repo": "workflow-core",
+			"session": "2b224e3a",
+			"round_time": "2026-10-01T13:16:17.058Z",
+			"reply_time": "2026-10-01T14:03:39.984Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 629,
+			"repo": "workflow-core",
+			"session": "2b58ba9a",
+			"round_time": "2026-10-08T11:00:48.345Z",
+			"reply_time": "2026-10-08T11:04:40.515Z",
+			"tools_before": 97,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 630,
+			"repo": "workflow-core",
+			"session": "2db65ffd",
+			"round_time": "2026-10-05T05:49:32.333Z",
+			"reply_time": "2026-10-05T05:50:37.117Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 631,
+			"repo": "workflow-core",
+			"session": "2e4455d1",
+			"round_time": "2026-10-08T11:13:31.387Z",
+			"reply_time": "2026-10-08T12:01:23.020Z",
+			"tools_before": 18,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 632,
+			"repo": "workflow-core",
+			"session": "2e8cde9d",
+			"round_time": "2026-10-08T12:16:33.493Z",
+			"reply_time": "2026-10-08T12:26:33.765Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 633,
+			"repo": "workflow-core",
+			"session": "2e8cde9d",
+			"round_time": "2026-10-08T12:27:08.721Z",
+			"reply_time": "2026-10-08T12:27:30.590Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 634,
+			"repo": "workflow-core",
+			"session": "2f4bc6c9",
+			"round_time": "2026-10-13T02:31:10.400Z",
+			"reply_time": "2026-10-13T02:33:13.578Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 635,
+			"repo": "workflow-core",
+			"session": "2f4bc6c9",
+			"round_time": "2026-10-13T02:35:16.226Z",
+			"reply_time": "2026-10-13T02:36:21.901Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 636,
+			"repo": "workflow-core",
+			"session": "2f9c00e9",
+			"round_time": "2026-10-12T09:59:32.977Z",
+			"reply_time": "2026-10-12T10:11:53.399Z",
+			"tools_before": 43,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 637,
+			"repo": "workflow-core",
+			"session": "32b4bc25",
+			"round_time": "2026-10-01T12:43:34.661Z",
+			"reply_time": "2026-10-01T12:45:24.353Z",
+			"tools_before": 15,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 638,
+			"repo": "workflow-core",
+			"session": "32b4bc25",
+			"round_time": "2026-10-01T12:46:08.995Z",
+			"reply_time": "2026-10-01T12:48:37.281Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 639,
+			"repo": "workflow-core",
+			"session": "34dcd545",
+			"round_time": "2026-10-05T03:18:58.267Z",
+			"reply_time": "2026-10-05T03:21:28.212Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 640,
+			"repo": "workflow-core",
+			"session": "38741375",
+			"round_time": "2026-10-08T11:11:23.723Z",
+			"reply_time": "2026-10-08T12:00:16.506Z",
+			"tools_before": 6,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 641,
+			"repo": "workflow-core",
+			"session": "3a908c35",
+			"round_time": "2026-10-09T10:39:24.677Z",
+			"reply_time": "2026-10-09T10:41:42.278Z",
+			"tools_before": 25,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 642,
+			"repo": "workflow-core",
+			"session": "3ad43df5",
+			"round_time": "2026-10-08T12:54:06.670Z",
+			"reply_time": "2026-10-08T12:55:27.662Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 643,
+			"repo": "workflow-core",
+			"session": "3bb87756",
+			"round_time": "2026-10-13T02:10:57.341Z",
+			"reply_time": "2026-10-13T02:25:17.425Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 644,
+			"repo": "workflow-core",
+			"session": "3bb87756",
+			"round_time": "2026-10-13T02:28:26.785Z",
+			"reply_time": "2026-10-13T02:33:05.885Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 645,
+			"repo": "workflow-core",
+			"session": "3f311d35",
+			"round_time": "2026-10-08T12:41:13.951Z",
+			"reply_time": "2026-10-08T12:42:35.832Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 646,
+			"repo": "workflow-core",
+			"session": "3f89f0fb",
+			"round_time": "2026-10-05T03:19:22.770Z",
+			"reply_time": "2026-10-05T03:22:28.080Z",
+			"tools_before": 25,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 647,
+			"repo": "workflow-core",
+			"session": "403036b4",
+			"round_time": "2026-10-12T06:09:39.454Z",
+			"reply_time": "2026-10-12T06:13:35.028Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 648,
+			"repo": "workflow-core",
+			"session": "405568ed",
+			"round_time": "2026-10-09T09:40:37.638Z",
+			"reply_time": "2026-10-09T09:42:38.377Z",
+			"tools_before": 30,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 649,
+			"repo": "workflow-core",
+			"session": "405568ed",
+			"round_time": "2026-10-09T10:05:37.981Z",
+			"reply_time": "2026-10-09T10:07:53.186Z",
+			"tools_before": 16,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 650,
+			"repo": "workflow-core",
+			"session": "409398fd",
+			"round_time": "2026-10-08T12:16:07.065Z",
+			"reply_time": "2026-10-08T12:23:57.292Z",
+			"tools_before": 9,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 651,
+			"repo": "workflow-core",
+			"session": "409398fd",
+			"round_time": "2026-10-08T12:24:55.792Z",
+			"reply_time": "2026-10-08T12:25:54.841Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 652,
+			"repo": "workflow-core",
+			"session": "40c999cd",
+			"round_time": "2026-10-08T16:52:13.408Z",
+			"reply_time": "2026-10-09T01:40:32.322Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 653,
+			"repo": "workflow-core",
+			"session": "44b98a85",
+			"round_time": "2026-10-05T14:30:17.671Z",
+			"reply_time": "2026-10-05T14:38:05.609Z",
+			"tools_before": 82,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 654,
+			"repo": "workflow-core",
+			"session": "45a4993f",
+			"round_time": "2026-10-09T04:15:39.762Z",
+			"reply_time": "2026-10-09T04:19:50.749Z",
+			"tools_before": 22,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 655,
+			"repo": "workflow-core",
+			"session": "45b71dcf",
+			"round_time": "2026-10-08T07:26:48.593Z",
+			"reply_time": "2026-10-08T07:32:20.674Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 656,
+			"repo": "workflow-core",
+			"session": "48637524",
+			"round_time": "2026-10-09T04:43:02.599Z",
+			"reply_time": "2026-10-09T04:46:32.707Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 657,
+			"repo": "workflow-core",
+			"session": "488e187d",
+			"round_time": "2026-10-09T13:17:50.535Z",
+			"reply_time": "2026-10-09T13:19:24.907Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 658,
+			"repo": "workflow-core",
+			"session": "4a745624",
+			"round_time": "2026-10-13T10:43:19.459Z",
+			"reply_time": "2026-10-13T10:43:34.028Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 659,
+			"repo": "workflow-core",
+			"session": "4b5c3a39",
+			"round_time": "2026-10-01T13:16:05.807Z",
+			"reply_time": "2026-10-01T14:03:31.456Z",
+			"tools_before": 27,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 660,
+			"repo": "workflow-core",
+			"session": "4c469b32",
+			"round_time": "2026-10-13T06:48:01.717Z",
+			"reply_time": "2026-10-13T06:51:13.054Z",
+			"tools_before": 98,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 661,
+			"repo": "workflow-core",
+			"session": "4e5d56ce",
+			"round_time": "2026-10-09T05:27:12.871Z",
+			"reply_time": "2026-10-09T05:31:41.179Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 662,
+			"repo": "workflow-core",
+			"session": "4e69fc9f",
+			"round_time": "2026-10-09T05:57:46.093Z",
+			"reply_time": "2026-10-09T06:16:39.224Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 663,
+			"repo": "workflow-core",
+			"session": "4f8d4af7",
+			"round_time": "2026-10-09T11:47:50.991Z",
+			"reply_time": "2026-10-09T12:03:02.086Z",
+			"tools_before": 127,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 664,
+			"repo": "workflow-core",
+			"session": "51e2cabc",
+			"round_time": "2026-09-30T14:24:50.403Z",
+			"reply_time": "2026-09-30T14:29:05.807Z",
+			"tools_before": 76,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 665,
+			"repo": "workflow-core",
+			"session": "530be3cc",
+			"round_time": "2026-10-08T12:56:01.362Z",
+			"reply_time": "2026-10-08T12:59:22.669Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 666,
+			"repo": "workflow-core",
+			"session": "536f7f61",
+			"round_time": "2026-10-12T02:36:46.547Z",
+			"reply_time": "2026-10-12T02:37:05.053Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 667,
+			"repo": "workflow-core",
+			"session": "568d1ceb",
+			"round_time": "2026-10-12T08:09:17.117Z",
+			"reply_time": "2026-10-12T08:21:01.813Z",
+			"tools_before": 180,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 668,
+			"repo": "workflow-core",
+			"session": "56fc7d68",
+			"round_time": "2026-10-08T15:04:33.757Z",
+			"reply_time": "2026-10-08T15:05:36.273Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 669,
+			"repo": "workflow-core",
+			"session": "59269bec",
+			"round_time": "2026-10-05T01:43:28.257Z",
+			"reply_time": "2026-10-05T02:31:47.086Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 670,
+			"repo": "workflow-core",
+			"session": "5af1389a",
+			"round_time": "2026-10-09T09:35:04.494Z",
+			"reply_time": "2026-10-09T09:35:24.653Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 671,
+			"repo": "workflow-core",
+			"session": "5b1a1764",
+			"round_time": "2026-10-12T14:53:54.999Z",
+			"reply_time": "2026-10-12T15:02:32.772Z",
+			"tools_before": 33,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 672,
+			"repo": "workflow-core",
+			"session": "5c635a8d",
+			"round_time": "2026-10-12T15:17:54.724Z",
+			"reply_time": "2026-10-12T15:32:10.299Z",
+			"tools_before": 29,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 673,
+			"repo": "workflow-core",
+			"session": "5e6470bc",
+			"round_time": "2026-10-08T12:15:35.028Z",
+			"reply_time": "2026-10-08T12:24:10.038Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 674,
+			"repo": "workflow-core",
+			"session": "5f43bfc6",
+			"round_time": "2026-10-09T02:13:17.902Z",
+			"reply_time": "2026-10-09T02:19:30.346Z",
+			"tools_before": 35,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 675,
+			"repo": "workflow-core",
+			"session": "633f89f8",
+			"round_time": "2026-10-12T14:50:31.262Z",
+			"reply_time": "2026-10-12T15:02:45.391Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 676,
+			"repo": "workflow-core",
+			"session": "6383bfb0",
+			"round_time": "2026-10-12T11:26:00.970Z",
+			"reply_time": "2026-10-12T11:26:17.450Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 677,
+			"repo": "workflow-core",
+			"session": "6383bfb0",
+			"round_time": "2026-10-12T11:32:30.144Z",
+			"reply_time": "2026-10-12T11:34:18.831Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 678,
+			"repo": "workflow-core",
+			"session": "6383bfb0",
+			"round_time": "2026-10-12T11:40:49.187Z",
+			"reply_time": "2026-10-12T11:41:07.210Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 679,
+			"repo": "workflow-core",
+			"session": "658dc7fd",
+			"round_time": "2026-10-09T05:23:47.368Z",
+			"reply_time": "2026-10-09T05:31:22.200Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 680,
+			"repo": "workflow-core",
+			"session": "66786dbe",
+			"round_time": "2026-10-09T13:30:38.498Z",
+			"reply_time": "2026-10-09T13:31:09.251Z",
+			"tools_before": 52,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 681,
+			"repo": "workflow-core",
+			"session": "6679caa7",
+			"round_time": "2026-10-08T12:40:30.084Z",
+			"reply_time": "2026-10-08T12:43:05.675Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 682,
+			"repo": "workflow-core",
+			"session": "6679caa7",
+			"round_time": "2026-10-08T12:45:53.131Z",
+			"reply_time": "2026-10-08T12:46:19.240Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 683,
+			"repo": "workflow-core",
+			"session": "668c197f",
+			"round_time": "2026-10-05T05:08:15.635Z",
+			"reply_time": "2026-10-05T05:17:38.027Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 684,
+			"repo": "workflow-core",
+			"session": "66a6551e",
+			"round_time": "2026-10-09T09:37:45.740Z",
+			"reply_time": "2026-10-09T09:40:13.885Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 685,
+			"repo": "workflow-core",
+			"session": "66bbcb52",
+			"round_time": "2026-10-06T11:00:02.069Z",
+			"reply_time": "2026-10-06T15:36:14.420Z",
+			"tools_before": 47,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 686,
+			"repo": "workflow-core",
+			"session": "67f4b2e7",
+			"round_time": "2026-10-12T06:28:52.918Z",
+			"reply_time": "2026-10-12T06:31:22.443Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 687,
+			"repo": "workflow-core",
+			"session": "6852b390",
+			"round_time": "2026-10-13T02:10:38.687Z",
+			"reply_time": "2026-10-13T02:22:58.536Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 688,
+			"repo": "workflow-core",
+			"session": "69aaff99",
+			"round_time": "2026-10-12T15:59:25.111Z",
+			"reply_time": "2026-10-12T16:03:20.680Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 689,
+			"repo": "workflow-core",
+			"session": "69aaff99",
+			"round_time": "2026-10-12T16:04:49.073Z",
+			"reply_time": "2026-10-12T16:05:49.276Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 690,
+			"repo": "workflow-core",
+			"session": "6af1c0a0",
+			"round_time": "2026-10-09T12:08:37.792Z",
+			"reply_time": "2026-10-09T12:08:52.474Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 691,
+			"repo": "workflow-core",
+			"session": "6b38a5db",
+			"round_time": "2026-10-12T04:41:22.171Z",
+			"reply_time": "2026-10-12T04:56:48.042Z",
+			"tools_before": 38,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 692,
+			"repo": "workflow-core",
+			"session": "6b38a5db",
+			"round_time": "2026-10-12T04:58:21.222Z",
+			"reply_time": "2026-10-12T05:01:30.924Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 693,
+			"repo": "workflow-core",
+			"session": "6b38a5db",
+			"round_time": "2026-10-12T05:05:13.965Z",
+			"reply_time": "2026-10-12T05:07:29.272Z",
+			"tools_before": 8,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 694,
+			"repo": "workflow-core",
+			"session": "6b38a5db",
+			"round_time": "2026-10-12T05:08:23.124Z",
+			"reply_time": "2026-10-12T05:13:21.591Z",
+			"tools_before": 4,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 695,
+			"repo": "workflow-core",
+			"session": "6b38a5db",
+			"round_time": "2026-10-12T05:14:13.548Z",
+			"reply_time": "2026-10-12T05:14:23.757Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 696,
+			"repo": "workflow-core",
+			"session": "6b6e6106",
+			"round_time": "2026-10-04T13:53:08.870Z",
+			"reply_time": "2026-10-04T13:54:12.462Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 697,
+			"repo": "workflow-core",
+			"session": "6b6e6106",
+			"round_time": "2026-10-04T13:54:20.248Z",
+			"reply_time": "2026-10-04T13:55:08.622Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 698,
+			"repo": "workflow-core",
+			"session": "6bb0d334",
+			"round_time": "2026-10-12T09:54:55.919Z",
+			"reply_time": "2026-10-12T10:11:59.276Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 699,
+			"repo": "workflow-core",
+			"session": "6d0a4e09",
+			"round_time": "2026-10-09T09:35:32.179Z",
+			"reply_time": "2026-10-09T09:36:07.695Z",
+			"tools_before": 9,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 700,
+			"repo": "workflow-core",
+			"session": "6d0a4e09",
+			"round_time": "2026-10-09T09:41:53.430Z",
+			"reply_time": "2026-10-09T09:42:52.701Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 701,
+			"repo": "workflow-core",
+			"session": "6d18eee0",
+			"round_time": "2026-10-12T11:13:04.028Z",
+			"reply_time": "2026-10-12T11:13:33.840Z",
+			"tools_before": 124,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 702,
+			"repo": "workflow-core",
+			"session": "6d3cf14b",
+			"round_time": "2026-10-06T15:56:50.541Z",
+			"reply_time": "2026-10-07T14:40:50.040Z",
+			"tools_before": 47,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 703,
+			"repo": "workflow-core",
+			"session": "6d7f7f7e",
+			"round_time": "2026-10-08T13:09:00.409Z",
+			"reply_time": "2026-10-08T13:20:12.259Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 704,
+			"repo": "workflow-core",
+			"session": "6f1c1420",
+			"round_time": "2026-10-12T15:58:23.575Z",
+			"reply_time": "2026-10-12T16:03:37.211Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 705,
+			"repo": "workflow-core",
+			"session": "6f307daf",
+			"round_time": "2026-10-08T10:35:52.370Z",
+			"reply_time": "2026-10-08T10:40:47.432Z",
+			"tools_before": 9,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 706,
+			"repo": "workflow-core",
+			"session": "6f307daf",
+			"round_time": "2026-10-08T10:41:36.064Z",
+			"reply_time": "2026-10-08T10:43:17.377Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 707,
+			"repo": "workflow-core",
+			"session": "6f307daf",
+			"round_time": "2026-10-08T10:43:51.691Z",
+			"reply_time": "2026-10-08T10:44:47.357Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 708,
+			"repo": "workflow-core",
+			"session": "6f7ff95d",
+			"round_time": "2026-10-09T08:58:47.067Z",
+			"reply_time": "2026-10-09T08:59:32.911Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 709,
+			"repo": "workflow-core",
+			"session": "7087c850",
+			"round_time": "2026-10-09T13:06:16.105Z",
+			"reply_time": "2026-10-09T13:06:48.150Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 710,
+			"repo": "workflow-core",
+			"session": "7087c850",
+			"round_time": "2026-10-09T13:08:16.233Z",
+			"reply_time": "2026-10-09T13:09:23.579Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 711,
+			"repo": "workflow-core",
+			"session": "709ae259",
+			"round_time": "2026-10-09T03:39:14.034Z",
+			"reply_time": "2026-10-09T04:03:48.301Z",
+			"tools_before": 73,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 712,
+			"repo": "workflow-core",
+			"session": "709ae259",
+			"round_time": "2026-10-09T04:05:14.149Z",
+			"reply_time": "2026-10-09T04:18:16.519Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 713,
+			"repo": "workflow-core",
+			"session": "70d4e0d0",
+			"round_time": "2026-10-09T09:47:07.760Z",
+			"reply_time": "2026-10-09T10:03:29.501Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 714,
+			"repo": "workflow-core",
+			"session": "714605c1",
+			"round_time": "2026-10-04T14:13:28.626Z",
+			"reply_time": "2026-10-04T14:17:44.893Z",
+			"tools_before": 8,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 715,
+			"repo": "workflow-core",
+			"session": "714605c1",
+			"round_time": "2026-10-04T14:18:04.195Z",
+			"reply_time": "2026-10-04T14:19:12.794Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 716,
+			"repo": "workflow-core",
+			"session": "73c30520",
+			"round_time": "2026-10-09T02:37:35.947Z",
+			"reply_time": "2026-10-09T02:41:54.562Z",
+			"tools_before": 114,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 717,
+			"repo": "workflow-core",
+			"session": "73c30520",
+			"round_time": "2026-10-09T02:55:31.559Z",
+			"reply_time": "2026-10-09T03:11:40.354Z",
+			"tools_before": 11,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 718,
+			"repo": "workflow-core",
+			"session": "749b8184",
+			"round_time": "2026-09-30T16:48:08.194Z",
+			"reply_time": "2026-09-30T16:49:14.150Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 719,
+			"repo": "workflow-core",
+			"session": "759853aa",
+			"round_time": "2026-10-04T12:57:07.923Z",
+			"reply_time": "2026-10-04T12:57:31.340Z",
+			"tools_before": 17,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 720,
+			"repo": "workflow-core",
+			"session": "7be7f094",
+			"round_time": "2026-10-12T15:21:14.904Z",
+			"reply_time": "2026-10-12T15:31:16.865Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 721,
+			"repo": "workflow-core",
+			"session": "7be7f094",
+			"round_time": "2026-10-12T15:37:03.640Z",
+			"reply_time": "2026-10-12T15:37:27.600Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 722,
+			"repo": "workflow-core",
+			"session": "7c4807fc",
+			"round_time": "2026-10-12T06:10:47.570Z",
+			"reply_time": "2026-10-12T06:12:33.804Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 723,
+			"repo": "workflow-core",
+			"session": "7ce9c83d",
+			"round_time": "2026-10-13T10:17:47.951Z",
+			"reply_time": "2026-10-13T10:19:53.110Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 724,
+			"repo": "workflow-core",
+			"session": "7d100431",
+			"round_time": "2026-10-13T11:33:00.039Z",
+			"reply_time": "2026-10-13T11:48:12.068Z",
+			"tools_before": 27,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 725,
+			"repo": "workflow-core",
+			"session": "7d100431",
+			"round_time": "2026-10-13T11:56:35.300Z",
+			"reply_time": "2026-10-13T12:02:08.170Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 726,
+			"repo": "workflow-core",
+			"session": "820bc025",
+			"round_time": "2026-10-11T16:40:40.709Z",
+			"reply_time": "2026-10-12T02:27:43.656Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 727,
+			"repo": "workflow-core",
+			"session": "820bc025",
+			"round_time": "2026-10-12T02:32:26.330Z",
+			"reply_time": "2026-10-12T02:32:43.232Z",
+			"tools_before": 26,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 728,
+			"repo": "workflow-core",
+			"session": "82d7203b",
+			"round_time": "2026-09-30T14:34:11.649Z",
+			"reply_time": "2026-09-30T14:37:15.754Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 729,
+			"repo": "workflow-core",
+			"session": "849edb79",
+			"round_time": "2026-10-08T12:40:16.952Z",
+			"reply_time": "2026-10-08T12:41:47.867Z",
+			"tools_before": 9,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 730,
+			"repo": "workflow-core",
+			"session": "84be025c",
+			"round_time": "2026-10-12T06:21:12.961Z",
+			"reply_time": "2026-10-12T06:29:18.392Z",
+			"tools_before": 34,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 731,
+			"repo": "workflow-core",
+			"session": "84be025c",
+			"round_time": "2026-10-12T06:29:41.225Z",
+			"reply_time": "2026-10-12T06:30:49.417Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 732,
+			"repo": "workflow-core",
+			"session": "893dfc93",
+			"round_time": "2026-10-09T11:52:24.700Z",
+			"reply_time": "2026-10-09T12:02:38.897Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 733,
+			"repo": "workflow-core",
+			"session": "899f46de",
+			"round_time": "2026-10-05T03:22:18.861Z",
+			"reply_time": "2026-10-05T03:22:58.286Z",
+			"tools_before": 35,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 734,
+			"repo": "workflow-core",
+			"session": "899f46de",
+			"round_time": "2026-10-05T03:24:52.935Z",
+			"reply_time": "2026-10-05T03:37:26.679Z",
+			"tools_before": 6,
+			"close": true,
+			"class": "e"
+		},
+		{
+			"i": 735,
+			"repo": "workflow-core",
+			"session": "8a269a3a",
+			"round_time": "2026-10-09T09:45:04.910Z",
+			"reply_time": "2026-10-09T10:03:21.745Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 736,
+			"repo": "workflow-core",
+			"session": "8a6fbc8c",
+			"round_time": "2026-10-09T13:19:24.730Z",
+			"reply_time": "2026-10-09T13:20:16.003Z",
+			"tools_before": 23,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 737,
+			"repo": "workflow-core",
+			"session": "8aabdd22",
+			"round_time": "2026-09-30T16:48:11.925Z",
+			"reply_time": "2026-09-30T16:49:47.535Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 738,
+			"repo": "workflow-core",
+			"session": "8c66b77c",
+			"round_time": "2026-10-08T14:31:20.900Z",
+			"reply_time": "2026-10-08T14:32:43.014Z",
+			"tools_before": 14,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 739,
+			"repo": "workflow-core",
+			"session": "8c66b77c",
+			"round_time": "2026-10-08T14:38:49.606Z",
+			"reply_time": "2026-10-08T14:40:27.804Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 740,
+			"repo": "workflow-core",
+			"session": "8c66b77c",
+			"round_time": "2026-10-08T14:46:27.850Z",
+			"reply_time": "2026-10-08T14:46:35.329Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 741,
+			"repo": "workflow-core",
+			"session": "8c6d2d1a",
+			"round_time": "2026-10-08T13:09:17.608Z",
+			"reply_time": "2026-10-08T13:21:04.410Z",
+			"tools_before": 14,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 742,
+			"repo": "workflow-core",
+			"session": "8c6d2d1a",
+			"round_time": "2026-10-08T13:23:26.514Z",
+			"reply_time": "2026-10-08T13:27:32.596Z",
+			"tools_before": 5,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 743,
+			"repo": "workflow-core",
+			"session": "8c6d2d1a",
+			"round_time": "2026-10-08T13:30:13.134Z",
+			"reply_time": "2026-10-08T13:30:59.247Z",
+			"tools_before": 5,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 744,
+			"repo": "workflow-core",
+			"session": "8c6d2d1a",
+			"round_time": "2026-10-08T13:43:32.866Z",
+			"reply_time": "2026-10-08T13:44:30.696Z",
+			"tools_before": 7,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 745,
+			"repo": "workflow-core",
+			"session": "8fbff620",
+			"round_time": "2026-10-13T02:57:55.181Z",
+			"reply_time": "2026-10-13T02:58:16.311Z",
+			"tools_before": 44,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 746,
+			"repo": "workflow-core",
+			"session": "90c943cc",
+			"round_time": "2026-10-12T08:29:05.133Z",
+			"reply_time": "2026-10-12T08:32:03.967Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 747,
+			"repo": "workflow-core",
+			"session": "9121a28e",
+			"round_time": "2026-10-09T09:23:23.149Z",
+			"reply_time": "2026-10-09T09:27:34.874Z",
+			"tools_before": 4,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 748,
+			"repo": "workflow-core",
+			"session": "9121a28e",
+			"round_time": "2026-10-09T09:28:12.306Z",
+			"reply_time": "2026-10-09T09:29:50.747Z",
+			"tools_before": 1,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 749,
+			"repo": "workflow-core",
+			"session": "93fc8392",
+			"round_time": "2026-10-09T08:07:51.500Z",
+			"reply_time": "2026-10-09T08:20:59.935Z",
+			"tools_before": 16,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 750,
+			"repo": "workflow-core",
+			"session": "93fc8392",
+			"round_time": "2026-10-09T08:25:01.012Z",
+			"reply_time": "2026-10-09T08:29:51.873Z",
+			"tools_before": 10,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 751,
+			"repo": "workflow-core",
+			"session": "93fc8392",
+			"round_time": "2026-10-09T08:45:30.949Z",
+			"reply_time": "2026-10-09T08:50:44.678Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 752,
+			"repo": "workflow-core",
+			"session": "93fc8392",
+			"round_time": "2026-10-09T08:51:15.084Z",
+			"reply_time": "2026-10-09T08:52:13.771Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 753,
+			"repo": "workflow-core",
+			"session": "93fc8392",
+			"round_time": "2026-10-09T08:52:43.862Z",
+			"reply_time": "2026-10-09T08:53:05.939Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 754,
+			"repo": "workflow-core",
+			"session": "93fc8392",
+			"round_time": "2026-10-09T08:53:43.135Z",
+			"reply_time": "2026-10-09T08:53:47.727Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 755,
+			"repo": "workflow-core",
+			"session": "94f7f5d8",
+			"round_time": "2026-10-13T07:57:30.885Z",
+			"reply_time": "2026-10-13T08:00:11.521Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 756,
+			"repo": "workflow-core",
+			"session": "9890bdf3",
+			"round_time": "2026-10-13T02:36:52.125Z",
+			"reply_time": "2026-10-13T02:43:13.900Z",
+			"tools_before": 26,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 757,
+			"repo": "workflow-core",
+			"session": "9ea1ce9b",
+			"round_time": "2026-10-12T05:31:57.973Z",
+			"reply_time": "2026-10-12T05:40:04.577Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 758,
+			"repo": "workflow-core",
+			"session": "a0dab114",
+			"round_time": "2026-10-08T12:15:43.490Z",
+			"reply_time": "2026-10-08T12:25:48.949Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 759,
+			"repo": "workflow-core",
+			"session": "a0dab114",
+			"round_time": "2026-10-08T12:28:22.083Z",
+			"reply_time": "2026-10-08T12:30:52.962Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 760,
+			"repo": "workflow-core",
+			"session": "a2b7cf54",
+			"round_time": "2026-10-08T14:51:43.653Z",
+			"reply_time": "2026-10-08T14:52:53.654Z",
+			"tools_before": 11,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 761,
+			"repo": "workflow-core",
+			"session": "a2b7cf54",
+			"round_time": "2026-10-08T14:54:40.146Z",
+			"reply_time": "2026-10-08T14:55:08.927Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 762,
+			"repo": "workflow-core",
+			"session": "a383476b",
+			"round_time": "2026-10-13T02:34:43.148Z",
+			"reply_time": "2026-10-13T02:36:05.222Z",
+			"tools_before": 28,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 763,
+			"repo": "workflow-core",
+			"session": "a59ee958",
+			"round_time": "2026-10-13T07:57:55.556Z",
+			"reply_time": "2026-10-13T07:59:37.633Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 764,
+			"repo": "workflow-core",
+			"session": "a6414e8c",
+			"round_time": "2026-10-11T16:27:27.648Z",
+			"reply_time": "2026-10-11T16:34:48.337Z",
+			"tools_before": 18,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 765,
+			"repo": "workflow-core",
+			"session": "a6df4d60",
+			"round_time": "2026-10-09T08:58:09.658Z",
+			"reply_time": "2026-10-09T08:59:13.823Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 766,
+			"repo": "workflow-core",
+			"session": "a7a5c9a2",
+			"round_time": "2026-10-08T14:32:11.913Z",
+			"reply_time": "2026-10-08T14:33:03.391Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 767,
+			"repo": "workflow-core",
+			"session": "a8059f65",
+			"round_time": "2026-10-12T08:39:51.216Z",
+			"reply_time": "2026-10-12T08:40:29.378Z",
+			"tools_before": 52,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 768,
+			"repo": "workflow-core",
+			"session": "a88d9c4a",
+			"round_time": "2026-10-11T15:00:02.218Z",
+			"reply_time": "2026-10-11T15:08:50.906Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 769,
+			"repo": "workflow-core",
+			"session": "a8e3822d",
+			"round_time": "2026-10-08T15:20:42.129Z",
+			"reply_time": "2026-10-08T15:23:46.588Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 770,
+			"repo": "workflow-core",
+			"session": "a9815cc4",
+			"round_time": "2026-10-06T10:21:06.218Z",
+			"reply_time": "2026-10-06T10:21:55.387Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 771,
+			"repo": "workflow-core",
+			"session": "a9f70cc8",
+			"round_time": "2026-10-12T15:55:25.110Z",
+			"reply_time": "2026-10-12T15:56:38.733Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 772,
+			"repo": "workflow-core",
+			"session": "a9f70cc8",
+			"round_time": "2026-10-12T15:57:18.784Z",
+			"reply_time": "2026-10-12T15:57:50.757Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 773,
+			"repo": "workflow-core",
+			"session": "ae67d0cb",
+			"round_time": "2026-10-12T15:57:49.622Z",
+			"reply_time": "2026-10-12T15:58:02.789Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 774,
+			"repo": "workflow-core",
+			"session": "ae9c42bc",
+			"round_time": "2026-10-08T14:31:34.824Z",
+			"reply_time": "2026-10-08T14:31:44.458Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 775,
+			"repo": "workflow-core",
+			"session": "afa03c0e",
+			"round_time": "2026-10-08T12:40:02.184Z",
+			"reply_time": "2026-10-08T12:40:48.117Z",
+			"tools_before": 8,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 776,
+			"repo": "workflow-core",
+			"session": "afa03c0e",
+			"round_time": "2026-10-08T12:46:02.983Z",
+			"reply_time": "2026-10-08T12:46:13.282Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 777,
+			"repo": "workflow-core",
+			"session": "afe2f755",
+			"round_time": "2026-10-08T10:09:20.524Z",
+			"reply_time": "2026-10-08T10:09:38.485Z",
+			"tools_before": 107,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 778,
+			"repo": "workflow-core",
+			"session": "afe2f755",
+			"round_time": "2026-10-08T10:12:27.601Z",
+			"reply_time": "2026-10-08T10:12:58.055Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 779,
+			"repo": "workflow-core",
+			"session": "afe2f755",
+			"round_time": "2026-10-08T10:13:21.975Z",
+			"reply_time": "2026-10-08T10:13:27.194Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 780,
+			"repo": "workflow-core",
+			"session": "b3361a55",
+			"round_time": "2026-10-09T04:11:26.399Z",
+			"reply_time": "2026-10-09T04:18:35.597Z",
+			"tools_before": 9,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 781,
+			"repo": "workflow-core",
+			"session": "b5ab1734",
+			"round_time": "2026-10-07T14:51:18.310Z",
+			"reply_time": "2026-10-07T14:53:40.603Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 782,
+			"repo": "workflow-core",
+			"session": "b5ab1734",
+			"round_time": "2026-10-07T14:55:56.008Z",
+			"reply_time": "2026-10-07T15:20:55.292Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 783,
+			"repo": "workflow-core",
+			"session": "b5ab1734",
+			"round_time": "2026-10-07T15:23:46.750Z",
+			"reply_time": "2026-10-07T15:24:08.597Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 784,
+			"repo": "workflow-core",
+			"session": "b84971d7",
+			"round_time": "2026-10-05T03:21:22.234Z",
+			"reply_time": "2026-10-05T03:22:43.355Z",
+			"tools_before": 19,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 785,
+			"repo": "workflow-core",
+			"session": "b8a6ac2c",
+			"round_time": "2026-10-08T16:16:57.452Z",
+			"reply_time": "2026-10-08T16:17:16.471Z",
+			"tools_before": 1,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 786,
+			"repo": "workflow-core",
+			"session": "b91d8a9a",
+			"round_time": "2026-10-05T15:42:15.708Z",
+			"reply_time": "2026-10-06T10:17:23.788Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 787,
+			"repo": "workflow-core",
+			"session": "baeb1033",
+			"round_time": "2026-10-13T07:59:29.548Z",
+			"reply_time": "2026-10-13T07:59:43.759Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 788,
+			"repo": "workflow-core",
+			"session": "bb40c221",
+			"round_time": "2026-10-09T08:57:50.125Z",
+			"reply_time": "2026-10-09T08:59:07.521Z",
+			"tools_before": 13,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 789,
+			"repo": "workflow-core",
+			"session": "bba50ff8",
+			"round_time": "2026-10-09T05:28:26.098Z",
+			"reply_time": "2026-10-09T05:32:10.118Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 790,
+			"repo": "workflow-core",
+			"session": "bc575e38",
+			"round_time": "2026-10-08T14:46:58.505Z",
+			"reply_time": "2026-10-08T14:47:08.587Z",
+			"tools_before": 52,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 791,
+			"repo": "workflow-core",
+			"session": "bc978821",
+			"round_time": "2026-10-13T07:30:06.563Z",
+			"reply_time": "2026-10-13T07:32:09.052Z",
+			"tools_before": 191,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 792,
+			"repo": "workflow-core",
+			"session": "bf777b86",
+			"round_time": "2026-10-08T13:08:08.325Z",
+			"reply_time": "2026-10-08T13:19:39.495Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 793,
+			"repo": "workflow-core",
+			"session": "c06c6509",
+			"round_time": "2026-10-13T02:12:03.207Z",
+			"reply_time": "2026-10-13T02:23:37.197Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 794,
+			"repo": "workflow-core",
+			"session": "c1423d05",
+			"round_time": "2026-09-30T13:48:25.566Z",
+			"reply_time": "2026-09-30T13:49:08.064Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 795,
+			"repo": "workflow-core",
+			"session": "c1a640b0",
+			"round_time": "2026-10-12T14:34:58.558Z",
+			"reply_time": "2026-10-12T14:41:35.243Z",
+			"tools_before": 20,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 796,
+			"repo": "workflow-core",
+			"session": "c375d297",
+			"round_time": "2026-10-09T06:25:41.648Z",
+			"reply_time": "2026-10-09T07:58:31.926Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 797,
+			"repo": "workflow-core",
+			"session": "c375d297",
+			"round_time": "2026-10-09T08:00:31.766Z",
+			"reply_time": "2026-10-09T08:18:58.124Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 798,
+			"repo": "workflow-core",
+			"session": "c4ed267c",
+			"round_time": "2026-10-02T02:46:26.763Z",
+			"reply_time": "2026-10-02T03:25:46.438Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 799,
+			"repo": "workflow-core",
+			"session": "c4fcc626",
+			"round_time": "2026-10-12T05:19:43.436Z",
+			"reply_time": "2026-10-12T05:22:17.162Z",
+			"tools_before": 14,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 800,
+			"repo": "workflow-core",
+			"session": "c5e51dd7",
+			"round_time": "2026-10-09T05:01:36.530Z",
+			"reply_time": "2026-10-09T05:13:55.087Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "e"
+		},
+		{
+			"i": 801,
+			"repo": "workflow-core",
+			"session": "c69d185f",
+			"round_time": "2026-09-30T17:13:46.507Z",
+			"reply_time": "2026-10-01T00:09:58.024Z",
+			"tools_before": 66,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 802,
+			"repo": "workflow-core",
+			"session": "c7469e55",
+			"round_time": "2026-10-13T07:12:22.943Z",
+			"reply_time": "2026-10-13T07:13:52.390Z",
+			"tools_before": 34,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 803,
+			"repo": "workflow-core",
+			"session": "c7469e55",
+			"round_time": "2026-10-13T07:14:14.256Z",
+			"reply_time": "2026-10-13T07:15:54.479Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 804,
+			"repo": "workflow-core",
+			"session": "c917d00f",
+			"round_time": "2026-10-09T09:01:09.892Z",
+			"reply_time": "2026-10-09T09:14:48.018Z",
+			"tools_before": 21,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 805,
+			"repo": "workflow-core",
+			"session": "ccba3f95",
+			"round_time": "2026-10-08T16:33:12.926Z",
+			"reply_time": "2026-10-08T16:33:34.889Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 806,
+			"repo": "workflow-core",
+			"session": "cda87ed9",
+			"round_time": "2026-10-08T13:00:05.846Z",
+			"reply_time": "2026-10-08T13:01:02.190Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 807,
+			"repo": "workflow-core",
+			"session": "cdaa16d5",
+			"round_time": "2026-10-09T08:03:37.556Z",
+			"reply_time": "2026-10-09T08:19:05.357Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 808,
+			"repo": "workflow-core",
+			"session": "cff33d5d",
+			"round_time": "2026-10-12T15:26:15.754Z",
+			"reply_time": "2026-10-12T15:33:01.280Z",
+			"tools_before": 24,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 809,
+			"repo": "workflow-core",
+			"session": "cff33d5d",
+			"round_time": "2026-10-12T15:34:36.295Z",
+			"reply_time": "2026-10-12T15:36:21.428Z",
+			"tools_before": 6,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 810,
+			"repo": "workflow-core",
+			"session": "d1fe6f8c",
+			"round_time": "2026-10-08T11:49:01.264Z",
+			"reply_time": "2026-10-08T12:01:57.273Z",
+			"tools_before": 50,
+			"close": true,
+			"class": "a"
+		},
+		{
+			"i": 811,
+			"repo": "workflow-core",
+			"session": "d2463dae",
+			"round_time": "2026-10-12T05:38:09.881Z",
+			"reply_time": "2026-10-12T05:40:26.924Z",
+			"tools_before": 27,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 812,
+			"repo": "workflow-core",
+			"session": "d3cc6fa9",
+			"round_time": "2026-10-02T04:10:54.239Z",
+			"reply_time": "2026-10-02T04:18:04.433Z",
+			"tools_before": 85,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 813,
+			"repo": "workflow-core",
+			"session": "d484e542",
+			"round_time": "2026-10-08T15:12:30.493Z",
+			"reply_time": "2026-10-08T15:14:12.390Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 814,
+			"repo": "workflow-core",
+			"session": "d693d8e2",
+			"round_time": "2026-10-08T13:13:26.689Z",
+			"reply_time": "2026-10-08T13:19:31.953Z",
+			"tools_before": 26,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 815,
+			"repo": "workflow-core",
+			"session": "d8a4a7aa",
+			"round_time": "2026-10-05T15:17:06.250Z",
+			"reply_time": "2026-10-05T15:27:37.610Z",
+			"tools_before": 5,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 816,
+			"repo": "workflow-core",
+			"session": "d8a4a7aa",
+			"round_time": "2026-10-05T15:30:01.273Z",
+			"reply_time": "2026-10-05T15:30:12.696Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 817,
+			"repo": "workflow-core",
+			"session": "da9ca144",
+			"round_time": "2026-10-09T05:02:24.020Z",
+			"reply_time": "2026-10-09T05:14:32.493Z",
+			"tools_before": 15,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 818,
+			"repo": "workflow-core",
+			"session": "db160de1",
+			"round_time": "2026-10-12T09:57:02.260Z",
+			"reply_time": "2026-10-12T10:12:18.303Z",
+			"tools_before": 31,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 819,
+			"repo": "workflow-core",
+			"session": "dbe848f2",
+			"round_time": "2026-10-08T11:12:09.157Z",
+			"reply_time": "2026-10-08T12:00:51.466Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 820,
+			"repo": "workflow-core",
+			"session": "dbe848f2",
+			"round_time": "2026-10-08T13:00:20.800Z",
+			"reply_time": "2026-10-08T13:01:08.261Z",
+			"tools_before": 47,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 821,
+			"repo": "workflow-core",
+			"session": "dc5f4297",
+			"round_time": "2026-10-11T15:31:22.635Z",
+			"reply_time": "2026-10-11T15:58:38.095Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 822,
+			"repo": "workflow-core",
+			"session": "dd4f7106",
+			"round_time": "2026-10-08T14:31:05.176Z",
+			"reply_time": "2026-10-08T14:31:37.502Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 823,
+			"repo": "workflow-core",
+			"session": "dda88bea",
+			"round_time": "2026-10-08T12:14:41.140Z",
+			"reply_time": "2026-10-08T12:23:10.410Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 824,
+			"repo": "workflow-core",
+			"session": "de182e2e",
+			"round_time": "2026-10-09T02:59:37.566Z",
+			"reply_time": "2026-10-09T03:12:35.695Z",
+			"tools_before": 9,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 825,
+			"repo": "workflow-core",
+			"session": "e2deb222",
+			"round_time": "2026-10-04T14:16:17.729Z",
+			"reply_time": "2026-10-04T14:18:06.667Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 826,
+			"repo": "workflow-core",
+			"session": "e397ca04",
+			"round_time": "2026-10-08T11:44:55.211Z",
+			"reply_time": "2026-10-08T12:01:32.897Z",
+			"tools_before": 46,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 827,
+			"repo": "workflow-core",
+			"session": "e55f3ea8",
+			"round_time": "2026-10-08T15:05:18.157Z",
+			"reply_time": "2026-10-08T15:06:24.640Z",
+			"tools_before": 12,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 828,
+			"repo": "workflow-core",
+			"session": "e55f3ea8",
+			"round_time": "2026-10-08T15:08:28.540Z",
+			"reply_time": "2026-10-08T15:09:58.295Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 829,
+			"repo": "workflow-core",
+			"session": "e67699d3",
+			"round_time": "2026-10-09T04:40:17.085Z",
+			"reply_time": "2026-10-09T04:46:19.938Z",
+			"tools_before": 11,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 830,
+			"repo": "workflow-core",
+			"session": "ecab61dd",
+			"round_time": "2026-10-08T15:04:26.169Z",
+			"reply_time": "2026-10-08T15:05:30.052Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 831,
+			"repo": "workflow-core",
+			"session": "ed986830",
+			"round_time": "2026-10-12T06:14:44.313Z",
+			"reply_time": "2026-10-12T06:29:59.335Z",
+			"tools_before": 31,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 832,
+			"repo": "workflow-core",
+			"session": "f16d21b9",
+			"round_time": "2026-10-12T10:21:23.332Z",
+			"reply_time": "2026-10-12T10:24:32.675Z",
+			"tools_before": 301,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 833,
+			"repo": "workflow-core",
+			"session": "f20f747b",
+			"round_time": "2026-10-09T09:39:36.307Z",
+			"reply_time": "2026-10-09T09:40:19.161Z",
+			"tools_before": 30,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 834,
+			"repo": "workflow-core",
+			"session": "f5300fb0",
+			"round_time": "2026-10-01T14:18:46.994Z",
+			"reply_time": "2026-10-01T14:22:03.570Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 835,
+			"repo": "workflow-core",
+			"session": "f5fd8fc4",
+			"round_time": "2026-10-08T13:12:26.836Z",
+			"reply_time": "2026-10-08T13:21:52.787Z",
+			"tools_before": 13,
+			"close": true,
+			"class": "b"
+		},
+		{
+			"i": 836,
+			"repo": "workflow-core",
+			"session": "f5fd8fc4",
+			"round_time": "2026-10-08T13:26:03.385Z",
+			"reply_time": "2026-10-08T13:26:57.872Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 837,
+			"repo": "workflow-core",
+			"session": "f637fbce",
+			"round_time": "2026-10-13T03:09:32.342Z",
+			"reply_time": "2026-10-13T03:20:42.517Z",
+			"tools_before": 16,
+			"close": false,
+			"class": "c"
+		},
+		{
+			"i": 838,
+			"repo": "workflow-core",
+			"session": "f637fbce",
+			"round_time": "2026-10-13T03:24:08.020Z",
+			"reply_time": "2026-10-13T03:26:27.347Z",
+			"tools_before": 12,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 839,
+			"repo": "workflow-core",
+			"session": "f637fbce",
+			"round_time": "2026-10-13T03:34:03.093Z",
+			"reply_time": "2026-10-13T03:36:33.065Z",
+			"tools_before": 22,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 840,
+			"repo": "workflow-core",
+			"session": "f680b1d2",
+			"round_time": "2026-10-08T08:49:56.403Z",
+			"reply_time": "2026-10-08T08:54:58.773Z",
+			"tools_before": 7,
+			"close": true,
+			"class": "c"
+		},
+		{
+			"i": 841,
+			"repo": "workflow-core",
+			"session": "f680b1d2",
+			"round_time": "2026-10-08T08:56:05.241Z",
+			"reply_time": "2026-10-08T08:58:37.448Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "b"
+		},
+		{
+			"i": 842,
+			"repo": "workflow-core",
+			"session": "f680b1d2",
+			"round_time": "2026-10-08T09:35:46.281Z",
+			"reply_time": "2026-10-08T09:36:07.084Z",
+			"tools_before": 10,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 843,
+			"repo": "workflow-core",
+			"session": "f878b050",
+			"round_time": "2026-10-09T13:19:36.170Z",
+			"reply_time": "2026-10-09T13:19:52.660Z",
+			"tools_before": 40,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 844,
+			"repo": "workflow-core",
+			"session": "fc26b004",
+			"round_time": "2026-10-01T00:12:35.770Z",
+			"reply_time": "2026-10-01T00:22:58.325Z",
+			"tools_before": 8,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 845,
+			"repo": "workflow-core",
+			"session": "fc26b004",
+			"round_time": "2026-10-01T00:23:53.191Z",
+			"reply_time": "2026-10-01T00:26:55.282Z",
+			"tools_before": 2,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 846,
+			"repo": "workflow-core",
+			"session": "fd4d2573",
+			"round_time": "2026-10-08T08:49:20.676Z",
+			"reply_time": "2026-10-08T08:50:18.992Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 847,
+			"repo": "workflow-core",
+			"session": "fd4d2573",
+			"round_time": "2026-10-08T08:51:19.900Z",
+			"reply_time": "2026-10-08T08:57:12.272Z",
+			"tools_before": 3,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 848,
+			"repo": "workflow-core",
+			"session": "fefc7c4f",
+			"round_time": "2026-10-13T07:02:59.056Z",
+			"reply_time": "2026-10-13T07:04:19.201Z",
+			"tools_before": 17,
+			"close": false,
+			"class": "d"
+		},
+		{
+			"i": 849,
+			"repo": "workflow-core",
+			"session": "fefc7c4f",
+			"round_time": "2026-10-13T07:04:33.616Z",
+			"reply_time": "2026-10-13T07:05:11.425Z",
+			"tools_before": 0,
+			"close": false,
+			"class": "a"
+		},
+		{
+			"i": 850,
+			"repo": "workflow-core",
+			"session": "ff10474c",
+			"round_time": "2026-10-13T07:03:35.149Z",
+			"reply_time": "2026-10-13T07:05:33.991Z",
+			"tools_before": 9,
+			"close": false,
+			"class": "a"
+		}
+	]
+}

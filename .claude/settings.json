@@ -1,0 +1,79 @@
+{
+  "autoCompactWindow": 320000,
+  "autoMemoryEnabled": false,
+  "outputStyle": "Core voice",
+  "env": {
+    "CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP": "1"
+  },
+  "skillOverrides": {
+    "architecture-scan": "name-only",
+    "business-correspondence": "name-only",
+    "capture-drain": "name-only",
+    "card-close": "name-only",
+    "code-review": "name-only",
+    "codebase-design": "name-only",
+    "concision-pass": "name-only",
+    "design-review": "name-only",
+    "diagnosing-bugs": "name-only",
+    "domain-modeling": "name-only",
+    "grilling": "name-only",
+    "interview-analysis": "name-only",
+    "pick-next": "name-only",
+    "prototype": "name-only",
+    "research": "name-only",
+    "retro-sweep": "name-only",
+    "roadmap-edit": "name-only",
+    "tdd": "name-only",
+    "writing-for-agents": "name-only"
+  },
+  "permissions": {
+    "deny": [
+      "Read(//home/lucmo/.ssh/**)",
+      "Read(//home/lucmo/.config/gh/**)",
+      "Read(//home/lucmo/.aws/**)",
+      "Read(//home/lucmo/.npmrc)",
+      "Read(//home/lucmo/.netrc)",
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./**/*.pem)",
+      "Bash(cat ~/.ssh/*)",
+      "Bash(cat ~/.config/gh/*)",
+      "Bash(cat .env*)",
+      "Bash(gh auth token*)"
+    ],
+    "allow": [
+      "Bash(node scripts/resolve-ticket.js *)",
+      "Bash(node scripts/record-delegated-decision.js *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/self-plugin-canary.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "worktree": {
+    "bgIsolation": "none"
+  },
+  "enabledPlugins": {
+    "github@claude-plugins-official": true,
+    "supabase@claude-plugins-official": false,
+    "security-guidance@claude-plugins-official": false,
+    "code-review@claude-plugins-official": true,
+    "pr-review-toolkit@claude-plugins-official": false,
+    "commit-commands@claude-plugins-official": true,
+    "skill-creator@claude-plugins-official": true,
+    "superpowers@claude-plugins-official": false,
+    "context7@claude-plugins-official": true,
+    "last30days@last30days-skill": true,
+    "impeccable@impeccable": false,
+    "wfc-self@wfc-self": true
+  }
+}

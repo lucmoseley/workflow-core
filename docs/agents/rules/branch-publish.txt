@@ -1,0 +1,26 @@
+WORK LANDS ON `main` DIRECTLY — NO BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST.
+
+Never `gh pr create`, never open a pull request through `gh api`, and never
+push a branch other than `main`.
+
+A worktree branch stays local and throwaway. Land its work on `main` from the
+worktree:
+
+  git -C <worktree> push origin HEAD:main   # rejected? main moved — pull --ff-only in the shared tree, merge it in the worktree, retry
+
+or fast-forward the shared tree onto it and push from there:
+
+  git merge --ff-only <branch>
+  git push origin main
+
+WHAT PASSES: `git push` from a tree on `main`, a push whose destination is
+`main`, a tag (`git push origin v1.2.3`, `--tags`), a deletion (`--delete`, or
+`:<branch>`), and a branch under `spike/` — a data branch kept off `main` on
+purpose and never merged (#174). A bare tag name passes only where the tag
+already exists locally when the push is judged, so one created earlier in the
+same command is read as a branch: push it as `refs/tags/<name>`, or create the
+tag in a separate call first (#1033).
+
+WHAT THIS DOES NOT CATCH: a push or pull request made outside Claude Code or in
+the GitHub web UI, one reached through a script, and a push steered by a
+`remote.<name>.push` refspec in git config. Its silence there is not leave.

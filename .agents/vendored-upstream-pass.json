@@ -1,0 +1,11 @@
+{
+	"ranOn": "2026-10-22",
+	"sha256": {
+		"skills-lock.json": "0198fe55d6cb19487592a3c90f1e515afd8eaa4c76f613fd0f364814808c74ef",
+		".claude/skills/THIRD-PARTY-NOTICES.md": "0b3cb11bc4f8397169c01d88fd76410bd311d5142b5b6048e030c8d3480a453d"
+	},
+	"licences": {
+		"emilkowalski/skills": "matches",
+		"mattpocock/skills": "matches"
+	}
+}

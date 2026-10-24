@@ -1,0 +1,11 @@
+THE COMMITTED PIN IS THE CONSENT TOKEN.
+
+`.claude/settings.json`'s `extraKnownMarketplaces[<marketplace>].source.ref` is
+the only thing that selects a version. An agent session may advance it as a
+deliberate act — told to update the repo, editing the line and committing it —
+because that is a decision being taken. An unattended advance — a schedule, a
+bot, a start-up hook writing the pin with nobody having decided to move it —
+is never permitted.
+
+Nothing enforces this (#231). The writer is a script no `PreToolUse` hook
+sees.

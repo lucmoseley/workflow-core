@@ -1,0 +1,118 @@
+{
+	"admit": {
+		"args": ["--launch"],
+		"meminfo": "MemTotal:       10240000 kB\nMemFree:          554820 kB\nMemAvailable:    6144000 kB\n",
+		"agents": [
+			{
+				"sessionId": "self-session-id",
+				"pid": 201,
+				"kind": "background",
+				"state": "working"
+			},
+			{
+				"sessionId": "other-working",
+				"pid": 301,
+				"kind": "background",
+				"state": "working"
+			},
+			{
+				"sessionId": "other-done",
+				"pid": 401,
+				"kind": "background",
+				"state": "done"
+			}
+		],
+		"ps": [
+			"500 172000 claude daemon run --origin transient",
+			"111 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/aaa.pty.sock",
+			"112 300000 claude bg-spare --bg-spare /tmp/x/spare/aaa.claim.sock",
+			"202 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/bbb.pty.sock",
+			"201 450000 claude bg-spare --bg-spare /tmp/x/spare/bbb.claim.sock",
+			"302 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/ccc.pty.sock",
+			"301 450000 claude bg-spare --bg-spare /tmp/x/spare/ccc.claim.sock",
+			"402 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/ddd.pty.sock",
+			"401 400000 claude bg-spare --bg-spare /tmp/x/spare/ddd.claim.sock",
+			"900 900000 node node_modules/.bin/vitest run",
+			"901 300000 node next dev",
+			"902 200000 /usr/bin/python3 pipeline.py",
+			"903 10000 /bin/bash"
+		],
+		"pss": {
+			"111": 60000,
+			"112": 200000,
+			"201": 400000,
+			"202": 80000,
+			"301": 420000,
+			"302": 80000,
+			"401": 350000,
+			"402": 70000,
+			"500": 150000
+		},
+		"reaped": [
+			{
+				"pss": 420
+			}
+		],
+		"expected": {
+			"status": 0,
+			"stdout": "available memory   6000 MB\nlive sessions      2 alongside this one\nsession draw       mean 600 MB, σ 200 MB — this repo's declared sessionMeanMb and sessionSigmaMb, its sessions' tools included\nlive draw          1 live session(s): mean 600 MB + 1.645 × σ 200 MB − 488 MB they already hold\npending spares     253 MB reserved for the 1 spare(s) this launch will warm, at 253 MB a pair, and as much again for each slot past the first (#2511)\nreclaimable        420 MB about to be reaped\nslots              4 — ADMIT: 4820 MB available after reserving 506 MB for the spare pool, credited 420 MB about to be reclaimed, holding 794 + 300 MB above earlyoom's kill line; the live sessions' draw and 4 more, with 3 more spare pair(s) at 253 MB, need 4007 MB at p95\ntest suites        3 concurrent\nallowance          weekly allowance reading is absent — admitting anyway; session allowance reading is absent — admitting anyway\n",
+			"stderr": ""
+		}
+	},
+	"hold": {
+		"args": [],
+		"meminfo": "MemTotal:       10240000 kB\nMemFree:          100000 kB\nMemAvailable:    1536000 kB\n",
+		"agents": [
+			{
+				"sessionId": "self-session-id",
+				"pid": 201,
+				"kind": "background",
+				"state": "working"
+			},
+			{
+				"sessionId": "other-working",
+				"pid": 301,
+				"kind": "background",
+				"state": "working"
+			}
+		],
+		"ps": [
+			"201 450000 claude bg-spare --bg-spare /tmp/x/spare/bbb.claim.sock",
+			"301 450000 claude bg-spare --bg-spare /tmp/x/spare/ccc.claim.sock"
+		],
+		"pss": {
+			"201": 400000,
+			"301": 420000
+		},
+		"reaped": [],
+		"expected": {
+			"status": 1,
+			"stdout": "available memory   1500 MB\nlive sessions      1 alongside this one\nsession draw       mean 600 MB, σ 200 MB — this repo's declared sessionMeanMb and sessionSigmaMb, its sessions' tools included\nlive draw          1 live session(s): mean 600 MB + 1.645 × σ 200 MB − 410 MB they already hold\nreclaimable        0 MB about to be reaped\nslots              0 — HOLD: 300 MB available after reserving 106 MB for the spare pool, holding 794 + 300 MB above earlyoom's kill line, under the 1256 MB the live sessions' draw and one more need at p95\ntest suites        0 concurrent (under the ~3650 MB three-suite gate)\nallowance          weekly allowance reading is absent — admitting anyway; session allowance reading is absent — admitting anyway\n",
+			"stderr": ""
+		}
+	},
+	"refused": {
+		"args": [],
+		"meminfo": "MemTotal:       10240000 kB\nMemFree:          100000 kB\n",
+		"agents": [
+			{
+				"sessionId": "self-session-id",
+				"pid": 201,
+				"kind": "background",
+				"state": "working"
+			}
+		],
+		"ps": [
+			"201 450000 claude bg-spare --bg-spare /tmp/x/spare/bbb.claim.sock"
+		],
+		"pss": {
+			"201": 400000
+		},
+		"reaped": [],
+		"expected": {
+			"status": 2,
+			"stdout": "",
+			"stderr": "ADMISSION REFUSED — memory unreadable: <dir>/meminfo carries no MemAvailable line\n  Start nothing on a guess: an over-admission freezes the machine.\n"
+		}
+	}
+}

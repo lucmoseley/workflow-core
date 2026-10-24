@@ -1,0 +1,9 @@
+The roles above are **states**. `kind:` says what an issue *is*. `/to-spec` and `/to-tickets` reach for the same single role for a spec and for its own tickets, so without `kind:` the two are indistinguishable.
+
+| Label | Meaning | Applied by |
+| ----- | ------- | ---------- |
+| `kind:spec` | A spec/PRD. A parent document, not a unit of work. | `/to-spec` |
+| `kind:ticket` | A unit of implementable work, broken out of a spec. | `/to-tickets` |
+| `kind:brief` | A hand-off ticket a many-destination map files per deliverable, awaiting its spec. Takes no `wayfinder:<type>` (#578). | `/wayfinder` |
+
+An issue may carry a category, a `takes:`, a `kind:` and a `waiting:`; none is an alias for another. Not every issue needs a `kind:` — a roadmap card's issue or a `wayfinder:*` ticket takes none.

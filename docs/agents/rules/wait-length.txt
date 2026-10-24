@@ -1,0 +1,21 @@
+A BASH WAIT OF MORE THAN 15 MINUTES IS BANNED (#1286, which ruled it; #1288).
+
+The command's sleeps summed, a counted loop's count × interval, or a `timeout`
+around an unmeasured sleep or loop, past 900 seconds, is refused, foreground or
+backgrounded.
+Long work is not a wait: a suite or build under its own `timeout`, `bg-run.sh
+run`, `watch-artefact.js` and `session-arbiter.js wait` all pass.
+
+Hand the work back instead of waiting for it:
+
+  1. Leave the ticket saying what it waits on — a `**Gated until:**` or
+     `**Gated on:**` line with its `**Gate basis:**`
+     (docs/agents/issue-tracker.md §Gating an issue).
+  2. Release what you hold: `gh issue edit <n> --remove-assignee @me`,
+     `node scripts/session-arbiter.js release-issue <n>`, and `release <path>`
+     for each file claim.
+  3. End on `result:` or `needs input:`, never `waiting:`.
+
+The guard reads literal durations only, and skips quoted text and heredocs
+not run by a shell. A wait it cannot see passes; the 15 minutes bind it all the
+same.

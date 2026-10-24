@@ -1,0 +1,15 @@
+EVERY `gh issue create` CARRIES A `takes:` LABEL — exactly one.
+
+The value names the command that opens the issue. Without one, /pick-next shows
+`none` in its TAKES column and nothing says who or what works it (mantahostels#437, mantahostels#442).
+
+If the disposition is genuinely not decided yet, that IS a value: `takes:triage`.
+There is no case where none of the seven applies.
+
+An issue you create for LATER is created unassigned, and it still carries a
+`takes:` value — the label routes it, the assignee only says who holds it now.
+
+WHAT NOTHING SEES: a create through the GitHub UI, through a wrapper, or through
+a `gh api` call whose fields cannot be read. The rule binds there too.
+
+The seven values and what each routes to: docs/agents/triage-labels.md §`takes:`.

@@ -1,0 +1,15 @@
+**On the two native endpoints below a false success is the ordinary failure.**
+
+- `POST …/dependencies/blocked_by` takes the blocker's numeric **database id**
+  (`--jq .id`), never the `#number` or `node_id`, and its response echoes the
+  child's number and title — which is not confirmation that the edge landed.
+- **Reading the canonical list back in the same chained command returns an empty
+  array.** Verify in a separate call a few seconds later, and never gate on
+  `issue_dependencies_summary.blocked_by`, which is stale in practice.
+- **Sub-issues cap twice, each refusal a 422, and the remedies differ.** At 7
+  layers, give the new issue the **same parent**. At 100 children, closed ones
+  counted, a peer does not help: re-root the closed history under an archival
+  container (mantahostels#1442) with `node scripts/archive-closed-children.js <map>` (#92),
+  linked under the map last. `scripts/link-sub-issue.sh <parent> <child>` makes the
+  ordinary link and reads a 422 naming an existing parent as success, so the
+  re-rooting takes the raw call with `-F replace_parent=true`.

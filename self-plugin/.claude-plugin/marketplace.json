@@ -1,0 +1,14 @@
+{
+	"name": "wfc-self",
+	"owner": { "name": "Luc Moseley" },
+	"metadata": {
+		"description": "Local marketplace that loads workflow-core's own guards in place, from this checkout."
+	},
+	"plugins": [
+		{
+			"name": "wfc-self",
+			"description": "workflow-core's own hook registration, read from self-plugin/hooks/hooks.json.",
+			"source": "./"
+		}
+	]
+}

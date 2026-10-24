@@ -1,0 +1,267 @@
+name: bisect
+
+# Names the commit that turned the suite red, by bisecting a range a human hands
+# it (mantahostels#947, on the attribution ruling at mantahostels#907).
+#
+# FIRED BY HAND, NEVER ON FAILURE. A bisect is only sound if the suite is
+# deterministic across the whole range, and nothing here has measured that. A
+# FLAKY OR ORDER-DEPENDENT TEST MAKES THIS WORKFLOW'S ANSWER WRONG, NOT MERELY
+# UNHELPFUL. Re-run it once and compare before believing it. The range to pass
+# comes from mantahostels#945's session-start report of a red scheduled run.
+#
+# ITS OWN FILE, deliberately (mantahostels#909): GitHub's idle auto-disable takes down a
+# whole workflow FILE, so folding this into a scheduled file would put the
+# manual escape hatch on that fuse.
+#
+# Not a re-run of the whole range per commit (mantahostels#947): ~$2.26 against
+# ~$0.15 to bisect the same 94 (sizing on mantahostels#947).
+on:
+  workflow_dispatch:
+    inputs:
+      bad:
+        description: "Known-bad sha. Defaults to the ref this runs on."
+        required: false
+        type: string
+      good:
+        description: "Known-good sha. Defaults to the last green scheduled-checks run."
+        required: false
+        type: string
+      # WHICH CHECKS DECIDE GOOD/BAD (mantahostels#967). The sweep calls two workflows and
+      # three jobs; a bisect judging on one job's checks when the red lives in
+      # another names the bad endpoint as the culprit and exits 0 (see the step
+      # script's header). Pick the set matching the job that actually went red.
+      checks:
+        description: "Which CI check set to judge a commit on."
+        required: false
+        default: lint-and-tests
+        type: choice
+        options:
+          - lint-and-tests
+          - python
+          - documents
+          - all
+
+jobs:
+  bisect:
+    name: Bisect
+    # The bisect follows the suite onto the public code repo (#1963): the
+    # tracker's copy would walk a history frozen at the switch, and read the
+    # default good sha from sweeps that do not run there.
+    if: ${{ github.repository == 'lucmoseley/workflow-core' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Resolving the default good sha reads this repo's own run history.
+      actions: read
+    steps:
+      # fetch-depth: 0 is not optional — bisect walks history, and the default
+      # shallow clone has none to walk.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # No `cache: npm` here, unlike ci.yml: the cache key is the lockfile at
+      # the checked-out commit, and this job deliberately visits many different
+      # lockfiles.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Resolve the endpoints
+        id: ends
+        env:
+          # Read through the environment rather than interpolated into the shell
+          # body: a `${{ inputs.x }}` inside `run:` is substituted before bash
+          # sees it, so a crafted input would execute here.
+          IN_BAD: ${{ inputs.bad }}
+          IN_GOOD: ${{ inputs.good }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          bad="$IN_BAD"
+          [ -n "$bad" ] || bad="$(git rev-parse HEAD)"
+
+          good="$IN_GOOD"
+          if [ -z "$good" ]; then
+            # The last scheduled sweep that came back green. Absent one — the
+            # repo is younger than the retention window, or nothing has passed —
+            # this stays empty.
+            good="$(gh run list --workflow scheduled-checks.yml --branch main \
+              --status success --limit 1 --json headSha --jq '.[0].headSha // empty')"
+            echo "Defaulted the good sha to the last green scheduled-checks run."
+          fi
+
+          if [ -z "$good" ]; then
+            echo "::error::No good sha given and no green scheduled-checks run to default to. Pass one." >&2
+            exit 1
+          fi
+
+          bad="$(git rev-parse --verify "${bad}^{commit}")"
+          good="$(git rev-parse --verify "${good}^{commit}")"
+
+          if [ "$good" = "$bad" ]; then
+            echo "::error::The good and bad shas are the same commit ($good). Nothing to bisect." >&2
+            exit 1
+          fi
+
+          # An unrelated good sha produces a search over a merge base nobody
+          # meant to name.
+          if ! git merge-base --is-ancestor "$good" "$bad"; then
+            echo "::error::$good is not an ancestor of $bad — the range is not a line of history." >&2
+            exit 1
+          fi
+
+          steps="$(git rev-list --count "${good}..${bad}")"
+          {
+            echo "good=$good"
+            echo "bad=$bad"
+            echo "commits=$steps"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Bisect
+        id: bisect
+        env:
+          GOOD: ${{ steps.ends.outputs.good }}
+          BAD: ${{ steps.ends.outputs.bad }}
+          # Read by the step script at every commit bisect visits: `git bisect
+          # run` hands each invocation this step's environment. Through the
+          # environment and never interpolated into the body below, for the
+          # reason the sha inputs give above.
+          BISECT_CHECK_SET: ${{ inputs.checks }}
+        run: |
+          set -uo pipefail
+
+          # Both setup commands are checked explicitly rather than under
+          # `set -e`, which would swallow the bisect's own non-zero exit below
+          # before PIPESTATUS is read. Unchecked, a failed cp leaves every step
+          # running `bash <missing>` and exiting 127 — which bisect reads as BAD,
+          # not as an abort, so it names the first commit in the range with full
+          # confidence. That is the failure this workflow's header warns about,
+          # arriving by a route nothing would report.
+          #
+          # Copied out of the worktree first: bisect checks out commits older
+          # than the script, where `scripts/bisect-step.sh` does not exist at
+          # all and every step would fail identically.
+          cp scripts/bisect-step.sh "$RUNNER_TEMP/bisect-step.sh" || {
+            echo "::error::Could not stage the bisect step script." >&2
+            exit 1
+          }
+
+          # PRE-FLIGHT THE BAD ENDPOINT (mantahostels#967, the ticket that added it). git
+          # never re-tests either endpoint — `git bisect start BAD GOOD` asserts
+          # BAD is bad — so a check set that cannot reproduce the red does NOT
+          # produce an inconclusive run. Every commit returns good, git names the
+          # bad endpoint as the first bad commit and exits 0, and since the bad
+          # sha defaults to the ref this runs on, the reported culprit is the tip
+          # of main. Running the step once against the known-bad sha is what
+          # turns that silent misattribution into a loud abort.
+          #
+          # Only 1..124 proves the set reproduces the red. Everything else aborts
+          # rather than bisecting against an endpoint that was never shown bad.
+          origin_head="$(git rev-parse HEAD)"
+          git checkout --quiet --detach "$BAD" || {
+            echo "::error::Could not check out the bad sha $BAD to pre-flight it." >&2
+            exit 1
+          }
+          preflight=0
+          bash "$RUNNER_TEMP/bisect-step.sh" || preflight=$?
+          git checkout --quiet --detach "$origin_head" || true
+
+          if [ "$preflight" -eq 0 ]; then
+            echo "preflight=cannot-reproduce" >> "$GITHUB_OUTPUT"
+            echo "::error::The '${BISECT_CHECK_SET:-lint-and-tests}' check set returns GOOD on the known-bad sha $BAD, so it cannot reproduce the red. Either the wrong check set was selected, the range was mislabelled, or the red was a flake. Not bisecting." >&2
+            exit 1
+          fi
+
+          if [ "$preflight" -eq 125 ]; then
+            echo "preflight=untestable" >> "$GITHUB_OUTPUT"
+            echo "::error::The bad sha $BAD is untestable — its install could not resolve, so nothing can be judged relative to it. Not bisecting." >&2
+            exit 1
+          fi
+
+          if [ "$preflight" -ge 128 ]; then
+            echo "preflight=aborted" >> "$GITHUB_OUTPUT"
+            echo "::error::The step aborted on the bad sha $BAD (exit $preflight). Not bisecting." >&2
+            exit 1
+          fi
+
+          git bisect start "$BAD" "$GOOD" || {
+            echo "::error::git bisect start refused the range $GOOD..$BAD." >&2
+            exit 1
+          }
+
+          git bisect run bash "$RUNNER_TEMP/bisect-step.sh" 2>&1 | tee "$RUNNER_TEMP/bisect.log"
+          status="${PIPESTATUS[0]}"
+
+          culprit="$(sed -n 's/^\([0-9a-f]\{7,40\}\) is the first bad commit$/\1/p' "$RUNNER_TEMP/bisect.log" | tail -1)"
+          echo "culprit=$culprit" >> "$GITHUB_OUTPUT"
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      # Runs whatever the bisect returned, so an inconclusive run is reported
+      # rather than leaving a red job with the answer only in the log.
+      - name: Report
+        if: ${{ !cancelled() }}
+        env:
+          GOOD: ${{ steps.ends.outputs.good }}
+          BAD: ${{ steps.ends.outputs.bad }}
+          COMMITS: ${{ steps.ends.outputs.commits }}
+          CULPRIT: ${{ steps.bisect.outputs.culprit }}
+          # An answer read weeks later has to carry its own scope: which checks
+          # this bisect judged on, and — where it aborted — why it judged nothing.
+          CHECKS: ${{ inputs.checks }}
+          PREFLIGHT: ${{ steps.bisect.outputs.preflight }}
+        run: |
+          set -uo pipefail
+          {
+            echo "## Bisect"
+            echo
+            echo "| | |"
+            echo "| --- | --- |"
+            echo "| Known good | \`${GOOD:-unresolved}\` |"
+            echo "| Known bad | \`${BAD:-unresolved}\` |"
+            echo "| Commits in range | ${COMMITS:-unknown} |"
+            echo "| Check set | \`${CHECKS:-lint-and-tests}\` |"
+            echo
+            if [ -n "${PREFLIGHT:-}" ]; then
+              echo "**Aborted before bisecting.** The known-bad sha was pre-flighted and could not be bisected against, so no commit was judged and none is named below."
+              echo
+              case "$PREFLIGHT" in
+              cannot-reproduce)
+                echo "The \`${CHECKS:-lint-and-tests}\` check set returns GOOD on the known-bad sha, so it cannot reproduce the red. One of:"
+                echo
+                echo "- the wrong check set was selected, and the red lives in a different job;"
+                echo "- the range was mislabelled, and the bad sha is not actually red;"
+                echo "- the red was a flake."
+                ;;
+              untestable)
+                echo "The bad sha is untestable — its install could not resolve, so nothing can be judged relative to it."
+                ;;
+              *)
+                echo "The step aborted on the bad sha rather than returning a verdict. Read the step log."
+                ;;
+              esac
+            elif [ -n "${CULPRIT:-}" ]; then
+              echo "**First bad commit: \`$CULPRIT\`**"
+              echo
+              git --no-pager log -1 --format='%h %an %ad%n%n    %s' --date=iso "$CULPRIT" || true
+            else
+              echo "**No first bad commit was identified.** Read the step log:"
+              echo "the range may have been mislabelled (the good sha already red,"
+              echo "or the bad sha green), or every step skipped."
+            fi
+            echo
+            echo "A flaky or order-dependent test makes this answer wrong rather"
+            echo "than merely unhelpful. Re-run and compare before acting on it."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # The log is the only record of which commits were called good, bad or
+      # skipped.
+      - name: Upload the bisect log
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bisect-log
+          path: ${{ runner.temp }}/bisect.log
+          if-no-files-found: warn

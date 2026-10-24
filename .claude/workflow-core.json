@@ -1,0 +1,51 @@
+{
+	"contract": 1,
+	"founder": "Luc Moseley",
+	"login": "lucmoseley",
+	"tracker": "lucmoseley/workflow-core-tracker",
+	"codeRepo": "lucmoseley/workflow-core",
+	"name": "workflow-core",
+	"corpus": [
+		"lucmoseley/workflow-core-tracker",
+		"lucmoseley/mantahostels",
+		"lucmoseley/fantasy-books"
+	],
+	"commands": {
+		"test": "npm run test",
+		"lint": "npm run lint",
+		"typecheck": "npm run typecheck",
+		"check": "npm run check",
+		"check_staged": "npm run check:staged",
+		"push_check": "npm run push:check",
+		"full_test": "npm run test -- --full=push-gate --shared"
+	},
+	"modules": ["roadmap", "suites", "landing"],
+	"pythonRoutes": {
+		"scripts/**/test_*.py": "test",
+		"scripts/conftest.py": "test",
+		"scripts/pytest_pass_plugin.py": "test",
+		"scripts/**/*.py": "program"
+	},
+	"capacityLadder": false,
+	"admissionGate": true,
+	"sessionMeanMb": 587,
+	"sessionSigmaMb": 304,
+	"retro": { "weeklyCount": 2 },
+	"sensitivePaths": [
+		{
+			"name": "secret handling",
+			"description": "reading, writing or scanning for a credential",
+			"globs": ["scripts/write-secret.js", "scripts/lib/token-shapes.js"],
+			"focus": "what secret slips past the scan or gets written where git keeps it",
+			"live": false
+		}
+	],
+	"alwaysLoaded": [
+		"CLAUDE.md",
+		"docs/working-contract.md",
+		".claude/output-styles/core-voice.md"
+	],
+	"overrides": {
+		"output_style": ".claude/output-styles/core-voice.md"
+	}
+}

@@ -1,0 +1,933 @@
+{
+	"hooks": {
+		"PreToolUse": [
+			{
+				"matcher": "Skill",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/guard-last30days.sh",
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/guard-review-rules.sh",
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-review-tier.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-founder-wording.sh",
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-branch.sh",
+						"if": "Bash(git *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-commit-form.sh",
+						"if": "Bash(git *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-registry-atomicity.sh",
+						"if": "Bash(git *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-registry-atomicity.sh",
+						"if": "Bash(*commit-paths.js*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-commit-form.sh",
+						"if": "Bash(*commit-paths.js*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-pull-form.sh",
+						"if": "Bash(git *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-push-rules.sh",
+						"if": "Bash(git *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-bg-job.sh",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-issue-body.sh",
+						"if": "Bash(gh *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-issue-close.sh",
+						"if": "Bash(gh *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-issue-create-label.sh",
+						"if": "Bash(gh *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-anthropic-report.sh",
+						"if": "Bash(*gh *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-tracker-rules.sh",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-issue-phase-scope.sh",
+						"if": "Bash(*gh *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-stale-script.sh",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-claimed-bash-write.sh",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-self-match.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-wait-loop.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*npm *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*node *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*next *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*python*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*pytest*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*npx *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*yarn *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*pnpm *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*bun *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*make *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*cargo *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-concurrency.sh",
+						"if": "Bash(*go test*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-vitest-wrapper.sh",
+						"if": "Bash(*vitest *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-vitest-wrapper.sh",
+						"if": "Bash(*npx *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-suite-background.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-unasked-rerun.sh",
+						"if": "Bash(*npm *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-headroom-read.sh",
+						"if": "Bash(*free *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-headroom-read.sh",
+						"if": "Bash(*/proc/meminfo*)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-node-heap.sh",
+						"if": "Bash(*max-old-space-size*)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-node-heap.sh",
+						"if": "Bash(*max_old_space_size*)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-recursive-dot-read.sh",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-rm-unchecked.sh",
+						"if": "Bash(*rm *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-root-find.sh",
+						"if": "Bash(*find *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-ugrep-pattern.sh",
+						"if": "Bash(grep *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-npm-install.sh",
+						"if": "Bash(*npm *)",
+						"args": [],
+						"timeout": 60,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-npm-install.sh",
+						"if": "Bash(*npx *)",
+						"args": [],
+						"timeout": 60,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-check-sh.sh",
+						"if": "Bash(*shellcheck *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-check-sh.sh",
+						"if": "Bash(*npm *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-sweep-fire.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-hook-escape.sh",
+						"if": "Bash(*WFC_ALLOW_*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-branch-publish.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-wide-read.sh",
+						"if": "Bash(*cat *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-wide-read.sh",
+						"if": "Bash(*sed *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-wide-read.sh",
+						"if": "Bash(*awk *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-agent-poll.sh",
+						"if": "Bash(*sleep *)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-agent-poll.sh",
+						"if": "Bash(true*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-agent-poll.sh",
+						"if": "Bash(:*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-agent-poll.sh",
+						"if": "Bash(exit*)",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
+			},
+			{
+				"matcher": "Write|Edit|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/guard-file-claim.sh",
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-test-rules.sh",
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"matcher": "Write|Edit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/guard-citation-tracker.sh",
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"matcher": "Bash|Write|Edit|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-job-dir-scratch.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-root-scratch.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
+			},
+			{
+				"matcher": "Write",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-scratch-overwrite.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
+			},
+			{
+				"matcher": "Agent|Task",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch-rewrite.sh",
+						"timeout": 10,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/guard-blind-dispatch.sh",
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
+			},
+			{
+				"matcher": "Read|ListAgents",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-agent-poll.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
+			},
+			{
+				"matcher": "Bash|Read",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-echo-call.sh",
+						"args": [],
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
+			},
+			{
+				"matcher": "Read",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-wide-read.sh",
+						"args": [],
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "Bash|Read",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/record-tool-echo.sh",
+						"args": [],
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/place-new-issue.sh",
+						"if": "Bash(gh *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/refresh-claims.sh",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/record-issue-claim.sh",
+						"if": "Bash(gh *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/release-issue-claim.sh",
+						"if": "Bash(gh *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/record-acts.sh",
+						"if": "Bash(gh *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/record-divergence.sh",
+						"if": "Bash(git *)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/start-lander-on-push.sh",
+						"if": "Bash(*push*)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-lost-verdict.sh",
+						"if": "Bash(*test*)",
+						"args": [],
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"matcher": "Write|Edit|NotebookEdit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/post-write.sh",
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"matcher": "WebFetch|WebSearch|Read",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/scan-injection.js || true",
+						"timeout": 15
+					}
+				]
+			},
+			{
+				"matcher": "Read",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-image-budget.sh",
+						"args": [],
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PostToolUseFailure": [
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-lost-verdict.sh",
+						"if": "Bash(*test*)",
+						"args": [],
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-failed-call-rules.sh",
+						"args": [],
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"PostToolBatch": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "${CLAUDE_PROJECT_DIR}/scripts/guard-failed-call-rules.sh",
+						"args": [],
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/name-issue-session.sh",
+						"timeout": 30
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-tracker-docs.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-founder-wording.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/unpark-on-prompt.js || true",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/mark-presence.js || true",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/concision-backstop.sh stop",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-priced-options.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-inventory.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-jev-advisory.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-selection-sum.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-uncommitted-work.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-session-ceiling.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-deny.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-automode-refusal.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-unpushed-commits.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-paste-self-match.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/park-on-round.js || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/refill-wake.sh",
+						"timeout": 5
+					}
+				]
+			}
+		],
+		"PreCompact": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/clear-rule-latch.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-compaction-count.js || true",
+						"timeout": 10
+					}
+				]
+			}
+		],
+		"SessionStart": [
+			{
+				"matcher": "compact",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-compaction-count.js || true",
+						"timeout": 10
+					}
+				]
+			},
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/write-self-plugin-marker.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/replay-notify-reports.js --notify || true",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-plugin-gap.js --notify || true",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/concision-backstop.sh start",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/name-issue-session.sh",
+						"timeout": 30
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-tracker-docs.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/session-arbiter.js prune-markers --detach || true",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/scripts/sweep-debts-detached.sh",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify || true",
+						"timeout": 40,
+						"async": true
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphan-wait-loops.js --notify || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-kernel-stall.js --notify || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-refill-loop-stop.js --notify || true",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-harness-canary.js --notify || true",
+						"timeout": 15
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify || true",
+						"timeout": 60
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/audit-escape-lines.js --notify || true",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-seat-utilisation.js --notify || true",
+						"timeout": 10
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-finished-sessions.js --notify || true",
+						"timeout": 65,
+						"async": true
+					}
+				]
+			}
+		],
+		"SessionEnd": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reconcile-plugin.js --session-end || true",
+						"timeout": 400
+					}
+				]
+			}
+		]
+	}
+}

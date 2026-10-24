@@ -1,0 +1,2724 @@
+{
+	"accuracy_banner": "⚠ 2026-10-09, #1096 review: note.row misdescribes escape_text. It holds the escape lines as written, one per line, with the leading checked:/unmeasured: keyword lower-cased and runs of whitespace collapsed, and is null where escape is none. escape is checked, unmeasured, both (a line of each) or none. time is the round message; reply_time is the founder reply after it.",
+	"note": {
+		"baseline_of": "#1091 (spec: refuse every close rival question once) — the week-one reading compares against it; landed by #1096",
+		"extracted": "2026-10-09, by the transcript sweep behind #1061, #1067 and #1068",
+		"window": "2026-09-27T10:46Z (the close-rivals check went live) to 2026-10-09T04:24Z",
+		"corpus": "every main-chain *.jsonl transcript under ~/.claude, ~/.claude2 and ~/.claude3 projects/ dirs named -home-lucmo-workflow-core*, -home-lucmo-mantahostels* or -home-lucmo-fantasy-books*, records from 2026-09-27 00:00 +0800: 1,075 files. Subagent transcripts and sessions run from other directories are not in it.",
+		"turn": "the records between two user records that are neither a tool result, a Stop hook feedback nor meta. Its final message is the last assistant text with no tool call after it; a Stop feedback refusing the turn cancels the text before it.",
+		"founder_message": "a user record that is not meta, a tool result or a Stop feedback, and does not open with a <command-, <local-command, <task-notification, <system-reminder, <bash- or <user-memory wrapper, \"Caveat:\", \"[Request interrupted\" or a compaction summary.",
+		"close": "the guard's own test, unchanged since #472 (bands overlap, or headline figures 25 points or fewer apart): splitQuestions, rivalPair and escapesIn from the `closeness` export of scripts/guard-priced-options.js.",
+		"separation_prompt_definition": "a message that tells the agent to check, research or analyse more before the founder picks an option",
+		"recompute": "The extraction scripts were scratch and are not kept. Re-run the method above over the same transcripts while they survive; the separation-prompt and stock flags are a hand reading, not a keyword match — all 585 founder messages read at their first 260 characters, about 45 candidates in full with the round before and the follow-up — so a recompute re-reads them.",
+		"row": "one turn whose final message holds at least one close question and whose next user record is a founder message: 82 of the 91 such turns (the other 9 ended on a task notification). `questions` lists only its close questions (95 in all); `escape_text` is the guard's lower-cased escape lines; `close_refusals_in_turn` counts close-rivals refusals earlier in the same turn; `separation_prompt` is the id of the founder reply in separation-prompts.json, or null. 26 of 82 rows (32%) carry one."
+	},
+	"rows": [
+		{
+			"id": 1,
+			"session": "4795a61a-5287-4405-bcd1-c7dcdb14a5c9",
+			"repo": "workflow-core",
+			"time": "2026-09-27T11:27:54.488Z",
+			"reply_time": "2026-09-27T11:29:28.172Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether the plugin's `suites` module can run mantahostels' vitest without the wrapper scripts the cut deletes. A cheap check can't answer that: it needs a `--pin` run on a release that hasn't been cut yet."
+				}
+			],
+			"separation_prompt": 1
+		},
+		{
+			"id": 2,
+			"session": "9df75178-9027-4891-8fb9-83697a99bb27",
+			"repo": "workflow-core",
+			"time": "2026-09-27T14:15:41.824Z",
+			"reply_time": "2026-09-27T14:16:34.908Z",
+			"close_refusals_in_turn": 1,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 30,
+						"high": 55
+					},
+					"escape": "none",
+					"escape_text": null
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 3,
+			"session": "54a5be01-9ab0-4ff0-bff8-de0d10323529",
+			"repo": "workflow-core",
+			"time": "2026-09-27T14:32:53.861Z",
+			"reply_time": "2026-09-27T14:35:07.840Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 68
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 32,
+						"high": 60
+					},
+					"escape": "both",
+					"escape_text": "checked: all 17 specs' parents and child counts, as above. 12 of them come from briefs, and all 12 briefs have exactly one child.\nunmeasured: how much the placeholder view actually bothers you when you use the tracker, because only you can say that."
+				}
+			],
+			"separation_prompt": 3
+		},
+		{
+			"id": 4,
+			"session": "f5b4691f-1b46-4cc5-afb9-6122e7655336",
+			"repo": "workflow-core",
+			"time": "2026-09-27T14:49:52.207Z",
+			"reply_time": "2026-09-27T14:52:29.037Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: when the #543 session will finish, because nothing in the repo predicts another session's remaining work."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 5,
+			"session": "ad6124a4-51cc-4699-9f90-2a3957792638",
+			"repo": "workflow-core",
+			"time": "2026-09-27T16:26:02.843Z",
+			"reply_time": "2026-09-27T16:27:17.637Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often the checker blocks `resolve-ticket.js` in other sessions, because its refusals are logged only in each session's own transcript, not in the repo."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 6,
+			"session": "ad6124a4-51cc-4699-9f90-2a3957792638",
+			"repo": "workflow-core",
+			"time": "2026-09-27T16:29:38.821Z",
+			"reply_time": "2026-09-27T16:30:27.751Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 35,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 65
+					},
+					"escape": "checked",
+					"escape_text": "checked: the close with the rule in place was refused as \"Auto-Mode Bypass\". Unmeasured: whether a session that starts with the rule already loaded gets through, because only a fresh auto-mode session closing a ticket can show that."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 7,
+			"session": "0a03b2fe-28fb-4247-82a4-04adc436524b",
+			"repo": "workflow-core",
+			"time": "2026-09-27T17:37:03.905Z",
+			"reply_time": "2026-09-28T02:02:00.719Z",
+			"close_refusals_in_turn": 2,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 25,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how much you weight clearing an already-fixed, urgent-labelled ticket within minutes against spending today's last sweep-fire slot, because that's your own preference over the tracker's shared fire budget, not something a repo check settles."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 8,
+			"session": "abac9708-604b-49ee-9343-21896de1c5e4",
+			"repo": "workflow-core",
+			"time": "2026-09-28T04:59:41.227Z",
+			"reply_time": "2026-09-28T05:01:46.157Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 15,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 50,
+						"low": 40,
+						"high": 60
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 35,
+						"low": 25,
+						"high": 45
+					},
+					"escape": "checked",
+					"escape_text": "checked: in the reap run above, stopping three `done` sessions ended their processes and removed them from the session list. The parked fix passed its four tests and failed only the `mantahostels#411` test."
+				}
+			],
+			"separation_prompt": 4
+		},
+		{
+			"id": 9,
+			"session": "abac9708-604b-49ee-9343-21896de1c5e4",
+			"repo": "workflow-core",
+			"time": "2026-09-28T05:05:53.574Z",
+			"reply_time": "2026-09-28T05:25:13.308Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 50,
+						"low": 40,
+						"high": 60
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 30,
+						"low": 20,
+						"high": 40
+					},
+					"escape": "checked",
+					"escape_text": "checked: I classified 650 refusals from 914 transcripts by holder state: 20 had a finished holder, 16 of those were followed by `release --force`, and most were released within 11 min."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 10,
+			"session": "685d40bb-c145-4ea2-997d-aaf3d6498796",
+			"repo": "workflow-core",
+			"time": "2026-09-28T06:07:31.692Z",
+			"reply_time": "2026-09-28T06:15:40.676Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: #485's comments show it cut no release and kept the pin at v1.1.19, so no release carrying this change is on its way."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 11,
+			"session": "fe6f7869-b465-4a2f-aee5-ead908fd20dd",
+			"repo": "workflow-core",
+			"time": "2026-09-28T06:20:24.281Z",
+			"reply_time": "2026-09-28T06:22:29.900Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 35,
+						"low": 22,
+						"high": 50
+					},
+					"escape": "both",
+					"escape_text": "checked: ran `.claude/tmp/sel656.js` over 300 commits. Full closure adds a mean of 22.5 tests per commit and 37 commits over 100; the small-libraries-only version adds 1.9 and none over 100.\nunmeasured: whether any past red in a full sweep was a break this gap let through, because sweep logs aren't matched to the commits that caused them. Your tolerance for a red that stays unseen for up to 8 hours decides between (A) and (C)."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 12,
+			"session": "6c0b77eb-8de1-4bc3-90b3-9e64f493bbeb",
+			"repo": "workflow-core",
+			"time": "2026-09-28T06:20:32.421Z",
+			"reply_time": "2026-09-28T06:21:49.564Z",
+			"close_refusals_in_turn": 1,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 0,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 35,
+						"low": 25,
+						"high": 45
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 35,
+						"low": 30,
+						"high": 40
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: which way the founder wants the CLI-contract question resolved, because that is a preference no local check can surface."
+				}
+			],
+			"separation_prompt": 5
+		},
+		{
+			"id": 13,
+			"session": "f12d8b1f-abc8-466c-ad15-493ab2d8cc1d",
+			"repo": "workflow-core",
+			"time": "2026-09-28T06:24:05.722Z",
+			"reply_time": "2026-09-28T06:36:10.445Z",
+			"close_refusals_in_turn": 2,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "checked",
+					"escape_text": "checked: grepped `docs/research/*.md` and `scripts/lib/*.js` for the subagent-hand-back delivery wrapper text — absent; only the `<task-notification>` prefix is documented (`tool-calls-since.js:12-16`), so the hand-back wrapper's stability is unconfirmed by any repo source."
+				}
+			],
+			"separation_prompt": 6
+		},
+		{
+			"id": 14,
+			"session": "c4898460-763a-4f75-a0bb-b54b1dc4cee0",
+			"repo": "workflow-core",
+			"time": "2026-09-28T06:32:03.908Z",
+			"reply_time": "2026-09-28T06:38:11.002Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 5,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "checked",
+					"escape_text": "checked: I rebuilt the map of which tests read which files with comments removed. Only 126 links are incidental, and the files people edit most lose about 7 tests each."
+				},
+				{
+					"n": 2,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "checked",
+					"escape_text": "checked: per-test timings and a side-by-side benchmark show their cost is spread evenly across tests, and the guard call barely moved (100 → 86 ms)."
+				}
+			],
+			"separation_prompt": 7
+		},
+		{
+			"id": 15,
+			"session": "07a75d42-c613-4285-ad54-37df5cea6764",
+			"repo": "workflow-core",
+			"time": "2026-09-28T09:33:43.553Z",
+			"reply_time": "2026-09-28T09:34:15.140Z",
+			"close_refusals_in_turn": 1,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "none",
+					"escape_text": null
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 16,
+			"session": "07a75d42-c613-4285-ad54-37df5cea6764",
+			"repo": "workflow-core",
+			"time": "2026-09-28T09:53:51.212Z",
+			"reply_time": "2026-09-28T09:53:51.536Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 35,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "none",
+					"escape_text": null
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 17,
+			"session": "07a75d42-c613-4285-ad54-37df5cea6764",
+			"repo": "workflow-core",
+			"time": "2026-09-28T09:57:49.583Z",
+			"reply_time": "2026-09-28T09:59:08.599Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "none",
+					"escape_text": null
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 18,
+			"session": "136db135-3662-4054-82b9-4c790b4e2983",
+			"repo": "workflow-core",
+			"time": "2026-09-28T10:15:41.685Z",
+			"reply_time": "2026-09-28T10:16:26.504Z",
+			"close_refusals_in_turn": 1,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you would label about 60 messages in one sitting soon, because that is your own preference. What I could check: the guard fingerprints each clear message with a short hash (`scripts/guard-jev-advisory.js:310`), so matching them back to transcripts should work. The permission system denied my attempt to read `~/.claude/projects` to confirm it."
+				}
+			],
+			"separation_prompt": 8
+		},
+		{
+			"id": 19,
+			"session": "df43f418-3048-47c3-a4ec-cf25b90ecf59",
+			"repo": "workflow-core",
+			"time": "2026-09-28T10:25:02.318Z",
+			"reply_time": "2026-09-28T10:25:35.660Z",
+			"close_refusals_in_turn": 1,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "both",
+					"escape_text": "checked: the checker asks whether a message offers \"two or more alternatives\" for you to pick between. Message 4 states my default, which was to put the fix in the next release. It then offers the other path, which was to cut a new release now. That makes two alternatives on paper, but only just.\nunmeasured: whether you count that as a real choice, because only you can say whether you felt you were being asked to decide."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 20,
+			"session": "85e9a38f-2234-4777-a388-c931312474c2",
+			"repo": "workflow-core",
+			"time": "2026-09-28T11:10:54.842Z",
+			"reply_time": "2026-09-28T11:11:36.658Z",
+			"close_refusals_in_turn": 1,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 15,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how many real choices the guard marks `clear`, which is what separates (A) from (B). I tried to find out by matching the logged `clear` hashes against transcript text, and the permission check refused that read. The guard hashes the Stop hook's message input (`scripts/guard-jev-advisory.js:670`), and no other local source holds the `clear` turns' text."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 21,
+			"session": "e0c387ae-b69c-4d3d-8b6f-69b8475f6862",
+			"repo": "workflow-core",
+			"time": "2026-09-28T12:54:11.412Z",
+			"reply_time": "2026-09-28T12:54:46.636Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: two more Bash calls this turn, both rejected with the same no-verdict error."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 22,
+			"session": "d47eaa45-9941-4410-8bb8-726495dbf474",
+			"repo": "workflow-core",
+			"time": "2026-09-28T16:07:52.193Z",
+			"reply_time": "2026-09-29T01:38:03.596Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you think in-place spies on `fs` are acceptable, because that is your call and no check can settle it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 23,
+			"session": "12ee2b11-ea45-40ec-82fb-e0152032ec0d",
+			"repo": "workflow-core",
+			"time": "2026-09-29T04:59:59.644Z",
+			"reply_time": "2026-09-29T05:00:17.145Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you want the next Sonnet to arrive automatically or only through a deliberate edit, because that is your preference and no check can settle it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 24,
+			"session": "2b5ee476-e646-4d0f-a44c-c0cbf7c82c0c",
+			"repo": "workflow-core",
+			"time": "2026-09-29T13:44:17.178Z",
+			"reply_time": "2026-09-29T13:45:01.475Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you'd ever start a repo from inside another project, because only your own habit answers that."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 25,
+			"session": "410b88c5-d05a-4056-b32f-5b47ae374c8d",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:03:28.024Z",
+			"reply_time": "2026-09-29T14:04:16.571Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 25,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: `plugin-tree.js:201-212` skips an excluded folder before walking into it; three skills already hold a `scripts/` folder; vitest's include reaches `.claude/**`."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 26,
+			"session": "adc0d170-bf74-40db-81c0-1cef9bcacfea",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:05:12.749Z",
+			"reply_time": "2026-09-29T14:06:36.716Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "checked",
+					"escape_text": "checked: taste-vault had only `main` (`git ls-remote upstream`), so design-vault's run can't tell the two apart."
+				},
+				{
+					"n": 6,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often a repo you copy ships its own `CLAUDE.md` or husky hooks, because the only case so far (taste-vault) had neither (`git ls-tree 805dbee`)."
+				}
+			],
+			"separation_prompt": 9
+		},
+		{
+			"id": 27,
+			"session": "14dd1824-fd5f-41a5-b07a-c473eceee8ed",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:05:38.237Z",
+			"reply_time": "2026-09-29T14:07:31.253Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 4,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often a new repo will start from work already specced on another tracker. It's happened once in two new repos (design-vault did, fantasy-books came before the core), so there's no base rate to go on. How often you expect it is your call."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 28,
+			"session": "21d0aea2-b601-429c-a416-cdd93f78f5b8",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:07:29.270Z",
+			"reply_time": "2026-09-29T14:10:13.402Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: the initials of fantasy-books, workflow-core and design-vault give `fb`, `wc` and `dv`, the prefixes already in use (`~/.bashrc:244-264`)."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 29,
+			"session": "06ed4440-3211-463d-b730-f65171e9dfdf",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:08:24.118Z",
+			"reply_time": "2026-09-29T14:10:39.302Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 60,
+						"low": 50,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 40,
+						"low": 30,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how much you mind 69 dead entries in a file you rarely open. That is your preference, and no check can settle it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 30,
+			"session": "3b8f5c39-c5a2-4281-9710-2bf4245ad3a1",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:17:25.403Z",
+			"reply_time": "2026-09-29T14:18:37.860Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether the classifier passes `node …/new-repo.js` after a message from you that names the acts, because the only honest test is a real run that creates a GitHub repo. The map's \"End-to-end proof\" section (not yet specified) owns that trial."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 31,
+			"session": "3b8f5c39-c5a2-4281-9710-2bf4245ad3a1",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:21:15.811Z",
+			"reply_time": "2026-09-29T14:22:44.072Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether the out-of-date line has ever refused a push outside mantahostels, because the classifier refused this session's read of the log search."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 32,
+			"session": "6119b9ea-09b4-40cc-bc80-d4dd8b6baa7e",
+			"repo": "workflow-core",
+			"time": "2026-09-29T14:37:33.583Z",
+			"reply_time": "2026-09-29T14:38:09.085Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether a Jev check on tool output would find any real attack in past web-page results, because finding out means a paid Jev run (about $0.01), which needs your approval first (#169)."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 33,
+			"session": "61a755ea-59f6-4e37-9bc5-bf0ab85f1831",
+			"repo": "workflow-core",
+			"time": "2026-09-29T15:18:12.079Z",
+			"reply_time": "2026-09-29T15:19:51.492Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 8,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often the skeleton commit will be refused now that #694 moves the source repo's `CLAUDE.md` aside and registers its docs. Those were design-vault's two refusals, and no run of the new script exists yet to count against."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 34,
+			"session": "14b0d65b-e5bc-4cbf-8804-03f443b0ae97",
+			"repo": "workflow-core",
+			"time": "2026-09-29T15:53:27.373Z",
+			"reply_time": "2026-09-29T15:56:56.329Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how much context the copy flow uses, because no part of it exists yet to measure."
+				},
+				{
+					"n": 2,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 30,
+						"low": 15,
+						"high": 45
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether an `/implement` session hands a founder-typed step over cleanly, because none has yet run a trial of a skill the Skill tool refuses to invoke."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 35,
+			"session": "80e00bf1-1044-4859-bf86-1a2ff5d6408c",
+			"repo": "fantasy-books",
+			"time": "2026-09-30T04:26:16.145Z",
+			"reply_time": "2026-09-30T04:26:36.007Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 30,
+						"low": 18,
+						"high": 45
+					},
+					"escape": "none",
+					"escape_text": null
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 36,
+			"session": "89de35b8-6c52-42e6-8741-e89322dba519",
+			"repo": "workflow-core",
+			"time": "2026-09-30T06:35:45.626Z",
+			"reply_time": "2026-09-30T06:36:11.352Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how much charting you want to do in the trial's first session, because only you know that."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 37,
+			"session": "89de35b8-6c52-42e6-8741-e89322dba519",
+			"repo": "workflow-core",
+			"time": "2026-09-30T08:03:33.316Z",
+			"reply_time": "2026-09-30T08:04:53.340Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 10,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 25,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: `gh issue list -R lucmoseley/wfc-new-repo-trial --state all` shows #2, #3, #4 and #7 open, and the trial repo's `.claude/workflow-core.json` still has `modules: []`. So the verdict isn't close."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 38,
+			"session": "89de35b8-6c52-42e6-8741-e89322dba519",
+			"repo": "workflow-core",
+			"time": "2026-09-30T08:05:27.672Z",
+			"reply_time": "2026-09-30T09:27:10.209Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 11,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 25,
+						"low": 15,
+						"high": 40
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you want new repos' test gating proven before the first real repo, because that is your priority call, not a fact I can check."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 39,
+			"session": "89de35b8-6c52-42e6-8741-e89322dba519",
+			"repo": "workflow-core",
+			"time": "2026-09-30T09:33:06.263Z",
+			"reply_time": "2026-09-30T09:40:05.757Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 12,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 30,
+						"low": 20,
+						"high": 45
+					},
+					"escape": "checked",
+					"escape_text": "checked: the files each ticket body names (`gh issue view`). #737 names `adopter-skeleton.js` and `AGENTS.md`. #740 names the test-marker and config scripts plus `new-repo.js`. #736 names `adopter-skeleton.js`, `init-adopter.js` and `new-repo.js`. None of the three is marked as blocked by another."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 40,
+			"session": "b5b1e008-1a16-4ad7-819b-c024852e0d57",
+			"repo": "workflow-core",
+			"time": "2026-09-30T11:58:37.958Z",
+			"reply_time": "2026-09-30T11:59:15.300Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 65,
+						"low": 50,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 35,
+						"low": 25,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: when the other session commits `adopter-skeleton.js`, which decides whether the red test clears. No check from here can tell."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 41,
+			"session": "17647f26-6177-4ed6-b7f9-4fce21cf58ab",
+			"repo": "workflow-core",
+			"time": "2026-09-30T16:53:33.840Z",
+			"reply_time": "2026-09-30T16:54:02.085Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 5,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "checked",
+					"escape_text": "checked: `scripts/status-report.js:7-10` keeps just two checks at session start: `check-ci-status.js` (a failing `main`) and `check-orphan-wait-loops.js` (a leftover process holding memory). An orphaned edit is neither kind."
+				},
+				{
+					"n": 7,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether sessions act on a named line at all, because no orphan report has ever existed to watch."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 42,
+			"session": "c69d185f-a904-4c89-98d0-b42a6a41f854",
+			"repo": "workflow-core",
+			"time": "2026-09-30T17:13:46.507Z",
+			"reply_time": "2026-10-01T00:09:58.024Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you want agent edits to CLAUDE.md kept behind the classifier, because that is your preference."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 43,
+			"session": "32b4bc25-a801-41b2-9771-4af1564b16c5",
+			"repo": "workflow-core",
+			"time": "2026-10-01T12:43:34.661Z",
+			"reply_time": "2026-10-01T12:45:24.353Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 25,
+						"low": 15,
+						"high": 40
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether sessions actually run a named check before pushing when the rule tells them to, because the check doesn't exist yet, so no transcript can show it."
+				},
+				{
+					"n": 3,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "C",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 30,
+						"low": 20,
+						"high": 45
+					},
+					"escape": "both",
+					"escape_text": "checked: `scripts/guard-suite-concurrency.sh:29` adds its message alongside the command (it never denies it), so (B) cannot stop the run it fires on.\nunmeasured: how many unneeded re-runs remain once greens can combine (A vs C), because that change isn't implemented yet."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 44,
+			"session": "0e250826-ac0f-4fa0-b872-45fe5aef013d",
+			"repo": "workflow-core",
+			"time": "2026-10-02T06:47:05.466Z",
+			"reply_time": "2026-10-02T06:47:05.699Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "D",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 25,
+						"low": 15,
+						"high": 35
+					},
+					"escape": "both",
+					"escape_text": "checked: the real admissibility check run over this repo's passing-runs file found 12 accepted runs in 15.8 hours, so (B) closes at the trim, not at 200.\nunmeasured: how many sessions the new repo will run at once, because the repo doesn't exist yet. That is what separates (D) from (B)."
+				}
+			],
+			"separation_prompt": 10
+		},
+		{
+			"id": 45,
+			"session": "759853aa-652f-4d6c-824b-598b02d1167f",
+			"repo": "workflow-core",
+			"time": "2026-10-04T12:57:07.923Z",
+			"reply_time": "2026-10-04T12:57:31.340Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: plugin-authoring `reference.md` says a project's `.claude/skills/<name>` plugin folder loads by itself, so (A) works technically. Whether adopting repos' Claude Code versions all support mods is not yet checked."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 46,
+			"session": "714605c1-f015-4d07-89e8-17a6bd746953",
+			"repo": "workflow-core",
+			"time": "2026-10-04T14:13:28.626Z",
+			"reply_time": "2026-10-04T14:17:44.893Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how many of #829's rulings would flip on the check results, because #829 has not ranked anything yet."
+				},
+				{
+					"n": 4,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether seat 1 was left untrusted on purpose, and how much you watch it. Both are your own knowledge."
+				},
+				{
+					"n": 6,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: check (d), because only a live CI job settles it, and that is outside this map."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 47,
+			"session": "714605c1-f015-4d07-89e8-17a6bd746953",
+			"repo": "workflow-core",
+			"time": "2026-10-04T14:18:04.195Z",
+			"reply_time": "2026-10-04T14:19:12.794Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 4,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "checked",
+					"escape_text": "checked: the first account ran 59 sessions here in two weeks; the other two ran about 1,150 each."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 48,
+			"session": "3f89f0fb-e688-4be0-8c7b-61dc1255bbdc",
+			"repo": "workflow-core",
+			"time": "2026-10-05T03:19:22.770Z",
+			"reply_time": "2026-10-05T03:22:28.080Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "C",
+						"figure": 55,
+						"low": 45,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 35,
+						"low": 25,
+						"high": 45
+					},
+					"escape": "both",
+					"escape_text": "checked: transcripts per repo over 14 days (workflow-core 907, fantasy-books 345, mantahostels 59), plus the pins in each adopter's `.claude/settings.json` (v1.3.4 and v1.1.15).\nunmeasured: whether a mod built into an installed plugin loads in an adopter. Answering that needs a live test mod, and #828 Q3 made such checks the first step of each spec, not something this map runs."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 49,
+			"session": "899f46de-1c15-4013-9143-cc33e2fc72e9",
+			"repo": "workflow-core",
+			"time": "2026-10-05T03:24:52.935Z",
+			"reply_time": "2026-10-05T03:37:26.679Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 45,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether a settings allow rule takes priority over the automatic permission check. No cheap test reaches it without you adding a rule."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 50,
+			"session": "190ab9ea-f1d0-42a6-ac32-52182c771bb8",
+			"repo": "workflow-core",
+			"time": "2026-10-05T05:11:20.939Z",
+			"reply_time": "2026-10-05T05:17:45.826Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 30,
+						"low": 20,
+						"high": 45
+					},
+					"escape": "checked",
+					"escape_text": "checked: two crashes in six weeks (27 Aug and 17 Sep); the mantahostels store's files were removed by hand and this store's have sat for 18 days."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 51,
+			"session": "2a9feecc-ed6e-40a0-b447-86cb7761a6be",
+			"repo": "mantahostels",
+			"time": "2026-10-08T06:55:50.391Z",
+			"reply_time": "2026-10-08T06:59:43.719Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 5,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "none",
+					"escape_text": null
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 52,
+			"session": "2a9feecc-ed6e-40a0-b447-86cb7761a6be",
+			"repo": "mantahostels",
+			"time": "2026-10-08T07:08:16.824Z",
+			"reply_time": "2026-10-08T07:09:24.694Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 5,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "none",
+					"escape_text": null
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 53,
+			"session": "f680b1d2-e8a2-4b63-a9f0-79d8181ddfd9",
+			"repo": "workflow-core",
+			"time": "2026-10-08T08:49:56.403Z",
+			"reply_time": "2026-10-08T08:54:58.773Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often you actually open a close comment. You and every agent post as the same GitHub account, and GitHub keeps no read log, so only you know."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 54,
+			"session": "0e78dd3b-282e-464d-9dcd-61f91470c86c",
+			"repo": "workflow-core",
+			"time": "2026-10-08T08:50:57.850Z",
+			"reply_time": "2026-10-08T08:56:09.674Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 15,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 45,
+						"low": 35,
+						"high": 55
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 30,
+						"low": 20,
+						"high": 40
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether new sessions write fewer em-dashes once the always-loaded files carry none. No cheap check reaches it, because it needs a before-and-after count over many sessions."
+				}
+			],
+			"separation_prompt": 11
+		},
+		{
+			"id": 55,
+			"session": "6f307daf-7560-4844-ae58-a29c1de7619f",
+			"repo": "workflow-core",
+			"time": "2026-10-08T10:35:52.370Z",
+			"reply_time": "2026-10-08T10:40:47.432Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 30,
+						"low": 18,
+						"high": 42
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether mantahostels, design-vault or mmm-infra will ever write their own standards file. That depends on your plans, and nothing in the repo shows it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 56,
+			"session": "38741375-e5e5-40f0-a952-d50c2ffdd756",
+			"repo": "workflow-core",
+			"time": "2026-10-08T11:11:23.723Z",
+			"reply_time": "2026-10-08T12:00:16.506Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 25,
+						"low": 10,
+						"high": 40
+					},
+					"escape": "checked",
+					"escape_text": "checked: the #849 and #863 closing comments and the map's #849 line all say the adopter route \"sits with #824\". None of them suggests dropping it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 57,
+			"session": "2e4455d1-1a74-483d-9cb4-b9af74db2af1",
+			"repo": "workflow-core",
+			"time": "2026-10-08T11:13:31.387Z",
+			"reply_time": "2026-10-08T12:01:23.020Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 5,
+					"gap": 15,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you still want `/ask-matt` as a way to learn Matt's flow. That is your own preference, and no usage log can show it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 58,
+			"session": "d1fe6f8c-42bd-420d-8699-b96824d14857",
+			"repo": "workflow-core",
+			"time": "2026-10-08T11:49:01.264Z",
+			"reply_time": "2026-10-08T12:01:57.273Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 25,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether a second batch still finds ~44% new once these faults are fixed. No cheap check reaches it, because it takes another batch of sessions."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 59,
+			"session": "02029295-6f96-4d50-a2ca-f3c37cb255fd",
+			"repo": "workflow-core",
+			"time": "2026-10-08T12:14:24.282Z",
+			"reply_time": "2026-10-08T12:27:16.483Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 60,
+						"low": 45,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 40,
+						"low": 30,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you would scan a kind label when reading the list. That is your own reading preference, so no check can settle it."
+				}
+			],
+			"separation_prompt": 17
+		},
+		{
+			"id": 60,
+			"session": "409398fd-d460-4e44-8c2b-96de2bf3ec83",
+			"repo": "workflow-core",
+			"time": "2026-10-08T12:16:07.065Z",
+			"reply_time": "2026-10-08T12:23:57.292Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how many turns each of the 20 refusals cost. It needs each of the 17 sessions read past the refusal, which is more than a triage pass should spend unless you want it."
+				}
+			],
+			"separation_prompt": 15
+		},
+		{
+			"id": 61,
+			"session": "02029295-6f96-4d50-a2ca-f3c37cb255fd",
+			"repo": "workflow-core",
+			"time": "2026-10-08T12:36:31.964Z",
+			"reply_time": "2026-10-08T12:39:32.547Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 5,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 25,
+						"high": 50
+					},
+					"escape": "both",
+					"escape_text": "checked: 112 unanswered `/wayfinder` rounds, all held only in chat, covering 35 tickets of which 34 were later closed.\nunmeasured: how much a repeated round costs you compared with one extra comment per round. That is your own trade-off, and no transcript count prices it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 62,
+			"session": "afa03c0e-973c-42c8-9bda-d35b607b4cc6",
+			"repo": "workflow-core",
+			"time": "2026-10-08T12:40:02.184Z",
+			"reply_time": "2026-10-08T12:40:48.117Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 30,
+						"low": 20,
+						"high": 45
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often a session told at a `needs input:` turn then avoids starting a new ticket, because no transcript records why a session didn't start one."
+				},
+				{
+					"n": 2,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether #898's eventual fix will change that limb's text or behaviour, because #898 has not been triaged."
+				}
+			],
+			"separation_prompt": 18
+		},
+		{
+			"id": 63,
+			"session": "849edb79-ba44-453d-bf33-547cf788665e",
+			"repo": "workflow-core",
+			"time": "2026-10-08T12:40:16.952Z",
+			"reply_time": "2026-10-08T12:41:47.867Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 25,
+					"overlap": false,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 45,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 30,
+						"low": 20,
+						"high": 40
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether readers find local rules by code kind or by citation. No check can reach that, because fantasy-books's §X2 is the only local rule known so far. It comes down to your preference for how the ids read."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 64,
+			"session": "6679caa7-c30b-4395-9d28-0eb386a5b372",
+			"repo": "workflow-core",
+			"time": "2026-10-08T12:40:30.084Z",
+			"reply_time": "2026-10-08T12:43:05.675Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether a pointer-only ending in the job view bothers you more than a repeated round. That is your preference, and no check can reach it."
+				},
+				{
+					"n": 2,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: `~/.claude2/jobs/c4949c09/timeline.jsonl` lines 49 and 51. In both rounds, (B) is only the defer-and-release option, priced 30% and 15%."
+				}
+			],
+			"separation_prompt": 19
+		},
+		{
+			"id": 65,
+			"session": "3f311d35-6540-44e6-b5cc-4819bbf165bc",
+			"repo": "workflow-core",
+			"time": "2026-10-08T12:41:13.951Z",
+			"reply_time": "2026-10-08T12:42:35.832Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 30,
+						"low": 20,
+						"high": 45
+					},
+					"escape": "checked",
+					"escape_text": "checked: `scripts/lib/qualify-citations.js:15-16` and `plugin-tree.js:65`: the release already refuses shipped-text faults before it tags. `plugin-tree.js:148`: every pin into a `.ts` file is unshipped by construction, so this fault happens whenever someone adds a test as evidence. What remains between (A) and (C) is your preference on refusing at release time."
+				},
+				{
+					"n": 4,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: `scripts/code-standards-anchors.json` has no document key (a flat map, 30 entries). fantasy-books runs the same checker on its own anchors (`~/fantasy-books/.husky/pre-commit:378`), so (B)'s migration reaches every adopter."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 66,
+			"session": "8c6d2d1a-7cc9-46a7-9259-74df9ccf45fa",
+			"repo": "workflow-core",
+			"time": "2026-10-08T13:09:17.608Z",
+			"reply_time": "2026-10-08T13:21:04.410Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 72
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 28,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you would ever act on that line, because it is only for you as the reader and no script parses it. That is your preference."
+				}
+			],
+			"separation_prompt": 20
+		},
+		{
+			"id": 67,
+			"session": "f5fd8fc4-6068-452c-bf47-9027b1aab891",
+			"repo": "workflow-core",
+			"time": "2026-10-08T13:12:26.836Z",
+			"reply_time": "2026-10-08T13:21:52.787Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 5,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how accurate the detector would be on real turns, because that needs hand-labelled transcripts."
+				},
+				{
+					"n": 7,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often real items would use one of those phrases, because no inventory has been written yet."
+				},
+				{
+					"n": 8,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often someone else's comment lands on top of the posted round before the check runs."
+				}
+			],
+			"separation_prompt": 23
+		},
+		{
+			"id": 68,
+			"session": "8c6d2d1a-7cc9-46a7-9259-74df9ccf45fa",
+			"repo": "workflow-core",
+			"time": "2026-10-08T13:23:26.514Z",
+			"reply_time": "2026-10-08T13:27:32.596Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 60,
+						"low": 45,
+						"high": 73
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 35,
+						"low": 22,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: a Read of the plugin cache from `~/mantahostels` passed in auto mode with no rule, was refused in default mode, passed in default mode with the glob allow rule, and was refused for the plugin's own `code-reviewer` subagent."
+				}
+			],
+			"separation_prompt": 21
+		},
+		{
+			"id": 69,
+			"session": "8c6d2d1a-7cc9-46a7-9259-74df9ccf45fa",
+			"repo": "workflow-core",
+			"time": "2026-10-08T13:30:13.134Z",
+			"reply_time": "2026-10-08T13:30:59.247Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 15,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 68
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 27,
+						"high": 55
+					},
+					"escape": "checked",
+					"escape_text": "checked: in `~/mantahostels` in default mode, the resolved `~/.claude/…` path was read by both the main session and a plugin subagent under the existing local rule. The `~/.claude3/…` spelling was refused, and #711 records auto mode refusing the same kind of Read."
+				}
+			],
+			"separation_prompt": 22
+		},
+		{
+			"id": 70,
+			"session": "bc39e051-320b-476b-95de-32788652b80c",
+			"repo": "mantahostels",
+			"time": "2026-10-08T14:04:46.150Z",
+			"reply_time": "2026-10-08T14:06:29.043Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether [the partner contact]'s forward reaches the affiliate team by Monday. Only [the partner] knows, and nothing I can check reaches it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 71,
+			"session": "8c66b77c-3757-4ecc-83a2-fcb769dc7516",
+			"repo": "workflow-core",
+			"time": "2026-10-08T14:31:20.900Z",
+			"reply_time": "2026-10-08T14:32:43.014Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you read only a chain's last session or every session's, because only five briefs exist and the job list doesn't group sessions by chain."
+				}
+			],
+			"separation_prompt": 24
+		},
+		{
+			"id": 72,
+			"session": "8c66b77c-3757-4ecc-83a2-fcb769dc7516",
+			"repo": "workflow-core",
+			"time": "2026-10-08T14:38:49.606Z",
+			"reply_time": "2026-10-08T14:40:27.804Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "both",
+					"escape_text": "checked: the earlier session's closing message survives cleanup (1e7dc825); 0 of 4 traced chains dropped an inherited item.\nunmeasured: whether you read every session's closing message or only the newest one for a ticket, because no log records what you read."
+				}
+			],
+			"separation_prompt": 25
+		},
+		{
+			"id": 73,
+			"session": "a2b7cf54-dec9-46e0-9852-bf4aa311af9e",
+			"repo": "workflow-core",
+			"time": "2026-10-08T14:51:43.653Z",
+			"reply_time": "2026-10-08T14:52:53.654Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 25,
+						"low": 15,
+						"high": 40
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how much a third or fourth session reviewed in the same week adds, because only running them measures it, and that is what (A) does."
+				}
+			],
+			"separation_prompt": 26
+		},
+		{
+			"id": 74,
+			"session": "e55f3ea8-3099-462f-9782-92c777e5d17d",
+			"repo": "workflow-core",
+			"time": "2026-10-08T15:05:18.157Z",
+			"reply_time": "2026-10-08T15:06:24.640Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 3,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how many closes and session endings this repo produces in 24 hours. The guards don't exist yet, so there's no log to count from."
+				}
+			],
+			"separation_prompt": 27
+		},
+		{
+			"id": 75,
+			"session": "5f43bfc6-3c2f-45f0-8841-ddfec801aa1d",
+			"repo": "workflow-core",
+			"time": "2026-10-09T02:13:17.902Z",
+			"reply_time": "2026-10-09T02:19:30.346Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 30,
+						"low": 20,
+						"high": 45
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you want an open ticket as a reminder until the tag exists. That's your preference, and no check can tell me."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 76,
+			"session": "73c30520-153d-4833-a69f-dfa005092e42",
+			"repo": "workflow-core",
+			"time": "2026-10-09T02:37:35.947Z",
+			"reply_time": "2026-10-09T02:41:54.562Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 25,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 30,
+						"low": 20,
+						"high": 45
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how many new tickets a week you can actually triage from this source, because no run measures that; only you can say."
+				}
+			],
+			"separation_prompt": 28
+		},
+		{
+			"id": 77,
+			"session": "73c30520-153d-4833-a69f-dfa005092e42",
+			"repo": "workflow-core",
+			"time": "2026-10-09T02:55:31.559Z",
+			"reply_time": "2026-10-09T03:11:40.354Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "C",
+						"figure": 30,
+						"low": 15,
+						"high": 45
+					},
+					"escape": "both",
+					"escape_text": "checked: re-scaled using the two earlier weeks the picker can rank (18 and 25 Sep). A typical week moves each N by at most 3 tickets, so whether the week was quiet doesn't decide between (A) and (C).\nunmeasured: how many new tickets a week you can triage from this source. Only you can say, and it is what actually separates (A) from (C)."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 78,
+			"session": "de182e2e-7c18-453c-9850-d12ab29a3146",
+			"repo": "workflow-core",
+			"time": "2026-10-09T02:59:37.566Z",
+			"reply_time": "2026-10-09T03:12:35.695Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 20,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 60,
+						"low": 45,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: how often an archive copy is too old to use, because neither the census nor any repo tracks how stale those copies were."
+				},
+				{
+					"n": 3,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 50,
+						"low": 35,
+						"high": 65
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 40,
+						"low": 25,
+						"high": 55
+					},
+					"escape": "checked",
+					"escape_text": "checked: the census table (`playwright-failure-census.md:209-226`) has no hand-back for interactive work without a login; the nearest, a one-time-code form, was walked by headless Playwright."
+				}
+			],
+			"separation_prompt": 29
+		},
+		{
+			"id": 79,
+			"session": "709ae259-a3d0-489b-a8c6-79ece0bc727f",
+			"repo": "workflow-core",
+			"time": "2026-10-09T03:39:14.034Z",
+			"reply_time": "2026-10-09T04:03:48.301Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 1,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "both",
+					"escape_text": "checked: since #984 (the strict close guard) landed, 9 issue closes and 0 close-guard refusals (`count-guard-fires.js --since 2026-10-09T02:14:43Z`).\nunmeasured: whether mantahostels's standards matter more to you than #990's soak guarantee; that is your preference, which no check reaches."
+				}
+			],
+			"separation_prompt": 30
+		},
+		{
+			"id": 80,
+			"session": "b3361a55-b932-4e6d-877c-7b39b14da066",
+			"repo": "workflow-core",
+			"time": "2026-10-09T04:11:26.399Z",
+			"reply_time": "2026-10-09T04:18:35.597Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 65,
+						"low": 50,
+						"high": 80
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 35,
+						"low": 20,
+						"high": 50
+					},
+					"escape": "unmeasured",
+					"escape_text": "unmeasured: whether you would rather read a draft before it goes or after. That is your preference, and no check reaches it."
+				}
+			],
+			"separation_prompt": null
+		},
+		{
+			"id": 81,
+			"session": "09eaafc1-f6e6-47d3-8ace-d2e54eb66e1e",
+			"repo": "workflow-core",
+			"time": "2026-10-09T04:13:02.946Z",
+			"reply_time": "2026-10-09T04:19:19.221Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 10,
+					"overlap": true,
+					"top": {
+						"letter": "A",
+						"figure": 55,
+						"low": 40,
+						"high": 70
+					},
+					"runner_up": {
+						"letter": "B",
+						"figure": 45,
+						"low": 30,
+						"high": 60
+					},
+					"escape": "checked",
+					"escape_text": "checked: the machine note records the `claude.exe` route working on 8 Oct 2026, so the paragraph slows sessions down but doesn't break them. Unmeasured: how soon the brief lands, because that depends on how fast you take #1045 and #1046."
+				}
+			],
+			"separation_prompt": 31
+		},
+		{
+			"id": 82,
+			"session": "09eaafc1-f6e6-47d3-8ace-d2e54eb66e1e",
+			"repo": "workflow-core",
+			"time": "2026-10-09T04:24:06.371Z",
+			"reply_time": "2026-10-09T04:24:41.112Z",
+			"close_refusals_in_turn": 0,
+			"questions": [
+				{
+					"n": 2,
+					"gap": 30,
+					"overlap": true,
+					"top": {
+						"letter": "B",
+						"figure": 65,
+						"low": 50,
+						"high": 75
+					},
+					"runner_up": {
+						"letter": "A",
+						"figure": 35,
+						"low": 25,
+						"high": 50
+					},
+					"escape": "checked",
+					"escape_text": "checked: the tab-listing call under each of two accounts, and the scan of commands sessions ran since 8 Oct."
+				}
+			],
+			"separation_prompt": null
+		}
+	]
+}

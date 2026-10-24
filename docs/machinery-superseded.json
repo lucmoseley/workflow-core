@@ -1,0 +1,2288 @@
+{
+	"shell-start-floor": {
+		"needles": [
+			{
+				"needle": "2850 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,850 MB",
+				"scanned": true
+			},
+			{
+				"needle": "1800 MB",
+				"scanned": true
+			},
+			{
+				"needle": "1,800 MB",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/guard-suite-concurrency.test.ts",
+				"anchors": [
+					{
+						"anchor": "under the ~1800 MB .* for the 2 vitest worker",
+						"needle": "1800 MB"
+					}
+				]
+			}
+		]
+	},
+	"default-session-draw": {
+		"needles": [
+			{
+				"needle": "μ 429 MB, σ 154 MB",
+				"scanned": true
+			}
+		]
+	},
+	"stop-block-price": {
+		"needles": [
+			{
+				"needle": "2.14%",
+				"scanned": true
+			},
+			{
+				"needle": "0.0214",
+				"scanned": true
+			}
+		]
+	},
+	"fanout-share": {
+		"needles": [
+			{
+				"needle": "28.1%",
+				"scanned": true
+			},
+			{
+				"needle": "0.281",
+				"scanned": true
+			}
+		]
+	},
+	"per-turn-reread": {
+		"needles": [
+			{
+				"needle": "82k",
+				"scanned": true
+			},
+			{
+				"needle": "82,000",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/measure-advisor/scan_advisor.py",
+				"anchors": [
+					"\"~$0.41 a call at 82k context\""
+				]
+			}
+		]
+	},
+	"window-total": {
+		"needles": [
+			{
+				"needle": "$26,597",
+				"scanned": true
+			}
+		]
+	},
+	"corpus-total": {
+		"needles": [
+			{
+				"needle": "$33,308",
+				"scanned": true
+			}
+		]
+	},
+	"median-session-cost": {
+		"needles": [
+			{
+				"needle": "$25.89",
+				"scanned": true
+			}
+		]
+	},
+	"session-cost-spread": {
+		"needles": [
+			{
+				"needle": "$32.53 / $63.04 / $287.35",
+				"scanned": false
+			}
+		]
+	},
+	"thinking-share": {
+		"needles": [
+			{
+				"needle": "13.0%",
+				"scanned": true
+			},
+			{
+				"needle": "0.13",
+				"scanned": false
+			}
+		]
+	},
+	"max-dispatch-cost": {
+		"needles": [
+			{
+				"needle": "$100.46",
+				"scanned": true
+			}
+		]
+	},
+	"dispatch-cost-centre": {
+		"needles": [
+			{
+				"needle": "$2.46",
+				"scanned": true
+			},
+			{
+				"needle": "$3.62",
+				"scanned": true
+			}
+		]
+	},
+	"cache-write-share": {
+		"needles": [
+			{
+				"needle": "28.9%",
+				"scanned": true
+			},
+			{
+				"needle": "0.289",
+				"scanned": true
+			}
+		]
+	},
+	"output-share": {
+		"needles": [
+			{
+				"needle": "16.5%",
+				"scanned": true
+			},
+			{
+				"needle": "0.165",
+				"scanned": true
+			}
+		]
+	},
+	"dispatch-cache-write-floor": {
+		"needles": [
+			{
+				"needle": "~54k",
+				"scanned": true
+			},
+			{
+				"needle": "~52k",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/effort-guide.md",
+				"anchors": [
+					"median **$1.28 a call** at median **52k** context"
+				]
+			},
+			{
+				"path": "docs/research/always-loaded-shed-candidates.md",
+				"anchors": [
+					"Justification for the ~52k-token floor stated in the same sentence"
+				]
+			}
+		]
+	},
+	"suite-concurrency-ladder": {
+		"needles": [
+			{
+				"needle": "1.85/2.5/3.4",
+				"scanned": true
+			},
+			{
+				"needle": "1850",
+				"scanned": false
+			},
+			{
+				"needle": "1,850",
+				"scanned": false
+			},
+			{
+				"needle": "742 MB",
+				"scanned": true
+			},
+			{
+				"needle": "742 / 1379 / 2260",
+				"scanned": true
+			},
+			{
+				"needle": "742 / 1,379 / 2,260",
+				"scanned": true
+			},
+			{
+				"needle": "1.85 GB",
+				"scanned": true
+			},
+			{
+				"needle": "1.85 / 2.5 / 3.4",
+				"scanned": true
+			},
+			{
+				"needle": "~1.85 / 2.5 / 3.4 GB",
+				"scanned": true
+			},
+			{
+				"needle": "~1.9 / 2.55 / 3.15 GB",
+				"scanned": true
+			},
+			{
+				"needle": "1.9 / 2.55 / 3.15",
+				"scanned": true
+			},
+			{
+				"needle": "786 / 1,412 / 2,020",
+				"scanned": true
+			},
+			{
+				"needle": "786 / 1412 / 2020",
+				"scanned": true
+			},
+			{
+				"needle": "3.15 GB",
+				"scanned": true
+			},
+			{
+				"needle": "3,150 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,020 MB",
+				"scanned": true
+			},
+			{
+				"needle": "1,900",
+				"scanned": false
+			},
+			{
+				"needle": "2,550",
+				"scanned": false
+			},
+			{
+				"needle": "1900",
+				"scanned": false
+			},
+			{
+				"needle": "2550",
+				"scanned": false
+			},
+			{
+				"needle": "4.9 GB",
+				"scanned": true
+			},
+			{
+				"needle": "4900",
+				"scanned": false
+			},
+			{
+				"needle": "3,814 MB",
+				"scanned": true
+			},
+			{
+				"needle": "3814",
+				"scanned": false
+			},
+			{
+				"needle": "~1.7 / 2.1 / 2.4 GB",
+				"scanned": true
+			},
+			{
+				"needle": "1.7 / 2.1 / 2.4",
+				"scanned": true
+			},
+			{
+				"needle": "589 / 990 / 1271",
+				"scanned": true
+			},
+			{
+				"needle": "589 / 990 / 1,271",
+				"scanned": true
+			},
+			{
+				"needle": "1700",
+				"scanned": false
+			},
+			{
+				"needle": "2100",
+				"scanned": false
+			},
+			{
+				"needle": "2400",
+				"scanned": false
+			},
+			{
+				"needle": "3000",
+				"scanned": false
+			},
+			{
+				"needle": "~1.5–1.7 GB",
+				"scanned": true
+			},
+			{
+				"needle": "~2.9 GB",
+				"scanned": true
+			},
+			{
+				"needle": "546% of 800%",
+				"scanned": true
+			},
+			{
+				"needle": "546%",
+				"scanned": true
+			},
+			{
+				"needle": "~2.2 / 2.65 / 3.16 GB",
+				"scanned": true
+			},
+			{
+				"needle": "2.2 / 2.65 / 3.16",
+				"scanned": true
+			},
+			{
+				"needle": "1,095 / 1,544 / 2,062",
+				"scanned": true
+			},
+			{
+				"needle": "1095 / 1544 / 2062",
+				"scanned": true
+			},
+			{
+				"needle": "1,095 MB",
+				"scanned": true
+			},
+			{
+				"needle": "1,544 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,062 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2200",
+				"scanned": false
+			},
+			{
+				"needle": "2650",
+				"scanned": false
+			},
+			{
+				"needle": "3160",
+				"scanned": false
+			},
+			{
+				"needle": "446.8% of 800%",
+				"scanned": true
+			},
+			{
+				"needle": "446.8%",
+				"scanned": true
+			},
+			{
+				"needle": "2,650 MB",
+				"scanned": true
+			},
+			{
+				"needle": "3,160 MB",
+				"scanned": true
+			},
+			{
+				"needle": "~2.25 / 3.25 / 4.6 GB",
+				"scanned": true
+			},
+			{
+				"needle": "2.25 / 3.25 / 4.6",
+				"scanned": true
+			},
+			{
+				"needle": "2.25/3.25/4.6",
+				"scanned": true
+			},
+			{
+				"needle": "1,136 / 2,110 / 3,458",
+				"scanned": true
+			},
+			{
+				"needle": "1136 / 2110 / 3458",
+				"scanned": true
+			},
+			{
+				"needle": "1,136 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,110 MB",
+				"scanned": true
+			},
+			{
+				"needle": "3,458 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2250",
+				"scanned": false
+			},
+			{
+				"needle": "4600",
+				"scanned": false
+			},
+			{
+				"needle": "2,250 MB",
+				"scanned": true
+			},
+			{
+				"needle": "4,600 MB",
+				"scanned": true
+			},
+			{
+				"needle": "3.25/4.6 GB",
+				"scanned": true
+			},
+			{
+				"needle": "3.25 / 4.6 GB",
+				"scanned": true
+			},
+			{
+				"needle": "53% a third worker",
+				"scanned": true
+			},
+			{
+				"needle": "~2.5 / 3.4 / 4.05 GB",
+				"scanned": true
+			},
+			{
+				"needle": "2.5 / 3.4 / 4.05",
+				"scanned": true
+			},
+			{
+				"needle": "2.5/3.4/4.05",
+				"scanned": true
+			},
+			{
+				"needle": "3.4/4.05 GB",
+				"scanned": true
+			},
+			{
+				"needle": "3.4 / 4.05 GB",
+				"scanned": true
+			},
+			{
+				"needle": "4.05 GB",
+				"scanned": true
+			},
+			{
+				"needle": "1,404 / 2,267 / 2,955",
+				"scanned": true
+			},
+			{
+				"needle": "1404 / 2267 / 2955",
+				"scanned": true
+			},
+			{
+				"needle": "1,404 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,267 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,955 MB",
+				"scanned": true
+			},
+			{
+				"needle": "4,050 MB",
+				"scanned": true
+			},
+			{
+				"needle": "3,400 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2,500 MB",
+				"scanned": true
+			},
+			{
+				"needle": "2500",
+				"scanned": false
+			},
+			{
+				"needle": "3400",
+				"scanned": false
+			},
+			{
+				"needle": "4050",
+				"scanned": false
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/guard-fire-needles.json",
+				"anchors": [
+					"+ ~300 MB fitted margin; mantahostels#463"
+				]
+			},
+			{
+				"path": "docs/doc-map.md",
+				"anchors": [
+					"**Sheds paid, most recent first:**"
+				]
+			},
+			{
+				"path": "scripts/test_bench_suite_concurrency.py",
+				"anchors": [
+					"dip_mb=1095.1",
+					"dip_mb=1544.1"
+				]
+			},
+			{
+				"path": "docs/research/adopter-suite-cost.md",
+				"anchors": [
+					"`test/run-lanes.sh` runs up to 3 suites at once"
+				]
+			},
+			{
+				"path": "docs/research/always-loaded-shed-candidates.md",
+				"anchors": [
+					"**C7 is not (e).**",
+					"| §Machine limits, the 1.7 / 2.1 / 2.4 GB gates |",
+					"that count's dip — 589 / 990 / 1271 MB"
+				]
+			},
+			{
+				"path": "scripts/guard-suite-concurrency.test.ts",
+				"anchors": [
+					{
+						"anchor": "passes a whole launch beside one running 1-file run at 2,500 MB",
+						"needle": "2,500 MB"
+					}
+				]
+			},
+			{
+				"path": "scripts/pretest-reap.test.ts",
+				"anchors": [
+					{
+						"anchor": "judges a whole launch beside one running 1-file run against the 2,500 MB rung",
+						"needle": "2,500 MB"
+					}
+				]
+			}
+		]
+	},
+	"suite-baseline-shift-tolerance": {
+		"needles": [
+			{
+				"needle": "200.0 MB",
+				"scanned": true
+			},
+			{
+				"needle": "200 MB",
+				"scanned": false
+			}
+		]
+	},
+	"dispatch-week-ceiling": {
+		"needles": [
+			{
+				"needle": "95%",
+				"scanned": false
+			},
+			{
+				"needle": "0.95",
+				"scanned": false
+			},
+			{
+				"needle": "98%",
+				"scanned": false
+			},
+			{
+				"needle": "0.98",
+				"scanned": false
+			}
+		]
+	},
+	"dispatch-session-ceiling": {
+		"needles": [
+			{
+				"needle": "95%",
+				"scanned": false
+			},
+			{
+				"needle": "0.95",
+				"scanned": false
+			}
+		]
+	},
+	"session-ceiling-overshoot": {
+		"needles": [
+			{
+				"needle": "29,124",
+				"scanned": true
+			},
+			{
+				"needle": "29124",
+				"scanned": true
+			},
+			{
+				"needle": "51.1%",
+				"scanned": true
+			},
+			{
+				"needle": "0.511",
+				"scanned": false
+			}
+		],
+		"allowlist": []
+	},
+	"statusline-denominator": {
+		"needles": [
+			{
+				"needle": "150000",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/measure-session-ceilings/stats.py",
+				"anchors": [
+					"crossed_150k_main = res_main[150000]",
+					"crossed_150k_all = res_all[150000]",
+					"crossed_150k_sub = res_sub[150000]"
+				]
+			},
+			{
+				"path": "scripts/fixtures/admission-pre-589.json",
+				"anchors": [
+					"\"500\": 150000"
+				]
+			}
+		]
+	},
+	"bandread-empty-case": {
+		"needles": [
+			{
+				"needle": "1 of 4 recorded runs",
+				"scanned": true
+			},
+			{
+				"needle": "rare rather than typical",
+				"scanned": true
+			}
+		]
+	},
+	"stranded-after-hours": {
+		"needles": [
+			{
+				"needle": "STRANDED_AFTER_HOURS = 6",
+				"scanned": true
+			},
+			{
+				"needle": "6 hours",
+				"scanned": true
+			},
+			{
+				"needle": "6-hour",
+				"scanned": false
+			},
+			{
+				"needle": "6 h",
+				"scanned": false
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/lib/doc-map.test.ts",
+				"anchors": [
+					"PAIRING_GRACE_MS is 6 hours",
+					"expect(\"6 hours\").not.toMatch"
+				]
+			},
+			{
+				"path": "docs/practice/test-and-ci-performance.md",
+				"anchors": [
+					{
+						"anchor": "or 5% in 6 hours (30-minute short window)",
+						"needle": "6 hours"
+					}
+				]
+			}
+		]
+	},
+	"pool-cap": {
+		"needles": [
+			{
+				"needle": "51,588",
+				"scanned": true
+			},
+			{
+				"needle": "51_588",
+				"scanned": true
+			},
+			{
+				"needle": "51.6 KB",
+				"scanned": true
+			},
+			{
+				"needle": "55,943",
+				"scanned": true
+			},
+			{
+				"needle": "55_943",
+				"scanned": true
+			},
+			{
+				"needle": "55.9 KB",
+				"scanned": true
+			},
+			{
+				"needle": "47,000",
+				"scanned": true
+			},
+			{
+				"needle": "47_000",
+				"scanned": true
+			},
+			{
+				"needle": "47.0 KB",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/research/always-loaded-shed-candidates.md",
+				"anchors": [
+					"this register is",
+					"= **51,584 B against a 51,588 B cap",
+					"**51.2 KB of 55.9 KB, 4,779 B of headroom**",
+					"pool **46.9 KB of 47.0 KB, 83 B headroom**"
+				]
+			},
+			{
+				"path": "docs/delete-zone.md",
+				"anchors": [
+					"it covers, to 55,943 B"
+				]
+			}
+		]
+	},
+	"agent-bill-objective": {
+		"needles": [
+			{
+				"needle": "$400",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"not a bill below $400",
+					"Revives only if the founder lowers the ceiling below $400",
+					"took the bill from $400 to $600"
+				]
+			},
+			{
+				"path": "scripts/check-roadmap-valid.test.ts",
+				"anchors": [
+					"validate-p0 · bill $400 · no change."
+				]
+			}
+		]
+	},
+	"seat-displacement-requirement": {
+		"needles": [
+			{
+				"needle": "49.5%",
+				"scanned": true
+			},
+			{
+				"needle": "0.495",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"The old 49.5% displacement figure was two-seat arithmetic and is dead",
+					"the requirement was **49.5%** when both seats ran to 99%"
+				]
+			},
+			{
+				"path": "scripts/guard-jev-advisory.js",
+				"anchors": [
+					"so a p of 0.495 is `clear`"
+				]
+			}
+		]
+	},
+	"turns-per-day": {
+		"needles": [
+			{
+				"needle": "16,000–20,000",
+				"scanned": true
+			},
+			{
+				"needle": "16,000-20,000",
+				"scanned": true
+			}
+		],
+		"allowlist": []
+	},
+	"seat-reset-stagger": {
+		"needles": [
+			{
+				"needle": "staggered by 4.6 days",
+				"scanned": true
+			},
+			{
+				"needle": "4.6-day stagger",
+				"scanned": true
+			}
+		],
+		"allowlist": []
+	},
+	"blocked-hours-threshold": {
+		"needles": [
+			{
+				"needle": "4 or more blocked hours",
+				"scanned": true
+			},
+			{
+				"needle": "fewer than 4 blocked hours",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"The former *\"fewer than 4 blocked hours inside a working day\"* gate is **retired**"
+				]
+			}
+		]
+	},
+	"opus-list-burn-valuation": {
+		"needles": [
+			{
+				"needle": "$32,000",
+				"scanned": true
+			}
+		],
+		"allowlist": []
+	},
+	"autofire-cooldown": {
+		"needles": [
+			{
+				"needle": "20 * 60 * 1000",
+				"scanned": true
+			},
+			{
+				"needle": "once per 20 minutes",
+				"scanned": true
+			},
+			{
+				"needle": "20-minute limit",
+				"scanned": true
+			},
+			{
+				"needle": "Twenty minutes alone bounds",
+				"scanned": true
+			},
+			{
+				"needle": "72 firings",
+				"scanned": true
+			},
+			{
+				"needle": "72 a day",
+				"scanned": true
+			},
+			{
+				"needle": "432 billed minutes",
+				"scanned": true
+			},
+			{
+				"needle": "20 minutes",
+				"scanned": false
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/lib/lander.js",
+				"anchors": [
+					"const PUSH_TIMEOUT_MS = 20 * 60 * 1000;"
+				]
+			}
+		]
+	},
+	"sweep-grace": {
+		"needles": [
+			{
+				"needle": "90 minutes",
+				"scanned": true
+			},
+			{
+				"needle": "1.5 hours",
+				"scanned": true
+			},
+			{
+				"needle": "90 * 60 * 1000",
+				"scanned": false
+			}
+		],
+		"allowlist": [
+			{
+				"path": ".claude/skills/manual-sync/SKILL.md",
+				"anchors": [
+					"weekly review slot recorded as 90 minutes"
+				]
+			},
+			{
+				"path": "scripts/check-manual-freshness.test.ts",
+				"anchors": [
+					"source founder ruling · §4 — weekly review slot recorded as 90 minutes",
+					"${sha} · §4 — weekly review slot recorded as 90 minutes"
+				]
+			},
+			{
+				"path": "docs/practice/code-review-process.md",
+				"anchors": [
+					{
+						"anchor": "A review of 200-400 LOC over 60-90 minutes",
+						"needle": "90 minutes"
+					}
+				]
+			}
+		]
+	},
+	"hook-share-total": {
+		"needles": [
+			{
+				"needle": "9.78%",
+				"scanned": true
+			},
+			{
+				"needle": "0.0978",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"all hooks are 0.733% of window spend, not 9.78%"
+				]
+			}
+		]
+	},
+	"inject-tracker-share": {
+		"needles": [
+			{
+				"needle": "9.200%",
+				"scanned": true
+			},
+			{
+				"needle": "9.20%",
+				"scanned": true
+			},
+			{
+				"needle": "0.0920",
+				"scanned": true
+			}
+		]
+	},
+	"triage-labels-waste-share": {
+		"needles": [
+			{
+				"needle": "0.911%",
+				"scanned": true
+			},
+			{
+				"needle": "1.12%",
+				"scanned": true
+			},
+			{
+				"needle": "0.00911",
+				"scanned": true
+			}
+		]
+	},
+	"dispatch-ledger-window": {
+		"needles": [
+			{
+				"needle": "DEFAULT_WINDOW_HOURS = 2",
+				"scanned": true
+			},
+			{
+				"needle": "TWO-HOUR WINDOW",
+				"scanned": true
+			},
+			{
+				"needle": "last 2h",
+				"scanned": true
+			},
+			{
+				"needle": "2h after launching it",
+				"scanned": true
+			},
+			{
+				"needle": "2-hour window",
+				"scanned": false
+			},
+			{
+				"needle": "DEFAULT_WINDOW_HOURS = 6",
+				"scanned": true
+			},
+			{
+				"needle": "SIX-HOUR WINDOW",
+				"scanned": true
+			},
+			{
+				"needle": "last 6h",
+				"scanned": true
+			},
+			{
+				"needle": "6-hour window",
+				"scanned": false
+			}
+		]
+	},
+	"hook-persistence-threshold": {
+		"needles": [
+			{
+				"needle": "20 KB",
+				"scanned": true
+			},
+			{
+				"needle": "20KB",
+				"scanned": true
+			},
+			{
+				"needle": "20 kB",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"the sweep inferred ~20 KB"
+				]
+			}
+		]
+	},
+	"hook-preview-cut": {
+		"needles": [
+			{
+				"needle": "hard cut, mid-word",
+				"scanned": true
+			},
+			{
+				"needle": "cut hard — mid-word",
+				"scanned": true
+			},
+			{
+				"needle": "mid-word cut",
+				"scanned": true
+			},
+			{
+				"needle": "hard cut at 2000",
+				"scanned": true
+			},
+			{
+				"needle": "mid-word",
+				"scanned": false
+			}
+		]
+	},
+	"injection-cap": {
+		"needles": [
+			{
+				"needle": "65,172",
+				"scanned": true
+			},
+			{
+				"needle": "65172",
+				"scanned": true
+			},
+			{
+				"needle": "65_172",
+				"scanned": true
+			},
+			{
+				"needle": "12,000",
+				"scanned": true
+			},
+			{
+				"needle": "12000",
+				"scanned": false
+			},
+			{
+				"needle": "12_000",
+				"scanned": false
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/delete-zone.md",
+				"anchors": [
+					"raised scope-neutrally to 65,172 B at mantahostels#1284"
+				]
+			}
+		]
+	},
+	"cpu-peak-share": {
+		"needles": [
+			{
+				"needle": "67.5%",
+				"scanned": true
+			},
+			{
+				"needle": "0.675",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"reading stands only as a reading of its own 12-session window"
+				]
+			},
+			{
+				"path": "docs/research/adopter-suite-cost.md",
+				"anchors": [
+					"| Naive (the #2202 conversion, share × 0.80 to 0.97) |"
+				]
+			}
+		]
+	},
+	"git-spawn-run-in-process-band": {
+		"needles": [
+			{
+				"needle": "37%–47%",
+				"scanned": true
+			},
+			{
+				"needle": "53%–63%",
+				"scanned": true
+			},
+			{
+				"needle": "69%–82%",
+				"scanned": true
+			},
+			{
+				"needle": "18%–31%",
+				"scanned": true
+			},
+			{
+				"needle": "4,000–6,800",
+				"scanned": true
+			},
+			{
+				"needle": "15,200–18,000",
+				"scanned": true
+			},
+			{
+				"needle": "10,000–12,800",
+				"scanned": true
+			}
+		]
+	},
+	"route-f-event-cap": {
+		"needles": [
+			{
+				"needle": "7,789",
+				"scanned": true
+			},
+			{
+				"needle": "7789",
+				"scanned": true
+			},
+			{
+				"needle": "7.8 KB",
+				"scanned": true
+			},
+			{
+				"needle": "13,000",
+				"scanned": true
+			},
+			{
+				"needle": "13_000",
+				"scanned": true
+			},
+			{
+				"needle": "13,700",
+				"scanned": true
+			},
+			{
+				"needle": "13_700",
+				"scanned": true
+			},
+			{
+				"needle": "13.7 KB",
+				"scanned": true
+			},
+			{
+				"needle": "19,000",
+				"scanned": true
+			},
+			{
+				"needle": "19_000",
+				"scanned": true
+			},
+			{
+				"needle": "19.0 KB",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/research/always-loaded-shed-candidates.md",
+				"anchors": [
+					"7,789 B (mantahostels#1720, mantahostels#1756)",
+					"route (f)'s per-delivery cap is 7,789 B",
+					"nothing holds a multi-guard delivery under the 7,789 B per-delivery cap"
+				]
+			},
+			{
+				"path": "scripts/check-citation-tracker.js",
+				"anchors": [
+					"The ~13,000 citations already in the tree"
+				]
+			}
+		]
+	},
+	"route-f-shared-ratchet": {
+		"needles": [
+			{
+				"needle": "2,813",
+				"scanned": true
+			},
+			{
+				"needle": "2_813",
+				"scanned": true
+			},
+			{
+				"needle": "2.8 KB",
+				"scanned": true
+			},
+			{
+				"needle": "19,600",
+				"scanned": true
+			},
+			{
+				"needle": "19_600",
+				"scanned": true
+			},
+			{
+				"needle": "20,500",
+				"scanned": true
+			},
+			{
+				"needle": "20_500",
+				"scanned": true
+			},
+			{
+				"needle": "20.5 KB",
+				"scanned": true
+			},
+			{
+				"needle": "25,800",
+				"scanned": true
+			},
+			{
+				"needle": "25_800",
+				"scanned": true
+			},
+			{
+				"needle": "25.8 KB",
+				"scanned": true
+			},
+			{
+				"needle": "28,600",
+				"scanned": true
+			},
+			{
+				"needle": "28_600",
+				"scanned": true
+			},
+			{
+				"needle": "28.6 KB",
+				"scanned": true
+			},
+			{
+				"needle": "31,900",
+				"scanned": true
+			},
+			{
+				"needle": "31_900",
+				"scanned": true
+			},
+			{
+				"needle": "31.9 KB",
+				"scanned": true
+			}
+		],
+		"allowlist": []
+	},
+	"sweep-cadence": {
+		"needles": [
+			{
+				"needle": "0 1,6,11,16 * * *",
+				"scanned": true
+			},
+			{
+				"needle": "5h/5h/5h/9h",
+				"scanned": true
+			},
+			{
+				"needle": "24 billed min/day",
+				"scanned": true
+			},
+			{
+				"needle": "720/month",
+				"scanned": true
+			},
+			{
+				"needle": "24%",
+				"scanned": false
+			},
+			{
+				"needle": "0 1,5,9,13,17,21 * * *",
+				"scanned": true
+			},
+			{
+				"needle": "six scheduled sweeps a day",
+				"scanned": true
+			},
+			{
+				"needle": "the schedule's own ~1,355/month",
+				"scanned": true
+			},
+			{
+				"needle": "~44.5 billed min/day",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/guard-priced-options.test.ts",
+				"anchors": [
+					"(B) Run it four times a day."
+				]
+			}
+		]
+	},
+	"verdict-lag": {
+		"needles": [
+			{
+				"needle": "up to 9 hours",
+				"scanned": true
+			},
+			{
+				"needle": "within 9 hours",
+				"scanned": true
+			},
+			{
+				"needle": "nine hours",
+				"scanned": true
+			},
+			{
+				"needle": "9 hours",
+				"scanned": true
+			},
+			{
+				"needle": "9h",
+				"scanned": true
+			},
+			{
+				"needle": "9-hour",
+				"scanned": true
+			},
+			{
+				"needle": "nine-hour",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/research/always-loaded-shed-candidates.md",
+				"anchors": [
+					"the up-to-9-hour verdict gap"
+				]
+			}
+		]
+	},
+	"sweep-price": {
+		"needles": [
+			{
+				"needle": "6.0 billed minutes",
+				"scanned": true
+			},
+			{
+				"needle": "~6 billed minutes",
+				"scanned": true
+			},
+			{
+				"needle": "$0.036",
+				"scanned": true
+			},
+			{
+				"needle": "5.9 billed",
+				"scanned": true
+			},
+			{
+				"needle": "7.42 billed minutes",
+				"scanned": true
+			},
+			{
+				"needle": "the schedule's 7.42",
+				"scanned": true
+			},
+			{
+				"needle": "8.20 billed min",
+				"scanned": true
+			},
+			{
+				"needle": "~29.7 billed min/day",
+				"scanned": true
+			},
+			{
+				"needle": "~890/month",
+				"scanned": true
+			},
+			{
+				"needle": "~738 a month",
+				"scanned": true
+			},
+			{
+				"needle": "~1,780",
+				"scanned": true
+			},
+			{
+				"needle": "~1,835",
+				"scanned": true
+			},
+			{
+				"needle": "~44.5%",
+				"scanned": true
+			},
+			{
+				"needle": "7.42-minute sweep",
+				"scanned": true
+			},
+			{
+				"needle": "at ~7.42 billed minutes",
+				"scanned": true
+			},
+			{
+				"needle": "~27.2 billable min/day",
+				"scanned": true
+			},
+			{
+				"needle": "~816 a month",
+				"scanned": true
+			},
+			{
+				"needle": "41% of the Free cap",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/check-ci-status.js",
+				"anchors": [
+					"8.20/7.42 dispatch premium"
+				]
+			}
+		]
+	},
+	"ledger-entry-cap": {
+		"needles": [
+			{
+				"needle": "400 B",
+				"scanned": true
+			},
+			{
+				"needle": "400 bytes",
+				"scanned": true
+			},
+			{
+				"needle": "400",
+				"scanned": false
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/lib/doc-map.test.ts",
+				"anchors": [
+					"expect(\"400 busy jiffies\").not.toMatch",
+					"expect(\"a 400 B cap\").toMatch"
+				]
+			},
+			{
+				"path": "scripts/check-context-budget-session-cap.test.ts",
+				"anchors": [
+					{
+						"anchor": "and 400 B paid on every firing across 1. Uncapped.",
+						"needle": "400 B"
+					}
+				]
+			}
+		]
+	},
+	"claimed-bash-write-session-budget": {
+		"needles": [
+			{
+				"needle": "4,000 B a session",
+				"scanned": true
+			},
+			{
+				"needle": "4,000 B session budget",
+				"scanned": true
+			},
+			{
+				"needle": "4000 B session budget",
+				"scanned": true
+			},
+			{
+				"needle": "4,000 B",
+				"scanned": false
+			},
+			{
+				"needle": "4000",
+				"scanned": false
+			}
+		],
+		"allowlist": []
+	},
+	"rework-horizon": {
+		"needles": [
+			{
+				"needle": "21-day",
+				"scanned": true
+			},
+			{
+				"needle": "21 days",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/measure-effort-arms/scan_rework.py",
+				"anchors": [
+					"The 21 days this defaulted to"
+				]
+			},
+			{
+				"path": "docs/agents/rules/waiting-external-vocabulary.txt",
+				"anchors": [
+					"switch channel at 21 days"
+				]
+			},
+			{
+				"path": "docs/agents/triage-labels.md",
+				"anchors": [
+					"switch channel at 21 days"
+				]
+			},
+			{
+				"path": "scripts/lib/issue-gate.test.ts",
+				"anchors": [
+					"the cohort has cleared 21 days — check:",
+					"condition: \"the cohort has cleared 21 days\""
+				]
+			},
+			{
+				"path": "scripts/lib/seat-utilisation.js",
+				"anchors": [
+					"sign of life costs another 14-21 days",
+					"one accidental session costing another 14-21 days"
+				]
+			},
+			{
+				"path": "scripts/lib/seat-utilisation.test.ts",
+				"anchors": [
+					"not cost another 14-21 days"
+				]
+			},
+			{
+				"path": "scripts/pick-next.js",
+				"anchors": [
+					"21 days, non-responsive at 45"
+				]
+			},
+			{
+				"path": "scripts/lib/log-reading.js",
+				"anchors": [
+					"21 days caps the wait"
+				]
+			},
+			{
+				"path": "scripts/report-close-check-reading.test.ts",
+				"anchors": [
+					"is capped at 21 days, reading thin",
+					"const UNREAD_AT_CEILING",
+					"by the 21-day ceiling/;",
+					"whose first log line came after the 21-day ceiling"
+				]
+			},
+			{
+				"path": "scripts/report-round-check-reading.test.ts",
+				"anchors": [
+					"(21 days after the first log line\\)/",
+					"is capped at 21 days, reading thin",
+					"with the 21-day ceiling as the latest point"
+				]
+			},
+			{
+				"path": "scripts/lib/trial-window.test.ts",
+				"anchors": [
+					"naming the 21-day bound",
+					"over the 21-day bound"
+				]
+			},
+			{
+				"path": "scripts/report-flip-line-reading.js",
+				"anchors": [
+					"and at most 21 days after the"
+				]
+			},
+			{
+				"path": "scripts/report-flip-line-reading.test.ts",
+				"anchors": [
+					"21 days after the first low-top refusal",
+					"is capped at 21 days, reading thin",
+					"is the 21-day ceiling while fewer than three repos"
+				]
+			}
+		]
+	},
+	"gh-max-buffer": {
+		"needles": [
+			{
+				"needle": "1.69 MB across 158 issues",
+				"scanned": true
+			},
+			{
+				"needle": "~6,000 issues",
+				"scanned": true
+			},
+			{
+				"needle": "~10.7 KB per issue",
+				"scanned": true
+			},
+			{
+				"needle": "ISSUE_LIST_LIMIT = 2000;",
+				"scanned": true
+			}
+		],
+		"allowlist": []
+	},
+	"root-scratch-deny-coverage": {
+		"needles": [
+			{
+				"needle": "80.1%",
+				"scanned": true
+			},
+			{
+				"needle": "0.801",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/machinery-superseded.json",
+				"anchors": [
+					"root-scratch-deny-coverage"
+				]
+			},
+			{
+				"path": "docs/research/repeated-review-runs.md",
+				"anchors": [
+					"| Opus high + Opus high | **80.1%** |",
+					"| Opus high ×2 | 80.1% |",
+					"| 2 | 80.1% (measured) |",
+					"| Opus high ×2 | 81.1% (measured 80.1%) |",
+					"(all-6 union 85.9% > Opus high ×2 80.1%)",
+					"2 runs **80.1%** (+8.1 pp",
+					"(lower than two Opus high runs, 80.1%,"
+				]
+			}
+		]
+	},
+	"root-scratch-subagent-cap": {
+		"needles": [
+			{
+				"needle": "81.5%",
+				"scanned": true
+			},
+			{
+				"needle": "0.815",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/environment.md",
+				"anchors": [
+					{
+						"anchor": "81.5% is not a ceiling on it",
+						"needle": "81.5%"
+					}
+				]
+			}
+		]
+	},
+	"debt-sweep-closed-limit": {
+		"needles": [
+			{
+				"needle": "CLOSED_ISSUES_LIMIT = 5000;",
+				"scanned": true
+			},
+			{
+				"needle": "GH_BATCH_TIMEOUT_MS = 60_000;",
+				"scanned": true
+			},
+			{
+				"needle": "1,032 closed of 1,225",
+				"scanned": true
+			},
+			{
+				"needle": "5x the closed set",
+				"scanned": true
+			},
+			{
+				"needle": "~40 issues a week",
+				"scanned": true
+			},
+			{
+				"needle": "~40 a week",
+				"scanned": true
+			},
+			{
+				"needle": "19 months",
+				"scanned": true
+			},
+			{
+				"needle": "15.6s wall for",
+				"scanned": true
+			}
+		],
+		"allowlist": []
+	},
+	"wide-read-threshold": {
+		"needles": [
+			{
+				"needle": "10,000 characters or more",
+				"scanned": true
+			},
+			{
+				"needle": "10,000-character figure",
+				"scanned": true
+			},
+			{
+				"needle": "WFC_WIDE_READ_BYTES:-10000",
+				"scanned": true
+			},
+			{
+				"needle": "10 kB file per case",
+				"scanned": true
+			}
+		]
+	},
+	"echo-chain-accuracy": {
+		"needles": [
+			{
+				"needle": "93.6%",
+				"scanned": true
+			},
+			{
+				"needle": "0.936",
+				"scanned": true
+			}
+		],
+		"allowlist": []
+	},
+	"concision-damage-cases": {
+		"needles": [
+			{
+				"needle": "three recorded damage cases",
+				"scanned": true
+			},
+			{
+				"needle": "3 recorded damage cases",
+				"scanned": true
+			},
+			{
+				"needle": "three damage cases",
+				"scanned": false
+			},
+			{
+				"needle": "three bad cuts",
+				"scanned": false
+			}
+		]
+	},
+	"doc-map-section-b-budget": {
+		"needles": [
+			{
+				"needle": "50,000-word budget",
+				"scanned": true
+			},
+			{
+				"needle": "50,000-word section budget",
+				"scanned": true
+			},
+			{
+				"needle": "BUDGET_WORDS = 50000",
+				"scanned": true
+			}
+		]
+	},
+	"fable-opus-cost-multiple": {
+		"needles": [
+			{
+				"needle": "twice Opus 5",
+				"scanned": true
+			},
+			{
+				"needle": "flat 2.00x",
+				"scanned": true
+			},
+			{
+				"needle": "Fable 5 at 2.00x",
+				"scanned": true
+			},
+			{
+				"needle": "1.18x Opus 5",
+				"scanned": true
+			},
+			{
+				"needle": "1.06–1.18x",
+				"scanned": true
+			}
+		]
+	},
+	"seat-idle-revival-trigger": {
+		"needles": [
+			{
+				"needle": "one seat under ~25% while the other is exhausted",
+				"scanned": true
+			},
+			{
+				"needle": "under ~25%",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"The retired predecessor"
+				]
+			}
+		]
+	},
+	"cloud-vm-revival-trigger": {
+		"needles": [
+			{
+				"needle": "refuses a session admission",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/capacity-procurement-ladder.md",
+				"anchors": [
+					"The retired limb was"
+				]
+			}
+		]
+	},
+	"vendored-description-bytes": {
+		"needles": [
+			{
+				"needle": "2,195 B",
+				"scanned": true
+			},
+			{
+				"needle": "13 cost nothing",
+				"scanned": true
+			},
+			{
+				"needle": "2195",
+				"scanned": false
+			}
+		]
+	},
+	"own-description-bytes": {
+		"needles": [
+			{
+				"needle": "779 B",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/research/always-loaded-shed-candidates.md",
+				"anchors": [
+					"own skill and command descriptions 779 B = pool **46.9 KB of 47.0 KB"
+				]
+			}
+		]
+	},
+	"interop-probe-budget": {
+		"needles": [
+			{
+				"needle": "retried once at 10s",
+				"scanned": true
+			},
+			{
+				"needle": "5 + 2 + 10 + 2 = 19s",
+				"scanned": true
+			},
+			{
+				"needle": "Worst case 19s",
+				"scanned": true
+			}
+		]
+	},
+	"autofire-daily-cap": {
+		"needles": [
+			{
+				"needle": "6-a-day",
+				"scanned": true
+			},
+			{
+				"needle": "six-a-day budget",
+				"scanned": true
+			},
+			{
+				"needle": "six-a-day cap",
+				"scanned": true
+			},
+			{
+				"needle": "bounded at six a day",
+				"scanned": true
+			},
+			{
+				"needle": "six times a UTC day",
+				"scanned": true
+			},
+			{
+				"needle": "ONE BUDGET, SIX A DAY",
+				"scanned": true
+			},
+			{
+				"needle": "6 of 6 already fired",
+				"scanned": true
+			},
+			{
+				"needle": "6 sweeps already fired today",
+				"scanned": true
+			},
+			{
+				"needle": "~1,476 a month",
+				"scanned": true
+			},
+			{
+				"needle": "~2,518, or ~126%",
+				"scanned": true
+			},
+			{
+				"needle": "126%",
+				"scanned": true
+			},
+			{
+				"needle": "1.26",
+				"scanned": false
+			}
+		]
+	},
+	"suite-concurrency-throughput": {
+		"needles": [
+			{
+				"needle": "1650 s",
+				"scanned": true
+			},
+			{
+				"needle": "1650",
+				"scanned": true
+			},
+			{
+				"needle": "250 s",
+				"scanned": true
+			},
+			{
+				"needle": "250",
+				"scanned": false
+			},
+			{
+				"needle": "6.6x",
+				"scanned": true
+			},
+			{
+				"needle": "6.6",
+				"scanned": false
+			},
+			{
+				"needle": "3.3x",
+				"scanned": true
+			},
+			{
+				"needle": "3.3",
+				"scanned": false
+			},
+			{
+				"needle": "4950",
+				"scanned": true
+			},
+			{
+				"needle": "4,950",
+				"scanned": true
+			},
+			{
+				"needle": "1500 session-seconds",
+				"scanned": true
+			},
+			{
+				"needle": "1,500 session-seconds",
+				"scanned": true
+			},
+			{
+				"needle": "1500",
+				"scanned": false
+			},
+			{
+				"needle": "1,500",
+				"scanned": false
+			},
+			{
+				"needle": "degradation is superlinear",
+				"scanned": true
+			},
+			{
+				"needle": "Degradation is superlinear",
+				"scanned": true
+			},
+			{
+				"needle": "1.14x",
+				"scanned": true
+			},
+			{
+				"needle": "1.37x",
+				"scanned": true
+			},
+			{
+				"needle": "1,019 session-seconds",
+				"scanned": true
+			},
+			{
+				"needle": "1,486 serial",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/data/issue-title-search-2026-09-27/titles.json",
+				"lines": []
+			}
+		]
+	},
+	"guard-count-s3": {
+		"needles": [
+			{
+				"needle": "All 10 guards",
+				"scanned": true
+			}
+		]
+	},
+	"sonnet-opus-ratio": {
+		"needles": [
+			{
+				"needle": "0.40×",
+				"scanned": true
+			},
+			{
+				"needle": "0.40x",
+				"scanned": true
+			},
+			{
+				"needle": "0.40",
+				"scanned": false
+			},
+			{
+				"needle": "60%",
+				"scanned": false
+			},
+			{
+				"needle": "0.50×",
+				"scanned": true
+			},
+			{
+				"needle": "50%",
+				"scanned": false
+			},
+			{
+				"needle": "0.69×",
+				"scanned": true
+			},
+			{
+				"needle": "0.69x",
+				"scanned": true
+			},
+			{
+				"needle": "0.69",
+				"scanned": false
+			},
+			{
+				"needle": "31%",
+				"scanned": false
+			},
+			{
+				"needle": "0.31",
+				"scanned": false
+			},
+			{
+				"needle": "0.77×",
+				"scanned": true
+			},
+			{
+				"needle": "0.77x",
+				"scanned": true
+			},
+			{
+				"needle": "0.77",
+				"scanned": false
+			},
+			{
+				"needle": "23%",
+				"scanned": false
+			},
+			{
+				"needle": "0.23",
+				"scanned": false
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/data/issue-title-search-2026-09-27/titles.json",
+				"lines": []
+			}
+		]
+	},
+	"subagent-sonnet-saving": {
+		"needles": [
+			{
+				"needle": "5.20pp",
+				"scanned": true
+			},
+			{
+				"needle": "3.48pp",
+				"scanned": true
+			},
+			{
+				"needle": "5.20-percentage",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "docs/effort-guide.md",
+				"anchors": [
+					"mantahostels#1410 measured 5.20pp of all spend"
+				]
+			}
+		]
+	},
+	"implement-carveout-overapplied": {
+		"needles": [
+			{
+				"needle": "24% over-applied",
+				"scanned": true
+			},
+			{
+				"needle": "carve-out runs one way",
+				"scanned": true
+			}
+		]
+	},
+	"review-model-lockstep": {
+		"needles": [
+			{
+				"needle": "five lockstep edits",
+				"scanned": true
+			}
+		]
+	},
+	"tracker-checks-cadence": {
+		"needles": [
+			{
+				"needle": "weekly via `.github/workflows/issue-card-drift.yml`",
+				"scanned": true
+			},
+			{
+				"needle": "weekly in issue-card-drift.yml",
+				"scanned": true
+			},
+			{
+				"needle": "weekly in `issue-card-drift.yml`",
+				"scanned": true
+			},
+			{
+				"needle": "and weekly in CI",
+				"scanned": true
+			}
+		]
+	},
+	"low-top-line": {
+		"needles": [
+			{
+				"needle": "60 or less",
+				"scanned": true
+			},
+			{
+				"needle": "LOW_TOP = 60",
+				"scanned": true
+			}
+		]
+	},
+	"low-top-forecast": {
+		"needles": [
+			{
+				"needle": "8.4 a day",
+				"scanned": true
+			}
+		]
+	},
+	"top-baseline-at-65": {
+		"needles": [
+			{
+				"needle": "224 of 1,612",
+				"scanned": true
+			},
+			{
+				"needle": "atLine: 224",
+				"scanned": true
+			},
+			{
+				"needle": "13.9%",
+				"scanned": false
+			}
+		]
+	}
+}

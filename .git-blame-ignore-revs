@@ -1,0 +1,5 @@
+# Pure-layout commits for `git blame --ignore-revs-file`; GitHub reads this file
+# itself. Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# shfmt and ruff format over every tracked shell and Python file (#1332)
+e8bcfed20eb033a158330818e4f141ae18ec83a7

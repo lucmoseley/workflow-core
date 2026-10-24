@@ -1,0 +1,263 @@
+{
+	"comment": "The admission ledger (#1943, #2033): one entry per top-level list item or bold-led paragraph in the always-loaded pool, keyed by file and headline — the item's bold lead, else its first sentence. `claim` is the wrong act a session takes without the rule (#1942's removal claim). `route` is `no-trigger` (no trigger, or binds while the reply is written), `trigger` with the /implement `ticket` whose guard will print it, or `pre-first-tool-call` (a limb of a guard-printed rule that binds before the first tool call). check-context-budget.js --against HEAD refuses a commit that adds a pool item with no matching entry, so a reworded headline moves its entry in the same commit; `npm run check:context` reports a `trigger` entry whose ticket has closed while its rule is still in the pool. A rule sharing a bullet shares its entry. A rule a guard prints belongs in docs/agents/guard-registry.md, not the pool.",
+	"entries": [
+		{
+			"file": "CLAUDE.md",
+			"headline": "Where two rules conflict, the more specific wins, and a guard's deny text wins over any file.",
+			"claim": "A session obeys a file over a guard's deny text, or takes the riskier act when it cannot rank two rules",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "`docs/reference-roadmap.html` is the sole authority for card status, phase and card content.",
+			"claim": "A session answers card status from the digest or a summary",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "Before answering any question about card status, phase or content, read `docs/roadmap-digest.md`.",
+			"claim": "A session answers a card question without the dependency map",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "Closed GitHub issues are corpus, not history",
+			"claim": "A session calls a figure undefined after a file search alone",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "`docs/doc-map.md` is the authority model, not auto-loaded.",
+			"claim": "A session substitutes a changed figure by grep, opens the wrong document first, propagates a fact ad hoc, writes a §B entry for machinery or unconfirmed, or parks a settled fact for later",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "`npm run status` — the repo-health checkers that no longer fire at session start; run it on demand.",
+			"claim": "A session never finds the demoted health checks",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "`npm run typecheck` — the only type-check; neither `lint` nor `check` is one.",
+			"claim": "A session calls types clean after `lint` or `check`",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "`npm run test:py` — pytest over `scripts/**/test_*.py`, across two workers (`-n 2`, pytest-xdist), through `scripts/run-pytest.js`, which leaves its pre-push marker.",
+			"claim": "A session expects `npm install` to provide pytest",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "Biome on named files is `node_modules/.bin/biome check <paths>` (in a worktree `npx @biomejs/biome check <paths>`), never a bare `npx biome`.",
+			"claim": "A session runs `npx biome …` and `guard-npm-install.sh` refuses it (#2282: 35 refusals in 34 of 50 arm-B runs)",
+			"route": "pre-first-tool-call"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "A turn ends only on a real question or a notification you are waiting for — never on a progress report.",
+			"claim": "A session ends a turn on a progress report, or ends a background-job turn with no `result:`, `needs input:` or `waiting:` last line (the uncommitted-work limb leaves for `guard-uncommitted-work.js`)",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "Write scope is this repository.",
+			"claim": "A session writes to an external surface unasked",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "The machine is Snapdragon ARM64 under WSL2.",
+			"claim": "A session suggests an x86 binary",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "Kill background processes as soon as they're no longer needed.",
+			"claim": "A session leaves a background process running",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "Delegate whole jobs — the bigger the job, the stronger the case.",
+			"claim": "A session trims a brief to save cost, or does a big job inline",
+			"route": "no-trigger"
+		},
+		{
+			"file": "CLAUDE.md",
+			"headline": "A dispatch costs ~26k cache-write tokens before it does any work.",
+			"claim": "A session dispatches a sweep over a handful of files it could read itself",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "Only a house decision reaches the founder",
+			"claim": "A session asks the founder what research could settle",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "Nothing is reported or requested to Anthropic, of any kind",
+			"claim": "A session takes a harness gap to Anthropic — an issue, a feedback form, a support request — instead of fixing it in-repo or recording it as a harness limit",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "A value called house is unsourced until traced",
+			"claim": "A session calls an agent's advice a house value",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "Build for the repo's long-term health, not the task's quickest finish.",
+			"claim": "A session takes the quick fix",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "Queue actionable items at the moment they're agreed — including recommendations buried in prose, not just explicit requests.",
+			"claim": "A session drops a recommendation buried in prose",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "Test a blocker before it ends a turn",
+			"claim": "A session ends a turn on an untested blocker",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "No paid research or data APIs.",
+			"claim": "A session buys facts",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "They read the end of a reply first, so the decision goes last",
+			"claim": "A session puts the decision above its findings, or pads what sits above it",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "No reasoning prose.",
+			"claim": "A session explains its working above the decision unasked",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Every claim about repo state carries its source as a fragment",
+			"claim": "A session states a fact about repo state with no source",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Never restate what they just said back to them.",
+			"claim": "A session restates the reader's message back to them",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Concision stops at a correctness signal.",
+			"claim": "A session trims a correctness signal for brevity",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "British spelling.",
+			"claim": "A session writes American spelling",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Fragments when reporting facts and status; full sentences whenever a term, an identifier or an option is first introduced.",
+			"claim": "A session reports status in full prose, or introduces a term in a fragment",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Headers, tables and lists only where they carry real structure — never as decoration, and never a heading over a single line.",
+			"claim": "A session decorates a reply with headers, tables or lists that carry no structure",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Blunt, precise, sceptical.",
+			"claim": "A session concedes to forceful pushback rather than to a failed argument",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "One recommendation, briefly justified — a direct call rather than a menu.",
+			"claim": "A session offers a menu with no direct call",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "State confidence numerically, with an error band and one clause on what drives it, whenever the claim can be grounded.",
+			"claim": "A session states a groundable claim with no figure, or a filler percentage",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Price an option on what it does from now on.",
+			"claim": "A session prices an option on precedent rather than on what it does from now on",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Every document in this repo is agent-written.",
+			"claim": "A session calls an agent-written document hand-written, or a generated one automatic",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Ask clarifying questions when a request is vague — use them to explore, not only to settle.",
+			"claim": "A session reserves questions for unsafe or useless cases",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Gloss an identifier the first time it appears in a response",
+			"claim": "A session cites a bare #n or §n the reader cannot place",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "In files, a line stays only where a reader does something different because it is there.",
+			"claim": "A session leaves dead prose in a file",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "Name the next task and its order",
+			"claim": "A session ends multi-step work without naming the next task",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "A question round enumerates its answers as lettered options, each priced",
+			"claim": "A session asks an unpriced question",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "A choice put to the founder in plain prose, carrying no `❓ **Qn**` marker, still owes the lettered priced form.",
+			"claim": "A session puts a choice in prose",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "`result:` asserts that nothing further waits on the reader, not merely that the text answers the question — an assessment ending in a recommendation awaiting approval is `needs input:`, never `result:`.",
+			"claim": "A session ends on `result:` with a recommendation open",
+			"route": "no-trigger"
+		},
+		{
+			"file": ".claude/output-styles/core-voice.md",
+			"headline": "When work needs the founder's hands, do every step you can first; give each remaining step's surface, literal text and what he should see; put it last, ending with what to send back.",
+			"claim": "A session hands over a placeholder",
+			"route": "no-trigger"
+		}
+	]
+}

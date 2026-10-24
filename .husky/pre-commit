@@ -1,0 +1,1131 @@
+#!/usr/bin/env sh
+# pre-commit — the gate stack every commit runs, refusing it on a gating red: the
+# last local gate, nothing running on push since mantahostels#910.
+#
+# Borrow the canonical checkout's binaries, since a worktree has no node_modules
+# of its own: --git-common-dir is absolute in a worktree, a bare `.git` here, so
+# this resolves either way. These gates fire in a worktree too, because
+# package.json's `prepare` re-pins core.hooksPath absolute after husky writes it
+# relative — see its comments entry. Revert that pin and every gate below
+# silently stops firing in worktrees; nothing reports it (mantahostels#344).
+#
+# IMPLICIT:  runs every gate below on each commit — the shared-tree branch check, the linters, the secret scan and the repo checkers — and refuses the commit on a red. Deliberately not enumerated: this file has carried ~14 gates and gains more, and a list here is one that goes stale (mantahostels#1261).
+# JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and since mantahostels#910 nothing runs on push, so a gate skipped here is unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery lag, not the 4-hourly cron.
+# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and scripts/guard-hook-escape.sh refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify no longer skips it, .husky/prepare-commit-msg running it instead (mantahostels#1705), and guard-commit-form.sh denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/guard-commit-form.sh's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910).
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+
+# The pre-lock stamps the test gate and the mutation hold below may stand down
+# on (#1650, #1910), read once and unset here so no gate's child — the in-lock
+# suite, and any commit it makes in a fixture repo — inherits them.
+tg_stamp="${WFC_TEST_STAMP:-}"
+mh_stamp="${WFC_MUTATION_STAMP:-}"
+unset WFC_TEST_STAMP WFC_MUTATION_STAMP
+
+PATH="$(dirname "$(git rev-parse --git-common-dir)")/node_modules/.bin:$PATH"
+
+# The shape the staged gates below share — the temp-dir lifecycle, the staging
+# of blobs out of the index, the skip line and the direction gate's exit-code
+# alphabet (mantahostels#1793). A git hook runs with the working tree's top as its cwd, and
+# scripts/ is tracked, so a worktree AT OR AFTER mantahostels#1793's commit resolves it too;
+# an older detached one does not, and every commit there aborts on the missing
+# source until it is moved forward.
+#
+# COMMIT THE TWO TOGETHER. This file and the library are one unit: a pathspec
+# commit naming only one of them lands a hook that cannot source what it needs,
+# which aborts every commit in the repo until the other half follows.
+# shellcheck source=scripts/lib/precommit-gate.sh
+. "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/precommit-gate.sh
+
+# Layer two of mantahostels#100's shared-tree pin, and the one that actually holds: the
+# PreToolUse guard (scripts/guard-branch.sh) reads a command string and fails
+# open, and sees nothing at all in a plain terminal. A linked worktree is exempt
+# — it was created for a branch and no other session moves it; --git-dir and
+# --git-common-dir are the same directory only in the main worktree.
+#
+# symbolic-ref, not rev-parse --abbrev-ref: it names the branch even before the
+# first commit exists (where --abbrev-ref answers the literal "HEAD" and would
+# block a fresh repo's initial commit), and fails when HEAD is detached, which
+# is correctly a block.
+branch="$(git symbolic-ref --quiet --short HEAD || echo 'a detached HEAD')"
+if [ "$(git rev-parse --git-dir)" = "$(git rev-parse --git-common-dir)" ] &&
+  [ "$branch" != "main" ] &&
+  [ -z "${WFC_ALLOW_BRANCH:-}" ]; then
+  echo "pre-commit: the shared working tree is on '$branch', not main." >&2
+  echo "  The tree is repo-global: committing here lands your work on another session's branch (mantahostels#87)." >&2
+  echo "  Return it with 'git checkout main', and do branch work in a throwaway worktree." >&2
+  echo "  Deliberate? The escape is the founder's to set, never an agent's (#916): an agent stops and asks. The founder runs, from their own terminal, WFC_ALLOW_BRANCH=1 git commit -m '…' -- <paths>  — never --no-verify, which also skips gitleaks." >&2
+  exit 1
+fi
+
+# Scoped to the commit's own paths, not the whole repo (mantahostels#179). The tree is
+# repo-global, so a whole-repo `biome check .` here fails on a parallel
+# session's unformatted in-flight file and blocks a commit that does not touch
+# it. scripts/biome-staged.js runs Biome on an extraction of the index, so it
+# checks the bytes this commit carries, not a neighbour's unstaged hunks in a
+# file it patches (#2429). Whole-repo Biome stays in ci.yml, on its schedule
+# (mantahostels#910).
+#
+# THE COMMAND IS THE ADOPTER'S, from .claude/workflow-core.json (#2), here and in
+# the typecheck and ESLint gates below; declared_cmd owns the reader's exit codes.
+if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
+  sh -c "$declared_command" || exit 1
+fi
+
+"${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
+
+# A session's commit writing back a file a neighbour changed since its base
+# (#113). The script owns its skips and its fail-open.
+bash "${WFC_PLUGIN_ROOT:-.}"/scripts/stale-write-back-gate.sh || exit 1
+
+# A session's commit on a declared sensitive path with no escalated review of
+# exactly its staged tree (#1622). The script owns its skips.
+bash "${WFC_PLUGIN_ROOT:-.}"/scripts/review-hold-gate.sh || exit 1
+
+# The roadmap HTML and its digest are only correct together; refuse the
+# half-staged pair here rather than leaving it to CI.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-pair.js || exit 1
+
+# The staged roadmap is structurally valid, or it does not get committed (mantahostels#698).
+# Scoped to commits that stage the roadmap, so a commit touching nothing else
+# pays nothing. The checker judges the STAGED blob against HEAD's, so under the
+# pathspec-commit convention git's temporary GIT_INDEX_FILE keeps a parallel
+# session's half-saved roadmap out of it.
+#
+# Only validator ERRORs exit non-zero. WARNINGs, and the added/removed card list,
+# report and pass: a roadmap-edit run that adds a card is ordinary work (mantahostels#698).
+#
+# Anchored at both ends, so vendor/docs/reference-roadmap.html and any other
+# look-alike does not fire it.
+if armed '^docs/reference-roadmap\.html$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-valid.js || exit 1
+fi
+
+# A citation of this repo's tracker is bare `#N`; `mantahostels#N` names the
+# inherited tracker (#162).
+#
+# Unarmed by path: the fault landed in shell, JS, TS, JSON and markdown alike,
+# so there is no directory to narrow on.
+#
+# Not content-armed (`grep -q 'mantahostels#'` on the diff first):
+# a pre-filter that fails leaves the gate green, which contradicts the
+# checker's own fail-safe annotation.
+#
+# DEFEAT:    a `citation-exempt: <why>` comment drops one line, and
+#            WFC_CITATION_TRACKER_OFF=1 stands the gate down for one commit.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-citation-tracker.js || exit "$?"
+
+# A gate's subject tracked while its switch is off — a test file with no
+# commands.test, the roadmap, manual or §B with its module off, the brand sheet
+# and app/ with `site` off (#1506). Unarmed, as it judges the whole index: a
+# subject that landed before this shipped is refused at the next commit.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gate-switches.js || exit "$?"
+
+# A staged lockfile out of step with the staged package.json (#2029). The
+# refusal prints the lockfile rule, whose only delivery this is. Armed on the
+# root manifest and every lockfile the checker reads, so deleting a lockfile
+# arms it too.
+if armed '^(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-lockfile-sync.js || exit "$?"
+fi
+
+# A file added under docs/research/ (#2356): research is posted on its issue,
+# never landed in the tree. The refusal prints the rule.
+if armed '^docs/research/'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-research-added.js || exit "$?"
+fi
+
+# The roadmap HTML and its digest must agree on their version line (mantahostels#910).
+# check-roadmap-pair.js above catches the half-staged PAIR; this catches the pair
+# staged together with drifted versions.
+#
+# Fed from the INDEX, not the worktree: the tree is repo-global, so reading the
+# files in place would judge a parallel session's half-written digest.
+if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$'; then
+  staged_gate digest-version live status \
+    'docs/reference-roadmap.html docs/roadmap-digest.md' \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-digest-version.js "$sg_dir/reference-roadmap.html" "$sg_dir/roadmap-digest.md"' \
+    ""
+fi
+
+# The digest's bytes are what its generator renders, not merely a matching
+# version line (mantahostels#2890). docs/roadmap-digest.md is `derived` in docs/doc-map.md
+# §A — only gen-roadmap-digest.js may write it. check-roadmap-pair.js above
+# catches the half-staged pair,
+# check-digest-version.js catches a drifted stamp, and a hand-edit that keeps
+# the stamp passed both.
+#
+# ARMED ON THE GENERATOR TOO, not just the two documents: a behaviour-changing
+# edit to gen-roadmap-digest.js committed on its own would leave main carrying
+# a digest no render reproduces, and the next roadmap commit would then be
+# refused for a fault it did not cause. There is no direction gate here to
+# soften that.
+#
+# Fed from the INDEX, generator included, for the digest-version gate's reason.
+#
+# Held and replayed on failure only. The digest-version gate above prints an OK
+# line too and runs `live`; this gate's OK line names every path it reads, and
+# stacked under that one it would put two green lines on every roadmap commit.
+#
+# `status`, not a flat code, so a generator that will not run (BROKEN, 2) stays
+# distinguishable from a digest that drifted (1).
+#
+# DEFEAT: HUSKY=0 and `core.hooksPath` pointed off .husky/_ (the whole list:
+# scripts/guard-commit-form.sh's LIMITS, #800). A commit landing by either route
+# is unchecked until roadmap-digest.yml's own digest-render step reaches it on the
+# sweeps, up to ~12 hours later (mantahostels#2895); `npm run check:digest-render` answers
+# sooner.
+if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$'; then
+  # IN AN ADOPTER THE GENERATOR IS THE PLUGIN'S (#551): $WFC_PLUGIN_ROOT set
+  # and naming neither this worktree's top nor the canonical checkout, which a
+  # core worktree's plugin root may name. The host holds no copy, or one a
+  # cut is deleting, so staging one out would refuse that deletion as a gate
+  # input. The plugin's copy is read in place — no session edits an installed
+  # plugin. The generator's path still arms the gate there.
+  #
+  # The hint's path is quoted, so a plugin root holding a space pastes whole.
+  dr_gen_rel=.claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js
+  dr_paths='docs/reference-roadmap.html docs/roadmap-digest.md'
+  dr_gen='"$sg_dir/gen-roadmap-digest.js"'
+  dr_hint="$dr_gen_rel"
+  # `|| :` stays outside the `$(…)`: inside it, shellcheck 0.9.0 flags SC2015,
+  # which the local 0.11.0 does not (lucmoseley/mantahostels#3743).
+  dr_plugin="$(cd "${WFC_PLUGIN_ROOT:-.}" 2>/dev/null && pwd -P)" || :
+  dr_canon="$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd -P)"
+  if [ -n "${WFC_PLUGIN_ROOT:-}" ] &&
+    [ "$dr_plugin" != "$(pwd -P)" ] && [ "$dr_plugin" != "$dr_canon" ]; then
+    dr_gen="\"\$WFC_PLUGIN_ROOT/$dr_gen_rel\""
+    dr_hint="\"$WFC_PLUGIN_ROOT/$dr_gen_rel\""
+  else
+    dr_paths="$dr_paths $dr_gen_rel"
+  fi
+  staged_gate digest-render hold status "$dr_paths" \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-digest-render.js "$sg_dir/reference-roadmap.html" "$sg_dir/roadmap-digest.md" '"$dr_gen" \
+    "  Those paths are staged copies. The digest is generated, never hand-edited:
+  node $dr_hint docs/reference-roadmap.html --out docs/roadmap-digest.md"
+fi
+
+# A local edit to a vendored skill body is declared, or this commit does not land
+# (mantahostels#1809, specified at mantahostels#1826). Nothing reads skills-lock.json's computedHash — it
+# is not a digest of anything this repo holds.
+#
+# Scoped to commits that stage a vendored path, the manifest or the licence
+# notices (#1939), so an unrelated commit pays nothing. The worktree, not the index: the check reads all 72
+# vendored files plus the manifest, too many paths to stage out one by one, and
+# the same trade-off the guard-registry gate below makes.
+if armed '^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.json$|\.claude/skills/THIRD-PARTY-NOTICES\.md$)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js || exit 1
+fi
+
+# A staged skills-lock.json is covered by the staged record of a completed
+# `check-vendored-skills.js --upstream` run, its lock and licence-notice hashes
+# matching (#2394, ruled at #2377). The index, not the worktree: the record
+# vouches for the bytes this commit lands. Every path is optional: a deleted
+# lock or manifest owes no record, and a missing record is the finding.
+if armed '^skills-lock\.json$'; then
+  staged_gate upstream-record live status \
+    "opt:skills-lock.json opt:.claude/skills/THIRD-PARTY-NOTICES.md opt:.agents/vendored-upstream-pass.json opt:.agents/vendored-skill-edits.json" \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js --covered "$sg_dir"' ""
+fi
+
+# Every parallel-safety rule in CLAUDE.md's guard-registry region must state a
+# backing that holds — an **Enforced** claim naming a guard that exists and is
+# wired — and a commit must not leave a registry anchor expired that HEAD did
+# not (#2617): the way out is the `--review` re-anchor, staged with it.
+#
+# scripts/ and .husky/ are in the condition because a guard is a file: deleting
+# .husky/pre-commit falsifies an **Enforced** claim without any document changing.
+# self-plugin/ holds the core's wiring, which an UNWIRED claim is judged against.
+#
+# --against HEAD is the whole gate (mantahostels#1801, mantahostels#1833). scripts/lib/check.js reads
+# the INDEX and HEAD, each materialised, and refuses only on a fault this commit
+# ADDS: a neighbour's in-flight rule edit is no longer visible to it at all.
+# Its exit code is the checker's own
+# alphabet: 1 a fault this commit adds, 2 a comparison that could not answer, and
+# both refuse. The checker's own report streams past on the way, so a session
+# still meets the implicit-behaviour roster mantahostels#1261 put here.
+#
+# THAT BASELINE MUST EXIST, and this binds every --against gate in this file.
+# lib/check.js resolves HEAD^{tree} before it reads anything, so in a repo with
+# no commit yet HEAD does not resolve and the gate is BROKEN — exit 2, refusing
+# the very first commit. Nothing in this repo hits it; installing these hooks
+# into a fresh repo would (mantahostels#1940).
+if armed '^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-registry.js --against HEAD || exit "$?"
+fi
+
+# Every command this repo registers its own hooks with resolves to a file that
+# exists, and is executable where the command runs it directly (mantahostels#1898). A hook
+# wired to a path that is not there fires nothing and says nothing. The core
+# registers in self-plugin/hooks/hooks.json, an adopter in .claude/settings.json.
+#
+# Scoped to commits that stage either file or a script: renaming a guard
+# falsifies the wiring without the registration changing.
+#
+# The WORKING TREE, not the index: whether a hook can run is a property of the
+# files on this machine right now.
+#
+# Only the self-plugin assertion. Its four siblings read ~/.claude and answer on
+# `npm run status` instead — a runner would find an empty corpus and report
+# all-clear forever.
+if armed '^(self-plugin/hooks/hooks\.json$|\.claude/settings\.json$|scripts/)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-hook-liveness.js --only self-plugin || exit "$?"
+fi
+
+# hooks/hooks.json is the plugin's copy of the self-plugin's hooks, so an edit
+# there without a re-render ships adopters the old hook set (#4, #2441). Any
+# script too: one that gains or loses a deny moves its onFailure (#2670).
+if armed '^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|scripts/lib/(core-hooks|deny-capable|guard-fires)\.js)$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-plugin-hooks.js --check || exit 1
+fi
+
+# A scripts/ test that spawns a guard sourcing lib/guard-log.sh must redirect
+# CLAUDE_CONFIG_DIR, or every fail-open it provokes on purpose is appended to the
+# developer's real guard-errors.log, where it reads as a guard failing in
+# production (mantahostels#1452).
+#
+# Conditioned on every scripts/ .ts, not only tests, since a shared helper can
+# spawn the guard (#837), and on shell files: the breach also arrives from the
+# guard's side, when a guard some test already spawns starts sourcing
+# guard-log.sh. Whole-repo, not staged-scoped, for the same reason as the
+# guard-registry gate above — the finding is a relationship between a test and a
+# script, and either half can be the one this commit stages — and on --against
+# for the same reason too (mantahostels#1753, mantahostels#1833).
+if armed '^scripts/.*\.(ts|sh)$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
+fi
+
+# A scripts/ test that spawns a hostRoot()-rooted node script must redirect
+# CLAUDE_PROJECT_DIR, or the child roots itself in the real repo and writes
+# into the developer's live .claude/tmp/markers/ (#160, #154's fixed instance).
+#
+# Whole-repo and on --against for the same reason as the guard-test-isolation
+# gate above: the finding pairs a test with whatever script it spawns, and
+# either half can be the one this commit stages.
+if armed '^scripts/.*\.(test\.ts|js)$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root-test-isolation.js --against HEAD || exit "$?"
+fi
+
+# A scripts/ test that raw-inits and raw-commits a git repo must give that
+# repo its own identity, or it passes on every developer machine — which
+# carries a global git identity — and fails on a runner with none (mantahostels#2310's
+# shape, mantahostels#2355).
+#
+# Whole-repo and on --against for the same reason as the guard-test-isolation
+# gate above: the finding pairs an init site with a commit site anywhere in
+# the same file, and a pathspec commit's staged-paths-only view could hold one
+# half without the other.
+if armed '^scripts/.*\.test\.ts$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-git-fixture-identity.js --against HEAD || exit "$?"
+fi
+
+# Every script in the core finds the HOST repository through the one seam (#1),
+# and never by walking up from its own file: installed as a plugin the core sits
+# in the plugin cache, so a self-rooted script reads the cache and every host
+# read lands in the wrong tree. The mirror fault is gated too — a file that
+# ships WITH the core reached through the host root, which the host does not
+# have. A repo shipping no plugin SKIPs: its own scripts run in place (#83).
+#
+# Whole-repo, because a site is judged against core-path constants other
+# scanned modules export; and on --against, so it judges this commit's bytes
+# rather than a parallel session's untracked script in the shared tree (#917).
+# 0.84 s on the live repo.
+if armed '^(scripts/|\.claude/|\.husky/)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root.js --against HEAD || exit "$?"
+fi
+
+# docs/test-read-edges.json is what lets `--changed` select the tests that READ a
+# document rather than import it. It is derived from the test corpus, so a
+# commit adding or removing a runtime read makes it stale, and a stale manifest
+# fails silently in the only direction that matters: the test it forgot sits
+# unrun behind a filtered green indistinguishable from a real one (mantahostels#2031).
+#
+# Conditioned on test files and on the manifest itself. Deliberately NOT on
+# docs/: adding a document changes no edge until a test reads it.
+# The test shape is lib/test-kind.js's `JS_TEST_FILE` in grep's ERE, pinned
+# equal to it by generate-test-read-edges.test.ts.
+if armed '\.(test|spec)\.[cm]?[jt]sx?$|^docs/test-read-edges\.json$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit 1
+fi
+
+# docs/agents/rules/<id>.txt is rendered from an anchor pair in the document
+# that authors the rule, so an edit inside those anchors makes the fragment
+# stale — and a stale fragment is the failure the store exists to prevent: the
+# guard delivers a rule the document no longer says (mantahostels#2493, spec mantahostels#2457 §T2).
+#
+# Conditioned on the source documents and on the generated files themselves,
+# never on scripts/: the generator's own edits are caught when it is re-run.
+if armed '^docs/agents/(triage-labels|issue-tracker)\.md$|^docs/agents/rules/'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --check || exit 1
+fi
+
+# The brand sheet's §11 banned tells, on the copy strings under app/ (mantahostels#858).
+# Scoped to commits that touch app/, so a docs-only commit never pays for it.
+#
+# --against HEAD (mantahostels#1834): the whole root is scanned at both revisions
+# and only a tell HEAD does not already carry refuses the commit, so a
+# pre-existing one still reports without blocking a bystander, and a tell in a
+# file this commit does not stage is seen. Repo prose and
+# source comments are out of scope and keep their em dashes.
+if armed '^app/'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-website-copy.js --against HEAD || exit "$?"
+fi
+
+# The user-settings snapshot is checked here, not in CI: its source lives
+# outside the repo, so a CI runner could only ever skip. Warn-only — drift in
+# an unrelated file must not block an unrelated commit.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-user-settings-drift.js --warn
+
+# The code standards' citations (docs/code-standards.md, and the base
+# beside it where this repo carries one), §N7 exports and pythonRoutes against
+# the local route table (#1863), scoped to what this commit touches
+# (mantahostels#2631). WARN-only by ruling (mantahostels#1091), so this never exits
+# non-zero except on its own apparatus failing (BROKEN: git unable to
+# enumerate the tracked set). Unconditional, not scoped to a path grep: a
+# citation can point at almost any tracked file (app/, scripts/, docs/,
+# top-level configs alike), and the sole reason a repo-wide check earns a
+# path condition elsewhere in this file is cost — cheap here (mantahostels#2631).
+# --touching HEAD, not --against: reasoning in check-code-standards.js:27-43.
+# It reads the WORKTREE against HEAD, not the staged index other --against
+# gates in this file use, so a neighbour's unstaged edit can surface on your
+# commit — accepted because WARN-only means it never blocks (check-code-
+# standards.js:405,433).
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-code-standards.js --touching HEAD --warn
+
+# An own skill body this commit grows past the size its re-reading pays for
+# (mantahostels#3136), report-only by ruling; and a skill or command body
+# holding an unescaped $<digit>, which the harness rewrites to an argument —
+# that limb refuses (#1490). --touching HEAD reads the worktree, so a
+# neighbour's unstaged edit to a body can surface here, and on the token limb
+# refuse — accepted, the fix being one escape.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-body-size.js --touching HEAD
+
+# An own skill whose frontmatter js-yaml rejects, which a strict reader drops
+# silently (#887). js-yaml comes from the repo's own install, and its absence
+# refuses the commit, naming the install (#1380).
+if armed '^\.claude/skills/[^/]+/SKILL\.md$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-frontmatter.js --against HEAD || exit "$?"
+fi
+
+# A hook, guard or checker of the repo's own left unregistered, untested or
+# uncounted (#1456): the host-side form of the core's registration tests, which
+# stands down wherever the repo carries those tests; there it refuses any
+# settings hook but the self-plugin canary (#2447). Direction-gated, so an
+# adopter's inherited gaps warn and only a commit adding one refuses.
+if armed '^(\.claude/(settings|registrations|guard-fire-needles)\.json$|self-plugin/hooks/hooks\.json$|scripts/|\.husky/|\.github/workflows/)'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-registrations.js --against HEAD || exit "$?"
+fi
+
+# A workflow job reaching past the timer-triggered autonomy ceiling, R1
+# (docs/agents/autonomy-ceiling.md). Added or modified files only: a commit
+# deleting the last workflow would otherwise refuse on NOTHING-INSPECTED. It
+# reads the working tree, so a neighbour's unstaged workflow edit can surface
+# here (#1380).
+if armed '^\.github/workflows/[^/]+\.ya?ml$' && [ -n "$(armed_live)" ]; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-workflow-permissions.js || exit "$?"
+fi
+
+# A script reading its command line without a strict parser, which ignores an
+# unknown flag and so runs its side effect on `--help` (#920, #1532).
+# Direction-gated: an inherited script warns, and one this commit adds or
+# edits refuses.
+if armed '^scripts/[^/]+\.js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
+fi
+
+# The doc map's own coverage, checked here as well as in roadmap-digest.yml
+# (mantahostels#390, the ticket that moved this local). Rationale and measurement:
+# docs/doc-map.md §A.
+#
+# THE PATHSPEC-COMMIT CONVENTION IS STILL WHAT KEEPS A NEIGHBOUR OUT, and since
+# mantahostels#1922 it is the INDEX that carries it rather than a `git ls-files` inside the
+# checker: a pathspec commit (`git commit -m … -- <paths>`) makes git hand the
+# hook its own GIT_INDEX_FILE, so the extraction below holds HEAD's files plus
+# this commit's paths and NOT a neighbour's `git add -N` file. A pathspec-LESS
+# commit extracts the shared index instead, so there a neighbour's staged doc
+# does count — mantahostels#63's shape, which guard-commit-form.sh already warns about.
+#
+# The pattern mirrors SCOPE in scripts/lib/doc-map.js; a new member added
+# there must be added here too, and precommit-doc-map-gate.test.ts asserts the
+# parity.
+#
+# THE WHOLE INDEX IS EXTRACTED AND THE CHECKER POINTED AT IT WITH --root
+# (mantahostels#1922), the contract check-guard-registry.js and check-guard-test-isolation.js
+# already take. It replaces the seven staged-out blobs mantahostels#1191 fed it: those put
+# the map, its five data files and the class sidecar on this commit's bytes, but
+# left the checker resolving every OTHER path — its tracked enumeration and the
+# class sidecar's fallback candidate — against the shared worktree. Extracting
+# once puts the whole reading on one tree, and drops the seven-name list that had
+# to be kept in step with DATA_FILES by hand (mantahostels#1595).
+#
+# What --root deliberately does NOT move, and why it is safe: the two
+# untracked-file softeners, which only ever turn a FAIL into a WARN.
+# scripts/check-doc-map.js's header owns that ruling.
+#
+# Output is held and replayed only on failure — the check always prints a long
+# report-only section, and there is no --quiet flag on check.js worth adding for
+# one caller.
+if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$)'; then
+  # `-a --prefix` writes every index entry, creating the leading directories
+  # itself. It reads the INDEX, never the worktree, so a neighbour mid-save on
+  # any file in the repo is invisible to the whole reading rather than to seven
+  # named paths. What the extra extraction costs the gate: mantahostels#1922.
+  #
+  # Unreadable here is apparatus, not a finding, so warn and pass and leave it
+  # to the sweeps. Measured: `checkout-index` exits 0 on an UNMERGED index and
+  # silently omits the conflicted path, so its status is not what catches that
+  # — the map test below is, and the checker SKIPs on a conflicted index anyway.
+  gate_tmpdir
+  dm_dir="$GATE_DIR"
+  dm_status=0
+  dm_readable=1
+  git checkout-index -a --prefix="$dm_dir/tree/" 2>/dev/null || dm_readable=0
+  # The map itself, and only it. A repo whose index holds no doc-map has
+  # nothing for this check to read, and the checker would call that BROKEN —
+  # apparatus, not a finding. Its SIDECARS are deliberately not checked here:
+  # spelling them out is the seven-name list this change exists to lose, and a
+  # data file genuinely absent from the index is a real fault the checker is
+  # right to report.
+  [ -f "$dm_dir/tree/docs/doc-map.md" ] || dm_readable=0
+  if [ "$dm_readable" -eq 1 ]; then
+    # check-doc-map.js reads the map from $dm_dir, a path with no git
+    # identity, so it cannot itself tell a genuinely-stale sidecar from
+    # one that is only stale because this file is mid-edit (mantahostels#1193). Ask git
+    # about the real path here and pass the verdict on: exit 1 is the only
+    # "dirty" reading, so an apparatus failure (no HEAD, git broken) falls
+    # through to the checker's own clean-by-default fallback rather than
+    # forcing a WARN on a question this loop cannot answer.
+    # this file runs under `set -e`, so a status has to be consumed
+    # rather than left to a bare command (mantahostels#1193, which added the flag).
+    dm_dirty_flag=""
+    dm_diff_status=0
+    git diff --quiet HEAD -- docs/doc-map.md 2>/dev/null || dm_diff_status=$?
+    if [ "$dm_diff_status" -eq 1 ]; then
+      dm_dirty_flag="--map-dirty"
+    fi
+    # No map path and no --data-dir: --root supplies both, so the checker's
+    # own repo-relative defaults resolve inside the extraction. Partial
+    # staging is not a gap — the index carries every tracked file, so the
+    # extraction holds HEAD's blob for one this commit does not stage (mantahostels#1202).
+    # shellcheck disable=SC2086 # deliberate: an empty flag must vanish.
+    doc_map_out="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-doc-map.js \
+      --root "$dm_dir/tree" $dm_dirty_flag 2>&1)" || dm_status=$?
+  else
+    # Unreadable has the two readings gate_stage_out separates (mantahostels#2894), and
+    # this gate reached neither: it asks `checkout-index` and a file test,
+    # not `cat-file`, so a staged deletion of the map took the skip line
+    # below and the commit landed (mantahostels#2902). Ask the deletion question for the
+    # MAP ALONE — the extraction above is still what the checker reads, so
+    # the scratch copy this leaves in $dm_dir is written and never used.
+    #
+    # Only down this limb, and the deletion question is asked of git rather
+    # than inferred from `dm_readable`: this gate's not-readable state has a
+    # SECOND cause the staged_gate callers do not have — `checkout-index`
+    # failing outright — and that one must still warn and pass. gate_stage_out
+    # fails there too (its own `cat-file` cannot read the missing blob
+    # either), but the deletion question it then asks is what tells the two
+    # causes apart: no staged deletion shows up, so $GATE_DELETED comes back
+    # empty and the skip below is unchanged.
+    if ! gate_stage_out "$dm_dir" docs/doc-map.md; then
+      gate_check_deleted doc-map
+    fi
+    gate_skip doc-map "git checkout-index would not write it"
+  fi
+  # Gated on DIRECTION by gate_direction, which owns the fail-closed rule and
+  # the exit-code alphabet (mantahostels#1688, mantahostels#1793). What is specific here: both readings
+  # come from --json, so the comparison is per fault item and never a count — a
+  # commit that fixes one fault and adds another is still refused on the one it
+  # added. The baseline is HEAD extracted the same way, through a temp index:
+  # --root then gives it HEAD's OWN tracked set, where the live `git ls-files`
+  # would hand it this commit's.
+  if [ "$dm_status" -ne 0 ]; then
+    printf '%s\n' "$doc_map_out" >&2
+    echo "  Those paths are inside a throwaway extraction of this commit's index." >&2
+
+    gate_tmpdir
+    dm_base_dir="$GATE_DIR"
+    dm_base_ok=1
+    GIT_INDEX_FILE="$dm_base_dir/index" git read-tree HEAD 2>/dev/null ||
+      dm_base_ok=0
+    GIT_INDEX_FILE="$dm_base_dir/index" git checkout-index -a \
+      --prefix="$dm_base_dir/tree/" 2>/dev/null || dm_base_ok=0
+    # HEAD holding no map at all is no baseline, and must refuse rather than
+    # read as "nothing inherited" — the same test as the staged side above.
+    [ -f "$dm_base_dir/tree/docs/doc-map.md" ] || dm_base_ok=0
+
+    if [ "$dm_base_ok" -eq 1 ]; then
+      # `|| true` on both, and not a swallowed error: a checker that cannot
+      # emit --json leaves an unreadable file behind, which gate_direction
+      # refuses on.
+      # shellcheck disable=SC2086 # as above.
+      node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-doc-map.js --root "$dm_dir/tree" \
+        $dm_dirty_flag --json \
+        >"$dm_base_dir/staged.json" 2>/dev/null || true
+      # GIT_INDEX_FILE as well as --root, and not one or the other: --root
+      # moves the FILESYSTEM reads, and assertion 16's pool delta is an
+      # INDEX read — always-loaded-pool.js addresses it as `:<path>`, which
+      # no directory can stand in for. Without it the baseline measures this
+      # commit's own pool growth, both sides agree, and a commit adding pool
+      # bytes with no §B entry reads as INHERITED and passes (mantahostels#1922).
+      GIT_INDEX_FILE="$dm_base_dir/index" node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-doc-map.js \
+        --root "$dm_base_dir/tree" --json \
+        >"$dm_base_dir/baseline.json" 2>/dev/null || true
+      gate_direction doc-map "mantahostels#1688" node "${WFC_PLUGIN_ROOT:-.}"/scripts/checker-new-faults.js \
+        doc-map "$dm_base_dir/staged.json" "$dm_base_dir/baseline.json" ||
+        exit "$dm_status"
+    else
+      gate_no_baseline doc-map
+      exit "$dm_status"
+    fi
+  fi
+
+  # Some findings survive a green run, and holding the output hid them (mantahostels#1300,
+  # the ticket where two Section A rows sat pointing at files git did not have):
+  # a register row or a Section C route whose target is on disk but absent from
+  # this commit's index.
+  # mantahostels#1193 ruled that a WARN and it stays one for a row this commit inherited —
+  # normal mid-ticket state, and it must not block an unrelated commit. But the
+  # WARN is the only notice anyone gets, and it is local-only: on the sweeps'
+  # clean checkout the file is not on disk either, so assertion 2 reads the row
+  # as a dead entry and FAILs. So replay that block alone, never the whole
+  # report.
+  #
+  # Inside the readable branch deliberately: on the other one $doc_map_out is
+  # never assigned, and replaying from it there would print nothing while
+  # looking like it had checked.
+  #
+  # TWO such blocks since mantahostels#1403 — UNTRACKED-ENTRY for a Section A row,
+  # UNTRACKED-ROUTE for a Section C route — handled by one function called
+  # twice, each with its own awk marker: a single marker matching both would
+  # slice whichever came first and judge a route's `C36 → path` item against
+  # Section A's wording.
+  #
+  # The markers match check-doc-map.js's own wording and reportFault's shape
+  # after it: message, indented items, a blank line, one advice line.
+  # precommit-doc-map-gate.test.ts pins both against the real checker. The
+  # `|| true` is for awk being absent or broken, which would otherwise abort the
+  # hook under `sh -e` and block every docs commit.
+  dm_gate_untracked() {
+    dm_marker="$1"
+    dm_noun="$2"
+    dm_fix="$3"
+    dm_untracked="$(printf '%s\n' "$doc_map_out" | awk -v m="$dm_marker" '
+			$0 ~ m { f = 1 }
+			f { print; if (blank) exit; if ($0 == "") blank = 1 }
+		' || true)"
+    [ -n "$dm_untracked" ] || return 0
+    printf '%s\n' "$dm_untracked" >&2
+
+    # Gated on DIRECTION: an item THIS COMMIT ADDS is refused, an inherited one
+    # keeps the WARN mantahostels#1193 gave it. Inherited means the path appears somewhere
+    # in HEAD's map — a substring test, not a row parse, so anything ambiguous
+    # reads as inherited and warns rather than blocking a commit that did not
+    # create it. HEAD's map and never the worktree's, which in this shared tree
+    # is usually mid-edit by another session; unreadable, the gate does not
+    # fire at all.
+    #
+    # grep's status is read rather than left to a bare `||`, for the reason the
+    # awk above carries `|| true`: a missing or broken grep exits 127, which a
+    # bare `||` would read as "absent from HEAD" for EVERY entry and refuse
+    # every docs commit, blaming the author for rows they inherited. Only a
+    # clean 1 — grep ran and found nothing — is a new item.
+    dm_head_map="$(git cat-file -p HEAD:docs/doc-map.md 2>/dev/null || true)"
+    dm_new=""
+    if [ -n "$dm_head_map" ]; then
+      dm_new="$(printf '%s\n' "$dm_untracked" | sed -n 's/^  //p' |
+        while IFS= read -r dm_entry; do
+          [ -n "$dm_entry" ] || continue
+          # A route item reads "C36 → docs/x.md". Only the path is asked of
+          # HEAD: the id is this commit's own invention as often as not, so
+          # matching the whole item would read every route as new. A Section A
+          # item holds no arrow and is passed through whole.
+          #
+          # Fails open: a path named anywhere in HEAD's map — a §B line,
+          # another route — reads as inherited.
+          dm_needle="${dm_entry##* → }"
+          dm_rc=0
+          printf '%s\n' "$dm_head_map" |
+            grep -qF -- "$dm_needle" || dm_rc=$?
+          if [ "$dm_rc" -eq 1 ]; then
+            printf '  %s\n' "$dm_entry"
+          fi
+        done)"
+    fi
+    if [ -n "$dm_new" ]; then
+      echo "pre-commit: this commit adds the doc-map $dm_noun below and not the file(s) they name:" >&2
+      printf '%s\n' "$dm_new" >&2
+      echo "  The sweeps run a clean checkout, where the file is not on disk either — so it reads as DEAD there and FAILs (mantahostels#1300, mantahostels#1403)." >&2
+      echo "  Fix: $dm_fix" >&2
+      exit 1
+    fi
+    echo "pre-commit: left as they are, the $dm_noun above reach the scheduled sweeps as DEAD, which FAILs there (mantahostels#1300, mantahostels#1403)." >&2
+  }
+
+  # Assertion 22's WARN (mantahostels#2050) is the only notice growth in an over-cap-by-
+  # ruling §B entry ever gets, and it exits 0, so the report above is held.
+  # The sweeps cannot substitute: they run a clean checkout, where the map IS
+  # HEAD's and no entry can read as grown. So replay that block alone — and
+  # never refuse on it: the ruling is WARN-only.
+  #
+  # Assertion 23's WARN (mantahostels#2124) is held the same way and replayed the same
+  # way. Unlike 22's, the sweeps DO see it — a malformed marker reads the same
+  # in a clean checkout — but up to ~12 hours later (mantahostels#2204), and the commit
+  # writing the misspelling is the one that can cheaply fix it.
+  #
+  # Assertion 24's WARN (mantahostels#2227) is 22's case exactly: it compares against the
+  # parent, so the sweeps' clean checkout can never see a dropped marker, and
+  # this replay is the only notice it gets.
+  dm_replay_warn() {
+    # Same awk slice as dm_gate_untracked's, and the same `|| true`: a broken
+    # awk would otherwise abort the hook under `sh -e` and block every commit.
+    dm_warn="$(printf '%s\n' "$doc_map_out" | awk -v m="$1" '
+			$0 ~ m { f = 1 }
+			f { print; if (blank) exit; if ($0 == "") blank = 1 }
+		' || true)"
+    [ -n "$dm_warn" ] || return 0
+    printf '%s\n' "$dm_warn" >&2
+  }
+
+  if [ "$dm_readable" -eq 1 ]; then
+    dm_replay_warn 'marked over cap by ruling grew in'
+    dm_replay_warn 'look like an over-cap marker but do not parse as one:$'
+    dm_replay_warn 'lost the marker the baseline carried:$'
+    dm_gate_untracked \
+      'register entr.* not yet tracked by git:$' \
+      'Section A row(s)' \
+      "name the file in this commit's pathspec too, or drop the row until it lands."
+    dm_gate_untracked \
+      'Section C route path.* not yet tracked by git:$' \
+      'Section C route(s)' \
+      "name the file in this commit's pathspec too, or drop the route until it lands."
+  fi
+fi
+
+# The two context caps, gated on DIRECTION rather than level (mantahostels#1224). A commit
+# that ADDS bytes and leaves a surface at or over its cap is refused, whether it
+# was over already or this commit crossed it (#1014); an over-cap total this
+# commit did not increase stays the WARN it has always been.
+#
+# --against HEAD reads both totals out of git — HEAD as the baseline, the index
+# as this commit — and never off disk, so a neighbour's half-saved CLAUDE.md is
+# not charged here. Same pathspec-commit dependence as the doc-map gate above.
+#
+# The first pattern is deliberately wider than the caps: which docs the injection cap
+# covers is whatever scripts/inject-tracker-docs.sh's DOCS array names, and a
+# path-by-path list here would silently stop covering one moved elsewhere.
+# precommit-context-budget-gate.test.ts asserts every live DOCS entry matches.
+#
+# `scripts/` is the whole directory for the same reason (mantahostels#2004): the event cap
+# is the worst-case rule text one PreToolUse event delivers, so it is contained
+# by whichever guards the hooks wire — and naming those here would be a second
+# wiring to keep true. `self-plugin/` holds the core's wiring. Only the handful
+# the wiring reaches is actually materialised; lib/context-budget-pathspecs.js's
+# ruleSourcePathspecs() reads them out of the hooks AT the revision.
+#
+# The second `armed` is the pool the host's config declares under `alwaysLoaded`
+# (#33), which an adopter may place outside the first. A config that will not
+# read prints nothing and fires nothing here, but editing it fires `.claude/`.
+#
+# Output is held and replayed only on a refusal or a WARN: the checker prints an
+# OK byte line on every run.
+if armed '^(CLAUDE\.md$|AGENTS\.md$|docs/|\.claude/|scripts/|self-plugin/)' ||
+  armed -F "$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/always-loaded-pool.js 2>/dev/null)"; then
+  cb_status=0
+  cb_out="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-context-budget.js --against HEAD 2>&1)" || cb_status=$?
+  case "$cb_status:$cb_out" in
+    0:*WARN:*) printf '%s\n' "$cb_out" >&2 ;;
+    0:*) : ;;
+    *)
+      printf '%s\n' "$cb_out" >&2
+      exit "$cb_status"
+      ;;
+  esac
+fi
+
+# The limit that actually binds the injected payload, which the cap above cannot
+# read: it is PER COMMAND, and check-context-budget.js sums a union larger than
+# any real variant (mantahostels#1915). This runs the STAGED injector and prints every
+# command's margin against the harness's 10,000-character persistence threshold.
+#
+# IT PRINTS ON SUCCESS, unlike the gate above: crossing the threshold raises no
+# error anywhere.
+if armed '^scripts/inject-tracker-docs\.sh$'; then
+  bash "${WFC_PLUGIN_ROOT:-.}"/scripts/check-injector-margin.sh || exit 1
+fi
+
+# check-superseded-values.js exits BROKEN — not WARN — when a §B entry carries a
+# `Supersedes` bullet with no key in docs/doc-map-superseded.json (mantahostels#861).
+#
+# --broken-only stops before the tracked-tree scan, so this gates on the staged
+# map alone. Only the two files that mode opens are staged out: demanding the
+# rest would let a rename of one disable the gate.
+#
+# A map blob that will not read is apparatus: warn and pass, leaving it to CI.
+if armed '^(docs/doc-map\.md|docs/doc-map-superseded\.json)$'; then
+  # The needle file is `opt:` — dropped on failure rather than skipping the
+  # gate — so a truncated write cannot reach the checker as corrupt JSON and
+  # report the wrong fault. Refusing with a flat 1 rather than the checker's
+  # own status: here BROKEN *is* the finding.
+  staged_gate superseded-needle hold 1 \
+    'docs/doc-map.md opt:docs/doc-map-superseded.json' \
+    'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-superseded-values.js "$sg_dir/doc-map.md" --data-dir "$sg_dir" --broken-only' \
+    "  Those paths are staged copies of docs/doc-map.md and docs/doc-map-superseded.json.
+  Fix: give the entry a key in docs/doc-map-superseded.json whose needles are the
+  values it supersedes, and commit the JSON alongside the map."
+fi
+
+# Type-checking, WARN-ONLY and always exit 0 (mantahostels#1062). Unlike the Biome gate
+# above, tsc cannot be scoped to the commit's own staged paths: it needs a whole
+# program, so it reads the WORKTREE — which in this shared tree holds parallel
+# sessions' half-written files.
+if armed '\.(ts|tsx|mts)$|^tsconfig\.json$'; then
+  if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command typecheck; then
+    tc_cmd="$declared_command"
+    if ! tsc_out="$(sh -c "$tc_cmd" 2>&1)"; then
+      echo "pre-commit: $tc_cmd is RED — reporting only, this commit is NOT blocked." >&2
+      printf '%s\n' "$tsc_out" >&2
+      echo "  In this shared tree the error may be a parallel session's half-written file, not yours (mantahostels#273)." >&2
+      echo "  Re-run '$tc_cmd' on a still tree before believing it. ci.yml's Typecheck step is the gate." >&2
+    fi
+  fi
+fi
+
+# ESLint, HARD-FAILING and scoped to the commit's own staged app/ and lib/ TS
+# paths (mantahostels#1133). Do not soften it to match the warn-only tsc gate above: that
+# one reads a whole program and so a neighbour's half-written file with it,
+# where this one reads only the paths it is handed. eslint.config.mjs declares
+# `files` for app/ and lib/ alone, so the pattern mirrors that scope; a third
+# directory added there must be added here too, or the gate silently never
+# fires on it.
+#
+# armed_live keeps deletions, and paths gone from the worktree, out of the path
+# list; --no-error-on-unmatched-pattern covers one that goes between that read
+# and ESLint's, where ESLint would otherwise exit 2 rather than on a finding.
+#
+# --max-warnings 0 because ESLint exits 0 on a warning — see package.json's
+# comments["scripts.check:eslint"]. Spelled here rather than calling `npm run
+# check:eslint`, which lints the whole configured scope where this lints the
+# commit's.
+#
+# Known limit, shared with tsc: ESLint has no --staged, so it reads the WORKTREE
+# copy of these paths, not the staged blob. Scoping keeps that to files this
+# commit names, so the only divergence is your own further edits since staging.
+#
+# `commands.lint` switches this gate on; it does not name what runs (#2). The
+# declared command lints the whole scope, where this gate lints the commit's
+# own paths, so the gate keeps its own eslint call — and skips, saying so,
+# where eslint is not on PATH.
+if armed '^(app|lib)/.*\.(ts|tsx)$'; then
+  eslint_paths="$(armed_live)"
+  if [ -n "$eslint_paths" ] &&
+    declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command lint; then
+    if ! command -v eslint >/dev/null 2>&1; then
+      echo "SKIP: commands.lint is declared, but eslint is not on PATH" >&2
+    else
+      # shellcheck disable=SC2086 # deliberate word-splitting: one path per line.
+      eslint --max-warnings 0 --no-error-on-unmatched-pattern $eslint_paths || {
+        echo "pre-commit: ESLint failed on this commit's own app/ or lib/ paths." >&2
+        echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1133)." >&2
+        exit 1
+      }
+    fi
+  fi
+fi
+
+# The shell gate: HARD-FAILING shellcheck, scoped to the commit's own staged
+# shell paths, not whole-repo (mantahostels#1134).
+#
+# Flags identical to package.json's check:sh, which owns their rationale. -x
+# still resolves the `# shellcheck source=` directives when scoped: sources are
+# followed DOWNWARD from each path given, so no lib needs to be in the path list
+# to be read.
+#
+# armed_shell picks check:sh's file set from the staged paths (#1828).
+#
+# Two limits, both accepted at mantahostels#1134. shellcheck has no --staged, so it reads
+# the WORKTREE copy; scoping keeps that to files this commit names, so the only
+# divergence is your own edits since staging. And -x follows sources downward
+# only, so editing scripts/lib/*.sh does not re-check its dependents — CI's
+# whole-repo run catches that within ~12 hours (mantahostels#2204). Widen to the whole set on
+# a staged lib if it bites again (mantahostels#1134).
+#
+# Serialised with every other shellcheck run on the machine (#2579, #2627).
+if armed_shell; then
+  if tool_gate shellcheck "see CLAUDE.md §Gotchas for the aarch64 binary this machine uses."; then
+    # shellcheck disable=SC2086 # one path per line.
+    sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2329,SC2016 $tool_paths || {
+      echo "pre-commit: shellcheck failed on this commit's own shell paths." >&2
+      echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1134)." >&2
+      echo "  A broken guard fails OPEN, so nothing else would have reported this before CI." >&2
+      exit 1
+    }
+  fi
+fi
+
+# The workflow gate: HARD-FAILING actionlint, scoped to the commit's own staged
+# .github/workflows paths (mantahostels#1137).
+#
+# actionlint runs shellcheck over the shell inside `run:` blocks — which the
+# gate above does not reach, its file set being shell files — and catches an
+# undefined `needs:` job, a bad `if:` expression and an unknown runner label
+# besides.
+#
+# Why this half exists at all when ci.yml has an actionlint step: a
+# parseable-but-wrong scheduled-checks.yml stops the sweep, and the sweep is
+# what would have run that step (mantahostels#1137).
+#
+# No flags, matching package.json's check:actions, which owns their rationale.
+# Paths are passed explicitly here rather than letting actionlint discover the
+# directory itself, which is the whole point of the scoping: the shared tree is
+# repo-global, so a whole-directory run would fail this commit on a parallel
+# session's half-written workflow. As with the shellcheck gate, actionlint has
+# no --staged, so it reads the WORKTREE copy of the paths it is handed.
+# actionlint is a Go binary with no npm route: the npm package of that name is
+# an unrelated abandoned wrapper.
+if armed '^\.github/workflows/.*\.ya?ml$'; then
+  if tool_gate actionlint "see package.json's comments[\"scripts.check:actions\"] for the release to fetch."; then
+    # shellcheck disable=SC2086 # one path per line.
+    actionlint $tool_paths || {
+      echo "pre-commit: actionlint failed on this commit's own workflow paths." >&2
+      echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1137)." >&2
+      exit 1
+    }
+  fi
+fi
+
+# The Python gate: HARD-FAILING ruff, scoped to the commit's own staged .py
+# paths (mantahostels#1135), and charging only the findings the commit
+# INTRODUCES — scripts/check-ruff-introduced.js lints each path's staged blob
+# against its HEAD blob, and its header owns how (#122).
+#
+# The rule set lives in ruff.toml, which owns why it is what it is.
+# No --select here, matching package.json's check:py — except in an adopter with
+# no ruff config of its own, where ruff would otherwise run its defaults or a
+# parent directory's config: there the plugin's ruff.toml is passed by --config
+# (#106). An adopter excludes a directory by `ruffExclude` in
+# .claude/workflow-core.json, not a root ruff.toml, which would switch this
+# --config off (#122).
+#
+# The checker reads the staged paths itself and feeds ruff each blob on stdin,
+# never letting ruff walk the tree: in the shared tree a walk would lint a
+# neighbour's unstaged files and refuse this commit for them, the failure #917
+# fixed in the host-root gate.
+#
+# A missing ruff refuses the commit unless a workflow runs `ruff check`, which
+# then catches what slipped through (#1563); scripts/lib/formatters.js owns
+# that reading and prints why. Not tool_gate, whose missing binary always
+# passes. Workflows are read only where ruff is missing, so a malformed
+# package.json cannot refuse a commit here.
+if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
+  if ! command -v "${WFC_RUFF:-ruff}" >/dev/null 2>&1; then
+    # A probe that prints no `lint:` line crashed: refuse rather than skip.
+    lint_probe="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js lint-missing)" || lint_probe=""
+    case "$lint_probe" in
+      lint:skip) ;;
+      lint:refuse) exit 1 ;;
+      *)
+        echo "pre-commit: the ruff probe failed, so the ruff gate refused this commit." >&2
+        exit 1
+        ;;
+    esac
+  else
+    # The format gate below reads the same config through the same function.
+    ruff_cfg="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js ruff-config)"
+    node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-ruff-introduced.js ${ruff_cfg:+--config "$ruff_cfg"} || {
+      echo "pre-commit: the ruff gate refused this commit's own Python paths." >&2
+      echo "  Only findings HEAD's copy lacks are charged; ones already on it are not (#122)." >&2
+      echo "  Machine-fixable findings: ruff check --fix <path>. Rule set: ${ruff_cfg:-your own ruff config}." >&2
+      echo "  Fix the findings — never delete the code to pass (#1022). Vendored or third-party code alone goes in \`ruffExclude\` in .claude/workflow-core.json: it is not this repo's code to fix, and editing it forks it from upstream (#1463)." >&2
+      exit 1
+    }
+  fi
+fi
+
+# The swallowed-error gate: HARD-FAILING base §N5 over the commit's own staged
+# program-routed .py paths, charging only the `except` blocks it ADDS that
+# neither raise nor exit and cite no ticket, narrow catches included, which
+# ruff's BLE001 and E722 never see (#1830). The checker's header owns which
+# paths are programs (`pythonRoutes`) and what a citation is. Its own block,
+# not the ruff gate's: it needs python3, never ruff, and a missing python3
+# refuses the commit.
+if armed '\.py$' && [ -n "$(armed_live --index)" ]; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-swallowed-errors.js || {
+    echo "pre-commit: the swallowed-error gate refused this commit's own Python paths." >&2
+    echo "  Say why at the site and cite the ticket that chose the swallow, or let the error raise or exit (base §N5)." >&2
+    exit 1
+  }
+fi
+
+# The format gate: HARD-FAILING shfmt and `ruff format` over the commit's own
+# staged shell and Python paths (#1332), as check:staged's Biome refuses
+# unformatted JS and TS. scripts/check-format-staged.js reads each path's
+# staged blob and prints the fix. The pattern is a cheap superset; the checker
+# picks the shell paths by the shell gate's own lister. A commit only deleting such
+# paths does not arm it, so a crashing probe below cannot refuse one.
+#
+# A missing formatter is BROKEN in the checker, refusing the commit with the
+# line that installs it. The hook skips that half instead only where a
+# workflow runs the formatter, which then catches what slipped through
+# (#1354, #1463); scripts/lib/formatters.js owns that reading.
+if armed "\.py\$|$GATE_SHELL_CANDIDATE" && [ -n "$(armed_live --index)" ]; then
+  # A probe that prints no `flags:` line crashed: refuse rather than skip.
+  fmt_probe="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/formatters.js skip-flags)" || fmt_probe=""
+  case "$fmt_probe" in
+    flags:*) fmt_skip="${fmt_probe#flags:}" ;;
+    *)
+      echo "pre-commit: the formatter probe failed, so the format gate refused this commit." >&2
+      exit 1
+      ;;
+  esac
+  # shellcheck disable=SC2086 # deliberate word-splitting: zero to two flags.
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-format-staged.js $fmt_skip || {
+    echo "pre-commit: the format gate refused this commit's own shell or Python paths." >&2
+    exit 1
+  }
+fi
+
+# Where a suite is gated at commit or the mutation hold is due, commit-paths
+# runs this file down to the marker line below before either, so a gate
+# refusing in seconds never waits behind them (#1763, #1910). So every core
+# gate goes above it but those two, which commit-paths runs before the lock
+# itself; below it, only they, the adopter's own gates and the stamp. commit-paths finds the line by its exact text, and runs no gates
+# early where it is gone; nothing here reads a switch to stop at it.
+# ---- end of the gates commit-paths runs before its suite ----
+
+# The declared `commands.test`, HARD-FAILING, wherever it writes no test-pass
+# marker (#740) — a repo's suite that pre-push's marker check can never see is
+# otherwise gated by nothing. Where it does write one, the pre-push warning
+# owns the suite and this skips; test-gate.js holds that line for both hooks.
+# Last of the core gates, being the slowest.
+#
+# It runs in a throwaway worktree holding HEAD plus exactly the changes git
+# handed this hook, as commit-paths' pre-lock run does, so a neighbour's
+# unsaved file cannot refuse the commit (#1766). Where that worktree cannot be
+# made it runs in the shared tree, saying so. Residual: a gitignored file the
+# suite reads and `worktreeLinks` does not name turns it red, and a linked one
+# stays live, so a neighbour can change it mid-run (#1767).
+#
+# It stands down where $WFC_TEST_STAMP names a file directly in this checkout's git
+# directory holding the key of exactly the changes git handed this hook
+# (scripts/lib/commit-key.js, gate `test`) — a pre-lock run's green on them (#1650). The
+# stamp is never consumed: a HEAD-moved retry must find it again.
+if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
+  tg_cmd="$declared_command"
+  if ! tg_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down test "$tg_stamp" 2>&1)"; then
+    echo "pre-commit: running '$tg_cmd' in the lock — no pre-lock green stands it down: $tg_why." >&2
+    tg_rc=0
+    tg_shared=0
+    tg_out="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/isolated-worktree.js run "$tg_cmd")" || tg_rc=$?
+    # 3 is the suite's red; 2 no worktree; anything else the runner itself failing.
+    case "$tg_rc" in
+      0 | 2 | 3) ;;
+      *)
+        printf '%s\n' "$tg_out" >&2
+        echo "pre-commit: scripts/lib/isolated-worktree.js failed (exit $tg_rc) before the suite gave a verdict, so this commit is refused." >&2
+        exit 1
+        ;;
+    esac
+    if [ "$tg_rc" -eq 2 ]; then
+      echo "pre-commit: no worktree holds this commit's tree alone, so '$tg_cmd' runs in the shared tree." >&2
+      tg_rc=0
+      tg_shared=1
+      tg_out="$(sh -c "$tg_cmd" </dev/null 2>&1)" || tg_rc=$?
+    fi
+    if [ "$tg_rc" -ne 0 ]; then
+      printf '%s\n' "$tg_out" >&2
+      # scripts/commit-paths.js prints these lines, worded for its own run, on
+      # a pre-lock red, all but the mantahostels#273 pair: change both together.
+      echo "pre-commit: the declared test command is RED — '$tg_cmd' — so this commit is refused." >&2
+      if [ "$tg_shared" -eq 1 ]; then
+        echo "  In a shared tree the red may be a parallel session's half-written file, not yours (mantahostels#273)." >&2
+        echo "  Fix the failing test, or re-run '$tg_cmd' on a still tree and commit again once it is green." >&2
+      else
+        echo "  It ran on HEAD plus this commit's own changes, so no neighbour's unsaved file reached it (#1766): the red is in HEAD, in this commit, or in a gitignored file the suite needs that its worktree lacks." >&2
+        echo "  Fix the failing test and commit again. Where the red is a gitignored file the worktree lacks, name it in \`worktreeLinks\` in .claude/workflow-core.json (#1767)." >&2
+      fi
+      exit 1
+    fi
+  fi
+fi
+
+# A commit changing a line on a declared sensitive path while a planted bug on
+# it survives every test (#1906, spec #1871), with the `mutation` module on.
+# Below the marker, so commit-paths does not run it among its early gates, and
+# after the test gate, whose red it would only repeat more slowly. The script
+# owns its skips, its throwaway worktree and its fail-open.
+#
+# It stands down as the test gate does, on $WFC_MUTATION_STAMP holding the
+# key of exactly these changes for gate `mutation` — commit-paths' pre-lock
+# green (#1910). No stamp named is a plain commit, and runs it in silence.
+mh_why=""
+if [ -z "$mh_stamp" ] || ! mh_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down mutation "$mh_stamp" 2>&1)"; then
+  if [ -n "$mh_why" ]; then
+    echo "pre-commit: running the mutation hold in the lock — no pre-lock green stands it down: $mh_why." >&2
+  fi
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/mutation-hold-gate.js || exit 1
+fi
+
+# THE ADOPTER'S OWN GATES: `.husky/pre-commit.local` (#437). An adopter that
+# wants a pre-commit gate of its own writes it there, never into this file,
+# which an adopter runs from the plugin through its shim (#1839). The contract:
+#   - it runs LAST, after every core gate has passed, and only if it exists;
+#   - it is SOURCED, in this same `sh -e` shell, so `staged_gate` and this
+#     hook's PATH are in scope, and any failing command or `exit 1` refuses
+#     the commit;
+#   - core never writes, copies or rewrites it — it is the adopter's to commit;
+#   - before it runs, every `scripts/…` or `.claude/…` path it names ending
+#     .js/.cjs/.mjs/.sh/.py must exist from the repo top, or EVERY commit is
+#     refused naming the path, not just one staging the gate's arming path,
+#     where a missing script would otherwise hide (#426). A path spelled
+#     through $WFC_PLUGIN_ROOT is a core script under the plugin, and skipped.
+#     The scan is lexical: a path built in a variable goes unseen, and one
+#     through an alias of $WFC_PLUGIN_ROOT is checked against the repo top.
+# An `exit 0` there ends the hook before the stamp below, so
+# prepare-commit-msg runs every gate again: slow, never a skipped gate.
+# Pre-commit only: the other hooks read no local file.
+if [ -f .husky/pre-commit.local ]; then
+  # Word by word, split on blanks and on ; | & < >, so a $WFC_PLUGIN_ROOT
+  # path is dropped alone. A path counts only at the word's start or after a
+  # quote, `=`, `./`, a variable or a `$(…)`. Keep it in step with
+  # scripts/husky-script-refs.test.ts's SCRIPT_PATH; a grep pattern's `\.`
+  # stops the path short of its extension, so an arming pattern never matches.
+  pcl_missing="$(sed -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' .husky/pre-commit.local |
+    tr -s ' \t;|&<>' '\n' |
+    grep -v 'WFC_PLUGIN_ROOT' |
+    sed -nE 's#^([^/]*[^/A-Za-z0-9_.-]|[^/]*(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?|[)"]+|\.)/)?((\.claude|scripts)/[A-Za-z0-9_./-]*).*$#\3#p' |
+    grep -E '\.(c?js|mjs|sh|py)$' |
+    sort -u |
+    while IFS= read -r pcl_path; do
+      [ -e "$pcl_path" ] || printf '%s\n' "$pcl_path"
+    done)"
+  if [ -n "$pcl_missing" ]; then
+    echo "pre-commit: .husky/pre-commit.local calls a script this repo does not have:" >&2
+    printf '%s\n' "$pcl_missing" | sed 's/^/  /' >&2
+    echo "  Every commit is refused until it exists or the local file stops naming it (#437)." >&2
+    exit 1
+  fi
+  # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos
+  . ./.husky/pre-commit.local
+fi
+
+# The stand-down stamp (mantahostels#1705). `.husky/prepare-commit-msg` runs this whole file
+# again, because that is the one hook `--no-verify` does NOT skip — so without a
+# stamp every ordinary commit would run the ~14 gates twice. This is the last
+# thing the file does, so it is written only when every gate above passed.
+#
+# Keyed to the INDEX TREE, not a pid or a timestamp: two distinct commits cannot
+# share a tree object except in the empty-commit case, and there the content
+# standing down is content these gates have already passed, which is the whole
+# claim the key makes. `--absolute-git-dir` puts it per-worktree, beside
+# MERGE_HEAD, so a sibling worktree can neither read it nor be stood down by it.
+#
+# Every failure here is swallowed: this file runs under `set -e`, where a
+# failing write-tree — a conflicted index — would abort the hook and refuse a
+# commit that has passed. A half-written stamp is worse than none, so the
+# failing branch removes it. Failing to write one costs a second gate run,
+# never a missed gate, which is the safe direction (mantahostels#103 §6).
+pc_stamp_dir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
+if [ -n "$pc_stamp_dir" ]; then
+  git write-tree >"$pc_stamp_dir/wfc-precommit-stamp" 2>/dev/null ||
+    rm -f "$pc_stamp_dir/wfc-precommit-stamp"
+fi

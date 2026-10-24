@@ -1,0 +1,15 @@
+A WHOLE-FILE RESTORE THROWS AWAY EVERY UNCOMMITTED EDIT IN THE FILE, NOT ONLY
+YOURS. This command puts a whole file back over one holding uncommitted
+changes — a `git restore`, a `git checkout -- <path>`, or a `cp` or `mv` onto
+it.
+
+- Reverse one change — a mutation test's break, a probe, a wrong edit — with
+  the inverse targeted edit, never a whole-file restore. For a whole-file
+  rewrite use a throwaway worktree.
+- Discard your own edits by naming your own paths: `git restore -- <your
+  paths>`, and only where every change in them is yours.
+- Never `cp` a file over one in the shared tree: it writes back a snapshot
+  older than a neighbour's edit.
+
+What a restore already discarded is in no commit: where it held a neighbour's
+edit, say so in your reply rather than rewriting it from memory.

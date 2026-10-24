@@ -1,0 +1,36 @@
+{
+	"about": "Per-plugin always-on context cost, in tokens as `claude plugin details <name>` reports it, keyed by the `enabledPlugins` name in .claude/settings.json. Measured and reported every session, never capped (mantahostels#3116, ruled 6 September 2026). An `uncounted` component is one the figure omits: an MCP server's tool schemas are resolved at runtime and priced by nothing here (mantahostels#3131 measures them).",
+	"plugins": {
+		"github@claude-plugins-official": {
+			"tokens": 0,
+			"measured": "2026-09-06",
+			"uncounted": "MCP tool schemas"
+		},
+		"code-review@claude-plugins-official": {
+			"tokens": 22,
+			"measured": "2026-09-06"
+		},
+		"commit-commands@claude-plugins-official": {
+			"tokens": 105,
+			"measured": "2026-09-06"
+		},
+		"skill-creator@claude-plugins-official": {
+			"tokens": 114,
+			"measured": "2026-09-06"
+		},
+		"context7@claude-plugins-official": {
+			"tokens": 0,
+			"measured": "2026-09-06",
+			"uncounted": "MCP tool schemas"
+		},
+		"last30days@last30days-skill": {
+			"tokens": 105,
+			"measured": "2026-09-06"
+		},
+		"impeccable@impeccable": {
+			"tokens": 529,
+			"measured": "2026-09-06",
+			"note": "gated behind scripts/design-mode.sh"
+		}
+	}
+}

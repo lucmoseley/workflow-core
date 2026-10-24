@@ -1,0 +1,3 @@
+# Vendored skills (skills-lock.json): the shell gates and formatters skip them,
+# as base §0 routes vendored code to "none" (#1828).
+.agents/skills/** linguist-vendored

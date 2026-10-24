@@ -1,0 +1,52 @@
+#!/usr/bin/env sh
+# pre-applypatch — the secrets scan on `git am` and `git rebase --apply`
+# (mantahostels#1707).
+#
+# Neither route reaches `pre-commit` or `prepare-commit-msg` (the marker table
+# in scripts/lib/commit-route.sh), and `pre-applypatch` is the only hook either
+# offers that can refuse: git aborts the apply on a non-zero exit, before the
+# commit is written.
+#
+# IMPLICIT:  runs gitleaks over the applied patch's staged content, on every
+#            `git am` and every `git rebase --apply` replay, through
+#            scripts/lib/commit-route.sh, whose absence refuses the apply.
+# JUSTIFIED: fail-safe — a patch applied from a file is bytes no commit in this
+#            repository ever carried, which is the shape a pasted credential
+#            arrives in, and AGENTS.md §Secrets boundary makes a committed key
+#            permanent. Since mantahostels#910 nothing runs on push, so a gate skipped here
+#            is unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery
+#            lag, not the 4-hourly cron.
+# DEFEAT:    `git am --no-verify`, which abbreviates down to `--no-v`, skips
+#            this hook; `git rebase --apply` accepts no such flag.
+#            `scripts/guard-commit-form.sh` denies the flag only unwrapped,
+#            so an agent can still reach it; that guard's
+#            LIMITS holds every route past this hook (#800). WFC_GITLEAKS
+#            names the scanner's binary (§N7, #224), which on this hook is the
+#            whole gate.
+#
+# gitleaks ALONE, never the whole stack — the same call and the same reasoning
+# as .husky/prepare-commit-msg's replay path (mantahostels#1706): a rebase replaying N
+# commits would otherwise run N full stacks, and an intermediate state can
+# legitimately fail a cross-file check that only the final state satisfies.
+# THE RESIDUAL is everything else in .husky/pre-commit, unrun on these two
+# routes.
+#
+# A refusal leaves the operation IN PROGRESS with `rebase-apply/` set, so the
+# message names the abort, which differs between the two routes:
+# scripts/lib/commit-route.sh tells them apart and owns the scan.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+
+here="$(dirname "$0")"
+route_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"
+if [ ! -r "$route_lib" ]; then
+  echo "pre-applypatch: $route_lib is missing, so the secrets scan did not run." >&2
+  echo "  Refusing rather than applying the patch unscanned (#1503)." >&2
+  exit 1
+fi
+# shellcheck source=scripts/lib/commit-route.sh
+. "$route_lib"
+
+gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
+wfc_replay_scan pre-applypatch "$(wfc_commit_route pre-applypatch "$gitdir")" && exit 0
+exit 1

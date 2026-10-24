@@ -1,0 +1,26 @@
+A DENIED EDIT IS REGISTERED AS A DEBT, AND THE ENTRY IS COMPLETED BY THE
+SESSION THAT WAS DENIED.
+
+The arbiter writes the stub for you on the denial. Completing it is yours:
+
+  node scripts/session-arbiter.js debt own <path> <issue> "<the edit you did not make>"
+
+COMPLETE IT THE DAY IT IS DENIED (mantahostels#1302). `node scripts/session-arbiter.js debt sweep` drains the
+store — detached at every session start — and deletes on two tests: the owning
+issue has closed, or the entry is unowned, gistless and 24 hours old or more.
+Nothing can discharge that second one, so an uncompleted stub simply vanishes
+and the edit is lost with it.
+
+`debt own` NEEDS NO STUB. Where `list` shows a bare path HELD or ENDED, register
+the debt without writing anything.
+
+A CLAIM RETIRES NOTHING (mantahostels#1251). Only a clear does, and it names the entry it
+retires:
+
+  node scripts/session-arbiter.js debt clear <path> unowned
+
+The next session to claim that file is warned off by every issue owing a debt on
+it (mantahostels#327).
+
+Owe a debt only on a real denial (mantahostels#1313) — not on docs/doc-map.md, where `list`
+reports the file claimed per region while your own region is free.

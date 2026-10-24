@@ -1,0 +1,1 @@
+Close via **`/card-close <issue-number>`**, which closes the issue and runs the `roadmap-edit` pipeline in one invocation. Closing an issue by any other route — `gh issue close`, the GitHub UI, a merge keyword — **leaves the roadmap stale**, and must be followed immediately by a roadmap update through the `roadmap-edit` skill.

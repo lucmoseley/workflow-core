@@ -1,0 +1,81 @@
+{
+	"compilerOptions": {
+		// ES2018 for one piece of syntax the corpus already runs on: named regex
+		// capture groups, which tsc refuses below it (TS1503). Nothing is emitted
+		// here (`noEmit`) and `lib` is set explicitly, so this controls which
+		// syntax is accepted and nothing else. ⚠ NOT VERIFIED against Vercel's
+		// `next build`, which reads the same file and is never run locally (mantahostels#1464).
+		"target": "ES2018",
+		"lib": ["dom", "dom.iterable", "esnext"],
+		"allowJs": true,
+		// Every .js in the program is checked, rather than opting in file by file
+		// with `// @ts-check` — §N8's terminus (mantahostels#1396, reached at mantahostels#1464, which
+		// removed the pragmas and the ratchet that demanded them). A file that
+		// cannot meet the bar carries `// @ts-nocheck` and owes a reason;
+		// scripts/check-scripts-typecheck.js reports any that does.
+		"checkJs": true,
+		"skipLibCheck": true,
+		"strict": true,
+		// Flags `strict` does not imply (mantahostels#1065, mantahostels#1444).
+		"noImplicitReturns": true,
+		"noFallthroughCasesInSwitch": true,
+		"noImplicitOverride": true,
+		"noUncheckedSideEffectImports": true,
+		"allowUnreachableCode": false,
+		"allowUnusedLabels": false,
+		// The only gate on unused code in .ts/.tsx (mantahostels#1444).
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		// An unmarked type-only import is emitted, so the module loads for its side
+		// effects - the import chain AGENTS.md's secrets boundary makes you trace.
+		"verbatimModuleSyntax": true,
+		"noEmit": true,
+		"esModuleInterop": true,
+		"module": "esnext",
+		"moduleResolution": "bundler",
+		"resolveJsonModule": true,
+		"isolatedModules": true,
+		"jsx": "react-jsx",
+		"incremental": true,
+		"plugins": [
+			{
+				"name": "next"
+			}
+		],
+		"paths": {
+			"@/*": ["./*"]
+		}
+	},
+	"include": [
+		"next-env.d.ts",
+		"**/*.ts",
+		"**/*.tsx",
+		".next/types/**/*.ts",
+		".next/dev/types/**/*.ts",
+		"**/*.mts",
+		// Checked, per `checkJs` above (mantahostels#1067, docs/code-standards-base.md §N8).
+		"scripts/**/*.js",
+		// The skill scripts are the same kind of thing (mantahostels#1147). Narrow to `*/scripts/` on purpose: the
+		// 25 vendored skills are symlinks, and a wider glob would walk into
+		// whatever they ship.
+		".claude/skills/*/scripts/*.js",
+		// The `.ts` half of the same directories. Named explicitly because
+		// TypeScript's wildcards skip dot-directories, so the `**/*.ts` above
+		// never reached them (mantahostels#1138).
+		".claude/skills/*/scripts/*.ts"
+	],
+	// node_modules aside, none of these three does anything live: `**` above
+	// already skips dot-directories (mantahostels#1138, the comment two lines up), so
+	// `.claude/worktrees`, `.claude/tmp` and `.local` were never in `include`'s
+	// reach. Named explicitly as a pin against that mechanism ever changing —
+	// mantahostels#3159 raised this on the false premise that they were reachable.
+	"exclude": [
+		"node_modules",
+		".claude/worktrees",
+		".claude/tmp",
+		".local",
+		// The plugin's entry module, which hooks/tsconfig.json checks against
+		// the engine's types (#946).
+		"hooks"
+	]
+}

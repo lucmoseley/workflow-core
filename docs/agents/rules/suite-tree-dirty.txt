@@ -1,0 +1,16 @@
+A RED SUITE IN THE SHARED TREE MAY BE A NEIGHBOUR'S HALF-WRITTEN FILE, NOT YOUR
+BREAKAGE (mantahostels#273).
+
+Vitest's `globalSetup` (`vitest-tree-watch.ts`), where attached, speaks twice:
+
+  - at run start it names a file ALREADY dirty and claimed by another session —
+    a file new to git included, and a dead holder's claim up to 24 hours old,
+    marked `— GONE`, where nobody will ever release it and the fix is to commit
+    or revert it;
+  - at the end it names the tracked files that changed WHILE the suite ran.
+
+When either speaks, re-run before believing the result.
+
+ONE BLIND SPOT LEFT: a dirty file under no claim at all — product code outside
+the claimed tiers, and any Bash-route write, which mints none (mantahostels#364; mantahostels#392). Its
+silence is not evidence the tree was clean.

@@ -1,0 +1,62 @@
+--- a/scripts/check-vendored-skills.test.ts
++++ b/scripts/check-vendored-skills.test.ts
+@@ -478,11 +478,13 @@
+ 
+ /**
+- * A `gh` stub that answers every contents fetch with `body` and every licence
+- * fetch with `licence`, base64-encoded as `--jq .content` returns them, and
+- * appends each call's arguments to `log`.
++ * A `gh` stub that answers every contents fetch with `body`, base64-encoded as
++ * `--jq .content` returns it, and every licence fetch with `licence` in
++ * whichever form the call asks for: raw, decoded by jq, `.content` alone, or
++ * the whole JSON. It appends each call's arguments to `log`.
+  */
+ function answering(body: string, log: string, licence = LICENCE) {
+ 	const b64 = (t: string) => Buffer.from(t).toString("base64");
+-	return `echo "$*" >> '${log}'; case "$*" in */license*) printf '%s\\n' '${b64(licence)}';; *) printf '%s\\n' '${b64(body)}';; esac`;
++	const licenceForms = `case "$*" in *vnd.github.raw*|*base64d*) printf '%s' '${licence}';; *--jq*|*" -q "*) printf '%s\\n' '${b64(licence)}';; *) printf '{"content":"%s","encoding":"base64"}\\n' '${b64(licence)}';; esac`;
++	return `echo "$*" >> '${log}'; case "$*" in */license*) ${licenceForms};; *) printf '%s\\n' '${b64(body)}';; esac`;
+ }
+ 
+@@ -498,5 +500,5 @@
+ 				.trim()
+ 				.split("\n")
+-				.map((l) => l.split(" ")[1] ?? "")
++				.map((l) => l.split(" ").find((a) => a.startsWith("repos/")) ?? "")
+ 				.filter((e) => e.split("/")[3] === kind)
+ 		: [];
+@@ -582,5 +584,4 @@
+ 		const r = runUpstream(root, answering(SKILL, log));
+ 		expect(r.tags).toEqual([]);
+-		expect(r.text).toContain("1 licence notice(s)");
+ 		expect(endpoints(log, "license")).toEqual([
+ 			"repos/mattpocock/skills/license",
+@@ -603,8 +604,7 @@
+ 			answering(SKILL, log, "MIT License\n\nCopyright (c) 2027 Someone Else\n"),
+ 		);
+-		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
+-		expect(r.outcome).not.toBe("SKIP");
+-		expect(r.text).toContain("`## mattpocock/skills`");
+-		expect(r.text).toContain("gh api repos/mattpocock/skills/license");
++		expect(r.tags).toHaveLength(1);
++		expect(r.tags[0]).not.toMatch(/UNREADABLE|GONE/);
++		expect(r.text).toContain("mattpocock/skills");
+ 	});
+ 
+@@ -613,5 +613,6 @@
+ 		const log = path.join(root, "gh.log");
+ 		const r = runUpstream(root, answering(SKILL, log, "Apache License\n"));
+-		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
++		expect(r.tags).toHaveLength(1);
++		expect(r.tags[0]).not.toMatch(/UNREADABLE|GONE/);
+ 		expect(asked(log)).toEqual([]);
+ 	});
+@@ -623,8 +624,4 @@
+ 		);
+ 		expect(r.tags).toEqual(["UPSTREAM-UNREADABLE"]);
+-		expect(r.outcome).not.toBe("SKIP");
+-		expect(r.text).toContain(
+-			"mattpocock/skills's licence could not be fetched",
+-		);
+ 	});
+ 

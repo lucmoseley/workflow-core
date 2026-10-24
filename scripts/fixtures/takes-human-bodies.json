@@ -1,0 +1,237 @@
+[
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: pay, buy or subscribe",
+		"body": "**Outside Claude Code:** pay the OTA invoice from the bank app.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: sign or accept terms",
+		"body": "**Outside Claude Code:** sign the partnership contract and accept its terms.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: delete",
+		"body": "**Outside Claude Code:** delete the old Roomfare extranet listing.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: install an app",
+		"body": "**Outside Claude Code:** install the channel manager's sync agent.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: accept an invite",
+		"body": "**Outside Claude Code:** accept the invite to the Vercel team.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: grant access",
+		"body": "**Outside Claude Code:** grant the agency read access to the Search Console property.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: OAuth Authorize",
+		"body": "**Outside Claude Code:** click Authorize on the OAuth screen the login opens.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: a CAPTCHA guarding an act he is taking",
+		"body": "**Outside Claude Code:** clear the CAPTCHA guarding the founder's own checkout.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: card entry",
+		"body": "**Outside Claude Code:** enter the company card on the Supabase billing page.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: a one-time code",
+		"body": "**Outside Claude Code:** read back the one-time code the bank texts.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: phone verification",
+		"body": "**Outside Claude Code:** complete phone verification on the new Google Business account.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: signing a site in for the first time, in the list's own wording",
+		"body": "**Outside Claude Code:** signing the Chrome profile in to Staylane for the first time.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: an act the automatic permission check refused",
+		"body": "**Outside Claude Code:** run the deploy Claude Code's automatic permission check refused.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: a phone call",
+		"body": "**Outside Claude Code:** call the hostel's front desk and ask for the manager.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: an in-person act, hyphenated",
+		"body": "**Outside Claude Code:** meet the hostel owner in-person in Velmora.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: an act in a desktop app",
+		"body": "**Outside Claude Code:** approve the transfer in the bank's desktop app.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an Outside line naming ruling 1's act class: sending what a person outside reads, in the list's own wording",
+		"body": "**Outside Claude Code:** sending the approved draft to the hostel.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a LinkedIn connection note, which ruling 2 counts as a send",
+		"body": "**Outside Claude Code:** add the approved connection note to a contact on LinkedIn.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a partner application, which ruling 2 counts as a send",
+		"body": "**Outside Claude Code:** file the partner application with Staylane.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a public profile edit, which ruling 2 counts as a send",
+		"body": "**Outside Claude Code:** update the public Google Business profile with the approved hours.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a list word in capitals, since the vocabulary is case-insensitive",
+		"body": "**Outside Claude Code:** EMAIL the hostel the approved draft.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes the live open body mantahostels#3092, its Outside line unchanged",
+		"body": "**Outside Claude Code:** pay for one month of Higgsfield Starter and one month of Midjourney Basic in the browser, and read three vendors' output-ownership clauses there.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a registration in a government portal, after mantahostels#523's Outside line with its account details neutralised",
+		"body": "**Outside Claude Code:** submit the business registration in the government portal, following the walkthrough above.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes the live open body mantahostels#85, its platform renamed (#2114)",
+		"body": "**Outside Claude Code:** email Bunkward from the founder's own mailbox, by the route recommended above, and log any reply here.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a written consent request to a partner, after mantahostels#78's Outside line with its contract clause neutralised",
+		"body": "**Outside Claude Code:** send the partner the written consent request from the founder's own mailbox, and log the reply here.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an irregular form, 'paid', listed whole beside the stems",
+		"body": "**Outside Claude Code:** check the deposit is paid to the hostel through the bank app.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes an e-dropping form, 'deleting', listed whole beside the stems",
+		"body": "**Outside Claude Code:** deleting the old Staylane account once the new one is live.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses a read-only lookup on a website, which names no founder act",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses a dashboard click-through, the old example, which names no founder act",
+		"body": "**Outside Claude Code:** click through the Stripe dashboard to read the payout schedule.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses 'paywall', since the match is whole-word and 'paywall' is not 'pay'",
+		"body": "**Outside Claude Code:** get past the paywall on the Jakarta Globe article.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses a list word found elsewhere in the body, since the Outside line alone is read",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nContext: the founder may email the hostel afterwards.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses a body failing both this and Close-when with this refusal alone, since it is judged first",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses a Tried: list of two items, one short of three",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n- WebFetch: 403, 0-byte body\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a Tried: list of three items",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n- WebFetch: 403, 0-byte body\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n- Chrome child, 15 turns: Turnstile did not clear\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a Tried: list of four items",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n- WebFetch: 403, 0-byte body\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n- Chrome child, 15 turns: Turnstile did not clear\n- Wayback Machine: no snapshot since 2024\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a bold Tried: line as it does a plain one",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\n**Tried:**\n- WebFetch: 403, 0-byte body\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n- Chrome child, 15 turns: Turnstile did not clear\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes numbered items as list items",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n1. WebFetch: 403\n2. browse.py text: Cloudflare challenge\n3. Chrome child: Turnstile did not clear\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses items split by blank lines, since the items must follow the Tried: line directly",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n- WebFetch: 403, 0-byte body\n\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n\n- Chrome child, 15 turns: Turnstile did not clear\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses one method with two sub-items, which are its detail rather than more methods",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n- WebFetch: 403, 0-byte body\n  - 403 on the first try\n  - 0-byte body on the second\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes three methods when one carries a sub-item of detail",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n- WebFetch: 403, 0-byte body\n  - 403 on the first try\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n- Chrome child, 15 turns: Turnstile did not clear\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NOT-A-FOUNDER-ACT",
+		"reason": "refuses items split by prose, which ends the count",
+		"body": "**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n\nTried:\n- WebFetch: 403, 0-byte body\nThen I waited an hour.\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n- Chrome child, 15 turns: Turnstile did not clear\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NO-OUTSIDE-ACT",
+		"reason": "refuses a body with a Tried: list but no Outside line, which the list never stands in for",
+		"body": "Look up the dorm prices.\n\nTried:\n- WebFetch: 403, 0-byte body\n- browse.py text: \"Just a moment...\" (Cloudflare challenge)\n- Chrome child, 15 turns: Turnstile did not clear\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "BARRED-NOT-IMPOSSIBLE",
+		"reason": "refuses a prohibition as BARRED-NOT-IMPOSSIBLE, judged before the founder-act test",
+		"body": "**Outside Claude Code:** edit the statusline file, which no agent may write to.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "REPO-FILE-ACT",
+		"reason": "refuses a repo-file act as REPO-FILE-ACT, judged before the founder-act test",
+		"body": "**Outside Claude Code:** draw `docs/logo.svg` in Inkscape.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "NO-CLOSE-WHEN",
+		"reason": "refuses an Outside line naming an act when the body has no Close-when line",
+		"body": "**Outside Claude Code:** pay the OTA invoice from the bank app."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a list word in a non-act sense, here 'payment' in a read: the known escape",
+		"body": "**Outside Claude Code:** look up which payment methods the hostel's site lists.\n\n**Close when:** the founder records the outcome here."
+	},
+	{
+		"verdict": "pass",
+		"reason": "passes a read off the founder's own phone, the other old example, on the word 'phone': a known escape",
+		"body": "**Outside Claude Code:** read a setting off the founder's own phone.\n\n**Close when:** the founder records the outcome here."
+	}
+]

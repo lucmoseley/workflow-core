@@ -1,0 +1,3 @@
+THIS FILE IS THE OPERATING MANUAL: write `docs/operating-manual.md` only
+through the `manual-sync` skill — never hand-edit it, and never refresh it
+outside that skill. A write made inside the skill is the route; carry on.

@@ -1,0 +1,8 @@
+**Claim the issue you are working right now, and only that one, with `node
+scripts/claim-issue.js <n>`** as your first write on it. It refuses a live
+holder, records the arbiter claim and assigns you (#530). Never unassign on close.
+
+**A hand spelling owes that record itself.** `scripts/record-issue-claim.sh` makes
+it off exactly `gh issue edit <n> --add-assignee @me` through the Bash tool; the
+web UI, any other script, `gh api`, `--repo`, a shell-variable number or a login
+in place of `@me` needs `node scripts/session-arbiter.js claim-issue <n>`.

@@ -1,0 +1,21 @@
+# How a Dependabot PR is handled: docs/agents/dependabot.md (mantahostels#3351).
+#
+# This file governs VERSION updates only, and switches them off: a routine bump
+# earns little on a pre-launch repo with three production dependencies, and an
+# open PR should mean an advisory. Security updates are a repository setting,
+# not a key here, and are unaffected by the limit below.
+#
+# `schedule` stays because the schema requires it, not because anything is due.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 0

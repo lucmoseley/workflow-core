@@ -1,0 +1,195 @@
+// @vitest-environment node
+/*
+ * Pins the blocked-by graph the shortlist ranks on (#2427): the walk out of
+ * the served repo into any repo, the issues it pulls in as launch
+ * candidates, and keys that keep a foreign number from crediting the served
+ * issue sharing it. Driven through fake reads, so no `gh` runs. Loosen a
+ * case and the refill loop launches a ticket another repo's open issue still
+ * blocks, or ranks a served issue on a foreign issue's reach.
+ */
+
+import { describe, expect, it } from "vitest";
+
+const {
+	blockerGraph,
+	openBlockersOf,
+	pulledInOf,
+	reachOf,
+} = require("./blocker-graph.js");
+
+type State = "open" | "closed";
+interface Fake {
+	/** `owner/name#n` -> its state and body */
+	issues?: Record<string, { state: State; body?: string }>;
+	/** `owner/name#n` -> the refs blocking it */
+	deps?: Record<string, string[]>;
+	/** `owner/name#n` whose blocked_by read fails */
+	failDeps?: string[];
+}
+
+const OWN = "me/served";
+
+const parse = (ref: string) => {
+	const [repo, n] = ref.split("#");
+	return { repo: repo || null, number: Number(n) };
+};
+
+const edge = (fake: Fake, ref: string) => {
+	const r = parse(ref);
+	const i = fake.issues?.[ref] ?? { state: "open" as State };
+	return {
+		...r,
+		state: i.state,
+		title: `issue ${ref}`,
+		url: `http://example/${ref}`,
+		labels: [],
+		body: i.body ?? "",
+	};
+};
+
+/** A served repo of `served` (number -> its blockers and body), over `fake`. */
+const graphOf = (
+	served: Record<number, { deps?: string[]; body?: string }>,
+	fake: Fake = {},
+) => {
+	const reads: string[] = [];
+	const read = {
+		blockedBy: async (ref: { repo: string; number: number }) => {
+			const key = `${ref.repo}#${ref.number}`;
+			reads.push(`deps ${key}`);
+			if (fake.failDeps?.includes(key)) return { ok: false, error: "HTTP 502" };
+			return {
+				ok: true,
+				edges: (fake.deps?.[key] ?? []).map((d) => edge(fake, d)),
+			};
+		},
+		issue: async (ref: { repo: string; number: number }) => {
+			const key = `${ref.repo}#${ref.number}`;
+			reads.push(`issue ${key}`);
+			return { ok: true, issue: edge(fake, key) };
+		},
+		each: <T, R>(items: T[], fn: (item: T) => Promise<R>) =>
+			Promise.all(items.map(fn)),
+	};
+	return blockerGraph(
+		Object.entries(served).map(([n, s]) => ({
+			number: Number(n),
+			edges: (s.deps ?? []).map((d) => edge(fake, d)),
+			body: s.body ?? "",
+		})),
+		OWN,
+		read,
+	).then((graph: unknown) => ({ graph, reads }));
+};
+
+const pulled = (graph: unknown) =>
+	pulledInOf(graph).rows.map(
+		(r: { repo: string; number: number; reach: number; holds: string[] }) =>
+			`${r.repo}#${r.number} reach ${r.reach} holds ${r.holds.join(",")}`,
+	);
+
+describe("the walk into other repos", () => {
+	it("pulls in the foreign blocker at the chain's open end, not the one it blocks", async () => {
+		const { graph } = await graphOf(
+			{ 1: { deps: ["o/y#10"] } },
+			{ deps: { "o/y#10": ["o/z#20"] } },
+		);
+		expect(pulled(graph)).toEqual(["o/z#20 reach 1 holds me/served#1"]);
+		expect(openBlockersOf(graph, 1)).toEqual([
+			{ label: "o/y#10", native: true },
+		]);
+	});
+
+	it("pulls in the next blocker once the far end closes", async () => {
+		const { graph } = await graphOf(
+			{ 1: { deps: ["o/y#10"] } },
+			{
+				deps: { "o/y#10": ["o/z#20"] },
+				issues: { "o/z#20": { state: "closed" } },
+			},
+		);
+		expect(pulled(graph)).toEqual(["o/y#10 reach 1 holds me/served#1"]);
+	});
+
+	it("counts every served issue a blocker holds out, through a served one", async () => {
+		const { graph } = await graphOf(
+			{ 1: { deps: ["o/y#10"] }, 2: { deps: [`${OWN}#1`] }, 3: {} },
+			{},
+		);
+		expect(pulled(graph)).toEqual([
+			"o/y#10 reach 2 holds me/served#1,me/served#2",
+		]);
+		expect(reachOf(graph, 1)).toBe(1);
+	});
+
+	it("ends on a cycle between two foreign issues, pulling neither in", async () => {
+		const { graph, reads } = await graphOf(
+			{ 1: { deps: ["o/y#10"] } },
+			{ deps: { "o/y#10": ["o/z#20"], "o/z#20": ["o/y#10"] } },
+		);
+		expect(pulled(graph)).toEqual([]);
+		expect(reads.filter((r: string) => r.startsWith("deps")).sort()).toEqual([
+			"deps o/y#10",
+			"deps o/z#20",
+		]);
+	});
+
+	it("never walks a closed foreign blocker", async () => {
+		const { graph, reads } = await graphOf(
+			{ 1: { deps: ["o/y#10"] } },
+			{ issues: { "o/y#10": { state: "closed" } } },
+		);
+		expect(pulled(graph)).toEqual([]);
+		expect(reads).toEqual([]);
+		expect(openBlockersOf(graph, 1)).toEqual([]);
+	});
+
+	it("offers no foreign blocker whose own blockers would not read", async () => {
+		const { graph } = await graphOf(
+			{ 1: { deps: ["o/y#10"] } },
+			{ failDeps: ["o/y#10"] },
+		);
+		expect(pulled(graph)).toEqual([]);
+		expect(pulledInOf(graph).unread).toEqual([
+			{ ref: "o/y#10", error: "HTTP 502", holds: ["me/served#1"] },
+		]);
+	});
+});
+
+describe("a foreign number shared with a served issue", () => {
+	it("credits no reach to the served issue carrying it", async () => {
+		const { graph } = await graphOf({ 1: { deps: ["o/y#5"] }, 5: {} }, {});
+		expect(reachOf(graph, 5)).toBe(0);
+		expect(pulled(graph)).toEqual(["o/y#5 reach 1 holds me/served#1"]);
+	});
+});
+
+describe("`**Blocked on**` markers naming another repo", () => {
+	it("hold a served issue on an open one, read once, as prose only", async () => {
+		const { graph, reads } = await graphOf(
+			{ 1: { body: "**Blocked on** o/y#10." } },
+			{},
+		);
+		expect(openBlockersOf(graph, 1)).toEqual([
+			{ label: "o/y#10", native: false },
+		]);
+		expect(reads.filter((r: string) => r === "issue o/y#10")).toHaveLength(1);
+		expect(pulled(graph)).toEqual(["o/y#10 reach 1 holds me/served#1"]);
+	});
+
+	it("hold nothing on a closed one", async () => {
+		const { graph } = await graphOf(
+			{ 1: { body: "**Blocked on** o/y#10." } },
+			{ issues: { "o/y#10": { state: "closed" } } },
+		);
+		expect(openBlockersOf(graph, 1)).toEqual([]);
+	});
+
+	it("read a bare number in a foreign body as that repo's", async () => {
+		const { graph } = await graphOf(
+			{ 1: { deps: ["o/y#10"] } },
+			{ issues: { "o/y#10": { state: "open", body: "**Blocked on** #11." } } },
+		);
+		expect(pulled(graph)).toEqual(["o/y#11 reach 1 holds me/served#1"]);
+	});
+});

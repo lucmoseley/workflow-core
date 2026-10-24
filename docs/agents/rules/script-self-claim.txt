@@ -1,0 +1,11 @@
+A SCRIPT THAT WRITES A TRACKED DOC MUST CLAIM FOR ITSELF.
+
+  node scripts/session-arbiter.js claim <path>
+
+The claim guard is a `PreToolUse` hook on the Write, Edit and NotebookEdit
+tools, so a script writing docs/, .claude/, CLAUDE.md or AGENTS.md is invisible
+to it: it takes no claim, contends with nobody, and clobbers a live session's
+work unreported.
+
+Nothing detects the omission (mantahostels#113). Add the call when you write the script, and
+release when it is done.

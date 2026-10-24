@@ -1,0 +1,67 @@
+{
+	// noUncheckedIndexedAccess, over product code and programs (mantahostels#1064,
+	// widened at #1336 on the ruling at #1316 Q5 (B)).
+	//
+	// The flag types `arr[0]` and `record[k]` as `T | undefined`, so code that
+	// reads a list or map entry must handle its absence. It runs over `app/` and
+	// `lib/`, test files included, and over the program kind: the `.js` and
+	// `.ts` under `scripts/**` and `.claude/skills/*/scripts/`, shared seams,
+	// testkits and fixture modules included. Test files in those two trees stay
+	// out: their findings are `x[0].field` at an `expect`, which already throws,
+	// and the cheap fix (`?.`) lets an assertion pass on empty data (#1316).
+	//
+	// CLEARING A FINDING — ONLY THESE SHAPES:
+	//
+	//   - restructure so nothing is indexed: `for…of`, `.entries()`, a destructure;
+	//   - move an existing length or presence check onto the element: read it
+	//     into a local and test that for `undefined`;
+	//   - a regex group the pattern guarantees: `requiredGroup` from
+	//     scripts/lib/regex-group.js — never for an optional group;
+	//   - an expected failure (a missing argument, a key absent from outside
+	//     input): the program's existing route, a usage error or an outcome value;
+	//   - `?? null`, only where the declared return already includes `| null`;
+	//   - a broken invariant no restructure removes: throw an `Error` saying what
+	//     was missing.
+	//
+	// NEVER: `!`; `?? ""` or any default that changes behaviour; `?.` where the
+	// code used to throw; an `as` or JSDoc cast that drops `undefined`;
+	// `@ts-ignore` or `@ts-expect-error`; a dead `continue` or other unreachable
+	// branch. An unreachable branch is restructured away, or it throws.
+	//
+	// The trap to actually watch for is a value a CALLER promises is present:
+	// that reads as safe and is not.
+	//
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"noUncheckedIndexedAccess": true
+	},
+	// vitest.setup.ts carries the jest-dom global augmentation; without it the
+	// `app/` component tests fail on `toBeInTheDocument` rather than on the flag.
+	"include": [
+		"next-env.d.ts",
+		"vitest.setup.ts",
+		".next/types/**/*.ts",
+		"app/**/*.ts",
+		"app/**/*.tsx",
+		"lib/**/*.ts",
+		"lib/**/*.tsx",
+		"scripts/**/*.js",
+		"scripts/**/*.ts",
+		// No deeper than tsconfig.json's own skill globs, which stop at
+		// `*/scripts/` because the vendored skills are symlinks.
+		".claude/skills/*/scripts/*.js",
+		".claude/skills/*/scripts/*.ts"
+	],
+	// A child's `exclude` replaces its parent's, so tsconfig.json's own list is
+	// repeated here beside the test exclusion.
+	"exclude": [
+		"node_modules",
+		".claude/worktrees",
+		".claude/tmp",
+		".local",
+		"hooks",
+		"scripts/**/*.test.*",
+		"scripts/**/test/**",
+		".claude/skills/*/scripts/*.test.*"
+	]
+}

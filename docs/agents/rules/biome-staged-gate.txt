@@ -1,0 +1,14 @@
+THE PRE-COMMIT BIOME GATE READS ONLY THIS COMMIT'S OWN STAGED PATHS.
+
+A neighbour's unformatted file does not block you (mantahostels#179, which measured it), so
+never reformat one to get past the gate — that races the session still editing
+it. Blocked by a neighbour's hunk in a shared file? Commit yours alone with
+`commit-paths.js --patch`, which the gate judges as committed (#2429).
+
+ONE ROUTE IT DOES NOT COVER: repo-wide drift arriving without a commit. After a
+Biome version bump, run `biome migrate --write` before a repo-wide
+`npx @biomejs/biome check .`.
+
+A THROWAWAY WORKTREE ESCAPES THE TWO BRANCH CHECKS, by the hook's own
+shared-tree test, BUT NOT THE GATES: it runs the same gates on the
+same staged paths (mantahostels#344).

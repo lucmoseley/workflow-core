@@ -1,0 +1,101 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# playwright mcp session artifacts
+/.playwright-mcp/
+
+# scraped page cache + checkpoints for the evidence audit (regenerable, ~GBs)
+/data/
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# python bytecode
+__pycache__/
+*.pyc
+
+# graphify knowledge-graph output — a one-off discovery aid, regenerable, not a tracked artefact
+graphify-out/
+
+# pytest
+.pytest_cache/
+.ruff_cache/
+
+# agent worktrees — Claude Code drops isolated worktrees here, each a full second
+# copy of the tree. Untracked they show as one noisy `??` entry; worse, vitest's
+# include reaches `.claude/**`, so a live worktree doubles the collected suite
+# (2082 tests became 4158) on a memory-capped machine. Also excluded in
+# vitest.config.ts — both are needed, they solve different halves.
+.claude/worktrees/
+
+# the one sanctioned in-repo scratch directory (mantahostels#2089; docs/environment.md §12,
+# which owns the rule and lists all four exclusions). Ignored here so scratch
+# never reaches a commit, which also drops it from Biome's scope via biome.json's
+# `vcs.useIgnoreFile` — deliberate, so scripts/post-write.sh stops reformatting
+# scratch on every write. biome.json and vitest.config.ts exclude it too, and
+# neither reads this file, so all three are needed.
+.claude/tmp/
+# Machine-local state lives under .claude/tmp/markers/ (#2, F8). Some of it is
+# NOT regenerable — the self-throttling and seat-utilisation histories and
+# .pick-next/warm-fraction.jsonl — so never clear that directory wholesale.
+
+# The history-trim watch file's throttle stamp (mantahostels#2617) — one reading a day,
+# like the seat-utilisation stamp. The watch file itself,
+# docs/data/history-trim-watch.jsonl, is TRACKED — unlike the machine-local
+# histories, it must survive a fresh clone.
+docs/data/history-trim-watch.jsonl.stamp
+
+# precommit-gate-harness.test.ts's writeCheckerDelegates fixture — written into
+# the real scripts/ (the delegate re-execs an absolute ROOT path, so a
+# throwaway repo's own scripts/ can't stand in) and removed per test; ignored
+# so a run killed between the write and its afterEach doesn't strand an
+# untracked file under Biome's scope (mantahostels#2073).
+/scripts/__precommit-gate-harness-test-fixture-*.js
+
+# Claude Code's own type declarations, which a mod type-checks against:
+# proprietary, with no grant to redistribute them (#1960).
+# scripts/typecheck-mods.js copies them in from the plugin-authoring skill.
+.claude/skills/*/.claude-plugin/types/
+
+# Discovery-interview entries — Data Pribadi under processing-register.md R14,
+# and erasable only outside git: a tracked entry survives deletion in history,
+# in every clone, and with GitHub, Inc., an independent controller of this
+# repository's content on a free personal account (mantahostels#1564, mantahostels#1569). The tracked
+# docs/discovery-log.md keeps the schema and the aggregate counters only.
+/private/

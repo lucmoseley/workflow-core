@@ -1,0 +1,3 @@
+NEVER RUN A RECURSIVE `find`/`grep`/watch ACROSS `node_modules`, `.next`, `.git`
+OR BUILD OUTPUT; `find /` is refused. Name the source directories, or run `rg`
+from the repo root, which skips what git ignores; a `find` there `-prune`s them.

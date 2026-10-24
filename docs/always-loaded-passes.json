@@ -1,0 +1,6 @@
+{
+	"comment": "The newest concision pass over the always-loaded pool. Read by scripts/check-always-loaded-pass.js. Replaced by the session that runs the next pass, in the same commit as the cuts: date (YYYY-MM-DD), sha (40 hex, the commit carrying the cuts), issue (#n).",
+	"passes": [
+		{ "date": "2026-09-20", "sha": "765346ddb15eb40659a6e82a6f2d04bd09dd1349", "issue": "#205" }
+	]
+}

@@ -1,0 +1,6 @@
+Both surfaces, at different densities:
+
+- **The GitHub issue** carries the full reasoning — options considered, what was rejected and why, the working.
+- **The roadmap card's done-log** carries a **condensed summary only**. If a log entry needs paragraphs, it belongs on the issue with a pointer from the log.
+
+**So read them.** A ruling recorded only on a **closed** issue still binds until re-ruled. Whether to recommend re-ruling is a merit question: re-check the reasons it rested on rather than inheriting them (#1457). Ledger items (`C9`, `C45`…) exist nowhere else. Before writing that a figure, term or card is unsourced, undefined or undesigned, run `gh issue list --repo <tracker> --state all --search "<term>"` for every tracker the `corpus` key of `.claude/workflow-core.json` lists, and read the resolution comments on every hit.
