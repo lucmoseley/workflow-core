@@ -1,7 +1,8 @@
 {
-	// The plugin's entry module and the state contract the root plugin.json
-	// names, checked against the engine's types. The liveness mod's copy of
-	// them is the newer, and only one `declare module "claude-code"` may load.
+	// The plugin's entry module and the mods' state contracts, which the
+	// release composes into the one the root plugin.json names, checked against
+	// the engine's types. The liveness mod's copy of those is the newer, and
+	// only one engine `declare module "claude-code"` may load.
 	"compilerOptions": {
 		"target": "es2023",
 		"lib": ["es2023"],
@@ -21,6 +22,7 @@
 	"include": [
 		"register.ts",
 		"../.claude/skills/wfc-liveness/.claude-plugin/types",
-		"../.claude/skills/wfc-liveness/types"
+		"../.claude/skills/wfc-liveness/types",
+		"../.claude/skills/wfc-delivery/types"
 	]
 }

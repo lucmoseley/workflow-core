@@ -349,6 +349,9 @@
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/wfc-mods-copies.test.ts"
 		],
+		".claude/skills/wfc-delivery/types/index.d.ts": [
+			"scripts/lib/plugin-tree.test.ts"
+		],
 		".claude/skills/wfc-liveness/hooks/register.tsx": [
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/run-mod-tests.test.ts",

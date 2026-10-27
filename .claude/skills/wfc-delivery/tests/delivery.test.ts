@@ -496,6 +496,35 @@ describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
 	});
 });
 
+describe("wfc-delivery after a lost hooks worker (#3251)", () => {
+	test("a main-loop turn keeps whether it runs; a subagent's turn does not", async ($, on) => {
+		world(on);
+		const kept: unknown[] = [];
+		on("state.set", (_$, e) => {
+			kept.push(`${e.key} ${e.value}`);
+			return { value: { isSet: true, version: 1 } };
+		});
+		await start($);
+		await turnStart($, "a-1");
+		await turnEnd($, "a-1");
+		await turnEnd($);
+		expect(kept).toEqual(["isTurnRunning true", "isTurnRunning false"]);
+	});
+
+	/* THE KIT CANNOT RELOAD A MODULE, so the fresh load is stood in for by a
+	 * test that never starts a turn, its host store holding what the lost
+	 * load's turn.start kept. */
+	test("a session.start that runs again mid-turn, with no new turn.start, still ticks", async ($, on) => {
+		const { clock, seen } = world(on);
+		on("state.get", () => ({ value: { value: true, version: 1 } as never }));
+		await sessionStart($);
+		await clock.advance(0);
+		seen.mtime["/store"] = 2;
+		await clock.advance(TICK);
+		expect(seen.reportRuns).toBe(2);
+	});
+});
+
 describe("wfc-delivery and its two loads (#944)", () => {
 	test("with no config file it starts, and logs only the delivery", async ($, on) => {
 		const { clock, seen } = world(on, { prints: [REPORT] });

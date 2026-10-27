@@ -75,7 +75,7 @@ describe.skipIf(!hasClaude)(
 				expect(hooked(stdout)).toEqual([MODS.map((m) => m.hooks).join(", ")]);
 				// The shipped contract, renamed to the host, as the engine reads it.
 				expect(stdout).toContain(
-					"declares state: workflow-core.records, workflow-core.rows",
+					"declares state: workflow-core.isTurnRunning, workflow-core.records, workflow-core.rows",
 				);
 			} finally {
 				fs.rmSync(tmp, { recursive: true, force: true });

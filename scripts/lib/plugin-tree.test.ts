@@ -39,10 +39,13 @@ const SKILL_DIR = ["$", "{CLAUDE_SKILL_DIR}"].join("");
 const REPO_RELATIVE_SCRIPT = /(?<![\w./$}-])(?:\.\/)?scripts\/[\w*.-]/;
 const REPO_RELATIVE_SKILL_SCRIPT =
 	/(?<![\w./$}-])\.claude\/skills\/[^\s/`]+\/scripts\//;
-/* The mods' modules and the liveness state contract, which the engine loads
- * from the install cache (#933). */
+/* The mods' modules and state contracts, which the engine loads from the
+ * install cache (#933), and the one contract the release composes from them
+ * (#3251). */
 const LIVENESS_MODULE = ".claude/skills/wfc-liveness/hooks/register.tsx";
 const LIVENESS_CONTRACT = ".claude/skills/wfc-liveness/types/index.d.ts";
+const DELIVERY_CONTRACT = ".claude/skills/wfc-delivery/types/index.d.ts";
+const HOST_CONTRACT = "types/index.d.ts";
 /* The reporters and globalSetup an adopter's vitest config attaches, the only
  * TypeScript under scripts/ the release ships (#552). */
 const VITEST_LOADED = [
@@ -56,6 +59,7 @@ const SHIPPED_MOD_TS = [
 	".claude/skills/wfc-delivery/hooks/register.ts",
 	LIVENESS_MODULE,
 	LIVENESS_CONTRACT,
+	DELIVERY_CONTRACT,
 ];
 
 const readFiles = (root: string) =>
@@ -116,7 +120,9 @@ describe("the tree rendered from the core", () => {
 		expect(shipped).toContain("scripts/measure-session-cost.js");
 		expect(
 			shipped.filter((f) => /\.test\.|\.tsx?$|(^|\/)fixtures\//.test(f)),
-		).toEqual([...VITEST_LOADED, ...SHIPPED_MOD_TS, ENTRY].sort());
+		).toEqual(
+			[...VITEST_LOADED, ...SHIPPED_MOD_TS, ENTRY, HOST_CONTRACT].sort(),
+		);
 
 		expect(fs.readFileSync(path.join(out, "hooks/hooks.json"), "utf8")).toBe(
 			fs.readFileSync(path.join(CORE, "hooks/hooks.json"), "utf8"),
@@ -211,7 +217,7 @@ describe("the tree rendered from the core", () => {
 	});
 
 	// `$.state` belongs to the host plugin, not the mod (#903 F8).
-	it("ships the mods' modules and the liveness contract, its state owned by workflow-core", () => {
+	it("ships the mods' modules, and one contract composing their state under workflow-core (#3251)", () => {
 		const out = path.join(tmp, "out");
 		buildTree(CORE, out);
 		const shipped = readFiles(out);
@@ -233,11 +239,18 @@ describe("the tree rendered from the core", () => {
 		// The mod's own name stays where it names the mod, not a state owner.
 		expect(module).toContain('const modName = "wfc-liveness";');
 
-		const contract = fs.readFileSync(path.join(out, LIVENESS_CONTRACT), "utf8");
+		const contract = fs.readFileSync(path.join(out, HOST_CONTRACT), "utf8");
 		expect(contract).toMatch(
-			/interface PluginState \{\s*"workflow-core": \{\s*records: [^;]+;\s*rows: [^;]+;\s*\};\s*\}/,
+			/interface PluginState \{\s*"workflow-core": \{[\s\S]*isTurnRunning: boolean;\s*records: [^;]+;\s*rows: [^;]+;\s*\};\s*\}/,
 		);
+		expect(contract).toContain("export interface LivenessRecord {");
 		expect(contract).not.toContain('"wfc-liveness"');
+		expect(contract).not.toContain('"wfc-delivery"');
+		// Each mod's shipped contract keeps its exports alone.
+		for (const rel of [LIVENESS_CONTRACT, DELIVERY_CONTRACT])
+			expect(fs.readFileSync(path.join(out, rel), "utf8")).not.toContain(
+				"PluginState",
+			);
 		// The shape #903 validated: no `export {}` after the module block.
 		expect(contract.trimEnd()).toMatch(
 			/declare module "claude-code" \{[\s\S]*\}$/,
@@ -255,7 +268,7 @@ describe("the tree rendered from the core", () => {
 		const manifest = JSON.parse(
 			fs.readFileSync(path.join(out, ".claude-plugin/plugin.json"), "utf8"),
 		);
-		expect(manifest.types).toBe(`./${LIVENESS_CONTRACT}`);
+		expect(manifest.types).toBe(`./${HOST_CONTRACT}`);
 	});
 
 	it("keeps the repo's own skill bodies repo-relative", () => {
@@ -1027,11 +1040,16 @@ describe("a render in a fixture", () => {
 
 describe("a mod's TypeScript in a fixture (#933)", () => {
 	const modDir = ".claude/skills/mod-x";
-	const render = (tree: Record<string, string>) => {
+	// The host manifest naming the composed contract.
+	const HostTypes = { types: `./${HOST_CONTRACT}` };
+	const render = (tree: Record<string, string>, manifest = {}) => {
 		const root = path.join(tmp, "src");
 		const all: Record<string, string> = {
 			"self-plugin/hooks/hooks.json": JSON.stringify({ hooks: {} }),
-			".claude-plugin/plugin.json": JSON.stringify({ name: "host" }),
+			".claude-plugin/plugin.json": JSON.stringify({
+				name: "host",
+				...manifest,
+			}),
 			[`${modDir}/.claude-plugin/plugin.json`]: JSON.stringify({
 				name: "mod-x",
 			}),
@@ -1141,16 +1159,20 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 			'const R = { plugin: "mod-x", key: "r" } as const;\n$.ui.log("mod-x: up");\n';
 		const contract =
 			'export type R = number;\n\ndeclare module "claude-code" {\n\tinterface PluginState {\n\t\t"mod-x": {\n\t\t\tr: R;\n\t\t};\n\t}\n}\n';
-		render({
-			[`${modDir}/hooks/register.ts`]: module,
-			[`${modDir}/types/index.d.ts`]: contract,
-		});
+		render(
+			{
+				[`${modDir}/hooks/register.ts`]: module,
+				[`${modDir}/types/index.d.ts`]: contract,
+			},
+			HostTypes,
+		);
 		const readShipped = (rel: string) =>
 			fs.readFileSync(path.join(tmp, "out", modDir, rel), "utf8");
 		expect(readShipped("hooks/register.ts")).toBe(
 			'const R = { plugin: "host", key: "r" } as const;\n$.ui.log("mod-x: up");\n',
 		);
-		expect(readShipped("types/index.d.ts")).toBe(
+		expect(readShipped("types/index.d.ts")).toBe("export type R = number;\n\n");
+		expect(fs.readFileSync(path.join(tmp, "out", HOST_CONTRACT), "utf8")).toBe(
 			contract.replace('"mod-x": {', '"host": {'),
 		);
 		expect(
@@ -1161,17 +1183,46 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 		).toBe(module);
 	});
 
-	it("renames a contract's key behind a comment or another key", () => {
-		render({
-			[`${modDir}/types/index.d.ts`]:
-				'declare module "claude-code" {\n\tinterface PluginState {\n\t\t/** Ours. */\n\t\t"mod-x": { r: number };\n\t}\n}\n',
-		});
+	it("composes a contract's key behind a comment or another key", () => {
+		render(
+			{
+				[`${modDir}/types/index.d.ts`]:
+					'declare module "claude-code" {\n\tinterface PluginState {\n\t\t/** Ours. */\n\t\t"mod-x": { r: number };\n\t}\n}\n',
+			},
+			HostTypes,
+		);
 		expect(
-			fs.readFileSync(
-				path.join(tmp, "out", modDir, "types/index.d.ts"),
-				"utf8",
-			),
-		).toContain('/** Ours. */\n\t\t"host": { r: number };');
+			fs.readFileSync(path.join(tmp, "out", HOST_CONTRACT), "utf8"),
+		).toContain('\t\t"host": {\n r: number\n\t\t};');
+	});
+
+	it("composes every mod's state under the host, and refuses a key two mods declare (#3251)", () => {
+		const modY = ".claude/skills/mod-y";
+		const contractOf = (mod: string, key: string) =>
+			`declare module "claude-code" {\n\tinterface PluginState {\n\t\t"${mod}": {\n\t\t\t${key}: number;\n\t\t};\n\t}\n}\n`;
+		const tree = (yKey: string) => ({
+			[`${modDir}/types/index.d.ts`]: contractOf("mod-x", "r"),
+			[`${modY}/.claude-plugin/plugin.json`]: JSON.stringify({ name: "mod-y" }),
+			[`${modY}/types/index.d.ts`]: contractOf("mod-y", yKey),
+		});
+		render(tree("s"), HostTypes);
+		expect(
+			fs.readFileSync(path.join(tmp, "out", HOST_CONTRACT), "utf8"),
+		).toContain('"host": {\n\t\t\tr: number;\n\t\t\ts: number;\n\t\t};');
+		expect(() => render(tree("r"), HostTypes)).toThrow(
+			`${modY}/types/index.d.ts and ${modDir}/types/index.d.ts both declare the state key r`,
+		);
+	});
+
+	it("refuses a manifest naming any other types file than the composed one", () => {
+		expect(() =>
+			render({
+				[`${modDir}/types/index.d.ts`]:
+					'declare module "claude-code" {\n\tinterface PluginState {\n\t\t"mod-x": { r: number };\n\t}\n}\n',
+			}),
+		).toThrow(
+			`.claude-plugin/plugin.json names "types": undefined, not the composed ./${HOST_CONTRACT}`,
+		);
 	});
 
 	it("refuses a mod whose state owner it cannot rename", () => {
@@ -1187,8 +1238,6 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 				[`${modDir}/types/index.d.ts`]:
 					'declare module "claude-code" {\n\tinterface PluginState {\n\t\t"other": { r: number };\n\t}\n}\n',
 			}),
-		).toThrow(
-			`${modDir}/types/index.d.ts declares PluginState with no "mod-x" key`,
-		);
+		).toThrow(`${modDir}/types/index.d.ts declares no PluginState key "mod-x"`);
 	});
 });

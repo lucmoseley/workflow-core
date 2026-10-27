@@ -59,10 +59,14 @@
  * python3 3.10 or later on the releasing machine (sys.stdlib_module_names).
  *
  * A MOD'S STATE BELONGS TO THE HOST PLUGIN (#903 F8): in the shipped copy of
- * its TypeScript, a `plugin: "<mod>"` state ref and the mod's `PluginState`
- * key name the host plugin instead. The source keeps the mod's own name, so it
- * still loads stand-alone in the core. A mod file calling `$.state` with no
- * literal ref to rename, or a contract left with no host key, is a fault.
+ * its TypeScript, a `plugin: "<mod>"` state ref names the host plugin instead.
+ * The engine reads one contract per plugin, the one plugin.json's `types`
+ * names, so the release composes HOST_CONTRACT from every mod's own: each
+ * mod's exports, then one `PluginState` key, the host's, holding every mod's
+ * members; each shipped mod contract keeps its exports alone (#3251). The
+ * source keeps the mod's own name, so it still loads stand-alone in the core.
+ * A mod file calling `$.state` with no literal ref to rename, a contract with
+ * no key of its mod's name, or a member two mods declare, is a fault.
  *
  * THE STANDARDS BASE PINS ONLY SHIPPED LINES (#961): an adopter reads the
  * base at the plugin root, so a line pin into a file this render leaves behind
@@ -236,6 +240,10 @@ const MOD_TS =
  * it through the entry (#1050). */
 const MOD_STANDALONE_CONFIG =
 	/^\.claude\/skills\/([^/]+)\/(?:tsconfig\.json|hooks\/hooks\.json)$/;
+/* A mod's own `$.state` contract, which its stand-alone manifest names. */
+const MOD_CONTRACT = /^\.claude\/skills\/([^/]+)\/types\/index\.d\.ts$/;
+// The release's one contract, composed from every MOD_CONTRACT.
+const HOST_CONTRACT = "types/index.d.ts";
 /* The specifier the engine's own declarations answer to: `declare module
  * "claude-code"`. */
 const ENGINE = "claude-code";
@@ -350,51 +358,205 @@ function readModOf(root, rel, shape = MOD_TS) {
 }
 
 /**
+ * @param {string} name
+ * @returns {string} a pattern matching `name` in either quote, the quote
+ *   captured
+ */
+const quotedName = (name) =>
+	`(["'])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`;
+
+/**
+ * Where a comment or string starting at `i` ends.
+ * @param {string} text
+ * @param {number} i
+ * @returns {number} the index of its last character, `i` where none starts
+ *   there, or -1 where it never ends
+ */
+function skippedTo(text, i) {
+	const two = text.slice(i, i + 2);
+	if (two === "//") return text.indexOf("\n", i);
+	if (two === "/*") {
+		const end = text.indexOf("*/", i + 2);
+		return end < 0 ? -1 : end + 1;
+	}
+	const q = text[i];
+	if (q !== '"' && q !== "'" && q !== "`") return i;
+	let j = i + 1;
+	while (j < text.length && text[j] !== q) j += text[j] === "\\" ? 2 : 1;
+	return j < text.length ? j : -1;
+}
+
+/**
+ * Where the brace block opening at `open` closes, skipping braces in comments
+ * and strings.
+ * @param {string} text
+ * @param {number} open the index of a `{`
+ * @returns {number} the index of its `}`, or -1
+ */
+function closingBrace(text, open) {
+	let depth = 0;
+	for (let i = open; i >= 0 && i < text.length; i++) {
+		const end = skippedTo(text, i);
+		if (end !== i) i = end;
+		else if (text[i] === "{") depth++;
+		else if (text[i] === "}" && --depth === 0) return i;
+	}
+	return -1;
+}
+
+/**
+ * A mod contract split at its `declare module "claude-code"` block.
+ * @param {string} text the contract
+ * @param {string} mod the mod's own name
+ * @returns {{ exports: string, isState: boolean, members: string | null }}
+ *   the text before the block, whether there is one, and the members of its
+ *   `PluginState` key named `mod`, or null where it has none
+ */
+function splitContract(text, mod) {
+	const declare = new RegExp(
+		`\\bdeclare\\s+module\\s+${quotedName(ENGINE)}\\s*\\{`,
+	).exec(text);
+	if (!declare) return { exports: text, isState: false, members: null };
+	const exports = text.slice(0, declare.index);
+	const block = text.slice(
+		declare.index,
+		closingBrace(text, declare.index + declare[0].length - 1) + 1,
+	);
+	const key = new RegExp(`${quotedName(mod)}\\s*:\\s*\\{`).exec(block);
+	if (!key) return { exports, isState: true, members: null };
+	const open = key.index + key[0].length - 1;
+	return {
+		exports,
+		isState: true,
+		members: block.slice(open + 1, closingBrace(block, open)),
+	};
+}
+
+/**
+ * @param {string} members a `PluginState` key's members
+ * @returns {string[]} the names they declare, nested types' own left out
+ */
+function memberKeys(members) {
+	let flat = members.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+	for (let was = ""; was !== flat; ) {
+		was = flat;
+		flat = flat.replace(/\{[^{}]*\}/g, "");
+	}
+	return flat
+		.split(/[;\n]/)
+		.flatMap((line) => line.match(/^\s*["']?([\w$]+)["']?\??\s*:/)?.[1] ?? []);
+}
+
+/**
  * @param {string} text a mod's TypeScript
  * @param {string} rel its repo-relative path
  * @param {{ mod: string, host: string }} names the mod's own name, and the
  *   plugin shipping it
  * @returns {{ text: string, faults: string[] }} the text with the host named
- *   as its state owner, and where the rename found nothing to rename
+ *   as its state owner, a contract with its exports alone, and where the
+ *   rename found nothing to rename
  */
 function renameStateOwner(text, rel, { mod, host }) {
-	/** @type {string[]} */
-	const faults = [];
-	/** @param {string} name */
-	const quoted = (name) =>
-		`(["'])${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\1`;
-	const renamed = text.replace(
-		new RegExp(`(?<=\\bplugin\\s*:\\s*)${quoted(mod)}`, "g"),
+	if (MOD_CONTRACT.test(rel)) {
+		return { text: splitContract(text, mod).exports, faults: [] };
+	}
+	const out = text.replace(
+		new RegExp(`(?<=\\bplugin\\s*:\\s*)${quotedName(mod)}`, "g"),
 		(_whole, q) => `${q}${host}${q}`,
 	);
-	const block = renamed.search(/\binterface\s+PluginState\s*\{/);
-	const out =
-		block < 0
-			? renamed
-			: renamed.slice(0, block) +
-				renamed
-					.slice(block)
-					.replace(
-						new RegExp(`${quoted(mod)}(?=\\s*:)`),
-						(_whole, q) => `${q}${host}${q}`,
-					);
 	if (
 		/\$\.state\./.test(out) &&
-		!new RegExp(`\\bplugin\\s*:\\s*${quoted(host)}`).test(out)
+		!new RegExp(`\\bplugin\\s*:\\s*${quotedName(host)}`).test(out)
 	) {
-		faults.push(
-			`${rel} calls $.state with no \`plugin: "${mod}"\` ref to rename to ${host}, so it would ship owning no state the engine accepts (#903 F8)`,
-		);
+		return {
+			text: out,
+			faults: [
+				`${rel} calls $.state with no \`plugin: "${mod}"\` ref to rename to ${host}, so it would ship owning no state the engine accepts (#903 F8)`,
+			],
+		};
 	}
-	if (
-		block >= 0 &&
-		!new RegExp(`${quoted(host)}\\s*:`).test(out.slice(block))
-	) {
-		faults.push(
-			`${rel} declares PluginState with no "${mod}" key to rename to ${host} (#903 F8)`,
-		);
+	return { text: out, faults: [] };
+}
+
+/**
+ * A mod's state contract, split; null where the skill is no mod, carries no
+ * contract, or its contract has no `declare module` block and so no state.
+ * @param {string} root
+ * @param {string} dir a folder under .claude/skills
+ * @returns {{ rel: string, mod: string, exports: string, members: string | null } | null}
+ */
+function readStateContract(root, dir) {
+	const rel = `.claude/skills/${dir}/types/index.d.ts`;
+	const mod = readModOf(root, rel, MOD_CONTRACT);
+	if (!mod || !fs.existsSync(path.join(root, rel))) return null;
+	const split = splitContract(
+		fs.readFileSync(path.join(root, rel), "utf8"),
+		mod,
+	);
+	return split.isState ? { rel, mod, ...split } : null;
+}
+
+/**
+ * The release's one contract: every mod state contract's exports, then one
+ * `PluginState` key, the host's, holding all their members (#3251). A mod
+ * contract with no `declare module` block declares no state and is left out.
+ * @param {string} root
+ * @returns {{ text: string | null, faults: string[] }} null where no mod
+ *   declares state
+ */
+function composeHostContract(root) {
+	const manifest = path.join(root, ".claude-plugin/plugin.json");
+	const skills = path.join(root, ".claude/skills");
+	/** @type {string[]} */
+	const faults = [];
+	/** @type {string[]} */
+	const exports = [];
+	/** @type {string[]} */
+	const members = [];
+	/** @type {Map<string, string>} */
+	const ownerOf = new Map();
+	const dirs = fs.existsSync(skills) ? fs.readdirSync(skills).sort() : [];
+	/** @type {string | undefined} */
+	let host;
+	for (const dir of dirs) {
+		const split = readStateContract(root, dir);
+		if (!split) continue;
+		const { rel, mod } = split;
+		host ??= readPluginName(manifest);
+		if (split.members === null) {
+			faults.push(
+				`${rel} declares no PluginState key "${mod}" to compose under ${host} (#903 F8)`,
+			);
+			continue;
+		}
+		for (const key of memberKeys(split.members)) {
+			const other = ownerOf.get(key);
+			if (other)
+				faults.push(
+					`${rel} and ${other} both declare the state key ${key}, which the release composes under ${host} as one (#3251)`,
+				);
+			ownerOf.set(key, rel);
+		}
+		exports.push(split.exports.trim());
+		members.push(split.members.replace(/^\n+|\s+$/g, ""));
 	}
-	return { text: out, faults };
+	if (members.length === 0) return { text: null, faults };
+	const { types } = JSON.parse(fs.readFileSync(manifest, "utf8"));
+	if (types !== `./${HOST_CONTRACT}`)
+		faults.push(
+			`.claude-plugin/plugin.json names "types": ${JSON.stringify(types)}, not the composed ./${HOST_CONTRACT}, so the engine reads no mod's state (#3251)`,
+		);
+	const text = `${exports.filter(Boolean).join("\n\n")}
+
+declare module "${ENGINE}" {
+	interface PluginState {
+		"${host}": {
+${members.join("\n")}
+		};
+	}
+}
+`;
+	return { text, faults };
 }
 
 /**
@@ -656,12 +818,25 @@ function buildTree(root, out) {
 				copyEntry(root, rel, { out, faults, walking: new Set() });
 			}
 		}
+		const contract = composeHostContract(root);
+		faults.push(...contract.faults);
+		if (contract.text !== null)
+			faults.push(...citationFaults(contract.text, HOST_CONTRACT));
 		faults.push(...baseLinePinFaults(root));
 		faults.push(...surfaceClosureFaults(root, out));
 		faults.push(...noticeFaults(root));
 		if (faults.length > 0) throw new Error(faults.join("\n"));
 		fs.mkdirSync(path.join(out, "hooks"), { recursive: true });
 		fs.writeFileSync(path.join(out, "hooks/hooks.json"), hooks);
+		if (contract.text !== null) {
+			fs.mkdirSync(path.join(out, path.dirname(HOST_CONTRACT)), {
+				recursive: true,
+			});
+			fs.writeFileSync(
+				path.join(out, HOST_CONTRACT),
+				qualifyCitations(contract.text, HOST_CONTRACT),
+			);
+		}
 	} catch (err) {
 		fs.rmSync(out, { recursive: true, force: true });
 		throw err;

@@ -2,5 +2,6 @@
 	"name": "wfc-delivery",
 	"version": "0.1.0",
 	"description": "Delivers this session's own CI and reap reports into it mid-session (#849)",
-	"defaultEnabled": true
+	"defaultEnabled": true,
+	"types": "./types/index.d.ts"
 }

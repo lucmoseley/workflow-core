@@ -9,5 +9,5 @@
 	"skills": "./.claude/skills",
 	"outputStyles": "./.claude/output-styles",
 	"agents": ["./.claude/agents/code-reviewer.md"],
-	"types": "./.claude/skills/wfc-liveness/types/index.d.ts"
+	"types": "./types/index.d.ts"
 }

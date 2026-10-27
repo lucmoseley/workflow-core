@@ -9,7 +9,9 @@
  * what is due: owner, allow-list, once per session, the arbiter's wording.
  *
  * Hooks `session.start`, and `turn.start` and `turn.complete` to run its
- * loop only while a main-loop turn runs (#3247). Never calls
+ * loop only while a main-loop turn runs (#3247). Whether one runs is kept in
+ * `$.state`, so the fresh load that follows a lost hooks worker mid-turn
+ * resumes the loop at its `session.start` (#3251). Never calls
  * `$.prompt.submit`: it can neither skip a guard nor wake an idle session
  * (#849 §Guard safety).
  *
@@ -39,6 +41,7 @@ export const register: Register = (on) => {
 	// A guess: enough to ride out a transient rejection, never measured.
 	const maxOffers = 3;
 	const modName = "wfc-delivery";
+	const turnRef = { plugin: "wfc-delivery", key: "isTurnRunning" } as const;
 	const scriptRelPath = "scripts/deliver-to-session.js";
 	const deliveryHeader =
 		"Delivered by the wfc-delivery mod: a report this session's own start produced, a release request against a file it holds, or a sweep verdict that changed since (#849).";
@@ -72,11 +75,11 @@ export const register: Register = (on) => {
 	const messageOf = (err: unknown) =>
 		err instanceof Error ? err.message : String(err);
 
-	// Set by the session.start that started this load.
+	/* Set by the session.start that started this load. A turn that starts
+	 * before then is read from `turnRef`, written before `loop` is asked. */
 	let loop: { resume: () => Promise<void>; pause: () => void } | undefined;
-	/* Kept apart from `loop`, so a turn that starts before session.start has
-	 * set the loop up still starts it. */
-	let isTurnRunning = false;
+	// A load that starts nothing keeps nothing either.
+	let isNotStarted = false;
 
 	// Matches every cwd, so one module may hook `session.start` twice (#903 F2).
 	on("session.start", { cwd: /./ }, async ($, e, next) => {
@@ -105,6 +108,7 @@ export const register: Register = (on) => {
 		try {
 			const why = await whyNotStarted();
 			if (why !== undefined) {
+				isNotStarted = true;
 				debug(why);
 				return next(e);
 			}
@@ -263,6 +267,7 @@ export const register: Register = (on) => {
 					timer = undefined;
 				},
 			};
+			const { value: isTurnRunning } = await $.state.get(turnRef);
 			if (isTurnRunning)
 				loop
 					.resume()
@@ -275,18 +280,27 @@ export const register: Register = (on) => {
 
 	/* A subagent's turn neither starts nor stops the loop. Each matcher matches
 	 * every turn, so one module may hook the event twice (#903 F2). */
-	on("turn.start", { turnId: /./ }, async (_$, e, next) => {
-		if (e.agentId === undefined) {
-			isTurnRunning = true;
+	on("turn.start", { turnId: /./ }, async ($, e, next) => {
+		if (e.agentId === undefined && !isNotStarted) {
+			await $.state.set(turnRef, true).catch((err: unknown) =>
+				$.ui.log(`${modName}: turn start not kept: ${messageOf(err)}`, {
+					to: "debug",
+				}),
+			);
 			await loop?.resume();
 		}
 		return next(e);
 	});
 
-	on("turn.complete", { turnId: /./ }, (_$, e, next) => {
-		if (e.agentId === undefined) {
-			isTurnRunning = false;
+	// Paused first, so a tick the write outlasts forks nothing more.
+	on("turn.complete", { turnId: /./ }, async ($, e, next) => {
+		if (e.agentId === undefined && !isNotStarted) {
 			loop?.pause();
+			await $.state.set(turnRef, false).catch((err: unknown) =>
+				$.ui.log(`${modName}: turn end not kept: ${messageOf(err)}`, {
+					to: "debug",
+				}),
+			);
 		}
 		return next(e);
 	});
