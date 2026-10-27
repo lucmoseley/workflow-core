@@ -74,14 +74,9 @@ const { basename } = require("node:path");
 const { runCheck } = require("./lib/check");
 const { parseErrLine, gh } = require("./lib/gh");
 const { heldIssues } = require("./lib/arbiter-issue-claims");
-const {
-	hostTracker,
-	isMap,
-	issueRef,
-	parentClaim,
-	refLabel,
-	sessionName,
-} = require("./lib/parent-claims");
+const { holderName, isMap, parentClaim } = require("./lib/parent-claims");
+const { parseIssueRef, refLabel } = require("./lib/issue-ref");
+const { readHostTracker } = require("./lib/refill-repos");
 const { fromEnv } = require("./lib/session-id");
 
 const {
@@ -264,7 +259,7 @@ function liveDuplicates(wanted, running) {
  * @param {string} sessionId
  */
 const sessionLabel = (names, sessionId) =>
-	`session \`${sessionName(names, sessionId)}\``;
+	`session \`${holderName(names, sessionId)}\``;
 
 /**
  * The claim limb's hits, each issue once, skipping one the live limb caught.
@@ -280,7 +275,7 @@ function claimDuplicates(wanted, live, caught, warnings) {
 		warnings.push(
 			`${hostHeld.why} — a claimed issue or parent may not be caught`,
 		);
-	const ctx = { live, hostHeld, childRepo: hostTracker() };
+	const ctx = { live, hostHeld, childRepo: readHostTracker() };
 	const done = new Set(caught.map((d) => d.issue));
 	const out = /** @type {Duplicate[]} */ ([]);
 	for (const n of wanted) {
@@ -336,14 +331,14 @@ function claimHitOf(n, { live, hostHeld, childRepo }, warnings) {
  * none, or `{why}` where the call failed. `map` reads the payload's labels.
  * @param {number} n
  * @param {string|null} childRepo the repo `n` lives in, which `label` is read from
- * @returns {{ref: import("./lib/parent-claims").IssueRef, label: string, map: boolean} | {ref: null} | {why: string}}
+ * @returns {{ref: import("./lib/issue-ref").IssueRef, label: string, map: boolean} | {ref: null} | {why: string}}
  */
 function readParentOfIssue(n, childRepo) {
 	try {
 		const parent = JSON.parse(
 			gh(["api", `repos/{owner}/{repo}/issues/${n}/parent`]),
 		);
-		const ref = issueRef(parent?.url);
+		const ref = parseIssueRef(parent?.url);
 		if (!ref)
 			return { why: `the parent of #${n} named no issue (${parent?.url})` };
 		return { ref, label: refLabel(ref, childRepo), map: isMap(parent) };

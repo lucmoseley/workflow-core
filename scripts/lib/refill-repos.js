@@ -19,8 +19,9 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { readConfig } = require("./workflow-core-config.js");
+const { readConfig, resolveKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
+const { isSameRepo } = require("./issue-ref.js");
 
 /**
  * @typedef {object} Discovery
@@ -114,8 +115,52 @@ function checkoutEnv(root, env = process.env) {
 	return child;
 }
 
+/** @param {unknown} e */
+const errMessageOf = (e) => caught(e).code || caught(e).message;
+
+/**
+ * The tracker of the host checkout, where the candidates' own claims live.
+ * @param {string} [root]
+ */
+function readHostTracker(root) {
+	const tracker = resolveKey("tracker", root ? { root } : {});
+	return typeof tracker === "string" ? tracker : null;
+}
+
+/** @type {Map<string, {root: string} | {why: string}>} */
+const checkoutMemo = new Map();
+
+/**
+ * The main checkout under `home` whose tracker is `repo`, as `{root}`, or
+ * `{why}` where none tracks it or `home` will not read.
+ * @param {string} repo
+ * @param {string} home
+ * @returns {{root: string} | {why: string}}
+ */
+function readCheckoutTracking(repo, home) {
+	const key = `${home}\0${repo.toLowerCase()}`;
+	const memo = checkoutMemo.get(key);
+	if (memo) return memo;
+	/** @type {{root: string} | {why: string}} */
+	let found;
+	try {
+		const root = readAdopterCheckouts(home).included.find((r) =>
+			isSameRepo(readHostTracker(r), repo),
+		);
+		found = root
+			? { root }
+			: { why: `no checkout under ${home} tracks ${repo}` };
+	} catch (e) {
+		found = { why: `${home} could not be read (${errMessageOf(e)})` };
+	}
+	checkoutMemo.set(key, found);
+	return found;
+}
+
 module.exports = {
 	readAdopterCheckouts,
+	readCheckoutTracking,
+	readHostTracker,
 	checkoutEnv,
 	discoverRepos,
 	exclusionOf,

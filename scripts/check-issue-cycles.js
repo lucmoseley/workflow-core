@@ -29,7 +29,7 @@
 const { runCheck, brokenError, skipError } = require("./lib/check");
 const { ghOpenIssues, raiseGhFailure, unreachableRemedy } = require("./lib/gh");
 const { blockedByMany } = require("./lib/blocked-by-batch");
-const { isInOtherRepo, repoOfUrl } = require("./lib/parent-claims.js");
+const { isInOtherRepo, parseRepoOfUrl } = require("./lib/issue-ref.js");
 
 const CONCLUSION = "No issue-cycle conclusion drawn.";
 
@@ -225,7 +225,9 @@ function addParentEdges(issues, open, add) {
  */
 async function addBlockerEdges(issues, open, add) {
 	// A blocker in another repository shares only its number with ours.
-	const home = repoOfUrl(issues.find((i) => i.repository_url)?.repository_url);
+	const home = parseRepoOfUrl(
+		issues.find((i) => i.repository_url)?.repository_url,
+	);
 	const reads = await blockedByMany(issues, { repo: "{owner}/{repo}", home });
 	const unread = [];
 	for (const { issue: i, read: r } of reads) {

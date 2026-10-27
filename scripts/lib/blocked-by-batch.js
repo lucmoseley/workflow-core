@@ -22,7 +22,7 @@ const {
 	ISSUE_READ_CONCURRENCY,
 } = require("./gh");
 const { caught } = require("./caught.js");
-const { isInOtherRepo, repoOfUrl } = require("./parent-claims.js");
+const { isInOtherRepo, parseRepoOfUrl } = require("./issue-ref.js");
 
 /*
  * Issues aliased into one call. A guess: GitHub's 500,000-node cap would take
@@ -54,7 +54,7 @@ const LABELS = 100;
  * @returns {Edge}
  */
 const edgeOf = (i, home) => ({
-	repo: repoOfUrl(i.repository_url) ?? home,
+	repo: parseRepoOfUrl(i.repository_url) ?? home,
 	number: i.number,
 	state: i.state,
 	title: i.title ?? "",

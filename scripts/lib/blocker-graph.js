@@ -17,10 +17,10 @@
  * reports pulledInOf's rows, and through its `--json` lib/refill-frontier.js.
  */
 
-const { isInOtherRepo, refKey, refLabel } = require("./parent-claims.js");
+const { isInOtherRepo, refKey, refLabel } = require("./issue-ref.js");
 const { proseRefsOf } = require("./prose-blockers.js");
 
-/** @typedef {import("./parent-claims.js").IssueRef} IssueRef */
+/** @typedef {import("./issue-ref.js").IssueRef} IssueRef */
 /**
  * An issue as a blocked_by or issue read gives it, `repo` resolved.
  * @typedef {IssueRef & {state: string, title: string, url: string, labels: string[], body: string}} Edge

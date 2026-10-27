@@ -24,7 +24,7 @@
  * space-separated (#2427).
  */
 const { requiredGroup } = require("./regex-group.js");
-const { refKey } = require("./parent-claims.js");
+const { refKey } = require("./issue-ref.js");
 
 const BLOCKED_ON_RE =
 	/^[ \t]{0,3}\*\*Blocked on\*\*[ \t]*((?:(?:[\w.-]+\/[\w.-]+)?#\d+(?:[ \t]*(?:,|and)[ \t]*)?)+)/gim;
@@ -43,14 +43,22 @@ const ISSUE_REF_RE = /(?:([\w.-]+\/[\w.-]+))?#(\d+)/g;
  */
 const BLOCKED_ON_LINE_RE = /\*\*Blocked on\b[^*]*\*\*[^\n]*/gi;
 
+/*
+ * A comment a launched session leaves on a ticket it found not ready, opening
+ * `**Blocked` or `**Refused attempt` (#2309, #3111). check-issue-labels.js
+ * reads it off the latest comment, lib/tracker-rules.js off a comment being
+ * written. Not global, so `.test` keeps no lastIndex.
+ */
+const NOT_READY_OPENING = /^[ \t\n\v\f\r]*\*\*(Blocked|Refused attempt)/;
+
 /**
  * Every issue a `**Blocked on**` marker in `body` names, in marker order,
  * deduped. `repo` is null for a bare `#<n>`: the body's own repo.
  * @param {string} body
- * @returns {import("./parent-claims.js").IssueRef[]}
+ * @returns {import("./issue-ref.js").IssueRef[]}
  */
 function proseRefsOf(body) {
-	/** @type {Map<string, import("./parent-claims.js").IssueRef>} */
+	/** @type {Map<string, import("./issue-ref.js").IssueRef>} */
 	const out = new Map();
 	for (const m of String(body || "").matchAll(BLOCKED_ON_RE))
 		for (const r of requiredGroup(m, 1, BLOCKED_ON_RE).matchAll(ISSUE_REF_RE)) {
@@ -97,4 +105,4 @@ function resolveProseBlockers(body, openNumbers) {
 	};
 }
 
-module.exports = { proseRefsOf, resolveProseBlockers };
+module.exports = { NOT_READY_OPENING, proseRefsOf, resolveProseBlockers };

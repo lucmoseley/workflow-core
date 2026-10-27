@@ -112,16 +112,8 @@ const warmFractionLog = require("./lib/warm-fraction-log");
 const selectionMarker = require("./lib/selection-marker");
 const idSeam = require("./lib/session-id");
 const { resolveGate } = require("./lib/issue-gate");
-const {
-	checkoutOf,
-	hostTracker,
-	isInOtherRepo,
-	isMap,
-	issueRef,
-	parentClaim,
-	refLabel,
-	sessionName: shortSessionName,
-} = require("./lib/parent-claims");
+const { holderName, isMap, parentClaim } = require("./lib/parent-claims");
+const { isInOtherRepo, parseIssueRef, refLabel } = require("./lib/issue-ref");
 const { resolveProseBlockers } = require("./lib/prose-blockers");
 const blockerGraph = require("./lib/blocker-graph");
 const {
@@ -132,6 +124,8 @@ const {
 const {
 	exclusionOf: refillExclusionOf,
 	homeDir,
+	readCheckoutTracking,
+	readHostTracker,
 } = require("./lib/refill-repos");
 const conflictGraph = require("./lib/conflict-graph");
 const strandedCount = require("./lib/stranded-count");
@@ -413,7 +407,7 @@ const emptyBodiedOf = (frontier) =>
 
 /** The repo the open-issues list reads, `owner/name`, or null. */
 function listRepo() {
-	return REPO === REPO_DEFAULT ? hostTracker(REPO_ROOT) : String(REPO);
+	return REPO === REPO_DEFAULT ? readHostTracker(REPO_ROOT) : String(REPO);
 }
 
 async function openIssues() {
@@ -436,7 +430,7 @@ async function openIssues() {
 /**
  * One issue in another repo, for a blocker only a `**Blocked on**` marker
  * names.
- * @param {import("./lib/parent-claims").IssueRef} ref
+ * @param {import("./lib/issue-ref").IssueRef} ref
  * @returns {Promise<{ok: false, error: string} | {ok: true, issue: import("./lib/blocker-graph").Edge}>}
  */
 async function readIssueIn(ref) {
@@ -526,7 +520,7 @@ function groupOf(issue, mapNumbers, specNumbers) {
 	if (issue.labels.includes("wayfinder:map")) return "map root";
 	if (issue.labels.includes("kind:spec")) return "spec root";
 	if (!issue.parent) return "standalone";
-	const parent = issueRef(issue.parent)?.number ?? null;
+	const parent = parseIssueRef(issue.parent)?.number ?? null;
 	if (parent !== null && mapNumbers.has(parent)) return `map #${parent}`;
 	if (parent !== null && specNumbers.has(parent)) return `spec #${parent}`;
 	return `child of #${parent}`;
@@ -910,7 +904,7 @@ function claimHolder(assignees, session, kept, names) {
 	const who =
 		assignees && assignees.length > 0
 			? assignees.join(", ")
-			: `session ${shortSessionName(names, session)}`;
+			: `session ${holderName(names, session)}`;
 	return kept ? `${who}, liveness unread` : who;
 }
 
@@ -3090,7 +3084,7 @@ async function resolveBlockers(issues, byNumber) {
 	}));
 	const graph = await blockerGraph.blockerGraph(
 		withEdges.map((i) => {
-			const parent = issueRef(i.parent);
+			const parent = parseIssueRef(i.parent);
 			return {
 				number: i.number,
 				edges: i.blockedBy,
@@ -3142,7 +3136,7 @@ function pulledInRows(graph, inherit) {
 	const { rows, unread } = blockerGraph.pulledInOf(graph);
 	return {
 		rows: rows.map((r) => {
-			const checkout = checkoutOf(r.repo, homeDir());
+			const checkout = readCheckoutTracking(r.repo, homeDir());
 			const root = "root" in checkout ? checkout.root : null;
 			return {
 				...r,
@@ -3163,7 +3157,7 @@ function pulledInRows(graph, inherit) {
 function openChildrenOf(issues) {
 	const openChildren = new Map(issues.map((i) => [i.number, 0]));
 	for (const i of issues) {
-		const ref = issueRef(i.parent);
+		const ref = parseIssueRef(i.parent);
 		// A parent in another repo shares only its number with one here.
 		if (!ref || isInOtherRepo(ref, i.repo)) continue;
 		if (openChildren.has(ref.number))
@@ -3258,7 +3252,7 @@ async function parentClaims(issues, mapNumbers, claims, listed) {
 	const held = new Map();
 	const unread = new Set();
 	const withParent = issues.flatMap((i) => {
-		const ref = issueRef(i.parent);
+		const ref = parseIssueRef(i.parent);
 		return ref ? [{ i, ref }] : [];
 	});
 	const maps = await mapLimit(

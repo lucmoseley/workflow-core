@@ -31,7 +31,7 @@ const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { runGrouped } = require("./grouped-child.js");
 const { checkoutEnv } = require("./refill-repos.js");
-const { refKey } = require("./parent-claims.js");
+const { refKey } = require("./issue-ref.js");
 const { FALLBACK_MS } = require("./refill-wake.js");
 
 const PICK_NEXT = path.join(__dirname, "..", "pick-next.js");
