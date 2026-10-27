@@ -399,7 +399,7 @@ function readRowsExpiredByTicket(
 			),
 		);
 	/* Messages first, then the files of the commits that matched: a pathspec on
-	 * the history walk diffs every commit's tree, and the guard-issue-close core runs
+	 * the history walk diffs every commit's tree, and guard-issue-close.js runs
 	 * this inside a 4 s budget (#1913). */
 	const shas = git([
 		"log",
