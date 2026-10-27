@@ -266,7 +266,7 @@
 			"source": "#2792"
 		},
 		"scripts/inject-tracker-docs.sh": {
-			"digest": "765b7541dad0c778",
+			"digest": "068ae76df2204b4b",
 			"verdict": "at need — at the prompt opening the command, before any tracker call or review dispatch; a typed /code-review touching a sensitive path gets the escalated tier at that same moment, in an adopter's bare spelling too; an /implement on an issue labelled for another command is told so first; a subagent's payload gets nothing",
 			"selfSufficient": "/implement: same subject only — overrides, the opening read of the parent spec and closed blockers, Bound/Values/Practice/Door lines (in the header every tracker command gets) and the priced-options shape inline where the host style is not Core voice, a one-line pointer to the style where it is (#2039), four of six named rules are fetch-by-id index entries (pointer by design, mantahostels#2499). /code-review: yes — dispatch shape with its RUN COST hand-over, Artefact paths, finding disposition and (on a sensitive path) the whole tier inline, an adopter handed the standards base by its plugin path; only the fourth-axis test points at docs/effort-guide.md. Its closing steps left for scripts/concision-backstop.sh (#2031): fed /implement 2031 it prints 3374 chars, no write-review-marker.js; /triage 1996, 3946 chars (#2023 took the gh-cli-limits index line out), the whole-spec review. Re-fed after #2097: the same 3374 and 3946 chars; /code-review 2823 chars, its Standards-axis text the backstop's word for word. Re-fed after #2335 and #2337: /implement 2031 3387 chars, its research-artefact-scratch index line reworded; /triage 1996 3946 and /code-review 2823 unchanged; /wayfinder 5669 chars, its write-back clause's declaring line \"edited in place or deleted\". Re-fed after #2268 against its parent: /implement 2031 3387, /triage 1996 3946, /wayfinder 7 5669 chars, each unchanged; a gh hung 30 s gives up at 4 s and the payload is unchanged. Re-fed after #2386, which passes the prompt's cwd to the tier hook: /code-review 2824 chars, /implement 2031 3467.",
 			"source": "#2386"
@@ -482,7 +482,7 @@
 			"source": "#1842"
 		},
 		"scripts/concision-backstop.sh": {
-			"digest": "a10df6571e52d12d",
+			"digest": "108f0581a9fafa05",
 			"verdict": "at need (the Stop after the session's own writes cross the threshold); SessionStart limb prints nothing, by design; a rejected review marker written after the code nag fired is nagged again at the next Stop, naming why, once per marker written (a valid marker clears it)",
 			"selfSufficient": "prose — pointer only for the pass itself (names the skill; criteria live there), closing marker inline; code — yes for dispatch mechanics, review substance in the code-review skill; a rejected marker's re-nag names the marker, the reason it was rejected, and the whole code nag again; in an /implement session either nag ends with rule:implement-closing-steps whole, or the fragment's path where the store cannot supply it (#2031, fed by its suite and by this session's own Stop nag); its Standards-axis text is the injector's word for word (#2097, fed by that session's own Stop nag)",
 			"source": "#2097"
@@ -524,7 +524,7 @@
 			"source": "#2586"
 		},
 		"scripts/self-plugin-canary.sh": {
-			"digest": "b7502dd873312e26",
+			"digest": "156ebc3e591c0655",
 			"verdict": "at need — every tool call of a session with no self-plugin marker exits 2, from the first (622 B on stderr; 767 B with the could-not-check line where the input carries no session id); silent once write-self-plugin-marker.sh has written the marker",
 			"selfSufficient": "yes — the cause, the literal `! claude plugin marketplace add '<main checkout>/self-plugin' --scope user` for the founder and the restart inline",
 			"source": "#2586"
