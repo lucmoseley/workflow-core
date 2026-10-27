@@ -22,6 +22,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs, seatEnv } from "./lib/seat-testkit";
+import { buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "check-seat-utilisation.js");
 
@@ -67,39 +68,32 @@ const seat = (
 	} | null,
 ) => {
 	fs.mkdirSync(path.join(home, dir), { recursive: true });
+	if (!cache) {
+		fs.writeFileSync(path.join(home, dir, ".claude.json"), "{}");
+		return;
+	}
+	const written = buildUsageCache(
+		{ session: 10, week: cache.sevenDay },
+		NOW - HOUR,
+		{
+			resetsAt: { session: cache.resetsAt, week: cache.resetsAt },
+			accountUuid: cache.uuid ?? `uuid-${dir}`,
+		},
+	);
+	// The recorder keeps only the session and weekly_all bars, so a case's
+	// weekly_scoped ones are appended by hand, outside the contract test.
+	written.cachedUsageUtilization.utilization.limits.push(
+		...(cache.scoped ?? []).map((b) => ({
+			kind: "weekly_scoped",
+			percent: b.percent,
+			severity: b.severity ?? "x",
+			resets_at: b.resetsAt,
+			scope: { model: { display_name: b.model, id: null } },
+		})),
+	);
 	fs.writeFileSync(
 		path.join(home, dir, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: cache
-				? {
-						fetchedAtMs: NOW - HOUR,
-						accountUuid: cache.uuid ?? `uuid-${dir}`,
-						utilization: {
-							five_hour: { utilization: 10, resets_at: cache.resetsAt },
-							seven_day: {
-								utilization: cache.sevenDay,
-								resets_at: cache.resetsAt,
-							},
-							limits: [
-								{ kind: "session", percent: 10, resets_at: cache.resetsAt },
-								{
-									kind: "weekly_all",
-									percent: cache.sevenDay,
-									severity: "x",
-									resets_at: cache.resetsAt,
-								},
-								...(cache.scoped ?? []).map((b) => ({
-									kind: "weekly_scoped",
-									percent: b.percent,
-									severity: b.severity ?? "x",
-									resets_at: b.resetsAt,
-									scope: { model: { display_name: b.model, id: null } },
-								})),
-							],
-						},
-					}
-				: undefined,
-		}),
+		JSON.stringify(written),
 	);
 };
 
@@ -219,22 +213,18 @@ describe("reading the seats", () => {
 
 	it("reads limits[], never the seven_day/five_hour keys, where the two disagree (#377)", () => {
 		const past = new Date(NOW - HOUR).toISOString();
+		const written = buildUsageCache({ session: 7, week: 41 }, NOW - HOUR, {
+			resetsAt: { session: FAR, week: FAR },
+		});
+		// The pre-#377 keys the recorder drops, laid beside the bars to disagree.
+		Object.assign(written.cachedUsageUtilization.utilization, {
+			five_hour: { utilization: 99, resets_at: past },
+			seven_day: { utilization: 99, resets_at: past },
+		});
 		fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
 		fs.writeFileSync(
 			path.join(home, ".claude", ".claude.json"),
-			JSON.stringify({
-				cachedUsageUtilization: {
-					fetchedAtMs: NOW - HOUR,
-					utilization: {
-						five_hour: { utilization: 99, resets_at: past },
-						seven_day: { utilization: 99, resets_at: past },
-						limits: [
-							{ kind: "session", percent: 7, resets_at: FAR },
-							{ kind: "weekly_all", percent: 41, resets_at: FAR },
-						],
-					},
-				},
-			}),
+			JSON.stringify(written),
 		);
 		const [s] = readSeats(NOW, seatDirs(home));
 		expect(s).toMatchObject({

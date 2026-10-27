@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "measure-points-per-usd.js");
 const HOUR = 60 * 60 * 1000;
@@ -52,25 +53,14 @@ function tenDollars(root: string, rel: string, atMs: number) {
 function reading() {
 	fs.writeFileSync(
 		path.join(seat, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: {
-				fetchedAtMs: now - 60_000,
-				utilization: {
-					limits: [
-						{
-							kind: "session",
-							percent: 10,
-							resets_at: new Date(now + HOUR).toISOString(),
-						},
-						{
-							kind: "weekly_all",
-							percent: 20,
-							resets_at: new Date(now + 24 * HOUR).toISOString(),
-						},
-					],
+		JSON.stringify(
+			buildUsageCache({ session: 10, week: 20 }, now - 60_000, {
+				resetsAt: {
+					session: new Date(now + HOUR).toISOString(),
+					week: new Date(now + 24 * HOUR).toISOString(),
 				},
-			},
-		}),
+			}),
+		),
 	);
 }
 

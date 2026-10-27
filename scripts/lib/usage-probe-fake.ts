@@ -93,11 +93,25 @@ const WINDOW_MS: Record<Kind, number> = {
 	weekly_all: 7 * 24 * 60 * 60 * 1000,
 };
 
-function limitOf(kind: Kind, percent: Percent, fetchedAtMs: number): Limit {
+function limitOf(
+	kind: Kind,
+	percent: Percent,
+	fetchedAtMs: number,
+	resetsAt: string | undefined,
+): Limit {
 	const limit = recorded.cache.utilization.limits.find((l) => l.kind === kind);
 	if (!limit) throw new Error(`${recorded.harness} cached no "${kind}" bar`);
-	const resetsAt = new Date(fetchedAtMs + WINDOW_MS[kind]);
-	return { ...limit, percent, resets_at: resetsAt.toISOString() };
+	return {
+		...limit,
+		percent,
+		resets_at:
+			resetsAt ?? new Date(fetchedAtMs + WINDOW_MS[kind]).toISOString(),
+	};
+}
+
+interface CacheOptions {
+	resetsAt?: { session?: string; week?: string };
+	accountUuid?: string;
 }
 
 /** A seat's `.claude.json`, holding a usage cache stamped `fetchedAtMs` with
@@ -105,14 +119,20 @@ function limitOf(kind: Kind, percent: Percent, fetchedAtMs: number): Limit {
 export function buildUsageCache(
 	bars: Bars,
 	fetchedAtMs: number,
+	{ resetsAt = {}, accountUuid }: CacheOptions = {},
 ): { cachedUsageUtilization: typeof recorded.cache } {
+	const resetOf: Record<Kind, string | undefined> = {
+		session: resetsAt.session,
+		weekly_all: resetsAt.week,
+	};
 	return {
 		cachedUsageUtilization: {
 			...recorded.cache,
+			accountUuid: accountUuid ?? recorded.cache.accountUuid,
 			fetchedAtMs,
 			utilization: {
 				limits: byKind(bars).map(([kind, percent]) =>
-					limitOf(kind, percent, fetchedAtMs),
+					limitOf(kind, percent, fetchedAtMs, resetOf[kind]),
 				),
 			},
 		},

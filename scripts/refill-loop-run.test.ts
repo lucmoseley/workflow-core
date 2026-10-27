@@ -43,6 +43,7 @@ import {
 } from "./lib/dispatch-ledger.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { buildUsageCache } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
 
 /* One session, never a waker: an empty listing reads as unread, and a
@@ -125,20 +126,7 @@ beforeEach(() => {
 	seat = at("seat");
 	fs.mkdirSync(seat);
 	// Fresh and low, so no tick probes /usage or waits on a full seat.
-	fs.writeFileSync(
-		path.join(seat, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: {
-				fetchedAtMs: Date.now(),
-				utilization: {
-					limits: [
-						{ kind: "session", percent: 10 },
-						{ kind: "weekly_all", percent: 10 },
-					],
-				},
-			},
-		}),
-	);
+	weekAt(10);
 	fs.writeFileSync(
 		at(".refill-loop-control.json"),
 		JSON.stringify({
@@ -311,17 +299,7 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 const weekAt = (week: number) =>
 	fs.writeFileSync(
 		path.join(seat, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: {
-				fetchedAtMs: Date.now(),
-				utilization: {
-					limits: [
-						{ kind: "session", percent: 10 },
-						{ kind: "weekly_all", percent: week },
-					],
-				},
-			},
-		}),
+		JSON.stringify(buildUsageCache({ session: 10, week }, Date.now())),
 	);
 
 describe("a dry run with overflow seats (#2611)", () => {

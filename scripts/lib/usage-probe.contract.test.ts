@@ -90,6 +90,24 @@ describe("the /usage fake against the recording (#3266)", () => {
 		expect([weekly_all.trust, weekly_all.percent]).toEqual(["fresh", 50]);
 	});
 
+	it("keeps the recorded shape under a case's own reset times and account", () => {
+		const resetsAt = new Date(Date.now() + 60_000).toISOString();
+		const written = buildUsageCache({ session: 40, week: 50 }, Date.now(), {
+			resetsAt: { session: resetsAt, week: resetsAt },
+			accountUuid: "uuid-case",
+		});
+		const { cachedUsageUtilization: cache } = written;
+		expect(keyTypes(cache)).toEqual(keyTypes(recorded.cache));
+		expect(cache.utilization.limits.map(keyTypes)).toEqual(
+			recorded.cache.utilization.limits.map(keyTypes),
+		);
+		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(written));
+		const read = readUsageCache(dir);
+		expect(read.state === "ok" && read.accountUuid).toBe("uuid-case");
+		const { weekly_all } = readAllowance({ configDir: dir });
+		expect([weekly_all.trust, weekly_all.percent]).toEqual(["fresh", 50]);
+	});
+
 	it("moves the cache stamp past the probe's start, as the recorded probe did", () => {
 		expect(recorded.refreshedAfterMs).toBeGreaterThan(0);
 		const bin = writeClaudeStub(

@@ -26,6 +26,7 @@ import {
 	SWAP_HOLD_AVAILABLE_MB,
 	WHOLE_SUITE_WORKERS,
 } from "./lib/admission";
+import { writeCache } from "./lib/dispatch-sessions-testkit";
 import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
@@ -1999,29 +2000,6 @@ describe("the allowance re-read (#293, #294)", () => {
 		return d;
 	};
 
-	const writeCache = (
-		configDir: string,
-		bars: { session?: number; weeklyAll?: number },
-		{ fetchedAtMs = Date.now() }: { fetchedAtMs?: number } = {},
-	) => {
-		const limits = [];
-		if (bars.session !== undefined) {
-			limits.push({ kind: "session", percent: bars.session });
-		}
-		if (bars.weeklyAll !== undefined) {
-			limits.push({ kind: "weekly_all", percent: bars.weeklyAll });
-		}
-		fs.writeFileSync(
-			path.join(configDir, ".claude.json"),
-			JSON.stringify({
-				cachedUsageUtilization: {
-					fetchedAtMs,
-					utilization: { limits },
-				},
-			}),
-		);
-	};
-
 	const runWithConfig = (configDir: string, m: Machine = {}) => {
 		const {
 			mb = 4000,
@@ -2087,7 +2065,7 @@ describe("the allowance re-read (#293, #294)", () => {
 		writeCache(
 			configDir,
 			{ session: 100, weeklyAll: 100 },
-			{ fetchedAtMs: Date.now() - 10 * 60 * 1000 },
+			Date.now() - 10 * 60 * 1000,
 		);
 		const { json } = runWithConfig(configDir);
 		expect(json.allowanceWarning).toMatch(/stale — admitting anyway/);
