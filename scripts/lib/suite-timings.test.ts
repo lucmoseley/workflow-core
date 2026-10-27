@@ -40,19 +40,28 @@ describe("reportRoot (#2413)", () => {
 	const named = (...names: string[]) => ({
 		testResults: names.map((name) => ({ name })),
 	});
+	const here = new Set(["eslint.config.test.ts", "scripts/x.test.ts"]);
+	const exists = (f: string) => here.has(f);
+	const runner = "/home/runner/work/wc/wc/.claude/worktrees/isolated-1";
 
 	it("keeps this checkout's root where every name is inside it", () => {
-		expect(reportRoot(named(`${ROOT}/a.test.ts`), ROOT)).toBe(ROOT);
+		expect(reportRoot(named(`${ROOT}/a.test.ts`), ROOT, exists)).toBe(ROOT);
 	});
 
 	it("takes another checkout's root from its names, as a runner's report has", () => {
-		const runner = "/home/runner/work/wc/wc/.claude/worktrees/isolated-1";
 		expect(
 			reportRoot(
 				named(`${runner}/eslint.config.test.ts`, `${runner}/scripts/x.test.ts`),
 				ROOT,
+				exists,
 			),
 		).toBe(runner);
+	});
+
+	it("keeps a shared subdirectory in the names, where every file sits in one", () => {
+		expect(reportRoot(named(`${runner}/scripts/x.test.ts`), ROOT, exists)).toBe(
+			runner,
+		);
 	});
 });
 

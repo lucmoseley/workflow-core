@@ -60,12 +60,13 @@ const err = (s) => writeFd(2, `${s}\n`);
 const ROOT = hostRoot();
 
 /**
- * One vitest JSON report, or every report under a directory merged into one,
- * as the shard jobs of one Actions run upload them (#2413).
+ * The rows of one vitest JSON report, or of every report under a directory,
+ * as the shard jobs of one Actions run upload them (#2413). Each report is
+ * relativised on its own: every shard ran in a checkout of its own.
  * @param {string} source
- * @returns {{ testResults: unknown[] }}
+ * @returns {ReturnType<typeof rowsFrom>}
  */
-function readReports(source) {
+function readRows(source) {
 	const files = fs.statSync(source).isDirectory()
 		? fs
 				.readdirSync(source, { recursive: true, encoding: "utf8" })
@@ -73,12 +74,15 @@ function readReports(source) {
 				.sort()
 				.map((f) => path.join(source, f))
 		: [source];
-	return {
-		testResults: files.flatMap((f) => {
-			const report = JSON.parse(fs.readFileSync(f, "utf8"));
-			return Array.isArray(report.testResults) ? report.testResults : [];
-		}),
-	};
+	const rows = files.flatMap((f) => {
+		const report = JSON.parse(fs.readFileSync(f, "utf8"));
+		return rowsFrom(
+			report,
+			reportRoot(report, ROOT, (rel) => fs.existsSync(path.join(ROOT, rel))),
+		);
+	});
+	rows.sort((a, b) => (b.seconds ?? -1) - (a.seconds ?? -1));
+	return rows;
 }
 
 /**
@@ -101,8 +105,7 @@ function main(argv = process.argv.slice(2)) {
 			);
 			return 1;
 		}
-		const report = readReports(source);
-		const rows = rowsFrom(report, reportRoot(report, ROOT));
+		const rows = readRows(source);
 		fs.writeFileSync(target, toCsv(rows, meta));
 		out(`${rows.length} files → ${target}`);
 		out(formatShares(shares(rows)));

@@ -86,23 +86,26 @@ describe("extract", () => {
 		);
 	});
 
-	it("merges every report under a directory, as one sharded run's (#2413)", () => {
+	it("merges every report under a directory, each named from its own checkout (#2413)", () => {
 		const reports = join(dir, "reports");
 		mkdirSync(join(reports, "vitest-report-1"), { recursive: true });
 		mkdirSync(join(reports, "vitest-report-2"), { recursive: true });
 		writeFileSync(
 			join(reports, "vitest-report-1", "vitest-1.json"),
-			report([["a.test.ts", 3000]]),
+			report([["package.json", 3000]]),
 		);
 		writeFileSync(
 			join(reports, "vitest-report-2", "vitest-2.json"),
-			report([["b.test.ts", 1000]]),
+			report([["scripts/suite-timings.js", 1000]]).replaceAll(
+				REPO,
+				"/runner/isolated-2",
+			),
 		);
 		const target = join(dir, "out.csv");
 		const r = run("extract", reports, target);
 		expect(r.status).toBe(0);
 		expect(readFileSync(target, "utf8")).toBe(
-			"file,seconds,tests,status\na.test.ts,3.00,1,passed\nb.test.ts,1.00,1,passed\n",
+			"file,seconds,tests,status\npackage.json,3.00,1,passed\nscripts/suite-timings.js,1.00,1,passed\n",
 		);
 	});
 
@@ -112,14 +115,14 @@ describe("extract", () => {
 		writeFileSync(
 			source,
 			report([
-				["a.test.ts", 3000],
-				["scripts/b.test.ts", 1000],
+				["package.json", 3000],
+				["scripts/suite-timings.test.ts", 1000],
 			]).replaceAll(REPO, runner),
 		);
 		const target = join(dir, "out.csv");
 		expect(run("extract", source, target).status).toBe(0);
 		expect(readFileSync(target, "utf8")).toBe(
-			"file,seconds,tests,status\na.test.ts,3.00,1,passed\nscripts/b.test.ts,1.00,1,passed\n",
+			"file,seconds,tests,status\npackage.json,3.00,1,passed\nscripts/suite-timings.test.ts,1.00,1,passed\n",
 		);
 	});
 

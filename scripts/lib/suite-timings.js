@@ -27,27 +27,30 @@ const DEFAULT_SLICES = [5, 10, 20, 50, 100];
 
 /**
  * The checkout a report's file names sit under: `root` where every name is
- * inside it, else the deepest directory common to all of them. A report from
- * an Actions runner names files under the runner's checkout, not this one
+ * inside it, else the ancestor of its names under which the most of them
+ * name a file `exists` finds in this checkout. A report from an Actions
+ * runner names files under the runner's own worktree, not this one, and a
+ * shard's files can all share a subdirectory, so no common prefix is safe
  * (#2413).
  *
  * @param {{ testResults?: unknown[] }} report parsed vitest JSON
  * @param {string} root this checkout
+ * @param {(relative: string) => boolean} exists whether this checkout holds a path
  * @returns {string}
  */
-function reportRoot(report, root) {
+function reportRoot(report, root, exists) {
 	const results = Array.isArray(report.testResults) ? report.testResults : [];
 	const names = results.map((raw) =>
 		String(/** @type {Record<string, unknown>} */ (raw).name ?? ""),
 	);
 	if (names.every((n) => n.startsWith(`${root}${path.sep}`))) return root;
-	const dirs = names.map((n) => path.dirname(n).split(path.sep));
-	const first = dirs[0] ?? [];
-	const depth = first.findIndex((part, i) => dirs.some((d) => d[i] !== part));
-	return (
-		first.slice(0, depth === -1 ? first.length : depth).join(path.sep) ||
-		path.sep
-	);
+	let best = root;
+	let found = 0;
+	for (let dir = path.dirname(names[0] ?? root); ; dir = path.dirname(dir)) {
+		const here = names.filter((n) => exists(path.relative(dir, n))).length;
+		if (here > found) [best, found] = [dir, here];
+		if (dir === path.dirname(dir)) return best;
+	}
 }
 
 /**
