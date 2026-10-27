@@ -4,4 +4,7 @@
 # the scanner is check-commit-message-closes.js. No node is a failed exec, a
 # non-zero exit, so the hook refuses rather than passing the message unread.
 set -uo pipefail
-exec node "$(dirname "${BASH_SOURCE[0]}")/check-commit-message-closes.js" "$@"
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+exec node "$here/check-commit-message-closes.js" "$@"

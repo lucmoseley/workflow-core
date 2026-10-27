@@ -40,7 +40,9 @@
 set -uo pipefail
 
 GH="${WFC_GH:-gh}"
-SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SELF_DIR="${BASH_SOURCE[0]%/*}"
+[[ "$SELF_DIR" == "${BASH_SOURCE[0]}" ]] && SELF_DIR=.
+SELF_DIR="$(cd "$SELF_DIR" && pwd)"
 ARBITER="$SELF_DIR/session-arbiter.js"
 
 # shellcheck source=scripts/lib/marker-root.sh

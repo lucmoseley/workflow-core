@@ -27,8 +27,11 @@
 
 set -uo pipefail
 
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # shellcheck source=scripts/lib/guard-root.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-root.sh"
+source "$here/lib/guard-root.sh"
 cd "$(gr_root)" || exit 1
 
 OUT=".maxworkers-bench.findings.md"

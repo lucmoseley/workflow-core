@@ -40,8 +40,12 @@ CODE=(
 )
 # The one matcher of declared sensitive paths (#1617). Absolute, because both
 # callers cd after sourcing this.
-CS_MATCHER="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/sensitive-paths.js"
-CS_ARBITER="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/session-arbiter.js"
+_cs_dir="${BASH_SOURCE[0]%/*}"
+[[ "$_cs_dir" == "${BASH_SOURCE[0]}" ]] && _cs_dir=.
+_cs_dir="$(cd "$_cs_dir" 2>/dev/null && pwd)"
+CS_MATCHER="$_cs_dir/sensitive-paths.js"
+CS_ARBITER="${_cs_dir%/*}/session-arbiter.js"
+unset _cs_dir
 
 # Did /implement run in this session? inject-tracker-docs.sh reserves one marker
 # per session per command before it emits, under a uid-suffixed scratch

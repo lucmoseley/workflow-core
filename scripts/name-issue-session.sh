@@ -74,6 +74,10 @@
 
 set -uo pipefail
 
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+
 # command : label. Order is irrelevant — none of the six prefixes the others.
 COMMANDS=(
   "wayfinder:Wayfinder"
@@ -90,12 +94,12 @@ jqr() { printf '%s' "$payload" | jq -r "$1" 2>/dev/null || true; }
 
 command -v jq >/dev/null 2>&1 || exit 0
 # shellcheck source=scripts/lib/atomic-write.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/atomic-write.sh" 2>/dev/null
+source "$here/lib/atomic-write.sh" 2>/dev/null
 
 # A subagent's payload names its parent's session, whose command is not the
 # subagent's (#1785).
 # shellcheck source=scripts/lib/subagent-payload.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/subagent-payload.sh" 2>/dev/null &&
+source "$here/lib/subagent-payload.sh" 2>/dev/null &&
   is_subagent_payload "$payload" && exit 0
 
 session_id="$(jqr '.session_id // ""')"
@@ -173,7 +177,7 @@ apply_name() {
   # this session. An absent nameSource is how /rename marks a deliberate name.
   # shellcheck source=scripts/lib/guard-root.sh
   if [[ $wrote -eq 0 && -n "$session_id" ]] &&
-    source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-root.sh" 2>/dev/null; then
+    source "$here/lib/guard-root.sh" 2>/dev/null; then
     local dir f
     gr_config_dir dir
     dir="$dir/sessions"

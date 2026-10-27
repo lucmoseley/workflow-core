@@ -11,8 +11,13 @@
 # calling the binary directly gets nothing from it. Such a script sources the
 # probe library itself; `scripts/dispatch-sessions.sh` is the worked example.
 
+# Its directory without a `dirname` fork, unset after: this file is sourced into
+# the user's shell.
+_cig_here="${BASH_SOURCE[0]%/*}"
+[[ "$_cig_here" == "${BASH_SOURCE[0]}" ]] && _cig_here=.
 # shellcheck source=scripts/lib/interop-probe.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/interop-probe.sh" 2>/dev/null
+source "$_cig_here/lib/interop-probe.sh" 2>/dev/null
+unset _cig_here
 
 claude() {
   # Fail open on a probe library that would not load: the guard may never be

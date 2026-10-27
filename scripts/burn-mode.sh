@@ -33,7 +33,9 @@ usage() {
 }
 [[ $# -eq 1 ]] || usage
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+here="$(cd "$here" && pwd)"
 # shellcheck source=scripts/lib/atomic-write.sh
 source "$here/lib/atomic-write.sh"
 lib="$here/lib/burn-mode.js"

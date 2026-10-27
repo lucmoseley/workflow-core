@@ -17,7 +17,9 @@
 set -euo pipefail
 
 TASK_NAME='WSL Interop Watchdog'
-SRC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/win-interop-watchdog" && pwd)"
+SRC_DIR="${BASH_SOURCE[0]%/*}"
+[[ "$SRC_DIR" == "${BASH_SOURCE[0]}" ]] && SRC_DIR=.
+SRC_DIR="$(cd "$SRC_DIR/win-interop-watchdog" && pwd)"
 PS='/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
 SCHTASKS='/mnt/c/Windows/System32/schtasks.exe'
 

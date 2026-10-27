@@ -15,7 +15,9 @@
 # `grep -r` with a frozen copy of a project fact. A tarball is inert to grep.
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+here="$(cd "$here" && pwd)"
 # shellcheck source=scripts/lib/guard-root.sh
 source "$here/lib/guard-root.sh"
 

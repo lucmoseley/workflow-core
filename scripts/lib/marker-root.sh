@@ -19,8 +19,11 @@
 # exists. The mkdir failure is swallowed (issue #2): a guard whose marker
 # directory cannot be created still has its real job to do. The failure
 # surfaces at the write that follows, not here.
+_mr_here="${BASH_SOURCE[0]%/*}"
+[[ "$_mr_here" == "${BASH_SOURCE[0]}" ]] && _mr_here=.
 # shellcheck source=scripts/lib/guard-root.sh
-source "$(dirname "${BASH_SOURCE[0]}")/guard-root.sh" 2>/dev/null
+source "$_mr_here/guard-root.sh" 2>/dev/null
+unset _mr_here
 declare -F gr_root >/dev/null 2>&1 || gr_root() { :; }
 
 gr_markers_dir() {

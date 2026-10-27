@@ -16,7 +16,9 @@
 
 set -uo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+here="$(cd "$here" && pwd)"
 # shellcheck source=scripts/lib/guard-log.sh
 source "$here/lib/guard-log.sh" 2>/dev/null
 declare -F gl_log >/dev/null 2>&1 || gl_log() { :; }

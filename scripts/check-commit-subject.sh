@@ -36,7 +36,9 @@ set -uo pipefail
 # (docs/practice/ci-and-repo-quality-gates.md).
 LIMIT=72
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+here="$(cd "$here" && pwd)"
 msg_file="${1-}"
 context="${2-commit}"
 

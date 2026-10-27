@@ -44,6 +44,9 @@ child="${2#\#}"
 gh="${WFC_GH:-gh}"
 command -v "$gh" >/dev/null 2>&1 || die "$gh not found on PATH"
 
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # The HOST repo, through the one seam (#1): CLAUDE_PROJECT_DIR, else the git top
 # level of the working directory. NOT this script's own directory, which in a
 # plugin install is the plugin cache and not a repository at all — the remote
@@ -51,7 +54,7 @@ command -v "$gh" >/dev/null 2>&1 || die "$gh not found on PATH"
 # made finding F15 of the adoption dry run ("ssh-form remotes") a misdiagnosis
 # of finding F23.
 # shellcheck source=scripts/lib/guard-root.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-root.sh"
+source "$here/lib/guard-root.sh"
 repo="${WFC_LINK_REPO:-}"
 if [[ -z "$repo" ]]; then
   url="$(git -C "$(gr_root)" config --get remote.origin.url 2>/dev/null)" || url=""

@@ -50,8 +50,11 @@ head -1 "$guard" | grep -qE '^#!.*\b(bash|sh)\b' || {
   exit 1
 }
 
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # shellcheck source=scripts/lib/guard-root.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-root.sh"
+source "$here/lib/guard-root.sh"
 root="$(gr_root)"
 cd "$root" || exit 1
 export CLAUDE_PROJECT_DIR="$root"

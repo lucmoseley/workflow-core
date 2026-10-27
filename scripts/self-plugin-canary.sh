@@ -31,7 +31,8 @@
 
 set -uo pipefail
 
-here="$(dirname "${BASH_SOURCE[0]}")"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 fault=""
 
 # shellcheck disable=SC2329 # invoked by the EXIT trap below, which shellcheck does not follow

@@ -33,7 +33,9 @@
 
 set -euo pipefail
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+here="$(cd "$here" && pwd)"
 # shellcheck source=scripts/lib/launch-models.sh
 source "$here/lib/launch-models.sh"
 

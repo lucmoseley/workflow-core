@@ -15,7 +15,9 @@
 
 set -euo pipefail
 
-lib="$(cd "$(dirname "$0")" && pwd)/lib"
+lib="${0%/*}"
+[[ "$lib" == "$0" ]] && lib=.
+lib="$(cd "$lib" && pwd)/lib"
 cd "$(git rev-parse --show-toplevel)"
 
 changed="$(

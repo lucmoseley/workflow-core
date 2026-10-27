@@ -50,6 +50,10 @@
 
 set -uo pipefail
 
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+
 payload="$(cat 2>/dev/null || true)"
 command -v jq >/dev/null 2>&1 || exit 0
 jqr() { printf '%s' "$payload" | jq -r "$1" 2>/dev/null || true; }
@@ -149,7 +153,7 @@ if [[ -z "$name" ]]; then
   sid="$(jqr '.session_id // ""')"
   # The registry name-issue-session.sh wrote, under CLAUDE_CONFIG_DIR (#2095).
   # shellcheck source=scripts/lib/guard-root.sh
-  if [[ -n "$sid" ]] && source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-root.sh" 2>/dev/null; then
+  if [[ -n "$sid" ]] && source "$here/lib/guard-root.sh" 2>/dev/null; then
     gr_config_dir cfg
     # shellcheck disable=SC2154 # gr_config_dir assigns cfg through printf -v
     for f in "$cfg"/sessions/*.json; do

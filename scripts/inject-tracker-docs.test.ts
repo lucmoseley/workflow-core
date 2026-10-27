@@ -58,10 +58,13 @@ const TIGHT_HEADROOM_CHARS = readShellConst(
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-hook-state-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
 
-/** Run the hook on one payload and return the context it hands the session. */
-const run = (payload: object, env: Record<string, string> = {}): string => {
-	const out = execFileSync(HOOK, {
-		input: JSON.stringify(payload),
+/** Run the hook on one payload, an object or raw text, and return its stdout. */
+const runRaw = (
+	payload: object | string,
+	env: Record<string, string> = {},
+): string =>
+	execFileSync(HOOK, {
+		input: typeof payload === "string" ? payload : JSON.stringify(payload),
 		encoding: "utf8",
 		// CLAUDE_PROJECT_DIR is pinned because the output style is read off its
 		// config (#448); unpinned, that read would rest on the runner's cwd.
@@ -89,6 +92,10 @@ const run = (payload: object, env: Record<string, string> = {}): string => {
 			...env,
 		},
 	});
+
+/** Run the hook on one payload and return the context it hands the session. */
+const run = (payload: object, env: Record<string, string> = {}): string => {
+	const out = runRaw(payload, env);
 	if (out.trim() === "") return "";
 	return JSON.parse(out).hookSpecificOutput.additionalContext;
 };
@@ -178,6 +185,25 @@ describe("the priced-options rule (mantahostels#186)", () => {
 			fs.rmSync(job, { recursive: true, force: true });
 		}
 	});
+
+	it.each(["not json", "", "[1]"])(
+		"reads an unreadable payload (%j) as the parent's, so a job's intent still reaches it",
+		(payload) => {
+			const job = fs.mkdtempSync(path.join(os.tmpdir(), "inject-hook-"));
+			try {
+				fs.writeFileSync(
+					path.join(job, "state.json"),
+					JSON.stringify({ intent: "/wayfinder 186" }),
+				);
+				// No event to read, so the context goes out as plain stdout.
+				expect(runRaw(payload, { CLAUDE_JOB_DIR: job })).toContain(
+					"PRICED OPTIONS",
+				);
+			} finally {
+				fs.rmSync(job, { recursive: true, force: true });
+			}
+		},
+	);
 
 	// A subagent's compaction fires SessionStart:compact under its parent's
 	// session id; the prelude names the parent's command and issue (#1785).

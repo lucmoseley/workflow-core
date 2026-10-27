@@ -132,7 +132,9 @@ set -uo pipefail
 # host repo root that kill_log_path()'s `git -C` asks against is a separate seam,
 # gr_root, #1 — SCRIPT_DIR names only this file's own location, for re-exec and
 # for sourcing the sibling lib/ it ships beside.)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
+SCRIPT_DIR="${BASH_SOURCE[0]%/*}"
+[[ "$SCRIPT_DIR" == "${BASH_SOURCE[0]}" ]] && SCRIPT_DIR=.
+SCRIPT_DIR="$(cd "$SCRIPT_DIR" >/dev/null 2>&1 && pwd)"
 SCRIPT_PATH="$SCRIPT_DIR/$(basename "${BASH_SOURCE[0]}")"
 # shellcheck source=scripts/lib/guard-root.sh
 source "$SCRIPT_DIR/lib/guard-root.sh"

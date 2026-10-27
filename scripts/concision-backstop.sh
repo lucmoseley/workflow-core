@@ -60,33 +60,37 @@ PROSE=(
   ':(exclude)*.png' ':(exclude)*.jpg' ':(exclude)*.webp' ':(exclude)*.ico'
   ':(exclude)public' ':(exclude).husky'
 )
+
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # shellcheck source=scripts/lib/guard-root.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-root.sh"
+source "$here/lib/guard-root.sh"
 # Loaded first, so each library below whose load fails is logged, as is
 # code-signal.sh's cs_fault; absent, each goes unlogged.
 # shellcheck source=scripts/lib/guard-log.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-log.sh" 2>/dev/null
+source "$here/lib/guard-log.sh" 2>/dev/null
 declare -F gl_log >/dev/null 2>&1 || gl_log() { :; }
 # doc_path, for the three defaults below; absent, they stay bare.
 # shellcheck source=scripts/lib/script-path.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/script-path.sh" 2>/dev/null ||
+source "$here/lib/script-path.sh" 2>/dev/null ||
   gl_log "lib/script-path.sh did not load — nag paths left bare"
 # shellcheck source=scripts/lib/marker-root.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/marker-root.sh"
+source "$here/lib/marker-root.sh"
 # The marker rules (#1005).
 # shellcheck source=scripts/lib/concision-marker.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/concision-marker.sh"
+source "$here/lib/concision-marker.sh"
 # The code signal push-review-owed.sh reads too (#1163): its paths, its floor
 # and the /implement marker that lowers it.
 # shellcheck source=scripts/lib/code-signal.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/code-signal.sh" 2>/dev/null || {
+source "$here/lib/code-signal.sh" 2>/dev/null || {
   gl_log "lib/code-signal.sh did not load — concision and code-review nags skipped"
   exit 0
 }
 # The review dispatch shape and /implement's closing steps; absent, the nag
 # names their paths instead.
 # shellcheck source=scripts/lib/rule-text.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/rule-text.sh" 2>/dev/null ||
+source "$here/lib/rule-text.sh" 2>/dev/null ||
   gl_log "lib/rule-text.sh did not load — nags named their rule fragments' paths"
 cd "$(gr_root)" 2>/dev/null || exit 0
 # Resolved once, after the cd above, so every marker path below is this
@@ -108,16 +112,16 @@ sid=$(cat | jq -r '.session_id // empty' 2>/dev/null)
 # OTHER $sid use in this file (the marker filenames below) keeps the full id.
 # A failed source leaves them bare (lib/review-suffix.sh's header).
 # shellcheck source=scripts/lib/review-suffix.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/review-suffix.sh" 2>/dev/null ||
+source "$here/lib/review-suffix.sh" 2>/dev/null ||
   gl_log "lib/review-suffix.sh did not load — review Artefact paths left unsuffixed"
 review_sfx="$(review_suffix "$sid" 2>/dev/null)"
 # The core's bare `code-reviewer` or an adopter's plugin spelling (#741).
 # shellcheck source=scripts/lib/review-agent-type.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/review-agent-type.sh" 2>/dev/null ||
+source "$here/lib/review-agent-type.sh" 2>/dev/null ||
   gl_log "lib/review-agent-type.sh did not load — review subagent type defaulted to the plugin's"
 review_type="$(review_agent_type 2>/dev/null)" || review_type="workflow-core:code-reviewer"
 # shellcheck source=scripts/lib/review-standards.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/review-standards.sh" 2>/dev/null ||
+source "$here/lib/review-standards.sh" 2>/dev/null ||
   gl_log "lib/review-standards.sh did not load — Standards axis handed both standards files unchecked"
 # The default for where review-standards.sh, or the script-path.sh it reads
 # the core root from, did not load, spelt at the plugin root in an install:
@@ -154,7 +158,7 @@ base=$(concision_session_base "$markers_dir" "$sid") || exit 0
 # The paths this session itself wrote or committed.
 mine=$(mktemp 2>/dev/null) || exit 0
 trap 'rm -f "$mine"' EXIT
-if ! node "$(dirname "${BASH_SOURCE[0]}")/session-arbiter.js" \
+if ! node "$here/session-arbiter.js" \
   writes "$sid" --committed >"$mine" 2>/dev/null; then
   # Non-zero means ATTRIBUTION UNAVAILABLE, never "wrote nothing" (mantahostels#135) — the
   # distinction the empty-file test below cannot see, which is why the status is

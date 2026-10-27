@@ -34,7 +34,8 @@
 
 set -euo pipefail
 
-here="$(dirname "${BASH_SOURCE[0]}")"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # shellcheck source=scripts/lib/guard-root.sh
 source "$here/lib/guard-root.sh"
 # shellcheck source=scripts/lib/atomic-write.sh

@@ -69,16 +69,29 @@ DOCS=()
 payload="$(cat 2>/dev/null || true)"
 
 command -v jq >/dev/null 2>&1 || exit 0
-jqr() { printf '%s' "$payload" | jq -r "$1" 2>/dev/null || true; }
 
+# Every payload field this script reads, in one jq. NULs and trailing newlines
+# are dropped, as `$(jq -r …)` would; the separator is dropped from every field
+# but the prompt, which goes last and so keeps one. A payload jq cannot read
+# leaves all six empty, so it reads as the parent's below.
+fields="$(printf '%s' "$payload" | jq -j '[.agent_id, .hook_event_name, .source,
+  .session_id, .cwd, .prompt] | map(. // "" | tostring | gsub("\u0000"; "")
+  | sub("\n+\\z"; "")) | (.[:5] | map(gsub("\u001f"; ""))) + .[5:]
+  | join("\u001f")' 2>/dev/null)"
+agent_id="" event="" payload_source="" session="" payload_cwd="" prompt=""
+# The here-string's own newline lands on the prompt, and is trimmed off it.
+[[ -z "$fields" ]] ||
+  IFS=$'\x1f' read -r -d '' agent_id event payload_source session payload_cwd prompt <<<"$fields"
+prompt="${prompt%$'\n'}"
+
+# This script's directory without a `dirname` fork; `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 # A subagent's payload names its parent's session, whose command is not the
 # subagent's (#1785).
 # shellcheck source=scripts/lib/subagent-payload.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/subagent-payload.sh" 2>/dev/null &&
-  is_subagent_payload "$payload" && exit 0
-
-prompt="$(jqr '.prompt // ""')"
-event="$(jqr '.hook_event_name // ""')"
+source "$here/lib/subagent-payload.sh" 2>/dev/null &&
+  is_subagent_fields "$agent_id" "$event" "$payload_source" "$payload" && exit 0
 
 # SessionStart carries no prompt. A background job's opening prompt is recorded
 # on the job as `intent`, which is where the command will be if this is one of
@@ -205,7 +218,6 @@ esac
 # does re-invoke the same command inside 60 s gets no second copy.
 DEDUPE_WINDOW=60
 
-session="$(jqr '.session_id // ""')"
 [[ -n "$session" ]] || session="${CLAUDE_CODE_SESSION_ID:-}"
 
 # Scratch state, but not this script's alone (mantahostels#2769):
@@ -233,7 +245,7 @@ fi
 # summarised away, so it does NOT still hold the payload — suppressing there
 # would drop the tracker rules at the one moment they had just been lost. Only a
 # genuine startup can be half of the pair this block exists for.
-case "$(jqr '.source // ""')" in
+case "$payload_source" in
   compact | clear | resume) marker="" ;;
 esac
 
@@ -262,9 +274,8 @@ if [[ -n "$marker" && -f "$marker" ]]; then
 fi
 
 fetch_takes_label() {
-  local cwd repo_args=()
-  cwd="$(jqr '.cwd // ""')"
-  [[ -z "$cwd" ]] || cd "$cwd" 2>/dev/null || return 0
+  local repo_args=()
+  [[ -z "$payload_cwd" ]] || cd "$payload_cwd" 2>/dev/null || return 0
   [[ -n "$takes_repo" ]] && repo_args=(--repo "$takes_repo")
   timeout "${WFC_TAKES_GH_TIMEOUT_S:-$TAKES_GH_TIMEOUT_S}" "${WFC_GH:-gh}" issue view "$takes_issue" "${repo_args[@]}" --json labels \
     -q '[.labels[].name | select(startswith("takes:"))][0] // ""' 2>/dev/null
@@ -293,7 +304,7 @@ other_takes="${other_takes#takes:}"
 # lib/review-standards.sh because this file's text leaves through an emitter
 # that resolves a doc path, as the lib's does not (script-path-scan.test.ts).
 # shellcheck source=scripts/lib/review-standards.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/review-standards.sh" 2>/dev/null
+source "$here/lib/review-standards.sh" 2>/dev/null
 standards_base="docs/code-standards-base.md"
 base_shown="$(review_standards_base_shown 2>/dev/null)" && standards_base="$base_shown"
 standards_state="$(review_standards_state 2>/dev/null)" || standards_state=both
@@ -326,9 +337,9 @@ fi
 # mantahostels#2220 fixed — where no session id is available, or where lib/review-suffix.sh
 # did not load.
 # shellcheck source=scripts/lib/review-suffix.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/review-suffix.sh" 2>/dev/null
+source "$here/lib/review-suffix.sh" 2>/dev/null
 # shellcheck source=scripts/lib/script-path.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/script-path.sh" 2>/dev/null
+source "$here/lib/script-path.sh" 2>/dev/null
 # The empty default is the value scripts/check-context-budget.js measures: it
 # cannot evaluate the command substitution, and without it BROKENs $dispatch.
 sid_suffix=""
@@ -336,7 +347,7 @@ sid_suffix="$(review_suffix "$session" 2>/dev/null)"
 # The core's bare `code-reviewer` or an adopter's plugin spelling (#741). The
 # literal default is what check-context-budget.js measures, as above.
 # shellcheck source=scripts/lib/review-agent-type.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/review-agent-type.sh" 2>/dev/null
+source "$here/lib/review-agent-type.sh" 2>/dev/null
 review_type="workflow-core:code-reviewer"
 review_type="$(review_agent_type 2>/dev/null)" || review_type="workflow-core:code-reviewer"
 
@@ -344,7 +355,7 @@ review_type="$(review_agent_type 2>/dev/null)" || review_type="workflow-core:cod
 # (#448) — core-voice.md where undeclared, or where lib/wfc-config.sh did not
 # load. The literal default is what check-context-budget.js measures, as above.
 # shellcheck source=scripts/lib/wfc-config.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/wfc-config.sh" 2>/dev/null
+source "$here/lib/wfc-config.sh" 2>/dev/null
 output_style=".claude/output-styles/core-voice.md"
 style_read="$(wfc_output_style 2>/dev/null)" && output_style="$style_read"
 
@@ -356,7 +367,7 @@ style_read="$(wfc_output_style 2>/dev/null)" && output_style="$style_read"
 # repeated in concision-backstop.sh rather than shared: it would count a
 # helper's output as zero.
 # shellcheck source=scripts/lib/rule-text.sh
-source "$(dirname "${BASH_SOURCE[0]}")/lib/rule-text.sh" 2>/dev/null
+source "$here/lib/rule-text.sh" 2>/dev/null
 dispatch_shape="$(rule_text review-dispatch-shape 2>/dev/null)"
 [[ -n "$dispatch_shape" ]] || dispatch_shape="Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says."
 dispatch="Reviewer type \`${review_type}\`; Artefact paths \`.claude/tmp/review-standards${sid_suffix}.md\` and \`.claude/tmp/review-spec${sid_suffix}.md\`. ${dispatch_shape}"
@@ -432,18 +443,17 @@ skill_call() {
     '{hook_event_name: "PreToolUse", tool_name: "Skill", tool_input: {skill: $k}, session_id: $s, cwd: $c}'
 }
 review_tier() {
-  local hook cwd out rc
-  hook="${WFC_REVIEW_TIER_HOOK:-$(dirname "${BASH_SOURCE[0]}")/guard-dispatch.js}"
+  local hook out rc
+  hook="${WFC_REVIEW_TIER_HOOK:-$here/guard-dispatch.js}"
   [[ -f "$hook" ]] || return 0
-  cwd="$(jqr '.cwd // ""')"
-  out="$(skill_call "$cwd" 2>/dev/null |
+  out="$(skill_call "$payload_cwd" 2>/dev/null |
     {
-      [[ -z "$cwd" ]] || cd "$cwd" 2>/dev/null
+      [[ -z "$payload_cwd" ]] || cd "$payload_cwd" 2>/dev/null
       timeout "$TIER_HOOK_TIMEOUT_S" node "$hook" --only inject-review-tier 2>/dev/null
     })"
   rc=$?
   # shellcheck source=scripts/lib/guard-log.sh
-  if ((rc == 124)) && source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-log.sh" 2>/dev/null; then
+  if ((rc == 124)) && source "$here/lib/guard-log.sh" 2>/dev/null; then
     gl_log "inject-review-tier outran ${TIER_HOOK_TIMEOUT_S} s — a typed /code-review went without its review tier"
   fi
   printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null
@@ -455,7 +465,7 @@ if [[ "$matched" == "code-review" ]]; then
   # Unloaded, the threshold reads 0 and the tier leads: the order that survives
   # persistence (#1746).
   # shellcheck source=scripts/lib/hook-limits.sh
-  source "$(dirname "${BASH_SOURCE[0]}")/lib/hook-limits.sh" 2>/dev/null
+  source "$here/lib/hook-limits.sh" 2>/dev/null
   rules="You invoked /code-review, whose vendored skill file cannot carry project rules. ${standards} ${dispatch} ${deviations_read} ${ultra} ${disposition}${priced_options}"
   if [[ -z "$tier" ]]; then
     emit "$rules"

@@ -35,7 +35,9 @@ set -uo pipefail
 
 command -v node >/dev/null 2>&1 || exit 0
 
-here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+here="$(cd "$here" && pwd)"
 arbiter="$here/session-arbiter.js"
 # shellcheck source=scripts/lib/guard-root.sh
 source "$here/lib/guard-root.sh"
