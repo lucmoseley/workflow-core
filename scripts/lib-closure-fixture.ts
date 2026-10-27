@@ -15,12 +15,18 @@ const { requiredGroup }: typeof import("./lib/regex-group.js") = createRequire(
 const SIBLING_REQUIRE = /require\("\.\/([^"]+)"\)/g;
 const PROGRAM_LIB_REQUIRE = /require\("\.\/lib\/([^"]+)"\)/g;
 
-/** The files `text` requires through `pattern`, as .js filenames. */
+/**
+ * The lib/ files `text` requires through `pattern`, as .js filenames. A name
+ * with no file is skipped, as a comment's `require("./lib/x")` is; a real
+ * require of one fails the fixture's run as MODULE_NOT_FOUND.
+ */
 const requiresOf = (pattern: RegExp) => (text: string) =>
-	[...text.matchAll(pattern)].map((m) => {
-		const name = requiredGroup(m, 1, pattern);
-		return name.endsWith(".js") ? name : `${name}.js`;
-	});
+	[...text.matchAll(pattern)]
+		.map((m) => {
+			const name = requiredGroup(m, 1, pattern);
+			return name.endsWith(".js") ? name : `${name}.js`;
+		})
+		.filter((lib) => fs.existsSync(path.resolve(__dirname, "lib", lib)));
 
 /**
  * `entry` and every lib/ file it requires, transitively, as bare filenames.

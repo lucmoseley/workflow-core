@@ -36,9 +36,8 @@ import { remoteGit } from "./lib/lander.js";
 import { installLib } from "./lib/lib-install-testkit";
 import { expectFixtureSupplies } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process";
+import { readProgramLibs } from "./lib-closure-fixture";
 
-const { directAccessorCalls, emissionMatches } =
-	require("./lib/rule-emission.js") as typeof import("./lib/rule-emission.js");
 const { DISPATCH_ENTRY, MANIFEST_REL } = require("./lib/guard-cores.js") as {
 	DISPATCH_ENTRY: string;
 	MANIFEST_REL: string;
@@ -60,17 +59,17 @@ interface Fixture {
 	files?: Record<string, string>;
 }
 
-const FIXTURE_SH_LIBS = new Set(["rule-text.sh"]);
-
-/* A lib naming a real rule id — a Node guard's core, or a lib reading one
- * fragment by name — which no fixture's store holds a fragment for (#2784,
- * #2793), read by the check's own accessor patterns (#3146). */
-const namesRuleId = (lib: string) => {
-	const text = fs.readFileSync(path.join(__dirname, "lib", lib), "utf8");
-	return (
-		emissionMatches(text).length > 0 || directAccessorCalls(text).length > 0
-	);
-};
+/* The libs the checker and the landing gate run on, not all of scripts/lib:
+ * the check reads, hashes and regex-scans every lib a fixture carries, on
+ * every run (#3257). rule-text.sh is read by path, never required. Installed
+ * through installLib, whose listing keeps every lib change selecting this
+ * file. Residual: no fixture runs the checker over a real lib outside the
+ * closure; the live-repository case does. */
+const FIXTURE_LIBS = new Set([
+	...readProgramLibs("check-guard-registry.js"),
+	...readProgramLibs("landing-registry-gate.js"),
+	"rule-text.sh",
+]);
 
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
@@ -81,11 +80,8 @@ function readAnchors(root: string): Record<string, string> {
 function build(fx: Fixture): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-"));
 	temps.push(root);
-	// The check reads every lib it finds for a `rule:<id>` citation (mantahostels#3135),
-	// and one real lib cites an id no fixture here holds a fragment for.
 	installLib(path.join(root, "scripts", "lib"), {
-		keep: (lib) =>
-			lib.endsWith(".sh") ? FIXTURE_SH_LIBS.has(lib) : !namesRuleId(lib),
+		keep: (lib) => FIXTURE_LIBS.has(lib),
 	});
 	fs.copyFileSync(
 		REAL_SCRIPT,
