@@ -24,17 +24,13 @@
 # and refuses unless the issue carries `takes:human` alone and a non-empty
 # `**Outside Claude Code:**` line.
 #
-# THIS SCRIPT REFUSES `takes:human` ITSELF (#140) — the case against it is the
-# refusal text in argument parsing, and this script's entry in the writer
-# census is docs/agents/triage-labels.md §`takes:`.
+# THIS SCRIPT REFUSES `takes:human` ITSELF (#140).
 # `scripts/guard-dispatch.js` (its `guard-issue-create-label` core) (mantahostels#3555) denies a
 # `gh issue edit --add-label takes:human` on an issue whose body carries no
 # `**Outside Claude Code:**` line — but it is a `PreToolUse` hook on the Bash
 # TOOL CALL, so it sees the command this session types
 # (`scripts/park-blocked.sh …`) and never a `gh` call this script shells
-# out to underneath it. That makes this script the ONLY thing standing between
-# the label and the tracker, so the check has to live here. #60 finding F4 had
-# read that blindness as making the relabel harmless, which is backwards.
+# out to underneath it, so the refusal has to live here.
 #
 # INJECTION POINT: WFC_GH (the `gh` binary).
 #
@@ -156,10 +152,9 @@ apply_label_and_stop() {
 
 # An unreadable issue refuses too (exit 3).
 #
-# PRESENCE ONLY, as #1020's brief asks: the
-# other three Outside-line limbs postdate errands still open, and keep must
-# not strand one of those onto takes:wayfinder. check-issue-labels.js reports
-# them after the fact.
+# PRESENCE ONLY (#1020): the other three Outside-line limbs postdate errands
+# still open, and keep must not strand one of those onto takes:wayfinder.
+# Residual: check-issue-labels.js reports them.
 check_keep() {
   local issue="$1" takes body status
   takes="$(takes_labels "$issue")" ||

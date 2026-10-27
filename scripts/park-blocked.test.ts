@@ -8,9 +8,7 @@
  * with no hook to catch it: a `PreToolUse` guard never sees the `gh` calls
  * this script makes. This test, red in CI, is the only thing that would.
  *
- * `gh` is stubbed at WFC_GH (this script's own seam, distinct from
- * session-arbiter's WFC_ARBITER_GH, which these cases never touch since none
- * of the arbiter subcommands used here shell out to `gh`).
+ * `gh` is stubbed at WFC_GH.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -223,9 +221,7 @@ describe("parking", () => {
 	});
 
 	/* #140: blocked on the founder is takes:wayfinder — the founder decides
-	   inside Claude Code, in a /wayfinder session (mantahostels#3439), and no
-	   guard sees a `gh` call this script shells out to, so the refusal has to
-	   live here. */
+	   inside Claude Code, in a /wayfinder session (mantahostels#3439). */
 	it("refuses takes:human outright, before any gh call, offering takes:wayfinder or keep instead", () => {
 		claimIssue(9);
 		stubGh({ labels: ["takes:implement"] });
