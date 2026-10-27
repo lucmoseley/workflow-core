@@ -119,17 +119,17 @@
  * and the late one fails at the ref update — exit 128, `fatal: cannot lock ref
  * '<ref>': is at <sha> but expected <sha>`. Git aborts that commit whole, so the
  * retry re-runs it, hooks included. Any other `cannot lock ref`, a stale
- * `HEAD.lock` among them, is a refusal. Not under --patch, whose commit is never
- * retried: its index was built on the old HEAD.
+ * `HEAD.lock` among them, is a refusal. Under --patch the ref update meets it,
+ * and the retry first rebuilds the private index on the new HEAD (#3280).
  *
  * Joins no §N3 family: it is not a check, guard, generator or report, and its
  * exits extend the tracker scripts' alphabet (spec #528) instead. Exits: 0
  * committed, or under --tree printed; 1 the index lock stayed held, or HEAD kept moving under the
- * commit, to the ceiling, or under --patch HEAD kept moving — re-run later; 2
+ * commit, to the ceiling, or under --patch HEAD kept moving while the index was built — re-run later; 2
  * refused, nothing written (usage, no paths, unknown, ignored, a directory
  * with untracked files or no tracked ones, nothing to commit, a patch not cut
  * against HEAD or not applying to it — under --patch, after a green pre-lock
- * run too, a neighbour's commit having left it so); 3 a pre-lock gate or the
+ * run or a HEAD-moved retry too, a neighbour's commit having left it so); 3 a pre-lock gate or the
  * pre-lock test run was red or the pre-lock mutation hold refused, nothing written — or git or a hook refused once the index was touched, the
  * intent-add entries left in place so the same command re-run after the fix
  * just works — the output above being the work either way; 4
@@ -322,6 +322,8 @@ function contention(r) {
 	return HEAD_MOVED.test(r.stderr) ? { kind: "head-moved" } : null;
 }
 
+/** @typedef {NonNullable<ReturnType<typeof contention>>} Held */
+
 /** @param {number} ms */
 const seconds = (ms) => `${(ms / 1000).toFixed(1)}s`;
 
@@ -479,7 +481,7 @@ function buildHolderText(procs) {
  * Stop at the ceiling: exit `code`, saying the lock's age and whether any git process
  * is live, and — where none is — the command to remove it, never run here.
  * HEAD moving holds nothing to age or remove.
- * @param {NonNullable<ReturnType<typeof contention>>} held
+ * @param {Held} held
  * @param {number} ceiling
  * @param {{ after: string, remedy: string, code: number }} opts
  * @returns {never}
@@ -522,10 +524,38 @@ let announced = false;
  *   `remedy`, what to do about a give-up where re-running is wrong, and `code`,
  *   its exit; `env`, more environment for the git child
  */
-function gitLocked(
-	args,
+function gitLocked(args, after, { env, ...opts } = {}) {
+	return waitOut(
+		/** @returns {Attempt<ReturnType<typeof git>>} */
+		() => {
+			const r = git(args, undefined, undefined, env);
+			const held = contention(r);
+			return held ? { held } : { held: null, done: r };
+		},
+		after,
+		opts,
+	);
+}
+
+/**
+ * An attempt that met a held lock or a moving HEAD, or the value it gave.
+ * @template T
+ * @typedef {{held: Held}|{held: null, done: T}} Attempt
+ */
+
+/**
+ * Repeat `attempt` while it meets a held lock or a moving HEAD, on the run's
+ * one shared budget, with jittered backoff; gives up at the ceiling.
+ * @template T
+ * @param {() => Attempt<T>} attempt
+ * @param {string} after what a give-up leaves behind, for its message
+ * @param {{remedy?: string, code?: number}} [opts] as gitLocked's
+ * @returns {T}
+ */
+function waitOut(
+	attempt,
 	after,
-	{ remedy = "Re-run the same command later.", code = 1, env } = {},
+	{ remedy = "Re-run the same command later.", code = 1 } = {},
 ) {
 	const ceiling = lockCeiling();
 	const scale = ceiling / CEILING_MS;
@@ -539,10 +569,10 @@ function gitLocked(
 		// ran its gates before failing, so its run is counted, and slow gates
 		// reach the ceiling in fewer retries.
 		const at = Date.now();
-		const r = git(args, undefined, undefined, env);
-		const held = contention(r);
-		if (since !== null) waitedMs = before + (held ? Date.now() : at) - since;
-		if (!held) return r;
+		const a = attempt();
+		if (since !== null) waitedMs = before + (a.held ? Date.now() : at) - since;
+		if (a.held === null) return a.done;
+		const { held } = a;
 		if (since === null) since = at;
 		announceWait(held, ceiling);
 		const left = ceiling - waitedMs;
@@ -563,7 +593,7 @@ function lockCeiling() {
 }
 
 /**
- * @param {NonNullable<ReturnType<typeof contention>>} held
+ * @param {Held} held
  * @param {number} ceiling
  */
 function announceWait(held, ceiling) {
@@ -1010,16 +1040,42 @@ function commitPatch(message, cut, whole) {
 		},
 	);
 
-	// Every path the commit changes, a rename's both sides included, which
-	// `git apply --numstat` reports only the new name of.
-	const changed = nulList(
-		git(["diff", "--cached", "--name-only", "-z", "--no-renames", base], index)
-			.stdout,
-	).map((p) => `:(top,literal)${p}`);
+	// A HEAD that moved while the hooks ran rebuilds the index on the new one —
+	// refusing, nothing written, where the patch no longer applies there — and
+	// the commit, hooks included, runs again (#3280). The pre-lock stamps carry
+	// over: they key on the commit's own changes, so a neighbour's commit
+	// elsewhere leaves them standing, and one that changes them voids them and
+	// the hook runs its gates in the lock.
+	const first = base;
+	let attempts = 0;
+	const landed = waitOut(
+		/** @returns {Attempt<{sha: string, changed: string[], on: string}>} */
+		() => {
+			let on = first;
+			if (attempts++ > 0) {
+				on = git(["rev-parse", "HEAD"]).stdout.trim();
+				buildIndex(patchBuild, on);
+				if (git(["rev-parse", "HEAD"]).stdout.trim() !== on)
+					return { held: { kind: "head-moved" } };
+			}
+			// Every path the commit changes, a rename's both sides included, which
+			// `git apply --numstat` reports only the new name of.
+			const changed = nulList(
+				git(
+					["diff", "--cached", "--name-only", "-z", "--no-renames", on],
+					index,
+				).stdout,
+			).map((p) => `:(top,literal)${p}`);
+			const sha = commitIndex(message, files, on, stampEnv);
+			return sha === null
+				? { held: { kind: "head-moved" } }
+				: { held: null, done: { sha, changed, on } };
+		},
+		"Nothing was committed.",
+	);
+	const { sha, changed } = landed;
 
-	const sha = commitIndex(message, files, base, stampEnv);
-
-	warnStagedCopies(changed, patched, base);
+	warnStagedCopies(changed, patched, landed.on);
 
 	resetSharedIndex(changed);
 
@@ -1042,12 +1098,12 @@ function commitPatch(message, cut, whole) {
  * base's. The message is cleaned by `commit.cleanup` as `-m`'s is, before the
  * hooks see it and again after, and signed where `commit.gpgSign` says. The
  * ref update names `base` as HEAD's old value, so a HEAD that moved since the
- * index was built refuses, nothing written.
+ * index was built refuses, nothing written, and returns null.
  * @param {string} message
  * @param {RunFiles} files
  * @param {string} base
  * @param {NodeJS.ProcessEnv|undefined} stampEnv
- * @returns {string} the commit's sha
+ * @returns {string|null} the commit's sha, or null where HEAD moved
  */
 function commitIndex(message, { index, messageFile }, base, stampEnv) {
 	const env = { ...stampEnv, GIT_EDITOR: ":" };
@@ -1118,13 +1174,7 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 		sha,
 		base,
 	]);
-	if (moved.status !== 0 && HEAD_MOVED_UNDER.test(moved.stderr)) {
-		err(moved.stderr);
-		fail(
-			"HEAD moved while the hooks ran — a neighbour's commit landed first — so this commit was not written. Re-run the same command: it rebuilds on the new HEAD.",
-			1,
-		);
-	}
+	if (moved.status !== 0 && HEAD_MOVED_UNDER.test(moved.stderr)) return null;
 	stdoutOrRefuse(moved);
 	markTouched();
 	hook("post-commit");

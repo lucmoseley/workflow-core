@@ -54,6 +54,21 @@ const readHead = () => git("rev-parse", "HEAD").trim();
 const readCommitted = (ref = "HEAD") =>
 	git("show", "--name-status", "--format=%s", ref).replace("\n\n", "\n").trim();
 
+const ceiling = (ms: number) => ({
+	...process.env,
+	WFC_COMMIT_LOCK_CEILING_MS: String(ms),
+});
+const runWith = (args: string[], env: NodeJS.ProcessEnv) =>
+	runInProcess(SCRIPT, args, { cwd: sb.repo, env });
+/** The outcome log's last line, split on its tabs. */
+const readLastOutcome = () =>
+	fs
+		.readFileSync(store.paths.commitPathsLog(), "utf8")
+		.trim()
+		.split("\n")
+		.at(-1)
+		?.split("\t");
+
 /** A pre-commit that refuses while `gate-refuses` exists in the repo root. */
 const gate = () => {
 	const hook = path.join(hooks, "pre-commit");
@@ -724,20 +739,86 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(readIndex()).toBe(before);
 	});
 
-	it("refuses, nothing written, where a neighbour's commit moves HEAD while the hooks run", () => {
+	/**
+	 * A pre-commit that lands a neighbour's commit, `change` run against a
+	 * scratch index of HEAD — on the first run only, or on every one with
+	 * `always` — so the --patch commit's ref update meets a moved HEAD.
+	 */
+	const neighbourRaces = (change: string, always = false) => {
+		const mark = path.join(sb.dir, "raced");
 		hookScript(
 			"pre-commit",
-			// --no-verify, or this commit fires this hook again, without end.
-			"env -u GIT_INDEX_FILE git commit -q --no-verify --allow-empty -m neighbour",
+			[
+				`if ${always} || [ ! -f '${mark}' ]; then`,
+				`  : > '${mark}'`,
+				`  export GIT_INDEX_FILE='${path.join(sb.dir, "neighbour.index")}'`,
+				"  git read-tree HEAD",
+				`  ${change}`,
+				'  git update-ref HEAD "$(git commit-tree "$(git write-tree)" -p HEAD -m neighbour)"',
+				// As a neighbour's commit leaves the shared index: matching its HEAD.
+				"  env -u GIT_INDEX_FILE git reset -q",
+				"fi",
+			].join("\n"),
 		);
-		const r = run(["-m", "mine", "--patch", shared()]);
-		expect(r.status).toBe(1);
-		expect(r.stderr).toMatch(
-			/HEAD moved while the hooks ran.*Re-run the same command: it rebuilds on the new HEAD\./,
+	};
+	// commit-paths has no clock seam, so the give-up is reached on real time
+	// through the ceiling override. Wide: a race clears in one retry, its hooks
+	// a fraction of a second. Short: spent by the first retry's backoff alone.
+	const WideCeilingMs = 60_000;
+	const ShortCeilingMs = 300;
+
+	it("rebuilds on the new HEAD and commits there, where a neighbour's commit moves HEAD while the hooks run (#3280)", () => {
+		write("held.md");
+		git("add", "held.md");
+		git("commit", "-qm", "seed held");
+		neighbourRaces(
+			'git update-index --add --cacheinfo "100644,$(echo edited | git hash-object -w --stdin),held.md"',
 		);
-		expect(readCommitted()).toBe("neighbour");
+		const r = runWith(
+			["-m", "mine", "--patch", shared()],
+			ceiling(WideCeilingMs),
+		);
+		expect(r.stderr).toContain(
+			"HEAD moved under the commit — a neighbour's commit landed first — so git made none. Waiting up to 60.0s in all, retrying.",
+		);
+		expect(r.status).toBe(0);
+		expect(readCommitted()).toBe("mine\nM\ta.md");
+		expect(readCommitted("HEAD~1")).toBe("neighbour\nM\theld.md");
+		expect(git("show", "HEAD:a.md")).toBe("mine\na\n");
 		expect(git("diff", "--cached", "--name-only")).toBe("");
 		expect(readPrivates()).toEqual([]);
+		expect(readLastOutcome()?.[1]).toBe("committed");
+	});
+
+	it("refuses, exit 2, where the patch no longer applies on the HEAD a neighbour moved it to", () => {
+		neighbourRaces("git rm -q --cached a.md");
+		const r = runWith(
+			["-m", "mine", "--patch", shared()],
+			ceiling(WideCeilingMs),
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(
+			/the patch (does not apply to|was not cut against) HEAD.*`git diff HEAD -U0 -- <path>`.*Nothing written\.\n$/s,
+		);
+		expect(readCommitted()).toBe("neighbour\nD\ta.md");
+		expect(readPrivates()).toEqual([]);
+		expect(readLastOutcome()?.[1]).toBe("refused");
+	});
+
+	it("stops at the ceiling where HEAD keeps moving under the hooks", () => {
+		neighbourRaces("true", true);
+		const r = runWith(
+			["-m", "mine", "--patch", shared()],
+			ceiling(ShortCeilingMs),
+		);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("Waiting up to 0.3s in all, retrying.");
+		expect(r.stderr).toContain(
+			"gave up after 0.3s: HEAD kept moving under the commit, so neighbours are committing faster than it can land. Nothing was committed.",
+		);
+		expect(git("show", "HEAD:a.md")).toBe("a\n");
+		expect(readPrivates()).toEqual([]);
+		expect(readLastOutcome()?.[1]).toBe("lock-ceiling");
 	});
 });
 
@@ -813,20 +894,6 @@ describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
 
 describe("the index lock (#585) — wait, retry, and stop at the ceiling", () => {
 	const lockFile = () => path.join(sb.repo, ".git", "index.lock");
-	const ceiling = (ms: number) => ({
-		...process.env,
-		WFC_COMMIT_LOCK_CEILING_MS: String(ms),
-	});
-	const runWith = (args: string[], env: NodeJS.ProcessEnv) =>
-		runInProcess(SCRIPT, args, { cwd: sb.repo, env });
-	/** The outcome log's last line, split on its tabs. */
-	const readLastOutcome = () =>
-		fs
-			.readFileSync(store.paths.commitPathsLog(), "utf8")
-			.trim()
-			.split("\n")
-			.at(-1)
-			?.split("\t");
 
 	/**
 	 * The script as a child process, so this test can act while it waits: `onHeld`
