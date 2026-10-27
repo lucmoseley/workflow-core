@@ -143,13 +143,15 @@ const threadArms = () => `  */comments?*)
 /**
  * `/sub_issues` of N answers with the fixture's own rows parented on N, open
  * and closed, unless `children` overrides it — with other repos' rows, or with
- * `"fail"` or `"unreachable"` for a failed read.
+ * `"fail"` or `"unreachable"` for a failed read. `acme/lib#N` answers
+ * `foreign[N]`'s state, or an HTTP error for `"fail"`.
  */
 const stubGh = (
 	issues: Issue[],
 	{
 		failing = false,
 		children = {} as Record<number, Issue[] | "fail" | "unreachable">,
+		foreign = {} as Record<number, string>,
 	} = {},
 ) => {
 	const rows = issues.map(rowOf);
@@ -172,6 +174,15 @@ const stubGh = (
 		kidsOf[Number(n)] = typeof kids === "string" ? kids : kids.map(rowOf);
 	writeSubIssues(dir, kidsOf);
 	writeThreads(issues);
+	for (const [n, state] of Object.entries(foreign))
+		fs.writeFileSync(
+			path.join(dir, `foreign-${n}.${state === "fail" ? "fail" : "json"}`),
+			JSON.stringify(
+				JSON.parse(
+					asRecorded("issuesPage", [[{ number: Number(n), state }]]),
+				)[0],
+			),
+		);
 	/* Every argv line, so a test can assert what was NOT asked for. */
 	const callLog = path.join(dir, "calls.log");
 	const script = `#!/bin/sh
@@ -179,6 +190,12 @@ echo "$@" >> ${callLog}
 case "$2" in
 ${subIssuesArm(dir)}
 ${threadArms()}
+  repos/acme/lib/issues/*)
+    n=\`echo "$2" | sed 's|.*/issues/||'\`
+    if [ -f ${dir}/foreign-$n.fail ]; then
+      ${ghServeLines(GH_NOT_FOUND)}    fi
+    cat ${dir}/foreign-$n.json
+    ;;
   *) cat ${fixture} ;;
 esac
 `;
@@ -1555,8 +1572,15 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		"**Blocked** — the adopters have not bumped their pin, so nothing to test yet.";
 	const Gate =
 		"**Gated on:** every adopter pins v1.3.16 — check: node scripts/adopter-pins.js — abandon if: the offers are withdrawn\n**Gate basis:** each pin bump is its own ticket, so the last to land sets it";
-	const flagged = (issue: Omit<Issue, "number">) => {
-		const r = run([], stubGh([{ ...issue, number: 520 }]));
+	const flagged = (
+		issue: Omit<Issue, "number">,
+		others: Issue[] = [],
+		foreign: Record<number, string> = {},
+	) => {
+		const r = run(
+			[],
+			stubGh([{ ...issue, number: 520 }, ...others], { foreign }),
+		);
 		return { r, fault: r.out.includes("PROSE-BLOCKED") };
 	};
 
@@ -1589,6 +1613,61 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 				],
 			}).fault,
 		).toBe(false);
+	});
+
+	it("stays silent where the body names an open prose blocker", () => {
+		expect(
+			flagged({ comments: [Blocked], body: "**Blocked on** #8" }, [
+				{ number: 8 },
+			]).fault,
+		).toBe(false);
+	});
+
+	it("warns where every prose blocker has closed", () => {
+		expect(
+			flagged({ comments: [Blocked], body: "**Blocked on** #8" }).fault,
+		).toBe(true);
+	});
+
+	it("stays silent where another repo's prose blocker is open", () => {
+		const { r, fault } = flagged(
+			{ comments: [Blocked], body: "**Blocked on** acme/lib#4" },
+			[],
+			{ 4: "open" },
+		);
+		expect(fault).toBe(false);
+		expect(r.out).not.toContain("BLOCKED-UNREADABLE");
+	});
+
+	it("warns where another repo's prose blocker has closed", () => {
+		expect(
+			flagged({ comments: [Blocked], body: "**Blocked on** acme/lib#4" }, [], {
+				4: "closed",
+			}).fault,
+		).toBe(true);
+	});
+
+	it("warns BLOCKED-UNREADABLE where another repo's prose blocker will not read", () => {
+		const { r, fault } = flagged(
+			{ comments: [Blocked], body: "**Blocked on** acme/lib#4" },
+			[],
+			{ 4: "fail" },
+		);
+		expect(fault).toBe(false);
+		expect(r.out).toContain("BLOCKED-UNREADABLE");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("acme/lib#4");
+		expect(r.out).toContain("gh issue view 4 --repo acme/lib");
+	});
+
+	it("stays silent where one foreign prose blocker will not read but another is open", () => {
+		const { r, fault } = flagged(
+			{ comments: [Blocked], body: "**Blocked on** acme/lib#4, acme/lib#5" },
+			[],
+			{ 4: "fail", 5: "open" },
+		);
+		expect(fault).toBe(false);
+		expect(r.out).not.toContain("BLOCKED-UNREADABLE");
 	});
 
 	it("stays silent where a gate line holds it", () => {

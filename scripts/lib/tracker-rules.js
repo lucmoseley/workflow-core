@@ -80,6 +80,7 @@
  */
 
 const { SPACE, bodyFileWord, bodyWord, newBody } = require("./gh-body.js");
+const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
@@ -181,13 +182,10 @@ const dependencyEndpoint = (words) =>
 /** @type {Predicate} */
 const jobDirPath = (_words, { jobDirSeen }) => jobDirSeen;
 
-/* A `gh issue comment` whose body opens `**Blocked` or `**Refused attempt`
- * (#2309, #3111), the opening check-issue-labels.js's NOT_READY_COMMENT matches. The body is read through
- * lib/gh-body.js, in the spellings record-acts.js reads; one it cannot read
- * matches nothing, a file fault logged. */
-const NOT_READY_OPENING = new RegExp(
-	`^${SPACE}*\\*\\*(Blocked|Refused attempt)`,
-);
+/* A `gh issue comment` whose body opens as lib/prose-blockers.js's
+ * NOT_READY_OPENING matches. The body is read through lib/gh-body.js, in the
+ * spellings record-acts.js reads; one it cannot read matches nothing, a file
+ * fault logged. */
 /** @type {Predicate} */
 const opensNotReady = (words, { parsed, ctx, cmd }) => {
 	const body = newBody();

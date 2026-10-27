@@ -37,8 +37,8 @@
  * the list holds this repo's issues alone, so a `takes:children` with no open
  * child in it has its own /sub_issues read, every page, before it is reported
  * (#778). PROSE-BLOCKED is the other: each open issue with comments has
- * its latest comment read, and one opening as NOT_READY_COMMENT matches with no gate line its
- * `blocked_by` edges.
+ * its latest comment read, and one opening as lib/prose-blockers.js's NOT_READY_OPENING
+ * matches with no gate line or open `**Blocked on**` issue its `blocked_by` edges.
  *
  * NEVER THE WHOLE TRACKER (mantahostels#1899). check-issue-orphans.js reads ghAllIssues;
  * this one must not. The scan below reads open issues only, plus the
@@ -68,6 +68,11 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root");
 const { resolveGate } = require("./lib/issue-gate");
+const {
+	NOT_READY_OPENING,
+	proseRefsOf,
+	resolveProseBlockers,
+} = require("./lib/prose-blockers");
 const {
 	parseErrLine,
 	ghClosedIssuesWithLabel,
@@ -669,23 +674,20 @@ function reportTakesFaults(ctx, takesFaults) {
 	);
 }
 
-/*
- * A ticket a launched session found not ready, left with a comment opening
- * `**Blocked` or `**Refused attempt` (#3111) and nothing pick-next.js reads: no open native blocker and no
- * holding gate line (#2309, ruled at #2212). A WARN: the issue still routes.
- * lib/tracker-rules.js's opensNotReady matches the same opening.
- */
-const NOT_READY_COMMENT = /^\s*\*\*(Blocked|Refused attempt)/;
-
 /**
- * The issue's PROSE-BLOCKED fault, or its read failure, as Raise's
- * arguments; null where it has neither.
+ * A ticket a launched session found not ready, left with a comment opening as
+ * NOT_READY_OPENING matches and nothing pick-next.js holds it on: no open
+ * native blocker, no open `**Blocked on**` issue and no holding gate line
+ * (#2309, ruled at #2212). A WARN: the issue still routes. Returns the fault,
+ * or its read failure, as Raise's arguments; null where it has neither.
  * @param {any} iss
+ * @param {Set<number>} openNumbers every open issue in this repo
  * @returns {Promise<Parameters<Raise> | null>}
  */
-async function proseBlockedFault(iss) {
+async function proseBlockedFault(iss, openNumbers) {
 	const gates = resolveGate(iss.body);
 	if (gates.gateHolds || gates.gateOnHolds) return null;
+	if (resolveProseBlockers(iss.body, openNumbers).open.length > 0) return null;
 	/* The last page at one comment a page is the latest comment. */
 	const latest = await ghGetRetrying(
 		`repos/{owner}/{repo}/issues/${iss.number}/comments?per_page=1&page=${iss.comments}`,
@@ -707,7 +709,7 @@ async function proseBlockedFault(iss) {
 			"latest comment answered an empty page, so a prose-only not-ready comment is unjudged",
 			`re-run, or read it yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/comments`,
 		];
-	const opening = NOT_READY_COMMENT.exec(String(comment.body ?? ""))?.[1];
+	const opening = NOT_READY_OPENING.exec(String(comment.body ?? ""))?.[1];
 	if (!opening) return null;
 	/* Strict: an empty answer would read as no blocker and raise a false finding. */
 	const edges = await ghGetRetrying(
@@ -722,6 +724,27 @@ async function proseBlockedFault(iss) {
 			`re-run, or read them yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/dependencies/blocked_by`,
 		];
 	if (edges.out.some((/** @type {any} */ b) => b.state === "open")) return null;
+	/* A marker naming another repo's issue is read for its state, as the
+	 * shortlist's lib/blocker-graph.js reads it (#3262). Every one is read, so
+	 * an unreadable marker never hides an open one. Where blocker-graph holds
+	 * on an unreadable marker, this warns BLOCKED-UNREADABLE. */
+	const foreign = proseRefsOf(iss.body).filter((p) => p.repo !== null);
+	const reads = await Promise.all(
+		foreign.map((r) =>
+			ghGetRetrying(`repos/${r.repo}/issues/${r.number}`, { strict: true }),
+		),
+	);
+	if (reads.some((r) => r.ok && r.out[0]?.state === "open")) return null;
+	const at = reads.findIndex((r) => !r.ok);
+	const unread = foreign[at];
+	const failed = reads[at];
+	if (unread && failed && !failed.ok)
+		return [
+			"WARN",
+			"BLOCKED-UNREADABLE",
+			`latest comment opens **${opening}, and its **Blocked on** ${unread.repo}#${unread.number} is unreadable (${failed.error})`,
+			`re-run, or read it yourself: gh issue view ${unread.number} --repo ${unread.repo}`,
+		];
 	return [
 		"WARN",
 		"PROSE-BLOCKED",
@@ -734,14 +757,15 @@ async function proseBlockedFault(iss) {
  * Raise each issue's PROSE-BLOCKED fault in input order, so the report's order
  * never rides on which read answered first.
  * @param {{iss: any, raise: Raise}[]} commented
+ * @param {Set<number>} openNumbers
  */
-async function raiseProseBlocked(commented) {
+async function raiseProseBlocked(commented, openNumbers) {
 	const judged = await mapLimit(
 		commented,
 		ISSUE_READ_CONCURRENCY,
 		async (c) => ({
 			raise: c.raise,
-			fault: await proseBlockedFault(c.iss),
+			fault: await proseBlockedFault(c.iss, openNumbers),
 		}),
 	);
 	for (const { raise, fault } of judged) if (fault) raise(...fault);
@@ -769,12 +793,15 @@ runCheck({
 		const takesFaults = [];
 		/** @type {{iss: any, raise: Raise}[]} */
 		const commented = [];
+		/** @type {Set<number>} */
+		const openNumbers = new Set();
 		let scanned = 0;
 		let openScanned = 0;
 		for (const iss of issues) {
 			if (iss.pull_request) continue; // one number space, two kinds of thing
 			if (iss.state !== "open") continue;
 			openScanned++;
+			openNumbers.add(iss.number);
 			const own = namesOf(iss);
 			const raise = faultRaiser(iss, own, takesFaults);
 			checkTakesFaults(iss, own, counts, raise);
@@ -789,7 +816,7 @@ runCheck({
 			}
 		}
 
-		await raiseProseBlocked(commented);
+		await raiseProseBlocked(commented, openNumbers);
 
 		/*
 		 * Not under --notify, built for a SessionStart hook: a scan summary with

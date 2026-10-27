@@ -1,6 +1,7 @@
 /*
  * prose-blockers.js — `**Blocked on** #<n>` in an issue body, read and resolved
- * without a second `gh issue view` (mantahostels#1289).
+ * without a second `gh issue view` (mantahostels#1289); and the opening of a
+ * not-ready comment, NOT_READY_OPENING.
  *
  * WHY IT EXISTS. GitHub's native dependency edge (`/dependencies/blocked_by`,
  * what `pick-next.js`'s own `blockedBy()` reads) is the readiness source of
@@ -23,6 +24,7 @@
  * One or more `#<n>` or `owner/name#<n>` references, comma- or
  * space-separated (#2427).
  */
+const { SPACE } = require("./gh-body.js");
 const { requiredGroup } = require("./regex-group.js");
 const { refKey } = require("./issue-ref.js");
 
@@ -49,7 +51,9 @@ const BLOCKED_ON_LINE_RE = /\*\*Blocked on\b[^*]*\*\*[^\n]*/gi;
  * reads it off the latest comment, lib/tracker-rules.js off a comment being
  * written. Not global, so `.test` keeps no lastIndex.
  */
-const NOT_READY_OPENING = /^[ \t\n\v\f\r]*\*\*(Blocked|Refused attempt)/;
+const NOT_READY_OPENING = new RegExp(
+	`^${SPACE}*\\*\\*(Blocked|Refused attempt)`,
+);
 
 /**
  * Every issue a `**Blocked on**` marker in `body` names, in marker order,
@@ -88,7 +92,7 @@ function unparsedBlockersOf(body) {
  * at no extra call). `open` is what still blocks; `resolved` is what does not,
  * because the fetched open list does not contain it. `unparsed` is every
  * marker line that named no number at all. An `owner/name#<n>` reference is
- * left to lib/blocker-graph.js, which reads its state.
+ * left to its caller to read: lib/blocker-graph.js and check-issue-labels.js.
  * @param {string} body
  * @param {Set<number>} openNumbers
  */
