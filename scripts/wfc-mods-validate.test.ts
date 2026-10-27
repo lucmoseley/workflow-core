@@ -27,7 +27,11 @@ const hasClaude =
 
 const MODS = [
 	// The matcher matches every cwd, so one module may hook it twice (#944).
-	{ mod: "wfc-delivery", hooks: 'session.start{cwd=/"."/}' },
+	{
+		mod: "wfc-delivery",
+		hooks:
+			'session.start{cwd=/"."/}, turn.start{turnId=/"."/}, turn.complete{turnId=/"."/}',
+	},
 	{
 		mod: "wfc-liveness",
 		hooks:

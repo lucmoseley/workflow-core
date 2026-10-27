@@ -1,8 +1,9 @@
 /*
- * Pins that the delivery mod forks deliver-to-session.js only when a watched
- * store changes or its 10-minute CI interval comes round, offers each non-empty
- * report once as a row the model reads, obeys its floor and its two loads, and
- * reads no repo-wide switch (#854, #855, #856, #944, #1467).
+ * Pins that the delivery mod forks deliver-to-session.js only inside a
+ * main-loop turn, and there only when a watched store changes or its 10-minute
+ * CI interval comes round, offers each non-empty report once as a row the
+ * model reads, obeys its floor and its two loads, and reads no repo-wide
+ * switch (#854, #855, #856, #944, #1467, #3247).
  *
  * The mod's own seam (#849 §Testing Decisions, seam 2), run by
  * `claude plugin test .claude/skills/wfc-delivery`. The ordinary vitest suite
@@ -93,6 +94,8 @@ function world(on: On, w: World = {}) {
 		return { value: undefined };
 	});
 	on("session.start", (_$, e) => ({ cwd: e.cwd }));
+	on("turn.start", (_$, e) => ({ turnId: e.turnId }));
+	on("turn.complete", (_$, e) => ({ text: e.answer }));
 	on("session.append", (_$, e, next) => {
 		seen.appendCalls++;
 		/* A hook that throws or breaks the envelope is skipped and the row kept,
@@ -180,11 +183,35 @@ function world(on: On, w: World = {}) {
  * under test (#944). */
 const HOSTED = { plugins: [{ name: "workflow-core", register }] };
 
-const start = ($: { session: { start: (e: never) => Promise<unknown> } }) =>
-	$.session.start({
+interface Kit {
+	session: { start: (e: never) => Promise<unknown> };
+	turn: {
+		start: (e: never) => Promise<unknown>;
+		complete: (e: never) => Promise<unknown>;
+	};
+}
+
+/** Starts the session, then a main-loop turn, where the loop runs (#3247). */
+const start = async ($: Kit) => {
+	await $.session.start({
 		cwd: CWD,
 		surface: null,
 		isInteractive: false,
+	} as never);
+	await turnStart($);
+};
+
+const turnStart = ($: Kit, agentId?: string) =>
+	$.turn.start({ text: "", turnId: "t-1", agentId } as never);
+
+const turnEnd = ($: Kit, agentId?: string) =>
+	$.turn.complete({
+		answer: "done",
+		reason: "answer",
+		isAborted: false,
+		durationMs: 1,
+		turnId: "t-1",
+		agentId,
 	} as never);
 
 describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
@@ -223,8 +250,9 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 		await clock.advance(TICK);
 		const forks = seen.forks();
 		await clock.advance(TICK * 5);
-		// Three directories a tick: the store, the register and the claims.
-		expect(seen.stats).toBe(18);
+		/* Three directories a tick (the store, the register and the claims),
+		 * on the turn's start and six intervals. */
+		expect(seen.stats).toBe(21);
 		expect(seen.forks()).toBe(forks);
 		seen.mtime["/store"] = 2;
 		await clock.advance(TICK);
@@ -235,7 +263,8 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 	test("a rejected run leaves the next tick working", async ($, on) => {
 		const { clock, seen } = world(on, { prints: [REPORT], failRuns: [1] });
 		await start($);
-		await clock.advance(TICK);
+		await clock.advance(0);
+		expect(seen.reportRuns).toBe(1);
 		expect(seen.appendCalls).toBe(0);
 		await clock.advance(TICK);
 		expect(seen.reportRuns).toBe(2);
@@ -245,7 +274,7 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 	test("a rejected append is offered again next tick, the script not re-run", async ($, on) => {
 		const { clock, seen } = world(on, { prints: [REPORT], failAppends: [1] });
 		await start($);
-		await clock.advance(TICK);
+		await clock.advance(0);
 		expect(seen.rows).toEqual([]);
 		expect(seen.logs).toEqual([expect.stringContaining("offer 1 of 3")]);
 		await clock.advance(TICK);
@@ -279,7 +308,7 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 			failAppends: [1],
 		});
 		await start($);
-		await clock.advance(TICK);
+		await clock.advance(0);
 		seen.mtime["/store"] = 2;
 		await clock.advance(TICK);
 		expect(seen.reportRuns).toBe(2);
@@ -378,6 +407,59 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 		await clock.advance(TICK * 2);
 		expect(seen.ciRuns).toBe(2);
 		expect(seen.rows).toEqual([expect.stringContaining("ci-recheck")]);
+	});
+});
+
+describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
+	test("before its first turn it stats and spawns nothing", async ($, on) => {
+		const { clock, seen } = world(on, { prints: [REPORT] });
+		await $.session.start({
+			cwd: CWD,
+			surface: null,
+			isInteractive: false,
+		} as never);
+		await clock.advance(CI_INTERVAL * 2);
+		expect(seen.stats + seen.forks()).toBe(0);
+	});
+
+	test("once its turn has ended it stats and spawns nothing", async ($, on) => {
+		const { clock, seen } = world(on);
+		await start($);
+		await clock.advance(TICK);
+		await turnEnd($);
+		const stats = seen.stats;
+		const forks = seen.forks();
+		seen.mtime["/store"] = 2;
+		seen.mtime["/req"] = 2;
+		await clock.advance(CI_INTERVAL * 3);
+		expect(seen.stats).toBe(stats);
+		expect(seen.forks()).toBe(forks);
+		expect(seen.ciRuns).toBe(0);
+	});
+
+	test("a subagent's turn ending leaves the loop running", async ($, on) => {
+		const { clock, seen } = world(on);
+		await start($);
+		await clock.advance(0);
+		await turnEnd($, "a-1");
+		seen.mtime["/store"] = 2;
+		await clock.advance(TICK);
+		expect(seen.reportRuns).toBe(2);
+	});
+
+	test("the next turn's start ticks at once, the CI re-check with it", async ($, on) => {
+		const { clock, seen } = world(on, { requestPrints: ["", REQUEST] });
+		await start($);
+		await clock.advance(0);
+		await turnEnd($);
+		seen.mtime["/req"] = 2;
+		await clock.advance(CI_INTERVAL);
+		expect(seen.requestRuns).toBe(1);
+		await turnStart($);
+		await clock.advance(0);
+		expect(seen.requestRuns).toBe(2);
+		expect(seen.ciRuns).toBe(1);
+		expect(seen.rows).toEqual([expect.stringContaining("release-request")]);
 	});
 });
 

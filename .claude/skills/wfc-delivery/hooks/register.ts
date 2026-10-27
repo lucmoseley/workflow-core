@@ -8,15 +8,17 @@
  * A thin loop over scripts/deliver-to-session.js, which owns every rule of
  * what is due: owner, allow-list, once per session, the arbiter's wording.
  *
- * Hooks `session.start` alone and never calls `$.prompt.submit`: it can
- * neither skip a guard nor wake an idle session (#849 §Guard safety).
+ * Hooks `session.start`, and `turn.start` and `turn.complete` to run its
+ * loop only while a main-loop turn runs: a session that has ended its turn
+ * spawns nothing (#3247). Never calls `$.prompt.submit`: it can neither skip
+ * a guard nor wake an idle session (#849 §Guard safety).
  *
  * EVERYTHING LIVES INSIDE `register`. The tests stand for the load through
  * the workflow-core plugin by loading `register` again as an inline plugin,
  * which carries the function's own text and nothing around it (#944).
  */
 
-import type { Register } from "claude-code";
+import type { Register, Timer } from "claude-code";
 
 export const register: Register = (on) => {
 	/* The build #851's go checks passed on; below it the mod is unproven and
@@ -28,7 +30,8 @@ export const register: Register = (on) => {
 	 * reads files, and `--requests` bounds its arbiter run at 4 s. */
 	const runTimeoutMs = 5000;
 	/* #849 §CI re-check mid-session. The first run is 10 minutes in: the
-	 * session-start check covers the minutes before. */
+	 * session-start check covers the minutes before. Counted from the last run,
+	 * so the first tick of a turn after a longer wait runs it. */
 	const ciIntervalMs = 10 * 60_000;
 	/* Above the script's own bounds, 8 s on its gate and 15 s on the check, with
 	 * room for two node starts; a guess. */
@@ -68,6 +71,10 @@ export const register: Register = (on) => {
 
 	const messageOf = (err: unknown) =>
 		err instanceof Error ? err.message : String(err);
+
+	/* Set by the session.start that started this load; the turn hooks start
+	 * and stop its loop. */
+	let loop: { resume: () => void; pause: () => void } | undefined;
 
 	// Matches every cwd, so one module may hook `session.start` twice (#903 F2).
 	on("session.start", { cwd: /./ }, async ($, e, next) => {
@@ -114,9 +121,8 @@ export const register: Register = (on) => {
 			let pending = "";
 			let offers = 0;
 			let isBusy = false;
-			/* Set by the CI interval, run by the next tick, so every fork and the
-			 * pending row stay with one loop. */
-			let isCiDue = false;
+			let ciRanAt = await $.clock.now();
+			let timer: Timer | undefined;
 
 			const run = async (args: string[], timeoutMs = runTimeoutMs) => {
 				const ran = await $.process.run(["node", script, ...args], {
@@ -202,35 +208,61 @@ export const register: Register = (on) => {
 			const failed = (err: unknown) =>
 				debug(`tick failed, retried next tick: ${messageOf(err)}`);
 
+			const recheckCi = async () => {
+				const now = await $.clock.now();
+				if (now - ciRanAt < ciIntervalMs) return;
+				/* Stamped first: a failed or timed-out run delivers nothing and waits
+				 * for the next interval (#856). */
+				ciRanAt = now;
+				await run(["--ci"], ciRunTimeoutMs)
+					.then((out) => hold(out.trim()))
+					.catch((err: unknown) =>
+						debug(
+							`CI re-check failed, retried next interval: ${messageOf(err)}`,
+						),
+					);
+			};
+
 			const tick = async () => {
 				if (isBusy) return;
 				isBusy = true;
-				// One source failing never starves the other.
-				for (const source of sources) await fetch(source).catch(failed);
-				/* Cleared first: a failed or timed-out run delivers nothing and waits
-				 * for the next interval (#856). */
-				if (isCiDue) {
-					isCiDue = false;
-					await run(["--ci"], ciRunTimeoutMs)
-						.then((out) => hold(out.trim()))
-						.catch((err: unknown) =>
-							debug(
-								`CI re-check failed, retried next interval: ${messageOf(err)}`,
-							),
-						);
+				try {
+					// One source failing never starves the other.
+					for (const source of sources) await fetch(source).catch(failed);
+					await recheckCi().catch(failed);
+					if (pending) await deliver().catch(failed);
+				} finally {
+					isBusy = false;
 				}
-				if (pending) await deliver().catch(failed);
-				isBusy = false;
 			};
 
 			// `tick` catches its own failures, so nothing it returns is dropped.
-			$.clock.every(tickMs, tick);
-			$.clock.every(ciIntervalMs, () => {
-				isCiDue = true;
-			});
+			loop = {
+				resume: () => {
+					if (timer) return;
+					timer = $.clock.every(tickMs, tick);
+					$.clock.after(0, tick);
+				},
+				pause: () => {
+					timer?.cancel();
+					timer = undefined;
+				},
+			};
 		} catch (err) {
 			debug(`not started: ${messageOf(err)}`);
 		}
+		return next(e);
+	});
+
+	/* A subagent's turn neither starts nor stops the loop. Each matcher matches
+	 * every turn, so one module may hook the event twice (#903 F2). */
+	on("turn.start", { turnId: /./ }, (_$, e, next) => {
+		if (e.agentId === undefined) loop?.resume();
+		return next(e);
+	});
+
+	on("turn.complete", { turnId: /./ }, (_$, e, next) => {
+		if (e.agentId === undefined) loop?.pause();
 		return next(e);
 	});
 };
