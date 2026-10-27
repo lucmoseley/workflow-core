@@ -22,8 +22,8 @@
  * on that call. It stays pasted, in scripts/inject-tracker-docs.sh.
  *
  * INJECTION ONLY — it never denies. The tracker guards that DO deny are
- * the guard-issue-create-label core, the guard-issue-close core, the guard-issue-body core and
- * the guard-issue-phase-scope core.
+ * guard-issue-create-label.js, guard-issue-close.js, guard-issue-body.js and
+ * guard-issue-phase-scope.js.
  *
  * IMPLICIT: on an allowed call it injects the rules as additionalContext and
  *   writes a `.rule-injected-*` latch under .claude/tmp/markers.
@@ -63,7 +63,7 @@
  *    the rule too.
  *  - THE OTHER SPELLINGS OF A CREATION ARE OUT OF SCOPE HERE. `gh api --method
  *    POST …/issues` and a `gh api graphql` `createIssue` mutation are both
- *    chased by the guard-issue-create-label core (mantahostels#511, mantahostels#519)
+ *    chased by guard-issue-create-label.js (mantahostels#511, mantahostels#519)
  *    and are not chased here, where each would be a row in TRIGGERS.
  *  - SO ARE THE OTHER SPELLINGS OF A LABEL EDIT (#2023): `gh api …/labels`, a
  *    label set at creation, and scripts/park-blocked.sh's own
@@ -146,7 +146,7 @@ const hasFlag = (words, flags) =>
 	);
 
 /* A `gh issue edit` that writes the body whole — the long flags, each
- * `=`-joined form, and gh's own short spellings `-b`/`-F`. The guard-issue-body core
+ * `=`-joined form, and gh's own short spellings `-b`/`-F`. guard-issue-body.js
  * DENIES every one of those (mantahostels#132). */
 const BODY_FLAGS = ["--body", "--body-file", "-b", "-F"];
 /** @type {Predicate} */

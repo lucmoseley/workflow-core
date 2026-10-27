@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/issue-body-write.js, the guard-issue-body core (#2798), in process: it
+ * lib/issue-body-write.js, guard-issue-body.js's core (#2798), in process: it
  * refuses a raw issue-body write (mantahostels#132), and a deny is only
  * defensible while it cannot wedge sanctioned work. Every allow-case below is
  * a shape that would otherwise be a false positive — `gh issue create
