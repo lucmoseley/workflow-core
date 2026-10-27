@@ -57,6 +57,7 @@ const { commitSha } = require("./lib/commit-sha.js");
 const { execGit } = require("./lib/git.js");
 const { readPatchIds } = require("./lib/patch-ids.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
+const { caught } = require("./lib/caught.js");
 
 const USAGE =
 	"usage: node scripts/spec-commits.js <spec> [--since <sha>] [--json]";
@@ -136,12 +137,12 @@ function isOnMain(sha) {
 		});
 		return true;
 	} catch (e) {
-		const err = /** @type {{status?: number|null, stderr?: Buffer}} */ (e);
-		if (err.status === 1) return false;
+		const { status, stderr, message } = caught(e);
+		if (status === 1) return false;
 		/* A fault is no answer, so it prints no false "not on main" warning
 		 * (#3240). */
 		process.stderr.write(
-			`spec-commits: could not tell whether ${sha} is on ${VERIFIED_BRANCH}: ${String(err.stderr ?? e).trim()}\n`,
+			`spec-commits: could not tell whether ${sha} is on ${VERIFIED_BRANCH}: ${(stderr ?? message).trim()}\n`,
 		);
 		return null;
 	}
@@ -307,7 +308,8 @@ function buildJsonReport(v) {
  * The `**Reviewed through:**` line, under the rule that it names a sha main
  * keeps.
  * @param {string | null} sha
- * @param {boolean | null} onMain null where no `main` branch resolves
+ * @param {boolean | null} onMain null where no `main` branch resolves or git
+ *   faults
  */
 const buildReviewedThroughLines = (sha, onMain) => [
 	"  (a sha main keeps: one from a worktree not yet landed is rebased away, and the next --since reads its landed twin as new)",
