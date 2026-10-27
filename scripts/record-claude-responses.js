@@ -17,9 +17,10 @@
  *     reads, typing at it on one (#3014), both at the job waiting on its
  *     question;
  *   - scripts/fixtures/usage-probe.json: the bar lines `claude -p "/usage"`
- *     prints and the seat cache it rewrites, which lib/usage-probe.js and
- *     lib/allowance.js read (#3266), off one probe of this session's seat run
- *     as lib/usage-probe.js runs it, to its end.
+ *     prints and the seat cache it rewrites, which lib/usage-probe.js,
+ *     lib/allowance.js and lib/seat-utilisation.js read (#3266, #3282), off one
+ *     probe of this session's seat run as lib/usage-probe.js runs it, to its
+ *     end.
  *
  * Run it by hand after a harness upgrade, then `npm run test --
  * scripts/lib/bg-resume.contract.test.ts scripts/lib/agents-stop.contract.test.ts
@@ -302,8 +303,8 @@ function lostShapes(rows) {
 /* The probe rewrites the cache only once its stamp is 58-117 s old (#2189),
  * so a stamp past the band's top makes the recorded refresh certain. */
 const USAGE_REFRESH_AGE_MS = 120_000;
-/* The cached bars lib/allowance.js reads. */
-const USAGE_KINDS = ["session", "weekly_all"];
+/* The cached bars lib/allowance.js and lib/seat-utilisation.js read (#3282). */
+const USAGE_KINDS = ["session", "weekly_all", "weekly_scoped"];
 /* What the fixture carries in place of the seat's account and stamp. The
  * bars' percents and reset times stay real: the reset text's format is what
  * lib/allowance.js parses. */

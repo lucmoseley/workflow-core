@@ -93,25 +93,56 @@ const WINDOW_MS: Record<Kind, number> = {
 	weekly_all: 7 * 24 * 60 * 60 * 1000,
 };
 
+/** The recording's cached bar of `kind`. */
+export function recordedLimit(kind: string): Limit {
+	const limit = recorded.cache.utilization.limits.find((l) => l.kind === kind);
+	if (!limit) throw new Error(`${recorded.harness} cached no "${kind}" bar`);
+	return limit;
+}
+
 function limitOf(
 	kind: Kind,
 	percent: Percent,
 	fetchedAtMs: number,
 	resetsAt: string | undefined,
 ): Limit {
-	const limit = recorded.cache.utilization.limits.find((l) => l.kind === kind);
-	if (!limit) throw new Error(`${recorded.harness} cached no "${kind}" bar`);
 	return {
-		...limit,
+		...recordedLimit(kind),
 		percent,
 		resets_at:
 			resetsAt ?? new Date(fetchedAtMs + WINDOW_MS[kind]).toISOString(),
 	};
 }
 
+/** One `weekly_scoped` bar: a model's own weekly allowance, which
+ * lib/seat-utilisation.js reads (#304, #3282). */
+export interface ScopedBar {
+	model: string;
+	percent: number;
+	resetsAt: string;
+	severity?: string;
+}
+
+/** The recorded `weekly_scoped` bar, renamed to `bar`'s model and reading
+ * its percent; its severity is the recorded one unless `bar` names one. */
+function scopedLimitOf(bar: ScopedBar): Limit {
+	const limit = recordedLimit("weekly_scoped");
+	const scope = limit.scope as { model?: Record<string, unknown> } | null;
+	if (!scope?.model)
+		throw new Error(`${recorded.harness} cached no scoped model on its bar`);
+	return {
+		...limit,
+		percent: bar.percent,
+		severity: bar.severity ?? limit.severity,
+		resets_at: bar.resetsAt,
+		scope: { ...scope, model: { ...scope.model, display_name: bar.model } },
+	};
+}
+
 interface CacheOptions {
 	resetsAt?: { session?: string; week?: string };
 	accountUuid?: string;
+	scoped?: ScopedBar[];
 }
 
 /** A seat's `.claude.json`, holding a usage cache stamped `fetchedAtMs` with
@@ -119,7 +150,7 @@ interface CacheOptions {
 export function buildUsageCache(
 	bars: Bars,
 	fetchedAtMs: number,
-	{ resetsAt = {}, accountUuid }: CacheOptions = {},
+	{ resetsAt = {}, accountUuid, scoped = [] }: CacheOptions = {},
 ): { cachedUsageUtilization: typeof recorded.cache } {
 	const resetOf: Record<Kind, string | undefined> = {
 		session: resetsAt.session,
@@ -131,9 +162,12 @@ export function buildUsageCache(
 			accountUuid: accountUuid ?? recorded.cache.accountUuid,
 			fetchedAtMs,
 			utilization: {
-				limits: byKind(bars).map(([kind, percent]) =>
-					limitOf(kind, percent, fetchedAtMs, resetOf[kind]),
-				),
+				limits: [
+					...byKind(bars).map(([kind, percent]) =>
+						limitOf(kind, percent, fetchedAtMs, resetOf[kind]),
+					),
+					...scoped.map(scopedLimitOf),
+				],
 			},
 		},
 	};

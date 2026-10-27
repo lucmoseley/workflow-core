@@ -30,6 +30,7 @@ import {
 	buildUsageCache,
 	buildUsageText,
 	recorded,
+	recordedLimit,
 } from "./usage-probe-fake";
 
 let dir: string;
@@ -42,8 +43,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const recordedPercent = (kind: string) =>
-	recorded.cache.utilization.limits.find((l) => l.kind === kind)?.percent;
+const recordedPercent = (kind: string) => recordedLimit(kind).percent;
 
 /** The bars lib/allowance.js reads off `usageText`, under no cache. */
 const printedBars = (usageText: string) => {
@@ -63,6 +63,14 @@ const keyTypes = (o: object) =>
 		.map(([key, value]) => `${key}:${value === null ? "null" : typeof value}`)
 		.sort();
 
+/** The written bars are of `kinds`, in order, each of its recorded bar's
+ * key types. */
+const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
+	expect(limits.map((l) => l.kind)).toEqual(kinds);
+	for (const limit of limits)
+		expect(keyTypes(limit)).toEqual(keyTypes(recordedLimit(limit.kind)));
+};
+
 describe("the /usage fake against the recording (#3266)", () => {
 	it("reads its printed bars as the recorded ones read, the cache's percents", () => {
 		expect(printedBars(recorded.printed.join("\n"))).toEqual({
@@ -81,9 +89,7 @@ describe("the /usage fake against the recording (#3266)", () => {
 		const written = buildUsageCache({ session: 40, week: 50 }, Date.now());
 		const { cachedUsageUtilization: cache } = written;
 		expect(keyTypes(cache)).toEqual(keyTypes(recorded.cache));
-		expect(cache.utilization.limits.map(keyTypes)).toEqual(
-			recorded.cache.utilization.limits.map(keyTypes),
-		);
+		expectRecordedBars(cache.utilization.limits, ["session", "weekly_all"]);
 		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(written));
 		const { session, weekly_all } = readAllowance({ configDir: dir });
 		expect([session.trust, session.percent]).toEqual(["fresh", 40]);
@@ -98,14 +104,37 @@ describe("the /usage fake against the recording (#3266)", () => {
 		});
 		const { cachedUsageUtilization: cache } = written;
 		expect(keyTypes(cache)).toEqual(keyTypes(recorded.cache));
-		expect(cache.utilization.limits.map(keyTypes)).toEqual(
-			recorded.cache.utilization.limits.map(keyTypes),
-		);
+		expectRecordedBars(cache.utilization.limits, ["session", "weekly_all"]);
 		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(written));
 		const read = readUsageCache(dir);
 		expect(read.state === "ok" && read.accountUuid).toBe("uuid-case");
 		const { weekly_all } = readAllowance({ configDir: dir });
 		expect([weekly_all.trust, weekly_all.percent]).toEqual(["fresh", 50]);
+	});
+
+	it("writes a weekly_scoped bar of the recorded shape, read per model (#3282)", () => {
+		// Any reset after the case runs would do.
+		const resetsAt = new Date(Date.now() + 60_000).toISOString();
+		const written = buildUsageCache({ session: 40, week: 50 }, Date.now(), {
+			scoped: [{ model: "Opus", percent: 77, resetsAt }],
+		});
+		const limits = written.cachedUsageUtilization.utilization.limits;
+		expectRecordedBars(
+			limits,
+			recorded.cache.utilization.limits.map((l) => l.kind),
+		);
+		const scope = (l: Record<string, unknown>) =>
+			(l.scope ?? {}) as { model: object };
+		const recordedScoped = recordedLimit("weekly_scoped");
+		expect(keyTypes(scope(limits[2]))).toEqual(keyTypes(scope(recordedScoped)));
+		expect(keyTypes(scope(limits[2]).model)).toEqual(
+			keyTypes(scope(recordedScoped).model),
+		);
+		fs.writeFileSync(path.join(dir, ".claude.json"), JSON.stringify(written));
+		const read = readUsageCache(dir);
+		expect(
+			read.state === "ok" && read.bars.find((b) => b.kind === "weekly_scoped"),
+		).toMatchObject({ model: "Opus", percent: 77, resetsAt });
 	});
 
 	it("moves the cache stamp past the probe's start, as the recorded probe did", () => {

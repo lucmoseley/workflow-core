@@ -22,7 +22,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs, seatEnv } from "./lib/seat-testkit";
-import { buildUsageCache } from "./lib/usage-probe-fake";
+import { buildUsageCache, type ScopedBar } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "check-seat-utilisation.js");
 
@@ -42,14 +42,6 @@ let home: string;
 const HOUR = 36e5;
 const NOW = Date.parse("2026-08-28T12:00:00Z");
 
-/** One `kind: "weekly_scoped"` bar, as `seat()`'s `scoped` list takes it. */
-interface ScopedBarFixture {
-	model: string;
-	percent: number;
-	resetsAt: string;
-	severity?: string;
-}
-
 /** The host config at the fixture's root, which a run with CLAUDE_PROJECT_DIR
  *  set to `home` reads. */
 const hostConfig = (json: string) => {
@@ -64,7 +56,7 @@ const seat = (
 		sevenDay: number;
 		resetsAt: string;
 		uuid?: string;
-		scoped?: ScopedBarFixture[];
+		scoped?: ScopedBar[];
 	} | null,
 ) => {
 	fs.mkdirSync(path.join(home, dir), { recursive: true });
@@ -78,18 +70,8 @@ const seat = (
 		{
 			resetsAt: { session: cache.resetsAt, week: cache.resetsAt },
 			accountUuid: cache.uuid ?? `uuid-${dir}`,
+			scoped: cache.scoped,
 		},
-	);
-	// The recorder keeps only the session and weekly_all bars, so a case's
-	// weekly_scoped ones are appended by hand, outside the contract test.
-	written.cachedUsageUtilization.utilization.limits.push(
-		...(cache.scoped ?? []).map((b) => ({
-			kind: "weekly_scoped",
-			percent: b.percent,
-			severity: b.severity ?? "x",
-			resets_at: b.resetsAt,
-			scope: { model: { display_name: b.model, id: null } },
-		})),
 	);
 	fs.writeFileSync(
 		path.join(home, dir, ".claude.json"),
