@@ -3133,7 +3133,8 @@ function manifestFindings({ manifest, fragments, printedBy, indexed }) {
 const printLine = (line) => writeFd(1, `${line}\n`);
 
 /**
- * The targets a live neighbour holds and has left dirty, and — where the
+ * The targets a live neighbour holds and has left dirty, bar those `ours`
+ * names as this commit's; the ones it set aside, as `taken`; and — where the
  * question could not be asked at all — why not.
  *
  * Re-anchoring asserts a human read that guard. A file another session is
@@ -3151,36 +3152,69 @@ const printLine = (line) => writeFd(1, `${line}\n`);
  * the session-name lookup all still run against it (mantahostels#2636).
  *
  * @param {string[]} targets
- * @returns {{held: Map<string, HeldEntry>, unavailable: string|null}}
+ * @param {Set<string>} ours
+ * @returns {{held: Map<string, HeldEntry>, taken: Map<string, HeldEntry>, unavailable: string|null}}
  */
-function readHeldElsewhere(targets) {
+function readHeldElsewhere(targets, ours) {
 	const wanted = new Set(targets);
 	/** @type {Map<string, HeldEntry>} */
 	const held = new Map();
+	/** @type {Map<string, HeldEntry>} */
+	const taken = new Map();
 	try {
 		const { readTreeSnapshot, neighbourDirty } = require("./lib/tree-drift.js");
 		const { registryNames } = require("./lib/arbiter-core.js");
 		const self = process.env.CLAUDE_CODE_SESSION_ID || "";
-		if (!self) return { held, unavailable: "this session is unidentified" };
+		if (!self)
+			return { held, taken, unavailable: "this session is unidentified" };
 		const snap = readTreeSnapshot(root);
-		if (!snap) return { held, unavailable: "git would not read this tree" };
+		if (!snap)
+			return { held, taken, unavailable: "git would not read this tree" };
 		const injected = process.env.WFC_ANCHOR_LOCKS;
 		const locks = injected
 			? JSON.parse(injected)
 			: require("./lib/arbiter-store.js").listLocks();
 		if (locks === null)
-			return { held, unavailable: "the claim store would not be read" };
+			return { held, taken, unavailable: "the claim store would not be read" };
 		const nameFor = registryNames();
 		for (const e of neighbourDirty(snap, locks, self) ?? [])
 			if (wanted.has(e.path))
-				held.set(e.path, { holder: nameFor(e.sessionId), dead: e.dead });
-		return { held, unavailable: null };
+				(ours.has(e.path) ? taken : held).set(e.path, {
+					holder: nameFor(e.sessionId),
+					dead: e.dead,
+				});
+		return { held, taken, unavailable: null };
 	} catch (e) {
 		return {
 			held,
+			taken,
 			unavailable: `the claim read failed: ${caught(e).message}`,
 		};
 	}
+}
+
+/**
+ * The paths this commit stages whole: changed in its index against HEAD, with
+ * no working-tree bytes beyond the index's (#3255). A pathspec commit's index
+ * is private to its hook, so only the gate can read this; --review is told the
+ * same paths by `--taking`.
+ *
+ * @returns {{ paths: Set<string>, error: string | null }}
+ */
+function readStagedWhole() {
+	const staged = gitPaths([
+		"diff",
+		"--cached",
+		"--no-renames",
+		"--name-only",
+		"-z",
+		"HEAD",
+	]);
+	const unstaged = gitPaths(["diff", "--no-renames", "--name-only", "-z"]);
+	const error = staged.error ?? unstaged.error;
+	if (error) return { paths: new Set(), error };
+	const rest = new Set(unstaged.paths);
+	return { paths: new Set(staged.paths.filter((p) => !rest.has(p))), error };
 }
 
 /**
@@ -3223,13 +3257,14 @@ const buildHeldLine = (h) =>
  * findings, so it has no outcome and never reaches the reporting below.
  */
 /**
- * @param {string[]} reviewPaths
+ * @param {{ paths: string[], taking: string[] }} request the paths to anchor, and those this commit carries though a claim holds them
  * @param {Map<string, RuleRef[]>} describedBy
  * @param {Map<string, WiredScript>} implicitScripts
  * @param {Record<string, string>} anchors
  * @returns {never}
  */
-function reanchor(reviewPaths, describedBy, implicitScripts, anchors) {
+function reanchor(request, describedBy, implicitScripts, anchors) {
+	const { paths: reviewPaths, taking } = request;
 	/*
 	 * Re-anchoring asserts a human re-read the rules describing that guard, so
 	 * the command prints them: a reviewer who sees no rule has anchored nothing
@@ -3240,7 +3275,14 @@ function reanchor(reviewPaths, describedBy, implicitScripts, anchors) {
 			? reviewPaths
 			: [...new Set([...describedBy.keys(), ...implicitScripts.keys()])].sort();
 	const { hashedBy, inputs } = readDigestInputs(targets);
-	const { held, unavailable } = readHeldElsewhere(inputs);
+	const { held, taken, unavailable } = readHeldElsewhere(
+		inputs,
+		new Set(taking),
+	);
+	for (const [p, h] of taken)
+		printLine(
+			`taking ${p} from ${h.holder}${h.dead ? " (GONE)" : ""}'s claim — put it in this commit's pathspec`,
+		);
 	if (unavailable)
 		printLine(
 			`claim check skipped — ${unavailable}, so a path a neighbour holds ` +
@@ -3520,14 +3562,9 @@ function settleStale(ctx, added) {
 
 	const { rev: tip, head: pushed } = againstRevs(ctx);
 	const { hashedBy, inputs } = readDigestInputs(stale.map((w) => w.guard));
-	/* At push the judged bytes are a commit's, which no neighbour's dirty
-	 * input can reach and no post-commit notice follows, so nothing stands
-	 * down. */
-	const { held, unavailable } = pushed
-		? { held: new Map(), unavailable: null }
-		: readHeldElsewhere(inputs);
-	/* A neighbour's dirty input stands the row down: its bytes are in any digest --review would write, and staging or setting
-	 * them aside is the neighbour's call. */
+	const { held, taken, unavailable } = readHeldAtGate(ctx, inputs, pushed);
+	/* A neighbour's dirty input stands the row down: its unstaged bytes are in any digest --review would write, and staging or
+	 * setting them aside is the neighbour's call. One this commit stages whole is this commit's own (#3255). */
 	const heldIn = (/** @type {string} */ g) => heldInputs(hashedBy.get(g), held);
 	for (const w of stale) {
 		const by = heldIn(w.guard);
@@ -3571,7 +3608,12 @@ function settleStale(ctx, added) {
 		);
 		remedy.push(...buildExpiredRow(w, via, implicitScripts.has(w.guard)));
 	}
-	const review = buildReviewLine(owed.map((w) => w.guard).join(" "));
+	const takes = [...new Set(owedInputs)]
+		.filter((p) => taken.has(p))
+		.map((p) => ` --taking ${p}`);
+	const review = buildReviewLine(
+		owed.map((w) => w.guard).join(" ") + takes.join(""),
+	);
 	remedy.push(
 		...(pushed
 			? [
@@ -3593,6 +3635,25 @@ function settleStale(ctx, added) {
 			`  claim check skipped — ${unavailable}, so a path a neighbour holds dirty refuses here too.`,
 		);
 	return { refuse, remedy };
+}
+
+/**
+ * The claims standing a stale row down at the gate. At push the judged bytes
+ * are a commit's, which no neighbour's dirty input can reach and no
+ * post-commit notice follows, so nothing stands down.
+ *
+ * @param {Ctx} ctx
+ * @param {string[]} inputs
+ * @param {string | undefined} pushed
+ */
+function readHeldAtGate(ctx, inputs, pushed) {
+	if (pushed) return { held: new Map(), taken: new Map(), unavailable: null };
+	const ours = readStagedWhole();
+	if (ours.error)
+		ctx.say(
+			`staged read failed (${ours.error}), so a claimed file this commit stages whole still stands its row down.`,
+		);
+	return readHeldElsewhere(inputs, ours.paths);
 }
 
 /**
@@ -4006,8 +4067,8 @@ function sayFindings(
 
 runCheck({
 	name: "guard-registry",
-	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [<path>…]`,
-	valueFlags: ["--root", "--touched-by"],
+	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [<path>…] [--taking <path>]…`,
+	valueFlags: ["--root", "--touched-by", "--taking"],
 	/* Whole-tree, not a pathspec: scanRegistry walks CLAUDE.md, AGENTS.md, docs/
 	 * and .claude/ AND every guard path a rule names, which is a scope no list
 	 * here could be kept in step with (mantahostels#1753). */
@@ -4059,10 +4120,17 @@ runCheck({
 		if (reviewing) {
 			/* Bare arguments after --review; empty means "every guard the registry
 			 * names". */
-			const reviewPaths = ctx.argv
-				.slice(reviewAt + 1)
-				.filter((a) => !a.startsWith("--"));
-			reanchor(reviewPaths, describedBy, implicitScripts, anchors);
+			const after = ctx.argv.slice(reviewAt + 1);
+			const reviewPaths = after.filter(
+				(a, i) => !a.startsWith("--") && after[i - 1] !== "--taking",
+			);
+			const taking = ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--taking");
+			reanchor(
+				{ paths: reviewPaths, taking },
+				describedBy,
+				implicitScripts,
+				anchors,
+			);
 		}
 
 		const warnings = [

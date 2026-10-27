@@ -167,6 +167,23 @@ function reviewIn(
 	return r.stdout;
 }
 
+const neighbour = "neighbour-session";
+
+/*
+ * A lock record as `listLocks` hands one over. Injected at the STORE, not at
+ * the checker's own answer, so neighbourDirty's own filtering — is it mine,
+ * is it dirty, has a dead claim aged out — runs against it.
+ */
+function lock(rel: string, { alive = true } = {}) {
+	return {
+		path: rel,
+		sessionId: neighbour,
+		pid: 4242,
+		alive,
+		claimedAt: new Date().toISOString(),
+	};
+}
+
 function run(
 	root: string,
 	extra: string[] = [],
@@ -1054,22 +1071,6 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	}
 
 	const self = "self-session";
-	const neighbour = "neighbour-session";
-
-	/*
-	 * A lock record as `listLocks` hands one over. Injected at the STORE, not at
-	 * the checker's own answer, so neighbourDirty's own filtering — is it mine,
-	 * is it dirty, has a dead claim aged out — runs against it.
-	 */
-	function lock(rel: string, { alive = true } = {}) {
-		return {
-			path: rel,
-			sessionId: neighbour,
-			pid: 4242,
-			alive,
-			claimedAt: new Date().toISOString(),
-		};
-	}
 
 	function env(locks: unknown[]): Record<string, string> {
 		return {
@@ -2043,15 +2044,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 			path.join(root, "scripts", "guard-branch.sh"),
 			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 3\n',
 		);
-		const r = gate(root, [
-			{
-				path: "scripts/guard-branch.sh",
-				sessionId: "neighbour-session",
-				pid: 4242,
-				alive: true,
-				claimedAt: new Date().toISOString(),
-			},
-		]);
+		const r = gate(root, [lock("scripts/guard-branch.sh")]);
 		expect(r.code).toBe(0);
 		expect(r.report).toContain("not refusing scripts/guard-branch.sh");
 		expect(r.report).toContain("neighbour-session");
@@ -2064,15 +2057,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 			path.join(root, "scripts", "lib", "deny.sh"),
 			"deny() { exit 5; }\n",
 		);
-		const r = gate(root, [
-			{
-				path: "scripts/lib/deny.sh",
-				sessionId: "neighbour-session",
-				pid: 4242,
-				alive: true,
-				claimedAt: new Date().toISOString(),
-			},
-		]);
+		const r = gate(root, [lock("scripts/lib/deny.sh")]);
 		expect(r.code).toBe(0);
 		expect(r.report).toContain(
 			"not refusing scripts/guard-branch.sh — scripts/lib/deny.sh is dirty and claimed by neighbour-session",
@@ -2090,15 +2075,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		const out = reviewIn(
 			root,
 			["scripts/guard-branch.sh", "scripts/guard-amend.sh"],
-			claims([
-				{
-					path: "scripts/lib/deny.sh",
-					sessionId: "neighbour-session",
-					pid: 4242,
-					alive: true,
-					claimedAt: new Date().toISOString(),
-				},
-			]),
+			claims([lock("scripts/lib/deny.sh")]),
 		);
 		expect(out).toContain(
 			"not anchored scripts/guard-branch.sh — scripts/lib/deny.sh is dirty and claimed by neighbour-session",
@@ -2135,31 +2112,90 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		);
 	});
 
-	it("is the refusal a pathspec commit meets through the hook's own line", () => {
-		const { root, git } = stagingRepo();
+	/* A `git commit -- <paths>` through .husky/pre-commit's own line: the hook
+	 * reads a private index holding just those paths' working-tree bytes. */
+	function hookCommitter(root: string, locks: unknown[] = []) {
 		const hook = path.join(root, ".git", "hooks", "pre-commit");
 		fs.writeFileSync(hook, `#!/bin/sh\n${readHookLine()}\n`, { mode: 0o755 });
-		fs.writeFileSync(
-			path.join(root, "scripts", "guard-amend.sh"),
-			"#!/bin/sh\nexit 1\n",
-		);
 		const env = {
-			...reviewEnv(root, claims()),
+			...reviewEnv(root, claims(locks)),
 			WFC_RULES_DIR: "",
 			WFC_RULES_FALLBACK_DIR: "",
 		};
-		const hookCommit = (...paths: string[]) =>
+		return (...paths: string[]) =>
 			spawnSync("git", ["commit", "-qm", "x", "--", ...paths], {
 				cwd: root,
 				encoding: "utf8",
 				env,
 			});
+	}
+
+	it("is the refusal a pathspec commit meets through the hook's own line", () => {
+		const { root, git } = stagingRepo();
+		const hookCommit = hookCommitter(root);
+		fs.writeFileSync(
+			path.join(root, "scripts", "guard-amend.sh"),
+			"#!/bin/sh\nexit 1\n",
+		);
 		const refused = hookCommit("scripts/guard-amend.sh");
 		expect(refused.status).not.toBe(0);
 		expect(refused.stderr).toContain("--review scripts/guard-amend.sh");
 		review(root, ["scripts/guard-amend.sh"]);
 		expect(hookCommit("scripts/guard-amend.sh", ANCHORS).status).toBe(0);
 		expect(git("status", "--porcelain")).toBe("");
+	});
+
+	it("refuses a stale row held only through a file the pathspec commit takes whole, and its --taking re-anchor clears it (#3255)", () => {
+		const { root, git } = stagingRepo();
+		const locks = [lock("scripts/lib/deny.sh", { alive: false })];
+		const hookCommit = hookCommitter(root, locks);
+		fs.writeFileSync(
+			path.join(root, "scripts", "lib", "deny.sh"),
+			"deny() { exit 0; }\n",
+		);
+		const refused = hookCommit("scripts/lib/deny.sh");
+		expect(refused.status).not.toBe(0);
+		expect(refused.stderr).not.toContain("not refusing");
+		expect(refused.stderr).toContain(
+			"--review scripts/guard-branch.sh --taking scripts/lib/deny.sh",
+		);
+		const out = reviewIn(
+			root,
+			["scripts/guard-branch.sh", "--taking", "scripts/lib/deny.sh"],
+			claims(locks),
+		);
+		expect(out).toContain(
+			"taking scripts/lib/deny.sh from neighbour-session (GONE)'s claim",
+		);
+		expect(out).toMatch(/^\s*anchored scripts\/guard-branch\.sh/m);
+		expect(hookCommit("scripts/lib/deny.sh", ANCHORS).status).toBe(0);
+		expect(git("status", "--porcelain")).toBe("");
+	});
+
+	it("--review without --taking still skips a claimed file the shared index stages whole, as the neighbour's own (#3255)", () => {
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
+		const before = readAnchors(root);
+		const out = reviewIn(
+			root,
+			["scripts/guard-branch.sh"],
+			claims([lock("scripts/lib/deny.sh")]),
+		);
+		expect(out).toContain(
+			"not anchored scripts/guard-branch.sh — scripts/lib/deny.sh is dirty and claimed by neighbour-session",
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("still stands a row down, naming the holder, where the claimed file's working tree carries bytes the commit does not (#3255)", () => {
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
+		fs.appendFileSync(path.join(root, "scripts", "lib", "deny.sh"), "# more\n");
+		const r = gate(root, [lock("scripts/lib/deny.sh", { alive: false })]);
+		expect(r.code).toBe(0);
+		expect(r.report).toContain(
+			"not refusing scripts/guard-branch.sh — scripts/lib/deny.sh is dirty and claimed by neighbour-session (GONE)",
+		);
 	});
 
 	it("says so where the working tree differs from the staged bytes a re-anchor must match", () => {
