@@ -2615,7 +2615,7 @@ describe("Section B entries inside Section B", () => {
 });
 
 /*
- * Assertion 10 (mantahostels#1458). Presence only, exactly as the guard-issue-close core gates
+ * Assertion 10 (mantahostels#1458). Presence only, exactly as guard-issue-close.js gates
  * `**Outstanding:**` — the two accepted forms are `**Settled at #<n>**` and
  * `**Settled at:** none — <why>`, and no checker can judge which is true.
  */

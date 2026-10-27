@@ -22,7 +22,7 @@
  * answered from the tracker.
  *
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this enforces for itself what
- * the guard-issue-create-label core and place-new-issue.sh enforce on the hand
+ * guard-issue-create-label.js and place-new-issue.sh enforce on the hand
  * spelling: exactly one `takes:` value, the `takes:human` Outside-line tests
  * (lib/takes-label.js), every label known to the tracker — a label GitHub
  * does not know aborts `gh issue create` while it exits 0 — and the family
