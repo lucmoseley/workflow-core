@@ -9,7 +9,7 @@
  *     [--reason completed|"not planned"]
  *
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this holds for itself what
- * the guard-issue-close core holds on the hand spelling — the `**Outstanding:**`
+ * guard-issue-close.js holds on the hand spelling — the `**Outstanding:**`
  * line's grammar and open carriers, through the same lib/outstanding-line.js
  * (#984), unticked acceptance criteria through lib/ticket-criteria.js (#1640),
  * and a roadmap card's own issue going to /card-close — and does what
@@ -18,7 +18,7 @@
  * A completed close is refused where the ticket's commits — those on HEAD
  * citing `#n` — expired an instruction-surface census row that HEAD has not
  * re-anchored, unless the comment's `**Census:**` line says why not (#1876),
- * as the guard-issue-close core holds on a hand close (#1913). It fails open, with
+ * as guard-issue-close.js holds on a hand close (#1913). It fails open, with
  * a note, where git or a digest's formatter cannot answer.
  *
  * A completed close is refused where the ticket's commits — those on the
@@ -53,12 +53,12 @@
  * form is unchecked.
  *
  * Residual: `**Bound:**`, `**Values:**` and `**Practice:**` are held here
- * alone, so a hand close through the guard-issue-close core owes none of them.
+ * alone, so a hand close through guard-issue-close.js owes none of them.
  *
  * A "not planned" close owes no `**Values:**`, `**Practice:**`,
  * `**Outstanding:**` or `**Door:**` line and no ticked criteria — abandoned, not delivered, as
  * check-ticket-criteria.js reads it — and may close a card's own issue, as
- * the guard-issue-close core lets it.
+ * guard-issue-close.js lets it.
  *
  * cli-args-exempt: its own parseArgs refuses every unknown flag, `--help`
  * included, before any gh call.

@@ -1,5 +1,5 @@
 /*
- * hook-escape.js — the guard-hook-escape core (#2801, #3225): a git-hook escape is
+ * hook-escape.js — guard-hook-escape.js's core (#2801): a git-hook escape is
  * the founder's to set, never an agent's (#916, applying mantahostels#109's
  * "an escape a session can spell for itself is not a deny" to the git-hook
  * escapes).
@@ -170,4 +170,4 @@ function refusalText(segment, ctx) {
 	return denyText(ctx, segment, `${FRAMING}\n\n${rule}`);
 }
 
-module.exports = { field: "command", noun: "command", decide };
+module.exports = { decide };
