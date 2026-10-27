@@ -492,9 +492,9 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  * @param {number|null} [run.startedAtMs] `Date.now()` as the run began. Omitted or
  *   unreadable leaves both time fields off, which reads as unknown.
  * @param {number|null} [run.elapsedMs] How long the run took, off a monotonic
- *   clock (`performance.now()`), never a difference of `Date.now()` readings:
- *   a host suspend steps the wall clock forward on resume (#2829). Omitted,
- *   unreadable or negative leaves both time fields off.
+ *   clock, never a difference of `Date.now()` readings: a host suspend steps
+ *   the wall clock forward on resume (#2829). Omitted, unreadable or negative
+ *   leaves both time fields off.
  * @param {import("./cpu-sample.js").CpuSample|null} [run.machineStart] The CPU
  *   counters as the run began. Omitted or unreadable leaves the `machine` block
  *   off, which reads as unknown — never as a quiet machine.
