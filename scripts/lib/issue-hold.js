@@ -1,24 +1,56 @@
 /*
  * issue-hold.js — whether anything pick-next.js skips a ticket on holds it:
- * an active `**Gated until:**` or well-formed `**Gated on:**` line carrying
- * its `**Gate basis:**`, an open native blocked-by edge, or an open
- * `**Blocked on**` issue (#3263).
- * rule:blocked-ticket-gate names these as the gate a not-ready ticket owes.
+ * an active `**Gated until:**` or well-formed `**Gated on:**` line, an open
+ * native blocked-by edge, or an open `**Blocked on**` issue (#3263, #3293).
+ * `rule:blocked-ticket-gate` names the two a not-ready ticket owes; this
+ * accepts all four, as the shortlist does.
  */
 
-const { ghGetRetrying } = require("./gh");
+const { ghGetRetrying, ghJson, ghOpenIssues } = require("./gh");
 const { resolveGate } = require("./issue-gate");
-const { proseRefsOf } = require("./prose-blockers");
+const { isInOtherRepo } = require("./issue-ref");
+const { judgeProseRefs, proseRefsOf } = require("./prose-blockers");
+
+/** @typedef {Parameters<typeof judgeProseRefs>[1]} ProseAt */
+/** @typedef {{number: number, body: string}} IssueBody */
+/** @typedef {{ok: true, held: boolean} | {ok: false, what: string, fix: string}} Hold */
+
+/** @type {import("./prose-blockers").ReadIssue} */
+async function readIssueStrict(ref) {
+	const r = await ghGetRetrying(`repos/${ref.repo}/issues/${ref.number}`, {
+		strict: true,
+	});
+	if (!r.ok) return { ok: false, error: r.error };
+	const issue = r.out[0];
+	return issue ? { ok: true, issue } : { ok: false, error: "empty answer" };
+}
 
 /**
- * Every read is strict: an empty answer would read as no blocker.
- * @param {{number: number, body: string}} iss
- * @returns {Promise<{ok: true, held: boolean} | {ok: false, what: string, fix: string}>}
+ * Whether what costs no read holds `iss`: a gate line, or an open
+ * `**Blocked on**` issue in `at.ownRepo`.
+ * @param {IssueBody} iss
+ * @param {ProseAt} at
  */
-async function readHold(iss) {
+async function isHeldWithoutReads(iss, at) {
 	const gates = resolveGate(iss.body);
-	if ((gates.gateHolds || gates.gateOnHolds) && gates.basis)
-		return { ok: true, held: true };
+	if (gates.gateHolds || gates.gateOnHolds) return true;
+	const local = proseRefsOf(iss.body).filter(
+		(r) => !isInOtherRepo(r, at.ownRepo),
+	);
+	return (await judgeProseRefs(local, at)).open.length > 0;
+}
+
+/**
+ * Whether what isHeldWithoutReads leaves holds `iss`: an open native edge,
+ * or an open `**Blocked on**` issue in another repo. Every read is strict:
+ * an empty answer would read as no blocker. An unreadable `**Blocked on**`
+ * issue refuses only where nothing else holds; where lib/blocker-graph.js
+ * holds on it, this refuses (#3262).
+ * @param {IssueBody} iss
+ * @param {ProseAt} at
+ * @returns {Promise<Hold>}
+ */
+async function readPaidHold(iss, at) {
 	const edges = await ghGetRetrying(
 		`repos/{owner}/{repo}/issues/${iss.number}/dependencies/blocked_by`,
 		{ strict: true },
@@ -33,22 +65,59 @@ async function readHold(iss) {
 		edges.out.some((/** @type {{state?: unknown}} */ b) => b.state === "open")
 	)
 		return { ok: true, held: true };
-	/* Fails closed: an unreadable marker refuses even where a later one is
-	 * open, since the session can re-run and an unjudged park is the harm. */
-	for (const r of proseRefsOf(iss.body)) {
-		const ref = await ghGetRetrying(
-			`repos/${r.repo ?? "{owner}/{repo}"}/issues/${r.number}`,
-			{ strict: true },
-		);
-		if (!ref.ok)
-			return {
-				ok: false,
-				what: `its **Blocked on** ${r.repo ?? ""}#${r.number} is unreadable (${ref.error})`,
-				fix: `re-run, or read it yourself: gh issue view ${r.number}${r.repo ? ` --repo ${r.repo}` : ""}`,
-			};
-		if (ref.out[0]?.state === "open") return { ok: true, held: true };
-	}
+	const foreign = await judgeProseRefs(
+		proseRefsOf(iss.body).filter((r) => isInOtherRepo(r, at.ownRepo)),
+		at,
+	);
+	if (foreign.open.length > 0) return { ok: true, held: true };
+	const unread = foreign.unreadable[0];
+	if (unread)
+		return {
+			ok: false,
+			what: `its **Blocked on** ${unread.ref.repo}#${unread.ref.number} is unreadable (${unread.error})`,
+			fix: `re-run, or read it yourself: gh issue view ${unread.ref.number} --repo ${unread.ref.repo}`,
+		};
 	return { ok: true, held: false };
 }
 
-module.exports = { readHold };
+/**
+ * Whether anything the shortlist skips on holds `iss`, paying reads last.
+ * @param {IssueBody} iss
+ * @param {ProseAt} at
+ * @returns {Promise<Hold>}
+ */
+async function readHold(iss, at) {
+	if (await isHeldWithoutReads(iss, at)) return { ok: true, held: true };
+	return readPaidHold(iss, at);
+}
+
+/**
+ * readHold for an issue in the current repo.
+ * @param {IssueBody} iss
+ * @returns {Promise<Hold>}
+ */
+async function readOwnHold(iss) {
+	const refs = proseRefsOf(iss.body);
+	try {
+		const ownRepo = refs.some((r) => r.repo)
+			? ghJson(["repo", "view", "--json", "nameWithOwner"]).nameWithOwner
+			: null;
+		const openLocal = refs.some((r) => !isInOtherRepo(r, ownRepo))
+			? new Set(ghOpenIssues().map((i) => i.number))
+			: new Set();
+		return readHold(iss, { openLocal, ownRepo, readIssue: readIssueStrict });
+	} catch (e) {
+		return {
+			ok: false,
+			what: `its **Blocked on** issues are unreadable (${e instanceof Error ? e.message.split("\n")[0] : e})`,
+			fix: "re-run, or read them yourself: gh issue list --state open",
+		};
+	}
+}
+
+module.exports = {
+	isHeldWithoutReads,
+	readIssueStrict,
+	readOwnHold,
+	readPaidHold,
+};

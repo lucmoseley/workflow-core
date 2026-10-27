@@ -1696,6 +1696,12 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(flagged({ comments: [Blocked], body: Gate }).fault).toBe(false);
 	});
 
+	/* #3293: park-blocked.sh parks on the same line, through lib/issue-hold.js. */
+	it("stays silent where a Gated on line lacks its basis, as the shortlist skips on it", () => {
+		const bare = Gate.split("\n")[0] ?? "";
+		expect(flagged({ comments: [Blocked], body: bare }).fault).toBe(false);
+	});
+
 	it("stays silent where the Blocked comment is not the latest", () => {
 		expect(
 			flagged({ comments: [Blocked, "Unblocked: #7 landed."] }).fault,

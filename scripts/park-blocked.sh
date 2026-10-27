@@ -14,11 +14,12 @@
 # categories, not two spellings of one (docs/agents/triage-labels.md §`takes:`
 # vs `waiting:`).
 #
-# `waiting:external` refuses unless the issue already carries the gate
-# rule:blocked-ticket-gate asks for — an open blocked-by edge, an open
-# `**Blocked on**` issue or a holding gate line with its basis (#3263). The
-# comment this script posts goes through a child `gh` the tracker-rules hook
-# never sees, so this refusal is where the rule binds.
+# `waiting:external` refuses unless something the shortlist skips on already
+# holds the issue (lib/issue-hold.js): an open blocked-by edge, an open
+# `**Blocked on**` issue, or a holding `**Gated until:**` or `**Gated on:**`
+# line (#3263, #3293). The comment this script posts goes through a child
+# `gh` the tracker-rules hook never sees, so this refusal is where the rule
+# binds.
 #
 # `keep` (#1020) is the founder's errand already filed: it writes no label,
 # and refuses unless the issue carries `takes:human` alone and a non-empty
@@ -189,9 +190,9 @@ check_gate() {
   body="$("$GH" issue view "$issue" --json body --jq .body 2>/dev/null)" ||
     refuse "could not read #${issue}'s body — waiting:external needs its gate."
   printf '%s' "$body" | node -e '
-      const { readHold } = require(process.argv[1]);
+      const { readOwnHold } = require(process.argv[1]);
       const body = require("node:fs").readFileSync(0, "utf8");
-      readHold({ number: Number(process.argv[2]), body }).then(
+      readOwnHold({ number: Number(process.argv[2]), body }).then(
         (h) => {
           if (!h.ok) console.error(`#${process.argv[2]}: ${h.what}; ${h.fix}`);
           process.exit(h.ok ? (h.held ? 0 : 1) : 2);
@@ -205,7 +206,7 @@ check_gate() {
   status=$?
   if [[ $status -eq 1 ]]; then
     printf '%s\n' "$("$SELF_DIR/lib/rule-text.sh" blocked-ticket-gate 2>/dev/null)" >&2
-    refuse "#${issue} has no open blocker and no gate line with its basis. Write the gate, then rerun: for work an issue will do, gh api --method POST repos/{owner}/{repo}/issues/${issue}/dependencies/blocked_by -F issue_id=<blocker-db-id> (gh api repos/{owner}/{repo}/issues/<n> --jq .id), filing that issue unassigned first through node $SELF_DIR/file-issue.js where none exists; for an event no issue does, node $SELF_DIR/issue-body.js append ${issue} --text \"**Gated on:** <condition> — check: <command> — abandon if: <clause>\" with a **Gate basis:** line beneath it."
+    refuse "#${issue} has nothing the shortlist skips on: no open blocked-by edge, no open **Blocked on** issue, no holding **Gated until:** or **Gated on:** line. Write the gate, then rerun: for work an issue will do, gh api --method POST repos/{owner}/{repo}/issues/${issue}/dependencies/blocked_by -F issue_id=<blocker-db-id> (gh api repos/{owner}/{repo}/issues/<n> --jq .id), filing that issue unassigned first through node $SELF_DIR/file-issue.js where none exists; for an event no issue does, node $SELF_DIR/issue-body.js append ${issue} --text \"**Gated on:** <condition> — check: <command> — abandon if: <clause>\" with a **Gate basis:** line beneath it."
   fi
   [[ $status -eq 0 ]] || refuse "could not read #${issue}'s gate (exit ${status}, see above)."
 }

@@ -68,12 +68,13 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root");
 const { resolveGate } = require("./lib/issue-gate");
-const { isInOtherRepo, parseRepoOfUrl } = require("./lib/issue-ref");
+const { parseRepoOfUrl } = require("./lib/issue-ref");
 const {
-	NOT_READY_OPENING,
-	judgeProseRefs,
-	proseRefsOf,
-} = require("./lib/prose-blockers");
+	isHeldWithoutReads,
+	readIssueStrict,
+	readPaidHold,
+} = require("./lib/issue-hold");
+const { NOT_READY_OPENING } = require("./lib/prose-blockers");
 const {
 	parseErrLine,
 	ghClosedIssuesWithLabel,
@@ -675,39 +676,25 @@ function reportTakesFaults(ctx, takesFaults) {
 	);
 }
 
-/** @type {import("./lib/prose-blockers").ReadIssue} */
-async function readProseIssue(ref) {
-	const r = await ghGetRetrying(`repos/${ref.repo}/issues/${ref.number}`, {
-		strict: true,
-	});
-	if (!r.ok) return { ok: false, error: r.error };
-	const issue = r.out[0];
-	return issue ? { ok: true, issue } : { ok: false, error: "empty answer" };
-}
-
 /**
  * A ticket a launched session found not ready, left with a comment opening as
- * NOT_READY_OPENING matches and nothing pick-next.js holds it on: no open
- * native blocker, no open `**Blocked on**` issue and no holding gate line
- * (#2309, ruled at #2212). A WARN: the issue still routes. Returns the fault,
- * or its read failure, as Raise's arguments; null where it has neither.
+ * NOT_READY_OPENING matches and nothing pick-next.js holds it on (#2309, ruled
+ * at #2212), judged by lib/issue-hold.js. A WARN: the issue still routes.
+ * Returns the fault, or its read failure, as Raise's arguments; null where it
+ * has neither.
  * @param {any} iss
  * @param {Set<number>} openNumbers every open issue in this repo
  * @returns {Promise<Parameters<Raise> | null>}
  */
 async function proseBlockedFault(iss, openNumbers) {
-	const gates = resolveGate(iss.body);
-	if (gates.gateHolds || gates.gateOnHolds) return null;
-	const ownRepo = parseRepoOfUrl(iss.repository_url);
-	const refs = proseRefsOf(iss.body);
-	const at = { openLocal: openNumbers, ownRepo, readIssue: readProseIssue };
-	/* Judged in two halves so another repo's reads are paid only on an issue
-	 * whose latest comment says it is not ready; this repo's cost none (#3271). */
-	const local = await judgeProseRefs(
-		refs.filter((r) => !isInOtherRepo(r, ownRepo)),
-		at,
-	);
-	if (local.open.length > 0) return null;
+	const at = {
+		openLocal: openNumbers,
+		ownRepo: parseRepoOfUrl(iss.repository_url),
+		readIssue: readIssueStrict,
+	};
+	/* The free half first, so the reads are paid only on an issue whose latest
+	 * comment says it is not ready (#3271). */
+	if (await isHeldWithoutReads(iss, at)) return null;
 	/* The last page at one comment a page is the latest comment. */
 	const latest = await ghGetRetrying(
 		`repos/{owner}/{repo}/issues/${iss.number}/comments?per_page=1&page=${iss.comments}`,
@@ -731,34 +718,15 @@ async function proseBlockedFault(iss, openNumbers) {
 		];
 	const opening = NOT_READY_OPENING.exec(String(comment.body ?? ""))?.[1];
 	if (!opening) return null;
-	/* Strict: an empty answer would read as no blocker and raise a false finding. */
-	const edges = await ghGetRetrying(
-		`repos/{owner}/{repo}/issues/${iss.number}/dependencies/blocked_by`,
-		{ strict: true },
-	);
-	if (!edges.ok)
+	const hold = await readPaidHold(iss, at);
+	if (!hold.ok)
 		return [
 			"WARN",
 			"BLOCKED-UNREADABLE",
-			`latest comment opens **${opening}, and its blockers are unreadable (${edges.error})`,
-			`re-run, or read them yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/dependencies/blocked_by`,
+			`latest comment opens **${opening}, and ${hold.what}`,
+			hold.fix,
 		];
-	if (edges.out.some((/** @type {any} */ b) => b.state === "open")) return null;
-	/* Every one is read, so an unreadable marker never hides an open one; where
-	 * lib/blocker-graph.js holds on an unreadable one, this warns (#3262). */
-	const foreign = await judgeProseRefs(
-		refs.filter((r) => isInOtherRepo(r, ownRepo)),
-		at,
-	);
-	if (foreign.open.length > 0) return null;
-	const unread = foreign.unreadable[0];
-	if (unread)
-		return [
-			"WARN",
-			"BLOCKED-UNREADABLE",
-			`latest comment opens **${opening}, and its **Blocked on** ${unread.ref.repo}#${unread.ref.number} is unreadable (${unread.error})`,
-			`re-run, or read it yourself: gh issue view ${unread.ref.number} --repo ${unread.ref.repo}`,
-		];
+	if (hold.held) return null;
 	return [
 		"WARN",
 		"PROSE-BLOCKED",

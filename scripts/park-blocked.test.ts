@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, gitRepo } from "./lib/arbiter-testkit";
+import { asRecorded } from "./lib/gh-fake";
 
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
@@ -56,8 +57,9 @@ let ghCallsFile: string;
 let ghBin: string;
 
 /** A `gh` stub dispatching on `issue view --json labels|body`, `issue
- * comment`, `issue edit`, and `api` reads of the blocked-by edges and of an
- * issue's state. An issue missing from `states` answers empty at exit 0. */
+ * comment`, `issue edit`, and `api` reads of the blocked-by edges, of the
+ * open list (#9 and every `states` entry that is open) and of an issue's
+ * state. An issue missing from `states` answers empty at exit 0. */
 function stubGh(
 	opts: {
 		labels?: string[];
@@ -87,11 +89,21 @@ function stubGh(
 		`  if [ -n "${failPath}" ] && [ "\${2%${failPath}}" != "$2" ]; then exit 1; fi`,
 		'  case "$2" in',
 		`    */dependencies/blocked_by) printf '%s' '${JSON.stringify([edges])}' ;;`,
+		`    */issues) printf '%s' '${asRecorded("issuesPage", [
+			[
+				9,
+				...Object.keys(states).filter((n) => states[Number(n)] === "open"),
+			].map((n) => ({ number: Number(n) })),
+		])}' ;;`,
 		...Object.entries(states).map(
 			([n, state]) =>
 				`    */issues/${n}) printf '%s' '${JSON.stringify([[{ state }]])}' ;;`,
 		),
 		"  esac",
+		"  exit 0",
+		"fi",
+		'if [ "$1" = "repo" ] && [ "$2" = "view" ]; then',
+		`  printf '%s' '{"nameWithOwner":"acme/app"}'`,
 		"  exit 0",
 		"fi",
 		'if [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
@@ -304,10 +316,24 @@ describe("waiting:external needs a gate", () => {
 
 	it.each([
 		["a Gated on line", { body: gateOn }],
+		/* #3293: as the shortlist and check-issue-labels.js hold on it. */
+		["a Gated on line with no basis", { body: gateOn.split("\n")[0] }],
 		["an open native blocker", { edges: [{ state: "open" }] }],
 		[
 			"an open Blocked on issue",
 			{ body: "**Blocked on** #40", states: { 40: "open" } },
+		],
+		[
+			"an open Blocked on issue in another repo",
+			{ body: "**Blocked on** acme/lib#40", states: { 40: "open" } },
+		],
+		[
+			"an open Blocked on issue beside an unreadable one",
+			{
+				body: "**Blocked on** #41, acme/lib#40",
+				states: { 41: "open" },
+				failPath: "/issues/40",
+			},
 		],
 	])("parks an issue held by %s", (_, opts) => {
 		claimIssue(9);
@@ -320,7 +346,6 @@ describe("waiting:external needs a gate", () => {
 
 	it.each([
 		["nothing", {}],
-		["a Gated on line with no basis", { body: gateOn.split("\n")[0] }],
 		["a closed native blocker", { edges: [{ state: "closed" }] }],
 		[
 			"a closed Blocked on issue",
@@ -335,6 +360,9 @@ describe("waiting:external needs a gate", () => {
 			expect(r.code).toBe(3);
 			expect(r.stderr).toContain(
 				"A ticket you find not ready gets its gate written",
+			);
+			expect(r.stderr).toContain(
+				"no open blocked-by edge, no open **Blocked on** issue, no holding **Gated until:** or **Gated on:** line",
 			);
 			expect(r.stderr).toContain("dependencies/blocked_by -F issue_id=");
 			expect(r.stderr).toContain("issue-body.js append 9");
@@ -359,13 +387,53 @@ describe("waiting:external needs a gate", () => {
 		claimIssue(9);
 		stubGh({
 			labels: ["takes:implement"],
-			body: "**Blocked on** #40",
+			body: "**Blocked on** acme/lib#40",
 			failPath: "/issues/40",
 		});
 		const r = run(["9", "waiting:external", "why"]);
 		expect(r.code).toBe(3);
-		expect(r.stderr).toContain("**Blocked on** #40 is unreadable");
-		expect(r.stderr).toContain("re-run, or read it yourself: gh issue view 40");
+		expect(r.stderr).toContain("**Blocked on** acme/lib#40 is unreadable");
+		expect(r.stderr).toContain(
+			"re-run, or read it yourself: gh issue view 40 --repo acme/lib",
+		);
+		expect(ghCalls().some((c) => /^issue (edit|comment)/.test(c))).toBe(false);
+	});
+
+	it("judges a bare Blocked on issue off the open list, reading no issue", () => {
+		claimIssue(9);
+		stubGh({
+			labels: ["takes:implement"],
+			body: "**Blocked on** #40",
+			states: { 40: "open" },
+		});
+		expect(run(["9", "waiting:external", "why"]).code).toBe(0);
+		expect(ghCalls().some((c) => /^api \S*\/issues\/40\b/.test(c))).toBe(false);
+	});
+
+	it("judges an own-repo qualified Blocked on issue off the open list, as check-issue-labels.js does", () => {
+		claimIssue(9);
+		stubGh({
+			labels: ["takes:implement"],
+			body: "**Blocked on** acme/app#40",
+			states: { 40: "open" },
+			failPath: "/issues/40",
+		});
+		expect(run(["9", "waiting:external", "why"]).code).toBe(0);
+	});
+
+	it("refuses where the open list cannot be read for a bare Blocked on issue", () => {
+		claimIssue(9);
+		stubGh({
+			labels: ["takes:implement"],
+			body: "**Blocked on** #40",
+			failPath: "/issues",
+		});
+		const r = run(["9", "waiting:external", "why"]);
+		expect(r.code).toBe(3);
+		expect(r.stderr).toContain("**Blocked on** issues are unreadable");
+		expect(r.stderr).toContain(
+			"re-run, or read them yourself: gh issue list --state open",
+		);
 		expect(ghCalls().some((c) => /^issue (edit|comment)/.test(c))).toBe(false);
 	});
 
