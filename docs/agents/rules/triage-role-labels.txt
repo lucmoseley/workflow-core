@@ -1,0 +1,11 @@
+The vendored skills speak in terms of five canonical triage **roles**. **This repo has no state labels** (mantahostels#235), so a role maps to an *action*, not to a label string.
+
+| Role in mattpocock/skills | What to do in this repo |
+| --- | --- |
+| `needs-triage` | Apply `takes:triage`. |
+| `needs-info` | Apply `takes:human`, and ask the question in a comment. There is no reporter distinct from the maintainer here — waiting on one collapses to work done outside Claude Code. |
+| `ready-for-agent` | **Apply no label for this role.** Pick the single `takes:` value naming the command that opens the issue — `takes:implement`, `takes:wayfinder`, `takes:to-spec` or `takes:to-tickets` — from the §`takes:` table below. |
+| `ready-for-human` | Apply `takes:human`. |
+| `wontfix` | Apply no label. Close with `gh issue close <n> --reason "not planned"` plus a comment saying why. `scripts/guard-issue-close.js` waives its `**Outstanding:**` requirement for exactly that reason. |
+
+**Create none of `needs-info`, `ready-for-human`, `ready-for-agent` or `wontfix`**: a vendored skill applying one fails on an unknown label.

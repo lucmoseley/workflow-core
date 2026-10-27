@@ -1,0 +1,26 @@
+A FOUNDER-FACING ITEM lives in an open issue, never only in chat. Three kinds count:
+
+  - a deliverable the founder must still act on — a draft to send, a file to upload;
+  - an act only the founder can do, written only in chat or inside a comment — a check by eye, a click-through;
+  - a decision the founder has not answered.
+
+This holds in background and interactive sessions alike. Chat, a `needs input:` or `waiting:` ending, the status line, the job list and a closed issue's comment never count.
+
+FILE IT THE MOMENT the session produces the deliverable or names the act, not at session end. A paste the founder runs while this session waits — a `!` line, or a line in his own terminal whose output he sends back — or a secret he enters, is finished in the session and needs no issue: the `waits on you:` line cites the ticket in hand.
+
+THE LABEL:
+
+  - a deliverable or an act outside Claude Code   → takes:human, with the body below
+  - a check by eye of agent-made work             → takes:wayfinder, with a `## Question` body
+  - an unanswered decision                        → takes:wayfinder, with a `## Question` body
+
+A `takes:human` BODY, in this order (modelled on mmm-infra#32):
+
+  1. **Outside Claude Code:** <the act>
+  2. Why the work exists and the facts it rests on, each dated.
+  3. The deliverable verbatim in a fenced block — or each step with its surface, its literal text and what the founder should see.
+  4. **Close when:** <what finishes it> — and what the closing comment records, naming any issue that waits on the result.
+
+THE ISSUE BODY IS THE HAND-OVER'S SOURCE. An in-chat walk takes the founder through it step by step and is never a second copy.
+
+A DECISION'S QUESTION ROUND is posted on the issue that carries it before the session ends on `needs input:`.

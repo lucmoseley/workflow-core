@@ -1,0 +1,15 @@
+THIS PUSH DOES NOT TRIGGER A SUITE RUN, AND NOTHING WILL REPORT ON YOUR SHA.
+
+The whole suite runs on the scheduled sweep alone (mantahostels#910), four a day
+(mantahostels#3490), so the local checks are the session's only verdict
+for up to ~12 hours. Run `npm run check:ci` ONCE after every push, docs-only
+included, and read it; never rerun it. It and `check-ci-status.js --notify`
+answer off the newest sweep and the COMMIT RANGE it covered, never the sha you
+just pushed: nothing new until the next sweep lands.
+
+THE RANGE IS WHAT IT COSTS. At ~9.4 commits/hour a 6-hourly sweep covers ~56
+commits, so localising a red by bisection is ~6 full-suite runs and not one.
+THE CRON IS NOT WHAT SETS IT: GitHub delivers slots hours late and drops some
+outright, and the widest measured gap between DELIVERED sweeps is 11h54m — ~112
+commits, ~7 runs (mantahostels#2204). It is a verdict read AFTER THE FACT over a range —
+never a precondition of a push, and no session waits on one (mantahostels#2102).

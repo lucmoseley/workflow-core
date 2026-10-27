@@ -1,0 +1,341 @@
+#!/usr/bin/env sh
+# post-commit — the after-commit notices and this session's own bookkeeping.
+#
+# Eight blocks, none of which can ever block: git ignores post-commit's exit
+# status, and every block below degrades to silence rather than to an error.
+#
+#   1. how many local commits are not yet pushed  (mantahostels#316)
+#   2. which whole-repo faults THIS commit added  (mantahostels#1750, mantahostels#1825)
+#   3. which instruction-surface census rows THIS commit expired  (workflow-core#1810)
+#   4. which guard-registry anchors THIS commit expired  (workflow-core#2375)
+#   5. releasing this session's whole-file claims whose own hunks the commit landed  (mantahostels#2336, workflow-core#2058, workflow-core#2148)
+#   6. advancing this session's stale-write-back base to this commit  (workflow-core#114)
+#   7. recording this commit as this session's own  (workflow-core#766)
+#   8. keeping the shims live sessions need at hook scripts the shared tree deleted  (workflow-core#2879)
+#
+# IMPLICIT:  prints the unpushed count after a commit that leaves any unpushed, what it released and what it kept after a session's commit, a fault notice after a commit that added one or whose comparison could not be read, a one-line note after a merge or a repo's first commit, a census notice after a commit that changed a guard the instruction-surface census measured, a registry notice after a commit that changed a guard whose guard-registry prose was anchored, drops this session's whole-file claim on every path the commit touched where all the session's own hunks have landed, makes this commit the session's base for every path it touched, records it in the session's commit ledger, and — where a shim exists or a script was deleted since the keeper's last run — writes an exit-0 shim at each hook script a live session's hook lines still name but the main checkout no longer has, and deletes each shim no live session needs.
+# JUSTIFIED: fail-safe — unpushed work and a self-inflicted red are otherwise invisible, and git ignores this hook's exit status; the release drops only a claim of this session's own, only where none of its own hunks is left uncommitted, and a dropped claim is retaken by this session's next write to the file; the advance and the record write only the session's own commit, into its own records; an expired census row or registry anchor is otherwise named only by the daily run, to nobody holding the change; a session started before a port runs its old hook line until it ends, and a deleted script on a fail-closed line refuses every call that line matches.
+# DEFEAT:    no flag or env var for the four reporters; every block but the unpushed count and the shim keeper is skipped mid-replay or when scripts/lib/commit-route.sh is missing, and the release, the advance and the record by unsetting CLAUDE_CODE_SESSION_ID; the shim keeper takes no flag and is skipped when scripts/keep-hook-shims.js is missing.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (workflow-core#745)
+
+# THIS commit, read before any block runs: report_new_shared_faults takes
+# seconds, and a neighbour's commit landing in them would otherwise be the sha
+# advance_committed_bases records as this session's own (workflow-core#114).
+committed=$(git rev-parse --verify -q HEAD 2>/dev/null) || committed=""
+
+here="$(dirname "$0")"
+# shellcheck source=scripts/lib/commit-route.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh" ] || . "${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"
+
+# A rebase, cherry-pick or multi-commit revert REPLAYS commits, firing this hook
+# once per replayed commit, and a bisect checks out commits nobody here wrote.
+# Six of the blocks below stand down on those routes, for reasons of their own
+# — the three notices would attribute a whole range one commit at a time
+# (mantahostels#1825), the release would drop a live claim over somebody else's
+# paths (mantahostels#2336), and the advance and the record would take a
+# replayed commit, which may be a neighbour's, as this session's own (workflow-core#114,
+# workflow-core#766). What git shows this hook per route, `git merge` never firing it:
+# scripts/lib/commit-route.sh.
+#
+# The table's clean single cherry-pick costs one missed notice, accepted because
+# a multi-commit pick reads the same way between its commits, which is the case
+# worth suppressing.
+#
+# WITHOUT THE MODULE the route is unknown, and the six blocks stand down
+# silently until it is back (workflow-core#1503). The base advance is the one that costs, a
+# later commit of the same path reading as a stale write-back.
+in_replay() {
+  command -v wfc_commit_route >/dev/null 2>&1 || return 0
+  git_dir=$(git rev-parse --absolute-git-dir 2>/dev/null) || return 1
+  route=$(wfc_commit_route post-commit "$git_dir")
+  wfc_commit_route_replays "$route" && return 0
+  case "$route" in
+    revert-sequence | revert-continue | bisect) return 0 ;;
+  esac
+  return 1
+}
+
+# Wrapped in a function because the unpushed block returns early.
+# As bare top-level code its `exit 0`s would skip the fault notice below it.
+# Counted against the ref this checkout pushes to, lib/landing-refs.js's answer.
+report_unpushed() {
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  ref=$(node "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/landing-refs.js" unpushed "$toplevel" 2>/dev/null) || return 0
+
+  if ! git rev-parse --verify -q "$ref" >/dev/null 2>&1; then
+    printf '\033[33m!\033[0m %s does not exist here — nothing is tracking these commits.\n' "$ref"
+    return 0
+  fi
+
+  ahead=$(git rev-list --count "$ref"..HEAD 2>/dev/null) || return 0
+
+  if [ "$ahead" -gt 0 ] 2>/dev/null; then
+    if [ "$ahead" -eq 1 ]; then
+      printf '\033[33m!\033[0m 1 commit not pushed to %s.\n' "$ref"
+    else
+      printf '\033[33m!\033[0m %s commits not pushed to %s.\n' "$ahead" "$ref"
+    fi
+  fi
+  return 0
+}
+
+# Since mantahostels#316 a session pushes once, when its work is done, so a non-zero count
+# mid-session is the expected state — read this as a reminder that commits are
+# still local, never as a prompt to push now.
+report_unpushed
+
+# scripts/report-new-shared-faults.js re-runs the registered whole-repo
+# checkers (its CHECKERS table and check-doc-map.js) against HEAD and against HEAD's first parent, and prints only the
+# faults the first has and the second does not — the ones this commit added.
+# Silent on a clean non-merge commit with a parent.
+#
+# EVERY FAILURE PATH HERE IS SILENCE. A missing script, a missing node, a
+# throwing run, a non-zero exit: the commit has landed and a broken notice must
+# never be the thing a session has to debug next.
+report_new_shared_faults() {
+  # Quiet, over mantahostels#1825's other option of one line: the range is
+  # re-readable afterwards with one explicit run per sha.
+  if in_replay; then
+    return 0
+  fi
+
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/report-new-shared-faults.js"
+  [ -f "$script" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+
+  # git EXPORTS GIT_INDEX_FILE=.git/index — a RELATIVE path — into every hook.
+  # The script runs checkers from a throwaway detached worktree and from
+  # materialised trees, each with a cwd of its own, where that relative path
+  # resolves against the wrong directory and check-doc-map.js's `git ls-files`
+  # reads an index that does not exist. GIT_DIR is equally load-bearing: a
+  # commit in a LINKED WORKTREE exports GIT_DIR=<repo>/.git/worktrees/<name>,
+  # which would pin every read to that worktree's gitdir wherever the script
+  # ran. GIT_WORK_TREE goes with the pair as the third redirect of the same
+  # class. Nothing else git exports into a hook redirects a read.
+  #
+  # THE ASSIGNMENT IS WRAPPED IN AN `if`. This hook runs under `set -e`,
+  # where a bare `out=$(...)` aborts the whole shell the
+  # moment node exits non-zero — which is its exit 1 (faults found) and exit 2
+  # (a side unreadable), the only two runs the notice exists for. A command in
+  # an `if` condition is exempt from `-e`.
+  #
+  # The two streams are captured SEPARATELY. stdout is the script's designed
+  # report and always prints; stderr prints only on its exit 2 — its own "a
+  # side of this could not be read" code, which mantahostels#1750 wants louder than
+  # silence. Every other non-zero is the script crashing rather than
+  # reporting, and is dropped.
+  errfile=$(mktemp 2>/dev/null) || return 0
+  if out=$(env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    node "$script" HEAD 2>"$errfile"); then
+    status=0
+  else
+    status=$?
+  fi
+
+  if [ -n "$out" ]; then
+    printf '%s\n' "$out"
+  fi
+  if [ "$status" -eq 2 ]; then
+    cat "$errfile"
+  fi
+  rm -f "$errfile"
+  return 0
+}
+
+report_new_shared_faults
+
+# A commit changing a guard leaves the prose vouching for it unverified: its
+# instruction-surface census row (workflow-core#1810) and the guard-registry rules describing
+# it (workflow-core#2375). Each checker's `--touched-by` names only what THIS commit
+# expired, so a guard a neighbour left stale stays the daily run's. The
+# registry's pre-commit gate refuses such a commit (workflow-core#2617), so its notice names
+# a row that gate stood down as held by a neighbour, a row already stale at
+# HEAD that the commit touched again, or a commit the gate never ran on. Silent on an
+# OK run and on every failure, for report_new_shared_faults's reason — an
+# adopter with no census anchors file is BROKEN there.
+report_touched_by() {
+  if in_replay; then
+    return 0
+  fi
+
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/$1"
+  [ -f "$script" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  [ -n "$committed" ] || return 0
+
+  # The report is on stderr; stdout carries only Actions' annotations. The
+  # three redirects are unset for report_new_shared_faults's reason, above.
+  if out=$(env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    node "$script" --root "$toplevel" --touched-by "$committed" 2>&1 >/dev/null); then
+    case "$out" in
+      "" | OK:*) ;;
+      *) printf '%s\n' "$out" ;;
+    esac
+  else
+    # A run its git ceiling stopped is the one BROKEN said aloud: silence there
+    # is a commit stalled with no reason given (workflow-core#2210).
+    case "$out" in
+      *"passed its "*" ceiling"*) printf '%s\n' "$out" ;;
+    esac
+  fi
+  return 0
+}
+
+report_touched_by check-instruction-surface.js
+report_touched_by check-guard-registry.js
+
+# The commit is where work on a file is finished, so it is where the claim goes
+# back (mantahostels#2336, workflow-core#2058). The arbiter does the narrowing and states why:
+# cmdReleaseCommitted in scripts/session-arbiter.js.
+#
+# SILENCE ON EVERY FAILURE, for report_new_shared_faults's reason: the commit
+# has landed, and the claim is broken by construction when this process ends.
+release_committed_claims() {
+  if in_replay; then
+    return 0
+  fi
+
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/session-arbiter.js"
+  [ -f "$script" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+
+  # A merge commit prints no paths under this form, so a merge releases
+  # nothing — accepted: a merge is not where a session finishes an edit.
+  #
+  # --root, or a repo's FIRST commit diffs against no parent and prints nothing
+  # at all.
+  paths=$(git -c core.quotePath=false diff-tree --no-commit-id --name-only -r --root HEAD 2>/dev/null) || return 0
+  [ -n "$paths" ] || return 0
+
+  # The three redirects are unset for report_new_shared_faults's reason, above.
+  # What they protect here is the arbiter's own `git status`: a misread answers
+  # "dirty" and the release silently never happens.
+  #
+  # The paths go through the positional parameters rather than through xargs or
+  # an unquoted expansion: `xargs -d` is GNU-only, and word-splitting would
+  # break a committed path containing a space into two paths matching nothing.
+  set --
+  # `rel`, never `committed`: sh has no locals, and that is the sha
+  # advance_committed_bases and record_session_commit read.
+  while IFS= read -r rel; do
+    # An `if`, not `[ … ] && …`: under `set -e` a failing test as the last
+    # command of the loop body would exit the whole hook.
+    if [ -n "$rel" ]; then
+      set -- "$@" "$rel"
+    fi
+  done <<EOF
+$paths
+EOF
+
+  # stderr is NOT swallowed: the arbiter reports a clobber of the holder's own
+  # bytes as it releases, and that is the last site it is ever said (mantahostels#420).
+  # `if`: a non-zero exit must not abort the hook under `set -e`, as in
+  # report_new_shared_faults.
+  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    node "$script" release-committed "$@"; then
+    :
+  fi
+  return 0
+}
+
+release_committed_claims
+
+# The commit is also where this session's own work becomes its base (workflow-core#114): the
+# stale-write-back gate would otherwise judge its next edit of a committed path
+# against a base older than that commit, and refuse a trim of its own text as a
+# write-back over a neighbour's. The arbiter does the work: cmdAdvanceBases.
+#
+# Silent on every failure but the arbiter's own one line, for
+# release_committed_claims's reason. Stood down wherever the gate is — the two
+# read one definition of those checks, scripts/lib/shared-tree-skip.sh (workflow-core#123) —
+# and on a replay.
+advance_committed_bases() {
+  [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
+  if in_replay; then
+    return 0
+  fi
+
+  # Sourced inside the function, off a toplevel this block needs anyway, so the
+  # gate suite's cut of this function carries the source line with it.
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  [ -r "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/shared-tree-skip.sh" ] || return 0
+  # shellcheck source=scripts/lib/shared-tree-skip.sh
+  . "${WFC_PLUGIN_ROOT:-$toplevel}/scripts/lib/shared-tree-skip.sh"
+  # Silent on every non-zero, where the gate tells an unreadable git from a
+  # stand-down.
+  wfc_shared_tree_skip "$toplevel" || return 0
+
+  script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/session-arbiter.js"
+  [ -f "$script" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+  [ -n "$committed" ] || return 0
+
+  # `if`, as in release_committed_claims.
+  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    node "$script" advance-bases "$committed"; then
+    :
+  fi
+  return 0
+}
+
+advance_committed_bases
+
+# The commit ledger is how scripts/guard-unpushed-commits.js tells this
+# session's unpushed commits from a neighbour's at Stop (workflow-core#766): git records no
+# session, and every session commits as the same author.
+#
+# NOT stood down by wfc_shared_tree_skip, unlike the advance: a commit made in
+# a throwaway worktree and fast-forwarded onto main is this session's too. So
+# the record is rooted at the MAIN worktree — the directory holding the common
+# git dir — where the Stop hook reads it too.
+record_session_commit() {
+  [ -n "${CLAUDE_CODE_SESSION_ID:-}" ] || return 0
+  if in_replay; then
+    return 0
+  fi
+  [ -n "$committed" ] || return 0
+
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/session-arbiter.js"
+  [ -f "$script" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 0
+  case "$common" in
+    */.git) main_tree=${common%/.git} ;;
+    *) return 0 ;; # a bare or relocated git dir names no main worktree
+  esac
+
+  # `if`, as in release_committed_claims.
+  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    CLAUDE_PROJECT_DIR="$main_tree" \
+    node "$script" record-commit "$committed"; then
+    :
+  fi
+  return 0
+}
+
+record_session_commit
+
+# Block 8 (workflow-core#2879). .husky/post-merge runs it too, a merge never firing this hook.
+keep_hook_shims() {
+  toplevel=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+  script="${WFC_PLUGIN_ROOT:-$toplevel}/scripts/keep-hook-shims.js"
+  [ -f "$script" ] || return 0
+  command -v node >/dev/null 2>&1 || return 0
+
+  # The three redirects are unset for report_new_shared_faults's reason, above.
+  # `if`, as in release_committed_claims.
+  if env -u GIT_INDEX_FILE -u GIT_DIR -u GIT_WORK_TREE \
+    node "$script" --lazy; then
+    :
+  fi
+  return 0
+}
+
+keep_hook_shims

@@ -1,0 +1,545 @@
+{
+	"$comment": {
+		"0": "The instruction-surface census as an anchor rather than a snapshot. Written by scripts/check-instruction-surface.js alone; scripts/resolve-ticket.js and scripts/guard-issue-close.js also read it (#1876, #1913).",
+		"1": "COUNTS are re-measured on every daily repo-checks run. VERDICTS are behavioural (mantahostels#886) and are re-measured only when the digest beside them moves. A guard's digest hashes its code with comments and layout dropped, so a comment-only edit moves none (#1876, scripts/lib/census-digest.js), and a shell guard's also hashes each docs/agents/rules/ file its code names, so a reworded rule moves it (#1914).",
+		"2": "Re-anchoring with --rebaseline asserts that you re-measured what moved. Nothing checks that you did. --only <key>[,<key>...] (mantahostels#2105) narrows a re-anchor to named guards/poolFiles rel paths, hookCommands keys (spelt as below) and the `hooks` or `skills` count (#1879), leaving every other row reporting. A new guard's row is written by hand with an empty digest, then --only fills it.",
+		"3": "Digests and pool bytes are anchored at the census's own tree (measuredAt.tree), not at the day this file was written: --rebaseline --at <rev>.",
+		"4": "A verdict has two halves and both are recorded: `verdict` is timing (does it fire at the moment of need), `selfSufficient` is whether what it prints carries the rule.",
+		"5": "guards holds every hook-wired script that prints rule text, plus check-roadmap-valid.js, a pre-commit checker that does, and check-weakens-line.js, a commit-msg one (#2235). name-issue-session.sh and clear-rule-latch.sh were measured and print no rule, so carry no verdict to anchor.",
+		"6": "hookCommands anchors each hook entry's full live command text under the checker's buildHookKey: `<event> <scriptPath>`, plus ` if <cond>` where the entry has an `if` condition (#1604)."
+	},
+	"measuredAt": {
+		"date": "2026-10-15",
+		"census": "#1604",
+		"standing": "mantahostels#1771",
+		"document": "docs/research/instruction-surface-census-2026-10-15.md",
+		"tree": "437c94164; a row whose `source` is not #1604 was re-measured under that ticket, at its tree. `hooks` and the docs/working-contract.md pool bytes, which carry no `source`, were re-anchored under #1879 at 89ff86007, and the CLAUDE.md pool bytes under #2073 at 2779798ac; the pool bytes and rule inventory, `hooks` and `skills` under #2263 at a6d66be90; the twelve hook entries added since, and the two guards among them, under #2586 at 2d182ffc6; guard-cpu-load.js's five hook entries and `hooks` under #2861 at 4a37e3500; the seventeen guard rows #3018's port move touched, sourced #3143, at 18a1598da"
+	},
+	"poolFiles": {
+		"CLAUDE.md": 6053,
+		"docs/working-contract.md": 3370,
+		".claude/output-styles/core-voice.md": 5979
+	},
+	"poolRules": {
+		"total": 49,
+		"byFile": {
+			"CLAUDE.md": 20,
+			"docs/working-contract.md": 7,
+			".claude/output-styles/core-voice.md": 22
+		},
+		"noRetrieval": 39,
+		"adopterWorld": 0,
+		"repoMachinery": 49,
+		"source": "#2263"
+	},
+	"hooks": {
+		"total": 125,
+		"byEvent": {
+			"PreToolUse": 71,
+			"PostToolUse": 12,
+			"PostToolUseFailure": 2,
+			"PostToolBatch": 1,
+			"UserPromptSubmit": 5,
+			"Stop": 13,
+			"PreCompact": 2,
+			"SessionStart": 18,
+			"SessionEnd": 1
+		}
+	},
+	"hookCommands": {
+		"PreToolUse scripts/guard-registry-atomicity.js if Bash(git *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-registry-atomicity.js",
+		"PreToolUse scripts/guard-pull-form.js if Bash(git *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-pull-form.js",
+		"PreToolUse scripts/guard-push-rules.js if Bash(git *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-push-rules.js",
+		"PreToolUse scripts/guard-dispatch.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch.js",
+		"PreToolUse scripts/guard-issue-body.js if Bash(gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-body.js",
+		"PreToolUse scripts/guard-issue-close.js if Bash(gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-close.js",
+		"PreToolUse scripts/guard-issue-create-label.js if Bash(gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-create-label.js",
+		"PreToolUse scripts/guard-issue-phase-scope.js if Bash(*gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-phase-scope.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*npm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*node *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*next *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*python*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*pytest*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-vitest-wrapper.js if Bash(*vitest *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-vitest-wrapper.js",
+		"PreToolUse scripts/guard-vitest-wrapper.js if Bash(*npx *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-vitest-wrapper.js",
+		"PreToolUse scripts/guard-unasked-rerun.js if Bash(*npm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-unasked-rerun.js",
+		"PreToolUse scripts/guard-headroom-read.js if Bash(*free *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-headroom-read.js",
+		"PreToolUse scripts/guard-headroom-read.js if Bash(*/proc/meminfo*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-headroom-read.js",
+		"PreToolUse scripts/guard-node-heap.js if Bash(*max-old-space-size*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-node-heap.js",
+		"PreToolUse scripts/guard-node-heap.js if Bash(*max_old_space_size*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-node-heap.js",
+		"PreToolUse scripts/guard-root-find.js if Bash(*find *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-root-find.js",
+		"PreToolUse scripts/guard-ugrep-pattern.js if Bash(grep *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-ugrep-pattern.js",
+		"PreToolUse scripts/guard-npm-install.js if Bash(*npm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-npm-install.js",
+		"PreToolUse scripts/guard-npm-install.js if Bash(*npx *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-npm-install.js",
+		"PreToolUse scripts/guard-hook-escape.js if Bash(*WFC_ALLOW_*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-hook-escape.js",
+		"PostToolUse scripts/guard-dispatch.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch.js",
+		"PostToolUse scripts/place-new-issue.sh if Bash(gh *)": "${CLAUDE_PROJECT_DIR}/scripts/place-new-issue.sh",
+		"PostToolUse scripts/record-issue-claim.js if Bash(gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-issue-claim.js",
+		"PostToolUse scripts/release-issue-claim.js if Bash(gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/release-issue-claim.js",
+		"PostToolUse scripts/record-acts.js if Bash(gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-acts.js",
+		"PostToolUse scripts/record-divergence.js if Bash(git *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-divergence.js",
+		"UserPromptSubmit scripts/name-issue-session.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/name-issue-session.sh",
+		"UserPromptSubmit scripts/inject-tracker-docs.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-tracker-docs.sh",
+		"UserPromptSubmit scripts/inject-founder-wording.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-founder-wording.js",
+		"Stop scripts/concision-backstop.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/concision-backstop.sh stop",
+		"Stop scripts/guard-priced-options.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-priced-options.js || true",
+		"Stop scripts/guard-inventory.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-inventory.js || true",
+		"Stop scripts/guard-jev-advisory.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-jev-advisory.js || true",
+		"Stop scripts/guard-selection-sum.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-selection-sum.js || true",
+		"Stop scripts/guard-uncommitted-work.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-uncommitted-work.js || true",
+		"Stop scripts/guard-session-ceiling.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-session-ceiling.js || true",
+		"Stop scripts/guard-lost-deny.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-deny.js || true",
+		"Stop scripts/guard-automode-refusal.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-automode-refusal.js || true",
+		"Stop scripts/guard-unpushed-commits.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-unpushed-commits.js || true",
+		"Stop scripts/guard-paste-self-match.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-paste-self-match.js || true",
+		"PreCompact scripts/clear-rule-latch.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/clear-rule-latch.sh",
+		"PreCompact scripts/inject-compaction-count.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-compaction-count.js || true",
+		"SessionStart scripts/inject-compaction-count.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/inject-compaction-count.js || true",
+		"SessionStart scripts/replay-notify-reports.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/replay-notify-reports.js --notify || true",
+		"SessionStart scripts/check-plugin-gap.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-plugin-gap.js --notify || true",
+		"SessionStart scripts/concision-backstop.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/concision-backstop.sh start",
+		"SessionStart scripts/name-issue-session.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/name-issue-session.sh",
+		"SessionStart scripts/inject-tracker-docs.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/inject-tracker-docs.sh",
+		"SessionStart scripts/session-arbiter.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/session-arbiter.js prune-markers --detach || true",
+		"SessionStart scripts/sweep-debts-detached.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/sweep-debts-detached.sh",
+		"SessionStart scripts/check-ci-status.js": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/check-ci-status.js --notify || true",
+		"SessionStart scripts/check-orphan-wait-loops.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphan-wait-loops.js --notify || true",
+		"SessionStart scripts/reap-orphan-hooks.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-orphan-hooks.js --notify || true",
+		"SessionStart scripts/check-kernel-stall.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-kernel-stall.js --notify || true",
+		"SessionStart scripts/check-orphaned-edits.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-orphaned-edits.js --notify || true",
+		"SessionStart scripts/audit-escape-lines.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/audit-escape-lines.js --notify || true",
+		"SessionStart scripts/check-seat-utilisation.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-seat-utilisation.js --notify || true",
+		"SessionStart scripts/reap-finished-sessions.js": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-finished-sessions.js --notify || true",
+		"SessionEnd scripts/reconcile-plugin.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reconcile-plugin.js --session-end || true",
+		"PreToolUse scripts/guard-registry-atomicity.js if Bash(*commit-paths.js*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-registry-atomicity.js",
+		"PostToolUse scripts/guard-lost-verdict.js if Bash(*test*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-verdict.js",
+		"PostToolUseFailure scripts/guard-lost-verdict.js if Bash(*test*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-verdict.js",
+		"SessionStart scripts/check-harness-canary.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-harness-canary.js --notify || true",
+		"SessionStart scripts/check-refill-loop-stop.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-refill-loop-stop.js --notify || true",
+		"PostToolUseFailure scripts/guard-failed-call-rules.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-failed-call-rules.js",
+		"PostToolBatch scripts/guard-failed-call-rules.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-failed-call-rules.js",
+		"UserPromptSubmit scripts/unpark-on-prompt.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/unpark-on-prompt.js || true",
+		"UserPromptSubmit scripts/mark-presence.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/mark-presence.js || true",
+		"Stop scripts/park-on-round.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/park-on-round.js || true",
+		"PreToolUse scripts/self-plugin-canary.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/self-plugin-canary.sh",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*npx *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*yarn *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*pnpm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*bun *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*make *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*cargo *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*go test*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*tsc*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+		"PreToolUse scripts/guard-rm-unchecked.js if Bash(*rm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-rm-unchecked.js",
+		"PostToolUse scripts/start-lander-on-push.js if Bash(*push*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/start-lander-on-push.js",
+		"Stop scripts/refill-wake.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/refill-wake.sh",
+		"SessionStart scripts/write-self-plugin-marker.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/write-self-plugin-marker.sh",
+		"PreToolUse scripts/guard-wide-read.js if Bash(*cat *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-wide-read.js",
+		"PreToolUse scripts/guard-wide-read.js if Bash(*sed *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-wide-read.js",
+		"PreToolUse scripts/guard-wide-read.js if Bash(*awk *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-wide-read.js"
+	},
+	"skills": {
+		"distinct": 40,
+		"own": 16,
+		"vendored": 24,
+		"disabled": 17
+	},
+	"guards": {
+		"scripts/lib/branch-move.js": {
+			"digest": "ccf9eb6b5c486d8c",
+			"verdict": "at need (fed at 18a1598da under #3143, byte-identical to the tree before #3018) — in the shared tree `git checkout -b foo` (1747 B), `git switch feature` (1746 B) and `git worktree add /tmp/x` lacking -b/--detach (1658 B) refused; `git worktree add -b`/`--detach` and `git checkout main` allowed and handed the rule once a session (1664 B), before the first worktree; the repeat silent, a later `checkout -b` still refused. `git checkout -- a.md` silent; `checkout -b` in a linked worktree silent. Wrapper `env git checkout -b foo`: silent (0 B), as declared in LIMITS. Rule store unreadable: the deny keeps its frame and restore escape and names the file to read (460 B, the template fallback); the injection limb refuses naming the missing fragment (300 B). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — deny and injection carry the rule, the reason, the worktree recipe and the restore escape inline; with the store unreadable the deny still carries reason and restore escape and names docs/agents/rules/branch-shared-tree.txt.",
+			"source": "#3143"
+		},
+		"scripts/lib/commit-form.js": {
+			"digest": "adfa48257ce708da",
+			"verdict": "at need — each deny names the exact offending command before it runs: `git commit -am`, `--amend --no-edit`, `--no-verify … -- a.md` and `-m 'Fixes #12' -- a.md` refused (875, 1018, 1422 and 2300 B, fed at 18a1598da under #3143, byte-identical to the tree before #3018's port move); `git add` warned (656 B). The first clean pathspec commit of a session handed the pathspec rule, the gated-path rules and the push rule last (3544 B, the A-12 payload), a bare commit the same less the gated rules (2784 B), the repeat silent; a warn defers them unlatched — a warned commit, then a clean one in the same session, was handed them (2784 B). A `commit-paths.js` call handed the show-diff and message rules plus the push rule (1255 B), under `docs/` the guard-registry and machinery-superseded rules too (2348 B), on `package.json` the Biome gate rule too (2015 B); the repeat and a `cat` of the file silent. The sweep warn, not re-fed: a pathspec naming a live neighbour's claimed, edited file warned, ending in the Swept: lines where it is the whole pathspec (562 B) and in the commit-your-own-paths form where it is not (416 B), fed at 6192d0f49; on the `commit-paths.js` form the guard gave none (commit-paths.js gives it, scripts/commit-paths.js:847). The push rule printed is `rule:push-cadence-landing`, this host running the landing module, and it defers to the next commit where the gate rules fill the ceiling (#2285): `-- docs/doc-map.md docs/roadmap-digest.md CLAUDE.md scripts/foo.js` was handed every gated rule but it (4078 B), and the session's next clean commit the push rule alone (991 B). With the rule store unreadable the injection limb refuses, naming the missing fragment (302 B: `rule-text: no fragment for rule id \"commit-pathspec\"`); the deny limbs carry no store text and print in full. Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes (deny limbs) — each carries reason and the corrected command inline, with or without the rule store; the sweep warn names the neighbour, and either the Swept: line or the own-paths form.",
+			"source": "#3143"
+		},
+		"scripts/guard-pull-form.js": {
+			"digest": "150ccc651783dc6e",
+			"verdict": "at need — deny before the rebase/merge/rewind/discard runs (fed at 18a1598da under #3143, byte-identical to the tree before #3018): in the shared tree `git pull --rebase` 1626 B, bare `git pull` 1617, `git merge origin/main` 1630, `git rebase origin/main` 1631; rewind `git reset --hard HEAD~1` 1208, `git branch -D main` 1059, `git update-ref refs/heads/main HEAD~1` 1136; discard `git reset --hard` 1131. Rule pre-injected on the first allowed `--ff-only` pull or merge (1490 B, the -landing twin), the repeat silent; `git merge --abort`, `git pull --help` and `echo git pull --rebase` silent. Rule store unreadable: each deny keeps its frame and prints its template fallback naming the file (409, 442, 441 B); the `--ff-only` injection refuses naming the missing fragment (302 B). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — reason, the safe spelling and the full divergence recipe are inline; with the store unreadable each deny still names the act and the rule file to read.",
+			"source": "#3143"
+		},
+		"scripts/guard-push-rules.js": {
+			"digest": "42bb56720ab377ea",
+			"verdict": "at need — first push of the session, before it runs; the rules once per session only, push-cadence skipped where the commit-form guard already handed it this session (#2285). Its review warn fires on the first push carrying unreviewed code, again on an escalated change, and again for each marker written after a warn that is rejected, naming why. Wrapper spellings (`timeout`, `env`, `sh -c`) never fire, as declared.",
+			"selfSufficient": "yes — the recipe (push:check, typecheck, the declared whole-repo check, checker, push, then check:ci once) and the coverage rule are inline.",
+			"source": "#1998"
+		},
+		"scripts/guard-registry-atomicity.js": {
+			"digest": "4e5d3a4222a385cf",
+			"verdict": "at need, on both commit forms — wired on `Bash(git *)` and on `Bash(*commit-paths.js*)`, it refuses a `node scripts/commit-paths.js … -- <paths>` commit landing an unwired checker (untracked or intent-added) in the same words the hand `git commit -- <paths>` gives an intent-added one (an untracked one there meets git's own pathspec error first), and allows one carrying its caller and test; the files a `--patch` carries are judged with the rest. A `--tree` call commits nothing and is left alone.",
+			"selfSufficient": "yes when it fires — names each missing piece by path, the fix and the escape.",
+			"source": "#1780"
+		},
+		"scripts/lib/branch-publish.js": {
+			"digest": "ec30b104271febde",
+			"verdict": "at need on the bare and the wrapped spellings — `env`, `timeout 30`, `timeout 30s` and `command` before `git push origin feat` are refused like the bare push, as the header's LIMITS say, and a timeout-wrapped `gh pr create` too. A force-push or remote deletion of `main` (`--force`, `-f`, `--force-with-lease` and its abbreviation, a `+` refspec, `heads/main`, `--delete`/`--del main`, `:main`), wrapped or bare, is refused with the main-rewind rule before it runs; a plain push to `main` and a deletion of another branch pass silent. A `gh pr merge` of a Dependabot PR — its `dependabot/*` branch named, or a `gh pr view` lookup answering true — is refused with the dependabot-merge rule; one the lookup clears, or `--disable-auto`, passes silent (#2020). Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases) Re-fed at #3146 through the entry: with the landing module on, a plain push to `main` is refused too (`main` only the lander moves), and with it off it passes silent as above.",
+			"selfSufficient": "yes — rule, both landing recipes and the pass list inline; the force/delete-`main` refusal carries the main-rewind reason, the follow-up-commit fix and the resets that pass; the Dependabot-merge refusal carries the whole local-fix recipe.; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/branch-publish.txt, branch-publish-landing.txt, main-rewind.txt, landing-rewind.txt or dependabot-merge.txt.",
+			"source": "#2792"
+		},
+		"scripts/guard-hook-escape.js": {
+			"digest": "ef0fc4c0835177b0",
+			"verdict": "at need — refused before the escaped commit runs, on every route incl. the commit-paths.js form (fed at 18a1598da under #3143, byte-identical to the tree before #3018: `WFC_ALLOW_BRANCH=1 git commit` 920 B, `export WFC_ALLOW_GATE_INPUT_DELETE=1` 914, commit-paths.js form 938, `env WFC_ALLOW_BRANCH=1 git commit` 916; an `echo` or `grep` mention silent). Rule store unreadable: still denies, frame plus the template fallback naming docs/agents/rules/hook-escape.txt (383 B). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — the rule, the alternatives and the exact hand-over to the founder are inline; with the store unreadable the deny keeps the one-line rule and names the file.",
+			"source": "#3143"
+		},
+		"scripts/lib/sweep-fire.js": {
+			"digest": "4ec34d7915b87d43",
+			"verdict": "at need for the deny (4th fire of the UTC day, before it runs). The three allowed fires each spend a unit with 0 B printed — a session learns it spent budget only when the budget is already gone (by design: no injection limb, header cites the route-(f) Bash byte cap). Run as a core of scripts/guard-dispatch.js (#2790)",
+			"selfSufficient": "yes for the deny — budget state, reset time and rule inline.; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/sweep-fire-budget.txt, the budget state and the command still inline.",
+			"source": "#2790"
+		},
+		"scripts/check-roadmap-valid.js": {
+			"digest": "97677a792b729b29",
+			"verdict": "at need — refuses the commit before it lands, naming each broken card.",
+			"selfSufficient": "yes — each error names card and fault, and the route (roadmap-edit skill) is inline. Re-fed at #3136 (--tree, a missing need and a bad state): both named; with an empty rule store the rule's place takes the fallback template line naming docs/agents/rules/roadmap-validity.txt.",
+			"source": "#3136"
+		},
+		"scripts/guard-issue-body.js": {
+			"digest": "78570b47deb7faaf",
+			"verdict": "at need — a gh issue edit --body/--body-file, a gh api PATCH to an issue with a body field, or a GraphQL updateIssue carrying body: is refused (1899–1919 B); a PATCH via --input (606 B) or a GraphQL query it cannot read (515 B) gets a warn instead; field-only edits and mentions pass silent (fed at 18a1598da under #3143). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — the refusal quotes the command and carries the whole issue-body-clobber rule (1638 B): reason, the six issue-body.js commands, scope and blind spots inline; the trailing pointer to issue-tracker.md is only for edge spellings and recovery. With the rule unreadable it still refuses (388 B), naming the helper and the rule file",
+			"source": "#3143"
+		},
+		"scripts/guard-issue-close.js": {
+			"digest": "493534bbd6ff190a",
+			"verdict": "at need — five checks, judged in order card, criteria, Outstanding, landing (#3101), census; a close failing several is refused by the first. Refusals: Outstanding line missing or bad 2163–2253 B, card not done 1410 B, unticked criteria 795 B, unpushed commit 815 B, expired census rows 1091 B. Not-planned closes, passing lines and an unreachable gh pass silent. The census read took 1.6–3.6 s at load 39 with gh stubbed (it was 6.2 s of an 8 s run at load 48 with real gh, #1913) (fed at 18a1598da under #3143). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes, except a close whose own --comment lacks the marker: it is told only that the issue's newest comment has no **Outstanding:** line. Shape, examples and the resolve-ticket.js route, which names every line it requires (Outstanding, Bound, Values, Practice, Door), are inline. The census refusal names each row, the --rebaseline --only command and the **Census:** escape; the landing refusal names each commit, push/fetch and the **Unlanded:** escape. With a rule unreadable, the card, criteria and Outstanding refusals still refuse, giving a one-line rule and the file path (Outstanding 1131 B)",
+			"source": "#3143"
+		},
+		"scripts/guard-issue-create-label.js": {
+			"digest": "08eed74969f8b959",
+			"verdict": "at need — a create with no takes: label is refused on the flag, REST and GraphQL routes (1372–1406 B), as is a misspelt value (1406 B), a blank `--body \"\"` or a missing body file (800/847 B), and a takes:human create or relabel failing its body checks (2213–2561 B). A GraphQL create with labelIds gets a warn instead (839 B). A valid label and mentions pass silent; a failed gh fetch on relabel fails open (fed at 18a1598da under #3143). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes for the fix — the seven values are inline in both refusals, and the missing-label refusal adds a corrected command keeping your own labels plus the file-issue.js route. The misspelt-value refusal gives the values but no corrected command. What each value routes to is still only pointed at. With the rule unreadable it still refuses (757 B) with the values, the fix and the rule file",
+			"source": "#3143"
+		},
+		"scripts/guard-issue-phase-scope.js": {
+			"digest": "312d2037a2e3c103",
+			"verdict": "at need — a create whose title starts with the id of a Phase 1+ card the founder has not called is refused (1650–1664 B), REST and `timeout 60 gh` included. Phase-0 cards, unprefixed titles, unknown ids and GraphQL creates pass silent (fed at 18a1598da under #3143). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — the rule, the ban on calling the card yourself, the alternative (park the question on the card with roadmap-edit) and the ban on re-titling are all inline. Nothing comes from the rule store, so there is no fallback text; a core that throws refuses (218 B) naming the guard and the error",
+			"source": "#3143"
+		},
+		"scripts/lib/tracker-rules.js": {
+			"digest": "cf9a3b85314271dc",
+			"verdict": "at need on the first engaging call of the session; latched once per session per id thereafter Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
+			"selfSufficient": "yes — each fragment carries rule, reason and the command shape inline",
+			"source": "#2792"
+		},
+		"scripts/lib/last30days.js": {
+			"digest": "70308233b00b3c7a",
+			"verdict": "at need Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
+			"selfSufficient": "yes — names the cause, the exact re-route and the artefact line",
+			"source": "#2792"
+		},
+		"scripts/lib/review-rules.js": {
+			"digest": "1a76e7c696fd71ee",
+			"verdict": "at need — lands as the skill loads, before the dispatch and disposition it binds Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
+			"selfSufficient": "yes — every rule carries its act, paths and order inline, the hand-over of the suite's RUN COST lines to the Standards axis among them; in an adopter a bare `code-review` is refused with the namespaced name to call instead",
+			"source": "#2792"
+		},
+		"scripts/lib/citation-write.js": {
+			"digest": "880c6a2bcf6e6209",
+			"verdict": "at need — on a Write or Edit in the checkout adding a mantahostels#N the inherited tracker never used, before the bytes land; a write through Bash or NotebookEdit is never seen, a number both trackers used passes, and a write outside the checkout, however its `..` is spelled, gets nothing (#2546). Run as a core of scripts/guard-dispatch.js (fed through scripts/guard-dispatch.js's hook line at #2786: a never-used number in a test write gave the notice and rule:citation-tracker after the test rules); at #2896 a rename only, measured by guard-dispatch.test.ts real-adapters case giving notice plus rule:citation-tracker",
+			"selfSufficient": "yes — every trigger names each number and its bare form; the session's first carries rule:citation-tracker whole (fed at HEAD 935829f81: a never-used number written twice gave notice plus rule, then notice alone; an inherited-used number gave nothing; fed after 19cd71794: the same, and `<checkout>/sub/../../d.md` gave nothing while `<checkout>/sub/../e.md` gave the notice)",
+			"source": "#2015, #2546, #2786"
+		},
+		"scripts/lib/test-rules-inject.js": {
+			"digest": "d5fe124397fda34d",
+			"verdict": "at need — on the session's first Write, Edit or NotebookEdit to a file base §X binds in the checkout (test-kind.js's isTestKind or COLLECTED_TEST: a test or .spec. file, a tests/ or fixtures/ path, test support), before the bytes land; a test written through Bash is never seen; a write outside the checkout, however its `..` is spelled, gets nothing (#2546: fed after 19cd71794, `<checkout>/sub/../../tests/a.ts` gave nothing, `<checkout>/sub/../tests/a.ts` and `scripts/foo.test.ts` gave §X8-§X10). Run as a core of scripts/guard-dispatch.js (fed through scripts/guard-dispatch.js's hook line at #2786: `a.test.ts` written through a symlinked project dir gave §X8-§X10 ahead of the citation notice)",
+			"selfSufficient": "yes — base §X8, §X9 and §X10 inline, statement, items and stack clauses; §X8 (2) spells out §X11 item 3's real call rather than pointing at a rule never injected (#2872: fed at HEAD 1f2bc0186, `scripts/foo.test.ts` gave all three, 3184 B, under RULE_CAP's 4000)",
+			"source": "#2109, #2546, #2786, #2872"
+		},
+		"scripts/lib/review-tier.js": {
+			"digest": "07026909fa0bc93e",
+			"verdict": "at need — as the code-review skill loads via the Skill tool, before the Agent dispatch it shapes, reading the shared tree and the worktree the payload's cwd sits in together (#2386: fed from a throwaway worktree with CLAUDE_PROJECT_DIR on the shared tree and scripts/write-secret.js staged there, it printed the escalated tier for secret handling; #2529: fed from a worktree with the sensitive path staged or written in the shared tree, it printed the escalated tier, and a failed common-dir read in the worktree logged a fail-open line; #2581: a failed common-dir read in the root, through a WFC_GIT stub, logged the same line and matched the root alone); a declared globless area is handed to every review for judgement, its glob-adding commit named as held Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
+			"selfSufficient": "yes — tier, runs, records and commands inline, the runs diffing the tree pinned before dispatch (`git diff HEAD $t -- <commit paths>`, #2081), the pin over `<unpatched paths>` (#2254), the marker lines one named fetch away (`scripts/lib/rule-text.sh review-hold`, its `--areas` naming any globless area judged touched, #2254), worktree included; a `mission-critical: yes` must name the access rule or money calculation altered (#2082); an undeclared repo is told the one-line fix (`sensitivePaths`, `[]` for none) on every review; re-fed at #3146 through the entry with no sensitivePaths and an empty rule store: the undeclared line takes the fallback template naming docs/agents/rules/review-sensitive-undeclared.txt",
+			"source": "#2386, #2529, #2581, #2792"
+		},
+		"scripts/lib/founder-wording.js": {
+			"digest": "f334c70c0be3f766",
+			"verdict": "at need on both routes — prompt route fires on the founder's message before the reply it governs; Skill route as diagnosing-bugs loads Its Skill route runs as a core of scripts/guard-dispatch.js, its prompt route through scripts/inject-founder-wording.js (#2792: every bash case moved to a module case with mutation proof)",
+			"selfSufficient": "yes — the four checks with the resolved tracker list, and the full re-pitch instructions, are inline",
+			"source": "#2792"
+		},
+		"scripts/inject-tracker-docs.sh": {
+			"digest": "765b7541dad0c778",
+			"verdict": "at need — at the prompt opening the command, before any tracker call or review dispatch; a typed /code-review touching a sensitive path gets the escalated tier at that same moment, in an adopter's bare spelling too; an /implement on an issue labelled for another command is told so first; a subagent's payload gets nothing",
+			"selfSufficient": "/implement: same subject only — overrides, the opening read of the parent spec and closed blockers, Bound/Values/Practice/Door lines (in the header every tracker command gets) and the priced-options shape inline where the host style is not Core voice, a one-line pointer to the style where it is (#2039), four of six named rules are fetch-by-id index entries (pointer by design, mantahostels#2499). /code-review: yes — dispatch shape with its RUN COST hand-over, Artefact paths, finding disposition and (on a sensitive path) the whole tier inline, an adopter handed the standards base by its plugin path; only the fourth-axis test points at docs/effort-guide.md. Its closing steps left for scripts/concision-backstop.sh (#2031): fed /implement 2031 it prints 3374 chars, no write-review-marker.js; /triage 1996, 3946 chars (#2023 took the gh-cli-limits index line out), the whole-spec review. Re-fed after #2097: the same 3374 and 3946 chars; /code-review 2823 chars, its Standards-axis text the backstop's word for word. Re-fed after #2335 and #2337: /implement 2031 3387 chars, its research-artefact-scratch index line reworded; /triage 1996 3946 and /code-review 2823 unchanged; /wayfinder 5669 chars, its write-back clause's declaring line \"edited in place or deleted\". Re-fed after #2268 against its parent: /implement 2031 3387, /triage 1996 3946, /wayfinder 7 5669 chars, each unchanged; a gh hung 30 s gives up at 4 s and the payload is unchanged. Re-fed after #2386, which passes the prompt's cwd to the tier hook: /code-review 2824 chars, /implement 2031 3467.",
+			"source": "#2386"
+		},
+		"scripts/lib/stale-script.js": {
+			"digest": "1d4901bbc421c881",
+			"verdict": "at need (before the run) Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); at #2896 a refactor only (dirty read moved onto ctx.git), measured by stale-script.test.ts exact-text cases over a real git repo",
+			"selfSufficient": "yes — says nothing is blocked, what to do if output looks wrong (re-run after commit), how to see claims, and the unclaimed-dirty residual",
+			"source": "#2789"
+		},
+		"scripts/lib/self-match.js": {
+			"digest": "2c045c5de09d954f",
+			"verdict": "at need (all four limbs, before the command runs; the comm limb, #2027, on a Claude process count matched on `comm` — a pgrep by name, `ps -C`, a `comm` column with no `args` one, a plain UNIX-style `ps` whose default CMD is comm, or a `/proc` comm read); silent where every pattern misses the command's own text — the bracket recipe (`'[n]ode'`) on all three — and on a pgrep/pkill `-A`; a pgrep/pkill without `-f` is judged against the shell's name, `bash` (#1842); a `-v` pattern is still judged a self-match, and `$$`/`$PPID` no longer excuses one Run as a core of scripts/guard-dispatch.js (#2790: its refusal and warning text byte-identical to the bash guard over 6,967 differential commands)",
+			"selfSufficient": "yes for pkill and pgrep (mechanism, pid-capture recipe, and the bracket, `-A` and $$/$PPID escapes inline), though the pkill deny shows the quoted pattern masked as \"…\"; under `-v` it names the inverted hazard (the harness and the shell selected, bracketing no escape) and offers the pid recipe only (#1847); a by-name match names `bash` and offers the pid recipe, a name `bash` does not match, or `-A`; ps|grep is yes — mechanism inline (the command line is the shell's own argv), the fix (use the completion notification / output file / shell counter), the bracket escape, and a pointer to docs/agents/verification.md for \"the full rule\"; the comm limb is yes — the session's first carries rule:claude-process-count whole, the three argv[0] shapes inline, docs/environment.md §5 named for counting sessions (fed at HEAD 61de1e237: `pgrep -c claude` twice gave the rule, then nothing; `ps -e | grep -c claude` and `ps -eo pid,comm | grep -c claude` gave the ps|grep warning with the rule after it; `pgrep -fc claude`, `ps -ef`, `ps aux` and an `args:200` column gave no rule)",
+			"source": "#2790"
+		},
+		"scripts/lib/wide-read.js": {
+			"digest": "546319954ab10a9e",
+			"verdict": "at need, all four limbs. Run as a core: its Bash limbs through scripts/guard-wide-read.js, its Read limb in scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
+			"selfSufficient": "yes — every limb carries the concrete cheaper command for its own file inline; docs/agents/tool-output.md is named only for the why",
+			"source": "#2791"
+		},
+		"scripts/lib/agent-poll.js": {
+			"digest": "49c000bcc940fbe0",
+			"verdict": "too late — deny lands on the 3rd call for agents and read:<file> (and for a subagent's read), on the 2nd for noop; check and check:job never deny, warning from the 4th call inside 5 minutes. The harmful look has already run 2 times (1 for noop) before any text reaches the session. Run as a core of scripts/guard-dispatch.js, on Bash, Read and ListAgents since #3224 (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion); at #2896 an import move only (segment from review-suffix.js), measured by agent-poll.test.ts exact-text cases",
+			"selfSufficient": "yes, but late — each deny opens with the corrected command and the #845 mechanism; subagent variant correctly says wait inside the turn instead of ending it, on all five limbs. The parent's check:job warn ends \"the backgrounded watch is what wakes this session\" though its own advice names no backgrounded watch, only `sleep 120` spacing.",
+			"source": "#2791"
+		},
+		"scripts/lib/echo-call.js": {
+			"digest": "1a643594560c3e12",
+			"verdict": "at need for the runaway (3rd identical call, before it runs); the two wasted repeats are its design, not a lag. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
+			"selfSufficient": "yes — says end the turn (to a subagent: wait inside it, Bash and Read alike), or vary the command, and how the chain clears",
+			"source": "#2791"
+		},
+		"scripts/lib/recursive-dot-read.js": {
+			"digest": "7581c16d0425efb6",
+			"verdict": "at need, before the search runs, on a root named (`grep -rn PAT .`) or none (`grep -r PAT`, `rg PAT`). The prompt is named only where the payload's permission mode shows one: in `auto` a recursive grep warns on the node_modules/.git/build-output read it really makes, and an `rg` search passes silent. A path-less `rg` fed by a pipe passes, per its LIMITS. The heavy-tree limb, #2060: fed at 3ef670321 `grep -rn foo node_modules` and `find . -name x` it hands over rule:heavy-tree-search, and the same command again in that session nothing; `grep -rn PAT .` gets the rewrite warning with the rule after it; `grep -rn PAT scripts`, `find scripts -name x` and `rg -l PAT .` in auto mode nothing. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
+			"selfSufficient": "yes — the ready-to-run replacement command, keeping what follows the search (`| head -5`), plus the mechanism (grep's read of ignored trees; the prompt, in a mode that shows one) and the expansion's losses are inline; the heavy-tree limb is yes — rule:heavy-tree-search whole, naming the source directories, a root-run `rg` and `-prune` as the routes",
+			"source": "#2791"
+		},
+		"scripts/guard-root-find.js": {
+			"digest": "5854444ce4c5c622",
+			"verdict": "at need, on every such call, unlatched (fed at 18a1598da under #3143, byte-identical to the tree before #3018 but the printed plugin root: `find / -name x` refused 692 B at a 70-char root, so ~646 B at /home/lucmo/workflow-core; `timeout 120 find / -name x` 704, `find //` 693, `find /tmp/..` 698, `find .` from a cwd of / refused; `find ~ -name x` passed; the same session's repeat refused again). A core throw refuses via onThrow (216 B: `guard-root-find.js could not judge this command, so it refuses it: …`). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — refusal, reason, and three concrete alternative roots inline, no pointer needed; it reads no rule store.",
+			"source": "#3143"
+		},
+		"scripts/guard-ugrep-pattern.js": {
+			"digest": "e0c4524a4141ba33",
+			"verdict": "at need for the first ranged-repeat grep of a session (fed at 18a1598da under #3143, byte-identical to the tree before #3018: `grep -E 'a.{0,80}b'` and BRE `a\\{2,3\\}` warned 775 B; plain, exact-count `{3}` and `-P` greps silent); never fires again that session — the same session's next ranged grep 0 B — so a later grep, possibly the one actually refused, goes unwarned (by design: \"Warned once a session\"); clearing the latch re-warns. A throw on the path rewrite is allowed silent and logged, no latch written. Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — mechanism, how to read exit 2, and a re-spelling that keeps every other flag (and, for literals, `.`, bracket classes and bounded repeats, the output) inline; tool-output.md only named; it reads no rule store.",
+			"source": "#3143"
+		},
+		"scripts/guard-headroom-read.js": {
+			"digest": "c9670ecbde2c84a4",
+			"verdict": "at need — on the reading, before the stop-or-launch conclusion is drawn; once per session (latch), so a second short reading later in the session gets nothing",
+			"selfSufficient": "yes for the action (reap with `node scripts/reap-finished-sessions.js`, re-read) — but the stop threshold is a pointer only (\"docs/environment.md §6's rung\"), no figure inline",
+			"source": "#2073"
+		},
+		"scripts/guard-node-heap.js": {
+			"digest": "35baa1c12688fc10",
+			"verdict": "at need — on the command naming `max-old-space-size` or `max_old_space_size`, before it runs; once per session (latch)",
+			"selfSufficient": "yes — fed `export NODE_OPTIONS=--max-old-space-size=8192` it prints the whole rule: the 4096 cap, never remove or raise it, that raising it enlarges what one runaway can take down, cut concurrent sessions instead, and that a per-command lowering is no raise; `echo $NODE_OPTIONS` gets nothing",
+			"source": "#2025"
+		},
+		"scripts/lib/wait-loop.js": {
+			"digest": "a56111fd3056447f",
+			"verdict": "at need for both limbs, each reading the command with quoted spans and written heredoc bodies emptied except a shell's own script: a loop or long sleep quoted in a commit message or issue body passes, `bash -c 'until …'` and `bash <<X` still warn, and a `timeout` inside quotes does not bound a real loop. Run as a core of scripts/guard-dispatch.js (#2790: its refusal and warning text byte-identical to the bash guard over 143 differential commands)",
+			"selfSufficient": "yes, both — warn carries two copy-ready bounded forms; deny carries the ban, what passes, and the full hand-back recipe inline (one pointer, issue-tracker.md §Gating, for the gate-line grammar); the warn's excerpt of a `bash -c` script stops at the loop's own `done`; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/wait-length.txt, the wait's length and the 15-minute limit still inline in the deny's opening",
+			"source": "#2790"
+		},
+		"scripts/lib/bg-job.js": {
+			"digest": "1a6d5b97e62805c3",
+			"verdict": "at need on the first `run_in_background` call of a session; once per session thereafter. Never fires on the routes its LIMITS name (`&`, nohup, harness auto-backgrounding after 600 s (mantahostels#1900)). Run as a core of scripts/guard-dispatch.js (fed through scripts/guard-dispatch.js's hook line at #2786: a backgrounded call gave the rule, then nothing, latched).",
+			"selfSufficient": "yes — mechanism, the wrapper commands, check semantics and the waiting ceiling are all inline",
+			"source": "#1604, #2786"
+		},
+		"scripts/guard-suite-concurrency.js": {
+			"digest": "575fe6b137c9734d",
+			"verdict": "at need — every limb fires on the launch itself, before the suite starts; a second `next build` or `next dev` beside a running one is denied whatever the headroom and with no escape (`WFC_SUITE_CONCURRENT=1` does not stand it down), npm's `run build` and `npx next dev` included; a launch already through `queue-run.js` passes the count cap, `node scripts/queue-run.js -- pytest` beside one running suite drawing the 363 B past-the-ladder warn; fed `npm run test` at 1000 MB it denies under the ~2900 MB whole-suite rung with `Run instead: npm run test -- --queue`, and `pytest` with `node scripts/queue-run.js -- pytest`, a `--queue` launch drawing the headroom warn instead (#2305); fed `npm run test -- a.test.ts` it denies at 1000 MB under that run's own ~1450 MB rung, naming the 1 vitest worker its named files can occupy, and passes it at 1500 (#2558); beside one running whole suite, read off `ps` argv or off a launch record carrying `wholeSlot`, a bare `npm run test:changed` or `--full` run is denied at the count cap, and a bare `npm run test` too in a host with `landing` off (#2680); with `landing` on, as here, a bare `npm run test` beside it is admitted as a touched run, the deny saying when every running one is an open watcher that it never finishes; a running process whose launch record carries 2 resolved files takes no slot and is charged its 2 workers, so `npm run test -- a.test.ts` beside it meets a ~2150 MB rung (#2931); a touched run, four named files or `--retest`, beside a running whole suite is admitted, and beside 3 running suites two or three named files are only warned past the ladder, never at the count cap (#2935); beside one running 1-file run `npm run test -- --full=flag` is denied at 2450 and 2950 MB under the ~3250 MB rung \"for 6 vitest workers, 1 of them already running\" and passes at 3300 (#2772); the first build or whole-suite launch a session makes (`npm run test:py` naming no path included) gets the MemAvailable reading and `rule:memory-figure` before it starts (#2024); in an adopter with `suites` on, fed `npm run test` over a plain `vitest run` script declared as `commands.test`, it hands over `rule:targeted-runs` ahead of `rule:suite-tree-dirty`, and nothing more on the repeat; `npm run test -- a.test.ts` and `npm run test:changed` get no `rule:targeted-runs` (#2237); in a host declaring `cargo test` as `commands.test`, that launch typed bare is handed `rule:targeted-runs` (269 B) once a session, beside three running suites too, and is never counted toward the count cap, as #2586 measured for `npx jest`, `yarn test`, `pnpm test`, `bun test`, `make test` and `go test ./...` through the seven #2303 registrations; a bare `tsc --noEmit` beside a running `.bin/tsc` is denied (275 B) and `npx tsc -p tsconfig.strict.json --noEmit` at 2000 MB under the ~2750 MB type-check rung (302 B), `WFC_SUITE_CONCURRENT=1` not standing it down, while `npm run typecheck` beside a running one and a bare `tsc` on a free slot pass silent (#3163). Fed at main b201208bd and at landing 44b882f87 under #2907, the `tsc` limb at landing c7b451e19 + 63bb56959 under #3163, `ps`, `/proc/meminfo` and `/proc/<pid>/environ` stubbed",
+			"selfSufficient": "yes — the count-cap deny and the deny of a test launch under its §6 memory rung, a named-file run's rung set by the vitest workers it can occupy (#2305, #2558), open with the literal command to run instead plus the escape: `--queue` on a run-vitest.js launch, `node scripts/queue-run.js -- <launch>` on any other suite (`node --test`, pytest, a plain npm script), as the whole command or as the launch to swap into a compound one, a loop's keywords dropped; a watcher gets the wait and its launch re-run, never `queue-run.js`, whatever its script body (#1927); both ladder warns name the figure, the shortfall and the lever (reap command / narrow the run, or wait where the run is narrowed as far as it goes); the injection carries the whole rule; the second-build/dev deny carries the never-two rule, the reason and the `ps` line that finds the running one; the memory-figure injection carries the before reading and the whole rule (#2024); the targeted-runs injection carries the whole rule (#2237); the bare-`tsc` deny opens with `node scripts/queue-run.js --tsc -- <launch>` and names the limb, a running `tsc` or the reading against the ~2750 MB rung (#3163)",
+			"source": "#2024, #2237, #2305, #2560, #2586, #2907, #3163"
+		},
+		"scripts/guard-vitest-wrapper.js": {
+			"digest": "411184eecc2f5dd0",
+			"verdict": "at need — fires on the launch, before the unwatched run starts, as additionalContext, never a deny: `npx vitest run scripts/lib/cpu-load.test.ts` 1509 B the first time in a session (rule + `This command:`/`Wrapped:` lines), 259 B on the same session's next run (the standing line naming `rule:vitest-wrapper` + the wrapped command); `node_modules/.bin/vitest run …` 1523 B; `npx vitest --watch`, `npx vitest bench`, `node scripts/run-vitest.js …` and `npm run test` passed, 0 B. With the rule store unreadable it sent 348 B, the fallback naming docs/agents/rules/vitest-wrapper.txt, and still warned (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout.",
+			"selfSufficient": "yes — the reason and the rule once a session, and the literal wrapped command every time; with the store unreadable the fallback names the file to read and the wrapped command still rides",
+			"source": "#3143"
+		},
+		"scripts/lib/suite-background.js": {
+			"digest": "1130382607ff7806",
+			"verdict": "at need — refuses the launch itself Run as a core of scripts/guard-dispatch.js (#2790: its refusal and warning text byte-identical to the bash guard over 213 differential commands)",
+			"selfSufficient": "yes — line one is the literal corrected command (detachment / timeout stripped), followed by the reason, the bg-run.sh/notification handling and the escape (`WFC_SUITE_DETACH=1` / `WFC_SUITE_TIMEOUT=1`)",
+			"source": "#2790"
+		},
+		"scripts/guard-unasked-rerun.js": {
+			"digest": "fde1d835fdbb8867",
+			"verdict": "at need — refuses the redundant run before it starts, once a session: with a full-run vitest certificate at HEAD, `npm run test`, `npm test` and `npm run test -- --queue` each refused (987 B); the same session re-typing it, a run naming a file, `npm run test:changed` with no uncommitted files of its own, and a store with no certificates passed, 0 B. With the rule store unreadable it still refuses, 457 B, the rule swapped for the fallback naming docs/agents/rules/unasked-rerun-landing.txt. A judge that throws allows, logged; a throw outside the judge refuses (91 B) (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout.",
+			"selfSufficient": "yes — names the attesting certificate (date, sha, full run), the escape (re-type it), what is owed before a push (under landing the tests you touched, the lander running the full suite, #2936) and what is never refused",
+			"source": "#3143"
+		},
+		"scripts/guard-npm-install.js": {
+			"digest": "09aefed0030135fc",
+			"verdict": "at need — every limb refuses before the install/exec runs; check 1 runs before any registry call, as designed: `npm install left-pad` 457 B and `npm i -D lodash` 450 B (check 1); `npm install --ignore-scripts frobnicate-xyz-3143` 468 B against the live registry (check 2, the missing-name limb); with `npm view` and `curl` stubbed through WFC_NPM and WFC_CURL, a package downloaded 12 times last month refused 580 B and one first published 3 days ago 594 B (check 2's thin and young limbs), and the thin one under `WFC_ALLOW_NEW_PACKAGE=1` passed, 0 B; `npx tsc --noEmit` 828 B, `npx biome check scripts` 840 B and `npx frobnicate-xyz` 801 B (check 3). `npm install`, `npm ci`, `npm install --ignore-scripts left-pad`, `npx -p typescript tsc`, `npx @biomejs/biome check` and `npm run typecheck` passed, 0 B. A throwing npmView or readManifest port refuses, 91/96 B (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout.",
+			"selfSufficient": "yes — each deny carries the reason and the corrected form (add `--ignore-scripts` and commit the lockfile; check the name against the tool's docs; on a thin or young package the `WFC_ALLOW_NEW_PACKAGE=1` escape, honoured only from Claude Code's own environment and never the command line, or the founder running the install from his own terminal; the two resolving spellings). Check 3 names the dependency whose installed `bin` carries the bin (`npx -p typescript tsc`, `npx @biomejs/biome`), says so where none does, and where node_modules is unread says it could not tell (~885 B, `npx -p <that dependency> tsc`), still naming `@biomejs/biome` for biome; its biome sentence reads as the incident behind the rule",
+			"source": "#3143"
+		},
+		"scripts/lib/check-sh-rules.js": {
+			"digest": "e1d9fcb186883bd3",
+			"verdict": "at need — injected before the gate runs, the only moment the not-installed reading can be stated. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — carries the binary's location/version, the directive's literal form and the faster command",
+			"source": "#1780"
+		},
+		"scripts/guard-lost-verdict.js": {
+			"digest": "e1caea86633e08f4",
+			"verdict": "at need — it lands right after the call whose verdict was cut and before the session would re-run the suite",
+			"selfSufficient": "yes — it hands over the verdict itself and the log path, plus the instruction not to re-run",
+			"source": "#1846"
+		},
+		"scripts/lib/file-claim.js": {
+			"digest": "311a0aabb4d0e8d0",
+			"verdict": "at need — refusal on the contended write itself; cluster on the first clean guarded write, led on a `derived` or `generated-only` doc by the authority-class rule, on the roadmap HTML (roadmap on) by the roadmap-edit rule, on the operating manual (governance and roadmap on) by the manual-sync rule, and on a skill file, CLAUDE.md or AGENTS.md by the writing-for-agents rule, which outside both tiers it prints alone.. Run as a core of scripts/guard-dispatch.js (#2788)",
+			"selfSufficient": "yes — refusal carries holder, wait command, escape, request and debt commands with the literal path; the clean-fire cluster states each rule and its command; fed an Edit of docs/roadmap-digest.md it opens with rule:doc-authority-class, of docs/reference-roadmap.html with rule:roadmap-edit where roadmap is on and with rule:claim-bash-route where it is off, of docs/operating-manual.md with rule:manual-sync where governance and roadmap are on and without it where either is off, of CLAUDE.md with rule:writing-for-agents, of .agents/skills/tdd/SKILL.md with rule:writing-for-agents alone, and of docs/working-contract.md with none of the three.",
+			"source": "#2788"
+		},
+		"scripts/lib/claimed-bash-write.js": {
+			"digest": "8652eeac4673a0da",
+			"verdict": "at need — on the clobbering command itself, before it runs. Second firing on the same (lock, holder, target) triple is silent by design, including a different write spelling (redirect vs sed -i) — the ledger keys on the target, not the spelling. The restore limb (#2028) fires once a session on a `cp`/`mv` destination, `git restore` path or `git checkout` path, `--` or not, that `git diff HEAD` finds changed, landing with the command's result; silent on a clean or untracked target, a branch name, an unstage and a redirect. Run as a core of scripts/guard-dispatch.js (#2788)",
+			"selfSufficient": "yes — names the holder, says nothing will refuse it, and gives the `request` command; it does not repeat `wait`, which the file-claim cluster carries. The restore limb is yes — rule:whole-file-restore whole: the inverse edit, the per-path discard, the cp ban and what to say once a neighbour's edit is gone (fed at HEAD 1038a8067 in a sandbox repo with f.txt edited: `git restore -- f.txt` gave the rule, 807 B, then nothing on the repeat; `cp /tmp/f.bak f.txt > log` (#2142's redirect-led row) and `git checkout f.txt`, each in a fresh session, the rule; `cp /tmp/f.bak log > f.txt`, `git checkout main` and `echo b > f.txt` nothing; the claim warning riding ahead of it is the suite's stub-judge case, not fed live)",
+			"source": "#2788"
+		},
+		"scripts/lib/job-dir-scratch.js": {
+			"digest": "da15b7b542cfa279",
+			"verdict": "at need — on the write call itself, run as a core of scripts/guard-dispatch.js. Fed at 18a1598da under #3143 through the entry (`--only guard-job-dir-scratch`, a fake CLAUDE_JOB_DIR): a Write, an Edit and a Bash `>` into the job dir's tmp folder refused (1987, 1990 and 2022 B; the Bash one also 2022 B through the whole entry); a Write into a subfolder there warned once (1639 B), then 0 B; a write outside any job dir and a Bash read of `$CLAUDE_JOB_DIR/tasks/x.output` passed, 0 B. With the rule store unreadable it still refuses (666 B) and warns (318 B), ending in the fallback naming docs/agents/rules/job-dir-scratch.txt. Byte counts are the deny reason or context text alone, not hook stdout.",
+			"selfSufficient": "yes — the deny hands the sanctioned target, whichever spelling wrote it (Same write / Move it to / Same command); the warn states the rule, the location, and the naming convention; the unreadable-store fallback names the file to read; re-fed at #3146 with an empty rule store, the same fallback through ruleOrFallback",
+			"source": "#3143"
+		},
+		"scripts/lib/root-scratch.js": {
+			"digest": "8d52948024755fb4",
+			"verdict": "at need — on the write call; no latch, so every stray is refused. Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); re-fed at #2896 through the entry: a Write and a Bash redirect to a root dotfile each gave the same deny and sanctioned target",
+			"selfSufficient": "yes — names the rule, the reason, the corrected target (bare, whichever spelling wrote it) and the escape.",
+			"source": "#2789"
+		},
+		"scripts/lib/scratch-overwrite.js": {
+			"digest": "04921b40038cc47c",
+			"verdict": "at need — refuses the first Write over the unrecorded file, before its bytes are replaced (778 B deny); the identical re-send passes silent. Once per path. Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); re-fed at #2896 through the entry: an unrecorded .claude/tmp file gave the same once-only deny with the session-suffixed path",
+			"selfSufficient": "yes — states the risk, hands a ready-made session-suffixed path, and names the re-send as the escape.",
+			"source": "#2789"
+		},
+		"scripts/lib/dispatch-rewrite.js": {
+			"digest": "d61dd9e2850256d6",
+			"verdict": "at need — it rewrites the dispatch itself rather than warning, so the fix is already applied when the session reads the note; the watch or end-the-turn note, and a wrong-tier or untracked-search rule, arrive as the agent launches; a subagent's own dispatch is denied before it runs. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
+			"selfSufficient": "yes — the watch command, the stop-on-completion step and the abandon condition are all in the note, on the prompt's own artefact as on a supplied one; a dispatch with none is told to end the turn; the burn note names its off switch; a tripped tier or search rule prints its whole fragment once a session, and the subagent deny prints the whole rule. The supplied Artefact line reaches the subagent with two instructions, to append findings as they land and to search a long source on disk rather than read it whole; a prompt already naming a usable artefact gets neither",
+			"source": "#2791"
+		},
+		"scripts/guard-priced-options.js": {
+			"digest": "7d63834de655d714",
+			"verdict": "under-researched limb — at need (the Stop carrying the round, before it reaches the founder), and it reaches past the session ceiling and is capped at 3 of its own. Shape limb — at need below SESSION_MAX=5, quiet above it; a round the under-researched or close-rivals check refuses while the shape limb is silent has its shape faults named in that refusal and its unchanged re-send refused on shape until fixed, so past the ceiling only a misshapen round neither check refuses — caught by neither the close nor the low-top test and sent after 10+ tool calls, or past a spent cap or a tool-call count the transcript cannot give — passes unrefused. Research-ladder limb — at need (the Stop carrying a close-refused question re-sent still caught, close or low-top, with a rung untried), past the session ceiling, capped at 3 of its own. Secret-ask limb — at need, a line beside a runnable `write-secret.js` route that exports a credential, moves `.env` or pipes into the route cancelling it (#2645). A lib of its own that will not load blocks once a turn, naming the module, and lets the re-stop through. Founder-act limb, re-fed at landing 2c6d99fe3 under #3157: at need on a round option handing the founder an act by back-reference, capped at 3 a session, the fourth passing; a literal `!` line and a prompt named as in an issue pass, 0 B.",
+			"selfSufficient": "yes — both limbs carry defect, rule text and fix inline; shape template detail by pointer to core-voice.md; a shape hold names each shape fault and says the question passes once its shape is right; the refusal that spends the under-researched or close-rivals cap says that check will not refuse the re-send, and promises no refusal; the founder-act limb refuses a ticket-comment back-reference at need, naming the phrase and printing the hand-over rule inline; the research-ladder refusal names the missing rungs, their order and budgets, the subagent's prompt and the delegated-decision line inline, and its cap-spending refusal says it will not refuse the re-send; the house-decision text the under-researched and close-rivals refusals inline says \"Any other choice is a delegated decision\" and names `node scripts/record-delegated-decision.js <n>` to record it; re-fed at landing 2c6d99fe3 under #3157, after founder-handover.txt gained its prompting-`sudo` clause: a back-reference to `issuecomment-…` and to `the line I gave earlier` were each refused in a round option (6,674 and 6,662 B), the hand-over rule printed whole, that clause included; with the rule store empty it still refuses (697 B), the rule swapped for a short fallback that names no rule file (#3189), the fail-open logged",
+			"source": "#2072, #3157, #3189"
+		},
+		"scripts/guard-selection-sum.js": {
+			"digest": "6a4821ed9b67e30c",
+			"verdict": "at need (the dispatch turn's Stop); silent for an unarmed session, as designed",
+			"selfSufficient": "yes — defect, the run's measured figure and the template all inline",
+			"source": "#1604"
+		},
+		"scripts/guard-uncommitted-work.js": {
+			"digest": "0786300e1253e24d",
+			"verdict": "at need below the cap; BLOCK_CAP = 6 — the 7th turn is silent (capSpent stands it down before it assembles anything).",
+			"selfSufficient": "yes, below the cap — rule, literal fix command and escape all inline",
+			"source": "#2073, #3066"
+		},
+		"scripts/guard-session-ceiling.js": {
+			"digest": "f78f94baac0a1db2",
+			"verdict": "at need (wind-up band on a session-ending `result:` turn; `waiting:` passes unblocked, per #919, and so, below the tripwire, does a `result:` ending whose inventory guard-inventory.js passes with no launch of its own out). Fed at landing 2c6d99fe3 under #3157: at 210,000 tokens a `result:` Stop blocked (3,488 B) and every later one again (1,739 B), one carrying stop_hook_active passing; `waiting:` at 210,000 and `result:` at 150,000 passed, 0 B; at 310,000 a `waiting:` Stop met the tripwire (3,575 B).",
+			"selfSufficient": "yes on the first block (full rule inline); pointer-plus-summary on repeats — the summary paragraph still carries the act and the format; fed at #3157 with an empty rule store: the inventory step keeps its summary and the rule's place takes the fallback template line naming docs/agents/rules/founder-deliverable.txt (2,035 B)",
+			"source": "#1810, #3157"
+		},
+		"scripts/guard-inventory.js": {
+			"digest": "546dd6edcf0933ab",
+			"verdict": "at need (the ending turn of a background job)",
+			"selfSufficient": "yes — the defect, the exact shape to write and the whole underlying rule are inline",
+			"source": "#1810"
+		},
+		"scripts/guard-jev-advisory.js": {
+			"digest": "305e68c993ce0249",
+			"verdict": "at need for the founder (the turn's Stop); never reaches the session — by design systemMessage is screen-only, so the model that wrote the choice is told nothing; `npm run status` quotes the flag back (status-report.js, #2038)",
+			"selfSufficient": "no (for the session) — the text is addressed to the founder and the session never sees it; for the founder it is self-sufficient (says what is wrong, what to ask for, and the jev-verdict.js command to judge the flag)",
+			"source": "#2263"
+		},
+		"scripts/guard-lost-deny.js": {
+			"digest": "6b38461d64efd7cc",
+			"verdict": "too late by construction for the act (the escaped call already ran) but at the earliest point the session can still act — the turn's Stop after the cancellation; it fires for a guard refusing through a DENIES-THROUGH: delegate (guard-dispatch.js) and for an adopter's own guard writing its deny by hand, and stays silent on one that only adds context",
+			"selfSufficient": "yes — names what escaped, whether a replay is worth it (a guard with no measured rate is called worth it), and the literal replay command; it does not restate the escaped guard's own rule (here, the branch rule), which the replay would print",
+			"source": "#1846"
+		},
+		"scripts/guard-automode-refusal.js": {
+			"digest": "e77d62093fffe29e",
+			"verdict": "at need (end of the turn carrying the refusal, while the session can still act)",
+			"selfSufficient": "yes — the refused act, its reason and the whole rule with its exception are inline; one cross-reference (`docs/environment.md` §Auto mode…) for the allow-rule detail",
+			"source": "#1604"
+		},
+		"scripts/guard-unpushed-commits.js": {
+			"digest": "75fe5e92d25ff65c",
+			"verdict": "at need (end of the turn holding the session's unpushed commits; fed at 51b2b437b under #3070, one ledger commit ahead: suites on 598 B naming push-check.js under `rule:push-cadence`, suites off 645 B a bare push to origin/main, landing on 677 B the push to origin/landing under `rule:push-cadence-landing`, suites on with `commands.test` gated at commit (`pytest`) 643 B a bare push to origin/main naming that gate, a contract-99 config the push-check route; 0 B on each re-stop)",
+			"selfSufficient": "same subject only — the act and its first command (push:check, a bare push where suites is off or the tests are gated at commit, or under landing the push to `landing`) are inline, but the rest of the push cadence is a `rule:push-cadence` or `rule:push-cadence-landing` pointer, which guard-push-rules.js prints on the push itself",
+			"source": "#3070"
+		},
+		"scripts/guard-paste-self-match.js": {
+			"digest": "9be42fd2084af725",
+			"verdict": "at need (the turn handing the paste over, before the founder runs it)",
+			"selfSufficient": "yes — mechanism, the exact match (or, under `-v`, miss) against the paste or, without `-f`, the shell's name `bash` (#1842), and the fix inline: kill by pid, or for a paste match keep the target out of the rest of the paste, or for a name match use a pattern `bash` does not match",
+			"source": "#1842"
+		},
+		"scripts/concision-backstop.sh": {
+			"digest": "a10df6571e52d12d",
+			"verdict": "at need (the Stop after the session's own writes cross the threshold); SessionStart limb prints nothing, by design; a rejected review marker written after the code nag fired is nagged again at the next Stop, naming why, once per marker written (a valid marker clears it)",
+			"selfSufficient": "prose — pointer only for the pass itself (names the skill; criteria live there), closing marker inline; code — yes for dispatch mechanics, review substance in the code-review skill; a rejected marker's re-nag names the marker, the reason it was rejected, and the whole code nag again; in an /implement session either nag ends with rule:implement-closing-steps whole, or the fragment's path where the store cannot supply it (#2031, fed by its suite and by this session's own Stop nag); its Standards-axis text is the injector's word for word (#2097, fed by that session's own Stop nag)",
+			"source": "#2097"
+		},
+		"scripts/inject-compaction-count.js": {
+			"digest": "fe700dcaa07fb7cc",
+			"verdict": "at need (the first model turn after an autocompaction)",
+			"selfSufficient": "yes — count plus the act (finish the unit, start nothing new, end)",
+			"source": "#1604"
+		},
+		"scripts/lib/blind-dispatch.js": {
+			"digest": "ebaa97f2d6877c9e",
+			"verdict": "at need — refuses the dispatch before the subagent takes its snapshot, on \"blind\" in prompt or description (\"blind spot\" excepted); a stale `Blind-checked:` sha is refused with the subjects landed since, an unknown one with the full snapshot, a fork outright; Explore, Plan and a CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS child pass. A blind dispatch that never says \"blind\" is unseen. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
+			"selfSufficient": "yes for the common route — the branch, five subjects and status the subagent would read, the judgement to make, and the literal `Blind-checked: <HEAD>` line to add; the no-snapshot recipe is a pointer to docs/agents/blind-dispatch.md",
+			"source": "#2791"
+		},
+		"scripts/lib/anthropic-report.js": {
+			"digest": "f7df58255bda5992",
+			"verdict": "at need — any gh issue, pr or api write tied to an anthropics/* repo, whether through --repo/-R, an issue URL, the api endpoint, GH_REPO or `timeout 60 gh`, is refused (510–533 B); a gh api call whose method it cannot read counts as a write. Reads, other repos and gh release pass silent (fed at 18a1598da under #3143). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — the refusal names the repo it read, quotes the command and prints the whole rule with the in-repo alternative. With the rule unreadable it still refuses (399 B), giving a one-line rule and the file path",
+			"source": "#3143"
+		},
+		"scripts/check-weakens-line.js": {
+			"digest": "f2d351ac3834b57a",
+			"verdict": "at need — refuses the commit at commit-msg, before it lands, naming each unnamed weakening; fed mantahostels 59c506122's index and message it refused, naming guard-vitest-wrapper.sh and check-snapshot-restatements.js among 27; fed at HEAD 935829f81 and re-fed at landing 2c6d99fe3 under #3157 a commit run with WFC_UPSTREAM_RECORD_OFF=1, it refused naming the variable (1,100 B at 2c6d99fe3), and passed once a Weakens: line named it. Re-fed both at HEAD 694b00352 after #2636 routed its git through WFC_GIT: the same 27 names and the same stand-down refusal and pass. WFC_GIT naming the real git answers as PATH did; fed at b2845e969 and re-fed at 2c6d99fe3 after #3068 put HEAD's read on one fail-closed reader, one that exits 1 or 128 or does not exist refuses as BROKEN, naming git rev-parse HEAD (exit 2), and a repo with no commits still skips (#2864). Fed at b93b04a71 after #3075 made lib/commit-message.js follow git's cleanup mode: under WFC_UPSTREAM_RECORD_OFF=1 a Weakens: line below the scissors line passed on a -F commit, which records it, and refused naming the variable under commit.cleanup=scissors and with no GIT_EDITOR (the editor route), which cut it. New with #2636: at 5b616c699~1 WFC_GIT did not reach the checker and that commit was refused.",
+			"selfSufficient": "yes — each line names the weakening and the Weakens: line to write, and rule:weakens-line follows whole; re-fed at #3157 with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/weakens-line.txt (370 B).",
+			"source": "#2761, #2864, #3066, #3068, #3157"
+		},
+		"scripts/guard-failed-call-rules.js": {
+			"digest": "c38a7e8a50178fe4",
+			"verdict": "at need — after a Bash call dies at exit 137 or 143 (not an interrupt), or when a batch's Skill call is refused for disable-model-invocation, before the session debugs it or copies the skill; speaks on every hit (unlatched). Other exits and batches pass silent (fed at 18a1598da under #3143). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — the kill's likely cause, run `memcheck` first and the other causes are inline (634 B); or the slash-only rule and do-the-work-directly (418 B). With the rule unreadable it says nothing (0 B) and logs it, by design, so there is no fallback",
+			"source": "#3143"
+		},
+		"scripts/guard-rm-unchecked.js": {
+			"digest": "690d5da47d426dd9",
+			"verdict": "at need — before the command reaches the harness's removal check, once per command: `rm -rf \"$T\"/*`, `cd build && rm *.log` and `bash -c \"make clean\"; rm a.txt` each refused (1,084, 1,032 and 1,087 B, fed at #2801's Node port), the identical re-send and `rm -rf /tmp/x`, `rm -rf $T` and `R=/tmp; rm -rf $R/a` passed",
+			"selfSufficient": "yes — the limb's reason, the two spellings that never meet the check and the re-send escape inline",
+			"source": "#2586"
+		},
+		"scripts/self-plugin-canary.sh": {
+			"digest": "b7502dd873312e26",
+			"verdict": "at need — every tool call of a session with no self-plugin marker exits 2, from the first (622 B on stderr; 767 B with the could-not-check line where the input carries no session id); silent once write-self-plugin-marker.sh has written the marker",
+			"selfSufficient": "yes — the cause, the literal `! claude plugin marketplace add '<main checkout>/self-plugin' --scope user` for the founder and the restart inline",
+			"source": "#2586"
+		},
+		"scripts/lib/cpu-load.js": {
+			"digest": "f0b2662190406a5a",
+			"verdict": "at need — before the generator starts, every call, no latch: `yes > /dev/null &`, `stress-ng --cpu 8 --timeout 60`, `while true; do :; done &`, `bash load.sh` (the script backgrounding `yes`, its 490 B net of the longer scratch path it was fed at) and `bash -c 'yes > /dev/null &'` each refused (477, 490, 486, 490 and 496 B, fed at 18a1598da under #3143 with WFC_CPU_COUNT=8); `yes | head -3`, `stress-ng --version`, a `sleep` loop, a script with no generator, `sh -c 'echo hi'` and the `systemd-run -p CPUQuota=400%` and `taskset -c 0-3` forms passed, 0 B; a core that throws refuses (90 B, `guard-cpu-load.js could not judge this command, so it refuses it: …`). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — the reason, the machine's core count, both capped forms with this machine's cap and the pass shape inline",
+			"source": "#3143"
+		},
+		"scripts/lib/image-budget.js": {
+			"digest": "cd260f44d4becc2b",
+			"verdict": "at need — once, on the Read that takes this agent's image total past 13 M base64 characters, before the 17.5 M request cap; then on each Read that pushes older images past the cap, as it does so, naming each file once. Silent on a text Read; an image from any route but Read is uncounted. Run as a core of scripts/guard-dispatch.js (#2787: its warning and notice text the bash guard's, kept by every message case moved into lib/image-budget.test.ts)",
+			"selfSufficient": "yes — the count, the cap, the `[media removed: request limit]` swap the Read result does not show, the files gone by name, and the act: do not judge them from memory, stop and report",
+			"source": "#2787"
+		}
+	}
+}

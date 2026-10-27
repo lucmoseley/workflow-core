@@ -1,0 +1,159 @@
+#!/usr/bin/env sh
+# prepare-commit-msg — runs the gate stack on a commit or merge `pre-commit` did
+# not gate, `--no-verify` among them, and gitleaks alone on a replay
+# (mantahostels#1705, mantahostels#1706); refuses a message that would close an
+# issue (workflow-core#138).
+#
+# `--no-verify` skips `pre-commit`, `commit-msg` and `pre-merge-commit`, and
+# skips THIS hook on none of them — measured on git 2.43.0 at mantahostels#1705 and pinned
+# by scripts/prepare-commit-msg-gate.test.ts. So this is where the two
+# spellings `git merge --no-verify` and `git commit --no-verify` meet the
+# gates.
+#
+# IMPLICIT:  runs the whole of .husky/pre-commit over the staged (or merge)
+#            content, on every commit that reaches this hook — EXCEPT on the
+#            replay path below (cherry-pick, rebase, `rebase --continue`),
+#            where it runs gitleaks alone and nothing else in the stack (mantahostels#1706).
+#            It also refuses a message carrying a GitHub closing keyword before
+#            an issue reference, on every route but a replay and a message
+#            still to be typed into $EDITOR (workflow-core#138). Which route a commit is
+#            on, per hook: scripts/lib/commit-route.sh, whose absence
+#            refuses every commit.
+# JUSTIFIED: fail-safe — this is the last hook `--no-verify` cannot turn off,
+#            and since mantahostels#910 nothing runs on push, so a gate skipped here is
+#            unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery lag,
+#            not the 4-hourly cron.
+# DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
+#            turn off every hook in the repo at once.
+#            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies `--no-verify`
+#            on `git commit`, `git merge`, `git rebase`, `git cherry-pick` and
+#            `git revert` in an agent session unless wrapped;
+#            `scripts/lib/commit-form.js`'s LIMITS holds the whole defeat list (workflow-core#800). Which
+#            binary the replay path's scan runs is named by WFC_GITLEAKS (§N7,
+#            workflow-core#224).
+#
+# A refusal aborts the operation: git exits 1 and writes no commit. On a merge
+# it leaves the merge IN PROGRESS with MERGE_HEAD set, exactly as a
+# `pre-merge-commit` refusal does — `.husky/pre-merge-commit`'s header has what
+# that strands and how to clear it.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (workflow-core#745)
+
+here="$(dirname "$0")"
+gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
+stamp="${gitdir:-/nonexistent}/wfc-precommit-stamp"
+
+# CONSUMED ON READ, before any stand-down below can return early: a stamp that
+# outlived its commit — an editor abort, a refusal further down the hook chain —
+# would otherwise sit waiting to stand down some later commit sharing its tree.
+recorded=""
+if [ -f "$stamp" ]; then
+  recorded="$(cat "$stamp" 2>/dev/null || :)"
+  rm -f "$stamp"
+fi
+
+# ROUTE DETECTION IS READ HERE, ABOVE STAND-DOWN 1 (workflow-core#138), because the
+# closing-keyword limb below it must run on every ordinary commit — and
+# stand-down 1 exits 0 on every ordinary commit, `pre-commit` having already
+# run and stamped. What git shows this hook per route: the table in
+# scripts/lib/commit-route.sh.
+#
+# THE REPLAY PATH (mantahostels#1706): the routes wfc_commit_route_replays
+# names, which reach no `pre-commit`. A rebase's conflict resolution is bytes no
+# commit in the repository ever carried. The two apply routes have
+# .husky/pre-applypatch as their seam, and are listed so that a git which starts
+# routing them this way is gated rather than silently exempt.
+#
+# gitleaks ALONE, never the whole stack on every path (mantahostels#1687): an
+# intermediate rebase state can legitimately fail a
+# cross-file check only the final state satisfies — check-digest-version.js's
+# roadmap/digest version pair — which makes an ordinary rebase impossible, worse
+# than the gap. THE RESIDUAL is everything else in the stack, unrun on these
+# routes.
+#
+# Every other route takes the whole stack. On `git revert A B` that is once per
+# reverted commit, which can strand on the same intermediate state a rebase
+# would (workflow-core#1503); a red strands it until `git revert --abort`.
+route_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"
+if [ ! -r "$route_lib" ]; then
+  echo "prepare-commit-msg: $route_lib is missing, so this commit's route cannot be read." >&2
+  echo "  Refusing rather than gating it as an ordinary commit (workflow-core#1503)." >&2
+  exit 1
+fi
+# shellcheck source=scripts/lib/commit-route.sh
+. "$route_lib"
+route="$(wfc_commit_route prepare-commit-msg "$gitdir")"
+replay=""
+if wfc_commit_route_replays "$route"; then
+  replay=1
+fi
+
+# THE CLOSING-KEYWORD LIMB (workflow-core#138). The guard-commit-form core denies the
+# same pattern at PreToolUse, but reads `-m`/`--message` values alone: `-F
+# <file>`, a `-c`/`-C` reuse and the founder's own terminal all reach GitHub
+# past it, and the issue then closes on the push with no resolution comment and
+# no `**Outstanding:**` line (workflow-core#118). This hook reads the finished message file,
+# so it sees all three. It does NOT see a message typed into $EDITOR — git runs
+# this hook before the editor opens and hands it an empty file — which is what
+# `.husky/commit-msg` exists for.
+#
+# STOOD DOWN ON THE REPLAY PATHS, and only there: a rebase or cherry-pick
+# replaying a pre-workflow-core#129 commit carries a keyword nobody is writing now, and
+# refusing would strand the sequence. A `git revert` is not a replay path — the
+# scanner drops the `Revert "…"` subject line for that reason, with the
+# residual stated in its own header.
+#
+# `$1` EMPTY means git did not invoke this hook — the direct `sh -e
+# .husky/prepare-commit-msg` a test or a person makes — so there is no message
+# to judge and the limb skips rather than refusing. A `$1` that is set and
+# unreadable is the fail-closed case, and belongs to the scanner.
+if [ -z "$replay" ] && [ -n "${1-}" ]; then
+  # FAIL CLOSED on a missing scanner, as .husky/commit-msg does and for the
+  # same reason: each worktree resolves its own scripts/ here.
+  scanner="${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-commit-message-closes.sh"
+  if [ ! -r "$scanner" ]; then
+    echo "prepare-commit-msg: $scanner is missing, so the closing-keyword scan did not run." >&2
+    echo "  Refusing rather than passing the message unread (workflow-core#138)." >&2
+    exit 1
+  fi
+  bash "$scanner" "$1" prepare-commit-msg || exit 1
+fi
+
+# Stand-down 1: `pre-commit` already ran, on this exact index, and without it
+# every ordinary commit would run the whole stack twice. Written at the foot of
+# that file on its own exit 0, so its presence means every gate passed; keyed to
+# the index tree, so a stamp from a different index does not match.
+tree="$(git write-tree 2>/dev/null || :)"
+if [ -n "$recorded" ] && [ -n "$tree" ] && [ "$recorded" = "$tree" ]; then
+  exit 0
+fi
+
+if [ -n "$replay" ]; then
+  wfc_replay_scan prepare-commit-msg "$route" && exit 0
+  exit 1
+fi
+
+# `sh -e` rather than a `.` source, and the status passed through rather than
+# collapsed to 1 — both for the reasons `.husky/pre-merge-commit` records.
+# `git` itself discards the exit code and reports 1.
+status=0
+sh -e "$here/pre-commit" || status=$?
+# pre-commit stamps its own success, and leaving that stamp would let this run
+# stand down a later `--no-verify` commit.
+rm -f "$stamp"
+if [ "$status" -eq 0 ]; then
+  exit 0
+fi
+
+echo "prepare-commit-msg: the gates above refused this commit's content." >&2
+echo "  This hook runs them because --no-verify cannot turn it off (mantahostels#1705)." >&2
+echo "  Fix the finding and commit again." >&2
+# A refusal here can strand a sequence. A merge and a multi-commit revert are
+# readable; a clean single revert is not (mantahostels#1706).
+abort="$(wfc_commit_route_abort "$route")"
+if [ -n "$abort" ]; then
+  echo "  The $(wfc_commit_route_name "$route") is left IN PROGRESS. Clear it with:  $abort" >&2
+else
+  echo "  Was this a revert? It is left IN PROGRESS:  git revert --abort" >&2
+fi
+exit "$status"

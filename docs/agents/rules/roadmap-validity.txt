@@ -1,0 +1,14 @@
+A COMMIT STAGING `docs/reference-roadmap.html` MUST LEAVE IT STRUCTURALLY VALID.
+
+Fix the cards named above through the roadmap-edit skill, which is the only
+sanctioned route into that file — never a hand edit, and never a bare string
+replacement on it. Then commit it by pathspec, never `git add` first:
+`node scripts/commit-paths.js -m "…" -- docs/reference-roadmap.html <other paths>`.
+
+This gate reads the commit's INDEX, which the pathspec fills. Run by hand outside
+a commit it SKIPs, having nothing to look at; check the working copy with
+`node scripts/check-roadmap-valid.js --tree` instead.
+
+An invalid roadmap that reached `main` by a route running no hook is still
+caught: the scheduled `Document guards` job re-runs this checker over the
+working tree (`--tree`) as a backstop (mantahostels#974).

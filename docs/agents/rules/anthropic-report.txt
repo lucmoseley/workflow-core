@@ -1,0 +1,3 @@
+NOTHING IS REPORTED OR REQUESTED TO ANTHROPIC (#1967 Q1 (A)) — no bug report, feature request or support message, by any route, and no draft of one for the founder to send.
+
+A harness gap gets an in-repo fix or workaround, or is recorded as a harness limit on the ticket in hand.

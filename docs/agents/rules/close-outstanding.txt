@@ -1,0 +1,27 @@
+EVERY CLOSE SAYS WHAT IS STILL OUTSTANDING.
+
+A line beginning `**Outstanding:**`, in the close's own `--comment` or else the
+issue's newest comment — an older marker does not count. A closed issue is
+corpus, not a queue, so work left undone at the close is found only if someone
+re-reads the comment.
+
+  **Outstanding:** none
+
+or, where something is genuinely left:
+
+  **Outstanding:** #181 (log rotation), mantahostels#182 (reproduce the bare-commit warn)
+
+Each item cites an OPEN issue other than this one: file it, link it under the
+same parent, then name it. `none — <reason>` is refused; the reason goes on
+another line. Whether `none` is true is never checked — the judgement is yours.
+`--reason "not planned"` is the one exemption.
+
+A `gh issue comment … && gh issue close` in one call is judged before the
+comment lands: put the line in the close's own `--comment`.
+
+WHAT NOTHING SEES: a close through the GitHub UI, a close through `gh api
+--method PATCH … -f state=closed`, and a `--comment` holding a `$` or backtick
+expansion, which the guard cannot read and so allows, recorded. The rule binds
+there too.
+
+Rule and full form: docs/agents/issue-tracker.md §"Closing an issue".

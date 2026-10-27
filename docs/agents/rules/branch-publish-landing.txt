@@ -1,0 +1,36 @@
+WORK LANDS THROUGH `landing` — NEVER A PUSH TO `main`, NO OTHER BRANCH ON THE
+REMOTE, AND NEVER A PULL REQUEST.
+
+Sessions push to `landing`. Never push to `main`, never `gh pr create`, never
+open a pull request through `gh api`, and never push a branch other than
+`landing`.
+
+From the shared tree:
+
+  git push origin main:landing   # rejected? landing moved — git pull --ff-only, retry
+
+From a worktree:
+
+  git -C <worktree> push origin HEAD:landing   # rejected? landing moved — git -C <worktree> fetch origin, merge origin/landing there, retry
+
+A REFUSED `git pull --ff-only` means the shared tree has diverged from
+`landing`: reconcile it as `rule:pull-fast-forward-landing` says.
+
+After the push, `node scripts/landing-status.js` reads each commit as landed,
+queued, or reverted by a later commit.
+
+WHAT PASSES: a push whose destination is `landing`, a tag (`git push origin
+v1.2.3`, `--tags`), a deletion of any branch but `main` and `landing`, and a
+branch under `spike/` — a data branch kept off `main` on purpose and never
+merged (#174). A bare tag name passes only where the tag already exists locally
+when the push is judged: push it as `refs/tags/<name>`, or create the tag in a
+separate call first (#1033).
+
+A SECOND LIMB: `.husky/pre-push` refuses a push to `main` of any sha the
+lander's green ledger does not hold, from any route. `git push --no-verify`
+defeats it.
+
+WHAT THIS DOES NOT CATCH: a push or pull request made outside Claude Code or in
+the GitHub web UI, one reached through a script, and a push steered by a
+`remote.<name>.push` refspec in git config, save a push to `main`, which the
+pre-push limb still refuses. Its silence there is not leave.

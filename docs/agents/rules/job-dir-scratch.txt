@@ -1,0 +1,25 @@
+SCRATCH YOU CHOOSE A PATH FOR GOES IN `.claude/tmp/`, NEVER `$CLAUDE_JOB_DIR/tmp`.
+
+THIS OVERRIDES THE BACKGROUND-JOB PREAMBLE, which points every background
+session at `$CLAUDE_JOB_DIR/tmp` and is the more specific instruction on its
+face. `docs/environment.md` §12 names `.claude/tmp/` as this repo's one
+sanctioned in-repo scratch directory (mantahostels#2089): gitignored, out of Biome's scope
+and out of vitest's, and swept at 24 hours.
+
+NAME IT WITH THE FIRST EIGHT CHARACTERS OF YOUR SESSION ID — `c1167-66a5e2ef.md`,
+never `c1167.md`. Two sessions on one issue pick the same fixed name, and
+`.claude/tmp/` keeps no versions, so the second write destroys the first
+(#1167). `scripts/guard-dispatch.js` refuses the first `Write` over a
+file there your session has not written; re-send the same call if the file is
+yours (#1728).
+
+ONE THING BREAKS UNDER THE JOB DIR, and it is not `gh`'s fault — falsified at
+mantahostels#2688, `docs/agents/rules/gh-job-dir-unreadable.txt`: `gh` reads a resolved
+job-dir path fine, piped stdin included. `$CLAUDE_JOB_DIR` can fail to resolve,
+where a repo-relative path cannot (mantahostels#2088) — once it does, no tool that follows
+the broken path, `gh` included, ever opens the real file.
+
+WHAT THIS DOES NOT REACH, AND IS NOT A BREACH: a repo script writing its OWN
+job-dir path. `scripts/bg-run.sh` and `scripts/issue-body.js` both do that
+deliberately. The rule binds the path YOU choose, which is the only kind a hook
+on your own tool call can see.

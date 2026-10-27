@@ -1,0 +1,3 @@
+THIS FILE IS `derived` OR `generated-only` IN `docs/doc-map.md` §A: never
+hand-edit it. Edit its source and re-run its generator, as its `route` in
+`docs/doc-map-classes.json` says.

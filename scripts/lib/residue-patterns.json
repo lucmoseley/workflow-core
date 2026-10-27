@@ -1,0 +1,89 @@
+{
+	"about": "The removal-residue census's strict patterns (#2153, spec #2259). Each pattern is PCRE and JavaScript-compatible, case-sensitive, matched one line at a time: `git grep -n -I -P -e '<pattern>' -- . <exclude…>` reruns a kind. K5 runs the same way over the files `testFile` matches only. K8 has no line pattern: read each file `ledgerPattern` matches, and each file `repoPaths` lists for the repo. A hit is a line to read, never to bulk-delete: precision is the share of sampled hits that were true residue.",
+	"exclude": [
+		":!package-lock.json",
+		":!*.lock",
+		":!*.jsonl",
+		":!*.csv",
+		":!*.svg",
+		":!*.min.*",
+		":!*.png",
+		":!*.jpg",
+		":!**/vendor/**",
+		":!docs/research/**",
+		":!research/**",
+		":!docs/pages/**"
+	],
+	"repoExclude": {
+		"fantasy-books": [":!site/**", ":!.scratch/**"],
+		"design-vault": [":!kits/planted-faults/baseline-*/runs/**"]
+	},
+	"testFile": "\\.test\\.|test_|_test\\.|/test/|\\.spec\\.",
+	"kinds": [
+		{
+			"kind": "K1",
+			"name": "\"never X\" aimed at a removed behaviour",
+			"pattern": "(do not|don't|never|must not).{0,12}(re-add|restore|reinstate|reintroduce|bring back|revive|re-create|resurrect|restate the old|re-cite)|never (be )?reused|must not be cited as live",
+			"precision": "~75%"
+		},
+		{
+			"kind": "K2",
+			"name": "change notes",
+			"pattern": "<!-- was:|(was|were|has been|have been) (removed|deleted|dropped|replaced|renamed|retired|reverted)|^Dossier version:|^\\| v[0-9]+(\\.[0-9]+)* \\|",
+			"precision": "~60% (~90% in fantasy-books)"
+		},
+		{
+			"kind": "K3",
+			"name": "deprecated or legacy comments",
+			"pattern": "deprecated|legacy|obsolete",
+			"precision": "~75%"
+		},
+		{
+			"kind": "K4",
+			"name": "back-compat code",
+			"pattern": "backward compat|compat (shim|alias|path)|(legacy|old|pre-#[0-9]+) (format|shape|spelling|schema|layout|key|field|marker|record)|still (accept|honour|read) the (old|legacy|former)",
+			"precision": "~70%"
+		},
+		{
+			"kind": "K5",
+			"name": "tests of removed behaviour",
+			"pattern": "legacy|retired|removed|no longer|superseded|deprecated|used to|old (shape|format|spelling|marker|record)",
+			"testFilesOnly": true,
+			"precision": "~35%"
+		},
+		{
+			"kind": "K6",
+			"name": "history glosses",
+			"pattern": "\\([\\w.-]*#[0-9]+, (which|where|whose)|since #[0-9]+|no longer|used to|(was|were) removed|retired (at|in|by|on)|superseded (at|by|in|on)",
+			"precision": "~80%"
+		},
+		{
+			"kind": "K7",
+			"name": "rejected-option lines",
+			"pattern": "Rejected:|rejected (at|in|by|on|as|option|alternative)|(was|were) rejected|rejected options?|considered and rejected",
+			"precision": "~85%"
+		},
+		{
+			"kind": "K8",
+			"name": "ledgers and checkers",
+			"ledgerPattern": "(^|/)(doc-map-superseded|doc-map-retired-vocabulary|machinery-superseded)\\.json$",
+			"counted": "each entry in a ledgerPattern file holding any field beyond its search terms and allowlist is one hit, the ledger itself being live checker data (#2162); each repoPaths file is one hit",
+			"repoPaths": {
+				"mantahostels": [
+					"docs/machinery/delete-zone.md",
+					".claude/skills/business-correspondence/corrections-log.md",
+					"docs/archive/"
+				],
+				"fantasy-books": [
+					"candidates/rejected.md",
+					"docs/agents/corrections.md",
+					"scripts/rejected-ledger.js",
+					"scripts/lint-correction-claim.js",
+					"scripts/check-rejected-vocabulary.js",
+					"scripts/correction-notes.js",
+					"scripts/check-committed-notes.js"
+				]
+			}
+		}
+	]
+}

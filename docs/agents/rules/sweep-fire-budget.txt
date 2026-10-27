@@ -1,0 +1,19 @@
+A HAND-FIRED SWEEP SPENDS THE SAME THREE-A-DAY BUDGET THE AUTOFIRE SPENDS.
+
+`gh workflow run scheduled-checks.yml`, `gh workflow run ci.yml` (mantahostels#3514; the
+only route that re-tests an already-swept sha, mantahostels#3502) and the
+automatic fire check-ci-status.js makes when a verdict goes stale
+share one counter (mantahostels#2202, ruled at mantahostels#2188): the
+`.sweep-autofire` marker in the git common dir, which every worktree shares.
+Three of any route or any mix exhausts the UTC day; it resets at 00:00 UTC. There is
+no exemption for repairing a missed slot — a fire made while the ledger shows one
+spends the cap like any other. Why three: mantahostels#3495, the most a worst day can fire
+and keep the month inside GitHub Free's 2,000 minutes.
+
+THE BUDGET BINDS ON EVERY ROUTE, INCLUDING THE ONES THIS GUARD CANNOT SEE. A Bash
+PreToolUse hook sees the command string and nothing else, so four routes fire a
+sweep uncounted: the GitHub web UI, an API `POST` to the workflow's `dispatches`
+endpoint, a fire from inside a script, and the founder's own terminal — never take
+one to get past this deny. Wait for tomorrow's budget, which check-ci-status.js will spend on its own
+the moment a verdict is stale; the next SCHEDULED slot is the weaker bet, 8 of 41
+since 21 Aug having never run (mantahostels#2204).

@@ -1,0 +1,11 @@
+AN UNASKED RE-RUN IS REFUSED ONCE A SESSION (#815, ruled at #790 Q3): a bare
+`npm run test`, `npm test` or `npm run test:changed`, while certificates from
+any sessions already attest what it would test (ADR-0009). It reads HEAD plus
+this session's own uncommitted files, and attestation is judged on that same
+tree, so it can only repeat the verdict those certificates record.
+
+Before a push, run the tests you touched; the lander runs the full suite.
+Re-typing the refused command runs it — a reason you can name is reason enough.
+
+Never refused: a run naming files or a filter, `--full=<cause>`, a run in
+another checkout, a session with no id, or anything after the first refusal.

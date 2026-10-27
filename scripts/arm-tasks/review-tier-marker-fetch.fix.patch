@@ -1,0 +1,112 @@
+diff --git b/docs/agents/rules/review-tier-escalated.txt a/docs/agents/rules/review-tier-escalated.txt
+index 5a90b438c6951cd029446941803769ccd9704327..2a88ca06c25917982f75c9b6936f99e79a97b531 100644
+--- b/docs/agents/rules/review-tier-escalated.txt
++++ a/docs/agents/rules/review-tier-escalated.txt
+@@ -1,3 +1,3 @@
+-A TOUCHED AREA ABOVE OWES THE ESCALATED TIER, AT ANY SIZE AND IN ANY FILE TYPE: the two axes plus the focused run below. Mission-critical is the glossary's test, held against the touched areas' examples: A change on a sensitive path that alters an access rule or a money calculation itself — who may read or write what, an amount, a redemption state. Touching a file on that path is not enough, and size has no part in it. State `mission-critical: yes|no, because …` before dispatch; a yes names the rule or calculation.
++A TOUCHED AREA ABOVE OWES THE ESCALATED TIER, AT ANY SIZE AND IN ANY FILE TYPE: the two axes plus the focused run below. Mission-critical, judged against the touched areas' examples: A change on a sensitive path that alters an access rule or a money calculation itself — who may read or write what, an amount, a redemption state. Touching a file on that path is not enough, and size has no part in it. State `mission-critical: yes|no, because …` before dispatch; a yes names the rule or calculation.
+ 
+-REVIEW A SENSITIVE CHANGE BEFORE ITS COMMIT, STAGING ONLY `git add -N <new file>`: fixed point `HEAD`, diff `git diff HEAD $t -- <commit paths>`, `$t` pinned first as below, commit list that diff. Marker: every `rule:review-hold` line, worktree too.
++REVIEW A SENSITIVE CHANGE BEFORE ITS COMMIT, STAGING ONLY `git add -N <new file>`: fixed point `HEAD`, diff `git diff HEAD $t -- <commit paths>`, `$t` pinned first as below, commit list that diff. Record it with the marker script, worktree too: `scripts/lib/rule-text.sh review-hold`.
+diff --git b/docs/agents/rules/review-tier-not-live.txt a/docs/agents/rules/review-tier-not-live.txt
+index 8a8592a314274dbe198ca23cd2b6c33ee504401e..e4abe36bd0e132e6dc2e44270aac8032db604c93 100644
+--- b/docs/agents/rules/review-tier-not-live.txt
++++ a/docs/agents/rules/review-tier-not-live.txt
+@@ -1 +1 @@
+-AN AREA NOT MARKED `live` RAISES NO ULTRAREVIEW. If one marked `not live` above now serves real users or money, ask the founder before setting its `live: true`.
++AN AREA NOT MARKED `live` RAISES NO ULTRAREVIEW. If one now serves real users or money, ask the founder before setting `live: true`.
+diff --git b/docs/test-read-edges.json a/docs/test-read-edges.json
+index 42a39e21edd95867dff77c893f7411869cd332eb..c9200a7f9c3157b5bafbbf8fcd9dfc71bd3158a7 100644
+--- b/docs/test-read-edges.json
++++ a/docs/test-read-edges.json
+@@ -16141,6 +16141,7 @@
+ 			"scripts/lib/git.test.ts",
+ 			"scripts/lib/issue-create-label.test.ts",
+ 			"scripts/lib/project-slug-scan.test.ts",
++			"scripts/lib/review-tier.test.ts",
+ 			"scripts/lib/rule-text.test.ts",
+ 			"scripts/lib/script-path-scan.test.ts",
+ 			"scripts/lib/script-path.test.ts",
+diff --git b/scripts/lib/review-tier.js a/scripts/lib/review-tier.js
+index 934d556b08a3d5cdbd121101465adb002ad8862c..db733576664e2a04f89986ac54d6446e6fc19da2 100644
+--- b/scripts/lib/review-tier.js
++++ a/scripts/lib/review-tier.js
+@@ -272,7 +272,7 @@ function areaLines(match) {
+ 				]
+ 			: []),
+ 		...(match.globless.length > 0
+-			? ["Sensitive areas declared with no globs, for you to judge against this change:", ...match.globless.map(area)]
++			? ["Sensitive areas declared with no globs:", ...match.globless.map(area)]
+ 			: []),
+ 	];
+ }
+diff --git b/scripts/lib/review-tier.test.ts a/scripts/lib/review-tier.test.ts
+index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db4483936310 100644
+--- b/scripts/lib/review-tier.test.ts
++++ a/scripts/lib/review-tier.test.ts
+@@ -11,7 +11,7 @@
+  * arbiter store, so a path is staged, written and attributed exactly as a
+  * session leaves it, and the cases assert on the injected text. Two groups run
+  * no core: the fragment cases read the fragments, and some run what one names
+- * (a tree pinned by commit-paths.js under the records
++ * (lib/rule-text.sh, or a tree pinned by commit-paths.js under the records
+  * fragment's Replay, the escalated and hold fragments' `git diff … $t` run
+  * against it) and assert on its output; the branch case reads the core's own
+  * source. Fragments are read from docs/agents/rules/ and the byte cap from
+@@ -42,6 +42,7 @@ const { decide } = require("./review-tier.js") as {
+ 
+ const CORE = path.resolve(__dirname, "review-tier.js");
+ const COMMIT_PATHS = path.resolve(__dirname, "..", "commit-paths.js");
++const RULE_TEXT = path.resolve(__dirname, "rule-text.sh");
+ const RULE_CAP = readShellConst(
+ 	path.join(__dirname, "hook-limits.sh"),
+ 	"RULE_CAP",
+@@ -425,7 +426,7 @@ describe("a globless area", () => {
+ 		const text = envelope() ?? "";
+ 		expect(text).not.toContain("Tier owed");
+ 		expect(text).toContain(
+-			"Sensitive areas declared with no globs, for you to judge against this change:\n- `money paths`: what a guest pays and what a hostel is paid, not live.",
++			"Sensitive areas declared with no globs:\n- `money paths`: what a guest pays and what a hostel is paid, not live.",
+ 		);
+ 		expect(text).toContain(readFragment("review-tier-globless"));
+ 		expect(text).toContain(readFragment("review-tier-escalated"));
+@@ -536,7 +537,6 @@ describe("the fragments", () => {
+ 		);
+ 	});
+ 
+-	// The escalated case pins the tier fragment whole.
+ 	it("ask a yes to name the rule or calculation, and areas= to name the globless areas judged touched (#2082, #2254)", () => {
+ 		expect(readFragment("review-tier-escalated")).toContain(
+ 			"a yes names the rule or calculation",
+@@ -546,13 +546,17 @@ describe("the fragments", () => {
+ 		);
+ 	});
+ 
+-	// #1925: nothing holds a worktree commit, so only these texts get the
+-	// marker command into its marker (#2040).
+-	it("send a staged review to the marker command with every flag, in a worktree too", () => {
++	// #1925, #1948: nothing holds a worktree commit, so the hold's text never
++	// reaches it — the tier block must name a command that prints the marker
++	// command (#2040).
++	it("hand a staged review a command printing the marker command with every flag, in a worktree too", () => {
+ 		expect(readFragment("review-tier-escalated")).toContain(
+-			"Marker: every `rule:review-hold` line, worktree too.",
++			"Record it with the marker script, worktree too: `scripts/lib/rule-text.sh review-hold`.",
+ 		);
+-		const hold = readFragment("review-hold");
++		const hold = execFileSync("bash", [RULE_TEXT, "review-hold"], {
++			encoding: "utf8",
++		});
++		expect(hold.trim()).toBe(readFragment("review-hold"));
+ 		expect(hold).toMatch(
+ 			/^ {2}node scripts\/write-review-marker\.js .*--paths /m,
+ 		);
+@@ -770,7 +774,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
+ 		stage(SQL);
+ 		const text = envelope() ?? "";
+ 		expect(text.indexOf("Tier owed: escalated.")).toBeLessThan(
+-			text.indexOf("Sensitive areas declared with no globs, for you to judge against this change:"),
++			text.indexOf("Sensitive areas declared with no globs:"),
+ 		);
+ 		expect(
+ 			text.startsWith(

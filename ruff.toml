@@ -1,0 +1,79 @@
+# ruff's configuration. Adopted at mantahostels#1135, which measured every candidate rule set
+# against this repo's 55 tracked .py files before choosing this one.
+#
+# WHY RUFF EXISTS HERE. Until mantahostels#1135 the Python surface — 55 files, 18,532 lines,
+# including the evidence pipeline whose figures docs/doc-map.md section B7 publishes —
+# had no linter, no formatter and no type checker. pytest was the whole safety net,
+# and pytest imports only what a test imports: it never opened
+# scripts/measure-context-buckets/extract.py, which used three names it neither
+# defined nor imported and so raised NameError on its first line of input.
+#
+# WHY NOT RUFF'S DEFAULTS. Measured at mantahostels#1135 over all 55 files:
+#
+#   select                   | findings | auto-fixable | left by hand
+#   -------------------------|----------|--------------|-------------
+#   ruff's own 0.16 defaults |      338 |          200 |          138
+#   E4,E7,E9,F               |      158 |           71 |           87
+#   E9,F,B,RUF100            |      121 |           78 |           43
+#   E9,F,B  (chosen then)    |      104 |           61 |           43
+#   F alone                  |       88 |           61 |           27
+#
+# The defaults are a modernisation project, not a lint gate: 89 of their extra
+# findings are Optional[X] -> X | None rewrites that catch nothing. This set is
+# defect rules — pyflakes, syntax errors, bugbear — plus the parameter cap
+# below, the catch, import and naming rules #1333 added and pep8-naming, and no layout
+# rule: layout is `ruff format`'s. mantahostels#1135
+# declined the formatter on the size of its rewrite; #1315 Q3 reversed that on
+# merit (Biome already gates a formatter for TS/JS), and #1332 wired it at its
+# defaults, so there is no [format] table.
+#
+# BLE001, E4 AND E7 JOINED AT #1333 (#1319 Q7, Q10). BLE001 refuses a blind
+# `except Exception`/`BaseException`, and E7's E722 a bare `except:`, which
+# BLE001 does not flag: a catch-all either names the exceptions it expects or
+# carries `# noqa: BLE001 - <reason> (#ticket)`, or `E722` for a bare one. E4
+# and E7 were left out only as "a formatter's business", but `ruff format` fixes
+# none of what they find: one-line multiple imports (E401), a late import
+# (E402), a lambda bound to a name (E731), `l`/`O`/`I` as a name (E741).
+#
+# RUF100 (dead noqa) RETURNED AT #1333. It was dropped at mantahostels#1135
+# because under a narrow select `ruff check --fix` deletes a `# noqa` for any
+# rule the select does not run — then all 16 of its findings: 9 BLE001, 6 E402,
+# 1 PLC0415. Every code a `noqa` names in this repo is now selected, and no
+# gate runs `--fix`, so in a repo whose `noqa`s name a code this select lacks
+# it reports rather than deletes.
+#
+# N (pep8-naming) JOINED AT #1443 (#1406 row 9), so base §G5's Python limb is
+# the tool's rather than review's. N818 stays on (#1406 Q3 (A)): an exception
+# class ends in `Error`, or carries `# noqa: N818 - <reason> (#ticket)` where
+# it is a control-flow signal rather than an error.
+#
+# No type checker either, and that was measured rather than assumed: on the seven
+# evidence-pipeline files, mypy at its defaults found 0, mypy --check-untyped-defs
+# found 20 and ty found 8 — and every one of the 28 was a missing annotation or the
+# same artefact, mypy inferring dict[str, bool] from the first key of a
+# heterogeneous result dict and then rejecting every later value. Real defects
+# found: none. Re-raise only with a counter-example this set misses.
+#
+# RUN IT AS `ruff check .` FROM THE REPO ROOT — `npm run check:py`. ruff honours
+# .gitignore, so it walks neither node_modules nor .next and lands on exactly the
+# tracked 55 files in 0.05 s. No file-list plumbing is needed anywhere.
+
+# PLR0917 CAPS POSITIONAL PARAMETERS AT 4 (#1314), as biome.json's useMaxParams
+# caps them in the JS and TS beside this code (#1313); a function past it takes
+# the rest keyword-only, after a bare `*`. PLR0917 is stable since ruff 0.16.0;
+# an older ruff skips it with preview off, so the cap rests on the exact pin in
+# requirements-dev.txt.
+#
+# PREVIEW STAYS OFF (#1577). Its one gain at 0.16.4, F401 widened to unused
+# submodule imports, found no defect here or in two adopters; its cost is
+# unstable behaviour across every selected rule, handed to each adopter without
+# a config.
+
+# Matches .github/workflows/ci.yml's python job and the local interpreter.
+target-version = "py312"
+
+[lint]
+select = ["E4", "E7", "E9", "F", "B", "BLE001", "N", "PLR0917", "RUF100"]
+
+[lint.pylint]
+max-positional-args = 4

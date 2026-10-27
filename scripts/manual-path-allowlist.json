@@ -1,0 +1,15 @@
+{
+	"_comment": "Hand-written allowlist for check-manual-freshness.js assertion 5 (cited paths). One entry per code-span token in docs/operating-manual.md that looks like a path but does not resolve as one. `path` names the real file a loose token stands for and is existence-checked in its place, so a rename is still caught; omit it only where the token names no file at all. An entry whose token has left the manual is reported at WARN.",
+	"allowlist": [
+		{
+			"token": "reference-roadmap.html",
+			"path": "docs/reference-roadmap.html",
+			"reason": "Cited by basename in the purpose paragraph, where the directory would add nothing."
+		},
+		{
+			"token": "session-arbiter.js",
+			"path": "scripts/session-arbiter.js",
+			"reason": "Cited by basename inside the parallel-sessions summary in Section 8."
+		}
+	]
+}

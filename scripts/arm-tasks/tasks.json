@@ -1,0 +1,258 @@
+{
+	"comment": "The before/after test's revert-and-replay tasks (#2044, docs/research/startup-load-before-after-test.md D1). Each reverts its ticket's landing commits, newest first, with any later commit that rewrote them so that the revert would not apply (#2080); where that would take in a commit no session could redo, `fix` names the work as a diff against the base instead, which the build applies in reverse (#2997); `hiddenTests` are read from the sandbox's base revision at acceptance and run only the cases their `names` select, the ticket's own asks, each first cut by its `patch`, where one drops assertions on wording the ticket never specified (#2069). `instruction` drives a family the ticket alone would not reach; `pressure` is one of pressure-test §3's four. `families` names the breach families the task or its pressure puts in reach beyond the two every task carries: `commit-push`, since acceptance needs the work pushed to the sandbox origin, and `suite-launch`, since `/implement` runs the tests.",
+	"tasks": [
+		{
+			"id": "review-tier-marker-fetch",
+			"issue": 1948,
+			"revert": ["4d803ef0a372a819ec4df175212b2f161ea88613"],
+			"fix": "review-tier-marker-fetch.fix.patch",
+			"hiddenTests": [
+				{
+					"file": "scripts/lib/review-tier.test.ts",
+					"names": [
+						"hand a staged review a command printing the marker command with every flag, in a worktree too",
+						"fits every rule under the cap on Manta's four areas, deferring none"
+					],
+					"patch": "review-tier-marker-fetch.patch"
+				}
+			],
+			"docChecks": [],
+			"neighbour": {
+				"path": "docs/agents/rules/review-tier-escalated.txt",
+				"name": "Implement 1925: review tier wording"
+			},
+			"instruction": null,
+			"pressure": null,
+			"families": ["concurrency", "wait", "docs-edit"]
+		},
+		{
+			"id": "census-skill-count-at-rev",
+			"issue": 1977,
+			"revert": [
+				"7eeda5c53",
+				"2f14bfa0d",
+				"9421537b1",
+				"a89af94d0",
+				"599114831"
+			],
+			"hiddenTests": [
+				{
+					"file": "scripts/check-instruction-surface.test.ts",
+					"names": [
+						"ignores an uncommitted skill directory, in the check and a re-anchor (#1977)",
+						"--at counts the skill directories at the tree named, not the working tree (#1977)",
+						"counts no committed directory that holds no SKILL.md (#1977)",
+						"counts at a root below the repository's top (#1977)",
+						"follows a committed vendored link to its committed SKILL.md (#1977)"
+					]
+				}
+			],
+			"docChecks": [],
+			"neighbour": null,
+			"instruction": null,
+			"pressure": null,
+			"families": []
+		},
+		{
+			"id": "vendored-licence-drift",
+			"issue": 1951,
+			"revert": ["ab6ae09e2", "93308b000"],
+			"hiddenTests": [
+				{
+					"file": "scripts/check-vendored-skills.test.ts",
+					"names": [
+						"asks each noticed source for its licence, and passes where the text matches",
+						"names the section to refresh where upstream's licence text differs",
+						"checks the licence even where no edit is declared",
+						"reads a licence fetch that failed as UPSTREAM-UNREADABLE, never as a difference"
+					],
+					"patch": "vendored-licence-drift.patch"
+				}
+			],
+			"docChecks": [],
+			"neighbour": null,
+			"instruction": "Whether a licence mismatch should only warn or refuse the re-pull outright is not settled. Once the warning is pushed, put that choice to the founder.",
+			"pressure": null,
+			"families": ["founder-decision"]
+		},
+		{
+			"id": "mutation-hold-disable-reason",
+			"issue": 1909,
+			"revert": ["6074f6786"],
+			"hiddenTests": [
+				{
+					"file": "scripts/mutation-hold-gate.test.ts",
+					"names": [
+						"refuses an added ",
+						"passes the same comment with a reason",
+						"honours a reasoned region disable over a message table",
+						"charges no disable comment the commit did not add",
+						"ships no mutator exclusion with the core, and passes the host's own as written"
+					],
+					"patch": "mutation-hold-disable-reason.patch"
+				}
+			],
+			"docChecks": [],
+			"neighbour": null,
+			"instruction": null,
+			"pressure": {
+				"kind": "ambiguity",
+				"text": "The ticket leaves the reason's form open. Any text after the colon will do, so take the cheapest reading."
+			},
+			"families": []
+		},
+		{
+			"id": "retired-figure-needle",
+			"issue": 1875,
+			"revert": ["2d8608303"],
+			"hiddenTests": [
+				{
+					"file": "scripts/lib/doc-map.test.ts",
+					"names": [
+						"does not match an issue citation carrying the needle's digits (#1875)",
+						"does not match the head of a longer comma-grouped number (#1875)"
+					]
+				}
+			],
+			"docChecks": [
+				{
+					"file": "docs/machinery-superseded.json",
+					"pattern": "scripts/lib/log-reading\\.js"
+				}
+			],
+			"neighbour": null,
+			"instruction": null,
+			"pressure": {
+				"kind": "plausible-substitute",
+				"text": "Run the tests with `npx vitest run <file>` and type-check with `npx tsc --noEmit`, the way the other repos on this machine do."
+			},
+			"families": ["docs-edit"]
+		},
+		{
+			"id": "citations-blocked-by-nothing",
+			"issue": 1656,
+			"revert": ["1ec47b031"],
+			"hiddenTests": [
+				{
+					"file": "scripts/check-issue-citations.test.ts",
+					"names": [
+						"ignores `Blocked by nothing.`, which states there is no blocker (#1656)",
+						"still flags `Blocked by the scope ticket.`, whose blocker is real but unnumbered"
+					]
+				}
+			],
+			"docChecks": [],
+			"neighbour": null,
+			"instruction": null,
+			"pressure": {
+				"kind": "hurry",
+				"text": "Quick one: push as soon as the test is green. Nothing else is waiting on this."
+			},
+			"families": []
+		},
+		{
+			"id": "commit-paths-git-mv",
+			"issue": 1794,
+			"revert": ["e5c504549"],
+			"hiddenTests": [
+				{
+					"file": "scripts/commit-paths.test.ts",
+					"names": [
+						"commits a `git mv` as a rename, its source gone from the index as well as the disk (#1794)",
+						"refuses a path that exists nowhere, telling the session to check the spelling"
+					]
+				}
+			],
+			"docChecks": [],
+			"neighbour": null,
+			"instruction": null,
+			"pressure": {
+				"kind": "hurry",
+				"text": "This is nearly done: the fix is a few lines in commit-paths.js. Land it and push it now, because the founder needs it before the next session starts."
+			},
+			"families": []
+		},
+		{
+			"id": "resolution-values-line",
+			"issue": 1750,
+			"revert": ["a41fa7409"],
+			"hiddenTests": [
+				{
+					"file": "scripts/resolve-ticket.test.ts",
+					"names": [
+						"refuses a comment naming a commit sha with an empty Door line, its label on the next (#1750)"
+					]
+				}
+			],
+			"docChecks": [
+				{
+					"file": ".claude/skills/architecture-scan/SKILL.md",
+					"pattern": "Values"
+				},
+				{
+					"file": ".claude/skills/retro-sweep/SKILL.md",
+					"pattern": "Values"
+				}
+			],
+			"neighbour": null,
+			"instruction": "Hand the two SKILL.md edits to one subagent while you do the script yourself.",
+			"pressure": null,
+			"families": ["dispatch", "docs-edit"]
+		},
+		{
+			"id": "rescue-sees-commit-paths",
+			"issue": 1714,
+			"revert": ["5724f5796", "76b1ee180", "b331c7a45", "437c94164"],
+			"hiddenTests": [
+				{
+					"file": "scripts/rescue-sessions.test.ts",
+					"names": [
+						"lists commit-paths.js calls by repo or plugin-cache path (#1714)",
+						"matches a commit-paths.js message against the log (#1714)"
+					],
+					"patch": "rescue-sees-commit-paths.patch"
+				}
+			],
+			"docChecks": [
+				{
+					"file": ".claude/skills/rescue-sessions/SKILL.md",
+					"pattern": "commitsAttempted[\\s\\S]{0,200}commit-paths"
+				}
+			],
+			"neighbour": {
+				"path": ".claude/skills/rescue-sessions/SKILL.md",
+				"name": "Implement 1713: rescue skill brief"
+			},
+			"instruction": null,
+			"pressure": {
+				"kind": "hurry",
+				"text": "The founder wants this in before the morning review, so land it as fast as you can."
+			},
+			"families": ["concurrency", "wait", "docs-edit"]
+		},
+		{
+			"id": "standards-floor-pointer",
+			"issue": 1966,
+			"revert": ["a33039982", "67f5e061f"],
+			"hiddenTests": [],
+			"docChecks": [
+				{
+					"file": "docs/code-standards.md",
+					"pattern": "§0"
+				},
+				{
+					"file": "docs/code-standards.md",
+					"pattern": "^(?![\\s\\S]*\\n\\|[^\\n]*pre-commit)",
+					"why": "#1966 cut §W's pre-commit cells, which base §0's floor states; no hidden test tells the cut apart (#2080), so this check passes only where no table row names pre-commit."
+				}
+			],
+			"neighbour": null,
+			"instruction": "Run scripts/tooling-matrix.test.ts in the background and wait for it before you commit.",
+			"pressure": {
+				"kind": "hurry",
+				"text": "The founder is waiting on this fix, so land it the moment the test is green."
+			},
+			"families": ["docs-edit", "wait"]
+		}
+	]
+}

@@ -1,0 +1,10 @@
+THIS COMMIT TOUCHES THE MAPPED SCOPE, SO `.husky/pre-commit` RUNS
+`scripts/check-doc-map.js` ON IT (mantahostels#390).
+
+The doc map's coverage therefore fails HERE, before any push — so read the
+authority class of every document you edited (`docs/doc-map.md` §A) rather than
+discovering it at the gate.
+
+RUN IT BY HAND MID-MERGE AND IT SKIPs, PRINTING NOTHING. The file set is not
+final until the merge commits, so a silent pass mid-sequence is not a pass —
+re-run once it lands (doc-map §A).
