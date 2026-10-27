@@ -87,7 +87,12 @@ function isCliAtLeastMin(v) {
  * @param {Record<string, any>} job
  */
 function fieldFault(row, job) {
-	if (typeof row.status !== "string") return "row status is not a string";
+	/* 2.1.310's row for a parked session carries `state` and neither `status`
+	 * nor `waitingFor` (#3200). */
+	if (row.status == null && row.state == null)
+		return "row carries neither status nor state";
+	if (typeof row.state !== "string") return "row state is not a string";
+	if (!isOptionalString(row.status)) return "row status is not a string";
 	if (!isOptionalString(row.waitingFor))
 		return "row waitingFor is not a string";
 	if (!isCliAtLeastMin(job.cliVersion))

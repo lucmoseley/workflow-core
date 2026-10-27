@@ -175,8 +175,8 @@ const nextResumeAt = (l) => resumeDueAt(blockOf(l));
  * founder's answer (#1995 stories 52, 55). It is the glossary's Parked as the
  * listing sees it, before or without the `parked` label, which the Stop hook
  * adds only on a house-decision round. Off an unread listing, for an
- * unlisted launch, or for a held one (isHeld) whose session has ended, each
- * keeps what the last read said; one held under the swap hold whose session
+ * unlisted launch, for one whose row carries no `state`, or for a held one
+ * (isHeld) whose session has ended, each keeps what the last read said; one held under the swap hold whose session
  * the listing shows live again is no longer held (#3093).
  * @param {LoopLaunch[]} launches
  * @param {AgentRecord[]|null} agents
@@ -190,6 +190,12 @@ function markParked(launches, agents, causeOf, now) {
 		const row = l.jobId === null ? undefined : rows.get(l.jobId);
 		if (l.finishedAt !== null || !row) return l;
 		if (isHeld(l) && isTerminalAgent(row)) return l;
+		/* causeOf reads a row carrying no `state` UNKNOWN, and logs why
+		 * (#3200). */
+		if (row.state == null) {
+			causeOf(l, row);
+			return l;
+		}
 		const { block: _, swapHeld: __, ...rest } = l;
 		if (row.state !== PARKED_STATE) return { ...rest, parked: false };
 		const reading = causeOf(l, row);
@@ -901,6 +907,26 @@ function actOnIdle(launches, mode, seen) {
 	);
 }
 
+/**
+ * The why of launch `key`'s UNKNOWN reading where it is news to log, else
+ * null: once for each why, forgotten once a cause reads (#3200). Updates
+ * `logged`, the loop's record, one entry per launch the loop process has seen
+ * unread.
+ * @param {Map<string, string>} logged
+ * @param {string} key
+ * @param {import("./block-cause.js").Reading} reading
+ * @returns {string|null}
+ */
+function unknownNews(logged, key, reading) {
+	if (reading.cause !== "UNKNOWN") {
+		logged.delete(key);
+		return null;
+	}
+	if (logged.get(key) === reading.why) return null;
+	logged.set(key, reading.why);
+	return reading.why;
+}
+
 module.exports = {
 	actOnBlocks,
 	actOnIdle,
@@ -912,4 +938,5 @@ module.exports = {
 	launchName,
 	markParked,
 	nextResumeAt,
+	unknownNews,
 };

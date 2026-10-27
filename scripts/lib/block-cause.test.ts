@@ -214,8 +214,47 @@ describe("anything it cannot read is UNKNOWN (rules 0 and 10)", () => {
 		expect(unknown(row(), job(), ["not a row"])).toBe("UNKNOWN");
 	});
 
+	it("reads a 2.1.310 parked row, which carries state and no status", () => {
+		/* Implement 3029's row and job, off the refill loop's log of
+		 * 2026-10-25T23:40:10Z (#3200). */
+		const parked = {
+			id: "ddc2263e",
+			cwd: "/home/lucmo/workflow-core",
+			kind: "background",
+			startedAt: 1_792_965_553_016,
+			sessionId: "ddc2263e-6b9d-4b5d-a664-e43043a0f2f1",
+			state: "blocked",
+		};
+		const asked = job({
+			detail:
+				"whether to reset the shared `main` onto `landing` — waits on you: #3031",
+			needs:
+				"whether to reset the shared `main` onto `landing` — waits on you: #3031",
+			cliVersion: "2.1.310",
+		});
+		expect(cause(parked, asked, [])).toEqual({ cause: "QUESTION" });
+		expect(
+			cause(parked, job({ cliVersion: "2.1.310" }), [...tail, toolUse("Edit")]),
+		).toEqual({
+			cause: "PERMISSION",
+		});
+	});
+
+	it("reads UNKNOWN on a row with neither status nor state, or no state (#3200)", () => {
+		const { status: _, state: __, ...bare } = row();
+		expect(cause(bare, job())).toEqual({
+			cause: "UNKNOWN",
+			why: "row carries neither status nor state",
+		});
+		expect(cause({ ...bare, status: "idle" }, job())).toEqual({
+			cause: "UNKNOWN",
+			why: "row state is not a string",
+		});
+	});
+
 	it("reads UNKNOWN on a field of an unexpected type", () => {
 		expect(unknown(row({ status: 1 }), job())).toBe("UNKNOWN");
+		expect(unknown(row({ state: 1 }), job())).toBe("UNKNOWN");
 		expect(unknown(row({ waitingFor: ["x"] }), job())).toBe("UNKNOWN");
 		expect(unknown(row(), job({ tempo: undefined }))).toBe("UNKNOWN");
 		expect(unknown(row(), job({ needs: { text: "x" } }))).toBe("UNKNOWN");

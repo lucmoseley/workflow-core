@@ -15,7 +15,13 @@ import {
 	resumedIdleSince,
 	turnedSince,
 } from "./block-cause.js";
-import { actOnBlocks, actOnIdle, isHeld, markParked } from "./refill-blocks.js";
+import {
+	actOnBlocks,
+	actOnIdle,
+	isHeld,
+	markParked,
+	unknownNews,
+} from "./refill-blocks.js";
 
 const MIN = 60 * 1000;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -793,6 +799,25 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(still).toEqual(held());
 		});
 
+		it("keeps what it knew of one whose row carries no state, and reads its cause for the log (#3200)", () => {
+			const { state: _, ...bare } = agent("job42", "blocked");
+			const read: unknown[] = [];
+			const [out] = markParked(
+				[held()],
+				[bare],
+				(_l, row) => {
+					read.push(row);
+					return {
+						cause: "UNKNOWN",
+						why: "row carries neither status nor state",
+					};
+				},
+				NOW,
+			);
+			expect(out).toEqual(held());
+			expect(read).toEqual([bare]);
+		});
+
 		it("keeps one whose resume failed held for the next tick, and hands it off at the third failure", () => {
 			const io: Partial<BlockIo> = {
 				resumeStopped: () => ({ failed: "exit 1" }),
@@ -818,5 +843,24 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			expect(last.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
 			expect(last.out).not.toHaveProperty("swapHeld");
 		});
+	});
+});
+
+describe("unknownNews (#3200)", () => {
+	const unread = (why: string) => ({ cause: "UNKNOWN" as const, why });
+
+	it("logs an UNKNOWN once for each why, and again once a cause has read between", () => {
+		const logged = new Map<string, string>();
+		const news = (r: Parameters<typeof unknownNews>[2]) =>
+			unknownNews(logged, "job42", r);
+		expect(news(unread("no transcript"))).toBe("no transcript");
+		expect(news(unread("no transcript"))).toBeNull();
+		expect(news(unread("no job record"))).toBe("no job record");
+		expect(news({ cause: "QUESTION" })).toBeNull();
+		expect(logged.has("job42")).toBe(false);
+		expect(news(unread("no job record"))).toBe("no job record");
+		expect(unknownNews(logged, "job43", unread("no job record"))).toBe(
+			"no job record",
+		);
 	});
 });

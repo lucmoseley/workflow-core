@@ -540,6 +540,29 @@ describe("a parked launch (#2699)", () => {
 		expect(launchState().parkStopped).toEqual(expect.any(Number));
 	});
 
+	it("stops a 2.1.310 question park, whose row carries state and no status (#3200)", async () => {
+		const { status: _, ...parkedRow } = blockedRow;
+		jobAs({ cliVersion: "2.1.310" });
+		fakeClaude([LISTED, parkedRow]);
+		const r = await twoTicks();
+		expect(r.status).toBe(0);
+		expect(readLines(at("stops"))).toEqual([`stop ${Job}`]);
+		expect(readLines(at("gh-calls"))).toContainEqual(parkComment("QUESTION"));
+		expect(r.stdout).not.toContain("block unread");
+	});
+
+	it("logs a row with neither status nor state once, not each tick (#3200)", async () => {
+		const { status: _, state: __, ...bareRow } = blockedRow;
+		fakeClaude([LISTED, bareRow]);
+		const r = await twoTicks();
+		expect(r.status).toBe(0);
+		expect(readLines(at("ticks")).length).toBeGreaterThanOrEqual(2);
+		expect(
+			r.stdout.match(/block unread .*: row carries neither status nor state/g),
+		).toHaveLength(1);
+		expectNothingActed();
+	});
+
 	it("comments a stopped permission park's cause on its ticket (#2846)", async () => {
 		fakeClaude([LISTED, permissionRow]);
 		const r = await twoTicks();

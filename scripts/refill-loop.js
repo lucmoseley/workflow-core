@@ -719,11 +719,15 @@ function jobShape(job) {
 	);
 }
 
+/** Each launch's last logged UNKNOWN why, by job id or launch name.
+ * @type {Map<string, string>} */
+const unknownLogged = new Map();
+
 /**
  * A parked launch's block cause (lib/block-cause.js), from its listing row,
  * its job record and its transcript's user and assistant rows; an unread
  * transcript reads UNKNOWN and acts on nothing (#2358 F9), and an UNKNOWN is
- * logged with why.
+ * logged with why, once per launch for each why (#3200).
  * @type {import("./lib/refill-blocks.js").CauseOf}
  */
 function causeOf(l, row) {
@@ -733,9 +737,14 @@ function causeOf(l, row) {
 			(r) => r.type === "user" || r.type === "assistant",
 		) ?? null;
 	const reading = blockCause({ row, job, tail });
-	if (reading.cause === "UNKNOWN")
+	const why = blocks.unknownNews(
+		unknownLogged,
+		l.jobId ?? blocks.launchName(l),
+		reading,
+	);
+	if (why !== null)
 		log(
-			`block unread ${blocks.launchName(l)}: ${reading.why}; row ${JSON.stringify(row)}; job ${JSON.stringify(jobShape(job))}`,
+			`block unread ${blocks.launchName(l)}: ${why}; row ${JSON.stringify(row)}; job ${JSON.stringify(jobShape(job))}`,
 		);
 	return reading;
 }
