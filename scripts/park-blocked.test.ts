@@ -59,9 +59,7 @@ let ghBin: string;
 
 /** A `gh` stub dispatching on `issue view --json labels|body`, `issue
  * comment`, `issue edit`, and `api` reads of the blocked-by edges and of an
- * issue's state (`states`, keyed by number). An issue missing from `states`
- * answers empty at exit 0; `apiExit` fails every `api` call, `failPath` only
- * the one whose path ends with it. */
+ * issue's state. An issue missing from `states` answers empty at exit 0. */
 function stubGh(
 	opts: {
 		labels?: string[];
@@ -304,8 +302,6 @@ describe("parking", () => {
 	});
 });
 
-/* #3263: waiting:external gates nothing (mantahostels#243), and no hook sees
-   the comment this script posts, so the gate rule binds here. */
 describe("waiting:external needs a gate", () => {
 	const gateOn =
 		"**Gated on:** the vendor ships v2 — check: npm view vendor version — abandon if: the vendor folds\n**Gate basis:** the vendor names no date";
