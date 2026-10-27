@@ -99,11 +99,12 @@ tooling run leaves one that dispatched nothing, and a run that died before its
 report leaves the previous one untouched.
 
 `--json` prints that same report. The sort levels, in order:
-open `bug` → `urgent` (#2664) → goal-set membership → a `waiting:external` stall past 7 days →
+open `bug` → `urgent` (#2664, #3250) → goal-set membership → a `waiting:external` stall past 7 days →
 ticket type (`wayfinder:grilling`, `wayfinder:prototype` and untyped
 `takes:wayfinder` first, #2001) → chain depth → transitive downstream reach →
 collision estimate → issue number. The first three pass to an issue from
-anything it holds out, so a blocker ranks with the urgent issue it holds
+anything it holds out, as a blocker or as a child, so a blocker ranks with the
+urgent issue it holds and a child with its urgent parent
 (#3222); DEPTH is the longest chain to that tier.
 
 The **TAKES** column is which command opens that issue (the values:

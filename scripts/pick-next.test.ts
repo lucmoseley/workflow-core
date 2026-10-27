@@ -1084,7 +1084,7 @@ describe("ordering", () => {
 		expect(r.order()).toEqual([11, 1]);
 	});
 
-	it("passes a plain ticket's urgency down its child, that child's blocker and on to its child (#3250)", async () => {
+	it("passes a plain ticket's urgency down its child, to that child's blocker, and on to the blocker's child (#3250)", async () => {
 		// #10 urgent, a plain ticket, parent of #11; #20 blocks #11; #21 is
 		// #20's child, so #20 is a heading and #21 the work.
 		const fx = {

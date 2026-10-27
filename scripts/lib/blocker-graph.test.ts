@@ -248,8 +248,9 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 			3: { parent: 1 },
 			5: {},
 		});
-		expect(urgentOf(graph, [5])(own(3))).toMatchObject({
+		expect(urgentOf(graph, [5])(own(3))).toEqual({
 			via: { urgent: { number: 5, path: ["#1", "#2", "#5"] } },
+			depth: 1,
 		});
 	});
 

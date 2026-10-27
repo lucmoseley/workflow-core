@@ -628,7 +628,7 @@ const CORE_LABELS = [
 		name: "urgent",
 		color: "D93F0B",
 		description:
-			"Jumps the selection queue; on a map, for every descendant. Holds until closed or removed.",
+			"Jumps the selection queue, for every descendant and blocker. Holds until closed or removed.",
 	},
 	{
 		name: "measured:effort-low",

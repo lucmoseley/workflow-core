@@ -133,7 +133,7 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 ## `urgent`
 
 <!-- rule:urgent-label:begin -->
-**Anyone may apply the `urgent` label, agent sessions included** — it carries what issue structure cannot see, and holds until the issue closes or someone removes it. On a `wayfinder:map` it covers every descendant, and an open `bug` ranks urgent unlabelled (#2664), so neither needs labelling. Selection reads and displays it, never writes it (mantahostels#101, mantahostels#111).
+**Anyone may apply the `urgent` label, agent sessions included** — it carries what issue structure cannot see, and holds until the issue closes or someone removes it. It covers its descendants and blockers at any depth (#3250), and an open `bug` ranks urgent unlabelled (#2664), so neither needs labelling. Selection reads and displays it, never writes it (mantahostels#101, mantahostels#111).
 <!-- rule:urgent-label:end -->
 
 ## `waiting:external`

@@ -8,8 +8,8 @@
  * @typedef {object} SortLevels
  * @property {boolean} bug an open `bug`, or holding one out, urgent whether
  *   labelled or not
- * @property {boolean} urgent `urgent` on the issue, on an issue it holds out,
- *   or on an ancestor map; or a bug
+ * @property {boolean} urgent `urgent` on the issue or on an issue it holds
+ *   out, as a blocker or as a parent; or a bug
  * @property {boolean} goal in the run's goal set, or holding a member out
  * @property {number} stallDays 0 unless a stalled wait
  * @property {boolean} asksQuestions
