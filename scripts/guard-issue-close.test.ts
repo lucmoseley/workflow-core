@@ -1,37 +1,42 @@
 // @vitest-environment node
 /*
- * The guard-issue-close core of guard-dispatch.js denies a close that says
- * nothing about what is still outstanding (mantahostels#185), a hand close of
- * a roadmap card's own issue (mantahostels#220), a completed close over
- * unticked acceptance criteria (#1640), and one over census rows the
- * ticket's commits expired (#1913). These are its boundary cases, the
- * dispatcher entry run on it alone on a harness-shaped payload: each exit,
- * the fail-open record on disk, and gh at WFC_GH, the roadmap, the tracker
- * config, the rule store and git crossed for real. Which close is refused,
- * and why, is lib/issue-close.test.ts's; the entry's payload faults and the
- * throw policy are guard-dispatch's own tests' (#2798, #3225).
+ * guard-issue-close.js denies a close that says nothing about what is still
+ * outstanding (mantahostels#185), a hand close of a roadmap card's own issue
+ * (mantahostels#220), a completed close over unticked acceptance criteria
+ * (#1640), and one over census rows the ticket's commits expired (#1913).
+ * These are its boundary cases: the line hooks/hooks.json registers, run by
+ * bash as the harness runs it, on a harness-shaped payload — the wiring, each
+ * exit and its stream, the fail-open record on disk, and gh at WFC_GH, the
+ * roadmap, the tracker config, the rule store and git crossed for real.
+ * Which close is refused, and why, is lib/issue-close.test.ts's (#2798).
  *
+ * CLAUDE_PLUGIN_ROOT is this checkout, so the line finds the real entry;
  * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
  * temp CLAUDE_CONFIG_DIR and never the founder's.
  *
- * Make it allow every close and every issue closes unjudged; make it deny on
- * a fault and every close is wedged.
+ * Break the line and every issue closes unjudged; make it deny on a fault
+ * and every close is wedged.
  */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFailOpenRecords } from "./guard-log-fixture";
+import { readFailOpenLog, readFailOpenRecords } from "./guard-log-fixture";
 import { GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import {
 	buildBashPayload,
-	dispatchCoreOutput,
+	entryBesideThrowingCore,
+	expectShellHooks,
 	guardDirs,
+	guardOutput,
+	hookLineOutput,
+	readHookLines,
 } from "./lib/pretool-guard-testkit";
 
-const CORE = "guard-issue-close";
+const SCRIPT = "scripts/guard-issue-close.js";
+const LINES = readHookLines("hooks/hooks.json", SCRIPT);
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
@@ -114,17 +119,26 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The core's hookSpecificOutput for `command`, run in the temp project. */
+/** The hook's hookSpecificOutput for `command`, run in the temp project. */
 const emission = (
 	command: string,
-	{ env = {}, cwd = dir }: { env?: NodeJS.ProcessEnv; cwd?: string } = {},
+	run: { stdin?: string; env?: NodeJS.ProcessEnv; cwd?: string } = {},
 ) =>
-	dispatchCoreOutput(CORE, buildBashPayload(command, "s1"), {
+	hookLineOutput(LINES[0] ?? "", command, {
 		project: dir,
 		config,
-		cwd,
-		env,
+		cwd: dir,
+		...run,
 	});
+
+describe("the registered hook line", () => {
+	it("is one line, narrowed by `if: Bash(gh *)`, in the plugin and the self-plugin alike (mantahostels#2127)", () => {
+		expectShellHooks(SCRIPT, () => ({
+			if: "Bash(gh *)",
+			onFailure: "block",
+		}));
+	});
+});
 
 describe("each exit", () => {
 	it("refuses a hand close of an active card's issue as permissionDecision JSON on exit 0, reading the roadmap off disk and splicing the stored rule", () => {
@@ -183,6 +197,21 @@ describe("each exit", () => {
 		expect(emission("gh issue list", { env })).toBeNull();
 		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});
+
+	it("refuses, logged, where its core throws", () => {
+		const out = guardOutput(
+			entryBesideThrowingCore(dir, SCRIPT, "issue-close.js"),
+			buildBashPayload("gh issue close 12", "s1"),
+			{ project: dir, config, cwd: dir },
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toBe(
+			"guard-issue-close.js could not judge this command, so it refuses it: broke",
+		);
+		expect(readFailOpenLog(config, dir)).toMatch(
+			/core threw — the command was refused\tbroke/,
+		);
+	});
 });
 
 describe("the adapters, crossed for real", () => {
@@ -230,6 +259,28 @@ describe("the adapters, crossed for real", () => {
 });
 
 describe("what it fails open on", () => {
+	it("allows a payload that is not JSON, and records that it did", () => {
+		expect(emission("", { stdin: "not json" })).toBeNull();
+		expect(readFailOpenRecords(config, dir)).toEqual([
+			[
+				expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+				"guard-issue-close.js",
+				expect.stringContaining("payload did not parse as JSON"),
+			],
+		]);
+	});
+
+	it("allows a payload carrying no command, and records that it did", () => {
+		expect(
+			emission("", {
+				stdin: JSON.stringify({ session_id: "s1", tool_name: "Bash" }),
+			}),
+		).toBeNull();
+		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
+			expect.stringContaining("no command in payload"),
+		]);
+	});
+
 	it("allows a close whose gh cannot be started, and records that it did", () => {
 		expect(
 			emission("gh issue close 12", { env: { WFC_GH: "/dev/null/gh" } }),
@@ -237,5 +288,11 @@ describe("what it fails open on", () => {
 		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
 			"could not read comments on #12 — close allowed unchecked",
 		]);
+	});
+
+	it("fails open, exit 0 and silent, where node is not on PATH", () => {
+		expect(
+			emission("gh issue close 12", { env: { PATH: "/nonexistent" } }),
+		).toBeNull();
 	});
 });
