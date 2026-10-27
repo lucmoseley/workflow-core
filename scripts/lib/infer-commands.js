@@ -136,11 +136,15 @@ const STAGED = /(?:^|\s)--staged(?=[\s="')]|$)/;
 /* Anything that makes the text more than one command (#2599). */
 const COMPOSITE = /[;&|<>()\n`]/;
 const PINNED = /(?:^|\s)(?:@biomejs\/)?biome@/;
-/* What a composite's Biome part sheds before it is mapped: a redirect with its
- * target, and a subshell's parentheses (#3153). Residual: a quoted target or a
- * here-string is left behind, to be read as a path. */
-const REDIRECT = /(?:(?<![^\s(])\d+)?(?:&>>?|[<>]&|>>?|<)\s*[^\s()]*/g;
-const SUBSHELL = /[()]/g;
+/* What a segment sheds before it is searched for `biome check --staged`, and
+ * a composite's Biome part before it is mapped: a redirect with its target, a
+ * subshell's or substitution's brackets, and a group's braces. Either may
+ * touch a word with no space between (#3153, #3191). Residual: a quoted
+ * target or a here-string is left behind, to be read as a path. */
+const REDIRECT = /(?:(?<![^\s(`])\d+)?(?:&>>?|[<>]&|>>?|<)\s*[^\s()`]*/g;
+const SUBSHELL = /\$?[()`]|(?<!\S)[{}](?!\S)/g;
+/** @param {string} segment */
+const shed = (segment) => segment.replace(REDIRECT, " ").replace(SUBSHELL, " ");
 
 /* The names that find the `biome` the hook puts on PATH from
  * `node_modules/.bin` (#2597 §7), as the words before `check`, bare or after
@@ -415,6 +419,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			const segment = text
 				.replace(RUN_SCRIPT, " ")
 				.split(SEGMENT)
+				.map(shed)
 				.find((s) => {
 					const m = BIOME_CHECK.exec(s);
 					return m && STAGED.test(s.slice(m.index + m[0].length));
@@ -442,10 +447,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 		refusal: `runs biome check --staged${via}, which lints each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), and ${shape}. ${wayOut}`,
 	});
 	if (!single || COMPOSITE.test(hit.text.trim())) {
-		const part = mapBiome(
-			hit.segment.replace(REDIRECT, " ").replace(SUBSHELL, " "),
-			biome,
-		);
+		const part = mapBiome(hit.segment, biome);
 		return refused(
 			"holds more than that one command",
 			declareCheckStaged(
