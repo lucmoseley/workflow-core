@@ -314,6 +314,7 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "__pycache__"]);
  *
  * @typedef {{ holder: string, dead: boolean }} HeldEntry
  * @typedef {HeldEntry & { path: string }} HeldInput
+ * @typedef {HeldEntry & { blob: string }} TakenEntry
  */
 
 // --- collecting the documents -----------------------------------------------
@@ -3152,14 +3153,14 @@ const printLine = (line) => writeFd(1, `${line}\n`);
  * the session-name lookup all still run against it (mantahostels#2636).
  *
  * @param {string[]} targets
- * @param {Set<string>} ours
- * @returns {{held: Map<string, HeldEntry>, taken: Map<string, HeldEntry>, unavailable: string|null}}
+ * @param {Map<string, string>} ours each path this commit takes, with its blob
+ * @returns {{held: Map<string, HeldEntry>, taken: Map<string, TakenEntry>, unavailable: string|null}}
  */
 function readHeldElsewhere(targets, ours) {
 	const wanted = new Set(targets);
 	/** @type {Map<string, HeldEntry>} */
 	const held = new Map();
-	/** @type {Map<string, HeldEntry>} */
+	/** @type {Map<string, TakenEntry>} */
 	const taken = new Map();
 	try {
 		const { readTreeSnapshot, neighbourDirty } = require("./lib/tree-drift.js");
@@ -3177,12 +3178,13 @@ function readHeldElsewhere(targets, ours) {
 		if (locks === null)
 			return { held, taken, unavailable: "the claim store would not be read" };
 		const nameFor = registryNames();
-		for (const e of neighbourDirty(snap, locks, self) ?? [])
-			if (wanted.has(e.path))
-				(ours.has(e.path) ? taken : held).set(e.path, {
-					holder: nameFor(e.sessionId),
-					dead: e.dead,
-				});
+		for (const e of neighbourDirty(snap, locks, self) ?? []) {
+			if (!wanted.has(e.path)) continue;
+			const entry = { holder: nameFor(e.sessionId), dead: e.dead };
+			const blob = ours.get(e.path);
+			if (blob === undefined) held.set(e.path, entry);
+			else taken.set(e.path, { ...entry, blob });
+		}
 		return { held, taken, unavailable: null };
 	} catch (e) {
 		return {
@@ -3193,28 +3195,149 @@ function readHeldElsewhere(targets, ours) {
 	}
 }
 
+/** @param {string} oid */
+const isNullOid = (oid) => /^0+$/.test(oid);
+
 /**
- * The paths this commit stages whole: changed in its index against HEAD, with
- * no working-tree bytes beyond the index's (#3255). A pathspec commit's index
- * is private to its hook, so only the gate can read this; --review is told the
- * same paths by `--taking`.
+ * The paths this commit stages whole, each with the blob it stages: changed in
+ * its index against HEAD, with no working-tree bytes beyond the index's
+ * (#3255). A pathspec commit's index is private to its hook, so only the gate
+ * can read this.
  *
- * @returns {{ paths: Set<string>, error: string | null }}
+ * @returns {{ blobs: Map<string, string>, error: string | null }}
  */
 function readStagedWhole() {
 	const staged = gitPaths([
 		"diff",
 		"--cached",
 		"--no-renames",
-		"--name-only",
+		"--raw",
+		"--no-abbrev",
 		"-z",
 		"HEAD",
 	]);
 	const unstaged = gitPaths(["diff", "--no-renames", "--name-only", "-z"]);
 	const error = staged.error ?? unstaged.error;
-	if (error) return { paths: new Set(), error };
+	if (error) return { blobs: new Map(), error };
 	const rest = new Set(unstaged.paths);
-	return { paths: new Set(staged.paths.filter((p) => !rest.has(p))), error };
+	/** @type {Map<string, string>} */
+	const blobs = new Map();
+	// Raw -z output alternates ":<modes> <old> <new> <status>" and the path.
+	for (const [i, status] of staged.paths.entries()) {
+		if (i % 2 === 1) continue;
+		const [, , , blob] = status.split(" ");
+		const p = staged.paths[i + 1];
+		if (blob === undefined || p === undefined)
+			return { blobs: new Map(), error: `unparsed raw line ${status}` };
+		if (!rest.has(p)) blobs.set(p, blob);
+	}
+	return { blobs, error };
+}
+
+/**
+ * This session's taking record, in the per-worktree git directory, which
+ * outlives the hook's private index (#3288).
+ *
+ * @returns {string | null} null where the session or the git directory is unknown
+ */
+function takingRecordPath() {
+	const self = process.env.CLAUDE_CODE_SESSION_ID;
+	if (!self) return null;
+	const r = spawnGitSync(
+		[
+			"-C",
+			root,
+			"rev-parse",
+			"--path-format=absolute",
+			"--git-path",
+			`wfc-review-taking/${self}.json`,
+		],
+		{ encoding: "utf8" },
+	);
+	return r.error || r.status !== 0 ? null : r.stdout.trim();
+}
+
+/**
+ * Record the paths a refusal names `--taking`, replacing the last refusal's.
+ *
+ * @param {Map<string, TakenEntry>} taken
+ * @returns {string | null} why it could not be written, or null
+ */
+function saveTaking(taken) {
+	const file = takingRecordPath();
+	if (!file) return "this session or its git directory is unknown";
+	try {
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(
+			file,
+			JSON.stringify(
+				Object.fromEntries([...taken].map(([p, t]) => [p, t.blob])),
+			),
+		);
+		return null;
+	} catch (e) {
+		return caught(e).message;
+	}
+}
+
+/**
+ * The `--taking` paths this session's last refusal recorded whose working tree
+ * still hashes to the blob that commit staged, and a line for each other
+ * (#3288).
+ *
+ * @param {string[]} taking
+ * @returns {{ ours: Map<string, string>, refused: string[] }}
+ */
+function checkTaking(taking) {
+	/** @type {Map<string, string>} */
+	const ours = new Map();
+	/** @type {string[]} */
+	const refused = [];
+	if (taking.length === 0) return { ours, refused };
+	/** @type {Record<string, string>} */
+	let recorded = {};
+	const file = takingRecordPath();
+	try {
+		if (file && fs.existsSync(file))
+			recorded = JSON.parse(fs.readFileSync(file, "utf8"));
+	} catch (e) {
+		refused.push(`taking record ${file} unread (${caught(e).message})`);
+	}
+	for (const rel of taking) {
+		const blob = recorded[rel];
+		const why =
+			blob === undefined
+				? "no refusal of this session's commit names it staged"
+				: blobMismatch(rel, blob);
+		if (blob !== undefined && why === null) ours.set(rel, blob);
+		else
+			refused.push(
+				`not taking ${rel} — ${why}, so any claim on it stands; commit it by pathspec and re-run the --review line that commit's refusal prints`,
+			);
+	}
+	return { ours, refused };
+}
+
+/**
+ * Why `rel`'s working tree is not `blob`, or null where it is.
+ *
+ * @param {string} rel
+ * @param {string} blob
+ * @returns {string | null}
+ */
+function blobMismatch(rel, blob) {
+	if (!fs.existsSync(path.join(root, rel)))
+		return isNullOid(blob)
+			? null
+			: "it is gone from the working tree, and the commit staged it";
+	const r = spawnGitSync(["-C", root, "hash-object", "--", rel], {
+		encoding: "utf8",
+	});
+	const failed = gitFailure(r);
+	if (failed) return `git hash-object failed (${failed})`;
+	return r.stdout.trim() === blob
+		? null
+		: "its working tree is not the copy the commit staged";
 }
 
 /**
@@ -3275,10 +3398,9 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 			? reviewPaths
 			: [...new Set([...describedBy.keys(), ...implicitScripts.keys()])].sort();
 	const { hashedBy, inputs } = readDigestInputs(targets);
-	const { held, taken, unavailable } = readHeldElsewhere(
-		inputs,
-		new Set(taking),
-	);
+	const { ours, refused } = checkTaking(taking);
+	for (const line of refused) printLine(line);
+	const { held, taken, unavailable } = readHeldElsewhere(inputs, ours);
 	for (const [p, h] of taken)
 		printLine(
 			`taking ${p} from ${h.holder}${h.dead ? " (GONE)" : ""}'s claim — put it in this commit's pathspec`,
@@ -3608,12 +3730,8 @@ function settleStale(ctx, added) {
 		);
 		remedy.push(...buildExpiredRow(w, via, implicitScripts.has(w.guard)));
 	}
-	const takes = [...new Set(owedInputs)]
-		.filter((p) => taken.has(p))
-		.map((p) => ` --taking ${p}`);
-	const review = buildReviewLine(
-		owed.map((w) => w.guard).join(" ") + takes.join(""),
-	);
+	const takes = takeOwed(owedInputs, taken, pushed, remedy);
+	const review = buildReviewLine(owed.map((w) => w.guard).join(" ") + takes);
 	remedy.push(
 		...(pushed
 			? [
@@ -3638,6 +3756,30 @@ function settleStale(ctx, added) {
 }
 
 /**
+ * The ` --taking <path>` words the refusal's --review line carries, and a note
+ * on `remedy` where their record could not be written (#3288).
+ *
+ * @param {string[]} owedInputs
+ * @param {Map<string, TakenEntry>} taken
+ * @param {string | undefined} pushed
+ * @param {string[]} remedy
+ */
+function takeOwed(owedInputs, taken, pushed, remedy) {
+	const owedTaken = new Map(
+		[...new Set(owedInputs)].flatMap((p) => {
+			const t = taken.get(p);
+			return t ? [/** @type {[string, TakenEntry]} */ ([p, t])] : [];
+		}),
+	);
+	const unsaved = pushed ? null : saveTaking(owedTaken);
+	if (unsaved && owedTaken.size > 0)
+		remedy.push(
+			`  taking record not written (${unsaved}), so --review keeps each --taking path's claim.`,
+		);
+	return [...owedTaken.keys()].map((p) => ` --taking ${p}`).join("");
+}
+
+/**
  * The claims standing a stale row down at the gate. At push the judged bytes
  * are a commit's, which no neighbour's dirty input can reach and no
  * post-commit notice follows, so nothing stands down.
@@ -3655,7 +3797,7 @@ function readHeldAtGate(ctx, inputs, pushed) {
 		ctx.say(
 			`staged read failed (${ours.error}), so a claimed file this commit stages whole still stands its row down.`,
 		);
-	return readHeldElsewhere(inputs, ours.paths);
+	return readHeldElsewhere(inputs, ours.blobs);
 }
 
 /**
@@ -3668,10 +3810,18 @@ function gitPaths(args) {
 	const r = spawnGitSync(["-C", root, ...args], {
 		encoding: "utf8",
 	});
-	if (r.error || r.status !== 0)
-		return { paths: [], error: r.error?.message ?? `exit ${r.status}` };
+	const error = gitFailure(r);
+	if (error) return { paths: [], error };
 	return { paths: r.stdout.split("\0").filter(Boolean), error: null };
 }
+
+/**
+ * Why a git read failed, or null where it answered.
+ *
+ * @param {{ error?: Error, status: number | null }} r
+ */
+const gitFailure = (r) =>
+	r.error || r.status !== 0 ? (r.error?.message ?? `exit ${r.status}`) : null;
 
 /**
  * A line for each digest input, or the anchors file, whose working-tree bytes

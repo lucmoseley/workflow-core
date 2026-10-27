@@ -2168,6 +2168,71 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
+	/* The way out --review prints where it keeps a --taking path's claim. */
+	const keptClaim = (out: string, why: string) => {
+		expect(out).toContain(
+			`not taking scripts/lib/deny.sh — ${why}, so any claim on it stands; commit it by pathspec and re-run the --review line that commit's refusal prints`,
+		);
+		expect(out).not.toContain("taking scripts/lib/deny.sh from");
+		expect(out).toContain(
+			"not anchored scripts/guard-branch.sh — scripts/lib/deny.sh is dirty and claimed by neighbour-session (GONE)",
+		);
+	};
+	const takeDeny = (root: string, locks: unknown[]) =>
+		reviewIn(
+			root,
+			["scripts/guard-branch.sh", "--taking", "scripts/lib/deny.sh"],
+			claims(locks),
+		);
+
+	it("--taking a path no refusal of this session's commit staged keeps its holder's claim, and says so (#3288)", () => {
+		const { root } = stagingRepo();
+		const locks = [lock("scripts/lib/deny.sh", { alive: false })];
+		fs.writeFileSync(
+			path.join(root, "scripts", "lib", "deny.sh"),
+			"deny() { exit 0; }\n",
+		);
+		const before = readAnchors(root);
+		keptClaim(
+			takeDeny(root, locks),
+			"no refusal of this session's commit names it staged",
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("--taking a path whose working tree moved since the refusal keeps its holder's claim, and says so (#3288)", () => {
+		const { root } = stagingRepo();
+		const locks = [lock("scripts/lib/deny.sh", { alive: false })];
+		const hookCommit = hookCommitter(root, locks);
+		const deny = path.join(root, "scripts", "lib", "deny.sh");
+		fs.writeFileSync(deny, "deny() { exit 0; }\n");
+		expect(hookCommit("scripts/lib/deny.sh").stderr).toContain(
+			"--taking scripts/lib/deny.sh",
+		);
+		fs.appendFileSync(deny, "# more\n");
+		const before = readAnchors(root);
+		keptClaim(
+			takeDeny(root, locks),
+			"its working tree is not the copy the commit staged",
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("--taking a claimed file the commit stages as a removal takes the claim (#3288)", () => {
+		const { root, git } = stagingRepo();
+		const locks = [lock("scripts/lib/deny.sh", { alive: false })];
+		const hookCommit = hookCommitter(root, locks);
+		fs.rmSync(path.join(root, "scripts", "lib", "deny.sh"));
+		expect(hookCommit("scripts/lib/deny.sh").stderr).toContain(
+			"--taking scripts/lib/deny.sh",
+		);
+		expect(takeDeny(root, locks)).toContain(
+			"taking scripts/lib/deny.sh from neighbour-session (GONE)'s claim",
+		);
+		expect(hookCommit("scripts/lib/deny.sh", ANCHORS).status).toBe(0);
+		expect(git("status", "--porcelain")).toBe("");
+	});
+
 	it("--review without --taking still skips a claimed file the shared index stages whole, as the neighbour's own (#3255)", () => {
 		const { root, stage } = stagingRepo();
 		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
