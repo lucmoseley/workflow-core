@@ -11,6 +11,12 @@
  * against the other. A deletion passes unjudged, and a push creating
  * `landing` passes, printed.
  *
+ * A LANDER REVERT passes with the rows it leaves stale: with WFC_LANDER_REVERT
+ * naming a culprit, the checker stands staleness down where the pushed sha is
+ * one commit on the tip, carries git's revert line for that culprit and holds
+ * its clean revert, so the lander can reopen a held queue (#3127). Any other
+ * fault still refuses.
+ *
  * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
  * branch protection on the remote is the gate that binds (#2414).
  *
@@ -25,39 +31,36 @@
  * that is not the push's.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const { LANDING_BRANCH } = require("./lib/landing-refs.js");
-const { readTopLevel } = require("./lib/git-tree.js");
-const { caught } = require("./lib/caught.js");
+const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
+const {
+	buildUnchecked,
+	isModuleOnAtHead,
+	runPrePushGate,
+} = require("./lib/pre-push-gate.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const REFUSE = 2;
 const LANDING = `refs/heads/${LANDING_BRANCH}`;
-const ZERO = /^0+$/;
 const CHECK = path.join(__dirname, "check-guard-registry.js");
 
-/**
- * @param {string} why the fault
- */
-const unchecked = (why) =>
-	writeFd(
-		2,
-		`landing-registry-gate: ${why} — guard-registry rows on ${LANDING_BRANCH} not checked.\n`,
-	);
+const unchecked = buildUnchecked(
+	"landing-registry-gate",
+	`guard-registry rows on ${LANDING_BRANCH}`,
+);
 
 /**
  * @param {string} stdin
  * @returns {{ sha: string, tip: string }[]}
  */
 function parseLandingPushes(stdin) {
-	return stdin.split("\n").flatMap((line) => {
-		const [, sha, remoteRef, tip] = line.trim().split(/\s+/);
-		if (remoteRef !== LANDING || !sha || !tip) return [];
-		return ZERO.test(sha) ? [] : [{ sha, tip }];
-	});
+	return parseRefLines(stdin).flatMap(({ sha, remoteRef, remoteSha }) =>
+		remoteRef === LANDING && remoteSha && !isZeroSha(sha)
+			? [{ sha, tip: remoteSha }]
+			: [],
+	);
 }
 
 /**
@@ -68,19 +71,10 @@ function parseLandingPushes(stdin) {
 function judge(stdin, tree) {
 	const pushes = parseLandingPushes(stdin);
 	if (pushes.length === 0) return 0;
-	let on;
-	try {
-		on = moduleOn("landing", { root: tree, rev: "HEAD" });
-	} catch (e) {
-		unchecked(
-			`could not read the landing module's state (${caught(e).message})`,
-		);
-		return 0;
-	}
-	if (!on) return 0;
+	if (!isModuleOnAtHead("landing", tree, unchecked)) return 0;
 	let verdict = 0;
 	for (const { sha, tip } of pushes) {
-		if (ZERO.test(tip)) {
+		if (isZeroSha(tip)) {
 			unchecked(
 				`this push creates ${LANDING_BRANCH}, so it has no tip to compare against`,
 			);
@@ -105,20 +99,4 @@ function judge(stdin, tree) {
 	return verdict;
 }
 
-function main() {
-	const tree = readTopLevel(process.cwd());
-	if (tree === null) {
-		unchecked("could not find the pushing tree");
-		return 0;
-	}
-	let stdin = "";
-	try {
-		stdin = fs.readFileSync(0, "utf8");
-	} catch (e) {
-		unchecked(`could not read the pushed refs (${caught(e).message})`);
-		return 0;
-	}
-	return judge(stdin, tree);
-}
-
-process.exitCode = main();
+process.exitCode = runPrePushGate(unchecked, judge);

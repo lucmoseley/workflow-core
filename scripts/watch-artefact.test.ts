@@ -32,7 +32,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const SCRIPT = join(__dirname, "watch-artefact.js");
-const POLL_GUARD = join(__dirname, "guard-agent-poll.js");
+const POLL_GUARD = join(__dirname, "guard-dispatch.js");
 
 const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5 };
 
@@ -178,12 +178,13 @@ describe("a bad invocation", () => {
 	});
 });
 
-describe("the poll guard (guard-agent-poll.js)", () => {
+describe("the poll guard (guard-dispatch.js's guard-agent-poll core)", () => {
 	/** Feeds the guard one Bash call, with its state and fail-open log private. */
 	const pollGuard = (command: string) =>
 		spawnSync(POLL_GUARD, [], {
 			encoding: "utf8",
 			input: JSON.stringify({
+				hook_event_name: "PreToolUse",
 				session_id: "s1",
 				tool_name: "Bash",
 				tool_input: { command },

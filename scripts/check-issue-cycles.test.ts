@@ -17,7 +17,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { BLOCKED_BY_GRAPHQL_FAKE, GH_NOT_FOUND } from "./lib/gh-fake";
+import {
+	BLOCKED_BY_GRAPHQL_FAKE,
+	GH_NOT_FOUND,
+	RECORDED_SHAPES,
+} from "./lib/gh-fake";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-cycles.js");
@@ -61,7 +65,8 @@ fs.appendFileSync(${JSON.stringify(CALL_LOG())}, argv.join(" ") + "\\n");
 
 const p = argv.find((a) => a.startsWith("repos/")) || "";
 const die = (msg) => { process.stderr.write("gh: " + msg + "\\n"); process.exit(1); };
-const page = (rows) => process.stdout.write(JSON.stringify([rows]) + "\\n");
+${RECORDED_SHAPES}
+const page = (kind, rows) => process.stdout.write(asRecorded(kind, [rows]) + "\\n");
 
 if (fx.unreachable) { ${GH_LOGGED_OUT_NODE} }
 
@@ -81,11 +86,11 @@ const dep = p.match(/issues\\/(\\d+)\\/dependencies\\/blocked_by/);
 if (dep) {
   const i = fx.issues.find((x) => x.number === Number(dep[1]));
   if (i && i.failBlockers) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
-  return page((i && i.blockedBy) || []);
+  return page("blockedByPage", (i && i.blockedBy) || []);
 }
 if (/\\/issues$/.test(p) && argv.includes("state=open")) {
   if (fx.failList) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
-  return page(fx.issues.map((i) => ({
+  return page("issuesPage", fx.issues.map((i) => ({
     number: i.number,
     title: "issue " + i.number,
     html_url: "http://example/" + i.number,

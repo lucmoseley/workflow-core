@@ -53,6 +53,11 @@
  * refusal (#1876), read through lib/census-digest.js. A close naming another
  * repo owes none: the commits cite this one's tracker.
  *
+ * THE FIFTH RULE (#3101): a completed close is denied where commits citing
+ * the issue, or named by sha in its comment, are not on the pushed ref under
+ * their hash or subject, unless an `**Unlanded:**` line says why —
+ * resolve-ticket.js's refusal, read through lib/unlanded-commits.js.
+ *
  * DENY, not warn, and this is the distinction mantahostels#103 draws: deny on
  * a structured fact, warn where the hook is inferring. Whether a comment's
  * prose describes unfiled work is inference, and no detector is built on it

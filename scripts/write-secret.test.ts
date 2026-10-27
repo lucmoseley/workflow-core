@@ -1485,14 +1485,61 @@ describe("write-secret", () => {
 		expect(fs.readFileSync(file, "utf8")).toBe("A=1\n");
 	});
 
-	it("refuses as git could not say where the index is lost and the branch ref emptied, which HEAD's reflog restores (#3080)", () => {
+	it("refuses a .env tracked where the index is lost and the branch ref emptied, which HEAD's reflog restores (#3080)", () => {
 		const { proj, file } = buildLostIndex();
 		const ref = git("symbolic-ref", "HEAD").toString().trim();
 		fs.writeFileSync(path.join(host, ".git", ref), "");
 		const r = run(["K"], SECRET, host, { CLAUDE_PROJECT_DIR: proj });
 		expect(r.status).toBe(1);
-		expect(r.stderr).toBe(couldNotSayRefusal(file, proj));
+		expect(r.stderr).toBe(trackedRefusal(file));
 		expect(fs.readFileSync(file, "utf8")).toBe("A=1\n");
+	});
+
+	it("refuses a .env tracked where the index, the branch ref and HEAD's reflog are lost, which the branch's reflog restores (#3098)", () => {
+		const { proj, file } = buildLostIndex();
+		const ref = git("symbolic-ref", "HEAD").toString().trim();
+		fs.rmSync(path.join(host, ".git", ref));
+		fs.rmSync(path.join(host, ".git", "logs", "HEAD"));
+		const r = run(["K"], SECRET, host, { CLAUDE_PROJECT_DIR: proj });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(trackedRefusal(file));
+		expect(fs.readFileSync(file, "utf8")).toBe("A=1\n");
+	});
+
+	it("writes silently where the index is lost and the branch is truly unborn (#3098)", () => {
+		git("add", ".gitignore");
+		fs.rmSync(path.join(host, ".git", "index"));
+		expectSilentWrite(host);
+	});
+
+	/** `.gitignore` committed, then the index, the branch ref and HEAD's reflog lost. */
+	const buildLostRefs = () => {
+		git("add", ".gitignore");
+		commitAll();
+		const ref = git("symbolic-ref", "HEAD").toString().trim();
+		fs.rmSync(path.join(host, ".git", "index"));
+		fs.rmSync(path.join(host, ".git", ref));
+		fs.rmSync(path.join(host, ".git", "logs", "HEAD"));
+		return fs.readFileSync(path.join(host, ".git", "logs", ref), "utf8");
+	};
+
+	it("refuses as git could not say where the index, the branch ref and HEAD's reflog are lost and the branch's reflog tip leaves .env untracked (#3098)", () => {
+		buildLostRefs();
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(couldNotSayRefusal(env(), host));
+		expect(fs.existsSync(env())).toBe(false);
+	});
+
+	it("refuses as git could not say where the commit the branch's reflog would restore, the index, the branch ref and HEAD's reflog are lost (#3098)", () => {
+		const tip = buildLostRefs().trimEnd().split("\n").pop()?.split(" ")[1];
+		if (tip === undefined) throw new Error("no reflog tip");
+		const objects = path.join(host, ".git", "objects");
+		fs.rmSync(path.join(objects, tip.slice(0, 2), tip.slice(2)));
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(couldNotSayRefusal(env(), host));
+		expect(fs.existsSync(env())).toBe(false);
 	});
 
 	it("refuses as git could not say where the project dir's repository, nested in a healthy one that ignores .env, tracks .env and has lost its HEAD (#3080)", () => {

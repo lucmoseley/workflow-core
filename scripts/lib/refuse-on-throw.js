@@ -14,6 +14,31 @@
 const { caught } = require("./caught.js");
 
 /**
+ * `ctx` with its treeClass port watched, and whether a throw is the repo
+ * not resolving — the fault that stays open, for this file and for
+ * lib/guard-dispatch.js's fail-closed cores alike.
+ * @template {{ treeClass: (dir: string) => string }} C
+ * @param {C} ctx
+ * @returns {{ ctx: C, isRepoFault: (e: unknown) => boolean }}
+ */
+function watchRepoFault(ctx) {
+	/** @type {unknown} */
+	let repoFault;
+	const treeClass = (/** @type {string} */ dir) => {
+		try {
+			return ctx.treeClass(dir);
+		} catch (e) {
+			repoFault = e;
+			throw e;
+		}
+	};
+	return {
+		ctx: { ...ctx, treeClass },
+		isRepoFault: (e) => repoFault !== undefined && e === repoFault,
+	};
+}
+
+/**
  * @template {{ treeClass: (dir: string) => string,
  *   log: (what: string, detail?: string) => void }} C
  * @param {string} name the entry's file, as the refusal names it
@@ -22,21 +47,12 @@ const { caught } = require("./caught.js");
  */
 function refuseOnThrow(name, decide) {
 	return (command, ctx) => {
-		/** @type {unknown} */
-		let repoFault;
-		const treeClass = (/** @type {string} */ dir) => {
-			try {
-				return ctx.treeClass(dir);
-			} catch (e) {
-				repoFault = e;
-				throw e;
-			}
-		};
+		const watched = watchRepoFault(ctx);
 		try {
-			return decide(command, { ...ctx, treeClass });
+			return decide(command, watched.ctx);
 		} catch (e) {
 			const why = caught(e).message;
-			if (e === repoFault) {
+			if (watched.isRepoFault(e)) {
 				ctx.log(why);
 				return null;
 			}
@@ -48,4 +64,4 @@ function refuseOnThrow(name, decide) {
 	};
 }
 
-module.exports = { refuseOnThrow };
+module.exports = { refuseOnThrow, watchRepoFault };

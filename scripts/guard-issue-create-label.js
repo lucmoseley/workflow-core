@@ -2,7 +2,7 @@
 /*
  * guard-issue-create-label.js — PreToolUse guard: every issue created from a
  * Bash call carries a `takes:` label (mantahostels#453, which ruled it). A
- * create on an Anthropic repo is guard-anthropic-report.js's to refuse
+ * create on an Anthropic repo is the guard-anthropic-report core's to refuse
  * (#1987).
  *
  * Why: `takes:` is the label naming the command that opens an issue, and

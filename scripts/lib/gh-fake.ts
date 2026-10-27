@@ -1,8 +1,10 @@
 /*
  * The shared gh fake (§G7, #2207): one answer per fixture file under
  * fixtures/gh/, served in-process by `ghFake`, as the WFC_GH stub executable
- * by `ghFakeScript`, and as an inline node fake by `ghAnswerNode`.
- * gh.contract.test.ts holds all three to the real binary, so a test names
+ * by `ghFakeScript`, as an inline node fake by `ghAnswerNode`, and as
+ * serveGhStub's handler by `ghAnswerHandler`. gh.contract.test.ts holds
+ * the first two to the real binary on every fixture and the last two on the
+ * logged-out answer alone, since all four serve one GhAnswer. A test names
  * the answer it wants by its fixture path and nothing else — or, where the
  * answer depends on the call, by the computed answer below that builds it.
  * A stub that builds its own REST answers runs each through `asRecorded`,
@@ -11,6 +13,9 @@
 
 import fs from "node:fs";
 import BLOCKED_BY_PAGE from "./fixtures/gh/blocked-by-page.json" with {
+	type: "json",
+};
+import COMMENTS_PAGE from "./fixtures/gh/comments-page.json" with {
 	type: "json",
 };
 import GRAPHQL_BLOCKED_BY from "./fixtures/gh/graphql-blocked-by.json" with {
@@ -62,8 +67,7 @@ export function ghAnswer(fixture: string): GhAnswer {
 }
 
 /** The in-process port: lib/gh.js's `gh(args)`, answering `answer` to every
- *  call. A non-zero status throws what execFileSync throws, so gh.js's
- *  readers (parseGhFailureReason, parseErrLine) read it unchanged. */
+ *  call. A non-zero status throws what execFileSync throws. */
 export function ghServe({
 	status,
 	stdout,
@@ -95,10 +99,25 @@ export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
 export const ghFakeScript = (fixture: string) =>
 	`#!/bin/sh\n${ghServeLines(ghAnswer(fixture))}`;
 
-export function ghAnswerNode(fixture: string): string {
+/** `fixture`'s answer as node source calling `out`, `err` and `exit`. */
+function buildAnswerCalls(
+	fixture: string,
+	{ out, err, exit }: { out: string; err: string; exit: string },
+) {
 	const { status, stdout, stderr } = ghAnswer(fixture);
-	return `process.stdout.write(${JSON.stringify(stdout)}); process.stderr.write(${JSON.stringify(stderr)}); process.exit(${status});`;
+	return `${out}(${JSON.stringify(stdout)}); ${err}(${JSON.stringify(stderr)}); ${exit}(${status});`;
 }
+
+export const ghAnswerNode = (fixture: string) =>
+	buildAnswerCalls(fixture, {
+		out: "process.stdout.write",
+		err: "process.stderr.write",
+		exit: "process.exit",
+	});
+
+/** The handler answering `fixture`, for gh-stub's `serveGhStub`. */
+export const ghAnswerHandler = (fixture: string) =>
+	buildAnswerCalls(fixture, { out: "out", err: "err", exit: "exit" });
 
 /*
  * Computed answers (#2873): where the answer depends on the call — a batched
@@ -240,6 +259,8 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		blockedByPage: JSON.parse(${JSON.stringify(BLOCKED_BY_PAGE.stdout)}),
 		timelinePage: JSON.parse(${JSON.stringify(TIMELINE_PAGE.stdout)}),
 		parentPage: JSON.parse(${JSON.stringify(PARENT_PAGE.stdout)}),
+		commentsPage: JSON.parse(${JSON.stringify(COMMENTS_PAGE.stdout)}),
+		subIssuesPage: JSON.parse(${JSON.stringify(SUB_ISSUES.stdout)}),
 		repo: JSON.parse(${JSON.stringify(REPO.stdout)}),
 	};
 	// This tracker holds no pull request to record, so a listed one's key is
@@ -271,21 +292,20 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 export const ghComputed = <F>(source: string, name: string): F =>
 	new Function(`${source}\nreturn ${name};`)() as F;
 
+/** RECORDED_SHAPES in-process, for a stub that writes its answers from the test. */
+export const asRecorded = ghComputed<(kind: string, value: unknown) => string>(
+	RECORDED_SHAPES,
+	"asRecorded",
+);
+
 /** What one issue's `/sub_issues` answers: its rows, an HTTP error, or the
  *  failure lib/gh.js classifies as unreachable. */
 export type SubIssuesAnswer = unknown[] | "fail" | "unreachable";
 
 /** `gh api …/sub_issues --paginate --slurp`'s answer: one page of `rows`,
- *  each row refused where it carries a key the recorded row lacks. */
+ *  held to the recorded page by `asRecorded`. */
 export function subIssuesAnswer(a: SubIssuesAnswer): GhAnswer {
 	if (a === "fail") return SUB_ISSUES_NOT_FOUND;
 	if (a === "unreachable") return LOGGED_OUT;
-	const [[row], ...more] = JSON.parse(SUB_ISSUES.stdout);
-	if (more.length > 0) throw new Error("sub-issues.json holds one page");
-	for (const r of a) {
-		const unknown = Object.keys(r as object).filter((k) => !(k in row));
-		if (unknown.length > 0)
-			throw new Error(`a sub-issue row has keys gh never sends: ${unknown}`);
-	}
-	return { ...SUB_ISSUES, stdout: JSON.stringify([a]) };
+	return { ...SUB_ISSUES, stdout: asRecorded("subIssuesPage", [a]) };
 }

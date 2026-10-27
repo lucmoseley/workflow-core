@@ -49,6 +49,10 @@ const FAST = {
 	WFC_BG_MISSING_POLL_S: "0.1",
 };
 
+/* Three of FAST's heartbeats: three watcher passes, any of which would kill a
+ * run it read as due. */
+const THREE_BEATS_S = 3 * Number(FAST.WFC_BG_HEARTBEAT_S);
+
 let root: string;
 
 beforeEach(() => {
@@ -1966,15 +1970,14 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	it("never kills a run whose deadline the wall clock has passed but the monotonic clock has not (#2886)", () => {
 		/* A host suspend steps the wall clock forward on resume while no
 		 * monotonic time passes: the wall clock is pinned a day on, the
-		 * monotonic one a second short of the deadline. 3 s is three of FAST's
-		 * 1 s heartbeats, as below. */
+		 * monotonic one a second short of the deadline. */
 		const got = run(
 			[
 				"run",
 				"resumed",
 				"sh",
 				"-c",
-				`echo "1001 $$" > "$${DEADLINE_ENV}"; sleep 3; echo finished`,
+				`echo "1001 $$" > "$${DEADLINE_ENV}"; sleep ${THREE_BEATS_S}; echo finished`,
 			],
 			{
 				WFC_BG_CEILING_GRACE_S: "0",
@@ -1988,12 +1991,43 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		expect(existsSync(join(root, "kills.jsonl"))).toBe(false);
 	});
 
+	it("logs once, never per poll, when the monotonic clock will not read (#3160)", () => {
+		/* A deadline long past, but no monotonic reading to compare it with.
+		 * The poll log counts the failed reads, so the single line is shown
+		 * to have outlived at least two of them. */
+		const got = run(
+			[
+				"run",
+				"clockless",
+				"sh",
+				"-c",
+				`echo "1 $$" > "$${DEADLINE_ENV}"; sleep ${THREE_BEATS_S}; echo finished`,
+			],
+			{ WFC_BG_CEILING_GRACE_S: "0", WFC_BG_MONO: "unreadable" },
+		);
+
+		expect(got.status).toBe(0);
+		const out = check("clockless").stdout;
+		expect(out).toMatch(/^DONE exit=0$/m);
+		expect(
+			out.match(
+				/^bg-run: the monotonic clock would not read \(#2886\), so the suite ceiling's backstop skips each poll it fails on \(#3160\)$/gm,
+			),
+		).toHaveLength(1);
+		const unread = readFileSync(join(root, "polls.log"), "utf8")
+			.split("\n")
+			.filter((l) => l === "mono-unread");
+		expect(unread.length).toBeGreaterThanOrEqual(2);
+		expect(existsSync(join(root, "kills.jsonl"))).toBe(false);
+	});
+
 	it("never kills a command that writes no deadline file", () => {
-		/* 3 s is three of FAST's 1 s heartbeats: three watcher passes, any of
-		 * which would kill a run it read as due. */
-		const got = run(["run", "plain", "sh", "-c", "sleep 3; echo finished"], {
-			WFC_BG_CEILING_GRACE_S: "0",
-		});
+		const got = run(
+			["run", "plain", "sh", "-c", `sleep ${THREE_BEATS_S}; echo finished`],
+			{
+				WFC_BG_CEILING_GRACE_S: "0",
+			},
+		);
 
 		expect(got.status).toBe(0);
 		expect(check("plain").stdout).toMatch(/^DONE exit=0$/m);

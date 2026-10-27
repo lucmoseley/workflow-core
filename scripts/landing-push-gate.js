@@ -29,8 +29,6 @@
  * guard's landing limb, logged there.
  */
 
-const fs = require("node:fs");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const {
 	LANDING_BRANCH,
 	REMOTE,
@@ -38,30 +36,28 @@ const {
 } = require("./lib/landing-refs.js");
 const { fileLedger, landerFiles } = require("./lib/lander.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const { readTopLevel } = require("./lib/git-tree.js");
-const { caught } = require("./lib/caught.js");
+const { parseRefLines } = require("./lib/push-refs.js");
+const {
+	buildUnchecked,
+	isModuleOnAtHead,
+	runPrePushGate,
+} = require("./lib/pre-push-gate.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { spawnGitSync } = require("./lib/git.js");
 
 const REFUSE = 2;
 const MAIN = `refs/heads/${VERIFIED_BRANCH}`;
 
-/**
- * @param {string} why the fault (#2409)
- */
-const unchecked = (why) =>
-	writeFd(2, `landing-push-gate: ${why} — push to main not checked.\n`);
+const unchecked = buildUnchecked("landing-push-gate", "push to main");
 
 /**
  * The local shas the ref list pushes to `main`, a deletion's zeros included.
  * @param {string} stdin
  */
-function mainPushes(stdin) {
-	return stdin.split("\n").flatMap((line) => {
-		const [, sha, remoteRef] = line.trim().split(/\s+/);
-		return remoteRef === MAIN && sha !== undefined ? [sha] : [];
-	});
-}
+const parseMainPushes = (stdin) =>
+	parseRefLines(stdin)
+		.filter(({ remoteRef }) => remoteRef === MAIN)
+		.map(({ sha }) => sha);
 
 /**
  * Each sha's tree, in order; `null` for one git cannot resolve.
@@ -88,18 +84,9 @@ function readTreesOf(shas) {
  * @returns {number}
  */
 function judge(stdin, { tree, root }) {
-	const pushes = mainPushes(stdin);
+	const pushes = parseMainPushes(stdin);
 	if (pushes.length === 0) return 0;
-	let on;
-	try {
-		on = moduleOn("landing", { root: tree, rev: "HEAD" });
-	} catch (e) {
-		unchecked(
-			`could not read the landing module's state (${caught(e).message})`,
-		);
-		return 0;
-	}
-	if (!on) return 0;
+	if (!isModuleOnAtHead("landing", tree, unchecked)) return 0;
 	const ledger = fileLedger(landerFiles(root).ledger);
 	const green = new Set(
 		readTreesOf(ledger.readShas()).filter((t) => t !== null),
@@ -122,21 +109,11 @@ function judge(stdin, { tree, root }) {
 	return REFUSE;
 }
 
-function main() {
+process.exitCode = runPrePushGate(unchecked, (stdin, tree) => {
 	const root = repoRoot();
-	const tree = readTopLevel(process.cwd());
-	if (root === null || tree === null) {
-		unchecked("could not find the repository root or the pushing tree");
-		return 0;
-	}
-	let stdin = "";
-	try {
-		stdin = fs.readFileSync(0, "utf8");
-	} catch (e) {
-		unchecked(`could not read the pushed refs (${caught(e).message})`);
+	if (root === null) {
+		unchecked("could not find the repository root");
 		return 0;
 	}
 	return judge(stdin, { tree, root });
-}
-
-process.exitCode = main();
+});

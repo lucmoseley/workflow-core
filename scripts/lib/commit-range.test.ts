@@ -20,6 +20,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { writeFaultyGit } from "./git-fault-fake";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const range: any = createRequire(__filename)("./commit-range.js");
@@ -121,6 +122,27 @@ describe("a range it cannot read is a reason, never a throw (mantahostels#945)",
 		expect(r.reason).toContain("0123456");
 		expect(r.reason).toContain("good end");
 		expect(r.reason).toContain("git fetch origin");
+	});
+
+	it("names a git that will not answer as that failure, never a sha to fetch (#3152)", () => {
+		const bad = commit("only", { "a.txt": "1" });
+		const faulty = writeFaultyGit(
+			{ words: ["rev-parse", "--verify"] },
+			{ script: 'echo "fatal: index file corrupt" >&2\nexit 128' },
+			{ under: dir },
+		);
+		const prev = process.env.WFC_GIT;
+		process.env.WFC_GIT = faulty.git;
+		try {
+			const r = range.readRange({ good: bad, bad, cwd: dir });
+			expect(r.ok).toBe(false);
+			expect(r.reason).toContain("git would not resolve");
+			expect(r.reason).toContain("index file corrupt");
+			expect(r.reason).not.toContain("git fetch origin");
+		} finally {
+			if (prev === undefined) delete process.env.WFC_GIT;
+			else process.env.WFC_GIT = prev;
+		}
 	});
 
 	it("refuses two tips that are not one line of history", () => {

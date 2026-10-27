@@ -6,7 +6,8 @@
  * hooks/hooks.json rendered fresh from the self-plugin's hooks file (#2441),
  * the entry module it names (#946), the output styles, scripts/, .claude/skills/, .claude/agents/ (#741),
  * docs/agents (#5), ruff.toml (#106) and migrations/ (#6), with symlinks
- * dereferenced and every test, fixture and TypeScript file left out — but
+ * dereferenced, bar one that loops back into the walk (#3150), and every
+ * test, fixture and TypeScript file left out — but
  * VITEST_LOADED, the TypeScript an adopter's vitest config attaches, which only
  * vitest ever loads (#552), and a mod's TypeScript under its hooks/ and types/,
  * which the engine loads from the install cache uncompiled (#933) — its state
@@ -561,26 +562,60 @@ function bareCitationFaults(root, rel) {
 }
 
 /**
+ * @typedef {object} Walk
+ * @property {string} out
+ * @property {string[]} faults accumulator: each fault the release would fail on is pushed here
+ * @property {Set<string>} walking real paths of the directories being walked
+ */
+
+/**
  * @param {string} root
  * @param {string} rel repo-relative path of a file or directory
- * @param {string} out
- * @param {string[]} faults accumulator: each fault the release would fail on is pushed here
+ * @param {Walk} walk
  */
-function copyEntry(root, rel, out, faults) {
-	const src = path.join(root, rel);
-	const name = path.basename(rel);
+function copyEntry(root, rel, walk) {
 	if (isSkipped(root, rel)) return;
-	const stat = fs.statSync(src);
-	if (stat.isDirectory()) {
-		for (const child of fs.readdirSync(src).sort()) {
-			copyEntry(root, path.join(rel, child), out, faults);
-		}
+	const src = path.join(root, rel);
+	let stat;
+	try {
+		stat = fs.statSync(src);
+	} catch (err) {
+		if (!fs.lstatSync(src).isSymbolicLink()) throw err;
+		walk.faults.push(`${rel} is a symlink that resolves to no file`);
 		return;
 	}
+	if (stat.isDirectory()) copyDir(root, rel, walk);
+	else copyFile(root, rel, walk, stat.mode);
+}
+
+/**
+ * @param {string} root
+ * @param {string} rel repo-relative path of a directory
+ * @param {Walk} walk
+ */
+function copyDir(root, rel, walk) {
+	const src = path.join(root, rel);
+	// A directory already on the walk was reached through a looping symlink,
+	// which would recurse until ELOOP (#3150).
+	const real = fs.realpathSync(src);
+	if (walk.walking.has(real)) return;
+	const inner = { ...walk, walking: new Set(walk.walking).add(real) };
+	for (const child of fs.readdirSync(src).sort()) {
+		copyEntry(root, path.join(rel, child), inner);
+	}
+}
+
+/**
+ * @param {string} root
+ * @param {string} rel repo-relative path of a file
+ * @param {Walk} walk
+ * @param {number} mode
+ */
+function copyFile(root, rel, { out, faults }, mode) {
 	const dest = path.join(out, rel);
 	fs.mkdirSync(path.dirname(dest), { recursive: true });
-	const body = fs.readFileSync(src);
-	if (JS_TS_FILE.test(name)) {
+	const body = fs.readFileSync(path.join(root, rel));
+	if (JS_TS_FILE.test(path.basename(rel))) {
 		for (const pkg of packageRequires(body.toString("utf8"))) {
 			faults.push(`${rel} requires the npm package ${pkg}`);
 		}
@@ -599,7 +634,7 @@ function copyEntry(root, rel, out, faults) {
 			faults.push(...coreDocPointerFaults(root, rel, body.toString("utf8")));
 		fs.writeFileSync(dest, body);
 	}
-	fs.chmodSync(dest, stat.mode & 0o777);
+	fs.chmodSync(dest, mode & 0o777);
 }
 
 /**
@@ -618,7 +653,7 @@ function buildTree(root, out) {
 		const faults = [];
 		for (const rel of COPIED) {
 			if (fs.existsSync(path.join(root, rel))) {
-				copyEntry(root, rel, out, faults);
+				copyEntry(root, rel, { out, faults, walking: new Set() });
 			}
 		}
 		faults.push(...baseLinePinFaults(root));

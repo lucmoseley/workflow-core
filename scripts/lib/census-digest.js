@@ -15,8 +15,15 @@
  * fragment changes what the guard prints with its code untouched. A Node
  * core's names are its direct accessor calls and its injectRules ids; an
  * injectRules value that is no literal id array is BROKEN, quoting it.
- * Residual: an id a sourced or required lib names, or one built at run time,
- * is unread.
+ *
+ * A NODE GUARD WRAPPER'S DIGEST ALSO HASHES THE CORE AND HOST PORTS IT
+ * COMPOSES (#3129): each `./lib/<name>.js` its literal require binds `decide`
+ * or `buildHostPorts` from (lib/guard-entry.js's composition root), code and
+ * rule files both, an absent one hashing as a marker. guard-entry.js itself
+ * is the kit every wrapper runs, so an edit to it expires none.
+ * Residual: an id a sourced lib names, one a composed lib's own requires name,
+ * one a wrapper's other required libs name, or one built at run time, is
+ * unread.
  *
  * Residual: the reprint belongs to the pinned shfmt and typescript, so a bump
  * that changes either's printing expires every row of that language at once.
@@ -36,6 +43,8 @@ const {
 	emissionMatches,
 	firstUnreadInjection,
 } = require("./rule-emission.js");
+const { bareCitationGrep } = require("./qualify-citations.js");
+const { requiredGroup } = require("./regex-group.js");
 const { RULES_DIR } = require("./rule-text.js");
 const { scriptPath } = require("./script-path.js");
 
@@ -60,6 +69,19 @@ class DigestUnavailable extends Error {}
  * few hundred bytes a commit, and a commit's `diff-tree` path list tens of
  * bytes a path, both far under it too. */
 const GIT_MAX_BUFFER = 8 * 1024 * 1024;
+
+/* The directory beside a Node guard its composed libs sit in. */
+const LIB_DIR = "lib";
+const LIB_FILE = "[\\w.-]+\\.js";
+/* A literal destructuring require of a lib in LIB_DIR, in codeOf's reprint:
+ * group 1 the bindings, group 2 the file. */
+const LIB_REQUIRE_RE = new RegExp(
+	`\\{([^}]*)\\}\\s*=\\s*require\\(\\s*["']\\./${LIB_DIR}/(${LIB_FILE})["']\\s*\\)`,
+	"g",
+);
+/* Where LIB_REQUIRE_RE's path can lead, from any guard's directory. */
+const LIB_PATH_RE = new RegExp(`(?:^|/)${LIB_DIR}/${LIB_FILE}$`);
+const COMPOSED_BINDING_RE = /(?<![\w$])(?:decide|buildHostPorts)(?![\w$])/;
 
 /**
  * A tracked path's bytes AT `rev`, falling back to disk where git cannot answer.
@@ -207,19 +229,62 @@ function ruleFilesIn(text, emissions) {
 }
 
 /**
- * `rel`'s code at `rev` and the rule files it names, or null where it is gone.
+ * The libs a Node guard wrapper composes: the core and host ports it hands
+ * guard-entry's run.
+ *
+ * @param {string} rel
+ * @param {string | Buffer} code codeOf's answer
+ * @returns {string[]}
+ */
+function composedLibsOf(rel, code) {
+	const dir = libDirOf(rel);
+	if (dir === null) return [];
+	return [...String(code).matchAll(LIB_REQUIRE_RE)]
+		.filter((m) =>
+			COMPOSED_BINDING_RE.test(requiredGroup(m, 1, LIB_REQUIRE_RE)),
+		)
+		.map((m) => path.posix.join(dir, requiredGroup(m, 2, LIB_REQUIRE_RE)));
+}
+
+/**
+ * The directory a Node guard at `rel` composes its libs from, or null for
+ * any other guard.
+ *
+ * @param {string} rel
+ */
+function libDirOf(rel) {
+	return rel.endsWith(".js")
+		? path.posix.join(path.posix.dirname(rel), LIB_DIR)
+		: null;
+}
+
+/**
+ * `rel`'s code at `rev`, each lib it composes with that lib's code (null
+ * where absent), and the rule files all of them name, `rel`'s own first;
+ * null where `rel` is gone.
  *
  * @param {string} root
  * @param {string} rel
  * @param {string} [rev]
  * @param {CensusReadOpts} [opts] as readCommittedBytes takes it
- * @returns {{ code: string | Buffer, ruleFiles: string[] } | null}
+ * @returns {{ code: string | Buffer, libs: Map<string, string | Buffer | null>, ruleFiles: string[] } | null}
  */
 function readInputs(root, rel, rev, opts) {
 	const bytes = readCommittedBytes(root, rel, rev, opts);
 	if (bytes === null) return null;
 	const code = codeOf(rel, bytes);
-	return { code, ruleFiles: ruleFilesOf(rel, code) };
+	/* Appended, never re-sorted: a lib-less row keeps its pre-#3129 digest. */
+	const ruleFiles = new Set(ruleFilesOf(rel, code));
+	/** @type {Map<string, string | Buffer | null>} */
+	const libs = new Map();
+	for (const lib of composedLibsOf(rel, code)) {
+		const libBytes = readCommittedBytes(root, lib, rev, opts);
+		const libCode = libBytes === null ? null : codeOf(lib, libBytes);
+		libs.set(lib, libCode);
+		if (libCode !== null)
+			for (const file of ruleFilesOf(lib, libCode)) ruleFiles.add(file);
+	}
+	return { code, libs, ruleFiles: [...ruleFiles] };
 }
 
 /**
@@ -237,6 +302,8 @@ function digestOf(root, rel, rev, opts) {
 	const inputs = readInputs(root, rel, rev, opts);
 	if (inputs === null) return null;
 	const hash = crypto.createHash("sha256").update(inputs.code);
+	for (const [lib, code] of inputs.libs)
+		hash.update(`\0${lib}\0`).update(code ?? "\0absent");
 	/* A guard naming no rule file hashes as it did before #1914. A named file
 	 * that is absent hashes as a marker, not BROKEN: the guard then prints its
 	 * fallback, and adding the file moves the digest. */
@@ -248,8 +315,8 @@ function digestOf(root, rel, rev, opts) {
 }
 
 /**
- * Which of `rels` name each rule file at `rev`: the guards a commit to that
- * file expires.
+ * Which of `rels` compose each lib or name each rule file at `rev`: the
+ * guards a commit to that file expires.
  *
  * @param {string} root
  * @param {string[]} rels
@@ -257,19 +324,25 @@ function digestOf(root, rel, rev, opts) {
  * @param {CensusReadOpts} [opts] as readCommittedBytes takes it
  * @returns {Map<string, string[]>}
  */
-function ruleReaders(root, rels, rev, opts) {
+function inputReaders(root, rels, rev, opts) {
 	/** @type {Map<string, string[]>} */
 	const readers = new Map();
-	for (const rel of rels)
-		for (const file of readInputs(root, rel, rev, opts)?.ruleFiles ?? [])
+	for (const rel of rels) {
+		const inputs = readInputs(root, rel, rev, opts);
+		for (const file of [
+			...(inputs?.libs.keys() ?? []),
+			...(inputs?.ruleFiles ?? []),
+		])
 			readers.set(file, [...(readers.get(file) ?? []), rel]);
+	}
 	return readers;
 }
 
 /**
  * The anchored guards among `rels` that a change to `file` can expire: the
- * guard itself, or the guards naming it as a rule file at `rev`. The readers
- * are read once, on the first rule file asked about.
+ * guard itself, or the guards composing it or naming it as a rule file at
+ * `rev`. The readers are read once, on the first rule file or lib asked
+ * about.
  *
  * @param {string} root
  * @param {string[]} rels
@@ -283,8 +356,8 @@ function guardsChangedBy(root, rels, rev, opts) {
 	let readers;
 	return (file) => {
 		if (anchored.has(file)) return [file];
-		if (!file.startsWith(`${RULES_DIR}/`)) return [];
-		readers ??= ruleReaders(root, rels, rev, opts);
+		if (!file.startsWith(`${RULES_DIR}/`) && !LIB_PATH_RE.test(file)) return [];
+		readers ??= inputReaders(root, rels, rev, opts);
 		return readers.get(file) ?? [];
 	};
 }
@@ -292,9 +365,9 @@ function guardsChangedBy(root, rels, rev, opts) {
 /**
  * The anchored guards that commits on HEAD citing `#n` changed the digest of,
  * and that HEAD still leaves unanchored — the rows the ticket owes a
- * re-measure, a commit to a rule file a guard names at HEAD among them. A
- * cite is lib/qualify-citations.js's BARE_CITATION, spelt for
- * git's ERE, so `mantahostels#n` is another tracker's. A row a neighbour expired again
+ * re-measure, a commit to a lib a guard composes or a rule file it names at
+ * HEAD among them. A cite is lib/qualify-citations.js's bareCitationGrep. A
+ * row a neighbour expired again
  * after the ticket re-anchored it is still named here.
  *
  * @param {string} root
@@ -331,7 +404,7 @@ function readRowsExpiredByTicket(
 	const shas = git([
 		"log",
 		"-E",
-		`--grep=(^|[^[:alnum:]_$&{#])#${n}([^[:alnum:]_]|$)`,
+		`--grep=${bareCitationGrep(n)}`,
 		"--format=%H",
 		"HEAD",
 	])
@@ -347,6 +420,7 @@ function readRowsExpiredByTicket(
 		"--",
 		...rels,
 		RULES_DIR,
+		...libDirsOf(rels),
 	]);
 	const guardsOf = guardsChangedBy(root, rels, undefined, { ceiling });
 	/** @type {Set<string>} */
@@ -367,6 +441,15 @@ function readRowsExpiredByTicket(
 			changed.has(rel) &&
 			digestOf(root, rel, undefined, { ceiling }) !== guards[rel]?.digest,
 	);
+}
+
+/**
+ * The lib/ directories `rels`' Node guards can compose a lib from.
+ *
+ * @param {string[]} rels
+ */
+function libDirsOf(rels) {
+	return [...new Set(rels.map(libDirOf).filter((dir) => dir !== null))];
 }
 
 /**

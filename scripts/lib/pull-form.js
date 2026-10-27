@@ -22,12 +22,8 @@
  */
 
 const { rewindReason } = require("./main-rewind.js");
-const {
-	landingTwin,
-	ruleModule,
-	ruleUnlessModule,
-} = require("./rule-gates.js");
-const { denyText, ruleOr } = require("./guard-verdict.js");
+const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { normAbs, parseCommand, walkGit } = require("./shell-parse.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
 
@@ -49,7 +45,7 @@ const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
  *   root, `/`-terminated; "" at the root or where git errors
  * @property {() => string} pushedRef the remote ref sessions push to, read on
  *   a refusal alone, so an allowed call reads no config (#2536)
- * @typedef {import("./guard-entry.js").KitContext & PullFormPorts}
+ * @typedef {import("./kit-context.js").KitContext & PullFormPorts}
  *   PullFormContext
  * @typedef {import("./shell-parse.js").GitCall} GitCall
  * @typedef {{ reason: string, segment: string }} Refusal the reason before
@@ -62,19 +58,6 @@ const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
  *   treeClass the walk's, memoised
  * @property {() => void} subject marks a reconciliation the rule is about
  */
-
-/* The refusals' rules where the store cannot give them, which still refuse:
- * the command is known bad and only its rule is unreadable (#772,
- * mantahostels#1648). Fire count: mantahostels#2140. */
-const PULL_SCOPE = {
-	"pull-fast-forward": "",
-	"pull-fast-forward-landing": " with `landing`",
-};
-/** @param {keyof typeof PULL_SCOPE} id */
-const pullRuleFallback = (id) =>
-	`Reconcile the shared \`main\`${PULL_SCOPE[id]} by fast-forward or not at all; the rule could not be read from docs/agents/rules/${id}.txt. Read that file before doing anything else.`;
-const DISCARD_RULE_FALLBACK =
-	"Never discard work across the whole shared tree; the rule could not be read from docs/agents/rules/shared-tree-discard.txt. Read that file before doing anything else.";
 
 /* git pull's value-taking short options, read by the shared flag scan
  * (mantahostels#477), which walks a bundle letter by letter: `git pull -qr`
@@ -157,15 +140,25 @@ function readArgs(args, { spec, table, state, onArg }) {
 
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
-	ruleOr(
-		/* Not hoisted: a local hides both twins from rule-emission.js's NODE_LANDING_TWIN_RE (#3003). */
-		() => ctx.ruleText(landingTwin(ctx, "pull-fast-forward")),
-		pullRuleFallback(landingTwin(ctx, "pull-fast-forward")),
-	);
+	ctx.moduleOn("landing")
+		? ruleOrFallback(
+				ctx,
+				"pull-fast-forward-landing",
+				"Reconcile the shared `main` with `landing` by fast-forward or not at all",
+			)
+		: ruleOrFallback(
+				ctx,
+				"pull-fast-forward",
+				"Reconcile the shared `main` by fast-forward or not at all",
+			);
 
 /** @param {PullFormContext} ctx */
 const discardRule = (ctx) =>
-	ruleOr(() => ctx.ruleText("shared-tree-discard"), DISCARD_RULE_FALLBACK);
+	ruleOrFallback(
+		ctx,
+		"shared-tree-discard",
+		"Never discard work across the whole shared tree",
+	);
 
 /**
  * The rewind refusal, framed by lib/main-rewind.js.
@@ -175,7 +168,7 @@ const discardRule = (ctx) =>
  * @returns {Refusal}
  */
 const rewindDeny = (j, segment, what) => ({
-	reason: rewindReason(what, () => j.ctx.ruleText("main-rewind")),
+	reason: rewindReason(j.ctx, what),
 	segment,
 });
 

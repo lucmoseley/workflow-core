@@ -26,6 +26,10 @@
  * held it, `count`, `memory` or `turn`. A `timeout` ran anyway, a part-suite
  * past the bound; a `refused` did not run, and carries no `limb` where the
  * load hold refused it (#2421, #2714).
+ * `passed`, on an `opened` part-suite line, counts the older part-suites the
+ * memory rung held that its turn passed (#3058, #3115), 0 where none. Absent
+ * from a whole suite's line, every other reason's, and a `seat` line, whose
+ * runs take no turn (#2918).
  */
 
 /** @typedef {"opened"|"left"|"timeout"|"refused"|"killed"} QueueExitReason */

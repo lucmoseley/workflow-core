@@ -257,6 +257,50 @@ describe("check-weakens-line (#2235)", () => {
 		expectRefused(commit(`weaken\n\n${line}\n`), name);
 	});
 
+	describe("reads the lines git records (#3075)", () => {
+		const Scissors = "# ------------------------ >8 ------------------------";
+		beforeEach(() => {
+			write(CONFIG, config({ modules: ["suites"] }));
+			seed();
+			write(CONFIG, config({ modules: ["suites"], disabled: ["guard-x.sh"] }));
+			git("add", "-A");
+		});
+
+		it("passes a -m message opening on #N, whose Weakens: line git keeps", () => {
+			const r = git(
+				"commit",
+				"-q",
+				"-m",
+				"#123 off\n\nWeakens: guard-x.sh — #1",
+			);
+			expect(r.status, r.stdout + r.stderr).toBe(0);
+		});
+
+		it("passes a -F message naming it below a scissors line, which git records", () => {
+			expect(
+				commit(`off\n${Scissors}\nWeakens: guard-x.sh — #1\n`).status,
+			).toBe(0);
+		});
+
+		it("refuses one naming it only below the scissors line under cleanup=scissors, which git cuts", () => {
+			const file = path.join(hooks, "..", `${path.basename(hooks)}-msg`);
+			fs.writeFileSync(file, `off\n${Scissors}\nWeakens: guard-x.sh — #1\n`);
+			const r = git(
+				"-c",
+				"commit.cleanup=scissors",
+				"commit",
+				"-q",
+				"-F",
+				file,
+			);
+			fs.rmSync(file, { force: true });
+			expectRefused(
+				{ status: r.status, out: r.stdout + r.stderr },
+				"guard-x.sh",
+			);
+		});
+	});
+
 	it("judges a pathspec commit's temporary index, as commit-paths.js commits", () => {
 		write(CONFIG, config({ modules: ["suites"] }));
 		write("b.md", "b\n");

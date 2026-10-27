@@ -24,7 +24,10 @@
  */
 
 const { CITATION_CEILING } = require("./qualify-citations.js");
-const { spawnGitSync, GIT_TIMEOUT_MS } = require("./git.js");
+const { gitOutcome } = require("./git.js");
+const { readCommit } = require("./commit-sha.js");
+
+/** @typedef {import("./git.js").GitReader} GitReader */
 
 /*
  * The commit that rewrote every historical citation into the prefixed form.
@@ -116,49 +119,13 @@ const SELF_TEST = "scripts/check-citation-tracker.test.ts";
 const EXEMPT = /citation-exempt:[ \t]*[A-Za-z0-9]/;
 
 /**
- * @typedef {{ ok: true, out: string } | { ok: false, why: string }} GitRead
- * @typedef {(args: string[], noMatch: number[]) => GitRead} GitReader
- */
-
-/**
- * git's THREE outcomes, kept apart — where dirty-tree.js's `gitRead` folds
- * every failure into null.
- *
- * `git grep` exits 1 on no match and >1 on failure, and `rev-parse --verify`
- * exits 1 on an unknown ref and 128 outside a repository — so a wrapper that
- * folds every non-zero into one answer reports a broken apparatus as an empty
- * result. That is the fail-open `lib/check.js`'s SUBJECT/APPARATUS split exists
- * to prevent, and it is why `noMatch` is named per call rather than assumed.
- *
- * @param {string[]} args
- * @param {number[]} noMatch exit codes that mean "asked and answered nothing"
- * @param {string} [cwd]
- * @returns {GitRead}
- */
-function gitOutcome(args, noMatch, cwd, timeout = GIT_TIMEOUT_MS) {
-	const r = spawnGitSync(args, {
-		cwd,
-		encoding: "utf8",
-		timeout,
-		stdio: ["ignore", "pipe", "pipe"],
-	});
-	if (r.error) return { ok: false, why: r.error.message };
-	if (r.status === 0) return { ok: true, out: r.stdout };
-	if (r.status !== null && noMatch.includes(r.status))
-		return { ok: true, out: "" };
-	const why = (r.stderr || "").trim() || `git exited ${r.status}`;
-	return { ok: false, why };
-}
-
-/**
- * Whether the baseline commit resolves: `out` empty where it does not.
+ * The baseline commit's sha, null where it does not resolve.
  *
  * @param {GitReader} [read]
  * @param {string} [rev] baselineRev's answer
- * @returns {GitRead}
  */
 function readBaselineCommit(read = gitOutcome, rev = baselineRev()) {
-	return read(["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], [1]);
+	return readCommit(read, rev);
 }
 
 /**
@@ -213,7 +180,6 @@ module.exports = {
 	PREFIX,
 	baselineRev,
 	readBaselineCommit,
-	gitOutcome,
 	readInheritedNumbers,
 	judgeLine,
 };

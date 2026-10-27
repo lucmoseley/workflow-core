@@ -19,38 +19,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import chain from "./echo-chain.js";
+import host from "./echo-record-host.js";
 import { runCore } from "./guard-core-testkit";
-
-interface ChainRecord {
-	sig: string;
-	hash: string;
-	run: number;
-	at: number;
-	denies: number;
-}
-
-/* CommonJS, hence the require. */
-const chain = require("./echo-chain.js") as {
-	EC_CLEARED: string;
-	callSignature: (
-		tool: string,
-		input: Record<string, unknown>,
-		fileState: (file: string) => string | null,
-	) => string;
-	chainName: (key: { agent: string; sid: string }) => string;
-	isNeighbours: (tool: string | undefined, command: string) => boolean;
-	lookup: (text: string, sig: string, now: number) => ChainRecord | null;
-	parseRecords: (text: string, now: number) => ChainRecord[];
-	responseHash: (r: unknown) => string | null;
-	signature: (tool: string, input: unknown, fileState: string | null) => string;
-	storeText: (records: ChainRecord[], next: ChainRecord) => string;
-};
-const host = require("./echo-record-host.js") as {
-	buildHostPorts: (
-		root: string,
-		log: (what: string) => void,
-	) => { fileState: (p: string) => string | null };
-};
 
 let dir: string;
 let tmp: string;

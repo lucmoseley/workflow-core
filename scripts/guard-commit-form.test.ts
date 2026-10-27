@@ -1,21 +1,21 @@
 // @vitest-environment node
 /*
- * guard-commit-form.js (mantahostels#117) end to end, the boundary set
- * (§X11): each exit path, each input channel, each production adapter
- * crossed once for real, the fail-open record, and the registered hook line.
- * Which commit forms are denied, warned on or handed the rules — every branch
- * of the core — is lib/commit-form.test.ts's, in process.
+ * The guard-commit-form core of guard-dispatch.js (mantahostels#117) end to
+ * end, the boundary set (§X11), the dispatcher entry run on it alone: each
+ * exit path, each input channel, each production adapter crossed once for
+ * real, and the fail-open record. Which commit forms are denied, warned on or
+ * handed the rules — every branch of the core — is lib/commit-form.test.ts's,
+ * in process; the entry's payload faults and the throw policy are
+ * guard-dispatch's own tests' (#3224).
  *
  * The guard compares the target tree against CLAUDE_PROJECT_DIR's, so a
  * throwaway repo stands in for the shared tree, a worktree of it for the
  * exempt case, and an unrelated repo for the other.
  *
- * The program runs through lib/run-in-process.js. Two shapes keep a spawn,
- * each saying so where it stands: the registered hook line, which is a shell
- * command, and node missing from PATH, which only a real process can lack.
+ * The program runs through lib/run-in-process.js.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -31,7 +31,8 @@ import {
 import { buildBashPayload, readHookLines } from "./lib/pretool-guard-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
-const GUARD = path.resolve(__dirname, "guard-commit-form.js");
+const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
+const CORE = "guard-commit-form";
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 const HOOKS = "self-plugin/hooks/hooks.json";
 
@@ -74,7 +75,7 @@ const guard = (
 	stdin: string,
 	{ cwd = shared, project = shared, env = {} }: At = {},
 ) =>
-	runInProcess(GUARD, [], {
+	runInProcess(DISPATCH, ["--only", CORE], {
 		cwd,
 		stdin,
 		env: {
@@ -88,7 +89,10 @@ const guard = (
 
 /** The payload Claude Code sends on a Bash call, as the guard reads it. */
 const payload = (command: string, session: string | null = "test") =>
-	JSON.stringify(buildBashPayload(command, session));
+	JSON.stringify({
+		hook_event_name: "PreToolUse",
+		...buildBashPayload(command, session),
+	});
 
 /**
  * The guard's `hookSpecificOutput` on `command`, or null where it said
@@ -346,36 +350,6 @@ describe("the commit rules are handed over once a session", () => {
 });
 
 describe("each input channel", () => {
-	it("treats an empty stdin as nothing to check, not a fault", () => {
-		const r = guard("");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("");
-		expect(failOpenLog()).toBe("");
-	});
-
-	it("records a payload that is not JSON, naming itself in three tab-separated fields", () => {
-		// check-guard-errors.js splits on \t and calls Date.parse on field 1; a
-		// line it cannot parse is reported as torn and its message never shown.
-		const r = guard("not json at all");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("");
-		const lines = failOpenLog().trimEnd().split("\n");
-		expect(lines).toHaveLength(1);
-		const [when, where, what] = lines[0].split("\t");
-		expect(Number.isFinite(Date.parse(when))).toBe(true);
-		expect(where).toBe("guard-commit-form.js");
-		expect(what).toMatch(/payload did not parse as JSON — command allowed/);
-	});
-
-	it("records a payload whose shape no longer carries a command", () => {
-		const r = guard(
-			JSON.stringify({ session_id: "test", tool_name: "Bash", tool_input: {} }),
-		);
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("");
-		expect(failOpenLog()).toMatch(/no command in payload/);
-	});
-
 	it("hands no rules where the payload carries no session id, rather than wedging", () => {
 		// The kit cannot latch what it cannot key, so it says nothing and allows
 		// (mantahostels#103 §6).
@@ -584,7 +558,7 @@ describe("the sweep warn counts as a fire", () => {
 		// One transcript holding one hook_success attachment: the record Claude
 		// Code writes when a PreToolUse hook speaks, carrying this run's own
 		// stdout under the command line the guard is registered with.
-		const [command] = readHookLines(HOOKS, "guard-commit-form.js");
+		const [command] = readHookLines(HOOKS, "guard-dispatch.js");
 		const corpus = fs.mkdtempSync(path.join(dir, "fires-"));
 		fs.writeFileSync(
 			path.join(corpus, "s1.jsonl"),
@@ -662,59 +636,6 @@ describe("a hung git under the arbiter store (#2891)", () => {
 		// One ceiling overrun, two more for the guard's real work.
 		3 * HOOK_GIT_TIMEOUT_MS,
 	);
-});
-
-/*
- * The line the harness runs, a shell command, so these two spawn: bash runs
- * it, and only a real process can be missing node.
- */
-describe("the registered hook line", () => {
-	const lines = readHookLines(HOOKS, "guard-commit-form.js");
-
-	/** `line` under bash, with the shared tree as the project. */
-	const runLine = (line: string, env: Record<string, string> = {}) =>
-		spawnSync("/bin/bash", ["-c", line], {
-			cwd: shared,
-			encoding: "utf8",
-			input: payload('git commit -am "x"'),
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: shared,
-				CLAUDE_CONFIG_DIR: config,
-				CLAUDE_CODE_SESSION_ID: "",
-				...env,
-			},
-		});
-
-	beforeEach(() => {
-		// The line names the guard under $CLAUDE_PROJECT_DIR, which here is the
-		// fixture: it reaches this checkout's scripts through a link.
-		fs.symlinkSync(__dirname, path.join(shared, "scripts"));
-	});
-
-	it("is registered", () => {
-		expect(lines.length).toBeGreaterThan(0);
-	});
-
-	it.each(lines)(
-		"runs the guard, which denies a sweeping commit: %s",
-		(line) => {
-			const r = runLine(line);
-			expect(r.status).toBe(0);
-			expect(r.stderr).toBe("");
-			const out = JSON.parse(r.stdout).hookSpecificOutput;
-			expect(out.permissionDecision).toBe("deny");
-			expect(out.permissionDecisionReason).toContain(SWEEPS);
-		},
-	);
-
-	it.each(lines)("exits 0, silent, where node is not on PATH: %s", (line) => {
-		const bare = fs.mkdtempSync(path.join(dir, "bin-"));
-		const r = runLine(line, { PATH: bare });
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("");
-		expect(r.stderr).toBe("");
-	});
 });
 
 /*

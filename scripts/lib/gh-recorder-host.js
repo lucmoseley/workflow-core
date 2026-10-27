@@ -19,7 +19,7 @@ const readOriginUrl = (dir) =>
 	})?.trim() ?? "";
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./gh-acts.js").ActsPorts &
  *   import("./issue-claim-hook.js").ClaimPorts}
  */

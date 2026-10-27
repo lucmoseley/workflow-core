@@ -23,6 +23,9 @@
  * rule bind. Nothing reads that field yet. The trigger is never inferred from
  * the anchor: an anchored id with no TRIGGERS row refuses.
  *
+ * --sources prints the documents scanned, one a line, so `.husky/pre-commit`
+ * arms `--check` on this list rather than a copy of it (#3118).
+ *
  * EXIT CODES: 0 wrote (or, under --check, everything matches); 1 a fault —
  * an unpaired anchor, an empty region, an id the grammar refuses, an id with
  * no TRIGGERS row, or (under --check) a fragment or manifest out of step.
@@ -50,12 +53,14 @@ const MANIFEST = path.join(
 
 /* The documents scanned for anchors, and the trigger each anchored id binds
  * at. One table, not a per-document one: an id is unique across the store, so
- * a second table would only let two documents claim the same id. */
+ * a second table would only let two documents claim the same id. Repo-relative
+ * with `/`, as git names a staged path: `--sources` hands them to the hook's
+ * `armed -F`. */
 const SOURCES = [
-	path.join("docs", "agents", "triage-labels.md"),
-	path.join("docs", "agents", "issue-tracker.md"),
-	path.join("docs", "code-standards-base.md"),
-	path.join("docs", "agents", "dependabot.md"),
+	"docs/agents/triage-labels.md",
+	"docs/agents/issue-tracker.md",
+	"docs/code-standards-base.md",
+	"docs/agents/dependabot.md",
 ];
 
 /* scripts/lib/test-rules-inject.js's trigger, shared by base §X8, §X9 and §X10. */
@@ -254,24 +259,14 @@ const manifestFor = (regions) =>
 		"\t",
 	)}\n`;
 
-const USAGE = "usage: node scripts/generate-rule-fragments.js [--check]";
-
-/** @param {string[]} argv */
-function main(argv) {
-	const { flags } = parseOrExit(argv, {
-		usage: USAGE,
-		flags: { "--check": "boolean" },
-	});
-	const check = flags["--check"] === true;
-	/** @type {{ id: string, text: string, source: string }[]} */
-	let regions;
-	try {
-		regions = collect();
-	} catch (e) {
-		process.stderr.write(`generate-rule-fragments: ${caught(e).message}\n`);
-		return 1;
-	}
-
+/**
+ * The generated files out of step with `regions`, repo-relative; each is
+ * rewritten unless `check`.
+ * @param {{ id: string, text: string, source: string }[]} regions
+ * @param {boolean} check
+ * @returns {string[]}
+ */
+function reconcile(regions, check) {
 	const want = new Map(
 		regions.map((r) => [path.join(STORE, `${r.id}.txt`), r.text]),
 	);
@@ -294,7 +289,39 @@ function main(argv) {
 		fs.mkdirSync(STORE, { recursive: true });
 		fs.writeFileSync(file, text);
 	}
+	return stale;
+}
 
+const USAGE =
+	"usage: node scripts/generate-rule-fragments.js [--check | --sources]";
+
+/** @param {string[]} argv */
+function main(argv) {
+	const { flags } = parseOrExit(argv, {
+		usage: USAGE,
+		flags: { "--check": "boolean", "--sources": "boolean" },
+	});
+	if (flags["--sources"] === true && flags["--check"] === true) {
+		process.stderr.write(
+			`generate-rule-fragments: --check and --sources are exclusive\n${USAGE}\n`,
+		);
+		return 2;
+	}
+	if (flags["--sources"] === true) {
+		process.stdout.write(SOURCES.map((s) => `${s}\n`).join(""));
+		return 0;
+	}
+	const check = flags["--check"] === true;
+	/** @type {{ id: string, text: string, source: string }[]} */
+	let regions;
+	try {
+		regions = collect();
+	} catch (e) {
+		process.stderr.write(`generate-rule-fragments: ${caught(e).message}\n`);
+		return 1;
+	}
+
+	const stale = reconcile(regions, check);
 	if (check && stale.length > 0) {
 		process.stderr.write(
 			`generate-rule-fragments: ${stale.length} generated file(s) out of step with their anchored source:\n` +

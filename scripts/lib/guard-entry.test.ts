@@ -52,6 +52,7 @@ require(${JSON.stringify(KIT)}).run({ field: "command", noun: "command",
 		if (d === "throw") throw new Error("core broke");
 		if (d && d.module) return [ctx.moduleOn(d.module), ctx.moduleOn(d.module)].every(Boolean) ? d.decision : null;
 		if (d && d.log) return ctx.log(d.log[0], d.log[1]);
+		if (d && d.ruleText) return { deny: ctx.ruleText(d.ruleText) };
 		if (d && d.probe) return { injectRules: [], prelude: JSON.stringify({ told: ctx.told(d.probe), latch: ctx.readLatch(d.probe), keyed: ctx.key !== null }) };
 		return d;
 	} });\n`,
@@ -303,51 +304,6 @@ describe("a guard's own text and latches beside the rules (#2785)", () => {
 	});
 });
 
-describe("the rule store and the install spellings on the context (#3018)", () => {
-	const { kitContext } = require("./guard-entry.js") as {
-		kitContext: (
-			env: import("./guard-entry.js").PortEnv,
-			readers: object,
-		) => import("./guard-entry.js").KitContext;
-	};
-	const ctx = () =>
-		kitContext({ root: dir, payload: {}, log: () => undefined }, {});
-
-	it("reads a rule from the store, and throws where it has none", () => {
-		fragment("alpha");
-		process.env.WFC_RULES_DIR = store;
-		try {
-			expect(ctx().ruleText("alpha")).toBe(
-				fs.readFileSync(path.join(store, "alpha.txt"), "utf8"),
-			);
-			expect(() => ctx().ruleText("ghost")).toThrow();
-		} finally {
-			delete process.env.WFC_RULES_DIR;
-		}
-	});
-
-	it("spells a core path at the plugin root in an install", () => {
-		const install = path.join(dir, "plugin");
-		fs.mkdirSync(path.join(install, "scripts"), { recursive: true });
-		fs.mkdirSync(path.join(install, "docs"));
-		fs.writeFileSync(path.join(install, "scripts", "claim-issue.js"), "");
-		const was = process.env.WFC_SCRIPT_ROOT;
-		process.env.WFC_SCRIPT_ROOT = install;
-		try {
-			expect(ctx().corePaths("run scripts/claim-issue.js.")).toBe(
-				`run ${install}/scripts/claim-issue.js.`,
-			);
-			expect(ctx().scriptPath("claim-issue.js")).toBe(
-				`${install}/scripts/claim-issue.js`,
-			);
-			expect(ctx().docPath("agents/x.md")).toBe(`${install}/docs/agents/x.md`);
-		} finally {
-			if (was === undefined) delete process.env.WFC_SCRIPT_ROOT;
-			else process.env.WFC_SCRIPT_ROOT = was;
-		}
-	});
-});
-
 describe("a context answer", () => {
 	it("hands its text as additionalContext under the entry's event", () => {
 		expect(call({ context: "told" }).out).toEqual({
@@ -587,11 +543,9 @@ describe("the root adapter is timed (#2784)", () => {
 		expect(Date.now() - started).toBeLessThan(10_000);
 	}, 15_000);
 
-	/* The fail-open record files under the root the entry already resolved: a
-	 * second root read would re-run the hung git unbounded. Counted through the
-	 * stub, but crossing the real clock: the one read is bounded only by a real
-	 * process timeout. */
-	it("writes its fail-open record off that one root read (#3038)", () => {
+	/* One run with CLAUDE_PROJECT_DIR unset and a git that logs each spawn and
+	 * hangs: its result, and how many times the root was read. */
+	const underHungGit = (decision: unknown, payload: object) => {
 		const calls = path.join(dir, "git-calls");
 		const git = path.join(dir, "slow-git");
 		fs.writeFileSync(git, `#!/bin/sh\necho x >> '${calls}'\nexec sleep 30\n`, {
@@ -601,20 +555,57 @@ describe("the root adapter is timed (#2784)", () => {
 			...process.env,
 			CLAUDE_CONFIG_DIR: config,
 			WFC_GIT: git,
-			WFC_TEST_DECISION: JSON.stringify("throw"),
+			WFC_TEST_DECISION: JSON.stringify(decision),
 		};
 		delete env.CLAUDE_PROJECT_DIR;
+		delete env.WFC_RULES_DIR;
 		const r = runInProcess(entry, [], {
 			cwd: dir,
-			stdin: JSON.stringify({ tool_input: { command: "x" } }),
+			stdin: JSON.stringify(payload),
 			env,
 		});
+		const spawns = fs
+			.readFileSync(calls, "utf8")
+			.split("\n")
+			.filter(Boolean).length;
+		return { r, spawns };
+	};
+
+	/* The fail-open record files under the root the entry already resolved: a
+	 * second root read would re-run the hung git unbounded. Counted through the
+	 * stub, but crossing the real clock: the one read is bounded only by a real
+	 * process timeout. */
+	it("writes its fail-open record off that one root read (#3038)", () => {
+		const { r, spawns } = underHungGit("throw", {
+			tool_input: { command: "x" },
+		});
 		expect(r.status).toBe(0);
-		expect(
-			fs.readFileSync(calls, "utf8").split("\n").filter(Boolean),
-		).toHaveLength(1);
+		expect(spawns).toBe(1);
 		expect(readGuardErrorsLog(config)).toMatch(
 			/guard threw — allowed unchecked/,
 		);
 	}, 40_000);
+
+	/* No WFC_RULES_DIR: the store is the host's own, under the root the timed
+	 * read fell back to. Real clock, as above. */
+	it.each([
+		["an injecting decision", { injectRules: ["alpha"] }],
+		["the ruleText port", { ruleText: "alpha" }],
+	])(
+		"reads the rule store off that one root read through %s (#3142)",
+		(_, decision) => {
+			const hostStore = path.join(dir, "docs", "agents", "rules");
+			fs.mkdirSync(hostStore, { recursive: true });
+			fs.writeFileSync(path.join(hostStore, "alpha.txt"), "alpha rule");
+			const { r, spawns } = underHungGit(decision, {
+				session_id: "s1",
+				hook_event_name: "PreToolUse",
+				tool_input: { command: "x" },
+			});
+			expect(r.status).toBe(0);
+			expect(r.stdout).toMatch(/alpha rule/);
+			expect(spawns).toBe(1);
+		},
+		40_000,
+	);
 });

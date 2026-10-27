@@ -22,6 +22,8 @@
  * The run's `wholeSlot` and `resolvedFiles` weigh it; a run logged before
  * those fields existed is weighed from its vitest marker's module count and
  * PRE_FIELDS_GATE.
+ * An exit line's own `passed` (#3115) is tallied beside the modelled pass, as
+ * what the waiters themselves recorded.
  */
 
 const fs = require("node:fs");
@@ -81,7 +83,7 @@ const MEMWATCH_HEADER =
 /**
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
  *   session: string | null, pid: number, slotFree?: boolean,
- *   skipped?: boolean }} Exit
+ *   skipped?: boolean, passed?: number }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
  *   sha: string, modulesRun: number | null, modulesTotal: number | null }} Run
@@ -702,6 +704,10 @@ function replay(logs, w) {
 	const matchable = waiters.filter(
 		(e) => e.reason === "opened" || e.reason === "timeout",
 	);
+	const counts = waiters.flatMap((e) =>
+		e.passed === undefined ? [] : [e.passed],
+	);
+	const passing = counts.filter((n) => n > 0);
 	return {
 		exits: touching.length,
 		skipped: touching.length - waiters.length,
@@ -709,6 +715,11 @@ function replay(logs, w) {
 		waitS: waiters.reduce((s, e) => s + clip(e.st, e.en, w.since, w.until), 0),
 		matched: waiters.filter((e) => e.run).length,
 		matchable: matchable.length,
+		passes: {
+			counted: counts.length,
+			passing: passing.length,
+			passed: passing.reduce((s, n) => s + n, 0),
+		},
 		limb: acc.limb,
 		limbClass: acc.limbClass,
 		limbAlso: acc.limbAlso,
@@ -768,6 +779,10 @@ function render(r, w) {
 		"Held by a later limb as well, which clearing the first would leave binding (first / also):",
 		"",
 		...byValue(r.limbAlso).map(([k, v]) => `- ${k}: ${hours(v)} h`),
+		"",
+		r.passes.counted > 0
+			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (#3115).`
+			: "Recorded passes: no exit line in the window counts its passes (none logged before #3115 does); the fifo-part limb above is the replay's model alone.",
 		"",
 		"## Whole slot",
 		"",

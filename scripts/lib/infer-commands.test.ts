@@ -4,6 +4,10 @@
  * itself, or through the `package.json` scripts it runs, however the call is
  * spelled. Its `classifyCheckStaged` (#2731): each `biome check --staged`
  * shape maps to biome-staged.js or is refused, naming the way out (#2599).
+ *
+ * A module test over a temp `package.json`, since both read only the scripts
+ * it declares. Loosen a case and an unsafe `check_staged` passes init and the
+ * pre-commit hook, linting or writing a neighbour's worktree bytes (#2583).
  */
 
 import fs from "node:fs";

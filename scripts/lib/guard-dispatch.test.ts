@@ -29,6 +29,7 @@ interface Core {
 	field: string | string[];
 	noun: string;
 	top?: boolean;
+	if?: string[];
 	decide: (subject: string, ctx: Record<string, unknown>) => Decision;
 }
 const { dispatch, hostAdapters, loadCores, merge, repoRel } =
@@ -46,7 +47,7 @@ const { dispatch, hostAdapters, loadCores, merge, repoRel } =
 		) => Record<string, (...a: never[]) => unknown> & {
 			git: (args: string[], noMatch: number[]) => { ok: boolean; out?: string };
 		};
-		loadCores: (event: string) => Core[];
+		loadCores: (event: string, keep?: (row: Core) => boolean) => Core[];
 		merge: (
 			parts: {
 				permissionDecision?: string;
@@ -243,6 +244,18 @@ describe("every enabled core runs, none stopping the rest", () => {
 		expect(run(cores)?.additionalContext).toBe("a says");
 	});
 
+	it("runs a core narrowed by `if` only on a call a clause admits (#3224)", () => {
+		const narrowed = [
+			core("a", answers({ deny: "refused by a" }), { if: ["Bash(git *)"] }),
+		];
+		expect(run(narrowed)).toBeNull();
+		expect(
+			run(narrowed, {
+				p: payload({ tool_input: { command: "cd x && git status" } }),
+			})?.permissionDecision,
+		).toBe("deny");
+	});
+
 	it("fits a later core's rules into what the entry has left, deferring them unlatched", () => {
 		fragment("alpha", 60);
 		fragment("beta", 60);
@@ -323,6 +336,33 @@ describe("every enabled core runs, none stopping the rest", () => {
 				persistChars: 100,
 			})?.additionalContext,
 		).toBe(long);
+	});
+});
+
+/* The store read is the host's own, under the root the entry resolved: the
+ * declared project dir holds no store, so a read that resolved its own root
+ * would find no fragment and refuse. */
+describe("the rule store under the entry's root (#3142)", () => {
+	it.each([
+		["an injecting decision", () => ({ injectRules: ["alpha"] })],
+		[
+			"the ruleText port",
+			(_: string, ctx: Record<string, unknown>) => ({
+				deny: (ctx.ruleText as (id: string) => string)("alpha"),
+			}),
+		],
+	])("reads it through %s", (_, decide) => {
+		vi.stubEnv("WFC_RULES_DIR", "");
+		vi.stubEnv(
+			"CLAUDE_PROJECT_DIR",
+			fs.mkdtempSync(path.join(dir, "elsewhere-")),
+		);
+		const own = path.join(dir, "docs", "agents", "rules");
+		fs.mkdirSync(own, { recursive: true });
+		fs.writeFileSync(path.join(own, "alpha.txt"), "alpha rule");
+		expect(JSON.stringify(run([core("a", decide as Core["decide"])]))).toMatch(
+			/alpha rule/,
+		);
 	});
 });
 
@@ -452,6 +492,21 @@ describe("failure policy", () => {
 				"a could not judge this call, and it fails closed: core broke",
 		});
 		expect(logs).toEqual(["a\tcore threw — refused: core broke"]);
+	});
+
+	it("allows past a closed core's throw where the repo does not resolve, logged (mantahostels#147)", () => {
+		const repoless = (_s: string, ctx: Record<string, unknown>) => {
+			(ctx.treeClass as (dir: string) => string)(path.join(dir, "nowhere"));
+			return null;
+		};
+		expect(
+			run([core("a", repoless, { failure: "closed" })], {
+				p: payload({ cwd: path.join(dir, "nowhere") }),
+			}),
+		).toBeNull();
+		expect(logs).toEqual([
+			expect.stringMatching(/^a\tgit could not resolve a git dir/),
+		]);
 	});
 
 	it("refuses on a store fault whatever the policy (mantahostels#1762)", () => {
@@ -597,6 +652,74 @@ describe("the entry's --only argument", () => {
 	});
 });
 
+describe("the entry's core load", () => {
+	const skillCall = (args: string[]) =>
+		runInProcess(path.resolve(__dirname, "..", "guard-dispatch.js"), args, {
+			cwd: dir,
+			env: { PATH: process.env.PATH, WFC_RULES_DIR: store },
+			stdin: JSON.stringify(
+				payload({
+					tool_name: "Skill",
+					tool_input: { skill: "tdd" },
+					hook_event_name: "PreToolUse",
+				}),
+			),
+		});
+
+	it("requires only the cores whose rows match the call's tool (#3141)", () => {
+		const { corePath, dispatchRows, isCoreFor } =
+			require("./guard-cores.js") as {
+				corePath: (module: string) => string;
+				dispatchRows: (event: string) => Core[];
+				isCoreFor: (row: Core, tool: string) => boolean;
+			};
+		const rows = dispatchRows("PreToolUse");
+		const loaded = (skill: boolean) =>
+			rows
+				.filter((r) => isCoreFor(r, "Skill") === skill)
+				.map((r) => corePath(r.core))
+				.filter((file) => file in require.cache);
+		expect(skillCall([]).status).toBe(0);
+		/* Internal state: no output shows the load cost this pins (#3141). */
+		expect(loaded(true)).not.toEqual([]);
+		expect(loaded(false)).toEqual([]);
+	});
+
+	it("requires no core whose `if` clauses refuse the call's command (#3224)", () => {
+		const { admits, corePath, dispatchRows } = require("./guard-cores.js") as {
+			admits: (row: Core, payload: Record<string, unknown>) => boolean;
+			corePath: (module: string) => string;
+			dispatchRows: (event: string) => Core[];
+		};
+		const call = payload({ tool_input: { command: "ls" } });
+		const refused = dispatchRows("PreToolUse")
+			.filter((r) => r.if && !admits(r, call))
+			.map((r) => corePath(r.core));
+		for (const file of refused) delete require.cache[file];
+		const ran = runInProcess(
+			path.resolve(__dirname, "..", "guard-dispatch.js"),
+			[],
+			{
+				cwd: dir,
+				env: { PATH: process.env.PATH, WFC_RULES_DIR: store },
+				stdin: JSON.stringify({ ...call, hook_event_name: "PreToolUse" }),
+			},
+		);
+		expect(ran.status).toBe(0);
+		expect(refused).not.toEqual([]);
+		/* Internal state: no output shows the load cost this pins. agent-poll.js
+		 * alone is loaded anyway, by guard-echo-call's lib/echo-chain.js. */
+		expect(refused.filter((file) => file in require.cache)).toEqual([
+			corePath("agent-poll.js"),
+		]);
+	});
+
+	it("reports no fault for --only naming a real core the call's tool cannot fire", () => {
+		expect(skillCall(["--only", "guard-bg-job"]).stdout).toBe("");
+		expect(readGuardErrorsLog(dir)).not.toContain("--only names no");
+	});
+});
+
 describe("the manifest", () => {
 	it("loads each PreToolUse row with its core's field, noun and decide", () => {
 		expect(
@@ -611,6 +734,7 @@ describe("the manifest", () => {
 			["inject-test-rules", "Write|Edit|NotebookEdit", "open", "function"],
 			["guard-citation-tracker", "Write|Edit", "open", "function"],
 			["guard-stale-script", "Bash", "open", "function"],
+			["guard-scratch-git", "Bash", "open", "function"],
 			[
 				"guard-job-dir-scratch",
 				"Bash|Write|Edit|NotebookEdit",
@@ -636,14 +760,50 @@ describe("the manifest", () => {
 			["inject-founder-wording", "Skill", "open", "function"],
 			["guard-tracker-rules", "Bash", "open", "function"],
 			["guard-branch-publish", "Bash", "closed", "function"],
+			["guard-branch", "Bash", "closed", "function"],
+			["guard-commit-form", "Bash", "closed", "function"],
+			["guard-anthropic-report", "Bash", "closed", "function"],
+			["guard-cpu-load", "Bash", "closed", "function"],
+			["guard-check-sh", "Bash", "open", "function"],
 			["guard-recursive-dot-read", "Bash", "open", "function"],
 			["guard-wide-read", "Read", "open", "function"],
-			["guard-agent-poll", "Read|ListAgents", "closed", "function"],
+			["guard-agent-poll", "Bash|Read|ListAgents", "closed", "function"],
 			["guard-echo-call", "Bash|Read", "closed", "function"],
 			["guard-dispatch-rewrite", "Agent|Task", "closed", "function"],
 			["guard-blind-dispatch", "Agent|Task", "closed", "function"],
 		]);
 		expect(loadCores("Stop")).toEqual([]);
+	});
+
+	it("narrows each row by the `if` clauses its old registrations carried (#3224)", () => {
+		const { dispatchRows } = require("./guard-cores.js") as {
+			dispatchRows: (event: string) => Core[];
+		};
+		expect(
+			Object.fromEntries(
+				dispatchRows("PreToolUse")
+					.filter((r) => r.if)
+					.map((r) => [r.name, r.if]),
+			),
+		).toEqual({
+			"guard-branch": ["Bash(git *)"],
+			"guard-commit-form": ["Bash(git *)", "Bash(*commit-paths.js*)"],
+			"guard-anthropic-report": ["Bash(*gh *)"],
+			"guard-cpu-load": [
+				"Bash(*yes*)",
+				"Bash(*stress*)",
+				"Bash(*done*)",
+				"Bash(*.sh*)",
+				"Bash(*sh -*)",
+			],
+			"guard-check-sh": ["Bash(*shellcheck *)", "Bash(*npm *)"],
+			"guard-agent-poll": [
+				"Bash(*sleep *)",
+				"Bash(true*)",
+				"Bash(:*)",
+				"Bash(exit*)",
+			],
+		});
 	});
 
 	it("hands the test-write core a NotebookEdit's notebook_path", () => {

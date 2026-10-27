@@ -70,7 +70,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execGit } = require("./lib/git.js");
+const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { JS_TEST_FILE } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
@@ -197,65 +197,6 @@ function hasKeyedIdentityEvidence(
 }
 
 /**
- * Every test file under `<root>/scripts/`, walked off the filesystem.
- *
- * Only ever called on a `--root` tree, which is a `git archive HEAD` extraction
- * (mantahostels#1753) — so everything in it is tracked at HEAD by construction, and the walk
- * answers exactly what `git ls-files` would. Not `ls-files` itself: a temp dir
- * is not a git repo.
- */
-function walkTests(/** @type {string} */ root) {
-	const out = /** @type {string[]} */ ([]);
-	const walk = (/** @type {string} */ rel) => {
-		let entries;
-		try {
-			entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-			const child = `${rel}/${e.name}`;
-			if (e.isDirectory()) walk(child);
-			else if (JS_TEST_FILE.test(e.name)) out.push(child);
-		}
-	};
-	walk("scripts");
-	return out;
-}
-
-function readTrackedTests(/** @type {any} */ ctx) {
-	const rootFlag = ctx.value("--root");
-	if (rootFlag) {
-		const root = path.resolve(rootFlag);
-		return { root, files: walkTests(root) };
-	}
-	const git = (/** @type {string[]} */ args, /** @type {string} */ what) => {
-		try {
-			return execGit(args, {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-		} catch (e) {
-			return ctx.broken(
-				`git ${args[0]} failed while ${what}: ${errMessage(e)}. No test files read.`,
-			);
-		}
-	};
-	const root = git(
-		["rev-parse", "--show-toplevel"],
-		"locating the repo root",
-	).trim();
-	const files = git(["-C", root, "ls-files", "-z"], "listing tracked files")
-		.split("\0")
-		.filter(Boolean)
-		.filter(
-			(/** @type {string} */ p) =>
-				p.startsWith("scripts/") && JS_TEST_FILE.test(p),
-		);
-	return { root, files };
-}
-
-/**
  * Every repo key in `text` that is BOTH raw-inited and raw-committed — the
  * candidate set identity evidence is checked against — split into `clean`
  * (has identity) and `bare` (does not, the finding).
@@ -286,7 +227,9 @@ runCheck({
 	 * --against already materialises for it (scripts/lib/check.js §--against). */
 	against: { profile: "git-fixture-identity", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
-		const { root, files } = readTrackedTests(ctx);
+		const { root, files } = readTrackedScripts(ctx, (rel) =>
+			JS_TEST_FILE.test(rel),
+		);
 		const checked = /** @type {string[]} */ ([]);
 		const exempt = /** @type {string[]} */ ([]);
 

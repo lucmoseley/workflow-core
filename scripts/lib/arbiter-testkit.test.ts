@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
- * arbiter-testkit.ts's own suite — today, its retrying sandbox teardown (mantahostels#2956):
- * an ENOTEMPTY is retried within a fixed budget and then thrown, and any other
- * error is thrown at once.
+ * arbiter-testkit.ts's own suite: its retrying sandbox teardown (mantahostels#2956),
+ * where an ENOTEMPTY is retried within a fixed budget and then thrown and any
+ * other error is thrown at once; and freshSandbox's re-pointing of the inherited
+ * repo roots (#3119).
  *
  * The remover and sleep are injected as a flaky stub, so a detached child still
  * writing into the sandbox is reproduced on cue rather than raced for; one case
@@ -10,18 +11,22 @@
  *
  * Every arbiter suite tears down through this: loosen a case here and a suite
  * whose assertions all passed goes red in CI on a teardown race, or a real
- * teardown fault is swallowed and sandboxes pile up in the temp dir.
+ * teardown fault is swallowed and sandboxes pile up in the temp dir. Loosen the
+ * roots case and those suites read and write the real checkout's dispatch ledger
+ * from a background job.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterAll, describe, expect, it } from "vitest";
 import {
+	freshSandbox,
 	removeSandbox,
 	SANDBOX_RM_ATTEMPTS,
 	SANDBOX_RM_DELAY_MS,
 } from "./arbiter-testkit";
+import { ledgerPath } from "./dispatch-ledger.js";
 
 /** An Error carrying a `code`, the shape node's fs throws. */
 const errno = (code: string) => Object.assign(new Error(code), { code });
@@ -127,5 +132,31 @@ describe("removeSandbox", () => {
 		removeSandbox(dir);
 
 		expect(fs.existsSync(dir)).toBe(false);
+	});
+});
+
+describe("freshSandbox", () => {
+	// Set before freshSandbox snapshots the environment, as a background job's
+	// inherited real-checkout roots are (#3119).
+	const Real = "/real/checkout";
+	const inherited = {
+		WFC_REPO_ROOT: process.env.WFC_REPO_ROOT,
+		WFC_DISPATCH_ROOT: process.env.WFC_DISPATCH_ROOT,
+	};
+	for (const k of Object.keys(inherited)) process.env[k] = Real;
+	const sb = freshSandbox();
+
+	afterAll(() => {
+		for (const [k, v] of Object.entries(inherited)) {
+			expect(process.env[k]).toBe(Real);
+			if (v === undefined) delete process.env[k];
+			else process.env[k] = v;
+		}
+	});
+
+	it("points an inherited WFC_REPO_ROOT and WFC_DISPATCH_ROOT at the sandbox repo (#3119)", () => {
+		expect(process.env.WFC_REPO_ROOT).toBe(sb.repo);
+		expect(process.env.WFC_DISPATCH_ROOT).toBe(sb.repo);
+		expect(ledgerPath().startsWith(`${sb.repo}${path.sep}`)).toBe(true);
 	});
 });

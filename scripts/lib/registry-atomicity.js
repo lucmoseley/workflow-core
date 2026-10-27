@@ -97,7 +97,7 @@ const WHY =
  * @property {string} pluginScripts the plugin's scripts/ directory, resolved
  * @typedef {{ arriving: boolean, key: string, id: string, text: string }}
  *   NeedleBreak
- * @typedef {import("./guard-entry.js").KitContext & RegistryPorts} RegistryContext
+ * @typedef {import("./kit-context.js").KitContext & RegistryPorts} RegistryContext
  */
 
 /**

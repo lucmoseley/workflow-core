@@ -87,6 +87,7 @@ const { readRecentEntries, release } = require("./lib/dispatch-ledger.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { readJobs } = require("./lib/hung-jobs.js");
+const { readSwapHold } = require("./lib/admission.js");
 const {
 	blockCause,
 	resumedIdleSince,
@@ -1073,7 +1074,12 @@ async function tick({ dryRun }) {
 	if (agents)
 		for (const line of buildDriftLines(agents, registry.agents)) log(line);
 	const listed = judgeFinished(state.launches, agents, now, served);
-	const seen = { agents, now, io: blockIo(served) };
+	const seen = {
+		agents,
+		now,
+		io: blockIo(served),
+		swapHold: readSwapHold(),
+	};
 	const judged = dryRun
 		? listed
 		: blocks.actOnIdle(

@@ -1,6 +1,6 @@
 /*
- * cpu-load-host.js — the production ports guard-cpu-load.js wires into its
- * core, lib/cpu-load.js (#2801).
+ * cpu-load-host.js — the production ports the dispatcher wires into the
+ * guard-cpu-load core, lib/cpu-load.js (#2801, #3224).
  *
  * The core count is the online count, as `getconf _NPROCESSORS_ONLN` gives
  * it, and not os.availableParallelism(): that is the hook's own affinity, so

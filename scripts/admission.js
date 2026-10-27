@@ -13,7 +13,7 @@
  *
  * `--load-only` judges the CPU limb alone, the load and session ceilings both —
  * what `dispatch-sessions.sh --force-memory` runs, so overriding memory never
- * disarms either (#834, #2141). Only `WFC_LOAD_CEILING=0` and
+ * disarms either (#834, #2141). Only `WFC_LOAD_CEILING=0` (or a 0 in `~/.claude/load-ceiling`) and
  * `WFC_SESSION_CEILING=0` turn them off.
  *
  * `--launch` reserves, on top of the one idle pair already reserved, the

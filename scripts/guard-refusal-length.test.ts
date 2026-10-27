@@ -13,9 +13,8 @@
  * ceiling only on a ruling, re-measuring every row and recording it below.
  *
  * Each guard is spawned on the hook route that runs it for that tool, and its
- * live text measured, never a copy: guard-agent-poll.js for the poll guard's
- * Bash route, guard-dispatch.js for its Read and ListAgents routes and for the
- * dot-read guard. All run as `PreToolUse` hooks (`self-plugin/hooks/hooks.json`,
+ * live text measured, never a copy: guard-dispatch.js for the poll and
+ * dot-read guards. All run as `PreToolUse` hooks (`self-plugin/hooks/hooks.json`,
  * `hooks/hooks.json`), so a ceiling loosened here lets a refusal regrow and
  * every session that trips it pays the bytes #497 cut, on every trip.
  */
@@ -142,7 +141,6 @@ const project = (): Setup => {
 	};
 };
 
-const POLL = "guard-agent-poll.js";
 const DISPATCH = "guard-dispatch.js";
 const CONCURRENCY = "guard-suite-concurrency.js";
 
@@ -154,7 +152,7 @@ const CONCURRENCY = "guard-suite-concurrency.js";
 const ROWS: Row[] = [
 	{
 		text: "the poll guard's no-op refusal",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "deny",
 		input: { command: "true" },
 		spent: 1,
@@ -186,7 +184,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's timed-check cadence warning",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "warn",
 		input: { command: "sleep 120; wc -c .claude/tmp/agents/a.md" },
 		spent: 3,
@@ -196,7 +194,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's job-beat cadence warning",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "warn",
 		input: { command: "sleep 120; scripts/bg-run.sh check suite" },
 		spent: 3,
@@ -206,7 +204,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's timed-check cadence warning, to a subagent (#1169)",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "warn",
 		input: { command: "sleep 120; wc -c .claude/tmp/agents/a.md" },
 		spent: 3,
@@ -217,7 +215,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's job-beat cadence warning, to a subagent (#1169)",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "warn",
 		input: { command: "sleep 120; scripts/bg-run.sh check suite" },
 		spent: 3,
@@ -228,7 +226,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's no-op refusal, to a subagent (#1169)",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "deny",
 		input: { command: "true" },
 		spent: 1,
@@ -239,7 +237,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's output-file re-read refusal, to a subagent (#1169)",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "deny",
 		tool: "Read",
 		input: { file_path: "/tmp/claude-1000/proj/sess/tasks/bw0192d7i.output" },
@@ -251,7 +249,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's ListAgents refusal, to a subagent (#1169)",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "deny",
 		tool: "ListAgents",
 		input: {},

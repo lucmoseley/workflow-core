@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/check-sh-rules.js, guard-check-sh.js's core (#2800), in process: which
+ * lib/check-sh-rules.js, the guard-check-sh core (#2800), in process: which
  * commands are the shell gate, so are handed the two shellcheck rules before
  * they run (mantahostels#1805, spec mantahostels#1762), and which are the full
  * run, so are also handed the changed-paths route (#1015).

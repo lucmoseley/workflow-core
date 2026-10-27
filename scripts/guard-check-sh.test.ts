@@ -1,16 +1,19 @@
 // @vitest-environment node
 /*
- * guard-check-sh.js's boundary set (#2800): it states the two shellcheck
- * rules before the shell gate runs rather than after it has misled someone
+ * The boundary set of the guard-check-sh core of guard-dispatch.js (#2800),
+ * the dispatcher entry run on it alone: it states the two shellcheck rules
+ * before the shell gate runs rather than after it has misled someone
  * (mantahostels#1805, spec mantahostels#1762). Each exit path, the payload's
  * channels, the rule store and the latch crossed for real; which commands are
- * the gate is lib/check-sh-rules.test.ts's module cases on the core.
+ * the gate is lib/check-sh-rules.test.ts's module cases on the core; the
+ * entry's payload faults and the throw policy are guard-dispatch's own tests'
+ * (#3224).
  *
  * It never denies and never warns bar the store fault, so every injection
  * case asserts `permissionDecision` is ABSENT as well as asserting the text.
  *
- * It runs as a `PreToolUse` Bash hook (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`) on a shellcheck or npm command: break it and a session
+ * It runs as a core of the `PreToolUse` dispatcher on a shellcheck or npm
+ * command: break it and a session
  * runs `npm run check:sh` without the rules, where a missing binary's silent
  * exit 0 reads as a clean gate; make it deny and every shell-gate run is
  * wedged.
@@ -22,18 +25,15 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	runNodeGuard,
+	runDispatchCore,
 } from "./lib/pretool-guard-testkit";
-
-const GUARD = path.resolve(__dirname, "guard-check-sh.js");
 /* The store's Node accessor, so a test asks for a rule by id rather than
- * holding a second copy of its text. CommonJS, hence the require. */
-const { readRuleText } = require("./lib/rule-text") as {
-	readRuleText: (id: string) => string;
-};
+ * holding a second copy of its text. */
+import { readRuleText } from "./lib/rule-text";
+
+const CORE = "guard-check-sh";
 
 let dir: string;
 let config: string;
@@ -51,7 +51,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 /** The whole hook output for `command`, parsed. Null where it said nothing. */
 const emission = (command: string, session = "test") =>
-	nodeGuardOutput(GUARD, buildBashPayload(command, session), {
+	dispatchCoreOutput(CORE, buildBashPayload(command, session), {
 		project: root,
 		config,
 		cwd: root,
@@ -78,7 +78,7 @@ describe("each exit path", () => {
 				"shellcheck-source-directive",
 				"shellcheck-changed-scope",
 			]
-				.map(readRuleText)
+				.map((id) => readRuleText(id))
 				.join("\n\n"),
 		);
 	});
@@ -155,65 +155,30 @@ describe("it says it once, and spends no more of the cap than it needs", () => {
 });
 
 describe("what it cannot resolve, it records and allows", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, { project: root, config, cwd: root, stdin });
+	const run = (payload: Record<string, unknown>) =>
+		runDispatchCore(CORE, payload, { project: root, config, cwd: root });
 
 	it("says nothing and logs when the payload carries no session", () => {
 		// The kit's payload side keeps the house fail-open (mantahostels#103 §6);
 		// only its store side refuses. Without a session id there is no latch
 		// key, so an injection would repeat on every call.
-		const r = run(JSON.stringify(buildBashPayload("npm run check:sh", null)));
+		const r = run(buildBashPayload("npm run check:sh", null));
 		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
 		expect(readFailOpenLog(config, root)).toMatch(/no session_id in payload/);
-	});
-
-	it.each([
-		["a payload that is not JSON", "{not json", /payload did not parse/],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])("records %s, allowing", (_l, stdin, match) => {
-		const r = run(stdin);
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		const [line] = readFailOpenLog(config, root).trim().split("\n");
-		expect(line?.split("\t")).toEqual([
-			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-			"guard-check-sh.js",
-			expect.stringMatching(match),
-		]);
-	});
-
-	it("allows, logged, where its core throws", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-check-sh.js",
-			"check-sh-rules.js",
-		);
-		const r = runNodeGuard(entry, buildBashPayload("npm run check:sh", "t"), {
-			project: root,
-			config,
-			cwd: root,
-		});
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(readFailOpenLog(config, root)).toMatch(
-			/guard threw — allowed unchecked: broke/,
-		);
 	});
 
 	it("refuses the call when the fragment cannot be read, naming the rule", () => {
 		// The one place this guard refuses (mantahostels#1762): a rule that
 		// cannot be stated is worth a refused tool call. A deny on exit 0.
 		const empty = fs.mkdtempSync(path.join(dir, "store-"));
-		const out = nodeGuardOutput(
-			GUARD,
+		const out = dispatchCoreOutput(
+			CORE,
 			buildBashPayload("npm run check:sh", "test"),
 			{ project: root, config, cwd: root, env: { WFC_RULES_DIR: empty } },
 		);
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toMatch(
-			/^guard-check-sh\.js: .*shellcheck-not-installed/,
+			/^guard-check-sh: .*shellcheck-not-installed/,
 		);
 		expect(readFailOpenLog(config, root)).toMatch(
 			/rule fragment unreadable — refusing/,

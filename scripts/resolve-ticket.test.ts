@@ -14,6 +14,7 @@
  * card's issue closes around `/card-close`.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -27,6 +28,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { GRAPHQL_FAKE } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
+import { hexShaCommit } from "./lib/hex-sha-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const { digestOf } = createRequire(__filename)("./lib/census-digest.js");
@@ -621,6 +623,92 @@ describe("census rows the ticket's commits expired (#1876)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`  ${guardRel}\n`);
 		untouched();
+	});
+});
+
+describe("commits the pushed ref lacks (#3101)", () => {
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" }).trim();
+	const push = () => git("update-ref", "refs/remotes/origin/landing", "HEAD");
+	const fix = () => {
+		// The suite leaves `landing` off; the sandbox restores the env after.
+		process.env.WFC_MODULES = "landing";
+		fs.writeFileSync(
+			path.join(sb.repo, ".claude", "workflow-core.json"),
+			JSON.stringify({
+				contract: 1,
+				founder: "T",
+				tracker: "acme/widgets",
+				modules: ["landing"],
+			}),
+		);
+		gitRepo(sb);
+		commitAll(sb, "seed");
+		push();
+		fs.writeFileSync(path.join(sb.repo, "fix.txt"), "fixed\n");
+		commitAll(sb, "Fix the stop (#534)");
+	};
+
+	it("refuses a close whose commit is not on the pushed ref, naming it and the escape", () => {
+		setUp({ parentLabels: null });
+		fix();
+		const r = run([]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("#534's commit is not on origin/landing");
+		expect(r.stderr).toContain(" Fix the stop (#534)\n");
+		expect(r.stderr).toContain("**Unlanded:**");
+		untouched();
+	});
+
+	it("passes once the commit is pushed", () => {
+		setUp({ parentLabels: null });
+		fix();
+		push();
+		expect(run([]).status).toBe(0);
+	});
+
+	it("refuses a close whose comment names a commit off HEAD that origin/landing lacks (#3092)", () => {
+		setUp({ parentLabels: null });
+		fix();
+		push();
+		git("checkout", "-q", "-b", "side");
+		fs.writeFileSync(path.join(sb.repo, "side.txt"), "fixed\n");
+		commitAll(sb, "Fix the stop");
+		const sha = git("rev-parse", "HEAD");
+		git("checkout", "-q", "-");
+		const r = run(
+			[],
+			`${COMMENT}Fixed in ${sha}.\n**Door:** two-way — revert it.\n`,
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			`  ${git("rev-parse", "--short", sha)} Fix the stop\n`,
+		);
+		untouched();
+	});
+
+	it("refuses a close whose comment names such a commit by an all-digit short sha (#3230)", () => {
+		setUp({ parentLabels: null });
+		fix();
+		push();
+		git("checkout", "-q", "-b", "side");
+		const { sha, short } = hexShaCommit(sb.repo, "Fix the stop", "digits");
+		git("checkout", "-q", "-");
+		const r = run([], `${COMMENT}Fixed in ${short}.\n`);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			`  ${git("rev-parse", "--short", sha)} Fix the stop\n`,
+		);
+		untouched();
+	});
+
+	it("passes a comment whose Unlanded line says why", () => {
+		setUp({ parentLabels: null });
+		fix();
+		expect(
+			run([], `${COMMENT}**Unlanded:** a neighbour's cite in passing.\n`)
+				.status,
+		).toBe(0);
 	});
 });
 

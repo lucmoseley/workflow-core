@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 
 const {
 	blockerGraph,
+	inheritance,
 	openBlockersOf,
 	pulledInOf,
 	reachOf,
@@ -47,9 +48,9 @@ const edge = (fake: Fake, ref: string) => {
 	};
 };
 
-/** A served repo of `served` (number -> its blockers and body), over `fake`. */
+/** A served repo of `served` (number -> its blockers, body and parent), over `fake`. */
 const graphOf = (
-	served: Record<number, { deps?: string[]; body?: string }>,
+	served: Record<number, { deps?: string[]; body?: string; parent?: number }>,
 	fake: Fake = {},
 ) => {
 	const reads: string[] = [];
@@ -76,6 +77,7 @@ const graphOf = (
 			number: Number(n),
 			edges: (s.deps ?? []).map((d) => edge(fake, d)),
 			body: s.body ?? "",
+			parent: s.parent ?? null,
 		})),
 		OWN,
 		read,
@@ -161,6 +163,98 @@ describe("a foreign number shared with a served issue", () => {
 		const { graph } = await graphOf({ 1: { deps: ["o/y#5"] }, 5: {} }, {});
 		expect(reachOf(graph, 5)).toBe(0);
 		expect(pulled(graph)).toEqual(["o/y#5 reach 1 holds me/served#1"]);
+	});
+});
+
+describe("what an issue inherits from what it holds out (#3222)", () => {
+	/** `urgent` from `urgent`, passing up a parent link only from a map in `maps`. */
+	const urgentOf = (graph: unknown, urgent: number[], maps: number[] = []) =>
+		inheritance(graph, {
+			urgent: (n: number, parent: boolean) =>
+				urgent.includes(n) && (!parent || maps.includes(n)),
+		});
+	const own = (number: number) => ({ repo: OWN, number });
+
+	it("passes a tier along a blocker chain, its depth the longest path", async () => {
+		// 1 blocks 2 and 3; 3 blocks 4, which is urgent. 2 is a shorter dead end.
+		const { graph } = await graphOf({
+			1: {},
+			2: { deps: [`${OWN}#1`] },
+			3: { deps: [`${OWN}#1`] },
+			4: { deps: [`${OWN}#3`] },
+		});
+		expect(urgentOf(graph, [4])(own(1))).toEqual({
+			via: { urgent: { number: 4, path: ["#3", "#4"] } },
+			depth: 2,
+		});
+	});
+
+	it("ends on a cycle, still naming the tier past it", async () => {
+		// 1 blocks 2; 2 and 3 block each other; 3 is urgent.
+		const { graph } = await graphOf({
+			1: {},
+			2: { deps: [`${OWN}#1`, `${OWN}#3`] },
+			3: { deps: [`${OWN}#2`] },
+		});
+		expect(urgentOf(graph, [3])(own(1))).toEqual({
+			via: { urgent: { number: 3, path: ["#2", "#3"] } },
+			depth: 2,
+		});
+	});
+
+	it("answers the same into a cycle from either side, whichever is asked first", async () => {
+		// 1 blocks 2 and 4 blocks 3; 2 and 3 block each other; 2 blocks 5, urgent.
+		const { graph } = await graphOf({
+			1: {},
+			4: {},
+			2: { deps: [`${OWN}#1`, `${OWN}#3`] },
+			3: { deps: [`${OWN}#4`, `${OWN}#2`] },
+			5: { deps: [`${OWN}#2`] },
+		});
+		const want = {
+			1: { via: { urgent: { number: 5, path: ["#2", "#5"] } }, depth: 3 },
+			4: { via: { urgent: { number: 5, path: ["#3", "#5"] } }, depth: 3 },
+		};
+		for (const order of [
+			[1, 4],
+			[4, 1],
+		]) {
+			const of = urgentOf(graph, [5]);
+			for (const n of order)
+				expect(of(own(n))).toEqual(want[n as keyof typeof want]);
+		}
+	});
+
+	it("holds a child's open parent, counting it in neither reach nor depth", async () => {
+		const { graph } = await graphOf({
+			1: {},
+			2: { deps: [`${OWN}#1`], parent: 5 },
+			5: {},
+		});
+		expect(reachOf(graph, 1)).toBe(1);
+		expect(urgentOf(graph, [5], [5])(own(1))).toEqual({
+			via: { urgent: { number: 5, path: ["#2", "#5"] } },
+			depth: 1,
+		});
+	});
+
+	it("passes no urgency up a parent link from a parent that is no map", async () => {
+		const { graph } = await graphOf({ 2: { parent: 5 }, 5: {} });
+		expect(urgentOf(graph, [5])(own(2))).toEqual({
+			via: { urgent: null },
+			depth: 0,
+		});
+	});
+
+	it("passes a served tier on to a foreign issue through a foreign one", async () => {
+		const { graph } = await graphOf(
+			{ 1: { deps: ["o/y#10"] } },
+			{ deps: { "o/y#10": ["o/z#20"] } },
+		);
+		expect(urgentOf(graph, [1])({ repo: "o/z", number: 20 })).toEqual({
+			via: { urgent: { number: 1, path: ["o/y#10", "#1"] } },
+			depth: 1,
+		});
 	});
 });
 

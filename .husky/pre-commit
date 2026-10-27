@@ -4,14 +4,15 @@
 #
 # Borrow the canonical checkout's binaries, since a worktree has no node_modules
 # of its own: --git-common-dir is absolute in a worktree, a bare `.git` here, so
-# this resolves either way. These gates fire in a worktree too, because
-# package.json's `prepare` re-pins core.hooksPath absolute after husky writes it
-# relative — see its comments entry. Revert that pin and every gate below
+# this resolves either way. These gates fire in a worktree too, from that
+# worktree's own copy of this file, because `prepare`'s install-hooks.js re-pins
+# core.hooksPath absolute after husky writes it relative and points husky's
+# shim at the committing tree (#3138). Revert that pin and every gate below
 # silently stops firing in worktrees; nothing reports it (mantahostels#344).
 #
 # IMPLICIT:  runs every gate below on each commit — the shared-tree branch check, the linters, the secret scan and the repo checkers — and refuses the commit on a red. Deliberately not enumerated: this file has carried ~14 gates and gains more, and a list here is one that goes stale (mantahostels#1261).
 # JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and since mantahostels#910 nothing runs on push, so a gate skipped here is unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery lag, not the 4-hourly cron.
-# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and scripts/guard-hook-escape.js refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify no longer skips it, .husky/prepare-commit-msg running it instead (mantahostels#1705), and guard-commit-form.js denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/guard-commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910).
+# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and scripts/guard-hook-escape.js refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify no longer skips it, .husky/prepare-commit-msg running it instead (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910). WFC_LANDER_REVERT=<sha> stands the guard-registry gate's staleness refusal down where the staged tree is that commit's clean revert onto HEAD, recomputed by scripts/lib/clean-revert.js (#3127): the lander sets it; an agent can too, but what it passes is a clean revert that leaves rows stale, never any other change or fault.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 
@@ -38,7 +39,7 @@ PATH="$(dirname "$(git rev-parse --git-common-dir)")/node_modules/.bin:$PATH"
 . "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/precommit-gate.sh
 
 # Layer two of mantahostels#100's shared-tree pin, and the one that actually holds: the
-# PreToolUse guard (scripts/guard-branch.js) reads a command string and fails
+# PreToolUse guard (the guard-branch core of scripts/guard-dispatch.js) reads a command string and fails
 # open, and sees nothing at all in a plain terminal. A linked worktree is exempt
 # — it was created for a branch and no other session moves it; --git-dir and
 # --git-common-dir are the same directory only in the main worktree.
@@ -181,7 +182,7 @@ fi
 # distinguishable from a digest that drifted (1).
 #
 # DEFEAT: HUSKY=0 and `core.hooksPath` pointed off .husky/_ (the whole list:
-# scripts/guard-commit-form.js's LIMITS, #800). A commit landing by either route
+# scripts/lib/commit-form.js's LIMITS, #800). A commit landing by either route
 # is unchecked until roadmap-digest.yml's own digest-render step reaches it on the
 # sweeps, up to ~12 hours later (mantahostels#2895); `npm run check:digest-render` answers
 # sooner.
@@ -260,6 +261,10 @@ fi
 # no commit yet HEAD does not resolve and the gate is BROKEN — exit 2, refusing
 # the very first commit. Nothing in this repo hits it; installing these hooks
 # into a fresh repo would (mantahostels#1940).
+#
+# A LANDER REVERT is let through with the rows it leaves stale: where
+# WFC_LANDER_REVERT names a culprit and the staged tree is its clean revert onto
+# HEAD, the checker stands its staleness refusal down, and only that (#3127).
 if armed '^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-registry.js --against HEAD || exit "$?"
 fi
@@ -363,9 +368,18 @@ fi
 # stale — and a stale fragment is the failure the store exists to prevent: the
 # guard delivers a rule the document no longer says (mantahostels#2493, spec mantahostels#2457 §T2).
 #
-# Conditioned on the source documents and on the generated files themselves,
-# never on scripts/: the generator's own edits are caught when it is re-run.
-if armed '^docs/agents/(triage-labels|issue-tracker)\.md$|^docs/agents/rules/'; then
+# Conditioned on the source documents, read from the generator's own list so
+# the trigger cannot name fewer than it scans (#3118), and on the generated
+# files themselves; never on scripts/: the generator's own edits are caught
+# when it is re-run. A lister that fails refuses the commit rather than arming
+# nothing.
+if armed '^docs/agents/rules/' || {
+  rf_sources="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --sources)" || {
+    echo "pre-commit: scripts/generate-rule-fragments.js could not list its sources, so the rule-fragment gate refused the commit." >&2
+    exit 1
+  }
+  armed -F "$rf_sources"
+}; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --check || exit 1
 fi
 
@@ -453,7 +467,7 @@ fi
 # hook its own GIT_INDEX_FILE, so the extraction below holds HEAD's files plus
 # this commit's paths and NOT a neighbour's `git add -N` file. A pathspec-LESS
 # commit extracts the shared index instead, so there a neighbour's staged doc
-# does count — mantahostels#63's shape, which guard-commit-form.js already warns about.
+# does count — mantahostels#63's shape, which the guard-commit-form core already warns about.
 #
 # The pattern mirrors SCOPE in scripts/lib/doc-map.js; a new member added
 # there must be added here too, and precommit-doc-map-gate.test.ts asserts the

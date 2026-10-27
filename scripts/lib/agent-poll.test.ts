@@ -11,12 +11,10 @@
  * the one that denies — so every case drives the core over its production
  * ports (lib/agent-poll-host.js) with its own TMPDIR, where the window lives.
  *
- * Module cases call `decide` over the context lib/guard-entry.js's kitContext
- * builds, as scripts/guard-agent-poll.js does: the Bash routes are not the
- * dispatcher's (they run in that entry). The cases through
- * lib/guard-core-testkit.ts prove the dispatcher row; the entry's boundary set is
- * scripts/guard-agent-poll.test.ts's, the hook line's
- * scripts/guard-dispatch.test.ts's.
+ * Module cases call `decide` over the context lib/kit-context.js's kitContext
+ * builds. The cases through lib/guard-core-testkit.ts prove the dispatcher
+ * row; the Bash boundary set is scripts/guard-agent-poll.test.ts's, the hook
+ * line's scripts/guard-dispatch.test.ts's.
  *
  * Loosen a case and a session polls a background job at a full-context turn
  * per look, or a guard that cannot judge starts denying instead of getting out
@@ -27,20 +25,21 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildHostPorts } from "./agent-poll-host.js";
 import { runCore } from "./guard-core-testkit";
+import { WAIT_SLOT } from "./wait-text.js";
 
-/* CommonJS, hence the require. */
+/* Required with casts, not imported (#3145): `kitContext` is handed empty
+ * readers its checked type refuses, and `decide`'s `CoreDecision` is narrowed
+ * to the shapes this core returns. Residual: the cast's types are hand-written,
+ * so nothing checks them against the module. */
 const core = require("./agent-poll.js") as {
 	decide: (
 		session: string,
 		ctx: Record<string, unknown>,
 	) => { deny: string } | { context: string } | null;
 };
-const { buildHostPorts } = require("./agent-poll-host.js") as {
-	buildHostPorts: () => Record<string, unknown>;
-};
-const { WAIT_SLOT } = require("./wait-text.js") as { WAIT_SLOT: string };
-const { kitContext } = require("./guard-entry.js") as {
+const { kitContext } = require("./kit-context.js") as {
 	kitContext: (
 		env: {
 			root: string;
@@ -65,7 +64,7 @@ interface Payload {
 type Verdict = { deny: string } | { context: string } | null;
 
 /** The core's decision on `payload`, over the context lib/guard-entry.js's
- * kitContext builds from it, as scripts/guard-agent-poll.js composes it. */
+ * kitContext builds from it. */
 const judge = (payload: Payload, over: Record<string, unknown> = {}): Verdict =>
 	core.decide(payload.session_id ?? "", {
 		...kitContext(
@@ -660,9 +659,9 @@ describe("through the dispatcher row (#2791)", () => {
 		expect(fs.readdirSync(stateDir())).toEqual(["s1.aa1"]);
 	});
 
-	it("leaves a Bash call to the entry: the row does not judge it", () => {
-		for (let i = 0; i < 3; i++) {
-			const r = runCore(
+	it("judges a Bash call its `if` clauses admit, refusing the second no-op (#3224)", () => {
+		const noop = () =>
+			runCore(
 				"guard-agent-poll",
 				{
 					session_id: "s1",
@@ -671,9 +670,8 @@ describe("through the dispatcher row (#2791)", () => {
 				},
 				{ root: dir, env: { TMPDIR: tmp } },
 			);
-			expect(r.output).toBeNull();
-		}
-		expect(fs.existsSync(stateFile())).toBe(false);
+		expect(noop().output).toBeNull();
+		expect(noop().output?.permissionDecision).toBe("deny");
 	});
 });
 

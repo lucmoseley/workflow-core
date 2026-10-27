@@ -85,7 +85,7 @@ function buildLaunchPorts({ root, log }) {
 }
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {Omit<import("./suite-concurrency.js").SuitePorts, "fullLaunchPlain">}
  */
 function buildHostPorts({ root, payload, log }) {
@@ -135,11 +135,7 @@ function buildHostPorts({ root, payload, log }) {
  * @returns {import("./suite-concurrency.js").Gate | null}
  */
 function readGate(command, root, weight = null) {
-	const {
-		guardDisabled,
-		hostRoot,
-		moduleOn,
-	} = require("./workflow-core-config.js");
+	const { guardDisabled, hostRoot } = require("./workflow-core-config.js");
 	const host = root ?? hostRoot();
 	if (guardDisabled("guard-suite-concurrency.js", { root: host })) return null;
 	const { logError } = require("./arbiter-core.js");
@@ -152,27 +148,16 @@ function readGate(command, root, weight = null) {
 		}
 	};
 	const { decide } = require("./suite-concurrency.js");
-	/** @type {Record<string, string>} */
-	const vars = {};
-	for (const [k, v] of Object.entries(process.env))
-		if (v !== undefined && k !== "WFC_SUITE_CONCURRENT") vars[k] = v;
-	const scriptPaths = require("./script-path.js");
-	/* Hand-built: guard-entry.js's kitContext would bring the entry's
-	 * fail-open logger into every launcher that polls this gate (#3137). */
+	const { kitContext, sharedReaders } = require("./kit-context.js");
+	const env = { root: host, payload: { cwd: host }, log };
+	const ctx = kitContext(env, sharedReaders(host, log));
+	const { WFC_SUITE_CONCURRENT: _escape, ...vars } = ctx.vars;
 	const verdict = decide(command, {
-		cwd: host,
-		fallbackCwd: host,
+		...ctx,
 		vars,
-		isDir: (p) =>
-			fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
-		moduleOn: (m) => moduleOn(m, { root: host }),
-		log,
-		ruleText: require("./rule-text.js").readRuleText,
-		scriptPath: scriptPaths.scriptPath,
-		corePaths: scriptPaths.resolveScriptPaths,
 		told: () => true,
 		readLatch: () => "",
-		...buildHostPorts({ root: host, payload: {}, log }),
+		...buildHostPorts(env),
 		launchWeight: weight,
 		/* Never asked: `told` answers yes, so the limb is never weighed. */
 		fullLaunchPlain: () => ({ plain: false }),

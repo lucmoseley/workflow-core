@@ -42,12 +42,9 @@
  */
 
 const crypto = require("node:crypto");
-const { denyText, ruleOr } = require("./guard-verdict.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, unwrap } = require("./shell-words.js");
-
-const RULE_FALLBACK =
-	"An rm Claude Code cannot check is a permission prompt no allow entry clears; the rule could not be read from docs/agents/rules/rm-unchecked.txt. Read that file before re-sending.";
 
 /* A target opening on a variable, then a slash. */
 const VAR_SLASH = /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\//;
@@ -63,7 +60,7 @@ const DECLARATION = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
  * @typedef {object} RmPorts
  * @property {() => boolean} isLatchWritable whether the markers directory the
  *   latch is written to can be written
- * @typedef {import("./guard-entry.js").KitContext & RmPorts} RmContext
+ * @typedef {import("./kit-context.js").KitContext & RmPorts} RmContext
  * @typedef {object} Scan what the walk has caught so far: the first target
  *   each limb caught, as the refusal quotes it, and what it has seen
  * @property {string} varSlash
@@ -297,7 +294,11 @@ function reasonFor({ varSlash, cdGlob, shellRun, rmSeen }) {
  * @param {RmContext} ctx
  */
 function refusalText(reason, ctx) {
-	const rule = ruleOr(() => ctx.ruleText("rm-unchecked"), RULE_FALLBACK);
+	const rule = ruleOrFallback(
+		ctx,
+		"rm-unchecked",
+		"An rm Claude Code cannot check is a permission prompt no allow entry clears",
+	);
 	const text = `Refused once: Claude Code's built-in removal check would prompt on this command — ${reason}. Re-send it unchanged and it goes through to that check.\n\n${rule}`;
 	/* No segment: the reason already quotes the target that tripped the check. */
 	return denyText(ctx, "", text);

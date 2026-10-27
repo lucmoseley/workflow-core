@@ -81,20 +81,6 @@ interface Registration {
 const REGISTRATIONS: Registration[] = [
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-branch.js",
-		narrowing: "Bash(git *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-commit-form.js",
-		narrowing: "Bash(git *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
 		id: "scripts/guard-registry-atomicity.js",
 		narrowing: "Bash(git *)",
 		matcher: "Bash",
@@ -103,13 +89,6 @@ const REGISTRATIONS: Registration[] = [
 	{
 		event: "PreToolUse",
 		id: "scripts/guard-registry-atomicity.js",
-		narrowing: "Bash(*commit-paths.js*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-commit-form.js",
 		narrowing: "Bash(*commit-paths.js*)",
 		matcher: "Bash",
 		covers: ["Bash"],
@@ -167,48 +146,8 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-anthropic-report.js",
-		narrowing: "Bash(*gh *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
 		id: "scripts/guard-issue-phase-scope.js",
 		narrowing: "Bash(*gh *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	/* mantahostels#2811 split this guard in two: the Bash limb is narrowed to the four
-	 * command shapes its Bash routes classify, one entry per rule, and the
-	 * Read|ListAgents limb runs unnarrowed in guard-dispatch.js because neither
-	 * tool has a command to match on. A `Bash(…)` rule left on a joint matcher
-	 * would match no Read call at all (hooks.md:123). */
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.js",
-		narrowing: "Bash(*sleep *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.js",
-		narrowing: "Bash(true*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.js",
-		narrowing: "Bash(:*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.js",
-		narrowing: "Bash(exit*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
@@ -298,6 +237,13 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "PreToolUse",
+		id: "scripts/guard-suite-concurrency.js",
+		narrowing: "Bash(*tsc*)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
+		event: "PreToolUse",
 		id: "scripts/guard-vitest-wrapper.js",
 		narrowing: "Bash(*vitest *)",
 		matcher: "Bash",
@@ -361,41 +307,6 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-cpu-load.js",
-		narrowing: "Bash(*yes*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-cpu-load.js",
-		narrowing: "Bash(*stress*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-cpu-load.js",
-		narrowing: "Bash(*done*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-cpu-load.js",
-		narrowing: "Bash(*.sh*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-cpu-load.js",
-		narrowing: "Bash(*sh -*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
 		id: "scripts/guard-ugrep-pattern.js",
 		narrowing: "Bash(grep *)",
 		matcher: "Bash",
@@ -437,20 +348,6 @@ const REGISTRATIONS: Registration[] = [
 		event: "PreToolUse",
 		id: "scripts/guard-npm-install.js",
 		narrowing: "Bash(*npx *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-check-sh.js",
-		narrowing: "Bash(*shellcheck *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-check-sh.js",
-		narrowing: "Bash(*npm *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},

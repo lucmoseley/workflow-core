@@ -1,6 +1,6 @@
 /*
- * commit-form-host.js — the production ports guard-commit-form.js wires into
- * its core, lib/commit-form.js (#2793). Every git read carries the hook's
+ * commit-form-host.js — the production ports the dispatcher wires into the
+ * guard-commit-form core, lib/commit-form.js (#2793, #3224). Every git read carries the hook's
  * git timeout, and a timed-out read answers as an erroring one.
  */
 
@@ -39,16 +39,12 @@ const LS_MODE = {
 };
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {string} root
  * @returns {import("./commit-form.js").CommitFormPorts}
  */
-function buildHostPorts({ root, payload }) {
+function buildHostPorts(root) {
 	return {
 		root,
-		sessionId:
-			(typeof payload.session_id === "string" && payload.session_id) ||
-			process.env.CLAUDE_CODE_SESSION_ID ||
-			"",
 		midSequence: (dir) => {
 			const gitdir = git([
 				"-C",
@@ -89,7 +85,7 @@ function buildHostPorts({ root, payload }) {
 			}
 		},
 		commitCheck: readCommitCheck,
-		closingRefusal,
+		closingRefusal: (match) => closingRefusal(match, root),
 	};
 }
 

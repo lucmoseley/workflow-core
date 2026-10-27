@@ -1,10 +1,10 @@
 /*
  * git.js — the seam between the Node scripts and the `git` CLI: they route
  * every spawn through here and never name the binary themselves (#2636).
- * Test fixtures — the `.ts` test support and lib/precommit-gate-harness.js —
- * build their repos with the real `git`, since the test they serve may stub
- * WFC_GIT. lib/resolve-core.js, copied into adopters and run before any core
- * is found, requires builtins only.
+ * Test support, lib/precommit-gate-harness.js among it, builds its repos
+ * with the real `git`, since the test it serves may stub WFC_GIT.
+ * lib/resolve-core.js, copied into adopters and run before any core is found,
+ * requires builtins only.
  *
  * The binary is injected at one named point, WFC_GIT, so a test feeding git
  * chosen output stubs it there rather than on PATH (base §N7, #2581, #2589).
@@ -164,9 +164,57 @@ function spawnGitSync(args, opts = {}) {
 const HOOK_GIT_TIMEOUT_MS = 3000;
 
 /* The ceiling on a git call not held to HOOK_GIT_TIMEOUT_MS, unmeasured and
- * there only so a wedged git fails the read open rather than hanging a suite
- * launch or a Stop hook. */
+ * there only so a wedged git ends the read rather than hanging a suite launch
+ * or a Stop hook: dirty-tree.js's `gitRead` answers null, `gitOutcome`
+ * `ok: false`. */
 const GIT_TIMEOUT_MS = 30_000;
+
+/**
+ * @typedef {{ ok: true, out: string } | { ok: false, why: string }} GitRead
+ * @typedef {(args: string[], noMatch: number[]) => GitRead} GitReader
+ */
+
+/**
+ * git's THREE outcomes, kept apart.
+ *
+ * `git grep` exits 1 on no match and >1 on failure, and `rev-parse --verify`
+ * exits 1 on an unknown ref and 128 outside a repository — so a wrapper that
+ * folds every non-zero into one answer reports a broken apparatus as an empty
+ * result. That is the fail-open `lib/check.js`'s SUBJECT/APPARATUS split exists
+ * to prevent, and it is why `noMatch` is named per call rather than assumed.
+ *
+ * @param {string[]} args
+ * @param {number[]} noMatch exit codes that mean "asked and answered nothing"
+ * @param {string} [cwd]
+ * @returns {GitRead}
+ */
+function gitOutcome(args, noMatch, cwd, timeout = GIT_TIMEOUT_MS) {
+	const r = spawnGitSync(args, {
+		cwd,
+		encoding: "utf8",
+		timeout,
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	if (r.error) return { ok: false, why: r.error.message };
+	if (r.status === 0) return { ok: true, out: String(r.stdout) };
+	if (r.status !== null && noMatch.includes(r.status))
+		return { ok: true, out: "" };
+	/* One line: every caller logs `why` inside a one-line record, and git's
+	 * stderr can run to several (#2527). */
+	const why =
+		String(r.stderr || "")
+			.trim()
+			.replace(/\s*\n\s*/g, "; ") || `git exited ${r.status}`;
+	return { ok: false, why };
+}
+
+/**
+ * @param {string} [cwd]
+ * @param {number} [timeout]
+ * @returns {GitReader}
+ */
+const gitReader = (cwd, timeout) => (args, noMatch) =>
+	gitOutcome(args, noMatch, cwd, timeout);
 
 /**
  * execFile on git, promisified: resolves `{ stdout, stderr }` as strings,
@@ -193,6 +241,8 @@ module.exports = {
 	gitCommonDir,
 	gitCommonDirOrThrow,
 	spawnGitSync,
+	gitOutcome,
+	gitReader,
 	execGitAsync,
 	HOOK_GIT_TIMEOUT_MS,
 	GIT_TIMEOUT_MS,

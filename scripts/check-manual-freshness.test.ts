@@ -421,3 +421,19 @@ describe("check-manual-freshness — cited paths", () => {
 		expect(r.out).toMatch(/needs a string "token" and "reason"/);
 	});
 });
+
+describe("check-manual-freshness — a git that will not answer (#3068)", () => {
+	it("is BROKEN, never a stamp that fails to resolve", () => {
+		write("**Corrections since last sync:** none.");
+		const exitsOne = path.join(repo, "git");
+		fs.writeFileSync(exitsOne, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+		const r = spawnSync("node", [SCRIPT, MANUAL, ROADMAP], {
+			cwd: repo,
+			encoding: "utf8",
+			env: { ...process.env, WFC_GIT: exitsOne },
+		});
+		expect(r.status).toBe(2);
+		expect(`${r.stdout}${r.stderr}`).toMatch(/would not resolve/);
+		expect(`${r.stdout}${r.stderr}`).not.toMatch(/does not resolve/);
+	});
+});

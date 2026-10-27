@@ -253,7 +253,7 @@ function pruneWorktreeRegistrations(
  * canonical checkout has and the worktree lacks.
  *
  * `--detach`, never a branch: `docs/agents/guard-registry.md` §Conventions and
- * `scripts/guard-branch.js` both require it, and a throwaway tree has no use
+ * the guard-branch core of `scripts/guard-dispatch.js` both require it, and a throwaway tree has no use
  * for a ref of its own.
  *
  * Given a `tree`, the worktree holds that tree, in its index and on disk,

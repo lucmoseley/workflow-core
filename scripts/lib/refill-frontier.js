@@ -15,7 +15,9 @@
  * its shortlist read too, and only the pulled-in issues kept, so whatever
  * holds a ticket there (a claim, a gate, a dispatch) still holds it; a served
  * one already ranks the row, and gains the reach. Either way a row's reach
- * counts the served issues it holds out, never its own repo's. A pulled-in
+ * counts the served issues it holds out, never its own repo's. It inherits
+ * the `bug`, `urgent` and goal tiers of what it holds there, and the longest
+ * chain depth (#3222). A pulled-in
  * issue whose repo has no checkout here, or sets `refillLoop: false`, is
  * returned under `held`, never launched.
  *
@@ -24,7 +26,7 @@
 
 const path = require("node:path");
 const { readLastLaunchAt } = require("./dispatch-ledger.js");
-const { mergeFrontiers } = require("./frontier-order.js");
+const { joinInherited, mergeFrontiers } = require("./frontier-order.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { runGrouped } = require("./grouped-child.js");
@@ -50,6 +52,10 @@ const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
  * @property {string} repo
  * @property {number} number
  * @property {number} reach
+ * @property {boolean} bug inherited from what it holds out
+ * @property {boolean} urgent
+ * @property {boolean} goal
+ * @property {number} depth
  * @property {string[]} holds the served issues it holds out, `owner/name#n`
  * @property {string|null} root the checkout it launches from
  * @property {string|null} held why it is held outside the loop
@@ -129,8 +135,9 @@ function parseFailureLine(stderr) {
 }
 
 /**
- * Every served shortlist's pulled-in rows, one per issue: its reach summed and
- * what it holds named across every served repo that pulled it in.
+ * Every served shortlist's pulled-in rows, one per issue: its reach summed,
+ * its tiers joined, its deepest chain kept, and what it holds named across
+ * every served repo that pulled it in.
  * @param {Shortlist[]} served
  */
 function pulledAcross(served) {
@@ -138,13 +145,27 @@ function pulledAcross(served) {
 	const pulled = new Map();
 	for (const p of served.flatMap((s) => s.pulledIn)) {
 		const key = refKey(p);
-		const seen = pulled.get(key) ?? { ...p, reach: 0, holds: [] };
-		seen.reach += p.reach;
-		seen.holds.push(...p.holds);
-		pulled.set(key, seen);
+		const seen = pulled.get(key);
+		pulled.set(
+			key,
+			seen ? { ...withPulled(seen, p), holds: [...seen.holds, ...p.holds] } : p,
+		);
 	}
 	return [...pulled.values()];
 }
+
+/**
+ * `row` with what pulled it in added: reach summed, tiers joined, the deeper
+ * chain kept.
+ * @template {import("./frontier-order.js").Inherited & {reach: number}} R
+ * @param {R} row
+ * @param {PulledRow} p
+ * @returns {R}
+ */
+const withPulled = (row, p) => ({
+	...joinInherited(row, p),
+	reach: row.reach + p.reach,
+});
 
 /**
  * @param {string[]} roots
@@ -190,15 +211,15 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 			})),
 		),
 	];
-	/** @type {Map<string, Map<number, number>>} root -> number -> pulled reach */
-	const reachByRoot = new Map();
+	/** @type {Map<string, Map<number, PulledRow>>} root -> number -> its pull */
+	const pulledByRoot = new Map();
 	for (const p of pulled) {
 		if (p.held || !p.root) continue;
-		const of = reachByRoot.get(p.root) ?? new Map();
-		of.set(p.number, p.reach);
-		reachByRoot.set(p.root, of);
+		const of = pulledByRoot.get(p.root) ?? new Map();
+		of.set(p.number, p);
+		pulledByRoot.set(p.root, of);
 	}
-	const foreign = [...reachByRoot.keys()].filter((r) => !roots.includes(r));
+	const foreign = [...pulledByRoot.keys()].filter((r) => !roots.includes(r));
 	for (const { root, result } of await read(foreign, () => []))
 		if ("error" in result) failed.push({ root, error: result.error });
 		else
@@ -206,9 +227,11 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 				root,
 				result: {
 					...result,
+					// Its reach and depth count chains in a repo this scope does not
+					// serve, so only what pulled it in ranks it; its own labels stand.
 					rows: result.rows
-						.filter((r) => reachByRoot.get(root)?.has(r.number))
-						.map((r) => ({ ...r, reach: 0 })),
+						.filter((r) => pulledByRoot.get(root)?.has(r.number))
+						.map((r) => ({ ...r, reach: 0, depth: 0 })),
 					retroBundles: [],
 				},
 			});
@@ -217,10 +240,10 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 	const merged = served.map(({ root, result }) => ({
 		root,
 		lastLaunchAt: readLastLaunchAt(root),
-		rows: result.rows.map((r) => ({
-			...r,
-			reach: r.reach + (reachByRoot.get(root)?.get(r.number) ?? 0),
-		})),
+		rows: result.rows.map((r) => {
+			const p = pulledByRoot.get(root)?.get(r.number);
+			return p ? withPulled(r, p) : r;
+		}),
 		retroBundles: result.retroBundles,
 	}));
 	return { failed, held, ...mergeFrontiers(merged) };

@@ -26,8 +26,10 @@ describe("guard and lib messages", () => {
 	 * which rewriteRuleCommands spells at the plugin root before printing; and
 	 * the arbiter commands stale-script and claim-warning print, and the
 	 * bg-run.sh and watcher commands suite-background, agent-poll and
-	 * wait-text say, which ctx.corePaths spells there. */
+	 * wait-text say, and the issue-body fallback lead deny passes through,
+	 * which ctx.corePaths spells there. */
 	const exempt = [
+		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
 		/: "node scripts\/check-ci-status\.js";$/,
 		/push_check: pushCheck \?\? "node scripts\/push-check\.js",$/,

@@ -2275,5 +2275,17 @@
 				"scanned": false
 			}
 		]
+	},
+	"load-ceiling": {
+		"needles": [
+			{
+				"needle": "48 here",
+				"scanned": true
+			},
+			{
+				"needle": "48 on this machine",
+				"scanned": true
+			}
+		]
 	}
 }

@@ -591,5 +591,4 @@ module.exports = {
 	runsLintStaged,
 	classifyCheckStaged,
 	BIOME_STAGED_COMMAND,
-	main,
 };

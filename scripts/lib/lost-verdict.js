@@ -30,7 +30,7 @@ const { literal, unwrap } = require("./shell-words.js");
  * @property {() => number} now epoch ms
  * @property {import("./suite-launch.js").LaunchPorts["runners"]} runners
  * @property {import("./suite-launch.js").LaunchPorts["isWrapperScript"]} isWrapperScript
- * @typedef {import("./guard-entry.js").KitContext & VerdictPorts} VerdictContext
+ * @typedef {import("./kit-context.js").KitContext & VerdictPorts} VerdictContext
  */
 
 /* vitest's two summary lines, as it prints them to a pipe. */

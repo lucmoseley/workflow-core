@@ -2,7 +2,9 @@
 /*
  * Pins that every anchored rule region is a fragment on disk byte for byte with
  * a trigger, that `--check` refuses a source edit left unrendered or a malformed
- * anchor pair, and that an absent source is skipped aloud.
+ * anchor pair, that an absent source is skipped aloud, and that
+ * `.husky/pre-commit` arms `--check` on the generator's own `--sources` list,
+ * refusing a commit when that list cannot be read (#3118).
  *
  * generate-rule-fragments.js renders docs/agents/rules/<id>.txt from an anchor
  * pair in the document that authors the rule (mantahostels#2493, spec mantahostels#2457 §T2).
@@ -19,7 +21,12 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+	cutGateScript,
+	registerTempCleanup,
+	stagedRepo,
+} from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -174,6 +181,105 @@ describe("the source list", () => {
 		expect(sources.length).toBeGreaterThan(0);
 		for (const s of sources)
 			expect(fs.existsSync(path.join(ROOT, s))).toBe(true);
+	});
+});
+
+describe("the pre-commit gate's arming (#3118)", () => {
+	const temps = registerTempCleanup(afterEach);
+
+	/** The gate, cut from the real hook, run over `cwd` as the host repo. */
+	const runGate = (cwd: string, plugin = ROOT) =>
+		spawnSync(
+			"sh",
+			[
+				"-c",
+				`{ ${cutGateScript("generate-rule-fragments.js --check")}\n} 2>&1`,
+			],
+			{
+				cwd,
+				env: {
+					...process.env,
+					WFC_PLUGIN_ROOT: plugin,
+					CLAUDE_PROJECT_DIR: cwd,
+				},
+				encoding: "utf8",
+			},
+		);
+
+	/** Every source and the committed store, as the core holds them. */
+	const committed = () =>
+		Object.fromEntries(
+			[
+				...sourcesSkipped(),
+				...fs
+					.readdirSync(path.join(ROOT, STORE))
+					.map((f) => path.join(STORE, f)),
+			].map((rel) => [rel, fs.readFileSync(path.join(ROOT, rel), "utf8")]),
+		);
+
+	it("--sources lists every document the generator scans", () => {
+		const r = runOver(ROOT, ["--sources"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout.trimEnd().split("\n")).toEqual(sourcesSkipped());
+	});
+
+	it.each(sourcesSkipped())(
+		"refuses a commit editing an anchored region of %s left unrendered",
+		(source) => {
+			const seed = committed();
+			const edited = seed[source].replace(
+				/(<!-- rule:[^:]+:begin -->\n)/,
+				"$1An edit inside the anchors.\n",
+			);
+			expect(edited).not.toBe(seed[source]);
+			const { root } = stagedRepo("rule-frag-gate-", temps, seed, {
+				[source]: edited,
+			});
+			const r = runGate(root);
+			expect(r.stdout).toMatch(/out of step with their anchored source/);
+			expect(r.status).toBe(1);
+		},
+	);
+
+	it("refuses --check and --sources together as a usage error", () => {
+		const r = runOver(ROOT, ["--check", "--sources"]);
+		expect(r.stderr).toMatch(/exclusive/);
+		expect(r.status).toBe(2);
+	});
+
+	it("refuses the commit when the generator cannot list its sources", () => {
+		const broken = fs.mkdtempSync(path.join(os.tmpdir(), "rule-frag-plugin-"));
+		temps.push(broken);
+		fs.mkdirSync(path.join(broken, "scripts"));
+		fs.writeFileSync(
+			path.join(broken, "scripts", "generate-rule-fragments.js"),
+			"process.exit(3);\n",
+		);
+		const { root } = stagedRepo(
+			"rule-frag-gate-",
+			temps,
+			{},
+			{
+				"docs/other.md": "unrelated\n",
+			},
+		);
+		const r = runGate(root, broken);
+		expect(r.stdout).toMatch(/could not list its sources/);
+		expect(r.status).toBe(1);
+	});
+
+	it("stays unarmed on a commit touching no source and no fragment", () => {
+		const { root } = stagedRepo(
+			"rule-frag-gate-",
+			temps,
+			{},
+			{
+				"docs/other.md": "unrelated\n",
+			},
+		);
+		const r = runGate(root);
+		expect(r.stdout).toBe("");
+		expect(r.status).toBe(0);
 	});
 });
 

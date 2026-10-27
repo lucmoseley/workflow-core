@@ -41,6 +41,12 @@ const JS_COMMENT_LINE = /^\s*(\/\/|\/?\*)/;
 const JS_TS_FILE = /\.[cm]?[jt]sx?$/;
 const HASH_COMMENT_LINE = /^\s*#/;
 const BARE_CITATION = /(?<![\w$&{#])#(\d+)(?!\w)/g;
+/**
+ * BARE_CITATION of `#n` alone, spelt as git's ERE for `git log -E --grep`, so
+ * `mantahostels#n` is another tracker's.
+ * @param {number} n
+ */
+const bareCitationGrep = (n) => `(^|[^[:alnum:]_$&{#])#${n}([^[:alnum:]_]|$)`;
 const QUOTE_OPEN = /"""|[`"“]/g;
 const TRIPLE_QUOTE = /"""|'''/g;
 const FENCE = /^\s*(```|~~~)/;
@@ -307,6 +313,7 @@ if (require.main === module) {
 
 module.exports = {
 	BARE_CITATION_OK,
+	bareCitationGrep,
 	CITATION_CEILING,
 	buildCitableLineTest,
 	JS_COMMENT_LINE,

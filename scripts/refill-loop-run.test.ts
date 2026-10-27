@@ -8,16 +8,13 @@
  * children stubbed beside it: admission, the allowance cap, the reap, the
  * shortlist, the gate check and the dispatcher are all found from the
  * program's own directory. The cwd-outside-every-checkout cases run the real
- * allowance.js, as only it reads the host's cost table (#2937). The copy is no git checkout, so run() adopts no
- * newer code, and the morning review's root is the sandbox, with no config,
- * so no tick files a review on a real tracker.
+ * allowance.js, as only it reads the host's cost table (#2937). The copy is
+ * no git checkout, so run() adopts no newer code, and the morning review's
+ * root is the sandbox, with no config, so no tick files a review on a real
+ * tracker.
  *
- * Loosen it and a frozen control reader handed to settleTick, or a run()
- * that keeps ticking past a stop, passes unseen; or an API-error resume that
- * skips the live session, never falls back, or trusts the launcher's exit;
- * or a resumed-idle session stopped off an unread listing, or never handed
- * on; or a stopped park whose cause never reaches its ticket; or a park any
- * cause's row in lib/block-act.js acts on wrongly (#2851).
+ * Loosen it and a fault in the program's own wiring, of its libs, children
+ * and exits, passes unseen (#2851).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -44,6 +41,7 @@ import {
 	ledgerPath,
 	readRecentEntries,
 } from "./lib/dispatch-ledger.js";
+import { buildMeminfo } from "./lib/meminfo-fake";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { readProgramLibs } from "./lib-closure-fixture";
 
@@ -66,6 +64,31 @@ let repo: string;
 let seat: string;
 
 const at = (name: string) => path.join(dir, name);
+/* Swap under a quarter free and MemAvailable under the hold's line (#2690),
+ * or neither. */
+const MEMINFO_HOLD = buildMeminfo({
+	availableMb: 1024,
+	swapTotalMb: 2048,
+	swapFreeMb: 256,
+});
+const MEMINFO_NO_HOLD = buildMeminfo({
+	availableMb: 8192,
+	swapTotalMb: 2048,
+	swapFreeMb: 2048,
+});
+
+const loopEnv = (over: NodeJS.ProcessEnv): NodeJS.ProcessEnv => ({
+	...process.env,
+	WFC_REFILL_DIR: dir,
+	WFC_MEMINFO: at("meminfo"),
+	CLAUDE_PROJECT_DIR: dir,
+	HOME: dir,
+	CLAUDE_CONFIG_DIR: seat,
+	WFC_CLAUDE_BIN: at("claude"),
+	WFC_PRESENCE_MARKER: at("no-presence"),
+	GITHUB_ACTIONS: "",
+	...over,
+});
 
 const readLines = (file: string) =>
 	fs.existsSync(file)
@@ -78,6 +101,8 @@ const stub = (name: string, body: string) =>
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-loop-run-"));
+	/* The swap hold off, so no run reads the machine's own memory (#3093). */
+	fs.writeFileSync(at("meminfo"), MEMINFO_NO_HOLD);
 	scripts = at("code/scripts");
 	fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
 	for (const f of [
@@ -180,17 +205,7 @@ afterEach(() => {
 const run = (slots: number) =>
 	runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
 		cwd: dir,
-		env: {
-			...process.env,
-			WFC_REFILL_DIR: dir,
-			CLAUDE_PROJECT_DIR: dir,
-			HOME: dir,
-			CLAUDE_CONFIG_DIR: seat,
-			WFC_CLAUDE_BIN: at("claude"),
-			WFC_PRESENCE_MARKER: at("no-presence"),
-			GITHUB_ACTIONS: "",
-			FAKE_SLOTS: String(slots),
-		},
+		env: loopEnv({ FAKE_SLOTS: String(slots) }),
 	});
 
 /* A guess: some 30 times a case's 0.7 s run, and well inside the loop's
@@ -337,18 +352,10 @@ describe("a dry run with overflow seats (#2611)", () => {
 			["dry-run"],
 			{
 				cwd: dir,
-				env: {
-					...process.env,
-					WFC_REFILL_DIR: dir,
-					CLAUDE_PROJECT_DIR: dir,
-					HOME: dir,
-					CLAUDE_CONFIG_DIR: seat,
-					WFC_CLAUDE_BIN: at("claude"),
-					WFC_PRESENCE_MARKER: at("no-presence"),
+				env: loopEnv({
 					WFC_SESSION_COST_TABLE: at("cost-table.json"),
-					GITHUB_ACTIONS: "",
 					FAKE_SLOTS: "1",
-				},
+				}),
 			},
 		);
 	};
@@ -480,18 +487,7 @@ describe("a parked launch (#2699)", () => {
 			["run"],
 			{
 				cwd: dir,
-				env: {
-					...process.env,
-					WFC_REFILL_DIR: dir,
-					CLAUDE_PROJECT_DIR: dir,
-					HOME: dir,
-					CLAUDE_CONFIG_DIR: seat,
-					WFC_CLAUDE_BIN: at("claude"),
-					WFC_GH: at("gh"),
-					WFC_PRESENCE_MARKER: at("no-presence"),
-					GITHUB_ACTIONS: "",
-					FAKE_SLOTS: "0",
-				},
+				env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
 			},
 		);
 		await ticked(1);
@@ -716,18 +712,7 @@ const oneTick = async (what: string) => {
 		["run"],
 		{
 			cwd: dir,
-			env: {
-				...process.env,
-				WFC_REFILL_DIR: dir,
-				CLAUDE_PROJECT_DIR: dir,
-				HOME: dir,
-				CLAUDE_CONFIG_DIR: seat,
-				WFC_CLAUDE_BIN: at("claude"),
-				WFC_GH: at("gh"),
-				WFC_PRESENCE_MARKER: at("no-presence"),
-				GITHUB_ACTIONS: "",
-				FAKE_SLOTS: "0",
-			},
+			env: loopEnv({ WFC_GH: at("gh"), FAKE_SLOTS: "0" }),
 		},
 	);
 	await ticked(1);
@@ -1125,6 +1110,50 @@ process.exit(${handOffExit});\n`,
 		]);
 	});
 
+	it("stops and holds the restarted session under the swap hold instead of typing into it (#3093)", async () => {
+		seed(1);
+		fs.writeFileSync(at("meminfo"), MEMINFO_HOLD);
+		fakeResumeClaude(Job, [LISTED, workingRow]);
+		const r = await oneTick(IdleRun);
+		expect(r.status).toBe(0);
+		/* Every call a stop, never a typed resume: the stub's listing still
+		 * shows the job working after it, so a second tick may stop it again. */
+		const calls = readLines(at("calls"));
+		expect(calls.length).toBeGreaterThan(0);
+		expect(new Set(calls)).toEqual(new Set([`stop ${Job}`]));
+		expect(launchState().swapHeld).toEqual({
+			at: expect.any(Number),
+			sessionId: "s-job7",
+			cwd: repo,
+			tries: 0,
+		});
+		expect(r.stdout).toMatch(
+			/stopped repo \/implement 7, restarted by its host, under the swap hold \(swap is 256 of 2048 MB free and 1024 MB available\), until the hold clears/,
+		);
+	});
+
+	it("resumes a session held under the swap hold on the first tick after it clears (#3093)", async () => {
+		/* The program's own round trip: `swapHeld` read back from its state
+		 * file, and its stored target through the real resume call. */
+		seed(30);
+		const state = JSON.parse(
+			fs.readFileSync(at(".refill-loop-state.json"), "utf8"),
+		);
+		state.launches[0].swapHeld = {
+			at: Date.now() - 10 * Min,
+			sessionId: "s-job7",
+			cwd: repo,
+			tries: 0,
+		};
+		fs.writeFileSync(at(".refill-loop-state.json"), JSON.stringify(state));
+		fakeResumeClaude(Job, [LISTED]);
+		const r = await oneTick(IdleRun);
+		expect(r.status).toBe(0);
+		expect(readLines(at("calls"))).toEqual([`--bg --resume s-job7 ${Prompt}`]);
+		expect(launchState()).not.toHaveProperty("swapHeld");
+		expect(launchState()).toMatchObject({ finishedAt: null, jobId: FAKE_COPY });
+	});
+
 	it("ages the row by the main chain, a subagent's later entry aside", async () => {
 		seed(6);
 		fs.appendFileSync(
@@ -1351,16 +1380,7 @@ describe("a daemon whose cwd is outside every checkout (#2937)", () => {
 	};
 
 	const dryRun = () => {
-		const env: NodeJS.ProcessEnv = {
-			...process.env,
-			WFC_REFILL_DIR: dir,
-			HOME: dir,
-			CLAUDE_CONFIG_DIR: seat,
-			WFC_CLAUDE_BIN: at("claude"),
-			WFC_PRESENCE_MARKER: at("no-presence"),
-			GITHUB_ACTIONS: "",
-			FAKE_SLOTS: "1",
-		};
+		const env = loopEnv({ FAKE_SLOTS: "1" });
 		delete env.CLAUDE_PROJECT_DIR;
 		delete env.WFC_REPO_ROOT;
 		delete env.WFC_SESSION_COST_TABLE;

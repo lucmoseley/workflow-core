@@ -6,7 +6,7 @@ Researched: 2026-10-21
 
 - All events give these common fields on stdin as JSON: `session_id`, `transcript_path`, `cwd`, `permission_mode` (`"default"`, `"plan"`, `"acceptEdits"`, `"auto"`, `"dontAsk"` or `"bypassPermissions"`) and `hook_event_name`. code.claude.com/docs/en/hooks §Common input fields [standard or field body]
 - `PreToolUse` adds `tool_name`, `tool_input` and `tool_use_id`. For `Write`, `tool_input` has `file_path` (absolute path) and `content`. code.claude.com/docs/en/hooks §PreToolUse input [standard or field body]
-- For `Write`, `Edit` and `Read`, `tool_input.file_path` is always absolute. Claude Code expands `~` and relative paths before the hook runs. On Windows the path has backslashes; the docs tell you to normalise with `FILE_PATH="${FILE_PATH//\\//}"` and to match a path segment, not to anchor with `^`. code.claude.com/docs/en/hooks §PreToolUse input [standard or field body]
+- For `Write`, `Edit` and `Read`, `tool_input.file_path` is always absolute. Claude Code expands `~` and relative paths before the hook runs. code.claude.com/docs/en/hooks §PreToolUse input [standard or field body]
 
 ## Claude Code hooks: exit codes
 
@@ -51,7 +51,6 @@ Researched: 2026-10-21
 - Google recommends ShellCheck: "It is recommended for all scripts, large or small." google.github.io/styleguide/shellguide.html §ShellCheck [named expert]
 - Declare and assign in two statements when the value comes from a command substitution, because `local var=$(cmd)` gives the status of `local`, not of `cmd`. Three sources agree: ShellCheck SC2155 ("Declare and assign separately to avoid masking return values", shellcheck.net/wiki/SC2155); Google §Use Local Variables; Wooledge BashPitfalls #27 [named expert]
 - Use `printf '%s\n' "$var"`, not `echo $var`, for data you do not control; use `IFS= read -r`; use `--` before a path that can start with `-`. mywiki.wooledge.org/BashPitfalls #14, #12, #3 [named expert]
-- To change a file, write a temp file and then `mv` it into place; do not read and write the same file in one pipeline. mywiki.wooledge.org/BashPitfalls #13 [named expert]
 
 ## Bash robustness: errexit, nounset, pipefail
 
@@ -79,7 +78,7 @@ Researched: 2026-10-21
 - A test-then-create (`[ -e f ] || : > f`) has "a time window between checking and creating the file, during which other programs may act". Use one atomic operation. mywiki.wooledge.org/BashFAQ/045 [named expert]
 - `open(2)` with `O_CREAT|O_EXCL` fails with `EEXIST` if the path exists, and does not follow a symlink at the path. On NFS, `O_EXCL` needs NFSv3 or later; without it, locking that relies on it has a race. man7.org/linux/man-pages/man2/open.2.html §O_EXCL [standard or field body]
 - Bash `set -C` (noclobber): "Prevent output redirection using '>', '>&', and '<>' from overwriting existing files." `>|` overrides it. gnu.org/software/bash/manual §The Set Builtin [standard or field body]
-- Bash 5.2.21 on this machine opens the file with `O_WRONLY|O_CREAT|O_EXCL` under `set -C` (`strace -e trace=openat bash -c 'set -C; : > latch'` gives `openat(AT_FDCWD, "latch", O_WRONLY|O_CREAT|O_EXCL, 0666) = 3`), and a second run fails with "cannot overwrite existing file". Thus `if ( set -C; : > "$latch" ) 2>/dev/null; then <inject>; fi` is an atomic once-only test. Measurement, rerunnable (2026-10-21), resting on the `open(2)` and Bash manual rows above [standard or field body]
+- Bash 5.2.21 on this machine opens the file with `O_WRONLY|O_CREAT|O_EXCL` under `set -C` (`strace -e trace=openat bash -c 'set -C; : > latch'`). Thus `if ( set -C; : > "$latch" ) 2>/dev/null; then <inject>; fi` is an atomic once-only test. Measurement, rerunnable (2026-10-21), resting on the `open(2)` and Bash manual rows above [standard or field body]
 - Wooledge gives `mkdir` as the portable atomic check-and-create ("ensured at the operating system kernel level"), and lists `set -C` as an alternative with a caveat that ksh88 does not use `O_EXCL`. `flock` is the tool for a lock held for a time, not for a once-only marker. mywiki.wooledge.org/BashFAQ/045 [named expert]
 
 ## State files: temp files and atomic writes
@@ -108,7 +107,3 @@ Researched: 2026-10-21
 - Git exports `GIT_DIR`, `GIT_WORK_TREE` and other variables to a hook. A hook that runs git in a different repo or worktree must clear them, for example `unset $(git rev-parse --local-env-vars)`. git-scm.com/docs/githooks §DESCRIPTION [standard or field body]
 - `pre-commit` and `commit-msg` abort the command on a non-zero exit, and `--no-verify` bypasses both. Thus a git hook is a convenience gate; CI must run the same check. `pre-push` reads lines `<local-ref> SP <local-object-name> SP <remote-ref> SP <remote-object-name> LF` on stdin. git-scm.com/docs/githooks §pre-commit, §commit-msg, §pre-push [standard or field body]
 - Managers, versions read 2026-10-26: husky v9.1.7 sets `core.hooksPath` and installs from the npm `prepare` script (typicode.github.io/husky); the pre-commit framework 4.7.0 pins each hook repo to an immutable `rev`, passes the staged file names, and stashes unstaged changes while it runs (pre-commit.com); lefthook v2.2.2 reads `lefthook.yml`, has `parallel: true` and a `{staged_files}` placeholder (lefthook.dev). [standard or field body]
-
-## Summary: leading tools and practices for the immediate task
-
-- Practice for a `PreToolUse` deny-plus-inject hook, derived from the rows above: read stdin once into a variable; parse each field with `jq -r '... // empty'`; quote each expansion; check each failure explicitly instead of `set -e`; print exactly one JSON object built by `jq -n --arg`; for a deny, prefer `permissionDecision: "deny"` with a reason (exit 0), or stderr plus exit 2; validate `session_id` against an anchored allowlist before it goes in a path; make the latch with one atomic create (`set -C` redirection or `mkdir`) in a private directory; test by spawning the script with fixture JSON on stdin and a state directory set to a fresh temp directory. A derivation, so it sets no default [unverified]

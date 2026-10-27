@@ -37,6 +37,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
 import { cutInReplay, cutShellFunction } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
@@ -1081,7 +1082,7 @@ describe("the second signal — dirty, but claimed by nobody", () => {
 
 /*
  * mantahostels#135. An empty list means "this session wrote nothing", which
- * guard-commit-form.js's attribution-aware warn (mantahostels#118) reads as *every staged
+ * the guard-commit-form core's attribution-aware warn (mantahostels#118) reads as *every staged
  * path is someone else's*. Returning it when the ledger could not be read hands
  * the session a list of its own files under the words "you never wrote these".
  */
@@ -2488,20 +2489,17 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			write(auditScript, "restored from a backup\n");
 			commit();
 
-			const binDir = path.join(sb.dir, "gitshim");
-			fs.mkdirSync(binDir, { recursive: true });
-			const realGit = execFileSync("sh", ["-c", "command -v git"], {
-				encoding: "utf8",
-			}).trim();
-			fs.writeFileSync(
-				path.join(binDir, "git"),
-				`#!/bin/sh\ncase " $* " in *" status "*) sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/' '${store.paths.lock(auditScript)}' ;; esac\nexec ${realGit} "$@"\n`,
+			const { git } = writeFaultyGit(
+				{ words: ["status"] },
+				{
+					script: `sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/' '${store.paths.lock(auditScript)}'`,
+				},
+				{ under: sb.dir },
 			);
-			fs.chmodSync(path.join(binDir, "git"), 0o755);
 
 			const r = cli(["release", inRepo(auditScript)], {
 				CLAUDE_CODE_SESSION_ID: "alice",
-				WFC_GIT: path.join(binDir, "git"),
+				WFC_GIT: git,
 			});
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain("changed while releasing it");
@@ -2837,21 +2835,18 @@ describe("release --force, the escape for a stranded claim (mantahostels#411)", 
 		fakeClaude(["bob"]);
 		fs.writeFileSync(inRepo(rel), "restored from a backup\n");
 		commitAll(sb, "clobber");
-		const binDir = path.join(sb.dir, "gitshim2");
-		fs.mkdirSync(binDir, { recursive: true });
-		const realGit = execFileSync("sh", ["-c", "command -v git"], {
-			encoding: "utf8",
-		}).trim();
-		fs.writeFileSync(
-			path.join(binDir, "git"),
-			`#!/bin/sh\ncase " $* " in *" status "*) sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/; s/("sessionId"[[:space:]]*:[[:space:]]*")[^"]*/\\1carol/' '${store.paths.lock(rel)}' ;; esac\nexec ${realGit} "$@"\n`,
+		const { git } = writeFaultyGit(
+			{ words: ["status"] },
+			{
+				script: `sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/; s/("sessionId"[[:space:]]*:[[:space:]]*")[^"]*/\\1carol/' '${store.paths.lock(rel)}'`,
+			},
+			{ under: sb.dir },
 		);
-		fs.chmodSync(path.join(binDir, "git"), 0o755);
 
 		const r = cli(["release", "--force", inRepo(rel)], {
 			CLAUDE_CODE_SESSION_ID: "bob",
 			WFC_CLAUDE_BIN: claudeBin(),
-			WFC_GIT: path.join(binDir, "git"),
+			WFC_GIT: git,
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("changed while releasing it");

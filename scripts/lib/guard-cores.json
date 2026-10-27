@@ -26,6 +26,13 @@
 			"host": "stale-script-host.js"
 		},
 		{
+			"name": "guard-scratch-git",
+			"core": "scratch-git.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "scratch-git-host.js"
+		},
+		{
 			"name": "guard-job-dir-scratch",
 			"core": "job-dir-scratch.js",
 			"tools": "Bash|Write|Edit|NotebookEdit",
@@ -126,6 +133,51 @@
 			"host": "branch-publish-host.js"
 		},
 		{
+			"name": "guard-branch",
+			"core": "branch-move.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "branch-move-host.js",
+			"if": ["Bash(git *)"]
+		},
+		{
+			"name": "guard-commit-form",
+			"core": "commit-form.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "commit-form-host.js",
+			"if": ["Bash(git *)", "Bash(*commit-paths.js*)"]
+		},
+		{
+			"name": "guard-anthropic-report",
+			"core": "anthropic-report.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "anthropic-report-host.js",
+			"if": ["Bash(*gh *)"]
+		},
+		{
+			"name": "guard-cpu-load",
+			"core": "cpu-load.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "cpu-load-host.js",
+			"if": [
+				"Bash(*yes*)",
+				"Bash(*stress*)",
+				"Bash(*done*)",
+				"Bash(*.sh*)",
+				"Bash(*sh -*)"
+			]
+		},
+		{
+			"name": "guard-check-sh",
+			"core": "check-sh-rules.js",
+			"tools": "Bash",
+			"failure": "open",
+			"if": ["Bash(*shellcheck *)", "Bash(*npm *)"]
+		},
+		{
 			"name": "guard-recursive-dot-read",
 			"core": "recursive-dot-read.js",
 			"tools": "Bash",
@@ -142,9 +194,10 @@
 		{
 			"name": "guard-agent-poll",
 			"core": "agent-poll.js",
-			"tools": "Read|ListAgents",
+			"tools": "Bash|Read|ListAgents",
 			"failure": "closed",
-			"host": "agent-poll-host.js"
+			"host": "agent-poll-host.js",
+			"if": ["Bash(*sleep *)", "Bash(true*)", "Bash(:*)", "Bash(exit*)"]
 		},
 		{
 			"name": "guard-echo-call",

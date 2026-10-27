@@ -32,6 +32,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { execGit } = require("./git.js");
+const { readCommittedFile } = require("./git-objects.js");
 /* Re-exported rather than merely used, because callers and this file's own
  * suite already import it from here. */
 const { hostRoot } = require("./host-root.js");
@@ -434,44 +435,22 @@ function parseConfigFile(file) {
 }
 
 /**
- * The text of repo-relative `file` as committed at `rev` in `root`'s
- * repository; null where that commit holds no such path. Throws where `rev`
- * names no commit (an unborn HEAD included) or where the path holds no file.
- * @param {string} root
- * @param {string} rev
- * @param {string} file
- * @param {string} [label] what a throw names
- * @returns {string|null}
- */
-function readBlobAt(root, rev, file, label = `${file} at ${rev}`) {
-	const git = (/** @type {string[]} */ args) => {
-		try {
-			return execGit(["-C", root, ...args], {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-		} catch (err) {
-			throw configError(label, "cannot be read", err);
-		}
-	};
-	const entry = git(["ls-tree", "-z", rev, "--", file]);
-	if (entry === "") return null;
-	const oid = /^\S+ blob (\S+)\t/.exec(entry)?.[1];
-	if (oid === undefined) throw new Error(`${label} is not a file`);
-	return git(["cat-file", "blob", oid]);
-}
-
-/**
  * The config's top-level object as committed at `rev` in `root`'s repository;
- * empty where that commit holds no config. Throws as readBlobAt does, or where
- * the blob does not parse to an object.
+ * empty where that commit holds no config. Throws where `rev` names no commit
+ * (an unborn HEAD included), where git cannot read the path or it holds no
+ * file, or where the blob does not parse to an object.
  * @param {string} root
  * @param {string} rev
  * @param {string} file the label a throw names
  * @returns {Record<string, unknown>}
  */
 function parseConfigBlob(root, rev, file) {
-	const text = readBlobAt(root, rev, CONFIG_PATH, file);
+	let text;
+	try {
+		text = readCommittedFile(rev, CONFIG_PATH, { cwd: root });
+	} catch (err) {
+		throw configError(file, "cannot be read", err);
+	}
 	return text === null ? {} : parseConfigText(text, file);
 }
 
@@ -1528,7 +1507,6 @@ if (require.main === module) {
 module.exports = {
 	hostRoot,
 	readConfig,
-	readBlobAt,
 	resolveKey,
 	resolveCorpus,
 	requireKey,

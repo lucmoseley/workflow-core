@@ -97,6 +97,11 @@ const ALLOWED = {
 		reason:
 			"a suite harness reading THIS checkout's .husky/pre-commit to compare it against the checkers it calls — the subject is the core's own hook, not a host's",
 	},
+	"scripts/install-hooks.js": {
+		tags: ["SECOND-SEAM-JS"],
+		reason:
+			"writes the shell line husky's shim runs inside each git hook, whose subject is the tree git runs the hook in — CLAUDE_PROJECT_DIR there names the shared checkout, the very copy the hook does not run (#3138)",
+	},
 	"scripts/proving-run.ts": {
 		tags: ["SELF-ROOTED-JS", "SECOND-SEAM-JS"],
 		reason: "a measurement harness whose subject is this checkout",
@@ -191,10 +196,8 @@ const ALLOWED = {
 		reason:
 			"buildHookRootBlock reads the adopter's own .husky/ hooks at `root` to check the plugin root they name (#1168) — the host's hooks are the subject, not a core file read through the host",
 	},
-	"scripts/check-git-fixture-identity.js": CWD_SUITE_CHECKER,
 	"scripts/check-suite-size-drift.js": CWD_SUITE_CHECKER,
-	"scripts/check-guard-test-isolation.js": CWD_SUITE_CHECKER,
-	"scripts/check-host-root-test-isolation.js": CWD_SUITE_CHECKER,
+	"scripts/lib/tracked-scripts.js": CWD_SUITE_CHECKER,
 };
 
 /*

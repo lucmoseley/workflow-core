@@ -51,7 +51,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const { execGit, spawnGitSync } = require("./lib/git.js");
+const { readCommit } = require("./lib/commit-sha.js");
+const { execGit, gitReader } = require("./lib/git.js");
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
 	readTrackerRemotes,
@@ -397,23 +398,15 @@ function gitOrNone(cwd, args) {
 }
 
 /**
- * `--quiet` exits 1 on a missing object alone, so a fault such as a path that
- * is no repo still throws.
+ * Whether `rev` names a commit in `repo`; a git that will not answer, a path
+ * that is no repo among them, throws.
  * @param {string} repo
  * @param {string} rev
  */
 function hasCommit(repo, rev) {
-	const r = spawnGitSync(
-		["rev-parse", "--verify", "--quiet", `${rev}^{commit}`],
-		{
-			cwd: repo,
-			encoding: "utf8",
-		},
-	);
-	if (r.status === 1) return false;
-	if (r.status !== 0)
-		throw new Error(`git rev-parse ${rev}: ${r.stderr.trim()}`);
-	return true;
+	const r = readCommit(gitReader(repo), rev);
+	if (!r.ok) throw new Error(`git rev-parse ${rev}: ${r.why}`);
+	return r.sha !== null;
 }
 
 /**

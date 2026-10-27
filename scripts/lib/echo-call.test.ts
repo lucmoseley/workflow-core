@@ -12,7 +12,7 @@
  * lib/echo-chain.test.ts's. Each case gets its own TMPDIR, because that is
  * where the chain lives.
  *
- * Module cases call `decide` over the context lib/guard-entry.js's kitContext
+ * Module cases call `decide` over the context lib/kit-context.js's kitContext
  * builds, so a store or stat port can be swapped for a failing one. The
  * dispatcher row's own cases use lib/guard-core-testkit.ts; the hook
  * line's are scripts/guard-dispatch.test.ts's.
@@ -27,28 +27,22 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildHostPorts } from "./echo-call-host.js";
+import chain from "./echo-chain.js";
 import { runCore } from "./guard-core-testkit";
+import { resolveScriptPaths } from "./script-path.js";
 
-/* CommonJS, hence the require. */
+/* Required with casts, not imported (#3145): `kitContext` is handed empty
+ * readers its checked type refuses, and `decide`'s `CoreDecision` is narrowed
+ * to the deny this core returns. Residual: the cast's types are hand-written,
+ * so nothing checks them against the module. */
 const core = require("./echo-call.js") as {
 	decide: (
 		session: string,
 		ctx: Record<string, unknown>,
 	) => { deny: string } | null;
 };
-const { buildHostPorts } = require("./echo-call-host.js") as {
-	buildHostPorts: (
-		root: string,
-		log: (what: string) => void,
-	) => Record<string, unknown>;
-};
-const chain = require("./echo-chain.js") as {
-	signature: (tool: string, input: unknown, fileState: string | null) => string;
-};
-const { resolveScriptPaths } = require("./script-path.js") as {
-	resolveScriptPaths: (text: string) => string;
-};
-const { kitContext } = require("./guard-entry.js") as {
+const { kitContext } = require("./kit-context.js") as {
 	kitContext: (
 		env: {
 			root: string;

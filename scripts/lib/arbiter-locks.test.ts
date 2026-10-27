@@ -38,6 +38,9 @@ import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
 
+/** arbiter-locks.js's TORN_SETTLE_MS, which §G6 keeps unexported: change the two together. */
+const TORN_SETTLE_MS = 50;
+
 /** Put a lock on disk at `rel`, bypassing acquire. */
 const put = (rel: string, fields: object) => {
 	fs.mkdirSync(store.paths.locksDir(), { recursive: true });
@@ -533,7 +536,8 @@ describe("readLocks — a record that will not parse", () => {
 
 	// #852.
 	const ageOut = (name: string) => {
-		const past = (Date.now() - locksMod.DEBRIS_AGE_MS - 60_000) / 1000;
+		// A day: far past arbiter-locks.js's one-hour DEBRIS_AGE_MS.
+		const past = (Date.now() - 86_400_000) / 1000;
 		fs.utimesSync(path.join(store.paths.locksDir(), name), past, past);
 	};
 
@@ -605,9 +609,7 @@ describe("readLocks — a record that will not parse", () => {
 		const started = Date.now();
 		store.readLocks();
 		// §X9: the default settle is a real Atomics.wait, and this floor is its one proof.
-		expect(Date.now() - started).toBeGreaterThanOrEqual(
-			locksMod.TORN_SETTLE_MS - 10,
-		);
+		expect(Date.now() - started).toBeGreaterThanOrEqual(TORN_SETTLE_MS - 10);
 	});
 });
 
@@ -640,11 +642,19 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	});
 
 	it("restamps a lock renamed aside, so the sweep cannot take it mid-break", () => {
-		const lock = plant("deadbeefcafe0001.json", 3 * 60 * 60 * 1000);
-		const aside = locksMod.renameAside(lock);
-		expect(aside).not.toBeNull();
-		locksMod.sweepDebris();
-		expect(fs.existsSync(aside as string)).toBe(true);
+		// The judgement runs while the lock sits aside; a sweep landing then must
+		// not take a lock claimed hours ago.
+		const lockPath = put("docs/doc-map.md", { sessionId: "ghost", ...DEAD });
+		const t = new Date(Date.now() - 3 * 60 * 60 * 1000);
+		fs.utimesSync(lockPath, t, t);
+
+		const r = store.dropIfUnchanged("docs/doc-map.md", () => {
+			locksMod.sweepDebris();
+			return false;
+		});
+
+		expect(r).toMatchObject({ outcome: "kept", restored: true });
+		expect(fs.existsSync(lockPath)).toBe(true);
 	});
 
 	it("is actually run by acquire(), not merely available to it", () => {
@@ -777,18 +787,28 @@ describe("debris — what a process killed mid-break leaves behind", () => {
 	});
 
 	it("refuses to restore a lock over a path someone else has since taken, leaving the newer lock in place", () => {
-		// The break path moves a lock aside and puts it back if it turns out live.
-		// rename(2) would REPLACE whatever now sits at the path — deleting the live
-		// claim of a third session that took the file in between, and leaving two
-		// sessions holding it. The restore must fail instead of clobbering.
-		const lockPath = put("docs/doc-map.md", { sessionId: "first" });
-		const aside = locksMod.renameAside(lockPath);
-		put("docs/doc-map.md", { sessionId: "third" });
+		// The sweep puts a live aside back at its path. rename(2) would REPLACE
+		// whatever now sits there — deleting the live claim of a third session that
+		// took the file in between.
+		const lockPath = put("docs/doc-map.md", { sessionId: "third" });
+		const aside = `${lockPath}.stale-cafe05`;
+		fs.writeFileSync(
+			aside,
+			JSON.stringify(
+				locksMod.newLock({
+					path: "docs/doc-map.md",
+					sessionId: "first",
+					...liveHolder(),
+				}),
+			),
+		);
 
-		expect(locksMod.restoreAside(aside, lockPath)).toBe(false);
+		locksMod.sweepDebris();
+
 		expect(JSON.parse(fs.readFileSync(lockPath, "utf8")).sessionId).toBe(
 			"third",
 		);
+		expect(fs.existsSync(aside)).toBe(true); // a later sweep, or its holder's death
 	});
 
 	it("never touches a real lock, however old", () => {
@@ -884,6 +904,22 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		fs.existsSync(store.errorLog())
 			? fs.readFileSync(store.errorLog(), "utf8")
 			: "";
+	/**
+	 * Run `before` once, as the break renames the lock aside: acquire() cannot
+	 * arrange a change between its own rename and its re-read.
+	 */
+	const onBreakRename = (before: () => void) => {
+		const lockPath = store.paths.lock(rel);
+		const real = fs.renameSync;
+		let fired = false;
+		return vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+			if (!fired && from === lockPath) {
+				fired = true;
+				before();
+			}
+			real(from, to);
+		});
+	};
 	/** Comfortably inside the settle pause, and comfortably past acquire's first probe. */
 	const childDelayMs = 20;
 	/** The child is a bare `node -e`, so it reaches the shared pause by absolute path. */
@@ -1006,19 +1042,25 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			expect(core.readRecord(p)?.sessionId).toBe("mid-write");
 			// And the settle branch is what answered.
 			// §X9: two processes at once: the write lands from a real child mid-pause, so only the clock shows the settle branch answered.
-			expect(elapsed).toBeGreaterThanOrEqual(locksMod.TORN_SETTLE_MS);
+			expect(elapsed).toBeGreaterThanOrEqual(TORN_SETTLE_MS);
 		} finally {
 			child.kill();
 		}
 	});
 
 	it("puts back a record that turned readable between the judgement and the rename", () => {
-		// breakCorrupt reached directly: acquire() cannot arrange a change between
-		// its own rename and its re-read. A neighbour that broke the same corrupt
-		// lock first and took the path must not lose its claim to us.
-		const p = put(rel, { ...liveHolder(), claimId: "fresh" });
-
-		expect(locksMod.breakCorrupt(rel, durably("a"))).toBe("retry");
+		// The spy lands its good record on the break's own rename, after acquire()
+		// has judged the bytes corrupt.
+		const p = corrupt("{not json");
+		const good = JSON.stringify(
+			locksMod.newLock({ path: rel, ...liveHolder(), claimId: "fresh" }),
+		);
+		const rename = onBreakRename(() => fs.writeFileSync(p, good));
+		try {
+			expect(store.acquire(rel, durably("a")).verdict).toBe("held");
+		} finally {
+			rename.mockRestore();
+		}
 		expect(core.readRecord(p)?.claimId).toBe("fresh");
 		expect(readBreaks()).toEqual([]);
 	});
@@ -1031,11 +1073,13 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 			// directory: rename needs only the directory, so the aside is made and
 			// then cannot be read.
 			const p = corrupt("{not json");
-			fs.chmodSync(p, 0o000);
+			const rename = onBreakRename(() => fs.chmodSync(p, 0o000));
 			try {
-				expect(locksMod.breakCorrupt(rel, durably("a"))).toBe("retry");
+				// The restored lock is still sealed, so the next round cannot read it.
+				expect(store.acquire(rel, durably("a")).verdict).toBe("unknown");
 				expect(fs.existsSync(store.paths.lock(rel))).toBe(true);
 			} finally {
+				rename.mockRestore();
 				fs.chmodSync(store.paths.lock(rel), 0o600);
 			}
 			expect(fs.readFileSync(store.paths.lock(rel), "utf8")).toBe("{not json");

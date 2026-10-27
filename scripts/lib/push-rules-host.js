@@ -12,7 +12,7 @@ const { pushGateState } = require("./test-gate.js");
 const { readConfig } = require("./workflow-core-config.js");
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./push-rules.js").PushPorts}
  */
 function buildHostPorts({ root, payload, log }) {

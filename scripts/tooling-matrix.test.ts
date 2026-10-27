@@ -839,10 +839,12 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"checker-new-faults",
 			// Named in a refusal's message, never run.
 			"commit-paths",
-			"guard-branch",
-			"guard-commit-form",
 			"guard-hook-escape",
 			"inject-tracker-docs",
+			// Named in the hook's comments, never run.
+			"guard-dispatch",
+			"lib/commit-form",
+			"lib/clean-revert",
 			// Judges the settings snapshot, not code.
 			"check-user-settings-drift",
 			// Documents, the roadmap, the copy and the repo's own registers.

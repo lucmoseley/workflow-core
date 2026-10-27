@@ -209,7 +209,8 @@ POLL_LOG="${WFC_BG_POLL_LOG:-}"
 # Read only through clock_now.
 NOW="${WFC_BG_NOW:-}"
 # A test seam, unset in production (#2886): CLOCK_MONOTONIC in whole seconds,
-# pinned. Read only through mono_now.
+# pinned; a non-numeric value reads as a clock that will not read (#3160).
+# Read only through mono_now.
 MONO="${WFC_BG_MONO:-}"
 # How long cmd_run holds its publish for the watcher to start (#2110). 5 is a
 # guess: an unloaded start takes tens of milliseconds, and a run held this long
@@ -1139,7 +1140,7 @@ cmd_watch() {
   # WATCH_READY_S, `$tmp` is already published away and the touch fails, unread.
   : >"$ready" 2>/dev/null
   WFC_BG_KILL_LOG="$(kill_log_path)"
-  local watch_until
+  local watch_until mono_unread_logged=""
   clock_now
   watch_until=$((clock_s + WATCH_CEILING_S))
   while :; do
@@ -1167,13 +1168,31 @@ cmd_watch() {
     fi
     clock_now
     if read_deadline "$dir/deadline-$launched_for"; then
-      mono_now && [ "$mono_s" -ge "$((deadline_s + CEILING_GRACE_S))" ] &&
-        ceiling_kill "$dir" "$name" "$parent" "$launched_for"
+      if mono_now; then
+        [ "$mono_s" -ge "$((deadline_s + CEILING_GRACE_S))" ] &&
+          ceiling_kill "$dir" "$name" "$parent" "$launched_for"
+      else
+        [ -z "$POLL_LOG" ] || printf 'mono-unread\n' >>"$POLL_LOG"
+        [ -n "$mono_unread_logged" ] || note_mono_unread "$dir" "$launched_for"
+        mono_unread_logged=1
+      fi
     elif [ "$clock_s" -ge "$watch_until" ]; then
       exit 0
     fi
     sleep "$HEARTBEAT_S"
   done
+}
+
+# The once-a-run line a poll that cannot read the monotonic clock leaves in
+# run $1's output (#3160), pinned to the directory by token $2 as ceiling_kill
+# is. No wall-clock fallback: the deadline is on CLOCK_MONOTONIC. Residual: a
+# run whose clock never reads is left to its runner's own timer. The leading
+# newline ends any partial line the command left.
+note_mono_unread() {
+  cd "$1" 2>/dev/null || return 0
+  [ "$(cat token 2>/dev/null)" = "$2" ] &&
+    printf '\n%s\n' "bg-run: the monotonic clock would not read (#2886), so the suite ceiling's backstop skips each poll it fails on (#3160)" >>out
+  cd "$OLDPWD" 2>/dev/null || :
 }
 
 # Sets deadline_s and deadline_pgid from a runner's deadline file. Fails

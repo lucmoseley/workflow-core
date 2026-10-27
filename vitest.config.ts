@@ -1,7 +1,7 @@
 import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
-import { TEST_TIMEOUT_MS } from "./scripts/lib/test-ceiling";
+import { TEST_TIMEOUT_MS, WORKER_HEAP_MB } from "./scripts/lib/test-ceiling";
 
 export default defineConfig({
 	plugins: [react()],
@@ -78,13 +78,16 @@ export default defineConfig({
 		// W=5 has the lowest median (230 s); W=4's is 10.9% slower, outside the
 		// 3.4% tie band #2772's choice rule set. Replicates of one W spread up to
 		// 27%, so the bench ranks 5 above 3 and 6 more surely than above 4.
-		// Cores: 5 worker processes plus vitest's main process make 6, and one
-		// 1-2-file part-suite beside it adds 2-3: 9 at most on 8 cores.
-		// Memory: W stays inside the 9 workers docs/environment.md §6's ladder
-		// was measured over.
-		// scripts/lib/admission.js charges a whole suite at its
+		// Cores: 5 worker processes plus vitest's main process make 6. Any
+		// number of part-suites may run beside it, each adding up to 6, held
+		// by the memory rung rather than a count cap, and each yields the CPU by cpu-yield.js's YIELD_NICE (#2955).
+		// Memory: a lone W stays inside the 9 workers docs/environment.md §6's
+		// ladder was measured over.
+		// Admission charges a whole suite at lib/suite-bounded.js's
 		// WHOLE_SUITE_WORKERS, which lib/suite-bounded.test.ts holds equal.
 		maxWorkers: 5,
+		// Why the value: scripts/lib/test-ceiling.js.
+		execArgv: [`--max-old-space-size=${WORKER_HEAP_MB}`],
 		// `.claude/**` is named explicitly. Vitest 4's default include does reach
 		// dot-directories, but the roadmap-edit scripts that gate every roadmap
 		// edit live under `.claude/` — and biome.json already excludes that path,

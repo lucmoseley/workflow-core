@@ -10,9 +10,10 @@
  * the core (its `name` is what `disabled` lists and the error log names), the
  * module under scripts/lib that holds its `field`, `noun`, `decide` and any
  * `top` (the shape lib/guard-entry.js's `run` takes), the tools it judges as a matcher
- * regex, its failure policy, the module that gates it, if any, and the module
+ * regex, its failure policy, the module that gates it, if any, the module
  * whose `buildHostPorts(root, log)` builds the ports of its own, if any, built only
- * where the core runs.
+ * where the core runs, and any `if` clauses narrowing the Bash commands it
+ * judges, so a call none admits never loads its module (#3224).
  *
  * THE MERGE. Every enabled core runs; none stops the rest. The permission is
  * the strongest any core gave, PreToolUse's `deny` > `defer` > `ask` >
@@ -27,7 +28,8 @@
  * (lib/hook-envelope.js).
  *
  * FAILURE POLICY. A core's throw gets its row's `failure`: `open` allows,
- * logged; `closed` refuses. A store fault refuses whatever the policy
+ * logged; `closed` refuses, but for the repo not resolving, which allows,
+ * logged, as lib/refuse-on-throw.js's entries do. A store fault refuses whatever the policy
  * (mantahostels#1762). Anything else that throws here
  * crashes the entry, and the registration's `"onFailure": "block"` refuses the
  * call. There is no per-core time budget: a core does no I/O, and every
@@ -41,25 +43,29 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
+const { watchRepoFault } = require("./refuse-on-throw.js");
+const { gitOutcome, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { budgetMs, startEntryClock } = require("./hook-deadline.js");
-const { gitOutcome } = require("./citation-tracker.js");
 const { guardDisabled } = require("./workflow-core-config.js");
 const {
 	emit,
 	guardFile,
-	kitContext,
 	render,
-	sharedReaders,
 	subjectFor,
 	writeLatches,
 } = require("./guard-entry.js");
 const { logger, readPayload } = require("./entry-input.js");
+const { kitContext, sharedReaders } = require("./kit-context.js");
 const { hostRoot } = require("./host-root.js");
-const { corePath, dispatchRows, isCoreFor } = require("./guard-cores.js");
+const {
+	admits,
+	corePath,
+	dispatchRows,
+	isCoreFor,
+} = require("./guard-cores.js");
 
 /**
- * @typedef {import("./guard-entry.js").KitContext} KitContext
+ * @typedef {import("./kit-context.js").KitContext} KitContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {import("./guard-entry.js").Latch} Latch
  * @typedef {import("./workflow-core-config.js").Module} Module
@@ -75,7 +81,7 @@ const { corePath, dispatchRows, isCoreFor } = require("./guard-cores.js");
  *   context?: string, updatedInput?: Record<string, unknown> }} Part
  * @typedef {{
  *   root: string,
- *   git: import("./citation-tracker.js").GitReader,
+ *   git: import("./git.js").GitReader,
  *   readText: (rel: string) => string | null,
  *   repoRel: (file: string) => string | null,
  *   exists: (p: string) => boolean,
@@ -98,14 +104,20 @@ const PRECEDENCE = /** @type {const} */ (["deny", "defer", "ask", "allow"]);
 const JOIN = "\n\n";
 
 /**
+ * The cores of `event`'s rows that `keep` passes, each row filtered before its
+ * module is required, so a call loads only the cores that can fire on it
+ * (#3141).
  * @param {string} event
+ * @param {(row: CoreRow) => boolean} [keep]
  * @returns {Core[]}
  */
-function loadCores(event) {
-	return dispatchRows(event).map((row) => ({
-		...row,
-		...require(corePath(row.core)),
-	}));
+function loadCores(event, keep = () => true) {
+	return dispatchRows(event)
+		.filter(keep)
+		.map((row) => ({
+			...row,
+			...require(corePath(row.core)),
+		}));
 }
 
 /**
@@ -149,15 +161,15 @@ function merge(parts) {
  */
 function dispatch(cores, env) {
 	const { payload, adapters, disabled } = env;
-	const tool =
-		typeof payload.tool_name === "string" ? payload.tool_name : undefined;
+	const tool = toolOf(payload);
 	/** @type {Part[]} */
 	const parts = [];
 	/** @type {LatchSet[]} */
 	const latches = [];
 	let used = 0;
 	for (const core of cores) {
-		if (!isCoreFor(core, tool) || disabled(core.name)) continue;
+		if (!isCoreFor(core, tool) || !admits(core, payload)) continue;
+		if (disabled(core.name)) continue;
 		if (core.module && !adapters.moduleOn(core.module)) continue;
 		const spent = used;
 		const room = () => persistRoom(env.persistChars(), spent);
@@ -169,6 +181,13 @@ function dispatch(cores, env) {
 	}
 	return { output: merge(parts), latches };
 }
+
+/**
+ * @param {Record<string, unknown>} payload
+ * @returns {string | undefined}
+ */
+const toolOf = (payload) =>
+	typeof payload.tool_name === "string" ? payload.tool_name : undefined;
 
 /**
  * What the entry has left once `used` characters and a separator are spent.
@@ -203,17 +222,27 @@ function runCore(core, { payload, root, adapters, logFor }, room) {
 		return {};
 	}
 	let decision;
+	/** @type {{ ctx: CoreContext, isRepoFault: (e: unknown) => boolean } | undefined} */
+	let watched;
 	try {
 		const own = core.host
 			? require(corePath(core.host)).buildHostPorts(root, log)
 			: {};
 		const session =
 			typeof payload.session_id === "string" ? payload.session_id : "";
-		decision = core.decide(
-			subject,
-			kitContext({ root, payload, log }, { ...adapters, session, ...own }),
+		/** @type {CoreContext} */
+		const ctx = kitContext(
+			{ root, payload, log },
+			{ ...adapters, session, ...own },
 		);
+		watched = watchRepoFault(ctx);
+		decision = core.decide(subject, watched.ctx);
 	} catch (e) {
+		if (watched?.isRepoFault(e)) {
+			/* The repo unresolved: no tree is the shared one (mantahostels#147). */
+			log(caught(e).message);
+			return {};
+		}
 		return { part: thrown(core, caught(e).message, log) };
 	}
 	return decision ? answered(decision, core, { payload, root, log }, room) : {};
@@ -223,7 +252,7 @@ function runCore(core, { payload, root, adapters, logFor }, room) {
  * A core's non-null decision as a part of the merge.
  * @param {NonNullable<CoreDecision>} decision
  * @param {Core} core
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @param {() => number} room
  * @returns {{ part?: Part, latchSet?: LatchSet }}
  */
@@ -273,7 +302,7 @@ function thrown(core, msg, log) {
  * @returns {Adapters}
  */
 function hostAdapters(root, log) {
-	/** @type {Map<string, import("./citation-tracker.js").GitRead>} */
+	/** @type {Map<string, import("./git.js").GitRead>} */
 	const seen = new Map();
 	return {
 		...sharedReaders(root, log),
@@ -348,10 +377,20 @@ function runDispatch(only) {
 	const payload = readPayload("call", entryLog);
 	if (!payload) return;
 	const event = String(payload.hook_event_name ?? "");
-	const cores = loadCores(event).filter(
-		(c) => only === undefined || c.name === only,
+	const tool = toolOf(payload);
+	/* dispatch judges each core again; this filter only spares the load. */
+	const cores = loadCores(
+		event,
+		(row) =>
+			isCoreFor(row, tool) &&
+			admits(row, payload) &&
+			(only === undefined || row.name === only),
 	);
-	if (only !== undefined && cores.length === 0)
+	if (
+		only !== undefined &&
+		cores.length === 0 &&
+		!dispatchRows(event).some((r) => r.name === only)
+	)
 		entryLog(`--only names no ${event} core: ${only} — nothing run`);
 	const { output, latches } = dispatch(cores, {
 		payload,

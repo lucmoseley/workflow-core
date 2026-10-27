@@ -175,6 +175,7 @@ export default class TestPassReporter {
 			testNamePattern?: unknown;
 			changed?: string | boolean;
 			root?: string;
+			shard?: { index: number; count: number };
 		};
 		vite?: { config?: { configFile?: string | false } };
 		filenamePattern?: readonly string[];
@@ -369,6 +370,7 @@ export default class TestPassReporter {
 		const launch = readLaunch();
 
 		const pattern = this.vitest?.config?.testNamePattern;
+		const shard = this.vitest?.config?.shard;
 		const specs = (await this.vitest?.globTestSpecifications?.()) ?? [];
 		// One entry per file PER POOL on both sides, so the same file can appear
 		// twice; count distinct module ids or a full run reads as run > total.
@@ -388,6 +390,9 @@ export default class TestPassReporter {
 			// `filenamePattern` EMPTY, so without this the marker records a run
 			// narrowed to 3 of 228 files and cannot say by what (mantahostels#2031).
 			changed: this.vitest?.config?.changed ?? null,
+			// vitest shards after `globTestSpecifications`, so a `--shard` run
+			// reads `modulesRun` below `modulesTotal`; this says which shard (#3090).
+			...(shard ? { shard: { index: shard.index, count: shard.count } } : {}),
 			// The launch's own facts, which only the launcher knows
 			// (`lib/suite-handoff.js` says what each means).
 			...(launch.admissible ? { admissible: true } : {}),

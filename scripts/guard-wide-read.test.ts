@@ -132,7 +132,7 @@ describe("a host listing the guard under `disabled`", () => {
 	});
 
 	it("still warns where the list names another hook", () => {
-		declare(["guard-branch.js"]);
+		declare(["guard-branch"]);
 		expect(emission("cat big.md")?.additionalContext).toMatch(
 			/^Reading a whole file into context/,
 		);

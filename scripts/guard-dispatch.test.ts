@@ -102,13 +102,13 @@ describe("the registration", () => {
 		expect(new Set(LINES).size).toBe(1);
 	});
 
-	it("is one PreToolUse entry over its cores' tools, fail-closed at 10 s", () => {
+	it("is one PreToolUse entry over its cores' tools, fail-closed at 30 s", () => {
 		const groups = readRegistered("PreToolUse");
 		expect(groups.map((g) => g.matcher)).toEqual([
 			"Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task",
 		]);
 		expect(groups[0]?.hooks.find((h) => h.command === LINES[0])).toMatchObject({
-			timeout: 10,
+			timeout: 30,
 			onFailure: "block",
 		});
 	});

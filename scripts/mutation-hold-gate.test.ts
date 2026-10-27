@@ -246,6 +246,14 @@ const gitRefuses = (call = "diff --cached --name-only --no-renames -z") => {
 	);
 	return { GIT_EXEC_PATH: path.join(scratch, "bin") };
 };
+/** A `git cat-file --batch` asked for `object` fails; every other call runs. */
+const batchRefuses = (object: string) => {
+	onPath(
+		"git",
+		`case " $* " in *" cat-file --batch "*) in="$(cat)"; case "$in" in *"${object}"*) echo "fatal: stub git will not answer" >&2; exit 128 ;; esac; printf '%s\\n' "$in" | exec ${REAL_GIT} "$@" ;; esac\nexec ${REAL_GIT} "$@"\n`,
+	);
+	return { GIT_EXEC_PATH: path.join(scratch, "bin") };
+};
 const routeRefuses = () =>
 	onPath(
 		"sh",
@@ -1152,10 +1160,10 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 	it("leaves only the file whose staged copy git will not show to Stryker, named and logged (#2727)", () => {
 		disableAbove("// Stryker disable next-line all");
 		report([]);
-		const r = commit([MONEY], { extra: gitRefuses(`show :${MONEY}`) });
+		const r = commit([MONEY], { extra: batchRefuses(`:${MONEY}`) });
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(
-			`could not read the added disable comments in ${MONEY}: could not read a staged file: Command failed: git -c core.quotePath=false show :${MONEY}`,
+			`could not read the added disable comments in ${MONEY}: could not read a staged file: git cat-file failed while fetching ${MONEY} at the index: fatal: stub git will not answer`,
 		);
 		expect(r.stderr).not.toContain("NOT checked");
 		expect(readRuns()).toHaveLength(1);
@@ -1164,11 +1172,11 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 
 	it("reads a file whose HEAD copy git will not show as unparseable, still refusing an added unreasoned directive, logged (#2727)", () => {
 		disableAbove("// Stryker disable next-line all");
-		const r = commit([MONEY], { extra: gitRefuses(`show HEAD:${MONEY}`) });
+		const r = commit([MONEY], { extra: batchRefuses(`HEAD:${MONEY}`) });
 		expect(r.status).toBe(1);
 		expect(commitCount()).toBe(1);
 		expect(r.stderr).toContain(
-			`could not read ${MONEY} at HEAD (could not read a file at HEAD: Command failed: git -c core.quotePath=false show HEAD:${MONEY})`,
+			`could not read ${MONEY} at HEAD (could not read a file at HEAD: git cat-file failed while fetching ${MONEY} at HEAD: fatal: stub git will not answer)`,
 		);
 		expect(r.stderr).toContain(
 			"  lib/money.js:2  // Stryker disable next-line all\n",

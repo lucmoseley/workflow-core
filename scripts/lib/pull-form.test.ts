@@ -876,7 +876,7 @@ describe("rewinding main is refused (#765)", () => {
 		["git branch main", "main named, not forced"],
 		["git branch --list", "a listing"],
 		["git branch -h", "documentation"],
-		["git checkout main", "the repair guard-branch.js allows"],
+		["git checkout main", "the repair the guard-branch core allows"],
 		["git checkout -b main2 HEAD~1", "a new branch, not main"],
 		["echo git reset --hard HEAD~1", "text naming a reset"],
 	])("%s passes — %s", (command) => {

@@ -44,7 +44,7 @@ const LEDGER_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  *
  * The cost is a MISATTRIBUTION (mantahostels#135), not mantahostels#117's honest index-wide warn.
  * readWritesBy reads the missing file as [] via its ENOENT branch, and an empty
- * ledger matches nothing, so guard-commit-form.js takes its attributed branch and
+ * ledger matches nothing, so the guard-commit-form core takes its attributed branch and
  * names the session's own files as paths it "never wrote". Accepted anyway
  * (mantahostels#321): the warn is advisory.
  */
@@ -64,7 +64,7 @@ function pruneLedgers() {
  */
 function recordWrite(filePath, sessionId) {
 	if (!sessionId) return null;
-	// The ledger names FILES, because guard-commit-form.js compares it against
+	// The ledger names FILES, because the guard-commit-form core compares it against
 	// staged paths and git stages no region: an unstripped `docs/doc-map.md#B42`
 	// matches nothing there, so the session is warned off its own commit.
 	const subject = core.relativeToRepo(filePath);
@@ -93,7 +93,7 @@ function recordWrite(filePath, sessionId) {
  * unavailable rather than empty (mantahostels#135).
  *
  * An empty list tells a caller "this session wrote nothing", which
- * `guard-commit-form.js` reads as *every staged path is someone else's* — so
+ * the guard-commit-form core reads as *every staged path is someone else's* — so
  * returning it when the ledger could not be read names the session's own files
  * back at it.
  * @param {string} sessionId

@@ -12,7 +12,13 @@ import { ticketFiler } from "./fix-ticket.js";
 const C = "c".repeat(40);
 const P = "b".repeat(40);
 const R = "e".repeat(40);
-const TICKET = { culprit: C, parent: P, revert: R, files: ["x.test.ts"] };
+const TICKET = {
+	culprit: C,
+	parent: P,
+	revert: R,
+	files: ["x.test.ts"],
+	stale: [] as { row: string; forward: string }[] | null,
+};
 
 /**
  * A filer over `message`, an issue tracker whose issues are in `states`,
@@ -142,6 +148,51 @@ describe("ticketFiler", () => {
 		});
 		f.said();
 		expect(flag(f.files[0].args, "--distinct-from")).toBe("5,6");
+	});
+
+	it("names each row the revert left stale with its --review line, and owes the re-read", () => {
+		const bodies: string[] = [];
+		const tracker = ticketFiler({
+			messageOf: () => "Add the widget",
+			similar: () => [],
+			fileIssue: (_args, input) => {
+				bodies.push(input);
+				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
+			},
+			stateOf: () => "open",
+			reopen: () => undefined,
+		});
+		const review = "node scripts/check-guard-registry.js --review scripts/g.js";
+		tracker.fileFixTicket({
+			...TICKET,
+			stale: [{ row: "STALE-PROSE scripts/g.js", forward: review }],
+		});
+		expect(bodies[0]).toContain(
+			`- \`STALE-PROSE scripts/g.js\`: \`${review}\``,
+		);
+		expect(bodies[0]).toContain(
+			"- [ ] Each stale row above is re-read and re-anchored.",
+		);
+	});
+
+	it("says the stale rows could not be read where the lander could not read them, and still owes the re-read", () => {
+		const bodies: string[] = [];
+		ticketFiler({
+			messageOf: () => "Add the widget",
+			similar: () => [],
+			fileIssue: (_args, input) => {
+				bodies.push(input);
+				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
+			},
+			stateOf: () => "open",
+			reopen: () => undefined,
+		}).fileFixTicket({ ...TICKET, stale: null });
+		expect(bodies[0]).toContain(
+			`could not read which guard-registry rows the revert left stale (#3127). Run \`node scripts/check-guard-registry.js --touched-by ${R}\``,
+		);
+		expect(bodies[0]).toContain(
+			"- [ ] Each stale row above is re-read and re-anchored.",
+		);
 	});
 
 	it("throws, naming the culprit, where even the standalone filing fails", () => {

@@ -16,11 +16,13 @@ import path from "node:path";
 
 /**
  * Which calls fault: `words`, those arguments in a row anywhere in the argv
- * (read off `$*`, so an argument holding a space splits); `first`, the first
+ * (read off `$*`, so an argument holding a space splits); `every`, each of
+ * them anywhere, in any order (read the same way); `first`, the first
  * argument; `argPrefix`, any argument starting with it.
  */
 export type GitFaultMatch =
 	| { words: string[] }
+	| { every: string[] }
 	| { first: string }
 	| { argPrefix: string };
 
@@ -60,6 +62,14 @@ const matchLines = (match: GitFaultMatch): string[] => {
 	if ("words" in match)
 		return [
 			`case " $* " in *${shellQuote(` ${match.words.join(" ")} `)}*) fault "$@" ;; esac`,
+		];
+	if ("every" in match)
+		return [
+			"hit=1",
+			`for w in ${match.every.map(shellQuote).join(" ")}; do`,
+			'  case " $* " in *" $w "*) ;; *) hit= ;; esac',
+			"done",
+			'[ -n "$hit" ] && fault "$@"',
 		];
 	if ("first" in match)
 		return [`[ "$1" = ${shellQuote(match.first)} ] && fault "$@"`];

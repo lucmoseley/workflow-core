@@ -241,6 +241,11 @@ export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 		fs.mkdirSync(path.join(sb.repo, "docs"), { recursive: true });
 		process.env.CLAUDE_CONFIG_DIR = sb.home;
 		process.env.CLAUDE_PROJECT_DIR = sb.repo;
+		// A background job inherits both pointed at the real checkout, and either
+		// outranks CLAUDE_PROJECT_DIR in dispatch-ledger.js ledgerRoot() and every
+		// `WFC_REPO_ROOT || hostRoot()` reader (#3119).
+		process.env.WFC_REPO_ROOT = sb.repo;
+		process.env.WFC_DISPATCH_ROOT = sb.repo;
 		stubOracles(sb);
 		setUp?.(sb);
 	});

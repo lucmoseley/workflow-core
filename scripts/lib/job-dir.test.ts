@@ -16,12 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-
-/* CommonJS, hence the require. */
-const twin = require("./job-dir.js") as {
-	isJobDir: (p: string, where: { pwd: string; jobDir: string }) => boolean;
-	jobRel: (p: string, where: { pwd: string; jobDir: string }) => string | null;
-};
+import twin from "./job-dir.js";
 
 interface Where {
 	jobDir?: string;

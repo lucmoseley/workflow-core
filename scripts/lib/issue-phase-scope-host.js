@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./issue-phase-scope.js").PhasePorts}
  */
 const buildHostPorts = ({ root }) => ({

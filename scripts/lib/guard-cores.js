@@ -13,6 +13,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { clausesAdmit } = require("./if-clause.js");
 
 const DISPATCH_ENTRY = "scripts/guard-dispatch.js";
 
@@ -23,7 +24,9 @@ const MANIFEST = path.join(__dirname, "guard-cores.json");
 /**
  * @typedef {import("./workflow-core-config.js").Module} Module
  * @typedef {{ name: string, core: string, tools: string,
- *   failure: "open" | "closed", module?: Module, host?: string }} CoreRow
+ *   failure: "open" | "closed", module?: Module, host?: string,
+ *   if?: string[] }} CoreRow `if` narrows the row's calls of the tools its
+ *   clauses name, as a registration's `if` would (lib/if-clause.js)
  * @typedef {Record<string, CoreRow[]>} Manifest
  */
 
@@ -66,6 +69,23 @@ const corePath = (module) => path.join(__dirname, module);
  */
 const isCoreFor = (row, tool) =>
 	tool !== undefined && new RegExp(`^(?:${row.tools})$`).test(tool);
+
+/**
+ * Whether `row`'s `if` clauses let `payload`'s call through, each matched
+ * against the call's `command`; true where the row carries none.
+ * @param {Pick<CoreRow, "if">} row
+ * @param {Record<string, unknown>} payload
+ */
+function admits(row, payload) {
+	if (!row.if) return true;
+	const input = /** @type {Record<string, unknown> | undefined} */ (
+		payload.tool_input
+	);
+	const command = typeof input?.command === "string" ? input.command : "";
+	const tool =
+		typeof payload.tool_name === "string" ? payload.tool_name : undefined;
+	return clausesAdmit(row.if, tool, command);
+}
 
 /**
  * @param {string} event
@@ -116,6 +136,7 @@ function expandDispatched(event, regs, manifest = readManifest()) {
 
 module.exports = {
 	DISPATCH_ENTRY,
+	admits,
 	MANIFEST_REL,
 	corePath,
 	dispatchRows,
@@ -123,5 +144,6 @@ module.exports = {
 	expandDispatched,
 	isCoreFor,
 	manifestAt,
+	modulePath,
 	readManifest,
 };

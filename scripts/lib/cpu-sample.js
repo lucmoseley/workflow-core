@@ -178,11 +178,13 @@ function delta(before, after, cores = os.cpus()?.length || 0) {
 }
 
 /*
- * THE OVERLOAD CEILING (#830): load1 at 6 per core, 48 on this machine — why
- * 48, in `docs/environment.md` §6 *The load ceiling*. `WFC_LOAD_CEILING`
- * overrides it; `0` turns it off.
+ * THE OVERLOAD CEILING (#830): load1 at 3 per core, 24 on this machine — why
+ * 24, in `docs/environment.md` §6 *The load ceiling*. `WFC_LOAD_CEILING`
+ * overrides it, and where it is unset `$HOME/.claude/load-ceiling` does, read
+ * at every call so a change reaches sessions already running (#3223); `0`
+ * turns it off.
  */
-const LOAD_PER_CORE_CEILING = 6;
+const LOAD_PER_CORE_CEILING = 3;
 
 /**
  * The load1 at or above which new work waits. `null` where the cores cannot be
@@ -193,7 +195,39 @@ const LOAD_PER_CORE_CEILING = 6;
  * @returns {number|null}
  */
 function loadCeiling(cores = os.cpus()?.length || 0, env = process.env) {
-	return ceilingOf(env.WFC_LOAD_CEILING, LOAD_PER_CORE_CEILING, cores);
+	return ceilingOf(
+		readLoadCeilingOverride(env).text,
+		LOAD_PER_CORE_CEILING,
+		cores,
+	);
+}
+
+/**
+ * The ceiling override: `WFC_LOAD_CEILING` where set, else the host file's
+ * text. An empty variable is no override and skips the file. No file is no override; a file that will not read, or holds no
+ * number, keeps the default and `problem` says why (#3223).
+ *
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{text?: string, problem?: string}}
+ */
+function readLoadCeilingOverride(env) {
+	if (env.WFC_LOAD_CEILING !== undefined) return { text: env.WFC_LOAD_CEILING };
+	/* The live environment falls back to the account's home, as the session
+	 * floor does; an injected one names its own or reads no file. */
+	const home = env.HOME || (env === process.env ? os.homedir() : "");
+	if (!home) return {};
+	const file = `${home}/.claude/load-ceiling`;
+	let text;
+	try {
+		text = fs.readFileSync(file, "utf8");
+	} catch (e) {
+		if (/** @type {NodeJS.ErrnoException} */ (e).code === "ENOENT") return {};
+		return { problem: `${file}: ${/** @type {Error} */ (e).message}` };
+	}
+	if (Number.isFinite(Number.parseFloat(text))) return { text };
+	return {
+		problem: `${file} holds ${JSON.stringify(text.trim())}, not a number`,
+	};
 }
 
 /*
@@ -247,7 +281,7 @@ function ceilingOf(raw, perCore, cores) {
 }
 
 /**
- * @typedef {{overloaded: boolean, load1: number|null, ceiling: number|null}} LoadReading
+ * @typedef {{overloaded: boolean, load1: number|null, ceiling: number|null, problem?: string}} LoadReading
  */
 
 /**
@@ -259,11 +293,19 @@ function ceilingOf(raw, perCore, cores) {
  * @param {{load1?: number|null, cores?: number, env?: NodeJS.ProcessEnv}} [opts]
  * @returns {LoadReading}
  */
-function overloadReading({ load1 = readLoad1(), cores, env } = {}) {
-	const ceiling = loadCeiling(cores, env);
-	if (load1 === null || ceiling === null)
-		return { overloaded: false, load1, ceiling };
-	return { overloaded: load1 >= ceiling, load1, ceiling };
+function overloadReading({
+	load1 = readLoad1(),
+	cores = os.cpus()?.length || 0,
+	env = process.env,
+} = {}) {
+	const override = readLoadCeilingOverride(env);
+	const ceiling = ceilingOf(override.text, LOAD_PER_CORE_CEILING, cores);
+	const reading = {
+		overloaded: load1 !== null && ceiling !== null && load1 >= ceiling,
+		load1,
+		ceiling,
+	};
+	return override.problem ? { ...reading, problem: override.problem } : reading;
 }
 
 /**
@@ -271,7 +313,7 @@ function overloadReading({ load1 = readLoad1(), cores, env } = {}) {
  * @param {LoadReading} load
  */
 const buildOverloadText = (load) =>
-	`load1 ${load.load1} is at or above the ${load.ceiling} ceiling (#830)`;
+	`load1 ${load.load1} is at or above the ${load.ceiling} ceiling (#830)${load.problem ? `; ${load.problem}` : ""}`;
 
 /* Chosen, not measured (#830): 15 s polls a one-minute average often enough to
  * see it fall, and 5 minutes keeps a hold plus a suite inside the Bash tool's

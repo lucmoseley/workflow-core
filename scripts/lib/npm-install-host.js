@@ -52,7 +52,7 @@ function readOrNull(file) {
 }
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./npm-install.js").NpmInstallPorts}
  */
 function buildHostPorts({ root }) {

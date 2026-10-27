@@ -147,6 +147,8 @@ interface FakeChildOptions {
 	stdoutChunks?: string[];
 	stderrChunks?: string[];
 	code?: number | null;
+	/* Emitted before close, as Node does for a child that never spawns. */
+	error?: Error;
 }
 
 /** Stands in for the vitest child: emits output, then closes. */
@@ -154,6 +156,7 @@ function fakeChild({
 	stdoutChunks = [],
 	stderrChunks = [],
 	code = 0,
+	error,
 }: FakeChildOptions = {}) {
 	const child = new EventEmitter() as EventEmitter & {
 		stdout: PassThrough;
@@ -162,6 +165,7 @@ function fakeChild({
 	child.stdout = new PassThrough();
 	child.stderr = new PassThrough();
 	queueMicrotask(() => {
+		if (error) child.emit("error", error);
 		for (const c of stdoutChunks) child.stdout.write(c);
 		for (const c of stderrChunks) child.stderr.write(c);
 		child.stdout.end();
@@ -487,6 +491,30 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 			{ reason: "refused", limb: "count" },
 		]);
 		expect(said.join("")).toMatch(/wait bound — refused, not run/);
+	});
+
+	it("puts on its exit line the older part-suites its turn passed (#3115)", async () => {
+		const queueDir = qdir();
+		const queueLog = path.join(queueDir, "exits.jsonl");
+		fs.writeFileSync(
+			path.join(queueDir, "wfc-suite-queue-1.json"),
+			JSON.stringify({
+				pid: 1,
+				at: Date.now() - 1000,
+				part: true,
+				memoryHeld: true,
+			}),
+		);
+		const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
+			gate: () => false,
+			alive: () => true,
+			queueDir,
+			queueLog,
+		});
+		expect(calls).toHaveLength(1);
+		expect(readJsonl(queueLog)).toMatchObject([
+			{ reason: "opened", passed: 1 },
+		]);
 	});
 
 	/* A part-suite takes no whole-suite slot (#2558), so the count cap at the
@@ -5385,6 +5413,54 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						full: "stale-manifest",
 						wholeSlot,
 					});
+				},
+			);
+
+			/* Node closes an unspawnable child with the negative errno, -2 for
+			 * ENOENT, the value REQUEUE_WHOLE also holds (#3140). Admitted as a
+			 * part-suite, or already re-queued whole by an escalation, it exits
+			 * at its first spawn. */
+			it.each([
+				["admitted as a part-suite", repo, 1],
+				["re-queued whole", wholeRepo, 2],
+			] as const)(
+				"exits 1 at its first spawn, naming the binary, where a queued run %s cannot spawn vitest (#3140)",
+				async (_what, make, joins) => {
+					let renders = 0;
+					const joined = vi.fn();
+					let spawns = 0;
+					const stderr = vi
+						.spyOn(process.stderr, "write")
+						.mockReturnValue(true);
+					const code = await main(["--queue", SHARED_FLAG], {
+						root: make(),
+						execFn: fakeExec({ diff: ["a.test.ts"], list: ["a.test.ts"] }),
+						loadEdges: () => ({}),
+						renderEdges: () => (renders++ === 0 ? {} : renderFails()),
+						out: { write: () => true },
+						err: { write: () => true },
+						fs: fakeFs(),
+						queueDir: qdir(),
+						queueFs: { ...fs, writeFileSync: joined },
+						gateRead: () => null,
+						/* A second spawn is the re-admission; it succeeds so a
+						 * regression fails here rather than loop. */
+						spawnFn: (bin: string) =>
+							spawns++ > 0
+								? fakeChild({ code: 0 })
+								: fakeChild({
+										error: new Error(`spawn ${bin} ENOENT`),
+										code: -2,
+									}),
+					});
+					const said = stderr.mock.calls.map((c) => String(c[0])).join("");
+					stderr.mockRestore();
+					expect(code).toBe(1);
+					expect(spawns).toBe(1);
+					expect(joined).toHaveBeenCalledTimes(joins);
+					expect(said).toMatch(
+						/vitest could not be run from \S*vitest: Error: spawn \S*vitest ENOENT/,
+					);
 				},
 			);
 

@@ -23,50 +23,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./arbiter-testkit";
+import { plan } from "./bash-write-plan.js";
+import { decide } from "./claimed-bash-write.js";
+import { buildHostPorts } from "./claimed-bash-write-host.js";
 import { runCore } from "./guard-core-testkit";
+import { hostAdapters } from "./guard-dispatch.js";
 import { registrationsOf } from "./hook-wiring";
+import { kitContext } from "./kit-context.js";
 import { buildBashPayload } from "./pretool-guard-testkit";
-
-/* CommonJS, hence the require. */
-const { decide } = require("./claimed-bash-write.js") as {
-	decide: (
-		subject: string,
-		ctx: Record<string, unknown>,
-	) => { prelude?: string } | null;
-};
-const { plan } = require("./bash-write-plan.js") as {
-	plan: (
-		subject: string,
-		ctx: Record<string, unknown>,
-	) => {
-		targets: string[];
-		credit: string[];
-		select: string[];
-		owed: boolean;
-	};
-};
-const { hostAdapters } = require("./guard-dispatch.js") as {
-	hostAdapters: (
-		root: string,
-		log: (what: string) => void,
-	) => Record<string, unknown>;
-};
-const { kitContext } = require("./guard-entry.js") as {
-	kitContext: (
-		env: {
-			root: string;
-			payload: Record<string, unknown>;
-			log: (what: string) => void;
-		},
-		readers: Record<string, unknown>,
-	) => Record<string, unknown>;
-};
-const { buildHostPorts } = require("./claimed-bash-write-host.js") as {
-	buildHostPorts: () => Record<string, unknown>;
-};
-const { readRuleText } = require("./rule-text.js") as {
-	readRuleText: (id: string) => string;
-};
+import { readRuleText } from "./rule-text.js";
 
 const NAME = "guard-claimed-bash-write";
 
@@ -85,7 +50,7 @@ const sb = freshSandbox((fresh) => {
 let logs: string[] = [];
 
 /** The core's context for `command`, as the dispatcher builds it. */
-function ctxFor(command: string): Record<string, unknown> {
+function ctxFor(command: string) {
 	logs = [];
 	const log = (what: string) => {
 		logs.push(what);
@@ -1078,7 +1043,8 @@ describe("cases a mutant must not survive", () => {
 			corePaths: (t: string) =>
 				t.replaceAll("node scripts/", "node /plugin/scripts/"),
 		};
-		expect(decide("echo hi > docs/x.md", ctx)?.prelude).toContain(
+		const d = decide("echo hi > docs/x.md", ctx);
+		expect(d && "prelude" in d ? d.prelude : null).toContain(
 			"node /plugin/scripts/session-arbiter.js",
 		);
 	});

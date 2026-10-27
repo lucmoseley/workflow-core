@@ -71,27 +71,6 @@
 			"needles": [],
 			"silent": "Appends one row per refused ff-only pull and rejected push to the per-repo divergence log (#289). It never writes to stdout, so no session ever reads it."
 		},
-		"guard-branch.js": {
-			"needles": [
-				{
-					"id": "branch-move",
-					"kind": "deny",
-					"text": "This moves the shared working tree off its branch"
-				},
-				{
-					"id": "branch-shared-tree",
-					"kind": "inject",
-					"routes": ["hook"],
-					"text": "THE SHARED WORKING TREE STAYS ON `main`."
-				},
-				{
-					"id": "branch-shared-tree-landing",
-					"kind": "inject",
-					"routes": ["hook"],
-					"text": "TRACKS `origin/landing`"
-				}
-			]
-		},
 		"guard-registry-atomicity.js": {
 			"needles": [
 				{
@@ -113,115 +92,6 @@
 					"id": "needle-text-drift",
 					"kind": "deny",
 					"text": "keys a needle on, and the needle does not move with it"
-				}
-			]
-		},
-		"guard-commit-form.js": {
-			"needles": [
-				{
-					"id": "sweeps-index",
-					"kind": "deny",
-					"text": "This commit form sweeps the shared index"
-				},
-				{
-					"id": "no-verify",
-					"kind": "deny",
-					"text": "This flag skips none of the pre-commit gates"
-				},
-				{
-					"id": "amend-shared-tip",
-					"kind": "deny",
-					"text": "This amend rewrites whichever commit is `main`'s tip right now"
-				},
-				{
-					"id": "git-add",
-					"kind": "warn",
-					"text": "Staging before committing hands the shared index"
-				},
-				{
-					"id": "bare-commit-attributed",
-					"kind": "warn",
-					"text": "This commit names no pathspec, so it takes the whole index"
-				},
-				{
-					"id": "bare-commit-indexwide",
-					"kind": "warn",
-					"text": "This commit names no pathspec, so it will take everything in the index"
-				},
-				{
-					"id": "sweep-warn",
-					"kind": "warn",
-					"text": "so their work would be swept in under your message — that is mantahostels#1539."
-				},
-				{
-					"id": "untracked-pathspec",
-					"kind": "warn",
-					"text": "This commit names path(s) git does not track yet"
-				},
-				{
-					"id": "untracked-directory",
-					"kind": "warn",
-					"text": "This commit names director(ies) holding file(s) git does not track yet"
-				},
-				{
-					"id": "doc-map-precommit",
-					"kind": "inject",
-					"text": "THIS COMMIT TOUCHES THE MAPPED SCOPE"
-				},
-				{
-					"id": "digest-version-drift",
-					"kind": "inject",
-					"text": "COMMIT `docs/reference-roadmap.html` AND `docs/roadmap-digest.md` TOGETHER"
-				},
-				{
-					"id": "push-cadence",
-					"kind": "inject",
-					"text": "FINDS EVERY COMMIT BEING PUSHED ATTESTED"
-				},
-				{
-					"id": "push-cadence-landing",
-					"kind": "inject",
-					"text": "ONCE THE TESTS YOU TOUCHED PASS"
-				},
-				{
-					"id": "guard-registry-gate",
-					"kind": "inject",
-					"text": "THIS COMMIT REACHES THE GUARD REGISTRY"
-				},
-				{
-					"id": "biome-staged-gate",
-					"kind": "inject",
-					"text": "THE PRE-COMMIT BIOME GATE READS ONLY THIS COMMIT'S OWN STAGED PATHS"
-				},
-				{
-					"id": "superseded-values-gate",
-					"kind": "inject",
-					"text": "A SUPERSEDED FIGURE LEFT LIVE IN A TRACKED FILE"
-				},
-				{
-					"id": "machinery-superseded",
-					"kind": "inject",
-					"text": "RETIRING A REPO-MACHINERY FIGURE OBLIGES YOU"
-				},
-				{
-					"id": "commit-pathspec",
-					"kind": "inject",
-					"text": "COMMIT BY PATHSPEC, NEVER `git add` FIRST."
-				},
-				{
-					"id": "commit-show-diff",
-					"kind": "inject",
-					"text": "SHOW THE DIFF OF EACH CHANGE BEFORE COMMITTING IT."
-				},
-				{
-					"id": "commit-message",
-					"kind": "inject",
-					"text": "A COMMIT SUBJECT IS AT MOST 72 CHARACTERS"
-				},
-				{
-					"id": "commit-closes-keyword",
-					"kind": "deny",
-					"text": "This commit message closes an issue server-side the moment it is pushed"
 				}
 			]
 		},
@@ -257,7 +127,10 @@
 				{
 					"id": "main-rewind-fallback",
 					"kind": "deny",
-					"text": "backwards; the rule could not be read from docs/agents/rules/main-rewind.txt",
+					"text": [
+						"Never move `main` backwards",
+						"the rule could not be read from"
+					],
 					"unless": ["force-pushes", "` on the remote"]
 				},
 				{
@@ -268,7 +141,10 @@
 				{
 					"id": "shared-tree-discard-fallback",
 					"kind": "deny",
-					"text": "shared tree; the rule could not be read from docs/agents/rules/shared-tree-discard.txt"
+					"text": [
+						"Never discard work across the whole shared tree",
+						"the rule could not be read from"
+					]
 				}
 			]
 		},
@@ -349,6 +225,12 @@
 					"core": "guard-stale-script",
 					"kind": "warn",
 					"text": "is uncommitted in the shared working tree and claimed by session"
+				},
+				{
+					"id": "scratch-git",
+					"core": "guard-scratch-git",
+					"kind": "deny",
+					"text": "writes git state but does not fail closed"
 				},
 				{
 					"id": "job-dir-scratch-flat",
@@ -799,7 +681,8 @@
 					"kind": "deny",
 					"text": [
 						"This merges a Dependabot pull request",
-						"the rule could not be read from docs/agents/rules/dependabot-merge.txt"
+						"Never merge a Dependabot pull request",
+						"the rule could not be read from"
 					]
 				},
 				{
@@ -818,7 +701,10 @@
 					"id": "branch-publish-landing-fallback",
 					"core": "guard-branch-publish",
 					"kind": "deny",
-					"text": "the rule could not be read from docs/agents/rules/branch-publish-landing.txt"
+					"text": [
+						"Work lands through `landing` — never a push to `main`",
+						"the rule could not be read from"
+					]
 				},
 				{
 					"id": "main-force-push",
@@ -838,7 +724,8 @@
 					"kind": "deny",
 					"text": [
 						"force-pushes",
-						"backwards; the rule could not be read from docs/agents/rules/main-rewind.txt"
+						"Never move `main` backwards",
+						"the rule could not be read from"
 					]
 				},
 				{
@@ -847,7 +734,8 @@
 					"kind": "deny",
 					"text": [
 						"` on the remote",
-						"backwards; the rule could not be read from docs/agents/rules/main-rewind.txt"
+						"Never move `main` backwards",
+						"the rule could not be read from"
 					]
 				},
 				{
@@ -868,7 +756,8 @@
 					"kind": "deny",
 					"text": [
 						"force-pushes",
-						"the rule could not be read from docs/agents/rules/landing-rewind.txt"
+						"Never force-push or delete `landing`",
+						"the rule could not be read from"
 					]
 				},
 				{
@@ -877,7 +766,8 @@
 					"kind": "deny",
 					"text": [
 						"` on the remote",
-						"the rule could not be read from docs/agents/rules/landing-rewind.txt"
+						"Never force-push or delete `landing`",
+						"the rule could not be read from"
 					]
 				},
 				{
@@ -987,6 +877,212 @@
 					"core": "guard-blind-dispatch",
 					"kind": "deny",
 					"text": "A fork inherits this session's whole context, so it is never blind"
+				},
+				{
+					"id": "branch-move",
+					"core": "guard-branch",
+					"kind": "deny",
+					"text": "This moves the shared working tree off its branch"
+				},
+				{
+					"id": "branch-shared-tree",
+					"core": "guard-branch",
+					"kind": "inject",
+					"routes": ["hook"],
+					"text": "THE SHARED WORKING TREE STAYS ON `main`."
+				},
+				{
+					"id": "branch-shared-tree-landing",
+					"core": "guard-branch",
+					"kind": "inject",
+					"routes": ["hook"],
+					"text": "TRACKS `origin/landing`"
+				},
+				{
+					"id": "sweeps-index",
+					"core": "guard-commit-form",
+					"kind": "deny",
+					"text": "This commit form sweeps the shared index"
+				},
+				{
+					"id": "no-verify",
+					"core": "guard-commit-form",
+					"kind": "deny",
+					"text": "This flag skips none of the pre-commit gates"
+				},
+				{
+					"id": "amend-shared-tip",
+					"core": "guard-commit-form",
+					"kind": "deny",
+					"text": "This amend rewrites whichever commit is `main`'s tip right now"
+				},
+				{
+					"id": "git-add",
+					"core": "guard-commit-form",
+					"kind": "warn",
+					"text": "Staging before committing hands the shared index"
+				},
+				{
+					"id": "bare-commit-attributed",
+					"core": "guard-commit-form",
+					"kind": "warn",
+					"text": "This commit names no pathspec, so it takes the whole index"
+				},
+				{
+					"id": "bare-commit-indexwide",
+					"core": "guard-commit-form",
+					"kind": "warn",
+					"text": "This commit names no pathspec, so it will take everything in the index"
+				},
+				{
+					"id": "sweep-warn",
+					"core": "guard-commit-form",
+					"kind": "warn",
+					"text": "so their work would be swept in under your message — that is mantahostels#1539."
+				},
+				{
+					"id": "untracked-pathspec",
+					"core": "guard-commit-form",
+					"kind": "warn",
+					"text": "This commit names path(s) git does not track yet"
+				},
+				{
+					"id": "untracked-directory",
+					"core": "guard-commit-form",
+					"kind": "warn",
+					"text": "This commit names director(ies) holding file(s) git does not track yet"
+				},
+				{
+					"id": "doc-map-precommit",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "THIS COMMIT TOUCHES THE MAPPED SCOPE"
+				},
+				{
+					"id": "digest-version-drift",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "COMMIT `docs/reference-roadmap.html` AND `docs/roadmap-digest.md` TOGETHER"
+				},
+				{
+					"id": "push-cadence",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "FINDS EVERY COMMIT BEING PUSHED ATTESTED"
+				},
+				{
+					"id": "push-cadence-landing",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "ONCE THE TESTS YOU TOUCHED PASS"
+				},
+				{
+					"id": "guard-registry-gate",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "THIS COMMIT REACHES THE GUARD REGISTRY"
+				},
+				{
+					"id": "biome-staged-gate",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "THE PRE-COMMIT BIOME GATE READS ONLY THIS COMMIT'S OWN STAGED PATHS"
+				},
+				{
+					"id": "superseded-values-gate",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "A SUPERSEDED FIGURE LEFT LIVE IN A TRACKED FILE"
+				},
+				{
+					"id": "machinery-superseded",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "RETIRING A REPO-MACHINERY FIGURE OBLIGES YOU"
+				},
+				{
+					"id": "commit-pathspec",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "COMMIT BY PATHSPEC, NEVER `git add` FIRST."
+				},
+				{
+					"id": "commit-show-diff",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "SHOW THE DIFF OF EACH CHANGE BEFORE COMMITTING IT."
+				},
+				{
+					"id": "commit-message",
+					"core": "guard-commit-form",
+					"kind": "inject",
+					"text": "A COMMIT SUBJECT IS AT MOST 72 CHARACTERS"
+				},
+				{
+					"id": "commit-closes-keyword",
+					"core": "guard-commit-form",
+					"kind": "deny",
+					"text": "This commit message closes an issue server-side the moment it is pushed"
+				},
+				{
+					"id": "anthropic-write",
+					"core": "guard-anthropic-report",
+					"kind": "deny",
+					"text": "This writes to an Anthropic repo"
+				},
+				{
+					"id": "cpu-load",
+					"core": "guard-cpu-load",
+					"kind": "deny",
+					"text": "Synthetic load runs inside a cap of at most "
+				},
+				{
+					"id": "inert-bash",
+					"core": "guard-agent-poll",
+					"kind": "deny",
+					"text": "Ending a turn is not a tool call."
+				},
+				{
+					"id": "timed-check",
+					"core": "guard-agent-poll",
+					"kind": "warn",
+					"text": "Timed checks under two minutes apart"
+				},
+				{
+					"id": "timed-job-beat",
+					"core": "guard-agent-poll",
+					"kind": "warn",
+					"text": "Timed job beats under two minutes apart"
+				},
+				{
+					"id": "output-file-read",
+					"core": "guard-agent-poll",
+					"kind": "deny",
+					"text": "Re-reading a background job's output file is a wait loop"
+				},
+				{
+					"id": "list-agents",
+					"core": "guard-agent-poll",
+					"kind": "deny",
+					"text": "Polling ListAgents."
+				},
+				{
+					"id": "shellcheck-not-installed",
+					"core": "guard-check-sh",
+					"kind": "inject",
+					"text": "`npm install` DOES NOT SUPPLY shellcheck"
+				},
+				{
+					"id": "shellcheck-source-directive",
+					"core": "guard-check-sh",
+					"kind": "inject",
+					"text": "A GUARD'S NEW `source` LINE NEEDS A DIRECTIVE ABOVE IT"
+				},
+				{
+					"id": "shellcheck-changed-scope",
+					"core": "guard-check-sh",
+					"kind": "inject",
+					"text": "THE FULL `npm run check:sh` TAKES MINUTES"
 				}
 			]
 		},
@@ -1029,15 +1125,6 @@
 					"id": "no-outstanding",
 					"kind": "deny",
 					"text": "This close does not say what is still outstanding"
-				}
-			]
-		},
-		"guard-anthropic-report.js": {
-			"needles": [
-				{
-					"id": "anthropic-write",
-					"kind": "deny",
-					"text": "This writes to an Anthropic repo"
 				}
 			]
 		},
@@ -1124,15 +1211,6 @@
 				}
 			]
 		},
-		"guard-cpu-load.js": {
-			"needles": [
-				{
-					"id": "cpu-load",
-					"kind": "deny",
-					"text": "Synthetic load runs inside a cap of at most "
-				}
-			]
-		},
 		"guard-root-find.js": {
 			"needles": [
 				{
@@ -1206,7 +1284,10 @@
 				{
 					"id": "build-concurrency-fallback",
 					"kind": "deny",
-					"text": "the rule could not be read from docs/agents/rules/build-concurrency.txt"
+					"text": [
+						"Never run two builds or two dev servers at once",
+						"the rule could not be read from"
+					]
 				}
 			]
 		},
@@ -1632,35 +1713,6 @@
 				}
 			]
 		},
-		"guard-agent-poll.js": {
-			"needles": [
-				{
-					"id": "inert-bash",
-					"kind": "deny",
-					"text": "Ending a turn is not a tool call."
-				},
-				{
-					"id": "timed-check",
-					"kind": "warn",
-					"text": "Timed checks under two minutes apart"
-				},
-				{
-					"id": "timed-job-beat",
-					"kind": "warn",
-					"text": "Timed job beats under two minutes apart"
-				},
-				{
-					"id": "output-file-read",
-					"kind": "deny",
-					"text": "Re-reading a background job's output file is a wait loop"
-				},
-				{
-					"id": "list-agents",
-					"kind": "deny",
-					"text": "Polling ListAgents."
-				}
-			]
-		},
 		"guard-uncommitted-work.js": {
 			"needles": [
 				{
@@ -1749,25 +1801,6 @@
 		"clear-rule-latch.sh": {
 			"needles": [],
 			"silent": "Deletes this session's rule-injection latch markers at a compaction; every path through it, fault included, prints nothing (mantahostels#1804)."
-		},
-		"guard-check-sh.js": {
-			"needles": [
-				{
-					"id": "shellcheck-not-installed",
-					"kind": "inject",
-					"text": "`npm install` DOES NOT SUPPLY shellcheck"
-				},
-				{
-					"id": "shellcheck-source-directive",
-					"kind": "inject",
-					"text": "A GUARD'S NEW `source` LINE NEEDS A DIRECTIVE ABOVE IT"
-				},
-				{
-					"id": "shellcheck-changed-scope",
-					"kind": "inject",
-					"text": "THE FULL `npm run check:sh` TAKES MINUTES"
-				}
-			]
 		},
 		"guard-lost-verdict.js": {
 			"needles": [

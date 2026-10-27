@@ -1463,6 +1463,22 @@ describe("reading a Node core's direct call, bound and mark (#2905)", () => {
 		},
 	);
 
+	it.each([
+		["a ternary arm", '...(ctx.cwd ? { latchAfter: "spread" } : {})'],
+		["an && operand", '...(ctx.cwd && { latchAfter: "spread" })'],
+	])(
+		"reads a fetch beside a latch spread in on %s as an unlatched spend, so ambiguous (#3148)",
+		(_, spread) => {
+			const core = `${fetchRule("spread")}${told("spread")}return { prelude: rule(), ${spread} };\n`;
+			expect(nodeCensus(core, ["spread"])).toEqual({ spread: "ambiguous" });
+		},
+	);
+
+	it("reads a fetch spent inside the latched branch's own literal as bounded (#3148)", () => {
+		const core = `${fetchRule("armed")}${told("armed")}return ctx.cwd ? { prelude: rule(), latchAfter: "armed" } : null;\n`;
+		expect(nodeCensus(core, ["armed"])).toEqual({ armed: "bounded" });
+	});
+
 	it("reads an arrow decide spending the fetch only when latched as bounded (#3051)", () => {
 		const core = `${fetchRule("arrowed")}const decide = (ctx) => {\n${told("arrowed")}${marked("arrowed")}};\n`;
 		expect(nodeCensus(core, ["arrowed"])).toEqual({ arrowed: "bounded" });
@@ -1501,18 +1517,15 @@ describe("reading a Node core's direct call, bound and mark (#2905)", () => {
 		expect(nodeCensus(core, ["held"])).toEqual({ held: "none" });
 	});
 
-	it("reads readRuleTextOr and a landingTwin call, the twin as both ids", () => {
+	it("reads readRuleTextOr and a ruleOrFallback call", () => {
 		const core = [
 			'const a = readRuleTextOr("fallback-taker", "sentence");',
-			'const b = ctx.ruleText(landingTwin(ctx, "twinned"));',
+			'const b = ruleOrFallback(run.ctx, "kit-taker", "Lead");',
 			"",
 		].join("\n");
-		expect(
-			nodeCensus(core, ["fallback-taker", "twinned", "twinned-landing"]),
-		).toEqual({
+		expect(nodeCensus(core, ["fallback-taker", "kit-taker"])).toEqual({
 			"fallback-taker": "none",
-			twinned: "none",
-			"twinned-landing": "none",
+			"kit-taker": "none",
 		});
 	});
 });

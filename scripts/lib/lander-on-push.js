@@ -16,7 +16,7 @@ const { parseCommand, walkGit } = require("./shell-parse.js");
  * @typedef {object} LanderPorts
  * @property {(tree: string, src: string) => string} symbolicName `git -C
  *   <tree> rev-parse --symbolic-full-name <src>`, "" where it fails
- * @typedef {import("./guard-entry.js").KitContext & LanderPorts} LanderContext
+ * @typedef {import("./kit-context.js").KitContext & LanderPorts} LanderContext
  */
 
 /**

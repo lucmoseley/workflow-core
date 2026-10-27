@@ -39,7 +39,7 @@ const {
 
 /**
  * @param {unknown} _subject
- * @param {import("./guard-entry.js").KitContext & EchoPorts & {
+ * @param {import("./kit-context.js").KitContext & EchoPorts & {
  *   env: Record<string, string | undefined> }} ctx
  */
 function decide(_subject, ctx) {

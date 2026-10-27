@@ -78,7 +78,7 @@ const NOTE_TAIL =
 	"\n\nRe-spell it as the same command with `-P` in place of `-E`, or added where there is neither, every other flag kept and the backslashes taken off a `\\{N,M\\}`. A pattern of literals, `.`, bracket classes and bounded repeats prints what the refused command would have; an alternation, or a basic-mode `( ) | + ?`, can match differently under `-P`. Or use `rg` or python. Warned once a session; docs/agents/tool-output.md.";
 
 /**
- * @typedef {import("./guard-entry.js").KitContext} UgrepContext
+ * @typedef {import("./kit-context.js").KitContext} UgrepContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Redirect} Redirect

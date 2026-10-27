@@ -38,7 +38,12 @@ const {
 } = require("./gh-body.js");
 const { ISSUE_VALUE_FLAGS, issueWord } = require("./gh-issue-ref.js");
 const { shellWord } = require("./script-path.js");
-const { deny, open, walkVerdict } = require("./guard-verdict.js");
+const {
+	deny,
+	open,
+	ruleOrFallback,
+	walkVerdict,
+} = require("./guard-verdict.js");
 const { parseCommand, unmask } = require("./shell-parse.js");
 const { QUOTED, isGhCommand, literal, scanFlags } = require("./shell-words.js");
 const {
@@ -51,15 +56,11 @@ const {
 
 /**
  * @typedef {object} LabelPorts
- * @property {() => string} labelRule the issue-takes-label fragment, or a
- *   stand-in pointing at it where the store cannot give it
- * @property {() => string} deliverableRule the founder-deliverable fragment,
- *   or a stand-in pointing at it
  * @property {(path: string) => string | undefined} readFile a body file's
  *   text, undefined where it is absent; throws where it cannot be read
  * @property {(args: string[], cwd: string) => string} gh gh's stdout, run in
  *   `cwd`; throws where gh fails, cannot be found or outlasts its timeout
- * @typedef {import("./guard-entry.js").KitContext & LabelPorts} LabelContext
+ * @typedef {import("./kit-context.js").KitContext & LabelPorts} LabelContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {import("./gh-body.js").Body} Body
@@ -73,6 +74,22 @@ const HUMAN_MARKER = "Outside Claude Code:";
  * (lib/issue-create-label-host.js), so a hung gh stays under the hook's 10 s
  * ceiling. */
 const FETCH_CAP = 2;
+
+/** @param {LabelContext} ctx */
+const labelRule = (ctx) =>
+	ruleOrFallback(
+		ctx,
+		"issue-takes-label",
+		"Every gh issue create carries a takes: label",
+	);
+
+/** @param {LabelContext} ctx */
+const deliverableRule = (ctx) =>
+	ruleOrFallback(
+		ctx,
+		"founder-deliverable",
+		"A founder-facing item lives in an open issue, filed the moment it exists: `takes:human` for an act outside Claude Code, with a `**Close when:**` line; `takes:wayfinder` with a `## Question` body for a check by eye or an unanswered decision",
+	);
 
 const DELIVERABLE_POINTER_LEAD =
 	"This applies takes:human. The issue body is the hand-over's source: the act, why, the deliverable verbatim or each step, then **Close when:**. The full rule:";
@@ -388,7 +405,7 @@ function denyMissing(run, segment, fix) {
 		segment,
 		`This creates an issue with no \`takes:\` label: @CMD@
 
-${run.ctx.labelRule()}
+${labelRule(run.ctx)}
 
 Add one of:
 
@@ -417,7 +434,7 @@ function denyInvalid(run, segment, value, cost) {
 
 ${cost}
 
-${run.ctx.labelRule()}
+${labelRule(run.ctx)}
 
 The seven values, in full:
 
@@ -576,7 +593,7 @@ Every founder errand says when it is finished (#983). Add it to the body, on its
 
   **Close when:** <what finishes it> — and what the closing comment records, naming any issue that waits on the result
 
-${run.ctx.deliverableRule()}`,
+${deliverableRule(run.ctx)}`,
 		);
 	run.humanApplied = true;
 }

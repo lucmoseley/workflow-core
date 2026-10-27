@@ -1974,9 +1974,7 @@ function park(rel, me) {
 }
 
 exports.acquire = acquire;
-exports.breakCorrupt = breakCorrupt;
 exports.breakStale = breakStale;
-exports.DEBRIS_AGE_MS = DEBRIS_AGE_MS;
 exports.dropIfUnchanged = dropIfUnchanged;
 exports.forceRelease = forceRelease;
 exports.readHeldBy = readHeldBy;
@@ -1988,14 +1986,11 @@ exports.readOwnLockOnFile = readOwnLockOnFile;
 exports.park = park;
 exports.readLocks = readLocks;
 exports.release = release;
-exports.renameAside = renameAside;
 exports.repointLock = repointLock;
-exports.restoreAside = restoreAside;
 exports.settle = settle;
 exports.sweepDebris = sweepDebris;
 exports.sweepRisk = sweepRisk;
 exports.takeLock = takeLock;
 exports.takeSubjectLock = takeSubjectLock;
-exports.TORN_SETTLE_MS = TORN_SETTLE_MS;
 exports.updateIfUnchanged = updateIfUnchanged;
 exports.whoHolds = whoHolds;

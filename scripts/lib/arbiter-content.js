@@ -308,7 +308,6 @@ function dropContentRef(claimId) {
 
 exports.BLOB_REF_PREFIX = BLOB_REF_PREFIX;
 exports.blobExists = blobExists;
-exports.blobRef = blobRef;
 exports.claimVersions = claimVersions;
 exports.contentState = contentState;
 exports.dropContentRef = dropContentRef;

@@ -46,7 +46,7 @@ const REFUSAL = `Refused: \`@CMD@\` starts at \`/\`. A find over the whole disk 
  *   and literal — CLAUDE_PLUGIN_ROOT is not set in the Bash tool's
  *   environment, so a session hunting this plugin's scripts cannot spell it;
  *   null where it will not resolve
- * @typedef {import("./guard-entry.js").KitContext & FindStartPorts} FindStartContext
+ * @typedef {import("./kit-context.js").KitContext & FindStartPorts} FindStartContext
  */
 
 /**

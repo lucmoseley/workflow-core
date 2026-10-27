@@ -25,23 +25,10 @@ import {
 	locks as locksMod,
 	store,
 } from "./arbiter-testkit";
+import { warnings } from "./claim-warning.js";
+import { buildHostPorts } from "./claimed-bash-write-host.js";
 import { runCore } from "./guard-core-testkit";
 import { buildBashPayload } from "./pretool-guard-testkit";
-
-/* CommonJS, hence the require. */
-const { warnings } = require("./claim-warning.js") as {
-	warnings: (
-		targets: string[],
-		seen: { session: string; locks: unknown[]; ledger: string | null },
-		ports: Record<string, unknown>,
-	) => { text: string; ledger: object | null };
-};
-const { buildHostPorts } = require("./claimed-bash-write-host.js") as {
-	buildHostPorts: () => { listLocks: () => unknown[] | null } & Record<
-		string,
-		unknown
-	>;
-};
 
 /*
  * The store's own filename for a claim: a truncated sha256 of the repo-relative

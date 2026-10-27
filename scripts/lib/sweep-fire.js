@@ -73,15 +73,13 @@
 
 const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
 const { ghWords, literal, scanFlags } = require("./shell-words.js");
+const { ruleOrFallback } = require("./guard-verdict.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {import("./sweep-fire-host.js").Spend} Spend
  */
-
-const SWEEP_RULE_FALLBACK =
-	"A hand-fired sweep spends the same three-a-day budget the autofire spends; the rule could not be read from docs/agents/rules/sweep-fire-budget.txt. Read that file, or this guard's header, before doing anything else.";
 
 const SWEEP_WORKFLOWS = [
 	"scheduled-checks.yml",
@@ -133,14 +131,11 @@ function firesSweep(words, spans) {
  * @param {CoreContext & { spendSweep: (now: string | undefined) => Spend }} ctx
  */
 function refusal({ spent, cap, day }, segment, ctx) {
-	let rule;
-	try {
-		rule = ctx.ruleText("sweep-fire-budget");
-	} catch {
-		/* Not a fail-open: the day is known out, and an unreadable fragment is
-		 * check-guard-registry.js's assertion. */
-		rule = SWEEP_RULE_FALLBACK;
-	}
+	const rule = ruleOrFallback(
+		ctx,
+		"sweep-fire-budget",
+		"A hand-fired sweep spends the same three-a-day budget the autofire spends",
+	);
 	return ctx.corePaths(
 		`Today's sweep budget is gone: ${spent} of ${cap} already fired on ${day} (UTC), so the next unit is available on the day after ${day}.\n\n${rule}\n\nThe command: ${unmask(segment).replace(/\n+$/, "")}`,
 	);

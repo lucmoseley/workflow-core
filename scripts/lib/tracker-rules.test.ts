@@ -25,17 +25,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCore } from "./guard-core-testkit";
-
 /* The rule latch lives under the markers directory, not the throwaway root
- * itself. CommonJS, hence the require. */
-const { markersDir } = require("./marker-root.js") as {
-	markersDir: (root: string) => string;
-};
+ * itself. */
+import { markersDir } from "./marker-root.js";
 /* The store's Node accessor, so a test asks for the rule by id rather than
  * holding a second copy of its text. */
-const { readRuleText } = require("./rule-text.js") as {
-	readRuleText: (id: string) => string;
-};
+import { readRuleText } from "./rule-text.js";
 
 const CORE = "guard-tracker-rules";
 const STORE = path.resolve(__dirname, "..", "..", "docs", "agents", "rules");

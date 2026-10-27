@@ -21,7 +21,12 @@ import {
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
-import { BLOCKED_BY_GRAPHQL_FAKE, GH_NOT_FOUND } from "./lib/gh-fake";
+import {
+	asRecorded,
+	BLOCKED_BY_GRAPHQL_FAKE,
+	GH_NOT_FOUND,
+	subIssuesAnswer,
+} from "./lib/gh-fake";
 
 const FRONTIER = path.join(__dirname, "wayfinder-frontier.js");
 // `--map` refuses where it cannot confirm the claim store shares the caller's
@@ -74,11 +79,14 @@ const asAlice = (args: string[] = [], cwd = sb.repo) =>
  * the command's one retry re-fails rather than papering over a fixture. The
  * batched GraphQL blockers read answers from the same `blockedBy(n)` routes,
  * and answers null for a child whose route fails or is absent, which sends it
- * to that REST path.
+ * to that REST path. Each REST page is built by `pageOf`.
  */
 function fakeGh(routes: Record<string, unknown>, fails: string[] = []) {
 	const fixture = path.join(sb.dir, "gh-routes.json");
-	fs.writeFileSync(fixture, JSON.stringify({ routes, fails }));
+	const pages = Object.fromEntries(
+		Object.entries(routes).map(([p, rows]) => [p, pageOf(p, rows)]),
+	);
+	fs.writeFileSync(fixture, JSON.stringify({ routes, fails, pages }));
 	const log = ghLog();
 	const bin = path.join(sb.dir, "bin", "gh");
 	fs.mkdirSync(path.dirname(bin), { recursive: true });
@@ -86,7 +94,7 @@ function fakeGh(routes: Record<string, unknown>, fails: string[] = []) {
 		bin,
 		`#!/usr/bin/env node
 const fs = require("node:fs");
-const { routes, fails } = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, "utf8"));
+const { routes, fails, pages } = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, "utf8"));
 const p = process.argv[3];
 fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");
 ${BLOCKED_BY_GRAPHQL_FAKE}
@@ -97,12 +105,20 @@ if (p === "graphql") {
   }));
 }
 if (fails.includes(p) || !(p in routes)) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
-// --slurp wraps each page's array; one page here.
-process.stdout.write(JSON.stringify([routes[p]]));
+process.stdout.write(pages[p]);
 `,
 		{ mode: 0o755 },
 	);
 	return bin;
+}
+
+/** `rows` as the one --slurp page gh answers on route `p`. */
+function pageOf(p: string, rows: unknown) {
+	if (p.endsWith("/sub_issues"))
+		return subIssuesAnswer(rows as unknown[]).stdout;
+	if (p.endsWith("/dependencies/blocked_by"))
+		return asRecorded("blockedByPage", [rows]);
+	throw new Error(`no recorded answer for route ${p}`);
 }
 
 /** Every argv the stub gh was called with, one line each. */

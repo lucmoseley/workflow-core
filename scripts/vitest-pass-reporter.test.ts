@@ -203,6 +203,28 @@ describe("the scope the reporter records (mantahostels#1230)", () => {
 		await captured(() => run(r, [module_("a.test.ts", ["passed"])]));
 		expect(takeRunReport().scope.changed).toBeNull();
 	});
+
+	/*
+	 * #3090: a `--shard` run reads `modulesRun` below `modulesTotal`, so the
+	 * margin check needs this field to find the lander's shards.
+	 */
+	it("carries the --shard index and count off the vitest config", async () => {
+		const r = new TestPassReporter();
+		r.onInit(
+			ctx({
+				config: { testNamePattern: undefined, shard: { index: 2, count: 2 } },
+			}),
+		);
+		await captured(() => run(r, [module_("a.test.ts", ["passed"])]));
+		expect(takeRunReport().scope.shard).toEqual({ index: 2, count: 2 });
+	});
+
+	it("records no shard on an unsharded run", async () => {
+		const r = new TestPassReporter();
+		r.onInit(ctx());
+		await captured(() => run(r, [module_("a.test.ts", ["passed"])]));
+		expect(takeRunReport().scope).not.toHaveProperty("shard");
+	});
 });
 
 describe("the line the reporter prints", () => {

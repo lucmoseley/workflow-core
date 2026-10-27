@@ -1,6 +1,6 @@
 /*
- * branch-move-host.js — the production ports guard-branch.js wires into its
- * core, lib/branch-move.js (#2797). The one git read carries the hook's git
+ * branch-move-host.js — the production ports the dispatcher wires into the
+ * guard-branch core, lib/branch-move.js (#2797, #3224). The one git read carries the hook's git
  * timeout, and a timed-out read answers as an erroring one: no such branch.
  */
 

@@ -14,19 +14,19 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	ancestorsOf,
 	FIELD,
+	parseStatFields,
+	readAncestorsOf,
 	readParentOf,
 	readStatFields,
-	statFields,
 } from "./proc-stat.js";
 
 const line = (comm: string, ppid: number) =>
 	`42 (${comm}) S ${ppid} 7 7 0 -1 4194304 1 0 0 0 5 6 0 0 20 0 1 0 999 0 0\n`;
 
-describe("statFields", () => {
+describe("parseStatFields", () => {
 	it("counts from the last `)`, so a comm with spaces and brackets reads", () => {
-		const f = statFields(line("a) (b c", 17));
+		const f = parseStatFields(line("a) (b c", 17));
 		expect(f?.[FIELD.state]).toBe("S");
 		expect(f?.[FIELD.ppid]).toBe("17");
 		expect(f?.[FIELD.utime]).toBe("5");
@@ -35,7 +35,7 @@ describe("statFields", () => {
 	});
 
 	it("is null on a line with no `)`", () => {
-		expect(statFields("garbage")).toBeNull();
+		expect(parseStatFields("garbage")).toBeNull();
 	});
 });
 
@@ -62,26 +62,28 @@ describe("readStatFields and readParentOf", () => {
 	});
 });
 
-describe("ancestorsOf", () => {
+describe("readAncestorsOf", () => {
 	it("walks nearest first and stops at a parent that reads 0", () => {
 		const tree: Record<number, number> = { 30: 20, 20: 10, 10: 1, 1: 0 };
-		expect(ancestorsOf(30, { parentOf: (p) => tree[p] ?? 0 })).toEqual([
+		expect(readAncestorsOf(30, { parentOf: (p) => tree[p] ?? 0 })).toEqual([
 			20, 10, 1,
 		]);
 	});
 
 	it("stops at a pid already seen", () => {
 		const tree: Record<number, number> = { 30: 20, 20: 30 };
-		expect(ancestorsOf(30, { parentOf: (p) => tree[p] ?? 0 })).toEqual([20]);
+		expect(readAncestorsOf(30, { parentOf: (p) => tree[p] ?? 0 })).toEqual([
+			20,
+		]);
 	});
 
 	it("stops on a chain that never ends", () => {
-		expect(ancestorsOf(1e6, { parentOf: (p) => p + 1 }).length).toBeLessThan(
-			1000,
-		);
+		expect(
+			readAncestorsOf(1e6, { parentOf: (p) => p + 1 }).length,
+		).toBeLessThan(1000);
 	});
 
 	it("reaches this process's parent off the real procfs", () => {
-		expect(ancestorsOf(process.pid)[0]).toBe(process.ppid);
+		expect(readAncestorsOf(process.pid)[0]).toBe(process.ppid);
 	});
 });

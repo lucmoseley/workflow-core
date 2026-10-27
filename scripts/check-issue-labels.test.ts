@@ -24,6 +24,7 @@ import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import {
+	asRecorded,
 	GH_NOT_FOUND,
 	ghServeLines,
 	type SubIssuesAnswer,
@@ -107,18 +108,21 @@ const writeThreads = (issues: Issue[]) => {
 		if (i.latestRead === "fail")
 			fs.writeFileSync(path.join(dir, `latest-${i.number}.fail`), "");
 		else if (i.latestRead === "empty")
-			fs.writeFileSync(path.join(dir, `latest-${i.number}.json`), "[[]]");
+			fs.writeFileSync(
+				path.join(dir, `latest-${i.number}.json`),
+				asRecorded("commentsPage", [[]]),
+			);
 		else if (last !== undefined)
 			fs.writeFileSync(
 				path.join(dir, `latest-${i.number}.json`),
-				JSON.stringify([[{ body: last }]]),
+				asRecorded("commentsPage", [[{ body: last }]]),
 			);
 		if (i.blockers === "fail")
 			fs.writeFileSync(path.join(dir, `blockers-${i.number}.fail`), "");
 		else if (i.blockers)
 			fs.writeFileSync(
 				path.join(dir, `blockers-${i.number}.json`),
-				JSON.stringify([i.blockers]),
+				asRecorded("blockedByPage", [i.blockers]),
 			);
 	}
 };
@@ -133,7 +137,7 @@ const threadArms = () => `  */comments?*)
     n=\`echo "$2" | sed 's|.*/issues/||; s|/dependencies.*||'\`
     if [ -f ${dir}/blockers-$n.fail ]; then
       ${ghServeLines(GH_NOT_FOUND)}    fi
-    if [ -f ${dir}/blockers-$n.json ]; then cat ${dir}/blockers-$n.json; else echo '[[]]'; fi
+    if [ -f ${dir}/blockers-$n.json ]; then cat ${dir}/blockers-$n.json; else echo '${asRecorded("blockedByPage", [[]])}'; fi
     ;;`;
 
 /**
@@ -150,7 +154,7 @@ const stubGh = (
 ) => {
 	const rows = issues.map(rowOf);
 	const fixture = path.join(dir, "issues.json");
-	fs.writeFileSync(fixture, JSON.stringify([rows]));
+	fs.writeFileSync(fixture, asRecorded("issuesPage", [rows]));
 	const kidsOf: Record<number, SubIssuesAnswer> = {};
 	/* Rows built from `parent` only: a cross-repo parent URL is another repo's.
 	 * A pull request is no sub-issue, so /sub_issues never lists one. */

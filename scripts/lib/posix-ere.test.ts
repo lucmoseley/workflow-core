@@ -15,11 +15,7 @@
 
 import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-
-/* CommonJS, hence the require. */
-const { compileEre } = require("./posix-ere.js") as {
-	compileEre: (p: string, o?: { icase?: boolean }) => RegExp | null;
-};
+import { compileEre } from "./posix-ere.js";
 
 const CASES: [string, string][] = [
 	["a{", "a{"],

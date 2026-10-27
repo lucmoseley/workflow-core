@@ -52,10 +52,10 @@ const JOB_DIR = "guard-job-dir-scratch";
  * it scores nothing (#2946). Every other scored guard is `kept`.
  */
 const MOVED = new Set([
-	"guard-agent-poll.js",
+	"guard-agent-poll",
+	"guard-branch",
 	"guard-branch-publish",
-	"guard-branch.js",
-	"guard-commit-form.js",
+	"guard-commit-form",
 	"guard-dispatch-rewrite",
 	"guard-file-claim",
 	"guard-issue-body.js",

@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, mkScratchDir, scratchBase } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -4395,15 +4396,45 @@ describe("the pool-tranche trigger verdict", () => {
 
 	/*
 	 * `git cat-file` exits 128 for a missing path, an unresolvable rev and a
-	 * broken repository alike. Reading all three as 0 bytes would let a git that
-	 * cannot answer read as an EMPTY pool — a negative delta, which is the
-	 * silent-pass branch — so the delta must come back null instead.
-	 *
+	 * broken repository alike. Reading a git that cannot answer as "no rev
+	 * resolves" would skip assertion 16 quietly, so it is BROKEN (#3152).
+	 */
+	it("is BROKEN where git will not size a pool file, never a skipped verdict", () => {
+		base(ledger(bullet(8)));
+		writeMap(baselineRows, ledger(bullet(8)));
+		const faulty = writeFaultyGit(
+			{ words: ["cat-file", "-s"] },
+			{ exit: 128 },
+			{ under: repo },
+		);
+		const r = check({ WFC_GIT: faulty.git });
+		expect(faulty.hits()).toBeGreaterThan(0);
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("git would not read");
+		expect(r.out).not.toContain("trigger verdict was not checked");
+	});
+
+	it("is BROKEN where git will not resolve a committed rev, never a skipped verdict", () => {
+		base(ledger(bullet(8)));
+		writeMap(baselineRows, ledger(bullet(8)));
+		const faulty = writeFaultyGit(
+			{ argPrefix: "HEAD^{commit}" },
+			{ exit: 128 },
+			{ under: repo },
+		);
+		const r = check({ WFC_GIT: faulty.git });
+		expect(faulty.hits()).toBeGreaterThan(0);
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("git would not resolve HEAD");
+		expect(r.out).not.toContain("trigger verdict was not checked");
+	});
+
+	/*
 	 * Asserted on the library rather than through the CLI: the whole checker
 	 * BROKENs on a corrupt index long before it reaches this assertion, so the
 	 * CLI cannot distinguish the fix from the bug.
 	 */
-	it("reads a git that cannot answer as null, never as an empty pool", () => {
+	it("throws BROKEN on a corrupt index, never reading it as an empty pool", () => {
 		base(ledger(bullet(8)));
 		const bad = path.join(repo, "bad.idx");
 		fs.writeFileSync(bad, "garbage-not-an-index");
@@ -4412,8 +4443,10 @@ describe("the pool-tranche trigger verdict", () => {
 			[
 				"-e",
 				"const {stagedPoolDelta}=require(process.argv[1]);" +
-					'console.log(JSON.stringify(stagedPoolDelta(["HEAD"])));',
+					'try{stagedPoolDelta(["HEAD"]);console.log("returned")}' +
+					"catch(e){console.log(require(process.argv[2]).outcomeOf(e))}",
 				path.resolve(__dirname, "lib/always-loaded-pool.js"),
+				path.resolve(__dirname, "lib/outcome-error.js"),
 			],
 			{
 				cwd: repo,
@@ -4421,7 +4454,7 @@ describe("the pool-tranche trigger verdict", () => {
 				env: { ...process.env, GIT_INDEX_FILE: bad },
 			},
 		);
-		expect(probe.stdout.trim()).toBe("null");
+		expect(probe.stdout.trim()).toBe("BROKEN");
 	});
 
 	/*

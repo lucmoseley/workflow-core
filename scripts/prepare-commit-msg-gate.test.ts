@@ -177,12 +177,14 @@ const buildTemplate = (root: string) => {
 		path.join(root, "scripts/check-commit-message-closes.sh"),
 		0o755,
 	);
-	// The scanner the launcher runs, and commit-msg's Weakens: gate (#2235),
-	// linked rather than copied: node resolves their requires from the link's
-	// target, so their lib closure comes with them.
+	// The scanner the launcher runs, commit-msg's Weakens: gate (#2235) and the
+	// message reader the subject check spawns (#3075), linked rather than
+	// copied: node resolves their requires from the link's target, so their lib
+	// closure comes with them.
 	for (const rel of [
 		"scripts/check-commit-message-closes.js",
 		"scripts/check-weakens-line.js",
+		"scripts/lib/commit-message.js",
 	])
 		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));
 	git("config", "core.hooksPath", underscore);
@@ -917,7 +919,7 @@ describe("the copied fixture is isolated from its template (mantahostels#2068)",
 /*
  * THE CLOSING-KEYWORD SEAMS (#138).
  *
- * `scripts/guard-commit-form.js` denies the same pattern at PreToolUse, but it
+ * The guard-commit-form core denies the same pattern at PreToolUse, but it
  * reads `-m`/`--message` values alone. These cases drive the four routes that
  * reach GitHub past it — `-F <file>`, a `-c`/`-C` reuse, a message typed into
  * $EDITOR, and a `--no-verify` commit — through real git. The pattern itself

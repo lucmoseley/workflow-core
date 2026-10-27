@@ -50,15 +50,8 @@
  * `pnpm vitest`, `yarn vitest` and `npm exec vitest` all pass unseen.
  */
 
-const { ruleOr } = require("./guard-verdict.js");
+const { ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
-
-/*
- * The fragment carries the operative rule; this is what a session gets when
- * the store cannot be read, so it must still name the file to open.
- */
-const WRAPPER_RULE_FALLBACK =
-	"A vitest run outside `scripts/run-vitest.js` has no stall watchdog; the rule could not be read from docs/agents/rules/vitest-wrapper.txt. Read that file before doing anything else.";
 
 /*
  * The standing line names the failure and the id. It repeats
@@ -93,7 +86,7 @@ const UNSERVABLE = new Set([
 const NPX_VALUE_FLAGS = new Set(["-p", "--package", "-c", "--call"]);
 
 /**
- * @typedef {import("./guard-entry.js").KitContext} WrapperContext
+ * @typedef {import("./kit-context.js").KitContext} WrapperContext
  */
 
 /**
@@ -179,9 +172,10 @@ function body(segment, args, ctx) {
  * @param {WrapperContext} ctx
  */
 const wrapperRule = (ctx) =>
-	ruleOr(
-		() => ctx.ruleText("vitest-wrapper"),
-		WRAPPER_RULE_FALLBACK,
+	ruleOrFallback(
+		ctx,
+		"vitest-wrapper",
+		"A vitest run outside `scripts/run-vitest.js` has no stall watchdog",
 		() => ctx.log("rule vitest-wrapper unreadable — its fallback sent instead"),
 	);
 

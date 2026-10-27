@@ -12,19 +12,19 @@
 #
 # Run from .husky/commit-msg, the one hook that reads the finished message on
 # every route: `-m`, `-F`, `-c`/`-C`, the editor, commit-paths.js and the
-# founder's terminal. scripts/guard-commit-form.js carries no copy: it sees
+# founder's terminal. The guard-commit-form core carries no copy: it sees
 # `-m` values alone.
 #
-# THE SUBJECT is the first line that is neither a comment nor blank, read
-# above the scissors line, with trailing whitespace dropped, as git's default
-# cleanup drops both. A comment is git's own form, `#` then a space, a tab or
-# the line's end: `-m` and `-F` keep a `#2332 …` line as the subject.
+# THE SUBJECT is the first non-blank line git will record, with trailing
+# whitespace dropped. Which `#` lines git keeps, and the scissors cut, are
+# scripts/lib/commit-message.js's (#3075): `-m` and `-F` keep a `#2332 …` line
+# as the subject, and the editor drops it.
 #
 # LENGTH IS COUNTED IN CHARACTERS: bytes less UTF-8 continuation bytes, so
 # no locale is needed.
 #
-# FAILS CLOSED on an unreadable message file: a commit nothing has measured
-# would land a subject of any length.
+# FAILS CLOSED on an unreadable message file or a reader that did not run: a
+# commit nothing has measured would land a subject of any length.
 #
 # EXEMPT: git-generated subjects, which wrap a subject nobody typed —
 # `Revert "…"`, `Reapply "…"`, git's `Merge branch|branches|tag|commit|
@@ -46,12 +46,15 @@ if [[ -z "$msg_file" || ! -r "$msg_file" ]]; then
   exit 1
 fi
 
-subject="$(awk '
-	/^# -+ >8 -+/ { exit }
-	/^#([ \t]|$)/ { next }
+if ! lines="$(node "$here/lib/commit-message.js" "$msg_file")"; then
+  echo "$context: scripts/lib/commit-message.js did not read the message." >&2
+  echo "  Refusing rather than passing a subject nothing has measured (#2332)." >&2
+  exit 1
+fi
+subject="$(printf '%s\n' "$lines" | awk '
 	/^[[:space:]]*$/ { next }
 	{ sub(/[[:space:]]+$/, ""); print; exit }
-' "$msg_file")"
+')"
 
 case "$subject" in
   'Revert "'* | 'Reapply "'* | 'Merge branch '* | 'Merge branches '* | 'Merge tag '* | 'Merge commit '* | 'Merge remote-tracking branch '* | 'Merge pull request '* | 'fixup! '* | 'squash! '* | 'amend! '*) exit 0 ;;

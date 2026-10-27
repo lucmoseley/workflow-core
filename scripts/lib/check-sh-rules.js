@@ -1,5 +1,5 @@
 /*
- * check-sh-rules.js — guard-check-sh.js's core (#2800): which rules a
+ * check-sh-rules.js — the guard-check-sh core (#2800, #3224): which rules a
  * shell-gate command is handed before it runs (mantahostels#1805, spec
  * mantahostels#1762), and, before the full run, the changed-paths route that
  * costs seconds rather than minutes (#1015).
@@ -42,7 +42,7 @@ function npmScript(words) {
 
 /**
  * @param {string} command
- * @param {import("./guard-entry.js").KitContext} ctx
+ * @param {import("./kit-context.js").KitContext} ctx
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(command, ctx) {
@@ -75,4 +75,4 @@ function decide(command, ctx) {
 	};
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

@@ -31,7 +31,7 @@
 	"admissionGate": true,
 	"sessionMeanMb": 587,
 	"sessionSigmaMb": 304,
-	"retro": { "weeklyCount": 2 },
+	"retro": { "weeklyCount": 1 },
 	"sensitivePaths": [
 		{
 			"name": "secret handling",

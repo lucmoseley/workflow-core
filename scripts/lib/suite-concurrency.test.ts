@@ -349,7 +349,7 @@ describe("warns under the ~2900 MB resting floor (a whole suite's rung, #2772)",
 		expect(r.text).toMatch(/1000 MB/);
 	});
 
-	/* The floor's derivation is on `rung_mb` in guard-suite-concurrency.sh
+	/* The floor's derivation is on `suiteRungMb` in lib/suite-ladder.js
 	 * (#1603). */
 	it("warns at one MB under the floor and allows at the floor", () => {
 		expect(verdict("npm run test", 2899)).toBe("warn");
@@ -2826,4 +2826,69 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 			expect(told(command, adopter({ test: command }))).toBe(true);
 		},
 	);
+});
+
+describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js --tsc` (#3163)", () => {
+	const { TSC_RUNG_MB } = require("./tsc-slot.js") as { TSC_RUNG_MB: number };
+	const running = psListing([
+		"bash -l",
+		"node /r/node_modules/.bin/tsc --noEmit",
+	]);
+
+	it.each([
+		"tsc --noEmit",
+		"npx tsc --noEmit",
+		"node_modules/.bin/tsc -p tsconfig.strict.json --noEmit",
+		"npm exec tsc -- --noEmit",
+		"node node_modules/typescript/bin/tsc --noEmit",
+	])(
+		"%s beside a running `tsc` is denied, line one the wrapped form",
+		(command) => {
+			const { text } = judge(command, ROOMY_MB, running);
+			expect(text.split("\n")[0]).toBe(
+				`Run instead: node scripts/queue-run.js --tsc -- ${command}`,
+			);
+			expect(text).toContain("A `tsc` is already running");
+		},
+	);
+
+	it("is denied under its rung, naming the reading and the rung", () => {
+		const { text } = judge("tsc --noEmit", TSC_RUNG_MB - 1, psWith(0));
+		expect(text).toContain(
+			`MemAvailable is ${TSC_RUNG_MB - 1} MB, under the ~${TSC_RUNG_MB} MB`,
+		);
+	});
+
+	it("keeps the rest of a compound command", () => {
+		const { text } = judge("cd app && npx tsc --noEmit", ROOMY_MB, running);
+		expect(text.split("\n")[0]).toBe(
+			"Run the command with this launch in place of its own: node scripts/queue-run.js --tsc -- npx tsc --noEmit",
+		);
+	});
+
+	it.each([
+		["a free slot", "tsc --noEmit", psWith(0)],
+		[
+			"the wrapped form",
+			"node scripts/queue-run.js --tsc -- tsc --noEmit",
+			running,
+		],
+		[
+			"`npm run typecheck`, which holds the slot itself",
+			"npm run typecheck",
+			running,
+		],
+		["a word merely naming tsc", "cat tsconfig.json", running],
+		["an unread `ps` at a roomy reading", "tsc --noEmit", null],
+	])("passes %s", (_label, command, ps) => {
+		expect(outcome(judge(command, ROOMY_MB, ps).verdict)).toBe("allow");
+	});
+
+	it("is not stood down by the suite escape", () => {
+		expect(
+			outcome(
+				judge("tsc --noEmit", ROOMY_MB, running, { vars: ESCAPED }).verdict,
+			),
+		).toBe("deny");
+	});
 });

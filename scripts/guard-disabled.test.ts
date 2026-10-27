@@ -107,9 +107,9 @@ function run(guard: string, disabled: string[], contract = CONTRACT) {
 
 describe("the disabled switch", () => {
 	it("finds the wired guards", () => {
-		// 37 JS guards wired once #2787 and #2791 moved the last shell guards
-		// into guard-dispatch.js's cores.
-		expect(GUARDS.length).toBeGreaterThanOrEqual(37);
+		// 31 JS guards wired once #3224 moved batch 1's six into
+		// guard-dispatch.js's cores.
+		expect(GUARDS.length).toBeGreaterThanOrEqual(31);
 	});
 
 	describe.each(GUARDS)("%s", (guard) => {

@@ -1,12 +1,13 @@
 // @vitest-environment node
 /*
- * guard-agent-poll.js stops a session waiting by looking on its Bash routes —
- * a no-op command and a timed watch (mantahostels#627, mantahostels#659).
- * These are its boundary cases (§X11), run as the harness runs it: the payload
- * on stdin, the TMPDIR its window lives under, the real clock, the real
- * window file and the real core-path rewrite, each exit path once. Which call
- * earns which verdict is lib/agent-poll.test.ts's; the throw policy is
- * lib/refuse-on-throw.test.ts's.
+ * The guard-agent-poll core of guard-dispatch.js stops a session waiting by
+ * looking on its Bash routes — a no-op command and a timed watch
+ * (mantahostels#627, mantahostels#659). These are its boundary cases (§X11),
+ * the dispatcher entry run on it alone: the payload on stdin, the TMPDIR its
+ * window lives under, the real clock, the real window file and the real
+ * core-path rewrite, each exit path once. Which call earns which verdict is
+ * lib/agent-poll.test.ts's; the entry's payload faults and the throw policy
+ * are guard-dispatch's own tests' (#3224).
  *
  * Every case gets its own TMPDIR, where the window lives, and its own
  * CLAUDE_CONFIG_DIR, because a fail-open is recorded (mantahostels#147).
@@ -17,21 +18,14 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import {
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	readHookLines,
-	runNodeGuard,
-	spawnGuard,
+	runDispatchCore,
 } from "./lib/pretool-guard-testkit";
 
 const { CONTRACT } = require("./lib/workflow-core-config.js");
 
-const GUARD = path.resolve(__dirname, "guard-agent-poll.js");
-const LINES = readHookLines(
-	"self-plugin/hooks/hooks.json",
-	"scripts/guard-agent-poll.js",
-);
+const CORE = "guard-agent-poll";
 
 let dir: string;
 let config: string;
@@ -45,10 +39,10 @@ const bashCall = (command: string, session = "s1") => ({
 });
 
 const emission = (
-	payload: unknown,
+	payload: Record<string, unknown>,
 	env: NodeJS.ProcessEnv = {},
 ): Record<string, string> | null =>
-	nodeGuardOutput(GUARD, payload, {
+	dispatchCoreOutput(CORE, payload, {
 		project,
 		config,
 		cwd: project,
@@ -104,23 +98,6 @@ describe("the guard, end to end", () => {
 			"s1.ax_y",
 		]);
 	});
-
-	it("runs from each of its registrations' hook lines", () => {
-		expect(LINES).toHaveLength(4);
-		for (const [i, line] of LINES.entries()) {
-			const r = spawnGuard("/bin/bash", bashCall("true", `line${i}`), {
-				project: path.resolve(__dirname, ".."),
-				config,
-				cwd: project,
-				args: ["-c", line],
-				env: { TMPDIR: tmp },
-			});
-			expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-			expect(fs.existsSync(path.join(tmp, "wfc-agent-poll", `line${i}`))).toBe(
-				true,
-			);
-		}
-	});
 });
 
 describe("a host listing the guard under `disabled`", () => {
@@ -139,72 +116,28 @@ describe("a host listing the guard under `disabled`", () => {
 	});
 
 	it("still refuses where the list names another hook", () => {
-		declare(["guard-branch.js"]);
+		declare(["guard-branch"]);
 		expect(emission(bashCall("true"))).toBeNull();
 		expect(emission(bashCall("true"))?.permissionDecision).toBe("deny");
 	});
 });
 
 describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, {
-			project,
-			config,
-			cwd: project,
-			stdin,
-			env: { TMPDIR: tmp },
-		});
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
+	it("records a payload carrying no session_id under the core's name, allowing", () => {
+		const r = runDispatchCore(
+			CORE,
+			{ tool_name: "Bash", tool_input: { command: "true" } },
+			{ project, config, cwd: project, env: { TMPDIR: tmp } },
+		);
 		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"not json at all",
-			/payload did not parse as JSON — poll check allowed unchecked/,
-		],
-		[
-			"a payload carrying no session_id",
-			JSON.stringify({ tool_name: "Bash", tool_input: { command: "true" } }),
-			/no session_id in payload — poll check allowed unchecked/,
-		],
-	])(
-		"records %s in three fields under its own name, allowing",
-		(_l, stdin, match) => {
-			const r = run(stdin);
-			expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-			const lines = readFailOpenLog(config, project).trim().split("\n");
-			expect(lines).toHaveLength(1);
-			expect(lines[0]?.split("\t")).toEqual([
-				expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-				"guard-agent-poll.js",
-				expect.stringMatching(match),
-			]);
-		},
-	);
-
-	it("refuses, logged, where its core throws", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-agent-poll.js",
-			"agent-poll.js",
-		);
-		const out = nodeGuardOutput(entry, bashCall("true"), {
-			project,
-			config,
-			cwd: project,
-			env: { TMPDIR: tmp },
-		});
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-agent-poll.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, project)).toMatch(
-			/core threw — the command was refused\tbroke/,
-		);
+		const lines = readFailOpenLog(config, project).trim().split("\n");
+		expect(lines).toHaveLength(1);
+		expect(lines[0]?.split("\t")).toEqual([
+			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+			CORE,
+			expect.stringMatching(
+				/no session_id in payload — poll check allowed unchecked/,
+			),
+		]);
 	});
 });

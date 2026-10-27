@@ -6,44 +6,23 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-branch.js",
-						"if": "Bash(git *)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-commit-form.js",
-						"if": "Bash(git *)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-registry-atomicity.js",
 						"if": "Bash(git *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-registry-atomicity.js",
 						"if": "Bash(*commit-paths.js*)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-commit-form.js",
-						"if": "Bash(*commit-paths.js*)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-pull-form.js",
 						"if": "Bash(git *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
@@ -56,119 +35,119 @@
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-body.js",
 						"if": "Bash(gh *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-close.js",
 						"if": "Bash(gh *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-create-label.js",
 						"if": "Bash(gh *)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-anthropic-report.js",
-						"if": "Bash(*gh *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-issue-phase-scope.js",
 						"if": "Bash(*gh *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*npm *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*node *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*next *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*python*)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*pytest*)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*npx *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*yarn *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*pnpm *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*bun *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*make *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*cargo *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*go test*)",
-						"timeout": 10,
+						"timeout": 30,
+						"onFailure": "block"
+					},
+					{
+						"type": "command",
+						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
+						"if": "Bash(*tsc*)",
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
@@ -187,7 +166,7 @@
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-unasked-rerun.js",
 						"if": "Bash(*npm *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
@@ -218,49 +197,14 @@
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-rm-unchecked.js",
 						"if": "Bash(*rm *)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-root-find.js",
 						"if": "Bash(*find *)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-cpu-load.js",
-						"if": "Bash(*yes*)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-cpu-load.js",
-						"if": "Bash(*stress*)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-cpu-load.js",
-						"if": "Bash(*done*)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-cpu-load.js",
-						"if": "Bash(*.sh*)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-cpu-load.js",
-						"if": "Bash(*sh -*)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
@@ -285,21 +229,9 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-check-sh.js",
-						"if": "Bash(*shellcheck *)",
-						"timeout": 10
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-check-sh.js",
-						"if": "Bash(*npm *)",
-						"timeout": 10
-					},
-					{
-						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-hook-escape.js",
 						"if": "Bash(*WFC_ALLOW_*)",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					},
 					{
@@ -319,34 +251,6 @@
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-wide-read.js",
 						"if": "Bash(*awk *)",
 						"timeout": 10
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-agent-poll.js",
-						"if": "Bash(*sleep *)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-agent-poll.js",
-						"if": "Bash(true*)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-agent-poll.js",
-						"if": "Bash(:*)",
-						"timeout": 10,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-agent-poll.js",
-						"if": "Bash(exit*)",
-						"timeout": 10,
-						"onFailure": "block"
 					}
 				]
 			},
@@ -356,7 +260,7 @@
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch.js",
-						"timeout": 10,
+						"timeout": 30,
 						"onFailure": "block"
 					}
 				]

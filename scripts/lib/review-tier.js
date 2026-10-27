@@ -39,6 +39,7 @@ const path = require("node:path");
 const { matchSensitivePaths } = require("./sensitive-paths.js");
 const { reviewSuffix } = require("./review-suffix.js");
 const { caught } = require("./caught.js");
+const { ruleOrFallback } = require("./guard-verdict.js");
 
 /**
  * @typedef {import("./sensitive-paths.js").Match} Match
@@ -64,9 +65,6 @@ const { caught } = require("./caught.js");
  * list would push the fragments after it off this call. 3 is a first guess,
  * never measured against the cap. */
 const PATHS_LISTED_MAX = 3;
-
-const UNDECLARED_FALLBACK =
-	"No sensitive paths are declared, so no review here can escalate: docs/agents/rules/review-sensitive-undeclared.txt.";
 
 /**
  * @param {string} skill
@@ -107,12 +105,11 @@ function decide(skill, ctx) {
 	/* Unlatched, so every review is told until the key exists (spec #1612
 	 * §Solution). */
 	if (match.state === "absent") {
-		let line;
-		try {
-			line = ctx.ruleText("review-sensitive-undeclared");
-		} catch {
-			line = UNDECLARED_FALLBACK;
-		}
+		const line = ruleOrFallback(
+			ctx,
+			"review-sensitive-undeclared",
+			"No sensitive paths are declared, so no review here can escalate",
+		);
 		return { context: ctx.corePaths(line) };
 	}
 	const globless = match.globless.length > 0;

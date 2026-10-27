@@ -99,6 +99,10 @@ process.env.WFC_MODULES ??= config.MODULES.filter(
  * own in the child's env. */
 process.env.WFC_SESSION_FLOOR = "";
 
+/* NO HOST LOAD CEILING, by the same shape: `~/.claude/load-ceiling` (#3223)
+ * would move every load-hold case's ceiling. */
+process.env.WFC_LOAD_CEILING = "";
+
 /* THE POOL IS THIS CHECKOUT'S, by the same shape: a fixture host declares no
  * `alwaysLoaded`, so the pool checkers would read the adopter default. */
 process.env.WFC_ALWAYS_LOADED ??= (

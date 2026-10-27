@@ -36,6 +36,7 @@ const row = (number: number, over: Record<string, unknown> = {}) => ({
 	goal: false,
 	stallDays: 0,
 	asksQuestions: false,
+	depth: 0,
 	reach: 0,
 	collision: "comment-only",
 	takes: ["implement"],
@@ -47,6 +48,10 @@ const pulled = (number: number, over: Record<string, unknown> = {}) => ({
 	repo: "o/other",
 	number,
 	reach: 1,
+	bug: false,
+	urgent: false,
+	goal: false,
+	depth: 1,
 	holds: ["o/served#1"],
 	root: other,
 	held: null,
@@ -124,6 +129,58 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 		expect(
 			m.frontier.find((r: { number: number }) => r.number === 20).reach,
 		).toBe(2);
+	});
+
+	it("inherits the tier and chain depth of what it holds across repos, not its own repo's depth (#3222)", async () => {
+		// o/other#20 holds an urgent served issue two steps on; the served #2
+		// leads on reach, and #20's own repo counts it 7 deep on its own chains.
+		const s = shortlists({
+			[served]: {
+				rows: [row(2, { reach: 3 })],
+				retroBundles: [],
+				pulledIn: [pulled(20, { urgent: true, depth: 2 })],
+			},
+			[other]: {
+				rows: [row(20, { depth: 7 })],
+				retroBundles: [],
+				pulledIn: [],
+				pulledInUnread: [],
+			},
+		});
+		const m = await refillFrontier([served], {}, s.fn);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([
+			20, 2,
+		]);
+		expect(m.frontier[0]).toMatchObject({ urgent: true, depth: 2, reach: 1 });
+	});
+
+	it("joins the tiers and keeps the deepest chain across the served repos that pull it in (#3222)", async () => {
+		const third = path.join(home, "third");
+		const s = shortlists({
+			[served]: {
+				rows: [],
+				retroBundles: [],
+				pulledIn: [pulled(20, { goal: true, depth: 3 })],
+			},
+			[third]: {
+				rows: [],
+				retroBundles: [],
+				pulledIn: [pulled(20, { bug: true, urgent: true })],
+			},
+			[other]: {
+				rows: [row(20)],
+				retroBundles: [],
+				pulledIn: [],
+				pulledInUnread: [],
+			},
+		});
+		const m = await refillFrontier([served, third], {}, s.fn);
+		expect(m.frontier[0]).toMatchObject({
+			bug: true,
+			urgent: true,
+			goal: true,
+			depth: 3,
+		});
 	});
 
 	it("is not launched where its own shortlist holds it out", async () => {

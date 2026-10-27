@@ -33,7 +33,7 @@ const {
  *   relative to the host root, can be opened for reading
  * @property {(rel: string) => string} readFile its text; throws where it
  *   cannot be read
- * @typedef {import("./guard-entry.js").KitContext & PhasePorts} PhaseContext
+ * @typedef {import("./kit-context.js").KitContext & PhasePorts} PhaseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision

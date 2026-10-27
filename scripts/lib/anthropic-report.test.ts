@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/anthropic-report.js, guard-anthropic-report.js's core (#2798), in
+ * lib/anthropic-report.js, the guard-anthropic-report core (#2798), in
  * process: it refuses every `gh issue`, `gh pr` and writing `gh api` call it
  * can tie to an `anthropics/*` repo (#1987; the ruling, #1967).
  *

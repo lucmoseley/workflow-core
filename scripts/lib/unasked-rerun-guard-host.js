@@ -9,7 +9,7 @@
  */
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./unasked-rerun-guard.js").UnaskedPorts}
  */
 function buildHostPorts({ root, payload }) {

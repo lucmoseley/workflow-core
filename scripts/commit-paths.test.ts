@@ -10,7 +10,7 @@
  * Every refusal also asserts the index is untouched.
  *
  * It is the commit route `CLAUDE.md`'s pathspec rule and
- * `scripts/guard-commit-form.js` send every session down: loosen a case and a
+ * the guard-commit-form core send every session down: loosen a case and a
  * commit sweeps in a neighbour's work, leaves a new file behind, or names the
  * wrong commit as the session's own.
  */

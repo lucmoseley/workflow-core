@@ -32,9 +32,8 @@ const { renderSessionRules } = require("./adopter-skeleton") as any;
 const { loadCores } = require("./guard-dispatch.js") as {
 	loadCores: (event: string) => Record<string, unknown>[];
 };
-const { REWIND_RULE_FALLBACK } = require("./main-rewind.js") as {
-	REWIND_RULE_FALLBACK: string;
-};
+const REWIND_RULE_FALLBACK =
+	"Never move `main` backwards; the rule could not be read from docs/agents/rules/main-rewind.txt. Read that file before doing anything else.";
 
 let dir: string;
 let shared: string;

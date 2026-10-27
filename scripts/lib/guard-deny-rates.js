@@ -43,27 +43,6 @@ const WORTH_REPLAYING_PCT = 1;
 
 /** @type {Record<string, Rate>} */
 const RATES = {
-	"guard-agent-poll.js": {
-		denies: 881,
-		population: 40_198,
-		pct: 2.192,
-		lowPct: 2.05,
-		highPct: 2.34,
-	},
-	"guard-branch.js": {
-		denies: 0,
-		population: 21_952,
-		pct: 0,
-		lowPct: 0,
-		highPct: 0.02,
-	},
-	"guard-commit-form.js": {
-		denies: 1,
-		population: 21_952,
-		pct: 0.0046,
-		lowPct: 0,
-		highPct: 0.03,
-	},
 	"guard-issue-body.js": {
 		denies: 16,
 		population: 16_057,

@@ -33,7 +33,7 @@ const RESEARCH_DIR = "docs/research/";
 function readResearchRule() {
 	return readRuleTextOr(
 		"research-in-tree",
-		"Research never lands in docs/research/: post it on its issue.",
+		"Research never lands in docs/research/: post it on its issue",
 		"check-research-added",
 	).split("\n");
 }

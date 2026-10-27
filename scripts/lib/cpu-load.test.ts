@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/cpu-load.js, guard-cpu-load.js's core (#2801), in process: which
+ * lib/cpu-load.js, the guard-cpu-load core (#2801), in process: which
  * commands start CPU load outside a cap of at most half the cores, and which
  * pass (#2710).
  *

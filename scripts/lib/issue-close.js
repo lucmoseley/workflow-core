@@ -1,13 +1,14 @@
 /*
  * issue-close.js — guard-issue-close.js's core (#2798, programme #2733): may
- * this `gh issue close` go ahead? Four rules, in this order: a roadmap card's
+ * this `gh issue close` go ahead? Five rules, in this order: a roadmap card's
  * own issue is closed by /card-close (mantahostels#220), a completed close
  * leaves no unmet acceptance criteria (#1640), every close says what is still
- * outstanding (mantahostels#185, #984), and a completed close leaves no census
- * row its commits expired (#1913).
+ * outstanding (mantahostels#185, #984), a completed close leaves no census
+ * row its commits expired (#1913), and none whose commits are unpushed
+ * (#3101).
  *
  * A CORE: it does no I/O. gh, the clock, the roadmap file, the tracker, the
- * census read and the rule store arrive as ports;
+ * census read, the landing read and the rule store arrive as ports;
  * lib/issue-close-host.js builds the real ones.
  *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
@@ -16,17 +17,23 @@
  *
  * THE TIME BUDGET (docs/agents/guard-authoring.md §The ceiling your guard runs
  * under). The hook is cancelled at 10 s, and the entry runs `onFailure:
- * block`, so an overrun refuses the close. Each close costs up to three
- * external calls — the issue read, the Outstanding open-check and the census
- * read — so each gets what is left of the run budget as its own timeout; a call
- * with too little left is not made but recorded as a fail-open.
+ * block`, so an overrun refuses the close. Each close costs up to four
+ * external calls — the issue read, the Outstanding open-check, the census
+ * read and the landing read — so each gets what is left of the run budget as
+ * its own timeout; a call with too little left is not made but recorded as a
+ * fail-open.
  */
 
-/* The rule readers — ticket-criteria.js, outstanding-line.js and
- * census-digest.js — are required where a close reaches them, not here: they
- * cost more load than every gh call that closes nothing should pay (#2798's
- * latency gate). */
-const { deny, open, ruleOr, walkVerdict } = require("./guard-verdict.js");
+/* The rule readers — ticket-criteria.js, outstanding-line.js,
+ * census-digest.js and unlanded-commits.js — are required where a close
+ * reaches them, not here: they cost more load than every gh call that closes
+ * nothing should pay (#2798's latency gate). */
+const {
+	deny,
+	open,
+	ruleOrFallback,
+	walkVerdict,
+} = require("./guard-verdict.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { parseCommand } = require("./shell-parse.js");
 const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
@@ -34,7 +41,7 @@ const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 
 /**
- * @typedef {{ refusal: string } | { outOfBudget: true }} CensusRead
+ * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
  * @typedef {object} ClosePorts
  * @property {(args: string[], timeoutMs: number) => string} gh gh's stdout;
  *   throws where gh fails, cannot be found or outlasts `timeoutMs`
@@ -43,11 +50,15 @@ const { repoSlug } = require("./workflow-core-config.js");
  *   root, null where it cannot be read
  * @property {() => string | undefined} tracker the tracker the config
  *   declares, else the origin remote's; undefined where none resolves
- * @property {(n: number, timeoutMs: number) => CensusRead} census the census
+ * @property {(n: number, timeoutMs: number) => RefusalRead} census the census
  *   refusal over issue n's expired rows, "" where none is; outOfBudget where
  *   the read passed `timeoutMs`; throws where git, the anchors file or a
  *   formatter cannot answer
- * @typedef {import("./guard-entry.js").KitContext & ClosePorts} CloseContext
+ * @property {(n: number, comment: string, timeoutMs: number) => RefusalRead} landing
+ *   the refusal over issue n's commits, cited on the close's checkout's HEAD
+ *   or named by sha in `comment`, that the pushed ref lacks, "" where none
+ *   is; outOfBudget and throws as census
+ * @typedef {import("./kit-context.js").KitContext & ClosePorts} CloseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision
@@ -61,13 +72,6 @@ const CALL_MS = 4000;
 const MIN_CALL_MS = 1000;
 
 const ROADMAP = "docs/reference-roadmap.html";
-
-const OUTSTANDING_RULE_FALLBACK =
-	"Every close says what is still outstanding, on a line beginning **Outstanding:**; the rule could not be read from docs/agents/rules/close-outstanding.txt. Read that file before doing anything else.";
-const CARD_RULE_FALLBACK =
-	"A roadmap card's own issue is closed by /card-close, never by hand; the rule could not be read from docs/agents/rules/card-close-by-hand.txt. Read that file before doing anything else.";
-const CRITERIA_RULE_FALLBACK =
-	"Tick each acceptance criterion this session verified, or annotate it **waived:** <why>, before closing; the rule could not be read from docs/agents/rules/ticket-criteria-unticked.txt. Read that file before doing anything else.";
 
 const SPACE = "[ \\t\\n\\v\\f\\r]";
 
@@ -178,7 +182,8 @@ function judge(run, cmd) {
 	const criteriaRead = judgeCriteria(run, close);
 	judgeOutstanding(run, close);
 	/* After the Outstanding rule: the census read is the slowest call, and
-	 * running it first could leave that rule no budget. */
+	 * running it first could leave the others no budget. */
+	judgeLanding(run, close);
 	judgeCensus(run, close);
 	/* Reached only where the Outstanding rule passed without a fetch of its own
 	 * failing — a failed one ends the call — so this is the outage's one
@@ -459,7 +464,7 @@ function denyCard(run, close, id, state) {
 
 Close it with **/card-close ${close.issue}** instead.
 
-${ruleOr(() => run.ctx.ruleText("card-close-by-hand"), CARD_RULE_FALLBACK)}`,
+${ruleOrFallback(run.ctx, "card-close-by-hand", "A roadmap card's own issue is closed by /card-close, never by hand")}`,
 	);
 }
 
@@ -492,7 +497,7 @@ ${unmet
 
 Re-run the close once each is ticked or waived — or, abandoning the issue, with --reason "not planned".
 
-${ruleOr(() => run.ctx.ruleText("ticket-criteria-unticked"), CRITERIA_RULE_FALLBACK)}`,
+${ruleOrFallback(run.ctx, "ticket-criteria-unticked", "Tick each acceptance criterion this session verified, or annotate it **waived:** <why>, before closing")}`,
 	);
 }
 
@@ -563,20 +568,71 @@ function judgeOutstanding(run, close) {
 Read: ${from}.
 ${buildRefusalText(verdict).replace(/\n+$/, "")}
 
-${ruleOr(() => run.ctx.ruleText("close-outstanding"), OUTSTANDING_RULE_FALLBACK)}
+${ruleOrFallback(run.ctx, "close-outstanding", "Every close says what is still outstanding, on a line beginning **Outstanding:**")}
 
 In one call, with the comment checked before anything is written: node ${run.ctx.scriptPath("resolve-ticket.js")} <n> --comment-file <file>. It refuses a comment without a passing **Outstanding:** line, a **Bound:** line, a **Values:** line (**Values:** none where nothing is house or untraced) or a **Practice:** line, and one naming a commit sha without a **Door:** line.`,
 	);
 }
 
 /**
- * Denies a completed close over census rows its commits expired (#1913), or
- * records a fail-open. A close naming another repo owes none: the commits
- * cite this one's tracker.
+ * @typedef {object} RefusalRule a completed-close rule whose refusal a
+ *   budgeted git read gives, escaped by a marker line in the close's own
+ *   --comment or else the newest comment
+ * @property {string} reader the reader, as a record names it
+ * @property {string} unchecked what goes unchecked where it gives no verdict
+ * @property {(at: string) => string} reading what it reads, for issue `at`
+ * @property {string} line the escape line's marker
+ * @property {(text: string) => boolean} hasLine
+ * @property {(ctx: CloseContext, n: number, comment: string, timeoutMs: number) => RefusalRead} read
+ *   `comment` the close's own --comment, else the newest comment
+ * @property {string} opening the deny's first line, before the command
+ * @property {string} remedy what the re-run waits on
+ */
+
+/** @type {RefusalRule} */
+const CENSUS_RULE = {
+	reader: "the census reader",
+	unchecked: "census rows unchecked",
+	reading: (at) => `${at}'s census rows`,
+	line: "a Census line",
+	hasLine: (text) => require("./census-digest.js").hasCensusLine(text),
+	read: (ctx, n, _comment, ms) => ctx.census(n, ms),
+	opening: "This close leaves census rows its commits expired",
+	remedy: "each row is re-anchored",
+};
+
+/** @type {RefusalRule} */
+const LANDING_RULE = {
+	reader: "the landing reader",
+	unchecked: "landing unchecked",
+	reading: (at) => `whether ${at}'s commits landed`,
+	line: "an Unlanded line",
+	hasLine: (text) => require("./unlanded-commits.js").hasUnlandedLine(text),
+	read: (ctx, n, comment, ms) => ctx.landing(n, comment, ms),
+	opening: "This close reports work that has not landed",
+	remedy: "they are pushed",
+};
+
+/**
  * @param {Run} run
  * @param {Close} close
  */
-function judgeCensus(run, close) {
+const judgeCensus = (run, close) => judgeRefusalRule(run, close, CENSUS_RULE);
+
+/**
+ * @param {Run} run
+ * @param {Close} close
+ */
+const judgeLanding = (run, close) => judgeRefusalRule(run, close, LANDING_RULE);
+
+/**
+ * Denies a completed close `rule` refuses, or records a fail-open. A close
+ * naming another repo owes none: the commits cite this one's tracker.
+ * @param {Run} run
+ * @param {Close} close
+ * @param {RefusalRule} rule
+ */
+function judgeRefusalRule(run, close, rule) {
 	const at = `${close.repo}#${close.issue}`;
 	/* The Outstanding rule records an unreadable --comment for the whole
 	 * close. */
@@ -587,47 +643,45 @@ function judgeCensus(run, close) {
 	const left = callBudget(run);
 	if (left < MIN_CALL_MS) {
 		run.ctx.log(
-			`no time left in the guard's budget to read ${at}'s census rows — unchecked`,
+			`no time left in the guard's budget to read ${rule.reading(at)} — unchecked`,
 		);
 		return;
 	}
 	const noVerdict = () =>
-		run.ctx.log(
-			`the census reader gave no verdict on ${at} — census rows unchecked`,
-		);
-	/* Issue 0 is no issue: the census reader refused it before reading. */
+		run.ctx.log(`${rule.reader} gave no verdict on ${at} — ${rule.unchecked}`);
+	/* Issue 0 is no issue: no reader is asked about it. */
 	const n = Number(close.issue);
 	if (n < 1) return noVerdict();
-	const { hasCensusLine } = require("./census-digest.js");
-	if (hasCensusLine(`${close.comment}\n\n${newest}`)) return;
-	/** @type {CensusRead} */
+	const said = `${close.comment}\n\n${newest}`;
+	if (rule.hasLine(said)) return;
+	/** @type {RefusalRead} */
 	let read;
 	try {
-		read = run.ctx.census(n, left);
+		read = rule.read(run.ctx, n, close.comment || newest, left);
 	} catch {
 		return noVerdict();
 	}
 	if ("outOfBudget" in read) {
 		run.ctx.log(
-			`the census reader ran out of the guard's time budget on ${at} — census rows unchecked`,
+			`${rule.reader} ran out of the guard's time budget on ${at} — ${rule.unchecked}`,
 		);
 		return;
 	}
 	if (!read.refusal) return;
 	if (!issue) {
 		run.ctx.log(
-			`could not read ${at}'s newest comment for a Census line — census rows unchecked`,
+			`could not read ${at}'s newest comment for ${rule.line} — ${rule.unchecked}`,
 		);
 		return;
 	}
 	deny(
 		run.ctx,
 		close.segment,
-		`This close leaves census rows its commits expired: @CMD@
+		`${rule.opening}: @CMD@
 
 ${read.refusal} The close's own --comment, or else the issue's newest comment, carries it.
 
-Re-run the close once each row is re-anchored or the line is written — or, abandoning the issue, with --reason "not planned".`,
+Re-run the close once ${rule.remedy} or the line is written — or, abandoning the issue, with --reason "not planned".`,
 	);
 }
 

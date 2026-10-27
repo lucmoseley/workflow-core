@@ -70,6 +70,8 @@
  *    sees no hook; scripts/check-orphan-wait-loops.js is that backstop.
  */
 
+const { ruleOrFallback } = require("./guard-verdict.js");
+
 /** `[[:space:]]`, without JavaScript's wider Unicode `\s`. */
 const SP = " \\t\\n\\v\\f\\r";
 
@@ -138,8 +140,6 @@ const ASSIGN_RE = new RegExp(
 );
 const WRAPPED_SLEEP_RE = new RegExp(`^sleep[${SP}]+([^${SP}]*)`);
 const WRAPPED_LOOP_RE = new RegExp(`^(while|until)[${SP}]`);
-
-const RULE_FALLBACK = `A Bash wait of more than ${WAIT_CAP_MS / 60_000} minutes is banned; the rule could not be read from docs/agents/rules/wait-length.txt. Read that file before doing anything else: it says how to hand the work back instead.`;
 
 /**
  * @typedef {{ kw: string, body: string, condition: string }} Loop
@@ -405,14 +405,11 @@ function waitDeny(what, ms, ctx) {
 		ms >= ENDLESS_MS
 			? "without end"
 			: `${Math.floor((ms + 59_999) / 60_000)} minutes`;
-	let rule;
-	try {
-		rule = ctx.ruleText("wait-length");
-	} catch {
-		/* Not a fail-open: the wait is read and known too long, and an
-		 * unreadable fragment is check-guard-registry.js's assertion. */
-		rule = RULE_FALLBACK;
-	}
+	const rule = ruleOrFallback(
+		ctx,
+		"wait-length",
+		"A Bash wait past the limit is banned, and the rule says how to hand the work back instead",
+	);
 	return {
 		deny: ctx.corePaths(
 			`This waits ${length} — ${what} — and the limit is 15 minutes.\n\n${rule}`,

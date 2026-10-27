@@ -24,6 +24,7 @@ interface Waiter {
 	session?: string | null;
 	pid?: number;
 	slotFree?: boolean;
+	passed?: number;
 }
 const exit = (w: Waiter, i: number) => ({
 	reason: "refused",
@@ -94,6 +95,29 @@ function replayOf({
 	);
 }
 const hoursOf = (m: Map<string, number>) => Object.fromEntries(m);
+
+describe("the passes the waiters recorded (#3115)", () => {
+	it("tallies the exit lines that count their passes, apart from the model", () => {
+		const r = replayOf({
+			waiters: [
+				{ from: 0, to: 10, slotFree: true, reason: "opened", passed: 2 },
+				{ from: 0, to: 5, slotFree: true, reason: "opened", passed: 0 },
+				{ from: 0, to: 5, slotFree: false, reason: "opened" },
+			],
+		});
+		expect(r.passes).toEqual({ counted: 2, passing: 1, passed: 2 });
+		expect(render(r, window())).toContain(
+			"Recorded passes: 1 of the 2 waits whose exit line counts its passes opened their turn past 2 older part waiter(s)",
+		);
+	});
+
+	it("says where no line counts its passes", () => {
+		const r = replayOf({ waiters: [{ from: 0, to: 5, reason: "opened" }] });
+		expect(render(r, window())).toContain(
+			"no exit line in the window counts its passes",
+		);
+	});
+});
 
 describe("the limbs, in the gate's order", () => {
 	it("holds a whole waiter on the count while a whole run has the slot, and names the holder", () => {

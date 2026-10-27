@@ -1,9 +1,9 @@
 // @vitest-environment node
 /*
- * Pins that check-suite-margin.js names the latest green whole vitest suite
- * over its target — sha, duration, target, ceiling, machine reading and
- * slowest files — stays silent on one under it, on a part-suite and on a red
- * run, and exits 0 on a breach (#1797, the report-only ruling).
+ * Pins that check-suite-margin.js names the latest green whole vitest
+ * suite, or the latest green run of any of its shards, over its target —
+ * sha, duration, target, ceiling, machine reading and slowest files — stays
+ * silent on one under it, on a part-suite and on a red run, and exits 0 on a breach (#1797, the report-only ruling).
  *
  * Loosen a case and the suite outgrows its margin unreported until a push
  * gate is killed at the ceiling, or a slow run starts refusing.
@@ -100,6 +100,111 @@ describe("a green whole suite over the target", () => {
 
 	it("is judged on the latest run alone", () => {
 		write(marker(), marker({ sha: "b".repeat(40), durationMs: 1000 }));
+		expect(run().out).not.toContain("SUITE-MARGIN");
+	});
+});
+
+describe("a sharded whole suite (#3090)", () => {
+	const half = (index: number, fields: Record<string, unknown> = {}) =>
+		marker({
+			scope: { ...WHOLE, modulesRun: 300, shard: { index, count: 2 } },
+			durationMs: TARGET_MS - 1000,
+			...fields,
+		});
+
+	it("names a shard over the target with its index, even when the latest shard is under it", () => {
+		write(half(1), half(2, { durationMs: TARGET_MS + 60_000 }), half(1));
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("SUITE-MARGIN");
+		expect(r.out).toContain("shard 2/2");
+		expect(r.out).not.toContain("shard 1/2 of the whole suite, at");
+		expect(r.out).toContain(secs(TARGET_MS + 60_000));
+	});
+
+	it("stays silent when each shard's latest run is under the target, though an older one was over", () => {
+		write(half(2, { durationMs: TARGET_MS + 60_000 }), half(1), half(2));
+		const out = run().out;
+		expect(out).not.toContain("SUITE-MARGIN");
+		expect(out).toContain("shard 1/2 of the whole suite");
+		expect(out).toContain("shard 2/2 of the whole suite");
+		expect(out).toContain(`inside the ${secs(TARGET_MS)} target`);
+	});
+
+	it("names both shards, each on its own line, when both are over", () => {
+		const over = { durationMs: TARGET_MS + 60_000 };
+		write(half(1, over), half(2, over));
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("shard 1/2 of the whole suite, at");
+		expect(r.out).toContain("shard 2/2 of the whole suite, at");
+		expect(r.out).toContain("2 run(s) over the target");
+	});
+
+	it("judges only shards at the latest run's count", () => {
+		const thirds = (index: number, fields: Record<string, unknown> = {}) =>
+			marker({
+				scope: { ...WHOLE, modulesRun: 200, shard: { index, count: 3 } },
+				...fields,
+			});
+		write(thirds(1), half(1), half(2));
+		expect(run().out).not.toContain("SUITE-MARGIN");
+	});
+
+	it("reads a red shard over the target as no run to judge", () => {
+		write(
+			half(1),
+			half(2, {
+				durationMs: TARGET_MS + 60_000,
+				scope: {
+					...WHOLE,
+					modulesRun: 300,
+					shard: { index: 2, count: 2 },
+					failures: [{ file: "x.test.ts", tests: ["t"] }],
+				},
+			}),
+		);
+		const out = run().out;
+		expect(out).not.toContain("SUITE-MARGIN");
+		expect(out).toContain("No green run of shard 2/2 is recorded");
+	});
+
+	it("judges a whole suite newer than the shards on its own", () => {
+		write(half(1, { durationMs: TARGET_MS + 60_000 }), half(2), marker());
+		const out = run().out;
+		expect(out).toContain("green whole suite, at");
+		expect(out).not.toContain("shard 1/2");
+	});
+
+	it("never judges a shard on a run older than the latest whole suite", () => {
+		write(
+			half(2, { durationMs: TARGET_MS + 60_000 }),
+			marker({ durationMs: 1000 }),
+			half(1),
+		);
+		const out = run().out;
+		expect(out).not.toContain("SUITE-MARGIN");
+		expect(out).toContain("No green run of shard 2/2 is recorded");
+	});
+
+	it("names a shard with no green run as unjudged", () => {
+		write(half(1));
+		const out = run().out;
+		expect(out).toContain("No green run of shard 2/2 is recorded");
+	});
+
+	it("reads a shard narrowed by a file filter as no shard of the whole suite", () => {
+		write(
+			half(1, {
+				durationMs: TARGET_MS + 60_000,
+				scope: {
+					...WHOLE,
+					modulesRun: 1,
+					fileFilters: ["x"],
+					shard: { index: 1, count: 2 },
+				},
+			}),
+		);
 		expect(run().out).not.toContain("SUITE-MARGIN");
 	});
 });

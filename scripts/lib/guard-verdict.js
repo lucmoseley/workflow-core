@@ -4,7 +4,7 @@
  * segment into its `@CMD@`, and a rule the store cannot give is answered by
  * its fallback (base §S4).
  *
- * The rule read stays a thunk at the core's call site, its id a literal:
+ * A rule's id stays a literal at the core's own ruleOrFallback call:
  * check-guard-registry.js counts a fragment as printed only there (#2796).
  */
 
@@ -16,6 +16,10 @@ const { unmask, walkCommands } = require("./shell-parse.js");
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./shell-parse.js").WalkPorts} WalkPorts
  * @typedef {{ corePaths: (text: string) => string }} PathPorts
+ * @typedef {{
+ *   ruleText: (id: string) => string,
+ *   docPath: (name: string) => string,
+ * }} RulePorts
  */
 
 /** The one verdict that ends the walk: a decision, or null for a fail-open. */
@@ -85,21 +89,30 @@ function open(ctx, what) {
 }
 
 /**
- * The fragment, or `fallback` where the store cannot give it. Not a
- * fail-open: the command is resolved and known bad, only the rule could not
- * be read, so it still refuses (mantahostels#1648, #2801); `onFault` is told
- * where a guard logs it.
- * @param {() => string} read
- * @param {string} fallback
+ * The fragment `id`, or where the store cannot give it the fallback template
+ * (#3018) built from `lead` and the same id, so the two cannot name different
+ * fragments. Not a fail-open: the command is resolved and known bad, only the
+ * rule could not be read, so it still refuses (mantahostels#1648, #2801);
+ * `onFault` is told where a guard logs it.
+ * @param {RulePorts} ctx
+ * @param {string} id
+ * @param {string} lead the fallback's opening, no closing stop
  * @param {() => void} [onFault]
  */
-function ruleOr(read, fallback, onFault) {
+function ruleOrFallback(ctx, id, lead, onFault) {
 	try {
-		return read();
+		return ctx.ruleText(id);
 	} catch {
 		onFault?.();
-		return fallback;
+		return `${lead}; the rule could not be read from ${ctx.docPath(`agents/rules/${id}.txt`)}. Read that file before doing anything else.`;
 	}
 }
 
-module.exports = { deny, denyText, open, ruleOr, spliceCmd, walkVerdict };
+module.exports = {
+	deny,
+	denyText,
+	open,
+	ruleOrFallback,
+	spliceCmd,
+	walkVerdict,
+};

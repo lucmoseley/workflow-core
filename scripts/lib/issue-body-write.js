@@ -17,12 +17,12 @@ const {
 	scanGraphql,
 } = require("./gh-api-call.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
-const { deny, ruleOr, walkVerdict } = require("./guard-verdict.js");
+const { deny, ruleOrFallback, walkVerdict } = require("./guard-verdict.js");
 const { parseCommand, unmask } = require("./shell-parse.js");
 const { QUOTED, isGhCommand } = require("./shell-words.js");
 
 /**
- * @typedef {import("./guard-entry.js").KitContext} BodyContext
+ * @typedef {import("./kit-context.js").KitContext} BodyContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision
@@ -54,9 +54,10 @@ function decide(command, ctx) {
  */
 function refuseClobber(run, segment) {
 	const { ctx } = run;
-	const rule = ruleOr(
-		() => ctx.ruleText("issue-body-clobber"),
-		`Every issue-body edit goes through node ${ctx.scriptPath("issue-body.js")}; the rule could not be read from docs/agents/rules/issue-body-clobber.txt. Read that file before doing anything else.`,
+	const rule = ruleOrFallback(
+		ctx,
+		"issue-body-clobber",
+		"Every issue-body edit goes through node scripts/issue-body.js",
 	);
 	deny(
 		ctx,

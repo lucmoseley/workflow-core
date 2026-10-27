@@ -112,10 +112,12 @@ const { execGit, gitOrNull, GIT_TIMEOUT_MS } = require("./lib/git.js");
 /** @typedef {import("./lib/workflow-core-config.js").Module} Module */
 /** @typedef {import("./lib/workflow-core-config.js").Command} Command */
 /**
- * One command, where it came from — --command, the kept config, or
- * inference — and any note inference left on it. `from` is unset where
- * nothing declares the command.
- * @typedef {{command: string|null, from?: string, note?: string}} SourcedCommand
+ * One command, where it came from — `kind` to branch on, `from` to print —
+ * and any note inference left on it, or a null command where nothing
+ * declares it.
+ * @typedef {{command: null} | {command: string,
+ *   kind: "explicit"|"kept"|"inferred", from: string,
+ *   note?: string}} SourcedCommand
  */
 
 /** @typedef {Record<Command, SourcedCommand>} Sourced */
@@ -518,16 +520,12 @@ class Writer {
  *   out: (line: string) => void}} at
  */
 function reportCommands({ sourced, kept, out }) {
-	const found = COMMANDS.filter((c) => sourced[c].command);
-	if (found.length > 0)
-		out(
-			`commands ${found
-				.map((c) => {
-					const { command, from, note } = sourced[c];
-					return `${c}: ${command} (${from}${note ? ` — ${note}` : ""})`;
-				})
-				.join("; ")}`,
-		);
+	const found = COMMANDS.flatMap((c) => {
+		const s = sourced[c];
+		if (s.command === null) return [];
+		return [`${c}: ${s.command} (${s.from}${s.note ? ` — ${s.note}` : ""})`];
+	});
+	if (found.length > 0) out(`commands ${found.join("; ")}`);
 	else if (kept) out(`commands none declared in ${CONFIG}`);
 	else
 		out(
@@ -1497,14 +1495,14 @@ function isCoreCheckout({ root, pluginRoot, marketplace }) {
  * @returns {string|null}
  */
 function checkStagedRefusal(root, checkStaged) {
-	const { command, from } = checkStaged;
-	if (!command || from === CONFIG) return null;
+	if (checkStaged.command === null || checkStaged.kind === "kept") return null;
+	const { command, kind, from } = checkStaged;
 	const named = `init-adopter: check_staged "${command}" (${from})`;
 	try {
 		if (runsLintStaged(root, command))
 			return `${named} runs lint-staged, which hides each partly staged file's unstaged hunks with git restore --worktree for its run, removing a neighbour's uncommitted edits in a shared tree (#2583). Declare instead --command check_staged='${BIOME_STAGED_COMMAND}', or a command of your own that reads the index's bytes, not the worktree's.\n`;
 		const biome = classifyCheckStaged(root, command, {
-			inferred: from !== EXPLICIT,
+			inferred: kind === "inferred",
 		});
 		if (biome.kind === "refused") return `${named} ${biome.refusal}\n`;
 	} catch (err) {
@@ -1525,15 +1523,17 @@ function checkStagedRefusal(root, checkStaged) {
 function commandSources({ commands, kept, declared, inferred }) {
 	/** @param {Command} c @returns {SourcedCommand} */
 	const source = (c) => {
-		if (commands[c]) return { command: commands[c], from: EXPLICIT };
+		if (commands[c])
+			return { command: commands[c], kind: "explicit", from: EXPLICIT };
 		if (kept && declared?.commands[c])
-			return { command: declared.commands[c], from: CONFIG };
-		if (!(c in inferred)) return { command: null };
+			return { command: declared.commands[c], kind: "kept", from: CONFIG };
 		const hit = inferred[/** @type {keyof typeof inferred} */ (c)];
+		if (!hit) return { command: null };
 		return {
-			command: hit?.command ?? null,
-			from: `inferred from ${hit?.from}`,
-			note: hit?.note,
+			command: hit.command,
+			kind: "inferred",
+			from: `inferred from ${hit.from}`,
+			note: hit.note,
 		};
 	};
 	return /** @type {Sourced} */ (

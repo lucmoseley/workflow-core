@@ -18,8 +18,7 @@
  * the cross-repo `owner/repo#12`, and the full issue URL.
  */
 
-const { readRuleText } = require("./rule-text.js");
-const { docPath } = require("./script-path.js");
+const { readRuleTextOr } = require("./rule-text.js");
 
 /* ASCII whitespace alone, POSIX [[:space:]]: \s would also take Unicode spaces. */
 const SPACE = "[ \\t\\n\\v\\f\\r]";
@@ -46,24 +45,13 @@ function closingMatch(text) {
 }
 
 /**
- * The rule text, from docs/agents/rules/commit-closes-keyword.txt.
- * A missing fragment must not turn a refusal into a crash (#138), so it falls
- * back to a sentence pointing at the file.
- */
-function readClosingRuleText() {
-	try {
-		return readRuleText("commit-closes-keyword");
-	} catch {
-		return `Never write a closing keyword before an issue reference in a commit message — write \`Refs #n\` instead; the rule could not be read from ${docPath("agents/rules/commit-closes-keyword.txt")}. Read that file before doing anything else.`;
-	}
-}
-
-/**
  * What a refusal says after its own opening line: what matched, the rule, and
  * the way out.
  * @param {string} match closingMatch's
+ * @param {string} [root] the host root, where a hook entry already resolved it
+ *   (#3142)
  */
-const closingRefusal = (match) =>
-	`What matched: \`${match}\`\n\n${readClosingRuleText()}\n\nRewrite the message with a non-closing reference and commit again.`;
+const closingRefusal = (match, root) =>
+	`What matched: \`${match}\`\n\n${readRuleTextOr("commit-closes-keyword", "Never write a closing keyword before an issue reference in a commit message — write `Refs #n` instead", "closing-keyword", root)}\n\nRewrite the message with a non-closing reference and commit again.`;
 
 module.exports = { closingMatch, closingRefusal };

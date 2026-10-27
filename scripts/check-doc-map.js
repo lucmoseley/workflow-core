@@ -138,7 +138,7 @@
  *      NOT softened by `--map-dirty`.
  *      Silent where no committed rev resolves, or where the map carries no
  *      ledger stem: "cannot tell whether this commit adds pool bytes" is not
- *      "it adds none". An entry is known by its label, its `#<n>` and one
+ *      "it adds none". A git that will not answer is BROKEN (#3152). An entry is known by its label, its `#<n>` and one
  *      lowercase word directly after it, so a second tranche under one issue
  *      labels itself apart (`#<n> review`, #1739). Two residuals it cannot
  *      see: a parallel session's fresh entry satisfies your tranche, and

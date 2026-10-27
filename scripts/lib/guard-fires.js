@@ -331,7 +331,7 @@ function spanFires(span, subject, stamp) {
 	const out = [];
 	for (const needle of subject.needles) {
 		// A needle may narrow the subject's routes further (mantahostels#2118).
-		// guard-branch.js and guard-pull-form.js each reprint their whole
+		// The guard-branch core and guard-pull-form.js each reprint their whole
 		// rule fragment INSIDE the deny as well as injecting it
 		// pre-emptively, so a needle on the fragment's own words matches
 		// both limbs: without this the deny counts twice, once as itself

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/commit-form.js, guard-commit-form.js's core (#2793), in process: which
+ * lib/commit-form.js, the guard-commit-form core (#2793), in process: which
  * commit forms sweep the shared index (mantahostels#117) and are denied or
  * warned on under mantahostels#109's split, which skip the hooks or rewrite
  * history, which carry a closing keyword, and which are handed the commit rules
@@ -9,7 +9,7 @@
  * a false positive; do not thin them out.
  *
  * Each case calls `decide` on a context built from the production adapters —
- * guard-entry.js's kitContext, with commit-form-host.js's buildHostPorts over
+ * kit-context.js's kitContext, with commit-form-host.js's buildHostPorts over
  * it — against a throwaway repo standing in for the shared
  * tree, a worktree of it for the exempt case, and an unrelated repo. Real git,
  * the real arbiter store and the real rule store. The log is collected, so a
@@ -69,13 +69,9 @@ const { decide } = req("./commit-form.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };
 const { buildHostPorts } = req("./commit-form-host.js") as {
-	buildHostPorts: (env: {
-		root: string;
-		payload: Record<string, unknown>;
-		log: (what: string, detail?: string) => void;
-	}) => object;
+	buildHostPorts: (root: string) => object;
 };
-const { kitContext, sharedReaders } = req("./guard-entry.js") as {
+const { kitContext, sharedReaders } = req("./kit-context.js") as {
 	kitContext: (
 		env: {
 			root: string;
@@ -152,7 +148,9 @@ const judge = (
 			...kitContext({ root, payload, log }, sharedReaders(root, log)),
 			/* The hook's own directory, which kitContext reads off the process. */
 			fallbackCwd: cwd,
-			...buildHostPorts({ root, payload, log }),
+			session: session ?? "",
+			env: { ...process.env },
+			...buildHostPorts(root),
 		});
 	} finally {
 		for (const [k, v] of saved) {
@@ -1479,6 +1477,34 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 			'git commit -m "Closes #2592" -m "tidy the injector" -- a.md',
 		);
 		expect(reason).toContain("What matched: `Closes #2592`");
+	});
+
+	/* The declared project dir holds no store, so a read resolving its own
+	 * root would answer the core's fragment, never this one. */
+	it("reads the rule under the root the entry resolved (#3142)", () => {
+		const root = mkScratchDir("closes-root-");
+		const declared = mkScratchDir("closes-elsewhere-");
+		const own = path.join(root, "docs", "agents", "rules");
+		fs.mkdirSync(own, { recursive: true });
+		fs.writeFileSync(path.join(own, "commit-closes-keyword.txt"), "own rule");
+		const saved = [process.env.CLAUDE_PROJECT_DIR, process.env.WFC_RULES_DIR];
+		process.env.CLAUDE_PROJECT_DIR = declared;
+		delete process.env.WFC_RULES_DIR;
+		try {
+			const ports = buildHostPorts(root) as {
+				closingRefusal: (match: string) => string;
+			};
+			expect(ports.closingRefusal("Closes #1")).toContain("own rule");
+		} finally {
+			for (const [k, v] of [
+				["CLAUDE_PROJECT_DIR", saved[0]],
+				["WFC_RULES_DIR", saved[1]],
+			] as const)
+				if (v === undefined) delete process.env[k];
+				else process.env[k] = v;
+			fs.rmSync(root, { recursive: true, force: true });
+			fs.rmSync(declared, { recursive: true, force: true });
+		}
 	});
 
 	it("does not read a message passed by file, which is the rule's stated blind spot", () => {

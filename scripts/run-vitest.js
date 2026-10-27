@@ -84,7 +84,7 @@ const {
 	queueSpawned,
 	queueStamps,
 	queueLeave,
-	queueTurn,
+	passingTurn,
 	waitForGate,
 } = require("./lib/suite-queue.js");
 const { readOwnPaths, readOwnWork } = require("./lib/own-work.js");
@@ -664,7 +664,7 @@ function runOnce(
 		// A real ChildProcess always has `.on`; the only caller that would not is
 		// a test double built wrong, and that should throw rather than hide it.
 		child.on("error", (error) => {
-			process.stderr.write(`vitest could not be run: ${error}\n`);
+			process.stderr.write(`vitest could not be run from ${bin}: ${error}\n`);
 		});
 
 		/* Set while the watchdog is armed; cleared once it kills or the child
@@ -828,8 +828,11 @@ function runOnce(
 					reap(dirPath(target), { fs: fsImpl });
 				}
 				inflight.clearFile(inflightFile);
-				/* A killed run must never be able to exit 0. */
-				resolve(killedFor || code === null ? 1 : code);
+				/* A killed run must never be able to exit 0. A negative code is
+				 * the errno of a child that never spawned, -2 for ENOENT: passed
+				 * on, it reads as REQUEUE or REQUEUE_WHOLE and re-queues the run
+				 * for ever (#3140). */
+				resolve(killedFor || code === null || code < 0 ? 1 : code);
 			};
 			if (stream) stream.end(finish);
 			else finish();
@@ -2394,10 +2397,11 @@ function main(argv = process.argv.slice(2), options = {}) {
 		/* The worktree is built AFTER the gate opens, so its frozen sha is the
 		 * one the run actually starts from rather than the one the wait began at. */
 		try {
+			const { turn, exitFields } = passingTurn(options);
 			const outcome = await waitOrRefuse(
 				() =>
 					waitForGate({
-						turn: () => queueTurn(options),
+						turn,
 						leave: recheck,
 						gateWords: rest,
 						gateWeight: weight,
@@ -2407,7 +2411,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 						part,
 						onExit: (reason, waitMs, heldBy) => {
 							waitingExits.delete(onKill);
-							logExit(reason, waitMs, heldBy);
+							logExit(reason, waitMs, exitFields(reason, heldBy));
 						},
 					}),
 				options,

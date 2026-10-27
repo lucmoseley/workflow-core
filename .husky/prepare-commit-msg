@@ -25,9 +25,10 @@
 #            not the 4-hourly cron.
 # DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
 #            turn off every hook in the repo at once.
-#            `scripts/guard-commit-form.js` denies `--no-verify` on `git
-#            commit`, `git merge`, `git rebase`, `git cherry-pick` and `git
-#            revert` in an agent session unless wrapped; its LIMITS holds the whole defeat list (#800). Which
+#            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies `--no-verify`
+#            on `git commit`, `git merge`, `git rebase`, `git cherry-pick` and
+#            `git revert` in an agent session unless wrapped;
+#            `scripts/lib/commit-form.js`'s LIMITS holds the whole defeat list (#800). Which
 #            binary the replay path's scan runs is named by WFC_GITLEAKS (§N7,
 #            #224).
 #
@@ -87,7 +88,7 @@ if wfc_commit_route_replays "$route"; then
   replay=1
 fi
 
-# THE CLOSING-KEYWORD LIMB (#138). `scripts/guard-commit-form.js` denies the
+# THE CLOSING-KEYWORD LIMB (#138). The guard-commit-form core denies the
 # same pattern at PreToolUse, but reads `-m`/`--message` values alone: `-F
 # <file>`, a `-c`/`-C` reuse and the founder's own terminal all reach GitHub
 # past it, and the issue then closes on the push with no resolution comment and
@@ -108,8 +109,7 @@ fi
 # unreadable is the fail-closed case, and belongs to the scanner.
 if [ -z "$replay" ] && [ -n "${1-}" ]; then
   # FAIL CLOSED on a missing scanner, as .husky/commit-msg does and for the
-  # same reason: `core.hooksPath` is absolute, so this resolves the canonical
-  # checkout's scripts/ from every worktree.
+  # same reason: each worktree resolves its own scripts/ here.
   scanner="${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-commit-message-closes.sh"
   if [ ! -r "$scanner" ]; then
     echo "prepare-commit-msg: $scanner is missing, so the closing-keyword scan did not run." >&2

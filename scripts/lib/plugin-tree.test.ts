@@ -930,6 +930,43 @@ describe("a render in a fixture", () => {
 		).toEqual(["js-yaml", "@scope/pkg/sub", "dyn", "side-effect", "resolved"]);
 	});
 
+	it("follows a symlink, but not into a directory already on the walk (#3150)", () => {
+		const root = fixture("");
+		const out = path.join(tmp, "out");
+		const link = (target: string, at: string) =>
+			fs.symlinkSync(target, path.join(root, at));
+		fs.mkdirSync(path.join(root, "scripts/lib"));
+		link(".", "scripts/lib/self");
+		link("..", "scripts/lib/up");
+		fs.mkdirSync(path.join(root, "scripts/x"));
+		fs.mkdirSync(path.join(root, "scripts/y"));
+		link("../y", "scripts/x/to-y");
+		link("../x", "scripts/y/to-x");
+		fs.mkdirSync(path.join(root, "vendored"));
+		fs.writeFileSync(path.join(root, "vendored/c.js"), "");
+		link("../../vendored", "scripts/lib/v");
+		buildTree(root, out);
+		expect(readFiles(out).filter((f) => f.startsWith("scripts/"))).toEqual([
+			"scripts/a.js",
+			"scripts/lib/v/c.js",
+		]);
+	});
+
+	it("refuses a symlink that resolves to no file, naming it (#3150)", () => {
+		const root = fixture("");
+		fs.symlinkSync("gone.js", path.join(root, "scripts/b.js"));
+		fs.symlinkSync("q.js", path.join(root, "scripts/p.js"));
+		fs.symlinkSync("p.js", path.join(root, "scripts/q.js"));
+		const out = path.join(tmp, "out");
+		expect(() => buildTree(root, out)).toThrow(
+			[
+				"scripts/b.js is a symlink that resolves to no file",
+				"scripts/p.js is a symlink that resolves to no file",
+				"scripts/q.js is a symlink that resolves to no file",
+			].join("\n"),
+		);
+	});
+
 	it("refuses an output directory that already exists", () => {
 		expect(() => buildTree(fixture(""), tmp)).toThrow(/already exists/);
 	});

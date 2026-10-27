@@ -9,7 +9,7 @@ const fs = require("node:fs");
 const { markersDir } = require("./marker-root.js");
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./unchecked-rm.js").RmPorts}
  */
 function buildHostPorts({ root }) {

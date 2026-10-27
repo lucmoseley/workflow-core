@@ -30,42 +30,37 @@
  * leak is one-way.
  */
 
-const fs = require("node:fs");
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
 	names,
 	readTrackerRemotes,
 	fetchTrackerCommand,
 } = require("./lib/tracker-remotes.js");
-const { readTopLevel } = require("./lib/git-tree.js");
+const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
+const { buildUnchecked, runPrePushGate } = require("./lib/pre-push-gate.js");
 const { caught } = require("./lib/caught.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { execGit, spawnGitSync } = require("./lib/git.js");
 
 const REFUSE = 2;
-const ZERO = /^0+$/;
 
 /**
  * Printed where a fault stops the judgement before the gate knows the code
  * repo is apart, and the push goes through (#1954).
- * @param {string} why
  */
-const unchecked = (why) =>
-	writeFd(
-		2,
-		`public-push-gate: ${why} — push not checked for tracker history.\n`,
-	);
+const unchecked = buildUnchecked(
+	"public-push-gate",
+	"tracker history in the push",
+);
 
 /**
  * The local shas the ref list pushes, deletions left out.
  * @param {string} stdin
  */
-function pushedShas(stdin) {
-	return stdin.split("\n").flatMap((line) => {
-		const [, sha] = line.trim().split(/\s+/);
-		return sha !== undefined && !ZERO.test(sha) ? [sha] : [];
-	});
-}
+const parsePushedShas = (stdin) =>
+	parseRefLines(stdin)
+		.map(({ sha }) => sha)
+		.filter((sha) => !isZeroSha(sha));
 
 /**
  * Every remote-tracking ref of `remotes`. Throws where git cannot list them.
@@ -145,7 +140,7 @@ function judge(stdin, url, tree) {
 		return 0;
 	}
 	if (names(url, tracker)) return 0;
-	const shas = pushedShas(stdin);
+	const shas = parsePushedShas(stdin);
 	if (shas.length === 0) return 0;
 	let leaking;
 	try {
@@ -167,20 +162,6 @@ function judge(stdin, url, tree) {
 	]);
 }
 
-function main() {
-	const tree = readTopLevel(process.cwd());
-	if (tree === null) {
-		unchecked("could not find the pushing tree");
-		return 0;
-	}
-	let stdin = "";
-	try {
-		stdin = fs.readFileSync(0, "utf8");
-	} catch (e) {
-		unchecked(`could not read the pushed refs (${caught(e).message})`);
-		return 0;
-	}
-	return judge(stdin, process.argv[2] ?? "", tree);
-}
-
-process.exitCode = main();
+process.exitCode = runPrePushGate(unchecked, (stdin, tree) =>
+	judge(stdin, process.argv[2] ?? "", tree),
+);

@@ -15,7 +15,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { FIELD, ancestorsOf, statFields } = require("./proc-stat.js");
+const { FIELD, parseStatFields, readAncestorsOf } = require("./proc-stat.js");
 
 /** Kernel clock ticks per second. */
 const USER_HZ = 100;
@@ -37,7 +37,7 @@ const procRoot = () => process.env.WFC_PROC_ROOT || "/proc";
  * @param {string} stat
  */
 function parseStat(stat) {
-	const fields = statFields(stat);
+	const fields = parseStatFields(stat);
 	const state = fields?.[FIELD.state];
 	const ppid = Number(fields?.[FIELD.ppid]);
 	const pgid = Number(fields?.[FIELD.pgrp]);
@@ -145,7 +145,7 @@ function ownTree(procs) {
 	return new Set([
 		process.pid,
 		process.ppid,
-		...ancestorsOf(process.pid, { parentOf }).filter((pid) => pid > 1),
+		...readAncestorsOf(process.pid, { parentOf }).filter((pid) => pid > 1),
 	]);
 }
 

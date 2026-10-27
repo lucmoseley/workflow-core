@@ -70,17 +70,15 @@ index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db44
  		);
  		expect(text).toContain(readFragment("review-tier-globless"));
  		expect(text).toContain(readFragment("review-tier-escalated"));
-@@ -536,7 +537,8 @@ describe("the fragments", () => {
+@@ -536,7 +537,6 @@ describe("the fragments", () => {
  		);
  	});
  
 -	// The escalated case pins the tier fragment whole.
-+	// The escalated case pins the tier fragment whole, and the next case pins
-+	// the hold rule-text.sh prints as this file.
  	it("ask a yes to name the rule or calculation, and areas= to name the globless areas judged touched (#2082, #2254)", () => {
  		expect(readFragment("review-tier-escalated")).toContain(
  			"a yes names the rule or calculation",
-@@ -546,13 +548,17 @@ describe("the fragments", () => {
+@@ -546,13 +546,17 @@ describe("the fragments", () => {
  		);
  	});
  
@@ -103,7 +101,7 @@ index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db44
  		expect(hold).toMatch(
  			/^ {2}node scripts\/write-review-marker\.js .*--paths /m,
  		);
-@@ -770,7 +776,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
+@@ -770,7 +774,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
  		stage(SQL);
  		const text = envelope() ?? "";
  		expect(text.indexOf("Tier owed: escalated.")).toBeLessThan(

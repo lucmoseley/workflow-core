@@ -1,11 +1,12 @@
 // @vitest-environment node
 /*
- * guard-cpu-load.js refuses a CPU load generator run outside a CPU cap of at
- * most half the cores, and hands over the capped form (#2710). These are its
- * boundary cases (§X11), run as the harness runs it: the payload on fd 0, the
- * hook's environment, real scripts in a temp project, and the fail-open log.
- * Which command earns which verdict is lib/cpu-load.test.ts's (#2801); the
- * throw policy is lib/refuse-on-throw.test.ts's.
+ * The guard-cpu-load core of guard-dispatch.js refuses a CPU load generator
+ * run outside a CPU cap of at most half the cores, and hands over the capped
+ * form (#2710). These are its boundary cases (§X11), the dispatcher entry run
+ * on it alone: the payload on fd 0, the hook's environment, real scripts in a
+ * temp project, and the fail-open log. Which command earns which verdict is
+ * lib/cpu-load.test.ts's (#2801); the entry's payload faults and the throw
+ * policy are guard-dispatch's own tests' (#3224).
  *
  * The core count is pinned at 8 through WFC_CPU_COUNT, so a 2-core CI runner
  * judges the cap as this machine does, bar the one case that reads the online
@@ -16,20 +17,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	failOpenLogPath,
-	readFailOpenLog,
-	readFailOpenRecords,
-} from "./guard-log-fixture";
+import { readFailOpenRecords } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-cpu-load.js");
+const CORE = "guard-cpu-load";
 const LOOP = "for _ in 1 2 3 4 5 6 7 8; do yes >/dev/null & done";
 
 let dir: string;
@@ -37,21 +32,27 @@ let config: string;
 let project: string;
 
 /** The hook output for `command`, the payload's cwd the project; exit 0 and
- * a quiet stderr asserted on every call. */
+ * a quiet stderr asserted on every call. `cores` omitted pins
+ * WFC_CPU_COUNT to 8; null leaves it unset. */
 const emission = (
 	command: string,
 	{
 		cores = "8",
 		cwd = project,
-	}: { cores?: string | undefined; cwd?: string | undefined } = {},
+	}: { cores?: string | null; cwd?: string | undefined } = {},
 ) =>
-	nodeGuardOutput(
-		GUARD,
+	dispatchCoreOutput(
+		CORE,
 		{
 			...buildBashPayload(command, null),
 			...(cwd === undefined ? {} : { cwd }),
 		},
-		{ project, config, cwd: project, env: { WFC_CPU_COUNT: cores } },
+		{
+			project,
+			config,
+			cwd: project,
+			env: { WFC_CPU_COUNT: cores ?? undefined },
+		},
 	);
 
 beforeEach(() => {
@@ -137,7 +138,7 @@ describe("the core count", () => {
 	});
 
 	it("is the online count where WFC_CPU_COUNT is unset", () => {
-		const out = emission("yes >/dev/null &", { cores: undefined });
+		const out = emission("yes >/dev/null &", { cores: null });
 		expect(out.permissionDecisionReason).toContain(
 			`this machine's ${os.cpus().length} cores;`,
 		);
@@ -148,7 +149,7 @@ describe("the core count", () => {
 		expect(readFailOpenRecords(config, project)).toEqual([
 			[
 				expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-				"guard-cpu-load.js",
+				CORE,
 				"the core count did not resolve — every command allowed unchecked",
 			],
 		]);
@@ -156,67 +157,14 @@ describe("the core count", () => {
 });
 
 describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, {
-			project,
-			config,
-			cwd: project,
-			stdin,
-			env: { WFC_CPU_COUNT: "8" },
-		});
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"{not json",
-			/payload did not parse as JSON/,
-		],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])("records %s, allowing", (_l, stdin, match) => {
-		const r = run(stdin);
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(readFailOpenRecords(config, project)).toEqual([
-			[
-				expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-				"guard-cpu-load.js",
-				expect.stringMatching(match),
-			],
-		]);
-	});
-
 	it("records an affinity it cannot read, taking it as a cap", () => {
 		expect(emission("taskset zz yes >/dev/null &")).toBeNull();
 		expect(readFailOpenRecords(config, project)).toEqual([
 			[
 				expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-				"guard-cpu-load.js",
+				CORE,
 				"taskset affinity 'zz' unreadable — taken as a cap",
 			],
 		]);
-	});
-
-	it("refuses, logged, where its core throws", () => {
-		const out = nodeGuardOutput(
-			entryBesideThrowingCore(dir, "scripts/guard-cpu-load.js", "cpu-load.js"),
-			buildBashPayload("yes | head", null),
-			{ project, config, cwd: project, env: { WFC_CPU_COUNT: "8" } },
-		);
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-cpu-load.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, project)).toMatch(
-			/core threw — the command was refused\tbroke/,
-		);
 	});
 });

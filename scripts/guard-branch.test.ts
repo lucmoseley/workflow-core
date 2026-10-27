@@ -1,12 +1,13 @@
 // @vitest-environment node
 /*
- * guard-branch.js denies a branch move on the shared working tree
- * (mantahostels#110) and hands the rule over before an allowed worktree add
- * (mantahostels#1647). These are its boundary cases (§X11), run as the harness
- * runs it: the payload, real git trees, the rule store and the latch, end to
- * end. Which command earns which verdict is lib/branch-move.test.ts's; the
- * tree classes are lib/git-tree.test.ts's; the throw policy is
- * lib/refuse-on-throw.test.ts's (#2797).
+ * The guard-branch core of guard-dispatch.js denies a branch move on the
+ * shared working tree (mantahostels#110) and hands the rule over before an
+ * allowed worktree add (mantahostels#1647). These are its boundary cases
+ * (§X11), the dispatcher entry run on it alone: the payload, real git trees,
+ * the rule store and the latch, end to end. Which command earns which verdict
+ * is lib/branch-move.test.ts's; the tree classes are lib/git-tree.test.ts's;
+ * the entry's payload faults and the throw policy are guard-dispatch's own
+ * tests' (#2797, #3224).
  *
  * A throwaway repo stands in for the shared tree and a worktree of it for the
  * exempt case. Loosen a deny and a session can move the shared tree off `main`
@@ -21,11 +22,11 @@ import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
-	nodeGuardOutput,
-	runNodeGuard,
+	dispatchCoreOutput,
+	runDispatchCore,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-branch.js");
+const CORE = "guard-branch";
 
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
@@ -56,7 +57,7 @@ const emission = (
 		env = {},
 	}: { cwd?: string; session?: string; env?: NodeJS.ProcessEnv } = {},
 ) =>
-	nodeGuardOutput(GUARD, buildBashPayload(command, session), {
+	dispatchCoreOutput(CORE, buildBashPayload(command, session), {
 		project: shared,
 		config,
 		cwd,
@@ -176,69 +177,16 @@ describe("a refusal whose rule it cannot read still refuses (mantahostels#1648)"
 });
 
 describe("the fail-open record", () => {
-	const run = (stdin: string, project = shared, env: NodeJS.ProcessEnv = {}) =>
-		runNodeGuard(GUARD, null, { project, config, cwd: project, stdin, env });
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, shared))).toBe(false);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"{not json",
-			/payload did not parse as JSON/,
-		],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])("records %s, allowing", (_l, stdin, match) => {
-		const r = run(stdin);
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		const [line] = readFailOpenLog(config, shared).trim().split("\n");
-		expect(line?.split("\t")).toEqual([
-			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-			"guard-branch.js",
-			expect.stringMatching(match),
-		]);
-	});
+	const run = (
+		payload: Record<string, unknown>,
+		project = shared,
+		env: NodeJS.ProcessEnv = {},
+	) => runDispatchCore(CORE, payload, { project, config, cwd: project, env });
 
 	it("records a checkout whose working tree cannot be resolved, allowing", () => {
 		expect(emission("cd $TARGET && git checkout -b foo")).toBeNull();
 		expect(readFailOpenLog(config, shared)).toMatch(
 			/could not resolve the working tree for a git checkout/,
-		);
-	});
-
-	it("refuses, logged, where its core throws", () => {
-		// A copy of the entry beside a core that throws; every other lib is the
-		// real one, linked.
-		const at = path.join(dir, "broken");
-		const lib = path.join(at, "scripts", "lib");
-		fs.mkdirSync(lib, { recursive: true });
-		fs.copyFileSync(GUARD, path.join(at, "scripts", "guard-branch.js"));
-		for (const f of fs.readdirSync(path.join(__dirname, "lib")))
-			if (f !== "branch-move.js")
-				fs.symlinkSync(path.join(__dirname, "lib", f), path.join(lib, f));
-		fs.writeFileSync(
-			path.join(lib, "branch-move.js"),
-			'module.exports = { decide() { throw new Error("broke"); } };\n',
-		);
-		const out = nodeGuardOutput(
-			path.join(at, "scripts", "guard-branch.js"),
-			buildBashPayload("git status", "test"),
-			{ project: shared, config, cwd: shared },
-		);
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-branch.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, shared)).toMatch(
-			/core threw — the command was refused\tbroke/,
 		);
 	});
 
@@ -248,7 +196,7 @@ describe("the fail-open record", () => {
 		const notARepo = path.join(dir, "not-a-repo");
 		fs.mkdirSync(notARepo, { recursive: true });
 		const r = run(
-			JSON.stringify(buildBashPayload("git checkout -b foo", "test")),
+			buildBashPayload("git checkout -b foo", "test"),
 			notARepo,
 			/* Otherwise git walks up out of the fixture into a real repository
 			 * (mantahostels#3149, mantahostels#3158). */

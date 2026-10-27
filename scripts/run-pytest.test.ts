@@ -23,6 +23,7 @@ import { runInProcessAsync } from "./lib/run-in-process";
 const require = createRequire(import.meta.url);
 const { readMarkers } = require("./lib/test-pass-marker.js");
 const { CEILING_ENV, DEADLINE_ENV } = require("./lib/suite-ceiling.js");
+const { pythonSpawnRemedy } = require("./lib/python-bin.js");
 
 const SCRIPT = path.join(__dirname, "run-pytest.js");
 
@@ -476,6 +477,44 @@ describe("what it says out loud", () => {
 		expect(r.stderr).toContain("WFC_PYTHON");
 		expect(r.stderr).toContain("requirements-dev.txt");
 		expect(r.status).toBe(1);
+	});
+
+	it("tells a python it may not execute from a missing one", async () => {
+		const root = repo();
+		const python = path.join(root, "unexecutable-python");
+		fs.writeFileSync(python, "#!/bin/sh\n", { mode: 0o644 });
+		const r = await wrap(python, root);
+		expect(r.stderr).toContain("EACCES");
+		expect(r.stderr).toContain("not executable by you");
+		expect(r.stderr).not.toContain("Install python3");
+		expect(r.status).toBe(1);
+	});
+
+	// EAGAIN cannot be provoked without exhausting the machine's process
+	// table, so each code's advice is pinned on the remedy itself.
+	const Remedies = [
+		["ENOENT", "Install python3"],
+		["EACCES", "not executable by you"],
+		["EAGAIN", "retry once other runs have ended"],
+	];
+	it.each(Remedies)(
+		"advises on %s with its own remedy alone (#3120)",
+		(code, remedy) => {
+			const said = pythonSpawnRemedy(
+				Object.assign(new Error(`spawn python3 ${code}`), { code }),
+			);
+			expect(said).toContain(remedy);
+			for (const [, other] of Remedies)
+				if (other !== remedy) expect(said).not.toContain(other);
+		},
+	);
+
+	it("offers no remedy for a spawn failure none fits", () => {
+		expect(
+			pythonSpawnRemedy(
+				Object.assign(new Error("spawn python3 EMFILE"), { code: "EMFILE" }),
+			),
+		).toBe("");
 	});
 
 	it("prints what a narrowed run covered, at the terminal rather than at the push", async () => {

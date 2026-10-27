@@ -36,8 +36,9 @@ export const guardExists = (name: string) => fs.existsSync(guardPath(name));
 export const GUARDS = {
 	/* lib/file-claim.js, run by the PreToolUse dispatcher. */
 	fileClaim: "guard-dispatch.js",
-	commitForm: "guard-commit-form.js",
-	branch: "guard-branch.js",
+	/* lib/commit-form.js and lib/branch-move.js, run by the same dispatcher. */
+	commitForm: "guard-dispatch.js",
+	branch: "guard-dispatch.js",
 	arbiter: "session-arbiter.js",
 } as const;
 
@@ -333,6 +334,10 @@ export class Session {
 
 	/** A Bash payload, the field a commit-form guard reads. */
 	bashPayload(command: string) {
-		return { tool_name: "Bash", tool_input: { command } };
+		return {
+			hook_event_name: "PreToolUse",
+			tool_name: "Bash",
+			tool_input: { command },
+		};
 	}
 }

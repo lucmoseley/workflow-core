@@ -24,7 +24,11 @@ const fs = require("node:fs");
 const os = require("node:os");
 
 const { caught } = require("./caught.js");
-const { ancestorsOf, parentInFields, statFields } = require("./proc-stat.js");
+const {
+	parentInFields,
+	parseStatFields,
+	readAncestorsOf,
+} = require("./proc-stat.js");
 const {
 	defaultQueueDir,
 	isMarkerStale,
@@ -54,26 +58,32 @@ const YIELD_NICE = 10;
 function lineageOf(pid, readStat) {
 	const parentOf = (/** @type {number} */ p) => {
 		try {
-			return parentInFields(statFields(readStat(p)));
+			return parentInFields(parseStatFields(readStat(p)));
 		} catch {
 			/* Exited mid-walk: the lineage ends where it can no longer be read. */
 			return 0;
 		}
 	};
-	return new Set([pid, ...ancestorsOf(pid, { parentOf })]);
+	return new Set([pid, ...readAncestorsOf(pid, { parentOf })]);
 }
 
 /**
- * Whether `a` and `b` sit in one cgroup, read as yes where either will not
- * read.
+ * Whether `a` and `b` sit in one cgroup.
  * @param {number} a
  * @param {number} b
  * @param {(pid: number) => string} readCgroup
+ * @param {{ write: (s: string) => unknown }} err
  */
-function sameCgroup(a, b, readCgroup) {
+function isSameCgroup(a, b, readCgroup, err) {
 	try {
 		return readCgroup(a) === readCgroup(b);
-	} catch {
+	} catch (error) {
+		/* Read as one cgroup, as every run sat before #2956 put the lander in
+		 * a scope: a yield the cgroup would void costs this run some
+		 * speed, where a missed one costs the whole suite its margin. */
+		err.write(
+			`could not read pid ${String(a)} or ${String(b)}'s cgroup (${caught(error).message}) — yielding as if they share one (#2956).\n`,
+		);
 		return true;
 	}
 }
@@ -83,15 +93,16 @@ function sameCgroup(a, b, readCgroup) {
  * cgroup: a live, spawned suite-queue marker joined whole. A lander's own
  * bisect runs sit below its marker and never yield to it. Throws on a queue
  * directory that will not read, which no marker list can clear.
- * @param {WholeProbe} probe
+ * @param {WholeProbe & { err: { write: (s: string) => unknown } }} probe
  * @returns {boolean}
  */
-function foreignWholeRunning({
+function isForeignWholeRunning({
 	queueDir = defaultQueueDir(),
 	pid = process.pid,
 	readStat = (p) => fs.readFileSync(`/proc/${p}/stat`, "utf8"),
 	readCgroup = (p) => fs.readFileSync(`/proc/${p}/cgroup`, "utf8"),
 	alive,
+	err,
 }) {
 	const { markers, error } = readMarkers(queueDir);
 	if (error) throw error;
@@ -102,7 +113,7 @@ function foreignWholeRunning({
 			record.part !== true &&
 			!own.has(record.pid) &&
 			!isMarkerStale(record, alive ? { alive } : {}) &&
-			sameCgroup(pid, record.pid, readCgroup),
+			isSameCgroup(pid, record.pid, readCgroup, err),
 	);
 }
 
@@ -122,7 +133,7 @@ function yieldToWhole(
 ) {
 	if (!child.pid) return false;
 	try {
-		if (!foreignWholeRunning(probe)) return false;
+		if (!isForeignWholeRunning({ ...probe, err })) return false;
 		priority.setPriority(
 			child.pid,
 			Math.min(19, priority.getPriority(child.pid) + YIELD_NICE),

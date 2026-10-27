@@ -60,6 +60,11 @@
  * running another tool passes unseen, and a build beside a dev server is not
  * the rule's to refuse.
  *
+ * A BARE `tsc` THE TYPE-CHECK SLOT WOULD HOLD IS DENIED (#3163): one already
+ * running, or MemAvailable under its rung (lib/tsc-slot.js). Line one is the
+ * same launch through `queue-run.js --tsc`, which waits for the slot; no
+ * escape. `npm run typecheck` holds the slot itself, so it is never judged.
+ *
  * SCOPE: `npm run test`, `npm run test:changed`, `npm run test:watch`,
  * `node scripts/run-vitest.js` (mantahostels#2015), a build and a dev server.
  * Also (#330) `node --test`, `pytest` and a Python test file run bare, plus the
@@ -102,7 +107,8 @@
  * (mantahostels#2811), `if: Bash(*python*)` and `if: Bash(*pytest*)` (#330),
  * and `if: Bash(*npx *)`, `if: Bash(*yarn *)`, `if: Bash(*pnpm *)`,
  * `if: Bash(*bun *)`, `if: Bash(*make *)`, `if: Bash(*cargo *)` and
- * `if: Bash(*go test*)`, for a host's declared `commands.test` (#2303).
+ * `if: Bash(*go test*)`, for a host's declared `commands.test` (#2303), and
+ * `if: Bash(*tsc*)` (#3163).
  * The narrowing is best-effort (hooks.md:448), so the count-cap deny does not
  * rest on it: the core re-reads the command itself.
  *

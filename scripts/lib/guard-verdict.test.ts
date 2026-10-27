@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { Command } from "./shell-parse.js";
 import { parseCommand, walkCommands } from "./shell-parse.js";
 
-const { deny, denyText, open, ruleOr, walkVerdict } =
+const { deny, denyText, open, ruleOrFallback, walkVerdict } =
 	require("./guard-verdict.js") as typeof import("./guard-verdict.js");
 
 const WALK = {
@@ -91,21 +91,30 @@ describe("denyText", () => {
 	});
 });
 
-describe("ruleOr", () => {
-	it("answers the fragment, or the fallback where the read throws, telling onFault only then", () => {
+describe("ruleOrFallback", () => {
+	it("answers the fragment, or the fallback built from the one id where the read throws, telling onFault only then", () => {
 		const faults: string[] = [];
 		const onFault = () => faults.push("fault");
-		expect(ruleOr(() => "the rule", "fallback", onFault)).toBe("the rule");
+		const reads: string[] = [];
+		const store = {
+			ruleText: (id: string) => {
+				reads.push(id);
+				return "the rule";
+			},
+			docPath: (name: string) => `/core/docs/${name}`,
+		};
+		expect(ruleOrFallback(store, "a-rule", "Lead", onFault)).toBe("the rule");
+		expect(reads).toEqual(["a-rule"]);
 		expect(faults).toEqual([]);
-		expect(
-			ruleOr(
-				() => {
-					throw new Error("no store");
-				},
-				"fallback",
-				onFault,
-			),
-		).toBe("fallback");
+		const empty = {
+			...store,
+			ruleText: () => {
+				throw new Error("no store");
+			},
+		};
+		expect(ruleOrFallback(empty, "a-rule", "Lead", onFault)).toBe(
+			"Lead; the rule could not be read from /core/docs/agents/rules/a-rule.txt. Read that file before doing anything else.",
+		);
 		expect(faults).toEqual(["fault"]);
 	});
 });

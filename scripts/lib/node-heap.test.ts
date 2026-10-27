@@ -9,14 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-
-const { decide } = require("./node-heap.js") as {
-	decide: (command: string) => { injectRules: string[] } | null;
-};
-/* CommonJS, hence the require. */
-const { readRuleText } = require("./rule-text") as {
-	readRuleText: (id: string) => string;
-};
+import { decide } from "./node-heap.js";
+import { readRuleText } from "./rule-text";
 
 describe("a command touching the heap flag is handed the rule", () => {
 	it.each([

@@ -2,10 +2,9 @@
 /*
  * guard-inventory.js — Stop hook. Refuses a background job's ending when what
  * waits on the founder is missing, misshapen or carried by no open issue
- * (#988, under the #958 spec; ruled at #913).
+ * (#988).
  *
- * THE INVENTORY (#904) is the shape `PLACEMENT` prints. The status-line tail
- * exists because the job list shows that line's text alone.
+ * THE INVENTORY (#904) is the shape `PLACEMENT` prints.
  *
  * WHERE IT IS OWED: a background job (`CLAUDE_JOB_DIR` set) ending on
  * `result:` or `needs input:`. Never at `waiting:`, never in an interactive
@@ -25,8 +24,7 @@
  *     cited issue holds, among its newest five comments, one opening a round
  *     and carrying the round's first question title, from the same batched
  *     read; and this session holds an arbiter claim on one such issue in the
- *     tracker (#1066), else `/pick-next` lists it as free work and a second
- *     session re-asks the round. A claim another live session holds does not
+ *     tracker (#1066). A claim another live session holds does not
  *     count: the refusal's `claim-issue.js` then refuses, surfacing the
  *     collision. And a comment holding the round carries a well-formed
  *     `**Hand-off:**` block (lib/hand-off.js, #2391).
@@ -40,12 +38,12 @@
  *     in the tree — a file its diff carries is owed its restore to HEAD too —
  *     a live neighbour's claimed files aside.
  *
- * DRAFT AND ACT (#989), ON A SECOND COUNTER, `max: 1`: where an owed block
- * reads `waits on you: nothing`, the session's main-chain transcript is
- * scanned for one response holding a draft — a fence, or three quoted lines
- * running — and a sentence outside it, carrying `you`/`your`, that tells the founder to
- * send, upload, forward, reply to, email, submit or sign something, or check
- * it by eye. A send back to the session ("send back the output", "send me",
+ * DRAFT AND ACT (#989, ruled at #913), ON A SECOND COUNTER, `max: 1`: where
+ * an owed block reads `waits on you: nothing`, the session's main-chain
+ * transcript is scanned for one response holding a draft — a fence, or
+ * three quoted lines running — and a sentence outside it, carrying
+ * `you`/`your`, that tells the founder to send, upload, forward, reply to,
+ * email, submit or sign something, or check it by eye. A send back to the session ("send back the output", "send me",
  * `send "done"`, "paste what you saw") does not count, nor a send the session
  * itself makes ("I'd send"), each judged on the words beside that act. A draft
  * in one response and the act in a later one are never paired. A hit refuses
@@ -71,10 +69,7 @@
  * it from any other; an issue another session closes after the Stop; a round
  * posted by a route that leaves no comment. A dispatch between the round's
  * posting and this Stop, seconds apart, finds the issue unclaimed (#1066).
- * And `check-duplicate-dispatch.js` still reads issue numbers from session
- * names alone, so a hand-named session working its own issues stays
- * invisible there — moot for a round this limb makes claimed, unchanged for
- * any other work. And an item gist using one of the
+ * And an item gist using one of the
  * `APPROVAL_SEEKING` phrases trips that limb of guard-priced-options.js at
  * `result:`.
  */
@@ -115,13 +110,12 @@ const OWED = new Set(["result:", "needs input:"]);
 
 const DRAFT_FENCE_RE = /^\s*(```|~~~)/;
 const QUOTE_LINE_RE = /^[ \t]*>/;
-/* #913's ruling: a draft is a fence or at least three quoted lines. */
 const QUOTED_RUN = 3;
 const YOU_RE = /\b(?:you|your)\b/i;
 /* "email" and "sign" count as verbs only where one stands: after a subject, a
  * modal, `to` or `please`, or ("email") before its object — so "your Dad's
  * email" and "an early sign" are no act, nor is "sign in". The 40-character
- * reach of "check … by eye" is the pattern #913 measured. */
+ * reach of "check … by eye" is a guess. */
 const VERB_LEAD = String.raw`(?:\b(?:you|please|to|then|and|could|should|can|must|will|would|might)\s+|['’]ll\s+|^)`;
 const ACT_RE = new RegExp(
 	String.raw`\b(?:send|upload|forward|reply to|submit)\b|${VERB_LEAD}e-?mail\b|\be-?mail\s+(?:him|her|them|it|this|that)\b|${VERB_LEAD}sign\b(?!\s*(?:in|up|on|out)\b|-)|\bcheck\b[^.\n]{0,40}\bby eye\b`,
@@ -130,9 +124,8 @@ const ACT_RE = new RegExp(
 const SESSION_SENDS_RE =
 	/\b(?:I|I'd|I'll|I will|I would|we|we'd|we'll)\s+(?:\w+\s+)?$/i;
 /* Back to the session: "send back the output", "send me", "send it here", or
- * a reply word in quotes — `send "done"`, at most 20 characters, a guess past
- * the longest measured ("charted"). "Back to #N" is to an issue, never to
- * another person. */
+ * a reply word in quotes — `send "done"`, at most 20 characters, a guess.
+ * "Back to #N" is to an issue, never to another person. */
 const SEND_BACK_RE =
 	/^\s+(?:(?:it|them|this|that|the \w+(?: \w+)?)\s+)?back\b(?!\s+to\s+(?!me\b|us\b|here\b|#\d))|^\s+(?:(?:it|them|this)\s+)?(?:to\s+)?(?:me|us)\b|^\s+["“`'][^"”`']{1,20}["”`']|^\s+(?:\w+\s+)?here\b/i;
 

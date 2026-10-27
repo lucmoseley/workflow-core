@@ -24,7 +24,7 @@ import {
 	uptimeLine,
 	writeEnviron,
 } from "./proc-fake";
-import { statFields } from "./proc-stat.js";
+import { parseStatFields } from "./proc-stat.js";
 import { ageSeconds, readProcTable, readUptime } from "./proc-table.js";
 
 const { readCarriedWeight } = require("./suite-handoff.js") as {
@@ -112,9 +112,9 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 		const { live } = readLive();
 		const realUptime = fs.readFileSync("/proc/uptime", "utf8");
 
-		expect(statFields(statLine(process.pid, { comm, ...live }))).toHaveLength(
-			statFields(realStat)?.length ?? -1,
-		);
+		expect(
+			parseStatFields(statLine(process.pid, { comm, ...live })),
+		).toHaveLength(parseStatFields(realStat)?.length ?? -1);
 		expect(uptimeLine(Number.parseFloat(realUptime))).toMatch(
 			/^\d+\.\d\d \d+\.\d\d\n$/,
 		);

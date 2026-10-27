@@ -280,7 +280,7 @@ if (is("issue", "list")) {
 	});
 });
 
-it("takes a revert already on landing as landed rather than reverting twice, as a retried push finds one (#2673)", () => {
+it("takes a revert already on landing as landed rather than reverting twice, reading the rows it left stale, as a retried push finds one (#2673, #3127)", () => {
 	const culprit = commit("bad");
 	git(work, "push", "-q", "origin", "HEAD:landing");
 	git(work, "revert", "--no-edit", culprit);
@@ -289,7 +289,7 @@ it("takes a revert already on landing as landed rather than reverting twice, as 
 
 	const made = remoteGit(work).revertOnLanding(culprit, null, "why");
 
-	expect(made).toEqual({ sha: revert, onto: culprit });
+	expect(made).toEqual({ sha: revert, onto: culprit, stale: [] });
 	expect(git(remote, "rev-parse", "landing")).toBe(revert);
 });
 

@@ -24,6 +24,7 @@ import {
 	noSessions,
 	store,
 } from "./arbiter-testkit";
+import { writeFaultyGit } from "./git-fault-fake";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
@@ -214,18 +215,19 @@ describe("the tier scan re-hashes only what moved (#833)", () => {
 	 * there is nothing to spy on.
 	 */
 	const readHashedDuring = (body: () => void): string[][] => {
-		const real = execFileSync("sh", ["-c", "command -v git"], {
-			encoding: "utf8",
-		}).trim();
-		const bin = path.join(sb.dir, "git-shim");
 		const log = path.join(sb.dir, "hash-object.log");
-		fs.mkdirSync(bin, { recursive: true });
-		fs.writeFileSync(
-			path.join(bin, "git"),
-			`#!/bin/sh\nif [ "$1" = hash-object ]; then\n  echo -- >> '${log}'\n  tee -a '${log}' | '${real}' "$@"\nelse\n  exec '${real}' "$@"\nfi\n`,
-			{ mode: 0o755 },
+		const { git } = writeFaultyGit(
+			{ first: "hash-object" },
+			{
+				script: [
+					`echo -- >> '${log}'`,
+					`tee -a '${log}' | "$REAL_GIT" "$@"`,
+					"exit",
+				].join("\n"),
+			},
+			{ under: sb.dir },
 		);
-		vi.stubEnv("WFC_GIT", path.join(bin, "git"));
+		vi.stubEnv("WFC_GIT", git);
 		try {
 			body();
 		} finally {

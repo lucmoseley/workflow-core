@@ -26,21 +26,11 @@
  * record.
  */
 
-const { ruleOr } = require("./guard-verdict.js");
+const { ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
 const { QUOTED, literal, unwrap } = require("./shell-words.js");
 const { suiteLaunchKind } = require("./suite-launch.js");
 const { caught } = require("./caught.js");
-const { landingTwin } = require("./rule-gates.js");
-
-/**
- * The deny's text where the store cannot give the fragment, naming its file.
- * @param {UnaskedContext} ctx
- * @param {string} id the fragment's rule id
- */
-function ruleFallback(ctx, id) {
-	return `An unasked re-run is refused once a session; the rule could not be read from ${ctx.docPath(`agents/rules/${id}.txt`)}. Read that file before re-running.`;
-}
 
 /**
  * suiteLaunchKind's ports. An `npm-vitest` verdict never reads them: the
@@ -56,7 +46,7 @@ const LAUNCH_PORTS = { runners: () => [], isWrapperScript: () => true };
  * @property {(input: { sessionId: string, cwd: string, command: string }) => Verdict} judge
  *   whether the run is an unasked re-run; latches and logs a refusal itself
  * @property {string} sessionId the payload's, "" where it carries none
- * @typedef {import("./guard-entry.js").KitContext & UnaskedPorts} UnaskedContext
+ * @typedef {import("./kit-context.js").KitContext & UnaskedPorts} UnaskedContext
  */
 
 /**
@@ -141,11 +131,17 @@ function decide(command, ctx) {
  * @param {UnaskedContext} ctx
  */
 function unaskedRule(ctx) {
-	/* Not hoisted: a local hides both twins from rule-emission.js's NODE_LANDING_TWIN_RE (#3003). */
-	return ruleOr(
-		() => ctx.ruleText(landingTwin(ctx, "unasked-rerun")),
-		ruleFallback(ctx, landingTwin(ctx, "unasked-rerun")),
-	);
+	return ctx.moduleOn("landing")
+		? ruleOrFallback(
+				ctx,
+				"unasked-rerun-landing",
+				"An unasked re-run is refused once a session",
+			)
+		: ruleOrFallback(
+				ctx,
+				"unasked-rerun",
+				"An unasked re-run is refused once a session",
+			);
 }
 
 module.exports = { decide };

@@ -11,10 +11,11 @@
 
 const fs = require("node:fs");
 
-/* Indices into `statFields`, each proc(5)'s field number less 3. */
+/* Indices into the array `parseStatFields` returns, each proc(5)'s field
+ * number less 3. */
 const FIELD = { state: 0, ppid: 1, pgrp: 2, utime: 11, stime: 12, start: 19 };
 
-/* How many parents `ancestorsOf` walks before giving up: a guess, set far
+/* How many parents `readAncestorsOf` walks before giving up: a guess, set far
  * above the session → shell → driver → runner depth any caller looks through. */
 const ANCESTOR_MAX_HOPS = 64;
 
@@ -24,7 +25,7 @@ const ANCESTOR_MAX_HOPS = 64;
  * @param {string} stat
  * @returns {string[] | null}
  */
-function statFields(stat) {
+function parseStatFields(stat) {
 	const close = stat.lastIndexOf(")");
 	if (close < 0) return null;
 	return stat
@@ -41,7 +42,7 @@ function statFields(stat) {
  */
 function readStatFields(pid, proc = "/proc") {
 	try {
-		return statFields(fs.readFileSync(`${proc}/${pid}/stat`, "utf8"));
+		return parseStatFields(fs.readFileSync(`${proc}/${pid}/stat`, "utf8"));
 	} catch {
 		return null;
 	}
@@ -75,7 +76,7 @@ function readParentOf(pid, proc) {
  * @param {{ parentOf?: (pid: number) => number }} [options]
  * @returns {number[]}
  */
-function ancestorsOf(pid, { parentOf = readParentOf } = {}) {
+function readAncestorsOf(pid, { parentOf = readParentOf } = {}) {
 	/** @type {number[]} */
 	const chain = [];
 	const seen = new Set([pid]);
@@ -92,9 +93,9 @@ function ancestorsOf(pid, { parentOf = readParentOf } = {}) {
 
 module.exports = {
 	FIELD,
-	ancestorsOf,
 	parentInFields,
+	parseStatFields,
+	readAncestorsOf,
 	readParentOf,
 	readStatFields,
-	statFields,
 };

@@ -22,8 +22,8 @@
  * or transitively, or a top-level `scripts/….js`
  * requiring lib/entry-input.js (transitively — lib/guard-entry.js does) or
  * lib/fail-open-logger.js, or calling arbiter-core.js's logError itself.
- * A bare "no CLAUDE_CONFIG_DIR" grep would not do: it flags the eight
- * test files that name a guard in a string without ever executing one.
+ * A bare "no CLAUDE_CONFIG_DIR" grep would not do: it flags test files that
+ * name a guard in a string without ever executing one (lucmoseley/mantahostels#1468).
  *
  * INDIRECTION IS ASSUMED GUILTY. Some tests copy the guard into a temp tree and
  * spawn a local `guard` variable this file cannot resolve, so where a file binds
@@ -69,7 +69,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execGit } = require("./lib/git.js");
+const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { JS_TEST_FILE } = require("./lib/test-kind.js");
 const { blankComments, inertSpans } = require("./lib/js-lex.js");
 
@@ -77,8 +77,6 @@ const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
-
-const LS_FILES_MAX_BUFFER = 32 * 1024 * 1024;
 
 /** The comment that drops a file, with its reason: `isolation-exempt: <why>`. */
 const EXEMPT = /isolation-exempt:[ \t]*[A-Za-z0-9]/;
@@ -94,65 +92,8 @@ const NODE_INTERPRETER = /^(process\.execPath|"node")$/;
 const GUARD_LITERAL = /"([\w./-]+\.(?:sh|js))"/;
 
 /** Tests of any JS form, and the shared `.ts` helpers they import (#837). */
-const isScriptsSource = (/** @type {string} */ rel) =>
-	rel.startsWith("scripts/") && (rel.endsWith(".ts") || JS_TEST_FILE.test(rel));
-
-/**
- * Every test and `.ts` helper under `<root>/scripts/`, walked off the filesystem.
- *
- * Only ever called on a `--root` tree, which is a `git archive HEAD` extraction
- * (mantahostels#1753) — so everything in it is tracked at HEAD by construction, and the walk
- * answers exactly what `git ls-files` would. Not `ls-files` itself: a temp dir
- * is not a git repo.
- */
-function walkScriptsTs(/** @type {string} */ root) {
-	const out = /** @type {string[]} */ ([]);
-	const walk = (/** @type {string} */ rel) => {
-		let entries;
-		try {
-			entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-			const child = `${rel}/${e.name}`;
-			if (e.isDirectory()) walk(child);
-			else if (isScriptsSource(child)) out.push(child);
-		}
-	};
-	walk("scripts");
-	return out;
-}
-
-function readTrackedScriptsTs(/** @type {any} */ ctx) {
-	const rootFlag = ctx.value("--root");
-	if (rootFlag) {
-		const root = path.resolve(rootFlag);
-		return { root, files: walkScriptsTs(root) };
-	}
-	const git = (/** @type {string[]} */ args, /** @type {string} */ what) => {
-		try {
-			return execGit(args, {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				maxBuffer: LS_FILES_MAX_BUFFER,
-			});
-		} catch (e) {
-			return ctx.broken(
-				`git ${args[0]} failed while ${what}: ${errMessage(e)}. No test files read.`,
-			);
-		}
-	};
-	const root = git(
-		["rev-parse", "--show-toplevel"],
-		"locating the repo root",
-	).trim();
-	const files = git(["-C", root, "ls-files", "-z"], "listing tracked files")
-		.split("\0")
-		.filter(Boolean)
-		.filter(isScriptsSource);
-	return { root, files };
-}
+const isTestOrTsHelper = (/** @type {string} */ rel) =>
+	rel.endsWith(".ts") || JS_TEST_FILE.test(rel);
 
 /**
  * Does `rel` log its fail-opens? A `….sh` reaches lib/guard-log.sh, a `….js`
@@ -166,7 +107,7 @@ function readTrackedScriptsTs(/** @type {any} */ ctx) {
  * @param {Set<string>} [seen] accumulator: each file entered is added, so a cycle answers false
  * @returns {boolean}
  */
-function logsFailOpens(root, rel, cache, seen = new Set()) {
+function hasFailOpenLogging(root, rel, cache, seen = new Set()) {
 	const hit = cache.get(rel);
 	if (hit !== undefined) return hit;
 	if (seen.has(rel)) return false;
@@ -183,9 +124,9 @@ function logsFailOpens(root, rel, cache, seen = new Set()) {
 	const answer = rel.endsWith(".js")
 		? ENTRY_LOGGERS.includes(rel) ||
 			(path.posix.dirname(rel) === "scripts" && hasLogErrorCall(text)) ||
-			reachesLogger(path.posix.dirname(rel), text, REQUIRED, scan)
+			hasLoggingDependency(path.posix.dirname(rel), text, REQUIRED, scan)
 		: /^\s*source\s+.*guard-log\.sh/m.test(text) ||
-			reachesLogger("scripts", text, SOURCED, scan);
+			hasLoggingDependency("scripts", text, SOURCED, scan);
 	cache.set(rel, answer);
 	return answer;
 }
@@ -218,19 +159,20 @@ const REQUIRED = /\brequire\(\s*"(\.{1,2}\/[\w./-]+)"\s*\)/g;
 const SOURCED = /^\s*source\s+"?\$\{?here\}?"?\/([\w./-]+\.sh)/gm;
 
 /**
- * Whether a file `pattern` names in `text`, resolved against `dir`,
- * logsFailOpens. An extensionless path is a require, so `.js` is added.
+ * Whether a file `pattern` names in `text`, resolved against `dir`, logs its
+ * fail-opens (hasFailOpenLogging). An extensionless path is a require, so
+ * `.js` is added.
  * @param {string} dir
  * @param {string} text
  * @param {RegExp} pattern its group 1 the path, relative to `dir`
  * @param {{ root: string, cache: Map<string, boolean>, seen: Set<string> }} scan
- *   accumulator: `cache` and `seen` are logsFailOpens's, filled as it goes
+ *   accumulator: `cache` and `seen` are hasFailOpenLogging's, filled as it goes
  */
-function reachesLogger(dir, text, pattern, { root, cache, seen }) {
+function hasLoggingDependency(dir, text, pattern, { root, cache, seen }) {
 	for (const m of text.matchAll(pattern)) {
 		let rel = path.posix.join(dir, requiredGroup(m, 1, pattern));
 		if (!/\.\w+$/.test(rel)) rel = `${rel}.js`;
-		if (logsFailOpens(root, rel, cache, seen)) return true;
+		if (hasFailOpenLogging(root, rel, cache, seen)) return true;
 	}
 	return false;
 }
@@ -309,7 +251,7 @@ const UNREAD_SCRIPT = "args";
 /**
  * One CALL match read as readCall reads it, and `node` where it runs node on a
  * script, so only a Node entry can be what it runs. `scan.cache` is an
- * accumulator, logsFailOpens's.
+ * accumulator, hasFailOpenLogging's.
  */
 function readSpawn(
 	/** @type {RegExpMatchArray} */ m,
@@ -362,7 +304,7 @@ function boundGuards(
 	for (const m of source.matchAll(binding)) {
 		if (isInert(inert, m.index)) continue;
 		const rel = resolveGuard(root, requiredGroup(m, 2, binding));
-		if (rel && logsFailOpens(root, rel, cache))
+		if (rel && hasFailOpenLogging(root, rel, cache))
 			bound.set(requiredGroup(m, 1, binding), rel);
 	}
 	return bound;
@@ -380,7 +322,7 @@ function literalGuards(
 	const literal = arg.match(GUARD_LITERAL);
 	if (!literal) return null;
 	const rel = resolveGuard(root, requiredGroup(literal, 1, GUARD_LITERAL));
-	return rel && logsFailOpens(root, rel, cache) ? [rel] : [];
+	return rel && hasFailOpenLogging(root, rel, cache) ? [rel] : [];
 }
 
 /** The bound guards whose identifier argv[0] `arg` mentions. */
@@ -410,7 +352,7 @@ function namedGuards(
 	for (const m of source.matchAll(literals)) {
 		const rel = resolveGuard(root, requiredGroup(m, 1, literals));
 		if (rel?.startsWith("scripts/lib/")) continue;
-		if (rel && logsFailOpens(root, rel, cache)) out.add(rel);
+		if (rel && hasFailOpenLogging(root, rel, cache)) out.add(rel);
 	}
 	return out;
 }
@@ -497,7 +439,7 @@ function readSources(
 	/** @type {string} */ root,
 	/** @type {string[]} */ files,
 ) {
-	const sources = new Map();
+	const sources = /** @type {Map<string, string>} */ (new Map());
 	for (const rel of files) {
 		try {
 			sources.set(rel, fs.readFileSync(path.join(root, rel), "utf8"));
@@ -512,13 +454,12 @@ function readSources(
 
 /* helper -> the logging guards named by the tests importing it. */
 function handedGuards(
-	/** @type {{root: string, tests: string[], sources: Map<string, string>, helpers: Set<string>, cache: Map<string, boolean>}} */ scan,
+	/** @type {{root: string, sources: Map<string, string>, helpers: Set<string>, cache: Map<string, boolean>}} */ scan,
 ) {
-	const { root, tests, sources, helpers, cache } = scan;
+	const { root, sources, helpers, cache } = scan;
 	const handed = new Map();
-	for (const rel of tests) {
-		// Every tracked file was read into `sources`, so this test's is there.
-		const source = /** @type {string} */ (sources.get(rel));
+	for (const [rel, source] of sources) {
+		if (helpers.has(rel)) continue;
 		const imported = importsOf(rel, source, helpers);
 		if (imported.length === 0) continue;
 		const guards = namedGuards(root, source, cache);
@@ -613,23 +554,19 @@ runCheck({
 	 * (scripts/lib/check.js §--against, mantahostels#1833). */
 	against: { profile: "guard-test-isolation", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
-		const { root, files } = readTrackedScriptsTs(ctx);
+		const { root, files } = readTrackedScripts(ctx, isTestOrTsHelper);
 		const cache = /** @type {Map<string, boolean>} */ (new Map());
 		const checked = /** @type {string[]} */ ([]);
 		const exempt = /** @type {string[]} */ ([]);
 
 		const sources = readSources(ctx, root, files);
-		const tests = files.filter((/** @type {string} */ rel) =>
-			JS_TEST_FILE.test(rel),
-		);
 		const helpers = new Set(
 			files.filter((/** @type {string} */ rel) => !JS_TEST_FILE.test(rel)),
 		);
 
-		const handed = handedGuards({ root, tests, sources, helpers, cache });
+		const handed = handedGuards({ root, sources, helpers, cache });
 
-		for (const rel of files) {
-			const source = sources.get(rel);
+		for (const [rel, source] of sources) {
 			const guards = guardsOf(rel, source, { root, helpers, handed, cache });
 			if (guards.size === 0) continue;
 			checked.push(rel);

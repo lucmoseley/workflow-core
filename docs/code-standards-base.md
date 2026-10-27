@@ -158,7 +158,7 @@ Three kinds of export are not test-only:
 
 **Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise a comment at the seam names the caller that will supply one.
 
-`scripts/lib/suite-queue.js:85` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:165` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+`scripts/lib/suite-queue.js:92` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:169` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
 Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (#1374).
 
@@ -309,11 +309,11 @@ A checking program's body returns a result and never ends the process itself; on
 
 Three sub-rules a reviewer may cite directly against a program reporting in the five-outcome alphabet below:
 
-- **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:15-25`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
-- **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:35-38`).
-- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:333` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
+- **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:15-23`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
+- **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:29-32`).
+- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:323` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
 
-*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:207-208`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
+*House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:197-198`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
 
 ```
 OK      ran, found nothing                            exit 0
@@ -333,13 +333,13 @@ The `guard-*` family swallows every error and exits 0 — *"breaking a session i
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
-Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: `scripts/lib/check.js:363-364` *"node buffers writes to a PIPE and drops whatever is still buffered at process.exit — and a hook's stdout is always a pipe."* The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
+Node programs. On any path whose output precedes a `process.exit` **and** whose stdout may be a pipe — every hook, every checker, and any script an agent runs through Bash — write synchronously, never through `console`: `scripts/lib/check.js:353-354` *"node buffers writes to a PIPE and drops whatever is still buffered at process.exit — and a hook's stdout is always a pipe."* The hazard is the pipe, not the call: a subcommand only a human runs at a terminal is outside it.
 
 A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
 *House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 stays only where a comment says why.
 
-Stream discipline (`scripts/lib/check.js:40-44`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1632-1635`).
+Stream discipline (`scripts/lib/check.js:34-38`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:1635-1638`).
 
 ### §N7 · An export nothing consumes is a breach, and a binary a test stubs or a machine may lack is injected at one named var — **judgement**
 

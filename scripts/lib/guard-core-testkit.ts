@@ -9,7 +9,14 @@
  * variables a command expands through and the environment a core reads.
  */
 
-/* CommonJS, hence the require. */
+import { writeLatches } from "./guard-entry.js";
+import { readHookPersistChars } from "./rule-emission.js";
+
+/* Required with a cast, not imported (#3145): the adapters handed `dispatch`
+ * override kit fields, `fallbackCwd` among them, that its checked `Adapters`
+ * type omits, and `output` is read as strings where the JSDoc says unknown.
+ * Residual: the cast's types are hand-written, so nothing checks them against
+ * the module. */
 const { dispatch, hostAdapters, loadCores } =
 	require("./guard-dispatch.js") as {
 		dispatch: (
@@ -17,7 +24,7 @@ const { dispatch, hostAdapters, loadCores } =
 			env: Record<string, unknown>,
 		) => {
 			output: Record<string, string> | null;
-			latches: { latches: { name: string }[] }[];
+			latches: { latches: { name: string; text: string }[] }[];
 		};
 		hostAdapters: (
 			root: string,
@@ -25,19 +32,6 @@ const { dispatch, hostAdapters, loadCores } =
 		) => Record<string, unknown>;
 		loadCores: (event: string) => { name: string }[];
 	};
-const { writeLatches } = require("./guard-entry.js") as {
-	writeLatches: (
-		env: {
-			root: string;
-			payload: Record<string, unknown>;
-			log: (what: string) => void;
-		},
-		latches: { name: string }[],
-	) => void;
-};
-const { readHookPersistChars } = require("./rule-emission.js") as {
-	readHookPersistChars: () => number;
-};
 
 /**
  * The payload of a `tool` call carrying `input`, as the harness sends it;

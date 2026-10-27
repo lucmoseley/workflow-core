@@ -23,12 +23,9 @@ import {
 	nodeGuardOutput,
 	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
+import { readRuleText } from "./lib/rule-text";
 
 const GUARD = path.resolve(__dirname, "guard-rm-unchecked.js");
-/* CommonJS, hence the require. */
-const { readRuleText } = require("./lib/rule-text") as {
-	readRuleText: (id: string) => string;
-};
 
 const COMMAND = "rm -rf $T/*";
 

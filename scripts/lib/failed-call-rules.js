@@ -17,7 +17,7 @@ const KILLED = /(^|\n)Exit code (137|143)(\n|$)/;
 /**
  * @typedef {object} FailedCallPorts
  * @property {Record<string, unknown>} payload the hook payload
- * @typedef {import("./guard-entry.js").KitContext & FailedCallPorts} FailedCallContext
+ * @typedef {import("./kit-context.js").KitContext & FailedCallPorts} FailedCallContext
  */
 
 /**

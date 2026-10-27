@@ -1,33 +1,78 @@
 // @vitest-environment node
 /*
- * Pins a commit message file's stripped lines (#2884): `#` lines dropped, and
- * nothing from the scissors line on, so a `--verbose` diff below it never
- * reaches the closing or `Weakens:` scanners. A pure function on a string, so
- * in-process with no temp directory.
+ * Pins a commit message file's lines as git records them (#2884, #3075),
+ * through the CLI check-commit-subject.sh runs, in a fixture repository so
+ * `commit.cleanup` is read from config as a hook reads it: `#` lines dropped
+ * in `strip` mode alone, and nothing from the scissors line on in `strip` and
+ * `scissors` modes, so a `--verbose` diff below it never reaches the subject,
+ * closing or `Weakens:` readers.
  */
 
-import { createRequire } from "node:module";
-import { describe, expect, it } from "vitest";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { initGitRepo, mkScratchDir } from "./git-fixture";
 
-// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { strippedLines }: any = createRequire(__filename)("./commit-message.js");
+const CLI = path.join(__dirname, "commit-message.js");
+const SCISSORS = "# ------------------------ >8 ------------------------";
 
-describe("strippedLines", () => {
-	it("drops git's # template lines", () => {
-		expect(strippedLines("Subject\n# On branch main\n\nBody")).toEqual([
-			"Subject",
-			"",
-			"Body",
-		]);
+let dir: string;
+beforeEach(() => {
+	dir = mkScratchDir("commit-message-");
+	initGitRepo(dir, path.join(dir, ".git", "hooks"));
+});
+afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+/** The lines the CLI prints for `raw`, under `editor` and `cleanup`. */
+function recorded(raw: string, editor: string, cleanup?: string) {
+	if (cleanup !== undefined)
+		spawnSync("git", ["config", "commit.cleanup", cleanup], { cwd: dir });
+	const file = path.join(dir, "MSG");
+	fs.writeFileSync(file, raw);
+	const r = spawnSync("node", [CLI, file], {
+		cwd: dir,
+		encoding: "utf8",
+		env: { ...process.env, GIT_EDITOR: editor },
 	});
+	expect(r.status, r.stderr).toBe(0);
+	return r.stdout.split("\n").slice(0, -1);
+}
 
-	it("stops at the scissors line, keeping nothing of the diff below it", () => {
-		const raw =
-			"Subject\n# ------------------------ >8 ------------------------\n# Do not modify\n+Fixes #12";
-		expect(strippedLines(raw)).toEqual(["Subject"]);
+const RAW = `#123 subject\n# On branch main\nBody\n${SCISSORS}\n+Fixes #12`;
+const ALL = [
+	"#123 subject",
+	"# On branch main",
+	"Body",
+	SCISSORS,
+	"+Fixes #12",
+];
+
+describe("the lines git records, per cleanup mode", () => {
+	it.each([
+		["the editor, cleanup unset", "vi", undefined, ["Body"]],
+		["the editor, cleanup default", "vi", "default", ["Body"]],
+		["-m or -F, cleanup unset", ":", undefined, ALL],
+		["-m or -F, cleanup strip", ":", "strip", ["Body"]],
+		["the editor, cleanup whitespace", "vi", "whitespace", ALL],
+		["the editor, cleanup verbatim", "vi", "verbatim", ALL],
+		[
+			"the editor, cleanup scissors",
+			"vi",
+			"scissors",
+			["#123 subject", "# On branch main", "Body"],
+		],
+	])("%s", (_, editor, cleanup, expected) => {
+		expect(recorded(RAW, editor, cleanup)).toEqual(expected);
 	});
 
 	it("keeps a line that only mentions >8 without the scissors shape", () => {
-		expect(strippedLines("a >8 b")).toEqual(["a >8 b"]);
+		expect(recorded("a >8 b\n", "vi")).toEqual(["a >8 b", ""]);
+	});
+
+	it("refuses a call naming no message file", () => {
+		const r = spawnSync("node", [CLI], { cwd: dir, encoding: "utf8" });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("usage:");
 	});
 });

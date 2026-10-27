@@ -35,7 +35,7 @@
  *    Claude Code, which is the founder's route by design.
  */
 
-const { denyText, ruleOr } = require("./guard-verdict.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { unwrap } = require("./shell-words.js");
 
@@ -60,13 +60,10 @@ const EXPORTERS = ["export", "declare", "typeset"];
 /* A word shaped as an assignment, which a leading run is made of. */
 const ASSIGNMENT_RE = /^[A-Za-z_].*=/s;
 
-const ESCAPE_RULE_FALLBACK =
-	"A git-hook WFC_ALLOW_* escape is the founder's to set, never an agent's (#916); the rule could not be read from docs/agents/rules/hook-escape.txt. Read that file before doing anything else.";
-
 const FRAMING = "This command sets a git-hook escape: @CMD@";
 
 /**
- * @typedef {import("./guard-entry.js").KitContext} HookEscapeContext
+ * @typedef {import("./kit-context.js").KitContext} HookEscapeContext
  */
 
 /**
@@ -165,7 +162,11 @@ const flagExports = (w, exporting) =>
  * @param {HookEscapeContext} ctx
  */
 function refusalText(segment, ctx) {
-	const rule = ruleOr(() => ctx.ruleText("hook-escape"), ESCAPE_RULE_FALLBACK);
+	const rule = ruleOrFallback(
+		ctx,
+		"hook-escape",
+		"A git-hook WFC_ALLOW_* escape is the founder's to set, never an agent's (#916)",
+	);
 	return denyText(ctx, segment, `${FRAMING}\n\n${rule}`);
 }
 

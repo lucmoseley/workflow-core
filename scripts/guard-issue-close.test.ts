@@ -112,6 +112,10 @@ beforeEach(() => {
 		path.join(dir, ".claude", "workflow-core.json"),
 		JSON.stringify({ contract: 1, tracker: "acme/tracker" }),
 	);
+	// A host is a checkout with a pushed ref: the landing read faults without one (#3101).
+	git("init", "-q");
+	git("commit", "-q", "--allow-empty", "-m", "seed");
+	git("update-ref", "refs/remotes/origin/main", "HEAD");
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -218,7 +222,6 @@ describe("the adapters, crossed for real", () => {
 			git("add", "-A");
 			git("commit", "-qm", message);
 		};
-		git("init", "-q");
 		fs.mkdirSync(path.join(dir, "scripts"));
 		commit("#!/bin/sh\necho rule one\n", "seed");
 		fs.writeFileSync(
@@ -226,6 +229,7 @@ describe("the adapters, crossed for real", () => {
 			JSON.stringify({ guards: { [guard]: { digest: digestOf(dir, guard) } } }),
 		);
 		commit("#!/bin/sh\necho rule one, reworded\n", "Reword the guard (#12)");
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
 		const out = emission("gh issue close 12", {
 			env: ghServing({ newest: "Done.\n**Outstanding:** none." }),
 		});
@@ -238,7 +242,6 @@ describe("the adapters, crossed for real", () => {
 	it("finds the roadmap at the host root from a subdirectory with CLAUDE_PROJECT_DIR unset (mantahostels#1905)", () => {
 		// Read relative to the cwd, a subdirectory named a roadmap that does not
 		// exist and the guard silently stopped judging card closes.
-		git("init", "-q");
 		writeRoadmap(dir, "active");
 		const sub = path.join(dir, "sub");
 		fs.mkdirSync(sub);

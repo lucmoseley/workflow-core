@@ -31,6 +31,7 @@ const {
 const {
 	isHeld,
 	isResuming,
+	isSwapHeld,
 	iso,
 	launchName,
 	markParked,
@@ -85,7 +86,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * wait for the next. `idleResumes` counts its typed resumes of a
  * resumed-idle session (#2659), cleared once the session takes a turn;
  * `idleSince`, the time of the harness restart row it last read resumed-idle
- * on (#2978). `handOffTries` counts the hand-offs of
+ * on (#2978). `swapHeld`, set while the loop holds one it stopped under the
+ * swap hold (#3093). `handOffTries` counts the hand-offs of
  * one stopped still idle that failed, and
  * `handedOff` is when one went to a fresh launch. `relaunchedAt` is when a
  * stop and `--bg --resume` last restarted its job, from which it has the
@@ -98,6 +100,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  *   parkStopped?: number, sessionId?: string,
  *   resumes?: import("./refill-blocks.js").Resumes,
  *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
+ *   swapHeld?: import("./refill-blocks.js").SwapHeld,
  *   handOffTries?: number, handedOff?: number, copiedFrom?: string,
  *   relaunchedAt?: number, pastSessionIds?: string[]}} LoopLaunch
  */
@@ -1094,7 +1097,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 /**
  * Where a launch stands, for `status`.
  * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
- *   |"resuming"|"resumed-idle"|"parked"|"running"} LaunchKind
+ *   |"resuming"|"swap-held"|"resumed-idle"|"parked"|"running"} LaunchKind
  * @param {LoopLaunch} l
  * @returns {LaunchKind}
  */
@@ -1104,6 +1107,7 @@ function launchKindOf(l) {
 	if (l.handOffTries !== undefined) return "hand-off-owed";
 	if (l.finishedAt !== null) return "finished";
 	if (isResuming(l)) return "resuming";
+	if (isSwapHeld(l)) return "swap-held";
 	if (l.idleSince !== undefined) return "resumed-idle";
 	return l.parked ? "parked" : "running";
 }
@@ -1114,6 +1118,7 @@ const UNSETTLED = new Set([
 	"park-stopped",
 	"hand-off-owed",
 	"resuming",
+	"swap-held",
 	"resumed-idle",
 	"parked",
 ]);
@@ -1138,6 +1143,8 @@ function launchStateOf(l) {
 					: "its typed resume being checked";
 			return `resuming after an API error, ${l.resumes?.tries ?? 0} of ${RESUME_CAP} tries, ${next}`;
 		}
+		case "swap-held":
+			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed once it clears`;
 		case "resumed-idle": {
 			const r = l.idleResumes;
 			return `resumed-idle since ${iso(/** @type {number} */ (l.idleSince))}, ${r ? `resumed ${r.tries} times, last at ${iso(r.triedAt)}` : "not yet resumed"}`;

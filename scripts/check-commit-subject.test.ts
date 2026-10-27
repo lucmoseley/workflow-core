@@ -140,6 +140,11 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 		expectRefused(viaEditor(`# a note\n\n${subject(73)}\n`), subject(73));
 	});
 
+	it("drops a #N line typed into the editor, as git's strip cleanup does (#3075)", () => {
+		const r = viaEditor(`#2332 ${subject(73)}\n${subject(72)}\n`);
+		expect(r.status, r.out).toBe(0);
+	});
+
 	it.each([
 		["-m", viaM],
 		["-F", viaF],
@@ -158,6 +163,24 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 
 	it("measures the subject alone, not a long body line", () => {
 		expect(viaM(`${subject(40)}\n\n${"y".repeat(200)}\n`).status).toBe(0);
+	});
+
+	it("refuses rather than passing a subject when lib/commit-message.js fails", () => {
+		const bin = path.join(hooks, "bin");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\nexit 1\n", {
+			mode: 0o755,
+		});
+		const file = path.join(hooks, "msg.txt");
+		fs.writeFileSync(file, `${subject(10)}\n`);
+		const r = spawnSync("bash", [SCRIPT, file, "t"], {
+			encoding: "utf8",
+			env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"lib/commit-message.js did not read the message",
+		);
 	});
 
 	it("refuses rather than passing a message file it cannot read", () => {

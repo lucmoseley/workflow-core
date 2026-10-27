@@ -64,10 +64,9 @@
 const fs = require("node:fs");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
-const { runCheck } = require("./lib/check");
+const { readCommitOrBroken, runCheck } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
-const { isCommit } = require("./lib/commit-sha.js");
 const { execGit } = require("./lib/git.js");
 
 /** Also read by report-manual-staleness.js, which skips on its absence too. */
@@ -279,8 +278,8 @@ function assertStampShape(ctx, detail, manual, roadmapPath) {
 	const mMinor = +requiredGroup(verM, 2, MANUAL_VERSION);
 	const roadmapSha = requiredGroup(rSha, 1, ROADMAP_SHA);
 	const repoSha = requiredGroup(pSha, 1, REPO_SHA);
-	const rOk = isCommit(process.cwd(), roadmapSha);
-	const pOk = isCommit(process.cwd(), repoSha);
+	const rOk = readCommitOrBroken(roadmapSha) !== null;
+	const pOk = readCommitOrBroken(repoSha) !== null;
 	if (!rOk)
 		detail.fail(
 			"stamp shape",
@@ -628,7 +627,7 @@ const SPEC = {
 		if (mMajor !== undefined && mMinor !== undefined)
 			assertRoadmapDistance(detail, roadmap, roadmapPath, { mMajor, mMinor });
 
-		if (repoSha && isCommit(process.cwd(), repoSha))
+		if (repoSha && readCommitOrBroken(repoSha) !== null)
 			assertReviewLatency(detail, repoSha);
 
 		assertCorrectionsLog(detail, manual, repoSha);

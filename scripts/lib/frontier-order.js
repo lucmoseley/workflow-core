@@ -6,11 +6,14 @@
 
 /**
  * @typedef {object} SortLevels
- * @property {boolean} bug an open `bug`, urgent whether labelled or not
- * @property {boolean} urgent `urgent` on the issue or an ancestor map, or a bug
- * @property {boolean} goal in the run's goal set
+ * @property {boolean} bug an open `bug`, or holding one out, urgent whether
+ *   labelled or not
+ * @property {boolean} urgent `urgent` on the issue, on an issue it holds out,
+ *   or on an ancestor map; or a bug
+ * @property {boolean} goal in the run's goal set, or holding a member out
  * @property {number} stallDays 0 unless a stalled wait
  * @property {boolean} asksQuestions
+ * @property {number} depth the longest chain to the highest tier it holds out
  * @property {number} reach
  * @property {boolean|number} collision writes repo files
  */
@@ -31,7 +34,7 @@
 
 /**
  * Lexicographic, highest first: bug → urgent → goal set → stalled wait →
- * ticket type → reach → collision (comment-only first). 0 on a full tie, so
+ * ticket type → chain depth → reach → collision (comment-only first). 0 on a full tie, so
  * each caller appends its own tie-break.
  * @param {SortLevels} a
  * @param {SortLevels} b
@@ -43,10 +46,31 @@ function compareLevels(a, b) {
 		Number(b.goal) - Number(a.goal) ||
 		b.stallDays - a.stallDays ||
 		Number(b.asksQuestions) - Number(a.asksQuestions) ||
+		b.depth - a.depth ||
 		b.reach - a.reach ||
 		Number(a.collision) - Number(b.collision)
 	);
 }
+
+/**
+ * The levels an issue inherits from what it holds out (#3222).
+ * @typedef {Pick<SortLevels, "bug" | "urgent" | "goal" | "depth">} Inherited
+ */
+
+/**
+ * `a` with what `b` passes it: each tier joined, the deeper chain kept.
+ * @template {Inherited} A
+ * @param {A} a
+ * @param {Inherited} b
+ * @returns {A}
+ */
+const joinInherited = (a, b) => ({
+	...a,
+	bug: a.bug || b.bug,
+	urgent: a.urgent || b.urgent,
+	goal: a.goal || b.goal,
+	depth: Math.max(a.depth, b.depth),
+});
 
 /**
  * Every repo's rows in one ranking, and its retro bundles in one list, each
@@ -82,4 +106,4 @@ function mergeFrontiers(repos) {
 	return { frontier, retroBundles };
 }
 
-module.exports = { compareLevels, mergeFrontiers };
+module.exports = { compareLevels, joinInherited, mergeFrontiers };

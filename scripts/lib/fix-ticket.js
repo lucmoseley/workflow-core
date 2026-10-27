@@ -15,6 +15,7 @@ const { citedIssues } = require("./cited-issues.js");
 const { parseErrLine } = require("./gh.js");
 const { parseFirstLine } = require("./first-line.js");
 const { short } = require("./lander.js");
+const { scriptPath } = require("./script-path.js");
 const { takesLabel } = require("./takes-label.js");
 
 /* Untraced: room for the culprit's subject in a title a tracker list shows
@@ -33,10 +34,29 @@ function citedTicket(subject) {
 }
 
 /**
+ * The guard-registry rows the revert left stale, which the lander lands
+ * rather than re-anchoring unread, or a line saying they could not be read
+ * (#3127).
+ * @param {import("./lander.js").RegistryRow[]|null} stale
+ * @param {string} revert
+ */
+function buildRereadSection(stale, revert) {
+	if (stale === null)
+		return `
+The lander could not read which guard-registry rows the revert left stale (#3127). Run \`node ${scriptPath("check-guard-registry.js")} --touched-by ${revert}\`, then re-read and re-anchor each row it names.
+`;
+	if (stale.length === 0) return "";
+	return `
+The revert left these guard-registry rows stale, which the lander lands rather than re-anchoring unread (#3127). Re-read each rule against the guard as reverted, correct any sentence no longer true, then re-anchor:
+${stale.map((r) => `- \`${r.row}\`: \`${r.forward}\``).join("\n")}
+`;
+}
+
+/**
  * @param {import("./lander.js").FixTicket & {subject: string}} t
  * @returns {{title: string, body: string}}
  */
-function fixTicketIssue({ culprit, parent, revert, files, subject }) {
+function fixTicketIssue({ culprit, parent, revert, files, stale, subject }) {
 	const cut =
 		subject.length > SUBJECT_MAX
 			? `${subject.slice(0, SUBJECT_MAX - 1)}…`
@@ -57,11 +77,11 @@ Failing at ${short(culprit)}, red twice, with ${parent ? `its parent ${short(par
 ${failing}
 
 Reverted commit: \`${subject.replaceAll("`", "'")}\`
-
+${buildRereadSection(stale, revert)}
 ## Acceptance criteria
 
 - [ ] ${short(culprit)}'s change is pushed to \`landing\` again, with each failing test above passing.
-`,
+${stale === null || stale.length > 0 ? "- [ ] Each stale row above is re-read and re-anchored.\n" : ""}`,
 	};
 }
 

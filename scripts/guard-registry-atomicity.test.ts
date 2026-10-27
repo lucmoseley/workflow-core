@@ -21,6 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenRecords } from "./guard-log-fixture";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import {
 	expectShellHooks,
@@ -161,18 +162,14 @@ describe("the registered hook line", () => {
 	it("reads git at WFC_GIT, and allows a commit whose staged list it cannot read, recording that it did", () => {
 		addUnwiredChecker();
 		git(repo, "add", "--", "scripts/check-new.js");
-		const bin = fs.mkdtempSync(path.join(dir, "shim-"));
-		const real = execFileSync("bash", ["-c", "command -v git"], {
-			encoding: "utf8",
-		}).trim();
-		fs.writeFileSync(
-			path.join(bin, "git"),
-			`#!/usr/bin/env bash\nfor a in "$@"; do [[ "$a" == diff ]] && exit 128; done\nexec ${JSON.stringify(real)} "$@"\n`,
-			{ mode: 0o755 },
+		const { git: failing } = writeFaultyGit(
+			{ words: ["diff"] },
+			{ exit: 128 },
+			{ under: dir },
 		);
 		expect(
 			emission('git commit -m "x"', {
-				env: { WFC_GIT: path.join(bin, "git") },
+				env: { WFC_GIT: failing },
 			}),
 		).toBeNull();
 		expect(readFailOpenRecords(config, repo).map((f) => f[2])).toEqual([

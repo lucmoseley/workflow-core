@@ -9,6 +9,7 @@ const row = (number: number, over: Record<string, unknown> = {}) => ({
 	goal: false,
 	stallDays: 0,
 	asksQuestions: false,
+	depth: 0,
 	reach: 0,
 	collision: "comment-only",
 	...over,
@@ -20,7 +21,7 @@ const ranked = ({
 }) => frontier.map((r) => `${r.root}#${r.number}`);
 
 describe("mergeFrontiers (#2003)", () => {
-	it("holds every sort level across repos: bug, urgent, goal, stalled wait, type, reach, collision", () => {
+	it("holds every sort level across repos: bug, urgent, goal, stalled wait, type, depth, reach, collision", () => {
 		const merged = mergeFrontiers([
 			{
 				root: "a",
@@ -30,6 +31,7 @@ describe("mergeFrontiers (#2003)", () => {
 					row(1, { collision: "writes repo files" }),
 					row(2, { reach: 3 }),
 					row(3, { stallDays: 4 }),
+					row(9, { depth: 1 }),
 				],
 			},
 			{
@@ -51,6 +53,7 @@ describe("mergeFrontiers (#2003)", () => {
 			"b#6",
 			"a#3",
 			"b#5",
+			"a#9",
 			"a#2",
 			"b#4",
 			"a#1",

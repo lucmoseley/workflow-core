@@ -51,7 +51,7 @@ const FIELDS = [
 function readLockfileRule() {
 	return readRuleTextOr(
 		"lockfile-sync",
-		"Always commit the lockfile with the manifest change that moves it.",
+		"Always commit the lockfile with the manifest change that moves it",
 		"check-lockfile-sync",
 	).split("\n");
 }

@@ -135,6 +135,39 @@ export function nodeGuardOutput(
 /** The checkout's root: the plugin root a hook line is run against. */
 const CHECKOUT = path.resolve(__dirname, "..", "..");
 
+/** The dispatcher entry every always-on PreToolUse guard runs in (#2786). */
+const DISPATCH = path.join(CHECKOUT, "scripts", "guard-dispatch.js");
+
+/**
+ * The dispatcher's run of its PreToolUse core `core` alone (`--only`) on
+ * `payload`, through runNodeGuard: a core's boundary cases, the real entry,
+ * adapters and store, with no other core's context in the answer (#3224).
+ */
+export function runDispatchCore(
+	core: string,
+	payload: Record<string, unknown> | null,
+	run: GuardSpawn,
+) {
+	return runNodeGuard(
+		DISPATCH,
+		payload && { hook_event_name: "PreToolUse", ...payload },
+		{ ...run, args: ["--only", core] },
+	);
+}
+
+/** nodeGuardOutput for runDispatchCore. */
+export function dispatchCoreOutput(
+	core: string,
+	payload: Record<string, unknown>,
+	run: GuardRun,
+) {
+	return nodeGuardOutput(
+		DISPATCH,
+		{ hook_event_name: "PreToolUse", ...payload },
+		{ ...run, args: ["--only", core] },
+	);
+}
+
 /**
  * The hookSpecificOutput of the registered hook `line`, run by bash as the
  * harness runs it, on a Bash call of `command`; `payload` lays further fields

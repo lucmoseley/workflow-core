@@ -1,11 +1,11 @@
 /*
- * The one fake of lib/guard-entry.js's KitContext, the context `run` and the
+ * The one fake of lib/kit-context.js's KitContext, the context `run` and the
  * dispatcher hand every core, held to the kit's own by
  * lib/kit-context.contract.test.ts (#3018).
  */
 
 import { fakeTreeClassifier } from "./git-tree-fake.js";
-import type { KitContext } from "./guard-entry.js";
+import type { KitContext } from "./kit-context.js";
 import { readRuleText } from "./rule-text.js";
 
 /**

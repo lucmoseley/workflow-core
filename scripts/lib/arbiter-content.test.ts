@@ -162,13 +162,22 @@ describe("content identity — what the file held when its claimant last touched
 		expect(store.contentState(rel, readLock()).state).toBe("unknown");
 	});
 
-	it("refuses a claim id that is not a safe ref name", () => {
-		// claimId is a randomUUID, but a hand-written lock's is not
-		// ours to trust, and it is being handed to git as a ref name.
-		expect(content.blobRef("../../evil")).toBeNull();
-		expect(content.blobRef("-d")).toBeNull();
-		expect(content.blobRef(undefined)).toBeNull();
-		expect(content.blobRef(crypto.randomUUID())).toMatch(/^refs\/arbiter\//);
+	// claimId is a randomUUID, but a hand-written lock's is not ours to trust,
+	// and it is being handed to git as a ref name. Each row is one git accepts,
+	// so only the arbiter's own check refuses it.
+	it.each(["a/b", "-d", undefined])(
+		"pins nothing under a claim id that is not a safe ref name (%s)",
+		(claimId) => {
+			write("content\n");
+			expect(content.pinContent(rel, claimId)).toBeNull();
+		},
+	);
+
+	it("pins under a randomUUID claim id", () => {
+		write("content\n");
+		expect(content.pinContent(rel, crypto.randomUUID())).toMatch(
+			/^[0-9a-f]{40,64}$/,
+		);
 	});
 
 	describe("the pins are bounded by the arbiter's own sweep", () => {

@@ -36,7 +36,7 @@
 # three. Split at #281: an allowance override must not disarm the memory gate,
 # whose breach freezes the machine. Neither disarms the CPU load ceiling
 # (#830, #834): --force-memory still re-reads the load before each spawn, and
-# only WFC_LOAD_CEILING=0 turns it off.
+# only WFC_LOAD_CEILING=0 or a 0 in ~/.claude/load-ceiling turns it off.
 #
 # A prompt may be neither empty nor multi-line: the per-member drop list is
 # indexed by line, so either one shifts every index after it and drops the
@@ -843,7 +843,7 @@ while [[ $# -gt 0 ]]; do
       if printf '%s\n' "$admission_out" | grep -q '^cpu load '; then
         printf '  A CPU load hold: wait for load1 to fall under the ceiling, then re-run\n' >&2
         printf '  this member — `cat /proc/loadavg` reads it. Neither --force nor\n' >&2
-        printf '  --force-memory lifts it; WFC_LOAD_CEILING=0 does, at the risk of\n' >&2
+        printf '  --force-memory lifts it; WFC_LOAD_CEILING=0 or a 0 in ~/.claude/load-ceiling does, at the risk of\n' >&2
         printf '  freezing WSL (#830).\n' >&2
       fi
       # `so 0 slot` keeps the unread-count warning line out of this remedy.
@@ -868,10 +868,11 @@ while [[ $# -gt 0 ]]; do
     # under --load-only (#834, #2141) — surface each here, the only place
     # $admission_out is read on the ADMIT path.
     # Held in a variable: a quoted `=~` pattern matches literally.
-    warn_re=$'(^|\n)(allowance |cpu (load|sessions) +unknown)'
+    warn_line='(allowance |cpu (load|sessions) +unknown)'
+    warn_re=$'(^|\n)'"$warn_line"
     if [[ $admission_out =~ $warn_re ]]; then
       printf 'WARNING: %s\n' "$prompt" >&2
-      printf '%s\n' "$admission_out" | grep -E '^(allowance |cpu (load|sessions) +unknown)' | sed 's/^/  /' >&2
+      printf '%s\n' "$admission_out" | grep -E "^$warn_line" | sed 's/^/  /' >&2
     fi
   fi
 

@@ -4,11 +4,9 @@
  * through actOnBlocks and actOnIdle with a fake BlockIo that records each
  * call. refill-loop-run.test.ts drives the program's own BlockIo end to end.
  *
- * Loosen one and a park is stopped off an unread listing or twice, an
- * API-error session resumed twice for one try, before it is due, or past its
- * cap, or held mid-retry, or a resumed-idle one stopped before its two
- * typed resumes, or its count lost across a tick that would not read, or
- * a parked session resumed by the loop that stopped it.
+ * Loosen one and the loop stops, resumes, holds, parks or hands off a session
+ * when it should not, fails to when it should, acts at the wrong count or
+ * time, or misreports what it did.
  */
 import { describe, expect, it } from "vitest";
 import { RESUME_CAP } from "./block-act.js";
@@ -17,7 +15,7 @@ import {
 	resumedIdleSince,
 	turnedSince,
 } from "./block-cause.js";
-import { actOnBlocks, actOnIdle } from "./refill-blocks.js";
+import { actOnBlocks, actOnIdle, isHeld, markParked } from "./refill-blocks.js";
 
 const MIN = 60 * 1000;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -28,6 +26,9 @@ type Launch = import("./refill-loop.js").LoopLaunch;
 type Cause = import("./block-cause.js").Cause;
 type BlockIo = import("./refill-blocks.js").BlockIo;
 type Agents = import("./refill-blocks.js").Tick["agents"];
+type SwapHold = import("./admission.js").SwapHold;
+
+const NO_HOLD: SwapHold = { held: false };
 
 function record(over: Record<string, unknown> = {}): Launch {
 	return {
@@ -49,8 +50,8 @@ const agent = (id: string, state: string) => ({
 	state,
 });
 
-/** A BlockIo whose every act succeeds unless `over` says otherwise, and
- * `calls`, what it was asked, in order. */
+/** A BlockIo whose every act succeeds unless `over` says otherwise, and its
+ * `calls`. */
 function fakeIo(over: Partial<BlockIo> = {}) {
 	const calls: string[] = [];
 	const io: BlockIo = {
@@ -99,7 +100,10 @@ function blocks(
 	{ now = NOW, io: over = {} }: { now?: number; io?: Partial<BlockIo> } = {},
 ) {
 	const { io, calls } = fakeIo(over);
-	return { out: actOnBlocks(launches, mode, { agents, now, io }), calls };
+	return {
+		out: actOnBlocks(launches, mode, { agents, now, io, swapHold: NO_HOLD }),
+		calls,
+	};
 }
 
 const ids = (ls: Launch[]) => ls.map((l) => l.jobId);
@@ -415,14 +419,16 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 			mode = "away",
 			agents = [],
 			io: over = {},
+			swapHold = NO_HOLD,
 		}: {
 			mode?: "away" | "normal";
 			agents?: Agents;
 			io?: Partial<BlockIo>;
+			swapHold?: SwapHold;
 		} = {},
 	) => {
 		const { io, calls } = fakeIo({ idleSince: idleFor(minutes), ...over });
-		const [out] = actOnIdle([l], mode, { agents, now: NOW, io });
+		const [out] = actOnIdle([l], mode, { agents, now: NOW, io, swapHold });
 		return { out, calls };
 	};
 	const listed = [agent("job42", "working")];
@@ -602,5 +608,215 @@ describe("the resumed-idle launches the loop acts on (#2659, #2978)", () => {
 		const r = idle(record({ handOffTries: 1 }), 30, { agents: listed });
 		expect(r.calls[0]).toBe("hand-off job42");
 		expect(r.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
+	});
+
+	describe("under the swap hold (#3093)", () => {
+		const Hold: SwapHold = {
+			held: true,
+			swapFreeMb: 300,
+			swapTotalMb: 2048,
+			availableMb: 1900,
+		};
+		const restartedAt = NOW - 2 * MIN;
+		/* #2978's detector reads the launch resumed-idle off these. */
+		const restarted: Partial<BlockIo> = {
+			idleSince: () =>
+				resumedIdleSince({
+					job: { state: "working" },
+					rows: [
+						{
+							type: "api-request",
+							timestamp: new Date(NOW - 30 * MIN).toISOString(),
+						},
+						{
+							type: "user",
+							isMeta: true,
+							timestamp: new Date(restartedAt).toISOString(),
+							message: {
+								content: [
+									{
+										type: "text",
+										text: "Continue from where you left off. Note: this session was automatically restarted after its process exited unexpectedly.",
+									},
+								],
+							},
+						},
+					],
+				}),
+		};
+		const why =
+			"design-vault /implement 42, restarted by its host, under the swap hold (swap is 300 of 2048 MB free and 1900 MB available)";
+		const held = (over = {}) =>
+			record({
+				idleSince: restartedAt,
+				swapHeld: { at: NOW - 10 * MIN, sessionId: "s42", cwd: "/c", tries: 0 },
+				...over,
+			});
+
+		it("stops and holds a restarted launch at once instead of typing into it", () => {
+			const r = idle(typed(1, 1), null, {
+				agents: listed,
+				io: restarted,
+				swapHold: Hold,
+			});
+			expect(r.calls).toEqual([
+				"stop job42",
+				`log stopped ${why}, until the hold clears`,
+			]);
+			expect(r.out?.swapHeld).toEqual({
+				at: NOW,
+				sessionId: "s",
+				cwd: "/",
+				tries: 0,
+			});
+			expect(r.out?.idleResumes).toEqual({ tries: 1, triedAt: NOW - MIN });
+			expect(r.out).not.toHaveProperty("idleSince");
+			expect(isHeld(r.out as Launch)).toBe(true);
+		});
+
+		it("hands off, not holds, one whose typed resumes are spent", () => {
+			const r = idle(typed(2, 1), null, {
+				agents: listed,
+				io: restarted,
+				swapHold: Hold,
+			});
+			expect(r.calls.slice(0, 2)).toEqual(["stop job42", "hand-off job42"]);
+			expect(r.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
+			expect(r.out).not.toHaveProperty("swapHeld");
+		});
+
+		it("leaves the typed resume unchanged outside the hold", () => {
+			const early = idle(record(), null, { agents: listed, io: restarted });
+			expect(early.calls).toEqual([]);
+			expect(early.out?.idleSince).toBe(restartedAt);
+			const due = idle(record(), 5, { agents: listed });
+			expect(due.calls[0]).toBe("type job42");
+			expect(due.out).not.toHaveProperty("swapHeld");
+		});
+
+		it("logs a stop that fails, holds nothing and tries again next tick", () => {
+			for (const fail of [
+				{ why: "timed out", timedOut: true, noJob: false },
+				{ why: "No job matching 'job42'", timedOut: false, noJob: true },
+			]) {
+				const io: Partial<BlockIo> = {
+					...restarted,
+					stop: () => ({ ok: false, said: null, ...fail }),
+				};
+				const r = idle(record(), null, { agents: listed, io, swapHold: Hold });
+				expect(logs(r.calls)).toEqual([`could not stop ${why}: ${fail.why}`]);
+				expect(r.out).not.toHaveProperty("swapHeld");
+				expect(isHeld(r.out as Launch)).toBe(false);
+				const again = idle(r.out as Launch, null, {
+					agents: listed,
+					io: restarted,
+					swapHold: Hold,
+				});
+				expect(again.calls[0]).toBe("stop job42");
+				expect(again.out?.swapHeld?.at).toBe(NOW);
+			}
+		});
+
+		it("stops nothing off an unread listing or with no session id to resume it by", () => {
+			const unread = idle(record(), null, {
+				agents: null,
+				io: restarted,
+				swapHold: Hold,
+			});
+			expect(unread.calls).toEqual([
+				`log not stopping ${why}: the listing is unread`,
+			]);
+			const noId = idle(record(), null, {
+				agents: listed,
+				io: {
+					...restarted,
+					resumeTargetOf: () => ({ sessionId: null, cwd: "/" }),
+				},
+				swapHold: Hold,
+			});
+			expect(noId.calls).toEqual([
+				`log not stopping ${why}: no session id read to resume it by`,
+			]);
+		});
+
+		it("keeps a held launch stopped while the hold binds", () => {
+			const stopped = [agent("job42", "stopped")];
+			const r = idle(held(), null, {
+				agents: stopped,
+				io: restarted,
+				swapHold: Hold,
+			});
+			expect(r).toEqual({ out: held(), calls: [] });
+		});
+
+		it("resumes a held launch on the first tick after the hold clears", () => {
+			const r = idle(held(), null, {
+				agents: [agent("job42", "stopped")],
+				io: restarted,
+			});
+			expect(r.calls).toEqual([
+				"resume job42",
+				"log resumed design-vault /implement 42, stopped under the swap hold at 2026-10-18T11:50:00.000Z, the hold cleared, by --bg --resume, as its copy job42-copy",
+			]);
+			expect(r.out).not.toHaveProperty("swapHeld");
+			expect(r.out).toMatchObject({
+				jobId: "job42-copy",
+				copiedFrom: "job42",
+				relaunchedAt: NOW,
+				pastSessionIds: ["s42"],
+			});
+		});
+
+		it("resumes nothing off an unread listing", () => {
+			expect(idle(held(), null, { agents: null }).calls).toEqual([
+				"log not resuming design-vault /implement 42, stopped under the swap hold at 2026-10-18T11:50:00.000Z: the listing is unread",
+			]);
+		});
+
+		it("lets go of one the listing shows live again, blocked or working", () => {
+			const unknown = () => ({ cause: "UNKNOWN" as const, why: "" });
+			for (const state of ["working", "blocked"]) {
+				const [out] = markParked(
+					[held()],
+					[agent("job42", state)],
+					unknown,
+					NOW,
+				);
+				expect(out).not.toHaveProperty("swapHeld");
+			}
+			const [still] = markParked(
+				[held()],
+				[agent("job42", "stopped")],
+				unknown,
+				NOW,
+			);
+			expect(still).toEqual(held());
+		});
+
+		it("keeps one whose resume failed held for the next tick, and hands it off at the third failure", () => {
+			const io: Partial<BlockIo> = {
+				resumeStopped: () => ({ failed: "exit 1" }),
+			};
+			const stopped = [agent("job42", "stopped")];
+			const first = idle(held(), null, { agents: stopped, io });
+			expect(first.out?.swapHeld?.tries).toBe(1);
+			expect(first.out?.finishedAt).toBeNull();
+			const last = idle(
+				held({
+					swapHeld: {
+						at: NOW - 10 * MIN,
+						sessionId: "s42",
+						cwd: "/c",
+						tries: 2,
+					},
+				}),
+				null,
+				{ agents: stopped, io },
+			);
+			expect(last.calls).toContain("hand-off job42");
+			expect(last.calls).not.toContain("stop job42");
+			expect(last.out).toMatchObject({ finishedAt: NOW, handedOff: NOW });
+			expect(last.out).not.toHaveProperty("swapHeld");
+		});
 	});
 });

@@ -104,14 +104,14 @@ const { execGit } = require("./lib/git.js");
  *
  * readRuleText throws on an unreadable store, and a throw here would report BROKEN
  * — "the checker cannot do its job" — over a fault that has nothing to do with
- * the roadmap. So readRuleTextOr answers a pointer instead: the roadmap verdict
+ * the roadmap. So readRuleTextOr answers a stand-in naming the fragment: the verdict
  * stands either way, and an unreadable fragment is check-guard-registry.js's
  * assertion rather than this checker's.
  */
 function readRoadmapRule() {
 	return readRuleTextOr(
 		"roadmap-validity",
-		"A commit staging the roadmap must leave it structurally valid.",
+		"A commit staging the roadmap must leave it structurally valid",
 		"check-roadmap-valid",
 	).split("\n");
 }

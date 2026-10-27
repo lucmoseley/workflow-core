@@ -15,8 +15,8 @@
  */
 
 const { cutAt } = require("./cut-at.js");
-const { isCommit } = require("./commit-sha.js");
-const { execGit } = require("./git.js");
+const { readCommit } = require("./commit-sha.js");
+const { execGit, gitReader } = require("./git.js");
 
 /* Above this many commits, per-commit file LISTS are replaced by a file COUNT
  * plus one aggregate. At the range sizes mantahostels#905 measured, the long form is the
@@ -86,7 +86,8 @@ const parseGitLine = (e) => {
  * Returns { ok: true, count, commits, truncated } or { ok: false, reason }.
  * A sha the local clone has never fetched is the expected failure here — the
  * red run names shas from `origin/main`, and this machine may be behind — so it
- * is reported as a reason to fetch, never as a broken check.
+ * is reported as a reason to fetch, never as a broken check. A git that will
+ * not answer is named as that failure instead (#3152).
  *
  * @param {{good?: string|null, bad?: string|null, cwd?: string,
  *   maxListed?: number}} ends
@@ -101,7 +102,13 @@ function readRange({ good, bad, cwd, maxListed = MAX_LISTED }) {
 		["bad", bad],
 	];
 	for (const [label, sha] of ends) {
-		if (!isCommit(cwd ?? process.cwd(), sha))
+		const r = readCommit(gitReader(cwd ?? process.cwd()), sha);
+		if (!r.ok)
+			return {
+				ok: false,
+				reason: `git would not resolve ${sha.slice(0, 7)} (the ${label} end): ${r.why}`,
+			};
+		if (r.sha === null)
 			return {
 				ok: false,
 				reason: `this clone has no commit ${sha.slice(0, 7)} (the ${label} end) — \`git fetch origin\` and re-run`,

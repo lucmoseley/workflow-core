@@ -1,6 +1,6 @@
 /*
  * agent-poll-host.js — the production ports lib/agent-poll.js reads, through
- * the dispatcher and through scripts/guard-agent-poll.js (#2791): the clock,
+ * the dispatcher (#2791, #3224): the clock,
  * and the rolling window's file — its read, its directory, its atomic write
  * and the day-old sweep of its directory. The core names every path; this
  * file only touches them.

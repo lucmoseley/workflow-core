@@ -107,7 +107,18 @@ describe("each exit", () => {
 		});
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			"lib/rule-text.sh issue-takes-label",
+			"could not be read from docs/agents/rules/issue-takes-label.txt",
+		);
+	});
+
+	it("still refuses a takes:human create with no Close-when line, naming the deliverable fragment, where the store cannot give it", () => {
+		const out = emission(
+			"gh issue create --title t --label takes:human --body '**Outside Claude Code:** email the hostel.'",
+			{ env: { WFC_RULES_DIR: fs.mkdtempSync(path.join(dir, "store-")) } },
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"could not be read from docs/agents/rules/founder-deliverable.txt",
 		);
 	});
 

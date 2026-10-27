@@ -63,7 +63,7 @@ function decide(file, ctx) {
 	const rev = baselineRev(ctx.env);
 	const baseline = readBaselineCommit(ctx.git, rev);
 	if (!baseline.ok) return unjudged(rel, baseline.why, ctx);
-	if (!baseline.out.trim()) return null;
+	if (baseline.sha === null) return null;
 	const inherited = readInheritedNumbers(ctx.git, rev);
 	if (!inherited.ok) return unjudged(rel, inherited.why, ctx);
 	/** @type {Set<number>} */

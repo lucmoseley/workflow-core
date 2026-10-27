@@ -1,5 +1,5 @@
 /*
- * branch-move.js — guard-branch.js's core (#2797): the shared working tree
+ * branch-move.js — the guard-branch core (#2797, #3224): the shared working tree
  * stays on `main`.
  *
  * Why: the working tree is repo-global, so a `git checkout` in one session
@@ -65,11 +65,8 @@
  */
 
 const { ruleModule } = require("./rule-gates.js");
-const { denyText, ruleOr } = require("./guard-verdict.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unsetText, walkGit } = require("./shell-parse.js");
-
-const BRANCH_RULE_FALLBACK =
-	"The shared working tree stays on `main`; the rule could not be read from docs/agents/rules/branch-shared-tree.txt. Read that file before doing anything else.";
 
 const WORKTREE_FRAMING =
 	"This opens a worktree with neither a branch of its own nor a detached HEAD: @CMD@";
@@ -98,7 +95,7 @@ const MOVE_FLAGS = [
  *   resolves in the repo at `dir`
  * @property {(p: string) => boolean} exists anything is at `p`, relative to the
  *   hook's own directory where not absolute
- * @typedef {import("./guard-entry.js").KitContext & BranchPorts} BranchContext
+ * @typedef {import("./kit-context.js").KitContext & BranchPorts} BranchContext
  */
 
 /**
@@ -229,9 +226,10 @@ function isFileRestore(tree, positional, ctx) {
  * @param {BranchContext} ctx
  */
 function refusalText(kind, unset, segment, ctx) {
-	const rule = ruleOr(
-		() => ctx.ruleText("branch-shared-tree"),
-		BRANCH_RULE_FALLBACK,
+	const rule = ruleOrFallback(
+		ctx,
+		"branch-shared-tree",
+		"The shared working tree stays on `main`",
 	);
 	const text =
 		kind === "worktree"
@@ -240,4 +238,4 @@ function refusalText(kind, unset, segment, ctx) {
 	return denyText(ctx, segment, text);
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

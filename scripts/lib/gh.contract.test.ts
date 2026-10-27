@@ -3,7 +3,8 @@
  * The shared gh fake's contract (§G7, #2207, #2781): each case runs one gh
  * call against the real binary, the WFC_GH stub and the in-process fake, all
  * fed from the fixture the case names, and asserts they give the same verdict
- * from lib/gh.js's own readers and the same JSON shape. Values are never
+ * from lib/gh.js's own readers and the same JSON shape. The logged-out case
+ * also runs it through serveGhStub's server (#3158). Values are never
  * compared: the fixtures are synthetic and the real tracker's data stays out
  * of them. Loosened, every suite stubbing gh stays green while production
  * misreads what a new gh release prints (#2220).
@@ -19,10 +20,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { caught } from "./caught.js";
 import {
+	asRecorded,
 	BLOCKED_BY_GRAPHQL_FAKE,
 	type GhAnswer,
 	GRAPHQL_FAKE,
 	ghAnswer,
+	ghAnswerHandler,
 	ghAnswerNode,
 	ghComputed,
 	ghFake,
@@ -30,7 +33,7 @@ import {
 	ghServe,
 	RECORDED_SHAPES,
 } from "./gh-fake";
-import { stubGhScript } from "./gh-stub";
+import { serveGhStub, stubGhScript } from "./gh-stub";
 
 const LOGGED_OUT = path.join(__dirname, "fixtures/gh/logged-out.json");
 const ISSUE_BODY = path.join(__dirname, "fixtures/gh/issue-body.json");
@@ -57,6 +60,7 @@ const BLOCKED_BY_PAGE = path.join(
 );
 const TIMELINE_PAGE = path.join(__dirname, "fixtures/gh/timeline-page.json");
 const PARENT_PAGE = path.join(__dirname, "fixtures/gh/parent-page.json");
+const COMMENTS_PAGE = path.join(__dirname, "fixtures/gh/comments-page.json");
 const PARENT_NOT_FOUND = path.join(
 	__dirname,
 	"fixtures/gh/parent-not-found.json",
@@ -153,6 +157,20 @@ const stubbed = (fixture: string) =>
 	stubGhScript(path.join(dir, path.basename(fixture)), ghFakeScript(fixture))
 		.gh;
 
+/** The same call through lib/gh.js against serveGhStub's server answering
+ *  `fixture`, reached through its bash client. */
+async function throughServed(fixture: string, args: string[]) {
+	const server = await serveGhStub(ghAnswerHandler(fixture));
+	try {
+		return await throughSeam(
+			stubGhScript(fs.mkdtempSync(path.join(dir, "served-")), server.script).gh,
+			args,
+		);
+	} finally {
+		await server.close();
+	}
+}
+
 /*
  * #2220's case, and the one that runs wherever gh is installed: with no token
  * and an empty config dir, gh refuses before opening any socket. Deleting
@@ -163,7 +181,9 @@ const stubbed = (fixture: string) =>
  * After a gh upgrade, repeat `strace -f -e trace=connect` over the call to
  * confirm it still opens no socket.
  */
-// Residual: where no gh is installed this case skips, and the stub goes unchecked.
+// Residual: where no gh is installed this case skips, and the stubs go unchecked.
+// The served stub is held on the logged-out answer alone, whose stdout is
+// empty; gh-stub-server.test.ts holds its stdout round trip.
 describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 	const loggedOut = () => {
 		for (const v of [
@@ -182,11 +202,12 @@ describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 	};
 	const args = ["api", "repos/o/r"];
 
-	it("a logged-out call answers alike from the real gh, the stub, the inline node fake and the in-process fake (#2220)", async () => {
+	it("a logged-out call answers alike from the real gh, the stub, the served stub, the inline node fake and the in-process fake (#2220, #3158)", async () => {
 		loggedOut();
 		const real = await throughSeam(realGh as string, args);
 		expect(real).toMatchObject({ verdict: "unreachable" });
 		expect(await throughSeam(stubbed(LOGGED_OUT), args)).toEqual(real);
+		expect(await throughServed(LOGGED_OUT, args)).toEqual(real);
 		const nodeFake = stubGhScript(
 			path.join(dir, "node-fake"),
 			`#!/usr/bin/env node\n${ghAnswerNode(LOGGED_OUT)}\n`,
@@ -212,10 +233,9 @@ describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 });
 
 /*
- * Read-only calls against this repo's own tracker. They run where the real gh
- * is logged in, and never in CI, whose gh is a different binary and whose
- * minutes are spent (#2207). A failure's stderr carries the tracker's own
- * words, so they compare verdict and shape only.
+ * Read-only calls against this repo's own tracker, run where the real gh is
+ * logged in (#2207). A failure's stderr carries the tracker's own words, so
+ * they compare verdict and shape only.
  */
 // Residual: off the founder's machine these skip, and their fixtures go unchecked.
 function liveSkipReason(): string | undefined {
@@ -296,8 +316,8 @@ describe("live: read-only calls", () => {
 				"--slurp",
 			],
 		},
-		/* pick-next's REST reads, which its test's handler builds through
-		 * RECORDED_SHAPES (#2895). #948 (a closed spec, with a parent) is the
+		/* The REST reads whose answers the stubs build through
+		 * RECORDED_SHAPES (#2895, #3133). #948 (a closed spec, with a parent) is the
 		 * oldest closed issue carrying its three labels, so it stays the first
 		 * row shapeOf reads; #2331 has closed blockers. */
 		{
@@ -336,6 +356,17 @@ describe("live: read-only calls", () => {
 			args: [
 				"api",
 				"repos/{owner}/{repo}/issues/948/parent",
+				"--paginate",
+				"--slurp",
+			],
+		},
+		{
+			what: "an issue's latest-comment page, as check-issue-labels reads it",
+			fixture: COMMENTS_PAGE,
+			// Page 1 at one a page is #948's oldest comment, so it stays put.
+			args: [
+				"api",
+				"repos/{owner}/{repo}/issues/948/comments?per_page=1&page=1",
 				"--paginate",
 				"--slurp",
 			],
@@ -561,21 +592,17 @@ describe("live: computed answers", () => {
 
 /*
  * RECORDED_SHAPES holds a stub's own REST answers to the fixtures the live
- * cases above hold to the real gh (#2895), so it must embed each and refuse
- * what none of them sends.
+ * cases above hold to the real gh (#2895).
  */
 describe("offline: the recorded shapes", () => {
-	const asRecorded = ghComputed<(kind: string, value: unknown) => string>(
-		RECORDED_SHAPES,
-		"asRecorded",
-	);
-
 	it("builds from the fixture each live case holds", () => {
 		for (const fixture of [
 			ISSUES_PAGE,
 			BLOCKED_BY_PAGE,
 			TIMELINE_PAGE,
 			PARENT_PAGE,
+			COMMENTS_PAGE,
+			SUB_ISSUES,
 			REPO,
 		])
 			expect(RECORDED_SHAPES).toContain(

@@ -219,7 +219,7 @@ runCheck({
 		 * working directory, as skipUnlessModuleOn's read does (lib/check.js). */
 		ctx.say(
 			`\nThese are banned tells from ${brandSheetPath({ say: ctx.say })} §11 (Banned tells — website copy only). ` +
-				"Rewrite the copy; do not reach for --no-verify, which guard-commit-form.js denies. " +
+				"Rewrite the copy; do not reach for --no-verify, which the guard-commit-form core denies. " +
 				"Repo docs and comments are out of scope and keep their em dashes.",
 		);
 		return { noun: "banned tell(s) in website copy", count: hits };

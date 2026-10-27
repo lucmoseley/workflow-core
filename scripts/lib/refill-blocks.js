@@ -7,6 +7,7 @@
 
 const path = require("node:path");
 const { isTerminalAgent } = require("./agent-liveness.js");
+const { swapHoldText } = require("./admission.js");
 const {
 	IDLE_TRIES,
 	RESUME_CAP,
@@ -29,6 +30,9 @@ const FALLBACK_ROUTE = "stop and --bg --resume";
 /* The hand-offs of a stopped resumed-idle session tried before the loop gives
  * up on posting it and finishes the launch; untraced. */
 const HAND_OFF_TRIES = 3;
+/* The resumes of a session stopped under the swap hold that fail before the
+ * loop hands it off instead: untraced (#3093). */
+const SWAP_RESUME_TRIES = 3;
 /* The listed state of a session parked on a question
  * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F1). */
 const PARKED_STATE = "blocked";
@@ -44,12 +48,18 @@ const PARKED_STATE = "blocked";
  *   API error, kept across spells so the cap is the session's (#2705)
  * @typedef {{tries: number, triedAt: number}} IdleResumes  its typed
  *   resumes while resumed-idle (#2659), cleared once it takes a turn
+ * @typedef {{at: number, sessionId: string, cwd: string, tries: number}}
+ *   SwapHeld  a resumed-idle session the loop stopped under the swap hold
+ *   (#3093): when, the session and directory its resume runs in, read before
+ *   the stop, and the resumes since tried that failed
  * @typedef {(l: LoopLaunch, row: AgentRecord) =>
  *   import("./block-cause.js").Reading} CauseOf
  * @typedef {{sessionId: string|null, cwd: string}} ResumeTarget  a job's
  *   full session id, null unread, and the directory its resume runs in
- * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo}} Tick
- *   a tick's listing, null unread; its clock; the program's I/O
+ * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo,
+ *   swapHold: import("./admission.js").SwapHold}} Tick  a tick's listing,
+ *   null unread; its clock; the program's I/O; the swap hold (#2690) as read
+ *   this tick
  * @typedef {{failed: string}|{failed: null, jobId: string,
  *   sessionId: string|null, copy: boolean}} Resumed  a `--bg --resume`: why
  *   it failed, else the job it runs on as, its full session id, null unread,
@@ -120,12 +130,21 @@ const isResuming = (l) =>
 	l.parkStopped === undefined;
 
 /**
- * Whether the loop stopped `l`'s session to wait for its next resume, so the
- * session's end is the loop's own and the launch stays unfinished until a
- * resume takes or it parks.
+ * Whether the loop stopped `l`'s resumed-idle session under the swap hold
+ * (#3093).
+ * @param {LoopLaunch} l
+ * @returns {l is LoopLaunch & {swapHeld: SwapHeld}}
+ */
+const isSwapHeld = (l) => l.swapHeld !== undefined;
+
+/**
+ * Whether the loop stopped `l`'s session to wait for its next resume, or for
+ * the swap hold to clear (#3093): the launch stays unfinished until a resume
+ * takes, it parks or it is handed off.
  * @param {LoopLaunch} l
  */
-const isHeld = (l) => isResuming(l) && l.resumes?.heldAt !== undefined;
+const isHeld = (l) =>
+	(isResuming(l) && l.resumes?.heldAt !== undefined) || isSwapHeld(l);
 
 /**
  * `l`'s block with its resume record, as lib/block-act.js reads it.
@@ -157,7 +176,8 @@ const nextResumeAt = (l) => resumeDueAt(blockOf(l));
  * listing sees it, before or without the `parked` label, which the Stop hook
  * adds only on a house-decision round. Off an unread listing, for an
  * unlisted launch, or for a held one (isHeld) whose session has ended, each
- * keeps what the last read said.
+ * keeps what the last read said; one held under the swap hold whose session
+ * the listing shows live again is no longer held (#3093).
  * @param {LoopLaunch[]} launches
  * @param {AgentRecord[]|null} agents
  * @param {CauseOf} causeOf
@@ -170,7 +190,7 @@ function markParked(launches, agents, causeOf, now) {
 		const row = l.jobId === null ? undefined : rows.get(l.jobId);
 		if (l.finishedAt !== null || !row) return l;
 		if (isHeld(l) && isTerminalAgent(row)) return l;
-		const { block: _, ...rest } = l;
+		const { block: _, swapHeld: __, ...rest } = l;
 		if (row.state !== PARKED_STATE) return { ...rest, parked: false };
 		const reading = causeOf(l, row);
 		return {
@@ -304,7 +324,8 @@ function idleReading(l, io) {
 
 /**
  * The resumed-idle launches (#2659) and the RESUMED_IDLE row's act on each:
- * every actionable launch the loop does not resume after an API error, whose
+ * every actionable launch the loop does not resume after an API error nor
+ * hold stopped under the swap hold, whose
  * job `idleSince` reads resumed-idle off the job store and transcript alone,
  * never the listing. Each launch read resumed-idle is returned with its
  * `idleSince` set, kept from the first such reading; one read taking a turn
@@ -312,16 +333,20 @@ function idleReading(l, io) {
  * resume included (#2978), with that and its `idleResumes` cleared; one
  * whose records will not read, unchanged (#2847).
  * @param {LoopLaunch[]} launches
- * @param {BlockIo} io
  * @param {"away"|"normal"} mode
- * @param {number} now
+ * @param {Tick} seen
  * @returns {{launches: LoopLaunch[], acts: {l: BlockedLaunch, act: Act}[]}}
  */
-function idleActs(launches, io, mode, now) {
+function idleActs(launches, mode, { now, io, swapHold }) {
 	/** @type {{l: BlockedLaunch, act: Act}[]} */
 	const acts = [];
 	const read = launches.map((l) => {
-		if (!isActionable(l) || isResuming(l) || l.handOffTries !== undefined)
+		if (
+			!isActionable(l) ||
+			isResuming(l) ||
+			l.handOffTries !== undefined ||
+			isSwapHeld(l)
+		)
 			return l;
 		const since = idleReading(l, io);
 		if (since === "unread") return l;
@@ -334,6 +359,7 @@ function idleActs(launches, io, mode, now) {
 			cause: "RESUMED_IDLE",
 			since: Math.max(since, l.idleResumes?.triedAt ?? 0),
 			tries: l.idleResumes?.tries ?? 0,
+			swapHeld: swapHold.held,
 		};
 		acts.push({ l: { ...idle, block }, act: blockAct(block, mode, now) });
 		return idle;
@@ -441,7 +467,7 @@ const withHeld = (l, now) =>
  * @param {Tick} seen
  * @returns {LoopLaunch}
  */
-function hold(l, { now, io }) {
+function holdForResume(l, { now, io }) {
 	const failed = stopJob(l, io);
 	io.log(
 		failed
@@ -711,9 +737,82 @@ function handOff(b, { agents, now, io }, stopped = false) {
 }
 
 /**
+ * Stop `b`'s resumed-idle session under the swap hold until it clears
+ * (#3093, #3084). Its resume target is read first, the stop being free to
+ * rewrite the job record; one with no session id is not stopped, as nothing
+ * could resume it. A stop that fails, a job not found included, is logged
+ * and never held, so the next tick tries again; never off an unread listing,
+ * nor where idleSpared spares it. Its typed resumes are kept across the
+ * hold, so one idle by its own fault still meets its hand-off.
+ * @param {BlockedLaunch} b
+ * @param {Tick} seen
+ * @returns {LoopLaunch}
+ */
+function holdIdle(b, { agents, now, io, swapHold }) {
+	const { block: _, ...l } = b;
+	const what = `${launchName(l)}, restarted by its host, under the swap hold${swapHold.held ? ` (${swapHoldText(swapHold)})` : ""}`;
+	if (!agents) {
+		io.log(`not stopping ${what}: the listing is unread`);
+		return l;
+	}
+	const spared = idleSpared(l, io);
+	if (spared) return spared;
+	const { sessionId, cwd } = io.resumeTargetOf(b);
+	if (!sessionId) {
+		io.log(`not stopping ${what}: no session id read to resume it by`);
+		return l;
+	}
+	const failed = stopJob(b, io);
+	if (failed) {
+		io.log(`could not stop ${what}: ${failed}`);
+		return l;
+	}
+	io.log(`stopped ${what}, until the hold clears`);
+	const { idleSince: __, ...stopped } = l;
+	return { ...stopped, swapHeld: { at: now, sessionId, cwd, tries: 0 } };
+}
+
+/**
+ * Resume `l`, stopped under the swap hold, on the first tick it has cleared:
+ * `claude --bg --resume` of its session with the restart's prompt. One whose
+ * resume fails stays held for the next tick, and after SWAP_RESUME_TRIES
+ * failures is handed off instead. Nothing off an unread listing; one live
+ * again markParked has let go.
+ * @param {JobLaunch & {swapHeld: SwapHeld}} l
+ * @param {Tick} seen
+ * @returns {LoopLaunch}
+ */
+function resumeSwapHeld(l, seen) {
+	const { agents, now, io, swapHold } = seen;
+	if (swapHold.held) return l;
+	const { swapHeld, ...rest } = l;
+	const what = `${launchName(l)}, stopped under the swap hold at ${iso(swapHeld.at)}`;
+	if (!agents) {
+		io.log(`not resuming ${what}: the listing is unread`);
+		return l;
+	}
+	const { sessionId, cwd } = swapHeld;
+	const r = io.resumeStopped(l, IDLE_PROMPT, { sessionId, cwd });
+	if (r.failed === null) {
+		const resumed = relaunched(rest, { ...r, fromSessionId: sessionId }, now);
+		io.log(
+			`resumed ${what}, the hold cleared, by --bg --resume, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`,
+		);
+		return resumed;
+	}
+	const tries = swapHeld.tries + 1;
+	io.log(
+		`could not resume ${what}, try ${tries} of ${SWAP_RESUME_TRIES}: ${r.failed}`,
+	);
+	if (tries < SWAP_RESUME_TRIES)
+		return { ...l, swapHeld: { ...swapHeld, tries } };
+	return handOff(rest, seen, true);
+}
+
+/**
  * @typedef {{mode: "away"|"normal", resume: (l: BlockedLaunch, seen: Tick)
- *   => LoopLaunch}} ActHow  `resume`, the resume a `resume` act makes for
- *   its cause
+ *   => LoopLaunch, hold: (l: BlockedLaunch, seen: Tick) => LoopLaunch}}
+ *   ActHow  `resume` and `hold`, the acts of those names for the cause
  */
 
 /**
@@ -727,7 +826,7 @@ const ACTS = {
 		stopPark(l, "stop-and-park", mode, seen),
 	"park-at-morning": (l, seen, { mode }) =>
 		stopPark(l, "park-at-morning", mode, seen),
-	hold: (l, seen) => hold(l, seen),
+	hold: (l, seen, { hold }) => hold(l, seen),
 	resume: (l, seen, { resume }) => resume(l, seen),
 	"handoff-relaunch": (l, seen) => handOff(l, seen),
 };
@@ -766,14 +865,18 @@ const withActed = (launches, acted) =>
 function actOnBlocks(launches, mode, seen) {
 	const settled = settleTyped(launches, seen);
 	const acts = blockedActs(settled, mode, seen);
-	return withActed(settled, actedOn(acts, seen, { mode, resume: makeResume }));
+	return withActed(
+		settled,
+		actedOn(acts, seen, { mode, resume: makeResume, hold: holdForResume }),
+	);
 }
 
 /**
  * The tick's acts on resumed-idle launches (#2659), read off the job store
  * and transcripts whether or not the listing read: each owed hand-off
  * retried, each typed resume checked, then the RESUMED_IDLE row's act, its
- * block made up for the act and so not kept.
+ * block made up for the act and so not kept; last, each launch stopped under
+ * a swap hold since cleared resumed (#3093).
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {Tick} seen
@@ -784,15 +887,18 @@ function actOnIdle(launches, mode, seen) {
 			? handOff(l, seen, true)
 			: l,
 	);
-	const read = idleActs(owed, seen.io, mode, seen.now);
+	const read = idleActs(owed, mode, seen);
 	const acted = actedOn(read.acts, seen, {
 		mode,
 		resume: typeIdleResume,
+		hold: holdIdle,
 	});
 	const unblocked = new Map(
 		[...acted].map(([jobId, { block: _, ...l }]) => [jobId, l]),
 	);
-	return withActed(read.launches, unblocked);
+	return withActed(read.launches, unblocked).map((l) =>
+		isActionable(l) && isSwapHeld(l) ? resumeSwapHeld(l, seen) : l,
+	);
 }
 
 module.exports = {
@@ -801,6 +907,7 @@ module.exports = {
 	indented,
 	isHeld,
 	isResuming,
+	isSwapHeld,
 	iso,
 	launchName,
 	markParked,

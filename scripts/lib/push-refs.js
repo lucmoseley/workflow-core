@@ -1,33 +1,55 @@
 /*
  * push-refs.js — the ref lines git feeds a pre-push hook on stdin, read once
- * for every checker the hook runs (#857).
+ * for every checker the hook runs (#857), and parsed by one parser for every
+ * pre-push gate (#3116).
  *
  * git writes `<local ref> <local sha> <remote ref> <remote sha>` per ref. A
- * delete pushes the all-zero local sha and has no bytes to check, so it is
- * dropped; a new branch carries the all-zero remote sha, kept for the caller to
- * read as "no remote tip".
+ * delete pushes the all-zero local sha and has no bytes to check; a new branch
+ * carries the all-zero remote sha, for the caller to read as "no remote tip".
  */
 
 const ZERO = /^0+$/;
 
 /**
- * The pushes git is being asked to make — `{ sha, remote }` per local sha,
- * repeats collapsed onto the first line that named them. `skipTags` drops a
- * line landing on `refs/tags/` before the collapse, so a branch pushed at the
- * same sha is still returned.
+ * Whether `sha` is git's all-zero sha: a deletion's local sha, a new ref's
+ * remote one.
+ * @param {string} sha
+ */
+const isZeroSha = (sha) => ZERO.test(sha);
+
+/**
+ * @typedef {{ localRef: string, sha: string, remoteRef: string | undefined, remoteSha: string | undefined }} RefLine
+ */
+
+/**
+ * Each ref line naming a local sha, in order, deletions included.
+ * @param {string} stdin
+ * @returns {RefLine[]}
+ */
+function parseRefLines(stdin) {
+	return stdin.split("\n").flatMap((line) => {
+		const [localRef, sha, remoteRef, remoteSha] = line.trim().split(/\s+/);
+		return localRef && sha ? [{ localRef, sha, remoteRef, remoteSha }] : [];
+	});
+}
+
+/**
+ * The pushes git is being asked to make — `{ sha, remoteSha }` per local sha,
+ * deletions dropped and repeats collapsed onto the first line that named them.
+ * `skipTags` drops a line landing on `refs/tags/` before the collapse, so a
+ * branch pushed at the same sha is still returned.
  * @param {string} stdin
  * @param {{ skipTags?: boolean }} [options]
  */
-function pushesFrom(stdin, { skipTags = false } = {}) {
-	/** @type {Array<{ sha: string, remote: string | undefined }>} */
+function parsePushes(stdin, { skipTags = false } = {}) {
+	/** @type {Array<{ sha: string, remoteSha: string | undefined }>} */
 	const out = [];
-	for (const line of stdin.split("\n")) {
-		const [, sha, remoteRef, remote] = line.trim().split(/\s+/);
+	for (const { sha, remoteRef, remoteSha } of parseRefLines(stdin)) {
 		if (skipTags && remoteRef?.startsWith("refs/tags/")) continue;
-		if (sha && !ZERO.test(sha) && !out.some((p) => p.sha === sha))
-			out.push({ sha, remote });
+		if (!isZeroSha(sha) && !out.some((p) => p.sha === sha))
+			out.push({ sha, remoteSha });
 	}
 	return out;
 }
 
-module.exports = { ZERO, pushesFrom };
+module.exports = { isZeroSha, parsePushes, parseRefLines };

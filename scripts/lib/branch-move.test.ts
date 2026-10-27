@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/branch-move.js, guard-branch.js's core (#2797), in process: which
+ * lib/branch-move.js, the guard-branch core (#2797), in process: which
  * checkout, switch and worktree commands move the shared tree off `main`
  * (mantahostels#110), which are handed the rule, and which pass. A deny is
  * only defensible while it cannot wedge sanctioned work, so every allow case

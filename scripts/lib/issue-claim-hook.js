@@ -27,7 +27,7 @@ const { literal, scanFlags } = require("./shell-words.js");
  *   repo at `dir`; "" where git cannot answer
  * @property {(issue: string, sessionId: string) => void} claimIssue
  * @property {(issue: string, sessionId: string) => void} releaseIssue
- * @typedef {import("./guard-entry.js").KitContext & ClaimPorts} ClaimContext
+ * @typedef {import("./kit-context.js").KitContext & ClaimPorts} ClaimContext
  */
 
 /**

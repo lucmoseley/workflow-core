@@ -4,7 +4,7 @@
  * lib/suite-concurrency-host.js builds the ports it reads the machine through.
  */
 
-const { denyText, ruleOr } = require("./guard-verdict.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const {
 	asWritten,
 	parseCommand,
@@ -34,6 +34,7 @@ const {
 } = require("./suite-launch.js");
 const { npmCanon } = require("./npm-options.js");
 const { isTouchedRun, launchRoute } = require("./launch-route.js");
+const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 
 /**
  * @typedef {import("./suite-launch.js").Launch} Launch
@@ -60,7 +61,7 @@ const { isTouchedRun, launchRoute } = require("./launch-route.js");
  * @property {() => string} now gl_when's timestamp
  * @property {string} sessionId the payload's
  * @typedef {import("./shell-parse.js").WalkPorts & SuitePorts &
- *   Pick<import("./guard-entry.js").KitContext, "scriptPath" | "corePaths" | "ruleText"> & {
+ *   Pick<import("./kit-context.js").KitContext, "scriptPath" | "corePaths" | "ruleText" | "docPath"> & {
  *   moduleOn: (module: import("./workflow-core-config.js").Module) => boolean,
  *   log: (what: string, detail?: string) => void,
  *   told: (id: string) => boolean,
@@ -80,18 +81,16 @@ const FULL_LIMB_ID = "full-suite-admissible";
 const FULL_LIMB_TEXT =
 	"A BARE `npm run test` WOULD MEET THE PUSH GATE HERE, AND THIS `--full` BUYS NOTHING MORE (#181). The read graph renders from this tree, so the diff's selection widened by its readers is ADMISSIBLE — and an admissible certificate IS the whole push gate: no whole-suite run is owed (mantahostels#2207). A full run costs ~373 s here (#149). Want the whole suite for its own sake? Run it — this is advice, not a refusal.";
 
-const BUILD_RULE_FALLBACK =
-	"Never run two builds or two dev servers at once; the rule could not be read from docs/agents/rules/build-concurrency.txt. Read that file before doing anything else.";
-
 /**
  * The build-concurrency fragment, or its fallback where the store cannot give
  * it; the fault is logged.
  * @param {Ctx} ctx
  */
 const buildRule = (ctx) =>
-	ruleOr(
-		() => ctx.ruleText("build-concurrency"),
-		BUILD_RULE_FALLBACK,
+	ruleOrFallback(
+		ctx,
+		"build-concurrency",
+		"Never run two builds or two dev servers at once",
 		() =>
 			ctx.log(
 				"rule text build-concurrency unreadable — its fallback line written instead",
@@ -534,8 +533,66 @@ function subjectOf(st, words, segment) {
 	}
 	if (isNextLaunch("dev", words))
 		return { verdict: denySecondNext(st, "dev", " server", segment) };
+	if (isTscLaunch(words)) return { verdict: denyBareTsc(st, segment) };
 	return { verdict: undefined };
 }
+
+/**
+ * A bare `tsc` the type-check slot would hold (#3163): denied, line one the
+ * same launch through `queue-run.js --tsc`, which waits for the slot. A
+ * launch the slot would admit passes; no escape stands the deny down, the
+ * queue being the way through.
+ * @param {St} st
+ * @param {string} segment
+ * @returns {Verdict | undefined}
+ */
+function denyBareTsc(st, segment) {
+	const ps = st.readPs();
+	const mb = st.ctx.availableMb();
+	if (ps === null)
+		st.ctx.log("ps unreadable — a `tsc` launch judged as if none were running");
+	if (mb === null)
+		st.ctx.log(
+			"MemAvailable unreadable — a `tsc` launch judged off its count alone",
+		);
+	const denial = tscDenial(ps, mb);
+	if (denial === null) return;
+	const launch = queuedLaunch(
+		segment,
+		st.spans,
+		`${st.ctx.scriptPath("queue-run.js")} --tsc`,
+	);
+	const line = insteadLine(st, typedLaunchOf(st, segment), launch);
+	const why =
+		denial.limb === "count"
+			? "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163)."
+			: `MemAvailable is ${denial.mb} MB, under the ~${TSC_RUNG_MB} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
+	return {
+		deny: st.ctx.corePaths(
+			`${line}\n${why} \`queue-run.js --tsc\` waits for the type-check slot, then runs that command.`,
+		),
+	};
+}
+
+/**
+ * A segment's launch as typed: comment cut, quoted spans put back, trimmed.
+ * @param {St} st
+ * @param {string} segment
+ */
+const typedLaunchOf = (st, segment) =>
+	trimEnd(trimStart(asWritten(cutComment(segment), st.spans)));
+
+/**
+ * A deny's line one: the launch to run, as the whole command where the
+ * segment is the whole command, else as the launch to swap in (#482).
+ * @param {St} st
+ * @param {string} typed the segment's launch as typed
+ * @param {string} launch
+ */
+const insteadLine = (st, typed, launch) =>
+	typed === st.trimmedCommand
+		? `Run instead: ${launch}`
+		: `Run the command with this launch in place of its own: ${launch}`;
 
 /**
  * Deny where a `next <sub>` is already running. Neither is on the ladder or
@@ -657,9 +714,7 @@ function judgedOf(st, at, s, mb) {
 		watchLimb,
 		waitLever: waitLeverOf(running),
 		refusable: test && !queued,
-		typedLaunch: test
-			? trimEnd(trimStart(asWritten(cutComment(segment), st.spans)))
-			: "",
+		typedLaunch: test ? typedLaunchOf(st, segment) : "",
 	};
 }
 
@@ -736,10 +791,7 @@ function queueFix(st, j) {
 	const waits = viaQueueRun ? "`queue-run.js`" : "`--queue`";
 	const allWatchers = j.watching > 0 && j.watching === j.running?.total;
 	return {
-		line:
-			j.typedLaunch === st.trimmedCommand
-				? `Run instead: ${launch}`
-				: `Run the command with this launch in place of its own: ${launch}`,
+		line: insteadLine(st, j.typedLaunch, launch),
 		more: ` ${waits} waits for this gate to open, then runs that command.${allWatchers ? ` ${j.waitLever}, or the queue waits for good.` : ""}`,
 	};
 }

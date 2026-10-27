@@ -1,5 +1,5 @@
 /*
- * commit-form.js — guard-commit-form.js's core (#2793): the commit forms that
+ * commit-form.js — the guard-commit-form core (#2793, #3224): the commit forms that
  * sweep the shared index (mantahostels#117).
  *
  * Why: the index is repo-global, so between one session's `git add` and its
@@ -151,16 +151,16 @@ const {
  * @property {(dir: string, file: string) => string[] | null} patchFiles
  * @property {(file: string) => string | null} readList a pathspec list file's
  *   text; null where it is not a readable regular file
- * @property {string} sessionId the session's id; "" where the payload and
- *   the environment name none
  * @property {(paths: string[], sessionId: string) => { sweeps: Sweep[] | null,
  *   written: string[] | null, fault: string }} commitCheck the arbiter's
  *   answer for that session: the sweep risks among `paths`, and the write
  *   ledger, each null where it is unavailable, `fault` saying why
  * @property {(match: string) => string} closingRefusal what the
  *   closing-keyword deny says after its opening line
- * @typedef {import("./guard-entry.js").KitContext & CommitFormPorts}
- *   CommitFormContext
+ * @typedef {import("./kit-context.js").KitContext & CommitFormPorts & {
+ *   session: string, env: Record<string, string | undefined> }}
+ *   CommitFormContext `session` is the payload's session id, "" where it
+ *   carries none
  */
 
 /* How many paths a warn names before it falls back to a count. A first guess:
@@ -488,8 +488,9 @@ function treeClassOf(j, dir) {
  * @param {string[]} paths
  */
 function commitCheck({ ctx }, paths) {
-	return ctx.sessionId
-		? ctx.commitCheck(paths, ctx.sessionId)
+	const session = ctx.session || ctx.env.CLAUDE_CODE_SESSION_ID || "";
+	return session
+		? ctx.commitCheck(paths, session)
 		: { sweeps: /** @type {Sweep[]} */ ([]), written: null, fault: "" };
 }
 
@@ -1115,4 +1116,10 @@ function decide(command, ctx) {
 	return commitRules(j, paths);
 }
 
-module.exports = { decide, sweepWarning, sweptPaths };
+module.exports = {
+	field: "command",
+	noun: "command",
+	decide,
+	sweepWarning,
+	sweptPaths,
+};

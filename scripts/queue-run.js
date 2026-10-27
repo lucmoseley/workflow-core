@@ -27,6 +27,11 @@
  * tree skips the queue and waits on the memory rung alone
  * (lib/suite-queue.js `heldSeat`). A driver the classifier reads as a suite
  * itself is refused.
+ *
+ * `--tsc` HOLDS THE MACHINE-WIDE TYPE-CHECK SLOT (#3163): one `tsc` at a time,
+ * on its own rung (lib/tsc-slot.js). It waits in a queue directory of its own,
+ * never behind a suite, and its gate counts `tsc` off `ps`, so an unwrapped
+ * one holds it too. A command the classifier reads as a suite is refused.
  */
 
 const { spawn } = require("node:child_process");
@@ -42,7 +47,10 @@ const {
 	queueExitLogger,
 } = require("./lib/queue-exit-log.js");
 const idSeam = require("./lib/session-id.js");
-const { buildLaunchPorts } = require("./lib/suite-concurrency-host.js");
+const {
+	buildHostPorts,
+	buildLaunchPorts,
+} = require("./lib/suite-concurrency-host.js");
 const { isQueueable, suiteLaunchKind } = require("./lib/suite-launch.js");
 const {
 	QUEUE_SIGNALS,
@@ -51,20 +59,27 @@ const {
 	queueLeave,
 	queueStamps,
 	queueSpawned,
-	queueTurn,
+	passingTurn,
 	waitForGate,
 } = require("./lib/suite-queue.js");
 const { unwrap } = require("./lib/shell-words.js");
+const {
+	TSC_RUNG_MB,
+	defaultTscQueueDir,
+	tscDenial,
+} = require("./lib/tsc-slot.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const LABEL = "queue-run.js";
-const USAGE = `Usage: node ${path.join("scripts", "queue-run.js")} [--seat] -- <command…>
+const USAGE = `Usage: node ${path.join("scripts", "queue-run.js")} [--seat | --tsc] -- <command…>
 Waits for a suite slot in the shared queue, then runs <command>: a node --test,
 pytest or Python test file, a declared suiteRunners script, or an npm test
 script that does not run run-vitest.js (#1776).
   --seat  wait once as a part-suite, then run <command>, a driver such as a
           mutation loop, whose \`run-vitest.js <file> --queue\` runs skip the
-          queue and wait on the memory rung alone (#2918)`;
+          queue and wait on the memory rung alone (#2918)
+  --tsc   wait for the machine-wide type-check slot, then run <command>, a
+          type-check such as \`tsc --noEmit\` (#3163)`;
 
 /* Why lib/suite-launch.js's reading refuses the command; `queue` is absent. */
 const REFUSALS = {
@@ -76,6 +91,32 @@ const REFUSALS = {
 
 const SEAT_REFUSAL =
 	"--seat runs a driver whose suites are `run-vitest.js <file> --queue` runs, and this command is a suite itself; queue it without --seat.";
+
+const TSC_REFUSAL =
+	"--tsc holds the type-check slot, and this command is a suite; queue it without --tsc.";
+
+/* Why a slot refuses a command that is itself a suite. */
+const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
+
+/* What a `--tsc` wait prints in place of a suite's (#3163). */
+const TSC_WAIT = {
+	waiting: `waiting for the type-check slot: a \`tsc\` running, or MemAvailable under its ~${TSC_RUNG_MB} MB rung`,
+	cap: "one `tsc` runs at a time (#3163)",
+};
+
+/**
+ * The type-check slot's gate, off the guard's own `ps` and MemAvailable
+ * readers (#3163); an unread one is logged and fails open.
+ */
+function tscGate() {
+	const log = logger(LABEL);
+	const ports = buildHostPorts({ root: hostRoot(), payload: {}, log });
+	const rows = ports.psRows();
+	const mb = ports.availableMb();
+	if (rows === null) log("ps unreadable — the type-check slot read as free");
+	if (mb === null) log("MemAvailable unreadable — the type-check rung unread");
+	return tscDenial(rows, mb);
+}
 
 /* The weight a seat joins and asks the gate with: one test file, a part-suite
  * (#2918). */
@@ -125,13 +166,13 @@ const VITEST_KINDS = ["npm-vitest", "npm-watch", "wrapper"];
  * Why this script refuses the command, or null where it queues it.
  *
  * @param {string[]} words
- * @param {boolean} seat
+ * @param {"seat" | "tsc" | null} slot
  * @returns {string | null}
  */
-function refusalOf(words, seat) {
+function refusalOf(words, slot) {
 	const reading = classify(words);
 	if (reading === "unread") return null;
-	if (seat) return reading === "none" ? null : SEAT_REFUSAL;
+	if (slot) return reading === "none" ? null : SLOT_REFUSALS[slot];
 	if (reading === "queue") return null;
 	return (
 		REFUSALS[/** @type {keyof typeof REFUSALS} */ (reading)] ?? REFUSALS.none
@@ -167,6 +208,52 @@ function exitStatus(code, signal) {
 	return number ? 128 + number : 1;
 }
 
+/** @typedef {"seat" | "tsc" | null} Slot */
+
+/**
+ * What a slot flag changes about the wait: the queue it joins, the weight it
+ * joins with, and the gate options it waits on (#2918, #3163).
+ *
+ * @param {Slot} slot
+ * @param {Options} options
+ */
+function slotWait(slot, options) {
+	if (slot === "seat")
+		return {
+			queue: options,
+			join: { ...options, weight: SEAT_WEIGHT },
+			gate: { gateWeight: SEAT_WEIGHT, part: true },
+		};
+	if (slot === "tsc") {
+		/* The type-check slot's queue is a directory of its own. */
+		const queue = {
+			...options,
+			queueDir: options.queueDir ?? defaultTscQueueDir(),
+		};
+		return {
+			queue,
+			join: queue,
+			gate: { gate: options.gate ?? tscGate, ...TSC_WAIT },
+		};
+	}
+	return { queue: options, join: options, gate: {} };
+}
+
+/**
+ * The slot the flags ask for, or null for none; undefined where they ask for
+ * both.
+ *
+ * @param {Record<string, unknown>} flags
+ * @returns {Slot | undefined}
+ */
+function slotOf(flags) {
+	const seat = flags["--seat"] === true;
+	const tsc = flags["--tsc"] === true;
+	if (seat && tsc) return;
+	if (seat) return "seat";
+	return tsc ? "tsc" : null;
+}
+
 /**
  * @param {string[]} argv
  * @param {Options} [options]
@@ -175,15 +262,19 @@ function exitStatus(code, signal) {
 async function main(argv, options = {}) {
 	const parsed = parseOrCode(argv, {
 		usage: USAGE,
-		flags: { "--seat": "boolean" },
+		flags: { "--seat": "boolean", "--tsc": "boolean" },
 		min: 1,
 		max: Number.POSITIVE_INFINITY,
 	});
 	if (typeof parsed === "number") return parsed;
 	const words = parsed.positionals;
-	const seat = parsed.flags["--seat"] === true;
+	const slot = slotOf(parsed.flags);
 	const err = options.err ?? STDERR;
-	const why = refusalOf(words, seat);
+	if (slot === undefined) {
+		err.write(`${LABEL}: --seat and --tsc hold different slots; give one.\n`);
+		return 2;
+	}
+	const why = refusalOf(words, slot);
 	if (why) {
 		err.write(`${LABEL}: not queued — ${why}\n`);
 		return 2;
@@ -194,16 +285,15 @@ async function main(argv, options = {}) {
 			options.queueLog === undefined
 				? queueExitLogPath(hostRoot())
 				: options.queueLog,
-		kind: seat ? "seat" : "other",
+		kind: slot ?? "other",
 		session:
 			options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId,
 		label: LABEL,
 		err,
 	});
 
-	const ticket = queueJoin(
-		seat ? { ...options, weight: SEAT_WEIGHT } : options,
-	);
+	const { queue, join, gate } = slotWait(slot, options);
+	const ticket = queueJoin(join);
 	const started = Date.now();
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
@@ -214,7 +304,7 @@ async function main(argv, options = {}) {
 	};
 	const done = new Promise((resolve) => {
 		finish = (code) => {
-			queueLeave(ticket, options);
+			queueLeave(ticket, queue);
 			resolve(code);
 		};
 	});
@@ -231,7 +321,7 @@ async function main(argv, options = {}) {
 		if (!waiting) return;
 		waiting = false;
 		logExit("killed", Date.now() - started, { signal });
-		queueLeave(ticket, options);
+		queueLeave(ticket, queue);
 		exit(code);
 	};
 	for (const [signal, code] of Object.entries(QUEUE_SIGNALS)) {
@@ -239,15 +329,16 @@ async function main(argv, options = {}) {
 		signals.on(name, () => onSignal(name, code));
 	}
 
+	const { turn, exitFields } = passingTurn(queue);
 	const outcome = await waitForGate({
-		turn: () => queueTurn(options),
+		turn,
 		label: LABEL,
-		...(seat ? { gateWeight: SEAT_WEIGHT, part: true } : {}),
-		...options,
-		...queueStamps(ticket, options),
+		...queue,
+		...gate,
+		...queueStamps(ticket, queue),
 		onExit: (reason, waitMs, heldBy) => {
 			waiting = false;
-			logExit(reason, waitMs, heldBy);
+			logExit(reason, waitMs, exitFields(reason, heldBy));
 		},
 	});
 	if (outcome === "refused") {
@@ -258,10 +349,10 @@ async function main(argv, options = {}) {
 	const [command = "", ...args] = words;
 	const running = (options.spawnFn ?? spawn)(command, args, {
 		stdio: "inherit",
-		...(seat ? { env: { ...process.env, [SEAT_ENV]: ticket } } : {}),
+		...(slot === "seat" ? { env: { ...process.env, [SEAT_ENV]: ticket } } : {}),
 	});
 	child = running;
-	running.once("spawn", () => queueSpawned(ticket, options));
+	running.once("spawn", () => queueSpawned(ticket, queue));
 	running.once("error", (error) => {
 		err.write(`${LABEL}: ${command} would not start — ${error.message}\n`);
 		finish(127);

@@ -242,7 +242,7 @@ class TestBaselineStationarity:
         assert self.classify(bench, rss_peak_mb=0.0)["dip_over_rss_peak"] is None
 
     def test_the_three_954_rows_are_all_reported_contaminated(self, bench):
-        """Verbatim from mantahostels#954's `results.json`, whose ladder these rows set.
+        """Verbatim from mantahostels#954's `results.json`.
 
         The aborted 2-suite row is omitted: it has no usable dip. No row here
         turns on where the tolerance sits.
@@ -388,11 +388,11 @@ class TestSuiteLaunch:
 
 
 class TestIdleBaselineDrift:
-    """mantahostels#1449: `BASELINE_SHIFT_TOLERANCE_MB` was a guess, replaced by a reading.
+    """mantahostels#1449: `BASELINE_SHIFT_TOLERANCE_MB` stands for how far
+    `MemAvailable` wanders between two resting settles when nothing is running.
 
-    The constant stands for how far `MemAvailable` wanders between two resting
-    settles when nothing is running. That is measurable only on the same quiet
-    machine the three-suite row needs, so it is captured by the same run.
+    That is measurable only on the same quiet machine the three-suite row needs,
+    so it is captured by the same run.
     """
 
     def test_the_drift_is_the_gap_between_consecutive_settles(self, bench):
@@ -442,8 +442,7 @@ class TestIdleBaselineDrift:
     def test_the_tolerance_is_not_below_the_measured_idle_drift(self, bench):
         """A tolerance under the machine's own idle wander condemns clean rows.
 
-        214.3 MB is the largest gap mantahostels#1449 read between consecutive resting
-        settles with nothing but three idle sessions on the machine. The 200.0
-        guess this replaced sat below it.
+        214.3 MB is the largest idle settle gap mantahostels#1449 read, with three
+        sessions live.
         """
         assert bench.BASELINE_SHIFT_TOLERANCE_MB >= 214.3

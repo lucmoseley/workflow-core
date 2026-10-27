@@ -74,6 +74,7 @@ const { appendLedgerLine } = require("./run-ledger.js");
  *   viaChanged?: boolean, touched?: boolean, resolvedFiles?: number,
  *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root"|"expansion-failed",
  *   fullCause?: "push-gate"|"coverage"|"empty-diff"|"sha-moved"|"rule-edit"|"other"|null,
+ *   shard?: {index: number, count: number},
  *   failures?: {file: string, tests: string[]}[]}} Scope
  * @typedef {{sha: string, at?: string, suite?: string, scope?: Scope,
  *   startStateUnknown?: boolean, dirtyAtStart?: boolean, dirtyCount?: number,
@@ -736,12 +737,21 @@ const isClean = (m) =>
  * push, `formatFilteredRun` for a live run at the terminal. Both go through
  * here.
  */
-/** @param {Scope|null|undefined} scope */
-const isFullScope = (scope) =>
+/**
+ * Narrowed by no name, path or `--changed` filter. A `--shard` part passes
+ * this and fails the module count, so the margin check reads it alone (#3090).
+ * @param {Scope|null|undefined} scope
+ * @returns {scope is Scope}
+ */
+const isUnnarrowedScope = (scope) =>
 	scope != null &&
 	!scope.nameFilter &&
 	(scope.fileFilters || []).length === 0 &&
-	!scope.changed &&
+	!scope.changed;
+
+/** @param {Scope|null|undefined} scope */
+const isFullScope = (scope) =>
+	isUnnarrowedScope(scope) &&
 	scope.modulesTotal > 0 &&
 	scope.modulesRun === scope.modulesTotal;
 
@@ -2068,6 +2078,7 @@ module.exports = {
 	isFullRun,
 	isAdmissibleRun,
 	isFullScope,
+	isUnnarrowedScope,
 	holdsAt,
 	docsReadBy,
 	attestationOf,

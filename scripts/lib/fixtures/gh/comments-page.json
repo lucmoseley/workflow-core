@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "[[{\"url\":\"synthetic\",\"html_url\":\"synthetic\",\"issue_url\":\"synthetic\",\"id\":1,\"node_id\":\"synthetic\",\"user\":{\"login\":\"synthetic\",\"id\":1,\"node_id\":\"synthetic\",\"avatar_url\":\"synthetic\",\"gravatar_id\":\"synthetic\",\"url\":\"synthetic\",\"html_url\":\"synthetic\",\"followers_url\":\"synthetic\",\"following_url\":\"synthetic\",\"gists_url\":\"synthetic\",\"starred_url\":\"synthetic\",\"subscriptions_url\":\"synthetic\",\"organizations_url\":\"synthetic\",\"repos_url\":\"synthetic\",\"events_url\":\"synthetic\",\"received_events_url\":\"synthetic\",\"type\":\"synthetic\",\"user_view_type\":\"synthetic\",\"site_admin\":false},\"created_at\":\"synthetic\",\"updated_at\":\"synthetic\",\"body\":\"synthetic\",\"author_association\":\"synthetic\",\"pin\":null,\"reactions\":{\"url\":\"synthetic\",\"total_count\":1,\"+1\":1,\"-1\":1,\"laugh\":1,\"hooray\":1,\"confused\":1,\"heart\":1,\"rocket\":1,\"eyes\":1},\"performed_via_github_app\":null,\"minimized\":null}]]",
+	"stderr": ""
+}

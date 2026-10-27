@@ -20,10 +20,11 @@
 # DEFEAT:    `git merge --no-verify` skips this hook and `commit-msg` both —
 #            but no longer skips the gates: `.husky/prepare-commit-msg` runs
 #            them instead, that being the one hook the flag cannot turn off,
-#            and `scripts/guard-commit-form.js` now denies the spelling in an
-#            agent session too (mantahostels#1705). What is left is `HUSKY=0` and
-#            `core.hooksPath` pointed off `.husky/_`, which turn off every hook
-#            at once — the whole list is that guard's LIMITS (#800).
+#            and `scripts/guard-dispatch.js` (its `guard-commit-form` core) now denies the
+#            spelling in an agent session too (mantahostels#1705). What is left
+#            is `HUSKY=0` and `core.hooksPath` pointed off `.husky/_`, which
+#            turn off every hook at once — the whole list is that core's LIMITS
+#            (`scripts/lib/commit-form.js`, #800).
 #
 # A refusal leaves the merge IN PROGRESS: git writes MERGE_HEAD after this hook
 # returns, so the hook cannot `git merge --abort` on its own behalf — it fails

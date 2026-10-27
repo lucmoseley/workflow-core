@@ -751,7 +751,9 @@ describe("the inventory step on every band (#985, on #958's spec)", () => {
 		}).reason;
 		expect(reason).toContain("take the inventory");
 		expect(reason).toContain("`**Close when:**`");
-		expect(reason).toContain(pointer);
+		expect(reason).toContain(
+			"the rule could not be read from docs/agents/rules/founder-deliverable.txt",
+		);
 	});
 });
 

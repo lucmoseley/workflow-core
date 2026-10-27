@@ -27,16 +27,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getPoolFiles } from "./lib/always-loaded-pool.js";
+import { SHED_REGISTERS } from "./lib/context-budget-pathspecs";
 import { liveCaps } from "./lib/context-budget-testkit";
-import { runInProcess } from "./lib/run-in-process.js";
-
+import { PROFILES } from "./lib/fault-profiles.js";
 /* The core rule store's own path, so a fixture can find a real id to collide
- * on (#109) without restating rule-text.js's own resolution. CommonJS, hence
- * the require. */
-const { CORE_RULES } = require("./lib/rule-text") as { CORE_RULES: string };
-const { SHED_REGISTERS } = require("./lib/context-budget-pathspecs") as {
-	SHED_REGISTERS: Record<string, string>;
-};
+ * on (#109) without restating rule-text.js's own resolution. */
+import { CORE_RULES } from "./lib/rule-text";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
 const { pool: CAP, injection: INJECTION_CAP } = liveCaps();
@@ -305,9 +302,9 @@ describe("the profile the direction gate reads this envelope through", () => {
 	 * first breaches a cap — and its baseline carries no finding at all.
 	 */
 	it("measures every surface off the envelope, breached or not", () => {
-		const { PROFILES } = require("./lib/fault-profiles.js");
 		const { measure, unit } = PROFILES["context-budget"];
 		expect(unit).toBe("B");
+		if (!measure) throw new Error("the context-budget profile has no measure");
 
 		pool(CAP - 2000);
 		const clean = run("--json").json();
@@ -1423,11 +1420,10 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		const envelope = JSON.parse(
 			runInProcess(SCRIPT, ["--root", dir, "--json"]).stdout,
 		);
+		const { measure } = PROFILES["context-budget"];
+		if (!measure) throw new Error("the context-budget profile has no measure");
 		expect(
-			// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-			(require("./lib/fault-profiles.js") as any).PROFILES[
-				"context-budget"
-			].measure({ tag: "UNPARSEABLE-SETTINGS" }, "findings", envelope),
+			measure({ tag: "UNPARSEABLE-SETTINGS" }, "findings", envelope),
 		).toBeUndefined();
 	});
 

@@ -1968,6 +1968,13 @@ describe("the launch lines status shows (#2850)", () => {
 		);
 	});
 
+	it("shows a launch stopped under the swap hold, and when (#3093)", () => {
+		const swapHeld = { at: NOW - 6 * MIN, sessionId: "s", cwd: "/", tries: 0 };
+		expect(statusOf([record({ swapHeld })])).toContain(
+			"stopped under the swap hold since 2026-10-18T11:54:00.000Z, resumed once it clears",
+		);
+	});
+
 	it("shows an API-error launch's tries and its next try's time", () => {
 		const block = {
 			cause: "API_ERROR",

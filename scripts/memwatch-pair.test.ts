@@ -25,6 +25,8 @@ const hasProc = fs.existsSync("/proc/stat");
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "memwatch-pair-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+/* Every pass writes the minute line, so no run here may reach the live one. */
+process.env.MEMWATCH_MINUTE_LOG = path.join(tmp, "minute.jsonl");
 
 function runMemcheckLine(watchdogSrc: string): string {
 	return execFileSync("bash", [MEMCHECK, "--memwatch-line"], {
@@ -216,6 +218,127 @@ describe.skipIf(!present)("memwatch incident block", () => {
 		});
 		expect(archive.startsWith(kept)).toBe(true);
 		expect(archive).toContain("proc-8");
+	});
+});
+
+/*
+ * The minute line (#3214): one JSON line a pass, written whether or not either
+ * trigger fires, so a quiet hour still leaves rows.
+ */
+describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
+	function quietPass(name: string, env: Record<string, string> = {}) {
+		const minute = path.join(tmp, `${name}.jsonl`);
+		const log = path.join(tmp, `${name}.log`);
+		execFileSync("bash", [MEMWATCH], {
+			env: {
+				...process.env,
+				MEMWATCH_ONCE: "1",
+				MEMWATCH_LOG: log,
+				MEMWATCH_MINUTE_LOG: minute,
+				MEMWATCH_THRESHOLD_MB: "99999999",
+				MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+				...env,
+			},
+			encoding: "utf8",
+		});
+		return {
+			lines: fs.readFileSync(minute, "utf8").trimEnd().split("\n"),
+			log,
+		};
+	}
+
+	it("writes one line with every field on a pass neither trigger fires", () => {
+		const { lines, log } = quietPass("minute-quiet");
+		expect(fs.existsSync(log)).toBe(false);
+		expect(lines).toHaveLength(1);
+		const row = JSON.parse(lines[0]);
+		expect(Object.keys(row)).toEqual([
+			"ts",
+			"load1",
+			"load5",
+			"running",
+			"threads",
+			"psi_cpu_some",
+			"psi_mem_some",
+			"psi_mem_full",
+			"psi_io_some",
+			"psi_io_full",
+			"mem_avail_mb",
+			"cpu_busy_pct",
+			"cpu_sys_pct",
+			"procs",
+			"node",
+			"guards",
+			"vitest",
+			"tsc",
+			"lander",
+			"forks",
+			"sessions",
+		]);
+		expect(row.ts).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d[+-]\d{4}$/);
+		expect(typeof row.load1).toBe("number");
+		// The first pass after a start has no CPU delta yet.
+		expect(row.cpu_busy_pct).toBeNull();
+		// The test's own node process is running.
+		expect(row.node).toBeGreaterThan(0);
+	});
+
+	// A restart reads the last line back, so it never writes that minute again.
+	it("writes no second line for a minute the file already holds", () => {
+		quietPass("minute-restart");
+		const { lines } = quietPass("minute-restart");
+		const minutes = lines.map((l) => JSON.parse(l).ts.slice(0, 16));
+		expect(new Set(minutes).size).toBe(minutes.length);
+	});
+
+	// `npm run typecheck` reaches tsc through node_modules/.bin, so argv is
+	// `node …/node_modules/.bin/tsc`, never typescript/bin/tsc.
+	it("counts a tsc started through node_modules/.bin", async () => {
+		const bin = path.join(tmp, "node_modules", ".bin");
+		fs.mkdirSync(bin, { recursive: true });
+		const tsc = path.join(bin, "tsc");
+		fs.writeFileSync(tsc, "setTimeout(() => {}, 30_000);\n");
+		const child = spawn(process.execPath, [tsc], { stdio: "ignore" });
+		try {
+			await setTimeout(300);
+			const { lines } = quietPass("minute-tsc");
+			expect(JSON.parse(lines[0]).tsc).toBeGreaterThan(0);
+		} finally {
+			child.kill();
+		}
+	});
+
+	it("writes null sessions, not a wrong count, when the session lib is missing", () => {
+		const { lines } = quietPass("minute-nolib", {
+			MEMWATCH_SESSIONS_LIB: path.join(tmp, "absent.sh"),
+		});
+		expect(JSON.parse(lines[0]).sessions).toBeNull();
+	});
+
+	it("drops lines older than MEMWATCH_MINUTE_DAYS", () => {
+		const ts = (daysAgo: number) => {
+			const d = new Date(Date.now() - daysAgo * 86_400_000);
+			const p = (n: number) => String(n).padStart(2, "0");
+			return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}+0000`;
+		};
+		const kept = `{"ts":"${ts(2)}","load1":1}`;
+		fs.writeFileSync(
+			path.join(tmp, "minute-prune.jsonl"),
+			`{"ts":"${ts(5)}","load1":1}\n{"ts":"${ts(4)}","load1":1}\n${kept}\n`,
+		);
+		const { lines } = quietPass("minute-prune", { MEMWATCH_MINUTE_DAYS: "3" });
+		expect(lines).toHaveLength(2);
+		expect(lines[0]).toBe(kept);
+	});
+
+	// A rewrite a day, not one a minute once the file is full.
+	it("leaves a line less than a day past MEMWATCH_MINUTE_DAYS in place", () => {
+		const d = new Date(Date.now() - 3.5 * 86_400_000);
+		const p = (n: number) => String(n).padStart(2, "0");
+		const aged = `{"ts":"${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}+0000","load1":1}`;
+		fs.writeFileSync(path.join(tmp, "minute-slack.jsonl"), `${aged}\n`);
+		const { lines } = quietPass("minute-slack", { MEMWATCH_MINUTE_DAYS: "3" });
+		expect(lines[0]).toBe(aged);
 	});
 });
 

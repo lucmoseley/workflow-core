@@ -36,11 +36,11 @@
  *      open issues is the inverse of some open issue's blocked_by, so inverting
  *      halves the call count.
  *
- * The sort is mantahostels#106's five levels plus mantahostels#259's, #2001's and #2664's,
- * lexicographic:
+ * The sort is mantahostels#106's five levels plus mantahostels#259's, #2001's, #2664's
+ * and #3222's, lexicographic:
  *   open `bug` -> `urgent`, own or an ancestor map's -> goal-set membership
  *   -> stalled wait -> ticket type
- *   -> transitive reach -> collision -> number
+ *   -> chain depth -> transitive reach -> collision -> number
  *
  * Beneath the table sit three annotations, NONE a sort input: pairs of
  * shortlisted issues whose bodies name the same repo file (mantahostels#192), pairs of
@@ -282,7 +282,10 @@ async function ghGet(path) {
  * @property {{label: string, native: boolean}[]} [openBlockers]
  * @property {number} [reach]
  * @property {ReturnType<typeof labelAge>|null} [urgency] the issue's own `urgent`'s age, null where the label is off
- * @property {number|null} [urgentVia] the ancestor map whose `urgent` it inherits, null where none does
+ * @property {import("./lib/blocker-graph").Via|null} [urgentVia] the held issue whose `urgent` it inherits, null where none does
+ * @property {import("./lib/blocker-graph").Via|null} [bugVia] the held `bug` it inherits, null where none does
+ * @property {import("./lib/blocker-graph").Via|null} [goalVia] the held goal-set member it inherits, null where none does
+ * @property {number} [depth]
  * @property {boolean} [bug]
  * @property {boolean} [urgent]
  * @property {ReturnType<typeof waitFrom>|null} [wait]
@@ -458,28 +461,40 @@ async function readTimelineOf(n) {
 }
 
 /**
- * The nearest ancestor `wayfinder:map` carrying `urgent`, whose urgency the
- * issue inherits (#2664): read up the parent chain at selection time, never
- * written onto the child. The walk stops at a parent outside the open list —
- * a closed one holds no urgency, and one in another repo is not read.
- * @param {RawIssue} issue
+ * Each issue's inherited tiers and chain depth (#3222), read at selection
+ * time and never written onto it. A `bug` and a goal-set member pass on from
+ * any issue held out; `urgent` from one held out as a blocker, but up a parent
+ * link only from a `wayfinder:map` (#2664).
+ * @param {import("./lib/blocker-graph").Graph} graph
  * @param {Map<number, RawIssue>} byNumber
- * @returns {number|null}
+ * @param {Set<number>} mapNumbers
  */
-function urgentViaOf(issue, byNumber) {
-	let child = issue;
-	for (;;) {
-		const ref = issueRef(child.parent);
-		if (!ref || isInOtherRepo(ref, child.repo)) return null;
-		const parent = byNumber.get(ref.number);
-		if (!parent) return null;
-		if (
-			parent.labels.includes("wayfinder:map") &&
-			parent.labels.includes(URGENT_LABEL)
-		)
-			return parent.number;
-		child = parent;
-	}
+function inheritanceOf(graph, byNumber, mapNumbers) {
+	/** @param {number} n @param {string} label */
+	const has = (n, label) => byNumber.get(n)?.labels.includes(label) === true;
+	// In compareLevels' order: depth runs to the first of these an issue holds.
+	return blockerGraph.inheritance(graph, {
+		bug: (n) => has(n, "bug"),
+		urgent: (n, parent) =>
+			has(n, URGENT_LABEL) && (!parent || mapNumbers.has(n)),
+		goal: (n) => goalSet.has(n),
+	});
+}
+
+/**
+ * The tier levels an issue ranks on: its own joined with what it inherits,
+ * a `bug` urgent too (#2664).
+ * @param {{bug: boolean, urgent: boolean, goal: boolean}} own
+ * @param {ReturnType<ReturnType<typeof inheritanceOf>>} held
+ */
+function tiersOf(own, held) {
+	const bug = own.bug || held.via.bug !== null;
+	return {
+		bug,
+		urgent: bug || own.urgent || held.via.urgent !== null,
+		goal: own.goal || held.via.goal !== null,
+		depth: held.depth,
+	};
 }
 
 /**
@@ -1738,6 +1753,8 @@ function frontierJson(i) {
 		bug: i.bug,
 		urgent: i.urgent,
 		urgentVia: i.urgentVia,
+		bugVia: i.bugVia,
+		goalVia: i.goalVia,
 		urgentAppliedBy: urgentApplied?.appliedBy ?? null,
 		urgentAppliedAt: urgentApplied?.appliedAt ?? null,
 		goal: i.goal,
@@ -1745,6 +1762,7 @@ function frontierJson(i) {
 		waitStalled: i.wait?.stalled === true,
 		asksQuestions: i.asksQuestions,
 		stallDays: i.stallDays,
+		depth: i.depth,
 		reach: i.reach,
 		collision: i.collision ? "writes repo files" : "comment-only",
 		// Always a list: an issue may carry none or, wrongly, several.
@@ -2098,7 +2116,8 @@ function renderOwedWork(state) {
 }
 
 /**
- * The URG cell: `bug`, `yes` for the issue's own label, `via` for a map's.
+ * The URG cell: `bug`, `yes` for the issue's own label, `via` for one it
+ * inherits.
  * @param {Issue} i
  */
 function urgentCell(i) {
@@ -2107,19 +2126,28 @@ function urgentCell(i) {
 	return i.urgentVia ? "via" : "";
 }
 
+/**
+ * The GOAL cell: `yes` for a goal-set member, `via` for one holding a member out.
+ * @param {Issue} i
+ */
+function goalCell(i) {
+	if (goalSet.has(i.number)) return "yes";
+	return i.goal ? "via" : "";
+}
+
 /** @param {State} state */
 function renderShortlist(state) {
 	const { shown } = state;
-	console.log(
-		`${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}TITLE`,
-	);
-	console.log("-".repeat(106));
+	const header = `${pad("#", 6)}${pad("URG", 5)}${pad("GOAL", 6)}${pad("WAIT", 6)}${pad("DEPTH", 7)}${pad("REACH", 7)}${pad("COLL", 6)}${pad("GROUP", 16)}${pad("TAKES", 12)}`;
+	console.log(`${header}TITLE`);
+	// The title column is cut at 42 characters below.
+	console.log("-".repeat(header.length + 42));
 	for (const i of shown)
 		console.log(
 			`${pad(`#${i.number}`, 6)}${pad(urgentCell(i), 5)}${pad(
-				i.goal ? "yes" : "",
+				goalCell(i),
 				6,
-			)}${pad(waitCell(i), 6)}${pad(i.reach, 7)}${pad(
+			)}${pad(waitCell(i), 6)}${pad(i.depth, 7)}${pad(i.reach, 7)}${pad(
 				i.collision ? "w" : "-",
 				6,
 			)}${pad(i.group, 16)}${pad(takesCell(i.takes), 12)}${String(i.title).slice(0, 42)}`,
@@ -2488,9 +2516,18 @@ function urgencySources(i) {
 		);
 	else if (i.labels.includes(URGENT_LABEL))
 		why.push("URGENT — start unrecorded");
-	if (i.urgentVia) why.push(`urgent via #${i.urgentVia}`);
+	if (i.bugVia) why.push(viaText("bug", i.bugVia));
+	if (i.urgentVia) why.push(viaText("urgent", i.urgentVia));
 	return why;
 }
+
+/**
+ * A tier and the chain it comes down.
+ * @param {string} tier
+ * @param {import("./lib/blocker-graph").Via} via
+ */
+const viaText = (tier, via) =>
+	`${tier} via ${via.path.at(-1)} (holds ${via.path.join(" → ")})`;
 
 /** @param {State} state */
 function renderUrgent(state) {
@@ -2639,6 +2676,20 @@ function renderProseBlocked(state) {
 	}
 }
 
+/**
+ * A pulled-in row's inherited tiers and depth, or "" where it inherits none.
+ * @param {{bug: boolean, urgent: boolean, goal: boolean, depth: number}} r
+ */
+function pulledTiers(r) {
+	const tiers = [
+		r.bug ? "bug" : "",
+		r.urgent && !r.bug ? "urgent" : "",
+		r.goal ? "goal" : "",
+		r.depth > 0 ? `depth ${r.depth}` : "",
+	].filter(Boolean);
+	return tiers.length > 0 ? `${tiers.join(" ")}  ` : "";
+}
+
 /* The title's room on an 80-column terminal after the row's 11-column indent. */
 const PULLED_TITLE_CHARS = 80 - 11;
 
@@ -2652,7 +2703,7 @@ function renderPulledIn(state) {
 	);
 	for (const r of rows)
 		console.log(
-			`  ${r.repo}#${r.number}  reach ${r.reach}  holds ${r.holds.join(", ")}` +
+			`  ${r.repo}#${r.number}  ${pulledTiers(r)}reach ${r.reach}  holds ${r.holds.join(", ")}` +
 				`${r.held ? `  HELD OUTSIDE THE LOOP: ${r.held}` : ""}\n           ${String(r.title).slice(0, PULLED_TITLE_CHARS)}`,
 		);
 	for (const u of unread)
@@ -3038,11 +3089,20 @@ async function resolveBlockers(issues, byNumber) {
 		depsUnknown: read.ok ? null : read.error,
 	}));
 	const graph = await blockerGraph.blockerGraph(
-		withEdges.map((i) => ({
-			number: i.number,
-			edges: i.blockedBy,
-			body: i.body,
-		})),
+		withEdges.map((i) => {
+			const parent = issueRef(i.parent);
+			return {
+				number: i.number,
+				edges: i.blockedBy,
+				body: i.body,
+				parent:
+					parent &&
+					!isInOtherRepo(parent, i.repo) &&
+					byNumber.has(parent.number)
+						? parent.number
+						: null,
+			};
+		}),
 		ownRepo,
 		{
 			// The few foreign nodes the walk reaches, read one by one (#2427).
@@ -3073,10 +3133,12 @@ async function resolveBlockers(issues, byNumber) {
  * lib/blocker-graph.js's launch candidates in other repos, each with the
  * checkout it launches from, `root`, and `held`: why it is held outside the
  * loop, no checkout tracking its repo or that checkout setting
- * `refillLoop: false` (#2003), else null.
+ * `refillLoop: false` (#2003), else null. Each carries the tiers and depth it
+ * inherits from what it holds here, for the refill merge to rank it by (#3222).
  * @param {import("./lib/blocker-graph").Graph} graph
+ * @param {ReturnType<typeof inheritanceOf>} inherit
  */
-function pulledInRows(graph) {
+function pulledInRows(graph, inherit) {
 	const { rows, unread } = blockerGraph.pulledInOf(graph);
 	return {
 		rows: rows.map((r) => {
@@ -3084,6 +3146,7 @@ function pulledInRows(graph) {
 			const root = "root" in checkout ? checkout.root : null;
 			return {
 				...r,
+				...tiersOf({ bug: false, urgent: false, goal: false }, inherit(r)),
 				root,
 				held: root
 					? refillExclusionOf(root)
@@ -3135,7 +3198,7 @@ async function timelinesByIssue(issues) {
  * @typedef {object} EnrichContext
  * @property {import("./lib/blocker-graph").Graph} blockers
  * @property {Awaited<ReturnType<typeof timelinesByIssue>>} timelineByIssue
- * @property {Map<number, RawIssue>} byNumber every open issue, for the map-urgency walk
+ * @property {ReturnType<typeof inheritanceOf>} inherit
  * @property {Set<number>} mapNumbers
  * @property {Set<number>} specNumbers
  * @property {ListedSessions} listed
@@ -3240,8 +3303,16 @@ function enrichIssue(i, ctx) {
 		i.labels.includes(URGENT_LABEL) && timeline
 			? labelAge(timeline, URGENT_LABEL)
 			: null;
-	const urgentVia = urgentViaOf(i, ctx.byNumber);
-	const bug = i.labels.includes("bug");
+	const held = ctx.inherit({ repo: ctx.blockers.ownRepo, number: i.number });
+	const { bug: bugVia, urgent: urgentVia, goal: goalVia } = held.via;
+	const tiers = tiersOf(
+		{
+			bug: i.labels.includes("bug"),
+			urgent: i.labels.includes(URGENT_LABEL),
+			goal: goalSet.has(i.number),
+		},
+		held,
+	);
 	// Null unless the label is on: absence of a wait, distinct from a wait
 	// whose start could not be read.
 	const wait =
@@ -3270,16 +3341,19 @@ function enrichIssue(i, ctx) {
 		...i,
 		openBlockers,
 		reach: blockerGraph.reachOf(ctx.blockers, i.number),
+		depth: tiers.depth,
 		urgency,
 		urgentVia,
-		bug,
-		urgent: bug || i.labels.includes(URGENT_LABEL) || urgentVia !== null,
+		bugVia,
+		goalVia,
+		bug: tiers.bug,
+		urgent: tiers.urgent,
 		wait,
 		// The one number the sort reads: 0 for everything that is not a stalled
 		// wait, an unreadable age included.
 		stallDays: wait && !wait.unknown && wait.stalled ? wait.ageDays : 0,
 		parked,
-		goal: goalSet.has(i.number),
+		goal: tiers.goal,
 		collision: collisionOf(i),
 		asksQuestions: isQuestionType(i),
 		takes,
@@ -3687,7 +3761,7 @@ async function main() {
 	const ctx = {
 		blockers,
 		timelineByIssue,
-		byNumber,
+		inherit: inheritanceOf(blockers, byNumber, mapNumbers),
 		mapNumbers,
 		specNumbers,
 		listed,
@@ -3893,7 +3967,7 @@ async function main() {
 		dispatchJobs,
 		degraded,
 		noCommand: noCommand.map((i) => i.number),
-		pulledIn: pulledInRows(blockers),
+		pulledIn: pulledInRows(blockers, ctx.inherit),
 	};
 	const payload = buildPayload(state);
 	const snapshot = writeRunSnapshot(payload);

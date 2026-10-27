@@ -1,8 +1,8 @@
 /*
  * agent-poll.js — the core that stops a session waiting by looking
  * (mantahostels#627, widened at mantahostels#659). It runs in the PreToolUse
- * dispatcher for Read and ListAgents, and in scripts/guard-agent-poll.js for
- * the Bash routes; its production ports are lib/agent-poll-host.js.
+ * dispatcher as the guard-agent-poll core, for Bash, Read and ListAgents; its
+ * production ports are lib/agent-poll-host.js.
  *
  * Why: a notification arriving while a tool call is in flight is folded into
  * that call's result and read — 97% on the forensics window (#845, which
@@ -61,19 +61,15 @@
  * waits (#545): the watcher for a subagent, the foreground suite
  * (docs/agents/guard-registry.md §Machine limits), and `bg-run.sh wait`.
  *
- * Split into two registrations (mantahostels#2811). The Read and ListAgents
- * routes run in the dispatcher, being cheap to classify and having no command
- * to match on. The Bash routes run through scripts/guard-agent-poll.js, whose
- * four `if` narrowings, stated in its header, between them cover every
- * ORDINARY spelling the three Bash routes classify. The residual is leading
- * whitespace: the route patterns below tolerate it, the three anchored `if`
- * patterns cannot, and whether the harness trims a segment before matching is
- * unmeasured — so a command opening with a space or a tab may reach no guard
- * at all. On the calls it does run on, a call no route classifies leaves
- * before the clock or the filesystem is touched.
+ * Narrowed on Bash alone (mantahostels#2811, #3224). The Read and ListAgents
+ * routes run unnarrowed, having no command to match on. The Bash routes run
+ * only where one of the four `if` clauses on the core's lib/guard-cores.json
+ * row matches, and between them they cover every ORDINARY spelling the three
+ * Bash routes classify; lib/if-clause.js drops a segment's leading blanks
+ * before matching. On the calls it does run on, a call no route classifies
+ * leaves before the clock or the filesystem is touched.
  *
- * FAILS CLOSED on a throw, in both registrations (the dispatcher row's
- * `failure`, lib/refuse-on-throw.js in the entry). Every fault it can name — a
+ * FAILS CLOSED on a throw (the dispatcher row's `failure`). Every fault it can name — a
  * window directory it cannot create, a window it cannot write — fails open,
  * logged (mantahostels#103 §6, mantahostels#147).
  *
@@ -99,6 +95,11 @@
  * nothing wakes it to resume — so where the parent is told to end the turn, a
  * subagent is told to wait inside it, in lib/wait-text.js's words (#1735).
  */
+
+// deny-timing: delayed — the deny arrives on the THIRD poll, so a session
+// that never read the rule has already polled twice by the time this text
+// reaches it. CLAUDE.md's copy is the only one that arrives in time: do not
+// cut it (mantahostels#964, which settled that test).
 
 const { scratchDir, tabRecords, textOf } = require("./guard-entry.js");
 const { segment } = require("./review-suffix.js");

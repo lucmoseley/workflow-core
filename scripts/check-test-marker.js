@@ -36,7 +36,7 @@ const {
 	readMarkers,
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
-const { pushesFrom } = require("./lib/push-refs.js");
+const { parsePushes } = require("./lib/push-refs.js");
 const { pushGateState } = require("./lib/test-gate.js");
 const { readTopLevel } = require("./lib/git-tree.js");
 const { caught } = require("./lib/caught.js");
@@ -53,7 +53,7 @@ runCheck({
 				`could not read the pushed refs on stdin: ${caught(e).message}`,
 			);
 		}
-		const pushes = pushesFrom(stdin);
+		const pushes = parsePushes(stdin);
 		if (pushes.length === 0) return { okLine: "no pushed ref to judge." };
 		const tree = readTopLevel(process.cwd());
 		if (tree === null)
@@ -62,9 +62,9 @@ runCheck({
 		if (gate.state === "broken") ctx.broken(gate.line);
 		if (gate.state === "skip") ctx.skip(gate.line);
 		const markers = readMarkers({ root: repoRoot() });
-		for (const { sha, remote } of pushes) {
+		for (const { sha, remoteSha } of pushes) {
 			const verdict = attestationOf(sha, markers, {
-				remoteSha: remote ?? null,
+				remoteSha: remoteSha ?? null,
 			});
 			const { state, text } = attestationReading(sha, verdict, {
 				pushing: true,

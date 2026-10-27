@@ -26,6 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { core, freshSandbox, store } from "./arbiter-testkit";
+import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { runInProcess } from "./run-in-process";
@@ -351,21 +352,11 @@ describe("a session in a linked worktree (#2386)", () => {
 	 * lib/git.js reads on every call (base §N7).
 	 */
 	const oldGitAt = (at: string) => {
-		const stub = path.join(sb.dir, "old-git");
-		const real = execFileSync("bash", ["-c", "command -v git"], {
-			encoding: "utf8",
-		}).trim();
-		fs.writeFileSync(
-			stub,
-			`#!/usr/bin/env bash
-for a in "$@"; do
-  [[ "$a" == --path-format=* && "$(pwd -P)" == "${at}" ]] && exit 129
-done
-exec "${real}" "$@"
-`,
-			{ mode: 0o755 },
-		);
-		process.env.WFC_GIT = stub;
+		process.env.WFC_GIT = writeFaultyGit(
+			{ argPrefix: "--path-format=" },
+			{ script: `[ "$(pwd -P)" = '${at}' ] && exit 129` },
+			{ under: sb.dir },
+		).git;
 	};
 
 	it("logs a failed common-dir read in the worktree, and matches the root alone (#2529)", () => {
@@ -539,8 +530,6 @@ describe("the fragments", () => {
 		);
 	});
 
-	// The escalated case pins the tier fragment whole, and the next case pins
-	// the hold rule-text.sh prints as this file.
 	it("ask a yes to name the rule or calculation, and areas= to name the globless areas judged touched (#2082, #2254)", () => {
 		expect(readFragment("review-tier-escalated")).toContain(
 			"a yes names the rule or calculation",
@@ -880,6 +869,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			throw new Error("store down");
 		},
 		corePaths: (t: string) => t,
+		docPath: (name: string) => `docs/${name}`,
 		log: () => {
 			/* The stub context records nothing. */
 		},
@@ -971,7 +961,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			decide("code-review", stubCtx({ declared: () => undefined }) as never),
 		).toEqual({
 			context:
-				"No sensitive paths are declared, so no review here can escalate: docs/agents/rules/review-sensitive-undeclared.txt.",
+				"No sensitive paths are declared, so no review here can escalate; the rule could not be read from docs/agents/rules/review-sensitive-undeclared.txt. Read that file before doing anything else.",
 		});
 	});
 });

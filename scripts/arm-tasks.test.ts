@@ -49,6 +49,17 @@ const run = (args: string[], env: NodeJS.ProcessEnv = {}) => {
 const git = (cwd: string, ...args: string[]) =>
 	spawnSync("git", args, { cwd, encoding: "utf8" }).stdout.trim();
 
+const taskPatch = (name: string) => path.join(ROOT, "scripts/arm-tasks", name);
+
+/** git's refusal of `patch` in `cwd`, as `<patch name>: <stderr>`. */
+const refusals = (cwd: string, patch: string, ...flags: string[]) => {
+	const r = spawnSync("git", ["apply", "--check", ...flags, patch], {
+		cwd,
+		encoding: "utf8",
+	});
+	return r.status === 0 ? [] : [`${path.basename(patch)}: ${r.stderr.trim()}`];
+};
+
 interface Task {
 	id: string;
 	revert: string[];
@@ -96,12 +107,10 @@ describe("the committed task set", () => {
 				for (const sha of t.revert)
 					expect(held(sha), `${t.id} ${sha}`).toBe(true);
 				const touched = t.fix
-					? git(
-							ROOT,
-							"apply",
-							"--numstat",
-							path.join(ROOT, "scripts/arm-tasks", t.fix),
-						).replace(/^\S+\t\S+\t/gm, "")
+					? git(ROOT, "apply", "--numstat", taskPatch(t.fix)).replace(
+							/^\S+\t\S+\t/gm,
+							"",
+						)
 					: t.revert
 							.map((sha) => git(ROOT, "show", "--format=", "--name-only", sha))
 							.join("\n");
@@ -124,13 +133,35 @@ describe("the committed task set", () => {
 			for (const { file, names, patch } of t.hiddenTests) {
 				expect(fs.existsSync(path.join(ROOT, file)), file).toBe(true);
 				expect(names.length, file).toBeGreaterThan(0);
-				if (patch)
-					expect(
-						fs.existsSync(path.join(ROOT, "scripts/arm-tasks", patch)),
-						patch,
-					).toBe(true);
+				if (patch) expect(fs.existsSync(taskPatch(patch)), patch).toBe(true);
 			}
 		}
+	});
+
+	// The working tree, not HEAD, so a session sees its own edit stale a patch
+	// before it pushes; a neighbour's uncommitted edit can redden it too.
+	it("unapplies every fix patch from the tree, and applies every hidden-test patch to it (#3165)", () => {
+		expect(
+			tasks.flatMap((t) => [
+				...(t.fix ? refusals(ROOT, taskPatch(t.fix), "--reverse") : []),
+				...t.hiddenTests.flatMap((h) =>
+					h.patch ? refusals(ROOT, taskPatch(h.patch)) : [],
+				),
+			]),
+		).toEqual([]);
+	});
+
+	it("names the patch and the hunk git refuses, and nothing for a patch that applies", () => {
+		fs.writeFileSync(path.join(tmp, "a.txt"), "two\n");
+		const patch = path.join(tmp, "one-to-two.patch");
+		fs.writeFileSync(
+			patch,
+			"--- a/a.txt\n+++ b/a.txt\n@@ -1 +1 @@\n-one\n+two\n",
+		);
+		expect(refusals(tmp, patch, "--reverse")).toEqual([]);
+		expect(refusals(tmp, patch)).toEqual([
+			expect.stringMatching(/^one-to-two\.patch: .*patch failed: a\.txt:1/s),
+		]);
 	});
 
 	it("seats each neighbour on a path the claim guard refuses, so the claim is felt", () => {

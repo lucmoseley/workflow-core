@@ -2,7 +2,7 @@
 /*
  * The contract lib/git-fault-fake.ts keeps with the real git (#3067, §G7):
  * each case list runs through a wrapper of every match kind and through git,
- * and the exit code, stdout and stderr must agree. Breaking it costs the four
+ * and the exit code, stdout and stderr must agree. Breaking it costs the
  * suites that fault one git read their tie to git everywhere else: a wrapper
  * that drops an argument or swallows stdin fails their other reads instead.
  */
@@ -52,6 +52,7 @@ const unmatched: { args: string[]; input?: string }[] = [
 
 const matches: [string, GitFaultMatch][] = [
 	["words", { words: ["diff", "--cached", "--name-only", "-z", "HEAD"] }],
+	["every", { every: ["--cached", "diff"] }],
 	["first", { first: "commit" }],
 	["argPrefix", { argPrefix: "HEAD:" }],
 ];
@@ -91,6 +92,15 @@ describe("a matched argv", () => {
 		dirs.push(w.dir);
 		const args = ["show", "HEAD:a.md", "HEAD:a.md"];
 		expect(call(w.git, args)).toEqual(call(resolveRealGit(), args));
+		expect(w.hits()).toBe(1);
+	});
+
+	it("faults an every match on its arguments in any order, and not on some of them", () => {
+		const w = writeFaultyGit({ every: ["--cached", "diff"] }, { exit: 7 });
+		dirs.push(w.dir);
+		expect(call(w.git, ["diff", "--name-only", "--cached"]).status).toBe(7);
+		const some = ["diff", "--name-only"];
+		expect(call(w.git, some)).toEqual(call(resolveRealGit(), some));
 		expect(w.hits()).toBe(1);
 	});
 

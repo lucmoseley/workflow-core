@@ -1154,7 +1154,7 @@ describe("subject handling — review findings", () => {
 	const docMap = "docs/doc-map.md";
 
 	it("keeps the region out of the write ledger, which names files", () => {
-		// guard-commit-form.js compares the ledger against staged paths, and git
+		// The guard-commit-form core compares the ledger against staged paths, and git
 		// stages no region — so an unstripped subject warns the session off its own
 		// commit as "a path this session never wrote".
 		store.recordWrite(path.join(sb.repo, `${docMap}#B42`), "alice");

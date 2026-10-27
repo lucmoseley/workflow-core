@@ -25,12 +25,12 @@
  */
 
 const { runCheck } = require("./lib/check.js");
+const { gitOutcome } = require("./lib/git.js");
 const { readRuleTextOr } = require("./lib/rule-text");
 const {
 	PREFIX,
 	baselineRev,
 	readBaselineCommit,
-	gitOutcome,
 	readInheritedNumbers,
 	judgeLine,
 } = require("./lib/citation-tracker.js");
@@ -116,7 +116,7 @@ function readEveryLine() {
 function readCitationRule() {
 	return readRuleTextOr(
 		"citation-tracker",
-		"A citation of this repo's tracker is bare `#N`; the mantahostels# prefix names the inherited tracker.",
+		"A citation of this repo's tracker is bare `#N`; the mantahostels# prefix names the inherited tracker",
 		"check-citation-tracker",
 	).split("\n");
 }
@@ -187,7 +187,7 @@ runCheck({
 			return ctx.broken(
 				`could not ask git for ${baselineRev()} (${baseline.why}), so no citation was judged.`,
 			);
-		if (!baseline.out.trim())
+		if (baseline.sha === null)
 			ctx.skip(
 				`${baselineRev()} is not in this repository, so there is no inherited tracker to confuse this one with.`,
 			);

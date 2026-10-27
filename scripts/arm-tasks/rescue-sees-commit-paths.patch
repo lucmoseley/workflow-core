@@ -1,8 +1,8 @@
 --- a/scripts/rescue-sessions.test.ts
 +++ b/scripts/rescue-sessions.test.ts
-@@ -384,24 +384,21 @@
+@@ -444,19 +444,16 @@
  	});
- 
+
 -	it("lists commit-paths.js calls by repo or plugin-cache path behind a prefix (#1714)", () => {
 +	it("lists commit-paths.js calls by repo or plugin-cache path (#1714)", () => {
  		const cached = `node /home/u/.claude2/plugins/cache/workflow-core/workflow-core/1.0.0/scripts/commit-paths.js -m "fix b" -- b.js`;
@@ -25,6 +25,8 @@
 +			expect.stringMatching(/commit-paths\.js -m "fix b"/),
 +			expect.stringContaining("git commit -m c"),
  		]);
+ 	});
+@@ -532,6 +530,6 @@
  	});
  
 -	it("matches a commit-paths.js message longer than the narration keeps (#1714)", () => {

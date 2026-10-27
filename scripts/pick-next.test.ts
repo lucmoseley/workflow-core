@@ -919,7 +919,7 @@ describe("readiness", () => {
 		);
 		const text = await run(fx, [], { env: { HOME: home } });
 		expect(text.out).toMatch(
-			/PULLED IN FROM OTHER REPOS[\s\S]*o\/z#20\s+reach 1\s+holds o\/r#1\s+HELD OUTSIDE THE LOOP: refillLoop: false/,
+			/PULLED IN FROM OTHER REPOS[\s\S]*o\/z#20\s+depth 1\s+reach 1\s+holds o\/r#1\s+HELD OUTSIDE THE LOOP: refillLoop: false/,
 		);
 	});
 
@@ -1027,9 +1027,15 @@ describe("ordering", () => {
 		};
 		const rows = (await run(fx, ["--json"])).json().frontier;
 		expect(rows.map((f: { number: number }) => f.number)).toEqual([12, 1]);
-		expect(rows[0]).toMatchObject({ urgent: true, urgentVia: 10, bug: false });
+		expect(rows[0]).toMatchObject({
+			urgent: true,
+			urgentVia: { number: 10, path: ["#11", "#10"] },
+			bug: false,
+		});
 		const text = await run(fx);
-		expect(text.out).toMatch(/^ {2}#12 {2}urgent via #10$/m);
+		expect(text.out).toMatch(
+			/^ {2}#12 {2}urgent via #10 \(holds #11 → #10\)$/m,
+		);
 		expect(text.out).toMatch(/#12\s+via\s/);
 	});
 
@@ -1045,6 +1051,91 @@ describe("ordering", () => {
 			},
 		});
 		expect(r.order()).toEqual([1, 11]);
+	});
+
+	it("passes an urgent map's tier through its child to that child's blocker (#3222)", async () => {
+		// #10 urgent map, its child #11, which #20 blocks. #1 outranks #20 on
+		// reach, so only the inherited tier can lift #20 above it.
+		const fx = {
+			issues: [
+				{ number: 1 },
+				{ number: 2 },
+				{ number: 3 },
+				{ number: 10, labels: ["wayfinder:map", "urgent"] },
+				{ number: 11, parent: 10 },
+				{ number: 20 },
+			],
+			deps: {
+				2: [{ number: 1, state: "open" as const }],
+				3: [{ number: 1, state: "open" as const }],
+				11: [{ number: 20, state: "open" as const }],
+			},
+			timeline: {
+				10: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
+			},
+		};
+		const rows = (await run(fx, ["--json"])).json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([20, 1]);
+		expect(rows[0]).toMatchObject({
+			urgent: true,
+			urgentVia: { number: 10, path: ["#11", "#10"] },
+			depth: 1,
+			reach: 1,
+		});
+		const text = await run(fx);
+		expect(text.out).toMatch(
+			/^ {2}#20 {2}urgent via #10 \(holds #11 → #10\)$/m,
+		);
+	});
+
+	it("ranks the deeper blocker of an urgent issue above the wider one (#3222)", async () => {
+		// #30 urgent, blocked by #31 and #32; #33 blocks #31. #32 also holds
+		// #40 and #41, so it leads on reach (3 to 2); depth (2 to 1) must win.
+		const fx = {
+			issues: [30, 31, 32, 33, 40, 41].map((number) => ({
+				number,
+				...(number === 30 ? { labels: ["urgent"] } : {}),
+			})),
+			deps: {
+				30: [
+					{ number: 31, state: "open" as const },
+					{ number: 32, state: "open" as const },
+				],
+				31: [{ number: 33, state: "open" as const }],
+				40: [{ number: 32, state: "open" as const }],
+				41: [{ number: 32, state: "open" as const }],
+			},
+			timeline: {
+				30: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
+			},
+		};
+		const rows = (await run(fx, ["--json"])).json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([33, 32]);
+		expect(rows[0]).toMatchObject({ urgent: true, depth: 2, reach: 2 });
+		expect(rows[1]).toMatchObject({ urgent: true, depth: 1, reach: 3 });
+	});
+
+	it("passes goal-set membership to every issue holding a member out (#3222)", async () => {
+		// #2 blocks #3, whose parent #5 is the goal; #1 holds nothing.
+		const r = await run(
+			{
+				issues: [
+					{ number: 1 },
+					{ number: 2 },
+					{ number: 3, parent: 5 },
+					{ number: 5 },
+				],
+				deps: { 3: [{ number: 2, state: "open" as const }] },
+			},
+			["--goal", "5", "--json"],
+		);
+		const rows = r.json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([2, 1]);
+		expect(rows[0]).toMatchObject({
+			goal: true,
+			goalVia: { number: 5, path: ["#3", "#5"] },
+		});
+		expect(rows[1]).toMatchObject({ goal: false, goalVia: null, depth: 0 });
 	});
 
 	it("ranks an unlabelled bug above an urgent non-bug (#2664)", async () => {
@@ -4446,6 +4537,18 @@ describe("a data-condition gate in the body (mantahostels#1419)", () => {
 				`#1215\\s+held on ${gateCondition} — check: ${gateCommand} — abandon if: ${abandonCondition}`,
 			),
 		);
+	});
+
+	it("holds a conditioned goal-set member out of the shortlist (#3102)", async () => {
+		const r = await run(
+			{ issues: [{ number: 1 }, { number: 1215, body: gateOn() }] },
+			// --json: the frontier the refill loop reads (lib/refill-frontier.js)
+			["--json", "--goal", "1215"],
+		);
+		expect(r.status).toBe(0);
+		expect(r.json().frontier.map((f: { number: number }) => f.number)).toEqual([
+			1,
+		]);
 	});
 
 	it("states the condition in the exclusion reason, never a date", async () => {

@@ -17,6 +17,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const config = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
+const { readCommittedFile } = require("./git-objects.js");
 const { writeFd } = require("./write-fd.js");
 
 const LANDER_LINE =
@@ -38,10 +39,16 @@ const NPM_SCRIPT = /^npm\s+(?:(?:test|t)|run(?:-script)?\s+(\S+))(?=\s|$)/;
 function mintsMarker(command, root, rev) {
 	const npm = NPM_SCRIPT.exec(command.trim());
 	if (!npm) return MINTER.test(command);
-	const committed =
-		rev === undefined
-			? undefined
-			: config.readBlobAt(root, rev, "package.json");
+	let committed;
+	if (rev !== undefined)
+		try {
+			committed = readCommittedFile(rev, "package.json", { cwd: root });
+		} catch (err) {
+			throw new Error(
+				`package.json at ${rev} cannot be read: ${caught(err).message}`,
+				{ cause: err },
+			);
+		}
 	if (committed === null) return false;
 	let scripts;
 	try {

@@ -24,7 +24,8 @@ const { caught } = require("./caught.js");
  * inside #2667's 15. */
 const CEILING_MS = 840_000;
 /* The margin a green whole suite is held to (#2729): 80% of the
- * ceiling, so a week's growth and normal variance stay inside it.
+ * ceiling, UNTRACED (#2729 §Values). It buys warning, not safety: the suite
+ * grew 23% in the week #2729 measured, more than this margin.
  * `check-suite-margin.js` reports a run over it and refuses nothing. */
 const TARGET_FRACTION = 0.8;
 const TARGET_MS = CEILING_MS * TARGET_FRACTION;

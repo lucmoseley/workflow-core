@@ -20,6 +20,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeFaultyGit } from "./git-fault-fake";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./git-fixture";
 import { kitContextFake } from "./kit-context-fake";
 
@@ -202,6 +203,10 @@ function run(
 		repo: (tree: string, root: string) => Repo;
 	};
 	for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
+	/* Built on first use, as lib/kit-context.js's lazyTreeClass builds it. */
+	let classify:
+		| ((dir: string) => import("./git-tree.js").TreeClass)
+		| undefined;
 	try {
 		const vars: Record<string, string> = {};
 		for (const [k, v] of Object.entries(process.env))
@@ -214,7 +219,10 @@ function run(
 				isDir: (p: string) =>
 					fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
 				moduleOn: () => true,
-				treeClass: treeClassifier(repo),
+				treeClass: (tree: string) => {
+					classify ??= treeClassifier(repo);
+					return classify(tree);
+				},
 				log: (what: string, detail?: string) =>
 					faults.push(detail ? `${what}\t${detail}` : what),
 				...host,
@@ -754,15 +762,12 @@ describe("a repo judged against its host registries (#1456)", () => {
 		adopter();
 		edit(
 			".claude/settings.json",
-			hooksFileFor([
-				"scripts/guard-existing.sh",
-				"scripts/guard-agent-poll.js",
-			]),
+			hooksFileFor(["scripts/guard-existing.sh", "scripts/guard-pull-form.js"]),
 		);
 		edit(
 			".claude/registrations.json",
 			registrations({
-				hooks: [row("guard-existing.sh"), row("guard-agent-poll.js")],
+				hooks: [row("guard-existing.sh"), row("guard-pull-form.js")],
 			}),
 		);
 		expect(
@@ -1454,7 +1459,7 @@ describe("the index route", () => {
 	 * lands that copy and not the index's — the index read would judge stale
 	 * bytes, and here it would judge them into a false denial (mantahostels#2734).
 	 *
-	 * scripts/guard-commit-form.js denies `-a` before this guard is reached, so
+	 * The guard-commit-form core denies `-a` before this guard is reached, so
 	 * this case pins the reasoning rather than a reachable verdict. */
 	it("reads the working tree for -a, which lands it", () => {
 		add("scripts/check-new.js", "// new\n");
@@ -1599,14 +1604,22 @@ describe("what the review of mantahostels#2671 found", () => {
 		);
 		// Break the whole object store, leaving the ref itself intact.
 		fs.chmodSync(path.join(repo, ".git", "objects"), 0o000);
+		/* Either route allows. git 2.43 resolves the repo and the core allows;
+		 * a newer git (the CI runner's) reads unreadable objects as
+		 * no repo, so the tree classifier throws, which lib/guard-entry.js
+		 * allows unchecked (#2527). */
 		try {
-			expect(
-				run(
+			let verdict: Verdict | undefined;
+			try {
+				verdict = run(
 					commit(
 						"scripts/guard-new.sh scripts/guard-new.test.ts self-plugin/hooks/hooks.json scripts/hook-registrations.test.ts scripts/guard-fire-needles.json",
 					),
-				).denied,
-			).toBe(false);
+				);
+			} catch (e) {
+				expect(String(e)).toMatch(/could not resolve a git dir/);
+			}
+			if (verdict) expect(verdict.denied).toBe(false);
 		} finally {
 			fs.chmodSync(path.join(repo, ".git", "objects"), 0o755);
 		}
@@ -2074,32 +2087,18 @@ describe("judgeHookList's HEAD-side fail-opens (mantahostels#2702)", () => {
 describe("fail-opens no broken object reaches (mantahostels#2686)", () => {
 	/**
 	 * A `git` at WFC_GIT that exits 128 when its arguments carry `subcommand` — and
-	 * `want` too, where one is given — and execs the real git otherwise.
+	 * `want` too, where one is given — and runs the real git otherwise.
 	 *
-	 * Both go into a bash double-quoted string, so both must be shell-inert
-	 * literals; and the match is over the whole argument list rather than
-	 * positional, so a subcommand name arriving as a VALUE would match too.
+	 * The match is over the whole argument list rather than positional, so a
+	 * subcommand name arriving as a VALUE would match too.
 	 */
 	function gitShim(subcommand: string, want = ""): Record<string, string> {
-		const bin = fs.mkdtempSync(path.join(dir, "shim-"));
-		const real = execFileSync("bash", ["-c", "command -v git"], {
-			encoding: "utf8",
-		}).trim();
-		fs.writeFileSync(
-			path.join(bin, "git"),
-			`#!/usr/bin/env bash
-sub_seen=0
-arg_seen=${want ? 0 : 1}
-for a in "$@"; do
-  [[ "$a" == ${JSON.stringify(subcommand)} ]] && sub_seen=1
-  [[ "$a" == ${JSON.stringify(want)} ]] && arg_seen=1
-done
-((sub_seen && arg_seen)) && exit 128
-exec ${JSON.stringify(real)} "$@"
-`,
-			{ mode: 0o755 },
+		const shim = writeFaultyGit(
+			{ every: want ? [subcommand, want] : [subcommand] },
+			{ exit: 128 },
+			{ under: dir },
 		);
-		return { WFC_GIT: path.join(bin, "git") };
+		return { WFC_GIT: shim.git };
 	}
 
 	/* willHold's working-tree limb: the copy this commit takes is on disk but

@@ -5,7 +5,8 @@
  * bash guard's `|| x=""` did.
  */
 
-const { gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
+const { readCommit } = require("./commit-sha.js");
+const { gitOrNull, gitReader, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { readTopLevel } = require("./git-tree.js");
 const { pushedRef } = require("./landing-refs.js");
 
@@ -29,7 +30,7 @@ const isAnswered = (dir, args) =>
 	gitOrNull(["-C", dir, ...args], { timeout: HOOK_GIT_TIMEOUT_MS }) !== null;
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./pull-form.js").PullFormPorts}
  */
 const buildHostPorts = ({ root }) => ({
@@ -38,8 +39,10 @@ const buildHostPorts = ({ root }) => ({
 		read(dir, ["config", "--type=bool", "--get", "clean.requireForce"]),
 	currentBranch: (dir) =>
 		read(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]),
-	isCommit: (dir, word) =>
-		isAnswered(dir, ["rev-parse", "--verify", "--quiet", `${word}^{commit}`]),
+	isCommit: (dir, word) => {
+		const r = readCommit(gitReader(dir, HOOK_GIT_TIMEOUT_MS), word);
+		return r.ok && r.sha !== null;
+	},
 	isTree: (dir, word) =>
 		isAnswered(dir, ["rev-parse", "--verify", "--quiet", `${word}^{tree}`]),
 	topLevel: (dir) => readTopLevel(dir) ?? "",

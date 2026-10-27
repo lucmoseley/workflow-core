@@ -8,16 +8,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { decide } from "./headroom-read.js";
 import { kitContextFake } from "./kit-context-fake";
-
-const { decide } = require("./headroom-read.js") as {
-	decide: (command: string, ports: object) => { injectRules: string[] } | null;
-};
 /* The store's Node accessor, so a test asks for the rule by id rather than
- * holding a second copy of its text. CommonJS, hence the require. */
-const { readRuleText } = require("./rule-text") as {
-	readRuleText: (id: string) => string;
-};
+ * holding a second copy of its text. */
+import { readRuleText } from "./rule-text";
 
 /* The kit's context, with nothing real behind it: the core reads no env and
  * no disk. */

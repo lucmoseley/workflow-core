@@ -21,6 +21,13 @@
  * as guard-issue-close.js holds on a hand close (#1913). It fails open, with
  * a note, where git or a digest's formatter cannot answer.
  *
+ * A completed close is refused where the ticket's commits — those on the
+ * checkout's HEAD citing `#n`, a linked worktree's included, and any the
+ * comment names by sha — are not on the pushed ref
+ * (`origin/landing` with the `landing` module on) under their hash or their
+ * subject, unless the comment's `**Unlanded:**` line says why not (#3101).
+ * It fails open, with a note, where git cannot answer.
+ *
  * ORDER: every refusal, then comment, close, release, map line. The assignee
  * is never removed.
  *
@@ -62,7 +69,7 @@
  */
 
 const fs = require("node:fs");
-const { hostRoot } = require("./lib/host-root.js");
+const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 const { hasLine } = require("./lib/marker-line.js");
 const { writeFd } = require("./lib/write-fd.js");
 const issueBody = require("./issue-body.js");
@@ -74,6 +81,11 @@ const {
 	readExpiredRows,
 	hasCensusLine,
 } = require("./lib/census-digest.js");
+const {
+	hasUnlandedLine,
+	readUnlandedCommits,
+	unlandedRefusal,
+} = require("./lib/unlanded-commits.js");
 const {
 	alreadyCommented,
 	isCardOwnIssue,
@@ -252,17 +264,41 @@ function checkCompletableOrFail(issue, n) {
  */
 function checkCensusOrFail(comment, n) {
 	if (hasCensusLine(comment)) return;
-	let rows;
+	checkRefusalOrFail("census", n, () => {
+		const rows = readExpiredRows(hostRoot(), n);
+		return rows.length > 0 ? censusRefusal(n, rows) : "";
+	});
+}
+
+/**
+ * @param {string} comment
+ * @param {number} n
+ */
+function checkLandedOrFail(comment, n) {
+	if (hasUnlandedLine(comment)) return;
+	checkRefusalOrFail("landing", n, () => {
+		const unlanded = readUnlandedCommits(worktreeRoot(), n, comment);
+		return unlanded.commits.length > 0 ? unlandedRefusal(n, unlanded) : "";
+	});
+}
+
+/**
+ * @param {string} check
+ * @param {number} n
+ * @param {() => string} refuse
+ */
+function checkRefusalOrFail(check, n, refuse) {
+	let refusal;
 	try {
-		rows = readExpiredRows(hostRoot(), n);
+		refusal = refuse();
 	} catch (e) {
-		// Fails open: a census nobody can read must not strand a close (#1876).
+		// Fails open: a read nobody can make must not strand a close (#1876, #3101).
 		io.out(
-			`#${n}: census check skipped — ${caught(e).message.split("\n")[0]}.\n`,
+			`#${n}: ${check} check skipped — ${caught(e).message.split("\n")[0]}.\n`,
 		);
 		return;
 	}
-	if (rows.length > 0) io.fail(`${censusRefusal(n, rows)} Nothing written.`, 2);
+	if (refusal) io.fail(`${refusal} Nothing written.`, 2);
 }
 
 /**
@@ -395,6 +431,7 @@ function main() {
 	if (!notPlanned) {
 		checkCompletableOrFail(issue, n);
 		checkCensusOrFail(comment, n);
+		checkLandedOrFail(comment, n);
 	}
 
 	/* A closed issue was resolved by an earlier run: its comment is posted and

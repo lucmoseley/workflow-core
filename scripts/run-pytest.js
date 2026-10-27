@@ -61,7 +61,7 @@ const { appendEmptyTouchedLine } = require("./lib/run-ledger.js");
 const idSeam = require("./lib/session-id.js");
 const { reportForRun } = require("./lib/run-cost-report.js");
 const { writeFd } = require("./lib/write-fd.js");
-const { pythonBin } = require("./lib/python-bin.js");
+const { pythonBin, pythonSpawnRemedy } = require("./lib/python-bin.js");
 const {
 	CEILING_CLOSE,
 	SETTLE_MS,
@@ -112,7 +112,7 @@ async function main(argv = process.argv.slice(2)) {
 async function runAndRecord({ args, resolvedFiles }, root) {
 	// Before the spawn, so the marker's duration covers the whole run (mantahostels#1953).
 	const startedAtMs = Date.now();
-	const startedAtMono = performance.now();
+	const startedAtMono = monotonicMs();
 	const before = readTreeSnapshot(root);
 	const inherited = fromArbiter(before);
 
@@ -121,14 +121,11 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 		? path.join(path.dirname(handOff), "inflight.json")
 		: null;
 	const run = await runPytest(args, root, handOff, inflightFile);
-	// Set only when the spawn itself fails (ENOENT on the python, EACCES,
-	// EAGAIN); a failing pytest sets status instead.
+	// Set only when the spawn itself fails; a failing pytest sets status instead.
 	if (run.error)
 		writeFd(
 			2,
-			`pytest could not be run: ${run.error}\n` +
-				"Install python3 or point WFC_PYTHON at it, then its test deps: " +
-				"python3 -m pip install -r requirements-dev.txt\n",
+			`pytest could not be run: ${run.error}\n${pythonSpawnRemedy(run.error)}`,
 		);
 	const result = handOff ? readHandOff(handOff) : null;
 
@@ -153,7 +150,7 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 				scope: runScope(result.scope, resolvedFiles),
 				suite: "pytest",
 				startedAtMs,
-				elapsedMs: performance.now() - startedAtMono,
+				elapsedMs: monotonicMs() - startedAtMono,
 				// pytest has no `--isolated` path (mantahostels#2187): every run
 				// reads the shared tree, at `root` — the same directory the
 				// identity below is taken in.
@@ -277,7 +274,7 @@ function runPytest(argv, root, handOff, inflightFile) {
 				},
 			},
 		);
-		const spawnedAt = monotonicMs();
+		const spawnedAtMono = monotonicMs();
 		let ceilingKilled = false;
 		const forward = (/** @type {NodeJS.Signals} */ signal) => {
 			const unreached = child.pid ? killGroup(child.pid, signal) : null;
@@ -294,14 +291,14 @@ function runPytest(argv, root, handOff, inflightFile) {
 		const held = armCeiling({
 			pgid: child.pid,
 			ms: ceiling,
-			now: spawnedAt,
+			now: spawnedAtMono,
 			onCeiling: () => {
 				ceilingKilled = true;
 				writeFd(
 					2,
 					buildCeilingReport(readInflight(inflightFile), {
 						ceiling,
-						elapsed: monotonicMs() - spawnedAt,
+						elapsed: monotonicMs() - spawnedAtMono,
 					}),
 				);
 				const unkilled = child.pid ? killGroup(child.pid) : null;

@@ -32,7 +32,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execGit } = require("./lib/git.js");
+const { readTrackedScripts } = require("./lib/tracked-scripts.js");
 const { JS_TEST_FILE } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
@@ -44,60 +44,6 @@ const EXEMPT = /isolation-exempt:[ \t]*[A-Za-z0-9]/;
 /** argv[0] spellings that are an interpreter, never a script. */
 const INTERPRETER =
 	/^(process\.execPath|"node"|"bash"|"sh"|"git"|"gh"|"npm"|"npx")$/;
-
-/** Every test file under `<root>/scripts/`, walked off the filesystem — see
- * check-guard-test-isolation.js's twin for why `--root` walks rather than
- * `ls-files`s. */
-function walkTests(/** @type {string} */ root) {
-	const out = /** @type {string[]} */ ([]);
-	const walk = (/** @type {string} */ rel) => {
-		let entries;
-		try {
-			entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-			const child = `${rel}/${e.name}`;
-			if (e.isDirectory()) walk(child);
-			else if (JS_TEST_FILE.test(e.name)) out.push(child);
-		}
-	};
-	walk("scripts");
-	return out;
-}
-
-function readTrackedTests(/** @type {any} */ ctx) {
-	const rootFlag = ctx.value("--root");
-	if (rootFlag) {
-		const root = path.resolve(rootFlag);
-		return { root, files: walkTests(root) };
-	}
-	const git = (/** @type {string[]} */ args, /** @type {string} */ what) => {
-		try {
-			return execGit(args, {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-		} catch (e) {
-			return ctx.broken(
-				`git ${args[0]} failed while ${what}: ${errMessage(e)}. No test files read.`,
-			);
-		}
-	};
-	const root = git(
-		["rev-parse", "--show-toplevel"],
-		"locating the repo root",
-	).trim();
-	const files = git(["-C", root, "ls-files", "-z"], "listing tracked files")
-		.split("\0")
-		.filter(Boolean)
-		.filter(
-			(/** @type {string} */ p) =>
-				p.startsWith("scripts/") && JS_TEST_FILE.test(p),
-		);
-	return { root, files };
-}
 
 /**
  * `lib/check.js` and `lib/workflow-core-config.js`: pulled in by nearly every
@@ -265,7 +211,9 @@ runCheck({
 	 * (scripts/lib/check.js §--against, mantahostels#1833). */
 	against: { profile: "host-root-test-isolation", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
-		const { root, files } = readTrackedTests(ctx);
+		const { root, files } = readTrackedScripts(ctx, (rel) =>
+			JS_TEST_FILE.test(rel),
+		);
 		const cache = /** @type {Map<string, boolean>} */ (new Map());
 		const checked = /** @type {string[]} */ ([]);
 		const exempt = /** @type {string[]} */ ([]);

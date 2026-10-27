@@ -15,6 +15,7 @@
  * main tree's.
  */
 
+const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -29,6 +30,7 @@ const {
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
 const { execGit } = require("./git.js");
+const { LANDER_REVERT_ENV, buildRevertLine } = require("./clean-revert.js");
 
 /* Untraced: a fraction of the stall check's 2 h, so a live lander is never
  * read as dead mid-suite. */
@@ -38,13 +40,8 @@ const LANDER_GIT_TIMEOUT_MS = 120 * 1000;
 /* Untraced: the push runs the checkout's pre-push hook, whose mod tests run
  * `claude plugin test` on a batch touching a mod. */
 const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
+const REGISTRY_CHECK = path.join(__dirname, "..", "check-guard-registry.js");
 
-/**
- * The line a revert's message names its culprit by: git's own, which
- * lib/landing-status.js searches `landing` for.
- * @param {string} sha
- */
-const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
 /* Untraced: a revert racing that many session pushes in a row is a busier
  * `landing` than any seen. */
 const REVERT_PUSH_TRIES = 3;
@@ -96,7 +93,7 @@ const NETWORK =
  *   | {kind: "bisect", base: string|null, sha: string}
  *   | {kind: "revert", culprit: string, parent: string|null, files: string[]}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
- *       revert: string, files: string[]}
+ *       revert: string, files: string[], stale: RegistryRow[]|null}
  *   | {kind: "hold", reason: string}
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
@@ -117,9 +114,12 @@ const NETWORK =
  *   only where its whole suite reached no verdict
  * @property {Revert|null} revert
  * @property {string|null} unfiled why the fix ticket was not filed
- * @typedef {{sha: string, onto: string} | {failed: string}} Revert the
- *   revert's sha and the `landing` tip it was committed on, or why it did not
- *   land: a conflict or a refused push
+ * @typedef {{row: string, forward: string}} RegistryRow a guard-registry
+ *   row, and the fix-forward that clears it
+ * @typedef {{sha: string, onto: string, stale?: RegistryRow[]|null} |
+ *   {failed: string}} Revert the revert's sha, the `landing` tip it was
+ *   committed on and the rows it left stale, null where they could not be
+ *   read, or why it did not land: a conflict or a refused commit or push
  * @typedef {object} LanderState
  * @property {string|null} main `main`'s sha on the remote
  * @property {string|null} landing `landing`'s sha on the REMOTE, null where
@@ -246,9 +246,12 @@ function confirmAction(r, { culprit, parent }, isStuck) {
 			),
 		};
 	if (before?.kind === "green") return null;
-	/* Residual: the revert then rests on `files` alone at the parent, so a
-	 * parent red elsewhere in the suite goes unseen; it never reaches `main`,
-	 * which moves only once the reverted tip passes the whole suite. */
+	/* Residual (#2910): the revert then rests on `files` alone at the parent,
+	 * so a parent red elsewhere in the suite goes unseen here. Bound:
+	 * culpritAction fast-forwards only a parent whose whole suite passed, and
+	 * the reverted tip is tested whole as its own batch, which bisects that
+	 * red to the parent. Short of it: a red there whose files then pass one
+	 * rerun reaches `main` by redAction's flake check (spec #2261). */
 	const onFiles = r.parentOnFiles;
 	if (!onFiles)
 		return { kind: "rerun", sha: parent, files, why: "parent-files" };
@@ -311,6 +314,7 @@ function culpritAction(r, { culprit, parent }, main) {
 		parent,
 		revert: r.revert.sha,
 		files,
+		stale: r.revert.stale ?? null,
 	};
 }
 
@@ -882,13 +886,18 @@ function readHeartbeat(file) {
  * @returns {RemoteGit}
  */
 function remoteGit(root) {
-	/** @param {string[]} args @param {number} [timeout] */
-	const git = (args, timeout = LANDER_GIT_TIMEOUT_MS) =>
+	/**
+	 * @param {string[]} args
+	 * @param {number} [timeout]
+	 * @param {NodeJS.ProcessEnv} [env]
+	 */
+	const git = (args, timeout = LANDER_GIT_TIMEOUT_MS, env = process.env) =>
 		execGit(args, {
 			cwd: root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 			timeout,
+			env,
 		});
 	/** @param {string[]} args */
 	const succeeds = (args) => {
@@ -903,10 +912,11 @@ function remoteGit(root) {
 	 * A push to the remote. Its timeout is the pre-push hook's run, which a
 	 * retry would only repeat, so it throws as no network fault.
 	 * @param {string} refspec
+	 * @param {NodeJS.ProcessEnv} [env]
 	 */
-	const push = (refspec) => {
+	const push = (refspec, env) => {
 		try {
-			git(["push", "--quiet", REMOTE, refspec], PUSH_TIMEOUT_MS);
+			git(["push", "--quiet", REMOTE, refspec], PUSH_TIMEOUT_MS, env);
 		} catch (err) {
 			if (caught(err).code !== "ETIMEDOUT") throw err;
 			throw new Error(
@@ -946,7 +956,15 @@ function remoteGit(root) {
 			`--grep=${buildRevertLine(culprit)}`,
 			`${culprit}..${tip}`,
 		]).trim();
-		return sha ? { sha, onto: git(["rev-parse", `${sha}^`]).trim() } : null;
+		if (!sha) return null;
+		const onto = git(["rev-parse", `${sha}^`]).trim();
+		return {
+			sha,
+			onto,
+			stale:
+				readRegistryRows(root, culprit, [onto, "--head", sha])?.exempted ??
+				null,
+		};
 	};
 	/** @param {string} a @param {string} b */
 	const isAncestor = (a, b) => succeeds(["merge-base", "--is-ancestor", a, b]);
@@ -1038,11 +1056,19 @@ function remoteGit(root) {
 				const made = revertCommit(culprit, parent, tip, why);
 				if ("failed" in made) return made;
 				try {
-					push(`${made.sha}:refs/heads/${LANDING_BRANCH}`);
+					push(
+						`${made.sha}:refs/heads/${LANDING_BRANCH}`,
+						buildRevertEnv(culprit),
+					);
 					return { ...made, onto: tip };
 				} catch (err) {
 					const refused = revertRefusal(err, attempt);
-					if (refused) return refused;
+					if (refused)
+						return buildPushRefusal(
+							root,
+							{ culprit, tip, sha: made.sha },
+							refused,
+						);
 				}
 			}
 		},
@@ -1051,26 +1077,33 @@ function remoteGit(root) {
 	/**
 	 * A revert of `culprit` on `tip`, made in a throwaway worktree, so the
 	 * checkout's own tree and branch are never touched. `--no-verify` skips
-	 * `pre-commit`, but `prepare-commit-msg` still runs the gate stack, so a
-	 * revert that expires a guard-registry anchor a later commit set is
-	 * refused, and holds the queue rather than failing every run (#3123).
+	 * `pre-commit`, but `prepare-commit-msg` still runs the gate stack. The
+	 * commit names the culprit in WFC_LANDER_REVERT, so the guard-registry
+	 * gate lets the clean revert leave rows stale, which the fix ticket then
+	 * names (#3127). Any other refusal holds the queue, naming the registry
+	 * rows it refused on where it was that gate's (#3123).
 	 * @param {string} culprit
 	 * @param {string|null} parent
 	 * @param {string} tip
 	 * @param {string} why
-	 * @returns {{sha: string} | {failed: string}}
+	 * @returns {{sha: string, stale: RegistryRow[]|null} | {failed: string}}
 	 */
 	function revertCommit(culprit, parent, tip, why) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lander-revert-"));
 		git(["worktree", "add", "--quiet", "--detach", dir, tip]);
-		/** @param {string[]} args @param {string} [input] */
-		const inTree = (args, input) =>
+		/**
+		 * @param {string[]} args
+		 * @param {string} [input]
+		 * @param {NodeJS.ProcessEnv} [env]
+		 */
+		const inTree = (args, input, env) =>
 			execGit(args, {
 				cwd: dir,
 				encoding: "utf8",
 				input,
 				stdio: ["pipe", "pipe", "pipe"],
 				timeout: LANDER_GIT_TIMEOUT_MS,
+				env,
 			});
 		try {
 			const parents = git(["rev-list", "--parents", "-n", "1", culprit])
@@ -1097,16 +1130,98 @@ function remoteGit(root) {
 				inTree(
 					["commit", "--quiet", "--no-verify", "-F", "-"],
 					`Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${why}\n`,
+					buildRevertEnv(culprit),
 				),
 			);
 			if (uncommitted !== null)
 				return {
-					failed: `its commit was refused: ${GATE_VERDICT.exec(uncommitted)?.[0] ?? parseRefusal(uncommitted)}`,
+					failed: `its commit was refused: ${buildCommitRefusal(dir, culprit, uncommitted)}`,
 				};
-			return { sha: inTree(["rev-parse", "HEAD"]).trim() };
+			return {
+				sha: inTree(["rev-parse", "HEAD"]).trim(),
+				stale:
+					readRegistryRows(dir, culprit, [tip, "--head", "HEAD"])?.exempted ??
+					null,
+			};
 		} finally {
 			git(["worktree", "remove", "--force", dir]);
 		}
+	}
+}
+
+/**
+ * Why a revert's commit was refused: each guard-registry row the gate refused
+ * it on, with its fix-forward, read off the index still holding the revert;
+ * else the gate's verdict line.
+ * @param {string} dir
+ * @param {string} culprit
+ * @param {string} stderr the commit's
+ */
+function buildCommitRefusal(dir, culprit, stderr) {
+	const refused = readRegistryRows(dir, culprit, ["HEAD"])?.refused ?? [];
+	if (refused.length === 0)
+		return GATE_VERDICT.exec(stderr)?.[0] ?? parseRefusal(stderr);
+	return buildRowsLine(refused);
+}
+
+/**
+ * A refused revert push, naming each guard-registry row the landing gate
+ * refused it on where it was that gate's.
+ * @param {string} root
+ * @param {{culprit: string, tip: string, sha: string}} pushed the revert
+ *   `sha` of `culprit`, pushed onto `tip`
+ * @param {{failed: string}} refused
+ * @returns {{failed: string}}
+ */
+function buildPushRefusal(root, { culprit, tip, sha }, refused) {
+	const rows = readRegistryRows(root, culprit, [tip, "--head", sha])?.refused;
+	return rows?.length
+		? { failed: `its push was refused: ${buildRowsLine(rows)}` }
+		: refused;
+}
+
+/** @param {RegistryRow[]} rows */
+const buildRowsLine = (rows) =>
+	rows.map((r) => `${r.row} (fix forward: ${r.forward})`).join("; ");
+
+/**
+ * The environment a revert of `culprit` is committed and pushed in.
+ * @param {string} culprit
+ */
+const buildRevertEnv = (culprit) => ({
+	...process.env,
+	[LANDER_REVERT_ENV]: culprit,
+});
+
+/**
+ * The guard-registry rows the gate refuses and exempts on a revert of
+ * `culprit` in `dir`, judged `--against` the `against` arguments; null where
+ * the gate cannot answer, which the fix ticket then says rather than reading
+ * as no row owed (#3127).
+ * @param {string} dir
+ * @param {string} culprit
+ * @param {string[]} against
+ * @returns {{refused: RegistryRow[], exempted: RegistryRow[]}|null}
+ */
+function readRegistryRows(dir, culprit, against) {
+	const r = spawnSync(
+		process.execPath,
+		[REGISTRY_CHECK, "--json", "--against", ...against],
+		{
+			cwd: dir,
+			encoding: "utf8",
+			env: buildRevertEnv(culprit),
+			timeout: LANDER_GIT_TIMEOUT_MS,
+		},
+	);
+	if (r.error || (r.status !== 0 && r.status !== 1)) return null;
+	try {
+		const { refused, exempted } = JSON.parse(r.stdout);
+		return Array.isArray(refused) && Array.isArray(exempted)
+			? { refused, exempted }
+			: null;
+	} catch {
+		return null;
 	}
 }
 

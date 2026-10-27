@@ -322,7 +322,7 @@ function buildSessionFloorLine(floor, verdict) {
 	const head = `${floor.sessions} working sessions (~/.claude/session-floor, #2501); ${verdict.sessionFloorWorking} working, this run's own counted, so ${verdict.sessionFloorSlots} floor slot(s)`;
 	const hold = verdict.swapHold;
 	if (!hold.held) return head;
-	return `${head}, held while swap is ${hold.swapFreeMb} of ${hold.swapTotalMb} MB free and ${hold.availableMb} MB available, under ${SWAP_HOLD_FREE_FRACTION * 100}% and ${SWAP_HOLD_AVAILABLE_MB} MB (#2690)`;
+	return `${head}, held while ${swapHoldText(hold)}, under ${SWAP_HOLD_FREE_FRACTION * 100}% and ${SWAP_HOLD_AVAILABLE_MB} MB (#2690)`;
 }
 
 /**
@@ -944,6 +944,19 @@ function swapHoldOf(read) {
 		availableMb: memAvailableMb,
 	};
 }
+
+/**
+ * A binding swap hold's two readings, as a log line names them.
+ * @param {Extract<SwapHold, {held: true}>} hold
+ */
+const swapHoldText = (hold) =>
+	`swap is ${hold.swapFreeMb} of ${hold.swapTotalMb} MB free and ${hold.availableMb} MB available`;
+
+/**
+ * Whether the swap hold binds now, off a fresh meminfo read.
+ * @returns {SwapHold}
+ */
+const readSwapHold = () => swapHoldOf(readMeminfoKb());
 
 /**
  * @typedef {{ mb: number | null, unknown: string | null }} MemRow
@@ -1965,6 +1978,8 @@ module.exports = {
 	buildSessionDrawLine,
 	buildSessionFloorLine,
 	SWAP_HOLD_AVAILABLE_MB,
+	readSwapHold,
+	swapHoldText,
 	buildLiveDrawLine,
 	SUITE_GATE_MB,
 	EARLYOOM_FLOOR_MB,

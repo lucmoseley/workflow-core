@@ -807,21 +807,53 @@ describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 		expect(readLogged()).toBe("");
 	});
 
-	it("answers the fallback and the pointer where it cannot, and logs under the label", () => {
+	it("answers the lead in the fallback template where it cannot, and logs under the label", () => {
 		store({});
-		expect(lib.readRuleTextOr("a-rule", "Short.", "guard-x")).toBe(
-			"Short. The rule itself could not be read here. The full rule: `scripts/lib/rule-text.sh a-rule`.",
+		expect(lib.readRuleTextOr("a-rule", "Short", "guard-x")).toBe(
+			"Short; the rule could not be read from docs/agents/rules/a-rule.txt. Read that file before doing anything else.",
 		);
 		expect(readLogged()).toContain("guard-x rule-text a-rule");
 	});
 
-	it("resolves the pointer through the plugin root in an install", () => {
+	/* A failed root read is never memoised, so the record re-reading the root
+	 * would spawn git a second time. A subprocess, so no earlier read in this
+	 * one has memoised it. */
+	it("reads the root once for the text and its record (#3142)", () => {
+		const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-root-"));
+		temps.push(cwd);
+		const calls = path.join(cwd, "git-calls");
+		const git = path.join(cwd, "failing-git");
+		fs.writeFileSync(git, `#!/bin/sh\necho x >> '${calls}'\nexit 1\n`, {
+			mode: 0o755,
+		});
+		const env: NodeJS.ProcessEnv = {
+			...process.env,
+			CLAUDE_CONFIG_DIR: path.join(cwd, "config"),
+			WFC_GIT: git,
+		};
+		delete env.CLAUDE_PROJECT_DIR;
+		delete env.WFC_RULES_DIR;
+		const r = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`process.stdout.write(require(${JSON.stringify(path.join(__dirname, "rule-text.js"))}).readRuleTextOr("no-such-rule", "Short", "guard-x"))`,
+			],
+			{ cwd, env, encoding: "utf8" },
+		);
+		expect(r.stdout).toContain("Short; the rule could not be read");
+		expect(
+			fs.readFileSync(calls, "utf8").split("\n").filter(Boolean),
+		).toHaveLength(1);
+	});
+
+	it("resolves the fragment's path through the plugin root in an install", () => {
 		store({});
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-install-"));
 		temps.push(root);
 		process.env.WFC_SCRIPT_ROOT = root;
-		expect(lib.readRuleTextOr("rule:a-rule", "Short.", "guard-x")).toContain(
-			`${path.join(root, "scripts/lib/rule-text.sh")} a-rule\``,
+		expect(lib.readRuleTextOr("rule:a-rule", "Short", "guard-x")).toContain(
+			`read from ${root}/docs/agents/rules/a-rule.txt.`,
 		);
 	});
 });

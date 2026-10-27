@@ -283,7 +283,7 @@ function buildIgnoredQueries(root) {
 		.filter((d) => d !== root && isRepoEntry(d))
 		.map(buildPinnedQuery)
 		.filter((q) => {
-			const indexLost = isGitPathMissing(q, "index");
+			const indexLost = isIndexMissing(q);
 			return buildSpellings(q, root, "").some(
 				(named) => isTrackedBy(q, root, named, indexLost) !== false,
 			);
@@ -472,15 +472,14 @@ function isBareRootOutside(query, root, stderr) {
 }
 
 /**
- * Whether `name` under the git directory `query` reaches is missing. Where
- * git cannot name it, it reads as present: the `logs/HEAD` caller then reads
- * null, and the `index` caller's ls-files reports the failure itself.
+ * Whether the index of the git directory `query` reaches is missing. Where
+ * git cannot name it, it reads as present: ls-files reports the failure
+ * itself.
  * @param {GitQuery} query
- * @param {string} name
  * @returns {boolean}
  */
-function isGitPathMissing(query, name) {
-	const p = resolveGitPath(query, name);
+function isIndexMissing(query) {
+	const p = resolveGitPath(query, "index");
 	return p !== null && !fs.existsSync(p);
 }
 
@@ -535,9 +534,10 @@ function readReflogTip(query, log) {
  * the tip of the branch it left, as checking it out logs no move. A git
  * older than 2.45 echoes `--show-ref-format` back, and knows no other format.
  * Residual: reftable keeps no reflog files, so its unresolved HEAD is null,
- * and a project dir below the top of a reftable repository whose HEAD is
- * unborn, fresh from `git init` among them, refuses as git could not say
- * (#3100).
+ * and a project dir in a reftable repository whose HEAD is unborn, fresh
+ * from `git init` before its first `git add` writes an index among them,
+ * refuses as git could not say (#3100, #3098). git's own reflog commands
+ * cannot stand in, as they refuse a reflog whose ref is lost.
  * @param {GitQuery} query
  * @returns {string[] | null}
  */
@@ -730,9 +730,9 @@ function hasLostSubmodule(query, root) {
  * A LOST INDEX (#3080) hides what HEAD tracks and a `git reset` brings back,
  * so where it is lost `--with-tree=HEAD` counts HEAD's files too; a staged
  * `git rm --cached` keeps the index, as its commit removes the file. A HEAD
- * git cannot resolve reads as unborn only where HEAD has no reflog, which
- * would restore a lost or emptied branch ref. Residual: a lost index whose
- * branch ref and HEAD reflog are lost too reads as unborn (#3098).
+ * git cannot resolve counts the commits its and its branch's reflogs would
+ * restore a lost or emptied branch ref to, and reads as unborn only where
+ * neither has one (#3098).
  * CASE-BLIND (#3063): on a case-insensitive filesystem a tracked `.ENV`, or
  * `.env` under a directory or work tree spelled in another case, is the file
  * a write to `.env` lands in. The pathspec's `icase` covers the path inside
@@ -744,15 +744,7 @@ function hasLostSubmodule(query, root) {
  * @returns {boolean | null}
  */
 function isTrackedBy(query, root, file, indexLost) {
-	const r = runQuery(query, [
-		"-c",
-		"core.ignorecase=true",
-		"ls-files",
-		...(indexLost ? ["--with-tree=HEAD"] : []),
-		"--error-unmatch",
-		"--",
-		`:(icase,literal)${file}`,
-	]);
+	const r = runLsFiles(query, file, indexLost ? "HEAD" : null);
 	if (r.status === 0) return true;
 	if (r.status === 1) return false;
 	if (
@@ -760,7 +752,7 @@ function isTrackedBy(query, root, file, indexLost) {
 		r.status === 128 &&
 		r.stderr.startsWith("fatal: tree-ish HEAD not found")
 	)
-		return isGitPathMissing(query, "logs/HEAD") ? false : null;
+		return isTrackedInRestoredHead(query, file);
 	if (
 		r.status === 128 &&
 		(isOutsideAnyRepo(query, root, r.stderr) ||
@@ -768,6 +760,43 @@ function isTrackedBy(query, root, file, indexLost) {
 	)
 		return false;
 	return null;
+}
+
+/**
+ * `ls-files --error-unmatch` on `file`, counting `tree`'s files too where
+ * one is given.
+ * @param {GitQuery} query
+ * @param {string} file
+ * @param {string | null} tree
+ */
+function runLsFiles(query, file, tree) {
+	return runQuery(query, [
+		"-c",
+		"core.ignorecase=true",
+		"ls-files",
+		...(tree === null ? [] : [`--with-tree=${tree}`]),
+		"--error-unmatch",
+		"--",
+		`:(icase,literal)${file}`,
+	]);
+}
+
+/**
+ * Whether a commit an unresolved HEAD would be restored to tracks `file`:
+ * true where one does, false where there is none, an unborn branch, and
+ * otherwise null. A reflog tip that leaves `file` untracked is not proof,
+ * as packed-refs or ORIG_HEAD may restore an older commit that tracks it.
+ * @param {GitQuery} query
+ * @param {string} file
+ * @returns {boolean | null}
+ */
+function isTrackedInRestoredHead(query, file) {
+	const commits = readHeadCommits(query);
+	if (commits === null) return null;
+	if (commits.length === 0) return false;
+	return commits.some((c) => runLsFiles(query, file, c).status === 0)
+		? true
+		: null;
 }
 
 /**
@@ -805,7 +834,7 @@ function isTracked(root, file) {
 	const answers = buildTrackedQueries(root).flatMap((q) => {
 		if (q.kind === "pinned" && !isPinHeld(q)) return [null];
 		if (hasLostSubmodule(q, root)) return [null];
-		const indexLost = isGitPathMissing(q, "index");
+		const indexLost = isIndexMissing(q);
 		return buildSpellings(q, root, file).map((f) =>
 			isTrackedBy(q, root, f, indexLost),
 		);

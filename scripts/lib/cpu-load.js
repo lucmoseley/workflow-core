@@ -1,5 +1,5 @@
 /*
- * cpu-load.js — guard-cpu-load.js's core (#2801): a CPU load generator run
+ * cpu-load.js — the guard-cpu-load core (#2801, #3224): a CPU load generator run
  * outside a CPU cap of at most half the machine's cores is refused, and the
  * capped form handed over (#2710).
  *
@@ -151,7 +151,7 @@ const WS = "[ \\t\\n\\v\\f\\r]*";
  * @property {(path: string, maxBytes: number) => string | null} readScript a
  *   script's text; null where it is no readable regular file or is over
  *   `maxBytes`
- * @typedef {import("./guard-entry.js").KitContext & CpuLoadPorts} CpuLoadContext
+ * @typedef {import("./kit-context.js").KitContext & CpuLoadPorts} CpuLoadContext
  * @typedef {object} Scan what every level of the scan reads
  * @property {bigint} maxCpus
  * @property {bigint} maxQuota
@@ -790,4 +790,4 @@ Synthetic load runs inside a cap of at most ${maxCpus} cores, the whole load und
 	return { deny: reason };
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

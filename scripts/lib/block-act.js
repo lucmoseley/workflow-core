@@ -34,15 +34,17 @@ const IDLE_TRIES = 2;
  * @typedef {import("./block-cause.js").Cause} Cause
  * @typedef {"stop-and-park"|"park-at-morning"|"resume"|"hold"
  *   |"handoff-relaunch"|"wait"|"none"} Act  `hold`, stop the session until
- *   its next resume is due
+ *   its next resume is due, or a resumed-idle one until the swap hold clears
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
  *   since: number, tries?: number, nextAt?: number, triedAt?: number,
- *   held?: boolean, typing?: boolean}} Block  `since`, the first tick that
+ *   held?: boolean, typing?: boolean, swapHeld?: boolean}} Block  `since`,
+ *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
  *   restart row and the loop's last resume; `sub`, an API_ERROR's kind;
  *   `tries`, the resumes made for the launch so far, the last at `triedAt`,
  *   and `nextAt`, when the next is due; `held`, its session stopped until
- *   then; `typing`, a typed resume not yet seen arrive
+ *   then; `typing`, a typed resume not yet seen arrive; `swapHeld`, the swap
+ *   hold (#2690) binding this tick
  * @typedef {(block: Block, now: number) => Act} Rule
  */
 
@@ -133,11 +135,15 @@ const apiError = (away) => (block, now) => {
  * A resumed-idle session is resumed by typing once its restart row has
  * waited the window, and typed into once more after another window with no
  * turn; one still idle after that is handed off to a fresh launch, since the
- * fault is the session's own (#2659, #2978).
+ * fault is the session's own (#2659, #2978). Under the swap hold it is
+ * stopped at once until the hold clears, its host's restart having retaken
+ * the memory the hold is short of, or handed off where its typed resumes are
+ * spent (#3093).
  * @type {Rule}
  */
 const resumedIdle = (block, now) => {
 	const tries = block.tries ?? 0;
+	if (block.swapHeld) return tries < IDLE_TRIES ? "hold" : "handoff-relaunch";
 	if (now - block.since < (tries === 0 ? RESUMED_IDLE_MS : IDLE_RETYPE_MS))
 		return "wait";
 	return tries < IDLE_TRIES ? "resume" : "handoff-relaunch";

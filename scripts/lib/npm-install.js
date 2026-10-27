@@ -137,7 +137,7 @@ const NPX_REMOVED = new Set(
  * @property {() => number} now the clock, in epoch milliseconds
  * @property {boolean} allowNewPackage `WFC_ALLOW_NEW_PACKAGE` set in the
  *   hook's own environment
- * @typedef {import("./guard-entry.js").KitContext & NpmInstallPorts} NpmInstallContext
+ * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts} NpmInstallContext
  * @typedef {{ deny: string }} Verdict
  */
 

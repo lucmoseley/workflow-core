@@ -1,5 +1,5 @@
 /*
- * anthropic-report.js — guard-anthropic-report.js's core (#2798, programme
+ * anthropic-report.js — the guard-anthropic-report core (#2798, programme
  * #2733): does a Bash call write to an `anthropics/*` repo?
  *
  * A CORE: it does no I/O. The rule store and the clone's remotes arrive as
@@ -16,7 +16,12 @@ const {
 	scanApi,
 	scanGraphql,
 } = require("./gh-api-call.js");
-const { deny, open, ruleOr, walkVerdict } = require("./guard-verdict.js");
+const {
+	deny,
+	open,
+	ruleOrFallback,
+	walkVerdict,
+} = require("./guard-verdict.js");
 const { parseCommand } = require("./shell-parse.js");
 const { ghWords, literal, unwrap } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
@@ -26,7 +31,7 @@ const { repoSlug } = require("./workflow-core-config.js");
  * @typedef {object} ReportPorts
  * @property {(cwd: string) => string} remotes `git -C <cwd> remote -v`'s
  *   stdout, "" where git cannot answer
- * @typedef {import("./guard-entry.js").KitContext & ReportPorts} ReportContext
+ * @typedef {import("./kit-context.js").KitContext & ReportPorts} ReportContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision
@@ -53,9 +58,6 @@ const READS = new Set([
 ]);
 
 const WRITE_METHODS = ["POST", "PUT", "PATCH", "DELETE"];
-
-const RULE_FALLBACK =
-	"Nothing is reported or requested to Anthropic; the rule could not be read from docs/agents/rules/anthropic-report.txt. Read that file before doing anything else.";
 
 /**
  * @typedef {object} Run one call's judging
@@ -85,9 +87,10 @@ function decide(command, ctx) {
  * @returns {never}
  */
 function refuseRepo(run, segment, repo) {
-	const rule = ruleOr(
-		() => run.ctx.ruleText("anthropic-report"),
-		RULE_FALLBACK,
+	const rule = ruleOrFallback(
+		run.ctx,
+		"anthropic-report",
+		"Nothing is reported or requested to Anthropic",
 	);
 	deny(
 		run.ctx,
@@ -350,4 +353,4 @@ function judgeGraphql(run, cmd, args, call) {
 	);
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

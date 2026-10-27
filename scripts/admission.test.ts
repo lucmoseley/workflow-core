@@ -1452,11 +1452,11 @@ describe("fails closed", () => {
 });
 
 /*
- * #830, reversing mantahostels#1979: a launch holds at load1 6 per core,
+ * #830, reversing mantahostels#1979: a launch holds at load1 3 per core (#3223),
  * whatever memory is free.
  */
 describe("the CPU limb (#830)", () => {
-	const ceiling = 6 * os.cpus().length;
+	const ceiling = 3 * os.cpus().length;
 
 	it("holds at the load ceiling, naming the load, however much memory is free", () => {
 		const r = run({ load: ceiling });

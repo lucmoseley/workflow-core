@@ -556,10 +556,10 @@ describe("the mechanical counts", () => {
 				),
 			);
 			const r = run();
-			// The h1 entry keeps its script path but moves it into `args` —
-			// without buildHookCommandLine() joining the two, `readHookCommands` finds no
-			// `scripts/…` text in the bare `"node"` command, drops the entry, and
-			// liveCommandCount falls short of hooks.total.
+			// Without buildHookCommandLine() joining `command` and `args`,
+			// `readHookCommands` finds no `scripts/…` text in the bare `"node"`
+			// command, drops the entry, and liveCommandCount falls short of
+			// hooks.total.
 			expect(r.out).not.toMatch(/HOOK-COMMAND-COUNT/);
 			// The anchored text for h1 was `scripts/h1.sh`, so the now-joined
 			// `node scripts/h1.sh` reads as a live text change.
@@ -839,6 +839,120 @@ describe("the behavioural verdicts", () => {
 				expect(r.out).toContain("list the ids as quoted literals");
 			},
 		);
+	});
+
+	describe("a guard wrapper's digest folds the core and host ports it composes (#3129)", () => {
+		const wrapper = "scripts/guard-three.js";
+		const anchorWrapper = () => {
+			write(
+				wrapper,
+				'const { run } = require("./lib/guard-entry.js");\nconst { decide } = require("./lib/three.js");\nconst { buildHostPorts } = require("./lib/three-host.js");\nconst { aside } = require("./lib/aside.js");\nrun({ decide });\n',
+			);
+			write("scripts/lib/guard-entry.js", "module.exports = { run() {} };\n");
+			write(
+				"scripts/lib/three.js",
+				'module.exports = { decide: () => ({ injectRules: ["two"] }) };\n',
+			);
+			write(
+				"scripts/lib/three-host.js",
+				'module.exports = { buildHostPorts: () => readRuleText("other") };\n',
+			);
+			write("scripts/lib/aside.js", "module.exports = { aside: 1 };\n");
+			write("docs/agents/rules/two.txt", "Rule two.\n");
+			write("docs/agents/rules/other.txt", "Another rule.\n");
+			write(
+				BASELINE,
+				JSON.stringify(
+					baseline({
+						guards: {
+							...baseline().guards,
+							[wrapper]: {
+								digest: "",
+								verdict: "at need",
+								selfSufficient: "yes",
+							},
+						},
+					}),
+					null,
+					"\t",
+				),
+			);
+			run("--rebaseline", "--no-claim");
+		};
+		const expectExpired = () => {
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).toMatch(/GUARD-CHANGED\s+scripts\/guard-three\.js/);
+			expect(r.out).toContain("--rebaseline --only <key>");
+		};
+
+		it.each([
+			["a reworded fragment its core injects", "docs/agents/rules/two.txt"],
+			[
+				"a reworded fragment its host ports read",
+				"docs/agents/rules/other.txt",
+			],
+		])("expires the wrapper on %s", (_, file) => {
+			anchorWrapper();
+			write(file, "Reworded.\n");
+			expectExpired();
+		});
+
+		it.each([
+			[
+				"its core",
+				"scripts/lib/three.js",
+				'module.exports = { decide: () => ({ injectRules: ["two"], deny: "x" }) };\n',
+			],
+			[
+				"its host ports",
+				"scripts/lib/three-host.js",
+				"module.exports = { buildHostPorts: () => 1 };\n",
+			],
+		])("expires the wrapper on a code edit to %s", (_, file, body) => {
+			anchorWrapper();
+			write(file, body);
+			expectExpired();
+		});
+
+		it("expires nothing on a comment-only edit to its core", () => {
+			anchorWrapper();
+			write(
+				"scripts/lib/three.js",
+				'// why\nmodule.exports = { decide: () => ({ injectRules: ["two"] }) };\n',
+			);
+			expect(run().out).not.toMatch(/GUARD-CHANGED/);
+		});
+
+		it.each([
+			[
+				"guard-entry.js, the kit every wrapper runs",
+				"scripts/lib/guard-entry.js",
+			],
+			["a lib it requires for anything else", "scripts/lib/aside.js"],
+		])("expires nothing on an edit to %s", (_, file) => {
+			anchorWrapper();
+			write(file, "module.exports = { changed: true };\n");
+			expect(run().out).not.toMatch(/GUARD-CHANGED/);
+		});
+
+		it("is BROKEN where its core hands injectRules no literal id array, naming the core", () => {
+			anchorWrapper();
+			write(
+				"scripts/lib/three.js",
+				"const ids = ['two'];\nmodule.exports = { decide: () => ({ injectRules: ids }) };\n",
+			);
+			const r = run();
+			expect(r.status).toBe(2);
+			expect(r.out).toContain("scripts/lib/three.js: `");
+			expect(r.out).toContain("list the ids as quoted literals");
+		});
+
+		it("expires the wrapper when its core is deleted", () => {
+			anchorWrapper();
+			fs.rmSync(path.join(dir, "scripts/lib/three.js"));
+			expectExpired();
+		});
 	});
 
 	it("warns GUARD-GONE when a guard the census measured has gone, naming it", () => {
@@ -1356,6 +1470,40 @@ describe("reading git rather than the working tree", () => {
 			expect(r.out).not.toMatch(/guard-one\.sh/);
 		});
 
+		it("names a measured wrapper whose core the commit changed, and through which file (#3129)", () => {
+			write(
+				"scripts/guard-three.js",
+				'const { decide } = require("./lib/three.js");\nrun({ decide });\n',
+			);
+			write(
+				"scripts/lib/three.js",
+				"module.exports = { decide: () => null };\n",
+			);
+			writeBaseline({
+				guards: {
+					...baseline().guards,
+					"scripts/guard-three.js": {
+						digest: "",
+						verdict: "at need",
+						selfSufficient: "yes",
+					},
+				},
+			});
+			run("--rebaseline", "--no-claim");
+			commit("anchor");
+			write(
+				"scripts/lib/three.js",
+				'module.exports = { decide: () => ({ deny: "no" }) };\n',
+			);
+			commit("change the core");
+			const r = run("--touched-by", "HEAD");
+			expect(r.out).toMatch(/GUARD-CHANGED\s+scripts\/guard-three\.js/);
+			expect(r.out).toContain(
+				"scripts/guard-three.js (through scripts/lib/three.js)",
+			);
+			expect(r.out).toContain("--rebaseline --only scripts/guard-three.js");
+		});
+
 		it("says nothing where the commit reworded a rule file no measured guard prints (#1914)", () => {
 			write("docs/agents/rules/other.txt", "Another rule.\n");
 			writeBaseline();
@@ -1460,5 +1608,18 @@ describe("the json envelope", () => {
 			live: { total: 4 },
 			baseline: { total: 3 },
 		});
+	});
+});
+
+describe("a git that will not answer (#3068)", () => {
+	it("is BROKEN, never read as a tree that is no git repo", () => {
+		writeBaseline();
+		const exitsOne = path.join(dir, "git");
+		fs.writeFileSync(exitsOne, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+		const r = runInProcess(SCRIPT, ["--root", dir, "--rebaseline"], {
+			env: { ...process.env, GITHUB_ACTIONS: "", WFC_GIT: exitsOne },
+		});
+		expect(r.status).toBe(2);
+		expect(`${r.stdout}${r.stderr}`).toMatch(/BROKEN[\s\S]*--git-dir failed/);
 	});
 });

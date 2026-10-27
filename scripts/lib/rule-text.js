@@ -33,6 +33,7 @@ const { hostRoot } = require("./host-root.js");
 const { qualifyProse } = require("./qualify-citations.js");
 const { defaultCommand, readConfig } = require("./workflow-core-config.js");
 const {
+	docPath,
 	expandPastePaths,
 	inCheckout,
 	resolveScriptPaths,
@@ -88,12 +89,15 @@ const CORE_RULES = path.join(__dirname, "..", "..", RULES_DIR);
  * The store directory in force: the override, else the host repo's own, else
  * the CORE's, which is where an adopter's fragments live — so a guard firing
  * there prints its rule rather than handing over an id and no text (#5).
+ * @param {string} [root] the host root, where the caller already resolved it:
+ *   a hook whose own bounded root read timed out would otherwise re-run it
+ *   unbounded here (#3142)
  * @returns {string} absolute path
  */
-function rulesDir() {
+function rulesDir(root) {
 	const override = process.env.WFC_RULES_DIR;
 	if (override) return path.resolve(override);
-	const host = path.join(hostRoot(), RULES_DIR);
+	const host = path.join(root ?? hostRoot(), RULES_DIR);
 	/* A directory, as rt_dir's `-d` asks: a FILE there falls through (#101). */
 	if (fs.statSync(host, { throwIfNoEntry: false })?.isDirectory()) return host;
 	return CORE_RULES;
@@ -114,10 +118,11 @@ function coreLayer() {
  *
  * Under the override the core layer is WFC_RULES_FALLBACK_DIR alone, never
  * implied: a test's throwaway store must not inherit the live one.
+ * @param {string} [root] as rulesDir takes it
  * @returns {string[]} absolute paths
  */
-function rulesDirs() {
-	const primary = rulesDir();
+function rulesDirs(root) {
+	const primary = rulesDir(root);
 	const second = coreLayer();
 	return !second || second === primary ? [primary] : [primary, second];
 }
@@ -150,12 +155,13 @@ function readStoreEntries(dir) {
  *
  * A missing store directory is an empty store, not an error.
  *
+ * @param {string} [root] as rulesDir takes it
  * @returns {string[]}
  */
-function readRuleIds() {
+function readRuleIds(root) {
 	/** @type {Set<string>} */
 	const ids = new Set();
-	for (const dir of rulesDirs())
+	for (const dir of rulesDirs(root))
 		for (const e of readStoreEntries(dir))
 			if (e.isFile() && e.name.endsWith(FRAGMENT_EXT)) {
 				const id = e.name.slice(0, -FRAGMENT_EXT.length);
@@ -168,15 +174,16 @@ function readRuleIds() {
  * The fragment file `id` resolves to — the first layer holding it — or the
  * primary layer's path where none does, which is what a refusal names.
  * @param {string} bare an id the grammar has accepted
+ * @param {string} [root] as rulesDir takes it
  * @returns {string} absolute path
  */
-function fragmentPath(bare) {
+function fragmentPath(bare, root) {
 	const name = `${bare}${FRAGMENT_EXT}`;
-	for (const dir of rulesDirs()) {
+	for (const dir of rulesDirs(root)) {
 		const file = path.join(dir, name);
 		if (fs.existsSync(file)) return file;
 	}
-	return path.join(rulesDir(), name);
+	return path.join(rulesDir(root), name);
 }
 
 /**
@@ -187,25 +194,28 @@ function fragmentPath(bare) {
  * whitespace is untouched — a fragment's paragraph breaks are its own.
  *
  * @param {string} id
+ * @param {string} [root] as rulesDir takes it; every host read below is under
+ *   it, so the root is resolved once a call
  * @returns {string}
  * @throws {Error} on a malformed id, an id no fragment answers to, or a
  *   fragment holding nothing but whitespace
  */
-function readRuleText(id) {
+function readRuleText(id, root) {
 	const bare = typeof id === "string" ? bareRuleId(id) : "";
 	if (!RULE_ID_RE.test(bare))
 		throw new Error(
 			`rule-text: "${id}" is not a rule id — ids are lowercase kebab-case ` +
 				`(${RULE_ID_RE.source}).`,
 		);
-	const file = fragmentPath(bare);
+	const host = root ?? hostRoot();
+	const file = fragmentPath(bare, host);
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
-		const known = readRuleIds();
+		const known = readRuleIds(host);
 		throw new Error(
-			`rule-text: no fragment for rule id "${bare}" (looked in ${rulesDirs().join(", ")}). ` +
+			`rule-text: no fragment for rule id "${bare}" (looked in ${rulesDirs(host).join(", ")}). ` +
 				(known.length > 0
 					? `Known ids: ${known.join(", ")}.`
 					: "The store holds no fragments."),
@@ -222,13 +232,14 @@ function readRuleText(id) {
 		);
 	/* A fragment names core scripts as `scripts/x`; an install serves them
 	 * through the plugin root (#343). */
-	const resolved = expandPastePaths(resolveScriptPaths(body), hostRoot());
+	const resolved = expandPastePaths(resolveScriptPaths(body), host);
 	/* A core fragment's bare `#N` is the core's issue, which an install's host
 	 * reads as its own (#416). The host's own fragments cite its own tracker. */
 	return expandCommands(
 		!inCheckout() && path.dirname(file) === coreLayer()
 			? qualifyProse(resolved)
 			: resolved,
+		host,
 	);
 }
 
@@ -242,14 +253,15 @@ function readRuleText(id) {
  * and says so on stderr — a recipe missing a line costs less than a rule not
  * stated at all.
  * @param {string} text
+ * @param {string} root the host root the config is read under
  * @returns {string}
  */
-function expandCommands(text) {
+function expandCommands(text, root) {
 	if (!text.includes("{command:")) return text;
 	/** @type {Record<string, string|null>} */
 	let commands = {};
 	try {
-		commands = readConfig({ quiet: true }).commands;
+		commands = readConfig({ root, quiet: true }).commands;
 	} catch (e) {
 		process.stderr.write(
 			`WARN rule-text: ${caught(e).message} — every {command:} line dropped\n`,
@@ -300,29 +312,44 @@ function rulePointer(id) {
 }
 
 /**
- * readRuleText for a guard that must not crash: where the fragment cannot be read
- * it logs the failure under `label` and answers `short`, a line saying the
- * rule could not be read, and rulePointer.
+ * readRuleText for a guard or checker that must not crash: where the fragment
+ * cannot be read it logs the failure under `label` and answers `lead` in the
+ * guard fallback template (#3018), which rule-fallback-template.test.ts holds.
  * @param {string} id
- * @param {string} short a one-paragraph stand-in for the rule
+ * @param {string} lead a one-clause stand-in for the rule, with no closing stop
  * @param {string} label the guard, as the error log names it
+ * @param {string} [hostDir] the host root, where a hook entry already resolved
+ *   it (#3142)
  * @returns {string}
  */
-function readRuleTextOr(id, short, label) {
+function readRuleTextOr(id, lead, label, hostDir) {
+	/* Read once for both: a failed root read is never memoised (#3142). */
+	let root = hostDir;
 	try {
-		return readRuleText(id);
+		root ??= hostRoot();
+		return readRuleText(id, root);
 	} catch (err) {
 		try {
 			require("./arbiter-core.js").logError(
 				`${label} rule-text ${bareRuleId(id)}`,
 				err,
+				undefined,
+				root,
 			);
 		} catch {
 			/* A log that cannot be written must not break the guard. */
 		}
-		return `${short} The rule itself could not be read here. ${rulePointer(id)}`;
+		return fallbackLine(lead, bareRuleId(id));
 	}
 }
+
+/**
+ * @param {string} lead
+ * @param {string} id a bare rule id
+ * @returns {string}
+ */
+const fallbackLine = (lead, id) =>
+	`${lead}; the rule could not be read from ${docPath(`agents/rules/${id}.txt`)}. Read that file before doing anything else.`;
 
 module.exports = {
 	RULES_DIR,

@@ -9,7 +9,8 @@
  * on PATH for `eslint`, the one binary a gate names itself.
  *
  * The check_staged gate also refuses, before it runs, a command that runs
- * `biome check --staged` (#2775).
+ * `biome check --staged` (#2775). The gate's classifier, infer-commands.js
+ * check-staged, also runs here as a program through run-in-process.
  *
  * These gates run in every adopter's `.husky/pre-commit`: loosen a case and a
  * red declared check or test commits unrefused, or a fresh adopter with no
@@ -20,12 +21,14 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { BIOME_STAGED_COMMAND, main } from "./lib/infer-commands.js";
+import { BIOME_STAGED_COMMAND } from "./lib/infer-commands.js";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
 import { copyRequireClosure } from "./lib/require-closure";
+import { runInProcess } from "./lib/run-in-process";
 
 const temps = registerTempCleanup();
+const INFER = path.join(ROOT, "scripts", "lib", "infer-commands.js");
 
 /** From the column-zero `if` above `anchor`'s line to the `fi` closing `last`'s block. */
 function cut(anchor: string, last = anchor): string {
@@ -336,16 +339,19 @@ describe("infer-commands.js check-staged", () => {
 	it("exits 1, refusing the commit, where the package.json cannot be read", () => {
 		const { root } = biomeFixture("npm run check:staged");
 		fs.writeFileSync(path.join(root, "package.json"), "{ not json");
-		const cwd = process.cwd();
-		process.chdir(root);
-		try {
-			expect(main(["check-staged", "npm run check:staged"])).toBe(1);
-		} finally {
-			process.chdir(cwd);
-		}
+		const r = runInProcess(INFER, ["check-staged", "npm run check:staged"], {
+			cwd: root,
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			'pre-commit: check_staged "npm run check:staged" (.claude/workflow-core.json) cannot be checked: package.json does not parse',
+		);
 	});
 
-	it("exits 2 on a missing command", () => {
-		expect(main(["check-staged"])).toBe(2);
+	it("exits 2 on a missing command, printing the usage", () => {
+		const { root } = biomeFixture("npm run check:staged");
+		const r = runInProcess(INFER, ["check-staged"], { cwd: root });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toBe("usage: infer-commands.js check-staged <command>\n");
 	});
 });

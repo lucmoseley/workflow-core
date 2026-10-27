@@ -21,11 +21,7 @@ import {
 	guardOutput,
 	readHookLines,
 } from "./lib/pretool-guard-testkit";
-
-/* CommonJS, hence the require. */
-const { readRuleText } = require("./lib/rule-text") as {
-	readRuleText: (id: string) => string;
-};
+import { readRuleText } from "./lib/rule-text";
 
 const LINES = readHookLines(
 	"self-plugin/hooks/hooks.json",

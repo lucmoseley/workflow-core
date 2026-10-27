@@ -36,7 +36,7 @@ const { literal, scanFlags } = require("./shell-words.js");
  *   text, undefined where it is absent; throws where it cannot be read
  * @property {(act: string, sessionId: string) => void} recordAct one ledger
  *   line
- * @typedef {import("./guard-entry.js").KitContext & ActsPorts} ActsContext
+ * @typedef {import("./kit-context.js").KitContext & ActsPorts} ActsContext
  */
 
 /* A comment that posts nothing new, or that the hook cannot see. */

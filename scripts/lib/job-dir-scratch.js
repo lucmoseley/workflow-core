@@ -81,6 +81,7 @@ const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
 const { remedyKind } = require("./scratch-remedy.js");
+const { ruleOrFallback } = require("./guard-verdict.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
@@ -95,9 +96,6 @@ const { remedyKind } = require("./scratch-remedy.js");
 const JOB_DIR_STANDIN = "/CLAUDE_JOB_DIR";
 
 const RULE = "job-dir-scratch";
-
-const RULE_FALLBACK =
-	"Session scratch goes in .claude/tmp/, never under $CLAUDE_JOB_DIR; the rule could not be read from docs/agents/rules/job-dir-scratch.txt. Read that file before doing anything else.";
 
 /**
  * The file's own name where `p`, a job-dir path, is a file directly in the
@@ -160,14 +158,11 @@ function decide(subject, ctx) {
 			classify(subject, p, live);
 	}
 	if (!found.flat && !found.stray) return null;
-	let rule;
-	try {
-		rule = ctx.ruleText("job-dir-scratch");
-	} catch {
-		/* Not a fail-open: the target is resolved and known bad, and an
-		 * unreadable fragment is check-guard-registry.js's assertion. */
-		rule = RULE_FALLBACK;
-	}
+	const rule = ruleOrFallback(
+		ctx,
+		"job-dir-scratch",
+		"Session scratch goes in .claude/tmp/, never under $CLAUDE_JOB_DIR",
+	);
 	if (found.flat) return { deny: ctx.corePaths(refusal(found, rule, ctx)) };
 	if (ctx.told(RULE)) return null;
 	return {

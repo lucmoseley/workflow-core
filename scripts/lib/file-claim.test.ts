@@ -29,10 +29,18 @@ import {
 	live,
 	store,
 } from "./arbiter-testkit";
+import { buildHostPorts } from "./file-claim-host.js";
+import { writeLatches } from "./guard-entry.js";
 import { registrationsOf } from "./hook-wiring";
+import { readHookPersistChars, readRuleCap } from "./rule-emission.js";
+import { readRuleText } from "./rule-text.js";
 import { runInProcess } from "./run-in-process";
 
-/* CommonJS, hence the requires. */
+/* Required with a cast, not imported (#3145): the adapters handed `dispatch`
+ * override kit fields, `fallbackCwd` among them, that its checked `Adapters`
+ * type omits, and `output` is read as strings where the JSDoc says unknown.
+ * Residual: the cast's types are hand-written, so nothing checks them against
+ * the module. */
 const { dispatch, hostAdapters, loadCores } =
 	require("./guard-dispatch.js") as {
 		dispatch: (
@@ -41,7 +49,7 @@ const { dispatch, hostAdapters, loadCores } =
 		) => {
 			output: Record<string, string> | null;
 			latches: {
-				latches: { name: string }[];
+				latches: { name: string; text: string }[];
 				log: (what: string) => void;
 			}[];
 		};
@@ -51,30 +59,6 @@ const { dispatch, hostAdapters, loadCores } =
 		) => Record<string, unknown>;
 		loadCores: (event: string) => { name: string }[];
 	};
-const { writeLatches } = require("./guard-entry.js") as {
-	writeLatches: (
-		env: {
-			root: string;
-			payload: Record<string, unknown>;
-			log: (what: string) => void;
-		},
-		latches: { name: string }[],
-	) => void;
-};
-const { readRuleCap, readHookPersistChars } = require("./rule-emission.js") as {
-	readRuleCap: () => number;
-	readHookPersistChars: () => number;
-};
-const { readRuleText } = require("./rule-text.js") as {
-	readRuleText: (id: string) => string;
-};
-const { buildHostPorts } = require("./file-claim-host.js") as {
-	buildHostPorts: (
-		root: string,
-		log: (what: string) => void,
-		opts?: { arbiter?: string },
-	) => { arbiterCheck: ArbiterCheck };
-};
 
 type Answer =
 	| { ok: true; stdout: string }

@@ -192,11 +192,27 @@ Tier tags: [standard or field body], [named expert], [survey or curated list], [
 - mutmut imports the test suite once and "forks one child per mutant"; in forkserver mode there is "only one pytest import for the whole run". https://mutmut.readthedocs.io/en/latest/. One adopter [unverified]
 - Agreement (PIT, Stryker, mutmut): a mutation run loads its test runner once and swaps mutants inside it, under one bounded worker count for the whole run. It never starts and admits a fresh runner per mutant. The default rests on PIT's reasoned verdict; Stryker and mutmut are adopters.
 
+## A memory bound per test worker
+
+- Node: `--max-old-space-size=SIZE` (MiB) "Sets the max memory size of V8's old memory section"; "On a machine with 2 GiB of memory, consider setting this to 1536 (1.5 GiB) to leave some memory for other uses and avoid swapping." Of a single-value option given twice, "the last passed value is used. Options from the command line take precedence over options passed through the `NODE_OPTIONS` environment variable." https://nodejs.org/api/cli.html. [standard or field body] for the flag's behaviour; its sizing advice [named expert]
+- Jest: `workerIdleMemoryLimit` checks a worker "After the worker has executed a test", and kills and restarts it if over the limit. https://jestjs.io/docs/configuration. [standard or field body]
+- Vitest: `vmMemoryLimit` is "the memory limit for workers before they are recycled", `vmForks` and `vmThreads` pools only; `execArgv` passes "additional arguments to `node` in the runner worker". https://vitest.dev/config/vmmemorylimit, https://vitest.dev/config/execargv. [standard or field body]
+- Agreement (Node, Jest, Vitest): the runners' own memory limits act between tests, recycling a worker after it finishes one, so they never stop a test that is still allocating. Only V8's heap limit bounds a worker mid-test. Set it per worker as a command-line flag, which beats an inherited `NODE_OPTIONS`, and size it below the memory the machine can spare.
+
+## Comparing two forms' latency on a loaded host
+
+- Interleave the two forms and randomise the order each round (RMIT): consecutive trials on EC2 traces "falsely report that the performance of two identical systems differ by 38%". Abedi & Brecht, ICPE 2017. [named expert] Laaber, Scheuner & Leitner, EMSE 2019, adopt it as best practice. [named expert]
+- Read a paired same-moment ratio new/old, so load that hits both calls cancels to first order. Bulej et al., "Duet Benchmarking", ICPE 2020 (arXiv 2001.05811); Kalibera & Jones, arXiv 2007.10899. [named expert]
+- CPU time (user + sys) excludes run-queue wait (`getrusage(2)`, [standard or field body] for what it counts) and is the low-noise metric; wall is noisier but is what a caller waits for (Tratt, "What Metric to Use When Benchmarking?", 2022). [named expert]
+- 95% confidence, about 30 samples to start, a bootstrap CI of the ratio (1,000+ replicates; Duet uses 10,000), compared against a stated threshold. Kalibera & Jones; Georges, Buytaert & Eeckhout, OOPSLA 2007; Duet. [named expert] A rank test at α 0.05 (Google Benchmark `compare.py`, Mozilla PerfCompare) tests for a difference and cannot show "no worse".
+- Refuse on precision, never on load: stop when the CI is tight enough, and at a sample cap report the CI as inconclusive. Georges et al.; Kalibera & Jones; Abedi & Brecht. [named expert]
+- Agreement (3+): a paired, randomised-order ratio with a bootstrap CI against a non-inferiority margin, more samples while the CI straddles it, inconclusive at the cap. This repo's form is `scripts/measure-guard-port/bench.py --paired` (#3216); its 3% margin, +30 step and 90 cap are untraced, and its median of ratios departs from Duet's geometric mean so one loaded call does not move it.
+
 ## Gaps
 
 - No free source gives a numeric per-file or per-run time budget for a local, multi-agent test gate. Values for this repo must come from its own measured run durations.
 - No free source gives a queue-wait alert threshold for a small local pool. The GitLab values are for a large hosted fleet.
 - Paywalled source named as unread: Mor Harchol-Balter, "Performance Modeling and Design of Computer Systems" (Cambridge University Press), on SRPT and queue fairness.
 - Not read in full: the Canva BazelCon 2024 deduplication talk and the GitLab 2019 p95 OKR issue (search summaries only, tagged [unverified]).
-- No free source gives a numeric margin for a local test-suite memory charge. The 10–15% values are for Borg and Kubernetes services and batch jobs.
+- No free source gives a numeric margin for a local test-suite memory charge. The 10–15% values are for Borg and Kubernetes services and batch jobs. None gives one for a test worker's heap cap over its measured peak either.
 - Not read: Uber SubmitQueue, "Keeping Master Green at Scale" (EuroSys 2019) PDF.

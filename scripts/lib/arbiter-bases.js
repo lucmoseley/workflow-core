@@ -47,22 +47,22 @@ const BASE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const readHeadSha = () => core.git(["rev-parse", "--verify", "-q", "HEAD"]);
 
 /**
- * `rel`'s blob at `head`, or null where the path is absent there — an addition,
+ * `rel`'s blob sha at `head`, or null where the path is absent there — an addition,
  * which the gate skips.
  * @param {string} head
  * @param {string} rel
  */
-const readBlobAt = (head, rel) =>
+const readBlobSha = (head, rel) =>
 	core.git(["rev-parse", "--verify", "-q", `${head}:${rel}`]);
 
 /**
- * readBlobAt, telling an absent path (null) from a git that would not answer
+ * readBlobSha, telling an absent path (null) from a git that would not answer
  * (undefined): the gate passes the first and must report the second.
  * @param {string} head
  * @param {string} rel
  */
-function readBlobOrFault(head, rel) {
-	const blob = readBlobAt(head, rel);
+function readBlobShaOrFault(head, rel) {
+	const blob = readBlobSha(head, rel);
 	if (blob) return blob;
 	const listed = core.git(["ls-tree", "--name-only", head, "--", rel]);
 	return listed === "" ? null : undefined;
@@ -91,7 +91,7 @@ function mintBase(rel, sessionId) {
 			path: rel,
 			sessionId,
 			head,
-			blob: readBlobAt(head, rel),
+			blob: readBlobSha(head, rel),
 			at: new Date().toISOString(),
 		};
 		fs.mkdirSync(core.paths.basesDir(), { recursive: true });
@@ -167,7 +167,7 @@ function resolveBase(rel, sessionId) {
 		else if (own.unreadable) bad = own;
 		return { base: null, fault: bad ? `${bad.reason}: ${bad.file}` : null };
 	}
-	const blob = readBlobOrFault(head, rel);
+	const blob = readBlobShaOrFault(head, rel);
 	if (blob === undefined)
 		return { base: null, fault: `git could not read ${rel} at ${head}` };
 	return {
@@ -217,7 +217,7 @@ function judgeStaged(rel, sessionId, staged) {
 	if (!base) return fault ? { verdict: "unknown", fault } : PASS;
 	const head = readHeadSha();
 	if (!head) return { verdict: "unknown", fault: "git could not read HEAD" };
-	const headBlob = readBlobOrFault(head, rel);
+	const headBlob = readBlobShaOrFault(head, rel);
 	if (headBlob === undefined)
 		return { verdict: "unknown", fault: `git could not read ${rel} at HEAD` };
 	if (!base.blob || !headBlob || base.blob === headBlob) return PASS;
@@ -394,7 +394,7 @@ function acceptHead(rel, sessionId) {
 	rel = core.subjectPath(rel);
 	const head = readHeadSha();
 	if (!head) return { fault: "git could not read HEAD" };
-	const blob = readBlobOrFault(head, rel);
+	const blob = readBlobShaOrFault(head, rel);
 	if (blob === undefined) return { fault: `git could not read ${rel} at HEAD` };
 	const { base: old, fault } = resolveBase(rel, sessionId);
 	/** @type {AcceptedHead} */

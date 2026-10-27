@@ -12,13 +12,16 @@
  * a misread figure.
  */
 import fs from "node:fs";
-import { describe, expect, it } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
 
 const {
 	sample,
 	delta,
 	FIELDS,
 	overloadReading,
+	buildOverloadText,
 	sessionCeiling,
 	holdForLoad,
 } = require("./cpu-sample.js");
@@ -146,20 +149,20 @@ describe("sample — parsing /proc/stat", () => {
 });
 
 /*
- * #830: the ceiling is 6 per core — its derivation is at
+ * #830: the ceiling is 3 per core — its derivation is at
  * `LOAD_PER_CORE_CEILING`.
  */
 describe("overloadReading — the load ceiling new work waits under (#830)", () => {
-	it("sits at 6 per core, 48 on 8 cores", () => {
-		expect(overloadReading({ load1: 0, cores: 8, env: {} }).ceiling).toBe(48);
+	it("sits at 3 per core, 24 on 8 cores", () => {
+		expect(overloadReading({ load1: 0, cores: 8, env: {} }).ceiling).toBe(24);
 	});
 
 	it("is overloaded at the ceiling and not just under it", () => {
-		expect(overloadReading({ load1: 48, cores: 8, env: {} }).overloaded).toBe(
+		expect(overloadReading({ load1: 24, cores: 8, env: {} }).overloaded).toBe(
 			true,
 		);
 		expect(
-			overloadReading({ load1: 47.99, cores: 8, env: {} }).overloaded,
+			overloadReading({ load1: 23.99, cores: 8, env: {} }).overloaded,
 		).toBe(false);
 	});
 
@@ -167,9 +170,57 @@ describe("overloadReading — the load ceiling new work waits under (#830)", () 
 		const r = overloadReading({
 			load1: 30,
 			cores: 8,
-			env: { WFC_LOAD_CEILING: "24" },
+			env: { WFC_LOAD_CEILING: "48" },
 		});
-		expect(r).toEqual({ overloaded: true, load1: 30, ceiling: 24 });
+		expect(r).toEqual({ overloaded: false, load1: 30, ceiling: 48 });
+	});
+
+	describe("the host file ~/.claude/load-ceiling (#3223)", () => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "load-ceiling-"));
+		fs.mkdirSync(path.join(home, ".claude"));
+		fs.writeFileSync(path.join(home, ".claude", "load-ceiling"), "48\n");
+		afterAll(() => fs.rmSync(home, { recursive: true, force: true }));
+
+		it("overrides the default where WFC_LOAD_CEILING is unset", () => {
+			expect(
+				overloadReading({ load1: 0, cores: 8, env: { HOME: home } }).ceiling,
+			).toBe(48);
+		});
+
+		it("gives way to WFC_LOAD_CEILING, an empty one included", () => {
+			const at = (WfcLoadCeiling: string) =>
+				overloadReading({
+					load1: 0,
+					cores: 8,
+					env: { HOME: home, WFC_LOAD_CEILING: WfcLoadCeiling },
+				}).ceiling;
+			expect(at("16")).toBe(16);
+			expect(at("")).toBe(24);
+		});
+
+		it("is no override, and no problem, where it is absent", () => {
+			const bare = fs.mkdtempSync(path.join(os.tmpdir(), "no-ceiling-"));
+			try {
+				expect(
+					overloadReading({ load1: 0, cores: 8, env: { HOME: bare } }),
+				).toEqual({ overloaded: false, load1: 0, ceiling: 24 });
+			} finally {
+				fs.rmSync(bare, { recursive: true, force: true });
+			}
+		});
+
+		it("keeps the default and names the problem where it holds no number", () => {
+			const odd = fs.mkdtempSync(path.join(os.tmpdir(), "odd-ceiling-"));
+			fs.mkdirSync(path.join(odd, ".claude"));
+			fs.writeFileSync(path.join(odd, ".claude", "load-ceiling"), "lots\n");
+			try {
+				const r = overloadReading({ load1: 30, cores: 8, env: { HOME: odd } });
+				expect(r.ceiling).toBe(24);
+				expect(buildOverloadText(r)).toMatch(/holds "lots", not a number/);
+			} finally {
+				fs.rmSync(odd, { recursive: true, force: true });
+			}
+		});
 	});
 
 	it("turns off at WFC_LOAD_CEILING=0", () => {
@@ -184,7 +235,7 @@ describe("overloadReading — the load ceiling new work waits under (#830)", () 
 		expect(
 			overloadReading({ load1: 0, cores: 8, env: { WFC_LOAD_CEILING: "lots" } })
 				.ceiling,
-		).toBe(48);
+		).toBe(24);
 	});
 
 	it("fails open on an unreadable load or uncountable cores", () => {

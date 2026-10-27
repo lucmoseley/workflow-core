@@ -12,18 +12,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-
-/* CommonJS, hence the require. */
-const { isSignalWord, pgrepSelects, readPgrepArgs } =
-	require("./pgrep-args.js") as {
-		isSignalWord: (w: string) => boolean;
-		pgrepSelects: (
-			subject: string,
-			pattern: string,
-			a: { exact: boolean; icase: boolean; invert: boolean },
-		) => "selects" | "spares" | "invalid";
-		readPgrepArgs: (words: string[]) => Record<string, unknown>;
-	};
+import { isSignalWord, pgrepSelects, readPgrepArgs } from "./pgrep-args.js";
 
 describe("a signal spelled as an option is dropped before the flags are read", () => {
 	it.each([

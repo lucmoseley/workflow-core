@@ -476,7 +476,7 @@ describe("the plugin's wiring (#2303)", () => {
 				.filter((hook) =>
 					String(hook.command).includes("guard-suite-concurrency"),
 				);
-			expect(entries).toHaveLength(12);
+			expect(entries).toHaveLength(13);
 			for (const entry of entries) {
 				expect(entry).toMatchObject({
 					command: `command -v node >/dev/null 2>&1 || exit 0; node ${hookRoot}/scripts/guard-suite-concurrency.js`,

@@ -21,12 +21,24 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
+import { ticketFiler } from "./lib/fix-ticket.js";
 import { writeFaultyGit } from "./lib/git-fault-fake";
+import { remoteGit } from "./lib/lander.js";
 import { installLib } from "./lib/lib-install-testkit";
 import { expectFixtureSupplies } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process";
 
+const { directAccessorCalls, emissionMatches } =
+	require("./lib/rule-emission.js") as typeof import("./lib/rule-emission.js");
 const { DISPATCH_ENTRY, MANIFEST_REL } = require("./lib/guard-cores.js") as {
 	DISPATCH_ENTRY: string;
 	MANIFEST_REL: string;
@@ -51,12 +63,14 @@ interface Fixture {
 const FIXTURE_SH_LIBS = new Set(["rule-text.sh"]);
 
 /* A lib naming a real rule id — a Node guard's core, or a lib reading one
- * fragment by name, through a core's `ruleText` port or by its `-landing`
- * twin — which no fixture's store holds a fragment for (#2784, #2793). */
-const namesRuleId = (lib: string) =>
-	/\binjectRules:\s*\[\s*["']|\b(?:readRuleText(?:Or)?|ruleText)\(\s*["']|\bruleText\(\s*landingTwin\(/.test(
-		fs.readFileSync(path.join(__dirname, "lib", lib), "utf8"),
+ * fragment by name — which no fixture's store holds a fragment for (#2784,
+ * #2793), read by the check's own accessor patterns (#3146). */
+const namesRuleId = (lib: string) => {
+	const text = fs.readFileSync(path.join(__dirname, "lib", lib), "utf8");
+	return (
+		emissionMatches(text).length > 0 || directAccessorCalls(text).length > 0
 	);
+};
 
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
@@ -2441,6 +2455,258 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 	});
 });
 
+describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
+	/* X: two guards anchored. C adds a library no guard sources yet; D has
+	 * guard-branch source it and re-anchors. Reverting C on D deletes the
+	 * library, so guard-branch's digest takes a value nobody read. */
+	let template = "";
+	const claims = {
+		CLAUDE_CODE_SESSION_ID: "self-session",
+		WFC_ANCHOR_LOCKS: "[]",
+	};
+	beforeAll(() => {
+		const built = committedRepo(TWO_GUARDS, (r) => {
+			reviewIn(r, [], claims);
+			fs.copyFileSync(
+				path.join(__dirname, "landing-registry-gate.js"),
+				path.join(r, "scripts", "landing-registry-gate.js"),
+			);
+		});
+		temps.splice(temps.indexOf(built), 1);
+		template = built;
+	});
+	afterEach(() => vi.unstubAllEnvs());
+	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
+
+	function repo() {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-"));
+		temps.push(root);
+		fs.cpSync(template, root, { recursive: true });
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+		const commit = (files: Record<string, string>, msg: string) => {
+			for (const [rel, body] of Object.entries(files))
+				fs.writeFileSync(path.join(root, rel), body);
+			git("add", "-A");
+			git("commit", "-qm", msg);
+			return git("rev-parse", "HEAD");
+		};
+		const culprit = commit(
+			{ "scripts/lib/extra.sh": "extra() { :; }\n" },
+			"Add extra (#12)",
+		);
+		fs.writeFileSync(
+			path.join(root, "scripts/guard-branch.sh"),
+			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nsource "$(dirname "$0")/lib/extra.sh"\nexit 2\n',
+		);
+		reviewIn(root, ["scripts/guard-branch.sh"], claims);
+		const tip = commit({}, "Source extra, re-anchored");
+		return { root, git, commit, culprit, tip };
+	}
+
+	const env = (culprit?: string) => ({
+		...claims,
+		...(culprit ? { WFC_LANDER_REVERT: culprit } : {}),
+	});
+	const preCommit = (root: string, culprit?: string) =>
+		run(root, ["--against", "HEAD"], { cwd: root, env: env(culprit) });
+	/* A real spawn, as the #3074 describe's: the gate streams the checker's
+	 * report to fd 2 and runs at load, with no main to call in-process. */
+	const push = (root: string, sha: string, tip: string, culprit?: string) =>
+		spawnSync(
+			"node",
+			[path.join(root, "scripts", "landing-registry-gate.js")],
+			{
+				cwd: root,
+				encoding: "utf8",
+				input: `refs/heads/main ${sha} refs/heads/landing ${tip}\n`,
+				env: {
+					...process.env,
+					...env(culprit),
+					CLAUDE_PROJECT_DIR: root,
+					WFC_RULES_DIR: "",
+					WFC_RULES_FALLBACK_DIR: "",
+					WFC_MODULES: "landing",
+				},
+			},
+		);
+	const review =
+		"node scripts/check-guard-registry.js --review scripts/guard-branch.sh";
+
+	it("passes the clean revert at commit, naming the stale row and its --review line", () => {
+		const { root, git, culprit } = repo();
+		git("revert", "--no-commit", culprit);
+		const r = preCommit(root, culprit);
+		expect(r.code, r.report).toBe(0);
+		expect((r.json as unknown as { exempted: unknown[] }).exempted).toEqual([
+			{ row: "STALE-PROSE scripts/guard-branch.sh", forward: review },
+		]);
+		expect(r.report).toContain("lander's clean revert of");
+	});
+
+	it("passes the clean revert at push to landing", () => {
+		const { root, git, culprit, tip } = repo();
+		git("revert", "--no-edit", culprit);
+		const r = push(root, git("rev-parse", "HEAD"), tip, culprit);
+		expect(r.status, r.stderr).toBe(0);
+	});
+
+	it("still refuses the same revert from an ordinary session, at commit and at push", () => {
+		const { root, git, culprit, tip } = repo();
+		git("revert", "--no-commit", culprit);
+		const atCommit = preCommit(root);
+		expect(atCommit.code).toBe(1);
+		expect(atCommit.report).toContain("STALE-PROSE  scripts/guard-branch.sh");
+		git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "Revert it");
+		expect(push(root, git("rev-parse", "HEAD"), tip).status).toBe(2);
+	});
+
+	it("gives a commit claiming the revert but carrying an extra hunk no exemption, at commit and at push", () => {
+		const { root, git, culprit, tip } = repo();
+		git("revert", "--no-commit", culprit);
+		fs.writeFileSync(
+			path.join(root, "scripts/guard-amend.sh"),
+			"#!/bin/sh\nexit 0\n",
+		);
+		git("add", "-A");
+		const atCommit = preCommit(root, culprit);
+		expect(atCommit.code).toBe(1);
+		expect(atCommit.report).toContain("no staleness exemption");
+		git(
+			"-c",
+			"core.hooksPath=/dev/null",
+			"commit",
+			"-qm",
+			`Revert "Add extra (#12)"\n\nThis reverts commit ${culprit}.`,
+		);
+		const atPush = push(root, git("rev-parse", "HEAD"), tip, culprit);
+		expect(atPush.status, atPush.stderr).toBe(2);
+		expect(atPush.stderr).toContain("no staleness exemption");
+	});
+
+	/**
+	 * `root` as the lander's checkout: `landing` and `main` on a bare remote
+	 * at `tip`, and hooks running the two registry gates as .husky does.
+	 */
+	function landerCheckout(root: string, tip: string) {
+		const remote = `${root}.git`;
+		temps.push(remote);
+		execFileSync("git", ["init", "-q", "--bare", remote]);
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+		git("remote", "add", "origin", remote);
+		git(
+			"push",
+			"-q",
+			"origin",
+			`${tip}:refs/heads/landing`,
+			`${tip}:refs/heads/main`,
+		);
+		const hooks = path.join(root, ".git", "gate-hooks");
+		fs.mkdirSync(hooks);
+		for (const [hook, script] of [
+			["prepare-commit-msg", '"$GATES/check-guard-registry.js" --against HEAD'],
+			["pre-push", '"$GATES/landing-registry-gate.js"'],
+		]) {
+			fs.writeFileSync(
+				path.join(hooks, hook),
+				`#!/bin/sh\nGATES="${root}/scripts"\nexec node ${script}\n`,
+			);
+			fs.chmodSync(path.join(hooks, hook), 0o755);
+		}
+		git("config", "core.hooksPath", hooks);
+		for (const [name, value] of Object.entries({
+			...claims,
+			CLAUDE_PROJECT_DIR: root,
+			WFC_RULES_DIR: "",
+			WFC_RULES_FALLBACK_DIR: "",
+			WFC_MODULES: "landing",
+		}))
+			vi.stubEnv(name, value);
+		return (ref: string) =>
+			execFileSync("git", ["rev-parse", ref], {
+				cwd: remote,
+				encoding: "utf8",
+			}).trim();
+	}
+	it("lands the lander's revert on landing past both gates, and its fix ticket names the stale row and its --review line", () => {
+		const { root, git, culprit, tip } = repo();
+		const onRemote = landerCheckout(root, tip);
+
+		const made = remoteGit(root).revertOnLanding(
+			culprit,
+			git("rev-parse", `${culprit}^`),
+			"why",
+		);
+
+		const stale = [
+			{ row: "STALE-PROSE scripts/guard-branch.sh", forward: review },
+		];
+		expect(made).toMatchObject({ onto: tip, stale });
+		if (!("sha" in made)) throw new Error("no revert");
+		expect(onRemote("landing")).toBe(made.sha);
+		const bodies: string[] = [];
+		ticketFiler({
+			messageOf: () => "Add extra (#12)",
+			similar: () => [],
+			fileIssue: (_args, body) => {
+				bodies.push(body);
+				return { status: 0, stdout: "Filed #9\n", stderr: "" };
+			},
+			stateOf: () => "open",
+			reopen: () => undefined,
+		}).fileFixTicket({
+			culprit,
+			parent: null,
+			revert: made.sha,
+			files: [],
+			stale: made.stale ?? [],
+		});
+		expect(bodies[0]).toContain(
+			`- \`STALE-PROSE scripts/guard-branch.sh\`: \`${review}\``,
+		);
+	});
+
+	it("holds on a revert that adds a fault other than staleness, naming the row, and pushes nothing", () => {
+		const { root, git, commit } = repo();
+		/* C drops the amend rule; D deletes its guard. Reverting C restores
+		 * a rule naming a guard that no longer exists. */
+		const culprit = commit(
+			{
+				"CLAUDE.md": region(
+					"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
+				),
+			},
+			"Drop the amend rule",
+		);
+		fs.rmSync(path.join(root, "scripts/guard-amend.sh"));
+		const tip = commit({}, "Delete the amend guard");
+		const onRemote = landerCheckout(root, tip);
+
+		const made = remoteGit(root).revertOnLanding(
+			culprit,
+			git("rev-parse", `${culprit}^`),
+			"why",
+		);
+
+		expect(made).toEqual({
+			failed: expect.stringMatching(
+				/^its commit was refused: .*scripts\/guard-amend\.sh.*\(fix forward: /,
+			),
+		});
+		expect(onRemote("landing")).toBe(tip);
+	});
+
+	it("gives a clean revert whose message lacks the revert line no exemption at push", () => {
+		const { root, git, culprit, tip } = repo();
+		git("revert", "--no-commit", culprit);
+		git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "Drop extra");
+		const r = push(root, git("rev-parse", "HEAD"), tip, culprit);
+		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr).toContain("does not carry");
+	});
+});
+
 describe("a JS guard's digest covers the modules it requires (mantahostels#159)", () => {
 	/* session-arbiter.js's shape after mantahostels#159: a CLI named by the rule, whose
 	 * behaviour sits two requires away in lib/. */
@@ -3050,6 +3316,145 @@ describe("a rule whose text its guard reprints when it denies (mantahostels#1032
 			},
 		});
 		expect(reprints(root)).toEqual([]);
+	});
+});
+
+describe("a Node guard's refusal, read from its core (#3001)", () => {
+	const sentence =
+		"It commits every dirty tracked file, so it takes a parallel session's " +
+		"uncommitted edits — they need not have staged anything, only have a file open.";
+
+	/** An entry running a core through guard-entry.js's run(). */
+	const entry = (lib: string) =>
+		[
+			'const { run } = require("./lib/guard-entry.js");',
+			`const { decide } = require("./lib/${lib}");`,
+			"run({ decide });",
+			"",
+		].join("\n");
+
+	/** A core refusing with `text`. */
+	const denying = (text: string) =>
+		`const REASON = ${JSON.stringify(text)};\nconst decide = () => ({ deny: REASON });\nmodule.exports = { decide };\n`;
+
+	const manifest = (...names: string[]) =>
+		JSON.stringify({
+			PreToolUse: names.map((n) => ({
+				name: `guard-${n}`,
+				core: `${n}.js`,
+				tools: "Bash",
+				failure: "open",
+			})),
+		});
+
+	function reprints(root: string) {
+		return run(root).json.warnings.filter((w) => w.kind === "REPRINTED");
+	}
+
+	it("reads the core an entry takes decide from", () => {
+		const guard = "scripts/guard-x.js";
+		const root = build({
+			claude: region(
+				`- **Never \`git commit -a\`.** ${sentence} **Enforced** (#1): \`${guard}\`.`,
+			),
+			files: {
+				[guard]: entry("x.js"),
+				"scripts/lib/x.js": denying(sentence),
+				[SELF_PLUGIN_HOOKS]: hooksWiring(guard),
+			},
+		});
+		expect(reprints(root).map((w) => w.guard)).toEqual([guard]);
+	});
+
+	it("reads the dispatcher's manifest cores, only those the rule names where it names any", () => {
+		const guard = "scripts/guard-dispatch.js";
+		const fixture = (named: string) =>
+			build({
+				claude: region(
+					`- **Never \`git commit -a\`.** ${sentence} **Enforced** (#1): \`${guard}\`${named}.`,
+				),
+				files: {
+					[guard]: "#!/usr/bin/env node\n",
+					"scripts/lib/guard-cores.json": manifest("x", "y"),
+					"scripts/lib/x.js": denying(sentence),
+					"scripts/lib/y.js": denying(
+						"Commit by pathspec instead, naming only your files.",
+					),
+					[SELF_PLUGIN_HOOKS]: hooksWiring(guard),
+				},
+			});
+		expect(reprints(fixture("")).map((w) => w.guard)).toEqual([guard]);
+		expect(reprints(fixture(" (its `guard-x` core)"))).toHaveLength(1);
+		expect(reprints(fixture(" (its `guard-y` core)"))).toEqual([]);
+	});
+});
+
+describe("the live delayed-deny guard, mantahostels#964's counter-example", () => {
+	/*
+	 * The REAL core is copied in, so the declaration keeping it silent is
+	 * under test rather than a fixture's imitation of it. The rule quotes the
+	 * core's own refusal verbatim — CLAUDE.md's live wording of the same rule
+	 * happens not to, so pairing the two as they stand would assert nothing.
+	 * The rule names the dispatcher's row running the core.
+	 *
+	 * isolation-exempt: the core is copied in as text for the checker to
+	 * read, and never run, so no fail-open can reach a log.
+	 */
+	const core = "scripts/lib/agent-poll.js";
+	const dispatcher = "scripts/guard-dispatch.js";
+	const named = " (its `guard-agent-poll` core)";
+	const coreSource = fs.readFileSync(
+		path.join(__dirname, "lib", "agent-poll.js"),
+		"utf8",
+	);
+
+	/** Verbatim from the core's NOOP_REASON. */
+	const quoted =
+		"A no-op command like `true` re-invokes this session — which is why " +
+		"the loop it is meant to break keeps going.";
+
+	function pollFixture(coreText: string) {
+		return build({
+			claude: region(
+				`- **While something runs in the background, end the turn.** ${quoted} **Enforced** (#627): \`${dispatcher}\`${named}.`,
+			),
+			files: {
+				[core]: coreText,
+				[dispatcher]: "#!/usr/bin/env node\n",
+				"scripts/lib/guard-cores.json": JSON.stringify({
+					PreToolUse: [
+						{
+							name: "guard-agent-poll",
+							core: "agent-poll.js",
+							tools: "Read",
+							failure: "closed",
+						},
+					],
+				}),
+				[SELF_PLUGIN_HOOKS]: hooksWiring(dispatcher),
+			},
+		});
+	}
+
+	const pollReprints = (coreText: string) =>
+		run(pollFixture(coreText)).json.warnings.filter(
+			(w) => w.kind === "REPRINTED",
+		);
+
+	it("declares its timing on the core, so the dispatcher draws no REPRINTED warning even where the rule quotes its refusal", () => {
+		// The pairing asserts nothing unless the quote is still the core's
+		// own wording, so drift in its text fails here rather than going
+		// silent.
+		expect(coreSource).toContain(quoted.replace(/`/g, "\\`"));
+		expect(coreSource).toMatch(/^\s*\/\/\s*deny-timing:\s*delayed\b/m);
+		expect(pollReprints(coreSource)).toEqual([]);
+	});
+
+	it("would warn on the dispatcher as REPRINTED without the declaration — so the silence above is the declaration's doing", () => {
+		const undeclared = coreSource.replace(/^\/\/\s*deny-timing:.*$/m, "//");
+		expect(undeclared).not.toMatch(/deny-timing:\s*delayed/);
+		const [warning] = pollReprints(undeclared);
+		expect(warning?.guard).toBe(dispatcher);
 	});
 });
 
@@ -3968,33 +4373,6 @@ describe("the rule-text store", () => {
 			}),
 		);
 		expect(r.kinds).toEqual([]);
-	});
-
-	it("reads an accessor handed landingTwin as printing the id and its -landing twin", () => {
-		const twinEmitter =
-			'const { landingTwin } = require("./lib/rule-gates.js");\nconsole.log(ctx.ruleText(landingTwin(ctx, "dirty-turn")));\n';
-		const wired = (fragments: Record<string, string>) =>
-			run(
-				build({
-					claude: region(triggerRule("dirty-turn", "scripts/guard-dirty.js")),
-					files: {
-						...fragments,
-						"scripts/guard-dirty.js": twinEmitter,
-						[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-dirty.js"),
-					},
-				}),
-			);
-		const plain = {
-			"docs/agents/rules/dirty-turn.txt": "Never end a turn dirty.\n",
-		};
-		expect(
-			wired({
-				...plain,
-				"docs/agents/rules/dirty-turn-landing.txt":
-					"Never end a turn dirty; the lander tests it.\n",
-			}).kinds,
-		).toEqual([]);
-		expect(wired(plain).kinds).toContain("EMITTED-MISSING");
 	});
 
 	it.each([

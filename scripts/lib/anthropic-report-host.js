@@ -1,6 +1,6 @@
 /*
- * anthropic-report-host.js — the production ports guard-anthropic-report.js
- * wires into its core, lib/anthropic-report.js (#2798). The clone's remotes
+ * anthropic-report-host.js — the production ports the dispatcher wires into
+ * the guard-anthropic-report core, lib/anthropic-report.js (#2798, #3224). The clone's remotes
  * are one git call per unnamed write, at the hook's git ceiling.
  */
 

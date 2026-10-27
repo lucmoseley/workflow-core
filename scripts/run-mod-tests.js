@@ -46,7 +46,7 @@ const { execGit } = require("./lib/git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { ZERO, pushesFrom } = require("./lib/push-refs.js");
+const { isZeroSha, parsePushes } = require("./lib/push-refs.js");
 const { pushedRef } = require("./lib/landing-refs.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -133,7 +133,7 @@ function unmetTestFloor(dir) {
 function readBaseOf(sha, remote) {
 	if (
 		remote &&
-		!ZERO.test(remote) &&
+		!isZeroSha(remote) &&
 		gitOk(["cat-file", "-e", `${remote}^{commit}`])
 	)
 		return remote;
@@ -282,9 +282,9 @@ function main() {
 		return 0;
 	}
 	let refuse = false;
-	for (const { sha, remote } of pushesFrom(stdin, { skipTags: true })) {
+	for (const { sha, remoteSha } of parsePushes(stdin, { skipTags: true })) {
 		try {
-			for (const mod of touchedMods(sha, readBaseOf(sha, remote)))
+			for (const mod of touchedMods(sha, readBaseOf(sha, remoteSha)))
 				refuse = judge(sha, mod) || refuse;
 		} catch (e) {
 			/* One unreadable ref fails open (#857) and keeps a refusal already

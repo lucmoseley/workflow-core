@@ -14,6 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { writeFaultyGit } from "./git-fault-fake";
 import {
 	defineTemplate,
 	mkDirOutsideRepo,
@@ -259,16 +260,14 @@ describe("patchFiles (#2147)", () => {
 		// The real clock, as the treeClassifier timeout case: the stub prints one
 		// field, then outlives a ceiling the rev-parse before it must finish
 		// inside.
-		const at = fresh("slow-apply");
-		const bin = path.join(at, "git");
-		fs.writeFileSync(
-			bin,
-			`#!/bin/sh\ncase "$*" in *" apply "*) printf '1\\t1\\ta.md\\0'; exec sleep 3;; esac\nexec ${JSON.stringify(GIT)} "$@"\n`,
-			{ mode: 0o755 },
+		const { git: slow } = writeFaultyGit(
+			{ words: ["apply"] },
+			{ script: "printf '1\\t1\\ta.md\\0'\nexec sleep 3" },
+			{ under: dir },
 		);
 		const tree = fresh("slow-tree");
 		fs.cpSync(shared, tree, { recursive: true });
-		vi.stubEnv("WFC_GIT", bin);
+		vi.stubEnv("WFC_GIT", slow);
 		try {
 			expect(patchFiles(tree, writePatch(), { timeoutMs: 1000 })).toBeNull();
 		} finally {

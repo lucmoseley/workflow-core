@@ -24,6 +24,13 @@ const B = "b".repeat(40);
 const C = "c".repeat(40);
 const D = "d".repeat(40);
 const R = "e".repeat(40);
+/* A row the revert left stale, which the fix ticket carries (#3127). */
+const STALE = [
+	{
+		row: "STALE-PROSE scripts/g.js",
+		forward: "node scripts/check-guard-registry.js --review scripts/g.js",
+	},
+];
 const F = "f".repeat(40);
 
 /**
@@ -97,7 +104,7 @@ async function run(
 				if (revertFails !== null) return { failed: revertFails };
 				const onto = remote.landing ?? A;
 				remote.landing = R;
-				return { sha: R, onto };
+				return { sha: R, onto, stale: STALE };
 			},
 			/* A, main before the batch, precedes every sha in `history`. */
 			contains: (tip, sha) =>
@@ -450,13 +457,14 @@ describe("runLander on a red batch", () => {
 				parent: B,
 				revert: R,
 				files: FILES,
+				stale: STALE,
 			},
 			{ kind: "test", sha: R },
 			{ kind: "fast-forward", sha: R },
 			{ kind: "exit", reason: "landing equals main" },
 		]);
 		expect(r.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES },
+			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
 		]);
 		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
@@ -471,7 +479,7 @@ describe("runLander on a red batch", () => {
 			files: FILES,
 		});
 		expect(r.tickets).toEqual([
-			{ culprit: B, parent: A, revert: R, files: FILES },
+			{ culprit: B, parent: A, revert: R, files: FILES, stale: STALE },
 		]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
 	});
@@ -651,7 +659,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 		expect(second.actions[0]).toEqual({ kind: "bisect", base: A, sha: D });
 		expect(second.tested).not.toContainEqual({ sha: D });
 		expect(second.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES },
+			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
 		]);
 	});
 
@@ -731,6 +739,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 				parent: B,
 				revert: R,
 				files: FILES,
+				stale: STALE,
 			},
 			{ kind: "test", sha: R },
 			{ kind: "fast-forward", sha: R },
@@ -738,6 +747,50 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 		]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
 		expect(r.stuck).toEqual([B]);
+	});
+
+	it("lands neither the parent nor the revert where the parent fails a file outside the failing ones, reverting the parent as the next batch's culprit", async () => {
+		const elsewhere: Verdict = { kind: "red", files: ["y.test.ts"] };
+		let revertTests = 0;
+		const r = await run(
+			{ main: A, landing: D },
+			(sha, files) => {
+				if (sha === A) return { kind: "green" };
+				if (sha === B && files?.length === 0)
+					return { kind: "unknown", reason: ceiling };
+				if (sha === R || files?.includes("y.test.ts")) return elsewhere;
+				return sha === B ? { kind: "green" } : redVerdict;
+			},
+			{
+				history: [B, C, D, R],
+				/* The fake lands every revert as R, so the run stops before
+				 * testing the second revert's tip. */
+				onTest: (sha) => {
+					if (sha === R && ++revertTests === 3) throw new Error("stop");
+				},
+			},
+		);
+		expect(r.actions.slice(10)).toEqual([
+			{ kind: "test", sha: R },
+			{ kind: "rerun", sha: R, files: elsewhere.files, why: "flake" },
+			{ kind: "bisect", base: A, sha: R },
+			{ kind: "rerun", sha: C, files: elsewhere.files, why: "bisect" },
+			{ kind: "rerun", sha: B, files: elsewhere.files, why: "bisect" },
+			{ kind: "rerun", sha: B, files: elsewhere.files, why: "confirm" },
+			{ kind: "rerun", sha: A, files: [], why: "parent" },
+			{ kind: "revert", culprit: B, parent: A, files: elsewhere.files },
+			{
+				kind: "file-fix-ticket",
+				culprit: B,
+				parent: A,
+				revert: R,
+				files: elsewhere.files,
+				stale: STALE,
+			},
+			{ kind: "test", sha: R },
+			{ kind: "exit", reason: "stopped on an error: stop" },
+		]);
+		expect(r.pushes).toEqual([]);
 	});
 
 	it.each([
@@ -816,7 +869,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 		});
 		expect(second.tested).not.toContainEqual({ sha: B, files: [] });
 		expect(second.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES },
+			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
 		]);
 	});
 });

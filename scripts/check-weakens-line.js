@@ -44,19 +44,19 @@
  *
  * IMPLICIT:  on every commit, refuses one whose staged diff turns a module off, drops a CI gate command, adds a skip to an existing test file or runs under a WFC_*_OFF stand-down, until its message names each on a `Weakens:` line; the refusal prints rule:weakens-line.
  * JUSTIFIED: fail-safe — a check weakened inside a large commit goes unseen until it bites (#2203); the fix is one message line.
- * DEFEAT:    --warn caps the finding below the gating line, and the hook never passes it. `--no-verify` skips commit-msg, and HUSKY=0 or core.hooksPath off .husky/_ skip every hook (scripts/guard-commit-form.js's LIMITS). A replay or a merge stands it down in the hook.
+ * DEFEAT:    --warn caps the finding below the gating line, and the hook never passes it. `--no-verify` skips commit-msg, and HUSKY=0 or core.hooksPath off .husky/_ skip every hook (scripts/lib/commit-form.js's LIMITS). A replay or a merge stands it down in the hook.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
-const { strippedLines } = require("./lib/commit-message.js");
+const { recordedLines } = require("./lib/commit-message.js");
 const { runCheck } = require("./lib/check.js");
 const { readCommit } = require("./lib/commit-sha.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { readRuleTextOr } = require("./lib/rule-text");
 const { COLLECTED_TEST } = require("./lib/test-kind.js");
-const { spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
+const { gitReader, spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {{ kind: string, name: string, what: string }} Weakening */
@@ -91,7 +91,7 @@ const SKIP_LINES = [
 function readWeakensRule() {
 	return readRuleTextOr(
 		"weakens-line",
-		"Name each weakened check on a `Weakens:` line.",
+		"Name each weakened check on a `Weakens:` line",
 		"check-weakens-line",
 	).split("\n");
 }
@@ -290,11 +290,11 @@ function standDowns(env) {
 }
 
 /**
- * The text of each `Weakens:` line among the message's stripped lines.
+ * The text of each `Weakens:` line among the lines git records.
  * @param {string} message
  */
 function parseWeakensLines(message) {
-	return strippedLines(message).flatMap((l) => {
+	return recordedLines(message).flatMap((l) => {
 		const m = WEAKENS_LINE.exec(l);
 		return m ? [requiredGroup(m, 1, WEAKENS_LINE)] : [];
 	});
@@ -345,7 +345,7 @@ function run(ctx) {
 			`cannot read the message file ${messageFile} — ${caught(e).message}`,
 		);
 	}
-	const head = readCommit(process.cwd(), "HEAD");
+	const head = readCommit(gitReader(process.cwd()), "HEAD");
 	if (!head.ok) ctx.broken(`git rev-parse HEAD would not answer — ${head.why}`);
 	if (head.sha === null)
 		return ctx.skip("no HEAD, so nothing existed to weaken.");

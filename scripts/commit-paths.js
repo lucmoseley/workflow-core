@@ -145,7 +145,7 @@ const path = require("node:path");
 
 const core = require("./lib/arbiter-core.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
-const { ancestorsOf } = require("./lib/proc-stat.js");
+const { readAncestorsOf } = require("./lib/proc-stat.js");
 const { shellWord } = require("./lib/dirty-tree.js");
 const { isUnder } = require("./lib/is-under.js");
 const { numstatPaths } = require("./lib/patch-files.js");
@@ -452,7 +452,7 @@ function sessionOf(pid, sessions, unreadable) {
 	const session = unreadable
 		? "a session the registry could not be read to name"
 		: null;
-	for (const p of ancestorsOf(Number(pid))) {
+	for (const p of readAncestorsOf(Number(pid))) {
 		const name = sessions.get(String(p));
 		if (name) return `session "${name}"`;
 	}
@@ -902,7 +902,7 @@ function stalePreimages(root, patch, base) {
 		if (!pre || /^0+$/.test(pre)) continue;
 		const file = readPatchFiles(root, section).files?.[0];
 		if (!file) continue;
-		const blob = readBlobAt(base, file);
+		const blob = readBlobSha(base, file);
 		if (!blob.startsWith(pre))
 			stale.push(
 				`${file} (cut against ${pre}, HEAD holds ${blob ? blob.slice(0, pre.length) : "no such file"})`,
@@ -911,8 +911,8 @@ function stalePreimages(root, patch, base) {
 	return stale;
 }
 
-/** `path`'s blob at `rev`, or "" where it has none. @type {(rev: string, file: string) => string} */
-const readBlobAt = (rev, file) =>
+/** `path`'s blob sha at `rev`, or "" where it has none. @type {(rev: string, file: string) => string} */
+const readBlobSha = (rev, file) =>
 	git(["rev-parse", "-q", "--verify", `${rev}:${file}`]).stdout.trim();
 
 /**
@@ -1298,7 +1298,7 @@ function warnStagedCopies(changed, patched, base) {
 		// A whole path's staged copy is an intent-add, this script's own.
 		if (
 			patched.includes(file) &&
-			requiredGroup(m, 1, STAGED_ENTRY) !== readBlobAt(base, file)
+			requiredGroup(m, 1, STAGED_ENTRY) !== readBlobSha(base, file)
 		)
 			err(
 				`${NAME}: the shared index held a staged copy of ${file} other than HEAD's; the reset below replaces it with this commit's. The working tree is untouched, so restage it from there if it was yours.\n`,

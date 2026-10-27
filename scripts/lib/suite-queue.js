@@ -19,7 +19,7 @@ const { WHOLE_SUITE_MAX } = require("./suite-ladder.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const {
 	FIELD,
-	ancestorsOf,
+	readAncestorsOf,
 	readParentOf,
 	readStatFields,
 } = require("./proc-stat.js");
@@ -352,7 +352,7 @@ function heldSeat({
 	}
 	if (record?.part !== true || record.spawned !== true) return null;
 	if (isMarkerStale(record, { alive, startTime })) return null;
-	return ancestorsOf(pid, { parentOf }).includes(record.pid) ? file : null;
+	return readAncestorsOf(pid, { parentOf }).includes(record.pid) ? file : null;
 }
 
 /** @param {string} file */
@@ -398,8 +398,22 @@ function queueLeave(file, { queueFs = fs } = {}) {
  *
  * FAILS OPEN, like every other part of this wait: a queue directory that cannot
  * be read yields `true` rather than blocking the suite forever.
+ *
+ * @param {Parameters<typeof readTurn>[0]} [options]
  */
-function queueTurn({
+function queueTurn(options = {}) {
+	return readTurn(options).open;
+}
+
+/**
+ * `queueTurn`'s reading, with how many older part-suites an open part-suite
+ * turn passed (#3115): 0 where it passed none, absent on a whole suite's turn
+ * or a closed one.
+ *
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive, slots?: number, clock?: () => number }} [options]
+ * @returns {{ open: boolean, passed?: number }}
+ */
+function readTurn({
 	queueDir = defaultQueueDir(),
 	queueFs = fs,
 	pid = process.pid,
@@ -408,7 +422,7 @@ function queueTurn({
 	clock = Date.now,
 } = {}) {
 	const { markers, error } = readMarkers(queueDir, queueFs);
-	if (error) return true;
+	if (error) return { open: true };
 	/** @type {QueueRecord[]} */
 	const live = [];
 	for (const { file: full, record } of markers) {
@@ -434,16 +448,45 @@ function queueTurn({
 	const spawned = (/** @type {{ spawned?: boolean }} */ r) =>
 		r.spawned === true;
 	if (live.some((r) => r.pid !== pid && r.admitted === true && !spawned(r)))
-		return false;
+		return { open: false };
 	const isPassable = (/** @type {QueueRecord} */ r) =>
 		r.memoryHeld === true && clock() - r.at < PART_PASS_AGE_MS;
-	if (mine?.part === true)
-		return ahead
-			.filter((r) => r.part === true)
-			.every((r) => spawned(r) || isPassable(r));
-	return (
-		ahead.filter((r) => r.part !== true).length < slots && ahead.every(spawned)
-	);
+	if (mine?.part === true) {
+		const waiting = ahead.filter((r) => r.part === true && !spawned(r));
+		return waiting.every(isPassable)
+			? { open: true, passed: waiting.length }
+			: { open: false };
+	}
+	return {
+		open:
+			ahead.filter((r) => r.part !== true).length < slots &&
+			ahead.every(spawned),
+	};
+}
+
+/**
+ * A queued waiter's turn, and the extra fields for its exit line: `passed`,
+ * from the turn read that opened it (#3115), on an `opened` exit alone. Every
+ * other exit may follow polls the gate denied before reading the turn, so the
+ * last count read there could be stale.
+ *
+ * @param {Parameters<typeof readTurn>[0]} [options]
+ * @returns {{ turn: () => boolean, exitFields: (reason: WaitExitReason, heldBy?: { limb: HeldLimb }) => object }}
+ */
+function passingTurn(options = {}) {
+	/** @type {number | undefined} */
+	let passed;
+	return {
+		turn: () => {
+			const reading = readTurn(options);
+			passed = reading.passed;
+			return reading.open;
+		},
+		exitFields: (reason, heldBy) => ({
+			...heldBy,
+			...(reason === "opened" && passed !== undefined ? { passed } : {}),
+		}),
+	};
 }
 
 /* The age past which no part-suite passes an older one the memory rung holds
@@ -560,7 +603,9 @@ function memoryRefusal(label, secs, { mb, rungMb }) {
  * rather than run.
  *
  * `label` opens each line it prints: the waiter's own name, `--queue` or
- * `queue-run.js` (#1776).
+ * `queue-run.js` (#1776). `waiting` is the line a held wait opens with, and
+ * `cap` the one-at-a-time rule a count-cap refusal cites: a suite's by default, a
+ * type-check's under `queue-run.js --tsc` (#3163).
  *
  * `hold` is a load hold run once the wait would end in a launch, whether the
  * gate and turn opened or the ceiling came. Both are then read again before
@@ -572,7 +617,7 @@ function memoryRefusal(label, secs, { mb, rungMb }) {
  * `onMemoryHeld` hears whether the memory rung holds the wait, each time that
  * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: () => GateDenial | null, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: { limb: HeldLimb }) => void, clock?: () => number }} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: () => GateDenial | null, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: { limb: HeldLimb }) => void, clock?: () => number }} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -590,6 +635,8 @@ function waitForGate({
 		new Promise((resolve) => setTimeout(resolve, ms)),
 	out = process.stderr,
 	label = "--queue",
+	waiting = "a suite is already running; waiting for it",
+	cap = "one whole suite runs at a time (#2714)",
 	part = false,
 	onMemoryHeld = () => {
 		/* no marker to stamp */
@@ -617,7 +664,7 @@ function waitForGate({
 	const wait = () => {
 		if (!announced) {
 			announced = true;
-			out.write(`${label}: a suite is already running; waiting for it\n`);
+			out.write(`${label}: ${waiting}\n`);
 		}
 		held = false;
 		return sleepFn(pollMs).then(step);
@@ -643,7 +690,7 @@ function waitForGate({
 		}
 		const limb = heldLimb(denial);
 		out.write(
-			`${label}: ${HELD_LINE[limb]} after ${secs()}s, the queue's ${Math.round(timeoutMs / 60_000)}-minute wait bound — refused, not run: one whole suite runs at a time (#2714).\n`,
+			`${label}: ${HELD_LINE[limb]} after ${secs()}s, the queue's ${Math.round(timeoutMs / 60_000)}-minute wait bound — refused, not run: ${cap}.\n`,
 		);
 		return exit("refused", "refused", limb);
 	};
@@ -715,6 +762,7 @@ module.exports = {
 	queueStamps,
 	queueLeave,
 	queueTurn,
+	passingTurn,
 	readLiveRolePids,
 	gateDenies,
 	waitForGate,

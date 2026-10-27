@@ -18,8 +18,9 @@ const { readImportedFiles } = require("./pool-imports.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { cutAt } = require("./cut-at.js");
 const { caught } = require("./caught.js");
-const { isCommit } = require("./commit-sha.js");
-const { execGit } = require("./git.js");
+const { readCommit } = require("./commit-sha.js");
+const { execGit, gitReader } = require("./git.js");
+const { brokenError } = require("./outcome-error.js");
 
 /*
  * The pool's whole-file members where the host's config declares no
@@ -117,8 +118,8 @@ const TRIGGER_VERDICT_MIN_WORDS = 3;
 const PATH_ABSENT = /path .* (does not exist|exists on disk, but not in)/;
 
 /**
- * Bytes of `rev`'s copy of `rel`; 0 where that rev holds no such file, null
- * where git could not be asked at all.
+ * Bytes of `rev`'s copy of `rel`, or 0 where that rev holds no such file. A git
+ * that will not answer is BROKEN, never an absent file (#3152).
  *
  * `git cat-file -s` rather than reading the blob: the pool is ~50 KB across
  * four files and only its size is wanted. `rev` is `""` for the INDEX, which
@@ -127,36 +128,55 @@ const PATH_ABSENT = /path .* (does not exist|exists on disk, but not in)/;
  *
  * @param {string} rev
  * @param {string} rel
- * @returns {number | null}
+ * @returns {number}
  */
 function readBlobBytesAt(rev, rel) {
+	let out;
 	try {
-		const out = execGit(["cat-file", "-s", `${rev}:${rel}`], {
+		out = execGit(["cat-file", "-s", `${rev}:${rel}`], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
+			// PATH_ABSENT reads git's English stderr.
+			env: { ...process.env, LC_ALL: "C" },
 		}).trim();
-		const n = Number(out);
-		return Number.isFinite(n) ? n : null;
 	} catch (e) {
-		return PATH_ABSENT.test(String(caught(e).stderr ?? "")) ? 0 : null;
+		const { stderr, message } = caught(e);
+		if (PATH_ABSENT.test(String(stderr ?? ""))) return 0;
+		throw brokenError(
+			`git would not read ${rev}:${rel}: ${String(stderr ?? "").trim() || message}`,
+		);
 	}
+	const n = Number(out);
+	if (out && Number.isFinite(n)) return n;
+	throw brokenError(
+		`git cat-file -s ${rev}:${rel} printed ${out.slice(0, 80)}`,
+	);
 }
 
 /**
- * The pool's whole-file bytes at `rev`, or null where `rev` does not resolve.
+ * The pool's whole-file bytes in `treeish`, `""` for the index, which must
+ * resolve.
+ *
+ * @param {string} treeish
+ * @returns {number}
+ */
+const readPoolBytesIn = (treeish) =>
+	getPoolFiles().reduce(
+		(total, rel) => total + readBlobBytesAt(treeish, rel),
+		0,
+	);
+
+/**
+ * The pool's whole-file bytes at `rev`, or null where `rev` names no commit.
+ * A git that will not answer is BROKEN (#3152).
  *
  * @param {string} rev
  * @returns {number | null}
  */
-function poolBytesAt(rev) {
-	if (rev && !isCommit(process.cwd(), rev)) return null;
-	let total = 0;
-	for (const rel of getPoolFiles()) {
-		const n = readBlobBytesAt(rev, rel);
-		if (n === null) return null;
-		total += n;
-	}
-	return total;
+function readCommittedPoolBytes(rev) {
+	const r = readCommit(gitReader(process.cwd()), rev);
+	if (!r.ok) throw brokenError(`git would not resolve ${rev}: ${r.why}`);
+	return r.sha === null ? null : readPoolBytesIn(rev);
 }
 
 /**
@@ -168,17 +188,16 @@ function poolBytesAt(rev) {
  *
  * Returns null where no committed rev resolves — a first commit on a fresh
  * checkout. A caller reads that as "cannot tell whether this commit adds pool
- * bytes" and asserts nothing.
+ * bytes" and asserts nothing. A git that will not answer is BROKEN.
  *
  * @param {string[]} revs the already-committed revs, `readCommittedRevs()`
  * @returns {number | null}
  */
 function stagedPoolDelta(revs) {
-	const staged = poolBytesAt("");
-	if (staged === null) return null;
+	const staged = readPoolBytesIn("");
 	let base = null;
 	for (const rev of revs) {
-		const n = poolBytesAt(rev);
+		const n = readCommittedPoolBytes(rev);
 		if (n !== null) base = base === null ? n : Math.max(base, n);
 	}
 	return base === null ? null : staged - base;

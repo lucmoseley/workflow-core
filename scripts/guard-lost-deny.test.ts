@@ -311,15 +311,15 @@ describe("whether the loss was worth a turn", () => {
 	});
 
 	it("counts only the tool calls worth chasing where the block mixes both", () => {
-		guardFile("guard-branch.js", true);
-		guardFile("guard-agent-poll.js", true);
+		guardFile("guard-issue-body.js", true);
+		guardFile("guard-suite-concurrency.js", true);
 		transcript([
-			fileCall("git worktree add /tmp/w", "toolu_A"),
-			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-branch.js" }),
-			fileCall("sleep 30", "toolu_B"),
+			fileCall("gh issue create --body x", "toolu_A"),
+			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-issue-body.js" }),
+			fileCall("npm test", "toolu_B"),
 			killed({
 				toolUseID: "toolu_B",
-				command: "$CLAUDE_PROJECT_DIR/scripts/guard-agent-poll.js",
+				command: "$CLAUDE_PROJECT_DIR/scripts/guard-suite-concurrency.js",
 			}),
 		]);
 

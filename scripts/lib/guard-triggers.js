@@ -46,7 +46,7 @@
 
 const { registeredGuards } = require("./guard-fires.js");
 const { cutAt } = require("./cut-at.js");
-const { requiredGroup } = require("./regex-group.js");
+const { globToRegExp, parseIfClause } = require("./if-clause.js");
 const { isDenyCapableIn } = require("./deny-capable.js");
 
 /** The hook event a deny can be issued on, and `triggerTable`'s default. */
@@ -82,45 +82,6 @@ const EVENTS = new Set(["PreToolUse", "PostToolUse"]);
  * @type {ReadonlySet<string>}
  */
 const SCOPES = new Set(["deny", "nondeny", "all"]);
-
-/**
- * A permission-rule glob as an anchored RegExp.
- *
- * `[\s\S]*` rather than `.*`: a Bash command is routinely multi-line, and `.`
- * stops at a newline, so `Bash(*npm *)` would miss `npm test` on line two.
- *
- * @param {string} glob
- * @returns {RegExp}
- */
-function globToRegExp(glob) {
-	const body = String(glob)
-		.split("*")
-		.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-		.join("[\\s\\S]*");
-	return new RegExp(`^${body}$`);
-}
-
-// One tool name, deliberately: `firesOn` compares the name literally, so an
-// alternation here would match no tool at all and silently narrow a
-// denominator to nothing. An unreadable clause marks the guard unknown.
-const IF_CLAUSE_RE = /^([A-Za-z]\w*)\(([\s\S]*)\)$/;
-
-/**
- * A settings.json `if` clause split into the tool it names and its glob.
- * `null` where it is not of the `Tool(pattern)` shape this file can read.
- *
- * @param {unknown} clause
- * @returns {{tool: string, glob: string} | null}
- */
-function parseIfClause(clause) {
-	if (typeof clause !== "string") return null;
-	const m = IF_CLAUSE_RE.exec(clause.trim());
-	if (!m) return null;
-	return {
-		tool: requiredGroup(m, 1, IF_CLAUSE_RE),
-		glob: requiredGroup(m, 2, IF_CLAUSE_RE),
-	};
-}
 
 /**
  * @typedef {object} Trigger

@@ -77,10 +77,11 @@
  *
  * THIS IS PRODUCTION'S INTERFACE (mantahostels#1967, deciding mantahostels#1959 option B; mantahostels#1994, which
  * cut the last five). An operation no production caller reaches THROUGH THIS
- * FILE — `renameAside`, `readRecord` and twenty-seven others, three of them
- * driven inside the families themselves — is reached at the family that defines
- * it, through the namespace arbiter-testkit.ts hands out. mantahostels#159's ask for tests
- * through the module's own interface is met there.
+ * FILE is reached at the family that defines it, through the namespace
+ * arbiter-testkit.ts hands out. mantahostels#159's ask for tests through the
+ * module's own interface is met there. A name no production code outside its
+ * own family takes is not exported at all, and its test drives a caller that is
+ * (base §G6, #3079).
  *
  * NO VERSION FIELD, AND NO STANDING LEGACY READ (#2162). A reader reads the
  * current record shape only. When a shape changes, scan this machine's state

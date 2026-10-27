@@ -130,7 +130,7 @@ const {
 const { walkAndCommit } = require("./lib/walk-and-commit.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
-const { ancestorsOf, readParentOf } = require("./lib/proc-stat.js");
+const { readAncestorsOf, readParentOf } = require("./lib/proc-stat.js");
 
 const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 
@@ -213,7 +213,7 @@ function readOwnPids(pid) {
 	const parentOf = (/** @type {number} */ at) => readParentOf(at, PROC());
 	const seen = new Set([
 		pid,
-		...ancestorsOf(Number(pid), { parentOf }).map(String),
+		...readAncestorsOf(Number(pid), { parentOf }).map(String),
 	]);
 	if (process.env.CLAUDE_PID) seen.add(String(process.env.CLAUDE_PID));
 	return seen;

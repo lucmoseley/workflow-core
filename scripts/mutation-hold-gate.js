@@ -120,6 +120,7 @@ const { shellWord } = require("./lib/dirty-tree.js");
 const { failOpenLogger } = require("./lib/fail-open-logger.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { readFileAt } = require("./lib/git-objects.js");
 const { parseHeader } = require("./lib/hunk-header.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { readRuleTextOr } = require("./lib/rule-text.js");
@@ -298,25 +299,26 @@ function isSkippedRoute(gitDir) {
 }
 
 /**
- * The text of the blob `spec` names, or null where its path is absent or its
- * revision an unborn HEAD.
- * @param {string} spec `<rev>:<path>`, an empty rev the index
+ * The text of `file` at `rev`, an empty `rev` the index, or null where its
+ * path is absent or its revision an unborn HEAD.
+ * @param {string} rev
+ * @param {string} file
  * @param {string} fault
  */
-function readBlobAt(spec, fault) {
-	try {
-		git(["rev-parse", "--verify", "--quiet", spec]);
-	} catch (e) {
-		// Exit 1 is an absent path or an unborn HEAD; anything else is a git
-		// that will not answer, and fails open, logged (#1871 §Faults).
-		if (caught(e).status !== 1)
-			throw new HoldFaultError(fault, {
-				detail: parseErrorFirstLine(e),
-				cause: e,
-			});
-		return null;
-	}
-	return gitOr(["show", spec], fault);
+const readFileOrFault = (rev, file, fault) =>
+	orFault(fault, () => readFileAt(rev, file, { timeout: GIT_TIMEOUT_MS })) ??
+	null;
+
+/**
+ * `file`'s staged text; a HoldFaultError where the index holds none.
+ * @param {string} file
+ */
+function readStagedFile(file) {
+	const fault = "could not read a staged file";
+	const text = readFileOrFault("", file, fault);
+	if (text === null)
+		throw new HoldFaultError(fault, { detail: `${file} is not in the index` });
+	return text;
 }
 
 /** @typedef {{root: string, text: string|null}} ConfigCopy */
@@ -332,8 +334,9 @@ function readBlobAt(spec, fault) {
 function configCopyAt(work, rev) {
 	const root = path.join(work, `root${rev}`);
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	const text = readBlobAt(
-		`${rev}:.claude/workflow-core.json`,
+	const text = readFileOrFault(
+		rev,
+		".claude/workflow-core.json",
 		"could not read .claude/workflow-core.json",
 	);
 	if (text !== null)
@@ -726,7 +729,7 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 	for (const file of hunks.keys()) {
 		let staged;
 		try {
-			staged = gitOr(["show", `:${file}`], "could not read a staged file");
+			staged = readStagedFile(file);
 		} catch (e) {
 			// Fails open for this file alone; Stryker still judges every file (#2727).
 			reportUnread(file, buildFaultText(e));
@@ -739,7 +742,11 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 			pieces: scriptsOf(file, staged),
 		});
 		try {
-			const head = readBlobAt(`HEAD:${file}`, "could not read a file at HEAD");
+			const head = readFileOrFault(
+				"HEAD",
+				file,
+				"could not read a file at HEAD",
+			);
 			if (head !== null)
 				entries.push({
 					id: `HEAD:${file}`,
@@ -1063,7 +1070,7 @@ function judgeFile(file, entry, rs) {
 			lines ??
 			(typeof entry.source === "string"
 				? entry.source
-				: gitOr(["show", `:${file}`], "could not read a staged file")
+				: readStagedFile(file)
 			).split("\n");
 		lines = got;
 		return got;
@@ -1209,7 +1216,7 @@ function refuse(body) {
 function readRuleOrPointer() {
 	return readRuleTextOr(
 		"mutation-hold",
-		"  A commit changing a line on a declared sensitive path is held while a planted bug on that line survives every test.",
+		"  A commit changing a line on a declared sensitive path is held while a planted bug on that line survives every test",
 		"mutation-hold-gate",
 	);
 }

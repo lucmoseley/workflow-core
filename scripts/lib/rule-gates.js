@@ -7,11 +7,9 @@
  * the call there to leave the ids out of the budget of a host with the module
  * off.
  *
- * landingTwin takes its id literally too, handed straight to the accessor
- * with a bare-named ctx: check-guard-registry.js reads that call as printing
- * both the id and its `-landing` twin. Its ctx is the kit's, or one holding
- * workflow-core-config.js's moduleReader, so a config fault reads as off and
- * the twin choice never throws.
+ * landingTwin's ctx is the kit's, or one holding workflow-core-config.js's
+ * moduleReader, so a config fault reads as off and the twin choice never
+ * throws.
  */
 
 /** @typedef {import("./workflow-core-config.js").Module} Module */

@@ -30,17 +30,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCore } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
-
-/* CommonJS, hence the require. */
-const { decide } = require("./wide-read.js") as {
-	decide: (
-		subject: string,
-		ctx: object,
-	) => { context?: string; deny?: string } | null;
-};
-const { buildHostPorts } = require("./wide-read-host.js") as {
-	buildHostPorts: () => object;
-};
+import { decide } from "./wide-read.js";
+import { buildHostPorts } from "./wide-read-host.js";
 
 /** Thresholds the fixtures are sized against, passed to the core as its own. */
 const WIDE_BYTES = 1000;
@@ -105,7 +96,10 @@ function run(
 		...buildHostPorts(),
 	});
 	const d = decide(command, ctx);
-	return { warning: d?.context ?? null, denied: !!d && "deny" in d };
+	return {
+		warning: d && "context" in d ? d.context : null,
+		denied: !!d && "deny" in d,
+	};
 }
 
 /** The core on a `Read` payload through the dispatcher: the file, and

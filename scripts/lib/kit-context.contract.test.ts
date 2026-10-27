@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The KitContext contract (§G7, #3018): kit-context-fake.ts's
- * kitContextFake against lib/guard-entry.js's kitContext, the context `run`
+ * kitContextFake against lib/kit-context.js's kitContext, the context `run`
  * and the dispatcher build for every core. A fake drifted from the kit lets every core's module
  * cases pass against a context production never builds.
  *
@@ -13,12 +13,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import type { KitContext } from "./guard-entry.js";
+import type { KitContext } from "./kit-context.js";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text.js";
 
 const { kitContext, sharedReaders } =
-	require("./guard-entry.js") as typeof import("./guard-entry.js");
+	require("./kit-context.js") as typeof import("./kit-context.js");
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "kit-contract-"));
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));

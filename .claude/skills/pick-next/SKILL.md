@@ -44,17 +44,10 @@ One JSON object per line, not an array.
 - **"drain #X"** — #X's open descendants, transitively, via `parent_issue_url`.
   Never walk `/sub_issues`: one call per issue, and its `per_page=30` default
   silently truncates a long child list.
-- **"unblock #X"** — #X plus its open blockers, transitively, from
-  `gh api repos/<owner>/<repo>/issues/<n>/dependencies/blocked_by`, each step
-  read in the repo its blocker's `repository_url` names, so the walk crosses
-  into other repos (#2427).
-  **"Takeable" has two readings and they give different answers**: an **empty**
-  `blocked_by` list, or **every entry in it closed**. GitHub does not prune the
-  list on close, so an empty-list test silently calls blocked those issues whose
-  blockers have all closed. Membership moves with the choice, not just the
-  total — so never quote a takeable or candidate count without saying which
-  reading produced it, and re-derive rather than copying a prior sweep's number
-  (mantahostels#536, the one sweep on record).
+- **"unblock #X"** — #X alone. The script passes goal-set membership to every
+  issue holding #X out, through blockers and parents and across repos, and
+  marks each such row `via` in the GOAL column (#3222). A child holds its
+  parent, so #X's open descendants take it too, as "drain #X" would.
 - **"clear Phase 0"** and other roadmap-phase goals **resolve thin, and you
   should say so rather than look broken.** Only a handful of open issues carry a
   real `<card-id> — ` title prefix. Name the ones that matched and state that the
@@ -108,8 +101,10 @@ report leaves the previous one untouched.
 `--json` prints that same report. The sort levels, in order:
 open `bug` → `urgent`, the issue's own or an ancestor map's (#2664) → goal-set membership → a `waiting:external` stall past 7 days →
 ticket type (`wayfinder:grilling`, `wayfinder:prototype` and untyped
-`takes:wayfinder` first, #2001) → transitive downstream reach → collision
-estimate → issue number.
+`takes:wayfinder` first, #2001) → chain depth → transitive downstream reach →
+collision estimate → issue number. The first three pass to an issue from
+anything it holds out, so a blocker ranks with the urgent issue it holds
+(#3222); DEPTH is the longest chain to that tier.
 
 The **TAKES** column is which command opens that issue (the values:
 `docs/agents/triage-labels.md` §`takes:`). It is no filter, and a sort input

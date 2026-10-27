@@ -159,17 +159,12 @@ const DIRECT_RULE_RE =
 /**
  * The Node accessors' direct call, the id a quoted literal first, split across
  * lines as Biome formats it: `readRuleText`, `readRuleTextOr`, and `ruleText`,
- * a core's injected port onto readRuleText (lib/guard-entry.js) (#2905).
+ * a core's injected port onto readRuleText (lib/guard-entry.js) (#2905); and
+ * lib/guard-verdict.js's `ruleOrFallback`, the id second after the core's
+ * context (#3146).
  */
 const NODE_DIRECT_RULE_RE =
-	/\b(?:readRuleText|readRuleTextOr|ruleText)\(\s*["']([a-z0-9-]+)["']\s*[),]/g;
-/**
- * A Node accessor handed lib/rule-gates.js's landingTwin, which picks `x` or
- * its `x-landing` twin by the host's `landing` module: the call reads as
- * fetching both.
- */
-const NODE_LANDING_TWIN_RE =
-	/\b(?:readRuleText|readRuleTextOr|ruleText)\(\s*landingTwin\(\s*[^,()]+,\s*["']([a-z0-9-]+)["']\s*,?\s*\)/g;
+	/\b(?:(?:readRuleText|readRuleTextOr|ruleText)\(|ruleOrFallback\(\s*[\w.]+\s*,)\s*["']([a-z0-9-]+)["']\s*[),]/g;
 
 /**
  * The bound on a direct call: a Node core's `ctx.told("<id>")`, which asks
@@ -390,8 +385,8 @@ function gatedOffIds(text, root) {
 
 /**
  * Every DIRECT accessor call in one source, shell and Node spellings alike, as
- * the id it fetches and where the call starts; a landingTwin call yields both
- * twins at one index. Shared with scripts/check-guard-registry.js.
+ * the id it fetches and where the call starts. Shared with
+ * scripts/check-guard-registry.js.
  *
  * @param {string} text
  * @returns {{ id: string, index: number }[]}
@@ -404,11 +399,6 @@ function directAccessorCalls(text) {
 			const id = m[1] ?? m[2] ?? m[3];
 			if (id) calls.push({ id, index: m.index ?? 0 });
 		}
-	for (const m of text.matchAll(NODE_LANDING_TWIN_RE)) {
-		const id = requiredGroup(m, 1, NODE_LANDING_TWIN_RE);
-		const index = m.index ?? 0;
-		calls.push({ id, index }, { id: `${id}-landing`, index });
-	}
 	return calls;
 }
 
@@ -562,7 +552,7 @@ function nodeCarriers(text, bindings, id) {
 
 /**
  * The object literal around each `latchAfter: "<id>"` mark: the nearest `{`
- * before it whose closing brace falls after it.
+ * before it whose closing brace falls after it, never an outer one.
  *
  * @param {string} text
  * @param {string} id
@@ -598,8 +588,13 @@ function latchedLiterals(text, id) {
  * decision's literal, a carrier's own value and a declaration. Names are not
  * scoped, so a local sharing a carrier's name counts too — the safe direction.
  *
- * RESIDUAL: a latch spread in on one branch, `...(c ? { latchAfter } : {})`,
- * covers its whole literal, so the branch without it reads as latched.
+ * A mark covers only the innermost literal holding it, so a latch spread in on
+ * one branch, `...(c ? { latchAfter } : {})`, leaves a fetch in the outer
+ * literal an unlatched spend (#3148).
+ *
+ * RESIDUAL: a conditional that clears an unconditional mark,
+ * `{ latchAfter: "<id>", ...(c ? { latchAfter: undefined } : {}) }`, still
+ * reads as latched on its clearing branch. No core writes that shape.
  *
  * @param {string} text the guard's effective source, comments blanked
  * @param {string} id

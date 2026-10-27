@@ -249,7 +249,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"git-fixture-identity": ["scripts/check-git-fixture-identity.js"],
 	"host-root": ["scripts/check-host-root.js"],
 	"test-read-edges": ["scripts/generate-test-read-edges.js"],
-	"rule-fragments": ["scripts/generate-rule-fragments.js"],
+	"rule-fragments": ["scripts/generate-rule-fragments.js", ".husky/pre-commit"],
 	"website-copy": ["scripts/check-website-copy.js"],
 	"skill-body-size": ["scripts/check-skill-body-size.js"],
 	"skill-frontmatter": ["scripts/check-skill-frontmatter.js"],
@@ -348,6 +348,7 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/lib/commit-key.js": [null, null],
 	"scripts/lib/isolated-worktree.js": ["test"],
 	"scripts/lib/serialised.sh": ["shellcheck"],
+	"scripts/generate-rule-fragments.js": [null, "rule-fragments"],
 };
 /** The hook's inline `pre-commit:` heads that refuse nothing. */
 const HOOK_NOTICES = [

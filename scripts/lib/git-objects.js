@@ -1,12 +1,13 @@
 /*
  * git-objects.js — `git ls-tree` and `git cat-file --batch`, read into entries
- * and bodies, a failure thrown BROKEN. No load-time side effects, so a program
+ * and bodies, and one file's text at a revision, a failure thrown BROKEN. No load-time side effects, so a program
  * on a suite launch's path can require it (#2493).
  */
 
 const { spawnGitSync } = require("./git.js");
 const { CHILD_MAX_BUFFER: MAX_BUFFER } = require("./child-buffer.js");
 const { brokenError } = require("./outcome-error.js");
+const { GIT_MODE } = require("./git-mode.js");
 
 /**
  * Each object out of one `git cat-file --batch`, in the order asked: its type
@@ -119,4 +120,73 @@ function listTree(rev, pathspecs, { cwd, recursive = true, timeout } = {}) {
 	return entries;
 }
 
-module.exports = { readObjectBatch, listTree };
+/**
+ * Whether `rev`, an empty `rev` the index, holds a submodule at `file`: its
+ * commit is another repository's, which cat-file reports missing.
+ *
+ * @param {string} rev
+ * @param {string} file
+ * @param {string} [cwd]
+ * @param {number} [timeout]
+ */
+function isGitlink(rev, file, cwd, timeout) {
+	if (rev !== "")
+		return listTree(rev, [file], { cwd, recursive: false, timeout }).some(
+			(e) => e.mode === GIT_MODE.gitlink,
+		);
+	const staged = spawnGitSync(["ls-files", "-s", "-z", "--", file], {
+		cwd,
+		encoding: "utf8",
+		timeout,
+	});
+	if (staged.error || staged.status !== 0)
+		throw brokenError(
+			`git ls-files failed while reading ${file} in the index: ` +
+				`${String(staged.stderr ?? "").trim() || staged.error?.message}`,
+		);
+	return staged.stdout.startsWith(`${GIT_MODE.gitlink} `);
+}
+
+/**
+ * The text of repo-relative `file` as `rev` holds it, an empty `rev` the
+ * index: null where it holds no such path, undefined where `rev` names no
+ * commit (an unborn HEAD included). Throws BROKEN where the path holds no
+ * file or git will not answer.
+ *
+ * @param {string} rev
+ * @param {string} file
+ * @param {{ cwd?: string, timeout?: number }} [opts]
+ * @returns {string|null|undefined}
+ */
+function readFileAt(rev, file, { cwd, timeout } = {}) {
+	const at = rev === "" ? "the index" : rev;
+	const commit = rev === "" ? [] : [`${rev}^{commit}`];
+	const objects = readObjectBatch(
+		[...commit, `${rev}:${file}`],
+		`${file} at ${at}`,
+		{ cwd, timeout },
+	);
+	if (objects[0] === null && commit.length > 0) return;
+	const blob = objects.at(-1);
+	if (blob ? blob.type !== "blob" : isGitlink(rev, file, cwd, timeout))
+		throw brokenError(`${file} at ${at} is not a file`);
+	if (!blob) return null;
+	return blob.body.toString("utf8");
+}
+
+/**
+ * readFileAt, where `rev` must name a commit: throws BROKEN where it names
+ * none, an unborn HEAD included.
+ *
+ * @param {string} rev
+ * @param {string} file
+ * @param {{ cwd?: string, timeout?: number }} [opts]
+ * @returns {string|null}
+ */
+function readCommittedFile(rev, file, opts) {
+	const text = readFileAt(rev, file, opts);
+	if (text === undefined) throw brokenError(`${rev} names no commit`);
+	return text;
+}
+
+module.exports = { readObjectBatch, listTree, readFileAt, readCommittedFile };

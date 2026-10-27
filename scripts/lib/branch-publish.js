@@ -76,7 +76,7 @@
  * logs nothing: an unreadable fragment is check-guard-registry.js's assertion.
  */
 
-const { denyText, ruleOr } = require("./guard-verdict.js");
+const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const {
@@ -98,16 +98,6 @@ const { carriesVar, ghWords, literal, scanFlags } = require("./shell-words.js");
  *   splice, and the segment, masked
  */
 
-/* The rules where the store cannot give them, which still refuse. */
-const PUBLISH_RULE_FALLBACK =
-	"Work lands on `main` directly — no branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish.txt. Read that file before doing anything else.";
-const LANDING_PUBLISH_RULE_FALLBACK =
-	"Work lands through `landing` — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Read that file before doing anything else.";
-const LANDING_REWIND_RULE_FALLBACK =
-	"Never force-push or delete `landing`; the rule could not be read from docs/agents/rules/landing-rewind.txt. Read that file before doing anything else.";
-const DEPENDABOT_RULE_FALLBACK =
-	"Never merge a Dependabot pull request — take its fix locally and commit it direct to `main`; the rule could not be read from docs/agents/rules/dependabot-merge.txt. Read that file before doing anything else.";
-
 /** `gh pr merge`'s value-taking flags, from `gh pr merge --help` on gh 2.95.0. */
 const MERGE_VALUE_FLAGS =
 	"-b --body -F --body-file -t --subject -A --author-email --match-head-commit -R --repo";
@@ -128,11 +118,16 @@ const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 /** @param {BranchPublishContext} ctx */
 const publishRule = (ctx) =>
 	ctx.moduleOn("landing")
-		? ruleOr(
-				() => ctx.ruleText("branch-publish-landing"),
-				LANDING_PUBLISH_RULE_FALLBACK,
+		? ruleOrFallback(
+				ctx,
+				"branch-publish-landing",
+				"Work lands through `landing` — never a push to `main`, no other branch on the remote, and never a pull request",
 			)
-		: ruleOr(() => ctx.ruleText("branch-publish"), PUBLISH_RULE_FALLBACK);
+		: ruleOrFallback(
+				ctx,
+				"branch-publish",
+				"Work lands on `main` directly — no branch on the remote, and never a pull request",
+			);
 
 /**
  * @param {BranchPublishContext} ctx
@@ -152,7 +147,7 @@ const refuse = (ctx, what, segment) => ({
  * @returns {Refusal}
  */
 const mainRewind = (ctx, what, segment) => ({
-	reason: rewindReason(what, () => ctx.ruleText("main-rewind")),
+	reason: rewindReason(ctx, what),
 	segment,
 });
 
@@ -163,7 +158,7 @@ const mainRewind = (ctx, what, segment) => ({
  * @returns {Refusal}
  */
 const landingRewind = (ctx, what, segment) => ({
-	reason: `This ${what}: @CMD@\n\n${ruleOr(() => ctx.ruleText("landing-rewind"), LANDING_REWIND_RULE_FALLBACK)}`,
+	reason: `This ${what}: @CMD@\n\n${ruleOrFallback(ctx, "landing-rewind", "Never force-push or delete `landing`")}`,
 	segment,
 });
 
@@ -173,7 +168,7 @@ const landingRewind = (ctx, what, segment) => ({
  * @returns {Refusal}
  */
 const dependabotMerge = (ctx, segment) => ({
-	reason: `This merges a Dependabot pull request: @CMD@\n\n${ruleOr(() => ctx.ruleText("dependabot-merge"), DEPENDABOT_RULE_FALLBACK)}`,
+	reason: `This merges a Dependabot pull request: @CMD@\n\n${ruleOrFallback(ctx, "dependabot-merge", "Never merge a Dependabot pull request — take its fix locally and commit it direct to `main`")}`,
 	segment,
 });
 

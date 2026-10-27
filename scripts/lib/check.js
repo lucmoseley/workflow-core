@@ -18,19 +18,13 @@
  *   SUBJECT    what the checker is ASKING ABOUT is unavailable — GitHub is
  *              down, the gitignored data/ corpus is absent => SKIP. These have
  *              a real base rate, and gating on them teaches the reader to
- *              ignore the gate, which is the whole reason SKIP exists.
+ *              ignore the gate.
  *   APPARATUS  what the checker READS THE REPO WITH failed — fs will not read a
  *              tracked file, git will not enumerate the tracked set => BROKEN.
- *              Base rate ~0, so gating costs nothing and buys a gate that never
- *              goes green over scope it never looked at.
  *
  * lib/gh.js already runs on exactly this split and is the model generalised
  * here: parseGhFailureReason() sends an unreachable GitHub (subject) to SKIP and
  * every other gh failure (apparatus) to BROKEN.
- *
- * The earlier form of this rule read "outside the repo => SKIP", which put a
- * failed `git ls-files` — the checker's own reading apparatus — on the same
- * footing as a network outage, so a hard CI gate went GREEN when git broke.
  *
  * Severity is intrinsic to a finding, assigned by the checker that raises it;
  * the outcome is the worst severity present. --warn is a caller-side CAP, not a
@@ -44,8 +38,7 @@
  * read at all.
  *
  * --against <rev>. THE ONE CONVENTION FOR JUDGING THE COMMIT RATHER THAN THE
- * WORKING TREE (mantahostels#1801, which settled it; mantahostels#1833, which built it; mantahostels#1834, which
- * added the second materialisation). A checker that direction-gates declares
+ * WORKING TREE (mantahostels#1801). A checker that direction-gates declares
  * `against` in its spec; runCheck then does the whole job for it:
  *
  *   1. materialise the INDEX as a tree and re-exec ITSELF over it
@@ -81,12 +74,11 @@
  * FAIL-CLOSED ON THE BASELINE. A <rev> reading that cannot answer —
  * unreadable, unparseable, BROKEN or SKIP — is BROKEN here, never "inherited",
  * which is the answer that would pass the commit. The INDEX side is the
- * exception and deliberately: its SKIP is mantahostels#155's alphabet, "the subject is
- * unavailable", and gating on that is what teaches a reader to ignore the gate.
+ * exception and deliberately: its SKIP is a SUBJECT skip, above.
  */
 
 const { spawnSync } = require("node:child_process");
-const { spawnGitSync } = require("./git.js");
+const { gitReader, spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -98,7 +90,7 @@ const { persisting } = require("./persist-mode.js");
 const { fromEnv: sessionFromEnv } = require("./session-id.js");
 const { ENVELOPE_FRAME_KEYS } = require("./envelope-frame-keys.js");
 const { isUnder } = require("./is-under.js");
-const { isCommit } = require("./commit-sha.js");
+const { readCommit } = require("./commit-sha.js");
 const { GIT_MODE } = require("./git-mode.js");
 const {
 	brokenError,
@@ -178,9 +170,7 @@ let openedKey = null;
 /*
  * The cap on every child-process stream an `--against` run reads, and on the
  * one exported use in check-context-budget.js: lib/child-buffer.js's, whose
- * header carries the derivation (#1440). lib/gh.js sits at 256 MB instead,
- * sized off the tracker (mantahostels#2466); this one is sized off a child-process
- * stream. Per-stream measurements: mantahostels#1940.
+ * header carries the derivation (#1440). Per-stream measurements: mantahostels#1940.
  *
  * Exceeding it is not silent HERE. spawnSync sets `error` to ENOBUFS with a
  * status of 0, so a caller testing only the status would read a truncated
@@ -216,8 +206,9 @@ const OUTCOMES = {
  *   pathspecs?: (ctx: CheckContext, rev: string) => string[],
  *   baseline?: "lazy" | "always",
  *   refuse?: (ctx: CheckContext) => void,
- *   settle?: (ctx: CheckContext, added: FaultItem[]) => { refuse: FaultItem[], remedy: string[] },
- * }} AgainstSpec
+ *   settle?: (ctx: CheckContext, added: FaultItem[]) => { refuse: FaultItem[], remedy: string[], data?: object },
+ * }} AgainstSpec `settle`'s `data` joins the --json envelope, under the
+ *   envelope's own keys
  * @typedef {{
  *   name: string,
  *   usage: string,
@@ -540,9 +531,22 @@ function unborn() {
  * @param {string} rev
  */
 function baselineOf(rev) {
-	return rev === "HEAD" && !isCommit(process.cwd(), rev) && unborn()
-		? EMPTY_TREE
-		: rev;
+	if (rev !== "HEAD") return rev;
+	return readCommitOrBroken(rev) === null && unborn() ? EMPTY_TREE : rev;
+}
+
+/**
+ * The full sha `rev` names, or null where it names none; a git that will not
+ * answer is BROKEN, never "no commit" (#3068).
+ *
+ * @param {string} rev
+ * @param {string} [root]
+ * @returns {string | null}
+ */
+function readCommitOrBroken(rev, root) {
+	const r = readCommit(gitReader(root), rev);
+	if (!r.ok) throw brokenError(`git would not resolve ${rev}: ${r.why}`);
+	return r.sha;
 }
 
 /**
@@ -873,7 +877,11 @@ function runAgainst(spec, ctx) {
 	/* The checker's own last word on what it adds, run in the PARENT, where the
 	 * live tree and the session's claims are readable: the exemptions only it
 	 * can judge, and the way out it owes the refusal. */
-	const { refuse, remedy } = against.settle?.(ctx, added) ?? {
+	const {
+		refuse,
+		remedy,
+		data: settled,
+	} = against.settle?.(ctx, added) ?? {
 		refuse: added,
 		remedy: [],
 	};
@@ -890,6 +898,7 @@ function runAgainst(spec, ctx) {
 		okLine: `no gating fault in ${head ?? "the index"} that ${rev} does not already carry.`,
 		noun: refuse.length > 0 ? `fault(s) ${judged} adds` : "inherited fault(s)",
 		data: {
+			...settled,
 			against: rev,
 			added: refuse.map((f) => f.line),
 			inherited,
@@ -1705,6 +1714,7 @@ module.exports = {
 	indexTree,
 	extractTree,
 	baselineOf,
+	readCommitOrBroken,
 	isBaselineSide,
 	againstRevs,
 };

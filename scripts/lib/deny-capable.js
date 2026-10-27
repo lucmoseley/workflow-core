@@ -122,7 +122,7 @@ function guardDirs(core, host) {
  * The name comes off a hook command or a transcript record, so it is never
  * trusted as a path: anything but a bare filename resolves nowhere.
  *
- * @param {string} name a guard's basename, e.g. `guard-branch.js`
+ * @param {string} name a guard's basename, e.g. `guard-pull-form.js`
  * @param {string[]} dirs searched in order
  * @returns {string | null}
  */

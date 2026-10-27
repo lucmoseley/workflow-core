@@ -14,7 +14,7 @@
  * cli-args-exempt: a git hook's helper taking two positionals; parseOrExit's
  * exit 2 on an unknown flag would refuse the commit on a usage error.
  *
- * WHY A SECOND DETECTOR (#138). guard-commit-form.js denies the same pattern,
+ * WHY A SECOND DETECTOR (#138). The guard-commit-form core denies the same pattern,
  * but it is a PreToolUse hook on the Bash tool and reads `-m`/`--message`
  * values alone. Four routes reach GitHub past it: `git commit -F <file>`, a
  * message reused with `-c`/`-C`, a message typed into $EDITOR, and any commit
@@ -23,8 +23,8 @@
  * shared with that guard so the two cannot drift.
  *
  * WHAT IS STRIPPED BEFORE MATCHING, and why each would otherwise fire:
- *   - git's commentary, through lib/commit-message.js: `#` lines and the
- *     `--verbose` diff below the scissors line.
+ *   - git's commentary, through lib/commit-message.js: `#` lines where git
+ *     drops them, and the `--verbose` diff below the scissors line.
  *   - a `Revert "…"` line: `git revert` of a pre-#129 commit generates `Revert
  *     "Fixes #77 …"` verbatim, and refusing there strands a revert behind a
  *     message nobody wrote (measured at #138).
@@ -35,13 +35,13 @@
 
 const fs = require("node:fs");
 const { closingMatch, closingRefusal } = require("./lib/closing-keyword.js");
-const { strippedLines } = require("./lib/commit-message.js");
+const { recordedLines } = require("./lib/commit-message.js");
 
 /**
  * @param {string} raw the message file's text
  */
 function messageText(raw) {
-	return strippedLines(raw)
+	return recordedLines(raw)
 		.filter((line) => !line.startsWith('Revert "'))
 		.join("\n");
 }

@@ -110,9 +110,11 @@ or from the main session.
 - **Text this change added** — apply the cuts.
 - **Pre-existing text has tenure** — it survived an earlier pass, so cutting it
   takes evidence — **and is never cut in the pass that surfaced it** (mantahostels#2677).
-  Two dispositions, and no third: **refuse** it where tenure plainly holds,
-  quoting the evidence; otherwise **file** it, one issue per pass carrying all
-  of that pass's filed findings. Cutting, compressing and
+  Three dispositions, and no fourth: **refuse** it where tenure plainly holds,
+  quoting the evidence; **drop** it where its cut is under 25 words and leaves
+  no reader wrong, naming it in the pass's commit message (§3 surfaces it again
+  on the next pass over that file, #3234); otherwise **file** it, one issue per
+  pass carrying all of that pass's filed findings. Cutting, compressing and
   relocating are the draining session's to do, on the ticket.
 
 Clearing tenure is the draining session's job; run it here only to decide
@@ -186,7 +188,7 @@ A refusal goes in the commit message beside the cuts it accompanied.
 
 Done when: every finding against text this change added is applied, relocated,
 or refused with quoted evidence — and every pre-existing finding is filed,
-marked in place, or refused with quoted evidence, none of them cut here.
+dropped, marked in place, or refused with quoted evidence, none of them cut here.
 
 ## 5. Verify mechanically, not by eye
 

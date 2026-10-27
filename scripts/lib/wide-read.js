@@ -106,7 +106,7 @@ const { isGlobPattern, literal } = require("./shell-words.js");
  *   file cannot be read
  * @property {(lit: string, cwd: string) => string[]} glob an unquoted word's
  *   expansion under nullglob, absolute
- * @typedef {import("./guard-entry.js").KitContext
+ * @typedef {import("./kit-context.js").KitContext
  *   & Pick<import("./guard-dispatch.js").CorePorts, "env">
  *   & WideReadPorts} WideReadContext
  * @typedef {{ bytes: number, lines: number, matches: number, readBytes: number,

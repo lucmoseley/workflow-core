@@ -10,7 +10,7 @@ const { repoRoot } = require("./test-pass-marker.js");
 const { readConfig } = require("./workflow-core-config.js");
 
 /**
- * @param {import("./guard-entry.js").PortEnv} env
+ * @param {import("./kit-context.js").PortEnv} env
  * @returns {import("./lost-verdict.js").VerdictPorts}
  */
 function buildHostPorts({ root, payload, log }) {

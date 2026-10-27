@@ -143,3 +143,92 @@ describe("listTree and readObjectBatch, run in a caller's directory (#2382)", ()
 		}
 	});
 });
+
+describe("readFileAt — one file's text at a revision or in the index (#3139)", () => {
+	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
+	const lib: any = createRequire(__filename)("./git-objects.js");
+	const { isOutcomeError } = createRequire(__filename)("./outcome-error.js");
+
+	let root: string;
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: root, stdio: "ignore" });
+	beforeAll(() => {
+		root = fs.mkdtempSync(path.join(os.tmpdir(), "check-lib-file-at-"));
+		git("init", "-q", ".");
+		fs.mkdirSync(path.join(root, "dir"));
+		fs.writeFileSync(path.join(root, "dir", "f"), "committed\n");
+		git("add", "-A");
+		git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "c");
+		fs.writeFileSync(path.join(root, "dir", "f"), "staged\n");
+		git("add", "dir/f");
+	});
+	afterAll(() => {
+		fs.rmSync(root, { recursive: true, force: true });
+	});
+
+	it("reads the committed text at a revision and the staged text from the index", () => {
+		expect(lib.readFileAt("HEAD", "dir/f", { cwd: root })).toBe("committed\n");
+		expect(lib.readFileAt("", "dir/f", { cwd: root })).toBe("staged\n");
+	});
+
+	it("answers null where the path is absent, at a revision and in the index", () => {
+		expect(lib.readFileAt("HEAD", "gone", { cwd: root })).toBeNull();
+		expect(lib.readFileAt("", "gone", { cwd: root })).toBeNull();
+	});
+
+	it("answers undefined where the revision names no commit, an unborn HEAD included", () => {
+		expect(
+			lib.readFileAt("no-such-rev", "dir/f", { cwd: root }),
+		).toBeUndefined();
+		const unborn = fs.mkdtempSync(path.join(os.tmpdir(), "check-lib-unborn-"));
+		try {
+			execFileSync("git", ["init", "-q", "."], { cwd: unborn });
+			expect(lib.readFileAt("HEAD", "f", { cwd: unborn })).toBeUndefined();
+		} finally {
+			fs.rmSync(unborn, { recursive: true, force: true });
+		}
+	});
+
+	it("throws BROKEN through readCommittedFile where the revision names no commit, null still for an absent path", () => {
+		let thrown: unknown;
+		try {
+			lib.readCommittedFile("no-such-rev", "dir/f", { cwd: root });
+		} catch (e) {
+			thrown = e;
+		}
+		expect(isOutcomeError(thrown)).toBe(true);
+		expect((thrown as Error).message).toBe("no-such-rev names no commit");
+		expect(lib.readCommittedFile("HEAD", "gone", { cwd: root })).toBeNull();
+	});
+
+	it("throws BROKEN where a revision or the index holds a submodule at the path", () => {
+		const sha = execFileSync("git", ["rev-parse", "HEAD"], {
+			cwd: root,
+			encoding: "utf8",
+		}).trim();
+		git("update-index", "--add", "--cacheinfo", `160000,${sha},sub`);
+		try {
+			expect(() => lib.readFileAt("", "sub", { cwd: root })).toThrow(
+				"sub at the index is not a file",
+			);
+			git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "s");
+			expect(() => lib.readFileAt("HEAD", "sub", { cwd: root })).toThrow(
+				"sub at HEAD is not a file",
+			);
+		} finally {
+			git("reset", "-q", "--soft", sha);
+			git("rm", "-q", "--cached", "sub");
+		}
+	});
+
+	it("throws BROKEN where the path holds no file", () => {
+		let thrown: unknown;
+		try {
+			lib.readFileAt("HEAD", "dir", { cwd: root });
+		} catch (e) {
+			thrown = e;
+		}
+		expect(isOutcomeError(thrown)).toBe(true);
+		expect((thrown as Error).message).toBe("dir at HEAD is not a file");
+	});
+});

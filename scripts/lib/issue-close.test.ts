@@ -4,7 +4,8 @@
  * denies a close that says nothing about what is still outstanding
  * (mantahostels#185), a hand close of a roadmap card's own issue
  * (mantahostels#220), a completed close over unticked acceptance criteria
- * (#1640), and one over census rows the ticket's commits expired (#1913).
+ * (#1640), one over census rows the ticket's commits expired (#1913), and one
+ * whose commits are unpushed (#3101).
  *
  * A deny is only defensible while it cannot wedge sanctioned work, so every
  * allow-case below is a shape that would otherwise be a false positive — a
@@ -28,7 +29,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	type GhAnswer,
 	GRAPHQL_FAKE,
@@ -37,6 +38,7 @@ import {
 	ghFake,
 	ghServe,
 } from "./gh-fake";
+import { hexShaCommit } from "./hex-sha-fixture";
 import { kitContextFake } from "./kit-context-fake";
 import { readRuleText } from "./rule-text";
 
@@ -47,6 +49,11 @@ const { decide } = require("./issue-close.js") as {
 const { buildHostPorts } = require("./issue-close-host.js") as {
 	buildHostPorts: (env: object) => Record<string, unknown> & {
 		census: (n: number, ms: number) => unknown;
+		landing: (
+			n: number,
+			comment: string,
+			ms: number,
+		) => { refusal: string } | { outOfBudget: true };
 	};
 };
 
@@ -216,6 +223,19 @@ beforeEach(() => {
 	fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
 	// The tracker a bare `#N` on an Outstanding line resolves to.
 	writeTracker({ tracker: "acme/tracker" });
+	// A host is a checkout with a pushed ref: the landing read faults without one (#3101).
+	for (const args of [
+		["init", "-q"],
+		["commit", "-q", "--allow-empty", "-m", "seed"],
+		["update-ref", "refs/remotes/origin/main", "HEAD"],
+	])
+		execFileSync(
+			"git",
+			["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+			{
+				cwd: shared,
+			},
+		);
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
@@ -731,12 +751,12 @@ describe("the census rows it reads", () => {
 		fs.writeFileSync(path.join(shared, guardRel), body);
 		git("add", "-A");
 		git("commit", "-qm", message);
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
 	};
 	const reword = () =>
 		commit("#!/bin/sh\necho rule one, reworded\n", "Reword the guard (#12)");
 
 	beforeEach(() => {
-		git("init", "-q");
 		fs.mkdirSync(path.join(shared, "scripts"));
 		commit("#!/bin/sh\necho rule one\n", "seed");
 		fs.writeFileSync(
@@ -762,6 +782,34 @@ describe("the census rows it reads", () => {
 		);
 		expect(reason).toContain('--reason "not planned"');
 		expect(faults).toEqual([]);
+	});
+
+	it("denies a close whose commit changed only the core a measured wrapper composes (#3129)", () => {
+		const wrapper = "scripts/guard-three.js";
+		const core = path.join(shared, "scripts/lib/three.js");
+		fs.mkdirSync(path.dirname(core));
+		fs.writeFileSync(
+			path.join(shared, wrapper),
+			'const { decide } = require("./lib/three.js");\n',
+		);
+		fs.writeFileSync(core, "module.exports = { decide: () => null };\n");
+		fs.writeFileSync(
+			path.join(shared, "scripts/instruction-surface-anchors.json"),
+			JSON.stringify({
+				guards: { [wrapper]: { digest: digestOf(shared, wrapper) } },
+			}),
+		);
+		git("add", "-A");
+		git("commit", "-qm", "anchor the wrapper");
+		fs.writeFileSync(
+			core,
+			'module.exports = { decide: () => ({ deny: "no" }) };\n',
+		);
+		git("commit", "-qam", "Deny in the core (#12)");
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		expect(readDenyReason("gh issue close 12", lined)).toContain(
+			`  ${wrapper}\n`,
+		);
 	});
 
 	it("allows a close whose --comment carries a Census line", () => {
@@ -838,6 +886,129 @@ describe("the census rows it reads", () => {
 		expect(faults).toEqual([
 			"could not read #12's newest comment for a Census line — census rows unchecked",
 			"could not read #12 — acceptance criteria unchecked",
+		]);
+	});
+});
+
+describe("the commits the pushed ref lacks (#3101)", () => {
+	const lined = newest("Done.\n**Outstanding:** none.");
+	const git = (...args: string[]) =>
+		execFileSync(
+			"git",
+			["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+			{ cwd: shared },
+		);
+	const commit = (message: string) => {
+		fs.appendFileSync(path.join(shared, "a.txt"), `${message}\n`);
+		git("add", "-A");
+		git("commit", "-qm", message);
+	};
+	const push = () => git("update-ref", "refs/remotes/origin/landing", "HEAD");
+
+	beforeEach(() => {
+		vi.stubEnv("WFC_MODULES", undefined);
+		writeTracker({ tracker: "acme/tracker", modules: ["landing"] });
+		push();
+		commit("Fix the stop (#12)");
+	});
+	afterEach(() => vi.unstubAllEnvs());
+
+	it("denies a close whose commit is unpushed, naming it and the escape", () => {
+		const reason = readDenyReason("gh issue close 12", lined);
+		expect(reason).toContain(
+			"This close reports work that has not landed: gh issue close 12\n\n#12's commit is not on origin/landing",
+		);
+		expect(reason).toContain(" Fix the stop (#12)\n");
+		expect(reason).toContain("**Unlanded:**");
+		expect(faults).toEqual([]);
+	});
+
+	it("allows it once pushed", () => {
+		push();
+		expect(verdict("gh issue close 12", lined)).toBe("allow");
+	});
+
+	it("allows a close whose --comment or newest comment carries an Unlanded line", () => {
+		expect(
+			verdict(
+				'gh issue close 12 --comment "**Unlanded:** a neighbour\'s cite."',
+				lined,
+			),
+		).toBe("allow");
+		expect(
+			verdict(
+				"gh issue close 12",
+				newest("**Unlanded:** a neighbour's cite.\n**Outstanding:** none."),
+			),
+		).toBe("allow");
+	});
+
+	it("denies a close whose --comment names a commit off HEAD that origin/landing lacks (#3092)", () => {
+		push();
+		git("checkout", "-q", "-b", "side");
+		commit("Fix the stop");
+		const sha = String(git("rev-parse", "HEAD")).trim();
+		git("checkout", "-q", "-");
+		const reason = readDenyReason(
+			`gh issue close 12 --comment "Fixed in ${sha}."`,
+			lined,
+		);
+		expect(reason).toContain(
+			`  ${String(git("rev-parse", "--short", sha)).trim()} Fix the stop\n`,
+		);
+	});
+
+	it("denies a close whose --comment names such a commit by an all-digit short sha (#3230)", () => {
+		push();
+		git("checkout", "-q", "-b", "side");
+		const { sha, short } = hexShaCommit(shared, "Fix the stop", "digits");
+		git("checkout", "-q", "-");
+		const reason = readDenyReason(
+			`gh issue close 12 --comment "Fixed in ${short}."`,
+			lined,
+		);
+		expect(reason).toContain(
+			`  ${String(git("rev-parse", "--short", sha)).trim()} Fix the stop\n`,
+		);
+	});
+
+	it("reads the HEAD of the linked worktree the close runs from", () => {
+		push();
+		const wt = path.join(dir, "wt");
+		git("worktree", "add", "-q", "--detach", wt);
+		execFileSync(
+			"git",
+			[
+				"-c",
+				"user.email=t@t",
+				"-c",
+				"user.name=t",
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				"Mend the gate (#12)",
+			],
+			{ cwd: wt },
+		);
+		const ports = buildHostPorts({ root: shared, payload: { cwd: wt } });
+		expect(ports.landing(12, "", 4000)).toEqual({
+			refusal: expect.stringContaining("#12's commit is not on origin/landing"),
+		});
+	});
+
+	it("allows a not-planned close over an unpushed commit", () => {
+		expect(verdict('gh issue close 12 --reason "not planned"')).toBe("allow");
+	});
+
+	it("fails open, recorded, where the landing read runs out of the budget", () => {
+		expect(
+			verdict("gh issue close 12", lined, {
+				landing: (n: number, c: string) => host().landing(n, c, 0),
+			}),
+		).toBe("allow");
+		expect(faults).toEqual([
+			"the landing reader ran out of the guard's time budget on #12 — landing unchecked",
 		]);
 	});
 });
@@ -1176,7 +1347,7 @@ describe("the time budget it runs under", () => {
 		]);
 	});
 
-	it("skips and records the census read where no time is left for it", () => {
+	it("skips and records the census and landing reads where no time is left for them", () => {
 		expect(
 			verdict(
 				"gh issue close 12",
@@ -1184,6 +1355,7 @@ describe("the time budget it runs under", () => {
 			),
 		).toBe("allow");
 		expect(faults).toEqual([
+			"no time left in the guard's budget to read whether #12's commits landed — unchecked",
 			"no time left in the guard's budget to read #12's census rows — unchecked",
 		]);
 	});

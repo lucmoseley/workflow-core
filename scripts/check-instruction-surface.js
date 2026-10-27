@@ -21,8 +21,9 @@
  * REFRESHED ON CHANGE instead: every measured source is anchored by content
  * digest, and a digest that moves says the verdict taken against it is no longer
  * evidence.
- * A guard's digest hashes its code, not its comments (#1876), and the rule
- * files a shell guard prints from (#1914): lib/census-digest.js.
+ * A guard's digest hashes its code, not its comments (#1876), the rule files
+ * it prints from (#1914, #3011) and the core a Node wrapper composes (#3129):
+ * lib/census-digest.js.
  *
  * HOOK COMMAND TEXT IS A THIRD, MECHANICAL CHECK (mantahostels#1923): `hookCounts` below
  * only compares entry counts, so a flag added to a live command (mantahostels#1899) can
@@ -67,7 +68,7 @@
  * DEFEAT:    convenience — a bare --rebaseline re-anchors everything without re-measuring anything, so a session can clear every finding it was meant to act on. Nothing detects that. --only <key>[,<key>...] (mantahostels#2105) narrows this to the named guards/hookCommands/poolFiles rows, and the `hooks` or `skills` count where named (#1879), alone — every other row is left exactly as it was, so a scoped re-anchor cannot silently clear a finding it did not name. A key naming no row is refused (BROKEN), never a silent no-op — except a live hook-command key, which a HOOK-COMMAND-NEW finding needs and which has no baseline row by definition (mantahostels#2648).
  */
 
-const { execGit } = require("./lib/git.js");
+const { gitOutcome } = require("./lib/git.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -77,7 +78,12 @@ const {
 	digestOf,
 	guardsChangedBy,
 } = require("./lib/census-digest");
-const { brokenError, runCheck, errMessage } = require("./lib/check");
+const {
+	brokenError,
+	readCommitOrBroken,
+	runCheck,
+	errMessage,
+} = require("./lib/check");
 const { readObjectBatch, listTree } = require("./lib/git-objects");
 const { GIT_MODE } = require("./lib/git-mode.js");
 const { claimDataFile } = require("./lib/doc-map-generator");
@@ -93,7 +99,6 @@ const {
 	touchedByCeiling,
 } = require("./lib/touched-by.js");
 const { buildHookCommandLine } = require("./lib/rule-emission");
-const { isCommit } = require("./lib/commit-sha.js");
 
 /** @typedef {{ digest: string, verdict: string, selfSufficient?: string, source?: string }} GuardAnchor */
 /** @typedef {{ total: number, byEvent: Record<string, number> }} HookCounts */
@@ -348,16 +353,15 @@ function followedTexts(root, rev, rels) {
 	});
 }
 
-/** @param {string} root */
+/**
+ * Whether `root` is a git repo: `rev-parse --git-dir` exits 128 outside one,
+ * and any other failure is a git that will not answer, BROKEN (#3068).
+ * @param {string} root
+ */
 function isGitRepo(root) {
-	try {
-		execGit(["-C", root, "rev-parse", "--git-dir"], {
-			stdio: "ignore",
-		});
-		return true;
-	} catch {
-		return false;
-	}
+	const r = gitOutcome(["-C", root, "rev-parse", "--git-dir"], [128]);
+	if (!r.ok) throw brokenError(`git rev-parse --git-dir failed: ${r.why}`);
+	return r.out !== "";
 }
 
 /**
@@ -717,7 +721,7 @@ function runRebaseline(ctx, root, file, baseline) {
 	const rev = ctx.value("--at", "HEAD");
 	/* Before any read, so every scope is refused alike rather than by
 	 * whichever read meets the bad rev first (#2052). */
-	if (isGitRepo(root) && !isCommit(root, rev))
+	if (isGitRepo(root) && readCommitOrBroken(rev, root) === null)
 		ctx.usageError(`--at ${rev} names no commit git can resolve.`);
 	if (only) refuseUnknownOnlyKeys(ctx, root, baseline, { only, rev });
 	const { next, anchored, goneNamed } = rebaseline(root, file, baseline, {

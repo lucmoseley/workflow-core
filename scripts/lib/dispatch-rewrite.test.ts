@@ -27,7 +27,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCore } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
-/* CommonJS, hence the require. */
+/* Required with a cast, not imported (#3145): the cases hand `decide` a stub
+ * context its checked `RewriteContext` type refuses, and read the rewrite's
+ * fields off a return narrowed to it. Residual: the cast's types are
+ * hand-written, so nothing checks them against the module. */
 const core = require("./dispatch-rewrite.js") as {
 	decide: (
 		prompt: string,

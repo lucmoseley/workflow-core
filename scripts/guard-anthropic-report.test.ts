@@ -1,42 +1,33 @@
 // @vitest-environment node
 /*
- * guard-anthropic-report.js refuses every `gh issue`, `gh pr` and writing
- * `gh api` call it can tie to an `anthropics/*` repo (#1987; the ruling,
- * #1967). These are its boundary cases: the line hooks/hooks.json registers,
- * run by bash as the harness runs it, on a harness-shaped payload — the
- * wiring, each exit and its stream, each input channel, the fail-open record
- * on disk, and the rule store and git crossed for real. Which command is
- * refused, and why, is lib/anthropic-report.test.ts's (#2798).
+ * The guard-anthropic-report core of guard-dispatch.js refuses every
+ * `gh issue`, `gh pr` and writing `gh api` call it can tie to an
+ * `anthropics/*` repo (#1987; the ruling, #1967). These are its boundary
+ * cases, the dispatcher entry run on it alone on a harness-shaped payload:
+ * each exit, each input channel, the fail-open record on disk, and the rule
+ * store and git crossed for real. Which command is refused, and why, is
+ * lib/anthropic-report.test.ts's; the entry's payload faults and the throw
+ * policy are guard-dispatch's own tests' (#2798, #3224).
  *
- * CLAUDE_PLUGIN_ROOT is this checkout, so the line finds the real entry;
  * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
  * temp CLAUDE_CONFIG_DIR and never the founder's.
  *
- * Break the line and an upstream report goes out unrefused; make it deny on
- * a fault and every `gh` call is wedged.
+ * Make it allow an upstream report and one goes out unrefused; make it deny
+ * on a fault and every `gh` call is wedged.
  */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	failOpenLogPath,
-	readFailOpenLog,
-	readFailOpenRecords,
-} from "./guard-log-fixture";
+import { failOpenLogPath, readFailOpenRecords } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
-	expectShellHooks,
+	dispatchCoreOutput,
 	guardDirs,
-	guardOutput,
-	hookLineOutput,
-	readHookLines,
 } from "./lib/pretool-guard-testkit";
 
-const SCRIPT = "scripts/guard-anthropic-report.js";
-const LINES = readHookLines("hooks/hooks.json", SCRIPT);
+const CORE = "guard-anthropic-report";
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
@@ -52,23 +43,16 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 // A GH_REPO the runner happens to carry would decide every unnamed case.
 const NO_GH_REPO = { GH_REPO: undefined };
 
-/** The hook's hookSpecificOutput for `command`, run in `cwd`. */
+/** The core's hookSpecificOutput for `command`, run in `cwd`. */
 const emission = (
 	command: string,
-	{
-		cwd = dir,
-		stdin,
-		env = {},
-	}: { cwd?: string; stdin?: string; env?: NodeJS.ProcessEnv } = {},
+	{ cwd = dir, env = {} }: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
 ) =>
-	hookLineOutput(LINES[0] ?? "", command, {
-		project: dir,
-		config,
-		cwd: dir,
-		payload: { cwd },
-		stdin,
-		env: { ...NO_GH_REPO, ...env },
-	});
+	dispatchCoreOutput(
+		CORE,
+		{ ...buildBashPayload(command, "s1"), cwd },
+		{ project: dir, config, cwd: dir, env: { ...NO_GH_REPO, ...env } },
+	);
 
 /** A real clone with one remote. */
 const clone = (url: string) => {
@@ -78,15 +62,6 @@ const clone = (url: string) => {
 	spawnSync("git", ["-C", at, "remote", "add", "upstream", url]);
 	return at;
 };
-
-describe("the registered hook line", () => {
-	it("is one line, narrowed by the wrapper-tolerant `if: Bash(*gh *)`, in the plugin and the self-plugin alike", () => {
-		expectShellHooks(SCRIPT, () => ({
-			if: "Bash(*gh *)",
-			onFailure: "block",
-		}));
-	});
-});
 
 describe("each exit", () => {
 	it("refuses as permissionDecision JSON on exit 0, splicing the stored rule", () => {
@@ -126,64 +101,14 @@ describe("each exit", () => {
 		expect(readFailOpenRecords(config, dir)).toEqual([
 			[
 				expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
-				"guard-anthropic-report.js",
+				CORE,
 				"could not read the --repo of a gh issue create — allowed unchecked for an Anthropic repo",
 			],
 		]);
 	});
-
-	it("refuses, logged, where its core throws", () => {
-		const out = guardOutput(
-			entryBesideThrowingCore(dir, SCRIPT, "anthropic-report.js"),
-			buildBashPayload("gh issue list", "s1"),
-			{ project: dir, config, cwd: dir },
-		);
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-anthropic-report.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, dir)).toMatch(
-			/core threw — the command was refused\tbroke/,
-		);
-	});
-
-	it("fails open, exit 0 and silent, where node is not on PATH", () => {
-		expect(
-			emission("gh issue comment 5 --repo anthropics/claude-code", {
-				env: { PATH: "/nonexistent" },
-			}),
-		).toBeNull();
-	});
 });
 
 describe("each input channel", () => {
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		expect(emission("", { stdin: "" })).toBeNull();
-		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
-	});
-
-	it("allows a payload that is not JSON, and records that it did", () => {
-		expect(emission("", { stdin: "not json" })).toBeNull();
-		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
-			expect.stringContaining("payload did not parse as JSON"),
-		]);
-	});
-
-	it("allows a payload carrying no command, and records that it did", () => {
-		expect(
-			emission("", {
-				stdin: JSON.stringify({
-					session_id: "s1",
-					tool_name: "Bash",
-					tool_input: {},
-				}),
-			}),
-		).toBeNull();
-		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
-			expect.stringContaining("no command in payload"),
-		]);
-	});
-
 	it("reads GH_REPO from the hook's environment", () => {
 		expect(
 			emission('gh issue create --title "x" --body "y"', {

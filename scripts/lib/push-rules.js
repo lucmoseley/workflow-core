@@ -62,7 +62,7 @@ const REVIEW_SUM = "sum.push-review-warn";
  * @property {() => boolean} deploysVercel the host declares a Vercel deploy
  * @property {() => boolean} hasSweep the host runs the scheduled sweep
  *   check-ci-status.js reads
- * @typedef {import("./guard-entry.js").KitContext & PushPorts} PushContext
+ * @typedef {import("./kit-context.js").KitContext & PushPorts} PushContext
  */
 
 /**

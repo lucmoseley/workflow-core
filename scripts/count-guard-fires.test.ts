@@ -545,8 +545,8 @@ describe("the CLI, run as a command", () => {
 	});
 
 	/*
-	 * mantahostels#2118: guard-branch.js's two limbs, in one transcript. Both needles sit
-	 * under the one guard key.
+	 * mantahostels#2118: the guard-branch core's two limbs, in one transcript. Both
+	 * needles sit under the one guard key, guard-dispatch.js.
 	 */
 	const withBranchDenyAndInjection = () => {
 		const fragment = "THE SHARED WORKING TREE STAYS ON `main`.";
@@ -581,7 +581,7 @@ describe("the CLI, run as a command", () => {
 	it("counts the injected rule as well as the deny, and dates them apart", () => {
 		withBranchDenyAndInjection();
 		const { out } = run(["--dir", corpus]);
-		expect(out).toContain("2026-08-29  guard-branch.js");
+		expect(out).toContain("2026-08-29  guard-dispatch.js");
 		// Each needle carries its own date, so docs/doc-map.md §5's ripeness test
 		// can read a RULE rather than whichever of a guard's rules fired last.
 		expect(out).toContain("branch-move 1 across 1 session(s) (2026-08-07)");
@@ -595,12 +595,12 @@ describe("the CLI, run as a command", () => {
 		const { out } = run(["--dir", corpus]);
 		const row = out
 			.split("\n")
-			.find((l: string) => l.includes("guard-branch.js"));
-		expect(row).toMatch(/^\s+2\s+1\s+2026-08-29\s+guard-branch\.js/);
+			.find((l: string) => l.includes("guard-dispatch.js"));
+		expect(row).toMatch(/^\s+2\s+1\s+2026-08-29\s+guard-dispatch\.js/);
 	});
 
 	/*
-	 * mantahostels#2137: a second SESSION firing only ONE of guard-branch.js's two needles.
+	 * mantahostels#2137: a second SESSION firing only ONE of the guard-branch core's two needles.
 	 * The subject-level SESSIONS column must stay at "how many sessions fired
 	 * this guard at all" (2), while the byNeedle line's session count answers a
 	 * narrower question per rule.
@@ -624,8 +624,8 @@ describe("the CLI, run as a command", () => {
 		const { out } = run(["--dir", corpus]);
 		const row = out
 			.split("\n")
-			.find((l: string) => l.includes("guard-branch.js"));
-		expect(row).toMatch(/^\s+3\s+2\s+2026-08-30\s+guard-branch\.js/);
+			.find((l: string) => l.includes("guard-dispatch.js"));
+		expect(row).toMatch(/^\s+3\s+2\s+2026-08-30\s+guard-dispatch\.js/);
 		expect(out).toContain("branch-move 1 across 1 session(s) (2026-08-07)");
 		expect(out).toContain(
 			"branch-shared-tree 2 across 2 session(s) (2026-08-30)",

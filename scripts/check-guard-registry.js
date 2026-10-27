@@ -31,8 +31,7 @@
  *     one does to a session and what escape it has.
  *   node scripts/check-guard-registry.js --against HEAD
  *     the pre-commit form: refuse only the faults the INDEX has that HEAD does
- *     not, `main` sitting red being the normal state here — a stale row among
- *     them (#2617). Owned by scripts/lib/check.js, which explains it
+ *     not — a stale row among them (#2617). The convention: scripts/lib/check.js
  *     (mantahostels#1833).
  *   node scripts/check-guard-registry.js --against <tip> --head <sha>
  *     the pre-push form: refuse only the faults <sha>'s tree has that <tip>'s
@@ -181,6 +180,12 @@ const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { REFUSES_COMMIT } = require("./lib/refuses-commit.js");
+const {
+	LANDER_REVERT_ENV,
+	readLanderRevert,
+	whyNotCleanRevert,
+	whyNotLanderRevert,
+} = require("./lib/clean-revert.js");
 
 /*
  * The tree this check reads. `--root <dir>` points it at a materialised copy of
@@ -941,10 +946,14 @@ const {
 	buildHookCommandLine,
 } = require("./lib/rule-emission");
 const {
+	DISPATCH_ENTRY,
 	MANIFEST_REL,
 	manifestAt,
+	modulePath,
 	readDispatchedCores,
+	readManifest,
 } = require("./lib/guard-cores.js");
+const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
 
 const DISPATCH_KIT = path.join("scripts", "lib", "guard-dispatch.js");
 
@@ -1614,9 +1623,7 @@ function sourcedBy(rel, text, base = root) {
 			(m) => assigned.get(requiredGroup(m, 2, NODE_VAR_RE)) ?? [],
 		),
 	];
-	const run = tails
-		.map((tail) => resolveRun(base, dir, tail))
-		.filter(keptRun);
+	const run = tails.map((tail) => resolveRun(base, dir, tail)).filter(keptRun);
 	/* The dispatcher's kit loads its cores by manifest path, which no require
 	 * names (#2786). The manifest is the judged tree's and is hashed itself,
 	 * so a commit that changes only a manifest row moves the digest (#3124). */
@@ -2140,15 +2147,17 @@ function targetWarning(g, describedBy, implicitScripts, anchors) {
  * push a session into cutting text that is load-bearing:
  *
  *   warn-only     the action completes, so the session had to know the rule
- *                 beforehand. Falls out of denyTextsOf: a warn message is never
- *                 handed to gp_deny, so such a guard contributes no text here.
+ *                 beforehand. Falls out of the readers: a warn message never
+ *                 reaches gp_deny or a Node core's deny site, so such a guard
+ *                 contributes no text here.
  *   delayed       the guard denies, but only after an allowance is spent.
  *                 lib/agent-poll.js is the measured counter-example:
  *                 its rule is "end the turn", and the denial arrives on the
  *                 THIRD poll, so a session that never read it has already done
  *                 the thing twice.
  *
- * DELAYED IS DECLARED, NOT INFERRED — a guard whose deny is delayed says so:
+ * DELAYED IS DECLARED, NOT INFERRED — a guard whose deny is delayed says so,
+ * in a Node guard on the core, so every route that runs it is silenced:
  *
  *     # deny-timing: delayed — a session hits its allowance before it sees this
  *
@@ -2166,7 +2175,10 @@ function targetWarning(g, describedBy, implicitScripts, anchors) {
  * REPRINT_MIN_WORDS words are skipped: a short one both matches by accident and
  * is not worth cutting.
  *
- * SCOPE IS THE GUARD'S OWN FILE. A guard that delegates its wording to a program
+ * SCOPE IS THE GUARD'S OWN FILE AND ITS CORE (#3001). A Node entry is read with
+ * the core it takes `decide` from; scripts/guard-dispatch.js with each core its
+ * manifest runs, narrowed to those the rule names in backticks; a core through
+ * lib/core-deny-text.js. A guard that delegates its wording to a program
  * it runs — lib/file-claim.js, whose refusals session-arbiter.js prints — is a
  * known miss. Following the delegation would mean judging which of that
  * program's many messages this hook can reach, which is a reader's job.
@@ -2358,21 +2370,79 @@ function reprintedSpans(ruleText, denyShingles) {
 	return hits.sort((a, b) => b.coverage - a.coverage);
 }
 
-/** The guard's deny vocabulary, or null where it cannot pay for a rule at all. */
 /**
- * @param {string} rel
- * @returns {Set<string> | null}
+ * @typedef {{ delayed: boolean, texts: string[], core: string | null }} DenyFile
+ *   `core` the module a Node entry takes `decide` from, beside it
  */
-function denyShinglesOf(rel) {
+
+/**
+ * One file's deny texts, or null where it is absent — BROKEN-CLAIM's business,
+ * not this one's. A `.js` file is read as a Node core (#3001); any other as a
+ * bash guard.
+ * @param {string} rel
+ * @returns {DenyFile | null}
+ */
+function readDenyFile(rel) {
 	let source;
 	try {
 		source = fs.readFileSync(path.join(root, rel), "utf8");
 	} catch {
-		return null; // absence is BROKEN-CLAIM's business, not this one's
+		return null;
 	}
-	if (DENY_TIMING_RE.test(source)) return null; // its deny lands too late to pay
+	const node = rel.endsWith(".js");
+	return {
+		delayed: DENY_TIMING_RE.test(source),
+		texts: node ? coreDenyTexts(source) : denyTextsOf(source),
+		core: node ? decideModule(source) : null,
+	};
+}
+
+/**
+ * The files whose refusals a named guard prints, as groups that deny as one,
+ * or null where the guard is absent.
+ *
+ * A Node entry is grouped with the core it takes `decide` from. The dispatcher
+ * is one group per core its manifest runs — only the cores the rule names in
+ * backticks, where it names any — so one delayed core silences itself alone.
+ * @param {string} rel
+ * @param {string} ruleText
+ * @param {(rel: string) => DenyFile | null} read readDenyFile behind the memo
+ *   reprintWarnings shares across rules, so a core many rules name is read once
+ * @returns {DenyFile[][] | null}
+ */
+function denyGroupsOf(rel, ruleText, read) {
+	if (rel === DISPATCH_ENTRY) {
+		const rows = Object.values(readManifest(manifestAt(root))).flat();
+		const named = rows.filter((r) => ruleText.includes(`\`${r.name}\``));
+		return (named.length > 0 ? named : rows).map((r) => {
+			const core = read(modulePath(r.core));
+			return core === null ? [] : [core];
+		});
+	}
+	const entry = read(rel);
+	if (entry === null) return null;
+	const core =
+		entry.core === null ? null : read(path.join(path.dirname(rel), entry.core));
+	return [core === null ? [entry] : [entry, core]];
+}
+
+/**
+ * The guard's deny vocabulary for this rule, or null where it cannot pay for a
+ * rule at all. A group declaring a delayed deny adds nothing: its deny lands
+ * too late to pay.
+ * @param {string} rel
+ * @param {string} ruleText
+ * @param {(rel: string) => DenyFile | null} read
+ * @returns {Set<string> | null}
+ */
+function denyShinglesOf(rel, ruleText, read) {
+	const groups = denyGroupsOf(rel, ruleText, read);
+	if (groups === null) return null;
+	const texts = groups
+		.filter((g) => !g.some((f) => f.delayed))
+		.flatMap((g) => g.flatMap((f) => f.texts));
 	return shinglesOf(
-		normaliseProse(denyTextsOf(source).join("\n")).split(" ").filter(Boolean),
+		normaliseProse(texts.join("\n")).split(" ").filter(Boolean),
 		REPRINT_SHINGLE,
 	);
 }
@@ -2390,13 +2460,17 @@ function denyShinglesOf(rel) {
 function reprintWarnings(candidates) {
 	/** @type {Warning[]} */
 	const warnings = [];
-	/** @type {Map<string, Set<string> | null>} */
-	const shingleCache = new Map();
+	/** @type {Map<string, DenyFile | null>} */
+	const fileCache = new Map();
+	/** @param {string} rel */
+	const read = (rel) => {
+		if (!fileCache.has(rel)) fileCache.set(rel, readDenyFile(rel));
+		return fileCache.get(rel) ?? null;
+	};
 
 	for (const rule of candidates) {
 		for (const g of rule.guards) {
-			if (!shingleCache.has(g)) shingleCache.set(g, denyShinglesOf(g));
-			const denyShingles = shingleCache.get(g);
+			const denyShingles = denyShinglesOf(g, rule.text, read);
 			if (!denyShingles || denyShingles.size === 0) continue;
 
 			const hits = reprintedSpans(rule.text, denyShingles);
@@ -3330,6 +3404,108 @@ const STALE_KINDS = new Set(["UNANCHORED", "STALE-PROSE", "ORPHAN-ANCHOR"]);
 
 /** @typedef {import("./lib/check.js").FaultItem} FaultItem */
 
+/** @param {FaultItem} f */
+const staleOf = (f) => {
+	const item = /** @type {StaleWarning} */ (f.item);
+	return item?.[REFUSES_COMMIT] ? item : null;
+};
+
+/** @param {string} guard */
+const buildReviewLine = (guard) =>
+	`node scripts/check-guard-registry.js --review ${guard}`;
+
+/**
+ * A refused or exempted fault as the lander names it in a hold or a fix
+ * ticket: the row, and the fix-forward it waits on.
+ * @param {FaultItem} f
+ * @returns {{ row: string, forward: string }}
+ */
+function buildRowForward(f) {
+	const w = staleOf(f);
+	return w
+		? { row: `${w.kind} ${w.guard}`, forward: buildReviewLine(w.guard) }
+		: { row: f.line, forward: "fix the rule or the guard the row names" };
+}
+
+/*
+ * A LANDER REVERT LANDS WITH ITS STALE ROWS (#3127). The revert re-opens a
+ * held queue, and a stale row is prose owed a re-read, not a broken build, so
+ * where WFC_LANDER_REVERT names a culprit and lib/clean-revert.js confirms the
+ * judged bytes are its clean revert, the staleness findings stand down and the
+ * lander's fix ticket owes the re-read. Every other fault still refuses.
+ * Re-anchoring in the revert instead would assert a read nobody made. At
+ * commit the message is not yet written, so only the tree is confirmed; the
+ * push confirms the revert line too.
+ */
+
+/**
+ * The culprit this commit or push is a confirmed clean revert of, or null.
+ * @param {Ctx} ctx
+ * @returns {string|null}
+ */
+function readExemptRevert(ctx) {
+	const culprit = readLanderRevert();
+	if (culprit === null) return null;
+	const { rev: tip, head: pushed } = againstRevs(ctx);
+	/* The committing tree's git, as --against materialises it: under a
+	 * worktree, CLAUDE_PROJECT_DIR can name another tree's index. */
+	const cwd = process.cwd();
+	const why = pushed
+		? whyNotLanderRevert(cwd, { culprit, sha: pushed, tip })
+		: whyNotCleanIndex(cwd, culprit, tip);
+	if (why === null) return culprit;
+	ctx.say(
+		`${LANDER_REVERT_ENV} names ${culprit}, but no staleness exemption: ${why}.`,
+	);
+	return null;
+}
+
+/**
+ * Why the index is not the clean revert of `culprit` on `onto`, or null.
+ * @param {string} cwd
+ * @param {string} culprit
+ * @param {string} onto
+ * @returns {string|null}
+ */
+function whyNotCleanIndex(cwd, culprit, onto) {
+	const tree = spawnGitSync(["-C", cwd, "write-tree"], { encoding: "utf8" });
+	if (tree.status !== 0) return "the index cannot be written as a tree";
+	return whyNotCleanRevert(cwd, {
+		culprit,
+		onto,
+		tree: String(tree.stdout).trim(),
+	});
+}
+
+/**
+ * The faults this commit adds that refuse it, the way out of the stale ones,
+ * and each refused or exempted row with its fix-forward.
+ *
+ * @param {Ctx} ctx
+ * @param {FaultItem[]} added
+ * @returns {{ refuse: FaultItem[], remedy: string[], data: object }}
+ */
+function settleAdded(ctx, added) {
+	const stale = added.filter((f) => staleOf(f) !== null);
+	const culprit = stale.length > 0 ? readExemptRevert(ctx) : null;
+	const { refuse, remedy } =
+		culprit === null
+			? settleStale(ctx, added)
+			: { refuse: added.filter((f) => staleOf(f) === null), remedy: [] };
+	const exempted = culprit === null ? [] : stale.map(buildRowForward);
+	if (exempted.length > 0)
+		for (const line of [
+			`not refusing ${exempted.length} stale row(s): this is the lander's clean revert of ${culprit} (#3127), and its fix ticket owes each re-read:`,
+			...exempted.map((r) => `  ${r.row}: ${r.forward}`),
+		])
+			ctx.say(line);
+	return {
+		refuse,
+		remedy,
+		data: { refused: refuse.map(buildRowForward), exempted },
+	};
+}
+
 /**
  * The faults this commit adds that refuse it, and the way out of the stale
  * ones.
@@ -3338,11 +3514,7 @@ const STALE_KINDS = new Set(["UNANCHORED", "STALE-PROSE", "ORPHAN-ANCHOR"]);
  * @param {FaultItem[]} added
  * @returns {{ refuse: FaultItem[], remedy: string[] }}
  */
-function settleAdded(ctx, added) {
-	const staleOf = (/** @type {FaultItem} */ f) => {
-		const item = /** @type {StaleWarning} */ (f.item);
-		return item?.[REFUSES_COMMIT] ? item : null;
-	};
+function settleStale(ctx, added) {
 	const stale = added.map(staleOf).filter((w) => w !== null);
 	if (stale.length === 0) return { refuse: added, remedy: [] };
 
@@ -3399,7 +3571,7 @@ function settleAdded(ctx, added) {
 		);
 		remedy.push(...buildExpiredRow(w, via, implicitScripts.has(w.guard)));
 	}
-	const review = `node scripts/check-guard-registry.js --review ${owed.map((w) => w.guard).join(" ")}`;
+	const review = buildReviewLine(owed.map((w) => w.guard).join(" "));
 	remedy.push(
 		...(pushed
 			? [

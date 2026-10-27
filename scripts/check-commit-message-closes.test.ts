@@ -22,7 +22,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
@@ -43,6 +43,14 @@ function messageFile(message: string) {
 	return file;
 }
 
+/* lib/commit-message.js reads the hook's cleanup mode from GIT_EDITOR, which
+ * git sets to `:` for a pre-commit test gate on a `-m` commit: pinned to the
+ * editor route, where git drops `#` lines. */
+beforeEach(() => {
+	vi.stubEnv("GIT_EDITOR", "vi");
+	return () => vi.unstubAllEnvs();
+});
+
 /** The scanner in process over `message`: its exit code and stderr. */
 function scan(message: string) {
 	const { code, stderr } = main([messageFile(message), "test"]);
@@ -50,10 +58,11 @@ function scan(message: string) {
 }
 
 /** The scanner as the hooks run it: `bash` on the .sh path. */
-function scanSpawned(file: string) {
+function scanSpawned(file: string, env: NodeJS.ProcessEnv = {}) {
 	try {
 		execFileSync("bash", [SCANNER, file, "test"], {
 			encoding: "utf8",
+			env: { ...process.env, ...env },
 			stdio: ["ignore", "pipe", "pipe"],
 		});
 		return { code: 0, output: "" };
@@ -126,6 +135,14 @@ describe("the .sh path the hooks run (boundary set)", () => {
 			code: 0,
 			output: "",
 		});
+	});
+
+	it.each([
+		["-m or -F (no editor), keeping it as the subject, so refuses", ":", 1],
+		["the editor, dropping it as a comment, so passes", "vi", 0],
+	])("reads a #N line as git records it on %s (#3075)", (_, editor, code) => {
+		const file = messageFile("#3 Fixes #12 do a thing\n");
+		expect(scanSpawned(file, { GIT_EDITOR: editor as string }).code).toBe(code);
 	});
 
 	it("refuses an unreadable message file with exit 1", () => {

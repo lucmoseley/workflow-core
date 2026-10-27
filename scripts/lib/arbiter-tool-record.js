@@ -26,7 +26,7 @@
  * concision-backstop.sh LOUDER — it bills a session for a diff it does not own,
  * and the nag then sends that session to edit a file a live neighbour holds, the
  * collision guard-file-claim.sh exists to refuse. A false entry makes
- * guard-commit-form.js QUIETER — a neighbour's staged path reads as the
+ * the guard-commit-form core QUIETER — a neighbour's staged path reads as the
  * session's own work and the warn goes silent, and that warn is the last line
  * before mantahostels#63.
  *

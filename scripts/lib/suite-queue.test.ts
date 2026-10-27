@@ -39,6 +39,7 @@ const {
 	queueSpawned,
 	queueStamps,
 	queueTurn,
+	passingTurn,
 	readLiveRolePids,
 	gateDenies,
 	heldSeat,
@@ -470,6 +471,79 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 				expect(readMemoryHeld()).toBe(true);
 				onMemoryHeld(false);
 				expect(readMemoryHeld()).toBeUndefined();
+			});
+
+			describe("the count its exit line carries (#3115)", () => {
+				const opened = (options: object) => {
+					const { turn, exitFields } = passingTurn({
+						alive: () => true,
+						...options,
+					});
+					return { open: turn(), fields: exitFields("opened") };
+				};
+
+				it("counts the memory-held waiters it passed, never a spawned one", () => {
+					const queueDir = qdir();
+					queueJoin({ queueDir, pid: 11, clock: () => 0, weight: PART });
+					queueJoin({ queueDir, pid: 22, clock: () => 500, weight: PART });
+					queueJoin({ queueDir, pid: 99, clock: () => 1000, weight: PART });
+					queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
+					queueSpawned(marker(queueDir, 22));
+					expect(opened({ queueDir, pid: 99, clock: () => 2000 })).toEqual({
+						open: true,
+						fields: { passed: 1 },
+					});
+				});
+
+				it("carries 0 where the turn opened passing none", () => {
+					const queueDir = qdir();
+					queueJoin({ queueDir, pid: 99, clock: () => 0, weight: PART });
+					expect(opened({ queueDir, pid: 99 })).toEqual({
+						open: true,
+						fields: { passed: 0 },
+					});
+				});
+
+				it("carries nothing for a whole suite", () => {
+					const queueDir = qdir();
+					queueJoin({ queueDir, pid: 33, clock: () => 0 });
+					expect(opened({ queueDir, pid: 33 })).toEqual({
+						open: true,
+						fields: {},
+					});
+				});
+
+				it("carries nothing once a later read closes", () => {
+					const queueDir = qdir();
+					twoPartWaiters(queueDir);
+					queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
+					const { turn, exitFields } = passingTurn({
+						queueDir,
+						pid: 99,
+						alive: () => true,
+						clock: () => 2000,
+					});
+					expect(turn()).toBe(true);
+					queueStamps(marker(queueDir, 11)).onMemoryHeld(false);
+					expect(turn()).toBe(false);
+					expect(exitFields("opened")).toEqual({});
+				});
+
+				it("carries nothing on an exit other than opened, the count it read being stale there", () => {
+					const queueDir = qdir();
+					twoPartWaiters(queueDir);
+					queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
+					const { turn, exitFields } = passingTurn({
+						queueDir,
+						pid: 99,
+						alive: () => true,
+						clock: () => 2000,
+					});
+					expect(turn()).toBe(true);
+					expect(exitFields("refused", { limb: "memory" })).toEqual({
+						limb: "memory",
+					});
+				});
 			});
 
 			it("never lets a whole suite pass it", () => {
@@ -1234,14 +1308,25 @@ describe("gateDenies, against the real gate (#2421)", () => {
 	});
 
 	/** The gate's reading with `mb` available and `suites` running, for a
-	 * launch of `words`. */
+	 * launch of `words` carrying `weight`, at a root whose workflow-core.json
+	 * holds `config`. */
 	const ask = (
 		mb: number,
 		suites: number,
 		words: string[] = [],
-		weight: { resolvedFiles: number | null; wholeSlot: boolean } | null = null,
+		{
+			weight = null,
+			config = null,
+		}: {
+			weight?: { resolvedFiles: number | null; wholeSlot: boolean } | null;
+			config?: string | null;
+		} = {},
 	) => {
 		const dir = qdir();
+		if (config !== null) {
+			fs.mkdirSync(path.join(dir, ".claude"));
+			fs.writeFileSync(path.join(dir, ".claude", "workflow-core.json"), config);
+		}
 		const meminfo = path.join(dir, "meminfo");
 		fs.writeFileSync(meminfo, `MemAvailable: ${mb * 1024} kB\n`);
 		vi.stubEnv("WFC_MEMINFO", meminfo);
@@ -1283,25 +1368,35 @@ describe("gateDenies, against the real gate (#2421)", () => {
 
 	it("admits a touched run while a whole suite holds the slot, a 200-file named run among them (#2935)", () => {
 		expect(ask(20_000, 1, NAMED_200)).toBeNull();
-		expect(ask(20_000, 1, NAMED_200, TOUCHED_200)).toBeNull();
+		expect(ask(20_000, 1, NAMED_200, { weight: TOUCHED_200 })).toBeNull();
 		/* The same 200 files resolved by a run that is not touched take it. */
-		expect(ask(20_000, 1, [], weighed(200))).toEqual({ limb: "count" });
+		expect(ask(20_000, 1, [], { weight: weighed(200) })).toEqual({
+			limb: "count",
+		});
 	});
 
 	it("still holds a touched run on the memory rung for its file count (#2935)", () => {
-		expect(ask(1449, 0, NAMED_200, TOUCHED_200)).toMatchObject({
+		expect(ask(1449, 0, NAMED_200, { weight: TOUCHED_200 })).toMatchObject({
 			limb: "memory",
 			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
 		});
-		expect(ask(1449, 0, ["scripts/a.test.ts"], weighed(1))).toEqual({
-			limb: "memory",
-			mb: 1449,
-			rungMb: 1450,
-		});
+		expect(ask(1449, 0, ["scripts/a.test.ts"], { weight: weighed(1) })).toEqual(
+			{
+				limb: "memory",
+				mb: 1449,
+				rungMb: 1450,
+			},
+		);
 	});
 
 	it("reads an open gate as null", () => {
 		expect(ask(20_000, 0)).toBeNull();
+	});
+
+	/* A module read as off on a config fault, as the guard's own context reads
+	 * it, so the poll keeps the guard's verdict (#3137). */
+	it("judges on through an unreadable config, as the guard does", () => {
+		expect(ask(500, 0, [], { config: "{" })).toMatchObject({ limb: "memory" });
 	});
 
 	it("lets a one-file run's poll through at 1,450 MB, where a whole suite's is held", () => {
