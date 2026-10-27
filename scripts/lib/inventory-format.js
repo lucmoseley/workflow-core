@@ -17,7 +17,7 @@
  * (#2374).
  *
  * IT REQUIRES NOTHING, ON PURPOSE. The parser loads it at its top, and a
- * parser that crashes lets every close through the guard-issue-close core unchecked
+ * parser that crashes lets every close through guard-issue-close.js unchecked
  * (#1255), so a dependency here would put the check at risk.
  */
 
