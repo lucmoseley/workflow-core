@@ -3,7 +3,7 @@
  * an active `**Gated until:**` or well-formed `**Gated on:**` line carrying
  * its `**Gate basis:**`, an open native blocked-by edge, or an open
  * `**Blocked on**` issue (#3263).
- * `rule:blocked-ticket-gate` names these as the gate a not-ready ticket owes.
+ * rule:blocked-ticket-gate names these as the gate a not-ready ticket owes.
  */
 
 const { ghGetRetrying } = require("./gh");

@@ -15,7 +15,7 @@
 # vs `waiting:`).
 #
 # `waiting:external` refuses unless the issue already carries the gate
-# `rule:blocked-ticket-gate` asks for — an open blocked-by edge, an open
+# rule:blocked-ticket-gate asks for — an open blocked-by edge, an open
 # `**Blocked on**` issue or a holding gate line with its basis (#3263). The
 # comment this script posts goes through a child `gh` the tracker-rules hook
 # never sees, so this refusal is where the rule binds.
