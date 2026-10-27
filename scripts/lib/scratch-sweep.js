@@ -23,9 +23,10 @@
  * unmeasured (mantahostels#2090), so 24 h is a floor chosen against session length and is
  * not calibrated against the thing limb 1 is there for.
  *
- * A DISPATCHED AGENT'S EVIDENCE IS EXEMPT UNTIL 7 DAYS: any entry whose name
- * contains `research`, and the top-level `agents/` directory with everything
- * in it, where `lib/dispatch-rewrite.js` supplies a dispatch's artefact. The
+ * A DISPATCHED AGENT'S EVIDENCE IS EXEMPT UNTIL 7 DAYS: any entry with
+ * `research` in any segment of its path, so everything inside a
+ * `research-<name>/` folder too (#3292), and the top-level `agents/` directory
+ * with everything in it, where `lib/dispatch-rewrite.js` supplies a dispatch's artefact. The
  * path is the only signal there is — the `research-<name>` convention reaches
  * tracker-skill dispatches alone (#1009). A research file named without the
  * word still gets 24 h, accepted at #1009's ruling. Seven days rather than exemption outright, so they clear eventually
@@ -79,7 +80,7 @@ const { caught } = require("./caught.js");
 const SCRATCH_AGE_MS = 24 * 60 * 60 * 1000;
 /** The floor under a research or `agents/` artefact, which may await landing. */
 const RESEARCH_AGE_MS = 7 * 24 * 60 * 60 * 1000;
-/** A name containing this, prefix or not, marks a research artefact. */
+/** A path segment containing this, prefix or not, marks a research artefact. */
 const RESEARCH_WORD = "research";
 /** The top-level directory `lib/dispatch-rewrite.js` supplies artefacts under. */
 const AGENTS_DIR = "agents";
@@ -100,16 +101,18 @@ const AGENTS_DIR = "agents";
 const EXEMPT_TOP_LEVEL = new Set(["markers"]);
 
 /**
- * The floor a given entry answers to, a directory included: 7 days where its
- * name contains `research` or it sits under top-level `agents/`, else 24 h.
+ * The floor a given entry answers to, a directory included — the header's
+ * 7-day exemption, else 24 h.
  * @param {string} rel the entry's path relative to the scratch directory
  * @returns {number}
  */
-const floorFor = (rel) =>
-	rel.split(path.sep)[0] === AGENTS_DIR ||
-	path.basename(rel).includes(RESEARCH_WORD)
+const floorFor = (rel) => {
+	const segments = rel.split(path.sep);
+	return segments[0] === AGENTS_DIR ||
+		segments.some((s) => s.includes(RESEARCH_WORD))
 		? RESEARCH_AGE_MS
 		: SCRATCH_AGE_MS;
+};
 
 /**
  * Every entry in `dir`, or `null` where it cannot be read.

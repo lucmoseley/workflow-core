@@ -215,6 +215,28 @@ describe("research artefacts keep their own 7-day floor", () => {
 		aged(dir, "research-recent.md", 48 * HOUR);
 		expect(run(dir, () => started(1 * HOUR)).readOracle).toBe(false);
 	});
+
+	it("keeps a file nested under a `research-*` folder at 48 hours, and deletes it past 7 days (#3292)", () => {
+		const young = freshDir();
+		const f = aged(young, "research-x/sub/sessions.csv", 48 * HOUR);
+		const stale = aged(young, "stale.out", 25 * HOUR);
+		const r = run(young, () => started(1 * HOUR));
+		expect(r.deleted).toContain(stale);
+		expect(r.deleted).not.toContain(f);
+		expect(fs.existsSync(f)).toBe(true);
+
+		const old = freshDir();
+		const g = aged(old, "research-x/sub/sessions.csv", RESEARCH_FLOOR + HOUR);
+		expect(run(old, () => started(1 * HOUR)).deleted).toEqual([g]);
+	});
+
+	it("does not pay the oracle for a file nested under a `research-*` folder inside its floor (#3292)", () => {
+		const dir = freshDir();
+		aged(dir, "research-x/sub/sessions.csv", 48 * HOUR);
+		ageDir(dir, "research-x/sub", 48 * HOUR);
+		ageDir(dir, "research-x", 48 * HOUR);
+		expect(run(dir, () => started(1 * HOUR)).readOracle).toBe(false);
+	});
 });
 
 describe("a dispatched agent's evidence keeps the 7-day floor (#1009)", () => {
