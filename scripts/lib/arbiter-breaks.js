@@ -110,7 +110,7 @@ function recordBreak(rel, lost, breaker) {
  * Every break record on disk as {file, record}, or null where the directory
  * itself could not be read. `record` is null for one file that would not read.
  */
-function breakEntries() {
+function readBreakEntries() {
 	let files;
 	try {
 		files = fs.readdirSync(core.paths.breaksDir());
@@ -133,7 +133,7 @@ function breakEntries() {
  */
 function readBreaks(rel) {
 	const prefix = `${core.keyFor(rel)}-`;
-	return (breakEntries() ?? [])
+	return (readBreakEntries() ?? [])
 		.filter((e) => path.basename(e.file).startsWith(prefix) && e.record)
 		.sort((a, b) => String(a.record.at).localeCompare(String(b.record.at)));
 }
@@ -147,8 +147,8 @@ function readBreaks(rel) {
  * destroys exactly the content this exists to keep. Its own file still ages out
  * below, so a record that never parses cannot pin anything for ever.
  */
-function brokenClaimIds() {
-	const entries = breakEntries();
+function readBrokenClaimIds() {
+	const entries = readBreakEntries();
 	if (entries === null) return null;
 	const ids = new Set();
 	for (const { record } of entries) {
@@ -169,7 +169,7 @@ function brokenClaimIds() {
  * @param {string} rel
  * @param {string|null} sessionId
  */
-function breakNotice(rel, sessionId) {
+function buildBreakNotice(rel, sessionId) {
 	if (!sessionId) return null;
 	const mine = readBreaks(rel).filter(
 		(e) => e.record.lostBy === sessionId && !e.record.reportedAt,
@@ -184,14 +184,14 @@ function breakNotice(rel, sessionId) {
 			core.logError(`break report ${rel}`, err);
 		}
 	}
-	return mine.map((e) => breakText(rel, e.record)).join("\n\n");
+	return mine.map((e) => buildBreakText(rel, e.record)).join("\n\n");
 }
 
 /**
  * @param {string} rel
  * @param {BreakRecord} record
  */
-function breakText(rel, record) {
+function buildBreakText(rel, record) {
 	return (
 		`This session's claim on ${rel} was broken at ${record.at} by ${record.brokenBy || "an unidentified session"}, which read this session as finished.\n\n` +
 		"Anything written to the file since then replaced your version, and nothing said so at the time.\n\n" +
@@ -212,7 +212,7 @@ function breakText(rel, record) {
  * has no readable `at` and must still age out or it pins a blob for ever.
  */
 function pruneBreaks() {
-	const entries = breakEntries();
+	const entries = readBreakEntries();
 	if (entries === null) return; // unreadable: delete nothing (mantahostels#174)
 	const cutoff = Date.now() - BREAK_AGE_MS;
 	for (const { file, record } of entries) {
@@ -236,8 +236,8 @@ function pruneBreaks() {
 }
 
 module.exports = {
-	breakNotice,
-	brokenClaimIds,
+	buildBreakNotice,
+	readBrokenClaimIds,
 	pruneBreaks,
 	recordBreak,
 };

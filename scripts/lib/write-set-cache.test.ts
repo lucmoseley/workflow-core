@@ -30,7 +30,7 @@ const {
 
 let root: string;
 
-/** `trackedFiles()`'s shape, as pick-next.js passes it in. */
+/** `readTrackedFiles()`'s shape, as pick-next.js passes it in. */
 const tracked = (files: string[]) => ({ ok: true, files });
 const trackedFailed = { ok: false, error: "git ls-files: not a repository" };
 

@@ -41,17 +41,17 @@ bodies are 70–670 lines of bespoke judgement.
        (mantahostels#2106); that checker's runtime census needs nothing, the
        harness writing the transcript's `.command` as `command` plus `args`
        joined. `check-guard-registry.js` matches a script path against
-       `rule-emission.js`'s exported `hookCommandLine()` join rather than
+       `rule-emission.js`'s exported `buildHookCommandLine()` join rather than
        against `command`, so an interpreter-plus-script entry
        (`"command": "node"`) does not FAIL a commit with `UNWIRED-IF`;
-       `rule-emission.js` uses the same join for its own GP_RULE_CAP byte
+       `rule-emission.js` uses the same join for its own RULE_CAP byte
        census (mantahostels#2266). And
-       `lib/hook-wiring.ts` carries `args` through, its `commandLine` helper
+       `lib/hook-wiring.ts` carries `args` through, its `buildCommandLine` helper
        being what `hook-registrations.test.ts` matches its ids against, so a
        pair told apart only by an argument (`concision-backstop.sh stop` /
        `start`) survives an exec-form conversion. The fifth,
-       `check-instruction-surface.js`'s `hookCommandsOf`, also runs
-       `hookCommandLine()` over each entry rather than reading `command` alone,
+       `check-instruction-surface.js`'s `readHookCommands`, also runs
+       `buildHookCommandLine()` over each entry rather than reading `command` alone,
        so its `liveCommandCount`-versus-`hooks.total` census counts an
        exec-form entry as wired (mantahostels#2301). No entry holds a script
        path in `args` today, so all of it makes the next conversion safe.
@@ -83,7 +83,7 @@ bodies are 70–670 lines of bespoke judgement.
      command word, which all but those two do — almost, because all of them
      resolve that word through `basename`, so a path-spelled call is judged by
      the guard and matched by neither anchored spelling: 43 calls corpus-wide. **The exceptions are
-     `guard-issue-phase-scope.sh` and `guard-anthropic-report.sh`**, whose
+     `guard-issue-phase-scope.js` and `guard-anthropic-report.js`**, whose
      walkers step past a `timeout`/`env`/`nohup` prefix: anchoring would leave
      `timeout 60 gh issue create` unjudged in silence, so they keep a
      wrapper-tolerant `Bash(*gh *)`. **Match the `if` to what the guard's own
@@ -101,6 +101,18 @@ bodies are 70–670 lines of bespoke judgement.
      the string, never the sentence around it — whether the blind-spot
      enumeration beside it was recomputed against the narrowing is still a
      reader's call, and the staleness warning is the surface for that.
+   - **A removed entry runs on in every session started before its removal**,
+     so a deleted script fails to start there, and under `onFailure: "block"`
+     every call its line matches is refused. `scripts/keep-hook-shims.js`,
+     run by `.husky/post-commit` and `.husky/post-merge`, writes an untracked
+     exit-0 shim at each such path while a live session started on a line
+     naming it, and deletes it once none did (#2879). **Delete a hook script
+     in the same Bash call that commits the deletion**: your own session holds
+     the old line too, and its next call would be refused before the shim was
+     written; a port landing by merge is covered by the merge itself. Never
+     restore a deleted script by hand. Re-adding a retired one, run `node
+     scripts/keep-hook-shims.js` after writing it: until then its path is
+     ignored and `git add` refuses it.
 5. **A row in `scripts/hook-registrations.test.ts`'s pinned table.** Its own
    header says why nothing else can cover this — `check-guard-registry.js` is
    event-agnostic and matcher-blind — `if` is the one registration field it does
@@ -119,8 +131,8 @@ bodies are 70–670 lines of bespoke judgement.
    - **The `text` must be a contiguous run of bytes a NON-TEST corpus file
      carries** — the guard, the `scripts/lib/` module holding its block text,
      or for an `inject` the `docs/agents/rules/` fragment it hands over. The
-     containment corpus excludes test files (`scripts/lib/needle-corpus.js`'s
-     `isTestFile`, mantahostels#3288), because a test asserting on the guard's wording
+     containment corpus excludes test files (`scripts/lib/test-kind.js`'s
+     `isCollectedTestOrConftest`, mantahostels#3288), because a test asserting on the guard's wording
      carries its own copy of it, so a needle keyed on the test passes
      containment while measuring nothing. Where the printed line escapes a
      character — a backtick inside a shell double-quoted string, a `❓` in JS —
@@ -129,7 +141,7 @@ bodies are 70–670 lines of bespoke judgement.
    In an adopter, surfaces 5 and 7 live in the host instead (#1456): a
    `hooks` row in `.claude/registrations.json` and an entry in
    `.claude/guard-fire-needles.json`, judged by
-   `guard-registry-atomicity.sh` and `check-registrations.js`.
+   `guard-registry-atomicity.js` and `check-registrations.js`.
 8. **A rule sentence** — a top-level bullet inside a `<!-- guard-registry:begin
    -->` region — tagged **Enforced** (naming the guard path in backticks),
    **Advisory** (naming the path of a guard that observes the rule and
@@ -165,7 +177,7 @@ bodies are 70–670 lines of bespoke judgement.
 
 <!-- guard-registry:begin -->
 - **A session creating a guard is pointed at this list as it writes the script.**
-  **Advisory** (#1011): `scripts/guard-file-claim.sh` hands over
+  **Advisory** (#1011): `scripts/guard-dispatch.js` (its `guard-file-claim` core) hands over
   `rule:guard-authoring` on a `Write` creating `scripts/guard-*.sh` or
   `scripts/guard-*.js`, once a session. A guard created through Bash, or
   named otherwise, gets nothing.
@@ -202,7 +214,7 @@ The subject is the whole hook stack firing in one session, not any single
 guard.
 
 mantahostels#325 ruled that an author judging its own output is not a pass, **for prose
-only**; `procStartOf`'s comment in `scripts/proving-session.ts` states the code form for one file —
+only**; `readProcStartOf`'s comment in `scripts/proving-session.ts` states the code form for one file —
 "a harness that borrowed the implementation it is checking would agree with it
 by construction, including where both are wrong".
 
@@ -318,7 +330,7 @@ a doc.**
 the cap is spent, emitting nothing. The cap is load-bearing — three of the seven
 wired conditions cannot be fixed from inside the blocked turn — so it stays, and
 the *last permitted* block says so in its own `reason` (mantahostels#2348,
-`lastBlockNotice`). A guard past its cap is enforcing nothing, and a registry
+`buildLastBlockNotice`). A guard past its cap is enforcing nothing, and a registry
 marker resting on one says so.
 
 **Which bound a guard takes turns on what it demands.** A **reporting** guard —
@@ -343,7 +355,7 @@ both is allowed only as a loop bound, and shape stops one block short of it: the
 last block is the consequential tier's. The principle binds any budget whose
 exhaustion silences a check for the rest of a window — `Stop` counters,
 once-only latched warns, delivery-once notifiers — and not one that only defers,
-such as `GP_RULE_CAP`'s envelope. A reserve cannot be a held-back final block: no
+such as `RULE_CAP`'s envelope. A reserve cannot be a held-back final block: no
 `Stop` knows it is the last (mantahostels#2544).
 
 **What this means for a guard's text.** A block's `reason` is read by the
@@ -375,11 +387,11 @@ and it runs at session start under `--notify`.
 but one carries that `timeout` value.
 
 **A guard with bounded external work derives its ceiling from that work** —
-`guard-npm-install.sh`'s 60 s is the worked example. The guard
+`guard-npm-install.js`'s 60 s is the worked example. The guard
 runs a 30 s internal wall-clock budget, tested before each package; one package
 costs up to `timeout 12` + `curl --max-time 8` = 20 s; so a package can start at
 29 s and finish at 49 s, and 30 + 20 leaves 10 s of margin under the 60 s
-ceiling (`scripts/guard-npm-install.sh`'s `30 s, not 40` comment, sized at mantahostels#1803's review H4).
+ceiling (`scripts/guard-npm-install.js`'s `30 s, not 40` comment, sized at mantahostels#1803's review H4).
 State the same arithmetic for any guard adding network or subprocess work.
 
 **A deny-capable `PreToolUse` hook fails closed when the harness ends it**
@@ -390,7 +402,7 @@ way. A timeout, a script that cannot start, invalid JSON or an exit other than
 0 or 2 then refuses the call with `hook error: … blocking because onFailure is
 "block"` (Claude Code 2.1.309, measured at #2670). Every other hook's
 cancellation still fails open, its output discarded. So a deny-capable guard
-ends every path it reaches itself through `gp_allow`, `gp_deny` or `gl_open`,
+ends every path it reaches itself through `scripts/lib/guard-entry.js`, which allows on a throw,
 never on a stray non-zero status, which would refuse every call it matches.
 It still carries its own internal budget where it could be killed mid-verdict:
 a timeout refusal tells the model nothing about the act, while a budgeted
@@ -402,10 +414,9 @@ still reports it at `Stop`.
 
 **A guard that relays another script's refusal declares it** — a
 `# DENIES-THROUGH: <script> <subcommand>` line in its header comment, naming a
-script beside it, as `guard-file-claim.sh` carries — or `guard-lost-deny.js`
+script beside it, as `guard-dispatch.js` carries — or `guard-lost-deny.js`
 never reports its cancellation (`scripts/lib/deny-capable.js`, #1815). A
-`gp_deny` call needs no line, nor does an adopter's own node guard writing its
-`permissionDecision` itself.
+guard writing its `permissionDecision` itself needs no line.
 
 **An internal budget only catches your own slowness.** It catches nothing in
 a whole-burst stall, because a starved guard has no CPU to notice its own
@@ -434,7 +445,7 @@ that mentions* the guarded command trips it — noise under warn, a wedged sessi
 under deny. A guard reading a structured field such as `tool_input.file_path`
 has no such mode, which is why the file-claim guard denies.
 
-`scripts/guard-self-match.sh`'s header is the worked example, splitting one
+`scripts/lib/self-match.js`'s header is the worked example, splitting one
 guard across both verdicts: `pkill -f` is **denied** (it can kill the session,
 and killing by pid is always available), `pgrep -f` is **warned** (reading is
 harmless in itself; only the caller knows whether a self-match changes the

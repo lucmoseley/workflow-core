@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 
 const ROOT = path.join(__dirname, "..");
 const read = (...p: string[]) => fs.readFileSync(path.join(ROOT, ...p), "utf8");
-const tracked = (glob: string) =>
+const readTracked = (glob: string) =>
 	execFileSync("git", ["ls-files", glob], { cwd: ROOT, encoding: "utf8" })
 		.split("\n")
 		.filter(Boolean);
@@ -73,13 +73,13 @@ describe("Windows-side script tooling is declined (mantahostels#1131)", () => {
 		 * surface and re-opens the question. `task.xml.template` is pinned with
 		 * the other two because §W prices the decline on all three.
 		 */
-		expect(tracked("scripts/win-interop-watchdog/*")).toEqual([
+		expect(readTracked("scripts/win-interop-watchdog/*")).toEqual([
 			"scripts/win-interop-watchdog/launcher.vbs",
 			"scripts/win-interop-watchdog/task.xml.template",
 			"scripts/win-interop-watchdog/watchdog.ps1",
 		]);
 		for (const ext of ["*.ps1", "*.psm1", "*.vbs", "*.cmd", "*.bat"]) {
-			const found = tracked(ext).filter(
+			const found = readTracked(ext).filter(
 				(f) => !f.startsWith("scripts/win-interop-watchdog/"),
 			);
 			expect(found, `${ext} outside the watchdog directory`).toEqual([]);
@@ -150,7 +150,7 @@ describe("Windows-side script tooling is declined (mantahostels#1131)", () => {
 		 * shellcheck genuinely reaches this directory's shell installer, so the
 		 * gap is the two Windows files specifically, not the whole directory.
 		 */
-		const shellCorpus = tracked("scripts/*.sh");
+		const shellCorpus = readTracked("scripts/*.sh");
 		expect(shellCorpus).toContain("scripts/install-interop-watchdog.sh");
 		expect(shellCorpus.some((f) => WINDOWS_EXTENSIONS.test(f))).toBe(false);
 	});

@@ -3,7 +3,7 @@
 It binds the test cases a change adds or rewrites (#1771).
 
 1. Build an expensive fixture, index or parse once per file. Each test that writes gets a fresh copy; each that only reads gets a read-only view. Key any cache on every input it reads.
-2. Reach a state by seeding it, or a subject with a real dependency removed, and keep one case on the real call or dependency. A program test's process boundary stays §X3's.
+2. Reach a state by seeding it, or a subject with a real dependency removed, and keep one case on the real call or dependency. For a program with a core, the real call is each production adapter its shell wires, crossed once for real: fs and git in the test's temp directory, and a binary at its §N7 var (§X11 item 3). *House*: `gh` is crossed through `WFC_GH`, its stub held to the real binary by §G7's contract test. Any other program test's process boundary stays §X3's.
 3. Replace a per-case search over a shared input with one pass, proven byte-identical to the old output on the real input and on planted variants.
 4. A change made for speed proves the test still fails: one mutation per changed assertion, reverted, named in the commit message.
 5. A new test file that the suite's run-cost report names over budget is made cheaper, or its header says why (§G4). A line the report marks pre-existing is excepted.

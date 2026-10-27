@@ -42,15 +42,15 @@
  */
 
 const { execFileSync, spawnSync } = require("node:child_process");
+const { execGit } = require("./lib/git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { ZERO, pushesFrom } = require("./lib/push-refs.js");
 const { pushedRef } = require("./lib/landing-refs.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { claudeVersion: readClaudeVersion } = require("./lib/claude-version.js");
+const { readClaudeVersion } = require("./lib/claude-version.js");
 
 const MODS = [".claude/skills/wfc-delivery", ".claude/skills/wfc-liveness"];
 /* A guess at a ceiling for a hung runner, not a measurement (#857). */
@@ -70,10 +70,9 @@ const claudeBin = () => process.env.WFC_CLAUDE_BIN || "claude";
 
 /** @param {string[]} args */
 const git = (args) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "ignore"],
-		maxBuffer: CHILD_MAX_BUFFER,
 	}).trim();
 
 /** @param {string[]} args */
@@ -89,7 +88,7 @@ const gitOk = (args) => {
 /** @type {string | null | undefined} */
 let cliVersion;
 /** `claude --version`'s number, once per run; null where it gives none. */
-function claudeVersion() {
+function readClaudeVersionOnce() {
 	if (cliVersion === undefined) cliVersion = readClaudeVersion(claudeBin());
 	return cliVersion;
 }
@@ -107,11 +106,11 @@ function unmetTestFloor(dir) {
 		/* No README states no floor; the tests run. */
 	}
 	const floor = TEST_FLOOR.exec(readme)?.[1];
-	const have = floor && claudeVersion();
+	const have = floor && readClaudeVersionOnce();
 	if (!floor || !have) return null;
 	const parseVersion = (/** @type {string} */ v) => v.split(".").map(Number);
 	const f = parseVersion(floor);
-	/* Both are x.y.z, by TEST_FLOOR and claudeVersion's patterns. */
+	/* Both are x.y.z, by TEST_FLOOR and readClaudeVersionOnce's patterns. */
 	const cmp =
 		parseVersion(have)
 			.map((n, i) => {
@@ -131,7 +130,7 @@ function unmetTestFloor(dir) {
  * @param {string} sha
  * @param {string | undefined} remote
  */
-function baseOf(sha, remote) {
+function readBaseOf(sha, remote) {
 	if (
 		remote &&
 		!ZERO.test(remote) &&
@@ -176,7 +175,7 @@ function runModTests(sha, mod) {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-mod-tests-"));
 	try {
 		const archive = path.join(dir, "mod.tar");
-		execFileSync("git", ["archive", "-o", archive, sha, "--", mod], {
+		execGit(["archive", "-o", archive, sha, "--", mod], {
 			stdio: "ignore",
 		});
 		execFileSync("tar", ["-xf", archive, "-C", dir], { stdio: "ignore" });
@@ -184,7 +183,7 @@ function runModTests(sha, mod) {
 		if (floor)
 			return {
 				verdict: "unrun",
-				why: `\`claude\` is ${claudeVersion()}, below ${floor}, the floor its README states for its tests (#901) — update Claude Code to test it`,
+				why: `\`claude\` is ${readClaudeVersionOnce()}, below ${floor}, the floor its README states for its tests (#901) — update Claude Code to test it`,
 			};
 		const r = spawnSync(claudeBin(), ["plugin", "test", path.join(dir, mod)], {
 			encoding: "utf8",
@@ -231,7 +230,7 @@ function judge(sha, mod) {
 		return false;
 	}
 	process.stderr.write(
-		`${r.output}\n\npre-push: ${name}'s plugin tests fail at ${at} on \`claude\` ${claudeVersion() ?? "of unread version"}, so the push is refused (#857).\n` +
+		`${r.output}\n\npre-push: ${name}'s plugin tests fail at ${at} on \`claude\` ${readClaudeVersionOnce() ?? "of unread version"}, so the push is refused (#857).\n` +
 			`  Fix the mod, commit, and push again; \`claude plugin test ${mod}\` reruns them on the working tree.\n`,
 	);
 	return true;
@@ -256,8 +255,8 @@ function sweep() {
 		else {
 			process.stderr.write(
 				r.verdict === "fail"
-					? `${r.output}\n\nmod tests: ${name}'s plugin tests fail on \`claude\` ${claudeVersion() ?? "of unread version"}; \`claude plugin test ${mod}\` reruns them.\n`
-					: `mod tests: ${name}'s plugin tests were not run on \`claude\` ${claudeVersion() ?? "of unread version"}: ${r.why}.\n`,
+					? `${r.output}\n\nmod tests: ${name}'s plugin tests fail on \`claude\` ${readClaudeVersionOnce() ?? "of unread version"}; \`claude plugin test ${mod}\` reruns them.\n`
+					: `mod tests: ${name}'s plugin tests were not run on \`claude\` ${readClaudeVersionOnce() ?? "of unread version"}: ${r.why}.\n`,
 			);
 			red = true;
 		}
@@ -285,7 +284,7 @@ function main() {
 	let refuse = false;
 	for (const { sha, remote } of pushesFrom(stdin, { skipTags: true })) {
 		try {
-			for (const mod of touchedMods(sha, baseOf(sha, remote)))
+			for (const mod of touchedMods(sha, readBaseOf(sha, remote)))
 				refuse = judge(sha, mod) || refuse;
 		} catch (e) {
 			/* One unreadable ref fails open (#857) and keeps a refusal already

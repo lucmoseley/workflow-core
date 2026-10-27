@@ -4,7 +4,7 @@
 
 ## Context
 
-ADR-0007 keys a certificate to a tree and a read closure. Two questions sit beside it: what a run that selects no test leaves behind, and whether a session re-certifies when a neighbour's push moves HEAD. Measured over the stores on 19 September 2026: 56 full runs, 3 of them on a docs-only commit whose diff reaches no test; the other 53 forced by the post-push empty diff, which ADR-0007's tree-and-closure rule turns into a lookup.
+ADR-0007 keys a certificate to a tree and a read closure. Two questions sit beside it: what a run that selects no test leaves behind, and whether a session owes a new certificate when a neighbour's push moves HEAD. Measured over the stores on 19 September 2026: 56 full runs, 3 of them on a docs-only commit whose diff reaches no test; the other 53 forced by the post-push empty diff, which ADR-0007's tree-and-closure rule turns into a lookup.
 
 ## Decisions
 
@@ -12,11 +12,13 @@ ADR-0007 keys a certificate to a tree and a read closure. Two questions sit besi
 
 Its closure is the selection instruments alone — the read-edge manifest and the dependency-graph roots — and its `changedPaths` the diff at launch. Admissibility is unchanged. Its soundness is any narrowed run's: the base is trusted, and the diff's readers ran, vacuously.
 
+The exception is a bare run under the `landing` module whose touched selection is empty: it runs nothing and leaves no certificate, since no push there owes an attesting one (#2868, #2930, #2934).
+
 ### 2. The tree owes nothing beyond ADR-0007's closure rule
 
 A neighbour's dirt outside the closure is ignored; dirt on a root or the manifest voids the certificate by the rule.
 
-### 3. A moved HEAD asks for no re-certification
+### 3. A moved HEAD asks for no new certificate
 
 The `result:` gate asks about the session's own last commit and the push gate about the tip pushed; a neighbour's pushed content is CI's to prove. The launcher does not hint at a full run there.
 

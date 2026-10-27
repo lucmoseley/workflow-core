@@ -3,15 +3,15 @@
  * The store and the warnings behind mantahostels#987's warn-only pre-push gate.
  *
  * Two properties carry mantahostels#908's ruling and are asserted hardest: the gate never
- * DENIES anything — every degraded store reads as "no marker" rather than as an
- * error — and a green it cannot vouch for is never presented as clean.
+ * DENIES anything — every degraded store reads as "no certificate" rather than as an
+ * error — and a certificate it cannot vouch for is never presented as clean.
  *
  * In-process, with every store in its own temp sandbox, so no case reads or
- * writes this checkout's real markers.
+ * writes this checkout's real stores.
  *
  * `.husky/pre-push` reads the store through `check-test-marker.js` on every
  * push, and `npm run push:check` on the same records; loosen a case and a push
- * of untested commits reads as covered, or a store fault blocks a push the
+ * of untested commits reads as attested, or a store fault blocks a push the
  * ruling says may only be warned on.
  */
 
@@ -69,7 +69,7 @@ const fullScope = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** Inside the archive's reach, which the fixed `green().at` is not. */
+/** Inside the archive's reach, which the fixed `certificate().at` is not. */
 const fresh = () => new Date().toISOString();
 
 /** How long a pruned run stays in the archive (#1231), spelled here rather
@@ -84,14 +84,14 @@ const archivePath = (root: string, store?: string) =>
  * The shas in `store`'s archive, the default marker store's when `store` is
  * absent.
  */
-const archivedShas = (root: string, store?: string) =>
+const readArchivedShas = (root: string, store?: string) =>
 	fs
 		.readFileSync(archivePath(root, store), "utf8")
 		.split("\n")
 		.filter(Boolean)
 		.map((l) => JSON.parse(l).sha);
 
-const green = (over: Record<string, unknown> = {}) => ({
+const certificate = (over: Record<string, unknown> = {}) => ({
 	sha: "a".repeat(40),
 	at: "2026-08-21T08:00:00.000Z",
 	dirtyAtStart: false,
@@ -102,15 +102,15 @@ const green = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** A green whose scope nobody recorded (mantahostels#1230). */
+/** A certificate whose scope nobody recorded (mantahostels#1230). */
 const unscoped = (over: Record<string, unknown> = {}) => {
-	const { scope: _scope, ...rest } = green(over);
+	const { scope: _scope, ...rest } = certificate(over);
 	return rest;
 };
 
-/** A green from `vitest run <file> -t <name>`. */
+/** A certificate from `vitest run <file> -t <name>`. */
 const narrowed = (over: Record<string, unknown> = {}) =>
-	green({
+	certificate({
 		scope: fullScope({
 			modulesRun: 1,
 			tests: 8,
@@ -123,16 +123,16 @@ const narrowed = (over: Record<string, unknown> = {}) =>
 	});
 
 describe("the store", () => {
-	it("round-trips a marker", () => {
+	it("round-trips a certificate", () => {
 		const root = sandbox();
-		expect(record(green(), { root })).toBe(true);
-		expect(readMarkers({ root })).toEqual([green()]);
+		expect(record(certificate(), { root })).toBe(true);
+		expect(readMarkers({ root })).toEqual([certificate()]);
 	});
 
-	it("appends rather than replacing, so a second suite's green survives", () => {
+	it("appends rather than replacing, so a second suite's certificate survives", () => {
 		const root = sandbox();
-		record(green(), { root });
-		record(green({ sha: "b".repeat(40) }), { root });
+		record(certificate(), { root });
+		record(certificate({ sha: "b".repeat(40) }), { root });
 		expect(readMarkers({ root }).map((m) => m.sha)).toEqual([
 			"a".repeat(40),
 			"b".repeat(40),
@@ -141,40 +141,40 @@ describe("the store", () => {
 
 	it("skips a torn line instead of throwing on it", () => {
 		const root = sandbox();
-		record(green(), { root });
+		record(certificate(), { root });
 		fs.appendFileSync(storePath(root), '{"sha":"trunc\n');
-		record(green({ sha: "c".repeat(40) }), { root });
+		record(certificate({ sha: "c".repeat(40) }), { root });
 		expect(readMarkers({ root }).map((m) => m.sha)).toEqual([
 			"a".repeat(40),
 			"c".repeat(40),
 		]);
 	});
 
-	it("drops a line carrying no sha — a marker that names no commit attests nothing", () => {
+	it("drops a line carrying no sha — a certificate that names no commit attests nothing", () => {
 		const root = sandbox();
 		fs.writeFileSync(storePath(root), '{"at":"now"}\n[]\nnull\n');
 		expect(readMarkers({ root })).toEqual([]);
 	});
 
-	it("reads an absent store as no markers, never as an error", () => {
+	it("reads an absent store as no certificates, never as an error", () => {
 		expect(readMarkers({ root: sandbox() })).toEqual([]);
 		expect(readMarkers({ root: null })).toEqual([]);
 	});
 
-	it("refuses to write a marker with no sha, and never throws on an unwritable store", () => {
+	it("refuses to write a certificate with no sha, and never throws on an unwritable store", () => {
 		const root = sandbox();
-		expect(record(green({ sha: null }), { root })).toBe(false);
-		expect(record(green(), { root: null })).toBe(false);
+		expect(record(certificate({ sha: null }), { root })).toBe(false);
+		expect(record(certificate(), { root: null })).toBe(false);
 		// A directory where the store file goes: the append fails, the caller does not.
 		const blocked = sandbox();
 		fs.mkdirSync(storePath(blocked));
-		expect(record(green(), { root: blocked })).toBe(false);
+		expect(record(certificate(), { root: blocked })).toBe(false);
 	});
 
 	it("prunes to the newest KEEP once past the threshold", () => {
 		const root = sandbox();
 		for (let i = 0; i < 12; i++)
-			record(green({ sha: String(i).padStart(40, "0") }), {
+			record(certificate({ sha: String(i).padStart(40, "0") }), {
 				root,
 				pruneAt: 10,
 				keep: 4,
@@ -189,14 +189,16 @@ describe("the store", () => {
 	it("holds 800 lines by default, and prunes to KEEP as the 801st lands", () => {
 		const root = sandbox();
 		const line = (i: number) =>
-			JSON.stringify(green({ sha: String(i).padStart(40, "0"), at: fresh() }));
+			JSON.stringify(
+				certificate({ sha: String(i).padStart(40, "0"), at: fresh() }),
+			);
 		fs.writeFileSync(
 			storePath(root),
 			`${Array.from({ length: 799 }, (_, i) => line(i)).join("\n")}\n`,
 		);
-		record(green({ sha: "e".repeat(40), at: fresh() }), { root });
+		record(certificate({ sha: "e".repeat(40), at: fresh() }), { root });
 		expect(readMarkers({ root })).toHaveLength(800);
-		record(green({ sha: "f".repeat(40), at: fresh() }), { root });
+		record(certificate({ sha: "f".repeat(40), at: fresh() }), { root });
 		const kept = readMarkers({ root });
 		expect(kept).toHaveLength(KEEP);
 		expect(kept.at(-1)?.sha).toBe("f".repeat(40));
@@ -206,12 +208,12 @@ describe("the store", () => {
 	it("moves what a prune drops into the archive (#1231)", () => {
 		const root = sandbox();
 		for (let i = 0; i < 12; i++)
-			record(green({ sha: String(i).padStart(40, "0"), at: fresh() }), {
+			record(certificate({ sha: String(i).padStart(40, "0"), at: fresh() }), {
 				root,
 				pruneAt: 10,
 				keep: 4,
 			});
-		const archived = archivedShas(root);
+		const archived = readArchivedShas(root);
 		expect(archived).toEqual(
 			[0, 1, 2, 3, 4, 5, 6].map((i) => String(i).padStart(40, "0")),
 		);
@@ -227,15 +229,15 @@ describe("the store", () => {
 		).toISOString();
 		fs.writeFileSync(
 			archivePath(root),
-			`${JSON.stringify(green({ sha: "a".repeat(40), at: stale }))}\nnot json\n${JSON.stringify(green({ sha: "9".repeat(40), at: lastDay }))}\n${JSON.stringify(green({ sha: "b".repeat(40), at: fresh() }))}\n`,
+			`${JSON.stringify(certificate({ sha: "a".repeat(40), at: stale }))}\nnot json\n${JSON.stringify(certificate({ sha: "9".repeat(40), at: lastDay }))}\n${JSON.stringify(certificate({ sha: "b".repeat(40), at: fresh() }))}\n`,
 		);
 		for (let i = 0; i < 3; i++)
-			record(green({ sha: String(i).repeat(40), at: fresh() }), {
+			record(certificate({ sha: String(i).repeat(40), at: fresh() }), {
 				root,
 				pruneAt: 2,
 				keep: 1,
 			});
-		const archived = archivedShas(root);
+		const archived = readArchivedShas(root);
 		expect(archived).toEqual([
 			"9".repeat(40),
 			"b".repeat(40),
@@ -247,12 +249,15 @@ describe("the store", () => {
 	it("archives the red store under its own name", () => {
 		const root = sandbox();
 		for (let i = 0; i < 4; i++)
-			recordFailure(green({ sha: String(i).repeat(40), at: fresh() }), {
-				root,
-				pruneAt: 3,
-				keep: 2,
-			});
-		expect(archivedShas(root, FAIL_STORE)).toEqual([
+			recordFailure(
+				{ sha: String(i).repeat(40), at: fresh() },
+				{
+					root,
+					pruneAt: 3,
+					keep: 2,
+				},
+			);
+		expect(readArchivedShas(root, FAIL_STORE)).toEqual([
 			"0".repeat(40),
 			"1".repeat(40),
 		]);
@@ -261,22 +266,24 @@ describe("the store", () => {
 
 	it("keeps one copy of a run two racing prunes both archive", () => {
 		const root = sandbox();
-		const line = JSON.stringify(green({ sha: "c".repeat(40), at: fresh() }));
+		const line = JSON.stringify(
+			certificate({ sha: "c".repeat(40), at: fresh() }),
+		);
 		fs.writeFileSync(storePath(root), `${line}\n${line}\n`);
 		fs.writeFileSync(archivePath(root), `${line}\n`);
-		record(green({ sha: "d".repeat(40), at: fresh() }), {
+		record(certificate({ sha: "d".repeat(40), at: fresh() }), {
 			root,
 			pruneAt: 2,
 			keep: 1,
 		});
-		expect(archivedShas(root)).toEqual(["c".repeat(40)]);
+		expect(readArchivedShas(root)).toEqual(["c".repeat(40)]);
 	});
 
 	it("leaves the store unpruned, and still reports the run landed, when the archive cannot be written", () => {
 		const root = sandbox();
 		fs.mkdirSync(archivePath(root), { recursive: true });
 		const landed = [0, 1, 2].map((i) =>
-			record(green({ sha: String(i).repeat(40), at: fresh() }), {
+			record(certificate({ sha: String(i).repeat(40), at: fresh() }), {
 				root,
 				pruneAt: 2,
 				keep: 1,
@@ -288,8 +295,8 @@ describe("the store", () => {
 });
 
 /**
- * Whether the push warns that a green matched by sha read a dirty tree —
- * what a clean green means to `attestationReading`, its one reader.
+ * Whether the push warns that a certificate matched by sha read a dirty tree —
+ * what a clean certificate means to `attestationReading`, its one reader.
  */
 const warnsDirty = (marker: Record<string, unknown>) =>
 	attestationReading(
@@ -310,62 +317,66 @@ const warnsDirty = (marker: Record<string, unknown>) =>
 		{ pushing: true },
 	).text.includes("dirty tree");
 
-describe("what counts as a clean green", () => {
+describe("what counts as a clean certificate", () => {
 	it("is a run over a still tree and nothing else", () => {
-		expect(warnsDirty(green())).toBe(false);
-		expect(warnsDirty(green({ dirtyAtStart: true }))).toBe(true);
-		expect(warnsDirty(green({ headMovedDuringRun: true }))).toBe(true);
-		expect(warnsDirty(green({ foreign: [{ path: "a.ts", why: "x" }] }))).toBe(
-			true,
-		);
-		expect(warnsDirty(green({ startStateUnknown: true }))).toBe(true);
+		expect(warnsDirty(certificate())).toBe(false);
+		expect(warnsDirty(certificate({ dirtyAtStart: true }))).toBe(true);
+		expect(warnsDirty(certificate({ headMovedDuringRun: true }))).toBe(true);
+		expect(
+			warnsDirty(certificate({ foreign: [{ path: "a.ts", why: "x" }] })),
+		).toBe(true);
+		expect(warnsDirty(certificate({ startStateUnknown: true }))).toBe(true);
 	});
 });
 
 describe("what counts as the whole suite (mantahostels#1230)", () => {
 	it("accepts a run that collected every module in the corpus", () => {
-		expect(isFullRun(green())).toBe(true);
+		expect(isFullRun(certificate())).toBe(true);
 	});
 
 	it("ignores skipped tests, which a conditional skip makes normal", () => {
-		expect(isFullRun(green({ scope: fullScope({ skipped: 400 }) }))).toBe(true);
+		expect(isFullRun(certificate({ scope: fullScope({ skipped: 400 }) }))).toBe(
+			true,
+		);
 	});
 
 	it("rejects a name filter even where every module was collected", () => {
 		expect(
-			isFullRun(green({ scope: fullScope({ nameFilter: "/ref/" }) })),
+			isFullRun(certificate({ scope: fullScope({ nameFilter: "/ref/" }) })),
 		).toBe(false);
 	});
 
 	it("rejects a path filter even where every module was collected", () => {
 		expect(
-			isFullRun(green({ scope: fullScope({ fileFilters: ["a.test.ts"] }) })),
+			isFullRun(
+				certificate({ scope: fullScope({ fileFilters: ["a.test.ts"] }) }),
+			),
 		).toBe(false);
 	});
 
 	it("rejects a run short of the corpus", () => {
-		expect(isFullRun(green({ scope: fullScope({ modulesRun: 122 }) }))).toBe(
-			false,
-		);
+		expect(
+			isFullRun(certificate({ scope: fullScope({ modulesRun: 122 }) })),
+		).toBe(false);
 	});
 
 	it("rejects a zero corpus, which means the glob never resolved", () => {
 		expect(
 			isFullRun(
-				green({ scope: fullScope({ modulesRun: 0, modulesTotal: 0 }) }),
+				certificate({ scope: fullScope({ modulesRun: 0, modulesTotal: 0 }) }),
 			),
 		).toBe(false);
 	});
 
-	it("rejects a marker that carries no scope (mantahostels#1230)", () => {
+	it("rejects a certificate that carries no scope (mantahostels#1230)", () => {
 		expect(isFullRun(unscoped())).toBe(false);
 	});
 });
 
 describe("a diff-selected run's certificate (mantahostels#2031)", () => {
-	/** A green from `npm run test:changed` — narrowed, and carrying NO path filter. */
+	/** A certificate from `npm run test:changed` — narrowed, and carrying NO path filter. */
 	const changedRun = (ref: string | boolean = "HEAD~1") =>
-		green({
+		certificate({
 			scope: fullScope({
 				modulesRun: 3,
 				tests: 40,
@@ -383,21 +394,21 @@ describe("a diff-selected run's certificate (mantahostels#2031)", () => {
 	 * `changed` being dropped from Scope entirely. This one cannot: every other
 	 * limb is satisfied, and `--changed` is the only thing disqualifying it. */
 	it("rejects a --changed run that reached every module, on provenance", () => {
-		expect(isFullRun(green({ scope: fullScope({ changed: "HEAD~1" }) }))).toBe(
-			false,
-		);
+		expect(
+			isFullRun(certificate({ scope: fullScope({ changed: "HEAD~1" }) })),
+		).toBe(false);
 	});
 });
 
 describe("both suites answer for themselves (mantahostels#1256)", () => {
-	it("reads a marker carrying no suite as vitest, so pre-mantahostels#1256 lines still count", () => {
-		expect(suiteOf(green())).toBe("vitest");
+	it("reads a certificate carrying no suite as vitest, so pre-mantahostels#1256 lines still count", () => {
+		expect(suiteOf(certificate())).toBe("vitest");
 	});
 });
 
 /* `attestationOf`'s verdict as a session reads it (#814), driven over hand-built
  * verdicts: the reading is pure, and `attestationOf` has its own real-repo block. */
-describe("what a session reads off the cover (#814)", () => {
+describe("what a session reads off the attestation (#814)", () => {
 	const attestedSha = "a".repeat(40);
 	const baseSha = "b".repeat(40);
 	const C1 = "c".repeat(40);
@@ -417,18 +428,18 @@ describe("what a session reads off the cover (#814)", () => {
 		note,
 	});
 	const bySha = (over: Record<string, unknown> = {}) => ({
-		marker: green(over),
+		marker: certificate(over),
 		match: { by: "sha" },
 	});
 
-	it("names each uncovered file and its commit, says they are public, and asks for a run and a push:check — never a push again", () => {
+	it("names each unattested file and its commit, says they are public, and asks for a run and a push:check — never a push again", () => {
 		const { state, text } = attestationReading(attestedSha, judged([owed()]), {
 			pushing: true,
 			pushCheck: pushCheckCommand,
 		});
 		expect(state).toBe("owed");
 		expect(text).toContain(
-			`NO GREEN VITEST RUN COVERS 1 FILE(S) IN ${baseSha.slice(0, 12)}..${attestedSha.slice(0, 12)}`,
+			`1 FILE(S) IN ${baseSha.slice(0, 12)}..${attestedSha.slice(0, 12)} LACK A VITEST CERTIFICATE`,
 		);
 		expect(text).toContain(`scripts/a.js — commit ${C1.slice(0, 12)}`);
 		expect(text).toContain("Those commits are already public.");
@@ -454,11 +465,11 @@ describe("what a session reads off the cover (#814)", () => {
 					suite: "vitest",
 					attested: false,
 					unattested: [],
-					why: "no green vitest run holds at aaaaaaaaaaaa",
+					why: "no vitest certificate holds at aaaaaaaaaaaa",
 				},
 			]),
 		);
-		expect(text).toContain("⚠  no green vitest run holds at aaaaaaaaaaaa.");
+		expect(text).toContain("⚠  no vitest certificate holds at aaaaaaaaaaaa.");
 	});
 
 	it("lists twenty files and counts the rest", () => {
@@ -472,7 +483,7 @@ describe("what a session reads off the cover (#814)", () => {
 		expect(text).toContain("…and 3 more");
 	});
 
-	it("is silent at the push on a clean cover by sha, and names the covering runs to push:check", () => {
+	it("is silent at the push on a clean attestation by sha, and names the attesting runs to push:check", () => {
 		const verdict = judged([attested([bySha({ at: "T1" })])]);
 		expect(attestationReading(attestedSha, verdict, { pushing: true })).toEqual(
 			{
@@ -481,7 +492,7 @@ describe("what a session reads off the cover (#814)", () => {
 			},
 		);
 		const { text } = attestationReading(attestedSha, verdict);
-		expect(text).toContain("✓  VITEST: every file in the range is covered");
+		expect(text).toContain("✓  VITEST: 1 certificate(s) attest the range:");
 		expect(text).toContain(`T1 on ${attestedSha.slice(0, 12)} — full run`);
 	});
 
@@ -493,7 +504,7 @@ describe("what a session reads off the cover (#814)", () => {
 				attested(
 					[
 						{
-							marker: green({ dirtyAtStart: true }),
+							marker: certificate({ dirtyAtStart: true }),
 							match: { by: "tree", tree: "x", closureSize: "*" },
 						},
 					],
@@ -508,7 +519,7 @@ describe("what a session reads off the cover (#814)", () => {
 			judged([attested([bySha({ dirtyAtStart: true, dirtyCount: 2 })])]),
 			{ pushing: true },
 		);
-		expect(dirty.text).toContain("dirty tree: the green vitest run");
+		expect(dirty.text).toContain("dirty tree: the vitest certificate on");
 	});
 
 	it("answers each suite for itself", () => {
@@ -518,7 +529,7 @@ describe("what a session reads off the cover (#814)", () => {
 		);
 		expect(state).toBe("owed");
 		expect(text).toContain("✓  VITEST");
-		expect(text).toContain("NO GREEN PYTEST RUN COVERS 1 FILE(S)");
+		expect(text).toMatch(/1 FILE\(S\) IN \S+ LACK A PYTEST CERTIFICATE/);
 		expect(text).toContain("Run `npm run test:py` for that");
 	});
 
@@ -529,7 +540,7 @@ describe("what a session reads off the cover (#814)", () => {
 			{ pushing: true },
 		);
 		expect(state).toBe("unjudged");
-		expect(text).toContain("could not judge whether green runs cover");
+		expect(text).toContain("could not judge whether certificates attest");
 		expect(text).toContain("git could not diff x..y");
 		expect(text).toContain("never refuses a push");
 	});
@@ -633,6 +644,16 @@ describe("markerFrom", () => {
 		expect(m).not.toHaveProperty("argv");
 	});
 
+	it("carries the run's slowest files where it timed any, and no field where it timed none (#2770)", () => {
+		const slowest = [{ file: "scripts/a.test.ts", seconds: 12.5 }];
+		expect(
+			markerFrom({ head: "old", files: {} }, after, null, { slowest }).slowest,
+		).toEqual(slowest);
+		expect(
+			markerFrom({ head: "old", files: {} }, after, null, { slowest: [] }),
+		).not.toHaveProperty("slowest");
+	});
+
 	it("counts what was already uncommitted when the run began", () => {
 		const m = markerFrom(
 			{ head: "old", files: { "a.ts": "h1", "b.ts": "h2" } },
@@ -650,10 +671,23 @@ describe("markerFrom", () => {
 		const m = markerFrom({ head: "old", files: {} }, after, null, {
 			startedAtMs,
 			endedAtMs: startedAtMs + 5000,
+			elapsedMs: 5000,
 		});
 
 		expect(m.startedAt).toBe(new Date(startedAtMs).toISOString());
 		expect(m.durationMs).toBe(5000);
+	});
+
+	it("takes the run's duration from its monotonic span, not the wall clocks either side of a suspend (#2829)", () => {
+		const startedAtMs = Date.parse("2026-10-24T03:00:28.840Z");
+		const m = markerFrom({ head: "old", files: {} }, after, null, {
+			startedAtMs,
+			endedAtMs: Date.parse("2026-10-24T03:24:05.144Z"),
+			elapsedMs: 394_070,
+		});
+
+		expect(m.durationMs).toBe(394_070);
+		expect(m.at).toBe("2026-10-24T03:24:05.144Z");
 	});
 
 	it("leaves BOTH time fields off where the caller had no start time", () => {
@@ -667,6 +701,19 @@ describe("markerFrom", () => {
 		for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, null, undefined]) {
 			const m = markerFrom({ head: "old", files: {} }, after, null, {
 				startedAtMs: bad as number | null,
+				elapsedMs: 5000,
+			});
+
+			expect(m).not.toHaveProperty("startedAt");
+			expect(m).not.toHaveProperty("durationMs");
+		}
+	});
+
+	it("treats an unreadable span as unknown, leaving the start off with it", () => {
+		for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, null, undefined]) {
+			const m = markerFrom({ head: "old", files: {} }, after, null, {
+				startedAtMs: Date.now() - 5000,
+				elapsedMs: bad as number | null,
 			});
 
 			expect(m).not.toHaveProperty("startedAt");
@@ -679,9 +726,20 @@ describe("markerFrom", () => {
 	 * postdates the marker's own `at` attests an instant run, which is the
 	 * reading these fields exist to make trustworthy.
 	 */
-	it("records nothing at all where the clock went backwards, rather than a zero", () => {
+	it("records nothing where the wall clock went backwards, whatever the span", () => {
 		const m = markerFrom({ head: "old", files: {} }, after, null, {
 			startedAtMs: Date.now() + 60_000,
+			elapsedMs: 5000,
+		});
+
+		expect(m).not.toHaveProperty("durationMs");
+		expect(m).not.toHaveProperty("startedAt");
+	});
+
+	it("records nothing for a negative span", () => {
+		const m = markerFrom({ head: "old", files: {} }, after, null, {
+			startedAtMs: Date.now() - 5000,
+			elapsedMs: -1,
 		});
 
 		expect(m).not.toHaveProperty("durationMs");
@@ -786,6 +844,7 @@ describe("markerFrom", () => {
 		const m = markerFrom({ head: "old", files: {} }, after, null, {
 			startedAtMs,
 			endedAtMs,
+			elapsedMs: 5000,
 		});
 
 		expect(m.durationMs).toBe(5000);
@@ -834,7 +893,7 @@ describe("markerFrom", () => {
 		]);
 	});
 
-	it("stamps the suite it was told, so pytest's green is not read as vitest's", () => {
+	it("stamps the suite it was told, so pytest's certificate is not read as vitest's", () => {
 		const m = markerFrom({ head: "old", files: {} }, after, null, {
 			suite: "pytest",
 		});
@@ -956,7 +1015,7 @@ describe("the suites a range is asked about", () => {
 });
 
 describe("the red store (mantahostels#1942)", () => {
-	it("writes the red run to its own store, never the green one", () => {
+	it("writes the red run to its own store, never the certificate store", () => {
 		const root = sandbox();
 		expect(recordFailure({ sha: "a".repeat(40), at: "now" }, { root })).toBe(
 			true,
@@ -1028,7 +1087,7 @@ describe("the red store (mantahostels#1942)", () => {
 describe("a filtered run that meets the push gate (mantahostels#2146, mantahostels#2207)", () => {
 	/** `npm run test:changed` over a tree whose manifest was fresh. */
 	const admissible = (over: Record<string, unknown> = {}) =>
-		green({
+		certificate({
 			scope: fullScope({
 				modulesRun: 4,
 				tests: 40,
@@ -1064,14 +1123,14 @@ describe("a filtered run that meets the push gate (mantahostels#2146, mantahoste
 		expect(isAdmissibleRun(admissible({ modulesTotal: 0 }))).toBe(false);
 	});
 
-	/* The launcher refuses `-t`, so this marker never came from the gate
+	/* The launcher refuses `-t`, so this certificate never came from the gate
 	 * command however the flag reached it (mantahostels#2172). */
 	it("is not claimable by a name-filtered run, whatever set the flag", () => {
 		expect(isAdmissibleRun(admissible({ nameFilter: "/spawn/" }))).toBe(false);
 	});
 
 	it("leaves the full-run definition alone — mantahostels#1230 stands", () => {
-		const full = green({ scope: fullScope({ admissible: true }) });
+		const full = certificate({ scope: fullScope({ admissible: true }) });
 		expect(isFullRun(full)).toBe(true);
 		expect(isAdmissibleRun(full)).toBe(false);
 	});
@@ -1080,10 +1139,10 @@ describe("a filtered run that meets the push gate (mantahostels#2146, mantahoste
 	 * run came from `npm run test:changed`, which is exactly the claim a run
 	 * that FAILED the freshness check can also make. A predicate reading it
 	 * would hand the gate to the runs it exists to count. */
-	it("is not claimable by the route flag, which certifies nothing", () => {
+	it("is not claimable by the route flag, which attests nothing", () => {
 		/* The key is ABSENT on a failed launch, not present-and-undefined: the
 		 * reporter spreads it in only when the flag was set. */
-		const routed = green({
+		const routed = certificate({
 			scope: fullScope({
 				modulesRun: 4,
 				tests: 40,
@@ -1113,14 +1172,14 @@ describe("a filtered run that meets the push gate (mantahostels#2146, mantahoste
 
 describe("why a full run was full (mantahostels#3207)", () => {
 	it("leaves isFullRun's verdict unaffected by which reason the scope carries", () => {
-		const bare = isFullRun(green());
+		const bare = isFullRun(certificate());
 		for (const reason of FULL_REASONS)
-			expect(isFullRun(green({ scope: fullScope({ full: reason }) }))).toBe(
-				bare,
-			);
+			expect(
+				isFullRun(certificate({ scope: fullScope({ full: reason }) })),
+			).toBe(bare);
 	});
 
-	/* A marker predating mantahostels#3207 carries no reader for `full` at all — only
+	/* A certificate predating mantahostels#3207 carries no reader for `full` at all — only
 	 * `isAdmissibleScope`'s presence check (`!scope.full`, tested below) reads
 	 * the field, and that reads absence and a bad value alike. */
 	it("carries no full key on a scope built before this change", () => {
@@ -1134,13 +1193,13 @@ describe("why a full run was full (mantahostels#3207)", () => {
 			admissible: true,
 			full: "flag",
 		});
-		expect(isAdmissibleRun(green({ scope }))).toBe(false);
+		expect(isAdmissibleRun(certificate({ scope }))).toBe(false);
 	});
 
 	it("still lets a full scope's own admissible flag be ignored, unharmed by the new limb", () => {
 		expect(
 			isFullRun(
-				green({ scope: fullScope({ admissible: true, full: "flag" }) }),
+				certificate({ scope: fullScope({ admissible: true, full: "flag" }) }),
 			),
 		).toBe(true);
 	});
@@ -1166,7 +1225,7 @@ describe("reading the red store back (mantahostels#2205)", () => {
 		...rest,
 	});
 
-	it("reads the red store, never the green one", () => {
+	it("reads the red store, never the certificate store", () => {
 		const root = sandbox();
 		record({ sha: "a".repeat(40), at: "now" }, { root });
 		recordFailure(red("b".repeat(40), ["one.test.ts"]), { root });
@@ -1267,8 +1326,8 @@ describe("attesting a sha by tree (#189)", () => {
 	/**
 	 * A git that answers each of the four calls from a table: the sha's tree,
 	 * the manifest at the sha (`null`: absent there), the paths differing
-	 * between the marker's tree and the sha's, and the paths in the sha's
-	 * range from the marker's base.
+	 * between the certificate's tree and the sha's, and the paths in the sha's
+	 * range from the certificate's base.
 	 */
 	const scripted = ({
 		tree = treeSha,
@@ -1299,10 +1358,10 @@ describe("attesting a sha by tree (#189)", () => {
 	};
 
 	const full = (over: Record<string, unknown> = {}) =>
-		green({ sha: other, treeAtEnd: treeSha, closure: "*", ...over });
+		certificate({ sha: other, treeAtEnd: treeSha, closure: "*", ...over });
 
 	const narrowedRun = (over: Record<string, unknown> = {}) =>
-		green({
+		certificate({
 			sha: other,
 			treeAtEnd: treeSha,
 			scope: fullScope({ modulesRun: 3, changed: baseSha, admissible: true }),
@@ -1324,14 +1383,14 @@ describe("attesting a sha by tree (#189)", () => {
 
 	it("rule 1: a matching sha attests by sha, asking git nothing", () => {
 		const io = scripted();
-		expect(at(green({ sha: attestedSha }), io)).toEqual({ by: "sha" });
+		expect(at(certificate({ sha: attestedSha }), io)).toEqual({ by: "sha" });
 		expect(at(unscoped({ sha: attestedSha }), io)).toEqual({ by: "sha" });
 		expect(io.calls).toEqual([]);
 	});
 
-	it("rule 2: a marker lacking treeAtEnd or closure attests no other sha, even over an equal tree", () => {
-		expect(at(green({ sha: other, closure: "*" }))).toBeNull();
-		expect(at(green({ sha: other, treeAtEnd: treeSha }))).toBeNull();
+	it("rule 2: a certificate lacking treeAtEnd or closure attests no other sha, even over an equal tree", () => {
+		expect(at(certificate({ sha: other, closure: "*" }))).toBeNull();
+		expect(at(certificate({ sha: other, treeAtEnd: treeSha }))).toBeNull();
 		expect(at(unscoped({ sha: other }))).toBeNull();
 		expect(at(full({ closure: 42 }))).toBeNull();
 	});
@@ -1371,8 +1430,8 @@ describe("attesting a sha by tree (#189)", () => {
 	});
 
 	/*
-	 * #799: the manifest is no closure root. A marker carrying `selected`
-	 * re-reads it at the sha judged and covers what it maps to those tests.
+	 * #799: the manifest is no closure root. A certificate carrying `selected`
+	 * re-reads it at the sha judged and attests what it maps to those tests.
 	 */
 	describe("re-reading the manifest at the sha (#799)", () => {
 		const selecting = (over: Record<string, unknown> = {}) =>
@@ -1423,7 +1482,7 @@ describe("attesting a sha by tree (#189)", () => {
 				expect(at(selecting(), scripted({ manifest }))).toBeNull();
 		});
 
-		it("judges a pre-#799 marker, the manifest in its closure, on that closure alone and never re-reads", () => {
+		it("judges a pre-#799 certificate, the manifest in its closure, on that closure alone and never re-reads", () => {
 			const old = narrowedRun({
 				closure: [
 					"scripts/a.test.ts",
@@ -1446,7 +1505,7 @@ describe("attesting a sha by tree (#189)", () => {
 		expect(at(full(), scripted(), null)).toBeNull();
 	});
 
-	it("memoises git across markers through a shared cache", () => {
+	it("memoises git across certificates through a shared cache", () => {
 		const io = scripted();
 		const cache = new Map();
 		holdsAt(full(), attestedSha, { root: "/repo", execFn: io.fn, cache });
@@ -1458,7 +1517,7 @@ describe("attesting a sha by tree (#189)", () => {
 		expect(io.calls).toHaveLength(1);
 	});
 
-	describe("what the marker carries", () => {
+	describe("what the certificate carries", () => {
 		const before = { head: other, files: {} };
 		const after = { head: other, files: {} };
 		const make = (attestation: unknown) =>
@@ -1542,12 +1601,12 @@ describe("attesting a sha by tree (#189)", () => {
 			return dir;
 		}
 
-		/** The marker a narrowed green over the CURRENT dirty tree would leave. */
+		/** The certificate a narrowed run over the CURRENT dirty tree would leave. */
 		function markerOver(
 			dir: string,
 		): Parameters<typeof holdsAt>[0] & { treeAtEnd: string } {
 			const stashed = git(dir, "stash", "create");
-			return green({
+			return certificate({
 				sha: git(dir, "rev-parse", "HEAD"),
 				treeAtEnd: git(dir, "rev-parse", `${stashed}^{tree}`),
 				scope: fullScope({ modulesRun: 1, changed: "HEAD", admissible: true }),
@@ -1596,7 +1655,7 @@ describe("attesting a sha by tree (#189)", () => {
 			).toBeNull();
 		});
 
-		it("leaves uncovered a path in the commit's range the selection never saw, though the run still holds", () => {
+		it("leaves unattested a path in the commit's range the selection never saw, though the run still holds", () => {
 			const dir = repo();
 			fs.writeFileSync(path.join(dir, "lib.js"), "lib.js v1\n");
 			const m = markerOver(dir);
@@ -1622,7 +1681,7 @@ describe("attesting a sha by tree (#189)", () => {
 			});
 		});
 
-		it("leaves an edit outside changedPaths uncovered at the push, the range read from the remote sha the push names", () => {
+		it("leaves an edit outside changedPaths unattested at the push, the range read from the remote sha the push names", () => {
 			const dir = repo();
 			const published = git(dir, "rev-parse", "HEAD");
 			fs.writeFileSync(path.join(dir, "lib.js"), "lib.js v1\n");
@@ -1641,7 +1700,7 @@ describe("attesting a sha by tree (#189)", () => {
 			});
 		});
 
-		it("attests an empty selection's marker — the instruments alone — on the docs-only commit made from it (#189 §6)", () => {
+		it("attests an empty selection's certificate — the instruments alone — on the docs-only commit made from it (#189 §6)", () => {
 			const dir = repo();
 			fs.writeFileSync(
 				path.join(dir, "notes.md"),
@@ -1798,14 +1857,14 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		return git(dir, "rev-parse", "HEAD");
 	};
 
-	/** An admissible narrowed green over `root` plus `files`, selected for them alone. */
+	/** An admissible narrowed certificate over `root` plus `files`, selected for them alone. */
 	const run = (
 		dir: string,
 		root: string,
 		files: Record<string, string>,
 		{ closure, at }: { closure: string[]; at: string },
 	) =>
-		green({
+		certificate({
 			sha: root,
 			at,
 			treeAtEnd: treeWith(dir, root, files),
@@ -1839,7 +1898,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		return r.suites.find((s) => s.suite === "vitest");
 	};
 
-	it("covers a two-commit range with two sessions' greens neither of which covers it alone", () => {
+	it("attests a two-commit range with two sessions' certificates neither of which attests it alone", () => {
 		const { dir, a, b, c2 } = twoSessions();
 		expect(vitest(attestationOf(c2, [a], { root: dir }))?.attested).toBe(false);
 		expect(vitest(attestationOf(c2, [b], { root: dir }))?.attested).toBe(false);
@@ -1853,7 +1912,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		]);
 	});
 
-	it("judges only the paths `within` names, so one session's green covers its own part of the range (#1218)", () => {
+	it("judges only the paths `within` names, so one session's certificate attests its own part of the range (#1218)", () => {
 		const { dir, a, c2 } = twoSessions();
 		const r = attestationOf(c2, [a], { root: dir, within: ["a.js"] });
 		expect(r.judged && r.range).toEqual(["a.js"]);
@@ -1873,10 +1932,10 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		expect(note).toContain("a content match, not a sha match");
 	});
 
-	it("voids a member whose closure a neighbour's later commit changed, naming what it no longer covers", () => {
+	it("voids a member whose closure a neighbour's later commit changed, naming what it no longer attests", () => {
 		const { dir, root, a, b, c1, c2 } = twoSessions();
 		const edit = { "a.test.ts": "a.test.ts v1\n" };
-		const n = green({
+		const n = certificate({
 			sha: c2,
 			at: "N",
 			treeAtEnd: treeWith(dir, c2, edit),
@@ -1894,7 +1953,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		});
 	});
 
-	it("leaves a hand commit no member selected for uncovered, named with its commit", () => {
+	it("leaves a hand commit no member selected for unattested, named with its commit", () => {
 		const { dir, a, b } = twoSessions();
 		const c3 = commit(dir, { "other.txt": "by hand\n" }, "hand commit");
 		expect(vitest(attestationOf(c3, [a, b], { root: dir }))).toEqual({
@@ -1904,7 +1963,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		});
 	});
 
-	it("names the newest commit in the range touching an uncovered path", () => {
+	it("names the newest commit in the range touching an unattested path", () => {
 		const { dir } = twoSessions();
 		commit(dir, { "other.txt": "first\n" }, "hand 1");
 		const c4 = commit(dir, { "other.txt": "second\n" }, "hand 2");
@@ -1914,10 +1973,10 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		);
 	});
 
-	it("lets one full-run member cover every path in the range", () => {
+	it("lets one full-run member attest every path in the range", () => {
 		const { dir, a, b, c1 } = twoSessions();
 		const c3 = commit(dir, { "other.txt": "by hand\n" }, "hand commit");
-		const full = green({
+		const full = certificate({
 			sha: c1,
 			at: "F",
 			treeAtEnd: git(dir, "rev-parse", `${c3}^{tree}`),
@@ -1939,7 +1998,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		).toBe(false);
 	});
 
-	it("answers each suite for itself: a vitest green never covers a pytest gap", () => {
+	it("answers each suite for itself: a vitest certificate never attests a pytest gap", () => {
 		const { dir, root } = repo();
 		const edit = { "pipe.py": "x = 1\n" };
 		const v = run(dir, root, edit, {
@@ -1956,8 +2015,8 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		expect(py && !py.attested && py.unattested).toEqual([
 			{ path: "pipe.py", commit: c1 },
 		]);
-		const pyGreen = green({ sha: c1, suite: "pytest", at: "P" });
-		const both = attestationOf(c1, [v, pyGreen], { root: dir });
+		const pyCertificate = certificate({ sha: c1, suite: "pytest", at: "P" });
+		const both = attestationOf(c1, [v, pyCertificate], { root: dir });
 		expect(both.judged && both.suites.every((s) => s.attested)).toBe(true);
 	});
 
@@ -1966,29 +2025,29 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 	 * any full or admissible run's sha between them.
 	 */
 	describe("a session's commit, or a later one containing it", () => {
-		/** A full green whose tree is `sha`'s, keyed to `sha`. */
+		/** A full certificate whose tree is `sha`'s, keyed to `sha`. */
 		const fullAt = (dir: string, sha: string, at: string) =>
-			green({
+			certificate({
 				sha,
 				at,
 				treeAtEnd: git(dir, "rev-parse", `${sha}^{tree}`),
 				closure: "*",
 			});
 
-		it("answers at the session's own commit where that is covered", () => {
+		it("answers at the session's own commit where that is attested", () => {
 			const { dir, a, c1 } = twoSessions();
 			commit(dir, { "other.txt": "neighbour, untested\n" }, "neighbour");
 			const r = sessionAttestation(c1, [a], { root: dir });
 			expect(r.judged && r.attested && r.at).toBe(c1);
 		});
 
-		it("answers at HEAD where only a green on HEAD covers the session's commit", () => {
+		it("answers at HEAD where only a certificate on HEAD attests the session's commit", () => {
 			const { dir, c1, c2 } = twoSessions();
 			const r = sessionAttestation(c1, [fullAt(dir, c2, "H")], { root: dir });
 			expect(r.judged && r.attested && r.at).toBe(c2);
 		});
 
-		it("answers at a run's sha between the two where neither end is covered", () => {
+		it("answers at a run's sha between the two where neither end is attested", () => {
 			const { dir, c1, c2 } = twoSessions();
 			commit(dir, { "other.txt": "neighbour, untested\n" }, "neighbour");
 			const mid = { ...fullAt(dir, c2, "M"), treeAtEnd: undefined };
@@ -1996,7 +2055,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			expect(r.judged && r.attested && r.at).toBe(c2);
 		});
 
-		it("returns HEAD's miss where nothing covers any commit tried", () => {
+		it("returns HEAD's miss where nothing attests any commit tried", () => {
 			const { dir, c1 } = twoSessions();
 			const c3 = commit(dir, { "other.txt": "by hand\n" }, "hand");
 			const r = sessionAttestation(c1, [], { root: dir });
@@ -2086,7 +2145,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		});
 
 		/*
-		 * A's green, then a `landing` commit to a path A's closure reads,
+		 * A's certificate, then a `landing` commit to a path A's closure reads,
 		 * merged into A's `main` — cleanly, or with a.js resolved by hand.
 		 */
 		function reconciled(resolved?: string) {
@@ -2096,7 +2155,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 				at: "A",
 			});
 			const c1 = commit(dir, aEdit, "A's edit");
-			const full = green({
+			const full = certificate({
 				sha: c1,
 				at: "F",
 				treeAtEnd: git(dir, "rev-parse", `${c1}^{tree}`),
@@ -2158,14 +2217,14 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			}
 		});
 
-		it("covers an empty range only where some member still holds", () => {
+		it("attests an empty range only where some member still holds", () => {
 			const { dir, b, c2 } = twoSessions();
 			git(dir, "update-ref", "refs/remotes/origin/main", c2);
 			expect(vitest(attestationOf(c2, [], { root: dir }))).toEqual({
 				suite: "vitest",
 				attested: false,
 				unattested: [],
-				why: `no green vitest run holds at ${c2.slice(0, 12)}`,
+				why: `no vitest certificate holds at ${c2.slice(0, 12)}`,
 			});
 			expect(vitest(attestationOf(c2, [b], { root: dir }))?.attested).toBe(
 				true,
@@ -2185,7 +2244,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 					suite: "vitest",
 					attested: false,
 					unattested: [],
-					why: `no green vitest run holds at ${c2.slice(0, 12)}`,
+					why: `no vitest certificate holds at ${c2.slice(0, 12)}`,
 				});
 			} finally {
 				vi.unstubAllEnvs();
@@ -2199,7 +2258,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
  * together, a neighbour commits a file only the wide test reads, and the
  * session commits the narrow test's subject. The wide test alone is owed.
  */
-describe("a narrowed green judged test by test (#1860)", () => {
+describe("a narrowed certificate judged test by test (#1860)", () => {
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, {
 			cwd,
@@ -2247,10 +2306,10 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		return git(dir, "rev-parse", "HEAD");
 	};
 
-	const treeOf = (dir: string, sha: string) =>
+	const readTree = (dir: string, sha: string) =>
 		git(dir, "rev-parse", `${sha}^{tree}`);
 
-	/** An admissible green reading `treeAtEnd`, recorded test by test. */
+	/** An admissible certificate reading `treeAtEnd`, recorded test by test. */
 	const perTest = (over: {
 		sha: string;
 		at: string;
@@ -2258,7 +2317,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		selected: string[];
 		changedPaths: string[];
 	}) =>
-		green({
+		certificate({
 			scope: fullScope({ modulesRun: 2, changed: "x", admissible: true }),
 			closure: ["package.json", ...over.selected],
 			imports: Object.fromEntries(
@@ -2270,7 +2329,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 
 	const narrowEdit = { "narrow.js": "narrow.js v1\n" };
 
-	/** The session's green over its edit, a neighbour's commit, then the session's. */
+	/** The session's certificate over its edit, a neighbour's commit, then the session's. */
 	function replay(
 		theirs: Record<string, string> = {
 			"docs/wide-only.md": "neighbour's edit\n",
@@ -2281,7 +2340,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		const session = perTest({
 			sha: root,
 			at: "S",
-			treeAtEnd: treeOf(dir, scratch),
+			treeAtEnd: readTree(dir, scratch),
 			selected: ["narrow.test.ts", "wide.test.ts"],
 			changedPaths: ["narrow.js"],
 		});
@@ -2352,12 +2411,12 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		}
 	});
 
-	it("is covered by the original green plus a re-run of the owed test alone", () => {
+	it("is attested by the original certificate plus a re-run of the owed test alone", () => {
 		const { dir, own, session } = replay();
 		const retest = perTest({
 			sha: own,
 			at: "R",
-			treeAtEnd: treeOf(dir, own),
+			treeAtEnd: readTree(dir, own),
 			selected: ["wide.test.ts"],
 			changedPaths: [],
 		});
@@ -2369,12 +2428,12 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		]);
 	});
 
-	it("takes the owed test from a neighbour's green whatever its diff, where it read this commit's tree", () => {
+	it("takes the owed test from a neighbour's certificate whatever its diff, where it read this commit's tree", () => {
 		const { dir, own, session } = replay();
 		const theirs = perTest({
 			sha: own,
 			at: "N",
-			treeAtEnd: treeOf(dir, own),
+			treeAtEnd: readTree(dir, own),
 			selected: ["wide.test.ts"],
 			changedPaths: ["docs/wide-only.md"],
 		});
@@ -2388,7 +2447,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		const retest = perTest({
 			sha: own,
 			at: "R",
-			treeAtEnd: treeOf(dir, own),
+			treeAtEnd: readTree(dir, own),
 			selected: ["narrow.test.ts", "wide.test.ts"],
 			changedPaths: [],
 		});
@@ -2399,7 +2458,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		});
 	});
 
-	it("judges a marker with no per-test field on its whole closure, as before", () => {
+	it("judges a certificate with no per-test field on its whole closure, as before", () => {
 		const { dir, own, session } = replay();
 		const before = {
 			...session,
@@ -2437,7 +2496,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		const session = perTest({
 			sha: root,
 			at: "S",
-			treeAtEnd: treeOf(dir, scratch),
+			treeAtEnd: readTree(dir, scratch),
 			selected: ["wide.test.ts"],
 			changedPaths: ["docs/wide-only.md"],
 		});
@@ -2463,7 +2522,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		const whole = perTest({
 			sha: own,
 			at: "W",
-			treeAtEnd: treeOf(dir, own),
+			treeAtEnd: readTree(dir, own),
 			selected: ["narrow.test.ts"],
 			changedPaths: [],
 		});
@@ -2483,13 +2542,13 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		});
 	});
 
-	it("covers a path no test reads by a witness naming it", () => {
+	it("attests a path no test reads by a witness naming it", () => {
 		const { dir, root } = repo();
 		const own = commit(dir, { "unread.md": "edited\n" }, "unread");
 		const session = perTest({
 			sha: root,
 			at: "S",
-			treeAtEnd: treeOf(dir, own),
+			treeAtEnd: readTree(dir, own),
 			selected: [],
 			changedPaths: ["unread.md"],
 		});
@@ -2509,7 +2568,7 @@ describe("a narrowed green judged test by test (#1860)", () => {
 		const session = perTest({
 			sha: root,
 			at: "S",
-			treeAtEnd: treeOf(dir, own),
+			treeAtEnd: readTree(dir, own),
 			selected: ["narrow.test.ts"],
 			changedPaths: [EDGES_FILE, "narrow.js", "wide.test.ts"],
 		});

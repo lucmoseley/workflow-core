@@ -37,9 +37,9 @@
  * THE RECORD. `.agents/vendored-skill-edits.json`, two sections:
  *   vendored  every tracked file under .agents/skills/ as the vendoring commit
  *             supplied it, path -> sha256.
- *   edits     only the files that diverge, each with the hash it was declared
- *             at, the issue that approved it and one line of why. Absence is
- *             the pristine state.
+ *   edits     only the files that diverge or were added, each with the hash
+ *             it was declared at, the issue that approved it and one line of
+ *             why. Absence is the pristine state.
  *
  * VERDICTS, per tracked file:
  *   matches vendored, no entry          pristine        silent
@@ -47,7 +47,12 @@
  *   matches vendored, entry exists      STALE-ENTRY     FAIL — edit reverted
  *   differs, no entry                   UNDECLARED      FAIL
  *   differs, entry disagrees            DRIFTED         FAIL — edited again
- *   on disk, absent from the manifest   UNTRACKED       FAIL — added locally
+ *   absent from the manifest, no entry  UNTRACKED       FAIL — added locally
+ *   absent from the manifest, matches   declared        silent — an added file
+ *     its entry's editedHash                            is a declared edit too
+ *   absent from the manifest, entry     DRIFTED         FAIL — edited again
+ *     disagrees
+ *   an added file's entry, not on disk  STALE-ENTRY     FAIL — addition removed
  *   in the manifest, absent from disk   REMOVED         WARN — de-vendoring is
  *                                                       a real move (mantahostels#1502,
  *                                                       mantahostels#1757) and lands as a
@@ -105,7 +110,7 @@
  *   no source/skillPath in the lock        UPSTREAM-UNRESOLVED  WARN
  *
  * Which of those two a failed fetch is comes from `lib/gh.js`'s
- * `ghFailureReason`, never from a rule of this checker's own (mantahostels#3066).
+ * `parseGhFailureReason`, never from a rule of this checker's own (mantahostels#3066).
  *
  * THE UPSTREAM RECORD (#2394, ruled at #2377). A run that neither SKIPs nor
  * breaks, and finds every lock source's licence matching its notice, writes
@@ -132,20 +137,19 @@
  * enough of the manifest to pay.
  */
 
-const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
-const { gh, ghFailureReason } = require("./lib/gh");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { gh, parseGhFailureReason } = require("./lib/gh");
 const { caught } = require("./lib/caught.js");
 const {
 	LOCK,
 	NOTICES,
 	noticeFaults,
-	noticeLicences,
+	readNoticeLicences,
 } = require("./lib/vendored-notices.js");
+const { execGit, gitCommonDir } = require("./lib/git.js");
 
 const SIDECAR = ".agents/vendored-skill-edits.json";
 const SKILLS_DIR = ".agents/skills";
@@ -218,7 +222,7 @@ function writeJson(file, value) {
  * @param {string} root
  * @returns {string[]}
  */
-function vendoredFilesOnDisk(root) {
+function readVendoredFilesOnDisk(root) {
 	const base = path.join(root, SKILLS_DIR);
 	/** @type {string[]} */
 	const out = [];
@@ -295,7 +299,9 @@ function loadSidecar(root) {
 	try {
 		raw = fs.readFileSync(file, "utf8");
 	} catch (e) {
-		throw new Error(`cannot read ${SIDECAR}: ${errMessage(e)}`, { cause: e });
+		throw new Error(`cannot read ${SIDECAR}: ${errMessage(e)}`, {
+			cause: e,
+		});
 	}
 	const parsed = JSON.parse(raw);
 	if (!parsed || typeof parsed !== "object" || !parsed.vendored)
@@ -314,7 +320,7 @@ function loadSidecar(root) {
  * @param {string} root
  * @returns {{ locked: string[], onDisk: string[], hashes: Record<string, string> } | { unreadable: string } | null}
  */
-function lockRoster(root) {
+function readLockRoster(root) {
 	const lockFile = path.join(root, LOCK);
 	const base = path.join(root, SKILLS_DIR);
 	if (!fs.existsSync(lockFile) || !fs.existsSync(base)) return null;
@@ -410,12 +416,11 @@ function forget(root, rel) {
  * @param {string} rev
  */
 function revendor(root, rev) {
-	const at = execFileSync("git", ["rev-parse", "--short", rev], {
+	const at = execGit(["rev-parse", "--short", rev], {
 		cwd: root,
 		encoding: "utf8",
 	}).trim();
-	const listed = execFileSync(
-		"git",
+	const listed = execGit(
 		["ls-tree", "-r", "--name-only", at, "--", SKILLS_DIR],
 		{ cwd: root, encoding: "utf8" },
 	)
@@ -428,9 +433,8 @@ function revendor(root, rev) {
 	const vendored = {};
 	for (const rel of listed)
 		vendored[rel] = sha256(
-			execFileSync("git", ["show", `${at}:${rel}`], {
+			execGit(["show", `${at}:${rel}`], {
 				cwd: root,
-				maxBuffer: CHILD_MAX_BUFFER,
 			}),
 		);
 	const sidecar = fs.existsSync(path.join(root, SIDECAR))
@@ -483,7 +487,7 @@ function remoteFor(lock, rel) {
  * @typedef {{
  *   rel: string,
  *   entry: EditEntry,
- *   state: "moved" | "same" | "gone" | "unreadable" | "unresolved" | "fault",
+ *   state: "moved" | "taken" | "same" | "gone" | "unreadable" | "unresolved" | "fault",
  *   detail?: string,
  * }} UpstreamRow
  * @typedef {{
@@ -500,15 +504,18 @@ function remoteFor(lock, rel) {
  * re-applied verbatim. One whose upstream body has ALSO moved cannot — that is
  * a merge, and the founder has to see it before anything is overwritten.
  *
- * A fetch that fails is never folded into either answer. A 404 is `gone` — a
- * collision of its own; a failure the environment explains is `unreadable`, and
- * one the call itself is at fault for is `fault`, which the CLI turns into a
- * BROKEN rather than a finding.
+ * A file we added has no upstream body: a 404 on it is `same`, and any body at
+ * that path is `taken`, upstream having shipped a file where ours sits.
+ *
+ * Any other failed fetch is never folded into either answer. A 404 is `gone` —
+ * a collision of its own; a failure the environment explains is `unreadable`,
+ * and one the call itself is at fault for is `fault`, which the CLI turns into
+ * a BROKEN rather than a finding.
  *
  * @param {string} root
  * @returns {UpstreamRow[]}
  */
-function upstreamReport(root) {
+function buildUpstreamReport(root) {
 	const sidecar = loadSidecar(root);
 	const lock = JSON.parse(
 		fs.readFileSync(path.join(root, LOCK), "utf8"),
@@ -528,6 +535,11 @@ function upstreamReport(root) {
 		}
 		const where = `${remote.source}/${remote.remotePath}`;
 		const got = ghFetch(`repos/${remote.source}/contents/${remote.remotePath}`);
+		const added = sidecar.vendored[rel] === undefined;
+		if (added && "error" in got && got.notFound) {
+			rows.push({ rel, entry, state: "same" });
+			continue;
+		}
 		if ("error" in got) {
 			rows.push({
 				rel,
@@ -537,11 +549,11 @@ function upstreamReport(root) {
 			});
 			continue;
 		}
-		rows.push({
-			rel,
-			entry,
-			state: sha256(got.body) === sidecar.vendored[rel] ? "same" : "moved",
-		});
+		/** @type {UpstreamRow["state"]} */
+		let state = "moved";
+		if (added) state = "taken";
+		else if (sha256(got.body) === sidecar.vendored[rel]) state = "same";
+		rows.push({ rel, entry, state });
 	}
 	return rows;
 }
@@ -552,10 +564,10 @@ function upstreamReport(root) {
  * @param {string} root
  * @returns {LicenceRow[]}
  */
-function licenceReport(root) {
+function buildLicenceReport(root) {
 	/** @type {LicenceRow[]} */
 	const rows = [];
-	for (const [source, notice] of noticeLicences(root)) {
+	for (const [source, notice] of readNoticeLicences(root)) {
 		const got = ghFetch(`repos/${source}/license`);
 		if ("error" in got)
 			rows.push({
@@ -621,9 +633,9 @@ function ghFetch(endpoint) {
 			error: stderr.split("\n")[0] || errMessage(e),
 			notFound,
 			/* A 404 is answered before this is asked: it is a real answer about
-			 * upstream, and `ghFailureReason` — knowing nothing of this checker's
+			 * upstream, and `parseGhFailureReason` — knowing nothing of this checker's
 			 * subject — calls it a fault in the call. */
-			broken: !notFound && ghFailureReason(e) === "broken",
+			broken: !notFound && parseGhFailureReason(e) === "broken",
 		};
 	}
 }
@@ -645,17 +657,10 @@ let selfPath;
 function buildSelfCommand(args) {
 	if (selfPath === undefined) {
 		const roots = [process.cwd()];
-		try {
-			const common = execFileSync(
-				"git",
-				["rev-parse", "--path-format=absolute", "--git-common-dir"],
-				{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-			).trim();
-			if (common !== "") roots.push(path.dirname(common));
-		} catch {
-			/* Not a git checkout: the cwd is the only root to compare, and a miss
-			 * prints the absolute spelling (#2515). */
-		}
+		/* Outside a git checkout the cwd is the only root to compare, and a miss
+		 * prints the absolute spelling (#2515). */
+		const common = gitCommonDir(process.cwd());
+		if (common !== null) roots.push(path.dirname(common));
 		const real = (/** @type {string} */ dir) => {
 			try {
 				return fs.realpathSync(dir);
@@ -724,7 +729,7 @@ function checkFiles(ctx, { root, sidecar, onDisk, seen }) {
  * @param {{ rel: string, disk: string, vendored: string | undefined, entry: EditEntry | undefined, vendoredAt: string }} file
  */
 function fileFinding(ctx, { rel, disk, vendored, entry, vendoredAt }) {
-	if (vendored === undefined) {
+	if (vendored === undefined && !entry) {
 		ctx.fail(
 			"UNTRACKED",
 			`${rel} is not in the vendored manifest — it was added locally after ${vendoredAt}. Declare it, or remove it:\n    ${buildDeclareCommand(rel)}`,
@@ -773,6 +778,24 @@ function warnRemoved(ctx, sidecar, seen) {
 }
 
 /**
+ * A declared added file that is gone: its entry would tell --upstream the
+ * addition re-applies cleanly.
+ *
+ * @param {import("./lib/check").CheckContext} ctx
+ * @param {Sidecar} sidecar
+ * @param {Set<string>} seen
+ */
+function failRemovedAdditions(ctx, sidecar, seen) {
+	for (const [rel, entry] of Object.entries(sidecar.edits))
+		if (!(rel in sidecar.vendored) && !seen.has(rel))
+			ctx.fail(
+				"STALE-ENTRY",
+				`${rel} is declared as an added file (#${entry.issue}: ${entry.why}) but is not on disk — the addition was removed. Drop the declaration:\n    ${buildSelfCommand(`--drop ${rel}`)}`,
+				{ path: rel },
+			);
+}
+
+/**
  * The lock's verdicts: LOCK-UNREADABLE, LOCK-ORPHAN, LOCK-MISSING, LOCK-HASH.
  *
  * @param {import("./lib/check").CheckContext} ctx
@@ -780,7 +803,7 @@ function warnRemoved(ctx, sidecar, seen) {
  * @param {Set<string>} notClean
  */
 function checkLock(ctx, root, notClean) {
-	const roster = lockRoster(root);
+	const roster = readLockRoster(root);
 	if (!roster) return;
 	if ("unreadable" in roster) {
 		ctx.warn(
@@ -849,13 +872,14 @@ function check(ctx, root) {
 		return ctx.broken(errMessage(e));
 	}
 
-	const onDisk = vendoredFilesOnDisk(root);
+	const onDisk = readVendoredFilesOnDisk(root);
 	const seen = new Set(onDisk);
 	const notClean = checkFiles(ctx, { root, sidecar, onDisk, seen });
 	warnRemoved(ctx, sidecar, seen);
+	failRemovedAdditions(ctx, sidecar, seen);
 	checkLock(ctx, root, notClean);
 	/* An unparseable lock is LOCK-UNREADABLE's to report, just above. */
-	const roster = lockRoster(root);
+	const roster = readLockRoster(root);
 	if (roster && !("unreadable" in roster))
 		for (const fault of noticeFaults(root))
 			ctx.fail("NOTICE-MISSING", fault, { path: LOCK });
@@ -937,6 +961,11 @@ const UPSTREAM_WARNINGS = {
 		message: (r, edit) =>
 			`${r.rel} carries a local edit (${edit}) AND has moved upstream since we vendored it. A re-pull is a merge here, not a re-apply.`,
 	},
+	taken: {
+		code: "UPSTREAM-TAKEN",
+		message: (r, edit) =>
+			`${r.rel} was added locally (${edit}) AND upstream now ships a file at the same path. A re-pull is a merge here, not a re-apply.`,
+	},
 	gone: {
 		code: "UPSTREAM-GONE",
 		message: (r, edit) =>
@@ -1004,8 +1033,8 @@ function runUpstream(ctx, root) {
 	try {
 		/* Hashed before the fetches, so the record names the bytes the run read. */
 		read = coveredHashes((rel) => path.join(root, rel));
-		rows = upstreamReport(root);
-		licences = licenceReport(root);
+		rows = buildUpstreamReport(root);
+		licences = buildLicenceReport(root);
 	} catch (e) {
 		return ctx.broken(errMessage(e));
 	}

@@ -1,6 +1,6 @@
 # Formatting files written through Bash
 
-The on-save Biome formatter, `scripts/post-write.sh`, runs after `Write`, `Edit` and `NotebookEdit` only. A file changed through Bash — a heredoc, `sed -i`, an inline `python3` — is not formatted until a session runs Biome itself or the pre-commit `check:staged` gate refuses it. This repo does not add a Bash-route formatter to close that gap.
+The on-save Biome formatter, the post-write core (`scripts/lib/post-write.js`), runs after `Write`, `Edit` and `NotebookEdit` only. A file changed through Bash — a heredoc, `sed -i`, an inline `python3` — is not formatted until a session runs Biome itself or the pre-commit `check:staged` gate refuses it. This repo does not add a Bash-route formatter to close that gap.
 
 ## Why this is out of scope
 

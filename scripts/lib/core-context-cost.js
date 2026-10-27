@@ -41,7 +41,7 @@ const SELF_PLUGIN_COST = {
 const DETAILS_TIMEOUT_MS = 30_000;
 
 /** @param {unknown} err */
-const errMessage = (err) => caught(err).message;
+const parseErrMessage = (err) => caught(err).message;
 
 const ABOUT =
 	"Per-plugin always-on context cost, in tokens as `claude plugin details <name>` reports it, keyed by the `enabledPlugins` name in .claude/settings.json. check-context-budget.js reads it every session and WARNs on an enabled plugin with no row here. An `uncounted` component is one the figure omits, such as an MCP server's tool schemas.";
@@ -118,7 +118,7 @@ function readCostTable(tablePath, pluginId, out) {
 		parsed = JSON.parse(text);
 	} catch (err) {
 		out(
-			`skipped the ${pluginId} row: ${COST_TABLE} does not parse (${errMessage(err)})`,
+			`skipped the ${pluginId} row: ${COST_TABLE} does not parse (${parseErrMessage(err)})`,
 		);
 		return null;
 	}
@@ -160,7 +160,7 @@ function seedCoreCost({
 		settings = JSON.parse(fs.readFileSync(settingsPath, "utf8"));
 	} catch (err) {
 		out(
-			`skipped the ${pluginId} row: ${SETTINGS} does not parse (${errMessage(err)})`,
+			`skipped the ${pluginId} row: ${SETTINGS} does not parse (${parseErrMessage(err)})`,
 		);
 		return;
 	}

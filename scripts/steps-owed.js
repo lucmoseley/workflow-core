@@ -22,7 +22,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root.js");
 const {
-	stepsOwed,
+	readStepsOwed,
 	clearStepOwed,
 	declineStepOwed,
 } = require("./lib/steps-owed.js");
@@ -51,7 +51,7 @@ function main(argv) {
 	const root = hostRoot();
 
 	if (cmd === "list") {
-		writeFd(1, `${JSON.stringify(stepsOwed(root), null, "\t")}\n`);
+		writeFd(1, `${JSON.stringify(readStepsOwed(root), null, "\t")}\n`);
 		return 0;
 	}
 

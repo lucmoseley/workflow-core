@@ -24,14 +24,14 @@ import path from "node:path";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
-import { guardErrorsLog } from "./lib/guard-errors-log";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { registrationsOf } from "./lib/hook-wiring";
-import { shellConst } from "./lib/shell-const-testkit";
+import { readShellConst } from "./lib/shell-const-testkit";
 
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.sh");
-const { ruleText } = require("./lib/rule-text") as {
-	ruleText: (id: string) => string;
+const { readRuleText } = require("./lib/rule-text") as {
+	readRuleText: (id: string) => string;
 };
 const { compactPayloads, compactTranscripts, SUBAGENT_JUST_COMPACTED } =
 	require("./lib/compact-payload-fixture") as typeof import("./lib/compact-payload-fixture.js");
@@ -42,11 +42,11 @@ const { TAKES_VALUES } = require("./lib/takes-label") as {
 /* The harness's persistence threshold and the tight-headroom margin the margin
  * checker prices, each read from where it is spelled. Module scope, not local
  * to one describe block: both figures are reused by an unrelated block below. */
-const PERSIST_CHARS = shellConst(
+const PERSIST_CHARS = readShellConst(
 	path.join(ROOT, "scripts", "lib", "hook-limits.sh"),
 	"HOOK_PERSIST_CHARS",
 );
-const TIGHT_HEADROOM_CHARS = shellConst(
+const TIGHT_HEADROOM_CHARS = readShellConst(
 	path.join(ROOT, "scripts", "check-injector-margin.sh"),
 	"TIGHT_HEADROOM_CHARS",
 );
@@ -349,7 +349,7 @@ describe("the claim rule (mantahostels#270)", () => {
 	});
 
 	// `/to-spec` creates its issue already assigned, which is not the shape
-	// `record-issue-claim.sh` watches for, so it was the one command whose
+	// `record-issue-claim.js` watches for, so it was the one command whose
 	// sessions would reliably assign without recording (mantahostels#708).
 	it("tells /to-spec to assign through file-issue, and what a raw assigning create owes", () => {
 		const header = rulesHeader(inject("/to-spec 708"));
@@ -596,7 +596,7 @@ describe("the rules that were already here", () => {
 
 	// The vendored code-review skill no longer says how to dispatch its two axes,
 	// so a hook is the only thing carrying it: this one for a typed /code-review,
-	// scripts/guard-review-rules.sh for the review /implement loads as a skill.
+	// scripts/lib/review-rules.js for the review /implement loads as a skill.
 	it("tells /code-review how to dispatch its two review axes", () => {
 		expect(inject("/code-review")).toContain("code-reviewer");
 	});
@@ -627,9 +627,9 @@ describe("the rules that were already here", () => {
  */
 describe("the reviewer-model pin (mantahostels#1009)", () => {
 	/** The reviewer `model: "..."` the dispatch fragment pins on both axes. */
-	const reviewerModel = (): string => {
+	const readReviewerModel = (): string => {
 		const found = [
-			...ruleText("review-dispatch-shape").matchAll(
+			...readRuleText("review-dispatch-shape").matchAll(
 				/model: "([^"]+)"` on every one/g,
 			),
 		].map((m) => m[1]);
@@ -654,7 +654,7 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 
 	it("reaches /code-review as the fragment spells it", () => {
 		expect(inject("/code-review")).toContain(
-			`model: "${reviewerModel()}"\` on every one`,
+			`model: "${readReviewerModel()}"\` on every one`,
 		);
 	});
 
@@ -663,7 +663,7 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 	it.each(["review-focused-run", "review-attacker-run"])(
 		"is named nowhere in the %s brief",
 		(id) => {
-			const brief = ruleText(id);
+			const brief = readRuleText(id);
 			expect(brief).toContain(
 				"the same subagent type and model as the two axes",
 			);
@@ -685,7 +685,7 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		expect(concisionModel(backstop, "concision-backstop.sh")).toBe("sonnet");
 		expect(
 			concisionModel(
-				ruleText("implement-closing-steps"),
+				readRuleText("implement-closing-steps"),
 				"rule:implement-closing-steps",
 			),
 		).toBe("sonnet");
@@ -703,7 +703,10 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 					"utf8",
 				),
 		],
-		["rule:implement-closing-steps", () => ruleText("implement-closing-steps")],
+		[
+			"rule:implement-closing-steps",
+			() => readRuleText("implement-closing-steps"),
+		],
 	])("carries only the concision pass's model pin in %s", (_where, read) => {
 		const all = [...read().matchAll(/model: \\?"([^"\\]+)\\?"/g)].map(
 			(m) => m[1],
@@ -724,7 +727,7 @@ describe("the reviewer-model pin (mantahostels#1009)", () => {
 		);
 		expect(found[0]).toBe(
 			concisionModel(
-				ruleText("implement-closing-steps"),
+				readRuleText("implement-closing-steps"),
 				"rule:implement-closing-steps",
 			),
 		);
@@ -750,8 +753,10 @@ describe("the review dispatch sentence (#1618, #1697)", () => {
 		"two `Agent` tool calls, or three or four on an escalated or mission-critical change";
 
 	it("reaches a typed /code-review whole, from the fragment", () => {
-		expect(ruleText("review-dispatch-shape")).toContain(runCount);
-		expect(inject("/code-review")).toContain(ruleText("review-dispatch-shape"));
+		expect(readRuleText("review-dispatch-shape")).toContain(runCount);
+		expect(inject("/code-review")).toContain(
+			readRuleText("review-dispatch-shape"),
+		);
 	});
 
 	it.each(["inject-tracker-docs.sh", "concision-backstop.sh"])(
@@ -768,12 +773,13 @@ describe("the review dispatch sentence (#1618, #1697)", () => {
 });
 
 /*
- * #1697 — scripts/inject-review-tier.sh fires on the Skill tool alone, so a
- * /code-review the founder types reaches it only through this hook's
- * /code-review arm, which runs it on a Skill payload of its own making.
+ * #1697 — the dispatcher's inject-review-tier core fires on the Skill tool
+ * alone, so a /code-review the founder types reaches it only through this
+ * hook's /code-review arm, which runs it alone on a Skill payload of its own
+ * making.
  */
 describe("a typed /code-review takes the Skill route's review tier (#1697)", () => {
-	const tierHook = path.join(ROOT, "scripts", "inject-review-tier.sh");
+	const tierHook = path.join(ROOT, "scripts", "guard-dispatch.js");
 	/* The injector drops a repeat of one session's command inside 60 s, so each
 	 * call takes its own id; the first 8 characters, which name the Artefact
 	 * paths, stay the same. */
@@ -830,27 +836,32 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 		);
 
 	/** What the Skill route injects for the same change. */
-	const viaSkill = (): string => {
-		const out = execFileSync(tierHook, {
-			input: JSON.stringify({
-				tool_name: "Skill",
-				tool_input: { skill: "code-review" },
-				session_id: sid(),
-			}),
-			encoding: "utf8",
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: repo,
-				CLAUDE_CONFIG_DIR: SCRATCH,
+	const readSkillRouteContext = (): string => {
+		const out = execFileSync(
+			"node",
+			[tierHook, "--only", "inject-review-tier"],
+			{
+				input: JSON.stringify({
+					hook_event_name: "PreToolUse",
+					tool_name: "Skill",
+					tool_input: { skill: "code-review" },
+					session_id: sid(),
+				}),
+				encoding: "utf8",
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: repo,
+					CLAUDE_CONFIG_DIR: SCRATCH,
+				},
 			},
-		});
+		);
 		return JSON.parse(out).hookSpecificOutput.additionalContext;
 	};
 
 	it("ends on the Skill route's tier block, briefs and records for a change under a declared glob", () => {
 		declare([rls]);
 		stage("supabase/migrations/001.sql");
-		const tier = viaSkill();
+		const tier = readSkillRouteContext();
 
 		const ctx = typed();
 		expect(tier).toContain("Tier owed: escalated");
@@ -859,7 +870,7 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 			"review-attacker-run",
 			"review-tier-records",
 		])
-			expect(tier).toContain(ruleText(id));
+			expect(tier).toContain(readRuleText(id));
 		expect(ctx.endsWith(`\n\n${tier}`)).toBe(true);
 		expect(ctx.length).toBeLessThan(PERSIST_CHARS);
 	});
@@ -899,10 +910,10 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 	it("tells a host that declares no sensitive paths that no review can escalate", () => {
 		declare();
 		stage("supabase/migrations/001.sql");
-		expect(typed()).toContain(ruleText("review-sensitive-undeclared"));
+		expect(typed()).toContain(readRuleText("review-sensitive-undeclared"));
 	});
 
-	// #2386: the tier hook reads the worktree from the payload's cwd, which
+	// #2386: the tier core reads the worktree from the payload's cwd, which
 	// this hook's own Skill payload must carry.
 	it("reads a change staged in a linked worktree the session works in (#2386)", () => {
 		declare([rls]);
@@ -935,7 +946,7 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 /*
  * The deviations record (mantahostels#1242). The WRITE half reaches a builder, and the READ
  * half the review. Since mantahostels#3451 both reach /implement's review through
- * scripts/guard-review-rules.sh, whose test covers them; a typed /code-review
+ * scripts/lib/review-rules.js, whose test covers them; a typed /code-review
  * takes the READ half here.
  */
 describe("the deviations record (mantahostels#1242)", () => {
@@ -971,7 +982,7 @@ describe("the deviations record (mantahostels#1242)", () => {
  *
  * The texts are restated in three places — this hook's `standards`, reached
  * from the /code-review branch, the four `review-standards-axis*` fragments
- * guard-review-rules.sh hands a Skill-loaded review, and
+ * lib/review-rules.js hands a Skill-loaded review, and
  * scripts/concision-backstop.sh's Stop nag. A rename that misses one leaves
  * that route pointing at nothing, silently. This describe holds the hook and
  * one fragment; guard-review-rules.test.ts holds all four fragments, and
@@ -989,7 +1000,7 @@ describe("the code-standards pointer (mantahostels#1011)", () => {
 	});
 
 	it("reaches a Skill-loaded review through its fragment", () => {
-		expect(ruleText("review-standards-axis")).toContain(standardsDoc);
+		expect(readRuleText("review-standards-axis")).toContain(standardsDoc);
 	});
 
 	it("tells the reviewer to cite a breach by its rule id", () => {
@@ -1088,14 +1099,14 @@ describe("the standards base and local file (#965)", () => {
 	});
 
 	it("logs a missing base, and only a missing one", () => {
-		const log = () => guardErrorsLog(SCRATCH);
-		const before = log().split(basePath()).length;
+		const readLog = () => readGuardErrorsLog(SCRATCH);
+		const before = readLog().split(basePath()).length;
 		put(core, "docs/code-standards-base.md");
 		review();
-		expect(log().split(basePath()).length).toBe(before);
+		expect(readLog().split(basePath()).length).toBe(before);
 		fs.rmSync(basePath());
 		review();
-		expect(log().split(basePath()).length).toBe(before + 1);
+		expect(readLog().split(basePath()).length).toBe(before + 1);
 	});
 });
 
@@ -1414,7 +1425,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	/*
 	 * mantahostels#1870 pointed six commands at both tracker documents in full, measured
 	 * followed 10.2%-38.1% of the time. mantahostels#2497 then routed every rule WITH an
-	 * observable `gh` Bash shape to guard-tracker-rules.sh, printed at the call
+	 * observable `gh` Bash shape to lib/tracker-rules.js, printed at the call
 	 * that engages it. What mantahostels#2499 does: the two document pointers are gone, and
 	 * what is left of each document — a rule with no such shape — is named in a
 	 * per-command index instead, an id and the moment it binds, fetched with
@@ -1466,7 +1477,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	 * memory, since that chain is the one place it is authored.
 	 */
 	const ruleOwners: Record<string, string[]> = {
-		/* guard-tracker-rules.sh prints it on each shape it names (#2023). */
+		/* lib/tracker-rules.js prints it on each shape it names (#2023). */
 		"gh-cli-limits": [],
 		"roadmap-gating": ["wayfinder", "implement", "triage"],
 		"card-close-route": ["implement"],
@@ -1492,10 +1503,10 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	/* Every id named anywhere in the index answers to a real, non-empty
 	 * fragment — the whole point of routing by id rather than pasting text. */
 	it("names only ids docs/agents/rules/ actually answers", () => {
-		/* Through ruleText, which throws on an id with no fragment, so the
+		/* Through readRuleText, which throws on an id with no fragment, so the
 		 * selector's rule-id pass attributes each fragment (base §X10). */
 		for (const id of Object.keys(ruleOwners))
-			expect(ruleText(id).trim().length, id).toBeGreaterThan(0);
+			expect(readRuleText(id).trim().length, id).toBeGreaterThan(0);
 	});
 
 	/* THE TWO GUARD-ENFORCED ACTS STAY OUT OF THE INDEX — a session that trips
@@ -1672,7 +1683,8 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 		`#!/bin/sh\necho "$@" >> ${log}\ncat ${label}\n`,
 	);
 	beforeEach(() => fs.rmSync(log, { force: true }));
-	const calls = () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "");
+	const readCalls = () =>
+		fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
 
 	const typed = (
 		prompt: string,
@@ -1710,7 +1722,7 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 
 	it("asks the URL's own repo", () => {
 		typed("/to-spec https://github.com/o/r/issues/9#issuecomment-1", "");
-		expect(calls()).toMatch(/^issue view 9 --repo o\/r /);
+		expect(readCalls()).toMatch(/^issue view 9 --repo o\/r /);
 	});
 
 	it("adds nothing on a matching label or none", () => {
@@ -1726,7 +1738,7 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 			"/wayfinder I read this",
 		])
 			typed(p, "takes:human");
-		expect(calls()).toBe("");
+		expect(readCalls()).toBe("");
 	});
 
 	it("fails open on a gh that errors, injecting the usual payload", () => {
@@ -1751,7 +1763,7 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 
 	// The gh give-up alone, not the whole hook run, against each registration.
 	it("gives up on gh inside every timeout the self-plugin and the plugin manifest register", () => {
-		const giveUp = shellConst(HOOK, "TAKES_GH_TIMEOUT_S");
+		const giveUp = readShellConst(HOOK, "TAKES_GH_TIMEOUT_S");
 		for (const file of [
 			path.join(ROOT, "self-plugin", "hooks", "hooks.json"),
 			path.join(ROOT, "hooks", "hooks.json"),

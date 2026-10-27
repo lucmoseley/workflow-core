@@ -4,7 +4,7 @@
  * live session's claims rule out, and the disjoint set it proposes
  * (mantahostels#1002; terminal holders since #637).
  *
- * The graph is pure apart from heldFiles(), which reads the arbiter's claim
+ * The graph is pure apart from readHeldFiles(), which reads the arbiter's claim
  * store — pointed at a throwaway CLAUDE_CONFIG_DIR here, never the founder's,
  * which would make the suite report on whatever live sessions happen to hold.
  *
@@ -394,7 +394,7 @@ describe("reading the live file claims", () => {
 	it("keeps a claim whose session the oracle lists, and drops one it does not", () => {
 		lock("scripts/live.js", "alive");
 		lock("scripts/dead.js", "finished");
-		const held = graph.heldFiles({
+		const held = graph.readHeldFiles({
 			ids: new Set(["alive"]),
 			names: new Map([["alive", "Implement 900"]]),
 		});
@@ -407,7 +407,7 @@ describe("reading the live file claims", () => {
 	it("drops a claim whose listed holder is terminal, and keeps a working one's (#637)", () => {
 		lock("scripts/live.js", "alive");
 		lock("scripts/stopped.js", "stopped");
-		const held = graph.heldFiles({
+		const held = graph.readHeldFiles({
 			ids: new Set(["alive", "stopped"]),
 			terminal: new Set(["stopped"]),
 		});
@@ -419,7 +419,7 @@ describe("reading the live file claims", () => {
 	it("keeps every claim where liveness could not be read, and says why", () => {
 		lock("scripts/live.js", "alive");
 		lock("scripts/dead.js", "finished");
-		const held = graph.heldFiles({ ids: null, why: "no daemon" });
+		const held = graph.readHeldFiles({ ids: null, why: "no daemon" });
 		expect(held.files.map((f: { path: string }) => f.path).sort()).toEqual([
 			"scripts/dead.js",
 			"scripts/live.js",
@@ -434,7 +434,7 @@ describe("reading the live file claims", () => {
 
 	it("names a session the oracle did not name by a short id", () => {
 		lock("scripts/live.js", "abcdef0123456789");
-		const held = graph.heldFiles({ ids: new Set(["abcdef0123456789"]) });
+		const held = graph.readHeldFiles({ ids: new Set(["abcdef0123456789"]) });
 		expect(held.files[0].session).toBe("abcdef01");
 	});
 
@@ -448,7 +448,7 @@ describe("reading the live file claims", () => {
 		);
 		fs.mkdirSync(state, { recursive: true });
 		fs.writeFileSync(path.join(state, "locks"), "not a directory");
-		const held = graph.heldFiles({ ids: new Set(["alive"]) });
+		const held = graph.readHeldFiles({ ids: new Set(["alive"]) });
 		expect(held.files).toEqual([]);
 		expect(held.why).toMatch(/could not be read/);
 	});
@@ -457,14 +457,14 @@ describe("reading the live file claims", () => {
 		lock("scripts/mine.js", "me");
 		lock("scripts/theirs.js", "other");
 		process.env.CLAUDE_CODE_SESSION_ID = "me";
-		const held = graph.heldFiles({ ids: new Set(["me", "other"]) });
+		const held = graph.readHeldFiles({ ids: new Set(["me", "other"]) });
 		expect(held.files.map((f: { path: string }) => f.path)).toEqual([
 			"scripts/theirs.js",
 		]);
 	});
 
 	it("is empty and uncomplaining where nothing has ever been claimed", () => {
-		const held = graph.heldFiles({ ids: new Set(["alive"]) });
+		const held = graph.readHeldFiles({ ids: new Set(["alive"]) });
 		expect(held.files).toEqual([]);
 		expect(held.why).toBe(null);
 	});
@@ -473,7 +473,7 @@ describe("reading the live file claims", () => {
 		it("drops a claim whose holder's issue closed, though the agents oracle still lists the finished session", () => {
 			lock("scripts/guard-registry-atomicity.sh", "finished");
 			arbiter.claimIssue(2734, { sessionId: "finished" });
-			const held = graph.heldFiles(
+			const held = graph.readHeldFiles(
 				{
 					ids: new Set(["finished"]),
 					names: new Map([["finished", "Implement 2734"]]),
@@ -486,7 +486,10 @@ describe("reading the live file claims", () => {
 		it("keeps a claim whose holder's issue is still open", () => {
 			lock("scripts/live.js", "alive");
 			arbiter.claimIssue(42, { sessionId: "alive" });
-			const held = graph.heldFiles({ ids: new Set(["alive"]) }, new Set([42]));
+			const held = graph.readHeldFiles(
+				{ ids: new Set(["alive"]) },
+				new Set([42]),
+			);
 			expect(held.files.map((f: { path: string }) => f.path)).toEqual([
 				"scripts/live.js",
 			]);
@@ -497,14 +500,14 @@ describe("reading the live file claims", () => {
 			// liveness check gates before the issue check ever runs.
 			lock("scripts/bg-run.sh", "gone");
 			arbiter.claimIssue(2694, { sessionId: "gone" });
-			const held = graph.heldFiles({ ids: new Set() }, new Set([2694]));
+			const held = graph.readHeldFiles({ ids: new Set() }, new Set([2694]));
 			expect(held.files).toEqual([]);
 		});
 
 		it("skips the issue check where no open-issue set is passed, unchanged from before mantahostels#2764", () => {
 			lock("scripts/guard-registry-atomicity.sh", "finished");
 			arbiter.claimIssue(2734, { sessionId: "finished" });
-			const held = graph.heldFiles({
+			const held = graph.readHeldFiles({
 				ids: new Set(["finished"]),
 			});
 			expect(held.files.map((f: { path: string }) => f.path)).toEqual([
@@ -520,7 +523,7 @@ describe("reading the live file claims", () => {
 			lock("scripts/live.js", "busy");
 			arbiter.claimIssue(100, { sessionId: "busy" });
 			arbiter.claimIssue(200, { sessionId: "busy" });
-			const held = graph.heldFiles(
+			const held = graph.readHeldFiles(
 				{ ids: new Set(["busy"]) },
 				new Set([200]), // only mantahostels#200 is open; mantahostels#100 has closed
 			);
@@ -533,7 +536,7 @@ describe("reading the live file claims", () => {
 			lock("scripts/dead.js", "done");
 			arbiter.claimIssue(100, { sessionId: "done" });
 			arbiter.claimIssue(101, { sessionId: "done" });
-			const held = graph.heldFiles(
+			const held = graph.readHeldFiles(
 				{ ids: new Set(["done"]) },
 				new Set([200]), // neither 100 nor 101 is open
 			);
@@ -552,7 +555,10 @@ describe("reading the live file claims", () => {
 			);
 			fs.mkdirSync(path.dirname(issueClaimsDir), { recursive: true });
 			fs.writeFileSync(issueClaimsDir, "not a directory");
-			const held = graph.heldFiles({ ids: new Set(["alive"]) }, new Set([1]));
+			const held = graph.readHeldFiles(
+				{ ids: new Set(["alive"]) },
+				new Set([1]),
+			);
 			// Fails open: the claim is still shown as held...
 			expect(held.files.map((f: { path: string }) => f.path)).toEqual([
 				"scripts/live.js",

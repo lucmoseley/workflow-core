@@ -93,11 +93,7 @@ const FAILURE_TYPES = new Set(["hook_cancelled", "hook_non_blocking_error"]);
  * ONLY A PreToolUse LOSS IS AN ESCAPED DENY. A deny is a PreToolUse verdict; a deny-capable script also
  * wired somewhere else has no permission authority on that other event, so
  * reporting one would be a false alarm and `replay` would fabricate a payload
- * for an authority it never had. It also stops THIS FILE reporting itself: the
- * deny-capable test is textual, this file spells `gp_deny`, and Stop
- * cancellations are real (mantahostels#2299) — so without it a cancelled guard-lost-deny.js
- * reports a loss against a toolUseID that is a Stop hook's uuid and matches no
- * tool call at all.
+ * for an authority it never had.
  */
 const DENY_EVENT = "PreToolUse";
 
@@ -394,7 +390,7 @@ function replayGuard(guard, payload, dirs) {
  *
  * THE PAYLOAD IS RECONSTRUCTED, NOT REPLAYED FROM A RECORDING: the harness keeps
  * no copy of what it piped into a hook, so this rebuilds the four fields the
- * PreToolUse guards read (`lib/guard-parse.sh` `gp_begin`) out of the tool_use
+ * PreToolUse guards read (`lib/guard-entry.js`) out of the tool_use
  * record and the transcript's own session id. A guard reading a field outside
  * that set sees it empty and, by its own fail-open contract, allows.
  *

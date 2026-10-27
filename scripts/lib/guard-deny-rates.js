@@ -15,8 +15,8 @@
  * A GUARD WITH NO ROW IS UNKNOWN, NEVER ZERO. `guard-lost-deny.js` derives the
  * deny-capable set from each script's own source (`lib/deny-capable.js`), so a
  * guard added after the census joins that set with no edit anywhere — and this
- * table lags it by design. `guard-npm-install.sh`, `guard-last30days.sh` and
- * `guard-file-claim.sh` (#1815) are in that position: deny-capable, no row.
+ * table lags it by design. `guard-npm-install.js` is in that position:
+ * deny-capable, no row.
  *
  * NOTHING DETECTS STALENESS AUTOMATICALLY. The signal is the report itself: a
  * guard printed as "deny rate unknown" is a guard this table has not been
@@ -30,7 +30,7 @@ const AS_OF = "5 Sep 2026";
 
 /*
  * Above this share of invocations a loss is worth a turn. A reading of one
- * census (mantahostels#3261), not a derived threshold — and `guard-suite-concurrency.sh`
+ * census (mantahostels#3261), not a derived threshold — and `guard-suite-concurrency.js`
  * clears it at 1.034% on a band (0.96-1.11%) that straddles it.
  */
 const WORTH_REPLAYING_PCT = 1;
@@ -43,110 +43,75 @@ const WORTH_REPLAYING_PCT = 1;
 
 /** @type {Record<string, Rate>} */
 const RATES = {
-	"guard-agent-poll.sh": {
+	"guard-agent-poll.js": {
 		denies: 881,
 		population: 40_198,
 		pct: 2.192,
 		lowPct: 2.05,
 		highPct: 2.34,
 	},
-	"guard-branch.sh": {
+	"guard-branch.js": {
 		denies: 0,
 		population: 21_952,
 		pct: 0,
 		lowPct: 0,
 		highPct: 0.02,
 	},
-	"guard-commit-form.sh": {
+	"guard-commit-form.js": {
 		denies: 1,
 		population: 21_952,
 		pct: 0.0046,
 		lowPct: 0,
 		highPct: 0.03,
 	},
-	"guard-echo-call.sh": {
-		denies: 69,
-		population: 317_047,
-		pct: 0.0218,
-		lowPct: 0.02,
-		highPct: 0.03,
-	},
-	"guard-issue-body.sh": {
+	"guard-issue-body.js": {
 		denies: 16,
 		population: 16_057,
 		pct: 0.0996,
 		lowPct: 0.06,
 		highPct: 0.16,
 	},
-	"guard-issue-close.sh": {
+	"guard-issue-close.js": {
 		denies: 255,
 		population: 16_057,
 		pct: 1.588,
 		lowPct: 1.41,
 		highPct: 1.79,
 	},
-	"guard-issue-create-label.sh": {
+	"guard-issue-create-label.js": {
 		denies: 208,
 		population: 16_057,
 		pct: 1.295,
 		lowPct: 1.13,
 		highPct: 1.48,
 	},
-	"guard-issue-phase-scope.sh": {
+	"guard-issue-phase-scope.js": {
 		denies: 9,
 		population: 38_601,
 		pct: 0.0233,
 		lowPct: 0.01,
 		highPct: 0.04,
 	},
-	"guard-pull-form.sh": {
+	"guard-pull-form.js": {
 		denies: 0,
 		population: 21_952,
 		pct: 0,
 		lowPct: 0,
 		highPct: 0.02,
 	},
-	"guard-registry-atomicity.sh": {
+	"guard-registry-atomicity.js": {
 		denies: 3,
 		population: 21_952,
 		pct: 0.0137,
 		lowPct: 0,
 		highPct: 0.04,
 	},
-	"guard-root-scratch.sh": {
-		denies: 11,
-		population: 291_734,
-		pct: 0.0038,
-		lowPct: 0,
-		highPct: 0.01,
-	},
-	"guard-self-match.sh": {
-		denies: 79,
-		population: 291_734,
-		pct: 0.0271,
-		lowPct: 0.02,
-		highPct: 0.03,
-	},
-	"guard-suite-background.sh": {
-		denies: 70,
-		population: 291_734,
-		pct: 0.024,
-		lowPct: 0.02,
-		highPct: 0.03,
-	},
-	"guard-suite-concurrency.sh": {
+	"guard-suite-concurrency.js": {
 		denies: 736,
 		population: 71_159,
 		pct: 1.034,
 		lowPct: 0.96,
 		highPct: 1.11,
-	},
-	"guard-sweep-fire.sh": {
-		denies: 0,
-		population: 291_734,
-		pct: 0,
-		lowPct: 0,
-		highPct: 0.001,
 	},
 };
 

@@ -22,8 +22,14 @@ let guardDirs: string[];
 
 beforeAll(() => {
 	const dir = mkdtempSync(join(tmpdir(), "guard-triggers-"));
-	writeFileSync(join(dir, "denier.sh"), '#!/bin/bash\ngp_deny "no"\n');
-	writeFileSync(join(dir, "warner.sh"), '#!/bin/bash\ngp_warn "hm"\n');
+	writeFileSync(
+		join(dir, "denier.sh"),
+		'#!/bin/bash\necho \'{"permissionDecision":"deny"}\'\n',
+	);
+	writeFileSync(
+		join(dir, "warner.sh"),
+		'#!/bin/bash\necho \'{"additionalContext":"hm"}\'\n',
+	);
 	guardDirs = [dir];
 });
 
@@ -258,7 +264,7 @@ describe("triggerTable — event (mantahostels#3356)", () => {
 	});
 
 	it("calls no PostToolUse guard deny-capable, whatever its source says", () => {
-		// `denier.sh` carries the word `gp_deny`; registered after the call has
+		// `denier.sh` spells a deny verdict; registered after the call has
 		// already run, it can deny nothing, and a true reading there would put it
 		// in `lib/guard-deny-rates.js`'s staleness report as an unpinned denier.
 		const table = triggerTable(

@@ -121,7 +121,7 @@ const { caught } = require("./lib/caught.js");
 const CLASSES_FILE = "doc-map-classes.json";
 
 /** @param {string} dataDir */
-function classesBeside(dataDir) {
+function readClassesBeside(dataDir) {
 	try {
 		const data = JSON.parse(
 			fs.readFileSync(path.join(dataDir, CLASSES_FILE), "utf8"),
@@ -704,7 +704,7 @@ runCheck({
 		for (const { line, where, isRow } of locate(
 			text,
 			registered,
-			classesBeside(dataDir),
+			readClassesBeside(dataDir),
 		))
 			for (const raw of markersOn(line, isRow))
 				prose.push(proseMarker(raw, where, ageing));

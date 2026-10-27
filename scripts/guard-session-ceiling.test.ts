@@ -22,7 +22,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type StopRun, stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 /* The block counters (`*-nagged-*-<sid>`) live under gr_markers_dir
@@ -81,7 +81,7 @@ const transcript = (totals: number[], extra: object[] = []): string => {
  * The turn defaults to a session-ending one, the only kind a band below the
  * ceiling refuses (#919). */
 const run = (over: Partial<StopRun> = {}) => {
-	const block = stopGuardBlock(GUARD, {
+	const block = readStopGuardBlock(GUARD, {
 		dir,
 		sid,
 		config: dir,
@@ -138,7 +138,7 @@ const turns = (count: number, ctx = 50_000, perResponse = 1) => {
 };
 
 /** The outcome of every breadcrumb this guard has left, across sessions. */
-const outcomes = (): string[] => {
+const readOutcomes = (): string[] => {
 	const crumbDir = hookRecord.recordsDir(dir);
 	return fs
 		.readdirSync(crumbDir)
@@ -369,7 +369,16 @@ describe("the 300,000-token tripwire (#1178 Q3 (B), which made the ceiling one)"
 		expect(reason).toContain("Commit what exists");
 		expect(reason).toContain("end your turn");
 		expect(reason).not.toContain("successor");
-		expect(reason).not.toContain("hand");
+		/* The quoted founder-deliverable rule says "the ticket in hand" and
+		 * "HAND-OVER"; the guard's own words must name no hand-off. */
+		const rule = fs
+			.readFileSync(
+				path.join(__dirname, "..", "docs/agents/rules/founder-deliverable.txt"),
+				"utf8",
+			)
+			.trim();
+		expect(reason).toContain(rule);
+		expect(reason.replace(rule, "")).not.toContain("hand");
 	});
 
 	it("speaks once: the next session-ending Stop hears the wind-up band, and a `waiting:` one passes", () => {
@@ -755,7 +764,7 @@ describe("an ending that already carries the inventory (#1786)", () => {
 		turns(PAST_TURN_BAND);
 		expect(run({ message: inventoried }).blocked).toBe(false);
 		expect(fs.existsSync(counter("turns"))).toBe(false);
-		expect(outcomes()).toEqual(["inventory-stand-down"]);
+		expect(readOutcomes()).toEqual(["inventory-stand-down"]);
 	});
 
 	it("ends past 200,000 tokens without a block, writing no counter", () => {
@@ -805,7 +814,7 @@ describe("an ending that already carries the inventory (#1786)", () => {
 		expect(first.blocked).toBe(true);
 		expect(first.reason).toContain("TRIPWIRE in docs/effort-guide.md");
 		expect(run({ message: inventoried }).blocked).toBe(false);
-		expect(outcomes()).toEqual(["message", "inventory-stand-down"]);
+		expect(readOutcomes()).toEqual(["message", "inventory-stand-down"]);
 	});
 });
 
@@ -885,8 +894,8 @@ describe("every path that cannot read a figure (mantahostels#103 §6, the fail-o
 		transcript([PAST_TRIPWIRE]);
 		run();
 		run({ stdin: "not json" });
-		expect(outcomes()).toContain("message");
-		expect(outcomes()).toContain("no-payload");
+		expect(readOutcomes()).toContain("message");
+		expect(readOutcomes()).toContain("no-payload");
 	});
 });
 

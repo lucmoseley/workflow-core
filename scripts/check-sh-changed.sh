@@ -46,4 +46,4 @@ command -v shellcheck >/dev/null 2>&1 || {
 
 echo "check:sh:changed: ${#paths[@]} file(s): ${paths[*]}"
 sh "$lib/serialised.sh" check:sh:changed shellcheck \
-  shellcheck -x --severity=style --exclude=SC2329,SC2016 "${paths[@]}"
+  shellcheck -x --severity=style --exclude=SC2016 "${paths[@]}"

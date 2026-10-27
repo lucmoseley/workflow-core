@@ -80,7 +80,9 @@ describe("measure-session-cost.js", () => {
 		]);
 		const r = run();
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("n=2 mean=$2 median=$3 p90=$3 max=$3\n");
+		expect(r.stdout).toBe(
+			"n=2 mean=$2 median=$3 p90=$3 max=$3\ntail remainder=$2 landed=0.25h:1 0.5h:1 1h:1 2h:1 3h:1 4h:1 6h:1 8h:1 12h:1 24h:1\n",
+		);
 	});
 
 	it("prices a session held on two seats once, from the larger copy (#382)", () => {
@@ -98,7 +100,7 @@ describe("measure-session-cost.js", () => {
 		ledger(["aaaaaa11"]);
 		const r = run([seat, seat2]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("n=1 mean=$3 median=$3 p90=$3 max=$3\n");
+		expect(r.stdout.split("\n")[0]).toBe("n=1 mean=$3 median=$3 p90=$3 max=$3");
 	});
 
 	/* #1391 */
@@ -113,7 +115,33 @@ describe("measure-session-cost.js", () => {
 		ledger(["aaaaaa11", "bbbbbb22"]);
 		const r = run([seat], (s) => [`--config-dir=${s}`]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("n=1 mean=$1 median=$1 p90=$1 max=$1\n");
+		expect(r.stdout.split("\n")[0]).toBe("n=1 mean=$1 median=$1 p90=$1 max=$1");
+	});
+
+	it("prints the tail's mean remainder over u and the share of spend landed by each mark (#2925)", () => {
+		const at = (rid: string, timestamp: string, output: number) =>
+			JSON.stringify({
+				type: "assistant",
+				requestId: rid,
+				timestamp,
+				message: {
+					model: "claude-sonnet-5",
+					usage: { output_tokens: output },
+				},
+			});
+		// $1 at once and $1 two hours on; $5 all at once. u is $5's own cost,
+		// so no session lies past it and the tail falls back to the mean.
+		transcript("aaaaaa11-0000", [
+			at("r1", "2026-10-25T09:00:00Z", 100_000),
+			at("r2", "2026-10-25T11:00:00Z", 100_000),
+		]);
+		transcript("bbbbbb22-0000", [at("r1", "2026-10-25T09:00:00Z", 500_000)]);
+		ledger(["aaaaaa11", "bbbbbb22"]);
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.stdout.split("\n")[1]).toBe(
+			"tail remainder=$3.5 landed=0.25h:0.86 0.5h:0.86 1h:0.86 2h:1 3h:1 4h:1 6h:1 8h:1 12h:1 24h:1",
+		);
 	});
 
 	it("exits 1 where no ledger entry matches a transcript", () => {

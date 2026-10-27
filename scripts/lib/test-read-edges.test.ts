@@ -7,9 +7,9 @@
  * every branch is reachable in-process and none of it needs a git repo.
  *
  * `run-vitest.js` unions these edges into every bare `npm run test` and
- * `--changed` run, and a push is judged covered by those runs; loosen a case
+ * `--changed` run, and a push is judged attested by those runs' certificates; loosen a case
  * and a changed document selects none of the tests that assert over it, which
- * then go unrun while the push reads green.
+ * then go unrun while the push reads attested.
  */
 
 import { describe, expect, it } from "vitest";
@@ -106,7 +106,7 @@ describe("a test's direct reads under __dirname", () => {
 	 * so it is tracked only under the test's own directory. Joined from
 	 * fragments for the same reason DOC and CLAUDE are, above. */
 	const guard = ["scripts", "guard-x.sh"].join("/");
-	const parse = ["scripts", "lib", "guard-parse.sh"].join("/");
+	const parse = ["scripts", "lib", "guard-log.sh"].join("/");
 	const helper = ["scripts", "lib", "helper.ts"].join("/");
 	const siblings = new Set([...tracked, guard, parse, helper]);
 
@@ -116,7 +116,7 @@ describe("a test's direct reads under __dirname", () => {
 	});
 
 	it("resolves a name that descends from the test's directory", () => {
-		const src = `path.resolve(__dirname, "lib/guard-parse.sh");`;
+		const src = `path.resolve(__dirname, "lib/guard-log.sh");`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([parse]);
 	});
 
@@ -153,7 +153,7 @@ describe("a test's direct reads under __dirname", () => {
 	});
 
 	it("joins a run of literals composed across several arguments (mantahostels#2441)", () => {
-		const src = `path.resolve(__dirname, "lib", "guard-parse.sh");`;
+		const src = `path.resolve(__dirname, "lib", "guard-log.sh");`;
 		expect(readsOf(src, siblings, "scripts/a.test.ts")).toEqual([parse]);
 	});
 
@@ -822,15 +822,15 @@ describe("buildManifest over a spawned script's dependencies (#657, #1126)", () 
 const RULE_TEXT = ["scripts/lib", "rule-text.js"].join("/");
 const FRAGMENT = ["docs/agents/rules", "x.txt"].join("/");
 const R = "scripts/r.test.ts";
-const LOADS = `const { ruleText } = require("./lib/rule-text");\n`;
+const LOADS = `const { readRuleText } = require("./lib/rule-text");\n`;
 const CARRIES =
-	"const carries = (id, clause) => expect(ruleText(id)).toContain(clause);\n";
+	"const carries = (id, clause) => expect(readRuleText(id)).toContain(clause);\n";
 const fragmentReaders = (src: string) =>
 	buildManifest(new Set([R, RULE_TEXT, FRAGMENT]), (p) => (p === R ? src : ""))
 		.edges[FRAGMENT];
 
-describe("buildManifest over a rule id read through ruleText (#1296)", () => {
-	it("selects the fragment a wrapper forwarding to ruleText names", () => {
+describe("buildManifest over a rule id read through readRuleText (#1296)", () => {
+	it("selects the fragment a wrapper forwarding to readRuleText names", () => {
 		expect(
 			fragmentReaders(`${LOADS}${CARRIES}carries("x", "a clause");`),
 		).toEqual([R]);
@@ -838,7 +838,7 @@ describe("buildManifest over a rule id read through ruleText (#1296)", () => {
 
 	it("selects it under the rule: prefix and a createRequire load", () => {
 		const load = `createRequire(__filename)("./lib/rule-text.js");\n`;
-		expect(fragmentReaders(`${load}ruleText("rule:x");`)).toEqual([R]);
+		expect(fragmentReaders(`${load}readRuleText("rule:x");`)).toEqual([R]);
 	});
 
 	it("selects nothing for an id naming no tracked fragment", () => {
@@ -1001,7 +1001,7 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		["an object literal's flattened values in", "Object.values(O).flat()"],
 		["an object literal's values in", `Object.values({ a: "${DOC}" })`],
 	])(
-		"reports nothing for a callback walking %s literals the literal pass reads",
+		"reports nothing for a callback walking %s literals the literal pass reads (#2595)",
 		(_, collection) => {
 			const body = `${anchored}const O = { a: ["${DOC}"], "b-c": "${DOC}" };\n${collection}.map((f) => fs.readFileSync(path.join(ROOT, f)));`;
 			expect(sitesOf(body)).toEqual([]);
@@ -1013,7 +1013,7 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		["a value that is no literal", "Object.values({ a: name })"],
 		["a spread of a variable", "[...new Set(name)]"],
 	])(
-		"reports a walk of %s as a path segment held in its name",
+		"reports a walk of %s as a path segment held in its name (#2595)",
 		(_, collection) => {
 			const body = `${anchored}const O = { a: ["${DOC}"] };\n${collection}.map((f) => fs.readFileSync(path.join(ROOT, f)));`;
 			expect(sitesOf(body).map((s) => s.shape)).toEqual([
@@ -1050,6 +1050,7 @@ describe("buildManifest's unseen read sites (#1881)", () => {
 		},
 	);
 
+	/* #2595: a walked collection changed after its declaration holds more than its literals. */
 	it("reports a walk of a declared array with an element assigned after its declaration", () => {
 		const body = `${anchored}const L = ["${DOC}"];\nL[1] = pick();\nfor (const f of L) fs.readFileSync(path.join(ROOT, f));`;
 		expect(sitesOf(body).map((s) => s.shape)).toEqual([

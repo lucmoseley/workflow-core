@@ -75,7 +75,7 @@ function trustOf(bar, now) {
  * @param {string} textPrefix
  * @returns {RawBar | null}
  */
-function barFromText(usageText, textPrefix) {
+function parseBar(usageText, textPrefix) {
 	for (const line of usageText.split("\n")) {
 		if (!line.includes(textPrefix)) continue;
 		const m = line.match(USED_RE);
@@ -110,7 +110,7 @@ function readAllowance(opts = {}) {
 		const jsonBar = barFromCache(cache, kind);
 		const jsonTrust = trustOf(jsonBar, now);
 		if (jsonBar && jsonTrust === "fresh") return { ...jsonBar, trust: "fresh" };
-		const textBar = barFromText(usageText, textPrefix);
+		const textBar = parseBar(usageText, textPrefix);
 		if (textBar) return { ...textBar, trust: "fresh" };
 		return jsonBar
 			? { ...jsonBar, trust: jsonTrust }

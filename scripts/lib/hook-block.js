@@ -67,7 +67,7 @@ function guardName(prefix) {
  * @param {number} max
  * @returns {string}
  */
-function lastBlockNotice(prefix, max) {
+function buildLastBlockNotice(prefix, max) {
 	const spent =
 		max === 1 ? "the single block" : `all ${String(max)} of the blocks`;
 	return (
@@ -154,13 +154,13 @@ function charge({ prefix, sessionId, max = MAX_BLOCKS }) {
 	return true;
 }
 
-/* IT CAPS SILENTLY, DELIBERATELY: no `lastBlockNotice`. The notice speaks on
+/* IT CAPS SILENTLY, DELIBERATELY: no `buildLastBlockNotice`. The notice speaks on
  * stdout, which `blockStop` owns, so a limb capped through this path goes dark
  * unannounced. The session ceiling is what a reader is told about instead. */
 
 /**
  * Whether the next block this counter allows is its last — what `blockStop`
- * appends `lastBlockNotice` on.
+ * appends `buildLastBlockNotice` on.
  * @param {{prefix: string, sessionId: string, max?: number}} spec
  * @returns {boolean}
  */
@@ -190,7 +190,7 @@ function blockStop({ prefix, sessionId, reason, max = MAX_BLOCKS }) {
 	/* `isLast` is read before the write above, so it means "that write just
 	 * took this counter to its cap". The core paths it names are spelled where
 	 * an adopter can open them (#1010). */
-	const text = isLast ? reason + lastBlockNotice(prefix, max) : reason;
+	const text = isLast ? reason + buildLastBlockNotice(prefix, max) : reason;
 	process.stdout.write(
 		JSON.stringify({ decision: "block", reason: resolveScriptPaths(text) }),
 	);

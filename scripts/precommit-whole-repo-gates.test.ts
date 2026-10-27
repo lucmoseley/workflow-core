@@ -125,8 +125,8 @@ describe.each(GATES)("the pre-commit $profile gate", (gate) => {
 		expectFixtureSupplies(gate.checker, [gate.checker]);
 	});
 
-	it("names a profile checker-new-faults.js actually carries", () => {
-		const { PROFILES } = require("./checker-new-faults.js");
+	it("names a profile lib/fault-profiles.js actually carries", () => {
+		const { PROFILES } = require("./lib/fault-profiles.js");
 		expect(Object.keys(PROFILES)).toContain(gate.profile);
 	});
 

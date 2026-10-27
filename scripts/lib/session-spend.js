@@ -75,7 +75,8 @@ function flatUsage(usage) {
 }
 
 /**
- * @typedef {{ usage: Record<string, number>, model: string | null | undefined }} RequestUsage
+ * `atMs` is the first stamped record's timestamp, NaN where none is stamped.
+ * @typedef {{ usage: Record<string, number>, model: string | null | undefined, atMs?: number }} RequestUsage
  */
 
 /**
@@ -187,7 +188,7 @@ function priceFor(model, prices = PRICES) {
  * @returns {{ usd: number, unpriced: number }}
  */
 function fileSpend(file, { window, prices = PRICES } = {}) {
-	return spendOf(fileRequests(file, window).values(), prices);
+	return spendOf(readFileRequests(file, window).values(), prices);
 }
 
 /**
@@ -197,7 +198,7 @@ function fileSpend(file, { window, prices = PRICES } = {}) {
  * @param {{ fromMs: number, toMs: number }} [window]
  * @returns {Map<string, RequestUsage>}
  */
-function fileRequests(file, window) {
+function readFileRequests(file, window) {
 	/** @type {Map<string, RequestUsage>} */
 	const best = new Map();
 	let text;
@@ -213,6 +214,8 @@ function fileRequests(file, window) {
 		const rid = r.requestId || `__norid__${n++}`;
 		const cur = mergeRequest(best, rid, flatUsage(r.message.usage));
 		cur.model = r.message.model || cur.model;
+		if (Number.isNaN(cur.atMs ?? Number.NaN))
+			cur.atMs = Date.parse(r.timestamp ?? "");
 	}
 	return best;
 }
@@ -220,7 +223,7 @@ function fileRequests(file, window) {
 /**
  * An assistant transcript record carrying usage. Parsed JSON, checked only for
  * its `type` and `message.usage`, so every other field may be absent.
- * @typedef {{ requestId?: string, message: { model?: string | null,
+ * @typedef {{ requestId?: string, timestamp?: string, message: { model?: string | null,
  *   usage: Record<string, unknown> & { cache_creation?: Record<string, unknown> } } }} UsageRecord
  */
 
@@ -261,15 +264,24 @@ function spendOf(requests, prices) {
 			if (hasUsage(usage)) unpriced++;
 			continue;
 		}
-		const tokens = pricedTokens(usage);
-		usd +=
-			p.reduce((sum, rate, i) => {
-				const n = tokens[i];
-				if (n === undefined) throw new Error(`no token count for price ${i}`);
-				return sum + n * rate;
-			}, 0) / 1e6;
+		usd += requestUsd(usage, p);
 	}
 	return { usd, unpriced };
+}
+
+/**
+ * @param {Record<string, number>} usage  a `mergeRequest` entry's usage
+ * @param {Price} price
+ */
+function requestUsd(usage, price) {
+	const tokens = pricedTokens(usage);
+	return (
+		price.reduce((sum, rate, i) => {
+			const n = tokens[i];
+			if (n === undefined) throw new Error(`no token count for price ${i}`);
+			return sum + n * rate;
+		}, 0) / 1e6
+	);
 }
 
 /** @param {string} file */
@@ -281,7 +293,29 @@ const fileCostUsd = (file) => fileSpend(file).usd;
  * @returns {number}
  */
 function sessionSpendUsd(mainFile) {
-	return sessionFiles(mainFile).reduce((t, f) => t + fileCostUsd(f), 0);
+	return readSessionFiles(mainFile).reduce((t, f) => t + fileCostUsd(f), 0);
+}
+
+/** @typedef {{ atMs: number, usd: number }} SpendEvent */
+
+/**
+ * A session's priced requests, each with its first timestamp, in time order;
+ * an unstamped one sorts first. What `sessionSpendUsd` sums.
+ * @param {string} mainFile
+ * @returns {SpendEvent[]}
+ */
+function readSessionSpendEvents(mainFile) {
+	const events = [];
+	for (const f of readSessionFiles(mainFile))
+		for (const { usage, model, atMs = Number.NaN } of readFileRequests(
+			f,
+		).values()) {
+			const p = priceFor(model);
+			if (p) events.push({ atMs, usd: requestUsd(usage, p) });
+		}
+	const key = (/** @type {number} */ t) =>
+		Number.isNaN(t) ? Number.NEGATIVE_INFINITY : t;
+	return events.sort((a, b) => key(a.atMs) - key(b.atMs));
 }
 
 /** The token fields a session's total counts: the 5m/1h fields split cache writes, so they would count twice. */
@@ -293,14 +327,14 @@ const TOTAL_TOKEN_FIELDS = [
 ];
 
 /**
- * A session's tokens so far, over `sessionFiles`, as `sessionSpendUsd` is (#2241).
+ * A session's tokens so far, over `readSessionFiles`, as `sessionSpendUsd` is (#2241).
  * @param {string} mainFile
  * @returns {number}
  */
 function sessionTokens(mainFile) {
 	let total = 0;
-	for (const f of sessionFiles(mainFile))
-		for (const { usage } of fileRequests(f).values())
+	for (const f of readSessionFiles(mainFile))
+		for (const { usage } of readFileRequests(f).values())
 			for (const k of TOTAL_TOKEN_FIELDS) total += usage[k] || 0;
 	return total;
 }
@@ -310,7 +344,7 @@ function sessionTokens(mainFile) {
  * beside it.
  * @param {string} mainFile
  */
-function sessionFiles(mainFile) {
+function readSessionFiles(mainFile) {
 	const subDir = subagentDirOf(mainFile);
 	/** @type {string[]} */
 	let subs = [];
@@ -328,7 +362,11 @@ function sessionFiles(mainFile) {
 }
 
 /**
- * @typedef {{ meanUsd: number, quantilesUsd: number[] }} CostTable
+ * `tailRemainderUsd` is the measured mean of cost − u over sessions costing
+ * more than u, the second-highest quantile. `landedByHours` is `[hours,
+ * share]` pairs, hours rising: the share of a session's spend landed within
+ * that many hours of its first request.
+ * @typedef {{ meanUsd: number, quantilesUsd: number[], tailRemainderUsd: number, landedByHours: Array<[number, number]> }} CostTable
  */
 
 /**
@@ -347,7 +385,18 @@ function readCostTable(
 			typeof t?.meanUsd === "number" &&
 			Array.isArray(t.quantilesUsd) &&
 			t.quantilesUsd.length >= 2 &&
-			t.quantilesUsd.every((/** @type {unknown} */ q) => typeof q === "number")
+			t.quantilesUsd.every(
+				(/** @type {unknown} */ q) => typeof q === "number",
+			) &&
+			typeof t.tailRemainderUsd === "number" &&
+			Array.isArray(t.landedByHours) &&
+			t.landedByHours.length > 0 &&
+			t.landedByHours.every(
+				(/** @type {unknown} */ p) =>
+					Array.isArray(p) &&
+					p.length === 2 &&
+					p.every((x) => typeof x === "number"),
+			)
 		)
 			return t;
 	} catch {
@@ -359,24 +408,49 @@ function readCostTable(
 /**
  * E[cost − spent | cost > spent], with the table's equally weighted quantiles
  * standing in for the distribution — never floored at zero, which reads a
- * session past the median as finished (#370).
- * Past the table's top there is no data: keeping the top step's gap as the
- * remainder is a guess, and stated as one.
+ * session past the median as finished (#370). The top quantile is the sample
+ * maximum, so the top point stands at u + `tailRemainderUsd`, the tail's
+ * measured mean, u being the second-highest quantile. At or past u the
+ * remainder is `tailRemainderUsd` whatever the spend: an exponential tail
+ * (#2925).
  * @param {number} spentUsd
  * @param {CostTable} table
  * @returns {number}
  */
 function expectedRemainderUsd(spentUsd, table) {
 	if (spentUsd <= 0) return table.meanUsd;
-	const q = table.quantilesUsd;
-	const above = q.filter((x) => x > spentUsd);
-	if (above.length === 0) {
-		const [belowTop, top] = q.slice(-2);
-		if (belowTop === undefined || top === undefined)
-			throw new Error("cost table holds fewer than two quantiles");
-		return top - belowTop;
-	}
+	const u = table.quantilesUsd.at(-2);
+	if (u === undefined)
+		throw new Error("cost table holds fewer than two quantiles");
+	if (spentUsd >= u) return table.tailRemainderUsd;
+	const points = [
+		...table.quantilesUsd.slice(0, -1),
+		u + table.tailRemainderUsd,
+	];
+	const above = points.filter((x) => x > spentUsd);
 	return above.reduce((s, x) => s + (x - spentUsd), 0) / above.length;
+}
+
+/**
+ * The share of a session's remaining spend that lands within `hours`, read
+ * off `landedByHours` by straight lines from (0, 0); past its last point, that
+ * point's share. Measured from each session's first request, so a session
+ * already running is credited as landing at least as fast as a fresh one
+ * (#2925).
+ * @param {CostTable} table
+ * @param {number} hours
+ * @returns {number}
+ */
+function landedShare(table, hours) {
+	if (!(hours > 0)) return 0;
+	let prev = /** @type {[number, number]} */ ([0, 0]);
+	for (const point of table.landedByHours) {
+		const [h, share] = point;
+		if (hours <= h)
+			return prev[1] + ((share - prev[1]) * (hours - prev[0])) / (h - prev[0]);
+		prev = point;
+	}
+	return prev[1];
 }
 
 /**
@@ -430,8 +504,10 @@ module.exports = {
 	pricedTokens,
 	writesByTtl,
 	sessionSpendUsd,
+	readSessionSpendEvents,
 	sessionTokens,
 	readCostTable,
 	expectedRemainderUsd,
+	landedShare,
 	runningRemainders,
 };

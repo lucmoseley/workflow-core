@@ -73,7 +73,7 @@ function writeStepsOwed(at, config, steps) {
  * @param {string} root
  * @returns {StepOwed[]}
  */
-function stepsOwed(root) {
+function readStepsOwed(root) {
 	const { config } = readConfigRaw(root);
 	const raw = Array.isArray(config.stepsOwed) ? config.stepsOwed : [];
 	return raw.filter(isValidEntry);
@@ -98,7 +98,7 @@ function appendStepsOwed(root, tag, entries) {
 /**
  * Clears one entry — an `act` performed, a `notice` printed, or a `choice`
  * already declined and now stale — matching `tag`+`type`+`text` exactly, as
- * `stepsOwed()` prints them. Throws on a malformed identifier before
+ * `readStepsOwed()` prints them. Throws on a malformed identifier before
  * touching the file; returns false where nothing matched.
  * @param {string} root
  * @param {{tag: string, type: string, text: string}} at
@@ -146,7 +146,7 @@ function declineStepOwed(root, { tag, text }) {
 }
 
 module.exports = {
-	stepsOwed,
+	readStepsOwed,
 	appendStepsOwed,
 	clearStepOwed,
 	declineStepOwed,

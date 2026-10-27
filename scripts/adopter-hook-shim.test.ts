@@ -92,9 +92,9 @@ function buildAdopter() {
 	/** A commit from `cwd`, with what landed and what the hooks logged. */
 	const commit = (cwd = root, extra: Record<string, string> = {}) => {
 		fs.writeFileSync(path.join(cwd, `f${++n}.txt`), `${n}\n`);
-		const head = () =>
+		const readHead = () =>
 			execFileSync("git", ["rev-parse", "HEAD"], { cwd }).toString();
-		const before = head();
+		const before = readHead();
 		fs.rmSync(log, { force: true });
 		execFileSync("git", ["add", "--", `f${n}.txt`], { cwd });
 		const r = spawnSync("git", ["commit", "-qm", `c${n}`], {
@@ -105,7 +105,7 @@ function buildAdopter() {
 		return {
 			status: r.status,
 			stderr: r.stderr,
-			landed: head() !== before,
+			landed: readHead() !== before,
 			log: fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "",
 		};
 	};
@@ -113,7 +113,7 @@ function buildAdopter() {
 }
 
 /** The tracked files the shim's run left changed. */
-const dirty = (root: string) =>
+const readStatus = (root: string) =>
 	execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
 		cwd: root,
 	}).toString();
@@ -153,7 +153,7 @@ describe("an adopter's hook shims (#1839)", () => {
 		expect(second.landed).toBe(true);
 		expect(second.log).toContain(`pre-commit ${next}\n`);
 		expect(second.log).not.toContain(`${installed}\n`);
-		expect(dirty(a.root)).toBe("");
+		expect(readStatus(a.root)).toBe("");
 	});
 
 	it("fails the deleted-version case once the shim names a fixed path instead of resolving (mutation)", () => {

@@ -17,11 +17,11 @@
  * leaves the running image as it was, and that sha is not tried again.
  */
 
-const { execFileSync, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
+const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { GIT_TIMEOUT_MS } = require("./dirty-tree.js");
 const { isUnder } = require("./is-under.js");
 const {
 	REMOTE,
@@ -47,7 +47,7 @@ const LOAD_TIMEOUT_MS = 60 * 1000;
  * @param {number} [timeout]
  */
 const git = (cwd, args, timeout = GIT_TIMEOUT_MS) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		cwd,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
@@ -118,7 +118,7 @@ function fetchVerified(repo) {
  * The verified ref's sha as `repo` last fetched it, or null.
  * @param {string} repo
  */
-function verifiedSha(repo) {
+function readVerifiedSha(repo) {
 	try {
 		return git(repo, ["rev-parse", "--verify", `${VERIFIED_REF}^{commit}`]);
 	} catch {
@@ -202,7 +202,7 @@ function launchProgram({ scriptsDir, codeDir }) {
 	}
 	if (repo === null) return { program: path.join(scriptsDir, PROGRAM_NAME) };
 	const fetchError = fetchVerified(repo);
-	const sha = verifiedSha(repo);
+	const sha = readVerifiedSha(repo);
 	if (sha === null)
 		return {
 			error: `no ${VERIFIED_REF} in ${repo}${fetchError ? ` (fetch: ${fetchError})` : ""}`,
@@ -224,7 +224,7 @@ function launchProgram({ scriptsDir, codeDir }) {
  * @param {number} pid
  * @param {string} codeDir
  */
-function runningCode(pid, codeDir) {
+function readRunningCode(pid, codeDir) {
 	try {
 		const args = fs.readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0");
 		const arg = args.find((a) => path.basename(a) === PROGRAM_NAME);
@@ -282,7 +282,7 @@ function codeUpdater({ program, codeDir, log }) {
 				`code update: fetching ${VERIFIED_REF} failed, ${fetchError}; running ${short(running)}`,
 			);
 		fetchFailed = fetchError;
-		const tip = verifiedSha(root);
+		const tip = readVerifiedSha(root);
 		if (tip === null || tip === running || tip === refused) return null;
 		return closureChanged(root, running, tip, loaded()) ? tip : null;
 	};
@@ -348,4 +348,4 @@ function codeUpdater({ program, codeDir, log }) {
 	};
 }
 
-module.exports = { codeUpdater, launchProgram, runningCode, SHA_SHOWN };
+module.exports = { codeUpdater, launchProgram, readRunningCode, SHA_SHOWN };

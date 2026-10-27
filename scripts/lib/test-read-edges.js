@@ -60,11 +60,11 @@
  * rule #1770 measured and chose. A pathspec is matched as git matches it, `:!` excludes
  * applied.
  *
- * A RULE ID — `ruleText(id)` builds `docs/agents/rules/<id>.txt` itself, so no
+ * A RULE ID — `readRuleText(id)` builds `docs/agents/rules/<id>.txt` itself, so no
  * literal names the fragment. `ruleEdgesFor` licenses a test that loads
  * `rule-text.js` by any relative specifier to read every quoted literal
  * matching a tracked fragment's id, the lexical choice over tracing which
- * call forwards to `ruleText`, so an id quoted for another reason is a false
+ * call forwards to `readRuleText`, so an id quoted for another reason is a false
  * edge (#1296).
  *
  * THE OWN-MODULE EDGE — `x.test.ts` selects its sibling `x.js` however it
@@ -121,8 +121,14 @@
  * Residual (#1881): a read inside a template literal's `${}` is never
  * judged, the whole literal reading as text, and an argument standing for
  * more than `MAX_ALTERNATIVES` paths is judged on the first of them only.
+ *
+ * THE TREE IT SCANS: `readWorkingTree` reads the tracked paths the disk still
+ * holds, for this render and for touched-tests.js's lexical edges alike.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
+const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const {
 	blankComments,
 	closeOf,
@@ -869,11 +875,11 @@ const RULES_DIR = "docs/agents/rules/";
  * included, which `IMPORT` does not see. */
 const SPECIFIER = /["'`](\.\.?\/[^"'`]+)["'`]/g;
 
-/** A quoted rule id, with or without the `rule:` prefix `ruleText` strips. */
+/** A quoted rule id, with or without the `rule:` prefix `readRuleText` strips. */
 const RULE_ID = /["'`](?:rule:)?([a-z0-9][a-z0-9-]*)["'`]/g;
 
 /**
- * The rule fragments a test reads through `ruleText(id)`, which builds the
+ * The rule fragments a test reads through `readRuleText(id)`, which builds the
  * path itself, so no literal names it (#1296).
  *
  * @param {string} source
@@ -1435,9 +1441,10 @@ function declaredAs(scan, name, hops, read) {
  */
 function declaredHead(scan, e, hops) {
 	const ident = IDENT_HEAD.exec(e)?.[0];
-	const inits = ident ? declaredAs(scan, ident, hops, elementsOfExpr) : null;
+	if (!ident) return null;
+	const inits = declaredAs(scan, ident, hops, elementsOfExpr);
 	const held = inits && mergeElements(inits);
-	return held && { held, rest: e.slice(/** @type {string} */ (ident).length) };
+	return held && { held, rest: e.slice(ident.length) };
 }
 
 /**
@@ -2354,9 +2361,67 @@ function testsReading(changed, edges) {
 	return [...out].sort();
 }
 
+/**
+ * The tracked files `source` imports or requires by relative specifier, one
+ * hop, the bare side-effect `import "./x"` included: the import edge the
+ * manifest leaves to vitest's own graph, read lexically for a touched-test
+ * selection (#2930).
+ *
+ * @param {string} source
+ * @param {string} self
+ * @param {Set<string>} tracked
+ * @returns {Set<string>}
+ */
+const directImports = (source, self, tracked) =>
+	new Set([
+		...importedHelpers(source, self, tracked),
+		...importedHelpers(source, self, tracked, ESM_IMPORT),
+	]);
+
+/**
+ * @param {string} root
+ * @param {string[]} args
+ */
+const gitOut = (root, args) =>
+	execGit(args, {
+		cwd: root,
+		/* A wedged git must not hang a suite launch: the render and the touched
+		 * selection both run on scripts/run-vitest.js's launch path. */
+		timeout: GIT_TIMEOUT_MS,
+	});
+
+/**
+ * @param {string} root
+ * @param {string[]} args  a git command printing NUL-separated entries
+ */
+const gitList = (root, args) =>
+	gitOut(root, args).toString("utf8").split("\0").filter(Boolean);
+
+/**
+ * Tracked paths the working tree still holds, and a reader over them. A path
+ * the index lists but the disk has lost — a neighbour's deletion in flight, a
+ * cut's deletions before its commit — reads nothing and bounds no edge (#557).
+ *
+ * @param {string} root
+ */
+function readWorkingTree(root) {
+	const gone = new Set(gitList(root, ["ls-files", "-z", "--deleted"]));
+	return {
+		tracked: new Set(
+			gitList(root, ["ls-files", "-z"]).filter((p) => !gone.has(p)),
+		),
+		read: (/** @type {string} */ p) =>
+			fs.readFileSync(path.join(root, p), "utf8"),
+	};
+}
+
 module.exports = {
 	ANCHOR,
 	LITERAL,
 	buildManifest,
+	directImports,
+	gitList,
+	gitOut,
 	testsReading,
+	readWorkingTree,
 };

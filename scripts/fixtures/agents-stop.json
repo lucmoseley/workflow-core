@@ -1,0 +1,95 @@
+{
+	"recordedBy": "node scripts/record-claude-responses.js",
+	"harness": "2.1.310",
+	"rows": [
+		{
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"state": "working"
+		},
+		{
+			"pid": 4242,
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"state": "working"
+		},
+		{
+			"pid": 4242,
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"status": "busy",
+			"state": "working"
+		},
+		{
+			"pid": 4242,
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"status": "idle",
+			"state": "done"
+		},
+		{
+			"pid": 4242,
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"status": "idle",
+			"state": "working"
+		},
+		{
+			"pid": 4242,
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"status": "idle",
+			"state": "blocked"
+		},
+		{
+			"pid": 4242,
+			"id": "5e55101d",
+			"cwd": "/repo",
+			"kind": "background",
+			"startedAt": 1700000000000,
+			"sessionId": "5e55101d-0000-4000-8000-000000000000",
+			"name": "a recorded session",
+			"status": "waiting",
+			"waitingFor": "permission prompt",
+			"state": "blocked"
+		}
+	],
+	"stops": {
+		"ok": {
+			"id": "5e55101d",
+			"status": 0,
+			"stdout": "stopped 5e55101d\n",
+			"stderr": ""
+		},
+		"noJob": {
+			"id": "00000000",
+			"status": 1,
+			"stdout": "",
+			"stderr": "No job matching '00000000'. Run 'claude agents' to list running sessions.\n"
+		}
+	}
+}

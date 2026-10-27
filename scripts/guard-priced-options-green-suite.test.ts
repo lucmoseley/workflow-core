@@ -18,7 +18,8 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type StopBlock, stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readFailOpenLog } from "./guard-log-fixture";
+import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
 import { researchCalls } from "./lib/transcript-testkit";
 
 const req = createRequire(__filename);
@@ -52,7 +53,7 @@ beforeEach(() => {
 	git("config", "user.email", "t@example.com");
 	git("config", "user.name", "T");
 	git("commit", "-q", "--allow-empty", "-m", "root");
-	/* The published tip the composed cover diffs from (#814). */
+	/* The published tip the composed attestation diffs from (#814). */
 	git("update-ref", "refs/remotes/origin/main", "HEAD");
 });
 
@@ -109,8 +110,8 @@ const FULL_SCOPE = {
 	changed: false as string | boolean,
 };
 
-/** A full green vitest marker on `sha`. */
-const greenMarker = (sha: string) =>
+/** A full vitest certificate on `sha`. */
+const certificate = (sha: string) =>
 	JSON.stringify({
 		sha,
 		at: new Date().toISOString(),
@@ -121,13 +122,13 @@ const greenMarker = (sha: string) =>
 /** The session's own commit, and a store attesting some OTHER commit. */
 function committedUnattested(file = "a.txt"): string {
 	const sha = commitFile(file);
-	writeMarkerStore([greenMarker(NO_SUCH_SHA)]);
+	writeMarkerStore([certificate(NO_SUCH_SHA)]);
 	return sha;
 }
 
 function runGuard(
 	text: string,
-	{ job = true }: { job?: boolean } = {},
+	{ job = true, env = {} }: { job?: boolean; env?: NodeJS.ProcessEnv } = {},
 ): StopBlock | null {
 	const file = path.join(dir, `${sid}.jsonl`);
 	fs.writeFileSync(
@@ -141,12 +142,13 @@ function runGuard(
 			.map((r) => JSON.stringify(r))
 			.join("\n")}\n`,
 	);
-	return stopGuardBlock(GUARD, {
+	return readStopGuardBlock(GUARD, {
 		dir,
 		sid,
 		transcript: file,
 		job: job ? dir : false,
 		config: home,
+		env,
 	});
 }
 
@@ -161,16 +163,7 @@ const DEFECTIVE_ROUND = [
 ].join("\n");
 
 /** Everything the guard wrote to the arbiter's fail-open log. */
-function failOpenLog(): string {
-	try {
-		return fs.readFileSync(
-			inSandbox(() => store.errorLog()),
-			"utf8",
-		);
-	} catch {
-		return "";
-	}
-}
+const failOpenLog = () => readFailOpenLog(home, dir);
 
 describe("a background job's result: on work the session verdict says is owed (mantahostels#1253)", () => {
 	it("blocks, naming the sha and the command that clears it", () => {
@@ -185,17 +178,26 @@ describe("a background job's result: on work the session verdict says is owed (m
 		expect(out?.reason).toContain(".test-pass-markers.jsonl");
 	});
 
+	it("allows it where the landing module is on, the lander being the full gate (#2933)", () => {
+		committedUnattested();
+
+		expect(
+			runGuard(DONE, { env: { WFC_MODULES: "suites,landing" } }),
+		).toBeNull();
+		expect(failOpenLog()).toBe("");
+	});
+
 	it("allows it once a marker names that commit", () => {
-		writeMarkerStore([greenMarker(commitFile("a.txt"))]);
+		writeMarkerStore([certificate(commitFile("a.txt"))]);
 
 		expect(runGuard(DONE)).toBeNull();
 	});
 
-	it("never blocks on a neighbour's uncovered commit under the session's covered one", () => {
+	it("never blocks on a neighbour's unattested commit under the session's attested one", () => {
 		commitFile("theirs.txt", "a-neighbour");
 		writeMarkerStore([
 			JSON.stringify({
-				...JSON.parse(greenMarker(commitFile("mine.txt"))),
+				...JSON.parse(certificate(commitFile("mine.txt"))),
 				scope: { ...FULL_SCOPE, modulesRun: 3, changed: "x", admissible: true },
 				changedPaths: ["mine.txt"],
 			}),
@@ -234,7 +236,7 @@ describe("a session that owes nothing, or cannot be judged, is allowed", () => {
 		/* The fail-open log tells a clean allow from a fault the guard
 		 * swallowed, which the stop alone cannot. */
 		fs.writeFileSync(path.join(dir, "a.txt"), "uncommitted\n");
-		writeMarkerStore([greenMarker(NO_SUCH_SHA)]);
+		writeMarkerStore([certificate(NO_SUCH_SHA)]);
 
 		expect(runGuard(DONE)).toBeNull();
 		expect(failOpenLog()).toBe("");
@@ -251,7 +253,7 @@ describe("a session that owes nothing, or cannot be judged, is allowed", () => {
 
 	it("allows the stop, and logs it, when the commit ledger cannot be read", () => {
 		/* A directory where the ledger file belongs: the read raises EISDIR,
-		 * which commitsBy reports as unavailable rather than as "made none". */
+		 * which readCommitsBy reports as unavailable rather than as "made none". */
 		committedUnattested();
 		const ledger = ledgerFile(sid);
 		fs.rmSync(ledger);
@@ -265,15 +267,15 @@ describe("a session that owes nothing, or cannot be judged, is allowed", () => {
 		commitFile("a.txt");
 
 		expect(runGuard(DONE)).toBeNull();
-		expect(failOpenLog()).toContain("marker store missing");
+		expect(failOpenLog()).toContain("certificate store missing");
 	});
 
-	it("allows the stop, and logs it, where the cover cannot be judged", () => {
+	it("allows the stop, and logs it, where the attestation cannot be judged", () => {
 		git("update-ref", "-d", "refs/remotes/origin/main");
 		committedUnattested();
 
 		expect(runGuard(DONE)).toBeNull();
-		expect(failOpenLog()).toContain("could not judge the cover");
+		expect(failOpenLog()).toContain("could not judge attestation");
 	});
 });
 

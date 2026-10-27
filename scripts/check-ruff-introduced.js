@@ -35,8 +35,13 @@
  */
 
 const { runCheck } = require("./lib/check");
-const { RUFF, ruffExcludeArgs } = require("./lib/formatters");
-const { blob, renameSources, spawn, stagedDiff } = require("./lib/staged");
+const { RUFF, readRuffExcludeArgs } = require("./lib/formatters");
+const {
+	readBlob,
+	readRenameSources,
+	spawn,
+	readStagedDiff,
+} = require("./lib/staged");
 const { caught } = require("./lib/caught.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
@@ -94,15 +99,16 @@ runCheck({
 	usage: "node scripts/check-ruff-introduced.js [--config <ruff.toml>]",
 	valueFlags: ["--config"],
 	run(/** @type {Ctx} */ ctx) {
-		const paths = stagedDiff(ctx, ["--name-only", "--diff-filter=ACMR"]).filter(
-			(p) => p.endsWith(".py"),
-		);
+		const paths = readStagedDiff(ctx, [
+			"--name-only",
+			"--diff-filter=ACMR",
+		]).filter((p) => p.endsWith(".py"));
 		if (paths.length === 0) return { okLine: "no staged Python path" };
 
 		const base = ["check", "--output-format", "json", "--exit-zero"];
 		const config = ctx.value("--config");
 		if (config) base.push("--config", config);
-		base.push(...ruffExcludeArgs((line) => ctx.say(line)));
+		base.push(...readRuffExcludeArgs((line) => ctx.say(line)));
 
 		/**
 		 * @param {string} name
@@ -121,16 +127,16 @@ runCheck({
 			}
 		};
 
-		const sources = renameSources(ctx);
+		const sources = readRenameSources(ctx);
 		let introduced = 0;
 
 		for (const p of paths) {
-			const staged = blob(`:${p}`);
+			const staged = readBlob(`:${p}`);
 			if (staged === null) ctx.broken(`${p} has no staged blob`);
 			const now = lint(p, staged);
 			if (now.length === 0) continue;
 
-			const before = blob(`HEAD:${sources.get(p) ?? p}`);
+			const before = readBlob(`HEAD:${sources.get(p) ?? p}`);
 			const had = byKey(before === null ? [] : lint(p, before));
 
 			introduced += chargeIntroduced(ctx, p, now, had);

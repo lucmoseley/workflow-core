@@ -34,7 +34,7 @@
  * ASSERTION 4 — self-plugin (.husky/pre-commit). Every script path in the
  * file this repo registers its own hooks in — `self-plugin/hooks/hooks.json`
  * at the core, `.claude/settings.json` at an adopter (lib/core-hooks.js
- * `ownHooks`, #2442) — in a hook's `command` or in its exec-form `args`
+ * `readOwnHooks`, #2442) — in a hook's `command` or in its exec-form `args`
  * (mantahostels#2106) resolves to a file that exists and, where it is invoked directly
  * rather than through `node` or as another script's argument (#83), is executable.
  *
@@ -69,8 +69,8 @@
  * command and is counted normally.
  * In the other direction a hook that prints nothing on success writes no
  * success record, so a hook that also never errors has an EMPTY tally rather
- * than a clean one — scripts/post-write.sh and scripts/scan-injection.js both
- * sit there. That is not the same as being unreportable: the
+ * than a clean one — the post-write and scan-injection cores of
+ * scripts/guard-dispatch.js both sit there. That is not the same as being unreportable: the
  * ZERO_SUCCESS_SESSION_RATE branch below exists to report a zero-success hook
  * off its failure records alone.
  *
@@ -105,7 +105,6 @@
  * DEFEAT:    none; --notify is silent while no hook is failing and no cached manifest has diverged.
  */
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDirs, stateDir } = require("./lib/arbiter-store");
@@ -115,7 +114,7 @@ const { REAP_LIVE_DEATHS_TO_REPORT } = require("./reap-finished-sessions.js");
 const { runCheck } = require("./lib/check");
 const { projectSlug: slugFor } = require("./lib/project-slug.js");
 const {
-	sessionStartRoster,
+	readSessionStartRoster,
 	KEY_OVERRIDES: ROSTER_KEY_OVERRIDES,
 } = require("./lib/session-start-roster.js");
 /* The rule lib/notify-report.js resolves its directory by too, so an unwritable
@@ -125,7 +124,8 @@ const deliveryStamp = require("./lib/delivery-stamp");
 const { hostRoot } = require("./lib/host-root.js");
 const { resolveMarketplace } = require("./lib/plugin-state.js");
 const { caught } = require("./lib/caught.js");
-const { flattenHooks, ownHookSources } = require("./lib/core-hooks.js");
+const { flattenHooks, readOwnHookSources } = require("./lib/core-hooks.js");
+const { spawnGitSync } = require("./lib/git.js");
 
 /** Resolved once: pinnedOrFirstUsable() stats, and statePath is called per assertion. */
 let stateBaseMemo = "";
@@ -447,7 +447,7 @@ function flushStamps(ctx) {
  * (lib/arbiter-core.js `sessionDirs`), and a hook failing only on the plan this
  * session is not running under is exactly the one nobody would otherwise see.
  *
- * BOTH TIERS, BUT NOT VIA lib/guard-fires.js `transcriptFiles`. That one is
+ * BOTH TIERS, BUT NOT VIA lib/guard-fires.js `readTranscriptFiles`. That one is
  * exhaustive by design — it readdirs a `subagents/` directory for every one of
  * the ~10,000 session directories here, which measured 5.8 s before a single
  * byte was read, against 0.26 s for this. The window does the pruning instead: a
@@ -463,7 +463,7 @@ function flushStamps(ctx) {
  * @param {number} cutoff epoch ms; a file last written before this is dropped
  * @returns {{ files: Array<{file: string, mtimeMs: number, size: number, id: string}>, dirs: string[], unreadable: string[] }}
  */
-function corpusFiles(cutoff) {
+function readCorpusFiles(cutoff) {
 	const slug = projectSlug();
 	/** @type {TranscriptsByRel} */
 	const byRel = new Map();
@@ -593,7 +593,7 @@ function inWindow(day, cutoff) {
 function censusAssertion(ctx, days, budgetMs) {
 	const budgetSpent = budgetSpender(budgetMs);
 	const retainCutoff = Date.now() - CACHE_RETENTION_DAYS * 86_400_000;
-	const { files, dirs, unreadable } = corpusFiles(retainCutoff);
+	const { files, dirs, unreadable } = readCorpusFiles(retainCutoff);
 	/* Said as well as warned: a WARN's message reaches --json and a GitHub
 	 * annotation, never the human text a reader sees (mantahostels#1898). Through the same
 	 * once-per-set stamp as the findings themselves, and skipped in Actions,
@@ -639,7 +639,7 @@ function censusAssertion(ctx, days, budgetMs) {
 		// split), and a fresh machine legitimately has no retained transcripts. It
 		// is RETURNED rather than thrown so that a run asking for every assertion
 		// still gates on the others.
-		return { unavailable: noCorpusReason(unreadable) };
+		return { unavailable: buildNoCorpusReason(unreadable) };
 	}
 
 	const cacheFile = statePath("hook-liveness-census.json");
@@ -690,7 +690,7 @@ function censusAssertion(ctx, days, budgetMs) {
  *
  * @param {string[]} unreadable
  */
-function noCorpusReason(unreadable) {
+function buildNoCorpusReason(unreadable) {
 	return unreadable.length > 0
 		? `every config dir that could hold transcripts for ${repoRoot()} refused to be listed`
 		: `no retained transcripts for ${repoRoot()} under any config dir on this machine`;
@@ -937,11 +937,11 @@ function sayAsyncBlindRoster(ctx, mayClear) {
 	 * reap-finished-sessions excepted from the "replay reads them" claim
 	 * below: its cancellation is left to its own next-run line rather than
 	 * that reader (replay-notify-reports.js's own SELF_REPORTS_CANCELLATION,
-	 * mantahostels#1976). sessionStartRoster() is the shared reader that both this file
+	 * mantahostels#1976). readSessionStartRoster() is the shared reader that both this file
 	 * and that one resolve the roster through, so a hook added or dropped
 	 * from self-plugin/hooks/hooks.json moves this line and that reader together.
 	 */
-	const blindRoster = sessionStartRoster(repoRoot(), {
+	const blindRoster = readSessionStartRoster(repoRoot(), {
 		keyOverrides: ROSTER_KEY_OVERRIDES,
 	});
 	if (blindRoster.length > 0) {
@@ -1024,7 +1024,7 @@ function reportFailingHooks(ctx, bad, days, corpus) {
  *
  * @returns {{ rel: string } | { unverifiable: string, unreadable?: boolean }}
  */
-function pluginSource(marketplaceDir, name) {
+function readPluginSource(marketplaceDir, name) {
 	const at = path.join(marketplaceDir, ".claude-plugin", "marketplace.json");
 	let doc;
 	try {
@@ -1082,7 +1082,7 @@ function isSameManifest(a, b) {
  * @returns {{ text: string | null, basis: string }
  *   | { unverifiable: string, unreadable?: boolean }}
  */
-function upstreamManifest(marketplaceDir, rel, sha) {
+function readUpstreamManifest(marketplaceDir, rel, sha) {
 	const relFile = path.posix.join(rel, "hooks/hooks.json");
 	if (sha && fs.existsSync(path.join(marketplaceDir, ".git"))) {
 		/* A clone rotated to an older tag than the install lacks its commit, and
@@ -1090,8 +1090,7 @@ function upstreamManifest(marketplaceDir, rel, sha) {
 		 * shipping no hooks — so the commit is proved present first. Absent, it
 		 * is a failure to look, never another version's manifest read in its
 		 * place (#747). */
-		const commitPresent = spawnSync(
-			"git",
+		const commitPresent = spawnGitSync(
 			["-C", marketplaceDir, "cat-file", "-e", `${sha}^{commit}`],
 			{ encoding: "utf8" },
 		);
@@ -1100,8 +1099,7 @@ function upstreamManifest(marketplaceDir, rel, sha) {
 				unverifiable: `commit ${sha.slice(0, 8)} is not in ${marketplaceDir}, which sits on another version than the install`,
 				unreadable: true,
 			};
-		const r = spawnSync(
-			"git",
+		const r = spawnGitSync(
 			["-C", marketplaceDir, "show", `${sha}:${relFile}`],
 			{
 				encoding: "utf8",
@@ -1133,7 +1131,7 @@ function upstreamManifest(marketplaceDir, rel, sha) {
 }
 
 /**
- * Where a marketplace's own tree lives, for `pluginSource`/`upstreamManifest`
+ * Where a marketplace's own tree lives, for `readPluginSource`/`readUpstreamManifest`
  * to read — `scripts/lib/plugin-state.js`'s `resolveMarketplace`, which owns
  * the reading and documents it (mantahostels#3515 F9). This file used to hold a second copy
  * that ignored `installLocation` for a `git`/`github` source, so wherever the
@@ -1169,7 +1167,7 @@ function resolveMarketplaceDir(pluginsDir, marketplace) {
  * @param {Set<string>} warned accumulator: files already warned about this run; a newly warned one is added
  * @returns {Record<string, unknown>}
  */
-function enabledPluginsFor(ctx, cfg, warned) {
+function readEnabledPluginsFor(ctx, cfg, warned) {
 	/** @type {Record<string, unknown>} */
 	const merged = {};
 	for (const at of [
@@ -1270,12 +1268,12 @@ function divergenceShape(cached, upstream) {
  * Assertion 2. Reports a cached plugin manifest that differs from the
  * marketplace's copy of the same file.
  *
- * EXTENDED (mantahostels#3515 F9, mantahostels#3566): for each ENABLED plugin (`enabledPluginsFor()`),
+ * EXTENDED (mantahostels#3515 F9, mantahostels#3566): for each ENABLED plugin (`readEnabledPluginsFor()`),
  * also diffs the two manifests hook-by-hook, rather than only by whole-file
  * bytes, and applies `ownHooksAssertion`'s own path/executable audit to
  * `${CLAUDE_PLUGIN_ROOT}`-rooted commands in the CACHED (installed) manifest
  * — the one the runtime actually wires. "Expected" is sourced from the
- * marketplace's own copy (`upstreamManifest`, already fetched for the
+ * marketplace's own copy (`readUpstreamManifest`, already fetched for the
  * whole-file compare above): a hook wired there and absent from the cache is
  * one the core authored and packaging dropped. Neither new check runs for a
  * plugin this repo has not itself enabled, so a fixture or a repo carrying no
@@ -1314,7 +1312,7 @@ function manifestAssertion(ctx) {
 	 * that re-announces the whole diverged set at the next start. Same gate the
 	 * census puts on `unreadable`; the key is still the narrower one, so a
 	 * divergence that survives the fault re-announces when the marketplace
-	 * returns. On the READ failures alone — `pluginSource` says why. */
+	 * returns. On the READ failures alone — `readPluginSource` says why. */
 	const divergedKey = audit.diverged
 		.map((d) => d.key)
 		.sort()
@@ -1382,7 +1380,7 @@ function auditConfigDir(ctx, audit, cfg, scope) {
 		return;
 	}
 	audit.manifests++;
-	const enabledPlugins = enabledPluginsFor(ctx, cfg, warnedSettings);
+	const enabledPlugins = readEnabledPluginsFor(ctx, cfg, warnedSettings);
 	for (const [key, entries] of Object.entries(doc.plugins || {})) {
 		const at = key.lastIndexOf("@");
 		if (at <= 0) continue;
@@ -1412,12 +1410,12 @@ function auditInstall(audit, plugin, entry, scope) {
 	// A plugin installed for a different project says nothing about this
 	// repo's hooks.
 	if (entry.scope === "project" && entry.projectPath !== root) return;
-	const src = pluginSource(marketplaceDir, name);
+	const src = readPluginSource(marketplaceDir, name);
 	if ("unverifiable" in src) {
 		noteUnverifiable(audit, key, src);
 		return;
 	}
-	const up = upstreamManifest(marketplaceDir, src.rel, entry.gitCommitSha);
+	const up = readUpstreamManifest(marketplaceDir, src.rel, entry.gitCommitSha);
 	if ("unverifiable" in up) {
 		noteUnverifiable(audit, key, up);
 		return;
@@ -1624,7 +1622,7 @@ function reportBrokenPluginPaths(ctx, brokenPluginPaths) {
 			b.reason === "not-executable"
 				? "PLUGIN-HOOK-NOT-EXECUTABLE"
 				: "PLUGIN-HOOK-PATH-MISSING";
-		const message = brokenPluginPathMessage(b);
+		const message = buildBrokenPluginPathMessage(b);
 		ctx.fail(tag, message, {
 			plugin: b.key,
 			event: b.event,
@@ -1639,7 +1637,7 @@ function reportBrokenPluginPaths(ctx, brokenPluginPaths) {
  * @param {ManifestAudit["brokenPluginPaths"][number]} b
  * @returns {string}
  */
-function brokenPluginPathMessage(b) {
+function buildBrokenPluginPathMessage(b) {
 	if (b.reason === "not-executable")
 		return `${b.key} ${b.event}: ${b.rel} is not executable under the plugin root, and the command runs it directly`;
 	if (b.reason === "not-a-file")
@@ -1659,7 +1657,7 @@ const INTERPRETER_RE = /^(node|sh|bash|dash|zsh|python(\d+(\.\d+)?)?)$/;
  *
  * Tokens are matched on carrying `CLAUDE_PROJECT_DIR` or opening `scripts/`,
  * which is deliberately wider than a `scripts/<name>.sh` shape: a command that
- * says `"$CLAUDE_PROJECT_DIR"/scrpits/guard-branch.sh` is exactly the typo this
+ * says `"$CLAUDE_PROJECT_DIR"/scrpits/guard-wide-read.sh` is exactly the typo this
  * assertion exists to catch, and a shape-matcher would pass it as no path at all.
  *
  * THE PATH MAY LIVE IN `args`. The exec form's vendor-documented spelling —
@@ -1768,7 +1766,7 @@ function precedingNonFlag(tokens, i) {
 function ownHooksAssertion(ctx) {
 	let sources;
 	try {
-		sources = ownHookSources(repoRoot());
+		sources = readOwnHookSources(repoRoot());
 	} catch (e) {
 		// APPARATUS: the file is there and this could not read it, which
 		// mantahostels#155 puts at BROKEN so the gate never goes green over scope it

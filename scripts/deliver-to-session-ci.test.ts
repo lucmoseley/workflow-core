@@ -65,12 +65,12 @@ const sweepsCurrent = () =>
 /** Twelve hours old, past the 8 h a --notify run fires a sweep at. */
 const sweepsStale = () => write("sweeps.json", ["03:00", "09:00"].map(sweep));
 
-const calls = () =>
+const readCalls = () =>
 	fs.existsSync(file("calls"))
 		? fs.readFileSync(file("calls"), "utf8").trim().split("\n")
 		: [];
 const resetCalls = () => fs.rmSync(file("calls"), { force: true });
-const fires = () => calls().filter((c) => c.startsWith("workflow run"));
+const readFires = () => readCalls().filter((c) => c.startsWith("workflow run"));
 
 const deliver = (session = "mine") => {
 	const r = runInProcess(DELIVER, ["--ci"], {
@@ -138,7 +138,7 @@ describe("the CI re-check (#856)", () => {
 		const again = deliver();
 		expect(again.out).toBe("");
 		expect(again.status).toBe(0);
-		expect(calls()).toHaveLength(1);
+		expect(readCalls()).toHaveLength(1);
 	});
 
 	it("runs the full check when the newest run changes, and prints its text", () => {
@@ -156,7 +156,7 @@ describe("the CI re-check (#856)", () => {
 		expect(r.out).toContain("▸ ci-recheck\n");
 		expect(r.out).toContain("CI is red");
 		expect(r.out).toContain("https://example.invalid/201");
-		expect(calls().length).toBeGreaterThan(1);
+		expect(readCalls().length).toBeGreaterThan(1);
 	});
 
 	it("prints one text once, though the run it came from changes", () => {
@@ -166,7 +166,7 @@ describe("the CI re-check (#856)", () => {
 		resetCalls();
 
 		expect(deliver().out).toBe("");
-		expect(calls().length).toBeGreaterThan(1);
+		expect(readCalls().length).toBeGreaterThan(1);
 	});
 
 	it("is silent when the newest run is green and current", () => {
@@ -176,12 +176,12 @@ describe("the CI re-check (#856)", () => {
 	it("never fires a sweep where the session-start form would", () => {
 		sweepsStale();
 		runInProcess(CHECK, ["--notify"], { env: process.env, cwd: sb.repo });
-		expect(fires()).toHaveLength(1);
+		expect(readFires()).toHaveLength(1);
 		fs.rmSync(path.join(sb.repo, ".git", ".sweep-autofire"), { force: true });
 		resetCalls();
 
 		expect(deliver().out).toContain("Newest sweep is");
-		expect(fires()).toEqual([]);
+		expect(readFires()).toEqual([]);
 	});
 
 	it("leaves the replay's delivery stamp unwritten", () => {
@@ -216,7 +216,7 @@ describe("the CI re-check (#856)", () => {
 		});
 
 		expect(deliver().out).toBe("");
-		expect(calls()).toHaveLength(1);
+		expect(readCalls()).toHaveLength(1);
 	});
 
 	it.each([

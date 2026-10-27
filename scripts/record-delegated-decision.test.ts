@@ -72,11 +72,11 @@ const run = (fields: Record<string, string> = FIELDS, n = "534") => {
 	});
 };
 
-const posted = (): { body: string; html_url: string }[] =>
+const readPosted = (): { body: string; html_url: string }[] =>
 	fs.existsSync(stub("comments.json"))
 		? JSON.parse(fs.readFileSync(stub("comments.json"), "utf8"))
 		: [];
-const lines = () =>
+const readLedger = () =>
 	fs.existsSync(ledger())
 		? fs
 				.readFileSync(ledger(), "utf8")
@@ -101,8 +101,8 @@ describe("a recorded decision", () => {
 	it("posts the comment in the spec's shape and appends the same entry to the ledger", () => {
 		const r = run();
 		expect(r.status).toBe(0);
-		expect(posted().map((c) => c.body)).toEqual([COMMENT]);
-		expect(lines()).toEqual([
+		expect(readPosted().map((c) => c.body)).toEqual([COMMENT]);
+		expect(readLedger()).toEqual([
 			expect.objectContaining({
 				repo: "acme/widgets",
 				issue: 534,
@@ -125,8 +125,8 @@ describe("a recorded decision", () => {
 	it("records a clear call too, as still caught: no", () => {
 		const r = run({ ...FIELDS, "--still-caught": "no" });
 		expect(r.status).toBe(0);
-		expect(posted()[0].body).toContain("- Still caught: no\n");
-		expect(lines()[0].stillClose).toBe(false);
+		expect(readPosted()[0].body).toContain("- Still caught: no\n");
+		expect(readLedger()[0].stillClose).toBe(false);
 	});
 
 	it("names both still-caught tests in its usage line (#2594)", () => {
@@ -139,8 +139,8 @@ describe("a recorded decision", () => {
 		run();
 		const r = run({ ...FIELDS, "--question": "Which log level?" });
 		expect(r.status).toBe(0);
-		expect(posted()).toHaveLength(2);
-		expect(lines().map((l) => l.question)).toEqual([
+		expect(readPosted()).toHaveLength(2);
+		expect(readLedger().map((l) => l.question)).toEqual([
 			"Which cache key shape for the shortlist?",
 			"Which log level?",
 		]);
@@ -150,8 +150,8 @@ describe("a recorded decision", () => {
 		run();
 		const r = run();
 		expect(r.status).toBe(0);
-		expect(posted()).toHaveLength(1);
-		expect(lines()).toHaveLength(1);
+		expect(readPosted()).toHaveLength(1);
+		expect(readLedger()).toHaveLength(1);
 	});
 });
 
@@ -162,8 +162,8 @@ describe("refusals write nothing", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(flag);
 		expect(r.stderr).toContain("usage: node scripts/record-delegated");
-		expect(posted()).toEqual([]);
-		expect(lines()).toEqual([]);
+		expect(readPosted()).toEqual([]);
+		expect(readLedger()).toEqual([]);
 	});
 
 	it.each([
@@ -177,8 +177,8 @@ describe("refusals write nothing", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(says);
 		expect(r.stderr).toContain("usage: node scripts/record-delegated");
-		expect(posted()).toEqual([]);
-		expect(lines()).toEqual([]);
+		expect(readPosted()).toEqual([]);
+		expect(readLedger()).toEqual([]);
 	});
 
 	it("refuses a non-number ticket", () => {
@@ -186,7 +186,7 @@ describe("refusals write nothing", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("'abc' is not an issue number");
 		expect(r.stderr).toContain("usage: node scripts/record-delegated");
-		expect(posted()).toEqual([]);
+		expect(readPosted()).toEqual([]);
 	});
 });
 
@@ -197,7 +197,7 @@ describe("a failed write", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("Nothing written — re-run");
-		expect(lines()).toEqual([]);
+		expect(readLedger()).toEqual([]);
 	});
 
 	it("an unwritable ledger after the comment names the half-done state, and a re-run finishes it", () => {
@@ -207,14 +207,14 @@ describe("a failed write", () => {
 		expect(r.stderr).toContain("HALF DONE");
 		expect(r.stderr).toContain("#534 (https://github.com/acme/widgets");
 		expect(r.stderr).toContain("Re-run the same command");
-		expect(posted()).toHaveLength(1);
+		expect(readPosted()).toHaveLength(1);
 
 		fs.rmSync(ledger(), { recursive: true });
 		expect(run().status).toBe(0);
-		expect(posted()).toHaveLength(1);
+		expect(readPosted()).toHaveLength(1);
 		// The comment's own time, so the line falls in the review window the
 		// comment did.
-		expect(lines()).toEqual([
+		expect(readLedger()).toEqual([
 			expect.objectContaining({ at: "2026-10-18T01:00:00Z" }),
 		]);
 	});
@@ -226,6 +226,6 @@ describe("a failed write", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("HALF DONE");
 		expect(r.stderr).toContain("Re-run the same command");
-		expect(lines()).toEqual([]);
+		expect(readLedger()).toEqual([]);
 	});
 });

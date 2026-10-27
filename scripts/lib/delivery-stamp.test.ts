@@ -123,17 +123,17 @@ describe("delivered() — the delivery half's read", () => {
 	});
 });
 
-describe("seenStamp() — what a producer may judge against", () => {
+describe("readSeenStamp() — what a producer may judge against", () => {
 	it("is the recorded stamp under --notify", () => {
 		stamp.recordDelivery(CHECKER, "sig-1");
 
-		expect(stamp.seenStamp(NOTIFY, CHECKER)).toBe("sig-1");
+		expect(stamp.readSeenStamp(NOTIFY, CHECKER)).toBe("sig-1");
 	});
 
 	it("is null on a hand run, so it answers in full", () => {
 		stamp.recordDelivery(CHECKER, "sig-1");
 
-		expect(stamp.seenStamp(HAND, CHECKER)).toBeNull();
+		expect(stamp.readSeenStamp(HAND, CHECKER)).toBeNull();
 	});
 
 	/* Under persist mode the producer's stdout is not the delivery, so a stamp
@@ -141,7 +141,7 @@ describe("seenStamp() — what a producer may judge against", () => {
 	it("is null under persist mode, however stamped", () => {
 		stamp.recordDelivery(CHECKER, "sig-1");
 
-		expect(stamp.seenStamp(PERSIST, CHECKER)).toBeNull();
+		expect(stamp.readSeenStamp(PERSIST, CHECKER)).toBeNull();
 	});
 });
 

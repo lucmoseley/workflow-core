@@ -14,9 +14,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const load = createRequire(__filename);
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { driftLines, registryAgents }: any = load("./registry-agents.js");
+const { buildDriftLines, readRegistryAgents }: any = load(
+	"./registry-agents.js",
+);
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { procStartOf }: any = load("./arbiter-proc.js");
+const { readProcStartOf }: any = load("./arbiter-proc.js");
 
 let root = "";
 let seatA = "";
@@ -49,7 +51,7 @@ function entry(seat: string, file: string, over: Record<string, unknown> = {}) {
 		path.join(dir, file),
 		JSON.stringify({
 			pid: process.pid,
-			procStart: procStartOf(process.pid),
+			procStart: readProcStartOf(process.pid),
 			sessionId: "s-1",
 			jobId: "aaaa0001",
 			kind: "bg",
@@ -71,7 +73,7 @@ describe("registryAgents", () => {
 	it("lists a pid-verified session as the oracle would, its state off its job record", () => {
 		entry(seatA, "1.json");
 		job(seatA, "aaaa0001", { sessionId: "s-1", state: "done" });
-		expect(registryAgents()).toEqual({
+		expect(readRegistryAgents()).toEqual({
 			agents: [
 				{
 					sessionId: "s-1",
@@ -94,7 +96,7 @@ describe("registryAgents", () => {
 		entry(seatB, "2.json", { sessionId: "s-2" });
 		job(seatA, "aaaa0001", { sessionId: "s-1", state: "done" });
 		job(seatB, "aaaa0001", { sessionId: "s-2", state: "working" });
-		const states = registryAgents().agents.map(
+		const states = readRegistryAgents().agents.map(
 			(a: { sessionId: string; state: string }) => `${a.sessionId} ${a.state}`,
 		);
 		expect(states.sort()).toEqual(["s-1 done", "s-2 working"]);
@@ -102,7 +104,7 @@ describe("registryAgents", () => {
 
 	it("drops an entry whose process is not the one it recorded", () => {
 		entry(seatA, "1.json", { procStart: "1" });
-		expect(registryAgents().agents).toEqual([]);
+		expect(readRegistryAgents().agents).toEqual([]);
 	});
 
 	it("drops an entry of a shape it does not read", () => {
@@ -110,7 +112,7 @@ describe("registryAgents", () => {
 		entry(seatA, "2.json", { sessionId: "" });
 		entry(seatA, "3.json", { procStart: null });
 		fs.writeFileSync(path.join(seatA, "sessions", "4.json"), "\0\0\0");
-		expect(registryAgents().agents).toEqual([]);
+		expect(readRegistryAgents().agents).toEqual([]);
 	});
 
 	it("gives no state where the job record is missing, garbled or names another session", () => {
@@ -120,15 +122,26 @@ describe("registryAgents", () => {
 		job(seatA, "bbbb0002", { sessionId: "someone-else", state: "done" });
 		fs.mkdirSync(path.join(seatA, "jobs", "cccc0003"), { recursive: true });
 		fs.writeFileSync(path.join(seatA, "jobs", "cccc0003", "state.json"), "{");
-		const states = registryAgents().agents.map(
+		const states = readRegistryAgents().agents.map(
 			(a: { state?: string }) => a.state,
 		);
 		expect(states).toEqual([undefined, undefined, undefined]);
 	});
 
+	it("carries the job record's tempo beside its state (#2980)", () => {
+		entry(seatA, "1.json");
+		job(seatA, "aaaa0001", {
+			sessionId: "s-1",
+			state: "done",
+			tempo: "active",
+		});
+		const [a] = readRegistryAgents().agents;
+		expect([a.state, a.tempo]).toEqual(["done", "active"]);
+	});
+
 	it("reads no job record outside the job store", () => {
 		entry(seatA, "1.json", { jobId: "../../x" });
-		const [a] = registryAgents().agents;
+		const [a] = readRegistryAgents().agents;
 		expect(a.id).toBeUndefined();
 	});
 
@@ -136,7 +149,7 @@ describe("registryAgents", () => {
 		fs.mkdirSync(seatA, { recursive: true });
 		fs.writeFileSync(path.join(seatA, "sessions"), "");
 		entry(seatB, "1.json");
-		const r = registryAgents();
+		const r = readRegistryAgents();
 		expect(r.faults).toEqual([
 			`${path.join(seatA, "sessions")} would not read (ENOTDIR)`,
 		]);
@@ -144,11 +157,11 @@ describe("registryAgents", () => {
 	});
 
 	it("reads a seat with no registry as no sessions, not a fault, and not read", () => {
-		expect(registryAgents()).toEqual({ agents: [], faults: [], seats: [] });
+		expect(readRegistryAgents()).toEqual({ agents: [], faults: [], seats: [] });
 	});
 });
 
-describe("driftLines", () => {
+describe("buildDriftLines", () => {
 	const bg = (over: Record<string, unknown> = {}) => ({
 		sessionId: "s-1",
 		pid: 10,
@@ -158,12 +171,12 @@ describe("driftLines", () => {
 	});
 
 	it("says nothing where the two listings agree", () => {
-		expect(driftLines([bg()], [bg()])).toEqual([]);
+		expect(buildDriftLines([bg()], [bg()])).toEqual([]);
 	});
 
 	it("names a session listed by one side alone, and one they read differently", () => {
 		expect(
-			driftLines(
+			buildDriftLines(
 				[bg(), bg({ sessionId: "s-2" })],
 				[bg({ state: "working" }), bg({ sessionId: "s-3" })],
 			),
@@ -176,7 +189,10 @@ describe("driftLines", () => {
 
 	it("compares background sessions alone", () => {
 		expect(
-			driftLines([bg({ kind: "interactive" })], [bg({ kind: "headless" })]),
+			buildDriftLines(
+				[bg({ kind: "interactive" })],
+				[bg({ kind: "headless" })],
+			),
 		).toEqual([]);
 	});
 });

@@ -15,13 +15,13 @@ import {
 	AS_ROOT,
 	commitAll,
 	core,
-	debtOf,
 	fakeGh,
 	freshSandbox,
 	ghAnswers,
 	ghCallCount,
 	ghCalls,
 	ghClosedList,
+	readDebtOf,
 	store,
 } from "./arbiter-testkit";
 import { ISSUE_LIST_LIMIT } from "./gh-limits.js";
@@ -32,9 +32,10 @@ const sb = freshSandbox();
 describe("debt — the record of an edit a denial abandoned", () => {
 	const docMap = "docs/doc-map.md";
 	/** No argument reads the unowned stub; a number reads that issue's entry. */
-	const entry = (issue: number | null = null) => debtOf(docMap, issue);
+	const readDebtEntry = (issue: number | null = null) =>
+		readDebtOf(docMap, issue);
 	/** Who owes an edit on docMap, in the order the store lists them. */
-	const owners = (): (number | null)[] =>
+	const readOwners = (): (number | null)[] =>
 		store
 			.readDebts(docMap)
 			.map((e: { record: { issue: number | null } }) => e.record.issue);
@@ -42,15 +43,19 @@ describe("debt — the record of an edit a denial abandoned", () => {
 	describe("registration — the stub the deny path writes", () => {
 		it("records an unowned stub with when, and nothing it cannot know", () => {
 			store.registerDenial(docMap);
-			expect(entry()).toMatchObject({ path: docMap, issue: null, gist: null });
-			expect(entry().createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+			expect(readDebtEntry()).toMatchObject({
+				path: docMap,
+				issue: null,
+				gist: null,
+			});
+			expect(readDebtEntry().createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
 		});
 
 		it("a later denial cannot erase a completed entry back to a stub", () => {
 			store.registerDenial(docMap);
 			store.ownDebt(docMap, 123, "the gist");
 			store.registerDenial(docMap);
-			expect(entry(123).issue).toBe(123);
+			expect(readDebtEntry(123).issue).toBe(123);
 		});
 
 		it("a later denial registers its own stub beside the owned entry (mantahostels#327)", () => {
@@ -58,7 +63,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			store.registerDenial(docMap);
 			store.ownDebt(docMap, 123, "the gist");
 			store.registerDenial(docMap);
-			expect(owners()).toEqual([123, null]);
+			expect(readOwners()).toEqual([123, null]);
 		});
 
 		it("a second denial while the first is still unowned adds no duplicate stub", () => {
@@ -75,7 +80,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			} finally {
 				fs.chmodSync(store.paths.debtsDir(), 0o755);
 			}
-			expect(entry()).toBeNull();
+			expect(readDebtEntry()).toBeNull();
 			expect(fs.readFileSync(store.errorLog(), "utf8")).toContain(
 				"debt register",
 			);
@@ -92,23 +97,23 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			const stub = store.paths.debt(docMap);
 			core.writeRecord(stub, { ...core.readRecord(stub), createdAt: denied });
 			store.ownDebt(docMap, 123, "one line on the edit");
-			expect(entry(123)).toMatchObject({
+			expect(readDebtEntry(123)).toMatchObject({
 				issue: 123,
 				gist: "one line on the edit",
 				createdAt: denied,
 			});
 			// The stub was completed, not left standing beside its own completion.
-			expect(entry()).toBeNull();
+			expect(readDebtEntry()).toBeNull();
 		});
 
 		it("mints the entry when no stub exists — a debt can be declared by hand", () => {
 			store.ownDebt(docMap, 123, "");
-			expect(entry(123).issue).toBe(123);
+			expect(readDebtEntry(123).issue).toBe(123);
 		});
 
 		it("records a missing gist as none, not as an empty string", () => {
 			store.ownDebt(docMap, 123, "");
-			expect(entry(123).gist).toBeNull();
+			expect(readDebtEntry(123).gist).toBeNull();
 		});
 
 		it("leaves another issue's entry on the same path standing (mantahostels#327)", () => {
@@ -118,15 +123,15 @@ describe("debt — the record of an edit a denial abandoned", () => {
 				323,
 				"#314's measured CI figures in .github/workflows/scheduled-checks.yml",
 			);
-			expect(owners()).toEqual([308, 323]);
-			expect(entry(308).gist).toBe("the node-unit pass");
+			expect(readOwners()).toEqual([308, 323]);
+			expect(readDebtEntry(308).gist).toBe("the node-unit pass");
 		});
 
 		it("re-owning updates that issue's own entry rather than adding a second", () => {
 			store.ownDebt(docMap, 308, "first wording");
 			store.ownDebt(docMap, 308, "sharper wording");
 			expect(store.readDebts(docMap)).toHaveLength(1);
-			expect(entry(308).gist).toBe("sharper wording");
+			expect(readDebtEntry(308).gist).toBe("sharper wording");
 		});
 
 		it("throws on a store it cannot write, for the CLI to turn into an exit code", () => {
@@ -143,13 +148,13 @@ describe("debt — the record of an edit a denial abandoned", () => {
 	describe("the read path — what the next claimant is told", () => {
 		it("no debt costs no gh call and says nothing", () => {
 			ghAnswers(sb, "CLOSED");
-			expect(store.debtNotice(docMap)).toBeNull();
+			expect(store.buildDebtNotice(docMap)).toBeNull();
 			expect(ghCallCount(sb)).toBe(0);
 		});
 
 		it("an unowned stub warns that nothing will ever retire it, offering debt own as the way out", () => {
 			store.registerDenial(docMap);
-			const notice = store.debtNotice(docMap);
+			const notice = store.buildDebtNotice(docMap);
 			expect(notice).toContain("never owned");
 			expect(notice).toContain("debt own");
 			expect(ghCallCount(sb)).toBe(0); // no issue, nothing to look up
@@ -158,11 +163,11 @@ describe("debt — the record of an edit a denial abandoned", () => {
 		it("an owned debt with an open issue names the owner and the gist as a hint", () => {
 			ghAnswers(sb, "OPEN");
 			store.ownDebt(docMap, 123, "re-derive the ADR figure");
-			const notice = store.debtNotice(docMap);
+			const notice = store.buildDebtNotice(docMap);
 			expect(notice).toContain("#123");
 			expect(notice).toContain("re-derive the ADR figure");
 			expect(notice).toContain("hint");
-			expect(entry(123)).not.toBeNull(); // shown, not spent
+			expect(readDebtEntry(123)).not.toBeNull(); // shown, not spent
 		});
 
 		it("names every owing issue, not just one of them (mantahostels#327)", () => {
@@ -173,7 +178,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 				323,
 				".github/workflows/scheduled-checks.yml's CI figures",
 			);
-			const notice = store.debtNotice(docMap);
+			const notice = store.buildDebtNotice(docMap);
 			expect(notice).toContain("#308");
 			expect(notice).toContain("#323");
 			expect(notice).toContain(
@@ -185,7 +190,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			ghAnswers(sb, "OPEN");
 			store.ownDebt(docMap, 308, "the node-unit pass");
 			store.registerDenial(docMap);
-			const notice = store.debtNotice(docMap);
+			const notice = store.buildDebtNotice(docMap);
 			expect(notice).toContain("UNOWNED");
 			expect(notice).toContain("debt own");
 		});
@@ -193,8 +198,8 @@ describe("debt — the record of an edit a denial abandoned", () => {
 		it("shows a debt whose owning issue has CLOSED, and leaves the entry standing (mantahostels#1251)", () => {
 			ghAnswers(sb, "CLOSED");
 			store.ownDebt(docMap, 123, "done, on a closed ticket");
-			expect(store.debtNotice(docMap)).toContain("#123");
-			expect(entry(123)).not.toBeNull();
+			expect(store.buildDebtNotice(docMap)).toContain("#123");
+			expect(readDebtEntry(123)).not.toBeNull();
 			// The stub is the negative proof: CLOSED is exactly what used to retire
 			// this entry, and it is never even asked.
 			expect(ghCallCount(sb)).toBe(0);
@@ -207,19 +212,19 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			);
 			store.ownDebt(docMap, 308, "done");
 			store.ownDebt(docMap, 323, "still owed");
-			const notice = store.debtNotice(docMap);
+			const notice = store.buildDebtNotice(docMap);
 			expect(notice).toContain("#323");
 			expect(notice).toContain("#308");
-			expect(entry(308)).not.toBeNull();
-			expect(entry(323)).not.toBeNull();
+			expect(readDebtEntry(308)).not.toBeNull();
+			expect(readDebtEntry(323)).not.toBeNull();
 			expect(ghCallCount(sb)).toBe(0);
 		});
 
 		it("takes no gh call at all, so a broken gh cannot change what it says", () => {
 			fakeGh(sb, "exit 1");
 			store.ownDebt(docMap, 123, "");
-			expect(store.debtNotice(docMap)).toContain("#123");
-			expect(entry(123)).not.toBeNull();
+			expect(store.buildDebtNotice(docMap)).toContain("#123");
+			expect(readDebtEntry(123)).not.toBeNull();
 			expect(ghCallCount(sb)).toBe(0);
 		});
 
@@ -229,7 +234,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			ghAnswers(sb, "OPEN");
 			store.ownDebt(docMap, 308, "the node-unit pass");
 			fs.writeFileSync(store.paths.debt(docMap, 323), "{not json");
-			const notice = store.debtNotice(docMap);
+			const notice = store.buildDebtNotice(docMap);
 			expect(notice).toContain("#308");
 			expect(notice).toContain("1 further entry here could not be parsed");
 		});
@@ -241,7 +246,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			store.ownDebt(docMap, 308, "first");
 			store.ownDebt(docMap, 323, "second");
 			store.ownDebt(docMap, 336, "third");
-			const notice = store.debtNotice(docMap);
+			const notice = store.buildDebtNotice(docMap);
 			expect(notice).toContain("#308");
 			expect(notice).toContain("#323");
 			expect(notice).toContain("#336");
@@ -261,17 +266,17 @@ describe("debt — the record of an edit a denial abandoned", () => {
 					createdAt: new Date().toISOString(),
 				}),
 			);
-			expect(store.debtNotice(docMap)).not.toContain("DELETED");
+			expect(store.buildDebtNotice(docMap)).not.toContain("DELETED");
 
 			fs.unlinkSync(store.paths.debt(docMap));
 			store.registerDenial(docMap);
-			expect(store.debtNotice(docMap)).toContain("DELETED");
+			expect(store.buildDebtNotice(docMap)).toContain("DELETED");
 		});
 
 		it("a corrupt entry reads as no debt", () => {
 			fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
 			fs.writeFileSync(store.paths.debt(docMap), "{not json");
-			expect(store.debtNotice(docMap)).toBeNull();
+			expect(store.buildDebtNotice(docMap)).toBeNull();
 		});
 	});
 
@@ -288,7 +293,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 
 		it("never names an unowned stub, even this session's own", () => {
 			store.registerDenial(docMap, "me");
-			expect(entry().recordedBy).toBe("me");
+			expect(readDebtEntry().recordedBy).toBe("me");
 			expect(store.debtsOwnedBy("me").size).toBe(0);
 		});
 
@@ -383,7 +388,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 				308,
 			]);
 			expect(result.live.map((d: { issue: number }) => d.issue)).toEqual([323]);
-			expect(entry(323)).not.toBeNull();
+			expect(readDebtEntry(323)).not.toBeNull();
 		});
 
 		it("never touches a FRESH UNOWNED entry — its session may still own it", () => {
@@ -396,7 +401,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			expect(result.live.map((d: { issue: number | null }) => d.issue)).toEqual(
 				[null],
 			);
-			expect(debtOf(other)).not.toBeNull();
+			expect(readDebtOf(other)).not.toBeNull();
 		});
 
 		/*
@@ -615,7 +620,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			store.ownDebt(docMap, 308, "done");
 			const result = store.sweepDebts();
 			expect(result.status).toBe("offline");
-			expect(entry(308)).not.toBeNull();
+			expect(readDebtEntry(308)).not.toBeNull();
 			expect(fs.readFileSync(store.errorLog(), "utf8")).toContain("debt sweep");
 		});
 
@@ -629,7 +634,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			);
 			store.ownDebt(docMap, 308, "done");
 			expect(store.sweepDebts().status).toBe("offline");
-			expect(entry(308)).not.toBeNull();
+			expect(readDebtEntry(308)).not.toBeNull();
 			// Names the truncation, not just the failure: without this the case
 			// asserts exactly what the `exit 1` case above does.
 			expect(fs.readFileSync(store.errorLog(), "utf8")).toContain(
@@ -659,7 +664,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 				} finally {
 					fs.chmodSync(store.paths.debtsDir(), 0o755);
 				}
-				expect(entry(308)).not.toBeNull();
+				expect(readDebtEntry(308)).not.toBeNull();
 			},
 		);
 
@@ -691,7 +696,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 				expect(result.live.map((d: { issue: number }) => d.issue)).toEqual([
 					308,
 				]);
-				expect(entry(308)).not.toBeNull();
+				expect(readDebtEntry(308)).not.toBeNull();
 			},
 		);
 
@@ -730,7 +735,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 		it("clear retires the entry, and the read path then says nothing", () => {
 			store.registerDenial(docMap);
 			expect(store.clearDebt(docMap).status).toBe("cleared");
-			expect(store.debtNotice(docMap)).toBeNull();
+			expect(store.buildDebtNotice(docMap)).toBeNull();
 		});
 
 		it("clearing a path with no debt reports nothing to clear, and is no fault", () => {
@@ -760,14 +765,14 @@ describe("debt — the record of an edit a denial abandoned", () => {
 				".github/workflows/scheduled-checks.yml's CI figures",
 			);
 			expect(store.clearDebt(docMap, 308).status).toBe("cleared");
-			expect(owners()).toEqual([323]);
+			expect(readOwners()).toEqual([323]);
 		});
 
 		it("clears the unowned stub by name, leaving an owned entry alone", () => {
 			store.ownDebt(docMap, 308, "the node-unit pass");
 			store.registerDenial(docMap);
 			expect(store.clearDebt(docMap, "unowned").status).toBe("cleared");
-			expect(owners()).toEqual([308]);
+			expect(readOwners()).toEqual([308]);
 		});
 
 		it.skipIf(AS_ROOT)(
@@ -822,7 +827,7 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			store.ownDebt(docMap, 123, "");
 			expect(store.listDebts()).toHaveLength(1);
 			expect(ghCallCount(sb)).toBe(0);
-			expect(entry(123)).not.toBeNull();
+			expect(readDebtEntry(123)).not.toBeNull();
 		});
 
 		it("lists every owner of one path, not one of them (mantahostels#327)", () => {
@@ -869,7 +874,7 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 	};
 
 	/** Every key the debt store currently holds a record under. */
-	const keys = (subject: string) =>
+	const readDebtKeys = (subject: string) =>
 		store
 			.readDebts(subject)
 			.map((e: { record: { path: string } }) => e.record.path);
@@ -878,13 +883,13 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 
 	it("registers an unallocated id against the FILE, not the id", () => {
 		store.registerDenial(`${docMap}#B9`);
-		expect(keys(docMap)).toEqual([docMap]);
-		expect(keys(`${docMap}#B9`)).toEqual([]);
+		expect(readDebtKeys(docMap)).toEqual([docMap]);
+		expect(readDebtKeys(`${docMap}#B9`)).toEqual([]);
 	});
 
 	it("keeps an id an entry DOES occupy keyed exactly", () => {
 		store.registerDenial(`${docMap}#B1`);
-		expect(keys(`${docMap}#B1`)).toEqual([`${docMap}#B1`]);
+		expect(readDebtKeys(`${docMap}#B1`)).toEqual([`${docMap}#B1`]);
 	});
 
 	it("reads HEAD, not the working tree the denied session was mid-write in", () => {
@@ -894,14 +899,16 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 			"\n### B9 · Being written right now\n\nBody.\n",
 		);
 		store.registerDenial(`${docMap}#B9`);
-		expect(keys(docMap)).toEqual([docMap]);
+		expect(readDebtKeys(docMap)).toEqual([docMap]);
 	});
 
 	it("leaves a section id and an §A row alone — neither is ever reissued", () => {
 		store.registerDenial(`${docMap}#section-b`);
 		store.registerDenial(`${docMap}#A:docs/brand-new.md`);
-		expect(keys(`${docMap}#section-b`)).toEqual([`${docMap}#section-b`]);
-		expect(keys(`${docMap}#A:docs/brand-new.md`)).toEqual([
+		expect(readDebtKeys(`${docMap}#section-b`)).toEqual([
+			`${docMap}#section-b`,
+		]);
+		expect(readDebtKeys(`${docMap}#A:docs/brand-new.md`)).toEqual([
 			`${docMap}#A:docs/brand-new.md`,
 		]);
 	});
@@ -910,7 +917,7 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 		// Fail open to today's behaviour, per debtSubject's own note.
 		fs.rmSync(path.join(sb.repo, ".git"), { recursive: true, force: true });
 		store.registerDenial(`${docMap}#B9`);
-		expect(keys(`${docMap}#B9`)).toEqual([`${docMap}#B9`]);
+		expect(readDebtKeys(`${docMap}#B9`)).toEqual([`${docMap}#B9`]);
 	});
 
 	it("completes the file-level stub when `debt own` names the denied subject", () => {
@@ -918,7 +925,7 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 		store.registerDenial(`${docMap}#B9`);
 		store.ownDebt(`${docMap}#B9`, 523, "write the new entry");
 		expect(store.readDebts(docMap)).toHaveLength(1);
-		expect(debtOf(docMap, 523)).toMatchObject({
+		expect(readDebtOf(docMap, 523)).toMatchObject({
 			path: docMap,
 			issue: 523,
 		});
@@ -927,18 +934,18 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 	it("tells a multi-debt reader to clear under the [path] each row shows", () => {
 		store.ownDebt(docMap, 523, "the file-level one");
 		store.ownDebt(`${docMap}#B1`, 777, "the entry's own");
-		const notice = store.debtNotice(`${docMap}#B1`);
+		const notice = store.buildDebtNotice(`${docMap}#B1`);
 		expect(notice).toContain(`[${docMap}]`);
 		expect(notice).toContain("cleared under THAT path");
 	});
 
 	it("gives a region claimant a clear command that names the FILE", () => {
 		// The notice a region claim gets is mostly about the file's entries, which
-		// debtsCovering widens onto it. Naming the region in the clear command sends
+		// readDebtsCovering widens onto it. Naming the region in the clear command sends
 		// the reader to a key holding no record, and the entry reads unretirable.
 		store.registerDenial(`${docMap}#B9`);
 		store.ownDebt(docMap, 523, "the TDPSE Asing entry");
-		const notice = store.debtNotice(`${docMap}#B1`);
+		const notice = store.buildDebtNotice(`${docMap}#B1`);
 		expect(notice).toContain(`debt clear ${docMap} 523`);
 		expect(notice).not.toContain(`debt clear ${docMap}#B1`);
 	});
@@ -967,7 +974,7 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 	it("leaves another issue's entry on the same path alone (mantahostels#327)", () => {
 		store.ownDebt(docMap, 999, "somebody else's file-level debt");
 		expect(store.ownDebt(`${docMap}#B1`, 523, "mine")).toBe(`${docMap}#B1`);
-		expect(debtOf(docMap, 999)).not.toBeNull();
+		expect(readDebtOf(docMap, 999)).not.toBeNull();
 	});
 
 	it("logs the fail-open when HEAD cannot be read (§N5)", () => {
@@ -988,7 +995,7 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 		fs.writeFileSync(path.join(sb.repo, docMap), text);
 		commitAll(sb, "a map over the buffer default");
 		store.registerDenial(`${docMap}#B99`);
-		expect(keys(docMap)).toEqual([docMap]);
+		expect(readDebtKeys(docMap)).toEqual([docMap]);
 		// No log at all is the pass: an ENOBUFS would have written one.
 		expect(fs.existsSync(sb.errorLog())).toBe(false);
 	});
@@ -998,6 +1005,6 @@ describe("a debt keyed to a B<n> no entry occupies (mantahostels#1857)", () => {
 		// region-keyed record already on disk.
 		store.ownDebt(`${docMap}#B1`, 523, "an entry-keyed debt");
 		expect(store.clearDebt(`${docMap}#B1`, 523).status).toBe("cleared");
-		expect(keys(`${docMap}#B1`)).toEqual([]);
+		expect(readDebtKeys(`${docMap}#B1`)).toEqual([]);
 	});
 });

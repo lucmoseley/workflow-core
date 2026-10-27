@@ -12,8 +12,14 @@ import { describe, expect, it } from "vitest";
 import { budgetOf } from "./overflow-budget-core.js";
 
 /* Mean 4; a run 0.5 in has an expected remainder of (0.5 + 2.5 + 9.5) / 3,
- * one 5 in a remainder of 5. */
-const TABLE = { n: 3, meanUsd: 4, quantilesUsd: [1, 3, 10] };
+ * the top point standing at u 3 + tail 7; one 5 in, past u, the tail's 7. */
+const TABLE = {
+	n: 3,
+	meanUsd: 4,
+	quantilesUsd: [1, 3, 10],
+	tailRemainderUsd: 7,
+	landedByHours: [[1, 1]] as [number, number][],
+};
 const at = (y: number, m: number, d: number, h = 0) =>
 	new Date(y, m - 1, d, h).getTime();
 const now = at(2026, 10, 25, 12);
@@ -79,7 +85,7 @@ describe("reservations and fit", () => {
 				{ sessionId: "c", spentUsd: 5 },
 			],
 		});
-		expect(b.reservedUsd).toBeCloseTo(4 + (0.5 + (0.5 + 2.5 + 9.5) / 3) + 10);
+		expect(b.reservedUsd).toBeCloseTo(4 + (0.5 + (0.5 + 2.5 + 9.5) / 3) + 12);
 		expect(b.running).toBe(3);
 		expect(b.fit).toBe(Math.floor((200 - b.reservedUsd) / 4));
 	});

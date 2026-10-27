@@ -9,6 +9,7 @@
 
 const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const { spawnGitSync } = require("./git.js");
 
 /** @typedef {import("./check").CheckContext} Ctx */
 
@@ -31,8 +32,10 @@ function spawn(cmd, args, input) {
  * @param {string[]} args
  * @returns {string[]}
  */
-function stagedDiff(ctx, args) {
-	const r = spawn("git", ["diff", "--cached", "-z", ...args]);
+function readStagedDiff(ctx, args) {
+	const r = spawnGitSync(["diff", "--cached", "-z", ...args], {
+		encoding: "utf8",
+	});
 	if (r.status !== 0) ctx.broken(`git diff --cached failed: ${r.stderr}`);
 	return r.stdout.split("\0").filter(Boolean);
 }
@@ -42,8 +45,8 @@ function stagedDiff(ctx, args) {
  * @param {string} spec a `<rev>:<path>` blob name, `:<path>` for the staged one
  * @returns {string | null}
  */
-function blob(spec) {
-	const r = spawn("git", ["cat-file", "blob", spec]);
+function readBlob(spec) {
+	const r = spawnGitSync(["cat-file", "blob", spec], { encoding: "utf8" });
 	return r.status === 0 ? r.stdout : null;
 }
 
@@ -53,8 +56,12 @@ function blob(spec) {
  * plain add.
  * @param {Ctx} ctx
  */
-function renameSources(ctx) {
-	const fields = stagedDiff(ctx, ["--name-status", "-M", "--diff-filter=R"]);
+function readRenameSources(ctx) {
+	const fields = readStagedDiff(ctx, [
+		"--name-status",
+		"-M",
+		"--diff-filter=R",
+	]);
 	/** @type {Map<string, string>} */
 	const sources = new Map();
 	for (let i = 0; ; i += 3) {
@@ -66,4 +73,4 @@ function renameSources(ctx) {
 	return sources;
 }
 
-module.exports = { blob, renameSources, spawn, stagedDiff };
+module.exports = { readBlob, readRenameSources, spawn, readStagedDiff };

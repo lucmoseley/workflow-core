@@ -184,7 +184,7 @@ function run(t: ReturnType<typeof stubTools>, checkSet?: string) {
 	}
 }
 
-const calls = (dir: string) =>
+const readCalls = (dir: string) =>
 	fs.readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n");
 
 describe("bisect-step.sh — the default check set", () => {
@@ -198,7 +198,7 @@ describe("bisect-step.sh — the default check set", () => {
 		expect(run(t)).toBe(125);
 		// And it stops there: anything run against a half-installed tree would
 		// fail for the install's reason and be recorded as this commit's.
-		expect(calls(t.dir)).toEqual(["npm ci"]);
+		expect(readCalls(t.dir)).toEqual(["npm ci"]);
 	});
 
 	// The three checks below are ci.yml's `Lint and tests` job. A sweep goes red
@@ -207,7 +207,10 @@ describe("bisect-step.sh — the default check set", () => {
 	it("calls a commit bad when Biome fails, and stops before the rest", () => {
 		const t = stubTools({ biome: 1 });
 		expect(run(t)).toBe(1);
-		expect(calls(t.dir)).toEqual(["npm ci", "node_modules/.bin/biome ci ."]);
+		expect(readCalls(t.dir)).toEqual([
+			"npm ci",
+			"node_modules/.bin/biome ci .",
+		]);
 	});
 
 	// Absent is untestable, never bad. Every commit before Biome was adopted
@@ -218,13 +221,13 @@ describe("bisect-step.sh — the default check set", () => {
 		const t = stubTools({ biomeMissing: true });
 		expect(run(t)).toBe(125);
 		// And it stops there, exactly as a failed install does.
-		expect(calls(t.dir)).toEqual(["npm ci"]);
+		expect(readCalls(t.dir)).toEqual(["npm ci"]);
 	});
 
 	it("calls a commit bad when shellcheck fails, and stops before the suite", () => {
 		const t = stubTools({ sh: 2 });
 		expect(run(t)).toBe(2);
-		expect(calls(t.dir)).toEqual([
+		expect(readCalls(t.dir)).toEqual([
 			"npm ci",
 			"node_modules/.bin/biome ci .",
 			"npm run check:sh",
@@ -234,7 +237,7 @@ describe("bisect-step.sh — the default check set", () => {
 	it("calls a commit bad when the suite fails", () => {
 		const t = stubTools({ test: 1 });
 		expect(run(t)).toBe(1);
-		expect(calls(t.dir)).toContain("npm run test -- --full=coverage");
+		expect(readCalls(t.dir)).toContain("npm run test -- --full=coverage");
 	});
 
 	it("never lets the suite's own 125 reach bisect as a skip", () => {
@@ -248,14 +251,14 @@ describe("bisect-step.sh — the default check set", () => {
 		// as this script always has.
 		const t = stubTools({});
 		expect(run(t)).toBe(0);
-		expect(calls(t.dir)).toEqual(LINT_CALLS);
+		expect(readCalls(t.dir)).toEqual(LINT_CALLS);
 	});
 
 	it("runs the lint-and-tests trio when BISECT_CHECK_SET is set but empty", () => {
 		// What an unset workflow_dispatch input actually delivers.
 		const t = stubTools({});
 		expect(run(t, "")).toBe(0);
-		expect(calls(t.dir)).toEqual(LINT_CALLS);
+		expect(readCalls(t.dir)).toEqual(LINT_CALLS);
 	});
 });
 
@@ -263,7 +266,7 @@ describe("bisect-step.sh — the python check set", () => {
 	it("runs the pip install and the pytest suite, and nothing from the Node job", () => {
 		const t = stubTools({});
 		expect(run(t, "python")).toBe(0);
-		expect(calls(t.dir)).toEqual(PY_CALLS);
+		expect(readCalls(t.dir)).toEqual(PY_CALLS);
 	});
 
 	it("runs no npm ci — the pip install is this job's install step", () => {
@@ -271,13 +274,13 @@ describe("bisect-step.sh — the python check set", () => {
 		// is `python3 -m pytest -n 2`, which reads nothing out of node_modules.
 		const t = stubTools({});
 		run(t, "python");
-		expect(calls(t.dir)).not.toContain("npm ci");
+		expect(readCalls(t.dir)).not.toContain("npm ci");
 	});
 
 	it("exits 125 — untestable — when the pinned requirements cannot resolve, running nothing after the install", () => {
 		const t = stubTools({ pip: 1 });
 		expect(run(t, "python")).toBe(125);
-		expect(calls(t.dir)).toEqual([PY_CALLS[0]]);
+		expect(readCalls(t.dir)).toEqual([PY_CALLS[0]]);
 	});
 
 	it("calls a commit bad when pytest fails", () => {
@@ -295,14 +298,14 @@ describe("bisect-step.sh — the documents check set", () => {
 	it("runs the document guards in the job's own order", () => {
 		const t = stubTools({});
 		expect(run(t, "documents")).toBe(0);
-		expect(calls(t.dir)).toEqual(DOC_CALLS);
+		expect(readCalls(t.dir)).toEqual(DOC_CALLS);
 	});
 
 	it("installs nothing — which is most of what makes this set cheap", () => {
 		const t = stubTools({});
 		run(t, "documents");
-		expect(calls(t.dir)).not.toContain("npm ci");
-		expect(calls(t.dir)).not.toContain(PY_CALLS[0]);
+		expect(readCalls(t.dir)).not.toContain("npm ci");
+		expect(readCalls(t.dir)).not.toContain(PY_CALLS[0]);
 	});
 
 	it("calls a commit bad when a gate fails, and stops there", () => {
@@ -314,7 +317,7 @@ describe("bisect-step.sh — the documents check set", () => {
 		// lookup rather than a literal count, so inserting a step ahead of it —
 		// mantahostels#974 added one — moves the boundary instead of reddening this case.
 		const failed = DOC_CALLS.indexOf("node scripts/check-doc-map.js");
-		expect(calls(t.dir)).toEqual(DOC_CALLS.slice(0, failed + 1));
+		expect(readCalls(t.dir)).toEqual(DOC_CALLS.slice(0, failed + 1));
 	});
 });
 
@@ -322,19 +325,23 @@ describe("bisect-step.sh — check-set selection", () => {
 	it("runs all three sets in order under `all`, stopping at the first failure", () => {
 		const t = stubTools({});
 		expect(run(t, "all")).toBe(0);
-		expect(calls(t.dir)).toEqual([...LINT_CALLS, ...PY_CALLS, ...DOC_CALLS]);
+		expect(readCalls(t.dir)).toEqual([
+			...LINT_CALLS,
+			...PY_CALLS,
+			...DOC_CALLS,
+		]);
 	});
 
 	it("stops `all` at the Node install and reports untestable, not bad", () => {
 		const t = stubTools({ ci: 1 });
 		expect(run(t, "all")).toBe(125);
-		expect(calls(t.dir)).toEqual(["npm ci"]);
+		expect(readCalls(t.dir)).toEqual(["npm ci"]);
 	});
 
 	it("stops `all` before the documents when the pytest suite fails", () => {
 		const t = stubTools({ testpy: 3 });
 		expect(run(t, "all")).toBe(3);
-		expect(calls(t.dir)).toEqual([...LINT_CALLS, ...PY_CALLS]);
+		expect(readCalls(t.dir)).toEqual([...LINT_CALLS, ...PY_CALLS]);
 	});
 
 	it("never runs the manual-staleness reporter, in any set", () => {
@@ -344,7 +351,9 @@ describe("bisect-step.sh — check-set selection", () => {
 		for (const set of ["lint-and-tests", "python", "documents", "all"]) {
 			const t = stubTools({});
 			run(t, set);
-			expect(calls(t.dir).join("\n")).not.toContain("report-manual-staleness");
+			expect(readCalls(t.dir).join("\n")).not.toContain(
+				"report-manual-staleness",
+			);
 		}
 	});
 

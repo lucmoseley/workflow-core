@@ -12,7 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { lastTypedAt, markPresent, presenceAt } from "./presence";
+import { markPresent, presenceAt, readLastTypedAt } from "./presence";
 
 const NOW = new Date("2026-10-18T09:00:00.000Z");
 const ago = (ms: number) => NOW.getTime() - ms;
@@ -52,14 +52,14 @@ describe("the marker", () => {
 
 	it("reads back the time written", () => {
 		markPresent(NOW, env);
-		expect(lastTypedAt(env)).toBe(NOW.getTime());
+		expect(readLastTypedAt(env)).toBe(NOW.getTime());
 		expect(fs.readdirSync(dir)).toEqual(["marker"]);
 	});
 
 	it("reads a missing or garbled marker as no record", () => {
-		expect(lastTypedAt(env)).toBeNull();
+		expect(readLastTypedAt(env)).toBeNull();
 		fs.writeFileSync(env.WFC_PRESENCE_MARKER, "not a time\n");
-		expect(lastTypedAt(env)).toBeNull();
+		expect(readLastTypedAt(env)).toBeNull();
 	});
 
 	it("lives in ~/.claude, one per machine", () => {

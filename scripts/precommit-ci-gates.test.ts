@@ -278,7 +278,7 @@ describe("the pre-commit guard-registry gate", () => {
 	it.each([
 		"docs/doc-map.md",
 		".claude/skills/tdd/SKILL.md",
-		"scripts/guard-branch.sh",
+		"scripts/guard-branch.js",
 		".husky/pre-commit",
 		"AGENTS.md",
 		"CLAUDE.md",

@@ -14,18 +14,12 @@
  * A MARKER IN THE BODY, NOT A LABEL.
  *
  * EVERY UNREADABLE CASE FAILS OPEN — it gates nothing and is reported.
- *
- * AN ENTRY POINT IN lib/, for one caller: `--basis-faults` is how the bash create
- * guard reaches basisRefusal, so the three write routes share one reading.
- * `--second-map` reaches the second-map limb (#717) the same way.
  */
 
-const fs = require("node:fs");
 const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path");
 const { witaDay } = require("./wita");
 const { caught } = require("./caught.js");
-const { writeFd } = require("./write-fd.js");
 
 /*
  * CommonMark's un-indented-paragraph tolerance, shared by both markers.
@@ -381,7 +375,7 @@ function liveWaits(text) {
  * @returns {{written: string, key: string}[]}
  */
 function windowsOf(text) {
-	return [...liveGateLines(text), ...liveWaits(text)].flatMap((m) =>
+	return [...parseLiveGateLines(text), ...liveWaits(text)].flatMap((m) =>
 		durationsIn(text, m),
 	);
 }
@@ -390,7 +384,7 @@ function windowsOf(text) {
  * @param {string} text
  * @returns {RegExpMatchArray[]} its gate lines of both spellings, outside a fence
  */
-function liveGateLines(text) {
+function parseLiveGateLines(text) {
 	return [...liveMatches(GATE_RE, text), ...liveMatches(GATE_ON_RE, text)];
 }
 
@@ -490,9 +484,9 @@ function basisRefusal(faults, body) {
  * @param {string} after
  * @returns {string[]}
  */
-function addedGateLines(before, after) {
+function parseAddedGateLines(before, after) {
 	/** @param {string} b */
-	const lines = (b) => liveGateLines(b).map((m) => m[0].trim());
+	const lines = (b) => parseLiveGateLines(b).map((m) => m[0].trim());
 	const held = new Set(lines(String(before || "")));
 	return lines(String(after || "")).filter((l) => !held.has(l));
 }
@@ -502,7 +496,7 @@ function addedGateLines(before, after) {
  * never a refusal. Null where the write adds none.
  *
  * A Node write route prints it itself because no PreToolUse hook can read a
- * piped body, and because gp_rule's Bash budget had no room for it.
+ * piped body.
  * The caller fetches the fragment: an accessor call in lib/ would be read as
  * an emitter by every check-guard-registry.js fixture, whose store lacks it.
  *
@@ -512,7 +506,7 @@ function addedGateLines(before, after) {
  * @returns {string|null}
  */
 function gateRuleHandover(before, after, readRule) {
-	if (addedGateLines(before, after).length === 0) return null;
+	if (parseAddedGateLines(before, after).length === 0) return null;
 	let text;
 	try {
 		text = readRule();
@@ -545,32 +539,38 @@ function destinationOf(body) {
 }
 
 /**
- * The limb's one `gh` call. `repo` omitted, gh resolves it from the working
- * directory, as the `gh issue create` it judges does.
+ * The limb's one `gh` call's arguments. `repo` omitted, gh resolves it from
+ * the working directory, as the `gh issue create` it judges does.
  *
  * @param {string} [repo]
- * @param {number} [timeout] ms; unbounded where omitted
+ * @returns {string[]}
+ */
+function openMapsArgs(repo) {
+	const { ISSUE_LIST_LIMIT } = require("./gh-limits.js");
+	return [
+		"issue",
+		"list",
+		...(repo ? ["--repo", repo] : []),
+		"--label",
+		MAP_LABEL,
+		"--state",
+		"open",
+		"--json",
+		"number,body",
+		"--limit",
+		String(ISSUE_LIST_LIMIT),
+	];
+}
+
+/**
+ * The limb's one `gh` call, run.
+ *
+ * @param {string} [repo]
  * @returns {unknown}
  */
-function listOpenMaps(repo, timeout) {
+function listOpenMaps(repo) {
 	const { ghJson } = require("./gh.js");
-	const { ISSUE_LIST_LIMIT } = require("./gh-limits.js");
-	return ghJson(
-		[
-			"issue",
-			"list",
-			...(repo ? ["--repo", repo] : []),
-			"--label",
-			MAP_LABEL,
-			"--state",
-			"open",
-			"--json",
-			"number,body",
-			"--limit",
-			String(ISSUE_LIST_LIMIT),
-		],
-		timeout ? { timeout } : {},
-	);
+	return ghJson(openMapsArgs(repo));
 }
 
 /**
@@ -590,8 +590,10 @@ function secondMapVerdict(labels, readMaps) {
 	try {
 		maps = readMaps();
 	} catch (e) {
-		const { errLine } = require("./gh.js");
-		return { unreadable: `the open maps could not be listed (${errLine(e)})` };
+		const { parseErrLine } = require("./gh.js");
+		return {
+			unreadable: `the open maps could not be listed (${parseErrLine(e)})`,
+		};
 	}
 	if (!Array.isArray(maps))
 		return { unreadable: "the open-map list is not a JSON array" };
@@ -611,31 +613,6 @@ function secondMapVerdict(labels, readMaps) {
 	};
 }
 
-/*
- * `node issue-gate.js --basis-faults` reads a body on stdin and prints its
- * refusal, exit 1 where there is one. writeFd, not process.stdout: the
- * guard reads it through a pipe, which process.exit would cut short (§N6).
- *
- * `node issue-gate.js --second-map [<repo>]` prints the second-map refusal,
- * exit 1, or why the maps could not be read, exit 3.
- */
-if (require.main === module && process.argv[2] === "--basis-faults") {
-	const body = fs.readFileSync(0, "utf8");
-	const faults = basisFaults(body);
-	if (faults.length > 0) writeFd(1, `${basisRefusal(faults, body)}\n`);
-	process.exit(faults.length > 0 ? 1 : 0);
-} else if (require.main === module && process.argv[2] === "--second-map") {
-	/* The guard's hook runs under a 10 s ceiling it shares with the edit
-	 * route's two 3 s fetches; gh gets 3 s of the guard's 4 for this node. */
-	const v = secondMapVerdict([MAP_LABEL], () =>
-		listOpenMaps(process.argv[3], 3000),
-	);
-	if (!v) process.exit(0);
-	const refused = "refusal" in v;
-	writeFd(1, `${refused ? v.refusal : v.unreadable}\n`);
-	process.exit(refused ? 1 : 3);
-}
-
 module.exports = {
 	gateOf,
 	gateOnOf,
@@ -647,5 +624,6 @@ module.exports = {
 	MAP_LABEL,
 	UNFILLED_DESTINATION,
 	listOpenMaps,
+	openMapsArgs,
 	secondMapVerdict,
 };

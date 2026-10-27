@@ -58,7 +58,7 @@ const SOURCES = [
 	path.join("docs", "agents", "dependabot.md"),
 ];
 
-/* scripts/inject-test-rules.sh's trigger, shared by base §X8, §X9 and §X10. */
+/* scripts/lib/test-rules-inject.js's trigger, shared by base §X8, §X9 and §X10. */
 const TEST_WRITE = "a `Write`, `Edit` or `NotebookEdit` to a test file";
 
 /* id → the observable moment the rule binds, in the words a session reads.
@@ -78,7 +78,7 @@ const TRIGGERS = {
 		"a `gh api` on an issue's `dependencies/blocked_by` or `sub_issues` endpoint, on the Bash tool",
 	"citation-number-first": "a `gh issue comment` on the Bash tool",
 	"blocked-ticket-gate":
-		"a `gh issue comment` whose body opens `**Blocked`, on the Bash tool",
+		"a `gh issue comment` whose body opens `**Blocked` or `**Refused attempt`, on the Bash tool",
 	"citation-inferred-number": "a `gh issue create` on the Bash tool",
 	"issue-body-success-signal":
 		"a writing `scripts/issue-body.js` subcommand on the Bash tool, `node` in front of it or not",
@@ -139,7 +139,7 @@ const END_RE = /^<!--\s*rule:([^\s:]+):end\s*-->$/;
  * @param {string} relPath
  * @returns {{ id: string, text: string, source: string }[]}
  */
-function regionsIn(relPath) {
+function readRegionsIn(relPath) {
 	const lines = fs.readFileSync(path.join(ROOT, relPath), "utf8").split("\n");
 	/** @type {RegionScan} */
 	const scan = { source: relPath, open: null, body: [], out: [] };
@@ -218,7 +218,7 @@ function collect() {
 			);
 			continue;
 		}
-		for (const r of regionsIn(src)) {
+		for (const r of readRegionsIn(src)) {
 			const prior = seen.get(r.id);
 			if (prior)
 				throw new Error(

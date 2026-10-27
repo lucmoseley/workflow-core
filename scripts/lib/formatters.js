@@ -1,6 +1,6 @@
 /*
  * formatters.js — the shell and Python formatters of record (#1332), shared by the three
- * routes that run them: scripts/format-on-write.js on a tool write,
+ * routes that run them: formatWritten on a tool write (lib/post-write.js),
  * scripts/check-format-staged.js in .husky/pre-commit, and
  * scripts/check-shfmt.js plus `ruff format --check .` in CI.
  *
@@ -42,11 +42,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { createRequire } = require("node:module");
-const { ciRuns } = require("./ci-runs.js");
+const { readCiRuns } = require("./ci-runs.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
-const { blob, spawn } = require("./staged.js");
+const { readBlob } = require("./staged.js");
+const { HOOK_GIT_TIMEOUT_MS, spawnGitSync } = require("./git.js");
 const { GIT_MODE } = require("./git-mode.js");
 
 /* The shell file set (#1828), which check:sh lints and both formatter routes
@@ -192,7 +193,7 @@ function shellFinding(format, source, file) {
  * @param {string} p
  * @returns {string | null}
  */
-function worktreeHead(p) {
+function readWorktreeHead(p) {
 	let fd;
 	try {
 		if (!fs.lstatSync(p).isFile()) return null;
@@ -214,14 +215,14 @@ function worktreeHead(p) {
  * @returns {(p: string) => string | null}
  */
 function indexHead() {
-	const r = spawn("git", ["ls-files", "-s", "-z"]);
+	const r = spawnGitSync(["ls-files", "-s", "-z"], { encoding: "utf8" });
 	if (r.status !== 0)
 		throw new Error(`git ls-files failed: ${r.stderr.trim()}`);
 	const links = new Set();
 	for (const entry of r.stdout.split("\0"))
 		if (entry.startsWith(`${GIT_MODE.symlink} `))
 			links.add(entry.slice(entry.indexOf("\t") + 1));
-	return (p) => (links.has(p) ? null : blob(`:${p}`));
+	return (p) => (links.has(p) ? null : readBlob(`:${p}`));
 }
 
 /**
@@ -229,12 +230,12 @@ function indexHead() {
  * cannot read the attributes.
  * @param {string[]} paths
  * @param {boolean} cached read .gitattributes from the index, as a commit carries it
+ * @param {number | undefined} timeout the git call's ceiling, none where undefined
  * @returns {Set<string>}
  */
-function attributeExcluded(paths, cached) {
+function readAttributeExcluded(paths, cached, timeout) {
 	if (paths.length === 0) return new Set();
-	const r = spawn(
-		"git",
+	const r = spawnGitSync(
 		[
 			"check-attr",
 			"-z",
@@ -242,7 +243,11 @@ function attributeExcluded(paths, cached) {
 			...(cached ? ["--cached"] : []),
 			...EXCLUDING_ATTRS,
 		],
-		paths.map((p) => `${p}\0`).join(""),
+		{
+			input: paths.map((p) => `${p}\0`).join(""),
+			encoding: "utf8",
+			...(timeout === undefined ? {} : { timeout }),
+		},
 	);
 	if (r.status !== 0)
 		throw new Error(`git check-attr failed: ${r.stderr.trim()}`);
@@ -261,17 +266,18 @@ function attributeExcluded(paths, cached) {
  * @param {string[]} paths repo-relative, read from the host root
  * @param {(p: string) => string | null} head a path's opening text, null
  *   where it is no regular file, which drops it
- * @param {{ cached?: boolean }} [opts] cached: read .gitattributes from the index
+ * @param {{ cached?: boolean, timeout?: number }} [opts] cached: read
+ *   .gitattributes from the index; timeout: the attribute read's ceiling
  * @returns {string[]}
  */
-function shellFiles(paths, head, { cached = false } = {}) {
+function shellFiles(paths, head, { cached = false, timeout } = {}) {
 	const shell = paths.filter((p) => {
 		const named = SHELL_NAME.test(p);
 		if (!named && !NO_EXTENSION.test(p)) return false;
 		const text = head(p);
 		return text !== null && (named || SHELL_SHEBANG.test(text));
 	});
-	const excluded = attributeExcluded(shell, cached);
+	const excluded = readAttributeExcluded(shell, cached, timeout);
 	return shell.filter((p) => !excluded.has(p));
 }
 
@@ -280,10 +286,10 @@ function shellFiles(paths, head, { cached = false } = {}) {
  * fails.
  * @returns {string[]}
  */
-function trackedShellFiles() {
-	const r = spawn("git", ["ls-files", "-z"]);
+function readTrackedShellFiles() {
+	const r = spawnGitSync(["ls-files", "-z"], { encoding: "utf8" });
 	if (r.status !== 0) throw new Error(`git ls-files failed: ${r.stderr}`);
-	return shellFiles(r.stdout.split("\0").filter(Boolean), worktreeHead);
+	return shellFiles(r.stdout.split("\0").filter(Boolean), readWorktreeHead);
 }
 
 /**
@@ -326,16 +332,16 @@ function ruffConfigArgs() {
  * @param {(line: string) => void} say
  * @returns {string[]}
  */
-function ruffExcludes(say) {
+function readRuffExcludes(say) {
 	try {
 		const {
 			faultsOn,
 			readConfig,
-			warningLine,
+			buildWarningLine,
 		} = require("./workflow-core-config.js");
 		const config = readConfig({ quiet: true });
 		for (const f of faultsOn(config, "ruffExclude"))
-			say(`${warningLine(f)}, so nothing is excluded (#122)`);
+			say(`${buildWarningLine(f)}, so nothing is excluded (#122)`);
 		return config.ruffExclude ?? [];
 	} catch (e) {
 		say(
@@ -351,10 +357,10 @@ function ruffExcludes(say) {
  * @param {(line: string) => void} say
  * @returns {string[]}
  */
-function ruffExcludeArgs(say) {
+function readRuffExcludeArgs(say) {
 	return [
 		"--force-exclude",
-		...ruffExcludes(say).flatMap((p) => ["--extend-exclude", p]),
+		...readRuffExcludes(say).flatMap((p) => ["--extend-exclude", p]),
 	];
 }
 
@@ -370,7 +376,7 @@ function hasRuff() {
 function skipFlags() {
 	const missing = { shell: !loadShfmt(), python: !hasRuff() };
 	if (!missing.shell && !missing.python) return [];
-	const ci = ciRuns(process.cwd());
+	const ci = readCiRuns(process.cwd());
 	return [
 		missing.shell && ci.shfmt.length > 0 && "--skip-shell",
 		missing.python && ci.ruffFormat.length > 0 && "--skip-python",
@@ -383,7 +389,7 @@ function skipFlags() {
  * @returns {"skip" | "refuse"}
  */
 function lintMissing() {
-	const ci = ciRuns(process.cwd()).ruffCheck;
+	const ci = readCiRuns(process.cwd()).ruffCheck;
 	if (ci.length > 0) {
 		writeFd(
 			2,
@@ -407,19 +413,73 @@ function lintMissing() {
 function printShellFiles(mode) {
 	let files;
 	try {
-		if (mode === "--tracked") files = trackedShellFiles();
+		if (mode === "--tracked") files = readTrackedShellFiles();
 		else {
 			const paths = fs.readFileSync(0, "utf8").split("\n").filter(Boolean);
 			files =
 				mode === "--index"
 					? shellFiles(paths, indexHead(), { cached: true })
-					: shellFiles(paths, worktreeHead);
+					: shellFiles(paths, readWorktreeHead);
 		}
 	} catch (e) {
 		writeFd(2, `formatters.js shell-files: ${caught(e).message}\n`);
 		process.exit(1);
 	}
 	writeFd(1, files.map((f) => `${f}\n`).join(""));
+}
+
+/* The post-write core's spawns run in series under the PostToolUse entry's
+ * 15 s (#2787): Biome, then ruff or the attribute read's 3 s git ceiling.
+ * Two formatter calls at 5 s and that ceiling leave 2 s for the other cores. */
+const WRITE_FORMAT_TIMEOUT_MS = 5000;
+
+/**
+ * Format one file a tool just wrote, if it is shell or Python (#1332): the
+ * post-write core's step 1 beside Biome. Run from the host root, which has
+ * already been checked to hold the file. Answers `shell` where the file is in
+ * the shellcheck set, which post-write answers with its shell-lint-blind fragment,
+ * and "" on any other. A missing formatter or an unparseable file leaves the
+ * file as written: this is convenience, and .husky/pre-commit's format gate is
+ * what refuses.
+ * @param {string} file the written path, as the tool named it
+ * @returns {"shell" | ""}
+ */
+function formatWritten(file) {
+	const rel = path.relative(process.cwd(), path.resolve(file));
+	let shell = false;
+	try {
+		shell =
+			shellFiles([rel], readWorktreeHead, { timeout: HOOK_GIT_TIMEOUT_MS })
+				.length > 0;
+	} catch {
+		// git unreadable: left as written, for the gate to judge.
+	}
+	if (shell) {
+		const format = loadShfmt();
+		try {
+			const source = fs.readFileSync(file, "utf8");
+			const out = format && formatShell(format, source, rel);
+			if (out && out !== source) fs.writeFileSync(file, out);
+		} catch {
+			// Unparseable or unreadable: left as written, for the gate to name.
+		}
+		return "shell";
+	}
+	if (rel.endsWith(".py"))
+		spawnSync(
+			process.env.WFC_RUFF || "ruff",
+			[
+				"format",
+				...ruffConfigArgs(),
+				...readRuffExcludeArgs(() => {
+					/* a write hook stays silent: the commit gate names an unread exclude */
+				}),
+				"--",
+				rel,
+			],
+			{ stdio: "ignore", timeout: WRITE_FORMAT_TIMEOUT_MS },
+		);
+	return "";
 }
 
 if (require.main === module) {
@@ -444,13 +504,15 @@ module.exports = {
 	RUFF,
 	RUFF_INSTALL,
 	SHFMT_INSTALL,
+	WRITE_FORMAT_TIMEOUT_MS,
 	formatShell,
+	formatWritten,
 	indexHead,
 	loadShfmt,
 	ruffConfigArgs,
-	ruffExcludeArgs,
+	readRuffExcludeArgs,
 	shellFiles,
 	shellFinding,
-	trackedShellFiles,
-	worktreeHead,
+	readTrackedShellFiles,
+	readWorktreeHead,
 };

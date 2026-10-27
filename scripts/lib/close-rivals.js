@@ -23,13 +23,13 @@ const {
 	RUNGS,
 	rungCounts,
 	missingRungs,
-	ladderLine,
-	ladderReason,
+	buildLadderLine,
+	buildLadderReason,
 } = require("./research-ladder");
 const {
 	PRICED,
 	isRivalSet,
-	optionBody,
+	parseOptionBody,
 	optionSpans,
 	splitQuestions,
 } = require("./round-marker");
@@ -45,7 +45,7 @@ const {
 	isMisshapen,
 	buildMisshapenFlag,
 	buildRuleFlag,
-	shapeOnlyReason,
+	buildShapeOnlyReason,
 } = require("./shape-hold");
 
 /** @typedef {import("./round-marker").QuestionBlock} QuestionBlock */
@@ -101,7 +101,7 @@ const PATH_LINE_CITE =
  */
 function citesOf(block) {
 	const text = optionSpans(block.lines)
-		.map((o) => optionBody(o.span))
+		.map((o) => parseOptionBody(o.span))
 		.join("\n");
 	const withoutUrls = text.replace(URL_CITE, " ");
 	return [
@@ -253,13 +253,14 @@ function readRefusalRecord(sessionId, transcript) {
 }
 
 /** @param {Band} b */
-const bandText = (b) => `(${b.letter}) ${b.figure}% (${b.low}% - ${b.high}%)`;
+const buildBandText = (b) =>
+	`(${b.letter}) ${b.figure}% (${b.low}% - ${b.high}%)`;
 
 /**
  * One question's prices, order-free, for telling a re-price from a re-send.
  * @param {Band[]} bands
  */
-const priceKey = (bands) => bands.map(bandText).sort().join("; ");
+const priceKey = (bands) => bands.map(buildBandText).sort().join("; ");
 
 /**
  * One question as the close check judged it this Stop, for the close-check
@@ -396,7 +397,7 @@ function judgeRefusedAgain({ block, bands, prior, check, shape }, state) {
 	});
 	state.refused.push(prior);
 	if (kind === "refused-ladder") {
-		state.ladderLines.push(ladderLine(block.number, missing));
+		state.ladderLines.push(buildLadderLine(block.number, missing));
 		return;
 	}
 	if (kind === "refused-misshapen") {
@@ -407,8 +408,8 @@ function judgeRefusedAgain({ block, bands, prior, check, shape }, state) {
 	if (!reprice) return;
 	state.flagged.push(
 		buildRuleFlag(
-			`Q${block.number}: re-priced from ${prior.bands.map(bandText).join(", ")} ` +
-				`to ${bands.map(bandText).join(", ") || "no priced options"} with no ` +
+			`Q${block.number}: re-priced from ${prior.bands.map(buildBandText).join(", ")} ` +
+				`to ${bands.map(buildBandText).join(", ") || "no priced options"} with no ` +
 				"tool call since this check refused it.",
 			shape,
 		),
@@ -442,7 +443,9 @@ function judgeCloseBlock(block, state) {
 		refusedAt: Date.now(),
 		cites: citesOf(block),
 	});
-	state.flagged.push(buildRuleFlag(caughtLine(block.number, caught), shape));
+	state.flagged.push(
+		buildRuleFlag(buildCaughtLine(block.number, caught), shape),
+	);
 }
 
 const NONE_LIKELY = `no option is priced above ${LOW_TOP}, so none is likely right`;
@@ -452,10 +455,10 @@ const NONE_LIKELY = `no option is priced above ${LOW_TOP}, so none is likely rig
  * @param {string} number
  * @param {NonNullable<ReturnType<typeof caughtBy>>} caught
  */
-function caughtLine(number, { trigger, top, pair }) {
+function buildCaughtLine(number, { trigger, top, pair }) {
 	if (trigger === "low-top" || !pair)
 		return (
-			`Q${number}: top option ${bandText(top)} — ${NONE_LIKELY}. ` +
+			`Q${number}: top option ${buildBandText(top)} — ${NONE_LIKELY}. ` +
 			"What fact would make one option likely right, or show none is? Go and look for it."
 		);
 	const tests = [
@@ -464,7 +467,7 @@ function caughtLine(number, { trigger, top, pair }) {
 	].filter(Boolean);
 	const rivals = `(${pair.runnerUp.letter}) beat (${pair.top.letter})`;
 	return (
-		`Q${number}: ${bandText(pair.top)} against ${bandText(pair.runnerUp)} — ` +
+		`Q${number}: ${buildBandText(pair.top)} against ${buildBandText(pair.runnerUp)} — ` +
 		`${tests.join(" and ")}, so the recommendation could flip` +
 		(trigger === "both"
 			? `, and ${NONE_LIKELY}. What fact would make ${rivals}, or make one option likely right?`
@@ -481,7 +484,7 @@ function caughtLine(number, { trigger, top, pair }) {
  * @param {boolean} isLastRefusal whether this refusal spends the limb's cap
  * @returns {string}
  */
-function closeRivalsReason(flagged, houseDecision, isLastRefusal) {
+function buildCloseRivalsReason(flagged, houseDecision, isLastRefusal) {
 	const misshapen = isMisshapen(flagged);
 	const resentMisshapen = flagged.some((flag) => flag.shapeOnly);
 	return (
@@ -597,8 +600,8 @@ function closeRivals(
 		/* A re-send held on shape alone owes no look, so carries none of the
 		 * close rule (#1742). */
 		reason:
-			shapeOnlyReason(flagged, isLastRefusal) ??
-			closeRivalsReason(flagged, houseDecision(), isLastRefusal),
+			buildShapeOnlyReason(flagged, isLastRefusal) ??
+			buildCloseRivalsReason(flagged, houseDecision(), isLastRefusal),
 		refused,
 		checks,
 		ladderLines,
@@ -808,7 +811,7 @@ function closeRivalsTurn(
 			prefix: RESEARCH_LADDER_PREFIX,
 			reason:
 				ladderLines.length > 0
-					? ladderReason(ladderLines, {
+					? buildLadderReason(ladderLines, {
 							missing,
 							corpus: readCorpus(),
 							last: isLastLadder

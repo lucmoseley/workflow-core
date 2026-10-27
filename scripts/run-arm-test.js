@@ -66,6 +66,7 @@ const { isTerminalAgent } = require("./lib/agent-liveness.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { stopOn } = require("./lib/claude-stop.js");
+const { jobDirPath } = require("./lib/job-paths.js");
 const {
 	geoComparison,
 	heterogeneity,
@@ -88,7 +89,7 @@ const { sessionSpendUsd, sessionTokens } = require("./lib/session-spend.js");
 const { projectSlug } = require("./lib/project-slug.js");
 const { throttleEnv } = require("./lib/throttle-paths.js");
 const { secondaryOf, summariseSecondary } = require("./lib/arm-secondary.js");
-const { registeredGuardSubjects } = require("./lib/guard-fires.js");
+const { readRegisteredGuardSubjects } = require("./lib/guard-fires.js");
 const { hostRoot } = require("./lib/host-root.js");
 
 /** `WFC_ARM_TASKS_CLI` stands a test's stub in for the task builder. */
@@ -521,7 +522,7 @@ function start(run, { repo, prompt }, bin) {
  * say (#2045).
  * @returns {{ slots: number, why?: string }}
  */
-function admissionSlots() {
+function readAdmissionSlots() {
 	const r = spawnSync(process.execPath, [admissionCli(), "--json"], {
 		encoding: "utf8",
 		timeout: CALL_TIMEOUT_MS,
@@ -550,7 +551,7 @@ function admissionSlots() {
  * @param {string} bin
  * @returns {JobStates}
  */
-function jobStates(configDir, bin) {
+function readJobStates(configDir, bin) {
 	const r = spawnSync(bin, ["agents", "--json", "--all"], {
 		encoding: "utf8",
 		timeout: CALL_TIMEOUT_MS,
@@ -573,12 +574,12 @@ function jobStates(configDir, bin) {
  * @param {string} bin
  * @returns {Map<string, JobStates>}
  */
-function statesByConfigDir(recs, bin) {
+function readStatesByConfigDir(recs, bin) {
 	/** @type {Map<string, JobStates>} */
 	const states = new Map();
 	for (const r of recs)
 		if (!states.has(r.configDir))
-			states.set(r.configDir, jobStates(r.configDir, bin));
+			states.set(r.configDir, readJobStates(r.configDir, bin));
 	return states;
 }
 
@@ -608,11 +609,11 @@ function ended(rec, states) {
  */
 function heldBack(root, size, bin, maxRunning = DEFAULT_MAX_RUNNING) {
 	const launched = readLaunched(root);
-	const states = statesByConfigDir(launched, bin);
+	const states = readStatesByConfigDir(launched, bin);
 	const running = launched.filter((r) => !ended(r, states)).length;
 	if (running + size > maxRunning)
 		return `${running} session(s) still running, the cap is ${maxRunning}; launch again when a pair ends`;
-	const { slots, why } = admissionSlots();
+	const { slots, why } = readAdmissionSlots();
 	if (slots < size)
 		return `admission has ${slots} slot(s), a pair needs ${size}; launch again when admission frees${why ? ` (${why})` : ""}`;
 	return null;
@@ -714,7 +715,7 @@ const sleep = (ms) =>
  */
 function reapHung(root, ceilingMs, bin) {
 	const recs = readLaunched(root);
-	const states = statesByConfigDir(recs, bin);
+	const states = readStatesByConfigDir(recs, bin);
 	for (const rec of recs) {
 		if (ended(rec, states) || !states.get(rec.configDir)?.has(rec.job))
 			continue;
@@ -819,7 +820,7 @@ function runPass({ cli, runs }, o) {
 	const started = new Set(launched.map((r) => r.id));
 	const pending = runs.filter((r) => !started.has(r.id));
 	if (pending.length === 0) {
-		const states = statesByConfigDir(launched, cli.path);
+		const states = readStatesByConfigDir(launched, cli.path);
 		return launched.every((r) => ended(r, states)) ? "done" : "wait";
 	}
 	const next = Math.min(...pending.map((r) => r.pair));
@@ -899,7 +900,7 @@ function runJson(cmd, args) {
  * A transcript's first to last timestamp, or null where it has fewer than two.
  * @param {string} file
  */
-function wallMs(file) {
+function readWallMs(file) {
 	let first = Number.POSITIVE_INFINITY;
 	let last = Number.NEGATIVE_INFINITY;
 	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
@@ -941,7 +942,7 @@ function readRun(rec, states, subjects) {
 		state: rec.hung ? "hung" : (job?.state ?? "unknown"),
 		ended: ended(rec, states),
 		transcriptInArmDir: fs.existsSync(transcript),
-		jobDirInArmDir: fs.existsSync(path.join(rec.configDir, "jobs", rec.job)),
+		jobDirInArmDir: fs.existsSync(jobDirPath(rec.configDir, rec.job)),
 		score: null,
 		accept: null,
 		spendUsd: null,
@@ -952,7 +953,7 @@ function readRun(rec, states, subjects) {
 	if (!row.ended || !row.transcriptInArmDir) return row;
 	row.spendUsd = sessionSpendUsd(transcript);
 	row.tokens = sessionTokens(transcript);
-	row.wallMs = wallMs(transcript);
+	row.wallMs = readWallMs(transcript);
 	row.secondary = secondaryOf(fs.readFileSync(transcript, "utf8"), subjects);
 	const s = runJson(SCORER, ["--file", transcript, "--json"]);
 	row.score = s.json?.[0] ?? { error: s.err ?? `exit ${s.status}` };
@@ -1132,8 +1133,8 @@ function report({ flags }) {
 	// PATH's CLI, not the plan's: reading starts no run, so its version
 	// splits none, and the report still reads once an update removes the
 	// plan's binary.
-	const states = statesByConfigDir(recs, claudeBin());
-	const subjects = registeredGuardSubjects(hostRoot());
+	const states = readStatesByConfigDir(recs, claudeBin());
+	const subjects = readRegisteredGuardSubjects(hostRoot());
 	const rows = recs.map((r) => readRun(r, states, subjects));
 	/** @type {{ row: (typeof rows)[number], score: number, versions: string[], messages: number, families: ReturnType<typeof familiesOf>, concision: number, environment: number }[]} */
 	const withScore = [];

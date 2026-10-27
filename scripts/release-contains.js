@@ -8,7 +8,7 @@
  * `git tag --contains <sha>` CANNOT ANSWER THIS: release-plugin.js cuts every
  * release as a root commit, so no `main` commit is in any tag's history and
  * the answer is always empty. Each release commit's message names its source
- * instead (lib/release-tags.js's `releaseMessage`), and a release carries
+ * instead (lib/release-tags.js's `buildReleaseMessage`), and a release carries
  * `<sha>` where `<sha>` is an ancestor of that source.
  *
  * Joins no §N3 family: it answers a question and gates nothing. Exits 0 where
@@ -18,15 +18,15 @@
  * lacks, is named and counted as not carrying it.
  */
 
-const { execFileSync, spawnSync } = require("node:child_process");
 const { parseOrCode } = require("./lib/cli-args");
-const { RENDERED_FROM, releaseTags } = require("./lib/release-tags.js");
+const { RENDERED_FROM, readReleaseTags } = require("./lib/release-tags.js");
 const { caught } = require("./lib/caught.js");
 const { commitSha } = require("./lib/commit-sha.js");
+const { execGit, spawnGitSync } = require("./lib/git.js");
 
 /** @param {string[]} args */
 const git = (...args) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
 	}).trim();
@@ -36,12 +36,7 @@ const git = (...args) =>
  * @param {string} descendant
  */
 const isAncestor = (ancestor, descendant) => {
-	const r = spawnSync("git", [
-		"merge-base",
-		"--is-ancestor",
-		ancestor,
-		descendant,
-	]);
+	const r = spawnGitSync(["merge-base", "--is-ancestor", ancestor, descendant]);
 	if (r.status === 0 || r.status === 1) return r.status === 0;
 	throw new Error(`git merge-base failed on ${descendant}`);
 };
@@ -84,7 +79,7 @@ function main(argv) {
 		process.stderr.write(`${ref} names no commit in this clone\n`);
 		return 2;
 	}
-	const tags = releaseTags(process.cwd());
+	const tags = readReleaseTags(process.cwd());
 	const { carrying, unread } = sortTags(sha, tags);
 	const short = sha.slice(0, 8);
 	if (carrying.length > 0) {

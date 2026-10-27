@@ -1,13 +1,10 @@
-#!/usr/bin/env node
 /*
- * lost-verdict.js — the judgement behind scripts/guard-lost-verdict.sh (#1575):
+ * lost-verdict.js — guard-lost-verdict.js's core (#1575):
  * given a finished Bash call that launched the suite, is its pass/fail line
  * missing from the output, and if so, what did the run say?
  *
- * Run as `node lost-verdict.js` with the PostToolUse or PostToolUseFailure
- * payload on stdin. Prints one JSON object: `{ context }` to hand the session,
- * `{ why }` where it stays silent for a reason worth logging, or `{}` where it
- * stays silent because nothing was lost.
+ * A CORE: it does no I/O. The run record, the log file and the clock arrive
+ * as ports; lib/lost-verdict-host.js builds the real ones.
  *
  * WHICH LOG IS THIS CALL'S, never a neighbour's. The output's own `TEST LOG:`
  * line where it survived; else this session's run record (lib/test-log.js),
@@ -16,11 +13,25 @@
  * process — one launch — or the answer is not certain and it stays silent.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./host-root.js");
-const { readRuns } = require("./test-log.js");
-const { repoRoot } = require("./test-pass-marker.js");
+const { CEILING_LINE } = require("./suite-ceiling.js");
+const { suiteLaunchKind } = require("./suite-launch.js");
+const { parseCommand, walkCommands } = require("./shell-parse.js");
+const { literal, unwrap } = require("./shell-words.js");
+
+/**
+ * @typedef {object} VerdictPorts
+ * @property {Record<string, unknown>} payload the hook payload
+ * @property {string} logRoot the canonical checkout, where the runner keeps
+ *   its logs and records whichever worktree it ran in
+ * @property {(session: string) => import("./test-log.js").RunRecord[]} readRuns
+ *   this session's run record
+ * @property {(file: string) => string} readFile throws where it cannot read
+ * @property {() => number} now epoch ms
+ * @property {import("./suite-launch.js").LaunchPorts["runners"]} runners
+ * @property {import("./suite-launch.js").LaunchPorts["isWrapperScript"]} isWrapperScript
+ * @typedef {import("./guard-entry.js").KitContext & VerdictPorts} VerdictContext
+ */
 
 /* vitest's two summary lines, as it prints them to a pipe. */
 const VERDICT_RE = /^\s*(Test Files|Tests)\s+\d/m;
@@ -30,8 +41,9 @@ const ANSI_RE = /\u001b\[[0-9;]*m/g;
 
 /* The runner's push-gate and filter lines, as written to the log; their first
  * line only, the rest being explanation. */
-const GATE_LINE_RE =
-	/^(MEETS THE PUSH GATE|NOT ADMISSIBLE|FILTERED RUN|SUITE STALLED)\b/;
+const GATE_LINE_RE = new RegExp(
+	`^(MEETS THE PUSH GATE|NOT ADMISSIBLE|NO PUSH GATE|FILTERED RUN|SUITE STALLED|${CEILING_LINE})\\b`,
+);
 const FAIL_RE = /^\s*FAIL\s/;
 /* An empty selection: vitest ran no file, so printed no verdict to lose
  * (#1661). `in 0 of`, since a file that failed to collect also counts 0
@@ -88,7 +100,7 @@ function pickRun(runs, since, now) {
  * @param {string} text
  * @returns {string[]}
  */
-function verdictLines(text) {
+function parseVerdictLines(text) {
 	const lines = [];
 	let fails = 0;
 	for (const raw of stripAnsi(text).split("\n")) {
@@ -132,16 +144,16 @@ function buildMessage(lines, shown) {
 
 /**
  * @param {Payload} payload
- * @param {string} root
+ * @param {VerdictPorts} ports
  * @returns {{ log: string } | { why: string }}
  */
-function recordedLog(payload, root) {
+function readRecordedLog(payload, ports) {
 	const session = payload.session_id;
 	const took = payload.duration_ms;
 	if (!session || typeof took !== "number")
 		return { why: "no session id or duration_ms in the payload" };
-	const now = Date.now();
-	return pickRun(readRuns(root, session), now - took - WINDOW_SLACK_MS, now);
+	const now = ports.now();
+	return pickRun(ports.readRuns(session), now - took - WINDOW_SLACK_MS, now);
 }
 
 /**
@@ -168,22 +180,21 @@ function callOutput(payload) {
 
 /**
  * @param {Payload} payload
+ * @param {VerdictPorts} ports
  * @returns {{ context?: string, why?: string }}
  */
-function judge(payload) {
+function judge(payload, ports) {
 	const output = callOutput(payload);
 	if (output === null || VERDICT_RE.test(stripAnsi(output))) return {};
-	/* The canonical checkout, where the runner keeps its logs and records
-	 * whichever worktree it ran in. */
-	const root = repoRoot(hostRoot()) ?? hostRoot();
+	const root = ports.logRoot;
 	const shownLog = logFromOutput(output);
 	const found = shownLog
 		? { log: path.resolve(root, shownLog) }
-		: recordedLog(payload, root);
+		: readRecordedLog(payload, ports);
 	if ("why" in found) return found;
 	let text;
 	try {
-		text = fs.readFileSync(found.log, "utf8");
+		text = ports.readFile(found.log);
 	} catch (error) {
 		return { why: `the run's log is unreadable (${error}): ${found.log}` };
 	}
@@ -193,16 +204,54 @@ function judge(payload) {
 			why: "an empty selection — vitest ran no file, so no verdict was lost",
 		};
 	return {
-		context: buildMessage(verdictLines(text), path.relative(root, found.log)),
+		context: buildMessage(
+			parseVerdictLines(text),
+			path.relative(root, found.log),
+		),
 	};
 }
 
-if (require.main === module) {
-	let out;
-	try {
-		out = judge(JSON.parse(fs.readFileSync(0, "utf8")));
-	} catch (error) {
-		out = { why: `could not judge: ${error}` };
-	}
-	process.stdout.write(`${JSON.stringify(out)}\n`);
+/**
+ * How many of the command's segments launch the suite through
+ * scripts/run-vitest.js — suite-launch.js's `npm-vitest` and `wrapper` kinds,
+ * read after unwrap's wrapper strip. A direct `npx vitest` writes no TEST LOG.
+ * @param {string} subject
+ * @param {VerdictContext} ctx
+ */
+function countLaunches(subject, ctx) {
+	const parsed = parseCommand(subject);
+	let launches = 0;
+	walkCommands(
+		parsed,
+		({ words }) => {
+			const own = unwrap(words, parsed.spans).words.map(
+				(w) => literal(w, parsed.spans).text,
+			);
+			const kind = suiteLaunchKind(own, ctx)?.kind;
+			if (kind === "npm-vitest" || kind === "wrapper") launches += 1;
+		},
+		ctx,
+	);
+	return launches;
 }
+
+/**
+ * @param {string} subject the command
+ * @param {VerdictContext} ctx
+ * @returns {{ context: string } | null}
+ */
+function decide(subject, ctx) {
+	const launches = countLaunches(subject, ctx);
+	if (launches === 0) return null;
+	if (launches > 1) {
+		ctx.log(
+			`${launches} suite launches in one call — which lost its verdict is uncertain`,
+		);
+		return null;
+	}
+	const { context, why } = judge(/** @type {Payload} */ (ctx.payload), ctx);
+	if (why) ctx.log("a suite run's lost verdict went unreported", why);
+	return context ? { context } : null;
+}
+
+module.exports = { decide };

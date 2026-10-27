@@ -23,12 +23,12 @@
  * readings live.
  */
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
+const { gitCommonDirOrThrow } = require("./lib/git.js");
 
 /** No git operation here runs an hour; an editor-held `index.lock` can. */
 const STALE_GIT_LOCK_MS = 60 * 60 * 1000;
@@ -64,17 +64,17 @@ function walk(common, rel, out) {
  * absent; git failing any other way is BROKEN, git being the apparatus.
  * @param {import("./lib/check").Ctx} ctx
  */
-function commonDir(ctx) {
-	const res = spawnSync(
-		"git",
-		["rev-parse", "--path-format=absolute", "--git-common-dir"],
-		{ cwd: hostRoot(), encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-	);
-	if (res.error) ctx.broken(`git could not run: ${res.error.message}`);
-	if (res.status === 0) return res.stdout.trim();
-	if (/not a git repository/i.test(res.stderr))
-		ctx.skip("no git repository here, so there are no git locks to read.");
-	ctx.broken(`git rev-parse failed: ${res.stderr.trim()}`);
+function readCommonDir(ctx) {
+	try {
+		return gitCommonDirOrThrow(hostRoot());
+	} catch (e) {
+		const err = caught(e);
+		if (err.code !== undefined) ctx.broken(`git could not run: ${err.message}`);
+		const stderr = err.stderr ?? "";
+		if (/not a git repository/i.test(stderr))
+			ctx.skip("no git repository here, so there are no git locks to read.");
+		ctx.broken(`git rev-parse failed: ${stderr.trim()}`);
+	}
 }
 
 /** @param {number} ms */
@@ -87,7 +87,7 @@ runCheck({
 	name: "stale-git-locks",
 	usage: "node check-stale-git-locks.js [--json]",
 	run(ctx) {
-		const common = commonDir(ctx);
+		const common = readCommonDir(ctx);
 		/** @type {string[]} */
 		const locks = [];
 		walk(common, "", locks);

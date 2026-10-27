@@ -56,15 +56,26 @@ const { gitRead } = require("./lib/dirty-tree.js");
 const hookBlock = require("./lib/hook-block");
 const hookMessage = require("./lib/hook-message");
 const { markersDir } = require("./lib/marker-root.js");
-const { commandOrDefault } = require("./lib/workflow-core-config.js");
-const { pendingTasks } = require("./lib/pending-tasks");
+const {
+	readCommandOrDefault,
+	moduleReader,
+} = require("./lib/workflow-core-config.js");
+const { readPendingTasks } = require("./lib/pending-tasks");
 const { ledgerRoot } = require("./lib/arbiter-ledger.js");
-const { unpushedRef } = require("./lib/landing-refs.js");
+const { readUnpushedRef } = require("./lib/landing-refs.js");
+const { landingTwin } = require("./lib/rule-gates.js");
+const { pushGateState } = require("./lib/test-gate.js");
 const store = require("./lib/arbiter-store");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
 
 const REPO_ROOT = hookBlock.repoRoot();
+
+const MODULE_CTX = {
+	moduleOn: moduleReader(REPO_ROOT, (what, detail) =>
+		logError(`guard-unpushed-commits ${what}`, detail),
+	),
+};
 
 const SEEN_PREFIX = ".unpushed-seen-";
 
@@ -118,9 +129,9 @@ function writeSeen(sid, seen) {
  * @param {string} sid
  * @returns {string[]|null}
  */
-function ledgerOf(sid) {
+function readCommitLedger(sid) {
 	const root = ledgerRoot();
-	return root ? store.commitsBy(sid, root) : null;
+	return root ? store.readCommitsBy(sid, root) : null;
 }
 
 /**
@@ -130,10 +141,10 @@ function ledgerOf(sid) {
  * @param {string} sid
  * @returns {{ref: string, commits: string[]}|null}
  */
-function unpushedMine(sid) {
-	const mine = ledgerOf(sid);
+function readUnpushedMine(sid) {
+	const mine = readCommitLedger(sid);
 	if (mine === null || mine.length === 0) return null;
-	const ref = unpushedRef({ root: REPO_ROOT });
+	const ref = readUnpushedRef({ root: REPO_ROOT });
 	const ahead = git(["rev-list", `${ref}..HEAD`]);
 	if (ahead === null) return null;
 	const own = new Set(mine);
@@ -149,25 +160,46 @@ function unpushedMine(sid) {
  */
 function handingOff(payload, sid) {
 	const transcript = hookMessage.transcriptPath(payload, sid);
-	const message = hookMessage.textOf(payload, transcript, (err) =>
+	const message = hookMessage.readMessageText(payload, transcript, (err) =>
 		logError("guard-unpushed-commits message", err),
 	);
 	if (!message) return false;
 	const { name, payload: said } = governingMarker(message);
 	if (name !== "waiting:" || !said.trim()) return false;
 	try {
-		return pendingTasks(transcript).pending.length > 0;
+		return readPendingTasks(transcript).pending.length > 0;
 	} catch (err) {
 		logError("guard-unpushed-commits transcript", err);
 		return false;
 	}
 }
 
+/* Each id cited whole, so the registry's citation scan reads it. */
+const CADENCE_CITATION = {
+	"push-cadence": "`rule:push-cadence`",
+	"push-cadence-landing": "`rule:push-cadence-landing`",
+};
+
+/**
+ * The push, with `push_check` before it only where a push still owes a
+ * certificate — `pushGateState` decides (#2933). A config it cannot read
+ * keeps the check, which prints the fault itself. The rule named is the
+ * route's: `landing` swaps in its twin, as guard-push-rules.js does (#2409).
+ * @param {string} ref
+ */
+function buildPushStep(ref) {
+	const rule = CADENCE_CITATION[landingTwin(MODULE_CTX, "push-cadence")];
+	const gate = pushGateState({ root: REPO_ROOT });
+	return gate.state === "skip"
+		? `The push is your own act (${rule}): push to \`${ref}\` — ${gate.line}.`
+		: `The push is your own act (${rule}): run \`${readCommandOrDefault("push_check")}\`, then push.`;
+}
+
 /**
  * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
  */
 function judge({ sessionId: sid, payload }) {
-	const found = unpushedMine(sid);
+	const found = readUnpushedMine(sid);
 	if (!found) return;
 	const seen = readSeen(sid);
 	if (found.commits.every((c) => seen.has(c))) return;
@@ -192,7 +224,7 @@ function judge({ sessionId: sid, payload }) {
 		reason:
 			`A warning, not a refusal — the next stop passes. ${String(commits.length)} commit(s) this session made are not on ${ref}:\n` +
 			`${lines.map((l) => `  ${l}`).join("\n")}${more}\n` +
-			`The push is your own act (\`rule:push-cadence\`): run \`${commandOrDefault("push_check")}\`, then push. ` +
+			`${buildPushStep(ref)} ` +
 			"If you are holding it back — a neighbour's red suite, say — end with a message that says so and names the failing test, so the founder sees that the branch is ahead of GitHub. " +
 			"Then re-send the message this turn was going to end on, its status marker included — this block discarded it.",
 	});

@@ -15,7 +15,7 @@
  * IT REFUSES LOUDLY. An unknown id throws rather than returning "" — a guard
  * that silently denies with an empty reason is worse than one that crashes,
  * because the session is refused and told nothing. Callers that must not crash
- * call ruleTextOr, or catch it themselves and fail open in the house style
+ * call readRuleTextOr, or catch it themselves and fail open in the house style
  * (mantahostels#103). The one
  * exception is expandCommands, on a host config it cannot read (#742).
  *
@@ -131,7 +131,7 @@ function manifestPath() {
  * @param {string} dir
  * @returns {fs.Dirent[]}
  */
-function storeEntries(dir) {
+function readStoreEntries(dir) {
 	try {
 		return fs.readdirSync(dir, { withFileTypes: true });
 	} catch (e) {
@@ -152,11 +152,11 @@ function storeEntries(dir) {
  *
  * @returns {string[]}
  */
-function ruleIds() {
+function readRuleIds() {
 	/** @type {Set<string>} */
 	const ids = new Set();
 	for (const dir of rulesDirs())
-		for (const e of storeEntries(dir))
+		for (const e of readStoreEntries(dir))
 			if (e.isFile() && e.name.endsWith(FRAGMENT_EXT)) {
 				const id = e.name.slice(0, -FRAGMENT_EXT.length);
 				if (RULE_ID_RE.test(id)) ids.add(id);
@@ -191,7 +191,7 @@ function fragmentPath(bare) {
  * @throws {Error} on a malformed id, an id no fragment answers to, or a
  *   fragment holding nothing but whitespace
  */
-function ruleText(id) {
+function readRuleText(id) {
 	const bare = typeof id === "string" ? bareRuleId(id) : "";
 	if (!RULE_ID_RE.test(bare))
 		throw new Error(
@@ -203,7 +203,7 @@ function ruleText(id) {
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
-		const known = ruleIds();
+		const known = readRuleIds();
 		throw new Error(
 			`rule-text: no fragment for rule id "${bare}" (looked in ${rulesDirs().join(", ")}). ` +
 				(known.length > 0
@@ -278,9 +278,9 @@ function expandCommands(text) {
  * @param {string} head the paragraph's opening words
  * @returns {string}
  */
-function ruleParagraph(id, head) {
+function readRuleParagraph(id, head) {
 	try {
-		const paragraph = ruleText(id)
+		const paragraph = readRuleText(id)
 			.split(/\n\s*\n/)
 			.find((p) => p.startsWith(head));
 		if (paragraph) return paragraph;
@@ -300,7 +300,7 @@ function rulePointer(id) {
 }
 
 /**
- * ruleText for a guard that must not crash: where the fragment cannot be read
+ * readRuleText for a guard that must not crash: where the fragment cannot be read
  * it logs the failure under `label` and answers `short`, a line saying the
  * rule could not be read, and rulePointer.
  * @param {string} id
@@ -308,9 +308,9 @@ function rulePointer(id) {
  * @param {string} label the guard, as the error log names it
  * @returns {string}
  */
-function ruleTextOr(id, short, label) {
+function readRuleTextOr(id, short, label) {
 	try {
-		return ruleText(id);
+		return readRuleText(id);
 	} catch (err) {
 		try {
 			require("./arbiter-core.js").logError(
@@ -330,9 +330,9 @@ module.exports = {
 	rulesDir,
 	fragmentPath,
 	manifestPath,
-	ruleIds,
-	ruleParagraph,
+	readRuleIds,
+	readRuleParagraph,
 	rulePointer,
-	ruleText,
-	ruleTextOr,
+	readRuleText,
+	readRuleTextOr,
 };

@@ -34,7 +34,7 @@ afterEach(() => {
 		fs.rmSync(d, { recursive: true, force: true });
 });
 
-function green(
+function certificate(
 	root: string,
 	sha: string,
 	at: string,
@@ -67,14 +67,14 @@ function red(
 }
 
 describe("which launches the share counts", () => {
-	it("keeps only vitest markers carrying viaChanged at or after the cutoff", () => {
+	it("keeps only vitest runs carrying viaChanged at or after the cutoff", () => {
 		const root = store();
-		green(root, "a", ROUTE_FIX_AT, { viaChanged: true, modulesTotal: 5 });
-		green(root, "b", "2026-08-31T16:37:49Z", {
+		certificate(root, "a", ROUTE_FIX_AT, { viaChanged: true, modulesTotal: 5 });
+		certificate(root, "b", "2026-08-31T16:37:49Z", {
 			viaChanged: true,
 			modulesTotal: 5,
 		});
-		green(root, "c", AT, { modulesTotal: 5 });
+		certificate(root, "c", AT, { modulesTotal: 5 });
 		record(
 			{
 				sha: "d",
@@ -87,9 +87,13 @@ describe("which launches the share counts", () => {
 		expect(reading(root, "--since", ROUTE_FIX_AT).routed.perRun.total).toBe(1);
 	});
 
-	it("excludes a marker at the pre-90f1e5b1 default cutoff by default (mantahostels#2303, mantahostels#2308: viaChanged predates the route-flag fix by 12 minutes)", () => {
+	it("excludes a run at the pre-90f1e5b1 default cutoff by default (mantahostels#2303, mantahostels#2308: viaChanged predates the route-flag fix by 12 minutes)", () => {
 		const root = store();
-		green(root, "old", "2026-08-31T16:30:00Z", {
+		certificate(root, "old", "2026-08-31T16:30:00Z", {
+			viaChanged: true,
+			modulesTotal: 5,
+		});
+		red(root, "old-red", "2026-08-31T16:30:00Z", {
 			viaChanged: true,
 			modulesTotal: 5,
 		});
@@ -112,20 +116,24 @@ describe("which launches the share counts", () => {
 describe("which runs count as full", () => {
 	it("counts a full run from either store, never off viaChanged", () => {
 		const root = store();
-		green(root, "g", AT, { modulesTotal: 5, modulesRun: 5, full: "flag" });
+		certificate(root, "g", AT, {
+			modulesTotal: 5,
+			modulesRun: 5,
+			full: "flag",
+		});
 		red(root, "r", AT, { modulesTotal: 5, modulesRun: 5, full: "flag" });
 		expect(reading(root).fullPerDay.total.count).toBe(2);
 	});
 
 	it("excludes a narrow run and a run before the cutoff", () => {
 		const root = store();
-		green(root, "narrow", AT, {
+		certificate(root, "narrow", AT, {
 			viaChanged: true,
 			admissible: true,
 			modulesTotal: 5,
 			modulesRun: 2,
 		});
-		green(root, "old", "2026-08-31T16:30:00Z", {
+		certificate(root, "old", "2026-08-31T16:30:00Z", {
 			modulesTotal: 5,
 			modulesRun: 5,
 			full: "flag",
@@ -153,7 +161,7 @@ describe("full runs a day", () => {
 	const fullRuns = (reasons: (string | undefined)[]) => {
 		const root = store();
 		for (const [i, full] of reasons.entries())
-			green(root, `f${i}`, AT, {
+			certificate(root, `f${i}`, AT, {
 				modulesTotal: 5,
 				modulesRun: 5,
 				...(full === undefined ? {} : { full }),
@@ -200,30 +208,37 @@ describe("full runs a day", () => {
 		expect(summed).toBe(p.total.count);
 	});
 
-	it("floors the window at the store's own earliest surviving marker (mantahostels#3211 spec review F1)", () => {
-		const root = store();
-		green(root, "f", "2026-09-01T12:00:00Z", {
-			modulesTotal: 5,
-			modulesRun: 5,
-			full: "flag",
-		});
-		const p = reading(
-			root,
-			"--since",
-			ROUTE_FIX_AT,
-			"--until",
-			"2026-09-02T12:00:00Z",
-		).fullPerDay;
-		expect(p.since).toBe("2026-09-01T12:00:00Z");
-		expect(p.days).toBe(1);
-		expect(p.total).toEqual({ count: 1, perDay: 1 });
-	});
+	it.each([
+		["red", "2026-09-01T00:00:00Z", "2026-09-01T12:00:00Z"],
+		["certificate", "2026-09-01T12:00:00Z", "2026-09-01T00:00:00Z"],
+	])(
+		"floors the window at the earliest record either store still holds, here the %s (mantahostels#3211 spec review F1)",
+		(_, redAt, certAt) => {
+			const root = store();
+			red(root, "r", redAt, { modulesTotal: 5, modulesRun: 2 });
+			certificate(root, "f", certAt, {
+				modulesTotal: 5,
+				modulesRun: 5,
+				full: "flag",
+			});
+			const p = reading(
+				root,
+				"--since",
+				ROUTE_FIX_AT,
+				"--until",
+				"2026-09-02T00:00:00Z",
+			).fullPerDay;
+			expect(p.since).toBe("2026-09-01T00:00:00Z");
+			expect(p.days).toBe(1);
+			expect(p.total).toEqual({ count: 1, perDay: 1 });
+		},
+	);
 });
 
 describe("the gate share", () => {
 	it("counts a full run as meeting the gate even though isAdmissibleRun alone would refuse it", () => {
 		const root = store();
-		green(root, "full", AT, {
+		certificate(root, "full", AT, {
 			viaChanged: true,
 			modulesTotal: 5,
 			modulesRun: 5,
@@ -235,7 +250,7 @@ describe("the gate share", () => {
 
 	it("counts an admissible narrow run as meeting the gate", () => {
 		const root = store();
-		green(root, "adm", AT, {
+		certificate(root, "adm", AT, {
 			viaChanged: true,
 			admissible: true,
 			modulesTotal: 5,
@@ -249,7 +264,7 @@ describe("the gate share", () => {
 
 	it("does not count a viaChanged launch that failed the freshness check", () => {
 		const root = store();
-		green(root, "stale", AT, {
+		certificate(root, "stale", AT, {
 			viaChanged: true,
 			modulesTotal: 5,
 			modulesRun: 2,
@@ -286,8 +301,12 @@ describe("the gate share", () => {
 
 	it("credits a sha the moment any one of its runs met the gate", () => {
 		const root = store();
-		green(root, "s", AT, { viaChanged: true, modulesTotal: 5, modulesRun: 2 });
-		green(root, "s", AT, {
+		certificate(root, "s", AT, {
+			viaChanged: true,
+			modulesTotal: 5,
+			modulesRun: 2,
+		});
+		certificate(root, "s", AT, {
 			viaChanged: true,
 			admissible: true,
 			modulesTotal: 5,
@@ -306,8 +325,8 @@ describe("the gate share", () => {
 			modulesTotal: 5,
 			modulesRun: 2,
 		};
-		green(root, "early", AT, narrow);
-		green(root, "late", "2026-09-05T00:00:00Z", narrow);
+		certificate(root, "early", AT, narrow);
+		certificate(root, "late", "2026-09-05T00:00:00Z", narrow);
 		red(root, "redLate", "2026-09-05T00:00:00Z", narrow);
 		const s = reading(root, "--until", "2026-09-02T00:00:00Z");
 		expect(s.routed.perRun).toEqual({ admissible: 1, total: 1 });
@@ -329,7 +348,7 @@ describe("main (CLI, run through runInProcess)", () => {
 		// the sibling CLI tests read 0/0 for want of one.
 		const root = sandbox();
 		execFileSync("git", ["init", "-q"], { cwd: root });
-		green(root, "g", "2026-09-01T00:00:00Z", {
+		certificate(root, "g", "2026-09-01T00:00:00Z", {
 			viaChanged: true,
 			admissible: true,
 			modulesTotal: 5,
@@ -355,12 +374,12 @@ describe("main (CLI, run through runInProcess)", () => {
 	it("prints the full-runs-a-day block, human-readable (AC-1)", () => {
 		const root = sandbox();
 		execFileSync("git", ["init", "-q"], { cwd: root });
-		green(root, "f1", "2026-09-01T00:00:00Z", {
+		certificate(root, "f1", "2026-09-01T00:00:00Z", {
 			modulesTotal: 5,
 			modulesRun: 5,
 			full: "flag",
 		});
-		green(root, "f2", "2026-09-01T00:00:00Z", {
+		certificate(root, "f2", "2026-09-01T00:00:00Z", {
 			modulesTotal: 5,
 			modulesRun: 5,
 		});
@@ -418,13 +437,13 @@ describe("main (CLI, run through runInProcess)", () => {
 	it("--until bounds the window's end, printed in the banner (mantahostels#3489)", () => {
 		const root = sandbox();
 		execFileSync("git", ["init", "-q"], { cwd: root });
-		green(root, "early", "2026-09-01T00:00:00Z", {
+		certificate(root, "early", "2026-09-01T00:00:00Z", {
 			viaChanged: true,
 			admissible: true,
 			modulesTotal: 5,
 			modulesRun: 2,
 		});
-		green(root, "late", "2026-09-05T00:00:00Z", {
+		certificate(root, "late", "2026-09-05T00:00:00Z", {
 			viaChanged: true,
 			admissible: true,
 			modulesTotal: 5,
@@ -440,10 +459,10 @@ describe("main (CLI, run through runInProcess)", () => {
 		expect(r.stdout).toMatch(/ROUTED-ADMISSIBLE[\s\S]*1\/1 = 100\.0%/);
 	});
 
-	it("an unparseable --until reads as no end bound, never as excluding every marker", () => {
+	it("an unparseable --until reads as no end bound, never as excluding every run", () => {
 		const root = sandbox();
 		execFileSync("git", ["init", "-q"], { cwd: root });
-		green(root, "g", "2026-09-01T00:00:00Z", {
+		certificate(root, "g", "2026-09-01T00:00:00Z", {
 			viaChanged: true,
 			admissible: true,
 			modulesTotal: 5,

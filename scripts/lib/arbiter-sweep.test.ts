@@ -42,7 +42,7 @@ describe("pruneAll — the session-start sweep as one call (mantahostels#1796)",
 		const t = (Date.now() - ms) / 1000;
 		fs.utimesSync(file, t, t);
 	};
-	const only = (dir: string) => path.join(dir, fs.readdirSync(dir)[0]);
+	const readSoleEntry = (dir: string) => path.join(dir, fs.readdirSync(dir)[0]);
 
 	/**
 	 * One aged-out record in each family this describe covers, all left by "bob".
@@ -64,15 +64,15 @@ describe("pruneAll — the session-start sweep as one call (mantahostels#1796)",
 		age(snapshot, pastWeek);
 
 		store.claimIssue(1796, { sessionId: "bob" });
-		const claim = only(store.paths.issueClaimsDir());
+		const claim = readSoleEntry(store.paths.issueClaimsDir());
 		age(claim, pastWeek);
 
 		store.recordWant("docs/a.md", durably("bob"), "alice");
-		const want = only(store.paths.wantsDir());
+		const want = readSoleEntry(store.paths.wantsDir());
 		age(want, pastBackstop);
 
 		store.recordRequest("docs/b.md", durably("bob"), "alice", null);
-		const request = only(store.paths.requestsDir());
+		const request = readSoleEntry(store.paths.requestsDir());
 		age(request, pastBackstop);
 
 		return { marker, snapshot, claim, want, request };

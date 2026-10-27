@@ -33,7 +33,7 @@ const NAME_RE = /^---\r?\n[\s\S]*?^name:[ \t]*(.+?)[ \t]*\r?$[\s\S]*?^---/m;
  * @param {string} dir
  * @returns {string[]}
  */
-function stylesIn(dir) {
+function readStylesIn(dir) {
 	let names;
 	try {
 		names = fs.readdirSync(dir);
@@ -72,7 +72,7 @@ const pluginOf = (name) => {
  * @param {string} pluginRoot
  * @returns {{plugin: string, styles: string[]}}
  */
-function pluginStyles(pluginRoot) {
+function readPluginStyles(pluginRoot) {
 	const manifest = JSON.parse(
 		fs.readFileSync(
 			path.join(pluginRoot, ".claude-plugin", "plugin.json"),
@@ -81,7 +81,7 @@ function pluginStyles(pluginRoot) {
 	);
 	return {
 		plugin: manifest.name,
-		styles: stylesIn(path.join(pluginRoot, ".claude", "output-styles")).map(
+		styles: readStylesIn(path.join(pluginRoot, ".claude", "output-styles")).map(
 			(s) => namespaced(manifest.name, s),
 		),
 	};
@@ -90,8 +90,8 @@ function pluginStyles(pluginRoot) {
 module.exports = {
 	CORE_STYLE,
 	BUILT_IN_STYLES,
-	stylesIn,
+	readStylesIn,
 	namespaced,
 	pluginOf,
-	pluginStyles,
+	readPluginStyles,
 };

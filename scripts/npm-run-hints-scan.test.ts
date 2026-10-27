@@ -31,7 +31,7 @@ const ROOT = path.resolve(__dirname, "..");
 const SCANNED = /\.(c?js|sh|py)$/;
 
 /** @returns the hints in each shipped file under `pathspec` that `keep` passes */
-function shippedHints(
+function readShippedHints(
 	pathspec: string,
 	keep: (rel: string) => boolean,
 	floor: number,
@@ -50,10 +50,14 @@ function shippedHints(
 
 describe("the npm scripts a shipped script names (#1289)", () => {
 	it("names none an adopter cannot run", () => {
-		expect(shippedHints("scripts", (f) => SCANNED.test(f), 100)).toEqual([]);
+		expect(readShippedHints("scripts", (f) => SCANNED.test(f), 100)).toEqual(
+			[],
+		);
 	});
 
 	it("names none an adopter cannot run in a shipped rule fragment (#1291)", () => {
-		expect(shippedHints("docs/agents/rules/*.txt", () => true, 50)).toEqual([]);
+		expect(readShippedHints("docs/agents/rules/*.txt", () => true, 50)).toEqual(
+			[],
+		);
 	});
 });

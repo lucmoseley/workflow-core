@@ -114,8 +114,8 @@ function readObservation(rel, sessionId) {
  * the write lands whether or not a claim was minted, and these are then the only
  * bytes recording who wrote it. cmdCheck claims on the WATCHED union, so the
  * ordinary tool write does mint a lock — the uncovered writes are the guard's
- * fail-opens (`scripts/guard-file-claim.sh`: no node, an arbiter timeout, a
- * non-zero exit), acquire()'s `unknown` on an unreadable store, and a lock swept
+ * fail-opens (`scripts/lib/file-claim.js`: an arbiter timeout, a non-zero
+ * exit), acquire()'s `unknown` on an unreadable store, and a lock swept
  * as stale under a session still running.
  *
  * `viaBash` is the post-Bash scan's route in (mantahostels#419). A session that reached the
@@ -142,7 +142,7 @@ function recordObservation(rel, me, { viaBash = false } = {}) {
 	// one: a session holding one `### B<n>` entry already has a pin recording its
 	// own bytes, and minting an observation beside it would report its own writes
 	// back to it as a neighbour's.
-	const lock = locksMod.ownLockOnFile(rel, me.sessionId);
+	const lock = locksMod.readOwnLockOnFile(rel, me.sessionId);
 	if (lock && lock.sessionId === me.sessionId) return null;
 
 	const existing = readObservation(rel, me.sessionId);
@@ -216,7 +216,7 @@ function dropObservation(rel, sessionId) {
 }
 
 /** Every observation record on disk as {file, record}, or null where the directory would not open. */
-function observationEntries(
+function readObservationEntries(
 	/** @type {(file: string) => boolean} */ nameFilter = () => true,
 ) {
 	let files;
@@ -242,7 +242,7 @@ function observationEntries(
  * as "this session observes nothing".
  * @param {string} sessionId
  */
-function observedBy(sessionId) {
+function readObservedBy(sessionId) {
 	if (!sessionId) return null;
 	// By FILENAME first, so this opens its own records and nobody else's. The
 	// directory is one flat store shared by every session, and mantahostels#419 made it grow
@@ -251,7 +251,7 @@ function observedBy(sessionId) {
 	// the hook into its own `timeout 5`. The record's own sessionId is still
 	// checked — the name is an index, never the authority.
 	const suffix = core.pairSuffix(sessionId);
-	const entries = observationEntries((f) => f.endsWith(suffix));
+	const entries = readObservationEntries((f) => f.endsWith(suffix));
 	if (entries === null) return null;
 	return entries
 		.filter((e) => e.record?.sessionId === sessionId)
@@ -260,11 +260,11 @@ function observedBy(sessionId) {
 
 /**
  * The ids whose pins an observation is holding open, or null where that cannot
- * be said — one unreadable record makes the whole answer null, on brokenClaimIds'
+ * be said — one unreadable record makes the whole answer null, on readBrokenClaimIds'
  * reasoning: the pin it was keeping is indistinguishable from an orphan.
  */
-function observedIds() {
-	const entries = observationEntries();
+function readObservedIds() {
+	const entries = readObservationEntries();
 	if (entries === null) return null;
 	const ids = new Set();
 	for (const { record } of entries) {
@@ -309,10 +309,9 @@ function observedVersions(rel, sessionId) {
 
 exports.dropObservation = dropObservation;
 exports.OBSERVATION_AGE_MS = OBSERVATION_AGE_MS;
-exports.observationEntries = observationEntries;
+exports.readObservationEntries = readObservationEntries;
 exports.observationState = observationState;
-exports.observedBy = observedBy;
-exports.observedIds = observedIds;
+exports.readObservedBy = readObservedBy;
+exports.readObservedIds = readObservedIds;
 exports.observedVersions = observedVersions;
-exports.readObservation = readObservation;
 exports.recordObservation = recordObservation;

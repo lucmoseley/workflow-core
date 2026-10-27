@@ -89,11 +89,15 @@ const {
 	gh,
 	ghJson,
 	ghOpenIssues,
-	errLine,
-	ghFailureReason,
+	parseErrLine,
+	parseGhFailureReason,
 	raiseGhFailure,
 } = require("./lib/gh");
-const { isOpenChild, localParentOf, subIssuesOf } = require("./lib/issue-tree");
+const {
+	isOpenChild,
+	localParentOf,
+	readSubIssues,
+} = require("./lib/issue-tree");
 
 const { takesLabel } = require("./lib/takes-label");
 
@@ -227,7 +231,7 @@ function countOpenChildren(open) {
 function makeWarnUnreadable(ctx) {
 	/** @param {Issue} iss @param {unknown} e @param {string} label */
 	return (iss, e, label) => {
-		const says = `#${iss.number} ${iss.title} — sub-issues unreadable (${errLine(e)}), ${label} left as it stands.`;
+		const says = `#${iss.number} ${iss.title} — sub-issues unreadable (${parseErrLine(e)}), ${label} left as it stands.`;
 		ctx.warn("CHILDREN-UNREADABLE", says, {
 			number: iss.number,
 			title: iss.title,
@@ -248,9 +252,9 @@ function findStale(open, openChildren, warnUnreadable) {
 		/** @type {Issue[]} */
 		let kids;
 		try {
-			kids = subIssuesOf(iss.number);
+			kids = readSubIssues(iss.number);
 		} catch (e) {
-			if (ghFailureReason(e) === "unreachable")
+			if (parseGhFailureReason(e) === "unreachable")
 				raiseGhFailure(e, "No container was retagged.");
 			warnUnreadable(iss, e, CONTAINER);
 			continue;
@@ -348,12 +352,12 @@ function retagToTickets(toTickets, retag, warnUnreadable, retagged) {
 		let kids;
 		try {
 			/* Closed ones included: rule (b) turns on that distinction. */
-			kids = subIssuesOf(iss.number);
+			kids = readSubIssues(iss.number);
 		} catch (e) {
 			/* Not "No container was retagged": rule (a) has already run and its
 			 * retags are already printed above, so the standing message would
 			 * assert the opposite of what this run just did. */
-			if (ghFailureReason(e) === "unreachable")
+			if (parseGhFailureReason(e) === "unreachable")
 				raiseGhFailure(
 					e,
 					`${retagged.length} label(s) retagged above; no takes:to-tickets spec was reached.`,

@@ -25,6 +25,7 @@ const ENV_KEYS = [
 	"AI_GATEWAY_API_KEY",
 	"WFC_JEV_BASE_URL",
 	"WFC_GITLEAKS",
+	"CLAUDE_CONFIG_DIR",
 ] as const;
 
 let dir: string;
@@ -38,6 +39,7 @@ beforeEach(() => {
 	fs.mkdirSync(transcripts);
 	saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 	for (const k of ENV_KEYS) delete process.env[k];
+	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "config");
 });
 
 afterEach(() => {
@@ -134,7 +136,7 @@ const run = async () => {
 	expect(r.status).toBe(0);
 	return JSON.parse(r.stdout);
 };
-const outcomes = () =>
+const readOutcomes = () =>
 	[...audit.readVerdicts(dir).values()].map((v) => v.outcome).sort();
 
 describe("the batch", () => {
@@ -147,7 +149,7 @@ describe("the batch", () => {
 		);
 		const g = await callable([0.9, 0.1]);
 		expect(await run()).toMatchObject({ items: 2, answered: 2, failed: 0 });
-		expect(outcomes()).toEqual(["bears", "misses"]);
+		expect(readOutcomes()).toEqual(["bears", "misses"]);
 		await run();
 		expect(g.calls()).toBe(2);
 	});
@@ -156,9 +158,9 @@ describe("the batch", () => {
 		session("s1", "2026-09-28T12:00:00Z", round(1, "Checked: read it"));
 		const g = await callable([{ status: 500 }, { status: 500 }, 0.8]);
 		expect(await run()).toMatchObject({ answered: 0, failed: 1 });
-		expect(outcomes()).toEqual(["outage"]);
+		expect(readOutcomes()).toEqual(["outage"]);
 		expect(await run()).toMatchObject({ answered: 1 });
-		expect(outcomes()).toEqual(["bears"]);
+		expect(readOutcomes()).toEqual(["bears"]);
 		expect(g.calls()).toBe(3);
 	});
 
@@ -167,7 +169,7 @@ describe("the batch", () => {
 		const g = await callable([0.9], 1);
 		await run();
 		await run();
-		expect(outcomes()).toEqual(["finding"]);
+		expect(readOutcomes()).toEqual(["finding"]);
 		expect(g.calls()).toBe(0);
 	});
 

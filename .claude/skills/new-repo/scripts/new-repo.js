@@ -53,7 +53,8 @@
  * until the founder acts by hand (#706 Q5).
  */
 
-const { execFileSync, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
+const { execGit, spawnGitSync } = require("../../../../scripts/lib/git.js");
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
 const { GIT_MODE } = require("../../../../scripts/lib/git-mode.js");
@@ -76,7 +77,7 @@ const {
 	inScope,
 } = require("../../../../scripts/lib/doc-map.js");
 const {
-	errLine,
+	parseErrLine,
 	gh,
 	ghApiSlurp,
 	ghJson,
@@ -84,12 +85,14 @@ const {
 const { ISSUE_LIST_LIMIT } = require("../../../../scripts/lib/gh-limits.js");
 const {
 	initPaths,
-	manifestMarketplaceName,
+	readManifestMarketplaceName,
 } = require("../../../../scripts/init-adopter.js");
 const { installPathFor } = require("../../../../scripts/lib/plugin-state.js");
 const { requiredGroup } = require("../../../../scripts/lib/regex-group.js");
 const { inferCommands } = require("../../../../scripts/lib/infer-commands.js");
-const { subjectModules } = require("../../../../scripts/lib/gate-subjects.js");
+const {
+	readSubjectModules,
+} = require("../../../../scripts/lib/gate-subjects.js");
 const {
 	UNFILLED_DESTINATION,
 } = require("../../../../scripts/lib/issue-gate.js");
@@ -220,7 +223,7 @@ function parse(argv) {
 	checkShapes(v, resume);
 	return {
 		resume,
-		given: givenInputs(v, resume),
+		given: readGivenInputs(v, resume),
 		dryRun: Boolean(b.dryRun),
 		noInstall: Boolean(b.noInstall),
 	};
@@ -297,7 +300,7 @@ function checkShapes(v, resume) {
 }
 
 /** @param {string} file */
-const nonEmptyText = (file) => {
+const readNonEmptyText = (file) => {
 	const t = fs.readFileSync(file, "utf8").trim();
 	if (!t) throw new Error(`${file} is empty`);
 	return t;
@@ -308,17 +311,17 @@ const nonEmptyText = (file) => {
  * @param {string|null} resume
  * @returns {Partial<Inputs>}
  */
-function givenInputs(v, resume) {
+function readGivenInputs(v, resume) {
 	/** @type {Partial<Inputs>} */
 	const given = {};
 	/* A clone renamed by hand saved another name: refused as a difference. */
 	const name = v.name ?? resume;
 	if (name != null) given.name = name;
 	if (v.prefix !== undefined) given.prefix = v.prefix;
-	if (v.ideaFile !== undefined) given.idea = nonEmptyText(v.ideaFile);
+	if (v.ideaFile !== undefined) given.idea = readNonEmptyText(v.ideaFile);
 	if (v.oneLinerFile !== undefined)
-		given.oneLiner = nonEmptyText(v.oneLinerFile).replace(/\.$/, "");
-	if (v.titleFile !== undefined) given.title = nonEmptyText(v.titleFile);
+		given.oneLiner = readNonEmptyText(v.oneLinerFile).replace(/\.$/, "");
+	if (v.titleFile !== undefined) given.title = readNonEmptyText(v.titleFile);
 	return { ...given, ...optionalInputs(v, resume) };
 }
 
@@ -352,7 +355,7 @@ const recordPath = (clone) => path.join(clone, ".git", RECORD);
  * @param {string} clone
  * @returns {Partial<Inputs>|null}
  */
-function savedInputs(clone) {
+function readSavedInputs(clone) {
 	try {
 		return JSON.parse(fs.readFileSync(recordPath(clone), "utf8"));
 	} catch {
@@ -423,7 +426,7 @@ function resolveInputs(resume, given, name, saved) {
  * @param {Buffer} [input]
  */
 const git = (cwd, args, input) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		cwd,
 		encoding: "utf8",
 		input,
@@ -450,7 +453,7 @@ const revParse = (cwd, ref) => {
  * @param {string} b
  */
 const isAncestor = (cwd, a, b) =>
-	spawnSync("git", ["merge-base", "--is-ancestor", a, b], { cwd }).status === 0;
+	spawnGitSync(["merge-base", "--is-ancestor", a, b], { cwd }).status === 0;
 
 /**
  * A child whose output is reported rather than thrown.
@@ -462,20 +465,28 @@ const isAncestor = (cwd, a, b) =>
 const runChild = (cwd, args, env, timeout) => {
 	const [command, ...rest] = args;
 	if (command === undefined) throw new Error("runChild was given no command");
-	const r = spawnSync(command, rest, {
-		cwd,
-		encoding: "utf8",
-		env,
-		timeout,
-	});
-	return {
-		status: r.status ?? 1,
-		output: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? String(r.error) : ""}`,
-	};
+	return reported(
+		spawnSync(command, rest, { cwd, encoding: "utf8", env, timeout }),
+	);
 };
 
+/**
+ * runChild for git, through the seam.
+ * @param {string} cwd
+ * @param {string[]} args
+ * @param {NodeJS.ProcessEnv} env
+ */
+const runGit = (cwd, args, env) =>
+	reported(spawnGitSync(args, { cwd, encoding: "utf8", env }));
+
+/** @param {import("node:child_process").SpawnSyncReturns<string>} r */
+const reported = (r) => ({
+	status: r.status ?? 1,
+	output: `${r.stdout ?? ""}${r.stderr ?? ""}${r.error ? String(r.error) : ""}`,
+});
+
 /** The newest release tag upstream, the one the core is pinned to. */
-function releaseTag() {
+function readReleaseTag() {
 	let tag;
 	try {
 		tag = newestTag(
@@ -483,7 +494,7 @@ function releaseTag() {
 		);
 	} catch (e) {
 		throw new Stop(
-			`could not read ${UPSTREAM_CODE_REPO}'s tags (${errLine(e)})`,
+			`could not read ${UPSTREAM_CODE_REPO}'s tags (${parseErrLine(e)})`,
 			{
 				code: 1,
 				cause: e,
@@ -515,8 +526,8 @@ function repoView(inp) {
 			"isEmpty,isPrivate,owner",
 		]);
 	} catch (e) {
-		if (!/Could not resolve to a Repository/.test(errLine(e)))
-			throw new Stop(`could not read ${inp.repo} (${errLine(e)})`, {
+		if (!/Could not resolve to a Repository/.test(parseErrLine(e)))
+			throw new Stop(`could not read ${inp.repo} (${parseErrLine(e)})`, {
 				code: 1,
 				cause: e,
 			});
@@ -525,7 +536,7 @@ function repoView(inp) {
 }
 
 /** git's global user.name, recorded as the founder; refused where unset. */
-function founderName() {
+function readFounderName() {
 	let founder;
 	try {
 		founder = git(os.homedir(), ["config", "--get", "user.name"]);
@@ -548,14 +559,14 @@ function preflight(inp, clone) {
 	try {
 		gh(["auth", "status"]);
 	} catch (e) {
-		throw new Stop(`gh is not logged in (${errLine(e)})`, {
+		throw new Stop(`gh is not logged in (${parseErrLine(e)})`, {
 			code: 2,
 			cause: e,
 			manual: "log gh in: run `gh auth login` in a terminal",
 		});
 	}
-	const tag = releaseTag();
-	const cloneOurs = savedInputs(clone)?.repo === inp.repo;
+	const tag = readReleaseTag();
+	const cloneOurs = readSavedInputs(clone)?.repo === inp.repo;
 	if (fs.existsSync(clone) && !cloneOurs)
 		throw new Stop(`~/${inp.name} exists and is not this script's clone`, {
 			code: 2,
@@ -584,7 +595,7 @@ function preflight(inp, clone) {
 		});
 	const source = inp.source ? sourcePreflight(inp, clone) : null;
 	bashrcPreflight(inp);
-	const founder = founderName();
+	const founder = readFounderName();
 	return {
 		tag,
 		founder,
@@ -610,8 +621,8 @@ const KEEP_CLOSE = "# --- end workflow-core block ---";
  * @param {string[]} paths
  * @returns {Map<string, string>}
  */
-function hiddenPaths(tree, paths) {
-	const r = spawnSync("git", ["check-ignore", "-v", "--stdin"], {
+function readHiddenPaths(tree, paths) {
+	const r = spawnGitSync(["check-ignore", "-v", "--stdin"], {
 		cwd: tree,
 		input: `${paths.join("\n")}\n`,
 		encoding: "utf8",
@@ -650,7 +661,7 @@ function keepTrackable(tree, { whose, stop, aside, dry = false }) {
 	const file = path.join(tree, ".gitignore");
 	const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 	const present = text.split("\n").includes(KEEP_OPEN);
-	const negated = present ? [] : [...hiddenPaths(tree, paths).keys()];
+	const negated = present ? [] : [...readHiddenPaths(tree, paths).keys()];
 	if (negated.length > 0 && dry) return { present, negated };
 	if (negated.length > 0)
 		fs.writeFileSync(
@@ -661,10 +672,10 @@ function keepTrackable(tree, { whose, stop, aside, dry = false }) {
 				KEEP_CLOSE,
 			]),
 		);
-	const stuck = hiddenPaths(tree, paths);
+	const stuck = readHiddenPaths(tree, paths);
 	if (stuck.size > 0)
 		throw new Stop(
-			`${whose}${hidingLines(stuck)}, and no negation can undo it`,
+			`${whose}${buildHidingClauses(stuck)}, and no negation can undo it`,
 			{ code: 2, ...stop },
 		);
 	return { present, negated };
@@ -674,7 +685,7 @@ function keepTrackable(tree, { whose, stop, aside, dry = false }) {
  * `<line> hides <path>, <path>; …`, one clause per hiding line.
  * @param {Map<string, string>} stuck
  */
-function hidingLines(stuck) {
+function buildHidingClauses(stuck) {
 	/** @type {Map<string, string[]>} */
 	const by = new Map();
 	for (const [p, line] of stuck) by.set(line, [...(by.get(line) ?? []), p]);
@@ -713,17 +724,20 @@ function sourcePreflight(inp, clone) {
 			"defaultBranchRef,licenseInfo",
 		]);
 	} catch (e) {
-		if (/Could not resolve to a Repository/.test(errLine(e)))
+		if (/Could not resolve to a Repository/.test(parseErrLine(e)))
 			throw new Stop(`the source repo ${src} is not reachable`, {
 				code: 2,
 				cause: e,
 				manual: "check its owner/name, and that gh's account can read it",
 				fresh: true,
 			});
-		throw new Stop(`could not read the source repo ${src} (${errLine(e)})`, {
-			code: 1,
-			cause: e,
-		});
+		throw new Stop(
+			`could not read the source repo ${src} (${parseErrLine(e)})`,
+			{
+				code: 1,
+				cause: e,
+			},
+		);
 	}
 	const branch = view.defaultBranchRef?.name;
 	if (!branch)
@@ -745,7 +759,7 @@ function sourcePreflight(inp, clone) {
 		try {
 			commands = inferCommands(tree);
 		} catch (e) {
-			throw new Stop(errLine(e), {
+			throw new Stop(parseErrLine(e), {
 				code: 2,
 				cause: e,
 				manual: copied
@@ -754,7 +768,7 @@ function sourcePreflight(inp, clone) {
 				fresh: !copied,
 			});
 		}
-		const modules = copiedModules(tree, commands);
+		const modules = readCopiedModules(tree, commands);
 		const flows = path.join(tree, ".github/workflows");
 		const workflows = fs.existsSync(flows)
 			? fs
@@ -785,12 +799,12 @@ function sourcePreflight(inp, clone) {
  * @param {ReturnType<typeof inferCommands>} commands
  * @returns {string[]}
  */
-function copiedModules(tree, commands) {
+function readCopiedModules(tree, commands) {
 	let modules;
 	try {
-		modules = subjectModules(tree);
+		modules = readSubjectModules(tree);
 	} catch (e) {
-		throw new Stop(errLine(e), { code: 1, cause: e });
+		throw new Stop(parseErrLine(e), { code: 1, cause: e });
 	}
 	if (commands.test && !modules.includes("suites")) modules.unshift("suites");
 	return modules;
@@ -861,7 +875,7 @@ function sourceFacts(inp, src) {
  *   run before the copy
  */
 function copySource({ inp, clone, env, dry }, src) {
-	const base = dry ? copiedBase(clone, src) : fetchSource(inp, clone, src);
+	const base = dry ? readCopiedBase(clone, src) : fetchSource(inp, clone, src);
 	const unsent = base === null ? null : copyUnsent(clone, base, dry);
 	if (unsent && !unsent.branch && unsent.tags.length === 0)
 		report("source repo", SKIPPED, `${inp.source}'s ${src.branch} is main`);
@@ -875,10 +889,9 @@ function copySource({ inp, clone, env, dry }, src) {
 		const { branch, tags } = /** @type {{branch: boolean, tags: string[]}} */ (
 			unsent
 		);
-		const r = runChild(
+		const r = runGit(
 			clone,
 			[
-				"git",
 				"push",
 				"-q",
 				"origin",
@@ -919,7 +932,7 @@ function copySource({ inp, clone, env, dry }, src) {
 function fetchSource(inp, clone, src) {
 	const url = `https://github.com/${inp.source}.git`;
 	/* `git config --get` exits 1 on an unset key, and only then. */
-	const read = spawnSync("git", ["config", "--get", "remote.upstream.url"], {
+	const read = spawnGitSync(["config", "--get", "remote.upstream.url"], {
 		cwd: clone,
 		encoding: "utf8",
 	});
@@ -959,7 +972,7 @@ function fetchSource(inp, clone, src) {
 				manual: `settle ~/${inp.name}'s main against origin/main by hand`,
 			},
 		);
-	const merge = spawnSync("git", ["merge-base", "refs/heads/main", tip], {
+	const merge = spawnGitSync(["merge-base", "refs/heads/main", tip], {
 		cwd: clone,
 		encoding: "utf8",
 	});
@@ -985,10 +998,9 @@ function fetchSource(inp, clone, src) {
  * @param {string} clone
  * @param {Source} src
  */
-function copiedBase(clone, src) {
+function readCopiedBase(clone, src) {
 	if (!src.copied) return null;
-	const r = spawnSync(
-		"git",
+	const r = spawnGitSync(
 		["merge-base", "refs/heads/main", `refs/remotes/upstream/${src.branch}`],
 		{ cwd: clone, encoding: "utf8" },
 	);
@@ -1000,7 +1012,7 @@ function copiedBase(clone, src) {
  * @param {string} clone
  * @param {string} remote
  */
-const remoteRefs = (clone, remote) =>
+const readRemoteRefs = (clone, remote) =>
 	new Map(
 		git(clone, ["ls-remote", "--refs", remote])
 			.split("\n")
@@ -1018,13 +1030,13 @@ const remoteRefs = (clone, remote) =>
  * @param {boolean} dry
  */
 function copyUnsent(clone, base, dry) {
-	const origin = remoteRefs(clone, "origin");
+	const origin = readRemoteRefs(clone, "origin");
 	const mainSha = origin.get("refs/heads/main");
 	const tags = new Set([
 		...git(clone, ["for-each-ref", "--format=%(refname)", "refs/tags"]).split(
 			"\n",
 		),
-		...(dry ? remoteRefs(clone, "upstream").keys() : []),
+		...(dry ? readRemoteRefs(clone, "upstream").keys() : []),
 	]);
 	return {
 		branch: mainSha === undefined || !isAncestor(clone, base, mainSha),
@@ -1040,7 +1052,7 @@ function copyUnsent(clone, base, dry) {
  * @param {string} base
  * @returns {Map<string, {mode: string, blob: string}>}
  */
-function sourceEntries(clone, base) {
+function readSourceEntries(clone, base) {
 	const entries = new Map();
 	for (const entry of git(clone, [
 		"ls-tree",
@@ -1089,7 +1101,7 @@ function setAside({ inp, clone, dry }, base, src) {
 		report("set aside", "would", asidePlan(src));
 		return [];
 	}
-	const source = sourceEntries(clone, base);
+	const source = readSourceEntries(clone, base);
 	/** @type {AsideMoves} */
 	const moves = { done: [], changed: [], repairs: [], acts: [], made: [] };
 	for (const entry of ASIDE)
@@ -1446,7 +1458,7 @@ function sourceDocs(inp, clone, env, dry = false) {
 }
 
 /** @param {number} map */
-const firstPrompt = (map) =>
+const buildFirstPrompt = (map) =>
 	`/wayfinder Chart the map on #${map}. It holds my idea and no destination yet: fill that issue as the map rather than creating a new one.`;
 
 /**
@@ -1456,7 +1468,7 @@ const firstPrompt = (map) =>
  * @param {Inputs} inp
  * @param {number|null} map
  */
-function mapBody(inp, map) {
+function buildMapBody(inp, map) {
 	const notes = [
 		"The founder's idea, in their own words:",
 		inp.idea,
@@ -1467,7 +1479,10 @@ function mapBody(inp, map) {
 			: []),
 		...(map === null
 			? []
-			: ["The first-session prompt:", `\`\`\`\n${firstPrompt(map)}\n\`\`\``]),
+			: [
+					"The first-session prompt:",
+					`\`\`\`\n${buildFirstPrompt(map)}\n\`\`\``,
+				]),
 	];
 	return `## Destination\n\n${UNFILLED_DESTINATION}\n\n## Notes\n\n${notes.join("\n\n")}\n\n## Decisions so far\n\n## Not yet specified\n\n## Out of scope\n`;
 }
@@ -1542,7 +1557,7 @@ function closeDuplicates(inp, kept, dups) {
  * @param {number} map
  * @returns {string}
  */
-const bodyOf = (inp, map) =>
+const readMapBody = (inp, map) =>
 	String(
 		ghJson(["issue", "view", String(map), "--repo", inp.repo, "--json", "body"])
 			.body,
@@ -1554,7 +1569,7 @@ const bodyOf = (inp, map) =>
  * @param {Inputs} inp
  * @returns {{map: number, dups: number[], body: string}|null}
  */
-function mapState(inp) {
+function readMapState(inp) {
 	/** @type {{number: number, state: string}[]} */
 	const maps = ghJson([
 		"issue",
@@ -1582,7 +1597,7 @@ function mapState(inp) {
 			.slice(1)
 			.filter((m) => m.state === "OPEN")
 			.map((m) => m.number),
-		body: bodyOf(inp, map),
+		body: readMapBody(inp, map),
 	};
 }
 
@@ -1592,7 +1607,7 @@ function mapState(inp) {
  * @returns {number|null} the map; null in a dry run before it is filed
  */
 function firstMap({ inp, clone, env, dry }, repoExists) {
-	const found = repoExists || !dry ? mapState(inp) : null;
+	const found = repoExists || !dry ? readMapState(inp) : null;
 	if (!found && dry) {
 		report(
 			"first map",
@@ -1609,14 +1624,14 @@ function firstMap({ inp, clone, env, dry }, repoExists) {
 			title: inp.title,
 			labels: MAP_LABELS,
 			place: ["--standalone", "the new repo's first map, filed by new-repo.js"],
-			body: mapBody(inp, null),
+			body: buildMapBody(inp, null),
 			manual:
 				"file-issue.js refused the map as above — fix the idea or title file it names",
 		});
 	const dups = found?.dups ?? [];
-	const body = found?.body ?? bodyOf(inp, map);
+	const body = found?.body ?? readMapBody(inp, map);
 	/* The prompt names the map's own number, so it goes in once that is known. */
-	const prompted = body.includes(firstPrompt(map));
+	const prompted = body.includes(buildFirstPrompt(map));
 	const fixes = [
 		...dups.map((n) => `close #${n} as a duplicate`),
 		...(prompted ? [] : ["put the first-session prompt in its body"]),
@@ -1647,7 +1662,7 @@ function writeMapPrompt({ inp, clone, map }, body) {
 	const standalone = body.match(/^Standalone: .*$/m)?.[0];
 	fs.writeFileSync(
 		bodyFile,
-		`${mapBody(inp, map)}${standalone ? `\n${standalone}\n` : ""}`,
+		`${buildMapBody(inp, map)}${standalone ? `\n${standalone}\n` : ""}`,
 	);
 	gh([
 		"issue",
@@ -1661,7 +1676,7 @@ function writeMapPrompt({ inp, clone, map }, body) {
 }
 
 /** @param {Inputs} inp */
-const reconcileTitle = (inp) =>
+const buildReconcileTitle = (inp) =>
 	`Reconcile ${inp.source}'s agent instructions with the core's`;
 
 /**
@@ -1673,7 +1688,7 @@ const reconcileTitle = (inp) =>
  * @returns {{kept: number, dups: number[], linked: boolean}|null}
  */
 function reconcileState(inp, map) {
-	const title = reconcileTitle(inp);
+	const title = buildReconcileTitle(inp);
 	/** @type {{number: number, title: string, state: string}[]} */
 	const children = ghApiSlurp([`repos/${inp.repo}/issues/${map}/sub_issues`]);
 	/** @type {Map<number, string>} number → state, upper-cased as `issue list` gives it */
@@ -1720,7 +1735,7 @@ function reconcileState(inp, map) {
 function reconcile(step, map, base, src) {
 	const { inp, clone, env, dry } = step;
 	const instructions = ASIDE.filter((m) => m.instructions);
-	const source = base ? sourceEntries(clone, base) : null;
+	const source = base ? readSourceEntries(clone, base) : null;
 	const had = instructionsHad(instructions, source, src);
 	if (had?.length === 0)
 		return report("reconcile", "skipped — the source repo has no instructions");
@@ -1779,12 +1794,12 @@ function fileReconcile(
 		return report(
 			"reconcile",
 			"would",
-			`"${reconcileTitle(inp)}" under the first map, labelled ${RECONCILE_LABELS.join(" + ")}, unassigned${had ? "" : `, where ${instructions.map((m) => m.from).join(" or ")} was set aside`}`,
+			`"${buildReconcileTitle(inp)}" under the first map, labelled ${RECONCILE_LABELS.join(" + ")}, unassigned${had ? "" : `, where ${instructions.map((m) => m.from).join(" or ")} was set aside`}`,
 		);
 	const n = fileIssue(clone, env, {
 		slug: "reconcile",
 		noun: "the reconcile ticket",
-		title: reconcileTitle(inp),
+		title: buildReconcileTitle(inp),
 		labels: RECONCILE_LABELS,
 		place: ["--parent", String(map)],
 		body: [
@@ -1837,7 +1852,7 @@ const STATE_SLOT = "State: <pre-launch / live / …>.";
  * @param {Inputs} inp
  * @param {number} map
  */
-const stateLine = (inp, map) =>
+const buildStateLine = (inp, map) =>
 	`State: pre-launch — the way is being charted on #${map} (${inp.title}).`;
 
 /**
@@ -1866,7 +1881,7 @@ function projectSection(inp, clone, map, dry = false) {
 		);
 	// Read, so the map is filed.
 	const found = /** @type {string} */ (text);
-	const state = stateLine(inp, /** @type {number} */ (map));
+	const state = buildStateLine(inp, /** @type {number} */ (map));
 	if (unfilled) {
 		fs.writeFileSync(
 			file,
@@ -1939,10 +1954,10 @@ function pluginReads(clone, dry = false) {
  * refuses an exclude naming an ignored path (#725).
  * @param {string} clone
  */
-function skeletonState(clone) {
+function readSkeletonState(clone) {
 	const spec = [
 		...skeletonPaths((h) => fs.existsSync(path.join(clone, h))),
-		...(hiddenPaths(clone, [LOCAL_SETTINGS]).size > 0
+		...(readHiddenPaths(clone, [LOCAL_SETTINGS]).size > 0
 			? []
 			: [`:(exclude)${LOCAL_SETTINGS}`]),
 	];
@@ -1970,7 +1985,7 @@ function skeletonState(clone) {
  * @param {boolean} dry
  */
 function commitPending(inp, pre, clone, dry) {
-	if (!dry) return Boolean(skeletonState(clone).dirty);
+	if (!dry) return Boolean(readSkeletonState(clone).dirty);
 	let hook;
 	try {
 		hook = git(clone, ["show", "HEAD:.husky/pre-commit"]);
@@ -1982,7 +1997,7 @@ function commitPending(inp, pre, clone, dry) {
 	return (
 		// trimEnd: git() trims what it reads.
 		hook !== renderHookShim("pre-commit").trimEnd() ||
-		Boolean(skeletonState(clone).dirty) ||
+		Boolean(readSkeletonState(clone).dirty) ||
 		initChangesHead(inp, pre, clone)
 	);
 }
@@ -2021,7 +2036,7 @@ function initChangesHead(inp, pre, clone) {
 			{ ...process.env, CLAUDE_PROJECT_DIR: tree },
 		);
 		// An init that fails stops the run before its commit: `would` costs nothing.
-		return r.status !== 0 || Boolean(skeletonState(tree).dirty);
+		return r.status !== 0 || Boolean(readSkeletonState(tree).dirty);
 	} finally {
 		fs.rmSync(scratch, { recursive: true, force: true });
 	}
@@ -2052,19 +2067,18 @@ function skeletonCommit(
 		);
 		return true;
 	}
-	const { spec } = skeletonState(clone);
+	const { spec } = readSkeletonState(clone);
 	const manual = `open a new tab, run \`${inp.prefix}1\`, fix it in that session, then re-run from workflow-core: ${resumeCmd}`;
-	const add = runChild(clone, ["git", "add", "-N", "--", ...spec], env);
+	const add = runGit(clone, ["add", "-N", "--", ...spec], env);
 	if (add.status !== 0)
 		throw new Stop("git add refused the skeleton paths", {
 			code: 2,
 			output: add.output,
 			manual,
 		});
-	const r = runChild(
+	const r = runGit(
 		clone,
 		[
-			"git",
 			"commit",
 			"-q",
 			"-m",
@@ -2092,7 +2106,7 @@ function skeletonCommit(
  * @param {string} clone
  * @param {boolean} dry
  */
-function originMain(clone, dry) {
+function readOriginMain(clone, dry) {
 	if (dry)
 		return (
 			git(clone, ["ls-remote", "origin", "refs/heads/main"]).split("\t")[0] ||
@@ -2109,10 +2123,10 @@ function originMain(clone, dry) {
  */
 function push({ inp, clone, env, dry }, committing) {
 	const head = dry && committing ? null : revParse(clone, "HEAD");
-	if (head !== null && originMain(clone, dry) === head)
+	if (head !== null && readOriginMain(clone, dry) === head)
 		return report("push", SKIPPED);
 	if (dry) return report("push", "would", `push main to ${inp.repo}`);
-	const r = runChild(clone, ["git", "push", "-q", "-u", "origin", "main"], env);
+	const r = runGit(clone, ["push", "-q", "-u", "origin", "main"], env);
 	if (r.status !== 0)
 		throw new Stop("the push was rejected", {
 			code: 2,
@@ -2144,7 +2158,7 @@ const markers = (name) => ({
  * variable defined elsewhere in ~/.bashrc, so the block stands alone.
  * @param {Inputs} inp
  */
-function launchBlock(inp) {
+function buildLaunchBlock(inp) {
 	const union = fs.existsSync(path.join(os.homedir(), UNION_WRAPPER));
 	const dirs = PLANS.map((d) => `CLAUDE_CONFIG_DIR=$HOME/.claude${d}`);
 	const width = Math.max(...dirs.map((d) => d.length));
@@ -2289,7 +2303,7 @@ function blockLead(text) {
 function launchAliases(inp, dryRun) {
 	const file = bashrcPath();
 	const text = readBashrc();
-	const { union, block } = launchBlock(inp);
+	const { union, block } = buildLaunchBlock(inp);
 	const found = findBlock(text, inp.name);
 	if (found) return keepFoundBlock({ inp, file, found, block });
 	const lead = blockLead(text);
@@ -2353,7 +2367,7 @@ function planDigit() {
 const pluginRoot = (tag) =>
 	installPathFor(
 		undefined,
-		manifestMarketplaceName(CORE) ?? "workflow-core",
+		readManifestMarketplaceName(CORE) ?? "workflow-core",
 		"workflow-core",
 		tag,
 	);
@@ -2383,7 +2397,7 @@ const initArgs = (inp, pre, clone, noInstall) => [
 ];
 
 /** @param {Preflight} pre */
-const modulesLine = (pre) => pre.modules.join(", ") || "none";
+const buildModulesLine = (pre) => pre.modules.join(", ") || "none";
 
 /**
  * init-adopter.js (#713 step 7), every run: it is idempotent for its own
@@ -2397,7 +2411,7 @@ function initAdopter({ inp, clone, env, dry, noInstall }, pre) {
 	const args = initArgs(inp, pre, clone, noInstall);
 	if (dry) {
 		report("init-adopter", "would", args.map(shellQuote).join(" "));
-		report("modules", modulesLine(pre));
+		report("modules", buildModulesLine(pre));
 		const found = Object.entries(pre.source?.commands ?? {}).map(
 			([c, hit]) => `${c}: ${hit?.command} (${hit?.from})`,
 		);
@@ -2419,7 +2433,7 @@ function initAdopter({ inp, clone, env, dry, noInstall }, pre) {
 	report(
 		"init-adopter",
 		"done",
-		`pinned to ${pre.tag}, modules ${modulesLine(pre)}`,
+		`pinned to ${pre.tag}, modules ${buildModulesLine(pre)}`,
 	);
 	for (const line of init.output.split("\n"))
 		if (/^(probe|WARNING|MISSING|FAILED)/.test(line)) out(`  ${line}`);
@@ -2544,7 +2558,7 @@ function main(argv) {
 	const env = { ...process.env, CLAUDE_PROJECT_DIR: clone };
 	const at = { step: "preflight" };
 	try {
-		const inp = resolveInputs(resume, given, name, savedInputs(clone));
+		const inp = resolveInputs(resume, given, name, readSavedInputs(clone));
 		const pre = preflight(inp, clone);
 		report("preflight", "done", `core ${pre.tag}`);
 		const dry = parsed.dryRun;
@@ -2588,7 +2602,7 @@ function printFirstSession(inp, clone, map, aliases) {
 	);
 	out("Then paste this as the first prompt:");
 	out("");
-	out(firstPrompt(/** @type {number} */ (map)));
+	out(buildFirstPrompt(/** @type {number} */ (map)));
 }
 
 /**
@@ -2602,7 +2616,7 @@ function reportStop(step, e, rerunCommand) {
 	const stop =
 		e instanceof Stop
 			? e
-			: new Stop(e instanceof Error ? errLine(e) : String(e), {
+			: new Stop(e instanceof Error ? parseErrLine(e) : String(e), {
 					code: 1,
 					cause: e,
 				});

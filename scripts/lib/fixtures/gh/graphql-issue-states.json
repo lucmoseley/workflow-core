@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "{\"data\":{\"r0\":{\"n1\":{\"__typename\":\"Issue\",\"state\":\"CLOSED\"},\"n2\":null}},\"errors\":[{\"type\":\"NOT_FOUND\",\"path\":[\"r0\",\"n2\"],\"locations\":[{\"line\":1,\"column\":1}],\"message\":\"Could not resolve to an issue or pull request with the number of 2.\"}]}",
+	"stderr": "gh: Could not resolve to an issue or pull request with the number of 2.\n"
+}

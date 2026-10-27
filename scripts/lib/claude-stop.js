@@ -10,28 +10,44 @@
 
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
-const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
+const { readJobRecord, shortJobId } = require("./job-paths.js");
 
 /**
  * @typedef {{ok: true, said: string}
- *   | {ok: false, why: string, said: string|null, timedOut: boolean}} StopOutcome
+ *   | {ok: false, why: string, said: string|null, timedOut: boolean,
+ *      noJob: boolean}} StopOutcome
  *   `said` is what the daemon printed — its stdout on success, the last line of
  *   its stderr on failure; `why` adds the exit code to it. `timedOut` marks a
- *   stop killed at STOP_TIMEOUT_MS.
+ *   stop killed at STOP_TIMEOUT_MS; `noJob` a daemon holding no job by that id,
+ *   "No job matching '<id>'", the permanent failure of mantahostels#846.
  */
 
 /** A hang guard, never measured: a stop answers in seconds when well. */
 const STOP_TIMEOUT_MS = 15_000;
 
 /**
- * @param {string} seat
- * @param {string} jobId
+ * `sessionId`'s own job record and the seat holding it, from the first of
+ * `seats` whose `jobs/<jobId>` record names it; null where none does.
+ * `jobId` defaults to shortJobId; a caller holding the registry's own `jobId`
+ * passes it.
+ * @param {string} sessionId
+ * @param {{jobId?: string, seats?: string[]}} [where]
+ * @returns {{seat: string, job: any} | null}  `job` untyped, as
+ *   readJobRecord's: the harness owns its schema
  */
-const jobStatePath = (seat, jobId) =>
-	path.join(seat, "jobs", jobId, "state.json");
+function readOwnJob(
+	sessionId,
+	{ jobId = shortJobId(sessionId), seats = configDirs() } = {},
+) {
+	for (const seat of seats) {
+		const job = readJobRecord(seat, jobId);
+		if (job?.sessionId === sessionId) return { seat, job };
+	}
+	return null;
+}
 
 /**
  * The seats to address a job on, in order: those whose `jobs/<id>` record names
@@ -50,21 +66,14 @@ const jobStatePath = (seat, jobId) =>
  * @param {string} sessionId
  * @returns {string[]}
  */
-function seatsFor(jobId, sessionId) {
+function readSeatsFor(jobId, sessionId) {
 	/** @type {string[]} */
 	const named = [];
 	/** @type {string[]} */
 	const unknown = [];
 	for (const seat of configDirs()) {
 		if (!fs.existsSync(seat)) continue;
-		let owner;
-		try {
-			owner = JSON.parse(
-				fs.readFileSync(jobStatePath(seat, jobId), "utf8"),
-			)?.sessionId;
-		} catch {
-			owner = null;
-		}
+		const owner = readJobRecord(seat, jobId)?.sessionId;
 		if (owner === sessionId) named.push(seat);
 		else if (typeof owner !== "string" || !owner) unknown.push(seat);
 	}
@@ -72,7 +81,7 @@ function seatsFor(jobId, sessionId) {
 }
 
 /**
- * Stops a job on the first seat that holds it, seatsFor's order.
+ * Stops a job on the first seat that holds it, readSeatsFor's order.
  *
  * ONLY "No job matching" MOVES ON TO THE NEXT SEAT — the answer of a seat whose
  * daemon has no such job. Any other failure, a timeout above all, is reported
@@ -85,12 +94,12 @@ function seatsFor(jobId, sessionId) {
  * @returns {StopOutcome}
  */
 function stopSession(id, sessionId) {
-	const seats = seatsFor(id, sessionId);
+	const seats = readSeatsFor(id, sessionId);
 	/** @type {Extract<StopOutcome, {ok: false}>|undefined} */
 	let firstRefusal;
 	for (const seat of seats) {
 		const r = stopOn(seat, id);
-		if (r.ok || !/No job matching/.test(r.why)) return r;
+		if (r.ok || !r.noJob) return r;
 		firstRefusal ??= r;
 	}
 	if (!firstRefusal)
@@ -99,6 +108,7 @@ function stopSession(id, sessionId) {
 			why: `every seat's record of ${id} names another session`,
 			said: null,
 			timedOut: false,
+			noJob: false,
 		};
 	return seats.length > 1
 		? {
@@ -126,9 +136,9 @@ function stopOn(seat, id, bin = claudeBin()) {
 	} catch (e) {
 		const err = caught(e);
 		// err.code / err.status, never err.message: the message embeds the whole argv.
-		// What the DAEMON said is separate, and it is what tells "No job matching
-		// '<id>'", the permanent failure of mantahostels#846, from a timeout. Its LAST line,
-		// per docs/agents/verification.md: the reason prints under any warnings.
+		// What the DAEMON said is separate, and it is what tells noJob from a
+		// timeout. Its LAST line, per docs/agents/verification.md: the reason
+		// prints under any warnings.
 		const said =
 			String(err.stderr || "")
 				.split("\n")
@@ -142,8 +152,13 @@ function stopOn(seat, id, bin = claudeBin()) {
 			why: said ? `${code}: ${said}` : code,
 			said,
 			timedOut: err.code === "ETIMEDOUT",
+			noJob: /No job matching/.test(said ?? ""),
 		};
 	}
 }
 
-module.exports = { jobStatePath, seatsFor, stopOn, stopSession };
+module.exports = {
+	readOwnJob,
+	stopOn,
+	stopSession,
+};

@@ -62,13 +62,13 @@
  */
 
 const fs = require("node:fs");
-const { execFileSync } = require("node:child_process");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
 const { isCommit } = require("./lib/commit-sha.js");
+const { execGit } = require("./lib/git.js");
 
 /** Also read by report-manual-staleness.js, which skips on its absence too. */
 const MANUAL = "docs/operating-manual.md";
@@ -84,8 +84,7 @@ const FAIL_DAYS = 30;
  */
 function touches(sha, path) {
 	try {
-		const out = execFileSync(
-			"git",
+		const out = execGit(
 			["diff-tree", "--no-commit-id", "--name-only", "-r", sha],
 			{ encoding: "utf8" },
 		);
@@ -105,7 +104,7 @@ function touches(sha, path) {
 function commitUnixDate(sha) {
 	try {
 		return Number.parseInt(
-			execFileSync("git", ["show", "-s", "--format=%ct", sha], {
+			execGit(["show", "-s", "--format=%ct", sha], {
 				encoding: "utf8",
 			}).trim(),
 			10,

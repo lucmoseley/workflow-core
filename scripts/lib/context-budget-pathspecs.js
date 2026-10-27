@@ -9,23 +9,23 @@
  * so no test reads a checker export (#1411).
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { brokenError, MAX_BUFFER } = require("./check");
-const { catFileBatch } = require("./git-objects");
+const { brokenError } = require("./check");
+const { readObjectBatch } = require("./git-objects");
 const { requiredGroup } = require("./regex-group");
 const { CONFIG_PATH } = require("./workflow-core-config");
 const { getPoolFiles } = require("./always-loaded-pool");
-const { SELF_PLUGIN_HOOKS, ownHooks } = require("./core-hooks.js");
+const { SELF_PLUGIN_HOOKS, readOwnHooks } = require("./core-hooks.js");
 const { hostRoot } = require("./host-root.js");
+const { MANIFEST_REL } = require("./guard-cores.js");
 const {
 	CAP_SOURCE,
 	WIRED_SCRIPT_RE,
 	EVENT,
 	AFTER_EVENTS,
 	registrationsOn,
-	sourcedClosure,
+	readSourcedClosure,
 } = require("./rule-emission");
 
 /** @typedef {import("./check").Ctx} Ctx */
@@ -104,7 +104,7 @@ const CAPPED_PATHSPECS = [
 	 * skill or command description is delivered at all (mantahostels#1786), and
 	 * at the core for the canary its `hooks` keep (#2572). */
 	SETTINGS_FILE,
-	/* Not itself capped either — its `modules` decide which `gp_rule_module`
+	/* Not itself capped either — its `modules` decide which `ruleModule`
 	 * ids a guard reaches. Absent, every module reads as off and both sides
 	 * under-count alike (#1014). */
 	CONFIG_PATH,
@@ -135,6 +135,7 @@ const MEASURED_ONLY = [VENDORED_SOURCE, PLUGIN_COST_TABLE];
 /* Read at the revision so the index side judges a pool rule against the
  * entries its own commit stages (#2033). Never byte-counted. */
 const { LEDGER_PATH } = require("./pool-admission.js");
+const { execGit } = require("./git.js");
 
 /**
  * The shed registers a cap refusal names, materialised only so the refusal can
@@ -148,7 +149,7 @@ const SHED_REGISTERS = {
 
 /**
  * The scripts a PreToolUse or AFTER_EVENTS hook can fire at `rev` and the libs
- * they source, plus the file GP_RULE_CAP is assigned in.
+ * they source, plus the file RULE_CAP is assigned in.
  *
  * DERIVED AT THE REVISION rather than listed, the wiring being
  * lib/core-hooks.js's `ownHooks` to state (mantahostels#2004).
@@ -165,16 +166,18 @@ const SHED_REGISTERS = {
  * @param {string} rev
  * @returns {string[]}
  */
-function ruleSourcePathspecs(rev) {
+function readRuleSourcePathspecs(rev) {
 	const specs = new Set([CAP_SOURCE]);
 	/** @type {RegExpMatchArray[]} */
 	const matches = [];
 	try {
-		const settings = { hooks: ownHooks(hostRoot(), { rev }) ?? {} };
+		const settings = { hooks: readOwnHooks(hostRoot(), { rev }) ?? {} };
+		const manifest = readManifestAtRev(rev);
+		if (manifest) specs.add(MANIFEST_REL);
 		/* The module's own walk, so this list and the figure computed from it
 		 * cannot disagree about which command wires which script. */
 		for (const event of [EVENT, ...AFTER_EVENTS])
-			for (const { commandLine } of registrationsOn(settings, event))
+			for (const { commandLine } of registrationsOn(settings, event, manifest))
 				matches.push(...commandLine.matchAll(WIRED_SCRIPT_RE));
 	} catch {
 		/* Absent, unshowable, unparseable or malformed at the revision — one case
@@ -187,27 +190,39 @@ function ruleSourcePathspecs(rev) {
 	/* And the libs they source: rule-emission.js reads those into each guard's
 	 * source and skips an absent one in silence, so a fetch without them drops
 	 * their ids from both sides (#1120). Outside the catch above, which would
-	 * turn a failed read into exactly that silence: catFileBatch throws BROKEN. */
+	 * turn a failed read into exactly that silence: readObjectBatch throws BROKEN. */
 	/** @type {Map<string, string | null>} */
 	const libs = new Map();
 	const readLib = (/** @type {string} */ lib) => {
 		if (!libs.has(lib)) {
-			const [text] = blobsAt(rev, [lib]);
+			const [text] = readBlobsAt(rev, [lib]);
 			if (text === undefined)
 				throw brokenError(`no blob came back for ${rev}:${lib}`);
 			libs.set(lib, text);
 		}
 		return libs.get(lib) ?? null;
 	};
-	for (const [i, text] of blobsAt(rev, guards).entries()) {
+	for (const [i, text] of readBlobsAt(rev, guards).entries()) {
 		const rel = guards[i];
 		if (rel === undefined)
 			throw brokenError(`a blob came back for no guard asked of ${rev}`);
 		if (text !== null)
-			for (const lib of sourcedClosure(rel, text, readLib).keys())
+			for (const lib of readSourcedClosure(rel, text, readLib).keys())
 				specs.add(lib);
 	}
 	return [...specs];
+}
+
+/**
+ * The revision's own dispatcher rows, fetched with its guards so the figure
+ * reads the cores it commits rather than the live tree's (#2924); undefined
+ * where it ships no manifest.
+ * @param {string} rev
+ * @returns {import("./guard-cores.js").Manifest | undefined}
+ */
+function readManifestAtRev(rev) {
+	const [rows] = readBlobsAt(rev, [MANIFEST_REL]);
+	return rows ? JSON.parse(rows) : undefined;
 }
 
 /**
@@ -217,8 +232,8 @@ function ruleSourcePathspecs(rev) {
  * @param {string[]} rels
  * @returns {(string | null)[]}
  */
-const blobsAt = (rev, rels) =>
-	catFileBatch(
+const readBlobsAt = (rev, rels) =>
+	readObjectBatch(
 		rels.map((rel) => `${rev}:${rel}`),
 		`${rev}'s guard sources`,
 	).map((r) => (r === null ? null : r.body.toString("utf8")));
@@ -235,7 +250,7 @@ const fixedPathspecs = (rev) => [
 	...MEASURED_ONLY,
 	LEDGER_PATH,
 	...Object.values(SHED_REGISTERS),
-	...ruleSourcePathspecs(rev),
+	...readRuleSourcePathspecs(rev),
 ];
 
 /**
@@ -256,9 +271,8 @@ function materialisePathspecs(ctx, rev) {
 	/** @type {string} */
 	let script;
 	try {
-		script = execFileSync("git", ["show", `${rev}:${INJECTOR}`], {
+		script = execGit(["show", `${rev}:${INJECTOR}`], {
 			encoding: "utf8",
-			maxBuffer: MAX_BUFFER,
 			stdio: ["ignore", "pipe", "ignore"],
 		});
 	} catch {
@@ -267,7 +281,7 @@ function materialisePathspecs(ctx, rev) {
 		} catch {
 			/* Every failure class lands here — a permission error, a corrupt
 			 * install. The narrowed pathspec is survivable because it fails CLOSED
-			 * downstream: the checker's injectedDocs() BROKENs on the injector it then cannot
+			 * downstream: the checker's readInjectedDocs() BROKENs on the injector it then cannot
 			 * read, so a narrowed list cannot pass a commit it never measured
 			 * (mantahostels#1834). */
 			return fixedPathspecs(rev);

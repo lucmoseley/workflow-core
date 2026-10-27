@@ -1,0 +1,12 @@
+{
+	"recordedBy": "node scripts/record-claude-responses.js",
+	"harness": "2.1.310",
+	"responses": {
+		"offTerminal": {
+			"status": 0
+		},
+		"onTerminal": {
+			"status": 0
+		}
+	}
+}

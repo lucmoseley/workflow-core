@@ -195,7 +195,7 @@ function readRuns(root) {
  * @param {string} root
  * @returns {string|null|undefined}
  */
-function lastRunAt(root) {
+function readLastRunAt(root) {
 	/** @type {{t: number, at: string|null|undefined}|null} */
 	let newest = null;
 	for (const r of readRuns(root).runs) {
@@ -804,6 +804,6 @@ module.exports = {
 	logPath,
 	appendRun,
 	readRuns,
-	lastRunAt,
+	readLastRunAt,
 	summarise,
 };

@@ -1,0 +1,12 @@
+# browser-testing-and-accessibility
+
+Researched: 2026-10-24
+
+## Rendering checks before hand-over
+
+- Before handing over a page someone must judge, render it in a real browser at the widths its reader will use, and look at the result rather than the source. Content wider than the viewport, or an image that forces sideways scrolling, is the failure to look for; the fix is to fit the page to the viewport, not to shrink what must be read. web.dev, "Responsive web design basics" (Google; check breakpoints in a browser, avoid horizontal scrolling) [named expert]; WCAG 2.2 SC 1.4.10 Reflow, with its Understanding page (no two-dimensional scrolling for text; images whose meaning needs their layout are exempt, the text around them is not) [standard or field body]
+- Widths: 1920×1080 is the commonest desktop resolution at 28.07%, then 1536×864 (10%) and 1366×768 (7.95%), September 2026. StatCounter, "Desktop screen resolution stats worldwide" [survey or curated list]. WCAG's own desktop reference width is 1280 CSS px (SC 1.4.10's note: 320 CSS px is 1280 at 400% zoom) [standard or field body]. Use the reader's own screen where it is known.
+- Display scaling divides device pixels into CSS pixels (125% turns 1920 into 1536), so a screenshot's pixel width gives the screen, not its CSS width. Where the reader's scaling is unknown, render at both the 100% and the 125% width. Ours, no source [unverified]: it sets no default alone.
+- Render headless with Playwright (1.64.1, read 2026-10-26) where it is installed, through `scripts/browse.py shot` (`--viewport WxH`, `--tiles`, which exits 6 on sideways scroll or an image drawn below its own pixel width). Rendering varies with OS, browser version, fonts and hardware, so compare screenshots only against ones taken in the same environment. Playwright docs, "Screenshots" and "Visual comparisons" (what the tool does) [standard or field body]; the default to render in a real browser rests on web.dev and WCAG above.
+- A model reading the screenshot sees it downscaled past its long-edge or visual-token limit (2,576 px and 4,784 tokens on Claude 4.7 and later; 1920×1080 is not resized), so capture one tile per viewport height rather than one full-page image, and judge legibility only on a tile read at full size. Claude docs, "Vision" §Resolution and token cost (what the model does) [standard or field body]
+- Research: #2753, its research comment (issuecomment-6382827617).

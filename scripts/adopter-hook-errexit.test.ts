@@ -32,7 +32,7 @@ const SHEBANG = "#!/usr/bin/env sh";
 const ERREXIT = /^set -e(\s|$)/;
 
 /** Every line that is not a comment or blank, in file order. */
-const codeLines = (text: string) =>
+const parseCodeLines = (text: string) =>
 	text.split("\n").filter((l) => !/^\s*(#|$)/.test(l));
 
 const huskyHooks = fs
@@ -51,14 +51,14 @@ describe("every core hook carries its own errexit (#745)", () => {
 		(h) => {
 			const text = fs.readFileSync(path.join(ROOT, ".husky", h), "utf8");
 			expect(text.split("\n")[0]).toBe(SHEBANG);
-			expect(codeLines(text)[0]).toMatch(ERREXIT);
+			expect(parseCodeLines(text)[0]).toMatch(ERREXIT);
 		},
 	);
 
 	it.each(HOOKS)("%s's shim runs the core's under `sh -e`", (h) => {
 		const text = renderHookShim(h);
 		expect(text.split("\n")[0]).toBe(SHEBANG);
-		expect(codeLines(text).at(-1)).toBe(
+		expect(parseCodeLines(text).at(-1)).toBe(
 			`exec sh -e "$WFC_PLUGIN_ROOT/.husky/${h}" "$@"`,
 		);
 	});
@@ -133,10 +133,10 @@ function tryCommit(
 	{ root, plugin }: { root: string; plugin: string },
 	env: Record<string, string> = {},
 ) {
-	const head = () =>
+	const readHead = () =>
 		spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" })
 			.stdout;
-	const before = head();
+	const before = readHead();
 	const { HUSKY: _husky, ...inherited } = process.env;
 	const r = spawnSync("git", ["commit", "-qm", "work"], {
 		cwd: root,
@@ -150,7 +150,7 @@ function tryCommit(
 	});
 	return {
 		status: r.status,
-		landed: head() !== before,
+		landed: readHead() !== before,
 		out: `${r.stdout}\n${r.stderr}`,
 	};
 }

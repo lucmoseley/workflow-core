@@ -28,34 +28,34 @@ const OVER_INJECTION = "OVER-INJECTION";
 
 /** The route (f) bytes one SESSION can be made to pay through a PreToolUse
  * tool are at or over its cap (mantahostels#2004 per event; mantahostels#2046 re-based it on the
- * session, which is the unit gp_rule's latch actually charges). */
+ * session, which is the unit the injection latch actually charges). */
 const OVER_SESSION = "OVER-SESSION";
 
 /**
- * gp_rule's reachable delivery, unioned across every PreToolUse trigger rather
+ * The reachable `injectRules` delivery, unioned across every PreToolUse trigger rather
  * than taken per tool, is at or over route (f)'s second, shared-ratchet axis
  * (mantahostels#1720, seeded at mantahostels#1787).
  */
 const OVER_RATCHET = "OVER-RATCHET";
 
 /**
- * A rule fragment reachable by a wired guard is over GP_RULE_CAP on its own —
- * gp_rule can never emit it and refuses the call it leads outright. The repo's
+ * A rule fragment reachable by a wired guard is over RULE_CAP on its own —
+ * it can never be emitted, and refuses the call it leads outright. The repo's
  * own text, not the checker's apparatus (mantahostels#2054).
  */
 const OVER_FRAGMENT = "OVER-FRAGMENT";
 
 /**
- * A `gp_rule_told <id>` in a wired guard that bounds nothing — the id resolves
- * to no fragment, or the same guard makes no direct `rule_text` call on it. The
+ * A `ctx.told("<id>")` in a wired guard that bounds nothing — the id resolves
+ * to no fragment, or the same guard makes no direct accessor call on it. The
  * latch is stranded and the census would otherwise report the fragment bounded
  * (mantahostels#2283).
  *
  * WHAT A LATCH MAY LEGITIMATELY BOUND is a store fragment OR text the guard
- * composes itself, `gp_rule_told` serving both (mantahostels#2275). Only the first can
- * be checked by resolving the id, so a guard reaching the store by neither
- * `rule_text` nor `gp_rule` is judged on its `gp_rule_mark_told` alone — the
- * one pairing a self-composing latch can misspell (mantahostels#2446).
+ * composes itself, `ctx.told` serving both (mantahostels#2275). Only the first can
+ * be checked by resolving the id, so a guard reaching the store by neither a
+ * direct accessor call nor `injectRules` is judged on its `latchAfter` alone —
+ * the one pairing a self-composing latch can misspell (mantahostels#2446).
  *
  * DELIBERATELY OUTSIDE OVER_CAP_TAGS below: no cap is breached, no figure
  * moves, and the direction gate has nothing to compare. It reports.

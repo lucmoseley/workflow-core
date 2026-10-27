@@ -5,7 +5,8 @@
  *
  *   node scripts/build-arm-sandbox.js config --from <config dir> --to <new dir> [--override <path>=<file>]...
  *   node scripts/build-arm-sandbox.js task --repo <repo> --at <rev> --to <new dir>
- *       [--revert <sha>]... [--issue <n>=<frozen issue json>]... [--node-modules <dir>]
+ *       [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<frozen issue json>]...
+ *       [--node-modules <dir>]
  *       [--config-dir <arm config dir>]
  *
  * `config` builds an arm's config dir by COPYING the user-level layer, every
@@ -18,10 +19,10 @@
  * dir is logged in by the founder's Authorize click (D2 step 2).
  *
  * `task` builds one run's sandbox: a fresh clone at `--at` with every
- * `--revert` applied as one commit, whose `origin` is a local bare repo, and `bin/gh`, a stub
+ * `--revert`, then every `--unapply` patch in reverse, applied as one commit, whose `origin` is a local bare repo, and `bin/gh`, a stub
  * that logs every call and reaches nothing (`lib/arm-gh-stub.js`). It refuses a
  * target under any config dir's `jobs/` tree or a `.claude/worktrees` tree, where
- * guard-job-dir-scratch.sh and the worktree rules would fire on every run.
+ * lib/job-dir-scratch.js and the worktree rules would fire on every run.
  * With `--node-modules` linked, the clone's own `npm run prepare` arms its git
  * hooks, so the commit gates and pre-push run as they do live. Launch the
  * session with `sandbox.env` sourced, cwd `<to>/repo`: it puts the stub first
@@ -50,8 +51,15 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { execGit, spawnGitSync } = require("./lib/git.js");
+const { resolveKey } = require("./lib/workflow-core-config.js");
+const {
+	readTrackerRemotes,
+	fetchTrackerCommand,
+} = require("./lib/tracker-remotes.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
+const { jobStorePath } = require("./lib/job-paths.js");
 const {
 	SELF_PLUGIN_DIR,
 	SELF_PLUGIN_ID,
@@ -62,12 +70,12 @@ const {
 const CONFIG_USAGE =
 	"Usage: node scripts/build-arm-sandbox.js config --from <config dir> --to <new dir> [--override <path>=<file>]...";
 const TASK_USAGE =
-	"Usage: node scripts/build-arm-sandbox.js task --repo <repo> --at <rev> --to <new dir> [--revert <sha>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <arm config dir>]";
+	"Usage: node scripts/build-arm-sandbox.js task --repo <repo> --at <rev> --to <new dir> [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <arm config dir>]";
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
 	usage:
-		"Usage: node scripts/build-arm-sandbox.js (config --from <dir> --to <dir> [--override <path>=<file>]... | task --repo <repo> --at <rev> --to <dir> [--revert <sha>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <dir>])",
+		"Usage: node scripts/build-arm-sandbox.js (config --from <dir> --to <dir> [--override <path>=<file>]... | task --repo <repo> --at <rev> --to <dir> [--revert <sha>]... [--unapply <patch>]... [--issue <n>=<file>]... [--node-modules <dir>] [--config-dir <dir>])",
 	commands: {
 		config: {
 			usage: CONFIG_USAGE,
@@ -80,6 +88,7 @@ const CLI = {
 				"--at": "value",
 				"--to": "value",
 				"--revert": "list",
+				"--unapply": "list",
 				"--issue": "list",
 				"--node-modules": "value",
 				"--config-dir": "value",
@@ -127,7 +136,7 @@ function isEmptyOrAbsent(dir) {
  * @param {Set<string>} [ancestry] real paths of the directories being copied
  */
 function copyDereferenced(src, dst, skipped, ancestry = new Set()) {
-	const real = realOrNull(src);
+	const real = readRealOrNull(src);
 	if (real === null) {
 		skipped.push(src);
 		return;
@@ -157,12 +166,12 @@ function copyDereferenced(src, dst, skipped, ancestry = new Set()) {
  * @param {string} dir
  * @returns {string[]}
  */
-function symlinksUnder(dir) {
+function readSymlinksUnder(dir) {
 	const out = [];
 	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
 		const p = path.join(dir, e.name);
 		if (e.isSymbolicLink()) out.push(p);
-		else if (e.isDirectory()) out.push(...symlinksUnder(p));
+		else if (e.isDirectory()) out.push(...readSymlinksUnder(p));
 	}
 	return out;
 }
@@ -171,7 +180,7 @@ function symlinksUnder(dir) {
  * @param {string} p
  * @returns {string | null} null where `p` dangles or is absent
  */
-function realOrNull(p) {
+function readRealOrNull(p) {
 	try {
 		return fs.realpathSync(p);
 	} catch {
@@ -230,7 +239,7 @@ function liveAliases(copied, from, home, dest) {
 		const copy = path.join(dest, entry);
 		aliases.set(real, copy);
 		for (const dir of configDirs)
-			if (realOrNull(path.join(dir, entry)) === real)
+			if (readRealOrNull(path.join(dir, entry)) === real)
 				aliases.set(path.join(dir, entry), copy);
 		if (aliases.has(path.join(home, ".claude", entry)))
 			// JSON escapes the quotes a shell command puts round `$HOME`.
@@ -326,7 +335,7 @@ function buildConfig({ flags, lists }) {
 		home,
 	);
 
-	const links = symlinksUnder(dest);
+	const links = readSymlinksUnder(dest);
 	if (links.length > 0)
 		return refuse(`symlinks survived the copy: ${links.join(", ")}`);
 	writeFd(
@@ -346,14 +355,14 @@ function buildConfig({ flags, lists }) {
 function isInsideForbiddenTree(p) {
 	let base = path.resolve(p);
 	let rest = "";
-	while (realOrNull(base) === null && path.dirname(base) !== base) {
+	while (readRealOrNull(base) === null && path.dirname(base) !== base) {
 		rest = path.join(path.basename(base), rest);
 		base = path.dirname(base);
 	}
-	const real = path.join(realOrNull(base) ?? base, rest);
+	const real = path.join(readRealOrNull(base) ?? base, rest);
 	const parts = real.split(path.sep);
 	const configJobs = process.env.CLAUDE_CONFIG_DIR
-		? path.join(path.resolve(process.env.CLAUDE_CONFIG_DIR), "jobs")
+		? jobStorePath(path.resolve(process.env.CLAUDE_CONFIG_DIR))
 		: null;
 	return (
 		(configJobs !== null &&
@@ -371,7 +380,7 @@ function isInsideForbiddenTree(p) {
  * @param {string[]} args
  */
 const git = (cwd, args) =>
-	execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+	execGit(args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 
 /**
  * @param {string} cwd
@@ -385,6 +394,41 @@ function gitOrNone(cwd, args) {
 		// `git config <key>` exits 1 on an unset key, which is an answer here.
 		return "none";
 	}
+}
+
+/**
+ * `--quiet` exits 1 on a missing object alone, so a fault such as a path that
+ * is no repo still throws.
+ * @param {string} repo
+ * @param {string} rev
+ */
+function hasCommit(repo, rev) {
+	const r = spawnGitSync(
+		["rev-parse", "--verify", "--quiet", `${rev}^{commit}`],
+		{
+			cwd: repo,
+			encoding: "utf8",
+		},
+	);
+	if (r.status === 1) return false;
+	if (r.status !== 0)
+		throw new Error(`git rev-parse ${rev}: ${r.stderr.trim()}`);
+	return true;
+}
+
+/**
+ * A clone of the public code repo holds none of the tracker's history, where
+ * the task shas live (#1954, #2854).
+ * @param {string} repo
+ * @param {string[]} missing
+ */
+function refuseMissing(repo, missing) {
+	const tracker = resolveKey("tracker", { root: repo });
+	const fetch =
+		typeof tracker === "string"
+			? `cd ${repo} && ${fetchTrackerCommand(readTrackerRemotes(tracker, { cwd: repo }), tracker)}`
+			: "add a remote naming the tracker and fetch it";
+	return `${repo} holds no commit ${missing.join(", ")}; fetch the tracker's history into it, then build again: ${fetch}`;
 }
 
 /** @param {string} clone */
@@ -472,6 +516,32 @@ function armSelfPlugin(configDir, clone) {
 }
 
 /**
+ * Takes the work out of `clone`: each sha reverted, then each patch applied in
+ * reverse, as one commit with a neutral subject, not git's `Revert "…"` per
+ * sha, whose subjects name the work to redo and the commits that hold it
+ * (#2044).
+ * @param {string} clone
+ * @param {string[]} reverts
+ * @param {string[]} unapplied absolute patch paths
+ */
+function startTask(clone, reverts, unapplied) {
+	if (reverts.length + unapplied.length === 0) return;
+	const start = git(clone, ["rev-parse", "HEAD"]);
+	const identity = [
+		"-c",
+		"user.name=arm sandbox",
+		"-c",
+		"user.email=sandbox@invalid",
+	];
+	for (const sha of reverts)
+		git(clone, [...identity, "revert", "--no-edit", sha]);
+	for (const patch of unapplied)
+		git(clone, ["apply", "--reverse", "--3way", "--index", patch]);
+	git(clone, ["reset", "--quiet", "--soft", start]);
+	git(clone, [...identity, "commit", "--quiet", "-m", "Start the task"]);
+}
+
+/**
  * @param {import("./lib/cli-args").Parsed} parsed
  * @returns {number}
  */
@@ -487,6 +557,14 @@ function buildTask({ flags, lists }) {
 			`${to} is inside a config dir's jobs/ tree or a .claude/worktrees tree; build the sandbox outside every one.`,
 		);
 	if (!isEmptyOrAbsent(to)) return refuse(`${to} exists and is not empty.`);
+	const reverts = lists["--revert"] ?? [];
+	const unapplied = (lists["--unapply"] ?? []).map((p) => path.resolve(p));
+	const missing = [at, ...reverts].filter((rev) => !hasCommit(repo, rev));
+	if (missing.length > 0) return refuse(refuseMissing(repo, missing));
+	const absent = unapplied.filter((p) => !fs.existsSync(p));
+	if (absent.length > 0)
+		return refuse(`no --unapply patch ${absent.join(", ")}`);
+	const base = git(repo, ["rev-parse", "--verify", `${at}^{commit}`]);
 
 	const root = path.resolve(to);
 	const origin = path.join(root, "origin.git");
@@ -495,23 +573,8 @@ function buildTask({ flags, lists }) {
 	fs.mkdirSync(path.join(root, "gh-fixtures"));
 	git(root, ["init", "--quiet", "--bare", origin]);
 	git(root, ["clone", "--quiet", path.resolve(repo), clone]);
-	git(clone, ["checkout", "--quiet", "-B", "main", at]);
-	const start = git(clone, ["rev-parse", "HEAD"]);
-	const reverts = lists["--revert"] ?? [];
-	const identity = [
-		"-c",
-		"user.name=arm sandbox",
-		"-c",
-		"user.email=sandbox@invalid",
-	];
-	for (const sha of reverts)
-		git(clone, [...identity, "revert", "--no-edit", sha]);
-	// One commit with a neutral subject, not git's `Revert "…"` per sha, whose
-	// subjects name the work to redo and the commits that hold it (#2044).
-	if (reverts.length > 0) {
-		git(clone, ["reset", "--quiet", "--soft", start]);
-		git(clone, [...identity, "commit", "--quiet", "-m", "Start the task"]);
-	}
+	git(clone, ["checkout", "--quiet", "-B", "main", base]);
+	startTask(clone, reverts, unapplied);
 	git(clone, ["remote", "set-url", "origin", origin]);
 	git(clone, ["push", "--quiet", "origin", "main"]);
 	git(clone, ["fetch", "--quiet", "--prune", "origin"]);
@@ -553,7 +616,7 @@ function buildTask({ flags, lists }) {
 
 	writeFd(
 		1,
-		`${JSON.stringify({ root, repo: clone, origin, gh, log: path.join(root, "gh.log"), env, hooksPath, selfPlugin, head: git(clone, ["rev-parse", "HEAD"]) }, null, 2)}\n`,
+		`${JSON.stringify({ root, repo: clone, origin, gh, log: path.join(root, "gh.log"), env, hooksPath, selfPlugin, base, head: git(clone, ["rev-parse", "HEAD"]) }, null, 2)}\n`,
 	);
 	return 0;
 }

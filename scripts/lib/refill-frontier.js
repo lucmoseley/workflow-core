@@ -23,7 +23,7 @@
  */
 
 const path = require("node:path");
-const { lastLaunchAt } = require("./dispatch-ledger.js");
+const { readLastLaunchAt } = require("./dispatch-ledger.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
@@ -109,11 +109,23 @@ async function shortlistOf(root, goal) {
 		},
 	);
 	if (run.killedFor) return { error: run.killedFor };
-	if (run.code !== 0) {
-		const tail = run.stderr.trim().split("\n").pop() ?? "";
-		return { error: `exited ${run.code ?? run.signal} ${tail}`.trim() };
-	}
+	if (run.code !== 0)
+		return {
+			error:
+				`exited ${run.code ?? run.signal} ${parseFailureLine(run.stderr)}`.trim(),
+		};
 	return parsedShortlist(run.stdout);
+}
+
+/**
+ * The stderr line naming why a shortlist failed: pick-next's `FAILED:` line,
+ * which its closing "do not read this as an empty frontier" line follows,
+ * else the last line (#2561).
+ * @param {string} stderr
+ */
+function parseFailureLine(stderr) {
+	const lines = stderr.trim().split("\n");
+	return lines.findLast((l) => l.startsWith("FAILED:")) ?? lines.pop() ?? "";
 }
 
 /**
@@ -204,7 +216,7 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 	/** @type {RepoFrontier[]} */
 	const merged = served.map(({ root, result }) => ({
 		root,
-		lastLaunchAt: lastLaunchAt(root),
+		lastLaunchAt: readLastLaunchAt(root),
 		rows: result.rows.map((r) => ({
 			...r,
 			reach: r.reach + (reachByRoot.get(root)?.get(r.number) ?? 0),
@@ -214,4 +226,4 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 	return { failed, held, ...mergeFrontiers(merged) };
 }
 
-module.exports = { refillFrontier };
+module.exports = { parseFailureLine, refillFrontier };

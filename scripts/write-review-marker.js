@@ -19,7 +19,8 @@
  * mechanical-rename route, which runs no review.
  *
  * `--paths` writes both `paths=` and its `tree=`, as the review hold rejects
- * a marker holding one without the other.
+ * a marker holding one without the other. Under `--patch` it names the patched
+ * files too, and the tree is built with those left to the patch.
  *
  * Joins no §N3 family: it writes a marker, not a file `generate-*` owns, and
  * its exits are its own — 0 written, 1 the write or the tree failed, 2 a
@@ -32,8 +33,11 @@ const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { commitSha } = require("./lib/commit-sha.js");
+const { spawnGitSync } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { markersDir } = require("./lib/marker-root.js");
+const { numstatPaths } = require("./lib/patch-files.js");
+const { reviewSuffix } = require("./lib/review-suffix.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE =
@@ -59,14 +63,6 @@ function fail(message, code) {
 	writeFd(2, `write-review-marker: ${message}\n`);
 	process.exit(code);
 }
-
-/**
- * The same suffix lib/review-suffix.sh gives the Artefact paths;
- * review-suffix.test.ts holds the two to one answer.
- * @param {string} sid
- */
-const reviewSuffix = (sid) =>
-	`-${sid.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 8)}`;
 
 /** @param {string} value */
 const commaList = (value) =>
@@ -107,14 +103,60 @@ function missingArtefacts(root, sid, noSpec) {
 }
 
 /**
+ * The files `patch` touches, which `--tree` takes from the patch and refuses
+ * named whole after `--`, though `paths=` must still name them for the hold.
+ * @param {string} root
+ * @param {string} patch
+ * @returns {Set<string>}
+ */
+function readPatchOrFail(root, patch) {
+	const r = spawnGitSync(
+		["apply", "--numstat", "-z", "--unidiff-zero", path.resolve(root, patch)],
+		{ cwd: root, encoding: "utf8" },
+	);
+	if (r.status !== 0)
+		fail(
+			`git could not read the patch ${patch}: ${String(r.stderr ?? "").trim()} Nothing written.`,
+			1,
+		);
+	return new Set(numstatPaths(String(r.stdout)));
+}
+
+/**
+ * Each `--paths` entry in the repo-relative spelling commit-paths.js and the
+ * hold's exact `paths=` match both take: `./a.js` and `scripts/` become
+ * `a.js` and `scripts`. Resolved against `root`, not the cwd, as `--tree`
+ * runs there. Refuses one outside the repository.
+ * @param {string} root
+ * @param {string[]} paths
+ * @returns {string[]}
+ */
+function repoRelative(root, paths) {
+	return paths.map((p) => {
+		const rel = path.relative(root, path.resolve(root, p));
+		if (rel === "" || rel.split("/")[0] === "..")
+			fail(
+				`--paths entry '${p}' names no file inside ${root}. Nothing written.`,
+				2,
+			);
+		return rel;
+	});
+}
+
+/**
  * @param {string} root
  * @param {string[]} paths
  * @param {string | undefined} patch
  */
-function treeOf(root, paths, patch) {
+function readTreeOf(root, paths, patch) {
 	const args = [path.join(__dirname, "commit-paths.js"), "--tree"];
-	if (patch) args.push("--patch", patch);
-	const r = spawnSync(process.execPath, [...args, "--", ...paths], {
+	let whole = paths;
+	if (patch) {
+		args.push("--patch", patch);
+		const patched = readPatchOrFail(root, patch);
+		whole = paths.filter((p) => !patched.has(p));
+	}
+	const r = spawnSync(process.execPath, [...args, "--", ...whole], {
 		cwd: root,
 		encoding: "utf8",
 	});
@@ -221,11 +263,13 @@ function main() {
 	const lines = [`base=${fullSha(root, o.base)}`, `findings=${o.findings}`];
 	if (o.tier !== undefined)
 		lines.push(`tier=${o.tier}`, `areas=${commaList(o.areas ?? "").join(",")}`);
-	if (o.paths.length > 0)
+	if (o.paths.length > 0) {
+		const paths = repoRelative(root, o.paths);
 		lines.push(
-			`tree=${treeOf(root, o.paths, o.patch)}`,
-			`paths=${o.paths.join(",")}`,
+			`tree=${readTreeOf(root, paths, o.patch)}`,
+			`paths=${paths.join(",")}`,
 		);
+	}
 
 	const marker = path.join(markersDir(root), `.codereview-pass-${sid}`);
 	try {

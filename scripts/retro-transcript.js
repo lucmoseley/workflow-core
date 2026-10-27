@@ -42,7 +42,6 @@
  * usage or a refused output path.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -53,10 +52,11 @@ const { requiredGroup } = require("./lib/regex-group");
 const { maskTokens } = require("./lib/token-shapes");
 const {
 	STOP_FEEDBACK,
-	contentText,
+	parseContentText,
 	subagentDirOf,
 } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
+const { execGit } = require("./lib/git.js");
 
 const USAGE = `Usage: node scripts/retro-transcript.js <session.jsonl> [--out <path>]
 
@@ -118,7 +118,7 @@ function short(value, limit) {
  * @param {string} file
  * @returns {Generator<{ n: number, line: string }>}
  */
-function* lines(file) {
+function* readLines(file) {
 	const fd = fs.openSync(file, "r");
 	const buf = Buffer.alloc(CHUNK);
 	const decoder = new StringDecoder("utf8");
@@ -189,7 +189,7 @@ function reduceUser(record, tier) {
 	const items = Array.isArray(content) ? resultItems(content) : [];
 	/** @type {Reduced} */
 	const reduced = { items, toolIds: [] };
-	const text = contentText(content);
+	const text = parseContentText(content);
 	const kind = record.origin?.kind;
 	if (items.length > 0 || !text || record.isCompactSummary) return reduced;
 	if (record.isMeta) {
@@ -214,7 +214,7 @@ function resultItems(content) {
 	for (const b of content) {
 		if (b?.type !== "tool_result") continue;
 		const label = b.is_error ? "RESULT ERROR" : "RESULT";
-		items.push([label, short(contentText(b.content), LIMIT.result)]);
+		items.push([label, short(parseContentText(b.content), LIMIT.result)]);
 	}
 	return items;
 }
@@ -231,7 +231,7 @@ function reduceAssistant(record) {
 	if (record.isApiErrorMessage) {
 		items.push([
 			`API-ERROR${record.error ? ` ${record.error}` : ""}`,
-			short(contentText(content), LIMIT.apiError),
+			short(parseContentText(content), LIMIT.apiError),
 		]);
 		return reduced;
 	}
@@ -319,7 +319,10 @@ function reduceAttachment(record) {
 	else if (isFounderQueued(a))
 		/* Typed while the session was busy, so logged only here, never as a
 		 * user record. A peer's queued message fails `isFounder`. */
-		items.push(["FOUNDER queued", short(contentText(a.prompt), LIMIT.founder)]);
+		items.push([
+			"FOUNDER queued",
+			short(parseContentText(a.prompt), LIMIT.founder),
+		]);
 	return { items, toolIds: [] };
 }
 
@@ -348,7 +351,7 @@ const AGENT_LOG = /^(agent-.+)\.jsonl$/;
  * @param {string} log
  * @returns {Map<string, Subagent>}
  */
-function subagentsOf(log) {
+function readSubagentsOf(log) {
 	const dir = subagentDirOf(log);
 	/** @type {Map<string, Subagent>} */
 	const found = new Map();
@@ -389,7 +392,7 @@ function subagentsOf(log) {
  * created.
  * @param {string} file
  */
-function realPath(file) {
+function readRealPath(file) {
 	/** @type {string[]} */
 	const rest = [];
 	let at = file;
@@ -418,11 +421,11 @@ function outputPath(root, log, requested) {
 			);
 	fs.mkdirSync(scratch, { recursive: true });
 	/* Real paths on both sides, so a symlink out of .claude/tmp/ is no way out. */
-	const real = realPath(out);
+	const real = readRealPath(out);
 	if (!real.startsWith(fs.realpathSync(scratch) + path.sep))
 		return { refused: `${out} is outside ${scratch}${path.sep}` };
 	try {
-		execFileSync("git", ["ls-files", "--error-unmatch", "--", real], {
+		execGit(["ls-files", "--error-unmatch", "--", real], {
 			cwd: root,
 			stdio: "ignore",
 		});
@@ -447,7 +450,7 @@ function outputPath(root, log, requested) {
  * @returns {Generator<{ n: number, record: LogRecord | null }>}
  */
 function* records(file, tier, onUnparseable) {
-	for (const { n, line } of lines(file))
+	for (const { n, line } of readLines(file))
 		yield { n, record: parseLine(line, tier, onUnparseable) };
 }
 
@@ -477,7 +480,7 @@ function parseLine(line, tier, onUnparseable) {
  * @param {string} time
  * @param {[string, string]} item
  */
-function itemLine(prefix, n, time, [label, text]) {
+function buildItemLine(prefix, n, time, [label, text]) {
 	return `${prefix}L${n}${time ? ` ${time}` : ""} ${label}${text ? `: ${text}` : ""}`;
 }
 
@@ -517,7 +520,7 @@ function main() {
 		process.exit(1);
 	}
 
-	const subagents = subagentsOf(log);
+	const subagents = readSubagentsOf(log);
 	const fd = fs.openSync(target.out, "w");
 	let written = 0;
 	let skipped = 0;
@@ -549,7 +552,7 @@ function main() {
 			const { items, toolIds } = reduce(record, tier);
 			const time = (record.timestamp ?? "").slice(11, 19);
 			for (const item of items)
-				emit(itemLine(`${indent}${where}`, n, time, item));
+				emit(buildItemLine(`${indent}${where}`, n, time, item));
 			foldDispatched(toolIds, depth + 1, `${where}L${n}`);
 		}
 		return last;

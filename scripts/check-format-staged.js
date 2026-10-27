@@ -30,17 +30,17 @@ const {
 	indexHead,
 	loadShfmt,
 	ruffConfigArgs,
-	ruffExcludeArgs,
+	readRuffExcludeArgs,
 	shellFiles,
 	shellFinding,
 } = require("./lib/formatters");
 const { caught } = require("./lib/caught.js");
-const { blob, spawn, stagedDiff } = require("./lib/staged");
+const { readBlob, spawn, readStagedDiff } = require("./lib/staged");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /**
  * @typedef {(tag: "UNFORMATTED" | "UNPARSEABLE", p: string, message: string) => void} Refuse
- * @typedef {{ staged: (p: string) => string, refuse: Refuse }} Judge
+ * @typedef {{ readStagedBlob: (p: string) => string, refuse: Refuse }} Judge
  */
 
 /**
@@ -52,7 +52,7 @@ const { blob, spawn, stagedDiff } = require("./lib/staged");
  * @param {Judge} judge
  * @returns {number} the paths checked
  */
-function checkShell(ctx, shell, { staged, refuse }) {
+function checkShell(ctx, shell, { readStagedBlob, refuse }) {
 	if (shell.length === 0) return 0;
 	const format = loadShfmt();
 	if (!format)
@@ -62,7 +62,7 @@ function checkShell(ctx, shell, { staged, refuse }) {
 	let checked = 0;
 	for (const p of shell) {
 		checked++;
-		const finding = shellFinding(format, staged(p), p);
+		const finding = shellFinding(format, readStagedBlob(p), p);
 		if (finding) refuse(finding.tag, p, finding.message);
 	}
 	return checked;
@@ -77,17 +77,21 @@ function checkShell(ctx, shell, { staged, refuse }) {
  * @param {Judge} judge
  * @returns {number} the paths checked
  */
-function checkPython(ctx, python, { staged, refuse }) {
+function checkPython(ctx, python, { readStagedBlob, refuse }) {
 	if (python.length === 0) return 0;
 	const base = [
 		"format",
 		"--check",
 		...ruffConfigArgs(),
-		...ruffExcludeArgs((line) => ctx.say(line)),
+		...readRuffExcludeArgs((line) => ctx.say(line)),
 	];
 	let checked = 0;
 	for (const p of python) {
-		const r = spawn(RUFF, [...base, "--stdin-filename", p, "-"], staged(p));
+		const r = spawn(
+			RUFF,
+			[...base, "--stdin-filename", p, "-"],
+			readStagedBlob(p),
+		);
 		if (r.error)
 			ctx.broken(
 				`cannot run ${RUFF} (${r.error.message}) for ${python.length} staged Python path(s) — install it: ${RUFF_INSTALL}`,
@@ -116,7 +120,7 @@ runCheck({
 	usage: "node scripts/check-format-staged.js [--skip-shell] [--skip-python]",
 	flags: ["--skip-shell", "--skip-python"],
 	run(/** @type {Ctx} */ ctx) {
-		const paths = stagedDiff(ctx, ["--name-only", "--diff-filter=ACMR"]);
+		const paths = readStagedDiff(ctx, ["--name-only", "--diff-filter=ACMR"]);
 		let allShell;
 		try {
 			allShell = shellFiles(paths, indexHead(), { cached: true });
@@ -128,8 +132,8 @@ runCheck({
 			return { okLine: "no staged shell or Python path" };
 
 		/** @param {string} p */
-		const staged = (p) => {
-			const source = blob(`:${p}`);
+		const readStagedBlob = (p) => {
+			const source = readBlob(`:${p}`);
 			if (source === null) ctx.broken(`${p} has no staged blob`);
 			return source;
 		};
@@ -166,8 +170,8 @@ runCheck({
 			ctx.say(`${p}: ${message}`);
 		};
 
-		let checked = checkShell(ctx, shell, { staged, refuse });
-		checked += checkPython(ctx, python, { staged, refuse });
+		let checked = checkShell(ctx, shell, { readStagedBlob, refuse });
+		checked += checkPython(ctx, python, { readStagedBlob, refuse });
 
 		if (checked === 0) ctx.skip("every staged shell and Python path skipped");
 		if (refused > 0) {

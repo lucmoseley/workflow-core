@@ -3,7 +3,7 @@
  * The seventeenth refusal (#597): a round option handing the founder an act by
  * placeholder or back-reference instead of its literal text, and its secret
  * ask: a credential the founder supplies without `write-secret.js`, in an
- * option (#1031) or in prose (#1817). Driven through
+ * option (#1031) or in prose (#1817), or beside a line that leaks it (#2645). Driven through
  * the guard's Stop entry in process; the permission line the refusal prints is
  * then run, in this checkout and in a simulated plugin install — through bash,
  * because the claim is that the line works as the founder would paste it.
@@ -19,8 +19,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { programLibs } from "./guard-parse-fixture";
-import { stopGuardReason } from "./lib/stop-guard-testkit";
+import { readStopGuardReason } from "./lib/stop-guard-testkit";
+import { readProgramLibs } from "./lib-closure-fixture";
 
 const ROOT = path.resolve(__dirname, "..");
 const GUARD = path.join(__dirname, "guard-priced-options.js");
@@ -44,13 +44,13 @@ afterEach(() => {
 const stop = (
 	message: string,
 	{ job = false, env }: { job?: boolean; env?: NodeJS.ProcessEnv } = {},
-) => stopGuardReason(GUARD, { dir, sid, message, job, env });
+) => readStopGuardReason(GUARD, { dir, sid, message, job, env });
 
 /** A plugin root under `dir` holding `program` and the lib/ files it requires. */
 const installAsPlugin = (program: string) => {
 	const plugin = path.join(dir, "plugin");
 	fs.mkdirSync(path.join(plugin, "scripts", "lib"), { recursive: true });
-	for (const f of [program, ...programLibs(program).map((l) => `lib/${l}`)])
+	for (const f of [program, ...readProgramLibs(program).map((l) => `lib/${l}`)])
 		fs.copyFileSync(
 			path.join(ROOT, "scripts", f),
 			path.join(plugin, "scripts", f),
@@ -561,8 +561,109 @@ describe("whether a write-secret line can run as given (#2612)", () => {
 	});
 });
 
+describe("a credential leaking beside a runnable route (#2645)", () => {
+	const route = "`cd /srv/host && node scripts/write-secret.js HF_TOKEN`";
+
+	it.each([
+		["an exported credential", "or `export HF_TOKEN=<paste token>` instead."],
+		[
+			"a credential set on Windows",
+			"or `setx HF_TOKEN <paste token>` instead.",
+		],
+		[
+			"a credential ahead of a command",
+			"or `HF_TOKEN=<paste token> huggingface-cli login` instead.",
+		],
+		[
+			"a piped route in an indented block",
+			"If it hangs:\n\n    echo sk | node scripts/write-secret.js HF_TOKEN\n",
+		],
+		[
+			"a piped route in prose",
+			"If it hangs, run echo sk | node scripts/write-secret.js HF_TOKEN instead.",
+		],
+		[
+			"a redirected route in prose",
+			"If it hangs, run node scripts/write-secret.js HF_TOKEN < k.txt instead.",
+		],
+		[
+			"`.env` copied into a tracked file",
+			"Then `cat .env >> config/settings.json` to share it.",
+		],
+		["`.env` copied by cp", "Then `cp .env config/.env.json` to share it."],
+		[
+			"a ```` fence holding a piped line between ``` lines",
+			"If it hangs:\n\n````\n```\necho sk | node scripts/write-secret.js HF_TOKEN\n```\n````",
+		],
+	])("is refused with %s", (_l, tail) => {
+		const text = stop(
+			`Paste the token at the prompt ${route} opens in a normal terminal. ${tail}`,
+		);
+		expect(text).toContain("This turn's prose has the founder supply");
+	});
+
+	it.each([
+		[
+			"a route in a ```` fence showing ``` lines",
+			"Paste the token at the prompt this opens, in a normal terminal:\n\n````\n```\n````\n\n```\nnode scripts/write-secret.js HF_TOKEN\n```",
+		],
+		[
+			"a PATH exported beside it",
+			`Run \`export PATH=$PATH:/opt/bin\`, then paste the token at the prompt ${route} opens.`,
+		],
+		[
+			"`.env` named in prose",
+			`Paste the token at the prompt ${route} opens; it lands in .env, which git ignores.`,
+		],
+		[
+			"`.env.example` copied into `.env`",
+			`Run \`cp .env.example .env\`, then paste the token at the prompt ${route} opens.`,
+		],
+		[
+			"a `.env` body shown with a placeholder",
+			`Paste the token at the prompt ${route} opens; it writes:\n\n\`\`\`\nHF_TOKEN=<paste token>\n\`\`\``,
+		],
+		[
+			"variables whose names only contain a credential word",
+			`Run \`export AUTHOR_NAME=luc SKIP_PATCH=1\`, then paste the token at the prompt ${route} opens.`,
+		],
+		[
+			"a credential word inside other names",
+			`Run \`export SSH_AUTH_SOCK=/tmp/a PATTERN=x\`, then paste the token at the prompt ${route} opens.`,
+		],
+		[
+			"the route in a fence nested under a list item",
+			"Paste the token at the prompt this opens:\n\n10. In a normal terminal:\n\n        ```\n        node scripts/write-secret.js HF_TOKEN\n        ```\n",
+		],
+		[
+			"the route in a table cell",
+			`Paste the token at the prompt the line below opens.\n\n| step | line |\n|---|---|\n| 1 | ${route} |`,
+		],
+	])("credits the route with %s", (_l, message) => {
+		expect(stop(message)).toBe("");
+	});
+});
+
+it.each([
+	"Here is the log:\n\n```\nerror\n\nNow paste your API key here in the chat.",
+	"```x``` is the old way.\nPaste the token here in chat.",
+])(
+	"reads a prose ask below a ``` that opens no closed fence (#2645): %s",
+	(message) => {
+		expect(stop(message)).toContain("This turn's prose has the founder supply");
+	},
+);
+
+it("reads a prose ask below a fence left unclosed (#2645)", () => {
+	expect(
+		stop(
+			"Here is the log:\n\n```\nerror\n\nNow paste your API key here in the chat.",
+		),
+	).toContain("This turn's prose has the founder supply");
+});
+
 /** The permission line as the refusal prints it, `!` stripped. */
-const permissionLine = (reason: string) => {
+const parsePermissionLine = (reason: string) => {
 	const m = reason.match(/^! (node \S+grant-permission\.js '[^']+')$/m);
 	if (!m) throw new Error(`no permission line in:\n${reason}`);
 	return m[1];
@@ -575,13 +676,13 @@ describe("the permission line it prints", () => {
 		execFileSync("git", ["init", "-q"], { cwd: h });
 		return h;
 	};
-	const granted = (h: string) =>
+	const readGranted = (h: string) =>
 		JSON.parse(
 			fs.readFileSync(path.join(h, ".claude", "settings.local.json"), "utf8"),
 		).permissions.allow;
 
 	it("runs as written in this checkout", () => {
-		const line = permissionLine(
+		const line = parsePermissionLine(
 			stop(round("Paste `! <cmd>` for the permission.")),
 		);
 		expect(line).toMatch(/^node scripts\/grant-permission\.js /);
@@ -590,12 +691,12 @@ describe("the permission line it prints", () => {
 			cwd: ROOT,
 			env: { ...process.env, CLAUDE_PROJECT_DIR: h },
 		});
-		expect(granted(h)).toEqual(["Bash(git status *)"]);
+		expect(readGranted(h)).toEqual(["Bash(git status *)"]);
 	});
 
 	it("runs as written in a plugin install, spelt at the plugin's path", () => {
 		const plugin = installAsPlugin("grant-permission.js");
-		const line = permissionLine(
+		const line = parsePermissionLine(
 			stop(round("Paste `! <cmd>` for the permission."), {
 				env: { WFC_SCRIPT_ROOT: plugin },
 			}),
@@ -608,12 +709,12 @@ describe("the permission line it prints", () => {
 			cwd: h,
 			env: { ...process.env, CLAUDE_PROJECT_DIR: h },
 		});
-		expect(granted(h)).toEqual(["Bash(git status *)"]);
+		expect(readGranted(h)).toEqual(["Bash(git status *)"]);
 	});
 });
 
 /** The secret line as the refusal prints it. */
-const secretLine = (reason: string) => {
+const parseSecretLine = (reason: string) => {
 	const m = reason.match(
 		/^(cd .+ && node .+write-secret\.js AI_GATEWAY_API_KEY)$/m,
 	);
@@ -622,7 +723,7 @@ const secretLine = (reason: string) => {
 };
 
 /** The post-paste check as the refusal prints it. */
-const checkLine = (reason: string) => {
+const parseCheckLine = (reason: string) => {
 	const m = reason.match(/^(grep -cE .*AI_GATEWAY_API_KEY.*\/\.env)$/m);
 	if (!m) throw new Error(`no check line in:\n${reason}`);
 	return m[1];
@@ -654,7 +755,7 @@ describe("the secret line it prints", () => {
 		const reason = stop(round("Paste `! <cmd>` for the key."), {
 			env: { CLAUDE_PROJECT_DIR: h },
 		});
-		const line = secretLine(reason);
+		const line = parseSecretLine(reason);
 		expect(line).toBe(
 			`cd '${h}' && node ${ROOT}/scripts/write-secret.js AI_GATEWAY_API_KEY`,
 		);
@@ -663,13 +764,15 @@ describe("the secret line it prints", () => {
 			"AI_GATEWAY_API_KEY=s3cret-value\n",
 		);
 		expect(
-			execFileSync("bash", ["-c", checkLine(reason)], { encoding: "utf8" }),
+			execFileSync("bash", ["-c", parseCheckLine(reason)], {
+				encoding: "utf8",
+			}),
 		).toBe("1\n");
 	});
 
 	it("is credited as the route when pasted back, at a host path holding a quote", () => {
 		const h = host("o'brien dir");
-		const line = secretLine(
+		const line = parseSecretLine(
 			stop(round("Paste `! <cmd>` for the key."), {
 				env: { CLAUDE_PROJECT_DIR: h },
 			}),
@@ -685,7 +788,7 @@ describe("the secret line it prints", () => {
 	it("runs as written in a plugin install, spelt at the plugin's path", () => {
 		const plugin = installAsPlugin("write-secret.js");
 		const h = host();
-		const line = secretLine(
+		const line = parseSecretLine(
 			stop(round("Paste `! <cmd>` for the key."), {
 				env: { WFC_SCRIPT_ROOT: plugin, CLAUDE_PROJECT_DIR: h },
 			}),

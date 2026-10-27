@@ -4,8 +4,8 @@
  * renders differs from it (#1860).
  *
  * The plan then selects the manifest's readers and names it among the paths
- * the green covers, so the commit gate does not regenerate it after the
- * green.
+ * the certificate attests, so the commit gate does not regenerate it after the
+ * run.
  *
  * THE SHARED TREE'S COPY IS WRITTEN TOO, so the commit carries it: under the
  * session's own claim, as a script writing a tracked doc must take, and only
@@ -22,7 +22,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { EDGES_FILE } = require("./test-pass-marker.js");
-const { manifestText } = require("../generate-test-read-edges.js");
+const { buildManifestText } = require("./read-edges-render.js");
 
 // A guess, never measured: a claim is one arbiter call, and a slow one leaves
 // the shared copy alone, said.
@@ -109,12 +109,12 @@ function freshenManifest(
 	rendered,
 	{ root, home, session, claimFn = claimWithArbiter, out, err },
 ) {
-	const text = manifestText(rendered);
+	const text = buildManifestText(rendered);
 	const given = readManifest(root);
 	if (given === text) return;
 	if (given instanceof Error) {
 		err.write(
-			`${EDGES_FILE} not brought up to date before the run (${given.message}) — the commit gate will ask for it after your green (#1860).\n`,
+			`${EDGES_FILE} not brought up to date before the run (${given.message}) — the commit gate will ask for it after your run passes (#1860).\n`,
 		);
 		return;
 	}
@@ -122,7 +122,7 @@ function freshenManifest(
 		fs.writeFileSync(path.join(root, EDGES_FILE), text);
 	} catch (error) {
 		err.write(
-			`${EDGES_FILE} not brought up to date before the run (${caught(error).message}) — the commit gate will ask for it after your green (#1860).\n`,
+			`${EDGES_FILE} not brought up to date before the run (${caught(error).message}) — the commit gate will ask for it after your run passes (#1860).\n`,
 		);
 		return;
 	}

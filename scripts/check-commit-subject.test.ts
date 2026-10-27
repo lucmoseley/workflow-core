@@ -35,7 +35,7 @@ const git = (args: string[], env: NodeJS.ProcessEnv = {}) => {
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
-const head = () => git(["rev-parse", "HEAD"]).out.trim();
+const readHead = () => git(["rev-parse", "HEAD"]).out.trim();
 
 const subject = (n: number, fill = "x") => `Add ${fill.repeat(n - 4)}`;
 
@@ -106,9 +106,9 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 	])(
 		"refuses a 73-character subject on %s, committing nothing",
 		(_route, via) => {
-			const before = head();
+			const before = readHead();
 			expectRefused(via(`${subject(73)}\n\nWhy, in the body.\n`), subject(73));
-			expect(head()).toBe(before);
+			expect(readHead()).toBe(before);
 		},
 	);
 

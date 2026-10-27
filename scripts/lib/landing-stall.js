@@ -1,11 +1,14 @@
 /*
- * landing-stall.js — what the session-start stall check reads off the landing
- * queue (#2406, spec #2261): a stalled queue, a dead lander, or a held one.
+ * landing-stall.js — what the session-start stall check and the refill loop's
+ * supervision read off the landing queue, and the one read both take (#2406, spec #2261, #2692): a
+ * stalled queue, a dead lander, or a held one.
  *
- * STALLED: the oldest commit on `landing` not on `main` was committed over
- * STALL_MS ago. Its committer time stands in for its push time, which git
- * does not keep, so a commit pushed long after it was made reads as waiting
- * from its commit.
+ * STALLED: `landing` holds commits `main` lacks, and `main` has not moved for
+ * STALL_MS. It last moved at the later of the time the lander's heartbeat
+ * records for its last move and `main`'s tip's committer time, which no move
+ * to that tip can predate: the second covers a `main` no lander has moved yet,
+ * or one pushed by hand. Counting from `main`, not from a queued commit, tells
+ * a slow red batch, which moves `main` as it lands parents, from a stuck queue.
  *
  * Both below need `landing` ahead of `main` and the pid the heartbeat names
  * not running. A live pid with a stale beat is a lander inside one push,
@@ -18,24 +21,31 @@
  * DEAD: otherwise, where the heartbeat is absent or older than STALE_MS.
  */
 
-const { HEARTBEAT_MS, short } = require("./lander.js");
+const { pidAlive } = require("./arbiter-proc.js");
+const {
+	HEARTBEAT_MS,
+	landerFiles,
+	readHeartbeat,
+	remoteGit,
+	short,
+} = require("./lander.js");
 
-/* Spec #2261, untraced there: the accepted 60 min ceiling plus one maximum
- * suite run of ~30 min. */
-const STALL_MS = 90 * 60 * 1000;
+/* About 3.6 median whole-suite runs of 1987 s (#2672, from #2666's
+ * measurement); not measured against red batches. */
+const STALL_MS = 2 * 60 * 60 * 1000;
 /* Untraced: five missed beats, so one slow tester tick is never read as a
  * death. */
 const STALE_MS = 5 * HEARTBEAT_MS;
 
 /**
- * @typedef {{tag: "LANDING-STALLED" | "LANDER-DEAD" | "LANDING-HELD",
- *   line: string}} StallFinding
+ * @typedef {{tag: "LANDING-STALLED", line: string, movedAt: number}
+ *   | {tag: "LANDER-DEAD" | "LANDING-HELD", line: string}} StallFinding
  * @typedef {object} QueueReading
  * @property {number} now
  * @property {string|null} landing `landing`'s sha
  * @property {import("./lander.js").Relation} relation
- * @property {{sha: string, at: number}|null} oldest the oldest commit on
- *   `landing` not on `main`, by committer time in ms
+ * @property {number|null} mainAt `main`'s tip's committer time in ms, null
+ *   where the remote has no `main`
  * @property {import("./lander.js").Heartbeat|null} heartbeat
  * @property {(pid: number) => boolean} alive
  */
@@ -44,13 +54,20 @@ const STALE_MS = 5 * HEARTBEAT_MS;
  * @param {QueueReading} r
  * @returns {StallFinding[]}
  */
-function stallFindings({ now, landing, relation, oldest, heartbeat, alive }) {
+function stallFindings({ now, landing, relation, mainAt, heartbeat, alive }) {
 	/** @type {StallFinding[]} */
 	const found = [];
-	if (oldest !== null && now - oldest.at > STALL_MS)
+	const moved = mainMovedAt(mainAt, heartbeat);
+	if (
+		landing !== null &&
+		(relation === "ahead" || relation === "diverged") &&
+		moved !== null &&
+		now - moved > STALL_MS
+	)
 		found.push({
 			tag: "LANDING-STALLED",
-			line: `landing holds ${short(oldest.sha)}, committed ${new Date(oldest.at).toISOString()}, not on main after ${STALL_MS / 60_000} min (landing is ${relation} of main)`,
+			movedAt: moved,
+			line: `main has not moved since ${new Date(moved).toISOString()}, over ${STALL_MS / 60_000} min, with landing ${short(landing)} ${relation === "ahead" ? "ahead of it" : "diverged from it"}`,
 		});
 	if (relation !== "ahead" || landing === null) return found;
 	if (heartbeat !== null && alive(heartbeat.pid)) return found;
@@ -68,4 +85,64 @@ function stallFindings({ now, landing, relation, oldest, heartbeat, alive }) {
 	return found;
 }
 
-module.exports = { stallFindings };
+/**
+ * When `main` last moved: the later of the heartbeat's record and its tip's
+ * committer time; null where neither is known.
+ * @param {number|null} mainAt
+ * @param {import("./lander.js").Heartbeat|null} heartbeat
+ */
+function mainMovedAt(mainAt, heartbeat) {
+	const recorded = heartbeat?.movedAt
+		? Date.parse(heartbeat.movedAt)
+		: Number.NaN;
+	const known = [mainAt, recorded].filter(
+		(t) => t !== null && Number.isFinite(t),
+	);
+	return known.length > 0 ? Math.max(.../** @type {number[]} */ (known)) : null;
+}
+
+/**
+ * What the refill loop does about a reading (#2692, ruled at #2672): start a
+ * lander where it is dead, and file the stall ticket where `main` has not
+ * moved with `landing` ahead of it and a lander running or dead, since one
+ * that fails on every start is restarted each tick and never seen running.
+ * Neither for a held queue, which has its held-queue issue, nor for a lander
+ * between runs on a fresh beat.
+ * @param {QueueReading} r
+ * @returns {{start: boolean, ticket: {landing: string, movedAt: number}|null}}
+ */
+function supervision(r) {
+	const found = stallFindings(r);
+	const dead = found.some((f) => f.tag === "LANDER-DEAD");
+	const running = r.heartbeat !== null && r.alive(r.heartbeat.pid);
+	const stalled = found.find((f) => "movedAt" in f);
+	return {
+		start: dead,
+		ticket:
+			stalled &&
+			"movedAt" in stalled &&
+			r.relation === "ahead" &&
+			r.landing !== null &&
+			(dead || running)
+				? { landing: r.landing, movedAt: stalled.movedAt }
+				: null,
+	};
+}
+
+/**
+ * @param {string} root
+ * @returns {QueueReading & {main: string|null}}
+ */
+function readQueue(root) {
+	const git = remoteGit(root);
+	const refs = git.refs();
+	return {
+		now: Date.now(),
+		...refs,
+		mainAt: refs.main === null ? null : git.committedAt(refs.main),
+		heartbeat: readHeartbeat(landerFiles(root).heartbeat),
+		alive: pidAlive,
+	};
+}
+
+module.exports = { STALL_MS, readQueue, stallFindings, supervision };

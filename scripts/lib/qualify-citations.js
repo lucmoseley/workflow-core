@@ -181,7 +181,7 @@ function qualifyLine(line, inSpan) {
  * @param {string} rel
  * @returns {((line: string) => boolean) | null}
  */
-function citableLines(rel) {
+function buildCitableLineTest(rel) {
 	if (/\.md$/.test(rel)) return () => true;
 	if (JS_TS_FILE.test(rel)) return (line) => JS_COMMENT_LINE.test(line);
 	if (/\.(sh|py)$/.test(rel) || HUSKY_HOOK.test(rel)) {
@@ -197,7 +197,7 @@ function citableLines(rel) {
  * @param {string[]} lines
  * @returns {Set<number>}
  */
-function tripleQuotedLines(lines) {
+function parseTripleQuotedLines(lines) {
 	/** @type {Set<number>} */
 	const held = new Set();
 	/** @type {string | null} */
@@ -228,10 +228,10 @@ const hasCitableCode = (rel) =>
  * @returns {string}
  */
 function qualifyCitations(body, rel) {
-	const byLine = citableLines(rel);
+	const byLine = buildCitableLineTest(rel);
 	if (!byLine) return body;
 	const quoted = /\.py$/.test(rel)
-		? tripleQuotedLines(body.split("\n"))
+		? parseTripleQuotedLines(body.split("\n"))
 		: new Set();
 	/** @type {(line: string, i: number) => boolean} */
 	const citable = (line, i) => byLine(line) || quoted.has(i);
@@ -250,7 +250,7 @@ function qualifyCitations(body, rel) {
  * @returns {{line: number, n: string}[]} 1-based line numbers
  */
 function unbracketedCodeCitations(body, rel) {
-	const citable = citableLines(rel);
+	const citable = buildCitableLineTest(rel);
 	if (!citable || !hasCitableCode(rel)) return [];
 	const lines = body.split("\n");
 	return lines.flatMap((line, i) => {
@@ -308,11 +308,11 @@ if (require.main === module) {
 module.exports = {
 	BARE_CITATION_OK,
 	CITATION_CEILING,
-	citableLines,
+	buildCitableLineTest,
 	JS_COMMENT_LINE,
 	JS_TS_FILE,
 	qualifyCitations,
 	qualifyProse,
-	tripleQuotedLines,
+	parseTripleQuotedLines,
 	unbracketedCodeCitations,
 };

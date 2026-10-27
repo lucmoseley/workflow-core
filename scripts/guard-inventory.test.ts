@@ -24,7 +24,13 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
 import { INVENTORY } from "./lib/inventory-format";
-import { type StopRun, stopGuardReason } from "./lib/stop-guard-testkit";
+import {
+	HAND_OFF,
+	NEEDS_INPUT,
+	POSTED,
+	ROUND,
+} from "./lib/round-ending-fixture";
+import { readStopGuardReason, type StopRun } from "./lib/stop-guard-testkit";
 import {
 	failOpenLog,
 	transcriptRecords,
@@ -68,7 +74,7 @@ function serve(data: unknown, script?: string) {
 	).gh;
 }
 
-const calls = () => {
+const readCalls = () => {
 	const at = path.join(dir, "calls");
 	return fs.existsSync(at) ? fs.readFileSync(at, "utf8").trim() : "";
 };
@@ -98,12 +104,31 @@ function claim(n: number, session = sid) {
 	);
 }
 
+/** Record `session`'s write of `rel` in the write ledger the guard reads. */
+function wrote(rel: string, session = sid) {
+	execFileSync(
+		process.execPath,
+		[path.join(__dirname, "session-arbiter.js"), "record", rel],
+		{
+			cwd: dir,
+			env: {
+				...process.env,
+				CLAUDE_CONFIG_DIR: path.join(dir, "config"),
+				CLAUDE_PROJECT_DIR: dir,
+				WFC_REPO_ROOT: dir,
+				CLAUDE_CODE_SESSION_ID: session,
+			},
+			stdio: "pipe",
+		},
+	);
+}
+
 /**
  * The guard's refusal for `message`; an `undefined` message puts none on the
  * payload, so the guard reads the transcript.
  */
 const run = (message: string | undefined, opts: Partial<StopRun> = {}) =>
-	stopGuardReason(GUARD, {
+	readStopGuardReason(GUARD, {
 		dir,
 		sid,
 		message,
@@ -116,19 +141,6 @@ const ITEM = "waits on you:\n- #31 (send the reply to the client)";
 const RESULT = `Landed in abc1234.\n\n${ITEM}\n\nresult: shipped the parser — waits on you: #31`;
 const NOTHING =
 	"Landed in abc1234.\n\nwaits on you: nothing\n\nresult: shipped the parser — nothing waits on you";
-
-const ROUND =
-	"❓ **Q1** Which parser ships first?\n\n" +
-	"(A) The line parser.\nConfidence: 70% (60% - 80%). It has every reader waiting.\n\n" +
-	"(B) The block parser.\nConfidence: 30% (20% - 40%). One reader only.\n\n" +
-	"Relation: rivals, one release slot.\n\n➡ (A).";
-const NEEDS_INPUT = `${ROUND}\n\nwaits on you:\n- #31 (answer Q1, round posted on the issue)\n\nneeds input: which parser ships first — waits on you: #31`;
-const POSTED = {
-	author: { login: "a" },
-	body: ROUND,
-	createdAt: "2026-10-09T00:00:00Z",
-	url: "u",
-};
 
 describe("where the block is owed", () => {
 	it("refuses a background job's `result:` and `needs input:` with no block, printing the rule", () => {
@@ -171,7 +183,7 @@ describe("where the block is owed", () => {
 
 	it("passes `nothing` with its tail, never asking GitHub", () => {
 		expect(run(NOTHING)).toBe("");
-		expect(calls()).toBe("");
+		expect(readCalls()).toBe("");
 	});
 });
 
@@ -310,7 +322,7 @@ describe("the posted round", () => {
 		serve({ r0: { n31: issue("OPEN", [POSTED]) } });
 		claim(31);
 		expect(run(NEEDS_INPUT)).toBe("");
-		expect(calls()).toContain("comments(last: 5)");
+		expect(readCalls()).toContain("comments(last: 5)");
 	});
 
 	it("refuses a round on an issue no session claims, naming claim-issue.js for it (#1066)", () => {
@@ -392,7 +404,415 @@ describe("the posted round", () => {
 	it("asks for no comments at a `result:` ending", () => {
 		serve({ r0: { n31: issue("OPEN") } });
 		run(RESULT);
-		expect(calls()).not.toContain("comments");
+		expect(readCalls()).not.toContain("comments");
+	});
+});
+
+describe("the hand-off on a posted round (#2391)", () => {
+	/** The guard's refusal where the round comment's hand-off reads `handOff`. */
+	const withHandOff = (handOff: string, opts: Partial<StopRun> = {}) => {
+		serve({
+			r0: {
+				n31: issue("OPEN", [{ ...POSTED, body: `${ROUND}\n\n${handOff}` }]),
+			},
+		});
+		claim(31, opts.sid ?? sid);
+		return run(NEEDS_INPUT, opts);
+	};
+	const diffBlock =
+		"<details><summary>diff</summary>\n\n```diff\ndiff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-one\n+two\n```\n\n</details>";
+
+	it("refuses a round comment with no block, teaching its shape", () => {
+		const reason = withHandOff("");
+		expect(reason).toContain("carries no `**Hand-off:**` block");
+		expect(reason).toContain(
+			"- Blocked on: <the round's Q numbers, or what the park waits on>",
+		);
+	});
+
+	it("refuses a malformed block, naming each fault", () => {
+		const reason = withHandOff(
+			"**Hand-off:**\n- Base: HEAD\n- Done: none\n- Blocked on: Q2\n- Uncommitted: none",
+		);
+		expect(reason).toContain("`Left:` line is missing or empty");
+		expect(reason).toContain("`Base:` is `HEAD`, not a commit sha");
+		expect(reason).toContain("does not name the round's Q1");
+	});
+
+	it("refuses uncommitted files with no diff for them", () => {
+		expect(
+			withHandOff(
+				HAND_OFF.replace("Uncommitted: none", "Uncommitted: src/a.txt"),
+			),
+		).toContain("names files but no fenced `diff` block follows");
+		expect(
+			withHandOff(
+				`${HAND_OFF.replace("Uncommitted: none", "Uncommitted: src/a.txt, src/b.txt")}\n${diffBlock}`,
+				{ sid: `${sid}-b` },
+			),
+		).toContain("carries no `diff --git a/src/b.txt` section");
+	});
+
+	describe("against the session's write ledger", () => {
+		const commit = (...args: string[]) =>
+			execFileSync(
+				"git",
+				["-c", "user.email=t@t", "-c", "user.name=t", ...args],
+				{
+					cwd: dir,
+					stdio: "pipe",
+				},
+			);
+		beforeEach(() => {
+			fs.mkdirSync(path.join(dir, "src"));
+			fs.writeFileSync(path.join(dir, "src", "a.txt"), "one\n");
+			commit("init", "-q");
+			commit("add", "src/a.txt");
+			commit("commit", "-qm", "base");
+			fs.writeFileSync(path.join(dir, "src", "a.txt"), "two\n");
+		});
+
+		it("refuses a dirty ledgered file the block does not name", () => {
+			wrote("src/a.txt");
+			const reason = withHandOff(HAND_OFF);
+			expect(reason).toContain(
+				"`src/a.txt` is uncommitted and unnamed in the hand-off",
+			);
+			expect(reason).toContain("then `git restore` `src/a.txt` to HEAD");
+		});
+
+		it("refuses a new untracked ledgered file, naming `git add -N`", () => {
+			fs.writeFileSync(path.join(dir, "src", "new.txt"), "fresh\n");
+			wrote("src/new.txt");
+			const reason = withHandOff(HAND_OFF);
+			expect(reason).toContain("`src/new.txt` is uncommitted");
+			expect(reason).toContain("`git add -N` a new file first");
+		});
+
+		it("owes a file the block names its restore, and passes once it is clean", () => {
+			wrote("src/a.txt");
+			const named = `${HAND_OFF.replace("Uncommitted: none", "Uncommitted: `src/a.txt`")}\n${diffBlock}`;
+			const reason = withHandOff(named);
+			expect(reason).not.toContain("unnamed");
+			expect(reason).toContain("`git restore` `src/a.txt` to HEAD");
+			commit("checkout", "-q", "src/a.txt");
+			expect(withHandOff(named)).toBe("");
+		});
+
+		it("leaves a dirty file only a neighbour wrote alone", () => {
+			wrote("src/a.txt", `${sid}-other`);
+			expect(withHandOff(HAND_OFF)).toBe("");
+		});
+	});
+
+	it("judges the newest comment holding the round, not an older one", () => {
+		serve({
+			r0: {
+				n31: issue("OPEN", [
+					POSTED,
+					{
+						...POSTED,
+						body: `${ROUND}\n\n${HAND_OFF.replace("abc1234", "HEAD")}`,
+					},
+				]),
+			},
+		});
+		claim(31);
+		expect(run(NEEDS_INPUT)).toContain("`Base:` is `HEAD`");
+	});
+
+	it("reads a markdown diff's fence-shaped context line as diff, not its close", () => {
+		const md =
+			"<details>\n\n```diff\ndiff --git a/d.md b/d.md\n--- a/d.md\n+++ b/d.md\n@@ -1,3 +1,3 @@\n ```\n-x\n+y\n```\n\n</details>";
+		const named = (files: string) =>
+			`${HAND_OFF.replace("Uncommitted: none", `Uncommitted: ${files}`)}\n${md.replace("```\n\n</details>", "diff --git a/e.md b/e.md\n```\n\n</details>")}`;
+		expect(withHandOff(named("d.md, e.md"))).toBe("");
+	});
+
+	it("passes a well-formed block, bold field names included", () => {
+		expect(
+			withHandOff(
+				HAND_OFF.replace("- Base:", "- **Base:**").replace(
+					"- Left:",
+					"**Left:**",
+				),
+			),
+		).toBe("");
+	});
+});
+
+describe("the hand-off on a park that asks no round (#2849)", () => {
+	const pointerPark =
+		"Q1 on #31 still stands.\n\nwaits on you:\n- #31 (answer Q1, round posted on the issue)\n\nneeds input: answer Q1 on #31 — waits on you: #31";
+	const handoverPark =
+		"Run `! npm run deploy` and send back its last line.\n\nwaits on you:\n- #31 (run the deploy, send back its output)\n\nneeds input: run the deploy — waits on you: #31";
+	const comment = (body: string, createdAt = "2026-10-09T00:00:00Z") => ({
+		...POSTED,
+		body,
+		createdAt,
+	});
+	const deployHandOff = HAND_OFF.replace(
+		"Blocked on: Q1",
+		"Blocked on: the deploy",
+	);
+
+	for (const [park, message, handOff] of [
+		["pointer", pointerPark, HAND_OFF],
+		["hand-over", handoverPark, deployHandOff],
+	] as const) {
+		it(`refuses a ${park} park whose cited issue carries no hand-off`, () => {
+			serve({ r0: { n31: issue("OPEN", [comment(ROUND)]) } });
+			const reason = run(message);
+			expect(reason).toContain(
+				"park leaves no well-formed hand-off on its ticket",
+			);
+			expect(reason).toContain(
+				"- Blocked on: <the round's Q numbers, or what the park waits on>",
+			);
+		});
+
+		it(`passes a ${park} park whose cited issue carries a well-formed hand-off`, () => {
+			serve({ r0: { n31: issue("OPEN", [comment(`Parked.\n\n${handOff}`)]) } });
+			expect(run(message)).toBe("");
+		});
+	}
+
+	describe("against this session's start (#2944)", () => {
+		const transcript = () => path.join(dir, "t.jsonl");
+		beforeEach(() => {
+			const r = transcriptRecords("2026-10-09T12:00:00Z");
+			writeTranscript(transcript(), r.founder(), r.assistant("ok"));
+		});
+
+		it("refuses a hand-off posted before this session began, naming both times", () => {
+			serve({
+				r0: {
+					n31: issue("OPEN", [
+						comment(`Parked.\n\n${deployHandOff}`, "2026-10-08T09:00:00Z"),
+					]),
+				},
+			});
+			const reason = run(handoverPark, { transcript: transcript() });
+			expect(reason).toContain(
+				"posted at 2026-10-08T09:00:00Z, before this session began or last resumed at 2026-10-09T12:00:01.000Z",
+			);
+			expect(reason).toContain(
+				"- Blocked on: <the round's Q numbers, or what the park waits on>",
+			);
+		});
+
+		it("passes a hand-off posted in the second this session began", () => {
+			serve({
+				r0: {
+					n31: issue("OPEN", [
+						comment(`Parked.\n\n${deployHandOff}`, "2026-10-09T12:00:01Z"),
+					]),
+				},
+			});
+			expect(run(handoverPark, { transcript: transcript() })).toBe("");
+		});
+
+		const handOffAt = (createdAt: string) =>
+			serve({
+				r0: {
+					n31: issue("OPEN", [
+						comment(`Parked.\n\n${deployHandOff}`, createdAt),
+					]),
+				},
+			});
+
+		describe("after a resume in place, its transcript's resume mark (#2950)", () => {
+			beforeEach(() => {
+				const r = transcriptRecords("2026-10-09T12:00:00Z");
+				writeTranscript(
+					transcript(),
+					r.founder(),
+					JSON.stringify({
+						type: "attachment",
+						attachment: {
+							type: "hook_success",
+							hookName: "SessionStart:resume",
+						},
+						timestamp: "2026-10-09T15:00:00Z",
+					}),
+					r.assistant("ok"),
+				);
+			});
+
+			it("refuses a hand-off this conversation posted before the resume", () => {
+				handOffAt("2026-10-09T14:30:00Z");
+				expect(run(handoverPark, { transcript: transcript() })).toContain(
+					"posted at 2026-10-09T14:30:00Z, before this session began or last resumed at 2026-10-09T15:00:00.000Z",
+				);
+			});
+
+			it("passes a hand-off posted after the resume", () => {
+				handOffAt("2026-10-09T15:10:00Z");
+				expect(run(handoverPark, { transcript: transcript() })).toBe("");
+			});
+		});
+
+		describe("after a `--bg --resume` copy, its job record's creation (#2950)", () => {
+			const record = () =>
+				path.join(dir, "config", "jobs", sid.slice(0, 8), "state.json");
+			const writeJob = (
+				sessionId: string,
+				createdAt = "2026-10-09T16:00:00Z",
+			) => {
+				fs.mkdirSync(path.dirname(record()), { recursive: true });
+				fs.writeFileSync(record(), JSON.stringify({ sessionId, createdAt }));
+			};
+
+			it("refuses a hand-off posted before the job, though after the copied first record", () => {
+				writeJob(sid);
+				handOffAt("2026-10-09T15:00:00Z");
+				expect(run(handoverPark, { transcript: transcript() })).toContain(
+					"before this session began or last resumed at 2026-10-09T16:00:00.000Z",
+				);
+			});
+
+			it("passes a hand-off posted after the job was created", () => {
+				writeJob(sid);
+				handOffAt("2026-10-09T16:05:00Z");
+				expect(run(handoverPark, { transcript: transcript() })).toBe("");
+			});
+
+			it("ignores a job record naming another session", () => {
+				writeJob("other");
+				handOffAt("2026-10-09T15:00:00Z");
+				expect(run(handoverPark, { transcript: transcript() })).toBe("");
+			});
+		});
+
+		it("passes a hand-off of any age where no record carries a timestamp", () => {
+			fs.writeFileSync(transcript(), '{"type":"summary"}\n');
+			serve({
+				r0: {
+					n31: issue("OPEN", [
+						comment(`Parked.\n\n${deployHandOff}`, "2026-10-08T09:00:00Z"),
+					]),
+				},
+			});
+			expect(run(handoverPark, { transcript: transcript() })).toBe("");
+		});
+	});
+
+	it("refuses a hand-off with an empty `Blocked on:`", () => {
+		serve({
+			r0: {
+				n31: issue("OPEN", [
+					comment(HAND_OFF.replace("Blocked on: Q1", "Blocked on:")),
+				]),
+			},
+		});
+		expect(run(handoverPark)).toContain(
+			"`Blocked on:` line is missing or empty",
+		);
+	});
+
+	it("refuses on the newest cited hand-off, naming its `HEAD` base", () => {
+		serve({
+			r0: {
+				n31: issue("OPEN", [comment(deployHandOff, "2026-10-09T00:00:00Z")]),
+				n32: issue("OPEN", [
+					comment(
+						deployHandOff.replace("abc1234", "HEAD"),
+						"2026-10-10T00:00:00Z",
+					),
+				]),
+			},
+		});
+		expect(
+			run(
+				handoverPark
+					.replace(
+						"- #31 (run the deploy, send back its output)",
+						"- #31 (run the deploy, send back its output)\n- #32 (the deploy's ticket)",
+					)
+					.replace("waits on you: #31", "waits on you: #31, #32"),
+			),
+		).toContain("`Base:` is `HEAD`");
+	});
+
+	it("refuses a pointer park whose hand-off names another question", () => {
+		serve({ r0: { n31: issue("OPEN", [comment(deployHandOff)]) } });
+		expect(run(pointerPark)).toContain("does not name the round's Q1");
+	});
+
+	it("judges the newest line-opening header, not a later comment quoting it", () => {
+		serve({
+			r0: {
+				n31: issue("OPEN", [
+					comment(deployHandOff),
+					comment(
+						"Review: the `**Hand-off:**` above reads well.",
+						"2026-10-10T00:00:00Z",
+					),
+				]),
+			},
+		});
+		expect(run(handoverPark)).toBe("");
+	});
+
+	it("refuses a park that cites no issue, naming where the hand-off goes", () => {
+		expect(
+			run(
+				"Run `! npm run deploy`.\n\nwaits on you: nothing\n\nneeds input: run the deploy — nothing waits on you",
+			),
+		).toContain("park cites no issue");
+	});
+
+	it("passes where the cited issue could not be read, logged", () => {
+		serve({}, GH_FAILING_SCRIPT);
+		expect(run(handoverPark)).toBe("");
+		expect(failOpenLog(path.join(dir, "config"))).toContain(
+			"open-check skipped",
+		);
+	});
+
+	describe("beside a cited issue that could not be read (#2965)", () => {
+		/* No `r1` in the reply: other/repo reads as unreadable. */
+		const twoIssuePark = handoverPark
+			.replace(
+				"- #31 (run the deploy, send back its output)",
+				"- #31 (run the deploy, send back its output)\n- other/repo#5 (the deploy's ticket)",
+			)
+			.replace("waits on you: #31", "waits on you: #31, other/repo#5");
+
+		it("refuses a malformed hand-off on the readable one, naming its `HEAD` base", () => {
+			serve({
+				r0: {
+					n31: issue("OPEN", [
+						comment(deployHandOff.replace("abc1234", "HEAD")),
+					]),
+				},
+			});
+			expect(run(twoIssuePark)).toContain("`Base:` is `HEAD`");
+		});
+
+		it("refuses a stale hand-off on the readable one", () => {
+			const transcript = path.join(dir, "t.jsonl");
+			const r = transcriptRecords("2026-10-09T12:00:00Z");
+			writeTranscript(transcript, r.founder(), r.assistant("ok"));
+			serve({
+				r0: {
+					n31: issue("OPEN", [comment(deployHandOff, "2026-10-08T09:00:00Z")]),
+				},
+			});
+			expect(run(twoIssuePark, { transcript })).toContain(
+				"posted at 2026-10-08T09:00:00Z, before this session began",
+			);
+		});
+
+		it("passes where the readable one carries no hand-off", () => {
+			serve({ r0: { n31: issue("OPEN", [comment(ROUND)]) } });
+			expect(run(twoIssuePark)).toBe("");
+		});
+	});
+
+	it("owes none in an interactive session", () => {
+		serve({ r0: { n31: issue("OPEN", []) } });
+		expect(run(handoverPark, { job: false })).toBe("");
 	});
 });
 
@@ -646,7 +1066,7 @@ describe("failing open", () => {
 
 describe("beside guard-priced-options.js, unchanged (#913 Q7)", () => {
 	const priced = (message: string) =>
-		stopGuardReason(PRICED, {
+		readStopGuardReason(PRICED, {
 			dir,
 			sid,
 			message,
@@ -669,7 +1089,7 @@ describe("beside guard-priced-options.js, unchanged (#913 Q7)", () => {
 
 describe("the status line each guard teaches, read by the other (#2374)", () => {
 	const priced = (message: string, tag: string) =>
-		stopGuardReason(PRICED, {
+		readStopGuardReason(PRICED, {
 			dir,
 			sid: `${sid}-${tag}`,
 			message,

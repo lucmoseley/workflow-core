@@ -48,7 +48,7 @@ const sessionTranscript = require("./lib/session-transcript");
 const {
 	PENDING_PREFIX,
 	recordCompactions,
-	compactionSentence,
+	buildCompactionSentence,
 	COMPACTION_ADVICE,
 } = require("./lib/compaction-set");
 const { isSubagentPayload } = require("./lib/subagent-payload");
@@ -118,7 +118,7 @@ function afterCompaction(payload, sid) {
 	}
 	const pending = `${PENDING_PREFIX}${new Date().toISOString()}`;
 	const count = recordCompactions(sid, [...earlier, pending]);
-	return `${compactionSentence(count)} ${COMPACTION_ADVICE}`;
+	return `${buildCompactionSentence(count)} ${COMPACTION_ADVICE}`;
 }
 
 /** @param {string} raw */

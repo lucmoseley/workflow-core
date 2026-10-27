@@ -11,7 +11,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { currentBootId, holderAlive } = require("./arbiter-proc.js");
+const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const core = require("./arbiter-core.js");
 const { scriptPath } = require("./script-path.js");
 const { caught } = require("./caught.js");
@@ -70,7 +70,7 @@ function recordRequest(subject, me, holder, why = null) {
 				requester: me.sessionId,
 				pid: me.pid ?? null,
 				procStart: me.procStart ?? null,
-				bootId: currentBootId(),
+				bootId: readCurrentBootId(),
 				holder: holder ?? null,
 				since: new Date().toISOString(),
 				why: why || null,
@@ -125,7 +125,7 @@ function readRequests() {
  * @param {string} file a plain repo-relative path, no region tail
  * @returns {{state: "ok"|"unreadable", error?: any, entries: {full: string, record: any}[]}}
  */
-function requestEntriesOn(file) {
+function readRequestEntriesOn(file) {
 	const prefix = `${core.keyFor(file)}-`;
 	let files;
 	try {
@@ -186,7 +186,7 @@ function dropRequests(rel, requester = null) {
 		unlink(full);
 		return;
 	}
-	const scan = requestEntriesOn(file);
+	const scan = readRequestEntriesOn(file);
 	if (scan.state === "unreadable") {
 		core.logError(`request drop ${file}`, scan.error);
 		return;
@@ -209,7 +209,7 @@ function dropRequests(rel, requester = null) {
  */
 function declineRequest(rel, by, reason = null) {
 	const file = core.subjectPath(rel);
-	const scan = requestEntriesOn(file);
+	const scan = readRequestEntriesOn(file);
 	if (scan.state === "unreadable") {
 		core.logError(`request decline ${file}`, scan.error);
 		return { status: "unreadable", count: 0 };
@@ -290,7 +290,11 @@ function requestAge(since) {
  *   uncommitted work; `freed` whether the caller has just given the subject up
  * @returns {string|null}
  */
-function requestNotice(subject, sessionId, { nameOf, dirty, freed = false }) {
+function buildRequestNotice(
+	subject,
+	sessionId,
+	{ nameOf, dirty, freed = false },
+) {
 	if (!sessionId) return null;
 	const all = readRequests();
 	if (all === null) {
@@ -314,7 +318,7 @@ function requestNotice(subject, sessionId, { nameOf, dirty, freed = false }) {
 		),
 	);
 	if (fresh.length === 0) return null;
-	return requestText(fresh, freed, freed ? false : dirty(), nameOf);
+	return buildRequestText(fresh, freed, freed ? false : dirty(), nameOf);
 }
 
 /**
@@ -323,7 +327,7 @@ function requestNotice(subject, sessionId, { nameOf, dirty, freed = false }) {
  * @param {boolean} dirty the file carries uncommitted work
  * @param {(id: string|null) => string} nameOf
  */
-function requestText(records, freed, dirty, nameOf) {
+function buildRequestText(records, freed, dirty, nameOf) {
 	const one = records.length === 1;
 	const asks = records
 		.map(
@@ -353,5 +357,5 @@ module.exports = {
 	readRequests,
 	recordRequest,
 	REQUEST_AGE_MS,
-	requestNotice,
+	buildRequestNotice,
 };

@@ -232,7 +232,7 @@ function judgeApart(ctx, where, job, declared) {
  * @param {string} dir
  * @returns {string[]}
  */
-function workflowFiles(ctx, dir) {
+function readWorkflowFiles(ctx, dir) {
 	/** @type {string[]} */
 	let files = [];
 	try {
@@ -347,7 +347,7 @@ function judgeWorkflow(ctx, dir, file, { yaml, apart }) {
 function run(ctx) {
 	const dir = ctx.args[0] ? path.resolve(ctx.args[0]) : DEFAULT_DIR;
 
-	const files = workflowFiles(ctx, dir);
+	const files = readWorkflowFiles(ctx, dir);
 	/* Loaded only where there is a workflow to parse. */
 	/** @type {any} */
 	let yaml = null;

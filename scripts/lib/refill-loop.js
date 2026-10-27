@@ -15,9 +15,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { isTerminalAgent } = require("./agent-liveness.js");
+const { RESUME_CAP } = require("./block-act.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { localDate } = require("./morning-review.js");
+const { REVIEW_HOUR, localDate } = require("./morning-review.js");
 const { refillPath } = require("./refill-dir.js");
 const {
 	FULL,
@@ -27,6 +28,14 @@ const {
 	fitsLaunch,
 	hasRoom,
 } = require("./refill-decide.js");
+const {
+	isHeld,
+	isResuming,
+	iso,
+	launchName,
+	markParked,
+	nextResumeAt,
+} = require("./refill-blocks.js");
 const { checkoutEnv } = require("./refill-repos.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
@@ -35,8 +44,6 @@ const { OUTCOME_PREFIX } = require("./usage-probe.js");
 const LISTING_GRACE_MS = 2 * 60 * 1000;
 /* Enough for the no-progress run and for `status`. Untraced. */
 const HISTORY_KEPT = 50;
-/* Untraced: spec #1995's "first tick after 07:00", machine-local. */
-const REVIEW_HOUR = 7;
 /* Untraced. */
 const STATUS_LAUNCHES = 10;
 /* The skipped rows an idle tick's log line names, and `status` lists.
@@ -70,11 +77,29 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
 /**
  * A loop launch, as lib/refill-decide.js reads it, plus what the loop needs
  * to judge it. `parked` is the last read listing's word on whether its
- * session waits on a question. `sessionId` is the launched session's, taken
- * from the first listing that shows its job (#2311).
+ * session waits on a question, and `block` why (lib/block-cause.js, #2699).
+ * `parkStopped` is when the loop stopped it for that park. `resumes` counts
+ * the loop's resumes of it after an API error, kept across spells so the cap
+ * is the session's (#2705), with when the last was made; `attachAt`, a typed
+ * resume not yet seen arrive; `heldAt`, when the loop stopped the session to
+ * wait for the next. `idleResumes` counts its typed resumes of a
+ * resumed-idle session (#2659), cleared once the session takes a turn;
+ * `idleSince`, the time of the harness restart row it last read resumed-idle
+ * on (#2978). `handOffTries` counts the hand-offs of
+ * one stopped still idle that failed, and
+ * `handedOff` is when one went to a fresh launch. `relaunchedAt` is when a
+ * stop and `--bg --resume` last restarted its job, from which it has the
+ * listing's grace. Where a resume moved it to a copy (#2963), `copiedFrom`
+ * is the job its dispatch-ledger hold names; `pastSessionIds`, the sessions
+ * it ran under before `sessionId`.
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, jobId: string|null,
- *   parked?: boolean, sessionId?: string}} LoopLaunch
+ *   parked?: boolean, block?: import("./block-act.js").Block,
+ *   parkStopped?: number, sessionId?: string,
+ *   resumes?: import("./refill-blocks.js").Resumes,
+ *   idleResumes?: import("./refill-blocks.js").IdleResumes, idleSince?: number,
+ *   handOffTries?: number, handedOff?: number, copiedFrom?: string,
+ *   relaunchedAt?: number, pastSessionIds?: string[]}} LoopLaunch
  */
 
 /**
@@ -226,7 +251,7 @@ function scopeRoots(scope, included, exclusionOf) {
  * @param {Control} control
  * @param {number} runMs
  */
-const stopLine = (control, runMs) =>
+const buildStopLine = (control, runMs) =>
 	control.stopRequested
 		? "stops:     at its next tick, on request"
 		: `stops by:  ${iso(control.startedAt + runMs)}`;
@@ -237,7 +262,7 @@ const stopLine = (control, runMs) =>
  * @param {{runMs: number, served: string[], running: boolean}} opts
  *   `served`, scopeRoots's roots
  */
-function scopeLines(control, { runMs, served, running }) {
+function buildScopeLines(control, { runMs, served, running }) {
 	const { scope } = control;
 	const names = (/** @type {string[]} */ roots) =>
 		roots.map((r) => path.basename(r)).join(", ") || "none";
@@ -251,7 +276,7 @@ function scopeLines(control, { runMs, served, running }) {
 		`repos:     ${names(served)}`,
 		...(away ? [`excluding: ${names(scope.exclude)}`] : []),
 		`goal:      ${goals.join("; ") || "none"}`,
-		...(running ? [stopLine(control, runMs)] : []),
+		...(running ? [buildStopLine(control, runMs)] : []),
 		`seats:     ${control.seats.join(", ") || "none"}`,
 	];
 }
@@ -449,6 +474,50 @@ function readSizedSeats(slots, { read, probe, sizeOf }) {
 }
 
 /**
+ * Each overflow seat's reading for the decision core, its budget read only
+ * once every plan seat is weekly-full, the one state it launches in (#2570).
+ * A key is spent for its cycle where Anthropic refused it for credit, or
+ * where its settled spend leaves under one launch's reservation, which no
+ * running session's end reopens. A seat file that refuses reads as one
+ * unread seat, so the tick waits on it rather than stopping the run (#2611).
+ * @param {import("./refill-seats.js").SeatList} list
+ * @param {SeatReading[]} plan
+ * @param {(seat: import("./refill-seats.js").OverflowSeat) =>
+ *   import("./overflow-budget-core.js").Budget|{why: string}} budgetOf
+ *   lib/overflow-budget.js's seatBudget
+ * @returns {import("./refill-decide.js").OverflowReading[]}
+ */
+function overflowReadings(list, plan, budgetOf) {
+	if (list.errors.length > 0)
+		return [
+			{
+				seat: "the seat file",
+				fits: null,
+				spentUntil: null,
+				why: `it refuses: ${list.errors.join("; ")}`,
+			},
+		];
+	/* The decision core's own test too; repeated here so a tick a plan seat
+	 * can serve settles no ledger. */
+	const due = plan.every((s) => s.weekFull);
+	/** @type {import("./refill-seats.js").OverflowSeat[]} */
+	const seats = list.seats.flatMap((s) => (s.kind === "overflow" ? [s] : []));
+	return seats.map((seat) => {
+		const unread = { seat: seat.dir, fits: null, spentUntil: null };
+		if (!due) return { ...unread, why: "a plan seat is not weekly-full" };
+		const b = budgetOf(seat);
+		if ("why" in b) return { ...unread, why: b.why };
+		const spent = b.exhausted || b.grantUsd - b.settledUsd < b.qUsd;
+		return {
+			seat: seat.dir,
+			fits: b.fit,
+			spentUntil: spent ? localDate(new Date(b.nextCycleStart)) : null,
+			why: null,
+		};
+	});
+}
+
+/**
  * The `admission.js` arguments the loop's free-slot count passes:
  * dispatch-sessions.sh's per-member re-read's, so a slot counted is one that
  * re-read admits (#2500), with the allowance limb left to the cap; its test
@@ -479,22 +548,28 @@ const capArgs = (seat, members, ceilings) => [
  * The cap's launch count from `allowance.js --json --cap`'s output, or why
  * there is none: the dispatcher refuses on both. A launch that is the floor's
  * member alone reads 0 (#2425): each tick would otherwise launch one more
- * past the headroom.
+ * past the headroom. `fault` marks a cap the call could not size, where the
+ * seat's reading itself was trustworthy (#2937).
  * @param {string} stdout
- * @returns {{fits: number} | {fits: null, why: string}}
+ * @returns {{fits: number} | {fits: null, why: string, fault: boolean}}
  */
 function capFitsOf(stdout) {
 	let payload;
 	try {
 		payload = JSON.parse(stdout);
 	} catch {
-		return { fits: null, why: "allowance.js printed no JSON" };
+		return { fits: null, why: "allowance.js printed no JSON", fault: true };
 	}
 	const cap = payload?.cap;
-	if (!cap) return { fits: null, why: "no trustworthy allowance reading" };
-	if (cap.error) return { fits: null, why: String(cap.error) };
+	if (!cap)
+		return {
+			fits: null,
+			why: "no trustworthy allowance reading",
+			fault: false,
+		};
+	if (cap.error) return { fits: null, why: String(cap.error), fault: true };
 	if (!Number.isInteger(cap.launch))
-		return { fits: null, why: `cap.launch is ${cap.launch}` };
+		return { fits: null, why: `cap.launch is ${cap.launch}`, fault: true };
 	return { fits: cap.floored === true ? 0 : cap.launch };
 }
 
@@ -546,6 +621,20 @@ function dispatchCall(batch, dispatcher, env) {
 		env: childEnv,
 		timeout: DISPATCH_FIXED_MS + DISPATCH_MEMBER_MS * batch.length,
 	};
+}
+
+/**
+ * The dry run's line for one dispatcher call; on an overflow seat it names the
+ * headless launch the dispatcher makes there (#2611).
+ * @param {ReturnType<typeof dispatchCall>} call
+ * @param {Set<string>} overflow the overflow seats' config dirs
+ */
+function buildWouldRunLine(call, overflow) {
+	const seat = String(call.env.CLAUDE_CONFIG_DIR);
+	const on = overflow.has(seat)
+		? `overflow seat ${seat}, each member a headless \`claude -p\` (lib/headless-sessions.js)`
+		: seat;
+	return `would run in ${call.cwd} on ${on}: ${call.file} ${call.args.join(" ")}`;
 }
 
 /**
@@ -608,10 +697,15 @@ function parseRefusalReason(out, prompt, failed) {
  * since the call proves its launch.
  * After a non-zero exit only the launched members count as tried, as the
  * rest may never have been reached and the next tick retries them.
+ * A headless launch's session id is fixed at launch, so its record carries it
+ * from the start (#2611): a run ending before any listing shows it still has
+ * its acts read.
  * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
  * @param {{dispatcher: string, env: NodeJS.ProcessEnv,
  *   run: (call: ReturnType<typeof dispatchCall>) => {failed: string|null, out: string},
- *   entriesOf: (root: string) => import("./dispatch-ledger.js").DispatchRecord[]}} io
+ *   entriesOf: (root: string) => import("./dispatch-ledger.js").DispatchRecord[],
+ *   sessionOf: (jobId: string) => string|undefined}} io `sessionOf` is
+ *   lib/headless-sessions.js's record of the job, undefined for any other
  * @returns {BatchOutcome & {tried: import("./refill-decide.js").Launch[],
  *   failed: string|null, out: string}}
  */
@@ -638,6 +732,8 @@ function launchBatch(batch, io) {
 			continue;
 		}
 		reached.push(l);
+		const sessionId =
+			entry.jobId === null ? undefined : io.sessionOf(entry.jobId);
 		launched.push({
 			root: l.root,
 			issues: l.issues,
@@ -646,6 +742,8 @@ function launchBatch(batch, io) {
 			jobId: entry.jobId,
 			launchedAt: Date.parse(entry.ts),
 			finishedAt: null,
+			...(l.gate ? { gate: l.gate } : {}),
+			...(sessionId === undefined ? {} : { sessionId }),
 		});
 	}
 	return { launched, refused, tried: r.failed ? reached : batch, ...r };
@@ -670,34 +768,9 @@ function newlyFinished(launches, agents, now) {
 		(l) =>
 			l.finishedAt === null &&
 			l.jobId !== null &&
-			now - l.launchedAt >= LISTING_GRACE_MS &&
-			!live.has(l.jobId),
-	);
-}
-
-/* The listed state of a session parked on a question
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F1). */
-const PARKED_STATE = "blocked";
-
-/**
- * The launches with `parked` read off the listing. A parked session is
- * neither finished nor working: it waits in its own thread for the founder's
- * answer (#1995 stories 52, 55). It is the glossary's Parked as the listing
- * sees it, before or without the `parked` label, which the Stop hook adds
- * only on a house-decision round. Off an unread listing, or for an unlisted
- * launch, each keeps what the last read said.
- * @param {LoopLaunch[]} launches
- * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
- */
-function markParked(launches, agents) {
-	if (!agents) return launches;
-	const states = new Map(
-		agents.flatMap((a) => (a.id ? [[a.id, a.state]] : [])),
-	);
-	return launches.map((l) =>
-		l.finishedAt === null && l.jobId !== null && states.has(l.jobId)
-			? { ...l, parked: states.get(l.jobId) === PARKED_STATE }
-			: l,
+			now - Math.max(l.launchedAt, l.relaunchedAt ?? 0) >= LISTING_GRACE_MS &&
+			!live.has(l.jobId) &&
+			!isHeld(l),
 	);
 }
 
@@ -725,43 +798,48 @@ function withSessionIds(launches, agents) {
 /**
  * The launches after one listing: each the listing first shows given its
  * session id, then each newly finished one marked with `progressOf`'s fields,
- * then each still listed marked parked or not. The id comes first, so a
+ * then each still listed marked parked or not (markParked). The id comes first, so a
  * launch whose first listing already shows it ended is judged with it.
  * @template {object} P
  * @param {LoopLaunch[]} launches
  * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
  * @param {number} now
- * @param {(l: LoopLaunch) => P} progressOf
+ * @param {{progressOf: (l: LoopLaunch) => P,
+ *   causeOf: import("./refill-blocks.js").CauseOf}} read
  * @returns {LoopLaunch[]}
  */
-function judgedLaunches(launches, agents, now, progressOf) {
+function judgedLaunches(launches, agents, now, { progressOf, causeOf }) {
 	const listed = withSessionIds(launches, agents);
 	const done = new Set(newlyFinished(listed, agents, now));
 	const judged = listed.map((l) =>
 		done.has(l) ? { ...l, ...progressOf(l), finishedAt: now } : l,
 	);
-	return markParked(judged, agents);
+	return markParked(judged, agents, causeOf, now);
 }
 
 /**
- * A finished launch's progress: its session's acts across `roots`' stores,
+ * A finished launch's progress: the acts of its session and each it ran
+ * under before a resume moved it to a copy (#2969), across `roots`' stores,
  * counted per kind (#2312). UNREAD where its session id was never captured,
- * or where no act read and some store would not, which is not "did nothing".
+ * its past sessions' acts then unsummed, or where no act read and some store
+ * would not, which is not "did nothing".
  * The reader is passed in so this module stays free of store reads.
  * @param {LoopLaunch} l
  * @param {string[]} roots
  * @param {(sessionId: string, roots: string[]) =>
- *   {acts: string[], unreadable: string[]}} actsBy lib/arbiter-ledger.js's
+ *   {acts: string[], unreadable: string[]}} readActsBy lib/arbiter-ledger.js's
  * @returns {{acts: Record<string, number>|typeof UNREAD}}
  */
-function actsOf(l, roots, actsBy) {
+function actsOf(l, roots, readActsBy) {
 	if (!l.sessionId) return { acts: UNREAD };
-	const read = actsBy(l.sessionId, roots);
-	if (read.acts.length === 0 && read.unreadable.length > 0)
+	const ids = new Set([...(l.pastSessionIds ?? []), l.sessionId]);
+	const reads = [...ids].map((id) => readActsBy(id, roots));
+	const acts = reads.flatMap((r) => r.acts);
+	if (acts.length === 0 && reads.some((r) => r.unreadable.length > 0))
 		return { acts: UNREAD };
 	/** @type {Record<string, number>} */
 	const counts = {};
-	for (const act of read.acts) {
+	for (const act of acts) {
 		const kind = act.replace(/ .*/s, "");
 		counts[kind] = (counts[kind] ?? 0) + 1;
 	}
@@ -772,14 +850,14 @@ function actsOf(l, roots, actsBy) {
  * The loop log's line for a finished launch.
  * @param {LoopLaunch} l
  */
-function finishLine(l) {
+function buildFinishLine(l) {
 	const read = actsRead(l);
 	const acts = read
 		? Object.entries(read)
 				.map(([kind, n]) => `${kind} ${n}`)
 				.join(", ") || "no acts"
 		: UNREAD;
-	return `finished ${path.basename(l.root)} ${l.prompt}: ${acts}`;
+	return `finished ${launchName(l)}: ${acts}`;
 }
 
 /**
@@ -838,8 +916,7 @@ function launchUntilStopped(batches, readControl, launch) {
 /**
  * @param {{root: string, prompt: string}[]} launches
  */
-const launchesLine = (launches) =>
-	launches.map((l) => `${path.basename(l.root)} ${l.prompt}`).join("; ");
+const buildLaunchesLine = (launches) => launches.map(launchName).join("; ");
 
 /**
  * One line naming a decision.
@@ -847,7 +924,7 @@ const launchesLine = (launches) =>
  */
 function summaryOf(d) {
 	if ("stop" in d) return `stop: ${d.stop} — ${d.detail}`;
-	if (d.launches.length > 0) return `launch ${launchesLine(d.launches)}`;
+	if (d.launches.length > 0) return `launch ${buildLaunchesLine(d.launches)}`;
 	return `idle: ${d.idle}`;
 }
 
@@ -872,11 +949,11 @@ function parseProbeOutcome(stderr, failed) {
  */
 
 /** @param {FrontierRead} read */
-const frontierReadText = (read) =>
+const buildFrontierReadText = (read) =>
 	`frontier: ${read.rows} rows in ${(read.ms / 1000).toFixed(1)} s`;
 
 /** @param {import("./refill-decide.js").Skip} s */
-const skipText = (s) => `${path.basename(s.root)} #${s.number} ${s.why}`;
+const buildSkipText = (s) => `${path.basename(s.root)} #${s.number} ${s.why}`;
 
 /**
  * An idle tick's account of the frontier it read (#2561).
@@ -889,11 +966,11 @@ function frontierNotes(d, read) {
 	const counts = new Map();
 	for (const s of d.skipped) counts.set(s.why, (counts.get(s.why) ?? 0) + 1);
 	return [
-		frontierReadText(read),
+		buildFrontierReadText(read),
 		...(counts.size > 0
 			? [
 					`skipped ${[...counts].map(([why, n]) => `${n} ${why}`).join(", ")}`,
-					`first ${d.skipped.slice(0, LINE_SKIPS).map(skipText).join(", ")}`,
+					`first ${d.skipped.slice(0, LINE_SKIPS).map(buildSkipText).join(", ")}`,
 				]
 			: []),
 	];
@@ -910,12 +987,18 @@ function frontierNotes(d, read) {
  * refused as refused, with its reason (#2500).
  * @param {Outcome} o
  */
-const outcomeLine = (o) =>
+const buildOutcomeLine = (o) =>
 	[
-		...(o.launched.length > 0 ? [`launch ${launchesLine(o.launched)}`] : []),
-		...o.refused.map((r) => `refused ${launchesLine([r.launch])}: ${r.reason}`),
+		...(o.launched.length > 0
+			? [`launch ${buildLaunchesLine(o.launched)}`]
+			: []),
+		...o.refused.map(
+			(r) => `refused ${buildLaunchesLine([r.launch])}: ${r.reason}`,
+		),
 		...(o.unreached.length > 0
-			? [`not dispatched ${launchesLine(o.unreached)}: a stop landed first`]
+			? [
+					`not dispatched ${buildLaunchesLine(o.unreached)}: a stop landed first`,
+				]
 			: []),
 	].join("; ");
 
@@ -929,14 +1012,14 @@ const outcomeLine = (o) =>
  * @param {Outcome} outcome
  * @param {{freeSlots: number, probes: Probe[], read: FrontierRead|null}} seen
  */
-function tickLine(d, outcome, { freeSlots, probes, read }) {
+function buildTickLine(d, outcome, { freeSlots, probes, read }) {
 	if ("stop" in d) return summaryOf(d);
-	const head = d.launches.length > 0 ? outcomeLine(outcome) : summaryOf(d);
+	const head = d.launches.length > 0 ? buildOutcomeLine(outcome) : summaryOf(d);
 	const notes = [
 		...(d.launches.length === 0
 			? [`free slots: ${freeSlots}`, ...frontierNotes(d, read)]
 			: []),
-		...(d.launches.length > 0 && read ? [frontierReadText(read)] : []),
+		...(d.launches.length > 0 && read ? [buildFrontierReadText(read)] : []),
 		...(probes.length > 0
 			? [`probed ${probes.map((p) => `${p.seat}: ${p.outcome}`).join(", ")}`]
 			: []),
@@ -976,7 +1059,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 		io.readControl,
 		io.launchBatch,
 	);
-	const summary = tickLine(decision, outcome, {
+	const summary = buildTickLine(decision, outcome, {
 		freeSlots: input.freeSlots,
 		probes,
 		read,
@@ -1008,13 +1091,62 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 	return late ?? decision;
 }
 
-/** @param {number} ms */
-const iso = (ms) => new Date(ms).toISOString();
+/**
+ * Where a launch stands, for `status`.
+ * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
+ *   |"resuming"|"resumed-idle"|"parked"|"running"} LaunchKind
+ * @param {LoopLaunch} l
+ * @returns {LaunchKind}
+ */
+function launchKindOf(l) {
+	if (l.parkStopped !== undefined) return "park-stopped";
+	if (l.handedOff !== undefined) return "handed-off";
+	if (l.handOffTries !== undefined) return "hand-off-owed";
+	if (l.finishedAt !== null) return "finished";
+	if (isResuming(l)) return "resuming";
+	if (l.idleSince !== undefined) return "resumed-idle";
+	return l.parked ? "parked" : "running";
+}
+
+/** The kinds `status` lists past its launch window: each waits on the
+ * founder or on the loop's resumes or hand-off. */
+const UNSETTLED = new Set([
+	"park-stopped",
+	"hand-off-owed",
+	"resuming",
+	"resumed-idle",
+	"parked",
+]);
 
 /** @param {LoopLaunch} l */
 function launchStateOf(l) {
-	if (l.finishedAt !== null) return "finished";
-	return l.parked ? "parked" : "running";
+	switch (launchKindOf(l)) {
+		case "park-stopped":
+			return "parked, stopped";
+		case "handed-off":
+			return "handed off: stopped idle after its host's restart";
+		case "hand-off-owed":
+			return `stopped idle after its host's restart, its hand-off failed ${l.handOffTries} times`;
+		case "finished":
+			return "finished";
+		case "resuming": {
+			const blocked =
+				/** @type {LoopLaunch & {block: import("./block-act.js").Block}} */ (l);
+			const next =
+				l.resumes?.attachAt === undefined
+					? `next at ${iso(nextResumeAt(blocked))}`
+					: "its typed resume being checked";
+			return `resuming after an API error, ${l.resumes?.tries ?? 0} of ${RESUME_CAP} tries, ${next}`;
+		}
+		case "resumed-idle": {
+			const r = l.idleResumes;
+			return `resumed-idle since ${iso(/** @type {number} */ (l.idleSince))}, ${r ? `resumed ${r.tries} times, last at ${iso(r.triedAt)}` : "not yet resumed"}`;
+		}
+		case "parked":
+			return "parked";
+		default:
+			return "running";
+	}
 }
 
 /**
@@ -1024,21 +1156,30 @@ function launchStateOf(l) {
  * @param {LoopState} state
  * @param {{runMs: number, served: string[], running: boolean}} opts
  */
-function controlLines(control, state, opts) {
+function buildControlLines(control, state, opts) {
 	const lines = [`started:   ${iso(control.startedAt)}`];
-	lines.push(...scopeLines(control, opts));
+	lines.push(...buildScopeLines(control, opts));
 	const since = state.launches.filter(
 		(l) => l.launchedAt >= control.startedAt,
 	).length;
 	const shown = state.launches.filter(
 		(l) => l.launchedAt >= control.startedAt || l.finishedAt === null,
 	);
-	/** @param {string} at */
-	const count = (at) => shown.filter((l) => launchStateOf(l) === at).length;
+	const kinds = shown.map(launchKindOf);
+	const running = kinds.filter(
+		(k) => k === "running" || k === "resumed-idle",
+	).length;
+	const parked = kinds.filter(
+		(k) => k === "park-stopped" || k === "parked",
+	).length;
 	lines.push(
-		`launches:  ${since} since start, ${count("running")} running, ${count("parked")} parked`,
+		`launches:  ${since} since start, ${running} running, ${parked} parked`,
 	);
-	for (const l of shown.slice(-STATUS_LAUNCHES)) {
+	const listed = shown.filter(
+		(l, i) =>
+			i >= shown.length - STATUS_LAUNCHES || UNSETTLED.has(launchKindOf(l)),
+	);
+	for (const l of listed) {
 		const at = launchStateOf(l);
 		const session = l.sessionId ? `  session ${l.sessionId}` : "";
 		lines.push(
@@ -1052,11 +1193,13 @@ function controlLines(control, state, opts) {
  * The last tick's line, then the rows it skipped (#2561).
  * @param {NonNullable<LoopState["lastTick"]>} t
  */
-function lastTickLines(t) {
+function buildLastTickLines(t) {
 	const skipped = t.skipped ?? [];
 	return [
 		`last tick: ${iso(t.at)}  ${t.summary}`,
-		...skipped.slice(0, STATUS_SKIPS).map((s) => `  skipped ${skipText(s)}`),
+		...skipped
+			.slice(0, STATUS_SKIPS)
+			.map((s) => `  skipped ${buildSkipText(s)}`),
 		...(skipped.length > STATUS_SKIPS
 			? [`  … and ${skipped.length - STATUS_SKIPS} more skipped`]
 			: []),
@@ -1066,19 +1209,30 @@ function lastTickLines(t) {
 /**
  * @param {{control: Control|null, state: LoopState, pid: number|null,
  *   runMs: number, served: string[], codeSha?: string|null}} input `served`,
- *   scopeRoots's roots; `codeSha`, lib/refill-code.js's runningCode
+ *   scopeRoots's roots; `codeSha`, lib/refill-code.js's readRunningCode
  * @returns {string[]}
  */
-function statusLines({ control, state, pid, runMs, served, codeSha = null }) {
+function buildStatusLines({
+	control,
+	state,
+	pid,
+	runMs,
+	served,
+	codeSha = null,
+}) {
 	return [
 		pid === null
 			? "refill loop: not running"
 			: `refill loop: running, pid ${pid}`,
 		...(pid !== null && codeSha ? [`code:      ${codeSha}`] : []),
 		...(control
-			? controlLines(control, state, { runMs, served, running: pid !== null })
+			? buildControlLines(control, state, {
+					runMs,
+					served,
+					running: pid !== null,
+				})
 			: ["never started on this machine"]),
-		...(state.lastTick ? lastTickLines(state.lastTick) : []),
+		...(state.lastTick ? buildLastTickLines(state.lastTick) : []),
 		...(state.stopped
 			? [
 					`last stop: ${iso(state.stopped.at)}  ${state.stopped.reason} — ${state.stopped.detail}`,
@@ -1122,31 +1276,33 @@ module.exports = {
 	ceilingsOf,
 	parseControl,
 	dispatchCall,
-	finishLine,
+	buildFinishLine,
 	isRenewedSince,
 	judgedLaunches,
 	launchBatch,
-	launchesLine,
+	buildLaunchesLine,
 	loopFiles,
 	mergedScope,
 	readJson,
-	frontierReadText,
-	skipText,
+	buildFrontierReadText,
+	buildSkipText,
 	isReviewRunDue,
 	reviewRunRecorded,
 	runningOf,
-	scopeLines,
+	buildScopeLines,
 	parseScope,
 	scopeRoots,
 	parseProbeOutcome,
+	overflowReadings,
 	seatReadingOf,
 	seatsToRefresh,
 	settleTick,
 	readSizedSeats,
 	sizedSeats,
 	parseState,
-	statusLines,
+	buildStatusLines,
 	stopNeverStarted,
 	summaryOf,
+	buildWouldRunLine,
 	writeJson,
 };

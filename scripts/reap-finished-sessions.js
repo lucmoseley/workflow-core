@@ -3,10 +3,9 @@
  * reap-finished-sessions.js — stops background sessions that have FINISHED but
  * are still resident, so their memory returns to the admission arithmetic.
  *
- * THE PROBLEM (mantahostels#421, which measured it and holds the census). A background
- * session that finishes does not exit: it stays resumable, holding 330-450 MB
- * PSS, so pick-next.js reads the pool as spent memory and admits fewer sessions
- * than fit.
+ * THE PROBLEM (mantahostels#421). A background session that finishes does not
+ * exit: it stays resumable, holding 330-450 MB PSS, so pick-next.js reads the
+ * pool as spent memory and admits fewer sessions than fit.
  *
  * WHY STOPPING IS NOT DESTRUCTIVE. Resume is transcript-based
  * (~/.claude/projects/<slug>/<session-id>.jsonl), not process-based, so
@@ -21,15 +20,18 @@
  * IT REAPS ONLY WHAT IT CAN PROVE IS FINISHED, AND DEGRADES TO REAPING NOTHING.
  * Five gates, every one of which must pass:
  *   1. its registry record says `kind: bg` (the listing's `background`) AND
- *      its job record says `state: done` — a session mid-decision reads
- *      `working`;
+ *      its job record says `state: done` with `tempo` not `active` — a
+ *      session mid-decision reads `working`, one in a forced Stop-hook turn
+ *      `done` and `active` (#2980);
  *   2. it is not this very session — waived under `--not-a-session`, for a
  *      caller with no session of its own (the refill loop, #2012), and only
  *      where CLAUDE_CODE_SESSION_ID is unset: a session that passes it is
  *      still told apart from the rest;
  *   3. its registry record names a job id — `claude stop` is addressed by that, and
  *      answers anything else with "No job matching" and exit 1;
- *   4. it finished at least GRACE_MS ago (lib/reaper.js, which holds the
+ *   4. it finished at least GRACE_MS ago, and its transcript shows its last
+ *      turn ended — else it is held for the windows HOW LONG A JOB WHOSE TURN
+ *      HAS NOT VISIBLY ENDED IS LEFT ALONE sets (lib/reaper.js, which holds the
  *      gates' code and the constants this header names);
  *   5. its last `claude stop` did not fail inside the retry window that failure
  *      opened — see HOW A STOP THAT FAILED IS LEFT ALONE in lib/reaper.js.
@@ -64,11 +66,10 @@
  * IT REAPS EVERY SEAT, NOT ONLY ITS OWN (#1571). The listing spans every seat,
  * but `claude stop` and the job record are scoped to CLAUDE_CONFIG_DIR. So each
  * session is addressed on the seat whose `jobs/<id>` record names it
- * (lib/claude-stop.js's seatsFor).
+ * (lib/claude-stop.js's stopSession).
  *
  * NO AGE EVER EXPIRES A CLAIM HERE. mantahostels#318 refused claim expiry outright; the
- * grace (lib/reaper.js's GRACE_MS) is an age on a session's own idleness, never on a lock — still
- * true with the claim gate gone (mantahostels#747).
+ * grace (lib/reaper.js's GRACE_MS) is an age on a session's own idleness, never on a lock.
  *
  * Usage: node scripts/reap-finished-sessions.js [--dry-run] [--json] [--notify] [--not-a-session]
  * Runs at every session start, from self-plugin/hooks/hooks.json's SessionStart hooks,
@@ -78,10 +79,8 @@
  * WHAT IS COVERED, AND WHAT IS NOT. mantahostels#493 holds the mutation-by-mutation
  * roll of what is covered. UNVERIFIED: lib/reaper.js's isFinished `kind` limb,
  * the rest of main()'s readings, and gate 5's `failures &&` conjunct, an equivalent
- * mutant — lib/reaper.js's entryOf gives every non-record row `retryAt: 0`, so `now < retryAt`
- * is false there anyway. Also UNVERIFIED: that `main()` threads its own `runs`
- * read into `openRun` rather than a second `readRuns()` there — the two reads
- * agree outside a concurrent session start, which nothing here reproduces.
+ * mutant. Also UNVERIFIED: that `main()` threads its own `runs` read into
+ * `openRun` rather than a second `readRuns()` there.
  *
  * Exit codes: always 0. A session start must never be blocked by this. The
  * one exception is a command line lib/cli-args.js refuses — exit 2, before
@@ -106,11 +105,11 @@ const { writeFd } = require("./lib/write-fd.js");
  */
 const path = require("node:path");
 const { configDir } = require("./lib/config-dir.js");
-const { jobStatePath, seatsFor, stopSession } = require("./lib/claude-stop.js");
-const { registryAgents } = require("./lib/registry-agents.js");
+const { readOwnJob, stopSession } = require("./lib/claude-stop.js");
+const { readRegistryAgents } = require("./lib/registry-agents.js");
 const { readLocks, subjectDirty } = require("./lib/arbiter-store");
 const { projectSlug } = require("./lib/project-slug.js");
-/* Required eagerly, unlike notify-report.js below: this one pulls in nothing. */
+const { lastTurn } = require("./lib/transcript.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { persisting: sharedPersisting } = require("./lib/persist-mode.js");
@@ -118,17 +117,12 @@ const { fromEnv: sessionFromEnv } = require("./lib/session-id.js");
 /* The judgement and the report, every reading below handed in (#1369). */
 const { DEGRADED, openedRecord, reap } = require("./lib/reaper.js");
 
-/* PERSIST MODE (mantahostels#2152, the ticket that joined the reaper to mantahostels#1949's
- * persist-and-replay set).
+/* PERSIST MODE (mantahostels#2152).
  *
- * WHY THE REPORT IS FILED HERE RATHER THAN THROUGH runCheck. The other slow
- * SessionStart producers get persistence free from `lib/check.js`'s
- * checker tail (mantahostels#1974); this script is not a member of that family and cannot
- * become one cheaply. It owns its own `--json` document, which
- * `lib/admission.js` parses, and its own exit contract; runCheck owns both, so
- * routing through it would change a machine-read envelope to buy a tail that
- * is a dozen lines here. So the reaper calls `lib/notify-report.js` directly
- * instead.
+ * The reaper owns its own `--json` document, which `lib/admission.js` parses,
+ * and its own exit contract, so it calls `lib/notify-report.js` directly
+ * rather than taking persistence from `lib/check.js`'s checker tail
+ * (mantahostels#1974), which owns both.
  *
  * THE GATE ITSELF IS NOT HAND-ROLLED: it is `lib/persist-mode.js` (mantahostels#2252),
  * which `lib/check.js` requires too, so the two cannot drift into giving one
@@ -161,7 +155,7 @@ const statePath = () => path.join(configDir(), "wfc-reap-state.json");
  * @param {number|null|undefined} pid
  * @returns {number|null}
  */
-function pssMb(pid) {
+function readPssMb(pid) {
 	try {
 		const m = fs
 			.readFileSync(`/proc/${pid}/smaps_rollup`, "utf8")
@@ -198,8 +192,7 @@ function writeState(state) {
 	}
 }
 
-/* THE RUN RECORD (mantahostels#1920, the session start whose reaper was cancelled on its own
- * 30 s timeout and reaped none of five eligible sessions).
+/* THE RUN RECORD (mantahostels#1920).
  *
  * A reap that takes nothing prints nothing and exits 0, and the SessionStart
  * registration ends `|| true`, so a healthy start and a reaper that never ran
@@ -222,25 +215,23 @@ function writeState(state) {
  * same mode says so.
  *
  * THE ONLY READER IS scripts/check-hook-liveness.js's `reapAssertion`
- * (mantahostels#1931's own pointer, which that ticket could not land here itself — this
- * file was claimed by a live session and the in-band request went
- * unanswered, so mantahostels#1952 lands it instead). It reads a row's single-run
- * staleness (`startedAt` with no `finishedAt`, aged past its own grace) for
- * the `dry` mode, which is not reopened every session start and so can
- * genuinely sit unfinished long enough to age past it. `live` cannot: this
- * file's own `openRun` reopens that mode at every session start regardless
- * of whether the previous attempt closed, so a `live` row read by the
- * checker is always the current start's — never old enough for a single read
- * to call it dead. `openedSince` and `deaths` (lib/reaper.js's `openedRecord`) are what let the
- * checker see a `live` mode cancelled at consecutive starts anyway: a signal
- * carried across runs in the row itself, not read fresh each time. */
+ * (mantahostels#1931). It reads a row's single-run staleness (`startedAt` with
+ * no `finishedAt`, aged past its own grace) for the `dry` mode, which is not
+ * reopened every session start and so can genuinely sit unfinished long enough
+ * to age past it. `live` cannot: this file's own `openRun` reopens that mode at
+ * every session start regardless of whether the previous attempt closed, so a
+ * `live` row read by the checker is always the current start's — never old
+ * enough for a single read to call it dead. `openedSince` and `deaths`
+ * (lib/reaper.js's `openedRecord`) are what let the checker see a `live` mode
+ * cancelled at consecutive starts anyway: a signal carried across runs in the
+ * row itself, not read fresh each time. */
 const runPath = () => path.join(configDir(), "wfc-reap-run.json");
 
 /**
  * Consecutive deaths before `check-hook-liveness.js` reports a mode's row.
  *
  * A GUESS, STATED AS ONE (mirroring detached-run.js's DEATHS_TO_REPORT, mantahostels#1999)
- * — no rate for this machine's session-start cadence is derived here either.
+ * — no rate for this machine's session-start cadence is derived here.
  * 3 is past what one burst of concurrent starts against an already-stale row
  * could reach on its own (lib/reaper.js's LIVE_DEATH_GRACE_MS, and its reason — a burst inside
  * the grace counts as at most one death together), while still firing inside
@@ -252,9 +243,9 @@ const REAP_LIVE_DEATHS_TO_REPORT = 3;
  * Both modes' last records, or `{}` where none can be read.
  *
  * FAILS OPEN, AND THAT COSTS THE WARNING. A record file that will not parse
- * reads as no record at all, so the cancellation this change exists to report
- * goes unreported. Accepted because a throw here blocks a session start, which the file's
- * exit-code contract forbids; the residual is one missed warning per corrupt
+ * reads as no record at all, so a cancelled run goes unreported. Accepted
+ * because a throw here blocks a session start, which the file's exit-code
+ * contract forbids; the residual is one missed warning per corrupt
  * file, self-clearing at the next run, which writes the file whole.
  * @returns {Record<string, RunRecord>}
  */
@@ -298,10 +289,9 @@ function writeRuns(record) {
  * `main()` already reads the run file once, before this call, to know whether
  * the OTHER mode's record should carry a "previous run unfinished" warning —
  * threading that same read in rather than reading again keeps this file's
- * single-read-of-the-run-file invariant, and matters more than it looks: two
- * independent reads a write apart could disagree under a concurrent session
- * start, and only one of them would then be judging the same prior row `deaths`
- * is meant to be building on.
+ * single-read-of-the-run-file invariant: two reads a write apart could
+ * disagree under a concurrent session start, and only one would be judging the
+ * prior row `deaths` builds on.
  *
  * What the record carries, `deaths` and `openedSince` included, is
  * lib/reaper.js's `openedRecord`; this writes it.
@@ -387,40 +377,71 @@ const transcriptPath = (seat, cwd, sessionId) =>
  * here, carrying its first finish stamp. The mtime term is what bounds that one.
  *
  * BOTH TERMS OR NEITHER. Missing either one gives no max to take, so this
- * returns null and the caller falls back to the observation clock — which
- * reproduces today's behaviour exactly.
+ * returns null and the caller falls back to the observation clock.
  *
  * @param {{id?: string, sessionId: string}} agent
  * @returns {number|null}
  */
 function readFinishAt(agent) {
-	/* `?? ""` rather than a guard: the one caller reaches here only past its
-	 * own `!a.id` gate. */
-	const jobId = agent.id ?? "";
-	const seat = seatsFor(jobId, agent.sessionId)[0];
-	if (!seat) return null;
-	let record;
+	const own = readOwnTranscript(agent);
+	if (!own) return null;
+	const stamp = Date.parse(own.record.firstTerminalAt ?? "");
+	if (!Number.isFinite(stamp)) return null;
 	try {
-		record = JSON.parse(fs.readFileSync(jobStatePath(seat, jobId), "utf8"));
+		return Math.max(stamp, fs.statSync(own.file).mtimeMs);
 	} catch {
 		return null;
 	}
-	const stamp = Date.parse(record?.firstTerminalAt ?? "");
-	if (!Number.isFinite(stamp)) return null;
+}
+
+/**
+ * A session's job record and the transcript path derived from it, or null
+ * where there is no record naming it or the record carries no cwd.
+ *
+ * @param {{id?: string, sessionId: string}} agent
+ * @returns {{record: Record<string, any>, file: string}|null}
+ */
+function readOwnTranscript(agent) {
+	/* `agent.id` is set: the one caller reaches here only past its own `!a.id`
+	 * gate. */
+	const own = readOwnJob(agent.sessionId, { jobId: agent.id });
+	if (!own?.job) return null;
+	const { seat, job: record } = own;
 	/* EXPLICIT, because `projectSlug` DEFAULTS a missing cwd to this process's
 	 * own — which would resolve a record with no cwd against the reaping
-	 * session's transcript directory and hand back somebody else's mtime as
-	 * this agent's finish time. Until mantahostels#1982 the same case threw inside
-	 * `transcriptPath` and fell into the catch below; a default turned that
-	 * throw into a wrong answer. */
+	 * session's transcript directory and hand back somebody else's transcript
+	 * as this agent's (mantahostels#1982). */
 	if (!record.cwd) return null;
+	return { record, file: transcriptPath(seat, record.cwd, agent.sessionId) };
+}
+
+/* Far past the few kB a turn's closing rows take. A tail holding no turn row reads as unreadable, which
+ * holds the job for the hold window rather than reaping it. */
+const TURN_TAIL_BYTES = 256 * 1024;
+
+/**
+ * A session's last turn row — lib/transcript.js's lastTurn over its
+ * transcript's tail — or null where the transcript cannot be found or read.
+ *
+ * @param {{id?: string, sessionId: string}} agent
+ * @returns {{ended: boolean, at: number|null}|null}
+ */
+function readLastTurn(agent) {
+	const own = readOwnTranscript(agent);
+	if (!own) return null;
+	let fd;
 	try {
-		return Math.max(
-			stamp,
-			fs.statSync(transcriptPath(seat, record.cwd, agent.sessionId)).mtimeMs,
-		);
+		fd = fs.openSync(own.file, "r");
+		const size = fs.fstatSync(fd).size;
+		const length = Math.min(size, TURN_TAIL_BYTES);
+		const buf = Buffer.alloc(length);
+		fs.readSync(fd, buf, 0, length, size - length);
+		return lastTurn(buf.toString("utf8"));
 	} catch {
+		/* null is "cannot say", which lib/reaper.js holds for HOLD_MS (#2980). */
 		return null;
+	} finally {
+		if (fd !== undefined) fs.closeSync(fd);
 	}
 }
 
@@ -501,7 +522,7 @@ function main(argv) {
 		const { startedAt } = openRun(argv, runs);
 		const verdict = reap({
 			argv,
-			listed: registryAgents(),
+			listed: readRegistryAgents(),
 			claims: claimHolders(),
 			self:
 				process.env.CLAUDE_CODE_SESSION_ID ||
@@ -509,9 +530,10 @@ function main(argv) {
 			now: Date.now(),
 			state: readState(),
 			stop: stopSession,
-			readPss: pssMb,
+			readPss: readPssMb,
 			saveState: writeState,
 			finishAt: readFinishAt,
+			lastTurn: readLastTurn,
 			isDirty: subjectDirty,
 			runs,
 			startedAt,

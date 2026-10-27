@@ -45,7 +45,7 @@ const { takesLabel } = require("./lib/takes-label");
 
 const TITLE = "The scheduled full-suite run is red on main";
 /* The label the dedupe matches on, and the reason it is not `urgent`: a human
- * strips `urgent` once it has decayed (CLAUDE.md §Conventions), and a tracking
+ * may strip `urgent` at any time (`rule:urgent-label`), and a tracking
  * issue whose match label can be removed by hand deduplicates until the day
  * somebody tidies it and then files a second issue. `ci-red` is carried by
  * nothing else and nobody has a reason to take it off. */
@@ -93,7 +93,7 @@ const SUITE_JOB = "Full suite";
  * @param {number} limit
  * @returns {(Run & {verdict: string|null})[]}
  */
-function sweeps(limit) {
+function readSweeps(limit) {
 	/** @type {(Run & {databaseId?: number})[]} */
 	const rows = ghJson([
 		"run",
@@ -165,7 +165,7 @@ function filesFor(jobs) {
 
 /* How many sweeps back either query looks. At mantahostels#3490's four a day, 30 is 7.5
  * days — enough that a red surviving a long weekend still finds its green end.
- * IT IS NOT FREE: sweeps() resolves every row eagerly, one `gh run view`
+ * IT IS NOT FREE: readSweeps() resolves every row eagerly, one `gh run view`
  * apiece, so an invocation costs ~31 gh calls where it cost ~21. */
 const RUN_WINDOW = 30;
 
@@ -187,7 +187,7 @@ const RUN_WINDOW = 30;
  * @returns {{held: boolean, detail: string}}
  */
 function sweepStillRed() {
-	const rows = sweeps(RUN_WINDOW);
+	const rows = readSweeps(RUN_WINDOW);
 	const judged = rows.find((r) => r.verdict);
 	if (!judged)
 		throw new Error(
@@ -215,7 +215,7 @@ function sweepStillRed() {
  *   sweep carries no verdict to read.
  */
 function newestSweepRed() {
-	const [newest] = sweeps(1);
+	const [newest] = readSweeps(1);
 	if (newest === undefined)
 		throw new Error(`no ${SWEEP_WORKFLOW} run exists on this branch`);
 	if (!newest.verdict) return null;
@@ -237,7 +237,7 @@ function newestSweepRed() {
  * @param {string} sha
  * @returns {string[]}
  */
-function rangeLines(green, sha) {
+function buildRangeLines(green, sha) {
 	const good = green?.headSha || "";
 	if (!good)
 		return [
@@ -256,7 +256,7 @@ function rangeLines(green, sha) {
  * @param {Run} red
  * @param {Run|null} green
  */
-function eventLines(red, green) {
+function buildEventLines(red, green) {
 	return [
 		`- **Workflow:** \`${SWEEP_WORKFLOW}\``,
 		`- **Run:** ${red.url || "(the API gave no run URL)"}`,
@@ -264,7 +264,7 @@ function eventLines(red, green) {
 		`- **Last green sweep:** ${green?.url ? `${green.url} (\`${(green.headSha || "").slice(0, 7)}\`, ${green.createdAt || "date unknown"})` : "none in the API's window"}`,
 		"",
 		"```",
-		...rangeLines(green, red.headSha || ""),
+		...buildRangeLines(green, red.headSha || ""),
 		"```",
 	];
 }
@@ -281,7 +281,7 @@ function body(red, green) {
 		"",
 		"## The red run",
 		"",
-		...eventLines(red, green),
+		...buildEventLines(red, green),
 		"",
 		"## Read this before hunting a commit",
 		"",
@@ -311,7 +311,7 @@ function comment(red, green) {
 	return [
 		"**Another red sweep** — the same tracking issue, so nothing new was filed.",
 		"",
-		...eventLines(red, green),
+		...buildEventLines(red, green),
 	].join("\n");
 }
 
@@ -354,7 +354,7 @@ function main() {
 	parseOrExit(process.argv.slice(2), {
 		usage: "usage: node scripts/report-red-suite.js",
 	});
-	const rows = sweeps(RUN_WINDOW);
+	const rows = readSweeps(RUN_WINDOW);
 	const at = rows.findIndex((r) => r.verdict);
 	const red = rows[at];
 	if (red === undefined) {
@@ -399,7 +399,7 @@ function main() {
 	}
 
 	/* Labelled at creation because a create from a script is invisible to
-	 * scripts/guard-issue-create-label.sh, which sees Bash tool calls only —
+	 * scripts/guard-issue-create-label.js, which sees Bash tool calls only —
 	 * mantahostels#464 is the live instance of an issue reaching the tracker bare (mantahostels#470). */
 	const filed = gh([
 		"issue",

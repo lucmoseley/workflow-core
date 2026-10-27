@@ -5,7 +5,7 @@ The machinery that lets many agent sessions work one shared repository at once: 
 ## Language
 
 **Certificate**:
-The record a green suite run leaves behind, one line in the marker store, a run that selected no test included. It attests a tree and a read closure, never a commit sha on its own.
+The record a green suite run leaves behind, one line in the marker store, a run that selected no test included — except a bare run under `landing`, which leaves none when it selects nothing, since no push there owes an attesting certificate. It attests a tree and a read closure, never a commit sha on its own.
 _Avoid_: marker (the storage word), green, pass record
 
 **Attests**:
@@ -153,7 +153,7 @@ The machine's one refill loop scoped to every included workflow-core repo, bar a
 _Avoid_: night mode, night loop (it is not tied to the clock), autopilot (says nothing of the 24-hour bound)
 
 **Parked**:
-Said of a ticket whose session posted a house-decision round on it and ended waiting on the founder; the `parked` label marks it, applied by a `Stop` hook and never by a session by hand, so no picker relaunches it, and comes off when he answers in that session or a session claims the ticket.
+Said of a ticket whose session ended waiting on the founder: it posted a house-decision round there, or the refill loop stopped it at a block it will not resume, such as a question, a permission prompt or an API error past retrying. The `parked` label marks it, applied by a `Stop` hook or the refill loop and never by a session by hand, so the loop never relaunches it, though `/pick-next` may still choose it. It comes off when a session claims the ticket or, where the `Stop` hook parked it, when he answers in that session.
 _Avoid_: blocked (a native dependency edge), waiting (the `waiting:external` label, for someone outside), paused
 
 **Morning review issue**:

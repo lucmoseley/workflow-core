@@ -44,7 +44,7 @@ const { GIT_MODE } = require("./git-mode.js");
 const BASE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** HEAD's sha, or null on an unborn branch or a git that will not answer. */
-const headSha = () => core.git(["rev-parse", "--verify", "-q", "HEAD"]);
+const readHeadSha = () => core.git(["rev-parse", "--verify", "-q", "HEAD"]);
 
 /**
  * `rel`'s blob at `head`, or null where the path is absent there — an addition,
@@ -52,17 +52,17 @@ const headSha = () => core.git(["rev-parse", "--verify", "-q", "HEAD"]);
  * @param {string} head
  * @param {string} rel
  */
-const blobAt = (head, rel) =>
+const readBlobAt = (head, rel) =>
 	core.git(["rev-parse", "--verify", "-q", `${head}:${rel}`]);
 
 /**
- * blobAt, telling an absent path (null) from a git that would not answer
+ * readBlobAt, telling an absent path (null) from a git that would not answer
  * (undefined): the gate passes the first and must report the second.
  * @param {string} head
  * @param {string} rel
  */
-function blobOrFault(head, rel) {
-	const blob = blobAt(head, rel);
+function readBlobOrFault(head, rel) {
+	const blob = readBlobAt(head, rel);
 	if (blob) return blob;
 	const listed = core.git(["ls-tree", "--name-only", head, "--", rel]);
 	return listed === "" ? null : undefined;
@@ -85,13 +85,13 @@ function mintBase(rel, sessionId) {
 	try {
 		// The common case — every write after the first — costs one stat and no git.
 		if (fs.existsSync(file)) return core.readRecord(file);
-		const head = headSha();
+		const head = readHeadSha();
 		if (!head) return null;
 		const record = {
 			path: rel,
 			sessionId,
 			head,
-			blob: blobAt(head, rel),
+			blob: readBlobAt(head, rel),
 			at: new Date().toISOString(),
 		};
 		fs.mkdirSync(core.paths.basesDir(), { recursive: true });
@@ -112,7 +112,7 @@ function mintSessionBase(sessionId) {
 	const file = core.paths.sessionBase(sessionId);
 	try {
 		if (fs.existsSync(file)) return core.readRecord(file);
-		const head = headSha();
+		const head = readHeadSha();
 		if (!head) return null;
 		const record = { sessionId, head, at: new Date().toISOString() };
 		fs.mkdirSync(core.paths.sessionBasesDir(), { recursive: true });
@@ -167,7 +167,7 @@ function resolveBase(rel, sessionId) {
 		else if (own.unreadable) bad = own;
 		return { base: null, fault: bad ? `${bad.reason}: ${bad.file}` : null };
 	}
-	const blob = blobOrFault(head, rel);
+	const blob = readBlobOrFault(head, rel);
 	if (blob === undefined)
 		return { base: null, fault: `git could not read ${rel} at ${head}` };
 	return {
@@ -215,9 +215,9 @@ function judgeStaged(rel, sessionId, staged) {
 	rel = core.subjectPath(rel);
 	const { base, fault } = resolveBase(rel, sessionId);
 	if (!base) return fault ? { verdict: "unknown", fault } : PASS;
-	const head = headSha();
+	const head = readHeadSha();
 	if (!head) return { verdict: "unknown", fault: "git could not read HEAD" };
-	const headBlob = blobOrFault(head, rel);
+	const headBlob = readBlobOrFault(head, rel);
 	if (headBlob === undefined)
 		return { verdict: "unknown", fault: `git could not read ${rel} at HEAD` };
 	if (!base.blob || !headBlob || base.blob === headBlob) return PASS;
@@ -237,7 +237,7 @@ function judgeStaged(rel, sessionId, staged) {
 	return {
 		verdict: "refuse",
 		base,
-		commits: commitsSince(base, head, rel),
+		commits: readCommitsSince(base, head, rel),
 	};
 }
 
@@ -249,7 +249,7 @@ function judgeStaged(rel, sessionId, staged) {
  * @param {string} rel
  * @returns {string[]|null}
  */
-function commitsSince(base, head, rel) {
+function readCommitsSince(base, head, rel) {
 	const log = core.git([
 		"log",
 		"--format=%h %s",
@@ -273,8 +273,8 @@ function commitsSince(base, head, rel) {
  * would not list them. Throws on a raw-diff record git printed short (#1344).
  * @returns {{rel: string, blob: string}[] | null}
  */
-function stagedModifications() {
-	const head = headSha();
+function readStagedModifications() {
+	const head = readHeadSha();
 	// No HEAD in a repo git can read is an unborn branch; anything else is a fault.
 	if (!head) return core.git(["rev-parse", "--git-dir"]) === null ? null : [];
 	// Untrimmed: -z output may end in a path that itself ends in whitespace.
@@ -316,7 +316,7 @@ function rawRecords(out) {
 }
 
 /**
- * judgeStaged over stagedModifications' list, each entry gaining its verdict.
+ * judgeStaged over readStagedModifications' list, each entry gaining its verdict.
  *
  * A path its base's tree agrees with HEAD on passes unjudged, off one
  * `git diff --name-only` per distinct base commit, which keeps a wide
@@ -328,7 +328,7 @@ function rawRecords(out) {
 function judgeStagedAll(entries, sessionId) {
 	/** @type {Map<string, Set<string>|null>} */
 	const changed = new Map();
-	const changedSince = (/** @type {string} */ head) => {
+	const readChangedSince = (/** @type {string} */ head) => {
 		if (!changed.has(head)) {
 			const out = core.gitRaw([
 				"diff",
@@ -346,8 +346,8 @@ function judgeStagedAll(entries, sessionId) {
 		return changed.get(head);
 	};
 	return entries.map(({ rel, blob }) => {
-		const head = recordedHead(core.subjectPath(rel), sessionId);
-		const moved = head ? changedSince(head) : null;
+		const head = readRecordedHead(core.subjectPath(rel), sessionId);
+		const moved = head ? readChangedSince(head) : null;
 		const verdict =
 			moved && !moved.has(rel) ? PASS : judgeStaged(rel, sessionId, blob);
 		return { rel, verdict };
@@ -360,7 +360,7 @@ function judgeStagedAll(entries, sessionId) {
  * @param {string} rel
  * @param {string} sessionId
  */
-function recordedHead(rel, sessionId) {
+function readRecordedHead(rel, sessionId) {
 	for (const file of [
 		core.paths.base(rel, sessionId),
 		core.paths.sessionBase(sessionId),
@@ -392,9 +392,9 @@ function recordedHead(rel, sessionId) {
  */
 function acceptHead(rel, sessionId) {
 	rel = core.subjectPath(rel);
-	const head = headSha();
+	const head = readHeadSha();
 	if (!head) return { fault: "git could not read HEAD" };
-	const blob = blobOrFault(head, rel);
+	const blob = readBlobOrFault(head, rel);
 	if (blob === undefined) return { fault: `git could not read ${rel} at HEAD` };
 	const { base: old, fault } = resolveBase(rel, sessionId);
 	/** @type {AcceptedHead} */
@@ -412,7 +412,7 @@ function acceptHead(rel, sessionId) {
 	try {
 		writeFileAtomic(
 			file,
-			core.recordText({ path: rel, sessionId, head, blob, at: entry.at }),
+			core.buildRecordText({ path: rel, sessionId, head, blob, at: entry.at }),
 			{
 				mkdir: true,
 				beforeRename: () => {
@@ -451,7 +451,7 @@ function acceptHead(rel, sessionId) {
  * blob as `sessionId`'s base, so the gate judges the session's next edit
  * against its own last commit rather than against a base that predates it. A
  * deleted path's blob is null, which the gate passes as it passes an addition.
- * Gitlinks are left out, as stagedModifications leaves them, and a merge
+ * Gitlinks are left out, as readStagedModifications leaves them, and a merge
  * advances nothing: `diff-tree` lists no paths for one.
  *
  * Unlogged, unlike acceptHead: it records the session's own commit, never a
@@ -489,7 +489,7 @@ function advanceBases(commit, sessionId) {
 		try {
 			writeFileAtomic(
 				core.paths.base(rel, sessionId),
-				core.recordText({ path: rel, sessionId, head: commit, blob, at }),
+				core.buildRecordText({ path: rel, sessionId, head: commit, blob, at }),
 				{ mkdir: true },
 			);
 			advanced++;
@@ -520,5 +520,5 @@ module.exports = {
 	judgeStagedAll,
 	mintBase,
 	mintSessionBase,
-	stagedModifications,
+	readStagedModifications,
 };

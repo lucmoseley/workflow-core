@@ -54,7 +54,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { pluginRecord } = require("./lib/plugin-record.js");
+const { readPluginRecord } = require("./lib/plugin-record.js");
 const {
 	run,
 	installFailure: reason,
@@ -75,9 +75,10 @@ const {
 const {
 	inferCommands,
 	runsLintStaged,
+	classifyCheckStaged,
 	BIOME_STAGED_COMMAND,
 } = require("./lib/infer-commands.js");
-const { subjectModules } = require("./lib/gate-subjects.js");
+const { readSubjectModules } = require("./lib/gate-subjects.js");
 const { ghBinary } = require("./lib/gh.js");
 const {
 	findInstallRecord,
@@ -106,10 +107,21 @@ const {
 } = require("./lib/core-owned-files.js");
 const { RUFF_INSTALL } = require("./lib/formatters.js");
 const { caught } = require("./lib/caught.js");
+const { execGit, gitOrNull, GIT_TIMEOUT_MS } = require("./lib/git.js");
 
 /** @typedef {import("./lib/workflow-core-config.js").Module} Module */
+/** @typedef {import("./lib/workflow-core-config.js").Command} Command */
+/**
+ * One command, where it came from — --command, the kept config, or
+ * inference — and any note inference left on it. `from` is unset where
+ * nothing declares the command.
+ * @typedef {{command: string|null, from?: string, note?: string}} SourcedCommand
+ */
+
+/** @typedef {Record<Command, SourcedCommand>} Sourced */
 
 const CONFIG = ".claude/workflow-core.json";
+const EXPLICIT = "--command";
 const SETTINGS = ".claude/settings.json";
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
@@ -340,8 +352,8 @@ function stamp() {
  */
 /**
  * A `.claude-plugin/<file>` manifest, parsed, or `null` where it is missing,
- * unreadable or not an object — the one shape `coreVersion` and
- * `manifestMarketplaceName` both need.
+ * unreadable or not an object — the one shape `readManifestVersion` and
+ * `readManifestMarketplaceName` both need.
  * @param {string} pluginRoot
  * @param {string} file
  * @returns {Record<string, unknown>|null}
@@ -364,7 +376,7 @@ function readManifest(pluginRoot, file) {
  * @param {string} pluginRoot
  * @returns {string|null}
  */
-function manifestVersion(pluginRoot) {
+function readManifestVersion(pluginRoot) {
 	const version = readManifest(pluginRoot, "plugin.json")?.version;
 	return typeof version === "string" ? version : null;
 }
@@ -374,9 +386,9 @@ function manifestVersion(pluginRoot) {
  * @param {string|null} [ref] a url pin, whose tag stands in for a manifest
  *   not yet installed at `pluginRoot` (#736)
  */
-function coreVersion(pluginRoot, ref) {
+function readCoreVersion(pluginRoot, ref) {
 	const full =
-		manifestVersion(pluginRoot) ||
+		readManifestVersion(pluginRoot) ||
 		(ref && isTagRef(ref) ? ref.replace(/^v/, "") : "1.0.0");
 	const [major, minor = "0"] = full.split(".");
 	return `${major}.${minor}`;
@@ -394,13 +406,18 @@ function offPin(dir, ref) {
 	if (fs.existsSync(path.join(dir, ".git"))) {
 		let tags;
 		try {
-			tags = run(dir, ["git", "tag", "--points-at", "HEAD"]).split("\n");
+			tags = execGit(["tag", "--points-at", "HEAD"], {
+				cwd: dir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: GIT_TIMEOUT_MS,
+			}).split("\n");
 		} catch (err) {
 			return `a checkout whose tags git could not read (${reason(err)})`;
 		}
 		return tags.includes(ref) ? null : `a checkout whose HEAD is not ${ref}`;
 	}
-	const version = manifestVersion(dir);
+	const version = readManifestVersion(dir);
 	return sameRelease(version, ref)
 		? null
 		: `version ${version ?? "unknown"}, not ${ref}`;
@@ -412,7 +429,7 @@ function offPin(dir, ref) {
  * @param {string} pluginRoot
  */
 const readableRoot = (pluginRoot) =>
-	manifestVersion(pluginRoot) ? pluginRoot : path.join(__dirname, "..");
+	readManifestVersion(pluginRoot) ? pluginRoot : path.join(__dirname, "..");
 
 /**
  * The plugin copy a url-sourced adopter's hooks and rules file run from where
@@ -451,7 +468,7 @@ function installedRoot({ root, marketplace, ref, fallback, configDir, out }) {
  * @param {string} pluginRoot
  * @returns {string|null}
  */
-function manifestMarketplaceName(pluginRoot) {
+function readManifestMarketplaceName(pluginRoot) {
 	const name = readManifest(pluginRoot, "marketplace.json")?.name;
 	return typeof name === "string" ? name : null;
 }
@@ -494,16 +511,22 @@ class Writer {
 }
 
 /**
- * The `commands` line: each declared command and where it came from.
- * @param {{commands: Record<string, string|null>,
- *   commandsFrom: Record<string, string>, kept: Record<string, unknown>|null,
+ * The `commands` line: each declared command, where it came from, and any
+ * note inference left on it.
+ * @param {{sourced: Sourced,
+ *   kept: Record<string, unknown>|null,
  *   out: (line: string) => void}} at
  */
-function reportCommands({ commands, commandsFrom, kept, out }) {
-	const found = COMMANDS.filter((c) => commands[c]);
+function reportCommands({ sourced, kept, out }) {
+	const found = COMMANDS.filter((c) => sourced[c].command);
 	if (found.length > 0)
 		out(
-			`commands ${found.map((c) => `${c}: ${commands[c]} (${commandsFrom[c]})`).join("; ")}`,
+			`commands ${found
+				.map((c) => {
+					const { command, from, note } = sourced[c];
+					return `${c}: ${command} (${from}${note ? ` — ${note}` : ""})`;
+				})
+				.join("; ")}`,
 		);
 	else if (kept) out(`commands none declared in ${CONFIG}`);
 	else
@@ -546,7 +569,7 @@ function installSource({ pluginRoot, marketplaceRef, marketplacePath }) {
  * @param {{root: string, pluginRoot: string, pluginRootGiven: boolean,
  *   founder: string, project: string,
  *   modules: Module[], categories: Record<string, string>, corpus?: string[],
- *   commands: Record<string, string|null>, commandsFrom: Record<string, string>,
+ *   sourced: Sourced,
  *   kept: Record<string, unknown>|null,
  *   marketplace: string,
  *   marketplaceRef: string|null, marketplacePath: string|null, tracker: boolean, pluginInstall: boolean,
@@ -561,17 +584,19 @@ function init(at) {
 		modules,
 		categories,
 		corpus,
-		commands,
-		commandsFrom,
+		sourced,
 		kept,
 		dryRun,
 		out,
 	} = at;
+	const commands = Object.fromEntries(
+		COMMANDS.map((c) => [c, sourced[c].command]),
+	);
 	const w = new Writer({ root, dryRun, out });
-	reportCommands({ commands, commandsFrom, kept, out });
+	reportCommands({ sourced, kept, out });
 	reportCorpus({ corpus, kept, out });
 	const when = stamp();
-	const version = coreVersion(givenRoot, at.marketplaceRef);
+	const version = readCoreVersion(givenRoot, at.marketplaceRef);
 	const roadmap = modules.includes("roadmap");
 
 	/* The install source, resolved before anything is written: the "installed
@@ -589,7 +614,7 @@ function init(at) {
 	 *
 	 * `walkedTo` is omitted rather than written at a guessed floor where the
 	 * manifest is unreadable. */
-	const bootstrapVersion = manifestVersion(givenRoot);
+	const bootstrapVersion = readManifestVersion(givenRoot);
 
 	/* 1. The config, core-owned only. */
 	w.write(
@@ -632,7 +657,7 @@ function init(at) {
 	 * under `--no-plugin-install` still resolves a url source's sha where an
 	 * earlier run already installed it, since this reads what's actually on
 	 * disk rather than gating on this run's own outcome. */
-	const record = pluginRecord(source, {
+	const record = readPluginRecord(source, {
 		root,
 		pluginName: "workflow-core",
 		marketplace: at.marketplace,
@@ -668,7 +693,12 @@ function init(at) {
 		measureCore: dryRun ? undefined : costMeasurer({ at, result, claudeBin }),
 		labels,
 	});
-	if (!dryRun) run(root, ["git", "config", "core.hooksPath", ".husky"]);
+	if (!dryRun)
+		execGit(["config", "core.hooksPath", ".husky"], {
+			cwd: root,
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: GIT_TIMEOUT_MS,
+		});
 	out("set     core.hooksPath to .husky");
 
 	/* The hooks' own IMPLICIT / JUSTIFIED / DEFEAT annotations are the core's,
@@ -808,7 +838,7 @@ function resolvePluginRoot({ at, source }) {
 /**
  * What the install did, and the hand-run command where it fell short.
  * @param {{result: ReturnType<typeof materialisePlugin>, pluginId: string,
- *   record: ReturnType<typeof pluginRecord>, out: Out}} at
+ *   record: ReturnType<typeof readPluginRecord>, out: Out}} at
  */
 function reportInstall({ result, pluginId, record, out }) {
 	if (!result.ok) {
@@ -936,7 +966,7 @@ function writeClassSidecar({ w, root, sidecar }) {
 	 * written brings documents it never registered, and check-doc-map.js
 	 * refuses the commit over them (#730) — so add the rows it lacks, and
 	 * change none it has. */
-	const keptClasses = keptJson(root, "docs/doc-map-classes.json");
+	const keptClasses = readKeptJson(root, "docs/doc-map-classes.json");
 	const keptKeys = new Set(Object.keys(keptClasses ?? {}));
 	const merged = { ...sidecar, ...keptClasses };
 	/* The sidecar's canonical bytes: keys sorted, tabs, one trailing newline —
@@ -1047,15 +1077,15 @@ function tracker({ root, dryRun, out }) {
 		dryRun,
 		out,
 	});
-	try {
-		run(root, ["git", "config", "--get-regexp", "^credential"], {
-			quiet: true,
-		});
-	} catch {
+	if (
+		gitOrNull(["config", "--get-regexp", "^credential"], {
+			cwd: root,
+			timeout: GIT_TIMEOUT_MS,
+		}) === null
+	)
 		out(
 			"hint     git has no credential helper — `gh auth setup-git` before the first push",
 		);
-	}
 }
 
 /**
@@ -1150,7 +1180,7 @@ function probeFeatures({ root, trackerRepo, codeRepo, dryRun, out }) {
  * @param {string} rel
  * @returns {Record<string, any>|null}
  */
-function keptJson(root, rel) {
+function readKeptJson(root, rel) {
 	let text;
 	try {
 		text = fs.readFileSync(path.join(root, rel), "utf8");
@@ -1209,9 +1239,10 @@ function fullCorpus(root, extras, bare) {
  * @param {string} marketplace
  * @returns {{ref: string|null, path: string|null}}
  */
-function keptSource(root, marketplace) {
-	const source = keptJson(root, SETTINGS)?.extraKnownMarketplaces?.[marketplace]
-		?.source;
+function readKeptSource(root, marketplace) {
+	const source = readKeptJson(root, SETTINGS)?.extraKnownMarketplaces?.[
+		marketplace
+	]?.source;
 	const ref =
 		(source?.source === "url" || source?.source === "git") &&
 		typeof source.ref === "string"
@@ -1297,9 +1328,9 @@ function adopt({ values, flags, categories, commands }) {
 	try {
 		/* Raw rather than through readConfig, whose `modules` WFC_MODULES
 		 * replaces: a suite's injection, not the adopter's choice. */
-		kept = keptJson(root, CONFIG);
+		kept = readKeptJson(root, CONFIG);
 		corpus = fullCorpus(root, values.corpus, flags.has("corpus"));
-		named = values.modules ?? (kept ? undefined : inferredModules(root));
+		named = values.modules ?? (kept ? undefined : readInferredModules(root));
 	} catch (err) {
 		writeFd(2, `init-adopter: ${reason(err)}\n`);
 		return 2;
@@ -1347,9 +1378,9 @@ function adopt({ values, flags, categories, commands }) {
 		return 2;
 	}
 	const sourced = commandSources({ commands, kept, declared, inferred });
-	const lintStaged = lintStagedRefusal(root, sourced);
-	if (lintStaged) {
-		writeFd(2, lintStaged);
+	const stagedRefusal = checkStagedRefusal(root, sourced.check_staged);
+	if (stagedRefusal) {
+		writeFd(2, stagedRefusal);
 		return 2;
 	}
 	try {
@@ -1363,8 +1394,7 @@ function adopt({ values, flags, categories, commands }) {
 				founder,
 				modules,
 				corpus,
-				commands: sourced.commands,
-				commandsFrom: sourced.commandsFrom,
+				sourced,
 				kept,
 				declared,
 				marketplace,
@@ -1384,9 +1414,9 @@ function adopt({ values, flags, categories, commands }) {
  * the index for, which it warns of rather than refusing the run.
  * @param {string} root
  */
-function inferredModules(root) {
+function readInferredModules(root) {
 	try {
-		return subjectModules(root).join(",");
+		return readSubjectModules(root).join(",");
 	} catch (err) {
 		writeFd(
 			1,
@@ -1423,7 +1453,7 @@ function wantedModules(named, kept) {
  */
 function settleMarketplace(rawMarketplace, pluginRoot) {
 	const manifestRoot = readableRoot(pluginRoot);
-	const declaredMarketplaceName = manifestMarketplaceName(manifestRoot);
+	const declaredMarketplaceName = readManifestMarketplaceName(manifestRoot);
 	if (declaredMarketplaceName && declaredMarketplaceName !== rawMarketplace)
 		return {
 			marketplace: declaredMarketplaceName,
@@ -1446,64 +1476,69 @@ function isCoreCheckout({ root, pluginRoot, marketplace }) {
 	/* The core's own checkout carries the manifest a session invoking this
 	 * from it resolves as the plugin root, cache copy or not — or the one
 	 * shipped beside this script, whatever --marketplace says (#743). */
-	const rootName = manifestMarketplaceName(root);
+	const rootName = readManifestMarketplaceName(root);
 	return (
 		sameDir(root, pluginRoot) ||
 		(rootName !== null &&
 			[
 				marketplace,
-				manifestMarketplaceName(path.join(__dirname, "..")),
+				readManifestMarketplaceName(path.join(__dirname, "..")),
 			].includes(rootName))
 	);
 }
 
 /**
  * The refusal of a `check_staged` this run declares, by --command or
- * inference, that runs lint-staged (#2587). A kept
- * config's is the release note's to migrate.
+ * inference, that runs lint-staged (#2587) or a `biome check --staged` that
+ * does not map, or maps but was given explicitly (#2731). A kept config's is
+ * the release note's and the hook's to migrate.
  * @param {string} root
- * @param {ReturnType<typeof commandSources>} sourced
+ * @param {SourcedCommand} checkStaged
  * @returns {string|null}
  */
-function lintStagedRefusal(root, { commands, commandsFrom }) {
-	const command = commands.check_staged;
-	if (!command || commandsFrom.check_staged === CONFIG) return null;
-	let runs;
+function checkStagedRefusal(root, checkStaged) {
+	const { command, from } = checkStaged;
+	if (!command || from === CONFIG) return null;
+	const named = `init-adopter: check_staged "${command}" (${from})`;
 	try {
-		runs = runsLintStaged(root, command);
+		if (runsLintStaged(root, command))
+			return `${named} runs lint-staged, which hides each partly staged file's unstaged hunks with git restore --worktree for its run, removing a neighbour's uncommitted edits in a shared tree (#2583). Declare instead --command check_staged='${BIOME_STAGED_COMMAND}', or a command of your own that reads the index's bytes, not the worktree's.\n`;
+		const biome = classifyCheckStaged(root, command, {
+			inferred: from !== EXPLICIT,
+		});
+		if (biome.kind === "refused") return `${named} ${biome.refusal}\n`;
 	} catch (err) {
 		return `init-adopter: ${reason(err)}\n`;
 	}
-	if (!runs) return null;
-	return `init-adopter: check_staged "${command}" (${commandsFrom.check_staged}) runs lint-staged, which hides each partly staged file's unstaged hunks with git restore --worktree for its run, removing a neighbour's uncommitted edits in a shared tree (#2583). Declare instead --command check_staged='${BIOME_STAGED_COMMAND}', or a command of your own that reads the index's bytes, not the worktree's.\n`;
+	return null;
 }
 
 /**
- * Where each command came from — --command, the kept config, or inference —
- * and the commands, filled from the latter two.
+ * Each command's record, filled from the kept config or inference where no
+ * --command names it.
  * @param {{commands: Record<string, string|null>,
  *   kept: Record<string, unknown>|null,
  *   declared: ReturnType<typeof readDeclared>,
  *   inferred: ReturnType<typeof inferCommands>}} at
- * @returns {{commands: Record<string, string|null>,
- *   commandsFrom: Record<string, string>}}
+ * @returns {Sourced}
  */
 function commandSources({ commands, kept, declared, inferred }) {
-	const filled = { ...commands };
-	/** @type {Record<string, string>} */
-	const commandsFrom = {};
-	for (const c of COMMANDS) {
-		if (filled[c]) commandsFrom[c] = "--command";
-		else if (kept && declared?.commands[c]) {
-			filled[c] = declared.commands[c];
-			commandsFrom[c] = CONFIG;
-		} else if (c in inferred) {
-			const hit = inferred[/** @type {keyof typeof inferred} */ (c)];
-			filled[c] = hit?.command ?? null;
-			commandsFrom[c] = `inferred from ${hit?.from}`;
-		}
-	}
-	return { commands: filled, commandsFrom };
+	/** @param {Command} c @returns {SourcedCommand} */
+	const source = (c) => {
+		if (commands[c]) return { command: commands[c], from: EXPLICIT };
+		if (kept && declared?.commands[c])
+			return { command: declared.commands[c], from: CONFIG };
+		if (!(c in inferred)) return { command: null };
+		const hit = inferred[/** @type {keyof typeof inferred} */ (c)];
+		return {
+			command: hit?.command ?? null,
+			from: `inferred from ${hit?.from}`,
+			note: hit?.note,
+		};
+	};
+	return /** @type {Sourced} */ (
+		Object.fromEntries(COMMANDS.map((c) => [c, source(c)]))
+	);
 }
 
 /**
@@ -1511,14 +1546,13 @@ function commandSources({ commands, kept, declared, inferred }) {
  * @param {{values: Record<string, string>, flags: Set<string>,
  *   categories: Record<string, string>, root: string, pluginRoot: string,
  *   founder: string, modules: Module[], corpus: string[]|undefined,
- *   commands: Record<string, string|null>, commandsFrom: Record<string, string>,
- *   kept: Record<string, unknown>|null,
+ *   sourced: Sourced, kept: Record<string, unknown>|null,
  *   declared: ReturnType<typeof readDeclared>, marketplace: string}} at
  * @returns {Parameters<typeof init>[0]}
  */
 function initArgs(at) {
 	const { values, flags, categories, root, declared, marketplace } = at;
-	const declaredSource = keptSource(root, marketplace);
+	const declaredSource = readKeptSource(root, marketplace);
 	return {
 		root,
 		pluginRoot: at.pluginRoot,
@@ -1531,8 +1565,7 @@ function initArgs(at) {
 				? categories
 				: (declared?.categories ?? {}),
 		corpus: at.corpus,
-		commands: at.commands,
-		commandsFrom: at.commandsFrom,
+		sourced: at.sourced,
 		kept: at.kept,
 		marketplace,
 		marketplaceRef: values["marketplace-ref"] ?? declaredSource.ref,
@@ -1571,6 +1604,6 @@ function initPaths(modules, entries) {
 }
 
 // new-repo.js reads both (§N7): initPaths's list is built from this file's own constants and core-owned-files.js's entries.
-module.exports = { initPaths, manifestMarketplaceName };
+module.exports = { initPaths, readManifestMarketplaceName };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

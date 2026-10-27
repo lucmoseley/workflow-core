@@ -2,7 +2,7 @@
 /*
  * check-stale-suite-queue.js — report a `wfc-suite-queue-*.json` marker
  * left behind by a waiter that is gone, so debris in the queue directory is
- * visible without going and looking in `os.tmpdir()` by hand.
+ * visible without going and looking in it by hand.
  *
  * Usage:  npm run check:suite-queue  [--notify] [--json]
  *
@@ -39,13 +39,13 @@
  * honour). Sharing the walk closes that the same way `isMarkerStale` closes
  * the staleness question.
  *
- * AN UNREADABLE QUEUE DIRECTORY IS A SKIP, NOT AN "OK: 0 STANDING". `os.tmpdir()`
- * lives outside the repo, matching check-stranded-file-claims.js's own
+ * AN UNREADABLE QUEUE DIRECTORY IS A SKIP, NOT AN "OK: 0 STANDING". The queue
+ * directory lives outside the repo, matching check-stranded-file-claims.js's own
  * SUBJECT-vs-APPARATUS split (mantahostels#174) — a store this checker cannot see into is
  * a fact worth saying, not a clean sweep.
  *
- * LOCAL ONLY. It reads `os.tmpdir()` directly, with no remote oracle to
- * degrade — `pidAlive`/`startTimeOf` are `/proc` reads on this machine alone,
+ * LOCAL ONLY. It reads the queue directory directly, with no remote oracle to
+ * degrade — `pidAlive`/`readStartTimeOf` are `/proc` reads on this machine alone,
  * so a CI runner or a different host finds nothing here and reports all-clear.
  *
  * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports the standing count of wfc-suite-queue-*.json markers whose (pid, start) no longer matches a live process, itemising each one's path, pid and age. It never removes a marker.
@@ -53,9 +53,12 @@
  * DEFEAT:    none; a hand run itemises the same set --notify already prints the count of.
  */
 
-const os = require("node:os");
 const { runCheck } = require("./lib/check");
-const { isMarkerStale, readMarkers } = require("./lib/suite-queue.js");
+const {
+	defaultQueueDir,
+	isMarkerStale,
+	readMarkers,
+} = require("./lib/suite-queue.js");
 
 /**
  * An age with no verb — "3m", "2h", "1d" — for a sentence that supplies its
@@ -78,7 +81,7 @@ runCheck({
 	usage: "node check-stale-suite-queue.js [--notify] [--json]",
 	/** @param {import("./lib/check").Ctx} ctx */
 	run(ctx) {
-		const dir = os.tmpdir();
+		const dir = defaultQueueDir();
 		const { markers, error } = readMarkers(dir);
 		if (error)
 			ctx.skip(

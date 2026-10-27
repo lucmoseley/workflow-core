@@ -22,13 +22,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { renderSessionRules } from "./lib/adopter-skeleton.js";
-import { ruleText } from "./lib/rule-text";
+import { readRuleText } from "./lib/rule-text";
 
 const ROOT = path.resolve(__dirname, "..");
 const CONTRACT = path.join(ROOT, "docs", "working-contract.md");
 const FOUNDER = "A Founder";
 
-const contractLine = (lead: string) => {
+const readContractLine = (lead: string) => {
 	const line = fs
 		.readFileSync(CONTRACT, "utf8")
 		.split("\n")
@@ -37,7 +37,7 @@ const contractLine = (lead: string) => {
 	return line;
 };
 
-const gloss = (ruleText("house-decision").split("\n")[0] ?? "")
+const gloss = (readRuleText("house-decision").split("\n")[0] ?? "")
 	.replace(/^.*?HOUSE DECISION \(#\d+\) — /, "")
 	.replace("only he holds", `only ${FOUNDER} holds`)
 	.replace(/\.$/, "");
@@ -69,10 +69,9 @@ describe("the house rules in the adopter session rules (#1709)", () => {
 		expect(gloss).toMatch(/^a choice research cannot make, .* measured$/);
 		expect(bullets[0]).toBe(
 			toAdopter(
-				contractLine("- **Only a house decision reaches the founder").replace(
-					/ \*\*Enforced\*\*.*$/,
-					"",
-				),
+				readContractLine(
+					"- **Only a house decision reaches the founder",
+				).replace(/ \*\*Enforced\*\*.*$/, ""),
 			),
 		);
 	});
@@ -80,7 +79,7 @@ describe("the house rules in the adopter session rules (#1709)", () => {
 	it("carries the house-value rule as the contract words it", () => {
 		expect(bullets[1]).toBe(
 			toAdopter(
-				contractLine("- **A value called house is unsourced until traced"),
+				readContractLine("- **A value called house is unsourced until traced"),
 			),
 		);
 	});
@@ -99,7 +98,7 @@ describe("the rendered adopter session rules", () => {
 describe("the durable-fix rule in the adopter session rules (#1739)", () => {
 	it("holds the contract's bullet and nothing else", () => {
 		expect(adopterSection("Building for the long term")).toEqual([
-			toAdopter(contractLine("- **Build for the repo's long-term health")),
+			toAdopter(readContractLine("- **Build for the repo's long-term health")),
 		]);
 	});
 });

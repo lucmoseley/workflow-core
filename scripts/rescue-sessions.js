@@ -6,8 +6,9 @@
  * mantahostels#2605.
  *
  * list, snapshot and stop take `--from <config-dir>`, defaulting to $CLAUDE_CONFIG_DIR.
- * Nothing here writes to the repo outside --out, or takeover's
- * .claude/tmp/rescue/; only `stop` and `takeover` are not read-only.
+ * Nothing here writes to the repo outside --out, or takeover's and hand-off's
+ * .claude/tmp/rescue/; only `stop`, `takeover` and `hand-off` are not
+ * read-only.
  *
  *   list      [--from D] [--state S]      what is stuck, and where its transcript is
  *   snapshot  [--from D] --out DIR [--ids] copy state + transcript, extract narration
@@ -19,6 +20,10 @@
  *                                          stop it and adopt its ticket (#621);
  *                                          --despite overrules that verdict (#622);
  *                                          a GHOST is stopped, not adopted (#1989)
+ *   hand-off  --from D --job SHORT --issue N [--issue M]
+ *                                          snapshot a stopped job, post its
+ *                                          Hand-off on each issue and release
+ *                                          its claim, for a fresh session (#2659)
  *
  * SNAPSHOT BEFORE YOU STOP.
  */
@@ -27,12 +32,24 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
-const { isTerminalAgent } = require("./lib/agent-liveness");
+const {
+	capMs,
+	claudeBin,
+	isTerminalAgent,
+	runOracle,
+} = require("./lib/agent-liveness");
 const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
-const { stopOn } = require("./lib/claude-stop.js");
+const { FIELD, readStatFields } = require("./lib/proc-stat.js");
+const { readOwnJob, stopOn } = require("./lib/claude-stop.js");
+const {
+	jobStatePath,
+	jobStorePath,
+	readJobRecord,
+	shortJobId,
+} = require("./lib/job-paths.js");
 
 const STUCK_STATES = new Set(["blocked", "running", "working", "needs_input"]);
 
@@ -93,6 +110,9 @@ const OTHER_INPUT_CHARS = 100;
  */
 
 const HOLDER_USAGE = "(--issue <n> | --session <id>) [--interval <s>]";
+const HAND_OFF_USAGE =
+	"usage: rescue-sessions.js hand-off --from <config-dir> --job <short id> --issue <n> [--issue <n>]…";
+
 /** @type {Record<string, import("./lib/cli-args").CommandSpec>} */
 const SUBCOMMANDS = {
 	list: {
@@ -123,6 +143,10 @@ const SUBCOMMANDS = {
 			"--reason": "value",
 		},
 	},
+	"hand-off": {
+		usage: HAND_OFF_USAGE,
+		flags: { "--from": "value", "--job": "value", "--issue": "list" },
+	},
 };
 
 /** @type {import("./lib/cli-args").CliSpec} */
@@ -140,10 +164,11 @@ const CLI = {
  * @returns {ParsedArgs}
  */
 function parseArgs(argv) {
-	const { command, flags } = parseOrExit(argv, CLI);
+	const { command, flags, lists } = parseOrExit(argv, CLI);
 	/** @type {ParsedArgs} */
 	const out = { _: command ? [command] : [] };
-	for (const [flag, value] of Object.entries(flags)) out[flag.slice(2)] = value;
+	for (const [flag, value] of Object.entries({ ...flags, ...lists }))
+		out[flag.slice(2)] = value;
 	return out;
 }
 
@@ -158,7 +183,7 @@ function configDir(args) {
 	// `~` only, and only leading: os.homedir() rather than $HOME, which an
 	// `env -i` invocation leaves unset. `~user` is not expanded.
 	const resolved = d.startsWith("~/") ? path.join(os.homedir(), d.slice(2)) : d;
-	if (!fs.existsSync(path.join(resolved, "jobs"))) {
+	if (!fs.existsSync(jobStorePath(resolved))) {
 		die(`${resolved} has no jobs/ directory — is that a Claude config dir?`);
 	}
 	return resolved;
@@ -194,12 +219,12 @@ function modelOf(flags) {
  *   not counted: it has no state to rescue (#1146).
  */
 function readJobs(dir) {
-	const jobsDir = path.join(dir, "jobs");
+	const jobsDir = jobStorePath(dir);
 	/** @type {Job[]} */
 	const jobs = [];
 	let unreadable = 0;
 	for (const short of fs.readdirSync(jobsDir)) {
-		const statePath = path.join(jobsDir, short, "state.json");
+		const statePath = jobStatePath(dir, short);
 		let j;
 		try {
 			j = JSON.parse(fs.readFileSync(statePath, "utf8"));
@@ -231,7 +256,7 @@ function readJobs(dir) {
  * @param {any[]} records
  */
 function extractNarration(records) {
-	return records.flatMap(narrationLines).join("\n");
+	return records.flatMap(buildNarrationLines).join("\n");
 }
 
 /**
@@ -240,7 +265,7 @@ function extractNarration(records) {
  * @param {string} transcriptPath
  * @returns {any[]}
  */
-function transcriptRecords(transcriptPath) {
+function readTranscriptRecords(transcriptPath) {
 	const records = [];
 	for (const line of fs.readFileSync(transcriptPath, "utf8").split("\n")) {
 		try {
@@ -281,7 +306,7 @@ function bashCommands(records) {
  *   record types differ per line and each field read is type-tested first
  * @returns {string[]}
  */
-function narrationLines(j) {
+function buildNarrationLines(j) {
 	/** @type {string[]} */
 	const out = [];
 	// A real user turn, not an injected system-reminder or hook payload.
@@ -348,15 +373,8 @@ function survivedArtefacts(narration, cwd) {
 	});
 }
 
-const COMMIT_CALLS = path.join(__dirname, "lib", "commit-calls.sh");
-
-/* Only a command naming a commit is handed to the scanner, so a session of
- * hundreds of calls costs one short bash run. */
+/* Only a command naming a commit is walked. */
 const MENTIONS_COMMIT = /commit/;
-
-/* One bash walking a long session's commit-naming commands; a guess, never
- * measured: a wedged scanner, not a slow one. */
-const COMMIT_SCAN_TIMEOUT_MS = 30_000;
 
 /**
  * @typedef {{ call: string, subject: string | null }} CommitAttempt
@@ -364,47 +382,30 @@ const COMMIT_SCAN_TIMEOUT_MS = 30_000;
 
 /**
  * This session's own commit calls, each with the subject git would record for
- * it. Read by lib/commit-calls.sh, which walks each command as the guards do
+ * it. Read by lib/commit-calls.js, which walks each command as the guards do
  * (#2383). Read off the whole Bash commands, not the narration: BASH_CHARS
  * cuts a plugin-cache path or a long message before it shows (#1714). Empty
- * where the scanner fails, with a warning saying so, as where it stops short.
+ * where the walk throws, with a warning saying so.
  *
  * @param {string[]} commands
  * @param {string} cwd the job's directory, a relative `-F` file's base
  * @returns {CommitAttempt[]}
  */
-function commitsAttempted(commands, cwd) {
-	const named = commands.filter((c) => c.trim() && MENTIONS_COMMIT.test(c));
-	if (named.length === 0) return [];
-	const { spawnSync } = require("node:child_process");
-	const run = spawnSync("bash", [COMMIT_CALLS], {
-		input: `${named.map((command) => JSON.stringify({ tool_input: { command } })).join("\n")}\n`,
-		encoding: "utf8",
-		maxBuffer: CHILD_MAX_BUFFER,
-		timeout: COMMIT_SCAN_TIMEOUT_MS,
-	});
-	if (run.status !== 0 || typeof run.stdout !== "string")
-		return commitCallsUnread(
-			run.error?.message ??
-				`lib/commit-calls.sh exited ${run.status ?? run.signal}`,
-		);
-	const fields = run.stdout.split("\0");
-	if (fields.at(-2) !== "end")
-		return commitCallsUnread("lib/commit-calls.sh stopped short");
+function readCommitsAttempted(commands, cwd) {
+	const { commitCalls } = require("./lib/commit-calls.js");
 	/** @type {CommitAttempt[]} */
 	const out = [];
-	for (let i = 0; i + 4 < fields.length - 1; i += 4) {
-		const [index = "", call = "", flag = "", word = ""] = fields.slice(
-			i,
-			i + 4,
-		);
-		const command = named[Number(index)];
-		if (command === undefined)
-			return commitCallsUnread(`lib/commit-calls.sh named no command ${index}`);
-		out.push({
-			call,
-			subject: commitSubjectOf({ call, flag, word }, command, cwd),
-		});
+	try {
+		for (const command of commands) {
+			if (!command.trim() || !MENTIONS_COMMIT.test(command)) continue;
+			for (const scanned of commitCalls(command))
+				out.push({
+					call: scanned.call,
+					subject: commitSubjectOf(scanned, command, cwd),
+				});
+		}
+	} catch (e) {
+		return commitCallsUnread(caught(e).message);
 	}
 	return out;
 }
@@ -436,7 +437,7 @@ const COMMIT_LOOKBACK_MS = 6 * 60 * 60 * 1000;
  * where none can be read.
  *
  * @param {{ call: string, flag: string, word: string }} scanned one call as
- *   lib/commit-calls.sh wrote it: `flag` is `m`, `F` or `-`
+ *   lib/commit-calls.js read it: `flag` is `m`, `F` or `-`
  * @param {string} command the whole Bash command the call stands in
  * @param {string} cwd
  * @returns {string | null}
@@ -522,7 +523,7 @@ function subjectOf(text) {
  * @param {(string | null)[]} subjects the job's attempts' subjects
  * @returns {string[] | null}
  */
-function commitsLanded(cwd, updatedAt, subjects) {
+function readCommitsLanded(cwd, updatedAt, subjects) {
 	if (!fs.existsSync(cwd)) return null;
 	const attemptedSubjects = new Set(
 		subjects.filter(
@@ -531,7 +532,7 @@ function commitsLanded(cwd, updatedAt, subjects) {
 	);
 	if (attemptedSubjects.size === 0) return [];
 	try {
-		const { execFileSync } = require("node:child_process");
+		const { execGit } = require("./lib/git.js");
 		const args = ["log", "--format=%h %s"];
 		if (updatedAt) {
 			const since = new Date(
@@ -539,7 +540,7 @@ function commitsLanded(cwd, updatedAt, subjects) {
 			).toISOString();
 			if (!Number.isNaN(Date.parse(since))) args.push(`--since=${since}`);
 		}
-		const log = execFileSync("git", args, {
+		const log = execGit(args, {
 			cwd,
 			encoding: "utf8",
 			// A guess, never measured: a wedged git, not a slow one.
@@ -580,24 +581,20 @@ function deathPoint(narration) {
  *
  * `claude agents --json` is scoped to one config dir, so this is asked of the
  * SOURCE plan with that plan's own dir — the one case where a session missing
- * from the listing really does read dead. Degrades to `null`, never to "all
- * dead".
+ * from the listing really does read dead. So it calls the oracle itself, not
+ * `listedAgents`, whose cache is keyed by this process's own config dir and
+ * would hand back this plan's listing. Degrades to `null`, never to "all dead".
  *
  * @param {string} dir
  * @returns {Set<string> | null}
  */
 function liveSessions(dir) {
 	try {
-		const { execFileSync } = require("node:child_process");
-		const raw = execFileSync(
-			process.env.WFC_CLAUDE_BIN || "claude",
-			["agents", "--json"],
-			{
-				env: { ...process.env, CLAUDE_CONFIG_DIR: dir },
-				encoding: "utf8",
-				// A guess, never measured: a wedged daemon, not a slow one.
-				timeout: 45_000,
-			},
+		const raw = runOracle(
+			claudeBin(),
+			// A guess, never measured: a wedged daemon, not a slow one.
+			capMs("WFC_RESCUE_ORACLE_TIMEOUT_MS", 45_000),
+			{ ...process.env, CLAUDE_CONFIG_DIR: dir },
 		);
 		const parsed = JSON.parse(raw);
 		if (!Array.isArray(parsed)) return null;
@@ -681,7 +678,7 @@ function cmdList(args) {
  *   filled, and the narration's size in bytes
  */
 function snapshotJob(dir, out, j) {
-	const state = path.join(dir, "jobs", j.short, "state.json");
+	const state = jobStatePath(dir, j.short);
 	// A session run with no job record — interactive, or one whose record is
 	// gone — has only its transcript to copy.
 	if (fs.existsSync(state))
@@ -689,17 +686,17 @@ function snapshotJob(dir, out, j) {
 	if (!j.transcript || !fs.existsSync(j.transcript))
 		return { job: j, narrationBytes: 0 };
 	fs.copyFileSync(j.transcript, path.join(out, `${j.short}.transcript.jsonl`));
-	const records = transcriptRecords(j.transcript);
+	const records = readTranscriptRecords(j.transcript);
 	const narration = extractNarration(records);
 	fs.writeFileSync(path.join(out, `${j.short}.narration.txt`), narration);
-	const attempted = commitsAttempted(bashCommands(records), j.cwd);
+	const attempted = readCommitsAttempted(bashCommands(records), j.cwd);
 	return {
 		job: {
 			...j,
 			deathPoint: deathPoint(narration),
 			artefactsSurvived: survivedArtefacts(narration, j.cwd),
 			commitsAttempted: attempted.map((a) => a.call),
-			commitsLanded: commitsLanded(
+			commitsLanded: readCommitsLanded(
 				j.cwd,
 				j.updatedAt,
 				attempted.map((a) => a.subject),
@@ -779,9 +776,7 @@ function cmdStop(args) {
 	if (!ids) die("stop needs --ids <a,b,c> — it will not guess");
 	for (const id of ids) {
 		const r = stopOn(dir, id);
-		process.stdout.write(
-			`  ${id} -> ${r.ok ? r.said : `FAILED: ${r.said ?? r.why}`}\n`,
-		);
+		process.stdout.write(`  ${id} -> ${r.ok ? r.said : `FAILED: ${r.why}`}\n`);
 	}
 }
 
@@ -929,34 +924,14 @@ function findHolder(listings, sessionId) {
 }
 
 /**
- * `<dir>/jobs/<short>/state.json`, parsed, or null. Positive evidence only:
- * its absence proves nothing (mantahostels#104).
- * @param {string} dir
- * @param {string} sessionId
- */
-function jobState(dir, sessionId) {
-	try {
-		return JSON.parse(
-			fs.readFileSync(
-				path.join(dir, "jobs", sessionId.slice(0, 8), "state.json"),
-				"utf8",
-			),
-		);
-	} catch {
-		return null;
-	}
-}
-
-/**
  * The main transcript's path: the job's `linkScanPath` where its state reads
  * and names this session, else `<dir>/projects/<any>/<sessionId>.jsonl`. Null
  * where neither exists.
  * @param {string} dir
  * @param {string} sessionId
  */
-function transcriptOf(dir, sessionId) {
-	const state = jobState(dir, sessionId);
-	const linked = state?.sessionId === sessionId && state.linkScanPath;
+function readTranscriptOf(dir, sessionId) {
+	const linked = readOwnJob(sessionId, { seats: [dir] })?.job.linkScanPath;
 	if (typeof linked === "string" && fs.existsSync(linked)) return linked;
 	let projects;
 	try {
@@ -1011,7 +986,7 @@ function subagentSizes(mainTranscript, sessionId) {
  * unanswered. "" where it ended on no marker.
  * @param {string} transcript
  */
-function lastTurnMarker(transcript) {
+function readLastTurnMarker(transcript) {
 	const { governingMarker } = require("./lib/status-marker");
 	let text;
 	try {
@@ -1066,21 +1041,15 @@ function isUserPrompt(j) {
 }
 
 /**
- * `/proc/<pid>/stat`'s fields past the command name, which may itself hold
- * spaces and brackets — so split after the LAST `)`.
- * @param {string} stat
+ * `/proc/<pid>/stat`'s parent, CPU ticks and start time.
+ * @param {string[] | null} f the line's fields
  */
-function parseProcStat(stat) {
-	const close = stat.lastIndexOf(")");
-	if (close < 0) return null;
-	const f = stat
-		.slice(close + 2)
-		.trim()
-		.split(/\s+/);
-	const ppid = Number(f[1]);
-	const ticks = Number(f[11]) + Number(f[12]);
+function parseProcStat(f) {
+	if (!f) return null;
+	const ppid = Number(f[FIELD.ppid]);
+	const ticks = Number(f[FIELD.utime]) + Number(f[FIELD.stime]);
 	if (!Number.isFinite(ppid) || !Number.isFinite(ticks)) return null;
-	return { ppid, ticks, start: f[19] ?? "" };
+	return { ppid, ticks, start: f[FIELD.start] ?? "" };
 }
 
 /**
@@ -1089,7 +1058,7 @@ function parseProcStat(stat) {
  * left out and only counted. Null where /proc or `pid` itself will not read.
  * @param {number} pid
  */
-function procTree(pid) {
+function readProcTree(pid) {
 	const root = procRoot();
 	let entries;
 	try {
@@ -1122,21 +1091,17 @@ function procTree(pid) {
  * @returns {ProcRow | null}
  */
 function readProcRow(root, e) {
-	let parsed;
-	try {
-		parsed = parseProcStat(fs.readFileSync(path.join(root, e, "stat"), "utf8"));
-	} catch {
-		return null; // exited between the listing and the read
-	}
+	/* Unread where it exited between the listing and the read. */
+	const parsed = parseProcStat(readStatFields(e, root));
 	if (!parsed) return null;
-	return { pid: Number(e), argv: procArgv(root, e), ...parsed };
+	return { pid: Number(e), argv: readProcArgv(root, e), ...parsed };
 }
 
 /**
  * @param {string} root
  * @param {string} e
  */
-function procArgv(root, e) {
+function readProcArgv(root, e) {
 	try {
 		return fs
 			.readFileSync(path.join(root, e, "cmdline"), "utf8")
@@ -1177,8 +1142,8 @@ function descendantsOf(children, pid) {
  * A live holder's process tree, or null where its row records no pid.
  * @param {AgentRecord} row
  */
-function liveProcTree(row) {
-	return row.pid ? procTree(row.pid) : null;
+function readLiveProcTree(row) {
+	return row.pid ? readProcTree(row.pid) : null;
 }
 
 /**
@@ -1192,7 +1157,7 @@ function liveProcTree(row) {
  */
 function takeSample(listings, sessionId) {
 	const { holder: listed, unread } = findHolder(listings, sessionId);
-	const records = sessionRecords(listings, listed, sessionId);
+	const records = readSessionRecords(listings, listed, sessionId);
 	const holder = listed && { dir: records?.dir ?? listed.dir, row: listed.row };
 	const transcript = records?.transcript ?? null;
 	const live = holder && !isTerminalAgent(holder.row) ? holder.row : null;
@@ -1200,12 +1165,12 @@ function takeSample(listings, sessionId) {
 		holder,
 		unread,
 		transcript,
-		size: transcriptSize(transcript),
+		size: readTranscriptSize(transcript),
 		subs: transcript ? subagentSizes(transcript, sessionId) : new Map(),
 		inFlight: inFlightOf(records?.state),
 		limit: limitOf(records?.state),
-		tree: live ? liveProcTree(live) : undefined,
-		marker: transcript ? lastTurnMarker(transcript) : "",
+		tree: live ? readLiveProcTree(live) : undefined,
+		marker: transcript ? readLastTurnMarker(transcript) : "",
 	};
 }
 
@@ -1223,19 +1188,17 @@ function takeSample(listings, sessionId) {
  * @param {{dir: string} | null | undefined} listed
  * @param {string} sessionId
  */
-function sessionRecords(listings, listed, sessionId) {
+function readSessionRecords(listings, listed, sessionId) {
 	const dirs = new Set(listed ? [listed.dir] : []);
 	for (const l of listings) dirs.add(l.dir);
 	/** @type {{dir: string, transcript: string, state: any} | null} */
 	let records = null;
 	for (const d of dirs) {
-		const transcript = transcriptOf(d, sessionId);
+		const transcript = readTranscriptOf(d, sessionId);
 		if (!transcript) continue;
-		const state = jobState(d, sessionId);
-		const named = state?.sessionId === sessionId;
-		if (named || !records)
-			records = { dir: d, transcript, state: named ? state : null };
-		if (named) break;
+		const state = readOwnJob(sessionId, { seats: [d] })?.job ?? null;
+		if (state || !records) records = { dir: d, transcript, state };
+		if (state) break;
 	}
 	return records;
 }
@@ -1245,7 +1208,7 @@ function sessionRecords(listings, listed, sessionId) {
  * which probeVerdict reads as UNKNOWN.
  * @param {string | null} transcript
  */
-function transcriptSize(transcript) {
+function readTranscriptSize(transcript) {
 	if (!transcript) return null;
 	try {
 		return fs.statSync(transcript).size;
@@ -1429,7 +1392,7 @@ function resolveHolder(args, dirs, listings, cmd) {
 		return holderOfIssue(issue, me, cmd, dirs);
 
 	const id = args.session;
-	const { full, held } = sessionsMatching(id, dirs, listings);
+	const { full, held } = readSessionsMatching(id, dirs, listings);
 	const [sessionId, ...others] = full;
 	if (sessionId === undefined)
 		return {
@@ -1496,7 +1459,7 @@ function jobsNaming(issue, me, dirs) {
 	const { issuesIn } = require("./lib/dispatch-ledger");
 	/** @type {Set<string>} */
 	const out = new Set();
-	for (const j of dirs.flatMap(jobsOn)) {
+	for (const j of dirs.flatMap(readJobsOn)) {
 		if (!STUCK_STATES.has(j.state) || !j.sessionId || j.sessionId === me)
 			continue;
 		const named = j.intent.match(INTENT_ISSUES)?.[1] ?? "";
@@ -1511,7 +1474,7 @@ function jobsNaming(issue, me, dirs) {
  * @param {string} dir
  * @returns {Job[]}
  */
-function jobsOn(dir) {
+function readJobsOn(dir) {
 	try {
 		return readJobs(dir).jobs;
 	} catch (e) {
@@ -1528,7 +1491,7 @@ function jobsOn(dir) {
  * @param {string[]} dirs
  * @param {PlanListing[]} listings
  */
-function sessionsMatching(id, dirs, listings) {
+function readSessionsMatching(id, dirs, listings) {
 	const claims = require("./lib/arbiter-issue-claims");
 	/** @type {Set<string>} */
 	const full = new Set();
@@ -1541,9 +1504,9 @@ function sessionsMatching(id, dirs, listings) {
 		held.add(c.issue);
 	}
 	for (const d of dirs) {
-		const s = jobState(d, id)?.sessionId;
+		const s = readJobRecord(d, shortJobId(id))?.sessionId;
 		if (typeof s === "string" && idMatches(s, id)) full.add(s);
-		if (id.length !== 8 && transcriptOf(d, id)) full.add(id);
+		if (id.length !== 8 && readTranscriptOf(d, id)) full.add(id);
 	}
 	addListedMatches(full, id, listings);
 	return { full, held };
@@ -1602,14 +1565,14 @@ function onlyOpenClaim(id, sessionId, held, cmd) {
 function openIssues(issues) {
 	const { requireKey } = require("./lib/workflow-core-config.js");
 	const { readIssue } = require("./lib/tracker-ops.js");
-	const { errLine } = require("./lib/gh.js");
+	const { parseErrLine } = require("./lib/gh.js");
 	try {
 		const repo = requireKey("tracker");
 		return {
 			open: issues.filter((n) => readIssue(repo, n).state === "open"),
 		};
 	} catch (e) {
-		return { why: errLine(e) };
+		return { why: parseErrLine(e) };
 	}
 }
 
@@ -1618,7 +1581,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * @typedef {{dir: string, rec: any, row: AgentRecord | undefined}} GhostJob
- *   the ghost's plan, its job record — `any`, as `jobState` parses it off disk,
+ *   the ghost's plan, its job record — `any`, as `readOwnJob` parses it off disk,
  *   printed as found — and its oracle row where one lists it
  */
 
@@ -1637,10 +1600,9 @@ function ghostVerdict(listings, sessionId, sample) {
 	if (sample.transcript || (!sample.holder && sample.unread.length > 0))
 		return null;
 	if (sample.holder && isTerminalAgent(sample.holder.row)) return null;
-	const found = listings
-		.map((l) => ({ dir: l.dir, rec: jobState(l.dir, sessionId) }))
-		.find(({ rec }) => rec?.sessionId === sessionId);
-	if (found?.rec.state !== "working") return null;
+	const own = readOwnJob(sessionId, { seats: listings.map((l) => l.dir) });
+	if (own?.job.state !== "working") return null;
+	const found = { dir: own.seat, rec: own.job };
 	const listed = livenessOf(listings.flatMap((l) => l.agents ?? []));
 	if (!listed.ids) return null;
 	const ghost = ghostTest(found.rec, listed);
@@ -1691,14 +1653,14 @@ async function sampleHolder(args, cmd) {
  * @param {{verdict: string, why: string, evidence: string[],
  *   who: {sessionId: string, issue: number | null}}} v
  */
-const verdictText = (v) =>
+const buildVerdictText = (v) =>
 	`${v.verdict}  ${v.who.sessionId.slice(0, 8)}${v.who.issue ? ` (#${v.who.issue})` : ""}  ${v.why}\n${v.evidence.map((e) => `  ${e}\n`).join("")}`;
 
 /** @param {ParsedArgs} args */
 async function cmdProbe(args) {
 	const v = await sampleHolder(args, "probe");
 	// writeFd: run through Bash, stdout is a pipe that process.exit truncates.
-	writeFd(1, verdictText(v));
+	writeFd(1, buildVerdictText(v));
 	process.exit(PROBE_EXIT[v.verdict]);
 }
 
@@ -1790,9 +1752,9 @@ function stopConfirmation(listing, sessionId, requireGone, hostRuns) {
  * The dead session's file claims, each marked dirty or clean in the tree.
  * @param {string} sessionId
  */
-function fileClaimLines(sessionId) {
+function readFileClaimLines(sessionId) {
 	const store = require("./lib/arbiter-store");
-	const held = store.heldBy(sessionId);
+	const held = store.readHeldBy(sessionId);
 	if (held === null) return ["  (the file-claim store would not read)"];
 	if (held.length === 0) return ["  (none)"];
 	return held.map((p) => {
@@ -1820,7 +1782,7 @@ async function cmdTakeover(args) {
 
 	const v = await sampleHolder(args, "take over");
 	const { who, after } = v;
-	writeFd(1, verdictText(v));
+	writeFd(1, buildVerdictText(v));
 	if (v.verdict === "GHOST") return stopGhost(io, who, v.ghost, ceiling);
 	/* Out of scope (#2570), and `claude stop` cannot reach one (#2608). */
 	if (after.holder?.row.kind === "headless")
@@ -1851,20 +1813,20 @@ async function cmdTakeover(args) {
 	// plan whose transcript the probe read.
 	const dir =
 		after.holder?.dir ??
-		v.dirs.find((d) => transcriptOf(d, who.sessionId) === after.transcript);
+		v.dirs.find((d) => readTranscriptOf(d, who.sessionId) === after.transcript);
 	if (!dir || !after.transcript)
 		io.fail(
 			"no plan holds the session's transcript, so there is nothing to resume from — ask the founder. Nothing written.",
 			2,
 		);
-	const short = who.sessionId.slice(0, 8);
+	const short = shortJobId(who.sessionId);
 	const row = after.holder?.row;
 
 	const out = rescueDir(n, short);
 	const { job } = snapshotJob(
 		dir,
 		out,
-		takeoverJob(dir, who.sessionId, after.transcript, row),
+		readTakeoverJob(dir, who.sessionId, after.transcript, row),
 	);
 	fs.writeFileSync(
 		path.join(out, "index.json"),
@@ -1895,7 +1857,7 @@ async function cmdTakeover(args) {
 			`assigning #${n} failed (${assignError}) — gh issue edit ${n} --add-assignee @me`,
 		);
 	}
-	const comment = takeoverComment({
+	const comment = buildTakeoverComment({
 		me,
 		sessionId: who.sessionId,
 		name: job.name,
@@ -1910,7 +1872,7 @@ async function cmdTakeover(args) {
 	});
 	if (!postComment(io, { repo, n, out }, comment)) failed = true;
 
-	const resume = resumptionText(job, {
+	const resume = buildResumptionText(job, {
 		n,
 		title: issue.title,
 		out,
@@ -1977,13 +1939,13 @@ function checkDespite(args, io) {
  */
 function readOpenIssue(io, repo, n) {
 	const tracker = require("./lib/tracker-ops.js");
-	const { errLine } = require("./lib/gh.js");
+	const { parseErrLine } = require("./lib/gh.js");
 	let issue;
 	try {
 		issue = tracker.readIssue(repo, n);
 	} catch (e) {
 		io.fail(
-			`could not read #${n} from ${repo} (${errLine(e)}). Nothing written — re-run.`,
+			`could not read #${n} from ${repo} (${parseErrLine(e)}). Nothing written — re-run.`,
 			1,
 		);
 	}
@@ -2004,9 +1966,9 @@ function readOpenIssue(io, repo, n) {
  * @param {AgentRecord | undefined} row
  * @returns {Job}
  */
-function takeoverJob(dir, sessionId, transcript, row) {
+function readTakeoverJob(dir, sessionId, transcript, row) {
 	const core = require("./lib/arbiter-core");
-	const short = sessionId.slice(0, 8);
+	const short = shortJobId(sessionId);
 	/** @type {Job} */
 	const job = readJobs(dir).jobs.find((j) => j.short === short) ?? {
 		short,
@@ -2035,7 +1997,7 @@ function takeoverJob(dir, sessionId, transcript, row) {
  * @returns {Promise<never>}
  */
 async function stopGhost(io, who, { dir, rec, row }, ceiling) {
-	const short = who.sessionId.slice(0, 8);
+	const short = shortJobId(who.sessionId);
 	const kept = path.join(
 		rescueDir(who.issue ?? "ghost", short),
 		`${short}.state.json`,
@@ -2052,7 +2014,7 @@ async function stopGhost(io, who, { dir, rec, row }, ceiling) {
 		row,
 	});
 	io.out(
-		`\nNothing ran, so nothing is adopted. ${redispatchText(rec, kept)}\n`,
+		`\nNothing ran, so nothing is adopted. ${buildRedispatchText(rec, kept)}\n`,
 	);
 	process.exit(0);
 }
@@ -2064,14 +2026,14 @@ async function stopGhost(io, who, { dir, rec, row }, ceiling) {
  * @param {any} rec  the ghost's job record, as `GhostJob` carries it
  * @param {string} kept  where that record was copied
  */
-function redispatchText(rec, kept) {
+function buildRedispatchText(rec, kept) {
 	const { shellQuote } = require("./lib/dispatch-rewrite");
 	const {
 		DEFAULT_WINDOW_HOURS,
 		commandOf,
 		entryHolds,
 		issuesIn,
-		recentEntries,
+		readRecentEntries,
 	} = require("./lib/dispatch-ledger");
 	const flags = Array.isArray(rec.respawnFlags) ? rec.respawnFlags : [];
 	const model = modelOf(flags);
@@ -2079,7 +2041,7 @@ function redispatchText(rec, kept) {
 	if (!intent || !model)
 		return `Its record names ${intent ? "no model" : "no intent"} — re-dispatch it by hand from ${kept}.`;
 	const issues = issuesIn(intent.match(INTENT_ISSUES)?.[1] ?? "");
-	const held = recentEntries(undefined, DEFAULT_WINDOW_HOURS).entries.some(
+	const held = readRecentEntries(undefined, DEFAULT_WINDOW_HOURS).entries.some(
 		(e) =>
 			e.issues.some((n) => issues.includes(n)) &&
 			entryHolds(e, commandOf(intent)),
@@ -2121,7 +2083,7 @@ function rescueDir(label, short) {
  * @param {AgentRecord | undefined} row
  * @param {string} sessionId
  */
-const jobIdOf = (row, sessionId) => (row?.id || sessionId).slice(0, 8);
+const jobIdOf = (row, sessionId) => shortJobId(row?.id || sessionId);
 
 /**
  * Stop the holder: a live one stops or the takeover fails; a listed ENDED one
@@ -2162,7 +2124,7 @@ async function stopEndedHolder(io, s, row) {
 	}
 	const why = stopped.ok
 		? `stop sent, but not confirmed gone ${s.ceiling}s after it`
-		: `not stopped: ${stopped.said ?? stopped.why}`;
+		: `not stopped: ${stopped.why}`;
 	io.warn(
 		`${why}. Its file claims stay held while its host runs; free each with node scripts/session-arbiter.js release --force <path>`,
 	);
@@ -2177,7 +2139,7 @@ async function stopLiveHolder(io, s) {
 	const stopped = stopOn(s.dir, s.jobId);
 	if (!stopped.ok)
 		io.fail(
-			`claude stop failed on ${s.dir}: ${stopped.said ?? stopped.why}. ${s.kept} Re-run takeover, or ask the founder to stop it.`,
+			`claude stop failed on ${s.dir}: ${stopped.why}. ${s.kept} Re-run takeover, or ask the founder to stop it.`,
 			1,
 		);
 	io.out(`stopped: ${s.short} on ${s.dir} (${stopped.said})\n`);
@@ -2227,7 +2189,7 @@ function adoptClaim(io, n, me, { sessionId, kept }) {
  *   reason: ParsedArgs[string] | undefined, out: string,
  *   claimsStuck: boolean}} t
  */
-function takeoverComment(t) {
+function buildTakeoverComment(t) {
 	const core = require("./lib/arbiter-core");
 	return [
 		`**Taken over** by session ${t.me}, through \`rescue-sessions.js takeover\`.`,
@@ -2250,7 +2212,7 @@ function takeoverComment(t) {
  * @returns {boolean} whether it posted
  */
 function postComment(io, { repo, n, out }, comment) {
-	const { errLine, gh } = require("./lib/gh.js");
+	const { parseErrLine, gh } = require("./lib/gh.js");
 	try {
 		gh(["issue", "comment", String(n), "--repo", repo, "--body-file", "-"], {
 			input: comment,
@@ -2261,7 +2223,7 @@ function postComment(io, { repo, n, out }, comment) {
 	} catch (e) {
 		fs.writeFileSync(path.join(out, "COMMENT.md"), `${comment}\n`);
 		io.warn(
-			`commenting on #${n} failed (${errLine(e)}) — post ${path.join(out, "COMMENT.md")} by hand.`,
+			`commenting on #${n} failed (${parseErrLine(e)}) — post ${path.join(out, "COMMENT.md")} by hand.`,
 		);
 		return false;
 	}
@@ -2273,18 +2235,18 @@ function postComment(io, { repo, n, out }, comment) {
  * @param {{n: number, title: string, out: string, short: string,
  *   sessionId: string, claimsStuck: boolean}} t
  */
-function resumptionText(job, t) {
+function buildResumptionText(job, t) {
 	return [
 		`Adopted #${t.n} ${t.title}`,
 		`Intent: ${job.intent || "(no job record — read the narration's first USER line)"}`,
 		`Narration: ${path.join(t.out, `${t.short}.narration.txt`)}`,
 		`Death point:\n${job.deathPoint || "(none)"}`,
-		`Commits landed: ${landedLine(job)}`,
+		`Commits landed: ${buildLandedLine(job)}`,
 		`Artefacts survived: ${job.artefactsSurvived && job.artefactsSurvived.length > 0 ? job.artefactsSurvived.join(", ") : "none"}`,
 		t.claimsStuck
 			? "Its file claims, held while its host runs — free each with node scripts/session-arbiter.js release --force <path>:"
 			: "Its file claims, listed and not moved — your next write takes each:",
-		...fileClaimLines(t.sessionId),
+		...readFileClaimLines(t.sessionId),
 		"",
 		"Read the narration yourself, then continue its intent in this session.",
 	].join("\n");
@@ -2294,11 +2256,120 @@ function resumptionText(job, t) {
  * The commits-landed clause of RESUMPTION.md.
  * @param {Job} job
  */
-function landedLine(job) {
+function buildLandedLine(job) {
 	if (job.commitsLanded === null) return "unreadable (git would not run)";
 	if (job.commitsLanded && job.commitsLanded.length > 0)
 		return job.commitsLanded.join("; ");
 	return "none matched";
+}
+
+/*
+ * ── hand-off: the refill loop's takeover of a session it stopped (#2659) ──
+ *
+ * The loop stops a resumed-idle session that took no turn after its resume,
+ * then runs this from the session's checkout. It snapshots the job, posts a
+ * `**Hand-off:**` comment on each issue (lib/hand-off.js's buildHandOffComment:
+ * the narration's newest lines, the commits landed, the session's own
+ * uncommitted diff) and releases the session's arbiter claim on each, for
+ * read-hand-off.js. It stops nothing and leaves the tree as it is.
+ */
+
+/** @param {ParsedArgs} args */
+function cmdHandOff(args) {
+	const tracker = require("./lib/tracker-ops.js");
+	const store = require("./lib/arbiter-store");
+	/** @type {ScriptIo} */
+	const io = tracker.scriptIo("rescue-sessions hand-off");
+	const dir = configDir(args);
+	const short = typeof args.job === "string" ? args.job : "";
+	const issues = (Array.isArray(args.issue) ? args.issue : []).map(Number);
+	const [first] = issues;
+	if (!short || first === undefined || !issues.every((n) => n > 0))
+		die(HAND_OFF_USAGE);
+	const repo = io.trackerOrFail();
+	const found = readJobs(dir).jobs.find((j) => j.short === short);
+	if (!found) io.fail(`no job ${short} on ${dir}. Nothing written.`, 2);
+	const out = rescueDir(first, short);
+	const { job } = snapshotJob(dir, out, found);
+	fs.writeFileSync(
+		path.join(out, "index.json"),
+		`${JSON.stringify([job], null, 2)}\n`,
+	);
+	io.out(`snapshot: ${out}\n`);
+	const comment = writeHandOffBody(io, job, out);
+	let failed = false;
+	for (const n of issues) {
+		if (!postComment(io, { repo, n, out }, comment)) failed = true;
+		const r = store.releaseIssue(n, { sessionId: job.sessionId });
+		if (r.status === "released") io.out(`released: its claim on #${n}\n`);
+		else if (r.status === "none")
+			io.out(`released: it held no claim on #${n}\n`);
+		else {
+			failed = true;
+			io.warn(`releasing its claim on #${n} failed (${r.status})`);
+		}
+	}
+	process.exit(failed ? 1 : 0);
+}
+
+/**
+ * The hand-off comment for a snapshotted job: its block where the session's
+ * uncommitted diff fits in a comment, else a note naming the diff's file in
+ * `out`. Exits 1 where git cannot read HEAD, the block's Base.
+ * @param {ScriptIo} io
+ * @param {Job} job  snapshotJob's
+ * @param {string} out
+ */
+function writeHandOffBody(io, job, out) {
+	const core = require("./lib/arbiter-core");
+	const { gitOrNull } = require("./lib/git.js");
+	const { buildHandOffComment } = require("./lib/hand-off.js");
+	const { readStrandedFiles } = require("./lib/neighbour-dirt");
+	const root = core.repoRoot();
+	const base = gitOrNull(["rev-parse", "HEAD"], { cwd: root })?.trim();
+	if (!base) io.fail(`git would not read HEAD in ${root}. Nothing posted.`, 1);
+	const files = readStrandedFiles(job.sessionId, root);
+	const diff = files.map((f) => readUncommittedDiff(io, root, f)).join("");
+	const narrationFile = path.join(out, `${job.short}.narration.txt`);
+	const head = [
+		`**Refill loop: handed off.** Session ${job.sessionId}${job.name ? ` (${job.name})` : ""} was resumed by its host and took no turn, nor after the loop's resume (#2659). The loop stopped it and released its claim; its next tick launches a fresh session, which picks up from the block below.`,
+		`Its files stay uncommitted where it left them. Snapshot: ${path.relative(root, out)}.`,
+	].join(" ");
+	const body = buildHandOffComment({
+		head,
+		narration: fs.existsSync(narrationFile)
+			? fs.readFileSync(narrationFile, "utf8")
+			: "",
+		base,
+		done: job.commitsLanded?.join("; ") || "none",
+		left: `continue ${job.intent || "the ticket"} from the narration's newest lines above`,
+		blockedOn: "nothing: its host restarted it and it never took another turn",
+		files,
+		diff,
+	});
+	if (body !== null) return body;
+	const diffFile = path.join(out, "uncommitted.diff");
+	fs.writeFileSync(diffFile, diff);
+	return `${head}\n\nIts uncommitted diff runs past GitHub's comment limit, so no hand-off block is posted: the diff is at ${path.relative(root, diffFile)}, and the files are ${files.map((f) => `\`${f}\``).join(", ")}.`;
+}
+
+/**
+ * `file`'s `git diff HEAD`, or for a file git does not track, its diff from
+ * nothing, which `git apply` reads alike without the index being touched.
+ * Exits 1 where git gives neither.
+ * @param {ScriptIo} io
+ * @param {string} root
+ * @param {string} file
+ */
+function readUncommittedDiff(io, root, file) {
+	const { spawnGitSync } = require("./lib/git.js");
+	const opts = { cwd: root, encoding: /** @type {const} */ ("utf8") };
+	const diff =
+		spawnGitSync(["diff", "HEAD", "--", file], opts).stdout ||
+		spawnGitSync(["diff", "--no-index", "--", "/dev/null", file], opts).stdout;
+	if (!diff)
+		io.fail(`git would not diff ${file} in ${root}. Nothing posted.`, 1);
+	return diff;
 }
 
 function main() {
@@ -2318,6 +2389,7 @@ function main() {
 			writeFd(2, `rescue-sessions takeover: failed: ${e?.stack ?? e}\n`);
 			process.exit(1);
 		});
+	else if (cmd === "hand-off") cmdHandOff(args);
 }
 
 if (require.main === module) main();

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The session verdict (#1502): whether a session's own last commit, as its
- * commit ledger names it, is covered by green runs over its own work — the
+ * commit ledger names it, is attested by certificates over its own work — the
  * question the `result:` gate asks (mantahostels#1253). A throwaway git repo
  * supplies the commits; a stub ledger says whose they are.
  *
@@ -42,7 +42,7 @@ beforeEach(() => {
 	git("config", "user.email", "t@example.com");
 	git("config", "user.name", "T");
 	git("commit", "-q", "--allow-empty", "-m", "root");
-	/* The published tip the composed cover diffs from (#814). */
+	/* The published tip the composed attestation diffs from (#814). */
 	git("update-ref", "refs/remotes/origin/main", "HEAD");
 });
 
@@ -63,8 +63,8 @@ function commitFile(file: string, session: string | null = SID): string {
 /** `ledgers` behind the commit ledger's interface (`own-work.js`'s `CommitLedger`). */
 const stubLedger = () => ({
 	ledgerRoot: (): string | null => dir,
-	commitsBy: (id: string) => (id in ledgers ? ledgers[id] : []),
-	ownersOf: (commits: string[]): Map<string, string> | null => {
+	readCommitsBy: (id: string) => (id in ledgers ? ledgers[id] : []),
+	readOwnersOf: (commits: string[]): Map<string, string> | null => {
 		const owners = new Map<string, string>();
 		for (const [id, shas] of Object.entries(ledgers))
 			for (const c of commits)
@@ -109,7 +109,7 @@ const ADMISSIBLE_SCOPE = {
 	admissible: true,
 };
 
-/** A hand-typed one-file run — the shape mantahostels#2154 found nearly every green in. */
+/** A hand-typed one-file run — the shape mantahostels#2154 found nearly every certificate in. */
 const NARROW_SCOPE = {
 	...FULL_SCOPE,
 	modulesRun: 1,
@@ -117,10 +117,10 @@ const NARROW_SCOPE = {
 };
 
 /**
- * A green vitest marker on `sha`, taken over a tree nobody would call clean.
- * `scope` of `null` writes the pre-mantahostels#1230 marker, which carries no scope at all.
+ * A vitest certificate on `sha`, taken over a tree nobody would call clean.
+ * `scope` of `null` writes the pre-mantahostels#1230 certificate, which carries no scope at all.
  */
-const greenMarker = (
+const certificate = (
 	sha: string,
 	scope: unknown = FULL_SCOPE,
 	suite = "vitest",
@@ -135,10 +135,10 @@ const greenMarker = (
 		foreign: [{ path: "scripts/other.js", why: "held by a neighbour" }],
 	});
 
-/** An admissible narrowed green on `sha`, selected for `file` and reading it alone. */
+/** An admissible narrowed certificate on `sha`, selected for `file` and reading it alone. */
 const narrowed = (sha: string, file: string) =>
 	JSON.stringify({
-		...JSON.parse(greenMarker(sha, ADMISSIBLE_SCOPE)),
+		...JSON.parse(certificate(sha, ADMISSIBLE_SCOPE)),
 		dirtyAtStart: false,
 		foreign: [],
 		treeAtEnd: git("rev-parse", `${sha}^{tree}`),
@@ -149,19 +149,19 @@ const narrowed = (sha: string, file: string) =>
 /** The session's own commit of `file`, and a store attesting some OTHER commit. */
 function committedUnattested(file = "a.txt"): string {
 	const sha = commitFile(file);
-	writeMarkerStore([greenMarker(NO_SUCH_SHA)]);
+	writeMarkerStore([certificate(NO_SUCH_SHA)]);
 	return sha;
 }
 
 describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () => {
 	it("is attested once a marker names that commit, dirty tree and all", () => {
 		const sha = commitFile("a.txt");
-		writeMarkerStore([greenMarker(sha)]);
+		writeMarkerStore([certificate(sha)]);
 
 		expect(verdict()).toEqual({ state: "attested", at: sha });
 	});
 
-	it("is owed, naming that commit, where no marker covers it", () => {
+	it("is owed, naming that commit, where no certificate attests it", () => {
 		const sha = committedUnattested();
 
 		const v = verdict();
@@ -173,7 +173,7 @@ describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () 
 
 	it("reads the session's own last commit, not HEAD", () => {
 		const mine = commitFile("mine.txt");
-		writeMarkerStore([greenMarker(mine)]);
+		writeMarkerStore([certificate(mine)]);
 		/* A neighbour commits, moving HEAD onto bytes this session never ran. */
 		commitFile("theirs.txt", NEIGHBOUR);
 
@@ -182,7 +182,7 @@ describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () 
 
 	it("never reads a neighbour's commit of a file this session also wrote as its own", () => {
 		const mine = commitFile("shared.txt");
-		writeMarkerStore([greenMarker(mine)]);
+		writeMarkerStore([certificate(mine)]);
 		commitFile("shared.txt", NEIGHBOUR);
 
 		expect(verdict()).toEqual({ state: "attested", at: mine });
@@ -190,7 +190,7 @@ describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () 
 
 	it("owes nothing where the session committed nothing", () => {
 		fs.writeFileSync(path.join(dir, "a.txt"), "uncommitted\n");
-		writeMarkerStore([greenMarker(NO_SUCH_SHA)]);
+		writeMarkerStore([certificate(NO_SUCH_SHA)]);
 
 		expect(verdict()).toEqual({ state: "attested", at: null });
 	});
@@ -199,21 +199,21 @@ describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () 
 		git("switch", "-q", "-c", "spike/elsewhere");
 		commitFile("a.txt");
 		git("switch", "-q", "main");
-		writeMarkerStore([greenMarker(NO_SUCH_SHA)]);
+		writeMarkerStore([certificate(NO_SUCH_SHA)]);
 
 		expect(verdict()).toEqual({ state: "attested", at: null });
 	});
 
 	it("passes over a ledgered commit git cannot name", () => {
 		ledgers[SID] = ["f".repeat(40)];
-		writeMarkerStore([greenMarker(NO_SUCH_SHA)]);
+		writeMarkerStore([certificate(NO_SUCH_SHA)]);
 
 		expect(verdict()).toEqual({ state: "attested", at: null });
 	});
 
 	it("takes the newest HEAD contains, passing over a newer one it does not", () => {
 		const mine = commitFile("a.txt");
-		writeMarkerStore([greenMarker(mine)]);
+		writeMarkerStore([certificate(mine)]);
 		git("switch", "-q", "-c", "spike/elsewhere");
 		commitFile("b.txt");
 		git("switch", "-q", "main");
@@ -243,7 +243,7 @@ describe("the session's commit comes from its commit ledger (#1472 Q1 (A))", () 
 });
 
 describe("it judges the session's own work only (#1472 Q2 (A))", () => {
-	/** A neighbour's uncovered commit, and the session's covered one above it. */
+	/** A neighbour's unattested commit, and the session's attested one above it. */
 	function neighbourUnderMine() {
 		commitFile("theirs.txt", NEIGHBOUR);
 		const mine = commitFile("mine.txt");
@@ -251,7 +251,7 @@ describe("it judges the session's own work only (#1472 Q2 (A))", () => {
 		return mine;
 	}
 
-	it("owes nothing for a neighbour's uncovered commit under its own covered one, which push:check still reports", () => {
+	it("owes nothing for a neighbour's unattested commit under its own attested one, which push:check still reports", () => {
 		const mine = neighbourUnderMine();
 
 		expect(verdict()).toEqual({ state: "attested", at: mine });
@@ -289,7 +289,7 @@ describe("it judges the session's own work only (#1472 Q2 (A))", () => {
 
 	it("judges the whole range where whose commits are whose cannot be told", () => {
 		neighbourUnderMine();
-		ledger.ownersOf = () => null;
+		ledger.readOwnersOf = () => null;
 
 		const v = verdict();
 		expect(v.state).toBe("owed");
@@ -311,81 +311,81 @@ describe("it judges the session's own work only (#1472 Q2 (A))", () => {
 
 /*
  * mantahostels#2167. `suiteOf` answers `vitest` for every vitest marker however little of
- * the suite ran, so it cannot tell the narrow green below from a whole run.
+ * the suite ran, so it cannot tell the narrow certificate below from a whole run.
  */
 describe("only a run wide enough to attest the sha clears it", () => {
 	function attested(scope: unknown) {
 		const sha = commitFile("a.txt");
 		writeMarkerStore([
 			JSON.stringify({
-				...JSON.parse(greenMarker(sha, scope)),
+				...JSON.parse(certificate(sha, scope)),
 				changedPaths: ["a.txt"],
 			}),
 		]);
 		return sha;
 	}
 
-	it("is owed on a green whose scope is a filtered one-file run", () => {
+	it("is owed on a certificate whose scope is a filtered one-file run", () => {
 		attested(NARROW_SCOPE);
 		expect(verdict().state).toBe("owed");
 	});
 
-	it("is owed on a green whose scope is a bare --changed run nothing admitted", () => {
+	it("is owed on a certificate whose scope is a bare --changed run nothing admitted", () => {
 		/* The same selection an admissible run makes, minus the certificate. */
 		attested({ ...ADMISSIBLE_SCOPE, admissible: false });
 		expect(verdict().state).toBe("owed");
 	});
 
-	it("is owed on a pre-mantahostels#1230 green carrying no scope at all", () => {
+	it("is owed on a pre-mantahostels#1230 certificate carrying no scope at all", () => {
 		attested(null);
 		expect(verdict().state).toBe("owed");
 	});
 
-	it("is owed on a full green from another suite entirely", () => {
+	it("is owed on a full certificate from another suite entirely", () => {
 		const sha = commitFile("a.txt");
-		writeMarkerStore([greenMarker(sha, FULL_SCOPE, "pytest")]);
+		writeMarkerStore([certificate(sha, FULL_SCOPE, "pytest")]);
 		expect(verdict().state).toBe("owed");
 	});
 
-	it("is attested by an admissible filtered green", () => {
+	it("is attested by an admissible filtered certificate", () => {
 		attested(ADMISSIBLE_SCOPE);
 		expect(verdict().state).toBe("attested");
 	});
 
-	it("is attested by a full green, ignoring a narrow one sharing its sha", () => {
+	it("is attested by a full certificate, ignoring a narrow one sharing its sha", () => {
 		const sha = commitFile("a.txt");
 		writeMarkerStore([
-			greenMarker(sha, NARROW_SCOPE),
-			greenMarker(sha, FULL_SCOPE),
+			certificate(sha, NARROW_SCOPE),
+			certificate(sha, FULL_SCOPE),
 		]);
 		expect(verdict().state).toBe("attested");
 	});
 
-	it("reads the scope of the marker on THIS sha, not of any green in the store", () => {
+	it("reads the scope of the certificate on THIS sha, not of any other in the store", () => {
 		const sha = commitFile("a.txt");
 		writeMarkerStore([
-			greenMarker(NO_SUCH_SHA, FULL_SCOPE),
-			greenMarker(sha, NARROW_SCOPE),
+			certificate(NO_SUCH_SHA, FULL_SCOPE),
+			certificate(sha, NARROW_SCOPE),
 		]);
 		expect(verdict().state).toBe("owed");
 	});
 
 	/*
-	 * #189: the marker can also attest by tree. `greenMarker` stamps a dirty
+	 * #189: a certificate can also attest by tree. `certificate` stamps a dirty
 	 * tree, which the tree route answers for itself — the diff-tree proved the
 	 * dirt outside the closure.
 	 */
 	describe("by tree rather than by sha (#189)", () => {
-		const treeOf = (ref: string) => git("rev-parse", `${ref}^{tree}`);
+		const readTree = (ref: string) => git("rev-parse", `${ref}^{tree}`);
 		/** A marker on some other sha whose tree is `ref`'s. */
 		const onTree = (ref: string, scope: unknown, extra = {}) =>
 			JSON.stringify({
-				...JSON.parse(greenMarker(NO_SUCH_SHA, scope)),
-				treeAtEnd: treeOf(ref),
+				...JSON.parse(certificate(NO_SUCH_SHA, scope)),
+				treeAtEnd: readTree(ref),
 				...extra,
 			});
 
-		it("is attested by a full green whose tree is this commit's, under another sha", () => {
+		it("is attested by a full certificate whose tree is this commit's, under another sha", () => {
 			const sha = commitFile("a.txt");
 			git("commit", "-q", "--allow-empty", "-m", "moved sha, same tree");
 			ledgers[SID]?.push(git("rev-parse", "HEAD"));
@@ -394,19 +394,19 @@ describe("only a run wide enough to attest the sha clears it", () => {
 			expect(verdict().state).toBe("attested");
 		});
 
-		it("is owed on a full green on an equal tree that carries no closure", () => {
+		it("is owed on a full certificate on an equal tree that carries no closure", () => {
 			const sha = commitFile("a.txt");
 			writeMarkerStore([onTree(sha, FULL_SCOPE)]);
 			expect(verdict().state).toBe("owed");
 		});
 
-		it("is owed on a narrow green on an equal tree, however complete its closure", () => {
+		it("is owed on a narrow certificate on an equal tree, however complete its closure", () => {
 			const sha = commitFile("a.txt");
 			writeMarkerStore([onTree(sha, NARROW_SCOPE, { closure: "*" })]);
 			expect(verdict().state).toBe("owed");
 		});
 
-		it("is attested by an admissible green over a dirty tree on the commit made from it", () => {
+		it("is attested by an admissible certificate over a dirty tree on the commit made from it", () => {
 			fs.writeFileSync(path.join(dir, "a.txt"), "own edit\n");
 			git("add", "--", "a.txt");
 			git("commit", "-q", "-m", "track a.txt");
@@ -416,7 +416,7 @@ describe("only a run wide enough to attest the sha clears it", () => {
 			git("add", "--", "neighbour.txt");
 			const stashed = git("stash", "create");
 			const marker = JSON.stringify({
-				...JSON.parse(greenMarker(NO_SUCH_SHA, ADMISSIBLE_SCOPE)),
+				...JSON.parse(certificate(NO_SUCH_SHA, ADMISSIBLE_SCOPE)),
 				treeAtEnd: git("rev-parse", `${stashed}^{tree}`),
 				closure: ["a.test.ts", "a.txt"],
 				changedPaths: ["a.txt", "neighbour.txt"],
@@ -435,7 +435,10 @@ describe("only a run wide enough to attest the sha clears it", () => {
 			const stashed = git("stash", "create");
 			const marker = JSON.stringify({
 				...JSON.parse(
-					greenMarker(NO_SUCH_SHA, { ...ADMISSIBLE_SCOPE, modulesRun: 0 }),
+					certificate(NO_SUCH_SHA, {
+						...ADMISSIBLE_SCOPE,
+						modulesRun: 0,
+					}),
 				),
 				treeAtEnd: git("rev-parse", `${stashed}^{tree}`),
 				closure: ["docs/test-read-edges.json", "package.json"],
@@ -452,28 +455,28 @@ describe("only a run wide enough to attest the sha clears it", () => {
 });
 
 /*
- * #814: the verdict reads the composed cover (ADR-0009) at the session's own
+ * #814: the verdict reads the composed attestation (ADR-0009) at the session's own
  * commit, at HEAD, and at any full or admissible run's sha between them.
  */
-describe("composed greens clear the session's commit, or a later one containing it", () => {
+describe("composed certificates clear the session's commit, or a later one containing it", () => {
 	it("is attested through a later commit that contains it", () => {
 		commitFile("mine.txt");
 		const head = commitFile("theirs.txt", null);
-		writeMarkerStore([greenMarker(head)]);
+		writeMarkerStore([certificate(head)]);
 
 		expect(verdict()).toEqual({ state: "attested", at: head });
 	});
 
-	it("is attested where an earlier commit containing the session's is covered and a later one is not", () => {
+	it("is attested where an earlier commit containing the session's is attested and a later one is not", () => {
 		commitFile("mine.txt");
-		const covered = commitFile("theirs.txt", null);
+		const attested = commitFile("theirs.txt", null);
 		commitFile("untested.txt", null);
-		writeMarkerStore([greenMarker(covered)]);
+		writeMarkerStore([certificate(attested)]);
 
-		expect(verdict()).toEqual({ state: "attested", at: covered });
+		expect(verdict()).toEqual({ state: "attested", at: attested });
 	});
 
-	it("is attested by two narrowed greens that cover it only between them", () => {
+	it("is attested by two narrowed certificates that attest it only between them", () => {
 		const first = commitFile("mine.txt");
 		const head = commitFile("theirs.txt");
 		writeMarkerStore([
@@ -484,7 +487,7 @@ describe("composed greens clear the session's commit, or a later one containing 
 		expect(verdict().state).toBe("attested");
 	});
 
-	it.each([0, 1])("is owed on narrowed green %i alone", (i) => {
+	it.each([0, 1])("is owed on narrowed certificate %i alone", (i) => {
 		const first = commitFile("mine.txt");
 		const head = commitFile("theirs.txt");
 		writeMarkerStore([
@@ -494,15 +497,17 @@ describe("composed greens clear the session's commit, or a later one containing 
 		expect(verdict().state).toBe("owed");
 	});
 
-	it("names each uncovered file and its commit at HEAD, and why a run now counts", () => {
+	it("names each unattested file and its commit at HEAD, and why a run now counts", () => {
 		const mine = commitFile("mine.txt");
 		const head = commitFile("theirs.txt", null);
-		writeMarkerStore([greenMarker(NO_SUCH_SHA)]);
+		writeMarkerStore([certificate(NO_SUCH_SHA)]);
 
 		const v = verdict();
 		expect(v.at).toBe(head);
-		expect(v.text.unattested).toContain(
-			`At ${head.slice(0, 12)}:\n⚠  NO GREEN VITEST RUN COVERS 2 FILE(S)`,
+		expect(v.text.unattested).toMatch(
+			new RegExp(
+				`At ${head.slice(0, 12)}:\n⚠  2 FILE\\(S\\) IN \\S+ LACK A VITEST CERTIFICATE:`,
+			),
 		);
 		expect(v.text.unattested).toContain(
 			`mine.txt — commit ${mine.slice(0, 12)}`,
@@ -514,46 +519,48 @@ describe("composed greens clear the session's commit, or a later one containing 
 			"this session's own commits change in its range",
 		);
 		expect(v.text.unattested).toMatch(
-			/` judges every commit the next push sends, so it may also name a neighbour's, which is not this session's to cover\.$/,
+			/` judges every commit the next push sends, so it may also name a neighbour's, which is not this session's to attest\.$/,
 		);
 		expect(v.text.run).toContain(
-			"`npm run test` is the run that covers a commit already made, and a green run now counts for your commit because HEAD contains it.",
+			"`npm run test` is the run whose certificate attests a commit already made, and that certificate now counts for your commit because HEAD contains it.",
 		);
 		expect(v.text.run).toContain(
 			"`npm run test:changed` is not its equal: it selects only your uncommitted files, so after a commit it selects nothing from it (#1217).",
 		);
 	});
 
-	it("names the pytest gap on a Python commit only vitest went green on", () => {
+	it("names the pytest gap on a Python commit only vitest left a certificate on", () => {
 		const sha = commitFile("pipe.py");
-		writeMarkerStore([greenMarker(sha)]);
+		writeMarkerStore([certificate(sha)]);
 
 		const { text } = verdict();
-		expect(text.unattested).toContain("NO GREEN PYTEST RUN COVERS 1 FILE(S)");
+		expect(text.unattested).toMatch(
+			/1 FILE\(S\) IN \S+ LACK A PYTEST CERTIFICATE/,
+		);
 		expect(text.unattested).toContain(`pipe.py — commit ${sha.slice(0, 12)}`);
 		expect(text.unattested).not.toContain("VITEST");
 	});
 
-	it("is unjudged where the cover cannot be judged", () => {
+	it("is unjudged where the attestation cannot be judged", () => {
 		git("update-ref", "-d", "refs/remotes/origin/main");
 		committedUnattested();
 
 		const v = verdict();
 		expect(v.state).toBe("unjudged");
-		expect(v.why).toContain("could not judge the cover");
+		expect(v.why).toContain("could not judge attestation");
 	});
 });
 
-describe("an unreadable green store is no evidence the suite did not run", () => {
+describe("an unreadable certificate store is no evidence the suite did not run", () => {
 	it("is unjudged where the marker store is missing", () => {
 		commitFile("a.txt");
-		expect(verdict().why).toContain("marker store missing");
+		expect(verdict().why).toContain("certificate store missing");
 	});
 
 	it("is unjudged where every line in the store is unparseable", () => {
 		commitFile("a.txt");
 		writeMarkerStore(["{not json", "also not json"]);
-		expect(verdict().why).toContain("marker store missing");
+		expect(verdict().why).toContain("certificate store missing");
 	});
 });
 
@@ -569,7 +576,7 @@ describe("the owed text's parts", () => {
 		git("commit", "-q", "-m", "setup");
 		const setup = git("rev-parse", "HEAD");
 		git("update-ref", "refs/remotes/origin/main", setup);
-		/* The session's green read a.js as edited, beside docs/d.md as it was. */
+		/* The session's certificate read a.js as edited, beside docs/d.md as it was. */
 		const scratch = commitFile("a.js", null);
 		const treeAtEnd = git("rev-parse", `${scratch}^{tree}`);
 		git("reset", "-q", "--hard", setup);
@@ -580,7 +587,7 @@ describe("the owed text's parts", () => {
 		ledgers[SID] = [git("rev-parse", "HEAD")];
 		writeMarkerStore([
 			JSON.stringify({
-				...JSON.parse(greenMarker(setup, ADMISSIBLE_SCOPE)),
+				...JSON.parse(certificate(setup, ADMISSIBLE_SCOPE)),
 				dirtyAtStart: false,
 				foreign: [],
 				treeAtEnd,
@@ -609,18 +616,14 @@ describe("the owed text's parts", () => {
 		expect(text.run).not.toContain("--full");
 	});
 
-	it("names origin/landing as the range's base where the landing module is on (#2408)", () => {
-		git("update-ref", "refs/remotes/origin/landing", "HEAD");
-		git("update-ref", "-d", "refs/remotes/origin/main");
+	it("owes nothing where the landing module is on (#2933)", () => {
 		vi.stubEnv("WFC_MODULES", "suites,landing");
 		try {
 			committedUnattested();
-			const { state, text } = verdict();
-			expect(state).toBe("owed");
-			expect(text.unattested).toContain(
-				"this session's own commits change in its range from `origin/landing`",
-			);
-			expect(text.run).toContain("merge-base(HEAD, origin/landing)");
+			expect(verdict()).toEqual({
+				state: "skipped",
+				why: expect.stringContaining('module "landing" is on'),
+			});
 		} finally {
 			vi.unstubAllEnvs();
 		}
@@ -676,7 +679,7 @@ function writeFailStore(lines: string[]) {
 
 describe("the red note names the last full red, so the exemption is checkable (mantahostels#2205)", () => {
 	/** The red note of an owed verdict over `lines`, and what it logged. */
-	function redNote(lines: string[] | null) {
+	function readRedNote(lines: string[] | null) {
 		committedUnattested();
 		if (lines) writeFailStore(lines);
 		const logged: string[] = [];
@@ -686,7 +689,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 
 	it("names its sha, its age and its failing files", () => {
 		const red = "b".repeat(40);
-		const note = redNote([
+		const note = readRedNote([
 			redMarker(red, [
 				path.join(dir, "scripts/one.test.ts"),
 				path.join(dir, "scripts/two.test.ts"),
@@ -700,7 +703,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("asserts nothing about whose work it is, and issues no licence", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/one.test.ts"]),
 		]).red;
 		/* Naming the exemption available was option (C) of mantahostels#2205, declined. */
@@ -710,7 +713,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("takes the most recent full red, not the most recent red", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("a".repeat(40), ["scripts/old.test.ts"]),
 			redMarker("b".repeat(40), ["scripts/wide.test.ts"]),
 			redMarker("c".repeat(40), ["scripts/narrow.test.ts"], {
@@ -723,7 +726,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("offers a red that collected 90% of the corpus", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/most.test.ts"], {
 				scope: { modulesRun: 36, modulesTotal: 40 },
 			}),
@@ -732,7 +735,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("offers no red narrower than that", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/some.test.ts"], {
 				scope: { modulesRun: 35, modulesTotal: 40 },
 			}),
@@ -741,14 +744,14 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("ignores another suite's red", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/py.test.ts"], { suite: "pytest" }),
 		]).red;
 		expect(note).toBe("");
 	});
 
 	it("is empty, and logged, where the red store is absent", () => {
-		const { red, logged } = redNote(null);
+		const { red, logged } = readRedNote(null);
 		expect(red).toBe("");
 		expect(logged).toContain("red store missing, unreadable");
 	});
@@ -757,19 +760,19 @@ describe("the red note names the last full red, so the exemption is checkable (m
 		/* A directory where the store should be: `readFailures`'s own catch
 		 * answers []. */
 		fs.mkdirSync(path.join(markersDir(dir), ".test-fail-markers.jsonl"));
-		const { red, logged } = redNote(null);
+		const { red, logged } = readRedNote(null);
 		expect(red).toBe("");
 		expect(logged).toContain("red store missing, unreadable");
 	});
 
 	it("is empty, and logged, where every line is torn", () => {
-		const { red, logged } = redNote(["{not json", "also not json"]);
+		const { red, logged } = readRedNote(["{not json", "also not json"]);
 		expect(red).toBe("");
 		expect(logged).toContain("red store missing, unreadable");
 	});
 
 	it("logs nothing where the store is readable and holds no wide red", () => {
-		const { red, logged } = redNote([
+		const { red, logged } = readRedNote([
 			redMarker("b".repeat(40), ["scripts/one.test.ts"], {
 				scope: { modulesRun: 1 },
 			}),
@@ -780,7 +783,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 
 	it("ignores a red narrowed by a name filter, however many modules it ran", () => {
 		/* Why the ratio alone cannot see this: `isFullScopeRed`'s docstring. */
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/named.test.ts"], {
 				scope: { nameFilter: "some case" },
 			}),
@@ -789,7 +792,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("prints the age in hours for a red hours old", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/one.test.ts"], {
 				at: new Date(Date.now() - 3 * 3_600_000).toISOString(),
 			}),
@@ -798,7 +801,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("prints the age in days for a red days old", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/one.test.ts"], {
 				at: new Date(Date.now() - 5 * 24 * 3_600_000).toISOString(),
 			}),
@@ -807,7 +810,7 @@ describe("the red note names the last full red, so the exemption is checkable (m
 	});
 
 	it("says the age is unknown rather than inventing one", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/one.test.ts"], { at: "not a date" }),
 		]).red;
 		expect(note).toContain("of unknown age");
@@ -816,34 +819,34 @@ describe("the red note names the last full red, so the exemption is checkable (m
 
 	it("truncates a long failing list and says how many it dropped", () => {
 		const many = Array.from({ length: 26 }, (_, i) => `scripts/f${i}.test.ts`);
-		const note = redNote([redMarker("b".repeat(40), many)]).red;
+		const note = readRedNote([redMarker("b".repeat(40), many)]).red;
 		expect(note).toContain("scripts/f19.test.ts");
 		expect(note).not.toContain("scripts/f20.test.ts");
 		expect(note).toContain("...and 6 more");
 	});
 
 	it("says nothing about how many it dropped where it dropped none", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/one.test.ts"]),
 		]).red;
 		expect(note).not.toContain("more");
 	});
 
 	it("prints a path outside the repo root as it stands", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["/elsewhere/x.test.ts"]),
 		]).red;
 		expect(note).toContain("  /elsewhere/x.test.ts");
 	});
 
 	it("prints an already-relative path as it stands", () => {
-		const note = redNote([
+		const note = readRedNote([
 			redMarker("b".repeat(40), ["scripts/rel.test.ts"]),
 		]).red;
 		expect(note).toContain("  scripts/rel.test.ts");
 	});
 
 	it("offers no red that names no failing file", () => {
-		expect(redNote([redMarker("b".repeat(40), [])]).red).toBe("");
+		expect(readRedNote([redMarker("b".repeat(40), [])]).red).toBe("");
 	});
 });

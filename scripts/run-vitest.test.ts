@@ -26,9 +26,9 @@
  * the subject (#2284).
  *
  * Every `npm run test` and `npm run test:changed` runs through it, and the
- * pass marker it leaves is what `.husky/pre-push` and `npm run push:check`
- * count: loosen a case and a run that tested less than it says is counted as
- * covering a push, a red run's failure text is lost to a pipe, or suites pile
+ * certificate it leaves is what `.husky/pre-push` and `npm run push:check`
+ * read: loosen a case and a run that tested less than it says attests
+ * a push, a red run's failure text is lost to a pipe, or suites pile
  * onto the memory-capped machine instead of queueing.
  */
 
@@ -50,7 +50,9 @@ import {
 	vi,
 } from "vitest";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { isDead } from "./lib/process-fixture";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
+import { WHOLE_SLOT_BOUND } from "./lib/whole-slot-bound";
 
 const require = createRequire(import.meta.url);
 
@@ -58,6 +60,7 @@ const { REFUSAL_NAMED_MAX } = require("./lib/dirty-tree.js");
 const { dirPath } = require("./lib/test-log.js");
 const { main } = require("./run-vitest.js");
 const { launchEnv, readLaunch } = require("./lib/suite-handoff.js");
+const { DEADLINE_ENV } = require("./lib/suite-ceiling.js");
 
 /* The wrapper's own flags and the filter an empty selection runs under,
  * spelled as a caller types them. */
@@ -78,7 +81,7 @@ const renderFails = () => {
 	throw new Error("render failed");
 };
 
-/** A git repo with one commit, so `headSha` and `repoRoot` both answer. */
+/** A git repo with one commit, so `readHeadSha` and `repoRoot` both answer. */
 function repo() {
 	const dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "runvitest-")),
@@ -89,6 +92,25 @@ function repo() {
 		["config", "user.email", "t@example.com"],
 		["config", "user.name", "t"],
 		["commit", "-q", "--allow-empty", "-m", "root"],
+	])
+		require("node:child_process").spawnSync("git", args, { cwd: dir });
+	return dir;
+}
+
+/** A whole-slot bound's worth of test files (#2931). */
+const WHOLE_SLOT_TESTS = Array.from(
+	{ length: WHOLE_SLOT_BOUND },
+	(_, i) => `t/f${i}.test.ts`,
+);
+
+/** `dir`, a `repo()` by default, tracking WHOLE_SLOT_TESTS. */
+function wholeRepo(dir = repo()) {
+	fs.mkdirSync(path.join(dir, "t"));
+	for (const file of WHOLE_SLOT_TESTS)
+		fs.writeFileSync(path.join(dir, file), "");
+	for (const args of [
+		["add", "t"],
+		["commit", "-q", "-m", "tests"],
 	])
 		require("node:child_process").spawnSync("git", args, { cwd: dir });
 	return dir;
@@ -448,10 +470,29 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 		expect(calls).toHaveLength(1);
 	});
 
-	/* Refusing after a long wait spends the wait and delivers nothing, so the
-	 * ceiling proceeds rather than aborting where the count cap holds it. */
-	it("runs anyway once the timeout is reached on the count cap", async () => {
+	/* A whole suite run past the bound would run beside another (#2714). */
+	it("refuses a whole suite, spawning nothing, once the timeout is reached on the count cap", async () => {
+		const queueLog = path.join(qdir(), "exits.jsonl");
+		const said: string[] = [];
 		const calls = await run(["--queue", SHARED_FLAG], {
+			root: wholeRepo(),
+			gate: () => ({ limb: "count" }),
+			sleepFn: () => Promise.resolve(),
+			timeoutMs: -1,
+			out: { write: (s: string) => said.push(s) },
+			queueLog,
+		});
+		expect(calls).toHaveLength(0);
+		expect(readJsonl(queueLog)).toMatchObject([
+			{ reason: "refused", limb: "count" },
+		]);
+		expect(said.join("")).toMatch(/wait bound — refused, not run/);
+	});
+
+	/* A part-suite takes no whole-suite slot (#2558), so the count cap at the
+	 * bound runs it anyway. */
+	it("runs a part-suite anyway once the timeout is reached on the count cap", async () => {
+		const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
 			gate: () => ({ limb: "count" }),
 			sleepFn: () => Promise.resolve(),
 			timeoutMs: -1,
@@ -536,6 +577,134 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 		expect(calls).toHaveLength(1);
 	});
 
+	describe("inside a `queue-run.js --seat` seat (#2918)", () => {
+		const { queueJoin, queueSpawned } = require("./lib/suite-queue.js");
+		/** A spawned part seat held by pid 20, this process's parent. */
+		const seated = (extra: Record<string, unknown> = {}) => {
+			const queueDir = qdir();
+			const seat = queueJoin({
+				queueDir,
+				pid: 20,
+				weight: { resolvedFiles: 1, wholeSlot: false },
+			});
+			queueSpawned(seat);
+			return {
+				queueDir,
+				queueLog: path.join(queueDir, "exits.jsonl"),
+				env: { WFC_SUITE_SEAT: seat },
+				alive: () => true,
+				parentOf: (pid: number) => (pid === process.pid ? 20 : 1),
+				...extra,
+			};
+		};
+		const readQueueMarkers = (dir: string) =>
+			fs.readdirSync(dir).filter((f) => f.startsWith("wfc-suite-queue-"));
+
+		it("runs a part-suite past the count cap, its marker gone and no exit line written", async () => {
+			const o = seated({ gate: () => ({ limb: "count" }) });
+			const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], o);
+			expect(calls).toHaveLength(1);
+			expect(readQueueMarkers(o.queueDir)).toEqual(["wfc-suite-queue-20.json"]);
+			expect(fs.existsSync(o.queueLog)).toBe(false);
+		});
+
+		/* A launch admitted and unspawned holds every other turn, so no two
+		 * pass the rung on one `ps` reading (#2622). */
+		it("stamps its marker admitted before it spawns", async () => {
+			const o = seated({ gate: () => false });
+			let stamped: unknown;
+			const { spawnFn, calls } = spawnReturning({ code: 0 });
+			const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+			try {
+				await main(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
+					spawnFn: (...args: Parameters<typeof spawnFn>) => {
+						stamped = JSON.parse(
+							fs.readFileSync(
+								path.join(o.queueDir, `wfc-suite-queue-${process.pid}.json`),
+								"utf8",
+							),
+						);
+						return spawnFn(...args);
+					},
+					root: repo(),
+					fs: fakeFs(),
+					out: quiet,
+					...o,
+				});
+			} finally {
+				stdout.mockRestore();
+			}
+			expect(calls).toHaveLength(1);
+			expect(stamped).toMatchObject({ admitted: true, part: true });
+		});
+
+		it("logs a wait the memory rung held, as kind `seat` (#2911)", async () => {
+			let held = 2;
+			let now = 0;
+			const o = seated({
+				gate: () =>
+					held-- > 0 ? { limb: "memory", mb: 900, rungMb: 3250 } : false,
+				sleepFn: () => {
+					now += 10_000;
+					return Promise.resolve();
+				},
+				clock: () => now,
+			});
+			const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], o);
+			expect(calls).toHaveLength(1);
+			expect(readJsonl(o.queueLog)).toMatchObject([
+				{ reason: "opened", kind: "seat", waitS: 20 },
+			]);
+		});
+
+		it("stamps its marker memoryHeld while the rung holds it (#3058)", async () => {
+			let held = 1;
+			const readOwnMarker = () =>
+				JSON.parse(
+					fs.readFileSync(
+						path.join(o.queueDir, `wfc-suite-queue-${process.pid}.json`),
+						"utf8",
+					),
+				);
+			const stamps: unknown[] = [];
+			const o = seated({
+				gate: () =>
+					held-- > 0 ? { limb: "memory", mb: 900, rungMb: 3250 } : false,
+				sleepFn: () => {
+					stamps.push(readOwnMarker().memoryHeld);
+					return Promise.resolve();
+				},
+			});
+			const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], o);
+			expect(calls).toHaveLength(1);
+			expect(stamps).toEqual([true]);
+		});
+
+		it("still waits on the memory rung, and refuses at the bound", async () => {
+			const said: string[] = [];
+			const o = seated({
+				gate: () => ({ limb: "memory", mb: 900, rungMb: 3250 }),
+				sleepFn: () => Promise.resolve(),
+				timeoutMs: -1,
+				out: { write: (s: string) => said.push(s) },
+			});
+			const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], o);
+			expect(calls).toHaveLength(0);
+			expect(said.join("")).toMatch(/gate still denies on memory/);
+			expect(readQueueMarkers(o.queueDir)).toEqual(["wfc-suite-queue-20.json"]);
+			expect(readJsonl(o.queueLog)).toMatchObject([
+				{ reason: "refused", kind: "seat", limb: "memory" },
+			]);
+		});
+
+		it("queues a whole suite as any other, the seat being part", async () => {
+			const o = seated({ root: wholeRepo(), gate: () => false });
+			const calls = await run(["--queue", SHARED_FLAG], o);
+			expect(calls).toHaveLength(1);
+			expect(readJsonl(o.queueLog)).toMatchObject([{ reason: "opened" }]);
+		});
+	});
+
 	describe("the exit log, one line per queue exit (#1215)", () => {
 		const logIn = () => path.join(qdir(), "exits.jsonl");
 
@@ -561,9 +730,9 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 			expect(Number.isNaN(Date.parse(line.at))).toBe(false);
 		});
 
-		it("logs a timeout that ran anyway, naming the count limb", async () => {
+		it("logs a part-suite's timeout that ran anyway, naming the count limb", async () => {
 			const queueLog = logIn();
-			await run(["--queue", SHARED_FLAG], {
+			await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], {
 				gate: () => ({ limb: "count" }),
 				sleepFn: () => Promise.resolve(),
 				timeoutMs: -1,
@@ -896,6 +1065,20 @@ describe("a runner flag npm swallowed, launched through `npm run` (#2284)", {
 		expect(result.ran).toBe(false);
 	});
 
+	it.each([
+		[["--changed", "--adopt", "x"], "--changed and --adopt"],
+		[["--adopt", "x", "--retest", "a.test.ts"], "--adopt and --retest"],
+		[["--retest", "a.test.ts", "--changed"], "--retest and --changed"],
+	])(
+		"refuses %j, naming its selection flags in argv order, and runs nothing (#2764)",
+		async (args, named) => {
+			const result = await npmRun(["--", ...args]);
+			expect(result.code).toBe(1);
+			expect(result.stderr).toContain(`${named} each pick the run's tests`);
+			expect(result.ran).toBe(false);
+		},
+	);
+
 	it("runs a flag written after --, which npm passes through", async () => {
 		const result = await npmRun(["--", SHARED_FLAG]);
 		expect(result.stderr).not.toContain("NPM TOOK");
@@ -1160,6 +1343,8 @@ describe("the stall ceiling from the environment", () => {
 	const stallEnv = "WFC_TEST_STALL_MS";
 	/* The ceiling an unset, empty or unreadable variable leaves in force. */
 	const defaultMs = 300_000;
+	/* What the last `killedAfter` printed to stderr. */
+	let said = "";
 
 	/**
 	 * `main` against a parked child, its ceiling read from the variable alone,
@@ -1191,6 +1376,7 @@ describe("the stall ceiling from the environment", () => {
 			const killed = child.signals.length > 0;
 			if (!killed) child.emit("close", 0);
 			await run;
+			said = stderr.mock.calls.map((c) => String(c[0])).join("");
 			return killed;
 		} finally {
 			vi.useRealTimers();
@@ -1216,9 +1402,12 @@ describe("the stall ceiling from the environment", () => {
 		expect(await killedAfter(1000)).toBe(true);
 	});
 
+	/* The suite ceiling, which zero never disables, is what ends this run. */
 	it("takes zero, which disables the watchdog", async () => {
 		vi.stubEnv(stallEnv, "0");
-		expect(await killedAfter(defaultMs * 10)).toBe(false);
+		await killedAfter(defaultMs * 10);
+		expect(said).not.toContain("SUITE STALLED");
+		expect(said).toContain("SUITE CEILING");
 	});
 
 	/* A typo must not read as zero: that would silently remove the protection
@@ -1229,6 +1418,330 @@ describe("the stall ceiling from the environment", () => {
 			expect(await killedAfter(defaultMs - 1)).toBe(false);
 			expect(await killedAfter(defaultMs)).toBe(true);
 		}
+	});
+});
+
+/*
+ * The suite ceiling (#2696, ruled at #2667): every run is killed a fixed time
+ * after vitest spawns, whatever its output, with its whole process group.
+ */
+describe("the suite ceiling", () => {
+	const { readFailures } = require("./lib/test-pass-marker.js");
+	const {
+		CEILING_CLOSE,
+		CEILING_ENV,
+		CEILING_MS,
+	} = require("./lib/suite-ceiling.js");
+
+	/** `main` against `child`, its output captured; resolves on its exit. */
+	async function run(
+		root: string,
+		child: ReturnType<typeof parkedChild>,
+		opts: { stall: number; ceiling: number; inflightFile?: string },
+	) {
+		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+		try {
+			const code = await main([SHARED_FLAG], {
+				spawnFn: () => child,
+				root,
+				...opts,
+			});
+			const said = stderr.mock.calls.map((c) => String(c[0])).join("");
+			return { code, said };
+		} finally {
+			stderr.mockRestore();
+			stdout.mockRestore();
+		}
+	}
+
+	/** A parked child that prints a dot every 5 ms until it is killed. */
+	function printingChild() {
+		const child = parkedChild();
+		const dots = setInterval(() => child.stdout.write("."), 5);
+		child.on("close", () => clearInterval(dots));
+		return child;
+	}
+
+	it("kills a run that keeps printing past it and fails it, its report naming the ceiling and that no setting raises it", async () => {
+		const root = repo();
+		const child = printingChild();
+
+		const { code, said } = await run(root, child, {
+			stall: 60_000,
+			ceiling: 100,
+		});
+
+		expect(child.signals).toEqual(["SIGKILL"]);
+		expect(code).toBe(1);
+		expect(said).toMatch(
+			/SUITE CEILING — killed \d+\.\ds after vitest spawned, at the 0\.1s ceiling \(#2667\)/,
+		);
+		expect(said).toContain(CEILING_CLOSE.join("\n"));
+		expect(said).not.toContain("SUITE STALLED");
+	});
+
+	it("names the files in flight, then those never started, then how many finished", async () => {
+		const root = repo();
+		const at = path.join(root, "run.inflight.json");
+		const [a, b, c, d] = ["a", "b", "c", "d"].map((n) =>
+			path.join(root, `${n}.test.ts`),
+		);
+		fs.writeFileSync(
+			at,
+			JSON.stringify({
+				open: [{ module: b, stage: "running its tests" }],
+				finished: [a],
+				scheduled: [a, b, c, d],
+			}),
+		);
+
+		const { said } = await run(root, printingChild(), {
+			stall: 60_000,
+			ceiling: 50,
+			inflightFile: at,
+		});
+
+		const order = [
+			"b.test.ts — running its tests",
+			"Never started: 2",
+			"c.test.ts",
+			"d.test.ts",
+			"Finished: 1 file(s).",
+		].map((line) => said.indexOf(line));
+		expect(order.every((i) => i >= 0)).toBe(true);
+		expect([...order].sort((x, y) => x - y)).toEqual(order);
+	});
+
+	it("says so where no schedule was recorded, rather than naming none", async () => {
+		const { said } = await run(repo(), printingChild(), {
+			stall: 60_000,
+			ceiling: 50,
+		});
+
+		expect(said).toContain("No schedule was recorded");
+	});
+
+	it("writes no certificate and one fail record of its own kind", async () => {
+		const root = repo();
+		const at = path.join(root, "run.inflight.json");
+		const slow = path.join(root, "slow.test.ts");
+		const left = path.join(root, "left.test.ts");
+		fs.writeFileSync(
+			at,
+			JSON.stringify({
+				open: [{ module: slow, stage: "loading" }],
+				finished: [],
+				scheduled: [slow, left],
+			}),
+		);
+
+		await run(root, printingChild(), {
+			stall: 60_000,
+			ceiling: 50,
+			inflightFile: at,
+		});
+
+		const reds = readFailures({ root });
+		expect(reds).toHaveLength(1);
+		expect(reds[0]).toMatchObject({
+			ceilingKill: true,
+			ceilingMs: 50,
+			inflight: [{ module: slow, stage: "loading" }],
+			finished: [],
+			neverStarted: [left],
+		});
+		expect(reds[0].stalled).toBeUndefined();
+		expect(reds[0].scope).toBeUndefined();
+		expect(typeof reds[0].startedAt).toBe("string");
+		expect(typeof reds[0].durationMs).toBe("number");
+		expect(reds[0].argv).toEqual(expect.any(Array));
+		/* Linux's /proc answers; elsewhere the reading is left off. */
+		expect(reds[0].machine).toMatchObject({ load1: expect.anything() });
+	});
+
+	it("settles at 1 where `close` never arrives, and lets go of the pipes", async () => {
+		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+		const child = parkedChild();
+		/* A descendant outside the group holds the pipes: no `close`. */
+		child.kill = (signal = "SIGTERM") => {
+			child.signals.push(signal);
+			return true;
+		};
+		try {
+			const done = main([SHARED_FLAG], {
+				spawnFn: () => child,
+				root: repo(),
+				stall: 0,
+				ceiling: 50,
+			});
+			await vi.advanceTimersByTimeAsync(50 + 10_000);
+
+			expect(await done).toBe(1);
+			expect([child.stdout.destroyed, child.stderr.destroyed]).toEqual([
+				true,
+				true,
+			]);
+		} finally {
+			vi.useRealTimers();
+			stderr.mockRestore();
+			stdout.mockRestore();
+		}
+	});
+
+	it("leaves the silence watchdog firing first on a silent run", async () => {
+		const root = repo();
+
+		const { code, said } = await run(root, parkedChild(), {
+			stall: 20,
+			ceiling: 60_000,
+		});
+
+		expect(code).toBe(1);
+		expect(said).toContain("SUITE STALLED");
+		expect(said).not.toContain("SUITE CEILING");
+		expect(readFailures({ root })).toMatchObject([{ stalled: true }]);
+	});
+
+	it("still kills a silent run where the watchdog is off", async () => {
+		const child = parkedChild();
+
+		const { code, said } = await run(repo(), child, { stall: 0, ceiling: 50 });
+
+		expect(child.signals).toEqual(["SIGKILL"]);
+		expect(code).toBe(1);
+		expect(said).toContain("SUITE CEILING");
+	});
+
+	describe("from the environment", () => {
+		/** Whether a silent child is killed `ms` after it spawned, the
+		 * watchdog off and the ceiling read from the environment alone. */
+		async function killedAfter(ms: number) {
+			vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+			const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+			const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+			const child = parkedChild();
+			let spawned = () => {
+				/* replaced by the promise's resolve below */
+			};
+			const up = new Promise<void>((resolve) => {
+				spawned = resolve;
+			});
+			const root = repo();
+			try {
+				const done = main([SHARED_FLAG], {
+					spawnFn: () => {
+						spawned();
+						return child;
+					},
+					root,
+					stall: 0,
+					inflightFile: path.join(root, "run.inflight.json"),
+				});
+				await up;
+				await vi.advanceTimersByTimeAsync(ms);
+				const killed = child.signals.length > 0;
+				if (!killed) child.emit("close", 0);
+				await done;
+				return killed;
+			} finally {
+				vi.useRealTimers();
+				stderr.mockRestore();
+				stdout.mockRestore();
+			}
+		}
+
+		it("takes a lower value", async () => {
+			vi.stubEnv(CEILING_ENV, "1000");
+			expect(await killedAfter(999)).toBe(false);
+			expect(await killedAfter(1000)).toBe(true);
+		});
+
+		/* Nothing may raise the ceiling or turn it off (#2667). */
+		it.each([String(CEILING_MS * 2), "0", "fourteen minutes", "-1"])(
+			"keeps the ceiling in force against %s",
+			async (value) => {
+				vi.stubEnv(CEILING_ENV, value);
+				expect(await killedAfter(CEILING_MS - 1)).toBe(false);
+				expect(await killedAfter(CEILING_MS)).toBe(true);
+			},
+		);
+	});
+
+	/* These cross the real clock: what is pinned is a real kill of a real
+	 * process group, which no fake clock reaches. */
+	describe("on real processes", { timeout: REAL_CHILD_TIMEOUT_MS }, () => {
+		/** A stand-in vitest: a shell that starts a sleeping grandchild in its
+		 * own group, records both pids and the deadline file, then prints until
+		 * it is killed. */
+		function standIn(dir: string, deadlineFile: string) {
+			const bin = path.join(dir, "fake-vitest.sh");
+			fs.writeFileSync(
+				bin,
+				[
+					"#!/bin/sh",
+					`sleep 300 & echo $! > "${dir}/grandchild"`,
+					`echo $$ > "${dir}/child"`,
+					/* The runner writes the deadline just after the spawn. */
+					`while [ ! -s "${deadlineFile}" ]; do sleep 0.01; done`,
+					`cp "${deadlineFile}" "${dir}/deadline-seen"`,
+					`touch "${dir}/ready"`,
+					"while :; do echo .; sleep 0.05; done",
+					"",
+				].join("\n"),
+			);
+			fs.chmodSync(bin, 0o755);
+			return bin;
+		}
+
+		it("kills the whole group, a grandchild included, and drops its deadline", async () => {
+			const root = repo();
+			const deadlineFile = path.join(root, "deadline");
+			vi.stubEnv(DEADLINE_ENV, deadlineFile);
+			const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+			const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+			const bin = standIn(root, deadlineFile);
+			let code: number;
+			try {
+				/* The ceiling is long enough for the shell to start its grandchild
+				 * first; `ready` proves it did before the kill. */
+				code = await main([SHARED_FLAG], {
+					root,
+					bin,
+					stall: 0,
+					ceiling: 3000,
+					expand: () => null,
+					inflightFile: path.join(root, "run.inflight.json"),
+				});
+			} finally {
+				stderr.mockRestore();
+				stdout.mockRestore();
+			}
+			/* Fails rather than hangs where the kill beat the shell's start. */
+			expect(fs.existsSync(path.join(root, "ready"))).toBe(true);
+
+			const child = Number(fs.readFileSync(path.join(root, "child"), "utf8"));
+			const grandchild = Number(
+				fs.readFileSync(path.join(root, "grandchild"), "utf8"),
+			);
+			const [deadline, pgid] = fs
+				.readFileSync(path.join(root, "deadline-seen"), "utf8")
+				.trim()
+				.split(" ")
+				.map(Number);
+			expect(code).toBe(1);
+			expect(pgid).toBe(child);
+			expect(Number.isInteger(deadline)).toBe(true);
+			expect(fs.existsSync(deadlineFile)).toBe(false);
+			/* Killed, though reaping an orphan can trail the kill; how long
+			 * that takes under load is unmeasured, so 10 s is a guess. */
+			const by = Date.now() + 10_000;
+			while (!(isDead(child) && isDead(grandchild)) && Date.now() < by)
+				await new Promise((r) => setTimeout(r, 50));
+			expect([isDead(child), isDead(grandchild)]).toEqual([true, true]);
+		});
 	});
 });
 
@@ -1278,6 +1791,15 @@ describe("the per-run in-flight file", () => {
 			path.join(repo(), ".claude", "tmp", "markers", ".test-inflight.json"),
 		);
 	});
+
+	it("keeps its deadline file from a runner a test drives inside vitest (#2704)", async () => {
+		const root = repo();
+		vi.stubEnv(DEADLINE_ENV, path.join(root, "deadline"));
+
+		const env = (await envFrom(root)) as Record<string, string>;
+
+		expect(env).not.toHaveProperty(DEADLINE_ENV);
+	});
 });
 
 /** A git and vitest whose answers change when `move()` is called. */
@@ -1320,6 +1842,33 @@ const refillWorld = () => {
 			return moved ? "docs/fixture-untested.md\n" : "docs/fixture-doc.md\n";
 		listed += 1;
 		return listed === 2 ? "\n" : "a.test.ts\n";
+	};
+	return {
+		fn,
+		move: () => {
+			moved = true;
+		},
+	};
+};
+
+/**
+ * A git and vitest whose HEAD `move()` moves, leaving a bare default's diff
+ * on a doc no test reads, so a queued run's re-check leaves the queue.
+ */
+const leavingWorld = () => {
+	let moved = false;
+	/* Each call's answer before the move, then after it. */
+	const answers: Record<string, [string, string]> = {
+		HEAD: ["aaa\n", "bbb\n"],
+		diff: ["a.test.ts\n", "docs/fixture-untested.md\n"],
+		list: ["a.test.ts\n", "\n"],
+	};
+	const rest = fakeExec();
+	const fn = (file: string, args: string[], opts: { cwd: string }) => {
+		const key =
+			args[0] === "rev-parse" && args.includes("HEAD") ? "HEAD" : args[0];
+		const answer = key === undefined ? undefined : answers[key];
+		return answer ? answer[moved ? 1 : 0] : rest(file, args, opts);
 	};
 	return {
 		fn,
@@ -1719,25 +2268,6 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			expect(got.banner).toContain("package.json");
 			expect(got.banner).toContain("Nothing to run");
 		});
-
-		it("still warns, naming its wall cost, where vitest's own selection call fails after git's succeeded (mantahostels#2151)", () => {
-			const said: string[] = [];
-			const fn = (_file: string, args: string[]) => {
-				if (args[0] === "diff") return `${PACKAGE_JSON}\n`;
-				throw new Error("boom");
-			};
-			const got = plan(
-				["--changed"],
-				{},
-				{ fn, calls: [] },
-				{
-					write: (s: string) => said.push(s),
-				},
-			);
-			expect(got).toBeNull();
-			expect(said.join("")).toContain("package.json");
-			expect(said.join("")).toMatch(fullSuiteCost);
-		});
 	});
 
 	it("falls open to today's behaviour where the manifest cannot be read, and says which command fixes it", () => {
@@ -1800,14 +2330,10 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		expect(said.join("")).toContain("npm run gen:test-read-edges");
 	});
 
-	it("falls open where git or vitest will not answer", () => {
-		const said: string[] = [];
-		expect(
-			plan(["--changed"], {}, exec({ throws: true }), {
-				write: (s: string) => said.push(s),
-			}),
-		).toBeNull();
-		expect(said.join("")).toContain("unchanged");
+	it("throws, naming the cause, where git or vitest will not answer (#2698)", () => {
+		expect(() => plan(["--changed"], {}, exec({ throws: true }))).toThrow(
+			"--changed could not be expanded",
+		);
 	});
 
 	it("still records NO full certificate: the union lands in fileFilters (mantahostels#1230)", () => {
@@ -1888,7 +2414,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		]);
 	});
 
-	it("runs on a filter matching nothing where the union is empty, so a marker is still written (#189 §6)", async () => {
+	it("runs on a filter matching nothing where the union is empty, so a certificate is still written (#189 §6)", async () => {
 		const { spawnFn, calls } = spawnReturning({ code: 0 });
 		await expect(
 			main(["--changed"], {
@@ -1912,7 +2438,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				changed = [] as string[],
 				selects = [] as string[],
 				edges = {} as Record<string, string[]>,
-				gateExec = undefined as (() => string) | undefined,
+				gateRead = undefined as ((command: string) => null) | undefined,
 			} = {},
 		) => {
 			const { spawnFn, calls } = spawnReturning({ code: 0 });
@@ -1932,7 +2458,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 					out: { write: (s: string) => out.push(s) },
 					queueDir: qdir(),
 					queueFs: { ...fs, writeFileSync: joined },
-					...(gateExec ? { gateExec } : { gate }),
+					...(gateRead ? { gateRead } : { gate }),
 				});
 			} finally {
 				stdout.mockRestore();
@@ -1953,10 +2479,24 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			expect(got.gate).not.toHaveBeenCalled();
 			expect(got.code).toBe(0);
 			expect(got.out).toMatch(/skips the queue/);
-			expect(got.out).toMatch(/npm run push:check/);
+			expect(got.out).toMatch(
+				/npm run push:check` says whether a certificate attests your push/,
+			);
 		});
 
-		it("hands the child what an unqueued empty run does, so its marker reads the same", async () => {
+		it("names the lander, not push:check, where the selection is empty under `landing` (#2961)", async () => {
+			vi.stubEnv("WFC_MODULES", `${process.env.WFC_MODULES},landing`);
+			const got = await launch(["--queue", "--changed"], {
+				changed: ["docs/fixture-untested.md"],
+			});
+			expect(got.code).toBe(0);
+			expect(got.out).toMatch(
+				/skips the queue \(#1016\)\. module "landing" is on — the lander runs the full suite/,
+			);
+			expect(got.out).not.toMatch(/push:check|attests your push/);
+		});
+
+		it("hands the child what an unqueued empty run does, so its certificate reads the same", async () => {
 			const queued = await launch(["--queue", "--changed"], {
 				changed: ["docs/fixture-untested.md"],
 			});
@@ -1970,14 +2510,16 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			]);
 			expect(queued.args).toEqual(unqueued.args);
 			// The same child but for the launch's own argv, which names --queue.
-			const sansArgv = (env: Record<string, string>) => {
+			const readLaunchSansArgv = (env: Record<string, string>) => {
 				const { argv: _argv, ...recorded } = readLaunch(env);
 				const rest = Object.fromEntries(
 					Object.entries(env).filter(([k]) => !(k in launchEnv({}))),
 				);
 				return { launch: recorded, rest };
 			};
-			expect(sansArgv(queued.env)).toEqual(sansArgv(unqueued.env));
+			expect(readLaunchSansArgv(queued.env)).toEqual(
+				readLaunchSansArgv(unqueued.env),
+			);
 		});
 
 		it("skips the queue for the narrowed default too", async () => {
@@ -2015,8 +2557,10 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 					selects: ["a.test.ts"],
 				});
 				expect(got.joined, source).toHaveBeenCalledTimes(1);
+				/* A `--retest` is a touched run, its one file one worker (#2935). */
 				expect(got.args, source).toEqual([
 					"run",
+					...(source === "retest" ? ["--maxWorkers=1"] : []),
 					"--passWithNoTests",
 					"a.test.ts",
 					"--",
@@ -2028,18 +2572,14 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		 * its poll must carry the files, or a one-file run waits for a whole
 		 * suite's rung (#2558). */
 		it("queues a run naming its own test files, the gate asked about those files", async () => {
-			const gateExec = vi.fn(() => "");
+			const gateRead = vi.fn((_command: string) => null);
 			const got = await launch(["--queue", "a.test.ts", "-t", "two words"], {
-				gateExec,
+				gateRead,
 			});
 			expect(got.joined).toHaveBeenCalledTimes(1);
-			const [, , opts] = gateExec.mock.calls[0] as unknown as [
-				string,
-				string[],
-				{ input: string },
-			];
-			expect(JSON.parse(opts.input).tool_input.command).toBe(
+			expect(gateRead).toHaveBeenCalledWith(
 				"npm run test -- a.test.ts -t 'two words'",
+				{ resolvedFiles: 1, wholeSlot: false },
 			);
 			expect(got.args).toContain("a.test.ts");
 		});
@@ -2197,7 +2737,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				}
 				expect(readJsonl(queueLog)).toMatchObject([
 					{ reason: "left", empty: true, kind: "changed" },
-					{ reason: "opened", empty: false, kind: "changed" },
+					{ reason: "opened", empty: false, kind: "changed", slotFree: false },
 				]);
 			});
 
@@ -2239,6 +2779,9 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				]);
 			});
 
+			/* Under `landing` the bare run is a touched one (#2930), whose stale
+			 * base reaches `a.test.ts` only through the read graph, and whose
+			 * emptied selection spawns nothing. */
 			it.each([
 				["origin/main", "roadmap"],
 				["origin/landing", "landing"],
@@ -2246,6 +2789,11 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				"leaves on the bare default, before the gate opens, once a push moves %s to a base the diff empties against (modules: %s, #2408)",
 				async (ref, modules) => {
 					vi.stubEnv("WFC_MODULES", modules);
+					const landing = modules === "landing";
+					const root = repo();
+					if (landing) fs.writeFileSync(path.join(root, "a.test.ts"), "");
+					const edges = () =>
+						landing ? { "docs/fixture-doc.md": ["a.test.ts"] } : {};
 					const w = pushWorld(ref);
 					const { spawnFn, calls } = spawnReturning({ code: 0 });
 					const loadHold = vi.fn(() => Promise.resolve(true));
@@ -2257,11 +2805,11 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 					try {
 						await main(["--queue", SHARED_FLAG], {
 							spawnFn,
-							root: repo(),
+							root,
 							fs: fakeFs(),
 							execFn: w.fn,
-							loadEdges: () => ({}),
-							renderEdges: () => ({}),
+							loadEdges: edges,
+							renderEdges: edges,
 							out: { write: (s: string) => out.push(s) },
 							err: { write: () => true },
 							queueDir: qdir(),
@@ -2281,11 +2829,13 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 						/diff against pushedBase reaches no test file/,
 					);
 					expect(loadHold).not.toHaveBeenCalled();
-					expect(calls[0]?.[1]).toEqual([
-						"run",
-						"--passWithNoTests",
-						EMPTY_SELECTION_FILTER,
-					]);
+					if (landing) expect(calls).toEqual([]);
+					else
+						expect(calls[0]?.[1]).toEqual([
+							"run",
+							"--passWithNoTests",
+							EMPTY_SELECTION_FILTER,
+						]);
 				},
 			);
 		});
@@ -2316,10 +2866,12 @@ describe("whether a filtered run meets the push gate (mantahostels#2146, mantaho
 		expect(got.banner).toContain("MEETS THE PUSH GATE");
 	});
 
-	it("says the commit made from this tree is covered without a re-run, and retires the commit-then-re-run recipe (#189 §8)", () => {
+	it("says its certificate attests the commit made from this tree without a re-run, and retires the commit-then-re-run recipe (#189 §8)", () => {
 		const got = plan(["--changed"], true);
 		expect(got.banner).toContain("each test reading it still holds");
-		expect(got.banner).toContain("is covered without a re-run");
+		expect(got.banner).toContain(
+			"it attests the commit you make from this tree without a re-run",
+		);
 		expect(got.banner).not.toContain("--full=");
 		expect(got.banner).not.toContain("commit first");
 		expect(got.banner).not.toContain("the new commit's parent");
@@ -2370,6 +2922,34 @@ describe("whether a filtered run meets the push gate (mantahostels#2146, mantaho
 		}
 	});
 
+	it("names no push check and no --changed re-run under `landing`, the lander being the gate (#2961)", () => {
+		vi.stubEnv("WFC_MODULES", `${process.env.WFC_MODULES},landing`);
+		for (const [argv, fresh] of [
+			[["--changed"], true],
+			[["--changed", "-t", "some name"], true],
+			[["--changed"], false],
+			[["--adopt", "docs/thing.md"], true],
+			[["--adopt"], true],
+			[["--retest", "a.test.ts"], true],
+		] as const) {
+			const got = plan([...argv], fresh);
+			expect(got.banner).toContain(
+				'NO PUSH GATE — module "landing" is on — the lander runs the full suite',
+			);
+			expect(got.banner).not.toMatch(
+				/MEETS THE PUSH GATE|ADMISSIBLE|push:check/,
+			);
+			expect(got.banner).not.toContain("re-run with");
+		}
+	});
+
+	it("names no push gate where `suites` is off either (#2961)", () => {
+		vi.stubEnv("WFC_MODULES", "");
+		const got = plan(["--changed"], true);
+		expect(got.banner).toContain('NO PUSH GATE — module "suites" is off');
+		expect(got.banner).not.toContain("MEETS THE PUSH GATE");
+	});
+
 	/* A positional is not an exception to the rule above: `changedFlag` reads it
 	 * as --changed's ref, matching vitest, so it never reaches this test. */
 	it("refuses a flag that narrows nothing, rather than maintaining a safe list", () => {
@@ -2378,7 +2958,7 @@ describe("whether a filtered run meets the push gate (mantahostels#2146, mantaho
 
 	/* Every case above injects the render, so without this the default wire
 	 * would survive being replaced by one that never throws. */
-	it("renders the real read graph by default, and a tree git cannot list certifies nothing", () => {
+	it("renders the real read graph by default, and a tree git cannot list attests nothing", () => {
 		const got = expandChanged(["--changed"], {
 			root: fs.mkdtempSync(path.join(os.tmpdir(), "no-manifest-")),
 			bin: "/repo/node_modules/.bin/vitest",
@@ -2393,7 +2973,7 @@ describe("whether a filtered run meets the push gate (mantahostels#2146, mantaho
 	 * already names, so the tree renders an edge the committed manifest lacks. */
 	it("selects an unedited test through an edge only the live render holds, and stays admissible (#998)", () => {
 		const dir = repo();
-		const { render } = require("./generate-test-read-edges.js");
+		const { render } = require("./lib/read-edges-render.js");
 		const git = (...a: string[]) =>
 			require("node:child_process").execFileSync("git", a, { cwd: dir });
 		const put = (file: string, body: string) => {
@@ -2633,7 +3213,7 @@ describe("the test:changed route flag on the spawned child (mantahostels#2303)",
 		expect(readLaunch(env).admissible).toBe(false);
 	});
 
-	it("sets it where the expansion failed open, which reads off argv alone", async () => {
+	it("sets it where the manifest could not be read, which reads off argv alone", async () => {
 		const env = await envFor(["--changed"], () => null);
 		expect(readLaunch(env).viaChanged).toBe(true);
 		expect(readLaunch(env).admissible).toBe(false);
@@ -2693,9 +3273,12 @@ describe("the launch record each route hands the child (#1596)", () => {
 			admissible: true,
 			isolated: false,
 			viaChanged: true,
+			touched: false,
 			full: null,
 			fullCause: null,
 			argv,
+			resolvedFiles: 1,
+			wholeSlot: false,
 			changedPaths: ["lib/a.js"],
 			base: "abc123",
 		});
@@ -2712,9 +3295,12 @@ describe("the launch record each route hands the child (#1596)", () => {
 			admissible: true,
 			isolated: false,
 			viaChanged: false,
+			touched: false,
 			full: null,
 			fullCause: null,
 			argv: [SHARED_FLAG],
+			resolvedFiles: 1,
+			wholeSlot: false,
 			changedPaths: ["a.test.ts"],
 			base: expect.any(String),
 		});
@@ -2726,11 +3312,78 @@ describe("the launch record each route hands the child (#1596)", () => {
 			admissible: false,
 			isolated: true,
 			viaChanged: false,
+			touched: false,
 			full: "flag",
 			fullCause: "coverage",
 			argv,
+			resolvedFiles: 0,
+			wholeSlot: false,
 			changedPaths: null,
 			base: null,
+		});
+	});
+
+	/* A full run is weighed against its own repo's suite, never the core's. */
+	it.each([
+		["a small repo's", repo, false],
+		["a whole-slot repo's", wholeRepo, true],
+	])(
+		"hands the child %s whole-suite count and slot (#2931)",
+		async (_what, make, wholeSlot) => {
+			const root = make();
+			const yieldCpu = vi.fn();
+			const env = await childEnv([SHARED_FLAG, "--full=coverage"], {
+				root,
+				yieldCpu,
+			});
+			expect(readLaunch(env)).toMatchObject({
+				resolvedFiles: wholeSlot ? WHOLE_SLOT_BOUND : 0,
+				wholeSlot,
+			});
+			/* Only a run outside the whole slot may yield its CPU (#2955). */
+			expect(yieldCpu).toHaveBeenCalledTimes(wholeSlot ? 0 : 1);
+		},
+	);
+
+	it("weighs a run whole, saying so on err, where its suite will not list (#2931)", async () => {
+		const err: string[] = [];
+		const env = await childEnv([SHARED_FLAG, "--full=coverage"], {
+			err: { write: (s: string) => err.push(s) },
+			execFn: (file: string, args: string[], opts: unknown) => {
+				if (args[0] === "ls-files") throw new Error("index locked");
+				return require("node:child_process").execFileSync(file, args, opts);
+			},
+		});
+		expect(err.join("")).toContain(
+			"run-vitest: the suite could not be listed (Error: index locked) — this run is weighed whole (#2931).",
+		);
+		expect(readLaunch(env)).toMatchObject({
+			resolvedFiles: null,
+			wholeSlot: true,
+		});
+	});
+
+	it("weighs a run whole where vitest will not list its suite (#2960)", async () => {
+		const root = wholeRepo();
+		fs.writeFileSync(
+			path.join(root, "vitest.config.mjs"),
+			"export default {};\n",
+		);
+		const err: string[] = [];
+		const env = await childEnv([SHARED_FLAG, "--full=coverage"], {
+			root,
+			err: { write: (s: string) => err.push(s) },
+			execFn: (file: string, args: string[], opts: unknown) => {
+				if (args[0] === "list") throw new Error("vitest list failed");
+				return require("node:child_process").execFileSync(file, args, opts);
+			},
+		});
+		expect(err.join("")).toContain(
+			"run-vitest: the suite could not be listed (Error: vitest list failed) — this run is weighed whole (#2931).",
+		);
+		expect(readLaunch(env)).toMatchObject({
+			resolvedFiles: null,
+			wholeSlot: true,
 		});
 	});
 
@@ -2740,9 +3393,12 @@ describe("the launch record each route hands the child (#1596)", () => {
 			admissible: false,
 			isolated: true,
 			viaChanged: false,
+			touched: false,
 			full: null,
 			fullCause: null,
 			argv,
+			resolvedFiles: 0,
+			wholeSlot: false,
 			changedPaths: null,
 			base: null,
 		});
@@ -2961,7 +3617,7 @@ describe("the package.json bail-out, narrowed for an allow-listed key set (manta
 			},
 			calls: io.calls,
 		};
-		expect(plan(throwing, fsImpl)).toBeNull();
+		expect(() => plan(throwing, fsImpl)).toThrow("boom");
 		expect(fsImpl.unlinked).toEqual([probePath]);
 	});
 
@@ -3242,7 +3898,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 	/** A ledger stub: what this session wrote, and who else holds a claim. */
 	function ledgerOf(written: string[] | null, locks: unknown[] = []) {
 		return {
-			writesBy: () => written,
+			readWritesBy: () => written,
 			readLocks: () => locks,
 			subjectPath: (p: string) => p,
 		};
@@ -3421,7 +4077,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it("is rooted at the canonical checkout, not the worktree", () => {
 			const dir = repoWithDeps();
 			const made = createIsolated(dir, { pid: 4245 });
-			// `repoRoot` resolves the parent of the COMMON git dir, so a marker
+			// `repoRoot` resolves the parent of the COMMON git dir, so a certificate
 			// written from inside the worktree lands in the store a later push
 			// reads.
 			expect(repoRoot(made.dir)).toBe(dir);
@@ -3430,13 +4086,13 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("reads headMovedDuringRun false while a neighbour commits", () => {
-			const { snapshot, drift } = require("./lib/tree-drift.js");
+			const { readTreeSnapshot, drift } = require("./lib/tree-drift.js");
 			const { markerFrom } = require("./lib/test-pass-marker.js");
 			const dir = repoWithDeps();
 			const made = createIsolated(dir, { pid: 4246 });
 
-			const before = snapshot(made.dir);
-			const beforeShared = snapshot(dir);
+			const before = readTreeSnapshot(made.dir);
+			const beforeShared = readTreeSnapshot(dir);
 			gitIn(dir, [
 				"commit",
 				"-q",
@@ -3447,14 +4103,14 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			const isolated = markerFrom(
 				before,
-				snapshot(made.dir),
-				drift(before, snapshot(made.dir)),
+				readTreeSnapshot(made.dir),
+				drift(before, readTreeSnapshot(made.dir)),
 				{ held: [] },
 			);
 			const shared = markerFrom(
 				beforeShared,
-				snapshot(dir),
-				drift(beforeShared, snapshot(dir)),
+				readTreeSnapshot(dir),
+				drift(beforeShared, readTreeSnapshot(dir)),
 				{ held: [] },
 			);
 
@@ -3467,7 +4123,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 		it("hands the child the worktree's own globalSetup, not the canonical one", async () => {
 			// AC 3 turns on `scripts/vitest-tree-watch.ts` resolving its ROOT from
-			// the WORKTREE copy of itself. The marker assertions above hand-build
+			// the WORKTREE copy of itself. The certificate assertions above hand-build
 			// their snapshots and would pass even if the child were handed the
 			// canonical root, so this pins the wiring they assume (mantahostels#2169).
 			const dir = repoWithDeps();
@@ -3686,8 +4342,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				sessionId: "other",
 				path: "shared.ts",
 				pid: process.pid,
-				procStart: arbiterProc.procStartOf(process.pid),
-				bootId: arbiterProc.currentBootId(),
+				procStart: arbiterProc.readProcStartOf(process.pid),
+				bootId: arbiterProc.readCurrentBootId(),
 			};
 			expect(
 				attributeDirty(["shared.ts", "solo.ts"], {
@@ -3700,7 +4356,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		it("subtracts a path whose own hunks have all landed, and nothing where that read throws (#2539)", () => {
 			const landed = {
 				...ledgerOf(["landed.ts", "pending.ts"]),
-				landedBy: () => new Set(["landed.ts"]),
+				readLandedBy: () => new Set(["landed.ts"]),
 			};
 			expect(
 				attributeDirty(["landed.ts", "pending.ts", "never.ts"], {
@@ -3715,7 +4371,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			const unread = {
 				...ledgerOf(["landed.ts"]),
-				landedBy: () => {
+				readLandedBy: () => {
 					throw new Error("store unreadable");
 				},
 			};
@@ -3726,23 +4382,23 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		/*
-		 * guard-claimed-bash-write.sh credits an uncontended CODE target at
+		 * lib/claimed-bash-write.js credits an uncontended CODE target at
 		 * `PreToolUse` (mantahostels#2778), so a path that reached the tree by `sed -i` or a
 		 * redirect is `mine` and refuses under `--isolated` rather than warning
 		 * as `theirs`.
 		 *
-		 * Through the REAL judge and the REAL store, because a stub ledger
+		 * Through the REAL hook entry and the REAL store, because a stub ledger
 		 * could not tell the two apart: what needs pinning is that the writer
 		 * and this reader agree on where the ledger lives and how it spells a
-		 * path. The judge goes through `runInProcess` (§X3), whose `env` option
+		 * path. The entry goes through `runInProcess` (§X3), whose `env` option
 		 * covers that call. The hand-rolled environment wrap below covers what
 		 * the seam cannot: `attributeDirty` is a plain function call in this
 		 * process, and the store resolves its paths off those two variables at
 		 * call time.
 		 */
-		/* The CODE-glob gate that picks which targets reach the judge lives in
-		 * `guard-claimed-bash-write.sh` and is pinned in its own suite; what is
-		 * driven here is the ledger the judge writes and this function reads. */
+		/* The CODE-glob gate that picks which targets are credited is pinned in
+		 * lib/claimed-bash-write.test.ts; what is driven here is the ledger the
+		 * core writes and this function reads. */
 		it("bills a credited Bash-route code write to `mine` (mantahostels#2778)", () => {
 			const home = fs.realpathSync(
 				fs.mkdtempSync(path.join(os.tmpdir(), "runvitest-credit-")),
@@ -3756,13 +4412,23 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
 			};
 			const credited = require("./lib/run-in-process.js").runInProcess(
-				path.join(__dirname, "warn-claimed-bash-write.js"),
-				["--credit", "scripts/bash-written.ts", "bash-session"],
-				{ cwd: projectDir, env },
+				path.join(__dirname, "guard-dispatch.js"),
+				[],
+				{
+					cwd: projectDir,
+					env,
+					stdin: JSON.stringify({
+						session_id: "bash-session",
+						hook_event_name: "PreToolUse",
+						tool_name: "Bash",
+						tool_input: { command: "echo x > scripts/bash-written.ts" },
+					}),
+				},
 			);
-			// It exits 0 whatever it decides and prints nothing while crediting,
-			// so a non-zero here is a fault in the fixture, not a verdict.
+			// Crediting refuses nothing and prints nothing, so a non-zero exit
+			// or a word on stdout is a fault in the fixture, not a verdict.
 			expect(credited.status).toBe(0);
+			expect(credited.stdout).toBe("");
 			const saved = {
 				project: process.env.CLAUDE_PROJECT_DIR,
 				config: process.env.CLAUDE_CONFIG_DIR,
@@ -3811,7 +4477,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 						sessionId: "mine",
 						ledger: {
 							...ledgerOf([]),
-							selectsBy: () => [{ path: "old.ts", at: 2000 }],
+							readSelectsBy: () => [{ path: "old.ts", at: 2000 }],
 						},
 						renames: [{ path: "new.ts", source: "old.ts" }],
 						committedAt: () => 1000,
@@ -3837,7 +4503,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		describe("a quoted path (#1220)", () => {
 			const quotes = (entries: { path: string; at: number }[]) => ({
 				...ledgerOf([]),
-				selectsBy: () => entries,
+				readSelectsBy: () => entries,
 			});
 
 			it("is mine where quoted after its last commit, and named as quoted", () => {
@@ -3874,8 +4540,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					sessionId: "other",
 					path: "q.ts",
 					pid: process.pid,
-					procStart: arbiterProc.procStartOf(process.pid),
-					bootId: arbiterProc.currentBootId(),
+					procStart: arbiterProc.readProcStartOf(process.pid),
+					bootId: arbiterProc.readCurrentBootId(),
 				};
 				expect(
 					attributeDirty(["q.ts"], {
@@ -3899,7 +4565,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 							{ path: "w.ts", at: 1 },
 							{ path: "clean.ts", at: 1 },
 						]),
-						writesBy: () => ["w.ts"],
+						readWritesBy: () => ["w.ts"],
 					},
 					committedAt: (p: string) => {
 						asked.push(p);
@@ -3986,9 +4652,9 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 	describe("the leftover sweep", () => {
 		it("removes a worktree whose process is gone and spares one still running", () => {
 			const dir = repoWithDeps();
-			const dead = createIsolated(dir, { pid: 4250 });
+			const gone = createIsolated(dir, { pid: 4250 });
 			const live = createIsolated(dir, { pid: 4251 });
-			expect(dead.error).toBe(null);
+			expect(gone.error).toBe(null);
 			expect(live.error).toBe(null);
 
 			const removed = sweepIsolated(dir, {
@@ -3997,7 +4663,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 
 			expect(removed).toEqual(["isolated-4250"]);
-			expect(fs.existsSync(dead.dir)).toBe(false);
+			expect(fs.existsSync(gone.dir)).toBe(false);
 			expect(fs.existsSync(live.dir)).toBe(true);
 			removeIsolated(dir, live.dir, { err: sink() });
 		});
@@ -4071,7 +4737,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(args).not.toContain(fullWithCause);
 		});
 
-		it('writes the marker\'s scope carrying full: "flag" (mantahostels#3207)', async () => {
+		it('writes the certificate\'s scope carrying full: "flag" (mantahostels#3207)', async () => {
 			const dir = repoWithDeps();
 			let env: Record<string, string> = {};
 			await main([fullWithCause], {
@@ -4411,20 +5077,20 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 	describe("the default flip: bare argv narrows to the diff, escalating where that's worthless (mantahostels#3208)", () => {
 		const {
-			defaultChangedBase,
-			defaultEscalationReason,
+			readDefaultChangedBase,
+			findDefaultEscalationReason,
 		} = require("./lib/changed-selection.js");
 
-		describe("`defaultChangedBase`", () => {
+		describe("`readDefaultChangedBase`", () => {
 			it("falls back to HEAD where origin/main does not exist", () => {
-				expect(defaultChangedBase(repo(), fakeExec({ hasOrigin: false }))).toBe(
-					"HEAD",
-				);
+				expect(
+					readDefaultChangedBase(repo(), fakeExec({ hasOrigin: false })),
+				).toBe("HEAD");
 			});
 
 			it("resolves the merge-base where origin/main exists", () => {
 				expect(
-					defaultChangedBase(
+					readDefaultChangedBase(
 						repo(),
 						fakeExec({ hasOrigin: true, mergeBase: "abc123" }),
 					),
@@ -4438,7 +5104,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					read.push(args);
 					return args[0] === "merge-base" ? "landing-base\n" : "tip\n";
 				};
-				expect(defaultChangedBase(repo(), execFn)).toBe("landing-base");
+				expect(readDefaultChangedBase(repo(), execFn)).toBe("landing-base");
 				expect(read).toEqual([
 					["rev-parse", "--verify", "--quiet", "origin/landing"],
 					["merge-base", "HEAD", "origin/landing"],
@@ -4452,14 +5118,14 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					if (args[0] === "merge-base") throw new Error("no common ancestor");
 					return require("node:child_process").execFileSync(file, args, opts);
 				};
-				expect(defaultChangedBase(repo(), execFn)).toBe("HEAD");
+				expect(readDefaultChangedBase(repo(), execFn)).toBe("HEAD");
 			});
 		});
 
-		describe("`defaultEscalationReason`", () => {
+		describe("`findDefaultEscalationReason`", () => {
 			it("is null where the read graph renders and the diff narrows cleanly", () => {
 				expect(
-					defaultEscalationReason(repo(), "HEAD", {
+					findDefaultEscalationReason(repo(), "HEAD", {
 						execFn: fakeExec({ diff: ["a.test.ts"] }),
 						loadEdges: () => ({}),
 						renderEdges: () => ({}),
@@ -4469,7 +5135,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			it("is stale-manifest where the read graph will not render (#998)", () => {
 				expect(
-					defaultEscalationReason(repo(), "HEAD", {
+					findDefaultEscalationReason(repo(), "HEAD", {
 						execFn: fakeExec({ diff: ["a.test.ts"] }),
 						renderEdges: renderFails,
 					}),
@@ -4478,7 +5144,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			it("is stale-manifest where the committed manifest cannot be read", () => {
 				expect(
-					defaultEscalationReason(repo(), "HEAD", {
+					findDefaultEscalationReason(repo(), "HEAD", {
 						execFn: fakeExec({ diff: ["a.test.ts"] }),
 						renderEdges: () => ({}),
 					}),
@@ -4487,7 +5153,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 			it("is dependency-root where package.json changed outside the allow-list", () => {
 				expect(
-					defaultEscalationReason(repo(), "HEAD", {
+					findDefaultEscalationReason(repo(), "HEAD", {
 						// `packageJsonNarrowable` cannot classify the diff without a
 						// readable old side, so a failing `git show` is unnarrowable —
 						// exactly like a real dependencies/devDependencies bump.
@@ -4498,14 +5164,14 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				).toBe("dependency-root");
 			});
 
-			it("is expansion-failed where the diff itself cannot be read", () => {
-				expect(
-					defaultEscalationReason(repo(), "HEAD", {
+			it("throws the diff's own error where the diff itself cannot be read (#2698)", () => {
+				expect(() =>
+					findDefaultEscalationReason(repo(), "HEAD", {
 						execFn: fakeExec({ failDiff: true }),
 						loadEdges: () => ({}),
 						renderEdges: () => ({}),
 					}),
-				).toBe("expansion-failed");
+				).toThrow("git diff failed");
 			});
 		});
 
@@ -4554,7 +5220,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(renders).toBe(1);
 			});
 
-			it("runs on a filter matching nothing, for the marker, and names no --full where the diff selects no test (#189 §6)", async () => {
+			it("runs on a filter matching nothing, for the certificate, and names no --full where the diff selects no test (#189 §6)", async () => {
 				const dir = repo();
 				let args: string[] = [];
 				const out = {
@@ -4613,7 +5279,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			for (const [reason, exec] of [
 				["stale-manifest", () => fakeExec({ diff: ["a.test.ts"] })],
 				["dependency-root", () => fakeExec({ diff: ["package.json"] })],
-				["expansion-failed", () => fakeExec({ failDiff: true })],
 			] as const) {
 				it(`escalates to the whole suite on ${reason}, isolated`, async () => {
 					const dir = repoWithDeps();
@@ -4647,56 +5312,9 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(cwd).toBe(worktreeOf(dir, 5301 + reason.length));
 					expect(readLaunch(env).full).toBe(reason);
 					expect(out.text.join("")).toContain(reason);
-					/* The way out differs by reason: an explicit --changed still
-					 * narrows on stale-manifest and dependency-root, but hits the
-					 * same failure on expansion-failed, so only the first two
-					 * name it. */
-					if (reason === "expansion-failed")
-						expect(out.text.join("")).not.toContain("--changed");
-					else expect(out.text.join("")).toContain("--changed");
+					expect(out.text.join("")).toContain("--changed");
 				});
 			}
-
-			it("escalates to the whole suite where only the `vitest list` probe fails, not `git diff` (mantahostels#3251)", async () => {
-				// `defaultEscalationReason` never runs `vitest list` itself — it
-				// only reads `git diff` — so a diff that succeeds but whose
-				// probe (`packageJsonNarrowable`'s config write, or
-				// `vitestSelection` itself) fails must still be caught by the
-				// real run's own `expandChanged` call, threaded back through
-				// `runDefault` as an escalation.
-				const dir = repoWithDeps();
-				let cwd = "";
-				let env: Record<string, string> = {};
-				const out = {
-					text: [] as string[],
-					write: (s: string) => out.text.push(s),
-				};
-				const code = await main([], {
-					root: dir,
-					pid: 6001,
-					ledger: ledgerOf([]),
-					execFn: fakeExec({ diff: ["a.test.ts"], failList: true }),
-					loadEdges: () => ({}),
-					renderEdges: () => ({}),
-					out,
-					err: sink(),
-					fs: fakeFs(),
-					spawnFn: (
-						_bin: string,
-						_a: string[],
-						opts: { cwd: string; env: Record<string, string> },
-					) => {
-						cwd = opts.cwd;
-						env = opts.env;
-						return fakeChild({ code: 0 });
-					},
-				});
-				expect(code).toBe(0);
-				expect(cwd).toBe(worktreeOf(dir, 6001));
-				expect(readLaunch(env).full).toBe("expansion-failed");
-				expect(out.text.join("")).toContain("expansion-failed");
-				expect(out.text.join("")).not.toContain("--changed");
-			});
 
 			it("--shared keeps an escalation on the shared tree", async () => {
 				const dir = repo();
@@ -4717,30 +5335,152 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(cwd).toBe(dir);
 			});
 
-			it("--shared keeps a `vitest list` probe failure on the shared tree too (mantahostels#3251)", async () => {
-				const dir = repo();
-				let cwd = "";
-				let env: Record<string, string> = {};
-				const code = await main([SHARED_FLAG], {
+			/* Admitted beside a held slot on its narrowed probe, a run whose plan
+			 * then takes the whole slot must not run there (#2931); one whose
+			 * whole suite stays under the bound runs straight through. */
+			it.each([
+				["re-queues whole", wholeRepo, 2, true],
+				["runs at once", repo, 1, false],
+			] as const)(
+				"%s a queued part-suite whose admitted run escalates (#2931)",
+				async (_what, make, joins, wholeSlot) => {
+					let renders = 0;
+					const joined = vi.fn();
+					const gateRead = vi.fn((_command: string, _weight: unknown) => null);
+					const spawned: Record<string, string>[] = [];
+					const err: string[] = [];
+					const code = await main(["--queue", SHARED_FLAG], {
+						root: make(),
+						execFn: fakeExec({ diff: ["a.test.ts"], list: ["a.test.ts"] }),
+						loadEdges: () => ({}),
+						renderEdges: () => (renders++ === 0 ? {} : renderFails()),
+						out: { write: () => true },
+						err: { write: (s: string) => err.push(s) },
+						fs: fakeFs(),
+						queueDir: qdir(),
+						queueFs: { ...fs, writeFileSync: joined },
+						gateRead,
+						spawnFn: (
+							_bin: string,
+							_a: string[],
+							opts: { env: Record<string, string> },
+						) => {
+							spawned.push(opts.env);
+							return fakeChild({ code: 0 });
+						},
+					});
+					expect(code).toBe(0);
+					expect(joined).toHaveBeenCalledTimes(joins);
+					expect(spawned).toHaveLength(1);
+					expect(gateRead.mock.calls.at(0)?.[1]).toMatchObject({
+						wholeSlot: false,
+					});
+					expect(gateRead.mock.calls.at(-1)?.[1]).toMatchObject({
+						wholeSlot,
+					});
+					expect(err.join("").includes("joining the queue again, whole")).toBe(
+						wholeSlot,
+					);
+					expect(readLaunch(spawned[0])).toMatchObject({
+						full: "stale-manifest",
+						wholeSlot,
+					});
+				},
+			);
+
+			/* `runOnce` weighs the plan in hand on every tree (#2931). */
+			it("re-queues whole a queued part-suite whose admitted run escalates into a worktree (#2931)", async () => {
+				const dir = wholeRepo(repoWithDeps());
+				let renders = 0;
+				const joined = vi.fn();
+				const gateRead = vi.fn((_command: string, _weight: unknown) => null);
+				const spawned: { cwd: string; env: Record<string, string> }[] = [];
+				const err = sink();
+				const code = await main(["--queue"], {
 					root: dir,
-					execFn: fakeExec({ diff: ["a.test.ts"], failList: true }),
+					pid: 5331,
+					ledger: ledgerOf([]),
+					execFn: fakeExec({ diff: ["a.test.ts"], list: ["a.test.ts"] }),
 					loadEdges: () => ({}),
-					renderEdges: () => ({}),
-					out: { write: () => true },
-					err: { write: () => true },
+					renderEdges: () => (renders++ === 0 ? {} : renderFails()),
+					out: sink(),
+					err,
+					fs: fakeFs(),
+					queueDir: qdir(),
+					queueFs: { ...fs, writeFileSync: joined },
+					gateRead,
 					spawnFn: (
 						_bin: string,
 						_a: string[],
 						opts: { cwd: string; env: Record<string, string> },
 					) => {
-						cwd = opts.cwd;
-						env = opts.env;
+						spawned.push(opts);
 						return fakeChild({ code: 0 });
 					},
 				});
 				expect(code).toBe(0);
-				expect(cwd).toBe(dir);
-				expect(readLaunch(env).full).toBe("expansion-failed");
+				expect(joined).toHaveBeenCalledTimes(2);
+				expect(gateRead.mock.calls.at(0)?.[1]).toMatchObject({
+					wholeSlot: false,
+				});
+				expect(gateRead.mock.calls.at(-1)?.[1]).toMatchObject({
+					wholeSlot: true,
+				});
+				expect(err.text.join("")).toContain("joining the queue again, whole");
+				expect(spawned).toHaveLength(1);
+				expect(spawned[0]?.cwd).toBe(worktreeOf(dir, 5331));
+				expect(readLaunch(spawned[0]?.env ?? {})).toMatchObject({
+					full: "stale-manifest",
+					wholeSlot: true,
+				});
+			});
+
+			/* Left early, it holds no slot, so its escalation queues again rather
+			 * than run whole (#1158, #2931). */
+			it("queues again a run that left the queue early and then escalates, whole at the last (#2931)", async () => {
+				const w = leavingWorld();
+				let renders = 0;
+				let polls = 0;
+				const joined = vi.fn();
+				const spawned: Record<string, string>[] = [];
+				const err = sink();
+				const code = await main(["--queue", SHARED_FLAG], {
+					root: wholeRepo(),
+					execFn: w.fn,
+					loadEdges: () => ({}),
+					/* The probe's and the re-check's render; the run's fails. */
+					renderEdges: () => (renders++ < 2 ? {} : renderFails()),
+					out: sink(),
+					err,
+					fs: fakeFs(),
+					queueDir: qdir(),
+					queueFs: { ...fs, writeFileSync: joined },
+					gate: () => polls < 2,
+					sleepFn: () => {
+						polls += 1;
+						w.move();
+						return Promise.resolve();
+					},
+					spawnFn: (
+						_bin: string,
+						_a: string[],
+						opts: { env: Record<string, string> },
+					) => {
+						spawned.push(opts.env);
+						return fakeChild({ code: 0 });
+					},
+				});
+				expect(code).toBe(0);
+				expect(joined).toHaveBeenCalledTimes(3);
+				expect(err.text.join("")).toContain(
+					"a commit refilled the selection after the re-check",
+				);
+				expect(err.text.join("")).toContain("joining the queue again, whole");
+				expect(spawned).toHaveLength(1);
+				expect(readLaunch(spawned[0] ?? {})).toMatchObject({
+					full: "stale-manifest",
+					wholeSlot: true,
+				});
 			});
 
 			it("--isolated on the narrowed default is allowed, framed by a named ref rather than a bare --changed", async () => {
@@ -4807,7 +5547,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const worktree = worktreeOf(dir, 6002);
 				expect(cwd).toBe(worktree);
 				// The decision probe runs against the shared root (git diff
-				// against HEAD; runDefault's own `defaultChangedBase` call
+				// against HEAD; runDefault's own `readDefaultChangedBase` call
 				// also lands here) — the LAST diff/list call is the one that
 				// actually selects the run's file list, and that one must be
 				// against the worktree.
@@ -4833,6 +5573,164 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(code).toBe(0);
 				expect(out.text.join("")).not.toContain("ESCALATED");
 				expect(out.text.join("")).toContain("NOT ADMISSIBLE");
+			});
+		});
+
+		describe("a failed narrowing is refused, never widened (#2698)", () => {
+			const listThrowing = (error: Error) =>
+				execAnswering({
+					"origin/main": () => {
+						throw new Error("unknown revision or path");
+					},
+					diff: () => "a.test.ts\n",
+					list: () => {
+						throw error;
+					},
+				});
+			const timeout = Object.assign(new Error("spawnSync vitest ETIMEDOUT"), {
+				code: "ETIMEDOUT",
+			});
+			const failures = [
+				[
+					"a failing diff",
+					() => fakeExec({ failDiff: true }),
+					"git diff failed",
+				],
+				[
+					"a failing `vitest list`",
+					() => fakeExec({ diff: ["a.test.ts"], failList: true }),
+					"vitest list failed",
+				],
+				[
+					"a `vitest list` timeout",
+					() => listThrowing(timeout),
+					"vitest list timed out after 120 s",
+				],
+				[
+					"a thrown exception",
+					() =>
+						listThrowing(new TypeError("cannot read properties of undefined")),
+					"cannot read properties of undefined",
+				],
+			] as const;
+			const routes = [
+				["shared", [SHARED_FLAG]],
+				["isolated", [isolatedFlag]],
+				["the queue", ["--queue", SHARED_FLAG]],
+			] as const;
+
+			/* The failure is met before the route matters, so each failure is
+			 * driven once and each route with one failure. */
+			const cases = [
+				...failures.map((f) => [routes[0], f] as const),
+				...routes.slice(1).map((r) => [r, failures[0]] as const),
+			];
+			for (const [[route, argv], [failure, exec, cause]] of cases)
+				it(`refuses ${failure} on the ${route} route: its cause and the --full= line, nothing spawned, exit 1`, async () => {
+					const dir = repoWithDeps();
+					const queueDir = qdir();
+					const out = sink();
+					const err = sink();
+					let spawned = 0;
+					const code = await main([...argv], {
+						root: dir,
+						pid: 6101,
+						ledger: ledgerOf([]),
+						execFn: exec(),
+						loadEdges: () => ({}),
+						renderEdges: () => ({}),
+						out,
+						err,
+						fs: fakeFs(),
+						queueDir,
+						queueLog: path.join(queueDir, "exits.jsonl"),
+						spawnFn: () => {
+							spawned += 1;
+							return fakeChild({ code: 0 });
+						},
+					});
+					expect(code).toBe(1);
+					expect(spawned).toBe(0);
+					const said = err.text.join("");
+					expect(said).toContain("NARROWING FAILED, SO NOTHING RAN");
+					expect(said).toContain(cause);
+					expect(said).toContain("npm run test -- --full=<cause>");
+					expect(out.text.join("")).not.toContain("ESCALATED");
+					expect(
+						fs
+							.readdirSync(queueDir)
+							.filter((f) => f.startsWith("wfc-suite-queue-")),
+					).toEqual([]);
+				});
+
+			it("refuses on the queue's re-check, ending the wait and leaving the queue", async () => {
+				const queueDir = qdir();
+				let tip = 0;
+				let lists = 0;
+				const execFn = execAnswering({
+					"origin/main": () => {
+						throw new Error("unknown revision or path");
+					},
+					"rev-parse": () => `tip-${tip++}\n`,
+					diff: () => "docs/x.md\n",
+					list: () => {
+						lists += 1;
+						if (lists > 1) throw new Error("vitest list failed");
+						return "a.test.ts\n";
+					},
+				});
+				const err = sink();
+				let spawned = 0;
+				const code = await main(["--queue", SHARED_FLAG], {
+					root: repo(),
+					execFn,
+					loadEdges: () => ({}),
+					renderEdges: () => ({}),
+					out: sink(),
+					err,
+					fs: fakeFs(),
+					queueDir,
+					queueLog: path.join(queueDir, "exits.jsonl"),
+					gate: () => ({ limb: "count" }),
+					sleepFn: () => Promise.resolve(),
+					spawnFn: () => {
+						spawned += 1;
+						return fakeChild({ code: 0 });
+					},
+				});
+				expect(code).toBe(1);
+				expect(spawned).toBe(0);
+				expect(lists).toBeGreaterThan(1);
+				expect(err.text.join("")).toContain("vitest list failed");
+				expect(err.text.join("")).toContain("--full=<cause>");
+				expect(
+					fs
+						.readdirSync(queueDir)
+						.filter((f) => f.startsWith("wfc-suite-queue-")),
+				).toEqual([]);
+			});
+
+			it("refuses an explicit --changed <ref> whose expansion fails, the same way", async () => {
+				const err = sink();
+				let spawned = 0;
+				const code = await main(["--changed", "HEAD", SHARED_FLAG], {
+					root: repo(),
+					execFn: fakeExec({ failDiff: true }),
+					loadEdges: () => ({}),
+					renderEdges: () => ({}),
+					out: sink(),
+					err,
+					spawnFn: () => {
+						spawned += 1;
+						return fakeChild({ code: 0 });
+					},
+				});
+				expect(code).toBe(1);
+				expect(spawned).toBe(0);
+				expect(err.text.join("")).toContain(
+					"--changed could not be expanded: git diff failed",
+				);
+				expect(err.text.join("")).toContain("--full=<cause>");
 			});
 		});
 
@@ -4870,8 +5768,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 							sessionId: "neighbour",
 							path: "held.txt",
 							pid: process.pid,
-							procStart: arbiterProc.procStartOf(process.pid),
-							bootId: arbiterProc.currentBootId(),
+							procStart: arbiterProc.readProcStartOf(process.pid),
+							bootId: arbiterProc.readCurrentBootId(),
 						},
 					],
 				);
@@ -4963,6 +5861,24 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				);
 			});
 
+			it("refuses a failed narrowing on the overlay route, spawning nothing and leaving no worktree (#2698)", async () => {
+				const dir = dirtyCheckout();
+				const { code, seen, err } = await runSeeing(dir, [], {
+					pid: 5402,
+					sessionId: "mine",
+					execFn: (file: string, args: string[], opts: unknown) => {
+						if (args[0] === "list") throw new Error("vitest list failed");
+						return execFn(file, args, opts);
+					},
+				});
+				expect(code).toBe(1);
+				expect(seen.cwd).toBe("");
+				expect(err).toContain("NARROWING FAILED, SO NOTHING RAN");
+				expect(err).toContain("vitest list failed");
+				expect(err).toContain("--full=<cause>");
+				expect(fs.existsSync(worktreeOf(dir, 5402))).toBe(false);
+			});
+
 			/* Most runs take this route, so the report must diff the overlay,
 			 * where the session's new test file is untracked (#1883). */
 			it("names the session's new test file in the run-cost report", async () => {
@@ -5016,10 +5932,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					root: dir,
 					pid: 5409,
 					sessionId: "mine",
-					// `rm-gone.txt` as guard-claimed-bash-write.sh notes an `rm`.
+					// `rm-gone.txt` as lib/claimed-bash-write.js notes an `rm`.
 					ledger: {
 						...ledgerOf(["new.test.ts"]),
-						selectsBy: () => [{ path: "rm-gone.txt", at: Date.now() + 1000 }],
+						readSelectsBy: () => [
+							{ path: "rm-gone.txt", at: Date.now() + 1000 },
+						],
 					},
 					execFn,
 					loadEdges: () => ({}),
@@ -5270,7 +6188,43 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					expect(fs.existsSync(worktreeOf(dir, 5413))).toBe(false);
 				});
 
-				it("brings a stale manifest up to date before planning, so the run selects its readers and covers it (#1860)", async () => {
+				/* Probed on one reader, it reads the whole bound's worth in the
+				 * overlay, where `runOnce` weighs it again (#2931). */
+				it("re-queues whole a queued run whose overlay plan takes the whole slot (#2931)", async () => {
+					const dir = wholeRepo(dirtyCheckout());
+					const joined = vi.fn();
+					const gateRead = vi
+						.fn<(command: string, weight: unknown) => null>()
+						.mockReturnValue(null);
+					const { code, seen, err } = await runSeeing(
+						dir,
+						["--queue", "--changed"],
+						{
+							pid: 5420,
+							sessionId: "mine",
+							renderEdges: () =>
+								joined.mock.calls.length === 0
+									? readers()
+									: { ...readers(), "mine.txt": WHOLE_SLOT_TESTS },
+							queueDir: qdir(),
+							queueFs: { ...fs, writeFileSync: joined },
+							gateRead,
+						},
+					);
+					expect(code).toBe(0);
+					expect(joined).toHaveBeenCalledTimes(2);
+					expect(gateRead.mock.calls.at(0)?.[1]).toMatchObject({
+						wholeSlot: false,
+					});
+					expect(gateRead.mock.calls.at(-1)?.[1]).toMatchObject({
+						wholeSlot: true,
+					});
+					expect(err).toContain("joining the queue again, whole");
+					expect(seen.cwd).toBe(worktreeOf(dir, 5420));
+					expect(readLaunch(seen.env)).toMatchObject({ wholeSlot: true });
+				});
+
+				it("brings a stale manifest up to date before planning, so the run selects its readers and its certificate attests it (#1860)", async () => {
 					const { EDGES_FILE } = require("./lib/test-pass-marker.js");
 					const dir = dirtyCheckout();
 					fs.mkdirSync(path.join(dir, "docs"));
@@ -5361,7 +6315,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			describe("a file an inline python/node program quoted, as the session's own (#1220)", () => {
 				const quoting = (at: number) => ({
 					...ledger(),
-					selectsBy: () => [{ path: "orphan.txt", at }],
+					readSelectsBy: () => [{ path: "orphan.txt", at }],
 				});
 
 				it("carries a path quoted since its last commit into the overlay, naming it", async () => {
@@ -5402,7 +6356,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 	});
 
-	describe("own work only: a bare run leaves a neighbour's commits to its own green (#1216)", () => {
+	describe("own work only: a bare run leaves a neighbour's commits to its own certificate (#1216)", () => {
 		const { attestationOf } = require("./lib/test-pass-marker.js");
 
 		/**
@@ -5426,8 +6380,8 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 
 		const commitLedgerOf = (ledgers: Record<string, string[] | null>) => ({
 			ledgerRoot: () => "/main",
-			commitsBy: (id: string) => (id in ledgers ? ledgers[id] : []),
-			ownersOf: (commits: string[]) =>
+			readCommitsBy: (id: string) => (id in ledgers ? ledgers[id] : []),
+			readOwnersOf: (commits: string[]) =>
 				new Map(
 					Object.entries(ledgers).flatMap(([id, shas]) =>
 						(shas ?? []).filter((s) => commits.includes(s)).map((s) => [s, id]),
@@ -5505,12 +6459,12 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(run.args).not.toContain("theirs.test.js");
 			expect(readLaunch(run.env).changedPaths).toEqual(["loose.js", "mine.js"]);
 			expect(run.out).toContain(
-				`OWN WORK ONLY — 1 neighbour commit(s) in that range left to their own sessions' greens`,
+				`OWN WORK ONLY — 1 neighbour commit(s) in that range left to their own sessions' certificates`,
 			);
 			expect(run.out).toContain(r.theirs.slice(0, 12));
 		});
 
-		it("meets the gate, and composes with the neighbour's own green at the push", async () => {
+		it("meets the gate, and composes with the neighbour's own certificate at the push", async () => {
 			const dir = repo();
 			const r = ownRange(dir);
 			const run = await runSeeing(dir, [SHARED_FLAG], {
@@ -5610,7 +6564,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(run.out).not.toContain("NEIGHBOURS' COMMITS");
 		});
 
-		describe("a bare `--changed` that selects nothing names the run covering unpushed own commits (#2182)", () => {
+		describe("a bare `--changed` that selects nothing names the run testing unpushed own commits (#2182)", () => {
 			const note = "UNPUSHED WORK NOT SELECTED";
 
 			it("in the overlay, counting the launcher's and the unledgered commit", async () => {
@@ -5624,7 +6578,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				expect(run.code).toBe(0);
 				expect(run.out).toContain("Nothing to run.");
 				expect(run.out).toContain(
-					`${note} — \`--changed\` reads only uncommitted files, so none of your 2 unpushed commit(s) since ${r.base.slice(0, 12)} is tested here. \`npm run test\` covers them`,
+					`${note} — \`--changed\` reads only uncommitted files, so none of your 2 unpushed commit(s) since ${r.base.slice(0, 12)} is tested here. \`npm run test\` tests them`,
 				);
 			});
 
@@ -5691,7 +6645,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(run.args).not.toContain("theirs.test.js");
 		});
 
-		describe("selects exactly the own set the re-run guard judges cover on (#1218)", () => {
+		describe("selects exactly the own set the re-run guard judges attestation on (#1218)", () => {
 			const { ownSelection } = require("./lib/own-selection.js");
 
 			async function bothOver(dir: string, seams: Record<string, unknown>) {
@@ -5731,7 +6685,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 				const { run, guard } = await bothOver(dir, {
 					ledger: {
 						...ledgerOf([]),
-						selectsBy: () => [{ path: "quoted.js", at: Date.now() }],
+						readSelectsBy: () => [{ path: "quoted.js", at: Date.now() }],
 					},
 					commitLedger: commitLedgerOf({ me: [r.mine], them: [r.theirs] }),
 				});
@@ -6076,7 +7030,7 @@ describe("`--adopt`, the adoption run push:check hands back (#1213)", () => {
 		};
 	}
 
-	it("selects the named paths' readers, covers exactly those paths, and meets the gate", () => {
+	it("selects the named paths' readers, attests exactly those paths, and meets the gate", () => {
 		const h = harness({ "docs/x.md": ["scripts/reader.test.ts"] });
 		let config = "";
 		h.fsFake.writeFileSync = (_f: string, text: string) => {
@@ -6115,11 +7069,12 @@ describe("`--adopt`, the adoption run push:check hands back (#1213)", () => {
 		expect(h.plan(["--adopt", "lib/a.js"], renderFails).admissible).toBe(false);
 	});
 
-	it("fails open, saying vitest will refuse the flag, where the listing throws", () => {
+	it("throws the listing's own error where the listing throws (#2698)", () => {
 		const h = harness();
 		h.list("throw");
-		expect(h.plan(["--adopt", "lib/a.js"])).toBeNull();
-		expect(h.err.join("")).toContain("--adopt could not be expanded");
+		expect(() => h.plan(["--adopt", "lib/a.js"])).toThrow(
+			"--adopt could not be expanded: Unknown option `--adopt`",
+		);
 		expect(h.written.size).toBe(0);
 	});
 
@@ -6174,6 +7129,98 @@ describe("`--adopt`, the adoption run push:check hands back (#1213)", () => {
 		expect(args).toContain("scripts/a.test.ts");
 		expect(args).not.toContain("--adopt");
 	});
+
+	/** One `main` launch of an adoption, queued or not, with what it spawned,
+	 * whether it joined the queue and what it wrote to stderr. */
+	async function adoptLaunch(
+		argv: string[],
+		loadEdges: () => Record<string, string[]>,
+		{ code = 0, closed = 0 } = {},
+	) {
+		let shut = closed;
+		const sleepFn = vi.fn(() => Promise.resolve());
+		const probeConfig = path.join(mkScratchDir("adopt-queue-"), "probe.mts");
+		dirs.push(path.dirname(probeConfig));
+		const { spawnFn, calls } = spawnReturning({ code });
+		const joined = vi.fn();
+		const err: string[] = [];
+		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+		try {
+			const got = await main(argv, {
+				spawnFn,
+				root: repo(),
+				fs: fakeFs(),
+				execFn: (_f: string, words: string[]) =>
+					words[0] === "list" ? "scripts/a.test.ts\n" : "",
+				loadEdges,
+				renderEdges: () => ({}),
+				probeConfig,
+				out: { write: () => true },
+				err: { write: (s: string) => err.push(s) },
+				queueDir: qdir(),
+				queueFs: { ...fs, writeFileSync: joined },
+				queueLog: null,
+				gate: () => shut-- > 0,
+				sleepFn,
+			});
+			const [, args, opts] = (calls[0] ?? []) as [
+				string,
+				string[],
+				{ env: Record<string, string> },
+			];
+			return {
+				code: got,
+				joined,
+				sleepFn,
+				args,
+				env: opts?.env,
+				err: err.join(""),
+			};
+		} finally {
+			stdout.mockRestore();
+		}
+	}
+
+	it("waits its turn with --queue after its paths, then runs the adoption and nothing else (#2715)", async () => {
+		const got = await adoptLaunch(
+			["--adopt", "docs/x.md", "--queue"],
+			() => ({ "docs/x.md": ["scripts/reader.test.ts"] }),
+			{ closed: 2 },
+		);
+		expect(got.code).toBe(0);
+		expect(got.joined).toHaveBeenCalledTimes(1);
+		expect(got.sleepFn).toHaveBeenCalledTimes(2);
+		expect(got.args).toEqual([
+			"run",
+			"--passWithNoTests",
+			"scripts/a.test.ts",
+			"scripts/reader.test.ts",
+		]);
+		expect(readLaunch(got.env).admissible).toBe(true);
+		expect(readLaunch(got.env).changedPaths).toEqual(["docs/x.md"]);
+	});
+
+	it("refuses, spawning nothing, where the manifest cannot be read, rather than handing vitest `--adopt` (#2715)", async () => {
+		for (const argv of [
+			["--adopt", "docs/x.md"],
+			["--adopt", "docs/x.md", "--queue"],
+		]) {
+			const got = await adoptLaunch(argv, () => {
+				throw new Error("ENOENT");
+			});
+			expect(got.code, argv.join(" ")).toBe(1);
+			expect(got.args, argv.join(" ")).toBeUndefined();
+			expect(got.err).toContain("NARROWING FAILED, SO NOTHING RAN");
+			expect(got.err).toContain("npm run gen:test-read-edges");
+		}
+	});
+
+	it("passes the spawned vitest's non-zero exit back", async () => {
+		const got = await adoptLaunch(["--adopt", "docs/x.md"], () => ({}), {
+			code: 1,
+		});
+		expect(got.code).toBe(1);
+	});
 });
 
 describe("`--retest`, the re-run push:check hands back (#1860)", () => {
@@ -6200,7 +7247,7 @@ describe("`--retest`, the re-run push:check hands back (#1860)", () => {
 			err: { write: () => undefined },
 		});
 
-	it("runs the named tests alone, covers no path, and meets the gate", () => {
+	it("runs the named tests alone, attests no path an unrun test reads, and meets the gate", () => {
 		calls.length = 0;
 		const got = plan(["--retest", "b.test.ts", "a.test.ts", "b.test.ts"]);
 		expect(got.files).toEqual(["a.test.ts", "b.test.ts"]);
@@ -6209,6 +7256,20 @@ describe("`--retest`, the re-run push:check hands back (#1860)", () => {
 		expect(got.banner).toContain("MEETS THE PUSH GATE FOR THE 2 NAMED TEST(S)");
 		expect(got.argv).not.toContain("--retest");
 		expect(calls).toEqual([]);
+	});
+
+	it("never reads the manifest, so an unreadable one still runs the named tests rather than handing vitest `--retest` (#2715)", () => {
+		const got = expandChanged(["--retest", "a.test.ts"], {
+			root: "/repo",
+			execFn: () => "",
+			loadEdges: () => {
+				throw new Error("ENOENT");
+			},
+			renderEdges: () => ({}),
+			err: { write: () => undefined },
+		});
+		expect(got.argv).toEqual(["--passWithNoTests", "a.test.ts"]);
+		expect(got.admissible).toBe(true);
 	});
 
 	it("does not meet the gate naming a word that is no test file, beside another flag, or where the read graph will not render", () => {
@@ -6300,5 +7361,161 @@ describe("the read-edge manifest an overlay run brings up to date first (#1860)"
 		const again = freshen(at);
 		expect(again.claimed).toEqual([]);
 		expect(again.out + again.err).toBe("");
+	});
+});
+
+describe("under `landing`, the bare run takes only the touched tests (#2930)", () => {
+	/* `lib/a.js` imported by `lib/a.test.ts` and by a helper `lib/h.js`, which
+	 * `lib/chain.test.ts` imports; `package.json` a dependency-graph root. */
+	function landingRepo() {
+		const dir = repo();
+		const files: Record<string, string> = {
+			"lib/a.js": "module.exports = 1;\n",
+			"lib/a.test.ts": 'import a from "./a.js";\n',
+			"lib/h.js": 'module.exports = require("./a.js");\n',
+			"lib/chain.test.ts": 'const h = require("./h.js");\n',
+			"package.json": '{ "name": "x" }\n',
+		};
+		for (const [f, text] of Object.entries(files)) {
+			fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
+			fs.writeFileSync(path.join(dir, f), text);
+		}
+		const git = (...args: string[]) =>
+			require("node:child_process").execFileSync("git", args, {
+				cwd: dir,
+				stdio: "ignore",
+			});
+		git("add", ".");
+		git("commit", "-qm", "units");
+		return dir;
+	}
+
+	const launch = async (
+		dir: string,
+		edges: () => Record<string, string[]> = () => ({}),
+		argv: string[] = [],
+		extra: Record<string, unknown> = {},
+	) => {
+		vi.stubEnv("WFC_MODULES", "landing");
+		const out = {
+			text: "",
+			write: (s: string) => {
+				out.text += s;
+			},
+		};
+		const spawned: { args: string[]; env: Record<string, string> }[] = [];
+		const code = await main(argv, {
+			root: dir,
+			loadEdges: edges,
+			renderEdges: edges,
+			out,
+			err: { write: () => true },
+			spawnFn: (
+				_bin: string,
+				args: string[],
+				opts: { env: Record<string, string> },
+			) => {
+				spawned.push({ args, env: opts.env });
+				return fakeChild({ code: 0 });
+			},
+			...extra,
+		});
+		return { code, out: out.text, spawned };
+	};
+
+	it("launches exactly the resolved files, no transitive importer, and never escalates on a dependency root", async () => {
+		const dir = landingRepo();
+		fs.appendFileSync(path.join(dir, "lib/a.js"), "// edit\n");
+		fs.writeFileSync(path.join(dir, "package.json"), '{ "name": "y" }\n');
+		const { code, out, spawned } = await launch(dir);
+		expect(code).toBe(0);
+		expect(spawned).toHaveLength(1);
+		const { args, env } = spawned[0];
+		expect(args).toEqual([
+			"run",
+			"--maxWorkers=1",
+			"--passWithNoTests",
+			"lib/a.test.ts",
+		]);
+		expect(readLaunch(env)).toMatchObject({
+			touched: true,
+			admissible: false,
+			full: null,
+		});
+		expect(out).toContain("TOUCHED TESTS ONLY");
+		expect(out).not.toContain("ESCALATED");
+	});
+
+	/* min(resolved files, whole-suite workers): the flag is added below 5,
+	 * where the config's own 5 would fork idle workers (#2935). */
+	it.each([
+		[["lib/a.test.ts", "lib/chain.test.ts"], ["--maxWorkers=2"]],
+		[Array.from({ length: 5 }, (_, i) => `lib/t${i}.test.ts`), []],
+		[["-t", "foo"], []],
+		[["--maxWorkers=1", "lib/a.test.ts", "lib/chain.test.ts"], []],
+	])("a run of %j adds the workers flag %j (#2935)", async (argv, flag) => {
+		const dir = landingRepo();
+		fs.appendFileSync(path.join(dir, "lib/a.test.ts"), "// edit\n");
+		const { spawned } = await launch(dir, () => ({}), argv);
+		expect(spawned).toHaveLength(1);
+		const added = spawned[0].args.slice(1, 1 + flag.length);
+		expect(added).toEqual(flag);
+		expect(
+			spawned[0].args.filter((w) => w.startsWith("--maxWorkers")),
+		).toHaveLength(
+			argv.some((w) => w.startsWith("--maxWorkers")) ? 1 : flag.length,
+		);
+	});
+
+	it("logs a queued touched run's exit under its kind (#2935)", async () => {
+		const dir = landingRepo();
+		fs.appendFileSync(path.join(dir, "lib/a.js"), "// edit\n");
+		const queueLog = path.join(qdir(), "exits.jsonl");
+		const { spawned } = await launch(dir, () => ({}), ["--queue"], {
+			gate: () => null,
+			queueDir: qdir(),
+			queueLog,
+		});
+		expect(spawned).toHaveLength(1);
+		expect(readJsonl(queueLog)).toMatchObject([
+			{ reason: "opened", kind: "touched", slotFree: true },
+		]);
+	});
+
+	it("carries no whole slot for a 200-file named run (#2935)", async () => {
+		const dir = landingRepo();
+		const named = Array.from({ length: 200 }, (_, i) => `lib/t${i}.test.ts`);
+		const { spawned } = await launch(dir, () => ({}), named);
+		expect(readLaunch(spawned[0].env)).toMatchObject({
+			resolvedFiles: 200,
+			wholeSlot: false,
+		});
+	});
+
+	it("falls back to same-stem siblings, said, keeping direct importers, where the read graph will not render", async () => {
+		const dir = landingRepo();
+		fs.appendFileSync(path.join(dir, "lib/h.js"), "// edit\n");
+		const { spawned, out } = await launch(dir, () => {
+			throw new Error("render failed");
+		});
+		expect(spawned).toHaveLength(1);
+		expect(spawned[0]?.args.at(-1)).toBe("lib/chain.test.ts");
+		expect(out).toContain("FELL BACK TO SAME-STEM SIBLINGS");
+		expect(out).not.toContain("ESCALATED");
+	});
+
+	it("runs nothing and exits 0 on an empty selection, naming the lander", async () => {
+		const dir = landingRepo();
+		fs.writeFileSync(path.join(dir, "notes.md"), "untested\n");
+		const { code, out, spawned } = await launch(dir);
+		expect(code).toBe(0);
+		expect(spawned).toEqual([]);
+		expect(out).toContain("NO TOUCHED TESTS");
+		expect(out).toContain("The lander runs the full suite");
+		const ledger = path.join(dir, ".claude/tmp/markers/.test-runs.jsonl");
+		expect(readJsonl(ledger).at(-1)).toMatchObject({
+			kind: "touched",
+			resolvedFiles: 0,
+		});
 	});
 });

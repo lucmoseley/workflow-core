@@ -32,22 +32,12 @@
  * WHAT IT NEVER SEES: GitHub answers a misspelt repo exactly as it answers an
  * unreadable one, so `design-vualt#17 (x)` passes on shape. Nor is a sha
  * or a range inside a gist judged.
- *
- * CLI, for the bash hooks — the text on stdin, a JSON verdict on stdout, a
- * refused one carrying refusalText's `message`. Exit 0 passes (a fail-open
- * included), 1 refuses, 2 is a usage error. `has-line` prints `yes` where the
- * comment carries an unfenced `**Outstanding:**` line, else `no`, and exits 0.
- * Node exits 1 on a crash too, so a caller refuses only on a printed verdict
- * whose `ok` is false, and reads `has-line` from its output (#1255).
  */
 
-const fs = require("node:fs");
-
 const { INVENTORY } = require("./inventory-format.js");
-const { gh, ghFailureReason, errLine } = require("./gh.js");
+const { gh, parseGhFailureReason, parseErrLine } = require("./gh.js");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
-const { writeFd } = require("./write-fd.js");
 
 /* The #958 spec's ceiling (ruled at #911): a guess, under the close guard's
  * 10 s hook budget. Unmeasured — one issue alone read in 0.88-0.92 s there,
@@ -103,6 +93,8 @@ const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
  *   comments: Record<string, Comment[]>, shape: string}} Verdict
  * @typedef {{data: QueryData | null | undefined} | {failed: string, kind: string}} QueryResult
  * @typedef {((where: string, what: string) => void) | null} Log
+ * @typedef {(args: string[], opts: { timeout: number }) => string} Gh gh's
+ *   stdout; throws as lib/gh.js's gh throws
  */
 
 /**
@@ -240,7 +232,7 @@ function readItem(text, tracker) {
  * @param {string} fragment
  * @param {string} fallback
  */
-function shapeReason(fragment, fallback) {
+function buildShapeReason(fragment, fallback) {
 	const outside = withoutGists(fragment);
 	if (RANGE_RE.test(outside))
 		return "a range is not an item: list each issue as its own `#N (gist)`";
@@ -270,14 +262,14 @@ function parseOutstandingTail(tail, tracker) {
 	for (;;) {
 		const read = readItem(rest, tracker);
 		if ("reason" in read)
-			return refusedParse(shapeReason(rest, read.reason), rest, items);
+			return refusedParse(buildShapeReason(rest, read.reason), rest, items);
 		items.push(read.item);
 		rest = read.rest;
 		if (END_RE.test(rest)) return { none: false, items, refusals: [] };
 		const sep = /^[,;][ \t]+/.exec(rest);
 		if (!sep)
 			return refusedParse(
-				shapeReason(
+				buildShapeReason(
 					rest,
 					"only another item may follow an item, after `, ` or `; ` — prose goes on another line",
 				),
@@ -366,13 +358,16 @@ function parseBlock(block, tracker) {
 			? readItem(line.slice(bullet[0].length), tracker)
 			: { reason: "each item is its own `- #N (gist)` line" };
 		if ("reason" in read) {
-			refusals.push({ fragment: line, reason: shapeReason(line, read.reason) });
+			refusals.push({
+				fragment: line,
+				reason: buildShapeReason(line, read.reason),
+			});
 			continue;
 		}
 		if (!END_RE.test(read.rest)) {
 			refusals.push({
 				fragment: line,
-				reason: shapeReason(
+				reason: buildShapeReason(
 					read.rest,
 					"one item per line: prose after the gist goes elsewhere",
 				),
@@ -416,13 +411,14 @@ function buildQuery(byRepo, comments) {
  * that output is read before the call is judged failed.
  * @param {string} query
  * @param {number} timeoutMs
+ * @param {Gh} [run] the gh call, lib/gh.js's unless a caller injects its own
  * @returns {QueryResult}
  */
-function runQuery(query, timeoutMs) {
+function runQuery(query, timeoutMs, run = gh) {
 	try {
 		return {
 			data: JSON.parse(
-				gh(["api", "graphql", "-f", `query=${query}`], { timeout: timeoutMs }),
+				run(["api", "graphql", "-f", `query=${query}`], { timeout: timeoutMs }),
 			).data,
 		};
 	} catch (e) {
@@ -436,10 +432,10 @@ function runQuery(query, timeoutMs) {
 		}
 		const code = caught(e).code;
 		const kind =
-			code === "ETIMEDOUT" || ghFailureReason(e) === "unreachable"
+			code === "ETIMEDOUT" || parseGhFailureReason(e) === "unreachable"
 				? "GitHub unreachable"
 				: "the GitHub read failed";
-		return { failed: `${kind} (${errLine(e)})`, kind };
+		return { failed: `${kind} (${parseErrLine(e)})`, kind };
 	}
 }
 
@@ -476,7 +472,7 @@ function homeOf(tracker) {
  * @param {string} [tracker]
  * @returns {string|null}
  */
-function canonicalRef(spelling, tracker) {
+function readCanonicalRef(spelling, tracker) {
 	const m = REF_RE.exec(spelling);
 	if (!m || m[0] !== spelling) return null;
 	const read = readItem(`${spelling} (ref)`, homeOf(tracker));
@@ -490,7 +486,7 @@ function canonicalRef(spelling, tracker) {
  * @param {string|undefined} home
  * @returns {string|undefined}
  */
-function selfRefOf(self, home) {
+function readSelfRef(self, home) {
 	if (self === undefined) return;
 	const read = readItem(
 		`${typeof self === "number" || /^\d+$/.test(self) ? "#" : ""}${self} (self)`,
@@ -635,12 +631,14 @@ function applyRead(verdict, items, read, how) {
  * Parses `text` in `grammar`, then checks each item's carrier is open.
  *
  * @param {string} text  a close comment (`outstanding`) or a block body (`block`)
- * @param {{grammar: "outstanding"|"block", tracker?: string,
+ * @param {{grammar: "outstanding"|"block", tracker?: string | null,
  *   self?: number|string, comments?: boolean,
  *   shapeOnly?: boolean, timeoutMs?: number,
- *   log?: Log}} opts
+ *   log?: Log, gh?: Gh}} opts
  *   `self` is the issue being closed — a number in the tracker, or
- *   any ref spelling. `log: null` silences the record.
+ *   any ref spelling. `log: null` silences the record. `tracker: null` is a
+ *   caller that resolved none itself, so none is read here. `gh` is the
+ *   open-check's call, for a core that takes gh as a port.
  * @returns {Verdict}
  */
 function judge(text, opts) {
@@ -656,7 +654,7 @@ function judge(text, opts) {
 		shape: opts.grammar === "block" ? BLOCK_SHAPE : LINE_SHAPE,
 	};
 	const log = opts.log === undefined ? defaultLog : opts.log;
-	const home = homeOf(opts.tracker);
+	const home = opts.tracker === null ? undefined : homeOf(opts.tracker);
 	const parsed =
 		opts.grammar === "block"
 			? parseBlock(text, home)
@@ -669,7 +667,7 @@ function judge(text, opts) {
 	const byRepo = groupForRead(
 		verdict,
 		parsed.items,
-		selfRefOf(opts.self, home),
+		readSelfRef(opts.self, home),
 		log,
 	);
 	if (opts.shapeOnly || byRepo.size === 0) {
@@ -680,6 +678,7 @@ function judge(text, opts) {
 	const read = runQuery(
 		buildQuery(byRepo, !!opts.comments),
 		opts.timeoutMs ?? TIMEOUT_MS,
+		opts.gh,
 	);
 	if ("failed" in read) {
 		verdict.unchecked.push(`${read.failed}; shape check only`);
@@ -701,7 +700,7 @@ function judge(text, opts) {
  * A refused verdict as a reader prints it: each fault, then the shape.
  * @param {Verdict} verdict
  */
-function refusalText(verdict) {
+function buildRefusalText(verdict) {
 	const faults = verdict.refusals.map(
 		(r) => `- ${r.reason}${r.fragment ? ` — read: \`${r.fragment}\`` : ""}`,
 	);
@@ -712,51 +711,12 @@ function refusalText(verdict) {
 	return `${faults.join("\n")}\n\nThe shape: ${verdict.shape}.${elsewhere}`;
 }
 
-if (require.main === module) {
-	const { flagValue, parseOrExit } = require("./cli-args");
-	const args = parseOrExit(process.argv.slice(2), {
-		usage:
-			"usage: node outstanding-line.js <outstanding|block|has-line> [--tracker owner/repo] [--self N] [--comments] [--shape-only]  (text on stdin)",
-		flags: {
-			"--tracker": "value",
-			"--self": "value",
-			"--comments": "boolean",
-			"--shape-only": "boolean",
-		},
-		commands: {
-			outstanding: { usage: "outstanding: a close comment on stdin" },
-			block: { usage: "block: an inventory block on stdin" },
-			"has-line": {
-				usage:
-					"has-line: a comment on stdin; prints yes where it has the line, else no",
-			},
-		},
-	});
-	const input = fs.readFileSync(0, "utf8");
-	if (args.command === "has-line")
-		writeFd(1, hasOutstandingLine(input) ? "yes\n" : "no\n");
-	else {
-		const verdict = judge(input, {
-			grammar: args.command === "block" ? "block" : "outstanding",
-			tracker: flagValue(args.flags, "--tracker"),
-			self: flagValue(args.flags, "--self"),
-			comments: args.flags["--comments"] === true,
-			shapeOnly: args.flags["--shape-only"] === true,
-			log: null,
-		});
-		writeFd(
-			1,
-			`${JSON.stringify(verdict.ok ? verdict : { ...verdict, message: refusalText(verdict) })}\n`,
-		);
-		process.exitCode = verdict.ok ? 0 : 1;
-	}
-}
-
 module.exports = {
-	canonicalRef,
+	hasOutstandingLine,
+	readCanonicalRef,
 	hasSha,
 	isNothing,
 	judge,
-	refusalText,
+	buildRefusalText,
 	trackerOf,
 };

@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { guardErrorsLog } from "./guard-errors-log";
+import { readGuardErrorsLog } from "./guard-errors-log";
 
 const LIB = path.resolve(__dirname, "review-standards.sh");
 
@@ -72,7 +72,7 @@ describe("an unresolved core root (#947 review)", () => {
 
 	it("logs the review as run with its root unresolved", () => {
 		expect(run("", "review_standards_log_missing_base").status).toBe(0);
-		expect(guardErrorsLog(dir)).toContain("standards core root unresolved");
+		expect(readGuardErrorsLog(dir)).toContain("standards core root unresolved");
 	});
 });
 
@@ -91,7 +91,7 @@ describe("a resolved core root", () => {
 
 	it("logs an absent base as absent, naming its path", () => {
 		expect(run(dir, "review_standards_log_missing_base").status).toBe(0);
-		const log = guardErrorsLog(dir);
+		const log = readGuardErrorsLog(dir);
 		expect(log).toContain("standards base absent");
 		expect(log).toContain(path.join(dir, "docs", "code-standards-base.md"));
 	});
@@ -103,7 +103,7 @@ describe("a resolved core root", () => {
 			"base\n",
 		);
 		expect(run(dir, "review_standards_log_missing_base").status).toBe(0);
-		expect(guardErrorsLog(dir)).toBe("");
+		expect(readGuardErrorsLog(dir)).toBe("");
 	});
 });
 
@@ -167,5 +167,100 @@ describe("the base as a session is handed it (#1779)", () => {
 		const r = run("", "review_standards_base_shown");
 		expect(r.status).toBe(1);
 		expect(r.stdout).toBe("");
+	});
+});
+
+/*
+ * lib/review-standards.js is the Node twin the review-rules core reads
+ * through its host. Each case runs both on one host and core and holds them
+ * to one answer. Its roots are always resolved, so the unresolved cases above
+ * have no twin.
+ */
+describe("the Node twin keeps step (#2792)", () => {
+	const twin = require("./review-standards.js") as {
+		standardsBase: (core: string) => string;
+		standardsShown: (p: string, host: string) => string;
+		standardsGlossary: (host: string) => string | null;
+		standardsGlossaryLine: (host: string) => string;
+		standardsState: (core: string, host: string) => string;
+		missingBase: (core: string) => { what: string; detail: string } | null;
+	};
+	let core: string;
+	beforeEach(() => {
+		core = fs.mkdtempSync(path.join(os.tmpdir(), "review-core-"));
+	});
+	afterEach(() => {
+		fs.rmSync(core, { recursive: true, force: true });
+	});
+	const touch = (...parts: string[]) => {
+		fs.mkdirSync(path.join(...parts.slice(0, -1)), { recursive: true });
+		fs.writeFileSync(path.join(...parts), "x\n");
+	};
+
+	it.each([
+		["both", true, true],
+		["base", true, false],
+		["local", false, true],
+		["neither", false, false],
+	])("answers %s alike", (state, base, local) => {
+		if (base) touch(core, "docs", "code-standards-base.md");
+		if (local) touch(dir, "docs", "code-standards.md");
+		expect(twin.standardsState(core, dir)).toBe(state);
+		expect(run(core, "review_standards_state").stdout).toBe(state);
+	});
+
+	it("reads a directory where a file belongs as absent, as `[[ -f ]]` does", () => {
+		fs.mkdirSync(path.join(core, "docs", "code-standards-base.md"), {
+			recursive: true,
+		});
+		expect(twin.standardsState(core, dir)).toBe("neither");
+		expect(run(core, "review_standards_state").stdout).toBe("neither");
+	});
+
+	it("names the base alike, under the host root and outside it", () => {
+		expect(twin.standardsBase(core)).toBe(
+			run(core, "review_standards_base").stdout,
+		);
+		expect(twin.standardsShown(twin.standardsBase(dir), dir)).toBe(
+			run(dir, "review_standards_base_shown").stdout,
+		);
+		expect(twin.standardsShown(twin.standardsBase(core), dir)).toBe(
+			run(core, "review_standards_base_shown").stdout,
+		);
+	});
+
+	it("names a path that only shares the host root's prefix whole", () => {
+		const p = `${dir}x/docs/x.md`;
+		expect(twin.standardsShown(p, dir)).toBe(p);
+		expect(run(dir, `review_standards_shown "${p}"`).stdout).toBe(p);
+	});
+
+	it("words the glossary alike, and nothing where there is none", () => {
+		expect(twin.standardsGlossary(dir)).toBeNull();
+		expect(twin.standardsGlossaryLine(dir)).toBe(
+			run(dir, "review_standards_glossary_line").stdout,
+		);
+		touch(dir, "GLOSSARY.md");
+		expect(twin.standardsGlossary(dir)).toBe(
+			run(dir, "review_standards_glossary").stdout,
+		);
+		expect(twin.standardsGlossaryLine(dir)).toBe(
+			" Hand the Standards axis `GLOSSARY.md` too, for base §G8.",
+		);
+		expect(twin.standardsGlossaryLine(dir)).toBe(
+			run(dir, "review_standards_glossary_line").stdout,
+		);
+	});
+
+	it("records an absent base as the bash twin logs it, and nothing where present", () => {
+		expect(run(core, "review_standards_log_missing_base").status).toBe(0);
+		const r = twin.missingBase(core);
+		expect(r).toEqual({
+			what: "standards base absent — Standards axis reviewed without it",
+			detail: path.join(core, "docs", "code-standards-base.md"),
+		});
+		expect(readGuardErrorsLog(dir)).toContain(`${r?.what}`);
+		touch(core, "docs", "code-standards-base.md");
+		expect(twin.missingBase(core)).toBeNull();
 	});
 });

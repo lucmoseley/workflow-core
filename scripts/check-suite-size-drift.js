@@ -15,35 +15,28 @@
  * Suite size joined that ladder's invalidation list at mantahostels#954, which is why this
  * exists. It counts the tracked files vitest would collect and compares them
  * against the count recorded beside the ladder's own constants
- * (`SUITE_LADDER_MEASURED_AT` in `scripts/lib/admission.js`), so the baseline
+ * (`SUITE_LADDER_MEASURED_AT` in `scripts/lib/suite-ladder.js`), so the baseline
  * moves when and only when someone re-measures.
  *
  * FILE COUNT, NOT TEST COUNT, deliberately: a test count needs a collection
- * run. A file that grows its own assertion count without being added is the
- * residual, and nothing here sees it.
+ * run. The files are the tracked ones vitest's own `vitest list --filesOnly`
+ * keeps, so a repo with a vitest config needs its vitest installed. A file that
+ * grows its own assertion count without being added is the residual, and
+ * nothing here sees it.
  *
  * WARN-ONLY, ALWAYS. The finding is "go and measure", which no commit can
  * discharge and no session should be blocked on.
  *
  * IMPLICIT:  on `npm run status` (scripts/status-report.js), and in the daily repo-checks run, says when the test suite has drifted past 25% of the size the concurrent-suite memory ladder was measured on. It refuses nothing.
  * JUSTIFIED: fail-safe — the ladder going stale is silent and the cost of missing it is a frozen machine, while the cost of a spurious warning is one line in a status report; a run that cannot enumerate the suite is BROKEN rather than all-clear, and --notify still exits 0 so the hook is never switched off.
- * DEFEAT:    convenience — --baseline and --threshold move the comparison on a hand run, and editing SUITE_LADDER_MEASURED_AT in scripts/lib/admission.js silences it outright. That constant's own comment forbids moving it without a re-measurement; nothing enforces that.
+ * DEFEAT:    convenience — --baseline and --threshold move the comparison on a hand run, and editing SUITE_LADDER_MEASURED_AT in scripts/lib/suite-ladder.js silences it outright. That constant's own comment forbids moving it without a re-measurement; nothing enforces that.
  */
-
-const { execFileSync } = require("node:child_process");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 const { SUITE_LADDER_MEASURED_AT } = require("./lib/admission.js");
-const { JS_TEST_FILE } = require("./lib/test-kind.js");
-
-/*
- * vitest.config.ts's exclude, as regexes over a repo-relative path; its include
- * is test-kind.js's `JS_TEST_FILE`. Kept in step by hand: a change to that
- * config's `exclude` that this does not follow makes the count wrong in a way
- * no test here can see, because both sides would be reading this file's idea
- * of the suite.
- */
-const EXCLUDE = [/^node_modules\//, /^\.next\//, /^\.claude\/worktrees\//];
+const { execFileSync } = require("node:child_process");
+const { readVitestCollected } = require("./lib/vitest-collected.js");
+const { execGit } = require("./lib/git.js");
 
 /*
  * The drift at which the ladder is worth re-measuring, in percent of the
@@ -60,7 +53,7 @@ const DEFAULT_THRESHOLD_PCT = 25;
 const LS_FILES_MAX_BUFFER = 4 * 1024 * 1024;
 
 /**
- * Tracked paths git knows about, or BROKEN.
+ * The tracked test files vitest collects, or BROKEN.
  *
  * READ FROM THE REPO ROOT, NOT THE CWD. `git ls-files` answers about the
  * subtree it is run in, so a caller sitting in `docs/` would otherwise be told
@@ -69,10 +62,10 @@ const LS_FILES_MAX_BUFFER = 4 * 1024 * 1024;
  * @param {any} ctx
  * @returns {string[]}
  */
-function trackedPaths(ctx) {
+function readSuiteFiles(ctx) {
 	const git = (/** @type {string[]} */ args, /** @type {string} */ what) => {
 		try {
-			return execFileSync("git", args, {
+			return execGit(args, {
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],
 				maxBuffer: LS_FILES_MAX_BUFFER,
@@ -87,21 +80,16 @@ function trackedPaths(ctx) {
 		["rev-parse", "--show-toplevel"],
 		"locating the repo root",
 	).trim();
-	return git(["-C", root, "ls-files", "-z"], "listing tracked files")
+	const tracked = git(["-C", root, "ls-files", "-z"], "listing tracked files")
 		.split("\0")
 		.filter(Boolean);
-}
-
-/**
- * The tracked test files vitest would collect.
- *
- * @param {string[]} paths
- * @returns {string[]}
- */
-function suiteFiles(paths) {
-	return paths.filter(
-		(p) => JS_TEST_FILE.test(p) && !EXCLUDE.some((re) => re.test(p)),
-	);
+	try {
+		return readVitestCollected(root, tracked, execFileSync);
+	} catch (e) {
+		return ctx.broken(
+			`vitest list failed while listing the suite: ${errMessage(e)}. No suite counted.`,
+		);
+	}
 }
 
 runCheck({
@@ -122,7 +110,7 @@ runCheck({
 		if (!Number.isFinite(threshold) || threshold <= 0)
 			ctx.usageError(`--threshold must be a positive number, got ${threshold}`);
 
-		const files = suiteFiles(trackedPaths(ctx)).length;
+		const files = readSuiteFiles(ctx).length;
 		/* Compared unrounded so `--threshold 25` means 25%, not 24.5%. */
 		const drift = ((files - baseline) / baseline) * 100;
 		const driftPct = Math.round(drift);
@@ -162,7 +150,7 @@ runCheck({
 			"  Two rows per count, and --require-quiet is what makes a row trustworthy: mantahostels#954's ladder was set from rows a neighbouring session moved memory under (mantahostels#1841).",
 		);
 		ctx.say(
-			"  Then restate, all six: docs/environment.md (owner), docs/agents/guard-registry.md §Machine limits, .claude/skills/pick-next/SKILL.md §5, SUITE_DIP_MB + SUITE_LADDER_MEASURED_AT in scripts/lib/admission.js, SUITE_DIP_MB and SUITE_MAX in scripts/guard-suite-concurrency.sh, and suite-concurrency-ladder in docs/machinery-superseded.json.",
+			"  Then restate, all five: docs/environment.md (owner), docs/agents/guard-registry.md §Machine limits, .claude/skills/pick-next/SKILL.md §5, SUITE_DIP_MB, SUITE_MAX and SUITE_LADDER_MEASURED_AT in scripts/lib/suite-ladder.js, and suite-concurrency-ladder in docs/machinery-superseded.json.",
 		);
 		return { noun: "drifted ladder", count: 1, data };
 	},

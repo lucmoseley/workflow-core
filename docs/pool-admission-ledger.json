@@ -45,7 +45,7 @@
 		},
 		{
 			"file": "CLAUDE.md",
-			"headline": "`npm run test:py` — pytest over `scripts/**/test_*.py`, across two workers (`-n 2`, pytest-xdist), through `scripts/run-pytest.js`, which leaves its pre-push marker.",
+			"headline": "`npm run test:py` — pytest over your touched tests, across two workers (`-n 2`, pytest-xdist), through `scripts/run-pytest.js`; `-- scripts` runs the whole suite.",
 			"claim": "A session expects `npm install` to provide pytest",
 			"route": "no-trigger"
 		},

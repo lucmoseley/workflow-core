@@ -3,12 +3,13 @@
 #
 # SOURCED, NEVER RUN.
 #
-# Three routes name those paths — guard-review-rules.sh, inject-tracker-docs.sh
-# and concision-backstop.sh — and a review whose routes disagree dispatches its
-# axes to one file name and reads them back from another. review-suffix.test.ts
-# runs all three on one id and holds them to one answer. A fourth,
-# inject-review-tier.sh, names the focus and attack paths on the same suffix
-# (#1621).
+# Three routes name those paths — the review-rules dispatcher core (through
+# lib/review-suffix.js), inject-tracker-docs.sh and concision-backstop.sh — and
+# a review whose routes disagree dispatches its axes to one file name and reads
+# them back from another. review-suffix.test.ts
+# runs all three on one id and holds them to one answer. A fourth, the
+# review-tier dispatcher core (through lib/review-suffix.js), names the focus
+# and attack paths on the same suffix (#1621).
 #
 # Prints `-` and the first 8 characters of the id, anything outside
 # [A-Za-z0-9_-] replaced by `_` first because the id becomes part of a path.
@@ -17,7 +18,7 @@
 # 8, never the full uuid: a full id at both paths costs ~56 chars of the
 # injector's payload budget (scripts/check-injector-margin.sh).
 #
-# guard-scratch-overwrite.sh suggests the same suffix for any `.claude/tmp/`
+# lib/scratch-overwrite.js suggests the same suffix for any `.claude/tmp/`
 # scratch name (#1167), so a session told one convention meets one spelling.
 #
 # A caller whose source of this file failed gets the bare name too, because the

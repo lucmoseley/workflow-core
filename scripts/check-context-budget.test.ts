@@ -92,10 +92,10 @@ beforeEach(() => {
 		"inject-tracker-docs.sh",
 	);
 	/* Pinned to a fresh, empty throwaway store by default, so no fixture in this
-	 * file can resolve a `gp_rule` id against the LIVE core store beneath
+	 * file can resolve an injected id against the LIVE core store beneath
 	 * `docs/agents/rules` by accident, colliding silently instead of throwing
 	 * (#109's second gap). `fallbackStore()` below overrides this per case for
-	 * one that wires a `gp_rule`-calling guard on purpose. */
+	 * one that wires an injecting guard on purpose. */
 	savedRulesFallbackEnv = process.env.WFC_RULES_FALLBACK_DIR;
 	const emptyFallback = fs.mkdtempSync(
 		path.join(os.tmpdir(), "ctxbudget-fallback-"),
@@ -247,7 +247,7 @@ function run(...args: string[]) {
 
 /*
  * The direction gate reads THIS checker's envelope through
- * checker-new-faults.js's `context-budget` profile, and that profile names the
+ * lib/fault-profiles.js's `context-budget` profile, and that profile names the
  * finding's fields — `tag`, `surface`, `total` — as string literals of its own
  * (mantahostels#1938). The tags are a shared module; the field names are not and cannot be,
  * being payload keys rather than values. So the coupling is pinned by
@@ -305,7 +305,7 @@ describe("the profile the direction gate reads this envelope through", () => {
 	 * first breaches a cap — and its baseline carries no finding at all.
 	 */
 	it("measures every surface off the envelope, breached or not", () => {
-		const { PROFILES } = require("./checker-new-faults.js");
+		const { PROFILES } = require("./lib/fault-profiles.js");
 		const { measure, unit } = PROFILES["context-budget"];
 		expect(unit).toBe("B");
 
@@ -1425,7 +1425,7 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		);
 		expect(
 			// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-			(require("./checker-new-faults.js") as any).PROFILES[
+			(require("./lib/fault-profiles.js") as any).PROFILES[
 				"context-budget"
 			].measure({ tag: "UNPARSEABLE-SETTINGS" }, "findings", envelope),
 		).toBeUndefined();
@@ -1613,7 +1613,7 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	});
 
 	/*
-	 * The mirror image, and what checker-new-faults.js's `worse` exists for: the
+	 * The mirror image, and what lib/fault-profiles.js's `worse` exists for: the
 	 * over-cap finding carries the byte total, so a plain set difference would read
 	 * a SHED as a fault this commit added and refuse the very repair the cap
 	 * demands.
@@ -2025,7 +2025,7 @@ describe("always-enabled plugins", () => {
 
 /*
  * The core layer beneath an adopter's own rule store (#101): a guard wired in
- * a root that is not this core resolves a `gp_rule` id out of the core's own
+ * a root that is not this core resolves an injected id out of the core's own
  * `docs/agents/rules` where the adopter root's store carries no fragment of
  * that name.
  */
@@ -2039,12 +2039,12 @@ describe("the core layer beneath an adopter's own store (#101, #109)", () => {
 		process.env.WFC_RULES_FALLBACK_DIR = at;
 	}
 
-	/** Wires one guard whose whole content is a single `gp_rule <id>` call. */
+	/** Wires one core whose whole content is a single injection of `id`. */
 	function wireGuard(id: string) {
 		fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
 		fs.writeFileSync(
-			path.join(dir, "scripts", "guard-a.sh"),
-			`#!/usr/bin/env bash\ngp_rule ${id}\n`,
+			path.join(dir, "scripts", "guard-a.js"),
+			`module.exports = () => ({ injectRules: ["${id}"] });\n`,
 		);
 		fs.writeFileSync(
 			path.join(dir, ".claude", "settings.json"),
@@ -2056,7 +2056,7 @@ describe("the core layer beneath an adopter's own store (#101, #109)", () => {
 							hooks: [
 								{
 									type: "command",
-									command: '"$CLAUDE_PROJECT_DIR"/scripts/guard-a.sh',
+									command: 'node "$CLAUDE_PROJECT_DIR"/scripts/guard-a.js',
 								},
 							],
 						},

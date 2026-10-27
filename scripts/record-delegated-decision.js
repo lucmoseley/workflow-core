@@ -25,10 +25,10 @@
  * a refusal.
  */
 
-const { errLine, gh } = require("./lib/gh.js");
+const { parseErrLine, gh } = require("./lib/gh.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
-const { ownComment, scriptIo } = require("./lib/tracker-ops.js");
+const { findOwnComment, scriptIo } = require("./lib/tracker-ops.js");
 const decision = require("./lib/delegated-decision.js");
 const { LOW_TOP } = require("./lib/close-rivals.js");
 
@@ -46,10 +46,10 @@ const io = scriptIo("record-delegated-decision");
 function postOnce(repo, n, comment) {
 	let found;
 	try {
-		found = ownComment(repo, n, comment);
+		found = findOwnComment(repo, n, comment);
 	} catch (e) {
 		return io.fail(
-			`could not read #${n}'s comments to rule out a second post (${errLine(e)}). Nothing written — re-run.`,
+			`could not read #${n}'s comments to rule out a second post (${parseErrLine(e)}). Nothing written — re-run.`,
 			1,
 		);
 	}
@@ -67,7 +67,7 @@ function postOnce(repo, n, comment) {
 		);
 	} catch (e) {
 		return io.fail(
-			`posting the comment on #${n} failed (${errLine(e)}). Nothing written — re-run.`,
+			`posting the comment on #${n} failed (${parseErrLine(e)}). Nothing written — re-run.`,
 			1,
 		);
 	}

@@ -94,7 +94,6 @@
  * DEFEAT:    none; --minutes <n> and --hung-minutes <n> move the two windows on a hand run.
  */
 
-const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { listedAgents } = require("./lib/agent-liveness");
 const deliveryStamp = require("./lib/delivery-stamp");
@@ -109,6 +108,7 @@ const {
 	ghostTest,
 	findHungJobs,
 } = require("./lib/hung-jobs");
+const { jobStorePath, rosterPath } = require("./lib/job-paths.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {NonNullable<ReturnType<typeof readJobs>>} Jobs */
@@ -116,7 +116,7 @@ const {
  * One parsed state.json, as far as it is read here — `findHungJobs`'s shape.
  * @typedef {NonNullable<Parameters<typeof findHungJobs>[0][number]["rec"]>} JobRecord
  */
-/** @typedef {{store: string, job: string, rec: JobRecord}} WorkingJob */
+/** @typedef {{seat: string, job: string, rec: JobRecord}} WorkingJob */
 /** @typedef {ReturnType<typeof ghostOf>} Ghost */
 /** @typedef {ReturnType<typeof findHungJobs>[number]} Hung */
 /** @typedef {{store: string, job: string, reason: string}} UnreadableJob */
@@ -151,7 +151,7 @@ const hungKeyOf = (h) => `hung\t${h.job}\t${h.sessionId}`;
  * @param {{notify: boolean, persisting: boolean}} ctx
  */
 function readNotified(ctx) {
-	const raw = deliveryStamp.seenStamp(ctx, CHECKER);
+	const raw = deliveryStamp.readSeenStamp(ctx, CHECKER);
 	// Not this run's to judge — a hand run, or persist mode — or never stamped.
 	if (raw === null) return new Set();
 	try {
@@ -201,26 +201,36 @@ function liveSessions() {
 	return livenessOf(answer.agents);
 }
 
+/**
+ * The finding for one job whose record cannot be judged.
+ * @param {{seat: string, job: string}} j
+ * @param {string} reason
+ * @returns {UnreadableJob}
+ */
+const unreadableOf = ({ seat, job }, reason) => ({
+	store: jobStorePath(seat),
+	job,
+	reason,
+});
+
 /** The finding for one working job judged a ghost. */
 function ghostOf(
-	/** @type {WorkingJob} */ { store, job, rec },
+	/** @type {WorkingJob} */ { seat, job, rec },
 	/** @type {string} */ sessionId,
 	/** @type {{age: number | null, reason: string}} */ { age, reason },
 ) {
 	return {
 		job,
-		store,
+		store: jobStorePath(seat),
 		sessionId,
 		intent: typeof rec.intent === "string" ? rec.intent : null,
 		detail: typeof rec.detail === "string" ? rec.detail : null,
 		cwd: typeof rec.cwd === "string" ? rec.cwd : null,
 		minutesStuck: age,
 		reason,
-		// The daemon for THIS store lives beside it, one level up (mantahostels#2049) —
-		// same non-realpath `store` every other field on this object already
-		// carries, so a symlinked jobs/ prints the same path a reader would
-		// already be using to find the job itself.
-		rosterPath: path.join(path.dirname(store), "daemon", "roster.json"),
+		// The non-realpath seat `store` is built from, so a symlinked jobs/
+		// prints the same path a reader would already be using to find the job.
+		rosterPath: rosterPath(seat),
 	};
 }
 
@@ -233,16 +243,15 @@ function judgeJob(
 	/** @type {WorkingJob} */ entry,
 	/** @type {{ids: Set<string>, pids: Map<string, number>, me: string | undefined, minutes: number}} */ live,
 ) {
-	const { store, job, rec } = entry;
+	const { seat, job, rec } = entry;
 	const { ids, pids, me, minutes } = live;
 	const sessionId = rec.sessionId;
 	if (typeof sessionId !== "string" || !sessionId)
 		return {
-			unreadable: {
-				store,
-				job,
-				reason: "the record names no session, so nothing can be asked about it",
-			},
+			unreadable: unreadableOf(
+				{ seat, job },
+				"the record names no session, so nothing can be asked about it",
+			),
 		};
 	// This very session, which the oracle need not list yet.
 	if (me && sessionId === me) return "skip";
@@ -452,11 +461,7 @@ runCheck({
 		);
 		let unreadable = jobs
 			.filter((j) => j.unreadable)
-			.map((j) => ({
-				store: j.store,
-				job: j.job,
-				reason: "its state.json would not parse",
-			}));
+			.map((j) => unreadableOf(j, "its state.json would not parse"));
 
 		// Ask only where there is something to ask about: the oracle costs ~465 ms
 		// (mantahostels#411, which barred it from a PreToolUse hook on that figure).

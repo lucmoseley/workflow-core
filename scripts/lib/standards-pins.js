@@ -26,7 +26,7 @@ const LINE_PIN_RE = /^([\w./\-[\]]*):(\d+)(?:-(\d+))?$/;
 /**
  * A backticked span naming a file and carrying no line number. It is not a
  * citation, but it is what a bare pin later on the line inherits from
- * (`scripts/lib/guard-parse.sh`, then `:124-125`), and it BREAKS a quotation's
+ * (`scripts/lib/guard-log.sh`, then `:124-125`), and it BREAKS a quotation's
  * pairing: a quotation whose nearest preceding span is an unpinned path is
  * quoting THAT file, not the pinned one further left.
  */

@@ -34,7 +34,7 @@ const CHECKER = "scripts/check-context-budget.js";
 /* The event cap's inputs, read the checker's own way rather than restated. */
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module, as its own test loads it
 const emission = require("./lib/rule-emission") as any;
-const { CAP_SOURCE, WIRED_SCRIPT_RE, sourcedClosure } = emission;
+const { CAP_SOURCE, WIRED_SCRIPT_RE, readSourcedClosure } = emission;
 /* Resolved, so an entry spelled as a named constant is checked as well as a
  * literal one (#1120). */
 const { materialisePathspecs } =
@@ -177,7 +177,7 @@ describe("the pre-commit context-budget gate", () => {
 		).toBeGreaterThan(1);
 		/* And the libs they source, whose rule calls the cap counts too (#1120). */
 		for (const rel of [...wired])
-			for (const lib of sourcedClosure(
+			for (const lib of readSourcedClosure(
 				rel,
 				readRepoFile(rel) ?? "",
 				readRepoFile,

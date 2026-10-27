@@ -1,27 +1,27 @@
 {
 	"_comment": [
-		"guard-fire-needles.json \u2014 the deny/warn text each registered hook prints, keyed by",
+		"guard-fire-needles.json — the deny/warn text each registered hook prints, keyed by",
 		"the hook's own words rather than its filename (mantahostels#1246). Why the filename does not",
 		"work, and what a fire-shaped span is: scripts/lib/guard-fires.js.",
 		"",
 		"`text` is a literal substring, or an array of substrings ALL of which must be",
-		"present in the same span \u2014 used where one clause alone is ambiguous.",
+		"present in the same span — used where one clause alone is ambiguous.",
 		"",
-		"Pick that substring from the fragment's OPENING sentence \u2014 `A PUSH WARNS",
-		"UNLESS FULL OR ADMISSIBLE`. Where the opening sentence is NOT the",
+		"Pick that substring from the fragment's OPENING sentence — `A PUSH WARNS",
+		"UNLESS CERTIFICATES OF FULL`. Where the opening sentence is NOT the",
 		"distinctive one, key on the clause that is.",
 		"",
 		"A GENERATED fragment carries its source region's Markdown (mantahostels#2528), so skip a leading",
-		"`**` emphasis marker. And it may have no sentence at all \u2014",
+		"`**` emphasis marker. And it may have no sentence at all —",
 		"takes-value-vocabulary.txt is a table rendered out of docs/agents/triage-labels.md.",
 		"Key on the most distinctive verbatim CELL, never the header row, whose text recurs",
 		"in that document's other tables. REJECTED (mantahostels#2547): having",
 		"scripts/generate-rule-fragments.js emit an id headline at the head of every",
-		"fragment \u2014 it restores the convention everywhere but spends bytes on every",
-		"gp_rule-reachable id, rationed by scripts/check-context-budget.js.",
+		"fragment — it restores the convention everywhere but spends bytes on every",
+		"injectable id, rationed by scripts/check-context-budget.js.",
 		"",
-		"count-guard-fires.test.ts asserts fragment.includes(text) ONLY for an id on a literal",
-		"`gp_rule ` line in a .sh guard, with a string `text`. One handed over any other way is",
+		"count-guard-fires.test.ts asserts fragment.includes(text) ONLY for an id in a dispatcher",
+		"core's literal `injectRules`, with a string `text`. One handed over any other way is",
 		"unasserted and goes stale silently.",
 		"",
 		"`routes` on a NEEDLE narrows the subject's own routes, which are `hook` and",
@@ -33,17 +33,21 @@
 		"needle's text; a span carrying any of them is not this needle's fire. Two",
 		"guards printing one rule fragment need it, or one deny counts under both (#1759).",
 		"",
+		"`core` on a guard-dispatch.js needle is the `name` of the lib/guard-cores.json",
+		"row that prints it, so a reader can attribute the fire to that core rather than the",
+		"dispatcher.",
+		"",
 		"`needles: []` with a `silent` note is a hook that prints nothing a reader ever sees.",
 		"",
-		"`kind` is documentation only \u2014 nothing reads it. Its value set: `deny` (the",
+		"`kind: \"deny\"` is read: score-session-breaches.js and lost-deny-rates.js attribute a deny to the guards whose `deny` needles it carries. Its value set: `deny` (the",
 		"tool call is refused), `warn` (additionalContext on the call that tripped it),",
-		"`notice` (a report with no call to trip \u2014 SessionStart, Stop, PostToolUse or",
+		"`notice` (a report with no call to trip — SessionStart, Stop, PostToolUse or",
 		"UserPromptSubmit), `block` (a Stop hook refusing the turn) and `inject` (a",
-		"docs/agents/rules/*.txt fragment handed over by gp_rule BEFORE any mistake,",
-		"never in response to one \u2014 mantahostels#2118, mantahostels#2136).",
+		"docs/agents/rules/*.txt fragment handed over by `injectRules` BEFORE any mistake,",
+		"never in response to one — mantahostels#2118, mantahostels#2136).",
 		"",
 		"EVERY KEY HERE MUST NAME A REGISTRATION IN self-plugin/hooks/hooks.json AND EVERY",
-		"REGISTRATION MUST HAVE A KEY \u2014 asserted by count-guard-fires.test.ts."
+		"REGISTRATION MUST HAVE A KEY — asserted by count-guard-fires.test.ts."
 	],
 	"guards": {
 		"reconcile-plugin.js --session-end": {
@@ -59,37 +63,15 @@
 				}
 			]
 		},
-		"guard-echo-call.sh": {
-			"needles": [
-				{
-					"id": "repeat-identical-answer",
-					"kind": "deny",
-					"text": "This exact call has already run twice in a row"
-				}
-			]
-		},
-		"record-tool-echo.sh": {
-			"needles": [],
-			"silent": "Records each Bash and Read call's input and response hash for guard-echo-call.sh."
-		},
-		"start-lander-on-push.sh": {
+		"start-lander-on-push.js": {
 			"needles": [],
 			"silent": "Starts the lander detached after a push to landing (#2405). It never writes to stdout, so no session reads it."
 		},
-		"record-divergence.sh": {
+		"record-divergence.js": {
 			"needles": [],
 			"silent": "Appends one row per refused ff-only pull and rejected push to the per-repo divergence log (#289). It never writes to stdout, so no session ever reads it."
 		},
-		"guard-last30days.sh": {
-			"needles": [
-				{
-					"id": "main-session",
-					"kind": "deny",
-					"text": "last30days must run in a subagent, not the main session"
-				}
-			]
-		},
-		"guard-branch.sh": {
+		"guard-branch.js": {
 			"needles": [
 				{
 					"id": "branch-move",
@@ -110,7 +92,7 @@
 				}
 			]
 		},
-		"guard-registry-atomicity.sh": {
+		"guard-registry-atomicity.js": {
 			"needles": [
 				{
 					"id": "checker-unwired",
@@ -134,7 +116,7 @@
 				}
 			]
 		},
-		"guard-commit-form.sh": {
+		"guard-commit-form.js": {
 			"needles": [
 				{
 					"id": "sweeps-index",
@@ -194,12 +176,12 @@
 				{
 					"id": "push-cadence",
 					"kind": "inject",
-					"text": "FINDS EVERY COMMIT BEING PUSHED COVERED"
+					"text": "FINDS EVERY COMMIT BEING PUSHED ATTESTED"
 				},
 				{
 					"id": "push-cadence-landing",
 					"kind": "inject",
-					"text": "FINDS EVERY COMMIT IT SENDS"
+					"text": "ONCE THE TESTS YOU TOUCHED PASS"
 				},
 				{
 					"id": "guard-registry-gate",
@@ -243,7 +225,7 @@
 				}
 			]
 		},
-		"guard-pull-form.sh": {
+		"guard-pull-form.js": {
 			"needles": [
 				{
 					"id": "non-ff",
@@ -290,27 +272,22 @@
 				}
 			]
 		},
-		"guard-push-rules.sh": {
+		"guard-push-rules.js": {
 			"needles": [
 				{
 					"id": "push-cadence",
 					"kind": "inject",
-					"text": "FINDS EVERY COMMIT BEING PUSHED COVERED"
+					"text": "FINDS EVERY COMMIT BEING PUSHED ATTESTED"
 				},
 				{
 					"id": "push-cadence-landing",
 					"kind": "inject",
-					"text": "FINDS EVERY COMMIT IT SENDS"
+					"text": "ONCE THE TESTS YOU TOUCHED PASS"
 				},
 				{
 					"id": "push-green-suite",
 					"kind": "inject",
-					"text": "A PUSH WARNS UNLESS FULL OR ADMISSIBLE"
-				},
-				{
-					"id": "push-green-suite-landing",
-					"kind": "inject",
-					"text": "A PUSH TO `landing` WARNS UNLESS"
+					"text": "A PUSH WARNS UNLESS CERTIFICATES OF FULL"
 				},
 				{
 					"id": "vercel-build-on-push",
@@ -329,142 +306,691 @@
 				}
 			]
 		},
-		"guard-review-rules.sh": {
+		"guard-dispatch.js": {
 			"needles": [
 				{
-					"id": "bare-code-review",
-					"kind": "deny",
-					"text": "A bare `code-review` here is the harness's built-in reviewer"
-				},
-				{
-					"id": "review-deviations-write",
+					"id": "killed-background-job",
+					"core": "guard-bg-job",
 					"kind": "inject",
-					"text": "BEFORE THE REVIEW AXES ARE DISPATCHED"
+					"text": "A KILLED BACKGROUND JOB IS NOT A FINISHED ONE"
 				},
-				{
-					"id": "review-dispatch-shape",
-					"kind": "inject",
-					"text": "the two session-suffixed paths named above"
-				},
-				{
-					"id": "review-standards-axis",
-					"kind": "inject",
-					"text": "The Standards axis reads two files"
-				},
-				{
-					"id": "review-standards-axis-base",
-					"kind": "inject",
-					"text": "The Standards axis reads the standards base named above"
-				},
-				{
-					"id": "review-standards-axis-local",
-					"kind": "inject",
-					"text": "The standards base named above is absent"
-				},
-				{
-					"id": "review-standards-axis-absent",
-					"kind": "inject",
-					"text": "This repo has neither the standards base named above"
-				},
-				{
-					"id": "review-deviations-read",
-					"kind": "inject",
-					"text": "THE SPEC AXIS READS THE IMPLEMENTER'S DEVIATIONS RECORD"
-				},
-				{
-					"id": "review-finding-destination",
-					"kind": "inject",
-					"text": "EVERY REVIEW FINDING NEEDS A DESTINATION"
-				},
-				{
-					"id": "review-ultra-axis",
-					"kind": "inject",
-					"text": "judge this diff against `"
-				}
-			]
-		},
-		"inject-review-tier.sh": {
-			"needles": [
-				{
-					"id": "review-tier-escalated",
-					"kind": "inject",
-					"text": "A TOUCHED AREA ABOVE OWES THE ESCALATED TIER"
-				},
-				{
-					"id": "review-focused-run",
-					"kind": "inject",
-					"text": "THE FOCUSED RUN: a third `Agent` call in the same message"
-				},
-				{
-					"id": "review-attacker-run",
-					"kind": "inject",
-					"text": "THE ATTACKER RUN, ON A MISSION-CRITICAL CHANGE"
-				},
-				{
-					"id": "review-tier-records",
-					"kind": "inject",
-					"text": "RECORD A SENSITIVE-PATH REVIEW ON THE TICKET IN HAND"
-				},
-				{
-					"id": "review-tier-globless",
-					"kind": "inject",
-					"text": "JUDGE EACH AREA DECLARED WITH NO GLOBS FROM ITS DESCRIPTION"
-				},
-				{
-					"id": "review-tier-not-live",
-					"kind": "inject",
-					"text": "AN AREA NOT MARKED `live` RAISES NO ULTRAREVIEW"
-				},
-				{
-					"id": "review-sensitive-undeclared",
-					"kind": "warn",
-					"text": "NO SENSITIVE PATHS ARE DECLARED, SO NO REVIEW HERE CAN ESCALATE"
-				}
-			]
-		},
-		"guard-citation-tracker.sh": {
-			"needles": [
-				{
-					"id": "citation-tracker-write",
-					"kind": "warn",
-					"text": "the inherited tracker never used that number, so the citation means this repo's own issue"
-				},
-				{
-					"id": "citation-tracker",
-					"kind": "inject",
-					"text": "A CITATION OF THIS REPO'S TRACKER IS BARE"
-				}
-			]
-		},
-		"inject-test-rules.sh": {
-			"needles": [
 				{
 					"id": "test-run-cost",
+					"core": "inject-test-rules",
 					"kind": "inject",
 					"text": "A new test costs no more to run than its fitness needs"
 				},
 				{
 					"id": "test-time-seam",
+					"core": "inject-test-rules",
 					"kind": "inject",
 					"text": "A test asserts time through a seam, never through wall time"
 				},
 				{
 					"id": "test-reads-visible",
+					"core": "inject-test-rules",
 					"kind": "inject",
 					"text": "A test names what it reads where the repo's test selector can see it"
-				}
-			]
-		},
-		"guard-bg-job.sh": {
-			"needles": [
+				},
 				{
-					"id": "killed-background-job",
+					"id": "citation-tracker-write",
+					"core": "guard-citation-tracker",
+					"kind": "warn",
+					"text": "the inherited tracker never used that number, so the citation means this repo's own issue"
+				},
+				{
+					"id": "citation-tracker",
+					"core": "guard-citation-tracker",
 					"kind": "inject",
-					"text": "A KILLED BACKGROUND JOB IS NOT A FINISHED ONE"
+					"text": "A CITATION OF THIS REPO'S TRACKER IS BARE"
+				},
+				{
+					"id": "stale-script",
+					"core": "guard-stale-script",
+					"kind": "warn",
+					"text": "is uncommitted in the shared working tree and claimed by session"
+				},
+				{
+					"id": "job-dir-scratch-flat",
+					"core": "guard-job-dir-scratch",
+					"kind": "deny",
+					"text": "writes a file straight into the job directory"
+				},
+				{
+					"id": "job-dir-scratch",
+					"core": "guard-job-dir-scratch",
+					"kind": "warn",
+					"text": "this writes session scratch under the job directory"
+				},
+				{
+					"id": "root-scratch-stray",
+					"core": "guard-root-scratch",
+					"kind": "deny",
+					"text": "is a dot-prefixed file directly at the repo root"
+				},
+				{
+					"id": "scratch-overwrite",
+					"core": "guard-scratch-overwrite",
+					"kind": "deny",
+					"text": "which already exists and which this session has not written"
+				},
+				{
+					"id": "pkill",
+					"core": "guard-self-match",
+					"kind": "deny",
+					"text": "matches the command line of the shell running it, so this can kill the session itself"
+				},
+				{
+					"id": "pgrep",
+					"core": "guard-self-match",
+					"kind": "warn",
+					"text": "matches the command line of the shell running it, so it finds itself as well as"
+				},
+				{
+					"id": "pkill-inverted",
+					"core": "guard-self-match",
+					"kind": "deny",
+					"routes": ["deny"],
+					"text": [
+						"is inverted, so it",
+						"selects every process its pattern misses"
+					]
+				},
+				{
+					"id": "pgrep-inverted",
+					"core": "guard-self-match",
+					"kind": "warn",
+					"routes": ["hook"],
+					"text": [
+						"is inverted, so it",
+						"selects every process its pattern misses"
+					]
+				},
+				{
+					"id": "pkill-name",
+					"core": "guard-self-match",
+					"kind": "deny",
+					"text": "the name of the shell running it, so this kills the session itself"
+				},
+				{
+					"id": "pgrep-name",
+					"core": "guard-self-match",
+					"kind": "warn",
+					"text": "the name of the shell running it, so it finds that shell as well as"
+				},
+				{
+					"id": "claude-process-count",
+					"core": "guard-self-match",
+					"kind": "inject",
+					"text": "COUNT CLAUDE PROCESSES BY `argv[0]`, NEVER `comm`"
+				},
+				{
+					"id": "unbounded-wait-loop",
+					"core": "guard-wait-loop",
+					"kind": "warn",
+					"text": "This wait loop has no ceiling"
+				},
+				{
+					"id": "wait-over-cap",
+					"core": "guard-wait-loop",
+					"kind": "deny",
+					"text": ["This waits ", " and the limit is 15 minutes."]
+				},
+				{
+					"id": "suite-detached",
+					"core": "guard-suite-background",
+					"kind": "deny",
+					"text": "This suite is DETACHED INSIDE THE SHELL"
+				},
+				{
+					"id": "suite-shell-timeout",
+					"core": "guard-suite-background",
+					"kind": "deny",
+					"text": "This suite is WRAPPED IN A SHELL"
+				},
+				{
+					"id": "sweep-budget-spent",
+					"core": "guard-sweep-fire",
+					"kind": "deny",
+					"text": "Today's sweep budget is gone"
+				},
+				{
+					"id": "claimed-bash-write",
+					"core": "guard-claimed-bash-write",
+					"kind": "warn",
+					"text": "This command writes through Bash to a file another LIVE session holds."
+				},
+				{
+					"id": "whole-file-restore",
+					"core": "guard-claimed-bash-write",
+					"kind": "inject",
+					"text": "A WHOLE-FILE RESTORE THROWS AWAY EVERY UNCOMMITTED EDIT"
+				},
+				{
+					"id": "held",
+					"core": "guard-file-claim",
+					"kind": "deny",
+					"text": ["is held by session", "which is still running."]
+				},
+				{
+					"id": "whole-file-claim",
+					"core": "guard-file-claim",
+					"kind": "warn",
+					"text": "This write claims the WHOLE of"
+				},
+				{
+					"id": "clobbered",
+					"core": "guard-file-claim",
+					"kind": "warn",
+					"text": "has changed since this session last wrote it, and no tool call of yours did it"
+				},
+				{
+					"id": "dirty-unclaimed",
+					"core": "guard-file-claim",
+					"kind": "warn",
+					"text": "has uncommitted changes that no live session claims"
+				},
+				{
+					"id": "debt-one",
+					"core": "guard-file-claim",
+					"kind": "warn",
+					"text": "carries a registered debt"
+				},
+				{
+					"id": "debt-many",
+					"core": "guard-file-claim",
+					"kind": "warn",
+					"text": "registered debts: edits were denied here"
+				},
+				{
+					"id": "claim-broken",
+					"core": "guard-file-claim",
+					"kind": "warn",
+					"text": "was broken at"
+				},
+				{
+					"id": "file-claim",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "A FILE A LIVE SESSION HAS WRITTEN IS TAKEN."
+				},
+				{
+					"id": "claim-release",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "FINISHED WITH A GUARDED FILE? RELEASE IT."
+				},
+				{
+					"id": "claim-bash-route",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "NOTHING REFUSES A BASH-ROUTE WRITE TO A CLAIMED FILE, ON EITHER TIER."
+				},
+				{
+					"id": "denied-edit-debt",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "A DENIED EDIT IS REGISTERED AS A DEBT, AND THE ENTRY IS COMPLETED BY THE"
+				},
+				{
+					"id": "script-self-claim",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "A SCRIPT THAT WRITES A TRACKED DOC MUST CLAIM FOR ITSELF."
+				},
+				{
+					"id": "guard-authoring",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "A NEW GUARD OWES EIGHT SURFACES, NOT ONE SCRIPT."
+				},
+				{
+					"id": "doc-authority-class",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "IN `docs/doc-map.md` §A: never"
+				},
+				{
+					"id": "roadmap-edit",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "THIS FILE IS THE ROADMAP: route every edit"
+				},
+				{
+					"id": "manual-sync",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "THIS FILE IS THE OPERATING MANUAL: write"
+				},
+				{
+					"id": "writing-for-agents",
+					"core": "guard-file-claim",
+					"kind": "inject",
+					"text": "THIS FILE IS WRITTEN FOR AGENTS"
+				},
+				{
+					"id": "main-session",
+					"core": "guard-last30days",
+					"kind": "deny",
+					"text": "last30days must run in a subagent, not the main session"
+				},
+				{
+					"id": "bare-code-review",
+					"core": "guard-review-rules",
+					"kind": "deny",
+					"text": "here is the harness's built-in reviewer, not workflow-core's"
+				},
+				{
+					"id": "review-deviations-write",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "BEFORE THE REVIEW AXES ARE DISPATCHED"
+				},
+				{
+					"id": "review-dispatch-shape",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "the two session-suffixed paths named above"
+				},
+				{
+					"id": "review-standards-axis",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "The Standards axis reads two files"
+				},
+				{
+					"id": "review-standards-axis-base",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "The Standards axis reads the standards base named above"
+				},
+				{
+					"id": "review-standards-axis-local",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "The standards base named above is absent"
+				},
+				{
+					"id": "review-standards-axis-absent",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "This repo has neither the standards base named above"
+				},
+				{
+					"id": "review-deviations-read",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "THE SPEC AXIS READS THE IMPLEMENTER'S DEVIATIONS RECORD"
+				},
+				{
+					"id": "review-finding-destination",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "EVERY REVIEW FINDING NEEDS A DESTINATION"
+				},
+				{
+					"id": "review-ultra-axis",
+					"core": "guard-review-rules",
+					"kind": "inject",
+					"text": "judge this diff against `"
+				},
+				{
+					"id": "review-tier-escalated",
+					"core": "inject-review-tier",
+					"kind": "inject",
+					"text": "A TOUCHED AREA ABOVE OWES THE ESCALATED TIER"
+				},
+				{
+					"id": "review-focused-run",
+					"core": "inject-review-tier",
+					"kind": "inject",
+					"text": "THE FOCUSED RUN: a third `Agent` call in the same message"
+				},
+				{
+					"id": "review-attacker-run",
+					"core": "inject-review-tier",
+					"kind": "inject",
+					"text": "THE ATTACKER RUN, ON A MISSION-CRITICAL CHANGE"
+				},
+				{
+					"id": "review-tier-records",
+					"core": "inject-review-tier",
+					"kind": "inject",
+					"text": "RECORD A SENSITIVE-PATH REVIEW ON THE TICKET IN HAND"
+				},
+				{
+					"id": "review-tier-globless",
+					"core": "inject-review-tier",
+					"kind": "inject",
+					"text": "JUDGE EACH AREA DECLARED WITH NO GLOBS FROM ITS DESCRIPTION"
+				},
+				{
+					"id": "review-tier-not-live",
+					"core": "inject-review-tier",
+					"kind": "inject",
+					"text": "AN AREA NOT MARKED `live` RAISES NO ULTRAREVIEW"
+				},
+				{
+					"id": "review-sensitive-undeclared",
+					"core": "inject-review-tier",
+					"kind": "warn",
+					"text": "NO SENSITIVE PATHS ARE DECLARED, SO NO REVIEW HERE CAN ESCALATE"
+				},
+				{
+					"id": "create-command-shape",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "it is the one body shape the guard reads whole"
+				},
+				{
+					"id": "takes-value-vocabulary",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "An open question whose resolution is a decision."
+				},
+				{
+					"id": "issue-parent-unplaced",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "An issue with no parent sits outside every map"
+				},
+				{
+					"id": "issue-created-assigned",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "An issue you file for later is created unassigned"
+				},
+				{
+					"id": "close-outstanding-line",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "Every close says what is still outstanding"
+				},
+				{
+					"id": "ticket-criteria-unticked",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "never batch-ticked"
+				},
+				{
+					"id": "issue-body-raw-write",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "Every issue-body edit goes through"
+				},
+				{
+					"id": "issue-claim-scope",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "Claim the issue you are working right now, and only that one"
+				},
+				{
+					"id": "dependency-edge-false-success",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "a false success is the ordinary failure"
+				},
+				{
+					"id": "citation-number-first",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "Number before title, always"
+				},
+				{
+					"id": "blocked-ticket-gate",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "A ticket you find not ready gets its gate written before you end"
+				},
+				{
+					"id": "issue-body-success-signal",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "Read the exit code: 0 done or already done"
+				},
+				{
+					"id": "gh-job-dir-unreadable",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "`$CLAUDE_JOB_DIR` can fail to resolve"
+				},
+				{
+					"id": "citation-inferred-number",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "Never cite a number you inferred"
+				},
+				{
+					"id": "gh-cli-limits",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "re-run an empty result once before believing it"
+				},
+				{
+					"id": "urgent-label",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "Anyone may apply the `urgent` label, agent sessions included"
+				},
+				{
+					"id": "waiting-external-vocabulary",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "The value set is closed at one value"
+				},
+				{
+					"id": "triage-role-labels",
+					"core": "guard-tracker-rules",
+					"kind": "inject",
+					"text": "The vendored skills speak in terms of five canonical triage"
+				},
+				{
+					"id": "dependabot-merge",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": [
+						"This merges a Dependabot pull request",
+						"Never merge a Dependabot PR — take its fix locally"
+					]
+				},
+				{
+					"id": "dependabot-merge-fallback",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": [
+						"This merges a Dependabot pull request",
+						"the rule could not be read from docs/agents/rules/dependabot-merge.txt"
+					]
+				},
+				{
+					"id": "branch-publish",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": "NO BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST"
+				},
+				{
+					"id": "branch-publish-landing",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": "WORK LANDS THROUGH `landing`"
+				},
+				{
+					"id": "branch-publish-landing-fallback",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": "the rule could not be read from docs/agents/rules/branch-publish-landing.txt"
+				},
+				{
+					"id": "main-force-push",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": ["force-pushes", "NEVER MOVE `main` BACKWARDS"]
+				},
+				{
+					"id": "main-remote-delete",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": ["` on the remote", "NEVER MOVE `main` BACKWARDS"]
+				},
+				{
+					"id": "main-force-push-fallback",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": [
+						"force-pushes",
+						"backwards; the rule could not be read from docs/agents/rules/main-rewind.txt"
+					]
+				},
+				{
+					"id": "main-remote-delete-fallback",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": [
+						"` on the remote",
+						"backwards; the rule could not be read from docs/agents/rules/main-rewind.txt"
+					]
+				},
+				{
+					"id": "landing-force-push",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": ["force-pushes", "NEVER FORCE-PUSH OR DELETE `landing`"]
+				},
+				{
+					"id": "landing-remote-delete",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": ["` on the remote", "NEVER FORCE-PUSH OR DELETE `landing`"]
+				},
+				{
+					"id": "landing-force-push-fallback",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": [
+						"force-pushes",
+						"the rule could not be read from docs/agents/rules/landing-rewind.txt"
+					]
+				},
+				{
+					"id": "landing-remote-delete-fallback",
+					"core": "guard-branch-publish",
+					"kind": "deny",
+					"text": [
+						"` on the remote",
+						"the rule could not be read from docs/agents/rules/landing-rewind.txt"
+					]
+				},
+				{
+					"id": "write-reformatted",
+					"core": "post-write",
+					"kind": "inject",
+					"text": "IS FORMATTED ON THE SPOT by"
+				},
+				{
+					"id": "shell-lint-blind",
+					"core": "post-write",
+					"kind": "inject",
+					"text": "NEVER SEES A SHELL FILE"
+				},
+				{
+					"id": "injection-low",
+					"core": "scan-injection",
+					"kind": "warn",
+					"text": "LOW — One or two pattern matches may be a false positive"
+				},
+				{
+					"id": "injection-high",
+					"core": "scan-injection",
+					"kind": "warn",
+					"text": "HIGH — Multiple patterns — strong injection signal"
+				},
+				{
+					"id": "image-budget-warn",
+					"core": "guard-image-budget",
+					"kind": "notice",
+					"text": "Finish judging the early images before reading many more"
+				},
+				{
+					"id": "image-budget-gone",
+					"core": "guard-image-budget",
+					"kind": "notice",
+					"text": "By this hook's count these no longer reach you"
+				},
+				{
+					"id": "repeat-identical-answer",
+					"core": "guard-echo-call",
+					"kind": "deny",
+					"text": "This exact call has already run twice in a row"
+				},
+				{
+					"id": "recursive-dot-root",
+					"core": "guard-recursive-dot-read",
+					"kind": "warn",
+					"text": "That is your search with its root expanded"
+				},
+				{
+					"id": "heavy-tree-search",
+					"core": "guard-recursive-dot-read",
+					"kind": "inject",
+					"text": "NEVER RUN A RECURSIVE `find`/`grep`/watch ACROSS `node_modules`"
+				},
+				{
+					"id": "artefact-supplied",
+					"core": "guard-dispatch-rewrite",
+					"kind": "warn",
+					"text": "so the dispatch hook gave it one"
+				},
+				{
+					"id": "burn-remap",
+					"core": "guard-dispatch-rewrite",
+					"kind": "warn",
+					"text": "Burn mode moved this dispatch from"
+				},
+				{
+					"id": "artefact-own-watch",
+					"core": "guard-dispatch-rewrite",
+					"kind": "warn",
+					"text": "This dispatch names its artefact:"
+				},
+				{
+					"id": "dispatch-tier",
+					"core": "guard-dispatch-rewrite",
+					"kind": "inject",
+					"text": "IS THE SOLE AUTHORITY ON MODEL AND EFFORT"
+				},
+				{
+					"id": "dispatch-search-tracker",
+					"core": "guard-dispatch-rewrite",
+					"kind": "inject",
+					"text": "SEARCHES FILES ONLY — NAME THE TRACKER IN ITS PROMPT"
+				},
+				{
+					"id": "dispatch-grandchild",
+					"core": "guard-dispatch-rewrite",
+					"kind": "deny",
+					"text": "A SUBAGENT DOES NOT SPAWN SUBAGENTS."
+				},
+				{
+					"id": "unchecked",
+					"core": "guard-blind-dispatch",
+					"kind": "deny",
+					"text": "This dispatch reads as blind, and the subagent will start with this git snapshot"
+				},
+				{
+					"id": "stale-check",
+					"core": "guard-blind-dispatch",
+					"kind": "deny",
+					"text": "is no longer HEAD. Commits landed since, which its snapshot would show"
+				},
+				{
+					"id": "blind-fork",
+					"core": "guard-blind-dispatch",
+					"kind": "deny",
+					"text": "A fork inherits this session's whole context, so it is never blind"
 				}
 			]
 		},
-		"guard-failed-call-rules.sh": {
+		"guard-failed-call-rules.js": {
 			"needles": [
 				{
 					"id": "silent-kill",
@@ -478,7 +1004,7 @@
 				}
 			]
 		},
-		"guard-issue-body.sh": {
+		"guard-issue-body.js": {
 			"needles": [
 				{
 					"id": "body-write",
@@ -492,7 +1018,7 @@
 				}
 			]
 		},
-		"guard-issue-close.sh": {
+		"guard-issue-close.js": {
 			"needles": [
 				{
 					"id": "card-not-done",
@@ -506,7 +1032,7 @@
 				}
 			]
 		},
-		"guard-anthropic-report.sh": {
+		"guard-anthropic-report.js": {
 			"needles": [
 				{
 					"id": "anthropic-write",
@@ -515,7 +1041,7 @@
 				}
 			]
 		},
-		"guard-issue-create-label.sh": {
+		"guard-issue-create-label.js": {
 			"needles": [
 				{
 					"id": "no-takes",
@@ -553,101 +1079,7 @@
 				}
 			]
 		},
-		"guard-tracker-rules.sh": {
-			"needles": [
-				{
-					"id": "create-command-shape",
-					"kind": "inject",
-					"text": "it is the one body shape the guard reads whole"
-				},
-				{
-					"id": "takes-value-vocabulary",
-					"kind": "inject",
-					"text": "An open question whose resolution is a decision."
-				},
-				{
-					"id": "issue-parent-unplaced",
-					"kind": "inject",
-					"text": "An issue with no parent sits outside every map"
-				},
-				{
-					"id": "issue-created-assigned",
-					"kind": "inject",
-					"text": "An issue you file for later is created unassigned"
-				},
-				{
-					"id": "close-outstanding-line",
-					"kind": "inject",
-					"text": "Every close says what is still outstanding"
-				},
-				{
-					"id": "ticket-criteria-unticked",
-					"kind": "inject",
-					"text": "never batch-ticked"
-				},
-				{
-					"id": "issue-body-raw-write",
-					"kind": "inject",
-					"text": "Every issue-body edit goes through"
-				},
-				{
-					"id": "issue-claim-scope",
-					"kind": "inject",
-					"text": "Claim the issue you are working right now, and only that one"
-				},
-				{
-					"id": "dependency-edge-false-success",
-					"kind": "inject",
-					"text": "a false success is the ordinary failure"
-				},
-				{
-					"id": "citation-number-first",
-					"kind": "inject",
-					"text": "Number before title, always"
-				},
-				{
-					"id": "blocked-ticket-gate",
-					"kind": "inject",
-					"text": "A ticket you find not ready gets its gate written before you end"
-				},
-				{
-					"id": "issue-body-success-signal",
-					"kind": "inject",
-					"text": "Read the exit code: 0 done or already done"
-				},
-				{
-					"id": "gh-job-dir-unreadable",
-					"kind": "inject",
-					"text": "`$CLAUDE_JOB_DIR` can fail to resolve"
-				},
-				{
-					"id": "citation-inferred-number",
-					"kind": "inject",
-					"text": "Never cite a number you inferred"
-				},
-				{
-					"id": "gh-cli-limits",
-					"kind": "inject",
-					"text": "re-run an empty result once before believing it"
-				},
-				{
-					"id": "urgent-label",
-					"kind": "inject",
-					"text": "Anyone may apply the `urgent` label, agent sessions included"
-				},
-				{
-					"id": "waiting-external-vocabulary",
-					"kind": "inject",
-					"text": "The value set is closed at one value"
-				},
-				{
-					"id": "triage-role-labels",
-					"kind": "inject",
-					"text": "The vendored skills speak in terms of five canonical triage"
-				}
-			]
-		},
-		"guard-issue-phase-scope.sh": {
+		"guard-issue-phase-scope.js": {
 			"needles": [
 				{
 					"id": "uncalled-card",
@@ -656,86 +1088,7 @@
 				}
 			]
 		},
-		"guard-stale-script.sh": {
-			"needles": [
-				{
-					"id": "stale-script",
-					"kind": "warn",
-					"text": "is uncommitted in the shared working tree and claimed by session"
-				}
-			]
-		},
-		"guard-claimed-bash-write.sh": {
-			"needles": [
-				{
-					"id": "claimed-bash-write",
-					"kind": "warn",
-					"text": "This command writes through Bash to a file another LIVE session holds."
-				},
-				{
-					"id": "whole-file-restore",
-					"kind": "inject",
-					"text": "A WHOLE-FILE RESTORE THROWS AWAY EVERY UNCOMMITTED EDIT"
-				}
-			]
-		},
-		"guard-self-match.sh": {
-			"needles": [
-				{
-					"id": "pkill",
-					"kind": "deny",
-					"text": "matches the command line of the shell running it, so this can kill the session itself"
-				},
-				{
-					"id": "pgrep",
-					"kind": "warn",
-					"text": "matches the command line of the shell running it, so it finds itself as well as"
-				},
-				{
-					"id": "pkill-inverted",
-					"kind": "deny",
-					"routes": ["deny"],
-					"text": [
-						"is inverted, so it",
-						"selects every process its pattern misses"
-					]
-				},
-				{
-					"id": "pgrep-inverted",
-					"kind": "warn",
-					"routes": ["hook"],
-					"text": [
-						"is inverted, so it",
-						"selects every process its pattern misses"
-					]
-				},
-				{
-					"id": "pkill-name",
-					"kind": "deny",
-					"text": "the name of the shell running it, so this kills the session itself"
-				},
-				{
-					"id": "pgrep-name",
-					"kind": "warn",
-					"text": "the name of the shell running it, so it finds that shell as well as"
-				},
-				{
-					"id": "claude-process-count",
-					"kind": "inject",
-					"text": "COUNT CLAUDE PROCESSES BY `argv[0]`, NEVER `comm`"
-				}
-			]
-		},
-		"guard-wait-loop.sh": {
-			"needles": [
-				{
-					"id": "unbounded-wait-loop",
-					"kind": "warn",
-					"text": "This wait loop has no ceiling"
-				}
-			]
-		},
-		"guard-headroom-read.sh": {
+		"guard-headroom-read.js": {
 			"needles": [
 				{
 					"id": "headroom-reap",
@@ -744,7 +1097,7 @@
 				}
 			]
 		},
-		"guard-rm-unchecked.sh": {
+		"guard-rm-unchecked.js": {
 			"needles": [
 				{
 					"id": "rm-unchecked",
@@ -753,7 +1106,7 @@
 				}
 			]
 		},
-		"guard-node-heap.sh": {
+		"guard-node-heap.js": {
 			"needles": [
 				{
 					"id": "node-heap",
@@ -762,7 +1115,7 @@
 				}
 			]
 		},
-		"guard-hook-escape.sh": {
+		"guard-hook-escape.js": {
 			"needles": [
 				{
 					"id": "hook-escape",
@@ -771,21 +1124,16 @@
 				}
 			]
 		},
-		"guard-recursive-dot-read.sh": {
+		"guard-cpu-load.js": {
 			"needles": [
 				{
-					"id": "recursive-dot-root",
-					"kind": "warn",
-					"text": "That is your search with its root expanded"
-				},
-				{
-					"id": "heavy-tree-search",
-					"kind": "inject",
-					"text": "NEVER RUN A RECURSIVE `find`/`grep`/watch ACROSS `node_modules`"
+					"id": "cpu-load",
+					"kind": "deny",
+					"text": "Synthetic load runs inside a cap of at most "
 				}
 			]
 		},
-		"guard-root-find.sh": {
+		"guard-root-find.js": {
 			"needles": [
 				{
 					"id": "root-find",
@@ -794,16 +1142,16 @@
 				}
 			]
 		},
-		"guard-ugrep-pattern.sh": {
+		"guard-ugrep-pattern.js": {
 			"needles": [
 				{
 					"id": "ugrep-pattern",
 					"kind": "warn",
-					"text": "here is Claude Code's bundled ugrep, and a bounded repeat in its pattern"
+					"text": "s bundled ugrep, and a bounded repeat in its pattern"
 				}
 			]
 		},
-		"guard-suite-concurrency.sh": {
+		"guard-suite-concurrency.js": {
 			"needles": [
 				{
 					"id": "low-memory",
@@ -862,30 +1210,16 @@
 				}
 			]
 		},
-		"guard-suite-background.sh": {
-			"needles": [
-				{
-					"id": "suite-detached",
-					"kind": "deny",
-					"text": "This suite is DETACHED INSIDE THE SHELL"
-				},
-				{
-					"id": "suite-shell-timeout",
-					"kind": "deny",
-					"text": "This suite is WRAPPED IN A SHELL"
-				}
-			]
-		},
-		"guard-unasked-rerun.sh": {
+		"guard-unasked-rerun.js": {
 			"needles": [
 				{
 					"id": "unasked-rerun",
 					"kind": "deny",
-					"text": "is already covered by green runs, so it can only repeat their verdict"
+					"text": "Not run: certificates already attest what this run would test at"
 				}
 			]
 		},
-		"guard-vitest-wrapper.sh": {
+		"guard-vitest-wrapper.js": {
 			"needles": [
 				{
 					"id": "vitest-wrapper",
@@ -894,7 +1228,7 @@
 				}
 			]
 		},
-		"guard-wide-read.sh": {
+		"guard-wide-read.js": {
 			"needles": [
 				{
 					"id": "whole-file-cat",
@@ -918,7 +1252,7 @@
 				}
 			]
 		},
-		"guard-npm-install.sh": {
+		"guard-npm-install.js": {
 			"needles": [
 				{
 					"id": "no-ignore-scripts",
@@ -957,95 +1291,6 @@
 				}
 			]
 		},
-		"guard-file-claim.sh": {
-			"needles": [
-				{
-					"id": "held",
-					"kind": "deny",
-					"text": ["is held by session", "which is still running."]
-				},
-				{
-					"id": "whole-file-claim",
-					"kind": "warn",
-					"text": "This write claims the WHOLE of"
-				},
-				{
-					"id": "clobbered",
-					"kind": "warn",
-					"text": "has changed since this session last wrote it, and no tool call of yours did it"
-				},
-				{
-					"id": "dirty-unclaimed",
-					"kind": "warn",
-					"text": "has uncommitted changes that no live session claims"
-				},
-				{
-					"id": "debt-one",
-					"kind": "warn",
-					"text": "carries a registered debt"
-				},
-				{
-					"id": "debt-many",
-					"kind": "warn",
-					"text": "registered debts: edits were denied here"
-				},
-				{
-					"id": "claim-broken",
-					"kind": "warn",
-					"text": "was broken at"
-				},
-				{
-					"id": "file-claim",
-					"kind": "inject",
-					"text": "A FILE A LIVE SESSION HAS WRITTEN IS TAKEN."
-				},
-				{
-					"id": "claim-release",
-					"kind": "inject",
-					"text": "FINISHED WITH A GUARDED FILE? RELEASE IT."
-				},
-				{
-					"id": "claim-bash-route",
-					"kind": "inject",
-					"text": "NOTHING REFUSES A BASH-ROUTE WRITE TO A CLAIMED FILE, ON EITHER TIER."
-				},
-				{
-					"id": "denied-edit-debt",
-					"kind": "inject",
-					"text": "A DENIED EDIT IS REGISTERED AS A DEBT, AND THE ENTRY IS COMPLETED BY THE"
-				},
-				{
-					"id": "script-self-claim",
-					"kind": "inject",
-					"text": "A SCRIPT THAT WRITES A TRACKED DOC MUST CLAIM FOR ITSELF."
-				},
-				{
-					"id": "guard-authoring",
-					"kind": "inject",
-					"text": "A NEW GUARD OWES EIGHT SURFACES, NOT ONE SCRIPT."
-				},
-				{
-					"id": "doc-authority-class",
-					"kind": "inject",
-					"text": "IN `docs/doc-map.md` §A: never"
-				},
-				{
-					"id": "roadmap-edit",
-					"kind": "inject",
-					"text": "THIS FILE IS THE ROADMAP: route every edit"
-				},
-				{
-					"id": "manual-sync",
-					"kind": "inject",
-					"text": "THIS FILE IS THE OPERATING MANUAL: write"
-				},
-				{
-					"id": "writing-for-agents",
-					"kind": "inject",
-					"text": "THIS FILE IS WRITTEN FOR AGENTS"
-				}
-			]
-		},
 		"place-new-issue.sh": {
 			"needles": [
 				{
@@ -1070,56 +1315,24 @@
 				}
 			]
 		},
-		"refresh-claims.sh": {
-			"needles": [],
-			"silent": "Re-stamps this session's claims."
-		},
-		"record-issue-claim.sh": {
+		"record-issue-claim.js": {
 			"needles": [],
 			"silent": "Turns a `gh issue edit --add-assignee @me` into an arbiter claim."
 		},
-		"release-issue-claim.sh": {
+		"release-issue-claim.js": {
 			"needles": [],
 			"silent": "Drops the issue claim on a `gh issue close`."
 		},
-		"record-acts.sh": {
+		"record-acts.js": {
 			"needles": [],
 			"silent": "Writes a raw `gh` close, round, `takes:` relabel or blocked-by edge to the session's acts ledger."
-		},
-		"post-write.sh": {
-			"needles": [
-				{
-					"id": "write-reformatted",
-					"kind": "inject",
-					"text": "IS FORMATTED ON THE SPOT by"
-				},
-				{
-					"id": "shell-lint-blind",
-					"kind": "inject",
-					"text": "NEVER SEES A SHELL FILE"
-				}
-			]
-		},
-		"scan-injection.js": {
-			"needles": [
-				{
-					"id": "low",
-					"kind": "warn",
-					"text": "LOW \u2014 One or two pattern matches may be a false positive"
-				},
-				{
-					"id": "high",
-					"kind": "warn",
-					"text": "HIGH \u2014 Multiple patterns \u2014 strong injection signal"
-				}
-			]
 		},
 		"name-issue-session.sh": {
 			"needles": [
 				{
 					"id": "named",
 					"kind": "notice",
-					"text": "Session named \u2014 "
+					"text": "Session named — "
 				}
 			]
 		},
@@ -1141,7 +1354,7 @@
 				}
 			]
 		},
-		"inject-founder-wording.sh": {
+		"inject-founder-wording.js": {
 			"needles": [
 				{
 					"id": "injected",
@@ -1299,7 +1512,7 @@
 		},
 		"sweep-debts-detached.sh": {
 			"needles": [],
-			"silent": "Drains the debt register and sweeps for self-throttling; both halves print nothing. The throttling notice was the one needle here until mantahostels#1404 turned it off at session start \u2014 a zero would now measure that ruling, not retrieval."
+			"silent": "Drains the debt register and sweeps for self-throttling; both halves print nothing. The throttling notice was the one needle here until mantahostels#1404 turned it off at session start — a zero would now measure that ruling, not retrieval."
 		},
 		"check-ci-status.js --notify": {
 			"needles": [
@@ -1324,6 +1537,15 @@
 			"needles": [],
 			"silent": "Starts the detached judging batch and prints nothing; the audit's standing is read on npm run status (#2038)."
 		},
+		"reap-orphan-hooks.js --notify": {
+			"needles": [
+				{
+					"id": "orphan-hook",
+					"kind": "notice",
+					"text": "ORPHAN-HOOK ("
+				}
+			]
+		},
 		"check-orphan-wait-loops.js --notify": {
 			"needles": [
 				{
@@ -1339,6 +1561,11 @@
 					"id": "kernel-stall",
 					"kind": "notice",
 					"text": "KERNEL-STALL — this WSL VM is unhealthy"
+				},
+				{
+					"id": "sched-clock-frozen",
+					"kind": "notice",
+					"text": "SCHED-CLOCK-FROZEN — this WSL VM is unhealthy"
 				}
 			]
 		},
@@ -1394,7 +1621,7 @@
 		},
 		"replay-notify-reports.js --notify": {
 			"needles": [],
-			"silent": "Prints the producers' own reports verbatim and nothing of its own, so it has no fixed text to count. lib/check.js suppresses the okLine under --notify, the only form it is wired in, and every other fixed string it can print is a fault path \u2014 a needle on one of those would count faults, not fires (mantahostels#2299 review)."
+			"silent": "Prints the producers' own reports verbatim and nothing of its own, so it has no fixed text to count. lib/check.js suppresses the okLine under --notify, the only form it is wired in, and every other fixed string it can print is a fault path — a needle on one of those would count faults, not fires (mantahostels#2299 review)."
 		},
 		"reap-finished-sessions.js --notify": {
 			"needles": [
@@ -1405,7 +1632,7 @@
 				}
 			]
 		},
-		"guard-agent-poll.sh": {
+		"guard-agent-poll.js": {
 			"needles": [
 				{
 					"id": "inert-bash",
@@ -1434,59 +1661,6 @@
 				}
 			]
 		},
-		"guard-blind-dispatch.sh": {
-			"needles": [
-				{
-					"id": "unchecked",
-					"kind": "deny",
-					"text": "This dispatch reads as blind, and the subagent will start with this git snapshot"
-				},
-				{
-					"id": "stale-check",
-					"kind": "deny",
-					"text": "is no longer HEAD. Commits landed since, which its snapshot would show"
-				},
-				{
-					"id": "blind-fork",
-					"kind": "deny",
-					"text": "A fork inherits this session's whole context, so it is never blind"
-				}
-			]
-		},
-		"guard-dispatch-rewrite.sh": {
-			"needles": [
-				{
-					"id": "artefact-supplied",
-					"kind": "warn",
-					"text": "so the dispatch hook gave it one"
-				},
-				{
-					"id": "burn-remap",
-					"kind": "warn",
-					"text": "Burn mode moved this dispatch from"
-				},
-				{
-					"id": "artefact-own-watch",
-					"kind": "warn",
-					"text": "This dispatch names its artefact:"
-				},
-				{
-					"id": "dispatch-tier",
-					"kind": "inject",
-					"text": "IS THE SOLE AUTHORITY ON MODEL AND EFFORT"
-				},
-				{
-					"id": "dispatch-search-tracker",
-					"kind": "inject",
-					"text": "SEARCHES FILES ONLY — NAME THE TRACKER IN ITS PROMPT"
-				},
-				{
-					"id": "dispatch-grandchild",
-					"kind": "deny",
-					"text": "A SUBAGENT DOES NOT SPAWN SUBAGENTS."
-				}
-			]
-		},
 		"guard-uncommitted-work.js": {
 			"needles": [
 				{
@@ -1501,7 +1675,7 @@
 				{
 					"id": "lost-deny",
 					"kind": "block",
-					"text": "FAILED OPEN \u2014 the act it judges went through unchecked"
+					"text": "FAILED OPEN — the act it judges went through unchecked"
 				}
 			]
 		},
@@ -1576,7 +1750,7 @@
 			"needles": [],
 			"silent": "Deletes this session's rule-injection latch markers at a compaction; every path through it, fault included, prints nothing (mantahostels#1804)."
 		},
-		"guard-check-sh.sh": {
+		"guard-check-sh.js": {
 			"needles": [
 				{
 					"id": "shellcheck-not-installed",
@@ -1595,154 +1769,12 @@
 				}
 			]
 		},
-		"guard-sweep-fire.sh": {
-			"needles": [
-				{
-					"id": "sweep-budget-spent",
-					"kind": "deny",
-					"text": "Today's sweep budget is gone"
-				}
-			]
-		},
-		"guard-branch-publish.sh": {
-			"needles": [
-				{
-					"id": "dependabot-merge",
-					"kind": "deny",
-					"text": [
-						"This merges a Dependabot pull request",
-						"Never merge a Dependabot PR — take its fix locally"
-					]
-				},
-				{
-					"id": "dependabot-merge-fallback",
-					"kind": "deny",
-					"text": [
-						"This merges a Dependabot pull request",
-						"the rule could not be read from docs/agents/rules/dependabot-merge.txt"
-					]
-				},
-				{
-					"id": "branch-publish",
-					"kind": "deny",
-					"text": "NO BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST"
-				},
-				{
-					"id": "branch-publish-landing",
-					"kind": "deny",
-					"text": "WORK LANDS THROUGH `landing`"
-				},
-				{
-					"id": "branch-publish-landing-fallback",
-					"kind": "deny",
-					"text": "the rule could not be read from docs/agents/rules/branch-publish-landing.txt"
-				},
-				{
-					"id": "main-force-push",
-					"kind": "deny",
-					"text": ["force-pushes", "NEVER MOVE `main` BACKWARDS"]
-				},
-				{
-					"id": "main-remote-delete",
-					"kind": "deny",
-					"text": ["` on the remote", "NEVER MOVE `main` BACKWARDS"]
-				},
-				{
-					"id": "main-force-push-fallback",
-					"kind": "deny",
-					"text": [
-						"force-pushes",
-						"backwards; the rule could not be read from docs/agents/rules/main-rewind.txt"
-					]
-				},
-				{
-					"id": "main-remote-delete-fallback",
-					"kind": "deny",
-					"text": [
-						"` on the remote",
-						"backwards; the rule could not be read from docs/agents/rules/main-rewind.txt"
-					]
-				},
-				{
-					"id": "landing-force-push",
-					"kind": "deny",
-					"text": ["force-pushes", "NEVER FORCE-PUSH OR DELETE `landing`"]
-				},
-				{
-					"id": "landing-remote-delete",
-					"kind": "deny",
-					"text": ["` on the remote", "NEVER FORCE-PUSH OR DELETE `landing`"]
-				},
-				{
-					"id": "landing-force-push-fallback",
-					"kind": "deny",
-					"text": [
-						"force-pushes",
-						"the rule could not be read from docs/agents/rules/landing-rewind.txt"
-					]
-				},
-				{
-					"id": "landing-remote-delete-fallback",
-					"kind": "deny",
-					"text": [
-						"` on the remote",
-						"the rule could not be read from docs/agents/rules/landing-rewind.txt"
-					]
-				}
-			]
-		},
-		"guard-root-scratch.sh": {
-			"needles": [
-				{
-					"id": "root-scratch-stray",
-					"kind": "deny",
-					"text": "is a dot-prefixed file directly at the repo root"
-				}
-			]
-		},
-		"guard-job-dir-scratch.sh": {
-			"needles": [
-				{
-					"id": "job-dir-scratch-flat",
-					"kind": "deny",
-					"text": "writes a file straight into the job directory"
-				},
-				{
-					"id": "job-dir-scratch",
-					"kind": "warn",
-					"text": "this writes session scratch under the job directory"
-				}
-			]
-		},
-		"guard-scratch-overwrite.sh": {
-			"needles": [
-				{
-					"id": "scratch-overwrite",
-					"kind": "deny",
-					"text": "which already exists and which this session has not written"
-				}
-			]
-		},
-		"guard-lost-verdict.sh": {
+		"guard-lost-verdict.js": {
 			"needles": [
 				{
 					"id": "lost-verdict",
 					"kind": "notice",
 					"text": "pass/fail lines were cut from its output"
-				}
-			]
-		},
-		"guard-image-budget.sh": {
-			"needles": [
-				{
-					"id": "image-budget-warn",
-					"kind": "notice",
-					"text": "Finish judging the early images before reading many more"
-				},
-				{
-					"id": "image-budget-gone",
-					"kind": "notice",
-					"text": "By this hook's count these no longer reach you"
 				}
 			]
 		}
@@ -1755,14 +1787,14 @@
 			"needles": [
 				{
 					"id": "who-can-run-it",
-					"text": "any session \u2014 a 403 here means the PAT lost Actions: write"
+					"text": "any session — a 403 here means the PAT lost Actions: write"
 				}
 			],
 			"leads": true,
 			"leadsWhy": "mantahostels#1246 asks for this one first: mantahostels#1222 marked it \"conditional fire, lowest confidence\" and \"Take it last\", so its count is the one that changes a decision."
 		},
 		"C1": {
-			"span": "`.husky/pre-push` prints where no green covers a file the push sends; \u2026",
+			"span": "`.husky/pre-push` prints where no certificate attests a file the push sends; …",
 			"printedBy": "scripts/lib/test-pass-marker.js via .husky/pre-push",
 			"route": "cli",
 			"needles": [
@@ -1772,13 +1804,13 @@
 				},
 				{
 					"id": "dirty",
-					"text": "dirty tree: the green"
+					"text": ["dirty tree: the", "came from a run that"]
 				}
 			]
 		},
 		"C2": {
-			"span": "The denial writes the stub itself; finish it with `\u2026 debt own \u2026`",
-			"printedBy": "session-arbiter.js denyReason (claim-guard deny)",
+			"span": "The denial writes the stub itself; finish it with `… debt own …`",
+			"printedBy": "session-arbiter.js buildDenyReason (claim-guard deny)",
 			"route": "hook",
 			"needles": [
 				{
@@ -1788,7 +1820,7 @@
 			]
 		},
 		"C3": {
-			"span": "Release refuses a path another session holds, one that is still dirty, \u2026",
+			"span": "Release refuses a path another session holds, one that is still dirty, …",
 			"printedBy": "session-arbiter.js release refusals",
 			"route": "cli",
 			"needles": [
@@ -1830,8 +1862,8 @@
 			]
 		},
 		"C5": {
-			"span": "\u2026, the edit possibly being finished-but-uncommitted \u2014 where a command runs a script both dirty and claimed \u2026",
-			"printedBy": "scripts/warn-stale-script.js via guard-stale-script.sh",
+			"span": "…, the edit possibly being finished-but-uncommitted — where a command runs a script both dirty and claimed …",
+			"printedBy": "scripts/lib/stale-script.js via guard-dispatch.js",
 			"route": "hook",
 			"needles": [
 				{
@@ -1845,8 +1877,8 @@
 			]
 		},
 		"C6": {
-			"span": "A clean `git status` does not mean free (mantahostels#66: a file reads clean \u2026)",
-			"printedBy": "session-arbiter.js denyReason (claim-guard deny)",
+			"span": "A clean `git status` does not mean free (mantahostels#66: a file reads clean …)",
+			"printedBy": "session-arbiter.js buildDenyReason (claim-guard deny)",
 			"route": "hook",
 			"needles": [
 				{
@@ -1856,15 +1888,15 @@
 			]
 		},
 		"C7": {
-			"span": "(earlyoom's 794 MB + that count's dip \u2014 589 / 990 / 1271 MB \u2014 + ~300 MB fitted margin; mantahostels#463 \u2026)",
+			"span": "(earlyoom's 794 MB + that count's dip — 589 / 990 / 1271 MB — + ~300 MB fitted margin; mantahostels#463 …)",
 			"printedBy": null,
 			"route": "none",
 			"needles": [],
-			"note": "Route (c), a relocation to docs/environment.md \u2014 not route (e)."
+			"note": "Route (c), a relocation to docs/environment.md — not route (e)."
 		},
 		"C8": {
-			"span": "\u2014 one of `wayfinder`, `to-spec`, `to-tickets`, `implement`, `triage`, `human`, `children`, \u2026",
-			"printedBy": "guard-issue-create-label.sh (both denies print values_line)",
+			"span": "— one of `wayfinder`, `to-spec`, `to-tickets`, `implement`, `triage`, `human`, `children`, …",
+			"printedBy": "guard-issue-create-label.js (both denies print the seven values)",
 			"route": "hook",
 			"needles": [
 				{
@@ -1874,8 +1906,8 @@
 			]
 		},
 		"C9": {
-			"span": "\u2014 a raw body write erases whatever a parallel session wrote in the window (mantahostels#128)",
-			"printedBy": "guard-issue-body.sh deny",
+			"span": "— a raw body write erases whatever a parallel session wrote in the window (mantahostels#128)",
+			"printedBy": "guard-issue-body.js deny",
 			"route": "hook",
 			"needles": [
 				{
@@ -1885,8 +1917,8 @@
 			]
 		},
 		"C10": {
-			"span": "\u2026, which exits non-zero on a held file",
-			"printedBy": "session-arbiter.js claim, which prints denyReason and exits 1",
+			"span": "…, which exits non-zero on a held file",
+			"printedBy": "session-arbiter.js claim, which prints buildDenyReason and exits 1",
 			"route": "cli",
 			"needles": [
 				{
@@ -1896,7 +1928,7 @@
 			]
 		},
 		"C11": {
-			"span": "\u2014 `debt clear <path> <issue>`, refused on a bare path where more than one stands",
+			"span": "— `debt clear <path> <issue>`, refused on a bare path where more than one stands",
 			"printedBy": "session-arbiter.js debt clear ambiguous refusal",
 			"route": "cli",
 			"needles": [

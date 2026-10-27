@@ -8,7 +8,7 @@
  * files by hand between scans, because the scan reads bytes and stat and never
  * the command that wrote them.
  *
- * `refresh-claims.sh`, a `PostToolUse` Bash hook, runs this scan: loosen a case
+ * The refresh-claims core, a `PostToolUse` Bash hook, runs this scan: loosen a case
  * here and a `sed -i`, `cp` or heredoc clobber of a watched file goes
  * unreported (mantahostels#364), or every Bash call re-hashes the whole tier.
  */
@@ -40,7 +40,7 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 		fs.mkdirSync(path.dirname(path.join(sb.repo, rel)), { recursive: true });
 		fs.writeFileSync(path.join(sb.repo, rel), text);
 	};
-	const contentOf = (blob: string) =>
+	const readBlobContent = (blob: string) =>
 		execFileSync("git", ["cat-file", "-p", blob], {
 			cwd: sb.repo,
 			encoding: "utf8",
@@ -71,14 +71,14 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 
 		const seen = store.observationState(auditScript, "alice");
 		expect(seen.state).toBe("same");
-		expect(contentOf(seen.was)).toBe("alice's sed\n");
+		expect(readBlobContent(seen.was)).toBe("alice's sed\n");
 
 		// Pinned, not merely hashed: an unreferenced blob is git gc's to drop.
 		write(auditScript, "clobbered by a neighbour\n");
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
 		const after = store.observationState(auditScript, "alice");
 		expect(after.state).toBe("changed");
-		expect(contentOf(after.was)).toBe("alice's sed\n");
+		expect(readBlobContent(after.was)).toBe("alice's sed\n");
 	});
 
 	/* The scan asks git for the raw tiers, which since mantahostels#2103 are wider than the
@@ -94,7 +94,7 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 
 	it("covers the refusing tier too, where a `git restore` walks past the guard", () => {
 		expect(bashWrote("alice", guarded, "alice's sed\n")).toContain(guarded);
-		expect(contentOf(store.observationState(guarded, "alice").was)).toBe(
+		expect(readBlobContent(store.observationState(guarded, "alice").was)).toBe(
 			"alice's sed\n",
 		);
 	});
@@ -213,7 +213,7 @@ describe("the tier scan re-hashes only what moved (#833)", () => {
 	 * and return them, one array per spawn. The scan shells out directly, so
 	 * there is nothing to spy on.
 	 */
-	const hashedDuring = (body: () => void): string[][] => {
+	const readHashedDuring = (body: () => void): string[][] => {
 		const real = execFileSync("sh", ["-c", "command -v git"], {
 			encoding: "utf8",
 		}).trim();
@@ -252,12 +252,12 @@ describe("the tier scan re-hashes only what moved (#833)", () => {
 	it("spawns no hash-object when nothing moved", () => {
 		settle();
 		store.scanChanged("alice");
-		expect(hashedDuring(() => store.scanChanged("alice"))).toEqual([]);
+		expect(readHashedDuring(() => store.scanChanged("alice"))).toEqual([]);
 	});
 
 	it("re-hashes a file the previous scan read inside the racy window", () => {
 		store.scanChanged("alice");
-		expect(hashedDuring(() => store.scanChanged("alice"))).toEqual([
+		expect(readHashedDuring(() => store.scanChanged("alice"))).toEqual([
 			[auditScript],
 		]);
 	});

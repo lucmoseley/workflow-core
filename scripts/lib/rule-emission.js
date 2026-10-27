@@ -3,23 +3,20 @@
  * each PreToolUse tool (route (f)), and through each hook that fires once its
  * call has run.
  *
- * THE UNIT IS THE SESSION, NOT THE EVENT (mantahostels#2046). gp_rule latches per (rule,
- * agent, session) — lib/guard-parse.sh's marker loop — so an id is delivered
- * once in a session's life however many events could carry it. What a session
- * can be made to pay through one tool is therefore the sum of the DISTINCT ids
- * every guard that tool wires can reach. Nor is the event a truncation
- * boundary: the harness persists 10,000 characters PER HOOK ENTRY (mantahostels#1868) and
- * each guard is registered as its own entry, so GP_RULE_CAP — enforced
- * inside gp_rule, per entry — is the whole of the truncation guarantee.
+ * THE UNIT IS THE SESSION, NOT THE EVENT (mantahostels#2046). An `injectRules`
+ * id latches per (rule, agent, session) — lib/guard-entry.js's latchPath — so
+ * it is delivered once in a session's life however many events could carry
+ * it. What a session can be made to pay through one tool is therefore the sum
+ * of the DISTINCT ids every guard that tool wires can reach.
  *
- * THIS MODULE ANSWERS TWO QUESTIONS and nothing else: for a hook wiring,
- * a set of guard sources and a fragment store, what is the byte total each
- * PreToolUse tool can be made to deliver over a session (reachableByTool), and
- * what each AFTER_EVENTS hook can (reachableAfterCall, #2144).
+ * For a hook wiring, a set of guard sources and a fragment store: what is the
+ * byte total each PreToolUse tool can be made to deliver over a session
+ * (reachableByTool), and what each AFTER_EVENTS hook can (reachableAfterCall,
+ * #2144).
  *
  * THE ARITHMETIC:
  *   one guard   = the sum of its own DISTINCT ids' fragment bytes, over every
- *                 gp_rule call it makes — never the maximum over calls, because
+ *                 emission it makes — never the maximum over emissions, because
  *                 two mutually exclusive branches are still both reachable
  *                 across a session's many events;
  *   one tool    = the sum over the UNION of the ids its wired guards reach, so
@@ -35,18 +32,18 @@
  * below.
  *
  * WHICH IDS A GUARD REACHES IS READ FROM ITS EFFECTIVE SOURCE (mantahostels#2488) — its own
- * text plus every lib it `source`s, transitively. WHERE the fragment is SPENT is
- * read from the guard's own text alone; §emissionSites says why the two differ.
+ * text plus every lib it `source`s or `require`s, transitively.
  *
- * WHAT NEITHER CAN SEE: a call whose id is a VARIABLE (`rule_text "$id"`, the
- * shape at lib/guard-parse.sh and lib/rule-text.sh), and a lib behind a path
- * this cannot resolve — see §sourcedLibs.
+ * WHAT IT CANNOT SEE: a call whose id is a VARIABLE (`rule_text "$id"`, the
+ * shape at lib/rule-text.sh), and a lib behind a path this cannot resolve —
+ * see §sourcedLibs.
  *
- * GP_RULE_SKIP DOES NOT ENTER IT. A skip sits behind its own condition on the
- * command in front of the guard, so a ceiling must assume it does not fire, and
- * an id deferred past GP_RULE_CAP on one event simply arrives on a later one.
+ * A DECISION'S `skip` DOES NOT ENTER IT. A skip sits behind its own condition
+ * on the command in front of the guard, so a ceiling must assume it does not
+ * fire, and an id deferred past RULE_CAP on one event simply arrives on a
+ * later one.
  *
- * JOINS ARE NOT COUNTED. gp_rule's separator is 2 B per fragment beyond the
+ * JOINS ARE NOT COUNTED. The separator is 2 B per fragment beyond the
  * first IN ONE DELIVERY, and how a session's ids fall across deliveries is not
  * statically knowable. The omission is under 2 B per id.
  *
@@ -61,23 +58,28 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { ruleText } = require("./rule-text");
+const { readRuleText } = require("./rule-text");
 const { hostRoot } = require("./host-root.js");
 const { moduleOn } = require("./workflow-core-config");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
-const { expandRuleTables, ruleTableRows } = require("./rule-table.js");
-const { ownHooks } = require("./core-hooks.js");
+const { readOwnHooks } = require("./core-hooks.js");
+const { blankComments, closeOf, statementEnd } = require("./js-lex.js");
+const {
+	expandDispatched,
+	manifestAt,
+	readManifest,
+} = require("./guard-cores.js");
 
 /*
- * CAP_FILE names guard-parse.sh, which ships beside this file, so it is reached
+ * CAP_FILE names hook-limits.sh, which ships beside this file, so it is reached
  * from THIS DIRECTORY and a plugin install still finds it (#1). Every other root
  * below — the hook wiring, and the guard sources its commands point at — is
  * host content and reads through hostRoot().
  */
-const CAP_FILE = path.join(__dirname, "guard-parse.sh");
+const CAP_FILE = path.join(__dirname, "hook-limits.sh");
 
-/** The event gp_rule emits on, and the only one route (f)'s caps price (spec
+/** The event a pre-emptive emission rides, and the only one route (f)'s caps price (spec
  * mantahostels#1932). */
 const EVENT = "PreToolUse";
 
@@ -87,127 +89,126 @@ const EVENT = "PreToolUse";
  */
 const AFTER_EVENTS = ["PostToolUse", "PostToolUseFailure", "PostToolBatch"];
 
-/** Where GP_RULE_CAP is assigned, relative to the repo root. */
-const CAP_SOURCE = path.join("scripts", "lib", "guard-parse.sh");
+/** Where RULE_CAP is assigned, relative to the repo root. */
+const CAP_SOURCE = path.join("scripts", "lib", "hook-limits.sh");
 
-/**
- * The pre-emptive emitter's call shape, shared with
- * scripts/check-guard-registry.js so the two readings cannot drift.
- *
- * One call takes several ids, so the whole argument run is captured and split
- * by RULE_ARG_RE below rather than matched one id at a time.
- *
- * STATEMENT-INITIAL, and that anchoring is load-bearing: `gp_rule` is a bare
- * word, so an unanchored pattern would match every mention of it in a comment
- * or a header. The cost is that `if …; then gp_rule x; fi` is invisible.
- *
- * THE UNQUOTED ARGUMENT MUST END AT WHITESPACE. `rule:` is optional, so without
- * that boundary a token the id grammar cannot follow — `rule:-x` — matches the
- * `rule` in front of it and enters the run as a phantom id.
- */
 const RULE_ID = "(?:rule:)?[a-z0-9]+(?:-[a-z0-9]+)*";
 /**
- * A call's whole id run, as a capturing group; `end` is the lookahead a bare
- * id must stop at. Shared with lib/census-digest.js, whose minified source
- * ends an id at `;` too.
- * @param {string} end
+ * The pre-emptive emission, a Node guard core's `{ injectRules: [<id>…] }`
+ * decision, which lib/guard-entry.js latches and caps (#2784). Shared with
+ * scripts/check-guard-registry.js so the two readings cannot drift. The ids
+ * must be quoted literals in the array: one held in a constant is invisible.
  */
-const ruleArgs = (end) =>
-	`((?:[ \\t]+(?:"${RULE_ID}"|'${RULE_ID}'|${RULE_ID}(?=${end})))+)`;
-const RULE_ARGS = ruleArgs("[ \\t]|$");
-const EMIT_RULE_RE = new RegExp(`^[ \\t]*gp_rule${RULE_ARGS}`, "gm");
+const INJECT_RULES_RE = new RegExp(
+	`\\binjectRules:\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
+	"g",
+);
 
 /**
- * The bare ids in one gp_rule call's argument run.
+ * An injectRules key, never a `.injectRules` read; a shorthand key included.
+ * Residual: a destructure (`{ injectRules } = d`) and a mention inside a
+ * string literal match too, and so read as unread — the safe direction.
+ */
+const INJECT_RULES_KEY_RE = /(?<![\w$.])injectRules(?=\s*[:,}])/g;
+/* INJECT_RULES_RE admits no empty array, which emits nothing and is no
+ * unread injection either. */
+const LITERAL_INJECTION_RE = new RegExp(
+	`(?:${INJECT_RULES_RE.source}|injectRules:\\s*\\[\\s*\\])`,
+	"y",
+);
+
+/**
+ * Where `text` first hands injectRules something other than a literal id
+ * array — a variable, a spread, a shorthand key — whose ids no scan can read
+ * (#3011), or undefined.
+ * @param {string} text
+ * @returns {number | undefined}
+ */
+function firstUnreadInjection(text) {
+	return [...text.matchAll(INJECT_RULES_KEY_RE)]
+		.map((m) => m.index ?? 0)
+		.find((at) => {
+			LITERAL_INJECTION_RE.lastIndex = at;
+			return !LITERAL_INJECTION_RE.test(text);
+		});
+}
+
+/**
+ * Every pre-emptive emission in `text`; group 1 holds the ids.
+ * @param {string} text
+ */
+const emissionMatches = (text) => [...text.matchAll(INJECT_RULES_RE)];
+
+/**
+ * The bare ids in one emission's id run.
  *
- * ONE optional `rule:` comes off, because `gp_rule` bares one before it latches
- * (mantahostels#2719). Without it a prefixed argument would end the run captured above, and
- * the call would read as fewer ids — or, on the first argument, as no call.
+ * ONE optional `rule:` comes off, because the latch bares one (mantahostels#2719).
  */
 const RULE_ARG_RE = /["']?(?:rule:)?([a-z0-9]+(?:-[a-z0-9]+)*)["']?/g;
 
 /**
- * The DIRECT accessor call — `rule_text <id>` — which a guard splices into text
- * it composes itself rather than handing to gp_rule.
+ * The DIRECT accessor call — a shell hook's `rule_text <id>` — which splices
+ * the fragment into text the hook composes itself.
  *
- * UNANCHORED, unlike EMIT_RULE_RE: the call sits inside a condition rather than
- * at the head of its own statement. The cost is that a mention in a comment
- * matches. That over-reports a census and also a CALL COUNT (mantahostels#2283),
- * so a commented-out call can turn a `bounded` id `ambiguous` — the safe
- * direction, a bound withdrawn rather than invented.
- *
- * `gp_rule_text <id> <fallback>`, lib/guard-parse.sh's fetch with a fallback
- * sentence, is the same call and read as one (#772).
- *
- * Shared with scripts/check-guard-registry.js, which reads the same calls to
- * decide which guard prints which fragment.
+ * UNANCHORED: the call sits inside a condition rather than at the head of its
+ * own statement. The cost is that a mention in a comment matches, which
+ * over-reports the census.
  */
 const DIRECT_RULE_RE =
-	/\b(?:gp_)?rule_text\s+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))/g;
-
+	/\brule_text\s+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))/g;
 /**
- * The bound on a direct call: `gp_rule_told <id>`, which asks whether this
- * session has already been handed the fragment the guard is about to compose
- * (mantahostels#2275). A guard that asks pays the fragment once a session rather than once
- * per firing.
- *
- * ANCHORED, admitting only the `if` and `!` a test can carry in front of it, so
- * a mention in a header reads as no bound. A call spelled some other way reads
- * as no bound too.
- *
- * A BOUND IS CREDITED only where the guard makes exactly ONE direct
- * `rule_text <id>` call AND spends it at exactly ONE emission site
- * (mantahostels#2283, mantahostels#2354). Two or more of either read as `ambiguous`, as does an
- * emission the scan cannot correlate with the fetch at all — see
- * §emissionSites.
- *
- * ONE SITE EACH IS STILL NOT PROOF: the bound may sit on a branch that never
- * reaches the emission, or after it. §emissionSites names the rest.
+ * The Node accessors' direct call, the id a quoted literal first, split across
+ * lines as Biome formats it: `readRuleText`, `readRuleTextOr`, and `ruleText`,
+ * a core's injected port onto readRuleText (lib/guard-entry.js) (#2905).
  */
-const LATCHED_RULE_RE =
-	/^[ \t]*(?:if[ \t]+)?(?:![ \t]+)?gp_rule_told[ \t]+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))/gm;
-
+const NODE_DIRECT_RULE_RE =
+	/\b(?:readRuleText|readRuleTextOr|ruleText)\(\s*["']([a-z0-9-]+)["']\s*[),]/g;
 /**
- * The other half of the bound: `gp_rule_mark_told <id>`, which records that the
- * fragment has now been delivered. TWO CALLS, NOT ONE, the emission sitting
- * between them (guard-parse.sh §gp_rule_told).
- *
- * A `gp_rule_told` with no matching mark never becomes true, so the bound is
- * stranded permanently and the fragment is paid on every firing — the second
- * blind spot mantahostels#2283 names.
- *
- * ANCHORED as LATCHED_RULE_RE is, minus the `if`/`!`: the mark is a statement,
- * never a test.
- *
- * `gp_rule_latch_after <id>` COUNTS AS A MARK (mantahostels#2528) — the same record,
- * deferred into `gp_rule`. Both spellings anchor the same way, and an id
- * passed as a variable is invisible to either.
+ * A Node accessor handed lib/rule-gates.js's landingTwin, which picks `x` or
+ * its `x-landing` twin by the host's `landing` module: the call reads as
+ * fetching both.
  */
-const MARKED_RULE_RE =
-	/^[ \t]*(?:gp_rule_mark_told|gp_rule_latch_after)[ \t]+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))/gm;
+const NODE_LANDING_TWIN_RE =
+	/\b(?:readRuleText|readRuleTextOr|ruleText)\(\s*landingTwin\(\s*[^,()]+,\s*["']([a-z0-9-]+)["']\s*,?\s*\)/g;
 
 /**
- * `gp_rule_module <module> <id>...`, which skips the ids at run time unless the
- * host has <module> on (#449), and `gp_rule_unless_module`, which skips them
- * where it is on (#2409). Anchored as EMIT_RULE_RE is.
+ * The bound on a direct call: a Node core's `ctx.told("<id>")`, which asks
+ * whether this session has already been handed the fragment the core is about
+ * to compose (mantahostels#2275). A core that asks pays the fragment once a
+ * session rather than once per firing. The id must be a literal at the call:
+ * one held in a constant, or a `told` destructured off the receiver, reads as
+ * no bound — the safe direction.
+ *
+ * A BOUND IS CREDITED only where the guard makes exactly ONE direct call on the
+ * id AND marks it at exactly ONE emission site (mantahostels#2283,
+ * mantahostels#2354). Two or more of either read as `ambiguous`, as does a
+ * bound with no emission site at all — see §emissionSites.
+ */
+const LATCHED_RULE_RE = /\bctx\.told\(\s*["'](?:rule:)?([a-z0-9-]+)["']\s*\)/g;
+
+/**
+ * The other half of the bound: a `latchAfter: "<id>"` decision, which
+ * lib/guard-entry.js writes once the envelope is out. A `ctx.told` with no
+ * matching mark never becomes true, so the bound is stranded permanently and
+ * the fragment is paid on every firing.
+ *
+ * UNANCHORED, since the key sits inside an object literal anywhere on its
+ * line. A mention inside a string counts as a mark and as an emission site,
+ * which can invent a bound.
+ */
+const MARKED_RULE_RE = /\blatchAfter:\s*["'](?:rule:)?([a-z0-9-]+)["']/g;
+
+/**
+ * A Node guard core's module gates, lib/rule-gates.js's `ruleModule(ctx,
+ * "<module>", [<id>…])`, which skips the ids unless the host has <module> on
+ * (#449), and `ruleUnlessModule`, which skips them where it is on (#2409,
+ * #2785). Anchored at the line's head, a spread allowed, so a mention in a
+ * comment reads as none.
  */
 const MODULE_RULE_RE = new RegExp(
-	`^[ \\t]*gp_rule_(module|unless_module)[ \\t]+([a-z]+)${RULE_ARGS}`,
+	`^[ \\t]*(?:\\.\\.\\.)?rule(Module|UnlessModule)\\(\\s*\\w+\\s*,\\s*["']([a-z]+)["']\\s*,\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
 	"gm",
 );
-
-/**
- * Each module gate a gp_rule_path_rows table puts on its row's id: the words
- * after the path.
- *
- * @param {string} text
- * @returns {{ module: string, id: string }[]}
- */
-function tableGates(text) {
-	return ruleTableRows(text).flatMap(([id, , ...modules]) =>
-		modules.map((module) => ({ module, id })),
-	);
-}
 
 /**
  * A repo-relative script path inside a hook command string.
@@ -220,7 +221,7 @@ function tableGates(text) {
  * Shared with scripts/check-guard-registry.js, which reads the same settings
  * file to decide which script a command wires.
  *
- * Every caller runs it over hookCommandLine() below rather than over `command`
+ * Every caller runs it over buildHookCommandLine() below rather than over `command`
  * alone (mantahostels#2266), so the interpreter spelling — `"command": "node", "args":
  * ["…/scripts/x.js"]` — has its path seen rather than reading as unwired.
  */
@@ -252,7 +253,7 @@ const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
  * transcript records (mantahostels#2266).
  *
  * Shared with scripts/check-guard-registry.js on WIRED_SCRIPT_RE's own grounds,
- * stated below it.
+ * stated above it.
  *
  * The hooks file is untyped JSON, so an `args` that is not an array of
  * strings contributes nothing rather than throwing.
@@ -260,7 +261,7 @@ const TOOL_NAME_RE = /^[A-Za-z][A-Za-z0-9_]*$/;
  * @param {{ command?: string, args?: unknown }} entry
  * @returns {string}
  */
-function hookCommandLine(entry) {
+function buildHookCommandLine(entry) {
 	const args = Array.isArray(entry?.args)
 		? entry.args.filter((a) => typeof a === "string")
 		: [];
@@ -272,8 +273,14 @@ function hookCommandLine(entry) {
  * another guard's, so a tool's own figure is the union and not this sum.
  * @typedef {{ file: string, bytes: number, calls: number, ids: string[] }} GuardFigure */
 
+/**
+ * Whether a wired script is a Node guard, whose core is reached by `require`.
+ * @param {string} rel
+ */
+const isNodeGuard = (rel) => rel.endsWith(".js");
+
 /** Thrown where an input this module reads the repo WITH cannot be read, or
- * where a gp_rule call it reads can never fire at all. */
+ * where an emission it reads can never fire at all. */
 class RuleEmissionError extends Error {
 	/**
 	 * @param {string} message
@@ -286,46 +293,68 @@ class RuleEmissionError extends Error {
 }
 
 /**
- * GP_RULE_CAP, read out of the bash library that enforces it.
+ * A bare `NAME=<digits>` assignment at column zero of a bash library, the
+ * shape the limits are read in rather than restated.
  *
- * @param {string} [file] absolute path of the assigning file
- * @returns {number} the ceiling in bytes
+ * @param {string} file absolute path of the assigning file
+ * @param {string} name
+ * @returns {number}
  * @throws {RuleEmissionError} where the file cannot be read, or holds no
- *   anchored `GP_RULE_CAP=<digits>` assignment — never a default, which would
- *   pass a group that will really be truncated.
+ *   anchored assignment — never a default, which would pass a group that will
+ *   really be truncated.
  */
-function gpRuleCap(file = CAP_FILE) {
+function readShellInt(file, name) {
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
 		throw new RuleEmissionError(
-			`rule-emission: cannot read ${file}, where GP_RULE_CAP is assigned: ${caught(e).message}`,
+			`rule-emission: cannot read ${file}, where ${name} is assigned: ${caught(e).message}`,
 			{ cause: e },
 		);
 	}
-	const m = /^[ \t]*GP_RULE_CAP=(\d+)[ \t]*$/m.exec(text);
+	const m = new RegExp(`^[ \\t]*${name}=(\\d+)[ \\t]*$`, "m").exec(text);
 	if (!m)
 		throw new RuleEmissionError(
-			`rule-emission: no anchored GP_RULE_CAP=<digits> assignment in ${file}, ` +
+			`rule-emission: no anchored ${name}=<digits> assignment in ${file}, ` +
 				"and the ceiling is read rather than restated here, so there is no fallback.",
 		);
 	return Number(m[1]);
 }
 
 /**
- * Every gp_rule call in one guard's source, as its list of ids.
+ * RULE_CAP, read out of lib/hook-limits.sh.
  *
- * A call naming the same id twice yields it once, matching gp_rule's own latch
- * loop, which skips a repeat before the marker is written.
+ * @param {string} [file] absolute path of the assigning file
+ * @returns {number} the ceiling in bytes
+ */
+function readRuleCap(file = CAP_FILE) {
+	return readShellInt(file, "RULE_CAP");
+}
+
+/**
+ * HOOK_PERSIST_CHARS: the characters of additionalContext the harness keeps
+ * inline per hook entry, read out of lib/hook-limits.sh.
+ *
+ * @returns {number}
+ */
+function readHookPersistChars() {
+	return readShellInt(CAP_FILE, "HOOK_PERSIST_CHARS");
+}
+
+/**
+ * Every pre-emptive emission in one guard's source, as its list of ids.
+ *
+ * An emission naming the same id twice yields it once, matching the latch,
+ * which renders an id once per decision.
  *
  * @param {string} text the guard's source
- * @returns {string[][]} one entry per call, ids in the order given
+ * @returns {string[][]} one entry per emission, ids in the order given
  */
 function ruleCalls(text) {
 	/** @type {string[][]} */
 	const calls = [];
-	for (const m of text.matchAll(EMIT_RULE_RE)) {
+	for (const m of emissionMatches(text)) {
 		/** @type {string[]} */
 		const ids = [];
 		for (const a of (m[1] ?? "").matchAll(RULE_ARG_RE))
@@ -337,8 +366,8 @@ function ruleCalls(text) {
 
 /**
  * The ids one guard's source gates off for the host at <root>: through
- * gp_rule_module on a module it has off, through gp_rule_unless_module on one
- * it has on, and through a gp_rule_path_rows row's module it has off.
+ * `ruleModule` on a module it has off, and through `ruleUnlessModule` on one
+ * it has on.
  *
  * @param {string} text the guard's source
  * @param {string} root the host root whose config decides
@@ -352,21 +381,39 @@ function gatedOffIds(text, root) {
 		const module = /** @type {import("./workflow-core-config").Module} */ (
 			m[2]
 		);
-		if (moduleOn(module, { root }) === (m[1] === "module")) continue;
+		const gatesIn = m[1] === "Module";
+		if (moduleOn(module, { root }) === gatesIn) continue;
 		for (const a of (m[3] ?? "").matchAll(RULE_ARG_RE)) if (a[1]) off.add(a[1]);
-	}
-	for (const { module, id } of tableGates(text)) {
-		/* Unchecked cast, as above. */
-		const gate = /** @type {import("./workflow-core-config").Module} */ (
-			module
-		);
-		if (!moduleOn(gate, { root })) off.add(id);
 	}
 	return off;
 }
 
 /**
- * Every DIRECT `rule_text` call in one guard's source, as id → how many CALL
+ * Every DIRECT accessor call in one source, shell and Node spellings alike, as
+ * the id it fetches and where the call starts; a landingTwin call yields both
+ * twins at one index. Shared with scripts/check-guard-registry.js.
+ *
+ * @param {string} text
+ * @returns {{ id: string, index: number }[]}
+ */
+function directAccessorCalls(text) {
+	/** @type {{ id: string, index: number }[]} */
+	const calls = [];
+	for (const re of [DIRECT_RULE_RE, NODE_DIRECT_RULE_RE])
+		for (const m of text.matchAll(re)) {
+			const id = m[1] ?? m[2] ?? m[3];
+			if (id) calls.push({ id, index: m.index ?? 0 });
+		}
+	for (const m of text.matchAll(NODE_LANDING_TWIN_RE)) {
+		const id = requiredGroup(m, 1, NODE_LANDING_TWIN_RE);
+		const index = m.index ?? 0;
+		calls.push({ id, index }, { id: `${id}-landing`, index });
+	}
+	return calls;
+}
+
+/**
+ * Every DIRECT accessor call in one guard's source, as id → how many CALL
  * SITES name it, in the order given.
  *
  * @param {string} text the guard's source
@@ -375,653 +422,214 @@ function gatedOffIds(text, root) {
 function directRuleCounts(text) {
 	/** @type {Map<string, number>} */
 	const counts = new Map();
-	for (const m of text.matchAll(DIRECT_RULE_RE)) {
-		const id = m[1] ?? m[2] ?? m[3];
-		if (id) counts.set(id, (counts.get(id) ?? 0) + 1);
-	}
+	for (const { id } of directAccessorCalls(text))
+		counts.set(id, (counts.get(id) ?? 0) + 1);
 	return counts;
 }
-/*
- * WHERE THE BYTES ARE ACTUALLY SPENT (mantahostels#2354).
- *
- * A `rule_text <id>` FETCH costs nothing on its own; the fragment is paid at the
- * EMISSION that carries it — `gp_context`, `gp_warn`, `gp_deny`. The count below
- * is over emissions, not over fetches.
- *
- * IT IS STILL LEXICAL, and over-approximates where it can: a name that could
- * hold the fragment counts wherever it appears, and a fetch whose route to an
- * emission this cannot follow yields ZERO sites — both read `ambiguous`, which
- * withdraws a bound rather than inventing one.
- *
- * THE DIRECTION IS NOT GUARANTEED, and that is the standing residual. A second
- * emission the statement splitter fails to separate out is a bound INVENTED.
- * Two shapes are known to defeat it: an emission reached only through `eval`
- * or a variable holding a command name, and one whose helper is called
- * through a name this cannot resolve — `$fn` or a dispatch table.
- */
 
-/** The accessors that spend a fragment's bytes, at the head of their statement. */
-const EMIT_ACCESSOR_RE = /^(?:gp_context|gp_warn|gp_deny)\b([\s\S]*)$/;
+/** A Node binding's head: `const|let|var <name> =` or `function <name>(`. */
+const NODE_BINDING_RE =
+	/\b(?:(?:const|let|var)[ \t]+([A-Za-z_$][\w$]*)[ \t]*=(?!=)|function[ \t]+([A-Za-z_$][\w$]*)[ \t]*\()/g;
 
-/** The keywords a statement can carry in front of a command. */
-const STMT_KEYWORD_RE = /^(?:if|elif|then|else|while|until|do|!)[ \t]+/;
-
-/** A house-style function head: `name() {` alone on its line. */
-const FUNC_HEAD_RE =
-	/^([A-Za-z_][A-Za-z0-9_]*)[ \t]*\([ \t]*\)[ \t]*\{[ \t]*$/gm;
+/** A function expression's head, at the start of a variable's value, up to
+ * its body's `{` or a concise arrow's `({`. */
+const NODE_FUNCTION_VALUE_RE =
+	/^\s*(?:async\s+)?(?:function\b[^(]*\([^)]*\)\s*|(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*)(?=\{|\(\s*\{)/;
 
 /**
- * An assignment, with the declaration keyword bash allows in front of it, `+=`
- * included (#2144).
- *
- * The value may not start with a space, which is what tells `reason="…"` apart
- * from the one-shot environment prefix in `IFS= read … reason`.
+ * @typedef {object} NodeBinding
+ * @property {string} name
+ * @property {[number, number]} head the declaration, `const <name> =` or
+ *   `function <name>(`
+ * @property {[number, number][]} values the stretches whose value the name
+ *   takes
  */
-const ASSIGN_RE =
-	/^(?:(local|export|declare|typeset)[ \t]+)?(?:-\w+[ \t]+)*([A-Za-z_][A-Za-z0-9_]*)\+?=([^ \t][\s\S]*|)$/;
-
-/** A `for` loop's head, which fills its variable from each word in turn
- * (#2144). */
-const FOR_RE = /^for[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]+in\b([\s\S]*)$/;
 
 /**
- * `read` filling a variable, which is how the guards build a multi-line deny
- * reason: `IFS= read -r -d '' reason <<EOF`. The name is the last bare word
- * before the redirection.
- */
-const READ_RE = /\bread\b[\s\S]*?([A-Za-z_][A-Za-z0-9_]*)[ \t]*<<-?/;
-
-/** A heredoc redirection and the delimiter that ends its body. */
-const HEREDOC_RE = /^<<(-?)[ \t]*(?:"([^"]+)"|'([^']+)'|([A-Za-z_][\w]*))/;
-
-/** `HEREDOC_RE` unanchored, for a line-wise search. */
-const HEREDOC_IN_LINE_RE = new RegExp(HEREDOC_RE.source.slice(1));
-
-/**
- * The delimiter a heredoc match closes its body on: whichever of its three
- * spellings — double-quoted, single-quoted, bare — took part. None taking part
- * is a broken invariant, which throws rather than closing the body on the text
- * "undefined" (#1341).
- *
- * @param {RegExpExecArray} h a match of `HEREDOC_RE`'s groups
- * @returns {string}
- * @throws {RuleEmissionError}
- */
-function heredocDelimiter(h) {
-	const delim = h[2] ?? h[3] ?? h[4];
-	if (delim === undefined)
-		throw new RuleEmissionError(
-			`rule-emission: a heredoc match took no delimiter group: ${JSON.stringify(h[0])}`,
-		);
-	return delim;
-}
-
-/**
- * Every function body in one guard's source, as name and the offsets it spans.
- *
- * Both house spellings: `name() {` opening a block that a `}` at column 0
- * closes, and the one-liner `name() { …; }`. The search runs over a copy with
- * heredoc bodies blanked, so a `}` at column 0 inside a deny reason cannot close
- * a span early. A function closed some other way runs to the end of the file,
- * which over-scopes rather than under-scopes.
- *
- * @param {string} text the guard's source
- * @returns {{ name: string, start: number, end: number }[]}
- */
-function functionSpans(text) {
-	const masked = maskHeredocs(text);
-	/** @type {{ name: string, start: number, end: number }[]} */
-	const spans = [];
-	for (const m of masked.matchAll(FUNC_HEAD_RE)) {
-		const start = (m.index ?? 0) + m[0].length;
-		const eol = masked.indexOf("\n", start);
-		const oneLine = masked.slice(start, eol === -1 ? masked.length : eol);
-		const name = requiredGroup(m, 1, FUNC_HEAD_RE);
-		if (/\}[ \t]*$/.test(oneLine)) {
-			spans.push({
-				name,
-				start,
-				end: start + oneLine.lastIndexOf("}"),
-			});
-			continue;
-		}
-		const close = masked.indexOf("\n}", start);
-		spans.push({ name, start, end: close === -1 ? text.length : close });
-	}
-	return spans;
-}
-
-/**
- * The same source with every heredoc body replaced by spaces, offsets intact.
- *
- * Line-wise and quote-blind, so a `<<EOF` inside a comment or a string blanks
- * text that is not a body. That over-blanks, lengthening a function span rather
- * than shortening it.
+ * Where a function body opening at `open` returns a value, as spans: each
+ * `return` statement bar one returning an object literal. A function that
+ * returns a decision spending the fetch — a core's `decide` — carries nothing
+ * on, so the kit passing that decision around is no spend.
  *
  * @param {string} text
+ * @param {number} open the body's `{`
+ * @returns {[number, number][]}
+ */
+function returnSpans(text, open) {
+	const body = bracketed(text, open);
+	return [...body.matchAll(/\breturn\b(?![ \t]*\{)/g)].map((r) => {
+		const from = (r.index ?? 0) + r[0].length;
+		return [open + from, open + statementEnd(body, from)];
+	});
+}
+
+/**
+ * Where a binding's value sits. A function declaration, or a variable
+ * holding a function with a body, takes its non-literal returns
+ * (returnSpans); an arrow returning an object literal, `=> ({ … })`, takes
+ * none; any other variable takes its whole statement.
+ *
+ * @param {string} text
+ * @param {RegExpMatchArray} m a NODE_BINDING_RE match
+ * @returns {[number, number][]}
+ */
+function valueSpans(text, m) {
+	const at = (m.index ?? 0) + m[0].length;
+	if (!m[1]) return returnSpans(text, text.indexOf("{", closeOf(text, at - 1)));
+	const end = statementEnd(text, at);
+	const fn = NODE_FUNCTION_VALUE_RE.exec(text.slice(at, end));
+	if (!fn) return [[at, end]];
+	const open = at + fn[0].length;
+	return text[open] === "{" ? returnSpans(text, open) : [];
+}
+
+/**
+ * @param {string} text
+ * @returns {NodeBinding[]}
+ */
+function nodeBindings(text) {
+	return [...text.matchAll(NODE_BINDING_RE)].map((m) => {
+		const index = m.index ?? 0;
+		return {
+			name: m[1] ?? requiredGroup(m, 2, NODE_BINDING_RE),
+			head: [index, index + m[0].length],
+			values: valueSpans(text, m),
+		};
+	});
+}
+
+/**
+ * The bracketed text opening at `open`, through its closing bracket or the end
+ * of the text; empty where `open` is -1.
+ *
+ * @param {string} text
+ * @param {number} open
  * @returns {string}
  */
-function maskHeredocs(text) {
-	/* One iterator for both loops, so the lines a body consumes are not walked
-	 * again as code. */
-	const lines = text.split("\n")[Symbol.iterator]();
-	/** @type {string[]} */
+function bracketed(text, open) {
+	if (open === -1) return "";
+	const end = closeOf(text, open);
+	return text.slice(open, end === -1 ? text.length : end);
+}
+
+/**
+ * The offset of each accessor call on `id` and each carrier mention in a Node
+ * source.
+ *
+ * @param {string} text
+ * @param {string} id
+ * @param {Set<string>} carriers
+ * @returns {number[]}
+ */
+function fetchMentions(text, id, carriers) {
+	const at = directAccessorCalls(text)
+		.filter((c) => c.id === id)
+		.map((c) => c.index);
+	for (const name of carriers)
+		for (const m of text.matchAll(
+			new RegExp(`(?<![\\w$.])${name.replaceAll("$", "\\$")}(?![\\w$])`, "g"),
+		))
+			at.push(m.index ?? 0);
+	return at;
+}
+
+/**
+ * The names in a Node source whose value can hold the fetch of `id`.
+ *
+ * @param {string} text
+ * @param {NodeBinding[]} bindings
+ * @param {string} id
+ * @returns {Set<string>}
+ */
+function nodeCarriers(text, bindings, id) {
+	/** @type {Set<string>} */
+	const carriers = new Set();
+	for (let grew = true; grew; ) {
+		grew = false;
+		for (const { name, values } of bindings) {
+			const value = values.map(([a, b]) => text.slice(a, b)).join("\n");
+			if (
+				!carriers.has(name) &&
+				fetchMentions(value, id, carriers).length > 0
+			) {
+				carriers.add(name);
+				grew = true;
+			}
+		}
+	}
+	return carriers;
+}
+
+/**
+ * The object literal around each `latchAfter: "<id>"` mark: the nearest `{`
+ * before it whose closing brace falls after it.
+ *
+ * @param {string} text
+ * @param {string} id
+ * @returns {[number, number][]}
+ */
+function latchedLiterals(text, id) {
+	/** @type {[number, number][]} */
 	const out = [];
-	for (const line of lines) {
-		out.push(line);
-		const h = HEREDOC_IN_LINE_RE.exec(line);
-		if (!h || /\$\(\(/.test(line)) continue;
-		const delim = heredocDelimiter(h);
-		const closes = h[1] ? /^[ \t]*/ : /^/;
-		for (const body of lines) {
-			if (body.replace(closes, "") === delim) {
-				out.push(body);
+	for (const m of text.matchAll(MARKED_RULE_RE)) {
+		if (m[1] !== id) continue;
+		const at = m.index ?? 0;
+		for (let open = text.lastIndexOf("{", at); open !== -1; ) {
+			const end = closeOf(text, open);
+			if (end === -1 || end > at) {
+				out.push([open, end === -1 ? text.length : end]);
 				break;
 			}
-			out.push(" ".repeat(body.length));
+			open = text.lastIndexOf("{", open - 1);
 		}
 	}
-	return out.join("\n");
+	return out;
 }
 
 /**
- * The function an offset sits in, or the empty string for top level.
+ * How many emission sites in a guard's EFFECTIVE source can spend an id
+ * (#2905): its `latchAfter: "<id>"` decisions, plus each place it spends the
+ * fetch with no such mark (#3051). A core emits only through the decision it
+ * returns, and the kit marks the latch once that decision's envelope is out,
+ * so each latched decision is one site.
  *
- * @param {number} at
- * @param {{ name: string, start: number, end: number }[]} spans
- * @returns {string}
- */
-function scopeAt(at, spans) {
-	for (const s of spans) if (at >= s.start && at < s.end) return s.name;
-	return "";
-}
-
-/**
- * A literal for splicing into a `new RegExp`, its metacharacters defanged.
+ * An unlatched SPEND is any accessor call or mention of a CARRIER — a binding
+ * whose value holds either, transitively (nodeBindings) — outside a latched
+ * decision's literal, a carrier's own value and a declaration. Names are not
+ * scoped, so a local sharing a carrier's name counts too — the safe direction.
  *
- * @param {string} s
- * @returns {string}
- */
-function reLiteral(s) {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** One statement of a guard's source, tagged with the function it sits in and
- * whether it is a function head.
- * @typedef {{ text: string, scope: string, head: boolean }} BashStatement */
-
-/**
- * bashStatements' lexer state, threaded through its per-character steps.
+ * RESIDUAL: a latch spread in on one branch, `...(c ? { latchAfter } : {})`,
+ * covers its whole literal, so the branch without it reads as latched.
  *
- * @typedef {object} StatementScan
- * @property {string} text the guard's source
- * @property {{ name: string, start: number, end: number }[]} spans
- * @property {BashStatement[]} out
- * @property {number} i the offset being read
- * @property {string} buf the statement read so far
- * @property {number} start the offset `buf` began at
- * @property {boolean} single
- * @property {boolean} double
- * @property {number} arith `$((` … `))`, where `<<` is a left shift and not a
- *   redirection
- * @property {number} depth unquoted parenthesis nesting, which tells a group's
- *   `)` from a case arm's
- */
-
-/**
- * Ends the statement read so far, keeping it unless blank, and starts the next
- * at `next`.
- *
- * @param {StatementScan} scan accumulator: the statement walk's state, advanced in place
- * @param {number} next
- */
-function flushStatement(scan, next) {
-	const s = scan.buf.trim();
-	if (s)
-		scan.out.push({
-			text: s,
-			scope: scopeAt(scan.start, scan.spans),
-			head: /^[A-Za-z_]\w*[ \t]*\([ \t]*\)/.test(s),
-		});
-	scan.buf = "";
-	scan.start = next;
-}
-
-/**
- * Takes an escape or a quote at the read offset into the statement.
- *
- * @param {StatementScan} scan accumulator: the statement walk's state, advanced in place
- * @returns {boolean} whether the offset was one
- */
-function consumeQuoting(scan) {
-	const { text, i } = scan;
-	const c = text[i];
-	if (c === "\\" && !scan.single) {
-		scan.buf += c + (text[i + 1] ?? "");
-		scan.i++;
-		return true;
-	}
-	if (c === "'" && !scan.double) {
-		scan.single = !scan.single;
-		scan.buf += c;
-		return true;
-	}
-	if (c === '"' && !scan.single) {
-		scan.double = !scan.double;
-		scan.buf += c;
-		return true;
-	}
-	return false;
-}
-
-/**
- * The offset a heredoc opening at `i` ends at: the newline after its closing
- * delimiter, else the end of the text.
- *
- * @param {string} text
- * @param {number} i
- * @param {RegExpExecArray} h a match of `HEREDOC_RE` at `i`
+ * @param {string} text the guard's effective source, comments blanked
+ * @param {string} id
  * @returns {number}
- */
-function heredocEnd(text, i, h) {
-	const delim = heredocDelimiter(h);
-	const body = text.indexOf("\n", i);
-	const at =
-		body === -1
-			? -1
-			: text
-					.slice(body)
-					.search(
-						new RegExp(
-							`\\n${h[1] ? "[ \\t]*" : ""}${reLiteral(delim)}[ \\t]*(?:\\n|$)`,
-						),
-					);
-	const raw =
-		body === -1 || at === -1
-			? -1
-			: text.indexOf("\n", body + at + 1 + delim.length);
-	return raw === -1 ? text.length : raw;
-}
-
-/**
- * Skips a comment opening at the read offset, to the end of its line.
- *
- * @param {StatementScan} scan accumulator: the statement walk's state, advanced in place
- * @returns {boolean} whether one opened there
- */
-function skipComment(scan) {
-	const { text, i } = scan;
-	const prev = text[i - 1];
-	if (text[i] !== "#" || !(prev === undefined || /[\s;&|(]/.test(prev)))
-		return false;
-	const nl = text.indexOf("\n", i);
-	scan.i = nl === -1 ? text.length : nl - 1;
-	return true;
-}
-
-/**
- * Ends the statement at a parenthesis bash reads as grouping, not as `$(` or
- * the `()` of a function head: both of those keep their `(` attached to the
- * character in front of it. An unmatched `)` closes a CASE ARM, whose command
- * follows on the same line.
- *
- * @param {StatementScan} scan accumulator: the statement walk's state, advanced in place
- * @returns {boolean} whether it ended one
- */
-function breakAtParen(scan) {
-	const { text, i } = scan;
-	const c = text[i];
-	if (c === "(") {
-		scan.depth++;
-		if (/[$\w(]/.test(text[i - 1] ?? " ")) return false;
-		flushStatement(scan, i + 1);
-		return true;
-	}
-	if (c !== ")") return false;
-	const arm = scan.depth === 0;
-	if (!arm) scan.depth--;
-	if (!arm && /[$(]/.test(text[i - 1] ?? " ")) return false;
-	flushStatement(scan, i + 1);
-	return true;
-}
-
-/**
- * Ends the statement at a statement separator, a grouping parenthesis or a
- * reserved brace. A brace is a reserved word only as a word of its own;
- * `${x}` is not.
- *
- * @param {StatementScan} scan
- * @returns {boolean} whether it ended one
- */
-function breakAtBoundary(scan) {
-	const { text, i } = scan;
-	const c = text[i];
-	if (c === "\n" || c === ";" || c === "|" || c === "&") {
-		flushStatement(scan, i + 1);
-		return true;
-	}
-	if (breakAtParen(scan)) return true;
-	if (
-		(c === "{" || c === "}") &&
-		/[\s;&|]/.test(text[i - 1] ?? " ") &&
-		/[\s;&|]/.test(text[i + 1] ?? " ")
-	) {
-		flushStatement(scan, i + 1);
-		return true;
-	}
-	return false;
-}
-
-/**
- * Takes an unquoted heredoc, comment or boundary at the read offset, tracking
- * `$((` … `))` on the way.
- *
- * @param {StatementScan} scan accumulator: the statement walk's state, advanced in place
- * @returns {boolean} whether the offset was one
- */
-function consumeUnquoted(scan) {
-	const { text, i } = scan;
-	if (text.startsWith("$((", i)) scan.arith++;
-	else if (scan.arith && text.startsWith("))", i)) scan.arith--;
-	const h = scan.arith ? null : HEREDOC_RE.exec(text.slice(i));
-	if (h) {
-		const stop = heredocEnd(text, i, h);
-		scan.buf += text.slice(i, stop);
-		scan.i = stop - 1;
-		return true;
-	}
-	return skipComment(scan) || breakAtBoundary(scan);
-}
-
-/**
- * One guard's source split into statements, each tagged with the function it
- * sits in.
- *
- * Quote-aware, and a heredoc body belongs to the statement that opens it: the
- * guards' deny text runs over many lines inside one quoted span, and a
- * line-wise split would strand the `$(…)` carrying the fragment.
- *
- * BOUNDARIES ARE WIDE ON PURPOSE — newline, `;`, `|`, `&`, `(`, `)` and a
- * reserved `{`/`}`. A boundary missed is an emission read as part of its
- * neighbour and never counted, which is the direction that invents a bound; a
- * boundary taken where bash would not take one only splits a statement in two.
- *
- * @param {string} text the guard's source
- * @param {{ name: string, start: number, end: number }[]} spans
- * @returns {BashStatement[]}
- */
-function bashStatements(text, spans) {
-	/** @type {StatementScan} */
-	const scan = {
-		text,
-		spans,
-		out: [],
-		i: 0,
-		buf: "",
-		start: 0,
-		single: false,
-		double: false,
-		arith: 0,
-		depth: 0,
-	};
-	for (; scan.i < text.length; scan.i++) {
-		if (consumeQuoting(scan)) continue;
-		if (!scan.single && !scan.double && consumeUnquoted(scan)) continue;
-		scan.buf += text[scan.i];
-	}
-	flushStatement(scan, text.length);
-	return scan.out;
-}
-
-/**
- * What can carry one id's fragment through one guard's source. emissionSites
- * grows `fns` and `vars` to a fixed point, and isCarrier reads them as they
- * stand at each test.
- *
- * @typedef {object} Carriers
- * @property {RegExp} fetch the `rule_text` call on the id itself
- * @property {Set<string>} fns function names whose output can hold the fragment
- * @property {{ scope: string, name: string }[]} vars every variable that can
- *   hold the fragment, each with the function bash scopes it to — the empty
- *   string for a global
- * @property {Map<string, Set<string>>} reaches which functions each function
- *   can call, transitively, for `local`'s reach
- */
-
-/**
- * Adds to `reaches` every function one statement calls, with what each of
- * those reaches.
- *
- * @param {BashStatement} s
- * @param {Set<string>} names every function the guard defines
- * @param {Map<string, Set<string>>} reaches
- * @returns {boolean} whether anything was added
- */
-function widenReach(s, names, reaches) {
-	let grew = false;
-	for (const n of names) {
-		const from = reaches.get(s.scope);
-		if (s.head || !from || from.has(n)) continue;
-		if (!new RegExp(`\\b${reLiteral(n)}\\b`).test(s.text)) continue;
-		for (const r of reaches.get(n) ?? []) from.add(r);
-		grew = true;
-	}
-	return grew;
-}
-
-/**
- * Which functions each function can call, transitively; "" is top level.
- *
- * @param {Set<string>} names every function the guard defines
- * @param {BashStatement[]} stmts
- * @returns {Map<string, Set<string>>}
- */
-function callReach(names, stmts) {
-	const reaches = new Map([...names, ""].map((n) => [n, new Set([n])]));
-	for (let grew = true; grew; ) {
-		grew = false;
-		for (const s of stmts) if (widenReach(s, names, reaches)) grew = true;
-	}
-	return reaches;
-}
-
-/**
- * @param {string} t a statement, or the part of one that can hold the fragment
- * @param {string} scope the function `t` sits in
- * @param {Carriers} c
- * @returns {boolean}
- */
-function isCarrier(t, scope, c) {
-	if (c.fetch.test(t)) return true;
-	for (const f of c.fns)
-		if (new RegExp(`\\b${reLiteral(f)}\\b`).test(t)) return true;
-	return c.vars.some(
-		(v) =>
-			(v.scope === "" || c.reaches.get(v.scope)?.has(scope)) &&
-			new RegExp(`\\$\\{?${reLiteral(v.name)}\\b`).test(t),
-	);
-}
-
-/**
- * Records the variable one statement fills from a carrier.
- *
- * @param {BashStatement} s
- * @param {Carriers} c accumulator: a new carrier is recorded in it
- * @param {Map<string, Set<string>>} scopedTo variable name → the scopes it is
- *   local to
- * @returns {boolean} whether the variable was new
- */
-function learnVariable(s, c, scopedTo) {
-	const a = ASSIGN_RE.exec(s.text);
-	const f = a ? null : FOR_RE.exec(s.text);
-	const r = a || f ? null : READ_RE.exec(s.text);
-	const filled = a?.[2] ?? f?.[1] ?? r?.[1];
-	let source = s.text;
-	if (a) source = requiredGroup(a, 3, ASSIGN_RE);
-	else if (f) source = requiredGroup(f, 2, FOR_RE);
-	if (!filled || !isCarrier(source, s.scope, c)) return false;
-	const scope = scopedTo.get(filled)?.has(s.scope) ? s.scope : "";
-	if (c.vars.some((v) => v.scope === scope && v.name === filled)) return false;
-	c.vars.push({ scope, name: filled });
-	return true;
-}
-
-/**
- * Records one statement's function as a carrier where the statement carries.
- *
- * @param {BashStatement} s
- * @param {Carriers} c accumulator: a new carrier is recorded in it
- * @returns {boolean} whether the function was new
- */
-function learnFunction(s, c) {
-	if (
-		!s.scope ||
-		s.head ||
-		c.fns.has(s.scope) ||
-		!isCarrier(s.text, s.scope, c)
-	)
-		return false;
-	c.fns.add(s.scope);
-	return true;
-}
-
-/**
- * A statement with its leading keywords (`if`, `then`, `!` …) cut away.
- *
- * @param {string} text
- * @returns {string}
- */
-function stripKeywords(text) {
-	let head = text;
-	for (let cut = head.replace(STMT_KEYWORD_RE, ""); cut !== head; ) {
-		head = cut;
-		cut = head.replace(STMT_KEYWORD_RE, "");
-	}
-	return head;
-}
-
-/**
- * How many carrying emissions each function holds; "" is top level.
- *
- * @param {BashStatement[]} stmts
- * @param {Carriers} c
- * @returns {Map<string, number>}
- */
-function carryingEmissions(stmts, c) {
-	/** @type {Map<string, number>} */
-	const emits = new Map();
-	for (const s of stmts) {
-		if (s.head) continue;
-		const e = EMIT_ACCESSOR_RE.exec(stripKeywords(s.text));
-		if (e && isCarrier(requiredGroup(e, 1, EMIT_ACCESSOR_RE), s.scope, c))
-			emits.set(s.scope, (emits.get(s.scope) ?? 0) + 1);
-	}
-	return emits;
-}
-
-/**
- * The emissions counted at their functions' call sites, top level's once.
- *
- * @param {Map<string, number>} emits
- * @param {BashStatement[]} stmts
- * @returns {number}
- */
-function siteCount(emits, stmts) {
-	let sites = emits.get("") ?? 0;
-	for (const [fn, n] of emits) {
-		if (!fn) continue;
-		const callers = stmts.filter(
-			(s) =>
-				!s.head &&
-				s.scope !== fn &&
-				new RegExp(`\\b${reLiteral(fn)}\\b`).test(s.text),
-		).length;
-		sites += n * Math.max(1, callers);
-	}
-	return sites;
-}
-
-/**
- * How many EMISSION sites in one guard's source can carry a given id's fragment
- * (mantahostels#2354).
- *
- * A name CARRIES the fragment if it is the fetch itself, a function whose body
- * touches a carrier, or a variable assigned from one — taken to a fixed point,
- * so a helper two statements away from the fetch still counts.
- *
- * AN EMISSION INSIDE A HELPER IS COUNTED AT THE HELPER'S CALL SITES, not once
- * where it is written: a `deny()` two branches both call has two paths through
- * it, and counting the written emission alone would credit a bound covering
- * only one of them. A helper nothing calls counts once.
- *
- * VARIABLE SCOPE IS BASH'S, WHICH IS DYNAMIC: a name declared `local` in a
- * function is visible to every function that one calls, and to nothing else.
- *
- * @param {string} text the guard's source
- * @param {string} id the fragment id
- * @returns {number} emission statements that can spend it
  */
 function emissionSites(text, id) {
-	const spans = functionSpans(text);
-	const stmts = bashStatements(text, spans);
-	const names = new Set(spans.map((s) => s.name));
-	/** @type {Carriers} */
-	const carriers = {
-		fetch: new RegExp(
-			`\\b(?:gp_)?rule_text\\s+["']?${reLiteral(id)}["']?(?![\\w-])`,
-		),
-		fns: new Set(),
-		vars: [],
-		reaches: callReach(names, stmts),
-	};
-	/** @type {Map<string, Set<string>>} variable name → the scopes it is local to */
-	const scopedTo = new Map();
-	for (const s of stmts)
-		for (const d of declaredNames(s.text))
-			scopedTo.set(d, (scopedTo.get(d) ?? new Set()).add(s.scope));
-	/* A fixed point, not one pass: a carrier learnt late makes an earlier
-	 * statement carry too. */
-	for (let grew = true; grew; ) {
-		grew = false;
-		for (const s of stmts) {
-			if (learnVariable(s, carriers, scopedTo)) grew = true;
-			if (learnFunction(s, carriers)) grew = true;
-		}
-	}
-	return siteCount(carryingEmissions(stmts, carriers), stmts);
+	const bindings = nodeBindings(text);
+	const carriers = nodeCarriers(text, bindings, id);
+	const latched = latchedLiterals(text, id);
+	const covered = [
+		...latched,
+		...bindings.map((b) => b.head),
+		...bindings.filter((b) => carriers.has(b.name)).flatMap((b) => b.values),
+	];
+	const spends = fetchMentions(text, id, carriers).filter(
+		(at) => !covered.some(([a, b]) => a <= at && at < b),
+	);
+	return latched.length + spends.length;
 }
 
 /**
- * The names one statement declares `local` to its own function, if any.
+ * How well one guard's `ctx.told` bound covers its own direct calls on an id
+ * (mantahostels#2283).
  *
- * @param {string} stmt
- * @returns {string[]}
- */
-function declaredNames(stmt) {
-	const declRe = /^(?:local|declare|typeset)[ \t]+((?:-\w+[ \t]+)*)([\s\S]*)$/;
-	const nameRe = /^([A-Za-z_]\w*)(?:=|$)/;
-	const m = declRe.exec(stmt);
-	if (!m) return [];
-	/** @type {string[]} */
-	const names = [];
-	for (const w of requiredGroup(m, 2, declRe).split(/[ \t]+/)) {
-		const n = nameRe.exec(w);
-		if (n) names.push(requiredGroup(n, 1, nameRe));
-	}
-	return names;
-}
-
-/**
- * How well one guard's `gp_rule_told` bound covers its own direct calls on an
- * id (mantahostels#2283).
- *
- * `none` — no bound at all, or a `gp_rule_told` with no matching
- *   `gp_rule_mark_told` (MARKED_RULE_RE's docstring above) — either way the
- *   fragment is paid on every firing.
+ * `none` — no bound at all, or a `ctx.told` with no matching `latchAfter`
+ *   (MARKED_RULE_RE's docstring above) — either way the fragment is paid on
+ *   every firing.
  * `bounded` — a bound, one fetch site, and one emission site spending it.
  * `ambiguous` — a bound whose target cannot be read off the text: more than one
- *   fetch site, more than one emission site, or no emission site the scan can
- *   correlate with the fetch (mantahostels#2354).
+ *   fetch site, more than one emission site, or none (mantahostels#2354).
  *
  * @typedef {"none" | "bounded" | "ambiguous"} LatchState
  */
@@ -1044,7 +652,7 @@ function weakerLatch(a, b) {
 }
 
 /**
- * The distinct ids one guard's source latches through `gp_rule_told`.
+ * The distinct ids one guard's source latches through `ctx.told`.
  *
  * @param {string} text the guard's source
  * @returns {string[]}
@@ -1055,7 +663,7 @@ function latchedRuleIds(text) {
 
 /**
  * The distinct ids one guard's source RECORDS as delivered, through
- * `gp_rule_mark_told` or `gp_rule_latch_after`.
+ * `latchAfter`.
  *
  * @param {string} text the guard's source
  * @returns {string[]}
@@ -1065,17 +673,17 @@ function markedRuleIds(text) {
 }
 
 /**
- * The distinct ids a three-alternative id pattern finds, in the order given.
+ * The distinct ids a pattern finds, in the order given.
  *
  * @param {string} text
- * @param {RegExp} re a global pattern whose groups 1-3 are the quoting variants
+ * @param {RegExp} re a global pattern whose group 1 is the id
  * @returns {string[]}
  */
 function idsMatching(text, re) {
 	/** @type {string[]} */
 	const ids = [];
 	for (const m of text.matchAll(re)) {
-		const id = m[1] ?? m[2] ?? m[3];
+		const id = m[1];
 		if (id && !ids.includes(id)) ids.push(id);
 	}
 	return ids;
@@ -1096,25 +704,25 @@ function sum(ns) {
 /**
  * The DISTINCT rule ids one guard can reach, and the bytes they resolve to.
  *
- * EVERY FRAGMENT IS RESOLVED, including one that would fall past GP_RULE_CAP on
- * a crowded call: gp_rule resolves its whole argument list before it emits
- * anything and exits 2 on any id the store cannot answer for, so an unresolvable
- * id is a store fault wherever it sits.
+ * EVERY FRAGMENT IS RESOLVED, including one that would fall past RULE_CAP on
+ * a crowded emission: lib/guard-entry.js resolves every id before it emits
+ * anything and refuses the call on any id the store cannot answer for, so an
+ * unresolvable id is a store fault wherever it sits.
  *
- * A FRAGMENT OVER THE CAP ON ITS OWN IS NOT A THROW (mantahostels#2054): gp_rule can never
- * emit it whole — offered first in a call with nothing else emitted yet, it
- * exits 2 and denies the tool call outright; offered after other ids, it is
- * deferred instead (guard-parse.sh's `break`), unlatched, so the same refusal
- * lands once those have latched and it is first in line. Either way it is the
- * repo's own rule text, not this module's apparatus — a fact for the caller to
- * report as a finding, not a fault this module raises. It is excluded from
- * `ids`/`bytes` (a call that can never emit it pays nothing) and named in
- * `overCap` instead, so the caller can tell "pays nothing" from "was never
- * even offered".
+ * A FRAGMENT OVER THE CAP ON ITS OWN IS NOT A THROW (mantahostels#2054): it can
+ * never be emitted whole — offered first with nothing else emitted yet, it
+ * denies the tool call outright; offered after other ids, it is deferred
+ * instead (guard-entry.js's fitCap), unlatched, so the same refusal lands once
+ * those have latched and it is first in line. Either way it is the repo's own
+ * rule text, not this module's apparatus — a fact for the caller to report as
+ * a finding, not a fault this module raises. It is excluded from `ids`/`bytes`
+ * (an emission that can never carry it pays nothing) and named in `overCap`
+ * instead, so the caller can tell "pays nothing" from "was never even
+ * offered".
  *
- * @param {string[][]} calls the guard's gp_rule calls
+ * @param {string[][]} calls the guard's emissions
  * @param {(id: string) => string} resolve
- * @param {number} cap GP_RULE_CAP
+ * @param {number} cap RULE_CAP
  * @returns {{ ids: string[], bytes: Map<string, number>, overCap: { id: string, bytes: number }[] }}
  */
 function guardIds(calls, resolve, cap) {
@@ -1159,11 +767,10 @@ function sourceOf(sources, rel) {
 /**
  * A `source` or `.` line's argument, at the head of its statement.
  *
- * ANCHORED, like EMIT_RULE_RE and for the same reason: `source` and `.` are
- * bare words, and the shellcheck directive above every real one
- * (`# shellcheck source=lib/guard-parse.sh`) would otherwise match as a second
- * source line for the same lib. A conditional `[ -f x ] && source x` is
- * invisible; no guard spells one that way.
+ * ANCHORED: `source` and `.` are bare words, and the shellcheck directive
+ * above every real one (`# shellcheck source=lib/rule-text.sh`) would
+ * otherwise match as a second source line for the same lib. A conditional
+ * `[ -f x ] && source x` is invisible.
  */
 const SOURCE_LINE_RE = /^[ \t]*(?:source|\.)[ \t]+(\S.*)$/gm;
 
@@ -1175,6 +782,13 @@ const SOURCE_LINE_RE = /^[ \t]*(?:source|\.)[ \t]+(\S.*)$/gm;
  * this matches rather than the expansions themselves.
  */
 const SOURCE_PREFIX_RE = /^.*[$})]\w*\//;
+
+/**
+ * A Node file's relative `require`: a Node guard reaches its core, and the
+ * core's ids, this way. Only scripts/lib is followed, here and in
+ * check-guard-registry.js.
+ */
+const REQUIRE_RE = /require\(\s*["'](\.[\w./-]+\.js)["']\s*\)/g;
 
 /**
  * The libs one file `source`s, as repo-relative paths, in the order given.
@@ -1203,6 +817,14 @@ function sourcedLibs(text, rel) {
 		if (resolved.startsWith("..")) continue;
 		if (!out.includes(resolved)) out.push(resolved);
 	}
+	if (isNodeGuard(rel))
+		for (const m of text.matchAll(REQUIRE_RE)) {
+			const resolved = path.posix.normalize(
+				path.posix.join(dir, requiredGroup(m, 1, REQUIRE_RE)),
+			);
+			if (resolved.startsWith("scripts/lib/") && !out.includes(resolved))
+				out.push(resolved);
+		}
 	return out;
 }
 
@@ -1210,24 +832,17 @@ function sourcedLibs(text, rel) {
  * One guard's EFFECTIVE source: its own text, then every lib it sources,
  * transitively, joined by newlines.
  *
- * NOT FOR `emissionSites`, WHICH KEEPS THE GUARD'S OWN TEXT. It counts the
- * emissions that can spend a fragment, and the accessors it counts —
- * `gp_context`, `gp_warn`, `gp_deny` — are DEFINED in lib/guard-parse.sh. Hand
- * it the effective source and each definition reads as a second emission,
- * turning a real bound `ambiguous` (mantahostels#2488). Residual: a guard whose
- * emission sits inside a lib helper is uncorrelated and reads `ambiguous`.
- *
  * AN UNREADABLE LIB IS SKIPPED SILENTLY (mantahostels#2488), unlike an unreadable wired
  * guard, which throws. A source line may name a path this module has no
  * business insisting on — a test's `sources` map carries the wired guards and
  * not their libs. IT IS A FAIL-OPEN AND NOTHING REPORTS IT: a lib whose
  * accessor calls go unread reads as absent.
  *
- * WHAT THE WIDENING COSTS IN THE OTHER DIRECTION. DIRECT_RULE_RE is unanchored
- * and lib/guard-parse.sh is sourced by every guard, so a literal `rule_text`
- * fetch — or a mention of one in a lib COMMENT — becomes a splice for all of
- * them, and an unlatched one strands the self-composing predicate of every
- * guard that reads as splicing nothing today.
+ * WHAT THE WIDENING COSTS IN THE OTHER DIRECTION. DIRECT_RULE_RE is unanchored,
+ * so a literal `rule_text` fetch — or a mention of one in a lib COMMENT —
+ * becomes a splice for every guard sourcing that lib, and an unlatched one
+ * strands the self-composing predicate of every guard that reads as splicing
+ * nothing today.
  *
  * @param {string} rel the guard's repo-relative path
  * @param {string} text the guard's own source
@@ -1235,8 +850,8 @@ function sourcedLibs(text, rel) {
  *   it cannot be read
  * @returns {string}
  */
-function effectiveSource(rel, text, readLib) {
-	return [text, ...sourcedClosure(rel, text, readLib).values()].join("\n");
+function readEffectiveSource(rel, text, readLib) {
+	return [text, ...readSourcedClosure(rel, text, readLib).values()].join("\n");
 }
 
 /**
@@ -1250,7 +865,7 @@ function effectiveSource(rel, text, readLib) {
  * @param {(rel: string) => string | null} readLib
  * @returns {Map<string, string>}
  */
-function sourcedClosure(rel, text, readLib) {
+function readSourcedClosure(rel, text, readLib) {
 	const seen = new Set([rel]);
 	/** @type {Map<string, string>} */
 	const libs = new Map();
@@ -1292,20 +907,26 @@ function readGuard(abs, rel) {
  *
  * @param {Settings} settings
  * @param {string} event
+ * @param {import("./guard-cores.js").Manifest} [manifest] the dispatcher
+ *   rows of the tree measured, this plugin's where unnamed
  * @returns {Registration[]}
  */
-function registrationsOn(settings, event) {
+function registrationsOn(settings, event, manifest) {
 	const entries = settings?.hooks?.[event];
 	if (entries === undefined) return [];
 	if (!Array.isArray(entries))
 		throw new RuleEmissionError(
 			`rule-emission: settings.hooks.${event} is not an array, so no group can be computed.`,
 		);
-	return entries.flatMap((entry) =>
-		(entry?.hooks ?? []).map((h) => ({
-			matcher: entry?.matcher,
-			commandLine: hookCommandLine(h),
-		})),
+	return expandDispatched(
+		event,
+		entries.flatMap((entry) =>
+			(entry?.hooks ?? []).map((h) => ({
+				matcher: entry?.matcher,
+				commandLine: buildHookCommandLine(h),
+			})),
+		),
+		manifest,
 	);
 }
 
@@ -1344,7 +965,7 @@ function matcherCovers(matcher, tool) {
 /** One id's direct-call census entry within one guard.
  * @typedef {{ bytes: number | null, latch: LatchState }} DirectFigure */
 
-/** A `gp_rule_told` bound covering nothing, before reachableByTool names its
+/** A `ctx.told` bound covering nothing, before reachableByTool names its
  * guard.
  * @typedef {{ id: string, resolves: boolean, bound: boolean, marked: boolean }} LatchFault */
 
@@ -1389,22 +1010,22 @@ function withRuleStore(rulesDir, rulesFallbackDir, read) {
 }
 
 /**
- * One guard's own source and its effective source, from `sources` where given,
- * else from disk under `root`.
+ * One guard's effective source, from `sources` where given, else from disk
+ * under `root`.
  *
  * @param {string} rel
  * @param {Record<string, string> | undefined} sources
  * @param {string} root
- * @returns {{ own: string, effective: string }}
+ * @returns {string}
  */
-function guardSources(rel, sources, root) {
+function readGuardSource(rel, sources, root) {
 	/* A guard the wiring names but this module cannot read throws rather
 	 * than contributing 0 B: a silent skip deflates the total in the one
 	 * direction that makes an over-cap group look compliant. */
 	const own = sources
 		? sourceOf(sources, rel)
 		: readGuard(path.join(root, rel), rel);
-	const effective = effectiveSource(rel, own, (lib) => {
+	return readEffectiveSource(rel, own, (lib) => {
 		if (sources) return sources[lib] ?? null;
 		try {
 			return fs.readFileSync(path.join(root, lib), "utf8");
@@ -1412,11 +1033,10 @@ function guardSources(rel, sources, root) {
 			return null;
 		}
 	});
-	return { own, effective };
 }
 
 /**
- * One guard's gp_rule calls, each with its module-off ids dropped and an
+ * One guard's emissions, each with its module-off ids dropped and an
  * emptied call dropped with them.
  *
  * @param {string} rel
@@ -1433,7 +1053,7 @@ function liveRuleCalls(rel, effective, root) {
 			cause: e,
 		});
 	}
-	return ruleCalls(expandRuleTables(effective))
+	return ruleCalls(effective)
 		.map((ids) => ids.filter((id) => !off.has(id)))
 		.filter((ids) => ids.length);
 }
@@ -1448,13 +1068,13 @@ function reachedIds(rel, calls, cap) {
 	/* rule-text's throw names the id and not the caller, and the caller is
 	 * what a session has to open to fix it. */
 	try {
-		return guardIds(calls, ruleText, cap);
+		return guardIds(calls, readRuleText, cap);
 	} catch (e) {
 		const { message } = caught(e);
 		throw new RuleEmissionError(
 			e instanceof RuleEmissionError
 				? `rule-emission: ${rel}: ${message}`
-				: `rule-emission: ${rel} calls gp_rule with an id the store cannot ` +
+				: `rule-emission: ${rel} injects an id the store cannot ` +
 						`resolve: ${message}`,
 			{ cause: e },
 		);
@@ -1464,7 +1084,7 @@ function reachedIds(rel, calls, cap) {
 /**
  * The direct-call census of one guard, id by id.
  *
- * The direct census never throws where guardIds does. A gp_rule id the
+ * The direct census never throws where guardIds does. An injected id the
  * store cannot answer for denies the tool call at run time, so it is a
  * fault worth stopping on; a direct call falls back to the guard's own
  * hardcoded sentence and still fires, so the same id costs a census
@@ -1473,23 +1093,23 @@ function reachedIds(rel, calls, cap) {
  * @param {Map<string, number>} counts direct call sites per id
  * @param {Set<string>} latched
  * @param {Set<string>} marked
- * @param {string} own the guard's own source, for emissionSites
+ * @param {(id: string) => number} sitesOf the emission sites spending an id
  * @returns {Map<string, DirectFigure>}
  */
-function directCensus(counts, latched, marked, own) {
+function directCensus(counts, latched, marked, sitesOf) {
 	/** @type {Map<string, DirectFigure>} */
 	const direct = new Map();
 	for (const [id, sites] of counts) {
 		let n = null;
 		try {
-			n = Buffer.byteLength(ruleText(id), "utf8");
+			n = Buffer.byteLength(readRuleText(id), "utf8");
 		} catch {
 			n = null;
 		}
 		/** @type {LatchState} */
 		let latch = "ambiguous";
 		if (!latched.has(id) || !marked.has(id)) latch = "none";
-		else if (sites === 1 && emissionSites(own, id) === 1) latch = "bounded";
+		else if (sites === 1 && sitesOf(id) === 1) latch = "bounded";
 		direct.set(id, { bytes: n, latch });
 	}
 	return direct;
@@ -1499,7 +1119,7 @@ function directCensus(counts, latched, marked, own) {
  * @param {Map<string, number>} counts direct call sites per id
  * @param {Set<string>} latched
  * @param {Set<string>} marked
- * @param {string[][]} calls the guard's live gp_rule calls
+ * @param {string[][]} calls the guard's live emissions
  * @returns {LatchFault[]}
  */
 function guardLatchFaults(counts, latched, marked, calls) {
@@ -1507,7 +1127,7 @@ function guardLatchFaults(counts, latched, marked, calls) {
 	 * while the census reports the real fragment bounded. */
 	/** @type {LatchFault[]} */
 	const latchFaults = [];
-	/* A guard composing its own text and latching THAT, which gp_rule_told
+	/* A guard composing its own text and latching THAT, which `ctx.told`
 	 * was built for (mantahostels#2275), has no fragment to resolve and no accessor to
 	 * bind, so those two limbs read as failures on a working bound (mantahostels#2446).
 	 *
@@ -1515,9 +1135,10 @@ function guardLatchFaults(counts, latched, marked, calls) {
 	 * id also resolves to nothing and binds to nothing: an id the guard
 	 * FETCHES and never latches is a splice the typo could have been meant
 	 * for, and a guard with none has nothing for it to be a typo of. Both
-	 * fetch routes count, `rule_text` and `gp_rule` alike — over `counts`
-	 * alone a guard reaching the store only through `gp_rule` reads as having
-	 * no splices at all, and its typo goes unreported (mantahostels#2470).
+	 * fetch routes count, a direct accessor call and `injectRules` alike —
+	 * over `counts` alone a guard reaching the store only through
+	 * `injectRules` reads as having no splices at all, and its typo goes
+	 * unreported (mantahostels#2470).
 	 *
 	 * BACKTICK EVERY ACCESSOR NAMED IN PROSE HERE. check-guard-registry.js
 	 * scans this file for accessor calls lexically, and an unquoted
@@ -1528,17 +1149,17 @@ function guardLatchFaults(counts, latched, marked, calls) {
 	for (const id of latched) {
 		let resolves = true;
 		try {
-			ruleText(id);
+			readRuleText(id);
 		} catch {
 			resolves = false;
 		}
 		/* `counts` and `marked` read the EFFECTIVE source (mantahostels#2488), so a
-		 * call or a `gp_rule_mark_told` in a sourced lib is seen. What
+		 * call or a `latchAfter` in a sourced lib is seen. What
 		 * neither can still say is that the call does not EXIST: an id
 		 * passed as a variable is invisible either way (mantahostels#2283, mantahostels#2378).
 		 * check-context-budget.js hedges both fault messages accordingly
-		 * ("no direct accessor call ... is visible" / "no gp_rule_mark_told
-		 * call ... is visible"), pinned in
+		 * ("no direct accessor call ... is visible" / "no latchAfter
+		 * decision ... is visible"), pinned in
 		 * check-context-budget-session-cap.test.ts. */
 		const bound = counts.has(id);
 		const isMarked = marked.has(id);
@@ -1583,13 +1204,19 @@ function guardLatchFaults(counts, latched, marked, calls) {
  * @returns {GuardReach}
  */
 function guardReach(rel, sources, root, cap) {
-	const { own, effective } = guardSources(rel, sources, root);
+	const effective = readGuardSource(rel, sources, root);
 	const calls = liveRuleCalls(rel, effective, root);
 	const reached = reachedIds(rel, calls, cap);
-	const counts = directRuleCounts(effective);
-	const latched = new Set(latchedRuleIds(effective));
-	const marked = new Set(markedRuleIds(effective));
-	const direct = directCensus(counts, latched, marked, own);
+	/* A Node guard reads with its comments blanked, so a mention in one is no
+	 * call, bound or mark (#3051). A bash guard keeps them: `#` is no JS
+	 * comment, and DIRECT_RULE_RE's docstring says why over-counting is safe. */
+	const code = isNodeGuard(rel) ? blankComments(effective) : effective;
+	const counts = directRuleCounts(code);
+	const latched = new Set(latchedRuleIds(code));
+	const marked = new Set(markedRuleIds(code));
+	const direct = directCensus(counts, latched, marked, (id) =>
+		emissionSites(code, id),
+	);
 	const latchFaults = guardLatchFaults(counts, latched, marked, calls);
 	return { ...reached, calls: calls.length, direct, latchFaults };
 }
@@ -1688,14 +1315,14 @@ function latchFaultRows(byGuard) {
 /**
  * The direct-call census (mantahostels#2055).
  *
- * NOTHING IS DROPPED: a direct call does not consult gp_rule's latch, so it
- * is paid again every time its guard fires. That is true of an id gp_rule
- * ALSO reaches — the figures carry its once-a-session pre-emission, never
+ * NOTHING IS DROPPED: a direct call does not consult the injection latch, so
+ * it is paid again every time its guard fires. That is true of an id
+ * `injectRules` ALSO reaches — the figures carry its once-a-session pre-emission, never
  * its repeats — so such an id is flagged `counted` rather than omitted, and
  * a reader adding this census to the tool and ratchet figures does not double
  * it.
  *
- * A CALLER MAY BOUND ITS OWN REPEAT, through gp_rule_told's separate latch
+ * A CALLER MAY BOUND ITS OWN REPEAT, through `ctx.told`'s separate latch
  * (mantahostels#2275), and `latched` says which do. That changes no figure here: the
  * bytes are still route (e) and still uncapped.
  *
@@ -1751,7 +1378,7 @@ function directRows(byGuard, acrossGuards) {
  *   and cleared where omitted, so a test's throwaway store inherits nothing: an
  *   override implies no core layer (rule-text.js rulesDirs()). Ignored without
  *   `rulesDir`.
- * @property {string} [capFile] absolute path of the GP_RULE_CAP assignment.
+ * @property {string} [capFile] absolute path of the RULE_CAP assignment.
  */
 
 /**
@@ -1762,33 +1389,37 @@ function directRows(byGuard, acrossGuards) {
  * @returns {{ cap: number, tools: Record<string, { bytes: number, ids: string[], guards: GuardFigure[] }>, ratchet: { bytes: number, ids: string[] }, overCap: { id: string, bytes: number, guards: string[] }[], direct: { id: string, bytes: number | null, guards: string[], counted: boolean, latched: LatchState }[], latchFaults: { id: string, guard: string, resolves: boolean, bound: boolean, marked: boolean }[], fragmentBytes: Record<string, number> }}
  *   Every tool any PreToolUse matcher names gets an entry, at zero where its
  *   group emits nothing. `overCap` names every fragment a wired guard
- *   reaches that gp_rule can never emit (mantahostels#2054), one entry per id naming every
+ *   reaches that can never be emitted (mantahostels#2054), one entry per id naming every
  *   guard that reaches it. `direct` is the census of every id a wired guard
  *   reaches through a direct `rule_text` call (mantahostels#2055): route (e) delivery, so
  *   no figure above prices it. `counted` marks an id the figures DO carry by
  *   the pre-emptive route, whose direct repeats they still do not. `latched`
  *   reads `bounded` where every direct caller bounds its own repeat through
- *   `gp_rule_told` (mantahostels#2275) AND that bound correlates with the call it covers,
+ *   `ctx.told` (mantahostels#2275) AND that bound correlates with the call it covers,
  *   `ambiguous` where a caller's cannot be correlated, `none` otherwise
  *   (mantahostels#2283). `bytes` is null on an id the store cannot answer for, which a direct call
- *   survives. `latchFaults` names every `gp_rule_told` bounding nothing —
+ *   survives. `latchFaults` names every `ctx.told` bounding nothing —
  *   `resolves: false` for an id no fragment answers to, `bound: false` for one
  *   its own guard makes no visible direct call on, `marked: false` for one its
- *   own guard makes no visible `gp_rule_mark_told` call on, so the bound never
+ *   own guard makes no visible `latchAfter` decision on, so the bound never
  *   comes true — and over WIRED guards only, so a dead latch in an unwired
  *   script is invisible. A guard reaching the store by neither route composes
  *   its own text and is judged on the `marked` limb alone (mantahostels#2446).
  *   `fragmentBytes` is every reachable id's bytes
  *   by either route, over cap or not (mantahostels#2260).
  * @throws {RuleEmissionError} on an unreadable cap source or a malformed
- *   settings shape; and it lets rule-text's own throw escape, so a gp_rule call
+ *   settings shape; and it lets rule-text's own throw escape, so an emission
  *   naming an id with no fragment surfaces there rather than counting as zero.
  */
 function reachableByTool(options = {}) {
 	const root = options.root ?? hostRoot();
-	const settings = settingsOf(options, root);
-	const cap = gpRuleCap(options.capFile);
-	const registrations = registrationsOn(settings, EVENT);
+	const settings = readSettings(options, root);
+	const cap = readRuleCap(options.capFile);
+	const registrations = registrationsOn(
+		settings,
+		EVENT,
+		readManifest(manifestAt(root)),
+	);
 	const tools = matcherTools(registrations);
 	const byGuard = guardReaches(registrations, options, root, cap);
 
@@ -1810,11 +1441,11 @@ function reachableByTool(options = {}) {
 
 	/* Every id a wired guard reaches, and its bytes, over cap or not (mantahostels#2260).
 	 *
-	 * THE TWO gp_rule SETS ARE DISJOINT BY CONSTRUCTION, not merged here:
+	 * THE TWO INJECTION SETS ARE DISJOINT BY CONSTRUCTION, not merged here:
 	 * guardIds() puts an over-cap id in `overCap` and excludes it from `bytes`,
 	 * so neither loop below can overwrite the other's entry.
 	 *
-	 * THE DIRECT CENSUS IS SEEDED FIRST and so never overwrites a gp_rule
+	 * THE DIRECT CENSUS IS SEEDED FIRST and so never overwrites an injection
 	 * figure, which is the one the caps are taken against. It is included at
 	 * all because an id can move BETWEEN the routes. */
 	/** @type {Record<string, number>} */
@@ -1842,8 +1473,8 @@ function reachableByTool(options = {}) {
  * @param {string} root
  * @returns {Settings}
  */
-function settingsOf(options, root) {
-	return options.settings ?? { hooks: ownHooks(root) ?? {} };
+function readSettings(options, root) {
+	return options.settings ?? { hooks: readOwnHooks(root) ?? {} };
 }
 
 /**
@@ -1894,8 +1525,8 @@ function afterSplit(g) {
 /**
  * The rule text each hook on AFTER_EVENTS can hand a session (#2144), priced
  * as reachableByTool prices a PreToolUse guard: an id is paid once a session
- * where a latch bounds it — gp_rule's own, or a direct call's `bounded`
- * gp_rule_told — and the session figure is the union of those ids.
+ * where a latch bounds it — the injection latch, or a direct call's
+ * `bounded` `ctx.told` — and the session figure is the union of those ids.
  *
  * AN UNBOUNDED DIRECT CALL IS PAID EVERY TIME ITS HOOK FIRES, so it goes in
  * `perFire` and on no session figure; `ambiguous` counts as unbounded, the
@@ -1905,8 +1536,8 @@ function afterSplit(g) {
  * KEYED ON THE HOOK, NOT THE TOOL: a guard wired on two events is two rows,
  * and the union counts its ids once. Each row lists every id its guard
  * reaches, whatever event branch the guard takes them on — the safe
- * direction. It is not unioned with the PreToolUse ratchet: gp_rule_told's
- * latch is not gp_rule's, so an id both routes reach is paid by each.
+ * direction. It is not unioned with the PreToolUse ratchet: `ctx.told`'s
+ * latch is not the injection latch, so an id both routes reach is paid by each.
  *
  * `overCap` and `latchFaults` are reachableByTool's, over these guards.
  *
@@ -1915,11 +1546,12 @@ function afterSplit(g) {
  */
 function reachableAfterCall(options = {}) {
 	const root = options.root ?? hostRoot();
-	const settings = settingsOf(options, root);
+	const settings = readSettings(options, root);
+	const manifest = readManifest(manifestAt(root));
 	const wired = AFTER_EVENTS.flatMap((event) =>
-		registrationsOn(settings, event).map((r) => ({ ...r, event })),
+		registrationsOn(settings, event, manifest).map((r) => ({ ...r, event })),
 	);
-	/* Nothing wired reads no GP_RULE_CAP: a host need not ship guard-parse.sh
+	/* Nothing wired reads no RULE_CAP: a host need not ship hook-limits.sh
 	 * to have no hooks. */
 	if (wired.length === 0)
 		return {
@@ -1929,7 +1561,7 @@ function reachableAfterCall(options = {}) {
 			overCap: [],
 			latchFaults: [],
 		};
-	const cap = gpRuleCap(options.capFile);
+	const cap = readRuleCap(options.capFile);
 	const byGuard = guardReaches(wired, options, root, cap);
 	/** @type {AfterHook[]} */
 	const hooks = [];
@@ -1964,20 +1596,21 @@ function reachableAfterCall(options = {}) {
 }
 
 module.exports = {
+	REQUIRE_RE,
 	AFTER_EVENTS,
 	CAP_SOURCE,
 	EVENT,
 	registrationsOn,
-	DIRECT_RULE_RE,
-	MARKED_RULE_RE,
-	EMIT_RULE_RE,
+	directAccessorCalls,
+	emissionMatches,
+	firstUnreadInjection,
 	RULE_ARG_RE,
 	WIRED_SCRIPT_RE,
 	directRuleCounts,
-	ruleArgs,
-	gpRuleCap,
-	hookCommandLine,
-	sourcedClosure,
+	readRuleCap,
+	readHookPersistChars,
+	buildHookCommandLine,
+	readSourcedClosure,
 	reachableAfterCall,
 	reachableByTool,
 };

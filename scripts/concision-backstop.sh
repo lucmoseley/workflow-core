@@ -25,7 +25,7 @@
 # working tree from inside a session-scoped hook, so without a filter they bill
 # whichever session stops next for whatever every parallel session has been
 # doing. So every candidate path is intersected with this session's own write
-# ledger — scripts/record-write.sh on PostToolUse, stored by
+# ledger — the post-write core (scripts/lib/post-write.js) on PostToolUse, stored by
 # scripts/session-arbiter.js — and the paths its own ledgered commits touched
 # (#766, #2390) before anything is counted.
 #
@@ -76,7 +76,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/marker-root.sh"
 # The marker rules (#1005).
 # shellcheck source=scripts/lib/concision-marker.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/concision-marker.sh"
-# The code signal guard-push-rules.sh reads too (#1163): its paths, its floor
+# The code signal push-review-owed.sh reads too (#1163): its paths, its floor
 # and the /implement marker that lowers it.
 # shellcheck source=scripts/lib/code-signal.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/code-signal.sh" 2>/dev/null || {
@@ -236,7 +236,7 @@ was_escalated="" new_marker=""
 [ "$latched_tier" = escalated ] && was_escalated=1
 [ "$latched_sum" != "$marker_sum" ] && new_marker=1
 if { [ -z "$was_escalated" ] || [ -n "$new_marker" ]; } &&
-  review_uncovered "$code_marker" "$base" "$mine" "$cs_threshold" &&
+  review_uncovered "$code_marker" "$base" "$mine" "$cs_threshold" "$sid" &&
   { [ ! -f "$code_latch" ] ||
     { [ "$cs_tier" = escalated ] && [ -z "$was_escalated" ]; } ||
     { [ -n "$cs_pass_fault" ] && [ -n "$new_marker" ]; }; }; then

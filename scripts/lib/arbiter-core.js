@@ -18,14 +18,12 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDir } = require("./config-dir.js");
-const { execFileSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
+const { gitAnswer } = require("./git.js");
 const regions = require("./doc-map-regions.js");
-const { holderAlive, procStartOf } = require("./arbiter-proc.js");
+const { holderAlive, readProcStartOf } = require("./arbiter-proc.js");
 const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 const { realKey } = require("./deref.js");
 const { hostRoot } = require("./host-root.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -137,7 +135,12 @@ function storeConfigDir() {
  * them never looks in.
  */
 function repoRoot() {
-	return hostRoot();
+	if (gitBound.ms === undefined) return hostRoot();
+	gitBound.root ??= hostRoot(process.cwd(), {
+		timeoutMs: gitBound.ms,
+		onTimeout: markOverrun,
+	});
+	return gitBound.root;
 }
 
 /**
@@ -156,6 +159,9 @@ function stateDir() {
 /** @param {string} root */
 const stateDirFor = (root) =>
 	path.join(storeConfigDir(), "projects", projectSlug(root));
+
+/** @param {string} [root] the host root where the caller already holds it */
+const stateDirOf = (root) => (root ? stateDirFor(root) : stateDir());
 
 /** @param {string} dir */
 const isSeat = (dir) =>
@@ -182,7 +188,7 @@ const idSlug = (id) => String(id).replace(/[^A-Za-z0-9_-]/g, "-");
  *
  * The id goes LAST, so every record belonging to one session shares a filename
  * suffix and a reader can find its own without opening any of the others
- * (observedBy, mantahostels#419).
+ * (readObservedBy, mantahostels#419).
  * @param {string} rel
  * @param {string} id
  */
@@ -200,7 +206,7 @@ const paths = {
 	repoRoot,
 	stateDir,
 	sessionsDir: () => path.join(configDir(), "sessions"),
-	/** Every registry sessionEntries walks — this session's own, and its neighbours'. */
+	/** Every registry readSessionEntries walks — this session's own, and its neighbours'. */
 	sessionDirs: () => sessionDirs().map((d) => path.join(d, "sessions")),
 
 	// Outside the working tree deliberately (mantahostels#103): an in-repo registry would
@@ -293,15 +299,14 @@ const paths = {
 	 * it is not this one's.
 	 * @param {string} [root]
 	 */
-	commitsDir: (root) =>
-		path.join(root ? stateDirFor(root) : stateDir(), "commits"),
+	commitsDir: (root) => path.join(stateDirOf(root), "commits"),
 
 	/**
 	 * The acts ledger: what else THIS session did — closed, filed, asked,
 	 * relabelled, blocked (#2308, #2464). Read beside the commit ledger, and pruned with it.
 	 * @param {string} [root]
 	 */
-	actsDir: (root) => path.join(root ? stateDirFor(root) : stateDir(), "acts"),
+	actsDir: (root) => path.join(stateDirOf(root), "acts"),
 
 	/** @param {string} rel */
 	lock: (rel) => path.join(paths.locksDir(), `${keyFor(rel)}.json`),
@@ -387,8 +392,7 @@ const paths = {
 	 * `root` reads another checkout's store, for a parent issue there (#2310).
 	 * @param {string} [root]
 	 */
-	issueClaimsDir: (root) =>
-		path.join(root ? stateDirFor(root) : stateDir(), "issue-claims"),
+	issueClaimsDir: (root) => path.join(stateDirOf(root), "issue-claims"),
 	/**
 	 * @param {number|string} issue
 	 * @param {string} sessionId
@@ -421,7 +425,8 @@ const paths = {
 	actLedger: (sessionId, root) =>
 		path.join(paths.actsDir(root), `${idSlug(sessionId)}.txt`),
 
-	errorLog: () => path.join(stateDir(), "guard-errors.log"),
+	/** @param {string} [root] the host root where the caller already holds it */
+	errorLog: (root) => path.join(stateDirOf(root), "guard-errors.log"),
 	/**
 	 * Where lib/guard-log.sh files a record when it can resolve NO REPO ROOT at
 	 * all (mantahostels#2438). Named here rather than derived from errorLog() by two
@@ -571,7 +576,7 @@ function readRecordOrFlag(file, where, pause) {
 }
 
 /** @param {object} body */
-const recordText = (body) => `${JSON.stringify(body)}\n`;
+const buildRecordText = (body) => `${JSON.stringify(body)}\n`;
 
 /**
  * `flag: "wx"` refuses an existing file; every other caller overwrites.
@@ -580,7 +585,7 @@ const recordText = (body) => `${JSON.stringify(body)}\n`;
  * @param {import("node:fs").WriteFileOptions} [options]
  */
 function writeRecord(file, body, options = {}) {
-	fs.writeFileSync(file, recordText(body), options);
+	fs.writeFileSync(file, buildRecordText(body), options);
 }
 
 /**
@@ -638,8 +643,13 @@ function flat(value) {
 /**
  * @param {string} where
  * @param {unknown} err
+ * @param {string} [detail] the record's fourth field (#320), flattened as the
+ *   third is
+ * @param {string} [root] the host root, where the caller already resolved it:
+ *   a hook whose own bounded root read timed out would otherwise re-run it
+ *   unbounded here (#3038)
  */
-function logError(where, err) {
+function logError(where, err, detail, root) {
 	try {
 		/* A thrown value is whatever was thrown, so the stack is read off the
 		 * shape rather than assumed: a STRING `stack` on an object, and nothing
@@ -661,10 +671,11 @@ function logError(where, err) {
 			typeof err.stack === "string"
 				? err.stack
 				: "";
-		fs.mkdirSync(stateDir(), { recursive: true });
+		const file = paths.errorLog(root);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
 		fs.appendFileSync(
-			errorLog(),
-			`${new Date().toISOString()}\t${flat(where)}\t${flat(stack ? stack.split("\n")[0] : String(err))}\n`,
+			file,
+			`${new Date().toISOString()}\t${flat(where)}\t${flat(stack ? stack.split("\n")[0] : String(err))}${detail ? `\t${flat(detail)}` : ""}\n`,
 		);
 	} catch {
 		// Nothing to do: logging this failure has the same failure mode.
@@ -880,21 +891,67 @@ function isReleasable(rel) {
 	return isWatched(p) || under(EXEMPT, p);
 }
 
+/* The ceiling on each git call through git, gitIn and gitRaw, and on
+ * repoRoot's, none outside withGitTimeout; the root read once under it; and
+ * whether a call has overrun, after which the rest answer null at once, so a
+ * hung git costs one ceiling and not one per claim (#2891). */
+let gitBound = {
+	/** @type {number | undefined} */ ms: undefined,
+	/** @type {string | undefined} */ root: undefined,
+	overran: false,
+};
+
+function markOverrun() {
+	gitBound.overran = true;
+}
+
+/**
+ * `fn`'s answer with the store's git calls under it bounded at `ms`, and
+ * whether one overran — the caller then holds an answer built on unknowns
+ * and says so. For a hook, whose own limit a hung git would otherwise reach.
+ * @template T
+ * @param {number} ms
+ * @param {() => T} fn
+ * @returns {{ value: T, overran: boolean }}
+ */
+function withGitTimeout(ms, fn) {
+	const prior = gitBound;
+	gitBound = { ms, root: undefined, overran: false };
+	try {
+		const value = fn();
+		return { value, overran: gitBound.overran };
+	} finally {
+		gitBound = prior;
+	}
+}
+
+/**
+ * git's stdout in the repo, or null where it could not answer: gitOrNull's
+ * nulls, and every call once one has overrun gitBound.
+ * @param {string[]} args
+ * @param {Omit<import("node:child_process").ExecFileSyncOptions, "encoding">} [opts]
+ * @returns {string | null}
+ */
+function boundedGit(args, opts = {}) {
+	if (gitBound.overran) return null;
+	const cwd = repoRoot();
+	if (gitBound.overran) return null;
+	const { out, timedOut } = gitAnswer(args, {
+		cwd,
+		...opts,
+		timeout: gitBound.ms,
+	});
+	if (timedOut) markOverrun();
+	return out;
+}
+
 /**
  * Run git in the repo, or null where it could not answer — no git, not a repo,
  * a non-zero exit. Every caller here treats null as "unknown", never as an answer.
  * @param {string[]} args
  */
 function git(args) {
-	try {
-		return execFileSync(gitBinary(), args, {
-			cwd: repoRoot(),
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-	} catch {
-		return null;
-	}
+	return boundedGit(args)?.trim() ?? null;
 }
 
 /**
@@ -904,16 +961,12 @@ function git(args) {
  * @param {string} input
  */
 function gitIn(args, input) {
-	try {
-		return execFileSync(gitBinary(), args, {
-			cwd: repoRoot(),
-			encoding: "utf8",
+	return (
+		boundedGit(args, {
 			input,
 			stdio: ["pipe", "pipe", "ignore"],
-		}).trim();
-	} catch {
-		return null;
-	}
+		})?.trim() ?? null
+	);
 }
 
 /**
@@ -923,24 +976,13 @@ function gitIn(args, input) {
  * HEAD's copy would never equal the last region of the working tree's and every
  * release of it would refuse (mantahostels#1434).
  *
- * lib/child-buffer.js's cap, as headBlob uses: every caller here reads a WHOLE
- * FILE at a revision, and docs/doc-map.md was 885 KB against node's 1 MiB
- * default when this was raised — days of growth from an ENOBUFS that returns null silently,
- * which subjectDirty would read as "not clean" and debtSubject as "keep the
- * exact key", each reverting to the bug it fixes with nothing in the log.
+ * Each caller reads a whole file at a revision, so an ENOBUFS past git.js's cap
+ * returns null silently, which subjectDirty reads as "not clean" and debtSubject
+ * as "keep the exact key".
  * @param {string[]} args
  */
 function gitRaw(args) {
-	try {
-		return execFileSync(gitBinary(), args, {
-			cwd: repoRoot(),
-			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-	} catch {
-		return null;
-	}
+	return boundedGit(args);
 }
 
 /**
@@ -974,7 +1016,7 @@ function gitDirty(rel) {
  *
  * BY CONTENT, NOT BY LINE RANGE. A neighbour's insert above your region shifts
  * its line numbers without touching a byte of it, so the comparison is between
- * the region regionText() locates by heading in a revision and the region it
+ * the region parseRegionText() locates by heading in a revision and the region it
  * locates by the same heading in HEAD.
  *
  * THREE REVISIONS, NOT TWO: HEAD, the working tree AND the index. The index is
@@ -999,9 +1041,9 @@ function subjectDirty(subject) {
 	} catch {
 		return gitDirty(rel);
 	}
-	const committed = regions.regionText(head, region, rel);
+	const committed = regions.parseRegionText(head, region, rel);
 	for (const revision of [worktree, staged]) {
-		const mine = regions.regionText(revision, region, rel);
+		const mine = regions.parseRegionText(revision, region, rel);
 		// In NEITHER revision: the subject names a region this document does not
 		// have. CLEAN, not unknown — it has no bytes to hand the next holder, so
 		// mantahostels#63's harm cannot happen, and refusing would wedge the claim permanently.
@@ -1051,7 +1093,7 @@ function subjectDirty(subject) {
  *   never withdraw it. The own registry keeps the old contract — unreadable is
  *   `null` — so the break path fails open exactly as it did before mantahostels#1309.
  */
-function sessionEntries(mode = "all") {
+function readSessionEntries(mode = "all") {
 	// sessionDirs puts this session's own dir first, which is what lets the
 	// best-effort walk hold the own registry to the stricter rule.
 	const dirs = mode === "own" ? [paths.sessionsDir()] : paths.sessionDirs();
@@ -1075,7 +1117,7 @@ function sessionEntries(mode = "all") {
 
 /**
  * Appends to `out` each readable `.json` registry entry among `names` in `dir`,
- * in listing order, as `sessionEntries` returns them.
+ * in listing order, as `readSessionEntries` returns them.
  * @param {string} dir
  * @param {string[]} names
  * @param {RegistryEntry[]} out accumulator: each readable entry is pushed here
@@ -1117,8 +1159,8 @@ function pushDirEntries(dir, names, out) {
  * the old entry behind — cannot make a live session read dead here, though it
  * does exactly that to a lock (mantahostels#322). Do not unify the two.
  */
-function liveSessionIds() {
-	const entries = sessionEntries();
+function readLiveSessionIds() {
+	const entries = readSessionEntries();
 	if (entries === null) return null;
 	const live = new Set();
 	for (const { entry } of entries) {
@@ -1126,7 +1168,10 @@ function liveSessionIds() {
 		// No procStart means liveness is unproveable either way. identify() treats
 		// that as not-alive, because a lock minted on it would wedge a file for
 		// good; deletion is the worse error here, so it counts as live.
-		if (!entry.procStart || procStartOf(entry.pid) === String(entry.procStart))
+		if (
+			!entry.procStart ||
+			readProcStartOf(entry.pid) === String(entry.procStart)
+		)
 			live.add(entry.sessionId);
 	}
 	return live;
@@ -1154,10 +1199,10 @@ function liveSessionIds() {
  * @param {string|null} sessionId
  * @param {Identity} me
  */
-function liveEntryFor(sessionId, me) {
+function readLiveEntryFor(sessionId, me) {
 	if (!sessionId) return null;
 	// Best-effort: this null would break the lock, not hold off (mantahostels#1309).
-	const entries = sessionEntries("best-effort");
+	const entries = readSessionEntries("best-effort");
 	if (entries === null) {
 		sayOnce(
 			me.sessionId,
@@ -1192,7 +1237,7 @@ function liveEntryIn(entries, sessionId) {
 		const { procStart } = entry;
 		if (typeof procStart !== "string" && typeof procStart !== "number")
 			continue;
-		if (procStartOf(pid) === String(procStart)) return { pid, procStart };
+		if (readProcStartOf(pid) === String(procStart)) return { pid, procStart };
 	}
 	return null;
 }
@@ -1227,8 +1272,8 @@ function resumedHolderTest(where, dark) {
 	let entries;
 	const test = (/** @type {string|null} */ sessionId) => {
 		if (entries === undefined) {
-			// Best-effort for liveEntryFor's reason: this test's `false` breaks a lock.
-			entries = sessionEntries("best-effort");
+			// Best-effort for readLiveEntryFor's reason: this test's `false` breaks a lock.
+			entries = readSessionEntries("best-effort");
 			if (entries === null) logError(where, dark);
 		}
 		return liveEntryIn(entries ?? [], sessionId) !== null;
@@ -1272,7 +1317,7 @@ function scanOwnEntries(sessionId) {
 	// Own registry alone: a session's entry is written under its own
 	// CLAUDE_CONFIG_DIR, so a neighbour's could only cost this session its
 	// identity — and with it every claim it would have taken (mantahostels#1309).
-	for (const { file, entry } of sessionEntries("own") ?? []) {
+	for (const { file, entry } of readSessionEntries("own") ?? []) {
 		if (entry.sessionId !== sessionId || !entry.pid) continue;
 		// entry.procStart ONLY — never a fresh read of /proc as a fallback.
 		// Falling back compares that read against itself, so it matches
@@ -1286,7 +1331,7 @@ function scanOwnEntries(sessionId) {
 			unproveable = file;
 			continue;
 		}
-		if (procStartOf(entry.pid) === String(start)) {
+		if (readProcStartOf(entry.pid) === String(start)) {
 			const live = {
 				sessionId,
 				pid: entry.pid,
@@ -1417,8 +1462,8 @@ function agedUnspared(dir, ageMs, spared) {
  * @param {string} name the calling sweep, for the error log
  * @returns {Set<string>|null} null where the registry could not be read
  */
-function liveOrLog(name) {
-	const live = liveSessionIds();
+function readLiveOrLog(name) {
+	const live = readLiveSessionIds();
 	if (live === null) {
 		logError(name, new Error("sessions registry unreadable"));
 		return null;
@@ -1438,7 +1483,7 @@ function liveOrLog(name) {
  * @param {(id: string) => string} nameFor
  */
 function sweepSparingLive(name, dir, ageMs, nameFor) {
-	const live = liveOrLog(name);
+	const live = readLiveOrLog(name);
 	if (live === null) return;
 	const spared = new Set([...live].map(nameFor));
 	sweepAged(dir, ageMs, (f) => spared.has(f));
@@ -1456,11 +1501,11 @@ function sweepSparingLive(name, dir, ageMs, nameFor) {
  * @returns {(sessionId: string|null) => string}
  */
 function registryNames() {
-	/** @type {ReturnType<typeof sessionEntries>|undefined} */
+	/** @type {ReturnType<typeof readSessionEntries>|undefined} */
 	let entries;
 	return (sessionId) => {
 		if (!sessionId) return "an unidentified session";
-		entries ??= sessionEntries("best-effort");
+		entries ??= readSessionEntries("best-effort");
 		for (const { entry } of entries ?? [])
 			if (entry.sessionId === sessionId && entry.name)
 				return String(entry.name);
@@ -1483,9 +1528,9 @@ module.exports = {
 	isWatched,
 	isReleasable,
 	keyFor,
-	liveEntryFor,
-	liveOrLog,
-	liveSessionIds,
+	readLiveEntryFor,
+	readLiveOrLog,
+	readLiveSessionIds,
 	logError,
 	createOnce,
 	pairSuffix,
@@ -1494,7 +1539,7 @@ module.exports = {
 	readRecord,
 	readRecordOrFlag,
 	readRecordOrLog,
-	recordText,
+	buildRecordText,
 	REFUSING,
 	registryNames,
 	relativeToRepo,
@@ -1503,9 +1548,10 @@ module.exports = {
 	resumedHolderTest,
 	sayOnce,
 	sessionDirs,
-	sessionEntries,
+	readSessionEntries,
 	splitSubject,
 	stateDir,
+	stateDirFor,
 	subjectDirty,
 	subjectFor,
 	subjectPath,
@@ -1513,5 +1559,6 @@ module.exports = {
 	sweepAged,
 	sweepSparingLive,
 	under,
+	withGitTimeout,
 	writeRecord,
 };

@@ -34,8 +34,8 @@ const path = require("node:path");
 const {
 	guardKey,
 	needleIn,
-	registeredGuardSubjects,
-	transcriptFiles,
+	readRegisteredGuardSubjects,
+	readTranscriptFiles,
 } = require("./lib/guard-fires");
 const { mainChainRecords } = require("./lib/transcript");
 const { hostRoot } = require("./lib/host-root.js");
@@ -67,18 +67,34 @@ const STOP_KEY_CHARS = 200;
 const scriptOf = (key) => key.replace(/ .*/s, "");
 
 /**
+ * Each guard `root` registers that has a deny needle, by script, with those
+ * needles; a dispatcher's needle names its `core`.
+ * @param {string} root
+ * @returns {{script: string, needles: import("./lib/guard-fires").Needle[]}[]}
+ */
+function readDenyingGuards(root) {
+	/** @type {Map<string, import("./lib/guard-fires").Needle[]>} */
+	const byScript = new Map();
+	for (const s of readRegisteredGuardSubjects(root))
+		for (const n of s.needles) {
+			if (n.kind !== "deny") continue;
+			const script = n.core ?? scriptOf(s.id.slice("guard:".length));
+			byScript.set(script, [...(byScript.get(script) ?? []), n]);
+		}
+	return [...byScript].map(([script, needles]) => ({ script, needles }));
+}
+
+/**
  * The guards whose deny needles a refusal's text carries, read against this
- * repo's own registry.
+ * repo's own registry; a dispatcher's needle names its `core`.
  * @returns {(text: string) => string[]}
  */
 function buildDenyAttributor() {
-	const subjects = registeredGuardSubjects(hostRoot());
+	const guards = readDenyingGuards(hostRoot());
 	return (text) =>
-		subjects
-			.filter((s) =>
-				s.needles.some((n) => n.kind === "deny" && needleIn(text, n)),
-			)
-			.map((s) => scriptOf(s.id.slice("guard:".length)));
+		guards
+			.filter((g) => g.needles.some((n) => needleIn(text, n)))
+			.map((g) => g.script);
 }
 
 /**
@@ -93,7 +109,7 @@ const bump = (counts, key) => {
  * @param {unknown} c a tool_result's content
  * @returns {string}
  */
-function resultText(c) {
+function parseResultText(c) {
 	if (typeof c === "string") return c;
 	if (!Array.isArray(c)) return "";
 	return c.map((q) => (typeof q?.text === "string" ? q.text : "")).join("");
@@ -128,7 +144,7 @@ function refusalsIn(record) {
 	const out = [];
 	content.forEach((part, i) => {
 		if (part?.type !== "tool_result" || !part.is_error) return;
-		const text = resultText(part.content);
+		const text = parseResultText(part.content);
 		if (DENY_HEAD.test(text))
 			out.push({
 				kind: "deny",
@@ -221,7 +237,7 @@ function main(argv) {
 		writeFd(2, `${CLI.usage}\n`);
 		return 1;
 	}
-	const listed = dir ? transcriptFiles(dir) : [];
+	const listed = dir ? readTranscriptFiles(dir) : [];
 	if (!listed) {
 		writeFd(2, `✗ ${dir} cannot be read as a transcript directory.\n`);
 		return 1;

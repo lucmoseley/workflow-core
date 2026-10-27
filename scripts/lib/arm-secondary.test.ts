@@ -13,10 +13,10 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const { secondaryOf, summariseSecondary } = require("./arm-secondary.js");
-const { registeredGuardSubjects } = require("./guard-fires.js");
+const { readRegisteredGuardSubjects } = require("./guard-fires.js");
 
 const ROOT = path.resolve(__dirname, "..", "..");
-const subjects = registeredGuardSubjects(ROOT);
+const subjects = readRegisteredGuardSubjects(ROOT);
 /** A recorded run that commits through a refusing gate, then lands. */
 const REFUSED = fs.readFileSync(
 	path.join(
@@ -222,6 +222,7 @@ const { gates } = JSON.parse(
  */
 const GATE_SOURCES: Record<string, string[]> = {
 	branch: [".husky/pre-commit"],
+	"check-staged-biome": ["scripts/lib/infer-commands.js"],
 	"stale-write-back": ["scripts/stale-write-back-gate.sh"],
 	"review-hold": ["scripts/review-hold-gate.sh"],
 	"roadmap-pair": ["scripts/check-roadmap-pair.js"],

@@ -10,7 +10,7 @@
  *
  * The suite reporters and the test-pass marker read it on every run; loosen a
  * case and a red caused by a neighbour's half-written file reads as the
- * session's own, or a green over a moving tree is recorded as clean.
+ * session's own, or a certificate over a moving tree is recorded as clean.
  */
 
 import { execFileSync } from "node:child_process";
@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, liveHolder, putLock, store } from "./arbiter-testkit";
 
 const {
-	snapshot,
+	readTreeSnapshot,
 	drift,
 	format,
 	neighbourDirty,
@@ -67,54 +67,54 @@ afterEach(() => {
 	fs.rmSync(repo, { recursive: true, force: true });
 });
 
-describe("snapshot", () => {
+describe("readTreeSnapshot", () => {
 	it("hashes a dirty tracked file and ignores a clean one", () => {
 		write("src/a.js", "edited\n");
-		const s = snapshot(repo);
+		const s = readTreeSnapshot(repo);
 		expect(Object.keys(s.files)).toEqual(["src/a.js"]);
 		expect(s.head).toMatch(/^[0-9a-f]{40}$/);
 	});
 
 	it("says nothing about a clean tree, tracked or untracked", () => {
-		expect(snapshot(repo)).toMatchObject({ files: {}, untracked: [] });
+		expect(readTreeSnapshot(repo)).toMatchObject({ files: {}, untracked: [] });
 	});
 
 	it("takes the new name of a rename, which is what a later run finds", () => {
 		git("mv", "src/a.js", "src/c.js");
-		expect(Object.keys(snapshot(repo).files)).toEqual(["src/c.js"]);
+		expect(Object.keys(readTreeSnapshot(repo).files)).toEqual(["src/c.js"]);
 	});
 
 	it("keeps an untracked file out of files, where drift would see it", () => {
 		write("scratch.log", "noise\n");
-		expect(Object.keys(snapshot(repo).files)).toEqual([]);
+		expect(Object.keys(readTreeSnapshot(repo).files)).toEqual([]);
 	});
 
 	it("carries an untracked file separately, for the attribution to read", () => {
 		write("scratch.log", "noise\n");
-		expect(snapshot(repo).untracked).toEqual(["scratch.log"]);
+		expect(readTreeSnapshot(repo).untracked).toEqual(["scratch.log"]);
 	});
 
 	it("names each file in a wholly-new directory, not the directory", () => {
 		write("newdir/sub/mod.js", "half-written\n");
 		write("newdir/other.js", "half-written\n");
 
-		expect(snapshot(repo).untracked).toEqual([
+		expect(readTreeSnapshot(repo).untracked).toEqual([
 			"newdir/other.js",
 			"newdir/sub/mod.js",
 		]);
 	});
 
 	it("does not report a new file as drift, the two lists being separate", () => {
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 		write("src/new.js", "appeared mid-run\n");
 
-		expect(drift(before, snapshot(repo))).toBeNull();
+		expect(drift(before, readTreeSnapshot(repo))).toBeNull();
 	});
 
 	it("returns null where git cannot answer, so no drift is claimed", () => {
 		const notARepo = fs.mkdtempSync(path.join(os.tmpdir(), "tree-drift-bare-"));
 		try {
-			expect(snapshot(notARepo)).toBeNull();
+			expect(readTreeSnapshot(notARepo)).toBeNull();
 		} finally {
 			fs.rmSync(notARepo, { recursive: true, force: true });
 		}
@@ -122,18 +122,20 @@ describe("snapshot", () => {
 
 	it("stands a marker in for a file it cannot read, never throwing", () => {
 		write("src/a.js", "edited\n");
-		expect(snapshot(repo, { fs: unreadableFs }).files["src/a.js"]).toBe(
+		expect(readTreeSnapshot(repo, { fs: unreadableFs }).files["src/a.js"]).toBe(
 			"unreadable",
 		);
 	});
 
 	it("marks an unreadable file the same way twice", () => {
 		write("src/a.js", "edited\n");
-		const before = snapshot(repo, { fs: unreadableFs });
+		const before = readTreeSnapshot(repo, { fs: unreadableFs });
 
 		// A clock in the sentinel would make this pair differ and cry drift on
 		// every run holding one unreadable path.
-		expect(drift(before, snapshot(repo, { fs: unreadableFs }))).toBeNull();
+		expect(
+			drift(before, readTreeSnapshot(repo, { fs: unreadableFs })),
+		).toBeNull();
 	});
 });
 
@@ -282,47 +284,47 @@ describe("endOfRunTreeIdentity (mantahostels#2187)", () => {
 describe("drift", () => {
 	it("says nothing when the tree did not move", () => {
 		write("src/a.js", "edited\n");
-		const before = snapshot(repo);
-		expect(drift(before, snapshot(repo))).toBeNull();
+		const before = readTreeSnapshot(repo);
+		expect(drift(before, readTreeSnapshot(repo))).toBeNull();
 	});
 
 	it("reports a dirty file whose content changed under it — the mantahostels#273 shape", () => {
 		write("src/a.js", "edited\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 		write("src/a.js", "edited again\n");
 
-		const d = drift(before, snapshot(repo));
+		const d = drift(before, readTreeSnapshot(repo));
 		expect(d.moved).toEqual([{ path: "src/a.js", kind: "changed" }]);
 		expect(d.headMoved).toBe(false);
 	});
 
 	it("reports a clean file a neighbour started editing mid-run", () => {
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 		write("src/b.js", "touched\n");
 
-		expect(drift(before, snapshot(repo)).moved).toEqual([
+		expect(drift(before, readTreeSnapshot(repo)).moved).toEqual([
 			{ path: "src/b.js", kind: "appeared" },
 		]);
 	});
 
 	it("reports a file that stopped being dirty, ie a neighbour committing", () => {
 		write("src/a.js", "edited\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 		git("add", "--", "src/a.js");
 		git("commit", "-qm", "neighbour");
 
-		const d = drift(before, snapshot(repo));
+		const d = drift(before, readTreeSnapshot(repo));
 		expect(d.moved).toEqual([{ path: "src/a.js", kind: "settled" }]);
 		expect(d.headMoved).toBe(true);
 	});
 
 	it("reports a HEAD move on its own, with no file left dirty", () => {
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 		write("src/c.js", "new\n");
 		git("add", "--", "src/c.js");
 		git("commit", "-qm", "neighbour");
 
-		const d = drift(before, snapshot(repo));
+		const d = drift(before, readTreeSnapshot(repo));
 		expect(d.headMoved).toBe(true);
 		expect(d.moved).toEqual([]);
 	});
@@ -336,14 +338,14 @@ describe("drift", () => {
 	 */
 	it("cannot see a file left half-written before the window opened", () => {
 		write("src/a.js", "half-written, and nobody touches it again\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
-		expect(drift(before, snapshot(repo))).toBeNull();
+		expect(drift(before, readTreeSnapshot(repo))).toBeNull();
 	});
 
 	it("claims no drift when either snapshot is missing", () => {
-		expect(drift(null, snapshot(repo))).toBeNull();
-		expect(drift(snapshot(repo), null)).toBeNull();
+		expect(drift(null, readTreeSnapshot(repo))).toBeNull();
+		expect(drift(readTreeSnapshot(repo), null)).toBeNull();
 	});
 });
 
@@ -382,7 +384,7 @@ describe("format", () => {
 describe("neighbourDirty", () => {
 	it("names a file a live neighbour left dirty before the run", () => {
 		write("src/a.js", "half-written\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(neighbourDirty(before, [lock("src/a.js", "them")], "me")).toEqual([
 			{ path: "src/a.js", sessionId: "them", pid: 4242, dead: false },
@@ -391,7 +393,7 @@ describe("neighbourDirty", () => {
 
 	it("names a NEW file a neighbour is part-way through writing", () => {
 		write("src/new.js", "half-written\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(neighbourDirty(before, [lock("src/new.js", "them")], "me")).toEqual([
 			{ path: "src/new.js", sessionId: "them", pid: 4242, dead: false },
@@ -400,27 +402,27 @@ describe("neighbourDirty", () => {
 
 	it("says nothing about a file this session holds itself", () => {
 		write("src/a.js", "my own work\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(neighbourDirty(before, [lock("src/a.js", "me")], "me")).toBeNull();
 	});
 
 	it("says nothing about a dirty file under no claim at all", () => {
 		write("src/a.js", "nobody claims this\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(neighbourDirty(before, [], "me")).toBeNull();
 	});
 
 	it("says nothing about a claimed file that is clean", () => {
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(neighbourDirty(before, [lock("src/a.js", "them")], "me")).toBeNull();
 	});
 
 	it("names a dead holder's file, which breaks a run just the same", () => {
 		write("src/a.js", "left behind\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(
 			neighbourDirty(
@@ -450,7 +452,7 @@ describe("neighbourDirty", () => {
 
 	it("drops a dead holder's claim once it is too old to explain anything", () => {
 		write("src/a.js", "abandoned days ago\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(
 			neighbourDirty(before, [deadAt()], "me", {
@@ -461,7 +463,7 @@ describe("neighbourDirty", () => {
 
 	it("keeps a dead holder's claim right up to the cutoff", () => {
 		write("src/a.js", "abandoned an hour ago\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(
 			neighbourDirty(before, [deadAt()], "me", {
@@ -473,7 +475,7 @@ describe("neighbourDirty", () => {
 	it("keeps a LIVE holder's claim however old it is", () => {
 		// The cutoff is about a holder that will never release, not about age.
 		write("src/a.js", "long-running session\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 		const claimedAt = new Date(
 			Date.now() - deadClaimMaxAgeMs * 10,
 		).toISOString();
@@ -485,7 +487,7 @@ describe("neighbourDirty", () => {
 
 	it("reports a dead holder whose claim carries no readable timestamp", () => {
 		write("src/a.js", "left behind\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(
 			neighbourDirty(
@@ -498,7 +500,7 @@ describe("neighbourDirty", () => {
 
 	it("ignores an unreadable lock, which names no path", () => {
 		write("src/a.js", "half-written\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(
 			neighbourDirty(before, [{ file: "x.json", unreadable: true }], "me"),
@@ -507,14 +509,14 @@ describe("neighbourDirty", () => {
 
 	it("says nothing when the session cannot name itself", () => {
 		write("src/a.js", "half-written\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(neighbourDirty(before, [lock("src/a.js", "them")], "")).toBeNull();
 	});
 
 	it("says nothing when the claim store could not be read", () => {
 		write("src/a.js", "half-written\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(neighbourDirty(before, null, "me")).toBeNull();
 	});
@@ -526,7 +528,7 @@ describe("neighbourDirty", () => {
 	it("orders by path, so the list is stable between runs", () => {
 		write("src/a.js", "x\n");
 		write("src/b.js", "y\n");
-		const before = snapshot(repo);
+		const before = readTreeSnapshot(repo);
 
 		expect(
 			neighbourDirty(

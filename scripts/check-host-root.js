@@ -39,7 +39,7 @@
  *                       disagree.
  *   HOST-ROOTED-CORE    the mirror fault: a file that ships WITH the core
  *                       reached THROUGH the host root — `"$(gr_root)/scripts/
- *                       warn-stale-script.js"`, `path.join(hostRoot(),
+ *                       session-arbiter.js"`, `path.join(hostRoot(),
  *                       "scripts", …)`. The host repo has none of the core's
  *                       scripts, so in a plugin install this names a file that
  *                       is not there. Name the sibling from `$here` or
@@ -116,6 +116,11 @@ const ALLOWED = {
 		reason:
 			"writes the seam, never reads it: it re-points CLAUDE_PROJECT_DIR at the main checkout for itself and every check it launches, so a daily run started in a linked worktree reads and reports for the main one (#1555)",
 	},
+	"scripts/lib/git-tree.js": {
+		tags: ["SECOND-SEAM-JS"],
+		reason:
+			"readTopLevel reads the top level of the tree a command runs in — a linked worktree or another repo, not the host root — for every host port that needs it (#2785, #2883)",
+	},
 	"scripts/commit-paths.js": {
 		tags: ["SECOND-SEAM-JS"],
 		reason:
@@ -139,7 +144,7 @@ const ALLOWED = {
 	"scripts/check-context-budget.js": {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
-			"injectedDocs() prefers the injector already materialised at `root` — every --against re-run and every self-hosted live run has one there, which is what lets a staged growth of the injector's own bytes still be caught — and falls back to INJECTOR_FILE (the core's own __dirname-relative copy) only on ENOENT, which is the plugin-install case this rule exists for (#36)",
+			"readInjectedDocs() prefers the injector already materialised at `root` — every --against re-run and every self-hosted live run has one there, which is what lets a staged growth of the injector's own bytes still be caught — and falls back to INJECTOR_FILE (the core's own __dirname-relative copy) only on ENOENT, which is the plugin-install case this rule exists for (#36)",
 	},
 	"scripts/check-guard-registry.js": {
 		tags: ["SELF-ROOTED-JS", "HOST-ROOTED-CORE"],
@@ -184,7 +189,7 @@ const ALLOWED = {
 	"scripts/check-plugin-gap.js": {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
-			"hookRootBlock reads the adopter's own .husky/ hooks at `root` to check the plugin root they name (#1168) — the host's hooks are the subject, not a core file read through the host",
+			"buildHookRootBlock reads the adopter's own .husky/ hooks at `root` to check the plugin root they name (#1168) — the host's hooks are the subject, not a core file read through the host",
 	},
 	"scripts/check-git-fixture-identity.js": CWD_SUITE_CHECKER,
 	"scripts/check-suite-size-drift.js": CWD_SUITE_CHECKER,
@@ -293,9 +298,8 @@ const SH_PATTERNS = [
 /** @type {{re: RegExp, what: string}[]} */
 const MIRROR_PATTERNS = [
 	{
-		/* `$(gr_root)` only, never a bare `$root`: `$root` names different things
-		 * in different files — guard-registry-atomicity.sh's is the WORKTREE IT
-		 * IS JUDGING, whose scripts/ it is right to enumerate. */
+		/* `$(gr_root)` only, never a bare `$root`, which names different things
+		 * in different files. */
 		re: /\$\(gr_root\)\/(?:scripts|\.husky)\//,
 		what: 'a file that ships with the core, reached through the HOST root — the host repo has no scripts/ of the core\'s. Name it from "$here" instead',
 	},
@@ -739,7 +743,7 @@ function fileFaults(root, rel) {
  * @param {string[]} scanned
  * @returns {Set<string>}
  */
-function importableConstants(root, scanned) {
+function readImportableConstants(root, scanned) {
 	/** @type {Set<string>} */
 	const importable = new Set();
 	for (const rel of scanned) {
@@ -836,7 +840,7 @@ const SPEC = {
 
 		/* Every scanned JS module's core-path constants, so a site joining one it
 		 * destructured from a require is judged as if the literal were local. */
-		const importable = importableConstants(root, scanned);
+		const importable = readImportableConstants(root, scanned);
 
 		const { tripped, inspected } = judgeScanned(ctx, root, scanned, importable);
 

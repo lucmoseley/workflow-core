@@ -16,7 +16,7 @@ const { runCheck } = require("./lib/check");
 const {
 	loadShfmt,
 	shellFinding,
-	trackedShellFiles,
+	readTrackedShellFiles,
 } = require("./lib/formatters");
 const { caught } = require("./lib/caught.js");
 
@@ -26,10 +26,10 @@ const { caught } = require("./lib/caught.js");
  * The paths named on the command line, else every tracked shell file.
  * @param {Ctx} ctx
  */
-function targetFiles(ctx) {
+function readTargetFiles(ctx) {
 	if (ctx.args.length > 0) return ctx.args;
 	try {
-		return trackedShellFiles();
+		return readTrackedShellFiles();
 	} catch (e) {
 		return ctx.broken(caught(e).message);
 	}
@@ -41,7 +41,7 @@ runCheck({
 	flags: ["--write"],
 	run(/** @type {Ctx} */ ctx) {
 		const write = ctx.has("--write");
-		const files = targetFiles(ctx);
+		const files = readTargetFiles(ctx);
 
 		const format = loadShfmt();
 		if (!format)

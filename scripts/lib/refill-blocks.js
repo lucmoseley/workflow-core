@@ -1,0 +1,808 @@
+/*
+ * refill-blocks.js — the refill loop's blocked and resumed-idle launches
+ * (#2848, spec #2695): their block and resume records, the act
+ * lib/block-act.js's table returns for each, and each act done through the
+ * I/O the program passes in (BlockIo).
+ */
+
+const path = require("node:path");
+const { isTerminalAgent } = require("./agent-liveness.js");
+const {
+	IDLE_TRIES,
+	RESUME_CAP,
+	blockAct,
+	nextTryAt,
+	resumeDueAt,
+} = require("./block-act.js");
+
+/* #2359's wording. */
+const API_PROMPT =
+	"resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.";
+/* #2659's wording. */
+const IDLE_PROMPT =
+	"resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.";
+/* #2359's "within one tick": a typed line reaches the timeline at once
+ * (#2354 F8), so a minute is ample; untraced. */
+const ATTACH_VERDICT_MS = 60 * 1000;
+const ATTACH_ROUTE = "typing into the live session";
+const FALLBACK_ROUTE = "stop and --bg --resume";
+/* The hand-offs of a stopped resumed-idle session tried before the loop gives
+ * up on posting it and finishes the launch; untraced. */
+const HAND_OFF_TRIES = 3;
+/* The listed state of a session parked on a question
+ * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md §F1). */
+const PARKED_STATE = "blocked";
+
+/**
+ * @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch
+ * @typedef {LoopLaunch & {jobId: string}} JobLaunch
+ * @typedef {JobLaunch & {block: import("./block-act.js").Block}} BlockedLaunch
+ * @typedef {import("./block-act.js").Act} Act
+ * @typedef {import("./agent-liveness.js").AgentRecord} AgentRecord
+ * @typedef {{tries: number, triedAt: number, nextAt: number,
+ *   attachAt?: number, heldAt?: number}} Resumes  a launch's resumes after an
+ *   API error, kept across spells so the cap is the session's (#2705)
+ * @typedef {{tries: number, triedAt: number}} IdleResumes  its typed
+ *   resumes while resumed-idle (#2659), cleared once it takes a turn
+ * @typedef {(l: LoopLaunch, row: AgentRecord) =>
+ *   import("./block-cause.js").Reading} CauseOf
+ * @typedef {{sessionId: string|null, cwd: string}} ResumeTarget  a job's
+ *   full session id, null unread, and the directory its resume runs in
+ * @typedef {{agents: AgentRecord[]|null, now: number, io: BlockIo}} Tick
+ *   a tick's listing, null unread; its clock; the program's I/O
+ * @typedef {{failed: string}|{failed: null, jobId: string,
+ *   sessionId: string|null, copy: boolean}} Resumed  a `--bg --resume`: why
+ *   it failed, else the job it runs on as, its full session id, null unread,
+ *   and whether that job is a copy (#2963) rather than the one woken in place
+ */
+
+/**
+ * The program's I/O for the acts on blocked and resumed-idle launches. Each
+ * returns why it failed, or null once done, unless said otherwise.
+ * @typedef {object} BlockIo
+ * @property {(seat: string, jobId: string) =>
+ *   import("./claude-stop.js").StopOutcome} stop  `claude stop` on a seat's
+ *   job (lib/claude-stop.js's stopOn)
+ * @property {(l: JobLaunch, prompt: string) => string|null} type  type
+ *   `prompt` into the live session
+ * @property {(l: JobLaunch) => ResumeTarget} resumeTargetOf  read before
+ *   its stop, which may rewrite the job record
+ * @property {(l: JobLaunch, prompt: string, target: ResumeTarget &
+ *   {sessionId: string}) => Resumed} resumeStopped  `claude --bg
+ *   --resume` of the stopped job
+ * @property {(l: JobLaunch) => unknown[]|null} readTimeline  its job's
+ *   timeline rows, null unread
+ * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading}
+ *   idleSince  lib/block-cause.js's resumedIdleSince on its records
+ * @property {(l: JobLaunch, at: number) => boolean} turnedSince
+ *   lib/block-cause.js's turnedSince on its transcript, false unread
+ * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
+ *   each of its issues the `parked` label would not go on, with why
+ * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
+ *   issues, a failure logged
+ * @property {(l: JobLaunch) => {failed: string|null, out: string}}
+ *   postHandOff  `rescue-sessions.js hand-off` of the stopped session
+ * @property {(l: JobLaunch) => boolean} release  its dispatch-ledger hold;
+ *   whether it went
+ * @property {(l: LoopLaunch) => object} progressOf  a finishing launch's
+ *   progress fields, logged
+ * @property {(line: string) => void} log
+ */
+
+/** @param {number} ms */
+const iso = (ms) => new Date(ms).toISOString();
+
+/** @param {{root: string, prompt: string}} l */
+const launchName = (l) => `${path.basename(l.root)} ${l.prompt}`;
+
+/** @param {string} text */
+const indented = (text) => text.replace(/\n/g, "\n  ");
+
+/**
+ * Whether the loop may act on `l`'s session: unfinished, tied to a job, and
+ * not stopped already for a park.
+ * @param {LoopLaunch} l
+ * @returns {l is JobLaunch}
+ */
+function isActionable(l) {
+	return (
+		l.finishedAt === null && l.jobId !== null && l.parkStopped === undefined
+	);
+}
+
+/**
+ * Whether `l` waits on the loop's resumes after a transient API stop.
+ * @param {LoopLaunch} l
+ */
+const isResuming = (l) =>
+	l.block?.cause === "API_ERROR" &&
+	l.block.sub === "transient" &&
+	l.parkStopped === undefined;
+
+/**
+ * Whether the loop stopped `l`'s session to wait for its next resume, so the
+ * session's end is the loop's own and the launch stays unfinished until a
+ * resume takes or it parks.
+ * @param {LoopLaunch} l
+ */
+const isHeld = (l) => isResuming(l) && l.resumes?.heldAt !== undefined;
+
+/**
+ * `l`'s block with its resume record, as lib/block-act.js reads it.
+ * @param {LoopLaunch & {block: import("./block-act.js").Block}} l
+ * @returns {import("./block-act.js").Block}
+ */
+const blockOf = (l) => ({
+	...l.block,
+	tries: l.resumes?.tries ?? 0,
+	nextAt: l.resumes?.nextAt,
+	triedAt: l.resumes?.triedAt,
+	held: l.resumes?.heldAt !== undefined,
+	typing: l.resumes?.attachAt !== undefined,
+});
+
+/**
+ * When the loop's next resume of a launch it resumes after an API error is
+ * due.
+ * @param {LoopLaunch & {block: import("./block-act.js").Block}} l
+ */
+const nextResumeAt = (l) => resumeDueAt(blockOf(l));
+
+/**
+ * The launches with `parked` read off the listing, and each parked one's
+ * `block`: its cause this tick, and since when it has been parked, kept across
+ * a change of cause. A parked
+ * session is neither finished nor working: it waits in its own thread for the
+ * founder's answer (#1995 stories 52, 55). It is the glossary's Parked as the
+ * listing sees it, before or without the `parked` label, which the Stop hook
+ * adds only on a house-decision round. Off an unread listing, for an
+ * unlisted launch, or for a held one (isHeld) whose session has ended, each
+ * keeps what the last read said.
+ * @param {LoopLaunch[]} launches
+ * @param {AgentRecord[]|null} agents
+ * @param {CauseOf} causeOf
+ * @param {number} now
+ */
+function markParked(launches, agents, causeOf, now) {
+	if (!agents) return launches;
+	const rows = new Map(agents.flatMap((a) => (a.id ? [[a.id, a]] : [])));
+	return launches.map((l) => {
+		const row = l.jobId === null ? undefined : rows.get(l.jobId);
+		if (l.finishedAt !== null || !row) return l;
+		if (isHeld(l) && isTerminalAgent(row)) return l;
+		const { block: _, ...rest } = l;
+		if (row.state !== PARKED_STATE) return { ...rest, parked: false };
+		const reading = causeOf(l, row);
+		return {
+			...rest,
+			parked: true,
+			block: {
+				cause: reading.cause,
+				...("sub" in reading ? { sub: reading.sub } : {}),
+				since: l.block?.since ?? now,
+			},
+		};
+	});
+}
+
+/**
+ * The launches the table acts on this tick, each with its act: those the
+ * listing shows blocked, and the held ones (isHeld) whatever it shows. None
+ * off an unread listing, which cannot tell a live session from a stopped one.
+ * @param {LoopLaunch[]} launches markParked's, off `seen`'s listing
+ * @param {"away"|"normal"} mode
+ * @param {Tick} seen
+ * @returns {{l: BlockedLaunch, act: Act}[]}
+ */
+function blockedActs(launches, mode, { agents, now }) {
+	if (!agents) return [];
+	const blocked = new Set(
+		agents.filter((a) => a.state === PARKED_STATE).map((a) => a.id),
+	);
+	return launches.flatMap((l) => {
+		if (!isActionable(l) || !l.block || !(blocked.has(l.jobId) || isHeld(l)))
+			return [];
+		const b = { ...l, block: l.block };
+		return [{ l: b, act: blockAct(blockOf(b), mode, now) }];
+	});
+}
+
+/**
+ * A resume record after a try made at `now`, `typed` where it went into the
+ * live session, so the next tick checks it arrived.
+ * @param {{tries: number}|undefined} was
+ * @param {number} now
+ * @param {boolean} typed
+ */
+const nextTry = (was, now, typed) => ({
+	tries: (was?.tries ?? 0) + 1,
+	triedAt: now,
+	...(typed ? { attachAt: now } : {}),
+});
+
+/**
+ * `l` after a resume made at `now`: one more try, the next due on the
+ * schedule; `attachAt` where it was typed into the live session; `heldAt`
+ * kept where it failed, its session being stopped still.
+ * @template {LoopLaunch} L
+ * @param {L} l
+ * @param {number} now
+ * @param {{typed: boolean, failed: boolean}} how
+ * @returns {L}
+ */
+function afterResume(l, now, { typed, failed }) {
+	const { attachAt, ...tried } = nextTry(l.resumes, now, typed);
+	return {
+		...l,
+		resumes: {
+			...tried,
+			nextAt: nextTryAt(tried.tries, now),
+			...(attachAt === undefined ? {} : { attachAt }),
+			...(failed ? { heldAt: l.resumes?.heldAt ?? now } : {}),
+		},
+	};
+}
+
+/**
+ * `l` after a typed resume of its resumed-idle session at `now`.
+ * @template {LoopLaunch} L
+ * @param {L} l
+ * @param {number} now
+ * @returns {L}
+ */
+const afterIdleResume = (l, now) => ({
+	...l,
+	idleResumes: { tries: (l.idleResumes?.tries ?? 0) + 1, triedAt: now },
+});
+
+/**
+ * Whether a resume typed at `attachAt` arrived (#2354 F8): the timeline has a
+ * row after it whose detail is the typed prompt, or the start of it, a long
+ * detail being cut short.
+ * @param {number} attachAt ms
+ * @param {string} prompt
+ * @param {unknown[]|null} timeline  the job's timeline rows, null unread
+ */
+function isResumeArrived(attachAt, prompt, timeline) {
+	return (timeline ?? []).some((r) => {
+		const row = /** @type {{at?: unknown, detail?: unknown}} */ (r);
+		const detail =
+			typeof row.detail === "string" ? row.detail.replace(/…$/, "") : "";
+		return (
+			typeof row.at === "string" &&
+			Date.parse(row.at) > attachAt &&
+			detail.length > 0 &&
+			prompt.startsWith(detail)
+		);
+	});
+}
+
+/**
+ * `l` with its resumed-idle episode ended.
+ * @template {LoopLaunch} L
+ * @param {L} l
+ */
+function endedIdle(l) {
+	const { idleResumes: _, idleSince: __, ...rest } = l;
+	return rest;
+}
+
+/**
+ * `l`'s resumed-idle reading off its job store and transcript: "turned"
+ * where it took a turn after the loop's last typed resume (#2978), "ended"
+ * where its job no longer reads idle, "unread" where its records will not
+ * read, else when it went idle.
+ * @param {JobLaunch} l
+ * @param {BlockIo} io
+ * @returns {"turned"|"ended"|"unread"|number}
+ */
+function idleReading(l, io) {
+	const at = l.idleResumes?.triedAt;
+	if (at !== undefined && io.turnedSince(l, at)) return "turned";
+	return io.idleSince(l) ?? "ended";
+}
+
+/**
+ * The resumed-idle launches (#2659) and the RESUMED_IDLE row's act on each:
+ * every actionable launch the loop does not resume after an API error, whose
+ * job `idleSince` reads resumed-idle off the job store and transcript alone,
+ * never the listing. Each launch read resumed-idle is returned with its
+ * `idleSince` set, kept from the first such reading; one read taking a turn
+ * again, an `api-request` or assistant row after the loop's last typed
+ * resume included (#2978), with that and its `idleResumes` cleared; one
+ * whose records will not read, unchanged (#2847).
+ * @param {LoopLaunch[]} launches
+ * @param {BlockIo} io
+ * @param {"away"|"normal"} mode
+ * @param {number} now
+ * @returns {{launches: LoopLaunch[], acts: {l: BlockedLaunch, act: Act}[]}}
+ */
+function idleActs(launches, io, mode, now) {
+	/** @type {{l: BlockedLaunch, act: Act}[]} */
+	const acts = [];
+	const read = launches.map((l) => {
+		if (!isActionable(l) || isResuming(l) || l.handOffTries !== undefined)
+			return l;
+		const since = idleReading(l, io);
+		if (since === "unread") return l;
+		if (typeof since === "string") return endedIdle(l);
+		const idle = { ...l, idleSince: l.idleSince ?? since };
+		/* From the loop's own typed resume where later, so each gets its
+		 * window. */
+		/** @type {import("./block-act.js").Block} */
+		const block = {
+			cause: "RESUMED_IDLE",
+			since: Math.max(since, l.idleResumes?.triedAt ?? 0),
+			tries: l.idleResumes?.tries ?? 0,
+		};
+		acts.push({ l: { ...idle, block }, act: blockAct(block, mode, now) });
+		return idle;
+	});
+	return { launches: read, acts };
+}
+
+/**
+ * The loop log's line for a resume after an API error, or one that could not
+ * be made.
+ * @param {LoopLaunch} l  afterResume's
+ * @param {string} route  how it went in
+ * @param {string|null} failed
+ */
+function buildResumeLine(l, route, failed) {
+	const what = `resume ${l.resumes?.tries ?? 0} of ${RESUME_CAP} after an API error, ${launchName(l)}, by ${route}`;
+	if (failed) return `could not ${what}: ${failed}`;
+	return l.resumes ? `${what}; next due ${iso(l.resumes.nextAt)}` : what;
+}
+
+/**
+ * The loop log's line for a typed resume of a resumed-idle session, or one
+ * that could not be made.
+ * @param {LoopLaunch} l  afterIdleResume's
+ * @param {string|null} failed
+ */
+const buildIdleResumeLine = (l, failed) =>
+	`${failed ? "could not resume" : "resumed"} ${launchName(l)}, idle since its host's restart, by ${ATTACH_ROUTE}, try ${l.idleResumes?.tries ?? 0} of ${IDLE_TRIES}${failed ? `: ${failed}` : ""}`;
+
+/**
+ * The loop log's line for a park it stopped, or could not.
+ * @param {BlockedLaunch & {act?: Act}} l
+ * @param {"away"|"normal"} mode
+ * @param {{failed: string|null, unlabelled: {n: number, why: string}[]}} outcome
+ */
+function buildParkStopLine(l, mode, { failed, unlabelled }) {
+	const tried = l.resumes ? `, ${l.resumes.tries} resumes` : "";
+	const morning = l.act === "park-at-morning" ? ", at the morning cut-off" : "";
+	const what = `${l.block.cause} park ${launchName(l)} (${mode} mode, blocked since ${iso(l.block.since)}${tried}${morning})`;
+	if (failed) return `could not stop ${what}: ${failed}`;
+	const missed = new Set(unlabelled.map((u) => u.n));
+	const labelled = l.issues.filter((n) => !missed.has(n));
+	return [
+		`stopped ${what}`,
+		`labelled parked: ${labelled.map((n) => `#${n}`).join(", ") || "none"}`,
+		...unlabelled.map((u) => `not labelled #${u.n}: ${u.why}`),
+	].join("; ");
+}
+
+/**
+ * `claude stop` on `l`'s job; null once stopped, else why not. A job the loop
+ * already stopped to wait for its next resume (isHeld) may be gone, so a
+ * stop that finds no job is that stop, not a failure.
+ * @param {JobLaunch} l
+ * @param {BlockIo} io
+ */
+function stopJob(l, io) {
+	const r = io.stop(l.seat, l.jobId);
+	if (r.ok) return null;
+	return isHeld(l) && r.noJob ? null : r.why;
+}
+
+/**
+ * Stop `l`'s park, and where the stop held label its issues `parked` and
+ * comment its cause on them, since a stopped session's own words may not say
+ * why it waits (#2846). `l`, marked `parkStopped` once stopped.
+ * @param {BlockedLaunch} l
+ * @param {Act} act  stop-and-park or park-at-morning
+ * @param {"away"|"normal"} mode
+ * @param {Tick} seen
+ * @returns {LoopLaunch}
+ */
+function stopPark(l, act, mode, { now, io }) {
+	const failed = stopJob(l, io);
+	if (failed) {
+		io.log(buildParkStopLine({ ...l, act }, mode, { failed, unlabelled: [] }));
+		return l;
+	}
+	const line = buildParkStopLine({ ...l, act }, mode, {
+		failed: null,
+		unlabelled: io.labelParked(l),
+	});
+	io.log(line);
+	io.comment(
+		l,
+		`Refill loop: ${line}. The conversation is kept: \`claude attach\` reopens it.`,
+	);
+	return { ...l, parkStopped: now };
+}
+
+/**
+ * `l` with its session marked stopped at `now` until its next resume.
+ * @template {LoopLaunch} L
+ * @param {L} l
+ * @param {number} now
+ * @returns {L}
+ */
+const withHeld = (l, now) =>
+	l.resumes ? { ...l, resumes: { ...l.resumes, heldAt: now } } : l;
+
+/**
+ * Stop `l`'s resuming session until its next resume (#2359). `l`, marked
+ * held once stopped.
+ * @param {BlockedLaunch} l
+ * @param {Tick} seen
+ * @returns {LoopLaunch}
+ */
+function hold(l, { now, io }) {
+	const failed = stopJob(l, io);
+	io.log(
+		failed
+			? `could not stop ${launchName(l)} until its next resume: ${failed}`
+			: `stopped ${launchName(l)} until its next resume, due ${iso(l.resumes?.nextAt ?? now)}`,
+	);
+	return failed ? l : withHeld(l, now);
+}
+
+/**
+ * Stop `l`'s job, then `claude --bg --resume <full id> "<API_PROMPT>"`
+ * (#2354 F6). The resume's outcome; `fromSessionId`, the session it resumed.
+ * @param {JobLaunch} l
+ * @param {BlockIo} io
+ * @returns {{failed: string}|(Resumed & {fromSessionId: string})}
+ */
+function relaunchResume(l, io) {
+	const { sessionId, cwd } = io.resumeTargetOf(l);
+	if (!sessionId) return { failed: "no session id read for it" };
+	const stopFailed = stopJob(l, io);
+	if (stopFailed) return { failed: `stop: ${stopFailed}` };
+	return {
+		...io.resumeStopped(l, API_PROMPT, { sessionId, cwd }),
+		fromSessionId: sessionId,
+	};
+}
+
+/**
+ * `l` after a resume that restarted its job at `now`: `relaunchedAt` set,
+ * from which it has the listing's grace. Where the job is a copy, `l` tracks
+ * the copy's job and session id, its dispatch-ledger hold still the job
+ * first launched (#2963), and `fromSessionId`, the session it resumed, kept
+ * among its past ones for actsOf (#2969); a job woken in place keeps both.
+ * @param {JobLaunch} l
+ * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} resumed
+ * @param {number} now
+ * @returns {JobLaunch}
+ */
+function relaunched(l, { jobId, sessionId, copy, fromSessionId }, now) {
+	if (!copy)
+		return { ...l, ...(sessionId ? { sessionId } : {}), relaunchedAt: now };
+	const { sessionId: _, ...rest } = l;
+	const past = new Set([...(l.pastSessionIds ?? []), fromSessionId]);
+	return {
+		...rest,
+		jobId,
+		copiedFrom: l.copiedFrom ?? l.jobId,
+		relaunchedAt: now,
+		...(sessionId ? { sessionId } : {}),
+		pastSessionIds: [...past],
+	};
+}
+
+/**
+ * One resume, or one that could not be made, logged and commented on `l`'s
+ * issues.
+ * @param {LoopLaunch} l  after the try
+ * @param {string} line  its cause's line
+ * @param {BlockIo} io
+ */
+function reportResume(l, line, io) {
+	io.log(line);
+	io.comment(l, `Refill loop: ${line}.`);
+}
+
+/**
+ * `l` after a resume by stop and `--bg --resume` at `now`: a try of its own,
+ * or, the fallback of a typed one, that same try, held where it failed.
+ * @param {JobLaunch} l
+ * @param {number} now
+ * @param {{failed: boolean, again: boolean}} how
+ */
+function afterFallBack(l, now, { failed, again }) {
+	if (!again) return afterResume(l, now, { typed: false, failed });
+	return failed ? withHeld(l, now) : l;
+}
+
+/**
+ * Resume `l`'s API-error stop by stop and `--bg --resume`, never off an
+ * unread listing ("doubt never stops a session"). One whose resume failed
+ * is held, its `heldAt` set, for the next on the schedule.
+ * @param {JobLaunch} l
+ * @param {Tick} seen
+ * @param {{route: string, again: boolean}} how  how the resume is told in
+ *   the log and comment; whether it is the fallback of a typed resume
+ *   already made, and so the same try
+ * @returns {LoopLaunch}
+ */
+function fallBack(l, seen, { route, again }) {
+	if (!seen.agents) {
+		reportResume(
+			l,
+			buildResumeLine(l, route, "the listing is unread, so it is not stopped"),
+			seen.io,
+		);
+		return l;
+	}
+	const r = relaunchResume(l, seen.io);
+	let resumed = l;
+	let told = route;
+	if (r.failed === null) {
+		resumed = relaunched(l, r, seen.now);
+		told = `${route}, ${r.copy ? `as its copy ${resumed.jobId}` : "woken in place"}`;
+	}
+	const tried = {
+		...afterFallBack(resumed, seen.now, { failed: r.failed !== null, again }),
+		jobId: resumed.jobId,
+	};
+	reportResume(tried, buildResumeLine(tried, told, r.failed), seen.io);
+	return tried;
+}
+
+/**
+ * The launches with each API-error resume typed a tick ago checked (#2359's
+ * route): where its line never reached the timeline, the same try falls back
+ * to stop and `--bg --resume`. None off an unread listing, which could not
+ * tell the session's state, the fallback being a stop.
+ * @param {LoopLaunch[]} launches
+ * @param {Tick} seen
+ */
+function settleTyped(launches, seen) {
+	const { agents, now, io } = seen;
+	if (!agents) return launches;
+	return launches.map((l) => {
+		const resumes = l.resumes;
+		const at = resumes?.attachAt;
+		if (
+			!resumes ||
+			at === undefined ||
+			now - at < ATTACH_VERDICT_MS ||
+			!isActionable(l)
+		)
+			return l;
+		const { attachAt: _, ...rest } = resumes;
+		const settled = /** @type {JobLaunch} */ ({ ...l, resumes: rest });
+		if (
+			!isResuming(settled) ||
+			isResumeArrived(at, API_PROMPT, io.readTimeline(settled))
+		)
+			return settled;
+		return fallBack(settled, seen, {
+			route: `${FALLBACK_ROUTE}, the typed one unseen`,
+			again: true,
+		});
+	});
+}
+
+/**
+ * Whether `l`'s session is live, or the listing unread.
+ * @param {JobLaunch} l
+ * @param {AgentRecord[]|null} agents
+ */
+const isLiveIn = (l, agents) =>
+	!agents || agents.some((a) => a.id === l.jobId && !isTerminalAgent(a));
+
+/**
+ * Resume `l`'s API-error stop (#2705): typed into its session where it is
+ * live or the listing is unread; else, or where the typing failed, by
+ * fallBack.
+ * @param {JobLaunch} l
+ * @param {Tick} seen
+ * @returns {LoopLaunch}
+ */
+function makeResume(l, seen) {
+	const { agents, now, io } = seen;
+	const isLive = isLiveIn(l, agents);
+	const typeFailed = isLive ? io.type(l, API_PROMPT) : null;
+	if (typeFailed)
+		io.log(`could not type the resume into ${l.jobId}: ${typeFailed}`);
+	if (!isLive || typeFailed)
+		return fallBack(l, seen, { route: FALLBACK_ROUTE, again: false });
+	const tried = afterResume(l, now, { typed: true, failed: false });
+	reportResume(tried, buildResumeLine(tried, ATTACH_ROUTE, null), io);
+	return tried;
+}
+
+/**
+ * Type the resume into `l`'s resumed-idle session (#2978): never a stop, so
+ * an unread listing types too. A try that could not be typed still counts,
+ * so a session the loop cannot reach is handed off on the table's schedule;
+ * a later tick reads the transcript for its turn (idleActs).
+ * @param {JobLaunch} l
+ * @param {Tick} seen
+ * @returns {LoopLaunch}
+ */
+function typeIdleResume(l, { agents, now, io }) {
+	const failed = isLiveIn(l, agents)
+		? io.type(l, IDLE_PROMPT)
+		: "its session is not live";
+	const tried = afterIdleResume(l, now);
+	reportResume(tried, buildIdleResumeLine(tried, failed), io);
+	return tried;
+}
+
+/** Why idleSpared spares a launch, by its idleReading. */
+const SPARED_WHY = {
+	turned: "it took a turn after its resume",
+	ended: "its job is no longer idle",
+	unread: "its resumed-idle records are unread",
+};
+
+/**
+ * `l` where its records, read again just before a stop, no longer read
+ * resumed-idle (#2979): an `api-request` or assistant row after the loop's
+ * last resume, or a job no longer working, ends the episode (endedIdle), and
+ * records that will not read stop nothing ("doubt never stops a session"),
+ * each logged. Null where it still reads idle.
+ * @param {JobLaunch} l
+ * @param {BlockIo} io
+ * @returns {LoopLaunch|null}
+ */
+function idleSpared(l, io) {
+	const since = idleReading(l, io);
+	if (typeof since === "number") return null;
+	io.log(`not stopping ${launchName(l)}: ${SPARED_WHY[since]}`);
+	return since === "unread" ? l : endedIdle(l);
+}
+
+/**
+ * Stop `b`'s resumed-idle session, still idle after its typed resumes, and
+ * hand its issues to a fresh launch (#2659): `io.postHandOff`, which posts
+ * its snapshot as a `**Hand-off:**` comment on each and releases its claim.
+ * Its launch is finished and its dispatch-ledger hold released (#2744), so
+ * the next tick may relaunch its issues within the ledger's hour; a failed
+ * hand-off is retried on the next tick, the session left stopped, up to
+ * HAND_OFF_TRIES. One given up keeps its hold, as its claim may still stand
+ * and no snapshot was posted, so its issues wait out the hour. Never off an
+ * unread listing ("doubt never stops a session"), nor where idleSpared
+ * spares it.
+ * @param {JobLaunch} b
+ * @param {Tick} seen
+ * @param {boolean} [stopped]  its stop already held, on a retried hand-off
+ * @returns {LoopLaunch}
+ */
+function handOff(b, { agents, now, io }, stopped = false) {
+	const { block: _, ...l } = b;
+	if (!agents) {
+		io.log(`not handing off ${launchName(l)}: the listing is unread`);
+		return l;
+	}
+	const spared = stopped ? null : idleSpared(l, io);
+	if (spared) return spared;
+	const failed = stopped ? null : stopJob(b, io);
+	if (failed) {
+		io.log(`could not stop ${launchName(l)} to hand it off: ${failed}`);
+		return l;
+	}
+	const r = io.postHandOff(b);
+	io.log(
+		`stopped ${launchName(l)}, idle after its resume, and handed it off: ${r.failed ?? "exit 0"}\n  ${indented(r.out)}`,
+	);
+	const tries = (l.handOffTries ?? 0) + 1;
+	if (r.failed && tries < HAND_OFF_TRIES) return { ...l, handOffTries: tries };
+	if (r.failed)
+		io.log(`gave up handing off ${launchName(l)} after ${tries} tries`);
+	else if (!io.release(b))
+		io.log(
+			`could not release ${launchName(l)}'s dispatch-ledger hold: its issues wait out the hour (#2744)`,
+		);
+	const { handOffTries: __, ...done } = l;
+	return {
+		...done,
+		...io.progressOf(done),
+		finishedAt: now,
+		handedOff: now,
+	};
+}
+
+/**
+ * @typedef {{mode: "away"|"normal", resume: (l: BlockedLaunch, seen: Tick)
+ *   => LoopLaunch}} ActHow  `resume`, the resume a `resume` act makes for
+ *   its cause
+ */
+
+/**
+ * Each act's handler, for blocked and resumed-idle launches alike; `wait` and
+ * `none` have none.
+ * @type {Partial<Record<Act, (l: BlockedLaunch, seen: Tick, how: ActHow) =>
+ *   LoopLaunch>>}
+ */
+const ACTS = {
+	"stop-and-park": (l, seen, { mode }) =>
+		stopPark(l, "stop-and-park", mode, seen),
+	"park-at-morning": (l, seen, { mode }) =>
+		stopPark(l, "park-at-morning", mode, seen),
+	hold: (l, seen) => hold(l, seen),
+	resume: (l, seen, { resume }) => resume(l, seen),
+	"handoff-relaunch": (l, seen) => handOff(l, seen),
+};
+
+/**
+ * Each of `acts` done through ACTS, by job id.
+ * @param {{l: BlockedLaunch, act: Act}[]} acts
+ * @param {Tick} seen
+ * @param {ActHow} how
+ * @returns {Map<string, LoopLaunch>}
+ */
+function actedOn(acts, seen, how) {
+	const acted = new Map();
+	for (const { l, act } of acts) {
+		const handler = ACTS[act];
+		if (handler) acted.set(l.jobId, handler(l, seen, how));
+	}
+	return acted;
+}
+
+/**
+ * The launches with each launch in `acted` put in, by job id.
+ * @param {LoopLaunch[]} launches
+ * @param {Map<string, LoopLaunch>} acted
+ */
+const withActed = (launches, acted) =>
+	launches.map((l) => (l.jobId && acted.get(l.jobId)) || l);
+
+/**
+ * The tick's acts on blocked launches: each typed resume checked, then the
+ * table's act on each (blockedActs).
+ * @param {LoopLaunch[]} launches markParked's, off `seen`'s listing
+ * @param {"away"|"normal"} mode
+ * @param {Tick} seen
+ */
+function actOnBlocks(launches, mode, seen) {
+	const settled = settleTyped(launches, seen);
+	const acts = blockedActs(settled, mode, seen);
+	return withActed(settled, actedOn(acts, seen, { mode, resume: makeResume }));
+}
+
+/**
+ * The tick's acts on resumed-idle launches (#2659), read off the job store
+ * and transcripts whether or not the listing read: each owed hand-off
+ * retried, each typed resume checked, then the RESUMED_IDLE row's act, its
+ * block made up for the act and so not kept.
+ * @param {LoopLaunch[]} launches
+ * @param {"away"|"normal"} mode
+ * @param {Tick} seen
+ */
+function actOnIdle(launches, mode, seen) {
+	const owed = launches.map((l) =>
+		isActionable(l) && l.handOffTries !== undefined
+			? handOff(l, seen, true)
+			: l,
+	);
+	const read = idleActs(owed, seen.io, mode, seen.now);
+	const acted = actedOn(read.acts, seen, {
+		mode,
+		resume: typeIdleResume,
+	});
+	const unblocked = new Map(
+		[...acted].map(([jobId, { block: _, ...l }]) => [jobId, l]),
+	);
+	return withActed(read.launches, unblocked);
+}
+
+module.exports = {
+	actOnBlocks,
+	actOnIdle,
+	indented,
+	isHeld,
+	isResuming,
+	iso,
+	launchName,
+	markParked,
+	nextResumeAt,
+};

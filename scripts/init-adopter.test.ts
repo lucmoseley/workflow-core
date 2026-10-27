@@ -25,11 +25,13 @@ import { HOOKS, renderHookShim, TOOLS } from "./lib/adopter-skeleton.js";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { RUFF_INSTALL } from "./lib/formatters.js";
 import { stubGhScript } from "./lib/gh-stub";
+import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { installPathFor } from "./lib/plugin-state.js";
-import { allRegistrations, commandLine } from "./lib/registrations.js";
+import { gateTmpdir } from "./lib/precommit-gate-harness.js";
+import { allRegistrations, buildCommandLine } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { upgrade } from "./lib/upgrade-walk.js";
 import { MODULES } from "./lib/workflow-core-config.js";
-import { upgrade } from "./upgrade.js";
 
 const SKELETON_PATHS = skeletonPaths(() => true);
 
@@ -41,15 +43,28 @@ afterAll(() => {
 	for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-function repo() {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-"));
-	made.push(dir);
+/* The template builds under git-fixture's scratch base, inside this checkout,
+ * so the ceiling stops a failed `git init` from letting `git config` write
+ * into the checkout's own .git/config (#2875). */
+const emptyRepo = defineTemplate((dir) => {
+	const env = { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(dir) };
 	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+		execFileSync("git", args, { cwd: dir, env });
 	git("init", "-q", "-b", "main", ".");
-	/* An identity, so the commit below is not refused for want of one. */
+	/* An identity, so the tests' commits are not refused for want of one. */
 	git("config", "user.email", "fixture@example.invalid");
 	git("config", "user.name", "Adopter Fixture");
+});
+
+/* Copies land outside any repository, not under the scratch base, so no
+ * test's adopter repo sits inside this checkout. Residual: they are back on
+ * the shared /tmp, where mantahostels#3144 saw a fixture deleted mid-copy. */
+function repo() {
+	const dir = mkDirOutsideRepo("adopter-");
+	made.push(dir);
+	emptyRepo.instantiate(dir);
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 	return { dir, git };
 }
 
@@ -110,11 +125,13 @@ function commitThroughHooks(
 	 * files git has never seen. */
 	execFileSync("git", ["add", "-N", ...paths], { cwd: dir });
 	/* The shims run this checkout, as CI's WORKFLOW_CORE_CHECKOUT would: the
-	 * fixture has no install row for them to resolve (#1839). */
+	 * fixture has no install row for them to resolve (#1839). The skeleton's
+	 * hooks arm the real shellcheck gate, so the commit takes the fixture's own
+	 * TMPDIR for its lock, set after `env` so no caller's replaces it (#2648). */
 	return spawnSync("git", ["commit", "-m", message, "--", ...paths], {
 		cwd: dir,
 		encoding: "utf8",
-		env: { WORKFLOW_CORE_DIR: CORE, ...env },
+		env: { WORKFLOW_CORE_DIR: CORE, ...env, TMPDIR: gateTmpdir(dir) },
 	});
 }
 
@@ -1321,7 +1338,7 @@ describe("init in a fresh repository", () => {
 	});
 
 	it("writes no file for governance: no archive folder, manual, cycle log or §A row (#414)", () => {
-		const files = (dir: string): string[] =>
+		const readFiles = (dir: string): string[] =>
 			fs
 				.readdirSync(dir, { recursive: true, encoding: "utf8" })
 				.filter((f) => !f.startsWith(".git/") && f !== ".git")
@@ -1341,16 +1358,16 @@ describe("init in a fresh repository", () => {
 				"--no-tracker",
 			).status,
 		).toBe(0);
-		expect(files(governed)).toEqual(files(plain));
+		expect(readFiles(governed)).toEqual(readFiles(plain));
 		for (const p of [
 			"docs/archive",
 			"docs/operating-manual.md",
 			"docs/cycle-log.md",
 		])
 			expect(fs.existsSync(path.join(governed, p))).toBe(false);
-		const sidecar = (dir: string) =>
+		const readSidecar = (dir: string) =>
 			fs.readFileSync(path.join(dir, "docs/doc-map-classes.json"), "utf8");
-		expect(sidecar(governed)).toBe(sidecar(plain));
+		expect(readSidecar(governed)).toBe(readSidecar(plain));
 	});
 
 	it("refuses an unknown module rather than writing half a skeleton", () => {
@@ -1363,11 +1380,12 @@ describe("init in a fresh repository", () => {
 });
 
 describe("a complete day-one config (#715)", () => {
-	const config = (dir: string) =>
-		JSON.parse(
-			fs.readFileSync(path.join(dir, ".claude/workflow-core.json"), "utf8"),
-		);
-	const settings = (dir: string) =>
+	const configPath = (dir: string) =>
+		path.join(dir, ".claude/workflow-core.json");
+	const readConfig = (dir: string) =>
+		JSON.parse(fs.readFileSync(configPath(dir), "utf8"));
+	const biomeStaged = 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js';
+	const readSettings = (dir: string) =>
 		JSON.parse(
 			fs.readFileSync(path.join(dir, ".claude/settings.json"), "utf8"),
 		);
@@ -1388,7 +1406,7 @@ describe("a complete day-one config (#715)", () => {
 			"--no-tracker",
 		);
 		expect(r.status).toBe(0);
-		expect(config(dir).corpus).toEqual([
+		expect(readConfig(dir).corpus).toEqual([
 			"acme/widget",
 			"lucmoseley/workflow-core-tracker",
 			"acme/rulings",
@@ -1399,7 +1417,7 @@ describe("a complete day-one config (#715)", () => {
 		const { dir, git } = repo();
 		git("remote", "add", "origin", "https://github.com/acme/widget.git");
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		expect(config(dir)).not.toHaveProperty("corpus");
+		expect(readConfig(dir)).not.toHaveProperty("corpus");
 	});
 
 	it("refuses --corpus where no own tracker resolves, writing nothing", () => {
@@ -1446,7 +1464,7 @@ describe("a complete day-one config (#715)", () => {
 		);
 		const r = init(dir, "--founder", "A Founder", "--no-tracker");
 		expect(r.status).toBe(0);
-		expect(config(dir).commands).toEqual({
+		expect(readConfig(dir).commands).toEqual({
 			test: "npm run test",
 			lint: "npm run lint",
 			typecheck: "npm run typecheck",
@@ -1465,15 +1483,14 @@ describe("a complete day-one config (#715)", () => {
 	it.each([
 		[
 			"biome check --staged --no-errors-on-unmatched --error-on-warnings",
-			'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js --no-errors-on-unmatched --error-on-warnings',
+			`${biomeStaged} --no-errors-on-unmatched --error-on-warnings`,
 		],
-		[
-			"npx @biomejs/biome check --staged",
-			'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js',
-		],
-		["biome check --staged && tsc", "npm run check:staged"],
+		["npx @biomejs/biome check --staged", biomeStaged],
 		["biome check --changed", "npm run check:staged"],
-		["biome check --staged --write", "npm run check:staged"],
+		[
+			"biome check --staged --only=lint/style",
+			`${biomeStaged} --only=lint/style`,
+		],
 	])("infers check_staged from a %j script as %s", (script, command) => {
 		const { dir } = repo();
 		write(
@@ -1485,20 +1502,145 @@ describe("a complete day-one config (#715)", () => {
 			}),
 		);
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		expect(config(dir).commands.check_staged).toBe(command);
+		expect(readConfig(dir).commands.check_staged).toBe(command);
 	});
 
-	it("keeps a biome check --staged script as npm run where package.json declares no Biome", () => {
+	it("maps an inferred write-flag script with --write dropped, printing the note and leaving package.json as written (#2773)", () => {
 		const { dir } = repo();
+		const pkg = JSON.stringify({
+			scripts: {
+				"check:staged": "biome check --staged --write --no-errors-on-unmatched",
+			},
+			devDependencies: { "@biomejs/biome": "2.5.15" },
+		});
+		write(dir, "package.json", pkg);
+		const r = init(dir, "--founder", "A Founder", "--no-tracker");
+		expect(r.status).toBe(0);
+		expect(readConfig(dir).commands.check_staged).toBe(
+			'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js --no-errors-on-unmatched',
+		);
+		expect(r.stdout).toMatch(
+			/^commands .*check_staged: node "\$WFC_PLUGIN_ROOT"\/scripts\/biome-staged\.js --no-errors-on-unmatched \(inferred from package\.json — auto-fix on commit dropped; /m,
+		);
+		expect(fs.readFileSync(path.join(dir, "package.json"), "utf8")).toBe(pkg);
+	});
+
+	it.each([
+		[
+			"biome check --staged && tsc",
+			{ "@biomejs/biome": "2.0.0" },
+			"holds more than that one command",
+			`Declare check_staged instead as '${biomeStaged}' for the Biome part`,
+		],
+		[
+			"biome check --staged --changed",
+			{ "@biomejs/biome": "2.0.0" },
+			"--changed",
+			"Declare check_staged without '--changed'.",
+		],
+		[
+			"npx @biomejs/biome check --staged",
+			{},
+			"does not declare @biomejs/biome",
+			"Add @biomejs/biome to devDependencies.",
+		],
+	])(
+		"refuses an inferred %j script, writing nothing and naming the way out (#2774)",
+		(script, devDependencies, shape, wayOut) => {
+			const { dir } = repo();
+			write(
+				dir,
+				"package.json",
+				JSON.stringify({
+					scripts: { "check:staged": script },
+					devDependencies,
+				}),
+			);
+			const r = init(dir, "--founder", "A Founder", "--no-tracker");
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(
+				'check_staged "npm run check:staged" (inferred from package.json) runs biome check --staged',
+			);
+			expect(r.stderr).toContain(shape);
+			expect(r.stderr).toContain(wayOut);
+			expect(fs.existsSync(configPath(dir))).toBe(false);
+		},
+	);
+
+	it.each([
+		["an npm run whose script", "npm run check:staged"],
+		[
+			"a direct biome check --staged that",
+			"biome check --staged --no-errors-on-unmatched",
+		],
+	])(
+		"refuses %s would map as an explicit --command, naming the mapped command (#2774)",
+		(_, command) => {
+			const { dir } = repo();
+			write(
+				dir,
+				"package.json",
+				JSON.stringify({
+					scripts: {
+						"check:staged": "biome check --staged --no-errors-on-unmatched",
+					},
+					devDependencies: { "@biomejs/biome": "2.0.0" },
+				}),
+			);
+			const r = init(
+				dir,
+				"--founder",
+				"A Founder",
+				"--no-tracker",
+				"--command",
+				`check_staged=${command}`,
+			);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(`check_staged "${command}" (--command)`);
+			expect(r.stderr).toContain(
+				`an explicit value is never rewritten. Declare check_staged instead as '${biomeStaged} --no-errors-on-unmatched'.`,
+			);
+			expect(fs.existsSync(configPath(dir))).toBe(false);
+		},
+	);
+
+	it("accepts an explicit biome-staged.js --command unparsed (#2774)", () => {
+		const { dir } = repo();
+		const command = `${biomeStaged} --reporter-file=out.json`;
+		const r = init(
+			dir,
+			"--founder",
+			"A Founder",
+			"--no-tracker",
+			"--command",
+			`check_staged=${command}`,
+		);
+		expect(r.status, r.stderr).toBe(0);
+		expect(readConfig(dir).commands.check_staged).toBe(command);
+	});
+
+	it("leaves a kept config's biome check --staged check_staged to the hook (#2774)", () => {
+		const { dir } = repo();
+		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
 		write(
 			dir,
 			"package.json",
 			JSON.stringify({
-				scripts: { "check:staged": "npx @biomejs/biome check --staged" },
+				scripts: { "check:staged": "biome check --staged && tsc" },
+				devDependencies: { "@biomejs/biome": "2.0.0" },
 			}),
 		);
-		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		expect(config(dir).commands.check_staged).toBe("npm run check:staged");
+		write(
+			dir,
+			".claude/workflow-core.json",
+			JSON.stringify({
+				...readConfig(dir),
+				commands: { check_staged: "npm run check:staged" },
+			}),
+		);
+		const r = init(dir, "--no-tracker");
+		expect(r.status, r.stderr).toBe(0);
+		expect(readConfig(dir).commands.check_staged).toBe("npm run check:staged");
 	});
 
 	// lint-staged hides a neighbour's unstaged hunks for its run (#2583).
@@ -1510,7 +1652,7 @@ describe("a complete day-one config (#715)", () => {
 			JSON.stringify({ scripts: { "lint-staged": "lint-staged" } }),
 		);
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		expect(config(dir).commands).toBeUndefined();
+		expect(readConfig(dir).commands).toBeUndefined();
 	});
 
 	it.each([
@@ -1550,7 +1692,7 @@ describe("a complete day-one config (#715)", () => {
 		);
 		write(dir, "pyproject.toml", "[tool.pytest.ini_options]\naddopts = -q\n");
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		expect(config(dir).commands).toEqual({ test: "python3 -m pytest" });
+		expect(readConfig(dir).commands).toEqual({ test: "python3 -m pytest" });
 	});
 
 	it("takes pytest config ahead of *.test.js files", () => {
@@ -1558,21 +1700,21 @@ describe("a complete day-one config (#715)", () => {
 		write(dir, "pytest.ini", "[pytest]\n");
 		write(dir, "lib/a.test.js", "");
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		expect(config(dir).commands).toEqual({ test: "python3 -m pytest" });
+		expect(readConfig(dir).commands).toEqual({ test: "python3 -m pytest" });
 	});
 
 	it("runs *.test.js files with node --test, never counting node_modules'", () => {
 		const { dir } = repo();
 		write(dir, "node_modules/dep/x.test.js", "");
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		expect(config(dir)).not.toHaveProperty("commands");
+		expect(readConfig(dir)).not.toHaveProperty("commands");
 
 		const other = repo().dir;
 		write(other, "src/deep/a.test.js", "");
 		expect(init(other, "--founder", "A Founder", "--no-tracker").status).toBe(
 			0,
 		);
-		expect(config(other).commands).toEqual({ test: "node --test" });
+		expect(readConfig(other).commands).toEqual({ test: "node --test" });
 	});
 
 	it("gives an empty repo none, and says so", () => {
@@ -1580,7 +1722,7 @@ describe("a complete day-one config (#715)", () => {
 		const r = init(dir, "--founder", "A Founder", "--no-tracker");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("commands none");
-		expect(config(dir)).not.toHaveProperty("commands");
+		expect(readConfig(dir)).not.toHaveProperty("commands");
 	});
 
 	it("shows the inferred set under --dry-run, writing nothing", () => {
@@ -1606,7 +1748,7 @@ describe("a complete day-one config (#715)", () => {
 			"--no-tracker",
 		);
 		expect(r.status).toBe(0);
-		expect(config(dir).commands).toEqual({ test: "make test" });
+		expect(readConfig(dir).commands).toEqual({ test: "make test" });
 		expect(r.stdout).toContain("commands test: make test (--command)");
 	});
 
@@ -1617,7 +1759,7 @@ describe("a complete day-one config (#715)", () => {
 		const r = init(dir, "--corpus", "acme/rulings", "--no-tracker");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("corpus   NOT written");
-		expect(config(dir)).not.toHaveProperty("corpus");
+		expect(readConfig(dir)).not.toHaveProperty("corpus");
 	});
 
 	it("reports a kept config's commands on a re-run, not a search it never made", () => {
@@ -1647,7 +1789,7 @@ describe("a complete day-one config (#715)", () => {
 	it("switches a module on when its config's modules is edited and init re-run (#708 Q4)", () => {
 		const { dir } = repo();
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		const edited = config(dir);
+		const edited = readConfig(dir);
 		edited.modules = ["roadmap"];
 		write(dir, ".claude/workflow-core.json", JSON.stringify(edited));
 		const r = init(dir, "--no-tracker");
@@ -1669,7 +1811,7 @@ describe("a complete day-one config (#715)", () => {
 				"v1.2.3",
 			).status,
 		).toBe(0);
-		const rules = () =>
+		const readRules = () =>
 			fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8");
 		const said = fs
 			.readFileSync(
@@ -1692,8 +1834,8 @@ describe("a complete day-one config (#715)", () => {
 			.split("\n")
 			.flatMap((line) => line.match(/^- \[roadmap\] (.+)$/)?.[1] ?? []);
 		expect(roadmapLines.length).toBeGreaterThan(0);
-		for (const line of roadmapLines) expect(rules()).not.toContain(line);
-		const edited = config(dir);
+		for (const line of roadmapLines) expect(readRules()).not.toContain(line);
+		const edited = readConfig(dir);
 		edited.modules = ["roadmap"];
 		write(dir, ".claude/workflow-core.json", JSON.stringify(edited));
 		/* Run as the session would, from the repo with no --root, but for the
@@ -1709,7 +1851,7 @@ describe("a complete day-one config (#715)", () => {
 		expect(fs.existsSync(path.join(dir, "docs/reference-roadmap.html"))).toBe(
 			true,
 		);
-		for (const line of roadmapLines) expect(rules()).toContain(line);
+		for (const line of roadmapLines) expect(readRules()).toContain(line);
 		/* The commit the rules file asks for next: the module's documents are
 		 * registered, so the doc-map gate passes them. */
 		git("add", "-A");
@@ -1720,7 +1862,7 @@ describe("a complete day-one config (#715)", () => {
 		);
 		expect(gate.status, `${gate.stdout}${gate.stderr}`).toBe(0);
 		expect(
-			settings(dir).extraKnownMarketplaces["workflow-core"].source,
+			readSettings(dir).extraKnownMarketplaces["workflow-core"].source,
 		).toEqual(expect.objectContaining({ source: "url", ref: "v1.2.3" }));
 	});
 
@@ -1730,7 +1872,7 @@ describe("a complete day-one config (#715)", () => {
 		const r = init(dir, "--no-tracker");
 		expect(r.status, r.stderr).toBe(0);
 		expect(
-			settings(dir).extraKnownMarketplaces["workflow-core"].source,
+			readSettings(dir).extraKnownMarketplaces["workflow-core"].source,
 		).toEqual({
 			source: "directory",
 			path: CORE,
@@ -1740,10 +1882,10 @@ describe("a complete day-one config (#715)", () => {
 	it("keeps a directory source's declared checkout on a bare re-run from another plugin root (#731)", () => {
 		const { dir } = repo();
 		expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(0);
-		const source = () =>
-			settings(dir).extraKnownMarketplaces["workflow-core"].source;
+		const readSource = () =>
+			readSettings(dir).extraKnownMarketplaces["workflow-core"].source;
 		const declareSource = (declared: object) => {
-			const edited = settings(dir);
+			const edited = readSettings(dir);
 			edited.extraKnownMarketplaces["workflow-core"].source = declared;
 			write(dir, ".claude/settings.json", JSON.stringify(edited));
 		};
@@ -1765,14 +1907,14 @@ describe("a complete day-one config (#715)", () => {
 		declarePath(checkout);
 		const kept = bare();
 		expect(kept.status, kept.stderr).toBe(0);
-		expect(source()).toEqual({ source: "directory", path: checkout });
+		expect(readSource()).toEqual({ source: "directory", path: checkout });
 		declarePath(path.join(checkout, "gone"));
 		expect(bare().status).toBe(0);
-		expect(source()).toEqual({ source: "directory", path: CORE });
+		expect(readSource()).toEqual({ source: "directory", path: CORE });
 		/* An explicit --plugin-root re-points it. */
 		declarePath(checkout);
 		expect(init(dir, "--no-tracker").status).toBe(0);
-		expect(source()).toEqual({ source: "directory", path: CORE });
+		expect(readSource()).toEqual({ source: "directory", path: CORE });
 		/* A git source's ref is kept as a url source's is. */
 		declareSource({
 			source: "git",
@@ -1780,7 +1922,7 @@ describe("a complete day-one config (#715)", () => {
 			ref: "v1.2.3",
 		});
 		expect(bare().status).toBe(0);
-		expect(source()).toEqual(
+		expect(readSource()).toEqual(
 			expect.objectContaining({ source: "url", ref: "v1.2.3" }),
 		);
 	});
@@ -2022,22 +2164,22 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 		return { dir, git };
 	}
 
-	const hookLines = (dir: string) =>
+	const readHookLines = (dir: string) =>
 		allRegistrations(
 			JSON.parse(
 				fs.readFileSync(path.join(dir, ".claude/settings.json"), "utf8"),
 			),
-		).map(commandLine);
+		).map(buildCommandLine);
 
 	it.skipIf(!HAS_GITLEAKS)(
 		"lands the whole change set through the registry guard and the husky stack",
 		() => {
 			const { dir, git } = unseededAdopter();
-			const hooksBefore = hookLines(dir);
+			const hooksBefore = readHookLines(dir);
 			upgradeAfterInit(dir);
 			/* Upgrade adds no hook to settings.json, so it owes no `hooks` row:
 			 * a change here reopens #1671's second question. */
-			expect(hookLines(dir)).toEqual(hooksBefore);
+			expect(readHookLines(dir)).toEqual(hooksBefore);
 
 			const changed = git("status", "--porcelain", "-uall")
 				.split("\n")
@@ -2061,14 +2203,13 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 			};
 			const guardOn = (paths: string[]) => {
 				git("add", "-N", "--", ...paths);
-				return spawnSync(
-					path.join(__dirname, "guard-registry-atomicity.sh"),
+				return runInProcess(
+					path.join(__dirname, "guard-registry-atomicity.js"),
 					[],
 					{
 						cwd: dir,
-						encoding: "utf8",
 						env,
-						input: JSON.stringify({
+						stdin: JSON.stringify({
 							session_id: "upgrader",
 							tool_name: "Bash",
 							tool_input: {
@@ -2139,7 +2280,7 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 	}
 	const hooks = (dir: string) =>
 		HOOKS.map((h) => fs.readFileSync(path.join(dir, ".husky", h), "utf8"));
-	const rules = (dir: string) =>
+	const readRules = (dir: string) =>
 		fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8");
 
 	it("runs the rules file from this repo's install row, not the code running, and writes hook shims naming neither", () => {
@@ -2170,10 +2311,10 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			"v1.2.3",
 		);
 		expect(r.status, r.stderr).toBe(0);
-		expect(rules(dir)).toContain(
+		expect(readRules(dir)).toContain(
 			`\`${installPath}/scripts/bg-run.sh check <name>\``,
 		);
-		expect(rules(dir)).not.toContain(`${CORE}/scripts/`);
+		expect(readRules(dir)).not.toContain(`${CORE}/scripts/`);
 		expect(hooks(dir)).toEqual(HOOKS.map((h) => renderHookShim(h)));
 	});
 
@@ -2424,7 +2565,7 @@ describe("the skeleton pathspec", () => {
 
 describe("a run refused before it writes anything (#743)", () => {
 	/** Every path under `dir` but `.git`, so a refusal is seen writing nothing. */
-	const tree = (dir: string) =>
+	const readTree = (dir: string) =>
 		(fs.readdirSync(dir, { recursive: true }) as string[])
 			.filter((p) => p !== ".git" && !p.startsWith(`.git${path.sep}`))
 			.sort();
@@ -2445,7 +2586,7 @@ describe("a run refused before it writes anything (#743)", () => {
 		const r = init(dir, "--founder", "A Founder", "--no-tracker", "--help");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^usage: node scripts\/init-adopter\.js /);
-		expect(tree(dir)).toEqual([]);
+		expect(readTree(dir)).toEqual([]);
 	});
 
 	it("refuses an unknown flag with the usage line, exit 2", () => {
@@ -2460,7 +2601,7 @@ describe("a run refused before it writes anything (#743)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain('unknown flag "--no-such-flag"');
 		expect(r.stderr).toContain("usage: node scripts/init-adopter.js");
-		expect(tree(dir)).toEqual([]);
+		expect(readTree(dir)).toEqual([]);
 	});
 
 	it("refuses a bare flag given a value rather than reading it as one, naming the value", () => {
@@ -2479,7 +2620,7 @@ describe("a run refused before it writes anything (#743)", () => {
 
 	it("refuses to adopt the core's own checkout, run from inside it, leaving the checkout untouched", () => {
 		const dir = fakeCore();
-		const before = tree(dir);
+		const before = readTree(dir);
 		const r = spawnSync(
 			"node",
 			[SCRIPT, "--founder", "A Founder", "--no-tracker", "--no-plugin-install"],
@@ -2491,12 +2632,12 @@ describe("a run refused before it writes anything (#743)", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("plugin's own checkout");
-		expect(tree(dir)).toEqual(before);
+		expect(readTree(dir)).toEqual(before);
 	});
 
 	it("refuses the core's checkout while installing another plugin, leaving the checkout untouched", () => {
 		const dir = fakeCore();
-		const before = tree(dir);
+		const before = readTree(dir);
 		const { dir: other } = repo();
 		fs.mkdirSync(path.join(other, ".claude-plugin"));
 		for (const [file, body] of [
@@ -2526,7 +2667,7 @@ describe("a run refused before it writes anything (#743)", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("plugin's own checkout");
-		expect(tree(dir)).toEqual(before);
+		expect(readTree(dir)).toEqual(before);
 	});
 
 	it("refuses a root that is the plugin root, manifest or none, writing nothing", () => {
@@ -2552,7 +2693,7 @@ describe("a run refused before it writes anything (#743)", () => {
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("plugin's own checkout");
-		expect(tree(dir)).toEqual([]);
+		expect(readTree(dir)).toEqual([]);
 	});
 });
 
@@ -2563,13 +2704,12 @@ describe("the host registries (#1456)", () => {
 	];
 
 	function guardDenies(dir: string, command: string): boolean {
-		const out = execFileSync(
-			path.join(CORE, "scripts/guard-registry-atomicity.sh"),
+		const { stdout: out } = runInProcess(
+			path.join(CORE, "scripts/guard-registry-atomicity.js"),
 			[],
 			{
 				cwd: dir,
-				encoding: "utf8",
-				input: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
+				stdin: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
 				env: {
 					...process.env,
 					CLAUDE_PROJECT_DIR: dir,

@@ -19,6 +19,7 @@
 		"push_check": "npm run push:check",
 		"full_test": "npm run test -- --full=push-gate --shared"
 	},
+	"fullTestShards": 2,
 	"modules": ["roadmap", "suites", "landing"],
 	"pythonRoutes": {
 		"scripts/**/test_*.py": "test",

@@ -32,8 +32,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const { configDir: defaultConfigDir } = require("./config-dir.js");
+const { gitOrNull } = require("./git.js");
 
 /**
  * The shapes of the four JSON files this module reads. They are partial by
@@ -192,19 +192,12 @@ function resolveMarketplace(pluginsDir, marketplace) {
  */
 function readGitRef(dir) {
 	if (!dir || !fs.existsSync(path.join(dir, ".git"))) return null;
-	const run = (/** @type {string[]} */ args) => {
-		try {
-			return execFileSync("git", args, {
-				cwd: dir,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				// A guess, never measured: a wedged git, not a slow one.
-				timeout: 10_000,
-			}).trim();
-		} catch {
-			return null;
-		}
-	};
+	const run = (/** @type {string[]} */ args) =>
+		gitOrNull(args, {
+			cwd: dir,
+			// A guess, never measured: a wedged git, not a slow one.
+			timeout: 10_000,
+		})?.trim() ?? null;
 	const tag = run(["describe", "--tags", "--exact-match"]);
 	if (tag) return { ref: tag, kind: "tag" };
 	const branch = run(["rev-parse", "--abbrev-ref", "HEAD"]);

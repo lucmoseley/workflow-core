@@ -29,7 +29,6 @@ const judged = (text: string) => {
 
 describe("the routes to a refusal", () => {
 	it.each([
-		["gp_deny", '#!/usr/bin/env bash\ngp_deny "no"\n'],
 		["a JS verdict", 'out({ permissionDecision: "deny" });\n'],
 		["a JSON verdict", '{"permissionDecision": "deny"}'],
 		["an escaped JSON verdict", 'echo "{\\"permissionDecision\\":\\"deny\\"}"'],
@@ -43,7 +42,6 @@ describe("the routes to a refusal", () => {
 			'{"hookSpecificOutput":{"additionalContext":"note"}}',
 		],
 		["an allow", '{"permissionDecision":"allow"}'],
-		["a lookalike call", "gp_denyish\n"],
 	])("refuses %s", (_, text) => {
 		expect(judged(text)).toBe(false);
 	});
@@ -128,20 +126,20 @@ describe("a DENIES-BY: exit 2 header line (#2473)", () => {
 describe("finding the guard", () => {
 	it("takes the first directory that holds it, and only that one", () => {
 		fs.writeFileSync(path.join(a, "g.sh"), "echo fine\n");
-		fs.writeFileSync(path.join(b, "g.sh"), "gp_deny\n");
+		fs.writeFileSync(path.join(b, "g.sh"), '{"permissionDecision":"deny"}\n');
 
 		expect(guardPath("g.sh", [a, b])).toBe(path.join(a, "g.sh"));
 		expect(isDenyCapableIn([a, b])("g.sh")).toBe(false);
 	});
 
 	it("falls through to the next directory", () => {
-		fs.writeFileSync(path.join(b, "g.sh"), "gp_deny\n");
+		fs.writeFileSync(path.join(b, "g.sh"), '{"permissionDecision":"deny"}\n');
 
 		expect(isDenyCapableIn([a, b])("g.sh")).toBe(true);
 	});
 
 	it("resolves nothing but a bare filename", () => {
-		fs.writeFileSync(path.join(a, "g.sh"), "gp_deny\n");
+		fs.writeFileSync(path.join(a, "g.sh"), '{"permissionDecision":"deny"}\n');
 
 		expect(guardPath(`../${path.basename(a)}/g.sh`, [b])).toBeNull();
 		expect(guardPath("..", [a])).toBeNull();

@@ -1,3 +1,3 @@
 A SUBAGENT TOLD TO "SEARCH THE REPO" SEARCHES FILES ONLY — NAME THE TRACKER IN ITS PROMPT.
 
-Closed GitHub issues are corpus, not history: rulings, ledger items and rejected options live only there, so a file search that finds nothing proves nothing. Tell the agent to run `gh issue list --repo <tracker> --state all --search "<term>"` for every tracker the `corpus` key of `.claude/workflow-core.json` lists, and to read the resolution comments on every hit (`docs/agents/issue-tracker.md` §Where decisions get written).
+Tell the agent to run `gh issue list --repo <tracker> --state all --search "<term>"` for every tracker the `corpus` key of `.claude/workflow-core.json` lists, and to read the resolution comments on every hit (`docs/agents/issue-tracker.md` §Where decisions get written).

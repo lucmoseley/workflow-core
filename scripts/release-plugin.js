@@ -69,24 +69,25 @@ const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawnSync } = require("node:child_process");
+const { execGit } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { buildTree } = require("./lib/plugin-tree.js");
 const {
 	isMajorBump,
-	latestTag,
-	releaseMessage,
+	readLatestTag,
+	buildReleaseMessage,
 } = require("./lib/release-tags.js");
 const { runVerify } = require("./lib/verify-run.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const {
-	commandUndeclaredLine,
+	buildCommandUndeclaredLine,
 	readConfig,
 	MIGRATIONS_DIR,
 	UPSTREAM_CODE_REPO,
 } = require("./lib/workflow-core-config.js");
 const { validateNote, parseNote } = require("./lib/migration-note.js");
-const { upgrade } = require("./upgrade.js");
-const { gh, ghApiSlurp, errLine } = require("./lib/gh.js");
+const { upgrade } = require("./lib/upgrade-walk.js");
+const { gh, ghApiSlurp, parseErrLine } = require("./lib/gh.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
@@ -109,7 +110,7 @@ const CLI = {
  * @returns {string}
  */
 const git = (cwd, args, env) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		cwd,
 		env: env ?? process.env,
 		encoding: "utf8",
@@ -122,7 +123,7 @@ const git = (cwd, args, env) =>
 const VERIFY_TIMEOUT_MS = 10 * 60 * 1000;
 
 /**
- * main()'s catch prints a refusal through `errLine`, which keeps the message's
+ * main()'s catch prints a refusal through `parseErrLine`, which keeps the message's
  * first line only; a command's output under it rides on `detail`, printed whole
  * beneath that line (#1268).
  * @param {string} message
@@ -198,7 +199,7 @@ function helperCheck(adopterRoot, pluginRoot, env) {
 	const command = readConfig({ root: adopterRoot, quiet: true }).commands
 		.helper_check;
 	if (!command)
-		return `helper check: SKIPPED (${commandUndeclaredLine("helper_check")})\n`;
+		return `helper check: SKIPPED (${buildCommandUndeclaredLine("helper_check")})\n`;
 	verifyOrThrow(adopterRoot, command, "the dry-run adopter's helper check", {
 		...env,
 		CLAUDE_PROJECT_DIR: adopterRoot,
@@ -211,7 +212,7 @@ function helperCheck(adopterRoot, pluginRoot, env) {
  * @param {string} root
  * @returns {{plugin: {name: string, version: string}, tag: string}}
  */
-function releaseTarget(root) {
+function readReleaseTarget(root) {
 	const show = (/** @type {string} */ f) =>
 		JSON.parse(git(root, ["show", `HEAD:.claude-plugin/${f}`]));
 	const plugin = show("plugin.json");
@@ -238,7 +239,7 @@ function releaseTarget(root) {
  * @returns {string | null}
  */
 function readNoteOrThrow(root, tag) {
-	const prior = latestTag(root);
+	const prior = readLatestTag(root);
 	const noteRel = `${MIGRATIONS_DIR}/${tag}.md`;
 	const isMajor = isMajorBump(tag, prior);
 	let note = null;
@@ -278,7 +279,7 @@ function walkAdopter(dryRunAdopter, tmp, outDir, verifyEnv) {
 	 * WALKED AGAINST A COPY, never the adopter itself (#291, #296).
 	 * #291 stopped the adopter being mutated by passing
 	 * `dryRun: true`, but that same flag skips `applyResidue` and
-	 * the note's own Verify with it (upgrade.js's `walkNote`), leaving
+	 * the note's own Verify with it (lib/upgrade-walk.js's `walkNote`), leaving
 	 * this step proving note SHAPE alone — which the cut's own note
 	 * checks in `release()` already prove against the core. Copying first
 	 * gets both back: residue applies, Verify runs, `walkedTo`
@@ -375,7 +376,7 @@ function release(root, { dryRunAdopter } = {}) {
 	}
 
 	verifiedOrThrow(root);
-	const { plugin, tag } = releaseTarget(root);
+	const { plugin, tag } = readReleaseTarget(root);
 
 	/* Cheapest refusals first — no point running the whole suite before a
 	 * missing or malformed note refuses the release outright. */
@@ -440,7 +441,7 @@ function release(root, { dryRunAdopter } = {}) {
 			"commit-tree",
 			plumb(["write-tree"]),
 			"-m",
-			releaseMessage(plugin.name, tag, source),
+			buildReleaseMessage(plugin.name, tag, source),
 		]);
 		git(root, ["tag", "-a", tag, commit, "-m", `${plugin.name} ${tag}`]);
 		return { tag, commit, adopterLine };
@@ -494,7 +495,7 @@ function fileBumpIssues(repos, tag) {
 		} catch (err) {
 			failed.push({
 				repo,
-				reason: errLine(err),
+				reason: parseErrLine(err),
 				retry: `gh ${args.map(shQuote).join(" ")}`,
 			});
 			return null;
@@ -569,7 +570,7 @@ function fileBumpIssues(repos, tag) {
  * @param {string} tag
  * @returns {{report: string, trackerFailure: boolean}}
  */
-function bumpIssueReport(repos, tag) {
+function buildBumpIssueReport(repos, tag) {
 	let report = "";
 	if (repos.length === 0) return { report, trackerFailure: false };
 	const { filed, failed } = fileBumpIssues(repos, tag);
@@ -609,7 +610,7 @@ function main(argv) {
 		}
 		/* Distinct from the refusals below (#242), which mean no tag was cut
 		 * at all. */
-		const bump = bumpIssueReport(args.fileBumpIssues, tag);
+		const bump = buildBumpIssueReport(args.fileBumpIssues, tag);
 		report += bump.report;
 		const trackerFailure = bump.trackerFailure;
 		writeFd(1, report);
@@ -619,7 +620,7 @@ function main(argv) {
 			err instanceof Error && "detail" in err ? String(err.detail) : "";
 		writeFd(
 			2,
-			`release-plugin: ${errLine(err)}\n${detail ? `${detail}\n` : ""}`,
+			`release-plugin: ${parseErrLine(err)}\n${detail ? `${detail}\n` : ""}`,
 		);
 		return 1;
 	}

@@ -270,7 +270,7 @@ function overloadReading({ load1 = readLoad1(), cores, env } = {}) {
  * The one wording of a hold, shared by every reader that prints one.
  * @param {LoadReading} load
  */
-const overloadText = (load) =>
+const buildOverloadText = (load) =>
 	`load1 ${load.load1} is at or above the ${load.ceiling} ceiling (#830)`;
 
 /* Chosen, not measured (#830): 15 s polls a one-minute average often enough to
@@ -327,7 +327,7 @@ function holdForLoad({
 		if (!announced) {
 			announced = true;
 			out.write(
-				`run-vitest: ${overloadText(r)}; ` +
+				`run-vitest: ${buildOverloadText(r)}; ` +
 					`holding up to ${Math.round(timeoutMs / 1000)}s for it to fall\n`,
 			);
 		}
@@ -341,7 +341,8 @@ module.exports = {
 	delta,
 	FIELDS,
 	overloadReading,
-	overloadText,
+	buildOverloadText,
+	loadCeiling,
 	sessionCeiling,
 	holdForLoad,
 };

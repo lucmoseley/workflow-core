@@ -12,8 +12,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const core = require("./arbiter-core.js");
 const { caught } = require("./caught.js");
@@ -53,7 +51,7 @@ const SCAN_MINT_MAX = 20;
 /**
  * The tiers as git pathspecs — what git is ASKED for, which is wider than the
  * watched union since mantahostels#2103 put `.claude/tmp/` inside a tier and outside the
- * union. git has no way to spell that subtraction, so `tierFiles` filters the
+ * union. git has no way to spell that subtraction, so `readTierFiles` filters the
  * listing through `core.isWatched` afterwards; these prefixes only keep the
  * question cheap.
  */
@@ -100,7 +98,7 @@ const NO_STAT = new Array(STAT_FIELDS).fill("-").join(" ");
  * `hash-object` fails on them, and one failure aborts the whole batch.
  * @returns {Map<string, fs.BigIntStats> | null}
  */
-function tierFiles() {
+function readTierFiles() {
 	const listed = core.git([
 		"ls-files",
 		"-z",
@@ -150,17 +148,11 @@ function tierFiles() {
  */
 function hashPaths(rels) {
 	if (rels.length === 0) return new Map();
-	let out;
-	try {
-		out = execFileSync(gitBinary(), ["hash-object", "--stdin-paths"], {
-			cwd: core.repoRoot(),
-			encoding: "utf8",
-			input: `${rels.join("\n")}\n`,
-			stdio: ["pipe", "pipe", "ignore"],
-		});
-	} catch {
-		return null;
-	}
+	const out = core.gitIn(
+		["hash-object", "--stdin-paths"],
+		`${rels.join("\n")}\n`,
+	);
+	if (out === null) return null;
 	const shas = out.split("\n").filter(Boolean);
 	if (shas.length !== rels.length) return null;
 	return new Map(rels.map((rel, i) => [rel, shas[i]]));
@@ -280,7 +272,7 @@ function scanChanged(sessionId) {
 	// Taken before the first lstat: a change this scan misses has a later ctime,
 	// so the next scan re-hashes it.
 	const trustBefore = BigInt(Date.now() - RACY_MARGIN_MS) * BigInt(1e6);
-	const files = tierFiles();
+	const files = readTierFiles();
 	if (files === null) return [];
 	const before = readSnapshot(sessionId);
 	const now = currentTier(files, before);

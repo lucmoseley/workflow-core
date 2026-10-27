@@ -1,20 +1,24 @@
 /*
- * parked.js — the `parked` label (#2000, spec #1995): a question round on
- * the issue waits on the founder's answer, so selection skips it and lists it
- * under PARKED (pick-next.js).
+ * parked.js — the `parked` label (#2000, spec #1995): the issue waits on the
+ * founder, on a question round its session posted or on a session the refill
+ * loop stopped whatever its cause, so the loop never launches it
+ * (lib/refill-decide.js); pick-next.js lists it under PARKED and may still
+ * choose it (#2703).
  *
- * WRITERS: park-on-round.js applies it at Stop; unpark-on-prompt.js removes
- * it when the founder types in the parked session, and claim-issue.js when a
- * session claims the issue.
+ * WRITERS: park-on-round.js applies it at Stop; refill-loop.js on a park it
+ * stops (#2699), commenting the cause on the issue (#2846). unpark-on-prompt.js
+ * removes it when the founder types in a session park-on-round.js parked, and
+ * claim-issue.js when a session claims the issue.
  *
  * THE SESSION MARKER, `.parked-<session id>` under the markers directory,
- * lists the issues this session parked, so the prompt hook acts off a local
- * read and makes no GitHub call on an ordinary prompt.
+ * lists the issues park-on-round.js parked for this session, so the prompt
+ * hook acts off a local read and makes no GitHub call on an ordinary prompt.
+ * A loop-stopped park writes none.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { errLine, gh } = require("./gh.js");
+const { parseErrLine, gh } = require("./gh.js");
 const { markersDir } = require("./marker-root.js");
 
 const PARKED_LABEL = "parked";
@@ -40,7 +44,7 @@ function setParked(repo, n, on) {
 		]);
 		return null;
 	} catch (e) {
-		return errLine(e);
+		return parseErrLine(e);
 	}
 }
 
@@ -53,7 +57,7 @@ const markerOf = (sessionId) =>
  * @param {string} sessionId
  * @returns {number[]}
  */
-function parkedBy(sessionId) {
+function readParkedBy(sessionId) {
 	try {
 		return fs
 			.readFileSync(markerOf(sessionId), "utf8")
@@ -81,6 +85,6 @@ function markParked(sessionId, numbers) {
 module.exports = {
 	PARKED_LABEL,
 	markParked,
-	parkedBy,
+	readParkedBy,
 	setParked,
 };

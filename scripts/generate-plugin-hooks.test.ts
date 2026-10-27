@@ -10,19 +10,22 @@
  * a self-plugin edit committed without a re-render, and a version/tag pin that
  * disagree — either ships adopters something other than what the tag names.
  * Its `--check` is a hard gate in `.husky/pre-commit` on a commit touching
- * either file, the generator, its reader or any script.
+ * either file, the generator, its reader or any script. It judges the index,
+ * not the working tree (#2901), so the fixture is a git repo and each
+ * `--check` case stages what it means the check to see.
  *
  * `onFailure: "block"` sits on exactly the deny-capable `PreToolUse` hooks
  * (#2670), asserted over the real manifest and refused in a fixture either way.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { renderAt } from "./generate-plugin-hooks.js";
 import { MARKER_WRITER, SELF_PLUGIN_HOOKS } from "./lib/core-hooks.js";
 import { guardDirs, isDenyCapableIn } from "./lib/deny-capable.js";
 import { guardKey } from "./lib/guard-fires.js";
+import { renderAt } from "./lib/plugin-hooks-render.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "generate-plugin-hooks.js");
@@ -132,7 +135,7 @@ describe("the shipped manifest's onFailure", () => {
 		// Named by hand, so a fault in the derivation the generator shares
 		// cannot pass both sides.
 		expect(
-			hooks.find(({ guard }) => guard === "guard-branch.sh")?.hook.onFailure,
+			hooks.find(({ guard }) => guard === "guard-branch.js")?.hook.onFailure,
 		).toBe("block");
 	});
 
@@ -275,6 +278,7 @@ describe("a render in a fixture repo", () => {
 	let dir: string;
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-hooks-"));
+		execFileSync("git", ["init", "-q", dir]);
 		fs.mkdirSync(path.join(dir, "self-plugin/hooks"), { recursive: true });
 		fs.mkdirSync(path.join(dir, "scripts"));
 		/* The fixture is a repo that SHIPS a plugin; without the manifest the
@@ -318,10 +322,20 @@ describe("a render in a fixture repo", () => {
 	});
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-	const tree = () =>
+	const stage = () => execFileSync("git", ["-C", dir, "add", "-A"]);
+	const check = () => {
+		stage();
+		return run(dir, "--check");
+	};
+
+	const readTree = () =>
 		fs
 			.readdirSync(dir, { recursive: true, withFileTypes: true })
-			.filter((e) => e.isFile())
+			.filter(
+				(e) =>
+					e.isFile() &&
+					path.relative(dir, e.parentPath).split(path.sep)[0] !== ".git",
+			)
 			.map((e) => path.relative(dir, path.join(e.parentPath, e.name)))
 			.sort();
 
@@ -331,7 +345,7 @@ describe("a render in a fixture repo", () => {
 			"utf8",
 		);
 		expect(run(dir).status).toBe(0);
-		expect(tree()).toEqual([
+		expect(readTree()).toEqual([
 			".claude-plugin/plugin.json",
 			"hooks/hooks.json",
 			"scripts/guard.sh",
@@ -343,14 +357,14 @@ describe("a render in a fixture repo", () => {
 	});
 
 	it("names the entry module under modules only where the repo carries one", () => {
-		const modules = () =>
+		const readModules = () =>
 			JSON.parse(fs.readFileSync(path.join(dir, "hooks/hooks.json"), "utf8"))
 				.modules;
 		expect(run(dir).status).toBe(0);
-		expect(modules()).toBeUndefined();
+		expect(readModules()).toBeUndefined();
 		fs.writeFileSync(path.join(dir, "hooks/register.ts"), "");
 		expect(run(dir).status).toBe(0);
-		expect(modules()).toEqual(["./register.ts"]);
+		expect(readModules()).toEqual(["./register.ts"]);
 	});
 
 	it("SKIPs where the repo ships no plugin to render from", () => {
@@ -358,7 +372,10 @@ describe("a render in a fixture repo", () => {
 		const r = run(dir);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("SKIP: this repo ships no plugin");
-		expect(tree()).not.toContain("hooks/hooks.json");
+		expect(readTree()).not.toContain("hooks/hooks.json");
+		const checked = check();
+		expect(checked.status).toBe(0);
+		expect(checked.stderr).toContain("SKIP: this repo ships no plugin");
 	});
 
 	it("renders the self-plugin file, its marker writer left out", () => {
@@ -393,23 +410,73 @@ describe("a render in a fixture repo", () => {
 				},
 			}),
 		);
-		const r = run(dir, "--check");
+		const r = check();
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
 			/^generate-plugin-hooks: .*CLAUDE_PROJECT_DIR other than as a scripts\/ prefix/,
 		);
-		expect(tree()).not.toContain("hooks/hooks.json");
+		expect(readTree()).not.toContain("hooks/hooks.json");
 	});
 
 	it("--check exits 1 on a stale manifest, naming the command to regenerate it, and 2 on an unreadable self-plugin file", () => {
-		const stale = run(dir, "--check");
+		const stale = check();
 		expect(stale.status).toBe(1);
 		expect(stale.stderr).toContain("hooks/hooks.json is stale");
 		expect(stale.stderr).toContain("run node scripts/generate-plugin-hooks.js");
 		fs.writeFileSync(path.join(dir, SELF_PLUGIN_HOOKS), "{");
-		const broken = run(dir, "--check");
+		const broken = check();
 		expect(broken.status).toBe(2);
 		expect(broken.stderr).toMatch(/^generate-plugin-hooks: .*JSON/);
+	});
+
+	it("--check exits 2 where there is no index to read", () => {
+		fs.rmSync(path.join(dir, ".git"), { recursive: true });
+		const r = run(dir, "--check");
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(/^generate-plugin-hooks: git .* failed/);
+	});
+
+	it("--check passes over a stale hooks/hooks.json left unstaged, and refuses one staged (#2901)", () => {
+		expect(run(dir).status).toBe(0);
+		stage();
+		fs.writeFileSync(path.join(dir, "hooks/hooks.json"), "{}\n");
+		expect(run(dir, "--check").status).toBe(0);
+		const staged = check();
+		expect(staged.status).toBe(1);
+		expect(staged.stderr).toContain("hooks/hooks.json is stale");
+		expect(staged.stderr).toContain(
+			"then stage hooks/hooks.json and self-plugin/hooks/hooks.json",
+		);
+	});
+
+	it("--check judges a pathspec commit's private index, not the shared one (#2901)", () => {
+		expect(run(dir).status).toBe(0);
+		const git = (env: NodeJS.ProcessEnv, ...args: string[]) =>
+			execFileSync("git", ["-C", dir, ...args], { env });
+		git(process.env, "add", "-A");
+		git(
+			process.env,
+			"-c",
+			"user.email=t@example.com",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-qm",
+			"base",
+		);
+		fs.writeFileSync(path.join(dir, "hooks/hooks.json"), "{}\n");
+		git(process.env, "add", "-A");
+		fs.writeFileSync(path.join(dir, "notes.md"), "n\n");
+		const index = path.join(dir, ".git", "private-index");
+		const privateEnv = { ...process.env, GIT_INDEX_FILE: index };
+		git(privateEnv, "read-tree", "HEAD");
+		git(privateEnv, "add", "notes.md");
+		const r = runInProcess(SCRIPT, ["--check"], {
+			cwd: dir,
+			env: { ...privateEnv, CLAUDE_PROJECT_DIR: dir },
+		});
+		expect(r.status).toBe(0);
+		expect(check().status).toBe(1);
 	});
 
 	describe("onFailure on a guard that can refuse", () => {
@@ -418,13 +485,13 @@ describe("a render in a fixture repo", () => {
 				path.join(dir, SELF_PLUGIN_HOOKS),
 				`${JSON.stringify({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [hook] }] } }, null, "\t")}\n`,
 			);
-		const sourceHook = (): Hook =>
+		const readSourceHook = (): Hook =>
 			JSON.parse(fs.readFileSync(path.join(dir, SELF_PLUGIN_HOOKS), "utf8"))
 				.hooks.PreToolUse[0].hooks[0];
 		beforeEach(() => {
 			fs.writeFileSync(
 				path.join(dir, "scripts", "deny.sh"),
-				"#!/bin/sh\ngp_deny 'no'\n",
+				'#!/bin/sh\necho \'{"permissionDecision":"deny"}\'\n',
 			);
 			expect(run(dir).status).toBe(0);
 		});
@@ -434,7 +501,7 @@ describe("a render in a fixture repo", () => {
 				type: "command",
 				command: '"$CLAUDE_PROJECT_DIR"/scripts/deny.sh',
 			});
-			const r = run(dir, "--check");
+			const r = check();
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(
 				'self-plugin/hooks/hooks.json: deny.sh on PreToolUse Bash lacks onFailure "block"',
@@ -448,12 +515,31 @@ describe("a render in a fixture repo", () => {
 				command: '"$CLAUDE_PROJECT_DIR"/scripts/guard.sh',
 				onFailure: "block",
 			});
-			const r = run(dir, "--check");
+			const r = check();
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(
 				'guard.sh on PreToolUse Bash carries onFailure "block"',
 			);
 			expect(r.stderr).toContain("run node scripts/generate-plugin-hooks.js");
+		});
+
+		it("--check judges a guard by its staged copy, not its disk copy (#2901)", () => {
+			source({
+				type: "command",
+				command: '"$CLAUDE_PROJECT_DIR"/scripts/guard.sh',
+			});
+			expect(run(dir).status).toBe(0);
+			stage();
+			fs.writeFileSync(
+				path.join(dir, "scripts", "guard.sh"),
+				'#!/bin/sh\necho \'{"permissionDecision":"deny"}\'\n',
+			);
+			expect(run(dir, "--check").status).toBe(0);
+			const staged = check();
+			expect(staged.status).toBe(1);
+			expect(staged.stderr).toContain(
+				'guard.sh on PreToolUse Bash lacks onFailure "block"',
+			);
 		});
 
 		it("a run writes it into the self-plugin file and the render, after which --check passes", () => {
@@ -462,12 +548,12 @@ describe("a render in a fixture repo", () => {
 				command: '"$CLAUDE_PROJECT_DIR"/scripts/deny.sh',
 			});
 			expect(run(dir).status).toBe(0);
-			expect(sourceHook().onFailure).toBe("block");
+			expect(readSourceHook().onFailure).toBe("block");
 			const shipped = JSON.parse(
 				fs.readFileSync(path.join(dir, "hooks/hooks.json"), "utf8"),
 			).hooks.PreToolUse[0].hooks[0];
 			expect(shipped.onFailure).toBe("block");
-			expect(run(dir, "--check").status).toBe(0);
+			expect(check().status).toBe(0);
 		});
 	});
 });

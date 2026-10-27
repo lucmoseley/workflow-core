@@ -23,10 +23,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { currentBootId, procStartOf } from "./lib/arbiter-proc";
+import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc";
 import { AS_ROOT } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { type StopBlock, stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 const require_ = createRequire(__filename);
@@ -51,8 +51,8 @@ function makeRepo(): string {
 	fs.writeFileSync(path.join(dir, "tracked.md"), "one\n");
 	fs.writeFileSync(path.join(dir, "other.md"), "one\n");
 	// A code path, so the fixture below reads as the case it means. The CODE
-	// glob that decides it lives in bash and is pinned in
-	// guard-claimed-bash-write.test.ts, not here.
+	// glob that decides it is pinned in lib/claimed-bash-write.test.ts, not
+	// here.
 	fs.writeFileSync(path.join(dir, "tool.sh"), "one\n");
 	git("add", "tracked.md", "other.md", "tool.sh");
 	git("commit", "-qm", "base");
@@ -74,7 +74,7 @@ function storeDir(sub = "", forRoot = root): string {
 /* The ledger the arbiter keeps for a session: one repo-relative path per line,
  * at <config>/projects/<root with every non-alphanumeric dashed>/writes/<sid>.txt
  * (lib/arbiter-store.js `paths.ledger`). Written directly rather than through
- * record-write.sh so each case states the ledger it means. */
+ * the post-write core so each case states the ledger it means. */
 function ledger(entries: string[] | null, forRoot = root) {
 	const dir = storeDir("writes", forRoot);
 	fs.mkdirSync(dir, { recursive: true });
@@ -103,7 +103,7 @@ function run(
 	payload: Record<string, unknown> = {},
 	stdin?: string,
 ): Run {
-	const out = stopGuardBlock(GUARD, {
+	const out = readStopGuardBlock(GUARD, {
 		dir: cwd,
 		sid,
 		config: path.join(root, ".claude-home"),
@@ -161,7 +161,7 @@ describe("the dirt limb", () => {
 		dirty("tracked.md");
 		execFileSync("git", ["add", "tracked.md"], { cwd: root, stdio: "ignore" });
 		// exempt (mantahostels#2082): reason text pinned by "blocks when a tracked file this session wrote is
-		// uncommitted" above, which exercises the same dirtyTracked()
+		// uncommitted" above, which exercises the same readDirtyTracked()
 		// block for the same file.
 		expect(run().blocked).toBe(true);
 	});
@@ -190,7 +190,7 @@ describe("attribution — a neighbour's dirt is not yours (mantahostels#114)", (
 		expect(run().blocked).toBe(false);
 	});
 
-	/* A session that has written nothing has no ledger file at all — writesBy
+	/* A session that has written nothing has no ledger file at all — readWritesBy
 	 * reads that ENOENT as the empty answer. */
 	it("passes when there is no ledger file at all", () => {
 		ledger(null);
@@ -200,35 +200,41 @@ describe("attribution — a neighbour's dirt is not yours (mantahostels#114)", (
 });
 
 /*
- * `guard-claimed-bash-write.sh` credits an uncontended CODE target to this
+ * lib/claimed-bash-write.js credits an uncontended CODE target to this
  * session's ledger at `PreToolUse` (mantahostels#2778), so dirt that reached the tree by
  * `sed -i` or a redirect now refuses the turn.
  *
- * Driven through the REAL judge rather than a hand-written ledger line, to pin
- * that the two halves agree on the ledger's location and its spelling of a
- * path. What it does NOT cover is the CODE-glob gate that decides which
- * targets reach the judge at all: that lives in
- * `guard-claimed-bash-write.sh`'s `add_target` and is pinned in its own suite.
+ * Driven through the REAL hook entry rather than a hand-written ledger line, to
+ * pin that the two halves agree on the ledger's location and its spelling of a
+ * path. The CODE-glob gate that decides which targets are credited at all is
+ * pinned in lib/claimed-bash-write.test.ts.
  *
  * Through `runInProcess` like the guard itself (§X3): its `env` option replaces
  * and restores the suite's own environment for the call.
  */
 describe("a Bash-route code write is credited and blocks (mantahostels#2778)", () => {
-	const judge = path.join(__dirname, "warn-claimed-bash-write.js");
+	const entry = path.join(__dirname, "guard-dispatch.js");
 
-	/** The credit half, as guard-claimed-bash-write.sh invokes it. */
+	/** The PreToolUse entry on a `sed -i` over `rel`. */
 	function credit(rel: string) {
-		const res = runInProcess(judge, ["--credit", rel, sid], {
+		const res = runInProcess(entry, [], {
 			cwd: root,
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: root,
 				CLAUDE_CONFIG_DIR: path.join(root, ".claude-home"),
 			},
+			stdin: JSON.stringify({
+				session_id: sid,
+				hook_event_name: "PreToolUse",
+				tool_name: "Bash",
+				tool_input: { command: `sed -i s/a/b/ ${rel}` },
+			}),
 		});
-		// The judge exits 0 whatever it decides and prints nothing while
-		// crediting, so a non-zero here is a fault in the fixture, not a verdict.
-		expect(res.status, "the judge must never exit non-zero").toBe(0);
+		// Crediting refuses nothing and prints nothing, so a non-zero exit or a
+		// word on stdout is a fault in the fixture, not a verdict.
+		expect(res.status).toBe(0);
+		expect(res.stdout).toBe("");
 	}
 
 	it("blocks on an uncommitted code file the credit half billed here, naming it", () => {
@@ -256,7 +262,7 @@ describe("untracked scratch is out (mantahostels#1555)", () => {
 	});
 });
 
-/* `scripts/guard-root-scratch.test.ts` covers the stray-scratch rule, at
+/* `scripts/lib/root-scratch.test.ts` covers the stray-scratch rule, at
  * `PreToolUse` (mantahostels#2340). What stays here is the one case this
  * guard's deleted limb leaves — that a turn with strays and no tracked dirt
  * says nothing at all, which is the mutation a half-done deletion would leave
@@ -302,7 +308,7 @@ describe("the shared-tree carve-out", () => {
 	});
 
 	/* Double-covered on purpose, and so unable to isolate inSharedTree(): outside
-	 * a repo the ledger is keyed elsewhere and dirtyTracked() returns null too. */
+	 * a repo the ledger is keyed elsewhere and readDirtyTracked() returns null too. */
 	it("passes where the cwd is not a git repository at all", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
@@ -495,8 +501,8 @@ describe("a live neighbour's claim subtracts the path", () => {
 				path: rel,
 				sessionId: owner,
 				pid: process.pid,
-				procStart: procStartOf(process.pid),
-				bootId: currentBootId(),
+				procStart: readProcStartOf(process.pid),
+				bootId: readCurrentBootId(),
 			}),
 		);
 	}
@@ -751,8 +757,8 @@ describe("path shapes the porcelain parser exists for", () => {
 });
 
 describe("the `waiting:` stand-down (mantahostels#2567)", () => {
-	/* The guard reads this file twice: once through `pendingTasks`, and once
-	 * more through `outgoingMessage` where the payload carries no message of its
+	/* The guard reads this file twice: once through `readPendingTasks`, and once
+	 * more through `readOutgoingMessage` where the payload carries no message of its
 	 * own. */
 	const launchId = "toolu_launch01";
 
@@ -936,7 +942,7 @@ describe("the `waiting:` stand-down (mantahostels#2567)", () => {
 		expect(r.reason).not.toContain("hand-off");
 	});
 
-	/* The message fallback's own catch, distinct from `pendingTasks`'. */
+	/* The message fallback's own catch, distinct from `readPendingTasks`'. */
 	it("still blocks when the payload omits the message and the transcript will not read", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");

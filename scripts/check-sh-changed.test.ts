@@ -17,7 +17,11 @@ import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import {
+	gateTmpdir,
+	newRepo,
+	registerTempCleanup,
+} from "./lib/precommit-gate-harness";
 import { holdLock, ROOT } from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
@@ -27,7 +31,7 @@ const ARGS_FILE = "shellcheck-args.txt";
 const HAS_SHELLCHECK =
 	spawnSync("shellcheck", ["--version"], { stdio: "ignore" }).status === 0;
 
-const which = (cmd: string) =>
+const readCommandPath = (cmd: string) =>
 	execFileSync("sh", ["-c", `command -v ${cmd}`], { encoding: "utf8" }).trim();
 
 function fixture() {
@@ -56,24 +60,17 @@ function stub(root: string, bin: string, code = 0) {
 	fs.chmodSync(at, 0o755);
 }
 
-/** Each fixture's own TMPDIR, so its shellcheck lock contends with no real run. */
-function lockDir(root: string) {
-	const dir = path.join(root, ".git", "locks");
-	fs.mkdirSync(dir, { recursive: true });
-	return dir;
-}
-
 function run(root: string, searchPath: string) {
-	const r = spawnSync(which("bash"), [SCRIPT], {
+	const r = spawnSync(readCommandPath("bash"), [SCRIPT], {
 		cwd: root,
 		encoding: "utf8",
-		env: { ...process.env, PATH: searchPath, TMPDIR: lockDir(root) },
+		env: { ...process.env, PATH: searchPath, TMPDIR: gateTmpdir(root) },
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
 /** The paths the stub was handed, flags dropped. Null where it never ran. */
-const checked = (root: string) => {
+const readCheckedArgs = (root: string) => {
 	const f = path.join(root, ARGS_FILE);
 	if (!fs.existsSync(f)) return null;
 	return fs
@@ -89,7 +86,7 @@ describe("which files it hands shellcheck", () => {
 		fs.appendFileSync(path.join(root, "scripts", "a.sh"), "echo more\n");
 		const r = run(root, `${bin}:${process.env.PATH}`);
 		expect(r.status).toBe(0);
-		expect(checked(root)).toEqual(["scripts/a.sh"]);
+		expect(readCheckedArgs(root)).toEqual(["scripts/a.sh"]);
 	});
 
 	it("passes check:sh's flags", () => {
@@ -119,7 +116,7 @@ describe("which files it hands shellcheck", () => {
 		fs.appendFileSync(path.join(root, "README.md"), "not shell\n");
 		const r = run(root, `${bin}:${process.env.PATH}`);
 		expect(r.status).toBe(0);
-		expect(checked(root)).toEqual([
+		expect(readCheckedArgs(root)).toEqual([
 			".husky/pre-commit",
 			"scripts/a.sh",
 			"scripts/lib/new.sh",
@@ -142,7 +139,7 @@ describe("which files it hands shellcheck", () => {
 		git("add", "tools/c.sh");
 		const r = run(root, `${bin}:${process.env.PATH}`);
 		expect(r.status).toBe(0);
-		expect(checked(root)).toEqual(["tools/c.sh", "tools/run"]);
+		expect(readCheckedArgs(root)).toEqual(["tools/c.sh", "tools/run"]);
 	});
 
 	it("leaves out a script deleted from the worktree", () => {
@@ -151,7 +148,7 @@ describe("which files it hands shellcheck", () => {
 		fs.rmSync(path.join(root, "scripts", "b.sh"));
 		const r = run(root, `${bin}:${process.env.PATH}`);
 		expect(r.status).toBe(0);
-		expect(checked(root)).toBeNull();
+		expect(readCheckedArgs(root)).toBeNull();
 	});
 
 	it("passes shellcheck's failure through", () => {
@@ -166,15 +163,15 @@ it("waits on the shellcheck lock a neighbour holds, and says so (#2627)", async 
 	const { root, bin } = fixture();
 	stub(root, bin);
 	fs.appendFileSync(path.join(root, "scripts", "a.sh"), "echo more\n");
-	const lock = path.join(lockDir(root), "wfc-shellcheck.lock");
+	const lock = path.join(gateTmpdir(root), "wfc-shellcheck.lock");
 	const held = holdLock(lock);
 	try {
-		const child = spawn(which("bash"), [SCRIPT], {
+		const child = spawn(readCommandPath("bash"), [SCRIPT], {
 			cwd: root,
 			env: {
 				...process.env,
 				PATH: `${bin}:${process.env.PATH}`,
-				TMPDIR: lockDir(root),
+				TMPDIR: gateTmpdir(root),
 			},
 		});
 		let out = "";
@@ -188,7 +185,7 @@ it("waits on the shellcheck lock a neighbour holds, and says so (#2627)", async 
 		});
 		expect(out).toMatch(cue);
 		expect(out).not.toMatch(/unserialised/);
-		expect(checked(root)).toEqual(["scripts/a.sh"]);
+		expect(readCheckedArgs(root)).toEqual(["scripts/a.sh"]);
 		expect(status).toBe(0);
 	} finally {
 		held.release();
@@ -202,7 +199,7 @@ describe("when nothing is checked", () => {
 		const r = run(root, `${bin}:${process.env.PATH}`);
 		expect(r.status).toBe(0);
 		expect(r.out).toMatch(/no shell file differs from HEAD/);
-		expect(checked(root)).toBeNull();
+		expect(readCheckedArgs(root)).toBeNull();
 	});
 
 	it("fails, not passes, when shellcheck is absent, with exit 127 and a pointer to the shellcheck-not-installed rule", () => {
@@ -210,7 +207,7 @@ describe("when nothing is checked", () => {
 		// Built up rather than subtracted from PATH: ~/.local/bin holds both
 		// shellcheck and tools the script needs (precommit-actionlint-gate.test.ts).
 		for (const cmd of ["git", "sort", "dirname", "node"]) {
-			fs.symlinkSync(which(cmd), path.join(bin, cmd));
+			fs.symlinkSync(readCommandPath(cmd), path.join(bin, cmd));
 		}
 		fs.appendFileSync(path.join(root, "scripts", "a.sh"), "echo more\n");
 		const r = run(root, bin);

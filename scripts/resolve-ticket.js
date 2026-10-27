@@ -9,16 +9,16 @@
  *     [--reason completed|"not planned"]
  *
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this holds for itself what
- * guard-issue-close.sh holds on the hand spelling — the `**Outstanding:**`
+ * guard-issue-close.js holds on the hand spelling — the `**Outstanding:**`
  * line's grammar and open carriers, through the same lib/outstanding-line.js
  * (#984), unticked acceptance criteria through lib/ticket-criteria.js (#1640),
  * and a roadmap card's own issue going to /card-close — and does what
- * release-issue-claim.sh does after it.
+ * release-issue-claim.js does after it.
  *
  * A completed close is refused where the ticket's commits — those on HEAD
  * citing `#n` — expired an instruction-surface census row that HEAD has not
  * re-anchored, unless the comment's `**Census:**` line says why not (#1876),
- * as guard-issue-close.sh holds on a hand close (#1913). It fails open, with
+ * as guard-issue-close.js holds on a hand close (#1913). It fails open, with
  * a note, where git or a digest's formatter cannot answer.
  *
  * ORDER: every refusal, then comment, close, release, map line. The assignee
@@ -46,12 +46,12 @@
  * form is unchecked.
  *
  * Residual: `**Bound:**`, `**Values:**` and `**Practice:**` are held here
- * alone, so a hand close through guard-issue-close.sh owes none of them.
+ * alone, so a hand close through guard-issue-close.js owes none of them.
  *
  * A "not planned" close owes no `**Values:**`, `**Practice:**`,
  * `**Outstanding:**` or `**Door:**` line and no ticked criteria — abandoned, not delivered, as
  * check-ticket-criteria.js reads it — and may close a card's own issue, as
- * guard-issue-close.sh lets it.
+ * guard-issue-close.js lets it.
  *
  * cli-args-exempt: its own parseArgs refuses every unknown flag, `--help`
  * included, before any gh call.
@@ -66,12 +66,12 @@ const { hostRoot } = require("./lib/host-root.js");
 const { hasLine } = require("./lib/marker-line.js");
 const { writeFd } = require("./lib/write-fd.js");
 const issueBody = require("./issue-body.js");
-const { errLine, gh } = require("./lib/gh.js");
+const { parseErrLine, gh } = require("./lib/gh.js");
 const outstandingLine = require("./lib/outstanding-line.js");
 const { unmetCriteria } = require("./lib/ticket-criteria.js");
 const {
 	censusRefusal,
-	expiredRows,
+	readExpiredRows,
 	hasCensusLine,
 } = require("./lib/census-digest.js");
 const {
@@ -217,7 +217,7 @@ function readIssueOrFail(repo, n) {
 		issue = readIssue(repo, n);
 	} catch (e) {
 		io.fail(
-			`could not read #${n} from ${repo} (${errLine(e)}). Nothing written.`,
+			`could not read #${n} from ${repo} (${parseErrLine(e)}). Nothing written.`,
 			1,
 		);
 	}
@@ -254,7 +254,7 @@ function checkCensusOrFail(comment, n) {
 	if (hasCensusLine(comment)) return;
 	let rows;
 	try {
-		rows = expiredRows(hostRoot(), n);
+		rows = readExpiredRows(hostRoot(), n);
 	} catch (e) {
 		// Fails open: a census nobody can read must not strand a close (#1876).
 		io.out(
@@ -280,7 +280,7 @@ function checkOutstandingOrFail(comment, repo, n) {
 		io.out(`#${n}: Outstanding open-check skipped — ${note}.\n`);
 	if (!verdict.ok)
 		io.fail(
-			`the comment's **Outstanding:** line does not pass:\n${outstandingLine.refusalText(verdict)} Only a --reason "not planned" close is exempt. Nothing written.`,
+			`the comment's **Outstanding:** line does not pass:\n${outstandingLine.buildRefusalText(verdict)} Only a --reason "not planned" close is exempt. Nothing written.`,
 			2,
 		);
 }
@@ -299,7 +299,7 @@ function readMapOrFail(issue, n, decision) {
 		parent = readParent(issue);
 	} catch (e) {
 		io.fail(
-			`could not read #${n}'s parent (${issue.parentPath}) (${errLine(e)}). Nothing written.`,
+			`could not read #${n}'s parent (${issue.parentPath}) (${parseErrLine(e)}). Nothing written.`,
 			1,
 		);
 	}
@@ -331,7 +331,7 @@ function postCommentOnce(repo, n, comment) {
 		posted = alreadyCommented(repo, n, comment);
 	} catch (e) {
 		io.fail(
-			`could not read #${n}'s comments to rule out a second post (${errLine(e)}). Nothing written — re-run.`,
+			`could not read #${n}'s comments to rule out a second post (${parseErrLine(e)}). Nothing written — re-run.`,
 			1,
 		);
 	}
@@ -348,7 +348,7 @@ function postCommentOnce(repo, n, comment) {
 		});
 	} catch (e) {
 		io.fail(
-			`posting the comment on #${n} failed (${errLine(e)}). Nothing else written — re-run; a comment that landed anyway is not posted twice.`,
+			`posting the comment on #${n} failed (${parseErrLine(e)}). Nothing else written — re-run; a comment that landed anyway is not posted twice.`,
 			1,
 		);
 	}
@@ -368,7 +368,7 @@ function closeOrFail(repo, n, reason) {
 		state = readIssue(repo, n).state;
 	} catch (e) {
 		io.fail(
-			`the comment is on #${n}, but closing it failed or could not be read back (${errLine(e)}). Re-run to finish.`,
+			`the comment is on #${n}, but closing it failed or could not be read back (${parseErrLine(e)}). Re-run to finish.`,
 			1,
 		);
 	}

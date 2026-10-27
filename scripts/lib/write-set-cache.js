@@ -8,7 +8,7 @@
  * the second silently erasing the first).
  *
  * NOTHING HERE IS EVER AN ADMISSION GATE. A write-set is a prediction read off
- * prose, and `scripts/guard-file-claim.sh` stays the enforcement tier.
+ * prose, and `scripts/lib/file-claim.js` stays the enforcement tier.
  *
  * AN ENTRY IS EITHER BAND-READ OR PROVISIONAL (mantahostels#1001). A band-read entry is an
  * agent's judgement of one issue: write-set, size and gist. A provisional one is
@@ -229,7 +229,7 @@ function writeEntry(
  * `unrevalidated` where git could not list the tree, so the rename check never
  * ran — served, but the caller must say so.
  *
- * `tracked` is `pick-next.js`'s `trackedFiles()` result: `{ok, files}`.
+ * `tracked` is `pick-next.js`'s `readTrackedFiles()` result: `{ok, files}`.
  *
  * @param {string} root
  * @param {IssueRef} issue

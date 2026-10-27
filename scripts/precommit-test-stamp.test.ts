@@ -98,7 +98,7 @@ const COPIED = [
 	// prepare-commit-msg fails closed without its route and scanner.
 	"scripts/lib/commit-route.sh",
 	"scripts/check-commit-message-closes.sh",
-	"scripts/lib/closing-keyword.sh",
+	"scripts/check-commit-message-closes.js",
 	"scripts/lib/rule-text.sh",
 	"docs/agents/rules/commit-closes-keyword.txt",
 ];
@@ -188,20 +188,20 @@ function fixture({
 	const named: string[] = [];
 	const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-stamp-cfg-"));
 	temps.push(configDir);
-	const head = () =>
+	const readHead = () =>
 		spawnSync("git", ["rev-parse", "-q", "--verify", "HEAD"], {
 			cwd: root,
 			encoding: "utf8",
 		}).stdout.trim();
 	/** The lines of `name` in the fixture's root, none where it is absent. */
-	const logged = (name: string) => {
+	const readLog = (name: string) => {
 		const log = path.join(root, name);
 		return fs.existsSync(log)
 			? fs.readFileSync(log, "utf8").split("\n").filter(Boolean)
 			: [];
 	};
-	const runs = () => logged("stub.log");
-	const gateRuns = () => logged("stub-gate.log");
+	const readRuns = () => readLog("stub.log");
+	const readGateRuns = () => readLog("stub-gate.log");
 
 	const env = (stamp?: string): NodeJS.ProcessEnv => {
 		const e: NodeJS.ProcessEnv = { ...process.env, GIT_EDITOR: "true" };
@@ -223,9 +223,9 @@ function fixture({
 		e.CLAUDE_CONFIG_DIR = configDir;
 		return e;
 	};
-	const leftInGitDir = () =>
+	const readLeftInGitDir = () =>
 		fs.readdirSync(gitDir).filter((f) => f.startsWith("commit-paths-"));
-	const otherWorktrees = () =>
+	const readOtherWorktrees = () =>
 		String(git("worktree", "list", "--porcelain"))
 			.split("\n")
 			.filter((l) => l.startsWith("worktree ") && l !== `worktree ${root}`);
@@ -240,7 +240,7 @@ function fixture({
 	return {
 		root,
 		gitDir,
-		leftInGitDir,
+		readLeftInGitDir,
 		/** Stages `body` at `rel` (or removes it, for null), and names `rel` to the commit. */
 		stage(rel: string, body: string | null) {
 			if (!named.includes(rel)) named.push(rel);
@@ -275,7 +275,7 @@ function fixture({
 			});
 		},
 		commit(stamp?: string, ...flags: string[]) {
-			const before = head();
+			const before = readHead();
 			const r = spawnSync(
 				"git",
 				["commit", "-qm", "m", ...flags, "--", ...named],
@@ -288,10 +288,10 @@ function fixture({
 			return {
 				code: r.status,
 				out: `${r.stdout}${r.stderr}`,
-				landed: head() !== before,
-				runs: runs(),
-				gateRuns: gateRuns(),
-				otherWorktrees: otherWorktrees(),
+				landed: readHead() !== before,
+				runs: readRuns(),
+				gateRuns: readGateRuns(),
+				otherWorktrees: readOtherWorktrees(),
 			};
 		},
 		/** The named paths committed through commit-paths, under `--patch` where given one; `inherited` is a stamp variable its caller carries. */
@@ -302,9 +302,9 @@ function fixture({
 			patch?: string;
 			inherited?: string;
 		} = {}) {
-			const before = head();
-			const staged = () => String(git("ls-files", "--stage"));
-			const index = staged();
+			const before = readHead();
+			const readStaged = () => String(git("ls-files", "--stage"));
+			const index = readStaged();
 			const e = commitPathsEnv(inherited);
 			const r = runInProcess(COMMIT_PATHS, commitPathsArgs(patch), {
 				cwd: root,
@@ -316,12 +316,12 @@ function fixture({
 			return {
 				code: r.status,
 				out: `${r.stdout}${r.stderr}`,
-				landed: head() !== before,
-				indexKept: staged() === index,
-				runs: runs(),
-				gateRuns: gateRuns(),
-				leftInGitDir: leftInGitDir(),
-				otherWorktrees: otherWorktrees(),
+				landed: readHead() !== before,
+				indexKept: readStaged() === index,
+				runs: readRuns(),
+				gateRuns: readGateRuns(),
+				leftInGitDir: readLeftInGitDir(),
+				otherWorktrees: readOtherWorktrees(),
 				outcome:
 					log && fs.existsSync(log)
 						? fs
@@ -1099,13 +1099,13 @@ const recordStaged = (f: ReturnType<typeof fixture>) => {
 it("runs the declared test once under --patch, before the commit, on the patch's private index alone, and the hook stands down", () => {
 	const f = fixture();
 	const patch = cutPatch(f);
-	const staged = recordStaged(f);
+	const readStaged = recordStaged(f);
 	const r = f.commitPaths({ patch });
 	expect(r.code, r.out).toBe(0);
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
 	expect(r.out).not.toContain(IN_HOOK);
-	expect(staged()).toBe("mine\na.txt\nmine\na.txt\n");
+	expect(readStaged()).toBe("mine\na.txt\nmine\na.txt\n");
 	expect(String(f.git("show", "HEAD:a.txt"))).toBe("mine\na.txt\n");
 	expect(r.leftInGitDir).toEqual([]);
 });
@@ -1187,7 +1187,7 @@ it("writes no stamp under --patch where a neighbour's commit mid-run changes wha
 });
 
 /** `pid` and every process descending from it, read off /proc as a tree kill reads them. */
-function processTree(pid: number): number[] {
+function readProcessTree(pid: number): number[] {
 	const parentOf = new Map<number, number>();
 	for (const d of fs.readdirSync("/proc").filter((name) => /^\d+$/.test(name)))
 		try {
@@ -1235,17 +1235,17 @@ it.each([
 		try {
 			await until(() => fs.existsSync(path.join(f.root, "held")));
 			const mine = `commit-paths-${run.pid}`;
-			expect(f.leftInGitDir()).toEqual(
+			expect(f.readLeftInGitDir()).toEqual(
 				hold === "stub-in-hook.sh"
 					? [`${mine}.index`, `${mine}.test-stamp`]
 					: [`${mine}.index`],
 			);
 			if (to === "group") process.kill(-run.pid, signal);
 			else if (to === "process") process.kill(run.pid, signal);
-			else for (const p of processTree(run.pid)) process.kill(p, signal);
+			else for (const p of readProcessTree(run.pid)) process.kill(p, signal);
 			expect(await run.exited).toEqual({ code: null, signal });
-			await until(() => f.leftInGitDir().length === 0);
-			expect(f.leftInGitDir()).toEqual([]);
+			await until(() => f.readLeftInGitDir().length === 0);
+			expect(f.readLeftInGitDir()).toEqual([]);
 		} finally {
 			// A signal to commit-paths alone leaves its suite or its commit running.
 			try {
@@ -1291,7 +1291,7 @@ cp.spawnSync = (cmd, args, opts) => {
 		const out = await run.closed;
 		expect(await run.exited, out).toEqual({ code: 1, signal: null });
 		expect(out).toContain("thrown after the commit, its stamp written");
-		await until(() => f.leftInGitDir().length === 0);
-		expect(f.leftInGitDir()).toEqual([]);
+		await until(() => f.readLeftInGitDir().length === 0);
+		expect(f.readLeftInGitDir()).toEqual([]);
 	},
 );

@@ -20,7 +20,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	fileSpend,
 	LIST_PRICES,
+	landedShare,
 	readCostTable,
+	readSessionSpendEvents,
 	runningRemainders,
 	sessionSpendUsd,
 } from "./session-spend";
@@ -38,7 +40,15 @@ const turn = (
 ) =>
 	JSON.stringify({ type: "assistant", requestId, message: { model, usage } });
 
-const table = { meanUsd: 3, quantilesUsd: [0, 1, 2, 4, 8] };
+const table = {
+	meanUsd: 3,
+	quantilesUsd: [0, 1, 2, 4, 8],
+	tailRemainderUsd: 3,
+	landedByHours: [
+		[1, 0.6],
+		[3, 1],
+	] as [number, number][],
+};
 
 /** The window a listed session with no transcript yet counts as just
  *  launched (#371 item 6), spelled here rather than imported. */
@@ -190,15 +200,68 @@ describe("the conditional remainder a working session is charged", () => {
 		expect(remainderAfter(0)).toBe(3);
 	});
 
-	it("averages the gap to every quantile above the spend, never flooring at zero", () => {
-		// Above 3: 4 and 8 → gaps 1 and 5.
-		expect(remainderAfter(3)).toBe(3);
+	it("averages the gap to every quantile above the spend, the top one standing at the tail's mean, never flooring at zero", () => {
+		// The top point stands at u 4 + tail 3 = 7, not the maximum 8. Above
+		// 3: 4 and 7 → gaps 1 and 4.
+		expect(remainderAfter(3)).toBe(2.5);
 		// Past the median a session is not read as finished.
-		expect(remainderAfter(2)).toBe(4);
+		expect(remainderAfter(2)).toBe(3.5);
 	});
 
-	it("keeps the top step's gap past the table's top", () => {
-		expect(remainderAfter(50)).toBe(4);
+	it("charges the tail's measured remainder at or past the second-highest quantile, however far past (#2925)", () => {
+		expect(remainderAfter(4)).toBe(3);
+		expect(remainderAfter(7.9)).toBe(3);
+		expect(remainderAfter(50)).toBe(3);
+	});
+});
+
+describe("landedShare (#2925)", () => {
+	it("is none at or before now", () => {
+		expect(landedShare(table, 0)).toBe(0);
+		expect(landedShare(table, -2)).toBe(0);
+	});
+
+	it("reads between marks by straight lines from (0, 0)", () => {
+		expect(landedShare(table, 0.5)).toBeCloseTo(0.3, 9);
+		expect(landedShare(table, 1)).toBeCloseTo(0.6, 9);
+		expect(landedShare(table, 2)).toBeCloseTo(0.8, 9);
+	});
+
+	it("holds the last mark's share past it", () => {
+		expect(landedShare(table, 200)).toBe(1);
+	});
+});
+
+describe("readSessionSpendEvents", () => {
+	it("prices each request at its first record's time, in time order, an unstamped one first", () => {
+		const main = path.join(dir, "s.jsonl");
+		const at = (rid: string, timestamp: string | null, output: number) =>
+			JSON.stringify({
+				type: "assistant",
+				requestId: rid,
+				...(timestamp ? { timestamp } : {}),
+				message: {
+					model: "claude-sonnet-5",
+					usage: { output_tokens: output },
+				},
+			});
+		fs.writeFileSync(
+			main,
+			[
+				at("late", "2026-10-25T10:00:00Z", 100_000),
+				at("early", "2026-10-25T09:00:00Z", 100_000),
+				at("early", "2026-10-25T09:30:00Z", 200_000),
+				at("bare", null, 300_000),
+			].join("\n"),
+		);
+		const events = readSessionSpendEvents(main);
+		expect(events.map((e) => e.usd)).toEqual([3, 2, 1]);
+		expect(events[0]?.atMs).toBeNaN();
+		expect(events[1]?.atMs).toBe(Date.parse("2026-10-25T09:00:00Z"));
+		expect(events.reduce((s, e) => s + e.usd, 0)).toBeCloseTo(
+			sessionSpendUsd(main),
+			9,
+		);
 	});
 });
 
@@ -212,7 +275,12 @@ describe("readCostTable", () => {
 	it("is null for a missing or malformed file", () => {
 		expect(readCostTable(path.join(dir, "none.json"))).toBeNull();
 		const bad = path.join(dir, "bad.json");
-		fs.writeFileSync(bad, JSON.stringify({ meanUsd: 3, quantilesUsd: [1] }));
+		fs.writeFileSync(bad, JSON.stringify({ ...table, quantilesUsd: [1] }));
+		expect(readCostTable(bad)).toBeNull();
+		const { tailRemainderUsd: _, ...noTail } = table;
+		fs.writeFileSync(bad, JSON.stringify(noTail));
+		expect(readCostTable(bad)).toBeNull();
+		fs.writeFileSync(bad, JSON.stringify({ ...table, landedByHours: [[1]] }));
 		expect(readCostTable(bad)).toBeNull();
 	});
 });
@@ -236,7 +304,7 @@ describe("runningRemainders", () => {
 			configDir: dir,
 			now,
 		});
-		expect(r).toEqual([{ sessionId: "a", spentUsd: 3, remainderUsd: 3 }]);
+		expect(r).toEqual([{ sessionId: "a", spentUsd: 3, remainderUsd: 2.5 }]);
 	});
 
 	it("skips terminal sessions, which spend nothing more", () => {

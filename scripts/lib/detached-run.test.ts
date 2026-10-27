@@ -34,7 +34,7 @@ afterEach(() => {
 });
 
 const file = () => path.join(cfg, mod.RUN_FILE);
-const rows = () => JSON.parse(fs.readFileSync(file(), "utf8"));
+const readRows = () => JSON.parse(fs.readFileSync(file(), "utf8"));
 
 /* Long enough ago that openRun reads the row it belongs to as dead.
  *
@@ -48,18 +48,18 @@ const pastGrace = (ms = GRACE + 60_000) => Date.now() - ms;
 describe("the record itself", () => {
 	it("writes the start half before the work, so a child that never returns leaves one", () => {
 		const record = mod.openRun("prune-markers");
-		expect(rows()["prune-markers"].startedAt).toBe(record.startedAt);
-		expect(rows()["prune-markers"].finishedAt).toBeUndefined();
+		expect(readRows()["prune-markers"].startedAt).toBe(record.startedAt);
+		expect(readRows()["prune-markers"].finishedAt).toBeUndefined();
 	});
 
 	it("closes with ok true and carries the counts through", () => {
 		const record = mod.openRun("debt-sweep");
 		mod.closeRun(record, { ok: true, counts: { retired: 3 } });
-		expect(rows()["debt-sweep"]).toMatchObject({
+		expect(readRows()["debt-sweep"]).toMatchObject({
 			ok: true,
 			counts: { retired: 3 },
 		});
-		expect(rows()["debt-sweep"].finishedAt).toEqual(expect.any(String));
+		expect(readRows()["debt-sweep"].finishedAt).toEqual(expect.any(String));
 	});
 
 	it("records a throw as ok false with its message, and still finishes the row", () => {
@@ -68,15 +68,18 @@ describe("the record itself", () => {
 				throw new Error("store unopenable");
 			}),
 		).toThrow("store unopenable");
-		expect(rows()["prune-markers"].ok).toBe(false);
-		expect(rows()["prune-markers"].error).toContain("store unopenable");
-		expect(rows()["prune-markers"].finishedAt).toEqual(expect.any(String));
+		expect(readRows()["prune-markers"].ok).toBe(false);
+		expect(readRows()["prune-markers"].error).toContain("store unopenable");
+		expect(readRows()["prune-markers"].finishedAt).toEqual(expect.any(String));
 	});
 
 	it("leaves another job's row alone", () => {
 		mod.recordRun("debt-sweep", () => 1);
 		mod.recordRun("prune-markers", () => 1);
-		expect(Object.keys(rows()).sort()).toEqual(["debt-sweep", "prune-markers"]);
+		expect(Object.keys(readRows()).sort()).toEqual([
+			"debt-sweep",
+			"prune-markers",
+		]);
 	});
 
 	it("returns what the work returned, unchanged", () => {
@@ -89,13 +92,13 @@ describe("the record itself", () => {
 describe("the death count — what a later session reads", () => {
 	it("stays at zero while every run closes", () => {
 		for (let i = 0; i < 5; i++) mod.recordRun("prune-markers", () => 1);
-		expect(rows()["prune-markers"].deaths).toBe(0);
+		expect(readRows()["prune-markers"].deaths).toBe(0);
 	});
 
 	it("counts a previous run that opened past its grace and never closed", () => {
 		mod.openRun("prune-markers", pastGrace());
 		mod.openRun("prune-markers");
-		expect(rows()["prune-markers"].deaths).toBe(1);
+		expect(readRows()["prune-markers"].deaths).toBe(1);
 	});
 
 	it("accumulates across consecutive deaths", () => {
@@ -103,7 +106,7 @@ describe("the death count — what a later session reads", () => {
 		mod.openRun("prune-markers", pastGrace(GRACE * 4));
 		mod.openRun("prune-markers", pastGrace(GRACE * 2));
 		mod.openRun("prune-markers");
-		expect(rows()["prune-markers"].deaths).toBe(3);
+		expect(readRows()["prune-markers"].deaths).toBe(3);
 	});
 
 	it("does NOT count a run still inside its grace — the concurrency case", () => {
@@ -111,7 +114,7 @@ describe("the death count — what a later session reads", () => {
 		mod.openRun("debt-sweep");
 		mod.openRun("debt-sweep");
 		mod.openRun("debt-sweep");
-		expect(rows()["debt-sweep"].deaths).toBe(0);
+		expect(readRows()["debt-sweep"].deaths).toBe(0);
 	});
 
 	it("counts a death from consecutive restarts each inside the grace of the one before it — the busy-machine case (mantahostels#1999)", () => {
@@ -127,7 +130,7 @@ describe("the death count — what a later session reads", () => {
 		mod.openRun("prune-markers", start + step * 2);
 		mod.openRun("prune-markers", start + step * 3);
 		mod.openRun("prune-markers", start + step * 4);
-		expect(rows()["prune-markers"].deaths).toBe(1);
+		expect(readRows()["prune-markers"].deaths).toBe(1);
 	});
 
 	it("counts one death from a burst of concurrent starts against an already-stale row, never one per opener", () => {
@@ -140,17 +143,17 @@ describe("the death count — what a later session reads", () => {
 		mod.openRun("prune-markers", burstStart);
 		mod.openRun("prune-markers", burstStart + 2000);
 		mod.openRun("prune-markers", burstStart + 4000);
-		expect(rows()["prune-markers"].deaths).toBe(1);
+		expect(readRows()["prune-markers"].deaths).toBe(1);
 	});
 
 	it("clears the count as soon as one run closes", () => {
 		mod.openRun("prune-markers", pastGrace(GRACE * 4));
 		mod.openRun("prune-markers", pastGrace(GRACE * 2));
 		const open = mod.openRun("prune-markers");
-		expect(rows()["prune-markers"].deaths).toBe(2);
+		expect(readRows()["prune-markers"].deaths).toBe(2);
 		mod.closeRun(open, { ok: true });
 		mod.openRun("prune-markers");
-		expect(rows()["prune-markers"].deaths).toBe(0);
+		expect(readRows()["prune-markers"].deaths).toBe(0);
 	});
 
 	it("leaves the count alone on a stamp it cannot age", () => {
@@ -167,16 +170,16 @@ describe("the death count — what a later session reads", () => {
 			}),
 		);
 		mod.openRun("debt-sweep");
-		expect(rows()["debt-sweep"].deaths).toBe(2);
+		expect(readRows()["debt-sweep"].deaths).toBe(2);
 	});
 
 	it("carries the last completion forward, so a healthy job is legible mid-run", () => {
 		const first = mod.openRun("debt-sweep");
 		mod.closeRun(first, { ok: true });
-		const finishedAt = rows()["debt-sweep"].finishedAt;
+		const finishedAt = readRows()["debt-sweep"].finishedAt;
 		mod.openRun("debt-sweep");
-		expect(rows()["debt-sweep"].lastFinishedAt).toBe(finishedAt);
-		expect(rows()["debt-sweep"].finishedAt).toBeUndefined();
+		expect(readRows()["debt-sweep"].lastFinishedAt).toBe(finishedAt);
+		expect(readRows()["debt-sweep"].finishedAt).toBeUndefined();
 	});
 });
 
@@ -193,19 +196,26 @@ describe("it never throws on the session-start path", () => {
 		expect(() => mod.recordRun("prune-markers", () => 1)).not.toThrow();
 	});
 
+	it("leaves a config dir that is gone unmade, filing no record (#2889)", () => {
+		const gone = path.join(cfg, "removed");
+		process.env.CLAUDE_CONFIG_DIR = gone;
+		expect(() => mod.recordRun("prune-markers", () => 1)).not.toThrow();
+		expect(fs.existsSync(gone)).toBe(false);
+	});
+
 	it("reads a corrupt record file as no record at all", () => {
 		fs.mkdirSync(cfg, { recursive: true });
 		fs.writeFileSync(file(), "{ not json");
 		expect(() => mod.openRun("prune-markers")).not.toThrow();
-		expect(Object.keys(rows())).toEqual(["prune-markers"]);
-		expect(rows()["prune-markers"].deaths).toBe(0);
+		expect(Object.keys(readRows())).toEqual(["prune-markers"]);
+		expect(readRows()["prune-markers"].deaths).toBe(0);
 	});
 
 	it("reads an array as no record at all rather than indexing it", () => {
 		fs.mkdirSync(cfg, { recursive: true });
 		fs.writeFileSync(file(), "[]");
 		mod.openRun("prune-markers");
-		expect(Object.keys(rows())).toEqual(["prune-markers"]);
+		expect(Object.keys(readRows())).toEqual(["prune-markers"]);
 	});
 });
 

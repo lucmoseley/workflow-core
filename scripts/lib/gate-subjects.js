@@ -10,11 +10,10 @@
  * half-written working copy.
  */
 
-const { spawnSync } = require("node:child_process");
 const { sectionBEntryCount } = require("./doc-map.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { brandSheetPath } = require("./workflow-core-config.js");
 const { COLLECTED_TEST } = require("./test-kind.js");
+const { spawnGitSync } = require("./git.js");
 
 const ROADMAP = "docs/reference-roadmap.html";
 const MANUAL = "docs/operating-manual.md";
@@ -33,10 +32,9 @@ const SITE_DIR = "app/";
  * @param {string[]} args
  */
 function git(root, args) {
-	const r = spawnSync("git", args, {
+	const r = spawnGitSync(args, {
 		cwd: root,
 		encoding: "utf8",
-		maxBuffer: CHILD_MAX_BUFFER,
 	});
 	if (r.error || r.status !== 0)
 		throw new Error(
@@ -51,7 +49,7 @@ function git(root, args) {
  * @param {string} root
  * @returns {Found[]}
  */
-function subjectsInIndex(root) {
+function readIndexSubjects(root) {
 	const files = git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
 	const tracked = new Set(files);
 	const brandSheet = brandSheetPath({ root });
@@ -86,6 +84,7 @@ function subjectsInIndex(root) {
 }
 
 /** @param {string} root */
-const subjectModules = (root) => subjectsInIndex(root).map((s) => s.module);
+const readSubjectModules = (root) =>
+	readIndexSubjects(root).map((s) => s.module);
 
-module.exports = { subjectsInIndex, subjectModules };
+module.exports = { readIndexSubjects, readSubjectModules };

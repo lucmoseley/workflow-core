@@ -91,12 +91,12 @@ const path = require("node:path");
 const notify = require("./lib/notify-report.js");
 const { delivered } = require("./lib/delivery-stamp.js");
 const {
-	persistingProducers,
+	readPersistingProducers,
 	judge,
 	parkStamps,
 } = require("./lib/persist-replay.js");
 const {
-	sessionStartRoster,
+	readSessionStartRoster,
 	KEY_OVERRIDES,
 } = require("./lib/session-start-roster.js");
 const { parseOrExit } = require("./lib/cli-args.js");
@@ -110,7 +110,7 @@ const REPO = hostRoot();
 /** @typedef {import("./lib/persist-replay.js").Producer} Producer */
 /** @typedef {import("./lib/persist-replay.js").RunOutcome} RunOutcome */
 
-const PRODUCERS = persistingProducers(REPO);
+const PRODUCERS = readPersistingProducers(REPO);
 
 /**
  * Run one command to completion, or to `timeoutMs`. Never rejects: a producer
@@ -179,8 +179,8 @@ function stampede(producers, { persist, timeoutMs }) {
  * exists to catch.
  * @returns {string[]}
  */
-function wiredRoster() {
-	return sessionStartRoster(REPO, { keyOverrides: KEY_OVERRIDES })
+function readWiredRoster() {
+	return readSessionStartRoster(REPO, { keyOverrides: KEY_OVERRIDES })
 		.map((p) => p.key)
 		.sort();
 }
@@ -190,8 +190,8 @@ function wiredRoster() {
  * with this table.
  * @param {Producer[]} producers
  */
-function wiredLine(producers) {
-	const wired = wiredRoster();
+function buildWiredLine(producers) {
+	const wired = readWiredRoster();
 	if (wired.length === 0)
 		return "The repo's hooks wire no persisting producer — main() has already refused to run over an empty PRODUCERS by the time this prints.";
 	const expected = producers.map((p) => p.key).sort();
@@ -265,7 +265,7 @@ async function main() {
 	if (opts.json) {
 		console.log(
 			JSON.stringify(
-				{ base: notify.base(), wired: wiredRoster(), rows },
+				{ base: notify.base(), wired: readWiredRoster(), rows },
 				null,
 				2,
 			),
@@ -294,7 +294,7 @@ function selectProducers(only) {
 		return null;
 	}
 	/* PRODUCERS itself is now derived from the live wiring (mantahostels#2574), so an empty
-	 * hook wiring already trips persistingProducers' PRODUCER_META check —
+	 * hook wiring already trips readPersistingProducers' PRODUCER_META check —
 	 * this is defence in depth for the day PRODUCER_META is itself empty too.
 	 * Without it, running the rest of `main` over zero producers would print
 	 * the OK line having verified nothing, the same failure `--only` is
@@ -375,7 +375,7 @@ function printTable(producers, rows, faulted, control) {
 		`persist-and-replay verification — ${producers.length} producer(s)`,
 	);
 	console.log(`reports under ${notify.base()}`);
-	console.log(`${wiredLine(producers)}\n`);
+	console.log(`${buildWiredLine(producers)}\n`);
 	console.log(
 		"  key                       outcome  bytes  persist  control  match",
 	);
@@ -391,11 +391,11 @@ function printTable(producers, rows, faulted, control) {
 	}
 	for (const r of faulted)
 		for (const f of r.faults) console.log(`\nFAULT ${r.key}: ${f}`);
-	console.log(verdictLine(faulted.length, control));
+	console.log(buildVerdictLine(faulted.length, control));
 }
 
 /** @param {number} faultedCount @param {boolean} control */
-function verdictLine(faultedCount, control) {
+function buildVerdictLine(faultedCount, control) {
 	if (faultedCount > 0)
 		return `\nFAIL: ${faultedCount} producer(s) with faults.`;
 	if (control)

@@ -11,13 +11,14 @@ const {
 	parseEntries,
 	parseReviewDate,
 	renderReview,
-	reviewTitle,
+	buildReviewTitle,
 } = require("./morning-review.js");
 const { basisFaults } = require("./issue-gate.js");
 const { titleFirstLinks } = require("./title-first-links.js");
 
 const SINCE = "2026-10-17T07:00:00Z";
 const NOW = "2026-10-18T07:00:00Z";
+const DAY = 24 * 60 * 60 * 1000;
 
 const entry = (at: string, issue: number, stillClose: boolean, q = "Q") => ({
 	at,
@@ -43,9 +44,119 @@ const render = (
 	repos: unknown[],
 	failed: unknown[] = [],
 	previous: number | null = 7,
-) => renderReview({ since: SINCE, now: NOW, previous, repos, failed });
+	kills: unknown = { incidents: [], tickets: new Map(), why: null },
+) =>
+	renderReview({
+		since: SINCE,
+		now: NOW,
+		previous,
+		repos: repos.map((r) => ({ urgent: [], parked: [], ...(r as object) })),
+		failed,
+		kills,
+	});
 
 describe("renderReview (#2011)", () => {
+	it("lists each repo's open stall ticket, and says none is open where none is (#2692)", () => {
+		const quiet = render([
+			{ repo: "acme/a", entries: [], stalls: [], closed: [] },
+		]);
+		expect(quiet).toContain("## Landing stalls\n\nNone open.\n");
+		const body = render([
+			{
+				repo: "acme/a",
+				entries: [],
+				stalls: [{ number: 41, title: "Landing queue stalled" }],
+				closed: [],
+			},
+		]);
+		expect(body).toContain(
+			"## Landing stalls\n\n- acme/a#41 — `Landing queue stalled`\n",
+		);
+	});
+
+	it("lists the window's memory kills by kind with each incident's ticket, and says none where there were none (#3094)", () => {
+		const quiet = render([
+			{ repo: "acme/a", entries: [], stalls: [], closed: [] },
+		]);
+		expect(quiet).toContain("## Memory kills\n\nNone in the window.\n");
+		const killed = (at: string, pid: number, name: string, kind: string) => ({
+			at,
+			pid,
+			uid: 1000,
+			name,
+			kind,
+			badness: 741,
+			rssMiB: 983,
+			availMiB: 776,
+			swapFreeMiB: 0,
+			signals: 1,
+		});
+		const incident = {
+			first: "2026-10-17T19:56:56.000Z",
+			last: "2026-10-17T19:57:00.000Z",
+			kills: [
+				killed("2026-10-17T19:56:56.000Z", 1, "dbus-daemon", "other"),
+				killed("2026-10-17T19:57:00.000Z", 2, "MainThread", "test or build"),
+			],
+		};
+		const { incidentTitle } = require("./earlyoom-kills.js");
+		const body = render(
+			[{ repo: "acme/a", entries: [], stalls: [], closed: [] }],
+			[],
+			7,
+			{
+				incidents: [incident],
+				tickets: new Map([[incidentTitle(incident), 52]]),
+				why: null,
+			},
+		);
+		expect(body).toContain(
+			`## Memory kills\n\n2 in the window — Claude host 0, test or build 1, other 1.\n\n- \`${incidentTitle(incident)}\` — 2 kills: Claude host 0, test or build 1, other 1 — #52\n`,
+		);
+		expect(basisFaults(body)).toEqual([]);
+	});
+
+	it("counts only kills inside the window, and says why the journal or the tracker did not read (#3094)", () => {
+		const { incidentTitle } = require("./earlyoom-kills.js");
+		const at = (iso: string, pid: number) => ({
+			at: iso,
+			pid,
+			uid: 1000,
+			name: "2.1.310",
+			kind: "Claude host",
+			badness: 690,
+			rssMiB: 450,
+			availMiB: 776,
+			swapFreeMiB: 0,
+			signals: 1,
+		});
+		/* One kill at the window's start, owed to the previous review. */
+		const edge = {
+			first: SINCE,
+			last: "2026-10-17T07:10:00Z",
+			kills: [at(SINCE, 1), at("2026-10-17T07:10:00Z", 2)],
+		};
+		const repos = [{ repo: "acme/a", entries: [], stalls: [], closed: [] }];
+		expect(
+			render(repos, [], 7, {
+				incidents: [edge],
+				tickets: "HTTP 502",
+				why: null,
+			}),
+		).toContain(
+			`## Memory kills\n\n1 in the window — Claude host 1, test or build 0, other 0.\n\n- \`${incidentTitle(edge)}\` — 2 kills: Claude host 2, test or build 0, other 0 — ticket unread: \`HTTP 502\`\n`,
+		);
+		expect(
+			render(repos, [], 7, {
+				incidents: [],
+				tickets: new Map(),
+				why: "journalctl -u earlyoom: exit 1",
+			}),
+		).toContain(
+			"## Memory kills\n\nNot read: `journalctl -u earlyoom: exit 1`.\n",
+		);
+	});
+
 	it("lists still-caught entries by repo, numbered across repos, and counts the clear ones", () => {
 		const body = render([
 			{
@@ -54,11 +165,13 @@ describe("renderReview (#2011)", () => {
 					entry("2026-10-17T09:00:00Z", 11, true, "Which key?"),
 					entry("2026-10-17T10:00:00Z", 12, false),
 				],
+				stalls: [],
 				closed: [],
 			},
 			{
 				repo: "acme/b",
 				entries: [entry("2026-10-17T11:00:00Z", 21, true, "Which cap?")],
+				stalls: [],
 				closed: [],
 			},
 		]);
@@ -87,6 +200,7 @@ describe("renderReview (#2011)", () => {
 					},
 					entry("2026-10-17T10:00:00Z", 12, false),
 				],
+				stalls: [],
 				closed: [],
 			},
 		]);
@@ -106,6 +220,7 @@ describe("renderReview (#2011)", () => {
 			{
 				repo: "acme/a",
 				entries: [entry("2026-10-17T09:00:00Z", 11, true)],
+				stalls: [],
 				closed: [],
 			},
 		]);
@@ -128,6 +243,7 @@ describe("renderReview (#2011)", () => {
 					entry(NOW, 2, true, "At now"),
 					entry("2026-10-18T07:00:01Z", 3, true, "After now"),
 				],
+				stalls: [],
 				closed: [
 					closed(40, SINCE, "one-way — at since"),
 					closed(41, NOW, "one-way — at now"),
@@ -148,6 +264,7 @@ describe("renderReview (#2011)", () => {
 			{
 				repo: "acme/a",
 				entries: many.map((n) => entry("2026-10-17T12:00:00Z", n, true)),
+				stalls: [],
 				closed: [
 					...many.map((n) =>
 						closed(n, "2026-10-17T12:00:00Z", `one-way — undo ${n}`),
@@ -170,10 +287,11 @@ describe("renderReview (#2011)", () => {
 				{
 					repo: "acme/a",
 					entries: [],
+					stalls: [],
 					closed: [
 						{
 							...closed(9, "2026-10-17T08:00:00Z"),
-							title: reviewTitle("2026-10-17"),
+							title: buildReviewTitle("2026-10-17"),
 						},
 					],
 				},
@@ -202,6 +320,7 @@ describe("renderReview (#2011)", () => {
 							"Should the cache expire 7 days after the last `write`?",
 						),
 					],
+					stalls: [],
 					closed: [
 						{
 							...closed(
@@ -228,6 +347,7 @@ describe("renderReview (#2011)", () => {
 			{
 				repo: "acme/a",
 				entries: [],
+				stalls: [],
 				closed: [
 					{
 						...closed(50, "2026-10-17T09:00:00Z"),
@@ -240,7 +360,7 @@ describe("renderReview (#2011)", () => {
 			},
 		]);
 		expect(body).toContain("One-way closes:\n\nNone");
-		expect(parseReviewDate(reviewTitle("2026-10-18"))).toBe("2026-10-18");
+		expect(parseReviewDate(buildReviewTitle("2026-10-18"))).toBe("2026-10-18");
 		expect(parseReviewDate("Morning review — notes")).toBeNull();
 	});
 });
@@ -254,11 +374,13 @@ describe("parseEntries (#2017)", () => {
 					entry("2026-10-17T09:00:00Z", 11, true, "Which `key` — A or B?"),
 					entry("2026-10-17T10:00:00Z", 12, false),
 				],
+				stalls: [],
 				closed: [],
 			},
 			{
 				repo: "acme/b",
 				entries: [entry("2026-10-17T11:00:00Z", 21, true)],
+				stalls: [],
 				closed: [],
 			},
 		]);
@@ -290,5 +412,98 @@ describe("parseEntries (#2017)", () => {
 
 	it("reads no entry from a body listing none", () => {
 		expect(parseEntries(render([])).size).toBe(0);
+	});
+});
+
+describe("stuck urgent (#2693)", () => {
+	const daysAgo = (d: number) =>
+		new Date(Date.parse(NOW) - d * DAY).toISOString();
+	const urgent = (number: number, days: number, why: string | null) => ({
+		number,
+		title: `Urgent ${number}`,
+		appliedAt: daysAgo(days),
+		why,
+	});
+
+	it("lists an issue labelled urgent over 7 days ago with its age and why, and not one labelled 6 days ago", () => {
+		const body = render([
+			{
+				repo: "acme/a",
+				entries: [],
+				stalls: [],
+				closed: [],
+				urgent: [
+					urgent(31, 8, "container — 2 open children"),
+					urgent(32, 6, null),
+					urgent(33, 9, null),
+				],
+			},
+		]);
+		const section = body.slice(body.indexOf("## Stuck urgent"));
+		expect(section).toContain(
+			"- acme/a#31 — `Urgent 31` — 8 days — `container — 2 open children`\n",
+		);
+		expect(section).toContain(
+			"- acme/a#33 — `Urgent 33` — 9 days — pick-next does not say why\n",
+		);
+		expect(section).not.toContain("#32");
+		expect(basisFaults(body)).toEqual([]);
+	});
+
+	it("says none where no urgent is over 7 days old", () => {
+		const body = render([
+			{
+				repo: "acme/a",
+				entries: [],
+				stalls: [],
+				closed: [],
+				urgent: [urgent(32, 6, null)],
+			},
+		]);
+		expect(body).toContain("## Stuck urgent\n\n");
+		expect(body.slice(body.indexOf("## Stuck urgent"))).toContain("\nNone.\n");
+	});
+});
+
+describe("parked (#2725)", () => {
+	const at = (hours: number) =>
+		new Date(Date.parse(NOW) - hours * 60 * 60 * 1000).toISOString();
+	const reading = (parked: unknown[]) => ({
+		repo: "acme/a",
+		entries: [],
+		stalls: [],
+		closed: [],
+		parked,
+	});
+	const section = (body: string) =>
+		body.slice(body.indexOf("## Parked"), body.indexOf("## Still-caught"));
+
+	it("lists every parked issue with its age in whole days, and one whose start will not read as age unknown", () => {
+		const body = render([
+			reading([
+				{ number: 40, title: "Parked overnight", appliedAt: at(9.5) },
+				{ number: 41, title: "Parked a day", appliedAt: at(30) },
+				{ number: 42, title: "Parked 2 days", appliedAt: at(49) },
+				{
+					number: 43,
+					title: "Unread start",
+					appliedAt: null,
+					ageError: "HTTP 502",
+				},
+			]),
+		]);
+		expect(section(body)).toContain(
+			"- acme/a#40 — `Parked overnight` — 0 days\n",
+		);
+		expect(section(body)).toContain("- acme/a#41 — `Parked a day` — 1 day\n");
+		expect(section(body)).toContain("- acme/a#42 — `Parked 2 days` — 2 days\n");
+		expect(section(body)).toContain(
+			"- acme/a#43 — `Unread start` — age unknown: `HTTP 502`\n",
+		);
+		expect(basisFaults(body)).toEqual([]);
+	});
+
+	it("says none where nothing is parked", () => {
+		expect(section(render([reading([])]))).toContain("\nNone.\n");
 	});
 });

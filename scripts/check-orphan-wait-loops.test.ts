@@ -5,10 +5,11 @@
  * this session's own tree.
  *
  * Every test drives the real script end to end through lib/run-in-process.js,
- * against a synthetic /proc tree on WFC_PROC_ROOT.
+ * against a synthetic /proc tree on WFC_PROC_ROOT (lib/proc-fake.ts).
  *
- * The fixture shape is the ruling (mantahostels#2017): parent pid 1, an argv carrying a
- * `while`/`until` and a `sleep`, and an elapsed time over the threshold. Nothing
+ * The fixture shape is the ruling (mantahostels#2017): parent an init (pid 1, or
+ * a `/init` at another pid, #3055), an argv carrying a `while`/`until` and a
+ * `sleep`, and an elapsed time over the threshold. Nothing
  * here tests boundedness — a bounded loop exits on its own, so elapsed time does
  * that work from the sweep's vantage point.
  *
@@ -22,66 +23,38 @@
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { makeProcRoot, type ProcSpec } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-orphan-wait-loops.js");
 
-/** Clock ticks per second, as the script reads /proc/<pid>/stat. */
-const USER_HZ = 100;
-/** Seconds since boot the fixture machine reports. */
-const UPTIME = 200_000;
-
 const WAIT_LOOP =
 	"/bin/bash -c until grep -q '######## T5' out.log; do sleep 3; done";
 
+let fixture: ReturnType<typeof makeProcRoot>;
 let root: string;
 
 beforeEach(() => {
-	root = fs.mkdtempSync(path.join(os.tmpdir(), "orphan-wait-loops-"));
-	fs.writeFileSync(path.join(root, "uptime"), `${UPTIME}.00 ${UPTIME}.00\n`);
+	fixture = makeProcRoot();
+	root = fixture.root;
 });
 
 afterEach(() => {
-	fs.rmSync(root, { recursive: true, force: true });
+	fixture.remove();
 });
 
-/** A process in the fixture tree. */
+/** A process in the fixture tree: by default an orphaned wait loop 8 h old. */
 function proc(
 	pid: number,
 	{
-		ppid = 1,
 		argv = WAIT_LOOP,
 		ageMinutes = 60 * 8,
-		comm = "bash",
-		state = "S",
-		stat,
-	}: {
-		ppid?: number;
-		argv?: string;
-		ageMinutes?: number;
-		comm?: string;
-		state?: string;
-		stat?: string;
-	} = {},
+		...spec
+	}: ProcSpec & { ageMinutes?: number } = {},
 ): void {
-	const dir = path.join(root, String(pid));
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(
-		path.join(dir, "cmdline"),
-		`${argv.split(" ").join("\0")}\0`,
-	);
-	fs.writeFileSync(path.join(dir, "stat"), stat ?? statLine());
-
-	function statLine(): string {
-		const startTicks = Math.round((UPTIME - ageMinutes * 60) * USER_HZ);
-		/* Fields 3 onward: state, ppid, then filler up to field 22 (start time),
-		 * which is the 20th token after the comm field's closing ')'. */
-		const tail = [state, ppid, ...new Array(17).fill(0), startTicks];
-		return `${pid} (${comm}) ${tail.join(" ")}\n`;
-	}
+	fixture.proc(pid, { argv, ageS: ageMinutes * 60, ...spec });
 }
 
 function run(...args: string[]) {
@@ -129,6 +102,20 @@ describe("check-orphan-wait-loops", () => {
 	});
 
 	it("does not report a loop whose parent is not init (mantahostels#2017)", () => {
+		proc(4242, { ppid: 900 });
+
+		expect(json().orphanCount).toBe(0);
+	});
+
+	it("reports a loop whose parent is WSL's session /init, not pid 1 (#3055)", () => {
+		proc(352, { argv: "/init" });
+		proc(4242, { ppid: 352 });
+
+		expect(json().orphans.map((o) => o.pid)).toEqual([4242]);
+	});
+
+	it("does not report a loop whose parent is a live shell (#3055)", () => {
+		proc(900, { argv: "/bin/bash" });
 		proc(4242, { ppid: 900 });
 
 		expect(json().orphanCount).toBe(0);

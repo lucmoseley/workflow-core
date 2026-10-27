@@ -18,9 +18,9 @@
  * DEFEAT:    --warn caps the finding below the gating line, and pre-commit never passes it.
  */
 
-const { spawnSync } = require("node:child_process");
 const { runCheck } = require("./lib/check.js");
-const { ruleTextOr } = require("./lib/rule-text");
+const { readRuleTextOr } = require("./lib/rule-text");
+const { spawnGitSync } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 
@@ -30,8 +30,8 @@ const RESEARCH_DIR = "docs/research/";
  * An unreadable fragment is check-guard-registry.js's assertion, not a reason
  * to call the verdict BROKEN (mantahostels#1649's split).
  */
-function researchRule() {
-	return ruleTextOr(
+function readResearchRule() {
+	return readRuleTextOr(
 		"research-in-tree",
 		"Research never lands in docs/research/: post it on its issue.",
 		"check-research-added",
@@ -40,8 +40,7 @@ function researchRule() {
 
 /** @param {Ctx} ctx */
 function run(ctx) {
-	const r = spawnSync(
-		"git",
+	const r = spawnGitSync(
 		[
 			"diff",
 			"--cached",
@@ -66,7 +65,7 @@ function run(ctx) {
 	for (const file of added) ctx.say(`  ${file}`);
 	ctx.say("");
 	ctx.say("docs/agents/issue-tracker.md §Research artefacts:");
-	for (const line of researchRule()) ctx.say(line);
+	for (const line of readResearchRule()) ctx.say(line);
 	return { noun: "added research file(s)", count: added.length };
 }
 

@@ -28,7 +28,8 @@
  * breaking a session is worse than missing one. Both functions swallow
  * everything the guard throws. What they cannot cover is a `require` of this
  * file that itself throws — that predates the try, and the `|| true` in the
- * registration is what answers it.
+ * registration is what answers it — but for guard-priced-options.js, which
+ * blocks once a turn instead (#2645).
  */
 
 const path = require("node:path");
@@ -89,7 +90,7 @@ function disabled(root) {
  */
 function onMessage({ review }) {
 	try {
-		const ctx = messageContext();
+		const ctx = readMessageContext();
 		if (ctx) review(ctx);
 	} catch {
 		/* Fail open (mantahostels#1731). */
@@ -104,11 +105,11 @@ function onMessage({ review }) {
  * @returns {{sessionId: string, message: string, root: string,
  *   payload: StopPayload|null}|null}
  */
-function messageContext() {
+function readMessageContext() {
 	const root = hookBlock.repoRoot();
 	if (disabled(root)) return null;
 	const payload = hookMessage.readPayload();
-	const found = hookMessage.messageFrom(payload, { root });
+	const found = hookMessage.readMessageFrom(payload, { root });
 	if (!found) return null;
 	return {
 		sessionId: found.sessionId,
@@ -136,7 +137,7 @@ function messageContext() {
  */
 async function onMessageAsync({ review }) {
 	try {
-		const ctx = messageContext();
+		const ctx = readMessageContext();
 		if (ctx) await review(ctx);
 	} catch {
 		/* Fail open (mantahostels#1731). */

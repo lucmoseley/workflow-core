@@ -6,30 +6,39 @@
  */
 
 const { execFileSync } = require("node:child_process");
+const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 /* Attribution for `--isolated`'s dirty-tree refusal — whose uncommitted work
  * a frozen worktree would leave out. */
 const arbiterStore = require("./arbiter-store");
-const { claimedElsewhere } = require("./neighbour-dirt.js");
+const { readClaimedElsewhere } = require("./neighbour-dirt.js");
 const idSeam = require("./session-id.js");
-const { ownPaths } = require("./own-work.js");
+const { readOwnPaths } = require("./own-work.js");
 const {
-	GIT_TIMEOUT_MS,
 	gitRead,
-	trackedStatus,
-	untrackedFiles,
+	readTrackedStatus,
+	readUntrackedFiles,
 } = require("./dirty-tree.js");
-const { defaultChangedBase, diffNames } = require("./changed-selection.js");
+const {
+	readDefaultChangedBase,
+	readDiffNames,
+} = require("./changed-selection.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 
+/**
+ * @typedef {{ paths: string[], dropped: string[], carriesUntracked?: boolean }} OwnSet
+ *   a session's own changed paths and the neighbour commits left out;
+ *   `carriesUntracked` where its own new files are already among them
+ */
+
 /** @typedef {{ path: string, at: number }} Quote a selection-ledger entry (#1220) */
 /**
- * @typedef {{ writesBy: (id: string) => string[]|null,
- *   selectsBy?: (id: string) => Quote[]|null,
- *   landedBy?: (id: string) => Set<string>|null }
+ * @typedef {{ readWritesBy: (id: string) => string[]|null,
+ *   readSelectsBy?: (id: string) => Quote[]|null,
+ *   readLandedBy?: (id: string) => Set<string>|null }
  *   & import("./neighbour-dirt.js").LockSource} Ledger
  */
 
@@ -43,7 +52,7 @@ const { defaultChangedBase, diffNames } = require("./changed-selection.js");
  * refuses, `theirs` only warns, because escaping a neighbour's churn is what a
  * worktree at HEAD is for.
  *
- * `writesBy` answers "did this session ever write this path", never "is this
+ * `readWritesBy` answers "did this session ever write this path", never "is this
  * dirt this session made", so a live neighbour's claim is subtracted — the
  * mantahostels#63 shape, spelled out in `lib/neighbour-dirt.js`.
  *
@@ -56,9 +65,9 @@ const { defaultChangedBase, diffNames } = require("./changed-selection.js");
  * this session wrote from Bash — a `>` redirect, a heredoc, `sed -i`, a
  * generator — mints no entry there (mantahostels#296). A CODE path —
  * concision-backstop.sh's globs, owned for this purpose by
- * `guard-claimed-bash-write.sh`'s `CODE_EXT`/`CODE_DIR`: a
+ * lib/claimed-bash-write.js's `CODE_EXT`/`CODE_DIR`: a
  * `.js/.mjs/.cjs/.ts/.tsx/.jsx/.py/.sh` extension, or anything under `.husky/`
- * — that `guard-claimed-bash-write.sh` resolved LITERALLY at `PreToolUse`, and
+ * — that lib/claimed-bash-write.js resolved LITERALLY at `PreToolUse`, and
  * on which no other live session holds a READABLE claim, IS credited: it lands
  * in `mine` and refuses under `--isolated`. The rest still lands in `theirs`,
  * warned about rather than silently run past: a non-code path, a target the
@@ -70,7 +79,7 @@ const { defaultChangedBase, diffNames } = require("./changed-selection.js");
  *
  * QUOTES COUNT ONLY FOR AN OVERLAY (#1220). Given `committedAt`, a path an
  * inline `python`/`node` program quoted — the selection ledger, which
- * guard-claimed-bash-write.sh writes — is `mine` too, where it was quoted after
+ * lib/claimed-bash-write.js writes — is `mine` too, where it was quoted after
  * its last commit. A quote may have been a read, so this over-selects, which a
  * test run can afford and `--isolated`'s refusal cannot: that caller passes no
  * `committedAt`, so `quoted` — the paths only a quote put in `mine` — is
@@ -80,7 +89,7 @@ const { defaultChangedBase, diffNames } = require("./changed-selection.js");
  * A FILE WHOSE OWN HUNKS ALL LANDED IS NOT `mine` (#2539). A `--patch` commit
  * out of a file a neighbour is also editing leaves it dirty and in the write
  * ledger, so the overlay would carry the neighbour's hunks without the rest of
- * their work. `landedBy` names each file the release judged so (#2148) and
+ * their work. `readLandedBy` names each file the release judged so (#2148) and
  * the session has not written since; a ledger that will not read subtracts
  * nothing.
  *
@@ -93,7 +102,7 @@ const { defaultChangedBase, diffNames } = require("./changed-selection.js");
  *   renames?: { path: string, source: string }[],
  *   committedAt?: (p: string) => number }} [options] `committedAt` answers a
  *   path's last commit in ms, 0 where it has none; `renames` are the staged
- *   ones, as `trackedStatus` reads them
+ *   ones, as `readTrackedStatus` reads them
  * @returns {{ mine: string[], theirs: string[], quoted: string[] }}
  */
 function attributeDirty(
@@ -117,7 +126,7 @@ function attributeDirty(
 	/** @type {Set<string>} */
 	let held = new Set();
 	try {
-		if (sessionId) written = ledger.writesBy(sessionId);
+		if (sessionId) written = ledger.readWritesBy(sessionId);
 	} catch {
 		written = null;
 	}
@@ -125,7 +134,7 @@ function attributeDirty(
 		if (sessionId && committedAt && written) {
 			const wrote = new Set(written);
 			quoted = freshQuotes(
-				ledger.selectsBy?.(sessionId) ?? [],
+				ledger.readSelectsBy?.(sessionId) ?? [],
 				new Set([...dirty, ...untracked].filter((p) => !wrote.has(p))),
 				committedAt,
 			);
@@ -135,7 +144,7 @@ function attributeDirty(
 	}
 	try {
 		if (sessionId && ((written && written.length > 0) || quoted.length > 0))
-			held = claimedElsewhere(sessionId, ledger);
+			held = readClaimedElsewhere(sessionId, ledger);
 	} catch {
 		written = null;
 	}
@@ -143,7 +152,7 @@ function attributeDirty(
 	if (written && quoted.length > 0) written = [...written, ...quoted];
 	if (!written || written.length === 0)
 		return { mine: [], theirs: [...dirty].sort(), quoted: [] };
-	/* An untracked path enters `mine` or nothing at all — see `untrackedFiles`. */
+	/* An untracked path enters `mine` or nothing at all — see `readUntrackedFiles`. */
 	const own = ownOf([...dirty, ...untracked], written, held, renames);
 	return {
 		mine: [...own].sort(),
@@ -161,10 +170,10 @@ function attributeDirty(
  * @returns {string[]|null}
  */
 function withoutLanded(sessionId, written, ledger) {
-	if (!sessionId || !written || written.length === 0 || !ledger.landedBy)
+	if (!sessionId || !written || written.length === 0 || !ledger.readLandedBy)
 		return written;
 	try {
-		const landed = ledger.landedBy(sessionId);
+		const landed = ledger.readLandedBy(sessionId);
 		return landed ? written.filter((p) => !landed.has(p)) : written;
 	} catch {
 		/* guarded as the arbiter read above is (mantahostels#2169) */
@@ -245,13 +254,17 @@ function overlayCommit(root, head, mine, execFn = execFileSync) {
 	/** @param {string[]} args */
 	const run = (args) =>
 		String(
-			execFn("git", args, {
-				cwd: root,
-				env,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				timeout: GIT_TIMEOUT_MS,
-			}) ?? "",
+			execFn(
+				gitBinary(),
+				args,
+				gitSpawnOptions({
+					cwd: root,
+					env,
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "ignore"],
+					timeout: GIT_TIMEOUT_MS,
+				}),
+			) ?? "",
 		).trim();
 	try {
 		run(["read-tree", head]);
@@ -296,11 +309,11 @@ function ownSelection(
 	sessionId,
 	{ ledger, commitLedger, execFn = execFileSync } = {},
 ) {
-	const status = trackedStatus(root, execFn);
+	const status = readTrackedStatus(root, execFn);
 	const head = gitRead(["rev-parse", "HEAD"], root, execFn)?.trim();
 	if (status === null || !head) return null;
 	/* `?? []` as `sweepAndAttribute` reads it. */
-	const untracked = untrackedFiles(root, execFn) ?? [];
+	const untracked = readUntrackedFiles(root, execFn) ?? [];
 	/* `committedAt` as the overlay passes it, so a file an inline program
 	 * quoted is own work here too (#1220). */
 	const { mine } = attributeDirty(status.dirty, {
@@ -312,8 +325,8 @@ function ownSelection(
 	});
 	const tip = overlayCommit(root, head, mine, execFn);
 	if (tip === null) return null;
-	const base = defaultChangedBase(root, execFn);
-	const resolved = ownPaths(root, base, {
+	const base = readDefaultChangedBase(root, execFn);
+	const resolved = readOwnPaths(root, base, {
 		sessionId,
 		tip,
 		execFn,
@@ -323,20 +336,46 @@ function ownSelection(
 		base,
 		tip,
 		mine,
-		uncommitted: mine.length > 0 ? diffNames(root, "HEAD", tip, execFn) : [],
-		net: diffNames(root, base, tip, execFn),
+		uncommitted:
+			mine.length > 0 ? readDiffNames(root, "HEAD", tip, execFn) : [],
+		net: readDiffNames(root, base, tip, execFn),
 		scoped:
 			resolved && resolved.dropped.length > 0
 				? { paths: resolved.paths, dropped: resolved.dropped }
 				: null,
 		unread: resolved
 			? null
-			: "this session's own commits could not be told from a neighbour's (commit ledger or git unreadable), so cover was judged on the whole range",
+			: "this session's own commits could not be told from a neighbour's (commit ledger or git unreadable), so attestation was judged on the whole range",
+	};
+}
+
+/**
+ * The set a session's default run selects from, as its overlay carries it:
+ * `ownSelection`'s range-scoped paths, else its net diff, so no neighbour's
+ * uncommitted or untracked file is in it and every own new file is. Null
+ * where git will not say what is uncommitted, write the commit carrying it,
+ * or diff that commit.
+ *
+ * @param {string} root
+ * @param {string} sessionId
+ * @param {Parameters<typeof ownSelection>[2]} [seams]
+ * @returns {(OwnSet & { base: string })|null}
+ */
+function ownDefaultWork(root, sessionId, seams) {
+	const own = ownSelection(root, sessionId, seams);
+	const paths = own?.scoped?.paths ?? own?.net;
+	if (!own || !paths) return null;
+	return {
+		base: own.base,
+		paths,
+		dropped: own.scoped?.dropped ?? [],
+		carriesUntracked: true,
 	};
 }
 
 module.exports = {
 	attributeDirty,
 	lastCommitAt,
+	ownDefaultWork,
 	ownSelection,
 };

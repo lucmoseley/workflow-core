@@ -17,12 +17,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readFailOpenLog } from "./guard-log-fixture";
 import { sweptMarkers } from "./lib/arbiter-testkit";
 import { initGitRepo } from "./lib/git-fixture";
-
-const { projectSlug } = require("./lib/project-slug") as {
-	projectSlug: (root: string) => string;
-};
 
 const CANARY = path.resolve(__dirname, "self-plugin-canary.sh");
 const WRITER = path.resolve(__dirname, "write-self-plugin-marker.sh");
@@ -256,14 +253,7 @@ describe("the marker", () => {
 
 	function expectUnwrittenLogged() {
 		startSession("startup");
-		const log = path.join(
-			repo,
-			"config",
-			"projects",
-			projectSlug(repo),
-			"guard-errors.log",
-		);
-		expect(fs.readFileSync(log, "utf8")).toContain(
+		expect(readFailOpenLog(path.join(repo, "config"), repo)).toContain(
 			"no self-plugin marker written",
 		);
 	}
@@ -299,14 +289,14 @@ describe("the marker", () => {
 });
 
 describe("the writer's registration", () => {
-	const commandsOf = (file: string) =>
+	const readCommandsOf = (file: string) =>
 		JSON.stringify(JSON.parse(fs.readFileSync(path.join(ROOT, file), "utf8")));
 
 	it("is in the self-plugin's hooks file and not in the adopters' render", () => {
-		expect(commandsOf("self-plugin/hooks/hooks.json")).toContain(
+		expect(readCommandsOf("self-plugin/hooks/hooks.json")).toContain(
 			"/scripts/write-self-plugin-marker.sh",
 		);
-		expect(commandsOf("hooks/hooks.json")).not.toContain(
+		expect(readCommandsOf("hooks/hooks.json")).not.toContain(
 			"write-self-plugin-marker.sh",
 		);
 	});

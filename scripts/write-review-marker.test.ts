@@ -44,7 +44,15 @@ const run = (args: string[], sid = SID) =>
 
 const marker = () =>
 	path.join(repo, ".claude", "tmp", "markers", `.codereview-pass-${SID}`);
-const markerText = () => fs.readFileSync(marker(), "utf8");
+const readMarkerText = () => fs.readFileSync(marker(), "utf8");
+
+/** The tree `commit-paths.js --tree <args>` prints in the repo. */
+const readTree = (args: string[]) =>
+	execFileSync(process.execPath, [COMMIT_PATHS, "--tree", ...args], {
+		cwd: repo,
+		encoding: "utf8",
+		env: { ...env, CLAUDE_PROJECT_DIR: repo },
+	}).trim();
 
 const artefact = (axis: "standards" | "spec", text = "- no findings\n") => {
 	fs.mkdirSync(path.join(repo, ".claude", "tmp"), { recursive: true });
@@ -60,22 +68,16 @@ describe("a review that left both artefacts", () => {
 		artefact("spec");
 		const r = run(["--base", "HEAD", "--findings", "3"]);
 		expect(r.status).toBe(0);
-		expect(markerText()).toBe(`base=${git("rev-parse", "HEAD")}\nfindings=3\n`);
+		expect(readMarkerText()).toBe(
+			`base=${git("rev-parse", "HEAD")}\nfindings=3\n`,
+		);
 	});
 
 	it("adds tier=, areas=, and the tree= commit-paths prints for --paths", () => {
 		artefact("standards");
 		artefact("spec");
 		fs.writeFileSync(path.join(repo, "a.js"), "two\n");
-		const tree = execFileSync(
-			process.execPath,
-			[COMMIT_PATHS, "--tree", "--", "a.js"],
-			{
-				cwd: repo,
-				encoding: "utf8",
-				env: { ...env, CLAUDE_PROJECT_DIR: repo },
-			},
-		).trim();
+		const tree = readTree(["--", "a.js"]);
 		const r = run([
 			"--base",
 			"HEAD",
@@ -89,7 +91,7 @@ describe("a review that left both artefacts", () => {
 			"a.js",
 		]);
 		expect(r.status).toBe(0);
-		expect(markerText()).toBe(
+		expect(readMarkerText()).toBe(
 			[
 				`base=${git("rev-parse", "HEAD")}`,
 				"findings=0",
@@ -100,6 +102,43 @@ describe("a review that left both artefacts", () => {
 				"",
 			].join("\n"),
 		);
+	});
+	/**
+	 * Write the marker for a.js, left to a patch, and the new file at `added`,
+	 * named in `--paths` as `paths`; the tree commit-paths prints for that commit.
+	 */
+	const patchedRun = (added: string, paths: string) => {
+		artefact("standards");
+		artefact("spec");
+		fs.writeFileSync(path.join(repo, "a.js"), "two\n");
+		fs.mkdirSync(path.dirname(path.join(repo, added)), { recursive: true });
+		fs.writeFileSync(path.join(repo, added), "new\n");
+		const patch = path.join(repo, ".claude", "tmp", "own.patch");
+		fs.writeFileSync(patch, `${git("diff", "-U0", "--", "a.js")}\n`);
+		const tree = readTree(["--patch", patch, "--", added]);
+		const r = run([
+			"--base",
+			"HEAD",
+			"--findings",
+			"0",
+			"--paths",
+			paths,
+			"--patch",
+			patch,
+		]);
+		return { r, tree };
+	};
+
+	it("names a patched file in paths= and leaves it to the patch in tree=", () => {
+		const { r, tree } = patchedRun("b.js", "a.js,b.js");
+		expect(r.status).toBe(0);
+		expect(readMarkerText()).toContain(`tree=${tree}\npaths=a.js,b.js\n`);
+	});
+
+	it("writes ./<patched path> in its repo-relative spelling and still leaves it to the patch (#2740)", () => {
+		const { r, tree } = patchedRun("lib/b.js", "./a.js,lib/./b.js");
+		expect(r.status).toBe(0);
+		expect(readMarkerText()).toContain(`tree=${tree}\npaths=a.js,lib/b.js\n`);
 	});
 });
 
@@ -212,6 +251,11 @@ describe("refuses, writing no marker", () => {
 			],
 			"--skipped takes no --paths",
 		],
+		[
+			"a path outside the repository (#2740)",
+			["--base", "HEAD", "--findings", "0", "--paths", "../a.js"],
+			"names no file inside",
+		],
 	])("on %s", (_, args, says) => {
 		artefact("standards");
 		artefact("spec");
@@ -236,7 +280,7 @@ describe("the routes that run without one axis or without a review", () => {
 		expect(run(["--base", "HEAD", "--findings", "1", "--no-spec"]).status).toBe(
 			0,
 		);
-		expect(markerText()).toContain("findings=1\n");
+		expect(readMarkerText()).toContain("findings=1\n");
 	});
 
 	it("--no-spec still refuses where the standards artefact is missing", () => {
@@ -257,6 +301,8 @@ describe("the routes that run without one axis or without a review", () => {
 			"deletion",
 		]);
 		expect(r.status).toBe(0);
-		expect(markerText()).toBe(`base=${git("rev-parse", "HEAD")}\nfindings=0\n`);
+		expect(readMarkerText()).toBe(
+			`base=${git("rev-parse", "HEAD")}\nfindings=0\n`,
+		);
 	});
 });

@@ -18,7 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { procStartOf } from "./arbiter-proc.js";
+import { readProcStartOf } from "./arbiter-proc.js";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { endResultOf, launch as launchRun, stop } from "./headless-sessions.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
@@ -105,7 +105,7 @@ afterEach(async () => {
 	const store = headlessStore(refill);
 	for (const job of fs.existsSync(store) ? fs.readdirSync(store) : [])
 		await stop(job, { graceMs: 0 });
-	const seen = seenOrNull();
+	const seen = readSeenOrNull();
 	if (seen?.grandchild) killQuietly(seen.grandchild);
 	if (saved === undefined) delete process.env.WFC_REFILL_DIR;
 	else process.env.WFC_REFILL_DIR = saved;
@@ -154,7 +154,7 @@ const launch = (extra: Record<string, string> = {}, at = seat) =>
 		extra,
 	);
 
-function seenOrNull(): {
+function readSeenOrNull(): {
 	argv: string[];
 	env: Record<string, string>;
 	cwd: string;
@@ -179,7 +179,7 @@ async function until(test: () => boolean, ms = 10_000) {
 	throw new Error("condition not met in time");
 }
 
-const isAlive = (pid: number) => procStartOf(pid) !== null;
+const isAlive = (pid: number) => readProcStartOf(pid) !== null;
 const listed = () => JSON.parse(cli(["list"]).stdout);
 const flag = (argv: string[], name: string) => argv[argv.indexOf(name) + 1];
 
@@ -201,8 +201,8 @@ describe("launch", () => {
 		const jobId = dispatcherJobId(r.stdout);
 		expect(jobId).toMatch(/^[0-9a-f]{8}$/);
 		expect(r.stdout.split("\n")[0]).toBe(jobId);
-		await until(() => seenOrNull() !== null);
-		const seen = seenOrNull();
+		await until(() => readSeenOrNull() !== null);
+		const seen = readSeenOrNull();
 		if (!seen) throw new Error("fake never ran");
 		expect(seen.argv[0]).toBe("-p");
 		expect(seen.argv.at(-1)).toBe("/implement 7");
@@ -229,8 +229,8 @@ describe("launch", () => {
 			CLAUDE_CODE_SESSION_ID: "caller-session",
 		});
 		expect(r.status).toBe(0);
-		await until(() => seenOrNull() !== null);
-		const seen = seenOrNull();
+		await until(() => readSeenOrNull() !== null);
+		const seen = readSeenOrNull();
 		if (!seen) throw new Error("fake never ran");
 		expect(JSON.parse(flag(seen.argv, "--settings")).apiKeyHelper).toContain(
 			SCRIPT,
@@ -260,8 +260,8 @@ describe("launch", () => {
 				if (!(k in before)) delete process.env[k];
 			Object.assign(process.env, before);
 		}
-		await until(() => seenOrNull() !== null);
-		expect(seenOrNull()?.helped).toBe(KEY);
+		await until(() => readSeenOrNull() !== null);
+		expect(readSeenOrNull()?.helped).toBe(KEY);
 	});
 
 	it.each([
@@ -276,7 +276,7 @@ describe("launch", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(/^REFUSED: .*WFC_TEST_OVERFLOW_KEY/);
 		expect(r.stdout).toBe("");
-		expect(seenOrNull()).toBeNull();
+		expect(readSeenOrNull()).toBeNull();
 		expect(fs.existsSync(path.join(refill, ".headless-runs"))).toBe(false);
 	});
 
@@ -284,15 +284,15 @@ describe("launch", () => {
 		const r = launch({}, path.join(home, ".claude2"));
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("is not an overflow seat");
-		expect(seenOrNull()).toBeNull();
+		expect(readSeenOrNull()).toBeNull();
 	});
 });
 
 describe("list and stop", () => {
 	it("lists a live run as an oracle-shaped record; stop ends its whole process group and drops it", async () => {
 		const jobId = launch().stdout.split("\n")[0] ?? "";
-		await until(() => seenOrNull() !== null);
-		const seen = seenOrNull();
+		await until(() => readSeenOrNull() !== null);
+		const seen = readSeenOrNull();
 		if (!seen?.grandchild) throw new Error("fake never ran");
 		const [run] = listed();
 		expect(run).toMatchObject({
@@ -313,8 +313,8 @@ describe("list and stop", () => {
 
 	it("stops a group whose leader has exited, ending the task it left behind", async () => {
 		const jobId = launch({ FAKE_MODE: "orphan" }).stdout.split("\n")[0] ?? "";
-		await until(() => seenOrNull() !== null);
-		const grandchild = seenOrNull()?.grandchild ?? 0;
+		await until(() => readSeenOrNull() !== null);
+		const grandchild = readSeenOrNull()?.grandchild ?? 0;
 		await until(() => listed().length === 0);
 		expect(isAlive(grandchild)).toBe(true);
 		expect(cli(["stop", jobId]).stdout.trim()).toBe("stopped");
@@ -328,7 +328,7 @@ describe("list and stop", () => {
 			`${JSON.stringify({ type: "result", is_error: false, total_cost_usd: 0.5 })}\n`,
 		);
 		launch({ FAKE_MODE: "events", FAKE_EVENTS: events });
-		await until(() => seenOrNull() !== null);
+		await until(() => readSeenOrNull() !== null);
 		await until(() => listed().length === 0);
 	});
 
@@ -344,7 +344,7 @@ describe("list and stop", () => {
 				stderr: path.join(dir, "stderr.log"),
 				launchedAt: 1,
 			});
-		record(procStartOf(process.pid));
+		record(readProcStartOf(process.pid));
 		expect(listed().map((a: { id: string }) => a.id)).toEqual(["0badf00d"]);
 		record("1");
 		expect(listed()).toEqual([]);
@@ -354,9 +354,9 @@ describe("list and stop", () => {
 	 * group, so the grace is shortened, never asserted as elapsed time. */
 	it("kills a group that ignores SIGTERM once the grace period passes", async () => {
 		const jobId = launch({ FAKE_MODE: "stubborn" }).stdout.split("\n")[0] ?? "";
-		await until(() => seenOrNull() !== null);
+		await until(() => readSeenOrNull() !== null);
 		expect(await stop(jobId, { graceMs: 300 })).toBe("killed");
-		await until(() => !isAlive(seenOrNull()?.grandchild ?? 0));
+		await until(() => !isAlive(readSeenOrNull()?.grandchild ?? 0));
 		expect(listed()).toEqual([]);
 	});
 });
@@ -375,7 +375,7 @@ describe("end result", () => {
 			jobId: "0badf00d",
 			sessionId: "sess",
 			pid,
-			procStart: procStartOf(pid),
+			procStart: readProcStartOf(pid),
 			bootId: null,
 			pgid: pid,
 			seat,

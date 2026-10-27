@@ -17,7 +17,7 @@
  * side of it: every conditional-request header is refused outright, GraphQL's
  * updateIssue carries no version field, and `updated_at` has one-second
  * resolution — the race window itself. `scripts/issue-body.js` and its guard
- * `scripts/guard-issue-body.sh` prevent the common spellings; `gh api graphql`
+ * `scripts/guard-issue-body.js` prevent the common spellings; `gh api graphql`
  * with an updateIssue mutation, and any writer outside the local lock, are not
  * covered by either.
  *
@@ -432,7 +432,7 @@ function graphql(query, vars, { notFound = false } = {}) {
 	 * declined to serve.
 	 *
 	 * The reason goes on `.stderr` because that is the only field
-	 * ghFailureReason() reads, deliberately: e.message carries the whole argv, so
+	 * parseGhFailureReason() reads, deliberately: e.message carries the whole argv, so
 	 * a query whose own text says "rate limit" would classify itself. Putting it
 	 * there is what lets a rate-limited sweep SKIP rather than report this
 	 * checker broken. */

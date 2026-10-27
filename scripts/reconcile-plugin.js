@@ -130,6 +130,7 @@ const {
 const { walkAndCommit } = require("./lib/walk-and-commit.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
+const { ancestorsOf, readParentOf } = require("./lib/proc-stat.js");
 
 const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 
@@ -155,7 +156,7 @@ function readJsonSafe(at) {
  * than `comm=`, for the reason `lib/claude-argv0.js` states.
  * @returns {string[]}
  */
-function claudePids() {
+function readClaudePids() {
 	const out = execFileSync(PS_BIN(), ["-eo", "pid=,args="], {
 		encoding: "utf8",
 		maxBuffer: CHILD_MAX_BUFFER,
@@ -180,7 +181,7 @@ function claudePids() {
  * @param {string} pid
  * @returns {string|null}
  */
-function configDirOf(pid) {
+function readConfigDirOf(pid) {
 	let environ;
 	try {
 		environ = fs.readFileSync(path.join(PROC(), pid, "environ"), "utf8");
@@ -191,16 +192,6 @@ function configDirOf(pid) {
 		if (entry.startsWith("CLAUDE_CONFIG_DIR="))
 			return entry.slice("CLAUDE_CONFIG_DIR=".length);
 	return path.join(os.homedir(), ".claude");
-}
-
-/** The ppid on one /proc/<pid>/stat line — the first field after the last ')' is state, the second ppid. @param {string} pid */
-function ppidOf(pid) {
-	try {
-		const stat = fs.readFileSync(path.join(PROC(), pid, "stat"), "utf8");
-		return stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/)[1] || null;
-	} catch {
-		return null;
-	}
 }
 
 /**
@@ -218,13 +209,12 @@ function ppidOf(pid) {
  * neighbour, and the actor then defers forever rather than acting wrongly.
  * @param {string} pid
  */
-function ownPids(pid) {
-	const seen = new Set([pid]);
-	let cur = ppidOf(pid);
-	for (let i = 0; i < 64 && cur && cur !== "0" && !seen.has(cur); i++) {
-		seen.add(cur);
-		cur = ppidOf(cur);
-	}
+function readOwnPids(pid) {
+	const parentOf = (/** @type {number} */ at) => readParentOf(at, PROC());
+	const seen = new Set([
+		pid,
+		...ancestorsOf(Number(pid), { parentOf }).map(String),
+	]);
 	if (process.env.CLAUDE_PID) seen.add(String(process.env.CLAUDE_PID));
 	return seen;
 }
@@ -235,12 +225,12 @@ function ownPids(pid) {
  * @returns {{count: number, pids: string[]}}
  */
 function countLiveNeighbours({ configDir, selfPid = String(process.pid) }) {
-	const mine = ownPids(selfPid);
+	const mine = readOwnPids(selfPid);
 	const want = path.resolve(configDir);
 	const pids = [];
-	for (const pid of claudePids()) {
+	for (const pid of readClaudePids()) {
 		if (mine.has(pid)) continue;
-		const cfg = configDirOf(pid);
+		const cfg = readConfigDirOf(pid);
 		if (cfg !== null && path.resolve(cfg) !== want) continue;
 		pids.push(pid);
 	}
@@ -250,7 +240,7 @@ function countLiveNeighbours({ configDir, selfPid = String(process.pid) }) {
 /**
  * The migration walker the fresh install ships, loaded in this process (#682).
  * Node's module cache keys on the absolute path, so everything that walker
- * requires — `../upgrade.js`, its `./lib/*` — loads from the same install.
+ * requires — `./upgrade-walk.js` and its siblings — loads from the same install.
  * Falls back to this file's own bundled walker where the install carries
  * none, as a release before #249 does not, or where loading it throws.
  *

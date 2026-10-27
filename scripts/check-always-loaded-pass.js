@@ -119,7 +119,7 @@ function addMonths(date, months) {
  * @param {string} root
  * @returns {{ headroom: number, cap: number }}
  */
-function budget(ctx, root) {
+function readBudget(ctx, root) {
 	let out;
 	try {
 		out = execFileSync(
@@ -163,7 +163,7 @@ function budget(ctx, root) {
  * @param {Ctx} ctx
  * @param {string} file
  */
-function passes(ctx, file) {
+function readPasses(ctx, file) {
 	let raw;
 	try {
 		raw = fs.readFileSync(file, "utf8");
@@ -224,7 +224,7 @@ function resolveHeadroom(ctx, root) {
 	const override = ctx.value("--headroom");
 	/* An overridden headroom has no cap to quote: the seam supplies the one
 	 * number the trigger turns on and nothing else. */
-	if (override === null) return budget(ctx, root);
+	if (override === null) return readBudget(ctx, root);
 	const n = Number(override);
 	if (!Number.isFinite(n))
 		ctx.usageError(`--headroom needs a number, got ${override}`);
@@ -309,7 +309,7 @@ const SPEC = {
 				`this repo has no ${RECORD_FILE} — no pool-pass cadence to check`,
 			);
 
-		const recorded = passes(ctx, file);
+		const recorded = readPasses(ctx, file);
 		const today = new Date(now()).toISOString().slice(0, 10);
 
 		const { headroom, cap } = resolveHeadroom(ctx, root);

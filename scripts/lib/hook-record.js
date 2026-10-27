@@ -110,7 +110,7 @@ const VERDICT_OUTCOMES = ["message", "no-finding", "inventory-stand-down"];
 
 /**
  * Every outcome a guard may record; a spelling outside it is refused. All but
- * `no-finding` and `inventory-stand-down` are what `messageFrom()` can reach.
+ * `no-finding` and `inventory-stand-down` are what `readMessageFrom()` can reach.
  */
 const OUTCOMES = [
 	...VERDICT_OUTCOMES,
@@ -121,7 +121,7 @@ const OUTCOMES = [
 	"no-payload",
 ];
 
-/* Every route `messageFrom()` can judge; `null` where neither yielded text.
+/* Every route `readMessageFrom()` can judge; `null` where neither yielded text.
  * Named so the producing seam spells them by constant: `record()` coerces an
  * unrecognised spelling to `null`, which reads in the breadcrumb as "neither
  * arm answered". */

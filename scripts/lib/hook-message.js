@@ -4,7 +4,7 @@
  * Every failure path returns empty rather than throwing: a guard that breaks
  * the session is worse than one that misses a turn.
  *
- * Every `messageFrom` call records what it saw in this session's breadcrumb
+ * Every `readMessageFrom` call records what it saw in this session's breadcrumb
  * (`lib/hook-record.js`), here in the seam rather than in each guard (mantahostels#872).
  *
  * The outgoing text comes off the payload's `last_assistant_message`, which the
@@ -40,7 +40,7 @@ const { configDir } = require("./config-dir.js");
  * @param {string} file transcript path
  * @returns {string}
  */
-function outgoingMessage(file) {
+function readOutgoingMessage(file) {
 	const lines = fs.readFileSync(file, "utf8").split("\n");
 	const parts = [];
 	for (const line of [...lines].reverse()) {
@@ -105,7 +105,7 @@ function conventionalTranscript(sid) {
  * The transcript a guard reading more than the outgoing message should open
  * (mantahostels#2487). The payload's own path first, because the harness knows where it put
  * the file; `conventionalTranscript` only where that is absent or gone, which
- * is the same order `messageFrom` falls back in.
+ * is the same order `readMessageFrom` falls back in.
  *
  * Returns the path whether or not it exists — every caller has to survive an
  * unreadable one anyway, and a null here would be a second way to say the same
@@ -140,7 +140,7 @@ function readPayload() {
 
 /**
  * The outgoing message, recording nothing — for a guard that writes its own
- * breadcrumb or none, which `messageFrom` would otherwise double (#73).
+ * breadcrumb or none, which `readMessageFrom` would otherwise double (#73).
  * @param {HookPayload|null|undefined} input the parsed hook payload
  * @param {string} transcript the fallback, read only where the payload's
  *   message is absent or whitespace
@@ -148,11 +148,11 @@ function readPayload() {
  *   came back empty
  * @returns {string} empty where neither route yields text
  */
-function textOf(input, transcript, onError) {
+function readMessageText(input, transcript, onError) {
 	const supplied = input?.last_assistant_message;
 	if (typeof supplied === "string" && supplied.trim()) return supplied;
 	try {
-		return outgoingMessage(transcript);
+		return readOutgoingMessage(transcript);
 	} catch (err) {
 		onError?.(err);
 		return "";
@@ -170,7 +170,7 @@ function textOf(input, transcript, onError) {
  *   and whose name it carries; both default in `lib/hook-record.js`.
  * @returns {{sessionId: string, message: string}|null}
  */
-function messageFrom(input, options = {}) {
+function readMessageFrom(input, options = {}) {
 	const sid = sessionId.fromPayload(input);
 	/* The record's discriminators: which route the verdict came from, and what
 	 * the fallback read if it ran at all (mantahostels#1274). */
@@ -214,7 +214,7 @@ function messageFrom(input, options = {}) {
 
 	let message;
 	try {
-		message = outgoingMessage(transcript);
+		message = readOutgoingMessage(transcript);
 	} catch {
 		return done("unreadable-transcript", null);
 	}
@@ -227,6 +227,6 @@ function messageFrom(input, options = {}) {
 module.exports = {
 	transcriptPath,
 	readPayload,
-	textOf,
-	messageFrom,
+	readMessageText,
+	readMessageFrom,
 };

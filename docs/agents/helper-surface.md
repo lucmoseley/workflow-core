@@ -109,7 +109,7 @@ Declare `commands.helper_check` in `.claude/workflow-core.json`: a command that 
 
 ## Running the suite through the core
 
-With the `suites` module on (`.claude/workflow-core.json` → `modules`), a push warns unless the sha carries a green run. Two things record one, and an adopter wires both (#552).
+With the `suites` module on (`.claude/workflow-core.json` → `modules`), a push warns unless the sha carries a certificate. Two things record one, and an adopter wires both (#552).
 
 **The recorders**, attached in the adopter's `vitest.config.ts` from the resolved core. They ship in the plugin as the helper surface's three `.ts` entry points, which only vitest loads:
 
@@ -150,7 +150,7 @@ Merge `globalSetup` and `reporters` with any the config already has. The pass re
 "test:ci": "NODE_OPTIONS=--max-old-space-size=2048 vitest run"
 ```
 
-- **A bare `npm run test` narrows to the diff only where `docs/test-read-edges.json` is committed and the read graph renders from the tree.** Otherwise it runs the whole suite, its banner naming `stale-manifest`.
+- **A bare `npm run test` narrows to the diff only where `docs/test-read-edges.json` is committed and the read graph renders from the tree.** Otherwise it runs the whole suite, its banner naming `stale-manifest`. With the `landing` module on, a bare run is the session's touched tests — the test files it edited and those that directly import or read a file it changed — and never widens; the lander runs the full suite (#2930).
 - **CI runs `npm run test:ci`** unless it checks the core out as above: with no core to resolve, `npm run test` exits 1 naming the pin, while plain vitest runs with the recorders left off.
 - **A runner of your own prints the run-cost report through the core, never a copy of its wording**: write a JSON object of each test file it timed to its seconds, then `node scripts/lib/resolve-core.js scripts/lib/run-cost-report.js <timings.json>` after the suite's summary (#1880).
 - **The suite concurrency guard offers `--queue` only to a launch whose npm script calls `run-vitest.js`**, the flag being that runner's alone. Any other npm `test` script, and a `node --test`, pytest or declared `suiteRunners` launch, is offered the core's `scripts/queue-run.js` instead (#1776).

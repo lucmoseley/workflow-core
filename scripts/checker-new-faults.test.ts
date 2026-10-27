@@ -77,11 +77,11 @@ const regFail = (over: Record<string, unknown> = {}) => ({
 const regStale = (anchored: string, now: string) => ({
 	severity: "WARN",
 	tag: "STALE-PROSE",
-	message: `.husky/pre-push — changed since it was last reviewed (anchored ${anchored}, now ${now})`,
+	message: `.husky/pre-push — the guard or a library its digest hashes changed since the last review (anchored ${anchored}, now ${now})`,
 	kind: "STALE-PROSE",
 	guard: ".husky/pre-push",
 	rules: [],
-	detail: `changed since it was last reviewed (anchored ${anchored}, now ${now})`,
+	detail: `the guard or a library its digest hashes changed since the last review (anchored ${anchored}, now ${now})`,
 });
 
 /** A REPRINTED warning, which the gate never refuses. */
@@ -179,7 +179,9 @@ describe("checker-new-faults, guard-registry", () => {
 		);
 
 		expect(code).toBe(1);
-		expect(out).toContain(".husky/pre-push — changed since");
+		expect(out).toContain(
+			".husky/pre-push — the guard or a library its digest hashes changed since",
+		);
 	});
 
 	it("tells two marked warnings apart by the guard they name", () => {

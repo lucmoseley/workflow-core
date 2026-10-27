@@ -96,7 +96,7 @@ const WARN_ONLY_NEEDLES = {
 /**
  * A `WFC_LOST_DENY_ROOT` tree for a run of the script itself, read as a core:
  * `settings` as `self-plugin/hooks/hooks.json`, four fixture guards under `scripts/` (denier.sh
- * calls gp_deny; the rest cannot deny), and `needles` as
+ * writes a deny verdict; the rest cannot deny), and `needles` as
  * `scripts/guard-fire-needles.json` — omitted where `needles` is null.
  */
 function fixtureRoot(settings: unknown, needles: unknown = NEEDLES) {
@@ -104,8 +104,8 @@ function fixtureRoot(settings: unknown, needles: unknown = NEEDLES) {
 	writeSelfPlugin(root, settings);
 	mkdirSync(join(root, "scripts"));
 	for (const [name, body] of [
-		["denier.sh", 'gp_deny "no"'],
-		["warner.sh", 'gp_warn "hm"'],
+		["denier.sh", 'echo \'{"permissionDecision":"deny"}\''],
+		["warner.sh", 'echo \'{"additionalContext":"hm"}\''],
 		["post.sh", ""],
 		["other.sh", ""],
 	])
@@ -297,7 +297,7 @@ describe("the deny rate's Wilson interval, as a row reports it", () => {
 	});
 
 	it("reproduces a published census row to two decimals", () => {
-		// guard-issue-close.sh: 255 denies in 16,057 calls, 1.588% [1.41-1.79].
+		// guard-issue-close.js: 255 denies in 16,057 calls, 1.588% [1.41-1.79].
 		const row = report(sample(255, 16_057)).row();
 		expect(row).toMatchObject({ denies: 255, population: 16_057 });
 		expect(row.ratePct).toBeCloseTo(1.588, 3);
@@ -553,7 +553,10 @@ describe("deny events — one per CALL", () => {
 				type: "user",
 				timestamp: "2026-09-01T00:00:00.000Z",
 				uuid: "u1",
-				toolUseResult: { stdout: 'gp_deny "REFUSED"' },
+				toolUseResult: {
+					stdout:
+						'echo \'{"permissionDecision":"deny","permissionDecisionReason":"REFUSED"}\'',
+				},
 			},
 		]);
 		expect(row()).toMatchObject({ denies: 0, spoke: 0 });
@@ -648,7 +651,7 @@ describe("the rows", () => {
 				},
 			},
 		);
-		addGuard(root, "aaa-denier.sh", 'gp_deny "no"');
+		addGuard(root, "aaa-denier.sh", 'echo \'{"permissionDecision":"deny"}\'');
 		const { rows } = reportAt(root, [
 			callRecord("git status"),
 			denyRecord("u1", "REFUSED"),
@@ -676,7 +679,7 @@ describe("the rows", () => {
 				],
 			},
 		});
-		addGuard(root, "zzz-denier.sh", 'gp_deny "no"');
+		addGuard(root, "zzz-denier.sh", 'echo \'{"permissionDecision":"deny"}\'');
 		expect(reportAt(root, []).rows.map((r) => r.guard)).toEqual([
 			"denier.sh",
 			"zzz-denier.sh",
@@ -802,20 +805,32 @@ describe("the staleness check against lib/guard-deny-rates.js", () => {
 
 	it("names a deny-capable guard the pinned table has no row for", () => {
 		expect(
-			unpinnedFor("guard-not-a-real-guard.sh", 'gp_deny "no"', "deny"),
+			unpinnedFor(
+				"guard-not-a-real-guard.sh",
+				'echo \'{"permissionDecision":"deny"}\'',
+				"deny",
+			),
 		).toEqual(["guard-not-a-real-guard.sh"]);
 	});
 
 	it("passes over a guard that cannot deny, which that table never pins", () => {
 		expect(
-			unpinnedFor("guard-not-a-real-guard.sh", 'gp_warn "hm"', "nondeny"),
+			unpinnedFor(
+				"guard-not-a-real-guard.sh",
+				'echo \'{"additionalContext":"hm"}\'',
+				"nondeny",
+			),
 		).toEqual([]);
 	});
 
 	it("says nothing about a guard the pinned table carries", () => {
-		expect(unpinnedFor("guard-issue-close.sh", 'gp_deny "no"', "deny")).toEqual(
-			[],
-		);
+		expect(
+			unpinnedFor(
+				"guard-issue-close.js",
+				'echo \'{"permissionDecision":"deny"}\'',
+				"deny",
+			),
+		).toEqual([]);
 	});
 
 	it("names the guards the pinned table has no row for in the text", () => {
@@ -1034,7 +1049,7 @@ describe("WFC_LOST_DENY_ROOT — readJson's exit-2 branches (mantahostels#3307)"
 /*
  * #954: an adopter's settings register no guard of the plugin's, which come
  * from the plugin's `hooks/hooks.json` beside this script. Read off this
- * checkout's own plugin tree, so these cases break if `guard-branch.sh` leaves
+ * checkout's own plugin tree, so these cases break if `guard-branch.js` leaves
  * `hooks/hooks.json`.
  */
 describe("in an adopter whose hooks come from the plugin", () => {
@@ -1052,7 +1067,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		writeFileSync(join(host, ".claude", "settings.json"), "{}");
 		const { status, stdout } = runInHost(host, "--triggers");
 		expect(status).toBe(0);
-		expect(guards(stdout)).toContain("guard-branch.sh");
+		expect(guards(stdout)).toContain("guard-branch.js");
 	});
 
 	it("exits 2 off a host settings.json that is not valid JSON", () => {
@@ -1069,7 +1084,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		const { status, stdout, stderr } = runInHost(host, "--triggers");
 		expect(status).toBe(0);
 		expect(stderr).toContain("settings.json is absent");
-		expect(guards(stdout)).toContain("guard-branch.sh");
+		expect(guards(stdout)).toContain("guard-branch.js");
 	});
 
 	it("reads the needles from the plugin too, so a full run in an empty host counts", () => {
@@ -1077,7 +1092,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		const { status, stdout } = runInHost(host, "--dir", corpusDir, "--json");
 		expect(status).toBe(0);
 		const rows: { guard: string }[] = JSON.parse(stdout).rows;
-		expect(rows.map((r) => r.guard)).toContain("guard-branch.sh");
+		expect(rows.map((r) => r.guard)).toContain("guard-branch.js");
 	});
 });
 
@@ -1393,7 +1408,7 @@ describe("main — --event and --failures (mantahostels#3356)", () => {
 					attachment: {
 						type: "hook_cancelled",
 						hookEvent: "PostToolUse",
-						command: "bash scripts/post-write.sh",
+						command: "node scripts/guard-dispatch.js",
 						toolUseID: "tu1",
 					},
 				},
@@ -1429,8 +1444,8 @@ describe("main — --event and --failures (mantahostels#3356)", () => {
 		writeFileSync(
 			join(dir, "t.jsonl"),
 			`${[
-				post("bash scripts/post-write.sh", "tu1"),
-				post("bash scripts/post-write.sh", "tu2"),
+				post("node scripts/guard-dispatch.js", "tu1"),
+				post("node scripts/guard-dispatch.js", "tu2"),
 				post(null, "tu3"),
 				post("bash scripts/nowhere.sh", "tu4"),
 			]

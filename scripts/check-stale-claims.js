@@ -18,7 +18,7 @@
  * THIS SCRIPT NEVER WRITES, and never unassigns. Whether a claim is dead is a
  * judgement about a person's intent, not a fact on the timeline: a session may
  * legitimately hold an issue across weeks of a slow-moving decision. Same shape
- * mantahostels#111 settled for `urgent`'s decay — the machine displays it, a person acts.
+ * mantahostels#111 settled for `urgent` — the machine displays it, a person acts.
  *
  * WARN, never FAIL. Its verdict is a function of world state, not of the commit,
  * so gating a build on it would make CI's colour depend on when it ran.
@@ -40,9 +40,9 @@ const { runCheck } = require("./lib/check");
 const {
 	ghApiSlurp,
 	ghOpenIssues,
-	collapsedFailureLine,
-	errLine,
-	ghFailureReason,
+	buildCollapsedFailureLine,
+	parseErrLine,
+	parseGhFailureReason,
 	groupByRepeatedError,
 	raiseGhFailure,
 } = require("./lib/gh");
@@ -110,9 +110,9 @@ function classifyClaim(iss) {
 		 * a result is the failure mantahostels#164 left in place for months. Anything else
 		 * is one issue this run could not examine, which is a finding about
 		 * that issue rather than a fault in the check. */
-		if (ghFailureReason(e) === "unreachable")
+		if (parseGhFailureReason(e) === "unreachable")
 			raiseGhFailure(e, "No stale-claim conclusion drawn.");
-		return { unreadable: { ...iss, reason: errLine(e) } };
+		return { unreadable: { ...iss, reason: parseErrLine(e) } };
 	}
 
 	const assigned = latestEvent(events, (e) => e.event === "assigned");
@@ -181,7 +181,7 @@ function reportFindings(ctx, stale, unreadable) {
 		);
 		for (const i of expanded)
 			ctx.say(`  #${i.number} ${i.title}\n    ${i.reason}\n    ${i.url}`);
-		for (const g of collapsed) ctx.say(collapsedFailureLine(g));
+		for (const g of collapsed) ctx.say(buildCollapsedFailureLine(g));
 	}
 	if (stale.length > 0 || unreadable.length > 0)
 		ctx.say(

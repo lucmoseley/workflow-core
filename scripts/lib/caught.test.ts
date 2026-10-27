@@ -9,7 +9,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { caught, errorText } from "./caught.js";
+import { caught, parseErrorText } from "./caught.js";
 
 /** What `fn` threw. */
 function thrownBy(fn: () => unknown): unknown {
@@ -87,7 +87,7 @@ describe("caught", () => {
 	});
 });
 
-describe("errorText (#2673)", () => {
+describe("parseErrorText (#2673)", () => {
 	it("is the child's stderr where it printed any", () => {
 		const e = thrownBy(() =>
 			execFileSync("sh", ["-c", "echo refused >&2; exit 1"], {
@@ -96,7 +96,7 @@ describe("errorText (#2673)", () => {
 			}),
 		);
 
-		expect(errorText(e)).toBe("refused\n");
+		expect(parseErrorText(e)).toBe("refused\n");
 	});
 
 	it("is the message where the child's stderr is empty, as a timed-out one's is", () => {
@@ -109,6 +109,6 @@ describe("errorText (#2673)", () => {
 		);
 
 		expect(caught(e).stderr).toBe("");
-		expect(errorText(e)).toBe("spawnSync sleep ETIMEDOUT");
+		expect(parseErrorText(e)).toBe("spawnSync sleep ETIMEDOUT");
 	});
 });

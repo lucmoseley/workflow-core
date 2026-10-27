@@ -106,21 +106,21 @@ const run = (...args: string[]) => {
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
 
-const logged = (file: string) =>
+const readLog = (file: string) =>
 	fs.existsSync(file) ? fs.readFileSync(file, "utf8").trim().split("\n") : [];
 
 describe("generate-doc-map-section-a's claim", () => {
 	it("claims §A and never the bare map", () => {
 		const r = run();
 		expect(r.status).toBe(0);
-		expect(logged(claimLog)).toEqual([`${mapPath}#section-a --generator`]);
+		expect(readLog(claimLog)).toEqual([`${mapPath}#section-a --generator`]);
 	});
 
 	it("releases §A once it has written, with the flag that gets past mantahostels#63", () => {
 		// --generator on the release too (mantahostels#2428): the write this run just made is
 		// what makes §A dirty, and a dirty subject is refused without it.
 		expect(run().status).toBe(0);
-		expect(logged(releaseLog)).toEqual([`${mapPath}#section-a --generator`]);
+		expect(readLog(releaseLog)).toEqual([`${mapPath}#section-a --generator`]);
 	});
 
 	it("releases §A when the write itself fails", () => {
@@ -128,7 +128,7 @@ describe("generate-doc-map-section-a's claim", () => {
 		const r = run();
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("cannot write");
-		expect(logged(releaseLog)).toEqual([`${mapPath}#section-a --generator`]);
+		expect(readLog(releaseLog)).toEqual([`${mapPath}#section-a --generator`]);
 	});
 
 	it("releases nothing when the arbiter refused the claim", () => {
@@ -138,20 +138,20 @@ describe("generate-doc-map-section-a's claim", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("could not claim");
-		expect(logged(releaseLog)).toEqual([]);
+		expect(readLog(releaseLog)).toEqual([]);
 	});
 
 	it("takes and releases nothing under --no-claim", () => {
 		expect(run("--no-claim").status).toBe(0);
-		expect(logged(claimLog)).toEqual([]);
-		expect(logged(releaseLog)).toEqual([]);
+		expect(readLog(claimLog)).toEqual([]);
+		expect(readLog(releaseLog)).toEqual([]);
 	});
 
 	it("claims nothing on the paths that write nothing", () => {
 		// --check and the already-matches exit both return before the claim, so a
 		// read-only run locks nobody out.
 		expect(run("--check").status).toBe(1);
-		expect(logged(claimLog)).toEqual([]);
+		expect(readLog(claimLog)).toEqual([]);
 	});
 });
 

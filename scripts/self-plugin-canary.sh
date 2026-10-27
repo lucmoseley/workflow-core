@@ -34,6 +34,7 @@ set -uo pipefail
 here="$(dirname "${BASH_SOURCE[0]}")"
 fault=""
 
+# shellcheck disable=SC2329 # invoked by the EXIT trap below, which shellcheck does not follow
 refuse() {
   local root common main="" setup quote="'" quote_escaped="'\\''"
   # The main checkout, never a worktree: a marketplace registered at a

@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 
 const {
 	isFullRunArgv,
+	isTouchedRun,
 	launchRoute,
 	npmSwallowedRefusal,
 } = require("./launch-route.js");
@@ -63,11 +64,53 @@ describe("`launchRoute`, the one place a launch's route is decided (#1498)", () 
 		},
 	);
 
+	it.each([
+		["", null, "touched shared/shared - diff"],
+		["", "s", "touched overlay/shared - own"],
+		["--shared", "s", "touched shared/shared - diff"],
+		["--isolated", "s", "touched overlay/worktree - own"],
+		["--retest a.test.ts", "s", "named overlay/shared - retest"],
+		["a.test.ts", "s", "named shared/shared - named"],
+		["--changed", "s", "changed overlay/shared - own"],
+		["--full=coverage", "s", "full worktree/worktree - full"],
+	] as const)(
+		"under `landing`, routes `%s` with session %s to %s (#2930)",
+		(argv, sessionId, expected) => {
+			const words = argv ? argv.split(" ") : [];
+			const route = launchRoute(words, sessionId, { landing: true });
+			expect(
+				`${route.kind} ${route.tree}/${route.fallback} ${route.escalation ?? "-"} ${route.source}`,
+			).toBe(expected);
+		},
+	);
+
 	it("reads an empty id as no session, which is what the suite stubs", () => {
 		expect(launchRoute([], "")).toMatchObject({
 			tree: "shared",
 			sessionId: null,
 		});
+	});
+});
+
+describe("`isTouchedRun`, a run that never takes the whole-suite slot (#2935)", () => {
+	const named200 = Array.from({ length: 200 }, (_, i) => `t${i}.test.ts`);
+	it.each([
+		["", true, true],
+		["", false, false],
+		["--retest a.test.ts", false, true],
+		["a.test.ts b.test.ts", false, true],
+		["--isolated a.test.ts", false, true],
+		["--changed", true, false],
+		["--changed a.test.ts", true, false],
+		["--adopt lib/a.js", true, false],
+		["--full=flag", true, false],
+	])("`%s` with landing %s is touched: %s", (argv, landing, touched) => {
+		const words = argv ? argv.split(" ") : [];
+		expect(isTouchedRun(launchRoute(words, "s", { landing }))).toBe(touched);
+	});
+
+	it("reads a 200-file named run as touched", () => {
+		expect(isTouchedRun(launchRoute(named200, null))).toBe(true);
 	});
 });
 

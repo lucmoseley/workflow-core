@@ -48,6 +48,7 @@ const { spawn } = require("node:child_process");
 const { configDirs } = require("./lib/arbiter-store");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
+const { readParentOf } = require("./lib/proc-stat.js");
 
 /** Sampling interval, in ms. Fast enough to resolve a one-second plateau. */
 const SAMPLE_MS = 250;
@@ -88,7 +89,7 @@ function daemonLogs() {
  * A pid's RSS in MB, or null once it is gone.
  * @param {number} pid
  */
-function rssMb(pid) {
+function readRssMb(pid) {
 	try {
 		const statm = fs
 			.readFileSync(`${PROC()}/${pid}/statm`, "utf8")
@@ -109,7 +110,7 @@ function rssMb(pid) {
  * @param {number} pid
  * @returns {number[]}
  */
-function childrenOf(pid) {
+function readChildrenOf(pid) {
 	/** @type {number[]} */
 	const kids = [];
 	let entries;
@@ -120,15 +121,8 @@ function childrenOf(pid) {
 	}
 	for (const e of entries) {
 		if (!/^\d+$/.test(e)) continue;
-		try {
-			/* Field 4 of `stat` is ppid. Read past the last `)` because the comm
-			 * field between the parentheses may itself contain spaces. */
-			const stat = fs.readFileSync(`${PROC()}/${e}/stat`, "utf8");
-			const after = stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/);
-			if (Number(after[1]) === pid) kids.push(Number(e));
-		} catch {
-			/* the process exited between readdir and read */
-		}
+		/* Unread where the process exited between readdir and read. */
+		if (readParentOf(e, PROC()) === pid) kids.push(Number(e));
 	}
 	return kids;
 }
@@ -147,11 +141,11 @@ function childrenOf(pid) {
  * @returns {number | null} null once the host itself is gone
  */
 function pairRssMb(hostPid) {
-	const host = rssMb(hostPid);
+	const host = readRssMb(hostPid);
 	if (host === null) return null;
 	let total = host;
-	for (const kid of childrenOf(hostPid)) {
-		const mb = rssMb(kid);
+	for (const kid of readChildrenOf(hostPid)) {
+		const mb = readRssMb(kid);
 		if (mb !== null) total += mb;
 	}
 	return total;
@@ -168,7 +162,7 @@ const sleep = (/** @type {number} */ ms) =>
  * @param {number} deadline epoch ms to give up at
  */
 async function nextSpawn(deadline) {
-	const offsets = startOffsets();
+	const offsets = readStartOffsets();
 	if (offsets.size === 0) return null;
 	/* The tail of the last read, per log, carried forward: a read ends wherever
 	 * the daemon happened to be writing, so a spawn line can be split across two
@@ -190,7 +184,7 @@ async function nextSpawn(deadline) {
  * 0 where it will not stat.
  * @returns {Map<string, number>}
  */
-function startOffsets() {
+function readStartOffsets() {
 	const offsets = new Map();
 	for (const f of daemonLogs()) {
 		try {
@@ -217,7 +211,7 @@ function startOffsets() {
  * @returns {{ pid: number, at: number, log: string } | null}
  */
 function pollLog(tails, f, from) {
-	const size = currentSize(tails.vanished, f);
+	const size = readCurrentSize(tails.vanished, f);
 	if (size === null) return null;
 	/* Back after a rotation: read it from the start, and let it say so
 	 * again if it goes a second time. */
@@ -244,7 +238,7 @@ function pollLog(tails, f, from) {
  * @param {string} f
  * @returns {number | null}
  */
-function currentSize(vanished, f) {
+function readCurrentSize(vanished, f) {
 	try {
 		return fs.statSync(f).size;
 	} catch {

@@ -31,7 +31,7 @@ const {
 	transcriptFires,
 	transcriptMentions,
 	tally,
-	transcriptFiles,
+	readTranscriptFiles,
 	sessionKeyFor,
 } = require("./guard-fires.js");
 const { mergeHooks } = require("./core-hooks.js");
@@ -220,8 +220,8 @@ describe("registeredGuards", () => {
 					{
 						matcher: "Bash",
 						hooks: [
-							{ command: braced("guard-wide-read.sh"), if: "Bash(*cat *)" },
-							{ command: braced("guard-wide-read.sh"), if: "Bash(*sed *)" },
+							{ command: braced("guard-wide-read.js"), if: "Bash(*cat *)" },
+							{ command: braced("guard-wide-read.js"), if: "Bash(*sed *)" },
 						],
 					},
 				],
@@ -287,7 +287,7 @@ describe("needleIn", () => {
 		).toBe(false);
 	});
 
-	/* #1759: guard-branch-publish.sh's force-push deny reprints guard-pull-form.sh's
+	/* #1759: lib/branch-publish.js's force-push deny reprints guard-pull-form.sh's
 	 * rewind fragment, so pull-form's needle excludes the frame only publish prints. */
 	const needle = {
 		text: "NEVER MOVE `main` BACKWARDS",
@@ -636,7 +636,7 @@ describe("tally", () => {
 	});
 });
 
-describe("transcriptFiles", () => {
+describe("readTranscriptFiles", () => {
 	let dir: string;
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "transcript-files-"));
@@ -652,7 +652,7 @@ describe("transcriptFiles", () => {
 		fs.writeFileSync(path.join(subDir, "agent-a.jsonl"), "{}\n");
 		fs.writeFileSync(path.join(subDir, "agent-b.jsonl"), "{}\n");
 
-		const files = transcriptFiles(dir);
+		const files = readTranscriptFiles(dir);
 		expect(files).toHaveLength(3);
 		expect(
 			files.filter((f: { tier: string }) => f.tier === "main"),
@@ -667,7 +667,7 @@ describe("transcriptFiles", () => {
 		fs.mkdirSync(subDir, { recursive: true });
 		fs.writeFileSync(path.join(subDir, "agent-a.jsonl"), "{}\n");
 
-		const files = transcriptFiles(subDir);
+		const files = readTranscriptFiles(subDir);
 		expect(files).toEqual([
 			{ file: path.join(subDir, "agent-a.jsonl"), tier: "subagent" },
 		]);
@@ -676,7 +676,7 @@ describe("transcriptFiles", () => {
 	it("skips a session with no subagents/ directory silently — the ordinary case", () => {
 		fs.writeFileSync(path.join(dir, "s1.jsonl"), "{}\n");
 		fs.mkdirSync(path.join(dir, "s1"));
-		expect(transcriptFiles(dir)).toEqual([
+		expect(readTranscriptFiles(dir)).toEqual([
 			{ file: path.join(dir, "s1.jsonl"), tier: "main" },
 		]);
 	});
@@ -687,7 +687,7 @@ describe("transcriptFiles", () => {
 		fs.mkdirSync(subDir, { recursive: true });
 		fs.chmodSync(subDir, 0o000);
 		try {
-			const files = transcriptFiles(dir);
+			const files = readTranscriptFiles(dir);
 			// EISDIR/EACCES surfaces as an entry pointing at the directory itself,
 			// which every caller's own readFileSync attempt reports as unreadable
 			// rather than silently dropping that session's whole subagent tier.

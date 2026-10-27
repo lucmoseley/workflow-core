@@ -103,12 +103,12 @@ function dryRun(fake: { refresh?: string[]; abort?: boolean } = {}) {
 	});
 }
 
-const probes = () =>
+const readProbes = () =>
 	fs.existsSync(probeLog)
 		? fs.readFileSync(probeLog, "utf8").trim().split("\n")
 		: [];
 
-const probeLine = (seat: string) =>
+const buildProbeLine = (seat: string) =>
 	`${process.execPath} ${PROBE_CLI} --config-dir ${seat} |/|${seat}|-p /usage --permission-mode manual|/dev/null`;
 
 describe("the refill loop's stale-seat read (#2317)", () => {
@@ -116,7 +116,10 @@ describe("the refill loop's stale-seat read (#2317)", () => {
 		cacheAll(1);
 		const r = await dryRun({ refresh: [seats[0]] });
 		expect(r.status).toBe(0);
-		expect(probes()).toEqual([probeLine(seats[0]), probeLine(seats[1])]);
+		expect(readProbes()).toEqual([
+			buildProbeLine(seats[0]),
+			buildProbeLine(seats[1]),
+		]);
 		expect(fs.existsSync(ghLog)).toBe(false);
 	});
 
@@ -124,7 +127,7 @@ describe("the refill loop's stale-seat read (#2317)", () => {
 		cacheAll(1);
 		const r = await dryRun();
 		expect(r.status).toBe(0);
-		expect(probes()).toEqual([probeLine(seats[0])]);
+		expect(readProbes()).toEqual([buildProbeLine(seats[0])]);
 		expect(r.stdout).not.toContain("/usage on");
 	});
 
@@ -139,7 +142,7 @@ describe("the refill loop's stale-seat read (#2317)", () => {
 		cacheAll(Date.now());
 		const r = await dryRun();
 		expect(r.status).toBe(0);
-		expect(probes()).toEqual([]);
+		expect(readProbes()).toEqual([]);
 		expect(r.stdout).toContain("dry run: ");
 	});
 });

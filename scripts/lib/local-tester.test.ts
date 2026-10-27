@@ -17,8 +17,12 @@ import {
 	remoteGit,
 	runLander,
 } from "./lander.js";
-import { liveLanders, localTester, suiteSlot } from "./local-tester.js";
+import { localTester, readLiveLanders, suiteSlot } from "./local-tester.js";
 import { pidLock } from "./pid-lock.js";
+import { queueJoin, queueTurn } from "./suite-queue.js";
+
+/** A part-suite's carried weight (#2931). */
+const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
 
 let tmp: string;
 let work: string;
@@ -317,14 +321,14 @@ it("admits only with the gate open, its turn come and the memory there", async (
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 	});
 	expect(slot.ok).toBe(true);
-	const markers = () =>
+	const readMarkers = () =>
 		fs.readdirSync(tmp).filter((f) => f.startsWith("wfc-suite-queue-"));
-	expect(markers()).toHaveLength(1);
+	expect(readMarkers()).toHaveLength(1);
 	if (slot.ok) slot.release();
-	expect(markers()).toEqual([]);
+	expect(readMarkers()).toEqual([]);
 });
 
-it("refuses at the ceiling on the limb the guard named, never running anyway (#2542)", async () => {
+it("refuses at the ceiling on the limb the guard named, never running anyway (#2542, #2714)", async () => {
 	const slotAndStderr = async (
 		denial: { limb: "count" } | { limb: "memory"; mb: number; rungMb: number },
 	) => {
@@ -353,12 +357,89 @@ it("refuses at the ceiling on the limb the guard named, never running anyway (#2
 	expect(count.slot.ok).toBe(false);
 	expect(count.text).not.toMatch(/running anyway/);
 	expect(count.text).toMatch(
-		/lander: gate still denies on its count cap after \d+s — refused, not run/,
+		/lander: gate still denies on its count cap after \d+s, the queue's \d+-minute wait bound — refused, not run/,
 	);
 
 	const memory = await slotAndStderr({ limb: "memory", mb: 900, rungMb: 3250 });
 	expect(memory.slot.ok).toBe(false);
 	expect(memory.text).toMatch(/lander: gate still denies on memory/);
+});
+
+it("stamps its slot admitted, so no waiter's turn comes until its suite spawns (#2650)", async () => {
+	const slot = await suiteSlot({
+		gate: () => null,
+		queueDir: tmp,
+		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
+	});
+	expect(slot.ok).toBe(true);
+	/* Past Linux's pid_max, so never a live process. A part-suite's turn
+	 * ignores whole suites ahead, so only the lander's stamp can hold it. */
+	const rival = 2_000_000_000;
+	queueJoin({ queueDir: tmp, pid: rival, weight: PART_WEIGHT });
+	const rivalTurn = () =>
+		queueTurn({ queueDir: tmp, pid: rival, alive: () => true });
+	expect(rivalTurn()).toBe(false);
+	if (slot.ok) slot.spawned();
+	expect(rivalTurn()).toBe(true);
+	if (slot.ok) slot.release();
+});
+
+it("yields to a waiter whose turn came true on the same poll, launching only once it spawns (#2650)", async () => {
+	const rival = path.join(tmp, `wfc-suite-queue-${process.ppid}.json`);
+	const stamp = (fields: object) =>
+		fs.writeFileSync(
+			rival,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(rival, "utf8")),
+				...fields,
+			}),
+		);
+	const readdir = fs.readdirSync;
+	let reads = 0;
+	/* Read 1 is the lander's turn, read 2 its admission's re-read: the rival
+	 * joins behind before the first and stamps admitted before the second. */
+	const spy = vi.spyOn(fs, "readdirSync").mockImplementation(((
+		dir: fs.PathLike,
+		...rest: unknown[]
+	) => {
+		if (dir === tmp) {
+			reads += 1;
+			if (reads === 1)
+				queueJoin({
+					queueDir: tmp,
+					pid: process.ppid,
+					weight: PART_WEIGHT,
+					clock: () => Date.now() + 1,
+				});
+			if (reads === 2) {
+				stamp({ admitted: true });
+				setTimeout(() => stamp({ spawned: true }), 50);
+			}
+		}
+		return (readdir as (...a: unknown[]) => unknown)(dir, ...rest);
+	}) as typeof fs.readdirSync);
+	const lines: string[] = [];
+	const stderr = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation((s: string | Uint8Array) => {
+			lines.push(String(s));
+			return true;
+		});
+	try {
+		const slot = await suiteSlot({
+			gate: () => null,
+			queueDir: tmp,
+			pollMs: 10,
+			memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
+		});
+		expect(slot.ok).toBe(true);
+		expect(JSON.parse(fs.readFileSync(rival, "utf8")).spawned).toBe(true);
+		expect(lines.join("")).toMatch(/lander: another launch was admitted/);
+		if (slot.ok) slot.release();
+	} finally {
+		spy.mockRestore();
+		stderr.mockRestore();
+	}
 });
 
 it("shows session admission the held slot as a lander (#2416)", async () => {
@@ -367,12 +448,12 @@ it("shows session admission the held slot as a lander (#2416)", async () => {
 		queueDir: tmp,
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 	});
-	expect(liveLanders({ queueDir: tmp })).toEqual({
+	expect(readLiveLanders({ queueDir: tmp })).toEqual({
 		pids: [process.pid],
 		slotMb: 2950,
 	});
 	if (slot.ok) slot.release();
-	expect(liveLanders({ queueDir: tmp }).pids).toEqual([]);
+	expect(readLiveLanders({ queueDir: tmp }).pids).toEqual([]);
 });
 
 it("names the failing files vitest and pytest print", async () => {
@@ -442,6 +523,155 @@ it("names only failing files the tree holds, a test's printed fixture output nam
 	});
 });
 
+/* A runner taking vitest's `--shard=k/n`: the kth of every n `*.check.js`
+ * files by name, each run's files logged to `shards.log`; with no shard, all
+ * of them. */
+const SHARDED_RUNNER = `const fs = require("node:fs");
+const { execFileSync } = require("node:child_process");
+const flag = process.argv.find((a) => a.startsWith("--shard="));
+const [k, n] = flag ? flag.slice(8).split("/").map(Number) : [1, 1];
+const files = fs.readdirSync(".").filter((f) => f.endsWith(".check.js")).sort().filter((_, i) => i % n === k - 1);
+fs.appendFileSync("../shards.log", (flag ?? "whole") + " " + files.join(",") + "\\n");
+let red = false;
+for (const f of files) {
+	try { execFileSync("node", [f], { stdio: "ignore" }); }
+	catch { red = true; console.log(" FAIL  " + f + " > it fails"); }
+}
+process.exit(red ? 1 : 0);
+`;
+
+it("splits the whole run into fullTestShards shards, each in a slot of its own, red where either is (#2996)", async () => {
+	write("shard.js", SHARDED_RUNNER);
+	write("b.check.js", "throw new Error('red');");
+	config({
+		commands: { test: "node shard.js" },
+		fullTestShards: 2,
+	});
+	const sharded = commit("sharded");
+	const { log, admit } = admitted();
+	const tester = localTester({ root: work, admit, exec: recordingExec().exec });
+
+	expect(await tester.verdict(sharded)).toEqual({
+		kind: "red",
+		files: ["b.check.js"],
+	});
+	expect(log).toEqual([
+		"hold",
+		"spawned",
+		"release",
+		"hold",
+		"spawned",
+		"release",
+	]);
+	const shardsLog = path.join(work, ".claude", "worktrees", "shards.log");
+	expect(fs.readFileSync(shardsLog, "utf8")).toBe(
+		"--shard=1/2 a.check.js\n--shard=2/2 b.check.js\n",
+	);
+
+	fs.rmSync(shardsLog);
+	expect(await tester.verdict(sharded, ["b.check.js"])).toMatchObject({
+		kind: "red",
+	});
+	expect(fs.readFileSync(shardsLog, "utf8")).toBe(
+		"whole a.check.js,b.check.js\n",
+	);
+});
+
+it("runs the Python suite after the last shard alone, where Python is routed (#2996)", async () => {
+	write("shard.js", SHARDED_RUNNER);
+	const pytest = path.join(tmp, "fake-pytest.js");
+	fs.writeFileSync(
+		pytest,
+		`require("node:fs").appendFileSync("../shards.log", "python\\n");`,
+	);
+	config({
+		commands: { test: "node shard.js" },
+		fullTestShards: 2,
+		pythonRoutes: { "**/test_*.py": "test", "**/*.py": "program" },
+	});
+	const routed = commit("sharded python");
+
+	expect(
+		await localTester({
+			root: work,
+			admit: admitted().admit,
+			exec: recordingExec().exec,
+			pytest,
+		}).verdict(routed),
+	).toEqual({ kind: "green" });
+	expect(
+		fs.readFileSync(
+			path.join(work, ".claude", "worktrees", "shards.log"),
+			"utf8",
+		),
+	).toBe("--shard=1/2 a.check.js\n--shard=2/2 \npython\n");
+});
+
+it("names an earlier shard's failing files where a later one reaches no verdict, never calling it red (#2996)", async () => {
+	write(
+		"halves.js",
+		`if (process.argv.includes("--shard=1/2")) { console.log(" FAIL  a.check.js > it fails"); process.exit(1); }
+console.error("SUITE CEILING — killed 840s after vitest spawned"); process.exit(1);`,
+	);
+	config({ commands: { test: "node halves.js" }, fullTestShards: 2 });
+	const halves = commit("red then killed");
+
+	expect(
+		await localTester({
+			root: work,
+			admit: admitted().admit,
+			exec: recordingExec().exec,
+		}).verdict(halves),
+	).toEqual({
+		kind: "unknown",
+		reason:
+			"node halves.js --shard=2/2 exited 1 killed: SUITE CEILING — killed 840s after vitest spawned, after a.check.js failed",
+	});
+});
+
+it("names the shard that reached no verdict, and runs no later shard (#2996)", async () => {
+	write(
+		"ceiling.js",
+		`console.error("SUITE CEILING — killed 840s after vitest spawned"); process.exit(1);`,
+	);
+	config({ commands: { test: "node ceiling.js" }, fullTestShards: 2 });
+	const killed = commit("killed shard");
+	const { log, admit } = admitted();
+
+	expect(
+		await localTester({
+			root: work,
+			admit,
+			exec: recordingExec().exec,
+		}).verdict(killed),
+	).toEqual({
+		kind: "unknown",
+		reason:
+			"node ceiling.js --shard=1/2 exited 1 killed: SUITE CEILING — killed 840s after vitest spawned",
+	});
+	expect(log.filter((l) => l === "hold")).toHaveLength(1);
+});
+
+it("names the suite ceiling as no verdict, never red, where the ceiling killed the run (#2696)", async () => {
+	write(
+		"ceiling.js",
+		`console.error("SUITE CEILING — killed 840s after vitest spawned"); process.exit(1);`,
+	);
+	config({ commands: { test: "node ceiling.js" } });
+	const killed = commit("killed");
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+	});
+
+	expect(await tester.verdict(killed)).toEqual({
+		kind: "unknown",
+		reason:
+			"node ceiling.js exited 1 killed: SUITE CEILING — killed 840s after vitest spawned",
+	});
+});
+
 it("reruns only the named files, sending a Python one to pytest only where Python is routed", async () => {
 	const pytest = path.join(tmp, "fake-pytest.js");
 	const ran = path.join(tmp, "pytest-args");
@@ -499,6 +729,7 @@ it("lands a green fixture batch on main, plugged into the lander", async () => {
 			exec: recordingExec().exec,
 		}),
 		ledger: fileLedger(files.ledger),
+		noVerdict: fileLedger(files.noVerdict),
 		lock: pidLock(files.pid, "local-tester.test.ts"),
 		beat: heartbeatWriter(files.heartbeat),
 	};

@@ -30,7 +30,7 @@
  *
  * So the proposed set is a CANDIDATE, never a verdict: the skill still admits by
  * default and removes only on a named disqualifier. NOTHING IS EVER REFUSED ON
- * IT — `scripts/guard-file-claim.sh` stays the only enforcement tier.
+ * IT — `scripts/lib/file-claim.js` stays the only enforcement tier.
  */
 
 const { isListedLive } = require("./agent-liveness.js");
@@ -38,7 +38,7 @@ const arbiter = require("./arbiter-store");
 
 /**
  * A candidate row as `writeSetsFor` builds it, and the held-file rows
- * `heldFiles` answers with. `sizeBand` is free text off the band read, so it stays
+ * `readHeldFiles` answers with. `sizeBand` is free text off the band read, so it stays
  * a string here and is normalised where it is compared.
  *
  * @typedef {{number: number, writeSet: string[], source: string,
@@ -139,7 +139,7 @@ function writeSetsFor(frontier, warm) {
  *   closed-issue check below is skipped.
  * @returns {Held}
  */
-function heldFiles(listed, openIssues) {
+function readHeldFiles(listed, openIssues) {
 	// No try/catch: readLocks() catches its own errors and answers `null` for a
 	// store it could not read at all, so a throw here would be unreachable and
 	// its handler untestable.
@@ -301,7 +301,7 @@ function joinWhy(liveWhy, claimsWhy) {
 
 /**
  * The graph itself. `candidates` is writeSetsFor()'s output, in ranking order;
- * `held` is heldFiles()'s.
+ * `held` is readHeldFiles()'s.
  *
  * Pure: it reads no store, no clock and no machine.
  *
@@ -612,4 +612,4 @@ function countByFile(conflicts) {
 		.sort((a, b) => b.pairs - a.pairs || a.path.localeCompare(b.path));
 }
 
-module.exports = { STAMP_PATHS, writeSetsFor, heldFiles, buildGraph };
+module.exports = { STAMP_PATHS, writeSetsFor, readHeldFiles, buildGraph };

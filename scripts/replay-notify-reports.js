@@ -83,7 +83,7 @@ const { runCheck } = require("./lib/check");
 const notify = require("./lib/notify-report.js");
 const { delivered, recordDelivery } = require("./lib/delivery-stamp.js");
 const {
-	sessionStartRoster: rosterOf,
+	readSessionStartRoster: rosterOf,
 	hasReadableHooks,
 	KEY_OVERRIDES,
 } = require("./lib/session-start-roster.js");
@@ -122,10 +122,10 @@ const repoRoot = () => hostRoot();
  * `hookPaths`, so the hot synchronous reader path does not inherit that
  * file's dependency tree, and an exec-form entry's `args` is read the one way
  * every JS reader now reads it, through `lib/rule-emission.js`'s shared
- * `hookCommandLine`/`WIRED_SCRIPT_RE`.
+ * `buildHookCommandLine`/`WIRED_SCRIPT_RE`.
  * @returns {Array<{ key: string, script: string }>}
  */
-function sessionStartRoster() {
+function readSessionStartRoster() {
 	return rosterOf(repoRoot(), { keyOverrides: KEY_OVERRIDES, self: SELF });
 }
 
@@ -376,7 +376,7 @@ const digestOf = (text) =>
  * is the one person who does not need telling.
  *
  * THE GATE FAILS OPEN, NEVER SILENT. A hooks file that is absent at the
- * core or half-written anywhere comes back from `sessionStartRoster()` as an
+ * core or half-written anywhere comes back from `readSessionStartRoster()` as an
  * empty roster, indistinguishable from a repo that wires no persisting
  * producer at all — and read as fact it would mark every producer
  * unwired and suppress every fault for that start. So `rosterKnown`
@@ -388,7 +388,7 @@ const digestOf = (text) =>
  */
 function readGate() {
 	const rosterKnown = hasReadableHooks(repoRoot());
-	const roster = sessionStartRoster();
+	const roster = readSessionStartRoster();
 	const wired = new Set(roster.map((r) => r.key));
 	/**
 	 * True where this key is one a fault may be raised about.

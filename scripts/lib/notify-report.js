@@ -24,9 +24,9 @@ const { configDir } = require("./config-dir.js");
 // fallback spies on this live property.
 const store = require("./arbiter-store.js");
 const {
-	currentBootId,
+	readCurrentBootId,
 	holderAlive,
-	procStartOf,
+	readProcStartOf,
 } = require("./arbiter-proc.js");
 const { hostRoot } = require("./host-root.js");
 const { projectSlug } = require("./project-slug.js");
@@ -289,8 +289,8 @@ function openRun(checker) {
 		checker,
 		startedAt: new Date().toISOString(),
 		pid,
-		procStart: procStartOf(pid),
-		bootId: currentBootId(),
+		procStart: readProcStartOf(pid),
+		bootId: readCurrentBootId(),
 	});
 }
 

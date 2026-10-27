@@ -38,7 +38,7 @@ afterAll(() => {
 });
 
 /** The guard's refusal reason for one command, or "" where it allows; a null config dir runs it with none set. */
-const reasonFor = (
+const readReasonFor = (
 	command: string,
 	configDir: string | null = "/home/u/.claude3",
 ): string => {
@@ -60,7 +60,7 @@ const reasonFor = (
 
 /** The guard's verdict on one command: which refusal, or `allow`. */
 const verdict = (command: string) => {
-	const reason = reasonFor(command);
+	const reason = readReasonFor(command);
 	if (!reason) return "allow";
 	if (reason.startsWith("chrome.exe without --profile-directory"))
 		return "chrome";
@@ -223,7 +223,7 @@ describe("openers hidden from the first scan are refused (#1547 review)", () => 
 
 describe("each refusal names its fix", () => {
 	it("a bare chrome.exe is told to pass --profile-directory, and which", () => {
-		const reason = reasonFor("chrome.exe https://x");
+		const reason = readReasonFor("chrome.exe https://x");
 		expect(reason).toContain("without --profile-directory");
 		expect(reason).toContain('--profile-directory="Profile 1" "<url>"');
 	});
@@ -235,12 +235,12 @@ describe("each refusal names its fix", () => {
 		["/home/u/.claude", '--profile-directory="Default" "<url>"'],
 		[null, '--profile-directory="Default" "<url>"'],
 	])("a session under %s is told its own profile", (configDir, command) => {
-		expect(reasonFor("xdg-open https://x", configDir)).toContain(command);
+		expect(readReasonFor("xdg-open https://x", configDir)).toContain(command);
 	});
 
 	// #1986: Default is the profile every refusal warns against.
 	it("a session under an unknown config dir is given the map, not a profile", () => {
-		const reason = reasonFor("xdg-open https://x", "/home/u/.other");
+		const reason = readReasonFor("xdg-open https://x", "/home/u/.other");
 		expect(reason).not.toContain("--profile-directory=");
 		expect(reason).toContain(
 			'the travel account, 3rd in the picker (directory "Profile 1"',
@@ -250,7 +250,7 @@ describe("each refusal names its fix", () => {
 	it.each(["chrome.exe https://x", "xdg-open https://x", "npm login"])(
 		"names the inactive subscription one way throughout: %s (#1986)",
 		(command) => {
-			const reason = reasonFor(command);
+			const reason = readReasonFor(command);
 			expect(reason).toContain("the inactive subscription");
 			expect(reason).not.toContain("inactive account");
 		},
@@ -259,20 +259,20 @@ describe("each refusal names its fix", () => {
 	it.each(["chrome.exe https://x", "xdg-open https://x", "npm login"])(
 		"names no account's address: %s (#1962)",
 		(command) => {
-			const reason = reasonFor(command);
+			const reason = readReasonFor(command);
 			expect(reason).not.toBe("");
 			expect(reason).not.toMatch(/@/);
 		},
 	);
 
 	it("a default-browser opener is told the chrome.exe command", () => {
-		expect(reasonFor("xdg-open https://x")).toContain(
+		expect(readReasonFor("xdg-open https://x")).toContain(
 			'Open it with: "/mnt/c/Program Files/Google/Chrome/Application/chrome.exe" --profile-directory',
 		);
 	});
 
 	it("a login tool is told the opener-disabling prefix", () => {
-		expect(reasonFor("npm login")).toContain(OPENER_OFF);
+		expect(readReasonFor("npm login")).toContain(OPENER_OFF);
 	});
 });
 

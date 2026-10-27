@@ -50,7 +50,7 @@ const dryRunAdopter = (adopter: string, env: NodeJS.ProcessEnv = {}) => {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
 	});
 };
-const migrationNote = (verify: string, residue = "{}") =>
+const buildMigrationNote = (verify: string, residue = "{}") =>
 	[
 		"# v2.0.0",
 		"",
@@ -327,7 +327,7 @@ describe("release-plugin", () => {
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
-				migrationNote('echo "$CLAUDE_CONFIG_DIR" > note-config-dir.txt'),
+				buildMigrationNote('echo "$CLAUDE_CONFIG_DIR" > note-config-dir.txt'),
 			);
 			git("add", "--all");
 			git("commit", "-qm", "capture CLAUDE_CONFIG_DIR at verify time");
@@ -401,7 +401,7 @@ describe("release-plugin", () => {
 		manifests("2.0.0", "v2.0.0");
 		write(
 			"migrations/v2.0.0.md",
-			migrationNote("true").replace(
+			buildMigrationNote("true").replace(
 				"- [notice] none",
 				"- [ ] undo the thing by hand",
 			),
@@ -417,7 +417,7 @@ describe("release-plugin", () => {
 	it("refuses where a required note's Verify fails, naming the version and tagging nothing, and passes a note through when it succeeds", () => {
 		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
 		manifests("2.0.0", "v2.0.0");
-		write("migrations/v2.0.0.md", migrationNote("exit 1"));
+		write("migrations/v2.0.0.md", buildMigrationNote("exit 1"));
 		git("add", "--all");
 		git("commit", "-qm", "bump with a note whose Verify fails");
 		const failing = run();
@@ -544,7 +544,7 @@ describe("release-plugin", () => {
 	it("leaves the adopter's own tree byte-identical (#291)", () => {
 		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
 		manifests("2.0.0", "v2.0.0");
-		write("migrations/v2.0.0.md", migrationNote("true"));
+		write("migrations/v2.0.0.md", buildMigrationNote("true"));
 		write(
 			".husky/pre-commit",
 			"#!/bin/sh\nWFC_PLUGIN_ROOT=stale\nexport WFC_PLUGIN_ROOT\nexit 0\n",
@@ -567,7 +567,7 @@ describe("release-plugin", () => {
 			);
 			fs.chmodSync(path.join(adopter, ".husky/pre-commit"), 0o755);
 
-			const snapshot = () =>
+			const readSnapshot = () =>
 				fs
 					.readdirSync(adopter, { recursive: true, withFileTypes: true })
 					.filter((e) => e.isFile())
@@ -577,14 +577,14 @@ describe("release-plugin", () => {
 						rel,
 						fs.readFileSync(path.join(adopter, rel), "utf8"),
 					]);
-			const before = snapshot();
+			const before = readSnapshot();
 
 			const r = dryRunAdopter(adopter);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(`adopter walk: passed against ${adopter}`);
 			expect(r.stdout).toContain("rewrote .husky/pre-commit");
 
-			expect(snapshot()).toEqual(before);
+			expect(readSnapshot()).toEqual(before);
 		} finally {
 			fs.rmSync(tmp, { recursive: true, force: true });
 		}
@@ -602,7 +602,7 @@ describe("release-plugin", () => {
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
-				migrationNote(
+				buildMigrationNote(
 					`node -e 'require("node:fs").appendFileSync(${JSON.stringify(
 						log,
 					)}, process.cwd() + "\\n")'`,
@@ -637,7 +637,10 @@ describe("release-plugin", () => {
 		/* Not a path the core's own `.gitignore` block names: every run writes
 		 * that block into the copy (#1501), which would ignore it either way. */
 		write(".gitignore", "notes/\n");
-		write("migrations/v2.0.0.md", migrationNote("git check-ignore -q notes/x"));
+		write(
+			"migrations/v2.0.0.md",
+			buildMigrationNote("git check-ignore -q notes/x"),
+		);
 		git("add", "--all");
 		git("commit", "-qm", "bump to v2.0.0 with a git-calling Verify");
 
@@ -669,7 +672,7 @@ describe("release-plugin", () => {
 	it("follows an adopter's symlinks into the copy, not back out (#296)", () => {
 		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
 		manifests("2.0.0", "v2.0.0");
-		write("migrations/v2.0.0.md", migrationNote("true"));
+		write("migrations/v2.0.0.md", buildMigrationNote("true"));
 		write(
 			".husky/pre-commit",
 			"#!/bin/sh\nWFC_PLUGIN_ROOT=stale\nexport WFC_PLUGIN_ROOT\nexit 0\n",
@@ -727,7 +730,10 @@ describe("release-plugin", () => {
 		try {
 			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
 			manifests("2.0.0", "v2.0.0");
-			write("migrations/v2.0.0.md", migrationNote("true", '{"labels": true}'));
+			write(
+				"migrations/v2.0.0.md",
+				buildMigrationNote("true", '{"labels": true}'),
+			);
 			git("add", "--all");
 			git("commit", "-qm", "bump to v2.0.0 with label residue");
 
@@ -762,7 +768,7 @@ describe("release-plugin", () => {
 			 * against the adopter copy, which does not. */
 			write(
 				"migrations/v2.0.0.md",
-				migrationNote(
+				buildMigrationNote(
 					"test -f package.json || { echo no package.json here; exit 1; }",
 				),
 			);

@@ -11,7 +11,7 @@
  * process-level facts.
  *
  * Every session's guarded write reaches session-arbiter.js through the
- * `PreToolUse` guard-file-claim.sh, and its claim-all, wait and park are the
+ * `PreToolUse` core lib/file-claim.js, and its claim-all, wait and park are the
  * moves a blocked session is told to make: loosen a case and two sessions can
  * wait on each other unnamed until their ceilings, or a park can throw away a
  * neighbour's edit.
@@ -40,7 +40,7 @@ const cli = (args: string[], env: Record<string, string> = {}) =>
 		env: { ...process.env, ...env },
 	});
 
-const out = (args: string[]) =>
+const readListing = (args: string[]) =>
 	execFileSync(process.execPath, [SCRIPT, ...args], {
 		encoding: "utf8",
 		cwd: sb.repo,
@@ -50,7 +50,7 @@ const out = (args: string[]) =>
 const inRepo = (rel: string) => path.join(sb.repo, rel);
 
 /** Every subject currently locked, by the path the lock names. */
-const heldPaths = () =>
+const readHeldPaths = () =>
 	(store.readLocks() ?? [])
 		.filter((l: { unreadable?: boolean }) => !l.unreadable)
 		.map((l: { path: string }) => l.path)
@@ -70,7 +70,7 @@ describe("claim-all: the whole set, or nothing (mantahostels#1406)", () => {
 			CLAUDE_CODE_SESSION_ID: "mine",
 		});
 		expect(r.status).toBe(0);
-		expect(heldPaths()).toEqual(["docs/a.md", "docs/b.md"]);
+		expect(readHeldPaths()).toEqual(["docs/a.md", "docs/b.md"]);
 	});
 
 	it("holds NOTHING when any one subject is refused, saying how many it put back", () => {
@@ -82,7 +82,7 @@ describe("claim-all: the whole set, or nothing (mantahostels#1406)", () => {
 		expect(r.status).toBe(1);
 		// docs/a.md was taken by this call and put back. The neighbour's lock is
 		// the only one left.
-		expect(heldPaths()).toEqual(["docs/b.md"]);
+		expect(readHeldPaths()).toEqual(["docs/b.md"]);
 		expect(r.stderr).toContain("the set was NOT taken");
 		// The count is what the reader acts on, and it counts actual drops rather
 		// than attempts: dropIfUnchanged also answers kept and contended.
@@ -101,7 +101,7 @@ describe("claim-all: the whole set, or nothing (mantahostels#1406)", () => {
 		});
 		expect(r.status).toBe(1);
 		// Dropping the reentrant one would silently free a region mid-edit.
-		expect(heldPaths()).toContain("docs/a.md");
+		expect(readHeldPaths()).toContain("docs/a.md");
 	});
 
 	it("refuses a misspelt region before taking any lock at all, naming the region", () => {
@@ -116,7 +116,7 @@ describe("claim-all: the whole set, or nothing (mantahostels#1406)", () => {
 			{ CLAUDE_CODE_SESSION_ID: "mine" },
 		);
 		expect(r.status).toBe(2);
-		expect(heldPaths()).toEqual([]);
+		expect(readHeldPaths()).toEqual([]);
 		// The refusal has to name the offending region and the way out, or the
 		// caller retries a spelling that can never work.
 		expect(r.stderr).toContain("not-a-region");
@@ -136,7 +136,7 @@ describe("claim-all: the whole set, or nothing (mantahostels#1406)", () => {
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("nothing had been taken yet");
-		expect(heldPaths()).toEqual(["docs/a.md"]);
+		expect(readHeldPaths()).toEqual(["docs/a.md"]);
 	});
 });
 
@@ -204,7 +204,7 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 
 	it("names a two-session cycle as a deadlock, once", () => {
 		buildCycle();
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).toContain("DEADLOCK  2 session(s)");
 		// One report per ring, whichever member the walk entered it from.
 		expect(listing.match(/DEADLOCK/g)).toHaveLength(1);
@@ -223,13 +223,13 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 			f,
 			JSON.stringify({ ...rec, pid: 999_999, procStart: "1" }),
 		);
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).toContain("DEADLOCK  2 session(s)");
 	});
 
 	it("tells the reader which act breaks it", () => {
 		buildCycle();
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).toContain("holds a DIRTY file commits it");
 		expect(listing).toContain("claim-all");
 	});
@@ -238,7 +238,7 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 		neighbourHolds("neighbour", "docs/a.md");
 		live(sb, "mine");
 		cli(["claim", inRepo("docs/a.md")], { CLAUDE_CODE_SESSION_ID: "mine" });
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		// The holder is not itself waiting, so this wait ends on its own.
 		expect(listing).toContain("WAITING");
 		expect(listing).not.toContain("DEADLOCK");
@@ -247,7 +247,7 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 	it("says nothing at all when nobody is waiting", () => {
 		live(sb, "mine");
 		cli(["claim", inRepo("docs/a.md")], { CLAUDE_CODE_SESSION_ID: "mine" });
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).not.toContain("WAITING");
 		expect(listing).not.toContain("DEADLOCK");
 	});
@@ -273,15 +273,15 @@ describe("the cycle report under list (mantahostels#1195)", () => {
 				CLAUDE_CODE_SESSION_ID: "sess-b",
 			}).status,
 		).toBe(1);
-		expect(out(["list"])).toContain("DEADLOCK  2 session(s)");
+		expect(readListing(["list"])).toContain("DEADLOCK  2 session(s)");
 	});
 
 	it("reports the cycle without releasing anything", () => {
 		buildCycle();
-		out(["list"]);
+		readListing(["list"]);
 		// Diagnosis only: a report that dropped a lock would be a force-release
 		// nobody asked for.
-		expect(heldPaths()).toEqual(["docs/a.md", "docs/b.md"]);
+		expect(readHeldPaths()).toEqual(["docs/a.md", "docs/b.md"]);
 	});
 });
 
@@ -317,7 +317,7 @@ describe("release --park: the way out of a wait nothing else can end (mantahoste
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("uncommitted change");
-		expect(heldPaths()).toEqual(["docs/a.md"]);
+		expect(readHeldPaths()).toEqual(["docs/a.md"]);
 	});
 
 	it("sets the edit aside, restores HEAD and lets the release through", () => {
@@ -328,7 +328,7 @@ describe("release --park: the way out of a wait nothing else can end (mantahoste
 		});
 		expect(r.status).toBe(0);
 		expect(fs.readFileSync(inRepo("docs/a.md"), "utf8")).toBe("committed\n");
-		expect(heldPaths()).toEqual([]);
+		expect(readHeldPaths()).toEqual([]);
 		// The unfinished edit survives, outside the working tree, with the command
 		// to get it back printed beside it.
 		const parked = r.stdout.match(/Your version:\s+(\S+)/)?.[1] as string;
@@ -364,7 +364,7 @@ describe("release --park: the way out of a wait nothing else can end (mantahoste
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("their uncommitted work");
 		expect(fs.readFileSync(inRepo("docs/a.md"), "utf8")).toBe("unfinished\n");
-		expect(heldPaths()).toContain("docs/a.md");
+		expect(readHeldPaths()).toContain("docs/a.md");
 	});
 
 	it("refuses to park a file this session does not hold, leaving the file as it was", () => {
@@ -412,12 +412,12 @@ describe("release --park on a file with nothing to park", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.stdout).not.toContain("Parked");
-		expect(heldPaths()).toEqual([]);
+		expect(readHeldPaths()).toEqual([]);
 	});
 });
 
 describe("the register is fed by the path that actually fires (mantahostels#1195)", () => {
-	/** The PreToolUse hook route: guard-file-claim.sh runs `check`, never `claim`. */
+	/** The PreToolUse hook route: lib/file-claim.js runs `check`, never `claim`. */
 	const check = (sessionId: string, rel: string) =>
 		cli(["check", inRepo(rel), sessionId], {
 			CLAUDE_CODE_SESSION_ID: sessionId,
@@ -597,8 +597,8 @@ describe("park sees a tool-route neighbour that took no claim (mantahostels#2333
 	 *
 	 * `record` is called directly rather than through `check`, because `check`
 	 * claims on the watched union and a claim is what this window does not have.
-	 * The real windows that reach here are guard-file-claim.sh's fail-opens — no
-	 * node, an arbiter timeout, a non-zero exit — acquire()'s `unknown` on an
+	 * The real windows that reach here are lib/file-claim.js's fail-opens — an
+	 * arbiter timeout, a non-zero exit — acquire()'s `unknown` on an
 	 * unreadable store, and a lock swept as stale under a live session.
 	 *
 	 * With no `name`, the neighbour is registered without a session title.
@@ -644,7 +644,7 @@ describe("park sees a tool-route neighbour that took no claim (mantahostels#2333
 		expect(fs.readFileSync(inRepo("scripts/a.sh"), "utf8")).toBe(
 			"unfinished\n",
 		);
-		expect(heldPaths()).toContain("scripts/a.sh");
+		expect(readHeldPaths()).toContain("scripts/a.sh");
 	});
 
 	it("parks a file this session holds its OWN observation on", () => {
@@ -889,7 +889,7 @@ describe("a claim holder blocks a park until the file accounts for them (mantaho
 
 	/**
 	 * The PostToolUse refresh that follows this session's own Bash-route write:
-	 * `scripts/refresh-claims.sh` is a `PostToolUse` hook on Bash, so the write
+	 * the refresh-claims core is a `PostToolUse` hook on Bash, so the write
 	 * and its re-pin are one tool call and park is a later one (mantahostels#2421). Without
 	 * it the fixture models a write no hook ever saw, and mantahostels#2421's backstop reads
 	 * this session's own edit as a neighbour's.
@@ -996,7 +996,7 @@ describe("a claim holder blocks a park until the file accounts for them (mantaho
 	});
 
 	it("hands back writers-unknown where a region it holds cannot be hashed (mantahostels#2429)", () => {
-		// subjectBlobAt is null for a region gone from the tree as well as for a
+		// readSubjectBlobAt is null for a region gone from the tree as well as for a
 		// git that would not answer, and mantahostels#2421 read both as drift — which now
 		// hands over a route PAST the refusal.
 		const preamble = "The preamble.";
@@ -1114,23 +1114,28 @@ describe("a claim holder blocks a park until the file accounts for them (mantaho
 		expect(r.stderr).not.toContain("no longer carries the bytes your own pin");
 	});
 
-	it("re-pins through the hook wrapper itself, not just the verb (mantahostels#2429)", () => {
-		// The wrapper the PostToolUse hook actually fires, not the verb under it.
-		// It exits 0 silently on a missing jq or node, a `timeout 5` expiry and
-		// any non-zero exit, so only the pin it leaves says it did the work.
+	it("re-pins through the hook entry itself, not just the verb (mantahostels#2429)", () => {
+		// The dispatcher entry the PostToolUse hook actually fires, whose
+		// refresh-claims core runs the verb's work in process. Its cores fail
+		// open and say nothing, so only the pin it leaves says it did the work.
 		committedMap();
 		neighbourPins();
 		mineDirtiesB196("B197 as committed.");
 		writeMap(doc("B196, half-rewritten twice.", "B197 as committed."));
 		expect(park().status).toBe(1);
 		const hook = spawnSync(
-			"bash",
-			[path.join(__dirname, "refresh-claims.sh")],
+			process.execPath,
+			[path.join(__dirname, "guard-dispatch.js")],
 			{
 				cwd: sb.repo,
 				encoding: "utf8",
-				input: JSON.stringify({ session_id: "mine" }),
-				env: { ...process.env },
+				input: JSON.stringify({
+					session_id: "mine",
+					hook_event_name: "PostToolUse",
+					tool_name: "Bash",
+					tool_input: { command: "sed -i s/x/y/ docs/doc-map.md" },
+				}),
+				env: { ...process.env, CLAUDE_CONFIG_DIR: sb.home },
 			},
 		);
 		expect(hook.status).toBe(0);

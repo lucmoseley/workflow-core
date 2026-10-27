@@ -58,7 +58,7 @@ const { runCheck } = require("./lib/check");
 // The arbiter's own modules, not its CLI: session-arbiter.js exports nothing
 // (mantahostels#158, built by mantahostels#159).
 const { errorLog, rootlessErrorLog } = require("./lib/arbiter-store");
-const { procStartOf } = require("./lib/arbiter-proc");
+const { readProcStartOf } = require("./lib/arbiter-proc");
 const { rotateLog } = require("./lib/log-rotate");
 const deliveryStamp = require("./lib/delivery-stamp");
 const { caught } = require("./lib/caught.js");
@@ -400,7 +400,7 @@ function reportFailOpens(ctx, { days, logPath, whole }) {
 
 	// Null on a hand run, in CI, and under persist mode, where this run is not the
 	// delivery — in each case nothing is filtered and the whole window is reported.
-	if (deliveryStamp.seenStamp(ctx, CHECKER) !== null) {
+	if (deliveryStamp.readSeenStamp(ctx, CHECKER) !== null) {
 		report = unreported(recent, buf, stored[logPath]);
 		// Nothing further into the log than the last report: an OK outcome, which
 		// --notify prints nothing for.
@@ -467,32 +467,30 @@ runCheck({
 		let inertStamp = null;
 
 		/*
-		 * The one fail-open no guard can record is its own logger going missing:
-		 * with scripts/lib/guard-log.sh unreadable every guard degrades to a silent
-		 * allow, and with lib/guard-parse.sh unreadable every guard that sources it
-		 * disarms entirely — in both cases writing nothing to the log this check
-		 * reads, so an all-clear below would be manufactured by the very fault it is
+		 * The one fail-open no hook can record is its own logger going missing:
+		 * with scripts/lib/guard-log.sh unreadable every bash hook sourcing it
+		 * degrades to a silent allow, writing nothing to the log this check reads,
+		 * so an all-clear below would be manufactured by the very fault it is
 		 * looking for. Probed here instead (mantahostels#147).
 		 *
 		 * Deliberately not a wiring check: whether each guard exists and is
 		 * triggered from self-plugin/hooks/hooks.json is check-guard-registry.js's job, and
 		 * two checks asserting the same thing means one of them rots unnoticed.
 		 */
-		for (const lib of ["lib/guard-log.sh", "lib/guard-parse.sh"]) {
-			const at = path.join(__dirname, lib);
-			try {
-				fs.accessSync(at, fs.constants.R_OK);
-			} catch {
-				ctx.fail(
-					"GUARD-LIBRARY",
-					`${lib} is missing or unreadable — the guards that source it allow everything through, and cannot log that they did`,
-					{ path: at },
-				);
-				ctx.say(
-					`scripts/${lib} is missing or unreadable.\n` +
-						"Guards sourcing it fail open in silence, so the log below cannot be trusted to be empty for the right reason.\n",
-				);
-			}
+		const lib = "lib/guard-log.sh";
+		const at = path.join(__dirname, lib);
+		try {
+			fs.accessSync(at, fs.constants.R_OK);
+		} catch {
+			ctx.fail(
+				"GUARD-LIBRARY",
+				`${lib} is missing or unreadable — the hooks that source it allow everything through, and cannot log that they did`,
+				{ path: at },
+			);
+			ctx.say(
+				`scripts/${lib} is missing or unreadable.\n` +
+					"Hooks sourcing it fail open in silence, so the log below cannot be trusted to be empty for the right reason.\n",
+			);
 		}
 
 		reportRootlessFailOpens(ctx, {
@@ -512,7 +510,7 @@ runCheck({
 		 * noise --notify exists to avoid.
 		 */
 		if (
-			procStartOf(process.pid) === null &&
+			readProcStartOf(process.pid) === null &&
 			!deliveryStamp.alreadyDelivered(ctx, INERT_CHECKER, INERT_SIGNATURE)
 		) {
 			const msg =

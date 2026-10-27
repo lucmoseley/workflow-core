@@ -19,7 +19,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
-import { guardErrorsLog } from "./lib/guard-errors-log";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { projectSlug } from "./lib/project-slug";
 import { REPO_CHECKS } from "./lib/repo-checks-registry";
@@ -272,7 +272,7 @@ describe("repo-checks: gates and order", () => {
 		expect(argv["roadmap-valid"]).toEqual(["--tree", "--json"]);
 		expect(argv.drift).toEqual(["--json"]);
 		expect(argv["manual-staleness"]).toEqual([]);
-		expect(guardErrorsLog(f.config)).toBe("");
+		expect(readGuardErrorsLog(f.config)).toBe("");
 	});
 
 	it("records a module-off, input-absent, key-absent or tracker-less gate SKIP with its reason and launches nothing for it", () => {
@@ -387,7 +387,7 @@ describe("repo-checks: the merged result", () => {
 		const r = run(f);
 		expect(r.status).toBe(0);
 		expect(job(f, "cycle-review").outcome).toBe("BROKEN");
-		const log = guardErrorsLog(f.config).trim().split("\n");
+		const log = readGuardErrorsLog(f.config).trim().split("\n");
 		expect(log).toHaveLength(1);
 		expect(log[0]).toContain("repo-checks");
 		expect(log[0]).toContain("cycle-review exited 2");
@@ -560,7 +560,7 @@ describe("repo-checks: the clobbers window", () => {
 		fs.writeFileSync(path.join(f.common, sinceFile), "{");
 		run(f);
 		expect(clobbersArgv(f)).toEqual([["--since", "30", "--json"]]);
-		expect(guardErrorsLog(f.config)).toContain(sinceFile);
+		expect(readGuardErrorsLog(f.config)).toContain(sinceFile);
 	});
 
 	/* #1600: an unfixed clobber on an issue nobody edits again would drop out
@@ -630,7 +630,7 @@ describe("repo-checks: the clobbers window", () => {
 		fs.writeFileSync(path.join(f.common, ".repo-checks-rescan.json"), "{");
 		run(f);
 		expect(rescans(f)).toEqual([null]);
-		expect(guardErrorsLog(f.config)).toContain(".repo-checks-rescan.json");
+		expect(readGuardErrorsLog(f.config)).toContain(".repo-checks-rescan.json");
 	});
 
 	/* A bad value would make the check refuse its arguments, and a BROKEN
@@ -729,7 +729,7 @@ describe("repo-checks: a fault logs one line, says so, and exits 0", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("FAILED OPEN:");
 		expect(r.stderr).toContain("the next day's reading retries");
-		const log = guardErrorsLog(f.config).trim().split("\n");
+		const log = readGuardErrorsLog(f.config).trim().split("\n");
 		expect(log).toHaveLength(1);
 		return log[0];
 	};
@@ -778,7 +778,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 		"digest-version": findings("digest-version", keys),
 	});
 
-	function stored(f: Fixture, configDir = f.config) {
+	function readStoredReport(f: Fixture, configDir = f.config) {
 		const dir = path.join(
 			configDir,
 			"projects",
@@ -811,7 +811,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 	it("names a check that gained a key, carrying 7 days, its session and one stamp per judged check", () => {
 		const f = fixture({ stubs: stubsWith(["k1", "k2"]) });
 		runOk(f, { env: { CLAUDE_CODE_SESSION_ID: sessionId } });
-		const { report } = stored(f);
+		const { report } = readStoredReport(f);
 		expect(report.text.split("\n")).toEqual([
 			expect.stringMatching(/^REPO-CHECKS \(1\) — .*2026-10-13T06:00:00\.000Z/),
 			"  digest-version — 2 new finding(s), 2 standing",
@@ -850,17 +850,17 @@ describe("repo-checks: the notify report (#1553)", () => {
 		expect(replay(f)).toContain("digest-version — 2 new finding(s)");
 
 		runOk(f, { env: { WFC_NOW: nextDay } });
-		expect(stored(f).report.text).toBe("");
+		expect(readStoredReport(f).report.text).toBe("");
 
 		f.restub("digest-version", stubsWith(["k1"])["digest-version"]);
 		fs.rmSync(path.join(f.common, STAMP));
 		runOk(f, { env: { WFC_NOW: "2026-10-15T07:00:00Z" } });
-		expect(stored(f).report.text).toBe("");
+		expect(readStoredReport(f).report.text).toBe("");
 		replay(f);
 
 		f.restub("digest-version", stubsWith(["k1", "k2", "k3"])["digest-version"]);
 		runOk(f, { env: { WFC_NOW: "2026-10-16T07:00:00Z" } });
-		expect(stored(f).report.text).toContain(
+		expect(readStoredReport(f).report.text).toContain(
 			"digest-version — 1 new finding(s), 3 standing",
 		);
 	});
@@ -876,7 +876,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 			},
 		});
 		runOk(f);
-		const first = stored(f).report.text;
+		const first = readStoredReport(f).report.text;
 		expect(first).toMatch(/^REPO-CHECKS \(2\)/);
 		expect(first).toContain("  digest-version — ");
 		expect(first).toContain("  digest-render — MISSING:");
@@ -885,7 +885,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 		expect(replay(f)).toContain("digest-render — MISSING:");
 
 		runOk(f, { env: { WFC_NOW: nextDay } });
-		expect(stored(f).report.text).toMatch(/^REPO-CHECKS \(2\)/);
+		expect(readStoredReport(f).report.text).toMatch(/^REPO-CHECKS \(2\)/);
 		expect(replay(f)).toContain("digest-render — MISSING:");
 	});
 
@@ -900,7 +900,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 		expect(replay(f)).toContain("digest-version — ");
 		f.restub("digest-version", stubsWith(["k1", "k2", "k3"])["digest-version"]);
 		runOk(f, { env: { WFC_NOW: "2026-10-15T07:00:00Z" } });
-		expect(stored(f).report.text).toContain(
+		expect(readStoredReport(f).report.text).toContain(
 			"digest-version — 1 new finding(s), 3 standing",
 		);
 	});
@@ -923,7 +923,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 		runOk(a, { env: shared });
 		expect(replay(a, shared)).toContain("o.a's daily checks");
 		runOk(b, { env: shared });
-		const { file, report } = stored(b, a.config);
+		const { file, report } = readStoredReport(b, a.config);
 		expect(path.basename(file)).toBe("repo-checks-o-b.report.json");
 		expect(Object.keys(report.stamps)).toContain(
 			"repo-checks.o.b.digest-version",
@@ -932,7 +932,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 		expect(replay(b, shared)).toContain("o.b's daily checks");
 
 		runOk(a, { env: { ...shared, WFC_NOW: nextDay } });
-		expect(stored(a, a.config).report.text).toBe("");
+		expect(readStoredReport(a, a.config).report.text).toBe("");
 	});
 
 	/* #1700: a settled key is no news, but the stamp keeps it, so the hand
@@ -949,8 +949,8 @@ describe("repo-checks: the notify report (#1553)", () => {
 			},
 		});
 		runOk(f);
-		expect(stored(f).report.text).toBe("");
-		expect(Object.values(stored(f).report.stamps)).toContain(
+		expect(readStoredReport(f).report.text).toBe("");
+		expect(Object.values(readStoredReport(f).report.stamps)).toContain(
 			JSON.stringify(["NO-CRITERIA\t#2", "WAIVED\t#1"]),
 		);
 
@@ -964,7 +964,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 			]),
 		);
 		runOk(f, { env: { WFC_NOW: nextDay } });
-		expect(stored(f).report.text.split("\n")[1]).toBe(
+		expect(readStoredReport(f).report.text.split("\n")[1]).toBe(
 			"  criteria — 1 new finding(s), 1 standing",
 		);
 	});
@@ -986,7 +986,7 @@ describe("repo-checks: the notify report (#1553)", () => {
 		const filed = f.issueBody.body();
 		runOk(f, { env: { WFC_NOW: nextDay } });
 		expect(job(f, "clobbers").keys).toEqual([key]);
-		expect(stored(f).report.text).toBe("");
+		expect(readStoredReport(f).report.text).toBe("");
 		expect(f.issueBody.body()).toBe(filed);
 		expect(filed).toContain("- `clobbers` — FAIL, 1 finding(s).");
 	});
@@ -999,16 +999,16 @@ describe("repo-checks: the notify report (#1553)", () => {
 		runOk(f);
 		replay(f);
 		const stamp = path.join(
-			stored(f).dir,
+			readStoredReport(f).dir,
 			"repo-checks.o.r.digest-version.notified",
 		);
 		expect(fs.readFileSync(stamp, "utf8")).toBe('["k1"]');
 		fs.writeFileSync(stamp, "{not json");
 		runOk(f, { env: { WFC_NOW: nextDay } });
-		expect(stored(f).report.text).toContain(
+		expect(readStoredReport(f).report.text).toContain(
 			"digest-version — 1 new finding(s), 1 standing",
 		);
-		expect(guardErrorsLog(f.config)).toContain(
+		expect(readGuardErrorsLog(f.config)).toContain(
 			"delivery stamp repo-checks.o.r.digest-version will not parse",
 		);
 	});
@@ -1028,7 +1028,7 @@ describe("repo-checks: the standing issue (#1554)", () => {
 		expect(r.status).toBe(0);
 		return r;
 	}
-	const writes = (f: Fixture) =>
+	const readWrites = (f: Fixture) =>
 		f
 			.ghCalls()
 			.filter((c) => /^issue (create|edit|close)/.test(c))
@@ -1059,7 +1059,7 @@ describe("repo-checks: the standing issue (#1554)", () => {
 			`- \`roadmap-valid\` — WARN, 3 finding(s). List them: \`node ${f.core}/scripts/check-roadmap-valid.js --tree\``,
 		);
 		expect(body).not.toContain("digest-render");
-		expect(guardErrorsLog(f.config)).toBe("");
+		expect(readGuardErrorsLog(f.config)).toBe("");
 	});
 
 	it("refreshes that same issue when a key set changes, and never files a second", () => {
@@ -1159,7 +1159,7 @@ describe("repo-checks: the standing issue (#1554)", () => {
 		reading(f, 0);
 		reading(f, 1);
 		expect(f.issues()).toEqual([]);
-		expect(writes(f)).toEqual([]);
+		expect(readWrites(f)).toEqual([]);
 	});
 
 	it("logs one line naming the issue and gh's error, and exits 0 where gh fails filing, and files at the next reading though nothing changed", () => {
@@ -1169,7 +1169,7 @@ describe("repo-checks: the standing issue (#1554)", () => {
 		});
 		fs.writeFileSync(f.ghFails, "");
 		reading(f, 0);
-		const log = guardErrorsLog(f.config).trim().split("\n");
+		const log = readGuardErrorsLog(f.config).trim().split("\n");
 		expect(log).toHaveLength(1);
 		expect(log[0]).toContain(`could not file or refresh "${title}"`);
 		expect(log[0]).toContain("HTTP 502");
@@ -1231,6 +1231,6 @@ describe("repo-checks: the standing issue (#1554)", () => {
 		fs.writeFileSync(path.join(f.common, ".repo-checks-issue.json"), "{");
 		reading(f, 1);
 		expect(f.issues()).toHaveLength(1);
-		expect(guardErrorsLog(f.config)).toContain(".repo-checks-issue.json");
+		expect(readGuardErrorsLog(f.config)).toContain(".repo-checks-issue.json");
 	});
 });

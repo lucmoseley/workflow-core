@@ -47,9 +47,9 @@ const SESSION_CAP = 31_500;
  * above. No fixture below writes its VALUE out (mantahostels#2223). */
 const RATCHET_CAP = 51_500;
 
-/* The gp_rule ceiling the fixtures run under, shared by the beforeEach that
+/* The RULE_CAP ceiling the fixtures run under, shared by the beforeEach that
  * writes it and by ratchetTotal's chunking, which must stay under it. */
-const GP_RULE_CAP = 4000;
+const RULE_CAP = 4000;
 
 /* An OVER-CAP group, sized off SESSION_CAP rather than written out, so moving
  * the cap cannot leave these fixtures landing UNDER it — where the gate is
@@ -63,7 +63,7 @@ const GP_RULE_CAP = 4000;
  * well. */
 const OVER_TARGET = SESSION_CAP + 1300;
 /* The fragment one case stages over an over-cap group's first fragment, so it
- * must outgrow OVER_EACH; it stays under GP_RULE_CAP, a separate fault. */
+ * must outgrow OVER_EACH; it stays under RULE_CAP, a separate fault. */
 const STAGED_FRAGMENT = 3500;
 /* The fragment COUNT is sized off the cap too, leaving each fragment at least
  * 500 B under STAGED_FRAGMENT. A fixed count broke when #2023 moved the cap
@@ -82,7 +82,7 @@ beforeEach(() => {
 	savedEnv.injectorFile = process.env.WFC_INJECTOR_FILE;
 	pool();
 	injector();
-	gpRuleCap(GP_RULE_CAP);
+	ruleCap(RULE_CAP);
 });
 
 afterEach(() => {
@@ -112,7 +112,7 @@ function pool() {
 }
 
 /*
- * check-context-budget.js reads the injector and the GP_RULE_CAP file off the
+ * check-context-budget.js reads the injector and the RULE_CAP file off the
  * core's own location, never off --root (#36), so a fixture copy has to be
  * pointed at through the WFC_INJECTOR_FILE / WFC_CAP_FILE test-injection seams
  * (`lib/host-root.js`'s header convention) rather than written under `dir`
@@ -127,21 +127,24 @@ function injector() {
 	);
 }
 
-/** The bash library the ceiling is read out of, never defaulted (rule-emission.js). */
-const gpRuleCap = (bytes: number) => {
+/** The file the ceiling is read out of, never defaulted (rule-emission.js). */
+const ruleCap = (bytes: number) => {
 	process.env.WFC_CAP_FILE = write(
-		"scripts/lib/guard-parse.sh",
-		`GP_RULE_CAP=${bytes}\n`,
+		"scripts/lib/hook-limits.sh",
+		`RULE_CAP=${bytes}\n`,
 	);
 };
 
-/** A rule fragment of exactly `bytes`, as gp_rule would resolve it. */
+/** A rule fragment of exactly `bytes`, as a guard entry would resolve it. */
 const fragment = (id: string, bytes: number) =>
 	write(`docs/agents/rules/${id}.txt`, "x".repeat(bytes));
 
-/** A guard whose single gp_rule call names `ids`. */
+/** A core whose single injection names `ids`. */
 const guard = (name: string, ids: string[]) =>
-	write(`scripts/${name}`, `#!/usr/bin/env bash\ngp_rule ${ids.join(" ")}\n`);
+	write(
+		`scripts/${name}`,
+		`module.exports = () => ({ injectRules: [${ids.map((id) => `"${id}"`).join(", ")}] });\n`,
+	);
 
 /** A hooks file wiring each matcher to its guards, PreToolUse. */
 const wiringJson = (wiring: Record<string, string[]>) =>
@@ -174,7 +177,7 @@ function group(matcher: string, n: number, bytes: number) {
 	const names: string[] = [];
 	for (let i = 0; i < n; i++) {
 		fragment(`rule-${matcher.toLowerCase()}-${i}`, bytes);
-		const name = `guard-${matcher.toLowerCase()}-${i}.sh`;
+		const name = `guard-${matcher.toLowerCase()}-${i}.js`;
 		guard(name, [`rule-${matcher.toLowerCase()}-${i}`]);
 		names.push(name);
 	}
@@ -213,17 +216,17 @@ function ratchetTotal(total: number) {
 		throw new Error(
 			`ratchetTotal(${total}) puts ${perTool} B on one tool, at or over SESSION_CAP (${SESSION_CAP}) — widen RATCHET_TOOLS`,
 		);
-	/* Chunked under GP_RULE_CAP, which truncates a single gp_rule call: one
+	/* Chunked under RULE_CAP, which truncates a single injection: one
 	 * fragment carrying a whole tool's share would be counted at the ceiling
 	 * instead, and the union would come in short of the figure asked for. */
-	const chunk = Math.floor(GP_RULE_CAP / 2);
+	const chunk = Math.floor(RULE_CAP / 2);
 	const wire = (matcher: string, bytes: number) => {
 		const names: string[] = [];
 		for (let i = 0, left = bytes; left > 0; i++) {
 			const size = Math.min(chunk, left);
 			const id = `rule-${matcher.toLowerCase()}-${i}`;
 			fragment(id, size);
-			const name = `guard-${matcher.toLowerCase()}-${i}.sh`;
+			const name = `guard-${matcher.toLowerCase()}-${i}.js`;
 			guard(name, [id]);
 			names.push(name);
 			left -= size;
@@ -277,7 +280,7 @@ describe("the per-session rule-emission cap", () => {
 		);
 		expect(r.stderr).toContain("2000 B  Bash");
 		expect(r.stderr).toContain(
-			"scripts/guard-bash-0.sh (1 id over 1 gp_rule call)",
+			"scripts/guard-bash-0.js (1 id over 1 injection)",
 		);
 	});
 
@@ -286,8 +289,8 @@ describe("the per-session rule-emission cap", () => {
 		const t = tools();
 		expect(t.Bash.bytes).toBe(2000);
 		expect(t.Bash.guards.map((g: { file: string }) => g.file)).toEqual([
-			"scripts/guard-bash-0.sh",
-			"scripts/guard-bash-1.sh",
+			"scripts/guard-bash-0.js",
+			"scripts/guard-bash-1.js",
 		]);
 		expect(run("--json").json().session.cap).toBe(SESSION_CAP);
 	});
@@ -305,10 +308,10 @@ describe("the per-session rule-emission cap", () => {
 	/* "0 B over" would read as a rounding artefact (mantahostels#1940), and a cap the gate
 	 * misses by one byte never fires on the commit that lands on it. */
 	it("headlines a group exactly on the cap as AT CAP, not OVER CAP", () => {
-		gpRuleCap(SESSION_CAP + 1);
+		ruleCap(SESSION_CAP + 1);
 		fragment("rule-exact", SESSION_CAP);
-		guard("guard-exact.sh", ["rule-exact"]);
-		settings({ Bash: ["guard-exact.sh"] });
+		guard("guard-exact.js", ["rule-exact"]);
+		settings({ Bash: ["guard-exact.js"] });
 		const r = run("--notify");
 		expect(r.stdout).toContain("PreToolUse BASH AT CAP");
 		expect(r.stdout).toContain("landing exactly on it");
@@ -332,8 +335,8 @@ describe("the per-session rule-emission cap", () => {
 	 * worth seeing,
 	 * and an absent key reads as "no such tool" rather than "nothing left". */
 	it("reports a matcher group with no emitters as zero, not as absent", () => {
-		write("scripts/guard-silent.sh", "#!/usr/bin/env bash\nexit 0\n");
-		settings({ Bash: group("Bash", 1, 1000), Read: ["guard-silent.sh"] });
+		write("scripts/guard-silent.js", "module.exports = () => ({});\n");
+		settings({ Bash: group("Bash", 1, 1000), Read: ["guard-silent.js"] });
 		const t = tools();
 		expect(Object.keys(t).sort()).toEqual(["Bash", "Read"]);
 		expect(t.Read).toEqual({ bytes: 0, ids: [], guards: [] });
@@ -371,59 +374,59 @@ describe("the per-session rule-emission cap", () => {
 });
 
 /*
- * A fragment over GP_RULE_CAP on its own (mantahostels#2054): the repo's own
+ * A fragment over RULE_CAP on its own (mantahostels#2054): the repo's own
  * rule text, not this checker's apparatus, so it is a finding rather than
  * BROKEN.
  */
-describe("a rule fragment over GP_RULE_CAP on its own", () => {
+describe("a rule fragment over RULE_CAP on its own", () => {
 	const fragmentFindings = () =>
 		run("--json")
 			.json()
 			.findings.filter((f: { tag: string }) => f.tag === "OVER-FRAGMENT");
 
 	it("warns, and only warns, rather than going BROKEN, recording the fragment, its total and the cap, and naming the guard", () => {
-		fragment("rule-whale", GP_RULE_CAP + 1);
-		guard("guard-whale.sh", ["rule-whale"]);
-		settings({ Bash: ["guard-whale.sh"] });
+		fragment("rule-whale", RULE_CAP + 1);
+		guard("guard-whale.js", ["rule-whale"]);
+		settings({ Bash: ["guard-whale.js"] });
 		const r = run("--json");
 		expect(r.json().outcome).toBe("WARN");
 		const [finding] = fragmentFindings();
 		expect(finding.severity).toBe("WARN");
 		expect(finding.surface).toBe("fragment:rule-whale");
-		expect(finding.total).toBe(GP_RULE_CAP + 1);
-		expect(finding.cap).toBe(GP_RULE_CAP);
-		expect(finding.message).toContain("guard-whale.sh");
+		expect(finding.total).toBe(RULE_CAP + 1);
+		expect(finding.cap).toBe(RULE_CAP);
+		expect(finding.message).toContain("guard-whale.js");
 	});
 
 	it("excludes the over-cap fragment from the group it never reaches", () => {
-		fragment("rule-whale", GP_RULE_CAP + 1);
+		fragment("rule-whale", RULE_CAP + 1);
 		fragment("rule-minnow", 10);
-		guard("guard-whale.sh", ["rule-whale", "rule-minnow"]);
-		settings({ Bash: ["guard-whale.sh"] });
+		guard("guard-whale.js", ["rule-whale", "rule-minnow"]);
+		settings({ Bash: ["guard-whale.js"] });
 		const t = tools();
 		expect(t.Bash.bytes).toBe(10);
 		expect(t.Bash.ids).toEqual(["rule-minnow"]);
 	});
 
 	it("names every guard that reaches the same over-cap fragment", () => {
-		fragment("rule-whale", GP_RULE_CAP + 1);
-		guard("guard-a.sh", ["rule-whale"]);
-		guard("guard-b.sh", ["rule-whale"]);
-		settings({ Bash: ["guard-a.sh"], Write: ["guard-b.sh"] });
+		fragment("rule-whale", RULE_CAP + 1);
+		guard("guard-a.js", ["rule-whale"]);
+		guard("guard-b.js", ["rule-whale"]);
+		settings({ Bash: ["guard-a.js"], Write: ["guard-b.js"] });
 		expect(fragmentFindings()).toHaveLength(1);
-		expect(fragmentFindings()[0].message).toContain("guard-a.sh");
-		expect(fragmentFindings()[0].message).toContain("guard-b.sh");
+		expect(fragmentFindings()[0].message).toContain("guard-a.js");
+		expect(fragmentFindings()[0].message).toContain("guard-b.js");
 	});
 
 	it("speaks under --notify", () => {
-		fragment("rule-whale", GP_RULE_CAP + 1);
-		guard("guard-whale.sh", ["rule-whale"]);
-		settings({ Bash: ["guard-whale.sh"] });
+		fragment("rule-whale", RULE_CAP + 1);
+		guard("guard-whale.js", ["rule-whale"]);
+		settings({ Bash: ["guard-whale.js"] });
 		expect(run("--notify").stdout).toContain("RULE FRAGMENT OVER CAP");
 	});
 });
 
-describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
+describe("a ctx.told that bounds nothing (mantahostels#2283)", () => {
 	const latchFindings = () =>
 		run("--json")
 			.json()
@@ -433,23 +436,22 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 	/* The fetch is EMITTED, not merely made: since mantahostels#2354 the bound is correlated
 	 * against the emission that spends the bytes, so a guard that fetches and
 	 * says nothing has no bound to credit. */
-	const splicerBody = (id: string, latch: string, mark = true) =>
-		`text="$(rule_text ${id} 2>/dev/null)"\nif gp_rule_told ${latch}; then gp_context "$text"; fi\n${mark ? `gp_rule_mark_told ${latch}\n` : ""}`;
+	const buildSplicerBody = (id: string, latch: string, mark = true) =>
+		`\tconst text = ctx.ruleText("${id}");\n\tif (!ctx.told("${latch}")) return { context: text${mark ? `, latchAfter: "${latch}"` : ""} };\n`;
+	/** A core whose handler body is `body`. */
+	const core = (body: string) => `module.exports = (ctx) => {\n${body}};\n`;
 	const splicer = (name: string, id: string, latch: string, mark = true) =>
-		write(
-			`scripts/${name}`,
-			`#!/usr/bin/env bash\n${splicerBody(id, latch, mark)}`,
-		);
+		write(`scripts/${name}`, core(buildSplicerBody(id, latch, mark)));
 
 	it("warns on a latch naming an id no fragment answers to", () => {
 		fragment("rule-real", 40);
-		splicer("guard-typo.sh", "rule-real", "rule-reel");
-		settings({ Bash: ["guard-typo.sh"] });
+		splicer("guard-typo.js", "rule-real", "rule-reel");
+		settings({ Bash: ["guard-typo.js"] });
 		const r = run("--json");
 		expect(r.json().outcome).toBe("WARN");
 		const [finding] = latchFindings();
 		expect(finding.severity).toBe("WARN");
-		expect(finding.surface).toBe("latch:scripts/guard-typo.sh:rule-reel");
+		expect(finding.surface).toBe("latch:scripts/guard-typo.js:rule-reel");
 		// Every failing limb, never the first: naming one of two repairs sends the
 		// reader to fix half of it.
 		expect(finding.message).toContain("no fragment answers to that id");
@@ -460,34 +462,34 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 
 	it("hedges the marked limb the same way as the bound limb (mantahostels#2378)", () => {
 		fragment("rule-real", 40);
-		splicer("guard-unmarked.sh", "rule-real", "rule-real", false);
-		settings({ Bash: ["guard-unmarked.sh"] });
+		splicer("guard-unmarked.js", "rule-real", "rule-real", false);
+		settings({ Bash: ["guard-unmarked.js"] });
 		const r = run("--json");
 		expect(r.json().outcome).toBe("WARN");
 		const [finding] = latchFindings();
 		expect(finding.severity).toBe("WARN");
-		expect(finding.surface).toBe("latch:scripts/guard-unmarked.sh:rule-real");
-		// The bound limb resolves clean here (a direct rule_text call on the same
-		// id), so only the marked limb's hedge should show.
+		expect(finding.surface).toBe("latch:scripts/guard-unmarked.js:rule-real");
+		// The bound limb resolves clean here (a direct ctx.ruleText call on the
+		// same id), so only the marked limb's hedge should show.
 		expect(finding.message).not.toContain(
 			"no direct accessor call on it is visible",
 		);
 		expect(finding.message).toContain(
-			"no gp_rule_mark_told call on it is visible in that guard or the libs it sources",
+			"no latchAfter decision on it is visible in that guard or the libs it sources",
 		);
 	});
 
 	it("speaks under --notify, where the table does not", () => {
 		fragment("rule-real", 40);
-		splicer("guard-typo.sh", "rule-real", "rule-reel");
-		settings({ Bash: ["guard-typo.sh"] });
+		splicer("guard-typo.js", "rule-real", "rule-reel");
+		settings({ Bash: ["guard-typo.js"] });
 		expect(run("--notify").stdout).toContain("DEAD RULE LATCH");
 	});
 
 	it("says nothing where the bound covers the guard's own call", () => {
 		fragment("rule-real", 40);
-		splicer("guard-clean.sh", "rule-real", "rule-real");
-		settings({ Bash: ["guard-clean.sh"] });
+		splicer("guard-clean.js", "rule-real", "rule-real");
+		settings({ Bash: ["guard-clean.js"] });
 		expect(latchFindings()).toEqual([]);
 		expect(run("--json").json().session.direct.fragments[0].latched).toBe(
 			"bounded",
@@ -497,10 +499,12 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 	it("prices a guard's second, unlatched emission path per firing", () => {
 		fragment("rule-split", 900);
 		write(
-			"scripts/guard-two-paths.sh",
-			'#!/usr/bin/env bash\nif gp_rule_told rule-split; then\n  gp_warn "short: $(rule_text rule-split 2>/dev/null)"\nfi\ngp_deny "$(rule_text rule-split 2>/dev/null)"\ngp_rule_mark_told rule-split\n',
+			"scripts/guard-two-paths.js",
+			core(
+				'\tif (!ctx.told("rule-split"))\n\t\treturn { context: ctx.ruleText("rule-split"), latchAfter: "rule-split" };\n\treturn { deny: ctx.ruleText("rule-split") };\n',
+			),
 		);
-		settings({ Bash: ["guard-two-paths.sh"] });
+		settings({ Bash: ["guard-two-paths.js"] });
 		expect(latchFindings()).toEqual([]);
 		expect(run("--json").json().session.direct.fragments[0].latched).toBe(
 			"ambiguous",
@@ -510,29 +514,24 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 
 	/** A guard composing its own warning and latching THAT — no fragment, no
 	 * accessor — latched on `latch` and marked on `mark` (mantahostels#2446). */
-	/* Each statement on its own line: MARKED_RULE_RE anchors to line start, so a
-	 * mark trailing a `;` is invisible and the fixture would pass unmarked. */
-	const selfComposerBody = (latch: string, mark: string) =>
-		`if ! gp_rule_told ${latch}; then\n  gp_context "text this guard wrote itself"\n  gp_rule_mark_told ${mark}\nfi\n`;
+	const buildSelfComposerBody = (latch: string, mark: string) =>
+		`\tif (!ctx.told("${latch}"))\n\t\treturn { context: "text this guard wrote itself", latchAfter: "${mark}" };\n`;
 	const selfComposer = (name: string, latch: string, mark: string) =>
-		write(
-			`scripts/${name}`,
-			`#!/usr/bin/env bash\n${selfComposerBody(latch, mark)}`,
-		);
+		write(`scripts/${name}`, core(buildSelfComposerBody(latch, mark)));
 
 	it("says nothing where the guard composes the text it latches (mantahostels#2446)", () => {
-		selfComposer("guard-self.sh", "self-rule", "self-rule");
-		settings({ Bash: ["guard-self.sh"] });
+		selfComposer("guard-self.js", "self-rule", "self-rule");
+		settings({ Bash: ["guard-self.js"] });
 		expect(latchFindings()).toEqual([]);
 	});
 
 	it("still catches a typo between the latch and its mark when self-composing (mantahostels#2446)", () => {
-		selfComposer("guard-self-typo.sh", "self-rule", "self-rlue");
-		settings({ Bash: ["guard-self-typo.sh"] });
+		selfComposer("guard-self-typo.js", "self-rule", "self-rlue");
+		settings({ Bash: ["guard-self-typo.js"] });
 		expect(run("--json").json().outcome).toBe("WARN");
 		const [finding] = latchFindings();
 		expect(finding.severity).toBe("WARN");
-		expect(finding.surface).toBe("latch:scripts/guard-self-typo.sh:self-rule");
+		expect(finding.surface).toBe("latch:scripts/guard-self-typo.js:self-rule");
 		// The two store-facing limbs are inapplicable here and must not send the
 		// reader after a fragment the guard is right not to have.
 		expect(finding.message).not.toContain("no fragment answers to that id");
@@ -540,10 +539,10 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 			"no direct accessor call on it is visible",
 		);
 		expect(finding.message).toContain(
-			"no gp_rule_mark_told call on it is visible",
+			"no latchAfter decision on it is visible",
 		);
 		expect(run("--notify").stdout).toContain(
-			"the gp_rule_told id and the gp_rule_mark_told one",
+			"the ctx.told id and the latchAfter one",
 		);
 	});
 
@@ -551,30 +550,34 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 		fragment("rule-real", 40);
 		// One accessor call is enough to keep the store-facing limbs live.
 		write(
-			"scripts/guard-mixed.sh",
-			'#!/usr/bin/env bash\ntext="$(rule_text rule-real 2>/dev/null)"\nif gp_rule_told rule-reel; then gp_context "$text"; gp_context "and text of its own"; fi\ngp_rule_mark_told rule-reel\n',
+			"scripts/guard-mixed.js",
+			core(
+				'\tconst text = ctx.ruleText("rule-real");\n\tif (!ctx.told("rule-reel"))\n\t\treturn { context: text + " and text of its own", latchAfter: "rule-reel" };\n',
+			),
 		);
-		settings({ Bash: ["guard-mixed.sh"] });
+		settings({ Bash: ["guard-mixed.js"] });
 		expect(run("--json").json().outcome).toBe("WARN");
 		const [finding] = latchFindings();
 		expect(finding.severity).toBe("WARN");
-		expect(finding.surface).toBe("latch:scripts/guard-mixed.sh:rule-reel");
+		expect(finding.surface).toBe("latch:scripts/guard-mixed.js:rule-reel");
 		expect(finding.message).toContain("no fragment answers to that id");
 	});
 
-	it("still catches that typo where the guard reaches the store through gp_rule (mantahostels#2446)", () => {
+	it("still catches that typo where the guard reaches the store through injectRules (mantahostels#2446)", () => {
 		fragment("rule-real", 40);
-		// No `rule_text` anywhere, so the direct census is empty — but gp_rule
-		// reaches the store.
+		// No direct accessor call anywhere, so the direct census is empty — but
+		// injectRules reaches the store.
 		write(
-			"scripts/guard-preemptive.sh",
-			"#!/usr/bin/env bash\ngp_rule rule-real\ngp_rule_told rule-reel\ngp_rule_mark_told rule-reel\n",
+			"scripts/guard-preemptive.js",
+			core(
+				'\tif (!ctx.told("rule-reel"))\n\t\treturn { context: "own", latchAfter: "rule-reel" };\n\treturn { injectRules: ["rule-real"] };\n',
+			),
 		);
-		settings({ Bash: ["guard-preemptive.sh"] });
+		settings({ Bash: ["guard-preemptive.js"] });
 		expect(run("--json").json().outcome).toBe("WARN");
 		const [finding] = latchFindings();
 		expect(finding.severity).toBe("WARN");
-		expect(finding.surface).toBe("latch:scripts/guard-preemptive.sh:rule-reel");
+		expect(finding.surface).toBe("latch:scripts/guard-preemptive.js:rule-reel");
 		expect(finding.message).toContain("no fragment answers to that id");
 	});
 
@@ -584,12 +587,12 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 		// to its latch id — the "meant to splice it, forgot the accessor call"
 		// fault, where the fragment is never emitted. This is the case the
 		// `!resolves` conjunct keeps reported.
-		selfComposer("guard-forgot.sh", "self-rule", "self-rule");
-		settings({ Bash: ["guard-forgot.sh"] });
+		selfComposer("guard-forgot.js", "self-rule", "self-rule");
+		settings({ Bash: ["guard-forgot.js"] });
 		expect(run("--json").json().outcome).toBe("WARN");
 		const [finding] = latchFindings();
 		expect(finding.severity).toBe("WARN");
-		expect(finding.surface).toBe("latch:scripts/guard-forgot.sh:self-rule");
+		expect(finding.surface).toBe("latch:scripts/guard-forgot.js:self-rule");
 		expect(finding.message).toContain(
 			"no direct accessor call on it is visible",
 		);
@@ -608,10 +611,12 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 		 * id it fetches is latched, so there is no orphan splice for `own-warning`
 		 * to be a typo of and the second latch is left alone. */
 		write(
-			"scripts/guard-both.sh",
-			`#!/usr/bin/env bash\n${splicerBody("rule-real", "rule-real")}${selfComposerBody("own-warning", "own-warning")}`,
+			"scripts/guard-both.js",
+			core(
+				`${buildSplicerBody("rule-real", "rule-real")}${buildSelfComposerBody("own-warning", "own-warning")}`,
+			),
 		);
-		settings({ Bash: ["guard-both.sh"] });
+		settings({ Bash: ["guard-both.js"] });
 		expect(latchFindings()).toEqual([]);
 	});
 
@@ -624,76 +629,75 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 		 * `rule-secnd` reads as self-composed and its stranded fragment is never
 		 * reported. Closing it needs the latch to declare what it bounds. */
 		write(
-			"scripts/guard-gap.sh",
-			`#!/usr/bin/env bash\n${splicerBody("rule-real", "rule-real")}${selfComposerBody("rule-secnd", "rule-secnd")}`,
+			"scripts/guard-gap.js",
+			core(
+				`${buildSplicerBody("rule-real", "rule-real")}${buildSelfComposerBody("rule-secnd", "rule-secnd")}`,
+			),
 		);
-		settings({ Bash: ["guard-gap.sh"] });
+		settings({ Bash: ["guard-gap.js"] });
 		expect(latchFindings()).toEqual([]);
 	});
 
-	/* THE SOURCED-LIB SHAPE (mantahostels#2488). The `here=`/`source` spelling below is the
-	 * real guards' verbatim, so these fixtures exercise the resolution the repo
+	/* THE SOURCED-LIB SHAPE (mantahostels#2488). The relative `require` below is the
+	 * real cores' spelling, so these fixtures exercise the resolution the repo
 	 * actually needs rather than a shorthand of it. */
 
-	/** A lib whose one function fetches `id` and emits it. */
+	/** A lib whose one function fetches `id` for its caller to emit. */
 	const libSplicer = (id: string) =>
 		write(
-			"scripts/lib/splice.sh",
-			`#!/usr/bin/env bash\nsplice() { gp_context "$(rule_text ${id} 2>/dev/null)"; }\n`,
+			"scripts/lib/splice.js",
+			`exports.splice = (ctx) => ctx.ruleText("${id}");\n`,
 		);
-	/** A guard that sources that lib and gates its call on `latch`. */
-	const libCaller = (latch: string) =>
+	/** A guard that requires `lib` and gates its call on `latch`. */
+	const libCaller = (latch: string, lib = "./lib/splice.js") =>
 		write(
-			"scripts/guard-sourced.sh",
-			`#!/usr/bin/env bash\nhere="$(dirname "\${BASH_SOURCE[0]}")"\n# shellcheck source=lib/splice.sh\nsource "$here/lib/splice.sh"\nif gp_rule_told ${latch}; then\n  splice\nfi\ngp_rule_mark_told ${latch}\n`,
+			"scripts/guard-sourced.js",
+			`const { splice } = require("${lib}");\n${core(`\tif (!ctx.told("${latch}"))\n\t\treturn { context: splice(ctx), latchAfter: "${latch}" };\n`)}`,
 		);
 
 	it("reports the mantahostels#2283 typo where the accessor sits in a sourced lib (mantahostels#2488)", () => {
 		fragment("rule-real", 40);
 		libSplicer("rule-real");
 		libCaller("rule-reel");
-		settings({ Bash: ["guard-sourced.sh"] });
+		settings({ Bash: ["guard-sourced.js"] });
 		const [finding] = latchFindings();
 		expect(finding.severity).toBe("WARN");
-		expect(finding.surface).toBe("latch:scripts/guard-sourced.sh:rule-reel");
+		expect(finding.surface).toBe("latch:scripts/guard-sourced.js:rule-reel");
 	});
 
 	it("stops calling a lib-side accessor absent where the latch is right (mantahostels#2488)", () => {
 		fragment("rule-real", 40);
 		libSplicer("rule-real");
 		libCaller("rule-real");
-		settings({ Bash: ["guard-sourced.sh"] });
+		settings({ Bash: ["guard-sourced.js"] });
 		expect(latchFindings()).toEqual([]);
 	});
 
 	it("still misses the typo where the lib takes its id as an argument (mantahostels#2488)", () => {
 		fragment("rule-real", 40);
 		/* The residual left standing: nothing lexical can say which id
-		 * `rule_text "$1"` fetches, so the guard splices nothing this can see and
-		 * its misspelt latch reads as self-composed. */
+		 * `ctx.ruleText(id)` fetches, so the guard splices nothing this can see
+		 * and its misspelt latch reads as self-composed. */
 		write(
-			"scripts/lib/splice.sh",
-			'#!/usr/bin/env bash\nsplice() { gp_context "$(rule_text "$1" 2>/dev/null)"; }\n',
+			"scripts/lib/splice.js",
+			"exports.splice = (ctx, id) => ctx.ruleText(id);\n",
 		);
 		libCaller("rule-reel");
-		settings({ Bash: ["guard-sourced.sh"] });
+		settings({ Bash: ["guard-sourced.js"] });
 		expect(latchFindings()).toEqual([]);
 	});
 
 	it("never opens a lib path that escapes the repo root (mantahostels#2488)", () => {
 		fragment("rule-real", 40);
 		/* Unread, so the latch reads as self-composed and nothing is reported. */
-		const outside = path.join(dir, "..", `outside-${path.basename(dir)}.sh`);
+		const outside = path.join(dir, "..", `outside-${path.basename(dir)}.js`);
 		fs.writeFileSync(
 			outside,
-			'#!/usr/bin/env bash\nsplice() { gp_context "$(rule_text rule-real 2>/dev/null)"; }\n',
+			'exports.splice = (ctx) => ctx.ruleText("rule-real");\n',
 		);
 		try {
-			write(
-				"scripts/guard-sourced.sh",
-				`#!/usr/bin/env bash\nsource "../../outside-${path.basename(dir)}.sh"\nif gp_rule_told rule-reel; then\n  splice\nfi\ngp_rule_mark_told rule-reel\n`,
-			);
-			settings({ Bash: ["guard-sourced.sh"] });
+			libCaller("rule-reel", `../../outside-${path.basename(dir)}.js`);
+			settings({ Bash: ["guard-sourced.js"] });
 			expect(latchFindings()).toEqual([]);
 		} finally {
 			// Outside `dir`, so afterEach's rm never reaches it.
@@ -704,46 +708,41 @@ describe("a gp_rule_told that bounds nothing (mantahostels#2283)", () => {
 	it("reads a lib the lib it sources sources in turn (mantahostels#2488)", () => {
 		fragment("rule-real", 40);
 		write(
-			"scripts/lib/inner.sh",
-			'#!/usr/bin/env bash\nsplice() { gp_context "$(rule_text rule-real 2>/dev/null)"; }\n',
+			"scripts/lib/inner.js",
+			'exports.splice = (ctx) => ctx.ruleText("rule-real");\n',
 		);
-		/* A LIB SOURCING ITS NEIGHBOUR spells the directory
-		 * `${BASH_SOURCE[0]%/*}`, never the `$here` a guard uses. Spelled the
-		 * guard's way this test would pass while the real lib-to-lib chain
-		 * resolved nothing. */
 		write(
-			"scripts/lib/splice.sh",
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: bash, not a template — lib/guard-log.sh:42 verbatim.
-			'#!/usr/bin/env bash\nsource "${BASH_SOURCE[0]%/*}/inner.sh" 2>/dev/null\n',
+			"scripts/lib/splice.js",
+			'exports.splice = require("./inner.js").splice;\n',
 		);
 		libCaller("rule-reel");
-		settings({ Bash: ["guard-sourced.sh"] });
+		settings({ Bash: ["guard-sourced.js"] });
 		expect(latchFindings()[0].surface).toBe(
-			"latch:scripts/guard-sourced.sh:rule-reel",
+			"latch:scripts/guard-sourced.js:rule-reel",
 		);
 	});
 });
 
 describe("BROKEN, never a vacuous pass", () => {
 	it("is BROKEN when a wired guard will not read, naming the guard", () => {
-		settings({ Bash: ["guard-absent.sh"] });
+		settings({ Bash: ["guard-absent.js"] });
 		const r = run("--json");
 		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.json().summary).toContain("guard-absent.sh");
+		expect(r.json().summary).toContain("guard-absent.js");
 	});
 
-	it("is BROKEN when a gp_rule call names a fragment the store lacks", () => {
-		guard("guard-bash-0.sh", ["rule-missing"]);
-		settings({ Bash: ["guard-bash-0.sh"] });
+	it("is BROKEN when an injection names a fragment the store lacks", () => {
+		guard("guard-bash-0.js", ["rule-missing"]);
+		settings({ Bash: ["guard-bash-0.js"] });
 		expect(run("--json").json().outcome).toBe("BROKEN");
 	});
 
-	it("is BROKEN when GP_RULE_CAP cannot be read", () => {
+	it("is BROKEN when RULE_CAP cannot be read", () => {
 		settings({ Bash: group("Bash", 1, 1000) });
-		fs.rmSync(path.join(dir, "scripts", "lib", "guard-parse.sh"));
+		fs.rmSync(path.join(dir, "scripts", "lib", "hook-limits.sh"));
 		const r = run("--json");
 		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.json().summary).toContain("GP_RULE_CAP");
+		expect(r.json().summary).toContain("RULE_CAP");
 	});
 
 	it("is BROKEN when .claude/settings.json will not parse, naming the file", () => {
@@ -768,10 +767,10 @@ describe("BROKEN, never a vacuous pass", () => {
 
 	/* The message names the guard, not the id alone: the id says what is missing
 	 * and the guard says which file to open. */
-	it("names the guard whose gp_rule call cannot be resolved", () => {
-		guard("guard-bash-0.sh", ["rule-missing"]);
-		settings({ Bash: ["guard-bash-0.sh"] });
-		expect(run("--json").json().summary).toContain("scripts/guard-bash-0.sh");
+	it("names the guard whose injection cannot be resolved", () => {
+		guard("guard-bash-0.js", ["rule-missing"]);
+		settings({ Bash: ["guard-bash-0.js"] });
+		expect(run("--json").json().summary).toContain("scripts/guard-bash-0.js");
 	});
 
 	/* An absent settings file is a different fact: no file is no wiring, so
@@ -783,10 +782,10 @@ describe("BROKEN, never a vacuous pass", () => {
 	});
 
 	/* The short-circuit above must not become a way past the cap: settings that
-	 * parse and wire nothing still need no GP_RULE_CAP, and settings that wire
+	 * parse and wire nothing still need no RULE_CAP, and settings that wire
 	 * something still do. */
-	it("needs no GP_RULE_CAP source when nothing is wired on PreToolUse", () => {
-		fs.rmSync(path.join(dir, "scripts", "lib", "guard-parse.sh"));
+	it("needs no RULE_CAP source when nothing is wired on PreToolUse", () => {
+		fs.rmSync(path.join(dir, "scripts", "lib", "hook-limits.sh"));
 		settings({});
 		expect(run("--json").json().outcome).toBe("OK");
 	});
@@ -835,28 +834,28 @@ describe("the direction gate over an over-cap group", () => {
 describe("the direction gate over an over-cap fragment", () => {
 	function envelope(bytes: number) {
 		fragment("rule-whale", bytes);
-		guard("guard-whale.sh", ["rule-whale"]);
-		settings({ Bash: ["guard-whale.sh"] });
+		guard("guard-whale.js", ["rule-whale"]);
+		settings({ Bash: ["guard-whale.js"] });
 		return run("--json").json();
 	}
 
 	it("refuses a commit that grows an already-over-cap fragment, naming the fragment", () => {
-		const baseline = envelope(GP_RULE_CAP + 100);
-		const staged = envelope(GP_RULE_CAP + 200);
+		const baseline = envelope(RULE_CAP + 100);
+		const staged = envelope(RULE_CAP + 200);
 		const r = direction(staged, baseline);
 		expect(r.code).toBe(1);
 		expect(r.out).toContain('"rule-whale"');
 	});
 
 	it("passes an over-cap fragment this commit did not grow", () => {
-		const baseline = envelope(GP_RULE_CAP + 100);
-		const staged = envelope(GP_RULE_CAP + 100);
+		const baseline = envelope(RULE_CAP + 100);
+		const staged = envelope(RULE_CAP + 100);
 		expect(direction(staged, baseline).code).toBe(0);
 	});
 
 	it("passes a commit that shrinks an over-cap fragment", () => {
-		const baseline = envelope(GP_RULE_CAP + 200);
-		const staged = envelope(GP_RULE_CAP + 100);
+		const baseline = envelope(RULE_CAP + 200);
+		const staged = envelope(RULE_CAP + 100);
 		expect(direction(staged, baseline).code).toBe(0);
 	});
 });
@@ -871,7 +870,7 @@ describe("the direction gate over an over-cap fragment", () => {
  */
 describe("the profile's measurement of a session surface", () => {
 	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-	const { PROFILES } = require("./checker-new-faults.js") as any;
+	const { PROFILES } = require("./lib/fault-profiles.js") as any;
 
 	it("reads the tool's bytes out of the envelope", () => {
 		settings({ Bash: group("Bash", OVER_N, OVER_EACH) });
@@ -902,9 +901,9 @@ describe("the profile's measurement of a session surface", () => {
 	});
 
 	it("reads an over-cap fragment's bytes out of the envelope", () => {
-		fragment("rule-whale", GP_RULE_CAP + 1);
-		guard("guard-whale.sh", ["rule-whale"]);
-		settings({ Bash: ["guard-whale.sh"] });
+		fragment("rule-whale", RULE_CAP + 1);
+		guard("guard-whale.js", ["rule-whale"]);
+		settings({ Bash: ["guard-whale.js"] });
 		const envelope = run("--json").json();
 		expect(
 			PROFILES["context-budget"].measure(
@@ -912,7 +911,7 @@ describe("the profile's measurement of a session surface", () => {
 				"findings",
 				envelope,
 			),
-		).toBe(GP_RULE_CAP + 1);
+		).toBe(RULE_CAP + 1);
 		expect(
 			PROFILES["context-budget"].measure(
 				{ surface: "fragment:no-such-id" },
@@ -925,9 +924,9 @@ describe("the profile's measurement of a session surface", () => {
 	/* mantahostels#2260. Both readings are taken rather than one: the fault is invisible in
 	 * the after half alone, which `overCap` answers correctly. */
 	it("reads the baseline half for a fragment that has not yet breached", () => {
-		fragment("rule-whale", GP_RULE_CAP - 1);
-		guard("guard-whale.sh", ["rule-whale"]);
-		settings({ Bash: ["guard-whale.sh"] });
+		fragment("rule-whale", RULE_CAP - 1);
+		guard("guard-whale.js", ["rule-whale"]);
+		settings({ Bash: ["guard-whale.js"] });
 		const before = run("--json").json();
 		expect(before.session.overCap).toEqual([]);
 		expect(
@@ -936,9 +935,9 @@ describe("the profile's measurement of a session surface", () => {
 				"findings",
 				before,
 			),
-		).toBe(GP_RULE_CAP - 1);
+		).toBe(RULE_CAP - 1);
 
-		fragment("rule-whale", GP_RULE_CAP + 1);
+		fragment("rule-whale", RULE_CAP + 1);
 		const after = run("--json").json();
 		expect(
 			PROFILES["context-budget"].measure(
@@ -946,13 +945,13 @@ describe("the profile's measurement of a session surface", () => {
 				"findings",
 				after,
 			),
-		).toBe(GP_RULE_CAP + 1);
+		).toBe(RULE_CAP + 1);
 	});
 });
 
 /*
  * --against HEAD, the shape .husky/pre-commit runs. It also exercises
- * `ruleSourcePathspecs()`: the guards are materialised only because settings
+ * `readRuleSourcePathspecs()`: the guards are materialised only because settings
  * is read AT the revision to name them, and a narrowing there would BROKEN
  * rather than pass, so a green run here is the pathspec's own assertion.
  *
@@ -1035,16 +1034,15 @@ describe("--against HEAD over a guard's own bytes", () => {
 		/* Sized off SESSION_CAP rather than written out, so moving the cap
 		 * cannot leave this fixture landing UNDER it — where the gate is right to
 		 * pass and the case silently stops testing anything (mantahostels#2493). Every fragment stays
-		 * under GP_RULE_CAP, which is a separate fault this case must not raise —
+		 * under RULE_CAP, which is a separate fault this case must not raise —
 		 * so the COUNT is derived too, not written out. The divisor is the largest
-		 * a fragment may be and still take the +750 B bump under GP_RULE_CAP. */
-		const n = Math.ceil((SESSION_CAP - 200) / (GP_RULE_CAP - 750 - 1));
+		 * a fragment may be and still take the +750 B bump under RULE_CAP. */
+		const n = Math.ceil((SESSION_CAP - 200) / (RULE_CAP - 750 - 1));
 		const each = Math.floor((SESSION_CAP - 200) / n);
 		const staged = each + 750;
-		expect(
-			staged,
-			"the staged fragment must stay under GP_RULE_CAP",
-		).toBeLessThan(GP_RULE_CAP);
+		expect(staged, "the staged fragment must stay under RULE_CAP").toBeLessThan(
+			RULE_CAP,
+		);
 		expect(n * each, "HEAD's group must start UNDER the cap").toBeLessThan(
 			SESSION_CAP,
 		);
@@ -1063,7 +1061,7 @@ describe("--against HEAD over a guard's own bytes", () => {
 	});
 
 	/* #1014: the materialised trees carried no `.claude/workflow-core.json` — every module read as off,
-	 * so `gp_rule_module`'s ids dropped out of both sides and neither breached.
+	 * so `ruleModule`'s ids dropped out of both sides and neither breached.
 	 * The module-gated guard is what puts the group within reach of the cap,
 	 * and WFC_MODULES is dropped so both runs read the fixture's config rather
 	 * than vitest.setup.ts's every-module default, which masked the fault.
@@ -1071,7 +1069,7 @@ describe("--against HEAD over a guard's own bytes", () => {
 	 * HEAD sits 13 B under the cap and the commit adds 26 B, landing 13 B over.
 	 * The count is derived as the crossing case
 	 * above derives its own, so a raised cap cannot push the staged fragment
-	 * over GP_RULE_CAP. */
+	 * over RULE_CAP. */
 	function gatedCrossing(modules: string[]) {
 		const injected = process.env.WFC_MODULES;
 		delete process.env.WFC_MODULES;
@@ -1080,13 +1078,13 @@ describe("--against HEAD over a guard's own bytes", () => {
 		});
 		const gated = 3000;
 		const plainTotal = SESSION_CAP - 13 - gated;
-		const n = Math.ceil(plainTotal / (GP_RULE_CAP - 26 - 1));
+		const n = Math.ceil(plainTotal / (RULE_CAP - 26 - 1));
 		const each = Math.floor(plainTotal / n);
 		const base = n * each + gated;
 		expect(
 			each + 26,
-			"the staged fragment must stay under GP_RULE_CAP",
-		).toBeLessThan(GP_RULE_CAP);
+			"the staged fragment must stay under RULE_CAP",
+		).toBeLessThan(RULE_CAP);
 		expect(base, "HEAD's group must start UNDER the cap").toBeLessThan(
 			SESSION_CAP,
 		);
@@ -1094,14 +1092,14 @@ describe("--against HEAD over a guard's own bytes", () => {
 		const plain = group("Bash", n, each);
 		fragment("rule-gated", gated);
 		write(
-			"scripts/guard-gated.sh",
-			"#!/usr/bin/env bash\ngp_rule_module suites rule-gated\ngp_rule rule-gated\n",
+			"scripts/guard-gated.js",
+			'module.exports = (ctx) => ({\n\tinjectRules: ["rule-gated"],\n\tskip: [\n\t\t...ruleModule(ctx, "suites", ["rule-gated"]),\n\t],\n});\n',
 		);
 		write(
 			".claude/workflow-core.json",
 			JSON.stringify({ contract: 1, modules }),
 		);
-		settings({ Bash: [...plain, "guard-gated.sh"] });
+		settings({ Bash: [...plain, "guard-gated.js"] });
 		baseline();
 		stageFragment("rule-bash-0", each + 26);
 		return base;
@@ -1131,26 +1129,26 @@ describe("--against HEAD over a guard's own bytes", () => {
 	});
 
 	/* mantahostels#2311: the fragment equivalent of the crossing case above. The baseline
-	 * fragment is wired and reachable but under GP_RULE_CAP, so `reach.overCap`
+	 * fragment is wired and reachable but under RULE_CAP, so `reach.overCap`
 	 * carries no entry for it — `session.fragmentBytes` is the only reading that
 	 * exists on that side, and it is the one `surfaceTotal`'s `fragment:` prefix
 	 * must resolve for `measuredDelta` to print a base figure instead of
 	 * silence. A second, untouched guard keeps the group's own total apart from
 	 * the fragment's, so the printed base figure can only have come from the
 	 * `fragment:` reading. */
-	it("refuses a commit whose fragment first crosses GP_RULE_CAP, naming the fragment, its size at HEAD and the bytes added", () => {
-		fragment("rule-whale", GP_RULE_CAP - 100);
-		guard("guard-whale.sh", ["rule-whale"]);
+	it("refuses a commit whose fragment first crosses RULE_CAP, naming the fragment, its size at HEAD and the bytes added", () => {
+		fragment("rule-whale", RULE_CAP - 100);
+		guard("guard-whale.js", ["rule-whale"]);
 		fragment("rule-dummy", 200);
-		guard("guard-dummy.sh", ["rule-dummy"]);
-		settings({ Bash: ["guard-whale.sh", "guard-dummy.sh"] });
+		guard("guard-dummy.js", ["rule-dummy"]);
+		settings({ Bash: ["guard-whale.js", "guard-dummy.js"] });
 		baseline();
-		stageFragment("rule-whale", GP_RULE_CAP + 100);
+		stageFragment("rule-whale", RULE_CAP + 100);
 		const r = gate("--json");
 		expect(r.status).toBe(1);
 		expect(JSON.stringify(r.json().added)).toContain("rule-whale");
 		expect(gate().stderr).toContain(
-			`HEAD had ${GP_RULE_CAP - 100} B, so this commit adds 200 B.`,
+			`HEAD had ${RULE_CAP - 100} B, so this commit adds 200 B.`,
 		);
 	});
 
@@ -1158,29 +1156,29 @@ describe("--against HEAD over a guard's own bytes", () => {
 	 * four passing cases elsewhere in this block are all group/session-surface,
 	 * so a `surfaceTotal` regression that refused every fragment commit outright
 	 * would leave every other test in this block green. */
-	it("passes a fragment this commit leaves under GP_RULE_CAP", () => {
-		fragment("rule-whale", GP_RULE_CAP - 100);
-		guard("guard-whale.sh", ["rule-whale"]);
-		settings({ Bash: ["guard-whale.sh"] });
+	it("passes a fragment this commit leaves under RULE_CAP", () => {
+		fragment("rule-whale", RULE_CAP - 100);
+		guard("guard-whale.js", ["rule-whale"]);
+		settings({ Bash: ["guard-whale.js"] });
 		baseline();
-		stageFragment("rule-whale", GP_RULE_CAP - 50);
+		stageFragment("rule-whale", RULE_CAP - 50);
 		const r = gate("--json");
 		expect(r.status).toBe(0);
 		expect(r.json().added).toEqual([]);
 	});
 
 	/* The breach arrives through the WIRING rather than through a fragment, which
-	 * is the only path where ruleSourcePathspecs() must resolve the STAGED
+	 * is the only path where readRuleSourcePathspecs() must resolve the STAGED
 	 * side's settings rather than HEAD's (spec mantahostels#1932's story 3). */
 	it("refuses a commit that wires another guard onto an over-cap group, naming the new total", () => {
 		const wired = group("Bash", OVER_N, OVER_EACH);
 		settings({ Bash: wired });
 		baseline();
 		fragment("rule-extra", 2000);
-		guard("guard-extra.sh", ["rule-extra"]);
-		settings({ Bash: [...wired, "guard-extra.sh"] });
+		guard("guard-extra.js", ["rule-extra"]);
+		settings({ Bash: [...wired, "guard-extra.js"] });
 		git("add", "--", ".claude/settings.json");
-		git("add", "--", "scripts/guard-extra.sh");
+		git("add", "--", "scripts/guard-extra.js");
 		git("add", "--", "docs/agents/rules/rule-extra.txt");
 		const r = gate("--json");
 		expect(r.status).not.toBe(0);
@@ -1203,6 +1201,34 @@ describe("--against HEAD over a guard's own bytes", () => {
 		stageFragment("rule-bash-0", 500);
 		const r = gate("--json");
 		expect(r.json().added).toEqual([]);
+		expect(r.status).toBe(0);
+	});
+
+	/* #2924: a core is read from the manifest the side measured commits, so an
+	 * uncommitted row naming a core not yet written breaks no commit. */
+	it("reads each side's dispatcher cores from that side's own manifest (#2924)", () => {
+		const manifest = (cores: string[]) =>
+			write(
+				"scripts/lib/guard-cores.json",
+				JSON.stringify({
+					PreToolUse: cores.map((core) => ({
+						name: core,
+						core,
+						tools: "Bash",
+						failure: "open",
+					})),
+				}),
+			);
+		settings({ Bash: ["guard-dispatch.js"] });
+		write("scripts/guard-dispatch.js", "");
+		fragment("rule-bash-0", 500);
+		write("scripts/lib/core-a.js", 'ctx.ruleText("rule-bash-0");\n');
+		manifest(["core-a.js"]);
+		baseline();
+		manifest(["core-a.js", "core-unwritten.js"]);
+		stageFragment("rule-bash-0", 600);
+		const r = gate("--json");
+		expect(r.stderr).not.toContain("BROKEN");
 		expect(r.status).toBe(0);
 	});
 });
@@ -1233,12 +1259,12 @@ describe("the shared rule-emission ratchet", () => {
 	});
 
 	it("counts an id reachable from several tools once, not once per tool", () => {
-		/* guard-file-claim.sh's real shape: one guard, one matcher string naming
+		/* guard-dispatch.js's real shape: one guard, one matcher string naming
 		 * several tools. Wired here under two SEPARATE matcher entries instead,
 		 * which is how .claude/settings.json's actual JSON array expresses it. */
 		fragment("rule-shared", 1000);
-		guard("guard-shared.sh", ["rule-shared"]);
-		settings({ Write: ["guard-shared.sh"], Edit: ["guard-shared.sh"] });
+		guard("guard-shared.js", ["rule-shared"]);
+		settings({ Write: ["guard-shared.js"], Edit: ["guard-shared.js"] });
 		expect(run("--json").json().session.ratchet.total).toBe(1000);
 	});
 
@@ -1262,7 +1288,7 @@ describe("the direction gate over the shared ratchet", () => {
 	 * rather than a byte, so the rise survives the helper's rounding across
 	 * RATCHET_TOOLS. */
 	const over = RATCHET_CAP + 1;
-	const higher = over + RATCHET_TOOLS.length * Math.floor(GP_RULE_CAP / 2);
+	const higher = over + RATCHET_TOOLS.length * Math.floor(RULE_CAP / 2);
 	const ratchetEnvelope = (total: number) => {
 		ratchetTotal(total);
 		return run("--json").json();
@@ -1294,7 +1320,7 @@ describe("the direction gate over the shared ratchet", () => {
  * is a VERDICT — the checker's severity agrees with its own arithmetic, true
  * whichever side of the cap this repo is on — and the second is spec mantahostels#1932's
  * story 27, that the repo is actually under cap, which mantahostels#2046 made writable by
- * re-basing the cap on the unit gp_rule's latch charges.
+ * re-basing the cap on the unit the injection latch charges.
  */
 describe("this repo's own figures", () => {
 	// WFC_MODULES dropped, so the figures are the modules this repo declares
@@ -1345,19 +1371,18 @@ describe("this repo's own figures", () => {
 });
 
 describe("rule text a hook hands over after its call (#2144)", () => {
-	/* post-write.sh's shape: a latched fetch joined into the message by a
-	 * `for` loop and `+=`, which the bound must be correlated through. */
+	/* A PostToolUse core's shape: a latched fetch returned with its mark. */
 	const latched = (id: string) =>
-		`#!/usr/bin/env bash\nif ! gp_rule_told ${id}; then\n  rule="$(gp_rule_text ${id} '')"\nfi\nmsg=""\nfor part in "$notice" "$rule"; do\n  [[ -n "$part" ]] && msg+="$part"\ndone\ngp_context "$msg" PostToolUse\nif [[ -n "$rule" ]]; then\n  gp_rule_mark_told ${id}\nfi\n`;
-	/* guard-failed-call-rules.sh's shape: no latch at all. */
+		`module.exports = (ctx) => {\n\tif (ctx.told("${id}")) return {};\n\treturn { context: ctx.ruleText("${id}"), latchAfter: "${id}" };\n};\n`;
+	/* guard-failed-call-rules.js's shape: no latch at all. */
 	const unlatched = (id: string) =>
-		`#!/usr/bin/env bash\ntext="$(gp_rule_text ${id} '')"\ngp_context "$text" PostToolUseFailure\n`;
+		`module.exports = (ctx) => ({ context: ctx.ruleText("${id}") });\n`;
 
 	beforeEach(() => {
 		fragment("rule-written", 600);
 		fragment("rule-failed", 400);
-		write("scripts/post-latched.sh", latched("rule-written"));
-		write("scripts/post-unlatched.sh", unlatched("rule-failed"));
+		write("scripts/post-latched.js", latched("rule-written"));
+		write("scripts/post-unlatched.js", unlatched("rule-failed"));
 		const hook = (matcher: string, script: string) => ({
 			matcher,
 			hooks: [{ command: `"$CLAUDE_PROJECT_DIR"/scripts/${script}` }],
@@ -1366,8 +1391,8 @@ describe("rule text a hook hands over after its call (#2144)", () => {
 			{},
 			JSON.stringify({
 				hooks: {
-					PostToolUse: [hook("Write|Edit", "post-latched.sh")],
-					PostToolUseFailure: [hook("Bash", "post-unlatched.sh")],
+					PostToolUse: [hook("Write|Edit", "post-latched.js")],
+					PostToolUseFailure: [hook("Bash", "post-unlatched.js")],
 				},
 			}),
 		);
@@ -1381,14 +1406,14 @@ describe("rule text a hook hands over after its call (#2144)", () => {
 			{
 				event: "PostToolUse",
 				matcher: "Write|Edit",
-				file: "scripts/post-latched.sh",
+				file: "scripts/post-latched.js",
 				once: { bytes: 600, ids: ["rule-written"] },
 				perFire: [],
 			},
 			{
 				event: "PostToolUseFailure",
 				matcher: "Bash",
-				file: "scripts/post-unlatched.sh",
+				file: "scripts/post-unlatched.js",
 				once: { bytes: 0, ids: [] },
 				perFire: [{ id: "rule-failed", bytes: 400 }],
 			},
@@ -1401,17 +1426,17 @@ describe("rule text a hook hands over after its call (#2144)", () => {
 		expect(session.ratchet.total).toBe(0);
 	});
 
-	it("warns on an after-call latch no gp_rule_mark_told sets", () => {
+	it("warns on an after-call latch no latchAfter decision sets", () => {
 		write(
-			"scripts/post-latched.sh",
-			latched("rule-written").replace(/gp_rule_mark_told \S+/, ":"),
+			"scripts/post-latched.js",
+			latched("rule-written").replace(/, latchAfter: "[^"]+"/, ""),
 		);
 		const dead = run("--json")
 			.json()
 			.findings.filter((f: { tag: string }) => f.tag === "DEAD-LATCH");
 		expect(
 			dead.map((f: { message: string }) => f.message).join("\n"),
-		).toContain("scripts/post-latched.sh");
+		).toContain("scripts/post-latched.js");
 	});
 
 	it("says in the table that it is uncapped and why", () => {

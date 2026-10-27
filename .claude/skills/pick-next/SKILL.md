@@ -12,12 +12,12 @@ extend.
 ## Read-only
 
 **This skill and its script only ever read the tracker.** Selection's role is
-**display duty** — show which issues carry a fresh `urgent`, applied by whom and
-when.
+**display duty** — show which issues are urgent, applied by whom and when, or
+through which map.
 
 The script does write local state under the gitignored `.claude/tmp/markers/.pick-next/`.
 
-Held by mantahostels#101 (what defines urgency), which barred auto-stripping a stale
+Held by mantahostels#101 (what defines urgency), which barred auto-stripping
 `urgent`, and mantahostels#111 (who may apply `urgent`), which bars this skill applying one.
 
 **One write is yours: discharging a met condition gate** (§3's GATED, #2279)
@@ -76,7 +76,7 @@ node scripts/pick-next.js [--goal 116,117] [--limit 15] \
 at no extra request, for §4 to read. The directory is per session, so two
 concurrent runs never write into each other's, and it is never under the job
 directory, where every band file a subagent appends would draw
-`guard-job-dir-scratch.sh`'s warn (#1140).
+`lib/job-dir-scratch.js`'s warn (#1140).
 
 **Every run writes its full report to `.claude/tmp/markers/.pick-next/last-run.json`, whether or not
 you asked for `--json`** — every block the text output printed, machine-readable,
@@ -106,7 +106,7 @@ tooling run leaves one that dispatched nothing, and a run that died before its
 report leaves the previous one untouched.
 
 `--json` prints that same report. The sort levels, in order:
-fresh `urgent` → goal-set membership → a `waiting:external` stall past 7 days →
+open `bug` → `urgent`, the issue's own or an ancestor map's (#2664) → goal-set membership → a `waiting:external` stall past 7 days →
 ticket type (`wayfinder:grilling`, `wayfinder:prototype` and untyped
 `takes:wayfinder` first, #2001) → transitive downstream reach → collision
 estimate → issue number.
@@ -302,7 +302,7 @@ size, so it replaces no part of the band read — grep-*instead* was the option
 mantahostels#587 rejected.
 
 **Never refuse a candidate on a prediction — warm or provisional — and never
-reorder the band around one** (mantahostels#588). `scripts/guard-file-claim.sh` stays the
+reorder the band around one** (mantahostels#588). The dispatcher's `guard-file-claim` core stays the
 enforcement tier, so a hit changes what the band read costs, never what a
 session may write. Why reordering buys no time either, and where a future
 attempt at the cold-re-pick cost should aim instead:
@@ -570,15 +570,11 @@ that is judged as the session runs, not at dispatch:
   not live is treated as unassigned. An oracle that cannot be read means the
   claim stands and the member is not re-dispatched (mantahostels#533; the liveness read
   is mantahostels#437's, its reach verified at mantahostels#594).
-  **Claiming a member means two records** (mantahostels#645): `gh issue edit <n>
-  --add-assignee @me` for the tracker, and the arbiter claim that makes the
-  assignee readable as live — which `scripts/record-issue-claim.sh` writes off
-  that same command (mantahostels#646). Run `node scripts/session-arbiter.js claim-issue
-  <n>` by hand only where that hook cannot see the assignment: the GitHub web
-  UI, a script, `gh api`, a `--repo`-qualified or login-spelled edit, one whose
-  issue number arrives as a shell variable rather than a literal, and `gh issue
-  create --assignee @me`. The release at the member's close is made for you
-  the same way — `scripts/release-issue-claim.sh` drops the claim off a `gh
+  **Claim each member with `node scripts/claim-issue.js <n>`**: it assigns
+  you, writes the arbiter claim that makes the assignee readable as live
+  (mantahostels#645), and takes `parked` off (#2703), which no bare `gh issue
+  edit --add-assignee` does. The release at the member's close is made for you
+  — `scripts/release-issue-claim.js` drops the claim off a `gh
   issue close <n>` run through the Bash tool (mantahostels#706); run `release-issue <n>`
   by hand on a close made from the web UI, by a script or through `gh api`,
   one carrying `--repo`, or one whose issue number is a shell variable.
@@ -687,13 +683,13 @@ at the 1-minute grace a band read outlasts the reaper's window
 (`references/measured-figures.md`). Size the set on the figure as read — §6's
 `Memory:` block carries it — and start it: each session the set starts reaps whatever is past grace on its way up.
 
-**Concurrent test suites: a headroom ladder, capped at three.** 1/2/3 suites
+**Concurrent test suites: one whole suite at a time (#2680), on a headroom ladder.** 1/2/3 suites
 need **~2.15 / 3.25 / 3.65 GB resting** at launch (all three measured at
-`maxWorkers: 3`, #1603), extrapolated below ~7.7 GB. **There is no flat allowance above the ladder and
+3 workers a suite, #1603; a lone whole suite runs 5 workers and is charged ~2.9 GB), extrapolated below ~7.7 GB. **There is no flat allowance above the ladder and
 four is unmeasured** — 3 GB buys one. Builds and dev servers at one, unmeasured.
 `docs/environment.md` §6 owns all three. **The ladder governs concurrent suite
 *launches*, and caps the size of a dispatch set at nothing** (mantahostels#1476). It is a resting-headroom test applied per launch
-inside an already-admitted session by `scripts/guard-suite-concurrency.sh`, a
+inside an already-admitted session by `scripts/guard-suite-concurrency.js`, a
 `PreToolUse` hook that sends a launch short of its rung to the queue (#2305).
 Admission and the substrate test are the only things that cap the set.
 

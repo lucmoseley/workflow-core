@@ -5,7 +5,7 @@
  * lexical and reported beside the score, never in it.
  */
 
-const { mainChainRecords, contentText } = require("./transcript");
+const { mainChainRecords, parseContentText } = require("./transcript");
 const { needleIn } = require("./guard-fires");
 const { meanVar } = require("./arm-stats.js");
 const {
@@ -149,7 +149,7 @@ function commitGateRefusals(records) {
 		for (const b of blocksOf(r)) {
 			if (b?.type === "tool_use" && b.name === "Bash") bash.add(b.id);
 			if (b?.type !== "tool_result" || !bash.has(b.tool_use_id)) continue;
-			for (const gate of refusingGates(contentText(b.content))) {
+			for (const gate of refusingGates(parseContentText(b.content))) {
 				byGate[gate] = (byGate[gate] ?? 0) + 1;
 				total++;
 			}
@@ -190,13 +190,15 @@ const CODE_SPAN = /`[^`\n]*`/g;
  * `message.id` that carried text.
  * @param {LogRecord[]} records
  */
-function finalMessage(records) {
+function parseFinalMessage(records) {
 	let id = null;
 	/** @type {string[]} */
 	let parts = [];
 	for (const r of records) {
 		if (r.type !== "assistant") continue;
-		const text = contentText(blocksOf(r).filter((b) => b?.type === "text"));
+		const text = parseContentText(
+			blocksOf(r).filter((b) => b?.type === "text"),
+		);
 		if (!text) continue;
 		if (r.message.id !== id) parts = [];
 		id = r.message.id;
@@ -242,7 +244,7 @@ function finalMessageChecks(message) {
  */
 function secondaryOf(text, subjects) {
 	const records = [...mainChainRecords(text, "main")];
-	const final = finalMessage(records);
+	const final = parseFinalMessage(records);
 	return {
 		warnsActedAgainst: warnsActedAgainst(records, subjects),
 		commitGateRefusals: commitGateRefusals(records),

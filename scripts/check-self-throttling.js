@@ -63,7 +63,7 @@ const {
 	FLANK_RATIO,
 	MIN_DEAD_HOURS,
 	corpusFiles,
-	corpusRoots,
+	readCorpusRoots,
 	deadWindows,
 	episodes,
 	hourlyCounts,
@@ -170,7 +170,7 @@ function collectorStalledHours() {
  *
  * @returns {{ enabled: boolean, by: "window" | "constant", detail: string }}
  */
-function resolvedNotice() {
+function buildResolvedNotice() {
 	if (trialLive())
 		return {
 			enabled: true,
@@ -189,7 +189,7 @@ function resolvedNotice() {
  * RESOLVED non-env state `noticeDecision()`'s own env branch is compared
  * against (mantahostels#2857), so this must never itself consult the override.
  */
-const noticeBase = () => resolvedNotice().enabled;
+const noticeBase = () => buildResolvedNotice().enabled;
 
 /**
  * The notice's setting AND the input that decided it, which mantahostels#2857 made this
@@ -212,7 +212,7 @@ function noticeDecision() {
 			by: "override",
 			detail: `WFC_THROTTLE_NOTICE=${override}`,
 		};
-	return resolvedNotice();
+	return buildResolvedNotice();
 }
 
 const noticeEnabled = () => noticeDecision().enabled;
@@ -588,7 +588,7 @@ function okLineFor({ recent, fired, days, decision }) {
  *
  * @param {Ctx} ctx
  */
-function fromState(ctx) {
+function readSweepFromState(ctx) {
 	sayNotifyFaults(ctx);
 	const state = readState();
 	if (!state || state.stale) {
@@ -627,7 +627,7 @@ runCheck({
 		let sweptAt = null;
 		let counts = {};
 		if (ctx.notify) {
-			const read = fromState(ctx);
+			const read = readSweepFromState(ctx);
 			if ("okLine" in read) return read;
 			({ fired, sweptAt, counts } = read);
 		} else {
@@ -698,7 +698,7 @@ function candidateTable(windows) {
 
 /** The whole corpus, swept. */
 function sweep() {
-	const files = corpusFiles(corpusRoots());
+	const files = corpusFiles(readCorpusRoots());
 	/* SKIP, not BROKEN: the transcript corpus is the SUBJECT and lives outside
 	 * the repo, so a machine that has never run Claude Code, or a seat directory
 	 * pruned away, is not this repo's fault (lib/check.js's subject/apparatus

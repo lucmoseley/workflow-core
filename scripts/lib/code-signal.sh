@@ -2,12 +2,14 @@
 # code-signal.sh — the one definition of "this session changed enough code to
 # owe a review" (#1163).
 #
-# Three callers: scripts/concision-backstop.sh at Stop, over the working tree,
-# and scripts/guard-push-rules.sh before a push, over HEAD, both through
-# review_uncovered; and scripts/inject-review-tier.sh at code-review's load,
-# through written_paths. A second copy of the paths, the floor, the attribution
-# or the tier check would let the push stay silent on a change the Stop nag then
-# bills, or the reverse.
+# Two callers: scripts/concision-backstop.sh at Stop, over the working tree,
+# and scripts/push-review-owed.sh before a push, over HEAD, both through
+# review_uncovered. A second copy of the paths, the floor, the attribution or
+# the tier check would let the push stay silent on a change the Stop nag then
+# bills, or the reverse. written_paths and its attribution have one Node twin,
+# lib/review-tier.js with lib/review-tier-host.js at code-review's load; a
+# change to either changes both, and review-tier.test.ts's "in both twins"
+# cases hold the two to one answer (#2971).
 #
 # SOURCED, NEVER RUN, after scripts/lib/concision-marker.sh. bash: `local -a`,
 # `local -n`, `mapfile`.
@@ -39,6 +41,7 @@ CODE=(
 # The one matcher of declared sensitive paths (#1617). Absolute, because both
 # callers cd after sourcing this.
 CS_MATCHER="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/sensitive-paths.js"
+CS_ARBITER="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." 2>/dev/null && pwd)/session-arbiter.js"
 
 # Did /implement run in this session? inject-tracker-docs.sh reserves one marker
 # per session per command before it emits, under a uid-suffixed scratch
@@ -51,12 +54,12 @@ CS_MATCHER="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)/sensitive-
 # UNDER-DETECTION IS THE SAFE DIRECTION, and there are three: a SessionStart
 # whose source is compact, clear or resume writes no marker at all; the sweep
 # deletes one over 24 hours old; and the whole code signal is gated on this
-# session's WRITE LEDGER, which scripts/record-write.sh fills from the Write/Edit
-# tools only — so a session editing through Bash was billed nothing to begin
-# with, and no threshold was consulted (mantahostels#114, deliberate).
+# session's WRITE LEDGER, which the post-write core (scripts/lib/post-write.js)
+# fills from the Write/Edit tools only — so a session editing through Bash was
+# billed nothing to begin with, and no threshold was consulted (mantahostels#114, deliberate).
 #
 # THAT THIRD ONE IS NARROWED, NOT CLOSED (mantahostels#2778, which measured it).
-# scripts/guard-claimed-bash-write.sh credits an uncontended Bash write target
+# scripts/lib/claimed-bash-write.js credits an uncontended Bash write target
 # to the write ledger, which reaches the spellings its parser reads and no
 # others; a destination no parser can resolve stays billed to nobody
 # (mantahostels#296).
@@ -201,23 +204,50 @@ sensitive_match() {
 # cs_log <line> — logs <line> where the caller loaded lib/guard-log.sh.
 cs_log() { ! declare -F gl_log >/dev/null 2>&1 || gl_log "$1" 2>/dev/null; }
 
-# review_uncovered <marker> <base> <ledger file> <threshold> [<to>] — 0 where
+# own_commits_owed <base> <newer base> <ledger file> <sid> — code_review_owed
+# at any size over <base>..<newer base>, billing only the ledger's paths that
+# this session's own commits in that range touched, by lib/own-work.js's
+# rule: a neighbour's commit there to a path the session also wrote is the
+# neighbour's (#3099), and an unledgered one is the session's only where its
+# patch matches one of the session's ledgered commits (#3108). Where the
+# arbiter will not say, the whole ledger is billed, logged: a re-review is the
+# cheaper error.
+own_commits_owed() {
+  local base="$1" newer="$2" mine="$3" sid="$4" own touched rc
+  own="$(mktemp 2>/dev/null)" || {
+    cs_log "could not make a temporary file — the whole ledger billed for the marker's newer base="
+    code_review_owed "$base" "$mine" "$ANY_CHANGE" "$newer"
+    return
+  }
+  if touched="$(node "$CS_ARBITER" own-paths "$base" "$newer" "$sid" 2>/dev/null)"; then
+    printf '%s\n' "$touched" | attributed_to "$mine" >"$own"
+  else
+    cs_log "session-arbiter.js own-paths failed — the whole ledger billed for the marker's newer base="
+    cp "$mine" "$own"
+  fi
+  code_review_owed "$base" "$own" "$ANY_CHANGE" "$newer"
+  rc=$?
+  rm -f "$own"
+  return "$rc"
+}
+
+# review_uncovered <marker> <base> <ledger file> <threshold> <sid> [<to>] — 0 where
 # code_review_owed says a review is owed and <marker> does not cover it, else 1.
 # On an escalated change a marker pass_valid accepts covers it only where
 # marker_tier_fault finds nothing (spec #1612 story 31). A marker whose base= is
-# newer than <base>, as a staged review's HEAD is, covers it only where this
-# session changed no code and no sensitive path between the two, at any size
-# (#1745), and only where it names paths= (#1840). A marker naming paths=
-# covers it only where this session changed no code and no sensitive path
-# outside them, at any size (#1769); one with no paths= line, no tree= line and
-# a base= at or before <base> covers every path, and one with tree= and no
-# paths= covers nothing (#1925). Sets
-# code_review_owed's variables, cs_pass_fault (why an existing marker was
+# newer than <base>, as a staged review's HEAD is, covers it only where no
+# commit of this session's between the two changed code or a sensitive path, at
+# any size (#1745, #3099), and only where it names paths= (#1840). A marker
+# naming paths= covers it only where this session changed no code and no
+# sensitive path outside them since the marker's base=, at any size (#1769);
+# one with no paths= line, no tree= line and a base= at or before <base>
+# covers every path, and one with tree= and no paths= covers nothing (#1925).
+# Sets code_review_owed's variables, cs_pass_fault (why an existing marker was
 # rejected, else empty), cs_tier_line (the sentence naming the tier owed) and
 # cs_marker_more (the sentence naming the marker lines an escalated change
 # adds, else empty), and logs cs_fault.
 review_uncovered() {
-  local marker="$1" base="$2" mine="$3" threshold="$4" to="${5:-}" valid=1 rc newer_base unseen=""
+  local marker="$1" base="$2" mine="$3" threshold="$4" sid="$5" to="${6:-}" valid=1 rc newer_base unseen=""
   pass_valid "$marker" "$base"
   rc=$?
   # shellcheck disable=SC2154  # pass_valid's, in lib/concision-marker.sh
@@ -229,7 +259,7 @@ review_uncovered() {
     cs_pass_fault="it has a tree= line and no paths= line, so it records a staged review and nothing bounds what it vouches for: a staged review names every path its diff named in paths=, and $whole_change_hint"
   elif [ "$rc" -eq 0 ]; then
     valid=0
-  elif [ "$rc" -eq 2 ] && ! code_review_owed "$base" "$mine" "$ANY_CHANGE" "$newer_base"; then
+  elif [ "$rc" -eq 2 ] && ! own_commits_owed "$base" "$newer_base" "$mine" "$sid"; then
     if marker_has "$marker" paths; then
       valid=0
       cs_pass_fault=""
@@ -237,8 +267,10 @@ review_uncovered() {
       cs_pass_fault="its base= is ahead of this session's start point and it has no paths= line, so nothing bounds what it vouches for: a review of only some paths names them in paths=, and $whole_change_hint"
     fi
   fi
-  # A ledger of what this session wrote that the review never diffed. Where it
-  # cannot be built the marker stands, logged (#1769).
+  # A ledger of what this session wrote that the review never diffed, since
+  # the marker's base=: before a newer one, only the session's own commits
+  # count, and those were checked above. Where it cannot be built the marker
+  # stands, logged (#1769).
   if [ "$valid" -eq 0 ] && marker_has "$marker" paths; then
     if ! unseen="$(mktemp 2>/dev/null)"; then
       cs_log "could not make a temporary file — the marker's paths= not checked"
@@ -247,7 +279,7 @@ review_uncovered() {
       [ $? -eq 2 ]
     then
       cs_log "could not filter the write ledger by the marker's paths= — not checked"
-    elif code_review_owed "$base" "$unseen" "$ANY_CHANGE" "$to"; then
+    elif code_review_owed "${newer_base:-$base}" "$unseen" "$ANY_CHANGE" "$to"; then
       valid=1
       cs_pass_fault="its paths= leaves out ${cs_files% }, which this session wrote and the review it records never saw: a review of them adds them to paths=, and $whole_change_hint"
     fi

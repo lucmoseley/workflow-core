@@ -98,7 +98,7 @@ interface OpenIssue {
 /**
  * The gh call log — every invocation, one per line. The stub serves `issue
  * list` always, and `run list`/`run view` only where a `sweep` fixture is
- * given — the shape report-red-suite.js's sweeps() reads, shared by both
+ * given — the shape report-red-suite.js's readSweeps() reads, shared by both
  * sweepStillRed() and newestSweepRed() (mantahostels#2297).
  */
 const GH_LOG = () => path.join(dir, "gh-calls.log");

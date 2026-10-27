@@ -139,6 +139,7 @@ function resolveScriptPaths(text) {
 module.exports = {
 	coreRoot,
 	inCheckout,
+	shellWord,
 	scriptPath,
 	docPath,
 	corePath,

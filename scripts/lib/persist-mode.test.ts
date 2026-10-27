@@ -30,7 +30,7 @@ const require_ = createRequire(__filename);
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const notify: any = require_("./notify-report.js");
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { procStartOf }: any = require_("./arbiter-proc.js");
+const { readProcStartOf }: any = require_("./arbiter-proc.js");
 const CHECK_LIB = path.resolve(__dirname, "check.js");
 const REAPER = path.resolve(__dirname, "..", "reap-finished-sessions.js");
 const CHECKER_KEY = "persist-gate-fixture";
@@ -66,7 +66,7 @@ function finishedSession() {
 		path.join(sandbox, "sessions", "1.json"),
 		JSON.stringify({
 			pid: process.pid,
-			procStart: procStartOf(process.pid),
+			procStart: readProcStartOf(process.pid),
 			sessionId: "other-1",
 			jobId: "other",
 			name: "a finished session",
@@ -76,7 +76,14 @@ function finishedSession() {
 	fs.mkdirSync(path.join(sandbox, "jobs", "other"), { recursive: true });
 	fs.writeFileSync(
 		path.join(sandbox, "jobs", "other", "state.json"),
-		JSON.stringify({ sessionId: "other-1", state: "done" }),
+		JSON.stringify({ sessionId: "other-1", state: "done", cwd: "/w" }),
+	);
+	/* A transcript whose last turn ended, so the reaper does not hold the
+	 * session for its turn (#2980). */
+	fs.mkdirSync(path.join(sandbox, "projects", "-w"), { recursive: true });
+	fs.writeFileSync(
+		path.join(sandbox, "projects", "-w", "other-1.jsonl"),
+		`${JSON.stringify({ type: "system", subtype: "turn_duration" })}\n`,
 	);
 	const bin = path.join(sandbox, "claude");
 	fs.writeFileSync(bin, "#!/bin/sh\nexit 0\n", { mode: 0o755 });

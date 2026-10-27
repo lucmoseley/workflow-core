@@ -11,7 +11,8 @@ socket, and a claim moves it to the job's cwd. A cwd that cannot be read counts
 as claimed, so the figure errs high, never low.
 
 lib/claude-sessions.sh is the shell twin, for readers that cannot start
-python3; a change to the unit lands in both. It compares the directory by inode
+python3, and lib/claude-sessions.js the Node one; a change to the unit lands
+in all three. It compares the directory by inode
 where this compares the path string, so a symlinked spare directory reads as
 claimed here — high, the safe direction.
 """

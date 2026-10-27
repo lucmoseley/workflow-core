@@ -27,7 +27,11 @@ const { oneCopyEach } = require("./lib/project-dirs");
 const { slugForRepo } = require("./lib/project-slug");
 const { seatsFrom } = require("./lib/seat-args");
 const { parseOrCode } = require("./lib/cli-args");
-const { priceFor, tablePath, sessionSpendUsd } = require("./lib/session-spend");
+const {
+	priceFor,
+	tablePath,
+	readSessionSpendEvents,
+} = require("./lib/session-spend");
 const { requiredGroup } = require("./lib/regex-group");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -73,7 +77,7 @@ const MODEL = /"model":"([^"]+)"/;
  * The model most of a transcript's assistant records ran on.
  * @param {string} file
  */
-function dominantModel(file) {
+function readDominantModel(file) {
 	/** @type {Record<string, number>} */
 	const counts = {};
 	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
@@ -87,11 +91,21 @@ function dominantModel(file) {
 	return top ? top[0] : null;
 }
 
-/** @param {number[]} costs */
-function buildTable(costs) {
+/** Where the landed share is read, in hours from a session's first request:
+ * a first guess, not tuned (#2925). `landedShare` holds the last mark's
+ * share past it, out to a week. */
+const LANDED_HOURS = [0.25, 0.5, 1, 2, 3, 4, 6, 8, 12, 24];
+
+const round = (/** @type {number} */ x) => Math.round(x * 100) / 100;
+
+/**
+ * @param {import("./lib/session-spend").SpendEvent[][]} sessions
+ */
+function buildTable(sessions) {
+	const costs = sessions.map((ev) => ev.reduce((s, e) => s + e.usd, 0));
 	const sorted = [...costs].sort((a, b) => a - b);
 	const n = sorted.length;
-	const round = (/** @type {number} */ x) => Math.round(x * 100) / 100;
+	const totalUsd = sorted.reduce((s, x) => s + x, 0);
 	const quantilesUsd = [];
 	for (let i = 0; i <= QUANTILE_STEPS; i++) {
 		const cost = sorted[Math.min(n - 1, Math.floor((n * i) / QUANTILE_STEPS))];
@@ -99,11 +113,43 @@ function buildTable(costs) {
 			throw new Error("buildTable needs at least one cost");
 		quantilesUsd.push(round(cost));
 	}
+	const u = quantilesUsd.at(-2);
+	if (u === undefined) throw new Error("QUANTILE_STEPS must be at least 1");
+	const tail = sorted.filter((x) => x > u);
 	return {
 		n,
-		meanUsd: round(sorted.reduce((s, x) => s + x, 0) / n),
+		meanUsd: round(totalUsd / n),
 		quantilesUsd,
+		// Under 40 sessions u is the maximum and no tail exists to measure: the
+		// mean is a stated guess, where 0 would read a session past u as
+		// finished (#370).
+		tailRemainderUsd: round(
+			tail.length === 0
+				? totalUsd / n
+				: tail.reduce((s, x) => s + (x - u), 0) / tail.length,
+		),
+		landedByHours: landedCurve(sessions, totalUsd),
 	};
+}
+
+/**
+ * Per `LANDED_HOURS` mark, the share of all sessions' spend that landed within
+ * it of each session's first stamped request; an unstamped request counts as
+ * landed at once.
+ * @param {import("./lib/session-spend").SpendEvent[][]} sessions
+ * @param {number} totalUsd
+ * @returns {Array<[number, number]>}
+ */
+function landedCurve(sessions, totalUsd) {
+	return LANDED_HOURS.map((h) => {
+		let landed = 0;
+		for (const ev of sessions) {
+			const start = ev.find((e) => !Number.isNaN(e.atMs))?.atMs ?? 0;
+			for (const e of ev)
+				if (!(e.atMs > start + h * 3_600_000)) landed += e.usd;
+		}
+		return [h, totalUsd > 0 ? round(landed / totalUsd) : 1];
+	});
 }
 
 /**
@@ -148,7 +194,7 @@ function main() {
 		return 1;
 	}
 	const lines = fs.readFileSync(ledger, "utf8").split("\n");
-	const costs = [];
+	const sessions = [];
 	for (const line of lines) {
 		let rec;
 		try {
@@ -160,19 +206,19 @@ function main() {
 		if (!prefix) continue;
 		const file = findByPrefix(seats, prefix);
 		if (!file) continue;
-		const model = dominantModel(file);
+		const model = readDominantModel(file);
 		if (!priceFor(model ?? undefined)) continue;
-		costs.push(sessionSpendUsd(file));
+		sessions.push(readSessionSpendEvents(file));
 	}
-	if (costs.length === 0) {
+	if (sessions.length === 0) {
 		writeFd(2, "no ledger entry matched a transcript — nothing to table\n");
 		return 1;
 	}
-	const table = buildTable(costs);
+	const table = buildTable(sessions);
 	const q = table.quantilesUsd;
 	writeFd(
 		1,
-		`n=${table.n} mean=$${table.meanUsd} median=$${q[QUANTILE_STEPS / 2]} p90=$${q[(QUANTILE_STEPS * 9) / 10]} max=$${q[QUANTILE_STEPS]}\n`,
+		`n=${table.n} mean=$${table.meanUsd} median=$${q[QUANTILE_STEPS / 2]} p90=$${q[(QUANTILE_STEPS * 9) / 10]} max=$${q[QUANTILE_STEPS]}\ntail remainder=$${table.tailRemainderUsd} landed=${table.landedByHours.map(([h, s]) => `${h}h:${s}`).join(" ")}\n`,
 	);
 	if (flags["--write"] !== true) return 0;
 	return writeClaimed(`${JSON.stringify(table, null, "\t")}\n`);

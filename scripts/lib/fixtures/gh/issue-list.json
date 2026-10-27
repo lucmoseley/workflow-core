@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "[{\"labels\":[{\"id\":\"LA_synthetic\",\"name\":\"kind:ticket\",\"description\":\"A synthetic label\",\"color\":\"0052CC\"}],\"number\":1,\"state\":\"OPEN\",\"title\":\"A synthetic issue\"}]\n",
+	"stderr": ""
+}

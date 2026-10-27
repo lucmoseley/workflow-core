@@ -35,8 +35,8 @@ const nodePath = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const {
 	SUITE_MAX,
-	SUITE_WORKERS,
-	availableMb,
+	WHOLE_SUITE_WORKERS,
+	readAvailableMb,
 	readRunningVitestSuites,
 	suiteRungMb,
 } = require("./lib/admission");
@@ -47,12 +47,13 @@ const REAP_SCRIPT = () =>
 
 /** @param {number} busy the vitest workers already running */
 function rungName(busy) {
-	const mb = suiteRungMb(busy + SUITE_WORKERS);
-	const suite = busy / SUITE_WORKERS + 1;
+	const workers = busy + WHOLE_SUITE_WORKERS;
+	const mb = suiteRungMb(workers);
+	const suite = workers / WHOLE_SUITE_WORKERS;
 	if (suite === 1) return `the ${mb} MB one-suite rung`;
 	return Number.isInteger(suite) && suite <= SUITE_MAX
 		? `the ${mb} MB rung for suite ${suite} of ${SUITE_MAX}`
-		: `the ${mb} MB rung for ${busy + SUITE_WORKERS} vitest workers, ${busy} of them already running`;
+		: `the ${mb} MB rung for ${workers} vitest workers, ${busy} of them already running`;
 }
 
 function runReapScript() {
@@ -73,10 +74,10 @@ function pretestReap() {
 			`pretest: running suites unread (${running.error}) — judging against ${rungName(0)}`,
 		);
 	const busy = running.ok ? running.workers : 0;
-	const rungMb = suiteRungMb(busy + SUITE_WORKERS);
+	const rungMb = suiteRungMb(busy + WHOLE_SUITE_WORKERS);
 	const rung = rungName(busy);
 
-	const before = availableMb();
+	const before = readAvailableMb();
 	if (!before.ok) {
 		log(
 			`pretest: available memory unread (${before.error}) — suite runs anyway`,
@@ -100,7 +101,7 @@ function pretestReap() {
 	}
 	if (out) log(out);
 
-	const after = availableMb();
+	const after = readAvailableMb();
 	if (!after.ok) {
 		log(`pretest: available memory unread after the reap (${after.error})`);
 		return 0;

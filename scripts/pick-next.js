@@ -9,13 +9,15 @@
  * between them is `--goal`: a set of issue numbers, nothing the script parses.
  *
  * THIS SCRIPT NEVER WRITES. Not the `urgent` label, not an assignee, not a
- * comment. mantahostels#101 barred auto-stripping a stale `urgent` — two selection runs
+ * comment. mantahostels#101 barred auto-stripping an `urgent` — two selection runs
  * would race to strip it — and mantahostels#111 rejected the skill applying one. Only
- * `gh api <path>` GETs are issued below; adding a `--method` would breach both.
+ * `gh api <path>` GETs and GraphQL `query` reads are issued below; a
+ * `--method` or a `mutation` would breach both.
  *
  * The query is mantahostels#105's:
  *   1. One list call for open issues; PRs share the number space, so drop them.
- *   2. Readiness from GET /issues/{n}/dependencies/blocked_by, open blockers only.
+ *   2. Readiness from each issue's canonical `blockedBy`, open blockers only,
+ *      read in batches (lib/blocked-by-batch.js, #2685).
  *      `issue_dependencies_summary.blocked_by` is never read — the staleness
  *      trap (mantahostels#105).
  *   3. Parentage from `parent_issue_url`. /sub_issues is never walked: one call
@@ -34,8 +36,10 @@
  *      open issues is the inverse of some open issue's blocked_by, so inverting
  *      halves the call count.
  *
- * The sort is mantahostels#106's five levels plus mantahostels#259's and #2001's, lexicographic:
- *   fresh `urgent` -> goal-set membership -> stalled wait -> ticket type
+ * The sort is mantahostels#106's five levels plus mantahostels#259's, #2001's and #2664's,
+ * lexicographic:
+ *   open `bug` -> `urgent`, own or an ancestor map's -> goal-set membership
+ *   -> stalled wait -> ticket type
  *   -> transitive reach -> collision -> number
  *
  * Beneath the table sit three annotations, NONE a sort input: pairs of
@@ -72,8 +76,6 @@
  * `module.exports` line.
  */
 
-const { execFileSync } = require("node:child_process");
-const { markersDir } = require("./lib/marker-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const fs = require("node:fs");
 const nodePath = require("node:path");
@@ -81,10 +83,10 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { isOutcomeError } = require("./lib/check");
 const {
 	assertOpenRead,
-	collapsedFailureLine,
-	errLine,
+	buildCollapsedFailureLine,
+	parseErrLine,
 	ghApiSlurpAsync,
-	ghFailureReason,
+	parseGhFailureReason,
 	ghGetRetrying,
 	ISSUE_READ_CONCURRENCY,
 	groupByRepeatedError,
@@ -96,7 +98,7 @@ const {
 	TERMINAL_STATES: JOB_STATE_TERMINAL,
 } = require("./lib/agent-liveness");
 const { readJobs } = require("./lib/hung-jobs");
-const { overloadText } = require("./lib/cpu-sample");
+const { buildOverloadText } = require("./lib/cpu-sample");
 const {
 	NO_COMMAND_VALUES,
 	TAKES_PREFIX,
@@ -118,11 +120,15 @@ const {
 	issueRef,
 	parentClaim,
 	refLabel,
-	repoOfUrl,
 	sessionName: shortSessionName,
 } = require("./lib/parent-claims");
 const { resolveProseBlockers } = require("./lib/prose-blockers");
 const blockerGraph = require("./lib/blocker-graph");
+const {
+	blockedByMany,
+	readBlockedByOne,
+	edgeOf,
+} = require("./lib/blocked-by-batch");
 const {
 	exclusionOf: refillExclusionOf,
 	homeDir,
@@ -135,14 +141,16 @@ const {
 	retroLaunches,
 } = require("./lib/retro-bundles");
 const { hostRoot } = require("./lib/host-root.js");
+const { execGit, gitCommonDir, gitOrNull } = require("./lib/git.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const {
-	recentEntries: recentDispatches,
+	readRecentEntries: recentDispatches,
 	entryHolds,
 	DEFAULT_WINDOW_HOURS: DISPATCH_WINDOW_HOURS,
 } = require("./lib/dispatch-ledger");
 const { compareLevels } = require("./lib/frontier-order.js");
+const { labelAge } = require("./lib/label-age.js");
+const { snapshotFile } = require("./lib/pick-next-snapshot.js");
 
 const REPO_DEFAULT = "{owner}/{repo}";
 /**
@@ -153,7 +161,7 @@ const REPO_DEFAULT = "{owner}/{repo}";
  * different trees — the disagreement `/pick-next` printed as CLAIMS DEGRADED.
  */
 const REPO_ROOT = process.env.WFC_REPO_ROOT || hostRoot();
-const URGENT_TTL_DAYS = 7;
+const URGENT_LABEL = "urgent";
 
 /*
  * `waiting:external` — the action has been taken and now sits with someone
@@ -185,10 +193,12 @@ const WAITING_STALL_DAYS = 7;
 
 /*
  * `parked` — a session posted a house question round on the issue and ended
- * `needs input:`, so relaunching it re-asks the round (#2000, spec #1995).
- * Writers: lib/parked.js. Excluded here, and listed
- * under PARKED with its age: the block is the label's reader, without which a
- * park goes quiet (mantahostels#243, mantahostels#259).
+ * `needs input:`, so relaunching it re-asks the round (#2000, spec #1995); or
+ * the refill loop stopped a blocked session on it, whatever the cause (#2699).
+ * Writers: lib/parked.js. Choosable here (#2355, #2703); the refill loop is
+ * what holds it out of a launch (lib/refill-decide.js). Listed under PARKED
+ * with its age: the block is the label's reader, without which a park goes
+ * quiet (mantahostels#243, mantahostels#259).
  */
 const { PARKED_LABEL } = require("./lib/parked.js");
 
@@ -261,9 +271,9 @@ async function ghGet(path) {
  * before the field is assigned does not compile (mantahostels#1637).
  *
  * IT DOES NOT CATCH ALL OF THEM. A field only used for its truthiness is not
- * protected, `undefined` being falsy like `false`: that is the seven booleans,
- * the two `unknown`s, and `wait`/`gate`/`gateOn`, whose types already admit a
- * falsy value.
+ * protected, `undefined` being falsy like `false`: that is the booleans, the
+ * two `unknown`s, and `urgency`/`urgentVia`/`wait`/`gate`/`gateOn`, whose types
+ * already admit a falsy value.
  * @typedef {object} Enrichment
  * @property {string[]} [paths]
  * @property {import("./lib/blocker-graph").Edge[]} [blockedBy]
@@ -271,7 +281,9 @@ async function ghGet(path) {
  * @property {ReturnType<typeof resolveProseBlockers>} [proseBlocked]
  * @property {{label: string, native: boolean}[]} [openBlockers]
  * @property {number} [reach]
- * @property {ReturnType<typeof urgencyFrom>} [urgency]
+ * @property {ReturnType<typeof labelAge>|null} [urgency] the issue's own `urgent`'s age, null where the label is off
+ * @property {number|null} [urgentVia] the ancestor map whose `urgent` it inherits, null where none does
+ * @property {boolean} [bug]
  * @property {boolean} [urgent]
  * @property {ReturnType<typeof waitFrom>|null} [wait]
  * @property {number} [stallDays]
@@ -419,44 +431,12 @@ async function openIssues() {
 }
 
 /**
- * An API issue as lib/blocker-graph.js reads it, a payload naming no repo
- * read as `home`'s.
- * @param {any} i
- * @param {string|null} home
- * @returns {import("./lib/blocker-graph").Edge}
- */
-const edgeOf = (i, home) => ({
-	repo: repoOfUrl(i.repository_url) ?? home,
-	number: i.number,
-	state: i.state,
-	title: i.title ?? "",
-	url: i.html_url ?? "",
-	labels: (i.labels || []).map((/** @type {any} */ l) => (l.name ? l.name : l)),
-	body: i.body || "",
-});
-
-/**
- * An issue's native blockers, each in whichever repo it lives (#2427). `ref`
- * naming no repo is the listed one, whose name is `home`.
- * @param {import("./lib/parent-claims").IssueRef} ref
- * @param {string|null} [home]
- * @returns {Promise<{ok: false, error: string} | {ok: true, edges: import("./lib/blocker-graph").Edge[]}>}
- */
-async function blockedBy(ref, home = ref.repo) {
-	const r = await ghGetRetrying(
-		`repos/${ref.repo ?? REPO}/issues/${ref.number}/dependencies/blocked_by`,
-	);
-	if (!r.ok) return r;
-	return { ok: true, edges: r.out.map((i) => edgeOf(i, home)) };
-}
-
-/**
  * One issue in another repo, for a blocker only a `**Blocked on**` marker
  * names.
  * @param {import("./lib/parent-claims").IssueRef} ref
  * @returns {Promise<{ok: false, error: string} | {ok: true, issue: import("./lib/blocker-graph").Edge}>}
  */
-async function issueIn(ref) {
+async function readIssueIn(ref) {
 	const r = await ghGetRetrying(`repos/${ref.repo}/issues/${ref.number}`);
 	if (!r.ok) return r;
 	const issue = r.out[0];
@@ -470,7 +450,7 @@ async function issueIn(ref) {
  * @param {number} n
  * @returns {Promise<{ok: true, events: any[]} | {ok: false, error: string}>}
  */
-async function timelineOf(n) {
+async function readTimelineOf(n) {
 	const r = await ghGetRetrying(
 		`repos/${REPO}/issues/${n}/timeline?per_page=100`,
 	);
@@ -478,51 +458,28 @@ async function timelineOf(n) {
 }
 
 /**
- * How long `name` has been on, from the most recent `labeled` event carrying
- * it. `null` where the label's start is unreadable — an unreachable timeline,
- * or a label applied by a route the timeline does not record — which is not the
- * same as the label being absent.
- * @param {{ok: boolean, events?: any[], error?: any}} timeline
- * @param {string} name
- * @returns {{unknown: true, error: any}|{unknown?: false, ageDays: number, appliedAt: string, appliedBy: string}}
+ * The nearest ancestor `wayfinder:map` carrying `urgent`, whose urgency the
+ * issue inherits (#2664): read up the parent chain at selection time, never
+ * written onto the child. The walk stops at a parent outside the open list —
+ * a closed one holds no urgency, and one in another repo is not read.
+ * @param {RawIssue} issue
+ * @param {Map<number, RawIssue>} byNumber
+ * @returns {number|null}
  */
-function labelAge(timeline, name) {
-	if (!timeline.ok) return { unknown: true, error: timeline.error };
-	const applied =
-		(timeline.events ?? [])
-			.filter(
-				(/** @type {any} */ e) =>
-					e.event === "labeled" && e.label && e.label.name === name,
-			)
-			.sort(
-				(/** @type {any} */ a, /** @type {any} */ b) =>
-					new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-			)[0] || null;
-	if (!applied)
-		return { unknown: true, error: "no `labeled` event on the timeline" };
-	return {
-		ageDays: (Date.now() - new Date(applied.created_at).getTime()) / 864e5,
-		appliedAt: applied.created_at,
-		appliedBy: applied.actor?.login || "unknown",
-	};
-}
-
-/**
- * `urgent` decays 7 days from the time the timeline records it being applied —
- * never a stored field, and never stripped when stale, only ignored.
- * @param {{ok: boolean, events?: any[], error?: any}} timeline
- * @returns {{fresh: boolean, unknown?: false, error?: undefined, ageDays?: undefined, appliedAt?: undefined, appliedBy?: undefined}
- *   | {fresh: boolean, unknown: true, error: any, ageDays?: undefined, appliedAt?: undefined, appliedBy?: undefined}
- *   | {fresh: boolean, unknown?: false, error?: undefined, ageDays: number, appliedAt: string, appliedBy: string}}
- */
-function urgencyFrom(timeline) {
-	const age = labelAge(timeline, "urgent");
-	// No event is the ordinary not-urgent case; a dead timeline is worth saying.
-	if (age.unknown)
-		return timeline.ok
-			? { fresh: false }
-			: { fresh: false, unknown: true, error: age.error };
-	return { ...age, fresh: age.ageDays <= URGENT_TTL_DAYS };
+function urgentViaOf(issue, byNumber) {
+	let child = issue;
+	for (;;) {
+		const ref = issueRef(child.parent);
+		if (!ref || isInOtherRepo(ref, child.repo)) return null;
+		const parent = byNumber.get(ref.number);
+		if (!parent) return null;
+		if (
+			parent.labels.includes("wayfinder:map") &&
+			parent.labels.includes(URGENT_LABEL)
+		)
+			return parent.number;
+		child = parent;
+	}
 }
 
 /**
@@ -682,20 +639,19 @@ const parkedDays = (issue) =>
  */
 /** @type {TrackedFiles|undefined} */
 let trackedCache;
-function trackedFiles() {
+function readTrackedFiles() {
 	if (trackedCache) return trackedCache;
 	/** @type {TrackedFiles} */
 	let read;
 	try {
 		// -z, because a tracked filename may hold a space or an accent (mantahostels#148).
-		const out = execFileSync("git", ["ls-files", "-z"], {
+		const out = execGit(["ls-files", "-z"], {
 			cwd: REPO_ROOT,
 			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
 		});
 		read = { ok: true, files: out.split("\0").filter(Boolean) };
 	} catch (e) {
-		read = { ok: false, error: errLine(e) };
+		read = { ok: false, error: parseErrLine(e) };
 	}
 	trackedCache = read;
 	return read;
@@ -739,7 +695,7 @@ const sharedPaths = (a, b) => a.paths.filter((p) => b.paths.includes(p));
  * cannot see them: their bodies name the entry (`§B56`), never a backticked
  * `docs/doc-map.md`.
  *
- * `scripts/guard-file-claim.sh` stays the enforcement tier.
+ * `scripts/lib/file-claim.js` stays the enforcement tier.
  */
 const DOC_MAP_HINT = writeSetPredict.DOC_MAP_HINT;
 /** @param {any[]} list */
@@ -821,7 +777,7 @@ function dumpBodies(dir, list) {
 			);
 		return { ok: true, dir, count: list.length };
 	} catch (e) {
-		return { ok: false, dir, count: 0, error: errLine(e) };
+		return { ok: false, dir, count: 0, error: parseErrLine(e) };
 	}
 }
 
@@ -982,14 +938,14 @@ function crossCollisions(candidates, inFlight, held) {
 const {
 	machineAdmission,
 	LAUNCH_SPARES,
-	sessionDrawLine,
-	sessionFloorLine,
-	liveDrawLine,
+	buildSessionDrawLine,
+	buildSessionFloorLine,
+	buildLiveDrawLine,
 	admissionFrom,
-	memoryBreakdownLines,
-	sessionCeilingText,
+	buildMemoryBreakdownLines,
+	buildSessionCeilingText,
 } = require("./lib/admission");
-const { liveLanders } = require("./lib/local-tester.js");
+const { readLiveLanders } = require("./lib/local-tester.js");
 /** @typedef {ReturnType<typeof machineAdmission>} Machine */
 
 /**
@@ -998,7 +954,7 @@ const { liveLanders } = require("./lib/local-tester.js");
  * different trees, but `/home/x` and a symlink to it are one.
  * @param {string} dir
  */
-function realOrNull(dir) {
+function readRealOrNull(dir) {
 	try {
 		return fs.realpathSync(dir);
 	} catch {
@@ -1019,24 +975,16 @@ function realOrNull(dir) {
  * checkout, so the run would announce a "worktree of" a tree nobody has.
  * @param {string} dir
  */
-function canonicalCheckoutOf(dir) {
-	const revParse = (/** @type {string} */ what) => {
-		try {
-			return execFileSync(
-				"git",
-				["rev-parse", "--path-format=absolute", what],
-				{ cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-			).trim();
-		} catch {
-			return null;
-		}
-	};
-	const common = revParse("--git-common-dir");
-	const gitDir = revParse("--git-dir");
+function readCanonicalCheckoutOf(dir) {
+	const common = gitCommonDir(dir);
+	const gitDir =
+		gitOrNull(["rev-parse", "--path-format=absolute", "--git-dir"], {
+			cwd: dir,
+		})?.trim() ?? null;
 	if (!common || !gitDir) return null;
 	return gitDir === common
-		? realOrNull(dir)
-		: realOrNull(nodePath.dirname(common));
+		? readRealOrNull(dir)
+		: readRealOrNull(nodePath.dirname(common));
 }
 
 /*
@@ -1061,17 +1009,17 @@ function canonicalCheckoutOf(dir) {
  * claims this run should have read.
  */
 function storeElsewhere() {
-	const mine = realOrNull(REPO_ROOT);
-	const theirs = realOrNull(arbiter.paths.repoRoot());
+	const mine = readRealOrNull(REPO_ROOT);
+	const theirs = readRealOrNull(arbiter.paths.repoRoot());
 	if (!mine || !theirs) return null;
 	/*
 	 * ONE COMPARISON, NOT TWO. `want` is the tree this run's claims are filed
 	 * under — the canonical checkout of the repo it pins, since a session
 	 * claiming from a worktree files under that.
 	 */
-	const want = canonicalCheckoutOf(mine) || mine;
+	const want = readCanonicalCheckoutOf(mine) || mine;
 	if (want === theirs) return null;
-	const canonical = canonicalCheckoutOf(theirs);
+	const canonical = readCanonicalCheckoutOf(theirs);
 	return {
 		why:
 			canonical && canonical !== theirs
@@ -1126,7 +1074,12 @@ function claimedIssues(listed) {
 		// this branch run, so putting a `Set` back is checked instead — it fails
 		// `npm run typecheck` at the `claims.held.get(...)` below, naming the
 		// missing `get`.
-		return { held: new Map(), kept: false, why: errLine(e), claimsTree: null };
+		return {
+			held: new Map(),
+			kept: false,
+			why: parseErrLine(e),
+			claimsTree: null,
+		};
 	}
 }
 
@@ -1150,7 +1103,8 @@ function claimedIssues(listed) {
  * file from the one the launcher wrote whenever that variable is set.
  *
  * AN ENTRY HOLDS ON ISSUE AND COMMAND, FOR THE WHOLE WINDOW, LIVE SESSION OR
- * NOT (#752). It excludes an issue only where its command matches the issue's
+ * NOT (#752), unless the refill loop released it on a hand-off (#2744). It
+ * excludes an issue only where its command matches the issue's
  * CURRENT `takes:` value — the command the launcher would be handed for it,
  * which drops on the same key. So `/triage 34` that relabelled #34
  * `takes:wayfinder` no longer holds it, and #34 meets the ordinary substrate,
@@ -1172,7 +1126,7 @@ function dispatchedIssues() {
 	try {
 		res = recentDispatches(undefined, DISPATCH_WINDOW_HOURS);
 	} catch (e) {
-		return { byIssue, why: errLine(e) };
+		return { byIssue, why: parseErrLine(e) };
 	}
 	if (!res.ok) return { byIssue, why: res.error || "unreadable" };
 	for (const rec of res.entries)
@@ -1386,7 +1340,7 @@ function strandedClaimCount(listed) {
 	return strandedCount.countStranded(
 		arbiter.readLocks(),
 		listed.ids,
-		strandedCount.dirtyPaths(),
+		strandedCount.readDirtyPaths(),
 		listed.terminal,
 	);
 }
@@ -1405,11 +1359,7 @@ function strandedClaimCount(listed) {
  * @param {unknown} payload
  */
 function writeRunSnapshot(payload) {
-	const file = nodePath.join(
-		markersDir(REPO_ROOT),
-		".pick-next",
-		"last-run.json",
-	);
+	const file = snapshotFile(REPO_ROOT);
 	// Atomic, because a concurrent picker may be reading this very file.
 	try {
 		writeFileAtomic(file, `${JSON.stringify(payload, null, 2)}\n`, {
@@ -1417,7 +1367,7 @@ function writeRunSnapshot(payload) {
 		});
 		return { ok: true, file };
 	} catch (e) {
-		return { ok: false, file, error: errLine(e) };
+		return { ok: false, file, error: parseErrLine(e) };
 	}
 }
 
@@ -1604,7 +1554,6 @@ const EXCLUSION_CATEGORIES = [
 	["dispatched ", "already dispatched"],
 	["container", "container"],
 	["gated ", "gated"],
-	["parked", "parked"],
 ];
 /** The spec's own figure (#575): names past it make the line too long to read. */
 const TALLY_NAMES_AT_MOST = 3;
@@ -1639,7 +1588,7 @@ function openTallyOf(state) {
 }
 
 /** @param {ReturnType<typeof openTallyOf>} t */
-const openTallyLine = (t) =>
+const buildOpenTallyLine = (t) =>
 	[
 		`${t.open} open`,
 		`${t.frontier} frontier`,
@@ -1781,13 +1730,16 @@ function waitingJson(i) {
  * @param {Pathed} i
  */
 function frontierJson(i) {
+	const urgentApplied = i.urgency?.unknown ? null : i.urgency;
 	return {
 		number: i.number,
 		title: i.title,
 		url: i.url,
+		bug: i.bug,
 		urgent: i.urgent,
-		urgentAppliedBy: i.urgency.appliedBy || null,
-		urgentAppliedAt: i.urgency.appliedAt || null,
+		urgentVia: i.urgentVia,
+		urgentAppliedBy: urgentApplied?.appliedBy ?? null,
+		urgentAppliedAt: urgentApplied?.appliedAt ?? null,
 		goal: i.goal,
 		waitingDays: waitDays(i),
 		waitStalled: i.wait?.stalled === true,
@@ -1903,17 +1855,6 @@ function buildPayload(state) {
 			title: i.title,
 			error: i.depsUnknown,
 		})),
-		// mantahostels#111 gave the skill display duty over `urgent`, so a stale one
-		// has to reach a JSON consumer too, not just the printed table.
-		staleUrgent: enriched
-			.filter(
-				(i) => i.labels.includes("urgent") && !i.urgent && !i.urgency.unknown,
-			)
-			.map((i) => ({
-				number: i.number,
-				appliedBy: i.urgency.appliedBy || null,
-				appliedAt: i.urgency.appliedAt || null,
-			})),
 		gated: gatedJson(gatedAll),
 		gatedOn: gatedOnJson(gatedOnAll),
 		// Resolved against the open list this run already fetched (mantahostels#1289).
@@ -2006,7 +1947,7 @@ function buildPayload(state) {
  * @param {ReturnType<typeof claimedIssues>} claims
  * @returns {string}
  */
-function claimsDegradedAdvice(claims) {
+function buildClaimsDegradedAdvice(claims) {
 	if (claims.claimsTree)
 		return `Claims filed against ${claims.claimsTree} are invisible to this run, so an\n  issue a live session is on may be shown as takeable. Re-run from there, or\n  set CLAUDE_PROJECT_DIR to it.`;
 	if (claims.kept)
@@ -2042,7 +1983,7 @@ function printCpuLimb(admission) {
 	const load = admission.load;
 	if (load.overloaded)
 		console.log(
-			`  cpu load           ${overloadText(load)} — dispatch refuses each launch until it falls`,
+			`  cpu load           ${buildOverloadText(load)} — dispatch refuses each launch until it falls`,
 		);
 	/* Unknown is never calm (mantahostels#1206): the check fails open on it. */ else if (
 		load.load1 === null
@@ -2052,7 +1993,7 @@ function printCpuLimb(admission) {
 		);
 	if (admission.cpu.full)
 		console.log(
-			`  cpu sessions       ${sessionCeilingText(admission.cpu)} — dispatch refuses each launch until one ends`,
+			`  cpu sessions       ${buildSessionCeilingText(admission.cpu)} — dispatch refuses each launch until one ends`,
 		);
 }
 
@@ -2096,7 +2037,7 @@ function renderAdmission(state) {
 	// An unread verdict applied no floor, so names none but a floor that went unread.
 	const floorLine =
 		(mem.ok && procs.ok) || floorRead.problem
-			? sessionFloorLine(floorRead, admission)
+			? buildSessionFloorLine(floorRead, admission)
 			: null;
 	console.log("\nADMISSION — measured headroom, not a fixed slot count\n");
 	console.log(
@@ -2115,9 +2056,9 @@ function renderAdmission(state) {
 	);
 	printCpuLimb(admission);
 	printReclaimable(reclaimable);
-	console.log(`  session draw       ${sessionDrawLine(host)}`);
+	console.log(`  session draw       ${buildSessionDrawLine(host)}`);
 	if (floorLine) console.log(`  session floor      ${floorLine}`);
-	console.log(`  live draw          ${liveDrawLine(live)}`);
+	console.log(`  live draw          ${buildLiveDrawLine(live)}`);
 	console.log(
 		`  free slots         ${admission.freeSlots === null ? "unknown" : admission.freeSlots}`,
 	);
@@ -2126,7 +2067,7 @@ function renderAdmission(state) {
 		`\n  ${admission.admit ? "START ONE NOW" : "HOLD"} — ${admission.reason}.`,
 	);
 	console.log(
-		`\n${memoryBreakdownLines(memory)
+		`\n${buildMemoryBreakdownLines(memory)
 			.map((l) => `  ${l}`)
 			.join("\n")}`,
 	);
@@ -2156,6 +2097,16 @@ function renderOwedWork(state) {
 	console.log();
 }
 
+/**
+ * The URG cell: `bug`, `yes` for the issue's own label, `via` for a map's.
+ * @param {Issue} i
+ */
+function urgentCell(i) {
+	if (i.bug) return "bug";
+	if (i.labels.includes(URGENT_LABEL)) return "yes";
+	return i.urgentVia ? "via" : "";
+}
+
 /** @param {State} state */
 function renderShortlist(state) {
 	const { shown } = state;
@@ -2165,7 +2116,7 @@ function renderShortlist(state) {
 	console.log("-".repeat(106));
 	for (const i of shown)
 		console.log(
-			`${pad(`#${i.number}`, 6)}${pad(i.urgent ? "yes" : "", 5)}${pad(
+			`${pad(`#${i.number}`, 6)}${pad(urgentCell(i), 5)}${pad(
 				i.goal ? "yes" : "",
 				6,
 			)}${pad(waitCell(i), 6)}${pad(i.reach, 7)}${pad(
@@ -2523,23 +2474,36 @@ function renderDumped(state) {
 		);
 }
 
+/**
+ * Each source of an issue's urgency, for the URGENT block.
+ * @param {Issue} i
+ */
+function urgencySources(i) {
+	const why = [];
+	if (i.bug) why.push("bug");
+	const u = i.urgency;
+	if (u && !u.unknown)
+		why.push(
+			`applied by ${u.appliedBy} ${Math.floor(u.ageDays)}d ago (${u.appliedAt})`,
+		);
+	else if (i.labels.includes(URGENT_LABEL))
+		why.push("URGENT — start unrecorded");
+	if (i.urgentVia) why.push(`urgent via #${i.urgentVia}`);
+	return why;
+}
+
 /** @param {State} state */
 function renderUrgent(state) {
 	const { enriched } = state;
-	// Display duty over `urgent`, per mantahostels#111: who applied it and when, never a write.
+	// Display duty over `urgent`, per mantahostels#111: where it came from, who
+	// applied it and when, never a write.
 	const urgentShown = enriched.filter((i) => i.urgent);
 	if (urgentShown.length > 0) {
-		console.log("\nURGENT (fresh, decays 7 days from application)\n");
-		for (const i of urgentShown) {
-			const u = i.urgency;
-			// `i.urgent` is only ever true on the branch carrying these three —
-			// `appliedAt` is the narrowing check, not a real "could be missing".
-			console.log(
-				u.appliedAt
-					? `  #${i.number}  applied by ${u.appliedBy} ${Math.floor(u.ageDays)}d ago (${u.appliedAt})`
-					: `  #${i.number}  URGENT — start unrecorded`,
-			);
-		}
+		console.log(
+			"\nURGENT (holds until the issue closes or the label comes off)\n",
+		);
+		for (const i of urgentShown)
+			console.log(`  #${i.number}  ${urgencySources(i).join("; ")}`);
 	}
 }
 
@@ -2571,7 +2535,9 @@ function renderWaiting(state) {
 function renderParked(state) {
 	const { parkedAll } = state;
 	if (parkedAll.length === 0) return;
-	console.log("\nPARKED — a question round waits on the founder's answer\n");
+	console.log(
+		"\nPARKED — a question round, or a session the refill loop stopped, waits on the founder\n",
+	);
 	for (const i of parkedAll) {
 		const age = i.parked.unknown
 			? `age unknown (${i.parked.error})`
@@ -2579,8 +2545,9 @@ function renderParked(state) {
 		console.log(`  #${i.number}  ${age}  ${String(i.title).slice(0, 50)}`);
 	}
 	console.log(
-		"\n  Cleared when the founder types in the parked session, or a session\n" +
-			"  claims the issue.",
+		"\n  Choosable here; the refill loop never launches it." +
+			"\n  A loop-stopped park's cause is commented on its ticket. Cleared when the\n" +
+			"  founder types in a session the Stop hook parked, or a session claims the issue.",
 	);
 }
 
@@ -2695,20 +2662,6 @@ function renderPulledIn(state) {
 }
 
 /** @param {State} state */
-function renderStaleUrgent(state) {
-	const { enriched } = state;
-	const staleUrgent = enriched.filter(
-		(i) => i.labels.includes("urgent") && !i.urgent && !i.urgency.unknown,
-	);
-	if (staleUrgent.length > 0)
-		console.log(
-			`\nSTALE urgent — ignored, never stripped: ${staleUrgent
-				.map((i) => `#${i.number}`)
-				.join(", ")}`,
-		);
-}
-
-/** @param {State} state */
 function renderEmptyBody(state) {
 	const { frontier } = state;
 	const emptyBodied = emptyBodiedOf(frontier);
@@ -2734,7 +2687,7 @@ function renderDegraded(state) {
 			console.log(
 				`  #${i.number}  ${String(i.title).slice(0, 60)}\n    ${i.depsUnknown}`,
 			);
-		for (const g of collapsed) console.log(collapsedFailureLine(g));
+		for (const g of collapsed) console.log(buildCollapsedFailureLine(g));
 		console.log(
 			"\n  These may or may not be takeable, and every REACH above is a lower\n" +
 				"  bound: edges into a degraded issue are invisible, so whatever blocks\n" +
@@ -2776,7 +2729,7 @@ function renderClaimsDegraded(state) {
 	const { claims, parentHeld } = state;
 	if (claims.why)
 		console.log(
-			`\nCLAIMS DEGRADED — ${claims.why}.\n  ${claimsDegradedAdvice(claims)}`,
+			`\nCLAIMS DEGRADED — ${claims.why}.\n  ${buildClaimsDegradedAdvice(claims)}`,
 		);
 	for (const why of parentHeld.unread)
 		console.log(
@@ -2936,7 +2889,9 @@ function renderRunSummary(state) {
 		`  ${pad("frontier", 19)}${summary.frontierCount} — §5's accounting denominator, never the shown slice`,
 	);
 	console.log(`  ${pad("shown", 19)}${summary.shown}`);
-	console.log(`  ${pad("open tally", 19)}${openTallyLine(openTallyOf(state))}`);
+	console.log(
+		`  ${pad("open tally", 19)}${buildOpenTallyLine(openTallyOf(state))}`,
+	);
 	/*
 	 * Printed at zero too, unlike the silent-at-zero rows further down: §6's
 	 * line carries this term whether or not it is 0.
@@ -3026,7 +2981,6 @@ function render(state, snapshot) {
 	renderGated(state);
 	renderProseBlocked(state);
 	renderPulledIn(state);
-	renderStaleUrgent(state);
 	renderEmptyBody(state);
 	renderDegraded(state);
 	renderAssignedUnclaimed(state);
@@ -3056,8 +3010,8 @@ async function listOpenIssuesOrExit() {
 			why = `FAILED: could not list open issues: ${/** @type {Error} */ (e).message}\n`;
 		else
 			why =
-				`FAILED: could not list open issues (${errLine(e)}).\n` +
-				(ghFailureReason(e) === "unreachable"
+				`FAILED: could not list open issues (${parseErrLine(e)}).\n` +
+				(parseGhFailureReason(e) === "unreachable"
 					? `        ${unreachableRemedy(e)}\n`
 					: "        GitHub was reachable — this is a fault in the query, not your auth.\n");
 		console.error(
@@ -3077,18 +3031,12 @@ const ownRepoOf = (issues) => issues.find((i) => i.repo)?.repo ?? listRepo();
  */
 async function resolveBlockers(issues, byNumber) {
 	const ownRepo = ownRepoOf(issues);
-	const withEdges = await mapLimit(
-		issues,
-		ISSUE_READ_CONCURRENCY,
-		async (i) => {
-			const d = await blockedBy({ repo: null, number: i.number }, ownRepo);
-			return {
-				...i,
-				blockedBy: d.ok ? d.edges : [],
-				depsUnknown: d.ok ? null : d.error,
-			};
-		},
-	);
+	const reads = await blockedByMany(issues, { repo: REPO, home: ownRepo });
+	const withEdges = reads.map(({ issue, read }) => ({
+		...issue,
+		blockedBy: read.ok ? read.edges : [],
+		depsUnknown: read.ok ? null : read.error,
+	}));
 	const graph = await blockerGraph.blockerGraph(
 		withEdges.map((i) => ({
 			number: i.number,
@@ -3097,8 +3045,10 @@ async function resolveBlockers(issues, byNumber) {
 		})),
 		ownRepo,
 		{
-			blockedBy: (ref) => blockedBy(ref),
-			issue: issueIn,
+			// The few foreign nodes the walk reaches, read one by one (#2427).
+			blockedBy: (ref) =>
+				readBlockedByOne(ref.repo ?? REPO, ref.number, { home: ref.repo }),
+			issue: readIssueIn,
 			each: (items, fn) => mapLimit(items, ISSUE_READ_CONCURRENCY, fn),
 		},
 	);
@@ -3166,14 +3116,14 @@ async function timelinesByIssue(issues) {
 	// Only issues actually carrying an age-sensitive label cost a timeline call.
 	const timelineCandidates = issues.filter(
 		(i) =>
-			i.labels.includes("urgent") ||
+			i.labels.includes(URGENT_LABEL) ||
 			i.labels.includes(WAITING_LABEL) ||
 			i.labels.includes(PARKED_LABEL),
 	);
 	const timelines = await mapLimit(
 		timelineCandidates,
 		ISSUE_READ_CONCURRENCY,
-		(/** @type {RawIssue} */ i) => timelineOf(i.number),
+		(/** @type {RawIssue} */ i) => readTimelineOf(i.number),
 	);
 	return new Map(
 		timelineCandidates.map((i, idx) => [i.number, timelines[idx]]),
@@ -3185,6 +3135,7 @@ async function timelinesByIssue(issues) {
  * @typedef {object} EnrichContext
  * @property {import("./lib/blocker-graph").Graph} blockers
  * @property {Awaited<ReturnType<typeof timelinesByIssue>>} timelineByIssue
+ * @property {Map<number, RawIssue>} byNumber every open issue, for the map-urgency walk
  * @property {Set<number>} mapNumbers
  * @property {Set<number>} specNumbers
  * @property {ListedSessions} listed
@@ -3225,8 +3176,6 @@ function exclusionOf(i, ctx, facts) {
 		return `gated until ${gate.iso} (${gate.daysLeft}d) — ${gate.reason || "no reason given"}`;
 	if (resolved.gateOnHolds && gateOn && !gateOn.malformed)
 		return `gated on ${gateOn.condition}`;
-	if (i.labels.includes(PARKED_LABEL))
-		return "parked — its round waits on the founder";
 	return null;
 }
 
@@ -3287,7 +3236,12 @@ async function parentClaims(issues, mapNumbers, claims, listed) {
 function enrichIssue(i, ctx) {
 	const openBlockers = blockerGraph.openBlockersOf(ctx.blockers, i.number);
 	const timeline = ctx.timelineByIssue.get(i.number);
-	const urgency = timeline ? urgencyFrom(timeline) : { fresh: false };
+	const urgency =
+		i.labels.includes(URGENT_LABEL) && timeline
+			? labelAge(timeline, URGENT_LABEL)
+			: null;
+	const urgentVia = urgentViaOf(i, ctx.byNumber);
+	const bug = i.labels.includes("bug");
 	// Null unless the label is on: absence of a wait, distinct from a wait
 	// whose start could not be read.
 	const wait =
@@ -3317,7 +3271,9 @@ function enrichIssue(i, ctx) {
 		openBlockers,
 		reach: blockerGraph.reachOf(ctx.blockers, i.number),
 		urgency,
-		urgent: urgency.fresh === true,
+		urgentVia,
+		bug,
+		urgent: bug || i.labels.includes(URGENT_LABEL) || urgentVia !== null,
 		wait,
 		// The one number the sort reads: 0 for everything that is not a stalled
 		// wait, an unreadable age included.
@@ -3402,7 +3358,7 @@ function putsSinceLastRun(cacheUsable) {
 	return cacheUsable && !NO_LOG
 		? writeSetCache.countDerivedSince(
 				REPO_ROOT,
-				warmFractionLog.lastRunAt(REPO_ROOT),
+				warmFractionLog.readLastRunAt(REPO_ROOT),
 			)
 		: { ok: false, count: null };
 }
@@ -3430,7 +3386,7 @@ function conflictGraphOf(frontier, issues, listed, cacheState) {
 	 * has since closed (mantahostels#2764).
 	 */
 	const openIssueNumbers = new Set(issues.map((i) => i.number));
-	const heldFiles = conflictGraph.heldFiles(listed, openIssueNumbers);
+	const heldFiles = conflictGraph.readHeldFiles(listed, openIssueNumbers);
 	const graph = conflictGraph.buildGraph({
 		candidates: conflictGraph.writeSetsFor(unbundled, [
 			...cacheState.warm,
@@ -3534,7 +3490,7 @@ function admissionOf(listed) {
 		/* Each slot counted here is a launch `dispatch-sessions.sh` re-reads
 		 * with `--launch`, so it is priced with the pair that launch warms (#2568). */
 		pendingSpares: LAUNCH_SPARES,
-		landers: liveLanders(),
+		landers: readLiveLanders(),
 	});
 	/*
 	 * A second verdict over the same readings, kept deliberately: the
@@ -3731,6 +3687,7 @@ async function main() {
 	const ctx = {
 		blockers,
 		timelineByIssue,
+		byNumber,
 		mapNumbers,
 		specNumbers,
 		listed,
@@ -3760,7 +3717,7 @@ async function main() {
 	 * collisions a long frontier creates. Annotated after the sort, so they
 	 * can never reach the ordering.
 	 */
-	const tracked = trackedFiles();
+	const tracked = readTrackedFiles();
 	const frontier = annotatePaths(rankFrontier(enriched), tracked);
 	const shown = LIMIT ? frontier.slice(0, LIMIT) : frontier;
 	const collisions = tracked.ok ? pairwiseCollisions(frontier) : [];
@@ -3960,7 +3917,7 @@ module.exports = { main };
 
 if (require.main === module) {
 	main().catch((e) => {
-		console.error(`FAILED: ${errLine(e)}`);
+		console.error(`FAILED: ${parseErrLine(e)}`);
 		process.exit(1);
 	});
 }

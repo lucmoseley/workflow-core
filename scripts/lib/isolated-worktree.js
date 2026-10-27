@@ -17,10 +17,16 @@
  */
 
 const { execFileSync, spawnSync } = require("node:child_process");
+const {
+	execGit,
+	gitBinary,
+	gitSpawnOptions,
+	GIT_TIMEOUT_MS,
+} = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
-const { GIT_TIMEOUT_MS, shellWord } = require("./dirty-tree.js");
+const { shellWord } = require("./dirty-tree.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
@@ -69,7 +75,7 @@ const SHARED_ARTEFACTS = [
  * @param {string} dir the worktree
  * @returns {string[]}
  */
-function linkedPaths(dir) {
+function readLinkedPaths(dir) {
 	let declared;
 	try {
 		declared = readConfig({ root: dir, quiet: true }).worktreeLinks;
@@ -95,7 +101,7 @@ function linkedPaths(dir) {
 /**
  * Tear one isolated worktree down.
  *
- * EACH `linkedPaths` SYMLINK GOES FIRST, against a teardown that walks
+ * EACH `readLinkedPaths` SYMLINK GOES FIRST, against a teardown that walks
  * one into its canonical target. `git worktree remove --force` does not, so
  * the ordering is unverified belt and braces and the test asserts the outcome
  * — every target survives — rather than the order (mantahostels#2169, mantahostels#2213).
@@ -114,7 +120,7 @@ function removeIsolated(
 	dir,
 	{ execFn = execFileSync, worktreeFs = fs, err = process.stderr } = {},
 ) {
-	for (const artefact of linkedPaths(dir))
+	for (const artefact of readLinkedPaths(dir))
 		try {
 			const link = path.join(dir, artefact);
 			const parent = worktreeFs.realpathSync(path.dirname(link));
@@ -128,12 +134,16 @@ function removeIsolated(
 			 * and the remove below is still the operation that matters. */
 		}
 	try {
-		execFn("git", ["worktree", "remove", "--force", dir], {
-			cwd: root,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			timeout: GIT_TIMEOUT_MS,
-		});
+		execFn(
+			gitBinary(),
+			["worktree", "remove", "--force", dir],
+			gitSpawnOptions({
+				cwd: root,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+				timeout: GIT_TIMEOUT_MS,
+			}),
+		);
 	} catch (error) {
 		err.write(
 			`isolated worktree: could not remove the worktree at ${dir} (${error}) — remove it by hand with \`git worktree remove --force ${shellWord(dir)}\`.\n`,
@@ -221,12 +231,16 @@ function pruneWorktreeRegistrations(
 	{ execFn = execFileSync, err = process.stderr } = {},
 ) {
 	try {
-		execFn("git", ["worktree", "prune"], {
-			cwd: root,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			timeout: GIT_TIMEOUT_MS,
-		});
+		execFn(
+			gitBinary(),
+			["worktree", "prune"],
+			gitSpawnOptions({
+				cwd: root,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+				timeout: GIT_TIMEOUT_MS,
+			}),
+		);
 	} catch (error) {
 		err.write(
 			`isolated worktree: could not prune stale worktree records (${error}).\n`,
@@ -235,11 +249,11 @@ function pruneWorktreeRegistrations(
 }
 
 /**
- * Create the detached worktree and link in each of `linkedPaths` the
+ * Create the detached worktree and link in each of `readLinkedPaths` the
  * canonical checkout has and the worktree lacks.
  *
  * `--detach`, never a branch: `docs/agents/guard-registry.md` §Conventions and
- * `scripts/guard-branch.sh` both require it, and a throwaway tree has no use
+ * `scripts/guard-branch.js` both require it, and a throwaway tree has no use
  * for a ref of its own.
  *
  * Given a `tree`, the worktree holds that tree, in its index and on disk,
@@ -265,12 +279,16 @@ function createIsolated(
 	const dir = path.join(root, WORKTREE_DIR, `${ISOLATED_PREFIX}${String(pid)}`);
 	/** @type {(args: string[], cwd: string) => void} */
 	const run = (args, cwd) => {
-		execFn("git", args, {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: GIT_TIMEOUT_MS,
-		});
+		execFn(
+			gitBinary(),
+			args,
+			gitSpawnOptions({
+				cwd,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: GIT_TIMEOUT_MS,
+			}),
+		);
 	};
 	try {
 		worktreeFs.mkdirSync(path.dirname(dir), { recursive: true });
@@ -323,7 +341,7 @@ function createIsolated(
  * @returns {string|null} why a link failed, or null where every one landed
  */
 function linkArtefacts(root, dir, worktreeFs) {
-	for (const artefact of linkedPaths(dir)) {
+	for (const artefact of readLinkedPaths(dir)) {
 		/* A checkout lacking a member gets no link for it: a dangling one fails
 		 * any test that stats the tree (#822). `existsSync` follows a link, so a
 		 * source that is itself dangling is skipped too. A checkout with no
@@ -391,12 +409,16 @@ function overlayFiles(
 	}
 	if (paths.length === 0) return null;
 	try {
-		execFn("git", ["add", "-A", "--", ...paths], {
-			cwd: dir,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: GIT_TIMEOUT_MS,
-		});
+		execFn(
+			gitBinary(),
+			["add", "-A", "--", ...paths],
+			gitSpawnOptions({
+				cwd: dir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				timeout: GIT_TIMEOUT_MS,
+			}),
+		);
 	} catch (error) {
 		return `could not stage the overlay in ${dir}: ${error}`;
 	}
@@ -410,7 +432,7 @@ const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
 /**
  * Run `command` through `sh -c`, stdin closed and stderr folded into stdout,
  * in a throwaway worktree holding `tree` over HEAD and no other file but
- * `linkedPaths`, so no neighbour's unsaved edit reaches it (#1760). The
+ * `readLinkedPaths`, so no neighbour's unsaved edit reaches it (#1760). The
  * worktree goes when the command ends; a leftover is swept first.
  * @param {string} root
  * @param {string} tree
@@ -463,7 +485,7 @@ function main(argv) {
 	}
 	/** @type {(args: string[]) => string} */
 	const git = (args) =>
-		execFileSync("git", args, {
+		execGit(args, {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 			timeout: GIT_TIMEOUT_MS,

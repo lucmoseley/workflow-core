@@ -12,7 +12,8 @@
  *   node scripts/arm-tasks.js coverage
  *
  * `build` makes one run's sandbox through `build-arm-sandbox.js task`, with the
- * task's landing commits reverted (`--known-good` keeps them) and every ticket
+ * task's landing commits reverted, or its `fix` patch applied in reverse
+ * (`--known-good` keeps them), and every ticket
  * frozen in `--issues` served by the gh stub. It writes
  * `<dir>/task.json` (the base revision and the prompt), and prints it. A
  * neighbour task also needs `--config-dir`, the arm's config dir, where the fake
@@ -50,10 +51,12 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync, spawn, spawnSync } = require("node:child_process");
-const { procStartOf } = require("./lib/arbiter-proc.js");
+const { execGit, spawnGitSync } = require("./lib/git.js");
+const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
+const { SELF_PLUGIN_MARKETPLACE } = require("./lib/core-hooks.js");
 
 const TASKS_DIR = path.join(__dirname, "arm-tasks");
 const SANDBOX_CLI = path.join(__dirname, "build-arm-sandbox.js");
@@ -113,7 +116,11 @@ const CLI = {
  * @typedef {object} Task
  * @property {string} id
  * @property {number} issue
- * @property {string[]} revert newest first, the order they are reverted in
+ * @property {string[]} revert newest first, the order they are reverted in;
+ *   `freeze` dates the ticket by the oldest, `fix` or not
+ * @property {string} [fix] the work as a diff against the base, beside
+ *   `tasks.json`, unapplied in place of `revert` where that revert no longer
+ *   applies (#2997)
  * @property {HiddenTest[]} hiddenTests
  * @property {{ file: string, pattern: string, why?: string }[]} docChecks `why`
  *   says what a pattern too opaque to read checks for, printed where it fails
@@ -171,7 +178,7 @@ function refuse(msg) {
  * @param {string[]} args
  */
 const git = (cwd, args) =>
-	execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+	execGit(args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 
 /**
  * Register the fake neighbour on a live process of its own and take its claim
@@ -197,7 +204,7 @@ function seatNeighbour(task, repo, configDir, holdSeconds) {
 		JSON.stringify({
 			pid,
 			sessionId,
-			procStart: procStartOf(pid),
+			procStart: readProcStartOf(pid),
 			status: "busy",
 			cwd: repo,
 			name: task.neighbour.name,
@@ -222,16 +229,42 @@ function seatNeighbour(task, repo, configDir, holdSeconds) {
 	return { sessionId, pid, path: task.neighbour.path, holdSeconds, expiresAt };
 }
 
+/** @param {string} name a `fix` patch, beside `tasks.json` */
+const fixPatch = (name) => path.join(path.dirname(tasksFile()), name);
+
+/**
+ * The files the task's work touches: its `fix` patch's, or its landing commits'.
+ * @param {Task} task
+ * @param {string} repo
+ * @returns {string[]}
+ */
+function taskPaths(task, repo) {
+	const lists = task.fix
+		? [
+				git(repo, ["apply", "--numstat", fixPatch(task.fix)]).replace(
+					/^\S+\t\S+\t/gm,
+					"",
+				),
+			]
+		: task.revert.map((sha) =>
+				git(repo, ["show", "--format=", "--name-only", sha]),
+			);
+	return [...new Set(lists.flatMap((l) => l.split("\n").filter(Boolean)))];
+}
+
 /**
  * @param {Task} task
- * @param {{ base: string, to: string, issues?: string, nodeModules?: string, configDir?: string, knownGood: boolean }} opts
+ * @param {{ at: string, to: string, issues?: string, nodeModules?: string, configDir?: string, knownGood: boolean }} opts
  */
 function buildSandboxArgs(
 	task,
-	{ base, to, issues, nodeModules, configDir, knownGood },
+	{ at, to, issues, nodeModules, configDir, knownGood },
 ) {
-	const args = ["task", "--repo", hostRoot(), "--at", base, "--to", to];
-	if (!knownGood) for (const sha of task.revert) args.push("--revert", sha);
+	const args = ["task", "--repo", hostRoot(), "--at", at, "--to", to];
+	if (!knownGood) {
+		if (task.fix) args.push("--unapply", fixPatch(task.fix));
+		else for (const sha of task.revert) args.push("--revert", sha);
+	}
 	for (const file of issues ? fs.readdirSync(issues) : []) {
 		const n = /^issue-(\d+)\.json$/.exec(file)?.[1];
 		if (n) args.push("--issue", `${n}=${path.join(issues ?? "", file)}`);
@@ -261,9 +294,8 @@ function build({ flags, positionals }) {
 	if (!Number.isInteger(hold) || hold <= 0)
 		return refuse("--hold takes a whole number of seconds");
 
-	const base = git(hostRoot(), ["rev-parse", `${at}^{commit}`]);
 	const args = buildSandboxArgs(task, {
-		base,
+		at,
 		to,
 		issues: flagValue(flags, "--issues"),
 		nodeModules: flagValue(flags, "--node-modules"),
@@ -281,7 +313,7 @@ function build({ flags, positionals }) {
 	const record = {
 		id: task.id,
 		issue: task.issue,
-		base,
+		base: built.base,
 		knownGood,
 		prompt: buildPrompt(task),
 		sandbox: built,
@@ -329,7 +361,7 @@ function patched(text, file, patch, scratch) {
 	fs.writeFileSync(target, `${text}\n`);
 	// Inside a repository, git apply would skip a path outside the directory it
 	// runs from and still exit 0; the ceiling keeps it out of every one (#2069).
-	const r = spawnSync("git", ["apply", path.resolve(patch)], {
+	const r = spawnGitSync(["apply", path.resolve(patch)], {
 		cwd: scratch,
 		encoding: "utf8",
 		env: { ...process.env, GIT_CEILING_DIRECTORIES: path.dirname(scratch) },
@@ -459,15 +491,7 @@ function acceptance(task, root) {
 		detail: `HEAD ${head.slice(0, 9)}, origin ${pushed.slice(0, 9)}`,
 	});
 
-	const paths = [
-		...new Set(
-			task.revert.flatMap((sha) =>
-				git(repo, ["show", "--format=", "--name-only", sha])
-					.split("\n")
-					.filter(Boolean),
-			),
-		),
-	];
+	const paths = taskPaths(task, repo);
 	const dirty = git(repo, ["status", "--porcelain", "--", ...paths]);
 	results.push({
 		check: "the task's paths are committed",
@@ -561,13 +585,22 @@ function isJudgedRight(results, knownGood) {
 function verifyOne(task, knownGood, { scratch, at, nodeModules }) {
 	const kind = knownGood ? "good" : "bad";
 	const to = path.join(scratch, `${task.id}-${kind}`);
-	const args = ["build", task.id, "--at", at, "--to", to];
-	args.push(
-		"--node-modules",
-		nodeModules,
-		"--config-dir",
-		path.join(to, "config"),
+	// Beside the sandbox, not in it: the build refuses a `--to` that is not empty.
+	const config = `${to}-config`;
+	// Registered so a revision enabling wfc-self builds: the build points it at
+	// the clone, and no session runs here to need more (#2440, #2997).
+	fs.mkdirSync(path.join(config, "plugins"), { recursive: true });
+	fs.writeFileSync(
+		path.join(config, "plugins", "known_marketplaces.json"),
+		JSON.stringify({
+			[SELF_PLUGIN_MARKETPLACE]: {
+				source: { source: "directory", path: config },
+				installLocation: config,
+			},
+		}),
 	);
+	const args = ["build", task.id, "--at", at, "--to", to];
+	args.push("--node-modules", nodeModules, "--config-dir", config);
 	if (knownGood) args.push("--known-good");
 	const built = spawnSync(process.execPath, [__filename, ...args], {
 		encoding: "utf8",
@@ -638,7 +671,7 @@ const FROZEN_FIELDS =
  * @param {number} n
  * @param {string} before ISO time of the first landing commit
  */
-function frozenIssue(n, before) {
+function readFrozenIssue(n, before) {
 	const issue = ghJson(["issue", "view", String(n), "--json", FROZEN_FIELDS]);
 	const cutoff = Date.parse(before);
 	return {
@@ -668,11 +701,11 @@ function freeze({ flags, positionals }) {
 	for (const task of tasks) {
 		const oldest = /** @type {string} */ (task.revert.at(-1));
 		const landed = git(hostRoot(), ["log", "-1", "--format=%aI", oldest]);
-		const issue = frozenIssue(task.issue, landed);
+		const issue = readFrozenIssue(task.issue, landed);
 		const parent = /^## Parent\s+#(\d+)/m.exec(issue.body)?.[1];
 		const issues = [
 			issue,
-			...(parent ? [frozenIssue(Number(parent), landed)] : []),
+			...(parent ? [readFrozenIssue(Number(parent), landed)] : []),
 		];
 		for (const frozen of issues)
 			fs.writeFileSync(

@@ -38,7 +38,7 @@ const { caught } = require("./lib/caught.js");
  * 20,000 paths.
  * @returns {string[]}
  */
-function stagedPaths() {
+function readStagedPaths() {
 	return git(
 		[
 			"diff",
@@ -56,7 +56,7 @@ function stagedPaths() {
 
 /** @returns {number} the exit code */
 function main() {
-	const paths = stagedPaths();
+	const paths = readStagedPaths();
 	if (paths.length === 0) return 0;
 
 	const work = fs.mkdtempSync(path.join(os.tmpdir(), "biome-staged-"));

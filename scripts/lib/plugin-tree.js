@@ -82,14 +82,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { builtinModules } = require("node:module");
-const { ENTRY, renderAt } = require("../generate-plugin-hooks.js");
+const { ENTRY, renderAt } = require("./plugin-hooks-render.js");
 const {
 	BARE_CITATION_OK,
-	citableLines,
+	buildCitableLineTest,
 	JS_COMMENT_LINE,
 	JS_TS_FILE,
 	qualifyCitations,
-	tripleQuotedLines,
+	parseTripleQuotedLines,
 	unbracketedCodeCitations,
 } = require("./qualify-citations.js");
 const {
@@ -105,6 +105,7 @@ const {
 const { requiredGroup } = require("./regex-group.js");
 const { isUnder } = require("./is-under.js");
 const { MIGRATIONS_DIR } = require("./workflow-core-config.js");
+const { isCollectedTestOrConftest } = require("./test-kind.js");
 const { noticeFaults } = require("./vendored-notices.js");
 
 const STANDARDS_BASE = "docs/code-standards-base.md";
@@ -218,17 +219,17 @@ const CITED_NOT_READ = new Set([
 ]);
 /* A file read whole as prose, every line of it a pointer a session may follow. */
 const PROSE_FILE = /\.(md|txt)$/;
-/* The reporters and globalSetup that record a green run; the adopter guide,
+/* The reporters and globalSetup that record a certificate; the adopter guide,
  * docs/agents/helper-surface.md, says how an adopter attaches them. */
 const VITEST_LOADED = new Set([
 	"scripts/vitest-pass-reporter.ts",
 	"scripts/vitest-inflight-reporter.ts",
 	"scripts/vitest-tree-watch.ts",
 ]);
-/* A mod's TypeScript that ships, tests aside, given the mod carries its own
- * manifest. */
+/* A mod's TypeScript, which ships given the mod carries its own manifest and
+ * isSkipped finds it no test. */
 const MOD_TS =
-	/^\.claude\/skills\/([^/]+)\/(?:hooks|types)\/(?:[^/]+\/)*(?![^/]*\.test\.)[^/]+\.tsx?$/;
+	/^\.claude\/skills\/([^/]+)\/(?:hooks|types)\/(?:[^/]+\/)*[^/]+\.tsx?$/;
 /* A mod's files no adopter runs: its tsconfig names the engine types left
  * behind, and its own hooks.json loads it stand-alone, where an adopter loads
  * it through the entry (#1050). */
@@ -246,7 +247,7 @@ const REWRITTEN = /^\.claude\/skills\/.*\.md$/;
 const SKIPPED_FILE =
 	// The last alternative's name must track precommit-gate-harness.test.ts's
 	// own `fixtureName` literal exactly, or a rename there reopens #65.
-	/\.test\.[cm]?[jt]sx?$|\.[cm]?tsx?$|^test_.*\.py$|^conftest\.py$|^__precommit-gate-harness-test-fixture-\d+\.js$/;
+	/\.[cm]?tsx?$|^__precommit-gate-harness-test-fixture-\d+\.js$/;
 
 // biome-ignore lint/suspicious/noTemplateCurlyInString: the variable Claude Code substitutes, not a JS template
 const PLUGIN_ROOT = "${CLAUDE_PLUGIN_ROOT}";
@@ -321,21 +322,21 @@ function packageRequires(source) {
  * @returns {string} the plugin name it gives
  * @throws {Error} where it gives none
  */
-function pluginName(manifest) {
+function readPluginName(manifest) {
 	const { name } = JSON.parse(fs.readFileSync(manifest, "utf8"));
 	if (!name) throw new Error(`${manifest} names no plugin`);
 	return name;
 }
 
 /**
- * The mod a file of `shape` belongs to — by default a shipped TypeScript file
+ * The mod a file of `shape` belongs to — by default a mod's TypeScript file
  * — or null where it is none. Reads the mod's manifest, never the file itself.
  * @param {string} root
  * @param {string} rel
  * @param {RegExp} [shape] capturing the skill's folder name
  * @returns {string | null} the mod's own name
  */
-function modOf(root, rel, shape = MOD_TS) {
+function readModOf(root, rel, shape = MOD_TS) {
 	const m = rel.match(shape);
 	if (!m) return null;
 	const manifest = path.join(
@@ -344,7 +345,7 @@ function modOf(root, rel, shape = MOD_TS) {
 		requiredGroup(m, 1, shape),
 		".claude-plugin/plugin.json",
 	);
-	return fs.existsSync(manifest) ? pluginName(manifest) : null;
+	return fs.existsSync(manifest) ? readPluginName(manifest) : null;
 }
 
 /**
@@ -408,11 +409,12 @@ function isSkipped(root, rel) {
 	const name = path.basename(rel);
 	return (
 		SKIPPED_DIRS.has(name) ||
+		isCollectedTestOrConftest(name) ||
 		(SKIPPED_FILE.test(name) &&
 			!VITEST_LOADED.has(rel) &&
 			rel !== ENTRY &&
-			!modOf(root, rel)) ||
-		modOf(root, rel, MOD_STANDALONE_CONFIG) !== null ||
+			!readModOf(root, rel)) ||
+		readModOf(root, rel, MOD_STANDALONE_CONFIG) !== null ||
 		isLeftBehind(rel)
 	);
 }
@@ -469,7 +471,7 @@ function baseLinePinFaults(root) {
  * @param {string} body
  * @returns {{ text: string, faults: string[] }}
  */
-function shippedText(root, rel, body) {
+function buildShippedText(root, rel, body) {
 	if (REWRITTEN.test(rel)) {
 		const skill = rel.match(/^\.claude\/skills\/[^/]+/);
 		const text = rewriteBody(body, {
@@ -478,11 +480,11 @@ function shippedText(root, rel, body) {
 		});
 		return { text, faults: [] };
 	}
-	const mod = modOf(root, rel);
+	const mod = readModOf(root, rel);
 	return mod
 		? renameStateOwner(body, rel, {
 				mod,
-				host: pluginName(path.join(root, ".claude-plugin/plugin.json")),
+				host: readPluginName(path.join(root, ".claude-plugin/plugin.json")),
 			})
 		: { text: body, faults: [] };
 }
@@ -506,9 +508,9 @@ const citationFaults = (text, rel) =>
  */
 function buildIsReadableLine(rel, lines) {
 	if (PROSE_FILE.test(rel)) return () => true;
-	const comment = citableLines(rel);
+	const comment = buildCitableLineTest(rel);
 	if (!comment) return () => false;
-	const quoted = /\.py$/.test(rel) ? tripleQuotedLines(lines) : new Set();
+	const quoted = /\.py$/.test(rel) ? parseTripleQuotedLines(lines) : new Set();
 	return (line, i) => !comment(line) && !quoted.has(i);
 }
 
@@ -553,9 +555,9 @@ function coreDocPointerFaults(root, rel, text) {
  * @returns {string[]}
  */
 function bareCitationFaults(root, rel) {
-	if (!citableLines(rel) || !isShipped(root, rel)) return [];
+	if (!buildCitableLineTest(rel) || !isShipped(root, rel)) return [];
 	const body = fs.readFileSync(path.join(root, rel), "utf8");
-	return citationFaults(shippedText(root, rel, body).text, rel);
+	return citationFaults(buildShippedText(root, rel, body).text, rel);
 }
 
 /**
@@ -583,8 +585,8 @@ function copyEntry(root, rel, out, faults) {
 			faults.push(`${rel} requires the npm package ${pkg}`);
 		}
 	}
-	if (citableLines(rel)) {
-		const shipped = shippedText(root, rel, body.toString("utf8"));
+	if (buildCitableLineTest(rel)) {
+		const shipped = buildShippedText(root, rel, body.toString("utf8"));
 		const text = shipped.text;
 		faults.push(
 			...shipped.faults,

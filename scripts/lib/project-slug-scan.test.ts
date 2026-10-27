@@ -84,7 +84,7 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 	 * outright (pyBareLiteralExempt above). `*.test.ts` is excluded from
 	 * the `.ts` glob: this very file, and two neighbours, hold every needle
 	 * below as a quoted test fixture, not a restatement. */
-	const sources = () =>
+	const readSources = () =>
 		execFileSync(
 			"git",
 			[
@@ -108,7 +108,7 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 			.map((f) => path.join(__dirname, "..", "..", f));
 
 	const holding = (needle: string) =>
-		sources().filter((f) => fs.readFileSync(f, "utf8").includes(needle));
+		readSources().filter((f) => fs.readFileSync(f, "utf8").includes(needle));
 
 	// bareLiteral has no quote wrapper to read as "this is prose, not a path
 	// being built" — literal's own carve-out (see its comment above). So this
@@ -127,23 +127,27 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 		return false;
 	};
 	const holdingAsPath = (needle: string) =>
-		sources().filter((f) => isPathSegment(fs.readFileSync(f, "utf8"), needle));
+		readSources().filter((f) =>
+			isPathSegment(fs.readFileSync(f, "utf8"), needle),
+		);
 
 	/* THE POSITIVE LIMB. Without it every case below passes on an empty scan. */
 	it("scans a corpus that is actually there", () => {
 		// Above the `.js`+`.sh`-only count: a regression of a wide glob (`.py`)
 		// back out fails on count alone; a narrow one (`.ts`, `.husky`) relies
 		// on the named assertions below instead.
-		expect(sources().length).toBeGreaterThan(250);
-		expect(sources()).toContain(path.join(__dirname, "project-slug.js"));
-		expect(sources()).toContain(
+		expect(readSources().length).toBeGreaterThan(250);
+		expect(readSources()).toContain(path.join(__dirname, "project-slug.js"));
+		expect(readSources()).toContain(
 			path.join(__dirname, "..", "snapshot-memory.sh"),
 		);
-		expect(sources()).toContain(path.join(__dirname, "..", "proving-run.ts"));
-		expect(sources()).toContain(
+		expect(readSources()).toContain(
+			path.join(__dirname, "..", "proving-run.ts"),
+		);
+		expect(readSources()).toContain(
 			path.join(__dirname, "..", "..", ".husky", "pre-commit"),
 		);
-		expect(sources()).toContain(
+		expect(readSources()).toContain(
 			path.join(__dirname, "..", "measure-burn", "scan_burn.py"),
 		);
 	});
@@ -195,7 +199,7 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 	it("the tracked python exemptions are still tracked, and still hold the literal", () => {
 		// Guards the exemption list itself against going stale if a future
 		// entry is added without being dropped once its site is fixed.
-		const tracked = new Set(sources());
+		const tracked = new Set(readSources());
 		expect(
 			pyBareLiteralExempt.filter(
 				(f) =>

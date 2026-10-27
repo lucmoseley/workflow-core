@@ -119,7 +119,7 @@ function readDebts(rel) {
  * nothing.
  * @param {string} rel
  */
-function debtsCovering(rel) {
+function readDebtsCovering(rel) {
 	const { rel: file, region } = core.splitSubject(rel);
 	if (region === null) return readDebts(rel);
 	const own = readDebts(rel);
@@ -151,7 +151,7 @@ function debtsCovering(rel) {
  * to a path rather than to a counter, so neither is ever reissued to a different
  * subject.
  *
- * THE PRICE, accepted: `debtsCovering` widens a file-level record onto EVERY
+ * THE PRICE, accepted: `readDebtsCovering` widens a file-level record onto EVERY
  * region claim on that file, so the demotion trades five wrong warnings for one
  * warning on every claimant. That one is at least about work genuinely owed on
  * the file, and it is clearable — which is what the five were not.
@@ -420,7 +420,7 @@ function ghJson(args, timeoutMs, where) {
 /**
  * The claim's read path. Returns the warning text for a claimant, or null.
  *
- * NO NETWORK CALL, EVER (mantahostels#1251). Every entry `debtsCovering` returns is shown;
+ * NO NETWORK CALL, EVER (mantahostels#1251). Every entry `readDebtsCovering` returns is shown;
  * `sweepDebts` is the only thing that retires one.
  *
  * **Residual:** an entry whose issue has since closed now warns every claimant
@@ -432,15 +432,15 @@ function ghJson(args, timeoutMs, where) {
  * written for: the whole store dark, every debt read as no-debt.
  * @param {string} rel
  */
-function debtNotice(rel) {
+function buildDebtNotice(rel) {
 	// EVERY command below names the record's OWN path, never the subject asked
-	// about: debtsCovering widens a region claim onto the file's entries, and
+	// about: readDebtsCovering widens a region claim onto the file's entries, and
 	// mantahostels#1857 makes a file-level record the normal shape for a denial reaching for
 	// an unallocated id — so `debt clear <the region>` would find nothing and the
 	// reader would conclude the entry cannot be retired.
 	let entries;
 	try {
-		entries = debtsCovering(rel);
+		entries = readDebtsCovering(rel);
 	} catch (e) {
 		const { code, message } = caught(e);
 		// Silence here hands the path to a session that would have been told the
@@ -463,7 +463,7 @@ function debtNotice(rel) {
 
 	const [debt] = live;
 	if (debt === undefined) return null;
-	if (live.length > 1) return manyDebtsNotice(rel, live) + torn;
+	if (live.length > 1) return buildManyDebtsNotice(rel, live) + torn;
 
 	if (debt.issue) {
 		return (
@@ -502,7 +502,7 @@ const DEBTS_SHOWN_MAX = 6;
  * @param {string} rel
  * @param {DebtRecord[]} live
  */
-function manyDebtsNotice(rel, live) {
+function buildManyDebtsNotice(rel, live) {
 	// The claim's OWN subject first, so what is capped away is always the
 	// file-wide backlog rather than the entry the reader came to write.
 	const ordered = [...live].sort(
@@ -557,7 +557,7 @@ const CLOSED_ISSUES_LIMIT = ISSUE_LIST_LIMIT;
  *
  * It can be this generous because a sweep runs by hand or detached from
  * SessionStart, never inside a hook: since mantahostels#1251 nothing on the claim path
- * calls GitHub, so nothing runs under guard-file-claim.sh's `timeout 5`.
+ * calls GitHub, so nothing runs under lib/file-claim-host.js's 5 s bound.
  */
 const GH_BATCH_TIMEOUT_MS = 300_000;
 
@@ -569,7 +569,7 @@ const GH_BATCH_TIMEOUT_MS = 300_000;
  *
  * Fails toward KEEPING every entry — `ghJson` above.
  */
-function closedIssues() {
+function readClosedIssues() {
 	const rows = ghJson(
 		[
 			"issue",
@@ -681,7 +681,7 @@ function sweepDebts({ clearStub = clearDebt, now = Date.now } = {}) {
 			unreadable,
 		};
 
-	const closed = closedIssues();
+	const closed = readClosedIssues();
 	if (closed === null)
 		return { status: "offline", dropped, failed, live: kept, unreadable };
 
@@ -791,7 +791,7 @@ function recordDrop(d) {
 
 module.exports = {
 	clearDebt,
-	debtNotice,
+	buildDebtNotice,
 	debtsOwnedBy,
 	listDebts,
 	ownDebt,

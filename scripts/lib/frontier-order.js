@@ -6,7 +6,8 @@
 
 /**
  * @typedef {object} SortLevels
- * @property {boolean} urgent a fresh `urgent`
+ * @property {boolean} bug an open `bug`, urgent whether labelled or not
+ * @property {boolean} urgent `urgent` on the issue or an ancestor map, or a bug
  * @property {boolean} goal in the run's goal set
  * @property {number} stallDays 0 unless a stalled wait
  * @property {boolean} asksQuestions
@@ -29,7 +30,7 @@
  */
 
 /**
- * Lexicographic, highest first: fresh urgent → goal set → stalled wait →
+ * Lexicographic, highest first: bug → urgent → goal set → stalled wait →
  * ticket type → reach → collision (comment-only first). 0 on a full tie, so
  * each caller appends its own tie-break.
  * @param {SortLevels} a
@@ -37,6 +38,7 @@
  */
 function compareLevels(a, b) {
 	return (
+		Number(b.bug) - Number(a.bug) ||
 		Number(b.urgent) - Number(a.urgent) ||
 		Number(b.goal) - Number(a.goal) ||
 		b.stallDays - a.stallDays ||

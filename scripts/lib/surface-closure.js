@@ -66,7 +66,7 @@ const PY_STRING_BLOCK = /("""|''')[\s\S]*?\1/g;
  * @param {string} text
  * @param {RegExp} comment
  */
-const codeLines = (text, comment) =>
+const parseCodeLines = (text, comment) =>
 	text.split("\n").filter((line) => !comment.test(line));
 
 /**
@@ -89,7 +89,7 @@ function resolveJs(abs) {
 /** @type {Set<string> | null} */
 let stdlib = null;
 /** @returns {Set<string>} */
-function pythonStdlib() {
+function readPythonStdlib() {
 	if (stdlib) return stdlib;
 	const r = spawnSync(
 		"python3",
@@ -126,7 +126,7 @@ function edgesOf(file, text, fault) {
 function jsEdges(dir, text) {
 	/** @type {string[]} */
 	const edges = [];
-	const code = codeLines(text, JS_COMMENT_LINE).join("\n");
+	const code = parseCodeLines(text, JS_COMMENT_LINE).join("\n");
 	for (const m of code.matchAll(JS_SPEC)) {
 		const spec = jsSpecifier(m);
 		if (spec.startsWith(".")) edges.push(resolveJs(path.join(dir, spec)));
@@ -149,7 +149,7 @@ function jsEdges(dir, text) {
 function shEdges(dir, text) {
 	/** @type {string[]} */
 	const edges = [];
-	for (const line of codeLines(text, /^\s*#/))
+	for (const line of parseCodeLines(text, /^\s*#/))
 		for (const m of line.matchAll(SH_SIBLING))
 			edges.push(path.join(dir, requiredGroup(m, 1, SH_SIBLING)));
 	return edges;
@@ -165,7 +165,7 @@ function pyEdges(dir, text, fault) {
 	/** @type {string[]} */
 	const edges = [];
 	const code = text.replace(PY_STRING_BLOCK, "");
-	for (const line of codeLines(code, /^\s*#/))
+	for (const line of parseCodeLines(code, /^\s*#/))
 		for (const statement of line.split(";")) {
 			const m = statement.match(PY_IMPORT);
 			if (!m) continue;
@@ -225,7 +225,7 @@ function pushPyModuleEdge(dir, mod, edges, fault) {
 	const pkg = path.join(dir, top, "__init__.py");
 	if (fs.existsSync(pkg) && !fs.existsSync(module)) edges.push(pkg);
 	else if (fs.existsSync(module) || mod.startsWith(".")) edges.push(module);
-	else if (!pythonStdlib().has(top))
+	else if (!readPythonStdlib().has(top))
 		fault(`imports ${top}, which is neither stdlib nor shipped beside it`);
 }
 
@@ -235,7 +235,7 @@ function pushPyModuleEdge(dir, mod, edges, fault) {
  * @param {string} out the rendered tree
  * @returns {Map<string, string>}
  */
-function surfaceRoots(manifest, out) {
+function readSurfaceRoots(manifest, out) {
 	const { entryPoints, commands } = JSON.parse(
 		fs.readFileSync(manifest, "utf8"),
 	);
@@ -257,7 +257,7 @@ function surfaceRoots(manifest, out) {
 function surfaceClosureFaults(root, out) {
 	const manifest = path.join(root, MANIFEST);
 	if (!fs.existsSync(manifest)) return [];
-	const roots = surfaceRoots(manifest, out);
+	const roots = readSurfaceRoots(manifest, out);
 	/** @type {string[]} */
 	const faults = [];
 	/** @type {Set<string>} */

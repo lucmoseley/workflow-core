@@ -111,6 +111,27 @@ function topLevelArgs(inner) {
 }
 
 /**
+ * Where the statement starting at `from` ends: just past its first `;`
+ * outside any bracket, string, comment or regex literal, or the end of the
+ * text. Biome ends every statement with one, so a line break never does.
+ * @param {string} text
+ * @param {number} from
+ * @returns {number}
+ */
+function statementEnd(text, from) {
+	for (let i = from; i < text.length; i++) {
+		const c = text.charAt(i);
+		if ("([{".includes(c)) {
+			const end = closeOf(text, i);
+			if (end === -1) return text.length;
+			i = end - 1;
+		} else if (tokenEnd(text, i) !== i) i = tokenEnd(text, i);
+		else if (c === ";") return i + 1;
+	}
+	return text.length;
+}
+
+/**
  * Where each string, comment and regex literal in `text` sits, as `[first,
  * last]` index pairs in order: the stretches that are not code. A template
  * literal is one stretch, its interpolations included.
@@ -152,4 +173,10 @@ function blankComments(text) {
 	return out + text.slice(at);
 }
 
-module.exports = { blankComments, closeOf, inertSpans, topLevelArgs };
+module.exports = {
+	blankComments,
+	closeOf,
+	inertSpans,
+	statementEnd,
+	topLevelArgs,
+};

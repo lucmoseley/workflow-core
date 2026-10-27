@@ -4,17 +4,18 @@
  * code, both streams, cwd, env, stdin, argv, a fresh module state — and
  * restores every global it patched.
  *
- * The only tests the seam has. Five suites now run every case through
- * scripts/lib/run-in-process.js, so a hole here is a hole under all of them —
- * which is why most cases below assert parity against a real spawn of the same
- * fixture rather than against a hand-written expectation (mantahostels#1907).
+ * The only tests the seam has, so a hole here is a hole under every suite that
+ * runs through it, which is why most cases below assert parity against a real
+ * spawn of the same fixture rather than against a hand-written expectation
+ * (mantahostels#1907).
  */
 
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { LEAKED } from "./fixtures/in-process-probe-modes";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
@@ -28,18 +29,16 @@ const UNGUARDED_PROBE = path.resolve(
 	"fixtures/in-process-unguarded-probe.js",
 );
 
+type RunOptions = Parameters<typeof runInProcess>[2];
+
 /** The same call through a real `node`, for the parity assertions. */
-const spawned = (
-	args: string[],
-	options: Parameters<typeof runInProcess>[2] = {},
-) => {
-	const r = spawnSync(process.execPath, [PROBE, ...args], {
+const spawned = (args: string[], options: RunOptions = {}, script = PROBE) => {
+	const r = spawnSync(process.execPath, [script, ...args], {
 		encoding: "utf8",
 		cwd: options.cwd,
 		env: options.env as NodeJS.ProcessEnv,
+		input: options.stdin,
 	});
-	// restoreFailures is empty on a real spawn by definition: there is nothing
-	// in this process to put back.
 	return {
 		status: r.status ?? -1,
 		stdout: r.stdout,
@@ -57,36 +56,213 @@ const tmpdir = () => {
 afterEach(() => {
 	for (const d of dirs.splice(0))
 		fs.rmSync(d, { recursive: true, force: true });
+	clearInterval((globalThis as Record<symbol, NodeJS.Timeout>)[LEAKED]);
+});
+
+type Result = ReturnType<typeof runInProcess>;
+
+/* A thrown stack's frames differ by route — node's loader under a spawn, the
+ * harness and vitest in-process — so the throw row compares its message line. */
+const errorLine = (r: Result) => ({
+	status: r.status,
+	stdout: r.stdout,
+	error: /^Error: .*$/m.exec(r.stderr)?.[0],
+});
+
+interface Row {
+	behaviour: string;
+	args: string[];
+	options?: () => RunOptions;
+	project?: (r: Result) => unknown;
+}
+
+/*
+ * The probe contract (#2782): one row per behaviour run-in-process.js's
+ * header says it reproduces. Options are built per run, since some need a
+ * fresh tmpdir.
+ */
+const SHARED: Row[] = [
+	{
+		behaviour: "returns a bare process.exitCode set without exiting",
+		args: ["exit-code", "4"],
+	},
+	{
+		behaviour: "captures both write routes on both streams",
+		args: ["streams"],
+	},
+	{
+		behaviour: "runs in the cwd it is given",
+		args: ["cwd"],
+		options: () => ({ cwd: tmpdir() }),
+	},
+	{
+		behaviour: "replaces the environment rather than adding to it",
+		args: ["env"],
+		options: () => ({ env: { PROBE: "set" } }),
+	},
+	{
+		behaviour: "hands cwd and env to the child processes the script spawns",
+		args: ["child"],
+		options: () => ({
+			cwd: tmpdir(),
+			env: { ...process.env, PROBE: "inherited" },
+		}),
+	},
+	{
+		behaviour: "hands the script its stdin as a string off fd 0",
+		args: ["stdin"],
+		options: () => ({ stdin: '{"a":1}' }),
+	},
+	{
+		behaviour: "hands the script its stdin as a buffer off fd 0",
+		args: ["stdin-buffer"],
+		options: () => ({ stdin: "raw" }),
+	},
+	{
+		behaviour: "passes argv beyond the script name",
+		args: ["argv", "one", "two"],
+	},
+	{
+		behaviour: "lets an unref'd timer pass, as it lets a real process exit",
+		args: ["leak-timer-unref"],
+	},
+	{
+		behaviour: "lets a timer left behind a process.exit pass",
+		args: ["leak-then-exit"],
+	},
+];
+
+/* What only the sync entry point shares with a spawn: the async one's
+ * require.main gap and rejection route are documented divergences, pinned in
+ * its own describe below. */
+const SYNC_ONLY: Row[] = [
+	{
+		behaviour:
+			"returns the code the script exits with, and what it printed first",
+		args: ["exit", "3"],
+	},
+	// runCheck catches everything spec.run() throws, and
+	// `check-guard-registry.js --review` exits from inside it. A real process
+	// was gone before that catch ever ran.
+	{
+		behaviour: "lets nothing take back an exit the script then catches",
+		args: ["exit-in-try"],
+	},
+	// Returning normally after the swallow: the recorded code is then the only
+	// record of the exit.
+	{
+		behaviour: "keeps an exit the script swallows outright",
+		args: ["exit-swallowed"],
+	},
+	{
+		behaviour: "reports an escaping throw as node does",
+		args: ["throw"],
+		project: errorLine,
+	},
+	// Every checker requires lib/check.js, whose uncaughtException listener
+	// reports the crash as BROKEN and exits 2.
+	{
+		behaviour: "hands an uncaught throw to the handler the script registered",
+		args: ["throw-handled"],
+	},
+	{
+		behaviour: "makes the script its own entry module",
+		args: ["entry-module"],
+	},
+	{
+		behaviour: "lets a timer left behind a fatal throw pass",
+		args: ["leak-then-throw"],
+		project: errorLine,
+	},
+];
+
+const ASYNC_ONLY: Row[] = [
+	{
+		behaviour: "returns the code main exits with after an await",
+		args: ["exit", "3"],
+	},
+	{
+		behaviour: "keeps output in order across an await inside main",
+		args: ["ordered"],
+	},
+	{ behaviour: "runs main once", args: ["ran"] },
+];
+
+/* Unmeasured guess: long enough for node to start and print "armed" on a
+ * loaded machine. Too short fails the "armed" assertion loudly rather than
+ * passing. */
+const HANG_MS = 2000;
+
+/* A leaked ref'd timer's spawned side: only a real process's timeout can show
+ * that it never exits, which is what the in-process refusal stands in for. */
+const hangs = (script: string, mode: string) =>
+	new Promise<{ stdout: string; killed: boolean }>((resolve) => {
+		execFile(
+			process.execPath,
+			[script, mode],
+			{ timeout: HANG_MS },
+			(error, stdout) => resolve({ stdout, killed: error?.killed === true }),
+		);
+	});
+
+const parity = (
+	r: Result,
+	spawnedResult: Result,
+	project = (x: Result) => x as unknown,
+) => {
+	// A renamed mode fails alike both ways, which parity alone would pass.
+	expect(spawnedResult.stderr).not.toContain("unknown mode");
+	expect(project(r)).toEqual(project(spawnedResult));
+};
+
+describe("probe contract: spawned and in-process agree (#2782)", () => {
+	it.each([...SHARED, ...SYNC_ONLY])(
+		"runInProcess $behaviour",
+		({ args, options, project }) => {
+			const opts = options?.();
+			parity(runInProcess(PROBE, args, opts), spawned(args, opts), project);
+		},
+	);
+
+	it.each([...SHARED, ...ASYNC_ONLY])(
+		"runInProcessAsync $behaviour",
+		async ({ args, options, project }) => {
+			const opts = options?.();
+			parity(
+				await runInProcessAsync(ASYNC_PROBE, args, opts),
+				spawned(args, opts, ASYNC_PROBE),
+				project,
+			);
+		},
+	);
+
+	it("refuses in-process each leak that hangs a spawned run", async () => {
+		const leaks = [
+			[PROBE, "leak-timer"],
+			[ASYNC_PROBE, "leak-timer"],
+			[PROBE, "leak-then-handled-throw"],
+		] as const;
+		// "armed" proves the probe reached the leak, so the timeout is the
+		// timer's doing and not a slow start.
+		for (const r of await Promise.all(leaks.map(([s, m]) => hangs(s, m))))
+			expect(r).toEqual({ stdout: "armed\n", killed: true });
+
+		const refusal = /without ending the process.*Timeout x1/;
+		expect(() => runInProcess(PROBE, ["leak-timer"])).toThrow(refusal);
+		clearInterval((globalThis as Record<symbol, NodeJS.Timeout>)[LEAKED]);
+		expect(() => runInProcess(PROBE, ["leak-then-handled-throw"])).toThrow(
+			refusal,
+		);
+		clearInterval((globalThis as Record<symbol, NodeJS.Timeout>)[LEAKED]);
+		// The async form checks once main has settled: the probe arms its
+		// timer after an await.
+		await expect(
+			runInProcessAsync(ASYNC_PROBE, ["leak-timer"]),
+		).rejects.toThrow(refusal);
+	});
 });
 
 describe("runInProcess", () => {
-	it("returns the code the script exits with, and what it printed first", () => {
-		const r = runInProcess(PROBE, ["exit", "3"]);
-		expect(r.status).toBe(3);
-		expect(r.stdout).toBe("before exit\n");
-		expect(r).toEqual(spawned(["exit", "3"]));
-	});
-
-	it("lets nothing take back an exit the script has already asked for", () => {
-		// runCheck catches everything spec.run() throws, and
-		// `check-guard-registry.js --review` exits from inside it. A real process
-		// was gone before that catch ever ran.
-		const r = runInProcess(PROBE, ["exit-in-try"]);
-		expect(r.status).toBe(5);
-		expect(r.stdout).toBe("before exit\n");
-		expect(r).toEqual(spawned(["exit-in-try"]));
-
-		// The same swallow, but returning normally afterwards rather than
-		// throwing again: the recorded code is then the only record of the exit.
-		const quiet = runInProcess(PROBE, ["exit-swallowed"]);
-		expect(quiet.status).toBe(6);
-		expect(quiet).toEqual(spawned(["exit-swallowed"]));
-	});
-
-	it("returns a bare process.exitCode, set without exiting", () => {
-		expect(runInProcess(PROBE, ["exit-code", "4"]).status).toBe(4);
-	});
-
 	it("reports an escaping throw as node does — exit 1, stack on stderr", () => {
 		const r = runInProcess(PROBE, ["throw"]);
 		expect(r.status).toBe(1);
@@ -94,58 +270,11 @@ describe("runInProcess", () => {
 		expect(r.stderr).toContain("in-process-probe.js");
 	});
 
-	it("captures both write routes on both streams", () => {
-		const r = runInProcess(PROBE, ["streams"]);
-		expect(r.stdout).toBe("fd1\nstdout-write\nconsole-log\n");
-		expect(r.stderr).toBe("fd2\nconsole-error\n");
-		expect(r).toEqual(spawned(["streams"]));
-	});
-
-	it("runs in the cwd it is given", () => {
-		const dir = tmpdir();
-		expect(runInProcess(PROBE, ["cwd"], { cwd: dir }).stdout).toBe(`${dir}\n`);
-	});
-
-	it("replaces the environment rather than adding to it", () => {
-		const r = runInProcess(PROBE, ["env"], {
-			env: { PROBE: "set" },
-		});
-		expect(r.stdout).toBe("set|false\n");
-	});
-
-	it("hands cwd and env to the child processes the script spawns", () => {
-		const dir = tmpdir();
-		const r = runInProcess(PROBE, ["child"], {
-			cwd: dir,
-			env: { ...process.env, PROBE: "inherited" },
-		});
-		expect(r.stdout).toBe(`${dir}|inherited\n`);
-	});
-
-	it("hands the script its stdin off fd 0, as a hook payload arrives", () => {
-		expect(runInProcess(PROBE, ["stdin"], { stdin: '{"a":1}' }).stdout).toBe(
-			'{"a":1}\n',
-		);
-		expect(runInProcess(PROBE, ["stdin-buffer"], { stdin: "raw" }).stdout).toBe(
-			"raw\n",
-		);
-	});
-
 	it("leaves a read of any real file alone while stdin is stubbed", () => {
 		const file = path.join(tmpdir(), "real.txt");
 		fs.writeFileSync(file, "on disk");
 		const r = runInProcess(PROBE, ["read-file", file], { stdin: "ignored" });
 		expect(r.stdout).toBe("on disk\n");
-	});
-
-	it("passes argv beyond the script name", () => {
-		expect(runInProcess(PROBE, ["argv", "one", "two"]).stdout).toBe(
-			"argv,one,two\n",
-		);
-	});
-
-	it("makes the script its own entry module, so require.main === module holds", () => {
-		expect(runInProcess(PROBE, ["entry-module"]).stdout).toBe("true\n");
 	});
 
 	it("purges repo module state between calls, as a fresh process would", () => {
@@ -165,16 +294,6 @@ describe("runInProcess", () => {
 		);
 		expect(runInProcess(script).stdout).toBe("1");
 		expect(runInProcess(script).stdout).toBe("1");
-	});
-
-	it("hands an uncaught throw to the handler the script registered", () => {
-		// Every checker requires lib/check.js, whose uncaughtException listener
-		// reports the crash as BROKEN and exits 2. Swallowing the throw here would
-		// report a checker's own crash as a plain failure.
-		const r = runInProcess(PROBE, ["throw-handled"]);
-		expect(r.status).toBe(7);
-		expect(r.stderr).toContain("handled: probe threw");
-		expect(r).toEqual(spawned(["throw-handled"]));
 	});
 
 	it("takes off every process listener the script registered", () => {
@@ -230,8 +349,6 @@ describe("runInProcess", () => {
 	});
 
 	it("refuses a re-entrant call rather than interleaving two captures", () => {
-		// Reached through a fixture that calls back into the seam: the guard
-		// exists for a caller running two of these at once.
 		const nested = path.join(tmpdir(), "nested.js");
 		fs.writeFileSync(
 			nested,
@@ -336,8 +453,7 @@ describe("runInProcessAsync", () => {
 
 	// Pins the default against the ceiling it derives from (why: run-in-process.js's
 	// DEFAULT_STALE_MS header). Both sides read scripts/lib/test-ceiling.js, so
-	// a future ceiling change can't leave this behind it the way mantahostels#2262 left
-	// the old bare 2000 (mantahostels#2267).
+	// a future ceiling change can't leave this behind it.
 	it("reads a claim as live until the test ceiling plus a 5s margin has passed (mantahostels#2254, mantahostels#2262, mantahostels#2267)", async () => {
 		const t0 = Date.now();
 		// No real seam reaches a claim 95 s old: the claim reads Date.now, and
@@ -360,8 +476,7 @@ describe("runInProcessAsync", () => {
 
 	it("still refuses a genuinely concurrent async call regardless of staleMs (mantahostels#2254)", async () => {
 		const first = runInProcessAsync(ASYNC_PROBE, ["delay-silent", "30"]);
-		// No staleMs override: the claim above is microseconds old, nowhere
-		// near even the default (TEST_TIMEOUT_MS plus a 5s margin).
+		// The default staleMs applies.
 		await expect(runInProcessAsync(ASYNC_PROBE, ["exit", "0"])).rejects.toThrow(
 			/not re-entrant/,
 		);
@@ -371,14 +486,10 @@ describe("runInProcessAsync", () => {
 	it("takes over a claim abandoned past staleMs, rather than refusing the next call (mantahostels#2254)", async () => {
 		// Simulates what a vitest test timeout leaves behind: nothing here
 		// cancels the promise below, so its claim stays live — held by an
-		// `await` that is still pending — exactly as an `await main()` a
-		// timed-out test abandoned stays pending after that test is marked
-		// failed.
+		// `await` that is still pending.
 		const abandoned = runInProcessAsync(ASYNC_PROBE, ["delay-silent", "50"]);
 		try {
 			await new Promise((resolve) => setTimeout(resolve, 20));
-			// At this same 20ms mark, the default staleMs still reads the
-			// claim above as live.
 			await expect(
 				runInProcessAsync(ASYNC_PROBE, ["exit", "0"]),
 			).rejects.toThrow(/not re-entrant/);

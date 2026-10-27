@@ -23,10 +23,13 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const { writeFileAtomic } = require("../../../../scripts/lib/atomic-write.js");
 const { markersDir } = require("../../../../scripts/lib/marker-root.js");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
+const {
+	execGit,
+	gitCommonDirOrThrow,
+} = require("../../../../scripts/lib/git.js");
 
 const USAGE =
 	"usage: node .claude/skills/concision-pass/scripts/mark-pass.js <cuts> [--base <rev>]";
@@ -44,13 +47,13 @@ function die(msg) {
 }
 
 /** @param {unknown} err */
-function firstLine(err) {
+function parseErrorFirstLine(err) {
 	return String(err instanceof Error ? err.message : err).split("\n")[0];
 }
 
 /** @param {string[]} args */
 function git(args) {
-	return execFileSync("git", args, {
+	return execGit(args, {
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
 	}).trim();
@@ -68,7 +71,7 @@ function readIfPresent(file) {
 	} catch (err) {
 		if (/** @type {NodeJS.ErrnoException} */ (err)?.code === "ENOENT")
 			return "";
-		return die(`cannot read ${file}: ${firstLine(err)}`);
+		return die(`cannot read ${file}: ${parseErrorFirstLine(err)}`);
 	}
 }
 
@@ -92,14 +95,9 @@ function parseArgs(argv) {
 function markersRoot() {
 	if (process.env.CLAUDE_PROJECT_DIR) return markersDir();
 	try {
-		const common = git([
-			"rev-parse",
-			"--path-format=absolute",
-			"--git-common-dir",
-		]);
-		return markersDir(path.dirname(common));
+		return markersDir(path.dirname(gitCommonDirOrThrow(process.cwd())));
 	} catch (err) {
-		return die(`cannot find the git common dir: ${firstLine(err)}`);
+		return die(`cannot find the git common dir: ${parseErrorFirstLine(err)}`);
 	}
 }
 
@@ -108,7 +106,7 @@ function markersRoot() {
  * @param {string} sid
  * @param {string} fallback
  */
-function sessionBase(dir, sid, fallback) {
+function readSessionBase(dir, sid, fallback) {
 	const base = readIfPresent(path.join(dir, `.concision-base-${sid}`)).trim();
 	if (base) return base;
 	if (!fallback)
@@ -128,7 +126,7 @@ function main() {
 	if (!sid)
 		die("no CLAUDE_CODE_SESSION_ID, so there is no session marker to write.");
 	const dir = markersRoot();
-	const base = sessionBase(dir, sid, fallback);
+	const base = readSessionBase(dir, sid, fallback);
 
 	const marker = path.join(dir, `.concision-pass-${sid}`);
 	const body = `base=${base}\nfindings=${cuts}\nroute=in-session\n`;

@@ -28,7 +28,7 @@ const { writeFd } = require("./write-fd.js");
  * @param {string} file
  * @returns {Record<string, unknown>}
  */
-const envelope = (file) => {
+const readEnvelope = (file) => {
 	const raw = fs.readFileSync(file, "utf8");
 	const parsed = JSON.parse(raw);
 	if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
@@ -221,7 +221,11 @@ const runCli = (name, stagedFile, baselineFile, profile) => {
 	let found;
 	try {
 		if (!stagedFile || !baselineFile) throw new Error("two envelopes required");
-		found = newFaults(envelope(stagedFile), envelope(baselineFile), profile);
+		found = newFaults(
+			readEnvelope(stagedFile),
+			readEnvelope(baselineFile),
+			profile,
+		);
 	} catch (e) {
 		writeFd(2, `${name}: ${caught(e).message}\n`);
 		process.exit(2);
@@ -241,7 +245,7 @@ const runCli = (name, stagedFile, baselineFile, profile) => {
 };
 
 module.exports = {
-	envelope,
+	readEnvelope,
 	newFaultItems,
 	newFaults,
 	runCli,

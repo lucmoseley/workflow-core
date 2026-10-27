@@ -8,9 +8,11 @@
 # refused as not found. The core runs from its own `.claude/agents/`, where the
 # bare name is the only one. So the host's own definition, where present, wins.
 #
-# Three routes name the type — guard-review-rules.sh, inject-tracker-docs.sh
-# and concision-backstop.sh — and lib/review-suffix.test.ts holds them to this
-# answer on both kinds of host.
+# Three routes name the type — the review-rules dispatcher core,
+# inject-tracker-docs.sh and concision-backstop.sh — and
+# lib/review-suffix.test.ts holds them to this answer on both kinds of host.
+# The core reads lib/review-agent-type.js, this file's Node twin; keep the two
+# in step (review-agent-type.test.ts holds them to one answer).
 if ! declare -F gr_root >/dev/null 2>&1; then
   # shellcheck source=scripts/lib/guard-root.sh
   source "$(dirname "${BASH_SOURCE[0]}")/guard-root.sh"

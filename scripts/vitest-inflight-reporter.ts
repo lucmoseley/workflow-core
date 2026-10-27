@@ -11,18 +11,23 @@
  * ONLY THE QUEUED/END PAIR BOUNDS A MODULE. `onTestModuleCollected` sits between
  * them and is recorded as a stage change, not as an exit. The same pair times
  * each file for the run-cost report (#1883), whose reasoning is in
- * scripts/lib/test-file-timings.js.
+ * scripts/lib/test-file-timings.js, and names the run's slowest files to the
+ * pass marker through the run report (#2770).
  *
- * IMPLICIT:  writes .test-inflight.json on every module transition of every suite run, and touches it on every test and hook event; writes the run's file timings once at its end, where the wrapper names a file for them.
+ * IMPLICIT:  writes .test-inflight.json on every module transition of every suite run, and touches it on every test and hook event; writes the run's file timings once at its end, where the wrapper names a file for them, and hands its slowest files to the pass marker.
  * JUSTIFIED: fail-safe — every write is wrapped and a lost record costs the diagnosis or the report, never the run.
  * DEFEAT:    drop it from vitest.config.ts's `reporters`, which costs run-vitest.js the file name and the heartbeat, so any file silent past the ceiling is killed again, and costs the run-cost report its timings.
  */
 
 import { createRequire } from "node:module";
+import path from "node:path";
 
 const require = createRequire(import.meta.url);
 const inflight = require("./lib/test-inflight.js");
 const { TIMINGS_ENV, createTimings } = require("./lib/test-file-timings.js");
+const { fillRunReport } = require("./lib/suite-handoff.js");
+
+type SlowFile = import("./lib/test-file-timings.js").SlowFile;
 
 interface ModuleLike {
 	moduleId?: string;
@@ -40,8 +45,14 @@ export default class TestInflightReporter {
 		if (typeof root === "string" && root) this.root = root;
 	}
 
-	onTestRunStart() {
+	/* The schedule, so a ceiling kill can name the files never started
+	 * (#2696). */
+	onTestRunStart(specifications: readonly ModuleLike[] = []) {
 		inflight.begin(this.root);
+		inflight.schedule(
+			this.root,
+			specifications.map((s) => s?.moduleId),
+		);
 		this.timings = createTimings();
 	}
 
@@ -82,5 +93,19 @@ export default class TestInflightReporter {
 	onTestRunEnd() {
 		inflight.clear(this.root);
 		this.timings.save(process.env[TIMINGS_ENV]);
+		try {
+			fillRunReport({
+				slowest: this.timings.slowest().map((s: SlowFile) => ({
+					...s,
+					file: path.relative(this.root, s.file),
+				})),
+			});
+		} catch (error) {
+			/* Fails open (mantahostels#2255): the marker then names no slow
+			 * file, so check-suite-margin.js (#2770) has none to show. */
+			process.stderr.write(
+				`slowest files not handed to the pass marker (${String(error)})\n`,
+			);
+		}
 	}
 }

@@ -301,12 +301,29 @@ function stagedRepo(prefix, temps, committed, staged) {
 	return repo;
 }
 
+/**
+ * The repo at `root`'s own TMPDIR, made on first call, for any run that can
+ * reach the shellcheck gate. That gate's lock is
+ * `${TMPDIR:-/tmp}/wfc-shellcheck.lock`, which every real commit and `check:sh`
+ * run on the machine shares, so under the default a case can wait out
+ * serialised.sh's SERIAL_WAIT_S behind a developer's run (#2627, #2648).
+ * Inside `.git`, so no `git status` sees it.
+ * @param {string} root
+ * @returns {string}
+ */
+function gateTmpdir(root) {
+	const dir = path.join(root, ".git", "wfc-tmp");
+	fs.mkdirSync(dir, { recursive: true });
+	return dir;
+}
+
 module.exports = {
 	armingPattern,
 	cutGateFragment,
 	cutGateScript,
 	expectFixtureSupplies,
 	gateHead,
+	gateTmpdir,
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,

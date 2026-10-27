@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo } from "./scripts/lib/git-fixture";
 
-const startedWith = (name: string) =>
+const readStartedEnv = (name: string) =>
 	fs
 		.readFileSync("/proc/self/environ", "utf8")
 		.split("\0")
@@ -33,7 +33,7 @@ describe("the Claude config dir a test case sees", () => {
 		"is not the one the runner was started with",
 		() => {
 			expect(process.env.CLAUDE_CONFIG_DIR).not.toBe(
-				startedWith("CLAUDE_CONFIG_DIR"),
+				readStartedEnv("CLAUDE_CONFIG_DIR"),
 			);
 		},
 	);
@@ -126,7 +126,7 @@ test("probe", () => {
 			fs.readFileSync(path.join(out, "env.json"), "utf8"),
 		) as string[];
 	};
-	const bare = () =>
+	const readCoreBare = () =>
 		execFileSync(
 			"git",
 			["-C", path.join(dir, "scratch"), "config", "core.bare"],
@@ -135,12 +135,12 @@ test("probe", () => {
 
 	it("marks the worktree's main repo bare without the setup file: the control", () => {
 		runProbe({ GIT_DIR: gitDir }, false);
-		expect(bare()).toBe("true");
+		expect(readCoreBare()).toBe("true");
 	});
 
 	it("leaves the worktree's main repo non-bare when a fixture runs a plain git init", () => {
 		runProbe({ GIT_DIR: gitDir });
-		expect(bare()).toBe("false");
+		expect(readCoreBare()).toBe("false");
 	});
 
 	it("hands the worker none of git's repository-locating variables", () => {

@@ -27,7 +27,7 @@ const os = require("node:os");
 const path = require("node:path");
 const readline = require("node:readline");
 const { parseOrExit, flagValue } = require("./lib/cli-args");
-const { planDirs } = require("./lib/plan-dirs");
+const { readPlanDirs } = require("./lib/plan-dirs");
 const { caught } = require("./lib/caught");
 const { writeFd } = require("./lib/write-fd");
 const { proseAsk } = require("./lib/secret-ask");
@@ -47,7 +47,7 @@ const CLI = {
  * @param {string} dir
  * @returns {string[]}
  */
-function transcripts(dir) {
+function readTranscripts(dir) {
 	return fs
 		.readdirSync(dir, { withFileTypes: true })
 		.filter((d) => d.isDirectory())
@@ -94,7 +94,7 @@ function classifyRecord(raw) {
  * @param {string} file
  * @returns {AsyncGenerator<{ text: string, line: number, at: string }>}
  */
-async function* endingMessages(file) {
+async function* readEndingMessages(file) {
 	/** @type {string[]} */
 	let parts = [];
 	let last = { line: 0, at: "" };
@@ -144,8 +144,8 @@ async function scan(dirs, until) {
 	let messages = 0;
 	/** @type {NonNullable<ReturnType<typeof flagOf>>[]} */
 	const flags = [];
-	for (const file of dirs.flatMap(transcripts))
-		for await (const { text, line, at } of endingMessages(file)) {
+	for (const file of dirs.flatMap(readTranscripts))
+		for await (const { text, line, at } of readEndingMessages(file)) {
 			if (until && at.slice(0, 10) > until) continue;
 			if (seen.has(text)) continue;
 			seen.add(text);
@@ -160,7 +160,7 @@ async function main() {
 	const { flags: given, lists } = parseOrExit(process.argv.slice(2), CLI);
 	const dirs =
 		lists["--dir"] ??
-		planDirs(os.homedir()).map((d) => path.join(d, "projects"));
+		readPlanDirs(os.homedir()).map((d) => path.join(d, "projects"));
 	const until = flagValue(given, "--until");
 	const readable = dirs.filter((d) => fs.existsSync(d));
 	if (readable.length === 0) {

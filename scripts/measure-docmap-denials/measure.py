@@ -8,7 +8,7 @@ are file dumps of session-arbiter.js, code-review prompts, context summaries,
 vitest failures and prior sessions quoting a denial back. It also counts the
 MEASURING session's own reads of the corpus. Both inflations are removed here.
 
-A denial is a tool result that either (a) carries denyReason()'s invariant
+A denial is a tool result that either (a) carries buildDenyReason()'s invariant
 paragraph ("A claim is taken by writing the file") alongside the deny sentence
 -- the PreToolUse hook route -- or (b) opens with `session-arbiter: <path> is
 held by session` -- the CLI route, whose output is too short to carry (a).

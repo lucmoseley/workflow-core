@@ -402,6 +402,31 @@ describe("the run's start", () => {
 	});
 });
 
+describe("the run's span", () => {
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it("is the monotonic time from the run's start to its end (#2829)", async () => {
+		vi.useFakeTimers({ toFake: ["performance"] });
+		const r = new TestPassReporter();
+		r.onInit(ctx());
+		r.onTestRunStart();
+		vi.advanceTimersByTime(394_070);
+		await captured(() => run(r, [module_("a.test.ts", ["passed"])]));
+
+		expect(takeRunReport().elapsedMs).toBe(394_070);
+	});
+
+	it("is unknown where the run's start was never seen (#2829)", async () => {
+		const r = new TestPassReporter();
+		r.onInit(ctx());
+		await captured(() => run(r, [module_("a.test.ts", ["passed"])]));
+
+		expect(takeRunReport().elapsedMs).toBeNull();
+	});
+});
+
 describe("whether a filtered run meets the push gate (mantahostels#2146, mantahostels#2207)", () => {
 	it("records the launcher's flag on the scope", async () => {
 		stubLaunch({ admissible: true });
@@ -508,6 +533,23 @@ describe("which command started the run (mantahostels#2303)", () => {
 		expect(await scopeWith({ viaChanged: false })).not.toHaveProperty(
 			"viaChanged",
 		);
+	});
+
+	it("records a touched-test run, for the ledger's kind (#2930)", async () => {
+		expect(await scopeWith({ touched: true })).toMatchObject({
+			touched: true,
+		});
+		expect(await scopeWith({})).not.toHaveProperty("touched");
+	});
+
+	it("records the admission weight the run carried, for the ledger (#2931)", async () => {
+		expect(
+			await scopeWith({ resolvedFiles: 485, wholeSlot: true }),
+		).toMatchObject({ resolvedFiles: 485, wholeSlot: true });
+		const part = await scopeWith({ resolvedFiles: 3, wholeSlot: false });
+		expect(part).toMatchObject({ resolvedFiles: 3 });
+		expect(part).not.toHaveProperty("wholeSlot");
+		expect(await scopeWith({})).not.toHaveProperty("resolvedFiles");
 	});
 });
 

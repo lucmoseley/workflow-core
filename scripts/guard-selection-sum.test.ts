@@ -79,7 +79,7 @@ function armed(
 }
 
 /** The marker file `record` wrote for `sessionId`, found under the scratch root. */
-function markerFile(sessionId: string): string {
+function findMarkerFile(sessionId: string): string {
 	const rel = (fs.readdirSync(root, { recursive: true }) as string[]).find(
 		(f) => path.basename(f) === `${sessionId}.json`,
 	);
@@ -143,7 +143,7 @@ describe("the arming limb — a non-selection session is never blocked", () => {
 
 	it("stays unarmed when the marker is unreadable", () => {
 		armed();
-		fs.writeFileSync(markerFile(sid), "{not json");
+		fs.writeFileSync(findMarkerFile(sid), "{not json");
 		expect(run(DISPATCH).blocked).toBe(false);
 	});
 });
@@ -591,7 +591,7 @@ describe("the marker store", () => {
 		const weekMs = 7 * 24 * 60 * 60 * 1000;
 		const aged = (sessionId: string, ageMs: number) => {
 			selectionMarker.record(root, { sessionId, frontier: 1 });
-			const file = markerFile(sessionId);
+			const file = findMarkerFile(sessionId);
 			const past = (Date.now() - ageMs) / 1000;
 			fs.utimesSync(file, past, past);
 			return file;

@@ -131,7 +131,7 @@ const unreadable = (reason) => ({ state: "unreadable", reason });
  * @param {string} text
  * @returns {string[] | null} null where the section is absent
  */
-function sectionLines(text) {
+function parseSectionLines(text) {
 	const bare = text.replace(/<!--[\s\S]*?-->/g, "");
 	const at = bare.indexOf(SECTION);
 	if (at === -1) return null;
@@ -168,7 +168,7 @@ const BASELINE_LINE =
  * @returns {TrialDeclaration}
  */
 function parseTrialWindow(text) {
-	const lines = sectionLines(text);
+	const lines = parseSectionLines(text);
 	if (lines === null) return NONE;
 
 	const seat = field(lines, "seat");

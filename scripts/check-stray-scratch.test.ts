@@ -58,7 +58,7 @@ function makeRepo(): string {
  */
 function write(rel: string, body = "x\n") {
 	writeFresh(rel, body);
-	/* THE DIRECTORIES TOO, not just the file. `untrackedEntries` collapses an
+	/* THE DIRECTORIES TOO, not just the file. `readUntrackedEntries` collapses an
 	 * untracked directory to one entry, and the script stats THAT entry — so a
 	 * fixture that aged only the leaf leaves every collapsed case reading
 	 * fresh. */

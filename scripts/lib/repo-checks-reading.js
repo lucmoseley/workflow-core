@@ -5,7 +5,6 @@
  * notify reports go by, which delivery and the replay both match (#1723).
  */
 
-const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 
 const { slug } = require("./notify-report");
@@ -13,18 +12,6 @@ const { scriptPath } = require("./script-path");
 
 const WHERE = "repo-checks";
 const RESULT = ".repo-checks.json";
-
-/**
- * The git common directory, so a worktree reads and writes its main
- * checkout's reading. Throws where `cwd` is not a git checkout.
- * @param {string} cwd
- */
-const commonDir = (cwd) =>
-	execFileSync(
-		"git",
-		["rev-parse", "--path-format=absolute", "--git-common-dir"],
-		{ cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-	).trim();
 
 /** @param {string} dir the git common directory */
 const resultFile = (dir) => path.join(dir, RESULT);
@@ -49,7 +36,6 @@ const buildHandCommand = ({ script, args = [], since }) =>
 
 module.exports = {
 	WHERE,
-	commonDir,
 	resultFile,
 	buildHandCommand,
 	reportName,

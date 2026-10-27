@@ -2,6 +2,8 @@
 /*
  * The tail read drops the line its offset cut rather than handing on a
  * fragment (mantahostels#3311), asserted on a file big enough to trigger it.
+ * `readStartedAt` finds the first stamped record past a chunk boundary (#2944),
+ * and the latest resume mark over it (#2950).
  * `guard-lost-deny.js` and `guard-inventory.js` read through it as Stop hooks
  * in `.claude/settings.json`; loosen a case and every Stop of an oversize
  * session reports a corrupt transcript that is not. `resolve` is not
@@ -14,7 +16,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mainChainRecords } from "./transcript";
 
-const { read } = require("./session-transcript");
+const { read, readStartedAt } = require("./session-transcript");
 
 let dir: string;
 
@@ -54,5 +56,74 @@ describe("read", () => {
 		expect([...mainChainRecords(text, "main")].length).toBeGreaterThan(0);
 		mainChainRecords(text, "main", stats).next();
 		expect(stats.skipped).toBe(0);
+	});
+});
+
+describe("readStartedAt", () => {
+	const file = () => path.join(dir, "s.jsonl");
+
+	it("reads the first record carrying a timestamp, past unstamped ones", () => {
+		fs.writeFileSync(
+			file(),
+			'{"type":"summary"}\n{"type":"user","timestamp":"2026-10-09T12:00:00Z"}\n{"type":"user","timestamp":"2026-10-09T13:00:00Z"}\n',
+		);
+		expect(readStartedAt(file())).toBe(Date.parse("2026-10-09T12:00:00Z"));
+	});
+
+	it("reads a stamped record that runs past the first 64 KB chunk, multibyte text included", () => {
+		const body = JSON.stringify({
+			type: "user",
+			text: "é".repeat(50 * 1024),
+			timestamp: "2026-10-09T12:00:00Z",
+		});
+		fs.writeFileSync(file(), `{"type":"summary"}\n${body}\n`);
+		expect(readStartedAt(file())).toBe(Date.parse("2026-10-09T12:00:00Z"));
+	});
+
+	const resume = (timestamp: string) =>
+		JSON.stringify({
+			type: "attachment",
+			attachment: { type: "hook_success", hookName: "SessionStart:resume" },
+			timestamp,
+		});
+
+	it("reads the latest resume mark over the first record — #2950", () => {
+		fs.writeFileSync(
+			file(),
+			[
+				'{"type":"user","timestamp":"2026-10-09T12:00:00Z"}',
+				resume("2026-10-09T13:00:00Z"),
+				'{"type":"user","timestamp":"2026-10-09T13:30:00Z"}',
+				resume("2026-10-09T14:00:00Z"),
+				"",
+			].join("\n"),
+		);
+		expect(readStartedAt(file())).toBe(Date.parse("2026-10-09T14:00:00Z"));
+	});
+
+	it("finds a resume mark past the first chunk, and ignores a record quoting its name", () => {
+		const filler = JSON.stringify({
+			type: "user",
+			text: "x".repeat(100 * 1024),
+		});
+		const quoting =
+			'{"type":"user","toolUseResult":{"hookName":"SessionStart:resume"},"timestamp":"2026-10-09T15:00:00Z"}';
+		fs.writeFileSync(
+			file(),
+			[
+				'{"type":"user","timestamp":"2026-10-09T12:00:00Z"}',
+				filler,
+				resume("2026-10-09T13:00:00Z"),
+				quoting,
+				"",
+			].join("\n"),
+		);
+		expect(readStartedAt(file())).toBe(Date.parse("2026-10-09T13:00:00Z"));
+	});
+
+	it("is null for a missing file or one with no stamped record", () => {
+		expect(readStartedAt(file())).toBeNull();
+		fs.writeFileSync(file(), '{"type":"summary"}\nnot json');
+		expect(readStartedAt(file())).toBeNull();
 	});
 });

@@ -25,8 +25,8 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const { defaultChangedBase } = require("./changed-selection.js");
-const { gitRead, untrackedFiles } = require("./dirty-tree.js");
+const { readDefaultChangedBase } = require("./changed-selection.js");
+const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { hostRoot } = require("./host-root.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
@@ -92,7 +92,7 @@ function linesFor({
 }
 
 /** @param {unknown} error */
-function failOpenLine(error) {
+function buildFailOpenLine(error) {
 	const why = error instanceof Error ? error.message : String(error);
 	return `${PREFIX} the report failed and printed nothing else; the suite's verdict stands (#1880): ${why}`;
 }
@@ -106,9 +106,9 @@ function failOpenLine(error) {
  * @param {readonly string[]} files repo-relative
  * @returns {{ file: string, atBase: boolean }[]|null}
  */
-function changedAgainst(root, base, files) {
+function readChangedAgainst(root, base, files) {
 	const diff = gitRead(["diff", "--name-only", "-z", base], root);
-	const untracked = untrackedFiles(root);
+	const untracked = readUntrackedFiles(root);
 	if (diff === null || untracked === null) return null;
 	const moved = new Set([...diff.split("\0"), ...untracked]);
 	const candidates = files.filter((f) => moved.has(f));
@@ -179,11 +179,11 @@ function reportForRun(root, raw, { unit = "seconds", machine = {} } = {}) {
 	if (process.env.CI) return [];
 	try {
 		const read = timingsFrom(raw, root);
-		if ("bad" in read) return [failOpenLine(read.bad)];
-		const base = defaultChangedBase(root, execFileSync);
-		const changed = changedAgainst(root, base, Object.keys(read.timings));
+		if ("bad" in read) return [buildFailOpenLine(read.bad)];
+		const base = readDefaultChangedBase(root, execFileSync);
+		const changed = readChangedAgainst(root, base, Object.keys(read.timings));
 		if (changed === null)
-			return [failOpenLine(`git could not diff the tree against ${base}`)];
+			return [buildFailOpenLine(`git could not diff the tree against ${base}`)];
 		return linesFor({
 			timings: read.timings,
 			changed,
@@ -194,7 +194,7 @@ function reportForRun(root, raw, { unit = "seconds", machine = {} } = {}) {
 	} catch (error) {
 		/* Fails open by design (mantahostels#2255): the report must never cost a
 		 * suite its green. */
-		return [failOpenLine(error)];
+		return [buildFailOpenLine(error)];
 	}
 }
 
@@ -213,7 +213,7 @@ function reportForFile(root, file) {
 		text = fs.readFileSync(file, "utf8");
 	} catch (error) {
 		/* Fails open (mantahostels#2255): an unreadable file is one line. */
-		return [failOpenLine(error)];
+		return [buildFailOpenLine(error)];
 	}
 	/** @type {unknown} */
 	let parsed;
@@ -221,7 +221,7 @@ function reportForFile(root, file) {
 		parsed = JSON.parse(text);
 	} catch (error) {
 		/* Fails open (mantahostels#2255): malformed input is one line. */
-		return [failOpenLine(`the timings are not JSON (${String(error)})`)];
+		return [buildFailOpenLine(`the timings are not JSON (${String(error)})`)];
 	}
 	return reportForRun(root, parsed);
 }
@@ -231,12 +231,12 @@ function reportForFile(root, file) {
  * @param {string[]} argv
  * @returns {string[]}
  */
-function programLines(argv) {
+function readProgramLines(argv) {
 	if (process.env.CI) return [];
 	const [file] = argv;
 	if (argv.length !== 1 || file === undefined)
 		return [
-			failOpenLine(
+			buildFailOpenLine(
 				`usage: node ${scriptPath("lib/run-cost-report.js")} <timings.json>`,
 			),
 		];
@@ -244,7 +244,7 @@ function programLines(argv) {
 }
 
 if (require.main === module) {
-	const lines = programLines(process.argv.slice(2));
+	const lines = readProgramLines(process.argv.slice(2));
 	try {
 		if (lines.length > 0) writeFd(1, `${lines.join("\n")}\n`);
 	} catch {
@@ -253,4 +253,4 @@ if (require.main === module) {
 	}
 }
 
-module.exports = { failOpenLine, reportForFile, reportForRun };
+module.exports = { buildFailOpenLine, reportForFile, reportForRun };

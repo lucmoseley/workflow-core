@@ -58,8 +58,9 @@ const POOL_WIDTH = 4;
  * `band-drift` (#487), `citation-ceiling` (#726), `orphaned-edits` (#813),
  * `git-locks` (#1193) and `output-style` (#1944) were built for this surface.
  * `throttling` is a 10-19 s live sweep. `harness-canary` (#2037)'s start hook
- * prints only a red verdict: here it also shows a version not yet probed, or a
- * probe that could not run.
+ * prints only a red verdict, and the agent_id probe's "fixed" (#2819): here it
+ * also shows a version not yet probed, a probe that could not run, and the
+ * agent_id verdict.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -84,6 +85,7 @@ const CHECKS = [
 	["always-loaded-pass", "check-always-loaded-pass.js"],
 	["scripts-typecheck", "check-scripts-typecheck.js"],
 	["suite-size", "check-suite-size-drift.js"],
+	["suite-margin", "check-suite-margin.js"],
 	["pick-next-model", "check-pick-next-model.js"],
 	["history-trim", "check-history-trim.js"],
 	["gates", "check-gates.js"],

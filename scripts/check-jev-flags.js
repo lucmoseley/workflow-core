@@ -167,7 +167,7 @@ const UNREADABLE =
  * @param {import("./lib/jev-trial.js").Standing} s
  * @returns {string}
  */
-function standingReport(s) {
+function buildStandingReport(s) {
 	return (
 		`  TRIAL — started ${s.start}; ${s.sessions} session(s) since.\n` +
 		`    limb 1 (wrong flags): ${s.limb1} — ${s.wrong} wrong, ${s.right} right, ` +
@@ -284,7 +284,7 @@ runCheck({
 	run(ctx) {
 		const root = ctx.value("--root", hookBlock.repoRoot());
 
-		const since = deliveryStamp.seenHighWater(ctx, CHECKER);
+		const since = deliveryStamp.readSeenHighWater(ctx, CHECKER);
 
 		let logs;
 		try {
@@ -310,7 +310,7 @@ runCheck({
 			 * even with nothing new to report. A `--notify` run asks only what
 			 * is new. */
 			if (!ctx.notify)
-				ctx.say(standing ? standingReport(standing) : UNREADABLE);
+				ctx.say(standing ? buildStandingReport(standing) : UNREADABLE);
 			else if (!standing) ctx.say(UNREADABLE);
 			return {
 				okLine: `no unreported Jev advisory flag in ${all.length} logged turn(s).`,
@@ -346,7 +346,7 @@ runCheck({
 				"  be judged at all; it says so in place of the quote.\n" +
 				`\n  Log: ${jevLog.logPath(root)}\n`,
 		);
-		ctx.say(standing ? standingReport(standing) : UNREADABLE);
+		ctx.say(standing ? buildStandingReport(standing) : UNREADABLE);
 
 		const signature = deliveryStamp.highWater(newest);
 		/* Stamped after the report is out, so a process killed in between repeats

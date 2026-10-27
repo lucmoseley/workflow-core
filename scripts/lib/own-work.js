@@ -6,7 +6,8 @@
  * #1154'S RULE: a commit is a neighbour's where another session's commit
  * ledger names it and the launcher's does not. Every other commit is the
  * launcher's to test, one in no ledger included, so each known miss
- * over-selects.
+ * over-selects. A review marker's newer base= narrows it by patch (#3108):
+ * see readOwnPaths' `byPatch`.
  */
 
 const arbiterLedger = require("./arbiter-ledger.js");
@@ -15,8 +16,8 @@ const { gitRead } = require("./dirty-tree.js");
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 /**
  * @typedef {{ ledgerRoot: () => string|null,
- *   commitsBy: (id: string, root?: string) => string[]|null,
- *   ownersOf: (commits: string[], root?: string) => Map<string, string>|null }} CommitLedger
+ *   readCommitsBy: (id: string, root?: string) => string[]|null,
+ *   readOwnersOf: (commits: string[], root?: string) => Map<string, string>|null }} CommitLedger
  */
 
 /**
@@ -30,21 +31,54 @@ const { gitRead } = require("./dirty-tree.js");
  * @param {{ ledger?: CommitLedger }} [options]
  * @returns {Map<string, string>|null}
  */
-function neighbourCommits(commits, sessionId, { ledger = arbiterLedger } = {}) {
+function readNeighbourCommits(
+	commits,
+	sessionId,
+	{ ledger = arbiterLedger } = {},
+) {
+	const own = readOwnLedger(sessionId, ledger);
+	return own && readOwnersBesides(commits, own, ledger);
+}
+
+/**
+ * `sessionId`'s ledgered commits and the main worktree whose store holds
+ * them — or null where either will not read.
+ *
+ * @param {string|null|undefined} sessionId
+ * @param {CommitLedger} ledger
+ * @returns {{ root: string, mine: string[] }|null}
+ */
+function readOwnLedger(sessionId, ledger) {
 	if (!sessionId) return null;
 	try {
 		const root = ledger.ledgerRoot();
 		if (!root) return null;
-		const mine = ledger.commitsBy(sessionId, root);
-		if (!mine) return null;
-		const own = new Set(mine);
-		return ledger.ownersOf(
-			commits.filter((c) => !own.has(c)),
-			root,
-		);
+		const mine = ledger.readCommitsBy(sessionId, root);
+		return mine && { root, mine };
 	} catch {
 		/* A store that throws is a ledger that will not read: no narrowing,
 		 * which over-selects. */
+		return null;
+	}
+}
+
+/**
+ * readNeighbourCommits' answer, given the launcher's ledger already read.
+ *
+ * @param {string[]} commits
+ * @param {{ root: string, mine: string[] }} own
+ * @param {CommitLedger} ledger
+ * @returns {Map<string, string>|null}
+ */
+function readOwnersBesides(commits, { root, mine }, ledger) {
+	const ownSet = new Set(mine);
+	try {
+		return ledger.readOwnersOf(
+			commits.filter((c) => !ownSet.has(c)),
+			root,
+		);
+	} catch {
+		/* As readOwnLedger's. */
 		return null;
 	}
 }
@@ -72,13 +106,24 @@ const lines = (out) =>
  * file at all: the re-run guard passes one carrying exactly what the overlay
  * would, so it reads the run's set from the shared tree (#1218).
  *
+ * `byPatch` narrows #1154's rule for a caller to whom over-billing is the
+ * costly error (#3108): a commit no ledger names is the session's own only
+ * where its `git patch-id --stable` matches one of the session's ledgered
+ * commits, as a rebase leaves it, and is nobody's otherwise — a pruned ledger's, a pull's, a human's. Test
+ * selection keeps the unnarrowed rule, since a missed test is the costlier
+ * error there.
+ *
  * @param {string} root
  * @param {string} base
  * @param {{ sessionId?: string|null, execFn?: ExecFn, ledger?: CommitLedger,
- *   tip?: string }} [options]
+ *   tip?: string, byPatch?: boolean }} [options]
  * @returns {{ dropped: string[], kept: string[], paths: string[] }|null}
  */
-function ownPaths(root, base, { sessionId, execFn, ledger, tip } = {}) {
+function readOwnPaths(
+	root,
+	base,
+	{ sessionId, execFn, ledger = arbiterLedger, tip, byPatch = false } = {},
+) {
 	if (!sessionId) return null;
 	const log = gitRead(
 		[
@@ -94,10 +139,20 @@ function ownPaths(root, base, { sessionId, execFn, ledger, tip } = {}) {
 	);
 	if (log === null) return null;
 	const touched = pathsByCommit(log);
-	const neighbours = neighbourCommits([...touched.keys()], sessionId, {
-		ledger,
-	});
+	const own = readOwnLedger(sessionId, ledger);
+	if (!own) return null;
+	const neighbours = readOwnersBesides([...touched.keys()], own, ledger);
 	if (!neighbours) return null;
+	const nobodys = byPatch
+		? readUnmatchedUnledgered(
+				[...touched.keys()].filter((sha) => !neighbours.has(sha)),
+				own.mine,
+				root,
+				execFn,
+			)
+		: [];
+	if (!nobodys) return null;
+	const notOwn = new Set([...neighbours.keys(), ...nobodys]);
 	const net = gitRead(
 		["diff", "--name-only", "--no-renames", base, ...(tip ? [tip] : [])],
 		root,
@@ -107,12 +162,69 @@ function ownPaths(root, base, { sessionId, execFn, ledger, tip } = {}) {
 		? ""
 		: gitRead(["diff", "--name-only", "--no-renames", "HEAD"], root, execFn);
 	if (net === null || dirty === null) return null;
-	const owed = ownedPaths(dirty, touched, neighbours);
+	const owed = ownedPaths(dirty, touched, notOwn);
 	return {
-		dropped: [...touched.keys()].filter((sha) => neighbours.has(sha)),
-		kept: [...touched.keys()].filter((sha) => !neighbours.has(sha)),
+		dropped: [...touched.keys()].filter((sha) => notOwn.has(sha)),
+		kept: [...touched.keys()].filter((sha) => !notOwn.has(sha)),
 		paths: lines(net).filter((p) => owed.has(p)),
 	};
+}
+
+/**
+ * The commits among `commits` that no ledger names and whose patch matches
+ * none of `mine` (#3108) — or null where git will not read. A commit with no
+ * patch, a merge's included, matches nothing.
+ *
+ * Residual: a ledgered commit git has since collected has no patch to match,
+ * and a rebase that resolved a conflict in it changes its patch, so either
+ * copy reads as nobody's.
+ *
+ * @param {string[]} commits full shas no other session's ledger names
+ * @param {string[]} mine the launcher's ledgered commits
+ * @param {string} root
+ * @param {ExecFn} [execFn]
+ * @returns {string[]|null}
+ */
+function readUnmatchedUnledgered(commits, mine, root, execFn) {
+	const own = new Set(mine);
+	const unledgered = commits.filter((sha) => !own.has(sha));
+	if (unledgered.length === 0) return [];
+	const theirs = readPatchIds(unledgered, root, execFn);
+	const ours = readPatchIds(mine, root, execFn);
+	if (!theirs || !ours) return null;
+	const matched = new Set(ours.values());
+	return unledgered.filter((sha) => !matched.has(theirs.get(sha) ?? ""));
+}
+
+/**
+ * Each of `commits`' `git patch-id --stable`, by sha, a commit with no patch
+ * or that git no longer has left out — or null where git will not answer.
+ *
+ * @param {string[]} commits
+ * @param {string} root
+ * @param {ExecFn} [execFn]
+ * @returns {Map<string, string>|null}
+ */
+function readPatchIds(commits, root, execFn) {
+	/** @type {Map<string, string>} */
+	const ids = new Map();
+	if (commits.length === 0) return ids;
+	const patches = gitRead(
+		// No context lines: a neighbour's edit beside the commit's own, which
+		// a rebase carries under it, would otherwise change its patch-id.
+		["diff-tree", "--stdin", "--root", "-p", "-U0", "--no-renames"],
+		root,
+		execFn,
+		`${commits.join("\n")}\n`,
+	);
+	if (patches === null) return null;
+	const out = gitRead(["patch-id", "--stable"], root, execFn, patches);
+	if (out === null) return null;
+	for (const line of lines(out)) {
+		const [id, sha] = line.split(" ");
+		if (id && sha) ids.set(sha, id);
+	}
+	return ids;
 }
 
 /**
@@ -134,17 +246,30 @@ function pathsByCommit(log) {
 }
 
 /**
- * The uncommitted paths, plus every path a commit not a neighbour's touched.
+ * The uncommitted paths, plus every path a commit not in `notOwn` touched.
  * @param {string} dirty `git diff --name-only` output, or empty
  * @param {Map<string, Set<string>>} touched
- * @param {Map<string, string>} neighbours the neighbours' commits, by sha
+ * @param {Set<string>} notOwn the commits that are not the launcher's
  * @returns {Set<string>}
  */
-function ownedPaths(dirty, touched, neighbours) {
+function ownedPaths(dirty, touched, notOwn) {
 	const owed = new Set(lines(dirty));
 	for (const [sha, paths] of touched)
-		if (!neighbours.has(sha)) for (const p of paths) owed.add(p);
+		if (!notOwn.has(sha)) for (const p of paths) owed.add(p);
 	return owed;
 }
 
-module.exports = { neighbourCommits, ownPaths };
+/**
+ * `readOwnPaths` where it leaves a neighbour's commit out, the only set that
+ * narrows a diff; else null (#1216).
+ *
+ * @param {string} root
+ * @param {string} base
+ * @param {Parameters<typeof readOwnPaths>[2]} [options]
+ */
+function readOwnWork(root, base, options) {
+	const resolved = readOwnPaths(root, base, options);
+	return resolved && resolved.dropped.length > 0 ? resolved : null;
+}
+
+module.exports = { readNeighbourCommits, readOwnPaths, readOwnWork };

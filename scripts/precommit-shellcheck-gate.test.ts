@@ -21,6 +21,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	cutGateFragment,
+	gateTmpdir,
 	registerTempCleanup,
 	stagedRepo,
 	type TempRepo,
@@ -75,7 +76,7 @@ function linkNeeded(bin: string): void {
  * `noFlock` leaves flock off PATH; `flockExit` stubs a flock that only exits.
  * Either absent binary makes the fixture `isolated`: its bin is the whole PATH.
  */
-type GateRepo = TempRepo & { bin: string; isolated: boolean; lockDir: string };
+type GateRepo = TempRepo & { bin: string; isolated: boolean };
 
 function fixture(opts: {
 	staged: Record<string, string>;
@@ -104,12 +105,7 @@ function fixture(opts: {
 		fs.writeFileSync(stub, `#!/bin/sh\nexit ${opts.flockExit}\n`);
 		fs.chmodSync(stub, 0o755);
 	}
-	// The gate's lock lives under TMPDIR, so each fixture takes its own and no
-	// case contends with a real commit's shellcheck.
-	const lockDir = path.join(root, "locks");
-	fs.mkdirSync(lockDir);
-
-	return { ...repo, bin, isolated, lockDir };
+	return { ...repo, bin, isolated };
 }
 
 function gateLaunch(repo: GateRepo): {
@@ -136,13 +132,13 @@ function gateLaunch(repo: GateRepo): {
 		env: {
 			...process.env,
 			PATH: search,
-			TMPDIR: repo.lockDir,
+			TMPDIR: gateTmpdir(repo.root),
 			WFC_PLUGIN_ROOT: ROOT,
 		},
 	};
 }
 
-function stubArgs(repo: GateRepo): string[] {
+function readStubArgs(repo: GateRepo): string[] {
 	const argsPath = path.join(repo.root, ARGS_FILE);
 	return fs.existsSync(argsPath)
 		? fs.readFileSync(argsPath, "utf8").split("\n").filter(Boolean)
@@ -169,7 +165,7 @@ function runGate(repo: GateRepo): {
 		code = err.status ?? 1;
 		output = `${err.stdout ?? ""}${err.stderr ?? ""}`;
 	}
-	return { code, output, args: stubArgs(repo) };
+	return { code, output, args: readStubArgs(repo) };
 }
 
 /**
@@ -194,7 +190,7 @@ function runGateAsync(
 			}
 		});
 		child.on("close", (code) =>
-			resolve({ code: code ?? 1, output, args: stubArgs(repo) }),
+			resolve({ code: code ?? 1, output, args: readStubArgs(repo) }),
 		);
 	});
 }
@@ -340,18 +336,18 @@ describe("the pre-commit shellcheck gate", () => {
 		expect(code).toBe(0);
 	});
 
-	it("carries check:sh's flags and excludes only SC2329 and SC2016 on either side", () => {
+	it("carries check:sh's flags and excludes only SC2016 on either side", () => {
 		const pkg = JSON.parse(
 			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
 		);
 		const script: string = pkg.scripts["check:sh"];
 		const fragment = gateFragment();
-		const exclude = "--exclude=SC2329,SC2016";
+		const exclude = "--exclude=SC2016";
 		for (const flag of ["-x", "--severity=style", exclude]) {
 			expect(script, `check:sh lost ${flag}`).toContain(flag);
 			expect(fragment, `the gate lost ${flag}`).toContain(flag);
 		}
-		// #1315 Q2 excluded these two by code; any other false finding takes an
+		// #1315 Q2 excluded this one by code; any other false finding takes an
 		// inline disable, and a sourced script silences SC2148 with its own
 		// `# shellcheck shell=` line (#753).
 		const exclusions = (s: string) =>
@@ -410,7 +406,7 @@ describe("the pre-commit shellcheck gate", () => {
 describe("the gate's serialisation across commits (#2579)", () => {
 	it("waits for a neighbour holding the lock, then runs shellcheck", async () => {
 		const repo = fixture({ staged: { [GUARD]: BODY }, shellcheckExit: 0 });
-		const lock = path.join(repo.lockDir, "wfc-shellcheck.lock");
+		const lock = path.join(gateTmpdir(repo.root), "wfc-shellcheck.lock");
 		const held = holdLock(lock);
 		try {
 			const { code, output, args } = await runGateAsync(
@@ -442,7 +438,7 @@ describe("the gate's serialisation across commits (#2579)", () => {
 	it("runs shellcheck unserialised where the lock file will not open", () => {
 		const repo = fixture({ staged: { [GUARD]: BODY }, shellcheckExit: 0 });
 		// A directory where the lock file goes: the open fails, not the lock.
-		fs.mkdirSync(path.join(repo.lockDir, "wfc-shellcheck.lock"));
+		fs.mkdirSync(path.join(gateTmpdir(repo.root), "wfc-shellcheck.lock"));
 		const { code, output, args } = runGate(repo);
 		expect(output).toMatch(/cannot open .*wfc-shellcheck\.lock/);
 		expect(output).not.toMatch(/shellcheck failed/);

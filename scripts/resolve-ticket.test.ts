@@ -25,7 +25,8 @@ import {
 	issueClaims,
 	store,
 } from "./lib/arbiter-testkit";
-import { GRAPHQL_FAKE, stubGhScript } from "./lib/gh-stub";
+import { GRAPHQL_FAKE } from "./lib/gh-fake";
+import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
 const { digestOf } = createRequire(__filename)("./lib/census-digest.js");
@@ -73,7 +74,7 @@ if (a[0] === "api") {
 	if (a[1] === "user") say({ login: "me" });
 	if (a[1] === "graphql")
 		// Every cited number open, unless the gql-closed file lists it (#984).
-		say(answerGraphql(a, fs.existsSync(f("gql-closed")) ? fs.readFileSync(f("gql-closed"), "utf8").split(" ") : [], []));
+		serveAnswer(answerGraphql(a, fs.existsSync(f("gql-closed")) ? fs.readFileSync(f("gql-closed"), "utf8").split(" ") : [], []));
 	if (a[1] === "repos/acme/widgets/issues/534") say(issue());
 	if (a[1] === "repos/acme/widgets/issues/534/comments") say([comments()]);
 	if (a[1] === "repos/acme/widgets/issues/528" && fs.existsSync(f("parent.json")))
@@ -159,25 +160,25 @@ const run = (args: string[], comment = COMMENT) => {
 };
 const DECISION = ["--decision", "one call resolves"];
 
-const calls = () =>
+const readCalls = () =>
 	fs.existsSync(state("calls"))
 		? read("calls").split("\n").filter(Boolean)
 		: [];
-const writes = () =>
-	calls().filter((c) => /^issue (comment|close|edit)/.test(c));
+const readWrites = () =>
+	readCalls().filter((c) => /^issue (comment|close|edit)/.test(c));
 const posted = () => JSON.parse(read("comments.json")).length;
 const claimed = () => issueClaims.readIssueClaims(534).length > 0;
 /** This session's acts ledger (#2308). */
-const acts = () => store.actsBy(ME, [sb.repo]).acts;
-const mapLines = () =>
+const readActs = () => store.readActsBy(ME, [sb.repo]).acts;
+const readMapLines = () =>
 	read("map.md")
 		.split("\n")
 		.filter((l) => l.startsWith("- #534"));
 
 const untouched = () => {
-	expect(writes()).toEqual([]);
+	expect(readWrites()).toEqual([]);
 	expect(claimed()).toBe(true);
-	expect(acts()).toEqual([]);
+	expect(readActs()).toEqual([]);
 };
 
 describe("a successful resolve", () => {
@@ -191,11 +192,11 @@ describe("a successful resolve", () => {
 			reason: "completed",
 		});
 		expect(claimed()).toBe(false);
-		expect(acts()).toEqual(["close acme/widgets#534"]);
-		expect(mapLines()).toEqual(["- #534 — one call resolves"]);
+		expect(readActs()).toEqual(["close acme/widgets#534"]);
+		expect(readMapLines()).toEqual(["- #534 — one call resolves"]);
 		expect(read("map.md")).toContain("- #530 — neighbour's line");
-		expect(calls().some((c) => c.includes("assignee"))).toBe(false);
-		expect(calls().some((c) => c.startsWith("issue edit 534"))).toBe(false);
+		expect(readCalls().some((c) => c.includes("assignee"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue edit 534"))).toBe(false);
 	});
 
 	it("closes as not planned with no Values, Practice or Outstanding line (#1707, #2325)", () => {
@@ -251,7 +252,7 @@ describe("a successful resolve", () => {
 	it("needs no decision line where the parent is not a map", () => {
 		setUp({ parentLabels: ["kind:spec"] });
 		expect(run([]).status).toBe(0);
-		expect(writes().some((c) => c.startsWith("issue edit"))).toBe(false);
+		expect(readWrites().some((c) => c.startsWith("issue edit"))).toBe(false);
 	});
 });
 
@@ -357,7 +358,7 @@ describe("refusals, all before any write", () => {
 		);
 		expect(r.status).toBe(0);
 		expect(
-			calls().some((c) => c.includes('owner: "acme", name: "other"')),
+			readCalls().some((c) => c.includes('owner: "acme", name: "other"')),
 		).toBe(true);
 	});
 
@@ -566,7 +567,7 @@ describe("census rows the ticket's commits expired (#1876)", () => {
 		fs.mkdirSync(path.dirname(rule), { recursive: true });
 		fs.writeFileSync(rule, "Rule one.\n");
 		gitRepo(sb);
-		writeGuard('#!/bin/sh\ngp_rule_text one "fallback"\n');
+		writeGuard("#!/bin/sh\nrule_text one\n");
 		commitAll(sb, "seed");
 		fs.writeFileSync(
 			path.join(sb.repo, "scripts/instruction-surface-anchors.json"),
@@ -638,7 +639,7 @@ describe("the map append", () => {
 		const r = run(DECISION);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("- #530 — neighbour's line");
-		expect(mapLines()).toEqual(["- #534 — one call resolves"]);
+		expect(readMapLines()).toEqual(["- #534 — one call resolves"]);
 	});
 });
 
@@ -651,7 +652,7 @@ describe("a re-run after a partial failure", () => {
 		expect(first.stderr).toContain("Re-run to finish");
 		expect(posted()).toBe(1);
 		expect(claimed()).toBe(true);
-		expect(acts()).toEqual([]);
+		expect(readActs()).toEqual([]);
 
 		fs.rmSync(state("close-fails"));
 		const again = run(DECISION);
@@ -659,27 +660,29 @@ describe("a re-run after a partial failure", () => {
 		expect(again.stdout).toContain("not posted again");
 		expect(posted()).toBe(1);
 		expect(JSON.parse(read("issue.json")).state).toBe("closed");
-		expect(mapLines()).toHaveLength(1);
+		expect(readMapLines()).toHaveLength(1);
 	});
 
 	it("retries no close on a closed issue and adds no second map line", () => {
 		setUp();
 		put("edit-fails", "");
 		expect(run(DECISION).status).toBe(1);
-		expect(mapLines()).toEqual([]);
+		expect(readMapLines()).toEqual([]);
 
 		fs.rmSync(state("edit-fails"));
 		const again = run(DECISION);
 		expect(again.status).toBe(0);
 		expect(again.stdout).toContain("already closed");
-		expect(mapLines()).toHaveLength(1);
+		expect(readMapLines()).toHaveLength(1);
 
 		const third = run(DECISION);
 		expect(third.status).toBe(0);
 		expect(posted()).toBe(1);
-		expect(calls().filter((c) => c.startsWith("issue close"))).toHaveLength(1);
-		expect(mapLines()).toHaveLength(1);
+		expect(readCalls().filter((c) => c.startsWith("issue close"))).toHaveLength(
+			1,
+		);
+		expect(readMapLines()).toHaveLength(1);
 		// The one close is the one act: a re-run on the closed issue adds none.
-		expect(acts()).toEqual(["close acme/widgets#534"]);
+		expect(readActs()).toEqual(["close acme/widgets#534"]);
 	});
 });

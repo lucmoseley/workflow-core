@@ -7,6 +7,10 @@
 # SOURCED, NEVER RUN. Needs gr_root (lib/guard-root.sh) and sp_core_root
 # (lib/script-path.sh).
 #
+# lib/review-standards.js is the Node twin the review-rules dispatcher core
+# reads; keep the two in step (review-standards.test.ts holds them to one
+# answer).
+#
 # A caller (`grep -rlE '^\s*(source|\.) .*review-standards\.sh' scripts`)
 # whose source of this file fails keeps its default text.
 #
@@ -43,7 +47,7 @@ review_standards_glossary() {
 }
 
 # $1 as a session is handed it: relative to the host root where it sits under
-# it, so the checkout's path costs no bytes against GP_RULE_CAP (#1729), and
+# it, so the checkout's path costs no bytes against RULE_CAP (#1729), and
 # whole where it does not, as an adopter's base in its plugin cache.
 review_standards_shown() {
   local root=""

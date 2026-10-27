@@ -30,7 +30,7 @@ interface Breadcrumb {
  * session reads the lines kept for payloads naming none. A torn line is
  * skipped, as the real reader counts and skips it.
  */
-export function breadcrumbs(
+export function readBreadcrumbs(
 	root: string,
 	guard: string,
 	sessionId: string | null,
@@ -48,11 +48,13 @@ export function breadcrumbs(
 	return names
 		.filter((n) => n.startsWith(PREFIX))
 		.sort()
-		.flatMap((name) => fileBreadcrumbs(path.join(dir, name), guard, session));
+		.flatMap((name) =>
+			readFileBreadcrumbs(path.join(dir, name), guard, session),
+		);
 }
 
 /** One breadcrumb file's lines for `guard` and `session`, in file order. */
-function fileBreadcrumbs(
+function readFileBreadcrumbs(
 	file: string,
 	guard: string,
 	session: string,

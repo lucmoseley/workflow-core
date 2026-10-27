@@ -20,12 +20,6 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/guard-log.sh
 source "$here/lib/guard-log.sh" 2>/dev/null
 declare -F gl_log >/dev/null 2>&1 || gl_log() { :; }
-# Sourced directly, not leaned on through guard-log.sh, which sources it too: a
-# detached guard-log.sh costs this hook its record, and must not also cost it the
-# root it sweeps from (mantahostels#1905).
-# shellcheck source=scripts/lib/guard-root.sh
-source "$here/lib/guard-root.sh" 2>/dev/null
-declare -F gr_root >/dev/null 2>&1 || gr_root() { :; }
 # shellcheck source=scripts/lib/marker-root.sh
 source "$here/lib/marker-root.sh" 2>/dev/null
 declare -F gr_markers_dir >/dev/null 2>&1 || gr_markers_dir() { :; }
@@ -47,13 +41,14 @@ sid="$(printf '%s' "$payload" | jq -j '.session_id // ""' 2>/dev/null)" || {
   exit 0
 }
 # The id reaches a glob, so anything outside its own alphabet is replaced —
-# gp_rule sanitised it the same way when it wrote the marker.
+# lib/guard-entry.js's segment() sanitised it the same way when it wrote the
+# marker.
 sid="${sid//[^A-Za-z0-9_-]/_}"
 
-# gr_markers_dir is the same expression gp_rule's _gp_rule_marker writes the
-# latch with (mantahostels#1905), so this glob cannot drift out of agreement
-# with it. Under .claude/tmp/markers rather than the repo root since F8
-# (mantahostels#3515, #2).
+# gr_markers_dir is the bash twin of lib/marker-root.js's markersDir, which
+# lib/guard-entry.js writes the latch under (mantahostels#1905);
+# clear-rule-latch.test.ts holds the two in agreement. Under
+# .claude/tmp/markers rather than the repo root since F8 (mantahostels#3515, #2).
 markers="$(gr_markers_dir)"
 # Empty is gr_root's disarm signal propagated through gr_markers_dir, and it
 # reaches here only when guard-root.sh itself failed to load. Unrecorded, like

@@ -75,7 +75,7 @@ function commitAll(cwd: string, message: string) {
 	git(["commit", "-q", "-m", message], cwd);
 }
 
-function log(cwd: string) {
+function readLog(cwd: string) {
 	return git(["log", "--format=%s%n%b%x00", "-z"], cwd)
 		.split("\0")
 		.filter(Boolean);
@@ -140,7 +140,7 @@ describe("walkAndCommit", () => {
 		const r = walkAndCommit({ root, pluginRoot, out: (l) => lines.push(l) });
 		expect(r.action).toBe("dirty");
 		expect(lines.join("\n")).toMatch(/not clean/);
-		expect(log(root)).toHaveLength(1);
+		expect(readLog(root)).toHaveLength(1);
 	});
 
 	it("a clean tree with notes to walk produces exactly one commit of the walk's output", () => {
@@ -154,10 +154,10 @@ describe("walkAndCommit", () => {
 			note("v2.0.0", { contract: 2, ignoreBlock: ["*.wfc-local"] }, "true"),
 		);
 
-		const before = log(root).length;
+		const before = readLog(root).length;
 		const r = walkAndCommit({ root, pluginRoot });
 		expect(r.action).toBe("committed");
-		expect(log(root)).toHaveLength(before + 1);
+		expect(readLog(root)).toHaveLength(before + 1);
 
 		const config = readJson(root, ".claude/workflow-core.json");
 		expect(config.walkedTo).toBe("v2.0.0");
@@ -167,7 +167,7 @@ describe("walkAndCommit", () => {
 		expect(git(["status", "--porcelain"], root).trim()).toBe("");
 	});
 
-	const remoteHead = () =>
+	const readRemoteHead = () =>
 		execFileSync("git", ["rev-parse", "refs/heads/main"], {
 			cwd: remote,
 			encoding: "utf8",
@@ -184,12 +184,12 @@ describe("walkAndCommit", () => {
 			note("v2.0.0", { contract: 2 }, "true"),
 		);
 
-		const before = remoteHead();
+		const before = readRemoteHead();
 		walkAndCommit({ root, pluginRoot });
 
 		const localHead = git(["rev-parse", "main"], root).trim();
-		expect(remoteHead()).toBe(before);
-		expect(remoteHead()).not.toBe(localHead);
+		expect(readRemoteHead()).toBe(before);
+		expect(readRemoteHead()).not.toBe(localHead);
 	});
 
 	it("never pushes, on the half-way path", () => {
@@ -208,9 +208,9 @@ describe("walkAndCommit", () => {
 			note("v3.0.0", { contract: 3 }, "exit 1"),
 		);
 
-		const before = remoteHead();
+		const before = readRemoteHead();
 		walkAndCommit({ root, pluginRoot });
-		expect(remoteHead()).toBe(before);
+		expect(readRemoteHead()).toBe(before);
 	});
 
 	it("halts and reports on a refusing commit, leaving no commit and never pushing", () => {
@@ -229,14 +229,14 @@ describe("walkAndCommit", () => {
 			mode: 0o755,
 		});
 
-		const before = log(root).length;
-		const beforeRemote = remoteHead();
+		const before = readLog(root).length;
+		const beforeRemote = readRemoteHead();
 		const lines: string[] = [];
 		const r = walkAndCommit({ root, pluginRoot, out: (l) => lines.push(l) });
 		expect(r.action).toBe("broken");
 		expect(lines.join("\n")).toMatch(/commit was refused/);
-		expect(log(root)).toHaveLength(before);
-		expect(remoteHead()).toBe(beforeRemote);
+		expect(readLog(root)).toHaveLength(before);
+		expect(readRemoteHead()).toBe(beforeRemote);
 	});
 
 	it("a failing note's Verify leaves none of its own writes committed, and notes before it stay committed", () => {
@@ -255,11 +255,11 @@ describe("walkAndCommit", () => {
 			note("v3.0.0", { contract: 3 }, "exit 1"),
 		);
 
-		const before = log(root).length;
+		const before = readLog(root).length;
 		const lines: string[] = [];
 		const r = walkAndCommit({ root, pluginRoot, out: (l) => lines.push(l) });
 		expect(r.action).toBe("committed");
-		expect(log(root)).toHaveLength(before + 1);
+		expect(readLog(root)).toHaveLength(before + 1);
 		expect(lines.join("\n")).toMatch(/v3\.0\.0 Verify failed/);
 
 		const config = readJson(root, ".claude/workflow-core.json");
@@ -280,11 +280,11 @@ describe("walkAndCommit", () => {
 			note("v2.0.0", { contract: 2 }, "exit 1"),
 		);
 
-		const before = log(root).length;
+		const before = readLog(root).length;
 		const r = walkAndCommit({ root, pluginRoot });
 		// nothing verified at all — nothing to commit
 		expect(r.action).toBe("up-to-date");
-		expect(log(root)).toHaveLength(before);
+		expect(readLog(root)).toHaveLength(before);
 		expect(
 			"walkedTo" in
 				(fs.existsSync(path.join(root, ".claude/workflow-core.json"))
@@ -310,7 +310,7 @@ describe("walkAndCommit", () => {
 		);
 
 		walkAndCommit({ root, pluginRoot });
-		const [subjectAndBody] = log(root);
+		const [subjectAndBody] = readLog(root);
 		expect(subjectAndBody).toContain("- [act] (v2.0.0) do a thing");
 		expect(subjectAndBody).toContain("- [choice] (v2.0.0) pick a thing");
 	});
@@ -350,8 +350,8 @@ describe("walkAndCommit", () => {
 		);
 
 		expect(walkAndCommit({ root, pluginRoot }).action).toBe("committed");
-		const after1 = log(root).length;
+		const after1 = readLog(root).length;
 		expect(walkAndCommit({ root, pluginRoot }).action).toBe("up-to-date");
-		expect(log(root)).toHaveLength(after1);
+		expect(readLog(root)).toHaveLength(after1);
 	});
 });

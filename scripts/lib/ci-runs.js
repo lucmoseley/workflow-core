@@ -35,7 +35,7 @@ const CI_RUNS = {
  * @param {string} root
  * @returns {Record<CiTool, string[]>}
  */
-function ciRuns(root) {
+function readCiRuns(root) {
 	const dir = path.join(root, ".github", "workflows");
 	/** @type {string[]} */
 	let files = [];
@@ -90,8 +90,8 @@ if (require.main === module) {
 		writeFd(2, `usage: node ci-runs.js <${Object.keys(CI_RUNS).join("|")}>\n`);
 		process.exit(2);
 	}
-	const runs = ciRuns(process.cwd())[/** @type {CiTool} */ (tool)];
+	const runs = readCiRuns(process.cwd())[/** @type {CiTool} */ (tool)];
 	writeFd(1, `ci:${runs.join(", ")}\n`);
 }
 
-module.exports = { ciRuns };
+module.exports = { readCiRuns };

@@ -23,25 +23,33 @@ interactive tasks unaided (#953). Which route to try when this one fails: the
 USAGE
   python3 scripts/browse.py text  <url> [common]
   python3 scripts/browse.py html  <url> [common]
-  python3 scripts/browse.py shot  <url>  --out PATH [--full-page] [common]
+  python3 scripts/browse.py shot  <url>  --out PATH [--full-page | --tiles] [common]
 
   common: [--wait SEL] [--settle MS] [--timeout MS] [--ua STRING] [--out PATH]
           [--viewport WxH]
 
+`--tiles` captures the whole page as one PNG per viewport height, `<out>-1.png`
+onward, so each can be read at full size: one full-page PNG of a long page is
+downscaled before a model sees it (#2753).
+
 EXITS 0 rendered / 2 the arguments are wrong / 3 Playwright or its browser is
 missing, with the install command named / 4 the page did not render in time /
-5 the browser refused the page — DNS, a refused connection, a TLS failure.
+5 the browser refused the page — DNS, a refused connection, a TLS failure /
+6 `--tiles` rendered, but the page does not show at real size: it is wider than
+the viewport, or an image is drawn narrower than its own pixels.
 
-Every exit is one of those five: `main` catches Playwright's own error class, so
-nothing reaches the caller as a traceback.
+No browser or page failure reaches the caller as a traceback: `render` turns
+Playwright's errors into exits 3-5. A local fault, such as an unwritable
+`--out`, still does.
 """
 
 import argparse
 import sys
+from pathlib import Path
+from typing import NamedTuple
 
 # An ordinary desktop Chrome UA. Playwright's own advertises HeadlessChrome,
-# which Cloudflare and Akamai both answer with a 403 and an interstitial — the
-# single most common reason a probe "fails" against a site that is in fact open.
+# which Cloudflare and Akamai both answer with a 403 and an interstitial.
 #
 # The version is current as of September 2026 and goes stale on its own. A
 # string a few majors behind is still served normally; one years behind starts
@@ -96,7 +104,9 @@ def parse(argv):
     p.add_argument("--timeout", type=int, default=30000, metavar="MS")
     p.add_argument("--ua", default=DEFAULT_UA, metavar="STRING")
     p.add_argument("--out", metavar="PATH", help="Required for `shot`.")
-    p.add_argument("--full-page", action="store_true")
+    shape = p.add_mutually_exclusive_group()
+    shape.add_argument("--full-page", action="store_true")
+    shape.add_argument("--tiles", action="store_true")
     p.add_argument("--viewport", default="1280x800", metavar="WxH")
     at = p.parse_args(argv)
 
@@ -108,6 +118,51 @@ def parse(argv):
         p.error(f"--viewport wants WxH, e.g. 1280x800 — got {at.viewport!r}")
     at.viewport_size = {"width": w, "height": h}
     return at
+
+
+class Shot(NamedTuple):
+    paths: list
+    faults: list
+
+
+# Each image drawn narrower than its own pixels, as [src, drawn, natural].
+SHRUNK_IMAGES_JS = """[...document.images]
+  .filter((i) => i.naturalWidth && i.clientWidth < i.naturalWidth)
+  .map((i) => [i.getAttribute("src"), i.clientWidth, i.naturalWidth])"""
+
+
+def tile_clips(page_height, viewport):
+    return [
+        {
+            "x": 0,
+            "y": y,
+            "width": viewport["width"],
+            "height": min(viewport["height"], page_height - y),
+        }
+        for y in range(0, page_height, viewport["height"])
+    ]
+
+
+def tile_paths(out, count):
+    path = Path(out)
+    return [
+        str(path.with_name(f"{path.stem}-{n}{path.suffix}"))
+        for n in range(1, count + 1)
+    ]
+
+
+def real_size_faults(page_width, viewport_width, shrunk):
+    faults = [
+        f"{src} is drawn {drawn}px wide, below its own {natural}px."
+        for src, drawn, natural in shrunk
+    ]
+    if page_width > viewport_width:
+        faults.insert(
+            0,
+            f"the page is {page_width}px wide in a {viewport_width}px viewport, "
+            "so it scrolls sideways.",
+        )
+    return faults
 
 
 class PageTimeoutError(Exception):
@@ -127,8 +182,8 @@ class RefusedError(Exception):
 
 
 def render(at):
-    """Drive the browser. Returns the text to emit, or None for a shot that has
-    already written itself."""
+    """Drive the browser. Returns the text to emit, or the Shot that has already
+    written itself."""
     from playwright.sync_api import Error as PlaywrightError
     from playwright.sync_api import TimeoutError as PlaywrightTimeout
     from playwright.sync_api import sync_playwright
@@ -161,8 +216,20 @@ def render(at):
                     page.wait_for_timeout(at.settle)
 
                 if at.mode == "shot":
-                    page.screenshot(path=at.out, full_page=at.full_page)
-                    return None
+                    if not at.tiles:
+                        page.screenshot(path=at.out, full_page=at.full_page)
+                        return Shot([at.out], [])
+                    page_height = page.evaluate("document.documentElement.scrollHeight")
+                    clips = tile_clips(page_height, at.viewport_size)
+                    paths = tile_paths(at.out, len(clips))
+                    for path, clip in zip(paths, clips, strict=True):
+                        page.screenshot(path=path, full_page=True, clip=clip)
+                    faults = real_size_faults(
+                        page.evaluate("document.documentElement.scrollWidth"),
+                        at.viewport_size["width"],
+                        page.evaluate(SHRUNK_IMAGES_JS),
+                    )
+                    return Shot(paths, faults)
                 if at.mode == "html":
                     return page.content()
                 return page.inner_text("body")
@@ -206,8 +273,17 @@ def main(argv, render=render):
         )
         return 4
 
-    if body is None:
-        print(f"wrote {at.out}", file=sys.stderr)
+    if isinstance(body, Shot):
+        for path in body.paths:
+            print(f"wrote {path}", file=sys.stderr)
+        if body.faults:
+            print(
+                "\n".join(body.faults) + "\nGive each image its natural width "
+                "(`max-width: none`), and put anything wider than the viewport "
+                "in its own `overflow-x: auto` box.",
+                file=sys.stderr,
+            )
+            return 6
         return 0
     if at.out:
         with open(at.out, "w", encoding="utf8") as fh:

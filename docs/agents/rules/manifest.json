@@ -3,7 +3,7 @@
 	"rules": {
 		"blocked-ticket-gate": {
 			"source": "docs/agents/issue-tracker.md",
-			"trigger": "a `gh issue comment` whose body opens `**Blocked`, on the Bash tool"
+			"trigger": "a `gh issue comment` whose body opens `**Blocked` or `**Refused attempt`, on the Bash tool"
 		},
 		"card-close-route": {
 			"source": "docs/agents/issue-tracker.md",

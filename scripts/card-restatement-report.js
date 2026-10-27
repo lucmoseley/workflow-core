@@ -88,7 +88,7 @@ function roadmapEdges(data) {
  * renders — never an empty line.
  * @param {string} mapFile
  */
-function entryText(mapFile) {
+function readEntryText(mapFile) {
 	const lines = fs.readFileSync(mapFile, "utf8").split("\n");
 	const range = sectionBRange(lines);
 	if (!range) throw new Error(`${mapFile} holds no "## Section B" heading`);
@@ -127,7 +127,7 @@ function main(argv) {
 	let data;
 	let entries;
 	try {
-		entries = entryText(mapFile);
+		entries = readEntryText(mapFile);
 		data = loadRestatements(
 			path.join(path.dirname(mapFile), DATA_FILES.restatements),
 			{ allowEmpty: entries.size === 0 },
@@ -167,7 +167,7 @@ function printAudit(rows) {
  * One card: every §B entry restating it, with its claim line and gloss.
  * @param {string | undefined} card
  * @param {ReturnType<typeof roadmapEdges>} rows
- * @param {ReturnType<typeof entryText>} entries
+ * @param {ReturnType<typeof readEntryText>} entries
  * @returns {number}
  */
 function printCard(card, rows, entries) {

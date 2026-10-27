@@ -2,16 +2,21 @@
 /*
  * file-morning-review.js — file the day's morning review issue (#2011, spec
  * #1995 §The morning review issue): the still-caught delegated decisions, the
- * clear ones counted, and the closes since the previous review issue with
- * every one-way close listed.
+ * clear ones counted, the closes since the previous review issue with every
+ * one-way close listed, each repo's open stall ticket, the issues
+ * `urgent` for over 7 days, and every open `parked` issue with its age.
  *
  *   node scripts/file-morning-review.js [--dry-run] [--reversals-only]
  *
  * Files on the tracker of the checkout it runs in — the loop runs it in
  * workflow-core's — and reads every repo lib/refill-repos.js includes: each
- * one's delegated-decision ledger, and its issues closed in the window with
- * their comments, for the `**Door:**` line. A repo it cannot read is named in
- * the body, not dropped silently.
+ * one's delegated-decision ledger, its issues closed in the window with
+ * their comments, for the `**Door:**` line, its open stall ticket
+ * (lib/stall-ticket.js, #2692), its open `urgent` issues with each one's
+ * timeline and pick-next's last run there (#2693), and its open `parked`
+ * issues with each one's timeline (#2725), read only: it never writes or
+ * removes either label. A repo it cannot read is named in the body, not
+ * dropped silently.
  *
  * ONCE A DAY: a review issue titled with today's machine-local date, open or
  * closed, files nothing — a hand run after the founder closed today's would
@@ -23,6 +28,10 @@
  * naming them `--distinct-from`, as check-orphaned-edits.js does: ONCE A DAY
  * above already rules out a second review, and a standing lookalike such as
  * the away-mode spec would otherwise refuse every run.
+ *
+ * MEMORY KILLS (#3094): the machine's earlyoom kills in the window, by kind,
+ * each incident with its ticket — read once from this machine's journal
+ * (lib/earlyoom-kills.js), not per repo.
  *
  * REVERSALS (#2017): every run then answers each unanswered `reverse <n>`
  * comment on a review issue open or closed in the last RECENTLY_CLOSED_MS —
@@ -40,25 +49,24 @@
  * `--reversals-only` on every other (scripts/refill-loop.js).
  */
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { errLine, gh, ghIssueListAll } = require("./lib/gh.js");
+const { parseErrLine, gh, ghApiSlurp, ghIssueListAll } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { fileThrough } = require("./lib/file-through.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readLedger } = require("./lib/delegated-decision.js");
+const kills = require("./lib/earlyoom-kills.js");
 const review = require("./lib/morning-review.js");
 const reversal = require("./lib/review-reversal.js");
 const { markersDir } = require("./lib/marker-root.js");
-const {
-	checkoutEnv,
-	discoverRepos,
-	homeDir,
-} = require("./lib/refill-repos.js");
-const { readDistinctFromHint } = require("./lib/similar-titles.js");
+const { discoverRepos, homeDir } = require("./lib/refill-repos.js");
+const { labelAge } = require("./lib/label-age.js");
+const { PARKED_LABEL } = require("./lib/parked.js");
+const { readSnapshot, whyNotLaunched } = require("./lib/pick-next-snapshot.js");
+const { STALL_TITLE } = require("./lib/stall-ticket.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 const { requireKey } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label.js");
@@ -72,6 +80,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /* Untraced: a review closed within two days is still read for reversals, so
  * a request written just before the close, or while no loop ran, is answered. */
 const RECENTLY_CLOSED_MS = 2 * DAY_MS;
+const URGENT = "urgent";
 const FILED = "review-reversals.jsonl";
 const LOCK = "review-reversals.lock";
 
@@ -88,7 +97,11 @@ const io = scriptIo("file-morning-review");
  * @returns {{number: number, title: string, state: string, createdAt: string,
  *   body?: string, comments?: import("./lib/review-reversal.js").Comment[]}[]}
  */
-function reviewIssues(repo, state, { withComments = false, more = [] } = {}) {
+function readReviewIssues(
+	repo,
+	state,
+	{ withComments = false, more = [] } = {},
+) {
 	return ghIssueListAll("review issues", [
 		"--repo",
 		repo,
@@ -134,43 +147,184 @@ function readRepo(root, since) {
 			"--json",
 			"number,title,url,closedAt,comments",
 		]);
+		const stalls = readStalls(repo);
+		const urgent = readUrgent(root, repo);
+		const parked = readParked(repo);
 		return {
-			reading: { repo, entries: lines, closed },
-			unread:
-				torn === 0
+			reading: {
+				repo,
+				entries: lines,
+				closed,
+				stalls: stalls.read,
+				urgent: urgent.read,
+				parked: parked.read,
+			},
+			unread: [
+				...(torn === 0
 					? []
-					: [{ repo, why: `${torn} torn ledger line(s) skipped` }],
+					: [{ repo, why: `${torn} torn ledger line(s) skipped` }]),
+				...stalls.unread,
+				...urgent.unread,
+				...parked.unread,
+			],
 		};
 	} catch (e) {
 		return {
 			reading: null,
-			unread: [{ repo, why: errLine(e) || caught(e).message }],
+			unread: [{ repo, why: parseErrLine(e) || caught(e).message }],
 		};
 	}
 }
 
 /**
- * file-issue.js run with `args` on `body`, in checkout `root`. Refused for
- * open lookalike titles, it re-runs naming them `--distinct-from`: the
- * duplicate that check exists to catch is ruled out by the caller — the
- * date-titled lookup for a review, the acknowledgement for a reversal.
- * @param {string[]} args
- * @param {string} body
- * @param {string} root
+ * One tracker's open stall ticket (lib/stall-ticket.js, #2692); a failed read
+ * is unread, leaving the rest of the repo's reading standing.
+ * @param {string} repo
+ * @returns {{read: import("./lib/morning-review.js").OpenIssue[], unread: Unread[]}}
  */
-function fileThrough(args, body, root) {
-	const spawnFiler = (/** @type {string[]} */ a) =>
-		spawnSync(process.execPath, [path.join(__dirname, "file-issue.js"), ...a], {
-			input: body,
-			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
-			cwd: root,
-			env: checkoutEnv(root),
-		});
-	const filed = spawnFiler(args);
-	const hint =
-		filed.status === 2 ? readDistinctFromHint(filed.stderr || "") : null;
-	return hint ? spawnFiler([...args, "--distinct-from", hint]) : filed;
+function readStalls(repo) {
+	try {
+		const read = ghIssueListAll("stall tickets", [
+			"--repo",
+			repo,
+			"--state",
+			"open",
+			"--search",
+			`in:title "${STALL_TITLE}"`,
+			"--json",
+			"number,title",
+		]).filter((/** @type {{title: string}} */ i) => i.title === STALL_TITLE);
+		return { read, unread: [] };
+	} catch (e) {
+		return {
+			read: [],
+			unread: [
+				{ repo, why: `stall tickets: ${parseErrLine(e) || caught(e).message}` },
+			],
+		};
+	}
+}
+
+/**
+ * The machine's earlyoom incidents with a kill since `since`, and each one's
+ * ticket on `tracker` (scripts/file-memory-kill-tickets.js, #3094).
+ * @param {string} tracker
+ * @param {string} since
+ * @returns {import("./lib/morning-review.js").KillReading}
+ */
+function readKills(tracker, since) {
+	const { incidents, why } = kills.readIncidents(Date.parse(since));
+	if (why !== null || incidents.length === 0)
+		return { incidents, tickets: new Map(), why };
+	try {
+		return { incidents, tickets: kills.readIncidentTickets(tracker), why };
+	} catch (e) {
+		return {
+			incidents,
+			tickets: parseErrLine(e) || caught(e).message,
+			why,
+		};
+	}
+}
+
+/**
+ * One checkout's open `urgent` issues, each with when its timeline last
+ * records the label applied and why pick-next's last run there left it
+ * unlaunched (#2693). An issue whose application date will not read is
+ * unread, never dropped or taken as fresh.
+ * @param {string} root
+ * @param {string} repo
+ * @returns {{read: import("./lib/morning-review.js").UrgentIssue[], unread: Unread[]}}
+ */
+function readUrgent(root, repo) {
+	const { snapshot, why } = readSnapshot(root, repo);
+	/** @type {import("./lib/morning-review.js").UrgentIssue[]} */
+	const read = [];
+	/** @type {Unread[]} */
+	const unread =
+		why === null ? [] : [{ repo, why: `pick-next's last run: ${why}` }];
+	const listed = openLabelled(repo, URGENT);
+	if ("why" in listed) return { read, unread: [...unread, listed] };
+	for (const { number, title } of listed.open) {
+		const age = readLabelAgeOn(repo, number, URGENT);
+		if (age.unknown)
+			unread.push({ repo, why: `#${number}'s urgent age: ${age.error}` });
+		else
+			read.push({
+				number,
+				title,
+				appliedAt: age.appliedAt,
+				why: whyNotLaunched(snapshot, number),
+			});
+	}
+	return { read, unread };
+}
+
+/**
+ * One checkout's open `parked` issues, each with when its timeline last
+ * records the label applied (#2725). One whose start will not read is listed
+ * with its age unknown, never dropped.
+ * @param {string} repo
+ * @returns {{read: import("./lib/morning-review.js").ParkedIssue[], unread: Unread[]}}
+ */
+function readParked(repo) {
+	const listed = openLabelled(repo, PARKED_LABEL);
+	if ("why" in listed) return { read: [], unread: [listed] };
+	const read = listed.open.map(({ number, title }) => {
+		const age = readLabelAgeOn(repo, number, PARKED_LABEL);
+		return age.unknown
+			? { number, title, appliedAt: null, ageError: String(age.error) }
+			: { number, title, appliedAt: age.appliedAt };
+	});
+	return { read, unread: [] };
+}
+
+/**
+ * One tracker's open issues carrying `label`, or why they did not read.
+ * @param {string} repo
+ * @param {string} label
+ * @returns {{open: {number: number, title: string}[]} | Unread}
+ */
+function openLabelled(repo, label) {
+	try {
+		return {
+			open: ghIssueListAll(`${label} issues`, [
+				"--repo",
+				repo,
+				"--state",
+				"open",
+				"--label",
+				label,
+				"--json",
+				"number,title",
+			]),
+		};
+	} catch (e) {
+		return {
+			repo,
+			why: `${label} issues: ${parseErrLine(e) || caught(e).message}`,
+		};
+	}
+}
+
+/**
+ * `label`'s age on issue `number`, off its timeline.
+ * @param {string} repo
+ * @param {number} number
+ * @param {string} label
+ */
+function readLabelAgeOn(repo, number, label) {
+	/** @type {Parameters<typeof labelAge>[0]} */
+	let timeline;
+	try {
+		timeline = {
+			ok: true,
+			events: ghApiSlurp([`repos/${repo}/issues/${number}/timeline`]),
+		};
+	} catch (e) {
+		timeline = { ok: false, error: parseErrLine(e) || caught(e).message };
+	}
+	return labelAge(timeline, label);
 }
 
 /**
@@ -180,15 +334,15 @@ function fileThrough(args, body, root) {
  */
 function fileReview(tracker, dryRun) {
 	const now = new Date();
-	const title = review.reviewTitle(review.localDate(now));
+	const title = review.buildReviewTitle(review.localDate(now));
 
 	let reviews;
 	try {
-		reviews = reviewIssues(tracker, "all");
+		reviews = readReviewIssues(tracker, "all");
 	} catch (e) {
 		writeFd(
 			2,
-			`could not list ${tracker}'s review issues (${errLine(e)}). Nothing filed.\n`,
+			`could not list ${tracker}'s review issues (${parseErrLine(e)}). Nothing filed.\n`,
 		);
 		return 1;
 	}
@@ -212,6 +366,7 @@ function fileReview(tracker, dryRun) {
 		previous: previous?.number ?? null,
 		repos: read.flatMap((r) => (r.reading ? [r.reading] : [])),
 		failed: read.flatMap((r) => r.unread),
+		kills: readKills(tracker, since),
 	});
 
 	if (dryRun) {
@@ -331,7 +486,7 @@ function fileReversal(run, request) {
 	}
 	if (filed.status === 2)
 		return {
-			why: `file-issue.js refused it: ${quotedFirstLine(filed.stderr ?? "")}`,
+			why: `file-issue.js refused it: ${buildQuotedFirstLine(filed.stderr ?? "")}`,
 		};
 	writeFd(
 		2,
@@ -371,7 +526,7 @@ function answerRequest(run, request) {
 	} catch (e) {
 		writeFd(
 			2,
-			`entry ${request.n} of #${reviewIssue.number}: the reply failed (${errLine(e)}); the next run replies again${"filed" in outcome ? `, naming ${outcome.filed} without filing it again` : ""}\n`,
+			`entry ${request.n} of #${reviewIssue.number}: the reply failed (${parseErrLine(e)}); the next run replies again${"filed" in outcome ? `, naming ${outcome.filed} without filing it again` : ""}\n`,
 		);
 		return 1;
 	}
@@ -380,7 +535,7 @@ function answerRequest(run, request) {
 }
 
 /** @param {string} text */
-const quotedFirstLine = (text) =>
+const buildQuotedFirstLine = (text) =>
 	review.quoted(text.split("\n").find((l) => l.trim()) ?? "no reason given");
 
 /**
@@ -440,14 +595,17 @@ function answerReversals(tracker, dryRun) {
 			new Date(Date.now() - RECENTLY_CLOSED_MS).toISOString(),
 		);
 		reviews = [
-			...reviewIssues(tracker, "open", { withComments: true }),
-			...reviewIssues(tracker, "closed", {
+			...readReviewIssues(tracker, "open", { withComments: true }),
+			...readReviewIssues(tracker, "closed", {
 				withComments: true,
 				more: ["--search", `closed:>=${since}`],
 			}),
 		];
 	} catch (e) {
-		writeFd(2, `could not list ${tracker}'s review issues (${errLine(e)}).\n`);
+		writeFd(
+			2,
+			`could not list ${tracker}'s review issues (${parseErrLine(e)}).\n`,
+		);
 		return 1;
 	}
 	const pending = reviews.flatMap((i) => {

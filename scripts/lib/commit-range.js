@@ -14,10 +14,9 @@
  * print the red run it already knows about.
  */
 
-const { execFileSync } = require("node:child_process");
 const { cutAt } = require("./cut-at.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { isCommit } = require("./commit-sha.js");
+const { execGit } = require("./git.js");
 
 /* Above this many commits, per-commit file LISTS are replaced by a file COUNT
  * plus one aggregate. At the range sizes mantahostels#905 measured, the long form is the
@@ -54,11 +53,10 @@ const FORMAT = "%x00%h%x1f%s";
  * @returns {string}
  */
 function git(args, cwd) {
-	return execFileSync("git", args, {
+	return execGit(args, {
 		encoding: "utf8",
 		cwd,
 		stdio: ["ignore", "pipe", "pipe"],
-		maxBuffer: CHILD_MAX_BUFFER,
 	});
 }
 
@@ -69,7 +67,7 @@ function git(args, cwd) {
  *   but a `catch` binding promises nothing, so it is narrowed here.
  * @returns {string}
  */
-const gitLine = (e) => {
+const parseGitLine = (e) => {
 	const err = /** @type {{stderr?: unknown, message?: unknown}} */ (e || {});
 	return (
 		(
@@ -126,7 +124,7 @@ function readRange({ good, bad, cwd, maxListed = MAX_LISTED }) {
 	try {
 		count = Number(git(["rev-list", "--count", `${good}..${bad}`], cwd).trim());
 	} catch (e) {
-		return { ok: false, reason: gitLine(e) };
+		return { ok: false, reason: parseGitLine(e) };
 	}
 	if (!count) return { ok: true, count: 0, commits: [], truncated: 0 };
 
@@ -147,7 +145,7 @@ function readRange({ good, bad, cwd, maxListed = MAX_LISTED }) {
 			cwd,
 		);
 	} catch (e) {
-		return { ok: false, reason: gitLine(e) };
+		return { ok: false, reason: parseGitLine(e) };
 	}
 
 	const commits = [];
@@ -238,14 +236,14 @@ function renderRange(range, { good, bad, longRange = LONG_RANGE }) {
 	];
 
 	const long = range.count > longRange;
-	for (const c of range.commits) lines.push(...commitLines(c, long));
+	for (const c of range.commits) lines.push(...buildCommitLines(c, long));
 
 	if (range.truncated)
 		lines.push(
 			`  … and ${range.truncated} more, not listed. Read them with: git log --oneline ${span}`,
 		);
 
-	if (long) lines.push(...topFileLines(range.commits));
+	if (long) lines.push(...buildTopFileLines(range.commits));
 
 	return lines;
 }
@@ -258,7 +256,7 @@ function renderRange(range, { good, bad, longRange = LONG_RANGE }) {
  * @param {boolean} long
  * @returns {string[]}
  */
-function commitLines(c, long) {
+function buildCommitLines(c, long) {
 	if (long) return [`  ${c.short}  ${c.subject}  (${c.files.length} file(s))`];
 	return [
 		`  ${c.short}  ${c.subject}`,
@@ -272,7 +270,7 @@ function commitLines(c, long) {
  * @param {Commit[]} commits
  * @returns {string[]}
  */
-function topFileLines(commits) {
+function buildTopFileLines(commits) {
 	const top = topFiles(commits);
 	if (top.length === 0) return [];
 	return [
@@ -297,7 +295,7 @@ function topFileLines(commits) {
  *   default repo holds no runs (#1963)
  * @returns {string[]}
  */
-function bisectAdvice(
+function buildBisectAdvice(
 	range,
 	{ good, bad, workflow = "bisect.yml", repoFlag = "" } = {},
 ) {
@@ -322,5 +320,5 @@ module.exports = {
 	readRange,
 	countRange,
 	renderRange,
-	bisectAdvice,
+	buildBisectAdvice,
 };

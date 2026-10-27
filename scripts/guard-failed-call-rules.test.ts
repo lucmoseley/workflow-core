@@ -1,168 +1,146 @@
 // @vitest-environment node
 /*
- * guard-failed-call-rules.test.ts — the PostToolUseFailure and PostToolBatch
- * hook that hands back the out-of-memory and refused-Skill rules (#2026).
+ * guard-failed-call-rules.js hands back the silent-kill rule on a Bash call
+ * killed by a signal, and the skill-refused rule on a batch holding a Skill
+ * refused as slash-only (#2026). These are its boundary cases: the lines
+ * hooks/hooks.json registers on PostToolUseFailure and PostToolBatch, run by
+ * bash as the harness runs them, on a harness-shaped payload — the wiring,
+ * each exit, the fail-open record, and the rule store crossed for real.
+ * Which failure or batch draws a rule is lib/failed-call-rules.test.ts's
+ * (#2799).
  *
- * Loosen the silent cases and every failed call or batch carries a rule the
- * session did not need; loosen the firing ones and the rule, gone from the
- * pool, reaches nobody.
- *
- * It spawns the real guard on payloads shaped as the harness sends them and
- * compares against the real fragments, since what reaches a session is the
- * script's stdout and nothing short of it.
+ * Break a line and the rule, gone from the pool, reaches nobody.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readFailOpenLog } from "./guard-log-fixture";
+import {
+	guardDirs,
+	guardOutput,
+	readHookLines,
+} from "./lib/pretool-guard-testkit";
+import { readRuleText } from "./lib/rule-text";
 
-const GUARD = path.resolve(__dirname, "guard-failed-call-rules.sh");
-const fragment = (file: string) =>
-	fs.readFileSync(path.resolve(__dirname, "..", file), "utf8").trimEnd();
-const SILENT_KILL = fragment("docs/agents/rules/silent-kill.txt");
-const SKILL_REFUSED = fragment("docs/agents/rules/skill-refused.txt");
-
-/* The guard's fail-open log goes here, never the live config dir (mantahostels#1452). */
-const CONFIG = fs.mkdtempSync(path.join(os.tmpdir(), "failed-call-rules-"));
-
-const run = (payload: Record<string, unknown>) =>
-	spawnSync(GUARD, [], {
-		encoding: "utf8",
-		env: { ...process.env, CLAUDE_CONFIG_DIR: CONFIG },
-		input: JSON.stringify({ session_id: "sess-2026", ...payload }),
-	});
-
-/** The additionalContext the hook printed for `event`, or "" where silent. */
-function said(r: ReturnType<typeof run>, event: string): string {
-	expect(r.status).toBe(0);
-	if (r.stdout.trim() === "") return "";
-	const out = JSON.parse(r.stdout).hookSpecificOutput;
-	expect(out.hookEventName).toBe(event);
-	return out.additionalContext;
-}
-
-const failure = (error: string, extra: Record<string, unknown> = {}) =>
-	run({
-		hook_event_name: "PostToolUseFailure",
-		tool_name: "Bash",
-		tool_input: { command: "npm run build" },
-		tool_use_id: "t1",
-		error,
-		is_interrupt: false,
-		...extra,
-	});
-
-const batch = (calls: Record<string, unknown>[]) =>
-	run({ hook_event_name: "PostToolBatch", tool_calls: calls });
-
+const SCRIPT = "scripts/guard-failed-call-rules.js";
+const LINES = readHookLines("hooks/hooks.json", SCRIPT);
+const CHECKOUT = path.resolve(__dirname, "..");
 const REFUSAL =
-	"<tool_use_error>Skill implement cannot be used with Skill tool due to disable-model-invocation. Ask the user to run /implement themselves — it cannot be invoked via the Skill tool.</tool_use_error>";
+	"<tool_use_error>Skill implement cannot be used with Skill tool due to disable-model-invocation.</tool_use_error>";
 
-describe("a Bash call killed by a signal", () => {
-	it.each(["Exit code 137\nKilled", "Exit code 143\nTerminated"])(
-		"hands over the silent-kill rule on %j",
-		(error) => {
-			expect(said(failure(error), "PostToolUseFailure")).toBe(SILENT_KILL);
+let dir: string;
+let config: string;
+
+beforeEach(() => {
+	({ dir, config } = guardDirs("failed-call-rules-entry-"));
+});
+afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+const fire = (
+	line: string,
+	payload: Record<string, unknown>,
+	{ stdin, env = {} }: { stdin?: string; env?: NodeJS.ProcessEnv } = {},
+) =>
+	guardOutput(
+		"/bin/bash",
+		{ session_id: "sess-2026", ...payload },
+		{
+			project: dir,
+			config,
+			cwd: dir,
+			args: ["-c", line],
+			stdin,
+			env: { CLAUDE_PLUGIN_ROOT: CHECKOUT, ...env },
 		},
 	);
 
-	it("stays silent on an ordinary non-zero exit", () => {
-		expect(said(failure("Exit code 1\nnpm ERR!"), "PostToolUseFailure")).toBe(
-			"",
-		);
-	});
+const killed = (run = {}) =>
+	fire(
+		LINES[0] ?? "",
+		{
+			hook_event_name: "PostToolUseFailure",
+			tool_name: "Bash",
+			tool_input: { command: "npm run build" },
+			error: "Exit code 137\nKilled",
+			is_interrupt: false,
+		},
+		run,
+	);
 
-	it("stays silent where the code is only part of a longer number", () => {
-		expect(said(failure("Exit code 1370"), "PostToolUseFailure")).toBe("");
-	});
+const readFaults = () => readFailOpenLog(config, dir);
 
-	it("stays silent on a call the user interrupted", () => {
-		expect(
-			said(
-				failure("Exit code 143", { is_interrupt: true }),
-				"PostToolUseFailure",
-			),
-		).toBe("");
-	});
-
-	it("stays silent on a tool other than Bash", () => {
-		expect(
-			said(
-				failure("Exit code 137", { tool_name: "Read" }),
-				"PostToolUseFailure",
-			),
-		).toBe("");
+describe("the registered hook lines", () => {
+	it("are one on PostToolUseFailure and one on PostToolBatch, unnarrowed, in the plugin and the self-plugin alike", () => {
+		for (const file of ["hooks/hooks.json", "self-plugin/hooks/hooks.json"]) {
+			const hooks = JSON.parse(
+				fs.readFileSync(path.join(CHECKOUT, file), "utf8"),
+			).hooks as Record<string, { hooks: Record<string, unknown>[] }[]>;
+			for (const event of ["PostToolUseFailure", "PostToolBatch"]) {
+				const entries = (hooks[event] ?? [])
+					.flatMap((group) => group.hooks)
+					.filter((hook) => String(hook.command).includes(SCRIPT));
+				expect(entries).toHaveLength(1);
+				expect(entries[0]).not.toHaveProperty("if");
+				expect(entries[0]).not.toHaveProperty("args");
+			}
+		}
+		expect(LINES).toHaveLength(2);
 	});
 });
 
-describe("a Skill call refused as slash-only", () => {
-	it("hands over the skill-refused rule from the batch's results", () => {
-		const text = said(
-			batch([
-				{
-					tool_name: "Read",
-					tool_input: {},
-					tool_use_id: "a",
-					tool_response: "ok",
-				},
+describe("each exit", () => {
+	it("hands a killed call the stored silent-kill rule as PostToolUseFailure additionalContext on exit 0", () => {
+		const out = killed();
+		expect(out.hookEventName).toBe("PostToolUseFailure");
+		expect(out.additionalContext).toBe(readRuleText("silent-kill"));
+		expect(readFaults()).toBe("");
+	});
+
+	it("hands a refused Skill's batch the stored skill-refused rule as PostToolBatch additionalContext", () => {
+		const out = fire(LINES[1] ?? "", {
+			hook_event_name: "PostToolBatch",
+			tool_calls: [
 				{
 					tool_name: "Skill",
 					tool_input: { skill: "implement" },
 					tool_use_id: "b",
 					tool_response: REFUSAL,
 				},
-			]),
-			"PostToolBatch",
-		);
-		expect(text).toBe(SKILL_REFUSED);
+			],
+		});
+		expect(out.hookEventName).toBe("PostToolBatch");
+		expect(out.additionalContext).toBe(readRuleText("skill-refused"));
 	});
 
-	it("reads a result carried as content blocks, not only as a string", () => {
-		const text = said(
-			batch([
-				{
-					tool_name: "Skill",
-					tool_input: { skill: "triage" },
-					tool_use_id: "b",
-					tool_response: [{ type: "text", text: REFUSAL }],
-				},
-			]),
-			"PostToolBatch",
-		);
-		expect(text).toBe(SKILL_REFUSED);
-	});
-
-	it("stays silent on a Skill call that loaded", () => {
+	it("is silent on an ordinary failure", () => {
 		expect(
-			said(
-				batch([
-					{
-						tool_name: "Skill",
-						tool_input: { skill: "tdd" },
-						tool_use_id: "b",
-						tool_response: "Launching skill: tdd",
-					},
-				]),
-				"PostToolBatch",
-			),
-		).toBe("");
+			fire(LINES[0] ?? "", {
+				hook_event_name: "PostToolUseFailure",
+				tool_name: "Bash",
+				error: "Exit code 1",
+			}),
+		).toBeNull();
+	});
+});
+
+describe("what it fails open on", () => {
+	it("is silent where the rule store holds no fragment, and records why", () => {
+		const store = fs.mkdtempSync(path.join(dir, "store-"));
+		expect(killed({ env: { WFC_RULES_DIR: store } })).toBeNull();
+		expect(readFaults()).toMatch(
+			/guard-failed-call-rules\.js\trule fragment unreadable — a PostToolUseFailure rule went unsaid/,
+		);
 	});
 
-	it("stays silent where another tool's output merely quotes the refusal", () => {
-		expect(
-			said(
-				batch([
-					{
-						tool_name: "Bash",
-						tool_input: { command: "grep -r disable-model-invocation" },
-						tool_use_id: "b",
-						tool_response: REFUSAL,
-					},
-				]),
-				"PostToolBatch",
-			),
-		).toBe("");
+	it("is silent on a payload that is not JSON, and records that it did", () => {
+		expect(killed({ stdin: "not json" })).toBeNull();
+		expect(readFaults()).toMatch(
+			/guard-failed-call-rules\.js\t.*payload did not parse as JSON/,
+		);
+	});
+
+	it("is silent, exit 0, where node is not on PATH", () => {
+		expect(killed({ env: { PATH: "/nonexistent" } })).toBeNull();
 	});
 });

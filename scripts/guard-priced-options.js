@@ -94,29 +94,29 @@
  *
  * AN EIGHTH REFUSAL, ON THE ONE THING NO WORDING CAN FAKE (mantahostels#1253): the seven
  * above all read the message the session wrote. This one reads an artefact the
- * session cannot type — a green-suite marker in `.test-pass-markers.jsonl`,
+ * session cannot type — a certificate in `.test-pass-markers.jsonl`,
  * written only by a `npm run test -- --full=<cause>` that went green — or by a bare
  * `npm run test` whose narrowing escalated to the whole suite (mantahostels#3208). In a
  * background job, a
  * `result:` from a session that COMMITTED is blocked where no set of such
- * markers covers its own last commit, or a later commit up to HEAD that
+ * certificates attests its own last commit, or a later commit up to HEAD that
  * contains it (#814, ADR-0009). It blocks at most once, the cap being the honest escape on
  * a machine still under docs/environment.md §6's rung AFTER the suite's own
  * reap (scripts/pretest-reap.js, mantahostels#1840) — and on a `main` gone red in files this
- * session never touched, where no run of its own can ever mint a marker. The
+ * session never touched, where no run of its own can ever mint a certificate. The
  * refusal names both, and says neither makes the job blocked (mantahostels#1842).
  * THE FIRST ESCAPE HAS A RESIDUAL (mantahostels#1843): a shortfall held by
  * LIVE neighbours is reaped by nothing, so there — and only there — a pre-run
  * headroom read predicts what the suite will get.
  *
- * ITS THRESHOLD IS COVER ALONE. A marker taken over a dirty tree, or naming
- * foreign files, counts toward it (mantahostels#1253). THREE RESIDUALS ARE STRUCTURAL: a marker
+ * ITS THRESHOLD IS ATTESTATION ALONE. A certificate taken over a dirty tree, or naming
+ * foreign files, counts toward it (mantahostels#1253). THREE RESIDUALS ARE STRUCTURAL: a certificate
  * attests a run over the WORKING TREE, with HEAD as it stood when the run finished
  * stamped on it, not the sha exactly; a `result:` written before the commit is
- * not covered, since the commit it would be judged on does not exist yet; and a
+ * not attested, since the commit it would be judged on does not exist yet; and a
  * session that pushes without committing in-session is invisible to it. The
  * commit judged is the newest its commit ledger names that HEAD contains, over
- * the paths its own commits carry, so a neighbour's uncovered commit refuses
+ * the paths its own commits carry, so a neighbour's unattested commit refuses
  * nothing here and is left to the push gate (#1502, `lib/session-verdict.js`).
  *
  * A NINTH REFUSAL, ON THE PRICES THEMSELVES (mantahostels#1344): a message recommending the
@@ -249,7 +249,7 @@
  * call shapes and the refusal. Its own counter, outside the ceiling
  * (#1067), cap 3; a re-send the spent cap lets through is logged as
  * `passed-after-refusal` with the rungs it lacked. It writes no record: its
- * question keeps the close limb's, and the time of its first refusal.
+ * question keeps the close-rivals limb's, and the time of its first refusal.
  * RESIDUALS: content is never judged, so one empty search per rung passes;
  * and a transcript that cannot say passes, logged.
  *
@@ -261,28 +261,29 @@
  * call since its refusal, and a re-send with none is refused again. Where the
  * shape limb is silent that turn — the ceiling, its reserve or its own cap
  * spent — this limb names a refused question's shape faults, and refuses its
- * re-send on them until they are fixed (#1730). A
- * question both limbs catch is the close limb's alone, save one this limb
- * passed in a turn another Stop hook refused, which the close limb leaves
- * alone however the re-send is priced (#1949). One this limb refused and
- * the close limb then takes still logs its pass here, so the refusal is
- * paired in the reading (#2076); and where neither the close limb's refusal
- * nor the ladder's goes out on it — a cap spent, or that limb's rule passing
- * it — this limb's own rule holds it, so a bare re-send re-priced into the
- * close limb's tests, close or low-top, cannot clear it (#2244). Its own record
- * (`.round-check-record-`, retired when the founder speaks after it, and
- * holding a passed question while another Stop hook refuses its turn, so the
- * re-send is neither refused nor logged again, #1799); its own log, which
- * `lib/round-check.js` describes. RESIDUALS: a founder `!` command
- * or slash command restarts the count, where #1684's extractor skipped both;
+ * re-send on them until they are fixed (#1730). A question both limbs catch
+ * is the close-rivals limb's alone, save one this limb passed in a turn
+ * another Stop hook refused, which the close-rivals limb leaves alone however
+ * the re-send is priced (#1949). One this limb refused and the close-rivals
+ * limb then takes still logs its pass here, so the refusal is paired in the
+ * reading (#2076); and where neither the close-rivals limb's refusal nor the
+ * research-ladder limb's goes out on it — a cap spent, or either limb's rule
+ * passing it — this limb's own rule holds it, so a bare re-send
+ * re-priced into the close-rivals limb's tests, close or low-top, cannot
+ * clear it (#2244). Its own record (`.round-check-record-`, retired when the
+ * founder speaks after it, and holding a passed question while another Stop
+ * hook refuses its turn, so the re-send is neither refused nor logged again,
+ * #1799); its own log, which `lib/round-check.js` describes. RESIDUALS: a
+ * founder `!` command or slash command restarts the count, where #1684's
+ * extractor skipped both;
  * a record that will not read passes, logged, and so does a transcript, save
  * a re-send still misshapen; a passed question is logged twice where the
  * transcript cannot say at its re-send or the record will not write at its
  * pass; a record that will not read at the re-send leaves a pass re-priced
- * into the close limb's tests, close or low-top, to that limb, which refuses
- * it save at its cap; and a re-send after another
- * hook's block is matched by round number,
- * so new text under a passed number is neither judged nor logged.
+ * into the close-rivals limb's tests, close or low-top, to that limb, which
+ * refuses it save at its cap; and a re-send after another hook's block is
+ * matched by round number, so new text under a passed number is neither
+ * judged nor logged.
  *
  * A SEVENTEENTH REFUSAL, ON A FOUNDER ACT HANDED OVER WITHOUT ITS TEXT (#597,
  * spec #525): a round option naming something the founder must paste, type,
@@ -313,10 +314,12 @@
  *
  * AND IN PROSE (#1817): the same cue over the whole message outside its round options,
  * fenced blocks, `>` quotes and inline code, passing where any code span in
- * the message carries the route. Measured over 53,409 ending messages
- * (`node scripts/measure-secret-ask.js --until 2026-10-15`, logs from 31 Jul
- * 2026): 22 flags — 5 real asks, the incident's opening among them; 3 into a
- * vendor's or the system's own prompt; 14 false, about 1.3 a week
+ * the message carries the route and no line of it, code or prose, feeds the
+ * route by a pipe or redirect, exports a credential variable or moves `.env`
+ * (#2645). Measured before #2645, so a floor: over 53,409 ending messages
+ * (`node scripts/measure-secret-ask.js --until 2026-10-15`): 22 flags — 5
+ * real asks, the incident's opening among them; 3 into a vendor's or the
+ * system's own prompt; 14 false, about 1.3 a week
  * machine-wide. Each flag's verdict is on #1817. Read only at a #926
  * hand-over's reach, it caught 1 of the 5, with 4 false. RESIDUALS: a
  * runnable `write-secret.js` route anywhere in the message clears its whole
@@ -342,9 +345,8 @@
  * "You X" against "I Y" pair of unrelated acts is refused; a lead the lists
  * lack ("We", "Either of us") is unread. Shape tier, its own counter.
  *
- * A REFUSAL RETRACTS NOTHING ALREADY FILED, and this is the residual every
- * filing limb here shares. A Stop block buys the session another turn; it does
- * not unfile the job, and nothing in this repo can.
+ * A REFUSAL RETRACTS NOTHING ALREADY FILED: a Stop block buys the session
+ * another turn; it does not unfile the job.
  *
  * THE APPARATUS THE EVIDENCE-READING LIMBS DEPEND ON FAILS SILENT AND IS
  * REPORTED ELSEWHERE: an unreadable write
@@ -357,20 +359,26 @@
  * EVERY FAILURE PATH IS SILENT AND EXITS 0 — breaking a session is worse than
  * missing one.
  *
+ * BAR ONE: A LIB THAT WILL NOT LOAD BLOCKS THE STOP, ONCE A TURN (#2645): a
+ * top-level `require` that throws leaves every limb above unrun, and the
+ * registration's `|| true` would swallow the crash. So
+ * `lib/load-failure-stop.js` blocks with the error, and lets the re-stop
+ * through on the payload's `stop_hook_active`. A payload it cannot read
+ * allows. RESIDUALS: a turn another Stop hook already blocked carries
+ * `stop_hook_active` too, so passes; a syntax error in this file, or that lib
+ * itself missing, throws before the handler exists, and fails open.
+ *
  * THE BLOCK BUDGETS ARE SPLIT PER DEFECT, NOT SHARED (mantahostels#2544). On one
  * shared counter, three cosmetic corrections to a round's shape — or three
  * `waiting:`-on-nothing refusals in a session's first few minutes — would
  * silence the guard for the rest of the session, and the turn that decides how
- * the job is FILED is the last one, by construction in that silent tail
- * (mantahostels#2544 has the census, and https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/stop-block-cap-exhaustion.md).
+ * the job is FILED is the last one, by construction in that silent tail.
  *
  * SO EVERY CHECK THAT DECIDES THE FILING carries its own counter —
  * `completedWhileWaiting`, `needsInputUndercut`, `needsInputMisplaced`,
  * `resultMisplaced`, `unmarkedStop`, `missingNeedsInput`, `emptyStatusMarker`
- * and `waitingUnverified`. `MAX_BLOCKS` is
- * unchanged at 3, deliberately: mantahostels#844's
- * loop-trap bound is real and the fix is separating budgets rather than
- * enlarging one.
+ * and `waitingUnverified`. `MAX_BLOCKS` stays 3: mantahostels#844's loop-trap
+ * bound is real, and the fix is separating budgets, not enlarging one.
  *
  * WHY NOT A RESERVED FINAL BLOCK, which mantahostels#2544 offered as the alternative
  * mechanism: no Stop knows it is the last one — every turn's end looks
@@ -407,10 +415,21 @@
  * prologue and epilogue around `judge()` — payload read, breadcrumb, fail-open,
  * drain — live in `lib/stop-guard.js`, shared with all three siblings (mantahostels#1798).
  *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a `result:` names a commit no green suite run attests, where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926) or a `Qn` pointer to a round still unanswered (#924) excepted.
+ * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a `result:` names a commit no green suite run attests and a push still owes one (#2933), where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926) or a `Qn` pointer to a round still unanswered (#924) excepted; and, once a turn, where a lib of its own will not load (#2645).
  * JUSTIFIED: fail-safe — the rule was written down and kept losing (mantahostels#802), and the turn ending is the last moment the defect can still be fixed.
- * DEFEAT:    the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The evidence block (mantahostels#1253) clears by stopping a second time — `max: 1` — which is the deliberate escape for the two cases a session cannot fix: a machine still under the one-suite rung AFTER the suite's own reap of finished sessions (scripts/pretest-reap.js; mantahostels#1843 — a pre-run headroom read is not that case), and a `main` red in files it never touched (mantahostels#1842).
+ * DEFEAT:    the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The evidence block (mantahostels#1253) clears by stopping a second time — `max: 1` — which is the deliberate escape for the two cases a session cannot fix: a machine still under the one-suite rung AFTER the suite's own reap of finished sessions (scripts/pretest-reap.js; mantahostels#1843 — a pre-run headroom read is not that case), and a `main` red in files it never touched (mantahostels#1842). The load-failure block (#2645) clears by stopping again.
  */
+
+/* Armed before every other `require` (#2645, `lib/load-failure-stop.js`). */
+const disarmLoadFailure =
+	require.main === module
+		? require("./lib/load-failure-stop").armLoadFailureStop(
+				"the lettered priced round, the founder hand-over, a credential " +
+					"asked by any route but `write-secret.js`, the status marker",
+			)
+		: () => {
+				/* required, not run: nothing armed */
+			};
 
 const hookMessage = require("./lib/hook-message");
 const hookBlock = require("./lib/hook-block");
@@ -436,8 +455,8 @@ const {
 	COMBINABLE,
 	splitQuestions,
 	optionSpans,
-	optionBody,
-	relationLine,
+	parseOptionBody,
+	parseRelationLine,
 	isRivalSet,
 } = require("./lib/round-marker");
 const {
@@ -450,7 +469,10 @@ const {
 	askPhrase,
 	proseAsk,
 } = require("./lib/secret-ask");
-const { outputStylePath, resolveKey } = require("./lib/workflow-core-config");
+const {
+	readOutputStylePath,
+	resolveKey,
+} = require("./lib/workflow-core-config");
 const { failOpenLogger } = require("./lib/fail-open-logger");
 
 const {
@@ -849,7 +871,7 @@ const LETTER_REF = /\(([A-Z])\)/g;
  * through it. Its Confidence line is not read: "about 10k tokens" there is the
  * estimate, not an ask. `bang` says whether the option, or a sibling it names,
  * gives the route after `!` instead (#2554).
- * @param {string} body an option's `optionBody`
+ * @param {string} body an option's `parseOptionBody`
  * @param {Map<string, string>} siblings every option body in the round, by letter
  * @returns {{ phrase: string, bang: boolean } | undefined}
  */
@@ -880,7 +902,7 @@ const quoted = (phrase) => `“${phrase.replace(/\s+/g, " ").slice(0, 80)}”`;
  * @param {string} phrase
  * @param {string} [kind] what the phrase is, where the refusal names several
  */
-const flaggedLine = (number, letter, phrase, kind) =>
+const buildFlaggedLine = (number, letter, phrase, kind) =>
 	`Q${number} (${letter}): ${kind ? `${kind} ` : ""}${quoted(phrase)}`;
 
 /**
@@ -889,7 +911,7 @@ const flaggedLine = (number, letter, phrase, kind) =>
  * @param {{ phrase: string, bang: boolean }} secret
  */
 const secretFlag = (number, letter, secret) =>
-	flaggedLine(number, letter, secret.phrase) +
+	buildFlaggedLine(number, letter, secret.phrase) +
 	(secret.bang ? " — its `write-secret.js` line follows `!`" : "");
 
 /**
@@ -898,7 +920,7 @@ const secretFlag = (number, letter, secret) =>
  * undefined.
  * @param {string} number
  * @param {string} letter
- * @param {string} span the option's `optionBody`
+ * @param {string} span the option's `parseOptionBody`
  * @returns {string | undefined}
  */
 function handedTextFlag(number, letter, span) {
@@ -910,7 +932,7 @@ function handedTextFlag(number, letter, span) {
 	const phrase =
 		placeholder ?? (literal ? undefined : span.match(BACK_REFERENCE)?.[0]);
 	if (!phrase) return;
-	return flaggedLine(
+	return buildFlaggedLine(
 		number,
 		letter,
 		phrase,
@@ -925,7 +947,7 @@ function handedTextFlag(number, letter, span) {
  * @param {boolean} bang whether a refused ask hands over `write-secret.js` after `!`
  * @returns {string}
  */
-function founderActReason(flagged, secrets, prose, bang) {
+function buildFounderActReason(flagged, secrets, prose, bang) {
 	/** @type {string[]} */
 	const leads = [];
 	if (flagged.length > 0)
@@ -948,7 +970,8 @@ function founderActReason(flagged, secrets, prose, bang) {
 				"span in it is the `write-secret.js` route alone — `" +
 				ROUTE_SHAPE +
 				"`, " +
-				"nothing beside it — so its value can " +
+				"nothing beside it, and no line anywhere piping into it, exporting " +
+				"a credential or copying `.env` — so its value can " +
 				"land in the chat, a command line or this session's log — follow " +
 				"the SECRET paragraph below:\n\n" +
 				`${quoted(prose)}\n\n` +
@@ -964,7 +987,7 @@ function founderActReason(flagged, secrets, prose, bang) {
 	return (
 		leads.join("\n\n") +
 		"\n\n" +
-		handoverRule() +
+		readHandoverRule() +
 		(prose
 			? "\n\nRE-SEND THE CORRECTED MESSAGE."
 			: "\n\nRE-SEND ONLY THE CORRECTED QUESTION, not the whole round.")
@@ -987,9 +1010,11 @@ function founderActRefusal(message) {
 	let bang = false;
 	for (const block of splitQuestions(message)) {
 		const options = optionSpans(block.lines);
-		const bodies = new Map(options.map((o) => [o.letter, optionBody(o.span)]));
+		const bodies = new Map(
+			options.map((o) => [o.letter, parseOptionBody(o.span)]),
+		);
 		for (const option of options) {
-			const span = optionBody(option.span);
+			const span = parseOptionBody(option.span);
 			const secret = secretAsk(span, bodies);
 			if (secret) {
 				secrets.push(secretFlag(block.number, option.letter, secret));
@@ -1002,7 +1027,7 @@ function founderActRefusal(message) {
 	const prose = proseAsk(message);
 	if (flagged.length === 0 && secrets.length === 0 && !prose) return "";
 	if (prose) bang ||= hasBangSecretRoute(message);
-	return founderActReason(flagged, secrets, prose, bang);
+	return buildFounderActReason(flagged, secrets, prose, bang);
 }
 
 /**
@@ -1012,9 +1037,9 @@ function founderActRefusal(message) {
  * fragment.
  * @returns {string}
  */
-function houseDecisionRule() {
+function readHouseDecisionRule() {
 	try {
-		return require("./lib/rule-text").ruleText("house-decision");
+		return require("./lib/rule-text").readRuleText("house-decision");
 	} catch (e) {
 		/* A missing fragment costs the rule's text, never the refusal (#1705). */
 		failOpenLogger("guard-priced-options house-decision")?.(
@@ -1034,9 +1059,9 @@ function houseDecisionRule() {
  * well as here, and its secret line's paths are spelt absolute (#643).
  * @returns {string}
  */
-function handoverRule() {
+function readHandoverRule() {
 	try {
-		return require("./lib/rule-text").ruleText("founder-handover");
+		return require("./lib/rule-text").readRuleText("founder-handover");
 	} catch (e) {
 		/* A missing fragment costs the long form, never the refusal (#597). */
 		failOpenLogger("guard-priced-options founder-hand-over")?.(
@@ -1127,7 +1152,7 @@ function actorOnlyRound(message, { ruleShown = false } = {}) {
 	for (const block of splitQuestions(message)) {
 		if (block.lines.some((l) => BLOCKED_LINE.test(l))) continue;
 		/* Options declared combinable are not rivals for who acts. */
-		if (COMBINABLE.test(relationLine(block.lines))) continue;
+		if (COMBINABLE.test(parseRelationLine(block.lines))) continue;
 		const leads = optionSpans(block.lines).map((option) => ({
 			letter: option.letter,
 			/* The text after the label, leading emphasis stripped. */
@@ -1156,7 +1181,7 @@ function actorOnlyRound(message, { ruleShown = false } = {}) {
 		"\n\nWhere nothing stops you, do not ask: act, then report what you " +
 		"did. Where something does, keep the question and add the `Blocked:` " +
 		"line the founder hand-over in this block states." +
-		(ruleShown ? "" : `\n\n${handoverRule()}`) +
+		(ruleShown ? "" : `\n\n${readHandoverRule()}`) +
 		"\n\nRE-SEND ONLY THE CORRECTED QUESTION, not the whole round."
 	);
 }
@@ -1169,7 +1194,7 @@ function actorOnlyRound(message, { ruleShown = false } = {}) {
  * paths alone, so each defect states its own fix rather than relying on the
  * pointer to carry it. The file is the host's declared output style, else
  * core-voice.md (#448), read only when a block is written. */
-const shapePointer = () => `\`${outputStylePath()}\``;
+const shapePointer = () => `\`${readOutputStylePath()}\``;
 
 /* The #924 pointer, as both `needs input:` refusals teach it (#1018). A
  * refused turn's rounds never stand (`standingRounds`), so it names an
@@ -1499,7 +1524,7 @@ const FAIL_OPEN_WHERE = "guard-priced-options green-suite";
 
 /**
  * The refusal that reads an artefact instead of the message (mantahostels#1253): a
- * background job writing `result:` on a commit no green suite run attests.
+ * background job writing `result:` on a commit no certificate attests.
  * Whether it is attested, and what it owes, are `lib/session-verdict.js`'s.
  *
  * @param {StatusReading} status the message's status reading
@@ -1527,7 +1552,7 @@ function resultWithoutGreenSuite(status, sessionId) {
 		log(`${verdict.why} — result: allowed unchecked`);
 		return "";
 	}
-	if (verdict.state === "attested") return "";
+	if (verdict.state === "attested" || verdict.state === "skipped") return "";
 	return greenSuiteRefusal(verdict);
 }
 
@@ -1539,7 +1564,7 @@ function resultWithoutGreenSuite(status, sessionId) {
  * ORDER IS LOAD-BEARING (mantahostels#2194, mantahostels#2206): the exemptions
  * sit ABOVE the commands, and `Otherwise` marks the branch back to them.
  * `-- --full=push-gate` appears ONCE, below the narrowed default, for the one
- * case the default cannot certify — `push-gate` (#182) because this fires
+ * case the default cannot attest — `push-gate` (#182) because this fires
  * exactly where a session volunteered `result:` without the gate having asked
  * for a whole-suite run. Residual: the count case is lexical on
  * `npm run test -- --full=push-gate`, so an imperative respelled in prose
@@ -1659,7 +1684,7 @@ function optionGroups(message) {
  * @param {string} message
  * @returns {string[]}
  */
-function recommendationLines(message) {
+function parseRecommendationLines(message) {
 	/* `My recommendation:` above the option restated in full is one
 	 * recommendation, so the line below is read with it — but only where the
 	 * line above announces itself with a colon and the line below opens with an
@@ -1761,7 +1786,7 @@ function priceFault({ qn, letters, group }, explained) {
  * @param {PriceFault} f
  * @returns {string}
  */
-function belowPriceReason(f) {
+function buildBelowPriceReason(f) {
 	return (
 		"This turn recommends " +
 		f.label +
@@ -1817,7 +1842,7 @@ function recommendationBelowPrice(message) {
 	const groups = optionGroups(message);
 	if (groups.length === 0) return "";
 
-	const recLines = recommendationLines(message);
+	const recLines = parseRecommendationLines(message);
 	if (recLines.length === 0) return "";
 
 	const picked = pickedLetters(recLines, groups);
@@ -1831,7 +1856,7 @@ function recommendationBelowPrice(message) {
 	const [f] = faults;
 	if (!f) return "";
 
-	return belowPriceReason(f);
+	return buildBelowPriceReason(f);
 }
 
 /** The line each owed marker is taught as, tail included (#2374).
@@ -2061,9 +2086,9 @@ function waitingUnverified(status, transcript) {
 	const log = failOpenLogger(FAIL_OPEN_WAITING);
 	if (!log) return "";
 
-	let pendingTasks;
+	let readPendingTasks;
 	try {
-		({ pendingTasks } = require("./lib/pending-tasks"));
+		({ readPendingTasks } = require("./lib/pending-tasks"));
 	} catch (e) {
 		log(`lib/pending-tasks would not load: ${e}`);
 		return "";
@@ -2071,7 +2096,7 @@ function waitingUnverified(status, transcript) {
 
 	let seen;
 	try {
-		seen = pendingTasks(transcript);
+		seen = readPendingTasks(transcript);
 	} catch (e) {
 		log(`transcript would not be read at ${transcript}: ${e}`);
 		return "";
@@ -2177,7 +2202,7 @@ function jobStatus(message) {
  * @param {ReturnType<typeof splitQuestions>} blocks
  * @returns {string}
  */
-function shapeReason(blocks) {
+function buildShapeReason(blocks) {
 	const bad = [];
 	for (const block of blocks) {
 		const defects = defectsIn(block);
@@ -2211,7 +2236,7 @@ function reviewParts(message, evidence = {}, status = jobStatus(message)) {
 	/* Read with no round too: a secret ask in prose needs none (#1817). */
 	const founderAct = founderActRefusal(message);
 	if (blocks.length > 0) {
-		push(SHAPE_PREFIX, shapeReason(blocks));
+		push(SHAPE_PREFIX, buildShapeReason(blocks));
 		for (const { prefix, reason } of evidence.verdicts ?? [])
 			push(prefix, reason);
 		push(FOUNDER_ACT_PREFIX, founderAct);
@@ -2289,25 +2314,23 @@ function judge({ sessionId, message, payload }) {
 	const close = closeRivalsTurn(message, {
 		sessionId,
 		transcript,
-		houseDecision: houseDecisionRule,
+		houseDecision: readHouseDecisionRule,
 		silencedShape,
 		isLastRefusal: isLastRefusal(CLOSE_RIVALS_PREFIX),
 		isLastLadder: isLastRefusal(RESEARCH_LADDER_PREFIX),
 		corpus: corpusTrackers,
 		roundPasses: passedNumbers(roundRecord),
 	});
-	/** @param {{ prefix: string, refusing: string[] }} closeLimb */
-	const refusingOf = (closeLimb) =>
-		isLive(closeLimb.prefix, sessionId) ? closeLimb.refusing : [];
+	/** @param {{ prefix: string, refusing: string[] }} limbTurn */
+	const refusingOf = (limbTurn) =>
+		isLive(limbTurn.prefix, sessionId) ? limbTurn.refusing : [];
 	const roundCheck = roundCheckTurn(message, {
 		sessionId,
 		transcript,
 		stored: roundRecord,
-		houseDecision: houseDecisionRule,
-		close: {
-			judged: close.rounds,
-			refusing: [...refusingOf(close), ...refusingOf(close.ladder)],
-		},
+		houseDecision: readHouseDecisionRule,
+		closeJudged: close.rounds,
+		rivalLimbsRefusing: [...refusingOf(close), ...refusingOf(close.ladder)],
 		silencedShape,
 		isLastRefusal: isLastRefusal(ROUND_CHECK_PREFIX),
 	});
@@ -2349,4 +2372,7 @@ function judge({ sessionId, message, payload }) {
 	);
 }
 
-if (require.main === module) stopGuard.onMessage({ review: judge });
+if (require.main === module) {
+	disarmLoadFailure();
+	stopGuard.onMessage({ review: judge });
+}

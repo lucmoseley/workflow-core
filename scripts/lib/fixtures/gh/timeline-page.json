@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "[[{\"id\":1,\"node_id\":\"synthetic\",\"url\":\"synthetic\",\"actor\":{\"login\":\"synthetic\",\"id\":1,\"node_id\":\"synthetic\",\"avatar_url\":\"synthetic\",\"gravatar_id\":\"synthetic\",\"url\":\"synthetic\",\"html_url\":\"synthetic\",\"followers_url\":\"synthetic\",\"following_url\":\"synthetic\",\"gists_url\":\"synthetic\",\"starred_url\":\"synthetic\",\"subscriptions_url\":\"synthetic\",\"organizations_url\":\"synthetic\",\"repos_url\":\"synthetic\",\"events_url\":\"synthetic\",\"received_events_url\":\"synthetic\",\"type\":\"synthetic\",\"user_view_type\":\"synthetic\",\"site_admin\":false},\"event\":\"synthetic\",\"commit_id\":null,\"commit_url\":null,\"created_at\":\"synthetic\",\"label\":{\"name\":\"synthetic\",\"color\":\"synthetic\"},\"intent\":null,\"performed_via_github_app\":null}]]",
+	"stderr": ""
+}

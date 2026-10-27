@@ -10,7 +10,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { currentBootId, holderAlive } = require("./arbiter-proc.js");
+const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const core = require("./arbiter-core.js");
 const { caught } = require("./caught.js");
 
@@ -63,7 +63,7 @@ function recordWant(rel, me, blocker = null) {
 			blockedBy: blocker?.sessionId || null,
 			pid: me.pid ?? null,
 			procStart: me.procStart ?? null,
-			bootId: currentBootId() || undefined,
+			bootId: readCurrentBootId() || undefined,
 			since: new Date().toISOString(),
 		});
 	} catch (e) {

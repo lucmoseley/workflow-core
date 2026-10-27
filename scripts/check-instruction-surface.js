@@ -26,7 +26,7 @@
  *
  * HOOK COMMAND TEXT IS A THIRD, MECHANICAL CHECK (mantahostels#1923): `hookCounts` below
  * only compares entry counts, so a flag added to a live command (mantahostels#1899) can
- * drift for months with nothing to catch it. `hookCommandsOf` anchors each
+ * drift for months with nothing to catch it. `readHookCommands` anchors each
  * entry's full command line — `command` and the exec form's `args` joined
  * (mantahostels#2301) — in the anchors file's `hookCommands` section,
  * keyed by `buildHookKey`.
@@ -67,33 +67,32 @@
  * DEFEAT:    convenience — a bare --rebaseline re-anchors everything without re-measuring anything, so a session can clear every finding it was meant to act on. Nothing detects that. --only <key>[,<key>...] (mantahostels#2105) narrows this to the named guards/hookCommands/poolFiles rows, and the `hooks` or `skills` count where named (#1879), alone — every other row is left exactly as it was, so a scoped re-anchor cannot silently clear a finding it did not name. A key naming no row is refused (BROKEN), never a silent no-op — except a live hook-command key, which a HOOK-COMMAND-NEW finding needs and which has no baseline row by definition (mantahostels#2648).
  */
 
-const { execFileSync } = require("node:child_process");
-const { gitBinary } = require("./lib/git-binary.js");
+const { execGit } = require("./lib/git.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
 	DEFAULT_ANCHORS,
 	DigestUnavailable,
-	committedBytes,
+	readCommittedBytes,
 	digestOf,
 	guardsChangedBy,
 } = require("./lib/census-digest");
 const { brokenError, runCheck, errMessage } = require("./lib/check");
-const { catFileBatch, listTree } = require("./lib/git-objects");
+const { readObjectBatch, listTree } = require("./lib/git-objects");
 const { GIT_MODE } = require("./lib/git-mode.js");
 const { claimDataFile } = require("./lib/doc-map-generator");
 const {
-	ownHookSources,
-	ownHooks,
+	readOwnHookSources,
+	readOwnHooks,
 	ownHooksFile,
 } = require("./lib/core-hooks.js");
 const { CeilingPassed } = require("./lib/git-ceiling.js");
 const {
 	TOUCHED_BY_CEILING_MS,
-	touchedBy,
+	readTouchedBy,
 	touchedByCeiling,
 } = require("./lib/touched-by.js");
-const { hookCommandLine } = require("./lib/rule-emission");
+const { buildHookCommandLine } = require("./lib/rule-emission");
 const { isCommit } = require("./lib/commit-sha.js");
 
 /** @typedef {{ digest: string, verdict: string, selfSufficient?: string, source?: string }} GuardAnchor */
@@ -145,7 +144,7 @@ function readIfPresent(file) {
  * Both halves of a census verdict, always together.
  *
  * TIMING AND SUFFICIENCY ARE SEPARATE FINDINGS, and quoting either alone
- * misrepresents the census: `guard-issue-create-label.sh` fires `at need` and
+ * misrepresents the census: `guard-issue-create-label.js` fires `at need` and
  * still sheds 0 B, which the census's join table records as a DOWNGRADE to
  * insufficient. A message carrying the timing verdict on its own reads as a
  * guard confirmed to work.
@@ -171,7 +170,7 @@ function readAt(root, rev = "HEAD") {
  * The hooks `root` registers itself (lib/core-hooks.js `ownHooks`: the
  * self-plugin's file and the canary its settings keep at the core,
  * `.claude/settings.json` elsewhere), or
- * BROKEN — the one read both `hookCounts` and `hookCommandsOf` share, so there
+ * BROKEN — the one read both `hookCounts` and `readHookCommands` share, so there
  * is exactly one error policy for a missing or unparseable file rather than
  * two that can drift apart (mantahostels#1923). Read at `rev`, so a neighbour's
  * uncommitted hook entry is neither reported nor anchored (#1879).
@@ -185,7 +184,7 @@ function readHooks(ctx, root, rev = "HEAD") {
 	const at = readAt(root, rev);
 	let hooks;
 	try {
-		hooks = ownHooks(root, at);
+		hooks = readOwnHooks(root, at);
 	} catch (e) {
 		return ctx.broken(`${errMessage(e)}. Nothing counted.`);
 	}
@@ -222,14 +221,14 @@ function hookCounts(ctx, root, rev) {
 
 /**
  * One hook entry's command line — `command` and the exec form's `args`
- * joined via `hookCommandLine()` (mantahostels#2301), so a script path living in `args`
+ * joined via `buildHookCommandLine()` (mantahostels#2301), so a script path living in `args`
  * alone is still seen — keyed by `<event> <scriptPath>`, plus ` if <cond>`
  * where the entry carries an `if` condition.
  * The event prefix is needed because a script wired to two events with
  * different args (`concision-backstop.sh start`/`stop`) would otherwise
  * collide on a path-only key and silently drop one command. The `if` suffix
  * is needed because one script wired once per condition in one event
- * (`guard-wide-read.sh` under `Bash(*cat *)`, `Bash(*sed *)`, …) is one key
+ * (`guard-wide-read.js` under `Bash(*cat *)`, `Bash(*sed *)`, …) is one key
  * per condition, not a collision (#1604). Two entries with the same script
  * and condition, and a command whose script path is wrapped
  * (`bg-run.sh run … node scripts/real.js`, keying on the wrapper), both still
@@ -241,7 +240,7 @@ function hookCounts(ctx, root, rev) {
  * @param {string} [rev]
  * @returns {Record<string, string>}
  */
-function hookCommandsOf(ctx, root, rev) {
+function readHookCommands(ctx, root, rev) {
 	/** @type {Record<string, string>} */
 	const out = {};
 	for (const [event, groups] of Object.entries(readHooks(ctx, root, rev))) {
@@ -262,7 +261,7 @@ function eventHookCommands(event, groups) {
 	const pairs = [];
 	for (const g of Array.isArray(groups) ? groups : []) {
 		for (const h of Array.isArray(g?.hooks) ? g.hooks : []) {
-			const line = hookCommandLine(h);
+			const line = buildHookCommandLine(h);
 			if (!line) continue;
 			const key = buildHookKey(event, h, line);
 			if (key) pairs.push([key, line]);
@@ -334,7 +333,7 @@ function skillCounts(root, rev = "HEAD") {
  * @returns {(string | null)[]}
  */
 function followedTexts(root, rev, rels) {
-	const objects = catFileBatch(
+	const objects = readObjectBatch(
 		rels.map((rel) => `${rev}:./${rel}`),
 		`${rev}'s SKILL.md files`,
 		{ cwd: root, followSymlinks: true },
@@ -352,7 +351,7 @@ function followedTexts(root, rev, rels) {
 /** @param {string} root */
 function isGitRepo(root) {
 	try {
-		execFileSync(gitBinary(), ["-C", root, "rev-parse", "--git-dir"], {
+		execGit(["-C", root, "rev-parse", "--git-dir"], {
 			stdio: "ignore",
 		});
 		return true;
@@ -412,18 +411,18 @@ function tallySkills(entries) {
 
 /**
  * Bytes for each pool file the baseline names, null where gone — from git, as
- * committedBytes reads.
+ * readCommittedBytes reads.
  *
  * @param {string} root
  * @param {Record<string, number>} baselined
  * @param {string} [rev]
  * @returns {Record<string, number | null>}
  */
-function poolBytes(root, baselined, rev) {
+function readPoolSizes(root, baselined, rev) {
 	/** @type {Record<string, number | null>} */
 	const out = {};
 	for (const rel of Object.keys(baselined)) {
-		const bytes = committedBytes(root, rel, rev);
+		const bytes = readCommittedBytes(root, rel, rev);
 		out[rel] = bytes === null ? null : bytes.length;
 	}
 	return out;
@@ -536,7 +535,7 @@ function rebaselinePoolFiles(root, baseline, { rev, only }) {
 		return {
 			rows: /** @type {Record<string, number>} */ (
 				Object.fromEntries(
-					Object.entries(poolBytes(root, baseline.poolFiles, rev)).filter(
+					Object.entries(readPoolSizes(root, baseline.poolFiles, rev)).filter(
 						([, bytes]) => bytes !== null,
 					),
 				)
@@ -554,7 +553,7 @@ function rebaselinePoolFiles(root, baseline, { rev, only }) {
 			[...only]
 				.filter((k) => k in baseline.poolFiles)
 				.map((k) => {
-					const bytes = committedBytes(root, k, rev);
+					const bytes = readCommittedBytes(root, k, rev);
 					if (bytes === null) {
 						goneNamed.push(k); // named, but the pool file is gone
 						return [k, undefined];
@@ -632,7 +631,7 @@ function rebaseline(root, file, baseline, { claim, rev, only }) {
 
 	const guards = rebaselineGuards(root, baseline, scope);
 	const poolFiles = rebaselinePoolFiles(root, baseline, scope);
-	const liveHookCommands = hookCommandsOfPlain(root, rev);
+	const liveHookCommands = readHookCommandsPlain(root, rev);
 	const hookCommands = rebaselineHookCommands(
 		baseline,
 		liveHookCommands,
@@ -684,12 +683,12 @@ function hookCountsPlain(
 	return hookCounts(plainCtx, root, rev);
 }
 
-/** hookCommandsOf without a ctx to be BROKEN through — --rebaseline's path. */
-function hookCommandsOfPlain(
+/** readHookCommands without a ctx to be BROKEN through — --rebaseline's path. */
+function readHookCommandsPlain(
 	/** @type {string} */ root,
 	/** @type {string | undefined} */ rev,
 ) {
-	return hookCommandsOf(plainCtx, root, rev);
+	return readHookCommands(plainCtx, root, rev);
 }
 
 /**
@@ -748,7 +747,7 @@ function refuseUnknownOnlyKeys(ctx, root, baseline, { only, rev }) {
 		...Object.keys(baseline.guards),
 		...Object.keys(baseline.hookCommands),
 		...Object.keys(baseline.poolFiles),
-		...Object.keys(hookCommandsOfPlain(root, rev)),
+		...Object.keys(readHookCommandsPlain(root, rev)),
 		/* A HOOK-COMMAND-NEW key has no baseline row by definition
 		 * (mantahostels#2648). Without it here the only way to anchor a newcomer
 		 * is the bare --rebaseline this flag exists to avoid. */
@@ -838,7 +837,7 @@ function successorOf(was, liveKeys) {
  * @param {{ key: string, kind: "event" | "condition" } | null} successor
  * @returns {string}
  */
-function goneMessage(key, parsed, successor) {
+function buildGoneMessage(key, parsed, successor) {
 	if (!successor)
 		return `${key} no longer runs as a hook command; the census's citation of it has no live subject.`;
 	if (successor.kind === "condition")
@@ -873,7 +872,7 @@ function checkHookCommandsGone(raise, hookCommands, baseline) {
 			if (movedTo) reportedMoves.add(movedTo);
 			raise(
 				"HOOK-COMMAND-GONE",
-				goneMessage(key, parsed, successor),
+				buildGoneMessage(key, parsed, successor),
 				{
 					event,
 					path: scriptPath,
@@ -958,9 +957,9 @@ function checkPoolFiles(raise, pool, baseline, threshold) {
 		/** @type {Record<string, number>} */ (baseline.poolFiles),
 	)) {
 		const now = pool[rel];
-		/* poolBytes measures every key of this same object. */
+		/* readPoolSizes measures every key of this same object. */
 		if (now === undefined)
-			throw new Error(`poolBytes returned no entry for ${rel}`);
+			throw new Error(`readPoolSizes returned no entry for ${rel}`);
 		if (now === null) {
 			raise(
 				"POOL-GONE",
@@ -1048,7 +1047,7 @@ function sayFindings(ctx, against, counted, lines) {
  *
  * @param {string} root
  * @param {string} rev
- * @param {Map<string, string>} touched touchedBy's answer
+ * @param {Map<string, string>} touched readTouchedBy's answer
  * @param {object} from
  * @param {Record<string, GuardAnchor>} from.anchored the baseline's rows
  * @param {import("./lib/git-ceiling.js").GitCeiling} from.ceiling
@@ -1097,7 +1096,7 @@ function runTouched(ctx, root, file, baseline) {
 	const ceiling = touchedByCeiling();
 	let touched;
 	try {
-		touched = touchedBy(root, rev, ceiling);
+		touched = readTouchedBy(root, rev, ceiling);
 	} catch (e) {
 		if (e instanceof CeilingPassed) throw e;
 		return ctx.broken(
@@ -1200,9 +1199,9 @@ function runChecks(ctx) {
 	};
 
 	const hooks = hookCounts(ctx, root);
-	const hookCommands = hookCommandsOf(ctx, root);
+	const hookCommands = readHookCommands(ctx, root);
 	const skills = skillCounts(root);
-	const pool = poolBytes(root, baseline.poolFiles);
+	const pool = readPoolSizes(root, baseline.poolFiles);
 	const digests = guardDigests(root, baseline.guards);
 
 	const data = {
@@ -1217,7 +1216,7 @@ function runChecks(ctx) {
 		raise,
 		hooks,
 		baseline,
-		ownHookSources(root, readAt(root))
+		readOwnHookSources(root, readAt(root))
 			.map((source) => path.relative(root, source.file))
 			.join(" and "),
 	);

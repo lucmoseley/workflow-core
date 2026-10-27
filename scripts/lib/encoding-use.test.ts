@@ -23,7 +23,7 @@ const {
 	recordShapes,
 	recordUses,
 	isEncoded,
-	skillInventory,
+	readSkillInventory,
 } = require("./encoding-use.js");
 
 const AT = { uuid: "u1", timestamp: "2026-08-20T10:00:00.000Z" };
@@ -47,7 +47,7 @@ const shapes = (command: string) =>
 	recordShapes(bash(command)).map((s: { shape: string }) => s.shape);
 
 /** A user record carrying plain text. */
-const userText = (text: string) => ({
+const buildUserText = (text: string) => ({
 	type: "user",
 	uuid: "u2",
 	timestamp: "2026-08-21T10:00:00.000Z",
@@ -75,7 +75,7 @@ describe("what counts as an invocation", () => {
 
 	it("counts a typed slash command", () => {
 		expect(
-			recordUses(userText("<command-name>/implement</command-name>")),
+			recordUses(buildUserText("<command-name>/implement</command-name>")),
 		).toEqual([
 			expect.objectContaining({
 				kind: "skill",
@@ -274,7 +274,7 @@ describe("the skill inventory, read off the directories", () => {
 	afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 	it("finds a skill exposed as a symlink, and records both roots", () => {
-		const { skills: inv, unreadable } = skillInventory([
+		const { skills: inv, unreadable } = readSkillInventory([
 			path.join(tmp, "claude"),
 			path.join(tmp, "agents"),
 		]);
@@ -293,7 +293,7 @@ describe("the skill inventory, read off the directories", () => {
 
 	it("names a root it cannot read rather than reporting a repo with no skills", () => {
 		const missing = path.join(tmp, "gone");
-		const { skills, unreadable } = skillInventory([
+		const { skills, unreadable } = readSkillInventory([
 			path.join(tmp, "claude"),
 			missing,
 		]);

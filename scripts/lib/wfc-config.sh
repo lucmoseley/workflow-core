@@ -200,7 +200,7 @@ wfc_repo_slug() {
 }
 
 # Prints overrides.output_style, else core-voice.md (#448) — the JS reader's
-# outputStylePath(): its validation, its unread-contract default and its
+# readOutputStylePath(): its validation, its unread-contract default and its
 # WFC_OUTPUT_STYLE injection included.
 wfc_output_style() {
   local style norm

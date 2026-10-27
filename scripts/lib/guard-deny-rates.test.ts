@@ -51,11 +51,20 @@ interface Row {
 /** `1.588% [1.41-1.79%]` and `0% [0-0.02%]` both. */
 const RATE_CELL = /^([\d.]+)%\s*\[([\d.]+)-([\d.]+)%\]$/;
 
+/** A census row's guard under the Node entry it was ported to, if it was. */
+function portedName(guard: string): string {
+	const js = guard.replace(/\.sh$/, ".js");
+	return !fs.existsSync(path.join(SCRIPTS, guard)) &&
+		fs.existsSync(path.join(SCRIPTS, js))
+		? js
+		: guard;
+}
+
 /**
  * The census table, keyed by guard. Its columns are
  * `guard | lost (Q1) | deny events | true population | true deny rate | …`.
  */
-function censusRows(): Record<string, Row> {
+function readCensusRows(): Record<string, Row> {
 	const out: Record<string, Row> = {};
 	for (const line of fs.readFileSync(CENSUS, "utf8").split("\n")) {
 		const cells = line
@@ -65,7 +74,7 @@ function censusRows(): Record<string, Row> {
 		if (cells.length !== 6 || !cells[0].startsWith("guard-")) continue;
 		const rate = RATE_CELL.exec(cells[4]);
 		if (!rate) continue;
-		out[cells[0]] = {
+		out[portedName(cells[0])] = {
 			denies: Number(cells[2].replace(/,/g, "")),
 			population: Number(cells[3].replace(/,/g, "")),
 			pct: Number(rate[1]),
@@ -76,23 +85,25 @@ function censusRows(): Record<string, Row> {
 	return out;
 }
 
-/** The census rows whose guard still calls `gp_deny`. */
-function liveRows(): Record<string, Row> {
+/** The census rows whose guard can still deny. */
+function readLiveRows(): Record<string, Row> {
 	return Object.fromEntries(
-		Object.entries(censusRows()).filter(([g]) => isDenyCapable(g)),
+		Object.entries(readCensusRows()).filter(([g]) => isDenyCapable(g)),
 	);
 }
 
 describe("the pinned table against the census it was copied from", () => {
 	it("finds the census table where the module says it is", () => {
-		expect(Object.keys(censusRows()).length).toBe(19);
+		expect(Object.keys(readCensusRows()).length).toBe(19);
 	});
 
 	it("carries every measured guard that still denies, and no other", () => {
-		expect(Object.keys(RATES).sort()).toEqual(Object.keys(liveRows()).sort());
+		expect(Object.keys(RATES).sort()).toEqual(
+			Object.keys(readLiveRows()).sort(),
+		);
 	});
 
 	it("states every figure as the census states it", () => {
-		expect(RATES).toEqual(liveRows());
+		expect(RATES).toEqual(readLiveRows());
 	});
 });

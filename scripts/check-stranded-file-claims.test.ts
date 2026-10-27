@@ -78,7 +78,7 @@ function request(
 }
 
 /** Everything the locks directory holds right now, by claim path. */
-const locksOnDisk = () =>
+const readLocksOnDisk = () =>
 	fs
 		.readdirSync(locksDir())
 		.filter((f) => f.endsWith(".json"))
@@ -535,21 +535,21 @@ describe("it never breaks a claim", () => {
 		claim("docs/doc-map.md", "dead-session", 500);
 		claim("CLAUDE.md", "live-session", 500);
 		fakeClaude(agentsListing("live-session"));
-		const before = locksOnDisk();
+		const before = readLocksOnDisk();
 
 		expect(report(run())).toContain("STRANDED-CLAIM");
 
-		expect(locksOnDisk().sort()).toEqual(before.sort());
+		expect(readLocksOnDisk().sort()).toEqual(before.sort());
 	});
 
 	it("has no flag that releases anything", () => {
 		claim("docs/doc-map.md", "dead-session", 500);
 		fakeClaude(agentsListing("live-session"));
-		const before = locksOnDisk();
+		const before = readLocksOnDisk();
 
 		for (const flag of ["--release", "--break", "--fix", "--force"]) {
 			run([flag]);
-			expect(locksOnDisk()).toEqual(before);
+			expect(readLocksOnDisk()).toEqual(before);
 		}
 	});
 });

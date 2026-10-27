@@ -93,16 +93,16 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
-const { textOf } = require("./lib/hook-message");
+const { readMessageText } = require("./lib/hook-message");
 const { markersDir } = require("./lib/marker-root");
 const {
-	compactionSentence,
+	buildCompactionSentence,
 	recordCompactions,
 } = require("./lib/compaction-set");
 const { scriptPath } = require("./lib/script-path");
 const sessionTranscript = require("./lib/session-transcript");
 const { INVENTORY } = require("./lib/inventory-format");
-const { pendingTasks } = require("./lib/pending-tasks");
+const { readPendingTasks } = require("./lib/pending-tasks");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
 const {
@@ -208,7 +208,7 @@ const n = (v) => v.toLocaleString("en-GB");
  * on every repeat.
  * @param {boolean} firstBlock
  */
-function founderDeliverableRule(firstBlock) {
+function readFounderDeliverableRule(firstBlock) {
 	/* Required here, not at the top (#1249): founder-deliverable.js,
 	 * rule-text.js or qualify-citations.js failing to load then costs only the
 	 * block printing the rule, where at load it would stop this guard on every
@@ -216,7 +216,7 @@ function founderDeliverableRule(firstBlock) {
 	 * still fires, so the lost block reads as a Stop that never crossed. */
 	const fd = require("./lib/founder-deliverable");
 	return firstBlock
-		? fd.deliverableRule("guard-session-ceiling")
+		? fd.readDeliverableRule("guard-session-ceiling")
 		: fd.deliverablePointer();
 }
 
@@ -236,7 +236,7 @@ function founderDeliverableRule(firstBlock) {
  */
 function bandFor(tokens, turns, firstBlock, closing) {
 	if (tokens >= TRIPWIRE && firstBlock.tripwire)
-		return { band: "tripwire", reason: tripwireReason(tokens, closing) };
+		return { band: "tripwire", reason: buildTripwireReason(tokens, closing) };
 	if (tokens >= WIND_UP)
 		return {
 			band: "wind-up",
@@ -247,7 +247,7 @@ function bandFor(tokens, turns, firstBlock, closing) {
 				"",
 				closing,
 				"",
-				founderDeliverableRule(firstBlock.windUp),
+				readFounderDeliverableRule(firstBlock.windUp),
 				"",
 				`THIS FIRES AGAIN AND AGAIN FROM HERE ON, not once (mantahostels#2601) — at every other Stop ending on \`result:\` or no status marker, the one straight after each block being stood down; \`waiting:\` and \`needs input:\` pass and spend no block (#919). Every further turn costs one of its own, so the cheap move is to finish and end rather than to read past it. Read the figure yourself with \`node ${scriptPath("session-context.js")}\`.`,
 			].join("\n"),
@@ -264,7 +264,7 @@ function bandFor(tokens, turns, firstBlock, closing) {
 				"",
 				closing,
 				"",
-				founderDeliverableRule(firstBlock.turns),
+				readFounderDeliverableRule(firstBlock.turns),
 				"",
 				"THIS FIRES AGAIN, up to three times in all (mantahostels#2619) — at every other Stop ending on `result:` or no status marker, the one straight after each block being stood down; `waiting:` and `needs input:` pass (#919). Every further turn costs one of its own, so the cheap move is to finish and end rather than to read past it.",
 			].join("\n"),
@@ -279,7 +279,7 @@ function bandFor(tokens, turns, firstBlock, closing) {
  * @param {number} tokens
  * @param {string} closing
  */
-function tripwireReason(tokens, closing) {
+function buildTripwireReason(tokens, closing) {
 	return [
 		`Standing context is ${n(tokens)} tokens — past the ${n(TRIPWIRE)} TRIPWIRE in docs/effort-guide.md, and a floor, being one turn stale.`,
 		"",
@@ -289,7 +289,7 @@ function tripwireReason(tokens, closing) {
 		"",
 		closing,
 		"",
-		founderDeliverableRule(true),
+		readFounderDeliverableRule(true),
 		"",
 		`This fires once per session. Read the figure yourself with \`node ${scriptPath("session-context.js")}\`.`,
 	].join("\n");
@@ -300,7 +300,7 @@ function tripwireReason(tokens, closing) {
  * @param {number} count
  */
 function compactionParagraph(count) {
-	return `${compactionSentence(count)} The standing-context figure restarted from the compaction's summary, so it understates what this session has carried.`;
+	return `${buildCompactionSentence(count)} The standing-context figure restarted from the compaction's summary, so it understates what this session has carried.`;
 }
 
 /**
@@ -342,8 +342,10 @@ function hasParkedBlocked(sid, tier) {
  * @param {string} file the transcript
  * @returns {{message: string, marker: string} | null}
  */
-function sessionEnding(payload, file) {
-	const message = textOf(payload, file, (err) => logFailOpen("message", err));
+function readSessionEnding(payload, file) {
+	const message = readMessageText(payload, file, (err) =>
+		logFailOpen("message", err),
+	);
 	if (!message) return null;
 	const { name } = governingMarker(message);
 	return name === "" || name === "result:" ? { message, marker: name } : null;
@@ -374,9 +376,9 @@ function hasPassingInventory(message, sid) {
  * read or parses to nothing, failing open (#1179 Q2 (B)).
  * @param {string} file the transcript
  */
-function pendingLaunches(file) {
+function readPendingLaunches(file) {
 	try {
-		const seen = pendingTasks(file);
+		const seen = readPendingTasks(file);
 		return seen.records ? seen.pending : [];
 	} catch (err) {
 		logFailOpen("pending", err);
@@ -474,7 +476,9 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 		max: 1,
 	});
 	const pending =
-		read.tokens >= WIND_UP || turns >= TURN_BAND ? pendingLaunches(file) : [];
+		read.tokens >= WIND_UP || turns >= TURN_BAND
+			? readPendingLaunches(file)
+			: [];
 	const band = bandFor(
 		read.tokens,
 		turns,
@@ -516,7 +520,7 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 		return "message";
 	/* Past the tripwire's one block, only a session-ending turn is refused
 	 * (#919); returning here spends no counter. */
-	const ending = sessionEnding(payload, file);
+	const ending = readSessionEnding(payload, file);
 	if (!ending) return "message";
 	if (
 		ending.marker === "result:" &&
@@ -524,7 +528,7 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 		hasPassingInventory(ending.message, sid)
 	)
 		return "inventory-stand-down";
-	/* `lastBlockNotice` announces the third and last block, so the silence
+	/* `buildLastBlockNotice` announces the third and last block, so the silence
 	 * after it does not read as a turn got right.
 	 *
 	 * SPELLED OUT RATHER THAN TAKEN FROM `hookBlock.MAX_BLOCKS`, which it happens
@@ -543,7 +547,7 @@ function judge({ sid, payload, file, read, turns, tier, compactions }) {
 	/* No cap: this band blocks every session-ending Stop past 200,000
 	 * (mantahostels#2601). The counter is still written, so the marker sweep and
 	 * the outcome reader see it as they see every other band, and it records how
-	 * many turns were spent past the band. `lastBlockNotice` is unreachable here by construction. */
+	 * many turns were spent past the band. `buildLastBlockNotice` is unreachable here by construction. */
 	hookBlock.blockStop({
 		prefix: ".session-ceiling-nagged-windup-",
 		sessionId: sid,

@@ -55,7 +55,7 @@ function run() {
 	});
 }
 
-const calls = () =>
+const readCalls = () =>
 	fs.existsSync(path.join(dir, "argv"))
 		? fs.readFileSync(path.join(dir, "argv"), "utf8").trim().split("\n")
 		: [];
@@ -67,7 +67,7 @@ describe("the usage probe CLI (#2306)", () => {
 		expect(r.status).toBe(3);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toBe("usage probe: cached\n");
-		expect(calls()).toEqual([]);
+		expect(readCalls()).toEqual([]);
 	});
 
 	it("probes the named seat on a stale cache and prints what it printed", async () => {
@@ -76,6 +76,6 @@ describe("the usage probe CLI (#2306)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("Current session: 12% used");
 		expect(r.stderr).toBe("usage probe: finished\n");
-		expect(calls()).toEqual([`${seat} -p /usage --permission-mode manual`]);
+		expect(readCalls()).toEqual([`${seat} -p /usage --permission-mode manual`]);
 	});
 });

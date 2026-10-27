@@ -29,7 +29,7 @@
  * reach the numerator. `--since` defaults to 90f1e5b1's commit time; do not
  * lower it.
  *
- * BOTH STORES, NEVER THE GREEN ONE ALONE (fixed after review; mantahostels#2308's spec
+ * BOTH STORES, NEVER THE CERTIFICATE STORE ALONE (fixed after review; mantahostels#2308's spec
  * axis caught this as a 3x undercount on the two-launch sample it shipped
  * against). A `test:changed` launch that ran and then FAILED its tests is
  * still a launch this method must count in the denominator — `viaChanged` and
@@ -179,14 +179,19 @@ const gateMet = (m) => !m[FROM_RED_STORE] && isRouted(m);
  *
  * @param {Stores & {since: string, until?: number}} options
  */
-function readViaChanged({ since, until, markers: green, failures: red }) {
+function readViaChanged({
+	since,
+	until,
+	markers: certificates,
+	failures: red,
+}) {
 	/** @param {import("./lib/test-pass-marker.js").Marker} m */
 	const matches = (m) =>
 		suiteOf(m) === DEFAULT_SUITE &&
 		m.scope?.viaChanged === true &&
 		inWindow(m, since, until);
 	return [
-		...green.filter(matches),
+		...certificates.filter(matches),
 		.../** @type {TaggedMarker[]} */ (
 			red.filter(matches).map((m) => ({ ...m, [FROM_RED_STORE]: true }))
 		),
@@ -223,11 +228,11 @@ const FULL_PER_DAY_BUCKETS = [...FULL_REASONS, "unknown"];
  *
  * @param {Stores & {since: string, until?: number}} options
  */
-function readFullRuns({ since, until, markers: green, failures: red }) {
+function readFullRuns({ since, until, markers: certificates, failures: red }) {
 	/** @param {import("./lib/test-pass-marker.js").Marker} m */
 	const matches = (m) =>
 		suiteOf(m) === DEFAULT_SUITE && isFullRun(m) && inWindow(m, since, until);
-	return [...green.filter(matches), ...red.filter(matches)];
+	return [...certificates.filter(matches), ...red.filter(matches)];
 }
 
 /**

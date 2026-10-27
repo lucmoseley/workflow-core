@@ -215,7 +215,7 @@ describe("family and worse, for a fault that carries a measurement", () => {
 	});
 
 	/* Both default away: a profile that sets neither is the shape every other
-	 * profile in checker-new-faults.js has, and must be untouched by this. */
+	 * profile in lib/fault-profiles.js has, and must be untouched by this. */
 	it("falls back to identity when a profile sets neither", () => {
 		const plain = { keys: capped.keys, identity: capped.identity };
 		expect(

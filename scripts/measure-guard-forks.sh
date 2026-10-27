@@ -18,7 +18,7 @@
 #    subprocess denied a resource): it never produced a process.
 #
 # A ONE-REP WARM-UP runs first, discarded, before the timed reps. Several
-# guards (`guard-commit-form.sh` among them) print a rule once per session and
+# guards (`guard-commit-form.js` among them) print a rule once per session and
 # latch a marker file on the first sight of that session_id — costing extra
 # forks on rep 1 only. Without the warm-up, "all reps agreed" is evidence the
 # latch had already burned, not evidence of a stable count (mantahostels#1985, spec axis,

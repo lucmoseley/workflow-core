@@ -24,7 +24,9 @@ import {
 	readRunningVitestSuites,
 	SUITE_RESTING_MB,
 	SWAP_HOLD_AVAILABLE_MB,
+	WHOLE_SUITE_WORKERS,
 } from "./lib/admission";
+import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -207,17 +209,18 @@ interface Machine {
 	swap?: { totalMb: number; freeMb: number } | null;
 }
 
-/* A queue dir holding a lander marker per pid, the dir every case's TMPDIR
- * names, so no case reads the machine's own suite queue. */
-const queueDir = (landers: number[]) => {
-	const q = path.join(dir, "queue");
+/* A temp root whose suite queue holds a lander marker per pid, the root every
+ * case's TMPDIR names, so no case reads the machine's own suite queue. */
+const tmpRootWithLanders = (landers: number[]) => {
+	const root = path.join(dir, "tmp");
+	const q = path.join(root, "wfc-suite-queue");
 	fs.mkdirSync(q, { recursive: true });
 	for (const pid of landers)
 		fs.writeFileSync(
 			path.join(q, `wfc-suite-queue-${pid}.json`),
 			JSON.stringify({ pid, at: 1, role: "lander" }),
 		);
-	return q;
+	return root;
 };
 
 /* A stand-in /proc/loadavg, so no admission test reads the live machine's load. */
@@ -254,7 +257,7 @@ const buildIsolatedEnv = ({
 	landers?: number[];
 	configDir?: string;
 } = {}) => ({
-	TMPDIR: queueDir(landers),
+	TMPDIR: tmpRootWithLanders(landers),
 	CLAUDE_CODE_SESSION_ID: SELF,
 	// Isolates the allowance re-read (#294) from this machine's real
 	// `~/.claude/.claude.json` — a config dir with no cache file at all
@@ -799,6 +802,24 @@ describe("daemon + spare-pool reservation", () => {
 		expect(json.reservedMb).toBe(390);
 	});
 
+	/* #2876: the claimed pids come off the strict listing where it answers; where
+	 * it refuses for want of this session, the `requireSelf: false` read still
+	 * names them. The pool row tells the two apart where `reservedMb`, one idle
+	 * pair either way, cannot. */
+	const claimedAndIdle = [
+		"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
+		"110 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock 200 50 --",
+		"333 300000 claude bg-spare --bg-spare /tmp/x/spare/def.claim.sock",
+		"332 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/def.pty.sock 200 50 --",
+	];
+	it.each([
+		["off the listing that names this session", [`${SELF}@111`, "other@222"]],
+		["where the oracle omits this session", ["other@111", "another@222"]],
+	])("leaves a claimed pair out of the pool %s", (_, sessions) => {
+		const { json } = run({ mb: 4000, sessions, psLines: claimedAndIdle });
+		expect(json.memory.pool.mb).toBe(390);
+	});
+
 	it("fails open to no reservation where the overhead scan cannot run", () => {
 		// A broken `ps` degrades only the process-count DISPLAY figure (procs.ok
 		// stays true), so this isolates the reservation failure from the
@@ -836,7 +857,7 @@ describe("aggregate session draw (#2221)", () => {
 	 * cwds and states. `self` is this run's session id, listed idle unless it
 	 * is listed; an empty one leaves the id unset and lists nothing more.
 	 */
-	const drawLine = (listed: [string, string, string?][], self = SELF) => {
+	const readDrawLine = (listed: [string, string, string?][], self = SELF) => {
 		const agents: Record<string, string>[] = listed.map(
 			([sessionId, cwd, state = "working"]) => ({ sessionId, state, cwd }),
 		);
@@ -855,7 +876,7 @@ describe("aggregate session draw (#2221)", () => {
 		const light = repo("light", { sessionMeanMb: 400, sessionSigmaMb: 100 });
 		fs.mkdirSync(path.join(heavy, "src"));
 		expect(
-			drawLine([
+			readDrawLine([
 				["a", path.join(heavy, "src")],
 				["b", light],
 				["c", heavy],
@@ -869,7 +890,7 @@ describe("aggregate session draw (#2221)", () => {
 	it("counts idle and waiting sessions, and leaves out ended ones and this run's own", () => {
 		const light = repo("light", { sessionMeanMb: 400, sessionSigmaMb: 100 });
 		expect(
-			drawLine([
+			readDrawLine([
 				[SELF, light],
 				["a", light, "idle"],
 				["b", light, "waiting"],
@@ -887,7 +908,7 @@ describe("aggregate session draw (#2221)", () => {
 	});
 
 	it("charges a lone listed session where no session id names it as this one", () => {
-		expect(drawLine([["only", repo("light")]], "")).toMatch(
+		expect(readDrawLine([["only", repo("light")]], "")).toMatch(
 			/^1 live session\(s\)/,
 		);
 	});
@@ -895,7 +916,7 @@ describe("aggregate session draw (#2221)", () => {
 	it("charges the default and says so for a cwd in no repo", () => {
 		const loose = path.join(dir, "loose");
 		fs.mkdirSync(loose);
-		expect(drawLine([["a", loose]])).toMatch(
+		expect(readDrawLine([["a", loose]])).toMatch(
 			new RegExp(
 				`; charged the default draw where a repo's went unread: ${loose} is in no repo$`,
 			),
@@ -903,13 +924,15 @@ describe("aggregate session draw (#2221)", () => {
 	});
 
 	it("charges the default and says so for a session with no cwd", () => {
-		expect(drawLine([["a", ""]])).toMatch(
+		expect(readDrawLine([["a", ""]])).toMatch(
 			/; charged the default draw where a repo's went unread: session a lists no cwd$/,
 		);
 	});
 
 	it("charges the default and says why where a repo's declared draw will not read", () => {
-		expect(drawLine([["a", repo("bad", { sessionMeanMb: "900" })]])).toMatch(
+		expect(
+			readDrawLine([["a", repo("bad", { sessionMeanMb: "900" })]]),
+		).toMatch(
 			/charged the default draw where a repo's went unread: .*"sessionMeanMb" is not a positive integer/,
 		);
 	});
@@ -1228,7 +1251,7 @@ describe("test-suite bands", () => {
 });
 
 /** readRunningVitestSuites against a stub `ps` at `p`, the seam pretest-reap reads it through. */
-const withPs = (p: string) => {
+const readSuitesWithPs = (p: string) => {
 	const was = process.env.WFC_PS;
 	process.env.WFC_PS = p;
 	try {
@@ -1240,12 +1263,12 @@ const withPs = (p: string) => {
 };
 
 /*
- * A hand-kept duplicate of the vitest half of `running_suites()` in
- * `guard-suite-concurrency.sh` (#630).
+ * lib/suite-ladder.js's `runningSuites`, which guard-suite-concurrency.js
+ * counts by too.
  */
 describe("the running vitest suite count", () => {
 	const read = (lines: string[]) => {
-		const r = withPs(ps(lines));
+		const r = readSuitesWithPs(ps(lines));
 		if (!r.ok) throw new Error(r.error);
 		return r;
 	};
@@ -1305,44 +1328,83 @@ describe("the running vitest suite count", () => {
 	it("still counts a run whose `-t` filter is the word list", () => {
 		expect(wholeRuns(["node /r/node_modules/.bin/vitest run -t list"])).toBe(1);
 	});
-
-	it("skips the same `vitest list` lines as the guard's copy (#630)", () => {
-		const guard = fs
-			.readFileSync(path.join(__dirname, "guard-suite-concurrency.sh"), "utf8")
-			.match(/^VITEST_LIST='(.+)'$/m)?.[1];
-		const lib = fs
-			.readFileSync(path.join(__dirname, "lib/admission.js"), "utf8")
-			.match(/^const VITEST_LIST = \/(.+)\/;$/m)?.[1];
-		expect(guard).toBeTruthy();
-		expect(lib?.replaceAll("\\/", "/")).toBe(guard);
-	});
-
-	it("skips the same wrappers as the guard's copy (#630)", () => {
-		const list = (file: string) =>
-			fs
-				.readFileSync(path.join(__dirname, file), "utf8")
-				.match(/\((bash\|[a-z|]+)\)/)?.[1];
-		const guard = list("guard-suite-concurrency.sh");
-		expect(guard).toMatch(/\|sudo$/);
-		expect(list("lib/admission.js")).toBe(guard);
-	});
 });
 
 describe("readRunningVitestSuites", () => {
 	it("counts the suites a real `ps` spawn lists", () => {
-		const r = withPs(
+		const r = readSuitesWithPs(
 			ps(["node /a/node_modules/.bin/vitest run", "ps -eo args="]),
 		);
-		expect(r).toEqual({ ok: true, workers: 3, whole: 1 });
+		expect(r).toEqual({ ok: true, workers: WHOLE_SUITE_WORKERS, whole: 1 });
 	});
 
 	it("reads an empty listing as unread, not as zero suites", () => {
-		expect(withPs(ps([]))).toEqual({ ok: false, error: "ps listed nothing" });
+		expect(readSuitesWithPs(ps([]))).toEqual({
+			ok: false,
+			error: "ps listed nothing",
+		});
 	});
 
 	it("reads a failed `ps` as unread", () => {
-		const r = withPs(ps([], { fails: true }));
-		expect(r.ok).toBe(false);
+		expect(readSuitesWithPs(ps([], { fails: true }))).toEqual({
+			ok: false,
+			error: "ps: cannot read /proc",
+		});
+	});
+
+	/* A `--changed` or full run's runner line names no file, so only the
+	 * weight its launch record carries can tell it from a whole suite. */
+	describe("weighs a runner by the weight its launch record carries, not its argv (#2931)", () => {
+		const procDirOf = (pid: number, launch: object | null) => {
+			const procDir = path.join(dir, "procDir");
+			carrying(procDir, pid, launch);
+			return procDir;
+		};
+		const readWithProc = (procDir: string, lines: string[]) => {
+			const was = process.env.WFC_PROC;
+			process.env.WFC_PROC = procDir;
+			try {
+				return readSuitesWithPs(ps(lines));
+			} finally {
+				if (was === undefined) delete process.env.WFC_PROC;
+				else process.env.WFC_PROC = was;
+			}
+		};
+		const runner = "node /a/node_modules/.bin/vitest run";
+
+		it("reads a run carrying a part-suite's weight as no whole suite", () => {
+			const procDir = procDirOf(31, { resolvedFiles: 40, wholeSlot: false });
+			expect(readWithProc(procDir, [`31 ${runner}`])).toEqual({
+				ok: true,
+				workers: WHOLE_SUITE_WORKERS,
+				whole: 0,
+			});
+		});
+
+		it("reads a run carrying a 2-file weight at 2 workers", () => {
+			const procDir = procDirOf(32, { resolvedFiles: 2, wholeSlot: false });
+			expect(readWithProc(procDir, [`32 ${runner}`])).toEqual({
+				ok: true,
+				workers: 2,
+				whole: 0,
+			});
+		});
+
+		it("reads a run carrying the whole slot as whole, whatever its argv names", () => {
+			const procDir = procDirOf(33, { resolvedFiles: 200, wholeSlot: true });
+			expect(readWithProc(procDir, [`33 ${runner} a.test.ts`])).toEqual({
+				ok: true,
+				workers: WHOLE_SUITE_WORKERS,
+				whole: 1,
+			});
+		});
+
+		it("falls back to the argv for a run carrying no record", () => {
+			const procDir = procDirOf(34, null);
+			expect(
+				readWithProc(procDir, [`34 ${runner}`, `35 ${runner} a.test.ts`]),
+			).toEqual({ ok: true, workers: WHOLE_SUITE_WORKERS + 1, whole: 1 });
+		});
 	});
 });
 

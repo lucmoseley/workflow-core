@@ -1,0 +1,36 @@
+#!/usr/bin/env node
+/*
+ * guard-dispatch.js — the one hook entry every always-on guard of an event
+ * runs from as a core (#2786, ADR-0010). The guard dispatcher, not subagent
+ * dispatch (lib/dispatch-*.js).
+ *
+ * DENIES-THROUGH: lib/guard-dispatch.js — a core's deny, a store fault and a fail-closed core's throw reach the session merged, so the PreToolUse registration carries `"onFailure": "block"` and a crash refuses the call. The PostToolUse registration carries none: every core there fails open, and a PostToolUse exit cannot undo a call that already ran.
+ *
+ * IMPLICIT: on a backgrounded Bash call (guard-bg-job) injects rule:killed-background-job; on a Write, Edit or NotebookEdit of a test file (inject-test-rules) injects base §X8, §X9 and §X10; on a Write or Edit adding a mantahostels#N citation the inherited tracker never used (guard-citation-tracker), names each such number and injects rule:citation-tracker; on a `gh` or issue-tracker Bash call (guard-tracker-rules) injects the tracker rules that call engages; on a Skill call loading `code-review` (guard-review-rules) injects the six review rules and this session's review subagent type, Artefact paths and standards base, and (inject-review-tier) the review tier the change's sensitive paths owe; on a Skill call loading `diagnosing-bugs` (inject-founder-wording) injects the four recurrence checks and the host's tracker corpus — each rule once per session and agent, latched under .claude/tmp/markers; on a `Write` to `.claude/tmp/` (guard-scratch-overwrite) appends that path to the session's record in `.claude/tmp/markers/` (#1167); before a Bash command writing a tier-1 path a live neighbour holds (guard-claimed-bash-write), injects those claims within a 2,000 B session budget, credits an uncontended code target to the write ledger (mantahostels#2778), notes an inline program's quoted paths and a deletion's tracked files on the selection ledger (#1220, #1791), and hands over rule:whole-file-restore on a restore over uncommitted changes (#2028); on a Write, Edit or NotebookEdit (guard-file-claim), TAKES a claim on the file and pins its prior bytes, and on an allowed write hands over the claim rules (mantahostels#295, mantahostels#1762); on a test-suite launch detached inside the shell, or an unbounded one wrapped in a shell `timeout` (guard-suite-background), refuses it; on a hand-fired sweep (guard-sweep-fire), SPENDS one unit of the day's sweep budget before it runs; on a recursive search of a heavy tree (guard-recursive-dot-read) injects rule:heavy-tree-search; on an Agent or Task dispatch (guard-dispatch-rewrite) adds an `Artefact:` line to a prompt naming no usable one, while burn mode is on moves a `sonnet` dispatch to `opus`, and injects rule:dispatch-tier or rule:dispatch-search-tracker where the call departs from them. On PostToolUse: after a Bash or Read (record-tool-echo) records the call's signature and answer under ${TMPDIR:-/tmp}/wfc-echo-chain for the guard-echo-call core; after a Write, Edit or NotebookEdit (post-write) formats the file, records the write in the arbiter and names any fault the write scan finds, saying rule:write-reformatted and rule:shell-lint-blind once each; after a Bash (refresh-claims) re-records this session's claimed files and the watched tiers; after a WebFetch, WebSearch or Read (scan-injection) names instruction-shaped text in what came back; after a Read (guard-image-budget) counts the image characters and warns as the request cap nears.
+ * JUSTIFIED: fail-safe — none of these rules has an enforcing guard before the act, so the moment of the call is the only one at which each can still shape it (mantahostels#1904, #1887, #2015), and a vendored skill cannot carry project rules (mantahostels#2501, spec #1612, #628); the scratch record is convenience — it tells a session's own rewrite from a neighbour's clobber, without which every rewrite of an existing scratch file would be refused; a claim nobody has to remember to take is what makes a clobber by any route reportable and recoverable (mantahostels#295), and the Bash-route warning credits nothing a live neighbour holds; the supplied `Artefact:` line is convenience — the session would have added it after a refusal, at the cost of re-issuing the whole prompt (#482) — and burn mode's remap is the founder's own switch (#355). The PostToolUse cores are fail-safe: each sees what only the answered call shows — its response, the file as written, the bytes a shell changed — and none refuses (#2787).
+ * DEFEAT: `scripts/clear-rule-latch.sh` clears the latch and a rule is said again; `sensitivePaths` declared, `[]` included, silences the review tier's undeclared line; a `citation-exempt: <why>` on the line passes the citation core; the scratch-overwrite refusal is escaped by re-sending the same call, by design (#1728), and its record has none; a Bash write by a spelling the claimed-bash-write routes do not name passes unseen; `WFC_SUITE_DETACH=1` or `WFC_SUITE_TIMEOUT=1` as a prefix passes the suite-background core; a sweep fired from the web UI, `gh api … /dispatches`, a script or the founder's terminal never reaches the sweep-fire core; `session-arbiter.js release [--force] <path>` drops a claim the file-claim core took; naming a real path in the prompt leaves the `Artefact:` line alone, and `scripts/burn-mode.sh off` ends the remap; WFC_NO_ECHO_CHAIN=1 stops the echo record and WFC_NO_IMAGE_BUDGET=1 the image count; listing a core's name (`guard-bg-job`, `inject-test-rules`, `guard-citation-tracker`, `guard-stale-script`, `guard-job-dir-scratch`, `guard-root-scratch`, `guard-scratch-overwrite`, `guard-self-match`, `guard-wait-loop`, `guard-suite-background`, `guard-sweep-fire`, `guard-claimed-bash-write`, `guard-file-claim`, `guard-last30days`, `guard-review-rules`, `inject-review-tier`, `inject-founder-wording`, `guard-tracker-rules`, `guard-branch-publish`, `guard-recursive-dot-read`, `guard-wide-read`, `guard-agent-poll`, `guard-echo-call`, `guard-dispatch-rewrite`, `guard-blind-dispatch`, `record-tool-echo`, `post-write`, `refresh-claims`, `scan-injection`, `guard-image-budget`) under the host's `disabled` silences that core alone, and listing `guard-dispatch.js` silences every core.
+ *
+ * LIMITS
+ *  - With no node on PATH the hook line exits 0: every core is skipped,
+ *    unlogged.
+ *  - A fault in the kit itself, before any core runs, refuses every Bash,
+ *    Write, Edit, NotebookEdit, Skill, Read, ListAgents, Agent and Task call
+ *    until it is fixed: the `block` that makes a fail-closed core's crash
+ *    refuse covers the advisory ones too. On PostToolUse the same fault
+ *    silences every core there until it is fixed.
+ *  - The PostToolUse entry's 15 s timeout is the slowest hook's it replaced,
+ *    scan-injection's: a hang in any core spends it for all of them.
+ *  - Each core's own limits are in its module's header.
+ */
+
+const { parseOrExit } = require("./lib/cli-args.js");
+
+const { flags } = parseOrExit(process.argv.slice(2), {
+	usage:
+		"Usage: guard-dispatch.js [--only <core>]   (the hook payload on stdin)",
+	flags: { "--only": "value" },
+});
+const only = flags["--only"];
+require("./lib/guard-dispatch.js").runDispatch(
+	typeof only === "string" ? only : undefined,
+);

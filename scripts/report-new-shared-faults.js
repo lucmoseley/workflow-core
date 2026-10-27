@@ -12,7 +12,7 @@
  *
  * check-doc-map.js DOESN'T TAKE --root, unlike the others, so its
  * reading is built differently from the archive-materialised pair below —
- * see docMapEnvelope's own docstring (mantahostels#1824).
+ * see readDocMapEnvelope's own docstring (mantahostels#1824).
  *
  * NOT IN THE `report-*` FAMILY DESPITE THE PREFIX (§N3, §G4): that family
  * files a GitHub issue and always exits 0. This has no scheduled trigger of
@@ -23,21 +23,23 @@
  *   2  at least one side could not be read — the printed line names which —
  *      or lib/cli-args.js refused the command line; `--help` exits 0
  *
- * PROFILES come from checker-new-faults.js so the two scripts can never drift
+ * PROFILES come from lib/fault-profiles.js so the two scripts can never drift
  * on what makes two faults the same fault.
  */
 
 const { execFileSync, spawnSync } = require("node:child_process");
+const { execGit, gitCommonDirOrThrow, spawnGitSync } = require("./lib/git.js");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
-const { PROFILES } = require("./checker-new-faults");
+const { PROFILES } = require("./lib/fault-profiles.js");
 const { parseOrExit } = require("./lib/cli-args");
 const { newFaults } = require("./lib/fault-diff");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
+const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 
 /* Core content: every checker below ships beside this script, so each is named
  * from THIS DIRECTORY (#1) — a plugin install keeps them beside the caller. */
@@ -45,7 +47,7 @@ const CORE_SCRIPTS = __dirname;
 
 /** Profile name -> the checker script that emits its --json envelope, for the
  * checkers that take --root. check-doc-map.js is not in this table: its
- * envelope is read by docMapEnvelope() below, on a different calling
+ * envelope is read by readDocMapEnvelope() below, on a different calling
  * convention (see the header comment). */
 const CHECKERS = {
 	"guard-registry": path.join(CORE_SCRIPTS, "check-guard-registry.js"),
@@ -88,7 +90,7 @@ const checkersInForce = () => {
  * `full` is the command that shows the reader MORE than the notice already
  * did — the checker itself, over the working tree, WARNs and context included.
  *
- * KEYED BY PROFILE NAME, AND EVERY checker-new-faults.js PROFILE HAS A ROW —
+ * KEYED BY PROFILE NAME, AND EVERY lib/fault-profiles.js PROFILE HAS A ROW —
  * a profile with none throws, and report-new-shared-faults.test.ts prints a
  * cost line for every profile, so registering a checker for the diff and
  * registering it for the notice are one act. A row no profile names is
@@ -168,8 +170,6 @@ const COSTS = {
 /* git and check-doc-map.js's stdout both default to Node's 1 MiB spawn cap —
  * the doc-map alone is ~79,000 words (check-doc-map.js's own header). */
 const MAX_BUFFER = 64 * 1024 * 1024;
-
-const firstLine = (/** @type {unknown} */ s) => String(s).trim().split("\n")[0];
 
 /* ── Leftovers, and the sweep that clears them (mantahostels#1883) ─────────────────────
  *
@@ -288,13 +288,7 @@ function sweepTrees() {
  */
 function sweepWorktrees(/** @type {string} */ cwd) {
 	const admin = path.join(
-		path.resolve(
-			cwd,
-			execFileSync("git", ["rev-parse", "--git-common-dir"], {
-				cwd,
-				encoding: "utf8",
-			}).trim(),
-		),
+		gitCommonDirOrThrow(cwd, { stdio: ["ignore", "pipe", "inherit"] }),
 		"worktrees",
 	);
 	if (!fs.existsSync(admin)) return;
@@ -315,7 +309,7 @@ function sweepWorktrees(/** @type {string} */ cwd) {
 			if (parsed?.kind !== "dm") continue;
 			if (!isStale(parsed, fs.statSync(entry).mtimeMs)) continue;
 			if (fs.existsSync(worktree))
-				execFileSync("git", ["worktree", "remove", "--force", worktree], {
+				execGit(["worktree", "remove", "--force", worktree], {
 					cwd,
 				});
 			/* `git worktree remove` drops the admin directory itself; where the
@@ -359,7 +353,7 @@ function sweepLeftovers(/** @type {string} */ cwd) {
  * @returns {{ sha: string, parents: string[] }}
  */
 function resolveCommit(/** @type {string} */ ref, /** @type {string} */ cwd) {
-	const line = execFileSync("git", ["rev-list", "--parents", "-n", "1", ref], {
+	const line = execGit(["rev-list", "--parents", "-n", "1", ref], {
 		cwd,
 		encoding: "utf8",
 	}).trim();
@@ -377,7 +371,7 @@ function resolveCommit(/** @type {string} */ ref, /** @type {string} */ cwd) {
 function materialise(/** @type {string} */ sha, /** @type {string} */ cwd) {
 	const dir = fs.mkdtempSync(path.join(leftoverRoot(), leftoverStem("tree")));
 	const tar = path.join(dir, "tree.tar");
-	execFileSync("git", ["archive", "--format=tar", "-o", tar, sha], { cwd });
+	execGit(["archive", "--format=tar", "-o", tar, sha], { cwd });
 	execFileSync("tar", ["-xf", tar, "-C", dir]);
 	fs.rmSync(tar);
 	return dir;
@@ -399,8 +393,8 @@ function parseEnvelope(
 		parsed = JSON.parse(r.stdout);
 	} catch (e) {
 		throw new Error(
-			`invalid --json (exit ${r.status}): ${firstLine(caught(e).message)}` +
-				(r.stderr ? ` — ${firstLine(r.stderr)}` : ""),
+			`invalid --json (exit ${r.status}): ${parseErrorFirstLine(e)}` +
+				(r.stderr ? ` — ${parseFirstLine(r.stderr)}` : ""),
 			{ cause: e },
 		);
 	}
@@ -432,7 +426,7 @@ function readEnvelope(
  * doc-map block uses that for staged-vs-HEAD) only fixes `git ls-files` — the
  * scope check-doc-map.js asks git for directly, with no flag to redirect it.
  * It does NOT fix a literal `"HEAD"` rev, and lib/doc-map.js's `mapAtHead()`
- * and `committedRevs()` both read one — always the live branch tip, whichever
+ * and `readCommittedRevs()` both read one — always the live branch tip, whichever
  * `sha` was asked for. A throwaway DETACHED WORKTREE fixes both at once: its
  * `HEAD` genuinely IS `sha` there, so every git call check-doc-map.js makes —
  * `ls-files`, a literal `HEAD` rev, anything else — reads that commit and
@@ -449,12 +443,15 @@ function readEnvelope(
  * `cwd` must be a real git checkout (the host root, in production, #1) —
  * `git worktree add` needs a working `.git`.
  */
-function docMapEnvelope(/** @type {string} */ sha, /** @type {string} */ cwd) {
+function readDocMapEnvelope(
+	/** @type {string} */ sha,
+	/** @type {string} */ cwd,
+) {
 	const dir = path.join(
 		leftoverRoot(),
 		`${leftoverStem("dm")}${Date.now()}-${Math.random().toString(36).slice(2)}`,
 	);
-	execFileSync("git", ["worktree", "add", "--detach", "--quiet", dir, sha], {
+	execGit(["worktree", "add", "--detach", "--quiet", dir, sha], {
 		cwd,
 	});
 	try {
@@ -479,7 +476,7 @@ function docMapEnvelope(/** @type {string} */ sha, /** @type {string} */ cwd) {
 			);
 		return envelope;
 	} finally {
-		execFileSync("git", ["worktree", "remove", "--force", dir], { cwd });
+		execGit(["worktree", "remove", "--force", dir], { cwd });
 	}
 }
 
@@ -491,7 +488,7 @@ function docMapEnvelope(/** @type {string} */ sha, /** @type {string} */ cwd) {
  * doc-map limb to compare, and running it anyway prints
  * `could not read <sha>'s --json: BROKEN` after every single commit, which is a
  * false alarm rather than a finding. A map that IS in the tree and will not
- * read or parse still reaches `docMapEnvelope` and is still reported.
+ * read or parse still reaches `readDocMapEnvelope` and is still reported.
  *
  * `cat-file -e` asks the presence question and nothing else. Its own failure to
  * run is read as absent deliberately: this whole file reports and never blocks,
@@ -504,7 +501,7 @@ function docMapEnvelope(/** @type {string} */ sha, /** @type {string} */ cwd) {
  */
 function hasDocMap(sha, cwd) {
 	return (
-		spawnSync("git", ["cat-file", "-e", `${sha}:docs/doc-map.md`], {
+		spawnGitSync(["cat-file", "-e", `${sha}:docs/doc-map.md`], {
 			cwd,
 			encoding: "utf8",
 		}).status === 0
@@ -514,7 +511,7 @@ function hasDocMap(sha, cwd) {
 /**
  * Reads `profile`'s two envelopes via the given thunks (each already
  * bound to shaDir/parentDir, or to sha/parent for doc-map — the two
- * profile families read differently, see docMapEnvelope's header) and
+ * profile families read differently, see readDocMapEnvelope's header) and
  * pushes what's new. Stops at the first unreadable side: a staged read
  * that fails never spends a second process on the baseline.
  * @param {{ sha: string, parent: string, err: string[], byProfile: Map<string, string[]> }} ctx
@@ -527,7 +524,7 @@ function diffProfile(ctx, profile, readStaged, readBaseline) {
 	const { sha, parent, err, byProfile } = ctx;
 	const diffing = PROFILES[profile];
 	if (diffing === undefined)
-		throw new Error(`checker-new-faults.js has no profile ${profile}`);
+		throw new Error(`lib/fault-profiles.js has no profile ${profile}`);
 	let staged;
 	let baseline;
 	try {
@@ -577,7 +574,7 @@ function collectNewFaults(trees) {
 		)
 			broken = true;
 
-	// check-doc-map.js is not in CHECKERS (see docMapEnvelope's header): it
+	// check-doc-map.js is not in CHECKERS (see readDocMapEnvelope's header): it
 	// reads a throwaway detached worktree rather than the one archived
 	// `--root` tree the checkers above share.
 	//
@@ -589,8 +586,8 @@ function collectNewFaults(trees) {
 		diffProfile(
 			ctx,
 			"doc-map",
-			() => docMapEnvelope(sha, cwd),
-			() => docMapEnvelope(parent, cwd),
+			() => readDocMapEnvelope(sha, cwd),
+			() => readDocMapEnvelope(parent, cwd),
 		)
 	)
 		broken = true;
@@ -651,7 +648,7 @@ function run(ref, cwd) {
 		({ sha, parents } = resolveCommit(ref, cwd));
 	} catch (e) {
 		err.push(
-			`report-new-shared-faults: ${ref} does not resolve to a commit — ${firstLine(caught(e).message)}`,
+			`report-new-shared-faults: ${ref} does not resolve to a commit — ${parseErrorFirstLine(e)}`,
 		);
 		return { code: 2, out, err };
 	}
@@ -675,7 +672,7 @@ function run(ref, cwd) {
 		// clean it up before returning rather than leaking it.
 		if (shaDir) fs.rmSync(shaDir, { recursive: true, force: true });
 		err.push(
-			`report-new-shared-faults: could not materialise a tree — ${firstLine(caught(e).message)}`,
+			`report-new-shared-faults: could not materialise a tree — ${parseErrorFirstLine(e)}`,
 		);
 		return { code: 2, out, err };
 	}

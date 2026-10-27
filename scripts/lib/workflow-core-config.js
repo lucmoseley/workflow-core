@@ -12,7 +12,8 @@
  * AN UNKNOWN KEY WARNS, once per process per file, on stderr — a typo is
  * surfaced without breaking a hook. AN UNKNOWN `contract` INTEGER THROWS,
  * naming the migration notes: a stale config fails loudly rather than being
- * half-read.
+ * half-read. moduleReader alone reads that fault as off, logged: a guard's
+ * module gate fails open rather than refusing every call (#2409).
  *
  * The shell half is scripts/lib/wfc-config.sh; change the two together.
  *
@@ -30,6 +31,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { execGit } = require("./git.js");
 /* Re-exported rather than merely used, because callers and this file's own
  * suite already import it from here. */
 const { hostRoot } = require("./host-root.js");
@@ -89,10 +91,10 @@ const UPSTREAM_CODE_REPO = "lucmoseley/workflow-core";
  * that would split in two (#512) — only that: `../..` passes. */
 const TRACKER_SHAPE = /^[\w.-]+\/[\w.-]+$/;
 /* The `corpus` verb's stderr line where the default has lost the host's own
- * tracker. scripts/inject-founder-wording.sh matches it verbatim. */
+ * tracker. */
 const OWN_MISSING_LINE = `WARN ${CONFIG_PATH}: no own tracker resolves, so "corpus" is ${UPSTREAM_TRACKER} alone — declare "corpus" or "tracker"`;
 
-/* What a host deploys on a push to `main` (#742): guard-push-rules.sh hands
+/* What a host deploys on a push to `main` (#742): guard-push-rules.js hands
  * the Vercel rule only where this names it. */
 const DEPLOYS = /** @type {const} */ (["vercel"]);
 
@@ -154,6 +156,7 @@ const KNOWN_KEYS = [
 	"pythonRoutes",
 	"sessionMeanMb",
 	"sessionSigmaMb",
+	"fullTestShards",
 	"suiteRunners",
 	"worktreeLinks",
 	/* Read off the raw file by the migration walker (`upgrade.js` and
@@ -198,6 +201,12 @@ const defaultCommand = (name) =>
 /** @typedef {typeof COMMANDS[number]} Command */
 /** @typedef {typeof DEPLOYS[number]} Deploy */
 /** @typedef {typeof PYTHON_KINDS[number]} PythonKind */
+/**
+ * @typedef {object} ConfigOpts
+ * @property {string} [root] the host root; hostRoot() where omitted
+ * @property {string} [rev] read the config committed at this revision rather
+ *   than the working copy's
+ */
 
 /**
  * @typedef {ConfigBase & Partial<Record<PathKey, string>>} Config each path
@@ -229,6 +238,7 @@ const defaultCommand = (name) =>
  * @property {Record<string, PythonKind>} [pythonRoutes] the host's Python route rows, pathspec glob → code kind, first match winning, ahead of base §0's default map in scripts/check-swallowed-errors.js (#1830)
  * @property {number} [sessionMeanMb] the mean of one of this host's working sessions' memory draw, its tools included (#2139)
  * @property {number} [sessionSigmaMb] that draw's standard deviation (#2139)
+ * @property {number} [fullTestShards] how many `--shard=k/n` runs the lander's local tester splits `full_test` into, each in its own suite slot; absent runs it whole (#2996)
  * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
  * @property {string[]} [worktreeLinks] gitignored paths the suite reads, linked into each throwaway worktree a suite runs in (#1767)
  * @property {string[]} [alwaysLoaded] declared only; lib/always-loaded-pool.js defaults it
@@ -246,7 +256,7 @@ const defaultCommand = (name) =>
  * @typedef {object} ConfigFault
  * @property {string} key the dotted key path, such as `archScan.threshold`
  * @property {"malformed"|"unknown-key"} kind
- * @property {string} text what a refusal says: the warning less warningLine()'s tail
+ * @property {string} text what a refusal says: the warning less buildWarningLine()'s tail
  */
 
 /**
@@ -364,11 +374,11 @@ function warnUnknownKey(cfg, key) {
 }
 
 /**
- * @param {RawConfig} cfg accumulator: the fault's warningLine() is pushed onto `warnings`, the fault onto `faults`
+ * @param {RawConfig} cfg accumulator: the fault's buildWarningLine() is pushed onto `warnings`, the fault onto `faults`
  * @param {ConfigFault} fault
  */
 function addFault(cfg, fault) {
-	cfg.warnings.push(warningLine(fault));
+	cfg.warnings.push(buildWarningLine(fault));
 	cfg.faults.push(fault);
 }
 
@@ -377,10 +387,34 @@ function addFault(cfg, fault) {
  * does not refuse goes on without it.
  * @param {ConfigFault} fault
  */
-const warningLine = (fault) =>
+const buildWarningLine = (fault) =>
 	fault.kind === "malformed"
 		? `${fault.text} — read as its default`
 		: fault.text;
+
+/**
+ * @param {string} file
+ * @param {string} what
+ * @param {unknown} err
+ */
+const configError = (file, what, err) =>
+	new Error(`${file} ${what}: ${caught(err).message}`, { cause: err });
+
+/**
+ * The config text's top-level object. Throws where it does not parse to one.
+ * @param {string} text
+ * @param {string} file the label a throw names
+ * @returns {Record<string, unknown>}
+ */
+function parseConfigText(text, file) {
+	try {
+		const parsed = JSON.parse(text);
+		if (!isPlainObject(parsed)) throw new Error("not a JSON object");
+		return parsed;
+	} catch (err) {
+		throw configError(file, "does not parse", err);
+	}
+}
 
 /**
  * The config file's top-level object; empty where the file is absent.
@@ -389,18 +423,56 @@ const warningLine = (fault) =>
  * @returns {Record<string, unknown>}
  */
 function parseConfigFile(file) {
+	let text;
 	try {
-		const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-		if (!isPlainObject(parsed)) throw new Error("not a JSON object");
-		return parsed;
+		text = fs.readFileSync(file, "utf8");
 	} catch (err) {
-		if (caught(err).code !== "ENOENT") {
-			throw new Error(`${file} does not parse: ${caught(err).message}`, {
-				cause: err,
-			});
-		}
+		if (caught(err).code === "ENOENT") return {};
+		throw configError(file, "does not parse", err);
 	}
-	return {};
+	return parseConfigText(text, file);
+}
+
+/**
+ * The text of repo-relative `file` as committed at `rev` in `root`'s
+ * repository; null where that commit holds no such path. Throws where `rev`
+ * names no commit (an unborn HEAD included) or where the path holds no file.
+ * @param {string} root
+ * @param {string} rev
+ * @param {string} file
+ * @param {string} [label] what a throw names
+ * @returns {string|null}
+ */
+function readBlobAt(root, rev, file, label = `${file} at ${rev}`) {
+	const git = (/** @type {string[]} */ args) => {
+		try {
+			return execGit(["-C", root, ...args], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			});
+		} catch (err) {
+			throw configError(label, "cannot be read", err);
+		}
+	};
+	const entry = git(["ls-tree", "-z", rev, "--", file]);
+	if (entry === "") return null;
+	const oid = /^\S+ blob (\S+)\t/.exec(entry)?.[1];
+	if (oid === undefined) throw new Error(`${label} is not a file`);
+	return git(["cat-file", "blob", oid]);
+}
+
+/**
+ * The config's top-level object as committed at `rev` in `root`'s repository;
+ * empty where that commit holds no config. Throws as readBlobAt does, or where
+ * the blob does not parse to an object.
+ * @param {string} root
+ * @param {string} rev
+ * @param {string} file the label a throw names
+ * @returns {Record<string, unknown>}
+ */
+function parseConfigBlob(root, rev, file) {
+	const text = readBlobAt(root, rev, CONFIG_PATH, file);
+	return text === null ? {} : parseConfigText(text, file);
 }
 
 /**
@@ -732,14 +804,21 @@ function checkKeyNames(cfg) {
 }
 
 /**
- * The config with every key at its declared value or its default.
+ * The config with every key at its declared value or its default: the
+ * working copy's, or with `rev` the one committed at that revision of
+ * `root`'s repository (#3132).
  * Throws where the file does not parse or declares an unknown contract.
- * @param {{root?: string, quiet?: boolean}} [opts]
+ * @param {ConfigOpts & {quiet?: boolean}} [opts]
  * @returns {Config}
  */
-function readConfig({ root = hostRoot(), quiet = false } = {}) {
-	const file = path.join(root, CONFIG_PATH);
-	const raw = parseConfigFile(file);
+function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
+	let file = path.join(root, CONFIG_PATH);
+	let raw;
+	if (rev === undefined) raw = parseConfigFile(file);
+	else {
+		file = `${file} at ${rev}`;
+		raw = parseConfigBlob(root, rev, file);
+	}
 	const contract = contractOf(raw, file);
 	/** @type {RawConfig} */
 	const cfg = { raw, warnings: [], faults: [] };
@@ -789,6 +868,12 @@ function readConfig({ root = hostRoot(), quiet = false } = {}) {
 	const sessionSigmaMb = readKey(
 		cfg,
 		"sessionSigmaMb",
+		isPositiveInt,
+		"a positive integer",
+	);
+	const fullTestShards = readKey(
+		cfg,
+		"fullTestShards",
 		isPositiveInt,
 		"a positive integer",
 	);
@@ -885,6 +970,7 @@ function readConfig({ root = hostRoot(), quiet = false } = {}) {
 		pythonRoutes,
 		sessionMeanMb,
 		sessionSigmaMb,
+		fullTestShards,
 		suiteRunners,
 		worktreeLinks,
 		alwaysLoaded,
@@ -911,20 +997,34 @@ function parseGithubRemote(url) {
 }
 
 /**
+ * wfc_repo_slug: a repo as gh reads one — `owner/name`, `HOST/owner/name`, an
+ * https or scp-like URL — lowercased to `owner/name`, a host other than
+ * github.com kept as a prefix, so no caller mistakes it for a github.com repo.
+ * @param {string} spec
+ */
+function repoSlug(spec) {
+	let r = spec.toLowerCase();
+	const scheme = r.indexOf("://");
+	if (scheme >= 0) r = r.slice(scheme + 3);
+	if (r.startsWith("git@")) r = r.slice(4);
+	if (r.startsWith("github.com:")) r = `github.com/${r.slice(11)}`;
+	if (r.startsWith("github.com/")) r = r.slice(11);
+	if (r.endsWith("/")) r = r.slice(0, -1);
+	if (r.endsWith(".git")) r = r.slice(0, -4);
+	return r;
+}
+
+/**
  * The origin remote's `owner/name`; init-adopter.js points gh's default at it.
  * @param {string} root
  */
 function deriveTracker(root) {
 	let url = "";
 	try {
-		url = execFileSync(
-			"git",
-			["-C", root, "config", "--get", "remote.origin.url"],
-			{
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			},
-		);
+		url = execGit(["-C", root, "config", "--get", "remote.origin.url"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		});
 	} catch {
 		// No origin remote: nothing to derive.
 	}
@@ -953,11 +1053,11 @@ function deriveLogin() {
 /**
  * A key's declared value, else its derived one, else undefined.
  * @param {"founder"|"tracker"|"codeRepo"|"login"|"name"|"corpus"} key
- * @param {{root?: string}} [opts]
+ * @param {ConfigOpts} [opts]
  * @returns {string|string[]|undefined}
  */
-function resolveKey(key, { root = hostRoot() } = {}) {
-	const config = readConfig({ root });
+function resolveKey(key, { root = hostRoot(), rev } = {}) {
+	const config = readConfig({ root, rev });
 	switch (key) {
 		case "tracker":
 			return config.tracker ?? deriveTracker(root);
@@ -968,7 +1068,7 @@ function resolveKey(key, { root = hostRoot() } = {}) {
 		case "name":
 			return config.name ?? path.basename(root);
 		case "corpus":
-			return resolveCorpus({ root }).trackers;
+			return resolveCorpus({ root, rev }).trackers;
 		default:
 			return config[key];
 	}
@@ -1007,11 +1107,12 @@ function isCodeApartFromTracker({ root } = {}) {
 /**
  * The corpus, and whether it is the default with the host's own tracker
  * missing — where upstream alone would pass for the whole list (#514).
- * @param {{root?: string}} [opts]
+ * `quiet` keeps the config's warnings off stderr, for a hook reading it.
+ * @param {ConfigOpts & {quiet?: boolean}} [opts]
  * @returns {{trackers: string[], ownMissing: boolean}}
  */
-function resolveCorpus({ root = hostRoot() } = {}) {
-	const config = readConfig({ root });
+function resolveCorpus({ root = hostRoot(), rev, quiet = false } = {}) {
+	const config = readConfig({ root, rev, quiet });
 	if (config.corpus) return { trackers: config.corpus, ownMissing: false };
 	let own = config.tracker ?? deriveTracker(root);
 	if (own !== undefined && !TRACKER_SHAPE.test(own)) own = undefined;
@@ -1062,7 +1163,7 @@ const pathResolver =
 		try {
 			const c = readConfig({ ...opts, quiet: true });
 			for (const f of faultsOn(c, key))
-				warnOnce(`WARN ${c.file}: ${warningLine(f)}`, say);
+				warnOnce(`WARN ${c.file}: ${buildWarningLine(f)}`, say);
 			return c[key] ?? fallback;
 		} catch (err) {
 			warnOnce(
@@ -1105,11 +1206,11 @@ function declaresLadder(opts = {}) {
  * scripts/lib/wfc-config.sh's `wfc_output_style` is the shell half.
  * @param {{root?: string, say?: (line: string) => void}} [opts]
  */
-function outputStylePath({ say, ...opts } = {}) {
+function readOutputStylePath({ say, ...opts } = {}) {
 	try {
 		const c = readConfig({ ...opts, quiet: true });
 		for (const f of faultsOn(c, "overrides.output_style"))
-			warnOnce(`WARN ${c.file}: ${warningLine(f)}`, say);
+			warnOnce(`WARN ${c.file}: ${buildWarningLine(f)}`, say);
 		return c.overrides.output_style ?? OUTPUT_STYLE_DEFAULT;
 	} catch (err) {
 		warnOnce(
@@ -1124,23 +1225,52 @@ function outputStylePath({ say, ...opts } = {}) {
  * The one-line reason a module-gated check skips.
  * @param {Module} module
  */
-const moduleOffLine = (module) =>
+const buildModuleOffLine = (module) =>
 	`module "${module}" is off — ${CONFIG_PATH} does not list it under "modules"`;
 
 /**
  * The one-line reason a command-gated check skips.
  * @param {Command} name
  */
-const commandUndeclaredLine = (name) =>
+const buildCommandUndeclaredLine = (name) =>
 	`commands.${name} is undeclared in ${CONFIG_PATH}`;
 
 /**
  * @param {Module} module
- * @param {{root?: string}} [opts]
+ * @param {ConfigOpts} [opts]
  */
 function moduleOn(module, opts) {
 	if (!MODULES.includes(module)) throw new Error(`no module "${module}"`);
 	return readConfig(opts).modules.includes(module);
+}
+
+/**
+ * Whether a module is on, read once a reader's life; a config fault reads as off,
+ * logged (#2409). The `{ moduleOn }` every Node core and lib/rule-gates.js
+ * reads.
+ * @param {string} root
+ * @param {(what: string, detail?: string) => void} log
+ * @returns {(module: Module) => boolean}
+ */
+function moduleReader(root, log) {
+	/** @type {Map<string, boolean>} */
+	const seen = new Map();
+	return (module) => {
+		let on = seen.get(module);
+		if (on === undefined) {
+			try {
+				on = moduleOn(module, { root });
+			} catch (e) {
+				on = false;
+				log(
+					`module ${module} read as off on a config fault`,
+					caught(e).message,
+				);
+			}
+			seen.set(module, on);
+		}
+		return on;
+	};
 }
 
 /**
@@ -1177,10 +1307,10 @@ function guardDisabled(basename, opts) {
 
 /**
  * @param {Command} name
- * @param {{root?: string}} [opts]
+ * @param {ConfigOpts} [opts]
  * @returns {string|null}
  */
-function commandFor(name, opts) {
+function readCommandFor(name, opts) {
 	if (!COMMANDS.includes(name)) throw new Error(`no command "${name}"`);
 	return readConfig(opts).commands[name];
 }
@@ -1192,9 +1322,9 @@ function commandFor(name, opts) {
  * @param {Parameters<typeof readConfig>[0]} [opts]
  * @returns {string|null}
  */
-function commandOrDefault(name, opts) {
+function readCommandOrDefault(name, opts) {
 	try {
-		const declared = commandFor(name, opts);
+		const declared = readCommandFor(name, opts);
 		if (declared) return declared;
 	} catch {
 		/* an unknown name throws too: both fall to the default */
@@ -1220,7 +1350,7 @@ function exitUnlessModule(modules, opts, offCode = 0) {
 		process.exit(2);
 	}
 	if (off) {
-		writeFd(2, `SKIP: ${moduleOffLine(off)}\n`);
+		writeFd(2, `SKIP: ${buildModuleOffLine(off)}\n`);
 		process.exit(offCode);
 	}
 }
@@ -1335,9 +1465,9 @@ if (require.main === module) {
 		writeFd(1, `${pickNextRankingPath({ say })}\n`);
 		process.exit(0);
 	}
-	/* `corpus` is the recurrence hook's tracker list (#512): resolveKey's
+	/* `corpus` is retro-sweep's tracker list (#512): resolveKey's
 	 * trackers one per line, exit 0; the SKIP line and exit 1 where none
-	 * resolves, so the hook names the key instead; BROKEN and exit 2 on a
+	 * resolves, so the caller names the key instead; BROKEN and exit 2 on a
 	 * config that will not read. A rejected value warns and reads as the
 	 * default. */
 	if (verb === "corpus" && !name) {
@@ -1383,13 +1513,13 @@ if (require.main === module) {
 	const command = /** @type {Command} */ (name);
 	let declared;
 	try {
-		declared = commandFor(command);
+		declared = readCommandFor(command);
 	} catch (e) {
 		writeFd(2, `BROKEN: ${caught(e).message}\n`);
 		process.exit(2);
 	}
 	if (declared === null) {
-		writeFd(2, `SKIP: ${commandUndeclaredLine(command)}\n`);
+		writeFd(2, `SKIP: ${buildCommandUndeclaredLine(command)}\n`);
 		process.exit(1);
 	}
 	writeFd(1, `${declared}\n`);
@@ -1398,15 +1528,18 @@ if (require.main === module) {
 module.exports = {
 	hostRoot,
 	readConfig,
+	readBlobAt,
 	resolveKey,
+	resolveCorpus,
 	requireKey,
 	deriveTracker,
 	moduleOn,
+	moduleReader,
 	firstModuleOff,
 	MANUAL_HALF,
-	commandFor,
+	readCommandFor,
 	defaultCommand,
-	commandOrDefault,
+	readCommandOrDefault,
 	guardDisabled,
 	ladderPath,
 	declaresLadder,
@@ -1414,9 +1547,9 @@ module.exports = {
 	brandSheetPath,
 	userSettingsSnapshotPath,
 	pickNextRankingPath,
-	outputStylePath,
-	moduleOffLine,
-	commandUndeclaredLine,
+	readOutputStylePath,
+	buildModuleOffLine,
+	buildCommandUndeclaredLine,
 	exitUnlessModule,
 	CONFIG_PATH,
 	PYTHON_KINDS,
@@ -1425,7 +1558,7 @@ module.exports = {
 	retroFault,
 	faultsOn,
 	archScanFault,
-	warningLine,
+	buildWarningLine,
 	CONTRACT,
 	MIGRATIONS_DIR,
 	MODULES,
@@ -1438,6 +1571,7 @@ module.exports = {
 	codeRepoArgs,
 	isCodeApartFromTracker,
 	parseGithubRemote,
+	repoSlug,
 	TRACKER_SHAPE,
 	USER_SETTINGS_SNAPSHOT_DEFAULT: PATH_KEYS.userSettingsSnapshotPath.fallback,
 };

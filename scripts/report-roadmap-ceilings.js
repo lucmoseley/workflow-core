@@ -136,7 +136,7 @@ function verdict(rows) {
  * @param {{ p: number, excess: number }[]} rows
  * @returns {string}
  */
-function phaseLine(rows) {
+function buildPhaseLine(rows) {
 	if (rows.length === 0) return "";
 	/** @type {Map<number, number>} */
 	const byPhase = new Map();
@@ -170,7 +170,7 @@ function body(rows) {
 		"",
 		"```",
 		verdict(rows),
-		...(phaseLine(rows) ? [phaseLine(rows)] : []),
+		...(buildPhaseLine(rows) ? [buildPhaseLine(rows)] : []),
 		"```",
 		"",
 		"## Over-ceiling fields, largest excess first",
@@ -233,7 +233,7 @@ function main({ flags, positionals }) {
 
 	const rows = overCeilingRows(items);
 	console.log(verdict(rows));
-	const phase = phaseLine(rows);
+	const phase = buildPhaseLine(rows);
 	if (phase) console.log(phase);
 
 	if (rows.length === 0) {

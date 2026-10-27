@@ -24,7 +24,7 @@ const path = require("node:path");
 const hookMessage = require("./lib/hook-message");
 const { hostRoot } = require("./lib/host-root");
 const { trackerOf } = require("./lib/outstanding-line");
-const { markParked, parkedBy, setParked } = require("./lib/parked");
+const { markParked, readParkedBy, setParked } = require("./lib/parked");
 const sessionId = require("./lib/session-id");
 const { guardDisabled } = require("./lib/workflow-core-config");
 
@@ -32,7 +32,7 @@ function main() {
 	if (guardDisabled(path.basename(__filename), { root: hostRoot() })) return;
 	const sid = sessionId.fromPayload(hookMessage.readPayload());
 	if (!sid) return;
-	const parked = parkedBy(sid);
+	const parked = readParkedBy(sid);
 	const tracker = parked.length > 0 ? trackerOf() : null;
 	if (!tracker) return;
 	markParked(

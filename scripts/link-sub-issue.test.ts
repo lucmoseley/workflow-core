@@ -89,12 +89,12 @@ const run = (args: string[], g: Gh = {}) =>
 	});
 
 /** Every stubbed gh invocation, in call order. */
-const log = () =>
+const readLog = () =>
 	fs.existsSync(calls)
 		? fs.readFileSync(calls, "utf8").split("\n").filter(Boolean)
 		: [];
 
-const posts = () => log().filter((l) => l.includes("--method POST"));
+const readPosts = () => readLog().filter((l) => l.includes("--method POST"));
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "link-sub-issue-"));
@@ -110,18 +110,18 @@ describe("link-sub-issue.sh", () => {
 	it("POSTs the database id with -F, never -f", () => {
 		const r = run(["40", "63"], { dbId: "987654", children: ["63"], lag: 1 });
 		expect(r.status).toBe(0);
-		expect(posts()).toHaveLength(1);
-		expect(posts()[0]).toContain("-F sub_issue_id=987654");
-		expect(posts()[0]).not.toContain("-f sub_issue_id");
+		expect(readPosts()).toHaveLength(1);
+		expect(readPosts()[0]).toContain("-F sub_issue_id=987654");
+		expect(readPosts()[0]).not.toContain("-f sub_issue_id");
 	});
 
 	it("verifies from the parent side, retrying through the documented lag", () => {
 		const r = run(["40", "63"], { children: ["63"], lag: 2 });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("linked #63 as a sub-issue of #40");
-		expect(posts()).toHaveLength(1);
+		expect(readPosts()).toHaveLength(1);
 		expect(
-			log().filter((l) => l.includes("/40/sub_issues")).length,
+			readLog().filter((l) => l.includes("/40/sub_issues")).length,
 		).toBeGreaterThan(2);
 	});
 
@@ -130,7 +130,7 @@ describe("link-sub-issue.sh", () => {
 		const r = run(["40", "63"], { post: "dup", children: ["63"], lag: 1 });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("already a sub-issue of #40");
-		expect(posts()).toHaveLength(1);
+		expect(readPosts()).toHaveLength(1);
 	});
 
 	it("names the detach command when the 422 is a DIFFERENT parent", () => {
@@ -138,7 +138,7 @@ describe("link-sub-issue.sh", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("already has a different parent");
 		expect(r.stderr).toContain("--method DELETE");
-		expect(posts()).toHaveLength(1);
+		expect(readPosts()).toHaveLength(1);
 	});
 
 	it("refuses rather than POSTing an empty string when the db id lookup fails, naming the issue", () => {
@@ -146,14 +146,14 @@ describe("link-sub-issue.sh", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("could not resolve the database id of #63");
 		expect(r.stderr).toContain("nothing was POSTed");
-		expect(posts()).toHaveLength(0);
+		expect(readPosts()).toHaveLength(0);
 	});
 
 	it("refuses a db id that is not numeric, naming the value it got and POSTing nothing", () => {
 		const r = run(["40", "63"], { dbId: "null" });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("got 'null'");
-		expect(posts()).toHaveLength(0);
+		expect(readPosts()).toHaveLength(0);
 	});
 
 	it("retries the 422's own parent-side read through the lag", () => {
@@ -169,7 +169,7 @@ describe("link-sub-issue.sh", () => {
 		const r = run(["40", "63"], { post: "layers" });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("SAME parent");
-		expect(posts()).toHaveLength(1);
+		expect(readPosts()).toHaveLength(1);
 	});
 
 	it("fails loudly, never silently, when the POST is refused outright, naming the HTTP status", () => {
@@ -183,7 +183,7 @@ describe("link-sub-issue.sh", () => {
 		const r = run(["40", "63"], { children: [] });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("do NOT re-POST");
-		expect(posts()).toHaveLength(1);
+		expect(readPosts()).toHaveLength(1);
 	});
 
 	it.each([
@@ -196,14 +196,16 @@ describe("link-sub-issue.sh", () => {
 			const r = run(args as string[]);
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain(expected);
-			expect(posts()).toHaveLength(0);
+			expect(readPosts()).toHaveLength(0);
 		},
 	);
 
 	it("accepts #-prefixed numbers", () => {
 		const r = run(["#40", "#63"], { children: ["63"], lag: 1 });
 		expect(r.status).toBe(0);
-		expect(log().some((l) => l.includes("issues/40/sub_issues"))).toBe(true);
-		expect(log().some((l) => l.includes("issues/63 "))).toBe(true);
+		expect(readLog().some((l) => l.includes("issues/40/sub_issues"))).toBe(
+			true,
+		);
+		expect(readLog().some((l) => l.includes("issues/63 "))).toBe(true);
 	});
 });

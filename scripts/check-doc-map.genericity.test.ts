@@ -108,7 +108,7 @@ const title = (p: string) => {
 	return opened.charAt(0).toUpperCase() + opened.slice(1);
 };
 
-const refText = (r: Ref) => {
+const buildRefText = (r: Ref) => {
 	let ref: string;
 	if (r.kind === "figure") ref = `§${r.ref}`;
 	else if (r.kind === "issue") ref = `#${r.ref}`;
@@ -121,7 +121,7 @@ const rowFor = (p: string, e: Record<string, unknown>) => {
 	const role =
 		(e.role as string) || (kind ? `${title(p)} — ${kind}` : title(p));
 	const consumes = Array.isArray(e.consumes)
-		? (e.consumes as Ref[]).map(refText).join(" · ")
+		? (e.consumes as Ref[]).map(buildRefText).join(" · ")
 		: "—";
 	return `| \`${p}\` | ${role} | \`${e.class}\` | ${(e.route as string) || ROUTE[e.class as string]} | ${consumes} |`;
 };
@@ -341,7 +341,7 @@ const check = (repo: string) => {
 };
 
 /** Every tracked file's bytes, for the host-string grep. */
-const trackedText = (c: Ctx) =>
+const readTrackedText = (c: Ctx) =>
 	c
 		.git("ls-files")
 		.split("\n")
@@ -828,7 +828,7 @@ const withFresh = (
 describe("check-doc-map.js against a doc map holding no host string (mantahostels#3510)", () => {
 	it("the fixture tree holds no host string", () =>
 		withFresh(template, "doc-map-generic-", (c) => {
-			expect(trackedText(c)).not.toMatch(HOST_STRING);
+			expect(readTrackedText(c)).not.toMatch(HOST_STRING);
 			expect(c.git("ls-files").split("\n").filter(Boolean)).toHaveLength(10);
 		}));
 
@@ -844,7 +844,7 @@ describe("check-doc-map.js against a doc map holding no host string (mantahostel
 
 	it("the marked base (assertions 22 and 24) is itself green", () =>
 		withFresh(markedTemplate, "doc-map-generic-marked-", (c) => {
-			expect(trackedText(c)).not.toMatch(HOST_STRING);
+			expect(readTrackedText(c)).not.toMatch(HOST_STRING);
 			const r = check(c.repo);
 			expect(r.status, r.out).toBe(0);
 			expect(r.tags).toEqual([]);

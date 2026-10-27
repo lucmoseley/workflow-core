@@ -197,6 +197,72 @@ describe("parseNote", () => {
 		).toBe(true);
 	});
 
+	it("flags an unindented prose line inside a step, naming it (#2972)", () => {
+		const faults = validateNote(
+			GOOD.replace(
+				"- [act] delete any `.claude/local-override.json` by hand",
+				"- [act] delete any `.claude/local-override.json` by hand\n" +
+					"Glued-on prose.\n" +
+					"More glued-on prose.",
+			),
+		);
+		expect(faults).toEqual([
+			'"## Manual steps" step carries an unindented line, which reads as part of the step: Glued-on prose.',
+		]);
+	});
+
+	it("flags an indented line after a blank with no bullet before it (#2972)", () => {
+		const faults = validateNote(
+			GOOD.replace(
+				"- [act] delete any `.claude/local-override.json` by hand",
+				"- [act] delete any `.claude/local-override.json` by hand\n\n" +
+					"      the dropped half\n" +
+					"      of the step",
+			),
+		);
+		expect(faults).toEqual([
+			'"## Manual steps" indented line comes after a blank line ended its step, so no step carries it: the dropped half',
+		]);
+	});
+
+	it("flags both faults where one step carries both (#2972)", () => {
+		const faults = validateNote(
+			GOOD.replace(
+				"- [act] delete any `.claude/local-override.json` by hand",
+				"- [act] delete any `.claude/local-override.json`\n" +
+					"  by hand\n" +
+					"Glued-on prose.\n\n" +
+					"  the dropped half",
+			),
+		);
+		expect(faults).toEqual([
+			'"## Manual steps" step carries an unindented line, which reads as part of the step: Glued-on prose.',
+			'"## Manual steps" indented line comes after a blank line ended its step, so no step carries it: the dropped half',
+		]);
+	});
+
+	it("flags an indented fence whose blank line cuts the step (#2972)", () => {
+		const faults = validateNote(
+			GOOD.replace(
+				"- [act] delete any `.claude/local-override.json` by hand",
+				"- [act] run this:\n  ```sh\n  one\n\n  two\n  ```",
+			),
+		);
+		expect(faults).toEqual([
+			'"## Manual steps" indented line comes after a blank line ended its step, so no step carries it: two',
+		]);
+	});
+
+	it("accepts prose above the list and between blank-separated bullets (#2972)", () => {
+		const faults = validateNote(
+			GOOD.replace(
+				"- [act] delete any `.claude/local-override.json` by hand",
+				"Prose above.\n\n- [act] one\n  still one\n\n- [notice] two\n\nTrailing prose.",
+			),
+		);
+		expect(faults).toEqual([]);
+	});
+
 	it("the whole shipped corpus passes validateNote (#246)", () => {
 		const dir = path.join(__dirname, "../../migrations");
 		for (const file of fs
@@ -257,10 +323,10 @@ describe("parseSteps (#248)", () => {
 	});
 
 	it("v1.1.17's act step names exactly the entries the pre-#425 parser cut from v1.1.9 (#429)", () => {
-		const manualSteps = (note: string) =>
+		const readManualSteps = (note: string) =>
 			parseNote(fs.readFileSync(path.join(__dirname, "../..", note), "utf8"))
 				.sections["Manual steps"];
-		const v119 = manualSteps("migrations/v1.1.9.md");
+		const v119 = readManualSteps("migrations/v1.1.9.md");
 		/* The pre-#425 parser's output — each typed bullet's first line alone.
 		 * Its regex is frozen here, not built from STEP_TYPES, because it models
 		 * the old parser. */
@@ -273,7 +339,7 @@ describe("parseSteps (#248)", () => {
 		expect(full).toHaveLength(firstLines.length);
 		const cut = firstLines.filter((s, i) => s.text !== full[i].text);
 		expect(cut).toHaveLength(2);
-		const [act] = parseSteps(manualSteps("migrations/v1.1.17.md"));
+		const [act] = parseSteps(readManualSteps("migrations/v1.1.17.md"));
 		expect(act.text.match(/``[^`].*?[^`]``/g)).toEqual(
 			cut.map((s) => `\`\`${s.text}\`\``),
 		);

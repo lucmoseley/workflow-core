@@ -162,7 +162,7 @@ describe("shell", () => {
 
 	it("fails a core file reached through the host root as HOST-ROOTED-CORE, pointing to $here", () => {
 		clean();
-		write("scripts/bad.sh", 'node "$(gr_root)/scripts/warn-stale-script.js"\n');
+		write("scripts/bad.sh", 'node "$(gr_root)/scripts/session-arbiter.js"\n');
 		const e = run();
 		expect(tags(e)).toContain("HOST-ROOTED-CORE");
 		expect(messages(e)).toMatch(/\$here/);
@@ -314,7 +314,7 @@ describe("the mirror fault through a variable (#14)", () => {
 		write(
 			"scripts/bad.js",
 			rooted(
-				'const TARGET = "scripts/lib/guard-parse.sh";\nconst p = path.join(root, TARGET);\n',
+				'const TARGET = "scripts/lib/guard-log.sh";\nconst p = path.join(root, TARGET);\n',
 			),
 		);
 		const e = run();
@@ -326,7 +326,7 @@ describe("the mirror fault through a variable (#14)", () => {
 		clean();
 		write(
 			"scripts/lib/consts.js",
-			'const CAP = path.join("scripts", "lib", "guard-parse.sh");\nmodule.exports = { CAP };\n',
+			'const CAP = path.join("scripts", "lib", "guard-log.sh");\nmodule.exports = { CAP };\n',
 		);
 		write(
 			"scripts/bad.js",

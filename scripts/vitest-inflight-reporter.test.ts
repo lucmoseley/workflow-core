@@ -23,6 +23,7 @@ const require = createRequire(import.meta.url);
 const { main } = require("./run-vitest.js");
 const inflight = require("./lib/test-inflight.js");
 const timings = require("./lib/test-file-timings.js");
+const { takeRunReport } = require("./lib/suite-handoff.js");
 
 const REPO = path.resolve(__dirname, "..");
 /* The ceiling must outlast the run's own start-up silence (fork, import, first
@@ -92,6 +93,20 @@ it.each([
 	expect(inflight.lastBeat(file)).toBeGreaterThan(past.getTime() + 30_000);
 });
 
+it("records the files the run scheduled as it starts (#2696)", async () => {
+	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-sched-")));
+	const file = path.join(dir, "inflight.json");
+	vi.stubEnv(inflight.INFLIGHT_ENV, file);
+	const { default: Reporter } = await import("./vitest-inflight-reporter");
+	const reporter = new Reporter();
+	const a = path.join(dir, "a.test.ts");
+	const b = path.join(dir, "b.test.ts");
+
+	reporter.onTestRunStart([{ moduleId: a }, { moduleId: b }]);
+
+	expect(inflight.readRecord(file).scheduled).toEqual([a, b]);
+});
+
 /* The run-cost report's figure (#1883): queued to end, on fake timers so
  * the seconds are exact (§X9). */
 it("leaves each file's queued-to-end seconds where the wrapper names a file", async () => {
@@ -114,6 +129,28 @@ it("leaves each file's queued-to-end seconds where the wrapper names a file", as
 	expect(JSON.parse(fs.readFileSync(file, "utf8"))).toEqual({
 		[module.moduleId]: 12.5,
 	});
+});
+
+/* The margin check's slowest files (#2770), repo-relative off vitest's root. */
+it("hands the run's slowest files to the pass marker's run report", async () => {
+	dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "wfc-slow-")));
+	vi.stubEnv(inflight.INFLIGHT_ENV, path.join(dir, "inflight.json"));
+	vi.stubEnv(timings.TIMINGS_ENV, "");
+	vi.useFakeTimers({ toFake: ["performance"] });
+	const { default: Reporter } = await import("./vitest-inflight-reporter");
+	const reporter = new Reporter();
+	reporter.onInit({ config: { root: dir } });
+	const module = { moduleId: path.join(dir, "lib", "a.test.ts") };
+
+	reporter.onTestRunStart();
+	reporter.onTestModuleQueued(module);
+	vi.advanceTimersByTime(12_500);
+	reporter.onTestModuleEnd(module);
+	reporter.onTestRunEnd();
+
+	expect(takeRunReport().slowest).toEqual([
+		{ file: path.join("lib", "a.test.ts"), seconds: 12.5 },
+	]);
 });
 
 it("keeps a run alive on test events alone while another worker is parked", async () => {

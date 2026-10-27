@@ -9,8 +9,8 @@
  * test runner cannot carry those, so it carries the data as JSON and a node
  * checker asserts the same predicates.
  *
- * guard-registry-atomicity.sh spells the two host paths and `SIBLING_SUFFIXES`
- * again in shell; its test asserts the paths agree and accepts a `.test.py`.
+ * guard-registry-atomicity.js judges a commit against the same host files,
+ * through lib/registry-atomicity.js.
  */
 
 /** The host registry, every adopter seeded with `emptyRegistry()`. */
@@ -116,7 +116,7 @@ function shapeFaults(json) {
  * Every hook registration in a settings-shaped object, flattened out of the
  * entry carrying its matcher — `lib/hook-wiring.ts`'s `allRegistrations`,
  * which its TypeScript keeps from being shared.
- * @param {any} settings  `{hooks}` as lib/core-hooks.js's `ownHooks` reads it,
+ * @param {any} settings  `{hooks}` as lib/core-hooks.js's `readOwnHooks` reads it,
  *   read defensively at each level
  * @returns {Registration[]}
  */
@@ -134,13 +134,13 @@ function allRegistrations(settings) {
  * One registration as a single command line.
  * @param {Pick<Registration, "command" | "args">} r
  */
-function commandLine(r) {
+function buildCommandLine(r) {
 	return [r.command, ...(Array.isArray(r.args) ? r.args : [])].join(" ");
 }
 
 /** @param {Registration} r */
 const labelOf = (r) =>
-	`${r.event}: ${commandLine(r)}${r.if ? ` if: ${r.if}` : ""}`;
+	`${r.event}: ${buildCommandLine(r)}${r.if ? ` if: ${r.if}` : ""}`;
 
 /**
  * Does `row` pin `r`? The core's own match: same event, the id a substring of
@@ -150,7 +150,7 @@ const labelOf = (r) =>
  */
 const isPinnedBy = (row, r) =>
 	row.event === r.event &&
-	commandLine(r).includes(row.id) &&
+	buildCommandLine(r).includes(row.id) &&
 	(row.narrowing ?? null) === (r.if ?? null);
 
 /**
@@ -160,7 +160,7 @@ const isPinnedBy = (row, r) =>
  * @returns {Row}
  */
 function suggestedRow(r) {
-	const line = commandLine(r);
+	const line = buildCommandLine(r);
 	const at = line.search(/scripts\/[\w.-]+/);
 	const candidate =
 		at === -1
@@ -272,7 +272,7 @@ function guardFaults({ guards, regs, elsewhere, exists }) {
 	for (const file of guards) {
 		const rel = `scripts/${file}`;
 		if (
-			!regs.some((r) => commandLine(r).includes(rel)) &&
+			!regs.some((r) => buildCommandLine(r).includes(rel)) &&
 			!Object.hasOwn(elsewhere, file)
 		)
 			out.push({
@@ -353,12 +353,13 @@ const unexplained = (elsewhere) =>
 module.exports = {
 	HOST_REGISTRATIONS,
 	HOST_NEEDLES,
+	SIBLING_SUFFIXES,
 	CALLER_HOOKS,
 	emptyRegistry,
 	emptyNeedles,
 	shapeFaults,
 	allRegistrations,
-	commandLine,
+	buildCommandLine,
 	isPinnedBy,
 	hookFaults,
 	guardFaults,

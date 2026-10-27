@@ -56,7 +56,7 @@ function compareVersions(a, b) {
 }
 
 /** @param {string} dir a directory's entries; none where it does not exist */
-function entries(dir) {
+function readEntries(dir) {
 	try {
 		return fs.readdirSync(dir);
 	} catch (e) {
@@ -74,10 +74,10 @@ function entries(dir) {
 function newestSkillTypes(skillsDir) {
 	/** @type {{ file: string, version: string } | null} */
 	let best = null;
-	for (const version of entries(skillsDir)) {
+	for (const version of readEntries(skillsDir)) {
 		if (!VERSION.test(version)) continue;
 		if (best && compareVersions(version, best.version) <= 0) continue;
-		const file = entries(path.join(skillsDir, version))
+		const file = readEntries(path.join(skillsDir, version))
 			.map((hash) =>
 				path.join(
 					skillsDir,

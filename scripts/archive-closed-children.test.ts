@@ -180,12 +180,12 @@ const spawn = (stub: ReturnType<typeof stubGh>, args: string[]) => {
 	};
 };
 
-const calls = () =>
+const readCalls = () =>
 	fs.existsSync(CALLS())
 		? fs.readFileSync(CALLS(), "utf8").trim().split("\n").filter(Boolean)
 		: [];
 
-const state = () => JSON.parse(fs.readFileSync(STATE(), "utf8"));
+const readState = () => JSON.parse(fs.readFileSync(STATE(), "utf8"));
 
 const run = (fx: Fixture, args: string[] = []) => {
 	const stub = stubGh(fx);
@@ -204,7 +204,7 @@ describe("nothing to archive", () => {
 		const r = run({ map: 8, kids: [] });
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("nothing to archive");
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
 	});
 
 	it("does nothing when every direct child is open", () => {
@@ -214,7 +214,7 @@ describe("nothing to archive", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("nothing to archive");
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
 	});
 });
 
@@ -230,7 +230,7 @@ describe("creating the container", () => {
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("moved 1 closed child(ren)");
 
-		const c = calls();
+		const c = readCalls();
 		const createIdx = c.findIndex((l) => l.startsWith("issue create"));
 		const moveIdx = c.findIndex(
 			(l) => l.includes("/sub_issues") && l.includes("replace_parent=true"),
@@ -247,7 +247,7 @@ describe("creating the container", () => {
 		expect(linkIdx).toBeGreaterThan(moveIdx);
 		expect(closeIdx).toBeGreaterThan(linkIdx);
 
-		const s = state();
+		const s = readState();
 		const container = s.kids.find((k: Kid) => k.number >= 9000);
 		expect(container.parent).toBe(8);
 		expect(container.state).toBe("closed");
@@ -265,9 +265,9 @@ describe("creating the container", () => {
 		);
 		expect(r.out).toContain("would move");
 		expect(r.out).toContain("--dry-run wrote nothing");
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
-		expect(calls().some((c) => c.startsWith("issue close"))).toBe(false);
-		expect(calls().every((c) => !c.includes("--method"))).toBe(true);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue close"))).toBe(false);
+		expect(readCalls().every((c) => !c.includes("--method"))).toBe(true);
 	});
 
 	it("is BROKEN, never a duplicate container, when create fails, saying none was created and closing nothing", () => {
@@ -279,7 +279,7 @@ describe("creating the container", () => {
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("BROKEN");
 		expect(r.out).toContain("no container was created");
-		expect(calls().some((c) => c.startsWith("issue close"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue close"))).toBe(false);
 	});
 
 	it("FAILs on link failure as ARCHIVE-LINK-FAILED and never closes an unlinked container, which a re-run heals (#92)", () => {
@@ -292,9 +292,9 @@ describe("creating the container", () => {
 		const r = spawn(stub, [String(fx.map)]);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("ARCHIVE-LINK-FAILED");
-		expect(calls().some((c) => c.startsWith("issue close"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue close"))).toBe(false);
 
-		const s = state();
+		const s = readState();
 		const container = s.kids.find((k: Kid) => k.number >= 9000);
 		expect(container.state).toBe("open");
 		const child = s.kids.find((k: Kid) => k.number === 10);
@@ -312,10 +312,10 @@ describe("creating the container", () => {
 		);
 		const second = spawn(stub, [String(fx.map)]);
 		expect(second.status).toBe(0);
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
-		expect(calls().some((c) => c.startsWith("issue close"))).toBe(true);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue close"))).toBe(true);
 
-		const s2 = state();
+		const s2 = readState();
 		const containers = s2.kids.filter((k: Kid) => k.number >= 9000);
 		expect(containers.length).toBe(1);
 		expect(containers[0].parent).toBe(8);
@@ -333,7 +333,7 @@ describe("creating the container", () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("ARCHIVE-CLOSE-FAILED");
 
-		const s = state();
+		const s = readState();
 		const container = s.kids.find((k: Kid) => k.number >= 9000);
 		expect(container.parent).toBe(8);
 		expect(container.state).toBe("open");
@@ -350,9 +350,9 @@ describe("creating the container", () => {
 		);
 		const second = spawn(stub, [String(fx.map)]);
 		expect(second.status).toBe(0);
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
 
-		const s2 = state();
+		const s2 = readState();
 		const container2 = s2.kids.find((k: Kid) => k.number >= 9000);
 		expect(container2.state).toBe("closed");
 	});
@@ -374,10 +374,10 @@ describe("reusing an existing container", () => {
 			],
 		});
 		expect(r.status).toBe(0);
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
-		expect(calls().some((c) => c.startsWith("issue close"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue close"))).toBe(false);
 
-		const s = state();
+		const s = readState();
 		const child = s.kids.find((k: Kid) => k.number === 11);
 		expect(child.parent).toBe(50);
 	});
@@ -395,9 +395,9 @@ describe("reusing an existing container", () => {
 		const second = spawn(stub, [String(fx.map)]);
 		expect(second.status).toBe(0);
 		expect(second.out).toContain("nothing to archive");
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
 
-		const s = state();
+		const s = readState();
 		const containers = s.kids.filter((k: Kid) => k.number >= 9000);
 		expect(containers.length).toBe(1);
 	});
@@ -418,9 +418,9 @@ describe("reusing an existing container", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("reusing it");
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
 
-		const s = state();
+		const s = readState();
 		const container = s.kids.find((k: Kid) => k.number === 50);
 		expect(container.parent).toBe(8);
 		expect(container.state).toBe("closed");
@@ -441,9 +441,9 @@ describe("reusing an existing container", () => {
 			],
 		});
 		expect(r.status).toBe(0);
-		expect(calls().some((c) => c.startsWith("issue close"))).toBe(true);
+		expect(readCalls().some((c) => c.startsWith("issue close"))).toBe(true);
 
-		const s = state();
+		const s = readState();
 		const container = s.kids.find((k: Kid) => k.number === 50);
 		expect(container.state).toBe("closed");
 	});
@@ -460,9 +460,9 @@ describe("container-like closed children", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("already holding sub-issues");
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(true);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(true);
 
-		const s = state();
+		const s = readState();
 		const preexisting = s.kids.find((k: Kid) => k.number === 20);
 		expect(preexisting.parent).toBe(8);
 	});
@@ -477,7 +477,7 @@ describe("container-like closed children", () => {
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("nothing to archive");
 		expect(r.out).toContain("already holding sub-issues");
-		expect(calls().some((c) => c.startsWith("issue create"))).toBe(false);
+		expect(readCalls().some((c) => c.startsWith("issue create"))).toBe(false);
 	});
 });
 
@@ -492,7 +492,7 @@ describe("the 7-layer cap", () => {
 		expect(r.out).toContain("7 layers deep");
 		expect(r.out).not.toContain("FAIL");
 
-		const s = state();
+		const s = readState();
 		const child = s.kids.find((k: Kid) => k.number === 12);
 		expect(child.parent).toBe(8);
 	});

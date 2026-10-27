@@ -17,8 +17,8 @@
  * implementation would make the check check itself.
  *
  * SO IT MUST BE KEPT IN STEP BY HAND. `inlineInterp` below tracks
- * guard-claimed-bash-write.sh's `inline_interp` as of `3aeedfb25`, which stops
- * the scan at the script. mantahostels#2854's published 137/206 firings and 33%/46% false
+ * lib/bash-write-plan.js's `inlineInterp`, which stops the scan at the
+ * script. mantahostels#2854's published 137/206 firings and 33%/46% false
  * warns were measured BEFORE that narrowing, so they over-count: this script
  * now reports fewer firings than those figures did, and re-deriving them means
  * re-running the whole pipeline rather than reusing the numbers.
@@ -68,7 +68,7 @@ function hasInlineArgs(base, args) {
 	return false;
 }
 
-/** Does a segment run an inline interpreter? Segments split as _gp_flatten does. */
+/** Does a segment run an inline interpreter? Segments split at shell operators. */
 function inlineInterp(/** @type {string} */ cmd) {
 	for (const seg of cmd.split(/&&|\|\||[;|&()]/)) {
 		const words = seg.trim().split(/\s+/).filter(Boolean);

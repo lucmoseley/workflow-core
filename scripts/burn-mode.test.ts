@@ -10,7 +10,7 @@
  * scratch HOME and a scratch marker here — the real ones are the machine's
  * live default.
  *
- * The burn-mode skill runs it, and guard-dispatch-rewrite.sh and
+ * The burn-mode skill runs it, and lib/dispatch-rewrite.js and
  * dispatch-sessions.sh read its marker: loosen a case and an `off` can leave a
  * plan burning allowance at high effort unannounced, or an `on` can flatten
  * an effort the founder set by hand.

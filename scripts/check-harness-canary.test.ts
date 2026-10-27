@@ -9,6 +9,11 @@
  * (scripts/fixtures/harness-canary-listing.jsonl) into a sandbox
  * CLAUDE_CONFIG_DIR, varied per case.
  *
+ * The agent_id probe (#2819) reads the stub itself as the binary, so a case
+ * appends 2.1.310's excerpts (scripts/fixtures/agent-id-2.1.310.txt) to it.
+ * It runs in the core's checkout alone: run() points CLAUDE_PROJECT_DIR at a
+ * scratch adopter, and a core case points it back at this checkout.
+ *
  * Loosen a case and a harness update can bring ~1,280 tokens back to every
  * adopter start, or break every description-less skill, with this check still green.
  */
@@ -16,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { stubGhScript } from "./lib/gh-stub.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-harness-canary.js");
@@ -54,6 +60,13 @@ fs.writeFileSync(path.join(dir, after("--session-id") + ".jsonl"), rows.map((r) 
 console.log(nonce);
 `;
 
+const EXCERPTS = fs.readFileSync(
+	path.join(__dirname, "fixtures", "agent-id-2.1.310.txt"),
+	"utf8",
+);
+const CONTEXT_ARG = EXCERPTS.replace("Vu(e,Cg())", "Vu(e,Cg(),void 0,r)");
+const CORE = path.join(__dirname, "..");
+
 let dir: string;
 let config: string;
 let calls: string;
@@ -74,6 +87,7 @@ function run(args: string[], env: Record<string, string> = {}) {
 			...process.env,
 			GITHUB_ACTIONS: "",
 			CLAUDE_CONFIG_DIR: config,
+			CLAUDE_PROJECT_DIR: dir,
 			WFC_CANARY_CLAUDE: path.join(dir, "claude"),
 			STUB_FIXTURE: FIXTURE,
 			STUB_CALLS: calls,
@@ -84,7 +98,7 @@ function run(args: string[], env: Record<string, string> = {}) {
 }
 
 const statePath = () => path.join(config, "wfc-harness-canary.json");
-const state = () => JSON.parse(fs.readFileSync(statePath(), "utf8"));
+const readState = () => JSON.parse(fs.readFileSync(statePath(), "utf8"));
 const probes = () =>
 	fs.existsSync(calls)
 		? fs.readFileSync(calls, "utf8").split("\n").length - 1
@@ -103,19 +117,23 @@ function seedUnprobed(agoMs: number) {
 /* Real time, not a seam: the probe is a detached process the call does not
  * wait for, so only polling its state file sees it finish. 10 s is a ceiling
  * on a stub that writes one file; a guess. */
-async function untilProbed(version: string) {
-	for (let i = 0; i < 100; i++) {
-		if (fs.existsSync(statePath()) && state().last?.version === version) return;
-		await new Promise((res) => setTimeout(res, 100));
-	}
+const POLLS = 100;
+const POLL_MS = 100;
+async function until(done: () => boolean) {
+	for (let i = 0; i < POLLS && !done(); i++)
+		await new Promise((res) => setTimeout(res, POLL_MS));
 }
+const untilProbed = (version: string) =>
+	until(
+		() => fs.existsSync(statePath()) && readState().last?.version === version,
+	);
 
 describe("the probe (--probe)", () => {
 	it("is green on the recorded transcript, records the version, and leaves no transcript", () => {
 		const r = run(["--probe"]);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("OK: a description-less plugin skill");
-		expect(state().passed).toBe("2.1.302");
+		expect(readState().passed).toBe("2.1.302");
 		expect(fs.readdirSync(path.join(config, "projects"))).toEqual([]);
 	});
 
@@ -125,8 +143,8 @@ describe("the probe (--probe)", () => {
 		expect(r.stderr).toContain(
 			"wfccanary:bare, which has no description, is in the start listing",
 		);
-		expect(state().passed).toBeUndefined();
-		expect(state().last.verdict).toBe("red");
+		expect(readState().passed).toBeUndefined();
+		expect(readState().last.verdict).toBe("red");
 	});
 
 	it("is red when the Skill call loads no body", () => {
@@ -135,14 +153,14 @@ describe("the probe (--probe)", () => {
 		expect(r.stderr).toContain(
 			"the Skill tool loaded no body for wfccanary:bare",
 		);
-		expect(state().passed).toBeUndefined();
+		expect(readState().passed).toBeUndefined();
 	});
 
 	it("is unprobed, not red, when the model never calls the Skill tool", () => {
 		const r = run(["--probe"], { STUB_NO_CALL: "1" });
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("never called the Skill tool");
-		expect(state().last.verdict).toBe("unprobed");
+		expect(readState().last.verdict).toBe("unprobed");
 	});
 
 	it("is unprobed, not green, when the control skill is missing from the listing", () => {
@@ -150,14 +168,14 @@ describe("the probe (--probe)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("UNPROBED");
 		expect(r.stderr).toContain("--probe");
-		expect(state().passed).toBeUndefined();
+		expect(readState().passed).toBeUndefined();
 	});
 
 	it("keeps an earlier pass but reports a red re-probe on the same version", () => {
 		run(["--probe"]);
 		const r = run(["--probe"], { STUB_NO_LOAD: "1" });
 		expect(r.status).toBe(1);
-		expect(state().passed).toBe("2.1.302");
+		expect(readState().passed).toBe("2.1.302");
 	});
 
 	it("runs no probe while another holds the lock", () => {
@@ -224,8 +242,11 @@ describe("at session start (--notify)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
 		await untilProbed("2.1.302");
-		expect(state().last).toMatchObject({ version: "2.1.302", verdict: "red" });
-		expect(state().passed).toBe("2.1.301");
+		expect(readState().last).toMatchObject({
+			version: "2.1.302",
+			verdict: "red",
+		});
+		expect(readState().passed).toBe("2.1.301");
 		expect(run(["--notify"]).stdout).toContain("HARNESS-CANARY");
 	});
 
@@ -234,7 +255,7 @@ describe("at session start (--notify)", () => {
 		const r = run(["--notify"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("");
-		expect(state().last.verdict).toBe("unprobed");
+		expect(readState().last.verdict).toBe("unprobed");
 		expect(probes()).toBe(0);
 	});
 
@@ -242,8 +263,85 @@ describe("at session start (--notify)", () => {
 		seedUnprobed(7 * HOUR);
 		const r = run(["--notify"]);
 		expect(r.stdout).toBe("");
-		for (let i = 0; i < 100 && state().last.verdict === "unprobed"; i++)
-			await new Promise((res) => setTimeout(res, 100));
-		expect(state().passed).toBe("2.1.302");
+		await until(() => readState().last.verdict !== "unprobed");
+		expect(readState().passed).toBe("2.1.302");
+	});
+});
+
+describe("the agent_id probe, in the core's checkout", () => {
+	let comments: string;
+	function core(excerpts: string) {
+		fs.appendFileSync(path.join(dir, "claude"), `/*\n${excerpts}*/\n`);
+		comments = path.join(dir, "comments");
+		const gh = stubGhScript(dir, `#!/bin/sh\necho "$@" >> ${comments}\n`);
+		return { CLAUDE_PROJECT_DIR: CORE, ...gh.env };
+	}
+	const readComments = () =>
+		fs.existsSync(comments)
+			? fs.readFileSync(comments, "utf8").trim().split("\n")
+			: [];
+
+	it("records not fixed on 2.1.310's excerpts, comments nothing, and says so in the OK line", () => {
+		const env = core(EXCERPTS);
+		const r = run(["--probe"], env);
+		expect(r.status).toBe(0);
+		expect(readState().agentId).toMatchObject({
+			version: "2.1.302",
+			verdict: "not fixed",
+		});
+		expect(r.stderr).toContain(
+			"compaction payloads still carry no agent_id (#1837)",
+		);
+		expect(readComments()).toEqual([]);
+		expect(run(["--notify"], env).stdout).toBe("");
+	});
+
+	it("on a context argument records fixed, comments on #1837 once, and prints it at each start", () => {
+		const env = core(CONTEXT_ARG);
+		run(["--probe-agent-id"], env);
+		run(["--probe-agent-id"], env);
+		expect(readState().agentId).toMatchObject({
+			verdict: "fixed",
+			commented: true,
+		});
+		const posts = readComments().filter((l) => l.startsWith("issue comment"));
+		expect(posts).toEqual([
+			expect.stringContaining("issue comment 1837 --repo"),
+		]);
+		expect(readComments().join("\n")).toContain(
+			"PreCompact builder Vu now gets 4 arguments",
+		);
+		for (let i = 0; i < 2; i++)
+			expect(run(["--notify"], env).stdout).toContain(
+				"AGENT-ID-FIXED — Claude Code 2.1.302 looks to send agent_id",
+			);
+		const hand = run([], env);
+		expect(hand.stderr).toContain("AGENT-ID-FIXED");
+	});
+
+	it("is unprobed, not fixed, on a binary with no anchor, and warns on a hand run", () => {
+		const env = core("");
+		run(["--probe-agent-id"], env);
+		expect(readState().agentId.verdict).toBe("unprobed");
+		expect(run([], env).stderr).toContain("AGENT-ID-UNPROBED");
+		expect(readComments()).toEqual([]);
+	});
+
+	it("at start on a passed version, launches the agent_id probe alone", async () => {
+		const env = core(EXCERPTS);
+		run(["--probe"], { STUB_VERSION: "2.1.302" });
+		expect(readState().agentId).toBeUndefined();
+		expect(run(["--notify"], env).stdout).toBe("");
+		await until(() => Boolean(readState().agentId));
+		expect(readState().agentId.verdict).toBe("not fixed");
+		expect(probes()).toBe(1);
+	});
+
+	it("never runs outside the core", () => {
+		core(CONTEXT_ARG);
+		run(["--probe"]);
+		expect(readState().agentId).toBeUndefined();
+		expect(run(["--probe-agent-id"]).stderr).toContain("SKIP:");
+		expect(readComments()).toEqual([]);
 	});
 });

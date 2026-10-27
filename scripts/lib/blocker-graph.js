@@ -21,7 +21,10 @@ const { proseRefsOf } = require("./prose-blockers.js");
  * An issue as a blocked_by or issue read gives it, `repo` resolved.
  * @typedef {IssueRef & {state: string, title: string, url: string, labels: string[], body: string}} Edge
  */
-/** @typedef {{ok: true, edges: Edge[]} | {ok: false, error: string}} EdgesRead */
+/**
+ * `reason` is lib/gh.js's parseGhFailureReason class, where the read knew it.
+ * @typedef {{ok: true, edges: Edge[]} | {ok: false, error: string, reason?: "unreachable"|"broken"}} EdgesRead
+ */
 /** @typedef {{ok: true, issue: Edge} | {ok: false, error: string}} IssueRead */
 /**
  * @typedef {object} Reads

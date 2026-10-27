@@ -74,7 +74,7 @@ const {
 	parseEntries,
 	readMap,
 	readTextLines,
-	retiredVocabularyText,
+	parseRetiredVocabularyText,
 	repoRelative,
 	reportAnchors,
 	reportPins,
@@ -112,12 +112,12 @@ function fromLiteral(literal) {
 function phrasesOn(list, text) {
 	/** @type {string|null} */
 	let plain = null;
-	const plainLine = () => {
+	const buildPlainLine = () => {
 		if (plain === null) plain = text.replace(/[*_]+/g, "");
 		return plain;
 	};
 	return list.patterns.filter(
-		(p) => p.pattern.test(text) || p.pattern.test(plainLine()),
+		(p) => p.pattern.test(text) || p.pattern.test(buildPlainLine()),
 	);
 }
 
@@ -181,7 +181,7 @@ function loadVocab(ctx, dataFile, allowEmpty) {
  */
 function assertEntriesCovered(ctx, { figures, vocabData, mapRel, dataFile }) {
 	const owed = figures
-		.filter((fig) => retiredVocabularyText(fig.lines) !== null)
+		.filter((fig) => parseRetiredVocabularyText(fig.lines) !== null)
 		.map((fig) => fig.id);
 	const uncovered = owed.filter((id) => !vocabData[id]);
 	if (uncovered.length > 0)

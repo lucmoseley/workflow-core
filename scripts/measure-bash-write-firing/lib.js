@@ -8,7 +8,7 @@
  * which run used which.
  *
  * WHAT IS DELIBERATELY *NOT* SHARED: measure-firing-rate.js's own spelling of
- * the guard's two limbs. That one re-spells scripts/guard-claimed-bash-write.sh
+ * the guard's two limbs. That one re-spells scripts/lib/claimed-bash-write.js
  * independently ON PURPOSE — it is the drift check, and a shared implementation
  * would make it check itself.
  */

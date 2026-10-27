@@ -1,172 +1,178 @@
 // @vitest-environment node
 /*
- * guard-ugrep-pattern.sh warns, once per agent and session and never denying,
- * when a bare `grep` pattern carries a ranged repeat that Claude Code's bundled
- * ugrep may refuse (#1021).
+ * guard-ugrep-pattern.js warns, once per agent and session and never denying,
+ * when a bare `grep` pattern carries a ranged repeat that Claude Code's
+ * bundled ugrep may refuse (#1021). These are its boundary cases (§X11): the
+ * entry run on a harness-shaped payload — each exit and its stream, the warn
+ * latch on disk, the core-path rewrite crossed for real, the fail-open record
+ * and a core that throws. Which grep warns, and with which sentence, is
+ * lib/ugrep-pattern.test.ts's (#2801).
  *
- * The first fire case and the first two pass cases are #1021's acceptance
- * criteria; do not thin them.
+ * CLAUDE_PROJECT_DIR is a temp project, so the latch and any fail-open record
+ * land under it and the temp CLAUDE_CONFIG_DIR, never the founder's own state.
  *
- * The real guard is spawned with a hook payload on stdin and its own config
- * and project directories under a temp dir, so its latch and any fail-open
- * record land there rather than in the founder's own state.
- *
- * It is a `PreToolUse` Bash hook in self-plugin/hooks/hooks.json: loosen a case
- * here and a refused pattern's exit 2 reads to a session as "no match" again,
- * with stderr discarded and nothing to say otherwise.
+ * Break the latch and every grep repeats the note; lose the emission and a
+ * refused pattern's exit 2 reads to a session as "no match" again.
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { describeFailOpenLog } from "./guard-log-fixture";
-import { buildBashPayload, guardOutput } from "./lib/pretool-guard-testkit";
+import { readFailOpenLog, readFailOpenRecords } from "./guard-log-fixture";
+import {
+	buildBashPayload,
+	entryBesideThrowingCore,
+	guardDirs,
+	nodeGuardOutput,
+	runNodeGuard,
+} from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-ugrep-pattern.sh");
+const GUARD = path.resolve(__dirname, "guard-ugrep-pattern.js");
+const FIRES = 'grep -oE ".{0,80}x.{0,80}" f';
 
 let dir: string;
 let config: string;
-let project: string;
 
-const run = (command: string, session = "mine", agent?: string) => {
-	const verdict = guardOutput(
+beforeEach(() => {
+	({ dir, config } = guardDirs("guard-ugrep-pattern-"));
+});
+afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+/** The hook's hookSpecificOutput for `command`, or null; exit 0 and a quiet
+ *  stderr asserted on every call, and never a permission decision. */
+const emission = (
+	command: string,
+	{
+		session = "mine" as string | null,
+		agent,
+		env = {},
+	}: { session?: string | null; agent?: string; env?: NodeJS.ProcessEnv } = {},
+) => {
+	const out = nodeGuardOutput(
 		GUARD,
 		{
 			...buildBashPayload(command, session),
-			cwd: project,
+			cwd: dir,
 			...(agent ? { agent_id: agent } : {}),
 		},
-		{ project, config, cwd: project },
+		{ project: dir, config, cwd: dir, env },
 	);
-	if (!verdict) return null;
-	expect(verdict.permissionDecision).toBeUndefined();
-	return verdict.additionalContext as string;
+	if (out) {
+		expect(out.hookEventName).toBe("PreToolUse");
+		expect(out.permissionDecision).toBeUndefined();
+	}
+	return out?.additionalContext as string | undefined;
 };
 
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-ugrep-pattern-"));
-	config = path.join(dir, "config");
-	project = path.join(dir, "project");
-	fs.mkdirSync(project);
-});
+/** The warn latch at the path `latchAfter` writes. */
+const latch = (key: string) =>
+	path.join(
+		dir,
+		".claude",
+		"tmp",
+		"markers",
+		`.rule-injected-warn.ugrep-pattern-${key}`,
+	);
 
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
-
-describe("a bounded repeat ugrep may refuse is warned on", () => {
-	it("names ugrep, exit 2, -P and the discarded stderr", () => {
-		const note = run('grep -o -h -E ".{0,80}(x|y).{0,80}" f 2>/dev/null');
-		expect(note).toContain("ugrep");
-		expect(note).toContain("exits 2");
-		expect(note).toContain("`-P` in place of `-E`");
-		expect(note).toContain("every other flag kept");
-		expect(note).toContain("an alternation");
-		expect(note).toContain("discards stderr");
+describe("the warning, end to end", () => {
+	it("warns as additionalContext on exit 0, latches its marker after it, then is silent", () => {
+		expect(fs.existsSync(latch("main-mine"))).toBe(false);
+		expect(emission(FIRES)).toContain("bundled ugrep");
+		expect(fs.existsSync(latch("main-mine"))).toBe(true);
+		expect(emission(FIRES)).toBeUndefined();
+		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});
 
-	it("leaves out the stderr sentence where stderr is kept", () => {
-		const note = run('grep -o -E ".{0,20}x.{0,20}" f');
-		expect(note).toContain("ugrep");
-		expect(note).not.toContain("discards stderr");
+	it("is silent for a session whose marker is already written", () => {
+		fs.mkdirSync(path.dirname(latch("main-mine")), { recursive: true });
+		fs.writeFileSync(latch("main-mine"), "");
+		expect(emission(FIRES)).toBeUndefined();
 	});
 
-	it.each([
-		'grep -oE "a{1,3}" f >/dev/null 2>&1',
-		'grep -oE "a{1,3}" f &>/dev/null',
-		'grep -oE "a{1,3}" f 2>&-',
-		'grep -oE "a{1,3}" f 2> /dev/null | head',
-		'grep -oE "a{1,3}" f 2>>/dev/null',
-	])("says stderr is discarded: %s", (command) => {
-		expect(run(command)).toContain("discards stderr");
+	it("warns another session and another agent, each latched apart", () => {
+		expect(emission(FIRES)).toContain("ugrep");
+		expect(emission(FIRES, { session: "theirs" })).toContain("ugrep");
+		expect(emission(FIRES, { agent: "a1" })).toContain("ugrep");
+		expect(fs.existsSync(latch("main-theirs"))).toBe(true);
+		expect(fs.existsSync(latch("aa1-mine"))).toBe(true);
 	});
 
-	it.each([
-		'grep -oE "a{1,3}" f 2>&1 | head',
-		'ls 2>/dev/null; grep -oE "a{1,3}" f',
-		'grep -oE "a{1,3}" f; ls >/dev/null 2>&1',
-	])("says nothing of another command's stderr: %s", (command) => {
-		const note = run(command);
-		expect(note).toContain("ugrep");
-		expect(note).not.toContain("discards stderr");
+	it("is silent on a call that passes, and spends no latch", () => {
+		expect(emission("grep -n foo f")).toBeUndefined();
+		expect(fs.existsSync(latch("main-mine"))).toBe(false);
+		expect(emission(FIRES)).toContain("ugrep");
 	});
 
-	it("tells a basic-mode pattern to drop its backslashes under -P", () => {
-		expect(run("grep -o '.\\{0,80\\}x' f")).toContain(
-			"the backslashes taken off",
+	it("points an install outside this checkout at the plugin's own doc", () => {
+		const root = path.join(dir, "plugin");
+		fs.mkdirSync(path.join(root, "docs", "agents"), { recursive: true });
+		fs.writeFileSync(path.join(root, "docs", "agents", "tool-output.md"), "");
+		expect(emission(FIRES, { env: { WFC_SCRIPT_ROOT: root } })).toContain(
+			`Warned once a session; ${root}/docs/agents/tool-output.md.`,
+		);
+		expect(emission(FIRES, { session: "other" })).toContain(
+			"Warned once a session; docs/agents/tool-output.md.",
 		);
 	});
 
+	it("warns a payload carrying no session id every time, recording it unlatchable", () => {
+		expect(emission(FIRES, { session: null })).toContain("ugrep");
+		expect(emission(FIRES, { session: null })).toContain("ugrep");
+		expect(readFailOpenRecords(config, dir)[0]?.slice(1)).toEqual([
+			"guard-ugrep-pattern.js",
+			"no session key — rule ugrep-pattern unlatchable, delivered again",
+		]);
+	});
+});
+
+describe("the fail-open record", () => {
+	const run = (stdin: string) =>
+		runNodeGuard(GUARD, null, { project: dir, config, cwd: dir, stdin });
+
+	it("treats an empty payload as nothing to check, not a fault", () => {
+		const r = run("");
+		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+		expect(readFailOpenRecords(config, dir)).toEqual([]);
+	});
+
 	it.each([
-		'grep -oE "a{,3}" f',
-		'grep -oE "a{2,}" f',
-		"grep -o '.\\{0,80\\}x' f",
-		'cat f | grep -E -e zz -e "a{1,3}" | head',
-		'grep -oEh --include=*.ts "a{1,3}" f',
-		'X=1 grep -E "a{1,3}" f',
-		// -G after -E is basic mode again.
-		"grep -E -G 'a\\{1,3\\}' f",
-		// ugrep's own value flags, whose values are not the pattern.
-		'grep -t cpp -E "a{1,3}" .',
-		'grep -E -e zz --and "a{1,3}" f',
-	])("%s", (command) => {
-		expect(run(command)).toContain("ugrep");
-	});
-});
-
-describe("what passes", () => {
-	it.each([
-		'grep -o -h -P ".{0,80}(x|y).{0,80}" f 2>/dev/null',
-		"grep -n foo f",
-		'grep -oP ".{0,80}x" f',
-		'grep -E -o ".{0,80}x" -P f',
-		'grep -FE "a{1,3}" f',
-		'grep -E -G "a{1,3}" f',
-		// BRE without the backslashes: ugrep reads the braces literally.
-		'grep -o ".{0,80}x.{0,80}" f',
-		'grep -E "a{3}" f',
-		// Each of these reaches GNU grep, not the function.
-		'egrep "a{1,3}" f',
-		'xargs grep -E "a{1,3}"',
-		'command grep -E "a{1,3}" f',
-		'/usr/bin/grep -E "a{1,3}" f',
-		'grep -zE "a{1,3}" f',
-		// The bounded repeat is a file name, the pattern coming by -e.
-		'grep -E -e foo "a{1,3}"',
-		'echo "grep -E a{1,3}"',
-	])("%s", (command) => {
-		expect(run(command)).toBeNull();
-	});
-});
-
-describe("the latch", () => {
-	const cmd = 'grep -oE ".{0,80}x.{0,80}" f';
-
-	it("warns once a session", () => {
-		expect(run(cmd)).toContain("ugrep");
-		expect(run(cmd)).toBeNull();
+		[
+			"a payload that is not JSON",
+			"{not json",
+			/payload did not parse as JSON/,
+		],
+		[
+			"a payload carrying no command",
+			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
+			/no command in payload/,
+		],
+	])("records %s, allowing", (_l, stdin, match) => {
+		const r = run(stdin);
+		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+		const faults = readFailOpenRecords(config, dir);
+		expect(faults).toHaveLength(1);
+		expect(faults[0]).toEqual([
+			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+			"guard-ugrep-pattern.js",
+			expect.stringMatching(match),
+		]);
 	});
 
-	it("warns another session and another agent", () => {
-		expect(run(cmd)).toContain("ugrep");
-		expect(run(cmd, "theirs")).toContain("ugrep");
-		expect(run(cmd, "mine", "a1")).toContain("ugrep");
+	it("allows, logged, where its core throws: it is advisory", () => {
+		const entry = entryBesideThrowingCore(
+			dir,
+			"scripts/guard-ugrep-pattern.js",
+			"ugrep-pattern.js",
+		);
+		const out = nodeGuardOutput(entry, buildBashPayload(FIRES, "mine"), {
+			project: dir,
+			config,
+			cwd: dir,
+		});
+		expect(out).toBeNull();
+		expect(readFailOpenLog(config, dir)).toMatch(
+			/guard threw — allowed unchecked: broke/,
+		);
+		expect(fs.existsSync(latch("main-mine"))).toBe(false);
 	});
-
-	it("is not spent by a call that passes", () => {
-		expect(run("grep -n foo f")).toBeNull();
-		expect(run(cmd)).toContain("ugrep");
-	});
-});
-
-describeFailOpenLog({
-	guard: GUARD,
-	denied: {
-		tool_input: { command: 'grep -oE ".{0,80}x.{0,80}" f' },
-		session_id: "mine",
-	},
-	armed: /"additionalContext"/,
-	fieldless: { tool_input: {}, session_id: "mine" },
-	fieldlessMatch: /no command in payload/,
-	benign: { tool_input: { command: "grep -n foo f" }, session_id: "mine" },
-	ctx: () => ({ dir, config, project }),
 });

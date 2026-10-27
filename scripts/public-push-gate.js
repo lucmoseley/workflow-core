@@ -14,6 +14,9 @@
  * onto the tracker's old tip (`git replace --graft`) so `git log` reads past
  * the split, but git pushes the real parents, and only those can leak.
  *
+ * `codeRepo` and `tracker` are read from the config at the pushing tree's
+ * HEAD, as landing-push-gate.js reads the module config (#3128, #3132).
+ *
  * cli-args-exempt: its one argument is the url git hands .husky/pre-push.
  *
  * LIMIT: `git push --no-verify` skips it, and nothing on the public repo can
@@ -28,14 +31,16 @@
  */
 
 const fs = require("node:fs");
-const { execFileSync, spawnSync } = require("node:child_process");
+const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
-	parseGithubRemote,
-	resolveKey,
-} = require("./lib/workflow-core-config.js");
-const { repoRoot } = require("./lib/test-pass-marker.js");
+	names,
+	readTrackerRemotes,
+	fetchTrackerCommand,
+} = require("./lib/tracker-remotes.js");
+const { readTopLevel } = require("./lib/git-tree.js");
 const { caught } = require("./lib/caught.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { execGit, spawnGitSync } = require("./lib/git.js");
 
 const REFUSE = 2;
 const ZERO = /^0+$/;
@@ -52,15 +57,6 @@ const unchecked = (why) =>
 	);
 
 /**
- * Whether a url names `repo`, owner/name compared as GitHub does, ignoring
- * case.
- * @param {string} url
- * @param {string} repo owner/name
- */
-const names = (url, repo) =>
-	parseGithubRemote(url)?.toLowerCase() === repo.toLowerCase();
-
-/**
  * The local shas the ref list pushes, deletions left out.
  * @param {string} stdin
  */
@@ -72,31 +68,11 @@ function pushedShas(stdin) {
 }
 
 /**
- * The remotes whose url names the tracker.
- * @param {string} tracker owner/name
- */
-function trackerRemotes(tracker) {
-	// Exit 1 where no remote has a url at all: no tracker remote either.
-	const out = spawnSync(
-		"git",
-		["config", "--get-regexp", "^remote\\..*\\.url$"],
-		{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-	).stdout;
-	return out.split("\n").flatMap((line) => {
-		const [key, url] = line.split(/\s+/);
-		return key !== undefined && url !== undefined && names(url, tracker)
-			? [key.slice("remote.".length, -".url".length)]
-			: [];
-	});
-}
-
-/**
  * Every remote-tracking ref of `remotes`. Throws where git cannot list them.
  * @param {string[]} remotes
  */
-const refsOf = (remotes) =>
-	execFileSync(
-		"git",
+const readRefsOf = (remotes) =>
+	execGit(
 		[
 			"for-each-ref",
 			"--format=%(refname)",
@@ -114,8 +90,7 @@ const refsOf = (remotes) =>
  * @param {string[]} refs
  */
 function hasSharedHistory(sha, refs) {
-	const { status } = spawnSync(
-		"git",
+	const { status } = spawnGitSync(
 		["--no-replace-objects", "merge-base", sha, ...refs],
 		{ stdio: "ignore" },
 	);
@@ -140,28 +115,24 @@ function refuse(lines) {
  * @param {string} url
  */
 function refuseUnfetched(remotes, tracker, url) {
-	const remedy =
-		remotes.length === 0
-			? `git remote add archive https://github.com/${tracker}.git && git fetch archive`
-			: `git fetch ${remotes[0]}`;
 	return refuse([
 		`pre-push: refused — this pushes to ${url}, not the tracker ${tracker}, and no fetched remote here holds the tracker's history to tell it apart (#1954).`,
-		`Fetch it and push again: ${remedy}`,
+		`Fetch it and push again: ${fetchTrackerCommand(remotes, tracker)}`,
 	]);
 }
 
 /**
  * @param {string} stdin
  * @param {string} url the remote's url, as git hands it to the hook
- * @param {string} root the canonical checkout
+ * @param {string} tree the pushing tree
  * @returns {number}
  */
-function judge(stdin, url, root) {
+function judge(stdin, url, tree) {
 	let codeRepo;
 	let tracker;
 	try {
-		codeRepo = resolveKey("codeRepo", { root });
-		tracker = resolveKey("tracker", { root });
+		codeRepo = resolveKey("codeRepo", { root: tree, rev: "HEAD" });
+		tracker = resolveKey("tracker", { root: tree, rev: "HEAD" });
 	} catch (e) {
 		unchecked(
 			`could not read the code repo and tracker (${caught(e).message})`,
@@ -178,9 +149,9 @@ function judge(stdin, url, root) {
 	if (shas.length === 0) return 0;
 	let leaking;
 	try {
-		const remotes = trackerRemotes(tracker);
+		const remotes = readTrackerRemotes(tracker);
 		// for-each-ref given no pattern lists every ref, not none.
-		const refs = remotes.length === 0 ? [] : refsOf(remotes);
+		const refs = remotes.length === 0 ? [] : readRefsOf(remotes);
 		if (refs.length === 0) return refuseUnfetched(remotes, tracker, url);
 		leaking = shas.filter((sha) => hasSharedHistory(sha, refs));
 	} catch (e) {
@@ -197,9 +168,9 @@ function judge(stdin, url, root) {
 }
 
 function main() {
-	const root = repoRoot();
-	if (root === null) {
-		unchecked("could not find the repository root");
+	const tree = readTopLevel(process.cwd());
+	if (tree === null) {
+		unchecked("could not find the pushing tree");
 		return 0;
 	}
 	let stdin = "";
@@ -209,7 +180,7 @@ function main() {
 		unchecked(`could not read the pushed refs (${caught(e).message})`);
 		return 0;
 	}
-	return judge(stdin, process.argv[2] ?? "", root);
+	return judge(stdin, process.argv[2] ?? "", tree);
 }
 
 process.exitCode = main();

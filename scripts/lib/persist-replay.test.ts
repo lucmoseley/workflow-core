@@ -47,7 +47,7 @@ const replay: any = require_("./persist-replay.js");
 
 const SCRIPTS = path.resolve(__dirname, "..");
 const REPO = path.resolve(SCRIPTS, "..");
-const PRODUCERS = replay.persistingProducers(REPO);
+const PRODUCERS = replay.readPersistingProducers(REPO);
 const WINDOW = {
 	from: Date.parse("2026-08-31T12:00:00Z"),
 	to: Date.parse("2026-08-31T12:00:30Z"),
@@ -196,14 +196,14 @@ describe("the producer table against another wiring", () => {
 
 	it("refuses a meta key that names no wired producer", () => {
 		wire("check-ci-status.js");
-		expect(() => replay.persistingProducers(root)).toThrow(
+		expect(() => replay.readPersistingProducers(root)).toThrow(
 			/PRODUCER_META names reap-finished-sessions,/,
 		);
 	});
 
 	it("overlays each producer's meta where every key is wired", () => {
 		wire("check-ci-status.js", "reap-finished-sessions.js", "check-x.js");
-		expect(replay.persistingProducers(root)).toEqual([
+		expect(replay.readPersistingProducers(root)).toEqual([
 			{ key: "ci-status", script: "check-ci-status.js", volatile: true },
 			{
 				key: "reap-finished-sessions",

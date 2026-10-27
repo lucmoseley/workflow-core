@@ -30,8 +30,8 @@
  * for the main checkout whose `.env` holds the key, for tests only.
  *
  * dispatch-sessions.sh launches through the CLI, lib/overflow-budget.js
- * settles ended runs through storedRuns() and endResultOf(), and
- * lib/agent-liveness.js merges liveAgents() into every listing (#2608).
+ * settles ended runs through readStoredRuns() and endResultOf(), and
+ * lib/agent-liveness.js merges readLiveAgents() into every listing (#2608).
  * Unbuilt caller: the shared stop library routes a headless record to stop()
  * (#2353).
  */
@@ -42,18 +42,18 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const {
-	currentBootId,
+	readCurrentBootId,
 	holderAlive,
-	procStartOf,
+	readProcStartOf,
 } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
-const { envFileValue } = require("./env-file.js");
+const { readEnvFileValue } = require("./env-file.js");
 const { readJsonl } = require("./jev-log.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { refillPath } = require("./refill-dir.js");
-const { declaredSeats, seatOf } = require("./refill-seats.js");
+const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -121,7 +121,7 @@ function keyCheck(keyVar) {
 	const env = keyEnvFile();
 	if ("why" in env) return { why: `no ${keyVar}: ${env.why}` };
 	try {
-		if (envFileValue(env.file, keyVar) !== null) return env;
+		if (readEnvFileValue(env.file, keyVar) !== null) return env;
 		return { why: `${keyVar} is not set in ${env.file}` };
 	} catch (err) {
 		return caught(err).code === "ENOENT"
@@ -156,7 +156,7 @@ function freshRunDir() {
  * @returns {{record: RunRecord}|{why: string}}
  */
 function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
-	const list = declaredSeats();
+	const list = readDeclaredSeats();
 	if (list.errors.length > 0) return { why: list.errors.join("\n") };
 	const seat = seatOf(list, seatDir);
 	if (seat.kind !== "overflow")
@@ -222,8 +222,8 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
 		jobId,
 		sessionId,
 		pid,
-		procStart: procStartOf(pid),
-		bootId: currentBootId(),
+		procStart: readProcStartOf(pid),
+		bootId: readCurrentBootId(),
 		pgid: pid,
 		seat: seat.dir,
 		cwd,
@@ -241,7 +241,7 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
  * @returns {RunRecord[]}
  * @throws where the store or a record cannot be read
  */
-function storedRuns() {
+function readStoredRuns() {
 	let names;
 	try {
 		names = fs.readdirSync(storeDir());
@@ -261,8 +261,8 @@ const isLive = (r) =>
  * @returns {HeadlessAgent[]}
  * @throws where the store cannot be read
  */
-function liveAgents() {
-	return storedRuns()
+function readLiveAgents() {
+	return readStoredRuns()
 		.filter(isLive)
 		.map((r) => ({
 			id: r.jobId,
@@ -276,8 +276,10 @@ function liveAgents() {
 }
 
 /**
+ * The job's record; null for a job the store has none for.
  * @param {string} jobId
  * @returns {RunRecord|null}
+ * @throws where the record cannot be read
  */
 function runOf(jobId) {
 	if (!JOB_ID.test(jobId)) return null;
@@ -313,7 +315,8 @@ async function stop(jobId, { graceMs = STOP_GRACE_MS } = {}) {
 	if (!run) return "unknown";
 	/* A background task can outlive its leader in the group (#2604 (a)). A
 	 * pgid with members left is never reused, so signalling it is safe. */
-	const groupLeft = run.bootId === currentBootId() && isGroupAlive(run.pgid);
+	const groupLeft =
+		run.bootId === readCurrentBootId() && isGroupAlive(run.pgid);
 	if (!isLive(run) && !groupLeft) return "not running";
 	process.kill(-run.pgid, "SIGTERM");
 	for (const end = Date.now() + graceMs; Date.now() < end; ) {
@@ -360,7 +363,14 @@ function endResultOf(run) {
 	return { outcome: last.is_error ? "error" : "success", ...base };
 }
 
-module.exports = { endResultOf, launch, liveAgents, stop, storedRuns };
+module.exports = {
+	endResultOf,
+	launch,
+	readLiveAgents,
+	runOf,
+	stop,
+	readStoredRuns,
+};
 
 /*
  * CLI mode, for the dispatcher. Exit 0 done, 2 usage, 1 otherwise: a refusal
@@ -426,7 +436,7 @@ function resultCommand(jobId) {
 
 /** @param {string} name @param {string} file */
 function keyCommand(name, file) {
-	const value = envFileValue(file, name);
+	const value = readEnvFileValue(file, name);
 	if (value === null) return 1;
 	writeFd(1, `${value}\n`);
 	return 0;
@@ -438,7 +448,7 @@ async function main(argv) {
 	const [a, b] = rest;
 	if (command === "launch") return launchCommand(rest);
 	if (command === "list" && rest.length === 0) {
-		writeFd(1, `${JSON.stringify(liveAgents())}\n`);
+		writeFd(1, `${JSON.stringify(readLiveAgents())}\n`);
 		return 0;
 	}
 	if (command === "stop" && a && rest.length === 1) {

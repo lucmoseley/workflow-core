@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * divergence-report.js — what record-divergence.sh has collected, read across
+ * divergence-report.js — what record-divergence.js has collected, read across
  * every repo at once (#289).
  *
  * Usage:
@@ -41,7 +41,7 @@ const { flagValue, parseOrExit } = require("./lib/cli-args");
 const USAGE =
 	"usage: node scripts/divergence-report.js [--since <N>d|<ISO date>] [--rows] [--json]";
 
-/** The columns record-divergence.sh writes, in order. */
+/** The columns record-divergence.js writes, in order. */
 const FIELDS = [
 	"when",
 	"repo",
@@ -67,7 +67,7 @@ const FIELDS = [
  * @param {string} dir
  * @returns {string[]}
  */
-function logTexts(dir) {
+function readLogTexts(dir) {
 	const projects = path.join(dir, "projects");
 	/** @type {string[]} */
 	let entries;
@@ -126,7 +126,7 @@ function readRows() {
 	/** @type {Set<string>} */
 	const seen = new Set();
 	for (const dir of sessionDirs())
-		for (const text of logTexts(dir)) addRows(text, seen, rows);
+		for (const text of readLogTexts(dir)) addRows(text, seen, rows);
 	rows.sort((a, b) => byCodeUnit(a.when, b.when));
 	return rows;
 }
@@ -213,7 +213,7 @@ function print(byRepo, rows, showRows) {
 	const repos = Object.entries(byRepo).sort(([a], [b]) => byCodeUnit(a, b));
 	if (repos.length === 0) {
 		console.log(
-			"No divergence rows recorded yet. record-divergence.sh writes one per refused pull or rejected push;",
+			"No divergence rows recorded yet. record-divergence.js writes one per refused pull or rejected push;",
 		);
 		console.log(
 			"an empty log after a day of work is itself the finding this log is after (#289).",

@@ -159,9 +159,9 @@ const appended = (opts: Parameters<typeof run>[1] = {}) => {
 	return { ...r, row };
 };
 
-const logLine = (taken: string, counted: number) =>
+const buildLogLine = (taken: string, counted: number) =>
 	JSON.stringify({ taken, counted, bill: 600, seats: 3 });
-const seeded = [logLine("2026-09-04", 2554)];
+const seeded = [buildLogLine("2026-09-04", 2554)];
 
 describe("the window", () => {
 	it("is 30 complete UTC days ending yesterday, one query a day", () => {
@@ -253,7 +253,12 @@ describe("the series file", () => {
 		// `null` and `[]` are valid JSON: syntax alone would let them through.
 		const r = run([], {
 			today: "2026-09-05",
-			series: ["null", "[]", '{"counted":10}', logLine("2026-09-04", 2554)],
+			series: [
+				"null",
+				"[]",
+				'{"counted":10}',
+				buildLogLine("2026-09-04", 2554),
+			],
 		});
 		expect(r.out).toContain("3 unparseable line(s)");
 		expect(r.out).toContain("skipped: 1, 2, 3.");
@@ -265,7 +270,7 @@ describe("the series file", () => {
 			today: "2026-09-05",
 			series: [
 				JSON.stringify({ taken: "4/9/26", counted: 10 }),
-				logLine("2026-09-04", 2554),
+				buildLogLine("2026-09-04", 2554),
 			],
 		});
 		expect(r.out).toContain("skipped: 1.");
@@ -274,7 +279,10 @@ describe("the series file", () => {
 
 	it("reads every row back", () => {
 		const r = run(["--force"], {
-			series: [logLine("2026-08-28", 1587), logLine("2026-09-04", 2554)],
+			series: [
+				buildLogLine("2026-08-28", 1587),
+				buildLogLine("2026-09-04", 2554),
+			],
 		});
 		expect(r.out).toContain("(3 row(s))");
 		expect(r.out).not.toContain("unparseable");
@@ -291,9 +299,9 @@ describe("the series file", () => {
 	it("names an unparseable line rather than dropping it in silence", () => {
 		const r = run([], {
 			series: [
-				logLine("2026-08-28", 1587),
+				buildLogLine("2026-08-28", 1587),
 				"{ this is not json",
-				logLine("2026-09-04", 2554),
+				buildLogLine("2026-09-04", 2554),
 			],
 		});
 		expect(r.out).toContain("1 unparseable line(s)");
@@ -316,14 +324,14 @@ describe("the series file", () => {
 	it("replaces the row of a date read again, keeping every other line verbatim", () => {
 		const r = run(["--force"], {
 			today: "2026-09-04",
-			series: ["{ not json", logLine("2026-08-28", 900), ...seeded],
+			series: ["{ not json", buildLogLine("2026-08-28", 900), ...seeded],
 		});
 		expect(r.rows.map((x) => [x.taken, x.counted])).toEqual([
 			["2026-08-28", 900],
 			["2026-09-04", 1500],
 		]);
 		expect(
-			r.after?.startsWith(`{ not json\n${logLine("2026-08-28", 900)}\n`),
+			r.after?.startsWith(`{ not json\n${buildLogLine("2026-08-28", 900)}\n`),
 		).toBe(true);
 		expect(r.out).toContain(
 			`Replaced the row dated 2026-09-04 in ${SERIES_LABEL} (2 row(s)).`,
@@ -344,7 +352,10 @@ describe("the cadence", () => {
 	it("takes the newest date, not the last line, so a backfill cannot look overdue", () => {
 		const r = run([], {
 			today: "2026-09-05",
-			series: [logLine("2026-09-04", 2554), logLine("2026-08-28", 1587)],
+			series: [
+				buildLogLine("2026-09-04", 2554),
+				buildLogLine("2026-08-28", 1587),
+			],
 		});
 		expect(r.out).toContain("Not due: the series was last read 2026-09-04");
 		expect(r.ghCalls).toEqual([]);

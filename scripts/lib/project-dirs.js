@@ -127,7 +127,7 @@ function listTranscripts(dirs) {
  * @param {string[]} seats config dirs
  * @returns {SeatListing & { dirs: string[] }}
  */
-function seatProjectDirs(seats) {
+function readSeatProjectDirs(seats) {
 	/** @type {string[]} */
 	const dirs = [];
 	/** @type {SeatListing} */
@@ -164,8 +164,8 @@ function seatProjectDirs(seats) {
  * @param {string[]} seats config dirs
  * @returns {SeatListing & { files: string[] }}
  */
-function seatTranscripts(seats) {
-	const { dirs, ...listing } = seatProjectDirs(seats);
+function readSeatTranscripts(seats) {
+	const { dirs, ...listing } = readSeatProjectDirs(seats);
 	/** @type {string[]} */
 	const files = [];
 	/* Not `listTranscripts`: a slug that is a symlink at a file is skipped
@@ -191,6 +191,6 @@ module.exports = {
 	listTranscripts,
 	oneCopyEach,
 	projectDirs,
-	seatProjectDirs,
-	seatTranscripts,
+	readSeatProjectDirs,
+	readSeatTranscripts,
 };

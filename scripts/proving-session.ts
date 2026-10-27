@@ -16,7 +16,7 @@ import type { Arena } from "./proving-run";
  * that borrowed the implementation it is checking would agree with it by
  * construction, including where both are wrong.
  */
-function procStartOf(pid: number): string | null {
+function readProcStartOf(pid: number): string | null {
 	try {
 		const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
 		return stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/)[19] ?? null;
@@ -34,9 +34,10 @@ export const guardExists = (name: string) => fs.existsSync(guardPath(name));
  * from the guard it actually runs.
  */
 export const GUARDS = {
-	fileClaim: "guard-file-claim.sh",
-	commitForm: "guard-commit-form.sh",
-	branch: "guard-branch.sh",
+	/* lib/file-claim.js, run by the PreToolUse dispatcher. */
+	fileClaim: "guard-dispatch.js",
+	commitForm: "guard-commit-form.js",
+	branch: "guard-branch.js",
 	arbiter: "session-arbiter.js",
 } as const;
 
@@ -61,6 +62,8 @@ export class Session {
 		readonly id: string,
 	) {}
 
+	/* Spelt out, not lib/job-paths.js's jobDirPath: a fixture built through the
+	 * reader's own helper would agree with it where both are wrong (#2966). */
 	private get jobDir() {
 		return path.join(this.arena.home, ".claude", "jobs", this.id);
 	}
@@ -171,7 +174,7 @@ export class Session {
 			JSON.stringify({
 				pid,
 				sessionId: this.id,
-				procStart: procStartOf(pid),
+				procStart: readProcStartOf(pid),
 				cwd: this.arena.repo,
 				status: "idle",
 				kind: "bg",
@@ -191,7 +194,7 @@ export class Session {
 		// init reaps an orphan promptly, but not instantly; until it does, /proc
 		// still answers and the holder would read as alive.
 		const deadline = Date.now() + 3000;
-		while (Date.now() < deadline && procStartOf(this.pid) !== null) {
+		while (Date.now() < deadline && readProcStartOf(this.pid) !== null) {
 			spawnSync("sleep", ["0.01"]);
 		}
 		this.pid = undefined;
@@ -203,8 +206,8 @@ export class Session {
 	}
 
 	/**
-	 * What record-write.sh does after an Edit: note in the write ledger that this
-	 * session wrote the file. Separate from `edit` on purpose — the before-halves
+	 * What the post-write core records after an Edit: note in the write ledger
+	 * that this session wrote the file. Separate from `edit` on purpose — the before-halves
 	 * model an unguarded write, with no hook in the loop to record anything.
 	 */
 	recordWrite(file: string) {
@@ -322,6 +325,7 @@ export class Session {
 	/** A write payload, the field `Write|Edit|NotebookEdit` guards read. */
 	writePayload(file: string) {
 		return {
+			hook_event_name: "PreToolUse",
 			tool_name: "Edit",
 			tool_input: { file_path: path.join(this.arena.repo, file) },
 		};

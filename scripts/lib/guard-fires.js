@@ -36,7 +36,7 @@
  * SUBAGENT TRANSCRIPTS ARE RETAINED ON THIS MACHINE FROM 31 JULY 2026 ON, so
  * an earlier window holds none (mantahostels#1725, mantahostels#1779). A
  * subagent's own file lives under its parent session's `subagents/` directory
- * (`transcriptFiles`, below, walks both tiers), and every record in it carries
+ * (`readTranscriptFiles`, below, walks both tiers), and every record in it carries
  * `isSidechain: true` relative to the parent — `lib/transcript.js`'s
  * `mainChainRecords` needs to be told which tier a file is so it does not read
  * that as "empty".
@@ -49,7 +49,7 @@ const { mainChainRecords, isSubagentTranscript } = require("./transcript");
 const { projectSlug } = require("./project-slug.js");
 const { configDir } = require("./config-dir.js");
 const { coreRoot } = require("./script-path.js");
-const { runningHooks } = require("./core-hooks.js");
+const { readRunningHooks } = require("./core-hooks.js");
 
 /** Attachment types the harness writes when a hook produces output. */
 const HOOK_ATTACHMENTS = new Set([
@@ -65,7 +65,7 @@ const HOOK_ATTACHMENTS = new Set([
  * @typedef {{route: "hook" | "deny" | "cli", text: string, command?: string,
  *   toolUseID?: string}} Span
  * @typedef {{id: string, kind?: "block" | "deny" | "inject" | "notice" | "warn",
- *   routes?: string[],
+ *   routes?: string[], core?: string,
  *   text: string|string[], unless?: string[]}} Needle One entry of
  *   guard-fire-needles.json; a shed candidate's carries no `kind`.
  * @typedef {{id: string, routes?: string[], needles: Needle[]}} Subject
@@ -197,7 +197,7 @@ function hasNeedle(text, needle) {
 /**
  * Does `text` carry this needle's `text` and none of its `unless` literals?
  * An `unless` literal is one only ANOTHER guard prints beside the same words,
- * as guard-branch-publish.sh's force-push deny reprints guard-pull-form.sh's
+ * as lib/branch-publish.js's force-push deny reprints guard-pull-form.js's
  * rewind fragment: without it one deny counts under both guards.
  * Residual: a span carrying an `unless` literal for any other reason — a
  * compound command both guards deny, or the command echoed back — loses a
@@ -331,7 +331,7 @@ function spanFires(span, subject, stamp) {
 	const out = [];
 	for (const needle of subject.needles) {
 		// A needle may narrow the subject's routes further (mantahostels#2118).
-		// guard-branch.sh and guard-pull-form.sh each reprint their whole
+		// guard-branch.js and guard-pull-form.js each reprint their whole
 		// rule fragment INSIDE the deny as well as injecting it
 		// pre-emptively, so a needle on the fragment's own words matches
 		// both limbs: without this the deny counts twice, once as itself
@@ -380,7 +380,7 @@ function recordFires(record, subjects) {
  *
  * The parsing is `lib/transcript.js` `mainChainRecords`, which already skips a
  * half-written final line, and — on a `"main"` tier — drops a subagent's turn
- * embedded inline. `tier` is the file's own tier, as `transcriptFiles` tags
+ * embedded inline. `tier` is the file's own tier, as `readTranscriptFiles` tags
  * it: a subagent's own file passes `"subagent"` so its records are read
  * rather than filtered away as if they were somebody else's sidechain.
  *
@@ -561,13 +561,13 @@ function subjectsFor(needles, settings) {
 }
 
 /**
- * The guards `root` registers (lib/core-hooks.js's `runningHooks`), each with
+ * The guards `root` registers (lib/core-hooks.js's `readRunningHooks`), each with
  * its needles; no shed candidate.
  * @param {string} root
  * @returns {Subject[]}
  */
-function registeredGuardSubjects(root) {
-	const settings = { hooks: runningHooks(root) };
+function readRegisteredGuardSubjects(root) {
+	const settings = { hooks: readRunningHooks(root) };
 	const needles = JSON.parse(
 		fs.readFileSync(
 			path.join(coreRoot(), "scripts", "guard-fire-needles.json"),
@@ -612,12 +612,12 @@ function isMissingDir(e) {
 
 /**
  * The subagent transcripts under one session's directory, or that
- * `subagents/` directory itself where it will not read (`transcriptFiles`
+ * `subagents/` directory itself where it will not read (`readTranscriptFiles`
  * says why).
  * @param {string} sessionDir
  * @returns {TranscriptFile[]}
  */
-function subagentFiles(sessionDir) {
+function readSubagentFiles(sessionDir) {
 	const subDir = path.join(sessionDir, "subagents");
 	let subFiles;
 	try {
@@ -650,7 +650,7 @@ function subagentFiles(sessionDir) {
  * @param {string} dir
  * @returns {TranscriptFile[] | null}
  */
-function transcriptFiles(dir) {
+function readTranscriptFiles(dir) {
 	let entries;
 	try {
 		entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -668,7 +668,7 @@ function transcriptFiles(dir) {
 			});
 		}
 		if (entry.isDirectory())
-			out.push(...subagentFiles(path.join(dir, entry.name)));
+			out.push(...readSubagentFiles(path.join(dir, entry.name)));
 	}
 	return out;
 }
@@ -697,13 +697,13 @@ module.exports = {
 	registeredGuards,
 	registryDrift,
 	subjectsFor,
-	registeredGuardSubjects,
+	readRegisteredGuardSubjects,
 	needleIn,
 	fireSpans,
 	transcriptFires,
 	transcriptMentions,
 	tally,
 	transcriptDir,
-	transcriptFiles,
+	readTranscriptFiles,
 	sessionKeyFor,
 };

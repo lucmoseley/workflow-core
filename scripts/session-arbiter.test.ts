@@ -9,7 +9,7 @@
  * The subcommands are the arbiter's whole production interface
  * (mantahostels#158), so cases run the CLI in-process inside a sandbox repo
  * and spawn a real process only where once-per-process or liveness is the
- * point. `scripts/guard-file-claim.sh`'s `PreToolUse` hook and
+ * point. `scripts/lib/file-claim.js`'s `PreToolUse` core and
  * `.husky/post-commit` branch on this output: loosen a case and a live
  * neighbour's file is clobbered unrefused, or every guarded write is refused.
  */
@@ -23,7 +23,6 @@ import {
 	AS_ROOT,
 	commitAll,
 	core,
-	debtOf,
 	fakeGh,
 	freshSandbox,
 	ghAnswers,
@@ -32,11 +31,13 @@ import {
 	gitRepo,
 	live,
 	proc,
+	readDebtOf,
 	registerSession,
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
+import { runCore } from "./lib/guard-core-testkit";
 import { cutInReplay, cutShellFunction } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -58,6 +59,34 @@ const out = (args: string[]) => {
 		);
 	return r.stdout;
 };
+
+/**
+ * What the recovery command inside `context` gets back, run as printed.
+ *
+ * `prune` collects every unreferenced object first, so a version that comes
+ * back proves the PIN holds it and not merely that `hash-object -w` wrote it.
+ */
+const readRecoveredBlob = (context: string, prune = false) => {
+	const sha = context.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
+	expect(sha).toBeTruthy();
+	if (prune) execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
+	return execFileSync("git", ["cat-file", "-p", sha as string], {
+		cwd: sb.repo,
+		encoding: "utf8",
+	});
+};
+
+const readRefs = () =>
+	execFileSync(
+		"git",
+		["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
+		{
+			cwd: sb.repo,
+			encoding: "utf8",
+		},
+	)
+		.split("\n")
+		.filter(Boolean);
 
 const inRepo = (rel: string) => path.join(sb.repo, rel);
 
@@ -227,7 +256,7 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 				// ENOTDIR — a directory path whose parent is a file. Deliberately NOT
 				// a /proc path: mkdirSync(recursive) under /proc blocks forever on
 				// this kernel instead of raising, so that shape tests the hang
-				// defence in guard-file-claim.sh, not this fail-open path.
+				// defence in lib/file-claim-host.js, not this fail-open path.
 				env: { ...process.env, CLAUDE_CONFIG_DIR: "/dev/null/nope" },
 			},
 		);
@@ -242,46 +271,39 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 	});
 
 	it("the hook fails open when the arbiter hangs", () => {
-		// The exception handler cannot catch a hang, so guard-file-claim.sh bounds
-		// the arbiter with `timeout`. Without it a wedged arbiter would stall every
-		// guarded write in every session for the full hook timeout. This is the real
-		// hang shape: mkdirSync(recursive) under an unreadable /proc path blocks
-		// forever on this kernel rather than raising.
-		const r = spawnSync(path.join(__dirname, "guard-file-claim.sh"), [], {
-			encoding: "utf8",
-			cwd: sb.repo,
-			// A net against a bound that never fires, not a deadline (mantahostels#175). Do not
-			// tighten it; guard-file-claim.test.ts is what holds the guard to a
-			// bound, statically.
-			timeout: 30_000,
-			input: JSON.stringify({
+		// The exception handler cannot catch a hang, so lib/file-claim-host.js
+		// bounds the arbiter's process. Without it a wedged arbiter would stall
+		// every guarded write in every session for the full hook timeout. This is
+		// the real hang shape: mkdirSync(recursive) under an unreadable /proc path
+		// blocks forever on this kernel rather than raising. The arbiter inherits
+		// it from this process's environment, which the sandbox restores.
+		process.env.CLAUDE_CONFIG_DIR = "/proc/nonexistent/nope";
+		const file = inRepo("docs/doc-map.md");
+		const r = runCore(
+			"guard-file-claim",
+			{
 				session_id: "a",
 				tool_name: "Edit",
-				tool_input: { file_path: inRepo("docs/doc-map.md") },
-			}),
-			env: { ...process.env, CLAUDE_CONFIG_DIR: "/proc/nonexistent/nope" },
-		});
-		// A still-hanging arbiter returns none of these three. They show the guard
-		// got clear of the hang and allowed the write — NOT which fail-open path it
-		// took, which the `rc != 0` branch satisfies equally. The `timed out`
-		// record is what separates those, and it cannot be read here: guard-log.sh
-		// writes under CLAUDE_CONFIG_DIR, which this test points at an unwritable
-		// /proc path to cause the hang. guard-file-claim.test.ts asserts the record
-		// against a stubbed hang instead.
-		expect(r.status).toBe(0);
-		expect(r.stdout.trim()).toBe("");
-		expect(r.error).toBeUndefined();
-	}, 40_000); // 30s spawn cap above, and the budget must clear it
+				tool_input: { file_path: file },
+			},
+			{ root: sb.repo },
+		);
+		// The record is what separates the bound firing from any other exit.
+		expect(r.output).toBeNull();
+		expect(r.logs).toEqual([
+			`arbiter timed out on ${file} — write allowed unchecked`,
+		]);
+	}, 40_000);
 });
 
 /*
- * The hook script guard-file-claim.sh has its own suite (mantahostels#149):
- * guard-file-claim.test.ts.
+ * The core lib/file-claim.js has its own suite (mantahostels#149):
+ * lib/file-claim.test.ts.
  *
- * One hook test stays above — "the hook fails open within seconds when the
- * arbiter hangs" drives the real hang shape, an unreadable CLAUDE_CONFIG_DIR
- * under /proc. The other suite stubs the hang, so neither stands in for the
- * other and both pay the guard's 5s bound.
+ * One hook test stays above — "the hook fails open when the arbiter hangs"
+ * drives the real hang shape, an unreadable CLAUDE_CONFIG_DIR under /proc. The
+ * other suite stubs the hang, so neither stands in for the other and both pay
+ * the host's 5s bound.
  */
 
 describe("logging once across PROCESSES, not once per process", () => {
@@ -1059,7 +1081,7 @@ describe("the second signal — dirty, but claimed by nobody", () => {
 
 /*
  * mantahostels#135. An empty list means "this session wrote nothing", which
- * guard-commit-form.sh's attribution-aware warn (mantahostels#118) reads as *every staged
+ * guard-commit-form.js's attribution-aware warn (mantahostels#118) reads as *every staged
  * path is someone else's*. Returning it when the ledger could not be read hands
  * the session a list of its own files under the words "you never wrote these".
  */
@@ -1121,7 +1143,7 @@ describe("writes — an unreadable ledger is not an empty one", () => {
 	});
 
 	it.skipIf(AS_ROOT)(
-		"--committed prints the writes alone, and logs why, where the commit ledger will not read",
+		"--committed prints the writes alone, and logs why, where the commit ledger will not read (mantahostels#114)",
 		() => {
 			commitAsAlice();
 			record("docs/a.md", "alice");
@@ -1142,57 +1164,6 @@ describe("writes — an unreadable ledger is not an empty one", () => {
 		const r = runInProcess(SCRIPT, ["writes"], { cwd: sb.repo, env });
 		expect(r.status).not.toBe(0);
 		expect(r.stdout).toBe("");
-	});
-});
-
-/*
- * commit-check — both of guard-commit-form.sh's answers in one spawn (mantahostels#1561).
- * The store's own test for which claims count is in arbiter-store.test.ts; what
- * only shows here is the wire format the bash guard parses and the exit code it
- * branches on.
- */
-describe("commit-check — the guard's two answers, one process", () => {
-	const record = (rel: string, sessionId: string) =>
-		store.recordWrite(inRepo(rel), sessionId);
-
-	it("prefixes the ledger's paths with W and a unit separator", () => {
-		record("docs/a.md", "alice");
-		const r = cli(["commit-check", "alice"]);
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("W\x1fdocs/a.md\n");
-	});
-
-	it("keeps writes's contract: an unreadable ledger is non-zero and empty", () => {
-		// Never "wrote nothing" — that would tell the guard every staged path is
-		// foreign, or tell it none is.
-		record("docs/a.md", "alice");
-		fs.chmodSync(store.paths.ledger("alice"), 0o000);
-		const r = cli(["commit-check", "alice"]);
-		expect(r.status).not.toBe(0);
-		expect(r.stdout).toBe("");
-	});
-
-	it("answers with no sweep lines when the pathspec is contended by nobody", () => {
-		expect(cli(["commit-check", "alice", inRepo("docs/a.md")]).stdout).toBe("");
-	});
-
-	/* stdout's twin of #1631's stderr case: the S line is written before the
-	 * ledger's exit 1. */
-	it("gets its sweep line to a full stdout pipe in full before exiting non-zero (#1635)", () => {
-		gitRepo(sb);
-		fs.writeFileSync(inRepo("docs/a.md"), "committed\n");
-		commitAll(sb);
-		fs.writeFileSync(inRepo("docs/a.md"), "alice's unsaved edit\n");
-		const alice = live(sb, "alice");
-		store.acquire("docs/a.md", alice);
-		store.recordContent("docs/a.md", alice);
-		record("docs/b.md", "bob");
-		fs.chmodSync(store.paths.ledger("bob"), 0o000);
-		expect(
-			throughFullPipe(1, [SCRIPT, "commit-check", "bob", inRepo("docs/a.md")], {
-				cwd: sb.repo,
-			}),
-		).toBe("S\x1fdocs/a.md\x1f\x1falice\nexit 1\n");
 	});
 });
 
@@ -1373,7 +1344,7 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 			fs.existsSync(path.join(hookRecord.recordsDir(sb.repo), p + sessionId)),
 		);
 	/*
-	 * One of gp_rule's rule latches: `.rule-injected-<id>-<agent>-<sid>`, where
+	 * One of guard-entry.js's rule latches: `.rule-injected-<id>-<agent>-<sid>`, where
 	 * <agent> is `main` for a parent session and `a<agent_id>` under a subagent.
 	 */
 	const latch = (id: string, agent: string, sessionId: string, ms: number) => {
@@ -1473,7 +1444,7 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 	});
 
 	/*
-	 * gp_rule's latches, through the CLI the SessionStart hook actually runs
+	 * The rule latches, through the CLI the SessionStart hook actually runs
 	 * (mantahostels#1804). The matcher is pinned in lib/arbiter-markers.test.ts. Delete these
 	 * before adding to them.
 	 */
@@ -1587,9 +1558,9 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 describe("debt — the denied session's half", () => {
 	const rel = "docs/doc-map.md";
 	/** The debt on rel owned by `issue`, or with no argument the unowned stub; null where none. */
-	const entry = (issue: number | null = null) => debtOf(rel, issue);
+	const readDebt = (issue: number | null = null) => readDebtOf(rel, issue);
 	/** Who owes an edit on rel, in the order the store lists them. */
-	const owners = (): (number | null)[] =>
+	const readOwners = (): (number | null)[] =>
 		store
 			.readDebts(rel)
 			.map((e: { record: { issue: number | null } }) => e.record.issue);
@@ -1607,7 +1578,7 @@ describe("debt — the denied session's half", () => {
 			expect(json.hookSpecificOutput.permissionDecisionReason).toContain(
 				"debt own",
 			);
-			expect(entry()).toMatchObject({
+			expect(readDebt()).toMatchObject({
 				path: rel,
 				issue: null,
 				recordedBy: "bob",
@@ -1620,7 +1591,7 @@ describe("debt — the denied session's half", () => {
 			registerSession(sb, "bob", process.pid);
 			const r = cli(["claim", inRepo(rel), "bob"]);
 			expect(r.status).toBe(1);
-			expect(entry()).toMatchObject({
+			expect(readDebt()).toMatchObject({
 				path: rel,
 				issue: null,
 				recordedBy: "bob",
@@ -1675,7 +1646,7 @@ describe("debt — the denied session's half", () => {
 			const r = own("123", "one line on the edit");
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain("owned by #123");
-			expect(entry(123)).toMatchObject({
+			expect(readDebt(123)).toMatchObject({
 				issue: 123,
 				gist: "one line on the edit",
 				createdAt: denied,
@@ -1686,36 +1657,36 @@ describe("debt — the denied session's half", () => {
 			cli(["debt", "own", rel, "123", "gist"], {
 				CLAUDE_CODE_SESSION_ID: "the-owner",
 			});
-			expect(entry(123).recordedBy).toBe("the-owner");
+			expect(readDebt(123).recordedBy).toBe("the-owner");
 			cli(["debt", "own", rel, "124", "gist"], { CLAUDE_CODE_SESSION_ID: "" });
-			expect(entry(124).recordedBy).toBeNull();
+			expect(readDebt(124).recordedBy).toBeNull();
 		});
 
 		it("joins a multi-word gist rather than keeping only the first word", () => {
 			own("123", "re-derive the ADR figure");
-			expect(entry(123).gist).toBe("re-derive the ADR figure");
+			expect(readDebt(123).gist).toBe("re-derive the ADR figure");
 		});
 
 		it("stores a gist opening `--` as text, never a flag (#1137)", () => {
 			const r = own("123", "--help is what the gist says");
 			expect(r.status).toBe(0);
-			expect(entry(123).gist).toBe("--help is what the gist says");
+			expect(readDebt(123).gist).toBe("--help is what the gist says");
 		});
 
 		it("accepts the #-prefixed spelling and stores the number", () => {
 			expect(own("#77").status).toBe(0);
-			expect(entry(77).issue).toBe(77);
+			expect(readDebt(77).issue).toBe(77);
 		});
 
 		it("records a missing gist as none, not as an empty string", () => {
 			own("123");
-			expect(entry(123).gist).toBeNull();
+			expect(readDebt(123).gist).toBeNull();
 		});
 
 		it("a second issue owning the same path adds an entry, never replacing (mantahostels#327)", () => {
 			own("308", "the node-unit pass");
 			own("323", ".github/workflows/scheduled-checks.yml's CI figures");
-			expect(owners()).toEqual([308, 323]);
+			expect(readOwners()).toEqual([308, 323]);
 		});
 
 		it.skipIf(AS_ROOT)(
@@ -1740,7 +1711,7 @@ describe("debt — the denied session's half", () => {
 			const r = debt("own", "/etc/passwd", "123", "gist");
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain("not in this repo");
-			expect(entry()).toBeNull();
+			expect(readDebt()).toBeNull();
 		});
 
 		it("exits 2 on an issue that is not a number, and on none at all, printing the usage and recording no entry", () => {
@@ -1752,7 +1723,7 @@ describe("debt — the denied session's half", () => {
 				expect(r.status).toBe(2);
 				expect(r.stderr).toContain("usage");
 			}
-			expect(entry()).toBeNull();
+			expect(readDebt()).toBeNull();
 		});
 
 		it("exits 1 with the reason when the store cannot be written", () => {
@@ -1909,7 +1880,7 @@ describe("debt — the denied session's half", () => {
 			expect(r.stderr).toContain("SKIP");
 			expect(r.stderr).toContain("UNCHECKED");
 			expect(r.stdout).toContain("#308");
-			expect(entry(308)).not.toBeNull();
+			expect(readDebt(308)).not.toBeNull();
 		});
 
 		it.skipIf(AS_ROOT)(
@@ -1962,7 +1933,7 @@ describe("debt — the denied session's half", () => {
 			const r = debt("clear", rel);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain("cleared");
-			expect(entry()).toBeNull();
+			expect(readDebt()).toBeNull();
 		});
 
 		it("clearing a path with no debt is no fault", () => {
@@ -1989,14 +1960,14 @@ describe("debt — the denied session's half", () => {
 			own("308", "the node-unit pass");
 			own("323", ".github/workflows/scheduled-checks.yml's CI figures");
 			expect(debt("clear", rel, "#308").stdout).toContain("owned by #308");
-			expect(owners()).toEqual([323]);
+			expect(readOwners()).toEqual([323]);
 		});
 
 		it("clear takes `unowned` for the stub a denial wrote", () => {
 			own("308", "the node-unit pass");
 			store.registerDenial(rel);
 			expect(debt("clear", rel, "unowned").status).toBe(0);
-			expect(owners()).toEqual([308]);
+			expect(readOwners()).toEqual([308]);
 		});
 
 		it("clear exits 2 on an owner that is neither a number nor `unowned`, with usage, leaving the debt in place", () => {
@@ -2080,7 +2051,7 @@ describe("debt — the denied session's half", () => {
 			const r = debt("list");
 			expect(r.stdout).toContain("#123");
 			expect(ghCallCount(sb)).toBe(0);
-			expect(entry(123)).not.toBeNull();
+			expect(readDebt(123)).not.toBeNull();
 		});
 
 		it("list prints a path's several debts together, in issue order", () => {
@@ -2142,23 +2113,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		return pre;
 	};
 
-	/**
-	 * What the recovery command inside `context` gets back, run as printed.
-	 *
-	 * `prune` collects every unreferenced object first, so a version that comes
-	 * back proves the PIN holds it and not merely that `hash-object -w` wrote it.
-	 */
-	const recoveredIn = (context: string, prune = false) => {
-		const sha = context.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
-		expect(sha).toBeTruthy();
-		if (prune)
-			execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
-		return execFileSync("git", ["cat-file", "-p", sha as string], {
-			cwd: sb.repo,
-			encoding: "utf8",
-		});
-	};
-
 	it("warns and names the recovery command, and never denies", () => {
 		aliceWrites(auditScript, "alice's uncommitted work\n");
 
@@ -2168,7 +2122,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 		const seen = notes(out(["check", inRepo(auditScript), "alice"]));
 		expect(seen.permissionDecision).toBeUndefined();
 		expect(seen.additionalContext).toContain("has changed since this session");
-		expect(recoveredIn(seen.additionalContext)).toBe(
+		expect(readRecoveredBlob(seen.additionalContext)).toBe(
 			"alice's uncommitted work\n",
 		);
 	});
@@ -2311,7 +2265,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			expect(seen.additionalContext).toContain(
 				"has changed since this session",
 			);
-			expect(recoveredIn(seen.additionalContext)).toBe(
+			expect(readRecoveredBlob(seen.additionalContext)).toBe(
 				"bob's uncommitted work\n",
 			);
 		});
@@ -2322,7 +2276,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			expect(seen.additionalContext).toContain(
 				"has changed since this session",
 			);
-			expect(recoveredIn(seen.additionalContext)).toBe(
+			expect(readRecoveredBlob(seen.additionalContext)).toBe(
 				"alice's uncommitted work\n",
 			);
 		});
@@ -2351,7 +2305,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			});
 			expect(r.status).toBe(1);
 			expect(r.stderr).toContain("has changed since this session");
-			expect(recoveredIn(r.stderr)).toBe("bob's uncommitted work\n");
+			expect(readRecoveredBlob(r.stderr)).toBe("bob's uncommitted work\n");
 			expect(r.stderr).toContain("is held by session");
 			expect(out(["check", inRepo(auditScript), "bob"])).toBe("");
 		});
@@ -2374,7 +2328,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			expect(seen.additionalContext).toContain(
 				"has changed since this session",
 			);
-			expect(recoveredIn(seen.additionalContext, true)).toBe(
+			expect(readRecoveredBlob(seen.additionalContext, true)).toBe(
 				"alice's unclaimed work\n",
 			);
 		});
@@ -2402,7 +2356,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			expect(r.stdout).toContain(`No claim on ${auditScript}`);
 			expect(r.stderr).toContain("has changed since this session");
 			expect(r.stderr).not.toContain("The claim is dropped");
-			expect(recoveredIn(r.stderr)).toBe("alice's unclaimed work\n");
+			expect(readRecoveredBlob(r.stderr)).toBe("alice's unclaimed work\n");
 		});
 	});
 
@@ -2589,15 +2543,6 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			return lock;
 		};
 
-		const refs = () =>
-			execFileSync(
-				"git",
-				["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
-				{ cwd: sb.repo, encoding: "utf8" },
-			)
-				.split("\n")
-				.filter(Boolean);
-
 		it("tells the loser what happened and hands back its version", () => {
 			aliceWrites(auditScript, "alice's work\n");
 			aliceDisappears();
@@ -2651,7 +2596,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 
 			// The claim is gone, so the lock store alone would collect the pin here.
 			out(["prune-markers"]);
-			expect(refs()).toEqual([`refs/arbiter/${broken.claimId}`]);
+			expect(readRefs()).toEqual([`refs/arbiter/${broken.claimId}`]);
 
 			const file = store.paths.break(auditScript, broken.claimId);
 			fs.writeFileSync(
@@ -2663,25 +2608,17 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			);
 
 			out(["prune-markers"]);
-			expect(refs()).toEqual([]);
+			expect(readRefs()).toEqual([]);
 		});
 	});
 
 	it("prune-markers sweeps the pins of claims that are gone", () => {
 		aliceWrites(auditScript, "alice's\n");
-		const refs = () =>
-			execFileSync(
-				"git",
-				["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
-				{ cwd: sb.repo, encoding: "utf8" },
-			)
-				.split("\n")
-				.filter(Boolean);
-		expect(refs()).toHaveLength(1);
+		expect(readRefs()).toHaveLength(1);
 
 		fs.rmSync(store.paths.locksDir(), { recursive: true, force: true });
 		out(["prune-markers"]);
-		expect(refs()).toEqual([]);
+		expect(readRefs()).toEqual([]);
 	});
 
 	/*
@@ -2690,22 +2627,13 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 	 * pass over the very failure batching introduced (mantahostels#1899).
 	 */
 	it("collects a whole backlog of pins, not just the first", () => {
-		const refs = () =>
-			execFileSync(
-				"git",
-				["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
-				{ cwd: sb.repo, encoding: "utf8" },
-			)
-				.split("\n")
-				.filter(Boolean);
-
 		for (const rel of ["docs/doc-map.md", "AGENTS.md", "CLAUDE.md"])
 			aliceWrites(rel, `alice on ${rel}\n`);
-		expect(refs().length).toBeGreaterThan(1);
+		expect(readRefs().length).toBeGreaterThan(1);
 
 		fs.rmSync(store.paths.locksDir(), { recursive: true, force: true });
 		out(["prune-markers"]);
-		expect(refs()).toEqual([]);
+		expect(readRefs()).toEqual([]);
 	});
 });
 
@@ -2730,15 +2658,6 @@ describe("prune-markers --detach, the SessionStart form", () => {
 		out(["record", inRepo(rel), "alice"]);
 	};
 
-	const refs = () =>
-		execFileSync(
-			"git",
-			["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
-			{ cwd: sb.repo, encoding: "utf8" },
-		)
-			.split("\n")
-			.filter(Boolean);
-
 	it("exits 0 and says nothing, so a session start is never blocked", () => {
 		const r = cli(["prune-markers", "--detach"]);
 		expect(r.status).toBe(0);
@@ -2747,7 +2666,7 @@ describe("prune-markers --detach, the SessionStart form", () => {
 
 	it("still sweeps, in the child it launched", async () => {
 		aliceWrites(docMap, "alice's\n");
-		expect(refs()).toHaveLength(1);
+		expect(readRefs()).toHaveLength(1);
 		fs.rmSync(store.paths.locksDir(), { recursive: true, force: true });
 
 		expect(cli(["prune-markers", "--detach"]).status).toBe(0);
@@ -2755,9 +2674,9 @@ describe("prune-markers --detach, the SessionStart form", () => {
 		/* Polled, not slept: the child is a separate process and nothing here can
 		 * wait on it. A `--detach` that spawned nothing runs this out. */
 		const deadline = Date.now() + 20_000;
-		while (refs().length > 0 && Date.now() < deadline)
+		while (readRefs().length > 0 && Date.now() < deadline)
 			await new Promise((r) => setTimeout(r, 100));
-		expect(refs()).toEqual([]);
+		expect(readRefs()).toEqual([]);
 	}, 30_000);
 });
 
@@ -2983,14 +2902,6 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 	};
 	const notes = (stdout: string) =>
 		stdout ? JSON.parse(stdout).hookSpecificOutput : {};
-	const recoveredIn = (context: string) => {
-		const sha = context.match(/git cat-file -p ([0-9a-f]{40,64})/)?.[1];
-		expect(sha).toBeTruthy();
-		return execFileSync("git", ["cat-file", "-p", sha as string], {
-			cwd: sb.repo,
-			encoding: "utf8",
-		});
-	};
 
 	/** One Bash call by alice: the write no hook sees, then the PostToolUse refresh. */
 	const aliceSeds = (rel: string, text: string) => {
@@ -3013,7 +2924,9 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 		const seen = notes(out(["check", inRepo(auditScript), "alice"]));
 		expect(seen.permissionDecision).toBeUndefined();
 		expect(seen.additionalContext).toContain("has changed since this session");
-		expect(recoveredIn(seen.additionalContext)).toBe("alice's version bump\n");
+		expect(readRecoveredBlob(seen.additionalContext)).toBe(
+			"alice's version bump\n",
+		);
 	});
 
 	it("reports the same on the refusing tier, which the guard covers by tool route alone", () => {
@@ -3021,7 +2934,9 @@ describe("the Bash-only writer, end to end — refresh scans, check reports (man
 		write(guarded, "restored from a backup\n");
 
 		const seen = notes(out(["check", inRepo(guarded), "alice"]));
-		expect(recoveredIn(seen.additionalContext)).toBe("alice's version bump\n");
+		expect(readRecoveredBlob(seen.additionalContext)).toBe(
+			"alice's version bump\n",
+		);
 	});
 
 	it("takes no claim from the scan, so nothing is refused on an inference (mantahostels#288)", () => {
@@ -3224,7 +3139,7 @@ describe("claim-issue / release-issue — the selection claim (mantahostels#645)
 
 /*
  * Region claims on docs/doc-map.md (mantahostels#848 ruled, mantahostels#970 built). Driven through the
- * CLI because the anchor arrives as argv from guard-file-claim.sh, and the
+ * CLI because the anchor arrives as argv from lib/file-claim-host.js, and the
  * whole point is what two SESSIONS see of each other.
  */
 describe("region claims — a §B entry, not the whole file", () => {
@@ -3271,7 +3186,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 
 	beforeEach(writeMap);
 
-	/** What guard-file-claim.sh runs: path, session, anchor. */
+	/** What lib/file-claim.js runs: path, session, anchor. */
 	const check = (session: string, anchor?: string) =>
 		out([
 			"check",
@@ -3404,7 +3319,7 @@ describe("region claims — a §B entry, not the whole file", () => {
 	});
 
 	it("surfaces a debt registered against the SECOND region it takes", () => {
-		// debtNotice is per subject, so reading it off the first region alone
+		// buildDebtNotice is per subject, so reading it off the first region alone
 		// hides every debt owed on the other one.
 		registerSession(sb, "alice", process.pid);
 		store.registerDenial(`${docMap}#B2`);
@@ -3757,7 +3672,7 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 	});
 
 	it("promises no debt stub it never wrote when the file is held whole", () => {
-		// denyReason's text tells the reader to clear a stub the denial registered;
+		// buildDenyReason's text tells the reader to clear a stub the denial registered;
 		// allocation registers none, so that recipe answers "no debt" and dead-ends.
 		registerSession(sb, "alice", process.pid);
 		registerSession(sb, "bob", neighbourPid);
@@ -4229,7 +4144,7 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
  * the edit anchor landed in and no id-level protection at all.
  *
  * Driven through the CLI, because the ids arrive as a sixth argv entry from
- * guard-file-claim.sh.
+ * lib/file-claim-host.js.
  */
 describe("warns on a `### B<n>` this session never allocated (mantahostels#1424)", () => {
 	const docMap = "docs/doc-map.md";
@@ -4252,7 +4167,7 @@ describe("warns on a `### B<n>` this session never allocated (mantahostels#1424)
 		),
 	);
 
-	/** What guard-file-claim.sh runs: path, session, anchor, length, new ids. */
+	/** What lib/file-claim.js runs: path, session, anchor, length, new ids. */
 	const check = (session: string, ids: string, anchor = "Body.") =>
 		out(["check", inRepo(docMap), session, anchor, String(anchor.length), ids]);
 
@@ -4964,7 +4879,7 @@ describe("one claim store across seats (#383)", () => {
 			JSON.stringify({
 				pid: process.pid,
 				sessionId,
-				procStart: proc.procStartOf(process.pid),
+				procStart: proc.readProcStartOf(process.pid),
 				status: "idle",
 				cwd: sb.repo,
 			}),

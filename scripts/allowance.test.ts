@@ -94,7 +94,8 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 
 describe("--cap (#371)", () => {
 	/** A `claude` whose `agents --json` answers `listing`, and a $10-mean
-	 * cost table: 4.7 points of the 5-hour bar a session. */
+	 * cost table: 4.7 points of the 5-hour bar a session, all of it landing
+	 * within an hour. */
 	const capEnv = (listing: string) => {
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(bin, `#!/bin/bash\nprintf '%s\\n' '${listing}'\n`, {
@@ -103,7 +104,13 @@ describe("--cap (#371)", () => {
 		const table = path.join(dir, "table.json");
 		fs.writeFileSync(
 			table,
-			JSON.stringify({ n: 1, meanUsd: 10, quantilesUsd: [1, 10, 30] }),
+			JSON.stringify({
+				n: 1,
+				meanUsd: 10,
+				quantilesUsd: [1, 10, 30],
+				tailRemainderUsd: 5,
+				landedByHours: [[1, 1]],
+			}),
 		);
 		return {
 			...process.env,
@@ -112,9 +119,13 @@ describe("--cap (#371)", () => {
 			CLAUDE_CONFIG_DIR: dir,
 		};
 	};
-	const capRun = (args: string[], listing: string) => {
+	const capRun = (
+		args: string[],
+		listing: string,
+		session: Record<string, unknown> = {},
+	) => {
 		writeCache(dir, [
-			{ kind: "session", percent: 94 },
+			{ kind: "session", percent: 94, ...session },
 			{ kind: "weekly_all", percent: 7 },
 		]);
 		const r = runInProcess(
@@ -131,6 +142,22 @@ describe("--cap (#371)", () => {
 		const cap = capRun(thresholds, "[]");
 		expect(cap.error).toBeUndefined();
 		expect(cap).toMatchObject({ launch: 2, running: [] });
+	});
+
+	it("counts only the spend projected to land before the bar resets (#2925)", () => {
+		// Half an hour to the reset: half of each $10 lands before it, 2.35
+		// points. Headroom 6 − 2.35 for the running session leaves room for two.
+		const resetsAt = new Date(Date.now() + 1_800_000).toISOString();
+		const listing = '[{"sessionId":"s1","state":"working"}]';
+		const soon = capRun(thresholds, listing, { resets_at: resetsAt });
+		expect(soon.error).toBeUndefined();
+		expect(soon.binding.runningPoints).toBeCloseTo(2.35, 1);
+		expect(soon.binding.perSessionPoints).toBeCloseTo(2.35, 1);
+		expect(soon.launch).toBe(2);
+		// A reset that does not parse counts all of it: 6 − 4.7 leaves one.
+		const unparsed = capRun(thresholds, listing, { resets_at: "soon" });
+		expect(unparsed.binding.runningPoints).toBeCloseTo(4.7, 1);
+		expect(unparsed.launch).toBe(1);
 	});
 
 	it("refuses to size the cap on a listing that is not JSON", () => {

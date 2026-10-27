@@ -37,7 +37,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
-const { execFileSync } = require("node:child_process");
+const { execGit } = require("../../../../scripts/lib/git.js");
 
 /**
  * The floor that decides whether step 3 spawns a fresh reader agent, per file.
@@ -76,7 +76,7 @@ function run(args) {
 	try {
 		return {
 			status: 0,
-			stdout: execFileSync("git", args, {
+			stdout: execGit(args, {
 				encoding: "utf8",
 				maxBuffer: MAX_BUFFER,
 				stdio: ["ignore", "pipe", "pipe"],

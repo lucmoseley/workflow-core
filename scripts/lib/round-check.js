@@ -8,7 +8,8 @@
  * not catch, or refused one that limb then took (#2076), at the Stop that
  * decides it, for the reading #1691 specifies. A refused question that comes
  * back caught, close or low-top, also takes a line at each re-send this limb
- * refuses where neither the close limb's refusal nor the ladder's goes out:
+ * refuses where neither the close-rivals limb's refusal nor the
+ * research-ladder limb's goes out:
  * `refused` when bare, `refused-misshapen` when still misshapen (#2244).
  * Kinds:
  *   refused               refused, on first sight or re-sent with no tool call
@@ -56,7 +57,7 @@ const {
 	isMisshapen,
 	buildMisshapenFlag,
 	buildRuleFlag,
-	shapeOnlyReason,
+	buildShapeOnlyReason,
 } = require("./shape-hold");
 
 /* Tool calls since the founder's last message below which a round is sent
@@ -149,7 +150,7 @@ function flagOf({ round, prior, callsBefore, shape, sinceRefusal }) {
 function reasonOf(flags, houseDecision, isLastRefusal) {
 	const misshapen = isMisshapen(flags);
 	return (
-		shapeOnlyReason(flags, isLastRefusal) ??
+		buildShapeOnlyReason(flags, isLastRefusal) ??
 		[
 			"This turn puts a question to the founder before the session has " +
 				"researched it:",
@@ -176,12 +177,12 @@ function reasonOf(flags, houseDecision, isLastRefusal) {
  * @param {string | undefined} transcript
  * @param {string[] | undefined} shape its shape faults; undefined where this
  *   send left it out
- * @param {boolean} closeRefuses whether the close-rivals or research-ladder
+ * @param {boolean} rivalLimbsRefuse whether the close-rivals or research-ladder
  *   limb refuses it this send, which takes that refusal and never this one's
  *   (#2076)
  * @returns {Check}
  */
-function judgeRefused(prior, transcript, shape, closeRefuses) {
+function judgeRefused(prior, transcript, shape, rivalLimbsRefuse) {
 	const tools = limb.fromTranscript(transcript, "passed", (since, file) =>
 		since.toolNamesSince(file, prior.refusedAt),
 	);
@@ -189,11 +190,11 @@ function judgeRefused(prior, transcript, shape, closeRefuses) {
 	return {
 		round: prior.number,
 		refuse:
-			!closeRefuses &&
+			!rivalLimbsRefuse &&
 			resent &&
 			((tools !== null && tools.length === 0) || shape.length > 0),
 		callsBefore: prior.callsBefore,
-		shape: closeRefuses ? [] : (shape ?? []),
+		shape: rivalLimbsRefuse ? [] : (shape ?? []),
 		prior,
 		sinceRefusal: tools?.length ?? null,
 		tools,
@@ -208,11 +209,14 @@ function judgeRefused(prior, transcript, shape, closeRefuses) {
  * (`caughtBy`), and every question this limb refused, against the record.
  * @param {string} message
  * @param {{ transcript?: string, record: RefusalRecord | null,
- *   close: { judged: Set<string>, refusing: Set<string> },
+ *   closeJudged: Set<string>, rivalLimbsRefusing: Set<string>,
  *   silencedShape: ShapeFaults | null }} turn
  * @returns {Check[]}
  */
-function judgeQuestions(message, { transcript, record, close, silencedShape }) {
+function judgeQuestions(
+	message,
+	{ transcript, record, closeJudged, rivalLimbsRefusing, silencedShape },
+) {
 	const blocks = splitQuestions(message);
 	const shapeOf = new Map(
 		blocks.map((block) => [block.number, silencedShape?.(block) ?? []]),
@@ -225,12 +229,12 @@ function judgeQuestions(message, { transcript, record, close, silencedShape }) {
 	for (const q of record?.questions ?? []) {
 		if (isPassed(q)) continue;
 		if (isRefused(q)) priors.push(q);
-		else if (!close.judged.has(q.number)) firstSends.set(q.number, q);
+		else if (!closeJudged.has(q.number)) firstSends.set(q.number, q);
 	}
 	const sent = blocks
 		.filter(
 			(block) =>
-				!close.judged.has(block.number) &&
+				!closeJudged.has(block.number) &&
 				!caughtBy(block) &&
 				!passed.has(block.number),
 		)
@@ -255,7 +259,7 @@ function judgeQuestions(message, { transcript, record, close, silencedShape }) {
 				q,
 				transcript,
 				shapeOf.get(q.number),
-				close.refusing.has(q.number),
+				rivalLimbsRefusing.has(q.number),
 			),
 		),
 		/* A held question this send leaves out reached the founder on an
@@ -319,7 +323,7 @@ function passKind({ prior, callsBefore }, capSpent) {
 	if (prior) return "passed-after-refusal";
 	if (!isUnderResearched(callsBefore)) return "passed-unrefused";
 	/* A refusal let through with the cap unspent — an unwritable counter — is
-	 * logged as nothing, as the close limb does. */
+	 * logged as nothing, as the close-rivals limb does. */
 	return capSpent ? "passed-at-cap" : null;
 }
 
@@ -333,10 +337,10 @@ function passKind({ prior, callsBefore }, capSpent) {
  * @param {{ sessionId: string, transcript?: string,
  *   stored: RefusalRecord | null | "unreadable",
  *   houseDecision: () => string,
- *   close: { judged: string[], refusing: string[] },
+ *   closeJudged: string[], rivalLimbsRefusing: string[],
  *   silencedShape: ShapeFaults | null, isLastRefusal: boolean }} turn
- *   `close.judged`, the questions the close-rivals limb judged this send;
- *   `close.refusing`, those of them whose close-rivals or research-ladder
+ *   `closeJudged`, the questions the close-rivals limb judged this send;
+ *   `rivalLimbsRefusing`, those of them whose close-rivals or research-ladder
  *   refusal goes out this send, which alone keep a question this limb refused
  *   from its own rule (#2244);
  *   `silencedShape`, the guard's
@@ -354,7 +358,8 @@ function roundCheckTurn(
 		transcript,
 		stored,
 		houseDecision,
-		close,
+		closeJudged,
+		rivalLimbsRefusing,
 		silencedShape,
 		isLastRefusal,
 	},
@@ -366,10 +371,8 @@ function roundCheckTurn(
 			: judgeQuestions(message, {
 					transcript,
 					record,
-					close: {
-						judged: new Set(close.judged),
-						refusing: new Set(close.refusing),
-					},
+					closeJudged: new Set(closeJudged),
+					rivalLimbsRefusing: new Set(rivalLimbsRefusing),
 					silencedShape,
 				});
 	const refusals = checks

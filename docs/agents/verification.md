@@ -26,7 +26,7 @@ shell issuing them wherever the pattern matches the command's own text.
 Under `-v` that inverts: the pattern selects every process it misses, so a
 bracketed one puts the shell in; without `-f` the pattern is tested against
 process names, and the shell's is `bash` (#1842, #1847).
-`scripts/guard-self-match.sh` denies the `pkill` form and warns on the `pgrep`
+`scripts/lib/self-match.js` denies the `pkill` form and warns on the `pgrep`
 one, and (mantahostels#2014) warns on `ps | grep <pattern>` too, each passing a
 pattern that cannot match its own text (`'[n]ode'`, #1782, #1805) — the same
 self-match, plus a wrinkle specific to
@@ -130,8 +130,8 @@ is *"real findings, deliberately not gating"* (`scripts/lib/check.js:54-60`).
   "no", the fail-closed direction a guard here may not take. Ask the filesystem
   instead: canonicalise the path (the walk is lexical, git resolves physical)
   and walk the ancestry for a `.git` entry — a directory for a normal repo, a
-  file for a linked worktree or submodule. Implemented as `_gp_inside_any_repo`
-  in `scripts/lib/guard-parse.sh`.
+  file for a linked worktree or submodule. Implemented as `isInsideAnyRepo`
+  in `scripts/lib/git-tree.js`.
 
 ## Restating a constraint from an external source
 

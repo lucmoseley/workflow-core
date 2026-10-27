@@ -18,8 +18,8 @@ import {
 	listTranscripts,
 	oneCopyEach,
 	projectDirs,
-	seatProjectDirs,
-	seatTranscripts,
+	readSeatProjectDirs,
+	readSeatTranscripts,
 } from "./project-dirs.js";
 import { slugForRepo } from "./project-slug.js";
 
@@ -106,7 +106,7 @@ describe("listTranscripts", () => {
 	});
 });
 
-describe("seatTranscripts", () => {
+describe("readSeatTranscripts", () => {
 	let home = "";
 	afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
@@ -129,7 +129,7 @@ describe("seatTranscripts", () => {
 		fs.mkdirSync(sub, { recursive: true });
 		fs.writeFileSync(path.join(sub, "agent-x.jsonl"), "{}\n");
 
-		const r = seatTranscripts([seat("a"), seat("b"), seat("gone")]);
+		const r = readSeatTranscripts([seat("a"), seat("b"), seat("gone")]);
 		expect(r.files.sort()).toEqual(
 			[
 				path.join(slugDir("b", "-repo-two"), "s1.jsonl"),
@@ -139,6 +139,6 @@ describe("seatTranscripts", () => {
 		expect(r.listed).toBe(2);
 		expect(r.absent).toEqual([path.join(seat("gone"), "projects")]);
 		expect(r.unreadable).toEqual([]);
-		expect(seatProjectDirs([seat("a"), seat("b")]).dirs).toHaveLength(2);
+		expect(readSeatProjectDirs([seat("a"), seat("b")]).dirs).toHaveLength(2);
 	});
 });

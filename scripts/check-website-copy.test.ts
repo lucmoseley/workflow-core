@@ -65,7 +65,7 @@ afterEach(() => {
 
 /*
  * The direction gate reads this checker's envelope through
- * checker-new-faults.js's `website-copy` profile, whose identity names the
+ * lib/fault-profiles.js's `website-copy` profile, whose identity names the
  * finding's fields as string literals of its own (mantahostels#1938). Rename one in the
  * `ctx.fail` payload and two different tells in a file collapse to a single
  * identity, so adding a tell to a file that already carries one reads as

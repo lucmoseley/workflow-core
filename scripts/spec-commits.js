@@ -33,17 +33,17 @@
  * --since sha not on HEAD.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { ghJson, errLine } = require("./lib/gh");
-const { subIssuesOf } = require("./lib/issue-tree");
+const { ghJson, parseErrLine } = require("./lib/gh");
+const { readSubIssues } = require("./lib/issue-tree");
 const { sectionAMatcher } = require("./lib/doc-map");
 const { hostRoot } = require("./lib/host-root");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { cutAt } = require("./lib/cut-at");
 const { citedIssues } = require("./lib/cited-issues.js");
 const { commitSha } = require("./lib/commit-sha.js");
+const { execGit } = require("./lib/git.js");
 
 const USAGE =
 	"usage: node scripts/spec-commits.js <spec> [--since <sha>] [--json]";
@@ -100,7 +100,7 @@ function ancestorOfHead(rev) {
 	const sha = commitSha(process.cwd(), rev);
 	if (sha === null) return null;
 	try {
-		execFileSync("git", ["merge-base", "--is-ancestor", sha, "HEAD"], {
+		execGit(["merge-base", "--is-ancestor", sha, "HEAD"], {
 			stdio: "ignore",
 		});
 		return sha;
@@ -192,7 +192,7 @@ function readArgs(argv) {
  */
 
 /** @param {SpecView} v */
-function jsonReport(v) {
+function buildJsonReport(v) {
 	return `${JSON.stringify(
 		{
 			spec: v.n,
@@ -211,7 +211,7 @@ function jsonReport(v) {
 }
 
 /** @param {SpecView} v */
-function textReport({
+function buildTextReport({
 	n,
 	after,
 	tickets,
@@ -274,9 +274,9 @@ function main(argv) {
 	let kids;
 	try {
 		spec = ghJson(["api", `repos/{owner}/{repo}/issues/${n}`]);
-		kids = subIssuesOf(n);
+		kids = readSubIssues(n);
 	} catch (e) {
-		process.stderr.write(`#${n} unreadable: ${errLine(e)}\n`);
+		process.stderr.write(`#${n} unreadable: ${parseErrLine(e)}\n`);
 		return 1;
 	}
 	/* A sub-issue in another repo is not cited bare from this one. */
@@ -286,7 +286,7 @@ function main(argv) {
 	const numbers = new Set([n, ...tickets.map((t) => t.number)]);
 	const open = tickets.filter((t) => t.state === "open").map((t) => t.number);
 
-	const raw = execFileSync("git", logArgs(spec.created_at, after), {
+	const raw = execGit(logArgs(spec.created_at, after), {
 		encoding: "utf8",
 		maxBuffer: LOG_MAX_BUFFER,
 	});
@@ -313,7 +313,7 @@ function main(argv) {
 		show,
 		reviewedThrough,
 	};
-	process.stdout.write(json ? jsonReport(view) : textReport(view));
+	process.stdout.write(json ? buildJsonReport(view) : buildTextReport(view));
 	return 0;
 }
 

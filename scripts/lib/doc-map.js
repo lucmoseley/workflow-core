@@ -10,7 +10,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 /* One-way: always-loaded-pool.js requires nothing from here, so
  * check-context-budget.js still loads it on SessionStart without pulling this
  * parser in behind it. */
@@ -22,9 +21,9 @@ const {
 const { requiredGroup } = require("./regex-group.js");
 const { cutAt } = require("./cut-at.js");
 const { byCodeUnit } = require("./by-code-unit.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
+const { execGit, gitOrNull } = require("./git.js");
 
 /** One inline-code span, capturing its text. */
 const BACKTICKED = /`([^`]+)`/g;
@@ -257,7 +256,7 @@ function registerListRow(line, listClass, sidecar) {
 	const keyed = sidecar ? sidecar[p] : null;
 	return {
 		paths: [p],
-		cls: keyed ? sidecarClassText(keyed) : listClass,
+		cls: keyed ? buildSidecarClassText(keyed) : listClass,
 	};
 }
 
@@ -274,7 +273,7 @@ function registerTableRow(line, sidecar) {
 	return {
 		paths,
 		cls: keyed
-			? sidecarClassText(keyed)
+			? buildSidecarClassText(keyed)
 			: (line.split("|")[CLASS_CELL] || "").trim(),
 	};
 }
@@ -286,7 +285,7 @@ function registerTableRow(line, sidecar) {
  * same question a §A Class cell answered.
  * @param {{class?: string, classQualifier?: string|null}} entry
  */
-function sidecarClassText(entry) {
+function buildSidecarClassText(entry) {
 	const cls = (entry.class || "").trim();
 	const qualifier = (entry.classQualifier || "").trim();
 	return qualifier ? `${cls} ${qualifier}` : cls;
@@ -342,7 +341,7 @@ const CLASSES_FILE = "doc-map-classes.json";
  * @param {string} mapPath
  * @returns {Record<string, {class?: string, classQualifier?: string|null}>|null}
  */
-function sidecarBeside(mapPath) {
+function readSidecarBeside(mapPath) {
 	/** @type {[string, string]} */
 	const candidates = [
 		path.join(path.dirname(mapPath), CLASSES_FILE),
@@ -456,7 +455,7 @@ function isRecordedTranscript(file) {
  * @param {{text: string, mapPath: string, checker: string}} spec
  */
 function scanScope(ctx, { text, mapPath, checker }) {
-	const register = parseRegister(text, sidecarBeside(mapPath));
+	const register = parseRegister(text, readSidecarBeside(mapPath));
 	/* A §A that parsed to nothing would scan every binary asset as prose (#428). */
 	if (register.length === 0)
 		ctx.broken(
@@ -467,7 +466,7 @@ function scanScope(ctx, { text, mapPath, checker }) {
 
 	let tracked;
 	try {
-		tracked = trackedFiles();
+		tracked = readTrackedFiles();
 	} catch (e) {
 		return ctx.broken(
 			`git ls-files failed — ${caught(e).message}. No scan run.`,
@@ -536,6 +535,8 @@ function parseEntries(text, idPattern) {
 // hooks/ joined at #4: the plugin's generated hook manifest.
 // self-plugin/ joined at #2584: the core's own hook registration, which hooks/
 // renders from, and its marketplace manifest.
+// GLOSSARY.md joined at #2720: the domain glossary, which restates rules its
+// owner documents carry, so an unregistered one is never re-read when they change.
 //
 // .husky/pre-commit greps the same set to decide whether to run the gate at all;
 // precommit-doc-map-gate.test.ts asserts the two stay in step.
@@ -548,6 +549,7 @@ const SCOPE = [
 	"CLAUDE.md",
 	"PRODUCT.md",
 	"DESIGN.md",
+	"GLOSSARY.md",
 ];
 
 // SCOPE entries are either a directory or an exact root file.
@@ -676,27 +678,19 @@ const MIN_SPAN_DAYS = 1;
  */
 function sectionBEntryRate(mapPath, currentEntries) {
 	// git wants a path relative to the CWD it runs in, whatever form the
-	// caller passed — as trackedFiles()/repoRelative() already assume.
+	// caller passed — as readTrackedFiles()/repoRelative() already assume.
 	const relPath = repoRelative(mapPath);
 
-	let log;
-	try {
-		// Fails open (mantahostels#1347): a git-log failure means no rate line rather than a
-		// broken build — mantahostels#1079's body is a report, never a gate (§N3's report-*
-		// contract), so an unreadable history degrades to "unavailable".
-		log = execFileSync(
-			"git",
-			["log", "--format=%H %cI", "--follow", "--", relPath],
-			{
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				// Same guard as trackedFiles() above.
-				maxBuffer: CHILD_MAX_BUFFER,
-			},
-		).trim();
-	} catch {
-		return null;
-	}
+	// Fails open (mantahostels#1347): a git-log failure means no rate line rather than a
+	// broken build — mantahostels#1079's body is a report, never a gate (§N3's report-*
+	// contract), so an unreadable history degrades to "unavailable".
+	const log = gitOrNull([
+		"log",
+		"--format=%H %cI",
+		"--follow",
+		"--",
+		relPath,
+	])?.trim();
 	if (!log) return null;
 
 	const commits = log.split("\n").map((line) => {
@@ -719,20 +713,10 @@ function sectionBEntryRate(mapPath, currentEntries) {
 	const days = (now - baseline.date.getTime()) / (24 * 60 * 60 * 1000);
 	if (days < MIN_SPAN_DAYS) return null;
 
-	let oldText;
-	try {
-		// Fails open (mantahostels#1347) like the `git log` catch above: a corrupt object,
-		// or a shallow clone missing the baseline blob.
-		oldText = execFileSync("git", ["show", `${baseline.sha}:${relPath}`], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			// The blob itself is what's ~700 KB and growing — the overrun risk
-			// this guard is actually for.
-			maxBuffer: CHILD_MAX_BUFFER,
-		});
-	} catch {
-		return null;
-	}
+	// Fails open (mantahostels#1347) like the `git log` read above: a corrupt object,
+	// or a shallow clone missing the baseline blob.
+	const oldText = gitOrNull(["show", `${baseline.sha}:${relPath}`]);
+	if (oldText === null) return null;
 
 	const oldEntries = sectionBEntryCount(oldText);
 	return { rate: (currentEntries - oldEntries) / days, days };
@@ -767,7 +751,7 @@ const SKELETON_LABEL = new RegExp(
 
 /**
  * A **top-level** bullet — no leading whitespace. `BULLET` (used by
- * `supersedesText`) matches an indented one too, which is the wrong line to
+ * `parseSupersedesText`) matches an indented one too, which is the wrong line to
  * end a skeleton bullet's continuation on: several live entries nest nuance
  * under `Restated in`/`Inputs`/`Supersedes` as indented sub-bullets (e.g.
  * a `Restated in` list), and those are still skeleton, not prose. Only a
@@ -1091,7 +1075,7 @@ function verdictWordCount(text, issue) {
  * Rejected (mantahostels#1890), the discriminator being exact: a date proxy for
  * "postdates mantahostels#1719", and a provenance opt-out, which mantahostels#1885 forbids.
  *
- * HEAD ALONE, never `committedRevs()`. An in-flight second parent widens
+ * HEAD ALONE, never `readCommittedRevs()`. An in-flight second parent widens
  * assertions 14 and 16 — a merge's other side has already paid for what it
  * added — but it would NARROW this one, refusing a merge for a compaction the
  * other branch committed (mantahostels#1968's review).
@@ -1151,7 +1135,7 @@ function compactionVerdictFaults(entries, committed) {
 	return [];
 }
 
-/** The map's own tracked path, the fallback `headMapText` reads (mantahostels#1384). */
+/** The map's own tracked path, the fallback `readHeadMapText` reads (mantahostels#1384). */
 const DEFAULT_MAP_PATH = "docs/doc-map.md";
 
 /**
@@ -1162,14 +1146,12 @@ const DEFAULT_MAP_PATH = "docs/doc-map.md";
  * @param {string} fallback
  * @returns {string | null}
  */
-function committedTextAt(rev, file, fallback) {
+function readCommittedTextAt(rev, file, fallback) {
 	for (const p of new Set([repoRelative(file), fallback])) {
 		try {
-			return execFileSync("git", ["show", `${rev}:${p}`], {
+			return execGit(["show", `${rev}:${p}`], {
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "ignore"],
-				// §B alone is ~700 KB.
-				maxBuffer: CHILD_MAX_BUFFER,
 			});
 		} catch {
 			// Try the next candidate path; the `return null` below answers for
@@ -1194,8 +1176,8 @@ function committedTextAt(rev, file, fallback) {
  * @param {string} mapPath
  * @returns {string | null}
  */
-function mapTextAt(rev, mapPath) {
-	return committedTextAt(rev, mapPath, DEFAULT_MAP_PATH);
+function readMapTextAt(rev, mapPath) {
+	return readCommittedTextAt(rev, mapPath, DEFAULT_MAP_PATH);
 }
 
 /**
@@ -1205,8 +1187,8 @@ function mapTextAt(rev, mapPath) {
  * @param {string} mapPath
  * @returns {string | null}
  */
-function headMapText(mapPath) {
-	return mapTextAt("HEAD", mapPath);
+function readHeadMapText(mapPath) {
+	return readMapTextAt("HEAD", mapPath);
 }
 
 /**
@@ -1233,18 +1215,14 @@ const IN_FLIGHT_REFS = [
  * caller with HEAD alone, which is the pre-merge behaviour.
  * @returns {string[]}
  */
-function committedRevs() {
+function readCommittedRevs() {
 	const revs = ["HEAD"];
 	for (const ref of IN_FLIGHT_REFS) {
 		try {
-			const out = execFileSync(
-				"git",
-				["rev-parse", "--verify", "--quiet", ref],
-				{
-					encoding: "utf8",
-					stdio: ["ignore", "pipe", "ignore"],
-				},
-			).trim();
+			const out = execGit(["rev-parse", "--verify", "--quiet", ref], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+			}).trim();
 			for (const sha of out.split("\n").filter(Boolean)) revs.push(sha);
 		} catch {
 			// The ref is absent, which is the ordinary case: nothing is mid-flight.
@@ -1255,23 +1233,23 @@ function committedRevs() {
 
 /**
  * The §B ids ALREADY COMMITTED — HEAD's, widened by whatever is mid-flight
- * (`committedRevs`), read through `sectionBEntryProseWords` rather than a
+ * (`readCommittedRevs`), read through `sectionBEntryProseWords` rather than a
  * heading scan so both callers measure by the one canonical parser (mantahostels#1311).
  *
  * The baseline behind every added-vs-edited discriminator here: an id in this
  * set was written by an earlier commit, so nothing this commit does to it is
  * that commit's to answer for. Returns null where HEAD holds no copy to
- * compare against — see `headMapText`, whose "cannot tell which are new" is
+ * compare against — see `readHeadMapText`, whose "cannot tell which are new" is
  * not "none are".
  * @param {string} mapPath
  * @returns {Set<string> | null}
  */
-function committedEntryIds(mapPath) {
-	const head = headMapText(mapPath);
+function readCommittedEntryIds(mapPath) {
+	const head = readHeadMapText(mapPath);
 	if (head === null) return null;
 	const ids = new Set();
-	for (const rev of committedRevs()) {
-		const t = rev === "HEAD" ? head : mapTextAt(rev, mapPath);
+	for (const rev of readCommittedRevs()) {
+		const t = rev === "HEAD" ? head : readMapTextAt(rev, mapPath);
 		if (t === null) continue;
 		for (const id of Object.keys(sectionBEntryProseWords(t))) ids.add(id);
 	}
@@ -1283,7 +1261,7 @@ function committedEntryIds(mapPath) {
  * the 300-word prose cap — the worklist behind check-doc-map.js's assertion 14
  * (mantahostels#1384, on mantahostels#1350's ruling).
  *
- * Added, never edited, on `committedEntryIds`'s baseline: a one-word
+ * Added, never edited, on `readCommittedEntryIds`'s baseline: a one-word
  * correction to a fat entry costs nothing — the on-touch scope mantahostels#1311 refused.
  * Returns null where that baseline is unreadable.
  * @param {string} text
@@ -1291,7 +1269,7 @@ function committedEntryIds(mapPath) {
  * @returns {{ id: string, words: number, excess: number }[] | null}
  */
 function newOverCapEntries(text, mapPath) {
-	const headIds = committedEntryIds(mapPath);
+	const headIds = readCommittedEntryIds(mapPath);
 	if (headIds === null) return null;
 	return Object.entries(sectionBEntryProseWords(text))
 		.filter(([id, words]) => !headIds.has(id) && words > PROSE_CAP_WORDS)
@@ -1320,13 +1298,13 @@ function parseHighWaterMark(raw) {
 
 /**
  * HEAD's high-water mark, read from `file`'s committed copy (the tracked
- * default path standing in for a pre-commit temp copy, as `mapTextAt` does), or
+ * default path standing in for a pre-commit temp copy, as `readMapTextAt` does), or
  * null where HEAD holds no readable copy.
  * @param {string} file
  * @returns {number | null}
  */
-function headHighWaterMark(file) {
-	const raw = committedTextAt(
+function readHeadHighWaterMark(file) {
+	const raw = readCommittedTextAt(
 		"HEAD",
 		file,
 		path.posix.join(path.posix.dirname(DEFAULT_MAP_PATH), DATA_FILES.highWater),
@@ -1339,7 +1317,7 @@ const sortedByIdNumber = (ids) =>
 	[...ids].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
 
 /**
- * The §B ids `text` ADDS relative to the committed map (`committedEntryIds`)
+ * The §B ids `text` ADDS relative to the committed map (`readCommittedEntryIds`)
  * whose number is at or below `mark` — an id a removed entry may have held, so
  * reusing it would make a stale reference resolve to the wrong entry
  * (mantahostels#892). check-doc-map.js's assertion 12. Null where the committed
@@ -1350,7 +1328,7 @@ const sortedByIdNumber = (ids) =>
  * @returns {string[] | null}
  */
 function newIdsAtOrBelowMark(text, mapPath, mark) {
-	const headIds = committedEntryIds(mapPath);
+	const headIds = readCommittedEntryIds(mapPath);
 	if (headIds === null) return null;
 	return sortedByIdNumber(
 		Object.keys(sectionBEntryProseWords(text)).filter(
@@ -1368,7 +1346,7 @@ function newIdsAtOrBelowMark(text, mapPath, mark) {
  * @returns {string[] | null}
  */
 function idsRemovedSinceHead(text, mapPath) {
-	const head = headMapText(mapPath);
+	const head = readHeadMapText(mapPath);
 	if (head === null) return null;
 	const live = sectionBEntryProseWords(text);
 	return sortedByIdNumber(
@@ -1388,7 +1366,7 @@ const ADMISSION_COMMENT_URL =
  * conforming row in the admissions sidecar — check-doc-map.js's assertion 29
  * (mantahostels#3225, building mantahostels#2888's design on mantahostels#2884's deferral).
  *
- * Added, never edited, on `committedEntryIds`'s baseline and for the reason
+ * Added, never edited, on `readCommittedEntryIds`'s baseline and for the reason
  * stated there.
  *
  * The sidecar is read for PRESENCE and FIELD SHAPE only, never fetched. What
@@ -1405,7 +1383,7 @@ const ADMISSION_COMMENT_URL =
  * An entry naming none is not
  * cross-checked; assertion 10 is what refuses a missing bullet.
  *
- * Returns null where `committedEntryIds` cannot read its baseline.
+ * Returns null where `readCommittedEntryIds` cannot read its baseline.
  * @param {string} text
  * @param {string} mapPath
  * @param {Record<string, unknown> | null} admissions
@@ -1413,7 +1391,7 @@ const ADMISSION_COMMENT_URL =
  * @returns {{ id: string, why: string }[] | null}
  */
 function unrecordedAdmissions(text, mapPath, admissions, settledIssues = {}) {
-	const headIds = committedEntryIds(mapPath);
+	const headIds = readCommittedEntryIds(mapPath);
 	if (headIds === null) return null;
 	/** @type {{ id: string, why: string }[]} */
 	const faults = [];
@@ -1461,20 +1439,19 @@ function admissionRowFault(row, named) {
 
 /**
  * The revs whose map counts as this commit's BASELINE: `HEAD`, plus a merge's
- * other parent. Narrower than `committedRevs()` on purpose (mantahostels#2050's review):
+ * other parent. Narrower than `readCommittedRevs()` on purpose (mantahostels#2050's review):
  * this one takes a MAXIMUM word count, and `REVERT_HEAD` and `CHERRY_PICK_HEAD`
  * name the SOURCE commit rather than a parent, so a fat source would raise the
  * baseline and mask real growth.
  * @returns {string[]}
  */
-function parentRevs() {
+function readParentRevs() {
 	const revs = ["HEAD"];
 	try {
-		const out = execFileSync(
-			"git",
-			["rev-parse", "--verify", "--quiet", "MERGE_HEAD"],
-			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-		).trim();
+		const out = execGit(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], {
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "ignore"],
+		}).trim();
 		for (const sha of out.split("\n").filter(Boolean)) revs.push(sha);
 	} catch {
 		// No merge in flight.
@@ -1491,7 +1468,7 @@ function parentRevs() {
  * thing bounding every OTHER over-cap entry, so a marked entry had nothing at
  * all standing against an addition (mantahostels#2050).
  *
- * BASELINE IS THE LARGEST COUNT ACROSS `parentRevs()` — HEAD, plus a merge's
+ * BASELINE IS THE LARGEST COUNT ACROSS `readParentRevs()` — HEAD, plus a merge's
  * other parent, whose growth this commit did not make. It is a per-commit
  * comparison and not a high-water mark: growth that lands becomes the next
  * commit's baseline.
@@ -1509,13 +1486,13 @@ function parentRevs() {
  * sees a missing marker only on an entry that has fallen UNDER the cap. That is
  * `droppedExemptionMarkers`'s business.
  *
- * Returns null where HEAD holds no copy to compare against — see `headMapText`.
+ * Returns null where HEAD holds no copy to compare against — see `readHeadMapText`.
  * @param {string} text
  * @param {string} mapPath
  * @returns {{ id: string, words: number, was: number, growth: number, exemptedAt: number }[] | null}
  */
 function grownExemptEntries(text, mapPath) {
-	const head = headMapText(mapPath);
+	const head = readHeadMapText(mapPath);
 	if (head === null) return null;
 	const baseline = exemptBaseline(head, mapPath);
 	const out = [];
@@ -1539,15 +1516,15 @@ function grownExemptEntries(text, mapPath) {
 
 /**
  * `grownExemptEntries`'s baseline: each entry's largest prose count across
- * `parentRevs()`, and whether the rev holding that count marked it.
+ * `readParentRevs()`, and whether the rev holding that count marked it.
  * @param {string} head
  * @param {string} mapPath
  */
 function exemptBaseline(head, mapPath) {
 	/** @type {Record<string, { words: number, marked: boolean }>} */
 	const baseline = {};
-	for (const rev of parentRevs()) {
-		const t = rev === "HEAD" ? head : mapTextAt(rev, mapPath);
+	for (const rev of readParentRevs()) {
+		const t = rev === "HEAD" ? head : readMapTextAt(rev, mapPath);
 		if (t === null) continue;
 		for (const entry of parseEntries(t, FIGURE_ID)) {
 			const words = entryProseWords(entry.lines);
@@ -1571,7 +1548,7 @@ function exemptBaseline(head, mapPath) {
  * where the entry is unmarked on both sides, which nothing reaches. The
  * three-commit sequence is in mantahostels#2227.
  *
- * BASELINE IS HEAD ALONE, and NOT assertion 22's `parentRevs()` — this one takes
+ * BASELINE IS HEAD ALONE, and NOT assertion 22's `readParentRevs()` — this one takes
  * a PRESENCE where 22 takes a maximum word count. Any parent counting as marked
  * would charge a merge for a drop that happened, and was warned, on `main` weeks
  * earlier and that the merge did nothing to cause.
@@ -1595,13 +1572,13 @@ function exemptBaseline(head, mapPath) {
  * Assertion 23 still warns there, but on spelling — its advice says nothing
  * about the ratchet.
  *
- * Returns null where HEAD holds no copy to compare against — see `headMapText`.
+ * Returns null where HEAD holds no copy to compare against — see `readHeadMapText`.
  * @param {string} text
  * @param {string} mapPath
  * @returns {{ id: string, words: number, exemptedAt: number }[] | null}
  */
 function droppedExemptionMarkers(text, mapPath) {
-	const head = headMapText(mapPath);
+	const head = readHeadMapText(mapPath);
 	if (head === null) return null;
 	/** @type {Record<string, number>} */
 	const markedAt = {};
@@ -1651,34 +1628,27 @@ const LOG_RECORD_SEP = "\x1e";
  * @param {number} [windowMs]
  * @returns {{ born: {id: string, words: number, sha: string}[], days: number } | null}
  */
-function sectionBBirths(mapPath, windowMs = SEVEN_DAYS_MS) {
+function readSectionBBirths(mapPath, windowMs = SEVEN_DAYS_MS) {
 	const relPath = repoRelative(mapPath);
 	const since = new Date(Date.now() - windowMs).toISOString();
 
-	let log;
-	try {
-		log = execFileSync(
-			"git",
-			[
-				"log",
-				`--format=${LOG_RECORD_SEP}%H`,
-				"-p",
-				"--unified=0",
-				`--since=${since}`,
-				"--",
-				relPath,
-			],
-			{
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				// Not a blob but a week of PATCH text over the map, which measured
-				// 4.3 MB. The headroom is for a week that rewrites §B wholesale.
-				maxBuffer: 256 * 1024 * 1024,
-			},
-		);
-	} catch {
-		return null;
-	}
+	const log = gitOrNull(
+		[
+			"log",
+			`--format=${LOG_RECORD_SEP}%H`,
+			"-p",
+			"--unified=0",
+			`--since=${since}`,
+			"--",
+			relPath,
+		],
+		{
+			// Not a blob but a week of PATCH text over the map, which measured
+			// 4.3 MB. The headroom is for a week that rewrites §B wholesale.
+			maxBuffer: 256 * 1024 * 1024,
+		},
+	);
+	if (log === null) return null;
 
 	const show = cachedGitShow();
 	// A root commit has no `sha^`, and a shallow clone may be missing the blob.
@@ -1753,19 +1723,12 @@ const PAIRING_GRACE_MS = 6 * 60 * 60 * 1000;
  * failure. Committer date, not author date: a rebase or cherry-pick keeps the
  * author date but rewrites the committer date to when the commit actually
  * landed on THIS history, which is what a pairing fault's age must track —
- * `headMapText` above reads the map by the same convention (`%cI`).
+ * `readHeadMapText` above reads the map by the same convention (`%cI`).
  * @param {string} sha
  */
-function committerDateSec(sha) {
-	let out;
-	try {
-		out = execFileSync("git", ["show", "-s", "--format=%ct", sha], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-	} catch {
-		return null;
-	}
+function readCommitterDateSec(sha) {
+	const out = gitOrNull(["show", "-s", "--format=%ct", sha]);
+	if (out === null) return null;
 	const sec = Number(out.trim());
 	return Number.isFinite(sec) ? sec : null;
 }
@@ -1795,14 +1758,14 @@ function ageFromSec(sec, nowMs) {
  *  - given: `target` is a Section A path string, dated by the oldest commit
  *    whose Section A register genuinely BIRTHS it — present in the commit's
  *    own register, absent from its parent's — the same present-not-in-parent
- *    test `sectionBBirths` above runs for a `### B<n>` heading. A bare
+ *    test `readSectionBBirths` above runs for a `### B<n>` heading. A bare
  *    pickaxe (`-S`) hit is not enough: docs/doc-map.md is ~79,000 words, and
  *    the same path string routinely appears in Section B prose, a Consumes
  *    cell or a route, any of which would misdate a brand-new row as ancient
  *    and silently defeat the grace window. Pickaxe still narrows the commit
  *    set cheaply; each candidate, oldest first, is then verified against the
  *    real register before being trusted. `mapPath` is tried first and
- *    `DEFAULT_MAP_PATH` second, as `mapTextAt` does above: a pre-commit
+ *    `DEFAULT_MAP_PATH` second, as `readMapTextAt` does above: a pre-commit
  *    invocation hands this a `$(mktemp -d)` copy with no git identity of its
  *    own, and only the tracked path answers (mantahostels#1191, mantahostels#1384).
  *
@@ -1825,15 +1788,10 @@ function pairingHalfAgeMs(target, mapPath = null, now = Date.now()) {
 	for (const p of [...new Set([repoRelative(mapPath), DEFAULT_MAP_PATH])]) {
 		let shaOut;
 		try {
-			shaOut = execFileSync(
-				"git",
-				["log", `-S${target}`, "--format=%H", "--", p],
-				{
-					encoding: "utf8",
-					stdio: ["ignore", "pipe", "ignore"],
-					maxBuffer: CHILD_MAX_BUFFER,
-				},
-			);
+			shaOut = execGit(["log", `-S${target}`, "--format=%H", "--", p], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+			});
 		} catch {
 			continue;
 		}
@@ -1841,7 +1799,7 @@ function pairingHalfAgeMs(target, mapPath = null, now = Date.now()) {
 		// return on the FIRST genuine hit.
 		const shas = shaOut.split("\n").filter(Boolean).reverse();
 		const sha = shas.find((s) => isRegisterBirth(show, s, p, target));
-		if (sha !== undefined) return ageFromSec(committerDateSec(sha), now);
+		if (sha !== undefined) return ageFromSec(readCommitterDateSec(sha), now);
 	}
 	return null;
 }
@@ -1853,16 +1811,8 @@ function pairingHalfAgeMs(target, mapPath = null, now = Date.now()) {
  * @param {number} now
  */
 function oldestTouchAgeMs(target, now) {
-	let out;
-	try {
-		out = execFileSync("git", ["log", "--format=%ct", "--", target], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			maxBuffer: CHILD_MAX_BUFFER,
-		});
-	} catch {
-		return null;
-	}
+	const out = gitOrNull(["log", "--format=%ct", "--", target]);
+	if (out === null) return null;
 	// Newest-first by default; the oldest commit is the last line.
 	const lines = out.split("\n").filter(Boolean);
 	if (lines.length === 0) return null;
@@ -1901,10 +1851,9 @@ function cachedGitShow() {
 			try {
 				blobs.set(
 					spec,
-					execFileSync("git", ["show", spec], {
+					execGit(["show", spec], {
 						encoding: "utf8",
 						stdio: ["ignore", "pipe", "ignore"],
-						maxBuffer: CHILD_MAX_BUFFER,
 					}),
 				);
 			} catch {
@@ -2121,13 +2070,10 @@ function childRel(rel, name) {
  * test failing.
  */
 /** @param {string | null} [root] */
-function trackedFiles(root) {
+function readTrackedFiles(root) {
 	if (root) return walkTracked(root);
-	return execFileSync("git", ["ls-files", "--deduplicate", "-z"], {
+	return execGit(["ls-files", "--deduplicate", "-z"], {
 		encoding: "utf8",
-		// The default is 1 MiB, and the tracked-path list grows with the repo.
-		// Overrun throws ENOBUFS, which would report a working git as a broken one.
-		maxBuffer: CHILD_MAX_BUFFER,
 	})
 		.split("\0")
 		.filter(Boolean);
@@ -2144,18 +2090,13 @@ function trackedFiles(root) {
  * to soften a FAIL to a WARN, so an apparatus failure must leave the FAIL
  * standing rather than manufacture a pass.
  */
-function untrackedFiles() {
+function readUntrackedFiles() {
 	try {
-		return execFileSync(
-			"git",
-			["ls-files", "--others", "--exclude-standard", "-z"],
-			{
-				encoding: "utf8",
-				maxBuffer: CHILD_MAX_BUFFER,
-				// As in conflictedPaths().
-				stdio: ["ignore", "pipe", "ignore"],
-			},
-		)
+		return execGit(["ls-files", "--others", "--exclude-standard", "-z"], {
+			encoding: "utf8",
+			// As in readConflictedPaths().
+			stdio: ["ignore", "pipe", "ignore"],
+		})
 			.split("\0")
 			.filter(Boolean);
 	} catch {
@@ -2172,13 +2113,12 @@ function untrackedFiles() {
  * Never throws: it is asked only to decide whether a count is worth stating, so
  * a git that cannot answer leaves the caller where it already was.
  */
-function conflictedPaths() {
+function readConflictedPaths() {
 	try {
 		return [
 			...new Set(
-				execFileSync("git", ["ls-files", "--unmerged", "-z"], {
+				execGit(["ls-files", "--unmerged", "-z"], {
 					encoding: "utf8",
-					maxBuffer: CHILD_MAX_BUFFER,
 					// git's own diagnostics are noise here: every failure is caught
 					// below, and outside a repo this would print "fatal: not a git
 					// repository" into a passing test run.
@@ -2206,7 +2146,7 @@ function conflictedPaths() {
  * `git diff --quiet HEAD` exits 1 on a real difference — the only case read as
  * dirty. Every other exit (0: clean; anything else: no HEAD yet, outside a
  * repo, git itself broken) falls back to `false`, the same settled-by-default
- * posture conflictedPaths() takes: this is a severity softener, not a gate, so
+ * posture readConflictedPaths() takes: this is a severity softener, not a gate, so
  * an apparatus failure here must never manufacture a WARN.
  *
  * `relPath` must be the real tracked path — `.husky/pre-commit` feeds
@@ -2219,7 +2159,7 @@ function conflictedPaths() {
  */
 function isDirty(relPath) {
 	try {
-		execFileSync("git", ["diff", "--quiet", "HEAD", "--", relPath], {
+		execGit(["diff", "--quiet", "HEAD", "--", relPath], {
 			stdio: ["ignore", "ignore", "ignore"],
 		});
 		return false;
@@ -2316,8 +2256,8 @@ const BULLET = /^\s*[-*]\s/;
  * top-level bullet ends it.
  * @param {string[]} lines
  */
-function supersedesText(lines) {
-	return labelledBulletText(lines, SUPERSEDES_LABEL) ?? "";
+function parseSupersedesText(lines) {
+	return parseLabelledBulletText(lines, SUPERSEDES_LABEL) ?? "";
 }
 
 /**
@@ -2336,7 +2276,7 @@ function supersedesText(lines) {
  * @param {string[]} lines
  * @param {RegExp} label
  */
-function labelledBulletText(lines, label) {
+function parseLabelledBulletText(lines, label) {
 	const out = [];
 	let inBullet = false;
 	let seen = false;
@@ -2370,13 +2310,13 @@ const RETIRED_LABEL = /\*\*Retired vocabulary/i;
 
 /**
  * A §B entry's `Retired vocabulary` bullet, plus its indented continuation
- * lines, or empty where it has none — `supersedesText`'s sibling, and read for
+ * lines, or empty where it has none — `parseSupersedesText`'s sibling, and read for
  * the same reason: check-retired-vocabulary.js is BROKEN where an entry the map
  * says has retired wording has no key in the data file holding the phrases.
  * @param {string[]} lines
  */
-function retiredVocabularyText(lines) {
-	return labelledBulletText(lines, RETIRED_LABEL);
+function parseRetiredVocabularyText(lines) {
+	return parseLabelledBulletText(lines, RETIRED_LABEL);
 }
 
 /* Money and percentages, each optionally a range and optionally approximate.
@@ -3738,7 +3678,7 @@ const KIND_BY_EXT = {
  * directory's name instead.
  * @param {string} p
  */
-function pathTitle(p) {
+function buildPathTitle(p) {
 	const cut = p.lastIndexOf("/");
 	let base = p.slice(cut + 1);
 	if (/^(SKILL|README|AGENTS)\.md$/.test(base) && cut !== -1) {
@@ -3781,7 +3721,7 @@ function renderRole(p) {
 		const prefix = wildcardPrefix(p);
 		return `Every file under \`${prefix}\`${kind ? ` — ${kind}s` : ""}`;
 	}
-	return kind ? `${pathTitle(p)} — ${kind}` : pathTitle(p);
+	return kind ? `${buildPathTitle(p)} — ${kind}` : buildPathTitle(p);
 }
 
 /** A cell's `|` is a column break in GFM unless it is escaped, so a Role, a
@@ -4366,11 +4306,11 @@ function entriesBySection(sidecar) {
  * and duplicate the list under.
  * @param {Map<string, [string, DocClassEntry][]>} pathsBySection
  * @param {string} name */
-function sectionBlock(pathsBySection, name) {
+function buildSectionBlock(pathsBySection, name) {
 	const rows = pathsBySection.get(name) || [];
 	if (LIST_SECTIONS.has(name) && rows.length > 0) {
 		const classes = new Set(
-			rows.map(([, entry]) => sidecarClassText(entry) || ""),
+			rows.map(([, entry]) => buildSidecarClassText(entry) || ""),
 		);
 		const [cls] = [...classes];
 		if (classes.size === 1 && cls)
@@ -4452,7 +4392,7 @@ function registerListEnd(lines, i) {
  */
 function renderSectionOnce(r, pathsBySection, section) {
 	if (r.rendered.has(section)) return;
-	r.out.push(...sectionBlock(pathsBySection, section));
+	r.out.push(...buildSectionBlock(pathsBySection, section));
 	r.rendered.add(section);
 	r.lastTableEnd = r.out.length;
 }
@@ -4468,7 +4408,7 @@ function insertFreshSections(r, pathsBySection) {
 	if (fresh.length > 0 && r.lastTableEnd >= 0) {
 		const block = [];
 		for (const s of fresh)
-			block.push("", `### ${s}`, "", ...sectionBlock(pathsBySection, s));
+			block.push("", `### ${s}`, "", ...buildSectionBlock(pathsBySection, s));
 		r.out.splice(r.lastTableEnd, 0, ...block);
 	}
 }
@@ -4626,8 +4566,8 @@ module.exports = {
 	unresolvedSectionRefs,
 	needlePattern,
 	valueLiterals,
-	supersedesText,
-	retiredVocabularyText,
+	parseSupersedesText,
+	parseRetiredVocabularyText,
 	loadSupersededNeedles,
 	loadMachineryNeedles,
 	sectionAMatcher,
@@ -4657,14 +4597,14 @@ module.exports = {
 	overCapEntries,
 	staleExemptionMarkers,
 	malformedExemptionMarkers,
-	mapTextAt,
+	readMapTextAt,
 	// Consumed by check-doc-map.js's assertion 16 since mantahostels#1788 — it reads the
 	// same already-committed rev list for the pool delta and for the ledger.
-	committedRevs,
+	readCommittedRevs,
 	newOverCapEntries,
 	unrecordedAdmissions,
 	parseHighWaterMark,
-	headHighWaterMark,
+	readHeadHighWaterMark,
 	newIdsAtOrBelowMark,
 	idsRemovedSinceHead,
 	grownExemptEntries,
@@ -4677,13 +4617,13 @@ module.exports = {
 	// advice string tells a session to write.
 	VERDICT_MARKER,
 	compactionVerdictFaults,
-	sectionBBirths,
+	readSectionBBirths,
 	PAIRING_GRACE_MS,
 	pairingHalfAgeMs,
 	repoRelative,
-	trackedFiles,
-	untrackedFiles,
-	conflictedPaths,
+	readTrackedFiles,
+	readUntrackedFiles,
+	readConflictedPaths,
 	isDirty,
 	entryPresentOnDisk,
 	readTextLines,

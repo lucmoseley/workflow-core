@@ -43,41 +43,48 @@
 const { isFinishedAgent } = require("./agent-liveness.js");
 const { deathCount } = require("./detached-run.js");
 
-/* How long a session must have been finished before it is reaped. ZERO since
- * mantahostels#1290, so nothing is ever held back for age alone.
+/* How long a session must have been finished before it is reaped. ZERO
+ * (mantahostels#1290, which holds why), so nothing is ever held back for age
+ * alone. Its cost: a session you just watched finish is stopped, a resume
+ * rather than a loss. Reasoned to, never derived: quote the 0-minute grace as
+ * unchecked (docs/environment.md §5).
  *
- * WHY IT WENT. A non-zero window charges the same memory twice at the one
- * moment it matters. `reclaimableMb` (scripts/lib/admission.js) credits only
- * what the program's dry run would reap, so a session inside the window reads
- * as spent; and because the reaper fires only at a session start, or at a
- * `pretest` run the machine's headroom is short enough to trigger (mantahostels#1840),
- * while `/pick-next` launches its whole set within seconds, a session inside
- * the window when the burst begins is still inside it when the burst ends —
- * so it is reaped not a minute later but at the next session start or
- * qualifying pretest, whichever comes first, typically the next `/pick-next`
- * run. That cohort is exactly the one a long `/pick-next` run creates: the
- * sessions that finish while it is running.
- *
- * WHAT IT PROTECTED. Only the session you just watched finish and are about to
- * attach to, and `claude stop` keeps the conversation, so the cost is a resume
- * rather than a loss. It never demonstrably saved one — mantahostels#492 holds the census.
- * Reasoned to, never derived: quote the 0-minute grace as unchecked
- * (docs/environment.md §5).
- *
- * WHAT ZERO MAKES INERT. The first-sighting fallback clock (`entryOf`) mattered only
- * because a sighting had to age; at zero a session is reaped on the run that
- * sees it, by either clock. So every cost the program used to attribute to losing
- * the state file is now nil, and that file's one load-bearing job left is the
- * stop-failure retry record (mantahostels#846).
- *
- * Gate 1 (`kind: background` AND `state: done`) is the real safety gate and is
- * untouched. mantahostels#1238 deleted the memory-pressure waiver, its 60 s floor and the
- * `MemAvailable` read behind them; raising this figure does NOT bring them
- * back, and reinstating one is a rewrite. */
+ * At zero the state file's one load-bearing job is the stop-failure retry
+ * record (mantahostels#846). Gate 1 (`kind: background` AND `state: done`) is
+ * the real safety gate. */
 const GRACE_MS = 0;
 
-/* A ceiling on one run. Whatever is left over is reaped at the next start;
- * it has never yet bound (docs/environment.md §5). */
+/* HOW LONG A JOB WHOSE TURN HAS NOT VISIBLY ENDED IS LEFT ALONE (#2980).
+ *
+ * A job reads `state: done` before its Stop hooks run, and a hook that blocks
+ * starts a forced turn under that same `done`. A stop inside that turn kills
+ * the corrected ending it would write, and can write `stopped` over the result
+ * (#2977). So the transcript tail is read (lib/transcript.js's lastTurn):
+ *
+ * - ENDED: reaped.
+ * - NOT ENDED: held until the turn ends, or for HOLD_MS from its last
+ *   turn row's own timestamp — a turn that silent is hung, not running. Timed off the
+ *   row, never the file's mtime, which bookkeeping rows (`cost-state`,
+ *   `queue-operation`) keep moving with no turn running.
+ * - UNREADABLE (no transcript, no cwd to find it by, no turn row in its
+ *   tail): held for HOLD_MS from its last write.
+ *
+ * A clock the row does not give runs from the finish clock, `max(firstTerminalAt,
+ * transcript mtime)` — the mtime being the last row written — else the first
+ * sighting.
+ *
+ * HOLD_MS is 15 min, measured (#2983): the longest silence inside each of
+ * 7,848 completed forced turns in background-job transcripts runs p99 553 s,
+ * p99.9 612 s, the Bash tool's 600 s timeout cap plus its overhead; 3 (0.04%)
+ * passed 900 s. Set at the p99.9 plus padding, the false-timeout rule of
+ * docs/practice/capacity-planning-and-admission.md. An unreadable tail's
+ * clock is never earlier than the last turn row, so it holds at least as long.
+ * A missing transcript runs from the first sighting, where no silence can be
+ * measured: there the window is reasoned, not derived. */
+const HOLD_MS = 15 * 60_000;
+
+/* A ceiling on one run. Whatever is left over is reaped at the next start
+ * (docs/environment.md §5). */
 const MAX_PER_RUN = 10;
 
 /* What `reap` returns where it could judge no candidate at all: no session id
@@ -88,16 +95,13 @@ const DEGRADED = /** @type {const} */ ("degraded");
 /* What it returns from every other path: it judged the candidates. */
 const CLEAN = /** @type {const} */ ("clean");
 
-/* HOW A STOP THAT FAILED IS LEFT ALONE (mantahostels#846, the two ghost ids retried at
- * every session start for ever).
+/* HOW A STOP THAT FAILED IS LEFT ALONE (mantahostels#846).
  *
  * A `claude stop` fails two ways. TRANSIENTLY: the daemon is slow or busy,
  * the stop hits its timeout, and the next run works (#2665). PERMANENTLY: the listing names a job the stop
  * cannot address at all — a job record left on disk reading `state: done`
  * whose daemon holds no job by that id, which answers "No job matching
- * '<id>'" and exit 1 however often it is asked. A failed stop keeps its
- * first-seen stamp so the next run reaps it immediately, which is what made
- * the retry permanent (mantahostels#846).
+ * '<id>'" and exit 1 however often it is asked.
  *
  * So a stop that TIMED OUT is retried at the next run, unrecorded. Any other failed stop is REMEMBERED, and the next attempt
  * is held off for a window
@@ -107,13 +111,14 @@ const CLEAN = /** @type {const} */ ("clean");
  * listing, as a ghost eventually does, since only sessions listed this run are
  * written back.
  *
- * NOTHING ELSE WAIVES IT: a refused retry returns no memory, so trying it
- * sooner buys nothing. */
+ * Both figures are reasoned, never measured — quote them as unchecked. */
 const RETRY_BASE_MS = 60 * 60 * 1000;
 const RETRY_CAP_MS = 24 * 60 * 60 * 1000;
 
-/** How long to wait after the nth consecutive failed stop of one session. */
-/** @param {number} failures */
+/**
+ * How long to wait after the nth consecutive failed stop of one session.
+ * @param {number} failures
+ */
 function retryDelayMs(failures) {
 	return Math.min(
 		RETRY_BASE_MS * 2 ** (Math.max(1, failures) - 1),
@@ -122,29 +127,13 @@ function retryDelayMs(failures) {
 }
 
 /* HOW MANY TIMES A MODE'S ROW HAS BEEN SEEN UNCLOSED, ACROSS SESSION STARTS
- * (mantahostels#1952, closing the gap mantahostels#1931 left: a `dry` reap cancelled mid-run ages
- * into `check-hook-liveness.js`'s single-row check (the program's THE RUN
- * RECORD), but a `live` one never can, because THIS run's own `openedRecord` overwrites `startedAt`
- * whether or not the run that opened it ever closed. Two facts compose to
- * hide it completely: `main()` writes the run's start half — including a
- * fresh `startedAt` — before its slow part, the listing read and the stops a
- * cancelled 30 s hook timeout kills; and a cancelled run never reaches
- * `reap()`'s own "previous run unfinished" warning either, since that print is
- * inside `reap()`, entered only once the listing read that just killed the
- * PREVIOUS attempt returns for THIS one. A `live` reap wedged at that read
- * every session start is thus reopened, killed, and reopened again forever,
- * each cycle looking — to a single read of the row — exactly like a run that
- * only just started.
+ * (mantahostels#1952): a `live` row is reopened at every session start, so a
+ * single read of it never ages into `check-hook-liveness.js`'s check (the
+ * program's THE RUN RECORD).
  *
  * THE RULE IS DETACHED-RUN.JS'S `deathCount` (mantahostels#1910, mantahostels#1999), whose
- * docstring gives each limb and its why.
- *
- * WHY THE REAPER COMPUTES IT, NOT THE CHECKER. Only the moment `openedRecord` is
- * called can compare a mode's new attempt against its own immediately prior
- * one; the checker's `--notify` run is a separate process, later, reading
- * whatever the reaper last wrote — it never sees the write that would let it
- * infer the same thing from one snapshot. So the account has to be kept
- * here, in the row, for the checker to read whole.
+ * docstring gives each limb and its why. It is computed here, not in the
+ * checker: only `openedRecord` sees a mode's new attempt beside its prior one.
  *
  * THE VALUE ITSELF IS NOT DERIVED HERE — it is the same 300 s as
  * `detached-run.js`'s `INFLIGHT_MS` and `check-hook-liveness.js`'s own
@@ -153,8 +142,7 @@ function retryDelayMs(failures) {
  * the reason `detached-run.js`'s `INFLIGHT_MS` docstring gives: far past what
  * this reaper's own 30 s hook timeout allows, so one burst of concurrent
  * session starts against an already-stale row cannot rack up more than one
- * death on its own. Quote it as reasoned, not measured — no session-start
- * cadence for this machine is derived here either. */
+ * death on its own. Quote it as reasoned, not measured. */
 const LIVE_DEATH_GRACE_MS = 300_000;
 
 /**
@@ -195,9 +183,9 @@ const isFinished = isFinishedAgent;
 /**
  * One session's row in the state file, in the shape the gates want.
  *
- * The file has carried a bare number — the first-sighting stamp — since mantahostels#632,
- * and still does for every session that has never failed to stop. A row that
- * HAS failed becomes `{since, failures, retryAt}`.
+ * A session that has never failed to stop has a bare number, its
+ * first-sighting stamp (mantahostels#632). One that has is `{since, failures,
+ * retryAt, lastError}`.
  *
  * @param {State} state
  * @param {string} sessionId
@@ -261,22 +249,54 @@ function unaddressableRow(a, self) {
 }
 
 /**
+ * The row a session is kept under while its transcript does not show its turn
+ * ended, else null.
+ * @param {AgentRecord} a
+ * @param {{now: number, idleMs: number, clock: string,
+ *   turn: {ended: boolean, at: number|null}|null}} at
+ * @returns {KeptRow|null}
+ */
+function turnHold(a, { now, idleMs, clock, turn }) {
+	if (turn === null)
+		return idleMs < HOLD_MS
+			? {
+					...a,
+					clock,
+					gate: "unreadable",
+					why: `its transcript does not show whether its turn ended, and it finished ${Math.round(idleMs / 1000)}s ago, inside the ${HOLD_MS / 60_000}-minute hold`,
+				}
+			: null;
+	if (turn.ended) return null;
+	const turnMs = turn.at === null ? idleMs : now - turn.at;
+	return turnMs < HOLD_MS
+		? {
+				...a,
+				clock: turn.at === null ? clock : "turn-row",
+				gate: "turn",
+				why: `its transcript shows a turn still running — a Stop hook or the turn it forced — its last turn row ${Math.round(turnMs / 1000)}s ago`,
+			}
+		: null;
+}
+
+/**
  * Gates 4 and 5 for a session the run can address: the row it is kept under,
  * or the row it is reaped under.
  * @param {AgentRecord} a
  * @param {Entry} entry
- * @param {{now: number, finished: number|null, claims: string[]}} at
- *   `finished` is the session's finish stamp, null where none was read
+ * @param {{now: number, finished: number|null,
+ *   turn: {ended: boolean, at: number|null}|null, claims: string[]}} at
+ *   `finished` is the session's finish stamp, null where none was read;
+ *   `turn` its transcript's last turn row, null where unreadable
  * @returns {{kept: KeptRow} | {reap: ReapRow}}
  */
 function timedRow(a, entry, at) {
 	const { since, failures, retryAt, lastError } = entry;
-	const { now, finished, claims } = at;
+	const { now, finished, turn, claims } = at;
 	const clock = finished === null ? "observation" : "finish-stamp";
 	const idleMs = now - (finished === null ? since : finished);
 	/* At the standing GRACE_MS of 0 this fires only on a finish stamp in the
 	 * future — a clock the run cannot trust, so it holds back rather than
-	 * reaping. Raise GRACE_MS and it is the age gate it used to be again. */
+	 * reaping. */
 	if (idleMs < GRACE_MS)
 		return {
 			kept: {
@@ -289,6 +309,8 @@ function timedRow(a, entry, at) {
 						: `finished ${Math.round(idleMs / 1000)}s ago, inside the ${GRACE_MS / 1000}s grace window`,
 			},
 		};
+	const held = turnHold(a, { now, idleMs, clock, turn });
+	if (held) return { kept: held };
 	/* `heldBack` is what the report reads to name it — never the prose. */
 	if (failures && now < retryAt)
 		return {
@@ -317,13 +339,27 @@ function timedRow(a, entry, at) {
  * `--dry-run` reap, which skips the doing, reports every branch of it and
  * stops nothing.
  *
- * `finishAt` is injected so the clock can be driven without a job dir on disk.
+ * `finishAt` and `lastTurn` are injected so the clock and the transcript can
+ * be driven without a job dir on disk.
  *
  * @param {{agents: AgentRecord[], held: Map<string, string[]>,
  *   self: Self, now: number, state: State,
- *   finishAt?: (a: {id?: string, sessionId: string}) => number|null}} input
+ *   finishAt?: (a: {id?: string, sessionId: string}) => number|null,
+ *   lastTurn: (a: {id?: string, sessionId: string}) =>
+ *     {ended: boolean, at: number|null}|null}} input
  */
-function plan({ agents, held, self, now, state, finishAt = () => null }) {
+function plan({
+	agents,
+	held,
+	self,
+	now,
+	state,
+	finishAt = () => null,
+	/* Required, unlike `finishAt`: a default could only answer "ended" or
+	 * "cannot say", and a caller that forgot the reader must not reap a turn
+	 * still running on either. */
+	lastTurn,
+}) {
 	/** @type {State} */
 	const nextState = {};
 	/* Report rows: a listing record spread flat with the decision's own fields
@@ -363,7 +399,12 @@ function plan({ agents, held, self, now, state, finishAt = () => null }) {
 		/* Read only here — after gate 1 and the three gates
 		 * above — because the stamp it reads is trustworthy only for a session
 		 * already shown to be finished. */
-		const row = timedRow(a, entry, { now, finished: finishAt(a), claims });
+		const row = timedRow(a, entry, {
+			now,
+			finished: finishAt(a),
+			turn: lastTurn(a),
+			claims,
+		});
 		if ("kept" in row) kept.push(row.kept);
 		else toReap.push(row.reap);
 	}
@@ -477,7 +518,7 @@ function candidatesOf({ done, capped, kept, notFinished }) {
  * @param {(subject: string) => boolean|null} isDirty
  * @returns {string}
  */
-function claimLine(a, isDirty) {
+function buildClaimLine(a, isDirty) {
 	if (!a.claims || a.claims.length === 0) return "";
 	const named = a.claims
 		.map((/** @type {string} */ f) =>
@@ -558,7 +599,7 @@ function logClaimsCaveat(claimsUnread, unnamed, doneCount, log) {
 function logWouldStop(done, kept, isDirty, log) {
 	for (const a of done) {
 		log(`reap: would stop ${a.id} (${a.name}) — ${a.why}`);
-		const heldLine = claimLine(a, isDirty);
+		const heldLine = buildClaimLine(a, isDirty);
 		if (heldLine) log(heldLine);
 	}
 	/* A session held back for having no job id has no `a.id` to name it by,
@@ -583,7 +624,7 @@ function logStopped(done, kept, isDirty, log) {
 		log(
 			`reap: stopped ${a.name} (${size}) — ${a.why}. Its conversation is kept: \`claude attach ${a.id}\`.`,
 		);
-		const heldLine = claimLine(a, isDirty);
+		const heldLine = buildClaimLine(a, isDirty);
 		if (heldLine) log(heldLine);
 	}
 	const measured = stopped.filter((s) => s.pss !== null);
@@ -612,14 +653,14 @@ function logStopped(done, kept, isDirty, log) {
  *   readPss: (pid: number|null|undefined) => number|null,
  *   saveState: (state: State) => void,
  *   finishAt: (a: {id?: string, sessionId: string}) => number|null,
+ *   lastTurn: (a: {id?: string, sessionId: string}) =>
+ *     {ended: boolean, at: number|null}|null,
  *   isDirty?: (subject: string) => boolean|null,
  *   runs?: Record<string, RunRecord>,
  *   startedAt?: string,
  *   recordRun?: (record: RunRecord) => void,
  *   log: (line: string) => void}} input
- * @returns {typeof DEGRADED | typeof CLEAN} DEGRADED where it judged no
- *   candidate at all, so a persisting caller can tell that apart from a clean
- *   run; CLEAN otherwise.
+ * @returns {typeof DEGRADED | typeof CLEAN}
  */
 function reap({
 	argv,
@@ -632,6 +673,7 @@ function reap({
 	readPss,
 	saveState,
 	finishAt,
+	lastTurn,
 	/* Defaulted, never required: a caller that forgot the reader must lose the
 	 * DIRTY marker rather than throw. */
 	isDirty = () => null,
@@ -733,11 +775,10 @@ function reap({
 		now,
 		state,
 		finishAt,
+		lastTurn,
 	});
 
 	const done = stopEach(due, nextState, { dryRun, now, stop, readPss });
-	/* A dry run stamps the clock too, so a run that never reaps still leaves the
-	 * fallback clock where a non-zero grace window would need it. */
 	carryUnlisted(listed, state, nextState);
 	saveState(nextState);
 

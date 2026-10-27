@@ -1,0 +1,206 @@
+{
+	"PreToolUse": [
+		{
+			"name": "guard-bg-job",
+			"core": "bg-job.js",
+			"tools": "Bash",
+			"failure": "open"
+		},
+		{
+			"name": "inject-test-rules",
+			"core": "test-rules-inject.js",
+			"tools": "Write|Edit|NotebookEdit",
+			"failure": "open"
+		},
+		{
+			"name": "guard-citation-tracker",
+			"core": "citation-write.js",
+			"tools": "Write|Edit",
+			"failure": "open"
+		},
+		{
+			"name": "guard-stale-script",
+			"core": "stale-script.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "stale-script-host.js"
+		},
+		{
+			"name": "guard-job-dir-scratch",
+			"core": "job-dir-scratch.js",
+			"tools": "Bash|Write|Edit|NotebookEdit",
+			"failure": "closed"
+		},
+		{
+			"name": "guard-root-scratch",
+			"core": "root-scratch.js",
+			"tools": "Bash|Write|Edit|NotebookEdit",
+			"failure": "closed"
+		},
+		{
+			"name": "guard-scratch-overwrite",
+			"core": "scratch-overwrite.js",
+			"tools": "Write",
+			"failure": "closed",
+			"host": "scratch-overwrite-host.js"
+		},
+		{
+			"name": "guard-self-match",
+			"core": "self-match.js",
+			"tools": "Bash",
+			"failure": "closed"
+		},
+		{
+			"name": "guard-wait-loop",
+			"core": "wait-loop.js",
+			"tools": "Bash",
+			"failure": "closed"
+		},
+		{
+			"name": "guard-suite-background",
+			"core": "suite-background.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "suite-background-host.js"
+		},
+		{
+			"name": "guard-sweep-fire",
+			"core": "sweep-fire.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "sweep-fire-host.js"
+		},
+		{
+			"name": "guard-claimed-bash-write",
+			"core": "claimed-bash-write.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "claimed-bash-write-host.js"
+		},
+		{
+			"name": "guard-file-claim",
+			"core": "file-claim.js",
+			"tools": "Write|Edit|NotebookEdit",
+			"failure": "closed",
+			"host": "file-claim-host.js"
+		},
+		{
+			"name": "guard-last30days",
+			"core": "last30days.js",
+			"tools": "Skill",
+			"failure": "closed"
+		},
+		{
+			"name": "inject-review-tier",
+			"core": "review-tier.js",
+			"tools": "Skill",
+			"failure": "open",
+			"host": "review-tier-host.js"
+		},
+		{
+			"name": "guard-review-rules",
+			"core": "review-rules.js",
+			"tools": "Skill",
+			"failure": "closed",
+			"host": "review-rules-host.js"
+		},
+		{
+			"name": "inject-founder-wording",
+			"core": "founder-wording.js",
+			"tools": "Skill",
+			"failure": "open",
+			"host": "founder-wording-host.js"
+		},
+		{
+			"name": "guard-tracker-rules",
+			"core": "tracker-rules.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "tracker-rules-host.js"
+		},
+		{
+			"name": "guard-branch-publish",
+			"core": "branch-publish.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "branch-publish-host.js"
+		},
+		{
+			"name": "guard-recursive-dot-read",
+			"core": "recursive-dot-read.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "recursive-dot-read-host.js"
+		},
+		{
+			"name": "guard-wide-read",
+			"core": "wide-read.js",
+			"tools": "Read",
+			"failure": "open",
+			"host": "wide-read-host.js"
+		},
+		{
+			"name": "guard-agent-poll",
+			"core": "agent-poll.js",
+			"tools": "Read|ListAgents",
+			"failure": "closed",
+			"host": "agent-poll-host.js"
+		},
+		{
+			"name": "guard-echo-call",
+			"core": "echo-call.js",
+			"tools": "Bash|Read",
+			"failure": "closed",
+			"host": "echo-call-host.js"
+		},
+		{
+			"name": "guard-dispatch-rewrite",
+			"core": "dispatch-rewrite.js",
+			"tools": "Agent|Task",
+			"failure": "closed",
+			"host": "dispatch-rewrite-host.js"
+		},
+		{
+			"name": "guard-blind-dispatch",
+			"core": "blind-dispatch.js",
+			"tools": "Agent|Task",
+			"failure": "closed"
+		}
+	],
+	"PostToolUse": [
+		{
+			"name": "record-tool-echo",
+			"core": "echo-record.js",
+			"tools": "Bash|Read",
+			"failure": "open",
+			"host": "echo-record-host.js"
+		},
+		{
+			"name": "refresh-claims",
+			"core": "claims-refresh.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "claims-refresh-host.js"
+		},
+		{
+			"name": "post-write",
+			"core": "post-write.js",
+			"tools": "Write|Edit|NotebookEdit",
+			"failure": "open",
+			"host": "post-write-host.js"
+		},
+		{
+			"name": "scan-injection",
+			"core": "injection-scan.js",
+			"tools": "WebFetch|WebSearch|Read",
+			"failure": "open"
+		},
+		{
+			"name": "guard-image-budget",
+			"core": "image-budget.js",
+			"tools": "Read",
+			"failure": "open",
+			"host": "image-budget-host.js"
+		}
+	]
+}

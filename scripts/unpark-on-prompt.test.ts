@@ -76,7 +76,7 @@ function run(failOn?: number) {
 	expect(r.stdout).toBe("");
 }
 
-const calls = () => {
+const readCalls = () => {
 	const at = path.join(dir, "calls");
 	return fs.existsSync(at)
 		? fs.readFileSync(at, "utf8").split("\n").filter(Boolean)
@@ -87,7 +87,7 @@ describe("a prompt in a session that parked its issue", () => {
 	it("removes the label and deletes the marker", () => {
 		park(31);
 		run();
-		expect(calls()).toEqual([
+		expect(readCalls()).toEqual([
 			"issue edit 31 --repo o/here --remove-label parked",
 		]);
 		expect(fs.existsSync(markerPath())).toBe(false);
@@ -96,7 +96,7 @@ describe("a prompt in a session that parked its issue", () => {
 	it("keeps an issue whose removal failed, for the next prompt to retry", () => {
 		park(31, 32);
 		run(32);
-		expect(calls()).toHaveLength(2);
+		expect(readCalls()).toHaveLength(2);
 		expect(fs.readFileSync(markerPath(), "utf8").trim()).toBe("32");
 	});
 });
@@ -104,14 +104,14 @@ describe("a prompt in a session that parked its issue", () => {
 describe("a prompt that unparks nothing", () => {
 	it("makes no GitHub call in a session that parked nothing", () => {
 		run();
-		expect(calls()).toEqual([]);
+		expect(readCalls()).toEqual([]);
 	});
 
 	it("stands down where the host disables it", () => {
 		config({ tracker: "o/here", disabled: ["unpark-on-prompt.js"] });
 		park(31);
 		run();
-		expect(calls()).toEqual([]);
+		expect(readCalls()).toEqual([]);
 		expect(fs.existsSync(markerPath())).toBe(true);
 	});
 });

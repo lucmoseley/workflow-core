@@ -12,9 +12,10 @@
  * scripts/lib/arm-gh-stub.js and the sandbox's scripts/session-arbiter.js —
  * decides these results too.
  *
- * Its ~15 s goes on seven sandbox builds and seven vitest runs, the least that
+ * Its ~15 s goes on eight sandbox builds and eight vitest runs, the least that
  * proves accept against both sandboxes, a real replay, a gamed one, two
- * landings it must refuse and a stale hidden test; the neighbour case clones
+ * landings it must refuse, a stale hidden test and a fix patch unapplied; the
+ * neighbour case clones
  * this repo once.
  */
 
@@ -51,6 +52,7 @@ const git = (cwd: string, ...args: string[]) =>
 interface Task {
 	id: string;
 	revert: string[];
+	fix?: string;
 	hiddenTests: { file: string; names: string[]; patch?: string }[];
 	docChecks: { file: string; pattern: string; why?: string }[];
 	neighbour: { path: string } | null;
@@ -76,21 +78,46 @@ describe("the committed task set", () => {
 		expect(tasks.filter((t) => t.neighbour)).toHaveLength(2);
 	});
 
-	it("reverts commits this repo holds, touching 1–4 files a session writes, each judged by a check, every hidden test and its patch in the tree", () => {
-		// A generated-only file is a tool's output, not work done (#2080).
-		const classes: Record<string, { class: string }> = JSON.parse(
-			fs.readFileSync(path.join(ROOT, "docs/doc-map-classes.json"), "utf8"),
-		);
-		for (const t of tasks) {
-			const files = new Set(
-				t.revert.flatMap((sha) =>
-					git(ROOT, "show", "--format=", "--name-only", sha)
+	/* The public code repo is one squashed root (#1954): its clones hold none
+	 * of the tracker commits the tasks revert. Residual: its CI never judges a
+	 * revert's size, so a tasks.json edit is judged on a tracker clone only. */
+	const held = (sha: string) =>
+		git(ROOT, "rev-parse", "--verify", "--quiet", `${sha}^{commit}`) !== "";
+	const historyHeld = tasks.some((t) => t.revert.some(held));
+
+	it.skipIf(!historyHeld)(
+		"reverts commits this repo holds, touching 1–4 files a session writes",
+		() => {
+			// A generated-only file is a tool's output, not work done (#2080).
+			const classes: Record<string, { class: string }> = JSON.parse(
+				fs.readFileSync(path.join(ROOT, "docs/doc-map-classes.json"), "utf8"),
+			);
+			for (const t of tasks) {
+				for (const sha of t.revert)
+					expect(held(sha), `${t.id} ${sha}`).toBe(true);
+				const touched = t.fix
+					? git(
+							ROOT,
+							"apply",
+							"--numstat",
+							path.join(ROOT, "scripts/arm-tasks", t.fix),
+						).replace(/^\S+\t\S+\t/gm, "")
+					: t.revert
+							.map((sha) => git(ROOT, "show", "--format=", "--name-only", sha))
+							.join("\n");
+				const files = new Set(
+					touched
 						.split("\n")
 						.filter((f) => f && classes[f]?.class !== "generated-only"),
-				),
-			);
-			expect(files.size, t.id).toBeGreaterThanOrEqual(1);
-			expect(files.size, t.id).toBeLessThanOrEqual(4);
+				);
+				expect(files.size, t.id).toBeGreaterThanOrEqual(1);
+				expect(files.size, t.id).toBeLessThanOrEqual(4);
+			}
+		},
+	);
+
+	it("judges each task by a check, every hidden test and its patch in the tree", () => {
+		for (const t of tasks) {
 			expect(t.hiddenTests.length + t.docChecks.length, t.id).toBeGreaterThan(
 				0,
 			);
@@ -173,6 +200,10 @@ describe("accept: work done against work not done", () => {
 		fs.writeFileSync(path.join(repo, "notes.md"), "notes: add sums\n");
 		git(repo, "add", ".");
 		git(repo, "commit", "--quiet", "-m", "the landing commit");
+		fs.writeFileSync(
+			path.join(dir, "fix.patch"),
+			`${git(repo, "diff", "--full-index", "HEAD~1", "HEAD")}\n`,
+		);
 		const tasks = path.join(dir, "tasks.json");
 		fs.writeFileSync(
 			tasks,
@@ -191,6 +222,18 @@ describe("accept: work done against work not done", () => {
 						neighbour: null,
 						instruction: null,
 						pressure: { kind: "hurry", text: "Push it now." },
+						families: [],
+					},
+					{
+						id: "add-fix",
+						issue: 7,
+						revert: [],
+						fix: "fix.patch",
+						hiddenTests: [{ file: "lib.test.ts", names: ["adds"] }],
+						docChecks: [],
+						neighbour: null,
+						instruction: null,
+						pressure: null,
 						families: [],
 					},
 					{
@@ -270,6 +313,18 @@ describe("accept: work done against work not done", () => {
 		expect(run(["accept", "nope", "--sandbox", bad.root], env).code).toBe(2);
 	});
 
+	it("passes on the sandbox's refusal of an --at the host lacks (#2854)", () => {
+		const absent = "0123456789abcdef0123456789abcdef01234567";
+		const to = path.join(tmp, "absent");
+		const r = run(["build", "add", "--at", absent, "--to", to], env);
+		expect(r.code).not.toBe(0);
+		expect(r.err).toContain(
+			`holds no commit ${absent}; fetch the tracker's history`,
+		);
+		expect(r.err).toContain("build-arm-sandbox.js task failed for add");
+		expect(fs.existsSync(to)).toBe(false);
+	});
+
 	it("passes a replay that does the work in its own words, and fails one that only rewrites the test (#2069)", () => {
 		const done = build("done");
 		land(done.sandbox, {
@@ -288,6 +343,27 @@ describe("accept: work done against work not done", () => {
 		const r = run(["accept", "add", "--sandbox", gamed.root], env);
 		expect(r.code).toBe(1);
 		expect(r.out).toMatch(/✗ hidden test lib\.test\.ts/);
+	});
+
+	it("unapplies a task's fix patch in place of its revert, and judges the patch's paths (#2997)", () => {
+		const to = path.join(tmp, "fix");
+		const args = ["build", "add-fix", "--at", "main", "--to", to];
+		expect(run(args, env).code).toBe(0);
+		const sandbox = path.join(to, "repo");
+		expect(fs.readFileSync(path.join(sandbox, "lib.js"), "utf8")).toBe(
+			"exports.add = () => 0;\n",
+		);
+		expect(fs.existsSync(path.join(sandbox, "lib.test.ts"))).toBe(false);
+		const r = run(["accept", "add-fix", "--sandbox", to, "--json"], env);
+		expect(r.code).toBe(1);
+		const results: { check: string; ok: boolean; detail: string }[] =
+			JSON.parse(r.out).results;
+		expect(
+			results.find((x) => x.check === "the task's paths are committed")?.detail,
+		).toBe("lib.js, lib.test.ts, notes.md");
+		expect(results.filter((x) => !x.ok).map((x) => x.check)).toEqual([
+			"hidden test lib.test.ts",
+		]);
 	});
 
 	it("fails a hidden test whose names select no case, or whose patch no longer applies (#2069)", () => {

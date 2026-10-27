@@ -17,13 +17,13 @@
  */
 
 const { heldIssues } = require("./arbiter-issue-claims.js");
-const { adopterCheckouts, homeDir } = require("./refill-repos.js");
+const { readAdopterCheckouts, homeDir } = require("./refill-repos.js");
 const { resolveKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { MAP_LABEL } = require("./issue-gate.js");
 
 /** @param {unknown} e */
-const errMessage = (e) => caught(e).code || caught(e).message;
+const parseErrMessage = (e) => caught(e).code || caught(e).message;
 
 /** @typedef {{repo: string|null, number: number}} IssueRef */
 /** @typedef {ReturnType<typeof heldIssues>} Held */
@@ -126,14 +126,14 @@ function checkoutOf(repo, home) {
 	/** @type {{root: string} | {why: string}} */
 	let found;
 	try {
-		const root = adopterCheckouts(home).included.find((r) =>
+		const root = readAdopterCheckouts(home).included.find((r) =>
 			isSameRepo(hostTracker(r), repo),
 		);
 		found = root
 			? { root }
 			: { why: `no checkout under ${home} tracks ${repo}` };
 	} catch (e) {
-		found = { why: `${home} could not be read (${errMessage(e)})` };
+		found = { why: `${home} could not be read (${parseErrMessage(e)})` };
 	}
 	checkoutMemo.set(key, found);
 	return found;

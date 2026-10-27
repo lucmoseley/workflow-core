@@ -24,9 +24,13 @@ import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import {
+	GH_NOT_FOUND,
+	ghServeLines,
+	type SubIssuesAnswer,
+} from "./lib/gh-fake";
+import {
 	HERE,
 	type StubGh,
-	type SubIssuesAnswer,
 	stubGhScript,
 	subIssuesArm,
 	THERE,
@@ -122,17 +126,13 @@ const writeThreads = (issues: Issue[]) => {
 const threadArms = () => `  */comments?*)
     n=\`echo "$2" | sed 's|.*/issues/||; s|/comments.*||'\`
     if [ -f ${dir}/latest-$n.fail ]; then
-      echo "HTTP 502 (comments/$n)" >&2
-      exit 1
-    fi
+      ${ghServeLines(GH_NOT_FOUND)}    fi
     cat ${dir}/latest-$n.json
     ;;
   */dependencies/blocked_by)
     n=\`echo "$2" | sed 's|.*/issues/||; s|/dependencies.*||'\`
     if [ -f ${dir}/blockers-$n.fail ]; then
-      echo "HTTP 502 (blocked_by/$n)" >&2
-      exit 1
-    fi
+      ${ghServeLines(GH_NOT_FOUND)}    fi
     if [ -f ${dir}/blockers-$n.json ]; then cat ${dir}/blockers-$n.json; else echo '[[]]'; fi
     ;;`;
 
@@ -152,9 +152,13 @@ const stubGh = (
 	const fixture = path.join(dir, "issues.json");
 	fs.writeFileSync(fixture, JSON.stringify([rows]));
 	const kidsOf: Record<number, SubIssuesAnswer> = {};
-	/* Rows built from `parent` only: a cross-repo parent URL is another repo's. */
+	/* Rows built from `parent` only: a cross-repo parent URL is another repo's.
+	 * A pull request is no sub-issue, so /sub_issues never lists one. */
 	for (const r of rows)
-		if (r.parent_issue_url?.startsWith("http://api/issues/")) {
+		if (
+			r.parent_issue_url?.startsWith("http://api/issues/") &&
+			!("pull_request" in r)
+		) {
 			const n = Number(r.parent_issue_url.split("/").pop());
 			const list = kidsOf[n];
 			if (Array.isArray(list)) list.push(r);
@@ -1079,7 +1083,7 @@ describe("a stale takes:children", () => {
 		expect(r.status).toBe(0);
 		expect(r.out).not.toContain("STALE-CONTAINER");
 		expect(r.out).toContain("CHILDREN-UNREADABLE");
-		expect(r.out).toContain("HTTP 502");
+		expect(r.out).toContain("HTTP 404");
 	});
 
 	it("SKIPs, reporting no STALE-CONTAINER, when GitHub goes unreachable on its read", () => {
@@ -1597,6 +1601,46 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(flagged({ comments: ["Not **Blocked** any more."] }).fault).toBe(
 			false,
 		);
+	});
+
+	/* #3111: #2862 was refused 12 times, each a comment of this shape alone. */
+	const Refused =
+		"**Refused attempt 12, 2026-10-26 17:18:** not quiet. `session_count()` = 9 against `--require-quiet=3`.";
+
+	it("warns where the latest comment opens **Refused attempt and nothing gates it, naming what it opens", () => {
+		const { r, fault } = flagged({ comments: [Blocked, Refused] });
+		expect(fault).toBe(true);
+		expect(r.out).toContain("#520");
+		expect(r.out).toContain("opens **Refused attempt");
+	});
+
+	it("stays silent on a **Refused comment that records no attempt", () => {
+		expect(
+			flagged({ comments: ["**Refused:** the relabel, as out of scope."] })
+				.fault,
+		).toBe(false);
+	});
+
+	it("stays silent where a gate line holds a Refused attempt", () => {
+		expect(flagged({ comments: [Refused], body: Gate }).fault).toBe(false);
+	});
+
+	it("stays silent where an unexpired Gated until line holds a Refused attempt", () => {
+		expect(
+			flagged({
+				comments: [Refused],
+				body: "**Gated until:** 2099-01-01 — waiting on a quiet machine\n**Gate basis:** the fleet drains overnight",
+			}).fault,
+		).toBe(false);
+	});
+
+	it("stays silent where an open native blocker holds a Refused attempt", () => {
+		expect(
+			flagged({
+				comments: [Refused],
+				blockers: [{ number: 8, state: "open" }],
+			}).fault,
+		).toBe(false);
 	});
 
 	it("reads no comment of an issue that has none", () => {

@@ -113,19 +113,17 @@ def rules_dir():
     )
 
 
-# The rules `scripts/guard-tracker-rules.sh` hands over by `gp_rule` on the
-# Bash call. That guard, not the index, is the route spec mantahostels#2457's "~100%"
-# belongs to: the index carries only what has no `gh` shape a guard can catch
-# it on.
-GUARD = "scripts/guard-tracker-rules.sh"
-# The argument run admits a `rule:` prefix on each id, and it is stripped below:
-# `gp_rule` bares one before it latches (mantahostels#2719), so a prefixed argument would
-# otherwise end the run and drop every id after it.
-GP_RULE_CALL = re.compile(r"^gp_rule((?:[ \t]+(?:rule:)?[a-z0-9-]+)+)", re.M)
+# The rules `scripts/lib/tracker-rules.js` hands over on the Bash call. That
+# guard, not the index, is the route spec mantahostels#2457's "~100%" belongs
+# to: the index carries only what has no `gh` shape a guard can catch it on.
+GUARD = "scripts/lib/tracker-rules.js"
+# The core names its ids literally, in one `injectRules: [...]` array.
+IDS_ARRAY = re.compile(r"^\s*injectRules: \[(.*?)\]", re.M | re.S)
+QUOTED_ID = re.compile(r'"([a-z0-9-]+)"')
 
 
 def guard_ids():
-    """The ids `guard-tracker-rules.sh` registers, read from the guard itself.
+    """The ids `lib/tracker-rules.js` registers, read from the core itself.
 
     Read rather than listed here, so a rule added to or dropped from the guard
     is counted without this file being touched. An unreadable guard reads as no
@@ -138,11 +136,7 @@ def guard_ids():
         ).read()
     except OSError:
         return set()
-    return {
-        i[len(RULE_PREFIX) :] if i.startswith(RULE_PREFIX) else i
-        for run in GP_RULE_CALL.findall(src)
-        for i in run.split()
-    }
+    return {i for run in IDS_ARRAY.findall(src) for i in QUOTED_ID.findall(run)}
 
 
 def needles():

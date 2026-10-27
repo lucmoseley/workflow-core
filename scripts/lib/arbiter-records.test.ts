@@ -15,7 +15,13 @@
  * family that mints one.
  */
 import { describe, expect, it } from "vitest";
-import { debtOf, freshSandbox, locks, proc, store } from "./arbiter-testkit";
+import {
+	freshSandbox,
+	locks,
+	proc,
+	readDebtOf,
+	store,
+} from "./arbiter-testkit";
 
 freshSandbox();
 
@@ -35,12 +41,12 @@ describe("the record factories — where a record's fields are written down", ()
 		const a = locks.newLock({ path: "docs/a.md" });
 		const b = locks.newLock({ path: "docs/a.md" });
 		expect(a.claimId).not.toBe(b.claimId);
-		expect(a.bootId).toBe(proc.currentBootId() || undefined);
+		expect(a.bootId).toBe(proc.readCurrentBootId() || undefined);
 	});
 
 	it("gives a debt five fields — mantahostels#116 cut the blocking session, #1170 added the recording one", () => {
 		store.registerDenial("docs/a.md");
-		expect(Object.keys(debtOf("docs/a.md") ?? {}).sort()).toEqual([
+		expect(Object.keys(readDebtOf("docs/a.md") ?? {}).sort()).toEqual([
 			"createdAt",
 			"gist",
 			"issue",
@@ -51,7 +57,7 @@ describe("the record factories — where a record's fields are written down", ()
 
 	it("defaults a debt to unowned, which is the stub a denial writes", () => {
 		store.registerDenial("docs/a.md");
-		const d = debtOf("docs/a.md");
+		const d = readDebtOf("docs/a.md");
 		expect(d?.issue).toBeNull();
 		expect(d?.gist).toBeNull();
 		expect(d?.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);

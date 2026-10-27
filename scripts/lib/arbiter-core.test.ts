@@ -8,7 +8,7 @@
  * Each case runs in arbiter-testkit's sandbox, with `gh` faked and sessions
  * registered by hand, so no case reads or writes the founder's live registry.
  *
- * Every arbiter family and the `guard-file-claim.sh` `PreToolUse` hook stand on
+ * Every arbiter family and the `lib/file-claim.js` `PreToolUse` core stand on
  * these primitives: loosen a case here and state lands in the wrong directory
  * or a finished session reads as live, so claims block or vanish everywhere.
  */
@@ -21,7 +21,6 @@ import {
 	AS_ROOT,
 	core,
 	DEAD,
-	debtOf,
 	durably,
 	fakeGh,
 	freshSandbox,
@@ -31,13 +30,14 @@ import {
 	markers,
 	noSessions,
 	proc,
+	readDebtOf,
 	registerSession,
 	store,
 } from "./arbiter-testkit";
 
 const sb = freshSandbox();
 
-/** What record-write.sh does on PostToolUse. */
+/** What the post-write core records on PostToolUse. */
 const record = (rel: string, sessionId: string) =>
 	store.recordWrite(path.join(sb.repo, rel), sessionId);
 
@@ -373,6 +373,80 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 	});
 });
 
+describe("withGitTimeout bounds the store's git (#2891)", () => {
+	/* A git at WFC_GIT that hangs past the bound on every call, tallying each.
+	 * The bound is crossed on the real clock, as only a real process can be
+	 * killed past it; 200 ms keeps that cheap, and the sleep outlives it. */
+	const hangingGit = (dir: string) => {
+		fs.mkdirSync(dir, { recursive: true });
+		const bin = path.join(dir, "git");
+		const calls = path.join(dir, "git-calls");
+		fs.writeFileSync(
+			bin,
+			`#!/bin/sh\necho x >> ${JSON.stringify(calls)}\nexec sleep 30\n`,
+			{ mode: 0o755 },
+		);
+		return {
+			bin,
+			count: () => fs.readFileSync(calls, "utf8").trim().split("\n").length,
+		};
+	};
+
+	it("reads a hung root lookup as an overrun, spawning no git after it", () => {
+		const here = fs.mkdtempSync(path.join(sb.dir, "cwd-hang-"));
+		const git = hangingGit(path.join(sb.dir, "g-hang"));
+		const savedCwd = process.cwd();
+		const savedProject = process.env.CLAUDE_PROJECT_DIR;
+		vi.stubEnv("WFC_GIT", git.bin);
+		delete process.env.CLAUDE_PROJECT_DIR;
+		process.chdir(here);
+		try {
+			const { value, overran } = core.withGitTimeout(200, () => [
+				core.repoRoot(),
+				core.repoRoot(),
+				core.git(["status", "--porcelain"]),
+			]);
+			expect(overran).toBe(true);
+			expect(value).toEqual([
+				fs.realpathSync(here),
+				fs.realpathSync(here),
+				null,
+			]);
+		} finally {
+			process.chdir(savedCwd);
+			vi.unstubAllEnvs();
+			if (savedProject !== undefined)
+				process.env.CLAUDE_PROJECT_DIR = savedProject;
+		}
+		expect(git.count()).toBe(1);
+	});
+
+	it("reads a hung git call as an overrun and null, spawning no git after it", () => {
+		const git = hangingGit(path.join(sb.dir, "g-hang-call"));
+		vi.stubEnv("WFC_GIT", git.bin);
+		try {
+			const { value, overran } = core.withGitTimeout(200, () => [
+				core.git(["status", "--porcelain"]),
+				core.gitRaw(["show", "HEAD:a.md"]),
+				core.gitIn(["hash-object", "--stdin"], "x"),
+			]);
+			expect(overran).toBe(true);
+			expect(value).toEqual([null, null, null]);
+		} finally {
+			vi.unstubAllEnvs();
+		}
+		expect(git.count()).toBe(1);
+	});
+
+	it("reports no overrun where git answers inside the bound", () => {
+		const { value, overran } = core.withGitTimeout(10_000, () =>
+			core.git(["--version"]),
+		);
+		expect(overran).toBe(false);
+		expect(value).toMatch(/^git version /);
+	});
+});
+
 describe("freshSandbox's setUp callback (mantahostels#205)", () => {
 	// Its own sandbox, registered after the file's, so its hook runs last.
 	const captured: string[] = [];
@@ -646,7 +720,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			const p = store.paths.debt("docs/doc-map.md");
 			fs.chmodSync(p, 0o000);
 			try {
-				expect(store.debtNotice("docs/doc-map.md")).toMatch(
+				expect(store.buildDebtNotice("docs/doc-map.md")).toMatch(
 					/registered debt that could not be read/,
 				);
 			} finally {
@@ -660,7 +734,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 			// exists for.
 			store.registerDenial("docs/doc-map.md");
 			sealed(store.paths.debtsDir(), () => {
-				expect(store.debtNotice("docs/doc-map.md")).toMatch(
+				expect(store.buildDebtNotice("docs/doc-map.md")).toMatch(
 					/registered debt that could not be read/,
 				);
 			});
@@ -669,7 +743,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 		it("still reports no debt where none was ever registered", () => {
 			// A readable store with nothing in it must stay silent, or every claim on
 			// the machine carries a debt warning.
-			expect(store.debtNotice("docs/doc-map.md")).toBeNull();
+			expect(store.buildDebtNotice("docs/doc-map.md")).toBeNull();
 		});
 	});
 
@@ -758,7 +832,7 @@ describe("the error log — the only thing that breaks fail-open's silence", () 
 	 * broken narrowing killed no test while that was the only shape covered.
 	 */
 	/** The single line the log holds, for a test that wrote exactly one. */
-	const loggedLine = () =>
+	const readLoggedLine = () =>
 		fs.readFileSync(store.errorLog(), "utf8").split("\n").find(Boolean) ?? "";
 
 	it("logs an Error's first stack line, not its whole stack", () => {
@@ -771,7 +845,7 @@ describe("the error log — the only thing that breaks fail-open's silence", () 
 		const err = new Error("boom");
 		err.stack = "Error: boom\n    at frameOne\n    at frameTwo";
 		store.logError("where", err);
-		const line = loggedLine();
+		const line = readLoggedLine();
 		expect(line).toContain("Error: boom");
 		expect(line).not.toContain("frameTwo");
 		expect(line.split("\t").length).toBe(3);
@@ -781,20 +855,20 @@ describe("the error log — the only thing that breaks fail-open's silence", () 
 		// What a JSON round-trip of an Error leaves behind, and this store reads
 		// its own JSON.
 		store.logError("where", { message: "boom", stack: null });
-		expect(loggedLine()).toContain("[object Object]");
-		expect(loggedLine()).not.toContain("\tnull");
+		expect(readLoggedLine()).toContain("[object Object]");
+		expect(readLoggedLine()).not.toContain("\tnull");
 	});
 
 	it("logs a thrown string as itself", () => {
 		store.logError("where", "boom");
-		expect(loggedLine()).toMatch(/\tboom$/);
+		expect(readLoggedLine()).toMatch(/\tboom$/);
 	});
 
 	it("logs something rather than nothing when the stack is not a string", () => {
 		// This one used to throw inside the template and reach the outer catch,
 		// which logged nothing at all.
 		store.logError("where", { stack: 123 });
-		expect(loggedLine()).toContain("[object Object]");
+		expect(readLoggedLine()).toContain("[object Object]");
 	});
 
 	it("keeps a TAB in a path from shifting the log's fields", () => {
@@ -832,7 +906,7 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 			JSON.stringify({
 				pid: process.pid,
 				sessionId,
-				procStart: proc.procStartOf(process.pid),
+				procStart: proc.readProcStartOf(process.pid),
 				status: "idle",
 				cwd: sb.repo,
 			}),
@@ -1080,11 +1154,11 @@ describe("subject handling — review findings", () => {
 	const docMap = "docs/doc-map.md";
 
 	it("keeps the region out of the write ledger, which names files", () => {
-		// guard-commit-form.sh compares the ledger against staged paths, and git
+		// guard-commit-form.js compares the ledger against staged paths, and git
 		// stages no region — so an unstripped subject warns the session off its own
 		// commit as "a path this session never wrote".
 		store.recordWrite(path.join(sb.repo, `${docMap}#B42`), "alice");
-		expect(store.writesBy("alice")).toEqual([docMap]);
+		expect(store.readWritesBy("alice")).toEqual([docMap]);
 	});
 
 	it("reads a `#` in a real filename as part of the name, not as a region", () => {
@@ -1131,7 +1205,7 @@ describe("subject handling — review findings", () => {
 		// Every debt registered before this change is keyed on the plain path, and
 		// draining that queue is the change's entire purpose.
 		store.ownDebt(docMap, 123, "an edit owed on this file");
-		const notice = store.debtNotice(`${docMap}#B42`);
+		const notice = store.buildDebtNotice(`${docMap}#B42`);
 		expect(notice).toContain("123");
 	});
 
@@ -1141,8 +1215,8 @@ describe("subject handling — review findings", () => {
 		store.ownDebt(docMap, 123, "a file-level debt");
 		store.registerDenial(`${docMap}#B42`);
 		/* The unowned stub sits on the region alone, none on the file. */
-		expect(debtOf(`${docMap}#B42`)).not.toBeNull();
-		expect(debtOf(docMap)).toBeNull();
+		expect(readDebtOf(`${docMap}#B42`)).not.toBeNull();
+		expect(readDebtOf(docMap)).toBeNull();
 	});
 
 	it("refreshes the whole-file pin as well as the regions a session holds", () => {
@@ -1169,7 +1243,7 @@ describe("subject handling — review findings", () => {
 		for (let i = 0; i < 12; i++)
 			store.ownDebt(docMap, 500 + i, `a file-level debt ${i}`);
 		store.ownDebt(`${docMap}#B42`, 999, "the debt on this very entry");
-		const notice = store.debtNotice(`${docMap}#B42`);
+		const notice = store.buildDebtNotice(`${docMap}#B42`);
 		expect(notice).toContain("#999");
 		expect(notice).toContain("more: node scripts/session-arbiter.js debt list");
 		expect(notice.split("\n").length).toBeLessThan(14);
@@ -1182,7 +1256,7 @@ describe("subject handling — review findings", () => {
 		for (let i = 0; i < 5; i++)
 			store.ownDebt(docMap, 600 + i, `file debt ${i}`);
 		store.ownDebt(`${docMap}#B42`, 700, "this entry's own debt");
-		store.debtNotice(`${docMap}#B42`);
+		store.buildDebtNotice(`${docMap}#B42`);
 		expect(ghCallCount(sb)).toBe(0);
 	});
 

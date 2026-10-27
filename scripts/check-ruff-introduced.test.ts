@@ -32,7 +32,7 @@ import { ROOT } from "./lib/precommit-gate-testkit";
 import {
 	PLUGIN_SELECT,
 	REAL_RUFF,
-	stubCalls,
+	readStubCalls,
 	writeHostConfig,
 	writeRuffStub,
 } from "./lib/ruff-testkit";
@@ -74,7 +74,7 @@ function check(
 	});
 	const code = run.status ?? 1;
 	const output = `${run.stdout}${run.stderr}`;
-	return { code, output, calls: stubCalls(path.join(r.root, ARGS_FILE)) };
+	return { code, output, calls: readStubCalls(path.join(r.root, ARGS_FILE)) };
 }
 
 /** The value following each occurrence of `flag`, across every call. */

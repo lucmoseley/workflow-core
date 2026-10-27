@@ -1,29 +1,36 @@
 // @vitest-environment node
 /*
- * guard-rm-unchecked.sh refuses, once per command, an `rm` Claude Code's
- * built-in removal check cannot resolve (#2436). A firing case that goes
- * silent leaves an away-mode session to meet a permission prompt nobody
- * answers; a silent case that fires costs every plain `rm` a round trip.
+ * guard-rm-unchecked.js refuses, once per command, an `rm` Claude Code's
+ * built-in removal check cannot resolve (#2436). These are its boundary cases
+ * (§X11), run as the harness runs it: the payload on stdin, the rule store,
+ * and the latch on disk under CLAUDE_PROJECT_DIR. Which command earns which
+ * verdict, and the refusal's words, are lib/unchecked-rm.test.ts's (#2801).
  *
- * It spawns the real guard on a harness-shaped PreToolUse payload, with
- * `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` in a temp directory so its latch
- * and fail-open log never land in the real checkout or the founder's log.
+ * `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` sit in a temp directory so the
+ * latch and the fail-open log never land in the real checkout or the
+ * founder's log.
  */
 
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import {
 	buildBashPayload,
+	entryBesideThrowingCore,
 	guardDirs,
-	guardOutput,
+	nodeGuardOutput,
+	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-rm-unchecked.sh");
+const GUARD = path.resolve(__dirname, "guard-rm-unchecked.js");
 /* CommonJS, hence the require. */
-const { ruleText } = require("./lib/rule-text") as {
-	ruleText: (id: string) => string;
+const { readRuleText } = require("./lib/rule-text") as {
+	readRuleText: (id: string) => string;
 };
+
+const COMMAND = "rm -rf $T/*";
 
 let dir: string;
 let config: string;
@@ -32,94 +39,168 @@ beforeEach(() => {
 	({ dir, config } = guardDirs("rm-unchecked-"));
 });
 
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+	const markers = path.join(dir, ".claude", "tmp", "markers");
+	if (fs.existsSync(markers)) fs.chmodSync(markers, 0o755);
+	fs.rmSync(dir, { recursive: true, force: true });
+});
 
-/** The hook's hookSpecificOutput for `command`, or null where it said nothing. */
-const emission = (command: string, session = `s-${Math.random()}`) =>
-	guardOutput(
-		GUARD,
-		{ ...buildBashPayload(command, session), hook_event_name: "PreToolUse" },
-		{ project: dir, config, cwd: dir },
+/** The hook's hookSpecificOutput for `payload`, or null; exit 0 and a quiet
+ * stderr asserted on every call. */
+const emission = (payload: object, env: NodeJS.ProcessEnv = {}) =>
+	nodeGuardOutput(GUARD, payload, { project: dir, config, cwd: dir, env });
+
+/** The latch file at guard-entry.js's latchPath for `command`. */
+const latchFile = (command: string, session: string, agent = "main") =>
+	path.join(
+		dir,
+		".claude",
+		"tmp",
+		"markers",
+		`.rule-injected-rm-unchecked.${crypto.createHash("sha1").update(command).digest("hex").slice(0, 16)}-${agent}-${session}`,
 	);
 
-describe("an rm the harness cannot check is refused, naming both spellings", () => {
-	it.each([
-		[
-			"rm -rf $T/*",
-			"a variable the command never sets, then a slash",
-			"`$T/*`",
-		],
-		['rm -f "$S/$f"', "the same, quoted", "`$S/$f`"],
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell expansion under test, not a JS placeholder
-		["rm -rf ${D}/x", "the same, braced", "`${D}/x`"],
-		[
-			"T=$(mktemp -d); rm -rf $T/*",
-			"a variable set from a command substitution, probed denied on #2436",
-			"`$T/*`",
-		],
-		["cd /tmp && rm -f corpus/*", "a relative glob after a cd", "`corpus/*`"],
-		[
-			"T=$(mktemp -d -p .claude/tmp p.XXXX); for c in a b; do g=x.sh; bash $g; done; rm -rf $T",
-			"rm beside a shell running a variable's script",
-			"`$g`",
-		],
-		["bash -c 'rm -rf \"$x\"'", "an rm inside a shell -c script", "`-c`"],
-		[
-			"bash -c 'make'; rm -rf .claude/tmp/lit",
-			"a literal rm beside a shell -c script",
-			"`-c`",
-		],
-		[
-			"P=/home/x; for d in c d e; do rm -rf $P/$d; done",
-			"a second variable in the target the command never sets",
-			"`$P/$d`",
-		],
-		[
-			"bash -c 'echo; rm -rf x' arg0",
-			"an rm after the -c script's first command, with a $0",
-			"`-c`",
-		],
-		["bash -o pipefail -c 'rm x'", "a -o value before -c", "`-c`"],
-		['env bash -c "rm x"', "a shell behind env", "`-c`"],
-		["sudo rm -rf $T/*", "an rm behind sudo", "`$T/*`"],
-	])("%s is refused — %s", (command, _why, quoted) => {
-		const out = emission(command);
-		expect(out?.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toContain(quoted);
-		expect(out.permissionDecisionReason).toContain(ruleText("rm-unchecked"));
-		expect(out.permissionDecisionReason).toContain("A LITERAL PATH");
-		expect(out.permissionDecisionReason).toContain("NO `rm` AT ALL");
+const readLogLines = () =>
+	readFailOpenLog(config, dir)
+		.trim()
+		.split("\n")
+		.map((l) => l.split("\t").slice(1));
+
+describe("the refusal, end to end", () => {
+	it("refuses as JSON on exit 0 carrying the rule, writes the latch, and lets the re-send through", () => {
+		const out = emission(buildBashPayload(COMMAND, "one-session"));
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain("`$T/*`");
+		expect(out.permissionDecisionReason).toContain(
+			readRuleText("rm-unchecked"),
+		);
+		expect(fs.readFileSync(latchFile(COMMAND, "one-session"), "utf8")).toBe("");
+		expect(emission(buildBashPayload(COMMAND, "one-session"))).toBeNull();
+		expect(
+			emission(buildBashPayload(COMMAND, "another-session"))
+				?.permissionDecision,
+		).toBe("deny");
+		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
 	});
 
-	it("lets the same command through on its re-send, and refuses a different one", () => {
-		const session = "one-session";
-		expect(emission("rm -rf $T/*", session)?.permissionDecision).toBe("deny");
-		expect(emission("rm -rf $T/*", session)).toBeNull();
-		expect(emission("rm -rf $U/*", session)?.permissionDecision).toBe("deny");
+	it("passes a re-send whose latch sits at guard-entry.js's latchPath, a subagent's keyed on its agent id", () => {
+		fs.mkdirSync(path.join(dir, ".claude", "tmp", "markers"), {
+			recursive: true,
+		});
+		fs.writeFileSync(latchFile(COMMAND, "s_1", "aag_7"), "");
+		expect(
+			emission({ ...buildBashPayload(COMMAND, "s:1"), agent_id: "ag/7" }),
+		).toBeNull();
+		expect(emission(buildBashPayload(COMMAND, "s:1"))?.permissionDecision).toBe(
+			"deny",
+		);
+	});
+
+	it("passes a command it has no cause to refuse, silently", () => {
+		expect(emission(buildBashPayload("rm -rf .claude/tmp/abc"))).toBeNull();
+		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
+	});
+
+	it("still refuses, carrying the fallback, where the rule store is empty", () => {
+		const store = fs.mkdtempSync(path.join(dir, "store-"));
+		const out = emission(buildBashPayload(COMMAND), { WFC_RULES_DIR: store });
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"the rule could not be read from docs/agents/rules/rm-unchecked.txt",
+		);
+	});
+
+	it("spells the fragment's file at the plugin root in an install", () => {
+		// WFC_SCRIPT_ROOT stands in for an install: a core root with no
+		// package.json.
+		const install = path.join(dir, "install");
+		const rules = path.join(install, "docs", "agents", "rules");
+		fs.mkdirSync(rules, { recursive: true });
+		fs.writeFileSync(path.join(rules, "rm-unchecked.txt"), "x\n");
+		const out = emission(buildBashPayload(COMMAND), {
+			WFC_RULES_DIR: fs.mkdtempSync(path.join(dir, "store-")),
+			WFC_SCRIPT_ROOT: install,
+		});
+		expect(out.permissionDecisionReason).toContain(
+			`read from ${rules}/rm-unchecked.txt.`,
+		);
 	});
 });
 
-describe("an rm the harness resolves passes silently", () => {
+describe("the fail-open record", () => {
+	const run = (stdin: string) =>
+		runNodeGuard(GUARD, null, { project: dir, config, cwd: dir, stdin });
+
+	it("treats an empty payload as nothing to check, not a fault", () => {
+		const r = run("");
+		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
+	});
+
 	it.each([
-		["rm -rf .claude/tmp/abc-1234", "a literal path"],
-		["rm file.txt", "a plain rm"],
-		["T=.claude/tmp/x; rm -rf $T/*", "a variable the command sets first"],
-		["export T=.claude/tmp/x; rm -rf $T/*", "a variable an export sets"],
 		[
-			"R=sub; S=v3; rm -f $R/$S/a",
-			"every variable set first, measured to pass",
+			"a payload that is not JSON",
+			"{not json",
+			/payload did not parse as JSON/,
 		],
-		["T=$(mktemp -d); rm -rf $T", "a bare variable, measured to pass"],
 		[
-			'for f in a b; do rm "$f"; done',
-			"a loop's bare variable, measured to pass",
+			"a payload carrying no command",
+			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
+			/no command in payload/,
 		],
-		["rm -f corpus/*", "a relative glob with no cd"],
-		["bash scripts/x.sh; rm -rf .claude/tmp/a", "a shell running a named file"],
-		["bash -c 'echo hi'", "a shell -c script with no rm"],
-		['echo "rm -rf $T/x"', "rm only quoted as text"],
-		["git rm -r $T/x", "git rm, which the check does not read"],
-	])("%s passes — %s", (command) => {
-		expect(emission(command)).toBeNull();
+	])("records %s, allowing", (_l, stdin, match) => {
+		const r = run(stdin);
+		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+		expect(readLogLines()).toEqual([
+			["guard-rm-unchecked.js", expect.stringMatching(match)],
+		]);
+	});
+
+	it.each([
+		["no session id", buildBashPayload(COMMAND, null)],
+		["an empty session id", buildBashPayload(COMMAND, "")],
+		[
+			"a session id that is no string",
+			{ ...buildBashPayload(COMMAND), session_id: 7 },
+		],
+	])("allows, logged, a payload with %s to key the latch on", (_l, payload) => {
+		expect(emission(payload)).toBeNull();
+		expect(readLogLines()).toEqual([
+			[
+				"guard-rm-unchecked.js",
+				"latch path unresolved — an unchecked rm allowed unrefused",
+			],
+		]);
+	});
+
+	it("allows, logged, where the markers directory is unwritable", () => {
+		const markers = path.join(dir, ".claude", "tmp", "markers");
+		fs.mkdirSync(markers, { recursive: true });
+		fs.chmodSync(markers, 0o555);
+		expect(emission(buildBashPayload(COMMAND))).toBeNull();
+		expect(readLogLines()).toEqual([
+			[
+				"guard-rm-unchecked.js",
+				"latch directory unwritable — an unchecked rm allowed unrefused",
+			],
+		]);
+	});
+
+	it("allows, logged, where its core throws: the refusal is advisory", () => {
+		const entry = entryBesideThrowingCore(
+			dir,
+			"scripts/guard-rm-unchecked.js",
+			"unchecked-rm.js",
+		);
+		expect(
+			nodeGuardOutput(entry, buildBashPayload(COMMAND), {
+				project: dir,
+				config,
+				cwd: dir,
+			}),
+		).toBeNull();
+		expect(readLogLines()).toEqual([
+			["guard-rm-unchecked.js", "guard threw — allowed unchecked: broke"],
+		]);
 	});
 });

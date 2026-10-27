@@ -1,8 +1,18 @@
 // @vitest-environment node
 /*
- * record-divergence.sh writes one row per refused `git pull` and rejected `git
+ * record-divergence.js writes one row per refused `git pull` and rejected `git
  * push` (#289), and divergence-report.js reads them back across every repo at
  * once.
+ *
+ * THE RECORDER'S BOUNDARY SET (base §X11, #2797): each exit, each input
+ * channel, and each production adapter crossed once for real — git in a temp
+ * repo, the pushed ref through lib/landing-refs.js, `ps` real and at WFC_PS,
+ * the clock real and at WFC_NOW, the log directory written. Which calls are
+ * refusals, and the row's every field, are lib/divergence-row.test.ts's.
+ *
+ * Run in process through lib/run-in-process.js (base §X3), which reproduces
+ * the boundary pinned here — nothing on either stream and exit 0, whatever
+ * happens.
  *
  * Every case gets its own CLAUDE_CONFIG_DIR, because that is where the log
  * lands and an unset one would append to the founder's live record — and the
@@ -21,16 +31,17 @@
  * any reconcile recipe (#290) is aimed at a cause the record misstates.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readFailOpenLog } from "./guard-log-fixture";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { projectSlug } from "./lib/project-slug.js";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
-const RECORDER = path.resolve(__dirname, "record-divergence.sh");
+const RECORDER = path.resolve(__dirname, "record-divergence.js");
 const REPORT = path.resolve(__dirname, "divergence-report.js");
 
 let scratch: string;
@@ -107,12 +118,10 @@ const buildShape = (work: string, ahead: number, behind: number) => {
 const SHAPES = [
 	[0, 0],
 	[0, 1],
-	[0, 2],
 	[1, 0],
 	[1, 1],
 	[1, 2],
 	[2, 0],
-	[2, 1],
 	[2, 3],
 ] as const;
 
@@ -128,23 +137,24 @@ const shapes = defineTemplate(
 const repoWith = (name: string, ahead: number, behind: number) =>
 	shapes.instantiate(path.join(scratch, name), `${ahead}/${behind}`);
 
-const fire = (
-	cwd: string,
-	command: string,
-	response: unknown,
-	env: Record<string, string> = {},
-) => {
-	const r = spawnSync(RECORDER, [], {
-		encoding: "utf8",
-		input: JSON.stringify({
-			tool_name: "Bash",
-			cwd,
-			tool_input: { command },
-			tool_response: response,
-		}),
+/**
+ * Run the recorder on `stdin` as fd 0. Nothing on either stream and exit 0,
+ * on every call.
+ */
+const run = ({
+	stdin,
+	env = {},
+	entry = RECORDER,
+}: {
+	stdin: string;
+	env?: Record<string, string>;
+	entry?: string;
+}) => {
+	const r = runInProcess(entry, [], {
+		stdin,
+		cwd: scratch,
 		env: { ...process.env, CLAUDE_CONFIG_DIR: config, ...env },
 	});
-	if (r.status === null) throw new Error(`recorder did not run: ${r.error}`);
 	// A PostToolUse hook's stdout is context handed to the session, on every
 	// git call.
 	expect(r.stdout).toBe("");
@@ -153,8 +163,25 @@ const fire = (
 	return r;
 };
 
+/** The recorder on a Bash payload: `command` run in `cwd`, answered `response`. */
+const fire = (
+	cwd: string,
+	command: string,
+	response: unknown,
+	env: Record<string, string> = {},
+) =>
+	run({
+		stdin: JSON.stringify({
+			tool_name: "Bash",
+			cwd,
+			tool_input: { command },
+			tool_response: response,
+		}),
+		env,
+	});
+
 /** Every row written so far, across every project directory. */
-const rows = () => {
+const readRows = () => {
 	const projects = path.join(config, "projects");
 	if (!fs.existsSync(projects)) return [];
 	const out: string[][] = [];
@@ -186,12 +213,14 @@ afterEach(() => {
 	fs.rmSync(scratch, { recursive: true, force: true });
 });
 
-describe("record-divergence.sh", () => {
+describe("record-divergence.js", () => {
 	it("records a refused ff-only pull with the divergence that caused it", () => {
+		// Real git, the real pushed ref, the real `ps`, the real clock and the
+		// real log directory, each crossed once.
 		const work = repoWith("diverged", 2, 3);
 		fire(work, "git pull --ff-only", FF_REFUSAL);
 
-		const [row] = rows();
+		const [row] = readRows();
 		expect(row).toBeDefined();
 		const [when, repo, kind, ahead, behind, state, sessions, ref, marker] = row;
 		expect(when).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.000Z$/);
@@ -205,23 +234,12 @@ describe("record-divergence.sh", () => {
 		expect(marker).toBe("Not possible to fast-forward");
 	});
 
-	it("calls a session with no commits of its own `behind`, not `diverged`", () => {
-		const work = repoWith("laggard", 0, 2);
-		fire(work, "git pull --ff-only", FF_REFUSAL);
-		expect(rows()[0].slice(2, 6)).toEqual(["pull", "0", "2", "behind"]);
-	});
-
-	it("records a rejected push, whose behind count is a lower bound", () => {
-		const work = repoWith("rejected", 1, 0);
-		fire(work, "git push origin main", PUSH_REJECT);
-		expect(rows()[0].slice(2, 6)).toEqual(["push", "1", "0", "ahead"]);
-	});
-
-	it("reads git's subcommand past its global options", () => {
-		const work = repoWith("viaC", 1, 1);
-		fire(work, `git -c core.pager=cat -C ${work} pull --ff-only`, FF_REFUSAL);
-		expect(rows()).toHaveLength(1);
-		expect(rows()[0][2]).toBe("pull");
+	it("stamps the row at WFC_NOW where it is set", () => {
+		const work = repoWith("pinned", 1, 1);
+		fire(work, "git pull --ff-only", FF_REFUSAL, {
+			WFC_NOW: "2026-10-25T01:02:03.987Z",
+		});
+		expect(readRows()[0][0]).toBe("2026-10-25T01:02:03.000Z");
 	});
 
 	it("files a `git -C` refusal under the repo it was refused in", () => {
@@ -230,8 +248,8 @@ describe("record-divergence.sh", () => {
 		const here = repoWith("session-repo", 0, 0);
 		const there = repoWith("elsewhere", 2, 3);
 		fire(here, `git -C ${there} pull --ff-only`, FF_REFUSAL);
-		expect(rows()).toHaveLength(1);
-		expect(rows()[0].slice(1, 6)).toEqual([
+		expect(readRows()).toHaveLength(1);
+		expect(readRows()[0].slice(1, 6)).toEqual([
 			"elsewhere",
 			"pull",
 			"2",
@@ -240,89 +258,88 @@ describe("record-divergence.sh", () => {
 		]);
 	});
 
-	it("resolves a relative `-C` against the command's own cwd", () => {
-		repoWith("relative-target", 2, 1);
-		fire(scratch, "git -C relative-target pull --ff-only", FF_REFUSAL);
-		expect(rows()).toHaveLength(1);
-		expect(rows()[0].slice(1, 5)).toEqual([
-			"relative-target",
-			"pull",
-			"2",
-			"1",
-		]);
-	});
-
-	it("composes repeated `-C`, as git does", () => {
-		repoWith("nested", 1, 2);
-		fs.mkdirSync(path.join(scratch, "hop"));
-		// `hop/../nested` reaches the repo only if the two compose: a walker taking
-		// the first `-C` lands in `hop`, one taking the last lands in `../nested`,
-		// and neither is a repository.
-		fire(scratch, "git -C hop -C ../nested pull --ff-only", FF_REFUSAL);
-		expect(rows()).toHaveLength(1);
-		expect(rows()[0].slice(1, 5)).toEqual(["nested", "pull", "1", "2"]);
-	});
-
 	it("drops the row where the `-C` path does not resolve", () => {
 		const here = repoWith("unresolved-C", 1, 1);
 		// #289 counts refusals per repo. Filing this under the session's own repo
 		// would invent an observation there and hide one wherever it really
-		// happened; the count is a lower bound instead.
-		fire(here, "git -C $WORKTREE pull --ff-only", FF_REFUSAL);
-		expect(rows()).toEqual([]);
-	});
-
-	it("finds a pull in a later segment of a compound command", () => {
-		const work = repoWith("compound", 1, 1);
-		fire(work, "git fetch origin && git pull --ff-only", FF_REFUSAL);
-		expect(rows()).toHaveLength(1);
-	});
-
-	it("records a pull after an empty segment", () => {
-		const work = repoWith("after-empty", 1, 1);
-		fire(work, "true; ( ); git pull --ff-only", FF_REFUSAL);
-		expect(rows()).toHaveLength(1);
-	});
-
-	for (const [why, command, response] of [
-		[
-			"a pull that succeeded",
-			"git pull --ff-only",
-			{ stdout: "Already up to date." },
-		],
-		[
-			"another subcommand entirely",
-			"git status",
-			{ stdout: "nothing to commit" },
-		],
-		[
-			"a command that only mentions a pull",
-			'grep -rn "git pull" docs',
-			{ stdout: "Not possible to fast-forward" },
-		],
-		[
-			"a config key whose value reads like a subcommand",
-			"git -c alias.x=pull status",
-			{ stdout: "Not possible to fast-forward" },
-		],
-		// An empty segment must leave stderr silent under the script's `set -u`
-		// (#2388).
-		["an empty trailing segment", "ls; ", FF_REFUSAL],
-		["a blank line between commands", "echo a\n\necho b", FF_REFUSAL],
-	] as const) {
-		it(`writes nothing for ${why}`, () => {
-			const work = repoWith("quiet", 1, 1);
-			fire(work, command, response);
-			expect(rows()).toEqual([]);
+		// happened; the count is a lower bound instead. The variable is set in
+		// the hook's environment, which is not the shell the command ran in.
+		fire(here, "git -C $WORKTREE pull --ff-only", FF_REFUSAL, {
+			WORKTREE: here,
 		});
-	}
+		expect(readRows()).toEqual([]);
+	});
+
+	it("writes nothing, and says nothing, for an empty trailing segment (#2388)", () => {
+		// The bash recorder's `set -u` once printed on stderr here.
+		fire(repoWith("quiet", 1, 1), "ls; ", FF_REFUSAL);
+		expect(readRows()).toEqual([]);
+	});
 
 	it("writes nothing when switched off", () => {
 		const work = repoWith("off", 1, 1);
 		fire(work, "git pull --ff-only", FF_REFUSAL, {
 			WFC_NO_DIVERGENCE_LOG: "1",
 		});
-		expect(rows()).toEqual([]);
+		expect(readRows()).toEqual([]);
+	});
+
+	it("writes and logs nothing on no payload at all", () => {
+		const work = repoWith("empty", 1, 1);
+		run({ stdin: "", env: { CLAUDE_PROJECT_DIR: work } });
+		expect(readRows()).toEqual([]);
+		expect(readFailOpenLog(config, work)).toBe("");
+	});
+
+	it("logs a payload that is not JSON, a fault that would leave the log silently empty", () => {
+		const work = repoWith("garbled", 1, 1);
+		run({ stdin: "{not json", env: { CLAUDE_PROJECT_DIR: work } });
+		expect(readRows()).toEqual([]);
+		expect(readFailOpenLog(config, work)).toMatch(
+			/record-divergence\.js.*payload did not parse as JSON/,
+		);
+	});
+
+	it("logs and allows where its core throws", () => {
+		// A copy of the entry beside a core that throws; every other lib is the
+		// real one, linked.
+		const work = repoWith("threw", 1, 1);
+		const at = path.join(scratch, "broken");
+		const lib = path.join(at, "scripts", "lib");
+		fs.mkdirSync(lib, { recursive: true });
+		const entry = path.join(at, "scripts", "record-divergence.js");
+		fs.copyFileSync(RECORDER, entry);
+		for (const f of fs.readdirSync(path.join(__dirname, "lib")))
+			if (f !== "divergence-row.js")
+				fs.symlinkSync(path.join(__dirname, "lib", f), path.join(lib, f));
+		fs.writeFileSync(
+			path.join(lib, "divergence-row.js"),
+			'module.exports = { divergenceRow() { throw new Error("broke"); } };\n',
+		);
+		run({
+			stdin: JSON.stringify({
+				tool_name: "Bash",
+				cwd: work,
+				tool_input: { command: "git pull --ff-only" },
+				tool_response: FF_REFUSAL,
+			}),
+			env: { CLAUDE_PROJECT_DIR: work },
+			entry,
+		});
+		expect(readRows()).toEqual([]);
+		expect(readFailOpenLog(config, work)).toMatch(
+			/recorder threw — no divergence row written: Error: broke/,
+		);
+	});
+
+	it("says nothing and exits 0 where the log directory cannot be made", () => {
+		const work = repoWith("unwritable", 1, 1);
+		fs.mkdirSync(scratch, { recursive: true });
+		fs.writeFileSync(config, "a file where the config dir should be");
+		fire(work, "git pull --ff-only", FF_REFUSAL);
+		expect(fs.readFileSync(config, "utf8")).toBe(
+			"a file where the config dir should be",
+		);
 	});
 
 	it("files each repo under its own project directory", () => {
@@ -335,7 +352,7 @@ describe("record-divergence.sh", () => {
 			);
 		expect(dirs).toHaveLength(2);
 		expect(
-			rows()
+			readRows()
 				.map((r) => r[1])
 				.sort(),
 		).toEqual(["alpha", "beta"]);
@@ -345,30 +362,7 @@ describe("record-divergence.sh", () => {
 		const work = repoWith("twice", 1, 1);
 		fire(work, "git pull --ff-only", FF_REFUSAL);
 		fire(work, "git push origin main", PUSH_REJECT);
-		expect(rows().map((r) => r[2])).toEqual(["pull", "push"]);
-	});
-
-	it("records a missing jq, which otherwise looks like a repo that never diverges", () => {
-		const work = repoWith("nojq", 1, 1);
-		// A PATH carrying only what the script needs before it gives up — bash for
-		// the shebang, mkdir for the fail-open log — and no jq. Shadowing an absence
-		// is impossible, so the way to take jq away is to hand over a PATH that
-		// never had it.
-		const bin = path.join(scratch, "nobin");
-		fs.mkdirSync(bin);
-		for (const tool of ["bash", "mkdir"])
-			fs.symlinkSync(
-				execFileSync("which", [tool], { encoding: "utf8" }).trim(),
-				path.join(bin, tool),
-			);
-		fire(work, "git pull --ff-only", FF_REFUSAL, { PATH: bin });
-		expect(rows()).toEqual([]);
-		const root = process.env.CLAUDE_PROJECT_DIR ?? process.cwd();
-		const log = fs.readFileSync(
-			path.join(config, "projects", projectSlug(root), "guard-errors.log"),
-			"utf8",
-		);
-		expect(log).toMatch(/jq not found/);
+		expect(readRows().map((r) => r[2])).toEqual(["pull", "push"]);
 	});
 
 	it("counts sessions off the ps at WFC_PS, one per Claude bg-pty-host (#1305)", () => {
@@ -381,7 +375,7 @@ describe("record-divergence.sh", () => {
 			"14 1 vim bg-pty-host",
 		]);
 		fire(work, "git pull --ff-only", FF_REFUSAL, { WFC_PS: ps });
-		expect(rows()[0][6]).toBe("3");
+		expect(readRows()[0][6]).toBe("3");
 	});
 
 	it("records sessions as `-` where WFC_PS names no binary, and still writes the row", () => {
@@ -389,12 +383,10 @@ describe("record-divergence.sh", () => {
 		fire(work, "git pull --ff-only", FF_REFUSAL, {
 			WFC_PS: path.join(scratch, "absent-ps"),
 		});
-		expect(rows()[0][6]).toBe("-");
+		expect(readRows()[0][6]).toBe("-");
 	});
 
 	it("slugs the project directory exactly as lib/project-slug.js does", () => {
-		// The recorder restates that transform in bash rather than sourcing it
-		// (its own header says why).
 		const work = repoWith("slugged", 1, 1);
 		fire(work, "git pull --ff-only", FF_REFUSAL);
 		expect(
@@ -409,7 +401,7 @@ describe("record-divergence.sh", () => {
 		const tree = path.join(scratch, "throwaway");
 		git(work, "worktree", "add", "--quiet", "--detach", tree);
 		fire(tree, "git pull --ff-only", FF_REFUSAL);
-		expect(rows()[0][1]).toBe("mainline");
+		expect(readRows()[0][1]).toBe("mainline");
 	});
 
 	it("counts against origin/landing with the landing module on (#2408)", () => {
@@ -418,8 +410,19 @@ describe("record-divergence.sh", () => {
 		fire(work, "git push origin main:landing", PUSH_REJECT, {
 			WFC_MODULES: "landing",
 		});
-		expect(rows()[0].slice(3, 6)).toEqual(["1", "0", "ahead"]);
-		expect(rows()[0][7]).toBe("origin/landing");
+		expect(readRows()[0].slice(3, 6)).toEqual(["1", "0", "ahead"]);
+		expect(readRows()[0][7]).toBe("origin/landing");
+	});
+
+	it("counts against the configured upstream where the repo has no origin/main", () => {
+		const work = repoWith("trunked", 2, 0);
+		git(work, "push", "--quiet", "origin", "HEAD~2:refs/heads/trunk");
+		git(work, "fetch", "--quiet", "origin");
+		git(work, "branch", "--quiet", "-u", "origin/trunk");
+		git(work, "update-ref", "-d", "refs/remotes/origin/main");
+		fire(work, "git pull --ff-only", FF_REFUSAL);
+		expect(readRows()[0].slice(3, 6)).toEqual(["2", "0", "ahead"]);
+		expect(readRows()[0][7]).toBe("origin/trunk");
 	});
 
 	it("records `unknown` rather than nothing where there is no ref to count against", () => {
@@ -428,8 +431,8 @@ describe("record-divergence.sh", () => {
 		initRepo(bare);
 		git(bare, "commit", "--allow-empty", "--no-verify", "-m", "only");
 		fire(bare, "git pull --ff-only", FF_REFUSAL);
-		expect(rows()[0].slice(3, 6)).toEqual(["-", "-", "unknown"]);
-		expect(rows()[0][7]).toBe("-");
+		expect(readRows()[0].slice(3, 6)).toEqual(["-", "-", "unknown"]);
+		expect(readRows()[0][7]).toBe("-");
 	});
 });
 

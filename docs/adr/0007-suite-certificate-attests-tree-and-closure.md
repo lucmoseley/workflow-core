@@ -4,9 +4,9 @@
 
 ## Context
 
-A green run keyed only to the commit sha HEAD held when it finished is voided by the session's own commit, by its push and by a neighbour's push, even when the content it tested is byte-identical to what now needs attesting. #148 traced its two largest mechanical drivers of unnecessary full-suite runs — the empty-diff trap and the moved sha — to that key.
+A certificate keyed only to the commit sha HEAD held when it finished is voided by the session's own commit, by its push and by a neighbour's push, even when the content it tested is byte-identical to what now needs attesting. #148 traced its two largest mechanical drivers of unnecessary full-suite runs — the empty-diff trap and the moved sha — to that key.
 
-Measured on 19 September 2026 over the green store: 292 of 353 tree-stamped runs ended on a dirty shared tree; only 101 of 353 end-trees equal any commit's tree. Whole-tree identity alone therefore reaches the full runs and almost none of the narrowed majority, because a neighbour's half-saved file is in the tree the run read.
+Measured on 19 September 2026 over the certificate store: 292 of 353 tree-stamped runs ended on a dirty shared tree; only 101 of 353 end-trees equal any commit's tree. Whole-tree identity alone therefore reaches the full runs and almost none of the narrowed majority, because a neighbour's half-saved file is in the tree the run read.
 
 ## Decisions
 
@@ -32,6 +32,6 @@ Whenever the paths differing between the end-tree and the commit's tree lie outs
 
 ## Consequences
 
-- A session that commits after a narrowed green over its own edits, with a neighbour's dirt outside its closure, is attested without a second run.
+- A session that commits after a narrowed run's certificate over its own edits, with a neighbour's dirt outside its closure, is attested without a second run.
 - A change to a dependency-graph root voids every narrowed certificate, as it escalates every narrowed run.
 - The lexical gap stays: a test reading a changed document through an imported helper is attested against a document it never saw change. #157's directory-class extractor narrows it; nothing here closes it.

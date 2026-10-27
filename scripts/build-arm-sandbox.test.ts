@@ -34,11 +34,11 @@ const run = (args: string[], env: NodeJS.ProcessEnv = process.env) => {
 	return { out: r.stdout, err: r.stderr, code: r.status };
 };
 
-const symlinksUnder = (dir: string): string[] =>
+const readSymlinksUnder = (dir: string): string[] =>
 	fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
 		const p = path.join(dir, e.name);
 		if (e.isSymbolicLink()) return [p];
-		return e.isDirectory() ? symlinksUnder(p) : [];
+		return e.isDirectory() ? readSymlinksUnder(p) : [];
 	});
 
 describe("config: an arm's config dir", () => {
@@ -96,7 +96,7 @@ describe("config: an arm's config dir", () => {
 			HOME: home,
 		});
 		expect(r.code, r.err).toBe(0);
-		expect(symlinksUnder(to)).toEqual([]);
+		expect(readSymlinksUnder(to)).toEqual([]);
 		expect(fs.readFileSync(path.join(to, "CLAUDE.md"), "utf8")).toBe(
 			"today's text\n",
 		);
@@ -339,6 +339,69 @@ describe("task: one run's sandbox", () => {
 		expect(sandboxEnv).toContain(`export WFC_GH="${stub}"`);
 		expect(sandboxEnv).toContain("GH_HOST=gh-stub.invalid");
 		expect(sandboxEnv).toContain("GIT_ALLOW_PROTOCOL=file");
+	});
+
+	/** A clone of `repo`'s main alone. */
+	const publicClone = () => {
+		const repo = sourceRepo();
+		fs.mkdirSync(path.join(repo, ".claude"));
+		fs.writeFileSync(
+			path.join(repo, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, founder: "T", tracker: "o/tracker" }),
+		);
+		git(repo, "add", ".claude");
+		git(repo, "commit", "--quiet", "-m", "config");
+		git(repo, "checkout", "--quiet", "-b", "tracker-only");
+		fs.writeFileSync(path.join(repo, "f.txt"), "tracker\n");
+		git(repo, "commit", "--quiet", "-am", "a tracker-only commit");
+		const absent = git(repo, "rev-parse", "HEAD").stdout.trim();
+		const clone = path.join(tmp, "public");
+		// --no-local copies main's objects alone; a local clone hardlinks them all.
+		git(
+			tmp,
+			"clone",
+			"--quiet",
+			"--no-local",
+			"--single-branch",
+			"--branch",
+			"main",
+			repo,
+			clone,
+		);
+		return { clone, absent };
+	};
+
+	it("refuses a revert sha the repo lacks, naming it and the archive remote to fetch, and builds nothing (#2854)", () => {
+		const { clone, absent } = publicClone();
+		const to = path.join(tmp, "run-1");
+		const r = run([
+			"task",
+			"--repo",
+			clone,
+			"--at",
+			"HEAD",
+			"--to",
+			to,
+			"--revert",
+			absent,
+		]);
+		expect(r.code).toBe(1);
+		expect(r.err).toBe(
+			`✗ ${clone} holds no commit ${absent}; fetch the tracker's history into it, then build again: cd ${clone} && git remote add archive https://github.com/o/tracker.git && git fetch archive\n`,
+		);
+		expect(fs.existsSync(to)).toBe(false);
+	});
+
+	it("refuses an --at the repo lacks, naming the remote that holds the tracker (#2854)", () => {
+		const { clone, absent } = publicClone();
+		git(clone, "remote", "add", "tracker", "https://github.com/o/tracker.git");
+		const to = path.join(tmp, "run-1");
+		const r = run(["task", "--repo", clone, "--at", absent, "--to", to]);
+		expect(r.code).toBe(1);
+		expect(r.err).toBe(
+			`✗ ${clone} holds no commit ${absent}; fetch the tracker's history into it, then build again: cd ${clone} && git fetch tracker\n`,
+		);
+		expect(fs.existsSync(to)).toBe(false);
 	});
 
 	it.each([

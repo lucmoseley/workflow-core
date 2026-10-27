@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export const guardErrorsLog = (configDir: string): string => {
+export const readGuardErrorsLog = (configDir: string): string => {
 	const projects = path.join(configDir, "projects");
 	if (!fs.existsSync(projects)) return "";
 	return fs

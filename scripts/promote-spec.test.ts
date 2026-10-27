@@ -142,21 +142,23 @@ const run = () =>
 		},
 	});
 
-const calls = () =>
+const readCalls = () =>
 	fs.existsSync(state("calls"))
 		? fs.readFileSync(state("calls"), "utf8").split("\n").filter(Boolean)
 		: [];
-const writes = () =>
-	calls().filter((c) => /^(api --method|issue (comment|close|edit))/.test(c));
+const readWrites = () =>
+	readCalls().filter((c) =>
+		/^(api --method|issue (comment|close|edit))/.test(c),
+	);
 const claimed = () => issueClaims.readIssueClaims(BRIEF).length > 0;
 const at = (n: number) => get("issues.json")[n];
-const comments = () =>
+const readComments = () =>
 	fs.existsSync(state("comments.json")) ? get("comments.json") : [];
 
 const CLOSE_COMMENT = `Specced at #${SPEC}, moved under #${MAP}.\n\n**Outstanding:** #${SPEC} (the spec carries this brief's work)\n`;
 
 const untouched = () => {
-	expect(writes()).toEqual([]);
+	expect(readWrites()).toEqual([]);
 	expect(claimed()).toBe(true);
 };
 
@@ -165,7 +167,7 @@ describe("a successful promote", () => {
 		setUp();
 		const r = run();
 		expect(r.status).toBe(0);
-		const c = calls();
+		const c = readCalls();
 		const post = c.findIndex((x) =>
 			x.startsWith(
 				`api --method POST repos/acme/widgets/issues/${MAP}/sub_issues -F sub_issue_id=${SPEC * 1000} -F replace_parent=true`,
@@ -184,7 +186,7 @@ describe("a successful promote", () => {
 		expect(close).toBeGreaterThan(comment);
 		expect(at(SPEC).parent).toBe(MAP);
 		expect(at(BRIEF).state).toBe("closed");
-		expect(comments().map((x: { body: string }) => x.body)).toEqual([
+		expect(readComments().map((x: { body: string }) => x.body)).toEqual([
 			CLOSE_COMMENT,
 		]);
 		expect(claimed()).toBe(false);
@@ -194,7 +196,7 @@ describe("a successful promote", () => {
 		setUp();
 		expect(run().status).toBe(0);
 		expect(
-			writes().filter((c) => new RegExp(`issue \\w+ ${SPEC}\\b`).test(c)),
+			readWrites().filter((c) => new RegExp(`issue \\w+ ${SPEC}\\b`).test(c)),
 		).toEqual([]);
 		expect(at(SPEC).labels).toEqual(["kind:spec", "takes:to-tickets"]);
 	});
@@ -330,7 +332,7 @@ describe("a move that does not land", () => {
 		expect(r.stderr).toContain(`#${MAP} does not list it`);
 		expect(r.stderr).toContain("re-run");
 		expect(at(BRIEF).state).toBe("open");
-		expect(comments()).toEqual([]);
+		expect(readComments()).toEqual([]);
 		expect(claimed()).toBe(true);
 	});
 
@@ -344,7 +346,7 @@ describe("a move that does not land", () => {
 		);
 		expect(at(SPEC).parent).toBe(BRIEF);
 		expect(at(BRIEF).state).toBe("open");
-		expect(comments()).toEqual([]);
+		expect(readComments()).toEqual([]);
 		expect(claimed()).toBe(true);
 	});
 });
@@ -365,8 +367,8 @@ describe("a re-run", () => {
 		expect(again.status).toBe(0);
 		expect(again.stdout).toContain("re-parent skipped");
 		expect(again.stdout).toContain("not posted again");
-		expect(calls().some((c) => c.startsWith("api --method"))).toBe(false);
-		expect(comments()).toHaveLength(1);
+		expect(readCalls().some((c) => c.startsWith("api --method"))).toBe(false);
+		expect(readComments()).toHaveLength(1);
 		expect(at(BRIEF).state).toBe("closed");
 		expect(claimed()).toBe(false);
 	});
@@ -378,6 +380,6 @@ describe("a re-run", () => {
 		const again = run();
 		expect(again.status).toBe(0);
 		expect(again.stdout).toContain("already closed");
-		expect(writes()).toEqual([]);
+		expect(readWrites()).toEqual([]);
 	});
 });

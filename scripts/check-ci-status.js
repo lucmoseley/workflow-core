@@ -88,7 +88,7 @@
  *
  * THE SUM IS ALSO BOUNDED, UNDER --notify ONLY (mantahostels#2177). Three gh() calls fire
  * on every --notify run before any conditional one — the branch query, then
- * readSweepRuns() and readInactiveWorkflows() inside livenessReport(). The
+ * readSweepRuns() and readInactiveWorkflows() inside buildLivenessReport(). The
  * conditional ones are runFailures(), once per red run, and once more where a
  * missed slot reports a red newest sweep (mantahostels#2203); and one
  * tracking-issue lookup where a red is the suite's (#532). So a
@@ -126,7 +126,6 @@
  * DEFEAT:    none at the hook; --notify is silent unless the run it reads is red or the newest sweep is older than SWEEP_STALE_MS. The dispatch is capped by AUTOFIRE_COOLDOWN_MS and withheld where HEAD is already covered; the filer launch at one an hour, on the core host only.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -144,12 +143,12 @@ const path = require("node:path");
 
 const { now, runCheck } = require("./lib/check");
 const {
-	bisectAdvice,
+	buildBisectAdvice,
 	countRange,
 	readRange,
 	renderRange,
 } = require("./lib/commit-range");
-const { gh, errLine, ghFailureReason } = require("./lib/gh");
+const { gh, parseErrLine, parseGhFailureReason } = require("./lib/gh");
 const { openTrackingIssue } = require("./lib/tracking-issue");
 // The red-suite filer's own spellings (#532).
 const redSuite = require("./report-red-suite");
@@ -177,6 +176,7 @@ const repoFlag = () =>
 		.map((a) => ` ${a}`)
 		.join("");
 const { NOT_A_TREE_VERDICT, hasVerdict } = require("./lib/ci-verdict.js");
+const { execGit } = require("./lib/git.js");
 
 /* Anything NOT in here is reported. Listing the good conclusions rather than the
  * bad ones means a conclusion string GitHub adds later surfaces as a report
@@ -448,7 +448,7 @@ const nextSweepAfter = (t) => slotsFrom(t).find((at) => at > t) ?? null;
  *   >0    HEAD is that many untested commits past the run
  *   0     the run tested HEAD itself, so HEAD is covered
  *   null  UNKNOWN — git could not be read, or the two shas are not one line of
- *         history. NOT the same as covered, which is why sweepAdvice() tests
+ *         history. NOT the same as covered, which is why buildSweepAdvice() tests
  *         `> 0` rather than truthiness: an unknown must not be reported as
  *         uncovered, and must not spend a sweep's price on a guess either.
  *
@@ -461,7 +461,7 @@ const nextSweepAfter = (t) => slotsFrom(t).find((at) => at > t) ?? null;
 function headCoverage(sha) {
 	let head = "";
 	try {
-		head = execFileSync("git", ["rev-parse", "HEAD"], {
+		head = execGit(["rev-parse", "HEAD"], {
 			encoding: "utf8",
 			cwd: REPO,
 			stdio: ["ignore", "pipe", "ignore"],
@@ -507,7 +507,7 @@ const coverageGist = (coverage, sha) => {
  * @param {Coverage} coverage
  * @returns {string[]}
  */
-function sweepAdvice(coverage) {
+function buildSweepAdvice(coverage) {
 	// Null tested apart from zero: headCoverage()'s null means "could not tell",
 	// which must not read as uncovered.
 	if (coverage.ahead === null || coverage.ahead <= 0) return [];
@@ -666,7 +666,7 @@ function readSweepRuns(deadline) {
 	} catch {
 		/* Fails open to UNKNOWN, never to "none" (mantahostels#1024): a miss claimed off a
 		 * failed call is a false alarm at every session start until GitHub answers
-		 * again. The null is printed: livenessReport()'s ledger line says the
+		 * again. The null is printed: buildLivenessReport()'s ledger line says the
 		 * ledger was unreadable. */
 		return null;
 	}
@@ -734,7 +734,7 @@ function fireSweepOnStale(t, deadline) {
 	 * than swallowing it. */
 	const { state, error } = readAutofireState(marker);
 	if (error)
-		return `  Could not read the sweep autofire cooldown, so fired nothing: ${errLine(error)}`;
+		return `  Could not read the sweep autofire cooldown, so fired nothing: ${parseErrLine(error)}`;
 
 	/* ABSOLUTE distance, so a marker dated in the FUTURE expires. Under a plain
 	 * `t - last` a clock skew or a WFC_NOW run leaves a marker nothing ages
@@ -758,14 +758,14 @@ function fireSweepOnStale(t, deadline) {
 	try {
 		recordFiring(marker, t, spent);
 	} catch (e) {
-		return `  Could not write the sweep autofire cooldown, so fired nothing: ${errLine(e)}`;
+		return `  Could not write the sweep autofire cooldown, so fired nothing: ${parseErrLine(e)}`;
 	}
 
 	try {
 		gh(["workflow", "run", SWEEP_WORKFLOW], { timeout });
 		return `  Fired one automatically (verdict was stale; ${SWEEP_PRICE}).`;
 	} catch (e) {
-		return `  Could not fire one automatically: ${errLine(e)}`;
+		return `  Could not fire one automatically: ${parseErrLine(e)}`;
 	}
 }
 
@@ -777,7 +777,7 @@ function fireSweepOnStale(t, deadline) {
  * @param {string} indent
  * @returns {string[]}
  */
-const stepLines = (steps, indent) => {
+const buildStepLines = (steps, indent) => {
 	if (steps === null)
 		return [`${indent}(could not read which step failed — see the run)`];
 	if (steps.length > 0) return steps.map((step) => `${indent}${step}`);
@@ -836,7 +836,7 @@ function suiteTicketOrFileOnce(lookupIssue) {
  * @param {string} indent
  * @returns {string[]}
  */
-function ticketLines(isSweep, failures, ticket, indent) {
+function buildTicketLines(isSweep, failures, ticket, indent) {
 	if (!failures)
 		return [
 			`${indent}Ticket: could not read which job failed, so cannot say whether an issue covers it`,
@@ -869,7 +869,7 @@ function ticketLines(isSweep, failures, ticket, indent) {
  * @param {SuiteTicket} ticket
  * @returns {string[]}
  */
-function redSweepLines(newest, deadline, ticket) {
+function buildRedSweepLines(newest, deadline, ticket) {
 	/* An empty conclusion is a run still going, not a red — the same distinction
 	 * hasVerdict() draws. Red is spelled as NOT-good, this file's convention
 	 * throughout (mantahostels#945): a conclusion GitHub adds later surfaces rather than
@@ -883,8 +883,8 @@ function redSweepLines(newest, deadline, ticket) {
 	const failures = runFailures(newest.databaseId, deadline);
 	const lines = [
 		`⚠ The newest sweep concluded ${newest.conclusion} — firing another tests the same tree.`,
-		...stepLines(failures?.steps ?? null, "  "),
-		...ticketLines(true, failures, ticket, "  "),
+		...buildStepLines(failures?.steps ?? null, "  "),
+		...buildTicketLines(true, failures, ticket, "  "),
 	];
 	if (newest.url) lines.push(`  ${newest.url}`);
 	return lines;
@@ -910,7 +910,11 @@ function redSweepLines(newest, deadline, ticket) {
  * @param {Workflow[]|null} inactive
  * @param {{ t: number, deadline: number|null, hasSweep: boolean, ticket: SuiteTicket }} opts
  */
-function livenessReport(runs, inactive, { t, deadline, hasSweep, ticket }) {
+function buildLivenessReport(
+	runs,
+	inactive,
+	{ t, deadline, hasSweep, ticket },
+) {
 	/** @type {LivenessOut} */
 	const out = { lines: [], findings: [] };
 	const { lines, findings } = out;
@@ -943,9 +947,9 @@ function livenessReport(runs, inactive, { t, deadline, hasSweep, ticket }) {
 		: { head: "", ahead: null, line: null };
 
 	/** @returns {string[]} */
-	const sweepRed = () => redSweepLines(newest, deadline, ticket);
+	const sweepRed = () => buildRedSweepLines(newest, deadline, ticket);
 
-	const newestLine = newestSweepLine(runs, newest, coverage, t);
+	const newestLine = buildNewestSweepLine(runs, newest, coverage, t);
 
 	/* How stale the verdict is, for autofire (mantahostels#1816). Null on every path that
 	 * cannot price it — a quiet repo HEAD's sweep already covers, an unreadable
@@ -976,7 +980,7 @@ function livenessReport(runs, inactive, { t, deadline, hasSweep, ticket }) {
 	const blind = inactive
 		? ""
 		: " Workflow states unreadable, so a disabled workflow would not be seen.";
-	const ledgerLine = ledgerStateLine(runs, ledger, newestLine) + blind;
+	const ledgerLine = buildLedgerStateLine(runs, ledger, newestLine) + blind;
 	return { lines, findings, ledgerLine, staleMs, sweepRed };
 }
 
@@ -1015,7 +1019,7 @@ function reportDisabledWorkflows(out, inactive) {
  * @param {number} t
  * @returns {string}
  */
-function newestSweepLine(runs, newest, coverage, t) {
+function buildNewestSweepLine(runs, newest, coverage, t) {
 	if (newest)
 		return (
 			`newest sweep ${slotStamp(Date.parse(newest.createdAt || ""), t)}, ${ageOf(newest)} ago, ` +
@@ -1092,7 +1096,7 @@ function reportMissedSlots(out, { ledger, inactive, newestLine, t }) {
  * @param {string} newestLine
  * @returns {string}
  */
-function ledgerStateLine(runs, ledger, newestLine) {
+function buildLedgerStateLine(runs, ledger, newestLine) {
 	if (!runs)
 		return `Sweep ledger unreadable — could not ask GitHub for ${SWEEP_WORKFLOW} runs.`;
 	if (ledger)
@@ -1204,7 +1208,7 @@ const lastGreenBefore = (run, judged) =>
 const CHECKER = "ci-status";
 
 /**
- * @typedef {ReturnType<typeof livenessReport>} Liveness
+ * @typedef {ReturnType<typeof buildLivenessReport>} Liveness
  */
 
 /**
@@ -1250,13 +1254,13 @@ function readBranchRuns(ctx, branch, deadline) {
 		 * not do is misattribute the cause (mantahostels#164, the ticket that made an
 		 * unreachable GitHub a SKIP and a gh crash a BROKEN). Under --notify,
 		 * which is how SessionStart invokes this, both still exit 0. */
-		if (ghFailureReason(e) === "unreachable")
+		if (parseGhFailureReason(e) === "unreachable")
 			ctx.skip(
-				`could not ask GitHub for runs on ${branch} (GitHub unreachable: ${errLine(e)}).`,
+				`could not ask GitHub for runs on ${branch} (GitHub unreachable: ${parseErrLine(e)}).`,
 			);
 		return ctx.broken(
 			`could not ask GitHub for runs on ${branch}, and GitHub was reachable —\n` +
-				`        this check is broken, not idle: ${errLine(e)}`,
+				`        this check is broken, not idle: ${parseErrLine(e)}`,
 		);
 	}
 }
@@ -1395,7 +1399,7 @@ function reportGreen(ctx, { branch, sha, run, hasSweep, live, emitLiveness }) {
 			`${age ? `${age} ago` : "age unreadable"}.`,
 	);
 	if (coverage.line) ctx.say(coverage.line);
-	if (hasSweep) for (const line of sweepAdvice(coverage)) ctx.say(line);
+	if (hasSweep) for (const line of buildSweepAdvice(coverage)) ctx.say(line);
 	for (const line of live.sweepRed()) ctx.say(line);
 	emitLiveness();
 
@@ -1465,7 +1469,7 @@ function reportRed(ctx, st) {
 	if (deliveryStamp.alreadyDelivered(stampCtx, CHECKER, signature)) {
 		emitLiveness();
 		return {
-			okLine: alreadyReportedLine(branch, broken),
+			okLine: buildAlreadyReportedLine(branch, broken),
 			noun: SWEEP_NOUN,
 		};
 	}
@@ -1505,7 +1509,7 @@ function reportRed(ctx, st) {
  * @param {string} branch
  * @param {Run[]} broken
  */
-const alreadyReportedLine = (branch, broken) =>
+const buildAlreadyReportedLine = (branch, broken) =>
 	broken.length > 0
 		? `CI is red on ${branch}, already reported.`
 		: `CI never finished on ${branch}, already reported.`;
@@ -1569,9 +1573,9 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
 	);
 	if (!carriesNoVerdict(r)) {
 		const failures = runFailures(r.databaseId, deadline);
-		for (const line of stepLines(failures?.steps ?? null, "    "))
+		for (const line of buildStepLines(failures?.steps ?? null, "    "))
 			ctx.say(line);
-		for (const line of ticketLines(
+		for (const line of buildTicketLines(
 			r.workflowName === redSuite.SWEEP_NAME,
 			failures,
 			ticket,
@@ -1610,7 +1614,7 @@ function sayBisectRange(ctx, branch, broken, keyed) {
 		const range = readRange({ ...ends, cwd: REPO });
 		ctx.say("");
 		for (const line of renderRange(range, ends)) ctx.say(line);
-		for (const line of bisectAdvice(range, {
+		for (const line of buildBisectAdvice(range, {
 			...ends,
 			workflow: BISECT_WORKFLOW,
 			repoFlag: repoFlag(),
@@ -1648,7 +1652,7 @@ runCheck({
 		/* Done here, once, before any exit path emits — emitLiveness() is called
 		 * from several (mantahostels#1816). */
 		const live = noteStaleSweep(
-			livenessReport(
+			buildLivenessReport(
 				hasSweep ? readSweepRuns(deadline) : [],
 				readInactiveWorkflows(deadline),
 				{ t: now(), deadline, hasSweep, ticket },

@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **23 October 2026**.
+Snapshot of `~/.claude/settings.json` as of **26 October 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -354,7 +354,7 @@ elif [[ -f "$settings" ]]; then
   [[ "$wc_enabled" == "true" ]] && show_burn=true
 fi
 
-# The marker is read live and the flip is HALF live: guard-dispatch-rewrite.sh
+# The marker is read live and the flip is HALF live: scripts/lib/dispatch-rewrite.js
 # moves the next `sonnet` Agent dispatch to `opus` at once, while the `model`
 # key the toggle also writes is read at startup, so this session keeps the
 # model it booted on. Hence `(restart: model)` and not the design segment's
@@ -678,7 +678,7 @@ and GNU `date`.
 #
 # PreToolUse (Read, Glob, Write, Bash; #2324). **Enforced.** On a session's
 # first call touching docs/practice/, it hands over ~/.claude/practice-crafts.md
-# and the evidence-rung ranking a note's entries follow (#2637); later touches
+# and the evidence-tier ranking a note's entries follow (#2637); later touches
 # hand over nothing. A Write to <work tree root>/docs/practice/<path>.md whose
 # path is not a craft on the list is refused, the refusal printing both.
 #
@@ -691,14 +691,17 @@ and GNU `date`.
 # form. Where the session wrote a file in a git work tree that git does not
 # ignore, outside the job directory, it takes the latest **Practice:** line
 # from the transcript's assistant text and tracker writes (a gh issue or pr
-# write, resolve-ticket.js or file-issue.js: the command and any body file it
-# names), the marker opening its line, or in the command an inline body's
-# quote. It refuses the stop once a session, naming the fault and printing the
-# list, where: there is no line; the line is none of the four forms; covered
-# names a note that is missing, has no Researched: date, is 6 months old or
-# more, or is off the list; ran names a note this session did not write;
-# skipped names a kind off the exempt list, matched on the whole head words its
-# kind opens with; none-fits names an off-list craft. A
+# write, resolve-ticket.js or file-issue.js: the command, each heredoc and
+# each BODY_FLAGS value it holds read alone, and any body file it names), the
+# marker opening its line. It refuses the stop once a session,
+# naming the fault and printing the list, where: there is no line; the line is
+# none of the four forms; covered names a note that is missing, has no
+# Researched: date, is 6 months old or more, or is off the list; ran names a
+# note this session did not write; skipped names a kind off the exempt list,
+# matched on its whole phrase, or adds a second clause after it; none-fits
+# names an off-list craft. After a skipped kind's phrase may come only an
+# aside in brackets or one phrase opening with a word in PREPOSITIONS, and
+# neither may hold punctuation, a dash, "&", "+" or a word in JOINS (#3077). A
 # docs/research/<asset class>-precedent.md path, design-vault's, stands for a
 # note in covered and ran. It refuses rather
 # than warns because refusing once is the only Stop channel that reaches the
@@ -712,8 +715,10 @@ and GNU `date`.
 #
 # **Unenforceable**: whether the craft a note is named for is the right one for
 # the task; a false skipped on non-trivial work, with no diff-size cross-check
-# since no source gives a threshold; whether the practice was used; evidence
-# quality.
+# since no source gives a threshold, nor what an exempt kind's aside or
+# prepositional phrase says, so a second clause joined by no listed word or
+# mark, as in "revert of one commit built a scheduler", passes; whether the
+# practice was used; evidence quality.
 #
 # Reference copy, restore step and drift check: workflow-core's
 # docs/claude-user-settings.md. Edit this file, then re-copy it there.
@@ -737,7 +742,7 @@ if [ -z "$list" ]; then
   exit 0
 fi
 
-ranking="Each note entry names its sources and the rung each earns: [standard or field body], [named expert], [survey or curated list] or [unverified]. A company's docs earn the top rung only for how its own product behaves or is configured; its reasoned guidance on a general practice is [named expert], and its product docs cited as one adopter of a general practice are [unverified]. Peer-reviewed papers and the docs of an open-source project, such as Linux, Kubernetes, pytest, or the company-run Go, Bazel or Chromium, keep the top rung; a preprint not yet peer-reviewed is [named expert]. An entry whose default rests on [unverified] sources alone says it sets no default."
+readonly RANKING="Each note entry names its sources and the tier each earns, its tag spelt exactly as one of: [standard or field body], [named expert], [survey or curated list] or [unverified]. The top tier is a standard or field body's free guidance, such as an IETF RFC or a W3C, NIST or OWASP publication. A format or convention spec written for others to adopt, such as SemVer, is a standard. A project's docs, open-source or company-run, earn the top tier only for how that project's own product behaves or is configured, its rules for its own contributors included; their reasoned guidance on a general practice is [named expert], and their docs cited as one adopter of a general practice are [unverified]. A tool's own docs earn the top tier for what the tool does, but a default to use it needs another source. A paper, peer-reviewed or not, is [named expert], its authors' verdict with reasons, or [survey or curated list] where it reports a questionnaire or interviews; a systematic review or meta-analysis outranks a single paper, so name it as one. An entry whose default rests on [unverified] sources alone says it sets no default."
 
 if ! jq -e 'type == "object"' <<<"$input" >/dev/null 2>&1; then
   echo "practice-guard: the hook payload is not JSON, so nothing is judged" >&2
@@ -755,13 +760,15 @@ on_list() {
 
 # A latch file per session and agent, a subagent latching apart: set -C makes
 # the create fail where the file exists, so two calls racing latch once.
-# Returns 1 where it was already latched, and 2 where nothing latches: an id
-# that is not a plain name, silently, or a latch directory or file that cannot
-# be made, saying so on stderr (#2601).
+# Returns 1 where it was already latched, and 2, saying why on stderr, where
+# nothing latches (#2601).
 latch() {
   local key dir
   key=$(jq -r '[.session_id // "", .agent_id // empty] | join("-")' <<<"$input")
-  [[ $key =~ ^[A-Za-z0-9_-]+$ ]] || return 2
+  if ! [[ $key =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "practice-guard: the session id \"$key\" is no plain name, so nothing latches" >&2
+    return 2
+  fi
   dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/practice-guard-$(id -u)"
   mkdir -m 700 "$dir" 2>/dev/null
   # Another user could have made it first in a shared /tmp.
@@ -775,38 +782,95 @@ latch() {
   return 2
 }
 
-# The exempt kinds as the refusal spells them; the skipped regex in fault_in
-# matches each one's head words, so a kind changed here changes there too.
+# The exempt kinds as the refusal spells them, which EXEMPT_PATTERN is built
+# from: comma-separated, so no kind holds a comma.
 readonly EXEMPT_KINDS="a typo or wording fix, a re-anchor or regeneration, a concision cut, propagating an already-settled fact, a revert, a version bump, a reply that only answers a question"
+
+# The words that may open the one phrase after an exempt kind's, and those
+# that join a second clause on, alternations for a regex (#3077). The set is
+# closed by design, so a scope a review finds refused is added here: it holds
+# the openers reviews have found, and common English prepositions of place,
+# time and source. Any other opener, such as "about", "without" or "as", is
+# refused, its reason naming the set.
+readonly PREPOSITIONS='(of|in|on|to|for|from|over|after|before|since|across|at|by|into|under|via|per|during|through|between|within)'
+readonly JOINS='(and|plus|or|but|with|then|also)'
+
+# Each kind's whole phrase, its article optional and each side of an "or"
+# standing alone: "a typo or wording fix" passes as "typo fix" and
+# "wording fix" too. The phrase is its third group and the words after it
+# its fourth.
+exempt_pattern() {
+  local kind kinds pattern phrases=() IFS=,
+  read -ra kinds <<<"$EXEMPT_KINDS"
+  for kind in "${kinds[@]}"; do
+    kind=${kind# } kind=${kind#a } kind=${kind#an }
+    phrases+=("$kind")
+    [[ $kind =~ ^(.*\ )?([^ ]+)\ or\ ([^ ]+)(.*)$ ]] || continue
+    phrases+=("${BASH_REMATCH[1]}${BASH_REMATCH[2]}${BASH_REMATCH[4]}" "${BASH_REMATCH[1]}${BASH_REMATCH[3]}${BASH_REMATCH[4]}")
+  done
+  # Each phrase matches as literal text.
+  pattern=$(printf '%s\n' "${phrases[@]}" | sed 's/[][\.^$*+?(){}|]/\\&/g' | paste -sd'|')
+  echo "^((a|an|the) )?($pattern)([^[:alnum:]'-].*)?$"
+}
+
+# The fault in "$1", the words after the exempt kind's phrase "$2"; empty
+# where it is nothing, an aside in brackets, or a phrase opening with a word in
+# PREPOSITIONS, that no punctuation, dash, "&", "+" or joining word carries on
+# past (#2806, #3077). A range's dash, as in "pages 3–5", is refused too.
+tail_fault() {
+  local joins="$JOINS " carries aside
+  carries="([;,:&+]|—|–|\\. | -+ | $joins|\\( *$joins)"
+  [[ -z $1 ]] && return
+  if [[ $1 =~ ^\ \(\ *(.*)$ ]]; then
+    aside=${BASH_REMATCH[1]}
+    # fault_in strips the aside's closing bracket, so one left means words follow it.
+    [[ $aside == *')'* || $aside =~ ^$joins || " $aside " =~ $carries ]] &&
+      echo "adds a second clause to the exempt kind \"$2\""
+    return
+  fi
+  if [[ $1 =~ ^\ $PREPOSITIONS\ (.*)$ ]]; then
+    [[ " ${BASH_REMATCH[2]} " =~ $carries ]] && echo "adds a second clause to the exempt kind \"$2\""
+    return
+  fi
+  if [[ $1 =~ ^\ $joins || ! $1 =~ ^\ [[:alnum:]] ]]; then
+    echo "adds a second clause to the exempt kind \"$2\""
+  else
+    echo "follows the exempt kind \"$2\" with neither an aside in brackets nor a phrase opening with one of ${PREPOSITIONS//|/, }"
+  fi
+}
 
 # PRACTICE_GUARD_TODAY is the seam scripts/practice-guard.test.ts fills.
 readonly TODAY=${PRACTICE_GUARD_TODAY:-$(date +%F)}
 
-# A declaration's marker opens its line past any list or quote marks. In
-# assistant text and a command it may open an inline body's quote instead; a
-# body file has no such quote.
+# A declaration's marker opens its line past any list or quote marks, a
+# command's heredocs and inline bodies read as lines of their own (#3077); a
+# marker quoted mid-line is prose.
 readonly MARKER='[[:space:]>*-]*\*\*Practice:\*\*'
-readonly QUOTED_MARKER="(^|[\"'])$MARKER"
+readonly BODY_FLAGS='--body|--comment|-b|-c'
+readonly BODY_FILE_FLAGS='--body-file|--comment-file|-F'
 
 # The fault in the declaration "$1", judged against the work tree roots in
 # $roots and the paths in $written; empty where it holds up.
 fault_in() {
-  local decl=$1 form rest note path root found date expiry kind
+  local decl=$1 form rest note path root found date expiry phrase after
   [ -n "$decl" ] || { echo "no **Practice:** line"; return; }
-  if ! [[ $decl =~ ${QUOTED_MARKER}[[:space:]]*(ran|covered|skipped|none-fits)[[:space:]]*(—|–|-)+[[:space:]]*(.*)$ ]]; then
+  if ! [[ $decl =~ ^${MARKER}[[:space:]]*(ran|covered|skipped|none-fits)[[:space:]]*(—|–|-)+[[:space:]]*(.*)$ ]]; then
     echo "\"$decl\" is none of the four forms"
     return
   fi
-  form=${BASH_REMATCH[2]} rest=${BASH_REMATCH[4]//\`/}
-  # An inline body's closing quote, or a sentence's full stop.
+  form=${BASH_REMATCH[1]} rest=${BASH_REMATCH[3]//\`/}
+  # A sentence's full stop, a stray closing quote, or an aside's closing bracket.
   rest=${rest%%+([\"\'.;)[:space:]])}
   case $form in
     skipped)
       shopt -s nocasematch
-      # The head words of $EXEMPT_KINDS, whole, and no inflection not spelt here.
-      [[ $rest =~ ^((a|an|the)[[:space:]]+)?(typos?|wording|re-?anchor|regenerat(e|ion)|concision|propagat(e|es|ing|ion)|revert|version\ bump|reply)([^[:alnum:]_-]|$) ]] && kind=1
+      [[ ${rest//+([[:space:]])/ } =~ $EXEMPT_PATTERN ]] && phrase=${BASH_REMATCH[3]} && after=$(tail_fault "${BASH_REMATCH[4]}" "$phrase")
       shopt -u nocasematch
-      [ -n "${kind:-}" ] || echo "skipped names \"$rest\", which is no exempt kind"
+      if [ -z "${phrase:-}" ]; then
+        echo "skipped names \"$rest\", which is no exempt kind"
+      elif [ -n "${after:-}" ]; then
+        echo "skipped names \"$rest\", which $after"
+      fi
       return
       ;;
     none-fits)
@@ -846,6 +910,8 @@ fault_in() {
 }
 
 if [ "$event" = stop ]; then
+  EXEMPT_PATTERN=$(exempt_pattern)
+  readonly EXEMPT_PATTERN
   transcript=$(jq -r '.transcript_path // empty' <<<"$input")
   if [ ! -r "$transcript" ]; then
     echo "practice-guard: no readable transcript, so nothing is judged" >&2
@@ -855,7 +921,7 @@ if [ "$event" = stop ]; then
   # carries a declaration, as "L<tab><its last **Practice:** line>"; and per
   # body file a tracker write names, as "F<tab><path>", in transcript order.
   # A line that is not JSON, such as one torn mid-write, is passed over.
-  if ! scan=$(jq -rR --arg marker "$QUOTED_MARKER" '
+  if ! scan=$(jq -rR --arg marker "^$MARKER" --arg flags "$BODY_FLAGS" --arg files "$BODY_FILE_FLAGS" '
     fromjson? | select(.type == "assistant" and (.isSidechain | not)) | .cwd as $cwd
     | .message.content[]? | select(type == "object")
     | def last_line: [splits("\n") | select(test($marker))] | last // empty;
@@ -864,8 +930,13 @@ if [ "$event" = stop ]; then
       elif .name == "Write" or .name == "Edit" then "W\t\(.input.file_path // empty)"
       elif .name == "NotebookEdit" then "W\t\(.input.notebook_path // empty)"
       elif .name == "Bash" and (.input.command // "" | test("\\bgh +(issue|pr) +(comment|create|close|edit|review)\\b|resolve-ticket\\.js|file-issue\\.js")) then
-        (.input.command | last_line | "L\t\(.)"),
-        (.input.command | scan("(?:--body-file|--comment-file|-F)[ =]+(\"[^\"]*\"|\u0027[^\u0027]*\u0027|[^ ;&|)]+)")[0]
+        (.input.command
+          | "<<-?[ \t]*(?<q>[\"\u0027]?)(?<t>[A-Za-z_][A-Za-z0-9_]*)\\k<q>[^\n]*\n(?<h>(?:[^\n]*\n)*?)[ \t]*\\k<t>(?=\n|$)" as $doc
+          | [match($doc; "g") | .captures[] | select(.name == "h") | .string] as $docs
+          | gsub($doc; "")
+          | gsub("(?<at>^|\\s)(?:" + $flags + ")[ =]+(?:\"(?<d>(?:[^\"\\\\]|\\\\.)*)\"|\u0027(?<s>(?:[^\u0027]|\u0027\\\\\u0027\u0027)*)\u0027)"; "\(.at)\n\(.d // .s)\n")
+          | ., $docs[] | last_line | "L\t\(.)"),
+        (.input.command | scan("(?:" + $files + ")[ =]+(\"[^\"]*\"|\u0027[^\u0027]*\u0027|[^ ;&|)]+)")[0]
           | gsub("^[\"\u0027]|[\"\u0027]$"; "") | select(. != "-")
           | if startswith("/") or $cwd == null then "F\t\(.)" else "F\t\($cwd)/\(.)" end)
       else empty end
@@ -941,7 +1012,7 @@ if [ "$tool" = Write ] && [[ $touched =~ ^(.*)/docs/practice/(.+)\.md$ ]]; then
     jq -n --arg r "docs/practice/$slug.md is not a practice note: \"$slug\" is not a craft on the list in ~/.claude/practice-crafts.md, and a note is named for its craft. Pick the task's craft from the list below and write docs/practice/<craft>.md. Where no craft fits, research into a sub-section of the nearest craft's note and file a workflow-core ticket proposing the craft. The crafts:
 $list
 
-$ranking" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
+$RANKING" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"deny",permissionDecisionReason:$r}}'
     exit 0
   fi
 fi
@@ -950,7 +1021,7 @@ first_touch || exit 0
 jq -n --arg c "The practice craft list, ~/.claude/practice-crafts.md. A practice note is docs/practice/<craft>.md at the work tree's root, named for one of these crafts:
 $list
 
-$ranking" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$c}}'
+$RANKING" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$c}}'
 exit 0
 ```
 <!-- END practice-guard.sh -->

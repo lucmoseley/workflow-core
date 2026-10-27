@@ -13,7 +13,7 @@ const VERSION_TIMEOUT_MS = 10_000;
  * @param {string} bin
  * @returns {string | null}
  */
-function claudeVersion(bin) {
+function readClaudeVersion(bin) {
 	const r = spawnSync(bin, ["--version"], {
 		encoding: "utf8",
 		timeout: VERSION_TIMEOUT_MS,
@@ -21,4 +21,4 @@ function claudeVersion(bin) {
 	return /^\d+\.\d+\.\d+/m.exec(r.stdout ?? "")?.[0] ?? null;
 }
 
-module.exports = { claudeVersion };
+module.exports = { readClaudeVersion };

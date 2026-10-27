@@ -51,7 +51,7 @@ const report = (files: [string, number][]) =>
 	});
 
 /** Writes the report and returns the path the CLI should read. */
-const givenReport = (files: [string, number][]) => {
+const writeGivenReport = (files: [string, number][]) => {
 	const path = join(dir, "run.json");
 	writeFileSync(path, report(files));
 	return path;
@@ -65,7 +65,7 @@ describe("extract", () => {
 		const target = join(dir, "out.csv");
 		const r = run(
 			"extract",
-			givenReport([
+			writeGivenReport([
 				["a.test.ts", 3000],
 				["b.test.ts", 1000],
 			]),
@@ -81,14 +81,14 @@ describe("extract", () => {
 	});
 
 	it("names the offending argument and how metadata is spelled when one is not key=value", () => {
-		const r = run("extract", givenReport([]), join(dir, "o.csv"), "nope");
+		const r = run("extract", writeGivenReport([]), join(dir, "o.csv"), "nope");
 		expect(r.status).toBe(1);
 		expect(`${r.stdout}${r.stderr}`).toContain('"nope" is not key=value');
 		expect(`${r.stdout}${r.stderr}`).toContain("run=... sha=...");
 	});
 
 	it("prints the usage rather than writing a file when the output path is missing", () => {
-		const r = run("extract", givenReport([]));
+		const r = run("extract", writeGivenReport([]));
 		expect(r.status).toBe(1);
 		expect(`${r.stdout}${r.stderr}`).toContain(
 			"node scripts/suite-timings.js extract",
@@ -101,7 +101,7 @@ describe("shares", () => {
 		const target = join(dir, "out.csv");
 		run(
 			"extract",
-			givenReport([
+			writeGivenReport([
 				["a.test.ts", 3000],
 				["b.test.ts", 1000],
 			]),

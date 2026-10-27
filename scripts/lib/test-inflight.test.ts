@@ -123,6 +123,7 @@ describe("what a reader outside the process sees", () => {
 		expect(mod.readRecord(recordAt(root))).toEqual({
 			open: [{ module: "/repo/b.test.ts", stage: "loading" }],
 			finished: ["/repo/a.test.ts"],
+			scheduled: null,
 		});
 
 		mod.begin(root);
@@ -205,6 +206,26 @@ describe("it never costs the run", () => {
 		fs.writeFileSync(recordAt(root), '{"module":"a"}');
 
 		expect(mod.read(root)).toEqual([]);
+	});
+
+	/* A ceiling kill names the files never started from it (#2696). */
+	it("records the run's schedule, and starts each run with none", () => {
+		mod.schedule(root, ["/repo/a.test.ts", undefined, "/repo/b.test.ts"]);
+
+		expect(mod.readRecord(recordAt(root)).scheduled).toEqual([
+			"/repo/a.test.ts",
+			"/repo/b.test.ts",
+		]);
+
+		mod.begin(root);
+
+		expect(mod.readRecord(recordAt(root)).scheduled).toBeNull();
+	});
+
+	it("reads a record with no schedule as none recorded, never as an empty one", () => {
+		fs.writeFileSync(recordAt(root), '{"open":[],"finished":[]}');
+
+		expect(mod.readRecord(recordAt(root)).scheduled).toBeNull();
 	});
 
 	it("reads an absent file as no record", () => {

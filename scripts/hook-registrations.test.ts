@@ -22,12 +22,13 @@
  * never fires it, while every one of its own tests stays green — the rule it
  * enforces silently stops.
  */
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	allRegistrations,
-	commandLine,
+	buildCommandLine,
 	type HookEvent,
 	registrationsOf,
 } from "./lib/hook-wiring";
@@ -75,526 +76,407 @@ interface Registration {
 	 * this list still names the dropped tool, and still fails.
 	 */
 	covers: string[];
-	/** True where the entry declares no timeout, so a dropped one is not silent. */
-	unbounded?: true;
 }
 
 const REGISTRATIONS: Registration[] = [
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-last30days.sh",
-		matcher: "Skill",
-		covers: ["Skill"],
-		unbounded: true,
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-review-rules.sh",
-		matcher: "Skill",
-		covers: ["Skill"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/inject-review-tier.sh",
-		matcher: "Skill",
-		covers: ["Skill"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/inject-founder-wording.sh",
-		matcher: "Skill",
-		covers: ["Skill"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-branch.sh",
+		id: "scripts/guard-branch.js",
 		narrowing: "Bash(git *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-commit-form.sh",
+		id: "scripts/guard-commit-form.js",
 		narrowing: "Bash(git *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-registry-atomicity.sh",
+		id: "scripts/guard-registry-atomicity.js",
 		narrowing: "Bash(git *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-registry-atomicity.sh",
+		id: "scripts/guard-registry-atomicity.js",
 		narrowing: "Bash(*commit-paths.js*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-commit-form.sh",
+		id: "scripts/guard-commit-form.js",
 		narrowing: "Bash(*commit-paths.js*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-pull-form.sh",
+		id: "scripts/guard-pull-form.js",
 		narrowing: "Bash(git *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-push-rules.sh",
+		id: "scripts/guard-push-rules.js",
 		narrowing: "Bash(git *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-bg-job.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
+		id: "scripts/guard-dispatch.js",
+		matcher: "Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task",
+		covers: [
+			"Bash",
+			"Write",
+			"Edit",
+			"NotebookEdit",
+			"Skill",
+			"Read",
+			"ListAgents",
+			"Agent",
+			"Task",
+		],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-issue-body.sh",
+		id: "scripts/guard-issue-body.js",
 		narrowing: "Bash(gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-issue-close.sh",
+		id: "scripts/guard-issue-close.js",
 		narrowing: "Bash(gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-issue-create-label.sh",
+		id: "scripts/guard-issue-create-label.js",
 		narrowing: "Bash(gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-anthropic-report.sh",
+		id: "scripts/guard-anthropic-report.js",
 		narrowing: "Bash(*gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-tracker-rules.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-issue-phase-scope.sh",
+		id: "scripts/guard-issue-phase-scope.js",
 		narrowing: "Bash(*gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-stale-script.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-claimed-bash-write.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-self-match.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-wait-loop.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-file-claim.sh",
-		matcher: "Write|Edit|NotebookEdit",
-		covers: ["Write", "Edit", "NotebookEdit"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/inject-test-rules.sh",
-		matcher: "Write|Edit|NotebookEdit",
-		covers: ["Write", "Edit", "NotebookEdit"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-citation-tracker.sh",
-		matcher: "Write|Edit",
-		covers: ["Write", "Edit"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-dispatch-rewrite.sh",
-		matcher: "Agent|Task",
-		covers: ["Agent", "Task"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-blind-dispatch.sh",
-		matcher: "Agent|Task",
-		covers: ["Agent", "Task"],
 	},
 	/* mantahostels#2811 split this guard in two: the Bash limb is narrowed to the four
 	 * command shapes its Bash routes classify, one entry per rule, and the
-	 * Read|ListAgents limb stays unnarrowed because neither tool has a command
-	 * to match on. A `Bash(…)` rule left on the joint matcher would have matched
-	 * no Read call at all (hooks.md:123). */
+	 * Read|ListAgents limb runs unnarrowed in guard-dispatch.js because neither
+	 * tool has a command to match on. A `Bash(…)` rule left on a joint matcher
+	 * would match no Read call at all (hooks.md:123). */
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.sh",
-		matcher: "Read|ListAgents",
-		covers: ["Read", "ListAgents"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.sh",
+		id: "scripts/guard-agent-poll.js",
 		narrowing: "Bash(*sleep *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.sh",
+		id: "scripts/guard-agent-poll.js",
 		narrowing: "Bash(true*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.sh",
+		id: "scripts/guard-agent-poll.js",
 		narrowing: "Bash(:*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-agent-poll.sh",
+		id: "scripts/guard-agent-poll.js",
 		narrowing: "Bash(exit*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
-		/* mantahostels#2570. ListAgents is missing from this matcher deliberately, and not by
-		 * oversight: guard-agent-poll.sh above already caps it at two calls in
-		 * five minutes, and on the measured corpus the repeat rule split near
-		 * evenly there. The PostToolUse recorder below must carry the same
-		 * matcher — a tool guarded but not recorded can never fire. */
 		event: "PreToolUse",
-		id: "scripts/guard-echo-call.sh",
-		matcher: "Bash|Read",
-		covers: ["Bash", "Read"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*npm *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*node *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*next *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*python*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*pytest*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*npx *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*yarn *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*pnpm *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*bun *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*make *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*cargo *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-concurrency.sh",
+		id: "scripts/guard-suite-concurrency.js",
 		narrowing: "Bash(*go test*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-vitest-wrapper.sh",
+		id: "scripts/guard-vitest-wrapper.js",
 		narrowing: "Bash(*vitest *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-vitest-wrapper.sh",
+		id: "scripts/guard-vitest-wrapper.js",
 		narrowing: "Bash(*npx *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-suite-background.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-unasked-rerun.sh",
+		id: "scripts/guard-unasked-rerun.js",
 		narrowing: "Bash(*npm *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-headroom-read.sh",
+		id: "scripts/guard-headroom-read.js",
 		narrowing: "Bash(*free *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-headroom-read.sh",
+		id: "scripts/guard-headroom-read.js",
 		narrowing: "Bash(*/proc/meminfo*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-node-heap.sh",
+		id: "scripts/guard-node-heap.js",
 		narrowing: "Bash(*max-old-space-size*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-node-heap.sh",
+		id: "scripts/guard-node-heap.js",
 		narrowing: "Bash(*max_old_space_size*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-rm-unchecked.sh",
+		id: "scripts/guard-rm-unchecked.js",
 		narrowing: "Bash(*rm *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-recursive-dot-read.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-root-find.sh",
+		id: "scripts/guard-root-find.js",
 		narrowing: "Bash(*find *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-ugrep-pattern.sh",
+		id: "scripts/guard-cpu-load.js",
+		narrowing: "Bash(*yes*)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
+		event: "PreToolUse",
+		id: "scripts/guard-cpu-load.js",
+		narrowing: "Bash(*stress*)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
+		event: "PreToolUse",
+		id: "scripts/guard-cpu-load.js",
+		narrowing: "Bash(*done*)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
+		event: "PreToolUse",
+		id: "scripts/guard-cpu-load.js",
+		narrowing: "Bash(*.sh*)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
+		event: "PreToolUse",
+		id: "scripts/guard-cpu-load.js",
+		narrowing: "Bash(*sh -*)",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
+		event: "PreToolUse",
+		id: "scripts/guard-ugrep-pattern.js",
 		narrowing: "Bash(grep *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
-		/* mantahostels#2595. Read joined the matcher because a Bash-only hook never fires on
-		 * a `Read` call, and `Read` is the majority of an /implement session's
-		 * read calls on some models.
-		 *
-		 * mantahostels#2811 then split the two apart: the Bash limb judges `cat`, `sed` and
-		 * `awk` alone, so it takes a rule for each, and the Read limb gets a
-		 * matcher of its own because a `Bash(…)` rule matches no Read call
+		/* mantahostels#2811: the Bash limb judges `cat`, `sed` and `awk` alone, so
+		 * it takes a rule for each; the Read limb (mantahostels#2595) runs in
+		 * guard-dispatch.js, because a `Bash(…)` rule matches no Read call
 		 * (hooks.md:123). */
 		event: "PreToolUse",
-		id: "scripts/guard-wide-read.sh",
-		matcher: "Read",
-		covers: ["Read"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-wide-read.sh",
+		id: "scripts/guard-wide-read.js",
 		narrowing: "Bash(*cat *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-wide-read.sh",
+		id: "scripts/guard-wide-read.js",
 		narrowing: "Bash(*sed *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-wide-read.sh",
+		id: "scripts/guard-wide-read.js",
 		narrowing: "Bash(*awk *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-npm-install.sh",
+		id: "scripts/guard-npm-install.js",
 		narrowing: "Bash(*npm *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-npm-install.sh",
+		id: "scripts/guard-npm-install.js",
 		narrowing: "Bash(*npx *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-check-sh.sh",
+		id: "scripts/guard-check-sh.js",
 		narrowing: "Bash(*shellcheck *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-check-sh.sh",
+		id: "scripts/guard-check-sh.js",
 		narrowing: "Bash(*npm *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-sweep-fire.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-hook-escape.sh",
+		id: "scripts/guard-hook-escape.js",
 		narrowing: "Bash(*WFC_ALLOW_*)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-branch-publish.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		/* The Bash redirect limb and the file-tool limb share one predicate, so
-		 * one registration; the guard picks its limb off .tool_name (mantahostels#3380). */
-		event: "PreToolUse",
-		id: "scripts/guard-root-scratch.sh",
-		matcher: "Bash|Write|Edit|NotebookEdit",
-		covers: ["Bash", "Write", "Edit", "NotebookEdit"],
-	},
-	{
-		/* One registration over four tools, not one per tool: the preamble prints
-		 * both the variable and the path it resolved to, and the expanded one is
-		 * the spelling the file tools can carry. The guard picks its limb off
-		 * .tool_name (mantahostels#2406). */
-		event: "PreToolUse",
-		id: "scripts/guard-job-dir-scratch.sh",
-		matcher: "Bash|Write|Edit|NotebookEdit",
-		covers: ["Bash", "Write", "Edit", "NotebookEdit"],
-	},
-	{
-		/* `Write` alone: `Edit` must match the old text, so it never replaces a
-		 * neighbour's scratch blind (#1167). */
-		event: "PreToolUse",
-		id: "scripts/guard-scratch-overwrite.sh",
-		matcher: "Write",
-		covers: ["Write"],
-	},
 
 	{
-		/* mantahostels#2570, the other half of guard-echo-call.sh above: the guard cannot see
-		 * a response at PreToolUse, so this records one. Same matcher, for the
-		 * reason given there. */
+		/* #2787: every always-on PostToolUse core runs from one entry, over the
+		 * union of their tools; each core's own tools are its manifest row's. */
 		event: "PostToolUse",
-		id: "scripts/record-tool-echo.sh",
-		matcher: "Bash|Read",
-		covers: ["Bash", "Read"],
-	},
-	{
-		/* #1784: an image's size is only in the Read RESPONSE. */
-		event: "PostToolUse",
-		id: "scripts/guard-image-budget.sh",
-		matcher: "Read",
-		covers: ["Read"],
+		id: "scripts/guard-dispatch.js",
+		matcher: "Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch",
+		covers: [
+			"Bash",
+			"Read",
+			"Write",
+			"Edit",
+			"NotebookEdit",
+			"WebFetch",
+			"WebSearch",
+		],
 	},
 	{
 		event: "PostToolUse",
@@ -605,27 +487,21 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "PostToolUse",
-		id: "scripts/refresh-claims.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PostToolUse",
-		id: "scripts/record-issue-claim.sh",
+		id: "scripts/record-issue-claim.js",
 		narrowing: "Bash(gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PostToolUse",
-		id: "scripts/release-issue-claim.sh",
+		id: "scripts/release-issue-claim.js",
 		narrowing: "Bash(gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
 	{
 		event: "PostToolUse",
-		id: "scripts/record-acts.sh",
+		id: "scripts/record-acts.js",
 		narrowing: "Bash(gh *)",
 		matcher: "Bash",
 		covers: ["Bash"],
@@ -634,9 +510,9 @@ const REGISTRATIONS: Registration[] = [
 		/* #289: the refusal itself is only visible in the RESPONSE, so this is
 		 * PostToolUse and not a PreToolUse guard. Narrowed to `git *` because a
 		 * pull reached through a wrapper is unseen anyway — the same blind spot
-		 * guard-pull-form.sh carries — so the wider matcher buys nothing. */
+		 * guard-pull-form.js carries — so the wider matcher buys nothing. */
 		event: "PostToolUse",
-		id: "scripts/record-divergence.sh",
+		id: "scripts/record-divergence.js",
 		narrowing: "Bash(git *)",
 		matcher: "Bash",
 		covers: ["Bash"],
@@ -644,9 +520,9 @@ const REGISTRATIONS: Registration[] = [
 	{
 		/* #2405: only a push that succeeded starts the lander, and only
 		 * PostToolUse sees one. Unanchored, as its walker reads a push behind
-		 * gp_unwrap's wrappers. */
+		 * unwrap's wrappers. */
 		event: "PostToolUse",
-		id: "scripts/start-lander-on-push.sh",
+		id: "scripts/start-lander-on-push.js",
 		narrowing: "Bash(*push*)",
 		matcher: "Bash",
 		covers: ["Bash"],
@@ -656,7 +532,7 @@ const REGISTRATIONS: Registration[] = [
 		 * every launch spelling holds, never two — the guard's header says
 		 * why (#1661). */
 		event: "PostToolUse",
-		id: "scripts/guard-lost-verdict.sh",
+		id: "scripts/guard-lost-verdict.js",
 		narrowing: "Bash(*test*)",
 		matcher: "Bash",
 		covers: ["Bash"],
@@ -664,7 +540,7 @@ const REGISTRATIONS: Registration[] = [
 	{
 		/* A call exiting non-zero reaches this event instead (#1575). */
 		event: "PostToolUseFailure",
-		id: "scripts/guard-lost-verdict.sh",
+		id: "scripts/guard-lost-verdict.js",
 		narrowing: "Bash(*test*)",
 		matcher: "Bash",
 		covers: ["Bash"],
@@ -673,7 +549,7 @@ const REGISTRATIONS: Registration[] = [
 		/* #2026: a killed call fails, so only this event sees its exit code.
 		 * Unnarrowed, as any command can be killed. */
 		event: "PostToolUseFailure",
-		id: "scripts/guard-failed-call-rules.sh",
+		id: "scripts/guard-failed-call-rules.js",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
@@ -681,29 +557,9 @@ const REGISTRATIONS: Registration[] = [
 		/* #2026: a refused Skill is turned away in input validation, before any
 		 * per-call hook; only the batch's results carry it. No matcher. */
 		event: "PostToolBatch",
-		id: "scripts/guard-failed-call-rules.sh",
+		id: "scripts/guard-failed-call-rules.js",
 		matcher: null,
 		covers: [],
-	},
-	// The formatter and the write recorder are ONE registration (mantahostels#295). Matching
-	// hooks run in parallel, so as two they raced and the recorder often stored
-	// the pre-format bytes — making the session's own formatter read as a clobber
-	// at its next write. post-write.sh runs them in order.
-	{
-		event: "PostToolUse",
-		id: "scripts/post-write.sh",
-		matcher: "Write|Edit|NotebookEdit",
-		covers: ["Write", "Edit", "NotebookEdit"],
-	},
-	// Both of mantahostels#1806's seams are ONE registration: two entries naming this script
-	// carry no arguments to tell them apart, so `id` above could not. The Read
-	// seam's research-scratch scoping lives inside the script — a matcher cannot
-	// filter on a path.
-	{
-		event: "PostToolUse",
-		id: "scripts/scan-injection.js",
-		matcher: "WebFetch|WebSearch|Read",
-		covers: ["WebFetch", "WebSearch", "Read"],
 	},
 
 	// UserPromptSubmit, Stop, SessionStart cover no tool; SessionStart's one
@@ -722,7 +578,7 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "UserPromptSubmit",
-		id: "scripts/inject-founder-wording.sh",
+		id: "scripts/inject-founder-wording.js",
 		matcher: null,
 		covers: [],
 	},
@@ -848,6 +704,14 @@ const REGISTRATIONS: Registration[] = [
 	{
 		event: "SessionStart",
 		id: "scripts/inject-tracker-docs.sh",
+		matcher: null,
+		covers: [],
+	},
+	{
+		/* Silent while no hook run is orphaned past the ceiling; kills and names
+		 * each one it finds, so a standing one never re-reports (#2922). */
+		event: "SessionStart",
+		id: "scripts/reap-orphan-hooks.js --notify",
 		matcher: null,
 		covers: [],
 	},
@@ -998,40 +862,33 @@ describe("hook registrations", () => {
 			 * unnarrowed row. */
 			where: r.narrowing ? `if: ${r.narrowing}` : "unnarrowed",
 		})),
-	)(
-		"$event runs $id, $where",
-		({ event, id, narrowing, matcher, covers, unbounded }) => {
-			const found = registrationsOf(event, id).filter(
-				(r) => (r.if ?? null) === (narrowing ?? null),
-			);
-			// One, or every assertion below reads whichever happened to sort first.
+	)("$event runs $id, $where", ({ event, id, narrowing, matcher, covers }) => {
+		const found = registrationsOf(event, id).filter(
+			(r) => (r.if ?? null) === (narrowing ?? null),
+		);
+		// One, or every assertion below reads whichever happened to sort first.
+		expect(
+			found,
+			`${id} is not registered on ${event}${narrowing ? ` with if: ${narrowing}` : " unnarrowed"}`,
+		).toHaveLength(1);
+
+		expect(
+			found[0].matcher ?? null,
+			`${id}'s matcher on ${event} has changed`,
+		).toBe(matcher);
+
+		for (const tool of covers) {
 			expect(
-				found,
-				`${id} is not registered on ${event}${narrowing ? ` with if: ${narrowing}` : " unnarrowed"}`,
-			).toHaveLength(1);
+				new RegExp(`^(${found[0].matcher})$`).test(tool),
+				`${id} no longer fires on ${tool}`,
+			).toBe(true);
+		}
 
-			expect(
-				found[0].matcher ?? null,
-				`${id}'s matcher on ${event} has changed`,
-			).toBe(matcher);
-
-			for (const tool of covers) {
-				expect(
-					new RegExp(`^(${found[0].matcher})$`).test(tool),
-					`${id} no longer fires on ${tool}`,
-				).toBe(true);
-			}
-
-			if (unbounded) {
-				expect(found[0].timeout, `${id} has gained a timeout`).toBeUndefined();
-			} else {
-				expect(
-					typeof found[0].timeout,
-					`${id} has lost its timeout, so it now runs unbounded`,
-				).toBe("number");
-			}
-		},
-	);
+		expect(
+			typeof found[0].timeout,
+			`${id} has lost its timeout, so it now runs unbounded`,
+		).toBe("number");
+	});
 
 	it("pins every registration in the file, so a new hook cannot arrive unasserted", () => {
 		// The event comes from the file, not from HookEvent, so a hook registered
@@ -1042,22 +899,32 @@ describe("hook registrations", () => {
 					!REGISTRATIONS.some(
 						(r) =>
 							r.event === reg.event &&
-							commandLine(reg).includes(r.id) &&
+							buildCommandLine(reg).includes(r.id) &&
 							(r.narrowing ?? null) === (reg.if ?? null),
 					),
 			)
 			.map(
 				(reg) =>
-					`${reg.event}: ${commandLine(reg).slice(0, 60)}${reg.if ? ` if: ${reg.if}` : ""}`,
+					`${reg.event}: ${buildCommandLine(reg).slice(0, 60)}${reg.if ? ` if: ${reg.if}` : ""}`,
 			);
 
 		expect(unpinned).toEqual([]);
 	});
 
-	// Excludes scripts/lib/guard-*.sh and guard-*-fixture.ts.
-	const guardFiles = fs
-		.readdirSync(__dirname)
-		.filter((f) => /^guard-.+\.(sh|js)$/.test(f));
+	// Excludes scripts/lib/guard-*.sh and guard-*-fixture.ts. Tracked and
+	// unignored files only: the shims keep-hook-shims.js holds at retired
+	// scripts are ignored through .git/info/exclude (#2879).
+	const guardFiles = execFileSync(
+		"git",
+		["ls-files", "--cached", "--others", "--exclude-standard", "--", "guard-*"],
+		{ cwd: __dirname, encoding: "utf8" },
+	)
+		.split("\n")
+		.filter(
+			(f) =>
+				/^guard-[^/]+\.(sh|js)$/.test(f) &&
+				fs.existsSync(path.join(__dirname, f)),
+		);
 
 	it("scripts/guard-*.{sh,js} actually exist to enumerate", () => {
 		expect(guardFiles.length).toBeGreaterThan(0);
@@ -1076,7 +943,7 @@ describe("hook registrations", () => {
 		const unwired = guardFiles.filter(
 			(file) =>
 				!registrations.some((r) =>
-					commandLine(r).includes(`scripts/${file}`),
+					buildCommandLine(r).includes(`scripts/${file}`),
 				) && !(file in REGISTERED_ELSEWHERE),
 		);
 

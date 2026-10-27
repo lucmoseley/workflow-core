@@ -18,6 +18,7 @@
  */
 
 const { scriptPath } = require("./script-path.js");
+const { isGhCommand } = require("./shell-words.js");
 
 /** @typedef {"rulings" | "web" | "subagent"} Rung */
 /** @typedef {import("./tool-calls-since").ToolCall} ToolCall */
@@ -185,7 +186,7 @@ function isRulingsSearch(args, corpus) {
  */
 function isRulingsCommand(command, corpus) {
 	for (const words of segments(command)) {
-		const at = words.findIndex((w) => w === "gh" || w.endsWith("/gh"));
+		const at = words.findIndex(isGhCommand);
 		if (at === -1) continue;
 		const [sub, verb, ...args] = words.slice(at + 1);
 		if (sub === "issue" && verb === "list" && isRulingsList(args, corpus))
@@ -268,7 +269,7 @@ function buildRungSteps(missing, corpus) {
  *   `missing`, every rung some refused question lacks; `last`, the
  *   last-refusal line where this refusal spends the cap
  */
-function ladderReason(lines, { missing, corpus, last }) {
+function buildLadderReason(lines, { missing, corpus, last }) {
 	return (
 		"This turn re-sends a question the close-rivals check refused, and a test " +
 		"still catches it — its top two rivals still close, or no option still " +
@@ -294,13 +295,13 @@ function ladderReason(lines, { missing, corpus, last }) {
  * @param {string} number its round number
  * @param {Rung[]} missing
  */
-const ladderLine = (number, missing) =>
+const buildLadderLine = (number, missing) =>
 	`Q${number}: still caught, with no call since the refusal on ${missing.map((r) => RUNG_NAME[r]).join(", ")}.`;
 
 module.exports = {
 	RUNGS,
 	rungCounts,
 	missingRungs,
-	ladderLine,
-	ladderReason,
+	buildLadderLine,
+	buildLadderReason,
 };

@@ -35,7 +35,7 @@ import {
 	TOOLS,
 	withIgnoreBlock,
 } from "./adopter-skeleton.js";
-import { pluginStyles } from "./output-styles.js";
+import { readPluginStyles } from "./output-styles.js";
 import { CORE_ROOT, cutLocalGateBlock } from "./precommit-gate-testkit";
 import { runInProcess } from "./run-in-process";
 import { TAKES_PREFIX, TAKES_VALUES, takesLabel } from "./takes-label";
@@ -74,7 +74,7 @@ describe("the plugin provenance record (#108)", () => {
 	});
 
 	it("renders a known sha with an unknown dirty flag as clean, not as an error", () => {
-		/* directoryGit() keeps a good `rev-parse HEAD` even where the follow-up
+		/* readDirectoryGit() keeps a good `rev-parse HEAD` even where the follow-up
 		 * `git status` fails, leaving `dirty: null`. */
 		expect(
 			describePluginRecord({
@@ -729,7 +729,7 @@ describe("the day-one roadmap", () => {
 });
 
 describe("the core hooks an adopter's shims run (#1839)", () => {
-	const core = (name: string) =>
+	const readCoreHook = (name: string) =>
 		fs.readFileSync(path.join(CORE, ".husky", name), "utf8");
 
 	it("covers every hook the core runs", () => {
@@ -744,7 +744,7 @@ describe("the core hooks an adopter's shims run (#1839)", () => {
 			expect(isHookShim(shim)).toBe(true);
 			expect(hookRootOf(shim)).toBeNull();
 		}
-		expect(isHookShim(core("pre-commit"))).toBe(false);
+		expect(isHookShim(readCoreHook("pre-commit"))).toBe(false);
 	});
 
 	it("still reads a pre-#1839 hook's root line", () => {
@@ -757,7 +757,7 @@ describe("the core hooks an adopter's shims run (#1839)", () => {
 		/* The load line and the missing-script check both resolve from the
 		 * adopter's repo top; spelled through the plugin root, they would source
 		 * a file that is never there and check the wrong tree. */
-		const block = cutLocalGateBlock(core("pre-commit"));
+		const block = cutLocalGateBlock(readCoreHook("pre-commit"));
 		expect(block).toContain(". ./.husky/pre-commit.local");
 		expect(block).not.toContain("${WFC_PLUGIN_ROOT:-");
 	});
@@ -916,9 +916,9 @@ describe("the settings keys", () => {
 			plugin: "workflow-core",
 			outputStyle: null,
 		};
-		/* Read through pluginStyles: `.claude-plugin/plugin.json` and
+		/* Read through readPluginStyles: `.claude-plugin/plugin.json` and
 		 * `.claude/output-styles/core-voice.md`. */
-		const shipped = pluginStyles(CORE).styles;
+		const shipped = readPluginStyles(CORE).styles;
 		expect(shipped).toContain(settingsKeys(at, {}).outputStyle);
 		expect(settingsKeys(at, { outputStyle: "core-voice" }).outputStyle).toBe(
 			"workflow-core:Core voice",
@@ -1010,7 +1010,7 @@ function quotedRootSites(text: string) {
 			scanHeredocBodies(st);
 		else scanCode(st);
 	}
-	return hitLines(text, st.hits);
+	return parseHitLines(text, st.hits);
 }
 
 /** quotedRootSites()'s scan state; `i` is the last character consumed. */
@@ -1119,7 +1119,7 @@ function scanCode(st: QuoteScan) {
 }
 
 /** Each hit's line, counted from 1. */
-function hitLines(text: string, hits: QuoteScan["hits"]) {
+function parseHitLines(text: string, hits: QuoteScan["hits"]) {
 	return hits.map(({ at, context }) => ({
 		line: text.slice(0, at).split("\n").length,
 		context,

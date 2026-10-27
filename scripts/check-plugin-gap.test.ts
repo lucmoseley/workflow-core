@@ -398,15 +398,20 @@ describe("check-plugin-gap.js surfaces stepsOwed (#248)", () => {
 			.filter((l) => l.startsWith("    node "))
 			.map((l) => l.trim().slice("node ".length));
 		expect(commands).toHaveLength(2);
-		const argvOf = (cmd: string) =>
+		const parseShellArgv = (cmd: string) =>
 			execFileSync("bash", ["-c", `printf '%s\\0' ${cmd}`], {
 				encoding: "utf8",
 			})
 				.split("\0")
 				.slice(0, -1);
 		const cli = `${pluginRoot}/scripts/steps-owed.js`;
-		expect(argvOf(commands[0])).toEqual([cli, "decline", "v1.1.9", text]);
-		expect(argvOf(commands[1])).toEqual([
+		expect(parseShellArgv(commands[0])).toEqual([
+			cli,
+			"decline",
+			"v1.1.9",
+			text,
+		]);
+		expect(parseShellArgv(commands[1])).toEqual([
 			cli,
 			"clear",
 			"v1.1.9",

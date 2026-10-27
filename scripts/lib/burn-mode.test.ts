@@ -10,7 +10,7 @@
  * ../burn-mode.test.ts. Here the table's functions are called in process, and
  * its CLI spawned with node, since the shell halves read it through that CLI.
  *
- * `guard-dispatch-rewrite.sh`, `dispatch-sessions.sh` and the `burn-mode`
+ * `lib/dispatch-rewrite.js`, `dispatch-sessions.sh` and the `burn-mode`
  * skill's toggle all remap through this table: loosen a case here and burn
  * mode spends allowance on the wrong model, or leaves Sonnet work unmoved.
  */

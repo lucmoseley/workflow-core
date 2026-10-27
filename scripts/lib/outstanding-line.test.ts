@@ -18,8 +18,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GRAPHQL_FAKE } from "./gh-fake";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./gh-stub";
-import { runInProcess } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "outstanding-line.js");
 const TRACKER = "o/here";
@@ -41,25 +41,23 @@ const load = async () => await import(LIB);
 const shape = async (text: string, grammar = "outstanding") =>
 	(await load()).judge(text, { grammar, tracker: TRACKER, shapeOnly: true });
 
-/** Serve `data` (and `errors`, exiting 1 as gh does on a GraphQL error). */
-const serve = (data: unknown, { errors = false, sleep = 0 } = {}) => {
-	const body = JSON.stringify(
-		errors ? { data, errors: [{ type: "NOT_FOUND" }] } : { data },
-	);
-	fs.writeFileSync(path.join(dir, "response.json"), body);
-	const script = [
-		"#!/bin/sh",
-		`printf '%s\\n' "$*" >>${dir}/calls`,
-		sleep ? `sleep ${sleep}` : "",
-		`cat ${dir}/response.json`,
-		errors
-			? "echo 'gh: Could not resolve to an issue or pull request' >&2; exit 1"
-			: "",
-	].join("\n");
+/** Serve `data`, the read's nodes by alias, as gh-fake's `answerIssueData`
+ *  answers it: a null repository or issue errs as gh does, exiting 1. */
+const serve = (data: unknown, { sleep = 0 } = {}) => {
+	const at = path.join(dir, "data.json");
+	fs.writeFileSync(at, JSON.stringify(data));
+	const script = `#!/usr/bin/env node
+${GRAPHQL_FAKE}
+const fs = require("node:fs");
+const argv = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(path.join(dir, "calls"))}, argv.join(" ") + "\\n");
+Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ${sleep * 1000});
+serveAnswer(answerIssueData(argv, JSON.parse(fs.readFileSync(${JSON.stringify(at)}, "utf8"))));
+`;
 	process.env.WFC_GH = stubGhScript(dir, script).gh;
 };
 
-const calls = () => {
+const readCalls = () => {
 	const at = path.join(dir, "calls");
 	return fs.existsSync(at)
 		? fs.readFileSync(at, "utf8").trim().split("\n")
@@ -232,16 +230,16 @@ describe("the open-check", () => {
 			ok: true,
 			statuses: { "o/here#5": "open" },
 		});
-		expect(calls()).toHaveLength(1);
-		expect(calls()[0]).toMatch(/^api graphql -f query=/);
-		expect(calls()[0]).toContain('repository(owner: "o", name: "here")');
+		expect(readCalls()).toHaveLength(1);
+		expect(readCalls()[0]).toMatch(/^api graphql -f query=/);
+		expect(readCalls()[0]).toContain('repository(owner: "o", name: "here")');
 	});
 
 	it("never reads a ref inside a gist", async () => {
 		serve({ r0: { n5: issue("OPEN") } });
 		await check("**Outstanding:** #5 (after #1977 lands)");
-		expect(calls()[0]).toContain("n5:");
-		expect(calls()[0]).not.toContain("1977");
+		expect(readCalls()[0]).toContain("n5:");
+		expect(readCalls()[0]).not.toContain("1977");
 	});
 
 	it("refuses a closed issue, naming its full ref", async () => {
@@ -253,7 +251,7 @@ describe("the open-check", () => {
 	});
 
 	it("refuses a missing number, read from the partial answer gh prints on a GraphQL error", async () => {
-		serve({ r0: { n5: issue("OPEN"), n9999: null } }, { errors: true });
+		serve({ r0: { n5: issue("OPEN"), n9999: null } });
 		const { verdict, log } = await check("**Outstanding:** #5 (a), #9999 (b)");
 		expect(verdict.statuses).toEqual({
 			"o/here#5": "open",
@@ -279,7 +277,7 @@ describe("the open-check", () => {
 			expect(verdict.ok).toBe(false);
 			expect(verdict.statuses["o/here#40"]).toBe("self");
 		}
-		expect(calls()).toHaveLength(0);
+		expect(readCalls()).toHaveLength(0);
 	});
 
 	it("fails open on an unreachable GitHub: shape only, logged", async () => {
@@ -307,7 +305,7 @@ describe("the open-check", () => {
 			"o/far#7": "closed",
 		});
 		expect(verdict.unchecked[0]).toMatch(/no tracker resolves/);
-		expect(calls()).toHaveLength(1);
+		expect(readCalls()).toHaveLength(1);
 		expect(log).toHaveBeenCalledOnce();
 		const bad = await check("**Outstanding:** none — a reason", {
 			tracker: "not-a-tracker",
@@ -326,7 +324,7 @@ describe("the open-check", () => {
 	});
 
 	it("fails open on an unreadable repo alone, naming it, still judging the readable one", async () => {
-		serve({ r0: { n5: issue("CLOSED") }, r1: null }, { errors: true });
+		serve({ r0: { n5: issue("CLOSED") }, r1: null });
 		const { verdict, log } = await check(
 			"**Outstanding:** #5 (a), secret#3 (b)",
 		);
@@ -357,8 +355,8 @@ describe("the open-check", () => {
 				comments: true,
 			},
 		);
-		expect(calls()).toHaveLength(1);
-		expect(calls()[0]).toContain("comments(last: 5)");
+		expect(readCalls()).toHaveLength(1);
+		expect(readCalls()[0]).toContain("comments(last: 5)");
 		expect(verdict.comments).toEqual({
 			"o/here#5": [
 				{ author: "bot", body: "❓ **Q1**", createdAt: "t", url: "u" },
@@ -380,77 +378,55 @@ describe("the open-check", () => {
 	});
 });
 
-describe("the CLI, for the bash hooks", () => {
-	const run = (args: string[], stdin: string) =>
-		runInProcess(LIB, args, {
-			stdin,
-			env: { ...process.env } as Record<string, string>,
-		});
-
-	it("prints the verdict and exits 1 on a refusal, 0 on a pass", () => {
+describe("the refusal text", () => {
+	it("refuses a closed carrier and renders the reason, then the shape", async () => {
 		serve({ r0: { n5: issue("CLOSED"), n6: issue("OPEN") } });
-		const refused = run(
-			["outstanding", "--tracker", TRACKER],
-			"**Outstanding:** #5 (a)",
-		);
-		expect(refused.status).toBe(1);
-		const verdict = JSON.parse(refused.stdout);
+		const { verdict } = await check("**Outstanding:** #5 (a)");
+		expect(verdict.ok).toBe(false);
 		expect(verdict.refusals[0].ref).toBe("o/here#5");
 		expect(verdict.refusals[0].reason).toMatch(/is closed.*cite an open issue/);
-		expect(verdict.message).toMatch(
+		expect((await load()).buildRefusalText(verdict)).toMatch(
 			/^- o\/here#5 is closed[\s\S]*The shape: `\*\*Outstanding:\*\* none`, or[\s\S]*goes on another line/,
 		);
-		const passed = run(
-			["block", "--tracker", TRACKER, "--shape-only"],
-			"nothing",
-		);
-		expect(passed.status).toBe(0);
-		expect(JSON.parse(passed.stdout)).toMatchObject({ ok: true, none: true });
+		const passed = await shape("nothing", "block");
+		expect(passed).toMatchObject({ ok: true, none: true });
 	});
 
-	it("renders a block refusal reason first, quoting the line, then the block's shape", () => {
-		const refused = run(
-			["block", "--tracker", TRACKER, "--shape-only"],
-			"send the reply",
-		);
-		expect(refused.status).toBe(1);
-		expect(JSON.parse(refused.stdout).message).toBe(
+	it("renders a block refusal reason first, quoting the line, then the block's shape", async () => {
+		const refused = await shape("send the reply", "block");
+		expect(refused.ok).toBe(false);
+		expect((await load()).buildRefusalText(refused)).toBe(
 			"- each item is its own `- #N (gist)` line — read: `send the reply`\n\nThe shape: one `- #N (what to do)` line per item, each citing an open issue, or the single line `nothing`.",
 		);
 	});
 
-	it("answers has-line on stdout, never by exit code, skipping a fenced marker as the line parser does (#1247, #1255)", () => {
-		const answer = (text: string) => {
-			const r = run(["has-line"], text);
-			expect(r.status).toBe(0);
-			return r.stdout;
-		};
-		expect(answer("Done.\n**Outstanding:** none")).toBe("yes\n");
-		expect(answer("The form:\n```\n**Outstanding:** none\n```")).toBe("no\n");
-		expect(answer("Closing.")).toBe("no\n");
+	it("finds the line outside a fence only, as the line parser does (#1247)", async () => {
+		const { hasOutstandingLine } = await load();
+		expect(hasOutstandingLine("Done.\n**Outstanding:** none")).toBe(true);
+		expect(
+			hasOutstandingLine("The form:\n```\n**Outstanding:** none\n```"),
+		).toBe(false);
+		expect(hasOutstandingLine("Closing.")).toBe(false);
 	});
 
-	it("passes a fail-open, leaving the record to the bash caller", () => {
+	it("passes a fail-open, naming the open-check left unchecked", async () => {
 		process.env.WFC_GH = stubGhScript(dir, GH_FAILING_SCRIPT, {
 			failing: true,
 		}).gh;
-		const r = run(
-			["outstanding", "--tracker", TRACKER, "--self", "9"],
-			"**Outstanding:** #5 (a)",
-		);
-		expect(r.status).toBe(0);
-		expect(JSON.parse(r.stdout).unchecked[0]).toMatch(/GitHub unreachable/);
+		const { verdict } = await check("**Outstanding:** #5 (a)", { self: "9" });
+		expect(verdict.ok).toBe(true);
+		expect(verdict.unchecked[0]).toMatch(/GitHub unreachable/);
 	});
 });
 
-describe("canonicalRef", () => {
+describe("readCanonicalRef", () => {
 	it("reads each ref spelling as the item's full ref, and anything else as null", async () => {
-		const { canonicalRef } = await load();
-		expect(canonicalRef("#31", TRACKER)).toBe("o/here#31");
-		expect(canonicalRef("Here#31", TRACKER)).toBe("o/here#31");
-		expect(canonicalRef("O/There#2", TRACKER)).toBe("o/there#2");
+		const { readCanonicalRef } = await load();
+		expect(readCanonicalRef("#31", TRACKER)).toBe("o/here#31");
+		expect(readCanonicalRef("Here#31", TRACKER)).toBe("o/here#31");
+		expect(readCanonicalRef("O/There#2", TRACKER)).toBe("o/there#2");
 		for (const bad of ["31", "#31,", "the reply", "#0"])
-			expect(canonicalRef(bad, TRACKER)).toBe(null);
+			expect(readCanonicalRef(bad, TRACKER)).toBe(null);
 	});
 });
 

@@ -31,8 +31,8 @@ import {
 	sessionCounters,
 	withUnloadable,
 } from "./lib/priced-options-testkit";
-import { ruleText } from "./lib/rule-text";
-import { stopGuardReason } from "./lib/stop-guard-testkit";
+import { readRuleText } from "./lib/rule-text";
+import { readStopGuardReason } from "./lib/stop-guard-testkit";
 import {
 	buildBashCall,
 	failOpenLog,
@@ -62,7 +62,7 @@ const {
 const { readJsonl } = req("./lib/jev-log.js");
 const { firstDrafts, MIN_CALLS } = req("./lib/round-check.js");
 
-const { reset, founder, notification, siblingBlock, stopFeedback } =
+const { reset, founder, notification, buildSiblingBlock, stopFeedback } =
 	transcriptRecords("2026-09-27T10:00:00Z");
 
 let dir: string;
@@ -83,7 +83,7 @@ afterEach(() => {
 });
 
 const stop = (message: string) =>
-	stopGuardReason(GUARD, { dir, sid, message, transcript: file });
+	readStopGuardReason(GUARD, { dir, sid, message, transcript: file });
 
 /* Unstamped: counted since the founder's message, never as following a
  * refusal, whose record carries the wall clock. */
@@ -121,7 +121,7 @@ const RESENT = "re-sent with no tool call since this check refused it";
 const CLOSE = "so the recommendation could flip";
 
 const { counter, seed } = sessionCounters(() => ({ dir, sid }));
-const log = () => readJsonl(logPath(dir, ROUND_CHECK_LOG))?.lines ?? [];
+const readLog = () => readJsonl(logPath(dir, ROUND_CHECK_LOG))?.lines ?? [];
 const line = (fields: Record<string, unknown>) => ({
 	at: expect.any(String),
 	session: sid,
@@ -138,7 +138,7 @@ describe("the threshold", () => {
 		expect(reason).toContain(
 			`Q1: ${MIN_CALLS - 1} tool calls since the founder last spoke, under the ${MIN_CALLS}`,
 		);
-		expect(reason).toContain(ruleText("house-decision"));
+		expect(reason).toContain(readRuleText("house-decision"));
 	});
 
 	it("passes one at the threshold", () => {
@@ -186,7 +186,7 @@ describe("clearing", () => {
 });
 
 describe("beside the close-rivals limb", () => {
-	it("leaves a round both catch to the close limb's one refusal", () => {
+	it("leaves a round both catch to the close-rivals limb's one refusal", () => {
 		writeTranscript(file, founder(), ...calls(2));
 		const reason = stop(round(1, { close: true }));
 		expect(reason).toContain(CLOSE);
@@ -196,10 +196,10 @@ describe("beside the close-rivals limb", () => {
 		expect(resent).toContain(LADDER);
 		expect(resent).not.toContain(UNDER);
 		expect(counter(ROUND_CHECK_PREFIX)).toBe(0);
-		expect(log()).toEqual([]);
+		expect(readLog()).toEqual([]);
 	});
 
-	it("leaves a low-top round under the threshold to the close limb and its ladder (#2327, #2328)", () => {
+	it("leaves a low-top round under the threshold to the close-rivals limb and its ladder (#2327, #2328)", () => {
 		writeTranscript(file, founder(), ...calls(2));
 		const lowTop =
 			"❓ **Q1** — Which?\n\nRelation: independent, so any combination is takeable\n\n" +
@@ -212,27 +212,27 @@ describe("beside the close-rivals limb", () => {
 		expect(resent).toContain(LADDER);
 		expect(resent).not.toContain(UNDER);
 		expect(counter(ROUND_CHECK_PREFIX)).toBe(0);
-		expect(log()).toEqual([]);
+		expect(readLog()).toEqual([]);
 		expect(readJsonl(logPath(dir, CLOSE_CHECK_LOG))?.lines).toEqual([
 			expect.objectContaining({ kind: "refused", trigger: "low-top" }),
 			expect.objectContaining({ kind: "refused-ladder" }),
 		]);
 	});
 
-	it("leaves a close-refused question re-priced apart to the close limb", () => {
+	it("leaves a close-refused question re-priced apart to the close-rivals limb", () => {
 		writeTranscript(file, founder(), ...calls(2));
 		expect(stop(round(1, { close: true }))).toContain(CLOSE);
 		append(callAfter());
 		expect(stop(round())).toBe("");
 	});
 
-	it("pairs its refusal with the pass of a re-send the close limb took (#2076)", () => {
+	it("pairs its refusal with the pass of a re-send the close-rivals limb took (#2076)", () => {
 		writeTranscript(file, founder(), ...calls(3));
 		expect(stop(round())).toContain(UNDER);
 		append(callAfter("Read"));
 		expect(stop(round(1, { close: true }))).toContain(CLOSE);
 		expect(stop(round())).toBe("");
-		expect(log()).toEqual([
+		expect(readLog()).toEqual([
 			line({ kind: "refused", callsBefore: 3, slot: 1 }),
 			line({
 				kind: "passed-after-refusal",
@@ -265,18 +265,18 @@ describe("beside the close-rivals limb", () => {
 			resent: true,
 		});
 
-	it("refuses a bare re-send re-priced close that the close limb, at its cap, passes (#2244)", () => {
+	it("refuses a bare re-send re-priced close that the close-rivals limb, at its cap, passes (#2244)", () => {
 		writeTranscript(file, founder(), ...calls(3));
 		expect(stop(round())).toContain(UNDER);
 		seed(CLOSE_RIVALS_PREFIX, limbOf(CLOSE_RIVALS_PREFIX).cap);
 		expect(stop(round(1, { close: true }))).toContain(RESENT);
-		expect(log()).toEqual(resentLog());
+		expect(readLog()).toEqual(resentLog());
 		append(callAfter("Read"));
 		expect(stop(round(1, { close: true }))).toBe("");
-		expect(log()).toEqual([...resentLog(), passedLog()]);
+		expect(readLog()).toEqual([...resentLog(), passedLog()]);
 	});
 
-	it("refuses a bare re-send re-priced close that the close limb passes on an unreadable record (#2244)", () => {
+	it("refuses a bare re-send re-priced close that the close-rivals limb passes on an unreadable record (#2244)", () => {
 		writeTranscript(file, founder(), ...calls(3));
 		expect(stop(round())).toContain(UNDER);
 		fs.mkdirSync(
@@ -284,10 +284,10 @@ describe("beside the close-rivals limb", () => {
 			{ recursive: true },
 		);
 		expect(stop(round(1, { close: true }))).toContain(RESENT);
-		expect(log()).toEqual(resentLog());
+		expect(readLog()).toEqual(resentLog());
 		append(callAfter("Read"));
 		expect(stop(round(1, { close: true }))).toBe("");
-		expect(log()).toEqual([...resentLog(), passedLog()]);
+		expect(readLog()).toEqual([...resentLog(), passedLog()]);
 	});
 
 	it("leaves a bare still-close re-send to the research ladder, and refuses it once the ladder's cap is spent (#2244)", () => {
@@ -299,10 +299,10 @@ describe("beside the close-rivals limb", () => {
 		expect(laddered).not.toContain(RESENT);
 		seed(RESEARCH_LADDER_PREFIX, limbOf(RESEARCH_LADDER_PREFIX).cap);
 		expect(stop(round(1, { close: true }))).toContain(RESENT);
-		expect(log()).toEqual(resentLog());
+		expect(readLog()).toEqual(resentLog());
 		append(callAfter("Read"));
 		expect(stop(round(1, { close: true }))).toBe("");
-		expect(log()).toEqual([...resentLog(), passedLog()]);
+		expect(readLog()).toEqual([...resentLog(), passedLog()]);
 	});
 
 	it("passes a bare re-send re-priced close at its own cap, logged as after its refusal (#2316)", () => {
@@ -311,7 +311,7 @@ describe("beside the close-rivals limb", () => {
 		seed(CLOSE_RIVALS_PREFIX, limbOf(CLOSE_RIVALS_PREFIX).cap);
 		seed(ROUND_CHECK_PREFIX, limbOf(ROUND_CHECK_PREFIX).cap);
 		expect(stop(round(1, { close: true }))).toBe("");
-		expect(log().at(-1)).toEqual(
+		expect(readLog().at(-1)).toEqual(
 			line({
 				kind: "passed-after-refusal",
 				callsBefore: 3,
@@ -337,7 +337,7 @@ describe("cap and ceiling", () => {
 		for (const n of [1, 2, 3]) expect(stop(round(n))).toContain(UNDER);
 		expect(counter(ROUND_CHECK_PREFIX)).toBe(3);
 		expect(stop(round(4))).toBe("");
-		expect(log().find((l: { round: string }) => l.round === "4")).toEqual(
+		expect(readLog().find((l: { round: string }) => l.round === "4")).toEqual(
 			line({ round: "4", kind: "passed-at-cap", callsBefore: 0, slot: 3 }),
 		);
 	});
@@ -358,7 +358,7 @@ describe("cap and ceiling", () => {
 		writeTranscript(file, founder(), ...calls(3));
 		for (let i = 0; i < 3; i++) expect(stop(round())).toContain(UNDER);
 		expect(stop(round())).toBe("");
-		expect(log().at(-1)).toEqual(
+		expect(readLog().at(-1)).toEqual(
 			line({
 				kind: "passed-after-refusal",
 				callsBefore: 3,
@@ -376,7 +376,7 @@ describe("cap and ceiling", () => {
 		expect(stop(`${round(4)}\n\n❓ **Q5** - **X**: pick one.`)).not.toBe("");
 		append(...calls(12));
 		expect(stop(round(4))).toBe("");
-		expect(log().find((l: { round: string }) => l.round === "4")).toEqual(
+		expect(readLog().find((l: { round: string }) => l.round === "4")).toEqual(
 			line({
 				round: "4",
 				kind: "passed-at-cap",
@@ -404,7 +404,7 @@ describe("cap and ceiling", () => {
 		);
 		writeTranscript(file, founder(), ...calls(3));
 		expect(stop(round())).toBe("");
-		expect(log()).toEqual([]);
+		expect(readLog()).toEqual([]);
 		expect(failOpenLog(config)).toContain("limb skipped");
 	});
 
@@ -453,14 +453,14 @@ describe("a misshapen round while the shape limb is silent (#1730)", () => {
 		expect(reason).toContain(STILL_WRONG);
 		expect(reason).toContain(SHAPE_ONLY_PASS);
 		expect(reason).not.toContain(UNDER);
-		expect(reason).not.toContain(ruleText("house-decision"));
+		expect(reason).not.toContain(readRuleText("house-decision"));
 		expect(counter(ROUND_CHECK_PREFIX)).toBe(2);
-		expect(log().at(-1)).toEqual(misshapenRefused());
+		expect(readLog().at(-1)).toEqual(misshapenRefused());
 		expect(stop(round())).toBe("");
-		expect(log().at(-1)).toEqual(fixedPassed());
+		expect(readLog().at(-1)).toEqual(fixedPassed());
 	});
 
-	it("refuses a misshapen re-send re-priced close on its shape, after a tool call, where the close limb's cap is spent, then logs the fixed re-send passed after refusal (#2316)", () => {
+	it("refuses a misshapen re-send re-priced close on its shape, after a tool call, where the close-rivals limb's cap is spent, then logs the fixed re-send passed after refusal (#2316)", () => {
 		seed(SESSION_PREFIX, SESSION_MAX);
 		writeTranscript(file, founder(), ...calls(3));
 		expect(stop(MISSHAPEN)).toContain(UNDER);
@@ -469,9 +469,9 @@ describe("a misshapen round while the shape limb is silent (#1730)", () => {
 		const reason = stop(round(1, { close: true, relation: false }));
 		expect(reason).toContain(STILL_WRONG);
 		expect(reason).not.toContain(UNDER);
-		expect(log().at(-1)).toEqual(misshapenRefused());
+		expect(readLog().at(-1)).toEqual(misshapenRefused());
 		expect(stop(round(1, { close: true }))).toBe("");
-		expect(log().at(-1)).toEqual(fixedPassed());
+		expect(readLog().at(-1)).toEqual(fixedPassed());
 	});
 
 	it("lists still-misshapen re-sends in record order, not message order, the close-judged one included (#2576)", () => {
@@ -489,7 +489,7 @@ describe("a misshapen round while the shape limb is silent (#1730)", () => {
 		const q2 = reason.indexOf(STILL_WRONG.replace("Q1", "Q2"));
 		expect(q1).toBeGreaterThan(-1);
 		expect(q1).toBeLessThan(q2);
-		expect(log().slice(-2)).toEqual([
+		expect(readLog().slice(-2)).toEqual([
 			misshapenRefused(),
 			{ ...misshapenRefused(), round: "2" },
 		]);
@@ -530,7 +530,7 @@ describe("the round-check log", () => {
 		stop(round());
 		append(callAfter("Read"));
 		stop(round());
-		expect(log()).toEqual([
+		expect(readLog()).toEqual([
 			line({ kind: "refused", callsBefore: 3, slot: 1 }),
 			line({
 				kind: "refused",
@@ -555,7 +555,7 @@ describe("the round-check log", () => {
 		stop(round());
 		append(callAfter());
 		expect(stop("Settled it from the config; acting on (A).")).toBe("");
-		expect(log().at(-1)).toEqual(
+		expect(readLog().at(-1)).toEqual(
 			line({
 				kind: "passed-after-refusal",
 				callsBefore: 3,
@@ -570,9 +570,9 @@ describe("the round-check log", () => {
 	it("logs a round passed unrefused, and nothing while another limb blocks", () => {
 		writeTranscript(file, founder(), ...calls(MIN_CALLS));
 		expect(stop(`${round()}\n\n❓ **Q2** - **X**: pick one.`)).not.toBe("");
-		expect(log()).toEqual([]);
+		expect(readLog()).toEqual([]);
 		expect(stop(round())).toBe("");
-		expect(log()).toEqual([
+		expect(readLog()).toEqual([
 			line({
 				round: "2",
 				kind: "passed-unrefused",
@@ -595,7 +595,7 @@ describe("the round-check log", () => {
 		expect(stop(`${round()}\n\n❓ **Q2** - **X**: pick one.`)).not.toBe("");
 		append(...calls(3));
 		expect(stop(round())).toBe("");
-		expect(log()).toContainEqual(
+		expect(readLog()).toContainEqual(
 			line({
 				kind: "passed-unrefused",
 				callsBefore: MIN_CALLS,
@@ -610,8 +610,8 @@ describe("the round-check log", () => {
 		expect(stop(`${round()}\n\n❓ **Q2** - **X**: pick one.`)).not.toBe("");
 		append(...calls(3));
 		expect(stop(round(3))).toBe("");
-		expect(new Set(log().map((l: { at: string }) => l.at)).size).toBe(1);
-		expect([...firstDrafts(log()).values()]).toEqual([
+		expect(new Set(readLog().map((l: { at: string }) => l.at)).size).toBe(1);
+		expect([...firstDrafts(readLog()).values()]).toEqual([
 			MIN_CALLS,
 			MIN_CALLS + 3,
 		]);
@@ -621,7 +621,7 @@ describe("the round-check log", () => {
 		writeTranscript(file, founder(), ...calls(MIN_CALLS));
 		expect(stop(`${round()}\n\n❓ **Q2** - **X**: pick one.`)).not.toBe("");
 		expect(stop("Settled it from the config; acting on (A).")).toBe("");
-		expect(log()).toEqual([
+		expect(readLog()).toEqual([
 			line({
 				kind: "passed-unrefused",
 				callsBefore: MIN_CALLS,
@@ -642,7 +642,7 @@ describe("the round-check log", () => {
 
 	it("passes and logs a null count where the transcript cannot say", () => {
 		expect(stop(round())).toBe("");
-		expect(log()).toEqual([
+		expect(readLog()).toEqual([
 			line({ kind: "passed-unrefused", callsBefore: null, slot: 0 }),
 		]);
 		expect(failOpenLog(config)).toContain("guard-priced-options round-check");
@@ -670,13 +670,13 @@ describe("a pass another Stop hook refuses (#1799)", () => {
 	it("counts the re-send once, at its first draft's count", () => {
 		writeTranscript(file, founder(), ...calls(MIN_CALLS + 1));
 		expect(stop(round())).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		append(...calls(3));
 		expect(stop(round())).toBe("");
-		expect(log()).toEqual([
+		expect(readLog()).toEqual([
 			line({ kind: "passed-unrefused", callsBefore: MIN_CALLS + 1, slot: 0 }),
 		]);
-		expect([...firstDrafts(log()).values()]).toEqual([MIN_CALLS + 1]);
+		expect([...firstDrafts(readLog()).values()]).toEqual([MIN_CALLS + 1]);
 	});
 
 	it("does not refuse again a question that passed after its refusal", () => {
@@ -684,9 +684,9 @@ describe("a pass another Stop hook refuses (#1799)", () => {
 		expect(stop(round())).toContain(UNDER);
 		append(callAfter());
 		expect(stop(round())).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		expect(stop(round())).toBe("");
-		expect(log().map((l: { kind: string }) => l.kind)).toEqual([
+		expect(readLog().map((l: { kind: string }) => l.kind)).toEqual([
 			"refused",
 			"passed-after-refusal",
 		]);
@@ -696,28 +696,34 @@ describe("a pass another Stop hook refuses (#1799)", () => {
 	it("still judges a new question the re-send adds", () => {
 		writeTranscript(file, founder(), ...calls(MIN_CALLS + 1));
 		expect(stop(round())).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		expect(stop(`${round()}\n\n${round(2)}`)).toBe("");
-		expect(log().map((l: { round: string }) => l.round)).toEqual(["1", "2"]);
+		expect(readLog().map((l: { round: string }) => l.round)).toEqual([
+			"1",
+			"2",
+		]);
 	});
 
 	it("keeps the pass through this guard's own block on the re-send", () => {
 		writeTranscript(file, founder(), ...calls(MIN_CALLS + 1));
 		expect(stop(round())).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		expect(stop(`${round()}\n\n❓ **Q2** - **X**: pick one.`)).not.toBe("");
 		append(stopFeedback());
 		expect(stop(`${round()}\n\n${round(2)}`)).toBe("");
-		expect(log().map((l: { round: string }) => l.round)).toEqual(["1", "2"]);
+		expect(readLog().map((l: { round: string }) => l.round)).toEqual([
+			"1",
+			"2",
+		]);
 	});
 
 	it("retires the pass where the transcript cannot say at the re-send", () => {
 		writeTranscript(file, founder(), ...calls(MIN_CALLS + 1));
 		expect(stop(round())).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		fs.rmSync(file);
 		expect(stop(round())).toBe("");
-		expect(log()).toEqual([
+		expect(readLog()).toEqual([
 			line({ kind: "passed-unrefused", callsBefore: MIN_CALLS + 1, slot: 0 }),
 			line({ kind: "passed-unrefused", callsBefore: null, slot: 0 }),
 		]);
@@ -731,7 +737,7 @@ describe("a pass another Stop hook refuses (#1799)", () => {
 		expect(stop(round())).toContain(UNDER);
 		append(callAfter());
 		expect(stop(round())).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		append(next());
 		expect(stop(round())).toContain(UNDER);
 	});

@@ -19,10 +19,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { SubIssuesAnswer } from "./lib/gh-fake";
 import {
 	HERE,
 	type StubGh,
-	type SubIssuesAnswer,
 	stubGhScript,
 	subIssuesArm,
 	THERE,
@@ -126,7 +126,7 @@ const run = (args: string[] = [], stub?: StubGh) => {
 	return { ...r, out: `${r.stdout}${r.stderr}` };
 };
 
-const edits = (editLog: string) =>
+const readEdits = (editLog: string) =>
 	fs.existsSync(editLog) ? fs.readFileSync(editLog, "utf8").trim() : "";
 
 beforeEach(() => {
@@ -143,7 +143,7 @@ describe("retire-stale-containers", () => {
 		const r = run([], stub);
 
 		expect(r.status).toBe(0);
-		expect(edits(stub.editLog)).toBe(
+		expect(readEdits(stub.editLog)).toBe(
 			"issue edit 10 --add-label takes:triage --remove-label takes:children",
 		);
 		expect(r.out).toContain("#10");
@@ -168,7 +168,7 @@ describe("retire-stale-containers", () => {
 		const r = run([], stub);
 
 		expect(r.status).toBe(0);
-		expect(edits(stub.editLog)).toBe("");
+		expect(readEdits(stub.editLog)).toBe("");
 		expect(r.out).toContain("OK:");
 	});
 
@@ -178,7 +178,7 @@ describe("retire-stale-containers", () => {
 		]);
 		const r = run([], stub);
 
-		expect(edits(stub.editLog)).toBe(
+		expect(readEdits(stub.editLog)).toBe(
 			"issue edit 8 --add-label takes:triage --remove-label takes:children",
 		);
 		expect(r.status).toBe(0);
@@ -191,7 +191,7 @@ describe("retire-stale-containers", () => {
 		]);
 		const r = run([], stub);
 
-		expect(edits(stub.editLog)).toBe("");
+		expect(readEdits(stub.editLog)).toBe("");
 		expect(r.status).toBe(0);
 	});
 
@@ -199,7 +199,7 @@ describe("retire-stale-containers", () => {
 		const stub = stubGh([{ number: 10, labels: ["takes:children"] }]);
 		const r = run(["--dry-run"], stub);
 
-		expect(edits(stub.editLog)).toBe("");
+		expect(readEdits(stub.editLog)).toBe("");
 		expect(r.out).toContain("would retag #10");
 		expect(r.out).toContain("--dry-run wrote nothing");
 	});
@@ -278,7 +278,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0);
-			expect(edits(stub.editLog)).toBe(
+			expect(readEdits(stub.editLog)).toBe(
 				"issue edit 20 --add-label takes:children --remove-label takes:to-tickets",
 			);
 			// The report names the issue, the direction and the reason.
@@ -303,7 +303,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0);
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 		});
 
 		it("is retagged takes:triage once every ticket has closed", () => {
@@ -318,7 +318,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0);
-			expect(edits(stub.editLog)).toBe(
+			expect(readEdits(stub.editLog)).toBe(
 				"issue edit 20 --add-label takes:triage --remove-label takes:to-tickets",
 			);
 			expect(r.out).toContain(
@@ -331,7 +331,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0);
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 			expect(r.out).toContain("OK:");
 		});
 
@@ -343,7 +343,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0);
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 		});
 
 		it("is left labelled as it stands when its sub-issues cannot be read", () => {
@@ -353,7 +353,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0); // WARN, not a gate
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 			expect(r.out).toContain("CHILDREN-UNREADABLE");
 		});
 
@@ -399,7 +399,7 @@ describe("retire-stale-containers", () => {
 			});
 			const r = run(["--dry-run"], stub);
 
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 			expect(r.out).toContain(
 				"would retag #20 t20  takes:to-tickets → takes:children",
 			);
@@ -446,7 +446,7 @@ describe("retire-stale-containers", () => {
 			);
 			const r = run(["--dry-run"], stub);
 
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 			expect(r.out).toContain(
 				"would retag #10 t10  takes:children → takes:triage",
 			);
@@ -467,7 +467,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0);
-			expect(edits(stub.editLog).split("\n")).toEqual([
+			expect(readEdits(stub.editLog).split("\n")).toEqual([
 				"issue edit 10 --add-label takes:triage --remove-label takes:children",
 				"issue edit 20 --add-label takes:children --remove-label takes:to-tickets",
 			]);
@@ -517,7 +517,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0);
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 		});
 
 		it("retags it once that child has closed", () => {
@@ -528,7 +528,7 @@ describe("retire-stale-containers", () => {
 			});
 			run([], stub);
 
-			expect(edits(stub.editLog)).toBe(
+			expect(readEdits(stub.editLog)).toBe(
 				"issue edit 17 --add-label takes:triage --remove-label takes:children",
 			);
 		});
@@ -545,7 +545,7 @@ describe("retire-stale-containers", () => {
 			]);
 			run([], stub);
 
-			expect(edits(stub.editLog)).toBe(
+			expect(readEdits(stub.editLog)).toBe(
 				"issue edit 17 --add-label takes:triage --remove-label takes:children",
 			);
 		});
@@ -557,7 +557,7 @@ describe("retire-stale-containers", () => {
 			const r = run([], stub);
 
 			expect(r.status).toBe(0); // WARN, not a gate
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 			expect(r.out).toContain("CHILDREN-UNREADABLE");
 			expect(r.out).toContain("takes:children left as it stands");
 		});
@@ -575,7 +575,7 @@ describe("retire-stale-containers", () => {
 			expect(r.status).toBe(0);
 			expect(r.out).toContain("SKIP");
 			expect(r.out).toContain("No container was retagged");
-			expect(edits(stub.editLog)).toBe("");
+			expect(readEdits(stub.editLog)).toBe("");
 		});
 	});
 });

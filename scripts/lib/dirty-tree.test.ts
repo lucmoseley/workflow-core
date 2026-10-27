@@ -56,18 +56,18 @@ afterEach(() => {
 		fs.rmSync(d, { recursive: true, force: true });
 });
 
-describe("dirtyTracked", () => {
+describe("readDirtyTracked", () => {
 	it("names a modified tracked file and no untracked one", () => {
 		write("a.txt", "two\n");
 		write("scratch.tmp", "x\n");
-		expect(tree.dirtyTracked(dir)).toEqual(["a.txt"]);
+		expect(tree.readDirtyTracked(dir)).toEqual(["a.txt"]);
 	});
 
 	it("reads a rename's source path as well as its destination, sorted", () => {
 		// Porcelain emits the DESTINATION first, so this is also the case that pins
 		// the sort (mantahostels#2196).
 		git(["mv", "a.txt", "b.txt"]);
-		expect(tree.dirtyTracked(dir)).toEqual(["a.txt", "b.txt"]);
+		expect(tree.readDirtyTracked(dir)).toEqual(["a.txt", "b.txt"]);
 	});
 
 	it("reads a path holding a space unquoted, so it matches a ledger entry", () => {
@@ -75,49 +75,49 @@ describe("dirtyTracked", () => {
 		git(["add", "-A"]);
 		git(["commit", "-q", "-m", "spaced"]);
 		write("two words.txt", "y\n");
-		expect(tree.dirtyTracked(dir)).toEqual(["two words.txt"]);
+		expect(tree.readDirtyTracked(dir)).toEqual(["two words.txt"]);
 	});
 
 	it("answers [] on a clean repo", () => {
-		expect(tree.dirtyTracked(dir)).toEqual([]);
+		expect(tree.readDirtyTracked(dir)).toEqual([]);
 	});
 
 	it("answers null where git will not answer, never an empty set", () => {
 		const outside = tmp("not-a-repo-");
-		expect(tree.dirtyTracked(outside)).toBeNull();
+		expect(tree.readDirtyTracked(outside)).toBeNull();
 	});
 });
 
-describe("untrackedFiles", () => {
-	it("names an untracked file that `dirtyTracked`'s -uno drops", () => {
+describe("readUntrackedFiles", () => {
+	it("names an untracked file that `readDirtyTracked`'s -uno drops", () => {
 		write("new.ts", "x\n");
-		expect(tree.untrackedFiles(dir)).toEqual(["new.ts"]);
+		expect(tree.readUntrackedFiles(dir)).toEqual(["new.ts"]);
 	});
 
 	it("honours .gitignore, so build output is not offered as work", () => {
 		write(".gitignore", "ignored/\n");
 		write("ignored/out.js", "x\n");
-		expect(tree.untrackedFiles(dir)).toEqual([".gitignore"]);
+		expect(tree.readUntrackedFiles(dir)).toEqual([".gitignore"]);
 	});
 
 	it("answers [] where there is nothing untracked", () => {
-		expect(tree.untrackedFiles(dir)).toEqual([]);
+		expect(tree.readUntrackedFiles(dir)).toEqual([]);
 	});
 
 	it("answers null where git will not answer", () => {
 		const outside = tmp("not-a-repo-");
-		expect(tree.untrackedFiles(outside)).toBeNull();
+		expect(tree.readUntrackedFiles(outside)).toBeNull();
 	});
 });
 
-describe("untrackedEntries", () => {
-	/* The reason it exists apart from `untrackedFiles`. */
+describe("readUntrackedEntries", () => {
+	/* The reason it exists apart from `readUntrackedFiles`. */
 	it("collapses an untracked directory to one entry", () => {
 		write("stray-dir/one.out", "x\n");
 		write("stray-dir/two.out", "x\n");
-		expect(tree.untrackedEntries(dir)).toEqual(["stray-dir/"]);
+		expect(tree.readUntrackedEntries(dir)).toEqual(["stray-dir/"]);
 		/* The other reader walks the same directory out, and both are wanted. */
-		expect(tree.untrackedFiles(dir)).toEqual([
+		expect(tree.readUntrackedFiles(dir)).toEqual([
 			"stray-dir/one.out",
 			"stray-dir/two.out",
 		]);
@@ -126,7 +126,7 @@ describe("untrackedEntries", () => {
 	it("names an untracked file and drops a modified tracked one", () => {
 		write("a.txt", "two\n");
 		write("scratch.out", "x\n");
-		expect(tree.untrackedEntries(dir)).toEqual(["scratch.out"]);
+		expect(tree.readUntrackedEntries(dir)).toEqual(["scratch.out"]);
 	});
 
 	/* A rename's source rides in a field of its own with no status letters, so a
@@ -136,22 +136,22 @@ describe("untrackedEntries", () => {
 		git(["add", "-A"]);
 		git(["commit", "-q", "-m", "spoof"]);
 		git(["mv", "?? spoof.out", "moved.out"]);
-		expect(tree.untrackedEntries(dir)).toEqual([]);
+		expect(tree.readUntrackedEntries(dir)).toEqual([]);
 	});
 
 	it("honours .gitignore, which is the whole of the `.claude/tmp/` exclusion", () => {
 		write(".gitignore", ".claude/tmp/\n");
 		write(".claude/tmp/notes.md", "x\n");
-		expect(tree.untrackedEntries(dir)).toEqual([".gitignore"]);
+		expect(tree.readUntrackedEntries(dir)).toEqual([".gitignore"]);
 	});
 
 	it("answers [] where there is nothing untracked", () => {
-		expect(tree.untrackedEntries(dir)).toEqual([]);
+		expect(tree.readUntrackedEntries(dir)).toEqual([]);
 	});
 
 	it("answers null where git will not answer, never an empty set", () => {
 		const outside = tmp("not-a-repo-");
-		expect(tree.untrackedEntries(outside)).toBeNull();
+		expect(tree.readUntrackedEntries(outside)).toBeNull();
 	});
 });
 

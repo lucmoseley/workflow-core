@@ -13,8 +13,15 @@
  */
 
 const { requiredGroup } = require("./regex-group.js");
+const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
+const DAY_MS = 24 * 60 * 60 * 1000;
+/* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
+ * unmeasured. */
+const STUCK_URGENT_DAYS = 7;
+/* Untraced: spec #1995's "first tick after 07:00", machine-local. */
+const REVIEW_HOUR = 7;
 
 /** @param {Date} d @returns {string} its machine-local `YYYY-MM-DD` */
 const localDate = (d) =>
@@ -23,7 +30,7 @@ const localDate = (d) =>
 		.join("-");
 
 /** @param {string} date machine-local `YYYY-MM-DD` */
-const reviewTitle = (date) => `Morning review — ${date}`;
+const buildReviewTitle = (date) => `Morning review — ${date}`;
 
 /**
  * The date a review issue's title carries, or null for any other title.
@@ -53,9 +60,26 @@ function oneWayDoor(comments) {
  * @typedef {import("./delegated-decision.js").LedgerLine} LedgerLine
  * @typedef {{number: number, title: string, url: string, closedAt: string,
  *   comments: {body: string}[]}} ClosedIssue
- * @typedef {{repo: string, entries: LedgerLine[], closed: ClosedIssue[]}} RepoReading
+ * @typedef {{number: number, title: string}} OpenIssue
+ * @typedef {{number: number, title: string, appliedAt: string,
+ *   why: string | null}} UrgentIssue an open issue carrying `urgent`, when the
+ *   label was last applied, and why pick-next left it unlaunched, where it says
+ * @typedef {{number: number, title: string} & ({appliedAt: string}
+ *   | {appliedAt: null, ageError: string})} ParkedIssue an open issue carrying
+ *   `parked`, and when the label was last applied, or why that did not read
+ * @typedef {{repo: string, entries: LedgerLine[], closed: ClosedIssue[],
+ *   stalls: OpenIssue[], urgent: UrgentIssue[], parked: ParkedIssue[]}}
+ *   RepoReading the repo's ledger, its closes, its open stall ticket
+ *   (lib/stall-ticket.js, #2692), its urgent issues and its parked ones
  * @typedef {{since: string, now: string, previous: number | null,
- *   repos: RepoReading[], failed: Unread[]}} Reading
+ *   repos: RepoReading[], failed: Unread[],
+ *   kills: KillReading}} Reading the machine's earlyoom kills are read once,
+ *   not per repo (#3094)
+ * @typedef {{incidents: import("./earlyoom-kills.js").Incident[],
+ *   tickets: Map<string, number> | string, why: string | null}} KillReading
+ *   the incidents with a kill in the window, their tickets by title or why
+ *   the tracker did not read, and why the journal did not read, where it did
+ *   not
  * @typedef {{repo: string, why: string}} Unread a repo the review could not
  *   read whole
  */
@@ -88,11 +112,56 @@ const issueSearch = (q) =>
  */
 const commentLink = (n, url, noun = "comment") => `[#${n} ${noun}](${url})`;
 
+/** @param {number} ms @returns {string} whole days, as pick-next's PARKED prints them */
+const wholeDays = (ms) => {
+	const days = Math.floor(ms / DAY_MS);
+	return `${days} ${days === 1 ? "day" : "days"}`;
+};
+
+/**
+ * An incident's ticket as the review names it.
+ * @param {import("./earlyoom-kills.js").Incident} i
+ * @param {KillReading["tickets"]} tickets
+ * @param {number} now
+ */
+function ticketText(i, tickets, now) {
+	if (typeof tickets === "string") return `ticket unread: ${quoted(tickets)}`;
+	const n = tickets.get(incidentTitle(i));
+	if (n !== undefined) return `#${n}`;
+	return isOver(i, now)
+		? "no ticket filed yet"
+		: "no ticket yet: the incident is not over";
+}
+
+/**
+ * The "Memory kills" lines: the window's kills by kind, each at its first
+ * signal, then each incident with its ticket.
+ * @param {KillReading} r
+ * @param {number} lo the window's start, ms, exclusive
+ * @param {number} hi its end, ms, inclusive
+ * @returns {string[]}
+ */
+function renderKillLines({ incidents, tickets, why }, lo, hi) {
+	if (why !== null) return [`Not read: ${quoted(why)}.`];
+	const inWindow = incidents.flatMap((i) =>
+		i.kills.filter((k) => Date.parse(k.at) > lo && Date.parse(k.at) <= hi),
+	);
+	if (inWindow.length === 0) return ["None in the window."];
+	return [
+		`${inWindow.length} in the window — ${byKind(inWindow)}.`,
+		"",
+		...incidents.map(
+			(i) =>
+				`- ${quoted(incidentTitle(i))} — ${i.kills.length} ${i.kills.length === 1 ? "kill" : "kills"}: ${byKind(i.kills)} — ${ticketText(i, tickets, hi)}`,
+		),
+	];
+}
+
 /**
  * @param {Reading} r
  * @returns {string}
  */
-function renderReview({ since, now, previous, repos, failed }) {
+function renderReview({ since, now, previous, repos, failed, kills }) {
 	const lo = Date.parse(since);
 	const hi = Date.parse(now);
 	/** @param {string} at */
@@ -136,6 +205,16 @@ function renderReview({ since, now, previous, repos, failed }) {
 				`repo:${r.repo} is:issue is:closed closed:>=${searchTime(since)}`,
 			)})`,
 	);
+	const stuck = repos.flatMap(({ repo, urgent }) =>
+		urgent.flatMap((i) => {
+			const age = hi - Date.parse(i.appliedAt);
+			return age > STUCK_URGENT_DAYS * DAY_MS
+				? [
+						`- ${repo}#${i.number} — ${quoted(i.title)} — ${Math.floor(age / DAY_MS)} days — ${i.why === null ? "pick-next does not say why" : quoted(i.why)}`,
+					]
+				: [];
+		}),
+	);
 	const oneWay = readings.flatMap(({ repo, closed }) =>
 		closed.flatMap((c) => {
 			const door = oneWayDoor(c.comments);
@@ -145,6 +224,16 @@ function renderReview({ since, now, previous, repos, failed }) {
 						`- ${repo}#${c.number} — ${quoted(c.title)} — ${quoted(door || "one-way")}`,
 					];
 		}),
+	);
+
+	const stalls = repos.flatMap(({ repo, stalls: open }) =>
+		open.map((i) => `- ${repo}#${i.number} — ${quoted(i.title)}`),
+	);
+	const parked = repos.flatMap(({ repo, parked: open }) =>
+		open.map(
+			(i) =>
+				`- ${repo}#${i.number} — ${quoted(i.title)} — ${i.appliedAt === null ? `age unknown: ${quoted(i.ageError)}` : wholeDays(hi - Date.parse(i.appliedAt))}`,
+		),
 	);
 
 	return [
@@ -160,6 +249,20 @@ function renderReview({ since, now, previous, repos, failed }) {
 					"**Not read, so missing below:**",
 					...failed.map((f) => `- ${f.repo}: ${quoted(f.why)}`),
 				]),
+		"",
+		"## Landing stalls",
+		"",
+		...(stalls.length === 0 ? ["None open."] : stalls),
+		"",
+		"## Memory kills",
+		"",
+		...renderKillLines(kills, lo, hi),
+		"",
+		"## Parked",
+		"",
+		"Open issues labelled `parked`, with how long each has been parked:",
+		"",
+		...(parked.length === 0 ? ["None."] : parked),
 		"",
 		"## Still-caught delegated decisions",
 		"",
@@ -177,6 +280,12 @@ function renderReview({ since, now, previous, repos, failed }) {
 		"One-way closes:",
 		"",
 		...(oneWay.length === 0 ? ["None in the window."] : oneWay),
+		"",
+		"## Stuck urgent",
+		"",
+		`Open issues labelled \`urgent\` more than ${STUCK_URGENT_DAYS} days ago, with why pick-next's last run in that checkout left each unlaunched:`,
+		"",
+		...(stuck.length === 0 ? ["None."] : stuck),
 		"",
 		"## How to reverse",
 		"",
@@ -212,12 +321,13 @@ function parseEntries(body) {
 }
 
 module.exports = {
+	REVIEW_HOUR,
 	commentLink,
 	localDate,
 	parseEntries,
 	parseReviewDate,
 	quoted,
 	renderReview,
-	reviewTitle,
+	buildReviewTitle,
 	searchTime,
 };

@@ -321,8 +321,9 @@ def parse_flags(flags, floor_mb):
     return floor_mb, require_quiet, measure_drift, workers
 
 
-# vitest.config.ts's `maxWorkers`, so a row without `--workers` times what
-# sessions run.
+# The workers a suite the ladder was measured at (suite-ladder.js's
+# LADDER_SUITE_WORKERS), so a row without `--workers` stays comparable with
+# #1603's rows.
 DEFAULT_WORKERS = 3
 
 
@@ -342,6 +343,10 @@ def suite_env(env):
 def quiet_enough(sessions, required):
     """True where the machine is quiet enough to measure. `required` None = any."""
     return required is None or sessions <= required
+
+
+def too_busy(sessions, required):
+    return f"{sessions} sessions live, above the --require-quiet={required} this run demands"
 
 
 # Seconds of settling either side of a row. 20 s is inherited from mantahostels#352.
@@ -593,41 +598,39 @@ def main(argv):
 
     configs = [int(x) for x in args] or [1, 2, 3]
     watchdog = Watchdog(floor_mb)
+    live = session_count()
 
     print(
         f"MemTotal {mem_total_mb:.0f} MB · earlyoom kills at {earlyoom_mb:.0f} MB · "
-        f"watchdog floor {floor_mb:.0f} MB · {session_count()} sessions live",
+        f"watchdog floor {floor_mb:.0f} MB · {live} sessions live",
         flush=True,
     )
+    # Before the warm-up, not only per row: on a busy machine the warm-up is a
+    # whole-suite run spent before every row refuses anyway. A run that would
+    # have gone quiet by its first row is given up for that (#2862).
+    if not quiet_enough(live, require_quiet):
+        sys.exit(f"refused: {too_busy(live, require_quiet)}; no warm-up run")
 
     if measure_drift:
         # Before the warm-up, not after: the figure is what an IDLE machine
         # does, and a suite that has just exited leaves page cache settling.
-        live = session_count()
-        if not quiet_enough(live, require_quiet):
-            print(
-                f"drift SKIPPED: {live} sessions live, above the "
-                f"--require-quiet={require_quiet} this run demands",
-                flush=True,
-            )
-        else:
-            print(
-                f"measuring idle baseline drift over {measure_drift} settles",
-                flush=True,
-            )
-            drift = measure_baseline_drift(
-                measure_drift, lambda: settle(SETTLE_S, "idle drift")
-            )
-            drift["sessions_live"] = live
-            drift["settle_s"] = SETTLE_S
-            with open(f"{out}/drift.json", "w") as f:
-                json.dump(drift, f, indent=1)
-            print(
-                f"  idle drift over {drift['settles']} x {SETTLE_S}s settles: "
-                f"max {drift['drift_max_mb']} MB, mean {drift['drift_mean_mb']} MB "
-                f"(BASELINE_SHIFT_TOLERANCE_MB is currently {BASELINE_SHIFT_TOLERANCE_MB})",
-                flush=True,
-            )
+        print(
+            f"measuring idle baseline drift over {measure_drift} settles",
+            flush=True,
+        )
+        drift = measure_baseline_drift(
+            measure_drift, lambda: settle(SETTLE_S, "idle drift")
+        )
+        drift["sessions_live"] = live
+        drift["settle_s"] = SETTLE_S
+        with open(f"{out}/drift.json", "w") as f:
+            json.dump(drift, f, indent=1)
+        print(
+            f"  idle drift over {drift['settles']} x {SETTLE_S}s settles: "
+            f"max {drift['drift_max_mb']} MB, mean {drift['drift_mean_mb']} MB "
+            f"(BASELINE_SHIFT_TOLERANCE_MB is currently {BASELINE_SHIFT_TOLERANCE_MB})",
+            flush=True,
+        )
 
     if "--no-warmup" not in flags:
         print("warm-up run (discarded)", flush=True)
@@ -664,8 +667,7 @@ def main(argv):
         live = session_count()
         if not quiet_enough(live, require_quiet):
             print(
-                f"[{n} suite(s)] SKIPPED: {live} sessions live, above the "
-                f"--require-quiet={require_quiet} this run demands",
+                f"[{n} suite(s)] SKIPPED: {too_busy(live, require_quiet)}",
                 flush=True,
             )
             results.append(

@@ -62,8 +62,8 @@ afterAll(() => fs.rmSync(testRefillDir, { recursive: true, force: true }));
  *
  * Almost every guard test spawns its guard with `CLAUDE_PROJECT_DIR` pointed at
  * a throwaway git fixture, and a fixture carries no `docs/agents/rules/`. So the
- * store came back empty and `gp_rule` exited 2 — mantahostels#1762's one exception to
- * failing open — on cases that have nothing to do with rule text.
+ * store came back empty and lib/guard-entry.js failed closed — mantahostels#1762's one
+ * exception to failing open — on cases that have nothing to do with rule text.
  *
  * IT IS A DEFAULT, NOT AN OVERRIDE. A case that wants a different store — an
  * empty one, a store missing a fragment, a fixture's own — still sets

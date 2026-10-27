@@ -7,7 +7,7 @@
 #
 # Two writes. The marker at `~/.claude/.burn-mode` — one per machine, beside
 # the settings files below (#127) — is what
-# scripts/guard-dispatch-rewrite.sh and scripts/dispatch-sessions.sh read. And
+# scripts/lib/dispatch-rewrite.js and scripts/dispatch-sessions.sh read. And
 # `modelSettings["claude-opus-5-5"].effortLevel` in EVERY plan's settings.json
 # — ~/.claude and each ~/.claude<digits>, by lib/plan-dirs.js — because the
 # plans are one machine. Claude Code reads it at startup, so a running session

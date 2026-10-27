@@ -33,11 +33,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { copyLibs, programLibs } from "../guard-parse-fixture.js";
+import { copyLibs, readProgramLibs } from "../lib-closure-fixture.js";
 import {
 	codeUpdater,
 	launchProgram,
-	runningCode,
+	readRunningCode,
 	SHA_SHOWN,
 } from "./refill-code.js";
 
@@ -126,7 +126,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const logLines = () => {
+const readLogLines = () => {
 	try {
 		return fs.readFileSync(path.join(dir, "log"), "utf8").split("\n");
 	} catch {
@@ -138,12 +138,12 @@ async function until(test: () => boolean, what: string) {
 	const end = Date.now() + 20_000;
 	while (!test()) {
 		if (Date.now() > end)
-			throw new Error(`timed out on ${what}:\n${logLines().join("\n")}`);
+			throw new Error(`timed out on ${what}:\n${readLogLines().join("\n")}`);
 		await new Promise((r) => setTimeout(r, 50));
 	}
 }
 
-const ticks = () => logLines().filter((l) => l.startsWith("tick "));
+const readTicks = () => readLogLines().filter((l) => l.startsWith("tick "));
 
 async function startLoop() {
 	const launch = launchProgram({
@@ -155,13 +155,13 @@ async function startLoop() {
 		env: { ...gitEnv, FIXTURE_DIR: dir },
 		stdio: "ignore",
 	});
-	await until(() => ticks().length > 0, "the first tick");
+	await until(() => readTicks().length > 0, "the first tick");
 	return launch.program;
 }
 
 async function moreTicks(n: number) {
-	const seen = ticks().length;
-	await until(() => ticks().length >= seen + n, `${n} more ticks`);
+	const seen = readTicks().length;
+	await until(() => readTicks().length >= seen + n, `${n} more ticks`);
 }
 
 describe("launchProgram", () => {
@@ -205,7 +205,7 @@ describe("launchProgram", () => {
 describe("start", () => {
 	it("spawns run from the loop-owned worktree at origin's tip, never the main checkout's working tree", () => {
 		const libs = path.join(dir, "libs");
-		copyLibs(libs, programLibs("refill-loop.js"));
+		copyLibs(libs, readProgramLibs("refill-loop.js"));
 		const files: Record<string, string> = {
 			".claude/workflow-core.json": "{}\n",
 			"scripts/refill-loop.js": fs.readFileSync(LOOP, "utf8"),
@@ -262,15 +262,18 @@ describe("adoption", () => {
 			);
 		const before = kept.map((f) => fs.readFileSync(path.join(dir, f)));
 		const tip = push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
-		await until(() => ticks().some((l) => l.includes(" two ")), "the new code");
-		const lines = logLines();
+		await until(
+			() => readTicks().some((l) => l.includes(" two ")),
+			"the new code",
+		);
+		const lines = readLogLines();
 		expect(lines.filter((l) => l.startsWith("adopting "))).toEqual([
 			`adopting ${short(path.basename(path.dirname(path.dirname(first))))}..${short(tip)}`,
 		]);
 		expect(lines).not.toContain("lock refused");
-		expect(ticks().at(-1)).toContain(`pid ${pid}`);
+		expect(readTicks().at(-1)).toContain(`pid ${pid}`);
 		expect(kept.map((f) => fs.readFileSync(path.join(dir, f)))).toEqual(before);
-		expect(runningCode(Number(pid), codeDir)).toBe(short(tip));
+		expect(readRunningCode(Number(pid), codeDir)).toBe(short(tip));
 		await moreTicks(2);
 		expect(fs.readdirSync(codeDir)).toEqual([tip]);
 	});
@@ -279,26 +282,26 @@ describe("adoption", () => {
 		await startLoop();
 		push({ "docs/notes.md": "more\n", "scripts/lib/marker.test.ts": "//\n" });
 		await moreTicks(4);
-		expect(logLines().some((l) => l.startsWith("adopting "))).toBe(false);
+		expect(readLogLines().some((l) => l.startsWith("adopting "))).toBe(false);
 	});
 
 	it("refuses a tip whose program throws on load, once, ticking on the old code", async () => {
 		await startLoop();
 		const bad = push({ "scripts/lib/marker.js": 'throw new Error("boom");\n' });
 		await until(
-			() => logLines().some((l) => l.startsWith("not adopting")),
+			() => readLogLines().some((l) => l.startsWith("not adopting")),
 			"the refusal",
 		);
 		await moreTicks(4);
-		const refusals = logLines().filter((l) => l.startsWith("not adopting"));
+		const refusals = readLogLines().filter((l) => l.startsWith("not adopting"));
 		expect(refusals).toHaveLength(1);
-		expect(logLines().some((l) => l.startsWith("adopting "))).toBe(false);
+		expect(readLogLines().some((l) => l.startsWith("adopting "))).toBe(false);
 		expect(refusals[0]).toMatch(
 			new RegExp(
 				`^not adopting ${short(bad)}: its program does not load: exit 1, Error: boom; running `,
 			),
 		);
-		expect(ticks().at(-1)).toContain(" one ");
+		expect(readTicks().at(-1)).toContain(" one ");
 		expect(fs.existsSync(path.join(codeDir, bad))).toBe(false);
 	});
 
@@ -307,8 +310,11 @@ describe("adoption", () => {
 		fs.writeFileSync(path.join(dir, "hold"), "");
 		push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
 		await moreTicks(4);
-		expect(logLines().some((l) => l.startsWith("adopting "))).toBe(false);
+		expect(readLogLines().some((l) => l.startsWith("adopting "))).toBe(false);
 		fs.rmSync(path.join(dir, "hold"));
-		await until(() => ticks().some((l) => l.includes(" two ")), "the new code");
+		await until(
+			() => readTicks().some((l) => l.includes(" two ")),
+			"the new code",
+		);
 	});
 });

@@ -10,7 +10,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { subjectModules, subjectsInIndex } from "./gate-subjects.js";
+import { readIndexSubjects, readSubjectModules } from "./gate-subjects.js";
 import { mkScratchDir } from "./git-fixture";
 
 let dir: string;
@@ -27,7 +27,7 @@ const track = (files: Record<string, string> | string[]) => {
 	execFileSync("git", ["add", "--", ...entries.map(([f]) => f)], { cwd: dir });
 };
 
-const subjects = () => subjectsInIndex(dir).map((s) => s.subject);
+const readSubjects = () => readIndexSubjects(dir).map((s) => s.subject);
 
 beforeEach(() => {
 	dir = mkScratchDir("gate-subjects-");
@@ -39,9 +39,9 @@ afterEach(() => {
 
 const SECTION_B = "## Section B — registry\n\n### B1 · A figure\n\nBody.\n";
 
-describe("subjectsInIndex", () => {
+describe("readIndexSubjects", () => {
 	it("finds nothing in an empty index", () => {
-		expect(subjectsInIndex(dir)).toEqual([]);
+		expect(readIndexSubjects(dir)).toEqual([]);
 	});
 
 	it.each([
@@ -58,7 +58,7 @@ describe("subjectsInIndex", () => {
 		"src/a.spec.ts",
 	])("reads %s as a test file", (file) => {
 		track([file]);
-		expect(subjectsInIndex(dir)).toEqual([
+		expect(readIndexSubjects(dir)).toEqual([
 			{ subject: "tests", module: "suites", found: [file] },
 		]);
 	});
@@ -67,40 +67,40 @@ describe("subjectsInIndex", () => {
 		"reads %s as no test file",
 		(file) => {
 			track([file]);
-			expect(subjects()).toEqual([]);
+			expect(readSubjects()).toEqual([]);
 		},
 	);
 
 	it("reads a test file that is on disk but untracked as no subject", () => {
 		fs.writeFileSync(path.join(dir, "a.test.js"), "x\n");
-		expect(subjects()).toEqual([]);
+		expect(readSubjects()).toEqual([]);
 	});
 
 	it("finds the roadmap by its exact path only", () => {
 		track(["vendor/docs/reference-roadmap.html"]);
-		expect(subjects()).toEqual([]);
+		expect(readSubjects()).toEqual([]);
 		track(["docs/reference-roadmap.html"]);
-		expect(subjects()).toEqual(["roadmap"]);
+		expect(readSubjects()).toEqual(["roadmap"]);
 	});
 
 	it("finds governance by the manual", () => {
 		track(["docs/operating-manual.md"]);
-		expect(subjects()).toEqual(["governance"]);
+		expect(readSubjects()).toEqual(["governance"]);
 	});
 
 	it("finds governance by a §B entry in the doc map's staged blob, not its working copy", () => {
 		track({ "docs/doc-map.md": "## Section B — registry\n\nNone yet.\n" });
 		fs.writeFileSync(path.join(dir, "docs/doc-map.md"), SECTION_B);
-		expect(subjects()).toEqual([]);
+		expect(readSubjects()).toEqual([]);
 		track({ "docs/doc-map.md": SECTION_B });
-		expect(subjects()).toEqual(["governance"]);
+		expect(readSubjects()).toEqual(["governance"]);
 	});
 
 	it("finds the site only where the brand sheet and app/ are both tracked", () => {
 		track(["app/page.tsx"]);
-		expect(subjects()).toEqual([]);
+		expect(readSubjects()).toEqual([]);
 		track(["docs/brand-sheet.md"]);
-		expect(subjects()).toEqual(["site"]);
+		expect(readSubjects()).toEqual(["site"]);
 	});
 
 	it("reads the brand sheet at the root's declared brandSheetPath", () => {
@@ -114,19 +114,19 @@ describe("subjectsInIndex", () => {
 			}),
 		);
 		track(["app/page.tsx", "docs/brand-sheet.md"]);
-		expect(subjects()).toEqual([]);
+		expect(readSubjects()).toEqual([]);
 		track(["docs/brand/sheet.md"]);
-		expect(subjects()).toEqual(["site"]);
+		expect(readSubjects()).toEqual(["site"]);
 	});
 
 	it("throws where git cannot list the index", () => {
-		expect(() => subjectsInIndex(path.join(dir, "nowhere"))).toThrow(
+		expect(() => readIndexSubjects(path.join(dir, "nowhere"))).toThrow(
 			/git ls-files/,
 		);
 	});
 });
 
-describe("subjectModules", () => {
+describe("readSubjectModules", () => {
 	it("names each found subject's module", () => {
 		track({
 			"a.test.js": "x\n",
@@ -135,7 +135,7 @@ describe("subjectModules", () => {
 			"docs/brand-sheet.md": "x\n",
 			"app/page.tsx": "x\n",
 		});
-		expect(subjectModules(dir)).toEqual([
+		expect(readSubjectModules(dir)).toEqual([
 			"suites",
 			"roadmap",
 			"governance",

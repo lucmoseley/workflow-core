@@ -8,13 +8,10 @@
  * the day's ceiling is a property of the SWEEP rather than of the route that
  * fired it.
  *
- * WHY A MODULE AND NOT TWO IMPLEMENTATIONS. The guard is bash and the autofire
- * is node, and the whole guarantee mantahostels#2202 buys is that the two arithmetics are
- * the same arithmetic. A jq transcription of the marker's schema in
- * `guard-sweep-fire.sh` would be a second place for the day boundary, the
- * counter's name and the cap to drift — so the guard shells out to the CLI at
- * the foot of this file and the bytes the hook enforces are the bytes the tests
- * cover.
+ * ONE MODULE, BOTH ROUTES. The whole guarantee mantahostels#2202 buys is that
+ * the guard's arithmetic and the autofire's are the same arithmetic, so the
+ * guard spends through `spendHandFire` below and the bytes the hook enforces
+ * are the bytes the tests cover.
  *
  * THE STORE IS THE GIT COMMON DIR, untracked and shared across worktrees by
  * construction, matching `lib/test-pass-marker.js`. That is what lets a hand-fire
@@ -26,11 +23,10 @@
  * and not at local midnight.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { hostRoot } = require("./host-root.js");
 const { caught } = require("./caught.js");
+const { gitCommonDir } = require("./git.js");
 
 /* The DAILY cap, which the autofire's 2-minute cooldown is not (mantahostels#1816 asked for
  * one): the cooldown alone bounds a bad day at 720 firings, ~5,900 billed
@@ -72,16 +68,8 @@ function dayOf(t) {
  * @returns {string|null}
  */
 function markerPath(repo) {
-	try {
-		const dir = execFileSync(
-			"git",
-			["rev-parse", "--path-format=absolute", "--git-common-dir"],
-			{ cwd: repo, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-		).trim();
-		return dir ? path.join(dir, AUTOFIRE_MARKER) : null;
-	} catch {
-		return null;
-	}
+	const dir = gitCommonDir(repo);
+	return dir ? path.join(dir, AUTOFIRE_MARKER) : null;
 }
 
 /**
@@ -144,72 +132,45 @@ function recordFiring(marker, t, spent) {
 	);
 }
 
+/**
+ * Spend one unit of the day's budget on a hand-fire, or report that the day
+ * is out — the guard's half (lib/sweep-fire-host.js). `out` false is spent,
+ * `spent` the count after; `out` true is refused, nothing written. A `fault`
+ * is a budget this could not decide, which the guard fails open on
+ * (mantahostels#103 §6).
+ *
+ * IT SPENDS BEFORE THE COMMAND RUNS, the guard being a `PreToolUse` hook, so a
+ * fire the session then abandons — another guard denying the same command, a
+ * `gh` that 403s — still costs a unit. The autofire makes the same trade for
+ * the same reason (`check-ci-status.js` writes its marker before the
+ * dispatch): a fire that hangs or half-succeeds must not leave the budget
+ * unspent.
+ *
+ * @param {string} repo the tree whose common dir holds the marker
+ * @param {number} t
+ * @returns {{ out: boolean, spent: number, cap: number, day: string } | { fault: string }}
+ */
+function spendHandFire(repo, t) {
+	const marker = markerPath(repo);
+	if (!marker) return { fault: "git would not name a common dir" };
+	const { state, error } = readState(marker);
+	if (error !== null)
+		return {
+			fault: `could not read ${AUTOFIRE_MARKER}: ${caught(error).message}`,
+		};
+	const spent = spentToday(state, t);
+	const day = dayOf(t);
+	if (spent >= AUTOFIRE_DAILY_CAP)
+		return { out: true, spent, cap: AUTOFIRE_DAILY_CAP, day };
+	recordFiring(marker, t, spent);
+	return { out: false, spent: spent + 1, cap: AUTOFIRE_DAILY_CAP, day };
+}
+
 module.exports = {
 	AUTOFIRE_DAILY_CAP,
 	markerPath,
 	readState,
 	recordFiring,
+	spendHandFire,
 	spentToday,
 };
-
-/*
- * CLI mode, for `scripts/guard-sweep-fire.sh`: spend one unit of today's budget
- * on a hand-fire, or report that the day is out. The exit status is the verdict
- * and stdout carries the figures the deny text needs.
- *
- *   0  spent — stdout `<spent-after> <cap> <day>`
- *   1  the day's budget is gone — stdout `<spent> <cap> <day>`
- *   2  this script could not decide, so the guard must fail open (mantahostels#103 §6) —
- *      stdout carries the reason
- *
- * `WFC_REPO_DIR` picks the tree whose common dir holds the marker; `WFC_NOW`
- * pins the clock, both matching check-ci-status.js.
- *
- * IT SPENDS BEFORE THE COMMAND RUNS, this being a `PreToolUse` hook, so a fire
- * the session then abandons — another guard denying the same command, a `gh`
- * that 403s — still costs a unit. The autofire makes the same trade for the same
- * reason (`check-ci-status.js` writes its marker before the dispatch): a fire
- * that hangs or half-succeeds must not leave the budget unspent.
- */
-if (require.main === module) {
-	try {
-		/* `spend` is required rather than assumed. Spending is the only thing this
-		 * CLI does and it does it as a side effect, so an argv it does not
-		 * recognise — a `status` subcommand somebody adds later, a typo — must not
-		 * silently burn a unit of the day. */
-		if (process.argv[2] !== "spend") {
-			process.stdout.write("usage: sweep-budget.js spend\n");
-			process.exit(2);
-		}
-		const raw = process.env.WFC_NOW;
-		const t = raw ? Date.parse(raw) : Date.now();
-		if (Number.isNaN(t)) {
-			process.stdout.write(`WFC_NOW is not a date: ${raw}\n`);
-			process.exit(2);
-		}
-		const repo = process.env.WFC_REPO_DIR || hostRoot();
-		const marker = markerPath(repo);
-		if (!marker) {
-			process.stdout.write("git would not name a common dir\n");
-			process.exit(2);
-		}
-		const { state, error } = readState(marker);
-		if (error !== null) {
-			process.stdout.write(
-				`could not read ${AUTOFIRE_MARKER}: ${caught(error).message}\n`,
-			);
-			process.exit(2);
-		}
-		const spent = spentToday(state, t);
-		if (spent >= AUTOFIRE_DAILY_CAP) {
-			process.stdout.write(`${spent} ${AUTOFIRE_DAILY_CAP} ${dayOf(t)}\n`);
-			process.exit(1);
-		}
-		recordFiring(marker, t, spent);
-		process.stdout.write(`${spent + 1} ${AUTOFIRE_DAILY_CAP} ${dayOf(t)}\n`);
-		process.exit(0);
-	} catch (e) {
-		process.stdout.write(`${caught(e).message || e}\n`);
-		process.exit(2);
-	}
-}

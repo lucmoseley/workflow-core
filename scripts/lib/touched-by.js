@@ -1,6 +1,8 @@
 /*
  * touched-by.js — what a commit changed, and the ceiling every --touched-by
- * git read runs under (#2210, #2375).
+ * git read runs under (#2210, #2375). Its own module so check-guard-registry.js
+ * and check-instruction-surface.js share one diff-tree reader and one ceiling
+ * (#2616).
  */
 
 const { GIT_MAX_BUFFER } = require("./census-digest.js");
@@ -33,7 +35,7 @@ function touchedByCeiling() {
  * @param {import("./git-ceiling.js").GitCeiling} ceiling
  * @returns {Map<string, string>}
  */
-function touchedBy(root, rev, ceiling) {
+function readTouchedBy(root, rev, ceiling) {
 	const fields = String(
 		ceiling.git(
 			[
@@ -64,4 +66,4 @@ function touchedBy(root, rev, ceiling) {
 	return touched;
 }
 
-module.exports = { TOUCHED_BY_CEILING_MS, touchedBy, touchedByCeiling };
+module.exports = { TOUCHED_BY_CEILING_MS, readTouchedBy, touchedByCeiling };

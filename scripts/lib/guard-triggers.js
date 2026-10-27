@@ -312,8 +312,8 @@ function triggerTable(settings, guardDirs, options = {}) {
 		const [guard] = cutAt(reg.key, " ");
 		// A deny is only issuable before the call runs, so the textual test is
 		// asked at all only on `PreToolUse` (mantahostels#3356). Otherwise a `PostToolUse`
-		// script that merely names `gp_deny` — in a comment, or because it greps
-		// the guards for it — would be reported as able to deny a call it cannot.
+		// script that merely spells a deny verdict — in a comment, or because it
+		// greps the guards for one — would be reported as able to deny a call it cannot.
 		const capable = event === DENY_EVENT && isDenyCapable(guard);
 		if (!isInScope(scope, capable)) continue;
 		addRegistration(ensureRow(table, guard, capable), reg, note);

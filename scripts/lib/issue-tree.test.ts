@@ -2,7 +2,7 @@
 /*
  * Pins issue-tree.js's pure half (#778): a parent counts only in its own repo,
  * and only an open issue, never a pull request, counts as an open child.
- * subIssuesOf is exercised through a stub gh in both callers' suites.
+ * readSubIssues is exercised through a stub gh in both callers' suites.
  *
  * retire-stale-containers.js runs this at session start and
  * check-issue-labels.js in the daily repo-checks run, so a loosened case lets

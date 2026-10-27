@@ -28,11 +28,11 @@ afterEach(() => {
 });
 
 /** A "working" job record, silent since it was created — no transcript lookup
- * needed: `store` points nowhere findTranscript can resolve, so every case
+ * needed: its session names no transcript findTranscript can resolve, so every case
  * here falls on the transcript-less (short) window by construction. */
 function workingJob(sessionId: string, agedMinutes: number) {
 	return {
-		store: "/nonexistent/jobs",
+		seat: "/nonexistent",
 		job: "job1",
 		rec: {
 			state: "working",

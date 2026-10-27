@@ -1,11 +1,11 @@
 // @vitest-environment node
 /*
- * Pins which pushed commits the pre-push check names as covered by no green run,
+ * Pins which pushed commits the pre-push check names as attested by no certificate,
  * per suite the range reaches, and that no finding of its refuses a push.
  *
  * The pre-push checker driven the way git drives it: ref lines on stdin,
  * warnings on stderr — over real repositories, since what it prints is the
- * composed cover's verdict on a real range (#814). In process, but for three
+ * composed attestation's verdict on a real range (#814). In process, but for three
  * spawns, each saying why where it stands.
  *
  * mantahostels#908 ruled the gate warns and never refuses, so every finding is a
@@ -51,13 +51,14 @@ function repo(test: string | null = "node scripts/run-vitest.js") {
 	git(dir, "init", "-q", "-b", "main");
 	git(dir, "config", "user.email", "t@example.com");
 	git(dir, "config", "user.name", "t");
-	git(dir, "commit", "-q", "--allow-empty", "-m", "root");
-	git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
 	fs.mkdirSync(path.join(dir, ".claude"));
 	fs.writeFileSync(
 		path.join(dir, ".claude/workflow-core.json"),
 		JSON.stringify(test === null ? {} : { commands: { test } }),
 	);
+	git(dir, "add", ".claude");
+	git(dir, "commit", "-q", "-m", "root");
+	git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
 	return { dir, root: git(dir, "rev-parse", "HEAD") };
 }
 
@@ -100,7 +101,7 @@ const full = (sha: string, over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** An admissible narrowed green on `sha`, selected for `paths` and reading them alone. */
+/** An admissible narrowed certificate on `sha`, selected for `paths` and reading them alone. */
 const narrowedOn = (dir: string, sha: string, paths: string[], at: string) =>
 	full(sha, {
 		at,
@@ -110,7 +111,7 @@ const narrowedOn = (dir: string, sha: string, paths: string[], at: string) =>
 		changedPaths: paths,
 	});
 
-/** A green from `vitest run <file> -t <name>`, which covers nothing. */
+/** A certificate from `vitest run <file> -t <name>`, which attests nothing. */
 const partial = (sha: string) => ({
 	...full(sha),
 	scope: {
@@ -126,7 +127,7 @@ const partial = (sha: string) => ({
  * The all-zero remote sha is a ref the remote does not have yet, so the range
  * runs from the merge-base with `origin/main`.
  */
-const refLine = (sha: string, remote: string = ZERO) =>
+const buildRefLine = (sha: string, remote: string = ZERO) =>
 	`refs/heads/main ${sha} refs/heads/main ${remote}\n`;
 
 const run = (
@@ -140,8 +141,8 @@ const run = (
 		env: { ...process.env, CLAUDE_PROJECT_DIR: cwd, ...env },
 	});
 
-const OWED = "NO GREEN VITEST RUN COVERS";
-const COVERED = "OK: green runs cover every pushed commit.\n";
+const OWED = "LACK A VITEST CERTIFICATE";
+const ATTESTED = "OK: certificates attest every pushed commit.\n";
 const NOTHING = "OK: no pushed ref to judge.\n";
 
 afterEach(() => {
@@ -156,14 +157,15 @@ describe("check-test-marker", () => {
 			path.join(dir, ".claude/workflow-core.json"),
 			'{"contract":9}',
 		);
-		const r = run(dir, refLine(root), { WFC_MODULES: undefined });
+		git(dir, "commit", "-q", "-am", "contract 9");
+		const r = run(dir, buildRefLine(root), { WFC_MODULES: undefined });
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(/^BROKEN: .*declares contract 9/);
 	});
 
 	it("skips with one line, warning nothing, where the suites module is off", () => {
 		const { dir, root } = repo();
-		const r = run(dir, refLine(root), { WFC_MODULES: undefined });
+		const r = run(dir, buildRefLine(root), { WFC_MODULES: undefined });
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe(
 			'SKIP: module "suites" is off — .claude/workflow-core.json does not list it under "modules"\n',
@@ -174,10 +176,10 @@ describe("check-test-marker", () => {
 		"skips with one line where the declared test command is %s, which writes no marker",
 		(test) => {
 			const { dir, root } = repo(test);
-			const r = run(dir, refLine(root));
+			const r = run(dir, buildRefLine(root));
 			expect(r.status).toBe(0);
 			expect(r.stderr).toBe(
-				"SKIP: commands.test is gated at commit — it writes no test-pass marker, so a push has none to read\n",
+				"SKIP: commands.test is gated at commit — it mints no certificate, so a push has none to read\n",
 			);
 		},
 	);
@@ -185,7 +187,7 @@ describe("check-test-marker", () => {
 	it("warns where no test command is declared", () => {
 		const { dir } = repo(null);
 		const sha = commitTouching(dir, "a.js");
-		expect(run(dir, refLine(sha)).stderr).toContain(OWED);
+		expect(run(dir, buildRefLine(sha)).stderr).toContain(OWED);
 	});
 
 	it("warns where the declared command is the npm script that runs run-vitest.js", () => {
@@ -194,18 +196,26 @@ describe("check-test-marker", () => {
 			path.join(dir, "package.json"),
 			JSON.stringify({ scripts: { test: "node scripts/run-vitest.js" } }),
 		);
+		git(dir, "add", "package.json");
 		const sha = commitTouching(dir, "a.js");
-		expect(run(dir, refLine(sha)).stderr).toContain(OWED);
+		/* The check reads package.json at the pushed HEAD, not this copy (#3135). */
+		fs.writeFileSync(
+			path.join(dir, "package.json"),
+			JSON.stringify({ scripts: { test: "jest" } }),
+		);
+		expect(run(dir, buildRefLine(sha)).stderr).toContain(OWED);
 	});
 
-	it("names each file no green covers and its commit, says they are public, and asks for a run and a push:check — exiting 0", () => {
+	it("names each file no certificate attests and its commit, says they are public, and asks for a run and a push:check — exiting 0", () => {
 		const { dir, root } = repo();
 		const c1 = commitTouching(dir, "a.js");
 		const c2 = commitTouching(dir, "b.js");
 		writeStore(dir, narrowedOn(dir, c1, ["a.js"], "A"));
-		const r = run(dir, refLine(c2, root));
+		const r = run(dir, buildRefLine(c2, root));
 		expect(r.status).toBe(0);
-		expect(r.stderr).toContain(`${OWED} 1 FILE(S)`);
+		expect(r.stderr).toMatch(
+			/⚠ {2}1 FILE\(S\) IN \S+ LACK A VITEST CERTIFICATE/,
+		);
 		expect(r.stderr).toContain(`b.js — commit ${c2.slice(0, 12)}`);
 		expect(r.stderr).not.toContain("a.js —");
 		expect(r.stderr).toContain("Those commits are already public.");
@@ -213,11 +223,11 @@ describe("check-test-marker", () => {
 		expect(r.stderr).toContain("push-check.js` before your next push");
 		expect(r.stderr).not.toMatch(/push again/i);
 		expect(r.stderr).toMatch(
-			/WARN: 1 pushed commit\(s\) no green run is shown to cover\n$/,
+			/WARN: 1 pushed commit\(s\) no certificate is shown to attest\n$/,
 		);
 	});
 
-	it("passes where two sessions' greens cover the range between them, noting the tree match", () => {
+	it("passes where two sessions' certificates attest the range between them, noting the tree match", () => {
 		const { dir, root } = repo();
 		const c1 = commitTouching(dir, "a.js");
 		const c2 = commitTouching(dir, "b.js");
@@ -226,38 +236,36 @@ describe("check-test-marker", () => {
 			narrowedOn(dir, c1, ["a.js"], "A"),
 			narrowedOn(dir, c2, ["b.js"], "B"),
 		);
-		const r = run(dir, refLine(c2, root));
+		const r = run(dir, buildRefLine(c2, root));
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("attested by tree");
-		expect(r.stderr).not.toContain("NO GREEN");
-		expect(r.stderr.endsWith(COVERED)).toBe(true);
+		expect(r.stderr).not.toContain("CERTIFICATE:");
+		expect(r.stderr.endsWith(ATTESTED)).toBe(true);
 	});
 
-	it("measures a new ref's range from origin/landing where the landing module is on (#2408)", () => {
+	it("skips with the lander's line, warning nothing, where the landing module is on (#2929)", () => {
 		const { dir } = repo();
 		const c1 = commitTouching(dir, "a.js");
-		git(dir, "update-ref", "refs/remotes/origin/landing", c1);
-		const c2 = commitTouching(dir, "b.js");
-		writeStore(dir, narrowedOn(dir, c2, ["b.js"], "B"));
-		const r = run(dir, refLine(c2), { WFC_MODULES: "suites,landing" });
+		const r = run(dir, buildRefLine(c1), { WFC_MODULES: "suites,landing" });
 		expect(r.status).toBe(0);
-		expect(r.stderr).not.toContain("NO GREEN");
-		expect(r.stderr.endsWith(COVERED)).toBe(true);
+		expect(r.stderr).toBe(
+			'SKIP: module "landing" is on — the lander runs the full suite before main moves, so no push owes a certificate\n',
+		);
 	});
 
-	it("says only OK on a clean full green on the pushed sha", () => {
+	it("says only OK on a clean full certificate on the pushed sha", () => {
 		const { dir, root } = repo();
 		const sha = commitTouching(dir, "a.js");
 		writeStore(dir, full(sha));
-		const r = run(dir, refLine(sha, root));
+		const r = run(dir, buildRefLine(sha, root));
 		expect(r.status).toBe(0);
-		expect(r.stderr).toBe(COVERED);
+		expect(r.stderr).toBe(ATTESTED);
 		expect(r.stdout).toBe("");
 	});
 
-	/* The dirty line qualifies the cover, as push-check.js reads it, and is no
+	/* The dirty line qualifies the attestation, as push-check.js reads it, and is no
 	 * finding. */
-	it("notes a covering green taken over a dirty tree, naming the foreign count, and passes", () => {
+	it("notes a certificate taken over a dirty tree, naming the foreign count, and passes", () => {
 		const { dir, root } = repo();
 		const sha = commitTouching(dir, "a.js");
 		writeStore(
@@ -268,18 +276,18 @@ describe("check-test-marker", () => {
 				foreign: [{ path: "docs/doc-map.md", why: "held by sess-9" }],
 			}),
 		);
-		const r = run(dir, refLine(sha, root));
+		const r = run(dir, buildRefLine(sha, root));
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("dirty tree:");
 		expect(r.stderr).toContain("read 1 file(s) another session held");
-		expect(r.stderr.endsWith(COVERED)).toBe(true);
+		expect(r.stderr.endsWith(ATTESTED)).toBe(true);
 	});
 
-	it("counts a filtered green toward nothing", () => {
+	it("counts a filtered certificate toward nothing", () => {
 		const { dir, root } = repo();
 		const sha = commitTouching(dir, "a.js");
 		writeStore(dir, partial(sha));
-		expect(run(dir, refLine(sha, root)).stderr).toContain(OWED);
+		expect(run(dir, buildRefLine(sha, root)).stderr).toContain(OWED);
 	});
 
 	it("judges no commit on a branch deletion — an all-zero sha has no bytes to test", () => {
@@ -295,7 +303,7 @@ describe("check-test-marker", () => {
 		const c2 = commitTouching(dir, "b.js");
 		const r = run(
 			dir,
-			refLine(c1, root) + refLine(c1, root) + refLine(c2, root),
+			buildRefLine(c1, root) + buildRefLine(c1, root) + buildRefLine(c2, root),
 		);
 		expect(r.status).toBe(0);
 		expect(r.stderr.match(new RegExp(OWED, "g"))).toHaveLength(2);
@@ -332,7 +340,7 @@ describe("check-test-marker", () => {
 		const { dir, root } = repo();
 		const sha = commitTouching(dir, "a.js");
 		fs.writeFileSync(storePath(dir), "{not json\n");
-		const r = run(dir, refLine(sha, root));
+		const r = run(dir, buildRefLine(sha, root));
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(OWED);
 	});
@@ -340,16 +348,16 @@ describe("check-test-marker", () => {
 	it("exits 0 outside a git repository, where there is no store to find", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nogit-"));
 		dirs.push(dir);
-		const r = run(dir, refLine("a".repeat(40)));
+		const r = run(dir, buildRefLine("a".repeat(40)));
 		expect(r.status).toBe(0);
 	});
 
 	it("says it could not judge where the remote sha is one this checkout lacks", () => {
 		const { dir } = repo();
 		const sha = commitTouching(dir, "a.js");
-		const r = run(dir, refLine(sha, "c".repeat(40)));
+		const r = run(dir, buildRefLine(sha, "c".repeat(40)));
 		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("could not judge whether green runs cover");
+		expect(r.stderr).toContain("could not judge whether certificates attest");
 		expect(r.stderr).toContain("never refuses a push");
 	});
 
@@ -363,7 +371,7 @@ describe("check-test-marker", () => {
 	it("prints a report longer than the pipe buffer whole, summary included (#1444)", () => {
 		const { dir } = repo();
 		const refs = Array.from({ length: 450 }, (_, i) =>
-			refLine((i + 1).toString(16).padStart(40, "0"), "c".repeat(40)),
+			buildRefLine((i + 1).toString(16).padStart(40, "0"), "c".repeat(40)),
 		).join("");
 		const r = spawnSync(process.execPath, [SCRIPT], {
 			cwd: dir,
@@ -374,7 +382,7 @@ describe("check-test-marker", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr.length).toBeGreaterThan(64 * 1024);
 		expect(r.stderr).toMatch(
-			/\nWARN: 450 pushed commit\(s\) no green run is shown to cover\n$/,
+			/\nWARN: 450 pushed commit\(s\) no certificate is shown to attest\n$/,
 		);
 	});
 
@@ -395,7 +403,7 @@ describe("check-test-marker", () => {
 		fs.writeFileSync(path.join(dir, "scripts/run-mod-tests.js"), stub(0));
 		const r = spawnSync("sh", [HOOK], {
 			cwd: dir,
-			input: refLine(root),
+			input: buildRefLine(root),
 			encoding: "utf8",
 		});
 		expect(fs.existsSync(ran)).toBe(true);
@@ -411,7 +419,7 @@ describe("check-test-marker", () => {
 		it("says nothing about pytest where the range touches no Python", () => {
 			const { dir, root } = repo();
 			const sha = commitTouching(dir, "docs/note.md");
-			const r = run(dir, refLine(sha, root));
+			const r = run(dir, buildRefLine(sha, root));
 			expect(r.stderr).toContain(OWED);
 			expect(r.stderr).not.toContain("PYTEST");
 		});
@@ -422,32 +430,32 @@ describe("check-test-marker", () => {
 			"requirements-dev.txt",
 			"scripts/run-pytest.js",
 		])(
-			"asks about pytest where the range touches %s, however green vitest is",
+			"asks about pytest where the range touches %s, whatever vitest's certificates attest",
 			(rel) => {
 				const { dir, root } = repo();
 				const sha = commitTouching(dir, rel);
 				writeStore(dir, full(sha));
-				const r = run(dir, refLine(sha, root));
-				expect(r.stderr).toContain("NO GREEN PYTEST RUN COVERS");
+				const r = run(dir, buildRefLine(sha, root));
+				expect(r.stderr).toContain("LACK A PYTEST CERTIFICATE");
 				expect(r.stderr).toContain("npm run test:py");
 				expect(r.stderr).not.toContain(OWED);
 			},
 		);
 
-		it("asks about vitest where only pytest went green", () => {
+		it("asks about vitest where only pytest left a certificate", () => {
 			const { dir, root } = repo();
 			const sha = commitTouching(dir, "scripts/test_x.py");
 			writeStore(dir, { ...full(sha), suite: "pytest" });
-			const r = run(dir, refLine(sha, root));
+			const r = run(dir, buildRefLine(sha, root));
 			expect(r.stderr).toContain(OWED);
-			expect(r.stderr).not.toContain("NO GREEN PYTEST");
+			expect(r.stderr).not.toContain("LACK A PYTEST CERTIFICATE");
 		});
 
 		/* mantahostels#2170: `package.json` came out of `touches`. */
 		it("says nothing about pytest where the range touches only package.json", () => {
 			const { dir, root } = repo();
 			const sha = commitTouching(dir, "package.json");
-			const r = run(dir, refLine(sha, root));
+			const r = run(dir, buildRefLine(sha, root));
 			expect(r.stderr).toContain(OWED);
 			expect(r.stderr).not.toContain("PYTEST");
 		});

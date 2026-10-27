@@ -136,6 +136,33 @@ describe("decideTick stops (#2007)", () => {
 		).not.toHaveProperty("stop");
 	});
 
+	it("passes over gate judgements that end unmet, with no act, but counts one that acted (#3092)", () => {
+		const gate = { gate: true };
+		expect(
+			tick({
+				history: [
+					finished(2906, gate),
+					finished(2917, gate),
+					finished(3073, gate),
+				],
+			}),
+		).not.toHaveProperty("stop");
+		expect(
+			tick({
+				history: [finished(7), finished(2906, gate), finished(8), finished(9)],
+			}),
+		).toMatchObject({ stop: "no-progress" });
+		expect(
+			tick({
+				history: [
+					finished(7),
+					finished(8),
+					finished(2906, { ...gate, acts: { relabel: 1 } }),
+				],
+			}),
+		).not.toHaveProperty("stop");
+	});
+
 	it("reads the run by finish order, so an older progress does not break it", () => {
 		const d = tick({
 			history: [
@@ -227,6 +254,113 @@ describe("decideTick stops (#2007)", () => {
 			launches: [],
 			idle: "no seat with room has a sized allowance cap",
 		});
+	});
+});
+
+describe("decideTick on overflow seats (#2611)", () => {
+	const full = (name: string) => seat(name, 100, 10, null);
+	const overflow = (
+		name: string,
+		fits: number | null,
+		spentUntil: string | null = null,
+	) => ({
+		seat: name,
+		fits,
+		spentUntil,
+		why: fits === null ? "the session cost table is unreadable" : null,
+	});
+	const seats = (d: { launches?: { seat: string }[] }) =>
+		(d.launches ?? []).map((l) => l.seat);
+
+	it("launches on an overflow seat only once every plan seat is weekly-full, on Opus", () => {
+		const d = tick({
+			seats: [full("a"), full("b")],
+			overflow: [overflow("x", 5)],
+		});
+		expect(seats(d)).toEqual(["x", "x"]);
+		expect(d.launches.map((l: { model: string }) => l.model)).toEqual([
+			"opus",
+			"opus",
+		]);
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+	});
+
+	it("never overflows while a plan seat is not weekly-full, naming it", () => {
+		const five = { ...seat("b", 50, 100, null), sessionResets: "3pm" };
+		const d = tick({ seats: [full("a"), five], overflow: [overflow("x", 5)] });
+		expect(d).not.toHaveProperty("stop");
+		expect(d).toMatchObject({
+			launches: [],
+			idle: "the 5-hour bar is full on b until its 5-hour reset 3pm; no overflow launch: b not weekly-full",
+		});
+		expect(
+			seats(
+				tick({
+					seats: [full("a"), seat("b", 10, 10)],
+					overflow: [overflow("x", 5)],
+				}),
+			),
+		).toEqual(["b", "b"]);
+	});
+
+	it("takes the first overflow seat in failover order whose budget fits a launch", () => {
+		const d = tick({
+			seats: [full("a")],
+			overflow: [
+				overflow("x", 0, "2026-11-20"),
+				overflow("y", 3),
+				overflow("z", 9),
+			],
+		});
+		expect(seats(d)).toEqual(["y", "y"]);
+	});
+
+	it("launches no more than the budget fits", () => {
+		const d = tick({
+			freeSlots: 3,
+			seats: [full("a")],
+			overflow: [overflow("x", 1)],
+		});
+		expect(launched(d)).toEqual(["wfc#1"]);
+	});
+
+	it("waits, never stopping, on a budget held by running sessions or unread", () => {
+		const d = tick({
+			seats: [full("a")],
+			overflow: [
+				overflow("x", 0),
+				overflow("y", null),
+				overflow("z", 0, "2026-10-28"),
+			],
+		});
+		expect(d).not.toHaveProperty("stop");
+		expect(d).toMatchObject({
+			launches: [],
+			idle: "every plan seat is weekly-full; overflow x budget held by running sessions, y budget unread (the session cost table is unreadable), z exhausted until 2026-10-28",
+		});
+	});
+
+	it("stops on allowance once every plan seat is weekly-full and every key is spent", () => {
+		expect(
+			tick({
+				seats: [full("a"), full("b")],
+				overflow: [
+					overflow("x", 0, "2026-11-20"),
+					overflow("y", 0, "2026-10-28"),
+				],
+			}),
+		).toEqual({
+			stop: "allowance",
+			detail:
+				"every plan seat reads 100% of the week and every overflow key is spent: x exhausted until 2026-11-20, y exhausted until 2026-10-28",
+		});
+	});
+
+	it("decides as before with no overflow seat declared", () => {
+		for (const plan of [[full("a")], [full("a"), seat("b", 10, 10)]])
+			expect(tick({ seats: plan, overflow: [] })).toEqual(
+				tick({ seats: plan }),
+			);
 	});
 });
 
@@ -348,6 +482,32 @@ describe("decideTick free slot", () => {
 			launches: [],
 			idle: "the allowance cap fits no launch on a, c",
 		});
+	});
+
+	it("names a failed shortlist and its reason, not an empty frontier, where nothing launched (#2561)", () => {
+		const failedShortlists = [
+			{ root: "/home/u/workflow-core", error: "exited 1 FAILED: offline" },
+		];
+		expect(tick({ frontier: [], failedShortlists })).toMatchObject({
+			launches: [],
+			idle: "shortlist failed in workflow-core: exited 1 FAILED: offline",
+		});
+		expect(
+			tick({ frontier: [row("wfc", 1, "human")], failedShortlists }),
+		).toMatchObject({
+			idle: "shortlist failed in workflow-core: exited 1 FAILED: offline",
+		});
+		expect(tick({ frontier: [] })).toMatchObject({
+			idle: "nothing launchable",
+		});
+	});
+
+	it("launches what the read checkouts hold despite another's failed shortlist (#2561)", () => {
+		const d = tick({
+			failedShortlists: [{ root: "/home/u/other", error: "exited 1" }],
+		});
+		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
+		expect(d).toMatchObject({ idle: null });
 	});
 
 	it("idles on the unread seats where a slot is free (#2362)", () => {

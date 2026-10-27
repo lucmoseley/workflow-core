@@ -122,7 +122,7 @@ function refreshState(ctx) {
  *
  * @returns {UndrainedRead}
  */
-function undrainedFromState() {
+function readUndrainedFromState() {
 	const state = readState();
 	if (!state || state.stale) {
 		// Nothing to say yet. The refresh below is what makes the NEXT
@@ -204,7 +204,7 @@ runCheck({
 
 		if (ctx.has("--refresh")) return refreshState(ctx);
 
-		const read = ctx.notify ? undrainedFromState() : undrainedFromScan();
+		const read = ctx.notify ? readUndrainedFromState() : undrainedFromScan();
 		if (read.early) return read.early;
 		const { scannedAt, stateAgeHours } = read;
 

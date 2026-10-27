@@ -79,9 +79,9 @@ function caught(e) {
  * @param {unknown} e a catch binding
  * @returns {string}
  */
-function errorText(e) {
+function parseErrorText(e) {
 	const c = caught(e);
 	return c.stderr || c.message;
 }
 
-module.exports = { caught, errorText };
+module.exports = { caught, parseErrorText };

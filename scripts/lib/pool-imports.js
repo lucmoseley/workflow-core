@@ -99,7 +99,7 @@ function readMember(root, rel) {
  * @param {string[]} members root-relative pool paths
  * @returns {{ path: string, importedBy: string }[]}
  */
-function importedFiles(root, members) {
+function readImportedFiles(root, members) {
 	const seen = new Set(members);
 	const out = [];
 	let frontier = members;
@@ -119,4 +119,4 @@ function importedFiles(root, members) {
 	return out;
 }
 
-module.exports = { importedFiles, importTokens };
+module.exports = { readImportedFiles, importTokens };

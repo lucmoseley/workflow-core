@@ -15,13 +15,7 @@
 			"parseCliArgs",
 			"releaseClaim"
 		],
-		"scripts/lib/guard-log.sh": ["gl_exit", "gl_log", "gl_open"],
-		"scripts/lib/guard-parse.sh": [
-			"gp_allow",
-			"gp_begin",
-			"gp_subject",
-			"gp_warn"
-		],
+		"scripts/lib/guard-log.sh": ["gl_log"],
 		"scripts/lib/precommit-gate-harness.js": [
 			"cutGateFragment",
 			"cutGateScript",
@@ -179,7 +173,7 @@
 				}
 			],
 			"exit": {
-				"0": "every test run passed",
+				"0": "every test run passed, or a bare run under the landing module found no touched test and ran nothing",
 				"1": "a test failed, or the run stalled or was killed"
 			}
 		}

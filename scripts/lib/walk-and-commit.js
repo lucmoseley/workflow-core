@@ -5,9 +5,9 @@
  * rather than one carrying edits nobody explains.
  *
  * THE FOUR CONDITIONS THE WALK RUNS UNDER, all decided here rather than in
- * `upgrade.js`, which knows nothing about git or commits:
+ * `lib/upgrade-walk.js`, which knows nothing about git or commits:
  *
- *   1. CLEAN TREE IN. `dirtyTracked`/`untrackedFiles` (lib/dirty-tree.js) must
+ *   1. CLEAN TREE IN. `readDirtyTracked`/`readUntrackedFiles` (lib/dirty-tree.js) must
  *      both read empty before `upgrade()` is ever called — the walker's edits
  *      can never be mixed into the founder's own uncommitted work. Dirty:
  *      defer, commit nothing.
@@ -42,14 +42,14 @@
  * committed tree, on both the clean and the half-way paths.
  */
 
-const { execFileSync } = require("node:child_process");
+const { execGit } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
-const { upgrade } = require("../upgrade.js");
+const { upgrade } = require("./upgrade-walk.js");
 const { measurerFor } = require("./core-context-cost.js");
 const { ghLabels } = require("./core-owned-files.js");
-const { dirtyTracked, untrackedFiles } = require("./dirty-tree.js");
-const { stepsOwed } = require("./steps-owed.js");
+const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree.js");
+const { readStepsOwed } = require("./steps-owed.js");
 const { caught } = require("./caught.js");
 
 const WFC_CONFIG_REL = path.join(".claude", "workflow-core.json");
@@ -74,7 +74,7 @@ function readWalkedTo(root) {
  * @param {string} root
  */
 function git(args, root) {
-	return execFileSync("git", args, {
+	return execGit(args, {
 		cwd: root,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
@@ -99,9 +99,9 @@ function resetToClean(root) {
  * @param {string} root
  * @returns {string[]|null} null where git could not answer
  */
-function dirtyPaths(root) {
-	const tracked = dirtyTracked(root);
-	const untracked = untrackedFiles(root);
+function readDirtyPaths(root) {
+	const tracked = readDirtyTracked(root);
+	const untracked = readUntrackedFiles(root);
 	if (tracked === null || untracked === null) return null;
 	return [...new Set([...tracked, ...untracked])].sort();
 }
@@ -178,7 +178,7 @@ function walkAndCommit({
 		out(line);
 	};
 
-	const before = dirtyPaths(root);
+	const before = readDirtyPaths(root);
 	if (before === null) {
 		say(
 			"migration walk: could not read the adopter tree's git status — skipped.",
@@ -193,7 +193,7 @@ function walkAndCommit({
 		return { action: "dirty", lines };
 	}
 
-	const stepsBefore = stepsOwed(root);
+	const stepsBefore = readStepsOwed(root);
 	const walkLines = /** @type {string[]} */ ([]);
 	const result = upgrade({
 		root,
@@ -221,7 +221,7 @@ function walkAndCommit({
 		}
 	}
 
-	const after = dirtyPaths(root);
+	const after = readDirtyPaths(root);
 	if (after === null) {
 		say(
 			"migration walk: could not read the adopter tree's git status after walking — skipped.",
@@ -238,7 +238,11 @@ function walkAndCommit({
 	}
 
 	const walkedTo = readWalkedTo(root);
-	const message = commitMessage(walkedTo, stepsOwed(root), stepsBefore.length);
+	const message = buildCommitMessage(
+		walkedTo,
+		readStepsOwed(root),
+		stepsBefore.length,
+	);
 
 	const committed = commitPaths({ root, paths: after, message });
 	if (!committed.ok) {
@@ -305,11 +309,11 @@ function walkReasons(result) {
 
 /**
  * @param {string|null} walkedTo
- * @param {ReturnType<typeof stepsOwed>} owedNow
+ * @param {ReturnType<typeof readStepsOwed>} owedNow
  * @param {number} owedBefore how many steps were owed before the walk
  * @returns {string}
  */
-function commitMessage(walkedTo, owedNow, owedBefore) {
+function buildCommitMessage(walkedTo, owedNow, owedBefore) {
 	const newlyOwed = owedNow.slice(owedBefore);
 	const summary = walkedTo
 		? `migration walk: reached ${walkedTo}`

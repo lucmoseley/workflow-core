@@ -33,16 +33,14 @@
  * REPORTS ONLY.
  */
 
-const { execFile } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
-const { promisify } = require("node:util");
 
-const { ghApiSlurpAsync, errLine } = require("./lib/gh");
+const { ghApiSlurpAsync, parseErrLine } = require("./lib/gh");
 const { CliExit, flagValue, parse, printExit } = require("./lib/cli-args");
 const { requireKey } = require("./lib/workflow-core-config");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { execGitAsync } = require("./lib/git.js");
 const {
 	PUSH_EVENTS,
 	clampUntil,
@@ -58,8 +56,6 @@ const {
 	dailySeries,
 	dailyMeanBand,
 } = require("./lib/ci-billing");
-
-const execFileAsync = promisify(execFile);
 
 /**
  * The parsed command line, and the cache options threaded through every fetch.
@@ -277,25 +273,19 @@ async function cachedGet(opts, apiPath) {
  * @param {string} until
  */
 async function commitLog(since, until) {
-	const { stdout } = await execFileAsync(
-		"git",
-		[
-			/* Without this a non-ASCII path arrives quoted and escaped, so the
-			 * `.md` test fails and the push reads as code. */
-			"-c",
-			"core.quotePath=false",
-			"log",
-			"--reverse",
-			"--pretty=format:%x00%H",
-			"--name-only",
-			`--since=${since}T00:00:00Z`,
-			`--until=${until}T23:59:59Z`,
-			"HEAD",
-		],
-		/* --name-only over a fortnight outgrows the 1 MB default, which would
-		 * fail the whole census rather than one figure. */
-		{ maxBuffer: CHILD_MAX_BUFFER },
-	);
+	const { stdout } = await execGitAsync([
+		/* Without this a non-ASCII path arrives quoted and escaped, so the
+		 * `.md` test fails and the push reads as code. */
+		"-c",
+		"core.quotePath=false",
+		"log",
+		"--reverse",
+		"--pretty=format:%x00%H",
+		"--name-only",
+		`--since=${since}T00:00:00Z`,
+		`--until=${until}T23:59:59Z`,
+		"HEAD",
+	]);
 	return parseCommitLog(stdout);
 }
 
@@ -455,7 +445,7 @@ async function commitsPerPush(since, until, scoped) {
 			gitError: null,
 		};
 	} catch (e) {
-		return { pushCommits: null, gitError: errLine(e) };
+		return { pushCommits: null, gitError: parseErrLine(e) };
 	}
 }
 
@@ -622,9 +612,9 @@ async function main() {
 if (require.main === module) {
 	main().catch((e) => {
 		if (e instanceof CliExit) process.exit(printExit(e));
-		/* errLine, not e.message: execFile puts the whole argv in the message,
+		/* parseErrLine, not e.message: execFile puts the whole argv in the message,
 		 * so a token in the command line would be echoed to the terminal. */
-		console.error(errLine(e));
+		console.error(parseErrLine(e));
 		process.exit(1);
 	});
 }

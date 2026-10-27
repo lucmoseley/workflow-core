@@ -9,9 +9,10 @@
  * The fixture is a fake home holding `.claudeN/.claude.json` files, which is
  * the whole of what the script reads.
  *
- * It is a SessionStart `--notify` hook in self-plugin/hooks/hooks.json: loosen
- * a case and the notice either prompts a ceiling re-decision on a non-event, or
- * stays silent while every seat's allowance is spent and work has stopped.
+ * It is a SessionStart `--notify` hook in `self-plugin/hooks/hooks.json` and
+ * the shipped plugin's `hooks/hooks.json`: loosen a case and the notice either
+ * prompts a ceiling re-decision on a non-event, or stays silent while every
+ * seat's allowance is spent and work has stopped.
  */
 
 import { spawnSync } from "node:child_process";
@@ -1012,7 +1013,7 @@ describe("weekly_scoped — the tier-drop notice (#298, #304)", () => {
 				},
 			});
 
-		/** No trial declared, so `cannotHonourNotice` stays out of these fixtures. */
+		/** No trial declared, so `buildCannotHonourNotice` stays out of these fixtures. */
 		const emptyLadder = () => {
 			const p = path.join(home, "empty-ladder.md");
 			fs.writeFileSync(p, "# Capacity procurement ladder\n");

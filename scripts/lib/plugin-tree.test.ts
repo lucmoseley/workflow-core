@@ -26,10 +26,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildTree, isShipped, REWRITTEN } from "./plugin-tree.js";
 import {
+	buildCitableLineTest,
 	CITATION_CEILING,
-	citableLines,
 	qualifyCitations,
 } from "./qualify-citations.js";
+import { isCollectedTestOrConftest } from "./test-kind.js";
 
 const CORE = path.resolve(__dirname, "../..");
 // Spelled in pieces: a `${…}` literal in a plain string trips Biome's template lint.
@@ -57,7 +58,7 @@ const SHIPPED_MOD_TS = [
 	LIVENESS_CONTRACT,
 ];
 
-const files = (root: string) =>
+const readFiles = (root: string) =>
 	fs
 		.readdirSync(root, { recursive: true, withFileTypes: true })
 		.filter((e) => e.isFile())
@@ -74,7 +75,7 @@ describe("the tree rendered from the core", () => {
 	it("ships what runs, with no npm or test file and no TypeScript but what vitest or the engine loads", () => {
 		const out = path.join(tmp, "out");
 		buildTree(CORE, out);
-		const shipped = files(out);
+		const shipped = readFiles(out);
 
 		// #1939: MIT's one condition is that the notice travels with every copy.
 		const notices = ".claude/skills/THIRD-PARTY-NOTICES.md";
@@ -136,7 +137,7 @@ describe("the tree rendered from the core", () => {
 		// #4 (the packaging measurement)
 		expect(scripts.length).toBeGreaterThanOrEqual(59);
 		// Byte for byte, bar the citations #396 qualifies.
-		const expected = (f: string) => {
+		const readExpected = (f: string) => {
 			const source = fs.readFileSync(path.join(CORE, f));
 			const text = source.toString("utf8");
 			const qualified = qualifyCitations(text, f);
@@ -144,7 +145,7 @@ describe("the tree rendered from the core", () => {
 		};
 		expect(
 			scripts.filter(
-				(f) => !fs.readFileSync(path.join(out, f)).equals(expected(f)),
+				(f) => !fs.readFileSync(path.join(out, f)).equals(readExpected(f)),
 			),
 		).toEqual([]);
 
@@ -213,7 +214,7 @@ describe("the tree rendered from the core", () => {
 	it("ships the mods' modules and the liveness contract, its state owned by workflow-core", () => {
 		const out = path.join(tmp, "out");
 		buildTree(CORE, out);
-		const shipped = files(out);
+		const shipped = readFiles(out);
 
 		expect(shipped).toEqual(expect.arrayContaining(SHIPPED_MOD_TS));
 		expect(
@@ -301,7 +302,7 @@ describe("the tree rendered from the core", () => {
 		buildTree(CORE, out);
 		const skill = path.join(out, ".claude/skills/browser-ladder");
 		expect(fs.existsSync(path.join(skill, "SKILL.md"))).toBe(true);
-		for (const rel of files(skill)) {
+		for (const rel of readFiles(skill)) {
 			const body = fs.readFileSync(path.join(skill, rel), "utf8");
 			for (const [re] of privateKinds) {
 				expect(body, `${rel} ${re}`).not.toMatch(re);
@@ -324,7 +325,7 @@ describe("the tree rendered from the core", () => {
 		try {
 			const out = path.join(tmp, "out");
 			buildTree(CORE, out);
-			expect(files(out)).not.toContain(`scripts/${fixtureName}`);
+			expect(readFiles(out)).not.toContain(`scripts/${fixtureName}`);
 		} finally {
 			fs.rmSync(fixturePath, { force: true });
 		}
@@ -352,7 +353,7 @@ describe("the tree rendered from the core", () => {
 		try {
 			const out = path.join(tmp, "out");
 			expect(() => buildTree(CORE, out)).not.toThrow();
-			expect(files(out)).not.toContain(`scripts/${fixtureName}`);
+			expect(readFiles(out)).not.toContain(`scripts/${fixtureName}`);
 		} finally {
 			spy.mockRestore();
 			fs.rmSync(fixturePath, { force: true });
@@ -361,21 +362,23 @@ describe("the tree rendered from the core", () => {
 });
 
 /* What the release drops for being test or TypeScript code, not for being
- * core-only: a restatement of plugin-tree.js's SKIPPED_DIRS and SKIPPED_FILE,
- * which keep it private. A test kind missing here only widens what counts as
- * left behind, so drift turns the scan below red rather than blind. */
-const TEST_KIND =
-	/\.test\.[cm]?[jt]sx?$|\.[cm]?tsx?$|^test_.*\.py$|^conftest\.py$|^(fixtures|__pycache__|node_modules)$/;
+ * core-only: test-kind.js's tests, and a restatement of plugin-tree.js's
+ * SKIPPED_DIRS and SKIPPED_FILE, which keep it private. A kind missing here
+ * only widens what counts as left behind, so drift turns the scan below red
+ * rather than blind. */
+const TS_OR_SKIPPED_DIR = /\.[cm]?tsx?$|^(fixtures|__pycache__|node_modules)$/;
 /** Whether the release leaves `rel` behind as core-only (#440). */
 const isLeftBehind = (root: string, rel: string) =>
-	!isShipped(root, rel) && !TEST_KIND.test(path.basename(rel));
+	!isShipped(root, rel) &&
+	!TS_OR_SKIPPED_DIR.test(path.basename(rel)) &&
+	!isCollectedTestOrConftest(path.basename(rel));
 
 /**
  * Every line of a shipped file naming a left-behind script, as
  * `<shipped>:<line> -> <left-behind>`: a script's or .husky hook's code lines,
  * and any line of a skill, command, docs/agents file or hooks.json.
  */
-const leftBehindReferences = (root: string, out: string) => {
+const readLeftBehindReferences = (root: string, out: string) => {
 	const scripts = path.join(root, "scripts");
 	const behind = fs
 		.readdirSync(scripts)
@@ -397,7 +400,7 @@ const leftBehindReferences = (root: string, out: string) => {
 					.replace(/\./g, "\\.")}(?![\\w-])`,
 			),
 		}));
-	return files(out)
+	return readFiles(out)
 		.filter((f) =>
 			/^(scripts|\.husky|\.claude\/skills|docs\/agents)\/|^hooks\/hooks\.json$/.test(
 				f,
@@ -406,7 +409,7 @@ const leftBehindReferences = (root: string, out: string) => {
 		.flatMap((f) => {
 			const isComment =
 				/^(scripts|\.husky)\//.test(f) && !f.endsWith(".md")
-					? citableLines(f)
+					? buildCitableLineTest(f)
 					: null;
 			return fs
 				.readFileSync(path.join(out, f), "utf8")
@@ -435,7 +438,7 @@ describe("the core-only class (#440)", () => {
 		// Required only where docs/code-standards-base.md exists: the core (#963).
 		"scripts/check-code-standards.js -> scripts/lib/plugin-tree.js",
 		// Required only where it exists beside it: the core (#1151).
-		"scripts/scan-on-write.js -> scripts/lib/plugin-tree.js",
+		"scripts/lib/write-scan.js -> scripts/lib/plugin-tree.js",
 		// release-plugin.js, run in the core, files into each adopter tracker it
 		// is named, so triage-labels.md's census is true there (#1692).
 		"docs/agents/triage-labels.md -> scripts/release-plugin.js",
@@ -444,7 +447,7 @@ describe("the core-only class (#440)", () => {
 	it("ships nothing that names a left-behind script, bar the pairs excused", () => {
 		const out = path.join(tmp, "out");
 		buildTree(CORE, out);
-		const found = leftBehindReferences(CORE, out);
+		const found = readLeftBehindReferences(CORE, out);
 		const pair = (ref: string) => ref.replace(/:\d+ -> /, " -> ");
 		expect(found.filter((ref) => !namedNotRun.includes(pair(ref)))).toEqual([]);
 		// An excuse whose reference has gone is removed, not left to excuse the next.
@@ -473,8 +476,8 @@ describe("the core-only class (#440)", () => {
 		}
 		const out = path.join(tmp, "out");
 		buildTree(root, out);
-		expect(files(out)).not.toContain("scripts/measure-x.js");
-		expect(leftBehindReferences(root, out)).toEqual([
+		expect(readFiles(out)).not.toContain("scripts/measure-x.js");
+		expect(readLeftBehindReferences(root, out)).toEqual([
 			".claude/skills/s/SKILL.md:1 -> scripts/measure-dir",
 			"docs/agents/a.md:1 -> scripts/release-plugin.js",
 			"scripts/g.js:2 -> scripts/measure-x.js",
@@ -962,7 +965,7 @@ describe("a render in a fixture", () => {
 			"// #1 (gloss)\nexport const register = () => {};\n",
 		);
 		buildTree(root, out);
-		expect(files(out).filter((f) => f.startsWith("hooks/"))).toEqual([
+		expect(readFiles(out).filter((f) => f.startsWith("hooks/"))).toEqual([
 			"hooks/hooks.json",
 			"hooks/register.ts",
 		]);
@@ -1004,7 +1007,7 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 		const out = path.join(tmp, "out");
 		fs.rmSync(out, { recursive: true, force: true });
 		buildTree(root, out);
-		return files(out);
+		return readFiles(out);
 	};
 
 	it("ships a mod's hooks and types, and drops its tests, its engine types and every other TypeScript", () => {
@@ -1014,6 +1017,8 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 				[`${modDir}/hooks/lib.ts`]: "export const b = 1;\n",
 				[`${modDir}/types/index.d.ts`]: "export type T = 1;\n",
 				[`${modDir}/hooks/register.test.ts`]: "",
+				// #2869: a .spec. test in a mod ships no more than a .test. one.
+				[`${modDir}/hooks/register.spec.ts`]: "",
 				[`${modDir}/tests/mod.test.ts`]: "",
 				[`${modDir}/.claude-plugin/types/claude-code/index.d.ts`]: "",
 				[`${modDir}/other/x.ts`]: "",
@@ -1103,12 +1108,12 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 			[`${modDir}/hooks/register.ts`]: module,
 			[`${modDir}/types/index.d.ts`]: contract,
 		});
-		const shipped = (rel: string) =>
+		const readShipped = (rel: string) =>
 			fs.readFileSync(path.join(tmp, "out", modDir, rel), "utf8");
-		expect(shipped("hooks/register.ts")).toBe(
+		expect(readShipped("hooks/register.ts")).toBe(
 			'const R = { plugin: "host", key: "r" } as const;\n$.ui.log("mod-x: up");\n',
 		);
-		expect(shipped("types/index.d.ts")).toBe(
+		expect(readShipped("types/index.d.ts")).toBe(
 			contract.replace('"mod-x": {', '"host": {'),
 		);
 		expect(

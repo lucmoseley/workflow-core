@@ -10,17 +10,23 @@
  * a caller (mantahostels#2034).
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
-const { SUITE_MAX } = require("./admission.js");
+const { caught } = require("./caught.js");
+const { WHOLE_SUITE_MAX } = require("./suite-ladder.js");
 const { pidAlive } = require("./arbiter-proc.js");
+const {
+	FIELD,
+	ancestorsOf,
+	readParentOf,
+	readStatFields,
+} = require("./proc-stat.js");
 const { shellWord } = require("./dirty-tree.js");
 const { scriptPath } = require("./script-path.js");
+const { weighCarried } = require("./suite-bounded.js");
 
-/** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 /**
  * Which limb of the suite gate denied: its count cap, or its memory rung, with
  * the reading and the rung where the guard gave them.
@@ -28,21 +34,34 @@ const { scriptPath } = require("./script-path.js");
  */
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
-/** @typedef {{ pid: number, at: number, start?: number, role?: string, part?: boolean, admitted?: boolean, spawned?: boolean }} QueueRecord */
+/** @typedef {import("./queue-exit-log.js").HeldLimb} HeldLimb */
+/** @typedef {{ pid: number, at: number, start?: number, role?: string, part?: boolean, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
  * admitted on the same poll, which joined `behind` or `ahead` of it (#2622).
  * @typedef {"admitted"|"behind"|"ahead"} Admission
  */
+/**
+ * A queued launcher's options: `waitForGate`'s own, less the `admit` it wires
+ * to its marker itself, and the queue's (#2742).
+ * @typedef {Omit<Parameters<typeof waitForGate>[0], "admit"> & Parameters<typeof queueJoin>[0] & Parameters<typeof queueTurn>[0]} QueuedLaunchOptions
+ */
 
 const QUEUE_PREFIX = "wfc-suite-queue-";
 
 /**
+ * The queue's own directory under the temp root, which every default reads.
+ * Never the root itself: a shared `/tmp` grows too large to list on every
+ * admission and poll (#2889). Read at call time, so a caller's `TMPDIR`
+ * redirects it.
+ * @returns {string}
+ */
+function defaultQueueDir() {
+	return path.join(os.tmpdir(), "wfc-suite-queue");
+}
+
+/**
  * A process's start time, in clock ticks since boot, from `/proc/<pid>/stat`.
- *
- * `comm` is unquoted and may contain spaces and brackets, so fields are
- * counted from after the LAST `)` rather than by splitting the whole line.
- * Start time is field 22, the first field after that bracket being field 3.
  *
  * Returns 0 where it cannot be read — a kernel without procfs, another
  * namespace — and the caller then falls back to the pid alone rather than
@@ -51,15 +70,9 @@ const QUEUE_PREFIX = "wfc-suite-queue-";
  * @param {number} pid
  * @returns {number}
  */
-function startTimeOf(pid) {
-	try {
-		const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-		const fields = stat.slice(stat.lastIndexOf(")") + 2).split(" ");
-		const ticks = Number(fields[19]);
-		return Number.isFinite(ticks) ? ticks : 0;
-	} catch {
-		return 0;
-	}
+function readStartTimeOf(pid) {
+	const ticks = Number(readStatFields(pid)?.[FIELD.start]);
+	return Number.isFinite(ticks) ? ticks : 0;
 }
 
 /**
@@ -76,7 +89,7 @@ function startTimeOf(pid) {
  */
 function isMarkerStale(
 	record,
-	{ alive = pidAlive, startTime = startTimeOf } = {},
+	{ alive = pidAlive, startTime = readStartTimeOf } = {},
 ) {
 	const reused =
 		typeof record.start === "number" &&
@@ -90,14 +103,16 @@ function isMarkerStale(
  * parse.
  *
  * A marker that will not parse, or that names no numeric `pid`/`at`, is
- * silently skipped rather than reported: such a marker is most likely one
- * caught mid-write by `queueJoin`'s bare `writeFileSync` (no
- * temp-and-rename), a fact about timing, not about a leak.
+ * silently skipped rather than reported (mantahostels#2034): such a marker is
+ * most likely one caught mid-write by `queueJoin`'s bare `writeFileSync` (no
+ * temp-and-rename).
  *
  * A directory that will not read returns `error` rather than an empty list,
  * so a caller can tell "nothing is queued" from "the read failed" — one `[]`
  * for both would read as an all-clear on a directory this process could not
- * see into at all.
+ * see into at all. A directory that does not exist is the empty queue
+ * (#2889): `queueJoin` makes it, so none has joined since the temp root was
+ * cleared.
  *
  * @param {string} dir
  * @param {typeof fs} [fsImpl]
@@ -108,6 +123,7 @@ function readMarkers(dir, fsImpl = fs) {
 	try {
 		names = fsImpl.readdirSync(dir);
 	} catch (error) {
+		if (caught(error).code === "ENOENT") return { markers: [], error: null };
 		return { markers: [], error };
 	}
 	/** @type {{ file: string, record: QueueRecord }[]} */
@@ -137,26 +153,30 @@ function readMarkers(dir, fsImpl = fs) {
  * since pids recycle (mantahostels#2034). Between them there is still no lease and no
  * expiry.
  *
- * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, part?: boolean }} [options]
- *   `role` marks a waiter session admission reads: the lander (#2416); `part`
- *   a part-suite (#2558)
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, weight?: import("./suite-handoff.js").CarriedWeight }} [options]
+ *   `role` marks a waiter session admission reads: the lander (#2416);
+ *   `weight` the admission weight the launch carries (#2931), a waiter with
+ *   none, such as `queue-run.js`'s, joining whole. One resolving below the
+ *   whole-slot bound joins `part`, a part-suite (#2558).
  */
 function queueJoin({
-	queueDir = os.tmpdir(),
+	queueDir = defaultQueueDir(),
 	queueFs = fs,
 	pid = process.pid,
 	clock = Date.now,
 	role,
-	part = false,
+	weight,
 } = {}) {
+	const part = weight ? weighCarried(weight).part : false;
 	const file = path.join(queueDir, `${QUEUE_PREFIX}${pid}.json`);
 	try {
+		queueFs.mkdirSync(queueDir, { recursive: true });
 		queueFs.writeFileSync(
 			file,
 			JSON.stringify({
 				pid,
 				at: clock(),
-				start: startTimeOf(pid),
+				start: readStartTimeOf(pid),
 				...(role ? { role } : {}),
 				...(part ? { part } : {}),
 			}),
@@ -169,20 +189,24 @@ function queueJoin({
 }
 
 /**
- * Merge `fields` into this waiter's marker, or with `admitted: false` drop
- * that stamp. Fails silent, like `queueJoin`.
+ * Merge `fields` into this waiter's marker, or with `admitted: false` or
+ * `memoryHeld: false` drop that stamp. Fails silent, like `queueJoin`.
  *
  * @param {string} file
- * @param {{ admitted?: boolean, spawned?: true }} fields
+ * @param {{ admitted?: boolean, spawned?: true, memoryHeld?: boolean }} fields
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
 	try {
 		const record = JSON.parse(String(queueFs.readFileSync(file, "utf8")));
-		const { admitted, ...rest } = { ...record, ...fields };
+		const { admitted, memoryHeld, ...rest } = { ...record, ...fields };
 		queueFs.writeFileSync(
 			file,
-			JSON.stringify(admitted ? { ...rest, admitted } : rest),
+			JSON.stringify({
+				...rest,
+				...(admitted ? { admitted } : {}),
+				...(memoryHeld ? { memoryHeld } : {}),
+			}),
 		);
 	} catch {
 		/* the ordering degrades to the gate alone */
@@ -222,7 +246,7 @@ function joinedBefore(a, b) {
 function queueAdmit(
 	file,
 	{
-		queueDir = os.tmpdir(),
+		queueDir = defaultQueueDir(),
 		queueFs = fs,
 		pid = process.pid,
 		alive = pidAlive,
@@ -257,6 +281,22 @@ function queueSpawned(file, options = {}) {
 }
 
 /**
+ * The stamps a queued waiter's `waitForGate` writes to its marker, spread
+ * into its options as one, so no queued caller wires one without the other:
+ * `admit` (`queueAdmit`), and `onMemoryHeld`, the `memoryHeld` stamp (#3058).
+ *
+ * @param {string} file
+ * @param {Parameters<typeof queueAdmit>[1]} [options]
+ * @returns {{ admit: () => Admission, onMemoryHeld: (memoryHeld: boolean) => void }}
+ */
+function queueStamps(file, options = {}) {
+	return {
+		admit: () => queueAdmit(file, options),
+		onMemoryHeld: (memoryHeld) => stampMarker(file, { memoryHeld }, options),
+	};
+}
+
+/**
  * The pids of the live markers `role` names, waiting or running. Sweeps
  * nothing: a stale marker is `queueTurn`'s to remove.
  *
@@ -264,14 +304,55 @@ function queueSpawned(file, options = {}) {
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
  * @returns {number[]}
  */
-function liveRolePids(
+function readLiveRolePids(
 	role,
-	{ queueDir = os.tmpdir(), queueFs = fs, alive = pidAlive } = {},
+	{ queueDir = defaultQueueDir(), queueFs = fs, alive = pidAlive } = {},
 ) {
 	return readMarkers(queueDir, queueFs)
 		.markers.map((m) => m.record)
 		.filter((r) => r.role === role && !isMarkerStale(r, { alive }))
 		.map((r) => r.pid);
+}
+
+/* The environment variable a seat hands its driver: the seat's marker path
+ * (#2918). */
+const SEAT_ENV = "WFC_SUITE_SEAT";
+/**
+ * The part-suite seat this process runs inside (#2918): the marker `SEAT_ENV`
+ * names, where it is a live part marker, spawned, whose pid is an ancestor of
+ * `pid`. Null otherwise, and the run then queues as any other.
+ *
+ * THE ANCESTRY IS THE CHECK, not the variable: an environment leaks into any
+ * process its holder starts, so a variable alone would let a run outside the
+ * seat's process tree skip the queue.
+ *
+ * Residual: the seat is priced as one part-suite, but nothing counts the runs
+ * inside it, so a driver running its mutants in parallel passes the count cap
+ * with only the memory rung to hold it.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, queueFs?: typeof fs, pid?: number, alive?: (pid: number) => boolean, startTime?: (pid: number) => number, parentOf?: (pid: number) => number }} [options]
+ * @returns {string | null}
+ */
+function heldSeat({
+	env = process.env,
+	queueFs = fs,
+	pid = process.pid,
+	alive = pidAlive,
+	startTime = readStartTimeOf,
+	parentOf = readParentOf,
+} = {}) {
+	const file = env[SEAT_ENV];
+	if (!file) return null;
+	/** @type {QueueRecord} */
+	let record;
+	try {
+		record = JSON.parse(String(queueFs.readFileSync(file, "utf8")));
+	} catch {
+		return null;
+	}
+	if (record?.part !== true || record.spawned !== true) return null;
+	if (isMarkerStale(record, { alive, startTime })) return null;
+	return ancestorsOf(pid, { parentOf }).includes(record.pid) ? file : null;
 }
 
 /** @param {string} file */
@@ -287,32 +368,44 @@ function queueLeave(file, { queueFs = fs } = {}) {
 /**
  * Whether this waiter is among the `slots` oldest still alive, and so may run.
  *
- * `slots` IS SUITE_MAX, NOT 1: the guard's cap (#159). A running run holds
- * its marker, so it keeps one of the slots until it finishes. ONE UNSPAWNED
- * LAUNCH AT A TIME (#601): the gate counts `ps`, so waiters admitted on one
- * tick before any of them is visible would each read the same free slots and
- * overshoot the cap. No waiter's turn comes while another's marker is
+ * `slots` IS WHOLE_SUITE_MAX: one whole suite at a time (#2680). A running
+ * queued run holds its marker, so it keeps the slot until it finishes. An
+ * unqueued or stood-down run holds no marker: the gate holds it instead, the
+ * guard counting it off `ps` at the same cap, and `waitForGate` needs both.
+ * ONE UNSPAWNED LAUNCH AT A TIME (#601): the gate counts `ps`, so waiters
+ * admitted on one tick before any of them is visible would each read the same
+ * free slots and overshoot the cap. No waiter's turn comes while another's marker is
  * `admitted` and unspawned, and a whole suite's turn also waits on every
  * waiter ahead having spawned.
  *
- * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run naming
- * fewer test files than vitest has workers, which the guard never holds at its
- * count cap. IT BACKFILLS PAST WHOLE SUITES (#2578): its turn waits on the
- * part-suites ahead alone, so a whole suite the gate still holds never holds
+ * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run whose
+ * carried weight resolves below the whole-slot bound (#2931), which the guard
+ * never holds at its count cap. IT BACKFILLS PAST WHOLE SUITES (#2578): its turn waits on the
+ * part-suites ahead alone, so a whole suite running or waiting never holds
  * it. A whole suite is delayed only by part-suites ahead of it or already
  * admitted, each charged on the rung once spawned, and an admitted one holds
  * every turn through run-vitest.js's prep. Two waiters whose turns come true
  * on one poll are settled by `queueAdmit`'s re-read (#2622).
  *
+ * A PART-SUITE ALSO BACKFILLS PAST AN OLDER PART-SUITE THE MEMORY RUNG HOLDS
+ * (#3058): one stamped `memoryHeld` and younger than PART_PASS_AGE_MS. Its own
+ * rung is the gate's to judge, so a pass never admits a run the rung refuses;
+ * a part-suite held only on its turn is never passed.
+ *
+ * Residual: the stamp is a poll old, so a part-suite may pass one whose
+ * memory freed since; and a drop that will not write leaves the stamp, letting
+ * younger ones pass until the age bound.
+ *
  * FAILS OPEN, like every other part of this wait: a queue directory that cannot
  * be read yields `true` rather than blocking the suite forever.
  */
 function queueTurn({
-	queueDir = os.tmpdir(),
+	queueDir = defaultQueueDir(),
 	queueFs = fs,
 	pid = process.pid,
 	alive = pidAlive,
-	slots = SUITE_MAX,
+	slots = WHOLE_SUITE_MAX,
+	clock = Date.now,
 } = {}) {
 	const { markers, error } = readMarkers(queueDir, queueFs);
 	if (error) return true;
@@ -342,51 +435,31 @@ function queueTurn({
 		r.spawned === true;
 	if (live.some((r) => r.pid !== pid && r.admitted === true && !spawned(r)))
 		return false;
+	const isPassable = (/** @type {QueueRecord} */ r) =>
+		r.memoryHeld === true && clock() - r.at < PART_PASS_AGE_MS;
 	if (mine?.part === true)
-		return ahead.filter((r) => r.part === true).every(spawned);
+		return ahead
+			.filter((r) => r.part === true)
+			.every((r) => spawned(r) || isPassable(r));
 	return (
 		ahead.filter((r) => r.part !== true).length < slots && ahead.every(spawned)
 	);
 }
 
-/**
- * Whether run-vitest.js `words` make a part-suite, read by
- * lib/suite-bounded.sh, the guard's own reading (#2558). Reads a whole suite where bash
- * will not answer, the side that costs a wait, never a kill.
- *
- * @param {string[]} words
- * @param {ExecFn} [execFn]
- * @returns {boolean}
- */
-function isPartSuite(words, execFn = execFileSync) {
-	try {
-		execFn(
-			"bash",
-			[
-				"-c",
-				'source "$1"; shift; n=$(runner_test_file_count node run-vitest.js "$@") && ((n < SUITE_WORKERS))',
-				"_",
-				path.join(__dirname, "suite-bounded.sh"),
-				...words,
-			],
-			{ stdio: "ignore" },
-		);
-		return true;
-	} catch {
-		return false;
-	}
-}
+/* The age past which no part-suite passes an older one the memory rung holds
+ * (#3058), so passing never starves it: the p90 of queued part-suite waits,
+ * rounded up. Those waits ran under strict part FIFO, so they include the
+ * hold this pass removes, and p90 is a chosen rate, not a measured safe pass
+ * time: re-derive from the first window run under the pass (#3115). */
+const PART_PASS_AGE_MS = 8 * 60 * 1000;
 
 /* The signals a waiter drops its marker on, each with the shell's exit code
- * for it, 128 + its number, so a killed waiter still reports as killed
- * (mantahostels#2034). */
+ * for it, 128 + its number (mantahostels#2034). */
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
 
 /* Both guesses, set when the queue was built (mantahostels#2024) and never
- * measured: a 10 s poll asks the guard a few times a minute, and past the
- * 40-minute ceiling a wait the count cap still holds runs anyway, a refusal
- * then having spent the wait and delivered nothing. One the memory rung still
- * holds is refused (#2421). */
+ * measured: a 10 s poll asks the guard a few times a minute, and the wait is
+ * bounded at 40 minutes. */
 const QUEUE_POLL_MS = 10_000;
 const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
 
@@ -395,69 +468,65 @@ const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
  * its count cap or its memory rung (mantahostels#2024, #155, #2305). Null where
  * it would not.
  *
- * `words` is the launch's own run-vitest.js argv, which the guard prices by the
- * workers its named test files can occupy (#2558). None asks about a whole suite.
+ * `words` is the launch's own run-vitest.js argv, and `weight` the admission
+ * weight its launch record carries (#2931), which the guard prices in place of
+ * the files the words name. Neither asks about a whole suite.
  *
- * @param {string} [scriptsDir]
- * @param {ExecFn} [execFn]
+ * IT ASKS THE GUARD'S OWN CORE, NEVER `ps`: a caller that matches processes
+ * itself drifts from the gate (mantahostels#2024).
+ *
+ * FAILS OPEN, so an unreadable gate never strands the suite: a launch that
+ * cannot be judged proceeds (mantahostels#2024).
  * @param {string[]} [words]
+ * @param {(command: string, weight: import("./suite-handoff.js").CarriedWeight | null) => GateDenial | null} [read]
+ *   the gate's reading of a command
+ * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
  * @returns {GateDenial | null}
- *
- * IT ASKS THE GUARD, NEVER `ps`: a caller that matches processes itself
- * drifts from the gate (mantahostels#2024).
- *
- * FAILS OPEN. A guard that will not run must not strand the suite forever: a
- * launch that cannot be judged proceeds. A deny naming no memory limb reads as
- * the count cap's, whose timeout runs anyway (#2421).
  */
 function gateDenies(
-	scriptsDir = path.join(__dirname, ".."),
-	execFn = execFileSync,
 	words = [],
+	read = (command, carried) =>
+		require("./suite-concurrency-host.js").readGate(
+			command,
+			undefined,
+			carried,
+		),
+	weight = null,
 ) {
 	const command = ["npm run test", ...(words.length > 0 ? ["--"] : [])]
 		.concat(words.map(shellWord))
 		.join(" ");
 	try {
-		const out = execFn(
-			"bash",
-			[path.join(scriptsDir, "guard-suite-concurrency.sh")],
-			{
-				input: JSON.stringify({
-					// A session id of its own, so polling neither consumes nor
-					// depends on the founder's session rule-handout latch.
-					session_id: "run-vitest-queue",
-					tool_name: "Bash",
-					tool_input: { command },
-				}),
-				encoding: "utf8",
-				// Cleared, not inherited: the escape read from an exporting shell
-				// would stand the gate down and make every poll answer "open".
-				env: {
-					...process.env,
-					WFC_SUITE_CONCURRENT: "",
-					WFC_SUITE_GATE_LIMB: "1",
-				},
-			},
-		);
-		const text = String(out ?? "");
-		if (!/"permissionDecision"\s*:\s*"deny"/.test(text)) return null;
-		let mark;
+		return read(command, weight);
+	} catch (err) {
 		try {
-			mark = JSON.parse(text).suiteGate;
+			require("./arbiter-core.js").logError(
+				"suite-queue.js",
+				err,
+				"gate unreadable — the run proceeds",
+			);
 		} catch {
-			mark = null;
+			/* A log that cannot be written must not strand the suite. */
 		}
-		if (mark?.limb !== "memory") return { limb: "count" };
-		return {
-			limb: "memory",
-			...(typeof mark.mb === "number" ? { mb: mark.mb } : {}),
-			...(typeof mark.rungMb === "number" ? { rungMb: mark.rungMb } : {}),
-		};
-	} catch {
 		return null;
 	}
 }
+
+/**
+ * What held a wait the gate's memory rung did not: the count cap where the
+ * gate denied, else the queue's turn.
+ *
+ * @param {GateDenial | null} denial
+ * @returns {Exclude<HeldLimb, "memory">}
+ */
+function heldLimb(denial) {
+	return denial ? "count" : "turn";
+}
+
+const HELD_LINE = {
+	count: "gate still denies on its count cap",
+	turn: "turn still closed",
+};
 
 /**
  * The line a wait the memory rung still holds at its timeout ends on (#2421):
@@ -479,15 +548,16 @@ function memoryRefusal(label, secs, { mb, rungMb }) {
  * `leave` answers a base the run's selection has emptied against (#1158), then
  * return `run`, or `left` for the leave.
  *
- * On timeout the LAST poll's limb decides (#2421). The count cap's runs the
- * suite ANYWAY, loudly: refusing after a long wait spends the wait and delivers
- * nothing, which is worse than one suite past a cap no measurement set. The
- * memory rung's returns `refused`, naming the reading and the reap: a suite
- * launched short of its rung risks an earlyoom freeze (docs/environment.md §6).
- * `refuseAtCeiling` refuses on the count cap too, for a waiter with a retry of
- * its own (the lander, #2542). Its exit reason stays `timeout`, which
- * queue-exit-log.js records as ran anyway, so a waiter setting this must not
- * log there.
+ * On timeout the LAST poll decides. A whole suite still held — on the count
+ * cap, the memory rung or a closed turn — returns `refused`, naming the bound
+ * (#2714). A `part` suite takes no whole-suite slot, so only its memory rung
+ * refuses it, a suite launched short of its rung risking an earlyoom freeze
+ * (docs/environment.md §6, #2421); held on the count cap or the turn it runs
+ * ANYWAY.
+ *
+ * Residual: a turn ahead that never spawns — a leaked marker, an open
+ * watcher — gets every whole-suite waiter behind it refused at the bound
+ * rather than run.
  *
  * `label` opens each line it prints: the waiter's own name, `--queue` or
  * `queue-run.js` (#1776).
@@ -496,41 +566,51 @@ function memoryRefusal(label, secs, { mb, rungMb }) {
  * gate and turn opened or the ceiling came. Both are then read again before
  * anything is admitted (#2622); a hold that refuses returns `refused`. `admit` stamps the launch (`queueAdmit`), and a yield goes back
  * to waiting: at once where an open turn yielded `ahead`, else after a poll.
+ * `admit` is REQUIRED, and refused at entry when missing, so no launch goes
+ * unstamped (#2742); a caller with no queue passes its stub on purpose.
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: () => GateDenial | null, gateExec?: ExecFn, gateWords?: string[], turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit?: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, refuseAtCeiling?: boolean, onExit?: (reason: WaitExitReason, waitMs: number) => void, clock?: () => number }} [options]
+ * `onMemoryHeld` hears whether the memory rung holds the wait, each time that
+ * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).
+ *
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: () => GateDenial | null, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: { limb: HeldLimb }) => void, clock?: () => number }} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
 	pollMs = QUEUE_POLL_MS,
 	timeoutMs = QUEUE_TIMEOUT_MS,
-	// gateDenies' own default locates guard-suite-concurrency.sh beside the
-	// core's scripts (#1) — never a directory threaded through from the caller's host tree.
-	gateExec = execFileSync,
+	gateRead,
 	gateWords = [],
-	gate = () => gateDenies(undefined, gateExec, gateWords),
+	gateWeight = null,
+	gate = () => gateDenies(gateWords, gateRead, gateWeight),
 	turn = () => true,
 	leave = () => null,
 	hold,
-	admit = () => "admitted",
+	admit,
 	sleepFn = (/** @type {number} */ ms) =>
 		new Promise((resolve) => setTimeout(resolve, ms)),
 	out = process.stderr,
 	label = "--queue",
-	refuseAtCeiling = false,
+	part = false,
+	onMemoryHeld = () => {
+		/* no marker to stamp */
+	},
 	onExit = () => {
 		/* no caller listening */
 	},
 	clock = Date.now,
-} = {}) {
+}) {
+	if (typeof admit !== "function")
+		throw new TypeError("waitForGate: `admit` is required (#2742)");
 	const started = clock();
 	const secs = () => Math.round((clock() - started) / 1000);
 	let announced = false;
 	/* Whether `hold` has run since the last sleep: a reading taken after it
 	 * is still fresh. */
 	let held = false;
-	/** @param {WaitExitReason} reason @param {WaitOutcome} outcome */
-	const exit = (reason, outcome) => {
-		onExit(reason, clock() - started);
+	let memoryHeld = false;
+	/** @param {WaitExitReason} reason @param {WaitOutcome} outcome @param {HeldLimb} [limb] */
+	const exit = (reason, outcome, limb) => {
+		onExit(reason, clock() - started, ...(limb ? [{ limb }] : []));
 		return Promise.resolve(outcome);
 	};
 	/** @returns {Promise<WaitOutcome>} */
@@ -556,25 +636,43 @@ function waitForGate({
 		return admission === "ahead" && atOnce ? step() : wait();
 	};
 	/** @param {GateDenial | null} denial @returns {Promise<WaitOutcome>} */
-	const atCeiling = (denial) => {
+	const refuse = (denial) => {
 		if (denial?.limb === "memory") {
 			out.write(memoryRefusal(label, secs(), denial));
-			return exit("refused", "refused");
+			return exit("refused", "refused", "memory");
 		}
-		if (refuseAtCeiling) {
-			out.write(
-				`${label}: gate still denies on its count cap after ${secs()}s — refused, not run (#2542).\n`,
-			);
-			return exit("timeout", "refused");
-		}
-		/* Not at once: a ceiling ignores the turn, so an immediate re-read
+		const limb = heldLimb(denial);
+		out.write(
+			`${label}: ${HELD_LINE[limb]} after ${secs()}s, the queue's ${Math.round(timeoutMs / 60_000)}-minute wait bound — refused, not run: one whole suite runs at a time (#2714).\n`,
+		);
+		return exit("refused", "refused", limb);
+	};
+	/** @param {GateDenial | null} denial @returns {Promise<WaitOutcome>} */
+	const runAnyway = (denial) =>
+		/* Not at once: the bound ignores the turn, so an immediate re-read
 		 * would yield again on the same stamp. */
-		return admitOrYield(() => {
+		admitOrYield(() => {
 			out.write(
 				`${label}: gate still closed after ${secs()}s — running anyway\n`,
 			);
-			return exit("timeout", "run");
+			return exit("timeout", "run", heldLimb(denial));
 		}, false);
+	/**
+	 * @param {GateDenial | null} denial
+	 * @param {boolean} open
+	 * @returns {Promise<WaitOutcome>}
+	 */
+	const proceed = (denial, open) => {
+		if (hold && !held) {
+			held = true;
+			return hold().then((go) => (go ? step() : exit("refused", "refused")));
+		}
+		if (!open)
+			return denial?.limb === "memory" ? refuse(denial) : runAnyway(denial);
+		return admitOrYield(() => {
+			if (announced) out.write(`${label}: gate opened after ${secs()}s\n`);
+			return exit("opened", "run");
+		}, true);
 	};
 	/** @returns {Promise<WaitOutcome>} */
 	const step = () => {
@@ -582,20 +680,14 @@ function waitForGate({
 		 * the queue answers "is it my turn" — and a waiter that checks only the
 		 * gate joins a stampede the moment the machine frees up. */
 		const denial = gate();
-		const open = !denial && turn();
-		if (open || clock() - started >= timeoutMs) {
-			if (hold && !held) {
-				held = true;
-				return hold().then((go) =>
-					go ? step() : exit(open ? "opened" : "timeout", "refused"),
-				);
-			}
-			if (!open) return atCeiling(denial);
-			return admitOrYield(() => {
-				if (announced) out.write(`${label}: gate opened after ${secs()}s\n`);
-				return exit("opened", "run");
-			}, true);
+		if ((denial?.limb === "memory") !== memoryHeld) {
+			memoryHeld = !memoryHeld;
+			onMemoryHeld(memoryHeld);
 		}
+		const open = !denial && turn();
+		if (!open && clock() - started >= timeoutMs)
+			return part ? proceed(denial, false) : refuse(denial);
+		if (open) return proceed(denial, true);
 		const emptied = leave();
 		if (emptied !== null) {
 			out.write(
@@ -609,17 +701,21 @@ function waitForGate({
 }
 
 module.exports = {
+	PART_PASS_AGE_MS,
 	QUEUE_SIGNALS,
-	startTimeOf,
+	SEAT_ENV,
+	heldSeat,
+	defaultQueueDir,
+	readStartTimeOf,
 	isMarkerStale,
 	readMarkers,
 	queueJoin,
 	queueAdmit,
 	queueSpawned,
+	queueStamps,
 	queueLeave,
 	queueTurn,
-	liveRolePids,
+	readLiveRolePids,
 	gateDenies,
-	isPartSuite,
 	waitForGate,
 };

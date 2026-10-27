@@ -111,7 +111,7 @@ function optionSpans(lines) {
  * The block's `Relation:` line, or '' where it has none.
  * @param {string[]} lines
  */
-function relationLine(lines) {
+function parseRelationLine(lines) {
 	return lines.find((l) => RELATION_LINE.test(l)) ?? "";
 }
 
@@ -121,7 +121,7 @@ function relationLine(lines) {
  * @param {string[]} lines
  */
 function isRivalSet(lines) {
-	const relation = relationLine(lines);
+	const relation = parseRelationLine(lines);
 	return RIVALS.test(relation) && !COMBINABLE.test(relation);
 }
 
@@ -132,7 +132,7 @@ function isRivalSet(lines) {
  * @param {string} span
  * @returns {string}
  */
-function optionBody(span) {
+function parseOptionBody(span) {
 	const lines = span.split("\n");
 	const priced = lines.findIndex((l) => CONFIDENCE_ANY.test(l));
 	const end = priced >= 0 ? priced + 1 : lines.indexOf("", 1);
@@ -151,7 +151,7 @@ module.exports = {
 	COMBINABLE,
 	splitQuestions,
 	optionSpans,
-	optionBody,
-	relationLine,
+	parseOptionBody,
+	parseRelationLine,
 	isRivalSet,
 };

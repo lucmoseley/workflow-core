@@ -5,27 +5,39 @@
  */
 
 const { execFileSync } = require("node:child_process");
+const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { EDGES_FILE, RETEST_FLAG } = require("./test-pass-marker.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
-const { render: renderReadEdges } = require("../generate-test-read-edges.js");
+const { render: renderReadEdges } = require("./read-edges-render.js");
 const { testsReading } = require("./test-read-edges.js");
 const { hostRoot } = require("./host-root.js");
-const { commandOrDefault } = require("./workflow-core-config.js");
-const { GIT_TIMEOUT_MS, gitRead, untrackedFiles } = require("./dirty-tree.js");
+const { readCommandOrDefault } = require("./workflow-core-config.js");
+const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { pushedRef } = require("./landing-refs.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const { pushGateState } = require("./test-gate.js");
 const { FULL_SHA, commitSha } = require("./commit-sha.js");
+const { vitestList } = require("./vitest-collected.js");
 
 const EDGES_SCRIPT = "scripts/generate-test-read-edges.js";
+const REGENERATE_EDGES = "Regenerate it: npm run gen:test-read-edges";
+
+/**
+ * A selection that could not be computed: its message is the cause, which
+ * `run-vitest.js` refuses the run on rather than widening it (#2698).
+ */
+class SelectionFailed extends Error {
+	/** @override */
+	name = "SelectionFailed";
+}
 
 /** The read graph the tree at `root` renders now (#998); throws where it will not. */
 const liveEdges = (/** @type {string} */ root) => renderReadEdges(root).edges;
 
 /** The committed read graph at `root`; throws where it is missing or not JSON. */
-const committedEdges = (/** @type {string} */ root) =>
+const readCommittedEdges = (/** @type {string} */ root) =>
 	JSON.parse(fs.readFileSync(path.join(root, EDGES_FILE), "utf8")).edges ?? {};
 
 /*
@@ -38,7 +50,7 @@ const committedEdges = (/** @type {string} */ root) =>
  * is taken with `vitest list --changed --filesOnly`, unioned with the manifest's
  * runtime readers of the same diff, and the result handed to vitest as an
  * explicit file list. That list lands in the certificate's `fileFilters`, so the
- * run is still a NARROWING and still records no full green (mantahostels#1230).
+ * run is still a NARROWING and still records no full certificate (mantahostels#1230).
  */
 
 /*
@@ -172,7 +184,7 @@ function relatedConfigSource(root, file, paths, narrowed = false) {
  * IT SPREADS THE REAL CONFIG. A `--config` override REPLACES the config rather
  * than merging into it, so without the spread the probe would enumerate against
  * the wrong `include`/`exclude` and resolve aliases and return the wrong file
- * list — silently, since that is still a plausible list of test files.
+ * list, silently.
  *
  * @param {string} root
  * @param {string} file where the config will be written
@@ -227,12 +239,16 @@ function changedPackageJsonKeys(root, ref, execFn, fsImpl) {
 		!!value && typeof value === "object" && !Array.isArray(value);
 	try {
 		const oldText = String(
-			execFn("git", ["show", `${ref ?? "HEAD"}:${PACKAGE_JSON}`], {
-				cwd: root,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				timeout: GIT_TIMEOUT_MS,
-			}) ?? "",
+			execFn(
+				gitBinary(),
+				["show", `${ref ?? "HEAD"}:${PACKAGE_JSON}`],
+				gitSpawnOptions({
+					cwd: root,
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "ignore"],
+					timeout: GIT_TIMEOUT_MS,
+				}),
+			) ?? "",
 		);
 		const newText = String(
 			fsImpl.readFileSync(path.join(root, PACKAGE_JSON), "utf8"),
@@ -306,12 +322,6 @@ function packageJsonWarning(changed, narrowed = false) {
 	);
 }
 
-/* A ceiling on the vitest listing the expansion shells out to, so a wedged
- * vitest fails the expansion open rather than hanging the suite launch. Its git
- * counterpart is `GIT_TIMEOUT_MS`, reused for every git this file runs. Neither
- * is measured against a slow machine. */
-const LIST_TIMEOUT_MS = 120_000;
-
 /* How many added readers the banner names before it counts the rest. An
  * unmeasured first guess. */
 const ADDED_SHOWN_MAX = 12;
@@ -371,9 +381,6 @@ function changedFlag(argv) {
  * apart (mantahostels#2303). `-t`, an added path or a project filter
  * each narrow the run past the diff, so a run carrying one is not the command
  * this repo permits at the push and does not belong in its denominator either.
- * The render is the SECOND limb and lives only on the gate's side: a read
- * graph that will not render makes a `test:changed` run inadmissible without
- * making it some other command.
  *
  * @param {string[]} argv
  * @returns {boolean}
@@ -386,7 +393,7 @@ const isChangedOnlyArgv = (argv) => {
 const CHANGED_FLAG = "--changed";
 
 /* An adoption run (#1213): `npm run push:check` hands it back over the
- * uncovered paths of commits whose session has ended. */
+ * unattested paths of commits whose session has ended. */
 const ADOPT_FLAG = "--adopt";
 
 /**
@@ -461,7 +468,7 @@ const isRetestOnlyArgv = (argv) => {
  * separately, on its own base. For the certificate it is one-sided (#189):
  * this list is the marker's `changedPaths`, and `attestationOf` asks every file of
  * the commit's range, added files included, to lie in some run's list — so a
- * commit adding an untracked test stays uncovered until a run after it.
+ * commit adding an untracked test stays unattested until a run after it.
  *
  * DELETIONS AND RENAMES ARE KEPT, which is what `--no-renames` buys. A test
  * reading a document that has just been deleted or moved is exactly the test
@@ -474,22 +481,23 @@ const isRetestOnlyArgv = (argv) => {
  * @param {ExecFn} execFn
  * @returns {string[]}
  */
-function changedPaths(root, ref, execFn) {
+function readChangedPaths(root, ref, execFn) {
 	const out = execFn(
-		"git",
+		gitBinary(),
 		["diff", "--name-only", "--no-renames", ref ?? "HEAD"],
-		{
+		gitSpawnOptions({
 			cwd: root,
 			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
+			/* stderr piped, so a failure's error carries git's own text. */
+			stdio: ["ignore", "pipe", "pipe"],
 			timeout: GIT_TIMEOUT_MS,
-		},
+		}),
 	);
-	return nonEmptyLines(String(out ?? ""));
+	return parseNonEmptyLines(String(out ?? ""));
 }
 
 /** @param {string} out */
-const nonEmptyLines = (out) =>
+const parseNonEmptyLines = (out) =>
 	out
 		.split("\n")
 		.map((line) => line.trim())
@@ -504,13 +512,13 @@ const nonEmptyLines = (out) =>
  * @param {ExecFn} execFn
  * @returns {string[]|null}
  */
-function diffNames(root, from, to, execFn) {
+function readDiffNames(root, from, to, execFn) {
 	const out = gitRead(
 		["diff", "--name-only", "--no-renames", from, to],
 		root,
 		execFn,
 	);
-	return out === null ? null : nonEmptyLines(out);
+	return out === null ? null : parseNonEmptyLines(out);
 }
 
 /**
@@ -538,34 +546,8 @@ function vitestSelection({ bin, root, ref, execFn, config = null }) {
 }
 
 /**
- * The test files `vitest list <args>` names, repo-relative.
- *
- * @param {string} bin
- * @param {string} root
- * @param {ExecFn} execFn
- * @param {string[]} args
- * @returns {string[]}
- */
-function vitestList(bin, root, execFn, args) {
-	const out = execFn(bin, ["list", ...args], {
-		cwd: root,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "ignore"],
-		maxBuffer: CHILD_MAX_BUFFER,
-		timeout: LIST_TIMEOUT_MS,
-	});
-	return String(out ?? "")
-		.split("\n")
-		.map((line) => line.trim())
-		.filter((line) => JS_TEST_FILE.test(line))
-		.map((line) => path.relative(root, path.resolve(root, line)));
-}
-
-/**
  * Vitest's import-graph selection for a path set, through a scratch config
  * the caller removes.
- *
- * `config` is where the scratch config is written.
  *
  * @param {{ bin: string, root: string, paths: string[], execFn: ExecFn,
  *   config: string, fsImpl: ExpandFs, narrowed?: boolean }} probe
@@ -581,16 +563,18 @@ function vitestRelated({ bin, root, paths, execFn, config, fsImpl, narrowed }) {
 
 /**
  * What the run will actually execute, and the line that says so — or null where
- * argv carries neither `--changed` nor `--adopt`, or the expansion could not be
- * computed.
+ * argv carries none of `--changed`, `--adopt` or `--retest`, or a `--changed`
+ * run's read-edge manifest cannot be read. Throws `SelectionFailed` where the
+ * diff or vitest's own listing of it fails (#2698), or an adoption's manifest
+ * cannot be read (#2715).
  *
  * AN ADOPTION SELECTS FROM ITS NAMED PATHS (#1213), never a diff: they are
- * the run's `changedPaths`, so its green covers those paths and no other, and
+ * the run's `changedPaths`, so its certificate attests those paths and no other, and
  * it has no `base`. `package.json` among them is never narrowed, having no
  * ref to compare against.
  *
  * A RE-TEST RUNS ITS NAMED TESTS AND NOTHING ELSE (#1860), with no diff at
- * all: its green vouches for those tests at whatever commit their own reads
+ * all: its certificate attests those tests at whatever commit their own reads
  * are unchanged, never for a path, so its `changedPaths` is empty.
  *
  * `ownWork` (#1216) replaces a `--changed <ref>` diff with the resolver's
@@ -618,7 +602,7 @@ function expandChanged(
 		execFn = execFileSync,
 		fs: fsImpl = fs,
 		probeConfig = probeConfigFile(),
-		loadEdges = () => committedEdges(root),
+		loadEdges = () => readCommittedEdges(root),
 		renderEdges = () => liveEdges(root),
 		ownWork = null,
 		err = process.stderr,
@@ -627,9 +611,9 @@ function expandChanged(
 	const source = selectionSource(argv);
 	if (!source) return null;
 	const { from, consumed, flag, adopt, retest } = source;
-	const diffOf = () => diffOfSource(source, { ownWork, root, execFn });
+	const readDiff = () => readDiffOfSource(source, { ownWork, root, execFn });
 
-	const edges = readEdges(loadEdges, diffOf, err);
+	const edges = readSourceEdges(source, loadEdges, readDiff, err);
 	if (edges === null) return null;
 
 	/* Whether the package.json bail-out was narrowed for this run (mantahostels#2160), and
@@ -639,7 +623,7 @@ function expandChanged(
 	const sel = { changed: [], own: [], narrowed: false, override: null };
 	try {
 		fillSelection(sel, {
-			diffOf,
+			diffOf: readDiff,
 			adopt,
 			retest,
 			ref: flag?.ref ?? null,
@@ -647,8 +631,10 @@ function expandChanged(
 			probe: { bin, root, execFn, probeConfig, fsImpl },
 		});
 	} catch (error) {
-		reportUnexpanded(sel.changed, Boolean(adopt), error, err);
-		return null;
+		throw new SelectionFailed(
+			`${adopt ? ADOPT_FLAG : CHANGED_FLAG} could not be expanded: ${(error instanceof Error ? error.message : String(error)).trim()}`,
+			{ cause: error },
+		);
 	} finally {
 		removeScratch(sel.override, fsImpl);
 	}
@@ -676,12 +662,12 @@ function expandChanged(
 
 	const lines = [
 		...(packageJsonLine ? [packageJsonLine.trimEnd()] : []),
-		...selectionLines({ files, own, added, from }, (t) =>
+		...buildSelectionLines({ files, own, added, from }, (t) =>
 			changedReadsOf(changed, graph, t),
 		),
 		/* An empty selection records a marker too (#189 §6): a narrowed run
 		 * with zero files, admissible on the same conditions as any other. */
-		admissibleLine({
+		buildAdmissibleLine({
 			from,
 			listed: consumed.paths,
 			rest,
@@ -689,6 +675,7 @@ function expandChanged(
 			changed,
 			files,
 			renderError,
+			pushGate: pushGateState({ root }),
 		}),
 	];
 
@@ -732,6 +719,31 @@ function expandChanged(
  */
 
 /**
+ * The committed read-edge manifest `source` selects with, or null where a
+ * `--changed` run's cannot be read. Vitest has no `--adopt` of its own, so an
+ * adoption's unreadable manifest cannot fall back to argv unchanged as
+ * `--changed` does: it throws `SelectionFailed` (#2715).
+ *
+ * @param {NonNullable<ReturnType<typeof selectionSource>>} source
+ * @param {() => Record<string, string[]>} loadEdges
+ * @param {() => string[]} diffOf
+ * @param {{ write: (s: string) => unknown }} err
+ * @returns {Record<string, string[]>|null}
+ */
+function readSourceEdges({ from }, loadEdges, diffOf, err) {
+	if (from === "retest") return {};
+	if (from === "diff") return readEdges(loadEdges, diffOf, err);
+	try {
+		return loadEdges();
+	} catch (error) {
+		throw new SelectionFailed(
+			`${ADOPT_FLAG} could not read ${EDGES_FILE} (${error}). ${REGENERATE_EDGES}`,
+			{ cause: error },
+		);
+	}
+}
+
+/**
  * The committed read-edge manifest, or null after saying why it could not be
  * read.
  *
@@ -745,7 +757,7 @@ function readEdges(loadEdges, diffOf, err) {
 		return loadEdges();
 	} catch (error) {
 		/* The diff is not computed yet on this path — the manifest read comes
-		 * first — so the package.json warning runs its own changedPaths call,
+		 * first — so the package.json warning runs its own readChangedPaths call,
 		 * un-narrowed as in reportUnexpanded (mantahostels#2151). A diff that
 		 * cannot be read either is silently no warning. */
 		try {
@@ -755,37 +767,10 @@ function readEdges(loadEdges, diffOf, err) {
 			/* no diff to warn about */
 		}
 		err.write(
-			`${EDGES_FILE} could not be read (${error}) — running --changed on the import graph alone, which misses every test that reads a document rather than importing it (mantahostels#2031). Regenerate it: npm run gen:test-read-edges\n`,
+			`${EDGES_FILE} could not be read (${error}) — running --changed on the import graph alone, which misses every test that reads a document rather than importing it (mantahostels#2031). ${REGENERATE_EDGES}\n`,
 		);
 		return null;
 	}
-}
-
-/**
- * `changed` is already known here even where the expansion is being
- * abandoned after it — bailing to a bare --changed must not also lose
- * the package.json warning that run is about to earn (mantahostels#2151).
- * Empty before `changedPaths` succeeds, and packageJsonWarning
- * returns null on that, same as no warning at all.
- *
- * ALWAYS THE UN-NARROWED WARNING, never `narrowed`: whatever a
- * successful probe would have done, the run that actually follows is
- * a bare `--changed` with vitest's default triggers intact, so the
- * full-cost claim is the true one here.
- *
- * @param {string[]} changed
- * @param {boolean} adopted
- * @param {unknown} error
- * @param {{ write: (s: string) => unknown }} err
- */
-function reportUnexpanded(changed, adopted, error, err) {
-	const warning = packageJsonWarning(changed);
-	if (warning) err.write(warning);
-	err.write(
-		adopted
-			? `--adopt could not be expanded (${error}) — vitest will refuse the flag, so re-run once the listing works\n`
-			: `--changed could not be expanded (${error}) — passing it to vitest unchanged, so the read graph is not consulted\n`,
-	);
 }
 
 /**
@@ -852,7 +837,9 @@ function fillOwnWorkSelection(
 	 * empty `related` selects nothing, so it is never asked. */
 	const related = [
 		...sel.changed,
-		...(ownWork.carriesUntracked ? [] : (untrackedFiles(root, execFn) ?? [])),
+		...(ownWork.carriesUntracked
+			? []
+			: (readUntrackedFiles(root, execFn) ?? [])),
 	];
 	sel.override = related.length > 0 ? probeConfig : null;
 	sel.own = sel.override
@@ -869,9 +856,6 @@ function fillOwnWorkSelection(
 }
 
 /**
- * Best effort: a leftover scratch file in the temp directory is cheaper than
- * a run that fails on its cleanup.
- *
  * @param {string|null} override
  * @param {ExpandFs} fsImpl
  */
@@ -880,7 +864,8 @@ function removeScratch(override, fsImpl) {
 	try {
 		fsImpl.unlinkSync(override);
 	} catch {
-		/* already gone, or a temp directory that will not unlink */
+		/* best effort: a leftover scratch file is cheaper than a run that
+		 * fails on its cleanup */
 	}
 }
 
@@ -888,7 +873,7 @@ function removeScratch(override, fsImpl) {
  * Readers come from the committed manifest AND the graph this tree renders
  * now (#998), so a neighbour's uncommitted edge selects its reader rather
  * than voiding the run. A render that throws leaves the manifest alone to
- * select on, and the run certifies nothing.
+ * select on, and the run's certificate attests nothing.
  *
  * @param {Record<string, string[]>} edges
  * @param {() => Record<string, string[]>} renderEdges
@@ -937,34 +922,84 @@ function changedReadsOf(changed, graph, test) {
  */
 function selectionSource(argv) {
 	const none = { flag: null, adopt: null, retest: null };
-	const flag = changedFlag(argv);
-	if (flag)
-		return {
-			...none,
-			from: "diff",
-			consumed: { ...flag, paths: [] },
-			flag,
-			onlyArgv: isChangedOnlyArgv,
-		};
-	const adopt = adoptFlag(argv);
-	if (adopt)
-		return {
-			...none,
-			from: "adopt",
-			consumed: adopt,
-			adopt,
-			onlyArgv: isAdoptOnlyArgv,
-		};
-	const retest = retestFlag(argv);
-	if (retest)
-		return {
-			...none,
-			from: "retest",
-			consumed: retest,
-			retest,
-			onlyArgv: isRetestOnlyArgv,
-		};
+	for (const { pick } of SELECTION_FLAGS) {
+		const picked = pick(argv);
+		if (picked) return { ...none, ...picked };
+	}
 	return null;
+}
+
+/**
+ * @typedef {{ from: SelectionFrom, consumed: { at: number, span: number, paths: string[] },
+ *   flag?: ReturnType<typeof changedFlag>, adopt?: ReturnType<typeof adoptFlag>,
+ *   retest?: ReturnType<typeof retestFlag>, onlyArgv: (argv: string[]) => boolean }} PickedSelection
+ */
+
+/**
+ * The selection flags in `selectionSource`'s precedence, each with what argv
+ * picks through it — the one list `selectionFlagClash` reads too.
+ *
+ * @type {{ word: string, pick: (argv: string[]) => PickedSelection|null }[]}
+ */
+const SELECTION_FLAGS = [
+	{
+		word: CHANGED_FLAG,
+		pick: (argv) => {
+			const flag = changedFlag(argv);
+			return (
+				flag && {
+					from: "diff",
+					consumed: { ...flag, paths: [] },
+					flag,
+					onlyArgv: isChangedOnlyArgv,
+				}
+			);
+		},
+	},
+	{
+		word: ADOPT_FLAG,
+		pick: (argv) => {
+			const adopt = adoptFlag(argv);
+			return (
+				adopt && {
+					from: "adopt",
+					consumed: adopt,
+					adopt,
+					onlyArgv: isAdoptOnlyArgv,
+				}
+			);
+		},
+	},
+	{
+		word: RETEST_FLAG,
+		pick: (argv) => {
+			const retest = retestFlag(argv);
+			return (
+				retest && {
+					from: "retest",
+					consumed: retest,
+					retest,
+					onlyArgv: isRetestOnlyArgv,
+				}
+			);
+		},
+	},
+];
+
+/**
+ * The selection flags argv carries where it carries more than one, in argv
+ * order — or null (#2764).
+ *
+ * @param {string[]} argv
+ * @returns {string[]|null}
+ */
+function selectionFlagClash(argv) {
+	const found = SELECTION_FLAGS.flatMap(({ word, pick }) => {
+		const picked = pick(argv);
+		return picked ? [{ word, at: picked.consumed.at }] : [];
+	});
+	if (found.length < 2) return null;
+	return found.sort((a, b) => a.at - b.at).map(({ word }) => word);
 }
 
 /**
@@ -972,10 +1007,10 @@ function selectionSource(argv) {
  * @param {{ ownWork: { paths: string[] }|null, root: string, execFn: ExecFn }} at
  * @returns {string[]}
  */
-function diffOfSource({ adopt, retest, flag }, { ownWork, root, execFn }) {
+function readDiffOfSource({ adopt, retest, flag }, { ownWork, root, execFn }) {
 	if (adopt) return [...new Set(adopt.paths)];
 	if (retest) return [];
-	return ownWork?.paths ?? changedPaths(root, flag?.ref ?? null, execFn);
+	return ownWork?.paths ?? readChangedPaths(root, flag?.ref ?? null, execFn);
 }
 
 /**
@@ -986,7 +1021,7 @@ function diffOfSource({ adopt, retest, flag }, { ownWork, root, execFn }) {
  * @param {(test: string) => string[]} why
  * @returns {string[]}
  */
-function selectionLines({ files, own, added, from }, why) {
+function buildSelectionLines({ files, own, added, from }, why) {
 	if (from === "retest")
 		return [
 			files.length > 0
@@ -1009,14 +1044,16 @@ function selectionLines({ files, own, added, from }, why) {
 }
 
 /**
- * The banner's verdict on whether this run meets the push gate.
+ * The banner's verdict on whether this run meets the push gate, or why no
+ * push has one to meet where `pushGate` is a skip (#2961); a broken config
+ * keeps the verdict, which `push:check` then reports.
  *
  * @param {{ from: SelectionFrom, listed: string[], rest: string[],
  *   isAdmissible: boolean, changed: string[], files: string[],
- *   renderError: unknown }} at
+ *   renderError: unknown, pushGate: ReturnType<typeof pushGateState> }} at
  * @returns {string}
  */
-function admissibleLine({
+function buildAdmissibleLine({
 	from,
 	listed,
 	rest,
@@ -1024,30 +1061,33 @@ function admissibleLine({
 	changed,
 	files,
 	renderError,
+	pushGate,
 }) {
+	if (pushGate.state === "skip")
+		return `NO PUSH GATE — ${pushGate.line} (#2961).`;
 	if (from === "adopt" && listed.length === 0)
-		return "NOT ADMISSIBLE — `--adopt` names no path, so this run covers nothing at the push (#1213).";
+		return "NOT ADMISSIBLE — `--adopt` names no path, so its certificate attests nothing at the push (#1213).";
 	if (from === "retest" && listed.some((t) => !JS_TEST_FILE.test(t)))
-		return "NOT ADMISSIBLE — `--retest` names a word that is not a test file, which this run drops, so it certifies nothing at the push; name test files alone (#1860).";
+		return "NOT ADMISSIBLE — `--retest` names a word that is not a test file, which this run drops, so its certificate attests nothing at the push; name test files alone (#1860).";
 	if (rest.length > 0) {
 		const { what, alone } = {
 			diff: { what: "diff", alone: "--changed" },
 			adopt: { what: "adopted paths", alone: "--adopt <paths>" },
 			retest: { what: "named tests", alone: "--retest <tests>" },
 		}[from];
-		return `NOT ADMISSIBLE — this run is narrowed past the ${what} by ${rest.join(" ")}, so it certifies nothing at the push; re-run with \`${alone}\` alone (mantahostels#2146).`;
+		return `NOT ADMISSIBLE — this run is narrowed past the ${what} by ${rest.join(" ")}, so its certificate attests nothing at the push; re-run with \`${alone}\` alone (mantahostels#2146).`;
 	}
 	if (isAdmissible && from === "adopt")
-		return `MEETS THE PUSH GATE FOR THE ${changed.length} ADOPTED PATH(S) — every reader of them was selected from ${EDGES_FILE} and from the read graph this tree renders now, so a green here covers those paths, and no other, at the push (#1213). It does not cover a test that reads an adopted document through an imported HELPER (mantahostels#2131).`;
+		return `MEETS THE PUSH GATE FOR THE ${changed.length} ADOPTED PATH(S) — every reader of them was selected from ${EDGES_FILE} and from the read graph this tree renders now, so its certificate attests those paths, and no other, at the push (#1213). It does not attest a test that reads an adopted document through an imported HELPER (mantahostels#2131).`;
 	if (isAdmissible && from === "retest")
-		return `MEETS THE PUSH GATE FOR THE ${files.length} NAMED TEST(S) — a green here vouches for each at any commit where nothing that test reads has changed; it covers no path a test it did not run reads (#1860).`;
+		return `MEETS THE PUSH GATE FOR THE ${files.length} NAMED TEST(S) — its certificate attests each at any commit where nothing that test reads has changed, and attests no path a test it did not run reads (#1860).`;
 	if (isAdmissible)
 		return [
-			`MEETS THE PUSH GATE — every reader of the diff was selected from ${EDGES_FILE} and from the read graph this tree renders now (#998), so a green here is the whole gate: no whole-suite run is owed (mantahostels#2207).`,
-			`  The marker is keyed to HEAD as this run ENDS and to what each test read: the commit you make from this tree is covered without a re-run wherever every file the push's range changes lies in this run's diff or a neighbour's green (ADR-0009) and each test reading it still holds — nothing it reads changed between the two trees (#1860). The push then says \`attested by tree\`, and \`${commandOrDefault("push_check")}\` says so before it, or names the tests to re-run.`,
-			"  It does not cover a test that reads a changed document through an imported HELPER — the manifest's extractor is lexical, so there is no edge to select on and this check cannot see one missing (mantahostels#2131).",
+			`MEETS THE PUSH GATE — every reader of the diff was selected from ${EDGES_FILE} and from the read graph this tree renders now (#998), so its certificate is the whole gate: no whole-suite run is owed (mantahostels#2207).`,
+			`  The certificate is keyed to HEAD as this run ENDS and to what each test read: it attests the commit you make from this tree without a re-run wherever every file the push's range changes lies in this run's diff or a neighbour's certificate (ADR-0009) and each test reading it still holds — nothing it reads changed between the two trees (#1860). The push then says \`attested by tree\`, and \`${readCommandOrDefault("push_check")}\` says so before it, or names the tests to re-run.`,
+			"  It does not attest a test that reads a changed document through an imported HELPER — the manifest's extractor is lexical, so there is no edge to select on and this check cannot see one missing (mantahostels#2131).",
 		].join("\n");
-	return `NOT ADMISSIBLE — the read graph could not be rendered from this tree (${renderError}), so readers were selected from ${EDGES_FILE} alone and this run certifies nothing; re-run once \`node ${EDGES_SCRIPT} --check\` renders (#998).`;
+	return `NOT ADMISSIBLE — the read graph could not be rendered from this tree (${renderError}), so readers were selected from ${EDGES_FILE} alone and its certificate attests nothing; re-run once \`node ${EDGES_SCRIPT} --check\` renders (#998).`;
 }
 
 /**
@@ -1059,25 +1099,33 @@ function admissibleLine({
  * @param {ExecFn} execFn
  * @returns {string}
  */
-function defaultChangedBase(root, execFn) {
+function readDefaultChangedBase(root, execFn) {
 	const ref = pushedRef({ root });
 	try {
-		execFn("git", ["rev-parse", "--verify", "--quiet", ref], {
-			cwd: root,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			timeout: GIT_TIMEOUT_MS,
-		});
+		execFn(
+			gitBinary(),
+			["rev-parse", "--verify", "--quiet", ref],
+			gitSpawnOptions({
+				cwd: root,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+				timeout: GIT_TIMEOUT_MS,
+			}),
+		);
 	} catch {
 		return "HEAD";
 	}
 	try {
-		const out = execFn("git", ["merge-base", "HEAD", ref], {
-			cwd: root,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-			timeout: GIT_TIMEOUT_MS,
-		});
+		const out = execFn(
+			gitBinary(),
+			["merge-base", "HEAD", ref],
+			gitSpawnOptions({
+				cwd: root,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+				timeout: GIT_TIMEOUT_MS,
+			}),
+		);
 		const sha = String(out ?? "").trim();
 		return sha || "HEAD";
 	} catch {
@@ -1090,14 +1138,12 @@ function defaultChangedBase(root, execFn) {
  * where it narrows fine. Checked BEFORE vitest's own listing runs, so an
  * escalation never pays for a probe it is about to discard.
  *
- * THE THREE REASONS MATCH `FULL_REASONS` IN lib/test-pass-marker.js (mantahostels#3207):
- * `"stale-manifest"` (`docs/test-read-edges.json` is unreadable or the read
- * graph could not be rendered from this tree, #998), `"dependency-root"` (the
- * diff touches `package.json` outside the narrowing allow-list
- * mantahostels#2160 exempts), and
- * `"expansion-failed"` (the diff against `ref` could not even be read —
- * checked here — or run-vitest.js's `runDefault`'s later call into `expandChanged` finds
- * that `git diff` succeeded but its own `vitest list` probe threw, mantahostels#3251).
+ * Its two answers are `FULL_REASONS` in lib/test-pass-marker.js (mantahostels#3207):
+ * `"stale-manifest"` where `docs/test-read-edges.json` is unreadable or the
+ * read graph could not be rendered from this tree (#998); `"dependency-root"`
+ * where the diff touches `package.json` outside the narrowing allow-list
+ * mantahostels#2160 exempts. A diff that cannot be read throws, and the run
+ * is refused (#2698).
  *
  * `changed` is the own-work path set (#1216) where the resolver gave one, read
  * in place of the diff.
@@ -1106,14 +1152,14 @@ function defaultChangedBase(root, execFn) {
  * @param {string} ref
  * @param {{ execFn?: ExecFn, loadEdges?: () => unknown,
  *   renderEdges?: () => unknown, changed?: string[] }} [options]
- * @returns {"stale-manifest"|"dependency-root"|"expansion-failed"|null}
+ * @returns {"stale-manifest"|"dependency-root"|null}
  */
-function defaultEscalationReason(
+function findDefaultEscalationReason(
 	root,
 	ref,
 	{
 		execFn = execFileSync,
-		loadEdges = () => committedEdges(root),
+		loadEdges = () => readCommittedEdges(root),
 		renderEdges = () => liveEdges(root),
 		changed: given,
 	} = {},
@@ -1124,13 +1170,7 @@ function defaultEscalationReason(
 	} catch {
 		return "stale-manifest";
 	}
-	/** @type {string[]} */
-	let changed;
-	try {
-		changed = given ?? changedPaths(root, ref, execFn);
-	} catch {
-		return "expansion-failed";
-	}
+	const changed = given ?? readChangedPaths(root, ref, execFn);
 	if (
 		changed.includes(PACKAGE_JSON) &&
 		!packageJsonNarrowable(changed, { root, ref, execFn, fs })
@@ -1143,15 +1183,17 @@ module.exports = {
 	ADOPT_FLAG,
 	CHANGED_FLAG,
 	PACKAGE_JSON,
+	SelectionFailed,
 	adoptFlag,
 	retestFlag,
 	isRetestOnlyArgv,
+	selectionFlagClash,
 	changedFlag,
-	changedPaths,
-	committedEdges,
-	defaultChangedBase,
-	defaultEscalationReason,
-	diffNames,
+	readChangedPaths,
+	readCommittedEdges,
+	readDefaultChangedBase,
+	findDefaultEscalationReason,
+	readDiffNames,
 	expandChanged,
 	isChangedOnlyArgv,
 	liveEdges,

@@ -202,6 +202,7 @@ const run = (
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: roots[host],
+				CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
 				HOME: home,
 				WFC_NOW: iso(now),
 				TMPDIR: systmp,

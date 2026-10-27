@@ -32,7 +32,7 @@ const {
 	badClassEntries,
 	citationMatcher,
 	compileAllowlist,
-	conflictedPaths,
+	readConflictedPaths,
 	coverageMatchers,
 	loadRestatements,
 	loadRetiredVocabulary,
@@ -53,16 +53,16 @@ const {
 	mapSkipLine,
 	needlePattern,
 	scanScope,
-	supersedesText,
-	retiredVocabularyText,
+	parseSupersedesText,
+	parseRetiredVocabularyText,
 	sectionAMatcher,
 	sectionBEntryCount,
 	sectionBEntryRate,
-	sectionBBirths,
+	readSectionBBirths,
 	newOverCapEntries,
 	grownExemptEntries,
 	droppedExemptionMarkers,
-	trackedFiles,
+	readTrackedFiles,
 	PAIRING_GRACE_MS,
 	pairingHalfAgeMs,
 	loadDocClasses,
@@ -274,7 +274,7 @@ describe("registerRowPath", () => {
 });
 
 /** A map whose §A holds `rows` as one register table, then a bare §B. */
-const sectionAText = (rows: string[]) =>
+const buildSectionAText = (rows: string[]) =>
 	["## Section A — document register", "", ...rows, "", "## Section B"].join(
 		"\n",
 	);
@@ -325,7 +325,7 @@ process.stdout.write(JSON.stringify(r));`,
 describe("scanScope's class exemptions", () => {
 	it("exempts the binary class and nothing else", () => {
 		const { files, exemptCount } = scopeIn({
-			text: sectionAText([
+			text: buildSectionAText([
 				"| `docs/notes.md` | notes | `free-edit` | Direct |",
 				"| `docs/logo.svg` | a logo | `binary-asset` | Replace |",
 				"| `docs/live.md` | a doc | `source-of-truth` | Direct |",
@@ -338,7 +338,7 @@ describe("scanScope's class exemptions", () => {
 
 	it("exempts by exact path, not by suffix", () => {
 		const { files } = scopeIn({
-			text: sectionAText([
+			text: buildSectionAText([
 				"| `CLAUDE.md` | a contract | `binary-asset` | Replace |",
 			]),
 			files: ["CLAUDE.md", "v/CLAUDE.md"],
@@ -397,7 +397,7 @@ describe("the class sidecar as parseRegister's class source", () => {
 	});
 
 	it("carries a qualifier through, so `includes` still answers the same", () => {
-		const map = sectionAText([
+		const map = buildSectionAText([
 			"| `docs/a.md` | a doc | `free-edit` | Direct |",
 		]);
 		expect(
@@ -466,7 +466,7 @@ describe("the class sidecar as parseRegister's class source", () => {
 	 * control, scanning them all. */
 	it("falls back to the tracked sidecar where none sits beside the map", () => {
 		const paths = syntheticPaths(3);
-		const text = sectionAText([
+		const text = buildSectionAText([
 			"| `docs/logo.svg` | a logo | `binary-asset` | Replace |",
 			...paths.map((p) => `| \`${p}\` | notes | \`free-edit\` | Direct |`),
 		]);
@@ -488,8 +488,14 @@ describe("the class sidecar as parseRegister's class source", () => {
 });
 
 describe("loadDocClasses's key vocabulary", () => {
+	const made: string[] = [];
+	afterEach(() => {
+		for (const dir of made.splice(0))
+			fs.rmSync(dir, { recursive: true, force: true });
+	});
 	const write = (data: unknown) => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "doc-classes-"));
+		made.push(dir);
 		const file = path.join(dir, "doc-map-classes.json");
 		fs.writeFileSync(file, JSON.stringify(data));
 		return file;
@@ -1047,7 +1053,7 @@ describe("overCapEntries / staleExemptionMarkers reading the exemption marker", 
 	});
 });
 
-describe("supersedesText", () => {
+describe("parseSupersedesText", () => {
 	it("takes the bullet and its indented continuation, stopping at the next", () => {
 		const lines = [
 			"- **Supersedes:** the old **$18** AOV,",
@@ -1055,18 +1061,18 @@ describe("supersedesText", () => {
 			"- **Restated in:** `docs/a.md`",
 			"  and its **$45** successor.",
 		];
-		const text = supersedesText(lines);
+		const text = parseSupersedesText(lines);
 		expect(text).toContain("$18");
 		expect(text).toContain("retail only");
 		expect(text).not.toContain("$45");
 	});
 
 	it("answers empty where no bullet supersedes anything", () => {
-		expect(supersedesText(["- **Owner:** `docs/a.md`"]).trim()).toBe("");
+		expect(parseSupersedesText(["- **Owner:** `docs/a.md`"]).trim()).toBe("");
 	});
 });
 
-describe("retiredVocabularyText", () => {
+describe("parseRetiredVocabularyText", () => {
 	it("takes a line-initial bullet and its indented continuation", () => {
 		const lines = [
 			"- **Retired vocabulary — grep these:** 3 phrases, in `x.json`.",
@@ -1074,7 +1080,7 @@ describe("retiredVocabularyText", () => {
 			"- **Owner:** `docs/a.md`",
 			"  and its **4 phrases**.",
 		];
-		const text = retiredVocabularyText(lines);
+		const text = parseRetiredVocabularyText(lines);
 		expect(text).toContain("3 phrases");
 		expect(text).toContain("this entry");
 		expect(text).not.toContain("4 phrases");
@@ -1082,14 +1088,14 @@ describe("retiredVocabularyText", () => {
 
 	it("takes a bullet written with no list marker at all (B15's spelling)", () => {
 		expect(
-			retiredVocabularyText([
+			parseRetiredVocabularyText([
 				"**Retired vocabulary — grep these:** 5 phrases, in `x.json`.",
 			]).trim(),
 		).toContain("5 phrases");
 	});
 
 	it("takes a mid-line bullet, dropping the run before it (B122's spelling)", () => {
-		const text = retiredVocabularyText([
+		const text = parseRetiredVocabularyText([
 			"- **Rejected at #415:** a hard gate (**7%**). **Retired vocabulary:** 3 phrases, in `x.json`.",
 		]);
 		expect(text).toContain("3 phrases");
@@ -1097,13 +1103,13 @@ describe("retiredVocabularyText", () => {
 	});
 
 	it("answers null where the entry carries no such bullet", () => {
-		expect(retiredVocabularyText(["- **Owner:** `docs/a.md`"])).toBeNull();
+		expect(parseRetiredVocabularyText(["- **Owner:** `docs/a.md`"])).toBeNull();
 	});
 
 	it("answers empty, not null, for a bullet written bare", () => {
 		// A declaration with nothing after it is still a declaration; read as an
 		// absence it would go unscanned, the false green mantahostels#1247 closes.
-		expect(retiredVocabularyText(["- **Retired vocabulary:**"])).toBe("");
+		expect(parseRetiredVocabularyText(["- **Retired vocabulary:**"])).toBe("");
 	});
 });
 
@@ -1303,8 +1309,8 @@ describe("scanScope", () => {
 		const ctx = stubCtx();
 		// Positive control: both are tracked, so the two negatives below cannot
 		// pass merely because git stopped listing them.
-		expect(trackedFiles()).toContain("package-lock.json");
-		expect(trackedFiles()).toContain("skills-lock.json");
+		expect(readTrackedFiles()).toContain("package-lock.json");
+		expect(readTrackedFiles()).toContain("skills-lock.json");
 		const { files } = scanScope(ctx, {
 			text: map,
 			mapPath: "docs/doc-map.md",
@@ -1334,7 +1340,7 @@ describe("scanScope", () => {
 	it("drops the recorded session transcripts from a scope that otherwise holds them", () => {
 		const recording = "scripts/fixtures/arm-secondary/recorded-69f9fc0f.jsonl";
 		// Positive control, as for the lockfiles.
-		expect(trackedFiles()).toContain(recording);
+		expect(readTrackedFiles()).toContain(recording);
 		const { files } = scanScope(stubCtx(), {
 			text: map,
 			mapPath: "docs/doc-map.md",
@@ -1364,9 +1370,9 @@ describe("scanScope", () => {
 
 	/* Criterion 4's other half: scanScope reads the class through the sidecar
 	 * too, and a file whose §A cell disagrees is exempt by that route anyway.
-	 * `sidecarBeside` resolves its sidecar beside the MAP PATH, so an absolute
+	 * `readSidecarBeside` resolves its sidecar beside the MAP PATH, so an absolute
 	 * mapPath pointing into a scratch dir finds a synthetic sidecar there —
-	 * without a chdir that would break scanScope's own `trackedFiles()` git call. */
+	 * without a chdir that would break scanScope's own `readTrackedFiles()` git call. */
 	it("exempts a file the sidecar classes binary-asset and §A's cell does not", () => {
 		// scanScope returns tracked files only, so the target is the module under
 		// test — tracked for as long as this suite can run.
@@ -1432,7 +1438,7 @@ describe("CORE_CLASSES", () => {
 
 	it("scans an archive file with no key of its own", () => {
 		const { files, exemptCount } = scopeIn({
-			text: sectionAText([
+			text: buildSectionAText([
 				"| `docs/logo.svg` | a logo | `binary-asset` | Replace |",
 			]),
 			files: [report, "docs/live.md"],
@@ -1443,9 +1449,9 @@ describe("CORE_CLASSES", () => {
 	});
 });
 
-describe("trackedFiles", () => {
+describe("readTrackedFiles", () => {
 	it("lists the tracked tree", () => {
-		expect(trackedFiles()).toContain("package.json");
+		expect(readTrackedFiles()).toContain("package.json");
 	});
 });
 
@@ -1469,8 +1475,8 @@ describe("sectionBEntryCount", () => {
 });
 
 /*
- * sectionBEntryRate reads the CURRENT repo's git history, like trackedFiles
- * and conflictedPaths above, so it runs inside a throwaway repo whose commit
+ * sectionBEntryRate reads the CURRENT repo's git history, like readTrackedFiles
+ * and readConflictedPaths above, so it runs inside a throwaway repo whose commit
  * dates are pinned with GIT_AUTHOR_DATE/GIT_COMMITTER_DATE.
  */
 describe("sectionBEntryRate", () => {
@@ -1727,7 +1733,7 @@ describe("pairingHalfAgeMs", () => {
 	// mantahostels#1191/mantahostels#1384: a pre-commit invocation hands the checker a temp-directory
 	// copy of the map with no git identity of its own. The row's own path
 	// string is still findable through the SECOND candidate, the tracked
-	// docs/doc-map.md — mapTextAt's fallback, reused here.
+	// docs/doc-map.md — readMapTextAt's fallback, reused here.
 	it("falls back to the tracked docs/doc-map.md when mapPath has no git identity", () => {
 		fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
 		fs.writeFileSync(
@@ -1828,13 +1834,13 @@ describe("a conflicted index", () => {
 	});
 
 	it("counts a conflicted file once, not once per stage", () => {
-		const files: string[] = trackedFiles();
+		const files: string[] = readTrackedFiles();
 		expect(files.filter((f: string) => f === "contested.md")).toHaveLength(1);
 		expect(files).toEqual(["clean.md", "contested.md"]);
 	});
 
 	it("names the conflicted paths, and only those", () => {
-		expect(conflictedPaths()).toEqual(["contested.md"]);
+		expect(readConflictedPaths()).toEqual(["contested.md"]);
 	});
 
 	/* Without `-z` git C-quotes a path holding a tab and both functions hand back
@@ -1843,8 +1849,8 @@ describe("a conflicted index", () => {
 		const odd = "sp ace\ttab.md";
 		fs.writeFileSync(path.join(repo, odd), "ours\n");
 		git("add", "--", odd);
-		expect(conflictedPaths()).toEqual(["contested.md"]);
-		expect(trackedFiles()).toContain(odd);
+		expect(readConflictedPaths()).toEqual(["contested.md"]);
+		expect(readTrackedFiles()).toContain(odd);
 	});
 
 	it("reports no conflict once the merge is committed", () => {
@@ -1853,8 +1859,8 @@ describe("a conflicted index", () => {
 		// one mid-merge — so the resolution is staged first.
 		git("add", "--", "contested.md");
 		git("commit", "-qm", "resolved");
-		expect(conflictedPaths()).toEqual([]);
-		expect(trackedFiles()).toEqual(["clean.md", "contested.md"]);
+		expect(readConflictedPaths()).toEqual([]);
+		expect(readTrackedFiles()).toEqual(["clean.md", "contested.md"]);
 	});
 });
 
@@ -2593,13 +2599,13 @@ describe("the data-file loaders", () => {
 	});
 });
 
-describe("conflictedPaths outside a repo", () => {
+describe("readConflictedPaths outside a repo", () => {
 	it("answers empty rather than throwing", () => {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-norepo-"));
 		const cwd = process.cwd();
 		try {
 			process.chdir(outside);
-			expect(conflictedPaths()).toEqual([]);
+			expect(readConflictedPaths()).toEqual([]);
 		} finally {
 			process.chdir(cwd);
 			fs.rmSync(outside, { recursive: true, force: true });
@@ -3040,7 +3046,7 @@ describe("the new-entry cap's git readers", () => {
 			});
 
 			/*
-			 * HEAD alone, and NOT assertion 22's `parentRevs()` — the header's
+			 * HEAD alone, and NOT assertion 22's `readParentRevs()` — the header's
 			 * reason. Any-parent would charge every merge of a long-lived branch
 			 * for a drop that happened, and was warned, on `main` weeks earlier.
 			 * The price is this case: the drop the merge itself resolves is
@@ -3138,13 +3144,13 @@ describe("the new-entry cap's git readers", () => {
 		});
 	});
 
-	describe("sectionBBirths", () => {
+	describe("readSectionBBirths", () => {
 		it("is null outside a git repo", () => {
 			process.chdir(cwd);
 			const outside = fs.mkdtempSync(path.join(os.tmpdir(), "no-births-"));
 			process.chdir(outside);
 			try {
-				expect(sectionBBirths(mapPath)).toBeNull();
+				expect(readSectionBBirths(mapPath)).toBeNull();
 			} finally {
 				process.chdir(cwd);
 				fs.rmSync(outside, { recursive: true, force: true });
@@ -3155,7 +3161,7 @@ describe("the new-entry cap's git readers", () => {
 			commit([["B1", 900]], 3);
 			commit([["B1", 20]], 1);
 
-			const result = sectionBBirths(mapPath);
+			const result = readSectionBBirths(mapPath);
 			expect(result?.born).toEqual([
 				{ id: "B1", words: 900, sha: expect.any(String) },
 			]);
@@ -3172,7 +3178,7 @@ describe("the new-entry cap's git readers", () => {
 			);
 
 			expect(
-				sectionBBirths(mapPath)?.born.map((b: { id: string }) => b.id),
+				readSectionBBirths(mapPath)?.born.map((b: { id: string }) => b.id),
 			).toEqual(["B2"]);
 		});
 
@@ -3198,12 +3204,12 @@ describe("the new-entry cap's git readers", () => {
 				1,
 			);
 
-			expect(sectionBBirths(mapPath)?.born).toEqual([]);
+			expect(readSectionBBirths(mapPath)?.born).toEqual([]);
 		});
 
 		it("reports the window it measured over", () => {
 			commit([["B1", 10]], 1);
-			expect(sectionBBirths(mapPath)?.days).toBe(7);
+			expect(readSectionBBirths(mapPath)?.days).toBe(7);
 		});
 
 		it("honours a window the caller narrows", () => {
@@ -3216,7 +3222,7 @@ describe("the new-entry cap's git readers", () => {
 				1,
 			);
 
-			const day2 = sectionBBirths(mapPath, 2 * 24 * 60 * 60 * 1000);
+			const day2 = readSectionBBirths(mapPath, 2 * 24 * 60 * 60 * 1000);
 			expect(day2?.days).toBe(2);
 			expect(day2?.born.map((b: { id: string }) => b.id)).toEqual(["B2"]);
 		});

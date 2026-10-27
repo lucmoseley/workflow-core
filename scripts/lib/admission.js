@@ -20,23 +20,39 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const nodePath = require("node:path");
 const os = require("node:os");
-const { errLine } = require("./gh");
+const { parseErrLine } = require("./gh");
 const { caught } = require("./caught.js");
+const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
 const {
 	overloadReading,
-	overloadText,
+	buildOverloadText,
 	sessionCeiling,
 } = require("./cpu-sample.js");
 const {
 	faultsOn,
 	readConfig,
-	warningLine,
+	buildWarningLine,
 } = require("./workflow-core-config.js");
 const { requiredGroup } = require("./regex-group.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { docPath } = require("./script-path.js");
-const { JS_TEST_FILE } = require("./test-kind.js");
+const {
+	DRAW_MARGIN_MB,
+	EARLYOOM_FLOOR_MB,
+	SUITE_MAX,
+	WHOLE_SUITE_MAX,
+	LADDER_SUITE_WORKERS,
+	suiteRungMb,
+	SUITE_RESTING_MB,
+	SUITE_GATE_MB,
+	SUITE_LADDER_MEASURED_AT,
+	runningSuites,
+	readCarriedWeightOf,
+	readPs,
+	PS_BIN,
+} = require("./suite-ladder.js");
+const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 
 /**
  * @typedef {import("./cpu-sample.js").LoadReading} LoadReading
@@ -97,7 +113,7 @@ function cpuSlots(ps, children) {
 }
 
 /** `cpuSlots` off reads of its own, for a caller that has taken none. */
-const readCpuSlots = () => cpuSlots(psRows(), processChildren());
+const readCpuSlots = () => cpuSlots(readPsRows(), readProcessChildren());
 
 /**
  * @param {number} slots
@@ -109,7 +125,7 @@ const cpuCapped = (slots, cpu) =>
 /**
  * @param {CpuSlots} cpu
  */
-const sessionCeilingText = (cpu) =>
+const buildSessionCeilingText = (cpu) =>
 	`${cpu.sessions} session(s) running on the machine against the ${cpu.ceiling}-session CPU ceiling (#2141), so ${cpu.slots} slot(s)`;
 
 /**
@@ -119,7 +135,7 @@ function cpuSlotsRow(cpu) {
 	if (cpu.unknown !== null) return `none capped (${cpu.unknown})`;
 	if (cpu.ceiling === null)
 		return "none capped — no session ceiling, WFC_SESSION_CEILING=0 or the cores uncounted";
-	return sessionCeilingText(cpu);
+	return buildSessionCeilingText(cpu);
 }
 
 /**
@@ -182,9 +198,6 @@ const NO_LIVE_DRAW = {
  * scripts/sample_session_memory.py, whose aggregate check models this p95:
  * move both, or neither. */
 const DRAW_Z = 1.645;
-/* Above earlyoom's kill line, ruled at #2221: the suite gate's margin, fitted,
- * not measured (mantahostels#463). */
-const DRAW_MARGIN_MB = 300;
 
 /**
  * One repo's session draw: its declared `sessionMeanMb` and `sessionSigmaMb`,
@@ -193,9 +206,13 @@ const DRAW_MARGIN_MB = 300;
  * @param {string} [root] the repo root, where it is not this run's host
  * @returns {SessionDraw}
  */
-function sessionDraw(root) {
-	const mean = declaredMb("sessionMeanMb", DEFAULT_SESSION_DRAW.meanMb, root);
-	const sigma = declaredMb(
+function readSessionDraw(root) {
+	const mean = readDeclaredMb(
+		"sessionMeanMb",
+		DEFAULT_SESSION_DRAW.meanMb,
+		root,
+	);
+	const sigma = readDeclaredMb(
 		"sessionSigmaMb",
 		DEFAULT_SESSION_DRAW.sigmaMb,
 		root,
@@ -217,16 +234,16 @@ function sessionDraw(root) {
  * @param {string} [root] the repo root, where it is not this run's host
  * @returns {{ mb: number, declared: boolean, problem?: string }}
  */
-function declaredMb(key, fallback, root) {
+function readDeclaredMb(key, fallback, root) {
 	try {
 		const config = readConfig({ root, quiet: true });
 		const mb = config[key];
 		if (mb) return { mb, declared: true };
 		const [fault] = faultsOn(config, key);
-		const problem = fault && warningLine(fault);
+		const problem = fault && buildWarningLine(fault);
 		return { mb: fallback, declared: false, problem };
 	} catch (e) {
-		return { mb: fallback, declared: false, problem: errLine(e) };
+		return { mb: fallback, declared: false, problem: parseErrLine(e) };
 	}
 }
 
@@ -242,7 +259,7 @@ function declaredMb(key, fallback, root) {
  * why.
  * @returns {SessionFloor}
  */
-function declaredSessionFloor() {
+function readDeclaredSessionFloor() {
 	const file = nodePath.join(
 		process.env.HOME || os.homedir(),
 		".claude",
@@ -255,7 +272,7 @@ function declaredSessionFloor() {
 			text = fs.readFileSync(file, "utf8");
 		} catch (e) {
 			if (caught(e).code === "ENOENT") return { sessions: 0 };
-			return { sessions: 0, problem: `${file}: ${errLine(e)}` };
+			return { sessions: 0, problem: `${file}: ${parseErrLine(e)}` };
 		}
 	} else {
 		if (env === "") return { sessions: 0 };
@@ -298,7 +315,7 @@ function sessionFloorSlotsOf(sessionFloor, working, effectiveMb, host) {
  * @param {SessionFloor} floor
  * @param {{ sessionFloorWorking: number, sessionFloorSlots: number, swapHold: SwapHold }} verdict
  */
-function sessionFloorLine(floor, verdict) {
+function buildSessionFloorLine(floor, verdict) {
 	if (floor.problem)
 		return `none — the declared floor went unread: ${floor.problem}`;
 	if (floor.sessions === 0) return null;
@@ -360,7 +377,7 @@ function floorClause(floor) {
  * The host's session draw as the ADMISSION blocks print it.
  * @param {SessionDraw} draw
  */
-function sessionDrawLine(draw) {
+function buildSessionDrawLine(draw) {
 	const figures = `mean ${draw.meanMb} MB, σ ${draw.sigmaMb} MB`;
 	if (draw.declared)
 		return `${figures} — this repo's declared sessionMeanMb and sessionSigmaMb, its sessions' tools included`;
@@ -369,12 +386,6 @@ function sessionDrawLine(draw) {
 		? `${line}; a declared figure went unread: ${draw.problem}`
 		: line;
 }
-
-/*
- * earlyoom's kill line: 8% free of the 10 GB cap, ≈ 794 MiB (docs/environment.md
- * §3). Admission keeps it, and DRAW_MARGIN_MB above it, free (#337, #2221).
- */
-const EARLYOOM_FLOOR_MB = 794;
 
 /**
  * The repo a session's cwd sits in: the nearest ancestor holding `.git` (a
@@ -399,7 +410,7 @@ function repoRootOf(cwd) {
  * @returns {{ draw: SessionDraw, problem: string | null }} `problem` is set only
  *   on the read that found it, a cached repo's draw carrying none
  */
-function liveSessionDraw(id, cwd, byRoot) {
+function readLiveSessionDraw(id, cwd, byRoot) {
 	const root = cwd ? repoRootOf(cwd) : null;
 	if (!root)
 		return {
@@ -408,7 +419,7 @@ function liveSessionDraw(id, cwd, byRoot) {
 		};
 	const cached = byRoot.get(root);
 	if (cached !== undefined) return { draw: cached, problem: null };
-	const draw = sessionDraw(root);
+	const draw = readSessionDraw(root);
 	byRoot.set(root, draw);
 	return {
 		draw,
@@ -465,7 +476,7 @@ function liveDraw({ ids, pids, terminal, cwds }, { ps, pssKbOf, children }) {
 	let heldKb = 0;
 	for (const id of ids) {
 		if (id === me || ended.has(id)) continue;
-		const own = liveSessionDraw(id, cwds?.get(id) ?? "", byRoot);
+		const own = readLiveSessionDraw(id, cwds?.get(id) ?? "", byRoot);
 		if (own.problem) draw.problems.push(own.problem);
 		draw.sessions++;
 		draw.meanMb += own.draw.meanMb;
@@ -533,7 +544,7 @@ function drawSlots(budgetMb, live, host, launchMb) {
 }
 
 /** @param {LiveDraw} live */
-function liveDrawLine(live) {
+function buildLiveDrawLine(live) {
 	if (live.refused)
 		return "unknown — the session listing was refused, so no live session's draw is counted";
 	const line = `${live.sessions} live session(s): mean ${live.meanMb} MB + ${DRAW_Z} × σ ${Math.round(Math.sqrt(live.varianceMb2))} MB − ${live.pssMb} MB they already hold`;
@@ -557,16 +568,16 @@ function liveDrawLine(live) {
  * @param {number} k
  * @param {number} launchMb
  */
-const pairsText = (k, launchMb) =>
+const buildPairsText = (k, launchMb) =>
 	launchMb > 0 && k > 1 ? `${k - 1} more spare pair(s) at ${launchMb} MB` : "";
 
 /**
- * `pairsText` as a clause.
+ * `buildPairsText` as a clause.
  * @param {number} k
  * @param {number} launchMb
  */
 const pairsClause = (k, launchMb) => {
-	const pairs = pairsText(k, launchMb);
+	const pairs = buildPairsText(k, launchMb);
 	return pairs ? `, with ${pairs},` : "";
 };
 
@@ -574,215 +585,25 @@ const shortOfOneMore = (/** @type {number} */ needMb) =>
 	`, under the ${needMb} MB the live sessions' draw and one more need at p95`;
 
 /** @param {number} mb */
-const landerNote = (mb) =>
+const buildLanderNote = (mb) =>
 	mb ? `, holding ${mb} MB for the lander's suite` : "";
 
 /* The floor and margin as a verdict's reason clause. */
 const HELD_NOTE = `, holding ${EARLYOOM_FLOOR_MB} + ${DRAW_MARGIN_MB} MB above earlyoom's kill line`;
 
-/*
- * Concurrent test suites, owned by `docs/environment.md` §6. THE LADDER IS THE
- * WHOLE RULE — there is no flat allowance above it, and four suites are
- * unmeasured.
- *
- * A rung is EARLYOOM_FLOOR_MB + the dip that many vitest workers make +
- * DRAW_MARGIN_MB, rounded up to the next 50 MB (#2558). SUITE_DIP_MB is §6's
- * dip at 0-3 whole suites, measured at maxWorkers: 3 (#1603); a part-suite of w
- * workers adds w/SUITE_WORKERS of the next suite's increment. Past SUITE_MAX
- * suites each worker adds the one-suite dip's share of one worker —
- * EXTRAPOLATED, no fourth suite having been measured.
- *
- * HAND-KEPT DUPLICATES of SUITE_DIP_MB, SUITE_MAX and `rung_mb` in
- * `scripts/guard-suite-concurrency.sh`, and of SUITE_WORKERS in
- * `scripts/lib/suite-bounded.sh`, which are bash and cannot require this;
- * guard-suite-concurrency.test.ts holds them equal. Move both, or neither.
- */
-const SUITE_MAX = 3;
-const SUITE_WORKERS = 3;
-const SUITE_DIP_MB = [0, 1046, 2124, 2546];
-
-/**
- * MB of available that must be resting before `workers` concurrent vitest
- * workers run.
- * @param {number} workers
- */
-function suiteRungMb(workers) {
-	const dipAt = (/** @type {number} */ suites) => {
-		const mb = SUITE_DIP_MB[suites];
-		if (mb === undefined)
-			throw new RangeError(`no measured dip at ${suites} suites`);
-		return mb;
-	};
-	const n = Math.floor(workers / SUITE_WORKERS);
-	const dip =
-		n >= SUITE_MAX
-			? dipAt(SUITE_MAX) +
-				Math.ceil(
-					((workers - SUITE_MAX * SUITE_WORKERS) * dipAt(1)) / SUITE_WORKERS,
-				)
-			: dipAt(n) +
-				Math.ceil(
-					((workers % SUITE_WORKERS) * (dipAt(n + 1) - dipAt(n))) /
-						SUITE_WORKERS,
-				);
-	return Math.ceil((EARLYOOM_FLOOR_MB + dip + DRAW_MARGIN_MB) / 50) * 50;
-}
-
-/** suites -> MB of available that must be resting before launching that many. */
-const SUITE_RESTING_MB = {
-	1: suiteRungMb(SUITE_WORKERS),
-	2: suiteRungMb(2 * SUITE_WORKERS),
-	3: suiteRungMb(3 * SUITE_WORKERS),
-};
-const SUITE_GATE_MB = SUITE_RESTING_MB[SUITE_MAX];
-
-/*
- * The suite the ladder above was measured on — its fourth invalidating
- * variable, beside vitest's `maxWorkers`, the 2048 MB heap and the core count
- * (mantahostels#954).
- *
- * `scripts/check-suite-size-drift.js` reads it and warns when the live suite has
- * drifted. MOVE IT ONLY WITH A RE-MEASUREMENT.
- */
-const SUITE_LADDER_MEASURED_AT = {
-	files: 485,
-	tests: 19_646,
-	issue: "workflow-core#1603",
-	date: "16 Oct 2026",
-};
-
-/* A HAND-KEPT DUPLICATE of VITEST_LIST in scripts/guard-suite-concurrency.sh.
- * Move both (#630). */
-const VITEST_LIST = /[.]bin\/vitest list( |$)/;
-
-/* A HAND-KEPT DUPLICATE of WRAPPER_ARGV0 in scripts/guard-suite-concurrency.sh.
- * Move both (#630). */
-const WRAPPER_ARGV0 =
-	/^ *-?([^ ]*\/)?(bash|sh|dash|zsh|nohup|setsid|env|timeout|time|command|stdbuf|nice|ionice|xargs|sudo)( |$)/;
-
-/* HAND-KEPT DUPLICATES of VITEST_ONESHOT and VITEST_WATCH in
- * scripts/lib/suite-bounded.sh. Move both (#630). */
-const VITEST_ONESHOT = /[.]bin\/vitest( .*)? (run|--run)( |$)/;
-const VITEST_WATCH = / (--watch|watch)( |=|$)/;
-
-/* A HAND-KEPT DUPLICATE of SUITE_VALUED_FLAGS in scripts/lib/suite-bounded.sh:
- * the flags whose next word, where it opens with no `-`, is their value. Move
- * both (#630). */
-const SUITE_VALUED_FLAGS = new Set([
-	"--changed",
-	"-t",
-	"--testNamePattern",
-	"--project",
-	"--reporter",
-	"-c",
-	"--config",
-	"-r",
-	"--root",
-	"--dir",
-	"--shard",
-	"--pool",
-	"--environment",
-	"--outputFile",
-	"--maxWorkers",
-	"--minWorkers",
-	"--retry",
-	"--bail",
-	"--testTimeout",
-]);
-
-/**
- * The vitest workers a one-shot runner line can occupy: `min(test files
- * named, SUITE_WORKERS)` over the words after the binary and its `run`, and
- * SUITE_WORKERS where it names none or carries a bare word that is no flag's
- * value, which vitest reads as a path filter (#2559).
- * @param {string} line
- */
-function vitestLineWorkers(line) {
-	const words = line.trim().split(/\s+/);
-	let rest = words.slice(words.findIndex((w) => /[.]bin\/vitest$/.test(w)) + 1);
-	if (rest[0] === "run") rest = rest.slice(1);
-	let files = 0;
-	let prev = "";
-	for (const word of rest) {
-		if (SUITE_VALUED_FLAGS.has(prev) && !word.startsWith("-")) {
-			prev = "";
-			continue;
-		}
-		prev = word;
-		if (word.startsWith("-")) continue;
-		if (!JS_TEST_FILE.test(word)) return SUITE_WORKERS;
-		files++;
-	}
-	return files > 0 ? Math.min(files, SUITE_WORKERS) : SUITE_WORKERS;
-}
-
-/**
- * The vitest runs a `ps -eo args` listing shows: the workers they can occupy
- * between them, and how many are whole. One `.bin/vitest` runner line per run,
- * a watcher included, since a watcher holds a rung. The npm `sh -c` wrapper
- * and the workers carry no `.bin/`, so neither counts again; a shell or launch
- * wrapper line that does carry it is skipped on its argv[0] (#1127), and so is
- * a `vitest list` selection probe (#1180) — `list` first after the binary
- * only, as a later one may be a `-t list` filter on a real run.
- *
- * A run weighs the workers its runner line names, as a launch does (#2558,
- * ruled at #2559): `vitestLineWorkers` for a one-shot, SUITE_WORKERS for a
- * watcher. A run is whole at SUITE_WORKERS.
- *
- * A HAND-KEPT DUPLICATE of the vitest half of `running_suites()` in
- * `scripts/guard-suite-concurrency.sh` and of lib/suite-bounded.sh's
- * `vitest_line_workers`, which are bash and cannot require this —
- * that function's comment holds why the pattern is `[.]bin/vitest( |$)`. Move
- * both, or neither (#630).
- * Non-vitest runners (`node --test`, pytest, a host's `suiteRunners`) are NOT
- * counted here: the resulting under-count only ever points a consumer at a
- * lower rung (#627).
- *
- * An EMPTY listing counts as zero, where the guard reads it as unread:
- * `readRunningVitestSuites` rejects an empty or failed `ps` read before calling.
- * @param {string} psArgs
- * @returns {{ workers: number, whole: number }}
- */
-function runningVitestSuites(psArgs) {
-	let workers = 0;
-	let whole = 0;
-	for (const l of psArgs.split("\n")) {
-		if (
-			!/[.]bin\/vitest( |$)/.test(l) ||
-			WRAPPER_ARGV0.test(l) ||
-			VITEST_LIST.test(l)
-		)
-			continue;
-		const w =
-			VITEST_ONESHOT.test(l) && !VITEST_WATCH.test(l)
-				? vitestLineWorkers(l)
-				: SUITE_WORKERS;
-		workers += w;
-		if (w === SUITE_WORKERS) whole++;
-	}
-	return { workers, whole };
-}
-
 /** @returns {{ ok: true, workers: number, whole: number } | { ok: false, error: string }} */
 function readRunningVitestSuites() {
-	try {
-		/* A hung `ps` would otherwise hold the suite it runs ahead of. Its 5 s
-		 * is a guess, never measured. */
-		const out = execFileSync(PS_BIN(), ["-eo", "args="], {
-			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
-			timeout: 5000,
-		});
-		/* A `ps` listing no process at all, itself included, is broken, not idle. */
-		if (!out.trim()) return { ok: false, error: "ps listed nothing" };
-		return { ok: true, ...runningVitestSuites(out) };
-	} catch (e) {
-		return { ok: false, error: errLine(e) };
-	}
+	const ps = readPs();
+	if (!ps.ok) return ps;
+	const { workers, whole } = runningSuites(
+		ps.rows,
+		undefined,
+		readCarriedWeightOf,
+	);
+	return { ok: true, workers, whole };
 }
 
 const MEMINFO = () => process.env.WFC_MEMINFO || "/proc/meminfo";
-const PS_BIN = () => process.env.WFC_PS || "ps";
 const PROC = () => process.env.WFC_PROC || "/proc";
 
 /*
@@ -829,7 +650,7 @@ const PS_ROW_RE = /^(\d+)\s+(\d+)\s+(.*)$/;
  * breakdown share a single spawn.
  * @returns {PsRead}
  */
-function psRows() {
+function readPsRows() {
 	try {
 		const out = execFileSync(PS_BIN(), ["-eo", "pid=,rss=,args="], {
 			encoding: "utf8",
@@ -848,7 +669,7 @@ function psRows() {
 		}
 		return { ok: true, rows };
 	} catch (e) {
-		return { ok: false, error: errLine(e) };
+		return { ok: false, error: parseErrLine(e) };
 	}
 }
 
@@ -870,10 +691,10 @@ function spareProcesses(rows) {
 
 /**
  * @param {Set<string>} [livePids]
- * @param {PsRead} [ps] a `psRows()` read already taken, else one is taken here
+ * @param {PsRead} [ps] a `readPsRows()` read already taken, else one is taken here
  * @returns {SpareOverhead}
  */
-function daemonSpareOverheadMb(livePids = new Set(), ps = psRows()) {
+function daemonSpareOverheadMb(livePids = new Set(), ps = readPsRows()) {
 	if (!ps.ok) return { ok: false, error: ps.error };
 	const rows = spareProcesses(ps.rows);
 	/* Both halves of a claimed pair share the live session's socket id. */
@@ -890,7 +711,7 @@ function daemonSpareOverheadMb(livePids = new Set(), ps = psRows()) {
 	for (const r of rows) {
 		if (livePids.has(r.pid)) continue;
 		if (r.socket && liveSockets.has(r.socket)) continue;
-		const pss = pssKb(r.pid);
+		const pss = readPssKb(r.pid);
 		const rowKb = pss === null ? r.rssKb : pss;
 		kb += rowKb;
 		if (r.socket) {
@@ -1013,7 +834,7 @@ function reclaimableMb() {
 		);
 		return { ok: true, mb, count: parsed.reaped.length };
 	} catch (e) {
-		return { ok: false, error: errLine(e) };
+		return { ok: false, error: parseErrLine(e) };
 	}
 }
 
@@ -1021,7 +842,7 @@ function reclaimableMb() {
  * `Pss` in kB from a process's smaps_rollup, or null where it cannot be read.
  * @param {string | number} pid
  */
-function pssKb(pid) {
+function readPssKb(pid) {
 	try {
 		const m = fs
 			.readFileSync(`${PROC()}/${pid}/smaps_rollup`, "utf8")
@@ -1036,8 +857,8 @@ function pssKb(pid) {
  * MemAvailable, never MemFree — which counts reclaimable cache as spent.
  * @returns {MbResult}
  */
-function availableMb() {
-	return availableFrom(meminfoKb());
+function readAvailableMb() {
+	return availableFrom(readMeminfoKb());
 }
 
 /**
@@ -1047,7 +868,7 @@ function availableMb() {
  * lines leave theirs null, which `swapHoldOf` reads as no hold.
  * @returns {MeminfoRead}
  */
-function meminfoKb() {
+function readMeminfoKb() {
 	const path = MEMINFO();
 	try {
 		const text = fs.readFileSync(path, "utf8");
@@ -1067,12 +888,12 @@ function meminfoKb() {
 			swapFreeKb: kb("SwapFree"),
 		};
 	} catch (e) {
-		return { ok: false, error: errLine(e) };
+		return { ok: false, error: parseErrLine(e) };
 	}
 }
 
 /**
- * `availableMb`'s answer, from a `meminfoKb` read already taken.
+ * `readAvailableMb`'s answer, from a `readMeminfoKb` read already taken.
  * @param {MeminfoRead} read
  * @returns {MbResult}
  */
@@ -1156,7 +977,7 @@ const unknownRow = (reason) => ({ mb: null, unknown: reason });
  * low and are charged more of their draw, erring towards holding a slot back.
  * @returns {Map<string, string[]>}
  */
-function processChildren() {
+function readProcessChildren() {
 	/** @type {Map<string, string[]>} */
 	const children = new Map();
 	let entries;
@@ -1164,22 +985,15 @@ function processChildren() {
 		entries = fs.readdirSync(PROC());
 	} catch {
 		/* Unprinted: an unreadable /proc fails every PSS read too, which
-		 * liveDrawLine already prints as memory unread (#2139). */
+		 * buildLiveDrawLine already prints as memory unread (#2139). */
 		return children;
 	}
 	for (const pid of entries) {
 		if (!/^\d+$/.test(pid)) continue;
-		let stat;
-		try {
-			stat = fs.readFileSync(`${PROC()}/${pid}/stat`, "utf8");
-		} catch {
-			/* Exited since the listing: it has no children left to count (#2139). */
-			continue;
-		}
-		/* The command name may itself hold spaces or parentheses, so the fields
-		 * are read from after its last `)`: state, then ppid. */
-		const ppid = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1];
-		if (!ppid) continue;
+		/* Unread where it exited since the listing: it has no children left to
+		 * count (#2139). */
+		const ppid = String(readParentOf(pid, PROC()));
+		if (ppid === "0") continue;
 		const list = children.get(ppid);
 		if (list) list.push(pid);
 		else children.set(ppid, [pid]);
@@ -1486,7 +1300,7 @@ function memoryBreakdown({
  * The breakdown as text rows, for `admission.js`'s report.
  * @param {MemoryBreakdown} m
  */
-function memoryBreakdownLines(m) {
+function buildMemoryBreakdownLines(m) {
 	/** @param {MemRow} r @param {string} text */
 	const orUnknown = (r, text) =>
 		r.unknown === null ? text : `unknown (${r.unknown})`;
@@ -1557,7 +1371,7 @@ function claudeProcessCount() {
 				.filter((p) => isClaudeArgv0(p.comm) || isClaudeArgv0(p.argv0)).length,
 		};
 	} catch (e) {
-		return { ok: false, error: errLine(e) };
+		return { ok: false, error: parseErrLine(e) };
 	}
 }
 
@@ -1657,7 +1471,7 @@ function lenientNotes(reserved, credited, landerMb) {
 		credited
 			? `${reserved ? " and" : " after"} crediting ${credited} MB about to be reclaimed`
 			: ""
-	}${landerNote(landerMb)}${HELD_NOTE}`;
+	}${buildLanderNote(landerMb)}${HELD_NOTE}`;
 	return { reservedNote, creditedNote };
 }
 
@@ -1672,9 +1486,9 @@ function lenientNotes(reserved, credited, landerMb) {
  * @param {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, sessionFloor?: number, swapHold?: SwapHold, launchMb?: number }} [opts]
  *   `launchMb` is charged for each slot past the first, as in
  *   `strictAdmission` (#2568); `live` is the live sessions' draw, from `liveDraw`, and `host` this
- *   host's session draw, from `sessionDraw` (#2221); `landerMb`, from
+ *   host's session draw, from `readSessionDraw` (#2221); `landerMb`, from
  *   `landerHeldMb`, is held back for the lander's suite; `sessionFloor`, from
- *   `declaredSessionFloor`, lifts the free slots to `sessionFloorSlotsOf`'s
+ *   `readDeclaredSessionFloor`, lifts the free slots to `sessionFloorSlotsOf`'s
  *   as `strictAdmission` does (#2507), and none while `swapHold` binds (#2690); `load` comes from
  *   `overloadReading`, and an overload holds every slot, the always-admit-one
  *   guarantee included; `cpu`, from `cpuSlots`, caps them, that guarantee
@@ -1750,14 +1564,14 @@ function admissionFrom(
 			freeSlots: freeSlots === null ? null : 0,
 			...shared,
 			admit: false,
-			reason: overloadText(load),
+			reason: buildOverloadText(load),
 		};
 	if (cpu.full)
 		return {
 			freeSlots,
 			...shared,
 			admit: false,
-			reason: sessionCeilingText(cpu),
+			reason: buildSessionCeilingText(cpu),
 		};
 	if (procs.ok && procs.sessions === 0)
 		return {
@@ -1790,7 +1604,7 @@ function admissionFrom(
 		reason: `${slotsClause(knownFreeSlots, floor, launchMb)}${reservedNote}${creditedNote}${
 			freeSlots === memorySlots
 				? ""
-				: `; capped by the CPU: ${sessionCeilingText(cpu)}`
+				: `; capped by the CPU: ${buildSessionCeilingText(cpu)}`
 		}`,
 	};
 }
@@ -1803,7 +1617,7 @@ function admissionFrom(
  */
 function slotsClause(freeSlots, floor, launchMb) {
 	const head = `${freeSlots} free slot${freeSlots === 1 ? "" : "s"}`;
-	const pairs = pairsText(freeSlots, launchMb);
+	const pairs = buildPairsText(freeSlots, launchMb);
 	return floor.sessionFloorLifted
 		? `${head}, ${floorClause(floor)}`
 		: `${head} on the live sessions' draw at p95${pairs ? ` and ${pairs}` : ""}`;
@@ -1853,7 +1667,7 @@ function lenientFloor(
  * refuses, printing and continuing where the pool stays short, so the credit
  * answers "may this run at all" and never "may a second suite join it".
  *
- * `rawMb` IS THE QUANTITY THE REAP ITSELF GATES ON — `availableMb()`, before
+ * `rawMb` IS THE QUANTITY THE REAP ITSELF GATES ON — `readAvailableMb()`, before
  * the daemon-and-spare reservation `mb` has already lost. Comparing the rung
  * against `mb` would credit a reap that never fires for a first suite whenever the
  * reservation alone straddles the rung.
@@ -1876,7 +1690,7 @@ function suiteCapacity(mb, reclaimedMb = 0, rawMb = mb) {
  *   what one past them would, each with `launchMb` a slot past the first
  * @returns {string}
  */
-function strictMemoryReason({
+function buildStrictMemoryReason({
 	guaranteed,
 	memorySlots,
 	budgetMb,
@@ -1901,11 +1715,11 @@ function strictMemoryReason({
  * @param {number} memorySlots
  * @param {string} memoryReason
  */
-function strictReason(load, cpu, memorySlots, memoryReason) {
+function buildStrictReason(load, cpu, memorySlots, memoryReason) {
 	if (load.overloaded)
-		return `${overloadText(load)}; were it not for the load, ${memoryReason}`;
+		return `${buildOverloadText(load)}; were it not for the load, ${memoryReason}`;
 	if (cpu.slots !== null && cpu.slots < memorySlots)
-		return `${sessionCeilingText(cpu)}; were it not for the CPU, ${memoryReason}`;
+		return `${buildSessionCeilingText(cpu)}; were it not for the CPU, ${memoryReason}`;
 	return memoryReason;
 }
 
@@ -1929,9 +1743,9 @@ function strictReason(load, cpu, memorySlots, memoryReason) {
  *   `launchMb`, the pending pairs `overhead` reserves for one launch, is
  *   charged again for each slot past the first (#2511); `live` is the live
  *   sessions' draw, from `liveDraw`, and `host` this host's session draw,
- *   from `sessionDraw` (#2221); `landerMb`, from
+ *   from `readSessionDraw` (#2221); `landerMb`, from
  *   `landerHeldMb`, is held back for the lander's suite; `sessionFloor`, from
- *   `declaredSessionFloor`, lifts the memory slots to
+ *   `readDeclaredSessionFloor`, lifts the memory slots to
  *   `sessionFloorSlotsOf`'s, none while `swapHold`, from `swapHoldOf`,
  *   binds; `load` comes from
  *   `overloadReading`, `cpu` from `cpuSlots` (#2141). An overload holds
@@ -2012,9 +1826,9 @@ function strictAdmission(
 	const nextNeedMb = launchNeedFor(live, host, byMemory + 1, launchMb);
 	const creditedNote = `${
 		reclaimedMb ? `, credited ${reclaimedMb} MB about to be reclaimed` : ""
-	}${landerNote(landerMb)}${HELD_NOTE}`;
+	}${buildLanderNote(landerMb)}${HELD_NOTE}`;
 	/* The guarantee's "so one is admitted" would contradict a floor lift past it. */
-	const pricedReason = strictMemoryReason({
+	const pricedReason = buildStrictMemoryReason({
 		guaranteed: guaranteed && !sessionFloorLifted,
 		memorySlots: byMemory,
 		budgetMb,
@@ -2055,7 +1869,7 @@ function strictAdmission(
 		cpu,
 		cpuIsSoleHold: slots === 0 && memorySlots > 0,
 		admit: slots > 0,
-		reason: strictReason(load, cpu, memorySlots, memoryReason),
+		reason: buildStrictReason(load, cpu, memorySlots, memoryReason),
 		suites: suiteCapacity(effectiveMb, reclaimedMb, mem.mb),
 	};
 }
@@ -2065,9 +1879,9 @@ function strictAdmission(
  * verdict over them and the memory breakdown (#614). It reads memory, `ps`,
  * PSS and the load itself; the session listing and the reclaim reading come in, each
  * caller already making them for other uses, and so does `livePids`, the
- * listed pids the pool scan leaves out: `admission.js` takes them from a
- * second, self-optional oracle read that still answers where the listing
- * refuses. An empty set prices every pair as idle, erring safe.
+ * listed pids the pool scan leaves out: `admission.js` takes them off the
+ * strict listing, reading the oracle again, self-optional, only where that
+ * listing refuses (#2876). An empty set prices every pair as idle, erring safe.
  *
  * `pool` is the spare pool as resident, which the breakdown's pool row shows;
  * `overhead` is what the verdict reserves for it, from `poolReserve`.
@@ -2077,7 +1891,7 @@ function strictAdmission(
  *   reclaimable: Parameters<typeof memoryBreakdown>[0]["reclaimable"],
  *   pendingSpares?: number,
  *   landers: Landers,
- * }} inputs `landers` are the live landers, from `liveLanders`
+ * }} inputs `landers` are the live landers, from `readLiveLanders`
  */
 function machineAdmission({
 	listed,
@@ -2086,22 +1900,22 @@ function machineAdmission({
 	pendingSpares = 0,
 	landers,
 }) {
-	const ps = psRows();
-	const children = processChildren();
+	const ps = readPsRows();
+	const children = readProcessChildren();
 	const pool = daemonSpareOverheadMb(livePids, ps);
 	const overhead = poolReserve(pool, pendingSpares);
 	const launchMb = overhead.ok ? overhead.pendingMb : 0;
-	const meminfo = meminfoKb();
+	const meminfo = readMeminfoKb();
 	const mem = availableFrom(meminfo);
 	const procs = liveSessions(listed);
-	const host = sessionDraw();
-	const live = liveDraw(listed, { ps, pssKbOf: pssKb, children });
+	const host = readSessionDraw();
+	const live = liveDraw(listed, { ps, pssKbOf: readPssKb, children });
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children);
-	const floorRead = declaredSessionFloor();
+	const floorRead = readDeclaredSessionFloor();
 	const swapHold = swapHoldOf(meminfo);
 	const landerMb = landerHeldMb(landers, {
-		pssKbOf: pssKb,
+		pssKbOf: readPssKb,
 		children,
 		sessionPids: new Set([...(listed.pids?.values() ?? [])].map(String)),
 	});
@@ -2121,7 +1935,7 @@ function machineAdmission({
 		meminfo,
 		ps,
 		listed,
-		pssKbOf: pssKb,
+		pssKbOf: readPssKb,
 		pool,
 		reclaimable,
 		verdict,
@@ -2148,23 +1962,25 @@ function machineAdmission({
 module.exports = {
 	machineAdmission,
 	LAUNCH_SPARES,
-	sessionDrawLine,
-	sessionFloorLine,
+	buildSessionDrawLine,
+	buildSessionFloorLine,
 	SWAP_HOLD_AVAILABLE_MB,
-	liveDrawLine,
+	buildLiveDrawLine,
 	SUITE_GATE_MB,
 	EARLYOOM_FLOOR_MB,
 	DRAW_MARGIN_MB,
 	SUITE_MAX,
-	SUITE_WORKERS,
+	WHOLE_SUITE_MAX,
+	LADDER_SUITE_WORKERS,
+	WHOLE_SUITE_WORKERS,
 	SUITE_RESTING_MB,
 	SUITE_LADDER_MEASURED_AT,
 	suiteRungMb,
-	availableMb,
-	memoryBreakdownLines,
+	readAvailableMb,
+	buildMemoryBreakdownLines,
 	reclaimableMb,
 	readRunningVitestSuites,
 	admissionFrom,
 	readCpuSlots,
-	sessionCeilingText,
+	buildSessionCeilingText,
 };

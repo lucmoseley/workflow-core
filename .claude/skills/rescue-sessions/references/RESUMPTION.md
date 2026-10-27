@@ -34,7 +34,9 @@ tickets; `git status --porcelain` names the files.
   a failing file you do not own. To prove a red is a neighbour's, run the failing
   files in a detached worktree at clean HEAD (`git worktree add --detach`, symlink
   the canonical `node_modules` in).
-- **Use `npm run test:changed`,** not the full suite.
+- **Run only the tests you touched,** never the full suite: the bare
+  `npm run test` with the `landing` module on, the lander running the full
+  suite; `npm run test:changed` with it off.
 - **Commit by pathspec, your files only** —
   `node scripts/commit-paths.js -m "..." -- <paths>` (Bash `timeout: 600000`).
   Never `git add`. Anything outside your ticket's files belongs to a dead

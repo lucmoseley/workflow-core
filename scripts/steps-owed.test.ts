@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
-import { appendStepsOwed, stepsOwed } from "./lib/steps-owed.js";
+import { appendStepsOwed, readStepsOwed } from "./lib/steps-owed.js";
 
 const SCRIPT = path.join(__dirname, "steps-owed.js");
 
@@ -55,7 +55,7 @@ describe("steps-owed.js CLI", () => {
 		const r = run(["clear", "v2.0.0", "notice", "fyi"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("cleared v2.0.0 [notice]");
-		expect(stepsOwed(root)).toEqual([]);
+		expect(readStepsOwed(root)).toEqual([]);
 	});
 
 	it("clear exits 1 on no match", () => {
@@ -69,7 +69,7 @@ describe("steps-owed.js CLI", () => {
 		const r = run(["decline", "v2.0.0", "pick"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("declined v2.0.0 [choice]");
-		expect(stepsOwed(root)).toEqual([
+		expect(readStepsOwed(root)).toEqual([
 			{ tag: "v2.0.0", type: "choice", text: "pick", declined: true },
 		]);
 	});

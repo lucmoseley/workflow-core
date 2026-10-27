@@ -2,7 +2,7 @@
 /*
  * Pins lib/refill-seats.js, the one reader of `~/.claude/refill-seats`: plan
  * and overflow lines, the malformed lines it refuses by name, and the
- * dispatcher's `kind` command. The parse is read through declaredSeats() over
+ * dispatcher's `kind` command. The parse is read through readDeclaredSeats() over
  * a seat file in a temp home; `kind` is driven as the dispatcher drives it,
  * through its CLI, since that is its only caller.
  *
@@ -13,7 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { declaredSeats } from "./refill-seats.js";
+import { readDeclaredSeats } from "./refill-seats.js";
 import { runInProcess } from "./run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "refill-seats.js");
@@ -28,12 +28,12 @@ afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 const file = () => path.join(home, ".claude", "refill-seats");
 const parse = (text: string) => {
 	fs.writeFileSync(file(), text);
-	return declaredSeats(home);
+	return readDeclaredSeats(home);
 };
 const kind = (seat: string) =>
 	runInProcess(SCRIPT, ["kind", seat], { env: { ...process.env, HOME: home } });
 
-describe("declaredSeats", () => {
+describe("readDeclaredSeats", () => {
 	it("reads a bare path as a plan seat and an api line as an overflow seat, in order", () => {
 		expect(
 			parse(
@@ -75,7 +75,7 @@ describe("declaredSeats", () => {
 	});
 
 	it("reads no seats from an absent file", () => {
-		expect(declaredSeats(home)).toEqual({ seats: [], errors: [] });
+		expect(readDeclaredSeats(home)).toEqual({ seats: [], errors: [] });
 	});
 
 	it.each([

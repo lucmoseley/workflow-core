@@ -5,9 +5,9 @@
  * tree, so no session's unsaved edit is ever tested (mantahostels#908's
  * reason).
  *
- * Each run holds one suite slot from the install to the last command. A slot
- * still shut at the queue's ceiling is no verdict: the tester never runs
- * unadmitted, where the queue's own wait runs anyway on the count cap.
+ * Each group of runs holds one suite slot from the install to its last
+ * command; a sharded whole run takes one slot per shard. A slot still shut at
+ * the queue's wait bound is no verdict: the tester never runs unadmitted.
  *
  * Any step that fails before the suite reports — the checkout, the slot, the
  * install, a command that will not start, is killed, or fails naming no
@@ -15,18 +15,21 @@
  */
 
 const { execFileSync, spawn } = require("node:child_process");
+const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { availableMb } = require("./admission.js");
+const { readAvailableMb } = require("./admission.js");
 const { caught } = require("./caught.js");
 const { requiredGroup } = require("./regex-group.js");
+const { CEILING_LINE } = require("./suite-ceiling.js");
 const {
 	gateDenies,
-	liveRolePids,
+	readLiveRolePids,
 	queueJoin,
 	queueLeave,
 	queueSpawned,
+	queueStamps,
 	queueTurn,
 	waitForGate,
 } = require("./suite-queue.js");
@@ -65,7 +68,7 @@ const LANDER_ROLE = "lander";
 /* Untraced: room for `npm ci` over a slow link. */
 const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
 /* Untraced: room for a checkout of the whole tree. */
-const GIT_TIMEOUT_MS = 120 * 1000;
+const CHECKOUT_TIMEOUT_MS = 120 * 1000;
 /* Where the install's lockfile hash is kept: inside what it installed, so a
  * deleted `node_modules` takes its stamp with it. */
 const STAMP = path.join("node_modules", ".lander-lock-hash");
@@ -78,9 +81,11 @@ const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
  *   | {ok: false, reason: string}} Admission
  * @typedef {{code: number|null, signal: string|null, out: string,
  *   error: string|null}} RunResult
- * @typedef {{command: string, args: string[]}} Run
- * @typedef {(bin: string, args: string[], cwd: string, timeout?: number)
- *   => void} Exec git or npm, throwing on failure
+ * @typedef {{command: string, args: string[], label?: string}} Run `label`
+ *   names the run in a reason where `command` alone would not, as a shard's
+ * @typedef {(bin: string, args: string[], cwd: string,
+ *   opts?: {timeout?: number, maxBuffer?: number}) => void} Exec
+ *   git or npm, throwing on failure
  * @typedef {object} LocalTesterOptions
  * @property {string} root the canonical checkout, whose object store the
  *   worktree shares
@@ -90,6 +95,15 @@ const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
  */
 
 /**
+ * A run's output as lines, its ANSI colour stripped.
+ * @param {string} out
+ * @returns {string[]}
+ */
+const parsePlainLines = (out) =>
+	// biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colour
+	out.replace(/\u001b\[[0-9;]*m/g, "").split("\n");
+
+/**
  * The failing test files a vitest or pytest run names, in the order first
  * named: vitest's `FAIL  <file> > <test>` lines and pytest's
  * `FAILED <file>::<test>` and `ERROR <file>` ones.
@@ -97,11 +111,9 @@ const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
  * @returns {string[]}
  */
 function failingFiles(out) {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: strips ANSI colour
-	const plain = out.replace(/\u001b\[[0-9;]*m/g, "");
 	/** @type {Set<string>} */
 	const files = new Set();
-	for (const line of plain.split("\n"))
+	for (const line of parsePlainLines(out))
 		for (const re of [VITEST_FAIL, PYTEST_FAIL]) {
 			const m = line.match(re);
 			if (m) {
@@ -113,10 +125,23 @@ function failingFiles(out) {
 }
 
 /**
+ * A run's ceiling-kill line, where the suite ceiling killed it (#2696): no
+ * verdict, with no culprit to bisect for, and the ceiling named.
+ * @param {string} out
+ * @returns {string|null}
+ */
+function parseCeilingKillReason(out) {
+	const line = parsePlainLines(out).find((l) => l.startsWith(CEILING_LINE));
+	return line === undefined ? null : `killed: ${line}`;
+}
+
+/**
  * One suite slot: a place in the suite queue, the suite gate open, and
  * MemAvailable at SLOT_MB, all three at once. Memory that cannot be read
- * holds the slot shut. At the ceiling it refuses on either limb: the lander
- * then exits with no verdict, leaving the batch for its next run (#2542).
+ * holds the slot shut. An open slot is stamped admitted, so no other waiter
+ * launches beside it before its suite spawns (#2650). At the ceiling it
+ * refuses on either limb: the lander then exits with no verdict, leaving the
+ * batch for its next run (#2542).
  * @param {{pollMs?: number, timeoutMs?: number,
  *   gate?: () => import("./suite-queue.js").GateDenial | null,
  *   memory?: () => import("./admission.js").MbResult, queueDir?: string}}
@@ -128,7 +153,7 @@ async function suiteSlot({
 	pollMs,
 	timeoutMs,
 	gate = () => gateDenies(),
-	memory = availableMb,
+	memory = readAvailableMb,
 	queueDir,
 } = {}) {
 	const file = queueJoin({ queueDir, role: LANDER_ROLE });
@@ -147,8 +172,8 @@ async function suiteSlot({
 			return gate();
 		},
 		turn: () => queueTurn({ queueDir }),
+		...queueStamps(file, { queueDir }),
 		label: "lander",
-		refuseAtCeiling: true,
 	});
 	if (outcome !== "refused")
 		return {
@@ -169,8 +194,8 @@ async function suiteSlot({
  * @param {{queueDir?: string}} [options]
  * @returns {import("./admission.js").Landers}
  */
-function liveLanders({ queueDir } = {}) {
-	return { pids: liveRolePids(LANDER_ROLE, { queueDir }), slotMb: SLOT_MB };
+function readLiveLanders({ queueDir } = {}) {
+	return { pids: readLiveRolePids(LANDER_ROLE, { queueDir }), slotMb: SLOT_MB };
 }
 
 /**
@@ -206,12 +231,13 @@ const shellRun = ({ command, args }, cwd, onSpawn) =>
 	});
 
 /** @type {Exec} */
-const execOrThrow = (bin, args, cwd, timeout = GIT_TIMEOUT_MS) => {
+const execOrThrow = (bin, args, cwd, opts) => {
 	execFileSync(bin, args, {
+		timeout: CHECKOUT_TIMEOUT_MS,
+		...opts,
 		cwd,
 		env: rootlessEnv(),
 		stdio: ["ignore", "pipe", "pipe"],
-		timeout,
 	});
 };
 
@@ -236,13 +262,23 @@ function whyFailed(err) {
 function checkOut(root, dir, sha, exec) {
 	if (!fs.existsSync(path.join(dir, ".git"))) {
 		fs.rmSync(dir, { recursive: true, force: true });
-		exec("git", ["worktree", "prune"], root);
+		exec(gitBinary(), ["worktree", "prune"], root, gitSpawnOptions());
 		fs.mkdirSync(path.dirname(dir), { recursive: true });
-		exec("git", ["worktree", "add", "--detach", dir, sha], root);
+		exec(
+			gitBinary(),
+			["worktree", "add", "--detach", dir, sha],
+			root,
+			gitSpawnOptions(),
+		);
 		return;
 	}
-	exec("git", ["checkout", "--quiet", "--detach", "--force", sha], dir);
-	exec("git", ["clean", "-ffdq"], dir);
+	exec(
+		gitBinary(),
+		["checkout", "--quiet", "--detach", "--force", sha],
+		dir,
+		gitSpawnOptions(),
+	);
+	exec(gitBinary(), ["clean", "-ffdq"], dir, gitSpawnOptions());
 }
 
 /**
@@ -264,7 +300,9 @@ function install(dir, exec) {
 	} catch {
 		/* no stamp: never installed, or the install was removed */
 	}
-	exec("npm", ["ci", "--no-audit", "--no-fund"], dir, INSTALL_TIMEOUT_MS);
+	exec("npm", ["ci", "--no-audit", "--no-fund"], dir, {
+		timeout: INSTALL_TIMEOUT_MS,
+	});
 	fs.writeFileSync(stamp, `${hash}\n`);
 }
 
@@ -287,16 +325,18 @@ function rerunsOf(files, test, python) {
 }
 
 /**
- * The commands a run takes at `dir`: the declared `full_test`, else `test`,
- * and the Python runner where the config routes a Python test path; with
- * `files`, `rerunsOf`'s runs. Read from the worktree's own config, the one
- * the sha carries.
+ * The commands a run takes at `dir`, one group per suite slot: the declared
+ * `full_test`, else `test`, and the Python runner where the config routes a
+ * Python test path; with `files`, `rerunsOf`'s runs. A declared
+ * `fullTestShards` splits the whole run into that many `--shard=k/n` groups,
+ * each under its own suite ceiling, the Python runner joining the last
+ * (#2996). Read from the worktree's own config, the one the sha carries.
  * @param {string} dir
  * @param {string} pytest
  * @param {string[]} files
- * @returns {Run[] | string} the runs, or why none can be had
+ * @returns {Run[][] | string} the groups, or why none can be had
  */
-function runsAt(dir, pytest, files) {
+function readRunsAt(dir, pytest, files) {
 	let config;
 	try {
 		config = readConfig({ root: dir, quiet: true });
@@ -308,39 +348,98 @@ function runsAt(dir, pytest, files) {
 		"test",
 	);
 	const python = `node ${pytest}`;
-	if (files.length > 0) return rerunsOf(files, test, routesPython && python);
+	if (files.length > 0) {
+		const runs = rerunsOf(files, test, routesPython && python);
+		return typeof runs === "string" ? runs : [runs];
+	}
 	const whole = full_test ?? test;
 	if (!whole) return "no test command is declared";
-	return [
-		{ command: whole, args: [] },
-		...(routesPython ? [{ command: python, args: [] }] : []),
-	];
+	const shards = config.fullTestShards ?? 1;
+	return Array.from({ length: shards }, (_, i) => {
+		const shard = `--shard=${i + 1}/${shards}`;
+		return [
+			shards > 1
+				? { command: whole, args: [shard], label: `${whole} ${shard}` }
+				: { command: whole, args: [] },
+			...(routesPython && i === shards - 1
+				? [{ command: python, args: [] }]
+				: []),
+		];
+	});
 }
 
 /**
- * Each of `runs` in `dir`, in turn: green where every one exits 0, red with
- * the files they name where one fails naming some.
+ * Each group of runs in `dir`, in turn, each in a suite slot of its own
+ * taken by `admit`, installing in it first: green where every run exits 0,
+ * red with the files they name where one fails naming some, and no verdict
+ * at the first step that reaches none.
+ * @param {Run[][]} groups
+ * @param {string} dir
+ * @param {() => Promise<Admission>} admit
+ * @param {Exec} exec
+ * @returns {Promise<Verdict>}
+ */
+async function runEach(groups, dir, admit, exec) {
+	/** @type {Set<string>} */
+	const failing = new Set();
+	for (const runs of groups) {
+		/** @type {Admission} */
+		let slot;
+		try {
+			slot = await admit();
+		} catch (err) {
+			return {
+				kind: "unknown",
+				reason: `no suite slot: ${caught(err).message}`,
+			};
+		}
+		if (!slot.ok) return { kind: "unknown", reason: slot.reason };
+		try {
+			try {
+				install(dir, exec);
+			} catch (err) {
+				return {
+					kind: "unknown",
+					reason: `install failed: ${whyFailed(err)}`,
+				};
+			}
+			const why = await runInSlot(runs, dir, slot.spawned, failing);
+			/* No verdict, never red, though an earlier shard failed: a red
+			 * would send the lander to rerun those files alone, and a pass
+			 * there would land a shard no run judged. */
+			if (why !== null)
+				return {
+					kind: "unknown",
+					reason:
+						failing.size > 0
+							? `${why}, after ${[...failing].join(", ")} failed`
+							: why,
+				};
+		} finally {
+			slot.release();
+		}
+	}
+	return failing.size > 0
+		? { kind: "red", files: [...failing] }
+		: { kind: "green" };
+}
+
+/**
+ * Each of `runs` in `dir`, in turn, adding the files a failing one names to
+ * `failing`.
  * @param {Run[]} runs
  * @param {string} dir
  * @param {() => void} spawned
- * @returns {Promise<Verdict>}
+ * @param {Set<string>} failing accumulator: the failing files so far
+ * @returns {Promise<string|null>} why a run reached no verdict, or null
  */
-async function runEach(runs, dir, spawned) {
-	/** @type {Set<string>} */
-	const failing = new Set();
+async function runInSlot(runs, dir, spawned, failing) {
 	for (const run of runs) {
 		const r = await shellRun(run, dir, spawned);
-		const { command } = run;
-		if (r.error !== null)
-			return {
-				kind: "unknown",
-				reason: `${command} did not start: ${r.error}`,
-			};
+		const command = run.label ?? run.command;
+		if (r.error !== null) return `${command} did not start: ${r.error}`;
 		if (r.code === null)
-			return {
-				kind: "unknown",
-				reason: `${command} was killed by ${r.signal ?? "an unknown signal"}`,
-			};
+			return `${command} was killed by ${r.signal ?? "an unknown signal"}`;
 		if (r.code === 0) continue;
 		/* A test that prints a runner's output as its fixture puts FAIL lines
 		 * naming files the tree lacks into the run's output (#2410). */
@@ -348,15 +447,10 @@ async function runEach(runs, dir, spawned) {
 			fs.existsSync(path.join(dir, f)),
 		);
 		if (files.length === 0)
-			return {
-				kind: "unknown",
-				reason: `${command} exited ${r.code} naming no failing file in the tree`,
-			};
+			return `${command} exited ${r.code} ${parseCeilingKillReason(r.out) ?? "naming no failing file in the tree"}`;
 		for (const f of files) failing.add(f);
 	}
-	return failing.size > 0
-		? { kind: "red", files: [...failing] }
-		: { kind: "green" };
+	return null;
 }
 
 /**
@@ -381,34 +475,12 @@ function localTester({
 					reason: `checkout failed: ${whyFailed(err)}`,
 				};
 			}
-			const runs = runsAt(dir, pytest, files);
-			if (typeof runs === "string") return { kind: "unknown", reason: runs };
-			/** @type {Admission} */
-			let slot;
-			try {
-				slot = await admit();
-			} catch (err) {
-				return {
-					kind: "unknown",
-					reason: `no suite slot: ${caught(err).message}`,
-				};
-			}
-			if (!slot.ok) return { kind: "unknown", reason: slot.reason };
-			try {
-				try {
-					install(dir, exec);
-				} catch (err) {
-					return {
-						kind: "unknown",
-						reason: `install failed: ${whyFailed(err)}`,
-					};
-				}
-				return await runEach(runs, dir, slot.spawned);
-			} finally {
-				slot.release();
-			}
+			const groups = readRunsAt(dir, pytest, files);
+			if (typeof groups === "string")
+				return { kind: "unknown", reason: groups };
+			return runEach(groups, dir, admit, exec);
 		},
 	};
 }
 
-module.exports = { liveLanders, localTester, suiteSlot };
+module.exports = { readLiveLanders, localTester, suiteSlot };

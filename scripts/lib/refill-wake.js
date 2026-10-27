@@ -19,9 +19,10 @@ const path = require("node:path");
  * ruled on #2199. */
 const FALLBACK_MS = 300 * 1000;
 
-/* The re-check after a woken tick still listing its waking session working:
- * the listing read `done` at most ~6 s after a session's last `Stop`, over
- * three launches measured on #2313; the 4 s above that is a guess. */
+/* The re-check after a woken tick still listing its waking session working
+ * or unreaped: the listing read `done` at most ~6 s after a session's last
+ * `Stop`, over three launches measured on #2313; the 4 s above that is a
+ * guess. */
 const RECHECK_MS = 10 * 1000;
 
 /**
@@ -76,7 +77,7 @@ function wakeWatcher(file, { log, watch = fs.watch }) {
 		pollOnly(err);
 	}
 
-	function newSessions() {
+	function readNewSessions() {
 		let text = "";
 		try {
 			const all = fs.readFileSync(file);
@@ -112,7 +113,7 @@ function wakeWatcher(file, { log, watch = fs.watch }) {
 			}
 			const woken = pending;
 			pending = false;
-			return { woken, sessions: woken ? newSessions() : [] };
+			return { woken, sessions: woken ? readNewSessions() : [] };
 		},
 		close: () => watcher?.close(),
 	};
@@ -120,14 +121,18 @@ function wakeWatcher(file, { log, watch = fs.watch }) {
 
 /**
  * Whether a woken tick's listing still shows one of its waking sessions
- * working: its `Stop` fired before the listing caught up, so the room it
- * frees is not yet seen.
+ * resident, so the room it frees is not yet seen: `working`, its `Stop` having
+ * fired before the listing caught up; or `done` after the tick's reap, which
+ * held it because the `Stop` hooks that woke the loop, or the turn one of them
+ * forced, had not yet written the turn's end (#2980).
  * @param {string[]} sessions
  * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
  */
-const isWakerStillWorking = (sessions, agents) =>
+const isWakerStillResident = (sessions, agents) =>
 	(agents ?? []).some(
-		(a) => a.state === "working" && sessions.includes(String(a.sessionId)),
+		(a) =>
+			(a.state === "working" || a.state === "done") &&
+			sessions.includes(String(a.sessionId)),
 	);
 
 /**
@@ -138,7 +143,7 @@ const isWakerStillWorking = (sessions, agents) =>
 /**
  * Run `tick` until it answers done, sleeping between ticks on `watcher` for a
  * wake or the fallback poll, the sleep measured from a tick's end. A woken
- * tick whose listing still shows a waking session working is followed, once,
+ * tick whose listing still shows a waking session resident is followed, once,
  * by another after the re-check delay.
  * @param {(wake: Wake) => Promise<TickResult>} tick given the wake that began it
  * @param {{next: (ms: number) => Promise<Wake>}} watcher
@@ -163,7 +168,7 @@ async function runTicks(
 		if (
 			!rechecking &&
 			wake.woken &&
-			isWakerStillWorking(wake.sessions, agents)
+			isWakerStillResident(wake.sessions, agents)
 		) {
 			rechecking = true;
 			await sleep(recheckMs);

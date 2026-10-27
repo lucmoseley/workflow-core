@@ -5,20 +5,21 @@
  * one rerun; where they stay red, the lander bisects to the first red commit,
  * lands its parent once the culprit fails twice and the parent passes the
  * whole suite, reverts the culprit on `landing` and files its fix ticket, or
- * holds (#2404).
+ * holds (#2404). A parent whose whole suite reaches no verdict is confirmed
+ * on the culprit's failing files instead and stays off `main` (#2910).
  *
- * Its green ledger (one `<sha> <iso time>` line per sha it lands),
- * pidfile and heartbeat sit under the canonical checkout's markers directory,
+ * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
+ * no-verdict ledger (the same line per parent whose whole suite reached no
+ * verdict, never run whole again), pidfile and heartbeat sit under the canonical checkout's markers directory,
  * machine-local and gitignored, so a worktree's lander shares them with the
  * main tree's.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { caught, errorText } = require("./caught.js");
-const { firstLine } = require("./first-line.js");
+const { caught, parseErrorText } = require("./caught.js");
+const { parseFirstLine } = require("./first-line.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const {
 	LANDING_BRANCH,
@@ -27,12 +28,13 @@ const {
 	VERIFIED_BRANCH,
 } = require("./landing-refs.js");
 const { markersDir } = require("./marker-root.js");
+const { execGit } = require("./git.js");
 
-/* Untraced: a fraction of the stall check's 90 min, so a live lander is never
+/* Untraced: a fraction of the stall check's 2 h, so a live lander is never
  * read as dead mid-suite. */
 const HEARTBEAT_MS = 60 * 1000;
 /* Untraced: room for a fetch over a slow link. */
-const GIT_TIMEOUT_MS = 120 * 1000;
+const LANDER_GIT_TIMEOUT_MS = 120 * 1000;
 /* Untraced: the push runs the checkout's pre-push hook, whose mod tests run
  * `claude plugin test` on a batch touching a mod. */
 const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
@@ -42,12 +44,40 @@ const PUSH_TIMEOUT_MS = 20 * 60 * 1000;
  * lib/landing-status.js searches `landing` for.
  * @param {string} sha
  */
-const revertLine = (sha) => `This reverts commit ${sha}.`;
+const buildRevertLine = (sha) => `This reverts commit ${sha}.`;
 /* Untraced: a revert racing that many session pushes in a row is a busier
  * `landing` than any seen. */
 const REVERT_PUSH_TRIES = 3;
 /* git push's words for a refusal because the remote branch moved. */
 const MOVED = /\[rejected\]|non-fast-forward|fetch first/;
+const GIT_REFUSAL = /^(?:error|fatal):.*|^ ! \[.*/m;
+
+/**
+ * The line naming why a git call failed: git's own refusal where it printed
+ * one, as a push's first line is the pre-push hook's, else the first line.
+ * @param {string} text
+ */
+const parseRefusal = (text) =>
+	GIT_REFUSAL.exec(text)?.[0] ?? parseFirstLine(text);
+/* A gate's verdict line, as a commit hook's first line is npm's echo of the
+ * script it runs. Residual: a gate that prints neither falls back to that
+ * echo. */
+const GATE_VERDICT = /^(?:FAIL|BROKEN): .*/m;
+
+/**
+ * What `call` printed to stderr where it threw, else null.
+ * @param {() => unknown} call
+ * @returns {string|null}
+ */
+function stderrIfThrown(call) {
+	try {
+		call();
+		return null;
+	} catch (err) {
+		const e = caught(err);
+		return String(e.stderr || e.message);
+	}
+}
 /* Untraced: five tries over about a minute, outlasting a DNS or connection
  * blip (#2673); the backoff is exponential and randomised, as the Google SRE
  * book's "Addressing Cascading Failures" chapter sets for a retrying client. */
@@ -59,7 +89,8 @@ const NETWORK =
 /**
  * @typedef {{kind: "green"} | {kind: "red", files: string[]}
  *   | {kind: "unknown", reason: string}} Verdict
- * @typedef {"flake" | "bisect" | "confirm"} RerunWhy
+ * @typedef {"flake" | "bisect" | "confirm" | "parent" | "parent-files"}
+ *   RerunWhy
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
@@ -76,12 +107,14 @@ const NETWORK =
  * @property {string[]} files the failing files, every rerun's target; empty
  *   where the tester named none, which reruns the whole suite
  * @property {Verdict|null} flake the one rerun at the tip
- * @property {string[]|null} range the first-parent commits after `base` up to
- *   the tip, oldest first
+ * @property {string[]|null} range the commits after `base` up to the tip,
+ *   oldest first
  * @property {Record<string, Verdict>} bisect each bisected commit's verdict
  * @property {Record<string, Verdict>} confirm the culprit's second run and
- *   its parent's run, apart from the bisect's so they never move the culprit
- *   it named
+ *   its parent's whole-suite run, apart from the bisect's so they never move
+ *   the culprit it named
+ * @property {Verdict|null} parentOnFiles the parent's run on `files`, taken
+ *   only where its whole suite reached no verdict
  * @property {Revert|null} revert
  * @property {string|null} unfiled why the fix ticket was not filed
  * @typedef {{sha: string, onto: string} | {failed: string}} Revert the
@@ -93,6 +126,8 @@ const NETWORK =
  *   the branch is absent
  * @property {Relation} relation where `landing` stands against `main`
  * @property {(sha: string) => boolean} isGreen whether the ledger holds `sha`
+ * @property {(sha: string) => boolean} isStuck whether the no-verdict ledger
+ *   holds `sha`
  * @property {{sha: string, verdict: Exclude<Verdict, {kind: "red"}>}|null}
  *   tested the batch this run took and the tester's verdict on it, a red
  *   one becoming `red`
@@ -145,23 +180,15 @@ function bisectStep(r) {
  * its fix ticket. Anything short of that confirmation holds; a run with no
  * verdict exits.
  * @param {Red} r
- * @param {string|null} main
+ * @param {Pick<LanderState, "main" | "isStuck">} s
  * @returns {Action}
  */
-function redAction(r, main) {
+function redAction(r, { main, isStuck }) {
 	const { files } = r;
 	/** @type {[string, Verdict|null][]} */
-	const runs = [
-		[r.sha, r.flake],
-		...Object.entries(r.bisect),
-		...Object.entries(r.confirm),
-	];
+	const runs = [[r.sha, r.flake], ...Object.entries(r.bisect)];
 	for (const [sha, v] of runs)
-		if (v?.kind === "unknown")
-			return {
-				kind: "exit",
-				reason: `no verdict at ${short(sha)}: ${v.reason}`,
-			};
+		if (v?.kind === "unknown") return buildNoVerdictExit(sha, v);
 	if (!r.flake) return { kind: "rerun", sha: r.sha, files, why: "flake" };
 	/* Spec #2261's flake check. Residual: a flaky file outside `files` lands
 	 * unseen, the whole suite having run once, red. */
@@ -170,20 +197,34 @@ function redAction(r, main) {
 	const step = bisectStep({ ...r, range: r.range });
 	if ("next" in step)
 		return { kind: "rerun", sha: step.next, files, why: "bisect" };
-	return confirmAction(r, step) ?? culpritAction(r, step, main);
+	return confirmAction(r, step, isStuck) ?? culpritAction(r, step, main);
 }
 
 /**
+ * @param {string} sha
+ * @param {Extract<Verdict, {kind: "unknown"}>} v
+ * @returns {Action}
+ */
+const buildNoVerdictExit = (sha, v) => ({
+	kind: "exit",
+	reason: `no verdict at ${short(sha)}: ${v.reason}`,
+});
+
+/**
  * The culprit's confirming runs, or null once it failed twice and its parent
- * passed.
+ * passed. A parent whose whole suite reached no verdict is run on `files`
+ * alone, once: rerunning the whole suite would end the same way on every
+ * start.
  * @param {Red} r
  * @param {{culprit: string, parent: string|null}} bisected
+ * @param {(sha: string) => boolean} isStuck
  * @returns {Action|null}
  */
-function confirmAction(r, { culprit, parent }) {
+function confirmAction(r, { culprit, parent }, isStuck) {
 	const { files } = r;
 	const again = r.confirm[culprit];
 	if (!again) return { kind: "rerun", sha: culprit, files, why: "confirm" };
+	if (again.kind === "unknown") return buildNoVerdictExit(culprit, again);
 	if (again.kind === "green")
 		return {
 			kind: "hold",
@@ -193,18 +234,57 @@ function confirmAction(r, { culprit, parent }) {
 	/* The whole suite, as the parent lands on `main`, which only ever holds a
 	 * sha the full suite passed. */
 	const before = r.confirm[parent];
-	if (!before) return { kind: "rerun", sha: parent, files: [], why: "confirm" };
-	if (before.kind === "red")
+	if (!before && !isStuck(parent))
+		return { kind: "rerun", sha: parent, files: [], why: "parent" };
+	if (before?.kind === "red")
 		return {
 			kind: "hold",
-			reason: `culprit unconfirmed: ${short(culprit)}'s parent ${short(parent)} fails the whole suite: ${filesLabel(before.files)}`,
+			reason: parentUnconfirmed(
+				culprit,
+				parent,
+				`fails the whole suite: ${filesLabel(before.files)}`,
+			),
+		};
+	if (before?.kind === "green") return null;
+	/* Residual: the revert then rests on `files` alone at the parent, so a
+	 * parent red elsewhere in the suite goes unseen; it never reaches `main`,
+	 * which moves only once the reverted tip passes the whole suite. */
+	const onFiles = r.parentOnFiles;
+	if (!onFiles)
+		return { kind: "rerun", sha: parent, files, why: "parent-files" };
+	if (onFiles.kind === "unknown")
+		return {
+			kind: "hold",
+			reason: parentUnconfirmed(
+				culprit,
+				parent,
+				`reached no verdict on the whole suite or on ${filesLabel(files)}: ${onFiles.reason}`,
+			),
+		};
+	if (onFiles.kind === "red")
+		return {
+			kind: "hold",
+			reason: parentUnconfirmed(
+				culprit,
+				parent,
+				`fails ${filesLabel(onFiles.files)}`,
+			),
 		};
 	return null;
 }
 
 /**
+ * @param {string} culprit
+ * @param {string} parent
+ * @param {string} why
+ */
+const parentUnconfirmed = (culprit, parent, why) =>
+	`culprit unconfirmed: ${short(culprit)}'s parent ${short(parent)} ${why}`;
+
+/**
  * What follows a confirmed culprit: land its parent where it is ahead of
- * `main`, revert it on `landing`, then file its fix ticket.
+ * `main` and passed the whole suite, revert it on `landing`, then file its
+ * fix ticket.
  * @param {Red} r
  * @param {{culprit: string, parent: string|null}} confirmed
  * @param {string|null} main
@@ -212,7 +292,7 @@ function confirmAction(r, { culprit, parent }) {
  */
 function culpritAction(r, { culprit, parent }, main) {
 	const { files } = r;
-	if (parent !== null && parent !== main)
+	if (parent !== null && parent !== main && r.confirm[parent]?.kind === "green")
 		return { kind: "fast-forward", sha: parent };
 	if (!r.revert) return { kind: "revert", culprit, parent, files };
 	if ("failed" in r.revert)
@@ -242,6 +322,7 @@ function culpritAction(r, { culprit, parent }, main) {
  */
 function recordRerun(r, action, verdict) {
 	if (action.why === "flake") return { ...r, flake: verdict };
+	if (action.why === "parent-files") return { ...r, parentOnFiles: verdict };
 	const slot = action.why === "bisect" ? "bisect" : "confirm";
 	return { ...r, [slot]: { ...r[slot], [action.sha]: verdict } };
 }
@@ -260,6 +341,7 @@ const redBatch = (sha, base, files) => ({
 	range: null,
 	bisect: {},
 	confirm: {},
+	parentOnFiles: null,
 	revert: null,
 	unfiled: null,
 });
@@ -302,7 +384,7 @@ function isNetworkFault(err) {
  * @returns {Action}
  */
 function nextAction(s) {
-	if (s.red) return redAction(s.red, s.main);
+	if (s.red) return redAction(s.red, s);
 	if (s.tested) {
 		const { sha, verdict } = s.tested;
 		if (verdict.kind === "green") return { kind: "fast-forward", sha };
@@ -332,11 +414,15 @@ function nextAction(s) {
  *   each commit present locally, and where `landing` stands against `main`
  * @property {(sha: string) => void} pushMain a plain, non-forced push of
  *   `sha` to the remote's `main`
- * @property {(base: string|null, sha: string) => string[]} firstParents the
- *   first-parent commits after `base` up to `sha`, oldest first
- * @property {(culprit: string, why: string) => Revert} revertOnLanding a
- *   revert of `culprit` committed on the remote's current `landing` tip and
- *   pushed there without force, `why` closing its message
+ * @property {(base: string|null, sha: string) => string[]} chain the commits
+ *   after `base` up to `sha`, oldest first, along the parents that descend
+ *   from `base`, so `main` at `base` can fast-forward to any of them: a
+ *   reconcile merge's first parent is the session's side, which need not
+ *   (#2996)
+ * @property {(culprit: string, parent: string|null, why: string) => Revert}
+ *   revertOnLanding a revert of `culprit` against `parent`, committed on the
+ *   remote's current `landing` tip and pushed there without force, `why`
+ *   closing its message
  * @property {(tip: string, sha: string) => boolean} contains whether `sha`
  *   is `tip` or one of its ancestors
  * @typedef {{verdict: (sha: string, files?: string[]) => Promise<Verdict>}}
@@ -362,10 +448,14 @@ function nextAction(s) {
  * @property {Tester} tester
  * @property {LanderTracker} tracker
  * @property {Ledger} ledger
+ * @property {Ledger} noVerdict the parents whose whole suite reached no
+ *   verdict
  * @property {{acquire: () => boolean, release: () => void}} lock
- * @property {(batch: string|null, note?: BeatNote) => void} beat writes the
- *   heartbeat
+ * @property {(batch: string|null, note?: BeatNote, movedAt?: string|null) =>
+ *   void} beat writes the heartbeat, with when this lander last moved `main`
  * @property {() => HoldNote|null} [lastHold]
+ * @property {() => string|null} [lastMoved] when a lander last moved `main`,
+ *   as the last run's final beat carried it
  * @property {() => Red|null} [lastRed] the red batch the last run's final
  *   beat carried
  * @property {(ms: number) => Promise<void>} [wait] the backoff between
@@ -408,9 +498,7 @@ async function act(deps, action, { tested, red }, main) {
 	if (action.kind === "fast-forward") {
 		/* Ledgered first, so the pre-push check can tell this push from any
 		 * other. Residual: a push that then fails leaves the sha ledgered, and
-		 * the next run retries the push without a second test. A culprit's
-		 * parent is ledgered on its failing files' run alone, as spec #2261
-		 * lands it. */
+		 * the next run retries the push without a second test. */
 		ledger.add(action.sha);
 		await remote(deps, () => git.pushMain(action.sha));
 		return { tested: null, red: red?.sha === action.sha ? null : red };
@@ -434,19 +522,19 @@ async function act(deps, action, { tested, red }, main) {
  * @returns {Promise<Red|null>}
  */
 async function advanceRed(deps, action, r) {
-	const { git, tracker, say = () => undefined } = deps;
-	if (action.kind === "rerun")
-		return recordRerun(
-			r,
-			action,
-			await verdictAt(deps, action.sha, action.files),
-		);
+	const { git, tracker, noVerdict, say = () => undefined } = deps;
+	if (action.kind === "rerun") {
+		const verdict = await verdictAt(deps, action.sha, action.files);
+		/* Ledgered, as a hold drops the red batch and the next push's bisect
+		 * would name the same parent again. */
+		if (action.why === "parent" && verdict.kind === "unknown")
+			noVerdict.add(action.sha);
+		return recordRerun(r, action, verdict);
+	}
 	if (action.kind === "bisect")
 		return {
 			...r,
-			range: await remote(deps, () =>
-				git.firstParents(action.base, action.sha),
-			),
+			range: await remote(deps, () => git.chain(action.base, action.sha)),
 			/* The tip's rerun is the bisect's first red. */
 			bisect: { [action.sha]: /** @type {Verdict} */ (r.flake) },
 		};
@@ -456,6 +544,7 @@ async function advanceRed(deps, action, r) {
 			revert: await remote(deps, () =>
 				git.revertOnLanding(
 					action.culprit,
+					action.parent,
 					`The lander found it red on ${filesLabel(action.files)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
 				),
 			),
@@ -507,6 +596,7 @@ async function runLander(deps) {
 		log = () => undefined,
 		lastHold = () => null,
 		lastRed = () => null,
+		lastMoved = () => null,
 	} = deps;
 	if (!lock.acquire()) {
 		/** @type {End} */
@@ -519,11 +609,13 @@ async function runLander(deps) {
 		state: { tested: null, red: null },
 		held: lastHold(),
 		unread: lastRed(),
+		movedAt: lastMoved(),
 	};
 	/** @type {LanderDeps} */
 	const run = {
 		...deps,
-		beat: (batch, note) => deps.beat(batch, note ?? carried(carry)),
+		beat: (batch, note) =>
+			deps.beat(batch, note ?? carried(carry), carry.movedAt),
 	};
 	try {
 		return await actUntilEnd(run, carry);
@@ -531,7 +623,7 @@ async function runLander(deps) {
 		/** @type {End} */
 		const end = {
 			kind: "exit",
-			reason: `stopped on an error: ${firstLine(errorText(err))}`,
+			reason: `stopped on an error: ${parseRefusal(parseErrorText(err))}`,
 		};
 		log(end);
 		return end;
@@ -546,6 +638,8 @@ async function runLander(deps) {
  * @property {HoldNote|null} held the last run's hold, until the remote says
  *   whether its tip still stands
  * @property {Red|null} unread the last run's red batch, likewise
+ * @property {string|null} movedAt when a lander last moved `main`, which the
+ *   stall check counts from (#2692)
  */
 
 /**
@@ -566,8 +660,9 @@ function carried({ state, held, unread }) {
  * @returns {Promise<End>}
  */
 async function actUntilEnd(run, carry) {
-	const { git, ledger, log = () => undefined } = run;
+	const { git, ledger, noVerdict, log = () => undefined } = run;
 	const isGreen = (/** @type {string} */ sha) => ledger.has(sha);
+	const isStuck = (/** @type {string} */ sha) => noVerdict.has(sha);
 	for (;;) {
 		run.beat(carry.state.red?.sha ?? carry.state.tested?.sha ?? null);
 		const refs = await remote(run, () => git.refs());
@@ -586,7 +681,7 @@ async function actUntilEnd(run, carry) {
 		}
 		resume(git, carry, refs);
 		const { state } = carry;
-		const action = nextAction({ ...refs, isGreen, ...state });
+		const action = nextAction({ ...refs, isGreen, isStuck, ...state });
 		log(action);
 		if (action.kind === "hold") {
 			if (!state.red) throw new Error("a hold with no red batch");
@@ -594,6 +689,9 @@ async function actUntilEnd(run, carry) {
 		}
 		if (action.kind === "exit" || action.kind === "hold") return action;
 		carry.state = await act(run, action, state, refs.main);
+		/* act throws where the push fails, so this is a move of `main`. */
+		if (action.kind === "fast-forward")
+			carry.movedAt = new Date().toISOString();
 	}
 }
 
@@ -614,16 +712,22 @@ function resume(git, carry, refs) {
 
 /**
  * Whether a red batch a past run left is still this one's to clear: `landing`
- * descends from it and `main` does not.
+ * descends from it and `main` does not, and its bisect range, where it has
+ * one, steps from its base, so a parent it lands is one `main` can
+ * fast-forward to (#2996).
  * @param {LanderGit} git
  * @param {Red} red
  * @param {Refs} refs
  */
 function isStillOwed(git, red, { main, landing }) {
+	const oldest = red.range?.[0];
 	return (
 		landing !== null &&
 		git.contains(landing, red.sha) &&
-		(main === null || !git.contains(main, red.sha))
+		(main === null || !git.contains(main, red.sha)) &&
+		(oldest === undefined ||
+			red.base === null ||
+			git.contains(oldest, red.base))
 	);
 }
 
@@ -666,7 +770,7 @@ function heldTip(red) {
 /**
  * @param {Action} a
  */
-function actionLine(a) {
+function buildActionLine(a) {
 	switch (a.kind) {
 		case "exit":
 		case "hold":
@@ -691,6 +795,7 @@ function landerFiles(root) {
 	const dir = markersDir(root);
 	return {
 		ledger: path.join(dir, ".landing-green-ledger"),
+		noVerdict: path.join(dir, ".landing-no-verdict-ledger"),
 		pid: path.join(dir, ".lander.pid"),
 		heartbeat: path.join(dir, ".lander-heartbeat.json"),
 	};
@@ -710,14 +815,16 @@ function readText(file) {
 
 /**
  * @param {string} file
- * @returns {Ledger}
+ * @returns {Ledger & {readShas: () => string[]}} with every sha it holds
  */
 function fileLedger(file) {
+	const readShas = () =>
+		(readText(file) ?? "")
+			.split("\n")
+			.flatMap((line) => line.split(" ")[0] || []);
 	return {
-		has: (sha) =>
-			(readText(file) ?? "")
-				.split("\n")
-				.some((line) => line.split(" ")[0] === sha),
+		readShas,
+		has: (sha) => readShas().includes(sha),
 		add: (sha) =>
 			fs.appendFileSync(file, `${sha} ${new Date().toISOString()}\n`),
 	};
@@ -725,14 +832,14 @@ function fileLedger(file) {
 
 /**
  * @typedef {{pid: number, at: string, batch: string|null, hold?: HoldNote,
- *   red?: Red}} Heartbeat
+ *   red?: Red, movedAt?: string}} Heartbeat
  * @param {string} file
  * @returns {LanderDeps["beat"]}
  */
-const heartbeatWriter = (file) => (batch, note) =>
+const heartbeatWriter = (file) => (batch, note, movedAt) =>
 	writeFileAtomic(
 		file,
-		`${JSON.stringify({ pid: process.pid, at: new Date().toISOString(), batch, ...note })}\n`,
+		`${JSON.stringify({ pid: process.pid, at: new Date().toISOString(), batch, ...note, ...(movedAt ? { movedAt } : {}) })}\n`,
 	);
 
 /**
@@ -762,17 +869,22 @@ function readHeartbeat(file) {
 }
 
 /**
+ * @typedef {LanderGit & {committedAt: (sha: string) => number}} RemoteGit
+ *   with a local commit's committer time in ms
+ */
+
+/**
  * The lander's git, run in `root` against lib/landing-refs.js's remote. Both
  * branches are fetched, into their remote-tracking refs as a plain fetch
  * updates them, where either commit is not yet local, since the relation reads
  * both and a push names `landing` by sha.
  * @param {string} root
- * @returns {LanderGit}
+ * @returns {RemoteGit}
  */
 function remoteGit(root) {
 	/** @param {string[]} args @param {number} [timeout] */
-	const git = (args, timeout = GIT_TIMEOUT_MS) =>
-		execFileSync("git", args, {
+	const git = (args, timeout = LANDER_GIT_TIMEOUT_MS) =>
+		execGit(args, {
 			cwd: root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -816,7 +928,7 @@ function remoteGit(root) {
 		const refused = String(caught(err).stderr ?? "");
 		return MOVED.test(refused) && attempt < REVERT_PUSH_TRIES
 			? null
-			: { failed: firstLine(refused || caught(err).message) };
+			: { failed: parseRefusal(refused || caught(err).message) };
 	};
 	/**
 	 * A revert of `culprit` already on `tip`, as a push that reached the
@@ -825,13 +937,13 @@ function remoteGit(root) {
 	 * @param {string} tip
 	 * @returns {Revert|null}
 	 */
-	const landedRevert = (culprit, tip) => {
+	const readLandedRevert = (culprit, tip) => {
 		const sha = git([
 			"log",
 			"-1",
 			"--format=%H",
 			"--fixed-strings",
-			`--grep=${revertLine(culprit)}`,
+			`--grep=${buildRevertLine(culprit)}`,
 			`${culprit}..${tip}`,
 		]).trim();
 		return sha ? { sha, onto: git(["rev-parse", `${sha}^`]).trim() } : null;
@@ -880,25 +992,50 @@ function remoteGit(root) {
 			push(`${sha}:refs/heads/${VERIFIED_BRANCH}`);
 		},
 		contains: (tip, sha) => tip === sha || isAncestor(sha, tip),
-		firstParents(base, sha) {
-			return git([
-				"rev-list",
-				"--first-parent",
-				"--reverse",
-				...(base === null ? [sha] : [`${base}..${sha}`]),
-			])
-				.split("\n")
-				.filter(Boolean);
+		committedAt(sha) {
+			const at = Number(git(["log", "-1", "--format=%ct", sha]).trim()) * 1000;
+			if (!Number.isFinite(at) || at === 0)
+				throw new Error(`git log printed no committer time for ${sha}`);
+			return at;
 		},
-		revertOnLanding(culprit, why) {
+		chain(base, sha) {
+			/* With no `main`, every commit can land, so any parent will do. */
+			if (base === null)
+				return git(["rev-list", "--first-parent", "--reverse", sha])
+					.split("\n")
+					.filter(Boolean);
+			const parentsOf = new Map(
+				git(["rev-list", "--ancestry-path", "--parents", `${base}..${sha}`])
+					.split("\n")
+					.filter(Boolean)
+					.map((line) => {
+						const [commit, ...parents] = line.split(" ");
+						if (commit === undefined)
+							throw new Error(`rev-list printed no commit: ${line}`);
+						return [commit, parents];
+					}),
+			);
+			const chain = [];
+			for (let at = sha; at !== base; ) {
+				chain.push(at);
+				const next = parentsOf
+					.get(at)
+					?.find((p) => p === base || parentsOf.has(p));
+				if (next === undefined)
+					throw new Error(`${short(at)} does not descend from ${short(base)}`);
+				at = next;
+			}
+			return chain.reverse();
+		},
+		revertOnLanding(culprit, parent, why) {
 			/* A push refused because `landing` moved is retried on the new tip;
 			 * any other refusal, a pre-push hook's among them, fails. */
 			for (let attempt = 1; ; attempt++) {
 				git(["fetch", "--quiet", REMOTE, trackingRefspec(LANDING_BRANCH)]);
 				const tip = git(["rev-parse", "FETCH_HEAD"]).trim();
-				const landed = landedRevert(culprit, tip);
+				const landed = readLandedRevert(culprit, tip);
 				if (landed) return landed;
-				const made = revertCommit(culprit, tip, why);
+				const made = revertCommit(culprit, parent, tip, why);
 				if ("failed" in made) return made;
 				try {
 					push(`${made.sha}:refs/heads/${LANDING_BRANCH}`);
@@ -913,42 +1050,59 @@ function remoteGit(root) {
 
 	/**
 	 * A revert of `culprit` on `tip`, made in a throwaway worktree, so the
-	 * checkout's own tree and branch are never touched. `--no-verify`: the
-	 * commit hooks gate a session's own commits, and this undoes one they
-	 * passed.
+	 * checkout's own tree and branch are never touched. `--no-verify` skips
+	 * `pre-commit`, but `prepare-commit-msg` still runs the gate stack, so a
+	 * revert that expires a guard-registry anchor a later commit set is
+	 * refused, and holds the queue rather than failing every run (#3123).
 	 * @param {string} culprit
+	 * @param {string|null} parent
 	 * @param {string} tip
 	 * @param {string} why
 	 * @returns {{sha: string} | {failed: string}}
 	 */
-	function revertCommit(culprit, tip, why) {
+	function revertCommit(culprit, parent, tip, why) {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "lander-revert-"));
 		git(["worktree", "add", "--quiet", "--detach", dir, tip]);
 		/** @param {string[]} args @param {string} [input] */
 		const inTree = (args, input) =>
-			execFileSync("git", args, {
+			execGit(args, {
 				cwd: dir,
 				encoding: "utf8",
 				input,
 				stdio: ["pipe", "pipe", "pipe"],
-				timeout: GIT_TIMEOUT_MS,
+				timeout: LANDER_GIT_TIMEOUT_MS,
 			});
 		try {
 			const parents = git(["rev-list", "--parents", "-n", "1", culprit])
 				.trim()
-				.split(" ");
-			const mainline = parents.length > 2 ? ["-m", "1"] : [];
-			try {
-				inTree(["revert", "--no-commit", ...mainline, culprit]);
-			} catch (err) {
-				const e = caught(err);
-				return { failed: firstLine(String(e.stderr || e.message)) };
-			}
-			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
-			inTree(
-				["commit", "--quiet", "--no-verify", "-F", "-"],
-				`Revert "${subject}"\n\n${revertLine(culprit)}\n\n${why}\n`,
+				.split(" ")
+				.slice(1);
+			/* A merge reverts against the parent the bisect stepped from. */
+			const mainline = parents.indexOf(parent ?? "") + 1;
+			if (parents.length > 1 && mainline === 0)
+				return {
+					failed: `${short(culprit)} is a merge, and ${parent ? short(parent) : "(none)"} is not one of its parents`,
+				};
+			const unreverted = stderrIfThrown(() =>
+				inTree([
+					"revert",
+					"--no-commit",
+					...(parents.length > 1 ? ["-m", String(mainline)] : []),
+					culprit,
+				]),
 			);
+			if (unreverted !== null) return { failed: parseFirstLine(unreverted) };
+			const subject = git(["log", "-1", "--format=%s", culprit]).trim();
+			const uncommitted = stderrIfThrown(() =>
+				inTree(
+					["commit", "--quiet", "--no-verify", "-F", "-"],
+					`Revert "${subject}"\n\n${buildRevertLine(culprit)}\n\n${why}\n`,
+				),
+			);
+			if (uncommitted !== null)
+				return {
+					failed: `its commit was refused: ${GATE_VERDICT.exec(uncommitted)?.[0] ?? parseRefusal(uncommitted)}`,
+				};
 			return { sha: inTree(["rev-parse", "HEAD"]).trim() };
 		} finally {
 			git(["worktree", "remove", "--force", dir]);
@@ -957,11 +1111,11 @@ function remoteGit(root) {
 }
 
 module.exports = {
-	GIT_TIMEOUT_MS,
+	LANDER_GIT_TIMEOUT_MS,
 	HEARTBEAT_MS,
-	revertLine,
+	buildRevertLine,
 	short,
-	actionLine,
+	buildActionLine,
 	runLander,
 	landerFiles,
 	fileLedger,

@@ -626,7 +626,7 @@ describe("§W — which checker sees which surface", () => {
 			"!docs",
 			"!.claude/worktrees",
 			// The sanctioned scratch directory (mantahostels#2089, mantahostels#2103): scratch is not
-			// linted, and post-write.sh stops reformatting it on every write.
+			// linted, and the post-write core stops reformatting it on every write.
 			"!.claude/tmp",
 			"!.claude/settings*.json",
 			// A mod's verbatim copy of the engine's API declarations (#854).
@@ -774,8 +774,8 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			/check-code-standards\.js --touching HEAD --warn/,
 		],
 		[
-			"shellcheck, `-x --severity=style --exclude=SC2329,SC2016`",
-			/shellcheck -x --severity=style --exclude=SC2329,SC2016/,
+			"shellcheck, `-x --severity=style --exclude=SC2016`",
+			/shellcheck -x --severity=style --exclude=SC2016/,
 		],
 		["actionlint", /actionlint \$tool_paths/],
 		["ruff", /check-ruff-introduced\.js/],
@@ -824,6 +824,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"check-ruff-introduced",
 			"check-format-staged",
 			"biome-staged",
+			"lib/infer-commands",
 			"lib/test-gate",
 			// Helpers the gates call.
 			"lib/precommit-gate",
@@ -904,13 +905,13 @@ describe("§W — which tsc flags are still off", () => {
 		// mantahostels#1064, #1336. `npm run typecheck` runs both configs, so the flag is
 		// gated; the scoping is why §W's surface table qualifies its tsc column.
 		/** A tsconfig parsed as tsc reads it, comments and all. */
-		const config = (file: string) =>
+		const readConfig = (file: string) =>
 			ts.readConfigFile(path.join(ROOT, file), ts.sys.readFile).config as {
 				compilerOptions?: Record<string, unknown>;
 				include: string[];
 				exclude: string[];
 			};
-		const strict = config("tsconfig.strict.json");
+		const strict = readConfig("tsconfig.strict.json");
 		expect(strict.compilerOptions?.noUncheckedIndexedAccess).toBe(true);
 		expect(strict.include).toEqual(
 			expect.arrayContaining([
@@ -925,7 +926,7 @@ describe("§W — which tsc flags are still off", () => {
 		// A child's `exclude` replaces its parent's, so the base list must be repeated.
 		expect(strict.exclude).toEqual(
 			expect.arrayContaining([
-				...config("tsconfig.json").exclude,
+				...readConfig("tsconfig.json").exclude,
 				"scripts/**/*.test.*",
 				"scripts/**/test/**",
 				".claude/skills/*/scripts/*.test.*",

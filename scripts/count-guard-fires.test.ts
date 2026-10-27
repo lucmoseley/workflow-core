@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Four guarantees, all about the registry rather than the counting (which is
+ * Five guarantees, all about the registry rather than the counting (which is
  * scripts/lib/guard-fires.test.ts's):
  *
  *  1. THE GUARD SET COMES FROM THE CORE'S REGISTRATION, NOT A HAND-LIST. A hook
@@ -15,6 +15,11 @@
  *     "inject" (mantahostels#2118, mantahostels#2136).
  *
  *  4. EVERY NEEDLE'S kind IS ONE OF THE DEFINED VALUES (mantahostels#2136).
+ *
+ *  5. EVERY guard-dispatch.js NEEDLE NAMES ITS guard-cores.json ROW in
+ *     `core`, and no other guard's needle carries one. Without it every core's
+ *     deny scores as the dispatcher's, and the breach score's jobDir family
+ *     reads zero (#2943).
  *
  * The registry cases read the core's live registration, through
  * `lib/core-hooks.js` (the self-plugin's file and the settings' canary), and
@@ -40,7 +45,7 @@ const {
 	subjectsFor,
 	registryDrift,
 } = require("./lib/guard-fires.js");
-const { runningHooks } = require("./lib/core-hooks.js");
+const { readRunningHooks } = require("./lib/core-hooks.js");
 const { rows, scan, parseSince } = require("./count-guard-fires.js");
 
 const ROOT = path.resolve(__dirname, "..");
@@ -50,8 +55,8 @@ const needles = JSON.parse(
 		"utf8",
 	),
 );
-/* runningHooks reads "self-plugin/hooks/hooks.json" and ".claude/settings.json". */
-const settings = { hooks: runningHooks(ROOT) };
+/* readRunningHooks reads "self-plugin/hooks/hooks.json" and ".claude/settings.json". */
+const settings = { hooks: readRunningHooks(ROOT) };
 
 const registeredKeys = [
 	...new Set(registeredGuards(settings).map((r: { key: string }) => r.key)),
@@ -59,11 +64,12 @@ const registeredKeys = [
 
 /*
  * The walk itself lives in lib/needle-corpus.js, because
- * guard-registry-atomicity.sh judges a commit against this same containment
+ * guard-registry-atomicity.js judges a commit against this same containment
  * (mantahostels#2708) and a second copy of the walk would drift from this one.
  */
 const { needleDrift } = require("./lib/needle-corpus.js");
-const { expandRuleTables } = require("./lib/rule-table.js");
+const { readManifest } = require("./lib/guard-cores.js");
+const { emissionMatches, RULE_ARG_RE } = require("./lib/rule-emission.js");
 
 describe("the guard set is derived from the core's registration", () => {
 	it("gives every registered hook an entry, so a new hook cannot arrive uncounted", () => {
@@ -129,29 +135,24 @@ describe("the guard set is derived from the core's registration", () => {
 });
 
 /**
- * Every rule id a guard hands to `gp_rule`, off the literal call sites.
+ * Every id a dispatcher core returns in `injectRules`, under the entry that
+ * prints it.
  */
-function injectedRuleIds(): [string, string][] {
+function readInjectedRuleIds(): [string, string][] {
 	const out: [string, string][] = [];
-	for (const file of fs.readdirSync(path.join(ROOT, "scripts"))) {
-		if (!file.endsWith(".sh")) continue;
-		const src = fs.readFileSync(path.join(ROOT, "scripts", file), "utf8");
-		for (const id of gpRuleIdsIn(src)) out.push([file, id]);
+	const manifest = readManifest(
+		path.join(ROOT, "scripts", "lib", "guard-cores.json"),
+	) as Record<string, { core: string }[]>;
+	for (const { core } of Object.values(manifest).flat()) {
+		const src = fs.readFileSync(
+			path.join(ROOT, "scripts", "lib", core),
+			"utf8",
+		);
+		for (const m of emissionMatches(src))
+			for (const [, id] of (m[1] as string).matchAll(RULE_ARG_RE))
+				out.push(["guard-dispatch.js", id as string]);
 	}
 	return out;
-}
-
-/** The rule ids one guard's source hands to `gp_rule`, in source order. */
-function gpRuleIdsIn(src: string): string[] {
-	const ids: string[] = [];
-	for (const line of expandRuleTables(src).split("\n")) {
-		const body = line.trim();
-		// `gp_rule_skip` takes ids OUT of the next call and is not a print.
-		if (body.startsWith("#") || !/(^|\W)gp_rule\s/.test(body)) continue;
-		for (const word of body.slice(body.indexOf("gp_rule ") + 8).split(/\s+/))
-			if (/^[a-z][a-z0-9-]*$/.test(word)) ids.push(word);
-	}
-	return ids;
 }
 
 function needleForInjectedRule(
@@ -170,9 +171,9 @@ function needleForInjectedRule(
 }
 
 describe("every rule a guard injects has a needle of its own", () => {
-	const injected = injectedRuleIds();
+	const injected = readInjectedRuleIds();
 
-	it("finds the gp_rule call sites at all, so a green run is not an empty list", () => {
+	it("finds the injections at all, so a green run is not an empty list", () => {
 		expect(injected.length).toBeGreaterThan(15);
 	});
 
@@ -229,6 +230,35 @@ describe("a needle's routes", () => {
 				for (const r of n.routes)
 					expect(subject.routes, `${subject.id}/${n.id}`).toContain(r);
 			}
+	});
+});
+
+/*
+ * `core` attributes a dispatcher's fire to the core that printed it; a name no
+ * guard-cores.json row carries attributes it to nothing.
+ */
+describe("a needle's core", () => {
+	it("names a core the dispatcher runs, on every dispatcher needle", () => {
+		const names = new Set(
+			Object.values<Array<{ name: string }>>(
+				readManifest(path.join(ROOT, "scripts", "lib", "guard-cores.json")),
+			)
+				.flat()
+				.map((r) => r.name),
+		);
+		const dispatcher = needles.guards["guard-dispatch.js"].needles;
+		expect(dispatcher.length).toBeGreaterThan(0);
+		for (const n of dispatcher)
+			expect(names.has(n.core), `guard-dispatch.js/${n.id}`).toBe(true);
+	});
+
+	it("is carried by no needle of a guard other than the dispatcher", () => {
+		for (const [key, entry] of Object.entries<{
+			needles?: Array<{ id: string; core?: string }>;
+		}>(needles.guards))
+			if (key !== "guard-dispatch.js")
+				for (const n of entry.needles ?? [])
+					expect(n.core, `${key}/${n.id}`).toBeUndefined();
 	});
 });
 
@@ -312,7 +342,7 @@ describe("the CLI, run as a command", () => {
 		expect(code).toBe(0);
 		expect(out).toContain("CORPUS  0 transcripts");
 		expect(out).toContain("FIRED (0)");
-		expect(out).toContain("guard-file-claim.sh");
+		expect(out).toContain("guard-dispatch.js");
 		// The caveat travels with the zeroes, never as a separate document.
 		expect(out).toContain("may be a guard working by deterrence");
 	});
@@ -320,7 +350,7 @@ describe("the CLI, run as a command", () => {
 	it("counts a real deny out of a transcript and names its date", () => {
 		withClaimDeny();
 		const { out } = run(["--dir", corpus]);
-		expect(out).toContain("1         1  2026-08-17  guard-file-claim.sh");
+		expect(out).toContain("1         1  2026-08-17  guard-dispatch.js");
 		expect(out).toContain("held 1");
 	});
 
@@ -383,7 +413,7 @@ describe("the CLI, run as a command", () => {
 			withClaimDeny();
 			const { out, code } = run(["--dir", corpus], host);
 			expect(code).toBe(0);
-			expect(out).toContain("1         1  2026-08-17  guard-file-claim.sh");
+			expect(out).toContain("1         1  2026-08-17  guard-dispatch.js");
 		});
 
 		it("names the file an unkeyed hook is registered in", () => {
@@ -440,7 +470,7 @@ describe("the CLI, run as a command", () => {
 				expect(never.slice(0, never.indexOf("SILENT BY DESIGN"))).toContain(
 					"guard-page-read.sh",
 				);
-				expect(out).toContain("1         1  2026-08-17  guard-file-claim.sh");
+				expect(out).toContain("1         1  2026-08-17  guard-dispatch.js");
 			});
 
 			it("tells an unkeyed host-only guard to go in the host file", () => {
@@ -467,12 +497,12 @@ describe("the CLI, run as a command", () => {
 				writeHostNeedles({
 					guards: {
 						"guard-page-read.sh": pageRead,
-						"guard-file-claim.sh": pageRead,
+						"guard-dispatch.js": pageRead,
 					},
 				});
 				const { out, err, code } = run(["--dir", corpus], host);
 				expect(code).toBe(2);
-				expect(err).toContain("guard-file-claim.sh is keyed in both");
+				expect(err).toContain("guard-dispatch.js is keyed in both");
 				expect(err).toContain("so remove it from the host file");
 				expect(out).not.toContain("FIRED");
 			});
@@ -498,7 +528,7 @@ describe("the CLI, run as a command", () => {
 				const { out, err, code } = run(["--dir", corpus], host);
 				expect(code).toBe(0);
 				expect(err).not.toContain("guard-fire-needles.json is absent");
-				expect(out).toContain("1         1  2026-08-17  guard-file-claim.sh");
+				expect(out).toContain("1         1  2026-08-17  guard-dispatch.js");
 			});
 		});
 
@@ -510,12 +540,12 @@ describe("the CLI, run as a command", () => {
 			expect(err).toContain(
 				`${path.join(host, ".claude", "settings.json")} is absent`,
 			);
-			expect(out).toContain("guard-file-claim.sh");
+			expect(out).toContain("guard-dispatch.js");
 		});
 	});
 
 	/*
-	 * mantahostels#2118: guard-branch.sh's two limbs, in one transcript. Both needles sit
+	 * mantahostels#2118: guard-branch.js's two limbs, in one transcript. Both needles sit
 	 * under the one guard key.
 	 */
 	const withBranchDenyAndInjection = () => {
@@ -551,7 +581,7 @@ describe("the CLI, run as a command", () => {
 	it("counts the injected rule as well as the deny, and dates them apart", () => {
 		withBranchDenyAndInjection();
 		const { out } = run(["--dir", corpus]);
-		expect(out).toContain("2026-08-29  guard-branch.sh");
+		expect(out).toContain("2026-08-29  guard-branch.js");
 		// Each needle carries its own date, so docs/doc-map.md §5's ripeness test
 		// can read a RULE rather than whichever of a guard's rules fired last.
 		expect(out).toContain("branch-move 1 across 1 session(s) (2026-08-07)");
@@ -565,12 +595,12 @@ describe("the CLI, run as a command", () => {
 		const { out } = run(["--dir", corpus]);
 		const row = out
 			.split("\n")
-			.find((l: string) => l.includes("guard-branch.sh"));
-		expect(row).toMatch(/^\s+2\s+1\s+2026-08-29\s+guard-branch\.sh/);
+			.find((l: string) => l.includes("guard-branch.js"));
+		expect(row).toMatch(/^\s+2\s+1\s+2026-08-29\s+guard-branch\.js/);
 	});
 
 	/*
-	 * mantahostels#2137: a second SESSION firing only ONE of guard-branch.sh's two needles.
+	 * mantahostels#2137: a second SESSION firing only ONE of guard-branch.js's two needles.
 	 * The subject-level SESSIONS column must stay at "how many sessions fired
 	 * this guard at all" (2), while the byNeedle line's session count answers a
 	 * narrower question per rule.
@@ -594,8 +624,8 @@ describe("the CLI, run as a command", () => {
 		const { out } = run(["--dir", corpus]);
 		const row = out
 			.split("\n")
-			.find((l: string) => l.includes("guard-branch.sh"));
-		expect(row).toMatch(/^\s+3\s+2\s+2026-08-30\s+guard-branch\.sh/);
+			.find((l: string) => l.includes("guard-branch.js"));
+		expect(row).toMatch(/^\s+3\s+2\s+2026-08-30\s+guard-branch\.js/);
 		expect(out).toContain("branch-move 1 across 1 session(s) (2026-08-07)");
 		expect(out).toContain(
 			"branch-shared-tree 2 across 2 session(s) (2026-08-30)",
@@ -636,7 +666,7 @@ describe("the CLI, run as a command", () => {
 		const parsed = JSON.parse(out);
 		expect(parsed.corpus).toMatchObject({ dir: corpus, transcripts: 1 });
 		const claim = parsed.guards.find(
-			(g: { key: string }) => g.key === "guard-file-claim.sh",
+			(g: { key: string }) => g.key === "guard-dispatch.js",
 		);
 		expect(claim).toMatchObject({ total: 1, byRoute: { deny: 1 } });
 	});
@@ -657,7 +687,7 @@ describe("the CLI, run as a command", () => {
 		const { out } = run(["--dir", corpus, "--mentions"]);
 		expect(out).toContain("MENTIONS");
 		expect(out).toContain(
-			"guard-file-claim.sh  [PreToolUse:Write|Edit|NotebookEdit]  (1 mention(s))",
+			"guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 mention(s))",
 		);
 	});
 
@@ -692,7 +722,7 @@ describe("the CLI, run as a command", () => {
 			withDenyAt("after.jsonl", "2026-09-01T00:00:00.000Z");
 			const { out, code } = run(["--dir", corpus, "--since", "2026-08-22"]);
 			expect(code).toBe(0);
-			expect(out).toContain("2         2  2026-09-01  guard-file-claim.sh");
+			expect(out).toContain("2         2  2026-09-01  guard-dispatch.js");
 		});
 
 		it("excludes an undated fire from the window and reports it, not as a zero", () => {
@@ -700,7 +730,7 @@ describe("the CLI, run as a command", () => {
 			const { out, code } = run(["--dir", corpus, "--since", "2026-08-22"]);
 			expect(code).toBe(0);
 			expect(out).toContain("FIRED (0)");
-			expect(out).toContain("0  guard-file-claim.sh");
+			expect(out).toContain("0  guard-dispatch.js");
 			expect(out).toContain(
 				"1 fire(s) carry no timestamp and cannot be placed in or out of the",
 			);
@@ -710,7 +740,7 @@ describe("the CLI, run as a command", () => {
 			withDenyAt("undated.jsonl", null);
 			const { out } = run(["--dir", corpus, "--since", "2026-08-22"]);
 			expect(out).toContain(
-				"0  guard-file-claim.sh  [PreToolUse:Write|Edit|NotebookEdit]  (1 undated fire(s) excluded)",
+				"0  guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 undated fire(s) excluded)",
 			);
 		});
 
@@ -747,7 +777,7 @@ describe("the CLI, run as a command", () => {
 				"2026-08-22",
 			]);
 			expect(out).toContain(
-				"guard-file-claim.sh  [PreToolUse:Write|Edit|NotebookEdit]  (1 mention(s))",
+				"guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 mention(s))",
 			);
 		});
 
@@ -794,7 +824,7 @@ describe("the CLI, run as a command", () => {
 				undatedMentions: 0,
 			});
 			const claim = parsed.guards.find(
-				(g: { key: string }) => g.key === "guard-file-claim.sh",
+				(g: { key: string }) => g.key === "guard-dispatch.js",
 			);
 			expect(claim).toMatchObject({ total: 1 });
 		});

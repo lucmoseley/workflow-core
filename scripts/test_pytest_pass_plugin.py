@@ -6,7 +6,7 @@ data.
 
 `scripts/run-pytest.js` loads the plugin on every `npm run test:py`, and
 `.husky/pre-push` and `npm run push:check` read the marker it writes: loosen a
-case and a failing or partial Python run is recorded as a green over the
+case and a failing or partial Python run is recorded as a certificate over the
 whole corpus.
 """
 
@@ -248,7 +248,7 @@ def test_the_denominator_skips_directories_pytest_never_collects_from(tmp_path):
 
 
 def test_collect_only_writes_no_verdict(tmp_path, monkeypatch):
-    """It exits 0 having run nothing, and that green would be offered at the
+    """It exits 0 having run nothing, and that certificate would be offered at the
     next push as the most recent green run."""
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
@@ -347,6 +347,54 @@ def test_timings_it_cannot_read_hand_over_null_and_keep_the_verdict(
     assert "TIMINGS UNRECORDED (#1884): no rootpath" in reporter.lines
 
 
+def test_keeps_the_tests_in_flight_oldest_first_and_counts_the_finished(
+    tmp_path, monkeypatch
+):
+    """What the wrapper's suite-ceiling report names (#2702)."""
+    monkeypatch.setattr(plugin, "_inflight", {})
+    monkeypatch.setattr(plugin, "_finished", 0)
+    monkeypatch.setattr(plugin, "_collected", None)
+    out = tmp_path / "inflight.json"
+    monkeypatch.setenv("WFC_PYTEST_INFLIGHT_OUT", str(out))
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    plugin.pytest_xdist_node_collection_finished(None, ["a", "b", "c", "d"])
+    plugin.pytest_xdist_node_collection_finished(None, ["a", "b", "c", "d"])
+    for nodeid in ("test_a.py::one", "test_b.py::two", "test_c.py::three"):
+        plugin.pytest_runtest_logstart(nodeid, None)
+    report = FakePhaseReport("test_c.py::three", 0.1)
+    report.when = "setup"
+    plugin.pytest_runtest_logreport(report)
+    plugin.pytest_runtest_logfinish("test_b.py::two", None)
+
+    assert json.loads(out.read_text()) == {
+        "open": [
+            {"nodeid": "test_a.py::one", "stage": "setup"},
+            {"nodeid": "test_c.py::three", "stage": "call"},
+        ],
+        "finished": 1,
+        "collected": 4,
+    }
+
+
+def test_an_xdist_worker_leaves_the_in_flight_file_to_the_controller(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(plugin, "_inflight", {})
+    out = tmp_path / "inflight.json"
+    monkeypatch.setenv("WFC_PYTEST_INFLIGHT_OUT", str(out))
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+    plugin.pytest_runtest_logstart("test_a.py::one", None)
+
+    assert not out.exists()
+
+
+def test_an_unwritable_in_flight_file_never_raises(tmp_path, monkeypatch):
+    monkeypatch.setattr(plugin, "_inflight", {})
+    monkeypatch.setenv("WFC_PYTEST_INFLIGHT_OUT", str(tmp_path / "no" / "such"))
+    monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
+    plugin.pytest_runtest_logstart("test_a.py::one", None)
+
+
 def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
     """The one case that runs pytest for real.
 
@@ -364,6 +412,7 @@ def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
         "[pytest]\ntestpaths = .\npython_files = test_*.py\n"
     )
     out = tmp_path / "scope.json"
+    inflight = tmp_path / "inflight.json"
     scripts_dir = str(Path(__file__).resolve().parent)
 
     run = subprocess.run(
@@ -373,6 +422,7 @@ def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
             "PATH": "/usr/bin:/bin",
             "PYTHONPATH": scripts_dir,
             "WFC_PYTEST_SCOPE_OUT": str(out),
+            "WFC_PYTEST_INFLIGHT_OUT": str(inflight),
         },
         capture_output=True,
         text=True,
@@ -386,3 +436,9 @@ def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
     assert written["scope"]["nameFilter"] is None
     assert written["scope"]["fileFilters"] == []
     assert list(written["fileSeconds"]) == [str(tmp_path / "test_tiny.py")]
+    # The controller hears both tests finish, which a worker's own count would not.
+    assert json.loads(inflight.read_text()) == {
+        "open": [],
+        "finished": 2,
+        "collected": 2,
+    }

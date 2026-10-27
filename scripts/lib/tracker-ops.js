@@ -7,16 +7,17 @@
  * names the tracker `.claude/workflow-core.json` declares rather than relying
  * on the working directory's remote.
  *
- * No hook sees a gh call a script makes, so what record-issue-claim.sh does for
+ * No hook sees a gh call a script makes, so what record-issue-claim.js does for
  * the hand spelling — the arbiter record — is done here, by claimIfFree, and
- * what record-acts.sh does — the acts ledger line — by recordOwnAct.
+ * what record-acts.js does — the acts ledger line — by recordOwnAct.
  */
 
-const { errLine, gh, ghApiSlurp, ghIssueListAll, ghJson } = require("./gh.js");
+const { parseErrLine, gh, ghApiSlurp, ghJson } = require("./gh.js");
 const { requireKey } = require("./workflow-core-config.js");
 const { listedSessionIds } = require("./agent-liveness.js");
 const { scriptPath } = require("./script-path.js");
 const { similarOpen } = require("./similar-titles.js");
+const { readTrackerTitles } = require("./closed-title-cache.js");
 const issueClaims = require("./arbiter-issue-claims.js");
 const ledger = require("./arbiter-ledger.js");
 const { logError } = require("./arbiter-core.js");
@@ -115,7 +116,7 @@ const readParent = (issue) =>
 	issue.parentPath ? readIssueAt(issue.parentPath) : null;
 
 /**
- * A roadmap card's own issue, by guard-issue-close.sh's discriminator: a
+ * A roadmap card's own issue, by guard-issue-close.js's discriminator: a
  * `<card-id> — ` title, no parent (a child borrows the prefix), no
  * `wayfinder:map` label (a map borrows it too).
  * @param {Issue} issue
@@ -136,7 +137,7 @@ const same = (s) => s.replace(/\r\n/g, "\n").trim();
  * @param {string} comment
  */
 function alreadyCommented(repo, n, comment) {
-	const mine = ownComments(repo, n);
+	const mine = readOwnComments(repo, n);
 	return mine.length > 0 && same(mine.at(-1)?.body ?? "") === same(comment);
 }
 
@@ -150,7 +151,7 @@ function alreadyCommented(repo, n, comment) {
  * @param {number} n
  * @returns {Comment[]}
  */
-function ownComments(repo, n) {
+function readOwnComments(repo, n) {
 	const login = ghJson(["api", "user"]).login;
 	return ghApiSlurp([`repos/${repo}/issues/${n}/comments`]).filter(
 		(/** @type {{user?: {login?: string}}} */ c) => c.user?.login === login,
@@ -165,8 +166,8 @@ function ownComments(repo, n) {
  * @param {string} comment
  * @returns {Comment | null}
  */
-const ownComment = (repo, n, comment) =>
-	ownComments(repo, n).find((c) => same(c.body) === same(comment)) ?? null;
+const findOwnComment = (repo, n, comment) =>
+	readOwnComments(repo, n).find((c) => same(c.body) === same(comment)) ?? null;
 
 /**
  * Release this session's arbiter claim on `n`, saying so. 0, or 1 where the
@@ -240,27 +241,19 @@ function assignSelf(repo, n) {
 		gh(["issue", "edit", String(n), "--repo", repo, "--add-assignee", "@me"]);
 		return null;
 	} catch (e) {
-		return errLine(e);
+		return parseErrLine(e);
 	}
 }
 
 /**
- * The similar-title list for `query`, off one fetch of every issue's number,
- * title and state: the matches, and the list as printed text. Throws where
- * the fetch fails.
+ * The similar-title list for `query`, off the open issues read live and the
+ * closed titles' cache: the matches, and the list as printed text. Throws
+ * where the open issues cannot be read, or the whole tracker with no cache.
  * @param {string} repo
  * @param {string} query
  */
 function similarTitles(repo, query) {
-	const issues = ghIssueListAll("issues", [
-		"--repo",
-		repo,
-		"--state",
-		"all",
-		"--json",
-		"number,title,state",
-	]);
-	const found = similarOpen(query, issues);
+	const found = similarOpen(query, readTrackerTitles(repo));
 	const text =
 		found.length > 0
 			? `Open issues whose titles resemble this one — a duplicate, or its natural parent?\n${found
@@ -276,7 +269,7 @@ module.exports = {
 	claimIfFree,
 	isCardOwnIssue,
 	labelNames,
-	ownComment,
+	findOwnComment,
 	similarTitles,
 	readIssue,
 	readParent,

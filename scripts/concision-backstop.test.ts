@@ -26,12 +26,11 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
-import { guardErrorsLog } from "./lib/guard-errors-log";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { installLib } from "./lib/lib-install-testkit";
 
 const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
-const RECORDER = path.resolve(__dirname, "record-write.sh");
 const INJECTOR = path.resolve(__dirname, "inject-tracker-docs.sh");
 
 const ME = "session-under-test";
@@ -96,6 +95,16 @@ const ledgerFor = (sid: string) => storePath((s) => s.paths.ledger(sid));
 /** Note in the ledger that `sid` wrote `rel` — what PostToolUse does for real. */
 const record = (rel: string, sid: string) =>
 	execFileSync("node", [ARBITER, "record", rel, sid], { env: env() });
+
+/** Note HEAD in `sid`'s commit ledger — what post-commit does for real. */
+const ledgerHead = (sid: string) =>
+	execFileSync(
+		"node",
+		[ARBITER, "record-commit", git("rev-parse", "HEAD").trim()],
+		{
+			env: { ...env(), CLAUDE_CODE_SESSION_ID: sid },
+		},
+	);
 
 const write = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
@@ -246,13 +255,13 @@ describe("attribution — the mantahostels#114 regression", () => {
 			record("scripts/mine.ts", ME);
 			return run("stop", ME, { WFC_SCRIPT_ROOT: core() }) as string;
 		};
-		const logged = () => guardErrorsLog(cfg);
+		const readLog = () => readGuardErrorsLog(cfg);
 		/*
 		 * #2097: inject-tracker-docs.sh hands a typed /code-review the same
 		 * Standards-axis text, which each case below pins this hook's to. Run
 		 * after nag(), under another session id, so its markers decide nothing.
 		 */
-		const injected = () => {
+		const readInjected = () => {
 			const opener =
 				"You invoked /code-review, whose vendored skill file cannot carry project rules. ";
 			const ctx = JSON.parse(
@@ -277,7 +286,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 			return ctx.slice(at, ctx.indexOf(" Reviewer type", at));
 		};
 		const expectInjectorText = (reason: string) =>
-			expect(reason).toContain(`${injected()} Then run the concision-pass`);
+			expect(reason).toContain(`${readInjected()} Then run the concision-pass`);
 
 		it("both present: hands over both paths", () => {
 			withBase();
@@ -292,7 +301,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 			// (mantahostels#994).
 			expect(reason).toContain('"Smells not raised" (or "Suppressions")');
 			expect(reason).toContain("`Base unreadable: <path>`");
-			expect(logged()).not.toContain("standards base absent");
+			expect(readLog()).not.toContain("standards base absent");
 		});
 
 		it("base only: hands over the base and says it applies unchanged", () => {
@@ -305,7 +314,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 			expect(reason).toContain(
 				"`No local standards file: the base applies unchanged.`",
 			);
-			expect(logged()).not.toContain("standards base absent");
+			expect(readLog()).not.toContain("standards base absent");
 		});
 
 		it("local only: hands over the local file, names the absent base and logs it", () => {
@@ -319,8 +328,8 @@ describe("attribution — the mantahostels#114 regression", () => {
 				`\`No standards base: ${basePath()} is absent.\``,
 			);
 			expect(reason).not.toContain("Hand the Standards axis the base");
-			expect(logged()).toContain("standards base absent");
-			expect(logged()).toContain(basePath());
+			expect(readLog()).toContain("standards base absent");
+			expect(readLog()).toContain(basePath());
 		});
 
 		it("neither: hands over neither path and names both missing", () => {
@@ -332,7 +341,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 			);
 			// #886's line, which this replaces.
 			expect(reason).not.toContain("No standards file:");
-			expect(logged()).toContain("standards base absent");
+			expect(readLog()).toContain("standards base absent");
 		});
 
 		it("names the host's GLOSSARY.md for base §G8 where it exists (#1373)", () => {
@@ -383,7 +392,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 
 		it("logs nothing at a Stop that does not nag", () => {
 			run("stop", ME, { WFC_SCRIPT_ROOT: core() });
-			expect(logged()).not.toContain("standards base absent");
+			expect(readLog()).not.toContain("standards base absent");
 		});
 	});
 
@@ -406,11 +415,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 			write("scripts/mine.ts", `${BIG_CODE}\n`);
 			git("add", "scripts/mine.ts");
 			git("commit", "-qm", "inline-interpreter edit");
-			execFileSync(
-				"node",
-				[ARBITER, "record-commit", git("rev-parse", "HEAD").trim()],
-				{ env: { ...env(), CLAUDE_CODE_SESSION_ID: sid } },
-			);
+			ledgerHead(sid);
 		};
 
 		it("demands a review for code this session's own commit carries", () => {
@@ -559,7 +564,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 	});
 
 	/** The base the hook recorded at SessionStart, which markers must match. */
-	const recordedBase = () =>
+	const readRecordedBase = () =>
 		fs
 			.readFileSync(path.join(markersDir(), `.concision-base-${ME}`), "utf8")
 			.trim();
@@ -611,7 +616,10 @@ describe("pass markers — the mantahostels#139 change", () => {
 
 	it("stays silent for a marker recording the session's own base", () => {
 		changedCode();
-		marker(`.codereview-pass-${ME}`, `base=${recordedBase()}\nfindings=3\n`);
+		marker(
+			`.codereview-pass-${ME}`,
+			`base=${readRecordedBase()}\nfindings=3\n`,
+		);
 
 		expect(run("stop")).toBeNull();
 	});
@@ -663,6 +671,77 @@ describe("pass markers — the mantahostels#139 change", () => {
 		expect(run("stop")).toBeNull();
 	});
 
+	describe("a marker whose base= follows a ledgered commit to a path this session wrote (#3099)", () => {
+		const commitLedgered = (sid: string, body: string) => {
+			write("scripts/mine.ts", body);
+			git("add", "scripts/mine.ts");
+			git("commit", "-qm", sid);
+			ledgerHead(sid);
+		};
+		const reviewedAtHead = () =>
+			marker(
+				`.codereview-pass-${ME}`,
+				`base=${git("rev-parse", "HEAD").trim()}\nfindings=0\npaths=scripts/mine.ts\n`,
+			);
+
+		it("stays silent where the commit is a neighbour's and paths= names the path", () => {
+			commitLedgered(OTHER, "export const x = 1;\n");
+			changedCode();
+			reviewedAtHead();
+
+			expect(run("stop")).toBeNull();
+		});
+
+		it("fires where the commit is this session's own, naming the marker's base= as ahead of the session's start point", () => {
+			record("scripts/mine.ts", ME);
+			commitLedgered(ME, "export const x = 1;\n");
+			changedCode();
+			reviewedAtHead();
+
+			expect(run("stop")).toContain(
+				"its base= is ahead of this session's start point",
+			);
+		});
+	});
+
+	describe("a marker whose base= follows an unledgered commit to a path this session wrote (#3108)", () => {
+		const commitMine = (body: string) => {
+			write("scripts/mine.ts", body);
+			git("add", "scripts/mine.ts");
+			git("commit", "-qm", "unledgered");
+		};
+		const reviewedAtHead = () =>
+			marker(
+				`.codereview-pass-${ME}`,
+				`base=${git("rev-parse", "HEAD").trim()}\nfindings=0\npaths=scripts/mine.ts\n`,
+			);
+
+		it("stays silent where its patch matches none of this session's commits and paths= names the path", () => {
+			record("scripts/mine.ts", ME);
+			commitMine("export const x = 1;\n");
+			changedCode();
+			reviewedAtHead();
+
+			expect(run("stop")).toBeNull();
+		});
+
+		it("fires where it is this session's own commit rebased to a new sha", () => {
+			record("scripts/mine.ts", ME);
+			commitMine("export const x = 1;\n");
+			ledgerHead(ME);
+			const before = git("rev-parse", "HEAD").trim();
+			git("reset", "-q", "--hard", "HEAD~1");
+			git("commit", "-q", "--allow-empty", "-m", "neighbour");
+			git("cherry-pick", before);
+			changedCode();
+			reviewedAtHead();
+
+			expect(run("stop")).toContain(
+				"its base= is ahead of this session's start point",
+			);
+		});
+	});
+
 	it("rejects a marker whose base= is ahead only past a neighbour's commit and that has no paths=, naming the missing paths= line (#1840)", () => {
 		git("commit", "-q", "--allow-empty", "-m", "neighbour");
 		changedCode();
@@ -680,7 +759,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 		changedCode();
 		marker(
 			`.codereview-pass-${ME}`,
-			`base=${recordedBase()}\nfindings=0\ntree=${git("write-tree").trim()}\n`,
+			`base=${readRecordedBase()}\nfindings=0\ntree=${git("write-tree").trim()}\n`,
 		);
 
 		const reason = run("stop");
@@ -691,13 +770,16 @@ describe("pass markers — the mantahostels#139 change", () => {
 
 	it("stays silent for a marker at the session's base= with neither tree= nor paths=, a whole-session review", () => {
 		changedCode();
-		marker(`.codereview-pass-${ME}`, `base=${recordedBase()}\nfindings=0\n`);
+		marker(
+			`.codereview-pass-${ME}`,
+			`base=${readRecordedBase()}\nfindings=0\n`,
+		);
 
 		expect(run("stop")).toBeNull();
 	});
 
 	it("accepts a marker whose base is older, which reviewed a superset", () => {
-		const older = recordedBase();
+		const older = readRecordedBase();
 		git("commit", "-q", "--allow-empty", "-m", "empty");
 		fs.writeFileSync(
 			path.join(markersDir(), `.concision-base-${ME}`),
@@ -711,11 +793,14 @@ describe("pass markers — the mantahostels#139 change", () => {
 
 	it("rejects a marker missing its findings count, or holding a non-number, still naming code-review as owed", () => {
 		changedCode();
-		marker(`.codereview-pass-${ME}`, `base=${recordedBase()}\n`);
+		marker(`.codereview-pass-${ME}`, `base=${readRecordedBase()}\n`);
 		expect(run("stop")).toContain("code-review");
 
 		fs.rmSync(path.join(markersDir(), `.codereview-nagged-${ME}`));
-		marker(`.codereview-pass-${ME}`, `base=${recordedBase()}\nfindings=some\n`);
+		marker(
+			`.codereview-pass-${ME}`,
+			`base=${readRecordedBase()}\nfindings=some\n`,
+		);
 		expect(run("stop")).toContain("code-review");
 	});
 
@@ -740,7 +825,10 @@ describe("pass markers — the mantahostels#139 change", () => {
 
 	it("rejects a marker it cannot read at all, still naming code-review as owed", () => {
 		changedCode();
-		marker(`.codereview-pass-${ME}`, `base=${recordedBase()}\nfindings=1\n`);
+		marker(
+			`.codereview-pass-${ME}`,
+			`base=${readRecordedBase()}\nfindings=1\n`,
+		);
 		fs.chmodSync(path.join(markersDir(), `.codereview-pass-${ME}`), 0o000);
 
 		expect(run("stop")).toContain("code-review");
@@ -753,7 +841,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 		expect(run("stop")).toContain("concision-pass");
 
 		fs.rmSync(path.join(markersDir(), `.concision-nagged-${ME}`));
-		marker(`.concision-pass-${ME}`, `base=${recordedBase()}\nfindings=4\n`);
+		marker(`.concision-pass-${ME}`, `base=${readRecordedBase()}\nfindings=4\n`);
 		expect(run("stop")).toBeNull();
 	});
 
@@ -776,7 +864,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 		changedCode();
 		marker(
 			`.codereview-pass-${ME}`,
-			`base=${recordedBase()}\nfindings=2 cuts applied (process-history clause)\n`,
+			`base=${readRecordedBase()}\nfindings=2 cuts applied (process-history clause)\n`,
 		);
 
 		const reason = run("stop");
@@ -806,7 +894,10 @@ describe("pass markers — the mantahostels#139 change", () => {
 	it("names a rejected prose marker too", () => {
 		write("docs/mine.md", PARAGRAPH);
 		record("docs/mine.md", ME);
-		marker(`.concision-pass-${ME}`, `base=${recordedBase()}\nfindings=one\n`);
+		marker(
+			`.concision-pass-${ME}`,
+			`base=${readRecordedBase()}\nfindings=one\n`,
+		);
 
 		const reason = run("stop");
 		expect(reason).toContain(`.concision-pass-${ME}`);
@@ -817,7 +908,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 		changedCode();
 		marker(
 			`.codereview-pass-${ME}`,
-			`base=${recordedBase()}\nfindings=${"x".repeat(500)}\n`,
+			`base=${readRecordedBase()}\nfindings=${"x".repeat(500)}\n`,
 		);
 
 		const reason = run("stop") ?? "";
@@ -832,53 +923,8 @@ describe("pass markers — the mantahostels#139 change", () => {
 
 		const reason = run("stop");
 		expect(reason).toContain(
-			`node scripts/write-review-marker.js --base ${recordedBase()} --findings `,
+			`node scripts/write-review-marker.js --base ${readRecordedBase()} --findings `,
 		);
-	});
-});
-
-describe("record-write.sh", () => {
-	const feed = (payload: object, sid = ME) =>
-		spawnSync(RECORDER, [], {
-			cwd: repo,
-			encoding: "utf8",
-			input: JSON.stringify({ session_id: sid, ...payload }),
-			env: env(),
-		});
-
-	const ledger = (sid = ME) =>
-		execFileSync("node", [ARBITER, "writes", sid], {
-			env: env(),
-			encoding: "utf8",
-		});
-
-	it("records a Write/Edit target", () => {
-		feed({ tool_input: { file_path: path.join(repo, "docs/a.md") } });
-		expect(ledger()).toContain("docs/a.md");
-	});
-
-	it("records a NotebookEdit target, which names notebook_path", () => {
-		feed({ tool_input: { notebook_path: path.join(repo, "docs/n.ipynb") } });
-		expect(ledger()).toContain("docs/n.ipynb");
-	});
-
-	it("records nothing for a path outside the repo", () => {
-		feed({ tool_input: { file_path: "/etc/hosts" } });
-		expect(ledger().trim()).toBe("");
-	});
-
-	/*
-	 * That the recorder runs on PostToolUse for the three writing tools — and
-	 * that concision-backstop.sh's own Stop and SessionStart registrations carry
-	 * the right argument — is pinned by scripts/hook-registrations.test.ts
-	 * (mantahostels#258), against the matcher verbatim.
-	 */
-
-	it("exits 0 on a payload it cannot use, so a write is never blocked", () => {
-		expect(feed({ tool_input: {} }).status).toBe(0);
-		expect(
-			spawnSync(RECORDER, [], { cwd: repo, input: "not json" }).status,
-		).toBe(0);
 	});
 });
 
@@ -1054,7 +1100,7 @@ describe("the /implement floor — mantahostels#2769", () => {
  */
 describe("the pass runs in this session — mantahostels#1143, mantahostels#1099", () => {
 	/** The base the hook recorded at SessionStart, which markers must match. */
-	const recordedBase = () =>
+	const readRecordedBase = () =>
 		fs
 			.readFileSync(path.join(markersDir(), `.concision-base-${ME}`), "utf8")
 			.trim();
@@ -1076,7 +1122,7 @@ describe("the pass runs in this session — mantahostels#1143, mantahostels#1099
 
 		const reason = run("stop") ?? "";
 		expect(reason).toContain(
-			`Run the concision-pass skill with fixed point ${recordedBase()}`,
+			`Run the concision-pass skill with fixed point ${readRecordedBase()}`,
 		);
 		expect(reason).not.toContain("Do NOT run that pass in this session");
 		// The dispatch wording mantahostels#1097 added, and only it: `Agent` is still live
@@ -1109,14 +1155,14 @@ describe("the pass runs in this session — mantahostels#1143, mantahostels#1099
 		wroteProse();
 		marker(
 			`.concision-pass-${ME}`,
-			`base=${recordedBase()}\nfindings=4\nroute=in-session\n`,
+			`base=${readRecordedBase()}\nfindings=4\nroute=in-session\n`,
 		);
 		expect(run("stop")).toBeNull();
 
 		fs.rmSync(path.join(markersDir(), `.concision-nagged-${ME}`), {
 			force: true,
 		});
-		marker(`.concision-pass-${ME}`, `base=${recordedBase()}\nfindings=4\n`);
+		marker(`.concision-pass-${ME}`, `base=${readRecordedBase()}\nfindings=4\n`);
 		expect(run("stop")).toBeNull();
 	});
 
@@ -1260,7 +1306,7 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 		record("scripts/mine.ts", ME);
 
 		expect(run("stop") ?? "").toContain("`standard` review tier is owed");
-		expect(guardErrorsLog(cfg)).toContain("lib/sensitive-paths.js failed");
+		expect(readGuardErrorsLog(cfg)).toContain("lib/sensitive-paths.js failed");
 	});
 
 	it("names the standard tier on code no glob covers", () => {

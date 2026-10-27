@@ -63,7 +63,7 @@ function project(folder: string, types: string, source = "ENGINE") {
 	);
 }
 
-const copied = (mod: string) =>
+const readCopied = (mod: string) =>
 	fs.readFileSync(path.join(repo, mod, ENGINE), "utf8").split("\n")[0];
 
 const run = () =>
@@ -100,8 +100,8 @@ describe("typecheck-mods", () => {
 		const r = run();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
-		expect(copied(DELIVERY)).toBe("// Written by Claude Code 2.1.302.");
-		expect(copied(LIVENESS)).toBe("// Written by Claude Code 2.1.296.");
+		expect(readCopied(DELIVERY)).toBe("// Written by Claude Code 2.1.302.");
+		expect(readCopied(LIVENESS)).toBe("// Written by Claude Code 2.1.296.");
 	});
 
 	it("fails where a pass has a type error, skipping a mod with no copy and running the rest", () => {

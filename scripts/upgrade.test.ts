@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Pins upgrade.js's walk of an adopter from its pinned tag to the installed
+ * Pins lib/upgrade-walk.js's walk of an adopter from its pinned tag to the installed
  * one: each migration note's residue applied once, its refusals, the hook,
  * session-rule and .gitignore re-rendering, and that no path calls `claude`.
  *
@@ -23,7 +23,7 @@ import {
 	withIgnoreBlock,
 } from "./lib/adopter-skeleton.js";
 import { clearStepOwed } from "./lib/steps-owed.js";
-import { upgrade } from "./upgrade.js";
+import { upgrade } from "./lib/upgrade-walk.js";
 
 let root: string;
 let pluginRoot: string;
@@ -1020,7 +1020,7 @@ describe("upgrade", () => {
 
 	describe("a hand-moved pin's skipped notes are probed, not assumed (#284)", () => {
 		const contractIs7 = `node -e "process.exit(require('./.claude/workflow-core.json').contract === 7 ? 0 : 1)"`;
-		const contract = () => {
+		const readContract = () => {
 			try {
 				return readJson(root, ".claude/workflow-core.json").contract;
 			} catch {
@@ -1058,7 +1058,7 @@ describe("upgrade", () => {
 			const r = upgrade({ root, pluginRoot, out: (l) => lines.push(l) });
 
 			expect(r.status).toBe(0);
-			expect(contract()).toBe(7);
+			expect(readContract()).toBe(7);
 			expect(lines.join("\n")).toContain(
 				"claims v1.5.0 applied, but their Verify fails here",
 			);
@@ -1088,7 +1088,7 @@ describe("upgrade", () => {
 			expect(
 				upgrade({ root, pluginRoot, out: (l) => lines.push(l) }).status,
 			).toBe(0);
-			expect(contract()).toBeUndefined();
+			expect(readContract()).toBeUndefined();
 			expect(lines.join("\n")).toContain("its Verify would not run");
 		});
 
@@ -1111,7 +1111,7 @@ describe("upgrade", () => {
 			expect(
 				upgrade({ root, pluginRoot, out: (l) => lines.push(l) }).status,
 			).toBe(0);
-			expect(contract()).toBeUndefined();
+			expect(readContract()).toBeUndefined();
 			expect(lines.join("\n")).not.toContain("applying v1.5.0");
 		});
 	});
@@ -1322,7 +1322,7 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 			name: "workflow-core",
 			version,
 		});
-	const provenanceLine = () =>
+	const readProvenanceLine = () =>
 		read(referenceFile).split("## Plugin provenance\n\n")[1]?.split("\n")[0];
 
 	it("spells the rules' core commands at the new plugin root", () => {
@@ -1364,7 +1364,9 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 			"<!-- CORE-OWNED. old -->\n\n## Plugin provenance\n\n- url source, ref v1.1.19, HEAD 0ld5ha\n",
 		);
 		upgrade({ root, pluginRoot });
-		expect(provenanceLine()).toBe("- url source, ref v1.3.8, HEAD 04ad20bd");
+		expect(readProvenanceLine()).toBe(
+			"- url source, ref v1.3.8, HEAD 04ad20bd",
+		);
 		expect(read()).not.toContain("v1.1.19");
 		expect(read(referenceFile)).not.toContain("v1.1.19");
 	});
@@ -1380,7 +1382,7 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 		installRow("1.1.19", "0ld5ha");
 		write(root, rulesFile, `<!-- CORE-OWNED. old -->\n${provenanceBlock}`);
 		upgrade({ root, pluginRoot });
-		expect(provenanceLine()).toBe("- url source, ref v1.3.8 (sha unknown)");
+		expect(readProvenanceLine()).toBe("- url source, ref v1.3.8 (sha unknown)");
 	});
 
 	it("records a directory source's checkout HEAD", () => {
@@ -1404,7 +1406,7 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 		pinAt({ source: "directory", path: checkout });
 		write(root, rulesFile, `<!-- CORE-OWNED. old -->\n${provenanceBlock}`);
 		upgrade({ root, pluginRoot });
-		expect(provenanceLine()).toBe(
+		expect(readProvenanceLine()).toBe(
 			`- directory source, HEAD ${git("rev-parse", "HEAD")}`,
 		);
 	});

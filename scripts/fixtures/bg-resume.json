@@ -1,0 +1,18 @@
+{
+	"recordedBy": "node scripts/record-claude-responses.js",
+	"harness": "2.1.310",
+	"responses": {
+		"copy": {
+			"resumed": "5e55101d",
+			"stdout": "backgrounded · 5e55c0b1\n  claude agents             list sessions\n  claude attach 5e55c0b1    open in this terminal\n  claude logs 5e55c0b1      show recent output\n  claude stop 5e55c0b1      stop this session\n",
+			"stderr": "note: session 5e55101d is already running in the background, so this started a copy as 5e55c0b1. `claude attach 5e55101d` opens the original.\n",
+			"startedAs": "5e55c0b1"
+		},
+		"woke": {
+			"resumed": "5e55101d",
+			"stdout": "backgrounded · 5e55101d · a recorded session\n  claude agents             list sessions\n  claude attach 5e55101d    open in this terminal\n  claude logs 5e55101d      show recent output\n  claude stop 5e55101d      stop this session\n",
+			"stderr": "note: woke session 5e55101d with its saved options (--model).\n",
+			"startedAs": "5e55101d"
+		}
+	}
+}

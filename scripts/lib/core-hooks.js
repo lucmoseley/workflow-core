@@ -8,13 +8,13 @@
  * the core plugin's `hooks/hooks.json` (#940).
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { coreRoot } = require("./script-path.js");
 const { caught } = require("./caught.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { writeFd } = require("./write-fd.js");
+const { execGit } = require("./git.js");
 
 const SELF_PLUGIN_DIR = "self-plugin";
 const SELF_PLUGIN_HOOKS = `${SELF_PLUGIN_DIR}/hooks/hooks.json`;
@@ -127,11 +127,11 @@ function mergeHooks(sources) {
  * @param {string} [rev] a git revision; `""` names the index
  * @returns {string | null}
  */
-function textAt(root, rel, rev) {
+function readTextAt(root, rel, rev) {
 	try {
 		return rev === undefined
 			? fs.readFileSync(path.join(root, rel), "utf8")
-			: execFileSync("git", ["-C", root, "show", `${rev}:./${rel}`], {
+			: execGit(["-C", root, "show", `${rev}:./${rel}`], {
 					encoding: "utf8",
 					stdio: ["ignore", "pipe", "pipe"],
 				});
@@ -195,9 +195,9 @@ function parseHooks(text, { rel, where, optional = false }) {
  * @param {string} [rev] a git revision; `""` names the index
  * @returns {Hooks}
  */
-function hooksAt(root, rel, rev) {
+function readHooksAt(root, rel, rev) {
 	const where = whereOf(root, rev);
-	const text = textAt(root, rel, rev);
+	const text = readTextAt(root, rel, rev);
 	if (text === null)
 		throw new Error(`${rel} cannot be read at ${where}: it is absent`);
 	return parseHooks(text, { rel, where });
@@ -241,7 +241,7 @@ function hasPath(root, rel, rev) {
 			: ["ls-tree", "--name-only", rev, "--", rel];
 	try {
 		return (
-			execFileSync("git", ["-C", root, ...args], {
+			execGit(["-C", root, ...args], {
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],
 			}) !== ""
@@ -282,16 +282,19 @@ function isSameDir(a, b) {
  *   `readHooksFile` takes it
  * @returns {ReturnType<typeof readHookSources>}
  */
-function hookSourcesOf(host, { rev, core = coreRoot(), quiet = false } = {}) {
+function readHostHookSources(
+	host,
+	{ rev, core = coreRoot(), quiet = false } = {},
+) {
 	if (isCoreRoot(host, { rev, core }))
 		return [
 			{
 				file: path.join(host, SELF_PLUGIN_HOOKS),
-				settings: { hooks: hooksAt(host, SELF_PLUGIN_HOOKS, rev) },
+				settings: { hooks: readHooksAt(host, SELF_PLUGIN_HOOKS, rev) },
 			},
 			{
 				file: path.join(host, HOST_SETTINGS),
-				settings: settingsAt(host, rev),
+				settings: readSettingsAt(host, rev),
 			},
 		];
 	if (rev !== undefined)
@@ -304,15 +307,15 @@ function hookSourcesOf(host, { rev, core = coreRoot(), quiet = false } = {}) {
 /**
  * `root`'s `.claude/settings.json`, on disk or at `rev`, reduced to its hooks;
  * null where it is absent. Absence is read from git's listing, as `hasPath`
- * reads it: `textAt` knows absence at a revision only by git's stderr, which
+ * reads it: `readTextAt` knows absence at a revision only by git's stderr, which
  * names a file absent from both index and disk in other words (#2473).
  * @param {string} root
  * @param {string} [rev]
  * @returns {{hooks: Hooks} | null}
  */
-function settingsAt(root, rev) {
+function readSettingsAt(root, rev) {
 	if (!hasPath(root, HOST_SETTINGS, rev)) return null;
-	const text = textAt(root, HOST_SETTINGS, rev);
+	const text = readTextAt(root, HOST_SETTINGS, rev);
 	if (text === null) return null;
 	return {
 		hooks: parseHooks(text, {
@@ -324,13 +327,13 @@ function settingsAt(root, rev) {
 }
 
 /**
- * The hooks `root` runs, event to matcher groups: `hookSourcesOf` merged.
+ * The hooks `root` runs, event to matcher groups: `readHostHookSources` merged.
  * @param {string} root
  * @param {{rev?: string, core?: string, quiet?: boolean}} [opts]
  * @returns {Hooks}
  */
-function runningHooks(root, opts = {}) {
-	return mergeHooks(hookSourcesOf(root, opts)).hooks;
+function readRunningHooks(root, opts = {}) {
+	return mergeHooks(readHostHookSources(root, opts)).hooks;
 }
 
 /**
@@ -347,23 +350,26 @@ function ownHooksFile(root, opts = {}) {
 /**
  * The files `root` registers its own hooks in, each parsed, in merge order,
  * without the plugin's that an adopter also runs (#2442). At the core that is
- * `hookSourcesOf` (#2572). At an adopter it is the host's `.claude/settings.json` alone, null
+ * `readHostHookSources` (#2572). At an adopter it is the host's `.claude/settings.json` alone, null
  * where absent, and registering none where it carries no `hooks` key.
  *
  * @param {string} root
  * @param {{rev?: string, core?: string}} [opts]
  * @returns {ReturnType<typeof readHookSources>}
  */
-function ownHookSources(root, { rev, core = coreRoot() } = {}) {
+function readOwnHookSources(root, { rev, core = coreRoot() } = {}) {
 	if (isCoreRoot(root, { rev, core }))
-		return hookSourcesOf(root, { rev, core });
+		return readHostHookSources(root, { rev, core });
 	return [
-		{ file: path.join(root, HOST_SETTINGS), settings: settingsAt(root, rev) },
+		{
+			file: path.join(root, HOST_SETTINGS),
+			settings: readSettingsAt(root, rev),
+		},
 	];
 }
 
 /**
- * The hooks `root` registers itself: `ownHookSources` merged. At the core an
+ * The hooks `root` registers itself: `readOwnHookSources` merged. At the core an
  * absent self-plugin file throws; at an adopter an absent
  * settings file is null.
  *
@@ -371,8 +377,8 @@ function ownHookSources(root, { rev, core = coreRoot() } = {}) {
  * @param {{rev?: string, core?: string}} [opts]
  * @returns {Hooks | null}
  */
-function ownHooks(root, opts = {}) {
-	const sources = ownHookSources(root, opts);
+function readOwnHooks(root, opts = {}) {
+	const sources = readOwnHookSources(root, opts);
 	if (sources.every(({ settings }) => settings === null)) return null;
 	return mergeHooks(sources).hooks;
 }
@@ -466,14 +472,14 @@ module.exports = {
 	SELF_PLUGIN_HOOKS,
 	SELF_PLUGIN_ID,
 	SELF_PLUGIN_MARKETPLACE,
-	runningHooks,
+	readRunningHooks,
 	flattenHooks,
-	hookSourcesOf,
-	hooksAt,
+	readHostHookSources,
+	readHooksAt,
 	isCoreRoot,
 	mergeHooks,
-	ownHookSources,
-	ownHooks,
+	readOwnHookSources,
+	readOwnHooks,
 	ownHooksFile,
 	pluginHooksFile,
 	selfPluginSetup,

@@ -1,29 +1,29 @@
 /*
- * test-pass-marker.js — do green runs cover the commits being pushed?
+ * test-pass-marker.js — do certificates attest the commits being pushed?
  *
  * mantahostels#906 took CI off push, so between its scheduled sweeps the local
  * suite is the only gate.
  *
  * This check says whether that suite ran green. mantahostels#908 ruled it WARNS AND
- * NEVER REFUSES, and it runs no tests at all: it reads a marker a green run left
+ * NEVER REFUSES, and it runs no tests at all: it reads the certificates green runs left
  * behind, and prints.
  *
- * WHAT A MARKER ATTESTS IS WEAKER THAN IT LOOKS. It records the tree state at
+ * WHAT A CERTIFICATE ATTESTS IS WEAKER THAN IT LOOKS. It records the tree state at
  * run time, not the sha exactly: the suite read the working tree, and the sha
  * stamped on it is HEAD as it stood when the run finished. `dirtyAtStart` and
- * `foreign` are what carry that caveat to the reader — a green taken over a
+ * `foreign` are what carry that caveat to the reader — a certificate taken over a
  * tree holding somebody else's uncommitted file attests less than one taken
  * over a still tree, and the warning says which it was.
  *
  * IT ALSO RECORDS THE SCOPE OF THE RUN (mantahostels#1230). `scope` carries what was
  * actually run — the filters, the tests, and the modules against the whole
- * corpus — and only a full or admissible run can cover a push (`attestationOf`). A marker written before
+ * corpus — and only a full or admissible run's certificate can attest a push (`attestationOf`). A certificate written before
  * mantahostels#1230 carries no `scope` at all, and that reads as UNKNOWN rather than as
  * full.
  *
- * AN ADMISSIBLE FILTERED RUN IS THE WHOLE GATE (mantahostels#2146, mantahostels#2207). `CLAUDE.md`
- * §Conventions asks the push for an `npm run test:changed` green and nothing
- * wider; `scripts/run-vitest.js` decides admissibility at launch, and where the
+ * AN ADMISSIBLE FILTERED RUN IS THE WHOLE GATE (mantahostels#2146, mantahostels#2207).
+ * `docs/agents/rules/push-green-suite.txt` asks the push for an admissible
+ * certificate and nothing wider; `scripts/run-vitest.js` decides admissibility at launch, and where the
  * manifest was fresh and nothing narrowed the run beyond the diff's own
  * selection the scope carries `admissible`. It is still a DIFFERENT certificate
  * from a full one and never records as one — mantahostels#1230 stands. What an
@@ -36,7 +36,7 @@
  *
  * TWO SUITES SHARE THE STORE (mantahostels#1256). The vitest suite (TypeScript) and
  * `npm run test:py` (pytest, the Python data-pipeline seam) each write their own
- * marker, told apart by `suite`. A line carrying no `suite` is a vitest marker
+ * certificate, told apart by `suite`. A line carrying no `suite` is a vitest certificate
  * written before mantahostels#1256, which is why the field is read through `suiteOf` and
  * never off the object. The push warns per suite and by name, and a suite
  * carrying a `touches` pattern is asked only about a push whose range reaches
@@ -45,7 +45,7 @@
  * THE STORE IS APPEND-ONLY JSONL, under the canonical checkout's .claude/tmp/markers.
  * One line per green run, written with O_APPEND so concurrent suites cannot
  * interleave a partial record. A malformed line is skipped rather than thrown
- * on: a store this hook cannot parse must degrade to "no marker", never to a
+ * on: a store this hook cannot parse must degrade to "no certificate", never to a
  * failed push.
  */
 
@@ -53,23 +53,26 @@ const fs = require("node:fs");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const { gitBinary, gitSpawnOptions, gitCommonDir } = require("./git.js");
 const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
-const { commandOrDefault } = require("./workflow-core-config.js");
+const { readCommandOrDefault } = require("./workflow-core-config.js");
 const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
 const { caught } = require("./caught.js");
 const { shellWord } = require("./dirty-tree.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
+const { appendLedgerLine } = require("./run-ledger.js");
 
 /**
- * One green run as the store records it, and how much of the suite it covered.
- * Everything but the sha is optional: a marker written before the field existed
+ * One run as either store records it, and how much of the suite it covered.
+ * Everything but the sha is optional: a record written before the field existed
  * carries none, and every reader below is written to that.
  *
  * @typedef {{modulesRun: number, modulesTotal: number, tests: number,
  *   skipped: number, nameFilter?: string|null,
  *   fileFilters?: string[], changed?: string|boolean|null, admissible?: boolean,
- *   viaChanged?: boolean, full?: "flag"|"stale-manifest"|"dependency-root"|"expansion-failed",
+ *   viaChanged?: boolean, touched?: boolean, resolvedFiles?: number,
+ *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root"|"expansion-failed",
  *   fullCause?: "push-gate"|"coverage"|"empty-diff"|"sha-moved"|"rule-edit"|"other"|null,
  *   failures?: {file: string, tests: string[]}[]}} Scope
  * @typedef {{sha: string, at?: string, suite?: string, scope?: Scope,
@@ -83,7 +86,9 @@ const { JS_TEST_FILE } = require("./test-kind.js");
  *   imports?: Record<string, string[]>, roots?: string[],
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
  *   stalled?: boolean, stallMs?: number,
- *   inflight?: {module: string, stage: string}[], finished?: string[]}} Marker
+ *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
+ *   inflight?: {module: string, stage: string}[], finished?: string[],
+ *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
  * @typedef {{closure: "*"|string[], selected?: string[],
  *   changedPaths?: string[]|null, base?: string|null,
  *   imports?: Record<string, string[]>, roots?: string[]}} Attestation
@@ -104,14 +109,14 @@ const { JS_TEST_FILE } = require("./test-kind.js");
  * selected, which the manifest is re-read against at the sha judged (#799).
  * `changedPaths` is the diff the selection was computed from and `base` what
  * it was diffed against (#151). `holdsAt` reads the closure and `selected`,
- * `attestationOf` the `changedPaths`; no gate reads `base` (#814). A marker
+ * `attestationOf` the `changedPaths`; no gate reads `base` (#814). A certificate
  * carrying none of them holds at its own sha alone.
  *
  * `imports`/`roots` (#1860): the same closure split by test, so a diff voids
  * only the tests whose own reads it touches rather than the whole run.
  * `imports` maps each selected test to the in-repo files vitest's module graph
  * reached from it, the test itself left out; `roots` are the paths every
- * test's verdict rests on. A narrowed marker carrying both is judged test by
+ * test's verdict rests on. A narrowed certificate carrying both is judged test by
  * test (`testsHeldAt`); one carrying neither is judged on `closure` alone.
  */
 
@@ -119,6 +124,9 @@ const { JS_TEST_FILE } = require("./test-kind.js");
  * `startedAt`/`durationMs` (mantahostels#1953): `at` dates a run and never says how long it
  * took, so a 14-minute suite and a 264 s one read alike in history. Both are
  * OPTIONAL and absent before mantahostels#1953, so absence is UNKNOWN, never fast.
+ * `durationMs` is read off a monotonic clock, the one vitest's own Duration
+ * and the ceiling's timer read, so time the machine spent suspended is not
+ * in it (#2829): `startedAt` plus `durationMs` falls short of `at` by it.
  *
  * `machine` (mantahostels#1953): duration alone says a run was slow and never
  * WHY, so this block is a CPU figure taken across the run itself: see
@@ -138,14 +146,16 @@ const EDGES_FILE = "docs/test-read-edges.json";
 // What an import graph can reach, so what a changed module can make a test read.
 const IMPORTABLE = /\.(?:[cm]?[jt]sx?|json)$/;
 
-/* The launch that re-runs named tests and certifies them (#1860).
+/* The launch that re-runs named tests and attests them (#1860).
  * lib/changed-selection.js parses it. */
 const RETEST_FLAG = "--retest";
 
 /**
  * The four reasons `scope.full` can carry (mantahostels#3207): `"flag"` for a session's
- * own `--full`, and the three the default narrowing escalates itself to
- * where it would be worthless (mantahostels#3208) — lib/changed-selection.js's `defaultEscalationReason`.
+ * own `--full`, the two the default narrowing escalates itself to where it
+ * would be worthless (mantahostels#3208) — lib/changed-selection.js's
+ * `findDefaultEscalationReason` — and `"expansion-failed"`, which older rows in
+ * the store carry and `scripts/admissible-share.js` still counts.
  */
 const FULL_REASONS = [
 	"flag",
@@ -178,14 +188,14 @@ const FULL_CAUSES = [
 ];
 
 /*
- * The red store (mantahostels#1942), deliberately a SEPARATE file from the green one.
+ * The red store (mantahostels#1942), deliberately a SEPARATE file from the certificate store.
  *
  * Mixing verdicts in one store would put a `failed` discriminator in front of
  * every existing reader — `readMarkers`, `attestationOf`, the pre-push gate — and
- * one that forgot it would read a red run as a green.
+ * one that forgot it would read a red run's line as a certificate.
  *
  * It is written for the SESSION, not for a gate: nothing gates on it, and a red
- * run still records no green, exactly as before.
+ * run still records no certificate, exactly as before.
  */
 const FAIL_STORE = ".test-fail-markers.jsonl";
 
@@ -206,7 +216,7 @@ const KEEP = 400;
 const ARCHIVE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /*
- * Every suite the gate expects to see a green from, and what to tell a session
+ * Every suite the gate expects to see a certificate from, and what to tell a session
  * that has none. Adding a row here is what makes a new suite warn — the store,
  * the predicates and the warnings are all suite-agnostic.
  *
@@ -214,20 +224,20 @@ const ARCHIVE_MS = 7 * 24 * 60 * 60 * 1000;
  */
 const SUITES = [
 	/* `gate` is what the push asks for, which stopped being the whole suite at
-	 * mantahostels#2207. `certifiesFiltered` says whether the suite has an admissible tier
+	 * mantahostels#2207. `attestsFiltered` says whether the suite has an admissible tier
 	 * at all — vitest's is minted by scripts/run-vitest.js, and pytest has
 	 * none. */
 	{
 		id: "vitest",
 		name: "VITEST",
 		gate: "npm run test",
-		certifiesFiltered: true,
+		attestsFiltered: true,
 	},
 	{
 		id: "pytest",
 		name: "PYTEST",
 		gate: "npm run test:py",
-		certifiesFiltered: false,
+		attestsFiltered: false,
 		/* A suite that only answers for part of the repo says nothing about a
 		 * push that cannot have touched it. Without this the pytest warning
 		 * fires on every push, docs-only included — and a warning that always
@@ -239,8 +249,8 @@ const SUITES = [
 
 const DEFAULT_SUITE = "vitest";
 
-/* A marker written before mantahostels#1256 names no suite, and every one of those was
- * vitest's — the only suite that wrote markers at all. */
+/* A certificate written before mantahostels#1256 names no suite, and every one of those was
+ * vitest's — the only suite that wrote certificates at all. */
 /** @param {Marker} m */
 const suiteOf = (m) => m.suite || DEFAULT_SUITE;
 
@@ -265,7 +275,7 @@ const suiteMeta = (id) =>
 		id,
 		name: String(id).toUpperCase(),
 		gate: `the ${id} suite`,
-		certifiesFiltered: false,
+		attestsFiltered: false,
 	};
 
 /**
@@ -278,17 +288,8 @@ const suiteMeta = (id) =>
  * @returns {string|null}
  */
 function repoRoot(cwd = process.cwd()) {
-	try {
-		return path.dirname(
-			execFileSync(
-				"git",
-				["rev-parse", "--path-format=absolute", "--git-common-dir"],
-				{ cwd, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-			).trim(),
-		);
-	} catch {
-		return null;
-	}
+	const common = gitCommonDir(cwd);
+	return common === null ? null : path.dirname(common);
 }
 
 /** @param {string} root @param {string} [store] */
@@ -362,7 +363,8 @@ function recordFailure(entry, options) {
 }
 
 /**
- * The one appender both stores use.
+ * The one appender both stores use, so every marker also leaves its run's
+ * line in the 30-day ledger (`run-ledger.js`, #2824), landed or not.
  *
  * @param {string} store
  * @param {Marker} entry
@@ -375,6 +377,7 @@ function append(
 	{ root = repoRoot(), pruneAt = PRUNE_AT, keep = KEEP } = {},
 ) {
 	if (!root || !entry?.sha) return false;
+	appendLedgerLine(root, entry, store === STORE);
 	const file = storePath(root, store);
 	try {
 		fs.appendFileSync(file, `${JSON.stringify(entry)}\n`);
@@ -403,14 +406,13 @@ function append(
  * THE ONE PARSE READMARKERS AND COUNTMALFORMED BOTH GO THROUGH, so the two can
  * never disagree on what counts as malformed.
  *
- * @param {string} root
- * @param {string} store
+ * @param {string} file
  * @returns {{markers: Marker[], malformed: number, total: number}}
  */
-function parseStore(root, store) {
+function parseStore(file) {
 	let text;
 	try {
-		text = fs.readFileSync(storePath(root, store), "utf8");
+		text = fs.readFileSync(file, "utf8");
 	} catch {
 		return { markers: [], malformed: 0, total: 0 };
 	}
@@ -440,8 +442,15 @@ function parseStore(root, store) {
  */
 function readMarkers({ root = repoRoot(), store = STORE } = {}) {
 	if (!root) return [];
-	return parseStore(root, store).markers;
+	return parseStore(storePath(root, store)).markers;
 }
+
+/**
+ * Every readable marker in the store file at `file`, oldest first, for a
+ * reader handed a store rather than a checkout. Absent or unreadable is [].
+ * @param {string} file
+ */
+const readStoreFile = (file) => parseStore(file).markers;
 
 /**
  * How many of a store's non-blank lines could not be read back as a marker
@@ -456,7 +465,7 @@ function readMarkers({ root = repoRoot(), store = STORE } = {}) {
  */
 function countMalformed({ root = repoRoot(), store = STORE } = {}) {
 	if (!root) return { malformed: 0, total: 0 };
-	const { malformed, total } = parseStore(root, store);
+	const { malformed, total } = parseStore(storePath(root, store));
 	return { malformed, total };
 }
 
@@ -480,6 +489,10 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  * @param {string} [run.suite]
  * @param {number|null} [run.startedAtMs] `Date.now()` as the run began. Omitted or
  *   unreadable leaves both time fields off, which reads as unknown.
+ * @param {number|null} [run.elapsedMs] How long the run took, off a monotonic
+ *   clock (`performance.now()`), never a difference of `Date.now()` readings:
+ *   a host suspend steps the wall clock forward on resume (#2829). Omitted,
+ *   unreadable or negative leaves both time fields off.
  * @param {import("./cpu-sample.js").CpuSample|null} [run.machineStart] The CPU
  *   counters as the run began. Omitted or unreadable leaves the `machine` block
  *   off, which reads as unknown — never as a quiet machine.
@@ -509,6 +522,9 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  * @param {Attestation|null} [run.attestation] What the verdict depended on (#189),
  *   from the reporter over the run report. Omitted where the reporter could
  *   not compute it, which reads as "attests its own sha alone".
+ * @param {import("./test-file-timings.js").SlowFile[]|null} [run.slowest] The run's
+ *   slowest files, repo-relative, off the in-flight reporter's timings
+ *   (#2770). Omitted where it timed none.
  * @returns {Marker & {foreign: {path: string, why: string}[]}}
  */
 function markerFrom(
@@ -520,6 +536,7 @@ function markerFrom(
 		scope = null,
 		suite = DEFAULT_SUITE,
 		startedAtMs = null,
+		elapsedMs = null,
 		machineStart = null,
 		machineEnd = null,
 		endedAtMs = null,
@@ -528,6 +545,7 @@ function markerFrom(
 		sessionId = idSeam.fromEnv(),
 		argv = null,
 		attestation = null,
+		slowest = null,
 	} = {},
 ) {
 	const attested = attestedFields(attestation);
@@ -537,8 +555,8 @@ function markerFrom(
 	 * This function is reached from `vitest-tree-watch.ts`'s teardown, which is a
 	 * globalSetup hook firing ONCE PER PROCESS. In watch mode that is when the
 	 * session QUITS, so sampling the end bracket here would span last-run-start →
-	 * quit: idle minutes averaged into a duration and a CPU delta, both positive
-	 * and plausible, and so unable to fail to absent. A low `busyPct` arrived at
+	 * quit: idle minutes averaged into the CPU delta and pushed into `at`, both
+	 * plausible, and so unable to fail to absent. A low `busyPct` arrived at
 	 * that way reads as a MEASURED quiet machine, the one false reading these
 	 * fields exist to prevent.
 	 *
@@ -552,13 +570,16 @@ function markerFrom(
 			? endedAtMs
 			: Date.now();
 	/*
-	 * BOTH FIELDS OR NEITHER, AND A BACKWARDS CLOCK IS NEITHER (mantahostels#1953).
-	 * Clamping a negative elapsed to 0 would write a marker whose `startedAt`
-	 * postdates its own `at` and whose duration attests an instant run — the
-	 * reading these fields exist to make trustworthy. Absent instead, matching
-	 * `startStateUnknown` below: this file records unknown as absence.
+	 * BOTH FIELDS OR NEITHER, AND A BACKWARDS CLOCK OR A NEGATIVE SPAN IS
+	 * NEITHER (mantahostels#1953). A `startedAt` after the marker's own `at`, or a
+	 * span clamped to 0, attests a reading these fields exist to make
+	 * trustworthy. Absent instead, matching `startStateUnknown` below: this
+	 * file records unknown as absence.
 	 */
-	const timed = timedFields(startedAtMs, finishedAtMs);
+	const timed =
+		typeof startedAtMs === "number" && finishedAtMs < startedAtMs
+			? {}
+			: timedFields(startedAtMs, elapsedMs);
 	/*
 	 * Same both-or-neither discipline as `timed` above, and delegated whole to
 	 * `cpu-sample.js`, which returns null on every reading it will not vouch for
@@ -586,6 +607,7 @@ function markerFrom(
 		...(sessionId ? { sessionId } : {}),
 		...(argv ? { argv } : {}),
 		...attested,
+		...(slowest?.length ? { slowest } : {}),
 		foreign: [
 			...(held ?? []).map((e) => ({
 				path: e.path,
@@ -635,7 +657,7 @@ const isImportMap = (value) =>
  */
 
 /**
- * Whether a narrowed marker records its closure test by test (#1860), and so
+ * Whether a narrowed certificate records its closure test by test (#1860), and so
  * is judged by `testsHeldAt` rather than `holdsAt`.
  * @param {Marker} m
  * @returns {m is PerTestMarker}
@@ -661,16 +683,18 @@ const isStringList = (value) =>
 
 /**
  * @param {number|null} startedAtMs
- * @param {number} finishedAtMs
+ * @param {number|null} elapsedMs
  * @returns {Pick<Marker, "startedAt"|"durationMs">}
  */
-function timedFields(startedAtMs, finishedAtMs) {
+function timedFields(startedAtMs, elapsedMs) {
 	return typeof startedAtMs === "number" &&
 		Number.isFinite(startedAtMs) &&
-		finishedAtMs >= startedAtMs
+		typeof elapsedMs === "number" &&
+		Number.isFinite(elapsedMs) &&
+		elapsedMs >= 0
 		? {
 				startedAt: new Date(startedAtMs).toISOString(),
-				durationMs: finishedAtMs - startedAtMs,
+				durationMs: elapsedMs,
 			}
 		: {};
 }
@@ -700,15 +724,15 @@ const isClean = (m) =>
  * select every module. This follows the file-filter limb above, which already
  * rejects a path-filtered run that collected the whole corpus: what disqualifies
  * a run here is HOW it was selected, not how many files that selection reached.
- * A count-only test would make `CLAUDE.md`'s "a filtered green never records a
- * full certificate" false on the day a diff touched everything (mantahostels#2031).
+ * A count-only test would let a filtered run record a full certificate on the
+ * day a diff touched everything (mantahostels#2031).
  *
  * SKIPPED TESTS ARE NOT CONSULTED. A conditional skip — `it.skipIf(AS_ROOT)`,
  * `it.skipIf(!guardExists())` — makes a genuine full run report skips on some
  * machines and none on others, so module count against the corpus is the one
  * signal it cannot confound.
  *
- * ONE DEFINITION, TWO READERS: `isFullRun` answers for a stored marker at the
+ * ONE DEFINITION, TWO READERS: `isFullRun` answers for a stored certificate at the
  * push, `formatFilteredRun` for a live run at the terminal. Both go through
  * here.
  */
@@ -733,8 +757,8 @@ function readFailures(options = {}) {
  * How much of the corpus a red must have collected before it is evidence that
  * `main` itself is red rather than that one file is (mantahostels#2205).
  *
- * DELIBERATELY LOOSER THAN `isFullScope`, which the green side uses to issue a
- * certificate. Nothing is certified here: the reader is a session comparing a
+ * DELIBERATELY LOOSER THAN `isFullScope`, which the certificate store uses to issue a
+ * certificate. Nothing is attested here: the reader is a session comparing a
  * file list against its own diff.
  *
  * 0.9 IS mantahostels#2205's SPECIFIED FIGURE AND NOTHING MEASURED IT — a first cut, and
@@ -813,11 +837,11 @@ function lastFullRed(markers) {
  *
  * THE NAME FILTER IS THE ONE FORGERY THIS SIDE CAN SEE, so it rejects it
  * (mantahostels#2172). The launcher already refuses a `-t` run — argv must carry nothing
- * but `--changed` — so a marker arriving with both a name filter and the flag
+ * but `--changed` — so a certificate arriving with both a name filter and the flag
  * did not come from `npm run test:changed`, whatever set the launch record.
  *
  * IT LOOKS REDUNDANT BESIDE `isFullScope` AND IS NOT: that predicate returns
- * false on a name filter, so under the `!` it ADMITS the forged marker.
+ * false on a name filter, so under the `!` it ADMITS the forged certificate.
  * Deleting the clause as a duplicate reopens mantahostels#2172.
  *
  * AND THE FRESHNESS IS READ AT LAUNCH, NEVER AT RECORD TIME. A manifest staled
@@ -884,7 +908,7 @@ function docsByTest(manifest) {
 
 /**
  * `options` with every default resolved once, so the root lookup — a git
- * spawn of its own — is not repeated per marker.
+ * spawn of its own — is not repeated per certificate.
  *
  * @param {GitOptions} options
  * @returns {{root: string|null, execFn: typeof execFileSync, cache: Map<string, string>}}
@@ -911,11 +935,15 @@ function gitReader(options) {
 		const hit = cache.get(key);
 		if (hit !== undefined) return hit;
 		const out = String(
-			execFn("git", args, {
-				cwd: root,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			}),
+			execFn(
+				gitBinary(),
+				args,
+				gitSpawnOptions({
+					cwd: root,
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "ignore"],
+				}),
+			),
 		);
 		cache.set(key, out);
 		return out;
@@ -936,26 +964,26 @@ const lines = (out) =>
  *
  * A certificate keyed to a sha alone is voided by the acts between earning
  * it and needing it — the commit, the push, a neighbour's push — even when the
- * content tested is byte-identical (#148). So the marker also attests the TREE it
+ * content tested is byte-identical (#148). So the certificate also attests the TREE it
  * read (`treeAtEnd`) plus the paths its verdict depended on (`closure`), and
  * a sha whose tree differs from that one only outside the closure is attested
  * by content. Three rules, in order, first match wins:
  *
- *   1. `marker.sha === sha` — a sha fixes its tree.
- *      Every pre-#189 marker matches this way and nothing is migrated.
- *   2. Otherwise the marker needs `treeAtEnd` and `closure`; lacking either
+ *   1. `m.sha === sha` — a sha fixes its tree.
+ *      Every pre-#189 certificate matches this way and nothing is migrated.
+ *   2. Otherwise the certificate needs `treeAtEnd` and `closure`; lacking either
  *      it holds at no other sha.
  *   3. `git diff-tree` between `treeAtEnd` and the sha's tree must touch
  *      nothing in `closure`. With `closure === "*"` (a full run) that is tree
  *      equality, checked as one `rev-parse` rather than a diff. A narrowed
- *      marker carrying `selected` (#799) first widens its closure by every
+ *      certificate carrying `selected` (#799) first widens its closure by every
  *      document the manifest AT THE SHA maps to a selected test, so an edit
  *      to an unselected test's edges refuses nothing; a manifest absent,
- *      unreadable or malformed at the sha holds nothing. A marker without
+ *      unreadable or malformed at the sha holds nothing. A certificate without
  *      `selected` carries the manifest in its closure and is judged on that
  *      closure alone.
  *
- * A marker recording its closure test by test (#1860) is judged by
+ * A certificate recording its closure test by test (#1860) is judged by
  * `testsHeldAt` instead, test by test, and composed by `pairAttestation`.
  *
  * `countedPaths`, where given, is the only paths a diff-tree change counts on:
@@ -971,8 +999,8 @@ const lines = (out) =>
  *
  * NOT A SCOPE PREDICATE. `isFullRun`/`isAdmissibleRun` say whether the run
  * was wide enough to answer the gate at all; this says whether it answers for
- * THIS sha. Every gate asks both — a hand-typed one-file green holds at its
- * tree exactly and still certifies nothing.
+ * THIS sha. Every gate asks both — a hand-typed one-file certificate holds at its
+ * tree exactly and still attests nothing.
  *
  * The closure is exactly as blind as the selection that produced it: a
  * document read through an imported helper enters neither the module graph
@@ -981,7 +1009,7 @@ const lines = (out) =>
  * run nothing for. Accepted at #150 Q5.
  *
  * Every git failure — an unknown sha, a tree git cannot read — holds
- * nothing. `cache` memoises the git calls across the markers one gate reads,
+ * nothing. `cache` memoises the git calls across the certificates one gate reads,
  * since the store holds hundreds and the sha is the same for all of them.
  *
  * @typedef {{by: "sha"}|{by: "tree", tree: string, closureSize: number|"*"}} AttestationMatch
@@ -1020,7 +1048,7 @@ function holdsAt(m, sha, options = {}) {
  * @param {DiffReader} by
  * @returns {string[]}
  */
-function touchedBetween(tree, sha, { git, countedPaths }) {
+function readTouchedBetween(tree, sha, { git, countedPaths }) {
 	const touched = lines(
 		git([
 			"diff-tree",
@@ -1047,7 +1075,7 @@ function holdsByTree(sha, treeAtEnd, by) {
 	const holds =
 		tree === treeAtEnd ||
 		(by.countedPaths !== null &&
-			touchedBetween(treeAtEnd, sha, by).length === 0);
+			readTouchedBetween(treeAtEnd, sha, by).length === 0);
 	return holds ? { by: "tree", tree: treeAtEnd, closureSize: "*" } : null;
 }
 
@@ -1069,7 +1097,7 @@ function holdsByClosure(sha, { treeAtEnd, closure, selected }, by) {
 		if (!docs) return null;
 		for (const doc of docs) inClosure.add(doc);
 	}
-	if (touchedBetween(treeAtEnd, sha, by).some((p) => inClosure.has(p)))
+	if (readTouchedBetween(treeAtEnd, sha, by).some((p) => inClosure.has(p)))
 		return null;
 	return { by: "tree", tree: treeAtEnd, closureSize: inClosure.size };
 }
@@ -1098,7 +1126,7 @@ function shaView(sha, by) {
 	const split = (tree) => {
 		const hit = diffs.get(tree);
 		if (hit) return hit;
-		const all = touchedBetween(tree, sha, { git, countedPaths: null });
+		const all = readTouchedBetween(tree, sha, { git, countedPaths: null });
 		const counts = (/** @type {string} */ p) =>
 			countedPaths === null || countedPaths.has(p);
 		const parts = {
@@ -1138,9 +1166,9 @@ function shaView(sha, by) {
 }
 
 /**
- * Which of a per-test marker's selected tests still hold at the view's sha
+ * Which of a per-test certificate's selected tests still hold at the view's sha
  * (#1860): those whose own closure — the test, its recorded imports, the
- * documents the manifest AT THE SHA maps to it (#799), and the marker's roots
+ * documents the manifest AT THE SHA maps to it (#799), and the certificate's roots
  * — the diff-tree between `treeAtEnd` and the sha leaves untouched.
  * `codeHolds` says the diff touched no selected test
  * and none of their recorded imports: the graph the run's selection was
@@ -1200,24 +1228,24 @@ function testsHeldAt(m, view) {
 const ZERO_SHA = /^0+$/;
 
 /**
- * Whether green runs from any sessions cover a commit between them (ADR-0009,
- * #810), per suite.
+ * Whether certificates from any sessions attest a commit between them
+ * (ADR-0009, #810), per suite.
  *
  * A MEMBER is a run whose scope answers the gate — full, or admissible — and
  * whose verdict holds at `sha` (`holdsAt`).
  * Every path in the range must lie in some member's `changedPaths`, and a full-run
- * member covers every path. A covered suite needs at least one member, so an
- * empty range is not covered by nothing.
+ * member attests every path. An attested suite needs at least one member, so an
+ * empty range is not attested by nothing.
  *
- * A PER-TEST MARKER HOLDS TEST BY TEST (#1860, `testsHeldAt`), so a path is
- * judged against each test that reads it. A range path P that no older marker covers is covered when some
+ * A PER-TEST CERTIFICATE HOLDS TEST BY TEST (#1860, `testsHeldAt`), so a path is
+ * judged against each test that reads it. A range path P that no older certificate attests is attested when some
  * per-test member names P in its `changedPaths` with its roots, its tests and
  * their recorded imports untouched — the witness that a selection was
  * computed with P in view over the graph `sha` still has (ADR-0009) — and every
  * test that reads P at `sha` is held by some per-test member that selected
  * it, any session's and whatever its diff. A test reads P where the manifest
  * at `sha` maps P to it, where P is in its recorded imports, or where it is
- * P; only tests `sha` tracks are asked. An uncovered P with a witness names
+ * P; only tests `sha` tracks are asked. An unattested P with a witness names
  * the readers no member holds (`tests`), the only runs owed for it.
  *
  * THE RANGE runs from the published tip to `sha`: `remoteSha` where the caller
@@ -1225,7 +1253,7 @@ const ZERO_SHA = /^0+$/;
  * pushed ref (lib/landing-refs.js) — the base the narrowed default resolves. Where git cannot
  * name it, nothing is judged. `within` narrows it to those paths: the
  * session's own work, for the re-run guard (#1218). An empty `within` leaves
- * an empty range, which any member holding at `sha` covers.
+ * an empty range, which any member holding at `sha` attests.
  *
  * WITH THE `landing` MODULE ON, only a change to a range path voids a member
  * (`holdsAt`'s `countedPaths`, the range before `within`): a clean merge of
@@ -1235,8 +1263,8 @@ const ZERO_SHA = /^0+$/;
  * EACH SUITE ANSWERS FOR ITSELF (mantahostels#1256), over the suites
  * `suitesFor` asks the range about.
  *
- * An uncovered path is named with the newest commit in the range touching it,
- * or `null` where git names none. An uncovered verdict naming no path carries
+ * An unattested path is named with the newest commit in the range touching it,
+ * or `null` where git names none. An unattested verdict naming no path carries
  * `why` instead: the range was empty and no member held.
  *
  * @typedef {{marker: Marker, match: AttestationMatch}} Member
@@ -1291,7 +1319,7 @@ function attestationOf(
 	);
 	const gaps = suites.flatMap((s) => (s.attested ? [] : s.unattested));
 	if (gaps.length > 0) {
-		const last = lastTouched(
+		const last = readLastTouched(
 			base,
 			sha,
 			gaps.map((g) => g.path),
@@ -1309,14 +1337,14 @@ function attestationOf(
 }
 
 /**
- * One suite's cover of `range` at `sha`. A full-run member answers alone;
- * otherwise members are taken greedily, widest remaining cover first and the
- * newest on a tie, so the members named are the few that do the covering.
+ * One suite's attestation of `range` at `sha`. A full-run member answers alone;
+ * otherwise members are taken greedily, widest remaining reach first and the
+ * newest on a tie, so the members named are the few that do the attesting.
  *
  * @param {string} sha
  * @param {Marker[]} markers
  * @param {{ suite: string, range: string[] }} target the suite, and the paths
- *   it must cover
+ *   it must attest
  * @param {JudgeOptions} ctx
  * @returns {SuiteAttestation}
  */
@@ -1335,7 +1363,7 @@ function suiteAttestation(sha, markers, { suite, range }, ctx) {
 			suite,
 			attested: false,
 			unattested: [],
-			why: `no green ${suite} run holds at ${shortSha(sha)}`,
+			why: `no ${suite} certificate holds at ${shortSha(sha)}`,
 		};
 	const { members, left } = pickAttesters(held, range);
 	const pairs = pairAttestation([...left], perTest, judge);
@@ -1378,7 +1406,7 @@ function perTestJudge(sha, ctx) {
 /**
  * The runs holding at `sha`, newest first, each with the paths of `range` it
  * selects — or, as `sole`, the first that answers alone: a full run, or over
- * an empty range any run that holds. A per-test marker (#1860) is set aside
+ * an empty range any run that holds. A per-test certificate (#1860) is set aside
  * in `perTest` for `pairAttestation`, holding over an empty range where its roots
  * do.
  *
@@ -1398,7 +1426,7 @@ function heldMembers(sha, newestFirst, range, { ctx, judge }) {
 	for (const m of newestFirst) {
 		if (!isFullRun(m) && isPerTest(m)) {
 			const tests = range.length === 0 ? judge.held(m) : null;
-			/* Over an empty range a per-test marker answers alone only whole. */
+			/* Over an empty range a per-test certificate answers alone only whole. */
 			if (tests && tests.held.size === m.selected.length)
 				return { sole: { marker: m, match: tests.match }, held, perTest };
 			perTest.push(m);
@@ -1412,7 +1440,7 @@ function heldMembers(sha, newestFirst, range, { ctx, judge }) {
 }
 
 /**
- * A marker judged whole at `sha`, as `heldMembers` takes it: the member, and
+ * A certificate judged whole at `sha`, as `heldMembers` takes it: the member, and
  * whether it answers alone — or null where it holds or selects nothing.
  *
  * @param {Marker} m
@@ -1437,12 +1465,12 @@ function wholeHolding(m, sha, { range, inRange, ctx }) {
 }
 
 /**
- * `left`'s cover by per-test members (#1860), by the rule `attestationOf`
+ * `left`'s attestation by per-test members (#1860), by the rule `attestationOf`
  * states: a witness naming each path, and a holder for each of its readers.
  * Newest members are asked first, so the members named are the latest that
  * answer.
  *
- * @param {string[]} left the paths no older marker covered
+ * @param {string[]} left the paths no older certificate attested
  * @param {PerTestMarker[]} perTest newest first
  * @param {ReturnType<typeof perTestJudge>} judge
  * @returns {{members: Member[], unattested: Unattested[]}}
@@ -1455,10 +1483,12 @@ function pairAttestation(left, perTest, judge) {
 	const view = left.length > 0 && perTest.length > 0 ? judge.view() : null;
 	const readers = view ? readerIndex(left, perTest, view) : null;
 	for (const p of left) {
-		const cover = readers ? pathCover(p, readers, perTest, judge) : null;
-		if (cover && "members" in cover)
-			for (const { marker, match } of cover.members) used.set(marker, match);
-		else unattested.push({ path: p, commit: null, ...cover });
+		const verdict = readers
+			? pathAttestation(p, readers, perTest, judge)
+			: null;
+		if (verdict && "members" in verdict)
+			for (const { marker, match } of verdict.members) used.set(marker, match);
+		else unattested.push({ path: p, commit: null, ...verdict });
 	}
 	return {
 		members: [...used].map(([marker, match]) => ({ marker, match })),
@@ -1467,11 +1497,11 @@ function pairAttestation(left, perTest, judge) {
 }
 
 /**
- * `p`'s cover by `perTest`: its witness and each reader's holder, or the
+ * `p`'s attestation by `perTest`: its witness and each reader's holder, or the
  * readers none holds — or null where no witness names it.
  *
  * An importable `p` needs a witness whose tests' imports are untouched too: a
- * changed module can give `p` an importer no marker recorded, which only a
+ * changed module can give `p` an importer no certificate recorded, which only a
  * run selecting from `p` again finds. A document's readers are the manifest
  * at the sha, so its witness needs its roots alone (#1860).
  *
@@ -1485,7 +1515,7 @@ function pairAttestation(left, perTest, judge) {
  * @param {ReturnType<typeof perTestJudge>} judge
  * @returns {{members: Member[]} | {tests: string[]} | null}
  */
-function pathCover(p, readers, perTest, judge) {
+function pathAttestation(p, readers, perTest, judge) {
 	const witness = firstHolding(
 		perTest,
 		judge,
@@ -1555,10 +1585,10 @@ function firstHolding(perTest, judge, asks, accepts) {
 
 /**
  * Each of `paths` to the tests that read it at the view's sha (#1860): the
- * manifest's readers, every per-test marker's recorded importers, and the
+ * manifest's readers, every per-test certificate's recorded importers, and the
  * path itself where it is a test — each only where the sha tracks it, so a
  * deleted test is owed by nobody. Null where git or the manifest will not
- * answer, which leaves every path uncovered.
+ * answer, which leaves every path unattested.
  *
  * @param {string[]} paths
  * @param {PerTestMarker[]} perTest
@@ -1621,8 +1651,8 @@ function pickAttesters(held, range) {
 }
 
 /**
- * The first of `held` covering the most of `left`, or `null` where none
- * covers any.
+ * The first of `held` attesting the most of `left`, or `null` where none
+ * attests any.
  * @param {HeldMember[]} held
  * @param {Set<string>} left
  * @returns {HeldMember|null}
@@ -1649,7 +1679,7 @@ function widestAttester(held, left) {
  */
 function buildAttestedVerdict(sha, suite, members) {
 	const note = members
-		.map(({ marker, match }) => treeMatchNote(sha, marker, match, suite))
+		.map(({ marker, match }) => buildTreeMatchNote(sha, marker, match, suite))
 		.filter(Boolean)
 		.join("");
 	return { suite, attested: true, members, note: note || null };
@@ -1666,7 +1696,7 @@ function buildAttestedVerdict(sha, suite, members) {
  * @param {(args: string[]) => string} git
  * @returns {Map<string, string>}
  */
-function lastTouched(base, sha, paths, git) {
+function readLastTouched(base, sha, paths, git) {
 	/** @type {Map<string, string>} */
 	const last = new Map();
 	let out;
@@ -1705,7 +1735,7 @@ function lastTouched(base, sha, paths, git) {
  * @param {AttestationMatch} match
  * @param {string} [suite]
  */
-function treeMatchNote(sha, m, match, suite = DEFAULT_SUITE) {
+function buildTreeMatchNote(sha, m, match, suite = DEFAULT_SUITE) {
 	if (match.by !== "tree") return null;
 	const { name } = suiteMeta(suite);
 	const closure =
@@ -1738,7 +1768,7 @@ const MAX_LISTED_FILES = 20;
  * @param {string} indent
  * @returns {string[]}
  */
-function unattestedFileLines(s, indent) {
+function buildUnattestedFileLines(s, indent) {
 	const more = s.unattested.length - MAX_LISTED_FILES;
 	return [
 		...s.unattested
@@ -1756,9 +1786,9 @@ function unattestedFileLines(s, indent) {
  * `push:check`, or as one goes out, from the pre-push hook (`pushing`). Each
  * suite speaks for itself (mantahostels#1256).
  *
- * A covered suite at the push says only what qualifies its cover — a tree
- * match (#189 §4), or a member matched by sha over a dirty tree — and so is
- * usually silent; `push:check` names the runs that cover.
+ * An attested suite at the push says only what qualifies its attestation — a
+ * tree match (#189 §4), or a member matched by sha over a dirty tree — and so
+ * is usually silent; `push:check` names the certificates that attest.
  *
  * `advise` replaces an owed suite's advice before a push, where it returns lines.
  *
@@ -1776,12 +1806,12 @@ function attestationReading(
 	if (!verdict.judged)
 		return {
 			state: "unjudged",
-			text: `⚠  could not judge whether green runs cover ${shortSha(sha)}: ${verdict.why}.${pushing ? " This never refuses a push (mantahostels#908)." : ""}\n`,
+			text: `⚠  could not judge whether certificates attest ${shortSha(sha)}: ${verdict.why}.${pushing ? " This never refuses a push (mantahostels#908)." : ""}\n`,
 		};
 	const parts = verdict.suites.map((s) =>
 		s.attested
-			? attestedLines(sha, s, pushing, Boolean(verdict.within))
-			: owedLines(sha, verdict.base, s, { pushing, pushCheck, advise }),
+			? buildAttestedLines(sha, s, pushing, Boolean(verdict.within))
+			: buildOwedLines(sha, verdict.base, s, { pushing, pushCheck, advise }),
 	);
 	return {
 		state: isAttested(verdict) ? "attested" : "owed",
@@ -1795,12 +1825,12 @@ function attestationReading(
  * @param {boolean} pushing
  * @param {boolean} [narrowed] the verdict judged `within` paths, not the range
  */
-function attestedLines(sha, s, pushing, narrowed = false) {
+function buildAttestedLines(sha, s, pushing, narrowed = false) {
 	const out = [];
 	if (!pushing) {
 		const { name } = suiteMeta(s.suite);
 		out.push(
-			`✓  ${name}: every file ${narrowed ? "this run would test" : "in the range"} is covered by ${s.members.length} green run(s):\n`,
+			`✓  ${name}: ${s.members.length} certificate(s) attest ${narrowed ? "every file this run would test" : "the range"}:\n`,
 			...s.members.map(
 				({ marker: m }) =>
 					`     ${m.at ?? "unknown time"} on ${shortSha(m.sha)} — ${isFullRun(m) ? "full run" : `narrowed run over ${(m.changedPaths ?? []).length} changed path(s)`}\n`,
@@ -1821,23 +1851,23 @@ function attestedLines(sha, s, pushing, narrowed = false) {
  * @param {SuiteAttestation & {attested: false}} s
  * @param {{pushing: boolean, pushCheck?: string, advise: Advise}} options
  */
-function owedLines(sha, base, s, { pushing, pushCheck, advise }) {
+function buildOwedLines(sha, base, s, { pushing, pushCheck, advise }) {
 	const { name, gate } = suiteMeta(s.suite);
 	const head =
 		s.unattested.length > 0
 			? [
-					`⚠  NO GREEN ${name} RUN COVERS ${s.unattested.length} FILE(S) IN ${shortSha(base)}..${shortSha(sha)}:`,
-					...unattestedFileLines(s, "     "),
+					`⚠  ${s.unattested.length} FILE(S) IN ${shortSha(base)}..${shortSha(sha)} LACK A ${name} CERTIFICATE:`,
+					...buildUnattestedFileLines(s, "     "),
 				]
-			: [`⚠  ${s.why ?? `no green ${name.toLowerCase()} run holds`}.`];
+			: [`⚠  ${s.why ?? `no ${name.toLowerCase()} certificate holds`}.`];
 	const retest = retestCommand(s.unattested, gate);
 	const whole = s.unattested.every(namesTests);
 	const advice = pushing
 		? [
 				"   Those commits are already public.",
-				`   Run \`${retest && whole ? retest : gate}\` now, report any red, and run \`${pushCheck ?? commandOrDefault("push_check")}\` before your next push. This never refuses a push (mantahostels#908).`,
+				`   Run \`${retest && whole ? retest : gate}\` now, report any red, and run \`${pushCheck ?? readCommandOrDefault("push_check")}\` before your next push. This never refuses a push (mantahostels#908).`,
 			]
-		: (advise(s) ?? rerunLines(s.unattested, gate));
+		: (advise(s) ?? buildRerunLines(s.unattested, gate));
 	return `${[...head, ...advice].join("\n")}\n`;
 }
 
@@ -1869,7 +1899,7 @@ function retestCommand(unattested, gate) {
  * @param {string|null} [others] what the gate's line calls the other files
  * @returns {string[]}
  */
-function rerunLines(unattested, gate, others = null) {
+function buildRerunLines(unattested, gate, others = null) {
 	const retest = retestCommand(unattested, gate);
 	const rest = unattested.filter((u) => !namesTests(u)).length;
 	const gateLine =
@@ -1879,7 +1909,7 @@ function rerunLines(unattested, gate, others = null) {
 	return [
 		...(retest
 			? [
-					`   ${unattested.length - rest} of them are read by test(s) whose own reads changed since their green; re-run only those (#1860):`,
+					`   ${unattested.length - rest} of them are read by test(s) whose own reads changed since their certificate; re-run only those (#1860):`,
 					`     ${retest}`,
 				]
 			: []),
@@ -1888,7 +1918,7 @@ function rerunLines(unattested, gate, others = null) {
 }
 
 /**
- * Whether the session's own last commit is covered — or, failing that, a
+ * Whether the session's own last commit is attested — or, failing that, a
  * later commit up to HEAD that contains it (#807, #810 story 32). Every run
  * reads HEAD, so once a neighbour commits on top no run can reproduce the
  * session's commit, and a gate demanding one prescribes a re-run that cannot
@@ -1896,7 +1926,7 @@ function rerunLines(unattested, gate, others = null) {
  *
  * The commits tried are `own`, HEAD, and the sha of each full or admissible
  * run lying between them. Never HEAD alone (mantahostels#1253): a neighbour's
- * uncovered commit above an earlier covered one refuses nothing.
+ * unattested commit above an earlier attested one refuses nothing.
  *
  * On a miss the verdict returned is HEAD's where git could judge it, else the
  * first judged; where none could be judged, the first reason. `within` narrows
@@ -1997,7 +2027,7 @@ function formatFilteredRun(scope) {
  * @param {Marker} marker
  * @returns {string}
  */
-function dirtyReason(marker) {
+function buildDirtyReason(marker) {
 	const foreign = marker.foreign || [];
 	if (foreign.length > 0)
 		return `read ${foreign.length} file(s) another session held`;
@@ -2017,7 +2047,7 @@ function dirtyReason(marker) {
  */
 function dirtyWarning(sha, marker, suite = DEFAULT_SUITE) {
 	const { name, gate } = suiteMeta(suite);
-	return `⚠  dirty tree: the green ${name.toLowerCase()} run on ${shortSha(sha)} ${dirtyReason(marker)}. Clear: ${gate} on a still tree.\n`;
+	return `⚠  dirty tree: the ${name.toLowerCase()} certificate on ${shortSha(sha)} came from a run that ${buildDirtyReason(marker)}. Clear: ${gate} on a still tree.\n`;
 }
 
 module.exports = {
@@ -2030,6 +2060,7 @@ module.exports = {
 	storePath,
 	record,
 	readMarkers,
+	readStoreFile,
 	countMalformed,
 	readFailures,
 	lastFullRed,
@@ -2040,7 +2071,7 @@ module.exports = {
 	holdsAt,
 	docsReadBy,
 	attestationOf,
-	rerunLines,
+	buildRerunLines,
 	namesTests,
 	retestCommand,
 	RETEST_FLAG,

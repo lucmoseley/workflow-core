@@ -27,7 +27,9 @@
  * looking exactly like a job that is still healthy and merely hasn't run since.
  * A total-absence check would need a staleness limb keyed to how often each job
  * is expected to fire, which mantahostels#1910 proposed and this file does not implement;
- * none of the three jobs currently derives that rate.
+ * none of the three jobs currently derives that rate. Nor does a config dir
+ * that is gone: `writeRuns` never makes it (#2889), so every record is lost
+ * silently and the last row on disk, if any, stands.
  *
  * THE SHAPE IS THE REAPER'S, DELIBERATELY. scripts/reap-finished-sessions.js
  * answers the same question for the reaper with `wfc-reap-run.json` — a start
@@ -162,11 +164,14 @@ function readRuns() {
  * so an overlap under-reports, showing one run where there were two. Bounded at
  * the handful of starts that can collide, and the condition being reported is
  * standing rather than per-run.
+ *
+ * NEVER MAKES THE CONFIG DIR, which is the harness's: a child that outlives a
+ * test's sandbox would otherwise rebuild the deleted sandbox in the temp root,
+ * one leaked directory per run (#2889).
  * @param {RunRecord} record
  */
 function writeRuns(record) {
 	try {
-		fs.mkdirSync(configDir(), { recursive: true });
 		const all = readRuns();
 		all[record.job] = record;
 		fs.writeFileSync(runPath(), `${JSON.stringify(all, null, "\t")}\n`);

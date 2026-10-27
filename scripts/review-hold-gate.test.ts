@@ -23,18 +23,19 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { shellConst } from "./lib/shell-const-testkit";
+import { readShellConst } from "./lib/shell-const-testkit";
 
 const GATE = path.resolve(__dirname, "review-hold-gate.sh");
 const COMMIT_PATHS = path.resolve(__dirname, "commit-paths.js");
 const MARKER_LIB = path.resolve(__dirname, "lib", "concision-marker.sh");
 const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
-const PUSH_GUARD = path.resolve(__dirname, "guard-push-rules.sh");
+const PUSH_GUARD = path.resolve(__dirname, "guard-push-rules.js");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
+const WRITE_MARKER = path.resolve(__dirname, "write-review-marker.js");
 const WIRING = `${coreCall("bash", "scripts/review-hold-gate.sh")} || exit 1`;
 const SID = "session-under-test";
 /** code-signal.sh's review floor: a change over it owes a review. */
-const CODE_THRESHOLD = shellConst(
+const CODE_THRESHOLD = readShellConst(
 	path.join(__dirname, "lib", "code-signal.sh"),
 	"CODE_THRESHOLD",
 );
@@ -137,6 +138,71 @@ const mark = (
 		`base=${base}\nfindings=2\n${Object.entries(lines)
 			.map(([k, v]) => `${k}=${v}\n`)
 			.join("")}`,
+	);
+};
+
+/**
+ * Commits a five-line SECRET, edits its first and last lines, and returns a
+ * patch holding the first hunk alone.
+ */
+const halfPatch = () => {
+	write(SECRET, "line 1\nline 2\nline 3\nline 4\nline 5\n");
+	git("commit", "-qam", "five lines");
+	write(SECRET, "line 1 mine\nline 2\nline 3\nline 4\nline 5 theirs\n");
+	const patch = path.join(scratch, "mine.patch");
+	const full = git("diff", "HEAD", "-U0", "--", SECRET);
+	fs.writeFileSync(patch, `${full.split("\n@@ -5")[0]}\n`);
+	return patch;
+};
+
+/** A `commit-paths.js --patch` commit, this file's pre-commit hook wired. */
+const commitPatch = (patch: string, whole: string[]) =>
+	runInProcess(
+		COMMIT_PATHS,
+		[
+			"-m",
+			"mine",
+			"--patch",
+			patch,
+			...(whole.length > 0 ? ["--", ...whole] : []),
+		],
+		{
+			cwd: repo,
+			env: {
+				...quietEnv(),
+				CLAUDE_CODE_SESSION_ID: SID,
+				GIT_CONFIG_COUNT: "1",
+				GIT_CONFIG_KEY_0: "core.hooksPath",
+				GIT_CONFIG_VALUE_0: hooks,
+			},
+		},
+	);
+
+/**
+ * write-review-marker.js's marker for halfPatch's SECRET hunk plus PRICE
+ * whole, after leaving the review artefacts it demands; their suffix is
+ * SID's first eight characters, as lib/review-suffix.sh cuts it.
+ */
+const writeMarker = (patch: string) => {
+	for (const axis of ["standards", "spec"])
+		write(`.claude/tmp/review-${axis}-${SID.slice(0, 8)}.md`, "- none\n");
+	return runInProcess(
+		WRITE_MARKER,
+		[
+			"--base",
+			"HEAD",
+			"--findings",
+			"0",
+			"--tier",
+			"escalated",
+			"--areas",
+			"money,secrets",
+			"--paths",
+			`${SECRET},${PRICE}`,
+			"--patch",
+			patch,
+		],
+		{ cwd: repo, env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID } },
 	);
 };
 
@@ -273,6 +339,18 @@ describe("review-hold-gate.sh — refusals", () => {
 			`its paths= does not name ${PLAIN}.`,
 		);
 	});
+
+	it("refuses a --patch commit whose whole path changed after write-review-marker.js wrote its marker", () => {
+		const patch = halfPatch();
+		write(PRICE, "new\n");
+		expect(writeMarker(patch).status).toBe(0);
+		write(PRICE, "newer\n");
+		const r = commitPatch(patch, [PRICE]);
+		expect(r.status).not.toBe(0);
+		expect(r.stderr).toContain("its tree= is not the tree this commit carries");
+		expect(r.stderr).toContain("rule:review-hold");
+		expect(commitCount()).toBe("2");
+	});
 });
 
 describe("review-hold-gate.sh — the declaration it reads", () => {
@@ -338,38 +416,34 @@ describe("review-hold-gate.sh — passes", () => {
 	});
 
 	it("passes a commit-paths.js --patch commit whose tree= commit-paths.js --tree --patch printed", () => {
-		write(SECRET, "line 1\nline 2\nline 3\nline 4\nline 5\n");
-		git("commit", "-qam", "five lines");
-		write(SECRET, "line 1 mine\nline 2\nline 3\nline 4\nline 5 theirs\n");
-		const patch = path.join(scratch, "mine.patch");
-		const full = git("diff", "HEAD", "-U0", "--", SECRET);
-		fs.writeFileSync(patch, `${full.split("\n@@ -5")[0]}\n`);
+		const patch = halfPatch();
 		mark({
 			tier: "escalated",
 			areas: "secrets",
 			tree: treeOf(["--patch", patch]),
 			paths: SECRET,
 		});
-		const r = spawnSync(
-			"node",
-			[COMMIT_PATHS, "-m", "mine", "--patch", patch],
-			{
-				cwd: repo,
-				encoding: "utf8",
-				env: {
-					...quietEnv(),
-					CLAUDE_CODE_SESSION_ID: SID,
-					GIT_CONFIG_COUNT: "1",
-					GIT_CONFIG_KEY_0: "core.hooksPath",
-					GIT_CONFIG_VALUE_0: hooks,
-				},
-			},
-		);
+		const r = commitPatch(patch, []);
 		expect(r.stderr).not.toContain("review hold");
 		expect(r.status).toBe(0);
 		expect(git("show", `HEAD:${SECRET}`)).toBe(
 			"line 1 mine\nline 2\nline 3\nline 4\nline 5",
 		);
+	});
+
+	it("passes a --patch commit with a whole path beside it on the marker write-review-marker.js wrote, unedited (#2647)", () => {
+		const patch = halfPatch();
+		write(PRICE, "new\n");
+		const w = writeMarker(patch);
+		expect(w.stderr).toBe("");
+		expect(w.status).toBe(0);
+		const r = commitPatch(patch, [PRICE]);
+		expect(r.stderr).not.toContain("review hold");
+		expect(r.status).toBe(0);
+		expect(git("show", `HEAD:${SECRET}`)).toBe(
+			"line 1 mine\nline 2\nline 3\nline 4\nline 5",
+		);
+		expect(git("show", `HEAD:${PRICE}`)).toBe("new");
 	});
 
 	it("passes a commit with no session id", () => {
@@ -433,7 +507,7 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 		expect(reason).not.toContain("was rejected");
 	};
 	const pushWarn = () => {
-		const r = spawnSync(PUSH_GUARD, [], {
+		const r = spawnSync("node", [PUSH_GUARD], {
 			cwd: repo,
 			encoding: "utf8",
 			input: JSON.stringify({
@@ -483,6 +557,13 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 			// What commit-paths.js does for a new file.
 			git("add", "-N", "lib/earlier.ts");
 			expect(commit(["lib/earlier.ts"]).status).toBe(0);
+			// What post-commit does; an unledgered commit is nobody's (#3108).
+			if (earlierBy === "this session")
+				expect(
+					runInProcess(ARBITER, ["record-commit", git("rev-parse", "HEAD")], {
+						env: { ...hookEnv(), CLAUDE_CODE_SESSION_ID: SID },
+					}).status,
+				).toBe(0);
 			authored(PRICE, code);
 			return start;
 		};

@@ -65,7 +65,7 @@ const PATHSPEC =
 describe("resolving an id to its text", () => {
 	it("Node returns the fragment body with trailing newlines trimmed", () => {
 		store({ "commit-pathspec.txt": PATHSPEC });
-		expect(lib.ruleText("commit-pathspec")).toBe(
+		expect(lib.readRuleText("commit-pathspec")).toBe(
 			"Commit by pathspec, never `git add` first.\n\nThe index is repo-global.",
 		);
 	});
@@ -76,7 +76,7 @@ describe("resolving an id to its text", () => {
 		expect(r.code).toBe(0);
 		/* The command form adds the newline a terminal wants; the sourced
 		 * function does not, which is what the parity case below pins. */
-		expect(r.out).toBe(`${lib.ruleText("commit-pathspec")}\n`);
+		expect(r.out).toBe(`${lib.readRuleText("commit-pathspec")}\n`);
 	});
 
 	it("the sourced function and the Node accessor agree byte for byte", () => {
@@ -90,27 +90,29 @@ describe("resolving an id to its text", () => {
 		);
 		const nodeBytes = spawnSync("bash", ["-c", "od -An -c | tr -d ' \\n'"], {
 			encoding: "utf8",
-			input: lib.ruleText("file-claim"),
+			input: lib.readRuleText("file-claim"),
 		});
 		expect(r.stdout).toBe(nodeBytes.stdout);
 	});
 
 	it("preserves interior whitespace, which is the fragment author's own", () => {
 		store({ "shape.txt": "  indented\n\n\ttabbed\n" });
-		expect(lib.ruleText("shape")).toBe("  indented\n\n\ttabbed");
+		expect(lib.readRuleText("shape")).toBe("  indented\n\n\ttabbed");
 	});
 });
 
 describe("refusing loudly on an unknown id", () => {
 	it("Node throws, naming the id and what the store does hold", () => {
 		store({ "file-claim.txt": "x" });
-		expect(() => lib.ruleText("no-such-rule")).toThrow(/no-such-rule/);
-		expect(() => lib.ruleText("no-such-rule")).toThrow(/Known ids: file-claim/);
+		expect(() => lib.readRuleText("no-such-rule")).toThrow(/no-such-rule/);
+		expect(() => lib.readRuleText("no-such-rule")).toThrow(
+			/Known ids: file-claim/,
+		);
 	});
 
 	it("Node says the store is empty rather than listing nothing", () => {
 		store({});
-		expect(() => lib.ruleText("file-claim")).toThrow(/holds no fragments/);
+		expect(() => lib.readRuleText("file-claim")).toThrow(/holds no fragments/);
 	});
 
 	it("bash exits non-zero and puts the message on stderr, not stdout, naming the id and the known ids", () => {
@@ -143,7 +145,7 @@ describe("refusing an empty fragment", () => {
 	 * cannot see: the id resolves, and the guard denies a session with "". */
 	it("Node throws rather than returning the empty string", () => {
 		store({ "file-claim.txt": "\n\n   \n" });
-		expect(() => lib.ruleText("file-claim")).toThrow(/is empty/);
+		expect(() => lib.readRuleText("file-claim")).toThrow(/is empty/);
 	});
 
 	it("bash exits non-zero rather than printing nothing", () => {
@@ -158,8 +160,8 @@ describe("refusing an empty fragment", () => {
 describe("accepting the prefixed spelling the trigger indexes hand out", () => {
 	it("Node resolves rule:<id> to the same bytes as the bare id", () => {
 		store({ "commit-pathspec.txt": PATHSPEC });
-		expect(lib.ruleText("rule:commit-pathspec")).toBe(
-			lib.ruleText("commit-pathspec"),
+		expect(lib.readRuleText("rule:commit-pathspec")).toBe(
+			lib.readRuleText("commit-pathspec"),
 		);
 	});
 
@@ -184,7 +186,7 @@ describe("accepting the prefixed spelling the trigger indexes hand out", () => {
 
 	it("an unknown id prefixed still refuses, naming the bare id it looked for", () => {
 		const dir = store({ "commit-pathspec.txt": PATHSPEC });
-		expect(() => lib.ruleText("rule:nope")).toThrow(
+		expect(() => lib.readRuleText("rule:nope")).toThrow(
 			/no fragment for rule id "nope"/,
 		);
 		const r = sh(dir, "rule:nope");
@@ -221,8 +223,8 @@ describe("accepting the prefixed spelling the trigger indexes hand out", () => {
 	for (const id of ["rule:../outside", "rule:rule:commit-pathspec"]) {
 		it(`Node refuses ${JSON.stringify(id)}, quoting it as given`, () => {
 			store({ "commit-pathspec.txt": PATHSPEC });
-			expect(() => lib.ruleText(id)).toThrow(/is not a rule id/);
-			expect(() => lib.ruleText(id)).toThrow(
+			expect(() => lib.readRuleText(id)).toThrow(/is not a rule id/);
+			expect(() => lib.readRuleText(id)).toThrow(
 				new RegExp(`"${id.replace(/\./g, "\\.")}"`),
 			);
 		});
@@ -250,7 +252,7 @@ describe("the id grammar is the path-traversal defence", () => {
 	for (const id of bad) {
 		it(`Node refuses ${JSON.stringify(id)} as an id rather than resolving it`, () => {
 			store({ "commit-pathspec.txt": PATHSPEC });
-			expect(() => lib.ruleText(id)).toThrow(/is not a rule id/);
+			expect(() => lib.readRuleText(id)).toThrow(/is not a rule id/);
 		});
 
 		it(`bash refuses ${JSON.stringify(id)} the same way, as not a rule id`, () => {
@@ -267,7 +269,7 @@ describe("the id grammar is the path-traversal defence", () => {
 	for (const id of [null, undefined, 42, {}]) {
 		it(`Node refuses ${JSON.stringify(id) ?? "undefined"} as an id`, () => {
 			store({ "commit-pathspec.txt": PATHSPEC });
-			expect(() => lib.ruleText(id)).toThrow(/is not a rule id/);
+			expect(() => lib.readRuleText(id)).toThrow(/is not a rule id/);
 		});
 	}
 
@@ -275,7 +277,7 @@ describe("the id grammar is the path-traversal defence", () => {
 		const dir = store({});
 		fs.writeFileSync(path.join(dir, "..", "outside.txt"), "secret");
 		temps.push(path.join(dir, "..", "outside.txt"));
-		expect(() => lib.ruleText("../outside")).toThrow(/is not a rule id/);
+		expect(() => lib.readRuleText("../outside")).toThrow(/is not a rule id/);
 	});
 });
 
@@ -340,18 +342,18 @@ describe("enumerating the store", () => {
 			"notes.json": "{}",
 			"Bad-Id.txt": "ignored — the grammar refuses it",
 		});
-		expect(lib.ruleIds()).toEqual(["branch-shared-tree", "file-claim"]);
+		expect(lib.readRuleIds()).toEqual(["branch-shared-tree", "file-claim"]);
 	});
 
 	it("bash --ids agrees with the Node enumeration", () => {
 		const dir = store({ "file-claim.txt": "x", "branch-shared-tree.txt": "y" });
-		expect(sh(dir, "--ids").out.trim().split("\n")).toEqual(lib.ruleIds());
+		expect(sh(dir, "--ids").out.trim().split("\n")).toEqual(lib.readRuleIds());
 	});
 
 	it("a store directory that does not exist is empty, not an error", () => {
 		const dir = store({});
 		process.env.WFC_RULES_DIR = path.join(dir, "absent");
-		expect(lib.ruleIds()).toEqual([]);
+		expect(lib.readRuleIds()).toEqual([]);
 		expect(sh(path.join(dir, "absent"), "--ids").code).toBe(0);
 	});
 });
@@ -384,10 +386,10 @@ describe("layering the host's store over the core's", () => {
 
 	it("Node resolves an id only the core's layer holds, and the host's copy wins", () => {
 		layered();
-		expect(lib.ruleText("core")).toBe("core text");
-		expect(lib.ruleText("mine")).toBe("host text");
-		expect(lib.ruleText("both")).toBe("host wins");
-		expect(lib.ruleIds()).toEqual(["both", "core", "mine"]);
+		expect(lib.readRuleText("core")).toBe("core text");
+		expect(lib.readRuleText("mine")).toBe("host text");
+		expect(lib.readRuleText("both")).toBe("host wins");
+		expect(lib.readRuleIds()).toEqual(["both", "core", "mine"]);
 	});
 
 	it("bash answers the same, list and single form alike", () => {
@@ -409,7 +411,7 @@ describe("layering the host's store over the core's", () => {
 	it("an override with no fallback named inherits nothing", () => {
 		const { host } = layered();
 		delete process.env.WFC_RULES_FALLBACK_DIR;
-		expect(lib.ruleIds()).toEqual(["both", "mine"]);
+		expect(lib.readRuleIds()).toEqual(["both", "mine"]);
 		expect(sh(host, "core").code).not.toBe(0);
 	});
 
@@ -439,7 +441,7 @@ describe("layering the host's store over the core's", () => {
 				"node",
 				[
 					"-e",
-					`process.stdout.write(require(${JSON.stringify(path.join(__dirname, "rule-text.js"))}).ruleText(${JSON.stringify(id)}))`,
+					`process.stdout.write(require(${JSON.stringify(path.join(__dirname, "rule-text.js"))}).readRuleText(${JSON.stringify(id)}))`,
 				],
 				{ encoding: "utf8", env },
 			);
@@ -471,14 +473,14 @@ describe("qualifying a core fragment's citations outside the core (#416)", () =>
 		install();
 		const want =
 			"Commit first (workflow-core#12, mantahostels#12). Write `Refs #12` instead.";
-		expect(lib.ruleText("core")).toBe(want);
+		expect(lib.readRuleText("core")).toBe(want);
 		expect(shNow("core").stdout).toBe(`${want}\n`);
 	});
 
 	it("in an install, the host's own fragment stays bare", () => {
 		layers();
 		install();
-		expect(lib.ruleText("mine")).toBe("Mine (#12).");
+		expect(lib.readRuleText("mine")).toBe("Mine (#12).");
 		expect(shNow("mine").stdout).toBe("Mine (#12).\n");
 	});
 
@@ -525,7 +527,7 @@ describe("qualifying a core fragment's citations outside the core (#416)", () =>
 			"node",
 			[
 				"-e",
-				`process.stdout.write(require(${JSON.stringify(path.join(__dirname, "rule-text.js"))}).ruleText(${JSON.stringify(id)}))`,
+				`process.stdout.write(require(${JSON.stringify(path.join(__dirname, "rule-text.js"))}).readRuleText(${JSON.stringify(id)}))`,
 			],
 			{ encoding: "utf8", env },
 		);
@@ -535,7 +537,7 @@ describe("qualifying a core fragment's citations outside the core (#416)", () =>
 
 	it("in the core's checkout, a core fragment is byte-identical", () => {
 		layers();
-		expect(lib.ruleText("core")).toBe(citing.trimEnd());
+		expect(lib.readRuleText("core")).toBe(citing.trimEnd());
 		expect(shNow("core").stdout).toBe(citing);
 	});
 });
@@ -560,7 +562,7 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 		const host = store({ "a.txt": "x" });
 		const spelling = `${host}/../${path.basename(host)}/`;
 		process.env.WFC_RULES_FALLBACK_DIR = spelling;
-		expect(() => lib.ruleText("absent")).toThrow(`(looked in ${host})`);
+		expect(() => lib.readRuleText("absent")).toThrow(`(looked in ${host})`);
 		const r = shEnv(
 			{ WFC_RULES_DIR: host, WFC_RULES_FALLBACK_DIR: spelling },
 			os.tmpdir(),
@@ -578,7 +580,7 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 			"node",
 			[
 				"-e",
-				`try { require(${JSON.stringify(path.join(__dirname, "rule-text.js"))}).ruleText("absent") } catch (e) { process.stdout.write(e.message) }`,
+				`try { require(${JSON.stringify(path.join(__dirname, "rule-text.js"))}).readRuleText("absent") } catch (e) { process.stdout.write(e.message) }`,
 			],
 			{
 				encoding: "utf8",
@@ -599,7 +601,7 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 		const host = store({ "a.txt": "x" });
 		const file = path.join(host, "a.txt");
 		process.env.WFC_RULES_FALLBACK_DIR = file;
-		expect(() => lib.ruleIds()).toThrow(/ENOTDIR/);
+		expect(() => lib.readRuleIds()).toThrow(/ENOTDIR/);
 		const r = shEnv(
 			{ WFC_RULES_DIR: host, WFC_RULES_FALLBACK_DIR: file },
 			os.tmpdir(),
@@ -619,7 +621,7 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 			process.env.WFC_RULES_FALLBACK_DIR = locked;
 			fs.chmodSync(locked, 0o000);
 			try {
-				expect(() => lib.ruleIds()).toThrow(/EACCES/);
+				expect(() => lib.readRuleIds()).toThrow(/EACCES/);
 				const r = shEnv(
 					{ WFC_RULES_DIR: host, WFC_RULES_FALLBACK_DIR: locked },
 					os.tmpdir(),
@@ -636,20 +638,20 @@ describe("the twins agree on what they cannot read or spell alike (#101)", () =>
 	// Bites only where en_US.UTF-8 is installed; without it bash falls back to C.
 	it("both enumerate in byte order, whatever the locale", () => {
 		const dir = store({ "ab.txt": "x", "a-c.txt": "y", "a0.txt": "z" });
-		expect(lib.ruleIds()).toEqual(["a-c", "a0", "ab"]);
+		expect(lib.readRuleIds()).toEqual(["a-c", "a0", "ab"]);
 		const r = shEnv(
 			{ WFC_RULES_DIR: dir, LC_ALL: "en_US.UTF-8" },
 			os.tmpdir(),
 			"--ids",
 		);
-		expect(r.out.trim().split("\n")).toEqual(lib.ruleIds());
+		expect(r.out.trim().split("\n")).toEqual(lib.readRuleIds());
 	});
 
 	it("a missing id's refusal reads the same from both", () => {
 		const dir = store({ "a.txt": "x" });
 		let node = "";
 		try {
-			lib.ruleText("absent");
+			lib.readRuleText("absent");
 		} catch (e) {
 			node = (e as Error).message;
 		}
@@ -709,7 +711,7 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 			env: process.env,
 		});
 		expect(r.stderr).toBe("");
-		return { bash: r.stdout, node: lib.ruleText(id) };
+		return { bash: r.stdout, node: lib.readRuleText(id) };
 	}
 
 	const recipe = "Run:\n  {command:test}\n  {command:typecheck}\n  git push";
@@ -764,7 +766,7 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 			.spyOn(process.stderr, "write")
 			.mockImplementation(() => true);
 		try {
-			expect(lib.ruleText("recipe")).toBe("Run:\n  git push");
+			expect(lib.readRuleText("recipe")).toBe("Run:\n  git push");
 			expect(String(write.mock.calls[0]?.[0])).toMatch(
 				/does not parse.*\{command:\} line dropped/,
 			);
@@ -794,23 +796,23 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 	});
 });
 
-describe("ruleTextOr, for a guard that must not crash (#1044)", () => {
+describe("readRuleTextOr, for a guard that must not crash (#1044)", () => {
 	const sb = freshSandbox();
-	const logged = () =>
+	const readLogged = () =>
 		fs.existsSync(sb.errorLog()) ? fs.readFileSync(sb.errorLog(), "utf8") : "";
 
 	it("answers the fragment where it reads, logging nothing", () => {
 		store({ "a-rule.txt": "The rule.\n" });
-		expect(lib.ruleTextOr("a-rule", "Short.", "guard-x")).toBe("The rule.");
-		expect(logged()).toBe("");
+		expect(lib.readRuleTextOr("a-rule", "Short.", "guard-x")).toBe("The rule.");
+		expect(readLogged()).toBe("");
 	});
 
 	it("answers the fallback and the pointer where it cannot, and logs under the label", () => {
 		store({});
-		expect(lib.ruleTextOr("a-rule", "Short.", "guard-x")).toBe(
+		expect(lib.readRuleTextOr("a-rule", "Short.", "guard-x")).toBe(
 			"Short. The rule itself could not be read here. The full rule: `scripts/lib/rule-text.sh a-rule`.",
 		);
-		expect(logged()).toContain("guard-x rule-text a-rule");
+		expect(readLogged()).toContain("guard-x rule-text a-rule");
 	});
 
 	it("resolves the pointer through the plugin root in an install", () => {
@@ -818,7 +820,7 @@ describe("ruleTextOr, for a guard that must not crash (#1044)", () => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "rule-text-install-"));
 		temps.push(root);
 		process.env.WFC_SCRIPT_ROOT = root;
-		expect(lib.ruleTextOr("rule:a-rule", "Short.", "guard-x")).toContain(
+		expect(lib.readRuleTextOr("rule:a-rule", "Short.", "guard-x")).toContain(
 			`${path.join(root, "scripts/lib/rule-text.sh")} a-rule\``,
 		);
 	});

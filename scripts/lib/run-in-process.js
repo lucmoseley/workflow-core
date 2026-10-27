@@ -24,6 +24,9 @@
  *            lib/hook-message.js takes a hook's JSON payload. It is spawnSync's
  *            `input` under another name. Only fd 0 and only readFileSync: a
  *            script that reads stdin as a stream still wants a spawn.
+ *   uptime   `process.uptime()` counts from the call's start, as a fresh
+ *            node's does, so a clock started at the process's start
+ *            (lib/hook-deadline.js) starts at the call.
  *   module   the script's own `module` object is the entry module, so a
  *            `require.main === module` guard fires as it does under node —
  *            true throughout for `runInProcess`. `runInProcessAsync` (mantahostels#1944)
@@ -63,14 +66,19 @@
  *   5. A CLOSED STDIN. With no `stdin` given, a read of fd 0 reaches the
  *      worker's real one rather than the empty pipe a spawn supplied.
  *   6. A TIMER-FREE EXIT. `process.exit` abandons pending async work; here it
- *      only unwinds the stack. A script that leaves a timer or an open handle
- *      leaks it into the test process.
+ *      only unwinds the stack. A call that ends with no `process.exit`, and
+ *      no throw node would have died of, and leaves a ref'd resource of its
+ *      own open is refused, naming its type — that resource is what would
+ *      keep a real process from exiting. The async form first gives its own
+ *      resources SETTLE_MS to close. One that does end so still leaks what it
+ *      left into the test process.
  *   7. A REAL FD FOR A GRANDCHILD. A script that spawns its own child with
  *      `stdio: "inherit"` on fd 1/2 (lib/check.js's `reread`, for one) hands
  *      that grandchild the real OS fd, which writes straight past the patches
  *      below — `state.stdout`/`state.stderr` never see it (mantahostels#1945).
  */
 
+const asyncHooks = require("node:async_hooks");
 const { Console } = require("node:console");
 const fs = require("node:fs");
 const Module = require("node:module");
@@ -146,9 +154,7 @@ const MARGIN_MS = 5000;
  * `staleMs >= TEST_TIMEOUT_MS`, `Date.now() - claim.startedAt` cannot reach
  * `staleMs` before vitest has already marked the test failed: the test's own
  * deadline (its start plus `TEST_TIMEOUT_MS`) falls no later than the
- * claim's. mantahostels#2267 re-derives DEFAULT_STALE_MS on this basis; the old 2000ms
- * value and what mantahostels#2262 raising the ceiling without it cost are on that
- * ticket.
+ * claim's. mantahostels#2267 re-derives DEFAULT_STALE_MS on this basis.
  *
  * `TEST_TIMEOUT_MS` also feeds `hookTimeout`, but this derivation reasons
  * about a TEST's own deadline only — every call site installs a claim from
@@ -157,8 +163,8 @@ const MARGIN_MS = 5000;
  *
  * THE TRADE: a takeover before the ceiling has passed risks silently
  * absorbing a still-live call's writes and its real `process.exit` into
- * whoever takes it over (:116-125 above) — corruption with no error at all.
- * Waiting until the ceiling has passed instead means every
+ * whoever takes it over (`CLAIM`'s NOT-closed list) — corruption with no
+ * error at all. Waiting until the ceiling has passed instead means every
  * runInProcess/runInProcessAsync call in the same worker throws
  * REENTRANT_MESSAGE — loudly, immediately, not a hang — for up to
  * `MARGIN_MS` after a genuine abandonment (the claim was already at least
@@ -213,6 +219,13 @@ function installClaim() {
 }
 
 /**
+ * Whether `claim` is still the live holder, not taken over as stale.
+ *
+ * @param {{ startedAt: number, restore: () => string[] }} claim
+ */
+const isHolder = (claim) => /** @type {any} */ (globalThis)[CLAIM] === claim;
+
+/**
  * Releases `claim`, but only where it is still the live holder — a claim a
  * later call has already taken over as stale must not restore or clear on
  * its own late settle, which would revert the new holder's patches out from
@@ -223,7 +236,7 @@ function installClaim() {
  * @returns {string[]}
  */
 function releaseClaim(claim, restore) {
-	if (/** @type {any} */ (globalThis)[CLAIM] !== claim) return [];
+	if (!isHolder(claim)) return [];
 	/** @type {any} */ (globalThis)[CLAIM] = null;
 	return restore();
 }
@@ -243,11 +256,118 @@ function purgeCallerModules() {
 	}
 }
 
+/* The async_hooks types that keep a process alive until they close, and
+ * report closing through `destroy`: libuv handles, timers, and fs requests.
+ * Others — a crypto job, a stream's end-of-stream listener — report `destroy`
+ * only on garbage collection, so would read as open long after they finished.
+ * A PROMISE is never counted, only followed to attribute what it creates. */
+const KEEPS_ALIVE = new Set([
+	"Timeout",
+	"Immediate",
+	"FSREQCALLBACK",
+	"FSEVENTWRAP",
+	"STATWATCHER",
+	"PROCESSWRAP",
+	"PIPEWRAP",
+	"PIPESERVERWRAP",
+	"TCPWRAP",
+	"TCPSERVERWRAP",
+	"UDPWRAP",
+	"TTYWRAP",
+	"SIGNALWRAP",
+]);
+
+/* Unmeasured guess: how long an async call's own handles get to close once
+ * main() has settled — a child process's handle closes a few ticks after its
+ * exit callback. A resource still open after it is refused. */
+const SETTLE_MS = 200;
+
+/**
+ * Tracks the async resources a call creates (#2782), through `async_hooks`.
+ * A resource is the call's where it was created while the call's own code
+ * ran synchronously, or by, or inside, a resource that is already the call's.
+ * So a socket the vitest worker's own server accepts during an `await` is
+ * not, and a promise continuation inside `main()` is.
+ *
+ * `attributing` is turned off once the call's own code is no longer on the
+ * stack (the async form's await) and again once the call has settled, so the
+ * harness's own continuation is not counted as the script's.
+ */
+function trackResources() {
+	/** @type {Set<number>} */
+	const owned = new Set();
+	/** @type {Map<number, { type: string, resource: any }>} */
+	const live = new Map();
+	const flags = { inSync: true, attributing: true };
+	const hook = asyncHooks
+		.createHook({
+			init(id, type, trigger, resource) {
+				if (!flags.attributing) return;
+				if (
+					!flags.inSync &&
+					!owned.has(trigger) &&
+					!owned.has(asyncHooks.executionAsyncId())
+				)
+					return;
+				owned.add(id);
+				if (KEEPS_ALIVE.has(type)) live.set(id, { type, resource });
+			},
+			destroy(id) {
+				live.delete(id);
+			},
+		})
+		.enable();
+
+	/** What the call created that is still open and would hold a real process. */
+	const held = () =>
+		[...live.values()].filter(
+			({ resource }) =>
+				typeof resource?.hasRef !== "function" || resource.hasRef(),
+		);
+
+	return {
+		flags,
+		/** Waits, up to SETTLE_MS, for the call's own resources to close. */
+		async settle() {
+			flags.attributing = false;
+			const deadline = Date.now() + SETTLE_MS;
+			while (held().length > 0 && Date.now() < deadline)
+				await new Promise((resolve) => setImmediate(resolve));
+		},
+		/** @returns {string[]} `<type> x<n>` per type still held */
+		leaked() {
+			const counts = new Map();
+			for (const { type } of held())
+				counts.set(type, (counts.get(type) ?? 0) + 1);
+			return [...counts].map(([type, n]) => `${type} x${n}`);
+		},
+		disable() {
+			hook.disable();
+		},
+	};
+}
+
+/**
+ * Refuses a call that did not end the process (`state.exited` null) and left
+ * ref'd resources of its own open (header item 6).
+ *
+ * @param {string} script
+ * @param {string[]} leaked
+ */
+function refuseLeaks(script, leaked) {
+	if (leaked.length > 0)
+		throw new Error(
+			`runInProcess: ${script} returned without ending the process and left ref'd ` +
+				`resources of its own open, which a real process would wait on: ${leaked.join(", ")}. ` +
+				"Close, clear or unref them, await them, or end on process.exit.",
+		);
+}
+
 /* Buffer.isEncoding, not `typeof enc === "string"`: a Writable hands its _write
  * the chunk as a Buffer under the encoding "buffer", which is a string and is
  * not an encoding Buffer.toString will take. */
 /** @type {(chunk: unknown, enc?: unknown) => string} */
-const asText = (chunk, enc) =>
+const toText = (chunk, enc) =>
 	typeof chunk === "string"
 		? chunk
 		: Buffer.from(/** @type {any} */ (chunk)).toString(
@@ -281,7 +401,7 @@ function replaceEnv(env) {
 const sink = (append) =>
 	new Writable({
 		write(chunk, enc, cb) {
-			append(asText(chunk, enc));
+			append(toText(chunk, enc));
 			cb();
 		},
 	});
@@ -346,18 +466,24 @@ function dropAddedListeners(saved, failures) {
  * vitest worker installed for itself would report the script's crash as the
  * test process crashing.
  *
+ * `end` hears the two outcomes where node ends the process — no listener, and
+ * a listener that throws — and not a listener that returns, after which a
+ * real process runs on.
+ *
  * @param {any} e
  * @param {Map<string | symbol, Set<Function>>} saved
  * @param {(text: string) => void} write
+ * @param {(code: number) => void} end
  * @returns {number}
  */
-function crash(e, saved, write) {
+function crash(e, saved, write, end) {
 	const before = saved.get("uncaughtException");
 	const added = process
 		.rawListeners("uncaughtException")
 		.filter((fn) => !before?.has(fn));
 	if (added.length === 0) {
 		write(`${e?.stack || String(e)}\n`);
+		end(1);
 		return 1;
 	}
 	try {
@@ -370,6 +496,7 @@ function crash(e, saved, write) {
 		write(
 			`${(inner instanceof Error && inner.stack) || caught(inner).message}\n`,
 		);
+		end(7);
 		return 7;
 	}
 }
@@ -383,7 +510,7 @@ function crash(e, saved, write) {
  * `runInProcessAsync`'s two — load and `main()` — treat an escape identically.
  *
  * @param {any} e
- * @param {CaptureState} state accumulator: a crash's report is appended to `stderr`; `exited` is read
+ * @param {CaptureState} state accumulator: a crash's report is appended to `stderr`; `exited` is read, and set where the crash ends the process
  * @param {Map<string | symbol, Set<Function>>} listeners
  * @returns {number | null} the status to record, or null to leave `state.status` as it was
  */
@@ -394,9 +521,16 @@ function statusOfEscape(e, state, listeners) {
 		 * process was already gone by then. */
 		return null;
 	}
-	return crash(e, listeners, (text) => {
-		state.stderr += text;
-	});
+	return crash(
+		e,
+		listeners,
+		(text) => {
+			state.stderr += text;
+		},
+		(code) => {
+			state.exited = code;
+		},
+	);
 }
 
 /**
@@ -416,6 +550,9 @@ function statusOfEscape(e, state, listeners) {
  * @property {string[]} restoreFailures  what could not be put back afterwards;
  *           empty on every ordinary run
  *
+ * `exited` is the code the process ended on — by `process.exit`, or by a
+ * throw node dies of — and null while a real process would still be running.
+ *
  * @typedef {{ stdout: string, stderr: string, status: number, exited: number | null }} CaptureState
  */
 
@@ -424,6 +561,7 @@ function statusOfEscape(e, state, listeners) {
  * @property {string} cwd
  * @property {string[]} argv
  * @property {typeof process.exit} exit
+ * @property {typeof process.uptime} uptime
  * @property {string | number | undefined} exitCode
  * @property {NodeJS.Module | undefined} mainModule
  * @property {typeof fs.writeSync} writeSync
@@ -447,6 +585,7 @@ function snapshotPatches() {
 		cwd: process.cwd(),
 		argv: process.argv,
 		exit: process.exit,
+		uptime: process.uptime,
 		exitCode: process.exitCode,
 		mainModule: process.mainModule,
 		writeSync: fs.writeSync,
@@ -471,6 +610,7 @@ function snapshotPatches() {
 		 * patched for the rest of the worker's life. */
 		process.argv = saved.argv;
 		process.exit = saved.exit;
+		process.uptime = saved.uptime;
 		process.exitCode = saved.exitCode;
 		process.mainModule = saved.mainModule;
 		/** @type {any} */ (fs).writeSync = saved.writeSync;
@@ -511,6 +651,8 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	if (options.cwd) process.chdir(path.resolve(options.cwd));
 	process.argv = [process.execPath, script, ...args];
 	process.exitCode = undefined;
+	const startedAt = saved.uptime();
+	process.uptime = () => saved.uptime() - startedAt;
 	process.exit = /** @type {any} */ (
 		(/** @type {number} */ code) => {
 			/* The FIRST call wins. A catch-all that swallows this throw and then
@@ -527,7 +669,7 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 		/** @type {any[]} */ ...rest
 	) => {
 		if (fd !== 1 && fd !== 2) return saved.writeSync(fd, data, ...rest);
-		const text = asText(data);
+		const text = toText(data);
 		if (state.exited !== null) return Buffer.byteLength(text);
 		if (fd === 1) state.stdout += text;
 		else state.stderr += text;
@@ -537,7 +679,7 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	 * never sees it called can wait forever. */
 	process.stdout.write = /** @type {any} */ (
 		(/** @type {any} */ c, /** @type {any} */ e, /** @type {any} */ cb) => {
-			if (state.exited === null) state.stdout += asText(c, e);
+			if (state.exited === null) state.stdout += toText(c, e);
 			const done = typeof e === "function" ? e : cb;
 			if (done) done();
 			return true;
@@ -545,7 +687,7 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	);
 	process.stderr.write = /** @type {any} */ (
 		(/** @type {any} */ c, /** @type {any} */ e, /** @type {any} */ cb) => {
-			if (state.exited === null) state.stderr += asText(c, e);
+			if (state.exited === null) state.stderr += toText(c, e);
 			const done = typeof e === "function" ? e : cb;
 			if (done) done();
 			return true;
@@ -596,52 +738,114 @@ function buildEntry(script) {
 }
 
 /**
- * @param {string} scriptPath  path to the CLI script, resolved against cwd
- * @param {string[]} [args]    argv beyond the script name
- * @param {RunOptions} [options]
- * @returns {RunResult}
+ * @typedef {object} Call
+ * @property {string} script
+ * @property {CaptureState} state
+ * @property {Map<string | symbol, Set<Function>>} listeners
+ * @property {any} entry  the module `buildEntry` made, already patched in
+ * @property {{ startedAt: number, restore: () => string[] }} claim
+ * @property {ReturnType<typeof trackResources>} resources  what the call has created
+ * @property {string[]} takeoverFailures
  */
-function runInProcess(scriptPath, args = [], options = {}) {
+
+/**
+ * Everything both entry points do before they drive the script. A throw
+ * partway through releases the claim before it escapes, so nothing is left
+ * patched.
+ *
+ * @param {string} script  already resolved
+ * @param {string[]} args
+ * @param {RunOptions} options
+ * @returns {Call}
+ */
+function beginCall(script, args, options) {
 	const takeoverFailures = takeOverStaleClaim(
 		options.staleMs ?? DEFAULT_STALE_MS,
 	);
-	const script = path.resolve(scriptPath);
 	/** @type {CaptureState} */
 	const state = { stdout: "", stderr: "", status: 0, exited: null };
-	let restore = () => /** @type {string[]} */ ([]);
-	/** @type {string[]} */
-	let restoreFailures = takeoverFailures;
-
 	const claim = installClaim();
+	/* After the snapshot: its first read of process.stdout makes the stream's
+	 * handle in a plain node host, which is the host's, not the script's. */
 	const snapshot = snapshotPatches();
-	restore = snapshot.restore;
-	claim.restore = restore;
+	const resources = trackResources();
+	claim.restore = snapshot.restore;
 	try {
 		mutatePatches(snapshot, { script, args, options }, state);
-
 		purgeCallerModules();
 		const entry = buildEntry(script);
-		process.mainModule = entry;
 		require.cache[script] = entry;
-
-		try {
-			entry.load(script);
-			state.status = exitCodeOf(process.exitCode);
-		} catch (e) {
-			const status = statusOfEscape(e, state, snapshot.listeners);
-			if (status !== null) state.status = status;
-		}
-		if (state.exited !== null) state.status = state.exited;
-	} finally {
-		restoreFailures = [...takeoverFailures, ...releaseClaim(claim, restore)];
+		return {
+			script,
+			state,
+			listeners: snapshot.listeners,
+			entry,
+			claim,
+			resources,
+			takeoverFailures,
+		};
+	} catch (e) {
+		resources.disable();
+		releaseClaim(claim, snapshot.restore);
+		throw e;
 	}
+}
 
+/**
+ * The leak
+ * check (#2782) runs only where the call still held the claim — one taken
+ * over shared the process with the call that took it, so what it sees change
+ * is not its own — and did not end the process.
+ *
+ * @param {Call} call
+ * @returns {RunResult}
+ */
+function releaseAndReport(call) {
+	const { script, state, claim, resources, takeoverFailures } = call;
+	if (state.exited !== null) state.status = state.exited;
+	const held = isHolder(claim);
+	const restoreFailures = [
+		...takeoverFailures,
+		...releaseClaim(claim, claim.restore),
+	];
+	resources.disable();
+	if (held && state.exited === null) refuseLeaks(script, resources.leaked());
 	return {
 		status: state.status,
 		stdout: state.stdout,
 		stderr: state.stderr,
 		restoreFailures,
 	};
+}
+
+/**
+ * Records what escaped the script — a load, or the call made into it — as
+ * its status.
+ *
+ * @param {Call} call
+ * @param {any} e
+ */
+function recordEscape(call, e) {
+	const status = statusOfEscape(e, call.state, call.listeners);
+	if (status !== null) call.state.status = status;
+}
+
+/**
+ * @param {string} scriptPath  path to the CLI script, resolved against cwd
+ * @param {string[]} [args]    argv beyond the script name
+ * @param {RunOptions} [options]
+ * @returns {RunResult}
+ */
+function runInProcess(scriptPath, args = [], options = {}) {
+	const call = beginCall(path.resolve(scriptPath), args, options);
+	try {
+		process.mainModule = call.entry;
+		call.entry.load(call.script);
+		call.state.status = exitCodeOf(process.exitCode);
+	} catch (e) {
+		recordEscape(call, e);
+	}
+	return releaseAndReport(call);
 }
 
 /**
@@ -676,10 +880,10 @@ function runInProcess(scriptPath, args = [], options = {}) {
  * are populated. This function then calls the exported `main` itself and
  * awaits it.
  *
- * A SECOND DIVERGENCE, TESTED RATHER THAN JUST NOTED HERE (mantahostels#1996,
- * run-in-process.test.ts's "hands a rejection to a script's own
- * uncaughtException listener" case): `entry.load` never runs the script's own
- * `if (require.main === module) { main().catch(...) }` tail — that guard
+ * A SECOND DIVERGENCE (mantahostels#1996, pinned by run-in-process.test.ts's
+ * "hands a rejection to a script's own uncaughtException listener" case):
+ * `entry.load` never runs the script's own `if (require.main === module)
+ * { main().catch(...) }` tail — that guard
  * reads false throughout, by design, above — so a rejection out of `main()`
  * here never reaches the script's own `.catch` formatting or exit code. It
  * goes through `statusOfEscape`/`crash` instead, exactly as an escape from
@@ -720,13 +924,10 @@ function runInProcess(scriptPath, args = [], options = {}) {
  * @returns {Promise<RunResult>}
  */
 async function runInProcessAsync(scriptPath, args = [], options = {}) {
-	const takeoverFailures = takeOverStaleClaim(
-		options.staleMs ?? DEFAULT_STALE_MS,
-	);
 	const script = path.resolve(scriptPath);
 
-	/* Before anything is patched or loaded — see this function's own header
-	 * for why — and with nothing yet touched to restore. */
+	/* Before anything is claimed, patched or loaded — see this function's own
+	 * header for why. */
 	if (!fs.readFileSync(script, "utf8").includes("require.main"))
 		throw new Error(
 			`runInProcessAsync: ${script} carries no "require.main" guard, so its ` +
@@ -735,65 +936,41 @@ async function runInProcessAsync(scriptPath, args = [], options = {}) {
 				"if (require.main === module) { main().catch(...) }.",
 		);
 
-	/** @type {CaptureState} */
-	const state = { stdout: "", stderr: "", status: 0, exited: null };
-	let restore = () => /** @type {string[]} */ ([]);
-	/** @type {string[]} */
-	let restoreFailures = takeoverFailures;
-
-	const claim = installClaim();
-	const snapshot = snapshotPatches();
-	restore = snapshot.restore;
-	claim.restore = restore;
+	const call = beginCall(script, args, options);
 	try {
-		mutatePatches(snapshot, { script, args, options }, state);
-
-		purgeCallerModules();
-		const entry = buildEntry(script);
-		require.cache[script] = entry;
-
 		/* process.mainModule is deliberately NOT entry yet — see header. A throw
 		 * here (a syntax error, or a top-level statement outside the
-		 * require.main guard) gets the same treatment `runInProcess`'s single
-		 * try/catch gives an equivalent failure. */
-		let loaded = false;
+		 * require.main guard) gets the same treatment `runInProcess` gives it. */
 		try {
-			entry.load(script);
-			loaded = true;
+			call.entry.load(script);
 		} catch (e) {
-			const status = statusOfEscape(e, state, snapshot.listeners);
-			if (status !== null) state.status = status;
+			recordEscape(call, e);
+			return releaseAndReport(call);
 		}
 
-		if (loaded) {
-			const main = entry.exports?.main;
-			if (typeof main !== "function")
-				throw new Error(
-					`runInProcessAsync: ${script} exports no "main" function. It must, ` +
-						"since this seam calls it directly rather than relying on the " +
-						"script's own require.main-gated auto-invoke.",
-				);
+		const main = call.entry.exports?.main;
+		if (typeof main !== "function")
+			throw new Error(
+				`runInProcessAsync: ${script} exports no "main" function. It must, ` +
+					"since this seam calls it directly rather than relying on the " +
+					"script's own require.main-gated auto-invoke.",
+			);
 
-			process.mainModule = entry;
-			try {
-				await main();
-				state.status = exitCodeOf(process.exitCode);
-			} catch (e) {
-				const status = statusOfEscape(e, state, snapshot.listeners);
-				if (status !== null) state.status = status;
-			}
+		process.mainModule = call.entry;
+		try {
+			const pending = main();
+			call.resources.flags.inSync = false;
+			await pending;
+			call.state.status = exitCodeOf(process.exitCode);
+		} catch (e) {
+			recordEscape(call, e);
 		}
-		if (state.exited !== null) state.status = state.exited;
+		await call.resources.settle();
+		return releaseAndReport(call);
 	} finally {
-		restoreFailures = [...takeoverFailures, ...releaseClaim(claim, restore)];
+		call.resources.disable();
+		releaseClaim(call.claim, call.claim.restore);
 	}
-
-	return {
-		status: state.status,
-		stdout: state.stdout,
-		stderr: state.stderr,
-		restoreFailures,
-	};
 }
 
 module.exports = {

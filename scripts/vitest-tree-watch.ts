@@ -6,7 +6,7 @@
  * half-written source out of the repo-global worktree and went red with a
  * different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files a parallel session rewrote while the suite ran, and at run start the files already dirty and claimed elsewhere; and, on a verdict the reporter left, records the run's green or red marker in the canonical checkout's marker store, the green one being what the pre-push gate reads.
+ * IMPLICIT:  on every suite run, names the tracked files a parallel session rewrote while the suite ran, and at run start the files already dirty and claimed elsewhere; and, on a verdict the reporter left, records the run's certificate or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads.
  * JUSTIFIED: fail-safe — a red caused by a neighbour's half-saved file is otherwise read as your own breakage (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
@@ -15,7 +15,7 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 const {
-	snapshot,
+	readTreeSnapshot,
 	drift,
 	format,
 	formatNeighbourDirty,
@@ -45,7 +45,7 @@ let inherited: unknown = null;
 export function setup(project?: { config?: { root?: string } }) {
 	const root = project?.config?.root;
 	if (typeof root === "string" && root) treeRoot = root;
-	before = snapshot(treeRoot);
+	before = readTreeSnapshot(treeRoot);
 	inherited = fromArbiter(before);
 }
 
@@ -63,7 +63,7 @@ export function teardown() {
  * `check-test-marker.js` and the push gate actually read.
  */
 export function runTeardown(rootOverride?: string | null) {
-	const after = snapshot(treeRoot);
+	const after = readTreeSnapshot(treeRoot);
 	const drifted = drift(before, after);
 
 	// stderr, so these survive a reporter writing the summary to stdout.
@@ -77,7 +77,7 @@ export function runTeardown(rootOverride?: string | null) {
 	 * The marker the pre-push hook reads (mantahostels#987). Written here rather than in the
 	 * reporter because this is where the tree findings are — and only on a
 	 * verdict the reporter actually left, so a run whose result was never
-	 * observed records nothing rather than a false green.
+	 * observed records nothing rather than a false certificate.
 	 *
 	 * `after.head` is HEAD as it stood when the suite finished, which is the sha
 	 * a push straight afterwards carries.
@@ -108,8 +108,8 @@ export function runTeardown(rootOverride?: string | null) {
 
 	/*
 	 * The red half (mantahostels#1942), carrying the failing names in `scope.failures`. It
-	 * gates nothing: no green is recorded here, and `check-test-marker.js` reads
-	 * the green store alone, so a red sha still warns exactly as it did before.
+	 * gates nothing: no certificate is recorded here, and `check-test-marker.js` reads
+	 * the certificate store alone, so a red sha still warns exactly as it did before.
 	 *
 	 * `outcome === false` and not `!== true`: a null outcome means the reporter
 	 * never ran, so nothing observed the result and there is nothing to attest,

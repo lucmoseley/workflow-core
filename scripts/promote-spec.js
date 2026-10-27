@@ -10,9 +10,9 @@
  * `wayfinder:map`.
  *
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this holds for itself what
- * guard-issue-close.sh holds on the hand spelling — `**Outstanding:**`, and a
+ * guard-issue-close.js holds on the hand spelling — `**Outstanding:**`, and a
  * roadmap card's own issue going to /card-close — and does what
- * release-issue-claim.sh does after it.
+ * release-issue-claim.js does after it.
  *
  * ORDER: every refusal, then re-parent, read-back, comment, close, release.
  * Nothing is written on the spec, and the brief is never closed before the
@@ -43,7 +43,7 @@
  * included, before any gh call.
  */
 
-const { errLine, gh, ghApiSlurp } = require("./lib/gh.js");
+const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const {
@@ -73,14 +73,14 @@ const isSpec = (raw) => labelNames(raw).includes("kind:spec");
  * @param {number} n
  * @returns {SubIssue[]}
  */
-const subIssues = (repo, n) =>
+const readSubIssues = (repo, n) =>
 	ghApiSlurp([`repos/${repo}/issues/${n}/sub_issues`]);
 
 /**
  * @param {string} repo
  * @param {number} brief
  */
-const removedSubIssues = (repo, brief) =>
+const readRemovedSubIssues = (repo, brief) =>
 	ghApiSlurp([`repos/${repo}/issues/${brief}/timeline`])
 		.filter((e) => e.event === "sub_issue_removed" && e.sub_issue?.number)
 		.map((e) => /** @type {number} */ (e.sub_issue.number));
@@ -110,7 +110,7 @@ function readBriefOrFail(repo, n) {
 		brief = readIssue(repo, n);
 	} catch (e) {
 		io.fail(
-			`could not read #${n} from ${repo} (${errLine(e)}). Nothing written.`,
+			`could not read #${n} from ${repo} (${parseErrLine(e)}). Nothing written.`,
 			1,
 		);
 	}
@@ -138,7 +138,7 @@ function readMapOrFail(brief, n) {
 		map = readParent(brief);
 	} catch (e) {
 		io.fail(
-			`could not read #${n}'s parent (${brief.parentPath}) (${errLine(e)}). Nothing written.`,
+			`could not read #${n}'s parent (${brief.parentPath}) (${parseErrLine(e)}). Nothing written.`,
 			1,
 		);
 	}
@@ -165,11 +165,13 @@ function listSpecsOrFail(repo, n, map) {
 	let specs;
 	let mapKids;
 	try {
-		specs = subIssues(repo, n).filter((k) => k.state === "open" && isSpec(k));
-		mapKids = subIssues(repo, map.number);
+		specs = readSubIssues(repo, n).filter(
+			(k) => k.state === "open" && isSpec(k),
+		);
+		mapKids = readSubIssues(repo, map.number);
 	} catch (e) {
 		io.fail(
-			`could not list the sub-issues of #${n} or #${map.number} (${errLine(e)}). Nothing written.`,
+			`could not list the sub-issues of #${n} or #${map.number} (${parseErrLine(e)}). Nothing written.`,
 			1,
 		);
 	}
@@ -186,14 +188,14 @@ function listSpecsOrFail(repo, n, map) {
  * @param {SubIssue[]} mapKids
  * @returns {number}
  */
-function priorSpecOrFail(at, mapKids) {
+function readPriorSpecOrFail(at, mapKids) {
 	const { repo, n, brief, map } = at;
 	let removed;
 	try {
-		removed = removedSubIssues(repo, n);
+		removed = readRemovedSubIssues(repo, n);
 	} catch (e) {
 		io.fail(
-			`could not read #${n}'s timeline (${errLine(e)}). Nothing written.`,
+			`could not read #${n}'s timeline (${parseErrLine(e)}). Nothing written.`,
 			1,
 		);
 	}
@@ -250,15 +252,15 @@ function moveSpecOrFail(repo, n, map, held) {
 			"replace_parent=true",
 		]);
 	} catch (e) {
-		io.fail(moveRefusal(errLine(e), spec, map.number, n), 1);
+		io.fail(moveRefusal(parseErrLine(e), spec, map.number, n), 1);
 	}
 	pause();
 	let listed;
 	try {
-		listed = subIssues(repo, map.number).some((k) => k.number === spec);
+		listed = readSubIssues(repo, map.number).some((k) => k.number === spec);
 	} catch (e) {
 		io.fail(
-			`moved #${spec}, but #${map.number}'s sub-issues could not be read back (${errLine(e)}). #${n} left open — re-run.`,
+			`moved #${spec}, but #${map.number}'s sub-issues could not be read back (${parseErrLine(e)}). #${n} left open — re-run.`,
 			1,
 		);
 	}
@@ -284,7 +286,7 @@ function commentOnce(repo, n, spec, map) {
 		posted = alreadyCommented(repo, n, comment);
 	} catch (e) {
 		io.fail(
-			`#${spec} is under #${map.number}, but #${n}'s comments could not be read to rule out a second post (${errLine(e)}). Re-run to finish.`,
+			`#${spec} is under #${map.number}, but #${n}'s comments could not be read to rule out a second post (${parseErrLine(e)}). Re-run to finish.`,
 			1,
 		);
 	}
@@ -301,7 +303,7 @@ function commentOnce(repo, n, spec, map) {
 		});
 	} catch (e) {
 		io.fail(
-			`#${spec} is under #${map.number}, but the comment on #${n} failed (${errLine(e)}). Re-run to finish.`,
+			`#${spec} is under #${map.number}, but the comment on #${n} failed (${parseErrLine(e)}). Re-run to finish.`,
 			1,
 		);
 	}
@@ -320,7 +322,7 @@ function closeBriefOrFail(repo, n) {
 		state = readIssue(repo, n).state;
 	} catch (e) {
 		io.fail(
-			`the comment is on #${n}, but closing it failed or could not be read back (${errLine(e)}). Re-run to finish.`,
+			`the comment is on #${n}, but closing it failed or could not be read back (${parseErrLine(e)}). Re-run to finish.`,
 			1,
 		);
 	}
@@ -346,7 +348,7 @@ function main() {
 	const [held] = specs;
 	const spec =
 		held === undefined
-			? priorSpecOrFail({ repo, n, brief, map }, mapKids)
+			? readPriorSpecOrFail({ repo, n, brief, map }, mapKids)
 			: held.number;
 
 	if (held !== undefined) moveSpecOrFail(repo, n, map, held);

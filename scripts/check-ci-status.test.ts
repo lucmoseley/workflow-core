@@ -583,7 +583,7 @@ describe("a check that cannot see CI never claims all-clear (mantahostels#143)",
 	});
 
 	/* mantahostels#2134: a gh call that trips its own 8000ms timeout throws ETIMEDOUT, which
-	 * carries no UNREACHABLE phrase — ghFailureReason() reads that as apparatus
+	 * carries no UNREACHABLE phrase — parseGhFailureReason() reads that as apparatus
 	 * (BROKEN), never as GitHub down (SKIP). */
 	it("says BROKEN, not SKIP, when a gh call times out (mantahostels#2134)", () => {
 		// 12s: past the script's own 8000ms timeout, short of the 90_000 ms

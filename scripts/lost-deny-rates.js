@@ -28,11 +28,11 @@
  *     own `kind: "deny"` needles (`scripts/guard-fire-needles.json`). Distinct
  *     CALLS, not needle matches: one deny can trip several needles at once.
  *     Read per basename off the trigger table (`denyNeedlesByGuard`), never
- *     through `registeredGuardSubjects`, whose subjects are per registration
+ *     through `readRegisteredGuardSubjects`, whose subjects are per registration
  *     and take no scope (#2297).
  *
  *   TRUE POPULATION — every `tool_use` block the host's registrations
- *     (`lib/core-hooks.js`'s `hookSourcesOf`) route to the guard, read through
+ *     (`lib/core-hooks.js`'s `readHostHookSources`) route to the guard, read through
  *     `lib/guard-triggers.js`. A needle sweep cannot reach this count: a
  *     guard that allowed a call silently printed nothing, so a needle-based
  *     denominator sees only the calls it spoke on and overstates the rate by
@@ -65,7 +65,7 @@
  *
  * `--event` (mantahostels#3356). `PreToolUse` is the default and everything above.
  * `PostToolUse` swaps the table for the hooks that run AFTER a tool call —
- * `post-write.sh`, `scan-injection.js`, the issue-claim recorders.
+ * the post-write and scan-injection cores, the issue-claim recorders.
  * The same three counts on the same window: only the registrations read move.
  * `--scope` is fixed at `all` there, since no hook on that event can deny, so
  * every row reports `n/a (cannot deny)` and the escaped-deny total is zero by
@@ -101,11 +101,11 @@ const path = require("node:path");
 const {
 	guardKey,
 	transcriptDir,
-	transcriptFiles,
+	readTranscriptFiles,
 	fireSpans,
 	needleIn,
 } = require("./lib/guard-fires.js");
-const { hookSourcesOf, mergeHooks } = require("./lib/core-hooks.js");
+const { readHostHookSources, mergeHooks } = require("./lib/core-hooks.js");
 const { mainChainRecords } = require("./lib/transcript.js");
 const { guardDirs } = require("./lib/deny-capable.js");
 const {
@@ -1095,7 +1095,7 @@ function render(data, corpus) {
 	lines.push(
 		"guard                          lost   denies   population     loss %   deny rate %          expected escaped",
 	);
-	for (const r of data) lines.push(rowLine(r));
+	for (const r of data) lines.push(buildRowLine(r));
 	const { total, low, high, uncounted, nonDeny } = escapedTotals(data);
 	lines.push("");
 	lines.push(
@@ -1123,7 +1123,7 @@ function render(data, corpus) {
  * @param {ReturnType<typeof rows>[number]} r
  * @returns {string}
  */
-function rowLine(r) {
+function buildRowLine(r) {
 	return `${r.guard.padEnd(30)} ${String(r.lost).padStart(4)} ${String(r.denies).padStart(8)} ${String(r.population ?? "—").padStart(12)}   ${num(r.lossPct, 4).padStart(8)}   ${rateCell(r).padEnd(20)} ${expectedCell(r)}`;
 }
 
@@ -1262,7 +1262,7 @@ function main(argv) {
 
 	const dir = flagValue(flags, "--dir") ?? transcriptDir(HOST);
 
-	const sources = hookSourcesOrNull(err);
+	const sources = readHookSourcesOrNull(err);
 	if (!sources) return 2;
 	const settings = mergeHooks(sources);
 	const scriptsDir = path.join(CORE, "scripts");
@@ -1291,7 +1291,7 @@ function main(argv) {
 	}
 	const needles = denyNeedlesByGuard(needlesRead.value, triggers);
 
-	const files = transcriptFiles(dir);
+	const files = readTranscriptFiles(dir);
 	if (files === null) {
 		err(`cannot read the corpus directory: ${dir}`);
 		err("A wrong --dir reports here, never as an empty corpus.");
@@ -1327,7 +1327,7 @@ function main(argv) {
 	if (flags["--json"]) {
 		say(
 			JSON.stringify(
-				jsonReport(corpus, data, { acc, classify, unionReport }),
+				buildJsonReport(corpus, data, { acc, classify, unionReport }),
 				null,
 				2,
 			),
@@ -1412,16 +1412,16 @@ function scopeAndEvent(flags, err) {
 }
 
 /**
- * The files registering HOST's hooks (`hookSourcesOf`), read for
+ * The files registering HOST's hooks (`readHostHookSources`), read for
  * `mergeHooks`, or null once an unreadable file — or, at an adopter, the
  * absence of both — has been reported.
  * @param {(s: string) => void} err
- * @returns {ReturnType<typeof hookSourcesOf> | null}
+ * @returns {ReturnType<typeof readHostHookSources> | null}
  */
-function hookSourcesOrNull(err) {
+function readHookSourcesOrNull(err) {
 	let sources;
 	try {
-		sources = hookSourcesOf(HOST, { core: CORE });
+		sources = readHostHookSources(HOST, { core: CORE });
 	} catch (e) {
 		err(caught(e).message);
 		return null;
@@ -1464,7 +1464,7 @@ function failureClassifier(settings, dirs) {
  *   classify: Map<string, Map<string, boolean>> | null,
  *   unionReport: ReturnType<typeof unionShare> | null}} extras
  */
-function jsonReport(corpus, data, { acc, classify, unionReport }) {
+function buildJsonReport(corpus, data, { acc, classify, unionReport }) {
 	return {
 		corpus: { ...corpus, unreadable: corpus.unreadable.length },
 		rows: data,

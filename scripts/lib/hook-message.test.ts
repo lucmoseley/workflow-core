@@ -15,9 +15,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { breadcrumbs } from "./breadcrumb-testkit";
+import { readBreadcrumbs } from "./breadcrumb-testkit";
 
-const { messageFrom, textOf, transcriptPath } = require("./hook-message.js");
+const {
+	readMessageFrom,
+	readMessageText,
+	transcriptPath,
+} = require("./hook-message.js");
 const hookRecord = require("./hook-record.js");
 const { projectSlug } = require("./project-slug.js");
 
@@ -52,20 +56,20 @@ function transcriptWith(text: string, extra: object[] = []): string {
  * The breadcrumb is pointed at the throwaway root, not the real repo. A `null`
  * input is a payload that would not parse.
  */
-const from = (input: object | null) =>
-	messageFrom(input, { root, guard: GUARD });
+const readHookMessage = (input: object | null) =>
+	readMessageFrom(input, { root, guard: GUARD });
 
 /**
  * The last line the breadcrumb recorded for this session; a `null` session
  * reads the record kept for payloads naming none.
  */
-const recorded = (sessionId: string | null = SID) => {
-	const all = breadcrumbs(root, GUARD, sessionId);
+const readLastBreadcrumb = (sessionId: string | null = SID) => {
+	const all = readBreadcrumbs(root, GUARD, sessionId);
 	return all.length > 0 ? all.at(-1) : null;
 };
 
-const outcome = (sessionId: string | null = SID) =>
-	recorded(sessionId)?.outcome ?? null;
+const readOutcome = (sessionId: string | null = SID) =>
+	readLastBreadcrumb(sessionId)?.outcome ?? null;
 
 describe("the transcript a payload naming none falls back to", () => {
 	const saved = {
@@ -150,14 +154,14 @@ describe("transcriptPath (mantahostels#2487)", () => {
 
 describe("the outgoing text comes off the payload (mantahostels#1273)", () => {
 	it("returns `last_assistant_message` without opening the transcript", () => {
-		const found = from({
+		const found = readHookMessage({
 			session_id: SID,
 			last_assistant_message: "the payload's text",
 			// A transcript that says something else: reaching it would show.
 			transcript_path: transcriptWith("the transcript's text"),
 		});
 		expect(found).toEqual({ sessionId: SID, message: "the payload's text" });
-		expect(recorded()).toMatchObject({
+		expect(readLastBreadcrumb()).toMatchObject({
 			outcome: "message",
 			source: "payload",
 			payloadLen: "the payload's text".length,
@@ -168,13 +172,13 @@ describe("the outgoing text comes off the payload (mantahostels#1273)", () => {
 	it("needs no transcript at all when the field is there", () => {
 		process.env.CLAUDE_CONFIG_DIR = path.join(root, "no-such-config");
 		try {
-			expect(from({ session_id: SID, last_assistant_message: "text" })).toEqual(
-				{ sessionId: SID, message: "text" },
-			);
+			expect(
+				readHookMessage({ session_id: SID, last_assistant_message: "text" }),
+			).toEqual({ sessionId: SID, message: "text" });
 		} finally {
 			delete process.env.CLAUDE_CONFIG_DIR;
 		}
-		expect(outcome()).toBe("message");
+		expect(readOutcome()).toBe("message");
 	});
 
 	it.each([
@@ -188,11 +192,11 @@ describe("the outgoing text comes off the payload (mantahostels#1273)", () => {
 			transcript_path: transcriptWith("the transcript's text"),
 		};
 		if (value !== undefined) input.last_assistant_message = value;
-		expect(from(input)).toEqual({
+		expect(readHookMessage(input)).toEqual({
 			sessionId: SID,
 			message: "the transcript's text",
 		});
-		expect(recorded()).toMatchObject({
+		expect(readLastBreadcrumb()).toMatchObject({
 			outcome: "message",
 			source: "transcript",
 			transcriptLen: "the transcript's text".length,
@@ -206,13 +210,13 @@ describe("the outgoing text comes off the payload (mantahostels#1273)", () => {
 			`${JSON.stringify({ type: "user", message: { content: "ask" } })}\n`,
 		);
 		expect(
-			from({
+			readHookMessage({
 				session_id: SID,
 				last_assistant_message: "",
 				transcript_path: file,
 			}),
 		).toBe(null);
-		expect(recorded()).toMatchObject({
+		expect(readLastBreadcrumb()).toMatchObject({
 			outcome: "empty-message",
 			source: null,
 			payloadLen: 0,
@@ -221,23 +225,23 @@ describe("the outgoing text comes off the payload (mantahostels#1273)", () => {
 	});
 
 	it("records stop_hook_active off the payload", () => {
-		from({
+		readHookMessage({
 			session_id: SID,
 			last_assistant_message: "text",
 			stop_hook_active: true,
 		});
-		expect(recorded()?.stopHookActive).toBe(true);
+		expect(readLastBreadcrumb()?.stopHookActive).toBe(true);
 	});
 });
 
-describe("messageFrom names which failure it took", () => {
+describe("readMessageFrom names which failure it took", () => {
 	it("records `message` and returns the text on the happy path", () => {
-		const found = from({
+		const found = readHookMessage({
 			session_id: SID,
 			transcript_path: transcriptWith("the outgoing text"),
 		});
 		expect(found).toEqual({ sessionId: SID, message: "the outgoing text" });
-		expect(outcome()).toBe("message");
+		expect(readOutcome()).toBe("message");
 	});
 
 	it("records `empty-message` on a transcript with nothing outgoing in it", () => {
@@ -246,15 +250,17 @@ describe("messageFrom names which failure it took", () => {
 			file,
 			`${JSON.stringify({ type: "user", message: { content: "ask" } })}\n`,
 		);
-		expect(from({ session_id: SID, transcript_path: file })).toBe(null);
-		expect(outcome()).toBe("empty-message");
+		expect(readHookMessage({ session_id: SID, transcript_path: file })).toBe(
+			null,
+		);
+		expect(readOutcome()).toBe("empty-message");
 	});
 
 	it("records `no-transcript` when neither the payload's path nor the fallback exists", () => {
 		process.env.CLAUDE_CONFIG_DIR = path.join(root, "no-such-config");
 		try {
 			expect(
-				from({
+				readHookMessage({
 					session_id: SID,
 					transcript_path: path.join(root, "absent.jsonl"),
 				}),
@@ -262,7 +268,7 @@ describe("messageFrom names which failure it took", () => {
 		} finally {
 			delete process.env.CLAUDE_CONFIG_DIR;
 		}
-		expect(outcome()).toBe("no-transcript");
+		expect(readOutcome()).toBe("no-transcript");
 	});
 
 	it("records `unreadable-transcript` when the read itself throws", () => {
@@ -270,24 +276,28 @@ describe("messageFrom names which failure it took", () => {
 		// is never tried, and readFileSync throws EISDIR.
 		const file = path.join(root, `${SID}.jsonl`);
 		fs.mkdirSync(file);
-		expect(from({ session_id: SID, transcript_path: file })).toBe(null);
-		expect(outcome()).toBe("unreadable-transcript");
+		expect(readHookMessage({ session_id: SID, transcript_path: file })).toBe(
+			null,
+		);
+		expect(readOutcome()).toBe("unreadable-transcript");
 	});
 
 	it("records `no-session-id` on a payload carrying none", () => {
-		expect(from({ transcript_path: transcriptWith("text") })).toBe(null);
-		expect(outcome(null)).toBe("no-session-id");
+		expect(readHookMessage({ transcript_path: transcriptWith("text") })).toBe(
+			null,
+		);
+		expect(readOutcome(null)).toBe("no-session-id");
 	});
 
 	it("records `no-payload` when the payload could not be parsed at all", () => {
-		expect(from(null)).toBe(null);
-		expect(outcome(null)).toBe("no-payload");
+		expect(readHookMessage(null)).toBe(null);
+		expect(readOutcome(null)).toBe("no-payload");
 	});
 
 	it("still returns the message when the breadcrumb cannot be written", () => {
 		// A file where the breadcrumb directory wants to be.
 		fs.writeFileSync(hookRecord.recordsDir(root), "not a directory\n");
-		const found = from({
+		const found = readHookMessage({
 			session_id: SID,
 			last_assistant_message: "the outgoing text",
 		});
@@ -295,18 +305,24 @@ describe("messageFrom names which failure it took", () => {
 	});
 });
 
-describe("textOf reads without recording (#73)", () => {
+describe("readMessageText reads without recording (#73)", () => {
 	it("takes the payload's message over the transcript", () => {
 		const file = transcriptWith("from the transcript");
 		expect(
-			textOf({ session_id: SID, last_assistant_message: "from payload" }, file),
+			readMessageText(
+				{ session_id: SID, last_assistant_message: "from payload" },
+				file,
+			),
 		).toBe("from payload");
 	});
 
 	it("falls back to the transcript on a whitespace-only payload message", () => {
 		const file = transcriptWith("from the transcript");
 		expect(
-			textOf({ session_id: SID, last_assistant_message: "  \n" }, file),
+			readMessageText(
+				{ session_id: SID, last_assistant_message: "  \n" },
+				file,
+			),
 		).toBe("from the transcript");
 	});
 
@@ -324,12 +340,12 @@ describe("textOf reads without recording (#73)", () => {
 				},
 			},
 		]);
-		expect(textOf({ session_id: SID }, file)).toBe("a\nb\nc");
+		expect(readMessageText({ session_id: SID }, file)).toBe("a\nb\nc");
 	});
 
 	it("returns empty and reports the error on an unreadable transcript", () => {
 		const errors: unknown[] = [];
-		const text = textOf(
+		const text = readMessageText(
 			{ session_id: SID },
 			path.join(root, "missing.jsonl"),
 			(err: unknown) => errors.push(err),
@@ -339,7 +355,7 @@ describe("textOf reads without recording (#73)", () => {
 	});
 
 	/* Stubbed rather than read back: `record` defaults its root to the cwd, so
-	 * a regressed `textOf` would write where `breadcrumbs(root)` never looks. */
+	 * a regressed `readMessageText` would write where `readBreadcrumbs(root)` never looks. */
 	it("writes no breadcrumb", () => {
 		const real = hookRecord.record;
 		let calls = 0;
@@ -348,8 +364,8 @@ describe("textOf reads without recording (#73)", () => {
 			return true;
 		};
 		try {
-			textOf({ session_id: SID }, transcriptWith("anything"));
-			textOf({ session_id: SID }, path.join(root, "missing.jsonl"));
+			readMessageText({ session_id: SID }, transcriptWith("anything"));
+			readMessageText({ session_id: SID }, path.join(root, "missing.jsonl"));
 		} finally {
 			hookRecord.record = real;
 		}
@@ -365,7 +381,7 @@ describe("the transcript's outgoing message", () => {
 				message: { content: [{ type: "text", text: "first" }] },
 			},
 		]);
-		expect(textOf({}, file)).toBe("first\nsecond");
+		expect(readMessageText({}, file)).toBe("first\nsecond");
 	});
 
 	it("skips a subagent's records, which share the file", () => {
@@ -376,6 +392,6 @@ describe("the transcript's outgoing message", () => {
 				message: { content: [{ type: "text", text: "the subagent's" }] },
 			},
 		]);
-		expect(textOf({}, file)).toBe("mine");
+		expect(readMessageText({}, file)).toBe("mine");
 	});
 });

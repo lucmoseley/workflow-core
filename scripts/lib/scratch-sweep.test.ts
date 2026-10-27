@@ -12,7 +12,7 @@
  *
  * Every fixture is backdated with `utimesSync`, which sets mtime only, and the
  * sweep ages by the later of mtime and ctime (#1003) — so the suite reads
- * mtime alone, through `mtimeOnly`, and the real reader is driven by
+ * mtime alone, through `readMtime`, and the real reader is driven by
  * `the write time userland cannot rewind` below.
  *
  * `sweep-debts-detached.sh` launches the sweep at every session start, and it
@@ -60,7 +60,7 @@ function ageDir(dir: string, rel: string, ageMs: number): void {
 }
 
 /** An entry's mtime alone. */
-function mtimeOnly(full: string): number | null {
+function readMtime(full: string): number | null {
 	try {
 		return fs.lstatSync(full).mtimeMs;
 	} catch {
@@ -92,7 +92,7 @@ function run(
 		now: NOW,
 		readAgents,
 		logError: (where: string, err: Error) => logged.push([where, err]),
-		timeOf: mtimeOnly,
+		timeOf: readMtime,
 	});
 }
 
@@ -371,7 +371,7 @@ describe("an unreadable oracle", () => {
 			dir,
 			now: NOW,
 			logError: (where: string, err: Error) => logged.push([where, err]),
-			timeOf: mtimeOnly,
+			timeOf: readMtime,
 		});
 		expect(out.deleted).toEqual([]);
 		expect(logged[0][1].message).toBe("no liveness oracle was passed");

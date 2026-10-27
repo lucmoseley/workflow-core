@@ -51,7 +51,7 @@ import {
 
 const CHECKER = "scripts/check-doc-map.js";
 
-const { trackedFiles } =
+const { readTrackedFiles } =
 	require("./lib/doc-map") as typeof import("./lib/doc-map");
 
 /*
@@ -189,7 +189,7 @@ function parityGap(
 		path.join(ROOT, "scripts", "lib", "doc-map.js"),
 		"utf8",
 	),
-	tracked: string[] = trackedFiles(),
+	tracked: string[] = readTrackedFiles(),
 ): string | null {
 	const decl = /const SCOPE = \[([^\]]*)\]/.exec(checker);
 	if (!decl) return "SCOPE no longer parses out of lib/doc-map.js";
@@ -655,8 +655,13 @@ describe("the pre-commit doc-map gate", () => {
 	for (const rel of [
 		"docs/research/note.md",
 		".claude/skills/x/SKILL.md",
+		"hooks/hooks.json",
+		"self-plugin/hooks/hooks.json",
 		"AGENTS.md",
 		"CLAUDE.md",
+		"PRODUCT.md",
+		"DESIGN.md",
+		"GLOSSARY.md",
 	]) {
 		it(`runs the checker for a commit touching ${rel}`, () => {
 			const repo = fixture({ staged: { [rel]: "x\n" }, checkerExit: 0 });

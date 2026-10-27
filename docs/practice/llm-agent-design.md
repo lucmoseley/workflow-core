@@ -20,7 +20,7 @@ Researched: 2026-10-21
 - Load just in time: keep paths and links in context and read the content when it is needed. Effective context engineering [named expert]; Gemini CLI system prompt (github.com/google-gemini/gemini-cli, `prompts/snippets.ts`), one vendor's product [unverified]
 - Long work keeps state outside context (progress file, task list, git commits as checkpoints); each new session reads them and runs a basic check first. Anthropic, "Effective harnesses for long-running agents" (2025-11-26); Effective context engineering (NOTES.md) [named expert]
 - Tools return only high-signal output: paginate, filter or truncate by default, and make error text tell the agent what to change. Anthropic, "Writing effective tools for AI agents" (2025-09-11); Building effective agents (poka-yoke the arguments) [named expert]
-- Keep agent state such as a feature list in JSON rather than Markdown, because the model overwrites it less. Effective harnesses only [unverified]
+- Keep agent state such as a feature list in JSON rather than Markdown, because the model overwrites it less. Anthropic, "Effective harnesses for long-running agents" (2025-11-26) [named expert]
 
 ## Orchestration and subagents
 
@@ -28,7 +28,7 @@ Researched: 2026-10-21
 - Give a subagent a narrow, read-mostly question that returns a short answer. Keep writes in one thread. Cognition, Walden Yan, "Don't build multi-agents" (2025-06-12) [named expert]; code.claude.com/docs/en/sub-agents; Claude Code best practices [standard or field body]
 - A delegation prompt has four parts: objective, output format, which tools and sources to use, and task boundaries. Anthropic, "How we built our multi-agent research system" (2025-06) [named expert]; sub-agents docs; agent-teams docs [standard or field body]
 - State effort tiers in the prompt; the agent cannot size effort itself (1 agent, 3-10 calls for a fact; 2-4 subagents for a comparison; multi-agent costs ~15x a chat's tokens). Multi-agent research system [named expert]; Gemini CLI prompt (three proportional tiers), one vendor's product [unverified]
-- Parallel writers need separate files or worktrees (`isolation: worktree`), because two agents editing one file overwrite each other. Agent-teams docs; sub-agents docs; Cognition [standard or field body] [named expert]
+- Parallel writers need separate files or worktrees (`isolation: worktree`), because two agents editing one file overwrite each other. Agent-teams docs; sub-agents docs [standard or field body]; Cognition [named expert]
 - Review in a fresh context, asking only for gaps in correctness or stated requirements: a reviewer told to find gaps always finds some. Claude Code best practices; Building effective agents (evaluator-optimizer); Google Cloud patterns (review and critique) [named expert]
 
 ## Permissions and hooks
@@ -51,5 +51,5 @@ Researched: 2026-10-21
 - `claude plugin eval` (Claude Code v2.1.269 or later, read 2026-10-21): plugin and skill eval suites with a no-plugin baseline and CI gating. code.claude.com/docs/en/plugin-evals [standard or field body]
 - skill-creator (anthropics/skills, untagged, read 2026-10-21): per-skill evals and trigger-description tuning, own `evals.json` format. Plugin evals docs [standard or field body]
 - MCP Inspector 2.11.0, read 2026-10-21: interactive MCP server tester. github.com/modelcontextprotocol/inspector [standard or field body]
-- Inspect AI 0.3.282 (UK AISI) and promptfoo 0.124.1, read 2026-10-21: open-source agent/prompt eval harnesses; only their repos vouch [unverified]
-- obra/superpowers v7.0.0, read 2026-10-21: planning/TDD/review skill library; only its repo vouches [unverified]
+- Inspect AI 0.3.282 (UK AISI) and promptfoo 0.124.1, read 2026-10-21: open-source agent/prompt eval harnesses. github.com/UKGovernmentBEIS/inspect_ai; github.com/promptfoo/promptfoo [standard or field body]. Only their own docs vouch, so they set no default to use them
+- obra/superpowers v7.0.1, read 2026-10-26: planning/TDD/review skill library. github.com/obra/superpowers [standard or field body]; Simon Willison vouches for the plugin as a whole, not for its use in agent design (simonwillison.net/2025/Oct/10/superpowers/) [named expert]. No source vouches for using it here, so it sets no default

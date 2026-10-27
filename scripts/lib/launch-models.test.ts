@@ -41,7 +41,7 @@ const readMap = (): { models: Map<string, string>; fallback: string } => {
 };
 
 /** The rows of the first table after `anchor`, as [first cell, second cell]. */
-const tableRows = (file: string, anchor: string): [string, string][] => {
+const readTableRows = (file: string, anchor: string): [string, string][] => {
 	const text = fs.readFileSync(path.join(ROOT, file), "utf8");
 	const start = text.indexOf(anchor);
 	expect(start, `${anchor} not found in ${file}`).toBeGreaterThan(-1);
@@ -73,7 +73,7 @@ describe("launch-models.sh", () => {
 	const { models, fallback } = readMap();
 
 	it("agrees with docs/effort-guide.md's launch table", () => {
-		const rows = tableRows(
+		const rows = readTableRows(
 			"docs/effort-guide.md",
 			"## Which model to launch each session on",
 		);
@@ -93,7 +93,7 @@ describe("launch-models.sh", () => {
 	});
 
 	it("agrees with pick-next §6's takes: table", () => {
-		const rows = tableRows(
+		const rows = readTableRows(
 			".claude/skills/pick-next/SKILL.md",
 			"| `takes:` | Model |",
 		);

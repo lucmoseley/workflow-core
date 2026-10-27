@@ -143,6 +143,7 @@ const run = (now: number, args: string[] = [], host: Repo = "workflow-core") =>
 			...process.env,
 			...gh,
 			CLAUDE_PROJECT_DIR: roots[host],
+			CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
 			HOME: home,
 			WFC_NOW: iso(now),
 			TMPDIR: systmp,

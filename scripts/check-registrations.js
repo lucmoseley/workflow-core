@@ -46,14 +46,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { guardKeys } = require("./lib/guard-fires.js");
+const { JS_TEST_FILE } = require("./lib/test-kind.js");
 const {
 	CANARY_COMMAND,
 	HOST_SETTINGS,
 	SELF_PLUGIN_HOOKS,
 	flattenHooks,
 	isCoreRoot,
-	ownHookSources,
-	ownHooks,
+	readOwnHookSources,
+	readOwnHooks,
 	ownHooksFile,
 } = require("./lib/core-hooks.js");
 const R = require("./lib/registrations.js");
@@ -85,16 +86,16 @@ function readJson(ctx, root, rel) {
 
 /**
  * Basenames under scripts/ matching `re`, test files left out: an adopter's
- * `check-x.test.js` is no checker.
+ * `check-x.test.js` or `check-x.spec.js` is no checker.
  * @param {string} root
  * @param {RegExp} re
  */
-function scriptsMatching(root, re) {
+function readScriptsMatching(root, re) {
 	const dir = path.join(root, "scripts");
 	return fs.existsSync(dir)
 		? fs
 				.readdirSync(dir)
-				.filter((f) => re.test(f) && !/\.test\.[^.]+$/.test(f))
+				.filter((f) => re.test(f) && !JS_TEST_FILE.test(f))
 				.sort()
 		: [];
 }
@@ -104,9 +105,9 @@ function scriptsMatching(root, re) {
  * @param {string} root
  * @returns {Record<string, string>}
  */
-function callerSources(root) {
+function readCallerSources(root) {
 	/** @param {string} sub @param {RegExp} re */
-	const listed = (sub, re) =>
+	const readMatchingEntries = (sub, re) =>
 		fs.existsSync(path.join(root, sub))
 			? fs
 					.readdirSync(path.join(root, sub))
@@ -116,9 +117,9 @@ function callerSources(root) {
 	const rels = [
 		...R.CALLER_HOOKS.map((h) => `.husky/${h}`),
 		ownHooksFile(root),
-		...listed(".github/workflows", /\.ya?ml$/),
-		...listed("scripts", /\.(js|sh)$/),
-		...listed("scripts/lib", /\.(js|sh)$/),
+		...readMatchingEntries(".github/workflows", /\.ya?ml$/),
+		...readMatchingEntries("scripts", /\.(js|sh)$/),
+		...readMatchingEntries("scripts/lib", /\.(js|sh)$/),
 	];
 	/** @type {Record<string, string>} */
 	const out = {};
@@ -168,7 +169,7 @@ function report(ctx, tag, faults) {
  * @param {string} root
  * @returns {R.Registry}
  */
-function hostRegistry(ctx, root) {
+function readHostRegistry(ctx, root) {
 	/** @type {R.Registry} */
 	let registry = { hooks: [], registeredElsewhere: {}, calledElsewhere: {} };
 	const json = readJson(ctx, root, R.HOST_REGISTRATIONS);
@@ -244,7 +245,7 @@ function settingsFaults(ctx, root) {
 	/** @type {import("./lib/core-hooks.js").HookEntry[]} */
 	let self;
 	try {
-		const sources = ownHookSources(root);
+		const sources = readOwnHookSources(root);
 		/** @param {string} rel */
 		const of = (rel) => {
 			const source = sources.find(({ file }) => file === path.join(root, rel));
@@ -310,7 +311,7 @@ runCheck({
 
 		let hooks;
 		try {
-			hooks = ownHooks(root) ?? {};
+			hooks = readOwnHooks(root) ?? {};
 		} catch (e) {
 			ctx.broken(
 				`${e instanceof Error ? e.message : String(e)} — nothing was judged`,
@@ -318,7 +319,7 @@ runCheck({
 		}
 		const registered = { hooks };
 		const regs = R.allRegistrations(registered);
-		const registry = hostRegistry(ctx, root);
+		const registry = readHostRegistry(ctx, root);
 
 		const { unpinned, drifted } = R.hookFaults(registry.hooks, regs);
 		report(ctx, "HOOK-UNPINNED", unpinned);
@@ -327,7 +328,7 @@ runCheck({
 			ctx,
 			"GUARD",
 			R.guardFaults({
-				guards: scriptsMatching(root, /^guard-.+\.(sh|js)$/),
+				guards: readScriptsMatching(root, /^guard-.+\.(sh|js)$/),
 				regs,
 				elsewhere: registry.registeredElsewhere,
 				exists: carried,
@@ -337,8 +338,8 @@ runCheck({
 			ctx,
 			"CHECKER",
 			R.checkerFaults({
-				checkers: scriptsMatching(root, /^check-.+\.js$/),
-				callers: callerSources(root),
+				checkers: readScriptsMatching(root, /^check-.+\.js$/),
+				callers: readCallerSources(root),
 				elsewhere: registry.calledElsewhere,
 				exists: carried,
 			}),

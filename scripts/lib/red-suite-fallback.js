@@ -32,7 +32,8 @@ const path = require("node:path");
 
 const { caught } = require("./caught.js");
 const { isCoreHost } = require("./plugin-state");
-const { commonDir, resultFile } = require("./repo-checks-reading");
+const { gitCommonDirOrThrow } = require("./git.js");
+const { resultFile } = require("./repo-checks-reading");
 const { coreRoot } = require("./script-path");
 
 const JOB = "red-suite";
@@ -76,7 +77,7 @@ function unfiledBecause(dir, nowMs) {
 }
 
 /** @param {string} file */
-function lastLine(file) {
+function readLastLine(file) {
 	try {
 		return (
 			fs.readFileSync(file, "utf8").trim().split("\n").pop() ||
@@ -106,7 +107,7 @@ function launchFiler(root, dir, nowMs) {
 			return `the fallback's launch stamp ${stamp} will not read: ${caught(e).message}`;
 	}
 	if (Number.isFinite(last) && nowMs - last < LAUNCH_COOLDOWN_MS)
-		return `the filer launched from here at ${new Date(last).toISOString()} left no open issue; its last line: ${lastLine(log)} (${log})`;
+		return `the filer launched from here at ${new Date(last).toISOString()} left no open issue; its last line: ${readLastLine(log)} (${log})`;
 	const filer = path.join(coreRoot(), "scripts", FILER);
 	let fd;
 	try {
@@ -145,7 +146,7 @@ function fileWhereUnfiled(root, nowMs) {
 	/** @type {string} */
 	let dir;
 	try {
-		dir = commonDir(root);
+		dir = gitCommonDirOrThrow(root);
 	} catch (e) {
 		return `the daily repo-checks reading could not be found, as ${root}'s git directory will not resolve: ${caught(e).message} (#2480)`;
 	}

@@ -59,7 +59,7 @@
  * (mantahostels#1649, spec mantahostels#1641): CLAUDE.md keeps a trigger line naming the id, and the
  * FAIL advice splices the fragment in. An unreadable fragment does NOT make this
  * a BROKEN run — the roadmap verdict is sound whatever the store says, so
- * roadmapRule() prints a pointer instead. check-guard-registry.js owns the
+ * readRoadmapRule() prints a pointer instead. check-guard-registry.js owns the
  * assertion that the fragment exists and that a wired guard prints it.
  * KNOWN RESIDUAL: the log line is what silences it, so a line naming the card
  * without the re-assessment behind it silences it just as well.
@@ -82,7 +82,6 @@
  */
 
 const fs = require("node:fs");
-const { execFileSync } = require("node:child_process");
 const {
 	validateRoadmap,
 	parseRoadmap,
@@ -94,23 +93,23 @@ const {
 	CONFIG_PATH,
 } = require("./lib/workflow-core-config");
 
-const { ruleTextOr } = require("./lib/rule-text");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { readRuleTextOr } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
+const { execGit } = require("./lib/git.js");
 
 /*
  * The rule this checker prints (mantahostels#1649, spec mantahostels#1641). Operative text in
  * docs/agents/rules/roadmap-validity.txt; CLAUDE.md keeps a trigger line only,
  * so this failure is where the rule reaches a session.
  *
- * ruleText throws on an unreadable store, and a throw here would report BROKEN
+ * readRuleText throws on an unreadable store, and a throw here would report BROKEN
  * — "the checker cannot do its job" — over a fault that has nothing to do with
- * the roadmap. So ruleTextOr answers a pointer instead: the roadmap verdict
+ * the roadmap. So readRuleTextOr answers a pointer instead: the roadmap verdict
  * stands either way, and an unreadable fragment is check-guard-registry.js's
  * assertion rather than this checker's.
  */
-function roadmapRule() {
-	return ruleTextOr(
+function readRoadmapRule() {
+	return readRuleTextOr(
 		"roadmap-validity",
 		"A commit staging the roadmap must leave it structurally valid.",
 		"check-roadmap-valid",
@@ -136,7 +135,7 @@ const LOG_HEADING = "### Re-assessment log";
 const PHASE_GATE = /^validate-p\d+$/;
 
 const git = (/** @type {string[]} */ ...args) =>
-	execFileSync("git", args, { encoding: "utf8", maxBuffer: CHILD_MAX_BUFFER });
+	execGit(args, { encoding: "utf8" });
 
 runCheck({
 	name: "roadmap-valid",
@@ -362,7 +361,7 @@ function runTree(ctx) {
 		advice: [
 			`${HTML} is structurally invalid in this checkout. Fix the cards above.`,
 			"",
-			...roadmapRule(),
+			...readRoadmapRule(),
 		],
 		okLine: `${HTML} is structurally valid.`,
 	});
@@ -515,7 +514,7 @@ function runIndex(ctx) {
 		advice: [
 			"The staged roadmap is structurally invalid. Fix the cards above.",
 			"",
-			...roadmapRule(),
+			...readRoadmapRule(),
 		],
 		okLine: `the staged ${HTML} is structurally valid.`,
 	});

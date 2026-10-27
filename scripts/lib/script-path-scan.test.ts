@@ -22,12 +22,23 @@ const { isShipped } = require("./plugin-tree") as {
 };
 
 describe("guard and lib messages", () => {
-	/* Data a test reads, never printed; and the CI and push-check commands,
-	 * which rewriteRuleCommands spells at the plugin root before printing. */
+	/* Data a test reads, never printed; the CI and push-check commands,
+	 * which rewriteRuleCommands spells at the plugin root before printing; and
+	 * the arbiter commands stale-script and claim-warning print, and the
+	 * bg-run.sh and watcher commands suite-background, agent-poll and
+	 * wait-text say, which ctx.corePaths spells there. */
 	const exempt = [
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
 		/: "node scripts\/check-ci-status\.js";$/,
 		/push_check: pushCheck \?\? "node scripts\/push-check\.js",$/,
+		/^\t\t"What is held: node scripts\/session-arbiter\.js list\\n\\n" \+$/,
+		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
+		/^\t"Wait for it instead, backgrounded — `node scripts\/session-arbiter\.js wait <path>` " \+$/,
+		/^\t\t\? `\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,
+		/^\t"This suite is DETACHED INSIDE THE SHELL — .*`scripts\/bg-run\.sh run <name>`/,
+		/^const WATCH = "node scripts\/watch-artefact\.js <artefact> 120";$/,
+		/^const READ_REASON = `Instead: a subagent, one backgrounded \\`\$\{WATCH\}\\`;/,
+		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 	];
 
 	const guardFiles = fs
@@ -38,7 +49,7 @@ describe("guard and lib messages", () => {
 		.readdirSync(__dirname)
 		.filter((f) => /\.(js|sh)$/.test(f));
 
-	function bareLines(file: string, shaped: (line: string) => boolean) {
+	function readBareLines(file: string, shaped: (line: string) => boolean) {
 		const found: string[] = [];
 		fs.readFileSync(file, "utf8")
 			.split("\n")
@@ -60,7 +71,7 @@ describe("guard and lib messages", () => {
 			...libNames.map((f) => path.join(__dirname, f)),
 		];
 		expect(
-			files.flatMap((f) => bareLines(f, (l) => COMMAND_SHAPED.test(l))),
+			files.flatMap((f) => readBareLines(f, (l) => COMMAND_SHAPED.test(l))),
 		).toEqual([]);
 	});
 
@@ -81,12 +92,12 @@ describe("guard and lib messages", () => {
 		),
 	];
 	const resolvesWholeText =
-		/lib\/guard-parse\.sh|require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|resolve_script_paths|resolveScriptPaths/;
+		/require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
 
-	/* The floor catches a manifest read that found nothing. */
+	/* The floor catches a manifest read that found nothing or stopped partway. */
 	it("reads the hook-wired scripts from both manifests", () => {
 		expect(wired).toContain("scripts/session-arbiter.js");
-		expect(wired.length).toBeGreaterThan(70);
+		expect(wired.length).toBeGreaterThan(60);
 	});
 
 	it("name no script bare in any hook-wired script printing past a resolver", () => {
@@ -95,24 +106,25 @@ describe("guard and lib messages", () => {
 			.filter((f) => !resolvesWholeText.test(fs.readFileSync(f, "utf8")));
 		const shaped = (l: string) =>
 			COMMAND_SHAPED.test(l) || PLAIN_POINTER.test(l);
-		expect(files.flatMap((f) => bareLines(f, shaped))).toEqual([]);
+		expect(files.flatMap((f) => readBareLines(f, shaped))).toEqual([]);
 	});
 
 	/*
 	 * #1010: a skill or a shipped doc named by its checkout path. A skill is
 	 * named by its command, which resolves in any repo. A shipped doc's path
 	 * (#1452) may stay bare where the file's text leaves through an emitter that
-	 * resolves it — guard-parse.sh's envelopes, hook-block.js, or the
-	 * resolver called directly — read lexically, so a file holding the
-	 * resolver but printing past it is unseen. A doc_path call exempts only
-	 * its own line (#2096).
+	 * resolves it — hook-block.js, the resolver
+	 * called directly, or a Node core's injected `corePaths` port — read
+	 * lexically, so a file holding the resolver but printing past it is unseen.
+	 * A doc_path call exempts only its own line (#2096).
 	 */
 	const hookFiles = [
 		...guardFiles,
 		...libNames
 			/* The release render, the doc-map classifier, the test read map and
 			 * the /implement carve-out list hold these paths as data, never as a
-			 * pointer printed to a session. */
+			 * pointer printed to a session; main-rewind.js's text reaches one
+			 * only through branch-publish.js's and pull-form.js's corePaths. */
 			.filter(
 				(f) =>
 					![
@@ -120,6 +132,7 @@ describe("guard and lib messages", () => {
 						"doc-map.js",
 						"test-read-edges.js",
 						"implement-carveout.js",
+						"main-rewind.js",
 					].includes(f),
 			)
 			.map((f) => path.join(__dirname, f)),

@@ -2,8 +2,9 @@
  * arbiter-proc.js — is the process that took this claim still running?
  *
  * The leaf of the arbiter (mantahostels#158): it reads /proc and nothing else, so
- * arbiter-store.js may depend on it and it may depend on nothing.
- * check-guard-errors.js consumes procStartOf, so it stays exported.
+ * arbiter-store.js may depend on it and it may depend on no module but the
+ * leaves caught.js and proc-stat.js.
+ * check-guard-errors.js consumes readProcStartOf, so it stays exported.
  *
  * LIVENESS (mantahostels#104). A lock records the holder's `pid` and `procStart` — the
  * kernel's start-time token, /proc/<pid>/stat field 22. The holder is alive only
@@ -19,30 +20,26 @@
 
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
+const { FIELD, readStatFields } = require("./proc-stat.js");
 
 /**
- * The start-time token from one /proc/<pid>/stat line, or null when the line
- * describes no live process. A zombie (state Z) keeps its stat entry, with its
+ * The start-time token from one /proc/<pid>/stat line's fields, or null when
+ * they describe no live process. A zombie (state Z) keeps its stat entry, with its
  * start time intact, until its parent reaps it — which can be never — and a
  * zombie writes nothing, so counting it alive holds files for a session that no
- * longer exists. The comm field is parenthesised and may itself contain spaces
- * and brackets, so fields are counted from the LAST ')' — state is the first
- * token after it, field 22 (start time) the 20th.
- * @param {string} stat
+ * longer exists.
+ * @param {string[] | null} after
  */
-function parseProcStart(stat) {
-	const after = stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/);
-	if (after[0] === "Z" || after[0] === "X") return null;
-	return after[19] || null;
+function liveProcStart(after) {
+	if (!after) return null;
+	const state = after[FIELD.state];
+	if (state === "Z" || state === "X") return null;
+	return after[FIELD.start] || null;
 }
 
 /** @param {number|string} pid */
-function procStartOf(pid) {
-	try {
-		return parseProcStart(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
-	} catch {
-		return null;
-	}
+function readProcStartOf(pid) {
+	return liveProcStart(readStatFields(pid));
 }
 
 /**
@@ -53,7 +50,7 @@ function procStartOf(pid) {
  */
 /** @type {string | null | undefined} */
 let bootIdCache;
-function currentBootId() {
+function readCurrentBootId() {
 	if (bootIdCache === undefined) {
 		try {
 			bootIdCache = fs
@@ -87,9 +84,9 @@ function holderAlive(lock) {
 	if (!lock.pid || !lock.procStart) return false;
 	// A lock minted on another boot is dead whatever /proc says now: the pair it
 	// recorded can only be a coincidence on this one.
-	if (lock.bootId && currentBootId() && lock.bootId !== currentBootId())
+	if (lock.bootId && readCurrentBootId() && lock.bootId !== readCurrentBootId())
 		return false;
-	return procStartOf(lock.pid) === String(lock.procStart);
+	return readProcStartOf(lock.pid) === String(lock.procStart);
 }
 
 /**
@@ -107,4 +104,4 @@ function pidAlive(pid) {
 	}
 }
 
-module.exports = { currentBootId, holderAlive, pidAlive, procStartOf };
+module.exports = { readCurrentBootId, holderAlive, pidAlive, readProcStartOf };

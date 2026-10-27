@@ -13,21 +13,13 @@
  *
  * Where the `landing` module is off it prints nothing under --notify.
  *
- * IMPLICIT:  at every session start where the `landing` module is on, reads the remote's two branches, fetching their commits where missing, and warns where `landing` holds a commit over 90 min old that is not on `main`, or where `landing` is ahead and no lander is running.
+ * IMPLICIT:  at every session start where the `landing` module is on, reads the remote's two branches, fetching their commits where missing, and warns where `landing` holds commits `main` lacks and `main` has not moved for 2 h, or where `landing` is ahead and no lander is running.
  * JUSTIFIED: fail-safe — the lander runs outside any session, so nothing else reports it stalling or dying.
  * DEFEAT:    none needed — it never blocks.
  */
 
-const { execFileSync } = require("node:child_process");
-const { pidAlive } = require("./lib/arbiter-proc.js");
 const { runCheck } = require("./lib/check");
-const {
-	GIT_TIMEOUT_MS,
-	landerFiles,
-	readHeartbeat,
-	remoteGit,
-} = require("./lib/lander.js");
-const { stallFindings } = require("./lib/landing-stall.js");
+const { readQueue, stallFindings } = require("./lib/landing-stall.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
@@ -36,62 +28,19 @@ const { repoRoot } = require("./lib/test-pass-marker.js");
  * under a second. */
 const START_GRACE_MS = 15 * 1000;
 
-/**
- * The oldest commit on `landing` not on `main`, by committer time.
- * @param {string} root
- * @param {string|null} main
- * @param {string} landing
- * @returns {{sha: string, at: number}|null}
- */
-function oldestQueued(root, main, landing) {
-	const out = execFileSync(
-		"git",
-		[
-			"log",
-			"--format=%H %ct",
-			...(main === null ? [landing] : [`${main}..${landing}`]),
-		],
-		{ cwd: root, encoding: "utf8", timeout: GIT_TIMEOUT_MS },
-	);
-	/** @type {{sha: string, at: number}|null} */
-	let oldest = null;
-	for (const line of out.split("\n").filter(Boolean)) {
-		const [sha, seconds] = line.split(" ");
-		const at = Number(seconds) * 1000;
-		if (!sha || !Number.isFinite(at))
-			throw new Error(`git log printed an unreadable line: ${line}`);
-		if (oldest === null || at < oldest.at) oldest = { sha, at };
-	}
-	return oldest;
-}
-
 runCheck({
 	name: "landing-stall",
 	usage: "node check-landing-stall.js [--notify] [--json]",
 	module: "landing",
 	run(ctx) {
 		const root = repoRoot() ?? ctx.skip("not in a git checkout.");
-		const { main, landing, relation } = remoteGit(root).refs();
-		const oldest =
-			landing === null || relation === "equal" || relation === "behind"
-				? null
-				: oldestQueued(root, main, landing);
-		const { heartbeat: file } = landerFiles(root);
-		const read = () =>
-			stallFindings({
-				now: Date.now(),
-				landing,
-				relation,
-				oldest,
-				heartbeat: readHeartbeat(file),
-				alive: pidAlive,
-			});
-		let found = read();
+		const queue = readQueue(root);
+		let found = stallFindings(queue);
 		if (found.some((f) => f.tag === "LANDER-DEAD")) {
 			sleepSync(
 				Number(process.env.WFC_LANDER_START_GRACE_MS ?? START_GRACE_MS),
 			);
-			found = read();
+			found = stallFindings(readQueue(root));
 		}
 		for (const f of found) {
 			ctx.warn(f.tag, f.line);
@@ -105,7 +54,12 @@ runCheck({
 			okLine: "the landing queue is moving.",
 			noun: "landing queue finding(s)",
 			count: found.length,
-			data: { main, landing, relation, oldest },
+			data: {
+				main: queue.main,
+				landing: queue.landing,
+				relation: queue.relation,
+				mainAt: queue.mainAt,
+			},
 		};
 	},
 });

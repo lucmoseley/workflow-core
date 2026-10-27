@@ -75,7 +75,7 @@ interface Probe {
 	precommitExits: (code: number) => void;
 }
 
-const stubText = (name: string, logFile: string, code: number) =>
+const buildStubText = (name: string, logFile: string, code: number) =>
 	`echo "${name}" >> "${logFile}"\nexit ${code}\n`;
 
 /*
@@ -88,7 +88,7 @@ const stubText = (name: string, logFile: string, code: number) =>
  * `scripts/precommit-*.test.ts`'s ground.
  *
  * The `pre-commit` stub bakes the fixture's own ABSOLUTE `fired.log` path into
- * its text (`stubText` above), so a naive copy would have every instance log
+ * its text (`buildStubText` above), so a naive copy would have every instance log
  * to the TEMPLATE's log file. `.husky/pre-commit` is passed as an `extraPaths`
  * entry so `instantiate()`
  * relinks that occurrence the same way it relinks `.git`'s own absolute paths.
@@ -119,7 +119,7 @@ const buildTemplate = (root: string) => {
 	const log = path.join(root, LOG);
 	fs.writeFileSync(
 		path.join(husky, "pre-commit"),
-		stubText("pre-commit", log, 0),
+		buildStubText("pre-commit", log, 0),
 	);
 
 	fs.writeFileSync(path.join(root, "base.txt"), "base\n");
@@ -143,7 +143,7 @@ function probe(): Probe {
 	const husky = path.join(root, ".husky");
 	const log = path.join(root, LOG);
 	const stub = (name: string, code: number) =>
-		fs.writeFileSync(path.join(husky, name), stubText(name, log, code));
+		fs.writeFileSync(path.join(husky, name), buildStubText(name, log, code));
 
 	return {
 		root,
@@ -197,7 +197,7 @@ function merge(p: Probe, branch: string): { code: number; output: string } {
 	}
 }
 
-const log = (p: Probe, ...args: string[]) =>
+const readLog = (p: Probe, ...args: string[]) =>
 	execFileSync("git", ["log", ...args], { cwd: p.root, encoding: "utf8" });
 
 describe(".husky/pre-merge-commit", () => {
@@ -272,13 +272,13 @@ describe(".husky/pre-merge-commit", () => {
 		fs.writeFileSync(path.join(p.root, "base.txt"), "moved\n");
 		p.git("commit", "-qm", "moved", "--", "base.txt");
 		p.precommitExits(1);
-		const before = log(p, "--format=%H", "-1").trim();
+		const before = readLog(p, "--format=%H", "-1").trim();
 
 		const r = merge(p, "side");
 		expect(r.output).toContain("the gates above refused this merge's content");
 		// Spec F7 of mantahostels#1679's review: `git merge` itself exits non-zero.
 		expect(r.code).not.toBe(0);
-		expect(log(p, "--format=%H", "-1").trim()).toBe(before);
+		expect(readLog(p, "--format=%H", "-1").trim()).toBe(before);
 		expect(fs.existsSync(path.join(p.root, ".git", "MERGE_HEAD"))).toBe(true);
 		expect(r.output).toContain("git merge --abort");
 	});
@@ -356,14 +356,14 @@ describe(".husky/pre-merge-commit", () => {
 			expect(r.output).toContain(
 				"the gates above refused this merge's content",
 			);
-			expect(log(p, "--format=%s", "-1").trim()).toBe("moved");
+			expect(readLog(p, "--format=%s", "-1").trim()).toBe("moved");
 		},
 	);
 
 	it("is skipped entirely by `git merge --no-verify`", () => {
 		// The residual this hook alone cannot close. It is no longer a hole:
 		// mantahostels#1705 put the gates behind `.husky/prepare-commit-msg`, which the flag
-		// cannot skip, and widened guard-commit-form.sh's deny onto `git merge`.
+		// cannot skip, and widened guard-commit-form.js's deny onto `git merge`.
 		// This probe copies no prepare-commit-msg in, so what it measures is
 		// still THIS hook's own reach — scripts/prepare-commit-msg-gate.test.ts
 		// is where the merge is refused.
@@ -492,7 +492,7 @@ describe("what a refused merge strands, and where", () => {
 		p.git("add", "--", "unrelated.txt");
 		p.precommitExits(0);
 		p.git("commit", "-qm", "unrelated", "--", "unrelated.txt");
-		expect(log(p, "--format=%s", "-1").trim()).toBe("unrelated");
+		expect(readLog(p, "--format=%s", "-1").trim()).toBe("unrelated");
 		p.git("worktree", "remove", "--force", wt);
 	});
 });
@@ -503,10 +503,10 @@ describe("the copied fixture is isolated from its template (mantahostels#2068)",
 		fs.writeFileSync(path.join(p.root, "only-in-copy.txt"), "x\n");
 		p.git("add", "--", "only-in-copy.txt");
 		p.git("commit", "-qm", "only in the copy");
-		expect(log(p, "--oneline").toString()).toContain("only in the copy");
+		expect(readLog(p, "--oneline").toString()).toContain("only in the copy");
 
 		const fresh = probe();
-		expect(log(fresh, "--oneline").toString()).not.toContain(
+		expect(readLog(fresh, "--oneline").toString()).not.toContain(
 			"only in the copy",
 		);
 	});

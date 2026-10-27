@@ -18,7 +18,7 @@
 #            lag, not the 4-hourly cron.
 # DEFEAT:    `git am --no-verify`, which abbreviates down to `--no-v`, skips
 #            this hook; `git rebase --apply` accepts no such flag.
-#            `scripts/guard-commit-form.sh` denies the flag only unwrapped,
+#            `scripts/guard-commit-form.js` denies the flag only unwrapped,
 #            so an agent can still reach it; that guard's
 #            LIMITS holds every route past this hook (#800). WFC_GITLEAKS
 #            names the scanner's binary (§N7, #224), which on this hook is the

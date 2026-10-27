@@ -124,7 +124,7 @@ const run = (sessionId: string | null = ME, live: Row[] | null = [ME]) => {
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
-const ghCalls = () => {
+const readGhCalls = () => {
 	try {
 		return fs
 			.readFileSync(path.join(sb.dir, "gh-calls"), "utf8")
@@ -134,9 +134,9 @@ const ghCalls = () => {
 		return [];
 	}
 };
-const assigned = () => ghCalls().some((c) => c.startsWith("issue edit"));
+const assigned = () => readGhCalls().some((c) => c.startsWith("issue edit"));
 
-const records = () =>
+const readRecords = () =>
 	issueClaims
 		.readIssueClaims(530)
 		.map((e: { record: { sessionId: string } }) => e.record.sessionId)
@@ -162,7 +162,7 @@ describe("a ticket another session holds", () => {
 		expect(r.stderr).toContain(
 			"Nothing written — take other work, or escalate a frozen holder.",
 		);
-		expect(records()).toEqual(["sess-other"]);
+		expect(readRecords()).toEqual(["sess-other"]);
 		expect(assigned()).toBe(false);
 	});
 
@@ -172,7 +172,7 @@ describe("a ticket another session holds", () => {
 		const r = run(ME, [ME]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("Recorded the arbiter claim");
-		expect(records()).toEqual([ME, "sess-gone"].sort());
+		expect(readRecords()).toEqual([ME, "sess-gone"].sort());
 		expect(assigned()).toBe(true);
 	});
 
@@ -185,7 +185,7 @@ describe("a ticket another session holds", () => {
 		]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("Recorded the arbiter claim");
-		expect(records()).toEqual([ME, "sess-stopped"].sort());
+		expect(readRecords()).toEqual([ME, "sess-stopped"].sort());
 		expect(assigned()).toBe(true);
 	});
 
@@ -198,7 +198,7 @@ describe("a ticket another session holds", () => {
 		]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("held by live session sess-busy");
-		expect(records()).toEqual(["sess-busy"]);
+		expect(readRecords()).toEqual(["sess-busy"]);
 		expect(assigned()).toBe(false);
 	});
 
@@ -237,7 +237,7 @@ describe("a ticket another session holds", () => {
 		const r = run(ME, [ME]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("held by live session sess-new");
-		expect(records()).toEqual(["sess-new"]);
+		expect(readRecords()).toEqual(["sess-new"]);
 		expect(assigned()).toBe(false);
 	});
 });
@@ -249,7 +249,7 @@ describe("re-claiming", () => {
 		const again = run();
 		expect(again.status).toBe(0);
 		expect(again.stdout).toContain("Already held by this session");
-		expect(records()).toEqual([ME]);
+		expect(readRecords()).toEqual([ME]);
 	});
 });
 
@@ -266,7 +266,7 @@ describe("inside a headless overflow run (#2608)", () => {
 		});
 		expect(r.stderr).not.toContain("session liveness could not be read");
 		expect(r.status).toBe(0);
-		expect(records()).toEqual(["sess-headless"]);
+		expect(readRecords()).toEqual(["sess-headless"]);
 	});
 });
 
@@ -303,7 +303,7 @@ describe("two live sessions racing for one ticket", () => {
 			expect([a.code, b.code].sort()).toEqual([0, 2]);
 			const [winner, loser] = a.code === 0 ? ["sess-a", b] : ["sess-b", a];
 			expect(loser.stderr).toContain(`held by live session ${winner}`);
-			expect(records()).toEqual([winner]);
+			expect(readRecords()).toEqual([winner]);
 		}
 	}, 30_000);
 
@@ -317,7 +317,7 @@ describe("two live sessions racing for one ticket", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("Recorded the arbiter claim");
-		expect(records()).toEqual([ME]);
+		expect(readRecords()).toEqual([ME]);
 	});
 
 	it("exits 1 when a live process holds the mutex past the wait, saying to re-run, and writes nothing", () => {
@@ -333,7 +333,7 @@ describe("two live sessions racing for one ticket", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("held the arbiter's lock past its wait");
 		expect(r.stderr).toContain("Nothing written — re-run.");
-		expect(records()).toEqual([]);
+		expect(readRecords()).toEqual([]);
 		expect(assigned()).toBe(false);
 	});
 });
@@ -357,7 +357,7 @@ describe("when doubt stands in for an answer", () => {
 		const r = run(ME, null);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("session liveness could not be read");
-		expect(records()).toEqual([]);
+		expect(readRecords()).toEqual([]);
 		expect(assigned()).toBe(false);
 	});
 });
@@ -368,8 +368,8 @@ describe("a closed issue", () => {
 		const r = run();
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("#530 is closed");
-		expect(records()).toEqual([]);
-		expect(ghCalls()).toEqual(["api repos/acme/widgets/issues/530"]);
+		expect(readRecords()).toEqual([]);
+		expect(readGhCalls()).toEqual(["api repos/acme/widgets/issues/530"]);
 	});
 });
 
@@ -401,7 +401,7 @@ describe("from the founder's terminal, with no session id", () => {
 		const r = run(null);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("no arbiter record was written");
-		expect(records()).toEqual([]);
+		expect(readRecords()).toEqual([]);
 		expect(assigned()).toBe(true);
 	});
 });
@@ -414,7 +414,7 @@ describe("an assignment failing after the record", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("assigning #530 failed (HTTP 403: no)");
 		expect(r.stderr).toContain("re-run to assign");
-		expect(records()).toEqual([ME]);
+		expect(readRecords()).toEqual([ME]);
 	});
 });
 
@@ -422,7 +422,7 @@ describe("the tracker", () => {
 	it("is read from .claude/workflow-core.json for every call", () => {
 		setUp();
 		expect(run().status).toBe(0);
-		expect(ghCalls()).toEqual([
+		expect(readGhCalls()).toEqual([
 			"api repos/acme/widgets/issues/530",
 			"issue edit 530 --repo acme/widgets --add-assignee @me",
 			"api repos/acme/widgets/issues/528",
@@ -438,7 +438,7 @@ describe("usage", () => {
 		const r = runInProcess(SCRIPT, args, { env: envFor(ME, [ME]) });
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("usage: node scripts/claim-issue.js");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("refuses a second issue number, naming it and printing usage, rather than claiming the first", () => {
@@ -446,7 +446,7 @@ describe("usage", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("unexpected argument: 531");
 		expect(r.stderr).toContain("usage:");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("refuses a pull request with exit 2 before any write", () => {
@@ -454,7 +454,7 @@ describe("usage", () => {
 		const r = run();
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("#530 is a pull request, not an issue.");
-		expect(records()).toEqual([]);
+		expect(readRecords()).toEqual([]);
 		expect(assigned()).toBe(false);
 	});
 });
@@ -465,7 +465,7 @@ describe("a gh read that does not answer", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("could not read #530 from acme/widgets");
 		expect(r.stderr).toContain("HTTP 404");
-		expect(records()).toEqual([]);
+		expect(readRecords()).toEqual([]);
 	});
 
 	it("exits 1 when the parent cannot be read, saying the claim itself stands", () => {
@@ -474,7 +474,7 @@ describe("a gh read that does not answer", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("#530 is claimed, but its parent");
 		expect(r.stdout).toContain("Ticket body text.");
-		expect(records()).toEqual([ME]);
+		expect(readRecords()).toEqual([ME]);
 	});
 });
 
@@ -486,7 +486,9 @@ describe("claiming a parked ticket", () => {
 			issue({ labels: [{ name: "takes:wayfinder" }, { name: "parked" }] }),
 		);
 	const unparked = () =>
-		ghCalls().some((c) => /^issue edit 530 .*--remove-label parked$/.test(c));
+		readGhCalls().some((c) =>
+			/^issue edit 530 .*--remove-label parked$/.test(c),
+		);
 
 	it("removes the parked label and says so", () => {
 		parked();
@@ -509,7 +511,7 @@ describe("claiming a parked ticket", () => {
 		fs.writeFileSync(path.join(sb.dir, "unpark-fails"), "");
 		const r = run();
 		expect(r.status).toBe(0);
-		expect(records()).toEqual([ME]);
+		expect(readRecords()).toEqual([ME]);
 		expect(r.stderr).toContain(
 			"could not remove `parked` from #530 (HTTP 502: down)",
 		);

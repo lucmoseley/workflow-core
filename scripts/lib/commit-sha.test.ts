@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
- * Pins the shared commit probe (#2090): a full sha for a commit, null for
- * anything else, from any directory in the work tree. Every check that asks
+ * Pins the shared commit probes (#2090): a full sha for a commit, null for
+ * anything else, from any directory in the work tree; and readCommit's
+ * `ok: false` where git would not answer (#2864). Every check that asks
  * whether a rev is a commit reads it, so a loosened case lets one of them
  * diff against a tree or a ref the clone never fetched.
  *
@@ -74,6 +75,36 @@ describe("commitSha", () => {
 		try {
 			expect(probe.isCommit(outside, "HEAD")).toBe(false);
 		} finally {
+			fs.rmSync(outside, { recursive: true, force: true });
+		}
+	});
+});
+
+describe("readCommit (#2864)", () => {
+	it("answers the sha for a commit, and null for an unborn HEAD or an unknown rev", () => {
+		expect(probe.readCommit(dir, "HEAD")).toEqual({ ok: true, sha: null });
+		const sha = commitOnce();
+		expect(probe.readCommit(dir, "HEAD")).toEqual({ ok: true, sha });
+		expect(probe.readCommit(dir, "no-such-ref")).toEqual({
+			ok: true,
+			sha: null,
+		});
+	});
+
+	it("answers ok: false outside a repository and where git will not run", () => {
+		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "commit-sha-out-"));
+		const saved = process.env.WFC_GIT;
+		try {
+			expect(probe.readCommit(outside, "HEAD").ok).toBe(false);
+			process.env.WFC_GIT = path.join(outside, "no-such-git");
+			expect(probe.readCommit(dir, "HEAD").ok).toBe(false);
+			const exitsOne = path.join(outside, "git");
+			fs.writeFileSync(exitsOne, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+			process.env.WFC_GIT = exitsOne;
+			expect(probe.readCommit(dir, "HEAD").ok).toBe(false);
+		} finally {
+			if (saved === undefined) delete process.env.WFC_GIT;
+			else process.env.WFC_GIT = saved;
 			fs.rmSync(outside, { recursive: true, force: true });
 		}
 	});

@@ -69,7 +69,7 @@ name: scheduled-checks
 # THE THREAT IS ALSO A DISPATCH SPREE, NOT ONLY THE CRON: 27-29 Aug 2026 cost
 # 545 billable minutes across 67 manual runs, the burst that followed the PAT
 # gaining `Actions: write` (mantahostels#948, mantahostels#1069). CLAUDE.md's 3-a-day fire budget and
-# `scripts/guard-sweep-fire.sh` are what hold that line.
+# `scripts/lib/sweep-fire.js` are what hold that line.
 #
 # WHAT OVERRUNNING DOES ON FREE: it bills the card at the $0.006/min rate below,
 # up to the account's $20 budget — an alert threshold, not a stop (founder-read at

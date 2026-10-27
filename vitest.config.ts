@@ -46,8 +46,7 @@ export default defineConfig({
 		// AT LEAST 38 per-test timeout overrides (36 inline third-argument, 2
 		// `{ timeout }` second-argument) persist across 17 files — a floor, not
 		// an exact count: a third argument that is a named constant rather than
-		// a numeric literal (e.g. guard-file-claim.test.ts's `SLOW`) escapes both
-		// grep and an AST walk that checks literals only, and nobody has yet
+		// a numeric literal escapes both grep and an AST walk that checks literals only, and nobody has yet
 		// walked the identifier-reference case. No blanket claim that they
 		// invert against this default, either: mantahostels#2262 read some as deliberate
 		// per-case bounds and left the rest unread. No per-`describe` override
@@ -67,41 +66,25 @@ export default defineConfig({
 			"./scripts/vitest-pass-reporter.ts",
 			"./scripts/vitest-inflight-reporter.ts",
 		],
-		// `.wslconfig` gives this machine 8 processors (6 until 18 Aug 2026), so
-		// Vitest would default to that many worker processes.
-		//
-		// THE HEAP ARGUMENT THAT USED TO JUSTIFY THIS CAP DOES NOT HOLD (mantahostels#1906).
-		// A live worker measures ~98 MB RSS, not a full Node heap: this suite is
-		// subprocess-wait bound, waiting on child processes far more than it
-		// allocates.
-		//
-		// mantahostels#2022's "3 loses on a loaded machine" verdict was measured against a
-		// suite that no longer exists: mantahostels#1907, mantahostels#1945, mantahostels#1993, mantahostels#2023 and mantahostels#2048's
-		// in-process spawn-removal sweep (replacing spawnSync call sites, and
-		// mantahostels#2016's build-once-and-copy git fixture) had not yet landed. mantahostels#2217
-		// re-ran the comparison post-sweep, two interleaved replicates a side,
-		// all four full-suite runs green on the same 280-file count:
-		//
-		//   2 workers: 430.21s / 162% CPU, then 398.08s / 177% CPU
-		//   3 workers: 302.99s / 234% CPU, then 312.99s / 224% CPU
-		//
-		// Both replicates agree: 3 workers is ~26% faster on average (414.1s ->
-		// 308.0s) and draws more CPU (169.5% -> 229%) while staying nowhere near
-		// the 800% ceiling -- still spawn-bound, not CPU-bound, but the sweep
-		// shrank the spawn cost enough that a third worker now buys real wall
-		// clock instead of losing to neighbour contention the way it did in
-		// mantahostels#2022.
-		//
-		// NOT RE-ESTABLISHED: mantahostels#2217 could not get a genuinely quiet arm -- all
-		// four runs saw ~29-35 live Claude sessions on this machine, so mantahostels#2022's
-		// quiet-vs-loaded contrast is untested here; the result is "wins
-		// consistently at moderate-to-heavy ambient load", not "wins quiet and
-		// loses loaded" resolved either way. Memory is unresolved too: mantahostels#2217's
-		// in-run sampler had a startup race and recorded nothing. mantahostels#2673 supplied
-		// that reading, and #1603 re-benched all three rungs at 3 workers, so
-		// docs/environment.md §6's ladder is wholly measured.
 		pool: "forks",
-		maxWorkers: 3,
+		// W, the workers a whole suite runs. One whole suite runs at a time
+		// (#2680), so W is sized to a lone run on this machine's 8 cores. #2772
+		// timed a fixed 202-file sample (every third test file) twice at each W,
+		// interleaved 3 4 5 6 6 5 4 3, each run the only whole suite:
+		//
+		//   W=3: 394 s, 309 s    W=4: 259 s, 251 s
+		//   W=5: 213 s, 247 s    W=6: 308 s, 249 s
+		//
+		// W=5 has the lowest median (230 s); W=4's is 10.9% slower, outside the
+		// 3.4% tie band #2772's choice rule set. Replicates of one W spread up to
+		// 27%, so the bench ranks 5 above 3 and 6 more surely than above 4.
+		// Cores: 5 worker processes plus vitest's main process make 6, and one
+		// 1-2-file part-suite beside it adds 2-3: 9 at most on 8 cores.
+		// Memory: W stays inside the 9 workers docs/environment.md §6's ladder
+		// was measured over.
+		// scripts/lib/admission.js charges a whole suite at its
+		// WHOLE_SUITE_WORKERS, which lib/suite-bounded.test.ts holds equal.
+		maxWorkers: 5,
 		// `.claude/**` is named explicitly. Vitest 4's default include does reach
 		// dot-directories, but the roadmap-edit scripts that gate every roadmap
 		// edit live under `.claude/` — and biome.json already excludes that path,

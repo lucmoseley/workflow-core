@@ -28,7 +28,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
-import { distinctFromHint } from "./lib/similar-titles.js";
+import { buildDistinctFromHint } from "./lib/similar-titles.js";
 
 const SCRIPT = path.join(__dirname, "check-orphaned-edits.js");
 const HOUR = 3_600_000;
@@ -81,7 +81,7 @@ console.log("https://github.com/o/r/issues/7");
 	process.env.WFC_ORPHAN_FILER = bin;
 }
 
-const filings = (): { argv: string[]; body: string }[] =>
+const readFilings = (): { argv: string[]; body: string }[] =>
 	fs.existsSync(filerLog())
 		? fs
 				.readFileSync(filerLog(), "utf8")
@@ -119,14 +119,14 @@ describe("check-orphaned-edits", () => {
 		const r = run([], true);
 		expect(r.out).toBe("");
 		expect(r.status).toBe(0);
-		expect(filings()).toEqual([]);
+		expect(readFilings()).toEqual([]);
 	});
 
 	it("files an orphan at session start but prints nothing, the report being npm run status's (#2038)", () => {
 		dirty("a.txt", 25);
 		const r = run([], true);
 		expect(r.out).toBe("");
-		expect(filings()).toHaveLength(1);
+		expect(readFilings()).toHaveLength(1);
 	});
 
 	it("reports a file unchanged for 24 hours, and not one unchanged for less", () => {
@@ -174,7 +174,7 @@ describe("check-orphaned-edits", () => {
 				path: "docs/b.md",
 				sessionId: "holder",
 				pid: process.pid,
-				procStart: proc.procStartOf(process.pid),
+				procStart: proc.readProcStartOf(process.pid),
 			});
 			const name = `${createHash("sha256").update("docs/b.md").digest("hex").slice(0, 16)}.json`;
 			fs.writeFileSync(
@@ -224,7 +224,7 @@ describe("check-orphaned-edits", () => {
 
 		const r = run(["--json"]);
 		expect(JSON.parse(r.stdout).outcome).toBe("SKIP");
-		expect(filings()).toEqual([]);
+		expect(readFilings()).toEqual([]);
 	});
 
 	describe("filing", () => {
@@ -234,7 +234,7 @@ describe("check-orphaned-edits", () => {
 			run();
 			run();
 
-			const calls = filings();
+			const calls = readFilings();
 			expect(calls).toHaveLength(1);
 			const { argv, body } = calls[0];
 			expect(argv).toContain("takes:triage");
@@ -252,7 +252,7 @@ describe("check-orphaned-edits", () => {
 			dirty("a.txt", 30, "second\n");
 			run();
 
-			expect(filings()).toHaveLength(2);
+			expect(readFilings()).toHaveLength(2);
 		});
 
 		it("files each orphaned path on its own", () => {
@@ -260,18 +260,18 @@ describe("check-orphaned-edits", () => {
 			dirty("docs/b.md", 30);
 			run();
 
-			expect(filings()).toHaveLength(2);
+			expect(readFilings()).toHaveLength(2);
 		});
 
 		it("names the titles file-issue.js lists as distinct, and files", () => {
 			dirty("a.txt", 30);
 			fakeFiler(
 				0,
-				`Nothing filed: #3 is not yet checked. Re-run with ${distinctFromHint([3, 4])}`,
+				`Nothing filed: #3 is not yet checked. Re-run with ${buildDistinctFromHint([3, 4])}`,
 			);
 			run();
 
-			const calls = filings();
+			const calls = readFilings();
 			expect(calls).toHaveLength(2);
 			expect(calls[1].argv.slice(-2)).toEqual(["--distinct-from", "3,4"]);
 			expect(run().out).toContain("already filed");
@@ -286,7 +286,7 @@ describe("check-orphaned-edits", () => {
 			fakeFiler(0);
 			run();
 
-			expect(filings()).toHaveLength(2);
+			expect(readFilings()).toHaveLength(2);
 			expect(run().out).toContain("already filed");
 		});
 	});
@@ -297,9 +297,9 @@ describe("check-orphaned-edits", () => {
 		dirty("c.txt", 30);
 
 		expect(run().out).toContain("this run's filing cap is spent");
-		expect(filings()).toHaveLength(2);
+		expect(readFilings()).toHaveLength(2);
 		run();
-		expect(filings()).toHaveLength(3);
+		expect(readFilings()).toHaveLength(3);
 	});
 
 	it("leaves an interrupted filing alone rather than filing it again", () => {
@@ -311,7 +311,7 @@ describe("check-orphaned-edits", () => {
 			fs.writeFileSync(path.join(dir, f), "");
 
 		expect(run().out).toContain("filing in progress or interrupted");
-		expect(filings()).toHaveLength(1);
+		expect(readFilings()).toHaveLength(1);
 	});
 
 	it("never retries a filing whose filer died before it could say", () => {
@@ -323,7 +323,7 @@ describe("check-orphaned-edits", () => {
 
 		fakeFiler();
 		expect(run().out).toContain("filing in progress or interrupted");
-		expect(filings()).toEqual([]);
+		expect(readFilings()).toEqual([]);
 	});
 
 	it("refuses a negative --hours as a bad invocation", () => {
@@ -343,7 +343,7 @@ describe("check-orphaned-edits", () => {
 			} finally {
 				fs.chmodSync(store.paths.locksDir(), 0o755);
 			}
-			expect(filings()).toEqual([]);
+			expect(readFilings()).toEqual([]);
 		});
 
 		it.skipIf(AS_ROOT)("the observation store", () => {
@@ -356,7 +356,7 @@ describe("check-orphaned-edits", () => {
 			} finally {
 				fs.chmodSync(store.paths.observationsDir(), 0o755);
 			}
-			expect(filings()).toEqual([]);
+			expect(readFilings()).toEqual([]);
 		});
 
 		it.skipIf(AS_ROOT)("a live session's write ledger", () => {
@@ -367,7 +367,7 @@ describe("check-orphaned-edits", () => {
 			fs.chmodSync(store.paths.ledger("writer"), 0o000);
 
 			expect(JSON.parse(run(["--json"]).stdout).outcome).toBe("SKIP");
-			expect(filings()).toEqual([]);
+			expect(readFilings()).toEqual([]);
 		});
 	});
 

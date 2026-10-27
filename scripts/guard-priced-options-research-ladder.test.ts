@@ -17,7 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LADDER, sessionCounters } from "./lib/priced-options-testkit";
-import { stopGuardReason } from "./lib/stop-guard-testkit";
+import { readStopGuardReason } from "./lib/stop-guard-testkit";
 import {
 	buildToolCall,
 	LATER,
@@ -72,7 +72,13 @@ afterEach(() => {
 });
 
 const stop = (message: string) =>
-	stopGuardReason(GUARD, { dir, sid, message, job: false, transcript: file });
+	readStopGuardReason(GUARD, {
+		dir,
+		sid,
+		message,
+		job: false,
+		transcript: file,
+	});
 
 const CLOSE_ROUND =
 	"❓ **Q1** — Which?\n\nRelation: rivals for one slot\n\n" +

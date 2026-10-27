@@ -54,7 +54,7 @@ const run = (
 	const report = JSON.parse(r.stdout);
 	return { code: r.status, outcome: report.outcome, text: r.stdout };
 };
-const calls = () =>
+const readCalls = () =>
 	fs.existsSync(path.join(dir, "calls.log"))
 		? fs.readFileSync(path.join(dir, "calls.log"), "utf8")
 		: "";
@@ -64,7 +64,7 @@ describe("check-citation-ceiling", () => {
 	it("passes with the tracker's top outside the margin", () => {
 		const r = run(UPSTREAM_TRACKER, top(CITATION_CEILING - 1001));
 		expect([r.outcome, r.code]).toEqual(["OK", 0]);
-		expect(calls()).toContain(`repos/${UPSTREAM_TRACKER}/issues?state=all`);
+		expect(readCalls()).toContain(`repos/${UPSTREAM_TRACKER}/issues?state=all`);
 	});
 
 	it("fails once the top is within the margin, naming the ceiling and where to raise it", () => {
@@ -85,7 +85,7 @@ describe("check-citation-ceiling", () => {
 		const r = run("someone/else", "[]");
 		expect([r.outcome, r.code]).toEqual(["SKIP", 0]);
 		expect(r.text).toContain("the ceiling is the core's to raise");
-		expect(calls()).toBe("");
+		expect(readCalls()).toBe("");
 	});
 
 	it("skips where gh cannot reach GitHub", () => {

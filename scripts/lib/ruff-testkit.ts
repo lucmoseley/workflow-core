@@ -38,7 +38,7 @@ export function writeRuffStub(file: string, argsFile: string, exit = 0): void {
 }
 
 /** Each stub invocation's argv, in call order. */
-export function stubCalls(argsFile: string): string[][] {
+export function readStubCalls(argsFile: string): string[][] {
 	if (!fs.existsSync(argsFile)) return [];
 	return fs
 		.readFileSync(argsFile, "utf8")

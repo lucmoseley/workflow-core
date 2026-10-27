@@ -20,7 +20,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readFailOpenLog } from "./guard-log-fixture";
+import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 
 const GUARD = path.join(__dirname, "guard-paste-self-match.js");
 
@@ -38,26 +39,14 @@ afterEach(() => {
 
 /** The guard's whole output on `message`, or null where it says nothing. */
 const run = (message: string) =>
-	stopGuardBlock(GUARD, { dir, sid, message }) as
+	readStopGuardBlock(GUARD, { dir, sid, message }) as
 		| ({ decision?: string; reason?: string; systemMessage?: string } & object)
 		| null;
 
 const refused = (message: string) => run(message)?.decision === "block";
 
-/** Every fail-open record written under the test's config dir. */
-function errorLog(): string {
-	const found: string[] = [];
-	const walk = (d: string) => {
-		for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-			const p = path.join(d, e.name);
-			if (e.isDirectory()) walk(p);
-			else if (e.name === "guard-errors.log")
-				found.push(fs.readFileSync(p, "utf8"));
-		}
-	};
-	if (fs.existsSync(path.join(dir, "config"))) walk(path.join(dir, "config"));
-	return found.join("");
-}
+/** The fail-open log for this test's project. */
+const readErrorLog = () => readFailOpenLog(path.join(dir, "config"), dir);
 
 function refusalFor(message: string, pattern: string): string {
 	const out = run(message);
@@ -88,6 +77,14 @@ describe("#921: a `!` pkill -f whose pattern recurs in the paste is refused", ()
 			'Run:\n\n```\n! pkill -f "[b]ake"\nsleep 1\nnohup python3 bake-run.py &\n```\n',
 			"[b]ake",
 		);
+	});
+
+	it("shows a segment typed with a tab on one spaced line", () => {
+		const reason = refusalFor(
+			"Paste this:\n\n`! pkill -f\tbake-run.py; nohup python3 bake-run.py &`",
+			"bake-run.py",
+		);
+		expect(reason).toContain("  pkill -f bake-run.py\n");
 	});
 
 	it("reads a tilde fence", () => {
@@ -195,7 +192,7 @@ describe("what passes", () => {
 
 	it("passes a pattern carrying an expansion and logs it", () => {
 		expect(run('`! pkill -f "$TARGET"; echo x`')).toBeNull();
-		expect(errorLog()).toContain("pattern carries an expansion");
+		expect(readErrorLog()).toContain("pattern carries an expansion");
 	});
 
 	it("passes pkill without -f whose pattern misses bash", () => {
@@ -204,7 +201,7 @@ describe("what passes", () => {
 
 	it("passes an uncompilable pattern and logs it", () => {
 		expect(run('`! pkill -f "(" ; echo "("`')).toBeNull();
-		expect(errorLog()).toContain("did not compile as a regex");
+		expect(readErrorLog()).toContain("did not compile as a regex");
 	});
 });
 

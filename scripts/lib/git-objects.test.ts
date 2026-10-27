@@ -23,7 +23,7 @@ it("installs no process handler on load, so a suite launch's program can require
 	expect(r.stdout.trim()).toBe("0");
 });
 
-describe("listTree and catFileBatch, run in a caller's directory (#2382)", () => {
+describe("listTree and readObjectBatch, run in a caller's directory (#2382)", () => {
 	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 	const lib: any = createRequire(__filename)("./git-objects.js");
 	const { isOutcomeError } = createRequire(__filename)("./outcome-error.js");
@@ -71,7 +71,7 @@ describe("listTree and catFileBatch, run in a caller's directory (#2382)", () =>
 	});
 
 	it("answers a followed link with its target's blob, a link out of the repo with git's symlink type, and a missing path with null", () => {
-		const got = lib.catFileBatch(
+		const got = lib.readObjectBatch(
 			[
 				"HEAD:./top/in/a.md",
 				"HEAD:./top/out/x",
@@ -95,7 +95,7 @@ describe("listTree and catFileBatch, run in a caller's directory (#2382)", () =>
 	});
 
 	it("answers a link itself as a blob holding its target, when not following", () => {
-		const [link] = lib.catFileBatch(["HEAD:top/in"], "the fixture's link", {
+		const [link] = lib.readObjectBatch(["HEAD:top/in"], "the fixture's link", {
 			cwd: root,
 		});
 		expect([link.type, link.body.toString("utf8")]).toEqual(["blob", "sub"]);
@@ -105,7 +105,7 @@ describe("listTree and catFileBatch, run in a caller's directory (#2382)", () =>
 		const opts = { cwd: root, timeout: 30_000 };
 		expect(lib.listTree("HEAD", ["top/sub/"], opts)).toHaveLength(1);
 		expect(
-			lib.catFileBatch(["HEAD:top/sub/a.md"], "a", opts)[0].body.toString(),
+			lib.readObjectBatch(["HEAD:top/sub/a.md"], "a", opts)[0].body.toString(),
 		).toBe("A body\n");
 	});
 
@@ -131,7 +131,7 @@ describe("listTree and catFileBatch, run in a caller's directory (#2382)", () =>
 			const opts = { cwd: root, timeout: 200 };
 			const listed = thrown(() => lib.listTree("HEAD", [], opts));
 			const batched = thrown(() =>
-				lib.catFileBatch(["HEAD:top/sub/a.md"], "a", opts),
+				lib.readObjectBatch(["HEAD:top/sub/a.md"], "a", opts),
 			);
 			expect(isOutcomeError(listed)).toBe(true);
 			expect(String(listed)).toMatch(/ls-tree failed/);

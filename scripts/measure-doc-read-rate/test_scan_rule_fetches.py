@@ -43,7 +43,7 @@ def store(tmp_path, monkeypatch):
     (d / "close-outstanding-line.txt").write_text(GUARD_TEXT + "\n")
     guard = tmp_path / srf.GUARD
     guard.parent.mkdir(parents=True)
-    guard.write_text("gp_rule close-outstanding-line\n")
+    guard.write_text('\tinjectRules: [\n\t\t"close-outstanding-line",\n\t],\n')
     monkeypatch.setenv("WFC_RULES_DIR", str(d))
 
 
@@ -387,11 +387,12 @@ def test_the_emitted_tally_counts_sessions(transcript, tmp_path):
     assert srf.tally(sessions)["wayfinder"]["emitted"] == 1
 
 
-def test_the_guard_ids_read_bares_a_prefixed_call(tmp_path):
-    # Without the prefix in the argument run the prefixed token would end the
-    # run and `beta` would go uncounted (mantahostels#2719).
-    (tmp_path / srf.GUARD).write_text("gp_rule rule:alpha beta\ngp_rule gamma\n")
-    assert srf.guard_ids() == {"alpha", "beta", "gamma"}
+def test_the_guard_ids_read_takes_every_id_in_the_array(tmp_path):
+    (tmp_path / srf.GUARD).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / srf.GUARD).write_text(
+        '// "not-an-id"\n\tinjectRules: [\n\t\t"alpha",\n\t\t"beta",\n\t],\n'
+    )
+    assert srf.guard_ids() == {"alpha", "beta"}
 
 
 def test_the_default_corpus_counts_sessions_on_both_seat_roots(seat_roots):

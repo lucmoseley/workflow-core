@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "[{\"message\":\"No parent issue found\",\"documentation_url\":\"https://docs.github.com/rest/issues/sub-issues#get-parent-issue\",\"status\":\"404\"}]",
+	"stderr": "gh: No parent issue found (HTTP 404)\n"
+}

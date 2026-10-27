@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { adopterCheckouts, discoverRepos } = require("./refill-repos.js");
+const { readAdopterCheckouts, discoverRepos } = require("./refill-repos.js");
 
 let home: string;
 beforeEach(() => {
@@ -73,14 +73,14 @@ describe("discoverRepos (#2003)", () => {
 	});
 });
 
-describe("adopterCheckouts (#2121)", () => {
+describe("readAdopterCheckouts (#2121)", () => {
 	it("returns fantasy-books, which discoverRepos leaves out on its refillLoop flag, and skips a linked worktree and a checkout with no config", () => {
 		const core = checkout("workflow-core", {});
 		const books = checkout("fantasy-books", { refillLoop: false });
 		const worktree = checkout("workflow-core-wt", {}, "file");
 		checkout("no-config", null);
 
-		const found = adopterCheckouts(home);
+		const found = readAdopterCheckouts(home);
 		expect(found.included.sort()).toEqual([books, core].sort());
 		expect(found.excluded).toEqual([
 			{ root: worktree, why: "not a main checkout" },

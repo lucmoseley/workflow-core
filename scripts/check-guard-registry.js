@@ -34,6 +34,9 @@
  *     not, `main` sitting red being the normal state here — a stale row among
  *     them (#2617). Owned by scripts/lib/check.js, which explains it
  *     (mantahostels#1833).
+ *   node scripts/check-guard-registry.js --against <tip> --head <sha>
+ *     the pre-push form: refuse only the faults <sha>'s tree has that <tip>'s
+ *     does not (scripts/landing-registry-gate.js, #3074).
  *   node scripts/check-guard-registry.js --review [<path>…]
  *     re-anchor the named paths after re-reading what this file records about
  *     each — the rules describing a guard, a wired script's own annotation, or
@@ -152,18 +155,26 @@
  * that means "this rule's backing is false", which is exactly the wrong answer.
  */
 
-const { spawnSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { runningHooks, ownHooks, ownHooksFile } = require("./lib/core-hooks.js");
-const { MAX_BUFFER, brokenError, runCheck } = require("./lib/check");
+const {
+	readRunningHooks,
+	readOwnHooks,
+	ownHooksFile,
+} = require("./lib/core-hooks.js");
+const {
+	MAX_BUFFER,
+	againstRevs,
+	brokenError,
+	runCheck,
+} = require("./lib/check");
 const { CeilingPassed } = require("./lib/git-ceiling.js");
 const {
 	TOUCHED_BY_CEILING_MS,
-	touchedBy,
+	readTouchedBy,
 	touchedByCeiling,
 } = require("./lib/touched-by.js");
 const { requiredGroup } = require("./lib/regex-group");
@@ -295,6 +306,9 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "__pycache__"]);
  * @typedef {StaleWarning | ReprintWarning} Warning
  *
  * @typedef {{ triggers: string[], annotation: Record<string, string> | null }} WiredScript
+ *
+ * @typedef {{ holder: string, dead: boolean }} HeldEntry
+ * @typedef {HeldEntry & { path: string }} HeldInput
  */
 
 // --- collecting the documents -----------------------------------------------
@@ -379,10 +393,9 @@ function dropIgnored(files) {
 		ignoreSkipped = true;
 		return files;
 	}
-	const r = spawnSync("git", ["-C", root, "check-ignore", "--stdin", "-z"], {
+	const r = spawnGitSync(["-C", root, "check-ignore", "--stdin", "-z"], {
 		input: `${files.join("\0")}\0`,
 		encoding: "utf8",
-		maxBuffer: MAX_BUFFER,
 	});
 	/* `r.status` is 0 where some path was ignored and 1 where none was; both are
 	 * answers. 128 is git's fatal, and a signal kill leaves it null. No git on
@@ -432,7 +445,7 @@ function scannedFiles() {
  * does a commented-out hook.
  *
  *   registered hooks       parsed, not grepped, through lib/core-hooks.js's
- *                          `runningHooks` (#2442). Only the `command` strings of
+ *                          `readRunningHooks` (#2442). Only the `command` strings of
  *                          hook entries count — a path in any other key is
  *                          configuration about the guard, not an invocation.
  *   .husky/*               comment lines stripped, then matched.
@@ -472,7 +485,7 @@ function hookEntries(node) {
 						/* The exec form (mantahostels#2059) holds the script path in `args` where
 						 * `command` is a bare interpreter, so a reader taking `command`
 						 * alone calls a wired script unwired (mantahostels#2266). Carried raw;
-						 * hookCommandLine() is what validates it. */
+						 * buildHookCommandLine() is what validates it. */
 						...(node.args === undefined ? {} : { args: node.args }),
 						...(typeof node.if === "string" ? { if: node.if } : {}),
 					},
@@ -483,7 +496,7 @@ function hookEntries(node) {
 
 /** @param {any} node */
 function hookCommands(node) {
-	return hookEntries(node).map(hookCommandLine);
+	return hookEntries(node).map(buildHookCommandLine);
 }
 
 const COMMENT_LINE = /^\s*#/;
@@ -496,13 +509,13 @@ function stripComments(text) {
 		.join("\n");
 }
 
-function wiringCorpus() {
+function readWiringCorpus() {
 	const parts = [];
 	/* At the core the self-plugin's file; at an adopter its settings and the
 	 * core plugin's hooks/hooks.json, which is how an adopter's guards are
 	 * wired at all (#5). */
 	try {
-		parts.push(...hookCommands(runningHooks(root, { core: CORE_ROOT })));
+		parts.push(...hookCommands(readRunningHooks(root, { core: CORE_ROOT })));
 	} catch {
 		/* absent or malformed wires nothing; an Enforced claim then reports UNWIRED */
 	}
@@ -518,14 +531,14 @@ function wiringCorpus() {
 	 * would. And this corpus has a second consumer, scanRuleStore's live-emitter
 	 * set, so an npm-script-only emitter now counts as live there too (mantahostels#2347).
 	 */
-	parts.push(...packageScriptValues());
+	parts.push(...readPackageScriptValues());
 	for (const dir of [".husky", ".github/workflows"])
-		parts.push(...dirFiles(dir));
+		parts.push(...readDirFiles(dir));
 	return parts.join("\n");
 }
 
 /** package.json's string `scripts` values — none where it is absent or malformed. */
-function packageScriptValues() {
+function readPackageScriptValues() {
 	try {
 		const pkg = JSON.parse(
 			fs.readFileSync(path.join(root, "package.json"), "utf8"),
@@ -539,7 +552,7 @@ function packageScriptValues() {
 }
 
 /** Every readable file directly under `dir`, comment lines stripped. */
-function dirFiles(/** @type {string} */ dir) {
+function readDirFiles(/** @type {string} */ dir) {
 	const out = /** @type {string[]} */ ([]);
 	const abs = path.join(root, dir);
 	if (!fs.existsSync(abs)) return out;
@@ -582,7 +595,7 @@ function dirFiles(/** @type {string} */ dir) {
  * cannot parse still clears by being written down; a regex-only test would
  * wedge it behind a header edit that can never satisfy it.
  *
- * HEADER ONLY, via headerLines — the WHOLE header, not the LIMITS section
+ * HEADER ONLY, via parseHeaderLines — the WHOLE header, not the LIMITS section
  * mantahostels#2212 named. A guard with no LIMITS section states its narrowing wherever its
  * header already runs, and demanding a section would fail it for the heading.
  * A matcher spelled inside the BODY is code, not a declaration: a guard's own
@@ -618,7 +631,7 @@ function dirFiles(/** @type {string} */ dir) {
  * gets. Tracing delegation would reopen the call-graph question
  * implicitWiring() above declines for the same reason. The exec form's `args`
  * is not a second way in: `wired` runs WIRED_SCRIPT_RE over
- * hookCommandLine()'s join (mantahostels#2266), so `"command": "node", "args":
+ * buildHookCommandLine()'s join (mantahostels#2266), so `"command": "node", "args":
  * ["…/scripts/x.js"]` wires its script rather than raising UNWIRED-IF.
  *
  * KNOWN LIMIT: HEADER_IF_RE cannot tell a script's own declaration from prose
@@ -647,7 +660,7 @@ const HEADER_IF_RE = /\bif:\s*`?([A-Za-z][\w-]*\([^)`\n]*\))/g;
  * @param {string} rel
  * @returns {{ declared: Map<string, number>, header: string }}
  */
-function declaredNarrowings(rel) {
+function readDeclaredNarrowings(rel) {
 	/** @type {Map<string, number>} */
 	const declared = new Map();
 	let text;
@@ -657,14 +670,14 @@ function declaredNarrowings(rel) {
 		/* The path exists — scanIfNarrowing tested that — so this is the reader
 		 * failing, not the script, and reporting UNDECLARED-IF would blame the
 		 * script for it. Defence in depth and UNREACHABLE today, so untested:
-		 * annotationOf and digestOf both read the same file earlier in the run
+		 * readAnnotation and digestOf both read the same file earlier in the run
 		 * and raise the identical BROKEN first (measured against an EACCES
 		 * fixture). It stays because whichever reader arrives first must not
 		 * turn a read failure into a finding. */
 		throw brokenError(`cannot read ${rel}: ${caught(e).message}`);
 	}
-	const head = headerLines(text);
-	/* headerLines drops a shebang, so head[0] is file line 2 where one is
+	const head = parseHeaderLines(text);
+	/* parseHeaderLines drops a shebang, so head[0] is file line 2 where one is
 	 * present — without this every citation on a shebang'd guard is off by one. */
 	const offset = text.startsWith("#!") ? 2 : 1;
 	for (const [i, line] of head.entries())
@@ -685,9 +698,9 @@ function scanIfNarrowing() {
 	/** @type {{ command: string, args?: unknown, if?: string }[]} */
 	let entries = [];
 	try {
-		entries = hookEntries(ownHooks(root, { core: CORE_ROOT }) ?? {});
+		entries = hookEntries(readOwnHooks(root, { core: CORE_ROOT }) ?? {});
 	} catch {
-		/* a malformed registration narrows nothing; implicitHooks reports it
+		/* a malformed registration narrows nothing; readImplicitHooks reports it
 		 * BROKEN off the same read */
 		return { findings, narrowed: new Map() };
 	}
@@ -719,7 +732,7 @@ function wiredNarrowings(entries) {
 	/** @type {Map<string, Set<string>>} */
 	const wired = new Map();
 	for (const entry of entries)
-		for (const rel of scriptsInCommand(hookCommandLine(entry))) {
+		for (const rel of scriptsInCommand(buildHookCommandLine(entry))) {
 			const seen = wired.get(rel) ?? new Set();
 			if (entry.if) seen.add(entry.if);
 			wired.set(rel, seen);
@@ -735,7 +748,7 @@ function wiredNarrowings(entries) {
  * @param {Finding[]} findings accumulator: each limb's finding is pushed here
  */
 function judgeWiredNarrowing(rel, actual, findings) {
-	const { declared, header } = declaredNarrowings(rel);
+	const { declared, header } = readDeclaredNarrowings(rel);
 	const report = (
 		/** @type {string} */ kind,
 		/** @type {number} */ line,
@@ -806,12 +819,12 @@ function unwiredNarrowingFindings(wired) {
 		/** @type {Map<string, number>} */
 		let declared;
 		try {
-			({ declared } = declaredNarrowings(rel));
+			({ declared } = readDeclaredNarrowings(rel));
 		} catch {
 			/* Unlike the wired loop, this one reads files no earlier pass has
 			 * opened — a transient under .claude/ that dropIgnored did not catch
 			 * among them — so a read failure here is not the BROKEN signal the
-			 * comment in declaredNarrowings describes. A file that cannot be read
+			 * comment in readDeclaredNarrowings describes. A file that cannot be read
 			 * states no narrowing — but that is a fail-open, and it is counted and
 			 * printed rather than left indistinguishable from a clean run. */
 			declaredIfUnreadable++;
@@ -857,15 +870,15 @@ function unwiredNarrowingFindings(wired) {
  *                           of which run code nobody asked for on every suite.
  *
  * A PreToolUse ENTRY THAT ALSO ACTS DECLARES ITSELF, exactly as a delayed deny
- * does above: scripts/guard-file-claim.sh refuses a write AND takes a claim the
- * session never asked for, and it is in this set because it carries the
- * annotation, not because this file names it. Inferring "also acts" from a
+ * does above: a guard that refuses a write AND takes a claim the session never
+ * asked for is in this set because it carries the annotation, not because this
+ * file names it. Inferring "also acts" from a
  * guard's body would be reading intent, which this script refuses everywhere.
  * KNOWN RESIDUAL: a PreToolUse guard that acts and stays silent is not caught.
  *
- * ENTRY POINTS ONLY, NOT THE CALL GRAPH. scripts/post-write.sh runs Biome and
- * then scripts/record-write.sh; the annotation goes on post-write.sh, the file a
- * reader following the wiring arrives at. Chasing delegations would make the set
+ * ENTRY POINTS ONLY, NOT THE CALL GRAPH. scripts/guard-dispatch.js runs the
+ * post-write core, which runs Biome and then records the write; the annotation
+ * goes on guard-dispatch.js, the file a reader following the wiring arrives at. Chasing delegations would make the set
  * unbounded and would put annotations on files no wiring names. This is also why
  * the walk reaches 26 where mantahostels#1180 counted 30: that audit counted mechanisms down
  * the call graph, and included the scheduled workflows, which are no part of a
@@ -923,7 +936,17 @@ const VITEST_CONFIG = "vitest.config.ts";
  * reads the same settings file to decide which guards a matcher fires, and two
  * spellings would let the two disagree about which scripts exist.
  */
-const { WIRED_SCRIPT_RE, hookCommandLine } = require("./lib/rule-emission");
+const {
+	WIRED_SCRIPT_RE,
+	buildHookCommandLine,
+} = require("./lib/rule-emission");
+const {
+	MANIFEST_REL,
+	manifestAt,
+	readDispatchedCores,
+} = require("./lib/guard-cores.js");
+
+const DISPATCH_KIT = path.join("scripts", "lib", "guard-dispatch.js");
 
 /*
  * The hooks git will run, read from the directory rather than listed.
@@ -937,7 +960,7 @@ const { WIRED_SCRIPT_RE, hookCommandLine } = require("./lib/rule-emission");
  * regular file dropped in here is asked to annotate itself too. Filtering to
  * git's hook vocabulary would reintroduce the hand list.
  */
-function huskyHooks() {
+function readHuskyHooks() {
 	const abs = path.join(root, HUSKY_DIR);
 	if (!fs.existsSync(abs)) return [];
 	let entries;
@@ -977,7 +1000,7 @@ const VITEST_ENTRY_RE = /["']\.\/((?:scripts|\.claude)\/[\w./-]+)["']/g;
  * and swallowing it empties the acting set and reports OK over scope never
  * scanned, which is the FAIL gate passing vacuously.
  */
-function vitestScripts() {
+function readVitestScripts() {
 	const abs = path.join(root, VITEST_CONFIG);
 	if (!fs.existsSync(abs)) return [];
 	let text;
@@ -1017,11 +1040,11 @@ function implicitWiring() {
 		set.add(trigger);
 	};
 
-	const hooks = implicitHooks();
+	const hooks = readImplicitHooks();
 	if (hooks) addHookTriggers(hooks, add);
 
-	for (const h of huskyHooks()) add(h, "git");
-	for (const rel of vitestScripts()) add(rel, "vitest");
+	for (const h of readHuskyHooks()) add(h, "git");
+	for (const rel of readVitestScripts()) add(rel, "vitest");
 
 	return new Map(
 		[...triggers]
@@ -1037,13 +1060,13 @@ function implicitWiring() {
  *
  * @returns {Record<string, unknown> | null}
  */
-function implicitHooks() {
-	/* Same split as vitestScripts above: an adopter's absent settings are an
+function readImplicitHooks() {
+	/* Same split as readVitestScripts above: an adopter's absent settings are an
 	 * answer, the core's absent self-plugin file and anything unreadable or
-	 * unparseable are apparatus. wiringCorpus's swallow is not a precedent — there
+	 * unparseable are apparatus. readWiringCorpus's swallow is not a precedent — there
 	 * the failure is CLOSED, an Enforced claim then reporting UNWIRED. */
 	try {
-		return ownHooks(root, { core: CORE_ROOT });
+		return readOwnHooks(root, { core: CORE_ROOT });
 	} catch (e) {
 		throw brokenError(caught(e).message);
 	}
@@ -1061,7 +1084,7 @@ function addHookTriggers(hooks, add) {
 		for (const cmd of hookCommands(entries))
 			for (const rel of scriptsInCommand(cmd)) {
 				if (ACTING_EVENTS.includes(event)) add(rel, event);
-				else if (event === REFUSING_EVENT && annotationOf(rel))
+				else if (event === REFUSING_EVENT && readAnnotation(rel))
 					add(rel, `${REFUSING_EVENT} (declared)`);
 			}
 }
@@ -1078,7 +1101,7 @@ function addHookTriggers(hooks, add) {
  * arriving at the file meets it without scrolling.
  */
 /** @param {string} text */
-function headerLines(text) {
+function parseHeaderLines(text) {
 	const lines = text.split("\n");
 	/** @type {string[]} */
 	const out = [];
@@ -1136,7 +1159,7 @@ const annotationCache = new Map();
  * @param {string} rel
  * @returns {Record<string, string> | null}
  */
-function annotationOf(rel) {
+function readAnnotation(rel) {
 	if (annotationCache.has(rel)) return annotationCache.get(rel) ?? null;
 	/** @type {Record<string, string>} */
 	const keys = {};
@@ -1145,7 +1168,7 @@ function annotationOf(rel) {
 	 * it as UNANNOTATED would blame the script for the reader's failure. */
 	try {
 		const text = fs.readFileSync(path.join(root, rel), "utf8");
-		for (const line of headerLines(text)) {
+		for (const line of parseHeaderLines(text)) {
 			const m = ANNOTATION_RE.exec(line);
 			if (!m) continue;
 			/* First wins: a later restatement in the same header is prose about the
@@ -1184,7 +1207,7 @@ function justificationTag(ann) {
  * @param {string} head
  * @param {{ detail: boolean }} opts
  */
-function implicitLines(info, head, { detail }) {
+function buildImplicitLines(info, head, { detail }) {
 	const ann = info.annotation;
 	const lines = [
 		`${head}[${info.triggers.join(", ")}]  ${justificationTag(ann)}`,
@@ -1228,7 +1251,7 @@ function scanImplicit() {
 	const scripts = new Map();
 
 	for (const [rel, triggers] of implicitWiring()) {
-		const ann = annotationOf(rel);
+		const ann = readAnnotation(rel);
 		scripts.set(rel, { triggers, annotation: ann });
 		const where = `wired at ${triggers.join(", ")}`;
 		const report = (/** @type {string} */ kind, /** @type {string} */ detail) =>
@@ -1503,11 +1526,10 @@ function gist(text) {
  */
 const SOURCE_RE =
 	/^[^#\n]*?(?:^|\s)(?:source|\.)\s+[^\n]*?(lib\/[\w.-]+\.sh)/gm;
-const REQUIRE_RE = /require\(\s*["'](\.[\w./-]+\.js)["']\s*\)/g;
 /*
  * The third spelling (mantahostels#358): a shell guard that reaches its logic by RUNNING a
- * node program rather than sourcing it, as `scripts/guard-file-claim.sh` shells
- * out to session-arbiter.js for every decision the rule describes.
+ * node program rather than sourcing it, shelling out for every decision the
+ * rule describes.
  *
  * Only a SELF-RELATIVE spelling counts: the script path must be prefixed by a
  * `$`-expansion, as in `"$here/session-arbiter.js"`. A hook runs from an
@@ -1518,7 +1540,8 @@ const REQUIRE_RE = /require\(\s*["'](\.[\w./-]+\.js)["']\s*\)/g;
  * and really does delegate; there is none today.
  *
  * The captured tail is resolved against the guard's own directory first and, if
- * nothing is there, against the repo root — `node "$root/scripts/x.js"` names
+ * nothing is there and the tail is under scripts/, against the repo root
+ * — `node "$root/scripts/x.js"` names
  * the same file either way, and only the second reading finds it.
  *
  * FAN-OUT: one edit to a shared lib warns on every registry entry reaching it,
@@ -1528,7 +1551,7 @@ const NODE_RUN_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$[^\n]*?\/([\w-][\w./-]*\.js)/gm;
 /*
  * The fourth spelling (#2487): the program's path assigned to a variable the
- * guard then runs, as guard-dispatch-rewrite.sh runs `node "$lib"`. The
+ * guard then runs, `lib="$here/lib/x.js"` and then `node "$lib"`. The
  * assignment must be self-relative as NODE_RUN_RE's path is, and only a
  * variable that `node` actually runs is followed, so a path assigned for some
  * other use stays out of the digest. A name assigned twice follows both paths,
@@ -1542,8 +1565,9 @@ const NODE_VAR_RE =
 /**
  * @param {string} rel
  * @param {string} text
+ * @param {string} [base] the tree run targets and the dispatch manifest resolve in
  */
-function sourcedBy(rel, text) {
+function sourcedBy(rel, text, base = root) {
 	const dir = path.dirname(rel);
 	const shell = [...text.matchAll(SOURCE_RE)].map((m) =>
 		path.join(dir, requiredGroup(m, 1, SOURCE_RE)),
@@ -1591,21 +1615,37 @@ function sourcedBy(rel, text) {
 		),
 	];
 	const run = tails
-		.map((tail) => resolveRun(dir, tail))
-		.filter((p) => p.startsWith(`scripts${path.sep}`));
-	return [...shell, ...js, ...run];
+		.map((tail) => resolveRun(base, dir, tail))
+		.filter(keptRun);
+	/* The dispatcher's kit loads its cores by manifest path, which no require
+	 * names (#2786). The manifest is the judged tree's and is hashed itself,
+	 * so a commit that changes only a manifest row moves the digest (#3124). */
+	const cores =
+		rel === DISPATCH_KIT
+			? [MANIFEST_REL, ...readDispatchedCores(manifestAt(base))]
+			: [];
+	return [...shell, ...js, ...run, ...cores];
+}
+
+/** @param {string} p a run target, as a path from the tree's root */
+function keptRun(p) {
+	return p.startsWith(`scripts${path.sep}`);
 }
 
 /* Neither reading is checked for existence beyond this: a path at neither place
- * is not a dependency, and digestOf tolerates one that vanishes later. */
+ * is not a dependency, and digestOf tolerates one that vanishes later. The
+ * root reading is probed only where keptRun would keep it: elsewhere the
+ * probe could only drop the sibling, and in the core walk it lands in the plugin cache's root, outside what ships (#3144). */
 /**
+ * @param {string} base the tree the two readings are checked in
  * @param {string} dir
  * @param {string} tail
  */
-function resolveRun(dir, tail) {
+function resolveRun(base, dir, tail) {
 	const sibling = path.join(dir, tail);
-	if (fs.existsSync(path.join(root, sibling))) return sibling;
-	return fs.existsSync(path.join(root, tail)) ? tail : sibling;
+	if (fs.existsSync(path.join(base, sibling))) return sibling;
+	if (!keptRun(path.normalize(tail))) return sibling;
+	return fs.existsSync(path.join(base, tail)) ? tail : sibling;
 }
 
 /*
@@ -1614,11 +1654,11 @@ function resolveRun(dir, tail) {
  * security boundary.
  *
  * The libraries are in here because a guard's behaviour is not confined to its
- * own file. `scripts/lib/guard-parse.sh` carries the verdict emitters for four
- * Enforced rules, and named in no rule itself it could never be anchored
+ * own file. A shared library named in no rule itself could never be anchored
  * directly — the checker fails an anchor no rule mentions. Folding it into its
- * dependants' digests warns on all four rules at once, which is the right set:
- * a change to the shared emitter can falsify any of them (mantahostels#140).
+ * dependants' digests warns on every rule they enforce at once, which is the
+ * right set: a change to a shared emitter can falsify any of them
+ * (mantahostels#140).
  */
 /**
  * @param {string} rel
@@ -1703,7 +1743,7 @@ function scanRegistry() {
 		 * ORPHAN-TRIGGER reads all of it: a pointer that resolves to nothing is
 		 * broken wherever it points from. */
 		triggerRefs: [],
-		wiring: wiringCorpus(),
+		wiring: readWiringCorpus(),
 		regionCount: 0,
 		ruleCount: 0,
 		/* file → count of well-formed regions found in it. */
@@ -1846,7 +1886,7 @@ function judgeRule(st, file, rule) {
 
 	/* ABOVE the marker branches, so no branch can return before it:
 	 * **Unenforceable** names a path too (CLAUDE.md's push rule names
-	 * scripts/guard-push-rules.sh, which hands the rule over). Reported
+	 * scripts/guard-push-rules.js, which hands the rule over). Reported
 	 * alongside UNOWNED and NO-GUARD-NAMED rather than instead of either. */
 	checkNamedPaths(st, file, rule, guardPathsOf(rule.text));
 
@@ -2003,7 +2043,8 @@ function noRegionFindings(st) {
 // --- staleness ---------------------------------------------------------------
 
 /**
- * The three warn-only, never exit-code-bearing warnings.
+ * The three staleness warnings. The full run warns on each, marking it
+ * `refusesCommit` so `--against` refuses a commit that adds one (#2617).
  *
  * Both surfaces anchor in one sidecar (mantahostels#1261). What a re-anchor ASSERTS differs
  * by surface and so the prose does: for a guard a rule names, that the rule was
@@ -2078,7 +2119,7 @@ function targetWarning(g, describedBy, implicitScripts, anchors) {
 			guard: g,
 			rules,
 			detail:
-				`changed since it was last reviewed (anchored ${recorded}, now ${current}) — ` +
+				`the guard or a library its digest hashes changed since the last review (anchored ${recorded}, now ${current}) — ` +
 				`re-read ${what} against it`,
 		};
 	return null;
@@ -2102,7 +2143,7 @@ function targetWarning(g, describedBy, implicitScripts, anchors) {
  *                 beforehand. Falls out of denyTextsOf: a warn message is never
  *                 handed to gp_deny, so such a guard contributes no text here.
  *   delayed       the guard denies, but only after an allowance is spent.
- *                 scripts/guard-agent-poll.sh is the measured counter-example:
+ *                 lib/agent-poll.js is the measured counter-example:
  *                 its rule is "end the turn", and the denial arrives on the
  *                 THIRD poll, so a session that never read it has already done
  *                 the thing twice.
@@ -2126,7 +2167,7 @@ function targetWarning(g, describedBy, implicitScripts, anchors) {
  * is not worth cutting.
  *
  * SCOPE IS THE GUARD'S OWN FILE. A guard that delegates its wording to a program
- * it runs — guard-file-claim.sh, whose refusals session-arbiter.js prints — is a
+ * it runs — lib/file-claim.js, whose refusals session-arbiter.js prints — is a
  * known miss. Following the delegation would mean judging which of that
  * program's many messages this hook can reach, which is a reader's job.
  *
@@ -2172,8 +2213,8 @@ const DENY_LITERAL_RE = /gp_deny\s+"([^"$]{20,})"/;
  *
  * A variable collects a LIST of bodies, not the latest one: a guard that picks
  * its wording in a `case` writes the same variable in every branch and denies
- * once after the `esac`. scripts/guard-agent-poll.sh is that shape, its read
- * and ListAgents branches reaching `reason` only through `reason+="$rest"`.
+ * once after the `esac`, each branch reaching `reason` only through
+ * `reason+="$rest"`.
  */
 /** @param {string} source */
 function denyTextsOf(source) {
@@ -2206,7 +2247,7 @@ function denyTextsOf(source) {
 		if (start) {
 			const name = requiredGroup(start, 1, startRe);
 			const delim = requiredGroup(start, 3, startRe);
-			bodiesOf(name).push(heredocBody(lines, delim));
+			bodiesOf(name).push(parseHeredocBody(lines, delim));
 			continue;
 		}
 		const append = APPEND_VAR_RE.exec(line);
@@ -2234,7 +2275,7 @@ function denyTextsOf(source) {
  * @param {IterableIterator<string>} lines
  * @param {string} delim
  */
-function heredocBody(lines, delim) {
+function parseHeredocBody(lines, delim) {
 	/** @type {string[]} */
 	const body = [];
 	for (const next of lines) {
@@ -2249,7 +2290,7 @@ function heredocBody(lines, delim) {
  * carry none, and the deny text has neither.
  *
  * A BACKTICKED SPAN IS DROPPED, on both sides. A path or a command is shared
- * vocabulary rather than shared prose: the rule naming `scripts/guard-issue-body.sh`
+ * vocabulary rather than shared prose: the rule naming `scripts/guard-issue-body.js`
  * and that guard's own deny both point at `docs/agents/issue-tracker.md`, which
  * tokenises into eight words and carried the pair to 70% coverage on nothing but
  * the pointer — a rule mantahostels#964 read and ruled did not qualify. Comparing the words
@@ -2437,15 +2478,10 @@ function reprintWarnings(candidates) {
  *
  * KNOWN LIMITS, and they are the price of reading source rather than running it:
  *  - An id built at runtime — `rule_text "$id"` — is invisible. Both accessors
- *    demand a literal kebab-case id at the call site to be seen here, a
- *    gp_rule_path_rows table's literal rows aside (lib/rule-table.js).
+ *    demand a literal kebab-case id at the call site to be seen here.
  *  - A commented-out call still counts as an emitter. The reprint pass above has
  *    the same property, and stripping comments would drop a call inside a
  *    heredoc that genuinely does print.
- *  - A pre-emptive call that does not OPEN its line is invisible, because the
- *    pattern is anchored (EMIT_RULE_RE, in scripts/lib/rule-emission.js).
- *    `if …; then gp_rule x; fi` is the shape that escapes, and its fragment
- *    then reports UNPRINTED-RULE.
  *  - .husky/ is not an emitter root. Its hooks carry no extension, so a rule
  *    printed inline by .husky/pre-commit would report UNPRINTED-RULE. A husky
  *    hook that must print one calls a scripts/ helper, as every gate there
@@ -2456,8 +2492,8 @@ function reprintWarnings(candidates) {
  */
 
 const {
-	ruleIds: storedRuleIds,
-	ruleText: ruleTextOf,
+	readRuleIds: storedRuleIds,
+	readRuleText: ruleTextOf,
 	manifestPath,
 	rulesDir,
 	fragmentPath,
@@ -2497,26 +2533,23 @@ const CITED_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 /** @param {string} id */
 const isCitedId = (id) => id.length > 1 && CITED_ID_RE.test(id);
 
-/* The node accessors' call shape, ruleTextOr's id first and split across lines
- * as Biome formats it. Its bash counterpart is DIRECT_RULE_RE, in
- * rule-emission.js beside the pre-emptive pattern (mantahostels#2055). */
-const EMIT_NODE_RE = /\bruleText(?:Or)?\(\s*["']([a-z0-9-]+)["']\s*[),]/g;
-
 /*
- * The pre-emptive emitter (mantahostels#1804). `gp_rule <id> [<id>...]` resolves its ids
- * through the bash accessor at run time, so the call inside guard-parse.sh
- * carries a variable and is invisible to DIRECT_RULE_RE.
+ * The pre-emptive emitter (mantahostels#1804). An `injectRules` decision's ids resolve
+ * through lib/guard-entry.js at run time, so the accessor call there carries a
+ * variable and is invisible to DIRECT_RULE_RE.
  *
- * BOTH PATTERNS LIVE IN scripts/lib/rule-emission.js (mantahostels#2003), which reads the
- * same calls to price a PreToolUse event. Two copies would let this gate and
- * that one disagree about which guard prints which fragment.
+ * EVERY ACCESSOR PATTERN LIVES IN scripts/lib/rule-emission.js (mantahostels#2003, #2905),
+ * bash and Node spellings alike, which reads the same calls to price a
+ * PreToolUse event. Two copies would let this gate and that one disagree about
+ * which guard prints which fragment.
  */
 const {
-	DIRECT_RULE_RE,
-	EMIT_RULE_RE,
+	directAccessorCalls,
+	emissionMatches,
+	REQUIRE_RE,
 	RULE_ARG_RE,
 } = require("./lib/rule-emission");
-const { expandRuleTables } = require("./lib/rule-table");
+const { spawnGitSync } = require("./lib/git.js");
 
 /* Where an emitter can live. Guards and their libs sit under scripts/; a hook
  * command under .claude/ is wired the same way and may print a rule too. */
@@ -2590,7 +2623,7 @@ function emitterFiles(base = root, roots = EMITTER_ROOTS) {
  * The manifest's entries, with the text it was parsed from so a finding can
  * point at the line the id sits on.
  *
- * A missing manifest is an empty one, matching ruleIds()'s treatment of a
+ * A missing manifest is an empty one, matching readRuleIds()'s treatment of a
  * missing store: a checkout before the generator's first run must not fail the
  * gate. Anything else — a read error, malformed JSON — escapes as BROKEN, since
  * it is a file this check reads the repo with.
@@ -2622,7 +2655,7 @@ function loadManifest() {
  * @param {string} wiring
  * @returns {Set<string>}
  */
-function indexedRuleIds(wiring) {
+function readIndexedRuleIds(wiring) {
 	/** @type {Set<string>} */
 	const ids = new Set();
 	for (const rel of INDEX_SOURCES) {
@@ -2663,19 +2696,16 @@ function readIndexSource(rel) {
  */
 function accessorCalls(text) {
 	/** @type {{ id: string, line: number }[]} */
-	const calls = [];
-	for (const re of [DIRECT_RULE_RE, EMIT_NODE_RE])
-		for (const m of text.matchAll(re)) {
-			const id = m[1] ?? m[2] ?? m[3];
-			if (id) calls.push({ id, line: lineOf(text, m.index ?? 0) });
-		}
+	const calls = directAccessorCalls(text).map(({ id, index }) => ({
+		id,
+		line: lineOf(text, index),
+	}));
 	calls.push(...emitRuleCalls(text));
 	return calls;
 }
 
 /**
- * The ids a `gp_rule` call names, a gp_rule_path_rows table's expanded, each
- * with the call's line.
+ * The ids an `injectRules` decision names, each with the decision's line.
  *
  * @param {string} text
  * @returns {{ id: string, line: number }[]}
@@ -2683,9 +2713,8 @@ function accessorCalls(text) {
 function emitRuleCalls(text) {
 	/** @type {{ id: string, line: number }[]} */
 	const calls = [];
-	const expanded = expandRuleTables(text);
-	for (const m of expanded.matchAll(EMIT_RULE_RE)) {
-		const line = lineOf(expanded, m.index ?? 0);
+	for (const m of emissionMatches(text)) {
+		const line = lineOf(text, m.index ?? 0);
 		for (const a of (m[1] ?? "").matchAll(RULE_ARG_RE))
 			if (a[1]) calls.push({ id: a[1], line });
 	}
@@ -2718,7 +2747,7 @@ function liveFiles(deps, wiring) {
  * id → the CORE's live emitters printing it, judged from an adopter (#97).
  *
  * An adopter's guards run out of the plugin root, wired by the core's own
- * hooks/hooks.json (wiringCorpus), so a fragment the adopter generates for one
+ * hooks/hooks.json (readWiringCorpus), so a fragment the adopter generates for one
  * of them is
  * printed from there. Read for liveness ONLY: a fault in the core's own files is
  * the core's gate to report, never an adopter's commit to carry. Empty in a
@@ -2737,7 +2766,7 @@ function corePrintedBy(wiring) {
 	const callsBy = new Map();
 	for (const rel of emitterFiles(CORE_ROOT, ["scripts"])) {
 		const text = fs.readFileSync(path.join(CORE_ROOT, rel), "utf8");
-		deps.set(rel, sourcedBy(rel, text));
+		deps.set(rel, sourcedBy(rel, text, CORE_ROOT));
 		callsBy.set(rel, accessorCalls(text));
 	}
 	const live = liveFiles(deps, wiring);
@@ -2758,7 +2787,7 @@ function corePrintedBy(wiring) {
 function scanRuleStore(triggerRefs, wiring) {
 	const fragments = storedRuleIds();
 	const manifest = loadManifest();
-	const indexed = indexedRuleIds(wiring);
+	const indexed = readIndexedRuleIds(wiring);
 	const { callsBy, deps, citationsBy } = readEmitters();
 
 	const live = liveFiles(deps, wiring);
@@ -2946,13 +2975,13 @@ function unprintedRemedy(/** @type {string} */ id) {
 	if (rootIsCore())
 		return (
 			"Call it from the guard that refuses the mistake — `rule_text " +
-			`${id}\` from bash, \`ruleText("${id}")\` from Node — or delete the fragment.`
+			`${id}\` from bash, \`readRuleText("${id}")\` from Node — or delete the fragment.`
 		);
 	/* An adopter's own wiring counts (#925). The README is the
 	 * plugin's: an adopter's store carries none. */
 	return (
-		`Call \`rule_text ${id}\` (bash), \`ruleText("${id}")\` (Node) or ` +
-		`\`gp_rule ${id}\` from a guard of your own under scripts/ or .claude/, ` +
+		`Call \`rule_text ${id}\` (bash) or \`readRuleText("${id}")\` (Node) ` +
+		"from a guard of your own under scripts/ or .claude/, " +
 		`and wire that guard from this repo's ${hooksFile()}, a package.json script, ` +
 		"a .husky hook or a workflow — or delete the fragment. A rule a session " +
 		"fetches from a command's index has no adopter route: workflow-core's " +
@@ -3003,7 +3032,7 @@ function manifestFindings({ manifest, fragments, printedBy, indexed }) {
 		/* A manifest id is always the host's own. Where the host has no store
 		 * the manifest is the core's, judged in the core's tree (#5); an
 		 * adopter's own is judged here against the core's emitters and index
-		 * too (corePrintedBy, indexedRuleIds). */
+		 * too (corePrintedBy, readIndexedRuleIds). */
 		if (!printedBy.has(id) && !indexed.has(id) && !foreignStore())
 			findings.push({
 				...at,
@@ -3048,18 +3077,18 @@ const printLine = (line) => writeFd(1, `${line}\n`);
  * the session-name lookup all still run against it (mantahostels#2636).
  *
  * @param {string[]} targets
- * @returns {{held: Map<string, {holder: string, dead: boolean}>, unavailable: string|null}}
+ * @returns {{held: Map<string, HeldEntry>, unavailable: string|null}}
  */
-function heldElsewhere(targets) {
+function readHeldElsewhere(targets) {
 	const wanted = new Set(targets);
-	/** @type {Map<string, {holder: string, dead: boolean}>} */
+	/** @type {Map<string, HeldEntry>} */
 	const held = new Map();
 	try {
-		const { snapshot, neighbourDirty } = require("./lib/tree-drift.js");
+		const { readTreeSnapshot, neighbourDirty } = require("./lib/tree-drift.js");
 		const { registryNames } = require("./lib/arbiter-core.js");
 		const self = process.env.CLAUDE_CODE_SESSION_ID || "";
 		if (!self) return { held, unavailable: "this session is unidentified" };
-		const snap = snapshot(root);
+		const snap = readTreeSnapshot(root);
 		if (!snap) return { held, unavailable: "git would not read this tree" };
 		const injected = process.env.WFC_ANCHOR_LOCKS;
 		const locks = injected
@@ -3079,6 +3108,41 @@ function heldElsewhere(targets) {
 		};
 	}
 }
+
+/**
+ * Each path's digest inputs, itself included, and every path's together.
+ *
+ * @param {string[]} paths
+ * @returns {{ hashedBy: Map<string, Set<string>>, inputs: string[] }}
+ */
+function readDigestInputs(paths) {
+	const hashedBy = new Map(
+		paths.map((g) => {
+			/** @type {Set<string>} */
+			const hashed = new Set();
+			digestOf(g, hashed);
+			return [g, hashed];
+		}),
+	);
+	const inputs = [...new Set([...hashedBy.values()].flatMap((h) => [...h]))];
+	return { hashedBy, inputs };
+}
+
+/**
+ * @param {Set<string> | undefined} inputs
+ * @param {Map<string, HeldEntry>} held
+ * @returns {HeldInput[]}
+ */
+function heldInputs(inputs, held) {
+	return [...(inputs ?? [])].flatMap((p) => {
+		const h = held.get(p);
+		return h ? [{ path: p, ...h }] : [];
+	});
+}
+
+/** @param {HeldInput} h */
+const buildHeldLine = (h) =>
+	`${h.path} is dirty and claimed by ${h.holder}${h.dead ? " (GONE)" : ""}`;
 
 /**
  * Re-anchor the guards named and end the process. A write command: it reports no
@@ -3101,7 +3165,8 @@ function reanchor(reviewPaths, describedBy, implicitScripts, anchors) {
 		reviewPaths.length > 0
 			? reviewPaths
 			: [...new Set([...describedBy.keys(), ...implicitScripts.keys()])].sort();
-	const { held, unavailable } = heldElsewhere(targets);
+	const { hashedBy, inputs } = readDigestInputs(targets);
+	const { held, unavailable } = readHeldElsewhere(inputs);
 	if (unavailable)
 		printLine(
 			`claim check skipped — ${unavailable}, so a path a neighbour holds ` +
@@ -3112,6 +3177,7 @@ function reanchor(reviewPaths, describedBy, implicitScripts, anchors) {
 		describedBy,
 		implicitScripts,
 		anchors,
+		hashedBy,
 		held,
 		next: reviewPaths.length > 0 ? { ...anchors } : {},
 		missing: [],
@@ -3139,7 +3205,7 @@ function reanchor(reviewPaths, describedBy, implicitScripts, anchors) {
 		);
 	// The count is what this run WROTE, not the file's size (mantahostels#2636).
 	const carried = Object.keys(next).length - written;
-	printLine(reviewSummary(run, carried).join("\n"));
+	printLine(buildReviewSummary(run, carried).join("\n"));
 	process.exit(0);
 }
 
@@ -3150,7 +3216,8 @@ function reanchor(reviewPaths, describedBy, implicitScripts, anchors) {
  *   describedBy: Map<string, RuleRef[]>,
  *   implicitScripts: Map<string, WiredScript>,
  *   anchors: Record<string, string>,
- *   held: Map<string, { holder: string, dead: boolean }>,
+ *   hashedBy: Map<string, Set<string>>,
+ *   held: Map<string, HeldEntry>,
  *   next: Record<string, string>,
  *   missing: string[],
  *   skipped: string[],
@@ -3160,22 +3227,24 @@ function reanchor(reviewPaths, describedBy, implicitScripts, anchors) {
  */
 
 /**
- * Anchor one target, or skip it as held or missing.
+ * Anchor one target, or skip it as held or missing. Held means the target or
+ * any file its digest hashes, as the pre-commit gate's stand-down reads it
+ * (#2853), so a held shared library leaves every guard sourcing it unanchored.
  *
  * @param {ReviewRun} run accumulator: next, missing, skipped, anyGone and written are filled; the rest is read
  * @param {string} g
  */
 function reanchorTarget(run, g) {
-	const holder = run.held.get(g);
-	if (holder) {
+	const holders = heldInputs(run.hashedBy.get(g), run.held);
+	if (holders.length > 0) {
 		run.skipped.push(g);
-		run.anyGone ||= holder.dead;
+		run.anyGone ||= holders.some((h) => h.dead);
 		/* Carried over rather than dropped: a bare --review starts from an
 		 * empty map, so losing the entry would turn a skip into UNANCHORED. */
 		const anchor = run.anchors[g];
 		if (anchor !== undefined) run.next[g] = anchor;
 		printLine(
-			`not anchored ${g} — dirty and claimed by ${holder.holder}${holder.dead ? " (GONE)" : ""}, so nothing here read the bytes it would hash`,
+			`not anchored ${g} — ${holders.map(buildHeldLine).join("; ")}, so nothing here read the bytes it would hash`,
 		);
 		return;
 	}
@@ -3211,7 +3280,7 @@ function printDescriptions({ describedBy, implicitScripts }, g) {
 		printLine(`  describes: ${r.file}:${r.line}  ${r.gist}`);
 	const wired = implicitScripts.get(g);
 	if (wired)
-		for (const l of implicitLines(wired, "  implicit: ", { detail: true }))
+		for (const l of buildImplicitLines(wired, "  implicit: ", { detail: true }))
 			printLine(l);
 }
 
@@ -3220,7 +3289,7 @@ function printDescriptions({ describedBy, implicitScripts }, g) {
  * @param {number} carried
  * @returns {string[]}
  */
-function reviewSummary({ written, skipped, anyGone }, carried) {
+function buildReviewSummary({ written, skipped, anyGone }, carried) {
 	const lines = [
 		`\n${written} path(s) re-anchored in ${ANCHORS}. ` +
 			"Re-anchoring asserts everything printed as anchored above was re-read against the file.",
@@ -3243,7 +3312,7 @@ function reviewSummary({ written, skipped, anyGone }, carried) {
 
 /*
  * A COMMIT THAT EXPIRES AN ANCHOR IS REFUSED (#2617). These warnings carry
- * `refusesCommit`, which checker-new-faults.js's profile gates on, so
+ * `refusesCommit`, which lib/fault-profiles.js's profile gates on, so
  * `--against HEAD` refuses a stale row the index has and HEAD does not. The child read the
  * materialised index, so the digests and anchors judged are the commit's bytes
  * and a neighbour's dirty edit neither causes nor clears a refusal. GUARD-GONE
@@ -3277,29 +3346,22 @@ function settleAdded(ctx, added) {
 	const stale = added.map(staleOf).filter((w) => w !== null);
 	if (stale.length === 0) return { refuse: added, remedy: [] };
 
-	/** Each stale path's digest inputs, itself included. */
-	const hashedBy = new Map(
-		stale.map((w) => {
-			/** @type {Set<string>} */
-			const hashed = new Set();
-			digestOf(w.guard, hashed);
-			return [w.guard, hashed];
-		}),
-	);
-	const inputs = [...new Set([...hashedBy.values()].flatMap((h) => [...h]))];
-	const { held, unavailable } = heldElsewhere(inputs);
+	const { rev: tip, head: pushed } = againstRevs(ctx);
+	const { hashedBy, inputs } = readDigestInputs(stale.map((w) => w.guard));
+	/* At push the judged bytes are a commit's, which no neighbour's dirty
+	 * input can reach and no post-commit notice follows, so nothing stands
+	 * down. */
+	const { held, unavailable } = pushed
+		? { held: new Map(), unavailable: null }
+		: readHeldElsewhere(inputs);
 	/* A neighbour's dirty input stands the row down: its bytes are in any digest --review would write, and staging or setting
 	 * them aside is the neighbour's call. */
-	const heldIn = (/** @type {string} */ g) =>
-		[...(hashedBy.get(g) ?? [])].filter((p) => held.has(p));
+	const heldIn = (/** @type {string} */ g) => heldInputs(hashedBy.get(g), held);
 	for (const w of stale) {
-		const by = heldIn(w.guard).map((p) => {
-			const h = /** @type {{holder: string, dead: boolean}} */ (held.get(p));
-			return `${p} is dirty and claimed by ${h.holder}${h.dead ? " (GONE)" : ""}`;
-		});
+		const by = heldIn(w.guard);
 		if (by.length > 0)
 			ctx.say(
-				`not refusing ${w.guard} — ${by.join("; ")}, so no re-anchor here could hash ` +
+				`not refusing ${w.guard} — ${by.map(buildHeldLine).join("; ")}, so no re-anchor here could hash ` +
 					"this commit's bytes; the post-commit notice names it.",
 			);
 	}
@@ -3311,37 +3373,48 @@ function settleAdded(ctx, added) {
 	if (owed.length === 0) return { refuse, remedy: [] };
 
 	const owedInputs = owed.flatMap((w) => [...(hashedBy.get(w.guard) ?? [])]);
-	const staged = gitPaths([
+	const changed = gitPaths([
 		"diff",
-		"--cached",
-		"--name-only",
-		"-z",
-		"HEAD",
+		...(pushed
+			? ["--name-only", "-z", tip, pushed]
+			: ["--cached", "--name-only", "-z", "HEAD"]),
 		"--",
 		...new Set(owedInputs),
 	]);
 	const { scripts: implicitScripts } = scanImplicit();
 	const remedy = [
 		"",
-		"This commit leaves the guard-registry anchor(s) above expired (#2617). Re-read what each records against the path as staged:",
+		pushed
+			? `${pushed} leaves the guard-registry anchor(s) above expired on ${tip}'s tree (#3074). Re-read what each records against the path as pushed:`
+			: "This commit leaves the guard-registry anchor(s) above expired (#2617). Re-read what each records against the path as staged:",
 	];
+	/* The read only adds the "(through …)" notes (#2853). */
+	if (changed.error)
+		remedy.push(
+			`  the paths each row went stale through not named — git diff${pushed ? "" : " --cached"} failed (${changed.error}).`,
+		);
 	for (const w of owed) {
 		const via = [...(hashedBy.get(w.guard) ?? [])].filter(
-			(p) => p !== w.guard && staged.paths.includes(p),
+			(p) => p !== w.guard && changed.paths.includes(p),
 		);
-		remedy.push(
-			`  ${w.kind}  ${w.guard}${via.length > 0 ? ` (through ${via.join(", ")})` : ""}`,
-		);
-		for (const r of w.rules)
-			remedy.push(`    rule:  ${r.file}:${r.line}  ${r.gist}`);
-		if (implicitScripts.has(w.guard))
-			remedy.push("    and its own IMPLICIT / JUSTIFIED / DEFEAT annotation");
+		remedy.push(...buildExpiredRow(w, via, implicitScripts.has(w.guard)));
 	}
+	const review = `node scripts/check-guard-registry.js --review ${owed.map((w) => w.guard).join(" ")}`;
 	remedy.push(
-		"  correct any sentence no longer true, re-anchor those paths alone (an orphaned one is dropped) with",
-		`    node scripts/check-guard-registry.js --review ${owed.map((w) => w.guard).join(" ")}`,
-		`  and put ${ANCHORS} in this commit's pathspec.`,
-		...diverged(owedInputs),
+		...(pushed
+			? [
+					/* --review hashes the tree it runs in, and the committing tree
+					 * may not be this sha's. */
+					`  correct any sentence no longer true, then re-anchor on ${pushed}'s own tree, not the one you committed in:`,
+					`    git worktree add --detach <dir> ${pushed} && cd <dir> && ${review}`,
+					`  commit ${ANCHORS} there, and push that commit to ${tip}'s branch.`,
+				]
+			: [
+					"  correct any sentence no longer true, re-anchor those paths alone (an orphaned one is dropped) with",
+					`    ${review}`,
+					`  and put ${ANCHORS} in this commit's pathspec.`,
+					...diverged(owedInputs),
+				]),
 	);
 	if (unavailable)
 		remedy.push(
@@ -3357,9 +3430,8 @@ function settleAdded(ctx, added) {
  * @returns {{ paths: string[], error: string | null }}
  */
 function gitPaths(args) {
-	const r = spawnSync("git", ["-C", root, ...args], {
+	const r = spawnGitSync(["-C", root, ...args], {
 		encoding: "utf8",
-		maxBuffer: MAX_BUFFER,
 	});
 	if (r.error || r.status !== 0)
 		return { paths: [], error: r.error?.message ?? `exit ${r.status}` };
@@ -3383,7 +3455,7 @@ function diverged(inputs) {
 		ANCHORS,
 		...new Set(inputs),
 	]);
-	/* A hint, not the verdict, so a failed read costs only the hint. */
+	/* A hint, not the verdict, so a failed read costs only the hint (#2617). */
 	if (error)
 		return [
 			`  index and working tree not compared — git diff failed (${error}).`,
@@ -3427,7 +3499,7 @@ function diverged(inputs) {
  * @param {string} rev
  * @returns {Record<string, string>}
  */
-function anchorsAt(ctx, ceiling, rev) {
+function readAnchorsAt(ctx, ceiling, rev) {
 	const listed = String(
 		gitUnder(ctx, ceiling, `list ${ANCHORS} at ${rev}`, [
 			"ls-tree",
@@ -3539,22 +3611,18 @@ function sayExpired(ctx, { expired, gone }, anchors) {
 	const { scripts: implicitScripts } = scanImplicit();
 	/** @type {Warning[]} */
 	const warnings = [];
-	const say = (/** @type {Warning} */ w, /** @type {string} */ head) => {
+	const say = (
+		/** @type {Warning} */ w,
+		/** @type {string[]} */ via,
+		/** @type {boolean} */ annotated,
+	) => {
 		warnings.push(w);
 		ctx.warn(w.kind, `${w.guard} — ${w.detail}`, w);
-		ctx.say(head);
-		for (const r of w.rules)
-			ctx.say(`    rule:  ${r.file}:${r.line}  ${r.gist}`);
+		for (const l of buildExpiredRow(w, via, annotated)) ctx.say(l);
 	};
 	for (const { guard, via } of expired) {
 		const w = targetWarning(guard, describedBy, implicitScripts, anchors);
-		if (!w) continue;
-		say(
-			w,
-			`  ${w.kind}  ${guard}${via.length > 0 ? ` (through ${via.join(", ")})` : ""}`,
-		);
-		if (implicitScripts.has(guard))
-			ctx.say("    and its own IMPLICIT / JUSTIFIED / DEFEAT annotation");
+		if (w) say(w, via, implicitScripts.has(guard));
 	}
 	for (const g of gone)
 		say(
@@ -3564,9 +3632,26 @@ function sayExpired(ctx, { expired, gone }, anchors) {
 				rules: describedBy.get(g) ?? [],
 				detail: "this commit deleted it, and its anchor stands",
 			},
-			`  GUARD-GONE  ${g}`,
+			[],
+			false,
 		);
 	return warnings;
+}
+
+/**
+ * @param {Pick<Warning, "kind" | "guard" | "rules">} w
+ * @param {string[]} via
+ * @param {boolean} annotated the path carries its own IMPLICIT annotation
+ * @returns {string[]}
+ */
+function buildExpiredRow(w, via, annotated) {
+	return [
+		`  ${w.kind}  ${w.guard}${via.length > 0 ? ` (through ${via.join(", ")})` : ""}`,
+		...w.rules.map((r) => `    rule:  ${r.file}:${r.line}  ${r.gist}`),
+		...(annotated
+			? ["    and its own IMPLICIT / JUSTIFIED / DEFEAT annotation"]
+			: []),
+	];
 }
 
 /**
@@ -3577,9 +3662,9 @@ function runTouched(ctx) {
 		ctx.usageError("--touched-by reports; it does not combine with --review.");
 	const rev = ctx.value("--touched-by", "HEAD");
 	const ceiling = touchedByCeiling();
-	const anchors = anchorsAt(ctx, ceiling, rev);
+	const anchors = readAnchorsAt(ctx, ceiling, rev);
 	const touched = brokenOnFault(ctx, `list what ${rev} changed`, () =>
-		touchedBy(root, rev, ceiling),
+		readTouchedBy(root, rev, ceiling),
 	);
 	const found = expiredBy(touched, anchors);
 	if (found.expired.length === 0 && found.gone.length === 0)
@@ -3636,7 +3721,7 @@ function reviewIndex(ctx) {
 }
 
 /** The summary's last line: what the gitignore filter did to the walk. */
-function ignoreLine() {
+function buildIgnoreLine() {
 	if (ignoreFailure)
 		return `Gitignore filter FAILED OPEN — ${ignoreFailure}. Scope is the whole walk, scratch included.`;
 	if (ignoreSkipped)
@@ -3749,7 +3834,7 @@ function sayFindings(
 
 runCheck({
 	name: "guard-registry",
-	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [<path>…]`,
+	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [<path>…]`,
 	valueFlags: ["--root", "--touched-by"],
 	/* Whole-tree, not a pathspec: scanRegistry walks CLAUDE.md, AGENTS.md, docs/
 	 * and .claude/ AND every guard path a rule names, which is a scope no list
@@ -3788,7 +3873,7 @@ runCheck({
 			scanImplicit();
 		const { findings: storeFindings, fragments } = scanRuleStore(
 			triggerRefs,
-			wiringCorpus(),
+			readWiringCorpus(),
 		);
 		const { findings: ifFindings, narrowed } = scanIfNarrowing();
 		const findings = [
@@ -3835,7 +3920,7 @@ runCheck({
 				`${triggerRefs.length} trigger(s) naming one.\n` +
 				`Hook \`if\` narrowings: ${narrowed.size} wired script(s) exec'd on a narrowed set, ` +
 				`${declaredIfUnreadable} unreadable emitter(s) skipped on the declared side (mantahostels#2234).\n` +
-				ignoreLine(),
+				buildIgnoreLine(),
 		);
 
 		/*
@@ -3848,7 +3933,7 @@ runCheck({
 		 * on a pre-commit run (mantahostels#109).
 		 */
 		for (const [rel, info] of implicitScripts)
-			for (const l of implicitLines(info, `  ${rel}  `, {
+			for (const l of buildImplicitLines(info, `  ${rel}  `, {
 				detail: ctx.has("--roster") || implicitFindings.length > 0,
 			}))
 				ctx.say(l);

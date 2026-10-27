@@ -8,8 +8,8 @@
  * keeps a variant that falls back to the toplevel.
  */
 
-const { execFileSync } = require("node:child_process");
 const path = require("node:path");
+const { gitCommonDir } = require("./git.js");
 
 /**
  * @param {string} common an absolute git common dir
@@ -26,17 +26,8 @@ function checkoutOfCommonDir(common) {
  * @returns {string|null}
  */
 function mainCheckout(cwd) {
-	let common;
-	try {
-		common = execFileSync(
-			"git",
-			["-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"],
-			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-		).trim();
-	} catch {
-		return null;
-	}
-	return checkoutOfCommonDir(common);
+	const common = gitCommonDir(cwd);
+	return common === null ? null : checkoutOfCommonDir(common);
 }
 
 module.exports = { checkoutOfCommonDir, mainCheckout };

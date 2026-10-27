@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
-import { guardErrorsLog } from "./lib/guard-errors-log";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -293,6 +293,44 @@ describe("the re-measure trigger", () => {
 		expect(run(fx).stdout).toBe("");
 	});
 
+	it("reports a record it cannot parse under an escalated tier, and neither a backticked mention, one under a standard tier, nor a close draft a parsed record of its tree supersedes (#3064)", () => {
+		const bad = `**Review findings:** base ${sha("b", 1)}, reviewed ${sha("e", 1)} (pinned at refs/reviewed/${sha("e", 1)}), landed ${sha("c", 1)}`;
+		const fx = fixture({
+			hits: {
+				"o/core": [
+					{
+						number: 7,
+						updated: "2026-11-01",
+						comments: [
+							"**Review tier:** standard",
+							bad,
+							TIER_LINE,
+							"The `**Review findings:**` comment names three shas.",
+							`${bad}\n- FIXED: a leak in the log line (Focus)`,
+						],
+					},
+					ticket(
+						8,
+						[2],
+						[
+							`**Review findings:** base ${sha("b", 2)}, reviewed ${sha("e", 2)}, landed LANDED`,
+						],
+					),
+				],
+			},
+		});
+		const r = run(fx);
+		const fault = `o/core#7 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${bad}`;
+		expect(r).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: `UNPARSEABLE: ${fault}\n`,
+		});
+		expect(readGuardErrorsLog(fx.config)).toContain(
+			`report-remeasure-due\t${fault}`,
+		);
+	});
+
 	it("reads a record whose shas are backticked, and a ticket's comments past the first 100", () => {
 		const fx = fixture({
 			hits: {
@@ -444,7 +482,7 @@ describe("the re-measure trigger", () => {
 		expect(r.stderr).toMatch(
 			/^FAILED OPEN: could not read the corpus — .*0 of 1 hits — recorded in the guard-error log\.\nNothing was filed; the next day's run retries\.\n$/,
 		);
-		expect(guardErrorsLog(fx.config)).toMatch(
+		expect(readGuardErrorsLog(fx.config)).toMatch(
 			/report-remeasure-due\tcould not read the corpus — .*0 of 1 hits/,
 		);
 		expect(creates(fx)).toEqual([]);
@@ -460,7 +498,7 @@ describe("the re-measure trigger", () => {
 		expect(r.stderr).toBe(
 			`FAILED OPEN: could not file or refresh "${TITLE}" — HTTP 403: Resource not accessible — recorded in the guard-error log.\nThe next day's run retries.\n`,
 		);
-		expect(guardErrorsLog(fx.config)).toContain(
+		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\tcould not file or refresh "${TITLE}" — HTTP 403`,
 		);
 	});

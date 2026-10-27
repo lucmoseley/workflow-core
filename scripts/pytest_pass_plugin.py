@@ -1,7 +1,7 @@
 """The half of the pre-push marker that knows what pytest did (mantahostels#1256).
 
-Without it the pre-push gate read markers only vitest wrote, so a sha green
-under TypeScript alone looked fully attested. This plugin records pytest's
+Without it the pre-push gate read certificates only vitest wrote, so a sha
+with only a vitest certificate looked fully attested. This plugin records pytest's
 verdict and scope; the node wrapper
 `scripts/run-pytest.js` holds the tree findings and writes the marker.
 
@@ -18,6 +18,10 @@ It also hands over each test file's worker-seconds, for the run-cost report the
 wrapper prints (#1884): its tests' setup, call and teardown summed across xdist
 workers, never one file's wall time, since xdist splits a file.
 
+And where WFC_PYTEST_INFLIGHT_OUT names a file, it keeps there the tests in
+flight with their stage, how many finished and how many were collected, for
+the wrapper's suite-ceiling report (#2702).
+
 IT MUST NEVER TURN A PASSING SUITE RED. Every read is wrapped; a failure records
 the verdict with no scope, which reads as unknown at the push.
 """
@@ -27,12 +31,22 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 #: Report keys whose entries name a test that actually ran, in the order an
 #: outcome takes precedence: a module skipped at setup and a test that failed
 #: both matter more than a passing setup phase for the same nodeid.
 _OUTCOME_KEYS = ("failed", "error", "skipped", "passed")
 
 _file_seconds = {}
+
+#: Each test in flight against the phase it is in, insertion-ordered so the
+#: report lists the oldest first.
+_inflight = {}
+_finished = 0
+_collected = None
+
+_NEXT_STAGE = {"setup": "call", "call": "teardown"}
 
 
 def _nodeid_outcomes(terminalreporter):
@@ -154,6 +168,68 @@ def pytest_runtest_logreport(report):
         _file_seconds[file] = _file_seconds.get(file, 0.0) + float(report.duration)
     except Exception:  # noqa: BLE001 - a report hook that raises is an INTERNALERROR (#1884)
         pass
+    try:
+        if report.nodeid in _inflight and report.when in _NEXT_STAGE:
+            _inflight[report.nodeid] = _NEXT_STAGE[report.when]
+            _write_inflight()
+    except Exception:  # noqa: BLE001 - a report hook that raises is an INTERNALERROR (#2702)
+        pass
+
+
+def _write_inflight():
+    """Atomic, so the wrapper never reads a half-written file. Workers skip it:
+    under xdist they fire the same hooks for their own tests, and the controller
+    already hears every one of them."""
+    out = os.environ.get("WFC_PYTEST_INFLIGHT_OUT")
+    if not out or os.environ.get("PYTEST_XDIST_WORKER"):
+        return
+    try:
+        part = f"{out}.part"
+        Path(part).write_text(
+            json.dumps(
+                {
+                    "open": [
+                        {"nodeid": nodeid, "stage": stage}
+                        for nodeid, stage in _inflight.items()
+                    ],
+                    "finished": _finished,
+                    "collected": _collected,
+                }
+            ),
+            encoding="utf-8",
+        )
+        os.replace(part, out)
+    except Exception:  # noqa: BLE001 - a lost in-flight list costs the kill report its names, never the run (#2702)
+        pass
+
+
+def pytest_collection_finish(session):
+    """The count without xdist; under it the controller collects nothing and
+    hears each worker's list below instead."""
+    global _collected
+    _collected = len(session.items)
+    _write_inflight()
+
+
+@pytest.hookimpl(optionalhook=True)
+def pytest_xdist_node_collection_finished(node, ids):
+    """Every worker collects the whole run, so the first list is the count."""
+    global _collected
+    if _collected is None:
+        _collected = len(ids)
+        _write_inflight()
+
+
+def pytest_runtest_logstart(nodeid, location):
+    _inflight[nodeid] = "setup"
+    _write_inflight()
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    global _finished
+    _inflight.pop(nodeid, None)
+    _finished += 1
+    _write_inflight()
 
 
 def file_seconds(config):
@@ -163,7 +239,7 @@ def file_seconds(config):
 
 def pytest_terminal_summary(terminalreporter, exitstatus, config):
     out = os.environ.get("WFC_PYTEST_SCOPE_OUT")
-    # `--collect-only` exits 0 having run nothing. A green marker for it would
+    # `--collect-only` exits 0 having run nothing. A certificate for it would
     # be offered at the next push as the most recent green run.
     if not out or getattr(config.option, "collectonly", False):
         return

@@ -20,8 +20,8 @@ const WHOLE_FILE_LIMIT = 16 * 1024 * 1024;
 /* The tail path is reached: top-level transcripts here exceed the limit above
  * (mantahostels#3311), so a caller's needle sitting further back than 8 MB is a real way to
  * lose one. Still a first guess — nothing has measured how far back a needle can
- * sit. It is half the limit above. */
-const TAIL_BYTES = 8 * 1024 * 1024;
+ * sit. */
+const TAIL_BYTES = WHOLE_FILE_LIMIT / 2;
 
 /**
  * Where a session's transcript is, preferring the path its payload names.
@@ -37,8 +37,8 @@ function resolve(payload, sessionId) {
 			fs.accessSync(named, fs.constants.R_OK);
 			return named;
 		} catch {
-			/* Fall through to the lookup — a payload path that cannot be read is
-			 * no reason to say nothing at all. */
+			/* An unreadable payload path is no reason to give up: the lookup by
+			 * session id may still find the transcript. */
 		}
 	}
 	/* Every config dir on the machine, not just this session's: three Claude
@@ -55,15 +55,12 @@ function resolve(payload, sessionId) {
  * The transcript text, whole for a small file and the tail for a large one.
  *
  * Both callers want the END of the transcript — the last usage record, the
- * newest hook attachments — so a truncated read loses the oldest material,
- * which is the right way round.
+ * newest hook attachments — so a truncated read loses the oldest material.
  *
- * THE HALF-EATEN FIRST LINE IS TRIMMED HERE, NOT LEFT TO THE PARSER. Leaving it
- * was defensible while nobody could tell it from a real skip; `mainChainRecords`
- * now COUNTS what it skips and `guard-lost-deny.js` reports that count to the
- * founder, so left in, the cut would read as corruption on every Stop of an
- * oversize session — an alarm this function caused and the session cannot
- * explain (mantahostels#3311).
+ * THE HALF-EATEN FIRST LINE IS TRIMMED HERE, NOT LEFT TO THE PARSER:
+ * `mainChainRecords` COUNTS what it skips and `guard-lost-deny.js` reports that
+ * count to the founder, so left in, the cut would read as corruption on every
+ * Stop of an oversize session (mantahostels#3311).
  *
  * @param {string} file
  * @returns {string}
@@ -87,4 +84,103 @@ function read(file) {
 	}
 }
 
-module.exports = { resolve, read };
+/** A read chunk for `startedAt`. One record can run to ~60 KB, so the scan
+ * reads whole lines chunk by chunk rather than a fixed head (first-stamp
+ * offsets measured on #2944). */
+const CHUNK_BYTES = 64 * 1024;
+
+/* What an in-place resume writes: the `SessionStart:resume` hook's
+ * attachment. It is there only because hooks/hooks.json runs a SessionStart
+ * hook with no matcher; narrowed to `startup`, resumes go unseen. Matched as
+ * bytes so a chunk without it is never decoded. */
+const RESUME_NEEDLE = Buffer.from('"hookName":"SessionStart:resume"');
+
+/**
+ * `fd`'s bytes from the head, chunk by chunk, each cut at its last newline so
+ * every chunk holds whole lines and a character split across two reads is
+ * decoded whole.
+ * @param {number} fd
+ */
+function* readWholeLines(fd) {
+	const buf = Buffer.alloc(CHUNK_BYTES);
+	let pending = Buffer.alloc(0);
+	for (let at = 0; ; at += CHUNK_BYTES) {
+		const got = fs.readSync(fd, buf, 0, CHUNK_BYTES, at);
+		const bytes = Buffer.concat([pending, buf.subarray(0, got)]);
+		const cut = got < CHUNK_BYTES ? bytes.length : bytes.lastIndexOf(10) + 1;
+		pending = bytes.subarray(cut);
+		yield bytes.subarray(0, cut);
+		if (got < CHUNK_BYTES) return;
+	}
+}
+
+/**
+ * `line`'s record and its `timestamp` as epoch milliseconds, the stamp null
+ * where it has none that parses; null where the line will not parse.
+ * @param {string} line
+ */
+function parseStamped(line) {
+	let record;
+	try {
+		record = JSON.parse(line);
+	} catch {
+		return null;
+	}
+	const t = Date.parse(record?.timestamp);
+	return { record, t: Number.isNaN(t) ? null : t };
+}
+
+/**
+ * The first stamp in `fd`'s transcript and the latest `SessionStart:resume`
+ * attachment's, each null where none is found.
+ * @param {number} fd
+ */
+function readStartMarks(fd) {
+	/** @type {number | null} */
+	let first = null;
+	/** @type {number | null} */
+	let resumed = null;
+	for (const chunk of readWholeLines(fd)) {
+		if (first !== null && !chunk.includes(RESUME_NEEDLE)) continue;
+		for (const line of chunk.toString("utf8").split("\n")) {
+			const got = parseStamped(line);
+			if (first === null) first = got?.t ?? null;
+			if (got?.record?.attachment?.hookName === "SessionStart:resume")
+				resumed = got.t ?? resumed;
+		}
+	}
+	return { first, resumed };
+}
+
+/**
+ * When this conversation last began in its transcript: the latest
+ * `SessionStart:resume` attachment's `timestamp`, else the first record
+ * carrying one that parses. An in-place resume appends to the same file under
+ * the same session id (#2950), so the first record alone would date a resumed
+ * session's start to before its resume. The whole file is scanned, from the
+ * head, so a large file's tail-only `read` cannot lose either. Null where the file is unreadable or holds no stamped record.
+ *
+ * @param {string} file
+ * @returns {number | null} epoch milliseconds
+ */
+function readStartedAt(file) {
+	let fd;
+	try {
+		fd = fs.openSync(file, "r");
+	} catch {
+		/* Null: the guard dates the start by the job record, or skips its
+		 * freshness test where that is unread too (#2944, #2950). */
+		return null;
+	}
+	try {
+		const { first, resumed } = readStartMarks(fd);
+		return resumed ?? first;
+	} catch {
+		/* A scan that fails mid-file reads null too, for the same reason (#2944, #2950). */
+		return null;
+	} finally {
+		fs.closeSync(fd);
+	}
+}
+
+module.exports = { resolve, read, readStartedAt };

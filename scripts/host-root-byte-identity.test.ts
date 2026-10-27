@@ -55,7 +55,7 @@ const envWith = (declared: string | undefined): NodeJS.ProcessEnv => {
 	return env;
 };
 
-const answers = (cwd: string, declared: string | undefined) => {
+const readAnswers = (cwd: string, declared: string | undefined) => {
 	const opts = { cwd, env: envWith(declared), encoding: "utf8" as const };
 	const js = spawnSync(
 		process.execPath,
@@ -128,7 +128,7 @@ describe("hostRoot(), gr_root and host_root() agree", () => {
 
 	it.each(cases)("%s", (_name, input, expected) => {
 		const [cwd, declared] = input();
-		const got = answers(cwd, declared);
+		const got = readAnswers(cwd, declared);
 		expect(got).toEqual({ js: expected(), sh: expected(), py: expected() });
 	});
 });

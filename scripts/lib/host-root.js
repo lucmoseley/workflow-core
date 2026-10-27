@@ -25,8 +25,8 @@
  * shell half; change the two together.
  */
 
-const { execFileSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
+const { execGit, gitCommonDir } = require("./git.js");
+const { caught } = require("./caught.js");
 const { deref } = require("./deref.js");
 
 /**
@@ -50,30 +50,75 @@ function stripSlash(dir) {
 let memo = { key: "", value: "" };
 
 /**
- * The host repository's root.
- * @param {string} [cwd] the directory the git limb asks from
+ * The git top level of `cwd`, symlinks dereferenced. Throws where git will
+ * not say.
+ * @param {string} cwd
+ * @param {number} [timeoutMs]
  * @returns {string}
  */
-function hostRoot(cwd = process.cwd()) {
-	const declared = process.env.CLAUDE_PROJECT_DIR;
-	if (declared) return deref(stripSlash(declared));
-	if (memo.key === cwd) return memo.value;
-	let top;
-	try {
-		top = execFileSync(gitBinary(), ["rev-parse", "--show-toplevel"], {
+function gitTopLevel(cwd, timeoutMs) {
+	return deref(
+		execGit(["rev-parse", "--show-toplevel"], {
 			cwd,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-	} catch {
+			timeout: timeoutMs,
+		}).trim(),
+	);
+}
+
+/**
+ * The host repository's root.
+ * @param {string} [cwd] the directory the git limb asks from
+ * @param {{ timeoutMs?: number, onTimeout?: () => void }} [opts] the git
+ *   limb's ceiling, none by default; a read past it fails open to the working
+ *   directory like any other, and calls `onTimeout`
+ * @returns {string}
+ */
+function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
+	const declared = process.env.CLAUDE_PROJECT_DIR;
+	if (declared) return deref(stripSlash(declared));
+	if (memo.key === cwd) return memo.value;
+	let value;
+	try {
+		value = gitTopLevel(cwd, timeoutMs);
+	} catch (e) {
+		if (caught(e).code === "ETIMEDOUT") onTimeout?.();
 		/* Fails open to the working directory (mantahostels#103 §6), silently: this is what
 		 * the error log's own directory is derived from, so a report from here
 		 * would recurse. */
 		return deref(cwd);
 	}
-	const value = deref(top);
 	memo = { key: cwd, value };
 	return value;
 }
 
-module.exports = { hostRoot };
+/**
+ * The tree a test run reads: the git top level of the working directory where
+ * that is a linked worktree of the host repository, else `hostRoot()`.
+ *
+ * NOT `hostRoot()` ALONE (#2940). The harness sets `CLAUDE_PROJECT_DIR` to the
+ * shared tree for every Bash call, so a run launched inside a linked worktree
+ * would otherwise test the shared tree's files and say nothing. State keyed on
+ * the host stays there — the arbiter's directory on `hostRoot()`, the marker
+ * store on the git common dir: only which files are under test follows the
+ * worktree.
+ * @param {string} [cwd]
+ * @returns {string}
+ */
+function worktreeRoot(cwd = process.cwd()) {
+	const host = hostRoot(cwd);
+	if (!process.env.CLAUDE_PROJECT_DIR) return host;
+	let top;
+	try {
+		top = gitTopLevel(cwd);
+	} catch {
+		/* Outside any repository there is no worktree to prefer. */
+		return host;
+	}
+	if (top === host) return host;
+	const mine = gitCommonDir(cwd);
+	return mine !== null && mine === gitCommonDir(host) ? top : host;
+}
+
+module.exports = { gitTopLevel, hostRoot, worktreeRoot };

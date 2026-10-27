@@ -110,19 +110,24 @@
 			"why": "a fact-finding sub-agent dispatch names an Artefact: line, one being supplied under .claude/tmp/agents/ where it is missing (#515, #928); v1.3.1's --- between questions in the round template declined, which scripts/guard-priced-options.js refuses (#879 Q3); the decisions-are-the-user's line split, a decision research settles being the session's to treat as settled and report with its source and only a house decision the user's, the frontier round asking house decisions alone (#1701, built at #1706); the frontmatter description removed, so the skill leaves the start listing (#2036)"
 		},
 		".agents/skills/implement/SKILL.md": {
-			"editedHash": "f52e007ea558a00c8ffdb31d8faed6f79c5fc090fe7801c06843dd0da14404c0",
-			"issue": 2182,
-			"why": "the blanket 'use /tdd where possible' line deleted (this repo picks the seam per ticket, mantahostels#1777); the closing full-suite run swapped for npm run test, narrowed to own unpushed and uncommitted work, since test:changed selects nothing once committed and --changed <ref> takes on neighbours' commits (mantahostels#2047, #2182); the document-change carve-out back to the full suite dropped, the run selecting document readers since mantahostels#2095 (#1147); the review step names workflow-core:code-review for a project without its own code-review skill, where the bare name is the harness's built-in reviewer (#1165); a dispatched subagent runs its touched files' tests in one named run at the end, never one per file (#1537, from #1517)"
+			"editedHash": "e814de92368d42fe752e11350c54fbfce85874c6e20e70b9cfffcd96ad58d2d3",
+			"issue": 2700,
+			"why": "the blanket 'use /tdd where possible' line deleted (this repo picks the seam per ticket, mantahostels#1777); the closing full-suite run swapped for npm run test, narrowed to own unpushed and uncommitted work, since test:changed selects nothing once committed and --changed <ref> takes on neighbours' commits (mantahostels#2047, #2182); the document-change carve-out back to the full suite dropped, the run selecting document readers since mantahostels#2095 (#1147); the review step names workflow-core:code-review for a project without its own code-review skill, where the bare name is the harness's built-in reviewer (#1165); a dispatched subagent runs its touched files' tests in one named run at the end, never one per file (#1537, from #1517); the pick-up step after a claim runs read-hand-off.js on a parked session's hand-off (#2700)"
 		},
 		".agents/skills/prototype/SKILL.md": {
-			"editedHash": "d5df09007eb129064f1fc4397ca51f65b83e1153958024a772afbe4c617d1a6a",
-			"issue": 2036,
-			"why": "the frontmatter description removed, so the skill leaves the start listing (#2036)"
+			"editedHash": "eb787032b8449d81bb5d41022a26fefbd7bfa0e582b8834fe3e5ec4666a2687e",
+			"issue": 2842,
+			"why": "the frontmatter description removed, so the skill leaves the start listing (#2036); a third branch, the tool surface, routes to TOOL.md, and rules 2 and 5 and the ambiguity default name it (#2752); the branch-choice justification and the closers of rules 2, 3 and 4 cut (#2842)"
+		},
+		".agents/skills/prototype/TOOL.md": {
+			"editedHash": "e8f53b9e70a9553f2f46c85a7c6001ed218bdc2e11afa0562a3fe5b245d47bfc",
+			"issue": 2753,
+			"why": "added: the tool-surface branch (terminal panel, CLI or TUI screen, status line): design-critique's rules, the captured host, its palette as a constraint, real fixtures, a must-have list, spec-drawn controls (#2752); the hand-over lays candidates out at 100% size and reads browse.py tiles of the local page at three widths before publishing (#2753)"
 		},
 		".agents/skills/prototype/UI.md": {
-			"editedHash": "4ea5445fa06e2f2e76d47c68e10f190bca47a9022993b7f0395ae0d62b9caced",
-			"issue": 781,
-			"why": "§2 reads the taste precedent before drafting: the catalogue entries whose fit.manta.groups names the surface's project group, else whose page_parts name its page part, taking only fit.manta.take, with the brand sheet alone (brandSheetPath config key, default docs/brand-sheet.md) where neither covers the surface (mantahostels#3276, mantahostels#3336, #452, #678, #781 per design-vault#30 Q4)"
+			"editedHash": "816000a1689d1f3352278fa19a13a6ec417ba2238a62ad4ca518020cff834738",
+			"issue": 2842,
+			"why": "§2 reads the taste precedent before drafting: the catalogue entries whose fit.manta.groups names the surface's project group, else whose page_parts name its page part, taking only fit.manta.take, with the brand sheet alone (brandSheetPath config key, default docs/brand-sheet.md) where neither covers the surface (mantahostels#3276, mantahostels#3336, #452, #678, #781 per design-vault#30 Q4); the right-shape list and eight restatements and no-ops cut, §2's too-similar redo reworded to stand without them (#2842)"
 		},
 		".agents/skills/research/SKILL.md": {
 			"editedHash": "3e58e1dad717cb3be58cd2e9fdddb9cdde280102eb996e4a3b137e05be76a674",
@@ -140,9 +145,9 @@
 			"why": "the seam check put to the user only where research leaves the seams open; the template gains a ## Values section listing the house and untraced values the spec relies on (#1701, built at #1706)"
 		},
 		".agents/skills/wayfinder/SKILL.md": {
-			"editedHash": "e582e7f2d977a69d7063c739c2ecd9766d156bb6e199eceb3fad42e0094e0e24",
-			"issue": 1701,
-			"why": "a HITL ticket's live exchange narrowed to its house decisions, so a ticket research settles may be resolved with no question (#1701, built at #1706)"
+			"editedHash": "734c733380d9c6f135613d746913eb1e4b907853ea9a0fc3ca294beb08cdb8e3",
+			"issue": 2700,
+			"why": "a HITL ticket's live exchange narrowed to its house decisions, so a ticket research settles may be resolved with no question (#1701, built at #1706); the claim step runs read-hand-off.js on a parked session's hand-off (#2700)"
 		},
 		".agents/skills/writing-for-agents/SKILL.md": {
 			"editedHash": "132fe4536311a1f8c04ea6343104bed4d05a3402cb711474828d75bb4605280b",

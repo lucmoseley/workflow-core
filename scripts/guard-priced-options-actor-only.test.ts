@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { stopGuardReason } from "./lib/stop-guard-testkit";
+import { readStopGuardReason } from "./lib/stop-guard-testkit";
 
 const GUARD = path.join(__dirname, "guard-priced-options.js");
 
@@ -32,7 +32,7 @@ afterEach(() => {
 
 /** The refusal the guard writes for `message`, or "" where it allows the stop. */
 const stop = (message: string, { job = false } = {}) =>
-	stopGuardReason(GUARD, { dir, sid, message, job });
+	readStopGuardReason(GUARD, { dir, sid, message, job });
 
 /** A well-formed round of two rivals, with `extra` lines before the arrow. */
 const round = (

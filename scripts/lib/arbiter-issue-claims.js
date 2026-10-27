@@ -10,9 +10,9 @@ const path = require("node:path");
 const { isListedLive } = require("./agent-liveness.js");
 const core = require("./arbiter-core.js");
 const {
-	currentBootId,
+	readCurrentBootId,
 	holderAlive,
-	procStartOf,
+	readProcStartOf,
 } = require("./arbiter-proc.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught } = require("./caught.js");
@@ -111,7 +111,7 @@ function readIssueClaims(issue) {
  * A session with no id records nothing and says so — the fail-open case, which
  * leaves the issue selectable.
  * @param {number|string} issue
- * @param {Identity} me
+ * @param {{sessionId: string|null}} me
  */
 function claimIssue(issue, me) {
 	const n = issueNumber(issue);
@@ -207,8 +207,8 @@ function withIssueMutex(n, fn) {
 	const file = path.join(dir, `.mutex-${n}`);
 	const body = {
 		pid: process.pid,
-		procStart: procStartOf(process.pid),
-		bootId: currentBootId() || undefined,
+		procStart: readProcStartOf(process.pid),
+		bootId: readCurrentBootId() || undefined,
 	};
 	const stillMine = () => {
 		const now = core.readRecord(file);
@@ -460,7 +460,7 @@ function heldIssues(listed, root) {
  * @param {LivenessOracle} liveness
  */
 function pruneIssueClaims(liveness) {
-	const live = core.liveOrLog("pruneIssueClaims");
+	const live = core.readLiveOrLog("pruneIssueClaims");
 	if (live === null) return; // cannot tell live from finished: delete nothing
 	const byRegistry = (/** @type {string} */ f) =>
 		[...live].some((id) => f.endsWith(core.pairSuffix(id)));

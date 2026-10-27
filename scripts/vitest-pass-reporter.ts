@@ -20,7 +20,7 @@
  * stdout so the unknown met hours later is traceable to this run.
  *
  * IMPLICIT:  records every suite run's verdict, scope and closure for the globalSetup teardown to stamp into the pre-push marker, writes that marker itself on an empty selection, and prints a line on a filtered or unrecorded scope.
- * JUSTIFIED: fail-safe — that marker is the only thing keyed to a sha (mantahostels#910), and any doubt is recorded as not-green.
+ * JUSTIFIED: fail-safe — that marker is the only thing keyed to a sha (mantahostels#910), and any doubt leaves no certificate.
  * DEFEAT:    none — naming any reporter replaces the default set, so dropping it means editing vitest.config.ts.
  */
 
@@ -181,12 +181,16 @@ export default class TestPassReporter {
 		globTestSpecifications?: () => Promise<{ moduleId: string }[]>;
 	} | null = null;
 
+	/* `performance.now()` at the run's start: the marker's `durationMs` is a
+	 * monotonic span, so a host suspend mid-run is not counted (#2829). */
+	private runStartedAtMono: number | null = null;
+
 	onInit(vitest: unknown) {
 		this.vitest = vitest as typeof this.vitest;
 	}
 
 	/*
-	 * The run's start, for the marker's `durationMs` (mantahostels#1953). Here and not in
+	 * The run's start, for the marker's `startedAt` and `durationMs` (mantahostels#1953). Here and not in
 	 * globalSetup's `setup`, which fires once per PROCESS — in watch mode that
 	 * would time the whole session rather than the run the marker describes.
 	 *
@@ -197,6 +201,7 @@ export default class TestPassReporter {
 	 * throwing wherever `/proc` will not answer, so this cannot fail a run.
 	 */
 	onTestRunStart() {
+		this.runStartedAtMono = performance.now();
 		fillRunReport({ startedAtMs: Date.now(), machineStart: sampleCpu() });
 	}
 
@@ -211,7 +216,14 @@ export default class TestPassReporter {
 		 * `finishedAtMs` note owns the reasoning. First in this method, so a later
 		 * throw cannot cost the reading.
 		 */
-		fillRunReport({ endedAtMs: Date.now(), machineEnd: sampleCpu() });
+		fillRunReport({
+			endedAtMs: Date.now(),
+			elapsedMs:
+				this.runStartedAtMono === null
+					? null
+					: performance.now() - this.runStartedAtMono,
+			machineEnd: sampleCpu(),
+		});
 
 		fillRunReport({
 			outcome: reason === "passed" && unhandledErrors.length === 0,
@@ -294,7 +306,7 @@ export default class TestPassReporter {
 	 * this checkout stamped a 161-path closure through this walk (#189).
 	 *
 	 * Throws where the manifest cannot be read or is malformed: a closure missing its
-	 * manifest half would clear a sha it never covered.
+	 * manifest half would attest a sha it never read.
 	 */
 	private describeAttestation(
 		testModules: TestModuleLike[],
@@ -380,6 +392,11 @@ export default class TestPassReporter {
 			// (`lib/suite-handoff.js` says what each means).
 			...(launch.admissible ? { admissible: true } : {}),
 			...(launch.viaChanged ? { viaChanged: true } : {}),
+			...(launch.touched ? { touched: true } : {}),
+			...(launch.resolvedFiles === null
+				? {}
+				: { resolvedFiles: launch.resolvedFiles }),
+			...(launch.wholeSlot ? { wholeSlot: true } : {}),
 			...fullRunFields(launch),
 			// Absent rather than empty on a green run: a reader testing for the key
 			// is asking "did anything fail", and [] would answer yes-but-nothing.

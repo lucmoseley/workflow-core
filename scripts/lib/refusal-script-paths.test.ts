@@ -7,8 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const { censusRefusal } = require("./census-digest.js") as {
 	censusRefusal: (n: number, rows: string[]) => string;
 };
-const { ladderReason } = require("./research-ladder.js") as {
-	ladderReason: (
+const { buildLadderReason } = require("./research-ladder.js") as {
+	buildLadderReason: (
 		lines: string[],
 		opts: { missing: string[]; corpus: string[] | null; last: string | null },
 	) => string;
@@ -51,7 +51,7 @@ describe("refusal script paths in an install (#1993)", () => {
 	});
 
 	it("names the corpus lister and the decision recorder", () => {
-		const reason = ladderReason(["q"], {
+		const reason = buildLadderReason(["q"], {
 			missing: ["rulings"],
 			corpus: null,
 			last: null,

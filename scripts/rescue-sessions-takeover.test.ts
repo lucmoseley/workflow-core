@@ -98,16 +98,16 @@ const takeover = (args: string[] = ["--issue", String(N)]) =>
 		],
 	});
 
-const logged = () => {
+const readLog = () => {
 	try {
 		return fs.readFileSync(events(), "utf8").split("\n").filter(Boolean);
 	} catch {
 		return [];
 	}
 };
-const stopped = () => logged().some((e) => e.startsWith("stop "));
-const commented = () => logged().includes("gh issue comment");
-const holders = () =>
+const stopped = () => readLog().some((e) => e.startsWith("stop "));
+const commented = () => readLog().includes("gh issue comment");
+const readHolders = () =>
 	issueClaims
 		.readIssueClaims(N)
 		.map((e: { record: { sessionId: string } }) => e.record.sessionId);
@@ -120,7 +120,7 @@ describe("takeover: a headless overflow holder (#2608)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("headless-sessions.js stop 0123abcd");
 		expect(stopped()).toBe(false);
-		expect(holders()).toEqual([SID]);
+		expect(readHolders()).toEqual([SID]);
 	});
 });
 
@@ -145,14 +145,14 @@ describe("takeover: the success path", () => {
 			"claimed",
 			"commented",
 		]);
-		const log = logged().filter((e) => !e.startsWith("gh api"));
+		const log = readLog().filter((e) => !e.startsWith("gh api"));
 		expect(log).toEqual([
 			`stop ${SHORT} snapshot=yes`,
 			"gh issue edit",
 			"gh issue comment",
 			expect.stringMatching(/^claim held by .*sandbox/),
 		]);
-		expect(holders()).toContain("sandbox");
+		expect(readHolders()).toContain("sandbox");
 		for (const f of ["index.json", `${SHORT}.narration.txt`, "RESUMPTION.md"])
 			expect(fs.existsSync(path.join(snapshotDir(), f))).toBe(true);
 	});
@@ -191,7 +191,7 @@ describe("takeover: the success path", () => {
 		expect(r.stdout).toContain("Artefacts survived:");
 		expect(r.stdout).toContain("docs/a.md — dirty");
 		expect(r.stdout).toContain("docs/b.md — clean");
-		expect(store.heldBy(SID)?.sort()).toEqual(["docs/a.md", "docs/b.md"]);
+		expect(store.readHeldBy(SID)?.sort()).toEqual(["docs/a.md", "docs/b.md"]);
 	});
 
 	it("snapshots and stops on the plan whose records hold it, where every plan lists it (#1146)", async () => {
@@ -236,7 +236,7 @@ describe("takeover: the success path", () => {
 			expect(r.stderr).toBe("");
 			expect(r.status).toBe(0);
 			expect(stopped()).toBe(true);
-			expect(holders()).toContain("sandbox");
+			expect(readHolders()).toContain("sandbox");
 			expect(r.stdout).toContain("Death point:\nA: Now the guard tests.\n");
 			const comment = fs.readFileSync(path.join(sb.dir, "comment.md"), "utf8");
 			expect(comment).toContain("Verdict: LIMITED");
@@ -250,7 +250,7 @@ describe("takeover: the success path", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("no stop: listed by no plan");
 		expect(stopped()).toBe(false);
-		expect(holders()).toContain("sandbox");
+		expect(readHolders()).toContain("sandbox");
 	});
 });
 
@@ -269,7 +269,7 @@ describe("takeover: an ENDED holder still listed is stopped too (#623)", () => {
 				`rm -rf '${path.join(procRoot(), String(PID))}'\n`,
 			);
 	};
-	const comment = () =>
+	const readComment = () =>
 		fs.readFileSync(path.join(sb.dir, "comment.md"), "utf8");
 
 	for (const state of ["done", "failed", "stopped"])
@@ -277,11 +277,11 @@ describe("takeover: an ENDED holder still listed is stopped too (#623)", () => {
 			endedListed(state);
 			const r = await takeover();
 			expect(r.status).toBe(0);
-			expect(logged()).toContain(`stop ${SHORT} snapshot=yes`);
+			expect(readLog()).toContain(`stop ${SHORT} snapshot=yes`);
 			expect(r.stdout).toContain(`stopped: ${SHORT} on`);
 			expect(r.stdout).toContain("unlisted, its host exited");
 			expect(r.stdout).toContain("your next write takes each");
-			expect(holders()).toContain("sandbox");
+			expect(readHolders()).toContain("sandbox");
 		});
 
 	it("warns on stderr and still adopts where claude stop fails, saying the claims stay held", async () => {
@@ -289,11 +289,11 @@ describe("takeover: an ENDED holder still listed is stopped too (#623)", () => {
 		fs.writeFileSync(path.join(plan(), "stop-fails"), "");
 		const r = await takeover();
 		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("not stopped: no such job");
+		expect(r.stderr).toContain("not stopped: exit 1: no such job");
 		expect(r.stderr).toContain("release --force");
 		expect(r.stdout).toContain("held while its host runs");
-		expect(comment()).toContain("Ended session, not stopped");
-		expect(holders()).toContain("sandbox");
+		expect(readComment()).toContain("Ended session, not stopped");
+		expect(readHolders()).toContain("sandbox");
 	});
 
 	it("does not confirm an unlisted holder whose host runs on past the ceiling", async () => {
@@ -302,8 +302,8 @@ describe("takeover: an ENDED holder still listed is stopped too (#623)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("not confirmed gone 0.3s after it");
 		expect(commented()).toBe(true);
-		expect(comment()).toContain("Ended session, not stopped");
-		expect(holders()).toContain("sandbox");
+		expect(readComment()).toContain("Ended session, not stopped");
+		expect(readHolders()).toContain("sandbox");
 	});
 });
 
@@ -315,7 +315,7 @@ describe("takeover: a stop that does not take leaves the claim untouched", () =>
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("claude stop failed");
 		expect(r.stderr).toContain("snapshot is still on disk");
-		expect(holders()).toEqual([SID]);
+		expect(readHolders()).toEqual([SID]);
 		expect(commented()).toBe(false);
 		expect(fs.existsSync(path.join(snapshotDir(), "index.json"))).toBe(true);
 	});
@@ -327,7 +327,7 @@ describe("takeover: a stop that does not take leaves the claim untouched", () =>
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("as live 0.3s after the stop");
 		expect(r.stderr).toContain("snapshot is still on disk");
-		expect(holders()).toEqual([SID]);
+		expect(readHolders()).toEqual([SID]);
 		expect(commented()).toBe(false);
 	});
 
@@ -349,7 +349,7 @@ describe("takeover: a stop that does not take leaves the claim untouched", () =>
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("held by live session third");
 		expect(r.stderr).toContain("A third session took it");
-		expect(holders()).not.toContain("sandbox");
+		expect(readHolders()).not.toContain("sandbox");
 		expect(commented()).toBe(false);
 	});
 });
@@ -358,7 +358,7 @@ describe("takeover: refusals before any write", () => {
 	const nothingWritten = () => {
 		expect(stopped()).toBe(false);
 		expect(fs.existsSync(snapshotDir())).toBe(false);
-		expect(holders()).not.toContain("sandbox");
+		expect(readHolders()).not.toContain("sandbox");
 	};
 
 	it("refuses this session's own id, saying to check the id", async () => {
@@ -457,8 +457,8 @@ describe("takeover --despite: the founder overrules SLOW or ASKING (#622)", () =
 			expect(r.stderr).toBe("");
 			expect(r.status).toBe(0);
 			expect(r.stdout.split(/\s/)[0]).toBe(verdict);
-			expect(logged()).toContain(`stop ${SHORT} snapshot=yes`);
-			expect(holders()).toContain("sandbox");
+			expect(readLog()).toContain(`stop ${SHORT} snapshot=yes`);
+			expect(readHolders()).toContain("sandbox");
 			const comment = fs.readFileSync(path.join(sb.dir, "comment.md"), "utf8");
 			expect(comment).toContain(`Verdict: ${verdict}`);
 			expect(comment).toContain("overruled with --despite");
@@ -506,7 +506,7 @@ describe("takeover --despite: the founder overrules SLOW or ASKING (#622)", () =
 			expect(r.stderr).toContain(why);
 			expect(stopped()).toBe(false);
 			expect(fs.existsSync(snapshotDir())).toBe(false);
-			expect(holders()).not.toContain("sandbox");
+			expect(readHolders()).not.toContain("sandbox");
 		},
 	);
 
@@ -546,14 +546,14 @@ describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		expect(r.stdout.split(/\s/)[0]).toBe("GHOST");
-		expect(logged()).toContain(`stop ${SHORT} snapshot=no`);
+		expect(readLog()).toContain(`stop ${SHORT} snapshot=no`);
 		expect(r.stdout).toContain(
 			`scripts/dispatch-sessions.sh opus '/implement ${N}'`,
 		);
 		expect(fs.existsSync(path.join(ghostDir(), `${SHORT}.state.json`))).toBe(
 			true,
 		);
-		expect(holders()).toEqual([]);
+		expect(readHolders()).toEqual([]);
 		expect(commented()).toBe(false);
 	});
 
@@ -586,6 +586,6 @@ describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("claude stop failed");
 		expect(r.stdout).not.toContain("dispatch-sessions.sh");
-		expect(holders()).toEqual([]);
+		expect(readHolders()).toEqual([]);
 	});
 });

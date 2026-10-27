@@ -17,11 +17,12 @@
 import { describe, expect, it } from "vitest";
 import {
 	autocompactions,
-	contentText,
 	countTurns,
 	isSubagentTranscript,
 	lastStandingContext,
+	lastTurn,
 	mainChainRecords,
+	parseContentText,
 	standingContext,
 	subagentDirOf,
 	turnRecords,
@@ -122,18 +123,18 @@ describe("subagentDirOf", () => {
 	});
 });
 
-describe("contentText", () => {
+describe("parseContentText", () => {
 	it("reads a string as itself and blocks as text, marking each image", () => {
-		expect(contentText("hi")).toBe("hi");
+		expect(parseContentText("hi")).toBe("hi");
 		expect(
-			contentText([
+			parseContentText([
 				{ type: "text", text: "look" },
 				{ type: "image", source: {} },
 				{ type: "tool_use", id: "t" },
 				{ type: "text", text: 7 },
 			]),
 		).toBe("look [image]");
-		expect(contentText(undefined)).toBe("");
+		expect(parseContentText(undefined)).toBe("");
 	});
 });
 
@@ -209,6 +210,69 @@ describe("autocompactions (#1032)", () => {
 		].join("\n");
 		expect(autocompactions(text, "main")).toEqual([]);
 		expect(autocompactions(text, "subagent")).toEqual(["s1"]);
+	});
+});
+
+describe("lastTurn (#2980)", () => {
+	const row = (r: Record<string, unknown>) => JSON.stringify(r);
+	const assistant = row({ type: "assistant", message: { content: [] } });
+	const summary = row({ type: "system", subtype: "stop_hook_summary" });
+	const duration = row({ type: "system", subtype: "turn_duration" });
+	const blocked = row({
+		type: "attachment",
+		attachment: { type: "hook_blocking_error", hookEvent: "Stop" },
+	});
+	const request = row({ type: "api-request" });
+	const lines = (...rs: string[]) => rs.join("\n");
+	const ended = (text: string) => lastTurn(text)?.ended;
+
+	it("reads a turn ended where turn_duration follows the last assistant row", () => {
+		expect(
+			ended(lines(assistant, summary, duration, row({ type: "cost-state" }))),
+		).toBe(true);
+	});
+
+	it("reads a turn running where the Stop hooks have not yet finished", () => {
+		expect(ended(lines(assistant))).toBe(false);
+	});
+
+	it("reads a turn running where a Stop hook blocked and forced a turn", () => {
+		// #2977's 9b4f2431: block, its feedback, the summary, the forced request.
+		expect(
+			ended(lines(assistant, blocked, row({ type: "user" }), summary, request)),
+		).toBe(false);
+		expect(ended(lines(assistant, duration, blocked))).toBe(false);
+		expect(ended(lines(assistant, duration, request))).toBe(false);
+	});
+
+	it("dates the last turn row, never a bookkeeping row after it", () => {
+		const text = lines(
+			row({ type: "api-request", timestamp: "2026-10-25T13:00:27.336Z" }),
+			row({ type: "cost-state", timestamp: "2026-10-25T13:09:00.000Z" }),
+		);
+		expect(lastTurn(text)).toEqual({
+			ended: false,
+			at: Date.parse("2026-10-25T13:00:27.336Z"),
+		});
+		expect(lastTurn(lines(request))).toEqual({ ended: false, at: null });
+	});
+
+	it("ignores a subagent's inline rows and a line cut mid-record", () => {
+		expect(
+			ended(
+				lines(
+					'"cut":"mid-record"}',
+					assistant,
+					duration,
+					row({ type: "assistant", isSidechain: true }),
+				),
+			),
+		).toBe(true);
+	});
+
+	it("cannot say where the text holds no turn row", () => {
+		expect(lastTurn("")).toBeNull();
+		expect(lastTurn(lines(summary, row({ type: "cost-state" })))).toBeNull();
 	});
 });
 

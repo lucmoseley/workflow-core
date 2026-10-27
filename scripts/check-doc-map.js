@@ -31,7 +31,7 @@
  *      will not parse is BROKEN, on the restatement file's reasoning (mantahostels#591) —
  *      "cannot read the register" is never "everything is covered". Absent
  *      from a `--data-dir` copy, the tracked docs/doc-map-classes.json answers
- *      instead — `mapTextAt`'s fallback (mantahostels#1191), said out loud where it fires.
+ *      instead — `readMapTextAt`'s fallback (mantahostels#1191), said out loud where it fires.
  *      .husky/pre-commit stages the sidecar out with the map, so that caller
  *      does not take the fallback and a DELETED key is refused like any other
  *      fault: the direction gate needs the two readings to differ, and a single
@@ -173,7 +173,7 @@
  *      skipped rather than counted. The word count runs to the end of the line
  *      or to the next bold element, whichever comes first, so an empty verdict
  *      cannot borrow the residual's words. NOT softened by `--map-dirty`, for
- *      assertion 15's reason. Reads HEAD alone, never committedRevs(): a
+ *      assertion 15's reason. Reads HEAD alone, never readCommittedRevs(): a
  *      second parent would NARROW this one, refusing a merge for a compaction
  *      the other branch committed. Three residuals are outside it deliberately — a
  *      missing prediction, a verdict that is STALE rather than absent, and a
@@ -193,7 +193,7 @@
  *  22. Over-cap entry growth — a §B entry carrying that same marker may not
  *      GROW against its baseline, which is HEAD PLUS a merge's other parent,
  *      largest count winning — never HEAD alone, unlike assertion 20
- *      above (mantahostels#2050's review, `parentRevs()`). Two skips, both in
+ *      above (mantahostels#2050's review, `readParentRevs()`). Two skips, both in
  *      `grownExemptEntries`'s own header: an entry back at or under the cap,
  *      which is assertion 21's, and an entry unmarked at the baseline, so the
  *      commit first writing the marker is not warned for writing it.
@@ -213,7 +213,7 @@
  *      own header holds that residual.
  *  24. Dropped over-cap marker — a §B entry the baseline marked, still over the
  *      cap, carrying no valid marker now WARNs (mantahostels#2227). Baseline is HEAD ALONE
- *      and NOT 22's `parentRevs()`; `droppedExemptionMarkers`'s own header
+ *      and NOT 22's `readParentRevs()`; `droppedExemptionMarkers`'s own header
  *      carries why, its three skips and its two residuals. WARN on 22's terms
  *      — out of `count`, out of the `data` envelope, replayed by
  *      .husky/pre-commit on a green run. Silent where HEAD holds no copy, and
@@ -335,13 +335,13 @@
  * hands it a `git checkout-index` extraction of the INDEX.
  *
  * WHAT DELIBERATELY STAYS ON THE LIVE REPO UNDER --root, and its severity:
- * `entryPresentOnDisk` (assertion 2) and `untrackedFiles` (assertion 4). Both
+ * `entryPresentOnDisk` (assertion 2) and `readUntrackedFiles` (assertion 4). Both
  * are severity SOFTENERS and nothing else — they turn a FAIL into a WARN for a
  * path written but not yet staged (mantahostels#1193, mantahostels#1403) — and an extraction has no
  * untracked files at all, so resolving them against the root would answer
  * "absent" for every one and turn each softened WARN back into the refusal
- * those two tickets removed. The rev-keyed reads — mapTextAt,
- * committedRevs, pairingHalfAgeMs, the always-loaded pool's `cat-file -s` and
+ * those two tickets removed. The rev-keyed reads — readMapTextAt,
+ * readCommittedRevs, pairingHalfAgeMs, the always-loaded pool's `cat-file -s` and
  * the conflicted-index SKIP — ask the real repo too, and are about revisions
  * rather than about the worktree, so --root has nothing to say to them.
  *
@@ -365,17 +365,17 @@ const {
 	ROUTE_ID,
 	assertDataIdsKnown,
 	citationMatcher,
-	conflictedPaths,
+	readConflictedPaths,
 	roundedSectionBWords,
 	entryPresentOnDisk,
 	inScope,
 	isDirty,
 	loadRestatements,
-	retiredVocabularyText,
+	parseRetiredVocabularyText,
 	newOverCapEntries,
 	unrecordedAdmissions,
 	parseHighWaterMark,
-	headHighWaterMark,
+	readHeadHighWaterMark,
 	newIdsAtOrBelowMark,
 	idsRemovedSinceHead,
 	malformedExemptionMarkers,
@@ -402,8 +402,8 @@ const {
 	shedLedgerEntries,
 	compactionVerdictFaults,
 	VERDICT_MARKER,
-	committedRevs,
-	mapTextAt,
+	readCommittedRevs,
+	readMapTextAt,
 	LEDGER_ENTRY_CAP_BYTES,
 	PROSE_CAP_WORDS,
 	PAIRING_GRACE_MS,
@@ -415,9 +415,9 @@ const {
 	sectionAMatcher,
 	BINARY_CLASS,
 	coverageMatchers,
-	trackedFiles,
+	readTrackedFiles,
 	unresolvedSectionRefs,
-	untrackedFiles,
+	readUntrackedFiles,
 } = require("./lib/doc-map");
 
 const {
@@ -426,7 +426,7 @@ const {
 	stagedPoolDelta,
 	triggerVerdictFaults,
 } = require("./lib/always-loaded-pool");
-const { isTestFile } = require("./lib/needle-corpus");
+const { isCollectedTestOrConftest } = require("./lib/test-kind");
 const {
 	coreRoot,
 	inCheckout,
@@ -592,8 +592,8 @@ function resolveLocations(ctx) {
 /** @param {Ctx} ctx */
 function skipOnConflict(ctx) {
 	/* The SKIP the header comment describes: the second line of defence,
-	 * behind trackedFiles() listing a conflicted path once (mantahostels#398). */
-	const conflicted = conflictedPaths();
+	 * behind readTrackedFiles() listing a conflicted path once (mantahostels#398). */
+	const conflicted = readConflictedPaths();
 	if (conflicted.length > 0)
 		ctx.skip(
 			`the index holds ${conflicted.length} conflicted path(s), so there is ` +
@@ -642,7 +642,7 @@ function readClassSidecar(ctx, { dataDir, underRoot }) {
 	 * BROKEN on the restatement file's reasoning (mantahostels#591) — a checker that cannot
 	 * read its register must not report the tree covered.
 	 *
-	 * The data directory first, the tracked path second — `mapTextAt`'s
+	 * The data directory first, the tracked path second — `readMapTextAt`'s
 	 * fallback, for its reason (mantahostels#1191). The second answers a caller that
 	 * points `--data-dir` somewhere holding no sidecar at all. What the
 	 * fallback costs, and it is said out loud where it fires: WITHOUT --root
@@ -700,11 +700,10 @@ function readClassSidecar(ctx, { dataDir, underRoot }) {
  */
 function walkTree(ctx, root) {
 	// The whole tracked tree, not just SCOPE: a Section C route may send the
-	// reader to a file the register does not cover — GLOSSARY.md sits at the
-	// repo root, outside scope, and takes no register row by design.
+	// reader to a file the register does not cover.
 	let allTracked;
 	try {
-		allTracked = trackedFiles(root);
+		allTracked = readTrackedFiles(root);
 	} catch (e) {
 		const { message } = caught(e);
 		// git is this check's reading apparatus, not its subject: `ls-files` is how
@@ -726,7 +725,7 @@ function walkTree(ctx, root) {
 	let resolvable = allTracked;
 	if (!inCheckout())
 		try {
-			resolvable = [...allTracked, ...trackedFiles(coreRoot())];
+			resolvable = [...allTracked, ...readTrackedFiles(coreRoot())];
 		} catch (e) {
 			ctx.broken(`could not walk the plugin root — ${caught(e).message}`);
 		}
@@ -741,7 +740,7 @@ function untrackedMatcher() {
 	/** @type {string[] | null} */
 	let untrackedOnDisk = null;
 	const presentUntracked = (/** @type {string} */ p) => {
-		if (untrackedOnDisk === null) untrackedOnDisk = untrackedFiles();
+		if (untrackedOnDisk === null) untrackedOnDisk = readUntrackedFiles();
 		return untrackedOnDisk.some(citationMatcher(p));
 	};
 	return presentUntracked;
@@ -1304,7 +1303,8 @@ function checkSectionRefs(r) {
 	/** @type {{ file: string, text: string }[]} */
 	const refFiles = [];
 	for (const file of allTracked) {
-		if (isTestFile(file) || refExempt.some((t) => t(file))) continue;
+		if (isCollectedTestOrConftest(file) || refExempt.some((t) => t(file)))
+			continue;
 		let body;
 		try {
 			body = fs.readFileSync(underRoot(file), "utf8");
@@ -1672,7 +1672,7 @@ function supersedesFaults({ f, supersededData }, line) {
  * @returns {string[]} the entry's phrase-count fault, if any
  */
 function vocabCountFaults({ f, vocabData }) {
-	const vocabText = retiredVocabularyText(f.lines);
+	const vocabText = parseRetiredVocabularyText(f.lines);
 	if (vocabText === null) return [];
 	const m = vocabText.match(/(\d+)\s+phrases?\b/i);
 	const vocabPhrases = vocabData?.[f.id]?.phrases;
@@ -1865,7 +1865,7 @@ function checkHighWaterMark(r) {
 			`  node scripts/session-arbiter.js alloc-entry ${mapPath}`,
 	});
 
-	const headMark = headHighWaterMark(markFile);
+	const headMark = readHeadHighWaterMark(markFile);
 	const removedAbove = (removedOrNull || []).filter(
 		(id) => Number(id.slice(1)) > mark,
 	);
@@ -1892,7 +1892,7 @@ function checkHighWaterMark(r) {
 	});
 }
 
-const consumesLine = (/** @type {ConsumesFault} */ d) =>
+const buildConsumesLine = (/** @type {ConsumesFault} */ d) =>
 	`${d.doc} → ${d.ref} — ${d.why}`;
 
 /**
@@ -1933,7 +1933,7 @@ function checkConsumes(r, { headings, mapDirty }) {
 			"are not typed references at all:",
 		key: "references",
 		items: malformedConsumes,
-		line: consumesLine,
+		line: buildConsumesLine,
 		advice:
 			"A reference is `{ kind, ref, gloss? }`, `kind` one of path, glob, " +
 			"figure, issue, external, note. The sidecar will not load until " +
@@ -1947,7 +1947,7 @@ function checkConsumes(r, { headings, mapDirty }) {
 			"resolve to nothing:",
 		key: "references",
 		items: unresolvedConsumes,
-		line: consumesLine,
+		line: buildConsumesLine,
 		severity: mapDirty ? "warn" : "fail",
 		advice: mapDirty
 			? `${mapPath} has uncommitted edits, so the sidecar may not have been ` +
@@ -1965,7 +1965,7 @@ function checkConsumes(r, { headings, mapDirty }) {
 			"name a file present on disk but not yet tracked by git:",
 		key: "references",
 		items: consumes.untracked,
-		line: consumesLine,
+		line: buildConsumesLine,
 		severity: "warn",
 		advice: "Commit the file, or drop the reference until it lands.",
 	});
@@ -1990,7 +1990,7 @@ function checkPairScope(r) {
 			"`with <other-ref>:` prefix naming the wrong neighbour:",
 		key: "references",
 		items: pairScope,
-		line: consumesLine,
+		line: buildConsumesLine,
 		advice:
 			"A pair-scoped gloss reaches back exactly one reference, so the " +
 			"prefix spells the one immediately before it, exactly as §A " +
@@ -2409,7 +2409,7 @@ function checkTriggerVerdict(r) {
 	 *
 	 * NOT softened by mapDirty — see the header note on assertion 16.
 	 */
-	const revs = committedRevs();
+	const revs = readCommittedRevs();
 	const poolDelta = stagedPoolDelta(revs);
 	const ledgerEntries = shedLedgerEntries(text);
 	/** @type {{ label: string, fault: string }[]} */
@@ -2429,7 +2429,7 @@ function checkTriggerVerdict(r) {
 		triggerFaults = triggerVerdictFaults(
 			ledgerEntries,
 			revs
-				.map((rev) => shedLedgerEntries(mapTextAt(rev, mapPath) || ""))
+				.map((rev) => shedLedgerEntries(readMapTextAt(rev, mapPath) || ""))
 				.filter((e) => e !== null),
 		);
 
@@ -2478,7 +2478,7 @@ function checkCompactionVerdict(r, ledgerEntries) {
 			? []
 			: compactionVerdictFaults(
 					ledgerEntries,
-					shedLedgerEntries(mapTextAt("HEAD", mapPath) || ""),
+					shedLedgerEntries(readMapTextAt("HEAD", mapPath) || ""),
 				);
 
 	reportFault(ctx, {
@@ -2549,7 +2549,7 @@ const aboveSectionB = (/** @type {string} */ t) => {
 };
 /* A drift that changes no row's own text — a row in the wrong subsection, or two rows out of
  * sorted order — leaves this list empty and is reported by the count. */
-const rowLines = (/** @type {string} */ t) => {
+const parseRowLines = (/** @type {string} */ t) => {
 	const region = aboveSectionB(t).split(/^## Section A/m)[1] || "";
 	/** @type {Map<string, string>} */
 	const byPath = new Map();
@@ -2575,8 +2575,8 @@ function sectionAFaults(mapPath, text, renderedText) {
 	/** @type {{ path: string, fault: string }[]} */
 	const renderFaults = [];
 	if (renderedText === text) return renderFaults;
-	const have = rowLines(text);
-	const want = rowLines(renderedText);
+	const have = parseRowLines(text);
+	const want = parseRowLines(renderedText);
 	for (const [p, line] of want)
 		if (have.get(p) !== line)
 			renderFaults.push({
@@ -2814,7 +2814,7 @@ runCheck({
 			noun: "doc-map problem(s)",
 			count: failItemCount,
 			data: {
-				// Out-of-grace only (mantahostels#1785): checker-new-faults.js's `doc-map`
+				// Out-of-grace only (mantahostels#1785): lib/fault-profiles.js's `doc-map`
 				// profile diffs every item here as gate material — it has no
 				// `gating` predicate, unlike `findings` — so an in-grace item left
 				// in would be flagged "not in baseline" and refuse a commit the

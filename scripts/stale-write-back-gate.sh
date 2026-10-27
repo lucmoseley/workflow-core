@@ -22,8 +22,8 @@
 #
 # FAILS OPEN (mantahostels#103 §6) with one stderr line, logged for
 # check-guard-errors.js: a store or git fault, reported by the arbiter itself; and
-# a timeout or a crash, reported here. The bound is guard-commit-form.sh's
-# arbiter bound.
+# a timeout or a crash, reported here. The bound is 5 s, as commit-paths.js
+# gives its own arbiter call.
 #
 # EXIT: 0 pass or fail-open · 1 refuse. LIMITS: an unset name under -u aborts
 # with 127, which pre-commit's `|| exit 1` turns into a refusal with no gl_log

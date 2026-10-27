@@ -195,14 +195,14 @@ describe("countStranded", () => {
 	});
 });
 
-describe("dirtyPaths", () => {
+describe("readDirtyPaths", () => {
 	it("reports a modified tracked file and an untracked one", () => {
 		fs.writeFileSync(path.join(sb.repo, "docs", "tracked.md"), "seed\n");
 		gitRepo();
 		fs.writeFileSync(path.join(sb.repo, "docs", "tracked.md"), "edited\n");
 		fs.writeFileSync(path.join(sb.repo, "docs", "scratch.md"), "new\n");
 
-		const dirty = mod.dirtyPaths();
+		const dirty = mod.readDirtyPaths();
 		expect(dirty.has("docs/tracked.md")).toBe(true);
 		// `-uall`, not `-uno`: an abandoned session's findings sit in an untracked
 		// scratch file.
@@ -211,12 +211,12 @@ describe("dirtyPaths", () => {
 
 	it("is empty, not null, on a clean tree", () => {
 		gitRepo();
-		expect(mod.dirtyPaths().size).toBe(0);
+		expect(mod.readDirtyPaths().size).toBe(0);
 	});
 
 	/* Degrades to unknown, never to clean (mantahostels#1747). */
 	it("returns null where git cannot answer at all", () => {
-		expect(mod.dirtyPaths()).toBeNull();
+		expect(mod.readDirtyPaths()).toBeNull();
 	});
 });
 

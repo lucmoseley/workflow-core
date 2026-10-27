@@ -50,7 +50,7 @@ const runEnv = (extra: Record<string, string>, ...argv: string[]) =>
 	});
 const run = (...argv: string[]) => runEnv({}, ...argv);
 
-const control = () =>
+const readControl = () =>
 	JSON.parse(
 		fs.readFileSync(path.join(dir, ".refill-loop-control.json"), "utf8"),
 	);
@@ -78,8 +78,8 @@ describe("start", () => {
 		const r = await run("start");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`refill loop renewed: pid ${pid}`);
-		expect(control().startedAt).toBeGreaterThanOrEqual(before);
-		expect(control().stopRequested).toBe(false);
+		expect(readControl().startedAt).toBeGreaterThanOrEqual(before);
+		expect(readControl().stopRequested).toBe(false);
 		expect(fs.existsSync(path.join(dir, ".refill-loop.log"))).toBe(false);
 	});
 
@@ -91,10 +91,10 @@ describe("start", () => {
 			"# failover order\n/s/.claude3\n\n/s/.claude2\n",
 		);
 		await run("start");
-		expect(control().seats).toEqual(["/s/.claude3", "/s/.claude2"]);
+		expect(readControl().seats).toEqual(["/s/.claude3", "/s/.claude2"]);
 	});
 
-	it("lists only the plan seats, leaving a declared overflow seat unpicked", async () => {
+	it("lists only the plan seats, overflow seats being read each tick", async () => {
 		holdPidfile();
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(
@@ -102,7 +102,7 @@ describe("start", () => {
 			"~/.claude2\n~/.claude2-api api key=K grant=200 cycle-day=20\n",
 		);
 		await run("start");
-		expect(control().seats).toEqual([path.join(dir, ".claude2")]);
+		expect(readControl().seats).toEqual([path.join(dir, ".claude2")]);
 	});
 
 	it("refuses a malformed overflow line, naming it, and writes no control", async () => {
@@ -125,7 +125,7 @@ describe("start", () => {
 	it("falls back to the seat it ran on alone", async () => {
 		holdPidfile();
 		await run("start");
-		expect(control().seats).toEqual([path.join(dir, ".claude3")]);
+		expect(readControl().seats).toEqual([path.join(dir, ".claude3")]);
 	});
 });
 
@@ -150,7 +150,7 @@ describe("the scope start writes (#2123)", () => {
 			"116,#117",
 		);
 		expect(r.status).toBe(0);
-		expect(control().scope).toEqual({
+		expect(readControl().scope).toEqual({
 			mode: "normal",
 			repos: [dir, mh],
 			exclude: [],
@@ -165,7 +165,7 @@ describe("the scope start writes (#2123)", () => {
 		const dv = checkout("design-vault");
 		const r = await run("start", "--away", "--exclude", "design-vault");
 		expect(r.status).toBe(0);
-		expect(control().scope).toMatchObject({ mode: "away", exclude: [dv] });
+		expect(readControl().scope).toMatchObject({ mode: "away", exclude: [dv] });
 		expect(r.stdout).toContain("mode:      away");
 	});
 
@@ -181,8 +181,8 @@ describe("the scope start writes (#2123)", () => {
 		);
 		const r = await run("start", "--goal", "9");
 		expect(r.stdout).toContain("away mode is running and is left as it is");
-		expect(control().startedAt).toBe(1);
-		expect(control().scope).toMatchObject({
+		expect(readControl().startedAt).toBe(1);
+		expect(readControl().scope).toMatchObject({
 			mode: "away",
 			goals: { [dir]: [9] },
 		});
@@ -209,28 +209,28 @@ describe("the scope start writes (#2123)", () => {
 });
 
 describe("the wake file (#2313)", () => {
-	const wakeLines = () =>
+	const readWakeLines = () =>
 		fs.readFileSync(path.join(dir, ".refill-loop-wake"), "utf8").split("\n");
 
 	it("start touches it", async () => {
 		holdPidfile();
 		await run("start");
-		expect(control().stopRequested).toBe(false);
-		expect(wakeLines()[0]).toMatch(/^\d{13}$/);
+		expect(readControl().stopRequested).toBe(false);
+		expect(readWakeLines()[0]).toMatch(/^\d{13}$/);
 	});
 
 	it("stop touches it", async () => {
 		holdPidfile();
 		await run("start");
 		await run("stop");
-		expect(control().stopRequested).toBe(true);
-		expect(wakeLines().filter(Boolean)).toHaveLength(2);
+		expect(readControl().stopRequested).toBe(true);
+		expect(readWakeLines().filter(Boolean)).toHaveLength(2);
 	});
 
 	it("stop touches it for a running loop with no control file", async () => {
 		holdPidfile();
 		await run("stop");
-		expect(wakeLines()[0]).toMatch(/^\d{13}$/);
+		expect(readWakeLines()[0]).toMatch(/^\d{13}$/);
 	});
 });
 
@@ -244,7 +244,7 @@ describe("stop and status", () => {
 		expect(r.stdout).toContain(
 			"exits when the tick in flight ends, or where none is, at the tick this stop wakes; a dispatch or the morning review can hold a tick for minutes",
 		);
-		expect(control().stopRequested).toBe(true);
+		expect(readControl().stopRequested).toBe(true);
 		expect((await run("status")).stdout).toContain(
 			"at its next tick, on request",
 		);
@@ -259,7 +259,13 @@ describe("stop and status", () => {
 		const table = path.join(dir, "table.json");
 		fs.writeFileSync(
 			table,
-			JSON.stringify({ n: 2, meanUsd: 4, quantilesUsd: [1, 10] }),
+			JSON.stringify({
+				n: 2,
+				meanUsd: 4,
+				quantilesUsd: [1, 10],
+				tailRemainderUsd: 9,
+				landedByHours: [[1, 1]],
+			}),
 		);
 		const r = await runEnv({ WFC_SESSION_COST_TABLE: table }, "status");
 		const line = r.stdout

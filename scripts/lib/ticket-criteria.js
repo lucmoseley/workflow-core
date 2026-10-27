@@ -2,12 +2,9 @@
  * ticket-criteria.js — an issue body's acceptance criteria as task-list items,
  * read by check-ticket-criteria.js after a close and by both close routes
  * before one, so the three cannot disagree on what is unmet (#1640).
- *
- * Run as `unmet`, it prints {"unmet": [text, …]} for an issue body on stdin.
  */
 
 const { requiredGroup } = require("./regex-group.js");
-const { writeFd } = require("./write-fd.js");
 
 // `## Acceptance criteria` or a bare `## Acceptance` (#2481). Residual: a
 // trailing colon, `## Acceptance tests` or a bold pseudo-heading reads as none.
@@ -86,20 +83,3 @@ function unmetCriteria(body) {
 }
 
 module.exports = { criteriaSection, isUnmet, taskItems, unmetCriteria };
-
-if (require.main === module) {
-	const fs = require("node:fs");
-	const { parseOrExit } = require("./cli-args");
-	parseOrExit(process.argv.slice(2), {
-		usage: "usage: node ticket-criteria.js unmet  (an issue body on stdin)",
-		flags: {},
-		commands: {
-			unmet: {
-				usage:
-					"unmet: an issue body on stdin; prints its unticked, unwaived criteria as JSON",
-			},
-		},
-	});
-	const unmet = unmetCriteria(fs.readFileSync(0, "utf8")).map((i) => i.text);
-	writeFd(1, `${JSON.stringify({ unmet })}\n`);
-}

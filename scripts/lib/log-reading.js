@@ -19,8 +19,8 @@ const { markersDir } = require("./marker-root");
 const { isFounderMessage, textOf } = require("./tool-calls-since");
 const { createIssue, findTrackingIssue } = require("./tracking-issue");
 const { writeFd } = require("./write-fd.js");
-const { adopterCheckouts, homeDir } = require("./refill-repos");
-const { readSessionHead, repoRootOf } = require("../pick-retro-sessions");
+const { readAdopterCheckouts, homeDir } = require("./refill-repos");
+const { readSessionHead, repoRootOf } = require("./session-head.js");
 
 const DAY_MS = 86_400_000;
 const CLAIM = "filing";
@@ -63,9 +63,9 @@ const verdict = (state, text) => ({ state, text });
  * Every adopter's root on this laptop, by its directory name, in name order.
  * @returns {Map<string, string>}
  */
-const adopterRoots = () =>
+const readAdopterRoots = () =>
 	new Map(
-		adopterCheckouts(homeDir())
+		readAdopterCheckouts(homeDir())
 			.included.map(
 				(root) => /** @type {[string, string]} */ ([path.basename(root), root]),
 			)
@@ -98,7 +98,7 @@ const isOverLine = (n, d, line) => (d ? n / d >= line : false);
  * @param {string} logName the log, as the reading names it
  * @returns {string[]}
  */
-function repoLines(repos, live, roots, logName) {
+function buildRepoLines(repos, live, roots, logName) {
 	return repos.map((name) => {
 		const first = live.get(name);
 		return first === undefined
@@ -113,7 +113,7 @@ function repoLines(repos, live, roots, logName) {
  * @param {{ state: "fires" | "undecided" | "holds" }[]} verdicts
  * @returns {string}
  */
-function firedLine(verdicts) {
+function buildFiredLine(verdicts) {
 	const linesIn = (/** @type {string} */ state) => {
 		const ns = verdicts.flatMap((v, i) => (v.state === state ? [i + 1] : []));
 		return ns.length > 0
@@ -133,7 +133,7 @@ function firedLine(verdicts) {
  * @returns {{ roots: Map<string, string>, unreadHeads: number }} repo name →
  *   root, and the transcripts whose head would not read
  */
-function repoRoots(files, repos) {
+function readRepoRoots(files, repos) {
 	/** @type {Map<string, string>} */
 	const roots = new Map();
 	let unreadHeads = 0;
@@ -395,7 +395,7 @@ const isRead = (at, stamp) => Date.parse(stamp) <= at.cutoff;
  * @param {ReadingAt} at
  * @returns {string[]}
  */
-const pointLines = (sentence, { reached, cutoff, nowMs }) => [
+const buildPointLines = (sentence, { reached, cutoff, nowMs }) => [
 	"",
 	sentence,
 	reached
@@ -472,15 +472,15 @@ function fileOnce(file, { title, label }, body) {
  * relabel it.
  *
  * @param {{ title: string, label: string, record: string, script: string,
- *   issueBody: (reading: string) => string }} spec `record` is the marker's
+ *   buildIssueBody: (reading: string) => string }} spec `record` is the marker's
  *   name, outside every marker sweep family; `script` is the command a failed
  *   filing tells the reader to retry
  */
-function buildFiler({ title, label, record, script, issueBody }) {
+function buildFiler({ title, label, record, script, buildIssueBody }) {
 	const recordPath = () => path.join(markersDir(), record);
 
 	/** The issue the record holds, or null where none is recorded. */
-	function filedAs() {
+	function readFiledAs() {
 		try {
 			const held = fs.readFileSync(recordPath(), "utf8").trim();
 			return held && held !== CLAIM ? held : null;
@@ -513,7 +513,11 @@ function buildFiler({ title, label, record, script, issueBody }) {
 		}
 		let outcome;
 		try {
-			outcome = fileOnce(recordPath(), { title, label }, issueBody(reading));
+			outcome = fileOnce(
+				recordPath(),
+				{ title, label },
+				buildIssueBody(reading),
+			);
 		} catch (e) {
 			return broken(
 				`the reading would not file — ${errMessage(e)}\nNothing is recorded as filed, so the next session start tries again; run \`${script}\` to retry now.`,
@@ -522,27 +526,27 @@ function buildFiler({ title, label, record, script, issueBody }) {
 		console.log(`\n${outcome}`);
 	}
 
-	return { filedAs, publish };
+	return { readFiledAs, publish };
 }
 
 module.exports = {
 	broken,
 	now,
 	verdict,
-	adopterRoots,
+	readAdopterRoots,
 	minute,
 	ratio,
 	isOverLine,
-	repoRoots,
+	readRepoRoots,
 	readLogs,
-	repoLines,
-	firedLine,
+	buildRepoLines,
+	buildFiredLine,
 	pairReplies,
 	POINT_FIGURES,
 	bandHalfWidth,
 	readingPoint,
 	readingAt,
 	isRead,
-	pointLines,
+	buildPointLines,
 	buildFiler,
 };

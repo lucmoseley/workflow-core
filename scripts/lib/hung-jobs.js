@@ -11,13 +11,15 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { findTranscript } = require("./transcript");
 const { configDirs } = require("./arbiter-store");
+const { jobStatePath, jobStorePath, rosterPath } = require("./job-paths.js");
 
 /**
  * @typedef {any} JobState  a job's parsed state.json, as `JSON.parse` returns
  *   it: untyped because the harness owns its schema and each caller narrows
  *   the fields it reads itself
- * @typedef {{store: string, job: string, unreadable: boolean, rec?: undefined}
- *   | {store: string, job: string, rec: JobState, unreadable?: undefined}} Job
+ * @typedef {{seat: string} & ({job: string, unreadable: boolean,
+ *   rec?: undefined} | {job: string, rec: JobState, unreadable?: undefined})}
+ *   Job
  * @typedef {{state?: string, sessionId?: string, createdAt?: string,
  *   updatedAt?: string, intent?: string, detail?: string, cwd?: string}} JobFields
  *   the state.json fields `findHungJobs` reads
@@ -47,12 +49,15 @@ const HUNG_AFTER_MINUTES = 240;
  */
 const GHOST_AFTER_MINUTES = 30;
 
-/** Every `jobs/` directory on this machine, deduped by realpath. */
-function jobStores() {
+/**
+ * Every seat on this machine, deduped by its `jobs/` directory's realpath.
+ * @returns {string[]}
+ */
+function jobSeats() {
 	const out = [];
 	const seen = new Set();
-	for (const dir of configDirs()) {
-		const store = path.join(dir, "jobs");
+	for (const seat of configDirs()) {
+		const store = jobStorePath(seat);
 		let key;
 		try {
 			key = fs.realpathSync(store);
@@ -61,22 +66,25 @@ function jobStores() {
 		}
 		if (seen.has(key)) continue;
 		seen.add(key);
-		out.push(store);
+		out.push(seat);
 	}
 	return out;
 }
 
+/** Every `jobs/` directory on this machine, deduped by realpath. */
+const jobStores = () => jobSeats().map(jobStorePath);
+
 /**
  * One job directory's record: `unreadable` where its state.json will not
  * parse to an object, null where it has no state.json to read.
- * @param {string} store
+ * @param {string} seat
  * @param {string} job
  * @returns {Job | null}
  */
-function readJob(store, job) {
+function readJob(seat, job) {
 	let raw;
 	try {
-		raw = fs.readFileSync(path.join(store, job, "state.json"), "utf8");
+		raw = fs.readFileSync(jobStatePath(seat, job), "utf8");
 	} catch {
 		return null;
 	}
@@ -84,11 +92,11 @@ function readJob(store, job) {
 	try {
 		rec = JSON.parse(raw);
 	} catch {
-		return { store, job, unreadable: true };
+		return { seat, job, unreadable: true };
 	}
 	if (!rec || typeof rec !== "object" || Array.isArray(rec))
-		return { store, job, unreadable: true };
-	return { store, job, rec };
+		return { seat, job, unreadable: true };
+	return { seat, job, rec };
 }
 
 /**
@@ -104,10 +112,10 @@ function readJobs() {
 	const jobs = [];
 	let opened = 0;
 
-	for (const store of jobStores()) {
+	for (const seat of jobSeats()) {
 		let entries;
 		try {
-			entries = fs.readdirSync(store, { withFileTypes: true });
+			entries = fs.readdirSync(jobStorePath(seat), { withFileTypes: true });
 		} catch {
 			continue;
 		}
@@ -115,7 +123,7 @@ function readJobs() {
 
 		for (const entry of entries) {
 			if (!entry.isDirectory()) continue;
-			const job = readJob(store, entry.name);
+			const job = readJob(seat, entry.name);
 			if (job) jobs.push(job);
 		}
 	}
@@ -211,9 +219,8 @@ function ghostTest(rec, listed, minutes = GHOST_AFTER_MINUTES) {
  * `ghostTest` counts it), and with no transcript under any config dir — the
  * transcript is what no running session lacks, so a process the live read
  * missed cannot make a live one qualify. Only a job in a store whose seat's
- * registry was read is judged. `seat` is the config dir whose store holds the
- * record.
- * @param {Array<{store: string, job: string, rec?: JobFields}>} jobs
+ * registry was read is judged.
+ * @param {Array<{seat: string, job: string, rec?: JobFields}>} jobs
  * @param {{live: Set<string>, seats: string[]}} registry  the session ids
  *   with a live process, and the seats whose registry was read
  *   (lib/registry-agents.js)
@@ -224,8 +231,7 @@ function neverStartedJobs(jobs, { live, seats }) {
 	const me = process.env.CLAUDE_CODE_SESSION_ID;
 	const read = new Set(seats.map((s) => path.resolve(s)));
 	const out = [];
-	for (const { store, job, rec } of jobs) {
-		const seat = path.dirname(store);
+	for (const { seat, job, rec } of jobs) {
 		if (!read.has(path.resolve(seat))) continue;
 		const sessionId = workingSessionOf(rec, me);
 		if (sessionId === null || live.has(sessionId)) continue;
@@ -278,14 +284,14 @@ function liveWorkingSession(rec, listed, me) {
 const stringOrNull = (v) => (typeof v === "string" ? v : null);
 
 /**
- * @param {{job: string, store: string, sessionId: string, rec: JobFields,
+ * @param {{job: string, seat: string, sessionId: string, rec: JobFields,
  *   pid: number | null, quietFor: number, silence: Silence}} hit
  * @returns {HungJob}
  */
-function buildHungJob({ job, store, sessionId, rec, pid, quietFor, silence }) {
+function buildHungJob({ job, seat, sessionId, rec, pid, quietFor, silence }) {
 	return {
 		job,
-		store,
+		store: jobStorePath(seat),
 		sessionId,
 		intent: stringOrNull(rec.intent),
 		detail: stringOrNull(rec.detail),
@@ -296,7 +302,7 @@ function buildHungJob({ job, store, sessionId, rec, pid, quietFor, silence }) {
 		reason: silence.file
 			? "listed and alive, but its transcript has not moved"
 			: "listed and alive, but it never wrote a transcript",
-		rosterPath: path.join(path.dirname(store), "daemon", "roster.json"),
+		rosterPath: rosterPath(seat),
 	};
 }
 
@@ -305,8 +311,8 @@ function buildHungJob({ job, store, sessionId, rec, pid, quietFor, silence }) {
  * and an already-listed agent set — no oracle call of its own, since
  * its callers already hold a listing (mantahostels#2598).
  *
- * @param {Array<{store: string, job: string, unreadable?: boolean,
- *   rec?: JobFields}>} jobs
+ * @param {Array<{seat: string, job: string,
+ *   unreadable?: boolean, rec?: JobFields}>} jobs
  * @param {Listed} listed
  * @param {{hungMinutes?: number, minutes?: number}} [opts]
  * @returns {HungJob[]}
@@ -318,7 +324,7 @@ function findHungJobs(jobs, listed, opts = {}) {
 	/** @type {HungJob[]} */
 	const hung = [];
 
-	for (const { store, job, rec } of jobs) {
+	for (const { seat, job, rec } of jobs) {
 		const sessionId = liveWorkingSession(rec, listed, me);
 		if (!rec || sessionId === null) continue;
 
@@ -336,7 +342,7 @@ function findHungJobs(jobs, listed, opts = {}) {
 		hung.push(
 			buildHungJob({
 				job,
-				store,
+				seat,
 				sessionId,
 				rec,
 				pid: listed.pids.get(sessionId) ?? null,

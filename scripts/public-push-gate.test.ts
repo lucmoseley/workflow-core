@@ -46,9 +46,20 @@ const writeConfig = (codeRepo: string) => {
 			codeRepo,
 		}),
 	);
+	git("add", ".claude");
+	git(
+		"-c",
+		"user.email=t@t",
+		"-c",
+		"user.name=t",
+		"commit",
+		"-q",
+		"-m",
+		"config",
+	);
 };
 
-const refLine = (local: string, remoteRef = "refs/heads/landing") =>
+const buildRefLine = (local: string, remoteRef = "refs/heads/landing") =>
 	`refs/heads/x ${local} ${remoteRef} ${ZERO}\n`;
 
 const check = (stdin: string, url = CODE_URL) =>
@@ -77,7 +88,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
 it("refuses a push to the code repo of tracker history, naming the sha and the tracker", () => {
-	const r = check(refLine(old));
+	const r = check(buildRefLine(old));
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain(old);
 	expect(r.stderr).toContain("o/tracker");
@@ -86,30 +97,30 @@ it("refuses a push to the code repo of tracker history, naming the sha and the t
 
 it("passes the squashed root and work on it, though the graft makes old an ancestor", () => {
 	expect(git("merge-base", "--is-ancestor", old, next) === "").toBe(true);
-	const r = check(refLine(root, "refs/heads/main") + refLine(next));
+	const r = check(buildRefLine(root, "refs/heads/main") + buildRefLine(next));
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toBe("");
 });
 
 it("refuses where one pushed ref of several carries tracker history", () => {
-	const r = check(refLine(next) + refLine(old, "refs/heads/spike/x"));
+	const r = check(buildRefLine(next) + buildRefLine(old, "refs/heads/spike/x"));
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain(old);
 	expect(r.stderr).not.toContain(next);
 });
 
 it("passes tracker history pushed to the tracker", () => {
-	const r = check(refLine(old), TRACKER_URL);
+	const r = check(buildRefLine(old), TRACKER_URL);
 	expect(r.status, r.stderr).toBe(0);
 });
 
 it("passes a deletion on the code repo", () => {
-	expect(check(refLine(ZERO)).status).toBe(0);
+	expect(check(buildRefLine(ZERO)).status).toBe(0);
 });
 
 it("passes everything where the code repo is the tracker", () => {
 	writeConfig("o/tracker");
-	const r = check(refLine(old), TRACKER_URL);
+	const r = check(buildRefLine(old), TRACKER_URL);
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).toBe("");
 });
@@ -121,19 +132,21 @@ it.each([
 ])(
 	"refuses tracker history pushed to %s, a url the code repo's own does not match",
 	(url) => {
-		const r = check(refLine(old), url);
+		const r = check(buildRefLine(old), url);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(old);
 	},
 );
 
 it("passes tracker history pushed to the tracker under another case", () => {
-	expect(check(refLine(old), "git@github.com:O/Tracker.git").status).toBe(0);
+	expect(check(buildRefLine(old), "git@github.com:O/Tracker.git").status).toBe(
+		0,
+	);
 });
 
 it("refuses a push to the code repo where no remote names the tracker, naming the remedy", () => {
 	git("remote", "remove", "archive");
-	const r = check(refLine(next));
+	const r = check(buildRefLine(next));
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain(
 		"no fetched remote here holds the tracker's history",
@@ -143,7 +156,7 @@ it("refuses a push to the code repo where no remote names the tracker, naming th
 
 it("names a fetch, not an add, where the tracker remote exists unfetched", () => {
 	git("update-ref", "-d", "refs/remotes/archive/main");
-	const r = check(refLine(next));
+	const r = check(buildRefLine(next));
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain("Fetch it and push again: git fetch archive");
 });
@@ -151,14 +164,14 @@ it("names a fetch, not an add, where the tracker remote exists unfetched", () =>
 it("refuses a push by url from a clone with no remotes at all", () => {
 	git("remote", "remove", "archive");
 	git("remote", "remove", "origin");
-	const r = check(refLine(old));
+	const r = check(buildRefLine(old));
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain(`git remote add archive ${TRACKER_URL}`);
 });
 
 it("refuses a push to the code repo that git cannot judge, naming the fault", () => {
 	const missing = "1".repeat(40);
-	const r = check(refLine(missing));
+	const r = check(buildRefLine(missing));
 	expect(r.status).toBe(2);
 	expect(r.stderr).toContain(`git merge-base ${missing} exited`);
 	expect(r.stderr).toContain("never let through unjudged");
@@ -186,9 +199,9 @@ it("makes .husky/pre-push refuse tracker history to the code repo and pass the s
 				env: { ...process.env, WFC_MODULES: "suites", WFC_PLUGIN_ROOT: ROOT },
 			},
 		);
-	const refused = hook(refLine(old));
+	const refused = hook(buildRefLine(old));
 	expect(refused.status).toBe(1);
 	expect(refused.stderr).toContain("shares history with the private tracker");
-	const r = hook(refLine(root, "refs/heads/main"));
+	const r = hook(buildRefLine(root, "refs/heads/main"));
 	expect(r.status, r.stderr).toBe(0);
 });

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# The shared fail-open record for every PreToolUse guard (mantahostels#147).
+# The shared fail-open record for the bash hooks and gates (mantahostels#147).
 #
 # SOURCED, NEVER RUN. It defines functions and reaches no verdict of its own.
 #
-# Why it exists: every guard here FAILS OPEN (mantahostels#103 §6) — a missing jq, a payload
+# Why it exists: every hook here FAILS OPEN (mantahostels#103 §6) — a missing jq, a payload
 # it cannot parse, a library it cannot read all ALLOW the action rather than
-# wedge 10-12 concurrent sessions. A silently broken guard then looks exactly
-# like a guard finding nothing wrong.
+# wedge 10-12 concurrent sessions. A silently broken hook then looks exactly
+# like a hook finding nothing wrong.
 #
 # THE RECORD, one line, three or four tab-separated fields, append-only:
 #
@@ -16,8 +16,7 @@
 # on logging under its old name. Field 3 is prose for a human: say what was
 # allowed through, not only what broke. KEEP IT CONSTANT per fault:
 # check-guard-errors.js groups on it, so a path in it splits one burst into as
-# many groups as it has records. The varying part goes in field 4, optional,
-# for guard-parse.sh's unresolved-tree record (#320).
+# many groups as it has records. The varying part goes in field 4, optional.
 #
 # WHERE IT LANDS must equal session-arbiter.js's errorLog() byte for byte —
 # storeConfigDir()/projects/<repo root with every non-alphanumeric to a dash>, the
@@ -34,12 +33,9 @@
 # it needs a code-point walk in bash on the one path forbidden to fork node, for
 # an input class no checkout here has.
 #
-# THE SAME LOG TAKES A GUARD'S ABORT (#1818): gl_arm_exit below sets an EXIT
-# trap for the whole guard process.
-#
 # ITS OWN FAILURE IS SILENT: an unwritable log cannot report that it is
 # unwritable, and logging never blocks the verdict. check-guard-errors.js probes
-# that this file and lib/guard-parse.sh are readable at all.
+# that this file is readable at all.
 
 # The repo root, in the one spelling the whole guard tier uses (mantahostels#1905). ITS OWN
 # FILE, below this one: this library is itself a call site, so a copy here would
@@ -92,9 +88,8 @@ gl_when() {
   esac
 }
 
-# The bytes a caller keeps as gl_log's detail — a child's stderr, or the
-# command text an abort died on: enough to locate it, never a whole stack
-# trace. A guess, never measured.
+# The bytes a caller keeps as gl_log's detail — a child's stderr: enough to
+# locate it, never a whole stack trace. A guess, never measured.
 # shellcheck disable=SC2034 # read by the callers that source this file
 GL_DETAIL_MAX=300
 
@@ -167,12 +162,8 @@ gl_log() {
   # field. Collapsed to spaces, as arbiter-store.js's flat() does for the same log.
   what="${1//[$'\t\r\n']/ }"
   # Field 4 only when a caller passes a non-empty one, so every other record
-  # stays three fields. Its \x01 is guard-parse.sh's quote sentinel, never
-  # written out.
-  [[ -n "${2-}" ]] && {
-    detail="${2//[$'\t\r\n']/ }"
-    detail=$'\t'"${detail//$'\x01'/}"
-  }
+  # stays three fields.
+  [[ -n "${2-}" ]] && detail=$'\t'"${2//[$'\t\r\n']/ }"
   dir="$(gl_project_dir "$(gr_root)")"
   # Not `mkdir && printf`: the directory usually exists already, and chaining
   # them drops the record whenever mkdir is the binary that has gone missing.
@@ -180,61 +171,4 @@ gl_log() {
   printf '%s\t%s\t%s%s\n' "$(gl_when)" "$(gl_where)" "$what" "$detail" \
     >>"$dir/guard-errors.log" 2>/dev/null
   return 0
-}
-
-# gl_open <reason> — record a fail-open and ALLOW, for a fault that ends the
-# guard's run. Exits 0: a hook's non-zero exit is read by Claude Code as the hook
-# itself being broken, which is a different report from the one being made here.
-gl_open() {
-  gl_log "$1"
-  exit 0
-}
-
-# gl_arm_exit — from here on, a non-zero exit by any path but gl_exit leaves a
-# record (#1818). The path it exists for is `set -u`'s abort on an unbound
-# variable, which code-standards-base §S5 demands of every gate and which would
-# otherwise reach stderr alone.
-# guard-parse.sh's gp_adopt_payload arms it, so every guard reading its payload
-# through gp_begin is covered.
-#
-# An EXIT trap the guard set before this call is kept and run after the record;
-# one set after replaces the record, so a guard sets its own before gp_begin.
-# One in a `$( … )` subshell is that subshell's alone and harmless.
-gl_arm_exit() {
-  [[ -z "${_gl_exit_armed-}" ]] || return 0
-  _gl_exit_armed=1
-  # `trap -p` prints `trap -- '<command>' EXIT`, quoted for eval.
-  local prev
-  local -a _gl_trap_words=()
-  prev="$(trap -p EXIT)"
-  _gl_prev_exit=""
-  [[ -z "$prev" ]] || {
-    eval "_gl_trap_words=($prev)"
-    _gl_prev_exit="${_gl_trap_words[2]-}"
-  }
-  trap '_gl_on_exit "$?"' EXIT
-}
-
-# One reason for every status: exit 2 refuses the act and any other lets it
-# through, but either way nothing judged it.
-# BASH_COMMAND is the command text unexpanded, so no payload value reaches the log.
-_gl_on_exit() {
-  local rc="$1" at="${BASH_COMMAND-}"
-  ((rc == 0)) || [[ -n "${_gl_own_exit-}" ]] ||
-    gl_log "exited non-zero before a verdict — the act went unjudged" \
-      "exit $rc at: ${at:0:GL_DETAIL_MAX}"
-  [[ -n "${_gl_prev_exit-}" ]] || return 0
-  # The guard's own status back in `$?`, without a fork, for a trap that reads it.
-  _gl_status "$rc"
-  eval "$_gl_prev_exit"
-}
-
-_gl_status() { return "$1"; }
-
-# gl_exit <status> — exit non-zero as the guard's own verdict, which the record
-# gl_arm_exit sets up then leaves alone. A guard refusing by exit 2 spells it
-# `gl_exit 2`; a bare `exit 2` is recorded as an abort.
-gl_exit() {
-  _gl_own_exit=1
-  exit "$1"
 }

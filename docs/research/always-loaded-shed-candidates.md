@@ -40,7 +40,7 @@ Every one is route **(e)** except C7 (route (c)/relocation).
 
 **C3 — `session-arbiter.js` release.** Each refusal prints its own reason: `held by session <x>, not by this session. Only its holder can release it` · `has uncommitted changes, so the claim stands. … Commit or discard the change, then release. Re-claiming is automatic: your next write to it takes the file back.` · `could not read the claim store for <path>, so the claim stands rather than being reported gone (mantahostels#174).` · `could not read git status for <path>, so its cleanliness is unproven and the claim stands.` · `the claim on <path> changed while releasing it; nothing was dropped.` **Keep:** *"a zero exit does not prove a claim was dropped: read the output"* — read before running, printed by nothing.
 
-**C2, C6 — `denyReason()`.** Every claim-guard deny prints both the clean-`git status`-is-not-free fact (mantahostels#66) and the `debt own` stub to complete.
+**C2, C6 — `buildDenyReason()`.** Every claim-guard deny prints both the clean-`git status`-is-not-free fact (mantahostels#66) and the `debt own` stub to complete.
 
 **C8 — `scripts/guard-issue-create-label.sh`.** Both denies print `$(values_line)` — the seven values in full — plus the `takes:triage` fallback.
 
@@ -52,7 +52,7 @@ Every one is route **(e)** except C7 (route (c)/relocation).
 
 **C9 — `scripts/guard-issue-body.sh`.** The deny prints the download-whole/upload-whole race (mantahostels#128).
 
-**C10 — `claim` on a held path** prints `denyReason()` and exits 1 (session-arbiter.js L356).
+**C10 — `claim` on a held path** prints `buildDenyReason()` and exits 1 (session-arbiter.js L356).
 
 **C7 is not (e).** The 1.7 / 2.1 / 2.4 GB gates a session compares against stay; only the arithmetic that derives them moves, to `docs/environment.md`, which already holds the rows.
 
@@ -434,7 +434,7 @@ inverse targeted edit and the file re-measured afterwards:
 | 8 | the stage-first clause deleted from `roadmap-validity.txt` | "names the stage-first ordering" |
 
 **An id-keyed assertion cannot detect a fragment mutation**, which is why 1, 3,
-5 and 6 mutate the *wiring* instead: `expect(deny).toContain(ruleText(id))`
+5 and 6 mutate the *wiring* instead: `expect(deny).toContain(readRuleText(id))`
 reads the fragment at test time, so deleting a clause moves both sides together
 and the test stays green. Mutations 2, 4, 7 and 8 are the fragment half, and
 each needs a **literal anchor** — one clause quoted in the test rather than read
@@ -1186,7 +1186,7 @@ It paid a **falsity correction**, which takes first claim on this register (mant
 
 **G1 · §Conventions, the `test:changed` bullet's lexical-extractor clauses — CLAUDE.md L48, span 1,570 B, net ≈550–650 B (est.)**
 
-Three separate guards reprint the operative content at the moment of need. `scripts/run-vitest.js`'s `admissibleLine` (L698–707) prints, on a filtered green: *"MEETS THE PUSH GATE — docs/test-read-edges.json matches this tree, so a green here is the whole gate: no whole-suite run is owed (mantahostels#2207) … It does not cover a test that reads a changed document through an imported HELPER — the manifest's extractor is lexical, so there is no edge to select on and this check cannot see one missing (mantahostels#2131)."* The same lexical-extractor caveat is reprinted a second time at push, by `scripts/lib/test-pass-marker.js`'s `admissibleScopeWarning()` (L735–750). `scripts/generate-test-read-edges.js` L138–141 prints the dirty-read warning on an uncommitted source file, confirming the *"warns (not refuses) … uncommitted at write time"* clause.
+Three separate guards reprint the operative content at the moment of need. `scripts/run-vitest.js`'s `buildAdmissibleLine` (L698–707) prints, on a filtered green: *"MEETS THE PUSH GATE — docs/test-read-edges.json matches this tree, so a green here is the whole gate: no whole-suite run is owed (mantahostels#2207) … It does not cover a test that reads a changed document through an imported HELPER — the manifest's extractor is lexical, so there is no edge to select on and this check cannot see one missing (mantahostels#2131)."* The same lexical-extractor caveat is reprinted a second time at push, by `scripts/lib/test-pass-marker.js`'s `admissibleScopeWarning()` (L735–750). `scripts/generate-test-read-edges.js` L138–141 prints the dirty-read warning on an uncommitted source file, confirming the *"warns (not refuses) … uncommitted at write time"* clause.
 
 **Residual, not printed anywhere:** *"only to an argv holding nothing but `--changed` and its ref; nothing refuses a push backed by one"* (a fact about `guard-push-rules.sh`'s own scope) and *"an edit landing and reverting between two writes, dirty at neither, stays unseen"* (reasoning about the warning, not stated by it) both stay. The bullet sits inside `CLAUDE.md`'s guard-registry region, so a cut needs its own `rule:<id>` trigger line kept per the Method note's convention — left for whoever drafts the cut.
 

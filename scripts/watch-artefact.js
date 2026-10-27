@@ -29,7 +29,7 @@
  * THE DEFAULT CEILING, 60 MINUTES, IS A GUESS: room above the ~18-minute
  * median wait in https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/waiting-stall-forensics.md §5, never measured
  * against a watch. It bounds the loop, which lives inside this script where
- * neither guard-wait-loop.sh nor check-orphan-wait-loops.js sees it.
+ * neither lib/wait-loop.js nor check-orphan-wait-loops.js sees it.
  *
  * A check lands on each whole interval from the start, so a slow wake does not
  * drift the ones after it. The ceiling is not a check: a shortened last
@@ -88,7 +88,7 @@ function parseSeconds(raw, name) {
  * @param {string} file
  * @returns {number | null} the size in bytes, or null where the file is absent
  */
-function sizeOf(file) {
+function readSizeOf(file) {
 	let stat;
 	try {
 		stat = fs.statSync(file);
@@ -117,7 +117,7 @@ async function main() {
 			: parseSeconds(rawCeiling, "ceiling")) * 1000;
 
 	const start = Date.now();
-	let size = sizeOf(file);
+	let size = readSizeOf(file);
 	/** @type {number | null} */
 	let lastGrowth = null;
 	let idle = 0;
@@ -145,7 +145,7 @@ async function main() {
 			finish("CEILING");
 		}
 		await sleep(due - Date.now());
-		const now = sizeOf(file);
+		const now = readSizeOf(file);
 		if (now !== null && now !== size) {
 			idle = 0;
 			lastGrowth = Date.now();

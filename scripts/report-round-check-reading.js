@@ -32,7 +32,7 @@
  * question the passing send left out (`resent: false`) or whose count the
  * transcript could not give (`callsBefore: null`) makes no round of its own.
  * A refused question the close-rivals limb then took counts as refused, in
- * every line: this check refused it first, so research the close limb's
+ * every line: this check refused it first, so research the close-rivals limb's
  * refusal then asked for is part of what this one set off, and it clears
  * only under this check's own rule (#2244).
  *
@@ -68,7 +68,7 @@ const { errMessage } = require("./lib/check");
 const {
 	broken,
 	buildFiler,
-	firedLine,
+	buildFiredLine,
 	isOverLine,
 	minute,
 	now,
@@ -76,13 +76,13 @@ const {
 	ratio,
 	POINT_FIGURES,
 	bandHalfWidth,
-	pointLines,
+	buildPointLines,
 	readingAt,
 	isRead,
 	readingPoint,
 	readLogs,
-	repoLines,
-	repoRoots,
+	buildRepoLines,
+	readRepoRoots,
 	verdict,
 } = require("./lib/log-reading");
 const { isCoreHost } = require("./lib/plugin-state");
@@ -91,7 +91,7 @@ const {
 	ROUND_CHECK_LOG,
 	ROUND_CHECK_PREFIX,
 } = require("./lib/priced-options-limbs");
-const { seatTranscripts } = require("./lib/project-dirs");
+const { readSeatTranscripts } = require("./lib/project-dirs");
 const { firstDrafts, MIN_CALLS } = require("./lib/round-check");
 const { takesLabel } = require("./lib/takes-label");
 
@@ -323,7 +323,7 @@ const pct = (x) => `${(x * 100).toFixed(1)}%`;
  * @param {Rate} rate
  * @returns {string}
  */
-function rateText(rate) {
+function buildRateText(rate) {
 	const range = rateRange(rate);
 	if (!range) return "nothing to rate";
 	if (!rate.unclassed) return ratio(rate.sent, rate.rated);
@@ -387,7 +387,7 @@ function repoPool(rounds, { base, repos }, side) {
 		}
 		const rate = rateOf(own);
 		lines.push(
-			`   - ${repo}: ${own.length} round(s), ${rateText(rate)}; ${baseText}`,
+			`   - ${repo}: ${own.length} round(s), ${buildRateText(rate)}; ${baseText}`,
 		);
 		pooled.push(...own);
 		kept.push(repo);
@@ -405,13 +405,13 @@ function repoPool(rounds, { base, repos }, side) {
 	};
 }
 
-const { filedAs, publish } = buildFiler({
+const { readFiledAs, publish } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the round-check log is. */
 	record: ".round-check-reading-filed",
 	script: "node scripts/report-round-check-reading.js",
-	issueBody: (reading) =>
+	buildIssueBody: (reading) =>
 		[
 			"The reading of the under-researched-round check, filed once by `scripts/report-round-check-reading.js` at its reading point (spec #1701; rulings #1684 and #1691). Closing this issue never re-files it.",
 			"",
@@ -429,7 +429,7 @@ const { filedAs, publish } = buildFiler({
  * @param {import("./lib/log-reading").Point} point
  * @returns {string}
  */
-const pointSentence = (point) =>
+const buildPointSentence = (point) =>
 	point.fixed
 		? `Reading point: ${minute(point.point)} — the later of ${POINT_FIGURES.clockDays} days after the first log line (${minute(point.clock)}) and the ${POINT_FIGURES.countTarget}th refused-then-answered round, capped at ${minute(point.ceiling)}.`
 		: `Reading point: ${minute(point.ceiling)} at the latest (${POINT_FIGURES.ceilingDays} days after the first log line); earlier once ${POINT_FIGURES.countTarget} refused rounds are answered.`;
@@ -442,7 +442,7 @@ const pointSentence = (point) =>
  * @param {number} strayClasses
  * @returns {string[]}
  */
-function caveatLines(n, unreadHeads, unreadSessions, strayClasses) {
+function buildCaveatLines(n, unreadHeads, unreadSessions, strayClasses) {
 	const lines = [];
 	if (n < POINT_FIGURES.countTarget)
 		lines.push(
@@ -467,7 +467,7 @@ function caveatLines(n, unreadHeads, unreadSessions, strayClasses) {
  * Line 1, the refusal not working, and what r it implies.
  * @param {ReturnType<typeof repoPool>} below
  */
-function notWorkingLine(below) {
+function buildNotWorkingLine(below) {
 	const head = `1. Refusal not working: refused-then-answered rounds against each repo's baseline below ${MIN_CALLS} calls.`;
 	if (below.baseRate === null)
 		return {
@@ -491,7 +491,7 @@ function notWorkingLine(below) {
 		text: [
 			head,
 			...below.lines,
-			`   Pooled over ${below.kept.join(", ")}: ${rateText(rate)}. Repo-matched baseline ${pct(below.baseRate)}; line at half, ${pct(line)}: ${judged.text}.`,
+			`   Pooled over ${below.kept.join(", ")}: ${buildRateText(rate)}. Repo-matched baseline ${pct(below.baseRate)}; line at half, ${pct(line)}: ${judged.text}.`,
 		],
 	};
 }
@@ -500,7 +500,7 @@ function notWorkingLine(below) {
  * Line 2, gaming at the re-send: passing re-sends after only 1–2 tool calls.
  * @param {RoundEvent[]} counted
  */
-function paddedLine(counted) {
+function buildPaddedLine(counted) {
 	/* One send per Stop: questions refused together share their count. */
 	const sends = new Map();
 	for (const e of counted)
@@ -518,7 +518,7 @@ function paddedLine(counted) {
 		: verdict("holds", "holds");
 	return {
 		verdict: judged,
-		text: `2. Gaming at the re-send: ${ratio(padded, n)} passing re-sends came after only 1–${PADDED_MAX_CALLS} tool calls since the refusal. Close limb 6 of 83 (7%, #1691). Line ${pct(PADDED_LINE)}: ${judged.text}.`,
+		text: `2. Gaming at the re-send: ${ratio(padded, n)} passing re-sends came after only 1–${PADDED_MAX_CALLS} tool calls since the refusal. Close-rivals limb 6 of 83 (7%, #1691). Line ${pct(PADDED_LINE)}: ${judged.text}.`,
 	};
 }
 
@@ -528,7 +528,7 @@ function paddedLine(counted) {
  * @param {RoundEvent[]} counted
  * @param {Baseline} base
  */
-function thresholdLine(counted, base) {
+function buildThresholdLine(counted, base) {
 	const drafts = firstDrafts(counted);
 	const n = drafts.size;
 	const at = [...drafts.values()].filter(
@@ -547,9 +547,9 @@ function thresholdLine(counted, base) {
  * Line 4, the cap: rounds let through at the cap sent back.
  * @param {Round[]} capRounds
  */
-function capLine(capRounds) {
+function buildCapLine(capRounds) {
 	const rate = rateOf(capRounds);
-	const head = `4. Cap: rounds let through at the cap of ${CAP_SLOTS} sent back: ${rateText(rate)}. Baseline 14 of 40 4th-and-later rounds (35%, #1691). Line ${pct(CAP_LINE)}`;
+	const head = `4. Cap: rounds let through at the cap of ${CAP_SLOTS} sent back: ${buildRateText(rate)}. Baseline 14 of 40 4th-and-later rounds (35%, #1691). Line ${pct(CAP_LINE)}`;
 	if (capRounds.length < CAP_MIN_ROUNDS)
 		return {
 			verdict: verdict("holds", "unread"),
@@ -571,7 +571,7 @@ function capLine(capRounds) {
  * @param {number | null} baseRate its repo-matched baseline
  * @returns {string}
  */
-function rLine(rate, baseRate) {
+function buildRLine(rate, baseRate) {
 	const range = rate && rateRange(rate);
 	if (!range || !baseRate)
 		return `r: unread — no pool below ${MIN_CALLS} calls with a baseline above 0.`;
@@ -587,16 +587,16 @@ function rLine(rate, baseRate) {
 /**
  * r, its price, and whether #1684's flip is put to the founder: where the
  * limb works and the rate at MIN_CALLS or more stays within its band.
- * @param {ReturnType<typeof notWorkingLine>} notWorking
+ * @param {ReturnType<typeof buildNotWorkingLine>} notWorking
  * @param {ReturnType<typeof repoPool>} below
  * @param {ReturnType<typeof repoPool>} atOrAbove
  * @returns {string[]}
  */
-function flipLines(notWorking, below, atOrAbove) {
+function buildFlipLines(notWorking, below, atOrAbove) {
 	const lines = [
 		`The flip (#1691 Q2 (A)): unrefused rounds at ${MIN_CALLS} or more calls against each repo's baseline there.`,
 		...atOrAbove.lines,
-		`   ${rLine(notWorking.rate, below.baseRate)}`,
+		`   ${buildRLine(notWorking.rate, below.baseRate)}`,
 	];
 	const notPut = (/** @type {string} */ why) => {
 		lines.push(`   Flip: not put — ${why}.`);
@@ -610,7 +610,7 @@ function flipLines(notWorking, below, atOrAbove) {
 		return notPut(`no repo clears the bar at ${MIN_CALLS} or more calls`);
 	const rate = rateOf(atOrAbove.pooled);
 	const p = atOrAbove.baseRate;
-	const head = `   Pooled over ${atOrAbove.kept.join(", ")}: ${rateText(rate)}. Repo-matched baseline ${pct(p)}`;
+	const head = `   Pooled over ${atOrAbove.kept.join(", ")}: ${buildRateText(rate)}. Repo-matched baseline ${pct(p)}`;
 	if (rate.unclassed > 0) {
 		lines.push(
 			`${head}. Flip: undecided until the listed replies are classified, which sets the band.`,
@@ -643,7 +643,7 @@ function flipLines(notWorking, below, atOrAbove) {
  * @param {number} leftOut unclassed replies in repos kept out of a pool
  * @returns {string[]}
  */
-function classifyLines(rounds, leftOut) {
+function buildClassifyLines(rounds, leftOut) {
 	const open = rounds.filter((r) => r.cls === null);
 	if (open.length === 0) return [];
 	const name = {
@@ -677,7 +677,7 @@ function main() {
 		);
 		return;
 	}
-	const filed = filedAs();
+	const filed = readFiledAs();
 	if (filed && !dryRun) {
 		console.log(`The round-check reading is filed as ${filed}; nothing to do.`);
 		return;
@@ -698,12 +698,12 @@ function main() {
 	const repos = [...base.byRepo.keys()].sort();
 
 	const seats = lists["--config-dir"] ?? configDirs();
-	const { files } = seatTranscripts(seats);
+	const { files } = readSeatTranscripts(seats);
 	/** @type {Map<string, string>} session id → transcript */
 	const transcripts = new Map(
 		files.map((f) => [path.basename(f, ".jsonl"), f]),
 	);
-	const { roots, unreadHeads } = repoRoots(files, repos);
+	const { roots, unreadHeads } = readRepoRoots(files, repos);
 
 	/** @type {{ events: RoundEvent[], live: Map<string, number> }} */
 	let logs;
@@ -735,14 +735,14 @@ function main() {
 	const out = [
 		"Round-check reading (#1691, spec #1701)",
 		"",
-		...repoLines(repos, live, roots, "round-check"),
+		...buildRepoLines(repos, live, roots, "round-check"),
 	];
 	if (!point) {
 		out.push("", "Reading point: none yet — no repo is live.");
 		console.log(out.join("\n"));
 		return;
 	}
-	out.push(...pointLines(pointSentence(point), at));
+	out.push(...buildPointLines(buildPointSentence(point), at));
 
 	const ofKind = (/** @type {RoundKind} */ k) =>
 		rounds.filter((r) => r.kind === k);
@@ -756,26 +756,26 @@ function main() {
 
 	out.push(
 		"",
-		...caveatLines(
+		...buildCaveatLines(
 			ofKind("refused").length,
 			unreadHeads,
 			unreadSessions,
 			stray,
 		),
 	);
-	const notWorking = notWorkingLine(below);
+	const notWorking = buildNotWorkingLine(below);
 	const lines = [
 		notWorking,
-		paddedLine(counted),
-		thresholdLine(counted, base),
-		capLine(capRounds),
+		buildPaddedLine(counted),
+		buildThresholdLine(counted, base),
+		buildCapLine(capRounds),
 	];
 	for (const l of lines)
 		out.push(...(Array.isArray(l.text) ? l.text : [l.text]));
-	out.push("", firedLine(lines.map((l) => l.verdict)));
-	out.push("", ...flipLines(notWorking, below, atOrAbove));
+	out.push("", buildFiredLine(lines.map((l) => l.verdict)));
+	out.push("", ...buildFlipLines(notWorking, below, atOrAbove));
 	out.push(
-		...classifyLines(
+		...buildClassifyLines(
 			listed,
 			rounds.filter((r) => r.cls === null && !listed.includes(r)).length,
 		),

@@ -52,7 +52,7 @@ const fs = require("node:fs");
 
 const { now, runCheck } = require("./lib/check");
 const { configDirs } = require("./lib/arbiter-store");
-const { seatTranscripts } = require("./lib/project-dirs");
+const { readSeatTranscripts } = require("./lib/project-dirs");
 const { mainChainRecords } = require("./lib/transcript");
 const { fileOrRefresh } = require("./lib/tracking-issue");
 const {
@@ -166,7 +166,9 @@ function recordTexts(content) {
  */
 function measure({ days = DEFAULT_DAYS, at = now() } = {}) {
 	const cutoff = at - days * 86_400_000;
-	const { files, listed, absent, unreadable } = seatTranscripts(configDirs());
+	const { files, listed, absent, unreadable } = readSeatTranscripts(
+		configDirs(),
+	);
 
 	/** @type {Reading} */
 	const r = {
@@ -315,7 +317,7 @@ function summary(r, v, days = DEFAULT_DAYS) {
  * @param {ReturnType<typeof topReading>} v
  * @param {number} [days]
  */
-function topSummary(r, v, days = DEFAULT_DAYS) {
+function buildTopSummary(r, v, days = DEFAULT_DAYS) {
 	const share = v.share === null ? "none" : pct(v.share);
 	return `${r.tops} priced top(s) in the last ${days}d, ${r.atFirstPassingTop} at exactly ${FIRST_PASSING_TOP}: ${share} (baseline ${pct(v.baseline)}, ceiling ${pct(v.ceiling)}).`;
 }
@@ -389,7 +391,7 @@ const TOP_WATCH = {
 		const v = topReading(r);
 		return {
 			drifted: v.share !== null && v.share > v.ceiling,
-			summary: topSummary(r, v, days),
+			summary: buildTopSummary(r, v, days),
 			findings: [],
 			baseline: `Baseline: ${TOP_BASELINE.atLine} of ${TOP_BASELINE.tops} priced tops at ${FIRST_PASSING_TOP}, every round shape, window ${TOP_BASELINE.window}, before the low-top test was live (#2519).`,
 			decide: `The close-rivals limb of \`scripts/guard-priced-options.js\` refuses a round whose top figure is ${LOW_TOP} or less (#2228, #2519); ${FIRST_PASSING_TOP} is the first figure that passes. Decide whether more rounds topping at ${FIRST_PASSING_TOP} is agents pricing more confidently or pricing around the test, and what, if anything, changes.`,
@@ -419,14 +421,14 @@ function readWatch(watch, r, days) {
 	return {
 		kind,
 		summary: a.summary,
-		body: issueBody(a),
+		body: buildIssueBody(a),
 		shortfall: `${count(r)} ${noun} in the last ${days}d, under the ${min} a reading needs`,
 		data: a.data,
 	};
 }
 
 /** @param {Assessment} a */
-function issueBody(a) {
+function buildIssueBody(a) {
 	return [
 		"Filed and refreshed by `scripts/check-band-drift.js` whenever `scripts/status-report.js` runs; nothing here was written by hand.",
 		"",

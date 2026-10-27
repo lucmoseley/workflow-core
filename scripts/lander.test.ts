@@ -191,7 +191,7 @@ it("does nothing with the landing module off", async () => {
 	expect(git(remote, "rev-parse", "main")).toBe(seed);
 });
 
-it("files one held-queue issue over two holds in a row, refreshing its body to the second batch", async () => {
+it("files one held-queue issue over two holds in a row, urgent and bug, refreshing its body to the second batch and re-adding a label taken off (#2694)", async () => {
 	const store = path.join(tmp, "issues.json");
 	fs.writeFileSync(store, "[]");
 	const gh = stubGhScript(
@@ -208,11 +208,12 @@ if (is("issue", "list")) {
 	const state = flag("--state");
 	out(read().filter((i) => state === "all" || i.state === state.toUpperCase()));
 } else if (is("api") && a[1].endsWith("/labels")) {
-	out([[{ name: "takes:implement" }, { name: "kind:ticket" }]]);
+	out([[{ name: "urgent" }, { name: "bug" }, { name: "takes:implement" }, { name: "kind:ticket" }]]);
 } else if (is("issue", "create")) {
 	const all = read();
 	const number = 100 + all.length;
-	all.push({ number, title: flag("--title"), state: "OPEN", body: fs.readFileSync(0, "utf8") });
+	const labels = a.flatMap((w, i) => (w === "--label" ? [{ name: a[i + 1] }] : []));
+	all.push({ number, title: flag("--title"), state: "OPEN", labels, body: fs.readFileSync(0, "utf8") });
 	write(all);
 	out("https://github.com/o/here/issues/" + number + "\\n");
 } else if (is("issue", "view")) {
@@ -220,7 +221,9 @@ if (is("issue", "list")) {
 	out(a.includes("--jq") ? issue.body : { body: issue.body });
 } else if (is("issue", "edit")) {
 	const all = read();
-	all.find((i) => String(i.number) === a[2]).body = fs.readFileSync(flag("--body-file"), "utf8");
+	const issue = all.find((i) => String(i.number) === a[2]);
+	if (a.includes("--body-file")) issue.body = fs.readFileSync(flag("--body-file"), "utf8");
+	a.forEach((w, i) => w === "--add-label" && issue.labels.push({ name: a[i + 1] }));
 	write(all);
 } else out("[]");
 `,
@@ -235,25 +238,45 @@ if (is("issue", "list")) {
 	const first = commit("first");
 	git(work, "push", "-q", "origin", "HEAD:landing");
 	const r1 = await runLander(tester, "landing", gh.env);
+	const readStore = () => JSON.parse(fs.readFileSync(store, "utf8"));
+	const readLabelNames = () =>
+		readStore()[0].labels.map((l: { name: string }) => l.name);
+	expect(readLabelNames()).toEqual([
+		"urgent",
+		"bug",
+		"takes:implement",
+		"kind:ticket",
+	]);
+	const filed = readStore();
+	filed[0].labels = filed[0].labels.filter(
+		(l: { name: string }) => l.name !== "urgent",
+	);
+	fs.writeFileSync(store, JSON.stringify(filed));
 	const second = commit("second");
 	git(work, "push", "-q", "origin", "HEAD:landing");
 	const r2 = await runLander(tester, "landing", gh.env);
 
 	expect(r1.status, r1.stderr).toBe(0);
 	expect(r2.status, r2.stderr).toBe(0);
-	const issues = JSON.parse(fs.readFileSync(store, "utf8"));
+	const issues = readStore();
 	expect(issues).toHaveLength(1);
 	expect(issues[0].body).toContain(`Batch: \`${second}\``);
 	expect(issues[0].body).not.toContain(first);
 	expect(issues[0].body).toContain("- `scripts/x.test.ts`");
-	expect(r2.stdout).toContain("held-queue issue: Refreshed #100.");
+	expect(r2.stdout).toContain(
+		"held-queue issue: Refreshed #100. Re-added urgent.",
+	);
+	expect(readLabelNames()).toContain("urgent");
 	expect(
 		JSON.parse(
 			fs.readFileSync(path.join(markers(), ".lander-heartbeat.json"), "utf8"),
 		),
 	).toMatchObject({
 		batch: second,
-		hold: { landing: second, filed: "held-queue issue: Refreshed #100." },
+		hold: {
+			landing: second,
+			filed: "held-queue issue: Refreshed #100. Re-added urgent.",
+		},
 	});
 });
 
@@ -264,8 +287,84 @@ it("takes a revert already on landing as landed rather than reverting twice, as 
 	const revert = git(work, "rev-parse", "HEAD");
 	git(work, "push", "-q", "origin", "HEAD:landing");
 
-	const made = remoteGit(work).revertOnLanding(culprit, "why");
+	const made = remoteGit(work).revertOnLanding(culprit, null, "why");
 
 	expect(made).toEqual({ sha: revert, onto: culprit });
 	expect(git(remote, "rev-parse", "landing")).toBe(revert);
+});
+
+it("fails a revert whose commit prepare-commit-msg refuses, naming the gate's verdict and pushing nothing (#3123)", () => {
+	const culprit = commit("bad");
+	git(work, "push", "-q", "origin", "HEAD:landing");
+	const hooks = path.join(tmp, "hooks");
+	fs.mkdirSync(hooks);
+	fs.writeFileSync(
+		path.join(hooks, "prepare-commit-msg"),
+		"#!/bin/sh\necho '> workflow-core@0.1.0 check:staged' >&2\necho 'FAIL: 1 fault(s) this commit adds' >&2\nexit 1\n",
+	);
+	fs.chmodSync(path.join(hooks, "prepare-commit-msg"), 0o755);
+	git(work, "config", "core.hooksPath", hooks);
+
+	const made = remoteGit(work).revertOnLanding(culprit, null, "why");
+
+	expect(made).toEqual({
+		failed: "its commit was refused: FAIL: 1 fault(s) this commit adds",
+	});
+	expect(git(remote, "rev-parse", "landing")).toBe(culprit);
+});
+
+/**
+ * A reconcile merge pushed to landing: the session's side `s` as its first
+ * parent, `l` (which main holds) as its second, then `tip` on top.
+ */
+const reconcileMerge = () => {
+	const seed = git(work, "rev-parse", "HEAD");
+	const l = commit("l");
+	git(work, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(work, "checkout", "-q", "--detach", seed);
+	const s = commit("s");
+	git(work, "merge", "-q", "--no-edit", l);
+	const merge = git(work, "rev-parse", "HEAD");
+	const tip = commit("tip");
+	git(work, "push", "-q", "origin", "HEAD:landing");
+	return { l, s, merge, tip };
+};
+
+it("bisects a reconcile merge's range along the parent main precedes, never the session's side (#2996)", () => {
+	const { l, s, merge, tip } = reconcileMerge();
+
+	const chain = remoteGit(work).chain(l, tip);
+
+	expect(chain).toEqual([merge, tip]);
+	expect(chain).not.toContain(s);
+});
+
+it("bisects a range with no main along first parents from the root (#2996)", () => {
+	const { l, s, merge, tip } = reconcileMerge();
+
+	const chain = remoteGit(work).chain(null, tip);
+
+	expect(chain.slice(-3)).toEqual([s, merge, tip]);
+	expect(chain).not.toContain(l);
+});
+
+it("refuses a range whose base the tip does not descend from (#2996)", () => {
+	const { l, tip } = reconcileMerge();
+	git(work, "checkout", "-q", "--detach", l);
+	const other = commit("other");
+
+	expect(() => remoteGit(work).chain(other, tip)).toThrow(
+		"does not descend from",
+	);
+});
+
+it("reverts a merge culprit against the parent the bisect stepped from, undoing the session's side (#2996)", () => {
+	const { l, merge } = reconcileMerge();
+
+	const made = remoteGit(work).revertOnLanding(merge, l, "why");
+
+	if (!("sha" in made)) throw new Error(made.failed);
+	const files = git(remote, "ls-tree", "--name-only", made.sha).split("\n");
+	expect(files).toContain("l.txt");
+	expect(files).not.toContain("s.txt");
 });

@@ -201,7 +201,7 @@ function createIssue({ title, labels, body }) {
  *
  * `labels` carries the `takes:` value as well as the finding label: every open
  * issue needs one naming what opens it, and a create from inside a workflow is
- * invisible to scripts/guard-issue-create-label.sh, which sees Bash tool calls
+ * invisible to scripts/guard-issue-create-label.js, which sees Bash tool calls
  * only (mantahostels#470). `labels` applies at CREATE only; `takes`, optional, is what
  * keeps the value right on a REFRESH, when the condition's actionable state has
  * moved since the issue was filed (mantahostels#1079). A caller passing `takes` need not

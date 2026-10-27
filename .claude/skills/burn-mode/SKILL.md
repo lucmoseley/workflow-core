@@ -24,7 +24,7 @@ one keep the effort they booted on — and so does the session the agents view
 already created for its launch line, until one throwaway launch from there
 (`/usage` serves) spends it. The dispatch half is live at once — the
 next `Agent` call naming `sonnet` in any session runs as `opus`, rewritten by
-`scripts/guard-dispatch-rewrite.sh`.
+`scripts/lib/dispatch-rewrite.js`.
 
 Relay the script's warnings where they print. **`off` exits 1 where a plan is
 still at the burn effort when it finishes** — a failed revert, not a warning,

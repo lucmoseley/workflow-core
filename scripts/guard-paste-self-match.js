@@ -8,7 +8,7 @@
  * WHY. A `!` paste runs as one shell whose command line is the whole pasted
  * text, and `-f` matches full command lines — so such a pattern matches the
  * founder's own shell, which is killed before the rest of the paste runs.
- * guard-self-match.sh catches the same
+ * lib/self-match.js catches the same
  * hazard in the agent's own Bash calls; a founder paste never passes
  * `PreToolUse`, so the outgoing message at Stop is the last place to see it.
  *
@@ -17,12 +17,11 @@
  * pasted together run in one shell (#883, finding W6). A `!` line in plain
  * prose, and any span not opening with `!`, is not read.
  *
- * THE JUDGEMENT is scripts/lib/paste-self-match.sh's, which runs each block through
- * lib/guard-parse.sh's segment split and flag reader — the ones
- * guard-self-match.sh uses — and tests each `-f` pattern, as an extended regex,
- * against the block's text, and any other against the shell's name, inverted
- * under `-v`. The split mirrors
- * guard-self-match.sh's (mantahostels#103):
+ * THE JUDGEMENT is lib/paste-self-match.js's, which reads each block with
+ * lib/shell-parse.js's segment split and lib/pgrep-args.js's flag reader — the
+ * ones lib/self-match.js uses — and tests each `-f` pattern, as an extended
+ * regex, against the block's text, and any other against the shell's name,
+ * inverted under `-v`. The split mirrors lib/self-match.js's (mantahostels#103):
  * a matching `pkill -f` is refused; a matching `pgrep -f` is warned on the
  * founder's screen (`systemMessage`, which never reaches the model), since a
  * read costs a wrong answer, not a shell. A segment naming `$$` or `$PPID`
@@ -30,7 +29,7 @@
  * is logged to the fail-open record.
  *
  * IMPLICIT:  scans every outgoing message for `!` code with a pgrep or pkill
- *            in it, and runs one bash per such block.
+ *            in it.
  * JUSTIFIED: fail-safe — the miss kills the founder's shell mid-paste and can
  *            orphan whatever the paste had started.
  * DEFEAT:    MAX_BLOCKS refusals a session on its own counter; past the cap the
@@ -38,11 +37,8 @@
  *            failure path.
  */
 
-const { spawnSync } = require("node:child_process");
-const path = require("node:path");
-const { logError } = require("./lib/arbiter-core");
 const hookBlock = require("./lib/hook-block");
-const { ruleParagraph } = require("./lib/rule-text");
+const { readRuleParagraph } = require("./lib/rule-text");
 const stopGuard = require("./lib/stop-guard");
 const { requiredGroup } = require("./lib/regex-group");
 
@@ -51,12 +47,6 @@ const PARAGRAPH_HEAD = "A PROCESS KILL IN A `!` PASTE";
 
 /** Cheap pre-filter, so a message with no process search spawns nothing. */
 const MENTIONS = /\bp(?:kill|grep)\b/;
-
-const SCANNER = path.join(__dirname, "lib", "paste-self-match.sh");
-
-/* One bash and one parse of a paste take well under a second; five leaves the
- * 15 s Stop ceiling room for two slow pastes and the block write. */
-const SCAN_TIMEOUT_MS = 5000;
 
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})\s*$/;
@@ -158,44 +148,26 @@ function spanPastes(prose) {
 }
 
 /**
- * The scanner's findings for one paste. Empty on any failure: the scanner logs
- * the fail-opens it reaches, and this logs the run that never finished.
+ * lib/paste-self-match.js's findings for one paste, its fail-opens on the
+ * guard-error record. Loaded here, so a message naming no process search
+ * loads no parser.
  * @param {Paste} paste
  * @returns {Finding[]}
  */
 function scan(paste) {
-	const run = spawnSync("bash", [SCANNER], {
-		input: JSON.stringify({ tool_input: { command: paste.text } }),
-		encoding: "utf8",
-		timeout: SCAN_TIMEOUT_MS,
-	});
-	if (run.status !== 0 || typeof run.stdout !== "string") {
-		logError(
-			"guard-paste-self-match.js",
-			run.error ?? new Error(`scanner exited ${run.status ?? run.signal}`),
-		);
+	const { scanPaste } = require("./lib/paste-self-match");
+	const { logger } = require("./lib/entry-input.js");
+	const log = logger("guard-paste-self-match.js");
+	try {
+		return scanPaste(paste.text, log).map((f) => ({
+			...f,
+			opening: paste.opening,
+		}));
+	} catch (error) {
+		/* One paste's fault drops that paste alone, on the record. */
+		log(`paste unscanned: ${error instanceof Error ? error.message : error}`);
 		return [];
 	}
-	return run.stdout.split("\n").flatMap((line) => {
-		if (line === "") return [];
-		const [verdict, segment, pattern, relation, against] = line.split("\t");
-		if (
-			(verdict !== "kill" && verdict !== "read") ||
-			(relation !== "matches" && relation !== "misses") ||
-			(against !== "paste" && against !== "name") ||
-			segment === undefined ||
-			!pattern
-		) {
-			logError(
-				"guard-paste-self-match.js",
-				new Error(`unreadable scanner line: ${line}`),
-			);
-			return [];
-		}
-		return [
-			{ verdict, segment, pattern, relation, against, opening: paste.opening },
-		];
-	});
 }
 
 /** @param {Finding} f */
@@ -213,7 +185,7 @@ function refusal(kills, reads) {
 		"",
 		...kills.map(formatFinding),
 		"",
-		ruleParagraph("founder-handover", PARAGRAPH_HEAD),
+		readRuleParagraph("founder-handover", PARAGRAPH_HEAD),
 	];
 	if (reads.length > 0)
 		out.push(
@@ -245,7 +217,7 @@ function rewriteAdvice(kills) {
  * @param {Finding[]} findings
  * @returns {string}
  */
-function screenNote(findings) {
+function buildScreenNote(findings) {
 	return [
 		"A `!` paste in this message searches processes by a pattern that selects your own shell — a `pkill` kills that shell before the rest runs, a `pgrep` lists it (#921):",
 		"",
@@ -273,7 +245,7 @@ function review({ sessionId, message }) {
 		});
 	if (!blocked)
 		process.stdout.write(
-			JSON.stringify({ systemMessage: screenNote(findings) }),
+			JSON.stringify({ systemMessage: buildScreenNote(findings) }),
 		);
 }
 

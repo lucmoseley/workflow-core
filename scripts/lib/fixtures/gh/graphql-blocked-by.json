@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "{\"data\":{\"repository\":{\"nameWithOwner\":\"o/r\",\"i1\":{\"blockedBy\":{\"totalCount\":1,\"nodes\":[{\"number\":1,\"state\":\"CLOSED\",\"title\":\"A synthetic blocker\",\"url\":\"https://github.com/o/r/issues/1\",\"body\":\"A synthetic body.\",\"repository\":{\"nameWithOwner\":\"o/r\"},\"labels\":{\"nodes\":[{\"name\":\"kind:ticket\"}]}}]}},\"i2\":null}},\"errors\":[{\"type\":\"NOT_FOUND\",\"path\":[\"repository\",\"i2\"],\"locations\":[{\"line\":1,\"column\":1}],\"message\":\"Could not resolve to an Issue with the number of 2.\"}]}",
+	"stderr": "gh: Could not resolve to an Issue with the number of 2.\n"
+}

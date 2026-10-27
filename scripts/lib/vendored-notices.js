@@ -9,7 +9,7 @@
  * adopter which licence covers which skill. Two readers refuse a mismatch:
  * check-vendored-skills.js at commit, and the release render.
  *
- * `noticeLicences` hands each section's licence text to
+ * `readNoticeLicences` hands each section's licence text to
  * check-vendored-skills.js --upstream, which compares it with upstream's (#1951).
  */
 
@@ -26,7 +26,7 @@ const LOCK = "skills-lock.json";
  * @returns {Map<string, string[]> | null}
  * @throws {Error} where the lock exists and will not parse
  */
-function lockedSources(root) {
+function readLockedSources(root) {
 	const file = path.join(root, LOCK);
 	if (!fs.existsSync(file)) return null;
 	const skills = JSON.parse(fs.readFileSync(file, "utf8")).skills ?? {};
@@ -84,7 +84,7 @@ function noticeSections(text, sources) {
 }
 
 /** @param {string} root */
-function noticesText(root) {
+function readNoticesText(root) {
 	const file = path.join(root, NOTICES);
 	return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 }
@@ -108,9 +108,9 @@ const staleHeadings = (text, sources) =>
  * @returns {Map<string, string>}
  * @throws {Error} where the lock exists and will not parse
  */
-function noticeLicences(root) {
-	const bySource = lockedSources(root) ?? new Map();
-	const sections = noticeSections(noticesText(root), bySource);
+function readNoticeLicences(root) {
+	const bySource = readLockedSources(root) ?? new Map();
+	const sections = noticeSections(readNoticesText(root), bySource);
 	/** @type {Map<string, string>} */
 	const out = new Map();
 	for (const source of bySource.keys()) {
@@ -129,9 +129,9 @@ function noticeLicences(root) {
  * @throws {Error} where the lock exists and will not parse
  */
 function noticeFaults(root) {
-	const bySource = lockedSources(root);
+	const bySource = readLockedSources(root);
 	if (!bySource) return [];
-	const text = noticesText(root);
+	const text = readNoticesText(root);
 	const sections = noticeSections(text, bySource);
 	/** @type {string[]} */
 	const faults = [];
@@ -156,4 +156,4 @@ function noticeFaults(root) {
 	return faults;
 }
 
-module.exports = { LOCK, NOTICES, noticeFaults, noticeLicences };
+module.exports = { LOCK, NOTICES, noticeFaults, readNoticeLicences };

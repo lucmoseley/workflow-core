@@ -32,7 +32,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { runCheck } = require("./lib/check");
-const { blob, renameSources, spawn, stagedDiff } = require("./lib/staged");
+const {
+	readBlob,
+	readRenameSources,
+	spawn,
+	readStagedDiff,
+} = require("./lib/staged");
+const { spawnGitSync } = require("./lib/git.js");
 const { globMatches } = require("./lib/pathspec-glob.js");
 const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { caught } = require("./lib/caught.js");
@@ -143,8 +149,10 @@ function charge(ctx, p, now, had) {
  * @param {Ctx} ctx
  * @returns {string[]}
  */
-function trackedPython(ctx) {
-	const r = spawn("git", ["ls-files", "-z", "--", "*.py"]);
+function readTrackedPython(ctx) {
+	const r = spawnGitSync(["ls-files", "-z", "--", "*.py"], {
+		encoding: "utf8",
+	});
 	if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
 	return r.stdout.split("\0").filter(Boolean);
 }
@@ -172,18 +180,18 @@ function worktreeSources(paths, isProgram) {
  * @param {IsProgram} isProgram
  * @returns {{ now: Source[], before: Source[] }}
  */
-function stagedSources(ctx, paths, isProgram) {
-	const renamed = renameSources(ctx);
+function readStagedSources(ctx, paths, isProgram) {
+	const renamed = readRenameSources(ctx);
 	/** @type {Source[]} */
 	const now = [];
 	/** @type {Source[]} */
 	const before = [];
 	for (const p of paths) {
-		const staged = blob(`:${p}`);
+		const staged = readBlob(`:${p}`);
 		if (staged === null) ctx.broken(`${p} has no staged blob`);
 		if (!isProgram(p, staged)) continue;
 		now.push({ name: p, text: staged });
-		const head = blob(`HEAD:${renamed.get(p) ?? p}`);
+		const head = readBlob(`HEAD:${renamed.get(p) ?? p}`);
 		if (head !== null) before.push({ name: p, text: head });
 	}
 	return { now, before };
@@ -197,12 +205,12 @@ runCheck({
 		const isProgram = buildIsProgram(readConfig().pythonRoutes);
 		const all = ctx.has("--all");
 		const listed = all
-			? trackedPython(ctx)
-			: stagedDiff(ctx, ["--name-only", "--diff-filter=ACMR"]);
+			? readTrackedPython(ctx)
+			: readStagedDiff(ctx, ["--name-only", "--diff-filter=ACMR"]);
 		const paths = listed.filter((p) => p.endsWith(".py"));
 		const { now, before } = all
 			? worktreeSources(paths, isProgram)
-			: stagedSources(ctx, paths, isProgram);
+			: readStagedSources(ctx, paths, isProgram);
 		if (now.length === 0)
 			return { okLine: "no program-routed Python path to judge" };
 		const judged = walk(ctx, now);

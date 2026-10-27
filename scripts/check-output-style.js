@@ -21,9 +21,9 @@ const { resolveConfigDir } = require("./lib/plugin-state.js");
 const { coreRoot } = require("./lib/script-path.js");
 const {
 	BUILT_IN_STYLES,
-	stylesIn,
+	readStylesIn,
 	pluginOf,
-	pluginStyles,
+	readPluginStyles,
 } = require("./lib/output-styles.js");
 const { caught } = require("./lib/caught.js");
 
@@ -35,7 +35,7 @@ const SETTINGS = [".claude/settings.local.json", ".claude/settings.json"];
  * @param {string} file
  * @returns {unknown}
  */
-function declaredIn(ctx, file) {
+function readDeclaredStyle(ctx, file) {
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
@@ -58,16 +58,16 @@ runCheck({
 		const root = hostRoot();
 		const declared = SETTINGS.map((file) => ({
 			rel: file,
-			style: declaredIn(ctx, path.join(root, file)),
+			style: readDeclaredStyle(ctx, path.join(root, file)),
 		})).find((d) => d.style !== undefined && d.style !== null);
 		if (!declared)
 			ctx.skip("no project settings file declares an `outputStyle`.");
 		const { rel, style } = declared;
-		const shipped = pluginStyles(coreRoot());
+		const shipped = readPluginStyles(coreRoot());
 		const known = new Set([
 			...BUILT_IN_STYLES,
-			...stylesIn(path.join(root, ".claude", "output-styles")),
-			...stylesIn(path.join(resolveConfigDir(), "output-styles")),
+			...readStylesIn(path.join(root, ".claude", "output-styles")),
+			...readStylesIn(path.join(resolveConfigDir(), "output-styles")),
 			...shipped.styles,
 		]);
 		const name = String(style);

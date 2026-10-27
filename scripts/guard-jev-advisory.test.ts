@@ -31,8 +31,8 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { copyLibs, programLibs } from "./guard-parse-fixture";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
+import { copyLibs, readProgramLibs } from "./lib-closure-fixture";
 
 const hookBlock = createRequire(__filename)("./lib/hook-block.js");
 const guard = createRequire(__filename)("./guard-jev-advisory.js");
@@ -95,7 +95,7 @@ function marker(name: string): string {
 }
 
 /** Every line the guard has logged in this sandbox, oldest first. */
-function logLines(): LogLine[] {
+function readLogLines(): LogLine[] {
 	const file = marker(".jev-advisory-log.jsonl");
 	if (!fs.existsSync(file)) return [];
 	return fs
@@ -262,7 +262,7 @@ async function outcomeOf(
 	env: NodeJS.ProcessEnv = {},
 ): Promise<string> {
 	await run(text, env);
-	const lines = logLines();
+	const lines = readLogLines();
 	expect(lines).toHaveLength(1);
 	return lines[0].outcome;
 }
@@ -325,7 +325,7 @@ describe("the round-marker gate", () => {
 		const { res, asks } = await ask(ROUND, 0.99);
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
-		expect(logLines()[0].outcome).toBe("skipped-marker");
+		expect(readLogLines()[0].outcome).toBe("skipped-marker");
 	});
 });
 
@@ -354,7 +354,7 @@ describe("the master switch", () => {
 		const { res, asks } = await ask(PLAIN, 0.99, { WFC_JEV_ADVISORY: "0" });
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
-		expect(logLines()[0].outcome).toBe("skipped-disabled");
+		expect(readLogLines()[0].outcome).toBe("skipped-disabled");
 	});
 
 	/* The script's own basename is honoured inside lib/stop-guard.js, which
@@ -363,7 +363,7 @@ describe("the master switch", () => {
 	it("logs nothing at all when the script basename is disabled instead", async () => {
 		configWithDisabled(["guard-jev-advisory.js"]);
 		await run(PLAIN);
-		expect(logLines()).toEqual([]);
+		expect(readLogLines()).toEqual([]);
 	});
 });
 
@@ -400,14 +400,14 @@ describe("no rate gate (#703)", () => {
 		await run(PLAIN, env);
 		await run(`${PLAIN} Again.`, env);
 		expect(asks).toHaveLength(2);
-		expect(logLines().map((l) => l.outcome)).toEqual(["clear", "clear"]);
+		expect(readLogLines().map((l) => l.outcome)).toEqual(["clear", "clear"]);
 	});
 });
 
 describe("the vendor gate", () => {
 	it("skips because the key is absent, naming which half was missing", async () => {
 		await run(PLAIN);
-		expect(logLines()[0].why).toBe("key");
+		expect(readLogLines()[0].why).toBe("key");
 	});
 
 	it("skips with no throw where the SDK itself is unreachable", async () => {
@@ -418,7 +418,7 @@ describe("the vendor gate", () => {
 		 * driven as a real subprocess — the resolve then walks up from /tmp and
 		 * fails, exactly as it does in a throwaway worktree. */
 		const bin = path.join(dir, "scripts");
-		copyLibs(path.join(bin, "lib"), programLibs("guard-jev-advisory.js"));
+		copyLibs(path.join(bin, "lib"), readProgramLibs("guard-jev-advisory.js"));
 		fs.copyFileSync(GUARD, path.join(bin, "guard-jev-advisory.js"));
 
 		const res = spawnSync(
@@ -444,9 +444,9 @@ describe("the vendor gate", () => {
 		expect(res.status).toBe(0);
 		expect(res.stdout).toBe("");
 		expect(res.stderr).toBe("");
-		expect(logLines()).toHaveLength(1);
-		expect(logLines()[0].outcome).toBe("skipped-no-sdk");
-		expect(logLines()[0].why).toBe("sdk");
+		expect(readLogLines()).toHaveLength(1);
+		expect(readLogLines()[0].outcome).toBe("skipped-no-sdk");
+		expect(readLogLines()[0].why).toBe("sdk");
 	}, 20_000);
 
 	it("takes the key from a gitignored .env where the environment has none", async () => {
@@ -457,7 +457,7 @@ describe("the vendor gate", () => {
 		const { base, asks } = await answering(0.9);
 		await run(PLAIN, { WFC_JEV_BASE_URL: base });
 		expect(asks).toHaveLength(1);
-		expect(logLines()[0].outcome).toBe("flagged");
+		expect(readLogLines()[0].outcome).toBe("flagged");
 	});
 
 	it("prefers the environment over the .env file", async () => {
@@ -493,8 +493,8 @@ describe.skipIf(!HAS_GITLEAKS)("the redaction sweep", () => {
 		});
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
-		expect(logLines()[0].outcome).toBe("skipped-redaction");
-		expect(logLines()[0].why).toBe("finding");
+		expect(readLogLines()[0].outcome).toBe("skipped-redaction");
+		expect(readLogLines()[0].why).toBe("finding");
 	});
 
 	it("runs the sweep before every egress, not only the first", async () => {
@@ -502,7 +502,7 @@ describe.skipIf(!HAS_GITLEAKS)("the redaction sweep", () => {
 		const env = callable(base, { WFC_GITLEAKS: "gitleaks" });
 		await run(PLAIN, env);
 		await run(WITH_SECRET, env);
-		expect(logLines().map((l) => l.outcome)).toEqual([
+		expect(readLogLines().map((l) => l.outcome)).toEqual([
 			"flagged",
 			"skipped-redaction",
 		]);
@@ -555,8 +555,8 @@ describe("a machine with no gitleaks", () => {
 		});
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
-		expect(logLines()[0].outcome).toBe("skipped-redaction");
-		expect(logLines()[0].why).toBe("unswept");
+		expect(readLogLines()[0].outcome).toBe("skipped-redaction");
+		expect(readLogLines()[0].why).toBe("unswept");
 	});
 
 	it("treats a sweep that never returns as a finding", async () => {
@@ -565,8 +565,8 @@ describe("a machine with no gitleaks", () => {
 		const { res, asks } = await ask(PLAIN, 0.99, { WFC_GITLEAKS: hang });
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
-		expect(logLines()[0].outcome).toBe("skipped-redaction");
-		expect(logLines()[0].why).toBe("unswept");
+		expect(readLogLines()[0].outcome).toBe("skipped-redaction");
+		expect(readLogLines()[0].why).toBe("unswept");
 	}, 20_000);
 });
 
@@ -589,8 +589,8 @@ describe("a gitleaks too old to carry `stdin`", () => {
 		});
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
-		expect(logLines()[0].outcome).toBe("skipped-redaction");
-		expect(logLines()[0].why).toBe("unswept");
+		expect(readLogLines()[0].outcome).toBe("skipped-redaction");
+		expect(readLogLines()[0].why).toBe("unswept");
 	});
 
 	it("still calls a real finding a finding, the probe coming back clean", async () => {
@@ -605,8 +605,8 @@ describe("a gitleaks too old to carry `stdin`", () => {
 		const { res, asks } = await ask(PLAIN, 0.99, { WFC_GITLEAKS: file });
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
-		expect(logLines()[0].outcome).toBe("skipped-redaction");
-		expect(logLines()[0].why).toBe("finding");
+		expect(readLogLines()[0].outcome).toBe("skipped-redaction");
+		expect(readLogLines()[0].why).toBe("finding");
 	});
 });
 
@@ -665,17 +665,17 @@ describe("what answered (#702)", () => {
 
 	it("logs the model and provider the reply names, and the question digest", async () => {
 		await run(PLAIN, callable(await naming("typesafe-ai/jev", "digitalocean")));
-		expect(logLines()[0]).toMatchObject({
+		expect(readLogLines()[0]).toMatchObject({
 			outcome: "clear",
 			model: "typesafe-ai/jev",
 			provider: "digitalocean",
 		});
-		expect(logLines()[0].questionHash).toMatch(/^[0-9a-f]{12}$/);
+		expect(readLogLines()[0].questionHash).toMatch(/^[0-9a-f]{12}$/);
 	});
 
 	it("falls back to the id asked for where the reply names no model", async () => {
 		await ask(PLAIN, 0.9);
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.outcome).toBe("flagged");
 		expect(line.model).toBe("typesafe-ai/jev");
 		expect(line.provider).toBeUndefined();
@@ -684,13 +684,13 @@ describe("what answered (#702)", () => {
 	it("digests the question set the same way on every turn", async () => {
 		await ask(PLAIN, 0.2);
 		await ask(`${PLAIN} Again.`, 0.9);
-		const [a, b] = logLines();
+		const [a, b] = readLogLines();
 		expect(a.questionHash).toBe(b.questionHash);
 	});
 
 	it("puts the digest and no model on an outage", async () => {
 		await run(PLAIN, callable(UNREACHABLE));
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.outcome).toBe("outage");
 		expect(line.questionHash).toMatch(/^[0-9a-f]{12}$/);
 		expect(line.model).toBeUndefined();
@@ -700,7 +700,7 @@ describe("what answered (#702)", () => {
 	 * carries what answered: the guard's own is unreachable from a stub. */
 	it("puts the digest and no model on a reply the SDK could not read", async () => {
 		await run(PLAIN, callable(await malformedStub()));
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.outcome).toBe("malformed");
 		expect(line.questionHash).toMatch(/^[0-9a-f]{12}$/);
 		expect(line.model).toBeUndefined();
@@ -708,7 +708,7 @@ describe("what answered (#702)", () => {
 
 	it("puts neither on a turn that never reached the vendor", async () => {
 		await run(PLAIN);
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.outcome).toBe("skipped-no-sdk");
 		expect(line.questionHash).toBeUndefined();
 		expect(line.model).toBeUndefined();
@@ -729,7 +729,7 @@ describe("a flagged turn", () => {
 		 * store joins on (#253). Read off the log this run wrote rather than
 		 * recomputed here, which is what makes a change to either side fail. */
 		const { res } = await ask(PLAIN, 0.91);
-		const { messageHash } = logLines()[0];
+		const { messageHash } = readLogLines()[0];
 
 		expect(saidBy(res)).toContain(
 			`node scripts/jev-verdict.js ${messageHash} right|wrong`,
@@ -738,7 +738,7 @@ describe("a flagged turn", () => {
 
 	it("logs the confidence to two decimals, as a number", async () => {
 		await ask(PLAIN, 0.912_34);
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.outcome).toBe("flagged");
 		expect(line.confidence).toBe(0.91);
 		expect(typeof line.confidence).toBe("number");
@@ -758,7 +758,7 @@ describe("a flagged turn", () => {
 		} finally {
 			vi.useRealTimers();
 		}
-		expect(logLines()[0].latencyMs).toBe(250);
+		expect(readLogLines()[0].latencyMs).toBe(250);
 	});
 
 	it("renders as check-jev-flags.js's p= suffix", async () => {
@@ -791,7 +791,7 @@ describe("a clear turn", () => {
 
 	it("still logs the confidence, so the sample is not only the flags", async () => {
 		await ask(PLAIN, 0.12);
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.outcome).toBe("clear");
 		expect(line.confidence).toBe(0.12);
 	});
@@ -800,8 +800,8 @@ describe("a clear turn", () => {
 		/* 0.499 logs as 0.5 and must still be clear: the read-out is on the raw
 		 * probability, never on the rounded field. */
 		await ask(PLAIN, 0.499);
-		expect(logLines()[0].outcome).toBe("clear");
-		expect(logLines()[0].confidence).toBe(0.5);
+		expect(readLogLines()[0].outcome).toBe("clear");
+		expect(readLogLines()[0].confidence).toBe(0.5);
 	});
 });
 
@@ -811,7 +811,7 @@ describe("an outage", () => {
 		const t0 = Date.now();
 		const res = await run(PLAIN, callable(base, SHORT_ABORT));
 		const elapsed = Date.now() - t0;
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 		expect(saidBy(res)).toContain("could not reach its vendor");
 		/* The abort fires, the turn re-asks once (#255) and the second attempt
 		 * hangs too. The upper bound is what proves the override took: the
@@ -828,12 +828,12 @@ describe("an outage", () => {
 		/* A lower bound only: load lengthens a hang and never shortens one. */
 		// §X9: a process timeout, as above; a floor, so load only moves it away from failing.
 		expect(Date.now() - t0).toBeGreaterThanOrEqual(ABORT_MS * ATTEMPTS);
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 	}, 20_000);
 
 	it("reads an unreachable host as an outage, and says so", async () => {
 		const res = await run(PLAIN, callable(UNREACHABLE));
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 		expect(saidBy(res)).toContain("could not reach its vendor");
 	});
 
@@ -843,7 +843,7 @@ describe("an outage", () => {
 			res.end(JSON.stringify({ error: { message: "upstream is unwell" } }));
 		});
 		await run(PLAIN, callable(base));
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 	});
 
 	it("notices once a session and logs every time after", async () => {
@@ -852,7 +852,7 @@ describe("an outage", () => {
 		const second = await run(PLAIN, env);
 		expect(saidBy(first)).toContain("could not reach its vendor");
 		expect(saidBy(second)).toBe("");
-		expect(logLines().map((l) => l.outcome)).toEqual(["outage", "outage"]);
+		expect(readLogLines().map((l) => l.outcome)).toEqual(["outage", "outage"]);
 	});
 
 	it("spends its own counter and never the warn budget", async () => {
@@ -895,9 +895,9 @@ describe("a turn the abort killed", () => {
 		const res = await run(PLAIN, callable(base, SHORT_ABORT));
 
 		expect(seen.count).toBe(2);
-		expect(logLines()).toHaveLength(1);
-		expect(logLines()[0].outcome).toBe("flagged");
-		expect(logLines()[0].retries).toBe(1);
+		expect(readLogLines()).toHaveLength(1);
+		expect(readLogLines()[0].outcome).toBe("flagged");
+		expect(readLogLines()[0].retries).toBe(1);
 		expect(saidBy(res)).toContain("JEV ADVISORY");
 	}, 20_000);
 
@@ -906,7 +906,7 @@ describe("a turn the abort killed", () => {
 
 		await run(PLAIN, callable(base, SHORT_ABORT));
 
-		expect(logLines()[0].outcome).toBe("clear");
+		expect(readLogLines()[0].outcome).toBe("clear");
 		expect(fs.existsSync(marker(`.jev-advisory-outage-${sid}`))).toBe(false);
 	}, 20_000);
 
@@ -916,8 +916,8 @@ describe("a turn the abort killed", () => {
 		await run(PLAIN, callable(base, SHORT_ABORT));
 
 		expect(seen.count).toBe(ATTEMPTS);
-		expect(logLines()[0].outcome).toBe("outage");
-		expect(logLines()[0].retries).toBe(ATTEMPTS - 1);
+		expect(readLogLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].retries).toBe(ATTEMPTS - 1);
 	}, 20_000);
 
 	it("never re-asks a failure the abort did not cause", async () => {
@@ -925,8 +925,8 @@ describe("a turn the abort killed", () => {
 		 * in `retries`. */
 		await run(PLAIN, callable(UNREACHABLE));
 
-		expect(logLines()[0].outcome).toBe("outage");
-		expect(logLines()[0].retries).toBeUndefined();
+		expect(readLogLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].retries).toBeUndefined();
 	});
 
 	it("never re-asks a reply it simply could not read", async () => {
@@ -939,8 +939,8 @@ describe("a turn the abort killed", () => {
 
 		await run(PLAIN, callable(base));
 
-		expect(logLines()[0].outcome).toBe("malformed");
-		expect(logLines()[0].retries).toBeUndefined();
+		expect(readLogLines()[0].outcome).toBe("malformed");
+		expect(readLogLines()[0].retries).toBeUndefined();
 	});
 });
 
@@ -969,7 +969,7 @@ describe("the abort budget's override (#1024)", () => {
 				PLAIN,
 				callable(await answeringSlowly(), { WFC_JEV_ABORT_MS: raw }),
 			);
-			expect(logLines()[0].outcome).toBe("clear");
+			expect(readLogLines()[0].outcome).toBe("clear");
 		},
 	);
 
@@ -978,7 +978,7 @@ describe("the abort budget's override (#1024)", () => {
 			PLAIN,
 			callable(await answeringSlowly(), { WFC_JEV_ABORT_MS: " 250 " }),
 		);
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 	});
 
 	it("caps a value above `ABORT_MS` at it", async () => {
@@ -989,7 +989,7 @@ describe("the abort budget's override (#1024)", () => {
 		 * finish under it, even once. */
 		// §X9: a process timeout: the cap bounds a real socket that never answers.
 		expect(Date.now() - t0).toBeLessThan(15_000);
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 	}, 20_000);
 });
 
@@ -1015,7 +1015,7 @@ describe("a malformed reply", () => {
 		["a body with no answers at all", { wat: 1 }],
 	])("is its own outcome on %s", async (_name, body) => {
 		await run(PLAIN, callable(await malformedStub(body)));
-		expect(logLines()[0].outcome).toBe("malformed");
+		expect(readLogLines()[0].outcome).toBe("malformed");
 	});
 
 	it("says it is a repo fix rather than an outage", async () => {
@@ -1039,7 +1039,7 @@ describe("a malformed reply", () => {
 		const second = await run(PLAIN, env);
 		expect(saidBy(first)).toContain("cannot read");
 		expect(saidBy(second)).toBe("");
-		expect(logLines().map((l) => l.outcome)).toEqual([
+		expect(readLogLines().map((l) => l.outcome)).toEqual([
 			"malformed",
 			"malformed",
 		]);
@@ -1048,7 +1048,7 @@ describe("a malformed reply", () => {
 	/* An unreachable host surfaces as a SYNTHESISED 500. */
 	it("never claims an unreachable host answered", async () => {
 		await run(PLAIN, callable(UNREACHABLE));
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 		expect(fs.existsSync(marker(`.jev-advisory-malformed-${sid}`))).toBe(false);
 	});
 
@@ -1064,7 +1064,7 @@ describe("a malformed reply", () => {
 			setTimeout(() => res.socket?.destroy(), 40);
 		});
 		await run(PLAIN, callable(base));
-		expect(logLines()[0].outcome).toBe("outage");
+		expect(readLogLines()[0].outcome).toBe("outage");
 	});
 
 	/* The classifier direct, for the chains no stub here provokes: the guard's
@@ -1127,7 +1127,7 @@ describe("what the guard emits", () => {
 	it("appends rather than overwriting, one line per turn", async () => {
 		await run(PLAIN);
 		await run("A different message entirely.");
-		expect(logLines().map((l) => l.outcome)).toEqual([
+		expect(readLogLines().map((l) => l.outcome)).toEqual([
 			"skipped-no-sdk",
 			"skipped-no-sdk",
 		]);
@@ -1135,7 +1135,7 @@ describe("what the guard emits", () => {
 
 	it("records a length and a digest on every line", async () => {
 		await ask(PLAIN, 0.9);
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.session).toBe(sid);
 		expect(line.messageLen).toBe(PLAIN.length);
 		expect(line.messageHash).toMatch(/^[0-9a-f]{12}$/);
@@ -1143,7 +1143,7 @@ describe("what the guard emits", () => {
 
 	it("stores the text on a flagged line, so the flag can be judged later", async () => {
 		await ask(PLAIN, 0.9);
-		expect(logLines()[0]).toMatchObject({
+		expect(readLogLines()[0]).toMatchObject({
 			outcome: "flagged",
 			messageText: PLAIN,
 		});
@@ -1152,11 +1152,11 @@ describe("what the guard emits", () => {
 	it("stores no text on any outcome but flagged", async () => {
 		await ask(PLAIN, 0.2);
 		await run(PLAIN);
-		expect(logLines().map((l) => l.outcome)).toEqual([
+		expect(readLogLines().map((l) => l.outcome)).toEqual([
 			"clear",
 			"skipped-no-sdk",
 		]);
-		for (const line of logLines()) expect(line.messageText).toBeUndefined();
+		for (const line of readLogLines()) expect(line.messageText).toBeUndefined();
 		const raw = fs.readFileSync(marker(".jev-advisory-log.jsonl"), "utf8");
 		expect(raw).not.toContain("Rebuild the index");
 	});
@@ -1166,7 +1166,7 @@ describe("what the guard emits", () => {
 		 * so moving the cap has to be a deliberate edit in two places. */
 		const long = `${"choice ".repeat(1000)}(A) one (B) two`;
 		await ask(long, 0.9);
-		const [line] = logLines();
+		const [line] = readLogLines();
 		expect(line.messageLen).toBe(long.length);
 		expect(line.messageText).toBe(long.slice(0, 4000));
 	});
@@ -1178,7 +1178,7 @@ describe("what the guard emits", () => {
 		const old = `${JSON.stringify({ outcome: "skipped-no-sdk" })}\n`;
 		fs.writeFileSync(live, old.repeat(Math.ceil(2_097_152 / old.length)));
 		await run(PLAIN);
-		expect(logLines()).toHaveLength(1);
+		expect(readLogLines()).toHaveLength(1);
 		expect(
 			fs.statSync(marker(".jev-advisory-log.1.jsonl")).size,
 		).toBeGreaterThanOrEqual(2_097_152);
@@ -1192,6 +1192,6 @@ describe("what the guard emits", () => {
 		});
 		expect(res.status).toBe(0);
 		expect(res.stdout).toBe("");
-		expect(logLines()).toEqual([]);
+		expect(readLogLines()).toEqual([]);
 	});
 });

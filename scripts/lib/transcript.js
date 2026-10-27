@@ -2,16 +2,14 @@
  * transcript.js — reading a Claude Code session's own JSONL transcript.
  *
  * The seam behind scripts/session-context.js (what a session is carrying right
- * now) and scripts/measure-bundle-cost.js (what whole sessions have cost),
- * which agreed byte-for-byte on how to read a transcript before mantahostels#1094 factored
- * the agreement out; the retro scripts share its content and subagent-path
+ * now) and scripts/measure-bundle-cost.js (what whole sessions have cost,
+ * mantahostels#1094); the retro scripts share its content and subagent-path
  * readers (#1055). It exists so the parsing can be asserted in-process, the
  * CLIs staying black-box subprocesses (§X3).
  *
  * STANDING CONTEXT is fresh input + cache write + cache read on an assistant
  * turn — what the model was actually sent, and the quantity spend tracks
- * (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/allowance-burn-measurement.md, mantahostels#830: spend is
- * `turns x standing context`).
+ * (mantahostels#830: spend is `turns x standing context`).
  *
  * SIDECHAIN TURNS ARE A SUBAGENT'S CONTEXT, NOT THE SESSION'S — but which
  * "session" that means depends on the FILE. A main session's transcript
@@ -85,7 +83,7 @@ const STOP_FEEDBACK = /^\s*Stop hook feedback/;
  * blocks, and `[image]` for each image, joined by a space.
  * @param {unknown} content
  */
-function contentText(content) {
+function parseContentText(content) {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
@@ -108,22 +106,20 @@ function contentText(content) {
  *
  * `tier` picks what "main chain" means for this file (`isSubagentTranscript`
  * decides it): `"main"` skips a record marked `isSidechain` — a subagent's
- * turn embedded inline — same as always. `"subagent"` skips nothing: every
- * record in a subagent's own file carries `isSidechain: true` relative to its
+ * turn embedded inline. `"subagent"` skips nothing: every record in a
+ * subagent's own file carries `isSidechain: true` relative to its
  * parent, and here that IS the chain. There is no default — a caller that
- * passes neither gets a thrown error, not a silent empty iterator, which is
- * the bug mantahostels#1779 filed this fix against.
+ * passes neither gets a thrown error, not a silent empty iterator
+ * (mantahostels#1779).
  *
  * `stats`, where a caller passes one, gets `stats.skipped` incremented once
- * per unparseable line — opt-in, because most callers only ever consume the
- * iterator with a `for...of` and have nowhere to put a count even if one were
- * pushed on them (mantahostels#3307).
+ * per unparseable line — opt-in (mantahostels#3307).
  *
  * WHO PASSES ONE, AND WHY THE REST DO NOT (mantahostels#3311). AN UNPARSEABLE LINE IS
  * PERSISTENT CORRUPTION, NOT A LIVE TAIL — the half-written line above is the
- * mechanism, but not what the corpus holds: four lines in 2.5 million records
- * here, and a second pass reads the same four. So a re-read does not recover
- * one, and no message may promise that it will.
+ * mechanism, but not what the corpus holds, where such lines are rare and a
+ * second pass reads the same ones. So a re-read does not recover one, and no
+ * message may promise that it will.
  *
  * The decline rests on that rarity alone, not on the declining callers having
  * nothing to lose — `lib/implement-carveout.js` classifies off the whole text,
@@ -281,6 +277,44 @@ function autocompactions(text, tier) {
 }
 
 /**
+ * A main transcript's last turn-marking row: `ended` where it is a `system`
+ * `turn_duration`, not where a turn row follows it or none was written yet,
+ * and `at`, its timestamp in ms, null where it carries none. `null` where the
+ * text holds no turn-marking row at all (#2980).
+ *
+ * A TURN ROW is an `assistant` or `user` row, an `api-request`, or a blocked
+ * Stop hook's `hook_blocking_error` attachment. A blocked Stop hook writes no
+ * `turn_duration` and starts a forced turn, so the transcript of a job whose
+ * state already reads `done` ends on one of these until that turn ends (#2977's
+ * research, Finding 2).
+ *
+ * Takes a TAIL as readily as a whole file.
+ *
+ * @param {string} text
+ * @returns {{ended: boolean, at: number | null} | null}
+ */
+function lastTurn(text) {
+	let last = null;
+	for (const record of mainChainRecords(text, "main")) {
+		const ended =
+			record.type === "system" && record.subtype === "turn_duration";
+		if (
+			ended ||
+			record.type === "assistant" ||
+			record.type === "user" ||
+			record.type === "api-request" ||
+			(record.type === "attachment" &&
+				record.attachment?.type === "hook_blocking_error" &&
+				record.attachment?.hookEvent === "Stop")
+		) {
+			const at = Date.parse(record.timestamp ?? "");
+			last = { ended, at: Number.isFinite(at) ? at : null };
+		}
+	}
+	return last;
+}
+
+/**
  * The transcript file for one session id, or `null`.
  *
  * The file sits under one of the config dir's project directories, named for
@@ -317,12 +351,13 @@ module.exports = {
 	standingContext,
 	isSubagentTranscript,
 	subagentDirOf,
-	contentText,
+	parseContentText,
 	STOP_FEEDBACK,
 	mainChainRecords,
 	lastStandingContext,
 	countTurns,
 	turnRecords,
 	autocompactions,
+	lastTurn,
 	findTranscript,
 };

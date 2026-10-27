@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * measure-echo-chain.js — re-derives the accuracy figures behind
- * scripts/lib/echo-chain.sh's chain rule (mantahostels#2570), whose rows are on
+ * scripts/lib/echo-chain.js's chain rule (mantahostels#2570), whose rows are on
  * mantahostels#2616, and with --read-chains the Read rows #1090 ruled on.
  *
  * HAND-ONLY, and not a checker: it reads the founder's transcript corpus, which
@@ -35,10 +35,10 @@
  *   * the escalation (a first deny clears the chain, a second does not) is
  *     modelled as a plain reset — scoring a deny the session never reached
  *     would count one refusal twice;
- *   * no EC_MAX_AGE and no EC_MAX_LINES, so this scores refusals the guard's
+ *   * no MAX_AGE_S and no MAX_LINES, so this scores refusals the guard's
  *     hour-old and 200-record bounds would have dropped the chain for;
- *   * signatures are `JSON.stringify` in insertion order where ec_sig sorts
- *     keys (`jq -jcS`), so two inputs the guard treats as one may split here;
+ *   * signatures are `JSON.stringify` in insertion order where the guard's
+ *     sort keys, so two inputs the guard treats as one may split here;
  *   * the headline rows score a Read on its input alone, with no file-state
  *     signature (#1058) and the short circuit resetting rather than folding
  *     in (#1090): only the --read-chains rows model the deployed Read rule.
@@ -52,6 +52,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
+const { isNeighbours } = require("./lib/echo-chain.js");
 const { slugForRepo } = require("./lib/project-slug");
 
 /* Derived, never spelled: scripts/lib/project-slug-scan.test.ts scans this tree for
@@ -97,7 +98,7 @@ const WRITERS = new Set(["Edit", "Write"]);
 const SHORT_CIRCUIT =
 	"Wasted call — file unchanged since your last Read. Refer to that earlier tool_result instead.";
 
-/* guard-echo-call.sh's own refusal, which a transcript records as the refused
+/* lib/echo-call.js's own refusal, which a transcript records as the refused
  * call's tool_result: an error result opening with this, behind the harness's
  * `PreToolUse:<tool> hook error: ` where it adds one. The call never ran, so it
  * is dropped as unanswered (#1087). Anchored and error-only because a file or
@@ -111,25 +112,15 @@ const ECHO_REFUSAL =
 	/^(PreToolUse:\w+ hook error: )?This exact call has already run twice in a row/;
 
 /**
- * ec_skip's two shapes, kept in step with scripts/lib/echo-chain.sh: the timed
- * beat and the bare no-op belong to guard-agent-poll.sh and this rule never
- * sees them. Measuring without the skip inflates every arm below.
- *
- * RESIDUAL: a duplicated rule, in a second regex engine. `[\s\S]` stands in
- * for bash's newline-matching `.`; nothing checks the two stay in step, so a
- * shape added to ec_skip and not here is silently measured.
+ * The deployed rule's two skipped shapes: the timed beat and the bare no-op
+ * belong to lib/agent-poll.js and this rule never sees them. Measuring
+ * without the skip inflates every arm below.
  *
  * @param {string} tool
  * @param {{ command?: unknown }} input
  */
-const skipped = (tool, input) => {
-	if (tool !== "Bash") return false;
-	const c = String(input?.command ?? "");
-	return (
-		/^\s*sleep\s+[0-9]/.test(c) ||
-		/^\s*(true|:|exit(\s+0)?)\s*;?\s*(#[\s\S]*)?$/.test(c)
-	);
-};
+const skipped = (tool, input) =>
+	isNeighbours(tool, String(input?.command ?? ""));
 
 /**
  * Every (call, response hash) pair in one transcript, in order — or null where
@@ -338,8 +329,8 @@ function scoreTranscript(transcript, rule, tally) {
 			continue;
 		}
 		// An unanswered call is no evidence and leaves the chain untouched,
-		// exactly as ec_response_hash's return of 2 does — record-tool-echo.sh
-		// exits before its store on that path.
+		// exactly as lib/echo-chain.js's responseHash returning null does —
+		// lib/echo-record.js stops before its store on that path.
 		if (res === undefined) continue;
 		if (st && extendsChain(st, res, same)) {
 			st.run++;
@@ -402,9 +393,7 @@ console.log(
 	`transcripts : ${files.length} top-level (${transcripts.length} with a main-thread turn, ${unreadable} unreadable)`,
 );
 console.log(`measured    : ${new Date().toISOString().slice(0, 10)}`);
-console.log(
-	"tools       : Bash + Read, guard-agent-poll.sh's two shapes skipped",
-);
+console.log("tools       : Bash + Read, the poll guard's two shapes skipped");
 console.log("");
 for (const n of [1, 2, 3])
 	console.log(

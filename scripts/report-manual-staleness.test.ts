@@ -151,7 +151,7 @@ describe("the scheduled manual-staleness reporter", () => {
 	it("labels the issue it files with a takes: value", () => {
 		// This is the one script path known to file a bare issue: mantahostels#464 arrived with
 		// `manual-finding` alone, so /pick-next could not say which command opens
-		// it. scripts/guard-issue-create-label.sh cannot see a create from inside a
+		// it. scripts/guard-issue-create-label.js cannot see a create from inside a
 		// workflow, so the label has to be here (mantahostels#470).
 		const fx = fixture({ freshnessExit: 1, ghIssueList: [] });
 

@@ -39,7 +39,7 @@ const write = (rel: string, text: string) => {
 	fs.mkdirSync(path.dirname(path.join(sb.repo, rel)), { recursive: true });
 	fs.writeFileSync(path.join(sb.repo, rel), text);
 };
-const headBlob = (rel: string) => git("rev-parse", `HEAD:${rel}`);
+const readHeadBlob = (rel: string) => git("rev-parse", `HEAD:${rel}`);
 /** A neighbour's commit landing on `rel` while this session works. */
 const neighbourCommits = (rel: string, text: string) => {
 	write(rel, text);
@@ -57,7 +57,7 @@ const DOC = "docs/doc-map.md";
 const SCRIPT_REL = "scripts/evidence-audit.py";
 
 /** `sessionId`'s per-path base record for `rel`, as the gate reads it; null where none was minted. */
-const pathBase = (rel: string, sessionId: string) => {
+const readPathBase = (rel: string, sessionId: string) => {
 	const file = store.paths.base(rel, sessionId);
 	if (!fs.existsSync(file)) return null;
 	const { head, blob } = core.readRecord(file);
@@ -69,7 +69,7 @@ const pathBase = (rel: string, sessionId: string) => {
  * `accept-head` logs it. The accept moves the base to HEAD, so a case reads
  * this once, last.
  */
-const judgedBase = (rel: string, sessionId = "alice") => {
+const readJudgedBase = (rel: string, sessionId = "alice") => {
 	const r = cli(["accept-head", rel], {
 		env: { CLAUDE_CODE_SESSION_ID: sessionId },
 	});
@@ -92,34 +92,34 @@ beforeEach(() => {
 
 describe("the per-path base, minted at a session's first write (#110)", () => {
 	it("records HEAD's blob and sha when a Write/Edit claim is taken", () => {
-		const want = { blob: headBlob(DOC), head: git("rev-parse", "HEAD") };
+		const want = { blob: readHeadBlob(DOC), head: git("rev-parse", "HEAD") };
 		store.acquire(DOC, live(sb, "alice"));
-		expect(pathBase(DOC, "alice")).toEqual(want);
+		expect(readPathBase(DOC, "alice")).toEqual(want);
 	});
 
 	it("keeps the first write's base when a neighbour commits and the session writes again", () => {
 		const me = live(sb, "alice");
 		store.acquire(DOC, me);
-		const first = headBlob(DOC);
+		const first = readHeadBlob(DOC);
 
 		neighbourCommits(DOC, "neighbour's\n");
 		store.acquire(DOC, me); // reentrant
 		bases.mintBase(DOC, "alice"); // and any other route reaching it
 
-		expect(pathBase(DOC, "alice")?.blob).toBe(first);
-		expect(headBlob(DOC)).not.toBe(first);
+		expect(readPathBase(DOC, "alice")?.blob).toBe(first);
+		expect(readHeadBlob(DOC)).not.toBe(first);
 	});
 
 	it("keys a region claim's base on the file", () => {
 		const rel = "docs/doc-map.md#B1";
 		store.acquire(rel, live(sb, "alice"));
-		expect(pathBase(DOC, "alice")).not.toBeNull();
+		expect(readPathBase(DOC, "alice")).not.toBeNull();
 	});
 
 	it("records a null blob for a path HEAD does not have — an addition", () => {
 		write("docs/new.md", "new\n");
 		store.acquire("docs/new.md", live(sb, "alice"));
-		expect(pathBase("docs/new.md", "alice")).toMatchObject({
+		expect(readPathBase("docs/new.md", "alice")).toMatchObject({
 			blob: null,
 		});
 	});
@@ -128,22 +128,22 @@ describe("the per-path base, minted at a session's first write (#110)", () => {
 		store.acquire(SCRIPT_REL, live(sb, "alice"));
 		const bob = live(sb, "bob");
 		store.acquire(SCRIPT_REL, bob); // held — bob gets no lock
-		expect(pathBase(SCRIPT_REL, "bob")).toBeNull();
+		expect(readPathBase(SCRIPT_REL, "bob")).toBeNull();
 
 		write(SCRIPT_REL, "bob's\n");
 		store.recordObservation(SCRIPT_REL, bob);
-		expect(pathBase(SCRIPT_REL, "bob")).toMatchObject({
-			blob: headBlob(SCRIPT_REL),
+		expect(readPathBase(SCRIPT_REL, "bob")).toMatchObject({
+			blob: readHeadBlob(SCRIPT_REL),
 		});
 	});
 
 	it("records the same for a path the post-Bash tier scan finds", () => {
 		live(sb, "alice");
 		expect(cli(["refresh", "alice"]).status).toBe(0); // the tier is now known
-		const was = headBlob(SCRIPT_REL);
+		const was = readHeadBlob(SCRIPT_REL);
 		write(SCRIPT_REL, "alice's sed\n");
 		expect(cli(["refresh", "alice"]).status).toBe(0);
-		expect(pathBase(SCRIPT_REL, "alice")).toMatchObject({
+		expect(readPathBase(SCRIPT_REL, "alice")).toMatchObject({
 			blob: was,
 		});
 	});
@@ -161,7 +161,8 @@ describe("the per-path base, minted at a session's first write (#110)", () => {
 
 		for (const rel of many) write(rel, "regenerated\n");
 		expect(cli(["refresh", "alice"]).status).toBe(0);
-		const minted = () => many.filter((rel) => pathBase(rel, "alice") !== null);
+		const minted = () =>
+			many.filter((rel) => readPathBase(rel, "alice") !== null);
 		expect(minted()).toHaveLength(cap);
 
 		expect(cli(["refresh", "alice"]).status).toBe(0);
@@ -183,24 +184,24 @@ describe("the session-start base, a fallback for every other path (#110)", () =>
 
 	it("is recorded at SessionStart off the hook's own event JSON", () => {
 		expect(start("alice").status).toBe(0);
-		expect(judgedBase(DOC)).toEqual({
+		expect(readJudgedBase(DOC)).toEqual({
 			source: "session",
 			head: git("rev-parse", "HEAD"),
-			blob: headBlob(DOC),
+			blob: readHeadBlob(DOC),
 		});
 	});
 
 	it("is recorded once per session — a resume keeps the first", () => {
 		start("alice");
-		const first = headBlob(DOC);
+		const first = readHeadBlob(DOC);
 		neighbourCommits(DOC, "neighbour's\n");
 		start("alice");
-		expect(judgedBase(DOC)?.blob).toBe(first);
+		expect(readJudgedBase(DOC)?.blob).toBe(first);
 	});
 
 	it("answers for a claim whose base was never minted, from the session's", () => {
 		start("alice");
-		const was = headBlob(DOC);
+		const was = readHeadBlob(DOC);
 		// A mint that failed open: a lock, and no base record beside it.
 		fs.mkdirSync(store.paths.locksDir(), { recursive: true });
 		core.writeRecord(store.paths.lock(DOC), {
@@ -209,7 +210,7 @@ describe("the session-start base, a fallback for every other path (#110)", () =>
 			claimId: "unminted",
 		});
 		neighbourCommits(DOC, "neighbour's\n");
-		expect(judgedBase(DOC)).toMatchObject({
+		expect(readJudgedBase(DOC)).toMatchObject({
 			source: "session",
 			blob: was,
 		});
@@ -219,19 +220,19 @@ describe("the session-start base, a fallback for every other path (#110)", () =>
 		start("alice");
 		store.acquire(DOC, live(sb, "alice"));
 		fs.writeFileSync(store.paths.base(DOC, "alice"), "{torn");
-		expect(judgedBase(DOC)?.source).toBe("session");
+		expect(readJudgedBase(DOC)?.source).toBe("session");
 	});
 
 	it("gives a null blob for a path the session-start HEAD did not have", () => {
 		start("alice");
-		expect(judgedBase("docs/later.md")).toMatchObject({
+		expect(readJudgedBase("docs/later.md")).toMatchObject({
 			source: "session",
 			blob: null,
 		});
 	});
 
 	it("leaves a session with neither record answering null", () => {
-		expect(judgedBase(DOC)).toBeNull();
+		expect(readJudgedBase(DOC)).toBeNull();
 	});
 });
 
@@ -267,7 +268,7 @@ describe("stale-check, the stale-write-back rule for one staged path (#111)", ()
 
 	it("passes where the staged version is HEAD's", () => {
 		staleSetup();
-		expect(check(DOC, headBlob(DOC)).status).toBe(0);
+		expect(check(DOC, readHeadBlob(DOC)).status).toBe(0);
 	});
 
 	it("refuses a stale regeneration, naming the path and the neighbour's commit", () => {
@@ -381,7 +382,7 @@ describe("stale-check, the stale-write-back rule for one staged path (#111)", ()
 describe("accept-head, stale-check's escape for an intended revert (#112)", () => {
 	const accept = (rel: string, sessionId = "alice") =>
 		cli(["accept-head", rel], { env: { CLAUDE_CODE_SESSION_ID: sessionId } });
-	const logOf = (sessionId: string) =>
+	const readAcceptedHeads = (sessionId: string) =>
 		fs
 			.readFileSync(store.paths.acceptedHeads(sessionId), "utf8")
 			.trim()
@@ -390,7 +391,7 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 
 	it("turns a refused stale write-back into a pass, and logs the accept", () => {
 		staleSetup();
-		const oldHead = pathBase(DOC, "alice")?.head;
+		const oldHead = readPathBase(DOC, "alice")?.head;
 		const revert = blobOf("seeded\n");
 		expect(check(DOC, revert).status).toBe(1);
 
@@ -402,17 +403,17 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 		expect(after.status).toBe(0);
 		expect(after.stderr).toBe("");
 		const head = git("rev-parse", "HEAD");
-		expect(pathBase(DOC, "alice")).toEqual({
+		expect(readPathBase(DOC, "alice")).toEqual({
 			head,
-			blob: headBlob(DOC),
+			blob: readHeadBlob(DOC),
 		});
-		const [entry, ...more] = logOf("alice");
+		const [entry, ...more] = readAcceptedHeads("alice");
 		expect(more).toEqual([]);
 		expect(entry).toEqual({
 			sessionId: "alice",
 			path: DOC,
 			oldBase: { source: "path", head: oldHead, blob: blobOf("seeded\n") },
-			newBase: { head, blob: headBlob(DOC) },
+			newBase: { head, blob: readHeadBlob(DOC) },
 			at: expect.any(String),
 		});
 		expect(Number.isNaN(Date.parse(entry.at))).toBe(false);
@@ -440,7 +441,7 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 		neighbourCommits(DOC, "seeded\nneighbour's line\n");
 		expect(accept(DOC).status).toBe(0);
 		expect(check(DOC, blobOf("seeded\n")).status).toBe(0);
-		expect(logOf("alice")[0].oldBase).toEqual({
+		expect(readAcceptedHeads("alice")[0].oldBase).toEqual({
 			source: "session",
 			head: startHead,
 			blob: blobOf("seeded\n"),
@@ -450,15 +451,15 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 	it("appends one entry per accept, and leaves another session's base alone", () => {
 		staleSetup();
 		store.acquire(DOC, live(sb, "bob"));
-		const bobs = pathBase(DOC, "bob");
+		const bobs = readPathBase(DOC, "bob");
 		accept(DOC);
 		neighbourCommits(DOC, "seeded\nneighbour's line\nanother\n");
 		accept(DOC);
-		expect(logOf("alice").map((e) => e.newBase.head)).toEqual([
+		expect(readAcceptedHeads("alice").map((e) => e.newBase.head)).toEqual([
 			git("rev-parse", "HEAD~1"),
 			git("rev-parse", "HEAD"),
 		]);
-		expect(pathBase(DOC, "bob")).toEqual(bobs);
+		expect(readPathBase(DOC, "bob")).toEqual(bobs);
 		expect(fs.existsSync(store.paths.acceptedHeads("bob"))).toBe(false);
 	});
 
@@ -466,7 +467,7 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 		staleSetup();
 		fs.writeFileSync(store.paths.base(DOC, "alice"), "{torn");
 		expect(accept(DOC).status).toBe(0);
-		const [entry] = logOf("alice");
+		const [entry] = readAcceptedHeads("alice");
 		expect(entry.oldBase.source).toBe("session");
 		expect(entry.oldBaseFault).toContain(store.paths.base(DOC, "alice"));
 		expect(check(DOC, blobOf("seeded\n")).status).toBe(0);
@@ -480,7 +481,7 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 		const r = accept(DOC);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("the log entry is retracted");
-		const [entry, retraction] = logOf("alice");
+		const [entry, retraction] = readAcceptedHeads("alice");
 		expect(retraction).toEqual({
 			retracts: entry.at,
 			path: DOC,
@@ -496,18 +497,18 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 
 	it("refuses with no session id, naming CLAUDE_CODE_SESSION_ID and moving nothing", () => {
 		staleSetup();
-		const before = pathBase(DOC, "alice");
+		const before = readPathBase(DOC, "alice");
 		const r = accept(DOC, "");
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("needs CLAUDE_CODE_SESSION_ID");
-		expect(pathBase(DOC, "alice")).toEqual(before);
+		expect(readPathBase(DOC, "alice")).toEqual(before);
 	});
 
 	it.skipIf(AS_ROOT)(
 		"refuses, moving nothing, where the log will not write",
 		() => {
 			staleSetup();
-			const before = pathBase(DOC, "alice");
+			const before = readPathBase(DOC, "alice");
 			const dir = store.paths.acceptedHeadsDir();
 			fs.mkdirSync(dir, { recursive: true });
 			fs.chmodSync(dir, 0o500);
@@ -515,7 +516,7 @@ describe("accept-head, stale-check's escape for an intended revert (#112)", () =
 				const r = accept(DOC);
 				expect(r.status).toBe(1);
 				expect(r.stderr).toContain(`${DOC} not accepted`);
-				expect(pathBase(DOC, "alice")).toEqual(before);
+				expect(readPathBase(DOC, "alice")).toEqual(before);
 				expect(fs.readdirSync(store.paths.basesDir())).not.toContainEqual(
 					expect.stringMatching(/\.tmp$/),
 				);
@@ -581,20 +582,20 @@ describe("advance-bases, post-commit's move of a session's base (#114)", () => {
 
 		expect(advance(sha).status).toBe(0);
 		for (const rel of [DOC, "docs/new.md"])
-			expect(pathBase(rel, "alice")).toEqual({
+			expect(readPathBase(rel, "alice")).toEqual({
 				head: sha,
-				blob: headBlob(rel),
+				blob: readHeadBlob(rel),
 			});
 	});
 
 	it("leaves a path the commit did not touch on its prior base", () => {
 		start("alice");
 		store.acquire(SCRIPT_REL, live(sb, "alice"));
-		const prior = pathBase(SCRIPT_REL, "alice");
+		const prior = readPathBase(SCRIPT_REL, "alice");
 		const sha = ownCommit({ [DOC]: "alice's\n" });
 
 		advance(sha);
-		expect(pathBase(SCRIPT_REL, "alice")).toEqual(prior);
+		expect(readPathBase(SCRIPT_REL, "alice")).toEqual(prior);
 	});
 
 	it("records a deleted path with a null blob", () => {
@@ -604,7 +605,7 @@ describe("advance-bases, post-commit's move of a session's base (#114)", () => {
 		const sha = git("rev-parse", "HEAD");
 
 		advance(sha);
-		expect(pathBase(DOC, "alice")).toEqual({
+		expect(readPathBase(DOC, "alice")).toEqual({
 			head: sha,
 			blob: null,
 		});
@@ -623,10 +624,10 @@ describe("advance-bases, post-commit's move of a session's base (#114)", () => {
 
 	it("moves only the calling session's base", () => {
 		store.acquire(DOC, live(sb, "bob"));
-		const bobs = pathBase(DOC, "bob");
+		const bobs = readPathBase(DOC, "bob");
 		advance(ownCommit({ [DOC]: "alice's\n" }));
-		expect(pathBase(DOC, "bob")).toEqual(bobs);
-		expect(pathBase(DOC, "alice")?.head).toBe(git("rev-parse", "HEAD"));
+		expect(readPathBase(DOC, "bob")).toEqual(bobs);
+		expect(readPathBase(DOC, "alice")?.head).toBe(git("rev-parse", "HEAD"));
 	});
 
 	it("refuses a call naming no commit, as a usage error", () => {

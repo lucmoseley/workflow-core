@@ -21,7 +21,7 @@
 # THIS SCRIPT REFUSES `takes:human` ITSELF (#140) — the case against it is the
 # refusal text in argument parsing, and this script's entry in the writer
 # census is docs/agents/triage-labels.md §`takes:`.
-# `scripts/guard-issue-create-label.sh` (mantahostels#3555) denies a
+# `scripts/guard-issue-create-label.js` (mantahostels#3555) denies a
 # `gh issue edit --add-label takes:human` on an issue whose body carries no
 # `**Outside Claude Code:**` line — but it is a `PreToolUse` hook on the Bash
 # TOOL CALL, so it sees the command this session types

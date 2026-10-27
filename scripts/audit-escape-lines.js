@@ -94,7 +94,7 @@ const QUESTIONS = {
  * @param {string[]} dirs
  * @returns {string[]}
  */
-function transcripts(dirs) {
+function readTranscripts(dirs) {
 	/** @type {string[]} */
 	const files = [];
 	for (const dir of dirs) {
@@ -164,7 +164,7 @@ function scanItems(dirs, deps) {
 	/** @type {import("./lib/escape-audit").Item[]} */
 	const items = [];
 	let unreadable = 0;
-	for (const file of transcripts(dirs)) {
+	for (const file of readTranscripts(dirs)) {
 		let text;
 		try {
 			text = fs.readFileSync(file, "utf8");

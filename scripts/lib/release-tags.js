@@ -6,8 +6,8 @@
  * release-contains.js reads back (#797).
  */
 
-const { execFileSync } = require("node:child_process");
 const { cutAt } = require("./cut-at.js");
+const { execGit } = require("./git.js");
 
 /** A release tag as release-plugin.js cuts one. */
 const TAG_RE = /^v\d+\.\d+\.\d+$/;
@@ -17,10 +17,10 @@ const TAG_RE = /^v\d+\.\d+\.\d+$/;
  * @param {string} tag
  * @param {string} source the 40-hex commit the release was rendered from
  */
-const releaseMessage = (plugin, tag, source) =>
+const buildReleaseMessage = (plugin, tag, source) =>
 	`Release ${plugin} ${tag}, rendered from ${source}`;
 
-/** The source `releaseMessage` names, captured. */
+/** The source `buildReleaseMessage` names, captured. */
 const RENDERED_FROM = /\brendered from ([0-9a-f]{40})\b/;
 
 /** @param {string} tag `v1.2.3` or `1.2.3` */
@@ -60,9 +60,9 @@ const newestTag = (tags) => sortedReleaseTags(tags).at(-1) ?? null;
  * @param {string} root
  * @returns {string[]}
  */
-function releaseTags(root) {
+function readReleaseTags(root) {
 	return sortedReleaseTags(
-		execFileSync("git", ["tag", "--list", "v*"], {
+		execGit(["tag", "--list", "v*"], {
 			cwd: root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -77,14 +77,14 @@ function releaseTags(root) {
  * @param {string} root
  * @returns {string|null}
  */
-const latestTag = (root) => releaseTags(root).at(-1) ?? null;
+const readLatestTag = (root) => readReleaseTags(root).at(-1) ?? null;
 
 module.exports = {
 	RENDERED_FROM,
 	TAG_RE,
 	isMajorBump,
-	latestTag,
+	readLatestTag,
 	newestTag,
-	releaseMessage,
-	releaseTags,
+	buildReleaseMessage,
+	readReleaseTags,
 };

@@ -91,7 +91,7 @@ function asExecError(e) {
  * and above whatever input it quoted back.
  * @param {unknown} raw
  */
-const errLine = (raw) => {
+const parseErrLine = (raw) => {
 	const e = asExecError(raw);
 	const stderr = (e.stderr || "").toString().trim();
 	if (stderr) return stderr.split("\n").pop() ?? "";
@@ -183,24 +183,38 @@ async function ghApiSlurpAsync(apiArgs, opts = {}) {
  * that would otherwise have to reimplement a jq filter.
  * @param {string} apiPath
  * @param {{strict?: boolean}} [opts]
- * @returns {Promise<{ok: true, out: any[]} | {ok: false, error: string}>}
+ * @returns {Promise<{ok: true, out: any[]} | {ok: false, error: string, reason: "unreachable"|"broken"}>}
  */
 async function ghGetRetrying(apiPath, { strict = false } = {}) {
-	const once = async () => {
+	return retryingOnce(async () => {
 		const out = await ghAsync(["api", apiPath, "--paginate", "--slurp"]);
 		if (!out.trim()) {
 			if (strict) throw new Error("gh exited 0 having printed nothing");
 			return [];
 		}
 		return JSON.parse(out).flat();
-	};
+	});
+}
+
+/**
+ * `once()`, tried a second time where the first throws, as an outcome that
+ * never throws: the second failure's line and parseGhFailureReason's class.
+ * @template T
+ * @param {() => Promise<T>} once
+ * @returns {Promise<{ok: true, out: T} | {ok: false, error: string, reason: "unreachable"|"broken"}>}
+ */
+async function retryingOnce(once) {
 	try {
 		return { ok: true, out: await once() };
 	} catch {
 		try {
 			return { ok: true, out: await once() };
 		} catch (e) {
-			return { ok: false, error: errLine(e) };
+			return {
+				ok: false,
+				error: parseErrLine(e),
+				reason: parseGhFailureReason(e),
+			};
 		}
 	}
 }
@@ -284,7 +298,7 @@ const UNREACHABLE = [
  * "unreachable" — nothing to conclude; "broken" — the call itself is at fault.
  * @param {unknown} raw
  */
-function ghFailureReason(raw) {
+function parseGhFailureReason(raw) {
 	if (asExecError(raw).code === "ENOENT") return "unreachable"; // no gh binary on PATH
 	return UNREACHABLE.some((re) => re.test(errStderr(raw)))
 		? "unreachable"
@@ -315,16 +329,16 @@ function unreachableRemedy(raw) {
  * ends (mantahostels#155 — the checker family's exit-code and severity model —
  * decision 6). A caller with its own exit rule — such as
  * check-ci-status.js, which must never block a session start, or pick-next.js,
- * where no shortlist is never a success — reads ghFailureReason directly.
+ * where no shortlist is never a success — reads parseGhFailureReason directly.
  * @param {unknown} raw
  * @param {string} [conclusion]
  * @returns {never}
  */
 function raiseGhFailure(raw, conclusion = "No conclusion drawn.") {
 	if (isOutcomeError(raw)) throw raw;
-	if (ghFailureReason(raw) === "unreachable") {
+	if (parseGhFailureReason(raw) === "unreachable") {
 		throw skipError(
-			`could not query GitHub issues (${errLine(raw)}).\n      ${unreachableRemedy(raw)} ${conclusion}`,
+			`could not query GitHub issues (${parseErrLine(raw)}).\n      ${unreachableRemedy(raw)} ${conclusion}`,
 		);
 	}
 	const hint =
@@ -332,7 +346,7 @@ function raiseGhFailure(raw, conclusion = "No conclusion drawn.") {
 			? "\n        gh's output exceeded maxBuffer — raise MAX_BUFFER in scripts/lib/gh.js."
 			: "";
 	throw brokenError(
-		`the gh call failed, and not because GitHub was unreachable (${errLine(raw)}).\n` +
+		`the gh call failed, and not because GitHub was unreachable (${parseErrLine(raw)}).\n` +
 			`        ${conclusion} This is a fault in the check, not a finding about the tracker.${hint}`,
 	);
 }
@@ -347,8 +361,8 @@ const COLLAPSE_ABOVE = 3;
  * runs to the length of the outage (#93).
  *
  * Grouping is by exact string equality on whatever `errorOf` returns —
- * callers here pass `errLine`'s output, which is gh's LAST stderr line and so
- * carries no per-issue path (see errLine's own doc above); an error string
+ * callers here pass `parseErrLine`'s output, which is gh's LAST stderr line and so
+ * carries no per-issue path (see parseErrLine's own doc above); an error string
  * that DOES embed the issue number defeats the grouping silently.
  *
  * Report text only: a caller's `--json` still carries every item, from the
@@ -382,7 +396,7 @@ function groupByRepeatedError(items, errorOf) {
  * @param {{error: string, items: {number: number}[]}} group
  * @returns {string}
  */
-function collapsedFailureLine(group) {
+function buildCollapsedFailureLine(group) {
 	return `  ${group.items.length} failing the same way — ${group.error}\n    ${group.items.map((i) => `#${i.number}`).join(", ")}`;
 }
 
@@ -527,17 +541,19 @@ function ghIssueListAll(what, args, opts = {}) {
 module.exports = {
 	ghBinary,
 	gh,
+	ghAsync,
 	ghJson,
 	ghApiSlurp,
 	ghApiSlurpAsync,
 	ghGetRetrying,
+	retryingOnce,
 	mapLimit,
 	ISSUE_READ_CONCURRENCY,
-	errLine,
-	ghFailureReason,
+	parseErrLine,
+	parseGhFailureReason,
 	raiseGhFailure,
 	groupByRepeatedError,
-	collapsedFailureLine,
+	buildCollapsedFailureLine,
 	unreachableRemedy,
 	/* Exported for repo-checks.js, which spawns checkers reading through here
 	 * (#1566). */

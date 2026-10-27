@@ -25,7 +25,7 @@
  *
  * A DISPATCHED AGENT'S EVIDENCE IS EXEMPT UNTIL 7 DAYS: any entry whose name
  * contains `research`, and the top-level `agents/` directory with everything
- * in it, where `guard-dispatch-rewrite.sh` supplies a dispatch's artefact. The
+ * in it, where `lib/dispatch-rewrite.js` supplies a dispatch's artefact. The
  * path is the only signal there is — the `research-<name>` convention reaches
  * tracker-skill dispatches alone (#1009). A research file named without the
  * word still gets 24 h, accepted at #1009's ruling. Seven days rather than exemption outright, so they clear eventually
@@ -81,7 +81,7 @@ const SCRATCH_AGE_MS = 24 * 60 * 60 * 1000;
 const RESEARCH_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** A name containing this, prefix or not, marks a research artefact. */
 const RESEARCH_WORD = "research";
-/** The top-level directory `guard-dispatch-rewrite.sh` supplies artefacts under. */
+/** The top-level directory `lib/dispatch-rewrite.js` supplies artefacts under. */
 const AGENTS_DIR = "agents";
 
 /**
@@ -125,7 +125,7 @@ const floorFor = (rel) =>
  * @param {string} dir
  * @returns {{ entries: import("node:fs").Dirent[]|null, fault: string|null }}
  */
-function entriesOf(dir) {
+function readEntriesOf(dir) {
 	try {
 		return {
 			entries: fs.readdirSync(dir, { withFileTypes: true }),
@@ -178,7 +178,7 @@ function writtenAtMs(full, { follow = false } = {}) {
  * @returns {boolean}
  */
 function hasAgedCandidate(dir, now, timeOf = writtenAtMs, rel = "") {
-	const { entries } = entriesOf(dir);
+	const { entries } = readEntriesOf(dir);
 	if (!entries) return false;
 	for (const e of entries) {
 		const full = path.join(dir, e.name);
@@ -208,7 +208,7 @@ function isAgedDirectory(full, now, timeOf, relOf) {
 	 * files alone would leave one waiting on some unrelated aged file to
 	 * trigger the oracle read, so a directory whose last file has gone
 	 * would sit there for good on an otherwise quiet scratch directory. */
-	const inside = entriesOf(full).entries;
+	const inside = readEntriesOf(full).entries;
 	if (inside === null || inside.length > 0) return false;
 	return isPastFloor(full, now, timeOf, relOf);
 }
@@ -281,7 +281,7 @@ function earliestStart(agents) {
  * @param {string} [level.rel] `dir` relative to the scratch directory
  */
 function sweepDir(dir, sweep, { exemptNames, rel = "" } = {}) {
-	const { entries, fault } = entriesOf(dir);
+	const { entries, fault } = readEntriesOf(dir);
 	if (fault) sweep.failed.push(fault);
 	if (!entries) return;
 	for (const e of entries) {

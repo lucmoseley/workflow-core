@@ -114,7 +114,7 @@ const UNREADABLE =
 	`See: node ${scriptPath("check-guard-errors.js")}`;
 
 /** @param {string} checker */
-const unreadableReport = (checker) =>
+const buildUnreadableReport = (checker) =>
 	`${checker}'s persisted report could not be read, so whether it is one ` +
 	"this session's start produced is unknown — not nothing (mantahostels#174). " +
 	"Run `node scripts/replay-notify-reports.js` to see what the store holds.";
@@ -183,7 +183,7 @@ function ownedReports(session) {
 	const blocks = [];
 	const repoChecks = notify.list().filter(isRepoChecksReport);
 	for (const checker of [...DELIVERED, ...repoChecks]) {
-		const block = reportBlock(session, checker, given);
+		const block = buildReportBlock(session, checker, given);
 		if (block !== null) blocks.push(block);
 	}
 	if (blocks.length > 0) writeLedger(session, ledger);
@@ -218,7 +218,7 @@ function blocksForUnlistableStore(session) {
  * @param {Set<string>} given accumulator: the ledger's given set, the block's entry added
  * @returns {string | null}
  */
-function reportBlock(session, checker, given) {
+function buildReportBlock(session, checker, given) {
 	const report = notify.readReport(checker);
 	if (!report) {
 		/* Absent is nothing due. Present and unparseable cannot say whose it
@@ -227,7 +227,7 @@ function reportBlock(session, checker, given) {
 			fs.existsSync(notify.reportFile(checker)) &&
 			core.firstSay(session, `notify report unreadable ${checker}`)
 		)
-			return unreadableReport(checker);
+			return buildUnreadableReport(checker);
 		return null;
 	}
 	if (report.owner !== session || !report.text.trim()) return null;
@@ -308,7 +308,7 @@ function ciRecheck(session) {
 	const envelope = recheckEnvelope();
 	if (envelope === null) return [];
 	if (CONCLUSIVE.has(String(envelope.outcome))) ledger.ci = seen;
-	const text = noticeText(envelope);
+	const text = buildNoticeText(envelope);
 	const entry = `ci-recheck:${digestOf(text)}`;
 	const isNew = Boolean(text) && !ledger.given.has(entry);
 	if (isNew) ledger.given.add(entry);
@@ -382,7 +382,7 @@ function recheckEnvelope() {
  * @param {CiEnvelope} envelope
  * @returns {string}
  */
-const noticeText = (envelope) =>
+const buildNoticeText = (envelope) =>
 	[
 		typeof envelope.text === "string" ? envelope.text : "",
 		envelope.outcome === "OK" ? "" : String(envelope.summary ?? ""),

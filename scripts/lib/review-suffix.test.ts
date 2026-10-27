@@ -3,13 +3,13 @@
  * The three routes that name the review-axis Artefact paths must spell them
  * alike (mantahostels#3458): a review dispatched on one route's name and read back on
  * another's finds nothing. They name the axes' subagent type too, which must
- * be one the host has (#741). inject-review-tier.sh's focus and attack paths
- * take the same suffix (#1621).
+ * be one the host has (#741). The inject-review-tier core's focus and attack
+ * paths take the same suffix (#1621).
  *
  * Each route's real script runs black-box against a scratch host directory,
  * with a session id that needs sanitising, since the fault is the routes
- * disagreeing and only their own output shows it. One route is
- * `guard-review-rules.sh`, a `PreToolUse` Skill hook in `.claude/settings.json`;
+ * disagreeing and only their own output shows it. One route is the
+ * `guard-review-rules` core, run through the PreToolUse dispatcher's entry;
  * loosen a case and a `/code-review` pass reads back no axis report at all.
  */
 
@@ -50,22 +50,27 @@ const ownReviewer = (host: string) => {
 };
 
 /** Called bare, as in the core, so the host carries the core's own skill (#1165). */
-const guardReviewRules = (scripts = SCRIPTS) => {
+const guardReviewRules = () => {
 	const skill = path.join(dir, ".claude", "skills", "code-review");
 	fs.mkdirSync(skill, { recursive: true });
 	fs.writeFileSync(
 		path.join(skill, "SKILL.md"),
 		"---\nname: code-review\n---\n",
 	);
-	const out = execFileSync(path.join(scripts, "guard-review-rules.sh"), {
-		input: JSON.stringify({
-			tool_name: "Skill",
-			tool_input: { skill: "code-review" },
-			session_id: ID,
-		}),
-		encoding: "utf8",
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: dir },
-	});
+	const out = execFileSync(
+		"node",
+		[path.join(SCRIPTS, "guard-dispatch.js"), "--only", "guard-review-rules"],
+		{
+			input: JSON.stringify({
+				hook_event_name: "PreToolUse",
+				tool_name: "Skill",
+				tool_input: { skill: "code-review" },
+				session_id: ID,
+			}),
+			encoding: "utf8",
+			env: { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: dir },
+		},
+	);
 	return JSON.parse(out).hookSpecificOutput.additionalContext as string;
 };
 
@@ -129,7 +134,7 @@ const concisionBackstop = (
 	return JSON.parse(hook("stop")).reason as string;
 };
 
-/** The tier hook's envelope, on a staged change to a declared sensitive glob (#1621). */
+/** The tier core's envelope, on a staged change to a declared sensitive glob (#1621). */
 const injectReviewTier = () => {
 	const repo = path.join(dir, "tier");
 	const hooks = path.join(dir, "tier-hooks");
@@ -151,22 +156,27 @@ const injectReviewTier = () => {
 	);
 	fs.writeFileSync(path.join(repo, "s.js"), "x\n");
 	execFileSync("git", ["add", "s.js"], { cwd: repo });
-	const out = execFileSync(path.join(SCRIPTS, "inject-review-tier.sh"), {
-		input: JSON.stringify({
-			tool_name: "Skill",
-			tool_input: { skill: "code-review" },
-			session_id: ID,
-		}),
-		encoding: "utf8",
-		env: { ...process.env, CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: dir },
-	});
+	const out = execFileSync(
+		"node",
+		[path.join(SCRIPTS, "guard-dispatch.js"), "--only", "inject-review-tier"],
+		{
+			input: JSON.stringify({
+				hook_event_name: "PreToolUse",
+				tool_name: "Skill",
+				tool_input: { skill: "code-review" },
+				session_id: ID,
+			}),
+			encoding: "utf8",
+			env: { ...process.env, CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: dir },
+		},
+	);
 	return JSON.parse(out).hookSpecificOutput.additionalContext as string;
 };
 
 describe("the review-axis session suffix (mantahostels#3458)", () => {
 	it("is spelled alike by all three routes, for an id needing sanitising", () => {
 		const routes = {
-			"guard-review-rules.sh": suffixes(guardReviewRules()),
+			"guard-review-rules": suffixes(guardReviewRules()),
 			"inject-tracker-docs.sh": suffixes(injectTrackerDocs()),
 			"concision-backstop.sh": suffixes(concisionBackstop()),
 		};
@@ -176,7 +186,7 @@ describe("the review-axis session suffix (mantahostels#3458)", () => {
 		}
 	});
 
-	it("is spelled alike on the focus and attack paths the tier hook names (#1621)", () => {
+	it("is spelled alike on the focus and attack paths the tier core names (#1621)", () => {
 		const found = [
 			...injectReviewTier().matchAll(
 				/review-(?:focus|attack)(-[^.`\s]*)?\.md/g,
@@ -234,48 +244,13 @@ describe("the review-axis session suffix (mantahostels#3458)", () => {
 		);
 		expect(out).toBe(`[][${EXPECTED}]`);
 	});
-
-	// A bare name collides across sessions, and the plugin's spelling is
-	// refused in the core, so the guard records either fallback.
-	it.each([
-		["review-suffix.sh", suffixes, [""]],
-		["review-agent-type.sh", agentTypes, ["workflow-core:code-reviewer"]],
-	] as const)(
-		"logs a fail-open in guard-review-rules.sh when lib/%s will not load",
-		(lib, read, fallback) => {
-			const copy = path.join(dir, "tree");
-			fs.mkdirSync(path.join(copy, "scripts"), { recursive: true });
-			fs.cpSync(path.join(SCRIPTS, "lib"), path.join(copy, "scripts", "lib"), {
-				recursive: true,
-				filter: (src) => path.basename(src) !== lib,
-			});
-			fs.copyFileSync(
-				path.join(SCRIPTS, "guard-review-rules.sh"),
-				path.join(copy, "scripts", "guard-review-rules.sh"),
-			);
-			// gp_rule reads its fragments beside the script, not under CLAUDE_PROJECT_DIR.
-			fs.symlinkSync(path.join(ROOT, "docs"), path.join(copy, "docs"));
-
-			expect(read(guardReviewRules(path.join(copy, "scripts")))).toEqual(
-				fallback,
-			);
-			const logs = fs
-				.readdirSync(path.join(dir, "projects"), { recursive: true })
-				.map(String)
-				.filter((f) => f.endsWith("guard-errors.log"));
-			const log = logs
-				.map((f) => fs.readFileSync(path.join(dir, "projects", f), "utf8"))
-				.join("");
-			expect(log).toContain(`lib/${lib} did not load`);
-		},
-	);
 });
 
 describe("the review subagent type (#741)", () => {
 	// A plugin agent is offered namespaced, and the bare name is refused as not found.
 	it("is the plugin's spelling on every route where the host has no definition", () => {
 		const routes = {
-			"guard-review-rules.sh": agentTypes(guardReviewRules()),
+			"guard-review-rules": agentTypes(guardReviewRules()),
 			"inject-tracker-docs.sh": agentTypes(injectTrackerDocs(dir)),
 			"concision-backstop.sh": agentTypes(concisionBackstop()),
 		};
@@ -287,7 +262,7 @@ describe("the review subagent type (#741)", () => {
 	it("is the bare name on every route where the host has its own", () => {
 		ownReviewer(dir);
 		const routes = {
-			"guard-review-rules.sh": agentTypes(guardReviewRules()),
+			"guard-review-rules": agentTypes(guardReviewRules()),
 			"inject-tracker-docs.sh": agentTypes(injectTrackerDocs(dir)),
 			"concision-backstop.sh": agentTypes(concisionBackstop(ownReviewer)),
 		};

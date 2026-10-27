@@ -57,7 +57,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
-const { gh, errLine } = require("./lib/gh");
+const { gh, parseErrLine } = require("./lib/gh");
 const { commitsSince } = require("./lib/seat-utilisation");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
@@ -390,7 +390,7 @@ function main(argv) {
 		r = reading(new Date(`${today}T00:00:00Z`));
 	} catch (e) {
 		console.log(
-			`No reading taken: the closed-issue series could not be assembled (${errLine(e)}). ` +
+			`No reading taken: the closed-issue series could not be assembled (${parseErrLine(e)}). ` +
 				"Nothing written; run it again.",
 		);
 		return 0;

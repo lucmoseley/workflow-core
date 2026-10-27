@@ -23,6 +23,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stampFile, writeStamp } from "./lib/commit-key.js";
 import { mkScratchDir } from "./lib/git-fixture";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import {
 	CORE_ROOT,
 	coreCall,
@@ -224,19 +225,7 @@ const writeHook = ({ testGate = false } = {}) =>
 const commitCount = () => Number(git("rev-list", "--count", "HEAD"));
 
 /** Every fail-open record the gate logged, check-guard-errors.js's input. */
-const logged = () => {
-	const found: string[] = [];
-	const walk = (d: string) => {
-		for (const e of fs.readdirSync(d, { withFileTypes: true })) {
-			const p = path.join(d, e.name);
-			if (e.isDirectory()) walk(p);
-			else if (e.name.includes("error")) found.push(fs.readFileSync(p, "utf8"));
-		}
-	};
-	const projects = path.join(scratch, "projects");
-	if (fs.existsSync(projects)) walk(projects);
-	return found.join("");
-};
+const readLog = () => readGuardErrorsLog(scratch);
 
 const REAL_GIT = spawnSync("sh", ["-c", "command -v git"], {
 	encoding: "utf8",
@@ -249,11 +238,11 @@ const onPath = (name: string, script: string) =>
 	fs.writeFileSync(path.join(scratch, "bin", name), `#!/bin/sh\n${script}`, {
 		mode: 0o755,
 	});
-/** Put on GIT_EXEC_PATH, which git puts first on a hook's PATH. */
-const gitRefuses = () => {
+/** Put on GIT_EXEC_PATH, which git puts first on a hook's PATH; `call` names the args it refuses. */
+const gitRefuses = (call = "diff --cached --name-only --no-renames -z") => {
 	onPath(
 		"git",
-		`case " $* " in *" diff --cached --name-only --no-renames -z "*) echo "fatal: stub git will not answer" >&2; exit 128 ;; esac\nexec ${REAL_GIT} "$@"\n`,
+		`case " $* " in *" ${call} "*) echo "fatal: stub git will not answer" >&2; exit 128 ;; esac\nexec ${REAL_GIT} "$@"\n`,
 	);
 	return { GIT_EXEC_PATH: path.join(scratch, "bin") };
 };
@@ -283,7 +272,7 @@ interface Runs {
 	seeded: string | null;
 	lock: boolean;
 }
-const runs = (): Runs[] => {
+const readRuns = (): Runs[] => {
 	const log = path.join(stubDir, "stub.log");
 	if (!fs.existsSync(log)) return [];
 	return fs
@@ -549,7 +538,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		const printed = /^(\/\/.*|\/\*.*?\*\/)/.exec(comment)?.[1].trim();
 		expect(r.stderr).toContain(`  lib/money.js:2  ${printed}`);
 		expectRuleAppended(r);
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it.each([
@@ -578,7 +567,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 			const r = commit([MONEY]);
 			expectHeld(r);
 			expect(r.stderr).toContain(`  lib/money.js:${line}  ${printed}\n`);
-			expect(runs()).toEqual([]);
+			expect(readRuns()).toEqual([]);
 		},
 	);
 
@@ -680,7 +669,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(r.status).toBe(1);
 		expect(commitCount()).toBe(2);
 		expect(r.stderr).toContain("  lib/money.js:3  /* Stryker disable all */\n");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("refuses an old directive the commit arms by editing its enclosing block comment's delimiters, naming its line (#2624)", () => {
@@ -708,7 +697,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(r.status).toBe(1);
 		expect(commitCount()).toBe(2);
 		expect(r.stderr).toContain("  lib/money.js:3  // Stryker disable all\n");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("refuses an old note the commit arms by deleting a line inside its comment, where it adds a line to the file, naming its line (#2624)", () => {
@@ -732,7 +721,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(r.status).toBe(1);
 		expect(commitCount()).toBe(2);
 		expect(r.stderr).toContain("  lib/money.js:3  /* Stryker disable all */\n");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it.each([
@@ -766,7 +755,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 			expect(r.stderr).toContain(
 				"  lib/money.js:3  // Stryker disable next-line all\n",
 			);
-			expect(runs()).toEqual([]);
+			expect(readRuns()).toEqual([]);
 		},
 	);
 
@@ -789,7 +778,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(r.stderr).toContain(
 			"  lib/money.js:2  // Stryker disable next-line all\n",
 		);
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("reads the disable comments only once the tools are installed, so a missing Stryker refuses first", () => {
@@ -831,8 +820,8 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 				"could not read the added disable comments in lib/money.js: ",
 			);
 			expect(r.stderr).toContain("so Stryker alone judges them");
-			expect(runs()).toHaveLength(1);
-			expect(logged()).toContain("a commit's disable comments went unchecked");
+			expect(readRuns()).toHaveLength(1);
+			expect(readLog()).toContain("a commit's disable comments went unchecked");
 		},
 	);
 
@@ -843,7 +832,9 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		disableAbove(comment);
 		report([{ line: 3, status: "Ignored" }]);
 		expectLanded(commit([MONEY]));
-		expect(runs()[0].config).toMatchObject({ mutate: ["lib/money.js:2-2"] });
+		expect(readRuns()[0].config).toMatchObject({
+			mutate: ["lib/money.js:2-2"],
+		});
 	});
 
 	it.each([
@@ -869,7 +860,9 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		const r = commit([MONEY]);
 		expectLanded(r);
 		expect(r.stderr).not.toContain("stating no reason");
-		expect(runs()[0].config).toMatchObject({ mutate: ["lib/money.js:8-13"] });
+		expect(readRuns()[0].config).toMatchObject({
+			mutate: ["lib/money.js:8-13"],
+		});
 	});
 
 	const landOldDirective = (seed = SEED) => {
@@ -900,15 +893,18 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 			"deleting the line just below it",
 			(t: string) => changeTax(t.replace("  // spare\n", "")),
 		],
-	])("charges no disable comment the commit did not add, %s", (_, edit) => {
-		landOldDirective();
-		write(MONEY, edit(fs.readFileSync(path.join(repo, MONEY), "utf8")));
-		report([]);
-		const r = commit([MONEY]);
-		expect(r.stderr).not.toContain("stating no reason");
-		expect(r.status).toBe(0);
-		expect(commitCount()).toBe(3);
-	});
+	])(
+		"charges no disable comment the commit did not add, %s (#2624)",
+		(_, edit) => {
+			landOldDirective();
+			write(MONEY, edit(fs.readFileSync(path.join(repo, MONEY), "utf8")));
+			report([]);
+			const r = commit([MONEY]);
+			expect(r.stderr).not.toContain("stating no reason");
+			expect(r.status).toBe(0);
+			expect(commitCount()).toBe(3);
+		},
+	);
 
 	it("charges no old directive in a file HEAD's copy of will not parse, saying so (#2624)", () => {
 		landOldDirective(`${SEED}}}}\n`);
@@ -925,13 +921,268 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(r.stderr).not.toContain("stating no reason");
 		expect(r.status).toBe(0);
 		expect(commitCount()).toBe(3);
+		expect(readLog()).toContain(
+			"could not read a file at HEAD — an old disable comment the commit arms went unchecked lib/money.js: ",
+		);
+	});
+
+	it("refuses an old note armed by editing its comment's opening line where HEAD's copy will not parse (#2727)", () => {
+		write(
+			MONEY,
+			`${SEED.replace(
+				"  if (amount > 100)",
+				"  /* note\nStryker disable all\n  */\n  if (amount > 100)",
+			)}}}}\n`,
+		);
+		git("add", MONEY);
+		git("commit", "-qm", "a note in a file that will not parse, landed unheld");
+		write(
+			MONEY,
+			fs
+				.readFileSync(path.join(repo, MONEY), "utf8")
+				.replace("  /* note", "  /*")
+				.replace("}}}\n", ""),
+		);
+		const r = commit([MONEY]);
+		expect(r.stderr).toContain("could not read lib/money.js at HEAD");
+		expect(r.status).toBe(1);
+		expect(commitCount()).toBe(2);
+		expect(r.stderr).toContain("  lib/money.js:3  /* Stryker disable all */\n");
+		expect(readRuns()).toEqual([]);
+	});
+
+	it("refuses an old next-line directive the commit adds a line directly under (#2727)", () => {
+		disableAbove("// Stryker disable next-line all");
+		git("add", MONEY);
+		git("commit", "-qm", "an old unreasoned comment, landed unheld");
+		write(
+			MONEY,
+			fs
+				.readFileSync(path.join(repo, MONEY), "utf8")
+				.replace(
+					"all\n  if (amount > 100)",
+					"all\n  const big = amount > 100;\n  if (amount > 100)",
+				),
+		);
+		const r = commit([MONEY]);
+		expect(r.status).toBe(1);
+		expect(commitCount()).toBe(2);
+		expect(r.stderr).toContain(
+			"  lib/money.js:2  // Stryker disable next-line all\n",
+		);
+		expect(readRuns()).toEqual([]);
+	});
+
+	/** HEAD holding `open` above fee and `close` between fee and tax, landed unheld. */
+	const landRegion = (open: string, close: string) => {
+		write(
+			MONEY,
+			SEED.replace(
+				"export function fee",
+				`${open}\nexport function fee`,
+			).replace("export function tax", `${close}\nexport function tax`),
+		);
+		git("add", MONEY);
+		git("commit", "-qm", "an old unreasoned region, landed unheld");
+	};
+
+	it.each([
+		[
+			"a restore of one mutator lifting no `all`",
+			"// Stryker disable all",
+			"// Stryker restore StringLiteral",
+		],
+		[
+			"a restore lifting one of two mutators",
+			"// Stryker disable StringLiteral,ObjectLiteral",
+			"// Stryker restore ObjectLiteral",
+		],
+		[
+			"a next-line restore",
+			"// Stryker disable all",
+			"// Stryker restore next-line all",
+		],
+	])(
+		"refuses an old unreasoned region reaching a line the commit adds past %s (#2727)",
+		(_, open, close) => {
+			landRegion(open, close);
+			write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
+			const r = commit([MONEY]);
+			expect(r.status).toBe(1);
+			expect(commitCount()).toBe(2);
+			expect(r.stderr).toContain(`  lib/money.js:1  ${open}\n`);
+			expect(readRuns()).toEqual([]);
+		},
+	);
+
+	it("refuses an old unreasoned region the commit widens over a line it adds by deleting its restore (#2727)", () => {
+		landRegion("// Stryker disable all", "// Stryker restore all");
+		write(
+			MONEY,
+			changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")).replace(
+				"// Stryker restore all\n",
+				"",
+			),
+		);
+		const r = commit([MONEY]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("  lib/money.js:1  // Stryker disable all\n");
+	});
+
+	it("refuses an old unreasoned region whose restore sits in code the commit leaves untouched (#2727)", () => {
+		write(
+			MONEY,
+			`// Stryker disable all\n${SEED.replace("  return 0;", "  // Stryker restore all\n  return 0;")}`,
+		);
+		git("add", MONEY);
+		git("commit", "-qm", "an old unreasoned region, landed unheld");
+		write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
+		const r = commit([MONEY]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("  lib/money.js:1  // Stryker disable all\n");
+	});
+
+	it("charges no old unreasoned region inside code the commit leaves untouched (#2727)", () => {
+		write(
+			MONEY,
+			SEED.replace("  return 0;", "  // Stryker disable all\n  return 0;"),
+		);
+		git("add", MONEY);
+		git("commit", "-qm", "an old unreasoned region, landed unheld");
+		write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
+		report([]);
+		const r = commit([MONEY]);
+		expect(r.stderr).not.toContain("stating no reason");
+		expect(r.status).toBe(0);
+	});
+
+	it("charges no old unreasoned region in one <script> block, read for a line added above it, for a line the commit adds in another (#2727)", () => {
+		const widget = "lib/Widget.vue";
+		write(
+			widget,
+			"<script>\n// Stryker disable all\nexport const a = 1 > 0;\n</script>\n<script setup>\nconst b = 2 > 1;\n</script>\n",
+		);
+		git("add", widget);
+		git("commit", "-qm", "an old unreasoned region, landed unheld");
+		write(
+			widget,
+			fs
+				.readFileSync(path.join(repo, widget), "utf8")
+				.replace("<script>\n", "<script>\nconst z = 0;\n")
+				.replace("2 > 1", "2 >= 1"),
+		);
+		report([]);
+		const r = commit([widget]);
+		expect(r.stderr).not.toContain("stating no reason");
+		expect(r.status).toBe(0);
+	});
+
+	it.each([
+		["// Stryker disable all", "// Stryker restore all"],
+		[
+			"// Stryker disable StringLiteral,ObjectLiteral",
+			"// Stryker restore ObjectLiteral, StringLiteral",
+		],
+	])(
+		"charges no old unreasoned region %j its restore closes above the lines the commit adds",
+		(open, close) => {
+			landRegion(open, close);
+			write(MONEY, changeTax(fs.readFileSync(path.join(repo, MONEY), "utf8")));
+			report([]);
+			const r = commit([MONEY]);
+			expect(r.stderr).not.toContain("stating no reason");
+			expect(r.status).toBe(0);
+			expect(commitCount()).toBe(3);
+		},
+	);
+
+	it("reads the disable comments past a host Babel config printing on stdout (#2727)", () => {
+		write(
+			"babel.config.js",
+			'console.log("hello from babel config");\nmodule.exports = {};\n',
+		);
+		landHostConfig();
+		disableAbove("// Stryker disable next-line all");
+		const r = commit([MONEY]);
+		expect(r.status).toBe(1);
+		expect(commitCount()).toBe(2);
+		expect(r.stderr).not.toContain("could not read");
+		expect(r.stderr).toContain(
+			"  lib/money.js:2  // Stryker disable next-line all\n",
+		);
+	});
+
+	it("reads the disable comments past a host Babel config whose timer outlives the read (#2727)", () => {
+		write(
+			"babel.config.js",
+			"setInterval(() => {}, 1000);\nmodule.exports = {};\n",
+		);
+		landHostConfig();
+		disableAbove("// Stryker disable next-line all");
+		const r = commit([MONEY]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).not.toContain("could not read");
+		expect(r.stderr).toContain(
+			"  lib/money.js:2  // Stryker disable next-line all\n",
+		);
+	});
+
+	it("leaves the file to Stryker, named and logged, where a host Babel config hangs the read past its timeout (#2727)", () => {
+		write(
+			"babel.config.mjs",
+			"await new Promise(() => setInterval(() => {}, 1000));\nexport default {};\n",
+		);
+		landHostConfig();
+		disableAbove("// Stryker disable next-line all");
+		report([]);
+		// A real hang on the real clock: the child's timeout is a spawnSync
+		// option, reached by no fake timer. 2000 ms is a guess, past the child's
+		// Babel load and short of the test's own ceiling.
+		const r = commit([MONEY], {
+			extra: { WFC_MUTATION_COMMENTS_TIMEOUT_MS: "2000" },
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain(
+			"could not read the added disable comments in lib/money.js: timed out after 2000 ms",
+		);
+		expect(readRuns()).toHaveLength(1);
+		expect(readLog()).toContain("a commit's disable comments went unchecked");
+	});
+
+	it("leaves only the file whose staged copy git will not show to Stryker, named and logged (#2727)", () => {
+		disableAbove("// Stryker disable next-line all");
+		report([]);
+		const r = commit([MONEY], { extra: gitRefuses(`show :${MONEY}`) });
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain(
+			`could not read the added disable comments in ${MONEY}: could not read a staged file: Command failed: git -c core.quotePath=false show :${MONEY}`,
+		);
+		expect(r.stderr).not.toContain("NOT checked");
+		expect(readRuns()).toHaveLength(1);
+		expect(readLog()).toContain("a commit's disable comments went unchecked");
+	});
+
+	it("reads a file whose HEAD copy git will not show as unparseable, still refusing an added unreasoned directive, logged (#2727)", () => {
+		disableAbove("// Stryker disable next-line all");
+		const r = commit([MONEY], { extra: gitRefuses(`show HEAD:${MONEY}`) });
+		expect(r.status).toBe(1);
+		expect(commitCount()).toBe(1);
+		expect(r.stderr).toContain(
+			`could not read ${MONEY} at HEAD (could not read a file at HEAD: Command failed: git -c core.quotePath=false show HEAD:${MONEY})`,
+		);
+		expect(r.stderr).toContain(
+			"  lib/money.js:2  // Stryker disable next-line all\n",
+		);
+		expect(readLog()).toContain(
+			`could not read a file at HEAD — an old disable comment the commit arms went unchecked ${MONEY}: `,
+		);
 	});
 
 	it("ships no mutator exclusion with the core, and passes the host's own as written", () => {
 		changeLine2();
 		report([]);
 		expectLanded(commit([MONEY]));
-		expect(runs()[0].config).not.toHaveProperty("mutator");
+		expect(readRuns()[0].config).not.toHaveProperty("mutator");
 		write(
 			"stryker.config.json",
 			JSON.stringify({
@@ -943,7 +1194,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		write(MONEY, SEED.replace("amount * 0.2", "amount * 0.25"));
 		const r = commit([MONEY]);
 		expect(r.status).toBe(0);
-		expect(runs()[1].config).toMatchObject({
+		expect(readRuns()[1].config).toMatchObject({
 			mutator: { excludedMutations: ["Regex"] },
 		});
 	});
@@ -971,7 +1222,7 @@ describe("mutation-hold-gate.js — a missing tool (#1911)", () => {
 			expect(r.stderr).toContain(says);
 			expect(r.stderr).toContain(INSTALL);
 			expectRuleAppended(r);
-			expect(runs()).toEqual([]);
+			expect(readRuns()).toEqual([]);
 		},
 	);
 
@@ -984,7 +1235,7 @@ describe("mutation-hold-gate.js — a missing tool (#1911)", () => {
 		expect(r.stderr).toContain('switch "mutation" off');
 		expect(r.stderr).not.toContain(INSTALL);
 		expectRuleAppended(r);
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("names every missing tool in one refusal", () => {
@@ -1018,7 +1269,7 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 		);
 		report([]);
 		expectLanded(commit([MONEY]));
-		const [run] = runs();
+		const [run] = readRuns();
 		expect(run.argv[0]).toBe("run");
 		expect(run.config).toMatchObject({
 			mutate: ["lib/money.js:2-2", "lib/money.js:6-7"],
@@ -1069,7 +1320,7 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 			const r = commit([MONEY]);
 			expect(r.status).toBe(0);
 			expect(commitCount()).toBe(before + 1);
-			const [run] = runs();
+			const [run] = readRuns();
 			expect(run.config).toMatchObject({
 				testRunner: "vitest",
 				coverageAnalysis: "all",
@@ -1090,7 +1341,7 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 		changeLine2();
 		report([]);
 		expectLanded(commit([MONEY]));
-		expect(runs()[0].config).toMatchObject({ coverageAnalysis: "perTest" });
+		expect(readRuns()[0].config).toMatchObject({ coverageAnalysis: "perTest" });
 	});
 
 	it.each([
@@ -1126,7 +1377,7 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 		);
 		report([]);
 		expect(commit([]).status).toBe(0);
-		const [run] = runs();
+		const [run] = readRuns();
 		expect(run.cwd).not.toBe(fs.realpathSync(repo));
 		expect(run.money).toBe(SEED.replace("amount > 100", "amount >= 100"));
 	});
@@ -1134,7 +1385,7 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 
 describe("mutation-hold-gate.js — the shared cache", () => {
 	const cache = () => path.join(repo, ".git", "wfc-mutation-incremental.json");
-	const leftovers = () =>
+	const readLeftovers = () =>
 		fs
 			.readdirSync(path.join(repo, ".git"))
 			.filter((f) => f.startsWith("wfc-mutation-incremental.json."));
@@ -1143,7 +1394,7 @@ describe("mutation-hold-gate.js — the shared cache", () => {
 		changeLine2();
 		report([]);
 		expectLanded(commit([MONEY]));
-		expect(runs()[0].seeded).toBeNull();
+		expect(readRuns()[0].seeded).toBeNull();
 		expect(JSON.parse(fs.readFileSync(cache(), "utf8"))).toHaveProperty("by");
 	});
 
@@ -1153,9 +1404,9 @@ describe("mutation-hold-gate.js — the shared cache", () => {
 		changeLine2();
 		report([{ line: 2, status: "Survived" }]);
 		expectHeld(commit([MONEY]));
-		expect(runs()[0].seeded).toBe('{"old":true}');
+		expect(readRuns()[0].seeded).toBe('{"old":true}');
 		expect(fs.readFileSync(cache(), "utf8")).toBe('{"new":true}');
-		expect(leftovers()).toEqual([]);
+		expect(readLeftovers()).toEqual([]);
 	});
 
 	it("leaves the cache untouched where the run left its copy as seeded, as a red initial run does", () => {
@@ -1173,7 +1424,7 @@ describe("mutation-hold-gate.js — the shared cache", () => {
 		const linked = linkedTree("side");
 		report([]);
 		expect(commit([MONEY], { cwd: linked }).status).toBe(0);
-		expect(runs()[0].seeded).toBe('{"old":true}');
+		expect(readRuns()[0].seeded).toBe('{"old":true}');
 		expect(fs.readFileSync(cache(), "utf8")).toBe('{"new":true}');
 	});
 
@@ -1186,7 +1437,7 @@ describe("mutation-hold-gate.js — the shared cache", () => {
 		expectLanded(r);
 		expect(r.stderr).toContain("kept its cache");
 		expect(fs.readFileSync(cache(), "utf8")).toBe('{"old":true}');
-		expect(leftovers()).toEqual([]);
+		expect(readLeftovers()).toEqual([]);
 	});
 
 	it("leaves one whole cache, the last writer's, when two runs write it at once", async () => {
@@ -1213,7 +1464,7 @@ describe("mutation-hold-gate.js — the shared cache", () => {
 		).toHaveLength(2);
 		const left = JSON.parse(fs.readFileSync(cache(), "utf8"));
 		expect([1 << 20, 8]).toContain(left.pad.length);
-		expect(leftovers()).toEqual([]);
+		expect(readLeftovers()).toEqual([]);
 	});
 });
 
@@ -1226,7 +1477,7 @@ describe("mutation-hold-gate.js — what runs nothing", () => {
 		const r = commit([MONEY], { extra: { WFC_MODULES: undefined } });
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it.each([
@@ -1260,8 +1511,8 @@ describe("mutation-hold-gate.js — what runs nothing", () => {
 			const r = commit(arrange(), { extra: { WFC_MODULES: undefined } });
 			expect(r.status).toBe(0);
 			expect(r.stderr).not.toContain("mutation hold");
-			expect(logged()).toBe("");
-			expect(runs()).toEqual([]);
+			expect(readLog()).toBe("");
+			expect(readRuns()).toEqual([]);
 		},
 	);
 
@@ -1289,14 +1540,14 @@ describe("mutation-hold-gate.js — what runs nothing", () => {
 	it("runs nothing on a path no glob declares", () => {
 		write("app/page.js", "new\n");
 		expectLanded(commit(["app/page.js"]));
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("runs nothing on a deletion-only commit", () => {
 		write(MONEY, SEED.replace("  return 0;\n", ""));
 		report([{ line: 3, status: "Survived" }]);
 		expectLanded(commit([MONEY]));
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("runs nothing on a test file or a path Stryker cannot mutate, naming each once (#1911)", () => {
@@ -1305,7 +1556,7 @@ describe("mutation-hold-gate.js — what runs nothing", () => {
 		git("add", "-N", "lib/money.test.js");
 		const r = commit(["lib/money.test.js", "lib/rates.json"]);
 		expectLanded(r);
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 		expect(r.stderr).toContain("skipped: lib/money.test.js, lib/rates.json.");
 		expect(r.stderr.split("skipped:")).toHaveLength(2);
 	});
@@ -1342,7 +1593,7 @@ describe("mutation-hold-gate.js — which commits are held", () => {
 		report([{ line: 2, status: "Survived" }]);
 		// No pathspec: git refuses a partial commit mid-cherry-pick.
 		expectLanded(commit([]));
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("skips a merge commit", () => {
@@ -1361,7 +1612,7 @@ describe("mutation-hold-gate.js — which commits are held", () => {
 		fs.writeFileSync(path.join(repo, ".git", "MERGE_HEAD"), `${side}\n`);
 		expect(commit([]).status).toBe(0);
 		expect(git("rev-list", "--count", "--merges", "HEAD")).toBe("1");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 });
 
@@ -1504,7 +1755,7 @@ describe("mutation-hold-gate.js — its own faults", () => {
 				.filter((l) => l.includes("NOT checked"));
 			expect(lines).toHaveLength(1);
 			expect(lines[0]).toContain(fault);
-			expect(logged()).toContain(
+			expect(readLog()).toContain(
 				`${fault} — a commit went unchecked for a surviving mutant`,
 			);
 		},
@@ -1532,7 +1783,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		writeStamp(at, r.stdout.trim());
 		return at;
 	};
-	const logLines = (name: string) => {
+	const countLogLines = (name: string) => {
 		const log = path.join(stubDir, name);
 		return fs.existsSync(log)
 			? fs.readFileSync(log, "utf8").split("\n").filter(Boolean).length
@@ -1570,7 +1821,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		const r = commitPaths([MONEY]);
 		expect(r.status, r.stderr).toBe(0);
 		expect(commitCount()).toBe(2);
-		expect(runs().map((x) => x.lock)).toEqual([false]);
+		expect(readRuns().map((x) => x.lock)).toEqual([false]);
 		expect(r.stderr).toContain("commit-paths: the mutation hold is green");
 		expect(r.stderr).not.toContain(inLock);
 	});
@@ -1590,7 +1841,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		const r = commitPaths([MONEY]);
 		expect(r.status).toBe(3);
 		expect(commitCount()).toBe(1);
-		expect(runs().map((x) => x.lock)).toEqual([false]);
+		expect(readRuns().map((x) => x.lock)).toEqual([false]);
 		expect(r.stderr).toContain(
 			"  lib/money.js:2:7  ConditionalExpression  amount >= 100 → true  Survived",
 		);
@@ -1607,7 +1858,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		expect(r.status).toBe(3);
 		expect(r.stderr).toContain("lint: a finding in lib/money.js");
 		expect(r.stderr).toContain("so the mutation hold never started");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 		expect(commitCount()).toBe(1);
 	});
 
@@ -1615,8 +1866,8 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		write("app/page.js", "new\n");
 		const r = commitPaths(["app/page.js"]);
 		expect(r.status, r.stderr).toBe(0);
-		expect(logLines("lint.log")).toBe(1);
-		expect(runs()).toEqual([]);
+		expect(countLogLines("lint.log")).toBe(1);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("re-runs the hold in the lock where the commit's changes moved while the pre-lock run went", () => {
@@ -1629,7 +1880,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 			"no pre-lock green for the mutation hold — it was green",
 		);
 		expect(r.stderr).toContain("the commit's own changes moved while it ran");
-		expect(runs().map((x) => [x.lock, x.money])).toEqual([
+		expect(readRuns().map((x) => [x.lock, x.money])).toEqual([
 			[false, SEED.replace("amount > 100", "amount >= 100")],
 			[true, moved],
 		]);
@@ -1643,7 +1894,7 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 			extra: { WFC_MUTATION_STAMP: stamp("mutation") },
 		});
 		expectLanded(r);
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("runs the hold in the lock on a stamp naming other changes, saying so, and in silence where none is named", () => {
@@ -1655,13 +1906,13 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		const r = commit([MONEY], { extra: { WFC_MUTATION_STAMP: at } });
 		expectLanded(r);
 		expect(r.stderr).toContain(`${inLock}: changes that do not match.`);
-		expect(runs()).toHaveLength(1);
+		expect(readRuns()).toHaveLength(1);
 
 		write(MONEY, SEED);
 		const plain = commit([MONEY]);
 		expect(plain.status).toBe(0);
 		expect(plain.stderr).not.toContain(inLock);
-		expect(runs()).toHaveLength(2);
+		expect(readRuns()).toHaveLength(2);
 	});
 
 	it("never stands the hold down on the test gate's stamp, nor the test gate on the hold's", () => {
@@ -1680,8 +1931,8 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		expect(r.stderr).toContain(
 			"in the lock — no pre-lock green stands it down: changes that do not match.",
 		);
-		expect(runs()).toHaveLength(1);
-		expect(logLines("test.log")).toBe(1);
+		expect(readRuns()).toHaveLength(1);
+		expect(countLogLines("test.log")).toBe(1);
 	});
 
 	it("leaves a pre-lock fault to the hook, which fails open in the lock and logs it once", () => {
@@ -1696,9 +1947,9 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		expect(r.stderr).toContain(
 			"no pre-lock green for the mutation hold — it judged nothing before the lock",
 		);
-		expect(runs().map((x) => x.lock)).toEqual([false, true]);
+		expect(readRuns().map((x) => x.lock)).toEqual([false, true]);
 		expect(
-			logged().split("a commit went unchecked for a surviving mutant"),
+			readLog().split("a commit went unchecked for a surviving mutant"),
 		).toHaveLength(2);
 	});
 
@@ -1706,8 +1957,8 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		changeLine2();
 		const r = commitPaths([MONEY], { WFC_MODULES: "" });
 		expect(r.status, r.stderr).toBe(0);
-		expect(runs()).toEqual([]);
-		expect(logLines("lint.log")).toBe(1);
+		expect(readRuns()).toEqual([]);
+		expect(countLogLines("lint.log")).toBe(1);
 	});
 
 	it("runs the declared test, then the hold, once each before the lock, and the hook stands both down", () => {
@@ -1716,8 +1967,8 @@ describe("mutation-hold-gate.js — before the index lock (#1910)", () => {
 		report([{ line: 2, status: "Killed" }]);
 		const r = commitPaths([MONEY]);
 		expect(r.status, r.stderr).toBe(0);
-		expect(logLines("test.log")).toBe(1);
-		expect(runs().map((x) => x.lock)).toEqual([false]);
+		expect(countLogLines("test.log")).toBe(1);
+		expect(readRuns().map((x) => x.lock)).toEqual([false]);
 		expect(r.stderr.indexOf(`running 'sh ${stubDir}/test.sh'`)).toBeLessThan(
 			r.stderr.indexOf("running the mutation hold before"),
 		);
@@ -1757,8 +2008,8 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("lib/money.test.js, lib/rates.json");
 		expect(r.stderr).toContain("cached 1 mutant result(s)");
-		expect(runs()).toHaveLength(1);
-		expect(runs()[0].config).toMatchObject({
+		expect(readRuns()).toHaveLength(1);
+		expect(readRuns()[0].config).toMatchObject({
 			mutate: [MONEY],
 			incremental: true,
 			concurrency: 2,
@@ -1771,8 +2022,8 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 		changeLine2();
 		git("add", MONEY);
 		expect(seed().status).toBe(0);
-		expect(runs()[0].money).toBe(SEED);
-		expect(runs()[0].cwd).not.toBe(fs.realpathSync(repo));
+		expect(readRuns()[0].money).toBe(SEED);
+		expect(readRuns()[0].cwd).not.toBe(fs.realpathSync(repo));
 	});
 
 	it("seeds nothing, with the install line, where Stryker is missing", () => {
@@ -1785,7 +2036,7 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 			"npm install --save-dev @stryker-mutator/core@10.0.0",
 		);
 		expect(r.stderr).toContain("nothing was seeded");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("seeds nothing where no declared file is code the hold would mutate", () => {
@@ -1794,7 +2045,7 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 		const r = seed();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("nothing was seeded");
-		expect(runs()).toEqual([]);
+		expect(readRuns()).toEqual([]);
 	});
 
 	it("seeds nothing on a red initial run, leaving no cache", () => {

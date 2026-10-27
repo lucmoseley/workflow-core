@@ -30,6 +30,7 @@ import {
 	cutGateFragment,
 	expectFixtureSupplies,
 	gateHead,
+	gateTmpdir,
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,
@@ -326,6 +327,18 @@ describe("stagedRepo", () => {
 		expect(String(git("diff", "--cached", "--name-status"))).toBe(
 			"M\ta/kept.txt\nA\tb/c/added.txt\n",
 		);
+	});
+});
+
+describe("gateTmpdir (#2648)", () => {
+	it("makes a directory inside the repo's own .git that no status reports, and hands the same one back", () => {
+		const { root, git } = newRepo("harness-", temps);
+		const dir = gateTmpdir(root);
+		fs.writeFileSync(path.join(dir, "wfc-shellcheck.lock"), "");
+
+		expect(dir.startsWith(path.join(root, ".git") + path.sep)).toBe(true);
+		expect(String(git("status", "--porcelain", "--ignored"))).toBe("");
+		expect(gateTmpdir(root)).toBe(dir);
 	});
 });
 

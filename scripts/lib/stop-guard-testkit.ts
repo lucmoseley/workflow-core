@@ -35,7 +35,7 @@ export interface StopRun {
 }
 
 /** The guard's block, or null where it allows the stop. */
-export function stopGuardBlock(
+export function readStopGuardBlock(
 	guard: string,
 	{
 		dir,
@@ -78,8 +78,8 @@ export function stopGuardBlock(
 }
 
 /** The refusal the guard writes, or "" where it allows the stop. */
-export function stopGuardReason(guard: string, run: StopRun): string {
-	const block = stopGuardBlock(guard, run);
+export function readStopGuardReason(guard: string, run: StopRun): string {
+	const block = readStopGuardBlock(guard, run);
 	if (!block) return "";
 	expect(block.decision).toBe("block");
 	return block.reason;

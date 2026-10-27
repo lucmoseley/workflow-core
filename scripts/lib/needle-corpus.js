@@ -1,20 +1,19 @@
 /**
  * scripts/lib/needle-corpus.js — the corpus count-guard-fires.test.ts's "every needle is text this repo still
- * prints" assertion reads, and the drift judgement guard-registry-atomicity.sh
+ * prints" assertion reads, and the drift judgement guard-registry-atomicity.js
  * makes against it at commit time (mantahostels#2708).
  *
  * Don't re-derive the walk, or which literals a needle claims, when a guard
  * JUDGES text against it: a private copy drifts from the test it protects,
  * invisibly until the next such commit (mantahostels#2708, on the mantahostels#2685 argument for
- * reading registrations through guard-fires.js). A cheap pre-filter that only
- * gates whether to run the judgement at all may keep its own copy, tested for
- * agreement (guard-registry-atomicity.sh's `judge_needle_text`).
+ * reading registrations through guard-fires.js).
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
+const { isCollectedTestOrConftest } = require("./test-kind.js");
 
 /**
  * Every directory a hook could print from, mirroring the test's walk.
@@ -46,30 +45,26 @@ const REGISTRY_REL = path.join("scripts", "guard-fire-needles.json");
  */
 
 /**
- * A test file is never a printer either, for the same reason the registry is
- * not: a test asserting on a guard's wording carries its own copy of that
- * wording, so a needle keyed on the TEST satisfies containment while measuring
- * nothing about the guard — reword the guard and the check stays green (mantahostels#3288,
- * found on `guard-npm-install.sh`'s `no-ignore-scripts`).
+ * A test file — one a runner collects, or pytest's `conftest.py` — is never a
+ * printer either, for the same reason the registry is not: a test asserting on
+ * a guard's wording carries its own copy of that wording, so a needle keyed on
+ * the TEST satisfies containment while measuring nothing about the guard —
+ * reword the guard and the check stays green (mantahostels#3288,
+ * found on `guard-npm-install.js`'s `no-ignore-scripts`).
  *
  * How to key a needle whose printer spells the literal escaped:
  * `docs/agents/guard-authoring.md` surface 7.
  *
  * FIXTURES AND TESTKITS STAY IN, and can hold a guard's wording the same way —
- * `lib/git-fixture.ts`, `lib/arbiter-testkit.ts`, `guard-parse-fixture.ts`.
+ * `lib/git-fixture.ts`, `lib/arbiter-testkit.ts`, `lib-closure-fixture.ts`.
  * Nothing rests on one today; a spelling convention naming them is what a
  * narrowing would need first.
  *
- * @param {string} rel
+ * @param {string} rel in the platform's separator, which test-kind.js does not read
  * @returns {boolean}
  */
-function isTestFile(rel) {
-	const base = path.basename(rel);
-	return (
-		/\.test\.[cm]?[jt]sx?$/.test(base) ||
-		/^test_.+\.py$/.test(base) ||
-		base === "conftest.py"
-	);
+function isTestAtPlatformPath(rel) {
+	return isCollectedTestOrConftest(rel.split(path.sep).join("/"));
 }
 
 /**
@@ -142,7 +137,7 @@ function isLinkedFile(p) {
  */
 function readCorpusFile(root, p, out) {
 	const rel = path.relative(root, p);
-	if (rel === REGISTRY_REL || isTestFile(rel)) return;
+	if (rel === REGISTRY_REL || isTestAtPlatformPath(rel)) return;
 	try {
 		out.set(rel, fs.readFileSync(p, "utf8"));
 	} catch (e) {
@@ -225,14 +220,14 @@ function entryTexts(key, entry) {
 function needleDrift({ root, landing, readHead, readLanding = null }) {
 	const landsRegistry = landing.includes(REGISTRY_REL);
 
-	const after = afterCorpus(root, landing, readLanding);
+	const after = readAfterCorpus(root, landing, readLanding);
 	if ("drift" in after) return after.drift;
-	const headText = headCorpusText(landing, readHead);
+	const headText = readHeadCorpusText(landing, readHead);
 	if ("drift" in headText) return headText.drift;
 
 	const afterBytes = landsRegistry
-		? landingRegistryBytes(root, readLanding)
-		: headRegistryBytes(readHead);
+		? readLandingRegistryBytes(root, readLanding)
+		: readHeadRegistryBytes(readHead);
 	if ("drift" in afterBytes) return afterBytes.drift;
 	const registryAfter = readRegistry(() => afterBytes.value);
 	if (registryAfter.error)
@@ -306,13 +301,13 @@ function noNeedles() {
  * @param {((rel: string) => string | null) | null} readLanding
  * @returns {Step<Map<string, string>>}
  */
-function afterCorpus(root, landing, readLanding) {
+function readAfterCorpus(root, landing, readLanding) {
 	let after;
 	try {
 		after = corpusFiles(root);
 	} catch (e) {
 		return bailStep(
-			`could not read the source corpus under ${root}: ${errText(e)}`,
+			`could not read the source corpus under ${root}: ${parseErrText(e)}`,
 		);
 	}
 	if (after.size === 0)
@@ -320,7 +315,7 @@ function afterCorpus(root, landing, readLanding) {
 
 	// The after-tree's copy of each landing corpus file, where the caller can
 	// name one the working tree does not hold.
-	if (readLanding) return overlayLanding(after, landing, readLanding);
+	if (readLanding) return readLandingOverlay(after, landing, readLanding);
 	return { value: after };
 }
 
@@ -331,7 +326,7 @@ function afterCorpus(root, landing, readLanding) {
  * @returns {Step<Map<string, string>>} `before` with each landing file's text
  *   in place of its own, or the fail-open verdict where a read throws
  */
-function overlayLanding(before, landing, readLanding) {
+function readLandingOverlay(before, landing, readLanding) {
 	const after = new Map(before);
 	for (const rel of landing) {
 		if (rel === REGISTRY_REL || !inCorpus(rel)) continue;
@@ -339,7 +334,9 @@ function overlayLanding(before, landing, readLanding) {
 		try {
 			bytes = readLanding(rel);
 		} catch (e) {
-			return bailStep(`could not read this commit's ${rel}: ${errText(e)}`);
+			return bailStep(
+				`could not read this commit's ${rel}: ${parseErrText(e)}`,
+			);
 		}
 		if (bytes === null) after.delete(rel);
 		else after.set(rel, bytes);
@@ -356,7 +353,7 @@ function overlayLanding(before, landing, readLanding) {
  * @param {(rel: string) => string | null} readHead
  * @returns {Step<string>} the copies joined
  */
-function headCorpusText(landing, readHead) {
+function readHeadCorpusText(landing, readHead) {
 	const headCopies = [];
 	for (const rel of landing) {
 		if (rel === REGISTRY_REL || !inCorpus(rel)) continue;
@@ -364,7 +361,7 @@ function headCorpusText(landing, readHead) {
 			const head = readHead(rel);
 			if (head !== null) headCopies.push(head);
 		} catch (e) {
-			return bailStep(`could not read HEAD's ${rel}: ${errText(e)}`);
+			return bailStep(`could not read HEAD's ${rel}: ${parseErrText(e)}`);
 		}
 	}
 	return { value: headCopies.join("\n") };
@@ -375,12 +372,14 @@ function headCorpusText(landing, readHead) {
  * @param {(rel: string) => string | null} readHead
  * @returns {Step<string>}
  */
-function headRegistryBytes(readHead) {
+function readHeadRegistryBytes(readHead) {
 	let bytes;
 	try {
 		bytes = readHead(REGISTRY_REL);
 	} catch (e) {
-		return bailStep(`could not read HEAD's ${REGISTRY_REL}: ${errText(e)}`);
+		return bailStep(
+			`could not read HEAD's ${REGISTRY_REL}: ${parseErrText(e)}`,
+		);
 	}
 	// No registry in HEAD and none landing: there are no needles to judge.
 	if (bytes === null) return noNeedles();
@@ -394,7 +393,7 @@ function headRegistryBytes(readHead) {
  * @param {((rel: string) => string | null) | null} readLanding
  * @returns {Step<string>}
  */
-function landingRegistryBytes(root, readLanding) {
+function readLandingRegistryBytes(root, readLanding) {
 	let bytes;
 	try {
 		bytes = readLanding
@@ -402,7 +401,7 @@ function landingRegistryBytes(root, readLanding) {
 			: fs.readFileSync(path.join(root, REGISTRY_REL), "utf8");
 	} catch (e) {
 		return bailStep(
-			`could not read this commit's ${REGISTRY_REL}: ${errText(e)}`,
+			`could not read this commit's ${REGISTRY_REL}: ${parseErrText(e)}`,
 		);
 	}
 	if (bytes === null) return noNeedles();
@@ -424,7 +423,9 @@ function addedNeedles(readHead, registryAfter) {
 	try {
 		headBytes = readHead(REGISTRY_REL);
 	} catch (e) {
-		return bailStep(`could not read HEAD's ${REGISTRY_REL}: ${errText(e)}`);
+		return bailStep(
+			`could not read HEAD's ${REGISTRY_REL}: ${parseErrText(e)}`,
+		);
 	}
 	// A registry HEAD does not name yet adds no needles, which allows:
 	// nothing here may refuse on an absence git could not explain.
@@ -452,7 +453,7 @@ function addedNeedles(readHead, registryAfter) {
  * @returns {boolean}
  */
 function inCorpus(rel) {
-	if (isTestFile(rel)) return false;
+	if (isTestAtPlatformPath(rel)) return false;
 	return isUnder(rel, CORPUS_DIRS, path.sep);
 }
 
@@ -464,7 +465,7 @@ function readRegistry(read) {
 	try {
 		return { value: JSON.parse(read()), error: null };
 	} catch (e) {
-		return { value: null, error: errText(e) };
+		return { value: null, error: parseErrText(e) };
 	}
 }
 
@@ -475,12 +476,11 @@ function readRegistry(read) {
  * @param {unknown} e
  * @returns {string}
  */
-function errText(e) {
+function parseErrText(e) {
 	return e instanceof Error ? e.message : String(e);
 }
 
 module.exports = {
 	CORPUS_DIRS,
-	isTestFile,
 	needleDrift,
 };

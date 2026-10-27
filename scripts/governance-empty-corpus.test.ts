@@ -81,7 +81,7 @@ function runEnv(name: string, extra: NodeJS.ProcessEnv, ...args: string[]) {
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
-const clean = () =>
+const readStatus = () =>
 	execFileSync("git", ["status", "--porcelain"], {
 		cwd: dir,
 		encoding: "utf8",
@@ -143,7 +143,7 @@ describe("governance on an empty corpus", () => {
 		const r = run(name, ...args);
 		expect(r.out).toContain(line);
 		expect(r.status).toBe(0);
-		expect(clean()).toBe("");
+		expect(readStatus()).toBe("");
 	});
 
 	it("files nothing on a cycle log that declares no cycle", () => {
@@ -205,7 +205,7 @@ describe("governance with roadmap off", () => {
 			expect(r.out).toContain(line);
 			expect(r.out).not.toContain("is off");
 			expect(r.status).toBe(0);
-			expect(clean()).toBe("");
+			expect(readStatus()).toBe("");
 		},
 	);
 

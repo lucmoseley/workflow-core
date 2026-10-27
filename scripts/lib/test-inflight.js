@@ -29,6 +29,12 @@ const fs = require("node:fs");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
 
+/**
+ * `scheduled` is null where no schedule was recorded.
+ * @typedef {{ open: { module: string, stage: string }[], finished: string[],
+ *   scheduled: string[]|null }} InflightRecord
+ */
+
 const INFLIGHT_FILE = ".test-inflight.json";
 const INFLIGHT_ENV = "WFC_INFLIGHT_FILE";
 
@@ -61,13 +67,18 @@ const open = new Map();
  * @type {string[]} */
 const finished = [];
 
+/** Every module the run scheduled, so a ceiling kill can name the ones never
+ * started (#2696); null until vitest has scheduled them.
+ * @type {{ list: string[]|null }} */
+const scheduled = { list: null };
+
 /** @param {string} root */
 function flush(root) {
 	try {
 		const rows = [...open].map(([module, stage]) => ({ module, stage }));
 		fs.writeFileSync(
 			inflightPath(root),
-			`${JSON.stringify({ open: rows, finished })}\n`,
+			`${JSON.stringify({ open: rows, finished, scheduled: scheduled.list })}\n`,
 		);
 	} catch {
 		/* Swallowed rather than reported: this runs on every module transition of
@@ -86,6 +97,18 @@ function flush(root) {
 function begin(root) {
 	open.clear();
 	finished.length = 0;
+	scheduled.list = null;
+	flush(root);
+}
+
+/**
+ * @param {string} root
+ * @param {(string|undefined)[]} moduleIds
+ */
+function schedule(root, moduleIds) {
+	scheduled.list = moduleIds.filter(
+		/** @returns {m is string} */ (m) => typeof m === "string" && m !== "",
+	);
 	flush(root);
 }
 
@@ -152,13 +175,14 @@ function read(root) {
  *
  * AN UNREADABLE OR CORRUPT FILE READS AS NO RECORD, never as a throw.
  * @param {string} file
- * @returns {{ open: { module: string, stage: string }[], finished: string[] }}
+ * @returns {InflightRecord}
  */
 function readRecord(file) {
 	try {
 		const record = JSON.parse(fs.readFileSync(file, "utf8"));
 		const recordOpen = record?.open;
 		const recordFinished = record?.finished;
+		const recordScheduled = record?.scheduled;
 		return {
 			open: Array.isArray(recordOpen)
 				? recordOpen.filter((r) => r?.module)
@@ -166,9 +190,12 @@ function readRecord(file) {
 			finished: Array.isArray(recordFinished)
 				? recordFinished.filter((f) => typeof f === "string")
 				: [],
+			scheduled: Array.isArray(recordScheduled)
+				? recordScheduled.filter((f) => typeof f === "string")
+				: null,
 		};
 	} catch {
-		return { open: [], finished: [] };
+		return { open: [], finished: [], scheduled: null };
 	}
 }
 
@@ -176,6 +203,7 @@ function readRecord(file) {
 function clear(root) {
 	open.clear();
 	finished.length = 0;
+	scheduled.list = null;
 	clearFile(inflightPath(root));
 }
 
@@ -204,4 +232,5 @@ module.exports = {
 	leave,
 	read,
 	readRecord,
+	schedule,
 };

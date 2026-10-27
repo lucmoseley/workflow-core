@@ -6,6 +6,22 @@ confirm that specific test fails, then reverse the break. This repo has no
 `AGENTS.md`; here the loop, and the bar on a whole-file restore below, are this
 guide's own advice.
 
+## Run the loop in one queue seat
+
+**A scripted loop of many mutants waits in the suite queue once, not once per
+mutant** (#2918). Launch the driver through the seat:
+
+    node scripts/queue-run.js --seat -- python3 <mutate.py>
+
+and have it run each mutant as `node scripts/run-vitest.js <file> --queue`.
+Inside the seat, each `--queue` run skips the queue and waits on the memory
+rung alone; the rung charges each mutant's vitest while it runs, and the seat
+nothing between mutants. A loop that launches `--queue` runs per mutant with no seat is the
+slow form (#2911). A per-mutant run without `--queue` is no shortcut: a launch
+from inside a script skips the memory gate, which only sees the outer command
+(docs/environment.md §6). `--seat` refuses a driver that is itself a suite,
+such as `pytest`.
+
 ## Prove the mutation landed
 
 - **`perl -pi -e 's/…/…/'` exits 0 when the pattern matches nothing**, so a
@@ -14,23 +30,18 @@ guide's own advice.
   first: `assert s.count(old)==1`.
 - **An unescaped `&` in the *replacement* half expands to the whole match** —
   in `sed` always, and in bash `${var//pat/rep}` since 5.2 via
-  `patsub_replacement`, which is **on by default**. A `sed -i` mutation of a
-  `declare -F` line broke the script syntactically, and the failures that
-  followed looked like the mutation being caught and proved nothing about the
-  line under test. Where the replacement contains `&`, `\` or `|`, use
-  `perl -pi -e` or a python heredoc. Expect a clean mutation to fail *one*
-  targeted test — a broad failure across many usually means the file was
-  mangled.
+  `patsub_replacement`, which is **on by default**. Where the replacement
+  contains `&`, `\` or `|`, use `perl -pi -e` or a python heredoc. Expect a
+  clean mutation to fail *one* targeted test — a broad failure across many
+  usually means the file was mangled (#3059).
 - **Never mutate to the empty string.** A generic helper of the form
   `sub <file> <needle> <replacement>` reversed by swapping the two runs
   `s/\Q\E/needle/g` on the reverse leg, and the empty pattern matches at every
-  position: on `scripts/guard-issue-create-label.sh` the needle landed 17,865
-  times, turning an 18 KB file into ~450 KB of shredded text. That file is a
-  `PreToolUse` Bash hook, so an unparseable copy makes **every** Bash call in
-  **every** session fail with `Syntax error: ")" unexpected` — recovery has to go
-  through the Edit/Write tools, which still work. Mutate to something inert but
-  non-empty of the same shape (`labelIds:` → `labelIdsZZ:`), so the reverse is a
-  genuine two-way swap. Where you write a helper: refuse an empty needle *and* an
+  position, shredding the file (#3059). A shredded `PreToolUse` Bash hook makes
+  **every** Bash call in **every** session fail with `Syntax error: ")"
+  unexpected` — recovery has to go through the Edit/Write tools, which still
+  work. Mutate to something inert but non-empty of the same shape (`labelIds:`
+  → `labelIdsZZ:`), so the reverse is a genuine two-way swap. Where you write a helper: refuse an empty needle *and* an
   empty replacement on both legs; abort unless exactly one substitution lands on
   each leg; and sha256 the file before the mutation, asserting it matches after
   the reversal.
@@ -50,10 +61,12 @@ re-execs the real script in a child process (`spawnSync`) instead.
 to — an exit code alone cannot tell a genuine refusal from the gate crashing
 before it ever looked** (mantahostels#2019). Prior art to copy, by file and test:
 
-- `scripts/pre-applypatch-gate.test.ts:387` — refuses when gitleaks itself
-  cannot run, rather than passing vacuously on the crash.
-- `scripts/check-guard-registry.test.ts:203` and `:219` — a structural pin off
-  the checker's own `--json` envelope: `findings[0].detail`.
+- `scripts/pre-applypatch-gate.test.ts`, `"refuses when gitleaks itself
+  cannot run, rather than passing vacuously"`.
+- `scripts/check-guard-registry.test.ts`, `"fails when an Enforced rule names a
+  guard that does not exist"` and `"fails when the guard exists but nothing
+  triggers it, as UNWIRED"` — a structural pin off the checker's own `--json`
+  envelope: `findings[0].detail`.
 - `scripts/precommit-doc-map-gate.test.ts`, `"refuses the commit, naming the
   row and the regeneration command"` — a real-checker fixture, pinned on the
   refusal text naming the row and the fix command.
@@ -74,8 +87,7 @@ fixture a deliberately dissimilar body, so git cannot read it as a rename.
 
 - **A `vitest run <file> -t "<name>"` filter selects by test name, so it often
   skips the very test that covers the mutated line** — the run passes and the
-  mutant reads as survived (mantahostels#504, which records a filtered run reporting 2
-  passed and 93 skipped while the covering test never ran). Run the whole file
+  mutant reads as survived (mantahostels#504). Run the whole file
   unfiltered, or grep it for the test naming the behaviour and filter on that.
   **A narrowed run says so itself** (mantahostels#1230), on a line of its own after the
   summary: `FILTERED RUN — ran 1 of 8 tests in 1 of 123 files; 7 skipped; -t
@@ -85,23 +97,18 @@ fixture a deliberately dissimilar body, so git cannot read it as a rename.
   unfiltered.
 - **A surviving mutation is as often a vacuous fixture as a missing
   guarantee** — check the fixture actually exercises the pattern before
-  concluding either way. Two mutation tests survived in
-  `scripts/check-guard-registry.js` at mantahostels#358 (anchoring a guard that delegates by
-  running node) purely because the fixture line
-  never matched the pattern at all (a backtick or a `${}` sat immediately before
-  the keyword). The same file carried the mirror bug: filtering matches by
-  slicing the text before `m.index` back to the line start works only when the
-  pattern starts mid-line, so under a `/^…/gm` pattern that slice is always `""`
-  and an "is this line commented out?" filter passes every match. Capture the
-  prefix as a group (`/^([^#\n]*?)…/gm`) and test the group.
+  concluding either way: a fixture line can miss the pattern on one character,
+  such as a backtick or a `${}` just before the keyword (mantahostels#358, #3059).
+  The mirror bug: filtering matches by slicing the text before `m.index` back
+  to the line start works only when the pattern starts mid-line, so under a
+  `/^…/gm` pattern that slice is always `""` and an "is this line commented
+  out?" filter passes every match. Capture the prefix as a group (`/^([^#\n]*?)…/gm`) and test the group.
 - **Run the suite with `GITHUB_ACTIONS=true` before pushing any change to the
   checker family or its tests.** `scripts/lib/check.js` writes
   `::error::`/`::warning::` workflow annotations to **stdout**, but only when
   `GITHUB_ACTIONS === "true"` — so a test that spawns a `scripts/check-*.js` and
-  asserts on its output passes locally and fails only after the push. Two forms
-  seen: asserting stdout is empty for a BROKEN run, and asserting a capped human
-  report omits item N when the annotation loop is uncapped. Fix by spawning with
-  `env: { ...process.env, GITHUB_ACTIONS: "" }`; annotation behaviour belongs to
+  asserts on its output passes locally and fails only after the push (#3059).
+  Fix by spawning with `env: { ...process.env, GITHUB_ACTIONS: "" }`; annotation behaviour belongs to
   `scripts/lib/check.test.ts`, which sets the variable deliberately.
 - **Clear `scripts/__pycache__` between mutating and restoring a Python file.**
   `.pyc` validation keys on source mtime **and size**, so a same-length edit
@@ -111,7 +118,7 @@ fixture a deliberately dissimilar body, so git cannot read it as a rename.
 
 ## Reverse the mutation without clobbering a neighbour
 
-The same section bars the whole-file restore. When the inverse edit itself
+**Never restore a mutated file whole from a copy.** When the inverse edit itself
 refuses: a reverse `Edit` failing with `String to replace not found in file`
 means a neighbour changed that same string, so **re-read the file, never fall
 back to a copy** — the copy is what took three edits to `scripts/evidence-audit.py`
@@ -124,11 +131,9 @@ back to a copy** — the copy is what took three edits to `scripts/evidence-audi
   execution carries on at exit 0, while `fs.writeSync(1, …)` **throws**
   `ENOSPC: no space left on device, write` and the process dies non-zero. So
   `/dev/full` does test a "this side effect must not happen if the output
-  failed" ordering, provided the code under test reports via `writeSync`.
-  That is why `scripts/lib/check.js` uses `writeSync` rather than `console`:
-  node drops buffered writes to a pipe at `process.exit`, and a hook's stdout is
-  always a pipe. A script reporting some other way offers no route in, and its
-  ordering has to be asserted on source order instead — checking each anchor `>= 0` first, since
+  failed" ordering, provided the code under test reports via `writeSync`, as
+  `scripts/lib/check.js` does (#3059). A script reporting some other way offers no
+  route in, and its ordering has to be asserted on source order instead — checking each anchor `>= 0` first, since
   `lastIndexOf` returns `-1` and a bare `>` passes vacuously.
 - **Differential-fuzz a `scripts/guard-*.sh` change against bash, never against
   your own reading of the payload.** Put a stub `git` (and `gh`) first on `PATH`
@@ -147,9 +152,8 @@ back to a copy** — the copy is what took three edits to `scripts/evidence-audi
     the command out and the test passes whatever the parser did.
   - **Vary the part of the payload the new code reads.** At mantahostels#232 the fuzz varied
     a commit message's body and the lines after it, never the *opening* command
-    line, which is exactly what the new code inspected: 720 payloads reported 0
-    misses while a real hole was open, and `/code-review` found it in one. A
-    fresh reviewer is the control, not more payloads.
+    line, which is exactly what the new code inspected, and missed a hole
+    `/code-review` found. A fresh reviewer is the control, not more payloads.
   - The guard runs with the *hook's* cwd, so run the harness from the repo root.
-    Anywhere else, `_gp_is_shared_tree` answers no to everything and every
+    Anywhere else, `git-tree.js`'s `treeClassifier` answers no to everything and every
     payload reports ALLOW, which looks like a clean result.

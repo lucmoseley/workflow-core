@@ -3,13 +3,11 @@
  * Outside-line tests and its `**Close when:**` test, for the scripts that
  * write or audit a `takes:` value (#533, #983, #1095).
  *
- * The shell half is scripts/guard-issue-create-label.sh (TAKES_VALUES,
- * HUMAN_MARKER_RE, REPO_FILE_RE, BARRED_RE, FOUNDER_ACTS, FOUNDER_ACT_RE,
- * TRIED_LINE_RE, LIST_ITEM_RE, TRIED_MIN, CLOSE_WHEN_RE), which cannot
- * require this file: keep the two in step (#1097). file-issue.test.ts asserts
- * TAKES_VALUES against both that guard and docs/agents/triage-labels.md, and
- * every Outside-line verdict against scripts/fixtures/takes-human-bodies.json;
- * guard-issue-create-label.test.ts runs the same table through the guard.
+ * The guard half is lib/issue-create-label.js, guard-issue-create-label.js's
+ * core, which requires this file (#2796). file-issue.test.ts asserts
+ * TAKES_VALUES against docs/agents/triage-labels.md, and every Outside-line
+ * verdict against scripts/fixtures/takes-human-bodies.json;
+ * lib/issue-create-label.test.ts runs the same table through that core.
  *
  * The Node scripts naming one value spell it through takesValue or
  * takesLabel, which throw on a value outside the set (#2193); file-issue.test.ts

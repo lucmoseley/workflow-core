@@ -40,6 +40,7 @@ async function run(
 	{
 		lockFree = true,
 		ledgered = [] as string[],
+		stuck = [] as string[],
 		onTest = (_sha: string): void => undefined,
 		history = [] as string[],
 		revertFails = null as string | null,
@@ -47,16 +48,24 @@ async function run(
 		holdFails = null as string | null,
 		lastHold = null as HoldNote | null,
 		lastRed = null as Red | null,
+		lastMoved = null as string | null,
 		refsFail = ((_nth: number) => null) as (nth: number) => Error | null,
 	} = {},
 ) {
 	const ledger = new Set<string>(ledgered);
+	const noVerdict = new Set<string>(stuck);
 	const pushes: { sha: string; ledgerAtPush: string[] }[] = [];
 	const tested: { sha: string; files?: string[] }[] = [];
 	const tickets: FixTicket[] = [];
 	const holds: Held[] = [];
-	const beats: { batch: string | null; hold?: HoldNote; red?: Red }[] = [];
+	const beats: {
+		batch: string | null;
+		hold?: HoldNote;
+		red?: Red;
+		movedAt?: string | null;
+	}[] = [];
 	const said: string[] = [];
+	const reverted: { culprit: string; parent: string | null }[] = [];
 	const actions: unknown[] = [];
 	let refsRead = 0;
 	let released = 0;
@@ -78,19 +87,23 @@ async function run(
 				pushes.push({ sha, ledgerAtPush: [...ledger] });
 				remote.main = sha;
 			},
-			firstParents: (base, sha) =>
+			chain: (base, sha) =>
 				history.slice(
 					base === null ? 0 : history.indexOf(base) + 1,
 					history.indexOf(sha) + 1,
 				),
-			revertOnLanding: () => {
+			revertOnLanding: (culprit, parent) => {
+				reverted.push({ culprit, parent });
 				if (revertFails !== null) return { failed: revertFails };
 				const onto = remote.landing ?? A;
 				remote.landing = R;
 				return { sha: R, onto };
 			},
+			/* A, main before the batch, precedes every sha in `history`. */
 			contains: (tip, sha) =>
-				tip === sha || (at(sha) !== -1 && at(sha) <= at(tip)),
+				tip === sha ||
+				(sha === A && at(tip) !== -1) ||
+				(at(sha) !== -1 && at(sha) <= at(tip)),
 		},
 		tester: {
 			verdict: async (sha, files) => {
@@ -121,17 +134,24 @@ async function run(
 				ledger.add(sha);
 			},
 		},
+		noVerdict: {
+			has: (sha) => noVerdict.has(sha),
+			add: (sha) => {
+				noVerdict.add(sha);
+			},
+		},
 		lock: {
 			acquire: () => lockFree,
 			release: () => {
 				released++;
 			},
 		},
-		beat: (batch, note) => {
-			beats.push({ batch, ...note });
+		beat: (batch, note, movedAt) => {
+			beats.push({ batch, ...note, ...(movedAt ? { movedAt } : {}) });
 		},
 		lastHold: () => lastHold,
 		lastRed: () => lastRed,
+		lastMoved: () => lastMoved,
 		wait: async (ms) => {
 			waits.push(ms);
 		},
@@ -145,11 +165,13 @@ async function run(
 	return {
 		end,
 		pushes,
+		stuck: [...noVerdict],
 		tested,
 		tickets,
 		holds,
 		beats,
 		said,
+		reverted,
 		actions,
 		released,
 		refsRead,
@@ -169,6 +191,21 @@ describe("runLander", () => {
 		]);
 		expect(r.pushes).toEqual([{ sha: B, ledgerAtPush: [B] }]);
 		expect(r.released).toBe(1);
+	});
+
+	it("records in its beats when it moved main, from the push on (#2692)", async () => {
+		const before = Date.now();
+		const r = await run({ main: A, landing: B }, green);
+		const last = r.beats.at(-1);
+		expect(Date.parse(last?.movedAt ?? "")).toBeGreaterThanOrEqual(before);
+		expect(r.beats[0]?.movedAt).toBeUndefined();
+	});
+
+	it("carries the last run's move in every beat where it moves main nowhere", async () => {
+		const moved = "2026-10-21T10:00:00.000Z";
+		const r = await run({ main: A, landing: A }, green, { lastMoved: moved });
+		expect(r.beats.length).toBeGreaterThan(0);
+		expect(r.beats.every((b) => b.movedAt === moved)).toBe(true);
 	});
 
 	it("never fast-forwards on an unknown verdict", async () => {
@@ -256,13 +293,14 @@ describe("runLander", () => {
 						stderr: "! [remote rejected] pre-push hook declined\n",
 					});
 				},
-				firstParents: () => [],
+				chain: () => [],
 				revertOnLanding: () => ({ sha: R, onto: B }),
 				contains: () => false,
 			},
 			tester: { verdict: async () => ({ kind: "green" }) },
 			tracker: { fileFixTicket: () => "", holdQueue: () => "" },
 			ledger: { has: () => false, add: () => undefined },
+			noVerdict: { has: () => false, add: () => undefined },
 			lock: {
 				acquire: () => true,
 				release: () => {
@@ -327,6 +365,21 @@ describe("runLander on a failing remote (#2673)", () => {
 		expect(r.refsRead).toBe(1);
 		expect(r.waits).toEqual([]);
 	});
+
+	it("names git's refusal, not the pre-push hook's first line, where a push is refused (#2996)", async () => {
+		const r = await run({ main: A, landing: B }, green, {
+			refsFail: () =>
+				Object.assign(new Error("Command failed: git push"), {
+					stderr:
+						"lander: OK: no pushed ref to judge.\nTo github.com:o/r.git\n ! [rejected]        024a6dce5 -> main (non-fast-forward)\nerror: failed to push some refs\n",
+				}),
+		});
+		expect(r.end).toEqual({
+			kind: "exit",
+			reason:
+				"stopped on an error:  ! [rejected]        024a6dce5 -> main (non-fast-forward)",
+		});
+	});
 });
 
 const FILES = ["x.test.ts"];
@@ -388,7 +441,7 @@ describe("runLander on a red batch", () => {
 			{ kind: "rerun", sha: B, files: FILES, why: "bisect" },
 			{ kind: "rerun", sha: C, files: FILES, why: "bisect" },
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
-			{ kind: "rerun", sha: B, files: [], why: "confirm" },
+			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "fast-forward", sha: B },
 			{ kind: "revert", culprit: C, parent: B, files: FILES },
 			{
@@ -405,6 +458,7 @@ describe("runLander on a red batch", () => {
 		expect(r.tickets).toEqual([
 			{ culprit: C, parent: B, revert: R, files: FILES },
 		]);
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
 	});
 
@@ -618,6 +672,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			range: null,
 			bisect: {},
 			confirm: {},
+			parentOnFiles: null,
 			revert: null,
 			unfiled: null,
 		};
@@ -638,6 +693,134 @@ describe("runLander across runs on a red batch (#2673)", () => {
 	});
 });
 
+describe("runLander where the culprit's parent reaches no verdict on the whole suite (#2910)", () => {
+	const ceiling = "SUITE CEILING — killed at the 840s ceiling";
+	const redVerdict: Verdict = { kind: "red", files: FILES };
+	/** C is the culprit; B's whole suite hits the ceiling; B passes its
+	 * first `bisectRuns` runs on the failing files, and `onFiles` is its
+	 * verdict on them after. */
+	const parentStuck =
+		(onFiles: Verdict, bisectRuns = 1) =>
+		(sha: string, files: string[] | undefined, nth: number): Verdict => {
+			if (sha !== B) return sha === R ? { kind: "green" } : redVerdict;
+			if (files?.length === 0) return { kind: "unknown", reason: ceiling };
+			return nth <= bisectRuns ? { kind: "green" } : onFiles;
+		};
+
+	it("confirms the parent on the failing files, reverts the culprit without landing the parent, and lands the revert", async () => {
+		const r = await run(
+			{ main: A, landing: D },
+			parentStuck({ kind: "green" }),
+			{
+				history: [B, C, D],
+			},
+		);
+		expect(r.actions).toEqual([
+			{ kind: "test", sha: D },
+			{ kind: "rerun", sha: D, files: FILES, why: "flake" },
+			{ kind: "bisect", base: A, sha: D },
+			{ kind: "rerun", sha: B, files: FILES, why: "bisect" },
+			{ kind: "rerun", sha: C, files: FILES, why: "bisect" },
+			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
+			{ kind: "rerun", sha: B, files: [], why: "parent" },
+			{ kind: "rerun", sha: B, files: FILES, why: "parent-files" },
+			{ kind: "revert", culprit: C, parent: B, files: FILES },
+			{
+				kind: "file-fix-ticket",
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+			},
+			{ kind: "test", sha: R },
+			{ kind: "fast-forward", sha: R },
+			{ kind: "exit", reason: "landing equals main" },
+		]);
+		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
+		expect(r.stuck).toEqual([B]);
+	});
+
+	it.each([
+		[
+			"fails them",
+			{ kind: "red", files: FILES } as Verdict,
+			"culprit unconfirmed: ccccccccc's parent bbbbbbbbb fails x.test.ts",
+		],
+		[
+			"reaches no verdict on them either",
+			{ kind: "unknown", reason: "tester died" } as Verdict,
+			"culprit unconfirmed: ccccccccc's parent bbbbbbbbb reached no verdict on the whole suite or on x.test.ts: tester died",
+		],
+	])(
+		"holds, moving and reverting nothing, where the parent %s",
+		async (_, files, reason) => {
+			const r = await run({ main: A, landing: D }, parentStuck(files), {
+				history: [B, C, D],
+			});
+			expect(r.end).toEqual({ kind: "hold", reason });
+			expect(r.pushes).toEqual([]);
+			expect(r.tickets).toEqual([]);
+		},
+	);
+
+	it("runs a ledgered parent on its failing files, never its whole suite, when resuming a past run", async () => {
+		const red: Red = {
+			sha: D,
+			base: A,
+			files: FILES,
+			flake: { kind: "red", files: FILES },
+			range: [B, C, D],
+			bisect: {
+				[B]: { kind: "green" },
+				[C]: { kind: "red", files: FILES },
+				[D]: { kind: "red", files: FILES },
+			},
+			confirm: {
+				[C]: { kind: "red", files: FILES },
+				[B]: { kind: "unknown", reason: ceiling },
+			},
+			parentOnFiles: null,
+			revert: null,
+			unfiled: null,
+		};
+		const r = await run(
+			{ main: A, landing: D },
+			parentStuck({ kind: "green" }, 0),
+			{
+				history: [B, C, D],
+				lastRed: red,
+				stuck: [B],
+			},
+		);
+		expect(r.actions[0]).toEqual({
+			kind: "rerun",
+			sha: B,
+			files: FILES,
+			why: "parent-files",
+		});
+		expect(r.tested).not.toContainEqual({ sha: B, files: [] });
+		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
+	});
+
+	it("never runs a ledgered parent's whole suite again after a hold and a push", async () => {
+		const remote = { main: A, landing: D };
+		const first = await run(remote, parentStuck(redVerdict), {
+			history: [B, C, D, F],
+		});
+		expect(first.end).toMatchObject({ kind: "hold" });
+		remote.landing = F;
+		const second = await run(remote, parentStuck({ kind: "green" }), {
+			history: [B, C, D, F],
+			lastHold: first.beats.at(-1)?.hold ?? null,
+			stuck: first.stuck,
+		});
+		expect(second.tested).not.toContainEqual({ sha: B, files: [] });
+		expect(second.tickets).toEqual([
+			{ culprit: C, parent: B, revert: R, files: FILES },
+		]);
+	});
+});
+
 describe("runLander resuming a past run's red batch where the remote moved (#2673)", () => {
 	const pastRed = (): Red => ({
 		sha: D,
@@ -647,6 +830,7 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 		range: null,
 		bisect: {},
 		confirm: {},
+		parentOnFiles: null,
 		revert: null,
 		unfiled: null,
 	});
@@ -661,6 +845,22 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 			{ history: [B, C, D, F], lastRed: pastRed() },
 		);
 		expect(r.actions[0]).toEqual({ kind: "bisect", base: A, sha: D });
+	});
+
+	it("resumes its bisect where its range steps from its base", async () => {
+		const r = await run({ main: B, landing: F }, green, {
+			history: [B, C, D, F],
+			lastRed: { ...pastRed(), base: B, range: [C, D] },
+		});
+		expect(r.actions[0]).not.toEqual({ kind: "test", sha: F });
+	});
+
+	it("tests afresh where its range holds a commit main cannot fast-forward to (#2996)", async () => {
+		const r = await run({ main: B, landing: F }, green, {
+			history: [B, C, D, F],
+			lastRed: { ...pastRed(), base: B, range: ["9".repeat(40), D] },
+		});
+		expect(r.actions[0]).toEqual({ kind: "test", sha: F });
 	});
 
 	it("tests afresh where main already holds it", async () => {

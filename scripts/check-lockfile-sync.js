@@ -24,10 +24,10 @@
  * DEFEAT:    --warn caps the finding below the gating line, and pre-commit never passes it. Not seen: a package.json below the root (a workspace member), a v1 lockfile's ranges (it has no root entry, so only names are compared), and a pnpm, Yarn or Bun lockfile, whose repo SKIPs.
  */
 
-const { spawnSync } = require("node:child_process");
 const { runCheck } = require("./lib/check.js");
-const { ruleTextOr } = require("./lib/rule-text");
+const { readRuleTextOr } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
+const { spawnGitSync } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {Record<string, unknown>} Json */
@@ -48,8 +48,8 @@ const FIELDS = [
  * to call the lockfile verdict BROKEN (mantahostels#1649's split, as in
  * check-roadmap-valid.js).
  */
-function lockfileRule() {
-	return ruleTextOr(
+function readLockfileRule() {
+	return readRuleTextOr(
 		"lockfile-sync",
 		"Always commit the lockfile with the manifest change that moves it.",
 		"check-lockfile-sync",
@@ -62,15 +62,15 @@ function lockfileRule() {
  * @param {string} file
  * @returns {string | null}
  */
-function staged(ctx, file) {
-	const listed = spawnSync("git", ["ls-files", "--cached", "--", file], {
+function readStagedBlob(ctx, file) {
+	const listed = spawnGitSync(["ls-files", "--cached", "--", file], {
 		encoding: "utf8",
 	});
 	if (listed.status !== 0) {
 		ctx.broken(`cannot read the git index — ${listed.stderr.trim()}`);
 	}
 	if (!listed.stdout.trim()) return null;
-	const blob = spawnSync("git", ["show", `:${file}`], { encoding: "utf8" });
+	const blob = spawnGitSync(["show", `:${file}`], { encoding: "utf8" });
 	if (blob.status !== 0) {
 		ctx.broken(`cannot read the staged ${file} — ${blob.stderr.trim()}`);
 	}
@@ -155,9 +155,9 @@ function disagreements(manifest, lock) {
  * @param {Ctx} ctx
  * @returns {{ name: string, text: string } | null}
  */
-function stagedNpmLock(ctx) {
+function readStagedNpmLock(ctx) {
 	for (const name of NPM_LOCKS) {
-		const text = staged(ctx, name);
+		const text = readStagedBlob(ctx, name);
 		if (text !== null) return { name, text };
 	}
 	return null;
@@ -165,15 +165,15 @@ function stagedNpmLock(ctx) {
 
 /** @param {Ctx} ctx */
 function run(ctx) {
-	const manifestText = staged(ctx, MANIFEST);
+	const manifestText = readStagedBlob(ctx, MANIFEST);
 	if (manifestText === null) return ctx.skip(`no ${MANIFEST} in the index.`);
 	const manifest = parseStaged(ctx, MANIFEST, manifestText);
-	const lock = stagedNpmLock(ctx);
+	const lock = readStagedNpmLock(ctx);
 
 	let found;
 	if (lock) {
 		found = disagreements(manifest, parseStaged(ctx, lock.name, lock.text));
-	} else if (OTHER_LOCKS.some((f) => staged(ctx, f) !== null)) {
+	} else if (OTHER_LOCKS.some((f) => readStagedBlob(ctx, f) !== null)) {
 		return ctx.skip("the repo locks with a package manager other than npm.");
 	} else {
 		const declared = FIELDS.some(
@@ -193,7 +193,7 @@ function run(ctx) {
 	ctx.say(`${lockName} is out of step with the staged ${MANIFEST}:`);
 	for (const line of found) ctx.say(`  ${line}`);
 	ctx.say("");
-	for (const line of lockfileRule()) ctx.say(line);
+	for (const line of readLockfileRule()) ctx.say(line);
 	return { noun: "lockfile disagreement(s)", count: found.length };
 }
 

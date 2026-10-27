@@ -71,7 +71,7 @@
  * charged to this commit.
  *
  * WHAT --against MEANS FOR A CORE FILE (#36). CAP_SOURCE is a core file
- * (guard-parse.sh) read off rule-emission.js's own CAP_FILE default, not off
+ * (lib/hook-limits.sh) read off rule-emission.js's own CAP_FILE default, not off
  * `--root`, so a HOST revision comparison never varies it — the read no
  * longer depends on which tree `--root` names. The injector is different:
  * THIS repo's `--against` runs are self-hosted (the core's history is the
@@ -82,7 +82,7 @@
  * (INJECTOR_FILE), which is then constant across whatever is compared. See
  * its header for the injector limb in full.
  *
- * checker-new-faults.js's `context-budget` profile is what names the over-cap
+ * lib/fault-profiles.js's `context-budget` profile is what names the over-cap
  * tags gate material despite being WARN. Their `total` rides in the
  * finding so that profile's `worse` can tell growth from a shed that leaves the
  * surface still over — lib/fault-diff.js.
@@ -112,7 +112,7 @@ const {
 	SHED_REGISTERS,
 	materialisePathspecs,
 } = require("./lib/context-budget-pathspecs");
-const { ownHooks } = require("./lib/core-hooks.js");
+const { readOwnHooks } = require("./lib/core-hooks.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
@@ -148,14 +148,13 @@ const INJECTION_CAP_BYTES = 10_500;
  * ONE SESSION can be made to pay through a single PreToolUse tool — the sum of
  * the distinct ids that tool's wired guards can reach.
  *
- * THE SESSION, NOT THE EVENT (mantahostels#2046). gp_rule latches per (rule, agent,
- * session), so an id is delivered once in a session's life.
+ * THE SESSION, NOT THE EVENT (mantahostels#2046). An `injectRules` id latches per
+ * (rule, agent, session), so it is delivered once in a session's life.
  *
- * A CONTEXT-COST CEILING, NOT A TRUNCATION GUARANTEE. The harness persists
- * 10,000 characters per hook entry (mantahostels#1868) and each guard is registered as
- * its own entry, so GP_RULE_CAP — 4,000 B, enforced inside gp_rule — already
- * holds every delivery under the cut. What this bounds is what the rules layer
- * costs a session that trips every trigger.
+ * A CONTEXT-COST CEILING, NOT A TRUNCATION GUARANTEE. RULE_CAP — 4,000 B,
+ * enforced by lib/guard-entry.js — holds every delivery under the cut. What
+ * this bounds is what the rules layer costs a session that trips every
+ * trigger.
  *
  * RATCHETED THE WAY §4 RATCHETS THE POOL'S: the largest live group, rounded up
  * past a slack band under one fragment's worth at the median, so an added rule
@@ -208,11 +207,11 @@ const RATCHET_CAP_BYTES = 51_500;
  */
 const {
 	getPoolFiles,
-	declaredStyle,
+	readDeclaredStyle,
 	getDoubleLoadedFiles,
 } = require("./lib/always-loaded-pool");
 
-/* Shared with checker-new-faults.js's `context-budget` profile, whose `gating`
+/* Shared with lib/fault-profiles.js's `context-budget` profile, whose `gating`
  * predicate names these four tags (mantahostels#1938). */
 const {
 	OVER_POOL,
@@ -239,7 +238,7 @@ const {
 } = require("./lib/rule-emission");
 const { RULES_DIR, CORE_RULES } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
-const { importedFiles } = require("./lib/pool-imports.js");
+const { readImportedFiles } = require("./lib/pool-imports.js");
 const { renderedPayloads } = require("./lib/rendered-injection.js");
 const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { ghJson } = require("./lib/gh.js");
@@ -285,7 +284,7 @@ const poolRows = (file, bytes, doubleLoaded) =>
  * @param {string} rel
  * @returns {number}
  */
-function sizeOf(ctx, root, rel) {
+function readSize(ctx, root, rel) {
 	try {
 		return fs.statSync(path.join(root, rel)).size;
 	} catch (e) {
@@ -322,7 +321,7 @@ function sizeOf(ctx, root, rel) {
  * @param {string} rel
  * @returns {number | null}
  */
-function poolSizeOf(ctx, root, rel) {
+function readPoolSize(ctx, root, rel) {
 	try {
 		return fs.statSync(path.join(root, rel)).size;
 	} catch (e) {
@@ -545,7 +544,7 @@ function readEnabledPlugins(root) {
  * @param {string} root
  * @returns {Record<string, { tokens?: unknown, measured?: string, uncounted?: string }>}
  */
-function pluginCostTable(ctx, root) {
+function readPluginCostTable(ctx, root) {
 	/** @type {string | null} */
 	let text = null;
 	try {
@@ -583,7 +582,7 @@ function pluginCostTable(ctx, root) {
  * beneath the table's.
  *
  * A settings file that will not parse has already raised UNPARSEABLE-SETTINGS
- * in descriptions(); here it yields no plugins rather than a second finding on
+ * in readDescriptions(); here it yields no plugins rather than a second finding on
  * the same fault. An absent table (a fixture root has none) leaves every
  * enabled plugin a WARN.
  *
@@ -593,10 +592,10 @@ function pluginCostTable(ctx, root) {
  */
 function pluginCosts(ctx, root) {
 	const enabled = readEnabledPlugins(root);
-	/** @type {ReturnType<typeof pluginCostTable>} */
+	/** @type {ReturnType<typeof readPluginCostTable>} */
 	const table = {
 		[SELF_PLUGIN_COST.id]: SELF_PLUGIN_COST.row,
-		...pluginCostTable(ctx, root),
+		...readPluginCostTable(ctx, root),
 	};
 
 	/** @type {PluginEntry[]} */
@@ -654,7 +653,7 @@ const bytesIn = (/** @type {string | null | undefined} */ s) =>
  * @param {string} root
  * @returns {DescEntry[]}
  */
-function descriptions(ctx, root) {
+function readDescriptions(ctx, root) {
 	/** @type {DescEntry[]} */
 	const out = [];
 	const skillsDir = path.join(root, ".claude", "skills");
@@ -687,7 +686,7 @@ function descriptions(ctx, root) {
 		/* Absent settings file is the ordinary case in a fixture, and says nothing. */
 	}
 
-	for (const name of readdir(skillsDir)) {
+	for (const name of readDir(skillsDir)) {
 		const at = path.join(skillsDir, name);
 		let vendored;
 		try {
@@ -697,13 +696,13 @@ function descriptions(ctx, root) {
 		}
 		const file = path.join(at, "SKILL.md");
 		if (!fs.existsSync(file)) continue;
-		out.push(describedFile(root, file, vendored, overrides));
+		out.push(readDescribedFile(root, file, vendored, overrides));
 	}
 
-	for (const name of readdir(commandsDir)) {
+	for (const name of readDir(commandsDir)) {
 		if (!name.endsWith(".md")) continue;
 		out.push(
-			describedFile(root, path.join(commandsDir, name), false, overrides),
+			readDescribedFile(root, path.join(commandsDir, name), false, overrides),
 		);
 	}
 
@@ -717,9 +716,9 @@ function descriptions(ctx, root) {
  * @param {string} root
  * @returns {FileEntry[]}
  */
-function agentDefinitions(root) {
+function readAgentDefinitions(root) {
 	const dir = path.join(root, ".claude", "agents");
-	return readdir(dir)
+	return readDir(dir)
 		.filter((n) => n.endsWith(".md"))
 		.map((n) => {
 			const text = fs.readFileSync(path.join(dir, n), "utf8");
@@ -741,7 +740,7 @@ function agentDefinitions(root) {
  * @param {string} root
  * @returns {{ files: FileEntry[], fromCore: boolean, script: string }}
  */
-function injectedDocs(ctx, root) {
+function readInjectedDocs(ctx, root) {
 	/** @type {string} */
 	let script;
 	let fromCore = false;
@@ -766,11 +765,11 @@ function injectedDocs(ctx, root) {
 	const docs = docsArray(ctx, script);
 	const files = docs.map((rel) => ({
 		path: rel,
-		bytes: sizeOf(ctx, root, rel),
+		bytes: readSize(ctx, root, rel),
 	}));
 	files.push({
 		path: `${INJECTOR} (header + markers)`,
-		bytes: injectorBytes(ctx, script, docs, (id) => ruleFragment(root, id)),
+		bytes: injectorBytes(ctx, script, docs, (id) => readRuleFragment(root, id)),
 		...(fromCore && { note: "the core's union, capped there" }),
 	});
 	return { files, fromCore, script };
@@ -1008,7 +1007,7 @@ const RULE_TEXT_RHS = /^"\$\(rule_text ([a-z0-9-]+) 2>\/dev\/null\)"$/;
  * @param {string} id
  * @returns {string | null}
  */
-function ruleFragment(root, id) {
+function readRuleFragment(root, id) {
 	for (const dir of [path.join(root, RULES_DIR), CORE_RULES]) {
 		try {
 			return fs
@@ -1165,7 +1164,7 @@ function injectorBytes(ctx, script, docs, fragment) {
  * @param {string} dir
  * @returns {string[]}
  */
-function readdir(dir) {
+function readDir(dir) {
 	try {
 		return fs.readdirSync(dir).sort();
 	} catch {
@@ -1180,7 +1179,7 @@ function readdir(dir) {
  * @param {Record<string, string>} overrides
  * @returns {DescEntry}
  */
-function describedFile(root, file, vendored, overrides) {
+function readDescribedFile(root, file, vendored, overrides) {
 	const text = fs.readFileSync(file, "utf8");
 	const rel = path.relative(root, file);
 	const value = deliveredDescriptionOf(text, overrides[overrideKeyFor(rel)]);
@@ -1196,7 +1195,7 @@ function describedFile(root, file, vendored, overrides) {
  * The hooks `root` registers, settings-shaped, for the rule-emission figures:
  * lib/core-hooks.js's `ownHooks`.
  *
- * A HOOKS FILE THAT WILL NOT READ IS BROKEN, where `descriptions()` above
+ * A HOOKS FILE THAT WILL NOT READ IS BROKEN, where `readDescriptions()` above
  * degrades an unparseable settings file into charging every description
  * (mantahostels#1786): a wiring nobody can read, reported as 0 B, is a cap
  * that passes whatever is really there. An adopter's absent settings file is
@@ -1208,7 +1207,7 @@ function describedFile(root, file, vendored, overrides) {
  */
 function readHooks(ctx, root) {
 	try {
-		return { hooks: ownHooks(root) ?? {} };
+		return { hooks: readOwnHooks(root) ?? {} };
 	} catch (e) {
 		return ctx.broken(
 			"cannot read the hook wiring for the per-session rule emission, so it " +
@@ -1225,19 +1224,19 @@ function reachOptions(settings, root) {
 	return {
 		settings,
 		root,
-		/* CAP_SOURCE names a file that ships WITH the core (guard-parse.sh), so a
+		/* CAP_SOURCE names a file that ships WITH the core (hook-limits.sh), so a
 		 * plugin install's host root has none — joining it onto `root` was the
 		 * HOST-ROOTED-CORE fault #34 found (#36). Omitted, the reach functions
 		 * default to rule-emission.js's own `CAP_FILE`, read off that module's
 		 * `__dirname`, which finds the core's copy wherever it is installed.
 		 * `WFC_CAP_FILE` is the test-injection seam (`lib/host-root.js`'s header
-		 * convention): the suite plants a fake guard-parse.sh and points this at
+		 * convention): the suite plants a fake hook-limits.sh and points this at
 		 * it rather than at a file under --root. */
 		capFile: process.env.WFC_CAP_FILE,
 		/* RULES_DIR is the fragment store the host's own guards write to
 		 * (docs/agents/rules), never core content, so it stays root-relative. */
 		rulesDir: path.join(root, RULES_DIR),
-		/* A core guard wired in an adopter resolves its gp_rule ids out of the
+		/* A core guard wired in an adopter resolves its injected ids out of the
 		 * core's store; without this layer they read as unresolvable (#101).
 		 * `WFC_RULES_FALLBACK_DIR` is the test-injection seam `lib/host-root.js`'s
 		 * header convention names (as `WFC_CAP_FILE` above honours it for the cap
@@ -1262,7 +1261,7 @@ function reachOptions(settings, root) {
  */
 function sessionFigures(ctx, opts) {
 	/* NOTHING WIRED IS NOT AN UNKNOWN. No PreToolUse key, or an empty list, is no
-	 * group to price, so the figure is zero without reading GP_RULE_CAP at all.
+	 * group to price, so the figure is zero without reading RULE_CAP at all.
 	 *
 	 * A KEY OF THE WRONG SHAPE IS NOT THAT CASE and falls through deliberately:
 	 * rule-emission.js throws on it, and a zero here would swallow that throw and
@@ -1281,12 +1280,12 @@ function sessionFigures(ctx, opts) {
 	try {
 		return reachableByTool(opts);
 	} catch (e) {
-		/* Every throw here is apparatus: a guard file, the GP_RULE_CAP assignment,
-		 * a malformed settings shape, or a gp_rule call naming an id the fragment
+		/* Every throw here is apparatus: a guard file, the RULE_CAP assignment,
+		 * a malformed settings shape, or an injection naming an id the fragment
 		 * store cannot resolve at all — none of them a bug in this checker, but all
 		 * of them what it reads the repo WITH rather than what it is asking about.
 		 *
-		 * A FRAGMENT OVER GP_RULE_CAP ON ITS OWN DOES NOT LAND HERE (mantahostels#2054):
+		 * A FRAGMENT OVER RULE_CAP ON ITS OWN DOES NOT LAND HERE (mantahostels#2054):
 		 * that is the repo's own rule text, not this checker's apparatus, so
 		 * reachableByTool() reports it in `overCap` instead, and the OVER_FRAGMENT
 		 * finding below is what surfaces it. */
@@ -1370,7 +1369,7 @@ const rows = (/** @type {FileEntry[]} */ xs) =>
 	xs
 		.map((f) => `  ${f.bytes} B  ${f.path}${f.note ? ` — ${f.note}` : ""}`)
 		.join("\n");
-/* Which guards make up one tool's figure, and how many gp_rule calls each holds
+/* Which guards make up one tool's figure, and how many injections each holds
  * — a group over its cap is answered by shedding a named guard's text, so the
  * contributors are the finding rather than decoration.
  *
@@ -1383,7 +1382,7 @@ const guardRows = (
 	gs
 		.map(
 			(g) =>
-				`    ${String(g.bytes).padStart(5)} B  ${g.file} (${g.ids.length} id${g.ids.length === 1 ? "" : "s"} over ${g.calls} gp_rule call${g.calls === 1 ? "" : "s"})`,
+				`    ${String(g.bytes).padStart(5)} B  ${g.file} (${g.ids.length} id${g.ids.length === 1 ? "" : "s"} over ${g.calls} injection${g.calls === 1 ? "" : "s"})`,
 		)
 		.join("\n");
 
@@ -1397,7 +1396,7 @@ const capHeading = (/** @type {number} */ headroom) =>
 	headroom === 0 ? "AT CAP" : "OVER CAP";
 const capClause = (/** @type {number} */ headroom) =>
 	headroom === 0 ? "landing exactly on it" : `${-headroom} B over it`;
-const latchNote = (/** @type {string} */ latched) => {
+const buildLatchNote = (/** @type {string} */ latched) => {
 	if (latched === "bounded")
 		return "  [latched — paid once a session, not per firing]";
 	if (latched === "ambiguous")
@@ -1432,9 +1431,9 @@ function warnUnpooledStyle(ctx, styled) {
  * @param {Ctx} ctx
  * @param {string} root
  */
-function importsOf(ctx, root) {
+function readImports(ctx, root) {
 	try {
-		return importedFiles(root, getPoolFiles());
+		return readImportedFiles(root, getPoolFiles());
 	} catch (e) {
 		return ctx.broken(`cannot follow the pool's @-imports: ${errMessage(e)}`);
 	}
@@ -1449,14 +1448,14 @@ function importsOf(ctx, root) {
  * @param {{ own: DescEntry[], agents: FileEntry[], doubleLoaded: Set<string> }} parts
  * @returns {FileEntry[]}
  */
-function poolEntries(ctx, root, { own, agents, doubleLoaded }) {
+function readPoolEntries(ctx, root, { own, agents, doubleLoaded }) {
 	return [
 		...getPoolFiles().flatMap((rel) => {
-			const bytes = poolSizeOf(ctx, root, rel);
+			const bytes = readPoolSize(ctx, root, rel);
 			return bytes === null ? [] : poolRows(rel, bytes, doubleLoaded);
 		}),
-		...importsOf(ctx, root).flatMap(({ path: rel, importedBy }) => {
-			const bytes = poolSizeOf(ctx, root, rel);
+		...readImports(ctx, root).flatMap(({ path: rel, importedBy }) => {
+			const bytes = readPoolSize(ctx, root, rel);
 			return bytes === null
 				? []
 				: [{ path: rel, bytes, note: `imported by ${importedBy}` }];
@@ -1480,7 +1479,7 @@ function poolEntries(ctx, root, { own, agents, doubleLoaded }) {
  * @param {string} [cite] what follows the path on its line
  * @returns {string}
  */
-const shedCandidatesLine = (root, rel, cite = "") =>
+const buildShedCandidatesLine = (root, rel, cite = "") =>
 	fs.existsSync(path.join(root, rel)) ? `  Candidates: ${rel}${cite}.\n` : "";
 
 /**
@@ -1504,7 +1503,7 @@ function reportPoolBreach(ctx, root, { total, headroom, pool }) {
 			rows(pool) +
 			"\n  Name the shed that pays for the bytes and take it in the same commit\n" +
 			"  (docs/doc-map.md §Capture and placement §4).\n" +
-			shedCandidatesLine(root, SHED_REGISTERS.pool) +
+			buildShedCandidatesLine(root, SHED_REGISTERS.pool) +
 			"  The only other way past this is to move the cap deliberately, by editing\n" +
 			"  docs/doc-map.md §Capture and placement §4 — the unpayable-correction trigger (mantahostels#1220).\n",
 	);
@@ -1532,7 +1531,7 @@ function reportInjectionBreach(ctx, root, { injTotal, injHeadroom, injected }) {
 			rows(injected) +
 			`\n  Pasted into ${INJECTOR}'s seven commands; the same shed rule applies\n` +
 			"  (docs/doc-map.md §Capture and placement §4).\n" +
-			shedCandidatesLine(
+			buildShedCandidatesLine(
 				root,
 				SHED_REGISTERS.injection,
 				" (mantahostels#1259, mantahostels#1268)",
@@ -1567,7 +1566,7 @@ function reportSessionBreaches(ctx, reachTools) {
 		ctx.say(
 			`PreToolUse ${tool.toUpperCase()} ${capHeading(reachHeadroom)} — ${kb(group.bytes)} against route (f)'s ${kb(SESSION_CAP_BYTES)}, ${capClause(reachHeadroom)}.\n` +
 				guardRows(group.guards) +
-				`\n  gp_rule latches per (rule, agent, session), so this is the ${group.ids.length} distinct ids\n` +
+				`\n  An injected id latches per (rule, agent, session), so this is the ${group.ids.length} distinct ids\n` +
 				`  every guard wired on ${tool} can reach, each paid once however many events carry it.\n` +
 				"  Shed fragment text, or move the cap deliberately in docs/doc-map.md\n" +
 				"  §Capture and placement §3 route (f), which mantahostels#1720 owns.\n",
@@ -1585,7 +1584,7 @@ function reportRatchetBreach(
 ) {
 	/* The shared ratchet: route (f)'s second axis (mantahostels#1720). The UNION of every
 	 * reachable id across every tool, never a sum per tool: a guard wired to a
-	 * multi-tool matcher (guard-file-claim.sh on `Write|Edit|NotebookEdit`)
+	 * multi-tool matcher (guard-dispatch.js on `Write|Edit|NotebookEdit`)
 	 * fires once per tool it is matched against, but it is the same fragment
 	 * text every time and the latch pays it once. Summing per tool would
 	 * count it three times over. */
@@ -1598,7 +1597,7 @@ function reportRatchetBreach(
 	if (ratchetHeadroom > 0) return;
 	ctx.warn(
 		OVER_RATCHET,
-		`gp_rule's reachable delivery unioned across every tool is ${ratchetTotal} B, ${atOrOver(ratchetHeadroom)} the ${RATCHET_CAP_BYTES} B shared ratchet`,
+		`The reachable injection delivery unioned across every tool is ${ratchetTotal} B, ${atOrOver(ratchetHeadroom)} the ${RATCHET_CAP_BYTES} B shared ratchet`,
 		{
 			surface: RATCHET_SURFACE,
 			total: ratchetTotal,
@@ -1640,7 +1639,7 @@ function directFigures(direct) {
  * @param {Pick<Reach, "cap" | "overCap">} reach
  */
 function reportOverCapFragments(ctx, reach) {
-	/* A fragment a wired guard reaches that is over GP_RULE_CAP on its own
+	/* A fragment a wired guard reaches that is over RULE_CAP on its own
 	 * (mantahostels#2054) is the repo's own rule text, not this checker's apparatus, so it
 	 * is a finding here rather than a throw sessionFigures() catches — one per
 	 * over-cap id, naming every guard that reaches it. Mechanism:
@@ -1648,7 +1647,7 @@ function reportOverCapFragments(ctx, reach) {
 	for (const frag of reach.overCap) {
 		ctx.warn(
 			OVER_FRAGMENT,
-			`rule fragment "${frag.id}" is ${frag.bytes} B, over the ${reach.cap} B GP_RULE_CAP, reached by ${frag.guards.join(", ")}`,
+			`rule fragment "${frag.id}" is ${frag.bytes} B, over the ${reach.cap} B RULE_CAP, reached by ${frag.guards.join(", ")}`,
 			{
 				surface: `${FRAGMENT_SURFACE_PREFIX}${frag.id}`,
 				total: frag.bytes,
@@ -1657,11 +1656,11 @@ function reportOverCapFragments(ctx, reach) {
 			},
 		);
 		ctx.say(
-			`RULE FRAGMENT OVER CAP — "${frag.id}" is ${frag.bytes} B against GP_RULE_CAP's ${reach.cap} B, ${frag.bytes - reach.cap} B over it.\n` +
+			`RULE FRAGMENT OVER CAP — "${frag.id}" is ${frag.bytes} B against RULE_CAP's ${reach.cap} B, ${frag.bytes - reach.cap} B over it.\n` +
 				`  reached by: ${frag.guards.join(", ")}\n` +
-				"  gp_rule can never emit this fragment whole: offered first in a call it\n" +
-				"  exits 2 and denies the tool call outright; offered after other ids it\n" +
-				"  defers instead, so the same denial lands once those have latched.\n" +
+				"  It can never be injected whole: offered first in an injection it\n" +
+				"  denies the tool call outright; offered after other ids it defers\n" +
+				"  instead, so the same denial lands once those have latched.\n" +
 				"  Split the rule or shorten the fragment.\n",
 		);
 	}
@@ -1672,7 +1671,7 @@ function reportOverCapFragments(ctx, reach) {
  * @param {Pick<Reach, "latchFaults">} reach
  */
 function reportDeadLatches(ctx, reach) {
-	/* A stranded `gp_rule_told` (mantahostels#2283). A finding rather than a table row,
+	/* A stranded `ctx.told` (mantahostels#2283). A finding rather than a table row,
 	 * the table being suppressed under --notify. */
 	for (const f of reach.latchFaults) {
 		/* Every failing limb, never the first. */
@@ -1683,7 +1682,7 @@ function reportDeadLatches(ctx, reach) {
 				: "no direct accessor call on it is visible in that guard or the libs it sources",
 			f.marked
 				? ""
-				: "no gp_rule_mark_told call on it is visible in that guard or the libs it sources",
+				: "no latchAfter decision on it is visible in that guard or the libs it sources",
 		]
 			.filter(Boolean)
 			.join("; ");
@@ -1693,13 +1692,13 @@ function reportDeadLatches(ctx, reach) {
 			{ surface: `${LATCH_SURFACE_PREFIX}${f.guard}:${f.id}` },
 		);
 		ctx.say(
-			`DEAD RULE LATCH — ${f.guard} calls gp_rule_told "${f.id}", and ${why}.\n` +
+			`DEAD RULE LATCH — ${f.guard} calls ctx.told("${f.id}"), and ${why}.\n` +
 				"  The bound can never come true, so whatever text it was meant to bound\n" +
 				"  is delivered whole on every one of that guard's firings.\n" +
 				"  Usually a typo, and the pair to compare depends on what the latch\n" +
 				"  bounds: a store fragment, where the latch id and the accessor call's\n" +
 				"  id must be the same string; text the guard composes itself, where it\n" +
-				"  is the gp_rule_told id and the gp_rule_mark_told one (mantahostels#2446).\n",
+				"  is the ctx.told id and the latchAfter one (mantahostels#2446).\n",
 		);
 	}
 }
@@ -1719,12 +1718,12 @@ function topVendored(vendored) {
 }
 
 /** @param {PluginEntry} p */
-function pluginLine(p) {
+function buildPluginLine(p) {
 	return `  ${String(p.tokens === null ? "?" : `~${p.tokens}`).padStart(5)} tok  ${p.name}${p.enabled ? "" : "  [disabled — listed, not summed]"}${p.enabled && p.tokens === null ? "  [no row in the table — WARN]" : ""}${p.uncounted ? `  [uncounted: ${p.uncounted}]` : ""}`;
 }
 
 /** @param {[string, ReachGroup]} entry */
-function reachLine([tool, g]) {
+function buildReachLine([tool, g]) {
 	return (
 		`  ${String(g.bytes).padStart(5)} B  ${tool}  (${
 			g.bytes >= SESSION_CAP_BYTES
@@ -1741,24 +1740,24 @@ function reachLine([tool, g]) {
 }
 
 /** @param {[string, ReachGroup][]} reachTools */
-function reachLines(reachTools) {
+function buildReachLines(reachTools) {
 	return reachTools.length > 0
-		? reachTools.map(reachLine).join("\n")
+		? reachTools.map(buildReachLine).join("\n")
 		: "  no PreToolUse matcher names a tool.";
 }
 
 /** @param {DirectEntry} d */
-function directLine(d) {
-	return `  ${String(d.bytes ?? "?").padStart(5)} B  ${d.id}  ${d.guards.join(", ")}${d.counted ? "  [also pre-emitted — these bytes are in the figures above]" : ""}${latchNote(d.latched)}`;
+function buildDirectLine(d) {
+	return `  ${String(d.bytes ?? "?").padStart(5)} B  ${d.id}  ${d.guards.join(", ")}${d.counted ? "  [also pre-emitted — these bytes are in the figures above]" : ""}${buildLatchNote(d.latched)}`;
 }
 
 /** @param {DirectEntry[]} direct */
-function directLines(direct) {
-	return direct.length > 0 ? `${direct.map(directLine).join("\n")}\n` : "";
+function buildDirectLines(direct) {
+	return direct.length > 0 ? `${direct.map(buildDirectLine).join("\n")}\n` : "";
 }
 
 /** @param {import("./lib/rule-emission.js").AfterHook} h */
-function afterHookLines(h) {
+function buildAfterHookLines(h) {
 	const head = `  ${String(h.once.bytes).padStart(5)} B  ${h.event} ${h.matcher || "(every tool)"}  ${h.file}`;
 	const once =
 		h.once.ids.length > 0 ? `  once a session: ${h.once.ids.join(", ")}` : "";
@@ -1785,7 +1784,7 @@ function afterCallSection(after) {
 	return (
 		`RULE TEXT AFTER A CALL — ${after.once.bytes} B once a session across ${after.once.ids.length}, and ${sum(perFire, (f) => f.bytes ?? 0)} B paid on every firing across ${perFire.length}. Uncapped.\n` +
 		(after.hooks.length > 0
-			? `${after.hooks.map(afterHookLines).join("\n")}\n`
+			? `${after.hooks.map(buildAfterHookLines).join("\n")}\n`
 			: `  no ${events} hook reaches a fragment.\n`) +
 		"  A hook lists every id its guard reaches, whichever event branch takes\n" +
 		"  it. On neither of route (f)'s caps, which price PreToolUse alone, and\n" +
@@ -1817,7 +1816,7 @@ function renderedFor(script, root) {
  * Uncapped: the host cannot shed the core's prose.
  * @param {RenderedPayloads | null} rendered
  */
-function renderedLines(rendered) {
+function buildRenderedLines(rendered) {
 	if (rendered === null) return "";
 	if ("error" in rendered)
 		return `\n  This host's own payloads could not be rendered: ${rendered.error}.`;
@@ -1852,7 +1851,7 @@ function printTable(ctx, t) {
 			rows(pool) +
 			`\n\nINJECTED TRACKER DOCS — ${kb(injTotal)} of ${kb(INJECTION_CAP_BYTES)}, ${injHeadroom} B headroom (~41% of sessions).\n` +
 			rows(injected) +
-			renderedLines(rendered) +
+			buildRenderedLines(rendered) +
 			`\n\nVENDORED SKILL DESCRIPTIONS — ${sum(vendored, (d) => d.bytes)} B across ${vendored.length}, of which ${vendored.filter((d) => d.bytes === 0).length} cost nothing (disable-model-invocation, or a skillOverrides entry — mantahostels#1757, mantahostels#1786). Uncapped in bytes.\n` +
 			"  Adopting a new vendored skill names its description bytes (mantahostels#1235).\n" +
 			`  Own descriptions, inside the pool above: ${sum(own, (d) => d.words)} words; vendored: ${sum(vendored, (d) => d.words)} words (mantahostels#608).\n` +
@@ -1864,28 +1863,27 @@ function printTable(ctx, t) {
 					.join(", ") || "none"
 			}. Uncapped.\n` +
 			`  \`claude plugin details\`' Always-on figure, in tokens, from ${PLUGIN_COST_TABLE}; an enabling commit names it (mantahostels#3116).\n` +
-			plugins.map(pluginLine).join("\n") +
-			`\n\nREACHABLE RULE TEXT PER SESSION, PER PreToolUse TOOL — against route (f)'s ${kb(SESSION_CAP_BYTES)}${reach.cap ? `, one delivery capped at ${reach.cap} B (GP_RULE_CAP)` : ""}.\n` +
-			reachLines(reachTools) +
+			plugins.map(buildPluginLine).join("\n") +
+			`\n\nREACHABLE RULE TEXT PER SESSION, PER PreToolUse TOOL — against route (f)'s ${kb(SESSION_CAP_BYTES)}${reach.cap ? `, one delivery capped at ${reach.cap} B (RULE_CAP)` : ""}.\n` +
+			buildReachLines(reachTools) +
 			`\n\nRULE-EMISSION RATCHET — ${kb(ratchetTotal)} of ${kb(RATCHET_CAP_BYTES)}, ${ratchetHeadroom} B headroom (route (f)'s second axis, unioned across every tool).\n` +
 			/* The direct `rule_text` calls, printed under the two capped figures
 			 * and deliberately outside them (mantahostels#2055). The printed text carries
 			 * the reasoning. */
 			`\nDIRECT RULE TEXT — ${directTotal} B across ${reach.direct.length}, of which ${directUncounted} B is on no figure above. Uncapped.\n` +
-			directLines(reach.direct) +
+			buildDirectLines(reach.direct) +
 			"  Spliced into the guard's own deny or warn text, so it is route (e)\n" +
 			"  (docs/doc-map.md §Capture and placement §3), which owes no shed. That\n" +
 			"  is why none of it is on route (f)'s caps: a cap bounds the standing\n" +
 			"  cost every session pays, and this is paid only by one that erred.\n" +
-			"  It is outside gp_rule's latch, so unlike the figures above every line\n" +
+			"  It is outside the injection latch, so unlike the figures above every line\n" +
 			"  here is paid AGAIN each time its guard fires, the pre-emitted ones too\n" +
 			"  — except where a line is marked `latched`, whose guard bounds its own\n" +
 			"  repeat to once a session (mantahostels#2275). The bytes stay route (e) and stay\n" +
 			"  uncapped either way.\n" +
 			"  `uncorrelatable` is a guard whose bound cannot be tied to the bytes it\n" +
 			"  covers: more than one direct call on that id (mantahostels#2283), more than one\n" +
-			"  gp_context/gp_warn/gp_deny able to spend it, or no emission the scan can\n" +
-			"  follow the fetch to at all (mantahostels#2354).\n" +
+			"  latchAfter decision marking it, or none at all (mantahostels#2354).\n" +
 			"  A `?` is an id the store could not answer for, missing or unreadable\n" +
 			"  alike: the guard falls back to its own hardcoded sentence.\n",
 	);
@@ -1903,7 +1901,7 @@ const GH_TIMEOUT_MS = 15_000;
  * @param {number[]} tickets
  * @returns {Map<number, string> | { error: string }}
  */
-function ticketStates(tickets) {
+function readTicketStates(tickets) {
 	const [owner, name] = String(resolveKey("tracker") ?? "").split("/");
 	const fields = tickets
 		.map((n) => `i${n}: issue(number: ${n}) { state }`)
@@ -1976,7 +1974,7 @@ function poolRuleAdmission(ctx, root) {
 	const states =
 		tickets.length === 0 || isBaselineSide()
 			? new Map()
-			: ticketStates(tickets);
+			: readTicketStates(tickets);
 	const closed =
 		states instanceof Map
 			? triggers.filter((e) => states.get(e.ticket) === "CLOSED")
@@ -2064,22 +2062,22 @@ const SPEC = {
 		 * dry run). */
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 
-		const descs = descriptions(ctx, root);
+		const descs = readDescriptions(ctx, root);
 		const own = descs.filter((d) => !d.vendored);
 		const vendored = descs.filter((d) => d.vendored);
-		const agents = agentDefinitions(root);
+		const agents = readAgentDefinitions(root);
 		const plugins = pluginCosts(ctx, root);
 		const enabledPlugins = plugins.filter((p) => p.enabled);
 		const pluginTokens = sum(enabledPlugins, (p) => p.tokens ?? 0);
 
-		warnUnpooledStyle(ctx, declaredStyle());
+		warnUnpooledStyle(ctx, readDeclaredStyle());
 		const doubleLoaded = getDoubleLoadedFiles(root);
 
-		const pool = poolEntries(ctx, root, { own, agents, doubleLoaded });
+		const pool = readPoolEntries(ctx, root, { own, agents, doubleLoaded });
 		const total = sum(pool, (f) => f.bytes);
 		const headroom = CAP_BYTES - total;
 
-		const { files: injected, fromCore, script } = injectedDocs(ctx, root);
+		const { files: injected, fromCore, script } = readInjectedDocs(ctx, root);
 		const rendered = fromCore ? renderedFor(script, root) : null;
 		const injTotal = sum(injected, (f) => f.bytes);
 		const injHeadroom = INJECTION_CAP_BYTES - injTotal;

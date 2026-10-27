@@ -55,7 +55,7 @@ const MIN_PREFIX = 6;
  * @returns {{at: string, session: string, messageHash: string,
  *   inTrial: boolean, inLimb1Window: boolean, inLimb2Window: boolean}[]}
  */
-function flaggedTurns(root) {
+function readFlaggedTurns(root) {
 	/** @type {Record<string, unknown>[]} */
 	const all = [];
 	for (const file of [jevLog.previousLogPath(root), jevLog.logPath(root)])
@@ -86,7 +86,7 @@ function flaggedTurns(root) {
  */
 function list(root) {
 	const verdicts = jevTrial.readVerdicts(root);
-	const turns = flaggedTurns(root);
+	const turns = readFlaggedTurns(root);
 	if (turns.length === 0) {
 		process.stdout.write("no flagged turn on record.\n");
 		return 0;
@@ -142,7 +142,7 @@ function main(argv) {
 		return 2;
 	}
 
-	const matches = flaggedTurns(root).filter((t) =>
+	const matches = readFlaggedTurns(root).filter((t) =>
 		t.messageHash.startsWith(prefix),
 	);
 	const hashes = new Set(matches.map((t) => t.messageHash));

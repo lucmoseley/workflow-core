@@ -13,7 +13,7 @@
  * shape and carriers. The status-line tail is checked only where the block is
  * owed.
  *
- * FOUR LIMBS, ONE COUNTER of its own, so guard-priced-options.js's refusals
+ * FIVE LIMBS, ONE COUNTER of its own, so guard-priced-options.js's refusals
  * earlier in a session cannot silence it:
  *   missing — owed and absent, or sitting below the status line.
  *   shape — the block grammar of lib/outstanding-line.js, the header holding
@@ -28,7 +28,17 @@
  *     tracker (#1066), else `/pick-next` lists it as free work and a second
  *     session re-asks the round. A claim another live session holds does not
  *     count: the refusal's `claim-issue.js` then refuses, surfacing the
- *     collision.
+ *     collision. And a comment holding the round carries a well-formed
+ *     `**Hand-off:**` block (lib/hand-off.js, #2391).
+ *   park — every `needs input:` ending: the hand-off above, or, where it asks
+ *     no round (a pointer to a standing round, a founder hand-over), the
+ *     newest comment carrying a `**Hand-off:**` header among the cited
+ *     issues' newest five, its `Blocked on:` naming what the park waits on,
+ *     posted no earlier than this session began or last resumed where that
+ *     can be read (#2944, #2950).
+ *     Either way no file this session's write ledger names sits uncommitted
+ *     in the tree — a file its diff carries is owed its restore to HEAD too —
+ *     a live neighbour's claimed files aside.
  *
  * DRAFT AND ACT (#989), ON A SECOND COUNTER, `max: 1`: where an owed block
  * reads `waits on you: nothing`, the session's main-chain transcript is
@@ -46,11 +56,14 @@
  * FAILS OPEN on any internal error (lib/stop-guard.js). An unreachable GitHub
  * or an unreadable repo leaves the shape check alone, logged by
  * lib/outstanding-line.js, and passes the posted-round limb, as does an
- * unreadable or partly torn claim store, or no session id.
+ * unreadable or partly torn claim store, or no session id. It passes the park
+ * limb where a cited issue is unread and no read one holds a hand-off. A
+ * transcript whose start cannot be read passes the park limb's freshness test,
+ * unlogged: a passing Stop hook's output reaches no one.
  *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any session's inventory is misshapen, cites an issue that is not open, disagrees with its status-line tail, or leaves a `needs input:` round posted on no cited issue, or on none this session claims; and, once a session, where a background job's owed `waits on you: nothing` follows a turn that handed the founder a draft to act on.
+ * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any session's inventory is misshapen, cites an issue that is not open, disagrees with its status-line tail, or leaves a `needs input:` round posted on no cited issue, on none this session claims, or with no well-formed hand-off in its comment, or parks at `needs input:` with no round and no well-formed hand-off posted on a cited issue since it began or last resumed, or parks while its ledgered files sit uncommitted; and, once a session, where a background job's owed `waits on you: nothing` follows a turn that handed the founder a draft to act on.
  * JUSTIFIED: fail-safe — work left waiting on the founder in chat or a closed issue is lost when the conversation scrolls away (#958), and the ending is the last moment it can still be filed.
- * DEFEAT:    the block clears by writing the inventory the refusal names, or by its own cap of 3 a session; the draft-and-act block by ending a second time, its cap being 1.
+ * DEFEAT:    the block clears by writing the inventory the refusal names, or the hand-off into the round comment — or, at a park asking no round, a comment on a cited issue — and committing or restoring the session's files, or by its own cap of 3 a session; the draft-and-act block by ending a second time, its cap being 1.
  *
  * WHAT IT CAN NEVER SEE: founder-facing work the session never put in a
  * draft-and-act turn; a gist that misstates the act; an open issue under the
@@ -66,20 +79,28 @@
  * `result:`.
  */
 
-const { deliverableRule } = require("./lib/founder-deliverable");
+const { readDeliverableRule } = require("./lib/founder-deliverable");
 const { INVENTORY } = require("./lib/inventory-format");
 const hookBlock = require("./lib/hook-block");
 const stopGuard = require("./lib/stop-guard");
 const {
-	canonicalRef,
+	readCanonicalRef,
 	isNothing,
 	judge,
-	refusalText,
+	buildRefusalText,
 	trackerOf,
 } = require("./lib/outstanding-line");
 const { Q_MARKER, hasRoundMarker, roundNumber } = require("./lib/round-marker");
 const { scriptPath } = require("./lib/script-path");
 const { requiredGroup } = require("./lib/regex-group");
+const {
+	HAND_OFF_SHAPE,
+	handOffFaults,
+	parseHandOff,
+} = require("./lib/hand-off");
+const { listIssueClaims } = require("./lib/arbiter-store");
+const { readOwnJob } = require("./lib/claude-stop");
+const { readStrandedFiles } = require("./lib/neighbour-dirt");
 const sessionTranscript = require("./lib/session-transcript");
 const { governingMarker } = require("./lib/status-marker");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
@@ -303,8 +324,7 @@ function trackerClaims(holders, sessionId) {
 		.filter((i) => `${i.owner}/${i.repo}` === tracker)
 		.map((i) => i.number);
 	if (numbers.length === 0) return { numbers, mine: [] };
-	/* Required here, so only an ending with a posted round loads the arbiter. */
-	const listed = require("./lib/arbiter-store").listIssueClaims();
+	const listed = listIssueClaims();
 	if (!listed || listed.why) return null;
 	const mine = numbers.filter((n) =>
 		listed.claims.some((c) => c?.sessionId === sessionId && c.issue === n),
@@ -331,10 +351,135 @@ function claimOwedOn(holders, sessionId) {
  */
 const roundHolders = (verdict, { title }) =>
 	verdict.items.filter((item) =>
-		(verdict.comments[item.ref] ?? []).some(
-			(c) => hasRoundMarker(c.body) && squash(c.body).includes(squash(title)),
-		),
+		(verdict.comments[item.ref] ?? []).some((c) => holdsRound(c, title)),
 	);
+
+/**
+ * Whether a comment opens the round whose first question is titled `title`.
+ * @param {{body: string}} comment
+ * @param {string} title
+ */
+const holdsRound = (comment, title) =>
+	hasRoundMarker(comment.body) && squash(comment.body).includes(squash(title));
+
+/**
+ * The hand-off fault on a park (#2391): `body`, the comment the park leaves
+ * on its ticket, carries no well-formed `**Hand-off:**` block, or this
+ * session's ledgered files sit uncommitted — the block's diff carries a named
+ * file, so that file is still owed its restore.
+ * @param {string} body
+ * @param {string|undefined} question  the round's first question number,
+ *   which `Blocked on:` must name; undefined where the park asks no round
+ * @param {string} sessionId
+ * @returns {string} the fault, or ""
+ */
+function handOffFault(body, question, sessionId) {
+	const faults = handOffFaults(body, question);
+	const remedy = question
+		? "Edit the round comment to end"
+		: "Post a comment on the issue the park waits on, ending";
+	if (faults.length > 0)
+		return `this \`needs input:\` park leaves no well-formed hand-off on its ticket (#2391): ${faults.join("; ")}. ${remedy} with the block a fresh session picks up from:\n\n${HAND_OFF_SHAPE}`;
+	const named = new Set(parseHandOff(body)?.uncommitted ?? []);
+	const stranded = readStrandedFiles(sessionId, hookBlock.repoRoot());
+	if (stranded.length === 0) return "";
+	const list = (/** @type {string[]} */ ps) =>
+		ps.map((p) => `\`${p}\``).join(", ");
+	const loose = stranded.filter((p) => !named.has(p));
+	const parts = [];
+	if (loose.length > 0)
+		parts.push(
+			`${list(loose)} ${loose.length === 1 ? "is" : "are"} uncommitted and unnamed in the hand-off: commit what stands alone; otherwise add its \`git diff HEAD\` to the hand-off (\`git add -N\` a new file first) and name it on the \`Uncommitted:\` line`,
+		);
+	parts.push(
+		`${loose.length > 0 ? "then " : ""}\`git restore\` ${list(stranded)} to HEAD, deleting a new file, so no neighbour overwrites it once your claims lapse`,
+	);
+	return `this session's own files sit uncommitted at a park (#2391): ${parts.join("; ")}`;
+}
+
+/**
+ * The question number a pointer park names — `Qn` in its block or status
+ * line — or undefined where it names none.
+ * @param {ReturnType<typeof ending>} end
+ */
+const pointedQuestion = (end) =>
+	/\bQ(\d+)\b/.exec(`${end.body}\n${end.payload}`)?.[1];
+
+/**
+ * The newest comment `keep` passes among `items`' read comments, or undefined.
+ * @param {import("./lib/outstanding-line").Verdict} verdict
+ * @param {import("./lib/outstanding-line").Item[]} items
+ * @param {(c: {body: string}) => boolean} keep
+ */
+const newestComment = (verdict, items, keep) =>
+	items
+		.flatMap((item) => verdict.comments[item.ref] ?? [])
+		.filter(keep)
+		.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+		.at(-1);
+
+/** @param {import("./lib/outstanding-line").Verdict} verdict */
+const hasUnchecked = (verdict) =>
+	verdict.items.some((item) => verdict.statuses[item.ref] === "unchecked");
+
+/**
+ * When this session's job was created; null where its record does not read.
+ * A `claude --bg --resume` starts a new job and copies the conversation into a
+ * new transcript with each record's old timestamp, writing no resume mark
+ * there, so the job alone dates the resume (#2950).
+ * @param {string} sessionId
+ * @returns {number | null} epoch milliseconds
+ */
+function readJobCreatedAt(sessionId) {
+	const t = Date.parse(String(readOwnJob(sessionId)?.job.createdAt));
+	return Number.isNaN(t) ? null : t;
+}
+
+/**
+ * When this session began or last resumed, to the second GitHub stamps a
+ * comment at; null where neither its transcript nor its job record reads.
+ * @param {import("./lib/stop-guard").StopPayload|null} payload
+ * @param {string} sessionId
+ */
+function readSessionStart(payload, sessionId) {
+	const file = sessionTranscript.resolve(payload ?? {}, sessionId);
+	const marks = [
+		file ? sessionTranscript.readStartedAt(file) : null,
+		readJobCreatedAt(sessionId),
+	].filter((t) => t !== null);
+	return marks.length === 0
+		? null
+		: Math.floor(Math.max(...marks) / 1000) * 1000;
+}
+
+/**
+ * The hand-off fault on a park that asks no round: judged on the newest comment
+ * carrying a `**Hand-off:**` header among the cited issues' newest five,
+ * whose `Blocked on:` names the pointer's `Qn` where it names one. A round
+ * park needs no freshness test: its comment is matched by the round's title.
+ * @param {import("./lib/outstanding-line").Verdict} verdict
+ * @param {string|undefined} pointed  the pointer's question number
+ * @param {string} sessionId
+ * @param {number|null} start  this session's start, null where unread
+ * @returns {string} the fault, or ""
+ */
+function parkFault(verdict, pointed, sessionId, start) {
+	if (verdict.items.length === 0)
+		return `this \`needs input:\` park cites no issue, so no hand-off can sit on its ticket (#2391) — list the issue the park waits on, and post the hand-off there:\n\n${HAND_OFF_SHAPE}`;
+	const newest = newestComment(
+		verdict,
+		verdict.items,
+		(c) => parseHandOff(c.body) !== null,
+	);
+	/* An issue whose comments could not be read may hold the hand-off (#958:
+	 * fail open); one a read issue holds is judged on its merits (#2965).
+	 * Residual: a newer good hand-off on the unread issue cannot save a stale
+	 * or malformed one on a read issue, so that park is refused. */
+	if (!newest && hasUnchecked(verdict)) return "";
+	if (newest && start !== null && Date.parse(newest.createdAt) < start)
+		return `this \`needs input:\` park's newest hand-off on its ticket was posted at ${newest.createdAt}, before this session began or last resumed at ${new Date(start).toISOString()}, so it carries none of the Done and Left since (#2944, #2950) — post this session's own hand-off on the issue the park waits on:\n\n${HAND_OFF_SHAPE}`;
+	return handOffFault(newest?.body ?? "", pointed, sessionId);
+}
 
 /**
  * @param {import("./lib/outstanding-line").Verdict} verdict
@@ -348,12 +493,17 @@ function roundFault(verdict, question, sessionId) {
 	const holders = roundHolders(verdict, question);
 	if (holders.length > 0) {
 		const unclaimed = claimOwedOn(holders, sessionId);
-		if (unclaimed.length === 0) return "";
+		if (unclaimed.length === 0)
+			return handOffFault(
+				newestComment(verdict, holders, (c) => holdsRound(c, title))?.body ??
+					"",
+				number,
+				sessionId,
+			);
 		return `this \`needs input:\` ending's round sits on #${unclaimed.join(", #")}, which this session holds no claim on, so \`/pick-next\` lists it as free work and a second session re-asks the round (#1066) — run \`node ${scriptPath("claim-issue.js")} ${unclaimed[0]}\`, then end again. Where it refuses on a live holder, that session is already asking: stop and report the collision`;
 	}
 	/* An issue whose comments could not be read may hold it (#958: fail open). */
-	if (verdict.items.some((item) => verdict.statuses[item.ref] === "unchecked"))
-		return "";
+	if (hasUnchecked(verdict)) return "";
 	return `this \`needs input:\` ending asks a question round, but no issue the block cites holds it among its newest five comments — post the round (\`❓ **Q${number}** ${title}\` through its options) as a comment on the issue that carries the decision, and list that issue: \`- #N (answer Q${number}, round posted on the issue)\``;
 }
 
@@ -377,7 +527,7 @@ function tailFaults(payload, verdict) {
 	if (verdict.refusals.some((r) => !r.ref)) return [];
 	const tail = requiredGroup(m, 1, TAIL_REFS_RE);
 	const tokens = tail.split(/[\s,;]+/).filter((t) => t && !/^and$/i.test(t));
-	const refs = tokens.map((t) => canonicalRef(t));
+	const refs = tokens.map((t) => readCanonicalRef(t));
 	if (refs.length === 0 || refs.includes(null))
 		return [
 			`the status line's tail lists issue refs only, \`— waits on you: #N, owner/repo#M\` — read: \`${tail}\``,
@@ -417,14 +567,16 @@ function placementFaults(end) {
  * verdict and the round's first question it was judged on, null where none.
  * @param {string} message
  * @param {ReturnType<typeof ending>} end  the message's block and status line
- * @param {boolean} owed  whether this ending owes a block
  * @param {string} sessionId
+ * @param {import("./lib/stop-guard").StopPayload|null} payload  null where
+ *   the caller holds none: the transcript is then looked up by session id
  * @returns {{faults: string, verdict: import("./lib/outstanding-line").Verdict|null, question: ReturnType<typeof firstQuestion>}}
  */
-function assess(message, end, owed, sessionId) {
+function assess(message, end, sessionId, payload) {
+	const owed = isOwed(end);
 	if (end.header < 0) {
 		if (!owed) return { faults: "", verdict: null, question: null };
-		const faults = refusalText({
+		const faults = buildRefusalText({
 			...judge("", { grammar: "block", shapeOnly: true }),
 			refusals: [
 				{
@@ -435,22 +587,28 @@ function assess(message, end, owed, sessionId) {
 		return { faults, verdict: null, question: null };
 	}
 	const mine = placementFaults(end);
-	const question =
-		owed && end.marker === "needs input:" ? firstQuestion(message) : null;
-	const verdict = judge(end.body, {
-		grammar: "block",
-		comments: question !== null,
-	});
+	const parks = owed && end.marker === "needs input:";
+	const question = parks ? firstQuestion(message) : null;
+	const verdict = judge(end.body, { grammar: "block", comments: parks });
 	if (owed)
 		for (const reason of tailFaults(end.payload, verdict))
 			mine.push({ reason });
-	if (question !== null && verdict.refusals.length === 0) {
-		const reason = roundFault(verdict, question, sessionId);
+	if (parks && verdict.refusals.length === 0) {
+		const reason =
+			question === null
+				? parkFault(
+						verdict,
+						pointedQuestion(end),
+						sessionId,
+						readSessionStart(payload, sessionId),
+					)
+				: roundFault(verdict, question, sessionId);
 		if (reason) mine.push({ reason });
 	}
 	const refusals = [...mine, ...verdict.refusals];
 	return {
-		faults: refusals.length > 0 ? refusalText({ ...verdict, refusals }) : "",
+		faults:
+			refusals.length > 0 ? buildRefusalText({ ...verdict, refusals }) : "",
 		verdict,
 		question,
 	};
@@ -459,11 +617,11 @@ function assess(message, end, owed, sessionId) {
 /**
  * @param {string} message
  * @param {ReturnType<typeof ending>} end
- * @param {boolean} owed
  * @param {string} sessionId
+ * @param {import("./lib/stop-guard").StopPayload|null} payload
  */
-const refusal = (message, end, owed, sessionId) =>
-	assess(message, end, owed, sessionId).faults;
+const refusal = (message, end, sessionId, payload) =>
+	assess(message, end, sessionId, payload).faults;
 
 /** @param {ReturnType<typeof ending>} end */
 const isOwed = (end) =>
@@ -478,22 +636,20 @@ const isOwed = (end) =>
  */
 function hasPassingInventory(message, sessionId) {
 	const end = ending(message);
-	return (
-		end.header >= 0 && refusal(message, end, isOwed(end), sessionId) === ""
-	);
+	return end.header >= 0 && refusal(message, end, sessionId, null) === "";
 }
 
 /** @param {{sessionId: string, message: string, payload: import("./lib/stop-guard").StopPayload|null}} ctx */
 function review({ sessionId, message, payload }) {
 	const end = ending(message);
 	const owed = isOwed(end);
-	const faults = refusal(message, end, owed, sessionId);
+	const faults = refusal(message, end, sessionId, payload);
 	if (
 		faults &&
 		hookBlock.blockStop({
 			prefix: ".inventory-nagged-",
 			sessionId,
-			reason: `${LEAD}\n\n${faults}\n${PLACEMENT}\n\n${deliverableRule("guard-inventory")}`,
+			reason: `${LEAD}\n\n${faults}\n${PLACEMENT}\n\n${readDeliverableRule("guard-inventory")}`,
 		})
 	)
 		return;
@@ -503,7 +659,7 @@ function review({ sessionId, message, payload }) {
 	hookBlock.blockStop({
 		prefix: ".inventory-draft-nagged-",
 		sessionId,
-		reason: `${LEAD}\n\nThis ending says ${INVENTORY.nothingText}, but this session handed the founder a draft and told them to act on it:\n\n> ${act}\n\nIf it is still the founder's to do, list the open issue that carries it, in the block and the status-line tail, filing one now with the draft verbatim where none does. If it is done, end again: this refuses once a session.\n\n${deliverableRule("guard-inventory")}`,
+		reason: `${LEAD}\n\nThis ending says ${INVENTORY.nothingText}, but this session handed the founder a draft and told them to act on it:\n\n> ${act}\n\nIf it is still the founder's to do, list the open issue that carries it, in the block and the status-line tail, filing one now with the draft verbatim where none does. If it is done, end again: this refuses once a session.\n\n${readDeliverableRule("guard-inventory")}`,
 		max: 1,
 	});
 }
@@ -519,7 +675,7 @@ function review({ sessionId, message, payload }) {
 function parkTargets(message, sessionId) {
 	const end = ending(message);
 	if (!isOwed(end) || end.marker !== "needs input:") return [];
-	const { faults, verdict, question } = assess(message, end, true, sessionId);
+	const { faults, verdict, question } = assess(message, end, sessionId, null);
 	if (faults || !verdict || !question) return [];
 	return trackerClaims(roundHolders(verdict, question), sessionId)?.mine ?? [];
 }

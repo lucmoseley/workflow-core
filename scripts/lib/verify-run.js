@@ -1,6 +1,6 @@
 /*
  * verify-run.js — runs a Verify shell command and normalizes what
- * `execSync` throws (`scripts/upgrade.js`'s `verifyPasses` and its walk
+ * `execSync` throws (`scripts/lib/upgrade-walk.js`'s `verifyPasses` and its walk
  * loop, `scripts/release-plugin.js`'s `verifyOrThrow`) (#305).
  *
  * A timeout kill and any other signal death both leave `err.signal` set, so

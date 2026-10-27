@@ -278,6 +278,59 @@ describe("the jobs list reads", () => {
 		expect(res.stdout).not.toContain("would not parse");
 	});
 
+	it("asks the daemon of the source plan's own config dir", () => {
+		const cfg = configDirOf({ aaaaaaaa: { state: "blocked" } });
+		const bin = join(cfg, "claude");
+		writeFileSync(
+			bin,
+			`#!/bin/sh\n[ "$CLAUDE_CONFIG_DIR" = "${cfg}" ] && echo '[{"id":"aaaaaaaa-1"}]'\n`,
+			{ mode: 0o755 },
+		);
+		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
+			env: { ...process.env, WFC_CLAUDE_BIN: bin },
+		});
+		expect(res.status, res.stderr).toBe(0);
+		expect(res.stdout).toContain("process LIVE");
+	});
+
+	it("leaves no child of a timed-out wrapper behind it (#2682)", async () => {
+		// The union wrapper's shape: a child per seat backgrounded, then waited on.
+		// §X9: it crosses a real process timeout, as the kill is what is tested.
+		const cfg = configDirOf({ aaaaaaaa: { state: "blocked" } });
+		const pids = join(cfg, "pids");
+		const bin = join(cfg, "claude");
+		writeFileSync(
+			bin,
+			`#!/bin/bash\nsleep 30 &\necho $! >> ${pids}\nsleep 30 &\necho $! >> ${pids}\nwait\n`,
+			{ mode: 0o755 },
+		);
+		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
+			env: {
+				...process.env,
+				WFC_CLAUDE_BIN: bin,
+				// Untraced: long enough for node and bash to start and write both
+				// pids under suite load, far short of the children's 30 s.
+				WFC_RESCUE_ORACLE_TIMEOUT_MS: "1500",
+			},
+		});
+		expect(res.status, res.stderr).toBe(0);
+		expect(res.stdout).toContain("liveness unreadable");
+		const children = readFileSync(pids, "utf8").trim().split("\n");
+		expect(children).toHaveLength(2);
+		const isRunning = (pid: string) => {
+			try {
+				return !/\) [ZX] /.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+			} catch {
+				return false;
+			}
+		};
+		// SIGKILL is delivered asynchronously, so the reap is polled for — up
+		// to 1 s, untraced: far past a kill's delivery on an idle machine.
+		for (let i = 0; i < 20 && children.some(isRunning); i++)
+			await new Promise((r) => setTimeout(r, 50));
+		expect(children.filter(isRunning)).toEqual([]);
+	});
+
 	it("sorts newest first", () => {
 		const out = listOf({
 			older: { state: "blocked", updatedAt: "2026-09-01T00:00:00Z" },
@@ -421,26 +474,6 @@ describe("the commits snapshot says were attempted and landed", () => {
 			bash("node scripts/commit-paths.js -- a.js"),
 		]);
 		expect(entry.commitsAttempted).toEqual([]);
-	});
-
-	// gp_begin exits 0 on a payload it will not read; a host
-	// disabling the scanner by name is the one route a test can take to it.
-	it("warns and lists none where the scanner stops short (#2383)", () => {
-		const root = tempDir("rescue-root-");
-		mkdirSync(join(root, ".claude"));
-		writeFileSync(
-			join(root, ".claude", "workflow-core.json"),
-			JSON.stringify({ contract: 1, disabled: ["commit-calls.sh"] }),
-		);
-		const { entry, res } = snapshotOf(
-			[bash('git commit -m "x" -- a.js')],
-			{},
-			{ ...process.env, CLAUDE_PROJECT_DIR: root },
-		);
-		expect(entry.commitsAttempted).toEqual([]);
-		expect(res.stderr).toContain(
-			"commit calls unread, so none is listed or matched — lib/commit-calls.sh stopped short",
-		);
 	});
 
 	it("does not count a commit-paths.js --help call as an attempt (#2383)", () => {

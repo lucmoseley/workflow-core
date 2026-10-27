@@ -38,7 +38,7 @@ notifies, so a `waiting:` turn can be your last.
 So arm a timer in the turn that launches the job — a second backgrounded
 `sleep <n>; scripts/bg-run.sh check <name>`, on a `run`-wrapped job.
 Keep the cadence over two minutes and it stays a timer, not a poll:
-guard-agent-poll.sh warns from the fourth in five minutes and never refuses one (#518).
+the poll guard warns from the fourth in five minutes and never refuses one (#518).
 
 A FRESH BEAT IS A LIVE JOB — the median wait is ~18 minutes
 (#845). STOP WAITING ONLY ON A BEAT NO NEWER THAN

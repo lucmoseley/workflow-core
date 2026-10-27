@@ -574,7 +574,7 @@ describe("check-doc-map", () => {
 		});
 
 		// The --json envelope: an in-grace item keeps its existing key at warn
-		// severity, so the direction gate — checker-new-faults.js's `doc-map`
+		// severity, so the direction gate — lib/fault-profiles.js's `doc-map`
 		// profile, which reads staged vs baseline envelopes to tell an inherited
 		// fault from a new one — still matches it unmodified. The item itself
 		// must be the SAME staged vs baseline (identity is the whole JSON value,
@@ -1218,10 +1218,10 @@ describe("check-doc-map", () => {
 		});
 
 		// A route may legitimately send the reader outside the register's scope —
-		// GLOSSARY.md sits at the repo root and takes no Section A row by design.
+		// README.md sits at the repo root, outside SCOPE, and takes no Section A row.
 		it("resolves a route path to a tracked file outside the mapped scope", () => {
-			track("GLOSSARY.md");
-			writeMap(baselineRows, route("C1", "`GLOSSARY.md` for the term"));
+			track("README.md");
+			writeMap(baselineRows, route("C1", "`README.md` for the overview"));
 			const r = check();
 			expect(r.status).toBe(0);
 			// and it stays out of scope: the coverage count must not have grown
@@ -2614,7 +2614,7 @@ describe("Section B entries inside Section B", () => {
 });
 
 /*
- * Assertion 10 (mantahostels#1458). Presence only, exactly as guard-issue-close.sh gates
+ * Assertion 10 (mantahostels#1458). Presence only, exactly as guard-issue-close.js gates
  * `**Outstanding:**` — the two accepted forms are `**Settled at #<n>**` and
  * `**Settled at:** none — <why>`, and no checker can judge which is true.
  */
@@ -3768,13 +3768,14 @@ describe("the admission record", () => {
  * over cap.
  */
 describe("the stale over-cap marker", () => {
-	const markerText = (n: number) =>
+	const buildMarkerText = (n: number) =>
 		`- **Over cap by ruling (#${n}):** every claim here is load-bearing — never cut one to reach 300; read the count from \`overCapEntries()\`.`;
-	const markerWords = (n: number) => (markerText(n).match(/\S+/g) || []).length;
+	const markerWords = (n: number) =>
+		(buildMarkerText(n).match(/\S+/g) || []).length;
 
 	/** A §B entry with `n` total prose words, `n` counting the marker's own. */
 	const entry = (id: string, n: number, markerTicket: number | null) => {
-		const marker = markerTicket === null ? null : markerText(markerTicket);
+		const marker = markerTicket === null ? null : buildMarkerText(markerTicket);
 		const bodyWords =
 			n - (markerTicket === null ? 0 : markerWords(markerTicket));
 		return [
@@ -3924,13 +3925,14 @@ describe("the malformed over-cap marker", () => {
  * which would leave a session holding a load-bearing addition no legal move.
  */
 describe("growth in an over-cap-by-ruling entry", () => {
-	const markerText = (n: number) =>
+	const buildMarkerText = (n: number) =>
 		`- **Over cap by ruling (#${n}):** every claim here is load-bearing — never cut one to reach 300; read the count from \`overCapEntries()\`.`;
-	const markerWords = (n: number) => (markerText(n).match(/\S+/g) || []).length;
+	const markerWords = (n: number) =>
+		(buildMarkerText(n).match(/\S+/g) || []).length;
 
 	/** A §B entry with `n` total prose words, `n` counting the marker's own. */
 	const entry = (id: string, n: number, markerTicket: number | null) => {
-		const marker = markerTicket === null ? null : markerText(markerTicket);
+		const marker = markerTicket === null ? null : buildMarkerText(markerTicket);
 		const bodyWords =
 			n - (markerTicket === null ? 0 : markerWords(markerTicket));
 		return [
@@ -4000,7 +4002,7 @@ describe("growth in an over-cap-by-ruling entry", () => {
 	});
 
 	/*
-	 * The load-bearing exclusion: checker-new-faults.js's `doc-map` profile has
+	 * The load-bearing exclusion: lib/fault-profiles.js's `doc-map` profile has
 	 * no `gating` predicate and diffs everything in `data`, so a grown entry
 	 * landing there would turn this WARN into a gate by the back door.
 	 */
@@ -4881,7 +4883,7 @@ describe("Section A render agreement", () => {
 		expect(r.out).toContain("docs/extra.md — row missing");
 	});
 
-	/* mantahostels#2743 renders `Research runs` as a register list, so `rowLines` reads a
+	/* mantahostels#2743 renders `Research runs` as a register list, so `parseRowLines` reads a
 	 * list line as well as a table row. Without that, a path missing from a
 	 * listed subsection collapses into the coarse ordering fault below and the
 	 * report never names it. */
@@ -5053,7 +5055,7 @@ describe("--root", () => {
 		);
 
 	/** The map as the index holds it — what writeMap staged a moment ago. */
-	const staged = () => fs.readFileSync(path.join(repo, MAP), "utf8");
+	const readStagedMap = () => fs.readFileSync(path.join(repo, MAP), "utf8");
 
 	/** A Section C route, which `writeMap` places by its `### C<n>` heading. */
 	const route = (id: string, read: string) =>
@@ -5072,7 +5074,7 @@ describe("--root", () => {
 		// the map it wrote, and a from-scratch mapDoc would be BROKEN against them.
 		write(
 			MAP,
-			staged()
+			readStagedMap()
 				.replace("v1.0", "v9.9")
 				.replace(row(CLASSES), `${row(CLASSES)}\n${row("docs/phantom.md")}`),
 		);
@@ -5097,7 +5099,7 @@ describe("--root", () => {
 		const root = extract();
 		write(
 			MAP,
-			`${staged()}\n${route("C9", "`docs/renamed-away.md` for this")}`,
+			`${readStagedMap()}\n${route("C9", "`docs/renamed-away.md` for this")}`,
 		);
 
 		expect(check({}, "--root", root).status).toBe(0);

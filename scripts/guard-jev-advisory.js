@@ -82,7 +82,7 @@ const stopGuard = require("./lib/stop-guard");
 const jevLog = require("./lib/jev-log.js");
 const { guardDisabled } = require("./lib/workflow-core-config");
 const { hasRoundMarker } = require("./lib/round-marker");
-const { envFileValue } = require("./lib/env-file.js");
+const { readEnvFileValue } = require("./lib/env-file.js");
 
 /**
  * The master switch's spelling in `.claude/workflow-core.json`'s `disabled`
@@ -419,7 +419,7 @@ function readKey(root) {
 	const fromEnv = process.env[KEY_VAR]?.trim();
 	if (fromEnv) return fromEnv;
 	try {
-		return envFileValue(path.join(root, ".env"), KEY_VAR);
+		return readEnvFileValue(path.join(root, ".env"), KEY_VAR);
 	} catch {
 		/* No `.env`, or one that cannot be read: both are "no key", which skips
 		 * the turn. */

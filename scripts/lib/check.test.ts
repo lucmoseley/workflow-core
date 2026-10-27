@@ -298,7 +298,7 @@ describe("the --json envelope", () => {
 	});
 
 	/*
-	 * mantahostels#2600: checker-new-faults.js's `doc-map` profile reads ENVELOPE_FRAME_KEYS
+	 * mantahostels#2600: lib/fault-profiles.js's `doc-map` profile reads ENVELOPE_FRAME_KEYS
 	 * to tell the envelope frame apart from a checker's own payload. A key
 	 * added to `finish()`'s frame without joining that Set would leak through
 	 * that profile silently (mantahostels#2594) — this pins that it cannot, on a checker
@@ -1136,10 +1136,10 @@ runCheck({
 	});
 
 	/*
-	 * The five cases below pass `--against` through `run()` (the converted
+	 * The seven cases below pass `--against` through `run()` (the converted
 	 * seam), not `gate()`/`gateBlobs()` (real spawns) — safe because every one
 	 * refuses before `runAgainst`/`reread` ever runs, so the real-fd exemption
-	 * (mantahostels#1993, mantahostels#1945) never applies to them. The sixth, "does not swallow the
+	 * (mantahostels#1993, mantahostels#1945) never applies to them. The seventh, "does not swallow the
 	 * rev...", moved to a real spawn at mantahostels#2109 — it needs `reread` to run, so
 	 * it's now in the set this exemption excludes.
 	 */
@@ -1161,7 +1161,18 @@ runCheck({
 		expect(r.out).toContain("cannot be combined with --root");
 	});
 
-	it("refuses a profile checker-new-faults.js does not carry", () => {
+	it("refuses --head with no --against, whose judged side it names (#3074)", () => {
+		const c = checker(
+			"return {};",
+			`
+  against: { profile: "guard-test-isolation", materialise: "tree" },`,
+		);
+		const r = run(c, ["--head", "HEAD"]);
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("--head names the judged side of --against");
+	});
+
+	it("refuses a profile lib/fault-profiles.js does not carry", () => {
 		const c = checker(
 			"return {};",
 			`
@@ -1616,7 +1627,7 @@ describe("persist mode", () => {
 		process.env = { ...savedEnv };
 	});
 
-	const stateFiles = () => {
+	const readStateFiles = () => {
 		try {
 			return fs.readdirSync(notify.base()).sort();
 		} catch {
@@ -1736,7 +1747,7 @@ describe("persist mode", () => {
 			"open while running: true",
 		);
 		expect(notify.readRun("fixture")).toBeNull();
-		expect(stateFiles()).toEqual(["fixture.report.json"]);
+		expect(readStateFiles()).toEqual(["fixture.report.json"]);
 	});
 
 	/* The checker runs in this process, so it shares the fake clock and moves
@@ -1746,7 +1757,7 @@ describe("persist mode", () => {
 		const fixtureGlobals = globalThis as {
 			advanceClock?: (ms: number) => void;
 		};
-		vi.useFakeTimers({ toFake: ["Date"], now: 1_000_000 });
+		vi.useFakeTimers({ toFake: ["Date", "performance"], now: 1_000_000 });
 		fixtureGlobals.advanceClock = (ms) => vi.advanceTimersByTime(ms);
 		try {
 			run(
@@ -1799,7 +1810,7 @@ require("./no-such-module-at-all.js");
 		const { WFC_NOTIFY_PERSIST: _unset, ...withoutIt } = persistEnv;
 		const r = run(c, ["--notify"], withoutIt);
 		expect(r.stdout).toContain("detail line");
-		expect(stateFiles()).toEqual([]);
+		expect(readStateFiles()).toEqual([]);
 	});
 
 	/* `=== "1"`, not truthiness: mantahostels#1924's cost of keying off mere presence. */
@@ -1812,7 +1823,7 @@ require("./no-such-module-at-all.js");
 			});
 			expect(r.stdout).toContain("detail line");
 		}
-		expect(stateFiles()).toEqual([]);
+		expect(readStateFiles()).toEqual([]);
 	});
 
 	it("leaves a hand run on stderr with the variable set", () => {
@@ -1821,7 +1832,7 @@ require("./no-such-module-at-all.js");
 		expect(r.stderr).toContain("detail line");
 		expect(r.stdout).toBe("");
 		expect(r.status).toBe(1);
-		expect(stateFiles()).toEqual([]);
+		expect(readStateFiles()).toEqual([]);
 	});
 
 	it("leaves the --json envelope and its exit code alone", () => {
@@ -1831,7 +1842,7 @@ require("./no-such-module-at-all.js");
 		expect(j.checker).toBe("fixture");
 		expect(j.outcome).toBe("FAIL");
 		expect(j.exit).toBe(0);
-		expect(stateFiles()).toEqual([]);
+		expect(readStateFiles()).toEqual([]);
 	});
 
 	/* notify-report.js degrades to a no-op rather than throwing, so an
@@ -1863,7 +1874,10 @@ describe("the harness's import closure", () => {
 	const arbiterOrNotify = /[/\\](?:arbiter-[^/\\]+|notify-report)\.js$/;
 
 	/** Run a clean fixture check and return every module its process loaded. */
-	const loaded = (args: string[], env: Record<string, string> = {}) => {
+	const readLoadedModules = (
+		args: string[],
+		env: Record<string, string> = {},
+	) => {
 		const out = path.join(dir, "loaded.json");
 		const file = path.join(dir, "closure-check.js");
 		fs.writeFileSync(
@@ -1883,13 +1897,13 @@ runCheck({ name: "closure", usage: "node closure-check.js", run() { return { okL
 	};
 
 	it("loads no arbiter module to import the harness and run a check", () => {
-		const modules = loaded([]);
+		const modules = readLoadedModules([]);
 		expect(modules).toContain(LIB);
 		expect(modules.filter((m) => arbiterOrNotify.test(m))).toEqual([]);
 	});
 
 	it("still reaches notify-report.js under persist mode", () => {
-		const modules = loaded(["--notify"], {
+		const modules = readLoadedModules(["--notify"], {
 			WFC_NOTIFY_PERSIST: "1",
 			CLAUDE_CONFIG_DIR: path.join(dir, "claude"),
 			CLAUDE_PROJECT_DIR: dir,

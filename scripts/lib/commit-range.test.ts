@@ -228,10 +228,13 @@ describe("countRange counts without paying for the file lists (mantahostels#945)
 	});
 });
 
-describe("bisectAdvice offers a bisect only where it would help (mantahostels#945)", () => {
+describe("buildBisectAdvice offers a bisect only where it would help (mantahostels#945)", () => {
 	const ends = { good: "g".repeat(40), bad: "b".repeat(40) };
 	const at = (count: number) =>
-		range.bisectAdvice({ ok: true, count, commits: [], truncated: 0 }, ends);
+		range.buildBisectAdvice(
+			{ ok: true, count, commits: [], truncated: 0 },
+			ends,
+		);
 
 	it("says nothing at zero or one commit, which need no search", () => {
 		expect(at(0)).toEqual([]);
@@ -257,7 +260,7 @@ describe("bisectAdvice offers a bisect only where it would help (mantahostels#94
 	it("aims the command at the code repo where a repo flag is given (#1963)", () => {
 		expect(
 			range
-				.bisectAdvice(
+				.buildBisectAdvice(
 					{ ok: true, count: 4, commits: [], truncated: 0 },
 					{ ...ends, repoFlag: " --repo o/code" },
 				)
@@ -267,7 +270,7 @@ describe("bisectAdvice offers a bisect only where it would help (mantahostels#94
 
 	it("still offers one when the range could not be read at all", () => {
 		const out = range
-			.bisectAdvice({ ok: false, reason: "no such commit" }, ends)
+			.buildBisectAdvice({ ok: false, reason: "no such commit" }, ends)
 			.join("\n");
 		expect(out).toContain("gh workflow run bisect.yml");
 	});

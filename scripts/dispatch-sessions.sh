@@ -77,10 +77,15 @@
 #               or an overflow budget that fits none or cannot be read,
 #             4 refused as dispatched — either because EVERY member was, or
 #               because the drop list could not be read,
-#             5 refused on a wedged WSL interop bridge (mantahostels#3111) or an RCU
-#               stall this boot (#867). A --dry-run can exit 5 too: both
-#               checks run before the gates.
+#             5 refused on a wedged WSL interop bridge (mantahostels#3111), an RCU
+#               stall this boot (#867) or a frozen scheduler clock (#2779). A
+#               --dry-run can exit 5 too: both checks run before the gates.
 set -uo pipefail
+
+# This script's directory, resolved once without a `dirname` fork: every
+# helper below is reached through it (#2876). `.` where run by a bare name.
+here="${BASH_SOURCE[0]%/*}"
+[[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 
 # THE INTEROP PROBE (mantahostels#3111). A wedged WSL bridge makes `claude --bg` below never
 # return. The guard that catches this interactively is a shell FUNCTION
@@ -90,9 +95,9 @@ set -uo pipefail
 # Fails OPEN, unlike every other gate here: a missing library, a missing
 # reg.exe or a non-WSL machine all launch as before.
 # shellcheck source=scripts/lib/interop-probe.sh
-source "$(dirname "$0")/lib/interop-probe.sh" 2>/dev/null
+source "$here/lib/interop-probe.sh" 2>/dev/null
 # shellcheck source=scripts/lib/script-path.sh
-source "$(dirname "$0")/lib/script-path.sh"
+source "$here/lib/script-path.sh"
 
 # Every member launched so far, for the refusal below to name.
 launched_prompts=()
@@ -124,18 +129,19 @@ refuse_if_interop_wedged() {
     'command is refused by the duplicate gate on the ones above.'
 }
 
-# Refuses the WHOLE call on an RCU stall this boot (#867). The checker exits 1
-# on a stall alone; any other failure launches.
-refuse_if_kernel_stalled() {
+# Refuses the WHOLE call on an RCU stall this boot (#867) or a frozen scheduler
+# clock (#2779). The checker exits 1 on one of those alone; any other failure
+# launches.
+refuse_if_kernel_unhealthy() {
   local report status
-  report=$(node "$(dirname "$0")/check-kernel-stall.js" 2>&1 >/dev/null) && return 0
+  report=$(node "$here/check-kernel-stall.js" 2>&1 >/dev/null) && return 0
   status=$?
   if [[ $status -ne 1 ]]; then
     printf 'note: the kernel-stall check could not run (exit %s), so this launch is unchecked for one.\n' \
       "$status" >&2
     return 0
   fi
-  printf 'REFUSED: the WSL kernel has reported an RCU stall this boot, so the VM is dying.\n' >&2
+  printf 'REFUSED: the WSL VM is unhealthy; the kernel check names the signal that fired.\n' >&2
   printf '%s\n' "$report" >&2
   exit_refused_naming_launched \
     'The shutdown ends them too, so re-run with --force: the duplicate gate' \
@@ -256,7 +262,7 @@ ADVISOR_MODEL="${WFC_DISPATCH_ADVISOR:-opus}"
 # exact-match and `is_known_non_sonnet` above is a deny-list — a spelling
 # neither knows launches as written. The advisor is NOT remapped: it attaches
 # only to a spelling the remap left as Sonnet, which is none of the known ones.
-BURN_LIB="$(dirname "$0")/lib/burn-mode.js"
+BURN_LIB="$here/lib/burn-mode.js"
 burn=0
 if BURN_MARKER="$(node "$BURN_LIB" marker 2>/dev/null)"; then
   [[ -f "$BURN_MARKER" ]] && burn=1
@@ -279,9 +285,11 @@ debug_log=""
 # writes it, costs nothing extra over three.
 launch_out_file=""
 cleanup() {
-  [[ -n "$drop_file" ]] && rm -f "$drop_file"
-  [[ -n "$debug_log" ]] && rm -f "$debug_log"
-  [[ -n "$launch_out_file" ]] && rm -f "$launch_out_file"
+  local f files=()
+  for f in "$drop_file" "$debug_log" "$launch_out_file"; do
+    [[ -n "$f" ]] && files+=("$f")
+  done
+  [[ ${#files[@]} -gt 0 ]] && rm -f "${files[@]}"
   return 0
 }
 trap cleanup EXIT
@@ -315,7 +323,7 @@ roster_remedy() {
   # say the same thing twice.
   local already_shown=1
   if [[ -z "$admission_text" ]]; then
-    admission_text="$(node "$(dirname "$0")/admission.js" 2>&1)"
+    admission_text="$(node "$here/admission.js" 2>&1)"
     already_shown=0
   fi
   local hung_lines
@@ -341,7 +349,7 @@ roster_remedy() {
   # at one `node` spawn per run: `remedy_printed` prints this block once.
   local found=0 scanned=0 plan_dirs
   local d
-  if [[ -n "${HOME:-}" ]] && plan_dirs="$(node "$(dirname "$0")/lib/plan-dirs.js" "$HOME" 2>/dev/null | tr '\0' '\n')"; then
+  if [[ -n "${HOME:-}" ]] && plan_dirs="$(node "$here/lib/plan-dirs.js" "$HOME" 2>/dev/null | tr '\0' '\n')"; then
     scanned=1
     while IFS= read -r d; do
       [[ -f "$d/daemon/roster.json" ]] || continue
@@ -459,15 +467,15 @@ wants_advisor() {
 # allowance gate under a 120s ceiling — so a wedge caught only in the launch
 # loop would be reported minutes late, or not at all.
 refuse_if_interop_wedged
-refuse_if_kernel_stalled
+refuse_if_kernel_unhealthy
 
 # --- seat kind -------------------------------------------------------------
 # The seat this runs under, from the one reader of `~/.claude/refill-seats`
 # (lib/refill-seats.js).
 seat_dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
-if ! seat_kind="$(node "$(dirname "$0")/lib/refill-seats.js" kind "$seat_dir" 2>/dev/null)"; then
+if ! seat_kind="$(node "$here/lib/refill-seats.js" kind "$seat_dir" 2>/dev/null)"; then
   printf 'REFUSED: the seat file refuses (seat %s):\n' "$seat_dir" >&2
-  node "$(dirname "$0")/lib/refill-seats.js" kind "$seat_dir" 2>&1 >/dev/null | sed 's/^/  /' >&2
+  node "$here/lib/refill-seats.js" kind "$seat_dir" 2>&1 >/dev/null | sed 's/^/  /' >&2
   exit 2
 fi
 overflow=0
@@ -538,7 +546,7 @@ if [[ $force -eq 0 ]]; then
 
   drop_file="$(mktemp -t dispatch-drop.XXXXXX 2>/dev/null)" || drop_file=""
 
-  if ! node "$(dirname "$0")/check-duplicate-dispatch.js" \
+  if ! node "$here/check-duplicate-dispatch.js" \
     --issues "$prompts" --drop-index-out "$drop_file"; then
     # Fail CLOSED on an unreadable drop file, unlike the check itself: without
     # it there is no way to tell which member offended.
@@ -623,7 +631,7 @@ debug_log="$(mktemp -t dispatch-sessions-debug.XXXXXX 2>/dev/null)" || debug_log
 usage=""
 probe_ran=0
 if [[ $overflow -eq 0 && -n "$debug_log" ]]; then
-  usage="$(node "$(dirname "$0")/usage-probe.js" -- --model sonnet \
+  usage="$(node "$here/usage-probe.js" -- --model sonnet \
     --advisor "$ADVISOR_MODEL" --debug --debug-file "$debug_log" 2>/dev/null)"
   [[ $? -ne 3 ]] && probe_ran=1
 fi
@@ -646,7 +654,7 @@ no_fit_line() {
 # indented under it, on stderr. $1: the REFUSED line's subject.
 read_budget() {
   local out
-  if ! out="$(node "$(dirname "$0")/lib/overflow-budget.js" --json "$seat_dir" 2>&1)" ||
+  if ! out="$(node "$here/lib/overflow-budget.js" --json "$seat_dir" 2>&1)" ||
     ! command -v jq >/dev/null 2>&1 || ! jq -e '.fit | numbers' <<<"$out" >/dev/null 2>&1; then
     printf 'REFUSED: %s: the overflow budget of %s cannot be read:\n' "$1" "$seat_dir" >&2
     printf '%s\n' "${out:-no output}" | sed 's/^/  /' >&2
@@ -684,23 +692,36 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
   # collapses to the same "absent" both bars read on a clean but untrustworthy
   # run, and the refusal below already says that is likely transient — the
   # cases are not worth telling apart in the message the founder sees.
-  allowance_json="$(printf '%s' "$usage" | node "$(dirname "$0")/allowance.js" --json \
+  allowance_json="$(printf '%s' "$usage" | node "$here/allowance.js" --json \
     --cap "$(($# / 2))" --session-threshold "$SESSION_CEILING" \
     --week-threshold "$WEEK_CEILING" 2>/dev/null)"
-  if [[ -z "$allowance_json" ]] || ! command -v jq >/dev/null 2>&1; then
-    week_pct=""
-    week_trust="absent"
-    week_reset=""
-    session_pct=""
-    session_trust="absent"
-    session_reset=""
-  else
-    week_pct="$(jq -r '.weekly_all.percent // empty' <<<"$allowance_json")"
-    week_trust="$(jq -r '.weekly_all.trust' <<<"$allowance_json")"
-    week_reset="$(jq -r '.weekly_all.resetsAt // empty' <<<"$allowance_json")"
-    session_pct="$(jq -r '.session.percent // empty' <<<"$allowance_json")"
-    session_trust="$(jq -r '.session.trust' <<<"$allowance_json")"
-    session_reset="$(jq -r '.session.resetsAt // empty' <<<"$allowance_json")"
+  # Every field the trust check and the cap below name, in one jq read
+  # (#2876). Joined on \x1f, not a tab: `read` folds a run of whitespace IFS,
+  # so an empty field would shift every one after it. Each field is read under
+  # its own `try`, so one malformed field reads empty and leaves the rest.
+  week_pct=""
+  week_trust="absent"
+  week_reset=""
+  session_pct=""
+  session_trust="absent"
+  session_reset=""
+  if [[ -n "$allowance_json" ]] && command -v jq >/dev/null 2>&1; then
+    IFS=$'\x1f' read -r -d '' week_pct week_trust week_reset session_pct \
+      session_trust session_reset cap_error cap_launch cap_bar cap_reading \
+      cap_threshold cap_running cap_figure cap_nrunning < <(jq -j '
+      def field(f): try (f | tostring) catch "";
+      [
+        field(.weekly_all.percent // ""), field(.weekly_all.trust),
+        field(.weekly_all.resetsAt // ""),
+        field(.session.percent // ""), field(.session.trust),
+        field(.session.resetsAt // ""),
+        field(.cap.error // ""), field(.cap.launch // ""),
+        field(if .cap.binding.bar == "session" then "session" else "weekly" end),
+        field(.cap.binding.reading), field(.cap.binding.threshold),
+        field(.cap.binding.runningPoints * 10 | round / 10),
+        field(.cap.binding.perSessionPoints * 100 | round / 100),
+        field(.cap.running | length)
+      ] | join("\u001f")' <<<"$allowance_json")
   fi
 
   # No trustworthy reading from either source (JSON cache or the printed
@@ -719,8 +740,6 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
   # it. A second call counts the members launched here as running at once
   # (#372 measured <=1 s), but still launches one while the bar reads under
   # 100% — the floor applies per call (#371).
-  cap_error="$(jq -r '.cap.error // empty' <<<"$allowance_json")"
-  cap_launch="$(jq -r '.cap.launch // empty' <<<"$allowance_json")"
   [[ -z "$cap_launch" && -z "$cap_error" ]] && cap_error="the allowance reader returned no cap"
   if [[ -n "$cap_error" ]]; then
     printf 'REFUSED: the allowance cap cannot be sized (week %s%%, threshold %s%%;\n' \
@@ -730,12 +749,6 @@ if [[ $overflow -eq 0 && $force -eq 0 ]]; then
     exit 3
   fi
   if ((cap_launch < $# / 2)); then
-    cap_bar="$(jq -r 'if .cap.binding.bar == "session" then "session" else "weekly" end' <<<"$allowance_json")"
-    cap_reading="$(jq -r '.cap.binding.reading' <<<"$allowance_json")"
-    cap_threshold="$(jq -r '.cap.binding.threshold' <<<"$allowance_json")"
-    cap_running="$(jq -r '.cap.binding.runningPoints * 10 | round / 10' <<<"$allowance_json")"
-    cap_figure="$(jq -r '.cap.binding.perSessionPoints * 100 | round / 100' <<<"$allowance_json")"
-    cap_nrunning="$(jq -r '.cap.running | length' <<<"$allowance_json")"
     if [[ "$cap_bar" == "session" ]]; then cap_reset="$session_reset"; else cap_reset="$week_reset"; fi
     if ((cap_launch == 0)); then
       printf 'REFUSED: %s allowance %s%% used (threshold %s%%), resets %s — the bar is full.\n' \
@@ -820,7 +833,7 @@ while [[ $# -gt 0 ]]; do
     else
       admission_args=(--load-only)
     fi
-    if ! admission_out="$(node "$(dirname "$0")/admission.js" "${admission_args[@]}" 2>&1)"; then
+    if ! admission_out="$(node "$here/admission.js" "${admission_args[@]}" 2>&1)"; then
       printf 'REFUSED: %s — not launching this member.\n' "$prompt" >&2
       printf '%s\n' "$admission_out" | sed 's/^/  /' >&2
       printf '  Re-read immediately before this spawn (mantahostels#2553).\n' >&2
@@ -854,7 +867,9 @@ while [[ $# -gt 0 ]]; do
     # reading (#293 ruling 3), and on an unreadable load or session count
     # under --load-only (#834, #2141) — surface each here, the only place
     # $admission_out is read on the ADMIT path.
-    if printf '%s\n' "$admission_out" | grep -qE '^(allowance |cpu (load|sessions) +unknown)'; then
+    # Held in a variable: a quoted `=~` pattern matches literally.
+    warn_re=$'(^|\n)(allowance |cpu (load|sessions) +unknown)'
+    if [[ $admission_out =~ $warn_re ]]; then
       printf 'WARNING: %s\n' "$prompt" >&2
       printf '%s\n' "$admission_out" | grep -E '^(allowance |cpu (load|sessions) +unknown)' | sed 's/^/  /' >&2
     fi
@@ -877,8 +892,8 @@ while [[ $# -gt 0 ]]; do
       continue
     fi
     launcher="the headless launcher"
-    launch_cmd=(node "$(dirname "$0")/lib/headless-sessions.js" launch
-    --seat "$seat_dir" --cwd "$PWD" --budget "$headroom" "$prompt")
+    launch_cmd=(node "$here/lib/headless-sessions.js" launch
+      --seat "$seat_dir" --cwd "$PWD" --budget "$headroom" "$prompt")
   else
     args=(--bg)
     # A bare `opus` passes NO --model flag on purpose (mantahostels#1093, "everything else is
@@ -898,10 +913,11 @@ while [[ $# -gt 0 ]]; do
     printf '\n'
     continue
   fi
-  # Re-probed per member (mantahostels#3111, #867): the bridge can wedge, or the kernel
-  # stall, between one launch and the next, so both checks precede every spawn.
+  # Re-probed per member (mantahostels#3111, #867, #2779): the bridge can wedge, the
+  # kernel stall or the scheduler clock freeze between one launch and the next,
+  # so both checks precede every spawn.
   refuse_if_interop_wedged
-  refuse_if_kernel_stalled
+  refuse_if_kernel_unhealthy
 
   printf '%s  ' "$model"
   # SECOND LINE OF DEFENCE (mantahostels#3111): the probe reads the registry route alone, so
@@ -945,14 +961,21 @@ while [[ $# -gt 0 ]]; do
       # sequences, then take the id as the trailing run of 8 hex characters;
       # "backgrounded" itself never forms one (its longest hex-letter run is
       # 3, "bac" or "ded").
-      job_id="$(head -1 "$launch_out_file" 2>/dev/null |
-        sed -E 's/\x1b\[[0-9;]*[A-Za-z]//g' | grep -oE '[0-9a-f]{8}' | tail -1)"
+      first_line=""
+      { IFS= read -r first_line <"$launch_out_file"; } 2>/dev/null
+      while [[ $first_line =~ $'\e'\[[0-9\;]*[A-Za-z] ]]; do
+        first_line="${first_line/"${BASH_REMATCH[0]}"/}"
+      done
+      while [[ $first_line =~ [0-9a-f]{8} ]]; do
+        job_id="${BASH_REMATCH[0]}"
+        first_line="${first_line#*"$job_id"}"
+      done
     fi
     # Residual: the issue list is every integer in the prompt, so a prompt
     # carrying a non-issue number records a phantom issue and refuses an
     # unrelated dispatch of it, under the same command, for the ledger window
     # (#752). `--force` is the way out.
-    node "$(dirname "$0")/check-duplicate-dispatch.js" --record \
+    node "$here/check-duplicate-dispatch.js" --record \
       --issues "$prompt" --model "$model" --prompt "$prompt" --job-id "$job_id" || true
     launched_prompts+=("$prompt")
     # AFTER this launch, before the NEXT member's re-read at the top of the

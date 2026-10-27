@@ -167,7 +167,7 @@ const wireSyncHook = (checker: string) => {
 
 /** As `wireRoster`, but exec form (mantahostels#2059) — the interpreter as `command`, the
  * script path and the persist markers split into `args` — which mantahostels#2302's
- * migration onto the shared `hookCommandLine` join is what lets the roster
+ * migration onto the shared `buildHookCommandLine` join is what lets the roster
  * see at all. */
 const wireExecRoster = (checker: string) => {
 	const settingsDir = path.join(
@@ -210,7 +210,7 @@ const deadRun = (checker: string, startedAt = new Date().toISOString()) =>
 			startedAt,
 			pid: 4_194_303,
 			procStart: "1",
-			bootId: proc.currentBootId(),
+			bootId: proc.readCurrentBootId(),
 		}),
 	);
 
@@ -222,8 +222,8 @@ const liveRun = (checker: string) =>
 			checker,
 			startedAt: new Date().toISOString(),
 			pid: process.pid,
-			procStart: proc.procStartOf(process.pid),
-			bootId: proc.currentBootId(),
+			procStart: proc.readProcStartOf(process.pid),
+			bootId: proc.readCurrentBootId(),
 		}),
 	);
 

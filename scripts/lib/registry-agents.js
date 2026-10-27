@@ -6,9 +6,9 @@
  * WHAT IT READS, on each seat lib/arbiter-core.js's sessionDirs() names:
  * `sessions/<pid>.json`, kept only where /proc/<pid>/stat's start time equals
  * its `procStart`, joined to the same seat's `jobs/<jobId>/state.json` for
- * `state`, taken only where that record names the same session. These are
+ * `state` and `tempo`, taken only where that record names the same session. These are
  * undocumented harness files; the refill loop logs where this listing and the
- * CLI one disagree (`driftLines`).
+ * CLI one disagree (`buildDriftLines`).
  *
  * THE REAPER ACTS ONLY ON WHAT A RECORD SAYS, so a missing or garbled record
  * makes it stop less, never the wrong session.
@@ -27,8 +27,9 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { procStartOf } = require("./arbiter-proc.js");
+const { readProcStartOf } = require("./arbiter-proc.js");
 const { readRecord, sessionDirs } = require("./arbiter-core.js");
+const { readOwnJob } = require("./claude-stop.js");
 const { caught } = require("./caught.js");
 const headless = require("./headless-sessions.js");
 
@@ -41,8 +42,6 @@ const headless = require("./headless-sessions.js");
  *   jobId?: unknown, name?: unknown, cwd?: unknown, kind?: unknown,
  *   startedAt?: unknown}} RegistryEntry a parsed `sessions/<pid>.json`: the
  *   harness owns its schema, so every field is checked before it is read
- * @typedef {{sessionId?: unknown, state?: unknown}} JobState the fields read
- *   from a parsed `jobs/<id>/state.json`, unchecked for the same reason
  */
 
 /* The registry's spelling of a background session, and the oracle's, which
@@ -63,7 +62,7 @@ function agentOf(seat, entry) {
 	if (typeof sessionId !== "string" || !sessionId) return null;
 	if (typeof procStart !== "string" && typeof procStart !== "number")
 		return null;
-	if (procStartOf(pid) !== String(procStart)) return null;
+	if (readProcStartOf(pid) !== String(procStart)) return null;
 	/** @type {AgentRecord} */
 	const agent = { sessionId, pid };
 	const { name, cwd, kind, startedAt } = entry;
@@ -76,7 +75,7 @@ function agentOf(seat, entry) {
 }
 
 /**
- * `agent` with its job id, and its state where that seat's job record names
+ * `agent` with its job id, and its state and tempo where that seat's job record names
  * the same session. An id that is not plain alphanumeric is never followed
  * into a path.
  * @param {AgentRecord} agent
@@ -87,27 +86,10 @@ function agentOf(seat, entry) {
 function withJob(agent, seat, jobId) {
 	if (typeof jobId !== "string" || !/^[0-9a-z]+$/i.test(jobId)) return agent;
 	agent.id = jobId;
-	const job = jobRecord(seat, jobId);
-	if (job?.sessionId === agent.sessionId && typeof job.state === "string")
-		agent.state = job.state;
+	const job = readOwnJob(agent.sessionId, { jobId, seats: [seat] })?.job;
+	if (typeof job?.state === "string") agent.state = job.state;
+	if (typeof job?.tempo === "string") agent.tempo = job.tempo;
 	return agent;
-}
-
-/**
- * A job's parsed state.json on one seat, or null where it is absent, torn or
- * refused.
- * @param {string} seat
- * @param {string} jobId
- * @returns {JobState|null}
- */
-function jobRecord(seat, jobId) {
-	try {
-		return readRecord(path.join(seat, "jobs", jobId, "state.json"));
-	} catch {
-		/* A refused read is no state, so the session is not reaped: PARTIAL BY
-		 * DESIGN, the header. */
-		return null;
-	}
 }
 
 /**
@@ -116,7 +98,7 @@ function jobRecord(seat, jobId) {
  * @param {string} seat
  * @returns {{agents: AgentRecord[], read: boolean} | {fault: string}}
  */
-function seatAgents(seat) {
+function readSeatAgents(seat) {
 	const dir = path.join(seat, "sessions");
 	let names;
 	try {
@@ -149,7 +131,7 @@ function seatAgents(seat) {
  * merged in as lib/agent-liveness.js merges them.
  * @returns {RegistryListing}
  */
-function registryAgents() {
+function readRegistryAgents() {
 	/** @type {AgentRecord[]} */
 	const agents = [];
 	/** @type {string[]} */
@@ -157,13 +139,13 @@ function registryAgents() {
 	/** @type {string[]} */
 	const seats = [];
 	for (const seat of sessionDirs()) {
-		const read = seatAgents(seat);
+		const read = readSeatAgents(seat);
 		if ("fault" in read) faults.push(read.fault);
 		else agents.push(...read.agents);
 		if ("read" in read && read.read) seats.push(seat);
 	}
 	try {
-		agents.push(...headless.liveAgents());
+		agents.push(...headless.readLiveAgents());
 	} catch (e) {
 		faults.push(
 			`the headless-run store would not read (${caught(e).code || caught(e).message})`,
@@ -180,7 +162,7 @@ function registryAgents() {
  * @param {AgentRecord[]} registry
  * @returns {string[]}
  */
-function driftLines(cli, registry) {
+function buildDriftLines(cli, registry) {
 	/** @param {AgentRecord[]} list */
 	const background = (list) =>
 		new Map(
@@ -202,4 +184,4 @@ function driftLines(cli, registry) {
 	return lines.map((l) => `listing drift: ${l}`);
 }
 
-module.exports = { driftLines, registryAgents };
+module.exports = { buildDriftLines, readRegistryAgents };

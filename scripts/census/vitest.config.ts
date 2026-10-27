@@ -25,7 +25,7 @@ const ROOT = path.resolve(__dirname, "../..");
  *
  * Drops `vitest-pass-reporter.ts` from the inherited reporters: left in, a
  * whole-suite census run — which run.sh sanctions — would stamp the mantahostels#987
- * pre-push green marker off a run whose `git` is a PATH shim and whose
+ * pre-push certificate off a run whose `git` is a PATH shim and whose
  * `node:child_process` exports are monkey-patched.
  */
 export default {

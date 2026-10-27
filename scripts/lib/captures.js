@@ -95,7 +95,7 @@ const issueNumberOf = (c) =>
  * is prose about captures, not a capture.
  */
 /** @param {string | null | undefined} body */
-function captureBody(body) {
+function parseCaptureBody(body) {
 	const lines = String(body || "").split("\n");
 	const first = lines.findIndex((l) => l.trim() !== "");
 	const head = lines[first];
@@ -145,7 +145,7 @@ function fetchCaptures() {
 
 	const out = [];
 	for (const c of comments) {
-		const fact = captureBody(c.body);
+		const fact = parseCaptureBody(c.body);
 		if (fact === null) continue;
 		/* An unparseable timestamp would make every comparison downstream NaN,
 		 * which reads as "not overdue" and silently disables the check. Date it

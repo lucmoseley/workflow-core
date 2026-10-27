@@ -29,7 +29,7 @@ function recordJob(i: number, id: string, sessionId: string) {
 	fs.writeFileSync(path.join(dir, "state.json"), JSON.stringify({ sessionId }));
 }
 
-const stopsTaken = () => {
+const readStopsTaken = () => {
 	try {
 		return fs
 			.readFileSync(path.join(root, "stops"), "utf8")
@@ -80,13 +80,13 @@ describe("stopSession", () => {
 			ok: true,
 			said: "stopped aaaa1111",
 		});
-		expect(stopsTaken()).toEqual(["b aaaa1111"]);
+		expect(readStopsTaken()).toEqual(["b aaaa1111"]);
 	});
 
 	it("moves to the next seat on 'No job matching', and stops it there", () => {
 		seatsAnswering("nojob", "ok", "ok");
 		expect(stopSession("aaaa1111", "s-1").ok).toBe(true);
-		expect(stopsTaken()).toEqual(["a aaaa1111", "b aaaa1111"]);
+		expect(readStopsTaken()).toEqual(["a aaaa1111", "b aaaa1111"]);
 	});
 
 	it("reports any other failure from the seat that gave it, trying no further", () => {
@@ -96,8 +96,9 @@ describe("stopSession", () => {
 			why: "exit 1: daemon socket is busy",
 			said: "daemon socket is busy",
 			timedOut: false,
+			noJob: false,
 		});
-		expect(stopsTaken()).toEqual(["a aaaa1111"]);
+		expect(readStopsTaken()).toEqual(["a aaaa1111"]);
 	});
 
 	it("fails naming every seat where no seat has the job", () => {
@@ -115,7 +116,7 @@ describe("stopSession", () => {
 			ok: false,
 			why: "every seat's record of aaaa1111 names another session",
 		});
-		expect(stopsTaken()).toEqual([]);
+		expect(readStopsTaken()).toEqual([]);
 	});
 });
 
@@ -125,7 +126,7 @@ describe("stopOn", () => {
 			ok: true,
 			said: "stopped aaaa1111",
 		});
-		expect(stopsTaken()).toEqual(["c aaaa1111"]);
+		expect(readStopsTaken()).toEqual(["c aaaa1111"]);
 	});
 
 	it("reads the daemon's reason off its last line, under any warning", () => {

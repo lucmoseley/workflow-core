@@ -17,13 +17,19 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { currentBootId, procStartOf } from "./arbiter-proc.js";
+import { readCurrentBootId, readProcStartOf } from "./arbiter-proc.js";
 import { seatBudget } from "./overflow-budget.js";
 import { runInProcess } from "./run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "overflow-budget.js");
-/* Mean 4 and a two-step table: a run 5 in has an expected remainder of 5. */
-const TABLE = { n: 3, meanUsd: 4, quantilesUsd: [1, 3, 10] };
+/* Mean 4; a run 5 in, past u 3, has the tail's expected remainder of 7. */
+const TABLE = {
+	n: 3,
+	meanUsd: 4,
+	quantilesUsd: [1, 3, 10],
+	tailRemainderUsd: 7,
+	landedByHours: [[1, 1]] as [number, number][],
+};
 let tmp: string;
 let home: string;
 let refill: string;
@@ -76,8 +82,8 @@ function storeRun(
 			jobId,
 			sessionId,
 			pid: process.pid,
-			procStart: live ? procStartOf(process.pid) : "not-a-start-time",
-			bootId: currentBootId(),
+			procStart: live ? readProcStartOf(process.pid) : "not-a-start-time",
+			bootId: readCurrentBootId(),
 			pgid: process.pid,
 			seat: seatDir,
 			cwd: tmp,
@@ -113,7 +119,7 @@ const seat = {
 	grantUsd: 200,
 	cycleDay: 1,
 };
-const ledgerLines = () =>
+const readLedgerLines = () =>
 	fs
 		.readFileSync(
 			path.join(refill, ".overflow-ledger", "WFC_TEST_KEY.jsonl"),
@@ -135,7 +141,7 @@ describe("seatBudget settlement", () => {
 		const b = seatBudget(s);
 		expect(b).toMatchObject({ settledUsd: 6, fit: 48, running: 0 });
 		seatBudget(s);
-		expect(ledgerLines()).toMatchObject([
+		expect(readLedgerLines()).toMatchObject([
 			{ jobId: "0000000a", costUsd: 6, costSource: "result" },
 		]);
 	});
@@ -145,7 +151,7 @@ describe("seatBudget settlement", () => {
 		storeTranscript(id, 2_000_000);
 		const b = seatBudget({ ...seat, dir: seatDir });
 		expect(b).toMatchObject({ settledUsd: 8 });
-		expect(ledgerLines()).toMatchObject([
+		expect(readLedgerLines()).toMatchObject([
 			{
 				sessionId: id,
 				costUsd: 8,
@@ -160,7 +166,7 @@ describe("seatBudget settlement", () => {
 		expect(seatBudget({ ...seat, dir: seatDir })).toMatchObject({
 			settledUsd: 4,
 		});
-		expect(ledgerLines()).toMatchObject([
+		expect(readLedgerLines()).toMatchObject([
 			{ costUsd: 4, costSource: "reservation", outcome: "killed" },
 		]);
 	});
@@ -186,8 +192,8 @@ describe("seatBudget settlement", () => {
 		const id = storeRun("0000000d", { live: true });
 		storeTranscript(id, 1_250_000);
 		const b = seatBudget({ ...seat, dir: seatDir });
-		/* spent 5: max(4, 5 + 5) = 10 held. */
-		expect(b).toMatchObject({ running: 1, reservedUsd: 10, fit: 47 });
+		/* spent 5, past u 3: max(4, 5 + 7) = 12 held. */
+		expect(b).toMatchObject({ running: 1, reservedUsd: 12, fit: 47 });
 		expect(
 			fs.existsSync(
 				path.join(refill, ".overflow-ledger", "WFC_TEST_KEY.jsonl"),

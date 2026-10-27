@@ -21,6 +21,7 @@ import {
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
+import { BLOCKED_BY_GRAPHQL_FAKE, GH_NOT_FOUND } from "./lib/gh-fake";
 
 const FRONTIER = path.join(__dirname, "wayfinder-frontier.js");
 // `--map` refuses where it cannot confirm the claim store shares the caller's
@@ -69,8 +70,11 @@ const asAlice = (args: string[] = [], cwd = sb.repo) =>
 
 /**
  * A `gh api` stand-in wired through WFC_GH. It serves `routes` by API path
- * and exits 1 on any path in `fails`, consistently, so the command's one retry
- * re-fails rather than papering over a fixture.
+ * and gh's recorded 404 on any path in `fails` or absent, consistently, so
+ * the command's one retry re-fails rather than papering over a fixture. The
+ * batched GraphQL blockers read answers from the same `blockedBy(n)` routes,
+ * and answers null for a child whose route fails or is absent, which sends it
+ * to that REST path.
  */
 function fakeGh(routes: Record<string, unknown>, fails: string[] = []) {
 	const fixture = path.join(sb.dir, "gh-routes.json");
@@ -85,14 +89,14 @@ const fs = require("node:fs");
 const { routes, fails } = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, "utf8"));
 const p = process.argv[3];
 fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");
-if (fails.includes(p)) {
-  process.stderr.write("gh: HTTP 502 " + p + "\\n");
-  process.exit(1);
+${BLOCKED_BY_GRAPHQL_FAKE}
+if (p === "graphql") {
+  serveAnswer(answerBlockedBy(process.argv.slice(2), (n) => {
+    const route = "repos/{owner}/{repo}/issues/" + n + "/dependencies/blocked_by";
+    return fails.includes(route) || !(route in routes) ? null : routes[route];
+  }));
 }
-if (!(p in routes)) {
-  process.stderr.write("gh: HTTP 404 " + p + "\\n");
-  process.exit(1);
-}
+if (fails.includes(p) || !(p in routes)) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
 // --slurp wraps each page's array; one page here.
 process.stdout.write(JSON.stringify([routes[p]]));
 `,
@@ -425,9 +429,10 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			expect(r.stdout).toBe("1145\n");
 			expect(r.stderr).toMatch(/#412 is a kind:spec/);
 			expect(r.stderr).toMatch(/#483 carries no wayfinder:<type> label/);
-			// No blocker call for a child already dropped.
-			const paths = ghCalls().map((l) => l.split(" ")[1]);
-			expect(paths).not.toContain(blockedBy(412));
+			// No blocker read for a child already dropped.
+			const calls = ghCalls().join("\n");
+			expect(calls).not.toContain(blockedBy(412));
+			expect(calls).not.toMatch(/i412: issue/);
 		});
 
 		it("names a kind:brief child as an expected drop, not a missing label (#579)", () => {
@@ -578,9 +583,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			);
 			mapAsAlice(1080, gh);
 			const paths = ghCalls().map((l) => l.split(" ")[1]);
-			expect(paths.sort()).toEqual(
-				[subIssues(1080), blockedBy(1145), blockedBy(1114)].sort(),
-			);
+			expect(paths.sort()).toEqual([subIssues(1080), "graphql"].sort());
 		});
 
 		it("refuses, printing nothing, when the map's children cannot be read", () => {
@@ -758,7 +761,8 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			mapAsAlice(1080, gh);
 			const calls = ghCalls();
 			expect(calls.join("\n")).not.toMatch(/--method|-X POST/);
-			expect(calls.length).toBe(2); // the map's children, then that child's blockers
+			expect(calls.join("\n")).not.toMatch(/mutation/);
+			expect(calls.length).toBe(2); // the map's children, then the batched blockers read
 		});
 
 		it("refuses --map with no number, and --map with a non-number", () => {

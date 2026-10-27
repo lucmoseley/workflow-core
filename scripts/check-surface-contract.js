@@ -25,12 +25,12 @@
  * SKIPs, so the CI step fetches them first.
  */
 
-const { execFileSync } = require("node:child_process");
 const { hostRoot } = require("./lib/host-root.js");
 const { runCheck } = require("./lib/check");
-const { TAG_RE, isMajorBump, latestTag } = require("./lib/release-tags.js");
+const { TAG_RE, isMajorBump, readLatestTag } = require("./lib/release-tags.js");
 const { MIGRATIONS_DIR } = require("./lib/workflow-core-config.js");
 const { caught } = require("./lib/caught.js");
+const { execGit } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {Record<string, string[]>} EntryPoints */
@@ -200,7 +200,7 @@ runCheck({
 		const root = hostRoot();
 		const git = (/** @type {string[]} */ args) => {
 			try {
-				return execFileSync("git", args, {
+				return execGit(args, {
 					cwd: root,
 					encoding: "utf8",
 					stdio: ["ignore", "pipe", "pipe"],
@@ -228,7 +228,7 @@ runCheck({
 
 		let prior;
 		try {
-			prior = latestTag(root);
+			prior = readLatestTag(root);
 		} catch (e) {
 			ctx.broken(`git cannot list the release tags — ${caught(e).message}`);
 		}

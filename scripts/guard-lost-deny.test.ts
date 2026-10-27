@@ -29,7 +29,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
-import { type StopRun, stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 /* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
@@ -46,10 +46,10 @@ let dir: string;
 let core: string;
 let sid: string;
 
-/** A guard file in the core — deny-capable where it calls `gp_deny`. */
+/** A guard file in the core — deny-capable where it prints a deny verdict. */
 const guardFile = (name: string, denies: boolean) => {
 	const body = denies
-		? '#!/usr/bin/env bash\ngp_deny "no" "because"\n'
+		? '#!/usr/bin/env bash\nprintf \'{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"because"}}\'\n'
 		: "#!/usr/bin/env bash\necho fine\n";
 	const file = path.join(core, "scripts", name);
 	fs.writeFileSync(file, body);
@@ -62,7 +62,7 @@ const echoGuard = () => {
 	const guard = path.join(core, "scripts", "guard-branch.sh");
 	fs.writeFileSync(
 		guard,
-		'#!/usr/bin/env bash\ncat\necho "gp_deny is what makes this deny-capable" >/dev/null\n',
+		'#!/usr/bin/env bash\ncat\necho \'{"permissionDecision":"deny"} is what makes this deny-capable\' >/dev/null\n',
 	);
 	fs.chmodSync(guard, 0o755);
 };
@@ -111,7 +111,7 @@ const halfWritten = (file: string) =>
  * reads the turn's text from the transcript.
  */
 const run = (over: Partial<StopRun> = {}) => {
-	const block = stopGuardBlock(GUARD, {
+	const block = readStopGuardBlock(GUARD, {
 		dir,
 		sid,
 		config: dir,
@@ -137,7 +137,7 @@ const replay = (...argv: string[]) =>
 	});
 
 /** The last breadcrumb this guard wrote for this session. */
-const crumb = () => {
+const readCrumb = () => {
 	const file = path.join(
 		hookRecord.recordsDir(dir),
 		`.hook-ran-guard-lost-deny-${sid}`,
@@ -149,7 +149,7 @@ const crumb = () => {
 	return JSON.parse(lines.at(-1) ?? "");
 };
 
-const seen = () =>
+const readSeen = () =>
 	fs
 		.readFileSync(
 			path.join(dir, ".claude", "tmp", "markers", `.lost-deny-seen-${sid}`),
@@ -259,34 +259,34 @@ describe("what it reports", () => {
 
 describe("whether the loss was worth a turn", () => {
 	it("prices a guard that has never denied, and says so in the summary", () => {
-		guardFile("guard-pull-form.sh", true);
+		guardFile("guard-pull-form.js", true);
 		transcript([
 			fileCall("git pull", "toolu_A"),
-			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-pull-form.sh" }),
+			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-pull-form.js" }),
 		]);
 
 		const r = run();
 
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain(
-			"guard-pull-form.sh: denies 0% of calls (0 denials in 21,952 calls",
+			"guard-pull-form.js: denies 0% of calls (0 denials in 21,952 calls",
 		);
 		expect(r.reason).toContain("under the 1% cut, so a replay rarely pays");
 		expect(r.reason).toContain("No guard here denies often enough");
 	});
 
 	it("prices the one guard that denies often enough to chase", () => {
-		guardFile("guard-issue-close.sh", true);
+		guardFile("guard-issue-close.js", true);
 		transcript([
 			fileCall("gh issue close 1", "toolu_A"),
-			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-issue-close.sh" }),
+			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-issue-close.js" }),
 		]);
 
 		const r = run();
 
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain(
-			"guard-issue-close.sh: denies 1.588% of calls (255 denials in 16,057 calls; 95% CI 1.41%-1.79%) — over the 1% cut, worth the replay",
+			"guard-issue-close.js: denies 1.588% of calls (255 denials in 16,057 calls; 95% CI 1.41%-1.79%) — over the 1% cut, worth the replay",
 		);
 		expect(r.reason).toContain("This one is worth the replay");
 	});
@@ -311,15 +311,15 @@ describe("whether the loss was worth a turn", () => {
 	});
 
 	it("counts only the tool calls worth chasing where the block mixes both", () => {
-		guardFile("guard-branch.sh", true);
-		guardFile("guard-agent-poll.sh", true);
+		guardFile("guard-branch.js", true);
+		guardFile("guard-agent-poll.js", true);
 		transcript([
 			fileCall("git worktree add /tmp/w", "toolu_A"),
-			killed(),
+			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-branch.js" }),
 			fileCall("sleep 30", "toolu_B"),
 			killed({
 				toolUseID: "toolu_B",
-				command: "$CLAUDE_PROJECT_DIR/scripts/guard-agent-poll.sh",
+				command: "$CLAUDE_PROJECT_DIR/scripts/guard-agent-poll.js",
 			}),
 		]);
 
@@ -351,7 +351,7 @@ describe("what it stays silent on", () => {
 		transcript([fileCall("ls", "toolu_A")]);
 
 		expect(run().blocked).toBe(false);
-		expect(crumb()).toMatchObject({ outcome: "no-finding" });
+		expect(readCrumb()).toMatchObject({ outcome: "no-finding" });
 	});
 
 	it("says nothing where the guard that died cannot deny", () => {
@@ -365,7 +365,7 @@ describe("what it stays silent on", () => {
 		]);
 
 		expect(run().blocked).toBe(false);
-		expect(crumb()).toMatchObject({ outcome: "no-finding" });
+		expect(readCrumb()).toMatchObject({ outcome: "no-finding" });
 	});
 
 	it("says nothing about a deny-capable guard lost on any event but PreToolUse", () => {
@@ -378,7 +378,7 @@ describe("what it stays silent on", () => {
 		expect(run().blocked).toBe(false);
 	});
 
-	it("says nothing about ITSELF, whose own source spells gp_deny", () => {
+	it("says nothing about ITSELF, whose own source spells a deny verdict", () => {
 		guardFile("guard-lost-deny.js", true);
 		transcript([
 			fileCall("ls", "toolu_A"),
@@ -403,7 +403,7 @@ describe("what it stays silent on", () => {
 		guardFile("guard-branch.sh", true);
 
 		expect(run().blocked).toBe(false);
-		expect(crumb()).toMatchObject({ outcome: "no-transcript" });
+		expect(readCrumb()).toMatchObject({ outcome: "no-transcript" });
 	});
 
 	it("crumbs the loss but does not block while another Stop hook has blocked", () => {
@@ -413,7 +413,7 @@ describe("what it stays silent on", () => {
 		const r = run({ payload: { stop_hook_active: true } });
 
 		expect(r.blocked).toBe(false);
-		expect(crumb()).toMatchObject({ outcome: "message" });
+		expect(readCrumb()).toMatchObject({ outcome: "message" });
 		expect(
 			fs.existsSync(
 				path.join(dir, ".claude", "tmp", "markers", `.lost-deny-seen-${sid}`),
@@ -458,18 +458,18 @@ describe("the deny-capable set", () => {
 		expect(rows.some((r) => !r.denyCapable)).toBe(true);
 	});
 
-	it("counts the real file-claim guard, which refuses through the arbiter — #1815", () => {
+	it("counts the real dispatcher, whose file-claim core refuses through the arbiter — #1815", () => {
 		transcript([
 			fileCall("ls", "toolu_A"),
 			killed({
 				hookName: "PreToolUse:Write",
-				command: "$CLAUDE_PROJECT_DIR/scripts/guard-file-claim.sh",
+				command: "$CLAUDE_PROJECT_DIR/scripts/guard-dispatch.js",
 			}),
 		]);
 
 		const r = run({ env: { WFC_SCRIPT_ROOT: path.resolve(__dirname, "..") } });
 
-		expect(r.reason).toContain("guard-file-claim.sh");
+		expect(r.reason).toContain("guard-dispatch.js");
 	});
 
 	it("admits a guard added after this one, with no edit here", () => {
@@ -485,7 +485,10 @@ describe("the deny-capable set", () => {
 	});
 
 	it("looks up no guard outside scripts/, however the record spells it", () => {
-		fs.writeFileSync(path.join(core, "outside.sh"), "gp_deny\n");
+		fs.writeFileSync(
+			path.join(core, "outside.sh"),
+			'{"permissionDecision":"deny"}\n',
+		);
 		transcript([
 			fileCall("ls", "toolu_A"),
 			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/../outside.sh" }),
@@ -505,7 +508,7 @@ describe("the dedupe", () => {
 		oneLoss();
 
 		expect(run().blocked).toBe(true);
-		expect(seen()).toEqual(["toolu_A"]);
+		expect(readSeen()).toEqual(["toolu_A"]);
 		expect(run().blocked).toBe(false);
 	});
 
@@ -542,7 +545,7 @@ describe("the dedupe", () => {
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain("toolu_B");
 		expect(r.reason).not.toContain("toolu_A");
-		expect(seen()).toEqual(["toolu_A", "toolu_B"]);
+		expect(readSeen()).toEqual(["toolu_A", "toolu_B"]);
 	});
 });
 
@@ -572,7 +575,7 @@ describe("replay", () => {
 		const guard = path.join(core, "scripts", "guard-branch.sh");
 		fs.writeFileSync(
 			guard,
-			'#!/usr/bin/env bash\ngp_deny\nprintf \'{"hookSpecificOutput":{"permissionDecision":"deny"}}\'\n',
+			'#!/usr/bin/env bash\nprintf \'{"hookSpecificOutput":{"permissionDecision":"deny"}}\'\n',
 		);
 		fs.chmodSync(guard, 0o755);
 		const file = transcript([
@@ -639,12 +642,15 @@ describe("in an adopter, whose repo holds none of the guards — #1017", () => {
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain("guard-branch.sh");
 		/* The seen set stays with the session's repo. */
-		expect(seen()).toEqual(["toolu_A"]);
+		expect(readSeen()).toEqual(["toolu_A"]);
 	});
 
 	it("never reads a same-named file in the session's repo", () => {
 		guardFile("guard-branch.sh", false);
-		fs.writeFileSync(path.join(dir, "scripts", "guard-branch.sh"), "gp_deny\n");
+		fs.writeFileSync(
+			path.join(dir, "scripts", "guard-branch.sh"),
+			'{"permissionDecision":"deny"}\n',
+		);
 		transcript([fileCall("ls", "toolu_A"), killed()]);
 
 		expect(run().blocked).toBe(false);
@@ -656,7 +662,7 @@ describe("in an adopter, whose repo holds none of the guards — #1017", () => {
 	const lostOwn = (name: string) =>
 		killed({ command: `node "$CLAUDE_PROJECT_DIR"/scripts/${name}` });
 
-	it("reports its own guard that refuses by hand, with no gp_deny — #1815", () => {
+	it("reports its own guard that refuses by hand — #1815", () => {
 		ownGuard(
 			"guard-correspondence-reviewer.js",
 			'out({ hookSpecificOutput: { permissionDecision: "deny" } });\n',

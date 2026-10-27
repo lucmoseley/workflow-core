@@ -21,9 +21,10 @@
  * descriptor shows the program's write and the stub's call in their real
  * order.
  *
- * It runs as the SessionEnd hook in `self-plugin/hooks/hooks.json`: loosen a
- * case and an upgrade the founder accepted is dropped, or one runs under a live
- * neighbour or against a declined tag.
+ * It runs as the SessionEnd hook in `self-plugin/hooks/hooks.json` and the
+ * shipped plugin's `hooks/hooks.json`: loosen a case and an upgrade the founder
+ * accepted is dropped, or one runs under a live neighbour or against a declined
+ * tag.
  */
 import { execFileSync, execSync } from "node:child_process";
 import fs from "node:fs";
@@ -178,7 +179,7 @@ function claudeStub(
 }
 
 /** Every `claude` call the stub logged, in order. */
-function claudeCalls(at: Fixture) {
+function readClaudeCalls(at: Fixture) {
 	const log = path.join(at.tmp, "claude.log");
 	return fs.existsSync(log)
 		? fs.readFileSync(log, "utf8").trim().split("\n")
@@ -186,8 +187,8 @@ function claudeCalls(at: Fixture) {
 }
 
 /** The calls that move the supply: `marketplace add`, `install`, `update`. */
-const rotations = (at: Fixture) =>
-	claudeCalls(at).filter((c) =>
+const readRotations = (at: Fixture) =>
+	readClaudeCalls(at).filter((c) =>
 		/plugin (?:marketplace add|install|update) /.test(c),
 	);
 
@@ -226,7 +227,7 @@ function sessionEnd(at: Fixture, extra: Record<string, string> = {}) {
 }
 
 /** The persisted SessionEnd report's outcome, or null where none was filed. */
-function reportOutcome(at: Fixture) {
+function readReportOutcome(at: Fixture) {
 	const hit = (
 		fs.readdirSync(at.configDir, { recursive: true }) as string[]
 	).find((f) => f.endsWith("reconcile-plugin.report.json"));
@@ -235,7 +236,7 @@ function reportOutcome(at: Fixture) {
 		: null;
 }
 
-const consentOf = (at: Fixture, tag: string) =>
+const readConsentOf = (at: Fixture, tag: string) =>
 	readPendingConsent(at.root, tag, { configDir: at.configDir });
 
 /* The marketplace entries alone: the walk merges the core's other settings
@@ -254,8 +255,8 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
 		const got = sessionEnd(at);
 		expect(got.text).toBe("");
-		expect(claudeCalls(at)).toEqual([]);
-		expect(consentOf(at, "v2.0.0")).not.toBeNull();
+		expect(readClaudeCalls(at)).toEqual([]);
+		expect(readConsentOf(at, "v2.0.0")).not.toBeNull();
 	});
 
 	it("makes no claude call at all where no consent is pending", () => {
@@ -263,15 +264,15 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		const got = sessionEnd(at);
 		expect(got.text).toBe("");
 		expect(got.stderr).toBe("");
-		expect(claudeCalls(at)).toEqual([]);
-		expect(reportOutcome(at)).toBeNull();
+		expect(readClaudeCalls(at)).toEqual([]);
+		expect(readReportOutcome(at)).toBeNull();
 	});
 
 	it("says nothing at all for an adopter carrying no pin", () => {
 		const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });
 		writeJson(path.join(at.root, ".claude", "settings.json"), {});
 		expect(sessionEnd(at).text).toBe("");
-		expect(reportOutcome(at)).toBeNull();
+		expect(readReportOutcome(at)).toBeNull();
 	});
 
 	it("defers on a live neighbour, naming it, and leaves the consent standing", () => {
@@ -284,9 +285,9 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		expect(got.text).toContain("deferring the v2.0.0 materialise");
 		expect(got.text).toContain("(pid 4242)");
 		expect(got.text).toContain("next session's exit");
-		expect(rotations(at)).toEqual([]);
-		expect(consentOf(at, "v2.0.0")).not.toBeNull();
-		expect(reportOutcome(at)).toBe("OK");
+		expect(readRotations(at)).toEqual([]);
+		expect(readConsentOf(at, "v2.0.0")).not.toBeNull();
+		expect(readReportOutcome(at)).toBe("OK");
 	});
 
 	it("emits the contention report before the rotation it describes, and rotates anyway", () => {
@@ -321,22 +322,22 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });
 		setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
 		const got = sessionEnd(at);
-		const [add, install] = rotations(at);
+		const [add, install] = readRotations(at);
 		expect(add).toBe(
 			`${at.root} :: ${at.configDir} :: plugin marketplace add https://example.invalid/wc.git#v2.0.0 --scope project`,
 		);
 		expect(install).toContain(`plugin install ${PLUGIN}@${MARKET} -y`);
-		expect(consentOf(at, "v2.0.0")).toBeNull();
+		expect(readConsentOf(at, "v2.0.0")).toBeNull();
 		expect(got.text).toContain("materialised v2.0.0");
 		expect(got.text).toContain(`the next session in ${at.root} runs v2.0.0`);
-		expect(reportOutcome(at)).toBe("OK");
+		expect(readReportOutcome(at)).toBe("OK");
 	});
 
 	it("runs the three calls in order, then measures the core's context cost (#679)", () => {
 		const at = fixture({ pinRef: "v2.0.0", installedVersion: "1.0.0" });
 		setPendingConsent(at.root, "v2.0.0", { configDir: at.configDir });
 		sessionEnd(at);
-		const ran = claudeCalls(at);
+		const ran = readClaudeCalls(at);
 		expect(ran).toHaveLength(4);
 		expect(ran[0]).toContain(
 			"plugin marketplace add https://example.invalid/wc.git#v2.0.0 --scope project",
@@ -355,14 +356,14 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		const dirty = sessionEnd(at);
 		expect(dirty.text).toMatch(/not clean/);
 		expect(dirty.text).toMatch(/consent stands/);
-		expect(consentOf(at, "v1.0.0")).not.toBeNull();
+		expect(readConsentOf(at, "v1.0.0")).not.toBeNull();
 
 		fs.rmSync(path.join(at.root, "scratch.txt"));
 		const clean = sessionEnd(at);
 		expect(clean.text).toContain("the next session in");
 		// the install is already at the pin, so neither exit rotates (#747)
-		expect(rotations(at)).toEqual([]);
-		expect(consentOf(at, "v1.0.0")).toBeNull();
+		expect(readRotations(at)).toEqual([]);
+		expect(readConsentOf(at, "v1.0.0")).toBeNull();
 	});
 
 	it("leaves the consent in place when the materialise fails", () => {
@@ -375,8 +376,8 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		});
 		expect(got.text).toContain("materialising v2.0.0 FAILED — no such ref");
 		expect(got.text).toContain("Finish by hand:");
-		expect(consentOf(at, "v2.0.0")).not.toBeNull();
-		expect(reportOutcome(at)).toBe("WARN");
+		expect(readConsentOf(at, "v2.0.0")).not.toBeNull();
+		expect(readReportOutcome(at)).toBe("WARN");
 	});
 
 	it("leaves the consent in place when only the update fails", () => {
@@ -388,8 +389,8 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 			}),
 		});
 		expect(got.text).toContain("the update after it FAILED — network down");
-		expect(consentOf(at, "v2.0.0")).not.toBeNull();
-		expect(reportOutcome(at)).toBe("WARN");
+		expect(readConsentOf(at, "v2.0.0")).not.toBeNull();
+		expect(readReportOutcome(at)).toBe("WARN");
 	});
 
 	it("leaves the pin byte-identical on every path", () => {
@@ -435,7 +436,7 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 			arrange(at);
 			const before = pinBytes(at.root);
 			expect(sessionEnd(at).text.trim()).toMatch(said);
-			expect(rotations(at)).toEqual([]);
+			expect(readRotations(at)).toEqual([]);
 			expect(pinBytes(at.root)).toEqual(before);
 		}
 
@@ -459,11 +460,11 @@ describe("reconcile-plugin.js leaves the supply alone once the install is at the
 		fs.writeFileSync(path.join(at.root, "scratch.txt"), "not committed");
 		const got = sessionEnd(at);
 		expect(
-			rotations(at).filter((c) => c.includes("marketplace add")),
+			readRotations(at).filter((c) => c.includes("marketplace add")),
 		).toHaveLength(1);
 		expect(got.text).toContain("materialised v2.0.0");
 		expect(got.text).toMatch(/not clean/);
-		expect(consentOf(at, "v2.0.0")).not.toBeNull();
+		expect(readConsentOf(at, "v2.0.0")).not.toBeNull();
 	});
 
 	it("never calls materialise, and still runs the walk and clears the consent", () => {
@@ -478,11 +479,11 @@ describe("reconcile-plugin.js leaves the supply alone once the install is at the
 			`exports.walkAndCommit = (at) => { at.out("stub walker ran"); return { action: "committed", lines: [] }; };\n`,
 		);
 		const got = sessionEnd(at);
-		expect(rotations(at)).toEqual([]);
+		expect(readRotations(at)).toEqual([]);
 		expect(got.text).toContain("already installed at v1.0.0");
 		expect(got.text).not.toContain("v0.9.0");
 		expect(got.text).toContain("stub walker ran");
-		expect(consentOf(at, "v1.0.0")).toBeNull();
+		expect(readConsentOf(at, "v1.0.0")).toBeNull();
 	});
 });
 
@@ -537,7 +538,7 @@ describe("reconcile-plugin.js's walker is the fresh install's own (#682)", () =>
 			out: "function",
 			claudeBin: stub,
 		});
-		expect(consentOf(at, "v1.0.0")).toBeNull();
+		expect(readConsentOf(at, "v1.0.0")).toBeNull();
 	});
 
 	it("falls back to the bundled walker, saying so, where the install carries none", () => {
@@ -634,7 +635,7 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 		const got = sessionEnd(at, procs);
 		expect(got.text).toContain("2 other Claude session(s)");
 		expect(got.text).toContain("(pid 100, 101)");
-		expect(rotations(at)).toEqual([]);
+		expect(readRotations(at)).toEqual([]);
 	});
 
 	it("counts only the sessions under the same config dir, excluding this one's own ancestry", () => {
@@ -665,7 +666,7 @@ describe("reconcile-plugin.js's live-session count (#247)", () => {
 		const got = sessionEnd(at, procs);
 		expect(got.text).not.toContain("deferring");
 		expect(
-			rotations(at).filter((c) => c.includes("marketplace add")),
+			readRotations(at).filter((c) => c.includes("marketplace add")),
 		).toHaveLength(1);
 	});
 
@@ -698,7 +699,7 @@ describe("reconcile-plugin.js's command line", () => {
 		const r = runInProcess(SCRIPT, [], { env: sessionEnv(at) });
 		expect(r.stdout).toBe("");
 		expect(r.status).toBe(0);
-		expect(claudeCalls(at)).toEqual([]);
-		expect(consentOf(at, "v2.0.0")).not.toBeNull();
+		expect(readClaudeCalls(at)).toEqual([]);
+		expect(readConsentOf(at, "v2.0.0")).not.toBeNull();
 	});
 });

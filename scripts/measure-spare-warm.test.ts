@@ -83,7 +83,7 @@ function stat(pid: number, ppid: number) {
 const logA = () => path.join(dir, "a", "daemon.log");
 
 /** The daemon's refill line, stamped now unless told otherwise. */
-const spawnLine = (pid: number, at = new Date().toISOString()) =>
+const buildSpawnLine = (pid: number, at = new Date().toISOString()) =>
 	`[${at}] [bg] bg spare spawned host pid=${pid}\n`;
 
 /** One `--watch --json` run, with its reading parsed where it printed one. */
@@ -140,7 +140,7 @@ describe("finding the next spawn (mantahostels#2588)", () => {
 			logA(),
 			"[2026-09-02T08:00:00.000Z] [bg] bg spare spawned host pid=111\n",
 		);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(222)), 200);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(222)), 200);
 		expect((await watch(4)).reading.pid).toBe(222);
 	});
 
@@ -148,7 +148,7 @@ describe("finding the next spawn (mantahostels#2588)", () => {
 		fs.writeFileSync(logA(), "");
 		const other = path.join(dir, "b", "daemon.log");
 		fs.writeFileSync(other, "");
-		setTimeout(() => fs.appendFileSync(other, spawnLine(333)), 200);
+		setTimeout(() => fs.appendFileSync(other, buildSpawnLine(333)), 200);
 		const { reading } = await watch(4);
 		expect(reading.pid).toBe(333);
 		expect(reading.log).toBe(other);
@@ -160,7 +160,7 @@ describe("finding the next spawn (mantahostels#2588)", () => {
 	it("re-baselines a truncated log instead of throwing", async () => {
 		fs.writeFileSync(logA(), "x".repeat(5000));
 		setTimeout(() => fs.writeFileSync(logA(), ""), 150);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(444)), 500);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(444)), 500);
 		expect((await watch(4)).reading.pid).toBe(444);
 	});
 });
@@ -173,7 +173,7 @@ describe("timing the plateau (mantahostels#2588)", () => {
 			() =>
 				fs.appendFileSync(
 					logA(),
-					spawnLine(900, new Date(Date.now() - 1000).toISOString()),
+					buildSpawnLine(900, new Date(Date.now() - 1000).toISOString()),
 				),
 			200,
 		);
@@ -196,7 +196,7 @@ describe("timing the plateau (mantahostels#2588)", () => {
 			statm(901, mb);
 			if (mb >= 90) clearInterval(climb);
 		}, SAMPLE_MS);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(901)), 50);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(901)), 50);
 		const r = await watch(14);
 		clearInterval(climb);
 		expect(r.reading.verdict).toBe("plateau");
@@ -205,7 +205,7 @@ describe("timing the plateau (mantahostels#2588)", () => {
 
 	it("says `gone` where the process exits before it settles", async () => {
 		fs.writeFileSync(logA(), "");
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(902)), 100);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(902)), 100);
 		const r = await watch(4);
 		expect(r.status).toBe(1);
 		expect(r.reading.verdict).toBe("gone");
@@ -220,7 +220,7 @@ describe("timing the plateau (mantahostels#2588)", () => {
 			mb += 50;
 			statm(903, mb);
 		}, SAMPLE_MS);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(903)), 50);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(903)), 50);
 		const r = await watch(1.5);
 		clearInterval(climb);
 		expect(r.status).toBe(1);
@@ -237,7 +237,7 @@ describe("the pair, not the logged process (mantahostels#2588)", () => {
 	it("counts a child that appears after the first sample", async () => {
 		fs.writeFileSync(logA(), "");
 		statm(1100, 90);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(1100)), 50);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(1100)), 50);
 		// The fork lands two samples into the timing, exactly as a real one does.
 		setTimeout(
 			() => {
@@ -256,7 +256,7 @@ describe("the pair, not the logged process (mantahostels#2588)", () => {
 		statm(1200, 90);
 		statm(1201, 410);
 		stat(1201, 999);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(1200)), 50);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(1200)), 50);
 		const r = await watch(10);
 		expect(r.reading.verdict).toBe("plateau");
 		expect(r.reading.plateauMb).toBe(90);
@@ -266,7 +266,7 @@ describe("the pair, not the logged process (mantahostels#2588)", () => {
 		fs.writeFileSync(logA(), "");
 		statm(1301, 410);
 		stat(1301, 1300);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(1300)), 50);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(1300)), 50);
 		const r = await watch(4);
 		expect(r.reading.verdict).toBe("gone");
 		expect(r.reading.plateauMb).toBeNull();
@@ -374,7 +374,7 @@ describe("the script itself (mantahostels#2588)", () => {
 		statm(2000, 80);
 		statm(2001, 320);
 		stat(2001, 2000);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(2000)), 200);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(2000)), 200);
 		const r = await runInProcessAsync(
 			SCRIPT,
 			["--watch", "--timeout-seconds", "20"],
@@ -391,7 +391,7 @@ describe("the script itself (mantahostels#2588)", () => {
 		statm(2100, 80);
 		statm(2101, 320);
 		stat(2101, 2100);
-		setTimeout(() => fs.appendFileSync(logA(), spawnLine(2100)), 200);
+		setTimeout(() => fs.appendFileSync(logA(), buildSpawnLine(2100)), 200);
 		const r = await watch(20);
 		expect(r.status).toBe(0);
 		expect(r.reading.pid).toBe(2100);

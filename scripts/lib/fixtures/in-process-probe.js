@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /*
  * A stand-in CLI for run-in-process.test.ts (mantahostels#1907): one entry per property
- * the seam claims to reproduce. Tracked rather than written to a temp dir per test
+ * the seam claims to reproduce, beyond the ones it shares with the async probe
+ * through in-process-probe-modes.js. Tracked rather than written to a temp dir per test
  * because the registry purge only reaches modules inside this repo, which is
  * what the `state` mode exists to show.
  *
@@ -14,8 +15,8 @@
  * the probe exists to exercise.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const shared = require("./in-process-probe-modes.js");
 const state = require("./in-process-probe-state.js");
 
 const [mode, arg] = process.argv.slice(2);
@@ -26,9 +27,6 @@ const modes = {
 	exit: () => {
 		say("before exit");
 		process.exit(Number(arg));
-	},
-	"exit-code": () => {
-		process.exitCode = Number(arg);
 	},
 	throw: () => {
 		throw new Error("probe threw");
@@ -66,44 +64,22 @@ const modes = {
 			/* only its registration matters: the seam must remove it */
 		});
 	},
-	streams: () => {
-		fs.writeSync(1, "fd1\n");
-		fs.writeSync(2, "fd2\n");
-		process.stdout.write("stdout-write\n");
-		console.log("console-log");
-		console.error("console-error");
-	},
-	cwd: () => say(process.cwd()),
-	stdin: () => say(fs.readFileSync(0, "utf8")),
-	"stdin-buffer": () => say(fs.readFileSync(0).toString("utf8")),
 	"read-file": () => say(fs.readFileSync(String(arg), "utf8")),
-	env: () =>
-		say(
-			`${process.env.PROBE ?? "<unset>"}|${String("CARRIED" in process.env)}`,
-		),
-	argv: () => say(process.argv.slice(2).join(",")),
 	"entry-module": () => say(String(require.main === module)),
 	state: () => {
 		state.calls += 1;
 		say(String(state.calls));
 	},
-	child: () =>
-		say(
-			execFileSync(
-				process.execPath,
-				[
-					"-e",
-					"process.stdout.write(process.cwd()+'|'+(process.env.PROBE??'<unset>'))",
-				],
-				{ encoding: "utf8" },
-			),
-		),
 };
 
+const own = mode === undefined ? undefined : modes[mode];
+const sharedMode = mode === undefined ? undefined : shared.modes[mode];
 const run =
-	(mode === undefined ? undefined : modes[mode]) ??
-	(() => {
-		fs.writeSync(2, `unknown mode: ${mode}\n`);
-		process.exit(2);
-	});
+	own ??
+	(sharedMode
+		? () => sharedMode(arg)
+		: () => {
+				fs.writeSync(2, `unknown mode: ${mode}\n`);
+				process.exit(2);
+			});
 run();

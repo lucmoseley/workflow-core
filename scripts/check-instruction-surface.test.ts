@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-instruction-surface.js");
@@ -556,7 +557,7 @@ describe("the mechanical counts", () => {
 			);
 			const r = run();
 			// The h1 entry keeps its script path but moves it into `args` —
-			// without hookCommandLine() joining the two, `hookCommandsOf` finds no
+			// without buildHookCommandLine() joining the two, `readHookCommands` finds no
 			// `scripts/…` text in the bare `"node"` command, drops the entry, and
 			// liveCommandCount falls short of hooks.total.
 			expect(r.out).not.toMatch(/HOOK-COMMAND-COUNT/);
@@ -727,7 +728,7 @@ describe("the behavioural verdicts", () => {
 
 	describe("a shell guard's digest hashes the rule files it prints from (#1914)", () => {
 		const anchorGuardPrintingRuleTwo = () => {
-			write("scripts/guard-two.sh", '#!/bin/sh\ngp_rule_text two "fallback"\n');
+			write("scripts/guard-two.sh", '#!/bin/sh\necho "$(rule_text two)"\n');
 			write("docs/agents/rules/two.txt", "Rule two.\n");
 			write("docs/agents/rules/other.txt", "Another rule.\n");
 			writeBaseline();
@@ -743,17 +744,6 @@ describe("the behavioural verdicts", () => {
 			expect(r.out).not.toMatch(/guard-one\.sh/);
 		});
 
-		it("reads a gp_rule call's ids too, not only the direct fetch", () => {
-			write(
-				"scripts/guard-two.sh",
-				"#!/bin/sh\nif true; then gp_rule one two; fi\n",
-			);
-			write("docs/agents/rules/two.txt", "Rule two.\n");
-			writeBaseline();
-			write("docs/agents/rules/two.txt", "Rule two, reworded.\n");
-			expect(run().out).toMatch(/GUARD-CHANGED\s+scripts\/guard-two\.sh/);
-		});
-
 		it("expires nothing on an edit to a rule file no measured guard prints", () => {
 			anchorGuardPrintingRuleTwo();
 			write("docs/agents/rules/other.txt", "Another rule, reworded.\n");
@@ -763,12 +753,92 @@ describe("the behavioural verdicts", () => {
 		it("expires nothing on a rule id named only in a comment", () => {
 			write(
 				"scripts/guard-two.sh",
-				"#!/bin/sh\n# see gp_rule_text other\necho rule two\n",
+				"#!/bin/sh\n# see rule_text other\necho rule two\n",
 			);
 			writeBaseline();
 			write("docs/agents/rules/other.txt", "Another rule, reworded.\n");
 			expect(run().out).not.toMatch(/GUARD-CHANGED/);
 		});
+	});
+
+	describe("a Node core's digest hashes the rule files it injects (#3011)", () => {
+		const core = "scripts/lib/core-two.js";
+		const withCore = (digest: string) =>
+			write(
+				BASELINE,
+				JSON.stringify(
+					baseline({
+						guards: {
+							...baseline().guards,
+							[core]: { digest, verdict: "at need", selfSufficient: "yes" },
+						},
+					}),
+					null,
+					"\t",
+				),
+			);
+		const anchorCore = (body: string) => {
+			write(core, body);
+			write("docs/agents/rules/two.txt", "Rule two.\n");
+			write("docs/agents/rules/other.txt", "Another rule.\n");
+			withCore("");
+			run("--rebaseline", "--no-claim");
+		};
+
+		it("expires the core whose injected rule file was reworded, its code untouched", () => {
+			anchorCore(
+				'module.exports = { decide: () => ({\n\tinjectRules: [\n\t\t"one",\n\t\t"two",\n\t],\n}) };\n',
+			);
+			write("docs/agents/rules/two.txt", "Rule two, reworded.\n");
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).toMatch(/GUARD-CHANGED\s+scripts\/lib\/core-two\.js/);
+			expect(r.out).toContain("--rebaseline --only <key>");
+		});
+
+		it("reads a direct readRuleText call's id too", () => {
+			anchorCore('console.log(readRuleText("two"));\n');
+			write("docs/agents/rules/two.txt", "Rule two, reworded.\n");
+			expect(run().out).toMatch(/GUARD-CHANGED\s+scripts\/lib\/core-two\.js/);
+		});
+
+		it("expires nothing on an edit to a rule file the core does not inject", () => {
+			anchorCore(
+				'// injectRules: ["other"]\nmodule.exports = () => ({ injectRules: ["two"] });\n',
+			);
+			write("docs/agents/rules/other.txt", "Another rule, reworded.\n");
+			expect(run().out).not.toMatch(/GUARD-CHANGED/);
+		});
+
+		it("passes an empty literal and a `.injectRules` read", () => {
+			anchorCore(
+				"const d = { injectRules: [], prelude: 'x' };\nconsole.log(d.injectRules.length);\n",
+			);
+			expect(run().out).not.toMatch(/BROKEN|GUARD-CHANGED/);
+		});
+
+		it.each([
+			[
+				"a variable",
+				"const ids = ['two'];\nmodule.exports = () => ({ injectRules: ids });\n",
+			],
+			["a spread", "module.exports = (x) => ({ injectRules: [...x] });\n"],
+			[
+				"a shorthand key",
+				"module.exports = (injectRules) => ({ injectRules });\n",
+			],
+		])(
+			"is BROKEN on injectRules handed %s, naming the core, never hashing without its ids",
+			(_, body) => {
+				write(core, body);
+				withCore("x");
+				const r = run();
+				expect(r.status).toBe(2);
+				expect(r.out).toMatch(/BROKEN/);
+				expect(r.out).toContain(`${core}: \``);
+				expect(r.out).toContain("list the ids as quoted literals");
+			},
+		);
 	});
 
 	it("warns GUARD-GONE when a guard the census measured has gone, naming it", () => {
@@ -1270,7 +1340,7 @@ describe("reading git rather than the working tree", () => {
 		});
 
 		it("names a measured guard whose rule file the commit reworded, and through which file (#1914)", () => {
-			write("scripts/guard-two.sh", '#!/bin/sh\ngp_rule_text two "fallback"\n');
+			write("scripts/guard-two.sh", '#!/bin/sh\necho "$(rule_text two)"\n');
 			write("docs/agents/rules/two.txt", "Rule two.\n");
 			writeBaseline();
 			commit("anchor");
@@ -1325,15 +1395,7 @@ describe("reading git rather than the working tree", () => {
 			// Crosses the real clock: the kill is execFileSync's own timeout. A
 			// git that hangs on `show` alone lets diff-tree through, so the read
 			// killed is one runTouched reaches only through rowsTouched.
-			const realGit = execFileSync("sh", ["-c", "command -v git"], {
-				encoding: "utf8",
-			}).trim();
-			const bin = fs.mkdtempSync(path.join(os.tmpdir(), "hung-git-"));
-			fs.writeFileSync(
-				path.join(bin, "git"),
-				`#!/bin/sh\ncase " $* " in *" show "*) sleep 30 ;; esac\nexec ${realGit} "$@"\n`,
-				{ mode: 0o755 },
-			);
+			const hung = writeFaultyGit({ words: ["show"] }, { sleep: 30 });
 			try {
 				const r = runInProcess(
 					SCRIPT,
@@ -1342,7 +1404,7 @@ describe("reading git rather than the working tree", () => {
 						env: {
 							...process.env,
 							GITHUB_ACTIONS: "",
-							WFC_GIT: path.join(bin, "git"),
+							WFC_GIT: hung.git,
 							WFC_TOUCHED_BY_CEILING_MS: "1500",
 						},
 					},
@@ -1352,7 +1414,7 @@ describe("reading git rather than the working tree", () => {
 					"--touched-by passed its 1.5s ceiling waiting on git show HEAD:scripts/guard-two.sh, and killed it",
 				);
 			} finally {
-				fs.rmSync(bin, { recursive: true, force: true });
+				fs.rmSync(hung.dir, { recursive: true, force: true });
 			}
 		});
 

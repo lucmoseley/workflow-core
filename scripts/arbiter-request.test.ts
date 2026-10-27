@@ -8,7 +8,7 @@
  *
  * `request` is the in-band ask a blocked session is told to make once its wait
  * hits its ceiling, and the notice reaches the holder through the
- * guard-file-claim.sh `PreToolUse` hook: loosen a case and an ask can go
+ * lib/file-claim.js `PreToolUse` core: loosen a case and an ask can go
  * undelivered, or a dead request can keep nagging a holder that owes nothing.
  */
 
@@ -36,7 +36,7 @@ const cli = (args: string[], env: Record<string, string> = {}) =>
 		env: { ...process.env, ...env },
 	});
 
-const out = (args: string[]) =>
+const readListing = (args: string[]) =>
 	execFileSync(process.execPath, [SCRIPT, ...args], {
 		encoding: "utf8",
 		cwd: sb.repo,
@@ -53,7 +53,7 @@ const neighbourHolds = (sessionId: string, subject: string) => {
 	const me = {
 		sessionId,
 		pid: process.pid,
-		procStart: proc.procStartOf(process.pid),
+		procStart: proc.readProcStartOf(process.pid),
 		durable: true,
 	};
 	const { verdict } = store.acquire(subject, me);
@@ -415,7 +415,7 @@ describe("the REQUESTED block under list", () => {
 		neighbourHolds("neighbour", "docs/a.md");
 		live(sb, "mine");
 		request("mine", "docs/a.md", "why line");
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).toContain("REQUESTED");
 		expect(listing).toContain("mine");
 		expect(listing).toContain("docs/a.md");
@@ -428,7 +428,7 @@ describe("the REQUESTED block under list", () => {
 		live(sb, "mine");
 		request("mine", "docs/a.md");
 		holderDies("docs/a.md");
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).toContain("nobody holds it now");
 	});
 
@@ -439,7 +439,7 @@ describe("the REQUESTED block under list", () => {
 		const f = store.paths.lock("docs/a.md");
 		const rec = JSON.parse(fs.readFileSync(f, "utf8"));
 		fs.writeFileSync(f, JSON.stringify({ ...rec, sessionId: null }));
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).toContain(
 			"asks for docs/a.md, held by an unidentified session",
 		);
@@ -453,7 +453,7 @@ describe("the REQUESTED block under list", () => {
 		cli(["decline", inRepo("docs/a.md"), "mid-edit"], {
 			CLAUDE_CODE_SESSION_ID: "neighbour",
 		});
-		const listing = out(["list"]);
+		const listing = readListing(["list"]);
 		expect(listing).toContain("DECLINED");
 		expect(listing).toContain("mid-edit");
 	});
@@ -461,7 +461,7 @@ describe("the REQUESTED block under list", () => {
 	it("prints nothing of it when nobody has asked", () => {
 		live(sb, "mine");
 		cli(["claim", inRepo("docs/a.md")], { CLAUDE_CODE_SESSION_ID: "mine" });
-		expect(out(["list"])).not.toContain("REQUESTED");
+		expect(readListing(["list"])).not.toContain("REQUESTED");
 	});
 
 	it("says the register is unreadable rather than printing silence", () => {
@@ -543,11 +543,11 @@ describe("the notice delivered to the holder (mantahostels#1783)", () => {
 			nameOf: (id: string | null) => id ?? "",
 			dirty: () => false,
 		};
-		expect(store.requestNotice("docs/a.md", "holder", opts)).toContain(
+		expect(store.buildRequestNotice("docs/a.md", "holder", opts)).toContain(
 			"waiting on a file",
 		);
-		expect(store.requestNotice("docs/a.md", "holder", opts)).toBeNull();
-		expect(store.requestNotice("docs/a.md", "second", opts)).toContain(
+		expect(store.buildRequestNotice("docs/a.md", "holder", opts)).toBeNull();
+		expect(store.buildRequestNotice("docs/a.md", "second", opts)).toContain(
 			"waiting on a file",
 		);
 	});
@@ -797,7 +797,7 @@ describe("the hook route — where ordinary writes take their claims (mantahoste
  * #271: with the sessions registry unreadable, a RESUMED holder's lock reads as
  * dead, and a report calling the claim free sends the caller to write a file
  * somebody is editing. The registry sealed here is this session's OWN dir, the
- * only one whose failure makes sessionEntries("best-effort") null; identify()
+ * only one whose failure makes readSessionEntries("best-effort") null; identify()
  * survives it (it degrades to a non-durable identity), so `request` still gets
  * far enough to answer.
  */

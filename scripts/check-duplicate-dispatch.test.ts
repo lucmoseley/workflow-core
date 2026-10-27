@@ -98,7 +98,7 @@ process.stdout.write(JSON.stringify({ url, labels: labels.map((name) => ({ name 
 }
 
 /** The `issues/<n>/parent` calls the gate made. */
-const parentCalls = () =>
+const readParentCalls = () =>
 	fs.existsSync(path.join(root, "gh-calls"))
 		? fs.readFileSync(path.join(root, "gh-calls"), "utf8").trim().split("\n")
 		: [];
@@ -184,6 +184,16 @@ describe("the ledger limb — catches a set whose sessions have finished", () =>
 			{ ts: new Date().toISOString(), issues: [565], prompt: "/wayfinder 565" },
 		]);
 		expect(verdict("565").hits).toHaveLength(1);
+	});
+
+	it("permits an issue whose launch the refill loop released, and holds the rest (#2744)", () => {
+		const ts = new Date().toISOString();
+		writeLedger([
+			{ ts, issues: [833], prompt: "/implement 833", jobId: "job1" },
+			{ ts, issues: [834], prompt: "/implement 834", jobId: "job2" },
+			{ ts, released: "job1" },
+		]);
+		expect(verdict("833,834").hits.map((h) => h.issue)).toEqual([834]);
 	});
 
 	it("treats a ledger that has never been written as clear, not as broken", () => {
@@ -276,7 +286,7 @@ describe("the claim limb — refuses an issue a live session holds, directly or 
 		expect(r.out).toContain(
 			"#21 — claimed by session `Wayfinder 20: chart the map`",
 		);
-		expect(parentCalls()).toEqual([]);
+		expect(readParentCalls()).toEqual([]);
 	});
 
 	it("refuses an issue whose parent map a live session claims, naming parent and holder", () => {
@@ -287,7 +297,7 @@ describe("the claim limb — refuses an issue a live session holds, directly or 
 		expect(r.out).toContain(
 			"#21 — its parent map #20 is claimed by session `Wayfinder 20: chart the map`",
 		);
-		expect(parentCalls()).toEqual([
+		expect(readParentCalls()).toEqual([
 			"api repos/{owner}/{repo}/issues/21/parent",
 		]);
 	});
@@ -325,7 +335,7 @@ describe("the claim limb — refuses an issue a live session holds, directly or 
 		expect(`${r.stdout}${r.stderr}`).toContain(
 			"OK: no issue in this set is already dispatched",
 		);
-		expect(parentCalls()).toEqual([
+		expect(readParentCalls()).toEqual([
 			"api repos/{owner}/{repo}/issues/21/parent",
 			"api repos/{owner}/{repo}/issues/22/parent",
 		]);

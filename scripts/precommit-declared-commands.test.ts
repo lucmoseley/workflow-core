@@ -8,6 +8,9 @@
  * The fixture copies the real readers into a throwaway repo, and stands a stub
  * on PATH for `eslint`, the one binary a gate names itself.
  *
+ * The check_staged gate also refuses, before it runs, a command that runs
+ * `biome check --staged` (#2775).
+ *
  * These gates run in every adopter's `.husky/pre-commit`: loosen a case and a
  * red declared check or test commits unrefused, or a fresh adopter with no
  * command declared cannot commit at all.
@@ -17,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { BIOME_STAGED_COMMAND, main } from "./lib/infer-commands.js";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
 import { copyRequireClosure } from "./lib/require-closure";
@@ -53,6 +57,7 @@ function fixture(config: object | null): string {
 		"scripts/lib/test-gate.js",
 		"scripts/lib/commit-key.js",
 		"scripts/lib/isolated-worktree.js",
+		"scripts/lib/infer-commands.js",
 	]);
 	if (config) {
 		fs.mkdirSync(path.join(root, ".claude"));
@@ -195,7 +200,7 @@ it("leaves a test command that writes the test-pass marker to pre-push, running 
 	expect(code).toBe(0);
 	expect(ran("test")).toBe(false);
 	expect(out).toBe(
-		'SKIP: commands.test is gated at push by the test-pass marker — module "suites" is on and it runs scripts/run-vitest.js\n',
+		'SKIP: commands.test is gated at push by certificates — module "suites" is on and it runs scripts/run-vitest.js\n',
 	);
 });
 
@@ -204,4 +209,143 @@ it("runs that same command at commit where suites is off, since no push reads it
 	const { code, ran } = run(root, `WFC_MODULES=\n${GATES.test}`);
 	expect(code).toBe(0);
 	expect(ran("test")).toBe(true);
+});
+
+/* A stand-in `biome` (or any command) that leaves the gate's marker, and on
+ * `--write` rewrites the staged file. */
+const MARKER_STUB =
+	'#!/bin/sh\ntouch RAN-check_staged\ncase " $* " in *" --write "*) echo rewritten > app/x.ts ;; esac\n';
+
+function biomeFixture(
+	checkStaged: string,
+	pkg: object = {},
+): { root: string; run: () => ReturnType<typeof run> } {
+	const root = fixture({ commands: { check_staged: checkStaged } });
+	fs.writeFileSync(path.join(root, "bin/biome"), MARKER_STUB, { mode: 0o755 });
+	fs.writeFileSync(path.join(root, "package.json"), JSON.stringify(pkg));
+	return { root, run: () => run(root, GATES.check_staged) };
+}
+
+const declaresBiome = (script: string) => ({
+	scripts: { "check:staged": script },
+	devDependencies: { "@biomejs/biome": "2.0.0" },
+});
+
+const MAPPED = `${BIOME_STAGED_COMMAND} --no-errors-on-unmatched`;
+
+/* With the classifier gone, a gate that spent node on it would refuse. */
+function withoutClassifier(root: string): void {
+	fs.rmSync(path.join(root, "scripts/lib/infer-commands.js"));
+}
+
+describe("the pre-commit check_staged gate on a biome check --staged command (#2775)", () => {
+	it("refuses an npm run whose script maps, naming the mapped command, before the script runs", () => {
+		const { run: commit } = biomeFixture(
+			"npm run check:staged",
+			declaresBiome("biome check --staged --no-errors-on-unmatched"),
+		);
+		const { code, out, ran } = commit();
+		expect(code).toBe(1);
+		expect(out).toContain(
+			'pre-commit: check_staged "npm run check:staged" (.claude/workflow-core.json) runs biome check --staged through package.json script "check:staged"',
+		);
+		expect(out).toContain(`Declare check_staged instead as '${MAPPED}'.`);
+		expect(ran("check_staged")).toBe(false);
+	});
+
+	it("refuses a write-flag script the same way, leaving its worktree file unwritten", () => {
+		const { root, run: commit } = biomeFixture(
+			"npm run check:staged",
+			declaresBiome("biome check --staged --write --no-errors-on-unmatched"),
+		);
+		const { code, out, ran } = commit();
+		expect(code).toBe(1);
+		expect(out).toContain("auto-fix on commit dropped");
+		expect(out).toContain(`Declare check_staged instead as '${MAPPED}'.`);
+		expect(ran("check_staged")).toBe(false);
+		expect(fs.readFileSync(path.join(root, "app/x.ts"), "utf8")).toBe(
+			"export {};\n",
+		);
+	});
+
+	it("refuses a pnpm run whose script maps, as the npm one", () => {
+		const { run: commit } = biomeFixture(
+			"pnpm run check:staged",
+			declaresBiome("biome check --staged --no-errors-on-unmatched"),
+		);
+		const { code, out, ran } = commit();
+		expect(code).toBe(1);
+		expect(out).toContain(`Declare check_staged instead as '${MAPPED}'.`);
+		expect(ran("check_staged")).toBe(false);
+	});
+
+	it("refuses a declared check_staged that is itself biome check --staged", () => {
+		const { run: commit } = biomeFixture(
+			"biome check --staged --no-errors-on-unmatched",
+			declaresBiome("unused"),
+		);
+		const { code, out, ran } = commit();
+		expect(code).toBe(1);
+		expect(out).toContain(`Declare check_staged instead as '${MAPPED}'.`);
+		expect(ran("check_staged")).toBe(false);
+	});
+
+	it("runs a biome-staged.js command unclassified", () => {
+		const { root } = biomeFixture(MAPPED);
+		withoutClassifier(root);
+		fs.writeFileSync(
+			path.join(root, "scripts/biome-staged.js"),
+			'require("node:fs").writeFileSync("RAN-check_staged", "");\n',
+		);
+		const { code, out, ran } = run(
+			root,
+			`export WFC_PLUGIN_ROOT=.\n${GATES.check_staged}`,
+		);
+		expect(code, out).toBe(0);
+		expect(ran("check_staged"), out).toBe(true);
+	});
+
+	it.each(["eslint --max-warnings=0 app", "./scripts/my-check.sh"])(
+		"runs the unrelated %s as before, unclassified",
+		(command) => {
+			const { root } = biomeFixture(command);
+			withoutClassifier(root);
+			fs.writeFileSync(path.join(root, "bin/eslint"), MARKER_STUB, {
+				mode: 0o755,
+			});
+			fs.writeFileSync(path.join(root, "scripts/my-check.sh"), MARKER_STUB, {
+				mode: 0o755,
+			});
+			const { code, out, ran } = run(root, GATES.check_staged);
+			expect(code, out).toBe(0);
+			expect(ran("check_staged"), out).toBe(true);
+		},
+	);
+
+	it("runs an npm run whose script runs no biome check --staged", () => {
+		const { run: commit } = biomeFixture("npm run check:staged", {
+			scripts: { "check:staged": "touch RAN-check_staged" },
+		});
+		const { code, out, ran } = commit();
+		expect(code, out).toBe(0);
+		expect(ran("check_staged"), out).toBe(true);
+	});
+});
+
+describe("infer-commands.js check-staged", () => {
+	it("exits 1, refusing the commit, where the package.json cannot be read", () => {
+		const { root } = biomeFixture("npm run check:staged");
+		fs.writeFileSync(path.join(root, "package.json"), "{ not json");
+		const cwd = process.cwd();
+		process.chdir(root);
+		try {
+			expect(main(["check-staged", "npm run check:staged"])).toBe(1);
+		} finally {
+			process.chdir(cwd);
+		}
+	});
+
+	it("exits 2 on a missing command", () => {
+		expect(main(["check-staged"])).toBe(2);
+	});
 });

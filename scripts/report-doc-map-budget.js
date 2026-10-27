@@ -38,7 +38,7 @@ const {
 	sectionBEntryCount,
 	sectionBEntryRate,
 	overCapEntries,
-	sectionBBirths,
+	readSectionBBirths,
 	malformedExemptionMarkers,
 	PROSE_CAP_WORDS,
 } = require("./lib/doc-map");
@@ -122,7 +122,7 @@ function verdict(words) {
  * @param {number} entries
  * @param {{ rate: number, days: number } | null} rate
  */
-function levelLine(entries, rate) {
+function buildLevelLine(entries, rate) {
 	const rateText = rate
 		? `${rate.rate >= 0 ? "+" : ""}${rate.rate.toFixed(1)}/day over the last ${rate.days.toFixed(1)} day(s) of git history`
 		: "rate unavailable (docs/doc-map.md's git history could not be read)";
@@ -138,14 +138,14 @@ const BIRTH_NAMES = 10;
 
 /**
  * How many §B entries were born over the 300-word prose cap in the trailing
- * window (mantahostels#1384). No threshold and no trigger, as with `levelLine` above: it
+ * window (mantahostels#1384). No threshold and no trigger, as with `buildLevelLine` above: it
  * reports and never fails.
  *
  * Measured at each entry's BIRTH commit, not at HEAD, so an entry drained
  * since still reports what it was born at.
  * @param {{ born: {id: string, words: number, sha: string}[], days: number } | null} births
  */
-function birthsLine(births) {
+function buildBirthsLine(births) {
 	if (!births)
 		return "Births over cap unavailable (docs/doc-map.md's git history could not be read).";
 	const over = births.born
@@ -248,8 +248,8 @@ function body(words, overCap, { entries, rate, births, malformedMarkers }) {
 		"",
 		"```",
 		verdict(words),
-		levelLine(entries, rate),
-		birthsLine(births),
+		buildLevelLine(entries, rate),
+		buildBirthsLine(births),
 		"```",
 		"",
 		"The births-over-cap reading counts births anywhere in the window, and the window",
@@ -360,7 +360,7 @@ function main({ flags, positionals }) {
 				body: body(words, overCap, {
 					entries,
 					rate,
-					births: sectionBBirths(mapPath),
+					births: readSectionBBirths(mapPath),
 					malformedMarkers: malformedExemptionMarkers(text),
 				}),
 			}),

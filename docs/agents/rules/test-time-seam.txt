@@ -1,5 +1,5 @@
 ### §X9 · A test asserts time through a seam, never through wall time — **hard**
 
-A budget, timeout or deadline is asserted through an injected clock or a count of what was done. Never assert real elapsed time measured around the call. A shipped timeout that is itself the guarantee is never shortened to make a test fast. A case that must cross the real clock (a signal, a kill, a process timeout) says why at the site.
+A budget, timeout or deadline is asserted through an injected clock or a count of what was done. Never assert real elapsed time measured around the call (mantahostels#2035, mantahostels#3535). A shipped timeout that is itself the guarantee is never shortened to make a test fast. A case that must cross the real clock (a signal, a kill, a process timeout) says why at the site.
 
 - *Stack (Vitest config)*: fake timers or an injected `now`.

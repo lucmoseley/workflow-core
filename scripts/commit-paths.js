@@ -103,7 +103,8 @@
  *
  * The commit guard never sees the git calls made here, so its one verdict about
  * the world — a live neighbour's unsaved edits under a named path
- * (mantahostels#1539) — is reproduced from the arbiter's `commit-check`. Warn only.
+ * (mantahostels#1539) — is reproduced from the guard's own store read and
+ * sweepWarning. Warn only.
  *
  * THE INDEX LOCK (#585). A neighbour's commit holds `index.lock` for its whole
  * run, hooks included. Detected by git's own refusal — exit 128, stderr opening
@@ -137,19 +138,23 @@
  */
 
 const { spawn, spawnSync } = require("node:child_process");
-const { gitBinary } = require("./lib/git-binary.js");
+const { spawnGitSync } = require("./lib/git.js");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 
 const core = require("./lib/arbiter-core.js");
-const { procStartOf } = require("./lib/arbiter-proc.js");
+const { readProcStartOf } = require("./lib/arbiter-proc.js");
+const { ancestorsOf } = require("./lib/proc-stat.js");
 const { shellWord } = require("./lib/dirty-tree.js");
 const { isUnder } = require("./lib/is-under.js");
+const { numstatPaths } = require("./lib/patch-files.js");
 const { formatHeader, parseHeader } = require("./lib/hunk-header.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
+const { sweepWarning, sweptPaths } = require("./lib/commit-form.js");
+const { readCommitCheck } = require("./lib/commit-check.js");
 const {
 	commitKey,
 	stampVariable,
@@ -274,11 +279,10 @@ const literal = (p) => `:(literal)${p}`;
 function git(args, index, input, extra) {
 	const env = { ...process.env, ...extra };
 	if (index) env.GIT_INDEX_FILE = index;
-	const r = spawnSync(gitBinary(), args, {
+	const r = spawnGitSync(args, {
 		encoding: "utf8",
 		env,
 		input,
-		maxBuffer: CHILD_MAX_BUFFER,
 	});
 	if (r.error) fail(`could not run git (${r.error.message})`, touched ? 3 : 2);
 	return { status: r.status ?? 1, stdout: r.stdout, stderr: r.stderr };
@@ -331,7 +335,7 @@ const sleep = (ms) =>
  * @type {{root: string, others: string[]}|undefined}
  */
 let treesCache;
-function worktrees() {
+function readWorktrees() {
 	if (!treesCache) {
 		const root = fs.realpathSync(
 			git(["rev-parse", "--show-toplevel"]).stdout.trim(),
@@ -360,10 +364,10 @@ function worktrees() {
  * holder: /proc does not say which, if any, took the lock.
  */
 function gitProcesses() {
-	const pids = procPids();
+	const pids = readProcPids();
 	if (pids === null) return null;
-	const { root, others } = worktrees();
-	const entries = core.sessionEntries("best-effort");
+	const { root, others } = readWorktrees();
+	const entries = core.readSessionEntries("best-effort");
 	const sessions = registrySessions(entries);
 	const found = [];
 	for (const pid of pids) {
@@ -383,7 +387,7 @@ function gitProcesses() {
  * Every pid /proc lists, or null where /proc cannot be read.
  * @returns {string[] | null}
  */
-function procPids() {
+function readProcPids() {
 	try {
 		return fs.readdirSync("/proc").filter((d) => /^\d+$/.test(d));
 	} catch {
@@ -393,27 +397,17 @@ function procPids() {
 
 /**
  * Each registered session's live pid, to the name it is known by.
- * @param {ReturnType<typeof core.sessionEntries>} entries
+ * @param {ReturnType<typeof core.readSessionEntries>} entries
  * @returns {Map<string, string>}
  */
 function registrySessions(entries) {
 	/** @type {Map<string, string>} */
 	const sessions = new Map();
 	for (const { entry } of entries ?? [])
-		if (entry.pid && procStartOf(entry.pid) === String(entry.procStart))
+		if (entry.pid && readProcStartOf(entry.pid) === String(entry.procStart))
 			sessions.set(String(entry.pid), String(entry.name ?? entry.sessionId));
 	return sessions;
 }
-
-/** @param {string} pid */
-const parentOf = (pid) => {
-	try {
-		const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-		return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1];
-	} catch {
-		return null;
-	}
-};
 
 /**
  * A process's argv and resolved cwd, or null where either cannot be read.
@@ -440,7 +434,8 @@ function isWorktreeGit({ pid, argv, cwd, root, others }) {
 	const [argv0] = argv;
 	if (argv0 === undefined)
 		throw new Error(`/proc/${pid}/cmdline split into no fields`);
-	if (path.basename(argv0) !== "git" || procStartOf(pid) === null) return false;
+	if (path.basename(argv0) !== "git" || readProcStartOf(pid) === null)
+		return false;
 	if (!isUnder(cwd, [root])) return false;
 	return !others.some((t) => t.length > root.length && isUnder(cwd, [t]));
 }
@@ -454,17 +449,12 @@ function isWorktreeGit({ pid, argv, cwd, root, others }) {
  * @returns {string | null}
  */
 function sessionOf(pid, sessions, unreadable) {
-	let session = unreadable
+	const session = unreadable
 		? "a session the registry could not be read to name"
 		: null;
-	// A bound on the walk, not a depth anything has measured.
-	for (let p = parentOf(pid), hops = 0; p && p !== "0" && hops < 64; hops++) {
-		const name = sessions.get(p);
-		if (name) {
-			session = `session "${name}"`;
-			break;
-		}
-		p = parentOf(p);
+	for (const p of ancestorsOf(Number(pid))) {
+		const name = sessions.get(String(p));
+		if (name) return `session "${name}"`;
 	}
 	return session;
 }
@@ -473,7 +463,7 @@ function sessionOf(pid, sessions, unreadable) {
  * One clause on who may hold the lock, as far as /proc shows it.
  * @param {ReturnType<typeof gitProcesses>} procs
  */
-function holderText(procs) {
+function buildHolderText(procs) {
 	if (procs === null) return "this machine has no /proc to find its holder in";
 	if (procs.length === 0)
 		return "no live git process in this worktree could be found to name";
@@ -515,7 +505,7 @@ function giveUp(held, ceiling, { after, remedy, code }) {
 			? `\nNo git process is running in this worktree, so the lock looks left behind by a crashed one. If you are sure, remove it yourself — this command never does:\n  rm -f '${lock}'`
 			: "";
 	return fail(
-		`${gaveUp} waiting for ${lock}; ${age}, ${holderText(procs)}. ${after} ${remedy}${stale}`,
+		`${gaveUp} waiting for ${lock}; ${age}, ${buildHolderText(procs)}. ${after} ${remedy}${stale}`,
 		code,
 	);
 }
@@ -582,7 +572,7 @@ function announceWait(held, ceiling) {
 	const why =
 		held.kind === "head-moved"
 			? "HEAD moved under the commit — a neighbour's commit landed first — so git made none"
-			: `${held.lock} is held; ${holderText(gitProcesses())}`;
+			: `${held.lock} is held; ${buildHolderText(gitProcesses())}`;
 	err(`${NAME}: ${why}. Waiting up to ${seconds(ceiling)} in all, retrying.\n`);
 }
 
@@ -618,7 +608,7 @@ function parseArgs(argv) {
 		const value = argv[++i];
 		if (value === undefined) fail(`${opt} needs a value.\n${USAGE}`, 2);
 		if (opt === "--patch") patch = readArgFile(value, value, "patch");
-		else message = messageOf(opt, value);
+		else message = readMessageOf(opt, value);
 	}
 	const paths = dash === -1 ? [] : argv.slice(dash + 1);
 	const given = requireMessage(message, tree);
@@ -631,7 +621,7 @@ function parseArgs(argv) {
  * @param {string | undefined} opt
  * @param {string} value
  */
-const messageOf = (opt, value) =>
+const readMessageOf = (opt, value) =>
 	opt === "-m"
 		? value
 		: readArgFile(value === "-" ? 0 : value, value, "message");
@@ -705,7 +695,7 @@ function readArgFile(source, value, what) {
  * @param {string} p
  * @returns {"dir"|"file"|null}
  */
-function onDisk(p) {
+function readDiskKind(p) {
 	try {
 		return fs.lstatSync(p).isDirectory() ? "dir" : "file";
 	} catch {
@@ -729,7 +719,7 @@ function trackedUnder(p, kind) {
 	if (kind === "file" || !hasHeadCommit()) return indexed;
 	const inIndex = new Set(indexed);
 	return lsFiles(p, "--with-tree=HEAD").filter(
-		(f) => inIndex.has(f) || onDisk(f) === null,
+		(f) => inIndex.has(f) || readDiskKind(f) === null,
 	);
 }
 
@@ -751,7 +741,7 @@ function lsFiles(p, ...flags) {
  * in a source or pattern would not.
  * @param {string} p
  */
-function ignoreRule(p) {
+function readIgnoreRule(p) {
 	const r = git(["check-ignore", "-v", "-z", "--stdin"], undefined, `${p}\0`);
 	if (r.status === 1) return null;
 	if (r.status !== 0)
@@ -773,7 +763,7 @@ function classify(paths) {
 	/** @type {string[]} */
 	const toAdd = [];
 	for (const p of paths) {
-		const kind = onDisk(p);
+		const kind = readDiskKind(p);
 		const tracked = trackedUnder(p, kind);
 		if (kind === "dir") {
 			assertDirectoryCommittable(p, tracked);
@@ -785,7 +775,7 @@ function classify(paths) {
 				`${p} exists nowhere — not on disk, not tracked. Check the spelling. Nothing written.`,
 				2,
 			);
-		const rule = ignoreRule(p);
+		const rule = readIgnoreRule(p);
 		if (rule)
 			fail(
 				`${p} is ignored (${rule}). Scratch is not committed; if it should be, change the ignore rule first. Nothing written.`,
@@ -823,7 +813,7 @@ function assertDirectoryCommittable(p, tracked) {
 			2,
 		);
 	if (tracked.length > 0) return;
-	const rule = ignoreRule(p);
+	const rule = readIgnoreRule(p);
 	fail(
 		rule
 			? `${p} is ignored (${rule}). Scratch is not committed; if it should be, change the ignore rule first. Nothing written.`
@@ -834,88 +824,28 @@ function assertDirectoryCommittable(p, tracked) {
 
 /**
  * The commit guard's mantahostels#1539 warning, for any named path a live neighbour holds
- * with unsaved edits: the same sentence, cap and foot as `sweep_warn` in
- * guard-commit-form.sh. Silent with no session id; one line where the arbiter
- * gave no answer.
+ * with unsaved edits, composed by the guard's own sweepWarning. Silent with no
+ * session id; one line where the arbiter store gave no answer.
  * @param {string[]} paths
  */
 function warnNeighbours(paths) {
 	const session = process.env.CLAUDE_CODE_SESSION_ID;
 	if (!session) return;
-	const stdout = commitCheck(session, paths);
-	if (stdout === null) return;
-	const { body, swept, collided } = sweepWarning(stdout);
-	if (!body) return;
-	err(
-		hasUnflaggedPath(paths, collided)
-			? `${body}Commit your own paths instead:\n  git commit -m "…" -- <your other paths>\n`
-			: `${body}This file is the whole pathspec, so there are no other paths to commit instead.\nCommit anyway and declare the sweep — put these lines in the commit message body (mantahostels#3270):\n${swept}`,
+	const { sweeps, fault } = readCommitCheck(
+		paths.map((p) => path.resolve(p)),
+		session,
 	);
-	err("This is a warning, not a refusal: the commit goes ahead.\n");
-}
-
-/**
- * The arbiter's `commit-check` answer for the named paths, or null — saying
- * so — where it gave none.
- * @param {string} session
- * @param {string[]} paths
- * @returns {string | null}
- */
-function commitCheck(session, paths) {
-	// The guard's own bound on this call (read_arbiter).
-	const boundMs = 5000;
-	const r = spawnSync(
-		process.execPath,
-		[
-			path.join(__dirname, "session-arbiter.js"),
-			"commit-check",
-			session,
-			...paths.map((p) => path.resolve(p)),
-		],
-		{ encoding: "utf8", timeout: boundMs },
-	);
-	if (r.status !== 0 || typeof r.stdout !== "string") {
+	if (sweeps === null) {
 		err(
-			`${NAME}: session-arbiter.js commit-check ${r.status === null ? `was killed at the ${boundMs / 1000}s bound` : `exited ${r.status}`} — the mantahostels#1539 sweep check was skipped for this commit.\n`,
+			`${NAME}: ${fault} — the mantahostels#1539 sweep check was skipped for this commit.\n`,
 		);
-		return null;
+		return;
 	}
-	return r.stdout;
-}
-
-/**
- * The warning's body and its Swept lines, one per claimed path the arbiter
- * named, and the set of those paths.
- * @param {string} stdout
- * @returns {{body: string, swept: string, collided: Set<string>}}
- */
-function sweepWarning(stdout) {
-	// The guard's caps: LEFT_BEHIND_CAP paths, and a holder cut at 60 characters.
-	const cap = 10;
-	const width = 60;
-	let body = "";
-	let swept = "";
-	let omitted = 0;
-	/** @type {Set<string>} */
-	const collided = new Set();
-	for (const line of stdout.split("\n")) {
-		const [kind, rel, region, holder = ""] = line.split("\x1f");
-		if (kind !== "S" || !rel) continue;
-		collided.add(rel);
-		if (collided.size > cap) {
-			omitted++;
-			continue;
-		}
-		const who = holder.length > width ? `${holder.slice(0, width)}…` : holder;
-		const subject = region ? `a claim on §${region} of it` : "a claim on it";
-		body += `This commit names ${rel}, and a live session (${who}) holds ${subject} with unsaved edits in the working tree. A pathspec commit takes the whole working-tree file, ${region ? "their region included, " : ""}so their work would be swept in under your message — that is mantahostels#1539.\n\n`;
-		swept += `  Swept: ${region ? `§${region}` : rel} (${who})\n`;
-	}
-	if (omitted) {
-		body += `… and ${omitted} more claimed path(s) this commit names.\n\n`;
-		swept += `  … and ${omitted} more\n`;
-	}
-	return { body, swept, collided };
+	if (sweeps.length === 0) return;
+	// The Swept lines end in a newline already; the pointer to other paths does not.
+	const others = hasUnflaggedPath(paths, sweptPaths(sweeps));
+	err(`${sweepWarning(sweeps, others)}${others ? "\n" : ""}`);
+	err("This is a warning, not a refusal: the commit goes ahead.\n");
 }
 
 /**
@@ -945,21 +875,14 @@ function hasUnflaggedPath(paths, collided) {
  * @param {string} root
  * @param {string} patch
  */
-function patchFiles(root, patch) {
+function readPatchFiles(root, patch) {
 	const r = git(
 		["-C", root, "apply", "--numstat", "-z", "--unidiff-zero", "-"],
 		undefined,
 		patch,
 	);
 	if (r.status !== 0) return { files: null, why: r.stderr.trim() };
-	// One `<added>\t<deleted>\t<path>` field per file.
-	const files = nulList(r.stdout).map((f) => {
-		const file = f.split("\t")[2];
-		if (file === undefined)
-			throw new Error(`git apply --numstat gave a field with no path: ${f}`);
-		return file;
-	});
-	return { files, why: "" };
+	return { files: numstatPaths(r.stdout), why: "" };
 }
 
 /**
@@ -977,9 +900,9 @@ function stalePreimages(root, patch, base) {
 	for (const section of patch.split(/^(?=diff --git )/m)) {
 		const pre = /^index ([0-9a-f]+)\.\./m.exec(section)?.[1];
 		if (!pre || /^0+$/.test(pre)) continue;
-		const file = patchFiles(root, section).files?.[0];
+		const file = readPatchFiles(root, section).files?.[0];
 		if (!file) continue;
-		const blob = blobAt(base, file);
+		const blob = readBlobAt(base, file);
 		if (!blob.startsWith(pre))
 			stale.push(
 				`${file} (cut against ${pre}, HEAD holds ${blob ? blob.slice(0, pre.length) : "no such file"})`,
@@ -989,7 +912,7 @@ function stalePreimages(root, patch, base) {
 }
 
 /** `path`'s blob at `rev`, or "" where it has none. @type {(rev: string, file: string) => string} */
-const blobAt = (rev, file) =>
+const readBlobAt = (rev, file) =>
 	git(["rev-parse", "-q", "--verify", `${rev}:${file}`]).stdout.trim();
 
 /**
@@ -1000,7 +923,7 @@ const blobAt = (rev, file) =>
  * commit not run with `-q`.
  * @type {(stdout: string) => string}
  */
-const committedSha = (stdout) =>
+const parseCommittedSha = (stdout) =>
 	/^\[[^\n]*? ([0-9a-f]{4,})\]/m.exec(stdout)?.[1] ??
 	git(["rev-parse", "HEAD"]).stdout.trim();
 
@@ -1218,7 +1141,7 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 function preparePatch(cut, whole) {
 	classify(whole);
 	const patch = renumberHunks(cut);
-	const root = worktrees().root;
+	const root = readWorktrees().root;
 	const patched = readPatched(root, patch);
 
 	refuseWholeInPatch(whole, patched);
@@ -1244,7 +1167,7 @@ function preparePatch(cut, whole) {
  * @returns {string[]}
  */
 function readPatched(root, patch) {
-	const { files, why } = patchFiles(root, patch);
+	const { files, why } = readPatchFiles(root, patch);
 	if (!files)
 		fail(`git could not read the patch (${why}). Nothing written.`, 2);
 	const patched = files;
@@ -1319,7 +1242,7 @@ function buildIndex({ index, whole, root, patch }, base) {
 	// A path gone from disk is staged as a removal. `git add -A` stages that
 	// too, but exits 1 where the path is now gitignored — a file being
 	// untracked and ignored in one commit (#1960).
-	const gone = whole.filter((p) => onDisk(p) === null);
+	const gone = whole.filter((p) => readDiskKind(p) === null);
 	const present = whole.filter((p) => !gone.includes(p));
 	/** @type {[string[], string[]][]} */
 	const steps = [
@@ -1375,7 +1298,7 @@ function warnStagedCopies(changed, patched, base) {
 		// A whole path's staged copy is an intent-add, this script's own.
 		if (
 			patched.includes(file) &&
-			requiredGroup(m, 1, STAGED_ENTRY) !== blobAt(base, file)
+			requiredGroup(m, 1, STAGED_ENTRY) !== readBlobAt(base, file)
 		)
 			err(
 				`${NAME}: the shared index held a staged copy of ${file} other than HEAD's; the reset below replaces it with this commit's. The working tree is untouched, so restage it from there if it was yours.\n`,
@@ -1543,7 +1466,7 @@ function preLockRun(runFilesNow, build) {
 		);
 		return;
 	}
-	const { root } = worktrees();
+	const { root } = readWorktrees();
 	const common = git([
 		"rev-parse",
 		"--path-format=absolute",
@@ -1734,7 +1657,7 @@ function preLockHold(root, env) {
  * @param {string} root
  * @returns {{text: string, why: null}|{text: null, why: string}}
  */
-function hookGatesText(root) {
+function readHookGatesText(root) {
 	const r = git([
 		"-C",
 		root,
@@ -1785,7 +1708,7 @@ function preLockGates({ root, index, gates, env, slowLabel }) {
 			`${NAME}: no early gate run — ${why}. The commit's hook runs its gates after ${slowLabel}, in the lock.\n`,
 		);
 	};
-	const hook = hookGatesText(root);
+	const hook = readHookGatesText(root);
 	if (hook.text === null) return deferToHook(hook.why);
 	try {
 		fs.writeFileSync(gates, hook.text);
@@ -1860,7 +1783,7 @@ function buildCommitIndex({ index, specs, toAdd }) {
 		git(
 			[
 				"-C",
-				worktrees().root,
+				readWorktrees().root,
 				"update-index",
 				"--add",
 				"--remove",
@@ -1976,7 +1899,7 @@ function main() {
 			3,
 		);
 
-	printCommitted(committedSha(r.stdout));
+	printCommitted(parseCommittedSha(r.stdout));
 	finish(0);
 }
 

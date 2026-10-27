@@ -181,7 +181,7 @@ process.exit(1);
 	}
 
 	/** The issue body as the stub currently holds it. */
-	issueBodyText() {
+	readIssueBodyText() {
 		if (!this.issueStore) throw new Error("no issueStub in this arena");
 		return fs.readFileSync(this.issueStore, "utf8");
 	}
@@ -198,7 +198,7 @@ process.exit(1);
 
 	/**
 	 * The debt store as it sits on disk. The slug is recomputed here rather than
-	 * imported, for the same reason proving-session.ts's procStartOf is: a
+	 * imported, for the same reason proving-session.ts's readProcStartOf is: a
 	 * harness that borrowed the path logic it checks would agree with it even
 	 * where both are wrong.
 	 *

@@ -54,11 +54,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { execFileSync } = require("node:child_process");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
+const { execGit } = require("./lib/git.js");
 
 const SKILLS_DIR = path.join(".claude", "skills");
 const COMMANDS_DIR = path.join(".claude", "commands");
@@ -85,7 +85,7 @@ const CAP_BYTES = 16_000;
  * @param {boolean} [recursive] subdirectories' entries too, as relative paths
  * @returns {string[]}
  */
-function dirNames(ctx, root, rel, recursive = false) {
+function readDirNames(ctx, root, rel, recursive = false) {
 	try {
 		return fs.readdirSync(path.join(root, rel), {
 			recursive,
@@ -105,9 +105,9 @@ function dirNames(ctx, root, rel, recursive = false) {
  * @param {string} root
  * @returns {string[]}
  */
-function ownBodies(ctx, root) {
+function readOwnBodyPaths(ctx, root) {
 	const dir = path.join(root, SKILLS_DIR);
-	const names = dirNames(ctx, root, SKILLS_DIR);
+	const names = readDirNames(ctx, root, SKILLS_DIR);
 	/** @type {string[]} */
 	const out = [];
 	for (const name of names) {
@@ -135,8 +135,8 @@ function ownBodies(ctx, root) {
  * @param {string} root
  * @returns {string[]}
  */
-function commandBodies(ctx, root) {
-	return dirNames(ctx, root, COMMANDS_DIR, true)
+function readCommandBodyPaths(ctx, root) {
+	return readDirNames(ctx, root, COMMANDS_DIR, true)
 		.filter((n) => n.endsWith(".md"))
 		.map((n) => path.join(COMMANDS_DIR, n))
 		.sort();
@@ -179,10 +179,10 @@ function checkArgTokens(ctx, root, rel) {
  * @param {string} rev
  * @returns {Set<string>}
  */
-function touchedPaths(ctx, root, rev) {
+function readTouchedPaths(ctx, root, rev) {
 	let out = "";
 	try {
-		out = execFileSync("git", ["diff", "--name-only", rev], {
+		out = execGit(["diff", "--name-only", rev], {
 			cwd: root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
@@ -198,7 +198,7 @@ function touchedPaths(ctx, root, rev) {
 
 /**
  * The body's size at `rev`, or 0 where it did not exist there — a new skill's
- * whole size is its delta. touchedPaths() has already proven git runs and
+ * whole size is its delta. readTouchedPaths() has already proven git runs and
  * `rev` resolves, so the one failure read as absence is git saying the path
  * is not in that revision; anything else is apparatus and BROKEN, never a
  * silent 0 that would inflate the delta (docs/code-standards-base.md §N5).
@@ -209,9 +209,9 @@ function touchedPaths(ctx, root, rev) {
  * @param {string} rel
  * @returns {number}
  */
-function bytesAt(ctx, root, rev, rel) {
+function readSizeAt(ctx, root, rev, rel) {
 	try {
-		return execFileSync("git", ["show", `${rev}:${rel}`], {
+		return execGit(["show", `${rev}:${rel}`], {
 			cwd: root,
 			stdio: ["ignore", "pipe", "pipe"],
 		}).length;
@@ -253,7 +253,7 @@ function measureBody(ctx, { root, rel, cap, touching }) {
 		ctx.broken(`cannot stat ${rel} — ${caught(e).message}`);
 	}
 	const delta =
-		touching === null ? null : bytes - bytesAt(ctx, root, touching, rel);
+		touching === null ? null : bytes - readSizeAt(ctx, root, touching, rel);
 	const over = bytes - cap;
 	const row = { path: rel, bytes, delta, over };
 	const change = delta === null ? "" : `, ${signed(delta)} B since ${touching}`;
@@ -304,10 +304,10 @@ const SPEC = {
 			ctx.skip(
 				`this repo has no ${SKILLS_DIR} or ${COMMANDS_DIR} — no skill or command bodies to check`,
 			);
-		const all = ownBodies(ctx, root);
-		const commands = commandBodies(ctx, root);
+		const all = readOwnBodyPaths(ctx, root);
+		const commands = readCommandBodyPaths(ctx, root);
 		const touched =
-			touching === null ? null : touchedPaths(ctx, root, touching);
+			touching === null ? null : readTouchedPaths(ctx, root, touching);
 		/** @param {string[]} paths */
 		const scoped = (paths) =>
 			touched === null ? paths : paths.filter((b) => touched.has(b));

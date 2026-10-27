@@ -9,7 +9,7 @@
 # The aside is `<file>.<pid>.<hex>.tmp`, as the JS half names it, created under
 # noclobber so a clash refuses rather than shares an aside. A writer killed
 # between the two steps leaves its aside behind. The day-old sweeps of
-# guard-agent-poll.sh and echo-chain.sh collect it there, and bg-run.sh's sits
+# lib/agent-poll-host.js and lib/echo-record-host.js collect it there, and bg-run.sh's sits
 # in its run directory; design-mode.sh's and burn-mode.sh's stay beside the
 # settings file, where git status shows the one in a repo.
 

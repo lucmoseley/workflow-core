@@ -235,7 +235,7 @@ describe("a segment that owes a repair", () => {
 		expect(r.out).toContain("empty pair");
 	});
 
-	/* The budget is spent through coreutils `timeout` because spawnSync's own
+	/* The budget is spent through lib/run-budgeted.js because spawnSync's own
 	 * kills the shell alone: mantahostels#2491's check is meant to hit the budget on every
 	 * sweep, and would otherwise orphan a ~22-minute node process each time. */
 	it("kills what the command spawned, not just the shell", () => {

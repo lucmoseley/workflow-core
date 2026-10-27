@@ -111,7 +111,7 @@ describe("a well-formed declaration", () => {
 	it("does not read a field only present past the heading boundary", () => {
 		/* Leave `seat` unset INSIDE the section, and place a matching line past
 		 * the next heading. `field()` returns the first match it finds, so if
-		 * `sectionLines()` failed to stop at "### Founder override" this would be
+		 * `parseSectionLines()` failed to stop at "### Founder override" this would be
 		 * read as the seat line and the declaration would parse as `declared`
 		 * rather than refuse. This is the case the length assertion above does
 		 * not exercise: it never gives the boundary anything to wrongly admit. */

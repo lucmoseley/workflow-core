@@ -14,18 +14,18 @@
  * through `stand-down` — so the two cannot disagree on a key.
  */
 
-const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFd } = require("./write-fd.js");
+const { execGit } = require("./git.js");
 
 /**
  * @param {{env?: NodeJS.ProcessEnv}} opts
  * @param {string[]} args
  */
 const git = (opts, ...args) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		env: opts.env ?? process.env,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],

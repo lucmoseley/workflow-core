@@ -25,7 +25,7 @@
  *              goes green over scope it never looked at.
  *
  * lib/gh.js already runs on exactly this split and is the model generalised
- * here: ghFailureReason() sends an unreachable GitHub (subject) to SKIP and
+ * here: parseGhFailureReason() sends an unreachable GitHub (subject) to SKIP and
  * every other gh failure (apparatus) to BROKEN.
  *
  * The earlier form of this rule read "outside the repo => SKIP", which put a
@@ -52,11 +52,14 @@
  *      (`node <argv[1]> --root <dir> --json`);
  *   2. only if that reading holds gating faults, do the same for <rev>;
  *   3. report the faults the index side has and <rev> does not, through
- *      scripts/checker-new-faults.js's profile table.
+ *      scripts/lib/fault-profiles.js's profile table.
  *
  * BOTH SIDES ARE COMMIT BYTES. The parent does no checking of its own: this
  * tree is repo-global, so reading a file in place judges a parallel session's
  * half-written copy rather than this commit's.
+ *
+ * `--head <rev>` beside `--against <rev>` names a commit as the judged side in
+ * place of the index (#3074).
  *
  * NOT `--baseline`: taken twice in this family already, for a file of anchor
  * text (check-instruction-surface.js) and a number of test files
@@ -83,7 +86,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
+const { spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -103,7 +106,7 @@ const {
 	outcomeOf,
 	skipError,
 } = require("./outcome-error.js");
-const { catFileBatch, listTree } = require("./git-objects.js");
+const { readObjectBatch, listTree } = require("./git-objects.js");
 
 /*
  * PERSIST MODE'S BACKEND IS REQUIRED BY A COMPUTED PATH, so no literal
@@ -120,6 +123,7 @@ const NOTIFY_REPORT = path.join(__dirname, "notify-report.js");
 const loadNotify = () => require(NOTIFY_REPORT);
 
 const AGAINST = "--against";
+const HEAD_FLAG = "--head";
 
 /* The flags this library reads itself, which every checker accepts without
  * declaring them (#938). */
@@ -130,6 +134,7 @@ const LIBRARY_FLAGS = [
 	"--notify",
 	"--help",
 	AGAINST,
+	HEAD_FLAG,
 ];
 
 /* What a direction-gating checker accepts on top: the re-exec passes it. */
@@ -224,7 +229,7 @@ const OUTCOMES = {
  * }} CheckSpec
  *
  * @typedef {{ lines: string[], notify: typeof import("./notify-report.js"),
- *   startedAt: number }} Persist
+ *   startedAtMono: number }} Persist
  */
 
 /**
@@ -243,7 +248,7 @@ function skipUnlessModuleOn(modules) {
 	} catch (e) {
 		throw brokenError(caught(e).message);
 	}
-	if (off) throw skipError(config.moduleOffLine(off));
+	if (off) throw skipError(config.buildModuleOffLine(off));
 }
 
 /** The context handed to a checker's run(). */
@@ -521,7 +526,7 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
  * read, which is an apparatus fault and must stay one.
  */
 function unborn() {
-	const r = spawnSync(gitBinary(), ["rev-list", "--all", "--count"], {
+	const r = spawnGitSync(["rev-list", "--all", "--count"], {
 		encoding: "utf8",
 	});
 	return r.status === 0 && r.stdout.trim() === "0";
@@ -548,7 +553,7 @@ function baselineOf(rev) {
  * @returns {string}
  */
 function git(args, what, env = process.env) {
-	const r = spawnSync(gitBinary(), args, { encoding: "utf8", env });
+	const r = spawnGitSync(args, { encoding: "utf8", env });
 	if (r.error || r.status !== 0)
 		throw brokenError(
 			`git ${args[0]} failed while ${what}: ` +
@@ -647,7 +652,7 @@ const MATERIALISERS = {
 
 		/* One `cat-file --batch` for the lot: the per-blob alternative is a process
 		 * per file. */
-		const bodies = catFileBatch(
+		const bodies = readObjectBatch(
 			entries.map((e) => e.sha),
 			`${rev}'s blobs`,
 		);
@@ -819,14 +824,14 @@ function measuredDelta(profile, fault, { staged, baseline, rev }) {
  * @returns {CheckResult}
  */
 function runAgainst(spec, ctx) {
-	const { against, rev } = readAgainst(spec, ctx);
+	const { against, rev, head } = readAgainst(spec, ctx);
 
 	// Required lazily: most checkers load this library and never direction-gate.
-	const { PROFILES } = require("../checker-new-faults.js");
+	const { PROFILES } = require("./fault-profiles.js");
 	const profile = PROFILES[against.profile];
 	if (!profile)
 		ctx.broken(
-			`checker-new-faults.js carries no ${against.profile} profile, so there is ` +
+			`lib/fault-profiles.js carries no ${against.profile} profile, so there is ` +
 				"no rule for what makes two of this check's faults the same fault.",
 		);
 
@@ -842,12 +847,18 @@ function runAgainst(spec, ctx) {
 	 * is only materialised where there is a fault to attribute, so a typo'd rev
 	 * would otherwise pass every clean commit in silence. */
 	git(["rev-parse", "--verify", `${baseRev}^{tree}`], `resolving ${baseRev}`);
+	const headTree =
+		head &&
+		git(
+			["rev-parse", "--verify", `${head}^{tree}`],
+			`resolving ${head}`,
+		).trim();
 
 	const sides = compareSides(spec, ctx, {
 		against,
 		profile,
 		materialise,
-		revs: { rev, baseRev },
+		revs: { rev, baseRev, head, headTree },
 	});
 	const { added, inherited, notes, commit, baselineSummary } = sides;
 
@@ -867,13 +878,17 @@ function runAgainst(spec, ctx) {
 		remedy: [],
 	};
 
-	reportAgainst(ctx, { added: refuse, inherited, notes, rev }, measured);
+	const judged = head ?? "this commit";
+	reportAgainst(
+		ctx,
+		{ added: refuse, inherited, notes, rev, judged },
+		measured,
+	);
 	for (const line of refuse.length > 0 ? remedy : []) ctx.say(line);
 
 	return {
-		okLine: `no gating fault in the index that ${rev} does not already carry.`,
-		noun:
-			refuse.length > 0 ? "fault(s) this commit adds" : "inherited fault(s)",
+		okLine: `no gating fault in ${head ?? "the index"} that ${rev} does not already carry.`,
+		noun: refuse.length > 0 ? `fault(s) ${judged} adds` : "inherited fault(s)",
 		data: {
 			against: rev,
 			added: refuse.map((f) => f.line),
@@ -888,11 +903,24 @@ function runAgainst(spec, ctx) {
 /** @typedef {{ key: string, item: unknown, line: string }} FaultItem */
 
 /**
+ * The baseline rev and, under `--head`, the judged commit.
+ *
+ * @param {CheckContext} ctx
+ * @returns {{ rev: string, head: string | undefined }}
+ */
+function againstRevs(ctx) {
+	return {
+		rev: ctx.value(AGAINST, ""),
+		head: ctx.value(HEAD_FLAG, "") || undefined,
+	};
+}
+
+/**
  * The --against spec and rev, refusing any invocation that cannot direction-gate.
  *
  * @param {CheckSpec} spec
  * @param {CheckContext} ctx
- * @returns {{ against: AgainstSpec, rev: string }}
+ * @returns {{ against: AgainstSpec, rev: string, head: string | undefined }}
  */
 function readAgainst(spec, ctx) {
 	const against = spec.against;
@@ -913,7 +941,9 @@ function readAgainst(spec, ctx) {
 	 * usage complaint instead of the missing value; below any git call, the git
 	 * failure gets there first and the usage error is lost. */
 	if (against.refuse) against.refuse(ctx);
-	return { against, rev };
+	const head = ctx.has(HEAD_FLAG) ? ctx.value(HEAD_FLAG, "") : undefined;
+	if (head === "") ctx.usageError(`${HEAD_FLAG} needs a rev.`);
+	return { against, rev, head };
 }
 
 /**
@@ -925,11 +955,11 @@ function readAgainst(spec, ctx) {
  * @param {{ against: AgainstSpec,
  *   profile: import("./fault-diff.js").FaultDiffProfile,
  *   materialise: (rev: string, dir: string, pathspecs: string[]) => void,
- *   revs: { rev: string, baseRev: string } }} at
+ *   revs: { rev: string, baseRev: string, head?: string, headTree?: string } }} at
  */
 function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 	const { newFaultItems } = require("./fault-diff.js");
-	const { rev, baseRev } = revs;
+	const { rev, baseRev, head, headTree } = revs;
 	const gate = profile.gating ?? (() => true);
 	const work = fs.mkdtempSync(
 		path.join(os.tmpdir(), `check-against-${spec.name}-`),
@@ -966,8 +996,8 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
 		"unread — the index carries no gating fault to attribute";
 	try {
 		/* Unreferenced, and collected with every other loose object. */
-		const commitSide = indexTree(path.join(work, "index-copy"));
-		const commit = read(commitSide, "the index", "index");
+		const commitSide = headTree ?? indexTree(path.join(work, "index-copy"));
+		const commit = read(commitSide, head ?? "the index", "index");
 
 		/* The index side did not finish, so it has no fault list to compare —
 		 * carry its verdict rather than inventing one. */
@@ -1034,12 +1064,16 @@ function compareSides(spec, ctx, { against, profile, materialise, revs }) {
  *
  * @param {CheckContext} ctx
  * @param {{ added: FaultItem[], inherited: string[], notes: FaultItem[],
- *   rev: string }} found
+ *   rev: string, judged: string }} found
  * @param {(f: FaultItem) => { base: number, delta: number, line: string } | undefined} measured
  */
-function reportAgainst(ctx, { added, inherited, notes, rev }, measured) {
+function reportAgainst(
+	ctx,
+	{ added, inherited, notes, rev, judged },
+	measured,
+) {
 	if (added.length > 0) {
-		ctx.say(`The fault(s) below are NOT in ${rev} — this commit adds them:`);
+		ctx.say(`The fault(s) below are NOT in ${rev} — ${judged} adds them:`);
 		for (const f of added) {
 			const d = measured(f);
 			ctx.fail("NEW-FAULT", f.line, {
@@ -1053,7 +1087,7 @@ function reportAgainst(ctx, { added, inherited, notes, rev }, measured) {
 		for (const line of inherited)
 			ctx.warn("INHERITED-FAULT", line, { against: rev });
 		ctx.say(
-			`Every gating fault reported above is already in ${rev}, so this commit did not cause one — passing (mantahostels#1753).`,
+			`Every gating fault reported above is already in ${rev}, so ${judged} did not cause one — passing (mantahostels#1753).`,
 		);
 		ctx.say(
 			"  They still FAIL the scheduled sweeps, which run a clean checkout, and block nothing here only because they are inherited.",
@@ -1172,7 +1206,7 @@ process.on("unhandledRejection", reportCrash);
  *               before any work (#938)
  *   against     present on a direction-gating checker alone, and what makes
  *               `--against <rev>` legal at all — see the header. Names the
- *               checker-new-faults.js profile that decides what makes two of
+ *               lib/fault-profiles.js profile that decides what makes two of
  *               its faults the same fault, the materialisation its scan scope
  *               needs, and optionally a refuse() for any argument it cannot
  *               honour — a flag pair, or a positional run() would have judged,
@@ -1207,7 +1241,7 @@ function runCheck(spec) {
 		? {
 				lines: /** @type {string[]} */ ([]),
 				notify: loadNotify(),
-				startedAt: Date.now(),
+				startedAtMono: performance.now(),
 			}
 		: null;
 	/* --against is the library's own flag, so its rev is declared a flag VALUE
@@ -1216,6 +1250,7 @@ function runCheck(spec) {
 	const valueFlags = [
 		...(spec.valueFlags || []),
 		AGAINST,
+		HEAD_FLAG,
 		...(spec.against ? AGAINST_FLAGS : []),
 	];
 	const accepted = new Set([
@@ -1309,6 +1344,10 @@ function runBody(spec, ctx, refusalOf) {
 		 * parent never calls run() — only the re-exec'd children do. */
 		if (spec.against && require("node:util").types.isAsyncFunction(spec.run))
 			throw brokenError(asyncAgainstRefusal(spec));
+		if (ctx.has(HEAD_FLAG) && !ctx.has(AGAINST))
+			ctx.usageError(
+				`${HEAD_FLAG} names the judged side of ${AGAINST}, so it needs one.`,
+			);
 		const returned = ctx.has(AGAINST) ? runAgainst(spec, ctx) : spec.run(ctx);
 		if (!isThenable(returned)) return fromReturn(ctx, returned);
 		if (spec.against) {
@@ -1429,7 +1468,7 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 				...new Set(ctx.findings.map((f) => f.key ?? `${f.tag}\t${f.message}`)),
 			].sort();
 
-	const summary = summaryLine(outcome, { result, message, count, noun });
+	const summary = buildSummaryLine(outcome, { result, message, count, noun });
 
 	if (ctx.asJson) {
 		writeEnvelope(ctx, spec, { outcome, result, count, keys, noun, summary });
@@ -1466,7 +1505,7 @@ function findingCount(result, gating, warned) {
  * @param {{ result: CheckResult, message: string, count: number, noun: string }} run
  * @returns {string}
  */
-function summaryLine(outcome, { result, message, count, noun }) {
+function buildSummaryLine(outcome, { result, message, count, noun }) {
 	if (outcome === "OK") return `OK: ${result.okLine || "nothing found."}`;
 	if (outcome === "SKIP" || outcome === "BROKEN")
 		return `${outcome}: ${message}`;
@@ -1538,14 +1577,14 @@ function writeEnvelope(
 function annotate(ctx, outcome, message) {
 	if (!ctx.inActions) return;
 	if (outcome === "BROKEN") {
-		writeFd(1, `::error::${oneLine(message)}\n`);
+		writeFd(1, `::error::${toOneLine(message)}\n`);
 		return;
 	}
 	if (outcome !== "FAIL" && outcome !== "WARN") return;
 	for (const f of ctx.findings) {
 		// A FAIL demoted by --warn annotates as a warning, matching its exit.
 		const level = f.severity === "FAIL" && !ctx.warnOnly ? "error" : "warning";
-		writeFd(1, `::${level}::${oneLine(f.message)}\n`);
+		writeFd(1, `::${level}::${toOneLine(f.message)}\n`);
 	}
 }
 
@@ -1579,7 +1618,7 @@ function persistReport(spec, outcome, result, persist) {
 		 * findings need more than one signature (mantahostels#2277). */
 		stamp: result.stamp,
 		stamps: result.stamps,
-		durationMs: Date.now() - persist.startedAt,
+		durationMs: performance.now() - persist.startedAtMono,
 		// The session whose start ran this hook, for scripts/deliver-to-session.js (#853).
 		owner: sessionFromEnv(),
 	});
@@ -1600,7 +1639,7 @@ const exitFor = (ctx, outcome) => (ctx.notify ? 0 : OUTCOMES[outcome].exit);
 /* Workflow commands are line-oriented: a newline inside one silently ends it and
  * leaves the rest as loose log text. */
 /** @type {(s: unknown) => string} */
-const oneLine = (s) =>
+const toOneLine = (s) =>
 	String(s)
 		.replace(/\s*\n\s*/g, " ")
 		.trim();
@@ -1667,4 +1706,5 @@ module.exports = {
 	extractTree,
 	baselineOf,
 	isBaselineSide,
+	againstRevs,
 };

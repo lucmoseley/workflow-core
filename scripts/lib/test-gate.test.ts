@@ -15,7 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { pushGateSkip } from "./test-gate.js";
+import { pushGateState } from "./test-gate.js";
 
 const dirs: string[] = [];
 /* WFC_MODULES replaces the declared module list, so a value inherited from
@@ -44,25 +44,29 @@ function host(scripts?: Record<string, string>) {
 
 const VITEST = "node scripts/run-vitest.js";
 
-/** Whether `command`, declared as `commands.test` with `suites` on, writes the
- *  marker: the push gate owns it where it does, so `pushGateSkip` — what
- *  pre-push and push:check read — skips nothing; pre-commit owns it where not. */
-function mintsMarker(command: string, root: string): boolean {
+function declare(root: string, config: object) {
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
 	fs.writeFileSync(
 		path.join(root, ".claude", "workflow-core.json"),
-		JSON.stringify({
-			contract: 1,
-			modules: ["suites"],
-			commands: { test: command },
-		}),
+		JSON.stringify(config),
 	);
-	const skip = pushGateSkip({ root });
-	expect(skip === null || "skip" in skip).toBe(true);
-	return skip === null;
 }
 
-describe("which declared command writes the marker, read through pushGateSkip", () => {
+/** Whether `command`, declared as `commands.test` with `suites` on, writes the
+ *  marker: the push gate owns it where it does, so `pushGateState` — what
+ *  pre-push and push:check read — answers owes; pre-commit owns it where not. */
+function mintsMarker(command: string, root: string): boolean {
+	declare(root, {
+		contract: 1,
+		modules: ["suites"],
+		commands: { test: command },
+	});
+	const { state } = pushGateState({ root });
+	expect(state).not.toBe("broken");
+	return state === "owes";
+}
+
+describe("which declared command writes the marker, read through pushGateState", () => {
 	it.each([
 		"npm test",
 		"npm t",
@@ -92,13 +96,96 @@ describe("which declared command writes the marker, read through pushGateSkip", 
 	});
 });
 
+describe("pushGateState: whether a push owes a certificate (#2929, #3016)", () => {
+	const stateFor = (modules: string[]) => {
+		const root = host({ test: VITEST });
+		declare(root, { contract: 1, modules });
+		return pushGateState({ root });
+	};
+
+	it("skips with the lander's line where landing is on", () => {
+		expect(stateFor(["suites", "landing"])).toEqual({
+			state: "skip",
+			line: expect.stringContaining("the lander runs the full suite"),
+		});
+	});
+
+	it("owes one, with no line, where suites is on and landing off", () => {
+		expect(stateFor(["suites"])).toEqual({ state: "owes", line: null });
+	});
+
+	it("skips as module-off where suites is off", () => {
+		expect(stateFor([])).toEqual({
+			state: "skip",
+			line: expect.stringContaining('module "suites" is off'),
+		});
+	});
+
+	/** A host declaring `npm test` with `suites` on, committed as it stands. */
+	const committedHost = (
+		scripts?: Record<string, string>,
+		plant?: (root: string) => void,
+	) => {
+		const root = host(scripts);
+		plant?.(root);
+		declare(root, {
+			contract: 1,
+			modules: ["suites"],
+			commands: { test: "npm test" },
+		});
+		const git = (...args: string[]) =>
+			expect(spawnSync("git", ["-C", root, ...args]).status).toBe(0);
+		git("init", "-q");
+		git("add", ".");
+		git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c");
+		return root;
+	};
+
+	it("reads package.json at the rev it is given, not the working copy's (#3135)", () => {
+		const root = committedHost({ test: VITEST });
+		fs.writeFileSync(
+			path.join(root, "package.json"),
+			JSON.stringify({ scripts: { test: "jest" } }),
+		);
+		expect(pushGateState({ root, rev: "HEAD" }).state).toBe("owes");
+		fs.writeFileSync(path.join(root, "package.json"), "{");
+		expect(pushGateState({ root, rev: "HEAD" }).state).toBe("owes");
+		expect(pushGateState({ root }).state).toBe("skip");
+	});
+
+	it("reads no package.json at the rev as minting none, however the working copy reads", () => {
+		const root = committedHost();
+		fs.writeFileSync(
+			path.join(root, "package.json"),
+			JSON.stringify({ scripts: { test: VITEST } }),
+		);
+		expect(pushGateState({ root, rev: "HEAD" }).state).toBe("skip");
+	});
+
+	it("answers broken where the rev holds no file at package.json", () => {
+		const root = committedHost(undefined, (dir) => {
+			fs.mkdirSync(path.join(dir, "package.json"));
+			fs.writeFileSync(path.join(dir, "package.json", "x"), "");
+		});
+		expect(pushGateState({ root, rev: "HEAD" })).toEqual({
+			state: "broken",
+			line: expect.stringContaining("package.json at HEAD is not a file"),
+		});
+	});
+
+	it("answers broken, with the reader's reason, on a config it cannot read", () => {
+		const root = host({ test: VITEST });
+		declare(root, { contract: 99 });
+		expect(pushGateState({ root })).toEqual({
+			state: "broken",
+			line: expect.stringMatching(/\S/),
+		});
+	});
+});
+
 describe("node test-gate.js <verb>", () => {
 	const run = (verb: string, root: string, config: object) => {
-		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, ".claude", "workflow-core.json"),
-			JSON.stringify(config),
-		);
+		declare(root, config);
 		const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: root };
 		delete env.WFC_MODULES;
 		return spawnSync(

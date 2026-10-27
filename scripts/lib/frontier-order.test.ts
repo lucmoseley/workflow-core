@@ -4,6 +4,7 @@ const { mergeFrontiers } = require("./frontier-order.js");
 
 const row = (number: number, over: Record<string, unknown> = {}) => ({
 	number,
+	bug: false,
 	urgent: false,
 	goal: false,
 	stallDays: 0,
@@ -19,7 +20,7 @@ const ranked = ({
 }) => frontier.map((r) => `${r.root}#${r.number}`);
 
 describe("mergeFrontiers (#2003)", () => {
-	it("holds every sort level across repos: urgent, goal, stalled wait, type, reach, collision", () => {
+	it("holds every sort level across repos: bug, urgent, goal, stalled wait, type, reach, collision", () => {
 		const merged = mergeFrontiers([
 			{
 				root: "a",
@@ -40,10 +41,12 @@ describe("mergeFrontiers (#2003)", () => {
 					row(5, { asksQuestions: true }),
 					row(6, { goal: true }),
 					row(7, { urgent: true }),
+					row(8, { bug: true, urgent: true }),
 				],
 			},
 		]);
 		expect(ranked(merged)).toEqual([
+			"b#8",
 			"b#7",
 			"b#6",
 			"a#3",

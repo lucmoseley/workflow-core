@@ -25,6 +25,7 @@
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
 const { execFileSync } = require("node:child_process");
+const { execGit } = require("../../../../scripts/lib/git.js");
 const { requiredGroup } = require("../../../../scripts/lib/regex-group.js");
 const { caught } = require("../../../../scripts/lib/caught.js");
 
@@ -83,23 +84,33 @@ const out = (s) => {
 	}
 };
 
+/** @type {import("node:child_process").ExecFileSyncOptionsWithStringEncoding} */
+const READ_OPTS = {
+	encoding: "utf8",
+	maxBuffer: MAX_BUFFER,
+	stdio: ["ignore", "pipe", "pipe"],
+};
+
 /**
- * Run a binary without throwing. A non-zero exit is data here — `grep` says
+ * @param {string} bin
+ * @param {string[]} args
+ */
+const run = (bin, args) => settle(() => execFileSync(bin, args, READ_OPTS));
+
+/** @param {string[]} args */
+const runGit = (args) => settle(() => execGit(args, READ_OPTS));
+
+/**
+ * A read that never throws. A non-zero exit is data here — `grep` says
  * "no match" with 1 and `git log` says "no such path" with 128, and the two
  * mean opposite things.
  *
- * @param {string} bin
- * @param {string[]} args
+ * @param {() => string} read
  * @returns {{ status: number | null, stdout: string, stderr: string }}
  */
-function run(bin, args) {
+function settle(read) {
 	try {
-		const stdout = execFileSync(bin, args, {
-			encoding: "utf8",
-			maxBuffer: MAX_BUFFER,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		return { status: 0, stdout, stderr: "" };
+		return { status: 0, stdout: read(), stderr: "" };
 	} catch (err) {
 		const e =
 			/** @type {{ status?: unknown, stdout?: unknown, stderr?: unknown, message?: unknown }} */ (
@@ -119,7 +130,7 @@ const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** @param {string} s @param {number} n */
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n)}…` : s);
 /** @param {string} s */
-const oneLine = (s) => clip(s.replace(/\s+/g, " ").trim(), MAX_LINE_CHARS);
+const toOneLine = (s) => clip(s.replace(/\s+/g, " ").trim(), MAX_LINE_CHARS);
 
 /**
  * Whether `needle` occurs in `haystack`, tolerating a re-wrap — a run of
@@ -239,9 +250,9 @@ function parseLog(stdout) {
  * @returns {{ ok: true, commits: Commit[] } | { ok: false, why: string }}
  */
 function logOldestFirst(args) {
-	const res = run("git", ["log", "--reverse", PRETTY, "--date=short", ...args]);
+	const res = runGit(["log", "--reverse", PRETTY, "--date=short", ...args]);
 	if (res.status !== 0) {
-		return { ok: false, why: `git log failed: ${oneLine(res.stderr)}` };
+		return { ok: false, why: `git log failed: ${toOneLine(res.stderr)}` };
 	}
 	return { ok: true, commits: parseLog(res.stdout) };
 }
@@ -267,7 +278,7 @@ const lineOf = (text, offset) => text.slice(0, offset).split("\n").length;
  * @returns {{ state: "found", commits: Commit[] } | { state: "skipped" | "unresolved", why: string }}
  */
 function lineHistory(target, phrase) {
-	const full = run("git", ["ls-files", "--full-name", "--", target]);
+	const full = runGit(["ls-files", "--full-name", "--", target]);
 	if (full.status !== 0 || !full.stdout.trim()) {
 		return {
 			state: "unresolved",
@@ -279,12 +290,12 @@ function lineHistory(target, phrase) {
 		state: /** @type {const} */ ("skipped"),
 		why: `the phrase is not in HEAD's copy of ${target} — uncommitted text has no line history`,
 	};
-	if (run("git", ["cat-file", "-e", blob]).status !== 0) return skipped;
-	const head = run("git", ["show", blob]);
+	if (runGit(["cat-file", "-e", blob]).status !== 0) return skipped;
+	const head = runGit(["show", blob]);
 	if (head.status !== 0) {
 		return {
 			state: "unresolved",
-			why: `git show failed: ${oneLine(head.stderr)}`,
+			why: `git show failed: ${toOneLine(head.stderr)}`,
 		};
 	}
 	const span = locate(head.stdout, phrase);
@@ -310,12 +321,10 @@ function lineHistory(target, phrase) {
  * @param {string} needlePath @param {string} needle
  */
 function gitAxis(needlePath, needle) {
-	if (run("git", ["rev-parse", "--git-dir"]).status !== 0) {
+	if (runGit(["rev-parse", "--git-dir"]).status !== 0) {
 		return { state: "unresolved", why: "not inside a git repository" };
 	}
-	if (
-		run("git", ["ls-files", "--error-unmatch", "--", needlePath]).status !== 0
-	) {
+	if (runGit(["ls-files", "--error-unmatch", "--", needlePath]).status !== 0) {
 		return {
 			state: "unresolved",
 			why: `${needlePath} is untracked, so git holds no history for it — the text has no tenure to clear yet`,
@@ -450,7 +459,7 @@ function identifierRulingAxis(pathspec, identifier) {
 			identifier,
 		};
 	}
-	const res = run("git", [
+	const res = runGit([
 		"log",
 		"--reverse",
 		PRETTY,
@@ -461,7 +470,7 @@ function identifierRulingAxis(pathspec, identifier) {
 	if (res.status !== 0) {
 		return {
 			state: "unresolved",
-			why: `git log failed: ${oneLine(res.stderr)}`,
+			why: `git log failed: ${toOneLine(res.stderr)}`,
 			identifier,
 		};
 	}
@@ -470,11 +479,11 @@ function identifierRulingAxis(pathspec, identifier) {
 	// (mantahostels#3155). A failure here fails the whole axis closed, same as the lookup
 	// above: a silently-skipped frequency check would read as "distinctive
 	// enough".
-	const freq = run("git", ["log", "--reverse", PRETTY, "--date=short"]);
+	const freq = runGit(["log", "--reverse", PRETTY, "--date=short"]);
 	if (freq.status !== 0) {
 		return {
 			state: "unresolved",
-			why: `git log (repo-wide frequency) failed: ${oneLine(freq.stderr)}`,
+			why: `git log (repo-wide frequency) failed: ${toOneLine(freq.stderr)}`,
 			identifier,
 		};
 	}
@@ -508,7 +517,7 @@ function ghAxis(needle) {
 	if (res.status !== 0) {
 		return {
 			state: "unresolved",
-			why: `gh issue list failed: ${oneLine(res.stderr)}`,
+			why: `gh issue list failed: ${toOneLine(res.stderr)}`,
 			term,
 		};
 	}
@@ -518,7 +527,7 @@ function ghAxis(needle) {
 	} catch {
 		return {
 			state: "unresolved",
-			why: `gh returned output that is not JSON: ${oneLine(res.stdout)}`,
+			why: `gh returned output that is not JSON: ${toOneLine(res.stdout)}`,
 			term,
 		};
 	}
@@ -544,7 +553,10 @@ function grepAxis(needle) {
 	const res = run("grep", ["-rnF", "--", needle, ...targets]);
 	if (res.status === 1) return { state: "none", targets };
 	if (res.status !== 0) {
-		return { state: "unresolved", why: `grep failed: ${oneLine(res.stderr)}` };
+		return {
+			state: "unresolved",
+			why: `grep failed: ${toOneLine(res.stderr)}`,
+		};
 	}
 	return { state: "found", hits: res.stdout.split("\n").filter(Boolean) };
 }
@@ -601,7 +613,7 @@ function printCommits(commits, heading, needle, opts = {}) {
 	const ordered = opts.newestFirst ? [...commits].reverse() : commits;
 	out(`   ${heading}\n`);
 	for (const c of ordered.slice(0, MAX_COMMITS)) {
-		out(`   COMMIT ${c.sha.slice(0, 12)} ${c.date} ${oneLine(c.subject)}\n`);
+		out(`   COMMIT ${c.sha.slice(0, 12)} ${c.date} ${toOneLine(c.subject)}\n`);
 		if (opts.printed?.has(c.sha)) {
 			out("     (body above)\n");
 			continue;
@@ -731,7 +743,7 @@ function printGhAxis(gh) {
 	} else {
 		for (const r of gh.rows || []) {
 			out(
-				`   #${r.number} ${String(r.state).toUpperCase()} ${oneLine(r.title)}\n`,
+				`   #${r.number} ${String(r.state).toUpperCase()} ${toOneLine(r.title)}\n`,
 			);
 		}
 	}
@@ -745,7 +757,7 @@ function printGrepAxis(grep) {
 		out("   none\n");
 	} else {
 		const hits = grep.hits || [];
-		for (const h of hits.slice(0, MAX_GREP_HITS)) out(`   ${oneLine(h)}\n`);
+		for (const h of hits.slice(0, MAX_GREP_HITS)) out(`   ${toOneLine(h)}\n`);
 		if (hits.length > MAX_GREP_HITS) {
 			out(`   (+${hits.length - MAX_GREP_HITS} more)\n`);
 		}

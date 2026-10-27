@@ -26,21 +26,24 @@
  * call that forked into the background, whose notification names the Skill
  * call's own id (#1166).
  *
- * A LAUNCH IS SETTLED THREE WAYS, and the notification is only the first. A
+ * A LAUNCH IS SETTLED FOUR WAYS, and the notification is only the first. A
  * `<task-notification>` block naming its `<tool-use-id>` is the ordinary one.
- * The other two are what a first cut missed, and they are the MAJORITY: a
+ * The next two are what a first cut missed, and they are the MAJORITY: a
  * launch a PreToolUse hook refused, whose `tool_result` carries `is_error`, and
  * a FOREGROUND `Agent` call, whose `tool_result` is the agent's own report and
  * which no notification ever follows. Either left counted as live would keep
  * this function permanently busy for the rest of the session, and the consumer
- * would never refuse again.
+ * would never refuse again. The fourth is a successful `TaskStop` naming the
+ * launch's background handle, after which the harness writes no notification
+ * (#2754; shape from transcript 03a6b5a2, L1967-1968): left live, the ceiling hook kept naming watchers already stopped.
  *
- * THE ASYMMETRY IS NOT UNIFORM, deliberately. A Bash launch is settled only by
- * a notification or an error, never by reading its result, so a harness that
- * reworded the announcement cannot turn one into a false refusal. The `Agent`
- * limb DOES read it, and carries that risk; so do the timeout and forked-Skill
- * limbs — hence two signals on each, the text and a structured `toolUseResult`
- * field beside it. The census the Bash and `Agent` limbs rest on is on
+ * THE ASYMMETRY IS NOT UNIFORM, deliberately. A Bash launch is settled by a
+ * notification, an error or a `TaskStop`; only the last reads its result, so a
+ * harness that reworded the announcement can turn one into a false refusal
+ * only where a TaskStop also named it. The `Agent` limb reads it outright, and
+ * carries that risk; so do the timeout, forked-Skill and `TaskStop` limbs —
+ * hence two signals on each, the text and a structured `toolUseResult` field
+ * beside it, either one enough. The census the Bash and `Agent` limbs rest on is on
  * mantahostels#2487; the forked-Skill spelling rests on one transcript (#1166).
  *
  * IT ASYMMETRICALLY FAILS OPEN, deliberately. A launch this function fails to
@@ -54,7 +57,7 @@
  * a job backgrounded with `&` or `nohup` inside a foreground Bash call, one
  * launched from inside a script, and a `waiting:` written with nothing launched.
  * The one it reads WRONG is a Bash launch or forked Skill whose notification
- * the harness never wrote: it stays pending for the rest of the session, and
+ * the harness never wrote and no `TaskStop` settled: it stays pending for the rest of the session, and
  * every later `waiting:` passes.
  *
  * A `killed` notification settles the launch like any other: nothing further
@@ -92,6 +95,16 @@ const MOVED_TO_BACKGROUND =
 const FORKED_SKILL =
 	/^Skill "[^"]*" launched \(forked execution, running in the background\)/;
 
+/* The handle a launch's result announces — a Bash job's background id, an
+ * overrun's, or an async subagent's agentId — which is what `TaskStop` takes as its `task_id`.
+ * The structured `backgroundTaskId` and `agentId` fields carry the same. */
+const HANDLE =
+	/(?:running in background with ID: |moved to the background \(ID: |agentId: )(\w+)/;
+
+/* A `TaskStop` that stopped what it named (#2754). Read only on a TaskStop
+ * call's result, beside its structured `task_id`. */
+const STOPPED = /Successfully stopped task: (\w+)/;
+
 /**
  * @typedef {{ id: string, kind: string, name: string }} Launch
  * @typedef {{ records: number, launches: Launch[], pending: Launch[] }} Pending
@@ -123,6 +136,9 @@ function callName(part) {
  *   launches: Map<string, Launch>,
  *   settled: Set<string>,
  *   results: Map<string, {error: boolean, announced: boolean}>,
+ *   handles: Map<string, string>,
+ *   stopped: Set<string>,
+ *   taskStopCalls: Set<string>,
  *   bashCallNames: Map<string, string>,
  *   skillCallNames: Map<string, string>,
  * }} Census
@@ -137,12 +153,17 @@ function callName(part) {
  *   empty one.
  * @throws whatever reading the file throws; the caller fails open on it.
  */
-function pendingTasks(file) {
+function readPendingTasks(file) {
 	/** @type {Census} */
 	const census = {
 		launches: new Map(),
 		settled: new Set(),
 		results: new Map(),
+		/* The background handle each result announced, by tool-use id, and the
+		 * handles a `TaskStop` stopped. */
+		handles: new Map(),
+		stopped: new Set(),
+		taskStopCalls: new Set(),
 		/* Each call's name, by id, for a launch only its result reveals. */
 		bashCallNames: new Map(),
 		skillCallNames: new Map(),
@@ -221,6 +242,9 @@ function readResult(census, part, toolUseResult) {
 		typeof part.content === "string"
 			? part.content
 			: (part.content?.[0]?.text ?? "");
+	readHandle(census, id, text, toolUseResult);
+	if (census.taskStopCalls.has(id) && part.is_error !== true)
+		readStop(census, text, toolUseResult);
 	const moved =
 		MOVED_TO_BACKGROUND.test(text) || toolUseResult?.backgroundTaskId;
 	if (moved && census.bashCallNames.has(id) && !census.launches.has(id))
@@ -241,6 +265,37 @@ function readResult(census, part, toolUseResult) {
 }
 
 /**
+ * Records the background handle a result announces (#2754).
+ * @param {Census} census accumulator: the handle is recorded in it
+ * @param {string} id the result's tool-use id
+ * @param {string} text the result's text
+ * @param {any} toolUseResult as readResult takes it
+ */
+function readHandle(census, id, text, toolUseResult) {
+	const handle =
+		toolUseResult?.backgroundTaskId ??
+		toolUseResult?.agentId ??
+		HANDLE.exec(text)?.[1];
+	if (typeof handle === "string") census.handles.set(id, handle);
+}
+
+/**
+ * Records the handle a non-error `TaskStop` result stopped (#2754). The
+ * structured `task_id` alone is enough, and so is the text alone: a record
+ * holding several results carries no `toolUseResult`, and 632 of 1,991
+ * corpus stops sit in one (#2754). Either alone means a non-error result
+ * carrying `task_id` for a stop that failed would settle falsely — no such
+ * result is in the corpus, where every failure is `is_error`.
+ * @param {Census} census accumulator: the stopped handle is recorded in it
+ * @param {string} text the result's text
+ * @param {any} toolUseResult as readResult takes it
+ */
+function readStop(census, text, toolUseResult) {
+	const stopped = toolUseResult?.task_id ?? STOPPED.exec(text)?.[1];
+	if (typeof stopped === "string") census.stopped.add(stopped);
+}
+
+/**
  * Records a `tool_use`: its name, and a launch where it is one.
  * @param {Census} census accumulator: a Bash or Skill call's name, and any launch,
  *   are recorded in it
@@ -250,6 +305,7 @@ function readCall(census, part) {
 	const name = callName(part);
 	if (part.name === "Bash") census.bashCallNames.set(part.id, name);
 	if (part.name === "Skill") census.skillCallNames.set(part.id, name);
+	if (part.name === "TaskStop") census.taskStopCalls.add(part.id);
 	if (part.name === "Agent")
 		census.launches.set(part.id, { id: part.id, kind: "subagent", name });
 	else if (part.name === "Bash" && part.input?.run_in_background)
@@ -261,15 +317,18 @@ function readCall(census, part) {
 }
 
 /**
- * Is this launch still out? Settled by its notification, by a `tool_result`
- * saying the launch was refused, or — for a subagent only — by a result that
- * announces no background handle, which is a foreground agent's own report.
+ * Is this launch still out? Settled by its notification, by a `TaskStop` that
+ * stopped its handle, by a `tool_result` saying the launch was refused, or —
+ * for a subagent only — by a result that announces no background handle,
+ * which is a foreground agent's own report.
  * @param {Census} census
  * @param {Launch} l
  * @returns {boolean}
  */
 function isStillOut(census, l) {
 	if (census.settled.has(l.id)) return false;
+	const handle = census.handles.get(l.id);
+	if (handle !== undefined && census.stopped.has(handle)) return false;
 	const res = census.results.get(l.id);
 	/* No result at all is unmeasured, so it keeps the busy reading rather than
 	 * earning a refusal. */
@@ -279,4 +338,4 @@ function isStillOut(census, l) {
 	return true;
 }
 
-module.exports = { pendingTasks };
+module.exports = { readPendingTasks };

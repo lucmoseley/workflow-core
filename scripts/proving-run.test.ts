@@ -570,13 +570,13 @@ describe("mantahostels#128 — two sessions appending to one issue body", () => 
 		a.issueStub(mapBody);
 		// The only shape GitHub offers: download whole, edit, upload whole. Both
 		// sessions download the same base, so whoever uploads second wins outright.
-		const alicesBase = a.issueBodyText();
-		const bobsBase = a.issueBodyText();
+		const alicesBase = a.readIssueBodyText();
+		const bobsBase = a.readIssueBodyText();
 		a.writeIssueBody(`${alicesBase}- #128 — alice's entry\n`);
 		a.writeIssueBody(`${bobsBase}- #131 — bob's entry\n`);
 
-		expect(a.issueBodyText()).toContain("bob's entry");
-		expect(a.issueBodyText()).not.toContain("alice's entry");
+		expect(a.readIssueBodyText()).toContain("bob's entry");
+		expect(a.readIssueBodyText()).not.toContain("alice's entry");
 	});
 
 	/** N real processes appending to one body at once. */
@@ -598,7 +598,7 @@ describe("mantahostels#128 — two sessions appending to one issue body", () => 
 		);
 
 	const survived = (n: number) => {
-		const final = a.issueBodyText();
+		const final = a.readIssueBodyText();
 		for (let i = 0; i < n; i++) {
 			expect(final).toContain(`entry ${i}`);
 			// Nothing duplicated either: a repair re-applies, it does not re-add.
@@ -653,9 +653,9 @@ describe("mantahostels#128 — two sessions appending to one issue body", () => 
 	it("after: a write clobbered before the verify is repaired, losing neither entry", async () => {
 		const r = await lockFree(2);
 		expect(r.status).toBe(0);
-		expect(a.issueBodyText()).toContain("entry 0");
-		expect(a.issueBodyText()).toContain("rival's entry");
-		expect(a.issueBodyText().match(/entry 0\b/g)).toHaveLength(1);
+		expect(a.readIssueBodyText()).toContain("entry 0");
+		expect(a.readIssueBodyText()).toContain("rival's entry");
+		expect(a.readIssueBodyText().match(/entry 0\b/g)).toHaveLength(1);
 		// It repaired rather than got lucky: a second write happened.
 		expect(r.stdout).toMatch(/\(([2-9]|\d\d) writes\)/);
 	}, 60_000);
@@ -668,8 +668,8 @@ describe("mantahostels#128 — two sessions appending to one issue body", () => 
 		const r = await lockFree(3);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/\(1 write\)/);
-		expect(a.issueBodyText()).not.toContain("entry 0");
-		expect(a.issueBodyText()).toContain("rival's entry");
+		expect(a.readIssueBodyText()).not.toContain("entry 0");
+		expect(a.readIssueBodyText()).toContain("rival's entry");
 	}, 60_000);
 
 	/*
@@ -682,7 +682,7 @@ describe("mantahostels#128 — two sessions appending to one issue body", () => 
 		a.extraEnv.WFC_ISSUE_LOCK_WAIT_MS = "0";
 		const results = await race(4, ["--attempts", "12"]);
 		expect(results.filter((r) => r.status !== 0)).toEqual([]);
-		const final = a.issueBodyText();
+		const final = a.readIssueBodyText();
 		expect(final).toContain("#123 — the shared parser");
 		for (let i = 0; i < 4; i++) {
 			expect(

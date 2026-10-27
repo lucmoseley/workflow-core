@@ -22,13 +22,14 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { recentEntries } from "./lib/dispatch-ledger.js";
+import { readRecentEntries } from "./lib/dispatch-ledger.js";
 import { dispatchFixture, SCRIPT } from "./lib/dispatch-sessions-testkit";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
+import { runOf } from "./lib/headless-sessions.js";
 import { launchBatch } from "./lib/refill-loop.js";
 
 const fx = dispatchFixture();
-const { stubClaude, baseEnv, argvLines } = fx;
+const { stubClaude, baseEnv, readArgvLines } = fx;
 
 const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
 const seat = () => path.join(fx.dir, ".claude2-api");
@@ -54,7 +55,13 @@ function overflowEnv(
 	const table = path.join(fx.dir, "cost-table.json");
 	fs.writeFileSync(
 		table,
-		JSON.stringify({ n: 1, meanUsd: 10, quantilesUsd: [1, 10, 30] }),
+		JSON.stringify({
+			n: 1,
+			meanUsd: 10,
+			quantilesUsd: [1, 10, 30],
+			tailRemainderUsd: 20,
+			landedByHours: [[1, 1]],
+		}),
 	);
 	return {
 		CLAUDE_CONFIG_DIR: seat(),
@@ -96,14 +103,27 @@ function dispatch(
 				out: `${r.stdout}${r.stderr}`.trim(),
 			};
 		},
-		entriesOf: (root) => recentEntries(root, 1).entries,
+		entriesOf: (root) => readRecentEntries(root, 1).entries,
+		sessionOf: (jobId) => storedRun(jobId)?.sessionId,
 	});
 }
 
-const headlessLaunches = () => argvLines().filter((l) => l.startsWith("-p "));
+/** The fixture store's record of a job, through the reader the loop uses. */
+function storedRun(jobId: string) {
+	const was = process.env.WFC_REFILL_DIR;
+	process.env.WFC_REFILL_DIR = refill();
+	try {
+		return runOf(jobId);
+	} finally {
+		process.env.WFC_REFILL_DIR = was;
+	}
+}
+
+const readHeadlessLaunches = () =>
+	readArgvLines().filter((l) => l.startsWith("-p "));
 const budgetsOf = (lines: string[]) =>
 	lines.map((l) => l.match(/--max-budget-usd (\S+)/)?.[1]);
-const storedJobIds = () =>
+const readStoredJobIds = () =>
 	fs.readdirSync(path.join(refill(), ".headless-runs")).sort();
 
 describe("an overflow seat (#2610)", () => {
@@ -114,11 +134,18 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.failed).toBeNull();
 		expect(r.out).toContain(`Budget OK: ${seat()} fits 20; headroom $200.00.`);
 		expect(r.out).not.toMatch(/Allowance OK|Advisor/);
-		expect(argvLines().some((l) => l.includes("--debug-file"))).toBe(false);
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
-		expect(budgetsOf(headlessLaunches())).toEqual(["200"]);
+		expect(readArgvLines().some((l) => l.includes("--debug-file"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(budgetsOf(readHeadlessLaunches())).toEqual(["200"]);
 		expect(r.launched).toHaveLength(1);
-		expect([r.launched[0]?.jobId]).toEqual(storedJobIds());
+		expect([r.launched[0]?.jobId]).toEqual(readStoredJobIds());
+	});
+
+	it("records the launch's session id from launch, before any listing shows it (#2611)", () => {
+		stubClaude({});
+		const [l] = dispatch(1, overflowEnv(200)).launched;
+		expect(l?.sessionId).toMatch(/^[0-9a-f-]{36}$/);
+		expect(l?.sessionId).toBe(storedRun(String(l?.jobId))?.sessionId);
 	});
 
 	it("cuts the set to the budget's fit in the CAPPED shape, each launch capped at the headroom left", () => {
@@ -129,7 +156,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.launched.map((l) => l.prompt)).toEqual(prompts.slice(0, 2));
 		expect(r.refused).toEqual([{ launch: expect.anything(), reason: capped }]);
 		// The first launch's $10 reservation leaves the second $15.
-		expect(budgetsOf(headlessLaunches())).toEqual(["25", "15"]);
+		expect(budgetsOf(readHeadlessLaunches())).toEqual(["25", "15"]);
 	});
 
 	it("refuses a set the budget fits none of, exit 3, in the REFUSED shape", () => {
@@ -138,7 +165,7 @@ describe("an overflow seat (#2610)", () => {
 		const refused = `REFUSED: overflow seat ${seat()} fits no session: headroom $5.00 against $10.00 a session ($0.00 held by 0 running).`;
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused.map((x) => x.reason)).toEqual([refused, refused]);
-		expect(headlessLaunches()).toEqual([]);
+		expect(readHeadlessLaunches()).toEqual([]);
 	});
 
 	it("refuses at exit 3 past --force, saying the budget gate does not lift", () => {
@@ -146,14 +173,14 @@ describe("an overflow seat (#2610)", () => {
 		const r = dispatch(1, overflowEnv(5), ["--force"]);
 		expect(r.failed).toBe("exit 3");
 		expect(r.out).toContain("--force does not lift the budget gate");
-		expect(headlessLaunches()).toEqual([]);
+		expect(readHeadlessLaunches()).toEqual([]);
 	});
 
 	it("cuts a set past --force all the same", () => {
 		stubClaude({});
 		const r = dispatch(3, overflowEnv(25), ["--force"]);
 		expect(r.out).toContain("CAPPED: launching 2 of 3 on the overflow budget");
-		expect(headlessLaunches()).toHaveLength(2);
+		expect(readHeadlessLaunches()).toHaveLength(2);
 	});
 
 	it("admits a Sonnet member burn mode moves to Opus", () => {
@@ -195,7 +222,7 @@ describe("an overflow seat (#2610)", () => {
 				`^REFUSED: overflow seat ${seat()}: its key is exhausted until \\d{4}-\\d{2}-\\d{2}`,
 			),
 		);
-		expect(headlessLaunches()).toEqual([]);
+		expect(readHeadlessLaunches()).toEqual([]);
 	});
 
 	it("refuses a non-Opus member before any gate, exit 2", () => {
@@ -208,7 +235,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.stderr).toContain(
 			`REFUSED: ${seat()} is an overflow seat, which launches Opus alone (#1920); sonnet is not.`,
 		);
-		expect(argvLines()).toEqual([]);
+		expect(readArgvLines()).toEqual([]);
 	});
 
 	it("records nothing where the key is missing from the checkout's .env, naming the variable", () => {
@@ -219,7 +246,7 @@ describe("an overflow seat (#2610)", () => {
 			"(the headless launcher exited 1; not recorded as launched.)",
 		);
 		expect(r.launched).toEqual([]);
-		expect(headlessLaunches()).toEqual([]);
+		expect(readHeadlessLaunches()).toEqual([]);
 	});
 
 	it("prints the headless launch on a dry run, at the key's headroom", () => {
@@ -236,7 +263,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(r.stdout).toMatch(
 			/would launch: node \S+\/lib\/headless-sessions\.js launch --seat \S+ --cwd \S+ --budget 200 \/implement\\ 341/,
 		);
-		expect(headlessLaunches()).toEqual([]);
+		expect(readHeadlessLaunches()).toEqual([]);
 	});
 });
 
@@ -253,7 +280,7 @@ describe("a plan seat beside an overflow seat (#2610)", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("Allowance OK");
-		expect(argvLines().filter((l) => l.startsWith("--bg"))).toHaveLength(1);
-		expect(headlessLaunches()).toEqual([]);
+		expect(readArgvLines().filter((l) => l.startsWith("--bg"))).toHaveLength(1);
+		expect(readHeadlessLaunches()).toEqual([]);
 	});
 });

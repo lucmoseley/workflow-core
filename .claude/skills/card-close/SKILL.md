@@ -22,7 +22,7 @@ backstop further down the line; the other two and a half have none.
 `.husky/pre-commit` on any commit staging `docs/reference-roadmap.html`, so
 step 7's commit is refused outright even if this file's stop was ignored (mantahostels#698).
 Routes that hook never sees. A `--no-verify` commit typed in the founder's own
-terminal — `scripts/guard-commit-form.sh` denies that flag to an agent
+terminal — `scripts/guard-commit-form.js` denies that flag to an agent
 session, on `git commit` alone (mantahostels#975). And `git cherry-pick`, `git revert`, `git rebase`
 and `git am`, which run no commit gate at all (measured at mantahostels#1679). An
 auto-resolving merge is not among them: `.husky/pre-merge-commit` gates it (mantahostels#1679).
@@ -163,7 +163,7 @@ The commit gives back this session's claims on the pair, the two most contended 
 
 ### 8. Only now, close the issue — and say what is still outstanding
 
-`scripts/guard-issue-close.sh` denies a `gh issue close` unless the close's own `--comment`, or else the issue's newest comment, carries an `**Outstanding:**` line in its grammar (mantahostels#185, #984). No earlier step here posts one, so without this line the skill's own last step is refused (mantahostels#281).
+`scripts/guard-issue-close.js` denies a `gh issue close` unless the close's own `--comment`, or else the issue's newest comment, carries an `**Outstanding:**` line in its grammar (mantahostels#185, #984). No earlier step here posts one, so without this line the skill's own last step is refused (mantahostels#281).
 
 ```bash
 gh issue close $ARGUMENTS --comment "Closed via /card-close — roadmap updated in <commit-sha>.

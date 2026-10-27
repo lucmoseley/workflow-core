@@ -22,9 +22,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { installLib } from "./lib/lib-install-testkit";
 import { expectFixtureSupplies } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process";
+
+const { DISPATCH_ENTRY, MANIFEST_REL } = require("./lib/guard-cores.js") as {
+	DISPATCH_ENTRY: string;
+	MANIFEST_REL: string;
+};
 
 const REAL_SCRIPT = path.join(__dirname, "check-guard-registry.js");
 const SELF_PLUGIN_HOOKS = "self-plugin/hooks/hooks.json";
@@ -42,9 +48,21 @@ interface Fixture {
 	files?: Record<string, string>;
 }
 
-const FIXTURE_SH_LIBS = new Set(["rule-text.sh", "guard-parse.sh"]);
+const FIXTURE_SH_LIBS = new Set(["rule-text.sh"]);
+
+/* A lib naming a real rule id — a Node guard's core, or a lib reading one
+ * fragment by name, through a core's `ruleText` port or by its `-landing`
+ * twin — which no fixture's store holds a fragment for (#2784, #2793). */
+const namesRuleId = (lib: string) =>
+	/\binjectRules:\s*\[\s*["']|\b(?:readRuleText(?:Or)?|ruleText)\(\s*["']|\bruleText\(\s*landingTwin\(/.test(
+		fs.readFileSync(path.join(__dirname, "lib", lib), "utf8"),
+	);
 
 const ANCHORS = ".claude/guard-registry-anchors.json";
+
+function readAnchors(root: string): Record<string, string> {
+	return JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
+}
 
 function build(fx: Fixture): string {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-"));
@@ -52,18 +70,12 @@ function build(fx: Fixture): string {
 	// The check reads every lib it finds for a `rule:<id>` citation (mantahostels#3135),
 	// and one real lib cites an id no fixture here holds a fragment for.
 	installLib(path.join(root, "scripts", "lib"), {
-		keep: (lib) => !lib.endsWith(".sh") || FIXTURE_SH_LIBS.has(lib),
+		keep: (lib) =>
+			lib.endsWith(".sh") ? FIXTURE_SH_LIBS.has(lib) : !namesRuleId(lib),
 	});
 	fs.copyFileSync(
 		REAL_SCRIPT,
 		path.join(root, "scripts", "check-guard-registry.js"),
-	);
-	// checker-new-faults.js sits in scripts/ itself, not scripts/lib/ — the
-	// whole-directory copy above does not reach it, and lib/check.js's --against
-	// limb requires it directly (mantahostels#2077).
-	fs.copyFileSync(
-		path.join(__dirname, "checker-new-faults.js"),
-		path.join(root, "scripts", "checker-new-faults.js"),
 	);
 	if (fx.claude !== undefined)
 		fs.writeFileSync(path.join(root, "CLAUDE.md"), fx.claude);
@@ -514,7 +526,7 @@ describe("a guard path named under Unenforced (mantahostels#2347)", () => {
 		// The marker branches sit BELOW the test, so none of them can return first.
 		const root = build({
 			claude: region(
-				"- Push when the suite is green. **Unenforceable** (#244): `scripts/guard-push-rules.sh` hands you the rule.",
+				"- Push when the suite is green. **Unenforceable** (#244): `scripts/guard-push-rules.js` hands you the rule.",
 			),
 		});
 		const r = run(root);
@@ -812,10 +824,6 @@ describe("reporting", () => {
 });
 
 describe("stale prose — has the guard moved since anyone confirmed the sentence", () => {
-	function anchors(root: string): Record<string, string> {
-		return JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
-	}
-
 	function guardRepo(): string {
 		return build({
 			claude: region(
@@ -840,7 +848,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const out = reviewIn(root);
 		expect(out).toContain("anchored scripts/guard-branch.sh");
 		expect(out).toContain("describes: CLAUDE.md");
-		expect(Object.keys(anchors(root))).toEqual(["scripts/guard-branch.sh"]);
+		expect(Object.keys(readAnchors(root))).toEqual(["scripts/guard-branch.sh"]);
 		expect(run(root).json.warnings).toEqual([]);
 	});
 
@@ -890,7 +898,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const r = run(root);
 		expect(r.code).toBe(0);
 		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
-		expect(r.json.warnings[0].detail).toContain("last reviewed");
+		expect(r.json.warnings[0].detail).toContain("since the last review");
 	});
 
 	it("stops warning by itself when the guard is changed back", () => {
@@ -959,7 +967,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		fs.writeFileSync(
 			path.join(root, ANCHORS),
 			JSON.stringify({
-				"scripts/guard-branch.sh": anchors(root)["scripts/guard-branch.sh"],
+				"scripts/guard-branch.sh": readAnchors(root)["scripts/guard-branch.sh"],
 				"scripts/guard-gone.sh": "deadbeefdeadbeef",
 			}),
 		);
@@ -1091,7 +1099,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	it("will not anchor a path a live neighbour holds dirty, and says whose", () => {
 		const root = twoGuards();
 		reviewIn(root);
-		const before = anchors(root);
+		const before = readAnchors(root);
 		dirty(root, "guard-a.sh");
 		const out = reviewIn(
 			root,
@@ -1102,7 +1110,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(out).toContain(neighbour);
 		expect(out).toContain("0 path(s) re-anchored");
 		expect(out).toContain("Re-run once the holder releases");
-		expect(anchors(root)).toEqual(before);
+		expect(readAnchors(root)).toEqual(before);
 	});
 
 	it("anchors the named path when the claim is on a DIFFERENT file", () => {
@@ -1110,7 +1118,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		// pass the case above and fail this one.
 		const root = twoGuards();
 		reviewIn(root);
-		const before = anchors(root);
+		const before = readAnchors(root);
 		dirty(root, "guard-a.sh");
 		dirty(root, "guard-b.sh");
 		const out = reviewIn(
@@ -1120,7 +1128,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		);
 		expect(out).toContain("anchored scripts/guard-a.sh");
 		expect(out).toContain("1 path(s) re-anchored");
-		expect(anchors(root)["scripts/guard-a.sh"]).not.toBe(
+		expect(readAnchors(root)["scripts/guard-a.sh"]).not.toBe(
 			before["scripts/guard-a.sh"],
 		);
 	});
@@ -1142,11 +1150,11 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 	it("a bare --review carries a held path's anchor over rather than dropping it", () => {
 		const root = twoGuards();
 		reviewIn(root);
-		const before = anchors(root);
+		const before = readAnchors(root);
 		dirty(root, "guard-a.sh");
 		reviewIn(root, [], env([lock("scripts/guard-a.sh")]));
 		// Dropped, it would read as UNANCHORED — a worse claim than a stale one.
-		expect(anchors(root)["scripts/guard-a.sh"]).toBe(
+		expect(readAnchors(root)["scripts/guard-a.sh"]).toBe(
 			before["scripts/guard-a.sh"],
 		);
 		expect(run(root).json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
@@ -1223,7 +1231,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	const other = "scripts/guard-other.sh";
 	const rule = "- Rule. **Enforced** (#1): `scripts/guard-x.sh`.";
 
-	function guardBody(header: string): string {
+	function buildGuardBody(header: string): string {
 		return ["#!/usr/bin/env bash", ...header.split("\n"), "", "exit 0"].join(
 			"\n",
 		);
@@ -1233,7 +1241,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody("# PreToolUse guard.\n#\n# LIMITS\n#  - none."),
+				[guard]: buildGuardBody("# PreToolUse guard.\n#\n# LIMITS\n#  - none."),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
 		});
@@ -1246,7 +1254,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
@@ -1261,7 +1269,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#\n# LIMITS\n#  - Wired with `if: Bash(*git*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
@@ -1278,7 +1286,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*gh*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
@@ -1310,7 +1318,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody("# PreToolUse guard."),
+				[guard]: buildGuardBody("# PreToolUse guard."),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
 			},
 		});
@@ -1324,7 +1332,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#  - Wired with `if: Bash(*git*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
@@ -1345,7 +1353,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#  - Wired with `if: Bash(*gh*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
@@ -1381,7 +1389,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard),
@@ -1397,7 +1405,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					'# PreToolUse guard.\n#  - Wired with `if: Bash(git commit -m "(x)"*)`.',
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, 'Bash(git commit -m "(x)"*)'),
@@ -1412,7 +1420,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody("# PreToolUse guard."),
+				[guard]: buildGuardBody("# PreToolUse guard."),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(guard, "Bash(*git*)"),
 			},
 		});
@@ -1425,7 +1433,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({ hooks: {} }),
@@ -1447,7 +1455,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
@@ -1479,7 +1487,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		const root = build({
 			claude: region(rule),
 			files: {
-				[guard]: guardBody(
+				[guard]: buildGuardBody(
 					"# PreToolUse guard.\n#\n#  - Wired with `if: Bash(*git*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
@@ -1512,8 +1520,8 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 				"- Rule. **Enforced** (#1): `scripts/guard-other.sh` denies it.",
 			),
 			files: {
-				[other]: guardBody("# PreToolUse guard."),
-				[retired]: guardBody(
+				[other]: buildGuardBody("# PreToolUse guard."),
+				[retired]: buildGuardBody(
 					"# Retired guard, kept for reference.\n#  - Wired with `if: Bash(*gh*)` since #2061.",
 				),
 				[SELF_PLUGIN_HOOKS]: wiringWithIf(other),
@@ -1533,8 +1541,26 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 	});
 });
 
-function committedRepo(fx: Fixture): string {
+const TWO_GUARDS: Fixture = {
+	claude: region(
+		"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
+		"- Never amend. **Enforced** (#111): `scripts/guard-amend.sh` denies it.",
+	),
+	files: {
+		"scripts/guard-branch.sh":
+			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 2\n',
+		"scripts/guard-amend.sh": "#!/bin/sh\nexit 2\n",
+		"scripts/lib/deny.sh": "deny() { exit 2; }\n",
+		[SELF_PLUGIN_HOOKS]: hooksWiring(
+			"scripts/guard-branch.sh",
+			"scripts/guard-amend.sh",
+		),
+	},
+};
+
+function committedRepo(fx: Fixture, prepare?: (root: string) => void): string {
 	const root = build(fx);
+	prepare?.(root);
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, encoding: "utf8" });
 	git("init", "-q", ".");
@@ -1640,7 +1666,7 @@ describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs
  * Pure bookkeeping, not a --against exercise: expectFixtureSupplies reads only
  * what `.husky/pre-commit`'s own fragment spawns as a runnable
  * (`node|bash|sh scripts/x.js`), which is `check-guard-registry.js` alone — the
- * checker's own `require()`s of checker-new-faults.js/lib/fault-diff.js are
+ * checker's own `require()`s of lib/fault-profiles.js/lib/fault-diff.js are
  * invisible to that scan, so this asserts nothing about whether build() copies
  * them. It duplicates scripts/precommit-ci-gates.test.ts's identical assertion
  * for the same gate.
@@ -1664,38 +1690,42 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 			),
 			files: {
 				"scripts/guard-branch.sh":
-					'#!/bin/sh\nsource "$(dirname "$0")/lib/guard-parse.sh"\nexit 2\n',
-				"scripts/lib/guard-parse.sh": lib,
+					'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 2\n',
+				"scripts/lib/deny.sh": lib,
 				[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-branch.sh"),
 			},
 		});
 
 	it("warns the guard is stale when only its library changed, naming the guard, not the library", () => {
-		// gp_deny lives in the library, so a change there can falsify the rule
+		// The deny lives in the library, so a change there can falsify the rule
 		// describing the guard.
-		const root = withLib("gp_deny() { exit 2; }\n");
+		const root = withLib("deny() { exit 2; }\n");
 		reviewIn(root);
 		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "guard-parse.sh"),
-			"gp_deny() { exit 0; }\n",
+			path.join(root, "scripts", "lib", "deny.sh"),
+			"deny() { exit 0; }\n",
 		);
 
 		const r = run(root);
 		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
 		expect(r.json.warnings[0].guard).toBe("scripts/guard-branch.sh");
+		// The guard's own bytes did not move, so the finding names the library route too (#3122).
+		expect(r.json.warnings[0].detail).toContain(
+			"the guard or a library its digest hashes changed",
+		);
 	});
 
 	it("still anchors the guard alone, never the library", () => {
 		// An anchor for the library would fail as ORPHAN-ANCHOR: no rule names it.
-		const root = withLib("gp_deny() { exit 2; }\n");
+		const root = withLib("deny() { exit 2; }\n");
 		reviewIn(root);
 
-		expect(Object.keys(anchorsOf(root))).toEqual(["scripts/guard-branch.sh"]);
+		expect(Object.keys(readAnchors(root))).toEqual(["scripts/guard-branch.sh"]);
 		expect(run(root).json.warnings).toEqual([]);
 	});
 
 	it("is quiet when neither guard nor library has moved", () => {
-		const root = withLib("gp_deny() { exit 2; }\n");
+		const root = withLib("deny() { exit 2; }\n");
 		reviewIn(root);
 
 		expect(run(root).json.warnings).toEqual([]);
@@ -1703,18 +1733,18 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 
 	it("survives a library that sources itself", () => {
 		// A cycle must not hang or blow the stack; each file is hashed once.
-		const root = withLib('source "$(dirname "$0")/lib/guard-parse.sh"\n');
+		const root = withLib('source "$(dirname "$0")/lib/deny.sh"\n');
 		reviewIn(root);
 
 		expect(run(root).json.warnings).toEqual([]);
 	});
 
 	it("ignores a source line that is commented out", () => {
-		const root = withLib("gp_deny() { exit 2; }\n");
+		const root = withLib("deny() { exit 2; }\n");
 		reviewIn(root);
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-branch.sh"),
-			'#!/bin/sh\nsource "$(dirname "$0")/lib/guard-parse.sh"\n# source "$(dirname "$0")/lib/absent.sh"\nexit 2\n',
+			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\n# source "$(dirname "$0")/lib/absent.sh"\nexit 2\n',
 		);
 
 		// The guard's own bytes changed, so it is stale — but on its own account,
@@ -1722,40 +1752,15 @@ describe("a guard's digest covers the libraries it sources (mantahostels#140)", 
 		const r = run(root);
 		expect(r.json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
 	});
-
-	function anchorsOf(root: string): Record<string, string> {
-		return JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
-	}
 });
 
 describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 	/* Two guards, one sourcing a library, anchored and committed, so each
 	 * case's own commit is the one under judgement. */
 	function anchoredRepo() {
-		const root = build({
-			claude: region(
-				"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
-				"- Never amend. **Enforced** (#111): `scripts/guard-amend.sh` denies it.",
-			),
-			files: {
-				"scripts/guard-branch.sh":
-					'#!/bin/sh\nsource "$(dirname "$0")/lib/guard-parse.sh"\nexit 2\n',
-				"scripts/guard-amend.sh": "#!/bin/sh\nexit 2\n",
-				"scripts/lib/guard-parse.sh": "gp_deny() { exit 2; }\n",
-				[SELF_PLUGIN_HOOKS]: hooksWiring(
-					"scripts/guard-branch.sh",
-					"scripts/guard-amend.sh",
-				),
-			},
-		});
-		reviewIn(root);
+		const root = committedRepo(TWO_GUARDS, (r) => reviewIn(r));
 		const git = (...args: string[]) =>
 			execFileSync("git", args, { cwd: root, encoding: "utf8" });
-		git("init", "-q", ".");
-		git("config", "user.email", "test@example.com");
-		git("config", "user.name", "test");
-		git("add", "-A");
-		git("commit", "-qm", "base");
 		/* null deletes the file; the commit takes `rel` and `also` alone. */
 		const commit = (rel: string, body: string | null, also: string[] = []) => {
 			if (body === null) fs.rmSync(path.join(root, rel));
@@ -1771,14 +1776,14 @@ describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 
 	it("names a guard whose library the commit changed, through it, with its rule and the --review line", () => {
 		const { root, commit } = anchoredRepo();
-		commit("scripts/lib/guard-parse.sh", "gp_deny() { exit 0; }\n");
+		commit("scripts/lib/deny.sh", "deny() { exit 0; }\n");
 		const r = touched(root);
 		expect(r.code).toBe(0);
 		expect(r.json.warnings.map((w) => [w.kind, w.guard])).toEqual([
 			["STALE-PROSE", "scripts/guard-branch.sh"],
 		]);
 		expect(r.report).toContain(
-			"STALE-PROSE  scripts/guard-branch.sh (through scripts/lib/guard-parse.sh)",
+			"STALE-PROSE  scripts/guard-branch.sh (through scripts/lib/deny.sh)",
 		);
 		expect(r.report).toContain("rule:  CLAUDE.md:");
 		expect(r.report).toContain(
@@ -1876,18 +1881,18 @@ describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 		);
 	});
 
-	it("names the live guard-dispatch-rewrite.sh through the lib/dispatch-rewrite.js it runs from a variable (#2487)", () => {
-		const guard = "scripts/guard-dispatch-rewrite.sh";
-		const lib = "scripts/lib/dispatch-rewrite.js";
+	it("names a guard through the library it runs from a variable (#2487)", () => {
+		const guard = "scripts/guard-rewrite.sh";
+		const lib = "scripts/lib/rewrite.js";
 		const root = committedRepo({
 			claude: region(
 				`- One rewrite per dispatch. **Enforced** (#2013): \`${guard}\` rewrites it.`,
 			),
 			files: {
-				[guard]: fs.readFileSync(
-					path.join(__dirname, "guard-dispatch-rewrite.sh"),
-					"utf8",
-				),
+				// The shape: lib="$here/lib/x.js" … node "$lib".
+				[guard]:
+					'#!/bin/bash\nhere="$(dirname "$0")"\nlib="$here/lib/rewrite.js"\nnode "$lib"\n',
+				[lib]: "module.exports = {};\n",
 				[SELF_PLUGIN_HOOKS]: hooksWiring(guard),
 			},
 		});
@@ -1927,37 +1932,14 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	 * anchors, so each case stages the change under judgement. */
 	let template = "";
 	beforeAll(() => {
-		const built = build({
-			claude: region(
-				"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
-				"- Never amend. **Enforced** (#111): `scripts/guard-amend.sh` denies it.",
-			),
-			files: {
-				"scripts/guard-branch.sh":
-					'#!/bin/sh\nsource "$(dirname "$0")/lib/guard-parse.sh"\nexit 2\n',
-				"scripts/guard-amend.sh": "#!/bin/sh\nexit 2\n",
-				"scripts/lib/guard-parse.sh": "gp_deny() { exit 2; }\n",
-				[SELF_PLUGIN_HOOKS]: hooksWiring(
-					"scripts/guard-branch.sh",
-					"scripts/guard-amend.sh",
-				),
-			},
-		});
-		reviewIn(built, [], claims());
-		const init = (...args: string[]) =>
-			execFileSync("git", args, { cwd: built, encoding: "utf8" });
-		init("init", "-q", ".");
-		init("config", "user.email", "test@example.com");
-		init("config", "user.name", "test");
-		init("add", "-A");
-		init("commit", "-qm", "base");
+		const built = committedRepo(TWO_GUARDS, (r) => reviewIn(r, [], claims()));
 		/* Out of `temps`, which afterEach empties after the first case. */
 		temps.splice(temps.indexOf(built), 1);
 		template = built;
 	});
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 
-	function anchoredRepo() {
+	function stagingRepo() {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-"));
 		temps.push(root);
 		fs.cpSync(template, root, { recursive: true });
@@ -1985,7 +1967,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		reviewIn(root, paths, claims());
 	/* .husky/pre-commit's own guard-registry line, so the case runs what the
 	 * hook runs. */
-	const hookLine = () => {
+	const readHookLine = () => {
 		const line = fs
 			.readFileSync(path.join(__dirname, "..", ".husky", "pre-commit"), "utf8")
 			.split("\n")
@@ -1999,12 +1981,14 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 			.map((f) => f.message);
 
 	it("refuses a library change that expires a guard's anchor, naming the path, its rule, the --review line and the pathspec", () => {
-		const { root, stage } = anchoredRepo();
-		stage({ "scripts/lib/guard-parse.sh": "gp_deny() { exit 0; }\n" });
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
 		const r = gate(root);
 		expect(r.code).toBe(1);
 		expect(added(r)).toEqual([
-			expect.stringContaining("scripts/guard-branch.sh — changed since"),
+			expect.stringContaining(
+				"scripts/guard-branch.sh — the guard or a library its digest hashes changed since",
+			),
 		]);
 		expect(r.report).toContain("STALE-PROSE  scripts/guard-branch.sh");
 		expect(r.report).toContain("rule:  CLAUDE.md:");
@@ -2015,7 +1999,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	});
 
 	it("passes the same change once its re-anchor is staged with it", () => {
-		const { root, stage } = anchoredRepo();
+		const { root, stage } = stagingRepo();
 		stage({ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" });
 		expect(gate(root).code).toBe(1);
 		review(root, ["scripts/guard-amend.sh"]);
@@ -2026,7 +2010,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	});
 
 	it("passes a commit over a row already stale at HEAD", () => {
-		const { root, git, stage } = anchoredRepo();
+		const { root, git, stage } = stagingRepo();
 		stage({ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" });
 		git("commit", "-qm", "stale at HEAD");
 		stage({
@@ -2038,12 +2022,12 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	});
 
 	it("stands down a path a live neighbour holds dirty, and says whose", () => {
-		const { root, stage } = anchoredRepo();
-		stage({ "scripts/lib/guard-parse.sh": "gp_deny() { exit 0; }\n" });
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
 		// Dirty in the working tree only: the neighbour's, not this commit's.
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-branch.sh"),
-			'#!/bin/sh\nsource "$(dirname "$0")/lib/guard-parse.sh"\nexit 3\n',
+			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 3\n',
 		);
 		const r = gate(root, [
 			{
@@ -2060,15 +2044,15 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	});
 
 	it("stands down a row whose LIBRARY a live neighbour holds dirty, not only its guard", () => {
-		const { root, stage } = anchoredRepo();
-		stage({ "scripts/lib/guard-parse.sh": "gp_deny() { exit 0; }\n" });
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
 		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "guard-parse.sh"),
-			"gp_deny() { exit 5; }\n",
+			path.join(root, "scripts", "lib", "deny.sh"),
+			"deny() { exit 5; }\n",
 		);
 		const r = gate(root, [
 			{
-				path: "scripts/lib/guard-parse.sh",
+				path: "scripts/lib/deny.sh",
 				sessionId: "neighbour-session",
 				pid: 4242,
 				alive: true,
@@ -2077,22 +2061,70 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		]);
 		expect(r.code).toBe(0);
 		expect(r.report).toContain(
-			"not refusing scripts/guard-branch.sh — scripts/lib/guard-parse.sh is dirty and claimed by neighbour-session",
+			"not refusing scripts/guard-branch.sh — scripts/lib/deny.sh is dirty and claimed by neighbour-session",
 		);
 	});
 
+	it("--review skips the same row the gate stands down, where only its LIBRARY is held, and still anchors a guard that does not read it (#2853)", () => {
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
+		fs.writeFileSync(
+			path.join(root, "scripts", "lib", "deny.sh"),
+			"deny() { exit 5; }\n",
+		);
+		const before = readAnchors(root);
+		const out = reviewIn(
+			root,
+			["scripts/guard-branch.sh", "scripts/guard-amend.sh"],
+			claims([
+				{
+					path: "scripts/lib/deny.sh",
+					sessionId: "neighbour-session",
+					pid: 4242,
+					alive: true,
+					claimedAt: new Date().toISOString(),
+				},
+			]),
+		);
+		expect(out).toContain(
+			"not anchored scripts/guard-branch.sh — scripts/lib/deny.sh is dirty and claimed by neighbour-session",
+		);
+		expect(out).toMatch(/^\s*anchored scripts\/guard-amend\.sh/m);
+		expect(out).toContain("1 path(s) re-anchored");
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it('says so where the staged read behind the "(through …)" notes fails, and still refuses (#2853)', () => {
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
+		const failing = writeFaultyGit(
+			{ words: ["diff", "--cached", "--name-only", "-z", "HEAD"] },
+			{ exit: 7 },
+		);
+		temps.push(failing.dir);
+		const r = run(root, ["--against", "HEAD"], {
+			cwd: root,
+			env: { ...claims(), WFC_GIT: failing.git },
+		});
+		expect(r.code).toBe(1);
+		expect(r.report).toContain(
+			"the paths each row went stale through not named — git diff --cached failed (exit 7).",
+		);
+		expect(r.report).toContain("STALE-PROSE  scripts/guard-branch.sh\n");
+	});
+
 	it("names the library a guard went stale through", () => {
-		const { root, stage } = anchoredRepo();
-		stage({ "scripts/lib/guard-parse.sh": "gp_deny() { exit 0; }\n" });
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
 		expect(gate(root).report).toContain(
-			"STALE-PROSE  scripts/guard-branch.sh (through scripts/lib/guard-parse.sh)",
+			"STALE-PROSE  scripts/guard-branch.sh (through scripts/lib/deny.sh)",
 		);
 	});
 
 	it("is the refusal a pathspec commit meets through the hook's own line", () => {
-		const { root, git } = anchoredRepo();
+		const { root, git } = stagingRepo();
 		const hook = path.join(root, ".git", "hooks", "pre-commit");
-		fs.writeFileSync(hook, `#!/bin/sh\n${hookLine()}\n`, { mode: 0o755 });
+		fs.writeFileSync(hook, `#!/bin/sh\n${readHookLine()}\n`, { mode: 0o755 });
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-amend.sh"),
 			"#!/bin/sh\nexit 1\n",
@@ -2102,38 +2134,38 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 			WFC_RULES_DIR: "",
 			WFC_RULES_FALLBACK_DIR: "",
 		};
-		const commit = (...paths: string[]) =>
+		const hookCommit = (...paths: string[]) =>
 			spawnSync("git", ["commit", "-qm", "x", "--", ...paths], {
 				cwd: root,
 				encoding: "utf8",
 				env,
 			});
-		const refused = commit("scripts/guard-amend.sh");
+		const refused = hookCommit("scripts/guard-amend.sh");
 		expect(refused.status).not.toBe(0);
 		expect(refused.stderr).toContain("--review scripts/guard-amend.sh");
 		review(root, ["scripts/guard-amend.sh"]);
-		expect(commit("scripts/guard-amend.sh", ANCHORS).status).toBe(0);
+		expect(hookCommit("scripts/guard-amend.sh", ANCHORS).status).toBe(0);
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
 	it("says so where the working tree differs from the staged bytes a re-anchor must match", () => {
-		const { root, stage } = anchoredRepo();
-		stage({ "scripts/lib/guard-parse.sh": "gp_deny() { exit 0; }\n" });
+		const { root, stage } = stagingRepo();
+		stage({ "scripts/lib/deny.sh": "deny() { exit 0; }\n" });
 		fs.writeFileSync(
-			path.join(root, "scripts", "lib", "guard-parse.sh"),
-			"gp_deny() { exit 4; }\n",
+			path.join(root, "scripts", "lib", "deny.sh"),
+			"deny() { exit 4; }\n",
 		);
 		review(root, ["scripts/guard-branch.sh"]);
 		stage({}, [ANCHORS]);
 		const r = gate(root);
 		expect(r.code).toBe(1);
 		expect(r.report).toContain(
-			"scripts/lib/guard-parse.sh in the working tree differs from the staged copy, and --review hashes the working tree",
+			"scripts/lib/deny.sh in the working tree differs from the staged copy, and --review hashes the working tree",
 		);
 	});
 
 	it("says so where a re-anchor already run is left out of the commit", () => {
-		const { root, stage } = anchoredRepo();
+		const { root, stage } = stagingRepo();
 		stage({ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" });
 		review(root, ["scripts/guard-amend.sh"]);
 		const r = gate(root);
@@ -2144,7 +2176,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	});
 
 	it("refuses a rule newly naming a guard nobody anchored, as UNANCHORED", () => {
-		const { root, stage } = anchoredRepo();
+		const { root, stage } = stagingRepo();
 		stage({
 			"CLAUDE.md": region(
 				"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
@@ -2165,7 +2197,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	});
 
 	it("refuses a commit that orphans an anchor, which --review <path> then drops", () => {
-		const { root, stage } = anchoredRepo();
+		const { root, stage } = stagingRepo();
 		stage({
 			"CLAUDE.md": region(
 				"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
@@ -2180,6 +2212,232 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		);
 		stage({}, [ANCHORS]);
 		expect(gate(root).code).toBe(0);
+	});
+
+	it("refuses a commit that adds a dispatcher core in the manifest alone, naming the dispatcher (#3124)", () => {
+		const guard = DISPATCH_ENTRY;
+		const manifest = MANIFEST_REL;
+		const rows = (...cores: string[]) =>
+			JSON.stringify({
+				PreToolUse: cores.map((core) => ({
+					name: core,
+					core: `${core}.js`,
+					tools: "Bash",
+					failure: "open",
+				})),
+			});
+		const root = committedRepo(
+			{
+				claude: region(
+					`- One dispatcher. **Enforced** (#2786): \`${guard}\` runs the cores.`,
+				),
+				files: {
+					[guard]: 'require("./lib/guard-dispatch.js");\n',
+					"scripts/lib/guard-dispatch.js": "// the kit\n",
+					[manifest]: rows("a"),
+					"scripts/lib/a.js": "// a\n",
+					"scripts/lib/b.js": "// b\n",
+					[SELF_PLUGIN_HOOKS]: hooksWiring(guard),
+				},
+			},
+			(repo) => reviewIn(repo, [], claims()),
+		);
+		expect(gate(root).code).toBe(0);
+		fs.writeFileSync(path.join(root, manifest), rows("a", "b"));
+		execFileSync("git", ["add", "--", manifest], { cwd: root });
+		const r = gate(root);
+		expect(r.code).toBe(1);
+		expect(r.report).toContain(`STALE-PROSE  ${guard}`);
+		expect(r.report).toContain(`--review ${guard}`);
+	});
+});
+
+describe("scripts/landing-registry-gate.js judges a push to landing on landing's tree (#3074)", () => {
+	/* The #2617 template: two guards anchored and committed at X. A real
+	 * spawn, since the gate streams the checker's report to fd 2. */
+	let template = "";
+	const claims = {
+		CLAUDE_CODE_SESSION_ID: "self-session",
+		WFC_ANCHOR_LOCKS: "[]",
+	};
+	beforeAll(() => {
+		const built = committedRepo(TWO_GUARDS, (r) => {
+			reviewIn(r, [], claims);
+			fs.copyFileSync(
+				path.join(__dirname, "landing-registry-gate.js"),
+				path.join(r, "scripts", "landing-registry-gate.js"),
+			);
+		});
+		temps.splice(temps.indexOf(built), 1);
+		template = built;
+	});
+	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
+
+	function repo() {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-"));
+		temps.push(root);
+		fs.cpSync(template, root, { recursive: true });
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+		const commit = (files: Record<string, string>, msg: string) => {
+			for (const [rel, body] of Object.entries(files))
+				fs.writeFileSync(path.join(root, rel), body);
+			git("add", "-A");
+			git("commit", "-qm", msg);
+			return git("rev-parse", "HEAD");
+		};
+		const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
+		return { root, git, commit, read };
+	}
+
+	const push = (
+		root: string,
+		{ sha, tip }: { sha: string; tip: string },
+		modules = "landing",
+		locks: unknown[] = [],
+	) =>
+		spawnSync(
+			"node",
+			[path.join(root, "scripts", "landing-registry-gate.js")],
+			{
+				cwd: root,
+				encoding: "utf8",
+				input: `refs/heads/main ${sha} refs/heads/landing ${tip}\n`,
+				env: {
+					...process.env,
+					...claims,
+					WFC_ANCHOR_LOCKS: JSON.stringify(locks),
+					CLAUDE_PROJECT_DIR: root,
+					WFC_RULES_DIR: "",
+					WFC_RULES_FALLBACK_DIR: "",
+					WFC_MODULES: modules,
+				},
+			},
+		);
+	const preCommit = (root: string) =>
+		run(root, ["--against", "HEAD"], { cwd: root, env: claims });
+
+	it("refuses an anchors write computed on base A and committed onto base B, which A's pre-commit passes, naming the row and the re-anchor command", () => {
+		const { root, git, commit, read } = repo();
+		const x = git("rev-parse", "HEAD");
+		// Base A: X with guard-branch's library changed and the whole file re-anchored.
+		fs.writeFileSync(
+			path.join(root, "scripts/lib/deny.sh"),
+			"deny() { exit 0; }\n",
+		);
+		reviewIn(root, [], claims);
+		git("add", "-A");
+		expect(preCommit(root).code).toBe(0);
+		const anchorsOnA = read(ANCHORS);
+		git("reset", "-q", "--hard", x);
+		// Base B, landing's tip: guard-amend changed and re-anchored there.
+		commit({ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" }, "amend");
+		reviewIn(root, ["scripts/guard-amend.sh"], claims);
+		const tip = commit({}, "re-anchor amend");
+		const sha = commit(
+			{
+				[ANCHORS]: anchorsOnA,
+				"scripts/lib/deny.sh": "deny() { exit 0; }\n",
+			},
+			"A's re-anchor onto B",
+		);
+		const r = push(root, { sha, tip });
+		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr).toContain("STALE-PROSE  scripts/guard-amend.sh");
+		expect(r.stderr).toContain(
+			"node scripts/check-guard-registry.js --review scripts/guard-amend.sh",
+		);
+		expect(r.stderr).toContain(`git worktree add --detach <dir> ${sha}`);
+		expect(r.stderr).toContain(`pre-push: refused — ${sha}`);
+	});
+
+	it("refuses the twin of a commit that moved a row already stale on a diverged branch, onto a landing where it was fresh, naming the row and the re-anchor command", () => {
+		const { root, git, commit } = repo();
+		const tip = git("rev-parse", "HEAD");
+		// The diverged local branch: guard-branch stale there already.
+		commit(
+			{
+				"scripts/guard-branch.sh":
+					'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nexit 3\n',
+			},
+			"diverge",
+		);
+		fs.writeFileSync(
+			path.join(root, "scripts/lib/deny.sh"),
+			"deny() { exit 0; }\n",
+		);
+		git("add", "-A");
+		expect(preCommit(root).code).toBe(0);
+		const local = commit({}, "move a row stale here");
+		git("checkout", "-q", "-b", "landing", tip);
+		git("cherry-pick", local);
+		const sha = git("rev-parse", "HEAD");
+		const r = push(root, { sha, tip });
+		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr).toContain("STALE-PROSE  scripts/guard-branch.sh");
+		expect(r.stderr).toContain(
+			"node scripts/check-guard-registry.js --review scripts/guard-branch.sh",
+		);
+	});
+
+	it("refuses a row whose guard a live neighbour holds dirty in the shared tree, whose bytes the push does not carry", () => {
+		const { root, git, commit } = repo();
+		const tip = git("rev-parse", "HEAD");
+		const sha = commit(
+			{ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" },
+			"stale",
+		);
+		fs.writeFileSync(
+			path.join(root, "scripts/guard-amend.sh"),
+			"#!/bin/sh\nexit 4\n",
+		);
+		const r = push(root, { sha, tip }, "landing", [
+			{
+				path: "scripts/guard-amend.sh",
+				sessionId: "neighbour-session",
+				pid: 4242,
+				alive: true,
+				claimedAt: new Date().toISOString(),
+			},
+		]);
+		expect(r.status, r.stderr).toBe(2);
+		expect(r.stderr).not.toContain("not refusing");
+		expect(r.stderr).toContain("STALE-PROSE  scripts/guard-amend.sh");
+	});
+
+	it("passes a push whose tree carries only the stale rows landing's tip already has", () => {
+		const { root, commit } = repo();
+		const tip = commit(
+			{ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" },
+			"stale on landing",
+		);
+		fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+		const sha = commit({ "docs/note.md": "unrelated\n" }, "unrelated");
+		const r = push(root, { sha, tip });
+		expect(r.status, r.stderr).toBe(0);
+	});
+
+	it("does nothing with the landing module off", () => {
+		const { root, git, commit } = repo();
+		const tip = git("rev-parse", "HEAD");
+		const sha = commit(
+			{ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" },
+			"stale",
+		);
+		const r = push(root, { sha, tip }, "suites");
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toBe("");
+	});
+
+	it("passes, printed, a push that creates landing", () => {
+		const { root, commit } = repo();
+		const sha = commit(
+			{ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" },
+			"stale",
+		);
+		const r = push(root, { sha, tip: "0".repeat(40) });
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).toContain("creates landing");
 	});
 });
 
@@ -2218,7 +2476,7 @@ describe("a JS guard's digest covers the modules it requires (mantahostels#159)"
 		const root = withModules("module.exports = { holderAlive: () => true };\n");
 		reviewIn(root);
 
-		expect(Object.keys(anchorsOf(root))).toEqual([
+		expect(Object.keys(readAnchors(root))).toEqual([
 			"scripts/session-arbiter.js",
 		]);
 		expect(run(root).json.warnings).toEqual([]);
@@ -2282,10 +2540,6 @@ describe("a JS guard's digest covers the modules it requires (mantahostels#159)"
 		);
 		expect(run(root).json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
 	});
-
-	function anchorsOf(root: string): Record<string, string> {
-		return JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
-	}
 });
 
 describe("a thin shell guard's digest covers the program it runs (mantahostels#358)", () => {
@@ -2323,7 +2577,7 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 		const root = withDelegate();
 		reviewIn(root);
 
-		expect(Object.keys(anchorsOf(root))).toEqual([
+		expect(Object.keys(readAnchors(root))).toEqual([
 			"scripts/guard-file-claim.sh",
 		]);
 		expect(run(root).json.warnings).toEqual([]);
@@ -2418,7 +2672,7 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 	});
 
 	it("follows a program the guard runs through a variable it assigns (#2487)", () => {
-		// guard-dispatch-rewrite.sh's shape: lib="$here/lib/x.js" … node "$lib".
+		// The shape: lib="$here/lib/x.js" … node "$lib".
 		const root = withDelegate();
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-file-claim.sh"),
@@ -2438,7 +2692,7 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 	});
 
 	it("follows a variable run inside a command substitution", () => {
-		// guard-unasked-rerun.sh's shape: x="$(node "$judge" …)".
+		// The shape x="$(node "$judge" …)".
 		const root = withDelegate();
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-file-claim.sh"),
@@ -2511,10 +2765,6 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 		// Absence is the BROKEN-CLAIM check's business, not the digest's.
 		expect(run(root).json.warnings).toEqual([]);
 	});
-
-	function anchorsOf(root: string): Record<string, string> {
-		return JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
-	}
 });
 
 describe("the checker breaking is not the same event as a rule being false", () => {
@@ -2666,7 +2916,7 @@ describe("a rule whose text its guard reprints when it denies (mantahostels#1032
 		const root = build({
 			claude: region(rule),
 			files: {
-				// scripts/guard-agent-poll.sh's read and ListAgents branches.
+				// A deny built from a variable and an appended heredoc.
 				"scripts/guard-x.sh": [
 					"#!/usr/bin/env bash",
 					'reason="Instead: commit by pathspec."',
@@ -2803,60 +3053,6 @@ describe("a rule whose text its guard reprints when it denies (mantahostels#1032
 	});
 });
 
-describe("the live delayed-deny guard, mantahostels#964's counter-example", () => {
-	/*
-	 * The REAL guard is copied in, so the declaration keeping it silent is under
-	 * test rather than a fixture's imitation of it. The rule beside it quotes that
-	 * guard's own deny text verbatim — CLAUDE.md's live wording of the same rule
-	 * happens not to, so pairing the two as they stand would assert nothing: the
-	 * warning would be silent whatever the declaration said.
-	 */
-	const poll = "scripts/guard-agent-poll.sh";
-	const source = fs.readFileSync(
-		path.join(__dirname, "guard-agent-poll.sh"),
-		"utf8",
-	);
-
-	/** Verbatim from the guard's own `noop` deny heredoc. */
-	const quoted =
-		"A no-op command like `true` re-invokes this session — which is why " +
-		"the loop it is meant to break keeps going.";
-	const rule =
-		"- **While something runs in the background, end the turn.** " +
-		`${quoted} **Enforced** (#627): \`${poll}\`.`;
-
-	function pollFixture(guardSource: string): string {
-		return build({
-			claude: region(rule),
-			files: {
-				[poll]: guardSource,
-				[SELF_PLUGIN_HOOKS]: hooksWiring(poll),
-			},
-		});
-	}
-
-	it("declares its timing, and draws no REPRINTED warning even where the rule quotes its deny text", () => {
-		// The pairing asserts nothing unless the quote is still the guard's own
-		// wording, so drift in the heredoc fails here rather than going silent.
-		expect(source).toContain(quoted);
-		expect(source).toMatch(/^\s*#\s*deny-timing:\s*delayed\b/m);
-		const root = pollFixture(source);
-		expect(
-			run(root).json.warnings.filter((w) => w.kind === "REPRINTED"),
-		).toEqual([]);
-	});
-
-	it("would warn on that same pair as REPRINTED, naming the guard, without the declaration — so the silence above is the declaration's doing", () => {
-		const undeclared = source.replace(/^#\s*deny-timing:.*$/m, "#");
-		expect(undeclared).not.toMatch(/deny-timing:\s*delayed/);
-		const root = pollFixture(undeclared);
-		const [warning] = run(root).json.warnings.filter(
-			(w) => w.kind === "REPRINTED",
-		);
-		expect(warning?.guard).toBe(poll);
-	});
-});
-
 /*
  * The second assertion (mantahostels#1261): every script the ACTING wiring reaches says what
  * it does to a session that never asked for it.
@@ -2981,7 +3177,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("takes a PreToolUse guard that ALSO acts, on its own declaration", () => {
-		// scripts/guard-file-claim.sh is the live instance: it refuses a write to a
+		// The file-claim guard's shape: it refuses a write to a
 		// held file AND takes a claim the session never asked for. Declared, not
 		// inferred — reading "also acts" out of a guard's body is reading intent.
 		const root = build({
@@ -3354,7 +3550,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 		"",
 	].join("\n");
 
-	function repo(): string {
+	function postToolUseRepo(): string {
 		return build({
 			claude: rules,
 			files: {
@@ -3379,7 +3575,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 	}
 
 	it("warns that nobody has read a wired script's annotation against it, as UNANCHORED, naming the IMPLICIT / JUSTIFIED / DEFEAT annotation", () => {
-		const r = run(repo());
+		const r = run(postToolUseRepo());
 		expect(r.code).toBe(0);
 		expect(r.json.warnings.map((w) => w.kind)).toEqual(["UNANCHORED"]);
 		expect(r.json.warnings[0].detail).toContain(
@@ -3388,7 +3584,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 	});
 
 	it("--review clears it, and prints what the re-anchor is asserting", () => {
-		const root = repo();
+		const root = postToolUseRepo();
 		const out = reviewIn(root);
 		expect(out).toContain("anchored scripts/act.sh");
 		expect(out).toContain("[PostToolUse]");
@@ -3397,7 +3593,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 	});
 
 	it("warns again once the script moves under its annotation, as STALE-PROSE, naming the IMPLICIT / JUSTIFIED / DEFEAT annotation", () => {
-		const root = repo();
+		const root = postToolUseRepo();
 		reviewIn(root);
 		fs.appendFileSync(path.join(root, "scripts", "act.sh"), "echo drift\n");
 		const w = run(root).json.warnings;
@@ -3406,7 +3602,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 	});
 
 	it("is not an orphan anchor — the wiring reaching it is what keeps it", () => {
-		const root = repo();
+		const root = postToolUseRepo();
 		reviewIn(root);
 		expect(run(root).json.warnings.map((w) => w.kind)).not.toContain(
 			"ORPHAN-ANCHOR",
@@ -3414,7 +3610,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 	});
 
 	it("still orphans an anchor nothing reaches at all", () => {
-		const root = repo();
+		const root = postToolUseRepo();
 		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
 		fs.writeFileSync(
 			path.join(root, ANCHORS),
@@ -3472,7 +3668,7 @@ describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 		return `${r.stdout}${r.stderr}`;
 	}
 
-	function repo(annotated: boolean): string {
+	function sessionStartRepo(annotated: boolean): string {
 		return build({
 			claude: rules,
 			files: {
@@ -3508,7 +3704,7 @@ describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 		// mantahostels#1261's Done-when: the run names every wired script it
 		// reached. Behind a flag they are visible only to someone who already
 		// knew to ask.
-		const out = prose(repo(true));
+		const out = prose(sessionStartRepo(true));
 		expect(out).toContain("1 implicit behaviour(s) — 1 fail-safe");
 		expect(out).toContain("scripts/act.sh  [SessionStart]  fail-safe");
 	});
@@ -3517,16 +3713,16 @@ describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 		// This check runs in .husky/pre-commit on every commit touching docs/,
 		// .claude/, scripts/ or .husky/, so the roster's unchanging prose on each
 		// is the unclearable wallpaper mantahostels#109 ruled against.
-		expect(prose(repo(true))).not.toContain(
+		expect(prose(sessionStartRepo(true))).not.toContain(
 			"sweeps every session's expired markers",
 		);
-		expect(prose(repo(true), ["--roster"])).toContain(
+		expect(prose(sessionStartRepo(true), ["--roster"])).toContain(
 			"sweeps every session's expired markers",
 		);
 	});
 
 	it("prints the detail unasked when something in the set is unannotated", () => {
-		const out = prose(repo(false));
+		const out = prose(sessionStartRepo(false));
 		expect(out).toContain("scripts/act.sh  [SessionStart]  unannotated");
 		expect(out).toContain("(no IMPLICIT / JUSTIFIED / DEFEAT annotation)");
 	});
@@ -3547,7 +3743,7 @@ describe("the rule-text store", () => {
 
 	/** A bash script whose only interesting property is the call it makes; the case's hooksWiring decides whether it is wired. */
 	function bashEmitter(id: string): string {
-		return `#!/usr/bin/env bash\n# shellcheck source=scripts/lib/rule-text.sh\nsource "$here/lib/rule-text.sh"\ngp_deny "$(rule_text ${id})"\n`;
+		return `#!/usr/bin/env bash\n# shellcheck source=scripts/lib/rule-text.sh\nsource "$here/lib/rule-text.sh"\nrule_text ${id} >&2\nexit 2\n`;
 	}
 
 	it("passes on an empty store with no triggers — the state this ticket lands in", () => {
@@ -3567,24 +3763,25 @@ describe("the rule-text store", () => {
 	});
 
 	/**
-	 * A wired bash guard that prints its rule PRE-EMPTIVELY (mantahostels#1804) rather than
-	 * in a refusal. gp_rule resolves the id through rule_text at run time, so
-	 * nothing in this file carries a literal accessor call.
+	 * A wired Node guard that hands its rules PRE-EMPTIVELY (mantahostels#1804)
+	 * rather than in a refusal: an `injectRules` decision, which
+	 * lib/guard-entry.js resolves through readRuleText at run time, so nothing
+	 * in this file carries a literal accessor call.
 	 */
 	function preemptiveEmitter(...ids: string[]): string {
-		return `#!/usr/bin/env bash\n# shellcheck source=scripts/lib/guard-parse.sh\nsource "$here/lib/guard-parse.sh"\ngp_rule ${ids.join(" ")}\n`;
+		return `#!/usr/bin/env node\nmodule.exports = () => ({ injectRules: [${ids.map((id) => `"${id}"`).join(", ")}] });\n`;
 	}
 
 	it("counts a fragment printed only pre-emptively as printed by a wired emitter", () => {
 		const r = run(
 			build({
 				claude: region(
-					triggerRule("commit-pathspec", "scripts/guard-commit.sh"),
+					triggerRule("commit-pathspec", "scripts/guard-commit.js"),
 				),
 				files: {
 					"docs/agents/rules/commit-pathspec.txt": "Commit by pathspec.\n",
-					"scripts/guard-commit.sh": preemptiveEmitter("commit-pathspec"),
-					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-commit.sh"),
+					"scripts/guard-commit.js": preemptiveEmitter("commit-pathspec"),
+					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-commit.js"),
 				},
 			}),
 		);
@@ -3596,18 +3793,18 @@ describe("the rule-text store", () => {
 			build({
 				claude: region(
 					[
-						triggerRule("commit-pathspec", "scripts/guard-commit.sh"),
-						triggerRule("branch-shared-tree", "scripts/guard-commit.sh"),
+						triggerRule("commit-pathspec", "scripts/guard-commit.js"),
+						triggerRule("branch-shared-tree", "scripts/guard-commit.js"),
 					].join("\n"),
 				),
 				files: {
 					"docs/agents/rules/commit-pathspec.txt": "Commit by pathspec.\n",
 					"docs/agents/rules/branch-shared-tree.txt": "Stay on main.\n",
-					"scripts/guard-commit.sh": preemptiveEmitter(
+					"scripts/guard-commit.js": preemptiveEmitter(
 						"commit-pathspec",
 						"branch-shared-tree",
 					),
-					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-commit.sh"),
+					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-commit.js"),
 				},
 			}),
 		);
@@ -3620,15 +3817,15 @@ describe("the rule-text store", () => {
 		const r = run(
 			build({
 				claude: region(
-					triggerRule("commit-pathspec", "scripts/guard-commit.sh"),
+					triggerRule("commit-pathspec", "scripts/guard-commit.js"),
 				),
 				files: {
 					"docs/agents/rules/commit-pathspec.txt": "Commit by pathspec.\n",
-					"scripts/guard-commit.sh": preemptiveEmitter(
+					"scripts/guard-commit.js": preemptiveEmitter(
 						"commit-pathspec",
 						"no-such-rule",
 					),
-					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-commit.sh"),
+					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-commit.js"),
 				},
 			}),
 		);
@@ -3643,7 +3840,7 @@ describe("the rule-text store", () => {
 					"docs/agents/rules/file-claim.txt":
 						"A live session's file is taken.\n",
 					"scripts/guard-claim.sh": "#!/usr/bin/env bash\n",
-					"scripts/unwired.sh": preemptiveEmitter("file-claim"),
+					"scripts/unwired.js": preemptiveEmitter("file-claim"),
 					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-claim.sh"),
 				},
 			}),
@@ -3765,7 +3962,7 @@ describe("the rule-text store", () => {
 				files: {
 					"docs/agents/rules/dirty-turn.txt": "Never end a turn dirty.\n",
 					"scripts/guard-dirty.js":
-						'const { ruleText } = require("./lib/rule-text");\nconsole.log(ruleText("dirty-turn"));\n',
+						'const { readRuleText } = require("./lib/rule-text");\nconsole.log(readRuleText("dirty-turn"));\n',
 					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-dirty.js"),
 				},
 			}),
@@ -3773,22 +3970,49 @@ describe("the rule-text store", () => {
 		expect(r.kinds).toEqual([]);
 	});
 
+	it("reads an accessor handed landingTwin as printing the id and its -landing twin", () => {
+		const twinEmitter =
+			'const { landingTwin } = require("./lib/rule-gates.js");\nconsole.log(ctx.ruleText(landingTwin(ctx, "dirty-turn")));\n';
+		const wired = (fragments: Record<string, string>) =>
+			run(
+				build({
+					claude: region(triggerRule("dirty-turn", "scripts/guard-dirty.js")),
+					files: {
+						...fragments,
+						"scripts/guard-dirty.js": twinEmitter,
+						[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-dirty.js"),
+					},
+				}),
+			);
+		const plain = {
+			"docs/agents/rules/dirty-turn.txt": "Never end a turn dirty.\n",
+		};
+		expect(
+			wired({
+				...plain,
+				"docs/agents/rules/dirty-turn-landing.txt":
+					"Never end a turn dirty; the lander tests it.\n",
+			}).kinds,
+		).toEqual([]);
+		expect(wired(plain).kinds).toContain("EMITTED-MISSING");
+	});
+
 	it.each([
 		[
 			"single-line",
-			'console.log(ruleTextOr("dirty-turn", "Never end a turn dirty.", "guard-dirty"));\n',
+			'console.log(readRuleTextOr("dirty-turn", "Never end a turn dirty.", "guard-dirty"));\n',
 		],
 		[
 			"multi-line",
-			'console.log(\n\truleTextOr(\n\t\t"dirty-turn",\n\t\t"Never end a turn dirty.",\n\t\t"guard-dirty",\n\t),\n);\n',
+			'console.log(\n\treadRuleTextOr(\n\t\t"dirty-turn",\n\t\t"Never end a turn dirty.",\n\t\t"guard-dirty",\n\t),\n);\n',
 		],
-	])("reads a %s ruleTextOr call as the guard's emitter", (_, call) => {
+	])("reads a %s readRuleTextOr call as the guard's emitter", (_, call) => {
 		const r = run(
 			build({
 				claude: region(triggerRule("dirty-turn", "scripts/guard-dirty.js")),
 				files: {
 					"docs/agents/rules/dirty-turn.txt": "Never end a turn dirty.\n",
-					"scripts/guard-dirty.js": `const { ruleTextOr } = require("./lib/rule-text");\n${call}`,
+					"scripts/guard-dirty.js": `const { readRuleTextOr } = require("./lib/rule-text");\n${call}`,
 					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-dirty.js"),
 				},
 			}),
@@ -4109,7 +4333,7 @@ describe("the rule-text store", () => {
 		const r = run(
 			build({
 				claude: region(
-					triggerRule("takes-value-vocabulary", "scripts/guard-label.sh"),
+					triggerRule("takes-value-vocabulary", "scripts/guard-label.js"),
 				),
 				files: {
 					"docs/agents/rules/takes-value-vocabulary.txt":
@@ -4120,8 +4344,8 @@ describe("the rule-text store", () => {
 							trigger: "a `gh issue create` on the Bash tool",
 						},
 					}),
-					"scripts/guard-label.sh": preemptiveEmitter("takes-value-vocabulary"),
-					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-label.sh"),
+					"scripts/guard-label.js": preemptiveEmitter("takes-value-vocabulary"),
+					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-label.js"),
 				},
 			}),
 		);
@@ -4326,7 +4550,7 @@ describe("a `rule:<id>` cited in a script's comment or string (mantahostels#3135
 					...wired,
 					"docs/agents/rules/branch-shared-tree.txt": "Stay on main.\n",
 					"scripts/guard-branch.sh":
-						'#!/usr/bin/env bash\n# prints `rule:branch-shared-tree` below\nsource "$here/lib/rule-text.sh"\ngp_deny "$(rule_text branch-shared-tree)"\n',
+						'#!/usr/bin/env bash\n# prints `rule:branch-shared-tree` below\nsource "$here/lib/rule-text.sh"\nrule_text branch-shared-tree >&2\nexit 2\n',
 				},
 			}),
 		);
@@ -4407,7 +4631,7 @@ describe("an adopter that generates its own rule fragments", () => {
 		return root;
 	}
 
-	function gate(root: string, extra: string[] = []) {
+	function readFails(root: string, extra: string[] = []) {
 		const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: root };
 		delete env.WFC_RULES_DIR;
 		delete env.WFC_RULES_FALLBACK_DIR;
@@ -4446,20 +4670,20 @@ describe("an adopter that generates its own rule fragments", () => {
 				),
 			),
 		).toBe(true);
-		expect(gate(root).kinds).toEqual([]);
-		expect(gate(root, ["--root", root]).kinds).toEqual([]);
+		expect(readFails(root).kinds).toEqual([]);
+		expect(readFails(root, ["--root", root]).kinds).toEqual([]);
 	});
 
 	it("--against HEAD judges the commit that first adds the store, not the worktree", () => {
 		/* The HEAD side has no store. Read off the worktree instead, it would
 		 * see the staged fragment too and call its fault inherited. */
 		const root = adopter();
-		const git = (...a: string[]) =>
+		const gitAsUser = (...a: string[]) =>
 			execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", ...a], {
 				cwd: root,
 			});
-		git("add", "-A");
-		git("commit", "-q", "-m", "start");
+		gitAsUser("add", "-A");
+		gitAsUser("commit", "-q", "-m", "start");
 		spawnSync("node", [gen], {
 			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
 		});
@@ -4467,8 +4691,8 @@ describe("an adopter that generates its own rule fragments", () => {
 			path.join(root, "docs", "agents", "rules", "adopter-only.txt"),
 			"Printed by nobody.\n",
 		);
-		git("add", "-A");
-		const r = gate(root, ["--against", "HEAD"]);
+		gitAsUser("add", "-A");
+		const r = readFails(root, ["--against", "HEAD"]);
 		expect(r.status).toBe(1);
 		expect(r.messages).toHaveLength(1);
 		expect(r.messages[0]).toContain("adopter-only");
@@ -4487,14 +4711,14 @@ describe("an adopter that generates its own rule fragments", () => {
 		fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
 		fs.writeFileSync(
 			path.join(root, "scripts", "guard-adopter.sh"),
-			'#!/usr/bin/env bash\nsource "$here/lib/rule-text.sh"\ngp_deny "$(rule_text adopter-only)"\n',
+			'#!/usr/bin/env bash\nsource "$here/lib/rule-text.sh"\nrule_text adopter-only >&2\nexit 2\n',
 		);
 	}
 
 	it("still reports a fragment of the adopter's own that no wired guard prints, naming its wiring", () => {
 		const root = adopter();
 		ownGuard(root);
-		const r = gate(root);
+		const r = readFails(root);
 		expect(r.status).toBe(1);
 		expect(r.kinds).toEqual([
 			"UNPRINTED-RULE docs/agents/rules/adopter-only.txt",
@@ -4516,6 +4740,6 @@ describe("an adopter that generates its own rule fragments", () => {
 			path.join(root, ".claude", "settings.json"),
 			hooksWiring("scripts/guard-adopter.sh"),
 		);
-		expect(gate(root).kinds).toEqual([]);
+		expect(readFails(root).kinds).toEqual([]);
 	});
 });

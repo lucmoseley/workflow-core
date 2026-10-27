@@ -26,7 +26,7 @@
  *
  * SUBAGENT TRANSCRIPTS HAVE BEEN RETAINED ON THIS MACHINE SINCE 31 JULY 2026
  * (mantahostels#1725, mantahostels#1779) and `streamRecords` below reads both tiers — the caller tags
- * each file's tier once (`lib/guard-fires.js` `transcriptFiles`) and passes it
+ * each file's tier once (`lib/guard-fires.js` `readTranscriptFiles`) and passes it
  * in, rather than this function re-deriving it per file.
  */
 
@@ -92,7 +92,7 @@ function* streamRecords(file, tier, chunkSize = 1 << 20) {
  * @param {string[]} roots
  * @returns {{skills: Array<{name: string, roots: string[], modelInvocable: boolean}>, unreadable: string[]}}
  */
-function skillInventory(roots) {
+function readSkillInventory(roots) {
 	/** @type {Map<string, {name: string, roots: string[], modelInvocable: boolean}>} */
 	const map = new Map();
 	/** @type {string[]} */
@@ -106,7 +106,7 @@ function skillInventory(roots) {
 			continue;
 		}
 		for (const e of entries) {
-			const head = skillHead(root, e);
+			const head = readSkillHead(root, e);
 			if (head === null) continue;
 			const row = map.get(e.name) ?? {
 				name: e.name,
@@ -133,7 +133,7 @@ function skillInventory(roots) {
  * @param {import("node:fs").Dirent} e
  * @returns {string | null}
  */
-function skillHead(root, e) {
+function readSkillHead(root, e) {
 	// A SYMLINK COUNTS. Most of `.claude/skills` symlinks the `.agents`
 	// copy, and isDirectory() reads the link itself, not its target.
 	if (!e.isDirectory() && !e.isSymbolicLink()) return null;
@@ -220,7 +220,7 @@ function openQuote(text) {
  * @param {string} text
  * @returns {string[]}
  */
-function logicalLines(text) {
+function parseLogicalLines(text) {
 	const out = [];
 	let buf = "";
 	for (const line of text.split("\n")) {
@@ -270,7 +270,7 @@ const KEYWORDS = new Set([
  * @returns {string[]}
  */
 function segments(command) {
-	return logicalLines(stripHeredocs(command))
+	return parseLogicalLines(stripHeredocs(command))
 		.flatMap((line) => line.split(/&&|\|\||[;|]/))
 		.map((s) => s.replace(/[(){}`]|\$\(/g, " ").trim())
 		.filter(Boolean);
@@ -423,7 +423,7 @@ function recordUses(record) {
 
 	// A TYPED slash command reaches the transcript as user-turn text, never as a
 	// tool call — so the two routes never double-count one invocation.
-	for (const m of userText(content).matchAll(TYPED_COMMAND)) {
+	for (const m of parseUserText(content).matchAll(TYPED_COMMAND)) {
 		const name = requiredGroup(m, 1, TYPED_COMMAND);
 		add("skill", name, "command", `${record.uuid ?? ""} ${name}`);
 	}
@@ -466,7 +466,7 @@ function toolCallUses(part) {
  * @param {unknown} content
  * @returns {string}
  */
-function userText(content) {
+function parseUserText(content) {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
@@ -526,7 +526,7 @@ function isEncoded(shape, encoded) {
 
 module.exports = {
 	streamRecords,
-	skillInventory,
+	readSkillInventory,
 	npmScripts,
 	recordUses,
 	recordShapes,

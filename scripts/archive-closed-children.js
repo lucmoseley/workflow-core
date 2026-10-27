@@ -66,11 +66,17 @@
  */
 
 const { runCheck, brokenError } = require("./lib/check");
-const { gh, ghJson, ghApiSlurp, errLine, raiseGhFailure } = require("./lib/gh");
+const {
+	gh,
+	ghJson,
+	ghApiSlurp,
+	parseErrLine,
+	raiseGhFailure,
+} = require("./lib/gh");
 const { ISSUE_LIST_LIMIT } = require("./lib/gh-limits.js");
 
 /** @param {number} map */
-const containerTitle = (map) => `Archive: closed children of #${map}`;
+const buildContainerTitle = (map) => `Archive: closed children of #${map}`;
 
 // `gh api` and `gh issue list --json state` disagree on case ("closed" vs
 // "CLOSED"), and the orphan search goes through the latter.
@@ -140,7 +146,7 @@ function runBody(ctx) {
 
 	const kids = readSubIssues(map, "No child was archived.");
 
-	const title = containerTitle(map);
+	const title = buildContainerTitle(map);
 	const { container, alreadyLinked, orphan } = locateContainer(kids, title);
 
 	if (kids.length === 0 && !container)
@@ -461,7 +467,7 @@ function moveChildren({ ctx, map, containerNumber, closedDirect, failSay }) {
 			moved.push(child.number);
 			ctx.say(`  moved #${child.number} into #${containerNumber}`);
 		} catch (e) {
-			const line = errLine(e);
+			const line = parseErrLine(e);
 			if (/7 layers/.test(line)) {
 				skipped7Layers.push(child.number);
 				ctx.say(
@@ -511,7 +517,7 @@ function linkContainer({
 		linkFailed = true;
 		failSay(
 			"ARCHIVE-LINK-FAILED",
-			`#${containerNumber} could not be linked under #${map}: ${errLine(e)} — it holds ${movedCount} moved issue(s) but is not yet part of the map; a re-run will find it by title and retry`,
+			`#${containerNumber} could not be linked under #${map}: ${parseErrLine(e)} — it holds ${movedCount} moved issue(s) but is not yet part of the map; a re-run will find it by title and retry`,
 			{ container: containerNumber, map },
 		);
 	}
@@ -544,7 +550,7 @@ function closeContainer({
 			closeFailed = true;
 			failSay(
 				"ARCHIVE-CLOSE-FAILED",
-				`#${containerNumber} could not be closed: ${errLine(e)} — a re-run will retry`,
+				`#${containerNumber} could not be closed: ${parseErrLine(e)} — a re-run will retry`,
 				{ container: containerNumber },
 			);
 		}

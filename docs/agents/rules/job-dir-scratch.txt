@@ -9,7 +9,7 @@ and out of vitest's, and swept at 24 hours.
 NAME IT WITH THE FIRST EIGHT CHARACTERS OF YOUR SESSION ID — `c1167-66a5e2ef.md`,
 never `c1167.md`. Two sessions on one issue pick the same fixed name, and
 `.claude/tmp/` keeps no versions, so the second write destroys the first
-(#1167). `scripts/guard-scratch-overwrite.sh` refuses the first `Write` over a
+(#1167). `scripts/guard-dispatch.js` refuses the first `Write` over a
 file there your session has not written; re-send the same call if the file is
 yours (#1728).
 

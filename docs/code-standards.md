@@ -47,7 +47,7 @@ A rule can be on and never run (nothing gated ESLint until mantahostels#1133), o
 | `.agents/skills/*/agents/*.yaml` | no | no | no |
 | `scripts/win-interop-watchdog/*.ps1`, `*.vbs` | no | no | no |
 
-Shell is shellcheck's (mantahostels#1134), which `npm run check:sh` runs in CI at `-x --severity=style --exclude=SC2329,SC2016` (#1315 Q2, #1331), workflow YAML is actionlint's (mantahostels#1137), Python is ruff's at `select = ["E4","E7","E9","F","B","BLE001","N","PLR0917","RUF100"]` (mantahostels#1135, #1314, #1333, #1443), so a catch-all `except` names its exceptions or carries a `noqa`, whose reason base §G3 asks review to check, and a Python name breaking base §G5's scheme is refused, as is an exception class whose name does not end in `Error` and that carries no `# noqa: N818 - <reason>` (#1406 Q3 (A)). **Markdown is nobody's, by decision (mantahostels#1540)**, and so are the two Windows-side watchdog scripts (mantahostels#1131) — both under *Not measured, by decision* below. Biome cannot take Markdown: it has no `markdown` language key, so covering it means a new dependency, never a config line.
+Shell is shellcheck's (mantahostels#1134), which `npm run check:sh` runs in CI at `-x --severity=style --exclude=SC2016` (#1315 Q2, #1331, #3032), workflow YAML is actionlint's (mantahostels#1137), Python is ruff's at `select = ["E4","E7","E9","F","B","BLE001","N","PLR0917","RUF100"]` (mantahostels#1135, #1314, #1333, #1443), so a catch-all `except` names its exceptions or carries a `noqa`, whose reason base §G3 asks review to check, and a Python name breaking base §G5's scheme is refused, as is an exception class whose name does not end in `Error` and that carries no `# noqa: N818 - <reason>` (#1406 Q3 (A)). **Markdown is nobody's, by decision (mantahostels#1540)**, and so are the two Windows-side watchdog scripts (mantahostels#1131) — both under *Not measured, by decision* below. Biome cannot take Markdown: it has no `markdown` language key, so covering it means a new dependency, never a config line.
 
 **The 25 `.yaml` files under `.agents/skills/` are vendored and get nothing** (mantahostels#1131). actionlint locates `.github/workflows` itself and never opens them; they are upstream's to fix, so a finding here would be unactionable.
 
@@ -94,7 +94,7 @@ Deriving it: `biome lint --only=<rule>` **cannot** verify a rule's config took e
 - module-scope constants in `SCREAMING_SNAKE` — the `const` + `global` selector cannot tell a literal-valued constant from a `require` or function binding, so a top-level `const maxTries = 3` passes;
 - React components in PascalCase — no selector marks a component;
 - house object keys, type members, and object-literal and interface methods in camelCase — no selector separates them from external keys;
-- `isX`/`hasX` predicates, `buildX` builders, `parseX` parsers — no selector works by role or by type.
+- `isX`/`hasX` predicates, `buildX` builders, `parseX` parsers, `readX` readers — no selector works by role or by type.
 
 ### A warning is a refusal here
 
@@ -117,7 +117,7 @@ Deriving it: `biome lint --only=<rule>` **cannot** verify a rule's config took e
 
 - **§G3** — Biome already refuses `any` and `!`: `biome.json` pins `noNonNullAssertion` (mantahostels#1120) and `noExplicitAny` (mantahostels#1380) to `error`, so either needs a `biome-ignore` carrying the reason §G3 asks for. Biome reads all of `.claude/` since mantahostels#1138 bar `worktrees` and `settings*.json`, so both rules bind there too. In non-test code, a `require` of an untyped CommonJS module is the only reason this corpus has ever accepted for an `any` that owes one (mantahostels#991). An empty `catch`, or any empty block, is refused by Biome (`noEmptyBlockStatements`, #1383) unless it holds a comment, so review judges only whether that comment is a reason.
 - **§N8** — enforced (mantahostels#1062): `npm run typecheck` gates CI hard; on a host deploying to Vercel (`"deploy": "vercel"`, which the core does not declare), its `next build` checks the same program on every push to `main`, so an error fails production rather than a gate.
-- **§S2** — no shellcheck exclusion beyond `SC2329` and `SC2016` is ever added (#1315 Q2, #753); `scripts/precommit-shellcheck-gate.test.ts` refuses one, so review leaves it to that test.
+- **§S2** — no shellcheck exclusion beyond `SC2016` is ever added (#1315 Q2, #753, #3032); `scripts/precommit-shellcheck-gate.test.ts` refuses one, so review leaves it to that test.
 - **§T4** — its object-shape limb is Biome's: `style/useConsistentTypeDefinitions` refuses a `type` alias for an object shape repo-wide (#1388), so review leaves that limb to it.
 
 ---

@@ -15,8 +15,7 @@
  * still holds the run, since Node waits on its exit.
  */
 
-const { execFileSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
+const { execGit } = require("./git.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -33,7 +32,7 @@ class CeilingPassed extends Error {}
 
 /** @type {GitCeiling} */
 const NO_CEILING = {
-	git: (args, opts) => execFileSync(gitBinary(), args, opts),
+	git: (args, opts) => execGit(args, opts),
 };
 
 /**
@@ -65,7 +64,7 @@ function buildGitCeiling({
 					`${label}: waiting on ${what} (${Math.round(used / 1000)}s of ${seconds} used)`,
 				);
 			try {
-				return execFileSync(gitBinary(), args, {
+				return execGit(args, {
 					...opts,
 					timeout: left,
 					/* A git hung in a lock or a pipe may ignore TERM (#2210). */

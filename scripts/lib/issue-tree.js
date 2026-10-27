@@ -35,10 +35,10 @@ function localParentOf(iss) {
  * @param {number} n
  * @returns {any[]}
  */
-const subIssuesOf = (n) =>
+const readSubIssues = (n) =>
 	ghApiSlurp([`repos/{owner}/{repo}/issues/${n}/sub_issues`]);
 
 /** @param {SubIssue} k */
 const isOpenChild = (k) => k.state === "open" && !k.pull_request;
 
-module.exports = { localParentOf, subIssuesOf, isOpenChild };
+module.exports = { localParentOf, readSubIssues, isOpenChild };

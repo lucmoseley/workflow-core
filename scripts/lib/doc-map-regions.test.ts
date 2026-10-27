@@ -6,7 +6,7 @@
  * Everything here is pure text in, regions out — the claim machinery that
  * consumes it is proved in arbiter-store.test.ts and session-arbiter.test.ts.
  *
- * guard-file-claim.sh claims docs/doc-map.md per region on these answers, so
+ * lib/file-claim.js claims docs/doc-map.md per region on these answers, so
  * a loosened case lets two sessions write one entry uncontended, or folds
  * entries back into one shared region and the whole-file queue mantahostels#848
  * set out to end.
@@ -95,7 +95,7 @@ describe("parseRegions", () => {
 	});
 
 	it("holds §A's rows in `section-a` with its headings and prose", () => {
-		const sectionA = regions.regionText(MAP, "section-a");
+		const sectionA = regions.parseRegionText(MAP, "section-a");
 		expect(sectionA).toContain("Prose before the first row.");
 		expect(sectionA).toContain("### Repo-root contracts");
 		expect(sectionA).toContain("| Path | Role |");
@@ -114,7 +114,7 @@ describe("parseRegions", () => {
 			"| `CLAUDE.md` | not a register row |",
 		);
 		expect(ids(text).filter((id: string) => id.startsWith("A:"))).toEqual([]);
-		expect(regions.regionText(text, "authority-classes")).toContain(
+		expect(regions.parseRegionText(text, "authority-classes")).toContain(
 			"not a register row",
 		);
 	});
@@ -122,18 +122,20 @@ describe("parseRegions", () => {
 	it("gives the version stamp a region of its own", () => {
 		// Every editing session rewrites it, so leaving it in `head` would hand
 		// every session one shared region and return universal contention.
-		expect(regions.regionText(MAP, "stamp")).toBe("v3.9 · 21 August 2026\n");
+		expect(regions.parseRegionText(MAP, "stamp")).toBe(
+			"v3.9 · 21 August 2026\n",
+		);
 	});
 
 	it("hands back both `head` ranges as one text", () => {
-		const head = regions.regionText(MAP, "head");
+		const head = regions.parseRegionText(MAP, "head");
 		expect(head).toContain("# MantaHostels document map");
 		expect(head).toContain("> A preamble.");
 		expect(head).not.toContain("v3.9");
 	});
 
 	it("answers null for a region the document does not hold", () => {
-		expect(regions.regionText(MAP, "B99")).toBeNull();
+		expect(regions.parseRegionText(MAP, "B99")).toBeNull();
 	});
 });
 
@@ -291,7 +293,11 @@ describe("the sidecar's regions", () => {
 
 	it("hands back a key's own bytes under that id", () => {
 		expect(
-			regions.regionText(sidecarText, "A:docs/adr/*", regions.SIDECAR_PATH),
+			regions.parseRegionText(
+				sidecarText,
+				"A:docs/adr/*",
+				regions.SIDECAR_PATH,
+			),
 		).toContain('"docs/adr/*"');
 	});
 
@@ -388,12 +394,12 @@ describe("the shed ledger's own region", () => {
 			"the-propagation-pass",
 		]);
 		expect(
-			regions.regionText(capture, "capture-and-placement-shed-ledger"),
+			regions.parseRegionText(capture, "capture-and-placement-shed-ledger"),
 		).toContain("- **#1000**");
 	});
 
 	it("leaves §3 and §4 sharing the section's existing id", () => {
-		const rest = regions.regionText(
+		const rest = regions.parseRegionText(
 			capture,
 			"capture-and-placement-where-a-settled",
 		);
@@ -405,7 +411,7 @@ describe("the shed ledger's own region", () => {
 	it("splits a `### 5. ` in no other section", () => {
 		// The propagation pass has one too. Split, it would take the ledger's id
 		// and two unrelated writers would contend on one lock.
-		expect(regions.regionText(capture, "the-propagation-pass")).toContain(
+		expect(regions.parseRegionText(capture, "the-propagation-pass")).toContain(
 			"### 5. One adversarial subagent",
 		);
 	});
@@ -453,7 +459,7 @@ describe("the shed ledger's own region", () => {
 			);
 		expect(ranges).toHaveLength(1);
 		expect(
-			regions.regionText(twice, "capture-and-placement-shed-ledger"),
+			regions.parseRegionText(twice, "capture-and-placement-shed-ledger"),
 		).toContain("### 5. A second one");
 	});
 });
@@ -573,14 +579,14 @@ describe("against a large synthetic map", () => {
 	it("holds the shed ledger as its own region, ending at the next `## `", () => {
 		// The section is named by the id `sectionId` derives from its heading, so
 		// a rewording would stop the split silently (mantahostels#1845).
-		const ledger = regions.regionText(
+		const ledger = regions.parseRegionText(
 			syntheticMap,
 			"capture-and-placement-shed-ledger",
 		);
 		expect(ledger).not.toBeNull();
 		expect(ledger.startsWith("### 5. Sheds paid")).toBe(true);
 		expect(ledger).not.toContain("\n## ");
-		const rest = regions.regionText(
+		const rest = regions.parseRegionText(
 			syntheticMap,
 			"capture-and-placement-where-a-settled",
 		);
@@ -602,7 +608,7 @@ describe("against a large synthetic map", () => {
 		// entries at once, and a hard-coded one made this fail on the map's
 		// contents instead of on the parser.
 		const id = regions.entryIds(syntheticMap)[0];
-		const heading = regions.regionText(syntheticMap, id).split("\n")[0];
+		const heading = regions.parseRegionText(syntheticMap, id).split("\n")[0];
 		expect(heading).toContain(`### ${id}`);
 		expect(regions.resolveRegion(syntheticMap, heading).region).toBe(id);
 	});
@@ -648,7 +654,9 @@ describe("review findings", () => {
 			"B1",
 			"B2",
 		]);
-		expect(regions.regionText(withFence, "B1")).toContain("Still inside B1.");
+		expect(regions.parseRegionText(withFence, "B1")).toContain(
+			"Still inside B1.",
+		);
 	});
 
 	it("mints no region from a §A row quoted inside a fence", () => {

@@ -9,6 +9,7 @@
 const { shellWord } = require("./dirty-tree.js");
 const { RETEST_FLAG } = require("./test-pass-marker.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
+const { runnerTestFileCount } = require("./suite-bounded.js");
 const {
 	ADOPT_FLAG,
 	CHANGED_FLAG,
@@ -69,8 +70,8 @@ function fullFlagWord(argv) {
  * The four wrapper flags run-vitest.js consumes, none of which reaches vitest.
  * `--full=<cause>` is matched by prefix, the rest by the whole word.
  *
- * THE ONE LIST (#188): guard-suite-concurrency.sh's plain-`--full` limb
- * requires `stripWrapperFlags`, through run-vitest.js, rather than keeping a copy, so a fifth flag
+ * THE ONE LIST (#188): guard-suite-concurrency.js's plain-`--full` limb
+ * requires `stripWrapperFlags` rather than keeping a copy, so a fifth flag
  * added here reaches it unedited.
  */
 const WRAPPER_FLAGS = new Set([
@@ -108,8 +109,8 @@ const NAME_FILTER_FLAGS = new Set(["-t", "--testNamePattern"]);
  * escalating only where that narrowing would be worthless (mantahostels#3208).
  *
  * BEYOND THOSE FLAGS, ONLY A WORD SHAPED LIKE A TEST FILE DISQUALIFIES IT,
- * matched with the same `JS_TEST_FILE` regex run-vitest.js's
- * `vitestSelection` filters vitest's own listing through.
+ * matched with the same `JS_TEST_FILE` regex vitest-collected.js's
+ * `vitestList` filters vitest's own listing through.
  * A bare positional that is NOT test-file-shaped — a flag's own value, an
  * unrecognized flag — leaves the run full rather than narrowed: a wrong
  * "full" costs a needless worktree, a wrong "narrowed" costs exactly the
@@ -133,13 +134,15 @@ function isFullRunArgv(argv) {
 /**
  * @typedef {object} LaunchRoute
  * @property {string[]} rest argv stripped of the four wrapper flags
- * @property {"full"|"bare"|"changed"|"named"} kind the launch's shape, which
- *   the run and the probe dispatch on and the queue-exit log names
+ * @property {"full"|"bare"|"touched"|"changed"|"named"} kind the launch's
+ *   shape, which the run and the probe dispatch on and the queue-exit log
+ *   names: `touched` is bare argv under the `landing` module (#2930)
  * @property {Tree} tree the route intended
  * @property {Tree} fallback where the launch runs once its overlay will not
  *   build; `tree` itself on every other route
  * @property {Tree|null} escalation where a bare run's escalation to the whole
- *   suite runs; null on every other kind
+ *   suite runs; null on every other kind, `touched` included, which never
+ *   escalates
  * @property {"full"|"diff"|"own"|"changed"|"adopt"|"retest"|"named"} source
  *   what the selection is taken from: the whole suite, the diff against the
  *   default's base, the session's own work, `--changed`'s diff, the adopted
@@ -155,13 +158,14 @@ function isFullRunArgv(argv) {
  *
  * A session id overlays a bare run, `--isolated` or not, and a bare
  * `--changed` or a `--retest` unless `--isolated` was typed (#812, #1217,
- * #1860). `--shared` beats every other flag.
+ * #1860), as it does a touched run. `--shared` beats every other flag.
  *
  * @param {string[]} argv the raw argv, `--full` already vetted
  * @param {string|null} sessionId
+ * @param {{ landing?: boolean }} [modules] whether the `landing` module is on
  * @returns {LaunchRoute}
  */
-function launchRoute(argv, sessionId) {
+function launchRoute(argv, sessionId, { landing = false } = {}) {
 	const rest = stripWrapperFlags(argv);
 	const shared = argv.includes(SHARED_FLAG);
 	const isolated = !shared && argv.includes(ISOLATED_FLAG);
@@ -169,11 +173,12 @@ function launchRoute(argv, sessionId) {
 	const fullShaped = isFullRunArgv(rest);
 	const changed = changedFlag(rest);
 	const session = sessionId || null;
-	const kind = routeKind(full, fullShaped, changed);
+	const kind = routeKind(full, fullShaped, changed, landing);
 	const overlaid =
 		!shared &&
 		session !== null &&
 		(kind === "bare" ||
+			kind === "touched" ||
 			(!isolated &&
 				((kind === "changed" && isChangedOnlyArgv(rest) && !changed?.ref) ||
 					isRetestOnlyArgv(rest))));
@@ -193,14 +198,27 @@ function launchRoute(argv, sessionId) {
 }
 
 /**
+ * Whether the launch is a touched run (#2935): a `touched` kind, a `--retest`,
+ * or one bounded to the test files it names. It never takes or waits for the
+ * whole-suite slot, however many files it resolves to, and waits only on the
+ * memory rung for its file count.
+ * @param {Pick<LaunchRoute, "kind"|"source"|"rest">} route
+ */
+const isTouchedRun = (route) =>
+	route.kind === "touched" ||
+	route.source === "retest" ||
+	(route.kind === "named" && runnerTestFileCount(route.rest) !== null);
+
+/**
  * @param {boolean} full
  * @param {boolean} fullShaped
  * @param {ReturnType<typeof changedFlag>} changed
+ * @param {boolean} landing
  * @returns {LaunchRoute["kind"]}
  */
-function routeKind(full, fullShaped, changed) {
+function routeKind(full, fullShaped, changed, landing) {
 	if (full) return "full";
-	if (fullShaped) return "bare";
+	if (fullShaped) return landing ? "touched" : "bare";
 	return changed ? "changed" : "named";
 }
 
@@ -290,5 +308,6 @@ module.exports = {
 	stripWrapperFlags,
 	isFullRunArgv,
 	launchRoute,
+	isTouchedRun,
 	npmSwallowedRefusal,
 };

@@ -1,7 +1,7 @@
 /*
  * refuses-commit.js — the field check-guard-registry.js sets on a WARN its
  * pre-commit gate refuses, in the one place the checker and
- * checker-new-faults.js's profile both read (#2617). Renaming it on one side
+ * lib/fault-profiles.js's profile both read (#2617). Renaming it on one side
  * alone would stop the gate refusing in silence.
  */
 

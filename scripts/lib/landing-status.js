@@ -4,12 +4,11 @@
  * a revert that sits on `landing`, or not on `landing` at all.
  *
  * A REVERT is a commit on `landing` whose message carries lib/lander.js's
- * revertLine.
+ * buildRevertLine.
  */
 
-const { execFileSync } = require("node:child_process");
 const { caught } = require("./caught.js");
-const { GIT_TIMEOUT_MS, revertLine } = require("./lander.js");
+const { LANDER_GIT_TIMEOUT_MS, buildRevertLine } = require("./lander.js");
 const {
 	LANDING_BRANCH,
 	LANDING_REF,
@@ -18,6 +17,7 @@ const {
 	VERIFIED_BRANCH,
 	VERIFIED_REF,
 } = require("./landing-refs.js");
+const { execGit } = require("./git.js");
 
 /**
  * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "reverted", by: string}
@@ -75,7 +75,7 @@ function standingRevert(sha, git) {
  * @param {{sha: string, state: CommitState}} entry
  * @param {string} subject
  */
-function stateLine({ sha, state }, subject) {
+function buildStateLine({ sha, state }, subject) {
 	const head = `${sha.slice(0, 9)} ${subject}`;
 	switch (state.kind) {
 		case "landed":
@@ -98,11 +98,11 @@ function stateLine({ sha, state }, subject) {
 function fetchedGit(root) {
 	/** @param {string[]} args */
 	const git = (args) =>
-		execFileSync("git", args, {
+		execGit(args, {
 			cwd: root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
-			timeout: GIT_TIMEOUT_MS,
+			timeout: LANDER_GIT_TIMEOUT_MS,
 		});
 	git([
 		"fetch",
@@ -127,7 +127,7 @@ function fetchedGit(root) {
 				"rev-list",
 				"--reverse",
 				"--fixed-strings",
-				`--grep=${revertLine(sha)}`,
+				`--grep=${buildRevertLine(sha)}`,
 				`${sha}..${LANDING_REF}`,
 			])
 				.split("\n")
@@ -138,4 +138,4 @@ function fetchedGit(root) {
 	};
 }
 
-module.exports = { commitStates, fetchedGit, stateLine };
+module.exports = { commitStates, fetchedGit, buildStateLine };

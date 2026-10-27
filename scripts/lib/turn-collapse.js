@@ -21,7 +21,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { configDirs } = require("./arbiter-store");
-const { seatProjectDirs } = require("./project-dirs");
+const { readSeatProjectDirs } = require("./project-dirs");
 
 const HOUR_MS = 36e5;
 const DAY_MS = 864e5;
@@ -56,8 +56,8 @@ const CANDIDATE_MIN_HOURS = 10;
  * @param {string[]} [seats] config dirs, every known seat by default
  * @returns {string[]}
  */
-function corpusRoots(seats = configDirs()) {
-	return seatProjectDirs(seats).dirs;
+function readCorpusRoots(seats = configDirs()) {
+	return readSeatProjectDirs(seats).dirs;
 }
 
 /**
@@ -302,7 +302,7 @@ module.exports = {
 	FLANK_RATIO,
 	MIN_DEAD_HOURS,
 	corpusFiles,
-	corpusRoots,
+	readCorpusRoots,
 	deadWindows,
 	episodes,
 	hourlyCounts,

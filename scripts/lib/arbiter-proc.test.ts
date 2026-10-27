@@ -30,7 +30,7 @@ import { proc } from "./arbiter-testkit";
 
 describe("procStart — the kernel token that makes a recycled pid detectable", () => {
 	it("reads field 22 for a live process", () => {
-		const mine = proc.procStartOf(process.pid);
+		const mine = proc.readProcStartOf(process.pid);
 		expect(mine).toMatch(/^\d+$/);
 		// Field 22 counted from the last ')', because comm is parenthesised and may
 		// itself contain spaces or brackets.
@@ -39,7 +39,7 @@ describe("procStart — the kernel token that makes a recycled pid detectable", 
 	});
 
 	it("returns null for a pid with no process", () => {
-		expect(proc.procStartOf(4_194_303)).toBeNull();
+		expect(proc.readProcStartOf(4_194_303)).toBeNull();
 	});
 });
 
@@ -70,7 +70,7 @@ describe("what /proc calls alive", () => {
 			const pid = await started(child, /\(w\) x \(y\) /);
 			const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
 			const known = `${pid} (w) x (y) `;
-			expect(proc.procStartOf(pid)).toBe(
+			expect(proc.readProcStartOf(pid)).toBe(
 				stat.slice(known.length).split(" ")[19],
 			);
 		} finally {
@@ -90,7 +90,7 @@ describe("what /proc calls alive", () => {
 				parent.stdout.once("data", (d) => resolve(Number(String(d).trim()))),
 			);
 			await started(parent, /^\d+ \(sleep\) Z /, zpid);
-			expect(proc.procStartOf(zpid)).toBeNull();
+			expect(proc.readProcStartOf(zpid)).toBeNull();
 		} finally {
 			parent.kill();
 		}
@@ -102,7 +102,7 @@ describe("liveness — the production path the proving harness cannot reach", ()
 		expect(
 			proc.holderAlive({
 				pid: process.pid,
-				procStart: proc.procStartOf(process.pid),
+				procStart: proc.readProcStartOf(process.pid),
 			}),
 		).toBe(true);
 	});
@@ -137,7 +137,7 @@ describe("liveness — the production path the proving harness cannot reach", ()
 		expect(
 			proc.holderAlive({
 				pid: process.pid,
-				procStart: proc.procStartOf(process.pid),
+				procStart: proc.readProcStartOf(process.pid),
 				stateFile: "/nonexistent/gone.json",
 			}),
 		).toBe(true);
@@ -150,7 +150,7 @@ describe("a lock minted before a reboot", () => {
 	// lasting as long as the stranger runs.
 	const pair = () => ({
 		pid: process.pid,
-		procStart: proc.procStartOf(process.pid),
+		procStart: proc.readProcStartOf(process.pid),
 	});
 
 	it("reads dead even when this boot has the same pair live", () => {
@@ -158,9 +158,9 @@ describe("a lock minted before a reboot", () => {
 	});
 
 	it("reads alive on its own boot, and on a lock minted with no boot id to read", () => {
-		expect(proc.holderAlive({ ...pair(), bootId: proc.currentBootId() })).toBe(
-			true,
-		);
+		expect(
+			proc.holderAlive({ ...pair(), bootId: proc.readCurrentBootId() }),
+		).toBe(true);
 		expect(proc.holderAlive(pair())).toBe(true);
 	});
 });

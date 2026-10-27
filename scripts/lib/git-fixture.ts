@@ -151,8 +151,9 @@ export function resolveScratchBase(
  * resolved.
  *
  * Every fixture root that instantiates a template mints through here, on the
- * default base; the parameter is the seam the regrow branch is proven
- * through, and its only caller is that one test. The shared base is one
+ * default base, or through `mkDirOutsideRepo` below; the parameter is the
+ * seam the regrow branch is proven through, and its only caller is that one
+ * test. The shared base is one
  * directory for every file in a run, so a test removing it to watch it regrow
  * pulls the templates out from under the other workers (mantahostels#3168). Regrowth is
  * therefore proven on a private base, leaving one limb UNVERIFIED: that the
@@ -166,7 +167,7 @@ export function resolveScratchBase(
  * than reporting no repository. A fixture asserting out-of-repo behaviour
  * therefore takes `mkDirOutsideRepo` below, or sets `GIT_CEILING_DIRECTORIES`
  * at or under the base on the invocation, which stops git's walk there. The
- * ceiling reaches git alone: guard-parse.sh's `_gp_inside_any_repo` walks the
+ * ceiling reaches git alone: git-tree.js's `isInsideAnyRepo` walks the
  * path lexically and still finds the repository's `.git`, so a case that must reach its
  * "no repository at all" branch needs the helper (mantahostels#3158). A second
  * consequence of living in the tree: `git clean -fdx` here now removes a
@@ -292,7 +293,7 @@ function findGitEntries(root: string): string[] {
 
 /** The files a given `.git` entry may have written the template's absolute
  * path into, filtered to the ones that actually exist. */
-function relinkCandidatesFor(gitEntry: string): string[] {
+function readRelinkCandidates(gitEntry: string): string[] {
 	if (!fs.statSync(gitEntry).isDirectory()) {
 		// A worktree or submodule pointer file: "gitdir: <absolute path>".
 		return [gitEntry];
@@ -319,7 +320,7 @@ function relink(
 ): void {
 	const candidates = new Set<string>();
 	for (const gitEntry of findGitEntries(destination))
-		for (const file of relinkCandidatesFor(gitEntry)) candidates.add(file);
+		for (const file of readRelinkCandidates(gitEntry)) candidates.add(file);
 	for (const rel of extraPaths) {
 		const full = path.join(destination, rel);
 		if (fs.existsSync(full)) candidates.add(full);
@@ -354,7 +355,7 @@ export function isSkippedFromLeakScan(relFromDestination: string): boolean {
 	const after = segments.slice(gitAt + 1);
 	if (after[0] === "objects") {
 		// objects/info/alternates is the one file under objects/ relink() itself
-		// rewrites (relinkCandidatesFor above) — the leak scan must still reach
+		// rewrites (readRelinkCandidates above) — the leak scan must still reach
 		// it, or the safety net is blind to exactly the failure it exists to
 		// catch (mantahostels#2068 review). Everything else under objects/ is pack/loose object data, which
 		// is legitimately huge and never a text carrier of the template's path.

@@ -28,7 +28,7 @@ const put = (p: string, body: string) => {
 	fs.mkdirSync(path.dirname(p), { recursive: true });
 	fs.writeFileSync(p, body);
 };
-const json = (p: string) => JSON.parse(fs.readFileSync(p, "utf8"));
+const readJson = (p: string) => JSON.parse(fs.readFileSync(p, "utf8"));
 const cli = (...args: string[]) =>
 	runInProcess(SCRIPT, ["--home", home, ...args]);
 
@@ -133,7 +133,7 @@ describe("link-config-dirs (#107)", () => {
 			}),
 		);
 		const { kept } = run({ home });
-		const entries = json(path.join(one, reg)).plugins["wc@wc"];
+		const entries = readJson(path.join(one, reg)).plugins["wc@wc"];
 		expect(entries).toHaveLength(2);
 		expect(
 			entries.find((e: { projectPath: string }) => e.projectPath === "/a"),
@@ -161,7 +161,7 @@ describe("link-config-dirs (#107)", () => {
 			}),
 		);
 		run({ home });
-		expect(json(path.join(one, reg))).toEqual({
+		expect(readJson(path.join(one, reg))).toEqual({
 			a: { lastUpdated: "1" },
 			wc: {
 				installLocation: path.join(one, "plugins/marketplaces/wc"),
@@ -266,7 +266,7 @@ describe("link-config-dirs (#107)", () => {
 			}),
 		);
 		run({ home });
-		const reg1 = json(path.join(one, reg));
+		const reg1 = readJson(path.join(one, reg));
 		expect(reg1.version).toBe(2);
 		expect(reg1.plugins["wc@wc"][0].installPath).toBe(
 			path.join(one, "plugins/cache/wc/wc/1.1.5"),

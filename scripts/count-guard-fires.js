@@ -2,7 +2,7 @@
 /*
  * count-guard-fires.js — how many times has each hook the host registers
  * actually fired, read off the transcripts already on disk. The registrations
- * are `lib/core-hooks.js`'s `hookSourcesOf`: the core's self-plugin file and
+ * are `lib/core-hooks.js`'s `readHostHookSources`: the core's self-plugin file and
  * the canary its `.claude/settings.json` keeps, or an adopter's
  * `.claude/settings.json` and the plugin's `hooks/hooks.json`.
  *
@@ -33,7 +33,7 @@
  * `scripts/lib/guard-fires.js`, which owns every seam here worth reusing. A
  * host keys a guard it registers itself in `.claude/guard-fire-needles.json`,
  * `guards` only (#1267); `mergeNeedles` says what it refuses. So it builds
- * its subjects from `subjectsFor` rather than `registeredGuardSubjects`, which
+ * its subjects from `subjectsFor` rather than `readRegisteredGuardSubjects`, which
  * reads the core's needles alone and drops the shed candidates (#2297).
  */
 
@@ -51,11 +51,11 @@ const {
 	transcriptMentions,
 	tally,
 	transcriptDir,
-	transcriptFiles,
+	readTranscriptFiles,
 	sessionKeyFor,
 } = require("./lib/guard-fires");
 const {
-	hookSourcesOf,
+	readHostHookSources,
 	mergeHooks,
 	pluginHooksFile,
 } = require("./lib/core-hooks.js");
@@ -447,14 +447,14 @@ function rows(needles, settings, scanned) {
  * @param {Corpus} corpus
  * @returns {string[]}
  */
-function corpusLines(corpus) {
+function buildCorpusLines(corpus) {
 	const out = [
 		`CORPUS  ${corpus.files} transcripts in ${corpus.dir}, read ${new Date().toISOString().slice(0, 10)}.`,
 		"        It grows daily — sessions write into it while this runs — so carry the count",
 		"        with the figures. Both tiers are read: a main session's own file and every",
 		"        subagent it dispatched, under that session's subagents/ directory (mantahostels#1779).",
 	];
-	if (corpus.since) out.push(...windowLines(corpus));
+	if (corpus.since) out.push(...buildWindowLines(corpus));
 	if (corpus.unreadable.length > 0)
 		out.push(
 			`        ⚠ ${corpus.unreadable.length} transcript(s) could not be read, so every count below is a floor:`,
@@ -468,7 +468,7 @@ function corpusLines(corpus) {
  * @param {Corpus} corpus
  * @returns {string[]}
  */
-function windowLines(corpus) {
+function buildWindowLines(corpus) {
 	const out = [
 		`        WINDOW  since ${corpus.since} — every fire and mention before it is excluded.`,
 	];
@@ -489,7 +489,7 @@ function windowLines(corpus) {
  * @param {Corpus} corpus
  * @returns {string[]}
  */
-function firedLines(fired, corpus) {
+function buildFiredLines(fired, corpus) {
 	const out = [
 		`FIRED (${fired.length})`,
 		`  FIRES  SESSIONS${corpus.mentions ? "  MENTIONS" : ""}  LAST FIRE   HOOK`,
@@ -530,7 +530,7 @@ function firedLines(fired, corpus) {
  * @param {Corpus} corpus
  * @returns {string[]}
  */
-function neverLines(never, corpus) {
+function buildNeverLines(never, corpus) {
 	const out = [
 		`NEVER FIRED (${never.length}) — under the deterrence caveat`,
 		"  A zero here is evidence about retrieval, never about a rule's worth: a guard nothing",
@@ -554,7 +554,7 @@ function neverLines(never, corpus) {
  * @param {GuardRow[]} unkeyable
  * @returns {string[]}
  */
-function silentLines(unkeyable) {
+function buildSilentLines(unkeyable) {
 	return [
 		`SILENT BY DESIGN (${unkeyable.length}) — not a zero, an unmeasurable`,
 		"  This method cannot count these either way.",
@@ -570,7 +570,7 @@ function silentLines(unkeyable) {
  * @param {Corpus} corpus
  * @returns {string[]}
  */
-function candidateLines(candidates, corpus) {
+function buildCandidateLines(candidates, corpus) {
 	const out = [
 		"ROUTE-(e) SHED CANDIDATES (docs/research/always-loaded-shed-candidates.md)",
 		"  PROVEN is the hook and deny routes together — the harness's own record of the text",
@@ -606,11 +606,11 @@ function render(data, corpus) {
 	const unkeyable = data.guards.filter((g) => !g.keyed);
 
 	return [
-		...corpusLines(corpus),
-		...firedLines(fired, corpus),
-		...neverLines(never, corpus),
-		...silentLines(unkeyable),
-		...candidateLines(data.candidates, corpus),
+		...buildCorpusLines(corpus),
+		...buildFiredLines(fired, corpus),
+		...buildNeverLines(never, corpus),
+		...buildSilentLines(unkeyable),
+		...buildCandidateLines(data.candidates, corpus),
 	].join("\n");
 }
 
@@ -697,13 +697,13 @@ function main(argv) {
 		readHostNeedles(HOST_NEEDLES),
 	);
 	if (refuseHostNeedles(extra, clashes)) return 2;
-	const sources = hookSourcesOf(hostRoot(), { core: CORE });
+	const sources = readHostHookSources(hostRoot(), { core: CORE });
 	const settings = mergeHooks(sources);
 	const origins = keyOrigins(sources);
 
 	warnDrift(registryDrift(needles, settings), origins, hostKeys);
 
-	const files = transcriptFiles(dir);
+	const files = readTranscriptFiles(dir);
 	if (files === null) {
 		writeFd(2, `Cannot read transcripts in ${dir}.\n`);
 		return 2;

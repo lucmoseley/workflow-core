@@ -3,13 +3,15 @@
  * start-lander.js — start a detached lander where none runs and the remote's
  * `landing` is ahead of `main` (#2405, spec #2261).
  *
- *   node scripts/start-lander.js [--tester <command>]
+ *   node scripts/start-lander.js [--tester <command>] [--launched-by <name>]
  *
  * The lander's output is appended to `.lander.log` in the canonical
- * checkout's markers directory. Called by start-lander-on-push.sh after a push
+ * checkout's markers directory. Called by start-lander-on-push.js after a push
  * to `landing`, and by the session-start launcher, both appending this
  * script's own output there too, so its started line, naming the launching
- * session (#2478), opens the run.
+ * session (#2478), opens the run. The refill loop's supervision
+ * (supervise-landing.js, #2692), which runs as no session, names itself with
+ * `--launched-by`.
  *
  * Does nothing where the `landing` module is off. Joins no §N3 family: it
  * gates nothing and is no hook.
@@ -19,7 +21,7 @@
  */
 
 const path = require("node:path");
-const { errorText } = require("./lib/caught.js");
+const { parseErrorText } = require("./lib/caught.js");
 const { listedAgents } = require("./lib/agent-liveness.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { landerFiles, remoteGit, short } = require("./lib/lander.js");
@@ -32,13 +34,19 @@ const {
 const { pidLock } = require("./lib/pid-lock.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const { moduleOffLine, moduleOn } = require("./lib/workflow-core-config.js");
+const {
+	buildModuleOffLine,
+	moduleOn,
+} = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const USAGE = `usage: node ${scriptPath("start-lander.js")} [--tester <command>]`;
+const USAGE = `usage: node ${scriptPath("start-lander.js")} [--tester <command>] [--launched-by <name>]`;
 
 /** @type {import("./lib/cli-args.js").CliSpec} */
-const CLI = { usage: USAGE, flags: { "--tester": "value" } };
+const CLI = {
+	usage: USAGE,
+	flags: { "--tester": "value", "--launched-by": "value" },
+};
 
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
@@ -53,7 +61,7 @@ function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	if (!moduleOn("landing", { root })) {
-		say(`SKIP: ${moduleOffLine("landing")}`);
+		say(`SKIP: ${buildModuleOffLine("landing")}`);
 		return 0;
 	}
 	const log = landerLog(root);
@@ -65,7 +73,9 @@ function main(argv = process.argv.slice(2)) {
 			/* Named before the spawn, so the started line opens the run's log.
 			 * Self-test waived: a session-start launch runs before its session
 			 * lists (#2478). */
-			by = launcherName(() => listedAgents({ requireSelf: false }));
+			by =
+				flagValue(parsed.flags, "--launched-by") ??
+				launcherName(() => listedAgents({ requireSelf: false }));
 			return spawnDetachedRun({
 				root,
 				script: path.join(__dirname, "lander.js"),
@@ -88,7 +98,7 @@ if (require.main === module) {
 	try {
 		process.exit(main());
 	} catch (err) {
-		writeFd(2, `start-lander: ${errorText(err)}\n`);
+		writeFd(2, `start-lander: ${parseErrorText(err)}\n`);
 		process.exit(1);
 	}
 }

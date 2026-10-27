@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * check-landing-stall.js at session start (#2406, spec #2261), over a
+ * check-landing-stall.js at session start (#2406, spec #2261, #2692), over a
  * fixture remote whose commits carry chosen committer times and a heartbeat
  * written by hand.
  *
@@ -37,7 +37,7 @@ const queue = (name: string, ago: number) => {
 };
 
 /** A heartbeat `ago` ms old, from a pid that has exited. */
-const beat = (ago: number) => {
+const beat = (ago: number, movedAt?: number) => {
 	const dir = path.join(work, ".claude", "tmp", "markers");
 	fs.mkdirSync(dir, { recursive: true });
 	fs.writeFileSync(
@@ -46,6 +46,9 @@ const beat = (ago: number) => {
 			pid: spawnSync("true").pid,
 			at: new Date(Date.now() - ago).toISOString(),
 			batch: null,
+			...(movedAt === undefined
+				? {}
+				: { movedAt: new Date(Date.now() - movedAt).toISOString() }),
 		}),
 	);
 };
@@ -75,8 +78,14 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-it("warns of a stall where landing holds a commit over 90 min old that is not on main", () => {
-	queue("old", 91 * MIN);
+/** `main` moved to a commit made `ago` ms back. */
+const mainAt = (ago: number) => {
+	queue("main", ago);
+	git(work, ["push", "-q", "origin", "HEAD:main"]);
+};
+
+it("warns of a stall where landing is ahead and main's tip is over 2 h old with no move recorded", () => {
+	mainAt(121 * MIN);
 	queue("new", MIN);
 	beat(0);
 
@@ -87,11 +96,24 @@ it("warns of a stall where landing holds a commit over 90 min old that is not on
 	expect(r.stdout).toContain(
 		"Run the lander by hand to see where it stops: node scripts/lander.js run",
 	);
-	expect(r.stdout).toContain(git(work, ["rev-parse", "--short=9", "HEAD^"]));
+	expect(r.stdout).toContain(
+		`with landing ${git(work, ["rev-parse", "--short=9", "HEAD"])} ahead of it`,
+	);
 	expect(r.stdout).not.toContain("LANDER-DEAD");
 });
 
-it("warns of nothing where the queued commit is fresh and the lander beats", () => {
+it("warns of no stall where the heartbeat records a move within 2 h, though main's tip is older", () => {
+	mainAt(5 * 60 * MIN);
+	queue("new", MIN);
+	beat(0, 30 * MIN);
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe("");
+});
+
+it("warns of nothing where main moved recently and the lander beats", () => {
 	queue("new", MIN);
 	beat(0);
 
@@ -125,7 +147,8 @@ it("warns of no dead lander on a stale heartbeat while landing equals main", () 
 });
 
 it("prints nothing with the landing module off", () => {
-	queue("old", 91 * MIN);
+	mainAt(121 * MIN);
+	queue("new", MIN);
 
 	const r = check("suites");
 

@@ -3,7 +3,7 @@
  * marker `docs/agents/guard-registry.md` §Subagent dispatch requires, and the
  * line to give it where it does not?
  *
- * The artefact half of `scripts/guard-dispatch-rewrite.sh`, which supplies the
+ * The artefact half of `scripts/lib/dispatch-rewrite.js`, which supplies the
  * line rather than refusing the dispatch (#482).
  *
  * WHY A LITERAL AND NOT A DETECTOR. mantahostels#689 (can a PreToolUse hook enforce the
@@ -240,7 +240,7 @@ function agentTypeOf(call) {
  * @param {(file: string) => string} watch the watch command for a path
  * @returns {string}
  */
-function watchSentence(file, watch) {
+function buildWatchSentence(file, watch) {
 	return `Watch it with one backgrounded \`${watch(file)}\`, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. A \`STALLED\` or \`MISSING\` before it means abandon the agent.`;
 }
 
@@ -260,7 +260,7 @@ function injectArtefact(call, file, watch) {
 	if (prompt === null) return null;
 	return {
 		input: { ...call, prompt },
-		note: `This dispatch's prompt named no usable artefact, so the dispatch hook gave it one: ${file}. ${watchSentence(file, watch)}`,
+		note: `This dispatch's prompt named no usable artefact, so the dispatch hook gave it one: ${file}. ${buildWatchSentence(file, watch)}`,
 	};
 }
 
@@ -272,16 +272,16 @@ function injectArtefact(call, file, watch) {
  * @param {(file: string) => string} watch the watch command for a path
  * @returns {string|null}
  */
-function watchNote(call, watch) {
+function buildWatchNote(call, watch) {
 	if (!isWatchable(call)) return null;
 	const file = artefactPath(call.prompt);
 	if (file === null) return null;
-	return `This dispatch names its artefact: ${file}. ${watchSentence(file, watch)}`;
+	return `This dispatch names its artefact: ${file}. ${buildWatchSentence(file, watch)}`;
 }
 
 module.exports = {
 	agentTypeOf,
 	artefactFile,
 	injectArtefact,
-	watchNote,
+	buildWatchNote,
 };

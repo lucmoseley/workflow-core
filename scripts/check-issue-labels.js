@@ -6,7 +6,7 @@
  * whose condition is the founder typing a slash command (#411), a gate
  * line carrying no `**Gate basis:**` (#577), a `kind:brief` still holding
  * the spec it should have handed up to its map (#609), and a ticket left
- * `**Blocked` in a comment alone, which the shortlist cannot read (#2309).
+ * not ready in a comment alone, which the shortlist cannot read (#2309).
  *
  * `takes:` says which command opens the issue, and every open issue carries
  * exactly one — so absence is a defect, not a state meaning "/triage it"
@@ -15,7 +15,7 @@
  * A child of a `wayfinder:map` takes a `wayfinder:<type>`; a child of a
  * `kind:spec` takes `kind:ticket`.
  *
- * Prevention on the Bash route is scripts/guard-issue-create-label.sh, which
+ * Prevention on the Bash route is scripts/guard-issue-create-label.js, which
  * denies a `gh issue create` carrying no `takes:` label, or one outside the
  * seven (mantahostels#453). That hook sees Bash tool calls only, so
  * this script is the sole control for the three routes it cannot reach: a
@@ -37,7 +37,7 @@
  * the list holds this repo's issues alone, so a `takes:children` with no open
  * child in it has its own /sub_issues read, every page, before it is reported
  * (#778). PROSE-BLOCKED is the other: each open issue with comments has
- * its latest comment read, and one opening `**Blocked` with no gate line its
+ * its latest comment read, and one opening as NOT_READY_COMMENT matches with no gate line its
  * `blocked_by` edges.
  *
  * NEVER THE WHOLE TRACKER (mantahostels#1899). check-issue-orphans.js reads ghAllIssues;
@@ -58,7 +58,7 @@
  * the ticket that drew that line), and an
  * unlabelled child is a FAIL finding (exit 1, or 0 under --warn).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub for the open issues — and for the sub-issues of each `takes:children` with no open child among them — and reports label faults — an absent, duplicated, contradicted or stale `takes:`, a `takes:human` naming no outside act, naming a repo file as its product, lacking a `**Close when:**` line, or untouched for 14 days, a `**Gated on:**` whose condition is the founder typing a slash command, a gate line with no `**Gate basis:**`, a brief still holding its spec, a latest comment opening `**Blocked` on an issue with no open blocker and no holding gate line, and a child missing its parent's family.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), asks GitHub for the open issues — and for the sub-issues of each `takes:children` with no open child among them — and reports label faults — an absent, duplicated, contradicted or stale `takes:`, a `takes:human` naming no outside act, naming a repo file as its product, lacking a `**Close when:**` line, or untouched for 14 days, a `**Gated on:**` whose condition is the founder typing a slash command, a gate line with no `**Gate basis:**`, a brief still holding its spec, a latest comment saying the issue is not ready on an issue with no open blocker and no holding gate line, and a child missing its parent's family.
  * JUSTIFIED: fail-safe — an issue with no `takes:` is routed to no command, and every reader of the label reads it rather than fixing it.
  * DEFEAT:    none; --notify is silent when no open issue carries a fault.
  */
@@ -69,16 +69,20 @@ const { runCheck } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root");
 const { resolveGate } = require("./lib/issue-gate");
 const {
-	errLine,
+	parseErrLine,
 	ghClosedIssuesWithLabel,
-	ghFailureReason,
+	parseGhFailureReason,
 	ghGetRetrying,
 	ghOpenIssues,
 	ISSUE_READ_CONCURRENCY,
 	mapLimit,
 	raiseGhFailure,
 } = require("./lib/gh");
-const { isOpenChild, localParentOf, subIssuesOf } = require("./lib/issue-tree");
+const {
+	isOpenChild,
+	localParentOf,
+	readSubIssues,
+} = require("./lib/issue-tree");
 const { scriptPath } = require("./lib/script-path");
 const {
 	CLOSE_WHEN_LINE,
@@ -290,7 +294,7 @@ const namesOf = (iss) =>
  * @param {any[]} issues
  * @returns {any[]}
  */
-function closedParents(issues) {
+function readClosedParents(issues) {
 	/*
 	 * The parents the open set does not already contain — closed, by
 	 * elimination. Fetched by RULES label rather than by number: one call per
@@ -326,7 +330,7 @@ function readIssues() {
 	let issues = [];
 	try {
 		const open = ghOpenIssues();
-		issues = [...open, ...closedParents(open)];
+		issues = [...open, ...readClosedParents(open)];
 	} catch (e) {
 		raiseGhFailure(e);
 	}
@@ -495,13 +499,13 @@ function checkStaleContainer(iss, raise) {
 	/** @type {any[] | null} */
 	let kids = null;
 	try {
-		kids = subIssuesOf(iss.number);
+		kids = readSubIssues(iss.number);
 	} catch (e) {
-		if (ghFailureReason(e) === "unreachable") raiseGhFailure(e);
+		if (parseGhFailureReason(e) === "unreachable") raiseGhFailure(e);
 		raise(
 			"WARN",
 			"CHILDREN-UNREADABLE",
-			`takes:children with no open child in this repo, and its sub-issues unreadable (${errLine(e)})`,
+			`takes:children with no open child in this repo, and its sub-issues unreadable (${parseErrLine(e)})`,
 			`re-run, or read them yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/sub_issues --paginate`,
 		);
 	}
@@ -667,11 +671,11 @@ function reportTakesFaults(ctx, takesFaults) {
 
 /*
  * A ticket a launched session found not ready, left with a comment opening
- * `**Blocked` and nothing pick-next.js reads: no open native blocker and no
+ * `**Blocked` or `**Refused attempt` (#3111) and nothing pick-next.js reads: no open native blocker and no
  * holding gate line (#2309, ruled at #2212). A WARN: the issue still routes.
- * guard-tracker-rules.sh's opens_blocked matches the same opening.
+ * lib/tracker-rules.js's opensNotReady matches the same opening.
  */
-const BLOCKED_COMMENT = /^\s*\*\*Blocked/;
+const NOT_READY_COMMENT = /^\s*\*\*(Blocked|Refused attempt)/;
 
 /**
  * The issue's PROSE-BLOCKED fault, or its read failure, as Raise's
@@ -691,7 +695,7 @@ async function proseBlockedFault(iss) {
 		return [
 			"WARN",
 			"BLOCKED-UNREADABLE",
-			`latest comment unreadable (${latest.error}), so a prose-only Blocked is unjudged`,
+			`latest comment unreadable (${latest.error}), so a prose-only not-ready comment is unjudged`,
 			`re-run, or read it yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/comments`,
 		];
 	/* An empty page is a comment deleted since the list, not a silence. */
@@ -700,10 +704,11 @@ async function proseBlockedFault(iss) {
 		return [
 			"WARN",
 			"BLOCKED-UNREADABLE",
-			"latest comment answered an empty page, so a prose-only Blocked is unjudged",
+			"latest comment answered an empty page, so a prose-only not-ready comment is unjudged",
 			`re-run, or read it yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/comments`,
 		];
-	if (!BLOCKED_COMMENT.test(String(comment.body ?? ""))) return null;
+	const opening = NOT_READY_COMMENT.exec(String(comment.body ?? ""))?.[1];
+	if (!opening) return null;
 	/* Strict: an empty answer would read as no blocker and raise a false finding. */
 	const edges = await ghGetRetrying(
 		`repos/{owner}/{repo}/issues/${iss.number}/dependencies/blocked_by`,
@@ -713,14 +718,14 @@ async function proseBlockedFault(iss) {
 		return [
 			"WARN",
 			"BLOCKED-UNREADABLE",
-			`latest comment opens **Blocked, and its blockers are unreadable (${edges.error})`,
+			`latest comment opens **${opening}, and its blockers are unreadable (${edges.error})`,
 			`re-run, or read them yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/dependencies/blocked_by`,
 		];
 	if (edges.out.some((/** @type {any} */ b) => b.state === "open")) return null;
 	return [
 		"WARN",
 		"PROSE-BLOCKED",
-		"latest comment opens **Blocked, but no open blocker and no holding gate line — the shortlist offers it again",
+		`latest comment opens **${opening}, but no open blocker and no holding gate line — the shortlist offers it again`,
 		"add a native blocked-by edge to the issue whose work it waits on, filing that issue unassigned first where none exists; or, for an event no issue does, a `**Gated on:** <condition> — check: <command> — abandon if: <clause>` line with `**Gate basis:**` beneath it (waiting:external is not a gate)",
 	];
 }

@@ -49,7 +49,8 @@ const PROVENANCE_HEADING = "## Plugin provenance";
 const RUNNER = /\b(node|bash|sh|python3) scripts\//g;
 
 /** @param {string} name */
-const template = (name) => fs.readFileSync(path.join(TEMPLATES, name), "utf8");
+const readTemplate = (name) =>
+	fs.readFileSync(path.join(TEMPLATES, name), "utf8");
 
 /**
  * The module tag a rules-file line opens with, if any: `- [roadmap] …` or
@@ -117,7 +118,7 @@ function ciStatusCommand(root) {
  */
 function renderSessionRules({ modules, founder, pluginRoot, ciCheck }) {
 	const on = new Set(modules);
-	const kept = template("session-rules.md")
+	const kept = readTemplate("session-rules.md")
 		.replace(TEMPLATE_HEADER, "")
 		.split("\n")
 		.flatMap((line) => {
@@ -145,7 +146,7 @@ function renderSessionRules({ modules, founder, pluginRoot, ciCheck }) {
  */
 const renderReference = (pluginRoot) =>
 	rewriteRuleCommands(
-		template("reference.md").replace(TEMPLATE_HEADER, ""),
+		readTemplate("reference.md").replace(TEMPLATE_HEADER, ""),
 		pluginRoot,
 	);
 
@@ -278,7 +279,7 @@ function renderClaudeMd({ founder, project, commands }) {
 	const declared = COMMANDS.filter((c) => commands[c]).map(
 		(c) => `- \`${commands[c]}\` — the repo's ${c.replace("_", " ")} command.`,
 	);
-	return substitute(template("CLAUDE.md"), {
+	return substitute(readTemplate("CLAUDE.md"), {
 		founder,
 		project,
 		commands:
@@ -289,7 +290,7 @@ function renderClaudeMd({ founder, project, commands }) {
 }
 
 /** `AGENTS.md`'s four generic safety sections and its blank invariants section. */
-const renderAgentsMd = () => template("AGENTS.md");
+const renderAgentsMd = () => readTemplate("AGENTS.md");
 
 /**
  * The day-one `docs/doc-map.md`: §A with one register table for the generator
@@ -297,12 +298,12 @@ const renderAgentsMd = () => template("AGENTS.md");
  * @param {{project: string, date: string}} at
  */
 const renderDocMap = ({ project, date }) =>
-	substitute(template("doc-map.md"), { project, date });
+	substitute(readTemplate("doc-map.md"), { project, date });
 
 /** The day-one `docs/called-cards.md`, under `roadmap`.
  * @param {{founder: string}} at */
 const renderCalledCards = ({ founder }) =>
-	substitute(template("called-cards.md"), { founder });
+	substitute(readTemplate("called-cards.md"), { founder });
 
 /**
  * The day-one `docs/reference-roadmap.html`: the phase template — five phases,
@@ -316,7 +317,7 @@ function renderRoadmap({ project, categories, version, stamp }) {
 	)
 		.map(([k, v]) => `  ${k}:${JSON.stringify(v)}`)
 		.join(",\n");
-	return substitute(template("reference-roadmap.html"), {
+	return substitute(readTemplate("reference-roadmap.html"), {
 		project,
 		areas,
 		version,
@@ -325,11 +326,11 @@ function renderRoadmap({ project, categories, version, stamp }) {
 }
 
 /**
- * The hooks whose refusal would stop git: every hook but these two. pre-push
+ * The hooks whose refusal would stop git: every hook but these three. pre-push
  * refuses no push on a checker that cannot run (#1444), and git ignores
- * post-commit's exit, so neither refuses where no core resolves.
+ * post-commit's and post-merge's exit, so none refuses where no core resolves.
  */
-const FAIL_OPEN_HOOKS = new Set(["pre-push", "post-commit"]);
+const FAIL_OPEN_HOOKS = new Set(["pre-push", "post-commit", "post-merge"]);
 
 /** A line every shim carries, which tells it from an adopter's own hook. */
 const SHIM_MARK = "# workflow-core hook shim:";
@@ -410,6 +411,7 @@ const HOOKS = [
 	"pre-merge-commit",
 	"pre-applypatch",
 	"post-commit",
+	"post-merge",
 	"pre-push",
 ];
 
@@ -620,13 +622,13 @@ const CORE_LABELS = [
 		name: "parked",
 		color: "FEF2C0",
 		description:
-			"A question round on it waits on the founder; selection skips it until answered or claimed.",
+			"A question round on it waits on the founder; the refill loop skips it until answered or claimed.",
 	},
 	{
 		name: "urgent",
 		color: "D93F0B",
 		description:
-			"Jumps the selection queue for a fact structure cannot see. Binary. Decays after 7 days.",
+			"Jumps the selection queue; on a map, for every descendant. Holds until closed or removed.",
 	},
 	{
 		name: "measured:effort-low",

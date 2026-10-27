@@ -45,7 +45,7 @@ function scratch<T>(fn: (dir: string) => T): T {
 }
 
 /** The committed manifest's rules: id → the source anchoring it. */
-const committed = (): Record<string, { source: string; trigger: string }> =>
+const readCommitted = (): Record<string, { source: string; trigger: string }> =>
 	JSON.parse(fs.readFileSync(path.join(ROOT, MANIFEST), "utf8")).rules;
 
 /** Every source the generator scans, as it names them when each is absent. */
@@ -64,7 +64,7 @@ describe("the committed store matches its anchored source", () => {
 	});
 
 	it("rendering the live documents afresh reproduces every fragment on disk, byte for byte", () => {
-		const rules = committed();
+		const rules = readCommitted();
 		expect(Object.keys(rules).length).toBeGreaterThan(0);
 		scratch((dir) => {
 			for (const s of sourcesSkipped()) {
@@ -157,7 +157,9 @@ describe("an absent source is skipped aloud, never thrown on", () => {
 			const r = runOver(dir, ["--check"]);
 			expect(r.stderr).toBe("");
 			expect(r.status).toBe(0);
-			const sources = new Set(Object.values(committed()).map((e) => e.source));
+			const sources = new Set(
+				Object.values(readCommitted()).map((e) => e.source),
+			);
 			expect(sources.size).toBeGreaterThan(0);
 			for (const s of sources) expect(r.stdout).toContain(`SKIP ${s}`);
 			// Rendered into the host's own store, not the core's fallback one.
@@ -177,7 +179,7 @@ describe("the source list", () => {
 
 describe("the standards base as a source (#1887)", () => {
 	it("anchors §X8, §X9 and §X10, each bound at a test-file write, judging sentences left out", () => {
-		const rules = committed();
+		const rules = readCommitted();
 		const rendered = {
 			"test-run-cost": {
 				heading: "### §X8 ·",

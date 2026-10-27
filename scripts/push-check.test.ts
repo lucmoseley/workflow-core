@@ -1,15 +1,15 @@
 // @vitest-environment node
 /*
- * Pins `npm run push:check`: its 0/1/2 verdict on whether green runs cover
+ * Pins `npm run push:check`: its 0/1/2 verdict on whether certificates attest
  * every commit the next push sends, each suite answering for itself, and who it
- * names to answer for an uncovered commit (#814, #1213).
+ * names to answer for an unattested commit (#814, #1213).
  *
  * Driven in-process over real throwaway repositories with a real `origin/main`,
  * because the range it judges is git's own merge-base, not a list a fixture
  * could hand it.
  *
  * Every session runs it before a push (docs/agents/guard-registry.md §Conventions): loosen a case
- * and a push goes out over commits no suite covered, or a session reruns the
+ * and a push goes out over commits no certificate attests, or a session reruns the
  * whole suite for a neighbour's commits.
  */
 
@@ -24,7 +24,7 @@ import { storePath } from "./lib/test-pass-marker.js";
 
 const req = createRequire(__filename);
 const { projectSlug } = req("./lib/project-slug.js");
-const { procStartOf } = req("./lib/arbiter-proc.js");
+const { readProcStartOf } = req("./lib/arbiter-proc.js");
 
 const SCRIPT = path.join(__dirname, "push-check.js");
 
@@ -89,7 +89,7 @@ const SCOPE = {
 	admissible: true,
 };
 
-/** An admissible narrowed green on `sha`, selected for `paths` and reading them alone. */
+/** An admissible narrowed certificate on `sha`, selected for `paths` and reading them alone. */
 const narrowedOn = (
 	dir: string,
 	sha: string,
@@ -146,7 +146,7 @@ function register(dir: string, session: string, isLive: boolean) {
 		JSON.stringify({
 			pid: process.pid,
 			sessionId: session,
-			procStart: isLive ? procStartOf(process.pid) : "999999999",
+			procStart: isLive ? readProcStartOf(process.pid) : "999999999",
 			name: `${session}-name`,
 		}),
 	);
@@ -158,7 +158,7 @@ afterEach(() => {
 });
 
 describe("push:check", () => {
-	it("exits 0 where greens from two sessions cover the range, naming both runs", () => {
+	it("exits 0 where certificates from two sessions attest the range, naming both runs", () => {
 		const dir = repo();
 		const c1 = commitTouching(dir, "a.js");
 		const c2 = commitTouching(dir, "b.js");
@@ -169,19 +169,19 @@ describe("push:check", () => {
 		);
 		const r = run(dir);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(`..${c2.slice(0, 12)} is covered — push.`);
+		expect(r.stdout).toContain(`..${c2.slice(0, 12)} is attested — push.`);
 		expect(r.stdout).toContain("RUN-A");
 		expect(r.stdout).toContain("RUN-B");
 	});
 
-	it("exits 1 where a run is owed, naming each uncovered file, its commit and the command", () => {
+	it("exits 1 where a run is owed, naming each unattested file, its commit and the command", () => {
 		const dir = repo();
 		const c1 = commitTouching(dir, "a.js");
 		const c2 = commitTouching(dir, "b.js");
 		writeStore(dir, narrowedOn(dir, c1, ["a.js"], { at: "RUN-A" }));
 		const r = run(dir);
 		expect(r.status).toBe(1);
-		expect(r.stdout).toContain("NO GREEN VITEST RUN COVERS 1 FILE(S)");
+		expect(r.stdout).toMatch(/1 FILE\(S\) IN \S+ LACK A VITEST CERTIFICATE/);
 		expect(r.stdout).toContain(`b.js — commit ${c2.slice(0, 12)}`);
 		expect(r.stdout).toContain("Run `npm run test` for that, then push.");
 	});
@@ -193,13 +193,14 @@ describe("push:check", () => {
 		expect(r.stdout).toContain("nothing to push");
 	});
 
-	it("measures the range from origin/landing where the landing module is on (#2408)", () => {
+	it("prints the lander's skip line and exits 0 where the landing module is on (#2929)", () => {
 		const dir = repo();
 		commitTouching(dir, "a.js");
-		git(dir, "update-ref", "refs/remotes/origin/landing", "HEAD");
 		const r = run(dir, { WFC_MODULES: "suites,landing" });
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("its merge-base with origin/landing");
+		expect(r.stdout).toBe(
+			'SKIP: module "landing" is on — the lander runs the full suite before main moves, so no push owes a certificate\n',
+		);
 	});
 
 	it("exits 2 where it cannot judge, saying why", () => {
@@ -229,17 +230,17 @@ describe("push:check", () => {
 		expect(r.stdout).toContain("SKIP: commands.test is gated at commit");
 	});
 
-	it("answers each suite for itself: a vitest green never covers a pytest gap", () => {
+	it("answers each suite for itself: a vitest certificate never attests a pytest file", () => {
 		const dir = repo();
 		const c1 = commitTouching(dir, "pipe.py");
 		writeStore(dir, narrowedOn(dir, c1, ["pipe.py"], { at: "V" }));
 		const r = run(dir);
 		expect(r.status).toBe(1);
 		expect(r.stdout).toContain("✓  VITEST");
-		expect(r.stdout).toContain("NO GREEN PYTEST RUN COVERS 1 FILE(S)");
+		expect(r.stdout).toMatch(/1 FILE\(S\) IN \S+ LACK A PYTEST CERTIFICATE/);
 		writeStore(dir, narrowedOn(dir, c1, ["pipe.py"], { at: "V" }), {
 			...narrowedOn(dir, c1, ["pipe.py"], { at: "P", suite: "pytest" }),
-			/* pytest has no admissible tier: its green is a full run. */
+			/* pytest has no admissible tier: its only certificate comes from a full run. */
 			scope: { ...SCOPE, modulesRun: 123, changed: false, admissible: false },
 			closure: "*",
 		});
@@ -247,8 +248,8 @@ describe("push:check", () => {
 	});
 });
 
-describe("push:check names who answers for an uncovered commit (#1213)", () => {
-	/** main at four commits, a.js–d.js, the first covered by a green. */
+describe("push:check names who answers for an unattested commit (#1213)", () => {
+	/** main at four commits, a.js–d.js, the first attested by a certificate. */
 	function fourCommits() {
 		const dir = repo();
 		const shas = ["a.js", "b.js", "c.js", "d.js"].map((p) =>
@@ -269,7 +270,7 @@ describe("push:check names who answers for an uncovered commit (#1213)", () => {
 		const r = run(dir);
 		expect(r.status).toBe(1);
 		expect(r.stdout).toContain(
-			`${shas[3].slice(0, 12)}: made by nb-name, still live — its own green covers them, so run nothing for them (#1213).`,
+			`${shas[3].slice(0, 12)}: made by nb-name, still live — its own certificate will attest them, so run nothing for them (#1213).`,
 		);
 		expect(r.stdout).toContain(
 			"Run `npm run test` for the other 2 file(s), from your own commits or no session's, then push.",
@@ -277,7 +278,7 @@ describe("push:check names who answers for an uncovered commit (#1213)", () => {
 		expect(r.stdout).not.toContain("--adopt");
 	});
 
-	it("hands back one adoption run over every ended session's uncovered paths", () => {
+	it("hands back one adoption run over every ended session's unattested paths", () => {
 		const { dir, shas } = fourCommits();
 		ledger(dir, "gone1", shas[1]);
 		ledger(dir, "gone2", shas[2], shas[3]);
@@ -325,7 +326,7 @@ describe("push:check names who answers for an uncovered commit (#1213)", () => {
 		register(dir, "gone", false);
 		const r = run(dir);
 		expect(r.status).toBe(1);
-		expect(r.stdout).toContain("NO GREEN VITEST RUN COVERS 4 FILE(S)");
+		expect(r.stdout).toMatch(/4 FILE\(S\) IN \S+ LACK A VITEST CERTIFICATE/);
 		expect(r.stdout).toContain("for the other 2 file(s)");
 		expect(r.stdout).toContain(`${theirs.slice(0, 12)}: made by nb-name`);
 		expect(r.stdout).toContain(
@@ -346,7 +347,7 @@ describe("push:check names who answers for an uncovered commit (#1213)", () => {
 		expect(r.stdout).toContain("--adopt");
 	});
 
-	it("is covered once the adoption run's green lands, and only for the paths it named", () => {
+	it("is attested once the adoption run's certificate lands, and only for the paths it named", () => {
 		const { dir, shas } = fourCommits();
 		ledger(dir, "gone", shas[1], shas[2], shas[3]);
 		const adopted = (paths: string[]) => ({
@@ -361,7 +362,9 @@ describe("push:check names who answers for an uncovered commit (#1213)", () => {
 		);
 		const partial = run(dir);
 		expect(partial.status).toBe(1);
-		expect(partial.stdout).toContain("NO GREEN VITEST RUN COVERS 1 FILE(S)");
+		expect(partial.stdout).toMatch(
+			/1 FILE\(S\) IN \S+ LACK A VITEST CERTIFICATE/,
+		);
 		expect(partial.stdout).toContain("npm run test -- --adopt d.js\n");
 		writeStore(
 			dir,
@@ -372,7 +375,7 @@ describe("push:check names who answers for an uncovered commit (#1213)", () => {
 	});
 });
 
-describe("push:check names the tests to re-run where a green holds test by test (#1860)", () => {
+describe("push:check names the tests to re-run where a certificate holds test by test (#1860)", () => {
 	it("exits 1 naming only the test a neighbour's commit voided, with a command running it alone, then 0 once it is re-run", () => {
 		const dir = repo();
 		fs.mkdirSync(path.join(dir, "docs"));

@@ -54,11 +54,11 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const { hostRoot } = require("./lib/host-root.js");
 const { runCheck } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { caught } = require("./lib/caught.js");
+const { execGit } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 
@@ -143,7 +143,7 @@ function normaliseUrl(url) {
  * @returns {string}
  */
 function git(root, args, opts = {}) {
-	return execFileSync("git", args, {
+	return execGit(args, {
 		cwd: root,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
@@ -168,7 +168,7 @@ const isApparatusFailure = (e) => caught(e).code === "ENOENT";
  * @param {unknown} e
  * @returns {string}
  */
-const gitReason = (e) => {
+const parseGitReason = (e) => {
 	const { stderr, message } = caught(e);
 	return (stderr ?? "").trim().split("\n")[0] || message || "git failed";
 };
@@ -185,7 +185,7 @@ const gitReason = (e) => {
  * @param {string} url the marketplace entry's `source.url`
  * @returns {string}
  */
-function remoteFor(ctx, root, url) {
+function readRemoteFor(ctx, root, url) {
 	let listed;
 	try {
 		listed = git(root, ["remote", "-v"]);
@@ -194,7 +194,7 @@ function remoteFor(ctx, root, url) {
 		 * failing to enumerate at all — apparatus either way, and BROKEN rather
 		 * than a silent fall-through to the URL, which would report a private
 		 * repo as unreachable and look like a real fault. */
-		ctx.broken(`cannot list this repo's remotes — ${gitReason(e)}`);
+		ctx.broken(`cannot list this repo's remotes — ${parseGitReason(e)}`);
 	}
 	const want = normaliseUrl(url);
 	for (const line of listed.split("\n")) {
@@ -216,9 +216,9 @@ function remoteFor(ctx, root, url) {
  * @param {{url?: string}} source
  * @returns {string}
  */
-function requiredRemote(ctx, root, name, source) {
+function readRequiredRemote(ctx, root, name, source) {
 	const remote =
-		ctx.value("--remote") ?? remoteFor(ctx, root, source.url ?? "");
+		ctx.value("--remote") ?? readRemoteFor(ctx, root, source.url ?? "");
 	if (!remote) {
 		ctx.broken(
 			`.claude-plugin/marketplace.json gives ${name} no \`source.url\` to query`,
@@ -248,8 +248,8 @@ function tagOnRemote(ctx, root, remote, tag) {
 		return { present: out.trim() !== "" };
 	} catch (e) {
 		if (isApparatusFailure(e))
-			ctx.broken(`cannot run git to reach ${remote} — ${gitReason(e)}`);
-		return { unreachable: gitReason(e) };
+			ctx.broken(`cannot run git to reach ${remote} — ${parseGitReason(e)}`);
+		return { unreachable: parseGitReason(e) };
 	}
 }
 
@@ -264,7 +264,7 @@ function tagOnRemote(ctx, root, remote, tag) {
  * @param {string} remote a remote name or a URL, as git itself accepts either
  * @returns {{ tag: string|null } | { unreachable: string }}
  */
-function newestCutTagOnRemote(ctx, root, remote) {
+function readNewestCutTagOnRemote(ctx, root, remote) {
 	try {
 		const out = git(root, ["ls-remote", "--tags", remote, "refs/tags/v*"], {
 			timeout: LS_REMOTE_TIMEOUT_MS,
@@ -290,8 +290,8 @@ function newestCutTagOnRemote(ctx, root, remote) {
 		};
 	} catch (e) {
 		if (isApparatusFailure(e))
-			ctx.broken(`cannot run git to reach ${remote} — ${gitReason(e)}`);
-		return { unreachable: gitReason(e) };
+			ctx.broken(`cannot run git to reach ${remote} — ${parseGitReason(e)}`);
+		return { unreachable: parseGitReason(e) };
 	}
 }
 
@@ -315,7 +315,7 @@ function newestCutTagOnRemote(ctx, root, remote) {
  *
  * @param {Ctx} ctx
  * @param {string} remote
- * @param {string} reason what git said, from gitReason()
+ * @param {string} reason what git said, from parseGitReason()
  * @param {{ skipLines: string, failLine: string }} prose `skipLines` is the
  *   SKIP's prose, already indented for its line; `failLine` the FAIL finding's
  *   one-line summary
@@ -358,7 +358,7 @@ function hasLocalTag(ctx, root, tag) {
 		/* Never `false`: an unenumerable tag list would become a TAG-UNCUT that
 		 * reads as a real release fault, and the tag set is this checker's own
 		 * reading apparatus rather than its subject. */
-		ctx.broken(`cannot list this repo's tags — ${gitReason(e)}`);
+		ctx.broken(`cannot list this repo's tags — ${parseGitReason(e)}`);
 	}
 }
 
@@ -468,9 +468,9 @@ function judgeNonTagPin(ctx, { root, name, version, source, ref }) {
 			`.claude-plugin/plugin.json's version \`${version}\` is not X.Y.Z, so it cannot be compared against a cut tag`,
 		);
 
-	const remote = requiredRemote(ctx, root, name, source);
+	const remote = readRequiredRemote(ctx, root, name, source);
 
-	const newest = newestCutTagOnRemote(ctx, root, remote);
+	const newest = readNewestCutTagOnRemote(ctx, root, remote);
 	if ("unreachable" in newest) {
 		return remoteUnreachable(ctx, remote, newest.unreachable, {
 			skipLines:
@@ -622,7 +622,7 @@ runCheck({
 		if (ref !== expected)
 			return failPinMismatch(ctx, { name, ref, version, expected });
 
-		const remote = requiredRemote(ctx, root, name, source);
+		const remote = readRequiredRemote(ctx, root, name, source);
 
 		const onRemote = tagOnRemote(ctx, root, remote, ref);
 

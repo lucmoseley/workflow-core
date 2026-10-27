@@ -14,6 +14,7 @@
  */
 
 const fs = require("node:fs");
+const shared = require("./in-process-probe-modes.js");
 
 const [mode, arg] = process.argv.slice(2);
 const say = (/** @type {string} */ text) => fs.writeSync(1, `${text}\n`);
@@ -67,13 +68,16 @@ const modes = {
 };
 
 async function main() {
-	const run =
-		(mode === undefined ? undefined : modes[mode]) ??
-		(async () => {
-			fs.writeSync(2, `unknown mode: ${mode}\n`);
-			process.exit(2);
-		});
-	await run();
+	const own = mode === undefined ? undefined : modes[mode];
+	const sharedMode = mode === undefined ? undefined : shared.modes[mode];
+	if (own) return own();
+	if (!sharedMode) {
+		fs.writeSync(2, `unknown mode: ${mode}\n`);
+		process.exit(2);
+	}
+	/* After an await, so only a check made once main() settles sees a leak. */
+	await tick();
+	sharedMode(arg);
 }
 
 module.exports = { main };

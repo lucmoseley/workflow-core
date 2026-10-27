@@ -103,6 +103,20 @@
 # Each line carries the arm it ran under. record_launch() has what those fields
 # can and cannot prove; none of them is a reading of the harness's own state.
 #
+# THE SUITE CEILING'S BACKSTOP (#2704). A suite runner kills its own run at
+# its ceiling (scripts/lib/suite-ceiling.js), but a wedged runner, or one
+# SIGKILLed, cannot. So `run` names a deadline file in each run's directory,
+# its token in the name so a republished run's runner cannot write the new
+# run's, and the runner writes `<deadline s> <pgid>` there at spawn. Once that
+# deadline plus CEILING_GRACE_S passes with no `status`, the watcher kills the
+# named group and the wrapped command's tree, and records a `ceiling` kill.
+# `check` then reads the run as DONE with a non-zero exit, marked a ceiling
+# kill. This script holds no copy of the ceiling: it reads only the file.
+# The deadline and the watcher's reading of it are on CLOCK_MONOTONIC, the
+# runner's own timer's clock, which a host suspend does not advance; the wall
+# clock steps forward on resume, and would kill a run for time it never spent
+# (#2886).
+#
 # Usage:
 #   scripts/bg-run.sh run <name> <command> [args...]
 #   scripts/bg-run.sh check <name>
@@ -163,22 +177,40 @@ MAX_DESCENDANTS="${WFC_BG_MAX_DESCENDANTS:-500}"
 # neither finished nor was ever seen to die — a fixed ceiling, not a `while
 # true`, per CLAUDE.md's wait-loop rule (mantahostels#2012): a run that outlives this
 # just goes back to being recorded only if a session later calls `check`.
-# 7200 (2h) is a guess, wide against the ~7 wrapped runs/day mantahostels#2691
-# measured and the minutes-not-hours suite runs this machine actually sees,
-# narrow enough that an abandoned watcher does not accumulate for a whole
-# session's lifetime.
+# 7200 (2h) is a guess: wide against the minutes-not-hours suite runs this
+# machine sees, narrow enough that an abandoned watcher does not accumulate for
+# a whole session's lifetime.
 WATCH_CEILING_S="${WFC_BG_WATCH_CEILING_S:-7200}"
+# How long past a suite runner's deadline the watcher waits before killing the
+# run itself (#2704): the runner's 14-minute ceiling plus this is #2667's 15.
+# Lower only, as the ceiling is, so no setting stretches the hold.
+CEILING_GRACE_S=60
+if [[ "${WFC_BG_CEILING_GRACE_S:-}" =~ ^[0-9]+$ ]] && [ "$WFC_BG_CEILING_GRACE_S" -lt "$CEILING_GRACE_S" ]; then
+  CEILING_GRACE_S="$WFC_BG_CEILING_GRACE_S"
+fi
 # A test seam, unset in production (#1352): a path the watcher waits for
 # between its run-token check and its record, so a test can republish the run
 # inside that gap instead of racing it. Its `.waiting` sibling says the watcher
-# has arrived. Bounded by WATCH_GATE_S, per the wait-loop rule: 10 is a guess,
-# well over the test's republish and well under its 30 s timeout.
+# has arrived. Bounded by GATE_S, per the wait-loop rule: 10 is a guess, well
+# over any test's republish or rename inside a gate and well under its timeout.
 WATCH_GATE="${WFC_BG_WATCH_GATE:-}"
-WATCH_GATE_S=10
+GATE_S=10
+# A test seam, unset in production (#3097): the same wait, held by `check` at
+# `<path>.<try>` after each try's token read, and at `<path>.record` before its
+# kill record, so a test can move the run directory away inside either gap.
+CHECK_GATE="${WFC_BG_CHECK_GATE:-}"
 # A test seam, unset in production (#1885): a file each `wait` poll appends its
 # cmd_check exit code to, and each missing-directory retry a `missing` line, so
 # a test counts the polls instead of timing them (base §X9).
 POLL_LOG="${WFC_BG_POLL_LOG:-}"
+# A test seam, unset in production (#2687): the whole-second clock, so a test
+# chooses what `date +%s` would read (base §N7, §X9). `<epoch>` pins every
+# read there; `<epoch>+` reads one later on each call within this process.
+# Read only through clock_now.
+NOW="${WFC_BG_NOW:-}"
+# A test seam, unset in production (#2886): CLOCK_MONOTONIC in whole seconds,
+# pinned. Read only through mono_now.
+MONO="${WFC_BG_MONO:-}"
 # How long cmd_run holds its publish for the watcher to start (#2110). 5 is a
 # guess: an unloaded start takes tens of milliseconds, and a run held this long
 # is one a loaded machine is already slowing, so the hold costs it little.
@@ -197,8 +229,37 @@ WATCH_FORK_DELAY_S="${WFC_BG_WATCH_FORK_DELAY_S:-}"
 # resets that trap.
 TOUCHER_KEEPS_TRAP="${WFC_BG_TOUCHER_KEEPS_TRAP:-}"
 
+# Sets mono_s to CLOCK_MONOTONIC in whole seconds, the suite deadline's
+# clock (#2886), through the WFC_BG_MONO seam. Bash and coreutils read no such
+# clock and /proc/uptime counts suspended time, so node reads it: a deadline
+# file exists only where a node runner wrote it, so node is there to read it.
+mono_s=""
+mono_now() {
+  if [ -n "$MONO" ]; then
+    mono_s="$MONO"
+  else
+    mono_s="$(node -e 'process.stdout.write(String(Math.floor(Number(process.hrtime.bigint()) / 1e9)))' 2>/dev/null)"
+  fi
+  [[ "$mono_s" =~ ^[0-9]+$ ]]
+}
+
+# Sets clock_s to the whole-second clock, through the WFC_BG_NOW seam. A
+# variable rather than stdout, since a `$(...)` read would drop a ticking
+# clock's count with its subshell.
+clock_ticks=0
+clock_now() {
+  case "$NOW" in
+    "") clock_s="$(date +%s)" ;;
+    *+)
+      clock_ticks=$((clock_ticks + 1))
+      clock_s=$((${NOW%+} + clock_ticks))
+      ;;
+    *) clock_s="$NOW" ;;
+  esac
+}
+
 # MemAvailable in MB, or nothing on a line it cannot parse. Mirrors
-# guard-suite-concurrency.sh's available_mb — fails open, never fatal, since a
+# lib/suite-concurrency-host.js's readAvailableMb — fails open, never fatal, since a
 # kill record with an "unknown" figure beats a toucher that dies on a
 # malformed /proc.
 available_mb() {
@@ -240,58 +301,68 @@ build_children_map() {
   done
 }
 
-# Sums VmRSS in kB across $parent's WHOLE descendant tree except $exclude
-# (the toucher's own subshell, found via $BASHPID at the call site rather
-# than threaded in from outside — it IS $parent's direct child too, and
-# excluding it there also drops everything IT forks, since none of that is
-# ever enqueued). BFS over the map above, so a command that forks its own
-# workers (`npm run test`'s vitest pool) has its whole pool counted rather
-# than just its own launcher (mantahostels#2683). Bounded at MAX_DESCENDANTS, both at
-# enqueue and at visit time (see the loop below). Echoes "<total>
-# <truncated>" rather than just the total — a caller reads this through a
-# `$(...)` subshell, so a truncation flag set as a plain variable inside this
-# function would never survive back out — so a capped sum can be told from a
-# complete one rather than reading as the whole truth in a kill record.
-children_rss_kb() {
-  local parent="$1" exclude="$2" pid line total=0 found=false visited=0 truncated=false
+# Fills `descendants` with $parent's WHOLE descendant tree except $exclude and
+# everything it forks, none of which is ever enqueued. BFS over the map above,
+# so a command that forks its own workers (`npm run test`'s vitest pool) has
+# its whole pool reached rather than just its own launcher (mantahostels#2683).
+# Bounded at MAX_DESCENDANTS; `descendants_truncated` says whether the cap cut
+# the walk short.
+descendants=()
+descendants_truncated=false
+collect_descendants() {
+  local parent="$1" exclude="$2" pid kid
+  descendants=()
+  descendants_truncated=false
   build_children_map
   local -a queue=()
-  local kid
   # Bounded at enqueue time, not just at visit time — a single pid with a
   # huge fan-out (the shape a fork bomb actually takes) would otherwise
   # buffer its whole child list into $queue in one step, before the
-  # visited-count check below ever gets a turn to cap anything.
+  # visit-count check below ever gets a turn to cap anything.
   for kid in ${CHILDREN_OF[$parent]:-}; do
     [ "$kid" = "$exclude" ] && continue
     if [ "${#queue[@]}" -ge "$MAX_DESCENDANTS" ]; then
-      truncated=true
+      descendants_truncated=true
       break
     fi
     queue+=("$kid")
   done
   while [ "${#queue[@]}" -gt 0 ]; do
-    if [ "$visited" -ge "$MAX_DESCENDANTS" ]; then
-      truncated=true
+    if [ "${#descendants[@]}" -ge "$MAX_DESCENDANTS" ]; then
+      descendants_truncated=true
       break
     fi
     pid="${queue[0]}"
     queue=("${queue[@]:1}")
-    visited=$((visited + 1))
-    line="$(grep -m1 '^VmRSS:' "/proc/$pid/status" 2>/dev/null)" || continue
-    if [[ "$line" =~ ([0-9]+)\ kB ]]; then
-      total=$((total + BASH_REMATCH[1]))
-      found=true
-    fi
+    descendants+=("$pid")
     for kid in ${CHILDREN_OF[$pid]:-}; do
       if [ "${#queue[@]}" -ge "$MAX_DESCENDANTS" ]; then
-        truncated=true
+        descendants_truncated=true
         break
       fi
       queue+=("$kid")
     done
   done
+}
+
+# Sums VmRSS in kB across collect_descendants' tree; $exclude is the toucher's
+# own subshell, found via $BASHPID at the call site. Echoes "<total>
+# <truncated>" rather than just the total — a caller reads this through a
+# `$(...)` subshell, so a truncation flag set as a plain variable inside this
+# function would never survive back out — so a capped sum can be told from a
+# complete one rather than reading as the whole truth in a kill record.
+children_rss_kb() {
+  local pid line total=0 found=false
+  collect_descendants "$1" "$2"
+  for pid in "${descendants[@]}"; do
+    line="$(grep -m1 '^VmRSS:' "/proc/$pid/status" 2>/dev/null)" || continue
+    if [[ "$line" =~ ([0-9]+)\ kB ]]; then
+      total=$((total + BASH_REMATCH[1]))
+      found=true
+    fi
+  done
   "$found" || return 1
-  echo "$total $truncated"
+  echo "$total $descendants_truncated"
 }
 
 # Overwrites $dir/mem with a fresh sample. Best-effort throughout: a failed sample — /proc gone
@@ -505,7 +576,7 @@ SIGNAL_DIR=""
 # through `bg-run.sh run … npm run t`, `check` reading KILLED with
 # `"signal":"TERM"`): run-vitest.js re-exits at exactly 128+signum on all
 # three signals, by the same shell convention this discriminator reads
-# (run-vitest.js:957-958, its own comment says so), and npm passes that exit
+# (run-vitest.js's armSignals, its own comment says so), and npm passes that exit
 # code through as its own, so the discriminator sees 128+signum however many
 # layers deep the actual trap sits.
 #
@@ -621,26 +692,6 @@ resolve_run_dir() {
   printf '%s\n' "$dir"
 }
 
-# `check` and `wait` each open on this, independently, before either does
-# anything else with the run. Retries the directory's existence for up to
-# MISSING_S so a caller that reaches `check`/`wait` before `cmd_run`'s own
-# `mv` has published it is not told the run never happened; a name that truly
-# was never launched still dies here, just after the window rather than at once.
-# PRINTS THE DIRECTORY IT SETTLED ON, so the caller uses the root that actually
-# holds the run rather than re-deriving one. It re-resolves on every poll: the
-# race this window is for is a directory appearing late, and a run published
-# into the pinned root appears there and nowhere else.
-#
-# `die` here exits a command substitution, not the script, so a caller that
-# WANTS the path must write `dir="$(require_run_dir "$name")" || exit $?` to
-# propagate the refusal; the message reaches stderr either way and the exit
-# code stays 3. cmd_wait, which wants only the refusal, calls it directly and
-# lets `die` exit the shell as it always did.
-#
-# THE MISS PATH IS NOT FREE: each poll re-runs resolve_run_dir, and a miss there
-# opens the launch log, which nothing rotates. At this repo's launch volume
-# that is a few hundred lines read up to MISSING_S/MISSING_POLL_S times — 20 by
-# default — and it is paid only by a name that is not where it should be.
 # Runs `$3...` every `$2` seconds until it succeeds or `$1` seconds have
 # passed, sleeping before each try. Bounded on the wall clock (`date +%s%N`),
 # not a fixed iteration count: a fork-and-schedule slowdown eats into the
@@ -665,6 +716,58 @@ run_dir_appeared() {
   [ -d "$found_dir" ]
 }
 
+# cmd_run builds a run in this scratch directory and publishes it by renaming.
+# Dot-prefixed and inside the parent, not a `$dir.tmp` sibling: a run
+# literally named `<x>.tmp` would otherwise share a scratch path with run
+# `<x>`, so launching one could delete or publish over the other's live
+# directory. A run named `.tmp-<x>` recreates the same collision — accepted,
+# since nothing chooses names that shape today.
+scratch_dir() {
+  printf '%s\n' "$(dirname "$1")/.tmp-$(basename "$1")"
+}
+
+# Prints the scratch directory of a publish cmd_run is holding for `$1`, in the
+# fresh root or the one its last launch line pins, as resolve_run_dir looks:
+# a re-run from a moved environment holds its publish in the pinned root.
+held_scratch_dir() {
+  local tmp pinned
+  tmp="$(scratch_dir "$(run_root)/$1")"
+  [ -d "$tmp" ] && {
+    printf '%s\n' "$tmp"
+    return 0
+  }
+  pinned="$(pinned_run_dir "$1")" || return 1
+  tmp="$(scratch_dir "$pinned")"
+  [ -d "$tmp" ] && printf '%s\n' "$tmp"
+}
+
+# require_run_dir's probe while a publish is held: done once the run directory
+# appears or the scratch directory `$2` is gone.
+publish_settled() {
+  run_dir_appeared "$1" || [ ! -d "$2" ]
+}
+
+# `check` and `wait` each open on this, independently, before either does
+# anything else with the run. Retries the directory's existence for up to
+# MISSING_S so a caller that reaches `check`/`wait` before `cmd_run`'s own
+# `mv` has published it is not told the run never happened; a name that truly
+# was never launched still dies here, just after the window rather than at once.
+# PRINTS THE DIRECTORY IT SETTLED ON, so the caller uses the root that actually
+# holds the run rather than re-deriving one. It re-resolves on every poll: the
+# race this window is for is a directory appearing late, and a run published
+# into the pinned root appears there and nowhere else.
+#
+# `die` here exits a command substitution, not the script, so a caller that
+# WANTS the path must write `dir="$(require_run_dir "$name")" || exit $?` to
+# propagate the refusal; the message reaches stderr either way and the exit
+# code stays 3. cmd_wait, which wants only the refusal, calls it directly and
+# lets `die` exit the shell.
+#
+# THE MISS PATH IS NOT FREE: each poll re-runs resolve_run_dir, and a miss there
+# opens the launch log, which nothing rotates. At this repo's launch volume
+# that is a few hundred lines read up to MISSING_S/MISSING_POLL_S times — 20 by
+# default, 70 more while a held publish's scratch directory stands — and it is
+# paid only by a name that is not where it should be.
 require_run_dir() {
   local name="$1"
   local dir
@@ -677,10 +780,24 @@ require_run_dir() {
     printf '%s\n' "$found_dir"
     return 0
   fi
+  # A scratch directory still on disk is a run whose publish cmd_run is holding
+  # for its watcher, for up to WATCH_READY_S (#2688). THE BOUND:
+  # MISSING_S for a name with no scratch directory; 2×MISSING_S + WATCH_READY_S
+  # (9 s by default) where one is left by a run killed mid-hold, until the
+  # name's next launch clears it. The extra MISSING_S, a guess like MISSING_S
+  # itself, covers the launch record and rename that follow the hold. The wait
+  # is sized by this process's WATCH_READY_S, not the launcher's: a launcher
+  # holding longer than the checker's setting is released early.
+  local tmp
+  if tmp="$(held_scratch_dir "$name")" &&
+    poll_until "$(awk "BEGIN{print $WATCH_READY_S + $MISSING_S}")" "$MISSING_POLL_S" publish_settled "$name" "$tmp" &&
+    run_dir_appeared "$name"; then
+    printf '%s\n' "$found_dir"
+    return 0
+  fi
   # A launch line naming a root that is no longer on disk is a different
   # story from a name never launched at all — mantahostels#2691 records that a job dir
-  # dies with its job — and the reader chasing this message needs to know
-  # which one they have.
+  # dies with its job.
   local pinned
   if pinned="$(pinned_run_dir "$name")"; then
     die "no run named $name under $(run_root); its launch line points at $pinned, gone too"
@@ -702,12 +819,7 @@ cmd_run() {
   shift
   local dir tmp
   dir="$(run_root)/$name"
-  # Dot-prefixed and inside the parent, not a `$dir.tmp` sibling: a run
-  # literally named `<x>.tmp` would otherwise share a scratch path with run
-  # `<x>`, so launching one could delete or publish over the other's live
-  # directory. A run named `.tmp-<x>` recreates the same collision — accepted,
-  # since nothing chooses names that shape today.
-  tmp="$(dirname "$dir")/.tmp-$(basename "$dir")"
+  tmp="$(scratch_dir "$dir")"
   # A re-run starts clean: a previous run's status file would otherwise report
   # this run finished the moment it began. The old directory is renamed aside
   # before it is deleted (#1355): its watcher may still record into it, and a
@@ -731,7 +843,8 @@ cmd_run() {
   mkdir -p "$tmp" || die "cannot create $tmp"
   : >"$tmp/out"
   local started_at
-  started_at="$(date +%s)"
+  clock_now
+  started_at="$clock_s"
   printf '%s\n' "$started_at" >"$tmp/started"
   # The watcher's identity for this run, distinct from `started` because
   # `started` is whole seconds and two runs of one name can share a second
@@ -785,7 +898,8 @@ cmd_run() {
   # publish, and a kill before the first re-touch would date the death before
   # the launch, a negative elapsed_s. `touch -d` rather than a plain touch,
   # whose filesystem clock can trail `date`'s by a tick at a second boundary.
-  touch -d "@$(date +%s)" "$tmp/beat" || die "cannot create $tmp/beat"
+  clock_now
+  touch -d "@$clock_s" "$tmp/beat" || die "cannot create $tmp/beat"
   mv -T "$tmp" "$dir" || die "cannot publish $dir"
   SIGNAL_DIR="$dir"
 
@@ -797,11 +911,10 @@ cmd_run() {
   # as the orphan lived. It samples memory by walking $parent's own
   # descendant tree rather than needing the command's pid handed in — which
   # in turn is why the command below still runs in the FOREGROUND rather
-  # than backgrounded to capture `$!`: backgrounding it would silently
-  # change what the wrapper claims never to touch (line ~27) — the command
-  # would lose its own stdin (backgrounded, it reads from /dev/null) and
-  # stop seeing SIGINT/SIGQUIT (backgrounded jobs ignore both in
-  # non-interactive bash), neither asked for nor stated.
+  # than backgrounded to capture `$!`: backgrounded, the command would
+  # silently lose its own stdin (it reads from /dev/null) and stop seeing
+  # SIGINT/SIGQUIT (backgrounded jobs ignore both in non-interactive bash),
+  # which a wrapper must leave alone.
   local parent=$$
   (
     if [ -n "$TOUCHER_KEEPS_TRAP" ]; then
@@ -815,8 +928,12 @@ cmd_run() {
     done
   ) &
   local beater=$!
+  # So the ceiling kill (cmd_watch) spares the toucher, and `check` keeps
+  # reading RUNNING while a command the kill could not reach runs on.
+  printf '%s\n' "$beater" >"$dir/.toucher"
 
-  "$@" >>"$dir/out" 2>&1
+  # The variable is suite-ceiling.js's DEADLINE_ENV.
+  WFC_SUITE_DEADLINE_FILE="$dir/deadline-$token" "$@" >>"$dir/out" 2>&1
   local code=$?
 
   # KILL, not TERM (#2674): the toucher is forked holding this shell's TERM
@@ -835,21 +952,16 @@ cmd_run() {
 }
 
 # Prints the verdict's trailer — `out=<path> bytes=<n>`, truncated notice if
-# capped — then the file's own bytes, unindented, so a caller reading the
+# capped — then the output read_run took, unindented, so a caller reading the
 # whole line still gets a well-formed `out=` field to fall back on.
 print_inline() {
   local path="$1"
-  local size
-  size="$(wc -c <"$path" 2>/dev/null | tr -d ' [:space:]')"
-  [ -n "$size" ] || size=0
-  if [ "$size" -le "$INLINE_CAP" ]; then
-    printf 'out=%s bytes=%s\n' "$path" "$size"
+  if [ "$out_size" -le "$INLINE_CAP" ]; then
+    printf 'out=%s bytes=%s\n' "$path" "$out_size"
   else
-    printf 'out=%s bytes=%s (last %s shown)\n' "$path" "$size" "$INLINE_CAP"
+    printf 'out=%s bytes=%s (last %s shown)\n' "$path" "$out_size" "$INLINE_CAP"
   fi
-  if [ "$size" -gt 0 ]; then
-    tail -c "$INLINE_CAP" "$path"
-  fi
+  printf '%s' "$out_tail"
 }
 
 # mantahostels#2662. Appends one line to $(kill_log_path) the first time `check`
@@ -870,7 +982,8 @@ record_kill() {
   mkdir "$dir/.kill-recorded" 2>/dev/null || return 0
 
   local now started="" elapsed=""
-  now="$(date +%s)"
+  clock_now
+  now="$clock_s"
   if [ -f "$dir/started" ]; then
     started="$(cat "$dir/started" 2>/dev/null)"
     [[ "$started" =~ ^[0-9]+$ ]] || started=""
@@ -930,15 +1043,15 @@ record_kill() {
   # off it rather than reimplemented here — bg-run.sh stays generic to any
   # command, not just a suite run. An immediate pass never announces a wait
   # at all (queue_state stays "n/a", same as a command that never used
-  # --queue); "gate opened" and the count cap's "gate still closed …
-  # running anyway" both ran, so read "passed"; the memory rung's "gate still
-  # denies on memory" ran nothing, so reads "refused" (#2421); a wait still
-  # announced and unended reads "waiting".
+  # --queue); "gate opened" and a part-suite's "gate still closed …
+  # running anyway" both ran, so read "passed"; a wait still held at the
+  # bound, "… — refused, not run", ran nothing, so reads "refused" (#2421,
+  # #2714); a wait still announced and unended reads "waiting".
   local queue_state="n/a"
   if [ "$out_exists" = true ]; then
     if grep -qE -- '--queue: (gate opened|gate still closed after [0-9]+s — running anyway)' "$dir/out" 2>/dev/null; then
       queue_state="passed"
-    elif grep -qE -- '--queue: gate still denies on memory after [0-9]+s' "$dir/out" 2>/dev/null; then
+    elif grep -qE -- '--queue: .* — refused, not run' "$dir/out" 2>/dev/null; then
       queue_state="refused"
     elif grep -q -- '--queue: a suite is already running; waiting for it' "$dir/out" 2>/dev/null; then
       queue_state="waiting"
@@ -989,7 +1102,8 @@ record_kill() {
 # the beat file's staleness: checking `status` before `kill -0` on every pass
 # means a run that finishes cleanly can never be seen as killed, however the
 # two events interleave, since cmd_run always writes `status` before the
-# process that would make `kill -0 "$parent"` fail. Bounded by WATCH_CEILING_S.
+# process that would make `kill -0 "$parent"` fail. Bounded by WATCH_CEILING_S,
+# or, while the run's suite deadline is pending, by that deadline's kill.
 #
 # CARRIES ITS OWN RUN TOKEN (mantahostels#2691; the token at mantahostels#3147): `run <name>` on a name
 # already alive renames aside and republishes `$dir` (cmd_run), which the OLD
@@ -1025,8 +1139,9 @@ cmd_watch() {
   # WATCH_READY_S, `$tmp` is already published away and the touch fails, unread.
   : >"$ready" 2>/dev/null
   WFC_BG_KILL_LOG="$(kill_log_path)"
-  local deadline
-  deadline=$(($(date +%s) + WATCH_CEILING_S))
+  local watch_until
+  clock_now
+  watch_until=$((clock_s + WATCH_CEILING_S))
   while :; do
     [ -f "$dir/status" ] && exit 0
     if ! kill -0 "$parent" 2>/dev/null; then
@@ -1044,65 +1159,181 @@ cmd_watch() {
       local now_token
       now_token="$(cat token 2>/dev/null)"
       [ "$now_token" = "$launched_for" ] || exit 0
-      [ -n "$WATCH_GATE" ] && watch_gate
+      [ -n "$WATCH_GATE" ] && hold_at_gate "$WATCH_GATE"
       local beat
       beat="$(date -r beat +%s 2>/dev/null)" || beat=""
       record_kill . "$name" "stale-beat" "$beat"
       exit 0
     fi
-    [ "$(date +%s)" -ge "$deadline" ] && exit 0
+    clock_now
+    if read_deadline "$dir/deadline-$launched_for"; then
+      mono_now && [ "$mono_s" -ge "$((deadline_s + CEILING_GRACE_S))" ] &&
+        ceiling_kill "$dir" "$name" "$parent" "$launched_for"
+    elif [ "$clock_s" -ge "$watch_until" ]; then
+      exit 0
+    fi
     sleep "$HEARTBEAT_S"
   done
 }
 
-# WATCH_GATE's wait, above. On its ceiling the watcher records anyway, so a
-# test that never opens the gate sees the unforced path rather than a hang.
-watch_gate() {
-  : >"$WATCH_GATE.waiting"
+# Sets deadline_s and deadline_pgid from a runner's deadline file. Fails
+# where there is none or it is malformed, so such a run is never killed.
+deadline_s=""
+deadline_pgid=""
+read_deadline() {
+  read -r deadline_s deadline_pgid 2>/dev/null <"$1" || return 1
+  [[ "$deadline_s" =~ ^[0-9]+$ && "$deadline_pgid" =~ ^[0-9]+$ ]]
+}
+
+# Whether group $1 is this run's, for a run launched at epoch $2. A pgid of 0
+# or 1 never is: `kill -- -1` reaches every process this user owns. A leader
+# started before the launch is a recycled pid. A leader gone while its group
+# lives keeps the pgid from reuse, so a missing leader still counts.
+group_is_runs() {
+  local pgid="$1" started="$2" stat btime
+  [ "$pgid" -gt 1 ] || return 1
+  [[ "$started" =~ ^[0-9]+$ ]] || return 1
+  IFS= read -r stat 2>/dev/null <"/proc/$pgid/stat" || return 0
+  local -a fields
+  read -ra fields <<<"${stat##*) }"
+  btime="$(awk '/^btime/ {print $2}' /proc/stat)"
+  # fields[19] is stat's 22nd, the start time in clock ticks since boot. btime
+  # is truncated to the second, so a leader started in the launch's own
+  # second can read one second early.
+  [ "$((btime + fields[19] / $(getconf CLK_TCK)))" -ge "$((started - 1))" ]
+}
+
+# The backstop's kill (#2704), pinned to the run's directory by its token as
+# the stale-beat record is (cmd_watch). `ceiling-kill` is written before the
+# kill, so the `status` the dying command's return leaves is read as one.
+ceiling_kill() {
+  local dir="$1" name="$2" parent="$3" launched_for="$4"
+  cd "$dir" 2>/dev/null || exit 0
+  [ "$(cat token 2>/dev/null)" = "$launched_for" ] || exit 0
+  read_deadline "deadline-$launched_for" || exit 0
+  printf 'grace_s=%s\n' "$CEILING_GRACE_S" >ceiling-kill
+  if [ -f status ]; then
+    rm -f ceiling-kill
+    exit 0
+  fi
+  group_is_runs "$deadline_pgid" "$(cat started 2>/dev/null)" &&
+    kill -KILL -- "-$deadline_pgid" 2>/dev/null
+  collect_descendants "$parent" "$(cat .toucher 2>/dev/null)"
+  [ "${#descendants[@]}" -eq 0 ] || kill -KILL "${descendants[@]}" 2>/dev/null
+  record_kill . "$name" "ceiling"
+  exit 0
+}
+
+# WATCH_GATE's and CHECK_GATE's wait, above, on gate path $1. On its ceiling
+# the caller goes on anyway.
+hold_at_gate() {
+  : >"$1.waiting"
   local i
-  for ((i = 0; i < WATCH_GATE_S * 10; i++)); do
-    [ -e "$WATCH_GATE" ] && return 0
+  for ((i = 0; i < GATE_S * 10; i++)); do
+    [ -e "$1" ] && return 0
     sleep 0.1
   done
 }
 
-cmd_check() {
-  [ "$#" -ge 1 ] || die "check needs a name"
-  local name="$1"
-  local dir
-  dir="$(require_run_dir "$name")" || exit $?
+# Whether run directory $1 still holds the run whose token was $2: present,
+# carrying that token, and present after the token read too, so a directory
+# renamed away between the two reads is not taken for a tokenless one.
+holds_run() {
+  [ -d "$1" ] || return 1
+  [ "$(cat "$1/token" 2>/dev/null)" = "$2" ] && [ -d "$1" ]
+}
+
+# Sets verdict, verdict_code, kill_reason, kill_beat, read_fault, read_token,
+# out_size and out_tail from run directory $1, writing nothing, and fails
+# where the directory stopped holding the run it opened on before the read
+# ended (#3097). A same-name re-run renames the old directory to its grave and
+# deletes it (cmd_run), so a read overlapping that sees files vanish: an
+# unreadable status, or no beat, which would read as a kill that never
+# happened. Each run carries its own token, so one unchanged across the read
+# means every file read was that run's. The output is read here too, for the
+# same reason; a NUL byte in it does not survive the variable.
+read_run() {
+  local dir="$1" name="$2" try="$3"
+  verdict="" verdict_code=3 kill_reason="" kill_beat="" read_fault=""
+  read_token="$(cat "$dir/token" 2>/dev/null)"
+  [ -z "$CHECK_GATE" ] || hold_at_gate "$CHECK_GATE.$try"
 
   if [ -f "$dir/status" ]; then
     local code
-    code="$(sed -n 's/^exit=//p' "$dir/status" | head -1)"
-    [ -n "$code" ] || die "status file for $name is unreadable"
-    printf 'DONE exit=%s\n' "$code"
-    print_inline "$dir/out"
-    return 0
+    code="$(sed -n 's/^exit=//p' "$dir/status" 2>/dev/null | head -1)"
+    if [ -z "$code" ]; then
+      read_fault="status file for $name is unreadable"
+    # A zero exit finished on its own, the kill landing after it returned.
+    elif [ -f "$dir/ceiling-kill" ] && [ "$code" != 0 ]; then
+      local grace
+      grace="$(sed -n 's/^grace_s=//p' "$dir/ceiling-kill" 2>/dev/null | head -1)"
+      verdict="DONE exit=$code ceiling-kill: bg-run killed it ${grace:-?}s past its suite deadline"
+      verdict_code=0
+    else
+      verdict="DONE exit=$code"
+      verdict_code=0
+    fi
+  elif [ ! -f "$dir/beat" ]; then
+    verdict="KILLED before the first beat"
+    verdict_code=1
+    kill_reason=before-first-beat
+  else
+    local beat age
+    if beat="$(date -r "$dir/beat" +%s 2>/dev/null)"; then
+      clock_now
+      age=$((clock_s - beat))
+      if [ "$age" -gt "$STALE_S" ]; then
+        verdict="KILLED ${age}s ago"
+        verdict_code=1
+        kill_reason=stale-beat
+        kill_beat="$beat"
+      else
+        verdict="RUNNING last beat ${age}s ago"
+        verdict_code=2
+      fi
+    else
+      read_fault="cannot stat $dir/beat"
+    fi
   fi
+  out_size="$(wc -c <"$dir/out" 2>/dev/null | tr -d ' [:space:]')"
+  [ -n "$out_size" ] || out_size=0
+  { out_tail="$(
+    tail -c "$INLINE_CAP" "$dir/out" 2>/dev/null
+    printf x
+  )"; } 2>/dev/null
+  out_tail="${out_tail%x}"
+  holds_run "$dir" "$read_token"
+}
 
-  if [ ! -f "$dir/beat" ]; then
-    printf 'KILLED before the first beat\n'
-    record_kill "$dir" "$name" "before-first-beat"
-    print_inline "$dir/out"
-    return 1
+# A read that loses its run to a re-run starts again on the directory that
+# replaced it, once; a second loss is answered UNKNOWN. The kill is
+# recorded from inside the directory, as the watcher's is, so a re-run
+# publishing after the read still takes none of its record (#1352). A read
+# that ends before a re-run's rename answers for the run being replaced: a
+# caller re-running a name waits for its new `token` before trusting `check`.
+cmd_check() {
+  [ "$#" -ge 1 ] || die "check needs a name"
+  local name="$1"
+  local dir try
+  for try in 1 2; do
+    dir="$(require_run_dir "$name")" || exit $?
+    read_run "$dir" "$name" "$try" && break
+    [ "$try" -eq 2 ] && die "run $name was replaced twice while check read it"
+  done
+  [ -z "$read_fault" ] || die "$read_fault"
+
+  printf '%s\n' "$verdict"
+  if [ -n "$kill_reason" ]; then
+    [ -z "$CHECK_GATE" ] || hold_at_gate "$CHECK_GATE.record"
+    (
+      WFC_BG_KILL_LOG="$(kill_log_path)"
+      cd "$dir" 2>/dev/null || exit 0
+      [ "$(cat token 2>/dev/null)" = "$read_token" ] || exit 0
+      record_kill . "$name" "$kill_reason" "$kill_beat"
+    )
   fi
-
-  local now beat age
-  now="$(date +%s)"
-  beat="$(date -r "$dir/beat" +%s 2>/dev/null)" || die "cannot stat $dir/beat"
-  age=$((now - beat))
-
-  if [ "$age" -gt "$STALE_S" ]; then
-    printf 'KILLED %ss ago\n' "$age"
-    record_kill "$dir" "$name" "stale-beat" "$beat"
-    print_inline "$dir/out"
-    return 1
-  fi
-
-  printf 'RUNNING last beat %ss ago\n' "$age"
   print_inline "$dir/out"
-  return 2
+  return "$verdict_code"
 }
 
 cmd_wait() {
@@ -1114,9 +1345,11 @@ cmd_wait() {
   # `start` is taken BEFORE require_run_dir, not after: the caller's ceiling is
   # a promise about this whole call, and a directory that takes most of
   # MISSING_S to appear must not buy the poll loop below a fresh clock on
-  # top of it (mantahostels#2609).
+  # top of it (mantahostels#2609). The promise does not reach require_run_dir
+  # itself: a held publish (#2688) can keep it past a ceiling under 9 s.
   local start
-  start="$(date +%s)"
+  clock_now
+  start="$clock_s"
   require_run_dir "$name" >/dev/null || exit $?
 
   # The loop asks the one authority on DONE/KILLED/RUNNING — cmd_check — and
@@ -1130,7 +1363,8 @@ cmd_wait() {
     code=$?
     [ -z "$POLL_LOG" ] || printf '%s\n' "$code" >>"$POLL_LOG"
     [ "$code" -ne 2 ] && break
-    now="$(date +%s)"
+    clock_now
+    now="$clock_s"
     [ "$((now - start))" -ge "$ceiling" ] && break
     sleep "$WAIT_POLL_S"
   done

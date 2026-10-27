@@ -38,12 +38,12 @@
  * OVER-BUDGET and be run by hand when its reading is actually wanted. Checks run
  * in series, so the worst case is the budget times the conditioned issues.
  *
- * THE BUDGET IS SPENT THROUGH coreutils `timeout`, NOT node's own. `spawnSync`'s
+ * THE BUDGET IS SPENT THROUGH lib/run-budgeted.js, NOT node's own. `spawnSync`'s
  * `timeout` kills the shell it spawned and nothing the shell spawned, so mantahostels#2491's
  * check — which is meant to hit the budget on every sweep — would leave a
  * ~22-minute node process orphaned on a 10 GB machine, once per sweep.
- * `timeout` puts the command in a process group of its own and signals the
- * group.
+ * run-budgeted.js puts the command in a process group of its own and signals
+ * the group, which coreutils `timeout` does only in GNU's build (#2855).
  *
  * Usage: node check-gates.js [--timeout <seconds>] [--issue <n>] [--notify] [--json]
  *
@@ -56,9 +56,21 @@
 const { spawnSync } = require("node:child_process");
 
 const { runCheck, brokenError } = require("./lib/check");
-const { errLine, ghJson, ghOpenIssues, raiseGhFailure } = require("./lib/gh");
+const {
+	parseErrLine,
+	ghJson,
+	ghOpenIssues,
+	raiseGhFailure,
+} = require("./lib/gh");
 const { resolveGate } = require("./lib/issue-gate");
 const { hostRoot } = require("./lib/host-root.js");
+const {
+	RUN_BUDGETED,
+	TIMEOUT_EXIT,
+	KILLED_EXIT,
+	APPARATUS_EXIT,
+	APPARATUS_PREFIX,
+} = require("./lib/run-budgeted.js");
 
 /* Per check, not per sweep. Wide enough for every reading but mantahostels#2491's, which is
  * meant to come back OVER-BUDGET (see the header). */
@@ -74,13 +86,9 @@ const ROW_WIDTH = 160;
  * GraphQL read: no `check:` command is that. */
 const MAX_BUFFER = 64e6;
 
-/* GNU `timeout`'s two exit codes for a command it killed: 124 for the TERM it
- * sends at the budget, 137 (128+9) where `-k` had to follow it with a KILL. */
-const TIMEOUT_EXIT = 124;
-const KILLED_EXIT = 137;
-
-/* How long `timeout` waits after its TERM before sending a KILL. */
-const KILL_AFTER_S = 5;
+/* How long run-budgeted.js waits after its TERM before sending a KILL. A guess,
+ * unmeasured: long enough for a check to flush a reading it was writing. */
+const KILL_AFTER_MS = 5000;
 
 /* Each issue's `check:` command runs against the host repo (#1), never the
  * core checkout — a plugin install's own files sit outside the tree the
@@ -136,14 +144,19 @@ function unwrap(raw) {
  * @returns {Reading}
  */
 function runCommand(command, timeoutMs) {
-	const budgetS = Math.round(timeoutMs / 1000);
-	const startedAt = Date.now();
-	/* No `shell: true`: `timeout` runs `sh -c <command>` itself, so the command
-	 * still gets a shell — pipes, `&&` and quoting all work — but the process
-	 * group `timeout` signals is the shell's own, not this checker's. */
+	/* No `shell: true`: run-budgeted.js runs `sh -c <command>` itself, so the
+	 * command still gets a shell — pipes, `&&` and quoting all work — but the
+	 * process group it signals is the shell's own, not this checker's. */
 	const r = spawnSync(
-		"timeout",
-		["-k", String(KILL_AFTER_S), String(budgetS), "sh", "-c", command],
+		process.execPath,
+		[
+			RUN_BUDGETED,
+			String(timeoutMs),
+			String(KILL_AFTER_MS),
+			"sh",
+			"-c",
+			command,
+		],
 		{
 			cwd: REPO_ROOT,
 			encoding: "utf8",
@@ -151,16 +164,14 @@ function runCommand(command, timeoutMs) {
 			stdio: ["ignore", "pipe", "pipe"],
 		},
 	);
-	const elapsedMs = Date.now() - startedAt;
 	const out = (r.stdout || "").trim();
 	const err = (r.stderr || "").trim();
 	const code = /** @type {{code?: string} | undefined} */ (r.error)?.code;
-	/* No `timeout` on PATH is the apparatus failing, not a fact about the gate,
+	/* The runner failing is the apparatus failing, not a fact about the gate,
 	 * so it is BROKEN rather than a row saying the command is dead (§N4). */
-	if (code === "ENOENT")
+	if (r.status === APPARATUS_EXIT && err.startsWith(APPARATUS_PREFIX))
 		throw brokenError(
-			"coreutils `timeout` is not on PATH, and it is what bounds each check.\n" +
-				"        Nothing was read. Install coreutils, or run a single check by hand.",
+			`${err.split("\n")[0]}\n        Nothing was read. Run a single check by hand.`,
 		);
 	/* An overrun is the reading being too big to hold, not the command failing —
 	 * and the ceiling is this script's, so it says which constant to raise, the
@@ -177,7 +188,7 @@ function runCommand(command, timeoutMs) {
 			reading: `could not run: ${r.error.message.split("\n")[0]}`,
 			detail: null,
 		};
-	return classifyExit(r, { out, err, elapsedMs, timeoutMs });
+	return classifyExit(r, { out, err, timeoutMs });
 }
 
 /**
@@ -185,7 +196,7 @@ function runCommand(command, timeoutMs) {
  *
  * @param {string} err
  */
-function lastErrLine(err) {
+function parseLastErrLine(err) {
 	return err ? err.split("\n").pop() || null : null;
 }
 
@@ -193,22 +204,17 @@ function lastErrLine(err) {
  * Classify a `check:` command that ran to an exit or a signal.
  *
  * @param {import("node:child_process").SpawnSyncReturns<string>} r
- * @param {{ out: string, err: string, elapsedMs: number, timeoutMs: number }} run
+ * @param {{ out: string, err: string, timeoutMs: number }} run
  * @returns {Reading}
  */
-function classifyExit(r, { out, err, elapsedMs, timeoutMs }) {
+function classifyExit(r, { out, err, timeoutMs }) {
 	const budgetS = Math.round(timeoutMs / 1000);
-	/* THE BUDGET IS READ OFF THE CLOCK, NOT OFF THE SIGNAL. 124 is `timeout`'s
-	 * own code for the TERM it sent; but where `-k` has to follow with a KILL,
-	 * that KILL goes to the whole group and takes `timeout` with it, so the run
-	 * comes back as a signal death with no code at all. A signal death inside
-	 * the budget is something else killing the check — earlyoom, on this
-	 * machine — and stays DEAD. Residual: an earlyoom kill landing after the
-	 * budget reads as over budget, and nothing here can tell them apart. */
-	const overBudget =
-		r.status === TIMEOUT_EXIT ||
-		r.status === KILLED_EXIT ||
-		(r.status === null && elapsedMs >= timeoutMs);
+	/* A signal death is something else killing the check — earlyoom, on this
+	 * machine — and stays DEAD: run-budgeted.js reports its own kills as 124
+	 * and 137, never as a signal. RESIDUAL: a command that exits 124 or 137 on
+	 * its own inside the budget, as `sh -c 'a && b'` does where earlyoom kills
+	 * `a`, reads as over budget, and nothing here can tell them apart. */
+	const overBudget = r.status === TIMEOUT_EXIT || r.status === KILLED_EXIT;
 	if (overBudget)
 		return {
 			state: "OVER-BUDGET",
@@ -221,7 +227,7 @@ function classifyExit(r, { out, err, elapsedMs, timeoutMs }) {
 		return {
 			state: "DEAD",
 			reading: `killed by ${r.signal}, nothing on stdout`,
-			detail: lastErrLine(err),
+			detail: parseLastErrLine(err),
 		};
 	if (out)
 		return {
@@ -236,17 +242,17 @@ function classifyExit(r, { out, err, elapsedMs, timeoutMs }) {
 		return {
 			state: "DEAD",
 			reading: `exit ${r.status}, nothing on stdout`,
-			detail: lastErrLine(err),
+			detail: parseLastErrLine(err),
 		};
 	return {
 		state: "NO-OUTPUT",
 		reading: "exit 0, nothing on stdout",
-		detail: lastErrLine(err),
+		detail: parseLastErrLine(err),
 	};
 }
 
 /** @param {string} reading */
-function rowLines(reading) {
+function buildRowLines(reading) {
 	const lines = reading.split("\n");
 	const shown = lines
 		.slice(0, ROW_LINES)
@@ -382,7 +388,7 @@ function printTable(ctx, rows, warned) {
 function sayRow(ctx, r) {
 	ctx.say(`  #${r.number}  [${r.state}] ${r.title}`);
 	if (r.condition) ctx.say(`      condition: ${r.condition}`);
-	for (const line of rowLines(r.reading)) ctx.say(`      ${line}`);
+	for (const line of buildRowLines(r.reading)) ctx.say(`      ${line}`);
 	if (r.detail) ctx.say(`      (${r.detail})`);
 	if (r.abandonIf) ctx.say(`      abandon if: ${r.abandonIf}`);
 	ctx.say("");
@@ -418,7 +424,7 @@ function readIssues(only) {
 		iss = ghJson(["api", `repos/{owner}/{repo}/issues/${only}`]);
 	} catch (e) {
 		// No such issue, or a deleted one: not an open issue, as the OK line says.
-		if (/HTTP (404|410)/.test(errLine(e))) return [];
+		if (/HTTP (404|410)/.test(parseErrLine(e))) return [];
 		throw e;
 	}
 	return iss.state === "open" ? [iss] : [];

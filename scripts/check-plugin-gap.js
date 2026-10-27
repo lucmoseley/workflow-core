@@ -86,11 +86,11 @@ const path = require("node:path");
 const { deref } = require("./lib/deref.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { readPluginState, resolveConfigDir } = require("./lib/plugin-state.js");
-const { ruleText } = require("./lib/rule-text.js");
+const { readRuleText } = require("./lib/rule-text.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { isDeclined } = require("./lib/adopter-consent.js");
-const { stepsOwed } = require("./lib/steps-owed.js");
+const { readStepsOwed } = require("./lib/steps-owed.js");
 const {
 	HOOKS,
 	hookRootOf,
@@ -140,15 +140,15 @@ function commandsFor(state, marketplace, pluginName) {
  * @param {string} pluginRoot
  * @returns {string|null}
  */
-function owedBlock(root, pluginRoot) {
+function buildOwedBlock(root, pluginRoot) {
 	/* A malformed `.claude/workflow-core.json` must not silence the
-	 * version-gap report below it — `stepsOwed()` throws on unparseable
+	 * version-gap report below it — `readStepsOwed()` throws on unparseable
 	 * JSON. Caught here, at the source, rather than relying on the outer
 	 * fail-open in `main()`, which would swallow the whole report instead of
 	 * just this block. */
 	let owed;
 	try {
-		owed = stepsOwed(root).filter((e) => !e.declined);
+		owed = readStepsOwed(root).filter((e) => !e.declined);
 	} catch {
 		return null;
 	}
@@ -173,7 +173,7 @@ function owedBlock(root, pluginRoot) {
 }
 
 /** @param {string} root @returns {string} */
-function versionAt(root) {
+function readVersionAt(root) {
 	try {
 		const { version } = JSON.parse(
 			fs.readFileSync(path.join(root, ".claude-plugin/plugin.json"), "utf8"),
@@ -239,7 +239,7 @@ function hookRootsOffRunning(root, running) {
  * @param {string|undefined} runningRoot
  * @returns {string|null}
  */
-function hookRootBlock(root, runningRoot) {
+function buildHookRootBlock(root, runningRoot) {
 	const running = runningRoot ? path.resolve(runningRoot) : null;
 	const { missing, skewed } = hookRootsOffRunning(root, running);
 	if (missing.size === 0 && skewed.size === 0) return null;
@@ -252,8 +252,8 @@ function hookRootBlock(root, runningRoot) {
 	if (running)
 		for (const [named, hooks] of skewed)
 			lines.push(
-				`WARN: ${hooks.join(", ")} run workflow-core ${versionAt(named)} (${named}), ` +
-					`this session runs ${versionAt(running)} (${running}) — ` +
+				`WARN: ${hooks.join(", ")} run workflow-core ${readVersionAt(named)} (${named}), ` +
+					`this session runs ${readVersionAt(running)} (${running}) — ` +
 					"commits are judged by a different core than this session's guards.",
 			);
 	const upgrade = running
@@ -272,7 +272,7 @@ function hookRootBlock(root, runningRoot) {
  * @param {string} root
  * @returns {string|null}
  */
-function shimBlock(root) {
+function buildShimBlock(root) {
 	const shims = installedHooks(root)
 		.filter(({ text }) => isHookShim(text))
 		.map(({ hook }) => hook);
@@ -322,7 +322,7 @@ function readManifest(pluginRoot) {
  * @param {string} name
  * @returns {string|null}
  */
-function materialisedNotLiveLine(state, name) {
+function buildMaterialisedNotLiveLine(state, name) {
 	if (!state.materialisedNotLive) return null;
 	return (
 		`${name}: materialised but not yet live — ${state.runningPlugin?.version} is installed, this session is running ${state.loadedVersion}. ` +
@@ -335,7 +335,7 @@ function materialisedNotLiveLine(state, name) {
  * @param {any} state
  * @returns {string[]}
  */
-function refConflictLines(state) {
+function buildRefConflictLines(state) {
 	/* The same cross-scope ref conflict `materialisePlugin`'s
 	 * `predictedRefConflict` (#258) checks, read here too (#318). Predicted
 	 * only, re-checked every session. */
@@ -360,10 +360,10 @@ function refConflictLines(state) {
  * @param {boolean} supplyBehindPin
  * @returns {string[]}
  */
-function ruleLines(supplyBehindPin) {
+function buildRuleLines(supplyBehindPin) {
 	const lines = [];
 	try {
-		lines.push("", ruleText("adopter-materialise-sequence"));
+		lines.push("", readRuleText("adopter-materialise-sequence"));
 	} catch {
 		/* A missing/empty fragment is caught elsewhere (check-guard-registry.js);
 		 * the gap and commands above still reach the session either way. */
@@ -373,7 +373,7 @@ function ruleLines(supplyBehindPin) {
 		 * may be the one about to advance it further, and the consent
 		 * boundary is about that write, never about closing the gap below it. */
 		try {
-			lines.push("", ruleText("adopter-pin-consent"));
+			lines.push("", readRuleText("adopter-pin-consent"));
 		} catch {
 			/* see above */
 		}
@@ -391,9 +391,9 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	// the blocks that report whatever the gap state (header)
 	const standing =
 		[
-			shimBlock(root),
-			hookRootBlock(root, runningRoot),
-			owedBlock(root, pluginRoot),
+			buildShimBlock(root),
+			buildHookRootBlock(root, runningRoot),
+			buildOwedBlock(root, pluginRoot),
 		]
 			.filter(Boolean)
 			.join("\n\n") || null;
@@ -412,7 +412,7 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	if (!state.gaps.supplyBehindPin && !state.gaps.installBehindSupply)
 		/* Nothing is owed on the PIN here — the records agree and the only
 		 * thing behind is this process's own bytes, which end with it (#243). */
-		return join(materialisedNotLiveLine(state, plugin.name));
+		return join(buildMaterialisedNotLiveLine(state, plugin.name));
 	// The founder already said no to this exact tag in this exact repo (#245)
 	// — a different tag, or the same tag in a different adopter, still reports.
 	if (isDeclined(root, state.pin.ref)) return join(null);
@@ -431,12 +431,12 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	);
 	for (const cmd of commandsFor(state, state.pin.marketplace, plugin.name))
 		lines.push(`  ${cmd}`);
-	lines.push(...refConflictLines(state));
+	lines.push(...buildRefConflictLines(state));
 	if (state.contention)
 		lines.push(
 			`The supply currently sits on ${state.contention}, not this repo's pin — rotating it moves that ref too.`,
 		);
-	lines.push(...ruleLines(state.gaps.supplyBehindPin));
+	lines.push(...buildRuleLines(state.gaps.supplyBehindPin));
 	const consentCli = `${pluginRoot}/scripts/adopter-consent.js`;
 	lines.push(
 		"",

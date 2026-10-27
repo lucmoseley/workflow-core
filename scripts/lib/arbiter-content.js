@@ -81,7 +81,7 @@ function blobRef(claimId) {
  * @param {string} subject
  * @param {(text: string) => string|null} hash
  */
-function regionBytes(subject, hash) {
+function readRegionHash(subject, hash) {
 	const { rel, region } = core.splitSubject(subject);
 	if (!region) return;
 	let text;
@@ -90,7 +90,7 @@ function regionBytes(subject, hash) {
 	} catch {
 		return null;
 	}
-	const body = regions.regionText(text, region, rel);
+	const body = regions.parseRegionText(text, region, rel);
 	return body === null ? null : hash(body);
 }
 
@@ -106,7 +106,7 @@ function regionBytes(subject, hash) {
 function pinContent(rel, claimId) {
 	const ref = blobRef(claimId);
 	if (!ref) return null;
-	const region = regionBytes(rel, (text) =>
+	const region = readRegionHash(rel, (text) =>
 		core.gitIn(["hash-object", "-w", "--stdin"], text),
 	);
 	const sha =
@@ -162,7 +162,7 @@ function recordContent(rel, me) {
 	// pin never refreshes.
 	const { region } = core.splitSubject(rel);
 	if (region === null && regions.isRegioned(rel)) {
-		const held = locksMod.heldBy(me.sessionId);
+		const held = locksMod.readHeldBy(me.sessionId);
 		if (held === null) return null;
 		// REGIONS only. A whole-file claim on this same path is `rel` itself, and
 		// recursing into it would call this function with the argument it was just
@@ -235,7 +235,7 @@ function contentState(rel, lock) {
 	// register as a clobber on every interleaved write — and the recovery it
 	// advises would destroy that neighbour's work, which is the opposite of what
 	// this detector is for.
-	const region = regionBytes(rel, (text) =>
+	const region = readRegionHash(rel, (text) =>
 		core.gitIn(["hash-object", "--stdin"], text),
 	);
 	const now =
@@ -315,6 +315,4 @@ exports.dropContentRef = dropContentRef;
 exports.pinContent = pinContent;
 exports.PRIOR_BLOBS_MAX = PRIOR_BLOBS_MAX;
 exports.recordContent = recordContent;
-exports.recordSubjectContent = recordSubjectContent;
-exports.regionBytes = regionBytes;
-exports.shiftPrior = shiftPrior;
+exports.readRegionHash = readRegionHash;

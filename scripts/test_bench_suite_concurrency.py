@@ -287,6 +287,53 @@ class TestQuietGate:
     def test_no_requirement_never_refuses(self, bench):
         assert bench.quiet_enough(sessions=99, required=None) is True
 
+    def sessions_ps(self, n):
+        return "\n".join(
+            f"{p} 1 claude bg-pty-host --bg-pty-host /tmp/s{p}.pty.sock 200 50\n"
+            f"{p + 1} {p} claude --bg-session s{p}"
+            for p in range(1000, 1000 + 10 * n, 10)
+        )
+
+    @pytest.fixture
+    def run_main(self, bench, stub_bin, monkeypatch, tmp_path):
+        """`run_main(sessions, argv)`: `bench.main(argv)` with `sessions` live."""
+
+        def run(sessions, argv):
+            path, _ = stub_bin("ps", self.sessions_ps(sessions))
+            monkeypatch.setenv("WFC_PS", path)
+            monkeypatch.setenv("OUTDIR", str(tmp_path))
+            # A real `true` in place of a whole suite; `settle` would sleep 20 s
+            # before the first row, so it ends the run there.
+            monkeypatch.setattr(bench, "suite_command", lambda workers: ["true"])
+
+            def stop(*a):
+                raise RuntimeError("past the warm-up")
+
+            monkeypatch.setattr(bench, "settle", stop)
+            bench.main(argv)
+
+        return run
+
+    def test_a_loaded_machine_is_refused_before_the_warm_up_runs(
+        self, run_main, tmp_path
+    ):
+        with pytest.raises(SystemExit, match="12 sessions live.*no warm-up run"):
+            run_main(12, ["1", "--require-quiet=3"])
+        assert not (tmp_path / "warmup.log").exists()
+
+    def test_a_quiet_machine_runs_the_warm_up(self, run_main, tmp_path):
+        with pytest.raises(RuntimeError, match="past the warm-up"):
+            run_main(3, ["1", "--require-quiet=3"])
+        assert (tmp_path / "warmup.log").exists()
+
+    def test_a_loaded_machine_measures_no_idle_drift(self, run_main, tmp_path):
+        with pytest.raises(SystemExit):
+            run_main(
+                12,
+                ["1", "--require-quiet=3", "--measure-drift=2"],
+            )
+        assert not (tmp_path / "drift.json").exists()
+
     def test_the_separated_spelling_is_refused_naming_the_flag_not_dropped(self, bench):
         """`--require-quiet 3` once meant "three suites, no gate" — the reverse."""
         with pytest.raises(ValueError, match="--require-quiet"):
@@ -324,10 +371,10 @@ class TestSuiteLaunch:
         env = bench.suite_env({"PATH": "/bin"})
         assert env == {"PATH": "/bin", "WFC_TEST_STALL_MS": "0"}
 
-    def test_workers_default_to_the_vitest_config_value(self, bench):
-        config = (REPO / "vitest.config.ts").read_text()
-        configured = int(re.search(r"maxWorkers:\s*(\d+)", config).group(1))
-        assert bench.parse_flags([], 900.0)[3] == configured
+    def test_workers_default_to_the_ladders_suite_workers(self, bench):
+        suite_ladder = (REPO / "scripts/lib/suite-ladder.js").read_text()
+        ladder = int(re.search(r"LADDER_SUITE_WORKERS = (\d+);", suite_ladder).group(1))
+        assert bench.parse_flags([], 900.0)[3] == ladder
 
     def test_the_workers_flag_is_read(self, bench):
         assert bench.parse_flags(["--workers=2"], 900.0)[3] == 2

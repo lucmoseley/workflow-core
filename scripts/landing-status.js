@@ -20,7 +20,7 @@ const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const {
 	commitStates,
 	fetchedGit,
-	stateLine,
+	buildStateLine,
 } = require("./lib/landing-status.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
@@ -64,7 +64,7 @@ function main(argv = process.argv.slice(2)) {
 	}
 	const ledgerRoot = arbiterLedger.ledgerRoot();
 	const commits = ledgerRoot
-		? arbiterLedger.commitsBy(sessionId, ledgerRoot)
+		? arbiterLedger.readCommitsBy(sessionId, ledgerRoot)
 		: null;
 	if (!commits) {
 		fail(
@@ -81,7 +81,7 @@ function main(argv = process.argv.slice(2)) {
 	try {
 		const git = fetchedGit(root);
 		lines = commitStates(commits, git).map((entry) =>
-			stateLine(entry, git.subjectOf(entry.sha)),
+			buildStateLine(entry, git.subjectOf(entry.sha)),
 		);
 	} catch (err) {
 		const e = caught(err);

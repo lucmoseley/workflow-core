@@ -30,8 +30,8 @@ import {
 	sessionCounters,
 	withUnloadable,
 } from "./lib/priced-options-testkit";
-import { ruleText } from "./lib/rule-text";
-import { stopGuardReason } from "./lib/stop-guard-testkit";
+import { readRuleText } from "./lib/rule-text";
+import { readStopGuardReason } from "./lib/stop-guard-testkit";
 import {
 	buildBashCall,
 	failOpenLog,
@@ -63,8 +63,8 @@ const {
 	toolResult,
 	notification,
 	stopFeedback,
-	siblingBlock,
-	skillBody,
+	buildSiblingBlock,
+	buildSkillBody,
 } = transcriptRecords("2026-09-27T10:00:00Z");
 
 let dir: string;
@@ -94,7 +94,7 @@ const stop = (
 		job = false,
 		transcript = file,
 	}: { job?: boolean; transcript?: string } = {},
-) => stopGuardReason(GUARD, { dir, sid, message, job, transcript });
+) => readStopGuardReason(GUARD, { dir, sid, message, job, transcript });
 
 /* Unstamped, so no close-rivals count sees them; they pass every round under
  * the under-researched-round limb (#1710), which this file tests only where
@@ -313,7 +313,7 @@ describe("a round whose top option is priced 65 or less (#2228, #2519)", () => {
 			const sent = round(opts as Opt[], { relation });
 			expect(stop(sent)).toContain(NONE_LIKELY);
 			expect(stop(sent)).toBe("");
-			expect(logLines()[0]).toEqual(
+			expect(readLogLines()[0]).toEqual(
 				expect.objectContaining({ kind: "refused", trigger }),
 			);
 		},
@@ -518,7 +518,7 @@ describe("the escape lines", () => {
 	it.each([
 		["a task notification", notification],
 		["a Stop block's feedback", stopFeedback],
-		["a skill's expanded body", skillBody],
+		["a skill's expanded body", buildSkillBody],
 		["a tool result", toolResult],
 	])("does not read %s as the founder speaking", (_name, rec) => {
 		write(founder());
@@ -628,7 +628,7 @@ describe("the refusal", () => {
 	it("prints the house-decision rule for the look's stop, not a call or token budget (#1705)", () => {
 		write(founder());
 		const reason = stop(round(BOTH));
-		const rule = ruleText("house-decision");
+		const rule = readRuleText("house-decision");
 		expect(reason.replace(/\s+/g, " ")).toContain(rule.replace(/\s+/g, " "));
 		expect(reason).not.toMatch(/10 tool calls|10k output tokens/);
 	});
@@ -801,7 +801,7 @@ describe("a misshapen close question, held on its shape only where the shape lim
 		expect(reason).toContain(STILL_WRONG);
 		expect(reason).toContain(SHAPE_ONLY_PASS);
 		expect(reason).not.toContain(CLOSE);
-		expect(reason).not.toContain(ruleText("house-decision"));
+		expect(reason).not.toContain(readRuleText("house-decision"));
 		expect(counter(".close-rivals-nagged-")).toBe(2);
 		expect(readJsonl(closeLog(dir))?.lines.at(-1)).toEqual(
 			expect.objectContaining({
@@ -1108,9 +1108,9 @@ describe("the re-price refusal's budget", () => {
 	});
 });
 
-const logLines = (): Record<string, unknown>[] =>
+const readLogLines = (): Record<string, unknown>[] =>
 	readJsonl(closeLog(dir))?.lines ?? [];
-const kinds = () => logLines().map((line) => line.kind);
+const readKinds = () => readLogLines().map((line) => line.kind);
 const expectOnlyThePass = () =>
 	expect(JSON.parse(fs.readFileSync(recordFile(), "utf8")).questions).toEqual([
 		{ number: "1", passedAt: expect.any(Number) },
@@ -1130,7 +1130,7 @@ describe("the close-check log (#1101)", () => {
 	it("logs a first-sight refusal with every field and the cap slot it used", () => {
 		expect(stop(round(BOTH))).toContain(CLOSE);
 		expect(stop(round(OVERLAP_ONLY, { n: 2 }))).toContain(CLOSE);
-		expect(logLines()).toEqual([
+		expect(readLogLines()).toEqual([
 			{
 				at: expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
 				session: sid,
@@ -1161,7 +1161,7 @@ describe("the close-check log (#1101)", () => {
 				{ relation: COMBINABLE },
 			),
 		);
-		expect(logLines()).toEqual([
+		expect(readLogLines()).toEqual([
 			expect.objectContaining({ kind: "refused", trigger: "low-top" }),
 		]);
 	});
@@ -1169,7 +1169,7 @@ describe("the close-check log (#1101)", () => {
 	it("logs a re-price refusal with its slot and the figures it was re-sent at", () => {
 		stop(round(BOTH));
 		expect(stop(round(NEITHER))).toContain(REPRICED);
-		expect(logLines()[1]).toEqual(
+		expect(readLogLines()[1]).toEqual(
 			expect.objectContaining({
 				round: "1",
 				kind: "refused-reprice",
@@ -1183,7 +1183,7 @@ describe("the close-check log (#1101)", () => {
 		stop(round(BOTH));
 		append(toolCallAt(Date.now() + LATER));
 		expect(stop(round(NEITHER))).toBe("");
-		expect(logLines()[1]).toEqual({
+		expect(readLogLines()[1]).toEqual({
 			at: expect.any(String),
 			session: sid,
 			repo: path.basename(dir),
@@ -1198,13 +1198,13 @@ describe("the close-check log (#1101)", () => {
 			citesNewFact: false,
 		});
 		expectOnlyThePass();
-		expect(kinds()).toEqual(["refused", "passed-after-refusal"]);
+		expect(readKinds()).toEqual(["refused", "passed-after-refusal"]);
 	});
 
 	it("logs a refused question re-sent untooled as still close, at zero tool calls", () => {
 		stop(round(BOTH));
 		expect(stop(round(BOTH, { extra: UNMEASURED }))).toBe("");
-		expect(logLines()[1]).toEqual(
+		expect(readLogLines()[1]).toEqual(
 			expect.objectContaining({ toolCalls: 0, stillClose: true }),
 		);
 	});
@@ -1213,7 +1213,7 @@ describe("the close-check log (#1101)", () => {
 		stop(round(BOTH));
 		fs.rmSync(file);
 		expect(stop(round(NEITHER))).toBe("");
-		expect(logLines()[1]).toEqual(
+		expect(readLogLines()[1]).toEqual(
 			expect.objectContaining({
 				kind: "passed-after-refusal",
 				toolCalls: null,
@@ -1227,9 +1227,9 @@ describe("the close-check log (#1101)", () => {
 		expect(stop(`${round(BOTH)}\n\n${TITLED.replace("Q1", "Q2")}`)).toContain(
 			"bold or titled name",
 		);
-		expect(kinds()).toEqual(["refused"]);
+		expect(readKinds()).toEqual(["refused"]);
 		expect(stop(round(BOTH))).toBe("");
-		expect(kinds()).toEqual(["refused", "passed-after-refusal"]);
+		expect(readKinds()).toEqual(["refused", "passed-after-refusal"]);
 	});
 
 	it("logs a refused question the passing send leaves out, having re-sent it on a blocked one", () => {
@@ -1240,13 +1240,13 @@ describe("the close-check log (#1101)", () => {
 		);
 		append(toolCallAt(Date.now() + 120_000));
 		expect(stop(round(NEITHER, { n: 2 }))).toBe("");
-		expect(logLines().map((line) => [line.round, line.kind])).toEqual([
+		expect(readLogLines().map((line) => [line.round, line.kind])).toEqual([
 			["1", "refused"],
 			["2", "refused"],
 			["2", "passed-after-refusal"],
 			["1", "passed-after-refusal"],
 		]);
-		expect(logLines()[3]).toEqual(
+		expect(readLogLines()[3]).toEqual(
 			expect.objectContaining({
 				pair: null,
 				toolCalls: 2,
@@ -1260,7 +1260,7 @@ describe("the close-check log (#1101)", () => {
 		for (let n = 1; n <= 3; n++) stop(round(BOTH, { n }));
 		expect(stop(round(BOTH, { n: 4 }))).toBe("");
 		expect(
-			logLines().map((line) => [line.round, line.kind, line.slot]),
+			readLogLines().map((line) => [line.round, line.kind, line.slot]),
 		).toEqual([
 			["1", "refused", 1],
 			["2", "refused", 2],
@@ -1270,7 +1270,7 @@ describe("the close-check log (#1101)", () => {
 			["2", "passed-after-refusal", undefined],
 			["1", "passed-after-refusal", undefined],
 		]);
-		expect(logLines()[3]).toEqual(
+		expect(readLogLines()[3]).toEqual(
 			expect.objectContaining({ pair: pairOf(BOTH), trigger: "both" }),
 		);
 	});
@@ -1278,7 +1278,7 @@ describe("the close-check log (#1101)", () => {
 	it("logs a caught question passed on an unreadable record", () => {
 		fs.mkdirSync(recordFile(), { recursive: true });
 		expect(stop(round(BOTH))).toBe("");
-		expect(logLines()).toEqual([
+		expect(readLogLines()).toEqual([
 			expect.objectContaining({
 				round: "1",
 				kind: "passed-unreadable",
@@ -1329,37 +1329,37 @@ describe("a pass another Stop hook refuses (#1844)", () => {
 
 	it("does not refuse the re-send again, nor log it twice", () => {
 		passOnResend();
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		expect(stop(round(BOTH, { extra: UNMEASURED }))).toBe("");
-		expect(kinds()).toEqual(["refused", "passed-after-refusal"]);
+		expect(readKinds()).toEqual(["refused", "passed-after-refusal"]);
 		expect(counter(".close-rivals-nagged-")).toBe(1);
 	});
 
 	it("does not log twice a close question it passed at its cap", () => {
 		seed(".close-rivals-nagged-", 3);
 		expect(stop(round(BOTH))).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		expect(stop(round(BOTH))).toBe("");
-		expect(kinds()).toEqual(["passed-at-cap"]);
+		expect(readKinds()).toEqual(["passed-at-cap"]);
 	});
 
 	it("leaves the re-send to this limb, so the under-researched-round limb does not judge it", () => {
 		writeTranscript(file, founder());
 		passOnResend();
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		/* Not close, so only the passed number keeps that limb off it. */
 		expect(stop(round(NEITHER))).toBe("");
 	});
 
 	it("keeps the pass through this guard's own block on the re-send", () => {
 		passOnResend();
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		expect(stop(`${round(BOTH)}\n\n${round(GAP_ONLY, { n: 2 })}`)).toContain(
 			"Q2:",
 		);
 		append(stopFeedback());
 		expect(stop(`${round(BOTH)}\n\n${round(GAP_ONLY, { n: 2 })}`)).toBe("");
-		expect(kinds()).toEqual([
+		expect(readKinds()).toEqual([
 			"refused",
 			"passed-after-refusal",
 			"refused",
@@ -1369,25 +1369,25 @@ describe("a pass another Stop hook refuses (#1844)", () => {
 
 	it("leaves to the under-researched-round limb a question it passed, re-sent close (#1949)", () => {
 		expect(stop(round(NEITHER))).toBe("");
-		const roundLines = () =>
+		const countRoundLines = () =>
 			readJsonl(logPath(dir, ROUND_CHECK_LOG))?.lines.length;
-		const logged = roundLines();
-		append(siblingBlock());
+		const logged = countRoundLines();
+		append(buildSiblingBlock());
 		expect(stop(round(BOTH))).toBe("");
-		expect(kinds()).toEqual([]);
-		expect(roundLines()).toBe(logged);
+		expect(readKinds()).toEqual([]);
+		expect(countRoundLines()).toBe(logged);
 	});
 
 	it("judges afresh a reused number the under-researched-round limb passed, once the founder speaks", () => {
 		expect(stop(round(NEITHER))).toBe("");
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		append(founder(), ...RESEARCH);
 		expect(stop(round(BOTH))).toContain(CLOSE);
 	});
 
 	it("retires the pass where the transcript cannot say at the re-send", () => {
 		passOnResend();
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		fs.rmSync(file);
 		expect(stop(round(BOTH))).toContain(CLOSE);
 	});
@@ -1397,7 +1397,7 @@ describe("a pass another Stop hook refuses (#1844)", () => {
 		["a task notification wakes the session", () => notification()],
 	])("judges a reused number afresh once %s", (_name, next) => {
 		passOnResend();
-		append(siblingBlock());
+		append(buildSiblingBlock());
 		append(next(), ...RESEARCH);
 		expect(stop(round(BOTH))).toContain(CLOSE);
 	});

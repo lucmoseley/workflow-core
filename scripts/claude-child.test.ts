@@ -57,7 +57,7 @@ const run = (args: string[], extra: Record<string, string> = {}) =>
 		},
 	});
 
-const seen = () =>
+const readSeen = () =>
 	JSON.parse(fs.readFileSync(path.join(dir, "seen.json"), "utf8"));
 const launched = () => fs.existsSync(path.join(dir, "seen.json"));
 
@@ -66,13 +66,13 @@ describe("usage", () => {
 		const r = run(["usage", "--config-dir", seat]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("child said hello\n");
-		expect(seen().argv).toEqual([
+		expect(readSeen().argv).toEqual([
 			"-p",
 			"/usage",
 			"--permission-mode",
 			"manual",
 		]);
-		expect(seen().configDir).toBe(seat);
+		expect(readSeen().configDir).toBe(seat);
 	});
 
 	it("passes on the child's exit status", () => {
@@ -108,7 +108,7 @@ describe("chrome", () => {
 			prompt(),
 		]);
 		expect(r.status).toBe(0);
-		expect(seen().argv).toEqual([
+		expect(readSeen().argv).toEqual([
 			"-p",
 			"--chrome",
 			"--tools",
@@ -122,8 +122,8 @@ describe("chrome", () => {
 			"--output-format",
 			"json",
 		]);
-		expect(seen().stdin).toBe("Read example.com and report.\n");
-		expect(seen().configDir).toBe(seat);
+		expect(readSeen().stdin).toBe("Read example.com and report.\n");
+		expect(readSeen().configDir).toBe(seat);
 	});
 
 	it.each([

@@ -17,7 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
-import { guardErrorsLog } from "./lib/guard-errors-log";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { MARKERS_REL } from "./lib/marker-root";
 import { queueExitLogPath } from "./lib/queue-exit-log";
 import { runInProcess } from "./lib/run-in-process";
@@ -173,7 +173,7 @@ const run = (
 		},
 	});
 
-const errorLog = () => guardErrorsLog(config());
+const readErrorLog = () => readGuardErrorsLog(config());
 
 /** What a `--dry-run` at NOW prints: the issue body, then the figure. */
 const dryRun = () => {
@@ -285,6 +285,12 @@ describe("the body carries #1157 Q7's breakdown", () => {
 		expect(body()).toContain("Hub fan-out");
 		expect(body()).toContain("per-session run cap");
 		expect(body()).toContain("deferred (#1152)");
+	});
+
+	it("gives the replay command over its own window (#3060)", () => {
+		expect(body()).toContain(
+			`node scripts/replay-suite-queue-wait.js --since ${iso(NOW - DAY)} --until ${iso(NOW)}`,
+		);
 	});
 });
 
@@ -408,7 +414,7 @@ describe("fails open, recorded", () => {
 		const r = run(gh);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/FAILED OPEN: .*will not read — EISDIR/);
-		expect(errorLog()).toContain("report-suite-queue-wait");
+		expect(readErrorLog()).toContain("report-suite-queue-wait");
 		expect(gh.calls()).toBe("");
 	});
 
@@ -419,7 +425,7 @@ describe("fails open, recorded", () => {
 		const r = run(gh);
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/FAILED OPEN: EISDIR/);
-		expect(errorLog()).toContain("report-suite-queue-wait");
+		expect(readErrorLog()).toContain("report-suite-queue-wait");
 		expect(gh.calls()).toBe("");
 	});
 
@@ -431,7 +437,7 @@ describe("fails open, recorded", () => {
 		expect(r.stderr).toMatch(
 			/FAILED OPEN: Command failed: .*gh issue list[\s\S]*gh auth login/,
 		);
-		expect(errorLog()).toContain("report-suite-queue-wait");
+		expect(readErrorLog()).toContain("report-suite-queue-wait");
 	});
 
 	it("reads no log as no wait, not a failure", () => {
@@ -439,7 +445,7 @@ describe("fails open, recorded", () => {
 		const r = run(gh);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("0.0 h of queue wait");
-		expect(errorLog()).toBe("");
+		expect(readErrorLog()).toBe("");
 	});
 });
 
@@ -469,6 +475,7 @@ describe("in an adopter (#1454)", () => {
 		expect(body).toContain("this repo's own `/wayfinder`");
 		expect(body).toContain("a ruling filed in workflow-core");
 		expect(body).not.toContain("scripts/session-arbiter.js");
+		expect(body).not.toContain("replay-suite-queue-wait");
 	});
 
 	it("prints a SKIP and makes no gh call with suites off", () => {

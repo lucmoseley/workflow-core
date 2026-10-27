@@ -10,9 +10,9 @@
  *
  * Parentage comes from `parent_issue_url` on the open-issues list, one
  * paginated call (check-issue-orphans.js's header says why not /sub_issues).
- * Blockers take one call per open issue, read from the canonical list, never
- * `issue_dependencies_summary` (docs/agents/issue-tracker.md, "Two dependency
- * graphs"). Sequential, as check-open-maps.js is: a weekly report need not rush.
+ * Blockers come from the canonical connection in batches
+ * (lib/blocked-by-batch.js), never `issue_dependencies_summary`
+ * (docs/agents/issue-tracker.md, "Two dependency graphs").
  *
  * A loop is a strongly connected component of that graph, so it is reported
  * once however many members it has, with one example path naming each link.
@@ -26,14 +26,10 @@
  * Usage: node check-issue-cycles.js [--warn] [--json]
  */
 
-const { runCheck, brokenError } = require("./lib/check");
-const {
-	ghApiSlurp,
-	ghOpenIssues,
-	errLine,
-	ghFailureReason,
-	raiseGhFailure,
-} = require("./lib/gh");
+const { runCheck, brokenError, skipError } = require("./lib/check");
+const { ghOpenIssues, raiseGhFailure, unreachableRemedy } = require("./lib/gh");
+const { blockedByMany } = require("./lib/blocked-by-batch");
+const { isInOtherRepo, repoOfUrl } = require("./lib/parent-claims.js");
 
 const CONCLUSION = "No issue-cycle conclusion drawn.";
 
@@ -44,20 +40,6 @@ const parseIssueNumber = (url) => {
 	const m = /\/issues\/(\d+)$/.exec(url || "");
 	return m ? Number(m[1]) : null;
 };
-
-/** @param {number} n */
-function readBlockers(n) {
-	const args = [`repos/{owner}/{repo}/issues/${n}/dependencies/blocked_by`];
-	try {
-		return ghApiSlurp(args);
-	} catch (e) {
-		// One retry, as ghGetRetrying makes (mantahostels#1145): a transient 502
-		// on this endpoint is common. Not when GitHub is unreachable, which a
-		// second call only delays.
-		if (ghFailureReason(e) === "unreachable") throw e;
-		return ghApiSlurp(args);
-	}
-}
 
 /**
  * @typedef {{
@@ -211,7 +193,7 @@ function examplePath(members, edges) {
 }
 
 /** @param {{ from: number, to: number, kind: Edge["kind"] }} l */
-const linkText = (l) =>
+const buildLinkText = (l) =>
 	l.kind === "child"
 		? `#${l.from} waits on child #${l.to}`
 		: `#${l.from} is blocked by #${l.to}`;
@@ -239,30 +221,27 @@ function addParentEdges(issues, open, add) {
  * @param {any[]} issues
  * @param {Set<number>} open
  * @param {(from: number, e: Edge) => void} add
- * @returns {string[]}
+ * @returns {Promise<string[]>}
  */
-function addBlockerEdges(issues, open, add) {
+async function addBlockerEdges(issues, open, add) {
+	// A blocker in another repository shares only its number with ours.
+	const home = repoOfUrl(issues.find((i) => i.repository_url)?.repository_url);
+	const reads = await blockedByMany(issues, { repo: "{owner}/{repo}", home });
 	const unread = [];
-	for (const i of issues) {
-		/** @type {any[]} */
-		let blockers;
-		try {
-			blockers = readBlockers(i.number);
-		} catch (e) {
-			if (ghFailureReason(e) === "unreachable") raiseGhFailure(e, CONCLUSION);
-			unread.push(`#${i.number} (${errLine(e)})`);
+	for (const { issue: i, read: r } of reads) {
+		if (!r.ok) {
+			// An unreachable GitHub is unconcludable, never a fault in the check.
+			if (r.reason === "unreachable")
+				throw skipError(
+					`could not read the blockers of #${i.number} (${r.error}).\n      ` +
+						`${unreachableRemedy(Object.assign(new Error(r.error), { stderr: r.error }))} ${CONCLUSION}`,
+				);
+			unread.push(`#${i.number} (${r.error})`);
 			continue;
 		}
-		for (const b of blockers) {
-			// A blocker in another repository shares only its number with ours.
-			// Residual: a row missing `repository_url` counts as this repo's.
-			const sameRepo =
-				!b.repository_url ||
-				!i.repository_url ||
-				b.repository_url === i.repository_url;
-			if (b.state === "open" && sameRepo && open.has(b.number))
+		for (const b of r.edges)
+			if (b.state === "open" && !isInOtherRepo(b, home) && open.has(b.number))
 				add(i.number, { to: b.number, kind: "blocker" });
-		}
 	}
 	return unread;
 }
@@ -283,7 +262,7 @@ function reportCycles(ctx, cycles) {
 	ctx.say(`ISSUE-CYCLE (${cycles.length}) — none of these issues can close:`);
 	for (const c of cycles) {
 		ctx.say(`  ${tags(c.members).join(", ")}`);
-		for (const l of c.path) ctx.say(`    ${linkText(l)}`);
+		for (const l of c.path) ctx.say(`    ${buildLinkText(l)}`);
 	}
 	ctx.say(
 		"\n  Break the loop at the link that orders nothing. A sub-issue holds its parent open, so work\n" +
@@ -295,7 +274,7 @@ function reportCycles(ctx, cycles) {
 runCheck({
 	name: "issue-cycles",
 	usage: "node check-issue-cycles.js [--warn] [--json]",
-	run(/** @type {import("./lib/check").Ctx} */ ctx) {
+	async run(/** @type {import("./lib/check").Ctx} */ ctx) {
 		/** @type {any[]} */
 		let issues = [];
 		try {
@@ -311,7 +290,7 @@ runCheck({
 		const add = (from, e) => edges.set(from, [...(edges.get(from) || []), e]);
 
 		addParentEdges(issues, open, add);
-		const unread = addBlockerEdges(issues, open, add);
+		const unread = await addBlockerEdges(issues, open, add);
 		if (unread.length > 0)
 			throw brokenError(
 				`could not read the blockers of ${unread.join(", ")} — an unread list ` +

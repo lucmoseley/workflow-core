@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * arbiter-markers.js's own suite: the session-suffixed marker files — the
- * concision backstop's, and guard-parse.sh's rule latches — are swept only for
+ * concision backstop's, and guard-entry.js's rule latches — are swept only for
  * a finished session, and nothing that is not a marker is touched
  * (mantahostels#1804, mantahostels#3515).
  *
@@ -134,15 +134,15 @@ describe("marker sweep — the backstop's per-session files in the repo root", (
 	});
 });
 
-describe("rule-latch sweep — gp_rule's .rule-injected- family (mantahostels#1804)", () => {
+describe("rule-latch sweep — the .rule-injected- family (mantahostels#1804)", () => {
 	const hour = 60 * 60 * 1000;
 	/* Since F8 (mantahostels#3515, #2) the latches live under
 	 * .claude/tmp/markers/, not the repo root directly. A function, not a hoisted
 	 * const: `sb.repo` is re-pointed at a fresh directory per test. */
 	const markersDir = () => path.join(sb.repo, ".claude", "tmp", "markers");
-	/* The prefix guard-parse.sh writes and the sweep matches, spelled here so
+	/* The prefix guard-entry.js writes and the sweep matches, spelled here so
 	 * each side is pinned to the same string: the latch cases below fail if the
-	 * sweep's spelling moves, and the guard-parse.sh case if the writer's does. */
+	 * sweep's spelling moves, and the guard-entry.js case if the writer's does. */
 	const latchPrefix = ".rule-injected-";
 
 	/** One latch file, aged. `agent` is `main` for a parent, `a<agent_id>` under one. */
@@ -189,11 +189,15 @@ describe("rule-latch sweep — gp_rule's .rule-injected- family (mantahostels#18
 		expect(res.status).toBe(0);
 	});
 
-	it("spells the prefix guard-parse.sh writes", () => {
+	it("spells the prefix guard-entry.js writes", () => {
 		// The two are coupled by a string literal and nothing else: a rename on
 		// either side leaves the sweep walking past a family that then never goes.
-		const sh = fs.readFileSync(path.join(__dirname, "guard-parse.sh"), "utf8");
-		expect(sh).toContain(`${latchPrefix}%s-%s-%s`);
+		const { writeLatches } = require("./guard-entry.js");
+		writeLatches(
+			{ root: sb.repo, payload: { session_id: "s" }, log: () => undefined },
+			[{ name: "one", text: "" }],
+		);
+		expect(fs.readdirSync(markersDir())).toContain(`${latchPrefix}one-main-s`);
 	});
 
 	it("sweeps a finished session's aged latch", () => {
@@ -259,8 +263,8 @@ describe("rule-latch sweep — gp_rule's .rule-injected- family (mantahostels#18
 		expect(fs.existsSync(f)).toBe(false);
 	});
 
-	it("sweeps the sanitised marker gp_rule writes for an unusable session id", () => {
-		// guard-parse.sh replaces unsafe characters, so this matches no live id and
+	it("sweeps the sanitised marker guard-entry.js writes for an unusable session id", () => {
+		// guard-entry.js replaces unsafe characters, so this matches no live id and
 		// has nothing but the clock to retire it.
 		const f = latch("one", "main", "___escape", 25 * hour);
 		live(sb, "alice");

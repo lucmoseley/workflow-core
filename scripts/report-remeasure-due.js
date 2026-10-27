@@ -15,6 +15,14 @@
  * a full one, is counted once, its defects summed. Residual: the landed sha
  * is taken as on `main`, never checked against it.
  *
+ * AN UNPARSEABLE RECORD — a `**Review findings:**` not in backticks, under a
+ * counted tier, that the record form does not match — counts nothing and is
+ * reported, remedy included: one line to stderr and to the guard-error log,
+ * which is what the daily run keeps, per record each run until it is
+ * corrected (#3064). Not one whose `reviewed <tree>` a parsed record on its
+ * ticket shares: a close draft holding a placeholder for the landed
+ * sha, superseded by the close.
+ *
  * THE SEARCH. Every `corpus` tracker, one GraphQL search a page of 100
  * tickets, each with its comments, for "Review tier" or "Escaped defect"
  * since FLOOR, the day the record formats landed. Not "Review findings":
@@ -28,7 +36,7 @@
  * commit; while an issue of that title exists, open or closed, it only
  * rewrites that issue's body, never filing a second. Found by title alone,
  * since the session that takes it may relabel it. Below the threshold it
- * prints nothing and calls no tracker but the search.
+ * prints nothing but those reports, and calls no tracker but the search.
  *
  * WORKFLOW-CORE ONLY, by its repo-checks gate: one reading covers the whole
  * corpus, and Actions' token cannot read the private adopter repos.
@@ -44,9 +52,9 @@ const { logError } = require("./lib/arbiter-core");
 const { parseOrExit } = require("./lib/cli-args");
 const { now } = require("./lib/check");
 const {
-	errLine,
+	parseErrLine,
 	ghApiSlurp,
-	ghFailureReason,
+	parseGhFailureReason,
 	ghJson,
 	unreachableRemedy,
 } = require("./lib/gh");
@@ -81,8 +89,10 @@ const SEARCH = `query($q: String!, $after: String) {
   }
 }`;
 const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
+const HEAD = "\\*\\*Review findings:\\*\\*";
+const REVIEWED_TREE = `reviewed\\s+${SHA}`;
 const FINDINGS = new RegExp(
-	`\\*\\*Review findings:\\*\\*\\s*base\\s+${SHA},\\s*reviewed\\s+${SHA},\\s*landed\\s+${SHA}(?:,[ \\t]*paths[ \\t]+([^\\n]+))?`,
+	`${HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:,[ \\t]*paths[ \\t]+([^\\n]+))?`,
 	"g",
 );
 const TIER = /\*\*Review tier:\*\*\s*`?([A-Za-z-]+)/g;
@@ -92,14 +102,21 @@ const KNOWN = /^\s*-\s*(?:FIXED|TICKETED)\b/;
 const BLANK = /^\s*$/;
 /* A list ends at the next record, even one bulleted or indented, so its
  * defects are never counted under this one too. */
-const RECORD_START = /\*\*Review findings:\*\*/;
+const RECORD_START = new RegExp(HEAD);
+/* A backticked one names the format, as a review comment quoting it does.
+ * Residual: an unbackticked mention in bold prose under a counted tier is
+ * reported, and a record backticked whole is skipped unreported. */
+const RECORD_MENTION = new RegExp(`(?<!\`)${HEAD}`, "g");
+const REVIEWED = new RegExp(REVIEWED_TREE);
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
 
 /**
  * @typedef {{ repo: string, issue: number, base: string, tree: string,
  *   landed: string, paths: string | null, tier: string, fixed: number, escaped: number }} ReviewRecord
- * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }} Mark
+ * @typedef {{ repo: string, issue: number, line: string }} Unparsed
+ * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
+ *   | { at: number, unparsed: string }} Mark
  */
 
 /** @param {RegExpExecArray} m @param {number} n @param {RegExp} re */
@@ -196,33 +213,64 @@ function knownDefects(after) {
 }
 
 /**
- * The records and escaped-defect shas in one ticket's comments, read in
- * order so each record takes the tier last declared above it.
+ * A record's reviewed paths, null on one written before #1926.
+ *
+ * @param {RegExpExecArray} m
+ */
+const pathsOf = (m) =>
+	m[4] === undefined ? null : m[4].replace(/`/g, "").trim();
+
+/**
+ * @param {string} body
+ * @returns {Mark[]}
+ */
+function parseMarks(body) {
+	const found = [...body.matchAll(FINDINGS)];
+	const parsed = new Set(found.map((m) => m.index));
+	return [
+		...[...body.matchAll(TIER)].map((m) => ({
+			at: m.index,
+			tier: group(m, 1, TIER),
+		})),
+		...found.map((m) => ({ at: m.index, record: m })),
+		...[...body.matchAll(RECORD_MENTION)]
+			.filter((m) => !parsed.has(m.index))
+			.map((m) => ({
+				at: m.index,
+				unparsed: body.slice(m.index).replace(/\n[\s\S]*/, ""),
+			})),
+	].sort((x, y) => x.at - y.at);
+}
+
+/**
+ * The records, escaped-defect shas and unparseable records under a counted
+ * tier in one ticket's comments, read in order so each record takes the tier
+ * last declared above it.
  *
  * @param {string} repo
  * @param {number} issue
  * @param {string[]} bodies
- * @returns {{ records: ReviewRecord[], escaped: string[] }}
+ * @returns {{ records: ReviewRecord[], escaped: string[], unparsed: Unparsed[] }}
  */
 function parseIssue(repo, issue, bodies) {
 	/** @type {ReviewRecord[]} */
 	const records = [];
 	/** @type {string[]} */
 	const escaped = [];
+	/** @type {Unparsed[]} */
+	const unparsed = [];
 	let tier = "";
 	for (const body of bodies) {
 		for (const m of body.matchAll(ESCAPED)) escaped.push(group(m, 1, ESCAPED));
-		/** @type {Mark[]} */
-		const marks = [
-			...[...body.matchAll(TIER)].map((m) => ({
-				at: m.index,
-				tier: group(m, 1, TIER),
-			})),
-			...[...body.matchAll(FINDINGS)].map((m) => ({ at: m.index, record: m })),
-		].sort((x, y) => x.at - y.at);
+		const marks = parseMarks(body);
 		for (const mark of marks) {
-			if (!("record" in mark)) {
+			if ("tier" in mark) {
 				tier = mark.tier;
+				continue;
+			}
+			if ("unparsed" in mark) {
+				if (COUNTED_TIERS.has(tier))
+					unparsed.push({ repo, issue, line: mark.unparsed });
 				continue;
 			}
 			const m = mark.record;
@@ -232,15 +280,31 @@ function parseIssue(repo, issue, bodies) {
 				base: group(m, 1, FINDINGS),
 				tree: group(m, 2, FINDINGS),
 				landed: group(m, 3, FINDINGS),
-				/* Null on a record written before #1926. */
-				paths: m[4] === undefined ? null : m[4].replace(/`/g, "").trim(),
+				paths: pathsOf(m),
 				tier,
 				fixed: knownDefects(body.slice(m.index)),
 				escaped: 0,
 			});
 		}
 	}
-	return { records, escaped };
+	return {
+		records,
+		escaped,
+		unparsed: unparsed.filter((u) => !isSuperseded(u, records)),
+	};
+}
+
+/**
+ * Whether `u` is the superseded close draft the header exempts.
+ *
+ * @param {Unparsed} u
+ * @param {ReviewRecord[]} records
+ */
+function isSuperseded(u, records) {
+	const m = REVIEWED.exec(u.line);
+	if (!m) return false;
+	const tree = group(m, 1, REVIEWED);
+	return records.some((r) => isSameSha(r.tree, tree));
 }
 
 /** @param {string} a @param {string} b */
@@ -270,17 +334,20 @@ function mergeRecord(seen, r) {
 }
 
 /**
- * The counted commits across `trackers`, in corpus order, then by ticket.
+ * The counted commits across `trackers`, in corpus order, then by ticket,
+ * and the unparseable records under a counted tier.
  *
  * @param {string[]} trackers
  * @param {string} today YYYY-MM-DD
- * @returns {ReviewRecord[]}
+ * @returns {{ commits: ReviewRecord[], unparsed: Unparsed[] }}
  */
 function countedCommits(trackers, today) {
 	/** @type {ReviewRecord[]} */
 	const records = [];
 	/** @type {string[]} */
 	const escaped = [];
+	/** @type {Unparsed[]} */
+	const unparsed = [];
 	for (const repo of trackers) {
 		const tickets = searchTickets(repo, FLOOR, today).sort(
 			(a, b) => a.issue - b.issue,
@@ -289,6 +356,7 @@ function countedCommits(trackers, today) {
 			const found = parseIssue(repo, issue, bodies);
 			records.push(...found.records);
 			escaped.push(...found.escaped);
+			unparsed.push(...found.unparsed);
 		}
 	}
 	/** @type {ReviewRecord[]} */
@@ -305,7 +373,10 @@ function countedCommits(trackers, today) {
 	 * may live in another repo, and a 7-hex prefix colliding is negligible. */
 	for (const c of commits)
 		c.escaped = escaped.filter((s) => isSameSha(s, c.landed)).length;
-	return commits.filter((c) => c.fixed + c.escaped > 0);
+	return {
+		commits: commits.filter((c) => c.fixed + c.escaped > 0),
+		unparsed,
+	};
 }
 
 /** @param {ReviewRecord[]} commits */
@@ -324,7 +395,7 @@ function buildBody(commits) {
 
 /** @param {unknown} e */
 const remedy = (e) =>
-	ghFailureReason(e) === "unreachable" ? `${unreachableRemedy(e)} ` : "";
+	parseGhFailureReason(e) === "unreachable" ? `${unreachableRemedy(e)} ` : "";
 
 /**
  * A fault on the filing run (#1698): one line in the arbiter's error log,
@@ -346,17 +417,23 @@ function main() {
 		usage: "usage: node scripts/report-remeasure-due.js",
 	});
 	let commits;
+	let unparsed;
 	try {
-		commits = countedCommits(
+		({ commits, unparsed } = countedCommits(
 			/** @type {string[]} */ (resolveKey("corpus", { root: hostRoot() })),
 			day(now()),
-		);
+		));
 	} catch (e) {
 		failOpen(
-			`could not read the corpus — ${errLine(e)}`,
+			`could not read the corpus — ${parseErrLine(e)}`,
 			`${remedy(e)}Nothing was filed; the next day's run retries.`,
 		);
 		return;
+	}
+	for (const u of unparsed) {
+		const fault = `${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`;
+		logError(WHERE, fault);
+		writeFd(2, `UNPARSEABLE: ${fault}\n`);
 	}
 	if (commits.length < THRESHOLD) return;
 	const text = buildBody(commits);
@@ -378,7 +455,7 @@ function main() {
 		/* Not e.message: a failed gh call's message holds its whole argv, the body
 		 * included. */
 		failOpen(
-			`could not file or refresh "${TITLE}" — ${errLine(e)}`,
+			`could not file or refresh "${TITLE}" — ${parseErrLine(e)}`,
 			`${remedy(e)}The next day's run retries.`,
 		);
 	}

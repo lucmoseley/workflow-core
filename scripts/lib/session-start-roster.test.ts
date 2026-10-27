@@ -19,7 +19,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { allRegistrations, commandLine, readCoreHooks } from "./hook-wiring";
+import {
+	allRegistrations,
+	buildCommandLine,
+	readCoreHooks,
+} from "./hook-wiring";
 import { useScratchCore } from "./scratch-core-testkit";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -47,7 +51,7 @@ const write = (settings: unknown) =>
 		JSON.stringify(settings),
 	);
 
-describe("sessionStartRoster", () => {
+describe("readSessionStartRoster", () => {
 	it("picks up an inline-shell hook carrying both markers", () => {
 		write({
 			hooks: {
@@ -64,7 +68,7 @@ describe("sessionStartRoster", () => {
 				],
 			},
 		});
-		expect(lib.sessionStartRoster(dir)).toEqual([
+		expect(lib.readSessionStartRoster(dir)).toEqual([
 			{ key: "ghost-jobs", script: "check-ghost-jobs.js" },
 		]);
 	});
@@ -91,7 +95,7 @@ describe("sessionStartRoster", () => {
 				],
 			},
 		});
-		expect(lib.sessionStartRoster(dir)).toEqual([
+		expect(lib.readSessionStartRoster(dir)).toEqual([
 			{ key: "widget-fault", script: "check-widget-fault.js" },
 		]);
 	});
@@ -115,7 +119,7 @@ describe("sessionStartRoster", () => {
 				],
 			},
 		});
-		expect(lib.sessionStartRoster(dir)).toEqual([
+		expect(lib.readSessionStartRoster(dir)).toEqual([
 			{ key: "nested", script: "check-nested.js" },
 		]);
 	});
@@ -138,7 +142,7 @@ describe("sessionStartRoster", () => {
 				],
 			},
 		});
-		expect(lib.sessionStartRoster(dir)).toEqual([]);
+		expect(lib.readSessionStartRoster(dir)).toEqual([]);
 	});
 
 	it("ignores a hook missing --notify even where WFC_NOTIFY_PERSIST=1 is present", () => {
@@ -157,7 +161,7 @@ describe("sessionStartRoster", () => {
 				],
 			},
 		});
-		expect(lib.sessionStartRoster(dir)).toEqual([]);
+		expect(lib.readSessionStartRoster(dir)).toEqual([]);
 	});
 
 	it("ignores an ordinary synchronous hook with neither marker", () => {
@@ -175,7 +179,7 @@ describe("sessionStartRoster", () => {
 				],
 			},
 		});
-		expect(lib.sessionStartRoster(dir)).toEqual([]);
+		expect(lib.readSessionStartRoster(dir)).toEqual([]);
 	});
 
 	it("applies a key override rather than stripping check- blindly", () => {
@@ -195,7 +199,7 @@ describe("sessionStartRoster", () => {
 			},
 		});
 		expect(
-			lib.sessionStartRoster(dir, {
+			lib.readSessionStartRoster(dir, {
 				keyOverrides: { "check-cleared-trackers": "check-cleared-trackers" },
 			}),
 		).toEqual([
@@ -220,12 +224,12 @@ describe("sessionStartRoster", () => {
 			},
 		});
 		expect(
-			lib.sessionStartRoster(dir, { self: "replay-notify-reports" }),
+			lib.readSessionStartRoster(dir, { self: "replay-notify-reports" }),
 		).toEqual([]);
 	});
 
 	it("is empty where settings.json is absent and the plugin wires no producer", () => {
-		expect(lib.sessionStartRoster(path.join(dir, "nowhere"))).toEqual([]);
+		expect(lib.readSessionStartRoster(path.join(dir, "nowhere"))).toEqual([]);
 	});
 
 	it("names the producers the core plugin wires at an adopter, beside its own (#2445)", () => {
@@ -242,7 +246,7 @@ describe("sessionStartRoster", () => {
 		});
 		useScratchCore(dir, persisting("check-from-plugin.js"));
 		write({ hooks: persisting("check-own.js") });
-		expect(lib.sessionStartRoster(dir)).toEqual([
+		expect(lib.readSessionStartRoster(dir)).toEqual([
 			{ key: "own", script: "check-own.js" },
 			{ key: "from-plugin", script: "check-from-plugin.js" },
 		]);
@@ -250,12 +254,12 @@ describe("sessionStartRoster", () => {
 
 	it("is empty where settings.json will not parse", () => {
 		fs.writeFileSync(path.join(dir, ".claude", "settings.json"), "{ half-writ");
-		expect(lib.sessionStartRoster(dir)).toEqual([]);
+		expect(lib.readSessionStartRoster(dir)).toEqual([]);
 	});
 
 	it("is empty where SessionStart is present but not an array", () => {
 		write({ hooks: { SessionStart: "not-an-array" } });
-		expect(lib.sessionStartRoster(dir)).toEqual([]);
+		expect(lib.readSessionStartRoster(dir)).toEqual([]);
 	});
 });
 
@@ -264,9 +268,9 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 		line.includes("WFC_NOTIFY_PERSIST=1") && line.includes("--notify");
 
 	/*
-	 * hook-wiring.ts's own allRegistrations/commandLine (TypeScript, mantahostels#2266)
-	 * against this module's sessionStartRoster (JS, routed through
-	 * rule-emission.js's hookCommandLine). The fixture splits the two markers
+	 * hook-wiring.ts's own allRegistrations/buildCommandLine (TypeScript, mantahostels#2266)
+	 * against this module's readSessionStartRoster (JS, routed through
+	 * rule-emission.js's buildHookCommandLine). The fixture splits the two markers
 	 * across `command` and `args` — the exact shape a join that dropped
 	 * `args` would miss — so if session-start-roster.js's join regressed to
 	 * `hook.command` alone, `wired` would still read true (hook-wiring.ts's
@@ -296,11 +300,11 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 		);
 		const wired = allRegistrations(settings)
 			.filter((r) => r.event === "SessionStart")
-			.map(commandLine)
+			.map(buildCommandLine)
 			.some(persisting);
 		expect(wired).toBe(true);
 
-		expect(lib.sessionStartRoster(dir)).toEqual([
+		expect(lib.readSessionStartRoster(dir)).toEqual([
 			{ key: "widget-fault", script: "check-widget-fault.js" },
 		]);
 	});
@@ -314,7 +318,7 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 		const settings = readCoreHooks();
 		const wired = allRegistrations(settings)
 			.filter((r) => r.event === "SessionStart")
-			.map(commandLine)
+			.map(buildCommandLine)
 			.filter(persisting)
 			.flatMap((line) => [...line.matchAll(ruleEmission.WIRED_SCRIPT_RE)])
 			.map((m) => m[1] as string)
@@ -325,7 +329,7 @@ describe("agreement with scripts/lib/hook-wiring.ts", () => {
 		expect(wired.length).toBeGreaterThan(0);
 
 		const roster: Array<{ key: string; script: string }> =
-			lib.sessionStartRoster(path.resolve(__dirname, "..", ".."));
+			lib.readSessionStartRoster(path.resolve(__dirname, "..", ".."));
 		const rosterScripts = roster.map((r) => r.script.replace(/\.js$/, ""));
 
 		for (const script of wired)

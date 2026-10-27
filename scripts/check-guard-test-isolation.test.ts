@@ -1,12 +1,14 @@
 // @vitest-environment node
 /*
- * Pins that check-guard-test-isolation.js fails a test spawning a guard that
- * logs fail-opens without redirecting CLAUDE_CONFIG_DIR, through shared
+ * Pins that check-guard-test-isolation.js fails a test running a guard — a
+ * bash guard or a Node entry — that logs fail-opens without redirecting
+ * CLAUDE_CONFIG_DIR, through shared
  * helpers and unresolved indirection too, and never on a guard merely named
  * (mantahostels#1452).
  *
  * check-guard-test-isolation.js reads call sites, so a throwaway git repo
- * holding a shell script and a test file that spawns it is the whole fixture;
+ * holding a guard (a shell script or a Node entry) and a test file that runs it
+ * is the whole fixture;
  * one last case runs it against this repo to prove it finds tests to judge.
  *
  * It is a hard gate in .husky/pre-commit and roadmap-digest.yml: loosen a case
@@ -47,6 +49,22 @@ const guard = (name: string, via?: string) => {
 		track(`scripts/${name}`, `source "$here/lib/${via}"\n`);
 	} else {
 		track(`scripts/${name}`, 'source "$here/lib/guard-log.sh"\n');
+	}
+};
+
+/**
+ * A Node entry that records its fail-opens through lib/entry-input.js's
+ * logger, by way of lib/guard-entry.js, and `via` a lib requiring that if
+ * given.
+ */
+const nodeGuard = (name: string, via?: string) => {
+	track("scripts/lib/entry-input.js", "module.exports = { logger() {} };\n");
+	track("scripts/lib/guard-entry.js", 'require("./entry-input.js");\n');
+	if (via) {
+		track(`scripts/lib/${via}`, 'require("./guard-entry.js");\n');
+		track(`scripts/${name}`, `require("./lib/${via}");\n`);
+	} else {
+		track(`scripts/${name}`, 'require("./lib/guard-entry.js").run({});\n');
 	}
 };
 
@@ -102,7 +120,7 @@ describe("a test that spawns a fail-open-logging guard", () => {
 	});
 
 	it("follows the source chain — a guard reaching guard-log.sh through a lib", () => {
-		guard("guard-x.sh", "guard-parse.sh");
+		guard("guard-x.sh", "guard-log.sh");
 		track(
 			"scripts/guard-x.test.ts",
 			'spawnSync(path.join(__dirname, "guard-x.sh"), []);\n',
@@ -160,7 +178,270 @@ describe("what it declines to flag", () => {
 	});
 });
 
+describe("a test that runs a Node guard entry (#2898)", () => {
+	const nodeTest = (body: string) =>
+		track(
+			"scripts/guard-n.test.ts",
+			`const GUARD = path.resolve(__dirname, "guard-n.js");\n${body}`,
+		);
+
+	it("fails a node spawn that lets the entry inherit the real CLAUDE_CONFIG_DIR, naming the test file", () => {
+		nodeGuard("guard-n.js");
+		nodeTest("spawnSync(process.execPath, [GUARD], { env: process.env });\n");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(
+			"scripts/guard-n.test.ts spawns scripts/guard-n.js",
+		);
+		expect(r.out).toContain("CLAUDE_CONFIG_DIR");
+	});
+
+	it("fails an in-process run of a logging entry with no redirect, naming the entry", () => {
+		nodeGuard("guard-n.js");
+		nodeTest("runInProcess(GUARD, [], { stdin });\n");
+		expect(run("--json").json().findings[0]).toMatchObject({
+			file: "scripts/guard-n.test.ts",
+			guards: ["scripts/guard-n.js"],
+		});
+	});
+
+	it("passes one that redirects CLAUDE_CONFIG_DIR", () => {
+		nodeGuard("guard-n.js");
+		nodeTest("runInProcess(GUARD, [], { env: { CLAUDE_CONFIG_DIR: tmp } });\n");
+		const r = run("--json");
+		expect(r.status).toBe(0);
+		expect(r.json().spawningTests).toBe(1);
+	});
+
+	it("follows the require chain — an entry reaching guard-entry.js through a lib", () => {
+		nodeGuard("guard-n.js", "guard-dispatch.js");
+		nodeTest('execFileSync("node", [GUARD]);\n');
+		expect(run("--json").json().findings[0].guards).toEqual([
+			"scripts/guard-n.js",
+		]);
+	});
+
+	it("judges an entry taking the logger straight from entry-input.js, as record-divergence.js does (#2899)", () => {
+		track("scripts/lib/entry-input.js", "module.exports = { logger() {} };\n");
+		track("scripts/guard-n.js", 'require("./lib/entry-input.js");\n');
+		nodeTest("runInProcess(GUARD, [], { stdin });\n");
+		expect(run("--json").json().findings[0].guards).toEqual([
+			"scripts/guard-n.js",
+		]);
+	});
+
+	it("judges an entry calling arbiter-core.js's logError without entry-input.js, as the Stop guards do (#3046)", () => {
+		track(
+			"scripts/lib/arbiter-core.js",
+			"module.exports = { logError() {} };\n",
+		);
+		track(
+			"scripts/guard-n.js",
+			'const { logError } = require("./lib/arbiter-core");\nlogError("guard-n", e);\n',
+		);
+		nodeTest("runInProcess(GUARD, [], { stdin });\n");
+		expect(run("--json").json().findings[0].guards).toEqual([
+			"scripts/guard-n.js",
+		]);
+	});
+
+	it("judges an entry reaching fail-open-logger.js through a lib", () => {
+		track(
+			"scripts/lib/fail-open-logger.js",
+			'require("./arbiter-store");\nmodule.exports = { failOpenLogger() {} };\n',
+		);
+		track("scripts/lib/refusal-limb.js", 'require("./fail-open-logger");\n');
+		track("scripts/guard-n.js", 'require("./lib/refusal-limb");\n');
+		nodeTest("runInProcess(GUARD, [], { stdin });\n");
+		expect(run("--json").json().findings[0].guards).toEqual([
+			"scripts/guard-n.js",
+		]);
+	});
+
+	it("does not count an entry requiring the arbiter libs for anything but logError", () => {
+		track(
+			"scripts/lib/arbiter-core.js",
+			"function logError() {}\nmodule.exports = { logError, readRecord() {} };\n",
+		);
+		track(
+			"scripts/lib/arbiter-store.js",
+			'const core = require("./arbiter-core");\nmodule.exports = { logError: core.logError };\n',
+		);
+		track(
+			"scripts/guard-n.js",
+			'const { readRecord } = require("./lib/arbiter-core");\n' +
+				'const store = require("./lib/arbiter-store");\n' +
+				"// logError(e) would be the fail-open\n" +
+				'const name = "logError(";\n',
+		);
+		nodeTest("runInProcess(GUARD, [], { stdin });\n");
+		expect(run("--json").json().spawningTests).toBe(0);
+	});
+
+	it("reads a node spawn's script past its flags, and a lib test's `../` entry", () => {
+		nodeGuard("guard-n.js");
+		track(
+			"scripts/lib/n.test.ts",
+			'const GUARD = path.resolve(__dirname, "../guard-n.js");\n' +
+				'spawnSync("node", ["--no-warnings", GUARD]);\n',
+		);
+		expect(run("--json").json().findings[0]).toMatchObject({
+			file: "scripts/lib/n.test.ts",
+			guards: ["scripts/guard-n.js"],
+		});
+	});
+
+	it("reads a node spawn whose args are no literal array as indirection", () => {
+		nodeGuard("guard-n.js");
+		nodeTest("spawnSync(process.execPath, argv);\n");
+		expect(run("--json").json().findings[0].guards).toEqual([
+			"scripts/guard-n.js",
+		]);
+	});
+
+	it("does not bind a name used as a subscript key", () => {
+		nodeGuard("guard-n.js");
+		track(
+			"scripts/fires.test.ts",
+			'const needles = guards["guard-n.js"].needles;\n' +
+				"runInProcess(CLI, []);\n",
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("does not read `node -e` source as a script run", () => {
+		nodeGuard("guard-n.js");
+		nodeTest('spawnSync(process.execPath, ["-e", code]);\n');
+		expect(run().status).toBe(0);
+	});
+
+	it("passes a run of an entry that does not log", () => {
+		track("scripts/guard-n.js", "process.exit(0);\n");
+		nodeTest("runInProcess(GUARD, []);\n");
+		expect(run().status).toBe(0);
+	});
+
+	it("never reads a lib it requires as an entry it runs", () => {
+		nodeGuard("guard-n.js");
+		track(
+			"scripts/lib/entry.test.ts",
+			'const kit = require("./guard-entry.js");\nrunInProcess(CLI, []);\n',
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("does not charge a node run with a bash guard it cannot be running", () => {
+		guard("guard-x.sh");
+		track(
+			"scripts/guard-x.test.ts",
+			'const GUARD = path.resolve(__dirname, "guard-x.sh");\n' +
+				"runInProcess(CHECKER, []);\n",
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("does not read a call spelt inside a string as a run", () => {
+		nodeGuard("guard-n.js");
+		nodeTest(
+			"fs.writeFileSync(at, 'spawnSync(process.execPath, [GUARD]);');\n",
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("hands a helper's opaque node run only its importers' Node entries", () => {
+		guard("guard-x.sh");
+		nodeGuard("guard-n.js");
+		track(
+			"scripts/run-fixture.ts",
+			"export const runIt = (script: string) => runInProcess(script, []);\n",
+		);
+		track(
+			"scripts/guard-n.test.ts",
+			'import { runIt } from "./run-fixture";\n' +
+				'runIt(path.resolve(__dirname, "guard-n.js"));\n' +
+				'const SH = path.resolve(__dirname, "guard-x.sh");\n',
+		);
+		expect(run("--json").json().findings).toEqual([
+			expect.objectContaining({
+				file: "scripts/run-fixture.ts",
+				guards: ["scripts/guard-n.js"],
+			}),
+		]);
+	});
+
+	it("passes a helper that stubs CLAUDE_CONFIG_DIR", () => {
+		nodeGuard("guard-n.js");
+		track(
+			"scripts/run-fixture.ts",
+			'vi.stubEnv("CLAUDE_CONFIG_DIR", tmp);\n' +
+				"export const runIt = (script: string) => runInProcess(script, []);\n",
+		);
+		track(
+			"scripts/guard-n.test.ts",
+			'import { runIt } from "./run-fixture";\n' +
+				'runIt(path.resolve(__dirname, "guard-n.js"));\n',
+		);
+		expect(run().status).toBe(0);
+	});
+
+	describe("a test calling a helper that sets process.env.CLAUDE_CONFIG_DIR, as freshSandbox does (#3046)", () => {
+		const kit = (body: string) =>
+			track(
+				"scripts/lib/arbiter-testkit.ts",
+				`export function freshSandbox() {\n\tbeforeEach(() => {\n\t\t${body}\n\t});\n}\nexport const other = () => {};\n`,
+			);
+		const test = (call: string, env = "{ ...process.env }") =>
+			track(
+				"scripts/guard-n.test.ts",
+				'import { freshSandbox, other } from "./lib/arbiter-testkit";\n' +
+					`${call}\n` +
+					'const GUARD = path.resolve(__dirname, "guard-n.js");\n' +
+					`runInProcess(GUARD, [], { env: ${env} });\n`,
+			);
+
+		it("passes where it calls the helper and spreads process.env", () => {
+			nodeGuard("guard-n.js");
+			kit("process.env.CLAUDE_CONFIG_DIR = home;");
+			test("const sb = freshSandbox();");
+			expect(run().status).toBe(0);
+		});
+
+		it("fails where the assignment is only a comment", () => {
+			nodeGuard("guard-n.js");
+			kit("// process.env.CLAUDE_CONFIG_DIR = home;");
+			test("const sb = freshSandbox();");
+			expect(run().status).toBe(1);
+		});
+
+		it("fails where it imports the helper but calls only another export", () => {
+			nodeGuard("guard-n.js");
+			kit("process.env.CLAUDE_CONFIG_DIR = home;");
+			test("other();");
+			expect(run().status).toBe(1);
+		});
+
+		it("fails where no spawn spreads process.env", () => {
+			nodeGuard("guard-n.js");
+			kit("process.env.CLAUDE_CONFIG_DIR = home;");
+			test("const sb = freshSandbox();", "{ PATH: p }");
+			expect(run().status).toBe(1);
+		});
+	});
+});
+
 describe("indirection, assumed guilty", () => {
+	it("reads no binding spelt inside a string as one the file holds (#3046)", () => {
+		nodeGuard("guard-n.js");
+		track("scripts/x.js", "");
+		track(
+			"scripts/x.test.ts",
+			'const SCRIPT = path.resolve(__dirname, "x.js");\n' +
+				"write('const GUARD = path.join(__dirname, \"guard-n.js\");\\n');\n" +
+				"spawnSync(process.execPath, [SCRIPT]);\n",
+		);
+		expect(run().status).toBe(0);
+	});
+
 	it("flags a spawn of an argv[0] it cannot resolve, naming the test file and recording the guard", () => {
 		guard("guard-x.sh");
 		track(

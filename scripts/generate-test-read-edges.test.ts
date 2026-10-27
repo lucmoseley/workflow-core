@@ -9,7 +9,7 @@
  *
  * --check is the pre-commit gate. Its false pass is the expensive one: it ships
  * a manifest that omits a reader, and the omitted test then sits unrun behind a
- * filtered green that looks identical to a real one.
+ * filtered certificate that looks identical to a real one.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -51,7 +51,7 @@ const runFailing = (...args: string[]) => {
 	}
 };
 
-const manifest = () =>
+const readManifest = () =>
 	JSON.parse(fs.readFileSync(path.join(dir, OUT), "utf8")).edges;
 
 beforeEach(() => {
@@ -73,7 +73,7 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 describe("generate-test-read-edges.js", () => {
 	it("writes the manifest, listing the anchored reader and not the fixture", () => {
 		run();
-		expect(manifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
+		expect(readManifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
 	});
 
 	it("reports the counts it rendered, so a silent empty render is visible", () => {
@@ -128,7 +128,7 @@ describe("generate-test-read-edges.js", () => {
 	it("ignores an untracked test file, matching what a commit can carry", () => {
 		write("scripts/untracked.test.ts", `process.cwd(); read("${DOC}");`);
 		run();
-		expect(manifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
+		expect(readManifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
 	});
 
 	const spawn = () =>
@@ -147,7 +147,7 @@ describe("generate-test-read-edges.js", () => {
 		expect(result.status).toBe(0);
 		expect(result.stderr).toContain("uncommitted");
 		expect(result.stderr).toContain("scripts/reader.test.ts");
-		expect(manifest()[DOC2]).toEqual(["scripts/reader.test.ts"]);
+		expect(readManifest()[DOC2]).toEqual(["scripts/reader.test.ts"]);
 	});
 
 	it("warns when a dirty edit removes a read literal, naming the file, and still writes the manifest without the edge", () => {
@@ -159,7 +159,7 @@ describe("generate-test-read-edges.js", () => {
 		expect(result.status).toBe(0);
 		expect(result.stderr).toContain("uncommitted");
 		expect(result.stderr).toContain("scripts/reader.test.ts");
-		expect(manifest()[DOC]).toBeUndefined();
+		expect(readManifest()[DOC]).toBeUndefined();
 	});
 
 	it("warns when a dirty one-hop helper is what a test actually read, naming the helper", () => {
@@ -209,11 +209,11 @@ describe("a tracked test file missing from disk (#557)", () => {
 	});
 
 	it("renders from the working tree without it, carrying none of its edges", () => {
-		expect(manifest()[DOC2]).toEqual([goneTest]);
+		expect(readManifest()[DOC2]).toEqual([goneTest]);
 		fs.rmSync(path.join(dir, goneTest));
 		expect(run()).toMatch(/read by 1 of 2 test file\(s\)/);
-		expect(manifest()[DOC2]).toBeUndefined();
-		expect(manifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
+		expect(readManifest()[DOC2]).toBeUndefined();
+		expect(readManifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
 	});
 
 	/* The gate reads the index, so a test the index still holds keeps its edges
@@ -262,7 +262,7 @@ describe("a tracked test file missing from disk (#557)", () => {
 			expect(named).toEqual(["scripts/late.test.ts", OUT]);
 			run("--only", ...(named ?? []));
 			expect(commit("scripts/late.test.ts", OUT).status).toBe(0);
-			expect(manifest()[DOC2]).toEqual([goneTest]);
+			expect(readManifest()[DOC2]).toEqual([goneTest]);
 		});
 
 		it("names the plain regenerate where the disk renders as the commit does", () => {

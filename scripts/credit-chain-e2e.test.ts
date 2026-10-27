@@ -5,10 +5,11 @@
  * neither credited nor named.
  *
  * The seam mantahostels#2806 was opened for: each hop of the Bash-write credit chain —
- * scripts/guard-claimed-bash-write.sh (the parser) → scripts/warn-claimed-bash-write.js
- * (the judge, `credit()`) → scripts/lib/arbiter-ledger.js (the write ledger) →
+ * scripts/guard-dispatch.js (the hook entry) → scripts/lib/claimed-bash-write.js
+ * (the parser) → scripts/lib/claim-warning.js (the judge, `creditable()`) →
+ * scripts/lib/arbiter-ledger.js (the write ledger) →
  * scripts/concision-backstop.sh (the code signal) — is unit-tested in isolation,
- * but nothing drove a command through all four and asserted the code signal at
+ * but nothing drove a command through all five and asserted the code signal at
  * the far end. This file does exactly that, against the REAL scripts, never a
  * re-implementation of any hop's own logic. They run in a throwaway fixture
  * repo on `CLAUDE_PROJECT_DIR`, never this one, so no real claim or ledger is
@@ -25,11 +26,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
+import { runInProcess } from "./lib/run-in-process";
 
-const GUARD = path.resolve(__dirname, "guard-claimed-bash-write.sh");
+const GUARD = path.resolve(__dirname, "guard-dispatch.js");
 const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
-const REAL_LIB = path.resolve(__dirname, "lib");
-const REAL_JUDGE = path.resolve(__dirname, "warn-claimed-bash-write.js");
 
 const ME = "session-under-test";
 const OTHER = "parallel-session";
@@ -46,7 +46,7 @@ const sb = freshSandbox((fresh) => {
 	fs.writeFileSync(path.join(fresh.repo, "seed.md"), "seed\n");
 	git("add", "seed.md");
 	git("commit", "-qm", "init");
-	standRealJudge();
+	fs.mkdirSync(path.join(fresh.repo, "scripts"), { recursive: true });
 });
 
 const env = () => ({
@@ -55,30 +55,13 @@ const env = () => ({
 	CLAUDE_CONFIG_DIR: sb.home,
 });
 
-/**
- * Stands a REAL copy of the judge inside the fixture repo, plus all of
- * `lib/` — deliberately the whole directory, not just what the judge
- * currently requires, so a family added to `arbiter-store.js`'s requires is
- * never missed. guard-claimed-bash-write.sh resolves the judge off
- * `$CLAUDE_PROJECT_DIR/scripts/warn-claimed-bash-write.js` — never off its own
- * location — so the fixture must carry one. Copied fresh every test, so a
- * mutation made to the real file on disk before the suite runs is what
- * executes here.
- */
-function standRealJudge() {
-	const scripts = path.join(sb.repo, "scripts");
-	fs.mkdirSync(scripts, { recursive: true });
-	fs.copyFileSync(REAL_JUDGE, path.join(scripts, "warn-claimed-bash-write.js"));
-	fs.cpSync(REAL_LIB, path.join(scripts, "lib"), { recursive: true });
-}
-
 /** Runs the guard on `command`, as Claude Code's PreToolUse hook would. */
 function runGuard(command: string, sid = ME) {
-	const r = spawnSync(GUARD, [], {
+	const r = runInProcess(GUARD, [], {
 		cwd: sb.repo,
-		encoding: "utf8",
-		input: JSON.stringify({
+		stdin: JSON.stringify({
 			session_id: sid,
+			hook_event_name: "PreToolUse",
 			tool_name: "Bash",
 			tool_input: { command },
 		}),
@@ -92,7 +75,7 @@ function runGuard(command: string, sid = ME) {
 	// targets are tier-1).
 	const log = sb.errorLog();
 	expect(fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "").toBe("");
-	expect(r.stdout?.trim() ?? "").toBe("");
+	expect(r.stdout.trim()).toBe("");
 	return r;
 }
 
@@ -122,14 +105,14 @@ describe("the credit chain end to end (mantahostels#2806)", () => {
 		git("commit", "-qm", "a script to edit", "--", "scripts/x.sh");
 		runBackstop("start");
 
-		// The guard parses this real command's write target and hands it to the
-		// REAL judge as `--credit scripts/x.sh`.
+		// The core parses this real command's write target and hands
+		// `scripts/x.sh` to the REAL judge to credit.
 		runGuard("sed -i s/a/b/ scripts/x.sh");
 
 		// What the ledger now holds is asked of the arbiter's own reader
-		// (`writesBy`), never re-parsed here — that would test this file's
+		// (`readWritesBy`), never re-parsed here — that would test this file's
 		// assumptions about the ledger's shape, not the real one.
-		expect(store.writesBy(ME)).toEqual(["scripts/x.sh"]);
+		expect(store.readWritesBy(ME)).toEqual(["scripts/x.sh"]);
 
 		// The command line the guard read is not what actually changed the file on
 		// disk (the hook only ever sees the STRING; nothing here executes it) — so
@@ -164,7 +147,7 @@ describe("the credit chain end to end (mantahostels#2806)", () => {
 		// The held path is excluded and the free path in the SAME command is
 		// credited — proving the chain was live and the exclusion is the
 		// contention skip, not a silent break.
-		expect(store.writesBy(ME)).toEqual(["scripts/z.sh"]);
+		expect(store.readWritesBy(ME)).toEqual(["scripts/z.sh"]);
 
 		fs.writeFileSync(path.join(sb.repo, "scripts", "y.sh"), `${BIG_CODE}\n`);
 		fs.writeFileSync(path.join(sb.repo, "scripts", "z.sh"), `${BIG_CODE}\n`);

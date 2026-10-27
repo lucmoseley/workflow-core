@@ -50,12 +50,12 @@ const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
-const { periodicReading, skipLine } = require("./lib/periodic-reading");
+const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { isCoreHost } = require("./lib/plugin-state");
 const { qualifyProse } = require("./lib/qualify-citations");
 const { queueExitLogPath } = require("./lib/queue-exit-log");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
-const { moduleOffLine, moduleOn } = require("./lib/workflow-core-config");
+const { buildModuleOffLine, moduleOn } = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
 const { takesLabel } = require("./lib/takes-label");
 
@@ -70,7 +70,7 @@ const DAY_MS = 24 * HOUR_MS;
 /* The body's breakdown, as #1157 Q7 (A) ruled it. */
 const SERIES_DAYS = 14;
 const TOP_SESSIONS = 5;
-const KINDS = ["bare", "changed", "full", "named", "other"];
+const KINDS = ["bare", "changed", "full", "named", "other", "seat"];
 const STAMP = ".suite-queue-wait-read";
 const LOCK = ".suite-queue-wait-read.lock";
 const WHERE = "report-suite-queue-wait";
@@ -253,6 +253,12 @@ function reading(logged, nowMs, unparsed, core) {
 		"",
 		"Each run's wait is counted only where it falls inside the window or day.",
 		"",
+		...(core
+			? [
+					`What held each wait — the count cap, the memory rung, the FIFO turn, the load hold — and who held the whole-suite slot: \`node scripts/replay-suite-queue-wait.js --since ${new Date(from).toISOString()} --until ${new Date(nowMs).toISOString()}\`, adding \`--era <label>=<utc>\` at each change to the gate that landed in the window (#3060).`,
+					"",
+				]
+			: []),
 		`## Daily wait, last ${SERIES_DAYS} days (UTC)`,
 		"",
 		"| Day | Runs | Wait (h) |",
@@ -320,7 +326,7 @@ function main() {
 	const dryRun = "--dry-run" in flags;
 	try {
 		if (!moduleOn("suites")) {
-			process.stderr.write(`SKIP: ${moduleOffLine("suites")}\n`);
+			process.stderr.write(`SKIP: ${buildModuleOffLine("suites")}\n`);
 			return;
 		}
 		const core = isCoreHost(hostRoot());
@@ -341,7 +347,7 @@ function main() {
 			},
 			() => readAndFile(logFile, nowMs, false, core),
 		);
-		console.log(gate.ran ? gate.value : skipLine(gate, "an hour"));
+		console.log(gate.ran ? gate.value : buildSkipLine(gate, "an hour"));
 	} catch (e) {
 		logError(WHERE, e);
 		process.stderr.write(

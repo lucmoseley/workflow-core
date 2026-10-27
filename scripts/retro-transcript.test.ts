@@ -54,7 +54,7 @@ const sessionLog = (records: unknown[]) => {
 	return file;
 };
 
-const transcript = (stdout: string) =>
+const readTranscript = (stdout: string) =>
 	fs.readFileSync(stdout.split("\n")[0], "utf8").trimEnd().split("\n");
 
 const T = "2026-10-08T09:00:00.000Z";
@@ -159,7 +159,7 @@ describe("reduction", () => {
 		const r = run([log]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
-		expect(transcript(r.stdout)).toEqual([
+		expect(readTranscript(r.stdout)).toEqual([
 			"L1 09:00:00 FOUNDER: please fix the guard",
 			"L2 09:00:00 ASSISTANT: Reading the guard.",
 			"L3 09:00:00 TOOL Bash: npm run lint",
@@ -183,7 +183,7 @@ describe("reduction", () => {
 		]);
 		const r = run([log]);
 		expect(r.status).toBe(0);
-		const out = transcript(r.stdout).join("\n");
+		const out = readTranscript(r.stdout).join("\n");
 		expect(out).not.toMatch(/DROPPED/);
 		expect(out).toBe(`L${DROPPED.length + 1} 09:00:00 FOUNDER: only me`);
 	});
@@ -192,7 +192,7 @@ describe("reduction", () => {
 		const log = sessionLog([toolResult(`${"a".repeat(300)}TAIL`)]);
 		const r = run([log]);
 		expect(r.status).toBe(0);
-		const [line] = transcript(r.stdout);
+		const [line] = readTranscript(r.stdout);
 		expect(line).toBe(`L1 09:00:00 RESULT: ${"a".repeat(300)}…`);
 	});
 
@@ -201,7 +201,7 @@ describe("reduction", () => {
 		const r = run([log]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/1 unparseable log lines skipped/);
-		expect(transcript(r.stdout)).toEqual([
+		expect(readTranscript(r.stdout)).toEqual([
 			"L2 09:00:00 FOUNDER: please fix the guard",
 		]);
 	});
@@ -239,7 +239,7 @@ describe("token masking (#1031)", () => {
 		]);
 		const r = run([log]);
 		expect(r.status).toBe(0);
-		const out = transcript(r.stdout).join("\n");
+		const out = readTranscript(r.stdout).join("\n");
 		for (const [rule, token] of TOKENS) {
 			expect(out).not.toContain(token);
 			expect(out).toContain(`[REDACTED:${rule}]`);
@@ -258,7 +258,7 @@ describe("token masking (#1031)", () => {
 			toolUse("t", "mcp__github__create_issue", { body: `line one\n${token}` }),
 		]);
 		const r = run([log]);
-		expect(transcript(r.stdout).join("\n")).not.toContain(token);
+		expect(readTranscript(r.stdout).join("\n")).not.toContain(token);
 	});
 
 	it("leaves no fragment of a token straddling the 300-character cut", () => {
@@ -266,7 +266,7 @@ describe("token masking (#1031)", () => {
 		const log = sessionLog([toolResult(`${"a".repeat(287)} ${token} tail`)]);
 		const r = run([log]);
 		expect(r.status).toBe(0);
-		const [line] = transcript(r.stdout);
+		const [line] = readTranscript(r.stdout);
 		expect(line).not.toContain(token.slice(0, 10));
 		expect(line).toContain("[REDACTED:hu");
 	});
@@ -279,7 +279,7 @@ describe("token masking (#1031)", () => {
 	])("leaves %s unmasked", (text) => {
 		const log = sessionLog([user(text, { origin: { kind: "human" } })]);
 		const r = run([log]);
-		expect(transcript(r.stdout)).toEqual([`L1 09:00:00 FOUNDER: ${text}`]);
+		expect(readTranscript(r.stdout)).toEqual([`L1 09:00:00 FOUNDER: ${text}`]);
 		expect(r.stdout).not.toMatch(/masked/);
 	});
 });
@@ -324,7 +324,7 @@ describe("subagent folding", () => {
 		);
 		const r = run([log]);
 		expect(r.status).toBe(0);
-		expect(transcript(r.stdout)).toEqual([
+		expect(readTranscript(r.stdout)).toEqual([
 			"L1 09:00:00 FOUNDER: review it",
 			"L2 09:00:00 TOOL Agent: Review the diff / code-reviewer / Read the diff",
 			'  L2 ┌ subagent abc123 "Review the diff" (agent-abc123.jsonl)',
@@ -341,7 +341,7 @@ describe("subagent folding", () => {
 		writeSub("lost1", null, [sub(user("orphan prompt"))]);
 		const r = run([log]);
 		expect(r.status).toBe(0);
-		expect(transcript(r.stdout)).toEqual([
+		expect(readTranscript(r.stdout)).toEqual([
 			"L1 09:00:00 FOUNDER: hi",
 			'L1 ┌ subagent lost1 "(no .meta.json description)" (agent-lost1.jsonl) — its dispatching call is in no log read here',
 			"[lost1] L1 09:00:00 PROMPT: orphan prompt",

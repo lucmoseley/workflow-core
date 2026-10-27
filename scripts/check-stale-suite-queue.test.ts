@@ -28,14 +28,18 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const SCRIPT = path.join(__dirname, "check-stale-suite-queue.js");
 
+/* `root` is the run's TMPDIR, and `dir` the queue directory under it. */
+let root: string;
 let dir: string;
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-queue-sweep-"));
+	root = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-queue-sweep-"));
+	dir = path.join(root, "wfc-suite-queue");
+	fs.mkdirSync(dir);
 });
 
 afterEach(() => {
-	fs.rmSync(dir, { recursive: true, force: true });
+	fs.rmSync(root, { recursive: true, force: true });
 });
 
 /** A marker on disk, in the shape queueJoin writes. */
@@ -51,7 +55,12 @@ function marker(pid: number, extra: Record<string, unknown> = {}) {
 const run = (args: string[] = []) =>
 	spawnSync(process.execPath, [SCRIPT, ...args], {
 		encoding: "utf8",
-		env: { ...process.env, GITHUB_ACTIONS: "", TMPDIR: dir },
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: root,
+			GITHUB_ACTIONS: "",
+			TMPDIR: root,
+		},
 	});
 
 const report = (r: { stdout: string; stderr: string }) => r.stdout + r.stderr;
@@ -135,8 +144,15 @@ describe("what it reports", () => {
 		expect(report(run())).toContain("OK:");
 	});
 
+	it("reports an all-clear where no waiter has made the queue directory", () => {
+		fs.rmSync(dir, { recursive: true, force: true });
+
+		expect(report(run())).toContain("OK:");
+	});
+
 	it("SKIPs, rather than reporting an all-clear, when the queue directory cannot be read at all", () => {
 		fs.rmSync(dir, { recursive: true, force: true });
+		fs.writeFileSync(dir, "a file where the directory belongs");
 
 		const out = report(run());
 		expect(out).toContain("SKIP:");

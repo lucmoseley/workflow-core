@@ -279,7 +279,7 @@ other_takes="${other_takes#takes:}"
 # after the other in a single context.
 #
 # THESE REACH A TYPED /code-review ONLY. A review loaded through the Skill tool —
-# /implement's closing step — takes the same rules from scripts/guard-review-rules.sh
+# /implement's closing step — takes the same rules from scripts/lib/review-rules.js
 # at that call (mantahostels#3451), as docs/agents/rules/review-*.txt. Keep the two in step.
 
 # The Standards axis has no repo-specific rules unless it is handed the paths
@@ -349,7 +349,7 @@ output_style=".claude/output-styles/core-voice.md"
 style_read="$(wfc_output_style 2>/dev/null)" && output_style="$style_read"
 
 # The dispatch rule is docs/agents/rules/review-dispatch-shape.txt, the one copy
-# scripts/guard-review-rules.sh and scripts/concision-backstop.sh print too
+# scripts/lib/review-rules.js and scripts/concision-backstop.sh print too
 # (#1697). It names the subagent type and Artefact paths as "named above", so
 # they lead. check-context-budget.js reads this one `rule_text` spelling as the
 # fragment's text; any other is unparsed. So the load, fallback and lead-in are
@@ -405,26 +405,27 @@ wfc_core_voice_loaded 2>/dev/null || priced_options="$priced_options_whole"
 # where a finding needs one, so the placement and labelling rules would cost far
 # more context than the one rule it is missing.
 #
-# The review tier a declared sensitive path owes (#1697): inject-review-tier.sh
-# fires on the Skill tool alone, so it is run here on the payload that call
-# would carry. It latches its rules as told, so the marker is reserved first
-# and a losing duplicate never runs it. Its rules are capped at GP_RULE_CAP and
+# The review tier a declared sensitive path owes (#1697): the dispatcher's
+# inject-review-tier core fires on the Skill tool alone, so it is run here,
+# alone (`guard-dispatch.js --only`), on the payload that call would carry. It
+# latches its rules as told, so the marker is reserved first and a losing
+# duplicate never runs it. Its rules are capped at RULE_CAP and
 # its areas prelude is not: where the whole would cross the harness's
 # persistence threshold, HOOK_PERSIST_CHARS, the tier leads, so it lands in the
-# preview. WFC_REVIEW_TIER_HOOK is the test seam, as WFC_GH is for the `takes:`
-# read.
+# preview. WFC_REVIEW_TIER_HOOK, the entry it is run through, is the test seam,
+# as WFC_GH is for the `takes:` read.
 #
-# A bare typed name goes namespaced: the tier hook passes over a bare
-# `code-review` where the host has no local skill, as guard-review-rules.sh
+# A bare typed name goes namespaced: the tier core passes over a bare
+# `code-review` where the host has no local skill, as lib/review-rules.js
 # refuses that Skill call (#1165), but a typed command is never refused (#1746).
-# Any prefix but `code-review:` serves, as the tier hook matches the rest of
+# Any prefix but `code-review:` serves, as the tier core matches the rest of
 # `*:code-review`, so a renamed plugin still gets its tier.
 #
 # The hook's 10 s (self-plugin/hooks/hooks.json, hooks/hooks.json) less 2 for the rest
-# of this arm, a margin judged, not measured. A kill skips the tier hook's own
+# of this arm, a margin judged, not measured. A kill skips the core's own
 # fail-open record, so it is recorded here.
 TIER_HOOK_TIMEOUT_S=8
-# The cwd rides too: the tier hook reads a worktree the session works in from it
+# The cwd rides too: the tier core reads a worktree the session works in from it
 # (#2386).
 skill_call() {
   jq -nc --arg s "$session" --arg k "${matched_ns:-workflow-core:}code-review" --arg c "$1" \
@@ -432,18 +433,18 @@ skill_call() {
 }
 review_tier() {
   local hook cwd out rc
-  hook="${WFC_REVIEW_TIER_HOOK:-$(dirname "${BASH_SOURCE[0]}")/inject-review-tier.sh}"
+  hook="${WFC_REVIEW_TIER_HOOK:-$(dirname "${BASH_SOURCE[0]}")/guard-dispatch.js}"
   [[ -f "$hook" ]] || return 0
   cwd="$(jqr '.cwd // ""')"
   out="$(skill_call "$cwd" 2>/dev/null |
     {
       [[ -z "$cwd" ]] || cd "$cwd" 2>/dev/null
-      timeout "$TIER_HOOK_TIMEOUT_S" bash "$hook" 2>/dev/null
+      timeout "$TIER_HOOK_TIMEOUT_S" node "$hook" --only inject-review-tier 2>/dev/null
     })"
   rc=$?
   # shellcheck source=scripts/lib/guard-log.sh
   if ((rc == 124)) && source "$(dirname "${BASH_SOURCE[0]}")/lib/guard-log.sh" 2>/dev/null; then
-    gl_log "inject-review-tier.sh outran ${TIER_HOOK_TIMEOUT_S} s — a typed /code-review went without its review tier"
+    gl_log "inject-review-tier outran ${TIER_HOOK_TIMEOUT_S} s — a typed /code-review went without its review tier"
   fi
   printf '%s' "$out" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null
 }
@@ -489,7 +490,7 @@ if [[ "$matched" == "wayfinder" ]]; then
 fi
 
 # THE RESIDUE INDEX (mantahostels#2499, spec mantahostels#2457 §T4). A tracker rule WITH an
-# observable `gh` Bash shape belongs in guard-tracker-rules.sh, printed at the
+# observable `gh` Bash shape belongs in lib/tracker-rules.js, printed at the
 # call that engages it (mantahostels#2497). What is left — a rule with no such
 # shape — is named here instead, not left to a pointer at the whole document,
 # which mantahostels#1870 measured mostly unfollowed: an id and the moment it
@@ -498,7 +499,7 @@ fi
 # content: that is what the fragment in docs/agents/rules/ is for.
 #
 # EACH LINE'S `` `rule:<id>` `` SPAN MUST BE LITERAL, never built from a
-# variable. scripts/check-guard-registry.js's indexedRuleIds() scans this
+# variable. scripts/check-guard-registry.js's readIndexedRuleIds() scans this
 # file's own TEXT for that exact backtick-wrapped pattern to know an id is
 # reachable (mantahostels#2496's second fragment class) — a `${id}` interpolation would be
 # invisible to it and the id would report UNINDEXED-RULE.
@@ -529,8 +530,8 @@ r_takes_label_nuances=$'- `rule:takes-label-nuances` — applying, removing or r
 r_waiting_external_vocabulary=$'- `rule:waiting-external-vocabulary` — reading `waiting:external` (a label edit has the tracker-rules guard print it)'
 
 # TWO ACTS STAY GUARD-ENFORCED AND SO STAY OUT OF THE INDEX ENTIRELY: a raw
-# \`gh issue edit --body\` (denied by guard-issue-body.sh) and a close naming no
-# outstanding work (denied by guard-issue-close.sh) — a session that never
+# \`gh issue edit --body\` (denied by guard-issue-body.js) and a close naming no
+# outstanding work (denied by guard-issue-close.js) — a session that never
 # reads anything still learns both at the moment it trips one.
 #
 # THE EMPTY-RESULT LINE IS PASTED, NOT INDEXED (#523): an empty result can

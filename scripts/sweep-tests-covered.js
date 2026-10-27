@@ -30,12 +30,12 @@
  * THE ROUTE PAST THIS GATE IS `gh workflow run ci.yml`, which calls the suite
  * directly and never reaches this file. That is what to fire when the question
  * is "run the tests again on this same tree" — and it spends the same 3-a-day
- * sweep budget (`guard-sweep-fire.sh`, mantahostels#3514).
+ * sweep budget (`lib/sweep-fire.js`, mantahostels#3514).
  */
 
 const fs = require("node:fs");
 
-const { gh, errLine } = require("./lib/gh");
+const { gh, parseErrLine } = require("./lib/gh");
 
 /* The workflow whose earlier runs count, spelled as the API's `workflow_id`
  * path segment takes it — the file name, not the display name. */
@@ -89,7 +89,7 @@ function api(apiPath) {
 		const parsed = JSON.parse(gh(["api", apiPath]));
 		return parsed && typeof parsed === "object" ? parsed : null;
 	} catch (e) {
-		process.stdout.write(`  could not read ${apiPath}: ${errLine(e)}\n`);
+		process.stdout.write(`  could not read ${apiPath}: ${parseErrLine(e)}\n`);
 		return null;
 	}
 }
@@ -152,7 +152,7 @@ function emit(outputPath, covered) {
 	} catch (e) {
 		/* An unwritable $GITHUB_OUTPUT leaves the suite job reading an empty
 		 * output and running, which is the fail-open answer already. */
-		process.stdout.write(`  could not write the output: ${errLine(e)}\n`);
+		process.stdout.write(`  could not write the output: ${parseErrLine(e)}\n`);
 	}
 }
 

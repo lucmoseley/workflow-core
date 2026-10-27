@@ -11,7 +11,7 @@
 #
 # IMPLICIT:  runs every gate below on each commit — the shared-tree branch check, the linters, the secret scan and the repo checkers — and refuses the commit on a red. Deliberately not enumerated: this file has carried ~14 gates and gains more, and a list here is one that goes stale (mantahostels#1261).
 # JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and since mantahostels#910 nothing runs on push, so a gate skipped here is unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery lag, not the 4-hourly cron.
-# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and scripts/guard-hook-escape.sh refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify no longer skips it, .husky/prepare-commit-msg running it instead (mantahostels#1705), and guard-commit-form.sh denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/guard-commit-form.sh's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910).
+# DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and scripts/guard-hook-escape.js refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify no longer skips it, .husky/prepare-commit-msg running it instead (mantahostels#1705), and guard-commit-form.js denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/guard-commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910).
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 
@@ -38,7 +38,7 @@ PATH="$(dirname "$(git rev-parse --git-common-dir)")/node_modules/.bin:$PATH"
 . "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/precommit-gate.sh
 
 # Layer two of mantahostels#100's shared-tree pin, and the one that actually holds: the
-# PreToolUse guard (scripts/guard-branch.sh) reads a command string and fails
+# PreToolUse guard (scripts/guard-branch.js) reads a command string and fails
 # open, and sees nothing at all in a plain terminal. A linked worktree is exempt
 # — it was created for a branch and no other session moves it; --git-dir and
 # --git-common-dir are the same directory only in the main worktree.
@@ -68,7 +68,17 @@ fi
 #
 # THE COMMAND IS THE ADOPTER'S, from .claude/workflow-core.json (#2), here and in
 # the typecheck and ESLint gates below; declared_cmd owns the reader's exit codes.
+# One that runs `biome check --staged`, itself or through the package.json
+# script an npm, pnpm, yarn or bun `run` names, is refused before it runs
+# (#2731); node is spent only on a command that could (#2775). The first arm is
+# infer-commands.js's BIOME_STAGED_COMMAND, which is never classified.
 if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command check_staged; then
+  case "$declared_command" in
+    'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js'*) ;;
+    *run* | *biome*)
+      node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/infer-commands.js check-staged "$declared_command" || exit 1
+      ;;
+  esac
   sh -c "$declared_command" || exit 1
 fi
 
@@ -171,7 +181,7 @@ fi
 # distinguishable from a digest that drifted (1).
 #
 # DEFEAT: HUSKY=0 and `core.hooksPath` pointed off .husky/_ (the whole list:
-# scripts/guard-commit-form.sh's LIMITS, #800). A commit landing by either route
+# scripts/guard-commit-form.js's LIMITS, #800). A commit landing by either route
 # is unchecked until roadmap-digest.yml's own digest-render step reaches it on the
 # sweeps, up to ~12 hours later (mantahostels#2895); `npm run check:digest-render` answers
 # sooner.
@@ -443,7 +453,7 @@ fi
 # hook its own GIT_INDEX_FILE, so the extraction below holds HEAD's files plus
 # this commit's paths and NOT a neighbour's `git add -N` file. A pathspec-LESS
 # commit extracts the shared index instead, so there a neighbour's staged doc
-# does count — mantahostels#63's shape, which guard-commit-form.sh already warns about.
+# does count — mantahostels#63's shape, which guard-commit-form.js already warns about.
 #
 # The pattern mirrors SCOPE in scripts/lib/doc-map.js; a new member added
 # there must be added here too, and precommit-doc-map-gate.test.ts asserts the
@@ -465,7 +475,7 @@ fi
 # Output is held and replayed only on failure — the check always prints a long
 # report-only section, and there is no --quiet flag on check.js worth adding for
 # one caller.
-if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$)'; then
+if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)'; then
   # `-a --prefix` writes every index entry, creating the leading directories
   # itself. It reads the INDEX, never the worktree, so a neighbour mid-save on
   # any file in the repo is invisible to the whole reading rather than to seven
@@ -720,7 +730,7 @@ fi
 # by whichever guards the hooks wire — and naming those here would be a second
 # wiring to keep true. `self-plugin/` holds the core's wiring. Only the handful
 # the wiring reaches is actually materialised; lib/context-budget-pathspecs.js's
-# ruleSourcePathspecs() reads them out of the hooks AT the revision.
+# readRuleSourcePathspecs() reads them out of the hooks AT the revision.
 #
 # The second `armed` is the pool the host's config declares under `alwaysLoaded`
 # (#33), which an adopter may place outside the first. A config that will not
@@ -853,7 +863,7 @@ fi
 if armed_shell; then
   if tool_gate shellcheck "see CLAUDE.md §Gotchas for the aarch64 binary this machine uses."; then
     # shellcheck disable=SC2086 # one path per line.
-    sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2329,SC2016 $tool_paths || {
+    sh "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/serialised.sh pre-commit shellcheck shellcheck -x --severity=style --exclude=SC2016 $tool_paths || {
       echo "pre-commit: shellcheck failed on this commit's own shell paths." >&2
       echo "  These are YOUR staged files, not a neighbour's: the gate reads no others (mantahostels#1134)." >&2
       echo "  A broken guard fails OPEN, so nothing else would have reported this before CI." >&2

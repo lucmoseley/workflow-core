@@ -260,7 +260,7 @@ describe("undischarged maps", () => {
 });
 
 describe("missing decision pointers", () => {
-	const mapBody = (extra = "") => `## Decisions so far
+	const buildMapBody = (extra = "") => `## Decisions so far
 
 - **#9** — landed, did the thing.
 ${extra}
@@ -275,7 +275,7 @@ ${extra}
 				{
 					number: 8,
 					title: "a map",
-					body: mapBody(),
+					body: buildMapBody(),
 					children: [
 						{ number: 9, state: "closed" },
 						{ number: 12, state: "closed" },
@@ -294,7 +294,7 @@ ${extra}
 	});
 
 	it("mutation: removing the pointer line makes the check report that child, restoring it clears it", () => {
-		const withPointer = mapBody();
+		const withPointer = buildMapBody();
 		const withoutPointer = `## Decisions so far
 
 ## Out of scope
@@ -366,7 +366,7 @@ ${extra}
 			maps: [
 				{
 					number: 8,
-					body: mapBody(),
+					body: buildMapBody(),
 					children: [{ number: 9, state: "closed" }],
 				},
 			],

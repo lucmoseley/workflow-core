@@ -10,7 +10,7 @@ import fs from "node:fs";
 
 /** The integer a `<name>=<n>` line at column zero of `file` assigns. Throws
  *  where none does, so a renamed constant fails loudly rather than as NaN. */
-export function shellConst(file: string, name: string): number {
+export function readShellConst(file: string, name: string): number {
 	const found = new RegExp(`^${name}=(\\d+)$`, "m").exec(
 		fs.readFileSync(file, "utf8"),
 	)?.[1];

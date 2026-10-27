@@ -19,7 +19,7 @@ const CANONICAL = ".claude";
  * @param {string} home
  * @returns {string[]}
  */
-function siblings(home) {
+function readSiblings(home) {
 	return fs
 		.readdirSync(home, { withFileTypes: true })
 		.filter((d) => d.isDirectory() && /^\.claude\d+$/.test(d.name))
@@ -32,11 +32,11 @@ function siblings(home) {
  * @param {string} home
  * @returns {string[]}
  */
-function planDirs(home) {
-	return [path.join(home, CANONICAL), ...siblings(home)];
+function readPlanDirs(home) {
+	return [path.join(home, CANONICAL), ...readSiblings(home)];
 }
 
-module.exports = { CANONICAL, planDirs, siblings };
+module.exports = { CANONICAL, readPlanDirs, readSiblings };
 
 /*
  * CLI mode.
@@ -53,7 +53,7 @@ if (require.main === module) {
 	try {
 		writeFd(
 			1,
-			planDirs(home)
+			readPlanDirs(home)
 				.map((d) => `${d}\0`)
 				.join(""),
 		);

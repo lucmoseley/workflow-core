@@ -10,14 +10,18 @@
  * cannot. Every case below is therefore about the SHAPE of the line, never
  * about whether the prompt means to write anything.
  *
- * guard-dispatch-rewrite.sh, a `PreToolUse` hook on `Agent` in
- * .claude/settings.json, supplies the line where this says it is missing
+ * lib/dispatch-rewrite.js, a core guard-dispatch.js runs on `Agent` and
+ * `Task`, supplies the line where this says it is missing
  * (#515). A loosened case lets a placeholder or mid-sentence mention pass as
  * the marker, so a dispatch goes out with no artefact to watch and a stalled
  * agent goes unseen.
  */
 import { describe, expect, it } from "vitest";
-import { artefactFile, injectArtefact, watchNote } from "./dispatch-artefact";
+import {
+	artefactFile,
+	buildWatchNote,
+	injectArtefact,
+} from "./dispatch-artefact";
 
 const FILE = "/repo/.claude/tmp/agents/do-a-thing-0badf00d.md";
 const watch = (f: string) => `watch ${f}`;
@@ -251,9 +255,9 @@ describe("injectArtefact — the transform over one Agent call", () => {
 	});
 });
 
-describe("watchNote — a prompt that names its own artefact (#2013)", () => {
+describe("buildWatchNote — a prompt that names its own artefact (#2013)", () => {
 	it("names that file and the watch on it", () => {
-		const note = watchNote(
+		const note = buildWatchNote(
 			{ prompt: "Do it.\nArtefact: .claude/tmp/x.md" },
 			watch,
 		);
@@ -269,7 +273,7 @@ describe("watchNote — a prompt that names its own artefact (#2013)", () => {
 		["Explore", { prompt: "Artefact: a/b.md", subagent_type: "Explore" }],
 		["a remote agent", { prompt: "Artefact: a/b.md", isolation: "remote" }],
 	])("is null for %s", (_n, call) => {
-		expect(watchNote(call, watch)).toBeNull();
+		expect(buildWatchNote(call, watch)).toBeNull();
 	});
 });
 

@@ -2,8 +2,10 @@
 /*
  * The `disabled` switch (#2): every guard `self-plugin/hooks/hooks.json` wires stands
  * down — exit 0, nothing on stdout, nothing read — where the host's
- * `.claude/workflow-core.json` lists its file name under "disabled", and runs
- * where the list names only some other guard.
+ * `.claude/workflow-core.json` lists its file name under "disabled" — or, for
+ * an entry over a dispatcher core, that core's row name in
+ * lib/guard-cores.json, which silences both routes at once — and runs where
+ * the list names only some other guard.
  *
  * "Ran" means got past the switch to its payload read — not that it judged —
  * read off a trace the guard leaves when fed an unparseable payload:
@@ -33,6 +35,18 @@ const GUARDS = [
 			.match(/scripts\/guard-[a-z0-9-]+\.(?:sh|js)/g) ?? [],
 	),
 ].sort();
+
+const ROWS = new Set(
+	(
+		Object.values(require("./lib/guard-cores.json")).flat() as {
+			name: string;
+		}[]
+	).map((r) => r.name),
+);
+const disabledName = (guard: string) => {
+	const row = path.basename(guard, ".js");
+	return ROWS.has(row) ? row : path.basename(guard);
+};
 
 let host: string;
 let home: string;
@@ -93,12 +107,13 @@ function run(guard: string, disabled: string[], contract = CONTRACT) {
 
 describe("the disabled switch", () => {
 	it("finds the wired guards", () => {
-		// 32 shell guards and 6 JS guards wired since #515 folded two into one.
-		expect(GUARDS.length).toBeGreaterThanOrEqual(38);
+		// 37 JS guards wired once #2787 and #2791 moved the last shell guards
+		// into guard-dispatch.js's cores.
+		expect(GUARDS.length).toBeGreaterThanOrEqual(37);
 	});
 
 	describe.each(GUARDS)("%s", (guard) => {
-		const base = path.basename(guard);
+		const base = disabledName(guard);
 
 		it("stands down where the host disables it", () => {
 			expect(run(guard, [base])).toEqual({ status: 0, stdout: "", ran: false });

@@ -7,7 +7,7 @@
  *
  * SCOPE: this drives the writers actually touched by F8 —
  * `scripts/lib/hook-block.js`,
- * `scripts/concision-backstop.sh`, `scripts/lib/guard-parse.sh`'s rule latch,
+ * `scripts/concision-backstop.sh`, `scripts/lib/guard-entry.js`'s rule latch,
  * and `scripts/clear-rule-latch.sh`. It is NOT an exhaustive run of every
  * script `.claude/settings.json` wires — most need a specific transcript or
  * tool-call payload to do anything at all, and that full corpus is future
@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 /** Every entry directly at `root`, besides `.claude` itself. */
-const rootDotfiles = (root: string) =>
+const readRootDotfiles = (root: string) =>
 	fs
 		.readdirSync(root)
 		.filter((f) => f.startsWith(".") && f !== ".claude" && f !== ".git");
@@ -109,7 +109,7 @@ describe("hook-wired writers leave no marker at the host root (F8)", () => {
 			},
 		);
 		expect(r.status).toBe(0);
-		expect(rootDotfiles(root)).toEqual([]);
+		expect(readRootDotfiles(root)).toEqual([]);
 		expect(
 			fs.existsSync(
 				path.join(
@@ -134,7 +134,7 @@ describe("hook-wired writers leave no marker at the host root (F8)", () => {
 			env: { ...process.env, WFC_REPO_ROOT: root },
 		});
 		expect(r.status).toBe(0);
-		expect(rootDotfiles(root)).toEqual([]);
+		expect(readRootDotfiles(root)).toEqual([]);
 		expect(
 			fs.existsSync(
 				path.join(root, ".claude", "tmp", "markers", ".t-probe-sid"),
@@ -142,41 +142,27 @@ describe("hook-wired writers leave no marker at the host root (F8)", () => {
 		).toBe(true);
 	});
 
-	it("guard-parse.sh's gp_rule writes no root dotfile for its latch", () => {
+	it("guard-entry.js's writeLatches writes no root dotfile for its latch", () => {
 		const root = freshRoot();
-		const script = path.resolve(__dirname, "guard-parse.sh");
-		/* gp_rule reads `_gp_payload`, which only `gp_begin` (a real guard's
-		 * entry point) populates from stdin — sourcing the library alone never
-		 * calls it. Set it directly here, with a real rule id (`file-claim`),
-		 * so gp_rule actually reaches the latch write rather than exiting
-		 * early on "no payload", which would make the dotfile assertion below
-		 * pass vacuously. */
-		const r = spawnSync(
-			"bash",
-			[
-				"-c",
-				`source "${script}" && _gp_emit_context() { :; }; _gp_payload='{"tool_name":"Bash","session_id":"probe-sid"}'; gp_rule file-claim`,
-			],
-			{
-				encoding: "utf8",
-				env: { ...process.env, CLAUDE_PROJECT_DIR: root },
-			},
-		);
+		const call = `require(${JSON.stringify(
+			path.resolve(__dirname, "guard-entry.js"),
+		)}).writeLatches({ root: process.argv[1], payload: { session_id: "probe-sid" }, log: () => process.exit(3) }, [{ name: "file-claim", text: "" }])`;
+		const r = spawnSync("node", ["-e", call, root], { encoding: "utf8" });
 		expect(r.status).toBe(0);
-		expect(rootDotfiles(root)).toEqual([]);
+		expect(readRootDotfiles(root)).toEqual([]);
 		const markers = fs
 			.readdirSync(path.join(root, ".claude", "tmp", "markers"))
 			.filter((f) => f.startsWith(".rule-injected-"));
 		expect(markers).not.toEqual([]);
 	});
 
-	/* SANITY CHECK — proves `rootDotfiles` itself would have caught a bare
+	/* SANITY CHECK — proves `readRootDotfiles` itself would have caught a bare
 	 * root marker had one of the writers above left one: not a mutation of
 	 * any writer, just a check that the detector fires on the shape it is
 	 * meant to catch. */
 	it("SANITY CHECK — rootDotfiles catches a marker written at the bare root", () => {
 		const root = freshRoot();
 		fs.writeFileSync(path.join(root, ".t-mutation-check"), "1");
-		expect(rootDotfiles(root)).toEqual([".t-mutation-check"]);
+		expect(readRootDotfiles(root)).toEqual([".t-mutation-check"]);
 	});
 });

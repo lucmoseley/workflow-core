@@ -151,7 +151,7 @@ function pathsNamedIn(body, files) {
  * The write-set an issue is predicted to touch, or `{ok: false}` with the reason
  * no prediction may be made for it.
  *
- * `tracked` is `pick-next.js`'s `trackedFiles()` result: `{ok, files}`.
+ * `tracked` is `pick-next.js`'s `readTrackedFiles()` result: `{ok, files}`.
  * @param {Issue} issue
  * @param {Tracked} tracked
  */

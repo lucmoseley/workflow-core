@@ -7,8 +7,9 @@
  * block — the machine-readable shape `upgrade` applies — and *Verify* a
  * fenced ```sh block holding one shell command whose exit code proves the
  * bump. Every top-level *Manual steps* bullet carries a leading `[act]`,
- * `[choice]` or `[notice]` type (#246); `Verify` stays the sole gate on a
- * note regardless of type. Any of these faults, or a missing/out-of-order/
+ * `[choice]` or `[notice]` type (#246), and its continuation lines are
+ * indented with no blank line among them (#2972); `Verify` stays the sole gate
+ * on a note regardless of type. Any of these faults, or a missing/out-of-order/
  * duplicate section, is "malformed":
  * `release` refuses it and `upgrade` refuses to walk it.
  */
@@ -65,7 +66,7 @@ const TAG_RE = /^#\s+(v\d+\.\d+\.\d+)\s*$/m;
  * @param {string} lang
  * @returns {string | null}
  */
-function fencedBody(section, lang) {
+function parseFencedBody(section, lang) {
 	const re = fence(lang);
 	const m = section.match(re);
 	return m ? requiredGroup(m, 1, re) : null;
@@ -164,7 +165,7 @@ function sectionBodies(text, headings) {
  * @returns {object|null}
  */
 function parseResidue(section, faults) {
-	const json = fencedBody(section, "json");
+	const json = parseFencedBody(section, "json");
 	if (json === null) {
 		faults.push('"## Residue" carries no fenced ```json block');
 		return null;
@@ -194,7 +195,8 @@ function parseResidue(section, faults) {
 
 /**
  * @param {string} section the *Manual steps* body
- * @returns {string[]} one fault per bullet with no known type or no text
+ * @returns {string[]} one fault per bullet with no known type or no text,
+ * then each `continuationFaults` names
  */
 function stepFaults(section) {
 	/** @type {string[]} */
@@ -219,6 +221,54 @@ function stepFaults(section) {
 				: `"## Manual steps" bullet carries no type (want ${STEP_TYPES.map((t) => `[${t}]`).join("/")}): ${line.trim()}`,
 		);
 	}
+	return [...faults, ...continuationFaults(section)];
+}
+
+const MISREAD_FAULTS = {
+	unindented:
+		'"## Manual steps" step carries an unindented line, which reads as part of the step',
+	orphaned:
+		'"## Manual steps" indented line comes after a blank line ended its step, so no step carries it',
+};
+
+/** @typedef {"none" | "step" | "gap"} StepState "gap" once a blank line ends a step */
+
+/**
+ * One *Manual steps* line classified against the state the lines above it left.
+ * @param {string} line
+ * @param {StepState} state
+ * @returns {{state: StepState, misread: keyof typeof MISREAD_FAULTS | null}}
+ */
+function classifyStepLine(line, state) {
+	if (BULLET_START.test(line)) return { state: "step", misread: null };
+	if (!line.trim())
+		return { state: state === "step" ? "gap" : state, misread: null };
+	if (/^\s/.test(line))
+		return { state, misread: state === "gap" ? "orphaned" : null };
+	return { state, misread: state === "step" ? "unindented" : null };
+}
+
+/**
+ * The lines `parseSteps` would misread, the first of each run named:
+ * unindented prose inside a step, which it glues on, and an indented line
+ * after a blank, which it drops (#2972).
+ * @param {string} section the *Manual steps* body
+ * @returns {string[]}
+ */
+function continuationFaults(section) {
+	/** @type {string[]} */
+	const faults = [];
+	/** @type {StepState} */
+	let state = "none";
+	/** @type {keyof typeof MISREAD_FAULTS | null} */
+	let lastMisread = null;
+	for (const line of section.split("\n")) {
+		const read = classifyStepLine(line, state);
+		state = read.state;
+		if (read.misread && read.misread !== lastMisread)
+			faults.push(`${MISREAD_FAULTS[read.misread]}: ${line.trim()}`);
+		lastMisread = read.misread;
+	}
 	return faults;
 }
 
@@ -229,7 +279,7 @@ function stepFaults(section) {
  * @returns {string|null}
  */
 function parseVerify(section, faults) {
-	const fenced = fencedBody(section, "sh");
+	const fenced = parseFencedBody(section, "sh");
 	const line = (fenced === null ? section : fenced).trim();
 	if (!line) {
 		faults.push('"## Verify" names no command');
@@ -263,7 +313,10 @@ function parseSteps(text) {
 	const steps = [];
 	/** @type {Step | null} */
 	let current = null;
+	/** @type {StepState} */
+	let state = "none";
 	for (const line of text.split("\n")) {
+		state = classifyStepLine(line, state).state;
 		const m = line.match(TYPED_BULLET);
 		if (m) {
 			current = {
@@ -271,8 +324,9 @@ function parseSteps(text) {
 				text: requiredGroup(m, 2, TYPED_BULLET).trim(),
 			};
 			steps.push(current);
-		} else if (!line.trim() || BULLET_START.test(line)) current = null;
-		else if (current) current.text = `${current.text} ${line.trim()}`;
+		} else if (BULLET_START.test(line)) current = null;
+		else if (current && state === "step" && line.trim())
+			current.text = `${current.text} ${line.trim()}`;
 	}
 	return steps;
 }

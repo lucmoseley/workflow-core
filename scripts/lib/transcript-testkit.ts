@@ -61,11 +61,11 @@ export function transcriptRecords(start: string) {
 			),
 		stopFeedback,
 		/** Another Stop hook refusing the turn, after the guard's own record. */
-		siblingBlock: () => {
+		buildSiblingBlock: () => {
 			stampAfter(Date.now() + LATER);
 			return stopFeedback();
 		},
-		skillBody: () =>
+		buildSkillBody: () =>
 			user([{ type: "text", text: "Base directory for this skill: x" }], {
 				isMeta: true,
 			}),

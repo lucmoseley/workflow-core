@@ -1,6 +1,6 @@
 /*
  * scratch-core-testkit.ts — a stand-in core for a test whose fixture root is
- * an adopter host (#2445). lib/core-hooks.js's `runningHooks` merges an adopter's
+ * an adopter host (#2445). lib/core-hooks.js's `readRunningHooks` merges an adopter's
  * settings with the core plugin's `hooks/hooks.json`, read from `coreRoot()`;
  * without this, every fixture also carries the live core's registrations, and
  * a roster case passes or fails on whatever the core wires today.

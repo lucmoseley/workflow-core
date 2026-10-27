@@ -44,20 +44,19 @@
  *
  * IMPLICIT:  on every commit, refuses one whose staged diff turns a module off, drops a CI gate command, adds a skip to an existing test file or runs under a WFC_*_OFF stand-down, until its message names each on a `Weakens:` line; the refusal prints rule:weakens-line.
  * JUSTIFIED: fail-safe — a check weakened inside a large commit goes unseen until it bites (#2203); the fix is one message line.
- * DEFEAT:    --warn caps the finding below the gating line, and the hook never passes it. `--no-verify` skips commit-msg, and HUSKY=0 or core.hooksPath off .husky/_ skip every hook (scripts/guard-commit-form.sh's LIMITS). A replay or a merge stands it down in the hook.
+ * DEFEAT:    --warn caps the finding below the gating line, and the hook never passes it. `--no-verify` skips commit-msg, and HUSKY=0 or core.hooksPath off .husky/_ skip every hook (scripts/guard-commit-form.js's LIMITS). A replay or a merge stands it down in the hook.
  */
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
+const { strippedLines } = require("./lib/commit-message.js");
 const { runCheck } = require("./lib/check.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
-const { isCommit } = require("./lib/commit-sha.js");
-const { GIT_TIMEOUT_MS } = require("./lib/dirty-tree.js");
+const { readCommit } = require("./lib/commit-sha.js");
 const { requiredGroup } = require("./lib/regex-group.js");
-const { ruleTextOr } = require("./lib/rule-text");
+const { readRuleTextOr } = require("./lib/rule-text");
 const { COLLECTED_TEST } = require("./lib/test-kind.js");
+const { spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {{ kind: string, name: string, what: string }} Weakening */
@@ -89,8 +88,8 @@ const SKIP_LINES = [
 /* An unreadable fragment is check-guard-registry.js's assertion, not a reason
  * to call this verdict BROKEN (mantahostels#1649's split, as in
  * check-lockfile-sync.js). */
-function weakensRule() {
-	return ruleTextOr(
+function readWeakensRule() {
+	return readRuleTextOr(
 		"weakens-line",
 		"Name each weakened check on a `Weakens:` line.",
 		"check-weakens-line",
@@ -102,10 +101,9 @@ function weakensRule() {
  * @param {string[]} args
  */
 function git(ctx, args) {
-	const r = spawnSync("git", ["-c", "core.quotePath=false", ...args], {
+	const r = spawnGitSync(["-c", "core.quotePath=false", ...args], {
 		encoding: "utf8",
 		timeout: GIT_TIMEOUT_MS,
-		maxBuffer: CHILD_MAX_BUFFER,
 	});
 	if (r.status !== 0)
 		ctx.broken(
@@ -120,7 +118,7 @@ function git(ctx, args) {
  * @param {Ctx} ctx
  * @returns {Change[]}
  */
-function stagedChanges(ctx) {
+function readStagedChanges(ctx) {
 	const fields = git(ctx, [
 		"diff",
 		"--cached",
@@ -167,7 +165,7 @@ function stagedChanges(ctx) {
  * @param {Change} change
  * @returns {Sides}
  */
-function sidesOf(ctx, change) {
+function readSides(ctx, change) {
 	return {
 		before:
 			change.from === null ? null : git(ctx, ["show", `HEAD:${change.from}`]),
@@ -257,7 +255,7 @@ function ciStepsDropped(file, { before, after }) {
 }
 
 /** @param {string | null} text */
-const skipLines = (text) =>
+const countSkipLines = (text) =>
 	(text ?? "").split("\n").filter((l) => SKIP_LINES.some((p) => p.test(l)))
 		.length;
 
@@ -268,7 +266,7 @@ const skipLines = (text) =>
  */
 function skipsAdded(file, { before, after }) {
 	if (before === null) return [];
-	const added = skipLines(after) - skipLines(before);
+	const added = countSkipLines(after) - countSkipLines(before);
 	if (added <= 0) return [];
 	const name = path.basename(file);
 	return [
@@ -292,20 +290,14 @@ function standDowns(env) {
 }
 
 /**
- * The text of each `Weakens:` line, past git's `#` template lines and the
- * `--verbose` diff below the scissors line, as check-commit-message-closes.sh
- * strips them.
+ * The text of each `Weakens:` line among the message's stripped lines.
  * @param {string} message
  */
-function weakensLines(message) {
-	const end = message.search(/^# -+ >8 -+/m);
-	return (end === -1 ? message : message.slice(0, end))
-		.split("\n")
-		.filter((l) => !l.startsWith("#"))
-		.flatMap((l) => {
-			const m = WEAKENS_LINE.exec(l);
-			return m ? [requiredGroup(m, 1, WEAKENS_LINE)] : [];
-		});
+function parseWeakensLines(message) {
+	return strippedLines(message).flatMap((l) => {
+		const m = WEAKENS_LINE.exec(l);
+		return m ? [requiredGroup(m, 1, WEAKENS_LINE)] : [];
+	});
 }
 
 /**
@@ -315,14 +307,14 @@ function weakensLines(message) {
  */
 function weakenings(ctx, changes) {
 	return changes.flatMap((change) => {
-		if (change.path === CONFIG) return modulesOff(ctx, sidesOf(ctx, change));
+		if (change.path === CONFIG) return modulesOff(ctx, readSides(ctx, change));
 		if (
 			WORKFLOW.test(change.path) ||
 			(change.from && WORKFLOW.test(change.from))
 		)
-			return ciStepsDropped(change.path, sidesOf(ctx, change));
+			return ciStepsDropped(change.path, readSides(ctx, change));
 		if (COLLECTED_TEST.test(change.path))
-			return skipsAdded(change.path, sidesOf(ctx, change));
+			return skipsAdded(change.path, readSides(ctx, change));
 		return [];
 	});
 }
@@ -353,14 +345,16 @@ function run(ctx) {
 			`cannot read the message file ${messageFile} — ${caught(e).message}`,
 		);
 	}
-	if (!isCommit(process.cwd(), "HEAD"))
+	const head = readCommit(process.cwd(), "HEAD");
+	if (!head.ok) ctx.broken(`git rev-parse HEAD would not answer — ${head.why}`);
+	if (head.sha === null)
 		return ctx.skip("no HEAD, so nothing existed to weaken.");
 
 	const found = [
-		...weakenings(ctx, stagedChanges(ctx)),
+		...weakenings(ctx, readStagedChanges(ctx)),
 		...standDowns(process.env),
 	];
-	const named = weakensLines(message);
+	const named = parseWeakensLines(message);
 	const unnamed = found.filter((w) => !named.some((l) => names(l, w.name)));
 	if (unnamed.length === 0) {
 		return {
@@ -376,7 +370,7 @@ function run(ctx) {
 		ctx.say(`  ${w.what} — name it: Weakens: ${w.name} — <why>`);
 	}
 	ctx.say("");
-	for (const line of weakensRule()) ctx.say(line);
+	for (const line of readWeakensRule()) ctx.say(line);
 	return { noun: "unnamed weakening(s)", count: unnamed.length };
 }
 

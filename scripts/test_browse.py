@@ -4,12 +4,14 @@ WHAT IS AND IS NOT EXERCISED HERE. Every test below hands `main` its own
 `render`, so no test in this file launches Chromium or reaches the network.
 
 What that leaves unguarded is the Playwright call itself — the user-agent
-actually reaching the server, `wait_until="load"`, the selector wait. Check
-those by hand against a live page when `render` changes.
+actually reaching the server, `wait_until="load"`, the selector wait, and
+`--tiles`' page-size reads, image read and clipped screenshots. Check those by
+hand against a live page when `render` changes.
 
-What IS guarded is everything a caller gets wrong: the argument shapes, and the
-three exits a session has to tell apart — a bad argument, an absent Playwright,
-and a page that did not arrive in time.
+What IS guarded is everything a caller gets wrong: the argument shapes, the
+tile arithmetic, and the exits a session has to tell apart — a bad argument, an
+absent Playwright, a page that did not arrive in time, a refused page, and a
+page that does not show at real size.
 
 `browse.py` is rung 2 of the `browser-ladder` skill: loosen a case and a session
 reads a missing Playwright or a slow page as a site that cannot be reached, and
@@ -148,17 +150,66 @@ def test_writes_the_body_to_out_and_says_so_on_stderr(capsys, tmp_path):
 
 
 def test_a_shot_reports_its_path_without_a_body(capsys, tmp_path):
-    """`render` returns None for a shot, having written the file itself."""
+    """`render` returns a Shot, having written the file itself."""
     at = tmp_path / "s.png"
     assert (
         browse.main(
-            ["shot", "https://x.test", "--out", str(at)], render=lambda at: None
+            ["shot", "https://x.test", "--out", str(at)],
+            render=lambda at: browse.Shot([str(at.out)], []),
         )
         == 0
     )
     out = capsys.readouterr()
     assert out.out == ""
     assert str(at) in out.err
+
+
+def test_a_shot_with_real_size_faults_exits_6_naming_each(capsys):
+    """A shrunk frame and sideways scrolling are the rendering faults a script
+    can see for itself, so they are an exit rather than left to the eye (#2753)."""
+    assert (
+        browse.main(
+            ["shot", "https://x.test", "--out", "s.png", "--tiles"],
+            render=lambda at: browse.Shot(["s-1.png"], ["frame.png is drawn"]),
+        )
+        == 6
+    )
+    err = capsys.readouterr().err
+    assert "frame.png is drawn" in err
+    assert "max-width: none" in err
+
+
+def test_real_size_faults_name_the_overflow_and_each_shrunk_image():
+    faults = browse.real_size_faults(1606, 1366, [["a.png", 1300, 1606]])
+    assert "1606px wide in a 1366px viewport" in faults[0]
+    assert faults[1] == "a.png is drawn 1300px wide, below its own 1606px."
+
+
+def test_a_page_at_real_size_has_no_faults():
+    assert browse.real_size_faults(1366, 1366, []) == []
+
+
+def test_tiles_cover_the_page_one_viewport_height_each():
+    assert browse.tile_clips(2000, {"width": 1366, "height": 768}) == [
+        {"x": 0, "y": 0, "width": 1366, "height": 768},
+        {"x": 0, "y": 768, "width": 1366, "height": 768},
+        {"x": 0, "y": 1536, "width": 1366, "height": 464},
+    ]
+
+
+def test_tiles_are_numbered_beside_out():
+    assert browse.tile_paths("shots/page.png", 2) == [
+        "shots/page-1.png",
+        "shots/page-2.png",
+    ]
+
+
+def test_refuses_tiles_with_full_page():
+    with pytest.raises(SystemExit) as exc:
+        browse.parse(
+            ["shot", "https://x.test", "--out", "s.png", "--tiles", "--full-page"]
+        )
+    assert exc.value.code == 2
 
 
 def _raise(exc):

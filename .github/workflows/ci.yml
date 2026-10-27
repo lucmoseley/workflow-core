@@ -19,7 +19,7 @@ name: CI
 # Run the suite early with `gh workflow run ci.yml` — ANY SESSION may: this
 # repo's PAT holds `Actions: Read and write` (mantahostels#1069). It spends a
 # unit of the 3-a-day sweep budget, the same one scheduled-checks.yml spends
-# (`scripts/guard-sweep-fire.sh`, mantahostels#3514). Spending nothing? `npm run check:ci`
+# (`scripts/lib/sweep-fire.js`, mantahostels#3514). Spending nothing? `npm run check:ci`
 # reads the last sweep instead.
 on:
   workflow_call:
@@ -243,13 +243,21 @@ jobs:
           pipx install "$(grep -E '^ruff==' requirements-dev.txt)"
           ruff --version
 
-      # The checkout is depth 1, and arm-tasks.test.ts reverts old commits and
-      # pushes HEAD's history to a sandbox origin, both refused without the
-      # parents (#2099). Unshallowed here rather than `fetch-depth: 0`, which
+      # The checkout is depth 1, and arm-tasks.test.ts pushes HEAD's history
+      # to a sandbox origin, refused without the parents (#2099). Unshallowed here rather than `fetch-depth: 0`, which
       # would also fetch the tags Surface contract keeps from every test.
       - name: Full history
         if: ${{ !cancelled() }}
         run: git fetch --quiet --no-tags --unshallow origin "$GITHUB_SHA"
+
+      # The guard port programme reads the Vitest step's time with load1 and
+      # `free -m` beside it (#2733, #2783); the runner records neither otherwise.
+      - name: Runner load and memory
+        if: ${{ !cancelled() }}
+        run: |
+          cat /proc/loadavg
+          free -m
+          nproc
 
       # vitest run exits non-zero on any failing test and npm propagates that.
       # No continue-on-error, no `|| true` — a failing test fails the build.

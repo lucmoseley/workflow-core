@@ -71,7 +71,7 @@
  * changes at all. A hunk digest fires only when the cited lines themselves move
  * or change, which is precisely the event that invalidates the pin. The cost is
  * that a pin is re-anchored by hand — one line in an uncontended file, outside
- * guard-file-claim.sh's scope and outside doc-map §A's, exactly as
+ * lib/file-claim.js's scope and outside doc-map §A's, exactly as
  * guard-registry-anchors.json is.
  *
  * TWO ROT MODES THIS CANNOT SEE: a rule acquiring a COUNTEREXAMPLE (a new
@@ -80,7 +80,6 @@
  * Both need a reader, not a digest.
  */
 
-const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -89,7 +88,6 @@ const { requiredGroup } = require("./lib/regex-group");
 const { isTestKind } = require("./lib/test-kind");
 const { pythonRouteDrift } = require("./lib/python-routes.js");
 const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { parseNewSide } = require("./lib/hunk-header.js");
 const {
 	BASE_LINE_PIN_REMEDY,
@@ -97,6 +95,7 @@ const {
 	baseLinePinFault,
 	parseLinePins,
 } = require("./lib/standards-pins");
+const { execGit } = require("./lib/git.js");
 /** @typedef {import("./lib/standards-pins").LinePin} LinePin */
 
 /* Relative to the working directory, never to __dirname: it is what lets this
@@ -311,19 +310,18 @@ function saveAnchors(file, anchors) {
 /**
  * The paths <rev>..working-tree touched, repo-relative. git failing here is
  * APPARATUS (an unresolvable rev, most often), so it is BROKEN — the same
- * rule trackedFiles below applies.
+ * rule readTrackedFiles below applies.
  *
  * @param {string} rev
  * @param {(m: string) => never} broken
  * @returns {Set<string>}
  */
-function changedFiles(rev, broken) {
+function readChangedFiles(rev, broken) {
 	let out = "";
 	try {
-		out = execFileSync("git", ["diff", "--name-only", rev], {
+		out = execGit(["diff", "--name-only", rev], {
 			cwd: ROOT,
 			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
 		});
 	} catch (e) {
 		broken(`git diff --name-only ${rev} failed: ${errMessage(e)}`);
@@ -342,13 +340,12 @@ function changedFiles(rev, broken) {
  * @param {(m: string) => never} broken
  * @returns {Set<number>}
  */
-function changedLines(rev, rel, broken) {
+function readChangedLines(rev, rel, broken) {
 	let out = "";
 	try {
-		out = execFileSync("git", ["diff", "-U0", rev, "--", rel], {
+		out = execGit(["diff", "-U0", rev, "--", rel], {
 			cwd: ROOT,
 			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
 		});
 	} catch (e) {
 		broken(`git diff -U0 ${rev} -- ${rel} failed: ${errMessage(e)}`);
@@ -371,13 +368,12 @@ function changedLines(rev, rel, broken) {
  *
  * @param {(m: string) => never} broken
  */
-function trackedFiles(broken) {
+function readTrackedFiles(broken) {
 	let out = "";
 	try {
-		out = execFileSync("git", ["ls-files"], {
+		out = execGit(["ls-files"], {
 			cwd: ROOT,
 			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
 		});
 	} catch (e) {
 		broken(
@@ -473,6 +469,16 @@ const EXPORT_SCOPE =
  * (`pick-next.js:72`), and §N7 puts the real one at the end.
  */
 const EXPORT_BLOCK = /\nmodule\.exports = \{([\s\S]*?)\};/g;
+/**
+ * The form a file in a require cycle keeps instead, filling the exports object
+ * in place (arbiter-store.js's THE SPLIT RULE): a trailing run of
+ * `exports.<name> = …;` lines, comment lines among them. A line no
+ * `EXPORTS_RUN_LINE` fits stays in the run, so it counts as unparsed.
+ */
+const EXPORTS_RUN =
+	/\n((?:(?:exports\.[^\n]*|[ \t]*(?:\/\/|\/\*|\*)[^\n]*)\n)*exports\.[^\n]*)\s*$/;
+/** One line of that run, rewritten as the block entry it stands for. */
+const EXPORTS_RUN_LINE = /^exports\.([A-Za-z_$][\w$]*) = ([\w$.]+);$/;
 /** One entry in it: `name,` or the re-export form `name: other.thing,`. */
 const EXPORT_ENTRY = /^\s*([A-Za-z_$][\w$]*)\s*(?::\s*[\w.$]+)?\s*,?$/;
 /** A comment-shaped line — the exemption's whole test, its content unread. */
@@ -535,7 +541,7 @@ const BINARY_EXT =
  * @param {{set: Set<string>}} tracked
  * @returns {ExportBlock[]}
  */
-function exportBlocks(tracked) {
+function readExportBlocks(tracked) {
 	/** @type {ExportBlock[]} */
 	const out = [];
 	for (const rel of [...tracked.set].sort()) {
@@ -563,17 +569,10 @@ function exportBlockOf(rel, text) {
 	 * that `main` is how the program is run, not a test-only export (#1361).
 	 * Textual: `require.main` spelled anywhere, a comment included, counts. */
 	const isEntryPoint = text.includes("require.main");
-	let block = null;
-	const exportBlock = new RegExp(EXPORT_BLOCK);
-	for (let m = exportBlock.exec(text); m; m = exportBlock.exec(text)) block = m;
+	const block = moduleExportsBlock(text) ?? exportsRun(text);
 	if (!block) return null;
-
-	const inner = requiredGroup(block, 1, EXPORT_BLOCK);
-	const oneLine = !inner.includes("\n");
-	const entries = oneLine
-		? inner.split(",").map((s) => s.trim())
-		: inner.split("\n");
-	const before = text.slice(0, block.index).split("\n");
+	const { index, entries, oneLine } = block;
+	const before = text.slice(0, index).split("\n");
 	const blockExempt =
 		hasUnbuiltCaller || (oneLine && COMMENT_LINE.test(before.at(-1) ?? ""));
 
@@ -582,6 +581,42 @@ function exportBlockOf(rel, text) {
 		isEntryPoint,
 	});
 	return { rel, entries: named, unparsed };
+}
+
+/**
+ * The last `module.exports = { … }` block's entry lines.
+ * @param {string} text
+ * @returns {{index: number, entries: string[], oneLine: boolean} | null}
+ */
+function moduleExportsBlock(text) {
+	let block = null;
+	const exportBlock = new RegExp(EXPORT_BLOCK);
+	for (let m = exportBlock.exec(text); m; m = exportBlock.exec(text)) block = m;
+	if (!block) return null;
+	const inner = requiredGroup(block, 1, EXPORT_BLOCK);
+	const oneLine = !inner.includes("\n");
+	const entries = oneLine
+		? inner.split(",").map((s) => s.trim())
+		: inner.split("\n");
+	return { index: block.index, entries, oneLine };
+}
+
+/**
+ * The trailing `exports.<name> =` run's lines.
+ * @param {string} text
+ * @returns {{index: number, entries: string[], oneLine: boolean} | null}
+ */
+function exportsRun(text) {
+	const run = EXPORTS_RUN.exec(text);
+	if (!run) return null;
+	const entries = requiredGroup(run, 1, EXPORTS_RUN)
+		.split("\n")
+		.map((line) =>
+			line.replace(EXPORTS_RUN_LINE, (_, name, value) =>
+				name === value ? `${name},` : `${name}: ${value},`,
+			),
+		);
+	return { index: run.index, entries, oneLine: false };
 }
 
 /**
@@ -1253,9 +1288,12 @@ function scopeToTouching(ctx, { touching, findings, read }) {
 	/* An adopter's first commit is made on an unborn HEAD, which has no
 	 * standards file and so reaches here (#1376). */
 	const rev = baselineOf(touching);
-	const touchedFiles = changedFiles(rev, (m) => ctx.broken(m));
+	const touchedFiles = readChangedFiles(rev, (m) => ctx.broken(m));
 	const touchedDocLines = new Map(
-		read.map(({ doc }) => [doc, changedLines(rev, doc, (m) => ctx.broken(m))]),
+		read.map(({ doc }) => [
+			doc,
+			readChangedLines(rev, doc, (m) => ctx.broken(m)),
+		]),
 	);
 	const inScope = (/** @type {Finding} */ f) =>
 		(f.rel !== undefined && touchedFiles.has(f.rel)) ||
@@ -1398,7 +1436,7 @@ runCheck({
 		for (const why of unread)
 			ctx.say(`  ${why} — its citations go unchecked.\n`);
 
-		const tracked = trackedFiles((m) => ctx.broken(m));
+		const tracked = readTrackedFiles((m) => ctx.broken(m));
 
 		if (reviewing && primary)
 			reanchor(primary.doc, targets, primary.pins, tracked);
@@ -1411,7 +1449,7 @@ runCheck({
 
 		/* The export scan reads no part of either document, so it runs once
 		 * whatever was read. */
-		const blocks = exportBlocks(tracked);
+		const blocks = readExportBlocks(tracked);
 		const dead = deadExports(blocks, consumersOf(tracked.set, blocks));
 		const routes = routeDrift(ctx, docs, read);
 

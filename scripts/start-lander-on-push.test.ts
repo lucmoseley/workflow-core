@@ -1,7 +1,9 @@
 // @vitest-environment node
 /*
- * scripts/start-lander-on-push.sh (#2405): which pushes start the lander, and
- * that the hook returns before the lander's start does. A stub `node` ahead on
+ * scripts/start-lander-on-push.js (#2405): the boundary set, run as the
+ * harness runs it — that a push to `landing` starts the lander detached, the
+ * hook returning before the start does. Which pushes count is
+ * lib/lander-on-push.test.ts's (#2785). A stub `node` ahead on
  * PATH stands in for start-lander.js: it waits for a gate file, then records
  * its launch; any other node call goes to the real one.
  *
@@ -15,7 +17,7 @@ import { afterEach, beforeEach, expect, it } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { buildBashPayload, spawnGuard } from "./lib/pretool-guard-testkit";
 
-const HOOK = path.resolve(__dirname, "start-lander-on-push.sh");
+const HOOK = path.resolve(__dirname, "start-lander-on-push.js");
 /* Guesses, each far above the hook's sub-second run: the hook's own ceiling,
  * and how long a detached launch is awaited on the real clock. */
 const HOOK_TIMEOUT_MS = 20_000;
@@ -44,7 +46,7 @@ const run = (command: string, modules = "landing") =>
 		timeout: HOOK_TIMEOUT_MS,
 	});
 
-const recorded = () =>
+const readLaunches = () =>
 	fs.existsSync(launches)
 		? fs.readFileSync(launches, "utf8").split("\n").filter(Boolean)
 		: [];
@@ -54,11 +56,11 @@ const recorded = () =>
 const launchRecorded = async () => {
 	for (
 		let waited = 0;
-		waited < LAUNCH_WAIT_MS && recorded().length === 0;
+		waited < LAUNCH_WAIT_MS && readLaunches().length === 0;
 		waited += 50
 	)
 		await new Promise((resolve) => setTimeout(resolve, 50));
-	return recorded();
+	return readLaunches();
 };
 
 beforeEach(() => {
@@ -95,7 +97,6 @@ afterEach(() => {
 
 it.each([
 	"git push origin HEAD:landing",
-	"git push origin main:refs/heads/landing",
 	"timeout 60 git push -q origin HEAD:landing",
 ])(
 	"starts the lander after %s, returning before the start does",
@@ -104,7 +105,7 @@ it.each([
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toBe("");
-		expect(recorded()).toEqual([]);
+		expect(readLaunches()).toEqual([]);
 		fs.writeFileSync(gate, "");
 		const seen = await launchRecorded();
 		expect(seen).toHaveLength(1);
@@ -120,16 +121,11 @@ it("starts it from a bare push on a branch named landing", async () => {
 	expect(await launchRecorded()).toHaveLength(1);
 });
 
-it("starts nothing after a push to another ref, a dry run, a deletion, --all, a mention or with the module off", async () => {
+it("starts nothing after a push to another ref or a dry run, or with the module off", async () => {
 	fs.writeFileSync(gate, "");
 	for (const command of [
 		"git push origin main",
-		"git push origin HEAD:spike/x",
 		"git push --dry-run origin HEAD:landing",
-		"git push origin --delete landing",
-		"git push origin :landing",
-		"git push --all origin",
-		"echo git push origin HEAD:landing",
 	])
 		expect(run(command).status, command).toBe(0);
 	expect(run("git push origin HEAD:landing", "suites").status).toBe(0);

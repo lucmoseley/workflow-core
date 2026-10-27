@@ -3,7 +3,7 @@ A FOUNDER HAND-OVER — what you give when work needs the founder's own hands �
 1. Do every step you can first. Hand over only what needs his hands.
 2. Each remaining step says where to paste it — this session after `!`, a normal terminal, a URL, or a session in another repo — gives the exact literal text, and says what he should see when it works. No `<placeholder>`, no ellipsis, and never "the command above" or "the line I gave earlier".
    A step to run only on what an earlier step printed never carries that condition in prose: lines pasted together run together. Either the paste encodes it — the step inside a shell test of the earlier output, as in `if [ -z "$(grep -l FAIL out/*.json)" ]; then python3 run.py; else echo NOT RUN; fi` — or hand over the earlier step alone, read its output yourself, and hand over the dependent step afterwards. Re-pasting an idempotent step that failed is not a conditional step (#923).
-3. End with what to send back, and what you will then check yourself. Route commands through `!` wherever they can run there, so their output lands in the session; ask for a screenshot only where the result is visible to him alone — a browser page, a Windows step.
+3. End with what to send back, and what you will then check yourself. Route commands through `!` wherever they can run there — never a `sudo` that prompts, which `!` gives no terminal to prompt on — so their output lands in the session; ask for a screenshot only where the result is visible to him alone — a browser page, a Windows step.
 4. Put it at the end of the message.
 
 A HAND-OVER THE FOUNDER CANNOT FINISH IN THIS SESSION lives in an open issue's body, filed the moment it is named (`rule:founder-deliverable`); the chat walks the founder through it.

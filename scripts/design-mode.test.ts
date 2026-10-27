@@ -24,7 +24,7 @@ const SCRIPT = path.resolve(__dirname, "design-mode.sh");
 let projectDir: string;
 let settingsPath: string;
 
-const enabledPlugins = () =>
+const readEnabledPlugins = () =>
 	JSON.parse(fs.readFileSync(settingsPath, "utf8")).enabledPlugins;
 
 const run = (arg: string) => {
@@ -63,14 +63,14 @@ describe("a fresh checkout with no enabledPlugins entry at all (#125)", () => {
 		const r = run("off");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
-		expect(enabledPlugins()["impeccable@impeccable"]).toBe(false);
+		expect(readEnabledPlugins()["impeccable@impeccable"]).toBe(false);
 	});
 
 	it("on succeeds and writes the key true", () => {
 		const r = run("on");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
-		expect(enabledPlugins()["impeccable@impeccable"]).toBe(true);
+		expect(readEnabledPlugins()["impeccable@impeccable"]).toBe(true);
 	});
 
 	it("touches no other key in enabledPlugins or the settings file", () => {
@@ -96,9 +96,9 @@ describe("an existing key", () => {
 
 	it("round-trips on then off", () => {
 		run("on");
-		expect(enabledPlugins()["impeccable@impeccable"]).toBe(true);
+		expect(readEnabledPlugins()["impeccable@impeccable"]).toBe(true);
 		run("off");
-		expect(enabledPlugins()["impeccable@impeccable"]).toBe(false);
+		expect(readEnabledPlugins()["impeccable@impeccable"]).toBe(false);
 	});
 
 	it("status reports the live value", () => {

@@ -2,7 +2,8 @@
 # lib/claude-sessions.sh — wfc_session_count prints the live-session count
 # docs/environment.md §5 sets: `bg-pty-host` processes matched on argv[0], less
 # the daemon's unclaimed spare.
-# lib/claude_sessions.py is the Python twin and says why the spare's `bg-spare`
+# lib/claude_sessions.py is the Python twin, lib/claude-sessions.js the Node
+# one; the Python says why the spare's `bg-spare`
 # child is told apart by its cwd (#1798).
 #
 # Usage:  ps -eo pid=,ppid=,args= | wfc_session_count [<args-column>]

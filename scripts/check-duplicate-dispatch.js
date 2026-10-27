@@ -4,7 +4,8 @@
  * are already running, or were already launched a moment ago (mantahostels#1337).
  *
  * TWO ROUTES, BECAUSE EACH COVERS THE OTHER'S BLIND SPOT.
- *   - The LEDGER (`.pick-next/dispatched.jsonl`, written by --record) catches a
+ *   - The LEDGER (`.pick-next/dispatched.jsonl`, written by --record, its holds
+ *     released by the refill loop's hand-off, #2744) catches a
  *     set whose sessions have since finished, which a live-session check alone
  *     would wave through to run again against a closed issue.
  *   - The LIVE ORACLE (`claude agents --json`, read through
@@ -71,7 +72,7 @@
 const fs = require("node:fs");
 const { basename } = require("node:path");
 const { runCheck } = require("./lib/check");
-const { errLine, gh } = require("./lib/gh");
+const { parseErrLine, gh } = require("./lib/gh");
 const { heldIssues } = require("./lib/arbiter-issue-claims");
 const {
 	hostTracker,
@@ -88,7 +89,7 @@ const {
 	issuesIn,
 	commandOf,
 	entryHolds,
-	recentEntries,
+	readRecentEntries,
 	record,
 } = require("./lib/dispatch-ledger");
 
@@ -221,7 +222,7 @@ function review(wanted, opts = {}) {
 		opts.prompts && opts.prompts.length > 0
 			? opts.prompts.map(memberOf)
 			: [{ command: null, issues: wanted }];
-	const ledger = recentEntries(undefined, windowHours);
+	const ledger = readRecentEntries(undefined, windowHours);
 	if (ledger.ok) {
 		duplicates.push(
 			...ledgerDuplicates(wanted, ledger.entries, { members, seen }),
@@ -307,7 +308,7 @@ function claimHitOf(n, { live, hostHeld, childRepo }, warnings) {
 			via: "claim",
 			detail: `claimed by ${sessionLabel(live.names, own)}`,
 		};
-	const parent = parentOfIssue(n, childRepo);
+	const parent = readParentOfIssue(n, childRepo);
 	if ("why" in parent) {
 		warnings.push(`${parent.why} — a claim on it would not be caught`);
 		return null;
@@ -337,7 +338,7 @@ function claimHitOf(n, { live, hostHeld, childRepo }, warnings) {
  * @param {string|null} childRepo the repo `n` lives in, which `label` is read from
  * @returns {{ref: import("./lib/parent-claims").IssueRef, label: string, map: boolean} | {ref: null} | {why: string}}
  */
-function parentOfIssue(n, childRepo) {
+function readParentOfIssue(n, childRepo) {
 	try {
 		const parent = JSON.parse(
 			gh(["api", `repos/{owner}/{repo}/issues/${n}/parent`]),
@@ -347,8 +348,10 @@ function parentOfIssue(n, childRepo) {
 			return { why: `the parent of #${n} named no issue (${parent?.url})` };
 		return { ref, label: refLabel(ref, childRepo), map: isMap(parent) };
 	} catch (e) {
-		if (/No parent issue found/.test(errLine(e))) return { ref: null };
-		return { why: `the parent of #${n} could not be read (${errLine(e)})` };
+		if (/No parent issue found/.test(parseErrLine(e))) return { ref: null };
+		return {
+			why: `the parent of #${n} could not be read (${parseErrLine(e)})`,
+		};
 	}
 }
 

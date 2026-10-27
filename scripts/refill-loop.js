@@ -19,18 +19,28 @@
  *
  * A TICK: reap (the reaper's --not-a-session mode, since the loop has no
  * session id), stop each job that never started, judge the loop's finished
- * launches for progress, read
+ * launches for progress, stop each parked one its cause and mode's row says
+ * to and label its ticket `parked` (lib/block-act.js, #2699), resume each
+ * stopped by a transient API error on its schedule, stopping it between
+ * tries (#2705), resume each its host restarted that took no turn and hand
+ * one still idle after that to a fresh launch (#2707), read
  * admission, the allowance per seat and what its cap would launch, and
  * founder presence, ask lib/refill-decide.js, and launch each repo's picks
  * through one dispatch-sessions.sh call in its checkout, so that repo's ledger,
  * duplicate drop, memory re-read and allowance cap apply. The decision core
  * is asked first with an empty frontier: the per-repo shortlists cost GitHub
- * calls, so they are read only on a tick that could launch. Last, the
- * morning review generator runs: in full on the first tick after 07:00,
+ * calls, so they are read only on a tick that could launch. Before the
+ * decision, each served checkout's landing queue is supervised
+ * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
+ * ticketed, and each earlyoom kill incident that is over is ticketed
+ * (scripts/file-memory-kill-tickets.js, #3094). Last, the morning review generator runs: in full on the first tick after 07:00,
  * answering reversals only on every other (#2017).
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
- * declares (lib/refill-seats.js), else the seat `start` ran on alone. Host
+ * declares (lib/refill-seats.js), else the seat `start` ran on alone. Its
+ * overflow seats, read each tick, launch headless `claude -p` billed to a
+ * plan's API credits once every plan seat is weekly-full, sized by their
+ * budget gate and never probed with `/usage` (#2611, spec #2570). Host
  * configuration, not code, because the plugin ships to adopters. Every
  * listing the loop and its reaper read must span them all, so the loop takes
  * the union oracle as dispatch-sessions.sh does where WFC_CLAUDE_BIN is
@@ -57,29 +67,48 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { listedAgents } = require("./lib/agent-liveness.js");
-const { driftLines, registryAgents } = require("./lib/registry-agents.js");
-const { actsBy } = require("./lib/arbiter-store.js");
+const {
+	buildDriftLines,
+	readRegistryAgents,
+} = require("./lib/registry-agents.js");
+const { readActsBy } = require("./lib/arbiter-store.js");
 const { PROBE_TIMEOUT_MS } = require("./lib/usage-probe.js");
 const { readAllowance } = require("./lib/allowance.js");
 const { caught } = require("./lib/caught.js");
+const { claudeBin } = require("./lib/claude-bin.js");
+const { buildTypedAttach } = require("./lib/claude-attach.js");
+const { childFailure, childVerdict } = require("./lib/child-failure.js");
+const { parseErrLine, gh } = require("./lib/gh.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const refillCode = require("./lib/refill-code.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { recentEntries } = require("./lib/dispatch-ledger.js");
+const { readRecentEntries, release } = require("./lib/dispatch-ledger.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { readJobs } = require("./lib/hung-jobs.js");
+const {
+	blockCause,
+	resumedIdleSince,
+	turnedSince,
+} = require("./lib/block-cause.js");
+const { parseResumed } = require("./lib/bg-resume.js");
 const { stopOn } = require("./lib/claude-stop.js");
-const { lastTypedAt } = require("./lib/presence.js");
+const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
+const { setParked } = require("./lib/parked.js");
+const { read: readTranscript } = require("./lib/session-transcript.js");
+const { mainChainRecords } = require("./lib/transcript.js");
+const { resolveKey } = require("./lib/workflow-core-config.js");
+const { readLastTypedAt } = require("./lib/presence.js");
 const {
 	NOTHING_LAUNCHABLE,
 	RUN_MS,
 	decideTick,
 } = require("./lib/refill-decide.js");
 const { refillFrontier } = require("./lib/refill-frontier.js");
-const { budgetLine, seatBudget } = require("./lib/overflow-budget.js");
-const { declaredSeats } = require("./lib/refill-seats.js");
+const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
+const { readDeclaredSeats } = require("./lib/refill-seats.js");
+const { runOf } = require("./lib/headless-sessions.js");
 const wakes = require("./lib/refill-wake.js");
 const {
 	checkoutEnv,
@@ -88,6 +117,7 @@ const {
 	homeDir,
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
+const blocks = require("./lib/refill-blocks.js");
 const { localDate } = require("./lib/morning-review.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { forgetSession } = require("./lib/session-id.js");
@@ -126,11 +156,8 @@ const say = (line) => writeFd(1, `${line}\n`);
 /** @param {string} line */
 const log = (line) => say(`${new Date().toISOString()} ${line}`);
 
-/** @param {string} text */
-const indented = (text) => text.replace(/\n/g, "\n  ");
-
 /** @param {unknown} err */
-const errText = (err) =>
+const parseErrText = (err) =>
 	err instanceof Error ? (err.stack ?? err.message) : String(err);
 
 const readControl = () => loop.parseControl(loop.readJson(files.control));
@@ -147,23 +174,21 @@ function runChild(file, args, opts = {}) {
 		maxBuffer: CHILD_MAX_BUFFER,
 		...opts,
 	});
-	const failed = r.error ? ` (${r.error.message})` : "";
-	return {
+	const child = {
 		status: r.status,
 		stdout: String(r.stdout ?? ""),
 		stderr: String(r.stderr ?? ""),
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim(),
-		failed: r.status === 0 ? null : `exit ${r.status}${failed}`,
+		error: r.error,
 	};
+	return { ...child, ...childVerdict(child) };
 }
 
 /**
  * The plan seats lib/refill-seats.js reads, else the seat this runs on, as
- * where the seat file refuses. An overflow seat is declared but not yet
- * launched on, so it is not listed.
+ * where the seat file refuses. Overflow seats are read each tick (#2611).
  */
-function configuredSeats() {
-	const { seats, errors } = declaredSeats();
+function readConfiguredSeats() {
+	const { seats, errors } = readDeclaredSeats();
 	const listed =
 		errors.length > 0
 			? []
@@ -253,7 +278,7 @@ function buildNextControl(pid, asked, root) {
 	const control = {
 		startedAt: running && !renew ? running.startedAt : Date.now(),
 		stopRequested: false,
-		seats: configuredSeats(),
+		seats: readConfiguredSeats(),
 		scope,
 	};
 	return { control, renewed: renew };
@@ -272,7 +297,7 @@ function start(parsed) {
 		writeFd(2, `${asked}\n\n${USAGE}\n`);
 		return 2;
 	}
-	const { errors } = declaredSeats();
+	const { errors } = readDeclaredSeats();
 	if (errors.length > 0) {
 		writeFd(
 			2,
@@ -285,7 +310,7 @@ function start(parsed) {
 	loop.writeJson(files.control, control);
 	wakes.touchWake(files.wake);
 	const scopeText = loop
-		.scopeLines(control, {
+		.buildScopeLines(control, {
 			runMs: RUN_MS,
 			served: servedRoots(control.scope).roots,
 			running: true,
@@ -355,17 +380,17 @@ const servedRoots = (scope) =>
 function status() {
 	const control = readControl();
 	const pid = lock.holder();
-	for (const line of loop.statusLines({
+	for (const line of loop.buildStatusLines({
 		control,
 		state: loop.parseState(loop.readJson(files.state)),
 		pid,
-		codeSha: pid === null ? null : refillCode.runningCode(pid, files.code),
+		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
 		runMs: RUN_MS,
 		served: control ? servedRoots(control.scope).roots : [],
 	}))
 		say(line);
-	for (const seat of declaredSeats().seats)
-		if (seat.kind === "overflow") say(budgetLine(seat, seatBudget(seat)));
+	for (const seat of readDeclaredSeats().seats)
+		if (seat.kind === "overflow") say(buildBudgetLine(seat, seatBudget(seat)));
 	return 0;
 }
 
@@ -388,7 +413,7 @@ function reapFinished(dryRun) {
 		"--not-a-session",
 		...(dryRun ? ["--dry-run"] : []),
 	]);
-	if (r.out) log(indented(r.out));
+	if (r.out) log(blocks.indented(r.out));
 	if (r.failed) log(`reap: ${r.failed}`);
 }
 
@@ -403,6 +428,42 @@ function stopNeverStarted(registry) {
 		const r = stopOn(j.seat, j.job);
 		return r.ok ? null : r.why;
 	});
+}
+
+/**
+ * Supervise each served checkout's landing queue, in that checkout
+ * (scripts/supervise-landing.js).
+ * @param {string[]} roots
+ */
+function superviseLanding(roots) {
+	for (const root of roots) {
+		const r = runChild(
+			process.execPath,
+			[path.join(SCRIPTS, "supervise-landing.js")],
+			{ cwd: root, env: checkoutEnv(root) },
+		);
+		if (r.out || r.failed)
+			log(
+				`landing in ${root}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
+			);
+	}
+}
+
+/**
+ * Ticket each earlyoom kill incident that is over, on the review checkout's
+ * tracker (scripts/file-memory-kill-tickets.js, #3094): the kills are the
+ * machine's, so one checkout files them. Logged only where it filed or failed.
+ */
+function fileKillTickets() {
+	if (!fs.existsSync(path.join(REVIEW_ROOT, ".claude", "workflow-core.json")))
+		return;
+	const r = runChild(
+		process.execPath,
+		[path.join(SCRIPTS, "file-memory-kill-tickets.js")],
+		{ cwd: REVIEW_ROOT, env: checkoutEnv(REVIEW_ROOT) },
+	);
+	if (r.out || r.failed)
+		log(`memory kills: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`);
 }
 
 /**
@@ -471,25 +532,38 @@ function printedUsage(seats) {
 /**
  * How many of `members` the dispatcher's allowance cap launches on `seat`,
  * read through the `allowance.js --cap` call it makes, fed the seat's printed
- * `/usage` as the dispatcher feeds its probe's; null, logged, where it cannot
- * be sized.
+ * `/usage` as the dispatcher feeds its probe's, run in `root` as the
+ * dispatcher runs in the checkout it launches into, so both read that host's
+ * cost table (#2937); null, logged, where it cannot be sized. A cap the loop
+ * could not size off a trustworthy reading logs as a fault.
+ * @param {string|undefined} root
  * @param {string} seat
  * @param {number} members
  * @param {string} usageText
  */
-function capFits(seat, members, usageText) {
+function capFits(root, seat, members, usageText) {
+	if (root === undefined) {
+		log(
+			`fault: cap on ${seat} unsized: the loop serves no checkout to size it in`,
+		);
+		return null;
+	}
 	const r = runChild(
 		process.execPath,
 		[
 			path.join(SCRIPTS, "allowance.js"),
 			...loop.capArgs(seat, members, loop.ceilingsOf(process.env)),
 		],
-		{ input: usageText, env: { ...process.env, CLAUDE_CONFIG_DIR: seat } },
+		{
+			input: usageText,
+			cwd: root,
+			env: { ...checkoutEnv(root), CLAUDE_CONFIG_DIR: seat },
+		},
 	);
 	const cap = loop.capFitsOf(r.stdout);
 	if (cap.fits === null)
 		log(
-			`cap on ${seat} unsized: ${cap.why}${r.failed ? ` (${r.failed})` : ""}`,
+			`${cap.fault || r.failed ? "fault: " : ""}cap on ${seat} unsized: ${cap.why}${r.failed ? ` (${r.failed})` : ""}`,
 		);
 	return cap.fits;
 }
@@ -497,14 +571,19 @@ function capFits(seat, members, usageText) {
 /**
  * Each seat's reading, refreshed and sized for this tick by
  * lib/refill-loop.js's readSizedSeats; with the refreshing probes' outcomes.
+ * Seats are sized before any repo is picked, so against the first served
+ * checkout, `root` (#2937). Residual: a launch into a later served checkout
+ * whose cost table differs is capped by the dispatcher on that table instead.
  * @param {string[]} seats
  * @param {number} slots
+ * @param {string|undefined} root
  */
-function readSeats(seats, slots) {
+function readSeats(seats, slots, root) {
 	return loop.readSizedSeats(slots, {
 		read: (usage) => seatReadings(seats, usage),
 		probe: printedUsage,
-		sizeOf: capFits,
+		sizeOf: (seat, members, usageText) =>
+			capFits(root, seat, members, usageText),
 	});
 }
 
@@ -524,13 +603,30 @@ function launchBatch(batch) {
 				env: call.env,
 				timeout: call.timeout,
 			}),
-		entriesOf: (root) => recentEntries(root, LEDGER_WINDOW_HOURS).entries,
+		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
+		sessionOf: headlessSessionOf,
 	});
 	log(
-		`dispatch ${loop.launchesLine(batch)}: ${r.failed ?? "exit 0"}\n  ${indented(r.out)}`,
+		`dispatch ${loop.buildLaunchesLine(batch)}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
 	);
 	gates.dropTried(files.gates, r.tried);
 	return { launched: r.launched, refused: r.refused };
+}
+
+/**
+ * The session id lib/headless-sessions.js recorded for `jobId` at launch
+ * (#2611); undefined for a job it did not launch or a record that will not
+ * read, the first listing that shows the job then giving it.
+ * @param {string} jobId
+ */
+function headlessSessionOf(jobId) {
+	let record = null;
+	try {
+		record = runOf(jobId);
+	} catch (err) {
+		log(`headless record unread for job ${jobId}: ${parseErrText(err)}`);
+	}
+	return record?.sessionId;
 }
 
 /**
@@ -564,7 +660,7 @@ function runReview(lastRunOn, now) {
 	);
 	if (due || r.out || r.failed)
 		log(
-			`morning review${due ? "" : " reversals"}: ${r.failed ?? "exit 0"}\n  ${indented(r.out)}`,
+			`morning review${due ? "" : " reversals"}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
 		);
 	return loop.reviewRunRecorded({ due, status: r.status, lastRunOn, today });
 }
@@ -579,16 +675,339 @@ function runReview(lastRunOn, now) {
  * @param {string[]} served
  */
 function judgeFinished(launches, agents, now, served) {
-	return loop.judgedLaunches(launches, agents, now, (l) => {
-		const progress = loop.actsOf(l, [...new Set([...served, l.root])], actsBy);
-		log(loop.finishLine({ ...l, ...progress }));
-		return progress;
+	return loop.judgedLaunches(launches, agents, now, {
+		progressOf: (l) => progressOf(l, served),
+		causeOf,
 	});
 }
 
 /**
- * The decision, reading the shortlists only where the tick could launch, and
- * that read's size and time, null where it was not read.
+ * A finishing launch's acts, read from every served repo's store and its
+ * own, and logged.
+ * @param {import("./lib/refill-loop.js").LoopLaunch} l
+ * @param {string[]} served
+ */
+function progressOf(l, served) {
+	const progress = loop.actsOf(
+		l,
+		[...new Set([...served, l.root])],
+		readActsBy,
+	);
+	log(loop.buildFinishLine({ ...l, ...progress }));
+	return progress;
+}
+
+/**
+ * The job record's fields the classifier reads, for an UNKNOWN's log line.
+ * @param {unknown} job
+ */
+function jobShape(job) {
+	if (typeof job !== "object" || job === null) return job;
+	const rec = /** @type {Record<string, unknown>} */ (job);
+	return Object.fromEntries(
+		[
+			"state",
+			"tempo",
+			"detail",
+			"needs",
+			"needsOverlay",
+			"block",
+			"inFlight",
+			"cliVersion",
+		].map((k) => [k, rec[k]]),
+	);
+}
+
+/**
+ * A parked launch's block cause (lib/block-cause.js), from its listing row,
+ * its job record and its transcript's user and assistant rows; an unread
+ * transcript reads UNKNOWN and acts on nothing (#2358 F9), and an UNKNOWN is
+ * logged with why.
+ * @type {import("./lib/refill-blocks.js").CauseOf}
+ */
+function causeOf(l, row) {
+	const job = readJobRecordOf(l);
+	const tail =
+		readTranscriptRows(l, job)?.filter(
+			(r) => r.type === "user" || r.type === "assistant",
+		) ?? null;
+	const reading = blockCause({ row, job, tail });
+	if (reading.cause === "UNKNOWN")
+		log(
+			`block unread ${blocks.launchName(l)}: ${reading.why}; row ${JSON.stringify(row)}; job ${JSON.stringify(jobShape(job))}`,
+		);
+	return reading;
+}
+
+/**
+ * Label `l`'s issues `parked` in its checkout's tracker; each the label would
+ * not go on, with why.
+ * @param {import("./lib/refill-loop.js").LoopLaunch} l
+ */
+function labelParked(l) {
+	const tracker = resolveKey("tracker", { root: l.root });
+	return l.issues.flatMap((n) => {
+		const failed =
+			typeof tracker === "string"
+				? setParked(tracker, n, true)
+				: "no tracker configured";
+		return failed ? [{ n, why: failed }] : [];
+	});
+}
+
+/**
+ * Comment `body` on each of `l`'s issues in its checkout's tracker. A failure
+ * is logged, never thrown: the comment tells the founder what the loop did
+ * (#2359), and the act it reports has already happened.
+ * @param {import("./lib/refill-loop.js").LoopLaunch} l
+ * @param {string} body
+ */
+function commentOn(l, body) {
+	const tracker = resolveKey("tracker", { root: l.root });
+	for (const n of l.issues) {
+		try {
+			if (typeof tracker !== "string") throw new Error("no tracker configured");
+			gh(["issue", "comment", String(n), "--repo", tracker, "--body", body]);
+		} catch (e) {
+			log(`could not comment on #${n}: ${parseErrLine(e)}`);
+		}
+	}
+}
+
+/**
+ * `l`'s job's timeline rows (jsonlRows). Null where the file will not read, which
+ * reads as the typed resume unseen and falls back to stop and resume, logged.
+ * @param {import("./lib/refill-blocks.js").JobLaunch} l
+ */
+function readTimelineOf(l) {
+	const file = path.join(jobDirPath(l.seat, l.jobId), "timeline.jsonl");
+	let text;
+	try {
+		text = fs.readFileSync(file, "utf8");
+	} catch (e) {
+		log(`timeline unread for ${l.jobId}: ${parseErrText(e)}`);
+		return null;
+	}
+	return jsonlRows(text);
+}
+
+/**
+ * The rows of JSONL `text`; a line that will not parse, such as one torn by a
+ * write in flight, is skipped.
+ * @param {string} text
+ * @returns {unknown[]}
+ */
+const jsonlRows = (text) =>
+	text.split("\n").flatMap((line) => {
+		try {
+			return line ? [JSON.parse(line)] : [];
+		} catch {
+			return [];
+		}
+	});
+
+/**
+ * `l`'s job record, its state.json parsed; null where it has no job or the
+ * record will not read.
+ * @param {import("./lib/refill-loop.js").LoopLaunch} l
+ */
+const readJobRecordOf = (l) =>
+	l.jobId ? readJobRecord(l.seat, l.jobId) : null;
+
+/**
+ * The environment a `claude` call on `l`'s seat runs in: `stop`, `attach` and
+ * the job record are scoped to CLAUDE_CONFIG_DIR.
+ * @param {import("./lib/refill-loop.js").LoopLaunch} l
+ */
+const seatEnv = (l) => ({ ...process.env, CLAUDE_CONFIG_DIR: l.seat });
+
+/**
+ * Type `prompt` into `l`'s live session through a pseudo-terminal
+ * `claude attach` (#2354 F6). Null once typed, else why not.
+ * @param {import("./lib/refill-blocks.js").JobLaunch} l
+ * @param {string} prompt
+ */
+function typeResume(l, prompt) {
+	const [file, args, opts] = buildTypedAttach(l.jobId, prompt);
+	return childFailure(
+		runChild(file, args, { ...opts, cwd: l.root, env: seatEnv(l) }),
+	);
+}
+
+/**
+ * `l`'s full session id, the listing's else its job record's, and its job's
+ * cwd, else its checkout.
+ * @param {import("./lib/refill-blocks.js").JobLaunch} l
+ * @returns {import("./lib/refill-blocks.js").ResumeTarget}
+ */
+function readResumeTargetOf(l) {
+	const job = /** @type {{sessionId?: unknown, cwd?: unknown}|null} */ (
+		readJobRecordOf(l)
+	);
+	return {
+		sessionId:
+			l.sessionId ??
+			(typeof job?.sessionId === "string" ? job.sessionId : null),
+		cwd: typeof job?.cwd === "string" ? job.cwd : l.root,
+	};
+}
+
+/**
+ * `session-arbiter.js <cmd> <n>` as session `sessionId`, in `l`'s checkout;
+ * what it printed, or null where it failed.
+ * @param {import("./lib/refill-blocks.js").JobLaunch} l
+ * @param {"claim-issue"|"release-issue"} cmd
+ * @param {number} n
+ * @param {string} sessionId
+ */
+function arbiterAs(l, cmd, n, sessionId) {
+	const r = runChild(
+		process.execPath,
+		[path.join(SCRIPTS, "session-arbiter.js"), cmd, String(n)],
+		{
+			cwd: l.root,
+			env: { ...checkoutEnv(l.root), CLAUDE_CODE_SESSION_ID: sessionId },
+		},
+	);
+	if (!r.failed) return r.out;
+	log(`${cmd} #${n} as ${sessionId} failed: ${childFailure(r)}`);
+	return null;
+}
+
+/**
+ * Move each issue claim session `from` holds on `l`'s issues to its copy's
+ * session `to` (#2963).
+ * @param {import("./lib/refill-blocks.js").JobLaunch} l
+ * @param {string} from
+ * @param {string} to
+ */
+function moveClaims(l, from, to) {
+	for (const n of l.issues)
+		if (arbiterAs(l, "release-issue", n, from)?.startsWith("Released"))
+			arbiterAs(l, "claim-issue", n, to);
+}
+
+/**
+ * `claude --bg --resume <full id> "<prompt>"` of `l`'s stopped job, from its
+ * cwd (#2354 F6). The launcher exits 0 whatever happens (F8). On 2.1.310 it
+ * wakes a stopped job in place, else starts a copy under a new job and
+ * session id, which carries the conversation on and takes the issue claims
+ * (#2963, #2968). The resume counts where the launcher named the job it
+ * started (lib/bg-resume.js) and that job's state.json does not read failed;
+ * a later tick judges the resumed turn.
+ * @param {import("./lib/refill-blocks.js").JobLaunch} l
+ * @param {string} prompt
+ * @param {{sessionId: string, cwd: string}} target
+ * @returns {import("./lib/refill-blocks.js").Resumed}
+ */
+function resumeStopped(l, prompt, { sessionId, cwd }) {
+	const r = runChild(claudeBin(), ["--bg", "--resume", sessionId, prompt], {
+		cwd,
+		env: seatEnv(l),
+	});
+	const failed = childFailure(r);
+	if (failed) return { failed };
+	const started = parseResumed(r);
+	if (!started)
+		return {
+			failed: `the launcher never said what it started: ${r.out.split("\n").pop()}`,
+		};
+	const { jobId } = started;
+	const after = /** @type {{state?: unknown, detail?: unknown,
+		sessionId?: unknown}|null} */ (readJobRecordOf({ ...l, jobId }));
+	if (after?.state === "failed")
+		return { failed: `state failed: ${after.detail}` };
+	if (!started.copy) return { failed: null, jobId, sessionId, copy: false };
+	const copySession =
+		typeof after?.sessionId === "string" ? after.sessionId : null;
+	if (copySession) moveClaims(l, sessionId, copySession);
+	else log(`no session id read for copy ${jobId}: its issue claims not moved`);
+	return { failed: null, jobId, sessionId: copySession, copy: true };
+}
+
+/**
+ * Every main-chain row of `l`'s transcript, at the path its job record
+ * `job` names; null, logged where the file will not read.
+ * @param {import("./lib/refill-loop.js").LoopLaunch} l
+ * @param {unknown} job
+ * @returns {Record<string, unknown>[]|null}
+ */
+function readTranscriptRows(l, job) {
+	const file = /** @type {{linkScanPath?: unknown}|null} */ (job)?.linkScanPath;
+	if (typeof file !== "string") return null;
+	try {
+		return [...mainChainRecords(readTranscript(file), "main")];
+	} catch (e) {
+		log(`transcript unread for ${l.jobId}: ${parseErrText(e)}`);
+		return null;
+	}
+}
+
+/**
+ * When `l`'s harness restarted it with no turn since, read off its
+ * job record and transcript alone (lib/block-cause.js's resumedIdleSince).
+ * An unread reading holds its idle count, logged where it holds one: a record
+ * that never reads keeps the count until the launch finishes (#2847).
+ * @param {import("./lib/refill-loop.js").LoopLaunch & {jobId: string}} l
+ */
+function idleSinceOf(l) {
+	const job = readJobRecordOf(l);
+	const rows = readTranscriptRows(l, job);
+	const since = resumedIdleSince({ job, rows });
+	if (since === "unread" && l.idleResumes)
+		log(
+			`resumed-idle records unread for ${blocks.launchName(l)}: its idle count held`,
+		);
+	return since;
+}
+
+/**
+ * `rescue-sessions.js hand-off` of `l`'s stopped session, run in its
+ * checkout: it posts its snapshot as a `**Hand-off:**` comment on each issue
+ * and releases its claim.
+ * @param {import("./lib/refill-blocks.js").JobLaunch} l
+ */
+const postHandOff = (l) =>
+	runChild(
+		process.execPath,
+		[
+			path.join(SCRIPTS, "rescue-sessions.js"),
+			"hand-off",
+			"--from",
+			l.seat,
+			"--job",
+			l.jobId,
+			...l.issues.flatMap((n) => ["--issue", String(n)]),
+		],
+		{ cwd: l.root, env: checkoutEnv(l.root) },
+	);
+
+/**
+ * The I/O lib/refill-blocks.js's acts run through, for a tick serving
+ * `served`.
+ * @param {string[]} served
+ * @returns {import("./lib/refill-blocks.js").BlockIo}
+ */
+const blockIo = (served) => ({
+	stop: stopOn,
+	type: typeResume,
+	resumeTargetOf: readResumeTargetOf,
+	resumeStopped,
+	readTimeline: readTimelineOf,
+	idleSince: idleSinceOf,
+	turnedSince: (l, at) =>
+		turnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
+	labelParked,
+	comment: commentOn,
+	postHandOff,
+	release: (l) => release({ jobId: l.copiedFrom ?? l.jobId, root: l.root }),
+	progressOf: (l) => progressOf(l, served),
+	log,
+});
+
+/**
+ * The decision, and the shortlist read's size and time, null where it was not
+ * read.
  * @param {import("./lib/refill-decide.js").TickInput} input
  * @param {import("./lib/refill-loop.js").Scope} scope
  * @returns {Promise<{decision: import("./lib/refill-decide.js").Decision,
@@ -620,6 +1039,7 @@ async function decide(input, scope) {
 			merged.frontier
 		),
 		retroBundles: merged.retroBundles,
+		failedShortlists: merged.failed,
 	});
 	return { decision, read };
 }
@@ -635,7 +1055,7 @@ async function tick({ dryRun }) {
 		startedAt: now,
 		/* No control file is a loop nobody started: a real tick stops. */
 		stopRequested: !dryRun,
-		seats: configuredSeats(),
+		seats: readConfiguredSeats(),
 		scope: loop.parseScope(null),
 	};
 	reapFinished(dryRun);
@@ -643,15 +1063,31 @@ async function tick({ dryRun }) {
 	const served = servedRoots(control.scope).roots;
 	/* Relief first, off the registry alone: the CLI listing below can outrun
 	 * its caps under the very pressure relief exists for (#2665). */
-	const registry = registryAgents();
+	const registry = readRegistryAgents();
 	if (!dryRun) for (const line of stopNeverStarted(registry)) log(line);
+	if (!dryRun) superviseLanding(served);
+	if (!dryRun) fileKillTickets();
 	const agents = listedAgents({ requireSelf: false }).agents ?? null;
 	/* Read side by side here anyway, so the undocumented registry the relief
 	 * steps trust is checked against the documented listing every tick. */
-	if (agents) for (const line of driftLines(agents, registry.agents)) log(line);
-	const judged = judgeFinished(state.launches, agents, now, served);
+	if (agents)
+		for (const line of buildDriftLines(agents, registry.agents)) log(line);
+	const listed = judgeFinished(state.launches, agents, now, served);
+	const seen = { agents, now, io: blockIo(served) };
+	const judged = dryRun
+		? listed
+		: blocks.actOnIdle(
+				blocks.actOnBlocks(listed, control.scope.mode, seen),
+				control.scope.mode,
+				seen,
+			);
 	const slots = freeSlots();
-	const { seats, probes } = readSeats(control.seats, slots);
+	const { seats, probes } = readSeats(control.seats, slots, served[0]);
+	const overflow = loop.overflowReadings(
+		readDeclaredSeats(),
+		seats,
+		seatBudget,
+	);
 	/** @type {import("./lib/refill-decide.js").TickInput} */
 	const input = {
 		now,
@@ -661,8 +1097,9 @@ async function tick({ dryRun }) {
 		retroBundles: [],
 		running: loop.runningOf(judged),
 		freeSlots: slots,
-		lastPromptAt: lastTypedAt(),
+		lastPromptAt: readLastTypedAt(),
 		seats,
+		overflow,
 		history: judged,
 		judgements: gates
 			.readGateStore(files.gates)
@@ -686,19 +1123,26 @@ async function tick({ dryRun }) {
 async function printDryRun() {
 	const { decision: d, read } = await tick({ dryRun: true });
 	say(`dry run: ${loop.summaryOf(d)}`);
-	if (read) say(loop.frontierReadText(read));
+	if (read) say(loop.buildFrontierReadText(read));
 	const { reviewRunOn } = loop.parseState(loop.readJson(files.state));
 	say(
 		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the full run is due" : "reversals only"}`,
 	);
 	if ("stop" in d) return 0;
+	const overflow = new Set(
+		readDeclaredSeats()
+			.seats.filter((s) => s.kind === "overflow")
+			.map((s) => s.dir),
+	);
 	for (const batch of loop.batchesOf(d.launches)) {
-		const call = loop.dispatchCall(batch, DISPATCHER, process.env);
 		say(
-			`would run in ${call.cwd} on ${call.env.CLAUDE_CONFIG_DIR}: ${call.file} ${call.args.join(" ")}`,
+			loop.buildWouldRunLine(
+				loop.dispatchCall(batch, DISPATCHER, process.env),
+				overflow,
+			),
 		);
 	}
-	for (const s of d.skipped) say(`skipped ${loop.skipText(s)}`);
+	for (const s of d.skipped) say(`skipped ${loop.buildSkipText(s)}`);
 	return 0;
 }
 
@@ -714,9 +1158,9 @@ function startGateSweep(sweeper) {
 		servedRoots(control.scope).roots,
 		Date.now(),
 	);
-	/* Logged, never thrown: a sweep that fails leaves the stored readings as
-	 * they were, and the next due sweep runs afresh (#2279). */
-	started?.catch((err) => log(`gate sweep failed: ${errText(err)}`));
+	/* A sweep that fails leaves the readings of the checkout it failed on, and
+	 * any after it, as they were, and the next due sweep runs afresh (#2279). */
+	started?.catch((err) => log(`gate sweep failed: ${parseErrText(err)}`));
 }
 
 async function run() {
@@ -759,7 +1203,7 @@ async function run() {
 				"stop" in decision && !loop.isRenewedSince(readControl(), startedAt);
 			return { done, agents };
 		} catch (err) {
-			log(`tick failed: ${errText(err)}`);
+			log(`tick failed: ${parseErrText(err)}`);
 			return { done: false, agents: null };
 		}
 	}, watcher);
@@ -813,7 +1257,7 @@ if (require.main === module)
 	main().then(
 		() => process.exit(),
 		(err) => {
-			writeFd(2, `${errText(err)}\n`);
+			writeFd(2, `${parseErrText(err)}\n`);
 			process.exit(1);
 		},
 	);

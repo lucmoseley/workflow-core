@@ -60,7 +60,7 @@ const { claudeBin, listedSessionIds } = require("./lib/agent-liveness");
 const {
 	STRANDED_AFTER_HOURS,
 	hoursHeld,
-	dirtyPaths,
+	readDirtyPaths,
 	isDirtyClaim,
 	classifyClaims,
 } = require("./lib/stranded-count");
@@ -253,7 +253,7 @@ function sayStrandedHeadline(
  * @param {Stranded} s
  * @param {(p: string) => boolean} isDirty
  */
-function itemLine(ctx, s, isDirty) {
+function buildItemLine(ctx, s, isDirty) {
 	if (ctx.notify)
 		return `  ${s.path} — ${describeAge(s.hoursHeld)} by ${s.sessionId.slice(0, 8)}`;
 	return `  ${s.path}${isDirty(s.path) ? "  [uncommitted work]" : ""}\n    ${s.sessionId} (pid ${s.pid ?? "unknown"}), ${describeAge(s.hoursHeld)}, since ${s.claimedAt || "unknown"}`;
@@ -272,7 +272,7 @@ function sayItemised(ctx, { itemised, carrying, isDirty }) {
 		);
 	// One line each under --notify: this lands in every session's context,
 	// where a dozen two-line entries is most of a screen.
-	for (const s of itemised) ctx.say(itemLine(ctx, s, isDirty));
+	for (const s of itemised) ctx.say(buildItemLine(ctx, s, isDirty));
 }
 
 /**
@@ -420,7 +420,7 @@ runCheck({
 		 * report below says so rather than implying a clean tree. The subject
 		 * matching and its region caveat belong to lib/stranded-count.js (mantahostels#1780).
 		 */
-		const dirty = dirtyPaths();
+		const dirty = readDirtyPaths();
 		const isDirty = (/** @type {string} */ p) => isDirtyClaim(dirty, p);
 		const carrying = dirty ? stranded.filter((s) => isDirty(s.path)) : [];
 		const oldest = oldestHours(stranded);

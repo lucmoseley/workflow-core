@@ -8,7 +8,7 @@
  * written, and `check` has only the stale beat to go on.
  *
  * A `--full` or `--queue` suite run is wrapped in bg-run.sh, and the
- * `PreToolUse` guards guard-bg-job.sh and guard-suite-background.sh point
+ * `PreToolUse` guards lib/bg-job.js and lib/suite-background.js point
  * sessions at its `check`: loosen a case and a suite the harness killed
  * half-way reads as finished, its partial greens taken for a result.
  */
@@ -21,6 +21,7 @@ import {
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
+	renameSync,
 	rmSync,
 	utimesSync,
 	writeFileSync,
@@ -28,8 +29,10 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isDead } from "./lib/process-fixture";
 
 const { waitForGate } = require("./lib/suite-queue.js");
+const { TEST_TIMEOUT_MS } = require("./lib/test-ceiling.js");
 
 const SCRIPT = join(__dirname, "bg-run.sh");
 
@@ -40,7 +43,8 @@ const FAST = {
 	WFC_BG_STALE_S: "2",
 	WFC_BG_WAIT_POLL_S: "1",
 	/* Short enough that the "never launched" tests below don't pay the full
-	 * 2s default retry. The race tests set their own, WIDE_MISSING. */
+	 * 2s default retry. The fabricated-directory race tests set their own,
+	 * WIDE_MISSING. */
 	WFC_BG_MISSING_S: "1.5",
 	WFC_BG_MISSING_POLL_S: "0.1",
 };
@@ -52,8 +56,39 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	for (const pid of readProcessesUnder(root)) {
+		try {
+			process.kill(Number(pid), "SIGKILL");
+		} catch {
+			// exited since the scan
+		}
+	}
 	rmSync(root, { recursive: true, force: true });
 });
+
+/* How long a command a case kills runs if left alone (#2689): past the case's
+ * own timeout, so no stall the case survives carries its kill past the
+ * command's end. The 30 s beyond it is a guess, for a timeout a stalled
+ * event loop fires late. A wrapper-alone kill orphans the command, which
+ * afterEach ends rather than leaving it to run out. */
+const KILLED_LIFETIME_S = String(TEST_TIMEOUT_MS / 1000 + 30);
+
+/* Every process launched with WFC_BG_ROOT exactly `dir`, as env() sets it:
+ * wrappers, watchers and orphaned commands all inherit it. Any other process
+ * a case starts owes its own kill. */
+function readProcessesUnder(dir: string) {
+	const mark = `WFC_BG_ROOT=${dir}`;
+	return readdirSync("/proc").filter((pid) => {
+		if (!/^\d+$/.test(pid)) return false;
+		try {
+			return readFileSync(`/proc/${pid}/environ`, "utf8")
+				.split("\0")
+				.includes(mark);
+		} catch {
+			return false; // exited between the listing and the read
+		}
+	});
+}
 
 function env(extra: Record<string, string> = {}) {
 	return {
@@ -102,11 +137,16 @@ function runWithout(drop: string[], args: string[]) {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function jsonLines(path: string) {
+function readJsonLines(path: string) {
 	return readFileSync(path, "utf8")
 		.split("\n")
 		.filter((l) => l.length > 0)
 		.map((l) => JSON.parse(l));
+}
+
+function readKillLines() {
+	const path = join(root, "kills.jsonl");
+	return existsSync(path) ? readJsonLines(path) : [];
 }
 
 function runFile(name: string, file: string) {
@@ -160,7 +200,7 @@ const republished = (name: string, oldToken: string) => () => {
 
 /* Exact argv elements, not a pattern: a pattern also matches whatever
  * process carries it on its own command line. */
-function watcherPids(token: string) {
+function readWatcherPids(token: string) {
 	return readdirSync("/proc").filter((pid) => {
 		if (!/^\d+$/.test(pid)) return false;
 		try {
@@ -180,26 +220,6 @@ function spawnDetached(args: string[], spawnEnv: NodeJS.ProcessEnv) {
 	return { child, pid: child.pid };
 }
 
-/* A PATH whose `date +%s` answers `epoch`, every other `date` the real one.
- * `ticking` adds one per call, so a later call always reads later: an
- * appended line is atomic, so racing callers may skip a value but never
- * go back. */
-function pathWithDateAt(dir: string, epoch: number, ticking = false) {
-	const realDate = execFileSync("sh", ["-c", "command -v date"], {
-		encoding: "utf8",
-	}).trim();
-	const answer = ticking
-		? `echo >>'${dir}/ticks'; exec echo $((${epoch} + $(wc -l <'${dir}/ticks')))`
-		: `exec echo ${epoch}`;
-	mkdirSync(dir);
-	writeFileSync(
-		join(dir, "date"),
-		`#!/bin/sh\nif [ "$*" = "+%s" ]; then ${answer}; fi\nexec ${realDate} "$@"\n`,
-		{ mode: 0o755 },
-	);
-	return `${dir}:${process.env.PATH}`;
-}
-
 /* `check` again until it stops saying RUNNING, so a kill is read once the
  * staleness window has opened, however long the machine took to open it. */
 async function untilVerdict(name: string) {
@@ -209,6 +229,21 @@ async function untilVerdict(name: string) {
 		return got.status !== 2;
 	}, 250); // a guess, unmeasured: each `check` is a bash spawn, not a file read
 	return got as ReturnType<typeof check>;
+}
+
+/* Just before a case kills `name`'s wrapper `pid` (#2689). A kill landing
+ * after the command returned meets a wrapper that has written `status` and
+ * exited, so the case would read DONE and fail on a verdict mismatch; this
+ * names the cause instead. */
+function expectMidCommand(name: string, pid: number | undefined) {
+	expect(
+		runFile(name, "status"),
+		`${name}'s command had already finished before the kill`,
+	).toBe("");
+	expect(
+		pid !== undefined && !isDead(pid),
+		`${name}'s wrapper had already exited before the kill`,
+	).toBe(true);
 }
 
 /* A command that runs until the test creates `go`, so its runtime is the
@@ -251,10 +286,11 @@ describe("a run that finishes", () => {
 
 describe("a run that is killed", () => {
 	it("reports KILLED, not DONE, when the wrapper is SIGKILLed mid-command", async () => {
-		const child = spawn(SCRIPT, ["run", "doomed", "sleep", "60"], {
+		const child = spawn(SCRIPT, ["run", "doomed", "sleep", KILLED_LIFETIME_S], {
 			env: env(),
 		});
 		await untilPublished("doomed");
+		expectMidCommand("doomed", child.pid);
 		child.kill("SIGKILL");
 
 		const got = await untilVerdict("doomed");
@@ -264,10 +300,15 @@ describe("a run that is killed", () => {
 	});
 
 	it("leaves no status file behind, which is what makes the kill legible", async () => {
-		const child = spawn(SCRIPT, ["run", "nostatus", "sleep", "60"], {
-			env: env(),
-		});
+		const child = spawn(
+			SCRIPT,
+			["run", "nostatus", "sleep", KILLED_LIFETIME_S],
+			{
+				env: env(),
+			},
+		);
 		await untilPublished("nostatus");
+		expectMidCommand("nostatus", child.pid);
 		child.kill("SIGKILL");
 		expect((await untilVerdict("nostatus")).status).toBe(1);
 
@@ -278,7 +319,9 @@ describe("a run that is killed", () => {
 
 describe("a run still going", () => {
 	it("reports RUNNING rather than guessing either way", async () => {
-		const child = spawn(SCRIPT, ["run", "live", "sleep", "60"], { env: env() });
+		const child = spawn(SCRIPT, ["run", "live", "sleep", KILLED_LIFETIME_S], {
+			env: env(),
+		});
 		await untilPublished("live");
 
 		const got = check("live");
@@ -289,14 +332,14 @@ describe("a run still going", () => {
 	});
 });
 
-function firstLine(stdout: string) {
+function parseFirstLine(stdout: string) {
 	return stdout.split("\n")[0];
 }
 
 /* What `wait` and the missing-directory retry did, so a case counts the polls
  * rather than timing them (base §X9): each `wait` poll's cmd_check exit code
  * in order, and how many retries found no directory. */
-function polls(): { wait: string[]; missing: number } {
+function readPolls(): { wait: string[]; missing: number } {
 	const at = join(root, "polls.log");
 	const lines = existsSync(at)
 		? readFileSync(at, "utf8").split("\n").filter(Boolean)
@@ -310,7 +353,7 @@ function polls(): { wait: string[]; missing: number } {
 /* `wait` polled while RUNNING (exit 2), then stopped at the first `verdict`
  * rather than sleeping on to its ceiling. */
 function expectPolledUntil(verdict: string) {
-	const seen = polls().wait;
+	const seen = readPolls().wait;
 	expect(new Set(seen.slice(0, -1))).toEqual(new Set(["2"]));
 	expect(seen.at(-1)).toBe(verdict);
 }
@@ -372,9 +415,9 @@ describe("wait", () => {
 		run(["run", "quick", "sh", "-c", "echo done-output"]);
 		const got = wait("quick", "5");
 		expect(got.status).toBe(0);
-		expect(firstLine(got.stdout)).toContain("DONE exit=0");
+		expect(parseFirstLine(got.stdout)).toContain("DONE exit=0");
 		expect(got.stdout).toContain("done-output");
-		expect(polls().wait).toEqual(["0"]);
+		expect(readPolls().wait).toEqual(["0"]);
 	});
 
 	it("detects a job finishing partway through its own poll loop", async () => {
@@ -395,12 +438,12 @@ describe("wait", () => {
 		await untilPublished("midfinish");
 		const waiting = spawnWait("midfinish", "60");
 		await waitFor("wait to poll the run RUNNING", () =>
-			polls().wait.includes("2"),
+			readPolls().wait.includes("2"),
 		);
 		writeFileSync(go, "");
 		const got = await waiting;
 		expect(got.status).toBe(0);
-		expect(firstLine(got.stdout)).toContain("DONE exit=0");
+		expect(parseFirstLine(got.stdout)).toContain("DONE exit=0");
 		expect(got.stdout).toContain("late-output");
 		/* Polled while RUNNING, then stopped at the first DONE rather than
 		 * sleeping on to the ceiling. */
@@ -408,27 +451,34 @@ describe("wait", () => {
 	});
 
 	it("reports RUNNING once the ceiling expires on a still-live job", async () => {
-		const child = spawn(SCRIPT, ["run", "slow", "sleep", "30"], { env: env() });
+		const child = spawn(SCRIPT, ["run", "slow", "sleep", KILLED_LIFETIME_S], {
+			env: env(),
+		});
 		await untilPublished("slow");
 		const got = wait("slow", "1");
 		expect(got.status).toBe(2);
-		expect(firstLine(got.stdout)).toContain("RUNNING");
+		expect(parseFirstLine(got.stdout)).toContain("RUNNING");
 		child.kill("SIGKILL");
 	});
 
 	it("detects a wrapper killed while wait is already blocking on it", async () => {
-		const runChild = spawn(SCRIPT, ["run", "midkill", "sleep", "60"], {
-			env: env(),
-		});
+		const runChild = spawn(
+			SCRIPT,
+			["run", "midkill", "sleep", KILLED_LIFETIME_S],
+			{
+				env: env(),
+			},
+		);
 		await untilPublished("midkill");
 		const waiting = spawnWait("midkill", "60");
 		await waitFor("wait to poll the run RUNNING", () =>
-			polls().wait.includes("2"),
+			readPolls().wait.includes("2"),
 		);
+		expectMidCommand("midkill", runChild.pid);
 		runChild.kill("SIGKILL");
 		const got = await waiting;
 		expect(got.status).toBe(1);
-		expect(firstLine(got.stdout)).toContain("KILLED");
+		expect(parseFirstLine(got.stdout)).toContain("KILLED");
 		/* Polled while RUNNING through the staleness window, then stopped at
 		 * the first KILLED rather than sleeping on to the ceiling. */
 		expectPolledUntil("1");
@@ -462,9 +512,11 @@ describe("wait", () => {
  * so the caller always retries: a fixed delay is one a `check` slower to
  * start than it outruns, finding the directory on its first look (#2674).
  * Each caller widens MISSING_S with WIDE_MISSING, since the creation waits on
- * the retry. 10 s outlasts WATCH_READY_S's 5 s, so a real publish held for
- * its watcher also lands inside it. */
+ * the retry. */
 const WIDE_MISSING = { WFC_BG_MISSING_S: "10" };
+
+/* MISSING_S's retries at bg-run.sh's defaults: 2 s of 0.1 s polls. */
+const DEFAULT_MISSING_POLLS = Math.round(2 / 0.1);
 
 function createDirLate(dir: string, withStatus: boolean) {
 	const tmp = `${dir}.tmp`;
@@ -491,23 +543,105 @@ describe("the run-directory creation race", () => {
 		 * against a slow spawn: a check that returned before the directory
 		 * could possibly exist would pass this assertion for the wrong
 		 * reason. */
-		expect(polls().missing).toBeGreaterThan(0);
+		expect(readPolls().missing).toBeGreaterThan(0);
 	});
 
 	it("gives an actual 'run' the same grace, not just a fabricated directory", () => {
 		/* `run ... &` immediately followed by `check`/`wait` on the same name.
 		 * cmd_run's own rm -rf + mv is fast, so this cannot force the loss the
 		 * way createDirLate can — but it proves the fix holds against the
-		 * actual code path, not just the simulation above. WIDE_MISSING, not
-		 * FAST's 1.5 s: a publish held for the watcher can outlast that, as it
-		 * can the 2 s default, which is #2688's defect, not this case's. */
-		const child = spawn(SCRIPT, ["run", "reallive", "sh", "-c", "sleep 1"], {
-			env: env(),
-		});
-		const got = check("reallive", WIDE_MISSING);
+		 * actual code path, not just the simulation above. */
+		const child = spawn(
+			SCRIPT,
+			["run", "reallive", "sleep", KILLED_LIFETIME_S],
+			{ env: env() },
+		);
+		const got = check("reallive");
 		expect(got.stderr).not.toContain("no run named");
 		expect(got.status).not.toBe(3);
 		child.kill("SIGKILL");
+	});
+
+	it("waits out a publish held past MISSING_S for a slow watcher, at the production defaults (#2688)", () => {
+		/* A 3 s fork delay holds the publish past MISSING_S's 2 s default. On
+		 * the real clock at the defaults, since the defect is how the two
+		 * defaults relate, WATCH_READY_S above MISSING_S. */
+		const { pid } = spawnDetached(
+			["run", "held", "sleep", KILLED_LIFETIME_S],
+			env({ WFC_BG_WATCH_FORK_DELAY_S: "3" }),
+		);
+		try {
+			const got = runWithout(
+				["WFC_BG_MISSING_S", "WFC_BG_MISSING_POLL_S"],
+				["check", "held"],
+			);
+			expect(got.stderr).not.toContain("no run named");
+			expect(got.status).toBe(2); // RUNNING
+			/* Past MISSING_S's own retries, so the held-publish wait answered. */
+			expect(readPolls().missing).toBeGreaterThan(DEFAULT_MISSING_POLLS);
+		} finally {
+			process.kill(-pid, "SIGKILL");
+		}
+	});
+
+	it("finds a held publish in the root its last launch line pins, for a checker whose root moved (#2688)", async () => {
+		expect(run(["run", "moved", "true"]).status).toBe(0);
+		const { pid } = spawnDetached(
+			["run", "moved", "sleep", KILLED_LIFETIME_S],
+			env({ WFC_BG_WATCH_FORK_DELAY_S: "3" }),
+		);
+		try {
+			/* A check that beats the re-run's start reads the first run's DONE
+			 * directory. Its status file stays gone from then on. */
+			await waitFor(
+				"the re-run to move the first run aside",
+				() => !existsSync(join(root, "moved", "status")),
+			);
+			const elsewhere = join(root, "elsewhere");
+			mkdirSync(elsewhere);
+			const clean: NodeJS.ProcessEnv = { ...env(), WFC_BG_ROOT: elsewhere };
+			delete clean.WFC_BG_MISSING_S;
+			delete clean.WFC_BG_MISSING_POLL_S;
+			const got = spawnSync(SCRIPT, ["check", "moved"], {
+				env: clean,
+				encoding: "utf8",
+				...BOUNDED,
+			});
+			expect(got.stderr).not.toContain("no run named");
+			expect(got.status).toBe(2); // RUNNING
+		} finally {
+			process.kill(-pid, "SIGKILL");
+		}
+	});
+
+	it("gives 'wait' the same held-publish grace (#2688)", () => {
+		const { pid } = spawnDetached(
+			["run", "held-wait", "sh", "-c", "exit 0"],
+			env({ WFC_BG_WATCH_FORK_DELAY_S: "3" }),
+		);
+		try {
+			const got = runWithout(
+				["WFC_BG_MISSING_S", "WFC_BG_MISSING_POLL_S"],
+				["wait", "held-wait", "20"],
+			);
+			expect(got.stderr).not.toContain("no run named");
+			expect(parseFirstLine(got.stdout)).toContain("DONE exit=0");
+			expect(readPolls().missing).toBeGreaterThan(DEFAULT_MISSING_POLLS);
+		} finally {
+			process.kill(-pid, "SIGKILL");
+		}
+	});
+
+	it("refuses a never-launched name within MISSING_S at the production defaults, the held-publish wait unspent (#2688)", () => {
+		const got = runWithout(
+			["WFC_BG_MISSING_S", "WFC_BG_MISSING_POLL_S"],
+			["check", "never-held"],
+		);
+		expect(got.status).toBe(3);
+		expect(got.stderr).toContain("no run named");
+		/* The held-publish wait logs retries of its own, so one entered would
+		 * push the count past MISSING_S's. */
+		expect(readPolls().missing).toBeLessThanOrEqual(DEFAULT_MISSING_POLLS);
 	});
 
 	it("still refuses a name that was never launched, within a bounded time", () => {
@@ -523,7 +657,7 @@ describe("the run-directory creation race", () => {
 		/* It retried rather than failing at once, and stopped at the window:
 		 * each retry sleeps its poll of the window first, so no machine fits
 		 * one more. */
-		const { missing } = polls();
+		const { missing } = readPolls();
 		expect(missing).toBeGreaterThan(0);
 		expect(missing).toBeLessThanOrEqual(Math.round(windowS / pollS));
 	});
@@ -532,7 +666,7 @@ describe("the run-directory creation race", () => {
 		createDirLate(join(root, "racy-wait"), true);
 		const got = run(["wait", "racy-wait", "3"], WIDE_MISSING);
 		expect(got.stderr).not.toContain("no run named");
-		expect(firstLine(got.stdout)).toContain("DONE exit=0");
+		expect(parseFirstLine(got.stdout)).toContain("DONE exit=0");
 	});
 });
 
@@ -569,6 +703,149 @@ for a in "\${marked[@]}"; do mkdir -p "$a/.kill-recorded"; done
 			"exit=0\n",
 		);
 		expect(existsSync(join(root, "relaunched", ".kill-recorded"))).toBe(false);
+	});
+});
+
+describe("a check overlapping a same-name re-run (#3097)", () => {
+	/* WFC_BG_CHECK_GATE holds the check at `<gate>.<try>` after each try's
+	 * token read and at `<gate>.record` before its kill record; each case
+	 * opens up front the gates it does not hold at. */
+	const gate = () => join(root, "gate");
+	const openGate = (point: string) => writeFileSync(`${gate()}.${point}`, "");
+	const atGate = (point: string) =>
+		waitFor(`the check to hold at ${point}`, () =>
+			existsSync(`${gate()}.${point}.waiting`),
+		);
+
+	function gatedCheck(name: string) {
+		const child = spawn(SCRIPT, ["check", name], {
+			env: env({ WFC_BG_CHECK_GATE: gate(), ...WIDE_MISSING }),
+		});
+		let stdout = "";
+		let stderr = "";
+		child.stdout.on("data", (chunk) => {
+			stdout += chunk;
+		});
+		child.stderr.on("data", (chunk) => {
+			stderr += chunk;
+		});
+		const exited = new Promise<{
+			status: number | null;
+			stdout: string;
+			stderr: string;
+		}>((done) =>
+			child.on("exit", (status) => done({ status, stdout, stderr })),
+		);
+		return { child, exited };
+	}
+
+	/* cmd_run's own rename to the grave, made by the case inside a gate. */
+	const toGrave = (name: string, n: number) =>
+		renameSync(join(root, name), join(root, `.grave-${name}-${n}`));
+
+	it("answers for the re-run, recording no kill, when the old directory goes to its grave mid-read", async () => {
+		/* A read that went on from the rename would find no beat and call the
+		 * old run killed. */
+		expect(
+			run(["run", "regraved", "sh", "-c", "echo first-output; exit 7"]).status,
+		).toBe(7);
+		openGate("2");
+		openGate("record");
+		const { child, exited } = gatedCheck("regraved");
+		try {
+			await atGate("1");
+			toGrave("regraved", 1);
+			openGate("1");
+			await waitFor("the check to look again", () => readPolls().missing > 0);
+			expect(
+				run(["run", "regraved", "sh", "-c", "echo second-output"]).status,
+			).toBe(0);
+
+			const got = await exited;
+			expect(got.status).toBe(0);
+			expect(parseFirstLine(got.stdout)).toBe("DONE exit=0");
+			expect(got.stdout).toContain("second-output");
+			expect(got.stdout).not.toContain("first-output");
+			expect(readKillLines().filter((l) => l.name === "regraved")).toHaveLength(
+				0,
+			);
+		} finally {
+			child.kill("SIGKILL");
+		}
+	});
+
+	it("says it raced, UNKNOWN and recording no kill, when the run is replaced on both tries", async () => {
+		expect(run(["run", "twice", "true"]).status).toBe(0);
+		openGate("record");
+		const { child, exited } = gatedCheck("twice");
+		try {
+			await atGate("1");
+			toGrave("twice", 1);
+			openGate("1");
+			await waitFor("the check to look again", () => readPolls().missing > 0);
+			expect(run(["run", "twice", "true"]).status).toBe(0);
+			await atGate("2");
+			toGrave("twice", 2);
+			openGate("2");
+
+			const got = await exited;
+			expect(got.status).toBe(3);
+			expect(got.stderr).toContain(
+				"run twice was replaced twice while check read it",
+			);
+			expect(readKillLines().filter((l) => l.name === "twice")).toHaveLength(0);
+		} finally {
+			child.kill("SIGKILL");
+		}
+	});
+
+	it("puts no kill record in a re-run that publishes between the read and the record", async () => {
+		const { pid: firstPid } = spawnDetached(
+			["run", "rerecorded", "sleep", KILLED_LIFETIME_S],
+			env(),
+		);
+		let secondPid: number | undefined;
+		let child: ReturnType<typeof gatedCheck>["child"] | undefined;
+		try {
+			await untilPublished("rerecorded");
+			const firstToken = runFile("rerecorded", "token");
+			expectMidCommand("rerecorded", firstPid);
+			process.kill(-firstPid, "SIGKILL");
+			expect(
+				parseFirstLine((await untilVerdict("rerecorded")).stdout),
+			).toContain("KILLED");
+			openGate("1");
+			openGate("2");
+			const gated = gatedCheck("rerecorded");
+			child = gated.child;
+			await atGate("record");
+
+			secondPid = spawnDetached(
+				["run", "rerecorded", "sleep", KILLED_LIFETIME_S],
+				env(),
+			).pid;
+			await waitFor(
+				"the re-run to publish",
+				republished("rerecorded", firstToken),
+			);
+			openGate("record");
+
+			const got = await gated.exited;
+			expect(got.status).toBe(1);
+			expect(parseFirstLine(got.stdout)).toContain("KILLED");
+			expect(existsSync(join(root, "rerecorded", ".kill-recorded"))).toBe(
+				false,
+			);
+		} finally {
+			child?.kill("SIGKILL");
+			for (const pid of [firstPid, secondPid]) {
+				try {
+					if (pid !== undefined) process.kill(-pid, "SIGKILL");
+				} catch {
+					// already killed above
+				}
+			}
+		}
 	});
 });
 
@@ -609,10 +886,14 @@ describe("the beat-write race (mantahostels#2666)", () => {
 			out += d;
 		});
 		const exited = new Promise<number | null>((r) => straddler.on("close", r));
-		await waitFor("the check's first miss", () => polls().missing > 0);
-		const child = spawn(SCRIPT, ["run", "beat-race", "sleep", "60"], {
-			env: env(),
-		});
+		await waitFor("the check's first miss", () => readPolls().missing > 0);
+		const child = spawn(
+			SCRIPT,
+			["run", "beat-race", "sleep", KILLED_LIFETIME_S],
+			{
+				env: env(),
+			},
+		);
 		const status = await exited;
 		child.kill("SIGKILL");
 		expect(out).not.toContain("KILLED before the first beat");
@@ -647,7 +928,7 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 		const workerPath = join(root, "worker.sh");
 		writeFileSync(
 			workerPath,
-			"#!/bin/sh\nx=$(head -c 20000000 /dev/zero | tr '\\0' 'a')\nsleep 60\n",
+			`#!/bin/sh\nx=$(head -c 20000000 /dev/zero | tr '\\0' 'a')\nsleep ${KILLED_LIFETIME_S}\n`,
 			{ mode: 0o755 },
 		);
 		const proc = spawn(
@@ -679,7 +960,9 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 	it("marks the sample truncated when the descendant cap is hit, so a capped sum is never read as a complete one (mantahostels#2683)", async () => {
 		const name = "capped-worker";
 		const workerPath = join(root, "worker-capped.sh");
-		writeFileSync(workerPath, "#!/bin/sh\nsleep 60\n", { mode: 0o755 });
+		writeFileSync(workerPath, `#!/bin/sh\nsleep ${KILLED_LIFETIME_S}\n`, {
+			mode: 0o755,
+		});
 		const proc = spawn(
 			SCRIPT,
 			["run", name, "sh", "-c", `${workerPath} & wait`],
@@ -704,16 +987,6 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 });
 
 describe("the kill record (mantahostels#2662)", () => {
-	function killLines() {
-		const path = join(root, "kills.jsonl");
-		if (!existsSync(path)) return [];
-		return readFileSync(path, "utf8")
-			.trim()
-			.split("\n")
-			.filter(Boolean)
-			.map((line) => JSON.parse(line));
-	}
-
 	it("appends nothing for a run that finishes cleanly", () => {
 		run(["run", "clean", "sh", "-c", "exit 0"]);
 		check("clean");
@@ -721,18 +994,23 @@ describe("the kill record (mantahostels#2662)", () => {
 	});
 
 	it("appends one record, with the field shapes the ticket asks for, on a killed run", async () => {
-		const child = spawn(SCRIPT, ["run", "recorded", "sleep", "60"], {
-			env: env(),
-		});
+		const child = spawn(
+			SCRIPT,
+			["run", "recorded", "sleep", KILLED_LIFETIME_S],
+			{
+				env: env(),
+			},
+		);
 		/* Killed once the first memory sample lands, one heartbeat in. */
 		await waitFor(
 			"the first memory sample",
 			() => runFile("recorded", "mem") !== "",
 		);
+		expectMidCommand("recorded", child.pid);
 		child.kill("SIGKILL");
 		expect((await untilVerdict("recorded")).status).toBe(1);
 
-		const lines = killLines();
+		const lines = readKillLines();
 		expect(lines).toHaveLength(1);
 		const rec = lines[0];
 		expect(rec.name).toBe("recorded");
@@ -770,21 +1048,22 @@ describe("the kill record (mantahostels#2662)", () => {
 		await sleep(4000);
 
 		check("late-checked");
-		const rec = killLines().find((l) => l.name === "late-checked");
+		const rec = readKillLines().find((l) => l.name === "late-checked");
 		expect(rec).toBeDefined();
 		expect(Number(rec.elapsed_s)).toBe(died - launched);
 	});
 
 	it("sources the death epoch from the beat, and states the heartbeat that bounds it", async () => {
 		const before = Math.floor(Date.now() / 1000);
-		const child = spawn(SCRIPT, ["run", "epochs", "sleep", "60"], {
+		const child = spawn(SCRIPT, ["run", "epochs", "sleep", KILLED_LIFETIME_S], {
 			env: env(),
 		});
 		await untilPublished("epochs");
+		expectMidCommand("epochs", child.pid);
 		child.kill("SIGKILL");
 		expect((await untilVerdict("epochs")).status).toBe(1);
 
-		const rec = killLines().find((l) => l.name === "epochs");
+		const rec = readKillLines().find((l) => l.name === "epochs");
 		expect(rec).toBeDefined();
 		expect(rec.death_epoch_source).toBe("beat");
 		expect(Number(rec.started_epoch)).toBeGreaterThanOrEqual(before);
@@ -798,30 +1077,29 @@ describe("the kill record (mantahostels#2662)", () => {
 		expect(rec.heartbeat_s).toBe(Number(FAST.WFC_BG_HEARTBEAT_S));
 	});
 
-	/* The ordering itself, off the real clock: a ticking `date` shim puts the
+	/* The ordering itself, off the real clock: a ticking WFC_BG_NOW puts the
 	 * launch a minute ahead of the filesystem's clock and reads later on every
-	 * call, so a `beat` made by a plain write, or stamped from a `date` read
-	 * before `started`'s, dates before `started`; one stamped after cannot
-	 * (#2674). HEARTBEAT_S outlasts the test, so the
+	 * call within the launching process, so a `beat` made by a plain write, or
+	 * stamped from a clock read before `started`'s, dates before `started`;
+	 * one stamped after cannot (#2674). HEARTBEAT_S outlasts the test, so the
 	 * toucher's first re-touch, which restamps `beat` from the filesystem
 	 * clock, never comes; `check`'s own clock is pinned past STALE_S. */
 	it("never dates a death before its launch, for a run killed before its first re-touch (#2674)", async () => {
 		const launched = Math.floor(Date.now() / 1000) + 60;
 		const { pid } = spawnDetached(
-			["run", "ordered", "sleep", "60"],
+			["run", "ordered", "sleep", KILLED_LIFETIME_S],
 			env({
-				PATH: pathWithDateAt(join(root, "launch-clock"), launched, true),
+				WFC_BG_NOW: `${launched}+`,
 				WFC_BG_HEARTBEAT_S: "60",
 			}),
 		);
 		try {
 			await untilPublished("ordered");
+			expectMidCommand("ordered", pid);
 			process.kill(-pid, "SIGKILL");
-			const got = check("ordered", {
-				PATH: pathWithDateAt(join(root, "check-clock"), launched + 60),
-			});
+			const got = check("ordered", { WFC_BG_NOW: String(launched + 60) });
 			expect(got.status).toBe(1);
-			const rec = killLines().find((l) => l.name === "ordered");
+			const rec = readKillLines().find((l) => l.name === "ordered");
 			expect(rec).toBeDefined();
 			expect(Number(rec.started_epoch)).toBeGreaterThan(launched);
 			expect(Number(rec.death_epoch)).toBeGreaterThanOrEqual(
@@ -829,7 +1107,7 @@ describe("the kill record (mantahostels#2662)", () => {
 			);
 			expect(Number(rec.elapsed_s)).toBeGreaterThanOrEqual(0);
 		} finally {
-			for (const watcher of watcherPids(runFile("ordered", "token"))) {
+			for (const watcher of readWatcherPids(runFile("ordered", "token"))) {
 				process.kill(Number(watcher), "SIGKILL");
 			}
 		}
@@ -851,7 +1129,7 @@ describe("the kill record (mantahostels#2662)", () => {
 		utimesSync(join(dir, "beat"), died, died);
 
 		check("stale-by-hand");
-		const rec = killLines().find((l) => l.name === "stale-by-hand");
+		const rec = readKillLines().find((l) => l.name === "stale-by-hand");
 		expect(rec).toBeDefined();
 		expect(rec.reason).toBe("stale-beat");
 		expect(rec.death_epoch_source).toBe("beat");
@@ -870,7 +1148,7 @@ describe("the kill record (mantahostels#2662)", () => {
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "out"), "");
 		check("no-beat-epochs");
-		const rec = killLines().find((l) => l.name === "no-beat-epochs");
+		const rec = readKillLines().find((l) => l.name === "no-beat-epochs");
 		expect(rec).toBeDefined();
 		expect(rec.reason).toBe("before-first-beat");
 		expect(rec.death_epoch_source).toBe("clock");
@@ -889,7 +1167,7 @@ describe("the kill record (mantahostels#2662)", () => {
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "out"), "");
 		check("no-beat-yet-2");
-		const lines = killLines();
+		const lines = readKillLines();
 		expect(lines).toHaveLength(1);
 		expect(lines[0].reason).toBe("before-first-beat");
 	});
@@ -902,7 +1180,7 @@ describe("the kill record (mantahostels#2662)", () => {
 			"--queue: a suite is already running; waiting for it\n",
 		);
 		check("queued");
-		const lines = killLines();
+		const lines = readKillLines();
 		expect(lines).toHaveLength(1);
 		expect(lines[0].queue_state).toBe("waiting");
 	});
@@ -916,28 +1194,33 @@ describe("the kill record (mantahostels#2662)", () => {
 				"--queue: gate still closed after 300s — running anyway\n",
 		);
 		check("gate-timeout");
-		const lines = killLines();
+		const lines = readKillLines();
 		expect(lines).toHaveLength(1);
 		expect(lines[0].queue_state).toBe("passed");
 	});
 
 	/* The line is waitForGate's own, so a change to its wording fails here
 	 * rather than leaving the refusal read as "waiting" (#2421). */
-	it("reads a memory-limb timeout as refused, not waiting", async () => {
-		const dir = join(root, "gate-refused");
+	it.each([
+		["memory-limb", { limb: "memory", mb: 900, rungMb: 3250 }],
+		["count-limb", { limb: "count" }],
+	])("reads a %s timeout as refused, not waiting", async (limb, denial) => {
+		const name = `gate-refused-${limb}`;
+		const dir = join(root, name);
 		mkdirSync(dir, { recursive: true });
 		const said: string[] = [];
 		await waitForGate({
-			gate: () => ({ limb: "memory", mb: 900, rungMb: 3250 }),
+			gate: () => denial,
 			timeoutMs: 0,
+			admit: () => "admitted",
 			out: { write: (s: string) => said.push(s) },
 		});
 		writeFileSync(
 			join(dir, "out"),
 			`--queue: a suite is already running; waiting for it\n${said.join("")}`,
 		);
-		check("gate-refused");
-		const lines = killLines();
+		check(name);
+		const lines = readKillLines();
 		expect(lines).toHaveLength(1);
 		expect(lines[0].queue_state).toBe("refused");
 	});
@@ -947,36 +1230,31 @@ describe("the kill record (mantahostels#2662)", () => {
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, "out"), "");
 		check('weird"name');
-		const lines = killLines();
+		const lines = readKillLines();
 		expect(lines).toHaveLength(1);
 		expect(lines[0].name).toBe('weird"name');
 	});
 
 	it("does not duplicate the record when the same killed run is checked twice", async () => {
-		const child = spawn(SCRIPT, ["run", "checked-twice", "sleep", "60"], {
-			env: env(),
-		});
+		const child = spawn(
+			SCRIPT,
+			["run", "checked-twice", "sleep", KILLED_LIFETIME_S],
+			{
+				env: env(),
+			},
+		);
 		await untilPublished("checked-twice");
+		expectMidCommand("checked-twice", child.pid);
 		child.kill("SIGKILL");
 		expect((await untilVerdict("checked-twice")).status).toBe(1);
 
 		check("checked-twice");
-		const lines = killLines().filter((l) => l.name === "checked-twice");
+		const lines = readKillLines().filter((l) => l.name === "checked-twice");
 		expect(lines).toHaveLength(1);
 	});
 });
 
 describe("the detached watcher (mantahostels#2691) — a kill recorded with no `check` ever called", () => {
-	function killLines() {
-		const path = join(root, "kills.jsonl");
-		if (!existsSync(path)) return [];
-		return readFileSync(path, "utf8")
-			.trim()
-			.split("\n")
-			.filter(Boolean)
-			.map((line) => JSON.parse(line));
-	}
-
 	/* A kill line carries the `started` of whichever run's directory the
 	 * recorder read, so this is what tells a kill of the OLD run from one
 	 * falsely recorded against the run that replaced it. */
@@ -984,13 +1262,14 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		return runFile(name, "started");
 	}
 
-	const watcherAlive = (token: string) => watcherPids(token).length > 0;
+	const watcherAlive = (token: string) => readWatcherPids(token).length > 0;
 
 	/* The kill lines for `name`, once the watcher has written one. */
 	async function killedOnce(name: string) {
-		const mine = () => killLines().filter((l) => l.name === name);
-		await waitFor(`${name}'s kill record`, () => mine().length > 0);
-		return mine();
+		const readOwnKillLines = () =>
+			readKillLines().filter((l) => l.name === name);
+		await waitFor(`${name}'s kill record`, () => readOwnKillLines().length > 0);
+		return readOwnKillLines();
 	}
 
 	/* The publish waits for the watcher (#2110), but only up to
@@ -1004,10 +1283,15 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	}
 
 	it("appends the kill record on its own — no `check` call anywhere in this test", async () => {
-		const child = spawn(SCRIPT, ["run", "unwatched", "sleep", "60"], {
-			env: env(),
-		});
+		const child = spawn(
+			SCRIPT,
+			["run", "unwatched", "sleep", KILLED_LIFETIME_S],
+			{
+				env: env(),
+			},
+		);
 		await untilWatched("unwatched");
+		expectMidCommand("unwatched", child.pid);
 		child.kill("SIGKILL");
 
 		const lines = await killedOnce("unwatched");
@@ -1025,11 +1309,12 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * the old watcher would eventually see its own (by-then-dead) parent
 		 * gone, find the NEW run's dir with no `status`, and record a false
 		 * kill for a run that never died. */
-		const first = spawn(SCRIPT, ["run", "reused", "sleep", "60"], {
+		const first = spawn(SCRIPT, ["run", "reused", "sleep", KILLED_LIFETIME_S], {
 			env: env(),
 		});
 		await untilWatched("reused");
 		const firstStarted = startedEpoch("reused");
+		expectMidCommand("reused", first.pid);
 		first.kill("SIGKILL");
 
 		/* Republish immediately with a run that stays alive for the whole
@@ -1065,7 +1350,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			writeFileSync(go, ""); // skipping leaves nobody to await its exit
 			skip(); // the two launches shared a second: the case below owns that
 		}
-		const lines = killLines().filter(
+		const lines = readKillLines().filter(
 			(l) => l.name === "reused" && l.started_epoch === secondStarted,
 		);
 		expect(lines).toHaveLength(0);
@@ -1081,19 +1366,17 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * guard comparing it read the NEW run's directory as the one it was
 		 * launched for, and recorded a kill against a run that was alive.
 		 *
-		 * A `date` shim pins `+%s`, so the two `started` files match without
+		 * WFC_BG_NOW pins the clock, so the two `started` files match without
 		 * catching a second boundary (#1337). And the relaunch publishes BEFORE the
 		 * kill: killed first, the old watcher could wake before the
 		 * republish and record the old run's own true kill, which shares
 		 * this name and `started` and so reads as the false one. Residual:
 		 * the pin also freezes the watcher's WATCH_CEILING_S deadline, which
 		 * this case never needs. */
-		const pinnedClockEnv = env({
-			PATH: pathWithDateAt(join(root, "bin"), 1_700_000_000),
-		});
+		const pinnedClockEnv = env({ WFC_BG_NOW: "1700000000" });
 
 		const { pid: firstPid } = spawnDetached(
-			["run", "samesec", "sh", "-c", "echo up; sleep 60"],
+			["run", "samesec", "sh", "-c", `echo up; sleep ${KILLED_LIFETIME_S}`],
 			pinnedClockEnv,
 		);
 		const go = join(root, "go");
@@ -1113,6 +1396,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 				republished("samesec", firstToken),
 			);
 			expect(startedEpoch("samesec")).toBe(firstStarted);
+			expectMidCommand("samesec", firstPid);
 			process.kill(-firstPid, "SIGKILL");
 
 			/* Gone means it reached the run-token guard. The relaunch must still
@@ -1120,7 +1404,9 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			 * and the guard went untested. */
 			await waitFor("the old watcher to exit", () => !watcherAlive(firstToken));
 			expect(existsSync(join(root, "samesec", "status"))).toBe(false);
-			expect(killLines().filter((l) => l.name === "samesec")).toHaveLength(0);
+			expect(readKillLines().filter((l) => l.name === "samesec")).toHaveLength(
+				0,
+			);
 		} finally {
 			try {
 				process.kill(-firstPid, "SIGKILL");
@@ -1142,18 +1428,22 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * kill unhindered, which is the dedup slot the race used to take. */
 		const gate = join(root, "gate");
 		const { pid: firstPid } = spawnDetached(
-			["run", "gapped", "sleep", "60"],
+			["run", "gapped", "sleep", KILLED_LIFETIME_S],
 			env({ WFC_BG_WATCH_GATE: gate }),
 		);
 		let secondPid: number | undefined;
 		try {
 			const firstToken = await untilWatched("gapped");
+			expectMidCommand("gapped", firstPid);
 			process.kill(-firstPid, "SIGKILL");
 			await waitFor("the old watcher to pass its token check", () =>
 				existsSync(`${gate}.waiting`),
 			);
 
-			secondPid = spawnDetached(["run", "gapped", "sleep", "60"], env()).pid;
+			secondPid = spawnDetached(
+				["run", "gapped", "sleep", KILLED_LIFETIME_S],
+				env(),
+			).pid;
 			await waitFor(
 				"the relaunch to republish",
 				republished("gapped", firstToken),
@@ -1162,15 +1452,18 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			writeFileSync(gate, "");
 			await waitFor("the old watcher to exit", () => !watcherAlive(firstToken));
 
-			expect(killLines().filter((l) => l.name === "gapped")).toHaveLength(0);
+			expect(readKillLines().filter((l) => l.name === "gapped")).toHaveLength(
+				0,
+			);
 			expect(existsSync(join(root, "gapped", ".kill-recorded"))).toBe(false);
 
 			await untilWatched("gapped");
+			expectMidCommand("gapped", secondPid);
 			process.kill(-secondPid, "SIGKILL");
 			await waitFor("the relaunch's own kill to be recorded", () =>
-				killLines().some((l) => l.name === "gapped"),
+				readKillLines().some((l) => l.name === "gapped"),
 			);
-			const lines = killLines().filter((l) => l.name === "gapped");
+			const lines = readKillLines().filter((l) => l.name === "gapped");
 			expect(lines).toHaveLength(1);
 			expect(lines[0].started_epoch).toBe(secondStarted);
 		} finally {
@@ -1192,11 +1485,12 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * foreground). A group-wide signal — the production shape the
 		 * file's header describes — hits both at once. */
 		const { pid } = spawnDetached(
-			["run", "termed", "sh", "-c", "echo up; sleep 60"],
+			["run", "termed", "sh", "-c", `echo up; sleep ${KILLED_LIFETIME_S}`],
 			env(),
 		);
 		await untilWatched("termed");
 		await untilPrinted("termed", "up");
+		expectMidCommand("termed", pid);
 		process.kill(-pid, "SIGTERM");
 
 		const lines = await killedOnce("termed");
@@ -1229,16 +1523,19 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		expect(existsSync(join(root, "aloneterm", "status"))).toBe(true);
 		expect(existsSync(join(root, "aloneterm", ".signal"))).toBe(false);
 
-		expect(killLines().filter((l) => l.name === "aloneterm")).toHaveLength(0);
+		expect(readKillLines().filter((l) => l.name === "aloneterm")).toHaveLength(
+			0,
+		);
 	});
 
 	it("records SIGHUP as the signal, same as the SIGTERM shape above (mantahostels#2749)", async () => {
 		const { pid } = spawnDetached(
-			["run", "hupped", "sh", "-c", "echo up; sleep 60"],
+			["run", "hupped", "sh", "-c", `echo up; sleep ${KILLED_LIFETIME_S}`],
 			env(),
 		);
 		await untilWatched("hupped");
 		await untilPrinted("hupped", "up");
+		expectMidCommand("hupped", pid);
 		process.kill(-pid, "SIGHUP");
 
 		const lines = await killedOnce("hupped");
@@ -1257,7 +1554,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 				"caughtterm",
 				"sh",
 				"-c",
-				"trap 'exit 0' TERM; echo trapped; sleep 60",
+				`trap 'exit 0' TERM; echo trapped; sleep ${KILLED_LIFETIME_S}`,
 			],
 			env(),
 		);
@@ -1265,6 +1562,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		const done = new Promise<{ status: number | null }>((resolve) => {
 			child.on("close", (status) => resolve({ status }));
 		});
+		expectMidCommand("caughtterm", pid);
 		process.kill(-pid, "SIGTERM");
 		await done;
 
@@ -1272,7 +1570,9 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		expect(got.stdout).toContain("DONE exit=0");
 		expect(got.status).toBe(0);
 		expect(existsSync(join(root, "caughtterm", ".signal"))).toBe(false);
-		expect(killLines().filter((l) => l.name === "caughtterm")).toHaveLength(0);
+		expect(readKillLines().filter((l) => l.name === "caughtterm")).toHaveLength(
+			0,
+		);
 	});
 
 	it("reads a whole-tree TERM as KILLED when the trapping command follows the 128+signum convention (mantahostels#2749)", async () => {
@@ -1286,12 +1586,13 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 				"conventional",
 				"sh",
 				"-c",
-				"trap 'exit 143' TERM; echo trapped; sleep 60",
+				`trap 'exit 143' TERM; echo trapped; sleep ${KILLED_LIFETIME_S}`,
 			],
 			env(),
 		);
 		await untilWatched("conventional");
 		await untilPrinted("conventional", "trapped");
+		expectMidCommand("conventional", pid);
 		process.kill(-pid, "SIGTERM");
 
 		const lines = await killedOnce("conventional");
@@ -1312,24 +1613,25 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * hold is #2106's reproduction, far longer than the kill takes to land
 		 * after the publish. */
 		const { pid } = spawnDetached(
-			["run", "late", "sleep", "60"],
+			["run", "late", "sleep", KILLED_LIFETIME_S],
 			env({ WFC_BG_WATCH_FORK_DELAY_S: "1" }),
 		);
 		await waitFor(
 			"late's run to publish",
 			() => runFile("late", "token") !== "",
 		);
+		expectMidCommand("late", pid);
 		process.kill(-pid, "SIGKILL");
 
 		await waitFor("late's kill record", () =>
-			killLines().some((l) => l.name === "late"),
+			readKillLines().some((l) => l.name === "late"),
 		);
-		const kills = killLines().filter((l) => l.name === "late");
+		const kills = readKillLines().filter((l) => l.name === "late");
 		expect(kills).toHaveLength(1);
 		/* The launch line is written before the publish (#2276), so the kill
 		 * has its launch. */
 		expect(
-			jsonLines(join(root, "launches.jsonl"))
+			readJsonLines(join(root, "launches.jsonl"))
 				.filter((l) => l.name === "late")
 				.map((l) => l.started_epoch),
 		).toEqual([kills[0].started_epoch]);
@@ -1349,7 +1651,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 				f.startsWith(".watching"),
 			),
 		).toEqual([]);
-		expect(jsonLines(join(root, "launches.jsonl"))[0].watcher_ready).toBe(
+		expect(readJsonLines(join(root, "launches.jsonl"))[0].watcher_ready).toBe(
 			false,
 		);
 	});
@@ -1447,14 +1749,14 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 	it("appends one line per run, so survivals are counted and not just kills", () => {
 		run(["run", "one", "sh", "-c", "exit 0"]);
 		run(["run", "two", "sh", "-c", "exit 0"]);
-		const got = jsonLines(join(root, "launches.jsonl"));
+		const got = readJsonLines(join(root, "launches.jsonl"));
 		expect(got.map((l) => l.name)).toEqual(["one", "two"]);
 		expect(got.map((l) => l.watcher_ready)).toEqual([true, true]);
 	});
 
 	it("carries a started_epoch matching the run's own, so a kill line joins to it", () => {
 		run(["run", "joined", "sh", "-c", "exit 0"]);
-		const [launch] = jsonLines(join(root, "launches.jsonl"));
+		const [launch] = readJsonLines(join(root, "launches.jsonl"));
 		const started = readFileSync(
 			join(root, "joined", "started"),
 			"utf8",
@@ -1466,7 +1768,9 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 		run(["run", "armed", "sh", "-c", "exit 0"], {
 			CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "1",
 		});
-		expect(jsonLines(join(root, "launches.jsonl"))[0].reap_escape).toBe("1");
+		expect(readJsonLines(join(root, "launches.jsonl"))[0].reap_escape).toBe(
+			"1",
+		);
 	});
 
 	it("tells an absent escape from one set to the empty string — a third arm", () => {
@@ -1477,21 +1781,21 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 		run(["run", "empty", "sh", "-c", "exit 0"], {
 			CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "",
 		});
-		const got = jsonLines(join(root, "launches.jsonl"));
+		const got = readJsonLines(join(root, "launches.jsonl"));
 		expect(got.find((l) => l.name === "bare").reap_escape).toBe(null);
 		expect(got.find((l) => l.name === "empty").reap_escape).toBe("");
 	});
 
 	it("escapes a run name that would otherwise break the JSON", () => {
 		run(["run", 'q"b\\s', "sh", "-c", "exit 0"]);
-		expect(jsonLines(join(root, "launches.jsonl"))[0].name).toBe('q"b\\s');
+		expect(readJsonLines(join(root, "launches.jsonl"))[0].name).toBe('q"b\\s');
 	});
 
 	it("escapes an escape-variable value that would otherwise break the JSON", () => {
 		run(["run", "odd", "sh", "-c", "exit 0"], {
 			CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: 'a"b\\c',
 		});
-		expect(jsonLines(join(root, "launches.jsonl"))[0].reap_escape).toBe(
+		expect(readJsonLines(join(root, "launches.jsonl"))[0].reap_escape).toBe(
 			'a"b\\c',
 		);
 	});
@@ -1500,7 +1804,7 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 		run(["run", "nl", "sh", "-c", "exit 0"], {
 			CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "one\ntwo",
 		});
-		const got = jsonLines(join(root, "launches.jsonl"));
+		const got = readJsonLines(join(root, "launches.jsonl"));
 		expect(got).toHaveLength(1);
 		expect(got[0].reap_escape).toBe("one\ntwo");
 	});
@@ -1517,7 +1821,7 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 				WFC_BG_MEMINFO: join(root, "no-meminfo"),
 			}).status,
 		).toBe(0);
-		const got = jsonLines(join(root, "launches.jsonl"));
+		const got = readJsonLines(join(root, "launches.jsonl"));
 		expect(got.find((l) => l.name === "read").mem_available_mb).toBe("3072");
 		expect(got.find((l) => l.name === "unread").mem_available_mb).toBe(
 			"unknown",
@@ -1527,7 +1831,7 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 	it("records job_dir_set true under a background job and false without one", () => {
 		run(["run", "bg", "sh", "-c", "exit 0"], { CLAUDE_JOB_DIR: root });
 		runWithout(["CLAUDE_JOB_DIR"], ["run", "fg", "sh", "-c", "exit 0"]);
-		const got = jsonLines(join(root, "launches.jsonl"));
+		const got = readJsonLines(join(root, "launches.jsonl"));
 		expect(got.find((l) => l.name === "bg").job_dir_set).toBe(true);
 		expect(got.find((l) => l.name === "fg").job_dir_set).toBe(false);
 	});
@@ -1545,6 +1849,155 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 		expect(ran.status).toBe(3);
 		expect(ran.stdout).toBe("");
 		expect(check("unlogged").stdout).toContain("DONE exit=3");
+	});
+});
+
+describe("the suite ceiling's backstop (#2704)", () => {
+	const { DEADLINE_ENV, monotonicMs } = require("./lib/suite-ceiling.js");
+
+	/* The clock the runners write the deadline on, in whole seconds. */
+	const monoS = () => Math.floor(monotonicMs() / 1000);
+
+	/* A runner that wedged past its deadline: it starts a plain child and a
+	 * group outside its own tree, as a SIGKILLed runner's orphaned vitest is,
+	 * writes `<deadline> <pgid>` with the deadline `ago` seconds past, prints
+	 * its report, then waits. */
+	const wedged = (name: string, ago: number) => [
+		"run",
+		name,
+		"sh",
+		"-c",
+		[
+			`setsid --fork sh -c 'echo $$ > "${root}/group"; exec sleep ${KILLED_LIFETIME_S}'`,
+			`sleep ${KILLED_LIFETIME_S} & echo $! > '${root}/child'`,
+			shWaitFor(`[ -s '${root}/group' ]`),
+			`echo "${monoS() - ago} $(cat '${root}/group')" > "$${DEADLINE_ENV}"`,
+			"echo 'SUITE CEILING — the runner report'",
+			"wait",
+		].join("; "),
+	];
+
+	const readPid = (file: string) =>
+		Number(readFileSync(join(root, file), "utf8"));
+
+	/* The watcher polls each heartbeat, so these cross the real clock. */
+	it("kills the named group and the wrapped tree, and check reads a finished, failed ceiling kill", async () => {
+		const child = spawn(SCRIPT, wedged("wedged", 1), {
+			env: env({ WFC_BG_CEILING_GRACE_S: "0" }),
+		});
+		try {
+			await untilPrinted("wedged", "runner report");
+			await waitFor(
+				"the run's status",
+				() => runFile("wedged", "status") !== "",
+			);
+		} finally {
+			child.kill("SIGKILL");
+		}
+
+		for (const got of [check("wedged"), run(["wait", "wedged", "5"])]) {
+			expect(got.status).toBe(0);
+			expect(got.stdout).toMatch(
+				/^DONE exit=137 ceiling-kill: bg-run killed it 0s past its suite deadline$/m,
+			);
+			expect(got.stdout).toContain("SUITE CEILING — the runner report");
+		}
+		await waitFor(
+			"the group and the tree to die",
+			() => isDead(readPid("group")) && isDead(readPid("child")),
+		);
+		expect(
+			readJsonLines(join(root, "kills.jsonl")).map((l) => l.reason),
+		).toEqual(["ceiling"]);
+	});
+
+	it("spares a group whose leader started before the launch, a recycled pid", async () => {
+		/* Started 2 s before the launch: past the one second the start-time
+		 * check allows for rounding. */
+		const elder = spawn("sleep", [KILLED_LIFETIME_S], {
+			detached: true,
+			stdio: "ignore",
+		});
+		const elderPid = elder.pid as number;
+		try {
+			await sleep(2000);
+			const child = spawn(
+				SCRIPT,
+				[
+					"run",
+					"recycled",
+					"sh",
+					"-c",
+					`echo "${monoS() - 1} ${elderPid}" > "$${DEADLINE_ENV}"; sleep ${KILLED_LIFETIME_S}`,
+				],
+				{ env: env({ WFC_BG_CEILING_GRACE_S: "0" }) },
+			);
+			try {
+				await waitFor(
+					"the run's status",
+					() => runFile("recycled", "status") !== "",
+				);
+			} finally {
+				child.kill("SIGKILL");
+			}
+
+			expect(isDead(elderPid)).toBe(false);
+		} finally {
+			process.kill(-elderPid, "SIGKILL");
+		}
+	});
+
+	it("holds the grace at 60 s when the environment asks for more", async () => {
+		const child = spawn(SCRIPT, wedged("stretched", 61), {
+			env: env({ WFC_BG_CEILING_GRACE_S: "999" }),
+		});
+		try {
+			await waitFor(
+				"the run's status",
+				() => runFile("stretched", "status") !== "",
+			);
+		} finally {
+			child.kill("SIGKILL");
+		}
+
+		expect(check("stretched").stdout).toContain("killed it 60s past");
+	});
+
+	it("never kills a run whose deadline the wall clock has passed but the monotonic clock has not (#2886)", () => {
+		/* A host suspend steps the wall clock forward on resume while no
+		 * monotonic time passes: the wall clock is pinned a day on, the
+		 * monotonic one a second short of the deadline. 3 s is three of FAST's
+		 * 1 s heartbeats, as below. */
+		const got = run(
+			[
+				"run",
+				"resumed",
+				"sh",
+				"-c",
+				`echo "1001 $$" > "$${DEADLINE_ENV}"; sleep 3; echo finished`,
+			],
+			{
+				WFC_BG_CEILING_GRACE_S: "0",
+				WFC_BG_MONO: "1000",
+				WFC_BG_NOW: String(Math.floor(Date.now() / 1000) + 86_400),
+			},
+		);
+
+		expect(got.status).toBe(0);
+		expect(check("resumed").stdout).toMatch(/^DONE exit=0$/m);
+		expect(existsSync(join(root, "kills.jsonl"))).toBe(false);
+	});
+
+	it("never kills a command that writes no deadline file", () => {
+		/* 3 s is three of FAST's 1 s heartbeats: three watcher passes, any of
+		 * which would kill a run it read as due. */
+		const got = run(["run", "plain", "sh", "-c", "sleep 3; echo finished"], {
+			WFC_BG_CEILING_GRACE_S: "0",
+		});
+
+		expect(got.status).toBe(0);
+		expect(check("plain").stdout).toMatch(/^DONE exit=0$/m);
+		expect(existsSync(join(root, "kills.jsonl"))).toBe(false);
 	});
 });
 
@@ -1568,7 +2021,7 @@ describe("what it refuses to answer", () => {
 		expect(check("reused").stdout).toContain("DONE");
 		const oldToken = runFile("reused", "token");
 
-		const child = spawn(SCRIPT, ["run", "reused", "sleep", "60"], {
+		const child = spawn(SCRIPT, ["run", "reused", "sleep", KILLED_LIFETIME_S], {
 			env: env(),
 		});
 		await waitFor("the re-run to publish", republished("reused", oldToken));
@@ -1605,7 +2058,7 @@ describe("a run whose root moved between launch and check", () => {
 		});
 		const got = run(["wait", "moved-wait", "3"]);
 		expect(got.stderr).not.toContain("no run named");
-		expect(firstLine(got.stdout)).toContain("DONE exit=0");
+		expect(parseFirstLine(got.stdout)).toContain("DONE exit=0");
 	});
 
 	it("prefers a run in the resolved root over the pinned one", () => {
@@ -1630,7 +2083,7 @@ describe("a run whose root moved between launch and check", () => {
 		run(["run", "logged-elsewhere", "sh", "-c", "exit 0"], {
 			WFC_BG_ROOT: other,
 		});
-		const got = jsonLines(join(root, "launches.jsonl"));
+		const got = readJsonLines(join(root, "launches.jsonl"));
 		expect(got.find((l) => l.name === "logged").run_root).toBe(root);
 		expect(got.find((l) => l.name === "logged-elsewhere").run_root).toBe(other);
 	});

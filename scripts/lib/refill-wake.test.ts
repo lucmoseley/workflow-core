@@ -72,7 +72,7 @@ const open = (fields: object) => ({
 	...fields,
 });
 
-const wakeLines = () =>
+const readWakeLines = () =>
 	fs.existsSync(wake) ? fs.readFileSync(wake, "utf8").split("\n") : [];
 
 describe("refill-wake.sh", () => {
@@ -90,13 +90,13 @@ describe("refill-wake.sh", () => {
 		writeLoop([open({ sessionId: SID })]);
 		const r = runHook(SID);
 		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(wakeLines()[0]).toMatch(new RegExp(`^\\d{13} ${SID}$`));
+		expect(readWakeLines()[0]).toMatch(new RegExp(`^\\d{13} ${SID}$`));
 	});
 
 	it("matches a launch whose session id is not yet captured by its job id", () => {
 		writeLoop([open({ jobId: SID.slice(0, 8) })]);
 		runHook(SID);
-		expect(wakeLines()[0]).toContain(SID);
+		expect(readWakeLines()[0]).toContain(SID);
 	});
 
 	it("does nothing for a session no open launch holds", () => {
@@ -145,7 +145,7 @@ describe("refill-wake.sh", () => {
 	it("wakes on a payload carrying neither field, as an older Claude Code sends", () => {
 		writeLoop([open({ sessionId: SID })]);
 		runHook(SID, { background_tasks: undefined, session_crons: undefined });
-		expect(wakeLines()[0]).toContain(SID);
+		expect(readWakeLines()[0]).toContain(SID);
 	});
 
 	it("does nothing on an unreadable state file", () => {
@@ -282,31 +282,37 @@ describe("runTicks", () => {
 		expect(t.began).toEqual([noWake, noWake]);
 	});
 
-	it("re-checks once, after the delay, where the waking session is still listed working", async () => {
-		const still = [agent(SID, "working")];
-		const t = ticks([
-			{ done: false, agents: [] },
-			{ done: false, agents: still },
-			{ done: false, agents: still },
-			{ done: true, agents: [] },
-		]);
-		const w = watcher([woken, noWake]);
-		const slept: number[] = [];
-		await runTicks(t.tick, w, {
-			sleep: async (ms) => slept.push(ms),
-		});
-		expect(slept).toEqual([10_000]);
-		expect(t.began).toEqual([
-			noWake,
-			woken,
-			{ ...woken, recheck: true },
-			noWake,
-		]);
-		expect(w.asked).toHaveLength(2);
-	});
+	it.each([
+		["working", "working"],
+		["done but held by the reaper (#2980)", "done"],
+	])(
+		"re-checks once, after the delay, where the waking session is still listed %s",
+		async (_, state) => {
+			const still = [agent(SID, state)];
+			const t = ticks([
+				{ done: false, agents: [] },
+				{ done: false, agents: still },
+				{ done: false, agents: still },
+				{ done: true, agents: [] },
+			]);
+			const w = watcher([woken, noWake]);
+			const slept: number[] = [];
+			await runTicks(t.tick, w, {
+				sleep: async (ms) => slept.push(ms),
+			});
+			expect(slept).toEqual([10_000]);
+			expect(t.began).toEqual([
+				noWake,
+				woken,
+				{ ...woken, recheck: true },
+				noWake,
+			]);
+			expect(w.asked).toHaveLength(2);
+		},
+	);
 
 	it.each([
-		["listed done", [agent(SID, "done")]],
+		["listed stopped", [agent(SID, "stopped")]],
 		["parked on a question", [agent(SID, "blocked")]],
 		["not listed", [agent("other-session", "working")]],
 		["on an unread listing", null],

@@ -12,10 +12,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
-const { endResultOf, storedRuns } = require("./headless-sessions.js");
+const { endResultOf, readStoredRuns } = require("./headless-sessions.js");
 const { localDate } = require("./morning-review.js");
 const { refillPath } = require("./refill-dir.js");
-const { declaredSeats, seatOf } = require("./refill-seats.js");
+const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
 const { budgetOf } = require("./overflow-budget-core.js");
 const { readCostTable, sessionSpendUsd } = require("./session-spend.js");
@@ -114,7 +114,7 @@ function settle(seat, table) {
 	const settled = new Set(ledger.map((e) => e.sessionId));
 	/** @type {RunningRun[]} */
 	const running = [];
-	for (const run of storedRuns()) {
+	for (const run of readStoredRuns()) {
 		if (run.seat !== seat.dir || settled.has(run.sessionId)) continue;
 		const end = endResultOf(run);
 		if (end.outcome === "running") {
@@ -172,7 +172,7 @@ const dollars = (usd) => `$${usd.toFixed(2)}`;
  * @param {OverflowSeat} seat
  * @param {Budget|{why: string}} budget
  */
-function budgetLine(seat, budget) {
+function buildBudgetLine(seat, budget) {
 	if ("why" in budget) return `overflow ${seat.dir}: unread — ${budget.why}`;
 	const resets = localDate(new Date(budget.nextCycleStart));
 	const spent = `spent ${dollars(budget.settledUsd)} of ${dollars(budget.grantUsd)} since ${localDate(new Date(budget.cycleStart))}`;
@@ -181,7 +181,7 @@ function budgetLine(seat, budget) {
 	return `overflow ${seat.dir}: fits ${budget.fit}; headroom ${dollars(budget.headroomUsd)} (${dollars(budget.reservedUsd)} held by ${budget.running} running); ${spent}; resets ${resets}`;
 }
 
-module.exports = { budgetLine, seatBudget };
+module.exports = { buildBudgetLine, seatBudget };
 
 /*
  * CLI mode, for the dispatcher and status. Exit 0 sized, 2 usage, 1 otherwise:
@@ -212,7 +212,7 @@ function main(args) {
 		);
 		return 2;
 	}
-	const list = declaredSeats();
+	const list = readDeclaredSeats();
 	if (list.errors.length > 0) {
 		writeFd(2, `${list.errors.join("\n")}\n`);
 		return 1;
@@ -229,7 +229,7 @@ function main(args) {
 	}
 	const out = parsed.values.json
 		? JSON.stringify(budget)
-		: budgetLine(seat, budget);
+		: buildBudgetLine(seat, budget);
 	writeFd(1, `${out}\n`);
 	return 0;
 }

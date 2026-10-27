@@ -29,7 +29,7 @@ const {
 	resolveKey,
 	requireKey,
 	moduleOn,
-	commandFor,
+	readCommandFor,
 	guardDisabled,
 	ladderPath,
 	cycleLogPath,
@@ -37,7 +37,7 @@ const {
 	userSettingsSnapshotPath,
 	USER_SETTINGS_SNAPSHOT_DEFAULT,
 	pickNextRankingPath,
-	outputStylePath,
+	readOutputStylePath,
 	UPSTREAM_TRACKER,
 	UPSTREAM_CODE_REPO,
 	codeRepoArgs,
@@ -632,6 +632,7 @@ describe("readConfig — each simple key's valid, malformed and absent value (#1
 		["ruffExclude", ["data/**"], [7], arrayOfStrings, undefined],
 		["sessionMeanMb", 600, 0, "a positive integer", undefined],
 		["sessionSigmaMb", 320, 320.5, "a positive integer", undefined],
+		["fullTestShards", 2, 0, "a positive integer", undefined],
 		["suiteRunners", ["a.sh"], "a.sh", arrayOfStrings, undefined],
 		[
 			"worktreeLinks",
@@ -687,6 +688,64 @@ describe("readConfig — contract", () => {
 		writeConfig(dir, JSON.stringify({ contract }));
 		expect(() => readConfig({ root: dir })).toThrow(
 			`declares contract ${shown}, which this workflow-core does not read (it reads 1). Read the migration note in migrations/`,
+		);
+	});
+});
+
+describe("readConfig at a revision (#3132)", () => {
+	const commit = () => {
+		git("init", "-q");
+		git("add", ".");
+		git("-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "c");
+	};
+
+	it("reads the committed config, not the working copy's", () => {
+		writeConfig(dir, JSON.stringify({ modules: ["landing"] }));
+		commit();
+		writeConfig(dir, JSON.stringify({ modules: [] }));
+		expect(moduleOn("landing", { root: dir, rev: "HEAD" })).toBe(true);
+		expect(moduleOn("landing", { root: dir })).toBe(false);
+	});
+
+	it("gives every key its default where the revision holds no config", () => {
+		fs.writeFileSync(path.join(dir, "f"), "");
+		commit();
+		writeConfig(dir, JSON.stringify({ modules: ["landing"] }));
+		expect(readConfig({ root: dir, rev: "HEAD" }).modules).toEqual([]);
+	});
+
+	it("runs the committed config through the same validation, naming the revision", () => {
+		writeConfig(dir, JSON.stringify({ contract: 2 }));
+		commit();
+		writeConfig(dir, "{}");
+		expect(() => readConfig({ root: dir, rev: "HEAD" })).toThrow(
+			`${path.join(dir, ".claude", "workflow-core.json")} at HEAD declares contract 2`,
+		);
+	});
+
+	it("throws where the committed config does not parse", () => {
+		writeConfig(dir, "[]");
+		commit();
+		expect(() => readConfig({ root: dir, rev: "HEAD" })).toThrow(
+			"at HEAD does not parse: not a JSON object",
+		);
+	});
+
+	it("throws where the revision holds a directory at the config's path", () => {
+		fs.mkdirSync(path.join(dir, ".claude", "workflow-core.json"), {
+			recursive: true,
+		});
+		fs.writeFileSync(path.join(dir, ".claude", "workflow-core.json", "x"), "");
+		commit();
+		expect(() => readConfig({ root: dir, rev: "HEAD" })).toThrow(
+			"at HEAD is not a file",
+		);
+	});
+
+	it("throws where the revision names no commit, an unborn HEAD included", () => {
+		git("init", "-q");
+		expect(() => readConfig({ root: dir, rev: "HEAD" })).toThrow(
+			"at HEAD cannot be read",
 		);
 	});
 });
@@ -923,7 +982,7 @@ describe("requireKey", () => {
 	});
 });
 
-describe("moduleOn and commandFor", () => {
+describe("moduleOn and readCommandFor", () => {
 	it("reads a listed module as on and an unlisted one as off", () => {
 		writeConfig(dir, JSON.stringify({ modules: ["site"] }));
 		expect(moduleOn("site", { root: dir })).toBe(true);
@@ -947,8 +1006,8 @@ describe("moduleOn and commandFor", () => {
 
 	it("reads a declared command and an undeclared one as null", () => {
 		writeConfig(dir, JSON.stringify({ commands: { lint: "npm run lint" } }));
-		expect(commandFor("lint", { root: dir })).toBe("npm run lint");
-		expect(commandFor("test", { root: dir })).toBeNull();
+		expect(readCommandFor("lint", { root: dir })).toBe("npm run lint");
+		expect(readCommandFor("test", { root: dir })).toBeNull();
 	});
 });
 
@@ -996,7 +1055,7 @@ describe("cycleLogPath (#438)", () => {
 	});
 });
 
-describe("outputStylePath (#448)", () => {
+describe("readOutputStylePath (#448)", () => {
 	it("is the declared overrides.output_style", () => {
 		writeConfig(
 			dir,
@@ -1004,17 +1063,17 @@ describe("outputStylePath (#448)", () => {
 				overrides: { output_style: ".claude/output-styles/manta-voice.md" },
 			}),
 		);
-		expect(outputStylePath({ root: dir })).toBe(
+		expect(readOutputStylePath({ root: dir })).toBe(
 			".claude/output-styles/manta-voice.md",
 		);
 	});
 
 	it("defaults where undeclared, rejected or unreadable", () => {
-		expect(outputStylePath({ root: dir })).toBe(OUTPUT_STYLE_DEFAULT);
+		expect(readOutputStylePath({ root: dir })).toBe(OUTPUT_STYLE_DEFAULT);
 		writeConfig(dir, JSON.stringify({ overrides: { output_style: "bare" } }));
-		expect(outputStylePath({ root: dir })).toBe(OUTPUT_STYLE_DEFAULT);
+		expect(readOutputStylePath({ root: dir })).toBe(OUTPUT_STYLE_DEFAULT);
 		writeConfig(dir, "{ not json");
-		expect(outputStylePath({ root: dir })).toBe(OUTPUT_STYLE_DEFAULT);
+		expect(readOutputStylePath({ root: dir })).toBe(OUTPUT_STYLE_DEFAULT);
 	});
 });
 

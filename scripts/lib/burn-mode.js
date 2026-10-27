@@ -10,7 +10,7 @@
  * per-model effort this writes (#363).
  * Three surfaces read this file so the mapping is written once:
  *
- *   scripts/guard-dispatch-rewrite.sh  rewrites an `Agent` call's `model` field
+ *   scripts/lib/dispatch-rewrite.js    rewrites an `Agent` call's `model` field
  *   scripts/dispatch-sessions.sh       rewrites a launch's `--model`
  *   scripts/burn-mode.sh               writes Opus 5.5's effort into settings.json
  *
@@ -117,8 +117,8 @@ function trimmed(value) {
  * ignores the field), or a model burn mode does not move. Every other field is
  * carried through untouched, `updatedInput` replacing the whole input.
  *
- * `scripts/guard-dispatch-rewrite.sh` composes it with the artefact transform
- * into one envelope, and calls it only while the marker exists.
+ * lib/dispatch-rewrite.js composes it with the artefact transform into one
+ * rewrite, and calls it only while the marker exists.
  *
  * @param {unknown} input the tool_input object
  * @returns {null | {input: Record<string, unknown>, note: string}}
@@ -141,6 +141,7 @@ module.exports = {
 	EFFORT_MODEL,
 	EFFORT_OFF,
 	EFFORT_ON,
+	markerPath,
 	remapModel,
 };
 

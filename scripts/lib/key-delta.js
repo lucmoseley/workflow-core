@@ -63,7 +63,7 @@ const unexaminedSignature = (tag, delivered) =>
  * @param {(stamp: string) => void} [onCorrupt]
  * @returns {Set<string> | null}
  */
-function deliveredKeys(stamp, onCorrupt) {
+function readDeliveredKeys(stamp, onCorrupt) {
 	const raw = readStamp(stamp);
 	if (raw === null) return null;
 	const held = raw.startsWith(UNEXAMINED_STAMP) ? raw.indexOf("[") : 0;
@@ -105,6 +105,6 @@ module.exports = {
 	isUnexamined,
 	isJudged,
 	keysOf,
-	deliveredKeys,
+	readDeliveredKeys,
 	judgeKeys,
 };

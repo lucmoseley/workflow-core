@@ -32,7 +32,8 @@ import {
 import { writePsStub } from "./lib/ps-stub";
 
 const fx = dispatchFixture();
-const { stubClaude, stubPath, baseEnv, launchArgv, argvLines, regWedged } = fx;
+const { stubClaude, stubPath, baseEnv, launchArgv, readArgvLines, regWedged } =
+	fx;
 
 /**
  * A `sleep` on PATH that records its argument and returns at once (#146).
@@ -144,7 +145,7 @@ describe("the advisor flag", () => {
 			encoding: "utf8",
 			env: baseEnv({ WFC_DISPATCH_ADVISOR: "fable" }),
 		});
-		const probe = argvLines().find((l) => l.includes("--debug-file"));
+		const probe = readArgvLines().find((l) => l.includes("--debug-file"));
 		expect(probe).toContain("--advisor fable");
 	});
 });
@@ -290,8 +291,8 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		// Both probe calls (the /usage read and the duplicate gate's `agents
 		// --json`) actually reached the PATH stub, not a real `claude` — proven
 		// by argv content, not merely a file existing.
-		expect(argvLines().some((l) => l.includes("-p /usage"))).toBe(true);
-		expect(argvLines().some((l) => l.includes("agents --json"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("-p /usage"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("agents --json"))).toBe(true);
 		expect(r.stderr).toContain("WARNING: WFC_CLAUDE_BIN is unset");
 		expect(r.stderr).toContain("no-such-union-wrapper");
 	});
@@ -330,9 +331,9 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		expect(r.stdout).toContain(`would launch: ${union.path} `);
 		expect(r.stderr).not.toContain("WARNING: WFC_CLAUDE_BIN is unset");
 		expect(r.stderr).toContain("NOTE:");
-		expect(argvLines(union.argv).some((l) => l.includes("agents --json"))).toBe(
-			true,
-		);
+		expect(
+			readArgvLines(union.argv).some((l) => l.includes("agents --json")),
+		).toBe(true);
 	});
 
 	it("never lets the wrapper override a WFC_CLAUDE_BIN that is set", () => {
@@ -352,7 +353,7 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		expect(r.stdout).toContain(`would launch: ${stubPath()} `);
 		expect(r.stdout).not.toContain(union.path);
 		expect(r.stderr).not.toContain("NOTE:");
-		expect(argvLines(union.argv)).toEqual([]);
+		expect(readArgvLines(union.argv)).toEqual([]);
 	});
 
 	/* The selection runs before the force check, so --force must still get the
@@ -503,7 +504,7 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 		stubClaude({ agentsJson: "" });
 		const r = run(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
-		expect(argvLines().some((l) => l.includes("agents --json"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("agents --json"))).toBe(true);
 		expect(r.stderr).toContain(`${stubPath()} agents --json`);
 	});
 });
@@ -536,7 +537,7 @@ describe("the advisor check", () => {
 		const r = run(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("the advisor is not live here");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(true);
 	});
 
 	it("relays the CLI's own reason when it gave one", () => {
@@ -573,7 +574,7 @@ describe("the seat kind (#2605)", () => {
 		expect(r.stderr).toContain(
 			`${path.join(fx.dir, ".claude", "refill-seats")}:2: missing cycle-day=`,
 		);
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 });
 
@@ -586,7 +587,7 @@ describe("the allowance gate", () => {
 			"session allowance 100% used (threshold 90%), resets Aug 23, 11:49pm — the bar is full",
 		);
 		expect(r.stderr).toContain("--force to override");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("--force silences the refusal but keeps the advisor report (mantahostels#1102)", () => {
@@ -595,7 +596,7 @@ describe("the allowance gate", () => {
 		expect(r.code).toBe(0);
 		expect(r.stdout).not.toContain("Allowance OK");
 		expect(r.stdout).toContain("Advisor available");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(true);
 	});
 
 	it("reports an unrecognised spelling even on a refused run (mantahostels#1199)", () => {
@@ -605,7 +606,7 @@ describe("the allowance gate", () => {
 		expect(r.stderr).toContain(
 			"unrecognised model spelling(s): some-future-alias",
 		);
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 });
 
@@ -619,7 +620,13 @@ describe("the allowance cap (#371)", () => {
 		const file = path.join(fx.dir, "cost-table.json");
 		fs.writeFileSync(
 			file,
-			JSON.stringify({ n: 1, meanUsd: 10, quantilesUsd: [1, 10, 30] }),
+			JSON.stringify({
+				n: 1,
+				meanUsd: 10,
+				quantilesUsd: [1, 10, 30],
+				tailRemainderUsd: 20,
+				landedByHours: [[1, 1]],
+			}),
 		);
 		return { WFC_SESSION_COST_TABLE: file };
 	};
@@ -631,7 +638,7 @@ describe("the allowance cap (#371)", () => {
 		"sonnet",
 		"/implement 353",
 	];
-	const launches = () => argvLines().filter((l) => l.includes("--bg"));
+	const readLaunches = () => readArgvLines().filter((l) => l.includes("--bg"));
 
 	it("launches the prefix that fits and names the cut tail", () => {
 		// Headroom 100 − 90 − 4.7 = 5.3: two 4.7-point members reach it, so the
@@ -643,8 +650,30 @@ describe("the allowance cap (#371)", () => {
 		expect(r.stderr).not.toContain("dropped: /wayfinder 1114");
 		expect(r.stderr).toContain("dropped: /implement 353");
 		expect(r.stdout).not.toContain("Allowance OK");
-		expect(launches()).toHaveLength(2);
-		expect(launches()[0]).toContain("/implement 341");
+		expect(readLaunches()).toHaveLength(2);
+		expect(readLaunches()[0]).toContain("/implement 341");
+	});
+
+	/* #2876: every figure on the CAPPED line comes off one jq read of the
+	 * allowance JSON. A neighbour makes the running projection differ from one
+	 * new session's, so a swap of the two shows. */
+	it("names the binding bar's reading, the running sessions and both projections on the CAPPED line", () => {
+		stubClaude({ session: "90", agentsJson: agentsListing(true) });
+		const r = run(set, table());
+		expect(r.stderr).toContain(
+			"CAPPED: launching 1 of 3 on the session bar (90% used, 2 running session(s)\n" +
+				"  projected at 9.4 more points, ~4.7 a new session).",
+		);
+	});
+
+	it("refuses, exit 3, naming the weekly bar's own reset once it reads 100%", () => {
+		stubClaude({ week: "100" });
+		const r = run(set, table());
+		expect(r.code).toBe(3);
+		expect(r.stderr).toContain(
+			"weekly allowance 100% used (threshold 97%), resets Aug 30, 7:59pm — the bar is full",
+		);
+		expect(readLaunches()).toHaveLength(0);
 	});
 
 	it("caps on the weekly bar at its own 97% threshold", () => {
@@ -655,7 +684,7 @@ describe("the allowance cap (#371)", () => {
 		expect(r.stderr).toContain("CAPPED: launching 1 of 3 on the weekly bar");
 		expect(r.stderr).toContain("dropped: /wayfinder 1114");
 		expect(r.stderr).toContain("dropped: /implement 353");
-		expect(launches()).toHaveLength(1);
+		expect(readLaunches()).toHaveLength(1);
 	});
 
 	it("launches the whole set below both thresholds", () => {
@@ -663,7 +692,7 @@ describe("the allowance cap (#371)", () => {
 		const r = run(set, table());
 		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("Allowance OK: week 96%, session 89%.");
-		expect(launches()).toHaveLength(3);
+		expect(readLaunches()).toHaveLength(3);
 	});
 
 	it("launches one where the running session's projection alone passes 100% but the bar does not", () => {
@@ -672,7 +701,7 @@ describe("the allowance cap (#371)", () => {
 		const r = run(set, table());
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("CAPPED: launching 1 of 3 on the session bar");
-		expect(launches()).toHaveLength(1);
+		expect(readLaunches()).toHaveLength(1);
 	});
 
 	it("refuses, exit 3, naming the full bar once it reads 100%", () => {
@@ -683,7 +712,7 @@ describe("the allowance cap (#371)", () => {
 			"session allowance 100% used (threshold 90%), resets Aug 23, 11:49pm — the bar is full",
 		);
 		expect(r.stderr).not.toContain("projected to spend");
-		expect(launches()).toHaveLength(0);
+		expect(readLaunches()).toHaveLength(0);
 	});
 
 	it("refuses rather than guessing where the cost table is unreadable, saying the allowance cap cannot be sized and launching nothing", () => {
@@ -697,7 +726,7 @@ describe("the allowance cap (#371)", () => {
 		expect(r.stderr).toContain(
 			"the session cost table is unreadable — build it: node scripts/measure-session-cost.js --write",
 		);
-		expect(launches()).toHaveLength(0);
+		expect(readLaunches()).toHaveLength(0);
 	});
 
 	it("refuses rather than guessing where the running sessions cannot be listed, and launches nothing", () => {
@@ -705,7 +734,7 @@ describe("the allowance cap (#371)", () => {
 		const r = run(set, table());
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("running sessions unreadable");
-		expect(launches()).toHaveLength(0);
+		expect(readLaunches()).toHaveLength(0);
 	});
 
 	it("--force skips the cap and launches the whole set", () => {
@@ -713,7 +742,7 @@ describe("the allowance cap (#371)", () => {
 		const r = run(["--force", ...set], table());
 		expect(r.code).toBe(0);
 		expect(r.stderr).not.toContain("CAPPED");
-		expect(launches()).toHaveLength(3);
+		expect(readLaunches()).toHaveLength(3);
 	});
 });
 
@@ -775,13 +804,13 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 		});
 		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("Allowance OK: week 50%, session 40%.");
-		expect(argvLines().some((l) => l.includes("--debug-file"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--debug-file"))).toBe(false);
 	});
 });
 
 describe("the cheap allowance probe (#2306)", () => {
-	const probed = () => argvLines().some((l) => l.includes("-p /usage"));
-	const fileText = (name: string) =>
+	const probed = () => readArgvLines().some((l) => l.includes("-p /usage"));
+	const readFileText = (name: string) =>
 		fs.existsSync(path.join(fx.dir, name))
 			? fs.readFileSync(path.join(fx.dir, name), "utf8").trim()
 			: null;
@@ -818,7 +847,7 @@ describe("the cheap allowance probe (#2306)", () => {
 			});
 			expect(r.code).toBe(0);
 			expect(probed()).toBe(true);
-			expect(fileText("probe-ended")).toBeNull();
+			expect(readFileText("probe-ended")).toBeNull();
 			expect(r.stdout).toContain("Allowance OK: week 51%, session 41%.");
 			expect(r.stdout).toContain("Advisor available");
 		},
@@ -836,15 +865,15 @@ describe("the cheap allowance probe (#2306)", () => {
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(0);
-		expect(fileText("probe-ended")).toBe("ended");
+		expect(readFileText("probe-ended")).toBe("ended");
 		expect(r.stdout).toContain("Allowance OK: week 3%, session 12%.");
 	});
 
 	it("runs the probe with stdin at EOF and from a directory outside any repo", () => {
 		stubClaude({});
 		run(["sonnet", "/implement 341"]);
-		expect(fileText("probe-stdin")).toBe("eof 1");
-		const cwd = fileText("probe-cwd") ?? "";
+		expect(readFileText("probe-stdin")).toBe("eof 1");
+		const cwd = readFileText("probe-cwd") ?? "";
 		const git = spawnSync("git", ["-C", cwd, "rev-parse", "--git-dir"]);
 		expect(git.status).not.toBe(0);
 	});
@@ -889,6 +918,13 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 		run(["opus", "/implement 341"]);
 		const rec = JSON.parse(fs.readFileSync(ledger(), "utf8").trim());
 		expect(rec.jobId).toBe("7fb75db3");
+	});
+
+	it("records the last of two id-shaped runs on the line", () => {
+		stubClaude({ launchOutput: "0123abcd then 89abcdef" });
+		run(["opus", "/implement 341"]);
+		const rec = JSON.parse(fs.readFileSync(ledger(), "utf8").trim());
+		expect(rec.jobId).toBe("89abcdef");
 	});
 
 	it("records jobId: null where the launch printed nothing on its first line", () => {
@@ -980,7 +1016,7 @@ describe("an unknown option", () => {
 		const r = run(["--no-such-flag", "341", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(2);
 		expect(r.stderr).toContain("unknown option: --no-such-flag");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 });
 
@@ -996,8 +1032,8 @@ describe("a set with one member already dispatched", () => {
 			"dispatched.jsonl",
 		);
 
-	function bgLaunches(): string[] {
-		return argvLines().filter((l) => l.includes("--bg"));
+	function readBgLaunches(): string[] {
+		return readArgvLines().filter((l) => l.includes("--bg"));
 	}
 
 	it("launches the clean members instead of refusing the whole set", () => {
@@ -1005,8 +1041,8 @@ describe("a set with one member already dispatched", () => {
 		run(["sonnet", "/implement 341"]);
 		const second = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
 		expect(second.code).toBe(0);
-		expect(bgLaunches().filter((l) => l.includes("1114"))).toHaveLength(1);
-		expect(bgLaunches().filter((l) => l.includes("341"))).toHaveLength(1);
+		expect(readBgLaunches().filter((l) => l.includes("1114"))).toHaveLength(1);
+		expect(readBgLaunches().filter((l) => l.includes("341"))).toHaveLength(1);
 	});
 
 	it("names the member it dropped, so a quieter launch is still visible", () => {
@@ -1039,7 +1075,7 @@ describe("a set with one member already dispatched", () => {
 			"/wayfinder 1114",
 		]);
 		expect(second.stderr).toContain("dropped: /implement 341 353");
-		expect(bgLaunches().filter((l) => l.includes("353"))).toHaveLength(0);
+		expect(readBgLaunches().filter((l) => l.includes("353"))).toHaveLength(0);
 	});
 
 	it("still exits 4 when every member is already dispatched", () => {
@@ -1113,7 +1149,7 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("not launching this member");
 		expect(r.stderr).toContain("--force-memory overrides a memory one");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("refuses every low-headroom member in a set, not only the first, naming each and launching none", () => {
@@ -1125,7 +1161,7 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("REFUSED: /wayfinder 1114");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("refuses on an unreadable re-read rather than guessing headroom, naming the member and offering --force-memory as the way out", () => {
@@ -1135,7 +1171,7 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("--force-memory overrides a memory one");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("--force-memory skips the memory re-read and launches anyway", () => {
@@ -1146,7 +1182,7 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 		const r = run(["--force-memory", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).not.toContain("REFUSED: /implement 341");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(true);
 	});
 
 	it("never re-reads under --dry-run", () => {
@@ -1173,7 +1209,7 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 		expect(r.stderr).toContain("WFC_LOAD_CEILING=0");
 		expect(r.stderr).not.toContain("--force-memory overrides a memory one");
 		expect(r.stderr).not.toContain("check-ghost-jobs.js");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("names both remedies where memory holds as well", () => {
@@ -1193,7 +1229,7 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("A CPU load hold");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("--force --force-memory still holds on load", () => {
@@ -1202,7 +1238,7 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 		const r = run(["--force", "--force-memory", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("A CPU load hold");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("warns, and launches, where --force-memory cannot read the load, naming the member and the load as unknown", () => {
@@ -1212,7 +1248,34 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("WARNING: /implement 341");
 		expect(r.stderr).toMatch(/cpu load\s+unknown/);
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(true);
+	});
+});
+
+/* #2876: the admit path's warning match, on the allowance line admission.js
+ * prints where its own reading is not fresh, and silent where it is. */
+describe("the admit-path allowance warning", () => {
+	it("names the member and the stale reading, and launches", () => {
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341"]);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toContain("WARNING: /implement 341");
+		expect(r.stderr).toContain(
+			"session allowance reading is absent — admitting anyway",
+		);
+		expect(launchArgv()).toContain("--bg");
+	});
+
+	it("says nothing on a fresh reading", () => {
+		const configDir = path.join(fx.dir, "fresh-config");
+		writeCache(configDir, { session: 40, weeklyAll: 50 });
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341"], {
+			CLAUDE_CONFIG_DIR: configDir,
+		});
+		expect(r.code).toBe(0);
+		expect(r.stderr).not.toContain("WARNING: /implement 341");
+		expect(launchArgv()).toContain("--bg");
 	});
 });
 
@@ -1233,7 +1296,7 @@ describe("a CPU session hold at the re-read (#2141)", () => {
 		expect(r.stderr).toContain("WFC_SESSION_CEILING=0");
 		expect(r.stderr).not.toContain("A CPU load hold");
 		expect(r.stderr).not.toContain("--force-memory overrides a memory one");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("names both remedies where memory holds as well", () => {
@@ -1248,7 +1311,7 @@ describe("a CPU session hold at the re-read (#2141)", () => {
 		stubClaude({});
 		const r = run(["--force-memory", "sonnet", "/implement 341"], full());
 		expect(r.stderr).toContain("A CPU session hold");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
 	it("warns, and launches, where --force-memory cannot count the sessions", () => {
@@ -1258,7 +1321,7 @@ describe("a CPU session hold at the re-read (#2141)", () => {
 		});
 		expect(r.stderr).toContain("WARNING: /implement 341");
 		expect(r.stderr).toMatch(/cpu sessions\s+unknown/);
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(true);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(true);
 	});
 });
 
@@ -1275,7 +1338,7 @@ describe("--force and --force-memory split (#299)", () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
 	};
-	const launches = () => argvLines().filter((l) => l.includes("--bg"));
+	const readLaunches = () => readArgvLines().filter((l) => l.includes("--bg"));
 
 	it("--force alone leaves the memory re-read armed", () => {
 		lowMemory();
@@ -1283,7 +1346,7 @@ describe("--force and --force-memory split (#299)", () => {
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("--force-memory overrides it");
-		expect(launches()).toHaveLength(0);
+		expect(readLaunches()).toHaveLength(0);
 	});
 
 	it("--force launches every member past a full session bar, not refusing each", () => {
@@ -1294,7 +1357,7 @@ describe("--force and --force-memory split (#299)", () => {
 		);
 		expect(r.code).toBe(0);
 		expect(r.stderr).not.toContain("REFUSED");
-		expect(launches()).toHaveLength(2);
+		expect(readLaunches()).toHaveLength(2);
 	});
 
 	it("--force-memory alone leaves the allowance gate armed", () => {
@@ -1305,7 +1368,7 @@ describe("--force and --force-memory split (#299)", () => {
 		);
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("session allowance 100% used");
-		expect(launches()).toHaveLength(0);
+		expect(readLaunches()).toHaveLength(0);
 	});
 
 	it("--force-memory alone leaves the duplicate drop armed", () => {
@@ -1317,7 +1380,7 @@ describe("--force and --force-memory split (#299)", () => {
 		expect(r.stderr).toContain(
 			"every member of this set is already dispatched",
 		);
-		expect(launches()).toHaveLength(1);
+		expect(readLaunches()).toHaveLength(1);
 	});
 
 	it("--force --force-memory together skip all three gates, as the old --force did", () => {
@@ -1330,7 +1393,7 @@ describe("--force and --force-memory split (#299)", () => {
 		);
 		expect(r.code).toBe(0);
 		expect(r.stderr).not.toContain("REFUSED");
-		expect(launches()).toHaveLength(2);
+		expect(readLaunches()).toHaveLength(2);
 	});
 });
 
@@ -1358,7 +1421,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 		expect(elapsed).toBeGreaterThanOrEqual(1000);
 		// The wall-clock alone would also pass a run that slept but refused the
 		// second member — both launches must actually have happened.
-		expect(argvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
+		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
 	});
 
 	/*
@@ -1377,7 +1440,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 		);
 		expect(r.status).toBe(0);
 		expect(sleepArgs()).toEqual(["2"]);
-		expect(argvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
+		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
 	});
 
 	/*
@@ -1393,7 +1456,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 		expect(r.status).toBe(0);
 		// An empty log also describes a run that never launched at all, so the
 		// one launch has to be asserted alongside it.
-		expect(argvLines().filter((l) => l.includes("--bg"))).toHaveLength(1);
+		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(1);
 		expect(sleepArgs()).toEqual([]);
 	});
 
@@ -1438,7 +1501,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 		// a `claude` that died on launch would leave the same empty log.
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("REFUSED: /wayfinder 1114");
-		expect(argvLines().some((l) => l.includes("--bg"))).toBe(false);
+		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 		expect(sleepArgs()).toEqual([]);
 	});
 });
@@ -1466,6 +1529,33 @@ describe("the pending-spare charge on the re-read (mantahostels#2588)", () => {
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
 		const r = run(["--force-memory", "sonnet", "/implement 341"]);
 		expect(r.stderr).not.toContain("pending spares");
+	});
+});
+
+/*
+ * #2889. admission.js's lander read lists the suite queue under the temp root,
+ * which the fixture points at its own directory: a refused member relays the
+ * slot arithmetic, which names a lander's reserve only where one is queued.
+ */
+describe("the lander read on the re-read (#2889)", () => {
+	const refused = () => {
+		stubClaude({ agentsJson: agentsListing(true) });
+		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
+		return run(["sonnet", "/implement 341"]).stderr;
+	};
+
+	it("reads the fixture's queue, never the machine's own landers", () => {
+		expect(refused()).not.toMatch(/\d+ lander/);
+	});
+
+	it("counts a lander queued in the fixture's queue", () => {
+		const queue = path.join(fx.dir, "wfc-suite-queue");
+		fs.mkdirSync(queue);
+		fs.writeFileSync(
+			path.join(queue, `wfc-suite-queue-${process.pid}.json`),
+			JSON.stringify({ pid: process.pid, at: 1, role: "lander" }),
+		);
+		expect(refused()).toMatch(/\d+ lander/);
 	});
 });
 
@@ -1646,7 +1736,7 @@ describe("the kernel-stall check (#867)", () => {
 		expect(r.stderr).toContain("RCU stall");
 		expect(r.stderr).toContain("2026-10-07T22:43:24+08:00");
 		expect(r.stderr).toContain("wsl --shutdown");
-		expect(argvLines()).toEqual([]);
+		expect(readArgvLines()).toEqual([]);
 	});
 
 	it("launches normally on a clean boot", () => {
@@ -1691,7 +1781,30 @@ describe("the kernel-stall check (#867)", () => {
 		expect(r.stderr).toContain("1 member(s) HAD already launched");
 		expect(r.stderr).toContain("/implement 341");
 		expect(r.stderr).toContain("re-run with --force");
-		expect(argvLines().filter((l) => l.includes("--bg"))).toHaveLength(1);
+		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(1);
+	});
+});
+
+describe("the scheduler-clock check (#2779)", () => {
+	it("refuses the whole call on a frozen clock, naming the signal", () => {
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
+			WFC_SCHED_CLOCK: fx.schedClock(0),
+		});
+		expect(r.code).toBe(5);
+		expect(r.stderr).toContain("SCHED-CLOCK-FROZEN");
+		expect(r.stderr).not.toContain("RCU stall");
+		expect(r.stderr).toContain("wsl --shutdown");
+		expect(readArgvLines()).toEqual([]);
+	});
+
+	it("launches once the clock moves again", () => {
+		stubClaude({});
+		const r = run(["sonnet", "/implement 341"], {
+			WFC_SCHED_CLOCK: fx.schedClock(1),
+		});
+		expect(r.code).toBe(0);
+		expect(launchArgv()).toBeDefined();
 	});
 });
 
@@ -1714,7 +1827,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stderr).toContain("wsl --shutdown");
 		// Not one `claude` call of any kind — the probe precedes even the
 		// `/usage` read, whose own 120s ceiling would otherwise set the wait.
-		expect(argvLines()).toEqual([]);
+		expect(readArgvLines()).toEqual([]);
 	});
 
 	it("records nothing to the dispatch ledger", () => {
@@ -1858,7 +1971,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		});
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("interop bridge is wedged");
-		expect(argvLines()).toEqual([]);
+		expect(readArgvLines()).toEqual([]);
 	});
 
 	it("names the members already launched when the bridge wedges mid-set", () => {

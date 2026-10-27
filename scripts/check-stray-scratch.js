@@ -14,16 +14,16 @@
  * same detection ran as a `Stop`-hook `systemMessage` limb
  * of `guard-uncommitted-work.js` and reached nobody (mantahostels#2319, mantahostels#2338).
  *
- * THIS IS LIMB 2. `scripts/guard-root-scratch.sh` is limb 1 and REFUSES the
+ * THIS IS LIMB 2. `scripts/lib/root-scratch.js` is limb 1 and REFUSES the
  * write before it happens (mantahostels#2436), off the Bash
  * command string and a file tool's path (mantahostels#3380). That route is lexical: it
- * reads lib/guard-parse.sh's gp_write_targets spellings only (#1827), so a `dd`
+ * reads lib/shell-parse.js's writeTargets spellings only (#1827), so a `dd`
  * or a script writing on your behalf passes it unseen. That residual is only
  * ever visible AS A TREE STATE, AFTER THE FACT.
  *
  * `.claude/tmp/` NEVER APPEARS HERE: the sanctioned directory is gitignored, and
  * `git status --porcelain` without `--ignored` drops an ignored path.
- * `lib/dirty-tree.js`'s `untrackedEntries` owns that reading — a directory
+ * `lib/dirty-tree.js`'s `readUntrackedEntries` owns that reading — a directory
  * collapsed to one entry rather than walked into, so a scratch subdirectory
  * counts once.
  *
@@ -54,7 +54,7 @@
  * and never the shared tree's. Deliberate — scratch dropped in a
  * worktree is just as stray — but the count will not match a neighbour's.
  *
- * DEGRADES TO SILENCE, NEVER TO "TIDY". A `null` from `untrackedEntries` is
+ * DEGRADES TO SILENCE, NEVER TO "TIDY". A `null` from `readUntrackedEntries` is
  * "git would not answer", so the run SKIPs rather than reporting all-clear over
  * a tree it never read.
  *
@@ -77,9 +77,9 @@
  * the ground that one report cannot carry two remedies. Residual: it can, but
  * only while each remedy stays inside its own bucket's block.
  *
- * BOTH BUCKETS TAKE `untrackedEntries`, AND A COLLAPSED `docs/research/` ENTRY
+ * BOTH BUCKETS TAKE `readUntrackedEntries`, AND A COLLAPSED `docs/research/` ENTRY
  * COUNTS AS ONE. The two buckets partition one read, so a path lands in exactly
- * one of them; a second read with `untrackedFiles` — which walks an untracked
+ * one of them; a second read with `readUntrackedFiles` — which walks an untracked
  * directory out into its files — would give the same report two granularities
  * and two views of a tree that can change between the reads. So where
  * `docs/research/` holds no tracked file at all, git collapses it and this
@@ -100,7 +100,7 @@
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { docPath } = require("./lib/script-path.js");
-const { shellWord, untrackedEntries } = require("./lib/dirty-tree.js");
+const { shellWord, readUntrackedEntries } = require("./lib/dirty-tree.js");
 const { listedAgents } = require("./lib/agent-liveness");
 const { earliestStart, writtenAtMs } = require("./lib/scratch-sweep");
 const { hostRoot } = require("./lib/host-root.js");
@@ -115,7 +115,7 @@ const NAMED_MAX = 5;
  * Prefix whose untracked paths are unlanded research artefacts rather than
  * scratch, and so take the second bucket and its opposite remedy (mantahostels#2455; header,
  * §TWO BUCKETS). The trailing slash matches both a file under it and the
- * collapsed directory entry `untrackedEntries` returns where the directory
+ * collapsed directory entry `readUntrackedEntries` returns where the directory
  * itself is untracked.
  */
 const RESEARCH_PREFIX = "docs/research/";
@@ -348,7 +348,7 @@ runCheck({
 	run(ctx) {
 		const root = ctx.value("--root", REPO_ROOT);
 
-		const reading = untrackedEntries(root);
+		const reading = readUntrackedEntries(root);
 		// The working tree is subject, not apparatus: SKIP, never BROKEN.
 		if (reading === null)
 			ctx.skip(

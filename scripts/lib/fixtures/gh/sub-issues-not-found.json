@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "[{\"message\":\"Not Found\",\"documentation_url\":\"https://docs.github.com/rest/issues/sub-issues#list-sub-issues\",\"status\":\"404\"}]",
+	"stderr": "gh: Not Found (HTTP 404)\n"
+}

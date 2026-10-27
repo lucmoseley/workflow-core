@@ -25,6 +25,13 @@ const fs = require("node:fs");
 /* The wrapper names a per-run file here, as it does the in-flight one. */
 const TIMINGS_ENV = "WFC_RUN_TIMINGS_FILE";
 
+/* How many of a run's slowest files its pass marker keeps, for
+ * check-suite-margin.js to name (#2770). A guess, never measured: enough to
+ * show where to cut, few enough to read in a status report. */
+const SLOWEST_KEPT = 10;
+
+/** @typedef {{ file: string, seconds: number }} SlowFile */
+
 /**
  * One run's recorder.
  * @param {{ write: (s: string) => unknown }} [err]
@@ -53,6 +60,16 @@ function createTimings(err = process.stderr) {
 			if (!moduleId || from === undefined) return;
 			queued.delete(moduleId);
 			seconds.set(moduleId, (atMs - from) / 1000);
+		},
+		/**
+		 * The `SLOWEST_KEPT` slowest ended modules, slowest first.
+		 * @returns {SlowFile[]}
+		 */
+		slowest() {
+			return [...seconds]
+				.sort((a, b) => b[1] - a[1])
+				.slice(0, SLOWEST_KEPT)
+				.map(([file, s]) => ({ file, seconds: s }));
 		},
 		/**
 		 * Writes every ended module's seconds to `file`, keyed by module id.

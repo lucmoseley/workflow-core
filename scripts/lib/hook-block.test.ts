@@ -40,7 +40,7 @@ const CORPORA = [
 	path.join(REPO, ".claude", "skills"),
 ];
 
-function sources(): string[] {
+function readSources(): string[] {
 	const out: string[] = [];
 	const walk = (dir: string) => {
 		for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -102,7 +102,7 @@ const declaredInLibs = (f: string, src: string) =>
  */
 const REQUIRES_HOOK_BLOCK = /require\("[^"]*\/hook-block(?:\.js)?"\)/;
 
-const scanned = sources().map((f) => {
+const scanned = readSources().map((f) => {
 	const src = fs.readFileSync(f, "utf8");
 	const requiresHookBlock = REQUIRES_HOOK_BLOCK.test(src);
 	return {
@@ -124,7 +124,7 @@ const total = (k: "uses" | "calls") => scanned.reduce((n, s) => n + s[k], 0);
  * `-nagged-`. */
 const naggedLiterals = [
 	...new Set(
-		sources().flatMap((file) =>
+		readSources().flatMap((file) =>
 			[
 				...fs
 					.readFileSync(file, "utf8")

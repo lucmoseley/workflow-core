@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { writePsStub } from "./ps-stub";
+import { writeSchedClock } from "./sched-clock-fixture";
 import { PROBE_TIMEOUT_MS } from "./usage-probe.js";
 
 /* The `probeHangs` stub's sleep, which runs out only where the stamp stop
@@ -67,7 +68,7 @@ export interface StubClaudeOptions {
 	 * asserting the ledger's `jobId` passes a short-id-shaped string. */
 	launchOutput?: string;
 	/** Where this stub records its argv — defaults to the shared `dir/argv`.
-	 * A case standing up TWO stubs gives one its own log, so `argvLines()` can
+	 * A case standing up TWO stubs gives one its own log, so `readArgvLines()` can
 	 * say which of them a call actually reached rather than reading a union of
 	 * both (#275). */
 	argvLog?: string;
@@ -99,10 +100,13 @@ export interface DispatchFixture {
 	/** The env every run needs, plus whatever a case overrides. */
 	baseEnv: (extra?: Record<string, string>) => NodeJS.ProcessEnv;
 	launchArgv: () => string | undefined;
-	argvLines: (f?: string) => string[];
+	readArgvLines: (f?: string) => string[];
 	/** A reg.exe that never answers, so the interop probe reads the bridge as
 	 * wedged. */
 	regWedged: () => string;
+	/** A WFC_SCHED_CLOCK directory whose run-queue clocks move `ratio` of the
+	 * 2 CPU-s the machine was busy: 0 reads frozen, 1 running. */
+	schedClock: (ratio: number) => string;
 }
 
 /** Register the beforeEach/afterEach that build and remove a fresh root. */
@@ -115,14 +119,16 @@ export function dispatchFixture(): DispatchFixture {
 		stubPath,
 		baseEnv,
 		launchArgv,
-		argvLines,
+		readArgvLines,
 		regWedged,
+		schedClock,
 	};
 	let psEmpty = "";
 	let reapEmpty = "";
 	let regHealthy = "";
 	let ghNoParent = "";
 	let kernelClean = "";
+	let schedRunning = "";
 
 	beforeEach(() => {
 		fx.dir = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-sessions-"));
@@ -164,6 +170,9 @@ export function dispatchFixture(): DispatchFixture {
 			kernelClean,
 			"2026-10-07T23:18:35+08:00 host kernel: Booting Linux on physical CPU 0x0\n",
 		);
+		// Its clock signal (#2779) reads this rather than the machine's own
+		// scheduler, so a frozen clock never refuses a case, and takes no wait.
+		schedRunning = schedClock(1);
 	});
 
 	afterEach(() => {
@@ -253,6 +262,9 @@ export function dispatchFixture(): DispatchFixture {
 			// self-test (`listedSessionIds`) — the default `agentsJson` above lists
 			// exactly this id, so the re-read sees itself and nobody else.
 			CLAUDE_CODE_SESSION_ID: SELF_SESSION_ID,
+			// admission.js's lander read (#2416) lists the suite queue under the
+			// temp root, which would count the machine's real landers (#2889).
+			TMPDIR: fx.dir,
 			WFC_MEMINFO: fx.meminfo,
 			WFC_PS: psEmpty,
 			WFC_REAP_SCRIPT: reapEmpty,
@@ -274,16 +286,17 @@ export function dispatchFixture(): DispatchFixture {
 			WFC_BURN_MARKER: path.join(fx.dir, "burn-mode"),
 			CLAUDE_INTEROP_REG: regHealthy,
 			WFC_KERNEL_LOG: kernelClean,
+			WFC_SCHED_CLOCK: schedRunning,
 			WFC_GH: ghNoParent,
 			...extra,
 		};
 	}
 
 	function launchArgv(): string | undefined {
-		return argvLines().find((l) => l.includes("--bg"));
+		return readArgvLines().find((l) => l.includes("--bg"));
 	}
 
-	function argvLines(f: string = path.join(fx.dir, "argv")): string[] {
+	function readArgvLines(f: string = path.join(fx.dir, "argv")): string[] {
 		if (!fs.existsSync(f)) return [];
 		return fs.readFileSync(f, "utf8").trim().split("\n").filter(Boolean);
 	}
@@ -292,6 +305,13 @@ export function dispatchFixture(): DispatchFixture {
 		const at = path.join(fx.dir, "reg-wedged");
 		fs.writeFileSync(at, "#!/bin/bash\nsleep 600\n", { mode: 0o755 });
 		return at;
+	}
+
+	function schedClock(ratio: number): string {
+		return writeSchedClock(path.join(fx.dir, `sched-clock-${ratio}`), {
+			rq: 2 * ratio,
+			busy: 2,
+		});
 	}
 
 	return fx;

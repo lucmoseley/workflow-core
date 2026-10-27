@@ -24,7 +24,7 @@
  * alphabet — the checker beside it, check-capture-drain.js, does.
  */
 
-const { gh, errLine } = require("./lib/gh");
+const { gh, parseErrLine } = require("./lib/gh");
 const { DRAIN_REACTION, fetchCaptures } = require("./lib/captures");
 const { parseOrExit } = require("./lib/cli-args");
 
@@ -43,7 +43,7 @@ function list({ all, json }) {
 	try {
 		captures = fetchCaptures();
 	} catch (e) {
-		die(`could not read the tracker's comments: ${errLine(e)}`);
+		die(`could not read the tracker's comments: ${parseErrLine(e)}`);
 	}
 	const shown = all ? captures : captures.filter((c) => !c.drained);
 
@@ -94,7 +94,7 @@ function mark(argv) {
 			`content=${DRAIN_REACTION}`,
 		]);
 	} catch (e) {
-		die(`could not react to comment ${id}: ${errLine(e)}`);
+		die(`could not react to comment ${id}: ${parseErrLine(e)}`);
 	}
 	process.stdout.write(
 		`Marked comment ${id} consumed (:${DRAIN_REACTION}:).\n`,

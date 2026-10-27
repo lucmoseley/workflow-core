@@ -12,10 +12,14 @@
  * verdict or closure.
  */
 
-import { afterEach, describe, expect, it } from "vitest";
+import fs from "node:fs";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { mkScratchDir } from "./git-fixture";
+import { carrying } from "./proc-fake";
 import {
 	fillRunReport,
 	launchEnv,
+	readCarriedWeight,
 	readLaunch,
 	takeRunReport,
 } from "./suite-handoff.js";
@@ -27,9 +31,12 @@ const LAUNCH = {
 	admissible: true,
 	isolated: true,
 	viaChanged: true,
+	touched: true,
 	full: "flag",
 	fullCause: "coverage",
 	argv: ["--full=coverage"],
+	resolvedFiles: 485,
+	wholeSlot: true,
 	changedPaths: ["lib/a.js", "docs/b.md"],
 	base: "b".repeat(40),
 };
@@ -38,9 +45,12 @@ const ABSENT = {
 	admissible: false,
 	isolated: false,
 	viaChanged: false,
+	touched: false,
 	full: null,
 	fullCause: null,
 	argv: null,
+	resolvedFiles: null,
+	wholeSlot: false,
 	changedPaths: null,
 	base: null,
 };
@@ -72,12 +82,17 @@ describe("the launch record", () => {
 		["admissible", 1],
 		["isolated", "true"],
 		["viaChanged", "1"],
+		["touched", "true"],
 		["full", "everything"],
 		["full", true],
 		["fullCause", "because"],
 		["fullCause", 3],
 		["argv", "--full"],
 		["argv", [1]],
+		["resolvedFiles", -1],
+		["resolvedFiles", 2.5],
+		["resolvedFiles", "40"],
+		["wholeSlot", "true"],
 		["changedPaths", "lib/a.js"],
 		["changedPaths", ["lib/a.js", null]],
 		["base", 42],
@@ -103,6 +118,39 @@ describe("the launch record", () => {
 	});
 });
 
+describe("the weight a running process carries (#2931)", () => {
+	const proc = mkScratchDir("proc-");
+	afterAll(() => fs.rmSync(proc, { recursive: true, force: true }));
+
+	it("reads the resolved count and slot off the launch record", () => {
+		const pid = carrying(proc, 11, { resolvedFiles: 40, wholeSlot: false });
+		expect(readCarriedWeight(pid, proc)).toEqual({
+			resolvedFiles: 40,
+			wholeSlot: false,
+		});
+	});
+
+	it("reads an unresolved whole run as carried", () => {
+		const pid = carrying(proc, 12, { resolvedFiles: null, wholeSlot: true });
+		expect(readCarriedWeight(pid, proc)).toEqual({
+			resolvedFiles: null,
+			wholeSlot: true,
+		});
+	});
+
+	it.each([
+		["no record", 13, null],
+		["a record carrying no weight", 14, { isolated: true }],
+	])("reads %s as none, for the argv to weigh", (_what, pid, launch) => {
+		expect(readCarriedWeight(carrying(proc, pid, launch), proc)).toBeNull();
+	});
+
+	it("reads an unreadable or absent process as none", () => {
+		expect(readCarriedWeight(99, proc)).toBeNull();
+		expect(readCarriedWeight(null, proc)).toBeNull();
+	});
+});
+
 describe("the run report", () => {
 	afterEach(() => {
 		takeRunReport();
@@ -113,17 +161,24 @@ describe("the run report", () => {
 		scope: { modulesRun: 1, modulesTotal: 1 },
 		attestation: { closure: "*" },
 		startedAtMs: 1000,
+		elapsedMs: 1000,
 		machineStart: { jiffies: { user: 1 }, total: 1, load1: null },
 		machineEnd: { jiffies: { user: 2 }, total: 2, load1: null },
 		endedAtMs: 2000,
+		slowest: [{ file: "a.test.ts", seconds: 1 }],
 	};
 
 	it("gives one take every field filled, and a second take nothing", () => {
 		fillRunReport({ startedAtMs: 1000, machineStart: filled.machineStart });
-		fillRunReport({ endedAtMs: 2000, machineEnd: filled.machineEnd });
+		fillRunReport({
+			endedAtMs: 2000,
+			elapsedMs: 1000,
+			machineEnd: filled.machineEnd,
+		});
 		fillRunReport({ outcome: true });
 		fillRunReport({ scope: filled.scope as never });
 		fillRunReport({ attestation: filled.attestation as never });
+		fillRunReport({ slowest: filled.slowest });
 		expect(takeRunReport()).toEqual(filled);
 		expect(Object.values(takeRunReport()).every((v) => v === null)).toBe(true);
 	});

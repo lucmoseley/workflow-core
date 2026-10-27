@@ -28,7 +28,11 @@ const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { takesLabel, takesRefusal } = require("./lib/takes-label");
 const { fileOrRefresh } = require("./lib/tracking-issue");
-const { errLine, ghFailureReason, unreachableRemedy } = require("./lib/gh");
+const {
+	parseErrLine,
+	parseGhFailureReason,
+	unreachableRemedy,
+} = require("./lib/gh");
 const { readConfig, retroFault } = require("./lib/workflow-core-config");
 
 const TITLE = "Weekly retro due";
@@ -210,12 +214,12 @@ function main() {
 		/* Not e.message: a failed gh call's holds its whole argv, the body
 		 * included. */
 		const hint =
-			ghFailureReason(e) === "unreachable"
+			parseGhFailureReason(e) === "unreachable"
 				? unreachableRemedy(e)
 				: "A gh 403 is a token missing a permission: the gh token needs `issues: write`.";
 		writeFd(
 			2,
-			`BROKEN: could not file or refresh "${TITLE}" — ${errLine(e)}\n${hint} The run is still due: re-run once that is cleared, or the next day's run retries.\n`,
+			`BROKEN: could not file or refresh "${TITLE}" — ${parseErrLine(e)}\n${hint} The run is still due: re-run once that is cleared, or the next day's run retries.\n`,
 		);
 		process.exit(2);
 	}

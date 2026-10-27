@@ -2,7 +2,7 @@
  * landing-refs.js — which remote ref a reader of "what has been pushed" reads,
  * and which a reader of "what has been verified or released" reads (#2408,
  * spec #2261). The choice lives here alone: a reader calls `pushedRef` or
- * `unpushedRef`, or names the refs exported here, never the `landing` module.
+ * `readUnpushedRef`, or names the refs exported here, never the `landing` module.
  *
  * With the `landing` module on, sessions push to `landing` and only the lander
  * moves `main`, so the pushed base is `origin/landing`. With it off, both are
@@ -14,9 +14,9 @@
  *     shell
  */
 
-const { execFileSync } = require("node:child_process");
 const { moduleOn } = require("./workflow-core-config.js");
 const { writeFd } = require("./write-fd.js");
+const { execGit } = require("./git.js");
 
 const REMOTE = "origin";
 const VERIFIED_BRANCH = "main";
@@ -54,9 +54,9 @@ function pushedRef(opts) {
  * @param {{root?: string}} [opts] the checkout, whose config is read
  * @returns {string}
  */
-function unpushedRef(opts) {
+function readUnpushedRef(opts) {
 	const git = (/** @type {string[]} */ args) =>
-		execFileSync("git", args, {
+		execGit(args, {
 			cwd: opts?.root,
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
@@ -80,7 +80,7 @@ if (require.main === module) {
 	const [verb, root, ...more] = process.argv.slice(2);
 	const answer = new Map([
 		["pushed", pushedRef],
-		["unpushed", unpushedRef],
+		["unpushed", readUnpushedRef],
 	]).get(verb ?? "");
 	if (!answer || more.length > 0) {
 		writeFd(2, "usage: landing-refs.js pushed|unpushed [<root>]\n");
@@ -95,7 +95,7 @@ module.exports = {
 	pushedRef,
 	REMOTE,
 	trackingRefspec,
-	unpushedRef,
+	readUnpushedRef,
 	VERIFIED_BRANCH,
 	VERIFIED_REF,
 };

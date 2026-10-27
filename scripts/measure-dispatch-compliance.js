@@ -131,7 +131,7 @@ function windowLabel(opts) {
  * The mantahostels#766 verdict line.
  * @param {{hold: boolean|null}} v
  */
-function verdictLine(v) {
+function buildVerdictLine(v) {
 	if (v.hold === null) return "No dispatches in this window — no verdict.";
 	return v.hold
 		? `>= ${HOLD_THRESHOLD * 100}% — mantahostels#766: the rule holds unenforced. Record the figure and close.`
@@ -189,7 +189,7 @@ function main() {
 	console.log(`Window: ${windowLabel(opts)}`);
 	console.log("");
 	console.log(`Compliance: ${pct(s.rate)} (${s.compliant}/${s.total})`);
-	console.log(verdictLine(v));
+	console.log(buildVerdictLine(v));
 
 	console.log("\nReference points:");
 	for (const [label, figure] of REFERENCES)

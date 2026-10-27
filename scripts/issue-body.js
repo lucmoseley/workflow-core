@@ -70,7 +70,7 @@ const {
 	basisRefusal,
 	gateRuleHandover,
 } = require("./lib/issue-gate");
-const { ruleText } = require("./lib/rule-text");
+const { readRuleText } = require("./lib/rule-text");
 const { sleepSync } = require("./lib/sleep-sync");
 const { caught } = require("./lib/caught.js");
 
@@ -215,7 +215,7 @@ const DECISIONS = "Decisions so far";
  * @param {string} body
  * @returns {string[] | null}
  */
-function decisionLines(body) {
+function parseDecisionLines(body) {
 	const lines = normalise(body).split("\n");
 	const found = findSection(lines, DECISIONS);
 	if (!found) return null;
@@ -256,7 +256,7 @@ const appendDecision = (child, gist) => {
 	const key = childKey(child);
 	const insert = appendSection(DECISIONS, `- #${child} — ${text}`);
 	return (body) => {
-		const existing = decisionLines(body);
+		const existing = parseDecisionLines(body);
 		if (!existing) {
 			const error = new Error(`no '## ${DECISIONS}' section`);
 			missingSection.add(error);
@@ -830,7 +830,7 @@ function parseArgs(argv) {
  * @param {Opts} o
  * @returns {string}
  */
-const textOf = (o) => {
+const readTextOf = (o) => {
 	if (o.text !== undefined) return o.text;
 	if (o.file !== undefined) return fs.readFileSync(o.file, "utf8");
 	throw new CallerError("need --text or --file");
@@ -843,10 +843,10 @@ const textOf = (o) => {
 function buildTransform(o) {
 	switch (o.command) {
 		case "append":
-			return append(textOf(o));
+			return append(readTextOf(o));
 		case "append-section":
 			if (!o.heading) throw new CallerError("append-section needs --heading");
-			return appendSection(o.heading, textOf(o));
+			return appendSection(o.heading, readTextOf(o));
 		case "delete-lines":
 			if (o.match === undefined)
 				throw new CallerError("delete-lines needs --match");
@@ -857,7 +857,7 @@ function buildTransform(o) {
 		case "annotate":
 			if (o.match === undefined)
 				throw new CallerError("annotate needs --match");
-			return annotate(o.match, textOf(o));
+			return annotate(o.match, readTextOf(o));
 		default:
 			throw new CallerError(`unknown command: ${o.command}`);
 	}
@@ -923,7 +923,7 @@ let gateRuleHanded = false;
 function refuseBasisFaults(before, after) {
 	const handover = gateRuleHanded
 		? null
-		: gateRuleHandover(before, after, () => ruleText("roadmap-gating"));
+		: gateRuleHandover(before, after, () => readRuleText("roadmap-gating"));
 	if (handover) {
 		gateRuleHanded = true;
 		writeFd(2, handover);
@@ -1004,7 +1004,7 @@ function appendDecisionCli(o, repo) {
 	if (!r) return 0;
 	if (!r.changed) {
 		const key = childKey(o.child);
-		const held = (decisionLines(r.body) || []).find((l) => key.test(l));
+		const held = (parseDecisionLines(r.body) || []).find((l) => key.test(l));
 		writeFd(
 			1,
 			`issue ${o.issue}: #${o.child} already has a line in ${DECISIONS}, nothing written: ${held}\n`,
@@ -1013,8 +1013,10 @@ function appendDecisionCli(o, repo) {
 	}
 	// Checked against the first read only: a line arriving after it and lost to
 	// a retry goes unseen, a window the lock already closes for local writers.
-	const after = new Set(decisionLines(r.body) || []);
-	const lost = (decisionLines(r.before) || []).filter((l) => !after.has(l));
+	const after = new Set(parseDecisionLines(r.body) || []);
+	const lost = (parseDecisionLines(r.before) || []).filter(
+		(l) => !after.has(l),
+	);
 	if (lost.length > 0) {
 		const rescue = rescueTo(o.issue, "before-append", r.before);
 		writeFd(

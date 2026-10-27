@@ -46,11 +46,10 @@
 const fs = require("node:fs");
 const { markersDir } = require("./lib/marker-root.js");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const { runCheck, errMessage } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group.js");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { execGit } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
@@ -132,10 +131,9 @@ const git = (
 	/** @type {string} */ what,
 ) => {
 	try {
-		return execFileSync("git", args, {
+		return execGit(args, {
 			cwd: root,
 			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
 		});
 	} catch (e) {
 		return ctx.broken(`git ${args[0]} failed while ${what}: ${errMessage(e)}`);

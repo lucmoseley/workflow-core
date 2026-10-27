@@ -18,12 +18,12 @@
  * guard.
  *
  * IT WRITES NO `.hook-ran-` BREADCRUMB, and the stand-down deliberately reads
- * the message without minting one: `hookMessage.messageFrom` records on every
+ * the message without minting one: `hookMessage.readMessageFrom` records on every
  * call, and a guard crumbing only the rare turns it nearly blocks would read as
  * SILENT in `check-stop-guard-outcomes.js` on every window it crumbed none.
  *
  * A NEIGHBOUR'S DIRT IS SUBTRACTED ON TWO SIGNALS, not one: their live claim
- * (`claimedElsewhere`) and their live observation (`observedElsewhere`, mantahostels#2282),
+ * (`readClaimedElsewhere`) and their live observation (`readObservedElsewhere`, mantahostels#2282),
  * both in `lib/neighbour-dirt.js` (#615).
  *
  * WHAT IT DOES NOT COVER. The ledger is filled by a `PostToolUse` hook on
@@ -31,12 +31,12 @@
  * a heredoc, `sed -i`, a generator — mints no entry there (mantahostels#296).
  *
  * ONE SLICE OF THAT IS CREDITED, AND THIS GUARD REFUSES ON IT (mantahostels#2778).
- * `scripts/guard-claimed-bash-write.sh` runs at `PreToolUse` on a Bash command,
+ * lib/claimed-bash-write.js, a dispatcher core, runs at `PreToolUse` on a Bash command,
  * and every write target it resolves LITERALLY that matches
  * lib/code-signal.sh's CODE globs — a `.js/.mjs/.cjs/.ts/.tsx/.jsx/.py/.sh`
  * extension, or anything under `.husky/` — is credited to this session, unless
  * another LIVE session holds a READABLE claim on it. That glob list is OWNED by
- * `guard-claimed-bash-write.sh`'s `CODE_EXT`/`CODE_DIR`, whose header carries
+ * lib/claimed-bash-write.js's `CODE_EXT`/`CODE_DIR`, whose comment carries
  * the drift cost; read it there rather than trusting this copy.
  *
  * Everything else mints nothing and stays invisible here: a non-code path
@@ -47,7 +47,7 @@
  * no session id.
  *
  * A neighbour's lock whose own record will not parse is not counted as
- * contention (`warn-claimed-bash-write.js`'s `credit`), so their file can be
+ * contention (lib/claim-warning.js's `creditable`), so their file can be
  * billed to you here. And the credit is INTENT, taken at `PreToolUse` before the
  * command runs, so an entry outlives a command a sibling guard denied or that
  * simply failed — after which a neighbour's later UNCLAIMED edit to that path
@@ -65,7 +65,7 @@
  * and mantahostels#2338 measured every one of 1,004,194 `sessionKind` values across the
  * whole 3,915-transcript corpus as `"bg"`, so it had no reader on either side
  * and relabelling it founder-only would have documented an audience that does
- * not exist. `scripts/guard-root-scratch.sh` now carries the same rule at
+ * not exist. `scripts/lib/root-scratch.js` now carries the same rule at
  * `PreToolUse`, which mantahostels#2319 proved live. `blockStop`'s own `reason` is
  * unaffected: mantahostels#2335 measured it reaching the model on all 3,631 firings.
  *
@@ -86,18 +86,19 @@
 
 const {
 	REFUSAL_NAMED_MAX,
-	dirtyTracked,
+	readDirtyTracked,
 	gitRead,
 	shellWord,
 } = require("./lib/dirty-tree.js");
+const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const hookBlock = require("./lib/hook-block");
 const store = require("./lib/arbiter-store");
 const hookMessage = require("./lib/hook-message");
 const {
-	claimedElsewhere,
-	observedElsewhere,
+	readClaimedElsewhere,
+	readObservedElsewhere,
 } = require("./lib/neighbour-dirt.js");
-const { pendingTasks } = require("./lib/pending-tasks");
+const { readPendingTasks } = require("./lib/pending-tasks");
 const { scriptPath } = require("./lib/script-path.js");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
@@ -136,7 +137,7 @@ function git(args) {
 
 /**
  * Is REPO_ROOT this repo's shared working tree rather than a linked worktree?
- * The same test `scripts/lib/guard-parse.sh`'s `_gp_tree_class` makes: a linked
+ * The same test `scripts/lib/git-tree.js`'s treeClassifier makes: a linked
  * worktree's `--git-dir` is its own, the shared tree's equals `--git-common-dir`.
  * A directory git cannot answer for is treated as NOT the shared tree, so the
  * guard falls silent.
@@ -144,15 +145,9 @@ function git(args) {
  */
 function inSharedTree() {
 	const dir = git(["rev-parse", "--path-format=absolute", "--git-dir"]);
-	const common = git([
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-common-dir",
-	]);
+	const common = gitCommonDir(REPO_ROOT, { timeout: GIT_TIMEOUT_MS });
 	if (dir === null || common === null) return false;
-	const a = dir.trim();
-	const b = common.trim();
-	return a !== "" && a === b;
+	return dir.trim() === common;
 }
 
 /**
@@ -190,7 +185,7 @@ function inSharedTree() {
  * not the hand-off, and the remedy it prints — re-send the message — reproduces
  * the same input, so the session blocks again on a fault nothing named.
  *
- * THE MESSAGE IS READ THROUGH `hookMessage.textOf`, never `messageFrom`, whose
+ * THE MESSAGE IS READ THROUGH `hookMessage.readMessageText`, never `readMessageFrom`, whose
  * breadcrumb this guard must not mint — see the header.
  *
  * @param {import('./lib/stop-guard.js').StopPayload} payload
@@ -202,7 +197,7 @@ function waitingHandoff(payload, sid) {
 	const transcript = hookMessage.transcriptPath(payload, sid);
 	/* An unreadable transcript fails open to blocking, logged rather than
 	 * crumbed (#73). */
-	const message = hookMessage.textOf(payload, transcript, (err) =>
+	const message = hookMessage.readMessageText(payload, transcript, (err) =>
 		require("./lib/arbiter-core").logError(
 			"guard-uncommitted-work message",
 			err,
@@ -222,7 +217,7 @@ function waitingHandoff(payload, sid) {
 
 	let seen;
 	try {
-		seen = pendingTasks(transcript);
+		seen = readPendingTasks(transcript);
 	} catch {
 		return {
 			down: false,
@@ -247,21 +242,21 @@ function refuseUncommitted(payload, sid) {
 	 * "wrote nothing" — and both land on silence, because a change attributable
 	 * to nobody is billed to nobody. Without this filter the guard would order a
 	 * session to commit a live neighbour's half-written file. */
-	const written = store.writesBy(sid);
+	const written = store.readWritesBy(sid);
 	if (written === null || written.length === 0) return false;
 
-	const dirty = dirtyTracked(REPO_ROOT);
+	const dirty = readDirtyTracked(REPO_ROOT);
 	if (dirty === null) return false;
 
-	const theirs = claimedElsewhere(sid);
+	const theirs = readClaimedElsewhere(sid);
 	/* An owned debt this session recorded is the remedy the refusal below
 	 * prints, so its path is released (#1170). */
 	const declared = store.debtsOwnedBy(sid);
-	/* Already sorted, and unique by construction — see `dirtyTracked`. */
+	/* Already sorted, and unique by construction — see `readDirtyTracked`. */
 	const claimFiltered = dirty.filter(
 		(p) => written.includes(p) && !theirs.has(p) && !declared.has(p),
 	);
-	/* Nothing to name, so nothing `observedElsewhere` reads could change the
+	/* Nothing to name, so nothing `readObservedElsewhere` reads could change the
 	 * answer — and this is what keeps its ~465 ms oracle off the ordinary clean
 	 * turn. */
 	if (claimFiltered.length === 0) return false;
@@ -285,7 +280,7 @@ function refuseUncommitted(payload, sid) {
 	const handoff = waitingHandoff(payload, sid);
 	if (handoff.down) return false;
 
-	const observed = observedElsewhere(sid);
+	const observed = readObservedElsewhere(sid);
 	const mine = claimFiltered.filter((p) => !observed.paths.has(p));
 	if (mine.length === 0) return false;
 

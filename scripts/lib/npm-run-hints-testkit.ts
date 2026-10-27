@@ -7,7 +7,7 @@
 import { createRequire } from "node:module";
 
 const require_ = createRequire(__filename);
-const { citableLines } = require_("./qualify-citations.js");
+const { buildCitableLineTest } = require_("./qualify-citations.js");
 const { requiredGroup }: typeof import("./regex-group.js") =
 	require_("./regex-group.js");
 
@@ -45,7 +45,7 @@ export function hintsIn(rel: string, text: string): string[] {
 	 * A script's comment lines, as the release build reads them; a fragment
 	 * (`.txt`) is printed whole, so none of its lines is a comment.
 	 */
-	const comment = citableLines(rel);
+	const comment = buildCitableLineTest(rel);
 	return text.split("\n").flatMap((line, i) =>
 		comment?.(line)
 			? []

@@ -57,8 +57,8 @@ const keysAfterFacade = (file: string) =>
 	) as string[];
 
 describe("every family module loads as the entry point", () => {
-	it("finds all seventeen — the fifteen families, arbiter-proc.js and arbiter-wait.js", () => {
-		expect(families.length).toBe(17);
+	it("finds all eighteen — the fifteen families, arbiter-proc.js, arbiter-wait.js and arbiter-tool-record.js", () => {
+		expect(families.length).toBe(18);
 	});
 
 	for (const file of families) {
@@ -73,9 +73,9 @@ describe("every family module loads as the entry point", () => {
 });
 
 describe("the two disciplines that make the cycle safe", () => {
-	const source = (f: string) => fs.readFileSync(path.join(LIB, f), "utf8");
+	const readSource = (f: string) => fs.readFileSync(path.join(LIB, f), "utf8");
 	const cyclic = families.filter((f) =>
-		source(f).includes("biome-ignore lint/suspicious/noImportCycles"),
+		readSource(f).includes("biome-ignore lint/suspicious/noImportCycles"),
 	);
 
 	it("names the three files the header says are in the cycle", () => {
@@ -89,7 +89,7 @@ describe("the two disciplines that make the cycle safe", () => {
 	it("never destructures a sibling family's require", () => {
 		const offenders = families.flatMap((f) =>
 			[
-				...source(f).matchAll(
+				...readSource(f).matchAll(
 					/const\s*\{[^}]*\}\s*=\s*require\("\.\/(arbiter-[\w-]+)\.js"\)/g,
 				),
 			]
@@ -101,7 +101,19 @@ describe("the two disciplines that make the cycle safe", () => {
 
 	it("fills the exports object in place wherever the requires are cyclic", () => {
 		for (const f of cyclic)
-			expect(source(f)).not.toMatch(/^module\.exports = \{/m);
+			expect(readSource(f)).not.toMatch(/^module\.exports = \{/m);
+	});
+
+	it("fills it in place nowhere else, as base §N7's cycle exception allows", () => {
+		const inPlace = execFileSync(
+			"git",
+			["grep", "-lE", "^exports\\.[A-Za-z_$]+ =", "--", "scripts/*.js"],
+			{ cwd: path.join(LIB, "../.."), encoding: "utf8" },
+		)
+			.trim()
+			.split("\n")
+			.map((f) => path.basename(f));
+		expect(inPlace).toEqual(cyclic);
 	});
 });
 
@@ -167,7 +179,7 @@ describe("check.js never enters the arbiter's require graph", () => {
 describe("nothing the hook entry pulls reaches check.js either", () => {
 	const scriptsDir = path.dirname(LIB);
 	/** Every local module reachable from `entry` by a literal relative require. */
-	const graph = (entry: string) => {
+	const readGraph = (entry: string) => {
 		const seen = new Set<string>();
 		const queue = [entry];
 		while (queue.length > 0) {
@@ -186,11 +198,11 @@ describe("nothing the hook entry pulls reaches check.js either", () => {
 
 	it("reaches lib/check.js from a checker, and never from the arbiter", () => {
 		// Positive control first, for the reason the probe above has one.
-		expect(graph(path.join(scriptsDir, "check-issue-labels.js"))).toContain(
+		expect(readGraph(path.join(scriptsDir, "check-issue-labels.js"))).toContain(
 			path.join(LIB, "check.js"),
 		);
-		expect(graph(path.join(scriptsDir, "session-arbiter.js"))).not.toContain(
-			path.join(LIB, "check.js"),
-		);
+		expect(
+			readGraph(path.join(scriptsDir, "session-arbiter.js")),
+		).not.toContain(path.join(LIB, "check.js"));
 	});
 });

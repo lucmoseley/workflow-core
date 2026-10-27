@@ -20,6 +20,14 @@ import { emptyRegistry } from "./lib/registrations.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-registrations.js");
+// A guard the plugin's own needles key, read live so a port that drops one
+// never strands the fixture (#2996).
+const CORE_GUARD = Object.keys(
+	JSON.parse(
+		fs.readFileSync(path.resolve(__dirname, "guard-fire-needles.json"), "utf8"),
+	).guards,
+).find((k) => k.startsWith("guard-"));
+if (!CORE_GUARD) throw new Error("guard-fire-needles.json keys no guard-*");
 
 let root: string;
 let hooks: string;
@@ -178,12 +186,20 @@ describe("check-registrations", () => {
 		expect(run().status).toBe(0);
 	});
 
-	it("never counts a check-<name>.test.js as a checker", () => {
+	it("never counts a check-<name>.test.js or .spec.js as a checker (#2869)", () => {
 		registeredAdopter();
 		write("scripts/check-b.test.js", "// a second test\n");
+		write("scripts/check-b.spec.js", "// a third test\n");
 		const r = run();
 		expect(r.out).not.toContain("check-b.test");
+		expect(r.out).not.toContain("check-b.spec");
 		expect(r.status).toBe(0);
+	});
+
+	it("counts a guard-<name>.test.sh as a guard, JS_TEST_FILE naming no shell test (#2869, #3012)", () => {
+		registeredAdopter();
+		write("scripts/guard-c.test.sh", "#!/usr/bin/env bash\n");
+		expect(run().out).toContain("scripts/guard-c.test.sh is run by no hook");
 	});
 
 	it("names a calledElsewhere key with no checker and an allowlist key with no reason", () => {
@@ -202,13 +218,10 @@ describe("check-registrations", () => {
 
 	it("names an uncounted hook and a stale needle key, and takes a core guard's needle as counted", () => {
 		registeredAdopter();
-		write(
-			".claude/settings.json",
-			settings("guard-a.sh", "guard-file-claim.sh"),
-		);
+		write(".claude/settings.json", settings("guard-a.sh", CORE_GUARD));
 		write(
 			".claude/registrations.json",
-			registry({ hooks: [row("guard-a.sh"), row("guard-file-claim.sh")] }),
+			registry({ hooks: [row("guard-a.sh"), row(CORE_GUARD)] }),
 		);
 		write(
 			".claude/guard-fire-needles.json",
@@ -219,7 +232,7 @@ describe("check-registrations", () => {
 			"guard-a.sh is run by a .claude/settings.json hook",
 		);
 		expect(r.out).toContain("keys guard-gone.sh, which no");
-		expect(r.out).not.toContain("guard-file-claim.sh is run by");
+		expect(r.out).not.toContain(`${CORE_GUARD} is run by`);
 	});
 
 	it("reads an absent registry as empty, saying how to seed it", () => {

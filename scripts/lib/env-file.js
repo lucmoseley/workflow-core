@@ -19,7 +19,7 @@ const ENV_LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
  * @returns {string|null}
  * @throws where the file cannot be read; ENOENT where it is absent
  */
-function envFileValue(file, name) {
+function readEnvFileValue(file, name) {
 	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
 		const m = line.match(ENV_LINE);
 		if (!m || m[1] !== name) continue;
@@ -31,4 +31,4 @@ function envFileValue(file, name) {
 	return null;
 }
 
-module.exports = { envFileValue };
+module.exports = { readEnvFileValue };

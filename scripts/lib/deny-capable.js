@@ -6,25 +6,25 @@
  *
  * THREE ROUTES TO A REFUSAL, each recognised in the guard's own text:
  *
- *   - `gp_deny`, the shell library's emitter (`lib/guard-parse.sh`).
  *   - A `permissionDecision` of `"deny"` written out by hand, as a JS object,
  *     a JSON string or a jq filter spells it — the shape an adopter's own
  *     node guard takes (#1815).
  *   - A `DENIES-THROUGH:` line in the guard's header comment, naming the
- *     script whose verdict it relays: `guard-file-claim.sh` refuses through
- *     `session-arbiter.js check`. DECLARED, NOT DERIVED, because the delegate's
- *     text cannot say which subcommand denies — `guard-push-rules.sh` calls the
+ *     script whose verdict it relays: a guard refusing through
+ *     `session-arbiter.js check` names it. DECLARED, NOT DERIVED, because the delegate's
+ *     text cannot say which subcommand denies — `push-review-owed.sh` calls the
  *     same arbiter's `writes`, which never does. It counts only where the
- *     script it names, beside the guard, writes a verdict by one of the first
- *     two routes.
+ *     script it names, beside the guard or under its `lib/`, writes a verdict
+ *     by the first route: guard-dispatch.js relays its cores'
+ *     merged verdict from lib/guard-dispatch.js.
  *   - A `DENIES-BY: exit 2` line in the header, for a hook that refuses by
  *     Claude Code's blocking exit with its reason on stderr, as
  *     `self-plugin-canary.sh` does to fail closed without jq (#2473).
  *     Declared, because most scripts here exit 2 on a usage error; it counts
  *     only where the script's body, below the header, carries an `exit 2`.
  *
- * TEXTUAL, NOT A CALL GRAPH: a script that merely names `gp_deny` — in a
- * comment, or because it greps the guards for it — reads as deny-capable. Each
+ * TEXTUAL, NOT A CALL GRAPH: a script that merely spells a deny verdict — in
+ * a comment, or because it greps the guards for one — reads as deny-capable. Each
  * caller asks only of a `PreToolUse` registration, which is where that would
  * mislead.
  *
@@ -35,14 +35,12 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const GP_DENY = /\bgp_deny\b/;
-
 /* `"?` and `\\?"` admit `permissionDecision: "deny"`, `"permissionDecision":
  * "deny"` and the escaped quotes of a JSON string inside a shell literal. */
 const LITERAL_DENY = /\bpermissionDecision\\?"?\s*:\s*\\?"deny\\?"/;
 
 const DENIES_THROUGH_MARKER =
-	/^[ \t]*(?:#|\*|\/\/)[ \t]*DENIES-THROUGH:[ \t]*([\w.-]+)/m;
+	/^[ \t]*(?:#|\*|\/\/)[ \t]*DENIES-THROUGH:[ \t]*((?:lib\/)?[\w.-]+)/m;
 
 const DENIES_BY_EXIT_MARKER =
 	/^[ \t]*(?:#|\*|\/\/)[ \t]*DENIES-BY:[ \t]*exit 2\b/m;
@@ -89,7 +87,7 @@ function hasExitDeny(text) {
  * @returns {boolean}
  */
 function writesVerdict(text) {
-	return GP_DENY.test(text) || LITERAL_DENY.test(text);
+	return LITERAL_DENY.test(text);
 }
 
 /**
@@ -124,7 +122,7 @@ function guardDirs(core, host) {
  * The name comes off a hook command or a transcript record, so it is never
  * trusted as a path: anything but a bare filename resolves nowhere.
  *
- * @param {string} name a guard's basename, e.g. `guard-branch.sh`
+ * @param {string} name a guard's basename, e.g. `guard-branch.js`
  * @param {string[]} dirs searched in order
  * @returns {string | null}
  */
@@ -152,7 +150,10 @@ function isDenyCapable(name, dirs) {
 	if (!file || !text) return false;
 	if (writesVerdict(text) || hasExitDeny(text)) return true;
 	const delegate = deniesThrough(text);
-	const relayed = delegate && guardPath(delegate, [path.dirname(file)]);
+	const [sub, base] = delegate?.startsWith("lib/")
+		? ["lib", delegate.slice(4)]
+		: ["", delegate];
+	const relayed = base && guardPath(base, [path.join(path.dirname(file), sub)]);
 	const relayedText = relayed && readOrNull(relayed);
 	return Boolean(relayedText && writesVerdict(relayedText));
 }

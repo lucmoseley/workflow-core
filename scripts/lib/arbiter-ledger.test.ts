@@ -34,7 +34,7 @@ import {
 
 const sb = freshSandbox();
 
-/** What record-write.sh does on PostToolUse. */
+/** What the post-write core records on PostToolUse. */
 const record = (rel: string, sessionId: string) =>
 	store.recordWrite(path.join(sb.repo, rel), sessionId);
 
@@ -68,7 +68,7 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 		sweep();
 
 		expect(exists("alice")).toBe(true);
-		expect(store.writesBy("alice")).toEqual(["docs/mine.md"]);
+		expect(store.readWritesBy("alice")).toEqual(["docs/mine.md"]);
 	});
 
 	it("still sweeps a finished session's aged ledger", () => {
@@ -109,7 +109,7 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 
 		record("docs/new.md", "newcomer");
 
-		expect(store.writesBy("alice")).toEqual(["docs/mine.md"]);
+		expect(store.readWritesBy("alice")).toEqual(["docs/mine.md"]);
 	});
 
 	it("counts a session whose liveness cannot be proved as live", () => {
@@ -166,7 +166,7 @@ describe("ledger sweep — age alone does not make a ledger dead", () => {
 	});
 });
 
-describe("ownersOf — which session made each commit (#1154, #1213)", () => {
+describe("readOwnersOf — which session made each commit (#1154, #1213)", () => {
 	const A = "a".repeat(40);
 	const B = "b".repeat(40);
 	const C = "c".repeat(40);
@@ -176,7 +176,7 @@ describe("ownersOf — which session made each commit (#1154, #1213)", () => {
 		store.recordCommit(B, "bob");
 		store.recordCommit(C, "bob");
 
-		expect(ledger.ownersOf([A, B, "d".repeat(40)])).toEqual(
+		expect(ledger.readOwnersOf([A, B, "d".repeat(40)])).toEqual(
 			new Map([
 				[A, "alice"],
 				[B, "bob"],
@@ -186,12 +186,12 @@ describe("ownersOf — which session made each commit (#1154, #1213)", () => {
 
 	it("answers an empty map where no commit was ever recorded", () => {
 		fs.rmSync(store.paths.commitsDir(), { recursive: true, force: true });
-		expect(ledger.ownersOf([A])).toEqual(new Map());
+		expect(ledger.readOwnersOf([A])).toEqual(new Map());
 	});
 });
 
-describe("committedPathsBy — the paths a session's commits touched (#2390)", () => {
-	const head = () =>
+describe("readBilledPathsBy — the paths a session wrote or its commits touched (#2390, #2971)", () => {
+	const readHead = () =>
 		execFileSync("git", ["rev-parse", "HEAD"], {
 			cwd: sb.repo,
 			encoding: "utf8",
@@ -200,7 +200,7 @@ describe("committedPathsBy — the paths a session's commits touched (#2390)", (
 		fs.mkdirSync(path.dirname(path.join(sb.repo, rel)), { recursive: true });
 		fs.writeFileSync(path.join(sb.repo, rel), `${rel}\n`);
 		commitAll(sb, rel);
-		return head();
+		return readHead();
 	};
 
 	it("answers each path its commits touched once, its root commit and a gone commit included", () => {
@@ -211,11 +211,11 @@ describe("committedPathsBy — the paths a session's commits touched (#2390)", (
 		fs.appendFileSync(path.join(sb.repo, "scripts/a.js"), "more\n");
 		store.recordCommit(commitFile("docs/b.md"), "alice");
 
-		expect(ledger.committedPathsBy("alice")?.sort()).toEqual([
+		expect(ledger.readBilledPathsBy("alice", "t")?.sort()).toEqual([
 			"docs/b.md",
 			"scripts/a.js",
 		]);
-		expect(ledger.committedPathsBy("bob")).toEqual([]);
+		expect(ledger.readBilledPathsBy("bob", "t")).toEqual([]);
 	});
 
 	it("bills a merge only its own conflict resolutions, never the other side's paths", () => {
@@ -237,20 +237,49 @@ describe("committedPathsBy — the paths a session's commits touched (#2390)", (
 		}
 		fs.writeFileSync(both, "resolved\n");
 		commitAll(sb, "merge");
-		store.recordCommit(head(), "alice");
+		store.recordCommit(readHead(), "alice");
 
-		expect(ledger.committedPathsBy("alice")).toEqual(["docs/both.md"]);
+		expect(ledger.readBilledPathsBy("alice", "t")).toEqual(["docs/both.md"]);
+	});
+
+	it("adds the paths it wrote to its commits' once each", () => {
+		gitRepo(sb);
+		store.recordCommit(commitFile("scripts/a.js"), "alice");
+		record("scripts/a.js", "alice");
+		record("docs/new.md", "alice");
+		expect(ledger.readBilledPathsBy("alice", "t")?.sort()).toEqual([
+			"docs/new.md",
+			"scripts/a.js",
+		]);
 	});
 
 	it.skipIf(AS_ROOT)(
-		"answers null, never [], where the commit ledger will not read",
+		"answers the writes alone, logged under the caller's label, where the commit ledger will not read",
 		() => {
 			gitRepo(sb);
 			store.recordCommit(commitFile("scripts/a.js"), "alice");
+			record("docs/new.md", "alice");
 			const file = store.paths.commitLedger("alice", sb.repo);
 			fs.chmodSync(file, 0o000);
 			try {
-				expect(ledger.committedPathsBy("alice")).toBe(null);
+				expect(ledger.readBilledPathsBy("alice", "the caller")).toEqual([
+					"docs/new.md",
+				]);
+			} finally {
+				fs.chmodSync(file, 0o644);
+			}
+			expect(fs.readFileSync(store.errorLog(), "utf8")).toContain("the caller");
+		},
+	);
+
+	it.skipIf(AS_ROOT)(
+		"answers null, never [], where the write ledger will not read",
+		() => {
+			record("docs/new.md", "alice");
+			const file = store.paths.ledger("alice");
+			fs.chmodSync(file, 0o000);
+			try {
+				expect(ledger.readBilledPathsBy("alice", "t")).toBe(null);
 			} finally {
 				fs.chmodSync(file, 0o644);
 			}
@@ -258,12 +287,12 @@ describe("committedPathsBy — the paths a session's commits touched (#2390)", (
 	);
 });
 
-describe("selectsBy — the selection ledger's newest stamp per path (#1220)", () => {
+describe("readSelectsBy — the selection ledger's newest stamp per path (#1220)", () => {
 	it("answers each path once, at its newest stamp", () => {
 		ledger.recordSelect("scripts/a.js", "sel-newest", 200);
 		ledger.recordSelect("scripts/a.js", "sel-newest", 100);
 		ledger.recordSelect("scripts/b.js", "sel-newest", 50);
-		expect(ledger.selectsBy("sel-newest")).toEqual([
+		expect(ledger.readSelectsBy("sel-newest")).toEqual([
 			{ path: "scripts/a.js", at: 200 },
 			{ path: "scripts/b.js", at: 50 },
 		]);
@@ -272,38 +301,40 @@ describe("selectsBy — the selection ledger's newest stamp per path (#1220)", (
 	it("reads an unstamped line as 0, older than any commit", () => {
 		fs.mkdirSync(store.paths.selectsDir(), { recursive: true });
 		fs.writeFileSync(store.paths.selectLedger("sel-bare"), "scripts/c.js\n");
-		expect(ledger.selectsBy("sel-bare")).toEqual([
+		expect(ledger.readSelectsBy("sel-bare")).toEqual([
 			{ path: "scripts/c.js", at: 0 },
 		]);
 	});
 
 	it("answers [] for a session that quoted nothing, and null with no id", () => {
-		expect(ledger.selectsBy("sel-none")).toEqual([]);
-		expect(ledger.selectsBy("")).toBe(null);
+		expect(ledger.readSelectsBy("sel-none")).toEqual([]);
+		expect(ledger.readSelectsBy("")).toBe(null);
 	});
 });
 
-describe("landedBy — released with only others' dirt, and not written since (#2539)", () => {
+describe("readLandedBy — released with only others' dirt, and not written since (#2539)", () => {
 	it("names a released path until the session writes it again", () => {
 		ledger.recordLanded("scripts/a.js", "landed-last");
 		ledger.recordLanded("scripts/b.js", "landed-last");
-		expect(ledger.landedBy("landed-last")).toEqual(
+		expect(ledger.readLandedBy("landed-last")).toEqual(
 			new Set(["scripts/a.js", "scripts/b.js"]),
 		);
 
 		ledger.recordWrite("scripts/a.js", "landed-last");
-		expect(ledger.landedBy("landed-last")).toEqual(new Set(["scripts/b.js"]));
+		expect(ledger.readLandedBy("landed-last")).toEqual(
+			new Set(["scripts/b.js"]),
+		);
 
 		ledger.recordLanded("scripts/a.js", "landed-last");
-		expect(ledger.landedBy("landed-last")).toEqual(
+		expect(ledger.readLandedBy("landed-last")).toEqual(
 			new Set(["scripts/a.js", "scripts/b.js"]),
 		);
 	});
 
 	it("answers an empty set for a session that released nothing, and null with no id", () => {
 		ledger.recordWrite("scripts/a.js", "landed-none");
-		expect(ledger.landedBy("landed-none")).toEqual(new Set());
-		expect(ledger.landedBy("")).toBe(null);
+		expect(ledger.readLandedBy("landed-none")).toEqual(new Set());
+		expect(ledger.readLandedBy("")).toBe(null);
 	});
 });
 
@@ -315,7 +346,7 @@ describe("the acts ledger (#2308)", () => {
 		store.recordAct("round owner/repo#5", "alice");
 		store.recordCommit(commitSha, "alice");
 
-		expect(store.actsBy("alice", [sb.repo])).toEqual({
+		expect(store.readActsBy("alice", [sb.repo])).toEqual({
 			acts: ["round owner/repo#5", "round owner/repo#5", `commit ${commitSha}`],
 			unreadable: [],
 		});
@@ -324,7 +355,7 @@ describe("the acts ledger (#2308)", () => {
 	it("refuses a line that is no act, writing nothing", () => {
 		expect(store.recordAct("close #5", "alice")).toBe(false);
 		expect(store.recordAct("relabel owner/repo#5 urgent", "alice")).toBe(false);
-		expect(store.actsBy("alice", [sb.repo]).acts).toEqual([]);
+		expect(store.readActsBy("alice", [sb.repo]).acts).toEqual([]);
 	});
 
 	it("tells a store that would not read from one where the session did nothing", () => {
@@ -333,13 +364,13 @@ describe("the acts ledger (#2308)", () => {
 		const quiet = path.join(sb.dir, "other-repo");
 		fs.chmodSync(ledgerFile, 0o000);
 		try {
-			const read = store.actsBy("alice", [sb.repo, quiet]);
+			const read = store.readActsBy("alice", [sb.repo, quiet]);
 			if (!AS_ROOT) expect(read.unreadable).toEqual([sb.repo]);
 			expect(read.acts).toEqual(AS_ROOT ? ["file owner/repo#9"] : []);
 		} finally {
 			fs.chmodSync(ledgerFile, 0o644);
 		}
-		expect(store.actsBy("bob", [sb.repo, quiet])).toEqual({
+		expect(store.readActsBy("bob", [sb.repo, quiet])).toEqual({
 			acts: [],
 			unreadable: [],
 		});

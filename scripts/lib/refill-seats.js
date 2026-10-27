@@ -118,7 +118,7 @@ function parseSeats(text, { home, file }) {
  * @param {string} [home]
  * @returns {SeatList}
  */
-function declaredSeats(home = homeDir()) {
+function readDeclaredSeats(home = homeDir()) {
 	const file = seatsFile(home);
 	let text;
 	try {
@@ -145,7 +145,7 @@ function seatOf(list, dir, home = homeDir()) {
 	return list.seats.find((s) => s.dir === want) ?? { dir: want, kind: "plan" };
 }
 
-module.exports = { declaredSeats, seatOf };
+module.exports = { readDeclaredSeats, seatOf };
 
 /*
  * CLI mode, for the dispatcher.
@@ -162,7 +162,7 @@ if (require.main === module) {
 		);
 		process.exit(2);
 	}
-	const list = declaredSeats();
+	const list = readDeclaredSeats();
 	if (list.errors.length > 0) {
 		for (const e of list.errors) writeFd(2, `${e}\n`);
 		process.exit(2);

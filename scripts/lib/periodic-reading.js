@@ -52,7 +52,7 @@ function lock(file, staleMs) {
  * @throws where the stamp exists and will not read, so the caller fails open,
  *   recorded, rather than reading on every session start unseen
  */
-function stampedAt(file) {
+function readStampedAt(file) {
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
@@ -80,7 +80,7 @@ function stampedAt(file) {
  */
 function periodicReading(gate, read) {
 	const recent = () => {
-		const last = stampedAt(gate.stamp);
+		const last = readStampedAt(gate.stamp);
 		return last !== null && gate.nowMs - last < gate.everyMs ? last : null;
 	};
 	const last = recent();
@@ -102,7 +102,7 @@ function periodicReading(gate, read) {
  * @param {{ why: "recent", last: number } | { why: "locked" | "just-read" }} skipped
  * @param {string} every the interval in words, "an hour"
  */
-function skipLine(skipped, every) {
+function buildSkipLine(skipped, every) {
 	if (skipped.why === "recent")
 		return `Read at ${new Date(skipped.last).toISOString().slice(0, 16).replace("T", " ")} UTC, under ${every} ago; nothing read.`;
 	return skipped.why === "locked"
@@ -110,4 +110,4 @@ function skipLine(skipped, every) {
 		: "Another run read just now; nothing read.";
 }
 
-module.exports = { periodicReading, skipLine };
+module.exports = { periodicReading, buildSkipLine };

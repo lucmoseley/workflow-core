@@ -60,7 +60,7 @@ const denial = () =>
 	toolError(
 		"Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Self-Modification].",
 	);
-const stopBlock = () =>
+const buildStopBlock = () =>
 	JSON.stringify({
 		type: "user",
 		isMeta: true,
@@ -410,7 +410,7 @@ describe("signals and score", () => {
 			lines: [
 				toolError(),
 				denial(),
-				stopBlock(),
+				buildStopBlock(),
 				compaction(),
 				founder("whats the progress?"),
 				founder(
@@ -453,7 +453,7 @@ describe("signals and score", () => {
 		session(repos.core, "broad", {
 			lines: [
 				...Array.from({ length: 6 }, () => toolError()),
-				...Array.from({ length: 5 }, () => stopBlock()),
+				...Array.from({ length: 5 }, () => buildStopBlock()),
 			],
 		});
 

@@ -282,6 +282,53 @@ describe("check-vendored-skills", () => {
 		expect(run(root)).toMatchObject({ code: 1, tags: ["UNTRACKED"] });
 	});
 
+	it("passes a file added locally once it is declared", () => {
+		const root = build({
+			disk: { "a/SKILL.md": SKILL, "a/EXTRA.md": "ours\n" },
+			vendored: { "a/SKILL.md": SKILL },
+			edits: {
+				".agents/skills/a/EXTRA.md": {
+					editedHash: sha256("ours\n"),
+					issue: 1,
+					why: "added",
+				},
+			},
+		});
+		expect(run(root)).toMatchObject({ code: 0, tags: [] });
+	});
+
+	it("fails a declared added file edited again since, tagging it DRIFTED", () => {
+		const root = build({
+			disk: { "a/SKILL.md": SKILL, "a/EXTRA.md": "ours, edited\n" },
+			vendored: { "a/SKILL.md": SKILL },
+			edits: {
+				".agents/skills/a/EXTRA.md": {
+					editedHash: sha256("ours\n"),
+					issue: 1,
+					why: "added",
+				},
+			},
+		});
+		expect(run(root)).toMatchObject({ code: 1, tags: ["DRIFTED"] });
+	});
+
+	it("fails a declared added file no longer on disk, tagging it STALE-ENTRY and offering --drop", () => {
+		const root = build({
+			disk: { "a/SKILL.md": SKILL },
+			vendored: { "a/SKILL.md": SKILL },
+			edits: {
+				".agents/skills/a/EXTRA.md": {
+					editedHash: sha256("ours\n"),
+					issue: 1,
+					why: "added",
+				},
+			},
+		});
+		const r = run(root);
+		expect(r).toMatchObject({ code: 1, tags: ["STALE-ENTRY"] });
+		expect(r.stderr).toContain(`${IN_REPO} --drop .agents/skills/a/EXTRA.md`);
+	});
+
 	it("warns, and does not gate, on a de-vendored file still in the manifest, tagged REMOVED and offering --forget on its path as the way out", () => {
 		const root = build({
 			disk: { "a/SKILL.md": SKILL },
@@ -558,11 +605,20 @@ const LICENCE = "MIT License\n";
 /**
  * A `gh` stub that answers every contents fetch with `body` and every licence
  * fetch with `licence`, base64-encoded as `--jq .content` returns them, and
- * appends each call's arguments to `log`.
+ * appends each call's arguments to `log`. A call matching the `missing` glob
+ * 404s instead.
  */
-function answering(body: string, log: string, licence = LICENCE) {
+function answering(
+	body: string,
+	log: string,
+	licence = LICENCE,
+	missing?: string,
+) {
 	const b64 = (t: string) => Buffer.from(t).toString("base64");
-	return `echo "$*" >> '${log}'; case "$*" in */license*) printf '%s\\n' '${b64(licence)}';; *) printf '%s\\n' '${b64(body)}';; esac`;
+	const gone = missing
+		? `${missing}) echo "gh: Not Found (HTTP 404)" >&2; exit 1;; `
+		: "";
+	return `echo "$*" >> '${log}'; case "$*" in ${gone}*/license*) printf '%s\\n' '${b64(licence)}';; *) printf '%s\\n' '${b64(body)}';; esac`;
 }
 
 function licenceFailing(stderr: string) {
@@ -570,7 +626,7 @@ function licenceFailing(stderr: string) {
 	return `case "$*" in */license*) echo "${stderr}" >&2; exit 1;; *) printf '%s\\n' '${b64}';; esac`;
 }
 
-function endpoints(log: string, kind: "contents" | "license") {
+function readEndpoints(log: string, kind: "contents" | "license") {
 	return fs.existsSync(log)
 		? fs
 				.readFileSync(log, "utf8")
@@ -582,14 +638,30 @@ function endpoints(log: string, kind: "contents" | "license") {
 }
 
 /** The repos/<owner>/<repo>/contents/<path> each logged call asked for. */
-const asked = (log: string) => endpoints(log, "contents");
+const readContentsEndpoints = (log: string) => readEndpoints(log, "contents");
+
+/** upstreamRoot plus a declared added file, `a/EXTRA.md`. */
+function rootWithAddition() {
+	const root = upstreamRoot("mattpocock/skills");
+	const extra = ".agents/skills/a/EXTRA.md";
+	fs.writeFileSync(path.join(root, extra), "ours\n");
+	const file = path.join(root, ".agents/vendored-skill-edits.json");
+	const sidecar = JSON.parse(fs.readFileSync(file, "utf8"));
+	sidecar.edits[extra] = {
+		editedHash: sha256("ours\n"),
+		issue: 2,
+		why: "added",
+	};
+	fs.writeFileSync(file, JSON.stringify(sidecar, null, "\t"));
+	return root;
+}
 
 describe("check-vendored-skills --upstream", () => {
 	it("asks each skill's own upstream, at the path its lock entry gives", () => {
 		const root = upstreamRoot("emilkowalski/skills");
 		const log = path.join(root, "gh.log");
 		expect(runUpstream(root, answering(SKILL, log)).outcome).toBe("OK");
-		expect(asked(log)).toEqual([
+		expect(readContentsEndpoints(log)).toEqual([
 			"repos/emilkowalski/skills/contents/skills/a/SKILL.md",
 		]);
 	});
@@ -609,7 +681,7 @@ describe("check-vendored-skills --upstream", () => {
 		fs.writeFileSync(file, JSON.stringify(sidecar, null, "\t"));
 		const log = path.join(root, "gh.log");
 		runUpstream(root, answering(SKILL, log));
-		expect(asked(log)).toContain(
+		expect(readContentsEndpoints(log)).toContain(
 			"repos/emilkowalski/skills/contents/skills/a/RECIPES.md",
 		);
 	});
@@ -625,7 +697,7 @@ describe("check-vendored-skills --upstream", () => {
 		const log = path.join(root, "gh.log");
 		const r = runUpstream(root, answering(SKILL, log));
 		expect(r.tags).toEqual(["UPSTREAM-UNRESOLVED"]);
-		expect(asked(log)).toEqual([]);
+		expect(readContentsEndpoints(log)).toEqual([]);
 	});
 
 	it("fetches nothing where the lock names no source", () => {
@@ -638,7 +710,7 @@ describe("check-vendored-skills --upstream", () => {
 		const r = runUpstream(root, answering(SKILL, log));
 		expect(r.tags).toEqual(["UPSTREAM-UNRESOLVED"]);
 		expect(r.outcome).not.toBe("SKIP");
-		expect(asked(log)).toEqual([]);
+		expect(readContentsEndpoints(log)).toEqual([]);
 	});
 
 	it("still tells same from moved", () => {
@@ -651,6 +723,20 @@ describe("check-vendored-skills --upstream", () => {
 			runUpstream(root, answering(`${SKILL}upstream moved.\n`, log)).tags,
 		).toEqual(["UPSTREAM-MOVED"]);
 	});
+
+	it("passes a declared added file that upstream 404s on", () => {
+		const root = rootWithAddition();
+		const log = path.join(root, "gh.log");
+		const r = runUpstream(root, answering(SKILL, log, LICENCE, "*EXTRA*"));
+		expect(r).toMatchObject({ outcome: "OK", tags: [] });
+	});
+
+	it("names a declared added file UPSTREAM-TAKEN where upstream now ships that path", () => {
+		const root = rootWithAddition();
+		const r = runUpstream(root, answering(SKILL, path.join(root, "gh.log")));
+		expect(r.tags).toEqual(["UPSTREAM-TAKEN"]);
+		expect(r.text).toContain(".agents/skills/a/EXTRA.md was added locally");
+	});
 });
 
 describe("check-vendored-skills --upstream, licences (#1951)", () => {
@@ -660,7 +746,7 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
 		const r = runUpstream(root, answering(SKILL, log));
 		expect(r.tags).toEqual([]);
 		expect(r.text).toContain("1 licence notice(s)");
-		expect(endpoints(log, "license")).toEqual([
+		expect(readEndpoints(log, "license")).toEqual([
 			"repos/mattpocock/skills/license",
 		]);
 	});
@@ -691,7 +777,7 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
 		const log = path.join(root, "gh.log");
 		const r = runUpstream(root, answering(SKILL, log, "Apache License\n"));
 		expect(r.tags).toEqual(["UPSTREAM-LICENCE"]);
-		expect(asked(log)).toEqual([]);
+		expect(readContentsEndpoints(log)).toEqual([]);
 	});
 
 	it("reads a licence fetch that failed as UPSTREAM-UNREADABLE, never as a difference", () => {
@@ -746,7 +832,7 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
 		const root = upstreamRoot("emilkowalski/skills");
 		const log = path.join(root, "gh.log");
 		runUpstream(root, answering(SKILL, log, "anything\n"));
-		expect(endpoints(log, "license")).toEqual([]);
+		expect(readEndpoints(log, "license")).toEqual([]);
 	});
 });
 
@@ -883,7 +969,7 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 		expect(r.code).toBe(0);
 		expect(r.outcome).toBe("OK");
 		expect(r.text).toContain("0 declared edit(s)");
-		expect(asked(log)).toEqual([]);
+		expect(readContentsEndpoints(log)).toEqual([]);
 	});
 
 	it("does not read a bare 404 in an error's text as a missing path", () => {

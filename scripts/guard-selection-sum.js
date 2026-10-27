@@ -357,7 +357,7 @@ function misplacedTerm(message, m) {
  * @param {Marker} marker
  * @returns {string}
  */
-function missingLineReason(marker) {
+function buildMissingLineReason(marker) {
 	return (
 		"This turn dispatches a selection set without stating §5's arithmetic. " +
 		WHY +
@@ -656,7 +656,7 @@ function consequentialReview(message, marker, { m, misplaced }, opts = {}) {
 	if (!m) {
 		if (openKeys)
 			return { reason: buildOwedClosingWaveReason(marker), wave: null };
-		return { reason: missingLineReason(marker), wave: null };
+		return { reason: buildMissingLineReason(marker), wave: null };
 	}
 
 	const a = readAccounting(m, misplaced);

@@ -561,7 +561,7 @@ describe("wfc_replay_scan", () => {
 });
 
 /** Every line that is neither a comment nor blank. */
-const code = (rel: string) =>
+const readCodeLines = (rel: string) =>
 	fs
 		.readFileSync(path.join(ROOT, rel), "utf8")
 		.split("\n")
@@ -580,7 +580,7 @@ describe("the callers", () => {
 	it.each(CALLERS)(
 		"%s reads its route from the module and spells no marker of its own",
 		(rel) => {
-			const text = code(rel);
+			const text = readCodeLines(rel);
 			expect(text).toMatch(/lib\/commit-route\.sh/);
 			expect(text).not.toMatch(
 				/rebase-merge|\/rebase-apply|rebase-apply\/|CHERRY_PICK_HEAD|REVERT_HEAD|sequencer|MERGE_HEAD|AUTO_MERGE|BISECT_LOG|GIT_REFLOG_ACTION/,

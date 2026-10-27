@@ -14,6 +14,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const { clear, createTimings } = require("./test-file-timings.js");
 
+/* test-file-timings.js's SLOWEST_KEPT. */
+const SLOWEST_KEPT = 10;
+
 let dir: string;
 let file: string;
 
@@ -26,7 +29,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const saved = () => JSON.parse(fs.readFileSync(file, "utf8"));
+const readSaved = () => JSON.parse(fs.readFileSync(file, "utf8"));
 
 function sink() {
 	const said: string[] = [];
@@ -39,7 +42,7 @@ describe("the span", () => {
 		timings.start("/r/a.test.ts", 1000);
 		timings.end("/r/a.test.ts", 13_500);
 		timings.save(file);
-		expect(saved()).toEqual({ "/r/a.test.ts": 12.5 });
+		expect(readSaved()).toEqual({ "/r/a.test.ts": 12.5 });
 	});
 
 	it("keeps no module that never ended, and no end that was never queued", () => {
@@ -47,7 +50,7 @@ describe("the span", () => {
 		timings.start("/r/parked.test.ts", 0);
 		timings.end("/r/never-queued.test.ts", 5000);
 		timings.save(file);
-		expect(saved()).toEqual({});
+		expect(readSaved()).toEqual({});
 	});
 
 	it("ignores a module with no id", () => {
@@ -55,7 +58,27 @@ describe("the span", () => {
 		timings.start(undefined, 0);
 		timings.end(undefined, 5000);
 		timings.save(file);
-		expect(saved()).toEqual({});
+		expect(readSaved()).toEqual({});
+	});
+});
+
+describe("the slowest files", () => {
+	it("are the ended modules slowest first, cut to SLOWEST_KEPT", () => {
+		const timings = createTimings();
+		for (let i = 0; i <= SLOWEST_KEPT; i++) {
+			timings.start(`/r/f${i}.test.ts`, 0);
+			timings.end(`/r/f${i}.test.ts`, (i + 1) * 1000);
+		}
+		timings.start("/r/parked.test.ts", 0);
+		const slowest = timings.slowest();
+		expect(slowest).toHaveLength(SLOWEST_KEPT);
+		expect(slowest[0]).toEqual({
+			file: `/r/f${SLOWEST_KEPT}.test.ts`,
+			seconds: SLOWEST_KEPT + 1,
+		});
+		expect(slowest.map((s: { file: string }) => s.file)).not.toContain(
+			"/r/f0.test.ts",
+		);
 	});
 });
 
@@ -65,7 +88,7 @@ describe("a new run", () => {
 		previous.start("/r/old.test.ts", 0);
 		previous.end("/r/old.test.ts", 1000);
 		createTimings().save(file);
-		expect(saved()).toEqual({});
+		expect(readSaved()).toEqual({});
 	});
 });
 

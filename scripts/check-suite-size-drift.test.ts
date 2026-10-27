@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * Pins which tracked files count as the suite, the WARN-never-gate drift
- * verdict against the ladder's baseline, and the BROKEN verdict when git or the
- * baseline fails.
+ * verdict against the ladder's baseline, and the BROKEN verdict when git,
+ * vitest's listing or the baseline fails.
  *
  * check-suite-size-drift.js counts the tracked test files vitest would collect
  * and compares that against the count the memory ladder was measured on, so a
@@ -66,6 +66,7 @@ const runIn = (where: string, ...args: string[]) => {
 	const r = spawnSync("node", [SCRIPT, ...args], {
 		cwd: where,
 		encoding: "utf8",
+		env: { ...process.env, CLAUDE_PROJECT_DIR: where },
 	});
 	return {
 		status: r.status ?? -1,
@@ -101,9 +102,17 @@ describe("counting what vitest would collect", () => {
 		expect(r.json().files).toBe(1);
 	});
 
-	it("excludes the worktree copies vitest excludes", () => {
+	it("excludes what the repo's own vitest config excludes", () => {
 		track("real.test.ts");
 		track(".claude/worktrees/w/real.test.ts");
+		fs.writeFileSync(
+			path.join(dir, "vitest.config.mjs"),
+			'export default { test: { exclude: [".claude/worktrees/**"] } };\n',
+		);
+		fs.symlinkSync(
+			path.join(REPO, "node_modules"),
+			path.join(dir, "node_modules"),
+		);
 		const r = run("--json", "--baseline", "1");
 		expect(r.json().files).toBe(1);
 	});
@@ -194,6 +203,18 @@ describe("apparatus failures", () => {
 		expect(r.out).toContain("No suite counted");
 	});
 
+	it("is BROKEN where a vitest config is present but vitest will not list", () => {
+		track("a.test.ts");
+		fs.writeFileSync(
+			path.join(dir, "vitest.config.mjs"),
+			"export default {};\n",
+		);
+		const r = run("--baseline", "1");
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("vitest list failed");
+		expect(r.out).toContain("No suite counted");
+	});
+
 	it("is BROKEN on a baseline that is not a positive number, and says which flag", () => {
 		addTests(1);
 		for (const bad of ["nonsense", "0"]) {
@@ -229,11 +250,12 @@ describe("the real repo", () => {
 });
 
 /*
- * The SessionStart hook in `self-plugin/hooks/hooks.json` works only because
- * --notify moves the report to stdout and swallows the exit code. Both are
- * `lib/check.js` contracts rather than this checker's, so a fix goes there.
+ * --notify is lib/check.js's SessionStart-hook mode: it moves the report to
+ * stdout and swallows the exit code. This checker runs from `npm run status`,
+ * not a hook, but keeps the mode working. Both are `lib/check.js` contracts
+ * rather than this checker's, so a fix goes there.
  */
-describe("the --notify contract the SessionStart hook rests on", () => {
+describe("the --notify contract a SessionStart hook would rest on", () => {
 	it("puts a drift report on stdout, where a SessionStart hook can read it", () => {
 		addTests(100);
 		const r = run("--baseline", "10", "--notify");

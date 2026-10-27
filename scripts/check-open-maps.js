@@ -35,8 +35,8 @@ const { runCheck } = require("./lib/check");
 const {
 	ghApiSlurp,
 	ghOpenIssuesWithLabel,
-	errLine,
-	ghFailureReason,
+	parseErrLine,
+	parseGhFailureReason,
 	raiseGhFailure,
 } = require("./lib/gh");
 const { requiredGroup } = require("./lib/regex-group");
@@ -136,20 +136,20 @@ function openMaps() {
  * @param {GhIssue} m
  * @returns {{kids: GhIssue[], unreadable?: undefined} | {unreadable: UnreadableMap, kids?: undefined}}
  */
-function mapChildren(m) {
+function readMapChildren(m) {
 	try {
 		return {
 			kids: ghApiSlurp([`repos/{owner}/{repo}/issues/${m.number}/sub_issues`]),
 		};
 	} catch (e) {
-		if (ghFailureReason(e) === "unreachable")
+		if (parseGhFailureReason(e) === "unreachable")
 			raiseGhFailure(e, "No open-map conclusion drawn.");
 		return {
 			unreadable: {
 				number: m.number,
 				title: m.title,
 				url: m.html_url,
-				reason: errLine(e),
+				reason: parseErrLine(e),
 			},
 		};
 	}
@@ -324,7 +324,7 @@ runCheck({
 			findings;
 
 		for (const m of maps) {
-			const read = mapChildren(m);
+			const read = readMapChildren(m);
 			if (read.unreadable) {
 				unreadable.push(read.unreadable);
 				continue;

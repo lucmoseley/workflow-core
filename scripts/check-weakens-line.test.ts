@@ -376,10 +376,22 @@ describe("check-weakens-line (#2235)", () => {
 				config({ disabled: ["guard-x.sh"] }),
 			);
 			run("add", "-A");
-			expect(run("commit", "-qm", "init").status).toBe(0);
+			const r = run("commit", "-qm", "init");
+			expect(r.status).toBe(0);
+			expect(r.stdout + r.stderr).toContain(
+				"no HEAD, so nothing existed to weaken",
+			);
 		} finally {
 			fs.rmSync(fresh, { recursive: true, force: true });
 		}
+	});
+	it("refuses, naming git, where WFC_GIT names a git that exits 1 (#2864)", () => {
+		const shim = path.join(hooks, "git");
+		fs.writeFileSync(shim, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+		write("b.md", "b\n");
+		const r = commit("b", { WFC_GIT: shim });
+		expect(r.status, r.out).toBe(1);
+		expect(r.out).toContain("git rev-parse HEAD would not answer");
 	});
 });
 

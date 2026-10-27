@@ -9,7 +9,7 @@
  * passed in, so live, finished and unanswerable sessions are set per case
  * rather than read off the machine.
  *
- * `record-issue-claim.sh` (a `PostToolUse` hook) writes these and /pick-next
+ * `record-issue-claim.js` (a `PostToolUse` hook) writes these and /pick-next
  * reads them: loosen a case here and two sessions take one issue, or a dead
  * session's claim hides its issue from the frontier for good.
  */

@@ -20,7 +20,7 @@
 		],
 		"allowlist": [
 			{
-				"path": "scripts/guard-suite-concurrency.test.ts",
+				"path": "scripts/lib/suite-concurrency.test.ts",
 				"anchors": [
 					{
 						"anchor": "under the ~1800 MB .* for the 2 vitest worker",
@@ -331,10 +331,6 @@
 				"scanned": true
 			},
 			{
-				"needle": "~2.9 GB",
-				"scanned": true
-			},
-			{
 				"needle": "546% of 800%",
 				"scanned": true
 			},
@@ -559,24 +555,6 @@
 					"**C7 is not (e).**",
 					"| §Machine limits, the 1.7 / 2.1 / 2.4 GB gates |",
 					"that count's dip — 589 / 990 / 1271 MB"
-				]
-			},
-			{
-				"path": "scripts/guard-suite-concurrency.test.ts",
-				"anchors": [
-					{
-						"anchor": "passes a whole launch beside one running 1-file run at 2,500 MB",
-						"needle": "2,500 MB"
-					}
-				]
-			},
-			{
-				"path": "scripts/pretest-reap.test.ts",
-				"anchors": [
-					{
-						"anchor": "judges a whole launch beside one running 1-file run against the 2,500 MB rung",
-						"needle": "2,500 MB"
-					}
 				]
 			}
 		]
@@ -1539,6 +1517,19 @@
 					{
 						"anchor": "and 400 B paid on every firing across 1. Uncapped.",
 						"needle": "400 B"
+					}
+				]
+			},
+			{
+				"path": "scripts/lib/agent-id-probe.js",
+				"anchors": [
+					{
+						"anchor": "Both 2.1.310 literals fit in 400 bytes, and",
+						"needle": "400 bytes"
+					},
+					{
+						"anchor": "`Vu`'s `agent_id` sits 400 bytes into its body; a guess.",
+						"needle": "400 bytes"
 					}
 				]
 			}

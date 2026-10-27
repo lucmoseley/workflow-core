@@ -13,11 +13,10 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
+const { execGit } = require("./git.js");
 const regions = require("./doc-map-regions.js");
 const { isListedLive } = require("./agent-liveness.js");
-const { currentBootId, holderAlive } = require("./arbiter-proc.js");
+const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
 const { scriptPath } = require("./script-path.js");
 const bases = require("./arbiter-bases.js");
 const breaks = require("./arbiter-breaks.js");
@@ -28,7 +27,6 @@ const ledger = require("./arbiter-ledger.js");
 // biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
 const observations = require("./arbiter-observations.js");
 const { sleepSync } = require("./sleep-sync.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -65,7 +63,7 @@ function newLock({
 	procStart = null,
 	claimedAt = new Date().toISOString(),
 	claimId = crypto.randomUUID(),
-	bootId = currentBootId(),
+	bootId = readCurrentBootId(),
 	// null is the not-observed value, and reads as "unknown" rather than
 	// "changed" — see contentState.
 	blob = null,
@@ -340,7 +338,7 @@ function repointLock(rel, existing, resumed) {
 			...m,
 			pid: resumed.pid,
 			procStart: resumed.procStart,
-			bootId: currentBootId() || m.bootId,
+			bootId: readCurrentBootId() || m.bootId,
 		}),
 	);
 	return outcome === "updated" ? lock : (lock ?? existing);
@@ -462,7 +460,7 @@ function breakCorrupt(rel, me = null) {
 		/* already gone */
 	}
 	// Filed unkeyed, because unparseable means the holder is unknown — so
-	// breakNotice, which matches a break to a session on lostBy, will never
+	// buildBreakNotice, which matches a break to a session on lostBy, will never
 	// surface it and the log line below is the whole of the visibility.
 	breaks.recordBreak(rel, null, me);
 	core.logError(
@@ -594,7 +592,7 @@ function judgeUndurable(lockPath, me) {
 	// precisely that no live entry carries it.
 	if (
 		!holderAlive(existing) &&
-		(mine || !core.liveEntryFor(existing.sessionId, me))
+		(mine || !core.readLiveEntryFor(existing.sessionId, me))
 	)
 		return { verdict: "claimed", lock: null };
 	return mine
@@ -643,7 +641,7 @@ function judgeExisting(rel, existing, me) {
 		const resumed =
 			existing.sessionId === me.sessionId
 				? null
-				: core.liveEntryFor(existing.sessionId, me);
+				: core.readLiveEntryFor(existing.sessionId, me);
 		if (resumed)
 			return { verdict: "held", lock: repointLock(rel, existing, resumed) };
 		breakStale(rel, existing, me);
@@ -679,8 +677,8 @@ function preBlobOf(rel, sessionId) {
 	const sha = core.git(["hash-object", "-w", "--", rel]);
 	if (!sha || !/^[0-9a-f]{40,64}$/.test(sha)) return null;
 	const touched =
-		ledger.writesBy(sessionId ?? "")?.includes(rel) !== false ||
-		observations.observedBy(sessionId ?? "")?.includes(rel) !== false;
+		ledger.readWritesBy(sessionId ?? "")?.includes(rel) !== false ||
+		observations.readObservedBy(sessionId ?? "")?.includes(rel) !== false;
 	if (!touched) return sha;
 	return core.git(["rev-parse", "--verify", "-q", `HEAD:${rel}`]) === sha
 		? sha
@@ -1149,7 +1147,7 @@ function listLocksJudged() {
  * misjudgement breaks a live lock, here it mislabels one line of a report.
  *
  * Separate from listLocks() because liveness is what costs a registry walk, and
- * heldBy() — which runs after every Bash call in every session — wants only the
+ * readHeldBy() — which runs after every Bash call in every session — wants only the
  * paths (mantahostels#359).
  *
  * `pause` IS THE SEAM THE DISCRIMINATOR IS TESTED THROUGH (mantahostels#1711), and no
@@ -1217,10 +1215,10 @@ function readLocks(pause = settle) {
  * unavailable rather than empty — so a caller iterating them cannot mistake a
  * dark store for "this session holds nothing" (mantahostels#174).
  *
- * A session that cannot be named is `null` too, not `[]`, matching writesBy.
+ * A session that cannot be named is `null` too, not `[]`, matching readWritesBy.
  * @param {string|null} sessionId
  */
-function heldBy(sessionId) {
+function readHeldBy(sessionId) {
 	if (!sessionId) return null;
 	const locks = readLocks();
 	if (locks === null) return null;
@@ -1324,14 +1322,14 @@ function liveClaimElsewhereOnFile(rel, exceptClaimId) {
  * wherever the question could not be answered, which every caller reads as
  * "unknown" and never as "empty".
  *
- * The REGION arm has to build one: `regionBytes` reads the working tree only, so a HEAD-side region is
+ * The REGION arm has to build one: `readRegionHash` reads the working tree only, so a HEAD-side region is
  * hashed here instead, through gitRaw — untrimmed, because git()'s trim strips
  * the newline the file ends on and the last region of HEAD would then never
  * equal the last region of the tree (mantahostels#1434).
  * @param {string} subject
  * @param {string|null} rev `null` for the working tree
  */
-function subjectBlobAt(subject, rev) {
+function readSubjectBlobAt(subject, rev) {
 	const { rel, region } = core.splitSubject(subject);
 	if (!region)
 		return rev
@@ -1347,7 +1345,7 @@ function subjectBlobAt(subject, rev) {
 		}
 	}
 	if (text === null || text === undefined) return null;
-	const body = regions.regionText(text, region, rel);
+	const body = regions.parseRegionText(text, region, rel);
 	return body === null ? null : core.gitIn(["hash-object", "--stdin"], body);
 }
 
@@ -1437,8 +1435,8 @@ function sweepFinding(lock, exceptSessionId, covers, nameOf) {
 	if (!lock.blob) return null;
 	const { rel, region } = core.splitSubject(lock.path);
 	if (!covers(rel)) return null;
-	if (subjectBlobAt(lock.path, "HEAD") === lock.blob) return null;
-	if (subjectBlobAt(lock.path, null) !== lock.blob) return null;
+	if (readSubjectBlobAt(lock.path, "HEAD") === lock.blob) return null;
+	if (readSubjectBlobAt(lock.path, null) !== lock.blob) return null;
 	return {
 		subject: lock.path,
 		rel,
@@ -1458,7 +1456,7 @@ function sweepFinding(lock, exceptSessionId, covers, nameOf) {
  * @param {string} rel
  * @param {string|null} sessionId
  */
-function ownLockOnFile(rel, sessionId) {
+function readOwnLockOnFile(rel, sessionId) {
 	const file = core.subjectPath(rel);
 	const direct = core.readRecordOrLog(core.paths.lock(file), `observe ${file}`);
 	if (direct?.sessionId === sessionId) return direct;
@@ -1493,17 +1491,12 @@ function ownLockOnFile(rel, sessionId) {
  * @param {string} rel
  * @returns {{found: true, content: Buffer, mode: number|null}|{found: false}|null}
  */
-function headBlob(rel) {
+function readHeadBlob(rel) {
 	try {
-		const content = execFileSync(
-			gitBinary(),
-			["cat-file", "-p", `HEAD:${rel}`],
-			{
-				cwd: core.repoRoot(),
-				maxBuffer: CHILD_MAX_BUFFER,
-			},
-		);
-		return { found: true, content, mode: headMode(rel) };
+		const content = execGit(["cat-file", "-p", `HEAD:${rel}`], {
+			cwd: core.repoRoot(),
+		});
+		return { found: true, content, mode: readHeadMode(rel) };
 	} catch (e) {
 		const { status } = caught(e);
 		// git ran and said no: the path is untracked, or HEAD does not have it yet.
@@ -1520,10 +1513,10 @@ function headBlob(rel) {
  * read, which restores the bytes at the default rather than guessing a mode.
  * @param {string} rel
  */
-function headMode(rel) {
+function readHeadMode(rel) {
 	try {
 		const line = String(
-			execFileSync(gitBinary(), ["ls-tree", "HEAD", "--", rel], {
+			execGit(["ls-tree", "HEAD", "--", rel], {
 				cwd: core.repoRoot(),
 			}),
 		);
@@ -1616,7 +1609,7 @@ function outsideOwnRegionsMatchHead(rel, sessionId) {
 	}
 	// gitRaw, not git(): the trimmed form drops the newline the file ends on, and
 	// the last region of HEAD would then never equal the last region of the tree
-	// (mantahostels#1434, which found that on subjectBlobAt).
+	// (mantahostels#1434, which found that on readSubjectBlobAt).
 	const headText = core.gitRaw(["show", `HEAD:${rel}`]);
 	if (headText === null) return "head";
 	let treeText;
@@ -1628,7 +1621,7 @@ function outsideOwnRegionsMatchHead(rel, sessionId) {
 	}
 	// parseRegions returns its ranges in file order and they never overlap, so one
 	// forward walk splices. An id claimed here takes HEAD's whole text for it at
-	// its FIRST range and nothing at the rest, matching regionText, which reads a
+	// its FIRST range and nothing at the rest, matching parseRegionText, which reads a
 	// multi-fragment id — `head`, `section-a` — as one body.
 	let spliced = "";
 	let cursor = 0;
@@ -1638,7 +1631,7 @@ function outsideOwnRegionsMatchHead(rel, sessionId) {
 		spliced += treeText.slice(cursor, r.start);
 		if (!done.has(r.id)) {
 			done.add(r.id);
-			spliced += regions.regionText(headText, r.id, rel) ?? "";
+			spliced += regions.parseRegionText(headText, r.id, rel) ?? "";
 		}
 		cursor = r.end;
 	}
@@ -1665,7 +1658,7 @@ function ownRegionOf(lock, rel, sessionId) {
  * their own pin records — the backstop under outsideOwnRegionsMatchHead's
  * excluded regions (mantahostels#2421).
  *
- * AN UNANSWERABLE REGION IS NOT A DRIFTED ONE (mantahostels#2429). subjectBlobAt is
+ * AN UNANSWERABLE REGION IS NOT A DRIFTED ONE (mantahostels#2429). readSubjectBlobAt is
  * null on three unlike things — a region gone from the tree, a file that could
  * not be read, and a `hash-object` git would not run. `own-region-drifted`
  * hands over a route PAST the refusal and asks the session to assert the bytes
@@ -1680,7 +1673,7 @@ function ownRegionOf(lock, rel, sessionId) {
  * MOSTLY NOT A FALSE POSITIVE ON THIS SESSION'S OWN EDIT. Both write routes re-pin before park is reached: the tool
  * route mints through cmdRecord on the PostToolUse write hook, and the Bash
  * route at that same Bash call's PostToolUse refresh
- * (`scripts/refresh-claims.sh` -> cmdRefresh -> recordContent, which fans a
+ * (the refresh-claims core -> refreshAfterBash -> recordContent, which fans a
  * regioned path out over every region this session holds). park is a LATER Bash
  * call, so it reads a pin already carrying this session's bytes.
  *
@@ -1726,7 +1719,7 @@ function ownRegionsOffPin(rel, sessionId) {
 	for (const lock of locks) {
 		const region = ownRegionOf(lock, rel, sessionId);
 		if (!region || !lock.blob) continue;
-		const now = subjectBlobAt(lock.path, null);
+		const now = readSubjectBlobAt(lock.path, null);
 		if (now === null) return "region";
 		if (now !== lock.blob) off.push(region);
 	}
@@ -1762,12 +1755,12 @@ function ownRegionsOffPin(rel, sessionId) {
  * @returns {{all: string[], claimants: string[], ownDrift: string[]}|{unknown: WritersUnknown}}
  */
 function otherWritersOn(rel, sessionId) {
-	const entries = observations.observationEntries();
+	const entries = observations.readObservationEntries();
 	if (entries === null) return { unknown: "observations" };
 	// An observation carries no pid — newObservation names every field it has, and
 	// liveness is not one — so the registry is the only oracle here. Unreadable is
 	// unknown, never empty: park must not read a dark registry as "nobody else".
-	const liveIds = core.liveSessionIds();
+	const liveIds = core.readLiveSessionIds();
 	if (liveIds === null) return { unknown: "registry" };
 	// The LOCK register too, not observations alone. park() writes the whole file,
 	// so a live neighbour holding a sibling region of it is about to lose bytes
@@ -1860,11 +1853,11 @@ function lockLimb(rel, sessionId, heldIds) {
  * whose observed write to `rel` is not what HEAD already holds, in register
  * order.
  * @param {Set<string>} out accumulator: each such session's id is added here
- * @param {NonNullable<ReturnType<typeof observations.observationEntries>>} entries
- * @param {{rel: string, sessionId: string|null, liveIds: NonNullable<ReturnType<typeof core.liveSessionIds>>}} on
+ * @param {NonNullable<ReturnType<typeof observations.readObservationEntries>>} entries
+ * @param {{rel: string, sessionId: string|null, liveIds: NonNullable<ReturnType<typeof core.readLiveSessionIds>>}} on
  */
 function addObservedWriters(out, entries, { rel, sessionId, liveIds }) {
-	const committed = subjectBlobAt(rel, "HEAD");
+	const committed = readSubjectBlobAt(rel, "HEAD");
 	for (const { record } of entries) {
 		if (!record || record.path !== rel) continue;
 		if (!record.sessionId || record.sessionId === sessionId) continue;
@@ -1947,7 +1940,7 @@ function park(rel, me) {
 		};
 	}
 
-	const head = headBlob(rel);
+	const head = readHeadBlob(rel);
 	if (head === null) return { verdict: "uncheckable" };
 
 	const abs = path.join(core.repoRoot(), rel);
@@ -1983,19 +1976,15 @@ function park(rel, me) {
 exports.acquire = acquire;
 exports.breakCorrupt = breakCorrupt;
 exports.breakStale = breakStale;
-exports.conflictingLock = conflictingLock;
 exports.DEBRIS_AGE_MS = DEBRIS_AGE_MS;
-exports.dropClean = dropClean;
 exports.dropIfUnchanged = dropIfUnchanged;
 exports.forceRelease = forceRelease;
-exports.headBlob = headBlob;
-exports.headMode = headMode;
-exports.heldBy = heldBy;
+exports.readHeldBy = readHeldBy;
 exports.listLocks = listLocks;
 exports.listLocksJudged = listLocksJudged;
 exports.liveClaimElsewhereOnFile = liveClaimElsewhereOnFile;
 exports.newLock = newLock;
-exports.ownLockOnFile = ownLockOnFile;
+exports.readOwnLockOnFile = readOwnLockOnFile;
 exports.park = park;
 exports.readLocks = readLocks;
 exports.release = release;
@@ -2003,7 +1992,6 @@ exports.renameAside = renameAside;
 exports.repointLock = repointLock;
 exports.restoreAside = restoreAside;
 exports.settle = settle;
-exports.subjectBlobAt = subjectBlobAt;
 exports.sweepDebris = sweepDebris;
 exports.sweepRisk = sweepRisk;
 exports.takeLock = takeLock;

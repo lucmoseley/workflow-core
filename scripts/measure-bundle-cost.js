@@ -16,7 +16,7 @@
  *
  * STANDING CONTEXT is fresh input + cache write + cache read on each assistant
  * turn — what the model was sent. MAIN-TIER ONLY, deliberately: the corpus
- * scan here (`fs.readdirSync`, unlike `lib/guard-fires.js` `transcriptFiles`)
+ * scan here (`fs.readdirSync`, unlike `lib/guard-fires.js` `readTranscriptFiles`)
  * never descends into a `subagents/` directory, so a dispatched subagent's own
  * billed turns are excluded from every figure below, not merged into the
  * dispatching session's. A `gh issue close` a subagent ran itself would also

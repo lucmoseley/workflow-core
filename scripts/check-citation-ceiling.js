@@ -21,7 +21,7 @@
  */
 
 const { runCheck } = require("./lib/check");
-const { ghFailureReason, ghJson, raiseGhFailure } = require("./lib/gh");
+const { parseGhFailureReason, ghJson, raiseGhFailure } = require("./lib/gh");
 const { CITATION_CEILING } = require("./lib/qualify-citations.js");
 const {
 	UPSTREAM_TRACKER,
@@ -53,7 +53,10 @@ runCheck({
 				`repos/${UPSTREAM_TRACKER}/issues?state=all&sort=created&direction=desc&per_page=1`,
 			]);
 		} catch (e) {
-			if (ctx.has("--require-remote") && ghFailureReason(e) === "unreachable")
+			if (
+				ctx.has("--require-remote") &&
+				parseGhFailureReason(e) === "unreachable"
+			)
 				ctx.broken(
 					"GitHub is unreachable and --require-remote is set, so the tracker's top is unknown.",
 				);

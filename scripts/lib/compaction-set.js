@@ -60,7 +60,7 @@ function recordCompactions(sid, keys) {
 }
 
 /** @param {number} count */
-function compactionSentence(count) {
+function buildCompactionSentence(count) {
 	const times = `${count.toLocaleString("en-GB")} time${count === 1 ? "" : "s"}`;
 	return `This session has autocompacted ${times}.`;
 }
@@ -72,6 +72,6 @@ const COMPACTION_ADVICE =
 module.exports = {
 	PENDING_PREFIX,
 	recordCompactions,
-	compactionSentence,
+	buildCompactionSentence,
 	COMPACTION_ADVICE,
 };

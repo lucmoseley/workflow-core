@@ -1,41 +1,45 @@
 // @vitest-environment node
 /*
- * guard-root-find.sh refuses a `find` started at `/`, at any depth, and hands
+ * guard-root-find.js refuses a `find` started at `/`, at any depth, and hands
  * over the plugin's own root, the repo's scratch and named roots (#1006).
- *
- * The first fire list and the first pass list are #1006's acceptance criteria;
- * do not thin them. The payload's `cwd` is what the `cd /`, `..` and bare-find
- * cases test, since a relative start point resolves against it. The guard is
- * spawned with project and config dirs in a temp directory, and every case
- * asserts exit 0 and empty stderr, since a crashed guard is silent too.
- *
- * It runs as a `PreToolUse` Bash hook (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): loosen a fire case and a `find /` walks the whole
- * Windows mount on a 10 GB machine; lose a pass case and a scoped `find` is
- * refused.
+ * These are its boundary cases (§X11), run as the harness runs it: the
+ * payload on stdin, its cwd and the hook's own, the real plugin root and the
+ * real core-path rewrite, end to end. Which command earns which verdict is
+ * lib/find-start.test.ts's; the throw policy is lib/refuse-on-throw.test.ts's
+ * (#2801).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { describeFailOpenLog } from "./guard-log-fixture";
+import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import {
 	buildBashPayload,
+	entryBesideThrowingCore,
 	guardDirs,
-	guardOutput,
+	nodeGuardOutput,
+	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-root-find.sh");
+const GUARD = path.resolve(__dirname, "guard-root-find.js");
+const PLUGIN_ROOT = fs.realpathSync(path.resolve(__dirname, ".."));
 
 let dir: string;
 let config: string;
 let project: string;
 
-const run = (command: string, cwd = project) =>
-	guardOutput(
+const emission = (
+	command: string,
+	{
+		cwd,
+		hookCwd = project,
+		env = {},
+	}: { cwd?: string; hookCwd?: string; env?: NodeJS.ProcessEnv } = {},
+) =>
+	nodeGuardOutput(
 		GUARD,
-		{ ...buildBashPayload(command, null), cwd },
-		{ project, config },
+		{ ...buildBashPayload(command, null), ...(cwd ? { cwd } : {}) },
+		{ project, config, cwd: hookCwd, env },
 	);
 
 beforeEach(() => {
@@ -46,67 +50,113 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-describe("a find started at / is refused", () => {
-	it.each([
-		"find / -name x",
-		"find / -maxdepth 6 -name x",
-		"find /usr / -name x",
-		"find -L / -name x",
-		'find "/" -name x',
-		"timeout 120 find / -xdev -name x",
-		"cd ~ && find / -name x",
-		"sudo find / -name x 2>/dev/null | head",
-		"find // -name x",
-		"find /tmp/.. -name x",
-		"cd / && find . -name x",
-	])("%s", (command) => {
-		const out = run(command);
-		expect(out?.permissionDecision).toBe("deny");
+describe("the guard, end to end", () => {
+	it("refuses a find at / as JSON on exit 0, handing over the real plugin root (#1006)", () => {
+		const out = emission("find / -name x", { cwd: project });
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toMatch(
+			/^Refused: `find \/ -name x` starts at `\/`\./,
+		);
+		expect(out.permissionDecisionReason).toContain(
+			`This plugin's own files: ${PLUGIN_ROOT} — its scripts/ and docs/agents/ are there.`,
+		);
+		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
 	});
 
-	it("refuses a bare find from a session standing in /", () => {
-		expect(run("find -name x", "/")?.permissionDecision).toBe("deny");
+	it("resolves a relative start against the payload's cwd", () => {
+		expect(emission("find . -name x", { cwd: "/" }).permissionDecision).toBe(
+			"deny",
+		);
+		expect(emission("find . -name x", { cwd: project })).toBeNull();
 	});
 
-	it("hands over the plugin root, the scratch and named roots", () => {
-		const reason: string = run("find / -name x").permissionDecisionReason;
-		expect(reason).toContain(`${path.resolve(__dirname, "..")} `);
-		expect(reason).toContain(".claude/tmp/");
-		expect(reason).toContain("find /usr /opt /home -xdev -name");
-		expect(reason).toContain("`find / -name x`");
-	});
-});
-
-describe("every other start point passes silently", () => {
-	it.each([
-		"find ~ -name x",
-		"find $HOME -name x",
-		"find /home/lucmo -name x",
-		"find /usr -name x",
-		"find /mnt/c/Users -name x",
-		"find . -name x",
-		"find scripts -name x",
-		'find "$state_dir" -maxdepth 1',
-		"find \\( -name a \\)",
-		"find -name x",
-	])("%s", (command) => {
-		expect(run(command)).toBeNull();
+	it("falls back to the hook's own directory where the payload has none", () => {
+		expect(emission("find -name x", { hookCwd: "/" }).permissionDecision).toBe(
+			"deny",
+		);
+		expect(emission("find -name x")).toBeNull();
 	});
 
-	it.each([
-		"grep -n 'find /' file",
-		'echo "find / -name"',
-		"cat <<'EOF'\nfind / -name x\nEOF",
-	])("a mention is not a run: %s", (command) => {
-		expect(run(command)).toBeNull();
+	it("reads a cd target's variable from the environment", () => {
+		expect(
+			emission("cd $X && find . -x", { cwd: project, env: { X: "/" } })
+				.permissionDecision,
+		).toBe("deny");
+	});
+
+	it("spells core paths at the plugin root in an install", () => {
+		// WFC_SCRIPT_ROOT stands in for an install: a core root with no
+		// package.json.
+		const install = path.join(dir, "install");
+		fs.mkdirSync(path.join(install, "docs", "agents"), { recursive: true });
+		const out = emission("find / -x", {
+			cwd: project,
+			env: { WFC_SCRIPT_ROOT: install },
+		});
+		expect(out.permissionDecisionReason).toContain(
+			`its scripts/ and ${install}/docs/agents/ are there.`,
+		);
+	});
+
+	it("is silent on a find it passes", () => {
+		expect(emission("find /usr -name x", { cwd: project })).toBeNull();
+		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
 	});
 });
 
-describeFailOpenLog({
-	guard: GUARD,
-	denied: { tool_input: { command: "find / -name x" } },
-	fieldless: { tool_input: {} },
-	fieldlessMatch: /no command in payload/,
-	benign: { tool_input: { command: "find . -name x" } },
-	ctx: () => ({ dir, config, project }),
+describe("the fail-open record", () => {
+	const run = (stdin: string) =>
+		runNodeGuard(GUARD, null, { project, config, cwd: project, stdin });
+
+	it("treats an empty payload as nothing to check, not a fault", () => {
+		const r = run("");
+		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
+	});
+
+	it.each([
+		[
+			"a payload that is not JSON",
+			"not json at all",
+			/payload did not parse as JSON/,
+		],
+		[
+			"a payload carrying no command",
+			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
+			/no command in payload/,
+		],
+	])(
+		"records %s in three fields under its own name, allowing",
+		(_l, stdin, match) => {
+			const r = run(stdin);
+			expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+			const lines = readFailOpenLog(config, project).trim().split("\n");
+			expect(lines).toHaveLength(1);
+			expect(lines[0]?.split("\t")).toEqual([
+				expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
+				"guard-root-find.js",
+				expect.stringMatching(match),
+			]);
+		},
+	);
+
+	it("refuses, logged, where its core throws", () => {
+		const entry = entryBesideThrowingCore(
+			dir,
+			"scripts/guard-root-find.js",
+			"find-start.js",
+		);
+		const out = nodeGuardOutput(entry, buildBashPayload("find . -x", null), {
+			project,
+			config,
+			cwd: project,
+		});
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toBe(
+			"guard-root-find.js could not judge this command, so it refuses it: broke",
+		);
+		expect(readFailOpenLog(config, project)).toMatch(
+			/core threw — the command was refused\tbroke/,
+		);
+	});
 });

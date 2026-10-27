@@ -22,7 +22,7 @@
  * answered from the tracker.
  *
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this enforces for itself what
- * guard-issue-create-label.sh and place-new-issue.sh enforce on the hand
+ * guard-issue-create-label.js and place-new-issue.sh enforce on the hand
  * spelling: exactly one `takes:` value, the `takes:human` Outside-line tests
  * (lib/takes-label.js), every label known to the tracker — a label GitHub
  * does not know aborts `gh issue create` while it exits 0 — and the family
@@ -52,10 +52,10 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
-const { errLine, gh, ghApiSlurp } = require("./lib/gh.js");
-const { distinctFromHint } = require("./lib/similar-titles.js");
+const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
+const { buildDistinctFromHint } = require("./lib/similar-titles.js");
 const { hasStandaloneLine } = require("./lib/standalone-line.js");
-const { ruleText } = require("./lib/rule-text.js");
+const { readRuleText } = require("./lib/rule-text.js");
 const { fromEnv } = require("./lib/session-id.js");
 const { takesLabel, takesRefusal } = require("./lib/takes-label.js");
 
@@ -213,7 +213,7 @@ function checkTitle({ flags, lists }, titles) {
 	try {
 		io.out(similarTitles(repo, title).text);
 	} catch (e) {
-		io.fail(`could not list ${repo}'s issues (${errLine(e)}).`, 1);
+		io.fail(`could not list ${repo}'s issues (${parseErrLine(e)}).`, 1);
 	}
 }
 
@@ -294,12 +294,14 @@ function main() {
 function checkBody(labels, body) {
 	// The template, handed over before the takes:human checks can refuse (#983).
 	if (labels.includes(HUMAN_LABEL))
-		writeFd(2, `${ruleText("founder-deliverable")}\n\n`);
+		writeFd(2, `${readRuleText("founder-deliverable")}\n\n`);
 	const takes = takesRefusal(labels, body);
 	if (takes) io.fail(`${takes} Nothing filed.`, 2);
 
 	// Advice, handed over before the basis check can refuse (#823).
-	const handover = gateRuleHandover("", body, () => ruleText("roadmap-gating"));
+	const handover = gateRuleHandover("", body, () =>
+		readRuleText("roadmap-gating"),
+	);
 	if (handover) writeFd(2, handover);
 	const unbased = basisFaults(body);
 	if (unbased.length > 0)
@@ -341,7 +343,7 @@ function readParent({ repo, number, labels }) {
 		parent = readIssue(repo, number);
 	} catch (e) {
 		io.fail(
-			`could not read parent #${number} from ${repo} (${errLine(e)}). Nothing filed.`,
+			`could not read parent #${number} from ${repo} (${parseErrLine(e)}). Nothing filed.`,
 			1,
 		);
 	}
@@ -386,7 +388,7 @@ function checkKnownLabels(repo, labels) {
 		);
 	} catch (e) {
 		io.fail(
-			`could not read ${repo}'s label list (${errLine(e)}). Nothing filed.`,
+			`could not read ${repo}'s label list (${parseErrLine(e)}). Nothing filed.`,
 			1,
 		);
 	}
@@ -411,7 +413,7 @@ function checkSimilar(repo, opts) {
 	} catch (e) {
 		// Fails open: a gh outage would otherwise stop every filing.
 		io.out(
-			`Could not list similar open issues (${errLine(e)}) — filing without the check.\n`,
+			`Could not list similar open issues (${parseErrLine(e)}) — filing without the check.\n`,
 		);
 	}
 	if (!similar) return;
@@ -420,7 +422,7 @@ function checkSimilar(repo, opts) {
 	);
 	if (unchecked.length > 0)
 		io.fail(
-			`${similar.text}Nothing filed: ${unchecked.map((c) => `#${c.number}`).join(", ")} ${unchecked.length === 1 ? "is" : "are"} not yet checked. Read each listed issue. A duplicate is not filed — add to it instead; a natural parent is --parent. Where every one is different, re-run with ${distinctFromHint(similar.found.map((c) => c.number))}`,
+			`${similar.text}Nothing filed: ${unchecked.map((c) => `#${c.number}`).join(", ")} ${unchecked.length === 1 ? "is" : "are"} not yet checked. Read each listed issue. A duplicate is not filed — add to it instead; a natural parent is --parent. Where every one is different, re-run with ${buildDistinctFromHint(similar.found.map((c) => c.number))}`,
 			2,
 		);
 	io.out(similar.text);
@@ -451,7 +453,7 @@ function create({ repo, title, labels, filedBody }) {
 		});
 	} catch (e) {
 		io.fail(
-			`gh issue create failed (${errLine(e)}). Search ${repo}'s open issues for the title before re-running — a create can land and still report failure.`,
+			`gh issue create failed (${parseErrLine(e)}). Search ${repo}'s open issues for the title before re-running — a create can land and still report failure.`,
 			1,
 		);
 	}

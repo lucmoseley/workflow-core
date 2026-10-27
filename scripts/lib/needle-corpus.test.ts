@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * scripts/lib/needle-corpus.js — the drift judgement
- * guard-registry-atomicity.sh makes at commit time (mantahostels#2708).
+ * guard-registry-atomicity.js makes at commit time (mantahostels#2708).
  *
  * The corpus walk itself is covered where it is used —
  * count-guard-fires.test.ts asserts every real needle against the real tree.
@@ -11,7 +11,7 @@
  * Each case seeds a temp tree and hands in HEAD's bytes as a map, so no case
  * runs git or reads this repo's registry.
  *
- * guard-registry-atomicity.sh, a `PreToolUse` hook on `git` commands, refuses
+ * guard-registry-atomicity.js, a `PreToolUse` hook on `git` commands, refuses
  * on this judgement, so a loosened case lets a reworded guard land with its
  * needle unmoved and red count-guard-fires.test.ts for every session, or
  * refuses a commit over drift it did not cause.
@@ -22,7 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { CORPUS_DIRS, isTestFile, needleDrift } = require("./needle-corpus.js");
+const { needleDrift } = require("./needle-corpus.js");
 
 const REGISTRY = "scripts/guard-fire-needles.json";
 
@@ -519,27 +519,6 @@ describe("needleDrift's fail-open paths", () => {
 
 describe("test files are no part of the corpus", () => {
 	// mantahostels#3288: a test asserting on a guard's wording carries its own copy of it.
-	it("names the test-file spellings, and no guard or fixture", () => {
-		for (const rel of [
-			"scripts/guard-x.test.ts",
-			"scripts/lib/needle-corpus.test.ts",
-			"scripts/foo.test.tsx",
-			"scripts/foo.test.js",
-			"scripts/test_evidence_corpus.py",
-			"scripts/conftest.py",
-		])
-			expect(isTestFile(rel), rel).toBe(true);
-		for (const rel of [
-			"scripts/guard-x.sh",
-			"scripts/check-test-marker.js",
-			"scripts/evidence_test_support.py",
-			"scripts/lib/git-fixture.ts",
-			"scripts/guard-parse-fixture.ts",
-			".husky/pre-commit",
-		])
-			expect(isTestFile(rel), rel).toBe(false);
-	});
-
 	it("does not let a guard's test rescue a needle the guard stopped printing", () => {
 		seed("deny 'the NEW wording'", "the OLD wording");
 		fs.writeFileSync(
@@ -578,33 +557,5 @@ describe("test files are no part of the corpus", () => {
 		});
 		expect(failOpen).toBe(null);
 		expect(broken).toEqual([]);
-	});
-});
-
-describe("the guard's own copy of CORPUS_DIRS", () => {
-	it("matches the `case` list guard-registry-atomicity.sh filters on", () => {
-		// The guard skips the node call entirely where the commit lands nothing
-		// the corpus reads, off a `case` pattern it spells itself. A dir added
-		// here and not there would silently stop being judged.
-		const guard = fs.readFileSync(
-			path.resolve(__dirname, "..", "guard-registry-atomicity.sh"),
-			"utf8",
-		);
-		const line = guard
-			.split("\n")
-			.find(
-				(l) => l.includes("corpus_touched=1") === false && l.includes("/*)"),
-			);
-		expect(line, "no corpus `case` line found in the guard").toBeTruthy();
-		const spelled = (line as string)
-			.split("|")
-			.map((p) =>
-				p
-					.trim()
-					.replace(/\/\*\)?$/, "")
-					.replace(/\)$/, ""),
-			)
-			.filter(Boolean);
-		expect(spelled.sort()).toEqual([...CORPUS_DIRS].sort());
 	});
 });

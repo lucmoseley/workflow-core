@@ -12,12 +12,13 @@
  * ticket can sit blocked on itself unnoticed.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { BLOCKED_BY_GRAPHQL_FAKE, GH_NOT_FOUND } from "./lib/gh-fake";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
-import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-cycles.js");
 
@@ -34,7 +35,7 @@ interface Issue {
 	parent?: number;
 	blockedBy?: (Blocker & { repository_url?: string })[];
 	repository_url?: string;
-	/** the blocked_by call for this one issue returns an HTTP error */
+	/** this one issue's blockers read fails, batched and alone alike */
 	failBlockers?: boolean;
 	pull_request?: object;
 }
@@ -43,6 +44,8 @@ interface Fixture {
 	issues: Issue[];
 	failList?: boolean;
 	unreachable?: boolean;
+	/** the list reads, then the blockers read finds gh logged out */
+	blockersUnreachable?: boolean;
 }
 
 const CALL_LOG = () => path.join(dir, "calls.log");
@@ -62,14 +65,26 @@ const page = (rows) => process.stdout.write(JSON.stringify([rows]) + "\\n");
 
 if (fx.unreachable) { ${GH_LOGGED_OUT_NODE} }
 
+${BLOCKED_BY_GRAPHQL_FAKE}
+if (argv[1] === "graphql") {
+  if (fx.blockersUnreachable) { ${GH_LOGGED_OUT_NODE} }
+  serveAnswer(answerBlockedBy(argv, (n) => {
+    const i = fx.issues.find((x) => x.number === n);
+    if (i && i.failBlockers) return null;
+    return ((i && i.blockedBy) || []).map((b) => ({
+      ...b,
+      repo: b.repository_url && b.repository_url.replace("https://api.github.com/repos/", ""),
+    }));
+  }));
+}
 const dep = p.match(/issues\\/(\\d+)\\/dependencies\\/blocked_by/);
 if (dep) {
   const i = fx.issues.find((x) => x.number === Number(dep[1]));
-  if (i && i.failBlockers) die("HTTP 502 (blocked_by/" + dep[1] + ")");
+  if (i && i.failBlockers) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
   return page((i && i.blockedBy) || []);
 }
 if (/\\/issues$/.test(p) && argv.includes("state=open")) {
-  if (fx.failList) die("HTTP 500");
+  if (fx.failList) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
   return page(fx.issues.map((i) => ({
     number: i.number,
     title: "issue " + i.number,
@@ -88,8 +103,17 @@ die("unexpected call: " + argv.join(" "));
 
 const run = (fx: Fixture, args: string[] = []) => {
 	const stub = stubGh(fx);
-	const r = runInProcess(SCRIPT, args, {
-		env: { ...process.env, ...stub.env, GITHUB_ACTIONS: "" },
+	// A child process: the script calls runCheck at top level, with no
+	// exported `main` and no require.main guard, so runInProcessAsync cannot
+	// await its async run().
+	const r = spawnSync("node", [SCRIPT, ...args], {
+		encoding: "utf8",
+		env: {
+			...process.env,
+			...stub.env,
+			GITHUB_ACTIONS: "",
+			CLAUDE_PROJECT_DIR: dir,
+		},
 	});
 	const log = CALL_LOG();
 	return {
@@ -263,6 +287,14 @@ describe("failure handling", () => {
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("SKIP");
 		expect(r.out).not.toContain("OK:");
+	});
+
+	it("SKIPs at exit 0, naming the remedy, when GitHub goes unreachable after the list read", () => {
+		const r = run({ issues: [{ number: 1 }], blockersUnreachable: true });
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("SKIP");
+		expect(r.out).toContain("Needs an authenticated `gh`.");
+		expect(r.out).not.toContain("BROKEN");
 	});
 
 	it("is BROKEN (exit 2) when the issue list fails", () => {

@@ -10,6 +10,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
+import {
+	readingLine,
+	signalLine,
+	writeJournalctl,
+} from "./lib/earlyoom-journal-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -23,8 +28,9 @@ const wfc = () => path.join(home(), "wfc");
 const stub = (name: string) => path.join(sb.dir, "gh", name);
 
 /**
- * `gh` over one tracker's review issues (`reviews.json`) and closes
- * (`closed.json`). A review's create appends to `reviews.json`, so a second
+ * `gh` over one tracker's review issues (`reviews.json`), closes
+ * (`closed.json`), and open `urgent` and `parked` issues (`urgent.json`,
+ * `parked.json`) with their timelines (`timelines.json`), logging every call to `calls.log`. A review's create appends to `reviews.json`, so a second
  * run sees the first's issue, and a comment appends to its issue there unless
  * `fail-comment` exists. file-issue.js's similar-title list also holds an open
  * lookalike, #1995, among enough unrelated titles that it scores above the
@@ -37,7 +43,13 @@ const f = (n) => path.join(process.env.STUB_DIR, n);
 const a = process.argv.slice(2);
 const read = (n) => JSON.parse(fs.readFileSync(f(n), "utf8"));
 const say = (o) => { process.stdout.write(JSON.stringify(o)); process.exit(0); };
+fs.appendFileSync(f("calls.log"), a.join(" ") + "\\n");
+const timeline = (a[1] ?? "").split("/");
+if (a[0] === "api" && timeline[5] === "timeline") say([read("timelines.json")[timeline[4]] ?? []]);
+if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") say(read("urgent.json"));
+if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") say(read("parked.json"));
 if (a[0] === "api" && a[1] === "repos/acme/wfc/labels") say([[{ name: "takes:wayfinder" }, { name: "takes:implement" }]]);
+if (a[0] === "issue" && a[1] === "list" && a.includes('in:title "Memory kill incident from"')) say(read("kills.json"));
 if (a[0] === "issue" && a[1] === "list" && a.includes("--search") && !a.includes("--label")) say(read("closed.json"));
 if (a[0] === "issue" && a[1] === "list" && a.includes("--label"))
 	say(read("reviews.json").filter((i) => a[a.indexOf("--state") + 1] === "all" || i.state === a[a.indexOf("--state") + 1].toUpperCase()));
@@ -105,6 +117,25 @@ function seed(reviews: object[]) {
 	);
 	fs.mkdirSync(path.join(sb.dir, "gh"), { recursive: true });
 	fs.writeFileSync(stub("reviews.json"), JSON.stringify(reviews));
+	fs.writeFileSync(stub("urgent.json"), "[]");
+	fs.writeFileSync(stub("parked.json"), "[]");
+	fs.writeFileSync(stub("timelines.json"), "{}");
+	/* One earlyoom kill 3 h ago, its incident ticketed as #61. */
+	const killedAt = Date.now() - 3 * HOUR;
+	writeJournalctl(path.join(sb.dir, "gh"), [
+		readingLine(killedAt),
+		signalLine(killedAt, 9, "2.1.310"),
+	]);
+	const { incidentTitle } = require("./lib/earlyoom-kills.js");
+	fs.writeFileSync(
+		stub("kills.json"),
+		JSON.stringify([
+			{
+				number: 61,
+				title: incidentTitle({ first: new Date(killedAt).toISOString() }),
+			},
+		]),
+	);
 	fs.writeFileSync(
 		stub("closed.json"),
 		JSON.stringify([
@@ -128,10 +159,11 @@ const run = (argv: string[] = []) =>
 			HOME: home(),
 			CLAUDE_PROJECT_DIR: wfc(),
 			STUB_DIR: path.join(sb.dir, "gh"),
+			WFC_JOURNALCTL: stub("journalctl"),
 		},
 	});
 
-const created = () =>
+const readCreated = () =>
 	fs
 		.readdirSync(path.join(sb.dir, "gh"))
 		.filter((n) => n.startsWith("created-"))
@@ -151,7 +183,7 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(first.stderr).toBe("");
 		expect(first.status).toBe(0);
 		expect(first.stdout).toMatch(/#1995 \([\d.]+\) Away mode/);
-		const [issue, ...more] = created();
+		const [issue, ...more] = readCreated();
 		expect(more).toHaveLength(0);
 		expect(issue.title).toBe(TODAY);
 		expect(issue.labels).toEqual(["takes:wayfinder"]);
@@ -163,12 +195,15 @@ describe("file-morning-review.js (#2011)", () => {
 			"- acme/wfc#77 — `Drop the old ledger` — `deleted data; cannot`",
 		);
 		expect(issue.body).toContain("Standalone: the day's away-mode review");
+		expect(issue.body).toMatch(
+			/## Memory kills\n\n1 in the window — Claude host 1, test or build 0, other 0\.\n\n- `Memory kill incident from [^`]+` — 1 kill: Claude host 1, test or build 0, other 0 — #61\n/,
+		);
 		expect(issue.body).toContain("- acme/wfc: `1 torn ledger line(s) skipped`");
 
 		const second = run();
 		expect(second.status).toBe(0);
 		expect(second.stdout).toContain("is today's review issue already");
-		expect(created()).toHaveLength(1);
+		expect(readCreated()).toHaveLength(1);
 	});
 
 	it("files nothing when today's review issue is already closed", () => {
@@ -176,7 +211,7 @@ describe("file-morning-review.js (#2011)", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("#6 is today's review issue already");
-		expect(created()).toHaveLength(0);
+		expect(readCreated()).toHaveLength(0);
 	});
 
 	describe("reversals (#2017)", () => {
@@ -196,7 +231,7 @@ describe("file-morning-review.js (#2011)", () => {
 			].join("\n"),
 			comments: [{ url: Request, body: "reverse 1\nreverse 9" }],
 		});
-		const replies = () =>
+		const readReplies = () =>
 			JSON.parse(fs.readFileSync(stub("reviews.json"), "utf8"))
 				.find((i: { number: number }) => i.number === 5)
 				.comments.slice(1)
@@ -207,7 +242,7 @@ describe("file-morning-review.js (#2011)", () => {
 			const r = run(["--reversals-only"]);
 			expect(r.stderr).toBe("");
 			expect(r.status).toBe(0);
-			const [ticket, ...more] = created();
+			const [ticket, ...more] = readCreated();
 			expect(more).toHaveLength(0);
 			expect(ticket.labels).toEqual(["takes:implement"]);
 			expect(ticket.title).toBe(
@@ -217,7 +252,7 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(ticket.body).toContain(
 				`entry 1 of the morning review acme/wfc#5 ([#5 comment](${Request}))`,
 			);
-			const [filed, notFiled] = replies();
+			const [filed, notFiled] = readReplies();
 			expect(filed).toMatch(
 				/^\*\*Reversal filed:\*\* entry 1 → acme\/wfc#9\d\d, for/,
 			);
@@ -232,16 +267,16 @@ describe("file-morning-review.js (#2011)", () => {
 			run(["--reversals-only"]);
 			const again = run(["--reversals-only"]);
 			expect(again.status).toBe(0);
-			expect(created()).toHaveLength(1);
-			expect(replies()).toHaveLength(2);
+			expect(readCreated()).toHaveLength(1);
+			expect(readReplies()).toHaveLength(2);
 		});
 
 		it("answers a request on a review closed since it was written", () => {
 			seed([{ ...openReview(), state: "CLOSED" }]);
 			const r = run(["--reversals-only"]);
 			expect(r.status).toBe(0);
-			expect(created()).toHaveLength(1);
-			expect(replies()).toHaveLength(2);
+			expect(readCreated()).toHaveLength(1);
+			expect(readReplies()).toHaveLength(2);
 		});
 
 		it("files once when the reply fails, and replies on the next run", () => {
@@ -253,8 +288,8 @@ describe("file-morning-review.js (#2011)", () => {
 			fs.rmSync(stub("fail-comment"));
 			const again = run(["--reversals-only"]);
 			expect(again.status).toBe(0);
-			expect(created()).toHaveLength(1);
-			expect(replies()[0]).toMatch(
+			expect(readCreated()).toHaveLength(1);
+			expect(readReplies()[0]).toMatch(
 				/^\*\*Reversal filed:\*\* entry 1 → acme\/wfc#9\d\d/,
 			);
 		});
@@ -268,8 +303,89 @@ describe("file-morning-review.js (#2011)", () => {
 			const r = run(["--reversals-only"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain("another run is answering reversals");
-			expect(created()).toHaveLength(0);
+			expect(readCreated()).toHaveLength(0);
 		});
+	});
+
+	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, not one urgent 6 days, and writes no label (#2693)", () => {
+		seed([]);
+		const labelled = (hours: number) => [
+			{ event: "labeled", label: { name: "urgent" }, created_at: ago(hours) },
+		];
+		fs.writeFileSync(
+			stub("urgent.json"),
+			JSON.stringify([
+				{ number: 50, title: "Stuck for a week" },
+				{ number: 51, title: "Fresh enough" },
+			]),
+		);
+		fs.writeFileSync(
+			stub("timelines.json"),
+			JSON.stringify({ 50: labelled(8 * 24), 51: labelled(6 * 24) }),
+		);
+		fs.mkdirSync(path.join(wfc(), ".claude", "tmp", "markers", ".pick-next"));
+		fs.writeFileSync(
+			path.join(
+				wfc(),
+				".claude",
+				"tmp",
+				"markers",
+				".pick-next",
+				"last-run.json",
+			),
+			JSON.stringify({
+				repo: "{owner}/{repo}",
+				argv: ["--json"],
+				generatedAt: "2026-10-24T06:00:00Z",
+				parked: [{ number: 50 }],
+				frontier: [{ number: 50 }],
+			}),
+		);
+		const r = run(["--dry-run"]);
+		expect(r.status).toBe(0);
+		const section = r.stdout.slice(r.stdout.indexOf("## Stuck urgent"));
+		expect(section).toContain(
+			"- acme/wfc#50 — `Stuck for a week` — 8 days — `parked — the refill loop never launches it (pick-next, 2026-10-24T06:00:00Z)`",
+		);
+		expect(section).not.toContain("#51");
+		const calls = fs.readFileSync(stub("calls.log"), "utf8");
+		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/urgent/);
+	});
+
+	it("lists every open parked issue with its age, one whose label start will not read as age unknown, and writes no label (#2725)", () => {
+		seed([]);
+		fs.writeFileSync(
+			stub("parked.json"),
+			JSON.stringify([
+				{ number: 60, title: "Waits on a round" },
+				{ number: 61, title: "Labelled off the timeline" },
+			]),
+		);
+		fs.writeFileSync(
+			stub("timelines.json"),
+			JSON.stringify({
+				60: [
+					{
+						event: "labeled",
+						label: { name: "parked" },
+						created_at: ago(3 * 24 + 1),
+					},
+				],
+				61: [],
+			}),
+		);
+		const r = run(["--dry-run"]);
+		expect(r.status).toBe(0);
+		const section = r.stdout.slice(
+			r.stdout.indexOf("## Parked"),
+			r.stdout.indexOf("## Still-caught"),
+		);
+		expect(section).toContain("- acme/wfc#60 — `Waits on a round` — 3 days\n");
+		expect(section).toContain(
+			"- acme/wfc#61 — `Labelled off the timeline` — age unknown: `no 'labeled' event on the timeline`\n",
+		);
+		const calls = fs.readFileSync(stub("calls.log"), "utf8");
+		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/parked/);
 	});
 
 	it("prints the body and files nothing on --dry-run", () => {
@@ -278,6 +394,6 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`${TODAY}\n\n## Question`);
 		expect(r.stdout).toContain("no previous review issue");
-		expect(created()).toHaveLength(0);
+		expect(readCreated()).toHaveLength(0);
 	});
 });

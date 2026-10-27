@@ -25,7 +25,8 @@ import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 import { freshSandbox, issueClaims, store } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION as UNFILLED } from "./lib/issue-gate";
-import { ruleText } from "./lib/rule-text";
+import { MARKERS_REL } from "./lib/marker-root";
+import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
 import { FOUNDER_ACTS, TAKES_VALUES, TRIED_MIN } from "./lib/takes-label";
 
@@ -91,7 +92,8 @@ case "$*" in
     echo "https://github.com/acme/widgets/issues/${NEW}"; exit 0 ;;
   "issue list"*)
     if [ -f "${at("list-fails")}" ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
-    if [ -f "${at("issues")}" ]; then cat "${at("issues")}"; else echo "[]"; fi
+    f="${at("issues")}"; case "$*" in *"--state open --json number,title,state"*) f="${at("issues-open")}" ;; esac
+    if [ -f "$f" ]; then cat "$f"; else echo "[]"; fi
     exit 0 ;;
   "issue edit"*)
     if [ -f "${at("assign-fails")}" ]; then echo "HTTP 403: no" >&2; exit 1; fi
@@ -157,17 +159,18 @@ const filing = (labels: string[], placement = ["--parent", "528"]) => [
 	"-",
 ];
 
-const ghCalls = () =>
+const readGhCalls = () =>
 	fs.existsSync(at("gh-calls"))
 		? fs.readFileSync(at("gh-calls"), "utf8").split("\n").filter(Boolean)
 		: [];
-const creates = () => ghCalls().filter((c) => c.startsWith("issue create"));
-const claimants = () =>
+const readCreates = () =>
+	readGhCalls().filter((c) => c.startsWith("issue create"));
+const readClaimants = () =>
 	issueClaims
 		.readIssueClaims(NEW)
 		.map((e: { record: { sessionId: string } }) => e.record.sessionId);
 const assignCall = `issue edit ${NEW} --repo acme/widgets --add-assignee @me`;
-const bodySeen = () => fs.readFileSync(at("body-seen"), "utf8");
+const readBodySeen = () => fs.readFileSync(at("body-seen"), "utf8");
 
 describe("the takes: label", () => {
 	it.each([
@@ -193,7 +196,7 @@ describe("the takes: label", () => {
 			expect(r.stderr).toContain(said);
 			expect(r.stderr).toContain(wayOut);
 			expect(r.stderr).toContain("Nothing filed.");
-			expect(ghCalls()).toEqual([]);
+			expect(readGhCalls()).toEqual([]);
 		},
 	);
 
@@ -201,10 +204,10 @@ describe("the takes: label", () => {
 		setUp();
 		const r = run(filing(["takes:implement"]));
 		expect(r.status).toBe(0);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 	});
 
-	it("spells the same seven values docs/agents/triage-labels.md, the create guard and place-new-issue.sh's takes_values do, and the doc's founder-act list word for word", () => {
+	it("spells the same seven values docs/agents/triage-labels.md and place-new-issue.sh's takes_values do, and the doc's founder-act list word for word", () => {
 		const doc = fs.readFileSync(
 			path.resolve(__dirname, "..", "docs", "agents", "triage-labels.md"),
 			"utf8",
@@ -212,15 +215,6 @@ describe("the takes: label", () => {
 		expect(TAKES_VALUES).toHaveLength(7);
 		for (const v of TAKES_VALUES) expect(doc).toContain(`takes:${v}`);
 		for (const act of FOUNDER_ACTS) expect(doc).toContain(act);
-		const guard = fs
-			.readFileSync(
-				path.resolve(__dirname, "guard-issue-create-label.sh"),
-				"utf8",
-			)
-			.match(/^TAKES_VALUES=\((.*)\)$/m)?.[1]
-			.trim()
-			.split(/\s+/);
-		expect(guard).toEqual(TAKES_VALUES);
 		const placed = fs
 			.readFileSync(path.resolve(__dirname, "place-new-issue.sh"), "utf8")
 			.match(/^takes_values="(.*)"$/m)?.[1];
@@ -238,7 +232,7 @@ describe("a label the tracker does not know", () => {
 		expect(r.stderr).toContain("kind:tiket is not a label on acme/widgets");
 		expect(r.stderr).toContain("Fix the spelling");
 		expect(r.stderr).toContain("Nothing filed.");
-		expect(creates()).toEqual([]);
+		expect(readCreates()).toEqual([]);
 	});
 });
 
@@ -249,7 +243,7 @@ describe("the body", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("the body is empty");
 		expect(r.stderr).toContain("pipe it in with --body-file -");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("reads it from a file, backticks and all, and sends it through standard input", () => {
@@ -260,7 +254,7 @@ describe("the body", () => {
 		args[args.length - 1] = file;
 		const r = run(args);
 		expect(r.status).toBe(0);
-		expect(bodySeen()).toBe("Run `rm -rf /` never.\n");
+		expect(readBodySeen()).toBe("Run `rm -rf /` never.\n");
 	});
 
 	it("refuses a wait with no basis with exit 2, and files it once one is written (#672)", () => {
@@ -271,7 +265,7 @@ describe("the body", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("Nothing filed: the body carries");
 		expect(r.stderr).toContain("no `**Gate basis:**` line");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 		const ok = run(filing(["takes:implement"]), {
 			stdin:
 				"**Gated until:** 2026-09-29 — a day live\n**Gate basis:** counters live 24 hours\n",
@@ -300,7 +294,7 @@ describe("the body", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("could not read the body");
 		expect(r.stderr).toContain("pipe it in with --body-file -");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 });
 
@@ -341,7 +335,7 @@ describe("takes:human — the create guard's Outside-line tests", () => {
 			for (const wayOut of wayOuts) expect(r.stderr).toContain(wayOut);
 			if (quotesActs)
 				for (const act of FOUNDER_ACTS) expect(r.stderr).toContain(act);
-			expect(ghCalls()).toEqual([]);
+			expect(readGhCalls()).toEqual([]);
 		},
 	);
 
@@ -352,7 +346,7 @@ describe("takes:human — the create guard's Outside-line tests", () => {
 				"**Outside Claude Code:** pay the OTA invoice from the bank app\n\n**Close when:** the receipt is attached here\n",
 		});
 		expect(r.status).toBe(0);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 	});
 });
 
@@ -370,11 +364,11 @@ describe("takes:human — the shared table of bodies (#1095)", () => {
 		const r = run(filing(["takes:human"]), { stdin: `${body}\n` });
 		if (verdict === "pass") {
 			expect(r.status).toBe(0);
-			expect(creates()).toHaveLength(1);
+			expect(readCreates()).toHaveLength(1);
 			return;
 		}
 		expect(r.status).toBe(2);
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 		for (const [tag, said] of Object.entries(REFUSAL_PHRASE))
 			if (tag === verdict) expect(r.stderr).toContain(said);
 			else expect(r.stderr).not.toContain(said);
@@ -387,7 +381,7 @@ describe("takes:human — the shared table of bodies (#1095)", () => {
 				"**Outside Claude Code:** look up the dorm prices on the Bunkward site.\n",
 		});
 		expect(r.status).toBe(2);
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 		for (const act of FOUNDER_ACTS) expect(r.stderr).toContain(act);
 		expect(r.stderr).toContain("name the act from that list");
 		expect(r.stderr).toContain(
@@ -409,7 +403,7 @@ describe("takes:human — the Close-when line (#983)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("has no **Close when:** line");
 		expect(r.stderr).toContain("rule-text.sh founder-deliverable");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("judges the Outside line first, so one body earns one refusal", () => {
@@ -420,7 +414,7 @@ describe("takes:human — the Close-when line (#983)", () => {
 	});
 
 	it("prints the founder-deliverable fragment whenever it applies takes:human", () => {
-		const fragment = ruleText("founder-deliverable");
+		const fragment = readRuleText("founder-deliverable");
 		setUp();
 		const refused = run(filing(["takes:human"]), { stdin: `${errand}\n` });
 		expect(refused.stderr).toContain(fragment);
@@ -435,7 +429,7 @@ describe("takes:human — the Close-when line (#983)", () => {
 	it("prints nothing of it on any other takes: value", () => {
 		setUp();
 		const r = run(filing(["takes:implement"]));
-		expect(r.stderr).not.toContain(ruleText("founder-deliverable"));
+		expect(r.stderr).not.toContain(readRuleText("founder-deliverable"));
 	});
 });
 
@@ -448,7 +442,7 @@ describe("placement", () => {
 		const r = run(filing(["takes:implement"], placement));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("exactly one of --parent <n> or --standalone");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("writes a --standalone reason into the body and links nothing", () => {
@@ -460,12 +454,12 @@ describe("placement", () => {
 			),
 		);
 		expect(r.status).toBe(0);
-		expect(bodySeen()).toBe(
+		expect(readBodySeen()).toBe(
 			"Ticket body.\n\nStandalone: cross-cutting, no originator\n",
 		);
 		expect(r.stdout).toContain("Standalone: cross-cutting, no originator");
 		expect(r.stdout).toContain("— written into the body");
-		expect(ghCalls().some((c) => c.includes("sub_issues"))).toBe(false);
+		expect(readGhCalls().some((c) => c.includes("sub_issues"))).toBe(false);
 	});
 
 	it("keeps a body's own Standalone line rather than writing a second (#1027)", () => {
@@ -475,7 +469,9 @@ describe("placement", () => {
 			{ stdin: "Ticket body.\n\n  Standalone: a retro finding\n" },
 		);
 		expect(r.status).toBe(0);
-		expect(bodySeen()).toBe("Ticket body.\n\n  Standalone: a retro finding\n");
+		expect(readBodySeen()).toBe(
+			"Ticket body.\n\n  Standalone: a retro finding\n",
+		);
 		expect(r.stdout).toContain("the body's own Standalone line was kept");
 		expect(r.stdout).not.toContain("— written into the body");
 	});
@@ -490,7 +486,7 @@ describe("a closed parent", () => {
 		expect(r.stderr).toContain(
 			"Place it under an open issue, or --standalone.",
 		);
-		expect(creates()).toEqual([]);
+		expect(readCreates()).toEqual([]);
 	});
 });
 
@@ -499,7 +495,7 @@ describe("the family label the parent implies", () => {
 		setUp(["kind:spec"]);
 		const r = run(filing(["takes:implement"]));
 		expect(r.status).toBe(0);
-		expect(creates()[0]).toContain(
+		expect(readCreates()[0]).toContain(
 			"--label takes:implement --label kind:ticket",
 		);
 		expect(r.stdout).toContain("kind:ticket added: #528 is a spec");
@@ -515,7 +511,7 @@ describe("the family label the parent implies", () => {
 			const r = run(filing(["takes:implement"]));
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain("takes a wayfinder:<type>");
-			expect(creates()).toEqual([]);
+			expect(readCreates()).toEqual([]);
 		},
 	);
 
@@ -523,7 +519,7 @@ describe("the family label the parent implies", () => {
 		setUp(["wayfinder:map", "takes:wayfinder"]);
 		const r = run(filing(["takes:wayfinder", "wayfinder:grilling"]));
 		expect(r.status).toBe(0);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 	});
 
 	it.each([
@@ -545,7 +541,7 @@ describe("the family label the parent implies", () => {
 				]),
 			);
 			expect(r.status).toBe(0);
-			expect(creates()).toHaveLength(1);
+			expect(readCreates()).toHaveLength(1);
 		},
 	);
 });
@@ -560,7 +556,8 @@ describe("a second map while the first is unfilled (#717)", () => {
 			["takes:wayfinder", "wayfinder:map"],
 			["--standalone", "a new effort"],
 		);
-	const listCalls = () => ghCalls().filter((c) => c.startsWith("issue list"));
+	const listCalls = () =>
+		readGhCalls().filter((c) => c.startsWith("issue list"));
 
 	it("is refused with exit 2 before any create, naming the map to fill", () => {
 		setUp();
@@ -569,7 +566,7 @@ describe("a second map while the first is unfilled (#717)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("Fill #3 instead");
 		expect(r.stderr).toContain("Nothing filed.");
-		expect(creates()).toEqual([]);
+		expect(readCreates()).toEqual([]);
 		expect(listCalls()).toHaveLength(1);
 		expect(listCalls()[0]).toMatch(
 			/^issue list --repo acme\/widgets --label wayfinder:map --state open /,
@@ -583,7 +580,7 @@ describe("a second map while the first is unfilled (#717)", () => {
 			JSON.stringify([openMap(3, "Ship the booking flow.")]),
 		);
 		expect(run(mapFiling()).status).toBe(0);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 	});
 
 	it("reads no maps for a create that is not a map", () => {
@@ -603,7 +600,7 @@ describe("a second map while the first is unfilled (#717)", () => {
 		expect(r.stderr).toContain(
 			"the open maps could not be listed (HTTP 502: Bad Gateway) — filing without the second-map check.",
 		);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 		expect(fs.readFileSync(sb.errorLog(), "utf8")).toContain(
 			"file-issue second-map\tthe open maps could not be listed",
 		);
@@ -619,7 +616,7 @@ describe("create, then link", () => {
 			`Filed #${NEW}: https://github.com/acme/widgets/issues/${NEW}`,
 		);
 		expect(r.stdout).toContain(`linked #${NEW} as a sub-issue of #528`);
-		const calls = ghCalls();
+		const calls = readGhCalls();
 		expect(calls).toContain(
 			"api --method POST repos/acme/widgets/issues/528/sub_issues -F sub_issue_id=987654",
 		);
@@ -665,8 +662,8 @@ describe("create, then link", () => {
 			expect(r.stderr).toContain(`#${NEW} was filed but not linked under #528`);
 			expect(r.stderr).toContain(remedy);
 			expect(r.stderr).toContain("Do NOT file it again.");
-			expect(creates()).toHaveLength(1);
-			expect(ghCalls().some((c) => c.includes("DELETE"))).toBe(false);
+			expect(readCreates()).toHaveLength(1);
+			expect(readGhCalls().some((c) => c.includes("DELETE"))).toBe(false);
 		},
 	);
 });
@@ -693,7 +690,7 @@ describe("the acts ledger (#2308)", () => {
 		setUp();
 		expect(run(filing(["kind:ticket"])).status).toBe(2);
 		expect(run(filing(["takes:implement"])).status).toBe(0);
-		expect(store.actsBy(ME, [sb.repo]).acts).toEqual([
+		expect(store.readActsBy(ME, [sb.repo]).acts).toEqual([
 			`file acme/widgets#${NEW}`,
 		]);
 	});
@@ -705,8 +702,8 @@ describe("assignment", () => {
 		const r = run(filing(["takes:implement"]));
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
-		expect(ghCalls().some((c) => c.startsWith("issue edit"))).toBe(false);
-		expect(creates()[0]).not.toContain("assignee");
+		expect(readGhCalls().some((c) => c.startsWith("issue edit"))).toBe(false);
+		expect(readCreates()[0]).not.toContain("assignee");
 		expect(issueClaims.readIssueClaims(NEW)).toEqual([]);
 	});
 
@@ -715,8 +712,8 @@ describe("assignment", () => {
 		const r = run([...filing(["takes:implement"]), "--assign-self"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`Recorded the arbiter claim for session ${ME}.`);
-		expect(claimants()).toEqual([ME]);
-		expect(ghCalls()).toContain(assignCall);
+		expect(readClaimants()).toEqual([ME]);
+		expect(readGhCalls()).toContain(assignCall);
 	});
 
 	it("with --assign-self and no session id, assigns and says no record was written", () => {
@@ -742,8 +739,8 @@ describe("a charting session's map and its children (#2314)", () => {
 		const r = run(mapFiling());
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`Recorded the arbiter claim for session ${ME}.`);
-		expect(claimants()).toEqual([ME]);
-		expect(ghCalls()).toContain(assignCall);
+		expect(readClaimants()).toEqual([ME]);
+		expect(readGhCalls()).toContain(assignCall);
 	});
 
 	it("leaves a map filed with no session id unassigned", () => {
@@ -751,7 +748,7 @@ describe("a charting session's map and its children (#2314)", () => {
 		const r = run(mapFiling(), { sessionId: null });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
-		expect(ghCalls()).not.toContain(assignCall);
+		expect(readGhCalls()).not.toContain(assignCall);
 	});
 
 	it("leaves a research ticket filed under a map unassigned and unclaimed", () => {
@@ -759,8 +756,8 @@ describe("a charting session's map and its children (#2314)", () => {
 		const r = run(filing(["takes:wayfinder", "wayfinder:research"]));
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
-		expect(claimants()).toEqual([]);
-		expect(ghCalls()).not.toContain(assignCall);
+		expect(readClaimants()).toEqual([]);
+		expect(readGhCalls()).not.toContain(assignCall);
 	});
 });
 
@@ -777,7 +774,7 @@ describe("--assign-self failing once the issue is placed", () => {
 			`#${NEW} is filed and placed, but the arbiter would not record the claim`,
 		);
 		expect(r.stderr).toContain(`node scripts/claim-issue.js ${NEW}`);
-		expect(ghCalls().some((c) => c.startsWith("issue edit"))).toBe(false);
+		expect(readGhCalls().some((c) => c.startsWith("issue edit"))).toBe(false);
 	});
 
 	it("exits 1 when the assignment fails after the record, saying the record stands", () => {
@@ -802,7 +799,7 @@ describe("usage", () => {
 		const check = run(["--check", "A title", "--help"]);
 		expect(check.status).toBe(0);
 		expect(check.stdout).toMatch(/^usage: node scripts\/file-issue\.js/);
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("refuses an unknown flag with exit 2 and the usage line", () => {
@@ -810,7 +807,7 @@ describe("usage", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("unknown flag: --bogus");
 		expect(r.stderr).toContain("usage: node scripts/file-issue.js");
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 });
 
@@ -820,9 +817,22 @@ interface Row {
 	title: string;
 }
 
-/** Serve `rows` for the similar-title list's one `issue list` fetch. */
-const serveIssues = (rows: Row[]) =>
+/**
+ * Serve `rows` for the similar-title list's `issue list` fetches — the whole
+ * tracker, and its open rows for `--state open` — with no closed-title cache,
+ * so the next call pulls the whole tracker.
+ */
+const serveIssues = (rows: Row[]) => {
 	fs.writeFileSync(at("issues"), JSON.stringify(rows));
+	fs.writeFileSync(
+		at("issues-open"),
+		JSON.stringify(rows.filter((r) => r.state === "OPEN")),
+	);
+	fs.rmSync(path.join(sb.repo, MARKERS_REL, "closed-titles"), {
+		recursive: true,
+		force: true,
+	});
+};
 
 /** The issue numbers a similar-title list printed, in its order. */
 const listed = (stdout: string) =>
@@ -853,8 +863,28 @@ describe("the similar-title list", () => {
 		const r = run(["--check", "Generate a sitemap and robots file"]);
 		expect(r.status).toBe(0);
 		expect(listed(r.stdout)).toEqual([1, 5, 6]);
-		expect(ghCalls()).toHaveLength(1);
-		expect(ghCalls()[0]).toContain("--repo acme/widgets --state all");
+		expect(readGhCalls()).toHaveLength(1);
+		expect(readGhCalls()[0]).toContain("--repo acme/widgets --state all");
+	});
+
+	it("reads only the open issues on a call after the first, still listing one filed between them (#2755)", () => {
+		serveIssues(TRACKER);
+		run(["--check", "Generate a sitemap and robots file"]);
+		fs.writeFileSync(
+			at("issues-open"),
+			JSON.stringify([
+				{
+					number: 200,
+					state: "OPEN",
+					title: "Generate a sitemap and robots file",
+				},
+				...TRACKER.filter((row) => row.state === "OPEN"),
+			]),
+		);
+		const r = run(["--check", "Generate a sitemap and robots file"]);
+		expect(listed(r.stdout)).toEqual([200, 1, 5]);
+		expect(readGhCalls()).toHaveLength(2);
+		expect(readGhCalls()[1]).toContain("--repo acme/widgets --state open");
 	});
 
 	it("never shows a closed issue, even one with the very same title", () => {
@@ -890,7 +920,7 @@ describe("the similar-title list", () => {
 		expect(r.status).toBe(2);
 		expect(listed(r.stderr)).toEqual([1, 5, 6]);
 		expect(r.stderr).toContain("--distinct-from 1,5,6.");
-		expect(creates()).toEqual([]);
+		expect(readCreates()).toEqual([]);
 	});
 
 	it("still refuses when one listed match is left off --distinct-from, naming the unchecked match and filing nothing", () => {
@@ -899,7 +929,7 @@ describe("the similar-title list", () => {
 		const r = run([...sitemap, "--distinct-from", "1,#5"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("Nothing filed: #6 is not yet checked.");
-		expect(creates()).toEqual([]);
+		expect(readCreates()).toEqual([]);
 	});
 
 	it("files once every listed match is named, printing the list before the create", () => {
@@ -917,7 +947,7 @@ describe("the similar-title list", () => {
 		expect(r.stdout.indexOf("#1 ")).toBeLessThan(
 			r.stdout.indexOf(`Filed #${NEW}`),
 		);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 	});
 
 	it("counts a listed match taken as --parent as checked", () => {
@@ -935,7 +965,7 @@ describe("the similar-title list", () => {
 		const others = shown.filter((n) => n !== 528).join(",");
 		const r = run([...sitemap, "--distinct-from", others]);
 		expect(r.status).toBe(0);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 	});
 
 	it("refuses a --distinct-from that is not a list of issue numbers, and makes no gh call", () => {
@@ -944,7 +974,7 @@ describe("the similar-title list", () => {
 		expect(r.stderr).toContain(
 			"is not a comma-separated list of issue numbers",
 		);
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 
 	it("files anyway, saying so, when the issues cannot be listed", () => {
@@ -955,7 +985,7 @@ describe("the similar-title list", () => {
 		expect(r.stdout).toContain(
 			"Could not list similar open issues (HTTP 502: Bad Gateway) — filing without the check.",
 		);
-		expect(creates()).toHaveLength(1);
+		expect(readCreates()).toHaveLength(1);
 	});
 
 	it("--check exits 1 when the issues cannot be listed, naming the repository", () => {
@@ -973,7 +1003,7 @@ describe("the similar-title list", () => {
 			const r = run(["--check", "A title", ...extra]);
 			expect(r.status).toBe(2);
 		}
-		expect(ghCalls()).toEqual([]);
+		expect(readGhCalls()).toEqual([]);
 	});
 });
 

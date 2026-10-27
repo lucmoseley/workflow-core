@@ -1,108 +1,76 @@
 // @vitest-environment node
 /*
- * guard-anthropic-report.sh refuses every `gh issue`, `gh pr` and writing
- * `gh api` call it can tie to an `anthropics/*` repo (#1987; the ruling, #1967).
+ * guard-anthropic-report.js refuses every `gh issue`, `gh pr` and writing
+ * `gh api` call it can tie to an `anthropics/*` repo (#1987; the ruling,
+ * #1967). These are its boundary cases: the line hooks/hooks.json registers,
+ * run by bash as the harness runs it, on a harness-shaped payload — the
+ * wiring, each exit and its stream, each input channel, the fail-open record
+ * on disk, and the rule store and git crossed for real. Which command is
+ * refused, and why, is lib/anthropic-report.test.ts's (#2798).
  *
- * Do not thin the refusal or allow cases.
+ * CLAUDE_PLUGIN_ROOT is this checkout, so the line finds the real entry;
+ * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
+ * temp CLAUDE_CONFIG_DIR and never the founder's.
  *
- * Over the 10 s run-cost budget (base §X8 (5)) because 40 of its cases are the
- * two shared fixtures' load and fail-open contracts, each spawning a detached
- * copy of the guard.
+ * Break the line and an upstream report goes out unrefused; make it deny on
+ * a fault and every `gh` call is wedged.
  */
+
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { describeFailOpenLog, failOpenLogPath } from "./guard-log-fixture";
-import { describeSharedParserLibrary } from "./guard-parse-fixture";
-import { ruleText } from "./lib/rule-text";
+import {
+	failOpenLogPath,
+	readFailOpenLog,
+	readFailOpenRecords,
+} from "./guard-log-fixture";
+import {
+	buildBashPayload,
+	entryBesideThrowingCore,
+	expectShellHooks,
+	guardDirs,
+	guardOutput,
+	hookLineOutput,
+	readHookLines,
+} from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-anthropic-report.sh");
-const RULE = ruleText("anthropic-report");
+const SCRIPT = "scripts/guard-anthropic-report.js";
+const LINES = readHookLines("hooks/hooks.json", SCRIPT);
+const { readRuleText } = require("./lib/rule-text") as {
+	readRuleText: (id: string) => string;
+};
 
 let dir: string;
 let config: string;
-let shared: string;
-let elsewhere: string;
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-anthropic-report-"));
-	config = path.join(dir, "claude-config");
-	shared = path.join(dir, "shared");
-	elsewhere = path.join(dir, "elsewhere");
-	fs.mkdirSync(shared);
-	fs.mkdirSync(elsewhere);
+	({ dir, config } = guardDirs("anthropic-report-entry-"));
 });
+afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-afterEach(() => {
-	fs.rmSync(dir, { recursive: true, force: true });
-});
+// A GH_REPO the runner happens to carry would decide every unnamed case.
+const NO_GH_REPO = { GH_REPO: undefined };
 
-const run = (
+/** The hook's hookSpecificOutput for `command`, run in `cwd`. */
+const emission = (
 	command: string,
-	cwd = shared,
-	extra: Record<string, string> = {},
-) => {
-	// A GH_REPO the runner happens to carry would decide every unnamed case.
-	const { GH_REPO: _, ...env } = process.env;
-	const r = spawnSync(GUARD, [], {
-		cwd,
-		encoding: "utf8",
-		input: JSON.stringify({
-			session_id: "test",
-			tool_name: "Bash",
-			tool_input: { command },
-			cwd,
-		}),
-		env: {
-			...env,
-			CLAUDE_PROJECT_DIR: shared,
-			CLAUDE_CONFIG_DIR: config,
-			...extra,
-		},
+	{
+		cwd = dir,
+		stdin,
+		env = {},
+	}: { cwd?: string; stdin?: string; env?: NodeJS.ProcessEnv } = {},
+) =>
+	hookLineOutput(LINES[0] ?? "", command, {
+		project: dir,
+		config,
+		cwd: dir,
+		payload: { cwd },
+		stdin,
+		env: { ...NO_GH_REPO, ...env },
 	});
-	if (r.status === null) throw new Error(`guard did not run: ${r.error}`);
-	return r;
-};
 
-const verdict = (
-	command: string,
-	cwd = shared,
-	extra: Record<string, string> = {},
-) => {
-	const r = run(command, cwd, extra);
-	// A crashing guard emits no verdict either, so "allow" must mean silence by
-	// design rather than by accident (mantahostels#123).
-	expect(r.status).toBe(0);
-	expect(r.stderr ?? "").toBe("");
-	const out = r.stdout ?? "";
-	if (/"permissionDecision"\s*:\s*"deny"/.test(out)) return "deny";
-	expect(out).toBe("");
-	return "allow";
-};
-
-/** The refusal's text, asserting it was a refusal. */
-const denyReason = (command: string, cwd = shared) => {
-	const r = run(command, cwd);
-	expect(r.status).toBe(0);
-	expect(r.stderr ?? "").toBe("");
-	const out = JSON.parse(r.stdout).hookSpecificOutput;
-	expect(out.permissionDecision).toBe("deny");
-	return out.permissionDecisionReason as string;
-};
-
-const faults = () => {
-	const at = failOpenLogPath(config, shared);
-	if (!fs.existsSync(at)) return [];
-	return fs
-		.readFileSync(at, "utf8")
-		.split("\n")
-		.filter(Boolean)
-		.map((l) => l.split("\t")[2]);
-};
-
-/** A clone with one remote. */
+/** A real clone with one remote. */
 const clone = (url: string) => {
 	const at = path.join(dir, "clone");
 	fs.mkdirSync(at);
@@ -111,172 +79,135 @@ const clone = (url: string) => {
 	return at;
 };
 
-describe("a write it refuses", () => {
-	it.each([
-		'gh issue create --repo anthropics/claude-code --title "A bug" --body "x"',
-		'gh issue create --repo anthropics/claude-code --title "A bug" --body "x" --label takes:triage',
-		'gh api repos/anthropics/claude-code/issues -f title="A bug" -f "labels[]=takes:triage"',
-		'gh issue create -R github.com/anthropics/claude-code --title "A bug" --body "x"',
-		'gh issue create --repo https://github.com/Anthropics/claude-code/ --title "A bug" --body "x"',
-		'gh issue create --repo git@github.com:anthropics/claude-code.git --title "A bug" --body "x"',
-		'gh api repos/anthropics/claude-code/issues -f title="A bug" -F body=@report.md',
-		'gh api --method POST /repos/anthropics/claude-code/issues -f title="A bug" -f body=x',
-		'gh issue comment 5 --repo anthropics/claude-code --body "x"',
-		'gh issue comment https://github.com/anthropics/claude-code/issues/12 --body "x"',
-		'gh pr create -R anthropics/claude-code --title "x" --body "y"',
-		'gh pr create -Ranthropics/claude-code --title "x" --body "y"',
-		'gh pr comment https://github.com/anthropics/claude-code/pull/7 -b "x"',
-		"gh issue edit 5 --repo=anthropics/claude-code --add-label bug",
-		'gh api repos/anthropics/claude-code/issues/5/comments -f body="x"',
-		'gh api -X PATCH repos/anthropics/claude-code/issues/5 -f body="x"',
-		"gh api https://api.github.com/repos/anthropics/claude-code/issues/5/comments -f body=x",
-		'gh api graphql -f query="mutation { addComment(input:{subjectId:$id, body:\\"y\\"}) { clientMutationId } }" -f id=X -f repo=anthropics/claude-code',
-		'gh api graphql -f query="mutation { createDiscussion(input:{repositoryId:\\"R\\"}) { clientMutationId } }" -f owner=anthropics',
-		'timeout 30 gh issue comment 3 --repo anthropics/claude-code --body "y"',
-		'GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
-		'env GH_REPO=anthropics/claude-code gh issue create --title "x" --body "y"',
-		'GH_REPO=anthropics/claude-code gh api repos/{owner}/{repo}/issues -f title="x"',
-		'export GH_REPO=anthropics/claude-code && gh issue create --title "x" --body "y"',
-	])("refuses it, printing the rule: %s", (call) => {
-		const reason = denyReason(call);
-		expect(reason).toContain("This writes to an Anthropic repo");
-		expect(reason).toContain(RULE);
+describe("the registered hook line", () => {
+	it("is one line, narrowed by the wrapper-tolerant `if: Bash(*gh *)`, in the plugin and the self-plugin alike", () => {
+		expectShellHooks(SCRIPT, () => ({
+			if: "Bash(*gh *)",
+			onFailure: "block",
+		}));
+	});
+});
+
+describe("each exit", () => {
+	it("refuses as permissionDecision JSON on exit 0, splicing the stored rule", () => {
+		const out = emission(
+			'gh pr create -R anthropics/claude-code --title "x" --body "y"',
+		);
+		expect(out.hookEventName).toBe("PreToolUse");
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toBe(
+			`This writes to an Anthropic repo (anthropics/claude-code): gh pr create -R anthropics/claude-code --title "…" --body "…"\n\n${readRuleText("anthropic-report")}`,
+		);
+		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});
 
-	it("names the repo it read in the refusal", () => {
-		expect(
-			denyReason(
-				'gh pr create -R anthropics/claude-code --title "x" --body "y"',
-			),
-		).toContain("(anthropics/claude-code)");
-	});
-
-	it("refuses an unknown issue subcommand, a verb gh may add later", () => {
-		expect(verdict("gh issue frobnicate 5 --repo anthropics/claude-code")).toBe(
-			"deny",
+	it("still refuses, naming the fragment, where the rule store cannot give it", () => {
+		const out = emission("gh issue comment 5 --repo anthropics/claude-code", {
+			env: { WFC_RULES_DIR: fs.mkdtempSync(path.join(dir, "store-")) },
+		});
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			"docs/agents/rules/anthropic-report.txt",
 		);
 	});
 
-	it("refuses a GH_REPO carried in the environment", () => {
+	it("says nothing, and records nothing, about a command it judged and passed", () => {
+		expect(emission("git status")).toBeNull();
 		expect(
-			verdict('gh issue create --title "x" --body "y"', shared, {
-				GH_REPO: "anthropics/claude-code",
+			emission("gh issue view 5 --repo anthropics/claude-code"),
+		).toBeNull();
+		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
+	});
+
+	it("fails open on a repo it cannot read, one record naming itself in three tab-separated fields", () => {
+		expect(
+			emission('gh issue create --repo "$R" --title "x" --body "y"'),
+		).toBeNull();
+		expect(readFailOpenRecords(config, dir)).toEqual([
+			[
+				expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+				"guard-anthropic-report.js",
+				"could not read the --repo of a gh issue create — allowed unchecked for an Anthropic repo",
+			],
+		]);
+	});
+
+	it("refuses, logged, where its core throws", () => {
+		const out = guardOutput(
+			entryBesideThrowingCore(dir, SCRIPT, "anthropic-report.js"),
+			buildBashPayload("gh issue list", "s1"),
+			{ project: dir, config, cwd: dir },
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toBe(
+			"guard-anthropic-report.js could not judge this command, so it refuses it: broke",
+		);
+		expect(readFailOpenLog(config, dir)).toMatch(
+			/core threw — the command was refused\tbroke/,
+		);
+	});
+
+	it("fails open, exit 0 and silent, where node is not on PATH", () => {
+		expect(
+			emission("gh issue comment 5 --repo anthropics/claude-code", {
+				env: { PATH: "/nonexistent" },
 			}),
+		).toBeNull();
+	});
+});
+
+describe("each input channel", () => {
+	it("treats an empty payload as nothing to check, not a fault", () => {
+		expect(emission("", { stdin: "" })).toBeNull();
+		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
+	});
+
+	it("allows a payload that is not JSON, and records that it did", () => {
+		expect(emission("", { stdin: "not json" })).toBeNull();
+		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
+			expect.stringContaining("payload did not parse as JSON"),
+		]);
+	});
+
+	it("allows a payload carrying no command, and records that it did", () => {
+		expect(
+			emission("", {
+				stdin: JSON.stringify({
+					session_id: "s1",
+					tool_name: "Bash",
+					tool_input: {},
+				}),
+			}),
+		).toBeNull();
+		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
+			expect.stringContaining("no command in payload"),
+		]);
+	});
+
+	it("reads GH_REPO from the hook's environment", () => {
+		expect(
+			emission('gh issue create --title "x" --body "y"', {
+				env: { GH_REPO: "anthropics/claude-code" },
+			}).permissionDecision,
 		).toBe("deny");
 	});
 });
 
-describe("a write naming no repo, run inside a clone", () => {
-	it("refuses it where any remote is an Anthropic repo", () => {
-		const at = clone("https://github.com/anthropics/claude-code.git");
-		expect(verdict('gh issue create --title "x" --body "y"', at)).toBe("deny");
-		expect(verdict('gh api repos/{owner}/{repo}/issues -f title="x"', at)).toBe(
-			"deny",
-		);
-		expect(denyReason('gh pr create --title "x" --body "y"', at)).toContain(
-			"(anthropics/claude-code)",
-		);
-	});
-
-	it("follows a cd into the clone", () => {
-		const at = clone("git@github.com:anthropics/claude-code.git");
-		expect(verdict(`cd ${at} && gh issue comment 5 --body "x"`)).toBe("deny");
-	});
-
-	it("lets a named repo override the clone, as gh does", () => {
+describe("the clone's remotes, read by real git in the payload's cwd", () => {
+	it("refuses an unnamed write where a remote is an Anthropic repo", () => {
 		const at = clone("https://github.com/anthropics/claude-code.git");
 		expect(
-			verdict('gh issue create --repo someone/tool --title "x" --body "y"', at),
-		).toBe("allow");
-		expect(
-			verdict(
-				'GH_REPO=someone/tool gh issue create --title "x" --body "y"',
-				at,
-			),
-		).toBe("allow");
+			emission('gh issue create --title "x" --body "y"', { cwd: at })
+				.permissionDecisionReason,
+		).toContain("(anthropics/claude-code)");
 	});
 
-	it("allows it in a clone of any other repo", () => {
+	it("allows it in a clone of any other repo, and outside any clone", () => {
 		const at = clone("https://github.com/someone/tool.git");
-		expect(verdict('gh issue create --title "x" --body "y"', at)).toBe("allow");
-	});
-});
-
-describe("what it lets through", () => {
-	it.each([
-		"gh issue view 5 --repo anthropics/claude-code",
-		"gh issue list -R anthropics/claude-code --search compaction",
-		"gh pr view https://github.com/anthropics/claude-code/pull/7",
-		"gh pr diff 7 --repo anthropics/claude-code",
-		"gh api repos/anthropics/claude-code/issues/5",
-		"gh api --method GET repos/anthropics/claude-code/issues -f state=closed",
-		'gh api graphql -f query="query { repository(owner:\\"anthropics\\", name:\\"claude-code\\") { id } }"',
-		'gh issue create --repo someone/tool --title "x" --body "y"',
-		'gh issue create --repo anthropics-fan/tool --title "x" --body "y"',
-		'gh issue create --repo ghe.example.com/anthropics/tool --title "x" --body "y"',
-		'gh api repos/someone/tool/issues -f title="x"',
-		// A body citing an upstream issue is no target.
-		'gh issue comment 5 --body "https://github.com/anthropics/claude-code/issues/12"',
-		'gh issue comment 5 --body "see https://github.com/anthropics/claude-code/issues/12"',
-		// A GraphQL mutation that never spells the owner: the node-id residual.
-		'gh api graphql -f query="mutation { addComment(input:{subjectId:\\"X\\", body:\\"y\\"}) { clientMutationId } }"',
-		'echo "gh issue create --repo anthropics/claude-code"',
-		"gh issue create --repo anthropics/claude-code --help",
-	])("lets it through: %s", (call) => {
-		expect(verdict(call)).toBe("allow");
-	});
-});
-
-describe("a repo it cannot read", () => {
-	it("fails open, recorded, on an exported GH_REPO it cannot resolve", () => {
 		expect(
-			verdict('export GH_REPO="$X" && gh issue create --title "x" --body "y"'),
-		).toBe("allow");
-		expect(faults()).toEqual([
-			"could not read GH_REPO on a gh write — allowed unchecked for an Anthropic repo",
-		]);
+			emission('gh issue create --title "x" --body "y"', { cwd: at }),
+		).toBeNull();
+		expect(emission('gh issue create --title "x" --body "y"')).toBeNull();
+		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
 	});
-
-	it("fails open, recorded, on a GraphQL query read from a file", () => {
-		expect(
-			verdict(
-				"gh api graphql -F repo=anthropics/claude-code -f query=@q.graphql",
-			),
-		).toBe("allow");
-		expect(faults()).toEqual([
-			"a gh api graphql call naming anthropics carries a query the guard cannot read — allowed unchecked",
-		]);
-	});
-
-	it("fails open, recorded, on an unresolvable --repo", () => {
-		expect(verdict('gh issue create --repo "$R" --title "x" --body "y"')).toBe(
-			"allow",
-		);
-		expect(faults()).toEqual([
-			"could not read the --repo of a gh issue create — allowed unchecked for an Anthropic repo",
-		]);
-	});
-});
-
-describeFailOpenLog({
-	guard: GUARD,
-	denied: {
-		tool_name: "Bash",
-		tool_input: { command: "gh issue comment 5 --repo anthropics/claude-code" },
-	},
-	fieldless: { tool_name: "Bash", tool_input: {} },
-	fieldlessMatch: /no command in payload/,
-	benign: { tool_name: "Bash", tool_input: { command: "git status" } },
-	ctx: () => ({ dir, config, project: shared }),
-});
-
-describeSharedParserLibrary({
-	guard: GUARD,
-	denyCommand: "gh issue comment 5 --repo anthropics/claude-code",
-	ctx: () => ({
-		dir,
-		shared,
-		elsewhere,
-		env: { CLAUDE_CONFIG_DIR: config },
-	}),
 });

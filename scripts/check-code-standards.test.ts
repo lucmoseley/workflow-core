@@ -56,7 +56,7 @@ const runAt = (dir: string, ...args: string[]) => {
 
 const run = (...args: string[]) => runAt(repo, ...args);
 
-const anchors = (): Record<string, string> =>
+const readAnchors = (): Record<string, string> =>
 	JSON.parse(fs.readFileSync(path.join(repo, ANCHORS), "utf8"));
 
 /** A source file whose quotable sentence sits on a known line. */
@@ -303,7 +303,7 @@ describe("bare pins — the hunk digest", () => {
 		track("lib/a.ts", SUBJECT);
 		doc("Rule — `lib/a.ts:5-6`\n");
 		expect(run("--review").status).toBe(0);
-		expect(anchors()["lib/a.ts:5-6"]).toMatch(/^[0-9a-f]{16}$/);
+		expect(readAnchors()["lib/a.ts:5-6"]).toMatch(/^[0-9a-f]{16}$/);
 		const r = run();
 		expect(r.out).toContain("OK:");
 		expect(r.out).toContain("1 bare pin(s) unchanged");
@@ -346,16 +346,16 @@ describe("bare pins — the hunk digest", () => {
 		run("--review");
 		doc("Rule — `lib/a.ts:5-6`\n");
 		run("--review", "lib/a.ts:5-6");
-		expect(Object.keys(anchors())).toContain("lib/b.ts:5-6");
+		expect(Object.keys(readAnchors())).toContain("lib/b.ts:5-6");
 		run("--review");
-		expect(Object.keys(anchors())).toEqual(["lib/a.ts:5-6"]);
+		expect(Object.keys(readAnchors())).toEqual(["lib/a.ts:5-6"]);
 	});
 
 	it("takes a bare path as every pin into that file", () => {
 		track("lib/a.ts", SUBJECT);
 		doc("Rule — `lib/a.ts:5-6` and `lib/a.ts:2-4`\n");
 		run("--review", "lib/a.ts");
-		expect(Object.keys(anchors()).sort()).toEqual([
+		expect(Object.keys(readAnchors()).sort()).toEqual([
 			"lib/a.ts:2-4",
 			"lib/a.ts:5-6",
 		]);
@@ -372,7 +372,7 @@ describe("bare pins — the hunk digest", () => {
 		track("lib/a.ts", SUBJECT);
 		doc('Rule — `lib/a.ts:2-4` *"the quoted sentence lives here"*\n');
 		run("--review");
-		expect(Object.keys(anchors())).toEqual([]);
+		expect(Object.keys(readAnchors())).toEqual([]);
 	});
 });
 
@@ -446,7 +446,7 @@ describe("--touching — a diff-scoped report (mantahostels#2631)", () => {
 	 * so an already-stale backlog entry can resurface on a doc-prose edit even
 	 * with its cited file untouched — see check-code-standards.js:27-43. */
 	const commit = (msg: string) => git("commit", "-m", msg);
-	const head = () => git("rev-parse", "HEAD").trim();
+	const readHead = () => git("rev-parse", "HEAD").trim();
 
 	it("keeps a pre-existing stale pin whose cited file the diff never touches out of the report, even while the unscoped run still carries it", () => {
 		track("lib/a.ts", SUBJECT);
@@ -457,7 +457,7 @@ describe("--touching — a diff-scoped report (mantahostels#2631)", () => {
 		track("lib/b.ts", SUBJECT.replace("const y = 2;", "const y = 99;"));
 		git("add", "--", "lib/b.ts");
 		commit("lib/b.ts drifts, unrelated to the diff under test");
-		const scopeRev = head();
+		const scopeRev = readHead();
 
 		const full = run();
 		expect(full.out).toContain("MOVED");
@@ -477,7 +477,7 @@ describe("--touching — a diff-scoped report (mantahostels#2631)", () => {
 		track("lib/b.ts", SUBJECT.replace("const y = 2;", "const y = 99;"));
 		git("add", "--", "lib/b.ts");
 		commit("lib/b.ts drifts, unrelated to the diff under test");
-		const scopeRev = head();
+		const scopeRev = readHead();
 
 		track("lib/a.ts", SUBJECT.replace("const y = 2;", "const y = 99;"));
 		const r = run("--touching", scopeRev);
@@ -494,7 +494,7 @@ describe("--touching — a diff-scoped report (mantahostels#2631)", () => {
 		track("lib/a.ts", SUBJECT.replace("const y = 2;", "const y = 99;"));
 		git("add", "--", "lib/a.ts");
 		commit("lib/a.ts drifts, unrelated to the diff under test");
-		const scopeRev = head();
+		const scopeRev = readHead();
 
 		doc("Rule with reworded prose — `lib/a.ts:5-6`\n");
 		const r = run("--touching", scopeRev);
@@ -513,7 +513,7 @@ describe("--touching — a diff-scoped report (mantahostels#2631)", () => {
 			"function stray() {}\nstray();\n\nmodule.exports = {\n\tstray,\n};\n",
 		);
 		commit("both files, both dead");
-		const scopeRev = head();
+		const scopeRev = readHead();
 
 		track(
 			"scripts/thing.js",
@@ -555,6 +555,35 @@ describe("§N7 export blocks", () => {
 		expect(r.out).toContain("scripts/thing.js");
 		expect(r.out).toContain("spare");
 		expect(r.out).not.toContain("used\n");
+	});
+
+	it("reads the in-place exports.<name> run a file in a require cycle keeps", () => {
+		doc(docline);
+		track(
+			"scripts/thing.js",
+			"function used() {}\nfunction spare() {}\nfunction kept() {}\nused();\nspare();\nkept();\n\nexports.used = used;\nexports.spare = spare;\n// scripts/later.js wants it (#1)\nexports.kept = kept;\n",
+		);
+		track("scripts/caller.js", 'require("./thing").used();\n');
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("DEAD-EXPORT  scripts/thing.js  spare");
+		expect(r.out).not.toContain("thing.js  used");
+		expect(r.out).not.toContain("thing.js  kept");
+	});
+
+	it("reads a re-export in the run, and a run code follows as no run at all", () => {
+		doc(docline);
+		track(
+			"scripts/thing.js",
+			'const other = require("./other");\n\nexports.spare = other.spare;\n',
+		);
+		track(
+			"scripts/later.js",
+			"function stray() {}\nstray();\nexports.stray = stray;\nstray();\n",
+		);
+		const r = run();
+		expect(r.out).toContain("DEAD-EXPORT  scripts/thing.js  spare");
+		expect(r.out).not.toContain("scripts/later.js");
 	});
 
 	it("says nothing about a name another tracked file spells", () => {
@@ -885,7 +914,7 @@ describe("the standards base beside the local file (#963)", () => {
 	const basePath = "docs/code-standards-base.md";
 	const anchorsPath = "scripts/code-standards-base-anchors.json";
 	const base = (body: string) => track(basePath, body);
-	const bytes = (file: string) => fs.readFileSync(path.join(repo, file));
+	const readBytes = (file: string) => fs.readFileSync(path.join(repo, file));
 	const dead =
 		"function spare() {}\nspare();\n\nmodule.exports = {\n\tspare,\n};\n";
 
@@ -1078,10 +1107,10 @@ describe("the standards base beside the local file (#963)", () => {
 		doc("Rule — `lib/a.ts:5-6`\n");
 		base("Rule — `scripts/b.js:5-6`\n");
 		expect(run("--review").status).toBe(0);
-		const local = bytes(ANCHORS);
+		const local = readBytes(ANCHORS);
 		expect(run("--review", basePath).status).toBe(0);
-		expect(bytes(ANCHORS).equals(local)).toBe(true);
-		expect(Object.keys(JSON.parse(bytes(anchorsPath).toString()))).toEqual([
+		expect(readBytes(ANCHORS).equals(local)).toBe(true);
+		expect(Object.keys(JSON.parse(readBytes(anchorsPath).toString()))).toEqual([
 			"scripts/b.js:5-6",
 		]);
 		expect(run().out).toContain("OK:");
@@ -1093,10 +1122,10 @@ describe("the standards base beside the local file (#963)", () => {
 		doc("Rule — `lib/a.ts:5-6`\n");
 		base("Rule — `scripts/b.js:5-6`\n");
 		expect(run("--review", basePath).status).toBe(0);
-		const kept = bytes(anchorsPath);
+		const kept = readBytes(anchorsPath);
 		expect(run("--review").status).toBe(0);
-		expect(bytes(anchorsPath).equals(kept)).toBe(true);
-		expect(Object.keys(anchors())).toEqual(["lib/a.ts:5-6"]);
+		expect(readBytes(anchorsPath).equals(kept)).toBe(true);
+		expect(Object.keys(readAnchors())).toEqual(["lib/a.ts:5-6"]);
 	});
 
 	it("scopes --touching by the base's own changed lines, not the local file's", () => {

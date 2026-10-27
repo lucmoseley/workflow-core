@@ -10,7 +10,7 @@
 const fs = require("node:fs");
 const { stampFile } = require("./delivery-stamp.js");
 const {
-	sessionStartRoster,
+	readSessionStartRoster,
 	KEY_OVERRIDES,
 } = require("./session-start-roster.js");
 
@@ -70,7 +70,7 @@ const PRODUCER_META = {
  * replaced having gone two producers stale by the time that was noticed, and
  * two more by the time it was fixed — the wiring keeps changing faster than a
  * hand list keeps up). `scripts/lib/session-start-roster.js`'s
- * `sessionStartRoster` is the same join `replay-notify-reports.js` reads its
+ * `readSessionStartRoster` is the same join `replay-notify-reports.js` reads its
  * own roster with, so a producer wired there and not here — or read here and
  * not there — cannot happen by construction.
  *
@@ -82,8 +82,8 @@ const PRODUCER_META = {
  * @param {string} repoRoot
  * @returns {Producer[]}
  */
-function persistingProducers(repoRoot) {
-	const producers = sessionStartRoster(repoRoot, {
+function readPersistingProducers(repoRoot) {
+	const producers = readSessionStartRoster(repoRoot, {
 		keyOverrides: KEY_OVERRIDES,
 	}).map(({ key, script }) => ({ key, script, ...(PRODUCER_META[key] ?? {}) }));
 	const wired = new Set(producers.map((p) => p.key));
@@ -307,4 +307,4 @@ function parkStamps(producers, reports = {}) {
 	};
 }
 
-module.exports = { persistingProducers, judge, parkStamps };
+module.exports = { readPersistingProducers, judge, parkStamps };

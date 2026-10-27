@@ -36,12 +36,12 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const {
 	transcriptDir,
-	transcriptFiles,
+	readTranscriptFiles,
 	sessionKeyFor,
 } = require("./lib/guard-fires");
 const {
 	streamRecords,
-	skillInventory,
+	readSkillInventory,
 	npmScripts,
 	recordUses,
 	recordShapes,
@@ -197,7 +197,8 @@ function scan(files) {
  * @param {{minCount: number, minSessions: number, top: number}} bar
  */
 function rows(scanned, bar) {
-	const { skills, unreadable: unreadableRoots } = skillInventory(SKILL_ROOTS);
+	const { skills, unreadable: unreadableRoots } =
+		readSkillInventory(SKILL_ROOTS);
 	const pkg = JSON.parse(
 		fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),
 	);
@@ -361,7 +362,7 @@ function main(argv) {
 		bar[key] = value;
 	}
 
-	const files = transcriptFiles(dir);
+	const files = readTranscriptFiles(dir);
 	if (files === null) {
 		writeFd(2, `Cannot read transcripts in ${dir}.\n`);
 		return 2;

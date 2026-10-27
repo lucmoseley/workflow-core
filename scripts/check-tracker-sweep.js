@@ -38,9 +38,9 @@ const { hostRoot } = require("./lib/host-root.js");
 const { isJudged, isUnexamined, keysOf } = require("./lib/key-delta.js");
 const {
 	buildHandCommand,
-	commonDir,
 	resultFile,
 } = require("./lib/repo-checks-reading.js");
+const { gitCommonDirOrThrow } = require("./lib/git.js");
 const { REPO_CHECKS } = require("./lib/repo-checks-registry.js");
 const { caught } = require("./lib/caught.js");
 
@@ -73,7 +73,7 @@ function resultPath(ctx) {
 	let dir = "";
 	let gitError = null;
 	try {
-		dir = commonDir(hostRoot());
+		dir = gitCommonDirOrThrow(hostRoot());
 	} catch (e) {
 		const failed = caught(e);
 		gitError = failed.stderr || failed.message;
@@ -137,7 +137,7 @@ function withAbsent(jobs) {
 }
 
 /** @param {string} name @returns {string} the line naming a job's hand command, or "" */
-function handLine(name) {
+function buildHandLine(name) {
 	const entry = REPO_CHECKS.find((e) => e.id === name);
 	return entry ? `    list them: ${buildHandCommand(entry)}` : "";
 }
@@ -160,7 +160,7 @@ function judgeJob(ctx, job, tally) {
 		tally.unexamined++;
 		tally.unexaminedLines.push(
 			`  ${line}`,
-			...[handLine(name)].filter(Boolean),
+			...[buildHandLine(name)].filter(Boolean),
 		);
 		ctx.fail(
 			outcome === "BROKEN" ? "SWEEP-BROKEN" : "SWEEP-MISSING",
@@ -184,7 +184,7 @@ function judgeJob(ctx, job, tally) {
 	tally.standingLines.push(
 		`  ${name} — ${keys.length} standing:`,
 		...keys.map((key) => `    ${key.replace(/\t/g, "  ")}`),
-		...[handLine(name)].filter(Boolean),
+		...[buildHandLine(name)].filter(Boolean),
 	);
 }
 

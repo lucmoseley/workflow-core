@@ -1,18 +1,18 @@
 /*
  * plugin-record.js — what the adopter's `## Plugin provenance` block records:
  * the plugin source and the commit it was installed at. Init builds it from
- * the source it was given (`pluginRecord`), upgrade from the pin in the
- * adopter's settings and the plugin it is running (`installedRecord`, #941).
+ * the source it was given (`readPluginRecord`), upgrade from the pin in the
+ * adopter's settings and the plugin it is running (`readInstalledRecord`, #941).
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { run } = require("./materialise-plugin.js");
 const {
 	findInstallRecord,
 	resolveConfigDir,
 	sameRelease,
 } = require("./plugin-state.js");
+const { gitOrNull, GIT_TIMEOUT_MS } = require("./git.js");
 
 /** @typedef {{source: "url", url: string, ref: string} | {source: "directory", path: string}} PluginSource */
 /** @typedef {{source: "directory", headSha: string|null, dirty: boolean|null} |
@@ -28,30 +28,21 @@ const {
  * @param {string} pluginRoot
  * @returns {{headSha: string|null, dirty: boolean|null}}
  */
-function directoryGit(pluginRoot) {
+function readDirectoryGit(pluginRoot) {
 	/* `.git` must be pluginRoot's OWN, not an ancestor's: `git rev-parse HEAD`
 	 * alone walks up looking for a repo, so a nested directory with no git of
 	 * its own would otherwise inherit an ancestor checkout's HEAD (#108
 	 * review). */
 	if (!fs.existsSync(path.join(pluginRoot, ".git")))
 		return { headSha: null, dirty: null };
-	let headSha;
-	try {
-		headSha = run(pluginRoot, ["git", "rev-parse", "HEAD"], {
-			quiet: true,
-		}).trim();
-	} catch {
-		return { headSha: null, dirty: null };
-	}
-	try {
-		const dirty =
-			run(pluginRoot, ["git", "status", "--porcelain"], {
-				quiet: true,
-			}).trim().length > 0;
-		return { headSha, dirty };
-	} catch {
-		return { headSha, dirty: null };
-	}
+	const at = { cwd: pluginRoot, timeout: GIT_TIMEOUT_MS };
+	const headSha = gitOrNull(["rev-parse", "HEAD"], at);
+	if (headSha === null) return { headSha: null, dirty: null };
+	const status = gitOrNull(["status", "--porcelain"], at);
+	return {
+		headSha: headSha.trim(),
+		dirty: status === null ? null : status.trim().length > 0,
+	};
 }
 
 /**
@@ -83,7 +74,7 @@ function installedSha({ root, pluginName, marketplace, version, configDir }) {
  * @param {InstallKey} at
  * @returns {PluginRecord}
  */
-function pluginRecord(source, at) {
+function readPluginRecord(source, at) {
 	if (source.source === "url") {
 		return {
 			source: "url",
@@ -91,25 +82,25 @@ function pluginRecord(source, at) {
 			resolvedSha: installedSha({ ...at, version: source.ref }),
 		};
 	}
-	return { source: "directory", ...directoryGit(source.path) };
+	return { source: "directory", ...readDirectoryGit(source.path) };
 }
 
 /**
  * The record of `plugin` as installed for the adopter at `root`, so an
  * upgrade's re-render names the release installed now (#941). A url or git
  * source's ref is the installed version, its sha `installedSha`'s; a
- * directory source reads its checkout, as `pluginRecord` does. Null where
+ * directory source reads its checkout, as `readPluginRecord` does. Null where
  * there is no pin, no marketplace, or a directory source with no path.
  * @param {{root: string, plugin: {name: string, version: string},
  *   marketplace: string|null,
  *   source: import("./plugin-state.js").MarketplaceSource|null}} at
  * @returns {PluginRecord|null}
  */
-function installedRecord({ root, plugin, marketplace, source }) {
+function readInstalledRecord({ root, plugin, marketplace, source }) {
 	if (!source || !marketplace) return null;
 	if (source.source === "directory")
 		return typeof source.path === "string"
-			? { source: "directory", ...directoryGit(source.path) }
+			? { source: "directory", ...readDirectoryGit(source.path) }
 			: null;
 	return {
 		source: "url",
@@ -123,4 +114,4 @@ function installedRecord({ root, plugin, marketplace, source }) {
 	};
 }
 
-module.exports = { pluginRecord, installedRecord };
+module.exports = { readPluginRecord, readInstalledRecord };

@@ -30,11 +30,11 @@
  */
 
 const fs = require("node:fs");
-const { execFileSync } = require("node:child_process");
 const path = require("node:path");
 const { runCheck, errMessage } = require("./lib/check");
 const { scanSource } = require("./lib/website-copy");
 const { brandSheetPath } = require("./lib/workflow-core-config");
+const { execGit } = require("./lib/git.js");
 
 const SOURCE = /\.(ts|tsx|js|jsx|mdx)$/;
 
@@ -51,7 +51,7 @@ const SOURCE = /\.(ts|tsx|js|jsx|mdx)$/;
  * @param {string[]} roots
  * @returns {string[]}
  */
-function trackedSources(root, roots) {
+function readTrackedSources(root, roots) {
 	const files = root
 		? roots.flatMap((r) => walk(path.join(root, r), root))
 		: git(["ls-files", "--", ...roots]).filter(
@@ -65,7 +65,7 @@ function trackedSources(root, roots) {
  * empty rather than an error: a materialised revision holds only the paths that
  * revision carries.
  *
- * A SYMLINK IS SKIPPED, NOT FOLLOWED (mantahostels#1940), and `trackedSources` drops one on
+ * A SYMLINK IS SKIPPED, NOT FOLLOWED (mantahostels#1940), and `readTrackedSources` drops one on
  * the git side too, so report mode and gate mode scan the same set. `readdir`
  * does not resolve one, so following it counts a linked source file's tells
  * twice and reads a linked directory as a file. Escaping the root is not among
@@ -99,9 +99,7 @@ function walk(dir, root) {
  */
 function git(args) {
 	try {
-		return execFileSync("git", args, { encoding: "utf8" })
-			.split("\n")
-			.filter(Boolean);
+		return execGit(args, { encoding: "utf8" }).split("\n").filter(Boolean);
 	} catch (e) {
 		throw new Error(`git ${args.join(" ")} failed — ${errMessage(e)}`, {
 			cause: e,
@@ -162,7 +160,7 @@ runCheck({
 		/** @type {string[]} */
 		let files;
 		try {
-			files = trackedSources(root, roots);
+			files = readTrackedSources(root, roots);
 		} catch (e) {
 			return ctx.broken(errMessage(e));
 		}
@@ -221,7 +219,7 @@ runCheck({
 		 * working directory, as skipUnlessModuleOn's read does (lib/check.js). */
 		ctx.say(
 			`\nThese are banned tells from ${brandSheetPath({ say: ctx.say })} §11 (Banned tells — website copy only). ` +
-				"Rewrite the copy; do not reach for --no-verify, which guard-commit-form.sh denies. " +
+				"Rewrite the copy; do not reach for --no-verify, which guard-commit-form.js denies. " +
 				"Repo docs and comments are out of scope and keep their em dashes.",
 		);
 		return { noun: "banned tell(s) in website copy", count: hits };

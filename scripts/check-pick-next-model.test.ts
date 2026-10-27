@@ -155,7 +155,7 @@ const report = (r: { stdout: string; stderr: string }) => r.stdout + r.stderr;
 const notifyDir = () =>
 	path.join(sandbox, "projects", slugForRepo(), "notify-reports");
 const stampPath = () => path.join(notifyDir(), "pick-next-model.notified");
-const persisted = () =>
+const readPersistedReport = () =>
 	JSON.parse(
 		fs.readFileSync(
 			path.join(notifyDir(), "pick-next-model.report.json"),
@@ -666,7 +666,7 @@ describe("under persist mode (mantahostels#2476)", () => {
 		expect(persist().status).toBe(0);
 
 		expect(fs.existsSync(stampPath())).toBe(false);
-		expect(persisted().stamp).toContain(".jsonl");
+		expect(readPersistedReport().stamp).toContain(".jsonl");
 	});
 
 	it("writes a fresh report on every run, however stamped", () => {
@@ -676,7 +676,7 @@ describe("under persist mode (mantahostels#2476)", () => {
 
 		for (const _ of [1, 2]) {
 			expect(persist().status).toBe(0);
-			const record = persisted();
+			const record = readPersistedReport();
 			expect(record.outcome).toBe("WARN");
 			expect(record.text).toContain("PICK-NEXT-ON-OPUS");
 		}

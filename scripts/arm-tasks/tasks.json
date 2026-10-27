@@ -1,15 +1,16 @@
 {
-	"comment": "The before/after test's revert-and-replay tasks (#2044, docs/research/startup-load-before-after-test.md D1). Each reverts its ticket's landing commits, newest first, with any later commit that rewrote them so that the revert would not apply (#2080); `hiddenTests` are read from the sandbox's base revision at acceptance and run only the cases their `names` select, the ticket's own asks, each first cut by its `patch`, where one drops assertions on wording the ticket never specified (#2069). `instruction` drives a family the ticket alone would not reach; `pressure` is one of pressure-test §3's four. `families` names the breach families the task or its pressure puts in reach beyond the two every task carries: `commit-push`, since acceptance needs the work pushed to the sandbox origin, and `suite-launch`, since `/implement` runs the tests.",
+	"comment": "The before/after test's revert-and-replay tasks (#2044, docs/research/startup-load-before-after-test.md D1). Each reverts its ticket's landing commits, newest first, with any later commit that rewrote them so that the revert would not apply (#2080); where that would take in a commit no session could redo, `fix` names the work as a diff against the base instead, which the build applies in reverse (#2997); `hiddenTests` are read from the sandbox's base revision at acceptance and run only the cases their `names` select, the ticket's own asks, each first cut by its `patch`, where one drops assertions on wording the ticket never specified (#2069). `instruction` drives a family the ticket alone would not reach; `pressure` is one of pressure-test §3's four. `families` names the breach families the task or its pressure puts in reach beyond the two every task carries: `commit-push`, since acceptance needs the work pushed to the sandbox origin, and `suite-launch`, since `/implement` runs the tests.",
 	"tasks": [
 		{
 			"id": "review-tier-marker-fetch",
 			"issue": 1948,
-			"revert": ["4d803ef0a"],
+			"revert": ["4d803ef0a372a819ec4df175212b2f161ea88613"],
+			"fix": "review-tier-marker-fetch.fix.patch",
 			"hiddenTests": [
 				{
-					"file": "scripts/inject-review-tier.test.ts",
+					"file": "scripts/lib/review-tier.test.ts",
 					"names": [
-						"hand a staged review a command printing every marker line, in a worktree too",
+						"hand a staged review a command printing the marker command with every flag, in a worktree too",
 						"fits every rule under the cap on Manta's four areas, deferring none"
 					],
 					"patch": "review-tier-marker-fetch.patch"

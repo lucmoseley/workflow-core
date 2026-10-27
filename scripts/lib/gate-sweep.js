@@ -11,11 +11,14 @@
  * summons a judge; the launched session reads it against the condition and
  * strips the marker or leaves it. "Changed" is the reading's text: a reading
  * embedding a clock changes every sweep, and that is a `check:` segment to
- * repair, not something to filter here.
+ * repair, not something to filter here. A reading that is live state, such
+ * as load, changes every sweep too, so an issue is queued at most once per
+ * JUDGE_EVERY_MS (#3092).
  *
  * ONE FILE, under the loop's files (lib/refill-loop.js's loopFiles): each
- * issue's stored reading keyed by checkout and number, the judgements still
- * to launch, and when the last sweep started, so a restart keeps all three.
+ * issue's stored reading and last queuing keyed by checkout and number, the
+ * judgements still to launch, and when the last sweep started, so a restart
+ * keeps all four.
  */
 
 const { spawn } = require("node:child_process");
@@ -28,6 +31,8 @@ const { readJson, writeJson } = require("./refill-loop.js");
  * to check-gates.js's 60 s budget on every sweep, mantahostels#2491) is not
  * running most of the time. */
 const GATE_SWEEP_MS = 30 * 60 * 1000;
+/* A met gate waits up to this plus a sweep for its judge (#3092). Untraced. */
+const JUDGE_EVERY_MS = 6 * 60 * 60 * 1000;
 /* One checkout's sweep; check-gates.js bounds each check, so this only
  * catches a sweep hung outside them. Untraced. */
 const ROOT_SWEEP_TIMEOUT_MS = GATE_SWEEP_MS;
@@ -39,6 +44,8 @@ const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
 /**
  * @typedef {object} GateStore
  * @property {Record<string, string>} readings keyed `<root>#<n>`
+ * @property {Record<string, number>} queuedAt ms each issue was last queued,
+ *   keyed as `readings`
  * @property {Judgement[]} pending queued, not yet tried
  * @property {number|null} lastSweepAt ms the last sweep started
  */
@@ -52,7 +59,7 @@ const keyOf = (root, n) => `${root}#${n}`;
  * a resolved check-gates.js path could carry a plugin version's.
  * @param {number} n
  */
-const judgementPrompt = (n) =>
+const buildJudgementPrompt = (n) =>
 	`/triage ${n} — its Gated on: reading changed. Run check-gates.js --issue ${n} and judge the reading against the condition: met, comment the evidence and strip the marker; unmet, leave the gate and end.`;
 
 /** @param {unknown} raw @returns {Record<string, unknown>} */
@@ -86,8 +93,13 @@ function readGateStore(file) {
 	const readings = {};
 	for (const [k, v] of Object.entries(recordOf(raw.readings)))
 		if (typeof v === "string") readings[k] = v;
+	/** @type {Record<string, number>} */
+	const queuedAt = {};
+	for (const [k, v] of Object.entries(recordOf(raw.queuedAt)))
+		if (typeof v === "number") queuedAt[k] = v;
 	return {
 		readings,
+		queuedAt,
 		pending: judgementsOf(raw.pending),
 		lastSweepAt: typeof raw.lastSweepAt === "number" ? raw.lastSweepAt : null,
 	};
@@ -124,33 +136,42 @@ function sweptRows(stdout) {
 
 /**
  * The store after one checkout's sweep, and the issues it queued. A changed
- * reading is stored and queued once; a check that printed none keeps the
- * reading stored and queues nothing; an issue no longer gated leaves the
- * store and the queue.
+ * reading is stored and queued once; one changed inside JUDGE_EVERY_MS of the
+ * issue's last queuing is neither, so the first sweep past it sees the
+ * change; a check that printed none keeps the reading stored and queues
+ * nothing; an issue no longer gated leaves the store and the queue.
  * @param {GateStore} store
  * @param {string} root
  * @param {{number: number, reading: string|null}[]} rows
+ * @param {number} now
  */
-function withSweep(store, root, rows) {
+function withSweep(store, root, rows, now) {
 	const gated = new Set(rows.map((r) => keyOf(root, r.number)));
+	/** @param {string} k */
+	const kept = (k) => !k.startsWith(`${root}#`) || gated.has(k);
 	/** @type {Record<string, string>} */
 	const readings = {};
 	for (const [k, v] of Object.entries(store.readings))
-		if (!k.startsWith(`${root}#`) || gated.has(k)) readings[k] = v;
-	const pending = store.pending.filter(
-		(j) => j.root !== root || gated.has(keyOf(root, j.number)),
-	);
+		if (kept(k)) readings[k] = v;
+	/** @type {Record<string, number>} */
+	const queuedAt = {};
+	for (const [k, v] of Object.entries(store.queuedAt))
+		if (kept(k)) queuedAt[k] = v;
+	const pending = store.pending.filter((j) => kept(keyOf(j.root, j.number)));
 	/** @type {number[]} */
 	const queued = [];
 	for (const { number, reading } of rows) {
 		const key = keyOf(root, number);
 		if (reading === null || readings[key] === reading) continue;
+		const last = queuedAt[key];
+		if (last !== undefined && now - last < JUDGE_EVERY_MS) continue;
 		readings[key] = reading;
+		queuedAt[key] = now;
 		queued.push(number);
 		if (!pending.some((j) => j.root === root && j.number === number))
-			pending.push({ root, number, prompt: judgementPrompt(number) });
+			pending.push({ root, number, prompt: buildJudgementPrompt(number) });
 	}
-	return { store: { ...store, readings, pending }, queued };
+	return { store: { ...store, readings, queuedAt, pending }, queued };
 }
 
 /**
@@ -208,8 +229,8 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 	/** @type {Promise<void>|null} */
 	let inFlight = null;
 
-	/** @param {string[]} roots */
-	async function sweep(roots) {
+	/** @param {string[]} roots @param {number} now */
+	async function sweep(roots, now) {
 		for (const root of roots) {
 			const r = await runRoot(root);
 			const rows = "error" in r ? null : sweptRows(r.stdout);
@@ -219,7 +240,7 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 				);
 				continue;
 			}
-			const { store, queued } = withSweep(readGateStore(file), root, rows);
+			const { store, queued } = withSweep(readGateStore(file), root, rows, now);
 			writeJson(file, store);
 			if (queued.length > 0)
 				log(
@@ -242,7 +263,7 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 			if (store.lastSweepAt !== null && now - store.lastSweepAt < cadenceMs)
 				return null;
 			writeJson(file, { ...store, lastSweepAt: now });
-			const started = sweep(roots).finally(() => {
+			const started = sweep(roots, now).finally(() => {
 				inFlight = null;
 			});
 			inFlight = started;

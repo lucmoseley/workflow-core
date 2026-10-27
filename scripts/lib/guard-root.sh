@@ -4,15 +4,14 @@
 #
 # SOURCED, NEVER RUN. Three functions, no state, no dependencies.
 #
-# WHY ITS OWN FILE, rather than a function in guard-log.sh or guard-parse.sh.
-# Both of those are call sites, and guard-parse.sh sources guard-log.sh — so a
-# helper in either is unreachable from something below it, and a guard whose
-# guard-log.sh is detached would fall back to a second copy of the expression.
+# WHY ITS OWN FILE, rather than a function in guard-log.sh: that is a call
+# site, so a helper there is unreachable from something below it, and a hook
+# whose guard-log.sh is detached would fall back to a second copy of the expression.
 # gr_config_dir is the one exception: guard-log.sh keeps a copy, since its
 # detached fail-open log still needs a real config dir (#2095).
 #
-# BYTE-IDENTICAL OUTPUT IS THE CONSTRAINT, twice over. gp_rule writes a latch
-# path clear-rule-latch.sh globs for, and gl_log derives the error-log directory
+# BYTE-IDENTICAL OUTPUT IS THE CONSTRAINT, twice over. lib/guard-entry.js
+# writes a latch path clear-rule-latch.sh globs for, and gl_log derives the error-log directory
 # arbiter-core.js's stateDir() must agree with — so `scripts/lib/host-root.js`,
 # the JS half of this seam, strips the same trailing slash and dereferences the
 # same symlinks, and the two are changed together or not at all.

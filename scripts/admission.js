@@ -46,13 +46,13 @@
  * listing rather than calling `claude agents --json` again. It never changes
  * the exit code: a hung job is a courtesy the refusal text can use, not a
  * gate `verdict` does not already carry. `dispatch-sessions.sh`'s roster
- * remedy reads the TEXT-mode rendering (`hungJobsText`, below) rather than
+ * remedy reads the TEXT-mode rendering (`buildHungJobsText`, below) rather than
  * this field directly — it never passes `--json` — so the two are exercised
  * by separate tests, not one.
  *
  * Mutated at mantahostels#2598: dropping `hungJobs` from the `--json` payload, caught by
  * admission.test.ts's "includes hungJobs in --json even when empty" case.
- * Separately, dropping the TEXT-mode section `hungJobsText` renders is caught
+ * Separately, dropping the TEXT-mode section `buildHungJobsText` renders is caught
  * by dispatch-sessions.test.ts's "names a HUNG-JOB inline" case, which reads
  * dispatch-sessions.sh's own relay of it rather than this file's `--json`.
  */
@@ -62,20 +62,20 @@ const {
 	machineAdmission,
 	LAUNCH_SPARES,
 	readCpuSlots,
-	sessionCeilingText,
-	sessionDrawLine,
-	sessionFloorLine,
-	liveDrawLine,
+	buildSessionCeilingText,
+	buildSessionDrawLine,
+	buildSessionFloorLine,
+	buildLiveDrawLine,
 	SUITE_GATE_MB,
-	memoryBreakdownLines,
+	buildMemoryBreakdownLines,
 	reclaimableMb,
 	SUITE_RESTING_MB,
 } = require("./lib/admission");
-const { liveLanders } = require("./lib/local-tester.js");
+const { readLiveLanders } = require("./lib/local-tester.js");
 const { admissionSessionIds, listedAgents } = require("./lib/agent-liveness");
 const { readJobs, findHungJobs } = require("./lib/hung-jobs");
 const { readAllowance } = require("./lib/allowance");
-const { overloadReading, overloadText } = require("./lib/cpu-sample");
+const { overloadReading, buildOverloadText } = require("./lib/cpu-sample");
 const { parseOrExit } = require("./lib/cli-args");
 
 const USAGE = `Usage: node scripts/admission.js [--json] [--launch] [--skip-allowance]
@@ -129,13 +129,18 @@ function allowanceCheck() {
 	return { breach, warning: warnings.length > 0 ? warnings.join("; ") : null };
 }
 
-/*
+/**
  * The pids of the sessions the oracle lists, so the overhead scan can tell a
  * CLAIMED spare — a live session, already priced through its draw — from an
  * idle one (mantahostels#1287). An oracle that will not answer yields an empty set, which
  * over-reserves rather than under-reserves.
+ *
+ * Off the strict listing where it answered, so the per-member re-read pays one
+ * oracle spawn (#2876); the `requireSelf: false` read only where it refused.
+ * @param {ReturnType<typeof admissionSessionIds>} strict
  */
-function liveSessionPids() {
+function liveSessionPids(strict) {
+	if (strict.pids) return new Set([...strict.pids.values()].map(String));
 	const listed = listedAgents({ requireSelf: false });
 	if (listed.why || !listed.agents) return new Set();
 	return new Set(
@@ -157,10 +162,12 @@ const CPU_LOAD_UNKNOWN =
  * @param {ReturnType<typeof readCpuSlots>} cpu
  * @param {boolean} only
  */
-function cpuHoldLines(load, cpu, only) {
+function buildCpuHoldLines(load, cpu, only) {
 	const lines = [
-		...(load.overloaded ? [`cpu load           ${overloadText(load)}`] : []),
-		...(cpu.full ? [`cpu sessions       ${sessionCeilingText(cpu)}`] : []),
+		...(load.overloaded
+			? [`cpu load           ${buildOverloadText(load)}`]
+			: []),
+		...(cpu.full ? [`cpu sessions       ${buildSessionCeilingText(cpu)}`] : []),
 	];
 	if (only && lines.length > 0) lines[lines.length - 1] += " — the only hold";
 	return lines;
@@ -186,14 +193,14 @@ function main() {
 	const { overhead, host, live, load, cpu, floorRead, verdict, memory } =
 		machineAdmission({
 			listed,
-			livePids: liveSessionPids(),
+			livePids: liveSessionPids(listed),
 			reclaimable: reclaimableMb(),
 			pendingSpares: spares,
-			landers: liveLanders(),
+			landers: readLiveLanders(),
 		});
 	/* Between the figures and the hung-job section, never after it:
 	 * `dispatch-sessions.sh` reads from `^hung job(s)` to the end. */
-	const memoryText = `\n\n${memoryBreakdownLines(memory).join("\n")}`;
+	const memoryText = `\n\n${buildMemoryBreakdownLines(memory).join("\n")}`;
 
 	// Runs even where `verdict` is itself refused — a warning is still worth
 	// surfacing on an unreadable memory read — unless the caller has overridden
@@ -226,7 +233,7 @@ function main() {
 
 	if (!verdict.ok)
 		return writeRefusal({ verdict, load, cpu, memoryText, hungJobs });
-	const lines = reportLines({
+	const lines = buildReportLines({
 		verdict,
 		host,
 		floorRead,
@@ -235,7 +242,10 @@ function main() {
 		spares,
 		allowance,
 	});
-	writeFd(1, `${lines.join("\n")}${memoryText}${hungJobsText(hungJobs)}\n`);
+	writeFd(
+		1,
+		`${lines.join("\n")}${memoryText}${buildHungJobsText(hungJobs)}\n`,
+	);
 	return verdict.admit ? 0 : 1;
 }
 
@@ -254,7 +264,7 @@ function cpuLimbOnly() {
 	const lines = [
 		...(load.load1 === null ? [CPU_LOAD_UNKNOWN] : []),
 		...(cpu.unknown === null ? [] : [cpuSessionsUnknown(cpu)]),
-		...cpuHoldLines(load, cpu, true),
+		...buildCpuHoldLines(load, cpu, true),
 	];
 	if (lines.length > 0) writeFd(1, `${lines.join("\n")}\n`);
 	return load.overloaded || cpu.full ? 1 : 0;
@@ -307,10 +317,10 @@ function writeRefusal({ verdict, load, cpu, memoryText, hungJobs }) {
 		2,
 		`ADMISSION REFUSED — ${verdict.error}\n  Start nothing on a guess: an over-admission freezes the machine.${
 			/* So dispatch names the CPU remedy beside the memory one. */
-			cpuHoldLines(load, cpu, false)
+			buildCpuHoldLines(load, cpu, false)
 				.map((l) => `\n${l}`)
 				.join("")
-		}${memoryText}\n${hungJobsText(hungJobs)}`,
+		}${memoryText}\n${buildHungJobsText(hungJobs)}`,
 	);
 	return 2;
 }
@@ -320,7 +330,7 @@ function writeRefusal({ verdict, load, cpu, memoryText, hungJobs }) {
  * @param {{verdict: Extract<Admission["verdict"], {ok: true}>, host: Admission["host"], floorRead: Admission["floorRead"], live: Admission["live"], overhead: Admission["overhead"], spares: number, allowance: AllowanceRead}} a
  * @returns {string[]}
  */
-function reportLines({
+function buildReportLines({
 	verdict,
 	host,
 	floorRead,
@@ -329,13 +339,13 @@ function reportLines({
 	spares,
 	allowance,
 }) {
-	const floorLine = sessionFloorLine(floorRead, verdict);
+	const floorLine = buildSessionFloorLine(floorRead, verdict);
 	return [
 		`available memory   ${verdict.availableMb} MB`,
 		`live sessions      ${verdict.sessions} alongside this one`,
-		`session draw       ${sessionDrawLine(host)}`,
+		`session draw       ${buildSessionDrawLine(host)}`,
 		...(floorLine ? [`session floor      ${floorLine}`] : []),
-		`live draw          ${liveDrawLine(live)}`,
+		`live draw          ${buildLiveDrawLine(live)}`,
 		/* Silent at 0, so a caller not passing the flag reads exactly what it
 		 * always has. */
 		...(overhead.ok && overhead.pendingMb
@@ -347,7 +357,7 @@ function reportLines({
 		`slots              ${verdict.slots} — ${verdict.admit ? "ADMIT" : "HOLD"}: ${verdict.reason}`,
 		/* dispatch-sessions.sh relays the unknown line on its admit path. */
 		...(verdict.load.load1 === null ? [CPU_LOAD_UNKNOWN] : []),
-		...cpuHoldLines(
+		...buildCpuHoldLines(
 			verdict.load,
 			verdict.cpu,
 			verdict.cpuIsSoleHold && !allowance.breach,
@@ -377,7 +387,7 @@ function reportLines({
  * output is unchanged.
  * @param {ReturnType<typeof findHungJobs>} hungJobs
  */
-function hungJobsText(hungJobs) {
+function buildHungJobsText(hungJobs) {
 	if (hungJobs.length === 0) return "";
 	const lines = [
 		"",

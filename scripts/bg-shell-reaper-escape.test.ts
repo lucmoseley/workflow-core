@@ -7,7 +7,7 @@
  *
  * Two documents rest on that one line across four sites —
  * docs/agents/rules/killed-background-job.txt, printed to every session by
- * scripts/guard-bg-job.sh, and docs/environment.md:146, :250 and :376 — and
+ * scripts/lib/bg-job.js, and docs/environment.md:146, :250 and :376 — and
  * each tells a session the cost of backgrounding a job is nil (mantahostels#2851).
  * Lose this case and the line can flip back unseen, the reaper killing
  * background jobs again while both documents still tell every session it is

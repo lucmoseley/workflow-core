@@ -18,7 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process";
 
-const { pushedRef, unpushedRef } =
+const { pushedRef, readUnpushedRef } =
 	createRequire(__filename)("./landing-refs.js");
 const SCRIPT = path.join(__dirname, "landing-refs.js");
 
@@ -60,7 +60,7 @@ describe("pushedRef", () => {
 	});
 });
 
-describe("unpushedRef", () => {
+describe("readUnpushedRef", () => {
 	/** A checkout at `root` on `branch`, whose upstream is `upstream` if any. */
 	function checkout(branch: string, upstream?: string) {
 		const git = (...args: string[]) =>
@@ -91,19 +91,19 @@ describe("unpushedRef", () => {
 	it("is a spike branch's own upstream, whatever the module", () => {
 		host(["landing"]);
 		checkout("spike/x", "origin/spike/x");
-		expect(unpushedRef({ root })).toBe("origin/spike/x");
+		expect(readUnpushedRef({ root })).toBe("origin/spike/x");
 	});
 
 	it("is the pushed ref on main, though main tracks origin/main", () => {
 		host(["landing"]);
 		checkout("main", "origin/main");
-		expect(unpushedRef({ root })).toBe("origin/landing");
+		expect(readUnpushedRef({ root })).toBe("origin/landing");
 	});
 
 	it("is the pushed ref on a branch with no upstream", () => {
 		host(["suites"]);
 		checkout("wip");
-		expect(unpushedRef({ root })).toBe("origin/main");
+		expect(readUnpushedRef({ root })).toBe("origin/main");
 	});
 });
 

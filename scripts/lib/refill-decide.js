@@ -6,6 +6,7 @@
  * Caller: scripts/refill-loop.js's tick (#2012)
  */
 
+const path = require("node:path");
 const { PARKED_LABEL } = require("./parked.js");
 const { presenceAt } = require("./presence.js");
 
@@ -40,6 +41,10 @@ const MODEL = "opus";
 const FULL = 100;
 /* The idle reason of a tick that walked its frontier and launched nothing. */
 const NOTHING_LAUNCHABLE = "nothing launchable";
+/* The idle reason of one missing a checkout's shortlist, named over "nothing
+ * launchable" even where the checkouts read held only skipped rows: the
+ * unread work may have launched (#2561). */
+const SHORTLIST_FAILED = "shortlist failed in";
 /* A row a running launch already holds, skipped as any other so an idle
  * tick's log can count it (#2561). */
 const ALREADY_RUNNING = "already running";
@@ -69,6 +74,18 @@ const ALREADY_RUNNING = "already running";
  */
 
 /**
+ * An overflow seat (lib/refill-seats.js), billed to a plan's API credits
+ * through its own key (#2570). `fits` is how many sessions its budget gate
+ * fits on the key now, null where it was not read, with `why`; `spentUntil`
+ * the date its cycle ends where the key is spent for it, else null.
+ * @typedef {object} OverflowReading
+ * @property {string} seat config dir
+ * @property {number|null} fits
+ * @property {string|null} spentUntil
+ * @property {string|null} why
+ */
+
+/**
  * A loop launch. `acts` is read once it has finished.
  * @typedef {object} LaunchRecord
  * @property {string} root
@@ -80,6 +97,7 @@ const ALREADY_RUNNING = "already running";
  * @property {Record<string, number>|typeof UNREAD} [acts] the launched
  *   session's acts-ledger lines counted per kind (#2312), or UNREAD where its
  *   session id was never captured or its ledger would not read
+ * @property {true} [gate] a gate judgement's launch (#3092)
  */
 
 /**
@@ -92,10 +110,13 @@ const ALREADY_RUNNING = "already running";
  * @property {{root: string, issues: number[]}[]} running
  * @property {number} freeSlots admission's count
  * @property {number|null} lastPromptAt ms of the founder's last typed prompt
- * @property {SizedSeat[]} seats in failover order
+ * @property {SizedSeat[]} seats the plan seats, in failover order
+ * @property {OverflowReading[]} [overflow] the overflow seats, in failover
+ *   order
  * @property {LaunchRecord[]} history
  * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
  *   sweep's queue, launched ahead of the ranking (#2279)
+ * @property {{root: string, error: string}[]} [failedShortlists]
  */
 
 /**
@@ -105,6 +126,7 @@ const ALREADY_RUNNING = "already running";
  * @property {string} prompt
  * @property {"opus"} model
  * @property {string} seat
+ * @property {true} [gate] a gate judgement's launch (#3092)
  */
 
 /** @typedef {"explicit" | "expired" | "no-progress" | "allowance"} StopReason */
@@ -129,15 +151,22 @@ const hasProgressed = (r) =>
 
 /**
  * The last three read finishes since the last start, if none progressed: an
- * unread one is passed over. A renewal starts the count afresh, or a restart
- * after this stop would stop at once.
+ * unread one is passed over, and so is a gate judgement with no act, since
+ * judging a gate unmet ends with none (#3092). A renewal starts the count
+ * afresh, or a restart after this stop would stop at once. Residual: a judge
+ * that crashed or did nothing is passed over too, so a run of gate launches
+ * alone never stops the loop; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
+ * often each issue's runs.
  * @param {TickInput} input
  */
 function noProgressRun({ history, startedAt }) {
 	const recent = history
 		.filter(
 			(r) =>
-				r.finishedAt !== null && r.launchedAt >= startedAt && r.acts !== UNREAD,
+				r.finishedAt !== null &&
+				r.launchedAt >= startedAt &&
+				r.acts !== UNREAD &&
+				!(r.gate && !hasProgressed(r)),
 		)
 		.sort((a, b) => Number(b.finishedAt) - Number(a.finishedAt))
 		.slice(0, NO_PROGRESS_RUN);
@@ -155,27 +184,62 @@ const hasRoom = (s) =>
 	s.week !== null && s.session !== null && s.week < FULL && s.session < FULL;
 
 /**
+ * @template {{fits: number|null}} S
+ * @param {S} s
+ * @returns {s is S & {fits: number}}
+ */
+const isFitted = (s) => s.fits !== null && s.fits > 0;
+
+/**
  * Whether the loop launches on a seat: room on both bars and a cap sized
  * above 0.
  * @template {{week: number|null, session: number|null, fits: number|null}} S
  * @param {S} s
  * @returns {s is S & {fits: number}}
  */
-const fitsLaunch = (s) => hasRoom(s) && s.fits !== null && s.fits > 0;
+const fitsLaunch = (s) => hasRoom(s) && isFitted(s);
 
 /**
- * The first seat with room whose cap fits a launch, else whether every seat
- * is weekly-full, and why the tick waits where not. A seat full on its 5-hour
- * bar alone reopens at that bar's reset, so the tick waits through it (#2606).
- * A seat with no fresh reading, no sized cap or a cap sized 0 stops nothing
- * either: the dispatcher refuses the first two, so the tick waits rather than
- * stopping the run on a stale cache, and running sessions finishing reopen
- * the third's headroom (#2432). An unsized seat names the wait: the loop
- * probes no seat behind it, so an unread one there was never refreshed
- * (#2362).
+ * The first plan seat with room whose cap fits a launch, else, once every
+ * plan seat is weekly-full, the first overflow seat whose budget fits one
+ * (#2570); else whether every seat is spent, and why the tick waits where
+ * not.
  * @param {TickInput} input
  */
-function pickSeat({ seats }) {
+function pickSeat({ seats, overflow = [] }) {
+	const plan = pickPlanSeat(seats);
+	if (plan.seat !== null || overflow.length === 0) return plan;
+	if (!plan.allCut) {
+		const open = seats.filter((s) => !s.weekFull).map((s) => s.seat);
+		const wait = `no overflow launch: ${open.join(", ")} not weekly-full`;
+		return { ...plan, wait: [plan.wait, wait].filter(Boolean).join("; ") };
+	}
+	const open = overflow.find(isFitted);
+	if (open) return { seat: open.seat, fits: open.fits };
+	return {
+		seat: null,
+		fits: 0,
+		allCut: overflow.every((o) => o.spentUntil !== null),
+		wait: `every plan seat is weekly-full; overflow ${overflowHolds(overflow)}`,
+	};
+}
+
+/** @param {OverflowReading[]} overflow */
+const overflowHolds = (overflow) => overflow.map(overflowHold).join(", ");
+
+/**
+ * The first plan seat with room whose cap fits a launch, else whether every
+ * plan seat is weekly-full, and why the tick waits where not. A seat full on
+ * its 5-hour bar alone reopens at that bar's reset, so the tick waits through
+ * it (#2606). A seat with no fresh reading, no sized cap or a cap sized 0
+ * stops nothing either: the dispatcher refuses the first two, so the tick
+ * waits rather than stopping the run on a stale cache, and running sessions
+ * finishing reopen the third's headroom (#2432). An unsized seat names the
+ * wait: the loop probes no seat behind it, so an unread one there was never
+ * refreshed (#2362).
+ * @param {SizedSeat[]} seats
+ */
+function pickPlanSeat(seats) {
 	/** @type {Record<SeatHold, string[]>} */
 	const seatsByHold = {
 		cut: [],
@@ -212,6 +276,15 @@ function pickSeat({ seats }) {
 	};
 }
 
+/**
+ * @param {OverflowReading} o
+ */
+function overflowHold(o) {
+	if (o.spentUntil !== null) return `${o.seat} exhausted until ${o.spentUntil}`;
+	if (o.fits === 0) return `${o.seat} budget held by running sessions`;
+	return `${o.seat} budget unread (${o.why ?? "no reason given"})`;
+}
+
 /** @typedef {"cut" | "fiveHour" | "unread" | "unsized" | "capped"} SeatHold */
 
 /**
@@ -229,7 +302,7 @@ function seatHold(s) {
 }
 
 /** @param {MergedRow} row */
-function skipReason(row) {
+function buildSkipReason(row) {
 	if (row.labels.includes(PARKED_LABEL)) return "parked";
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
 	const [kind, ...more] = row.takes;
@@ -254,7 +327,7 @@ function skipReason(row) {
  * @returns {{issues: number[], prompt: string} | {why: string}}
  */
 function rowLaunch(row, retroBundles, isTaken) {
-	const why = skipReason(row);
+	const why = buildSkipReason(row);
 	if (why) return { why };
 	const bundle = retroBundles.find(
 		(b) => b.root === row.root && b.issues.includes(row.number),
@@ -291,11 +364,16 @@ function stopOf(input, pick) {
 				.map((r) => `${r.root} #${r.issues.join(", #")}`)
 				.join("; ")}`,
 		};
-	if (pick.seat === null && pick.allCut)
+	if (pick.seat === null && pick.allCut) {
+		const { overflow = [] } = input;
 		return {
 			stop: "allowance",
-			detail: `every seat reads ${FULL}% of the week`,
+			detail:
+				overflow.length === 0
+					? `every seat reads ${FULL}% of the week`
+					: `every plan seat reads ${FULL}% of the week and every overflow key is spent: ${overflowHolds(overflow)}`,
 		};
+	}
 	return null;
 }
 
@@ -322,16 +400,26 @@ function fill(
 	const taken = new Set(
 		running.flatMap((r) => r.issues.map((n) => key(r.root, n))),
 	);
-	/** @param {string} root @param {number[]} issues @param {string} prompt */
-	const launch = (root, issues, prompt) => {
+	/**
+	 * @param {string} root @param {number[]} issues @param {string} prompt
+	 * @param {boolean} [gate]
+	 */
+	const launch = (root, issues, prompt, gate = false) => {
 		for (const n of issues) taken.add(key(root, n));
-		launches.push({ root, issues, prompt, model: MODEL, seat });
+		launches.push({
+			root,
+			issues,
+			prompt,
+			model: MODEL,
+			seat,
+			...(gate ? { gate: /** @type {const} */ (true) } : {}),
+		});
 	};
 	for (const j of judgements) {
 		if (launches.length >= slots) break;
 		if (taken.has(key(j.root, j.number)))
 			skipped.push({ root: j.root, number: j.number, why: ALREADY_RUNNING });
-		else launch(j.root, [j.number], j.prompt);
+		else launch(j.root, [j.number], j.prompt, true);
 	}
 	for (const row of frontier) {
 		if (launches.length >= slots) break;
@@ -373,9 +461,18 @@ function decideTick(input) {
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
 	 * would drop: each call launches at least one under 100%. */
 	const out = fill(input, pick.seat, Math.min(pick.fits, free));
+	if (out.launches.length > 0) return { ...out, idle: null };
+	const failed = input.failedShortlists ?? [];
 	return {
 		...out,
-		idle: out.launches.length === 0 ? NOTHING_LAUNCHABLE : null,
+		idle:
+			failed.length > 0
+				? failed
+						.map(
+							(f) => `${SHORTLIST_FAILED} ${path.basename(f.root)}: ${f.error}`,
+						)
+						.join("; ")
+				: NOTHING_LAUNCHABLE,
 	};
 }
 

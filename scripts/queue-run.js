@@ -9,54 +9,64 @@
  * anything queues; exit 1 a wait the memory rung still holds at the queue's
  * timeout, which runs nothing (#2421).
  *
- * THE GUARD READS THROUGH IT. guard-suite-concurrency.sh judges the command it
- * is handed, and a waiter script hides the suite it runs (mantahostels#2024),
- * so lib/suite-launch.sh reads `node <path>/queue-run.js -- <command>` as that
- * command, queued, and the count-cap deny lets it past as it lets `--queue`.
- *
- * IT RUNS ONLY WHAT lib/suite-launch.sh's `queueable` TAKES, so a vitest launch
+ * IT RUNS ONLY WHAT lib/suite-launch.js's `isQueueable` TAKES, so a vitest launch
  * is sent to `--queue` and the guards never meet a suite they cannot see. A
  * classifier that will not run fails open: the command queues.
  *
  * THE MARKER IS HELD UNTIL THE COMMAND EXITS, stamped `spawned` once it is up,
  * as run-vitest.js holds its own. A signal kills a waiter at once and is passed
- * to a running command, whose exit this one then takes. A command started with
- * no wrapper ahead of it holds the slot as soon as it spawns; one behind
- * `timeout` is counted once `timeout` execs it.
+ * to a running command, whose exit this one then takes.
  *
  * Each wait is a `.suite-queue-exits.jsonl` line (lib/queue-exit-log.js) of
- * kind `other`.
+ * kind `other`, or `seat` under `--seat`.
+ *
+ * `--seat` HOLDS ONE PART-SUITE SEAT FOR A DRIVER (#2918), a mutation loop
+ * that runs `run-vitest.js <file> --queue` once per mutant. It waits once, as
+ * a part-suite, so it never takes the whole-suite slot, then runs the driver
+ * with its marker in SEAT_ENV. Each `--queue` run inside the seat's process
+ * tree skips the queue and waits on the memory rung alone
+ * (lib/suite-queue.js `heldSeat`). A driver the classifier reads as a suite
+ * itself is refused.
  */
 
-const { spawn, spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
 
+const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
+const { logger } = require("./lib/entry-input.js");
 const { hostRoot } = require("./lib/host-root.js");
 const {
 	queueExitLogPath,
 	queueExitLogger,
 } = require("./lib/queue-exit-log.js");
 const idSeam = require("./lib/session-id.js");
+const { buildLaunchPorts } = require("./lib/suite-concurrency-host.js");
+const { isQueueable, suiteLaunchKind } = require("./lib/suite-launch.js");
 const {
 	QUEUE_SIGNALS,
-	queueAdmit,
+	SEAT_ENV,
 	queueJoin,
 	queueLeave,
+	queueStamps,
 	queueSpawned,
 	queueTurn,
 	waitForGate,
 } = require("./lib/suite-queue.js");
+const { unwrap } = require("./lib/shell-words.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const LABEL = "queue-run.js";
-const USAGE = `Usage: node ${path.join("scripts", "queue-run.js")} -- <command…>
+const USAGE = `Usage: node ${path.join("scripts", "queue-run.js")} [--seat] -- <command…>
 Waits for a suite slot in the shared queue, then runs <command>: a node --test,
 pytest or Python test file, a declared suiteRunners script, or an npm test
-script that does not run run-vitest.js (#1776).`;
+script that does not run run-vitest.js (#1776).
+  --seat  wait once as a part-suite, then run <command>, a driver such as a
+          mutation loop, whose \`run-vitest.js <file> --queue\` runs skip the
+          queue and wait on the memory rung alone (#2918)`;
 
-/* Why lib/suite-launch.sh's reading refuses the command; `queue` is absent. */
+/* Why lib/suite-launch.js's reading refuses the command; `queue` is absent. */
 const REFUSALS = {
 	queued: "the command is already a queue-run.js launch.",
 	vitest:
@@ -64,40 +74,73 @@ const REFUSALS = {
 	none: "the command runs no suite the cap counts, so there is no slot to wait for. A host's own runner script is declared under `suiteRunners` in .claude/workflow-core.json.",
 };
 
+const SEAT_REFUSAL =
+	"--seat runs a driver whose suites are `run-vitest.js <file> --queue` runs, and this command is a suite itself; queue it without --seat.";
+
+/* The weight a seat joins and asks the gate with: one test file, a part-suite
+ * (#2918). */
+const SEAT_WEIGHT = { resolvedFiles: 1, wholeSlot: false };
+
 /**
- * lib/suite-launch.sh's reading of the command: `queue` where this script
- * takes it, else a key of REFUSALS.
+ * lib/suite-launch.js's reading of the command: `queue` where this script
+ * takes it, else a key of REFUSALS. A command already behind queue-run.js is
+ * `queued` where its own command would queue, else that command's reading.
+ * A reading that throws is `unread`, logged, and fails open (mantahostels#103
+ * §6): queued, or under `--seat` seated.
  *
  * @param {string[]} words
  * @returns {string}
  */
 function classify(words) {
-	const r = spawnSync(
-		"bash",
-		[
-			"-c",
-			`source "$1/guard-parse.sh" && source "$1/suite-launch.sh" || exit 3
-shift
-gp_unwrap "$@"
-set -- \${_gp_unwrapped[@]+"\${_gp_unwrapped[@]}"}
-if (($#)) && queueable "$@"; then echo queue
-elif ((_sl_queued)); then echo queued
-elif [[ "$_sl_kind" == npm-vitest || "$_sl_kind" == npm-watch || "$_sl_kind" == wrapper ]]; then echo vitest
-else echo none
-fi`,
-			LABEL,
-			path.join(__dirname, "lib"),
-			...words,
-		],
-		{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+	const log = logger(LABEL);
+	try {
+		return readingOf(words, buildLaunchPorts({ root: hostRoot(), log }));
+	} catch (e) {
+		log(`suite-launch reading threw — taken unread: ${caught(e).message}`);
+		return "unread";
+	}
+}
+
+/**
+ * @param {string[]} words
+ * @param {import("./lib/suite-launch.js").LaunchPorts} ports
+ * @returns {string}
+ */
+function readingOf(words, ports) {
+	const inner = unwrap(words, []).words;
+	if (inner.length === 0) return "none";
+	if (isQueueable(inner, ports)) return "queue";
+	if (inner[0] === "node" && /(^|\/)queue-run\.js$/.test(inner[1] ?? "")) {
+		const nested = inner[2] === "--" ? inner.slice(3) : inner.slice(2);
+		const reading = readingOf(nested, ports);
+		return reading === "queue" ? "queued" : reading;
+	}
+	const launch = suiteLaunchKind(inner, ports);
+	return launch && VITEST_KINDS.includes(launch.kind) ? "vitest" : "none";
+}
+
+const VITEST_KINDS = ["npm-vitest", "npm-watch", "wrapper"];
+
+/**
+ * Why this script refuses the command, or null where it queues it.
+ *
+ * @param {string[]} words
+ * @param {boolean} seat
+ * @returns {string | null}
+ */
+function refusalOf(words, seat) {
+	const reading = classify(words);
+	if (reading === "unread") return null;
+	if (seat) return reading === "none" ? null : SEAT_REFUSAL;
+	if (reading === "queue") return null;
+	return (
+		REFUSALS[/** @type {keyof typeof REFUSALS} */ (reading)] ?? REFUSALS.none
 	);
-	if (r.error || r.status !== 0) return "queue";
-	return String(r.stdout).trim() || "queue";
 }
 
 /**
  * @typedef {{ write: (s: string) => unknown }} Out
- * @typedef {Parameters<typeof waitForGate>[0] & Parameters<typeof queueJoin>[0] & Parameters<typeof queueTurn>[0] & {
+ * @typedef {import("./lib/suite-queue.js").QueuedLaunchOptions & {
  *   spawnFn?: typeof spawn,
  *   signals?: { on: (signal: NodeJS.Signals, fn: () => void) => unknown },
  *   exit?: (code: number) => void,
@@ -132,16 +175,16 @@ function exitStatus(code, signal) {
 async function main(argv, options = {}) {
 	const parsed = parseOrCode(argv, {
 		usage: USAGE,
+		flags: { "--seat": "boolean" },
 		min: 1,
 		max: Number.POSITIVE_INFINITY,
 	});
 	if (typeof parsed === "number") return parsed;
 	const words = parsed.positionals;
+	const seat = parsed.flags["--seat"] === true;
 	const err = options.err ?? STDERR;
-	const reading = classify(words);
-	if (reading !== "queue") {
-		const why =
-			REFUSALS[/** @type {keyof typeof REFUSALS} */ (reading)] ?? REFUSALS.none;
+	const why = refusalOf(words, seat);
+	if (why) {
 		err.write(`${LABEL}: not queued — ${why}\n`);
 		return 2;
 	}
@@ -151,14 +194,16 @@ async function main(argv, options = {}) {
 			options.queueLog === undefined
 				? queueExitLogPath(hostRoot())
 				: options.queueLog,
-		kind: "other",
+		kind: seat ? "seat" : "other",
 		session:
 			options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId,
 		label: LABEL,
 		err,
 	});
 
-	const ticket = queueJoin(options);
+	const ticket = queueJoin(
+		seat ? { ...options, weight: SEAT_WEIGHT } : options,
+	);
 	const started = Date.now();
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
@@ -196,12 +241,13 @@ async function main(argv, options = {}) {
 
 	const outcome = await waitForGate({
 		turn: () => queueTurn(options),
-		admit: () => queueAdmit(ticket, options),
 		label: LABEL,
+		...(seat ? { gateWeight: SEAT_WEIGHT, part: true } : {}),
 		...options,
-		onExit: (reason, waitMs) => {
+		...queueStamps(ticket, options),
+		onExit: (reason, waitMs, heldBy) => {
 			waiting = false;
-			logExit(reason, waitMs);
+			logExit(reason, waitMs, heldBy);
 		},
 	});
 	if (outcome === "refused") {
@@ -212,6 +258,7 @@ async function main(argv, options = {}) {
 	const [command = "", ...args] = words;
 	const running = (options.spawnFn ?? spawn)(command, args, {
 		stdio: "inherit",
+		...(seat ? { env: { ...process.env, [SEAT_ENV]: ticket } } : {}),
 	});
 	child = running;
 	running.once("spawn", () => queueSpawned(ticket, options));

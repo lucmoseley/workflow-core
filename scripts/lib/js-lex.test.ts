@@ -6,7 +6,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { blankComments, closeOf, topLevelArgs } from "./js-lex.js";
+import {
+	blankComments,
+	closeOf,
+	statementEnd,
+	topLevelArgs,
+} from "./js-lex.js";
 
 describe("closeOf", () => {
 	it("finds the bracket closing the one at the index, past nested ones", () => {
@@ -41,6 +46,17 @@ describe("topLevelArgs", () => {
 
 	it("returns nothing for an empty list", () => {
 		expect(topLevelArgs("  ")).toEqual([]);
+	});
+});
+
+describe("statementEnd", () => {
+	it("ends just past the first top-level `;`, past brackets and literals", () => {
+		const text = 'const a = f(";", { b: 1; }, /;/) + `;`;\nnext;';
+		expect(statementEnd(text, 0)).toBe(text.indexOf("\n"));
+	});
+
+	it("runs to the end of a text with no `;`", () => {
+		expect(statementEnd("a = b\n", 0)).toBe(6);
 	});
 });
 

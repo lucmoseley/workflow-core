@@ -18,7 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const CONFIG = ".claude/workflow-core.json";
-const moduleLine = (m: string) =>
+const buildModuleLine = (m: string) =>
 	`SKIP: module "${m}" is off — ${CONFIG} does not list it under "modules"`;
 
 interface Row {
@@ -37,7 +37,12 @@ const byModule = (
 	args?: string[],
 ): Row => {
 	const modules = [module].flat();
-	return { script, args, line: moduleLine(modules[0]), optIn: { modules } };
+	return {
+		script,
+		args,
+		line: buildModuleLine(modules[0]),
+		optIn: { modules },
+	};
 };
 
 const MANUAL_HALF = ["governance", "roadmap"];

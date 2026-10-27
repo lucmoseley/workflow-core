@@ -10,7 +10,7 @@
  * Every refusal also asserts the index is untouched.
  *
  * It is the commit route `CLAUDE.md`'s pathspec rule and
- * `scripts/guard-commit-form.sh` send every session down: loosen a case and a
+ * `scripts/guard-commit-form.js` send every session down: loosen a case and a
  * commit sweeps in a neighbour's work, leaves a new file behind, or names the
  * wrong commit as the session's own.
  */
@@ -20,6 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
 import { runInProcess } from "./lib/run-in-process";
@@ -47,10 +48,10 @@ const run = (
 	{ cwd = sb.repo, stdin }: { cwd?: string; stdin?: string } = {},
 ) => runInProcess(SCRIPT, args, { cwd, env: { ...process.env }, stdin });
 
-const index = () => git("ls-files", "--stage");
-const head = () => git("rev-parse", "HEAD").trim();
+const readIndex = () => git("ls-files", "--stage");
+const readHead = () => git("rev-parse", "HEAD").trim();
 /** `ref`'s subject, then one `<status>\t<path>` line per file it changed. */
-const committed = (ref = "HEAD") =>
+const readCommitted = (ref = "HEAD") =>
 	git("show", "--name-status", "--format=%s", ref).replace("\n\n", "\n").trim();
 
 /** A pre-commit that refuses while `gate-refuses` exists in the repo root. */
@@ -65,14 +66,14 @@ const gate = () => {
 
 describe("refusals — exit 2, nothing written to the index", () => {
 	const refused = (args: string[], message: RegExp) => {
-		const before = index();
-		const tip = head();
+		const before = readIndex();
+		const tip = readHead();
 		const r = run(args);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(message);
 		expect(r.stderr).toContain("Nothing written");
-		expect(index()).toBe(before);
-		expect(head()).toBe(tip);
+		expect(readIndex()).toBe(before);
+		expect(readHead()).toBe(tip);
 		return r;
 	};
 
@@ -203,13 +204,13 @@ describe("commits — exit 0, the hash and subject printed", () => {
 			/debug\.log is ignored \(\.gitignore:1:\*\.log\s+debug\.log\)/,
 		);
 		lands(["-m", "keep", "--", "keep.log"]);
-		expect(committed()).toBe("keep\nA\tkeep.log");
+		expect(readCommitted()).toBe("keep\nA\tkeep.log");
 	});
 
 	it("commits a single new file with no separate intent-add", () => {
 		write("new.md");
 		lands(["-m", "add new", "--", "new.md"]);
-		expect(committed()).toBe("add new\nA\tnew.md");
+		expect(readCommitted()).toBe("add new\nA\tnew.md");
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
@@ -218,7 +219,7 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		write("new.md");
 		write("other.md");
 		lands(["-m", "mixed", "--", "a.md", "new.md"]);
-		expect(committed()).toBe("mixed\nM\ta.md\nA\tnew.md");
+		expect(readCommitted()).toBe("mixed\nM\ta.md\nA\tnew.md");
 		expect(git("status", "--porcelain")).toBe("?? other.md\n");
 	});
 
@@ -228,19 +229,19 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		git("commit", "-qm", "seed src");
 		write("src/new.md");
 		lands(["-m", "nested", "--", "src/new.md"]);
-		expect(committed()).toBe("nested\nA\tsrc/new.md");
+		expect(readCommitted()).toBe("nested\nA\tsrc/new.md");
 	});
 
 	it("commits a deleted tracked path", () => {
 		fs.rmSync(path.join(sb.repo, "a.md"));
 		lands(["-m", "drop a", "--", "a.md"]);
-		expect(committed()).toBe("drop a\nD\ta.md");
+		expect(readCommitted()).toBe("drop a\nD\ta.md");
 	});
 
 	it("commits a `git mv` as a rename, its source gone from the index as well as the disk (#1794)", () => {
 		git("mv", "a.md", "moved.md");
 		lands(["-m", "move a", "--", "a.md", "moved.md"]);
-		expect(committed()).toBe("move a\nR100\ta.md\tmoved.md");
+		expect(readCommitted()).toBe("move a\nR100\ta.md\tmoved.md");
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
@@ -250,7 +251,7 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		git("commit", "-qm", "seed src");
 		git("mv", "src", "lib");
 		lands(["-m", "move src", "--", "src", "lib"]);
-		expect(committed()).toBe("move src\nR100\tsrc/one.md\tlib/one.md");
+		expect(readCommitted()).toBe("move src\nR100\tsrc/one.md\tlib/one.md");
 		expect(git("status", "--porcelain")).toBe("");
 	});
 
@@ -265,7 +266,7 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		git("mv", "src/one.md", "one.md");
 		git("rm", "-q", "old/two.md");
 		lands(["-m", "move one, drop two", "--", "src", "one.md", "old"]);
-		expect(committed()).toBe(
+		expect(readCommitted()).toBe(
 			"move one, drop two\nD\told/two.md\nR100\tsrc/one.md\tone.md",
 		);
 	});
@@ -278,7 +279,7 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		expect(refusal.status).toBe(2);
 		expect(refusal.stderr).toMatch(/typo\.md exists nowhere/);
 		lands(["-m", "first", "--", "new.md"]);
-		expect(committed()).toBe("first\nA\tnew.md");
+		expect(readCommitted()).toBe("first\nA\tnew.md");
 	});
 
 	it("commits a directory holding only tracked files", () => {
@@ -288,14 +289,14 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		git("commit", "-qm", "seed src");
 		write("src/one.md", "edited\n");
 		lands(["-m", "dir", "--", "src"]);
-		expect(committed()).toBe("dir\nM\tsrc/one.md");
+		expect(readCommitted()).toBe("dir\nM\tsrc/one.md");
 	});
 
 	it("takes a filename with a glob character literally", () => {
 		write("n*.md");
 		write("nope.md");
 		lands(["-m", "star", "--", "n*.md"]);
-		expect(committed()).toBe("star\nA\tn*.md");
+		expect(readCommitted()).toBe("star\nA\tn*.md");
 	});
 
 	it("reads the message from a file and from stdin, backticks intact", () => {
@@ -314,7 +315,7 @@ describe("commits — exit 0, the hash and subject printed", () => {
 	it("takes a message that is itself `--` as the message, not the separator", () => {
 		write("new.md");
 		lands(["-m", "--", "--", "new.md"]);
-		expect(committed()).toBe("--\nA\tnew.md");
+		expect(readCommitted()).toBe("--\nA\tnew.md");
 	});
 
 	it("runs the pre-commit hook on a passing commit", () => {
@@ -358,8 +359,8 @@ describe("commits — exit 0, the hash and subject printed", () => {
 		const r = run(["-m", "from wt", "--", "new.md"], { cwd: wt });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/committed [0-9a-f]+ from wt\n/);
-		expect(committed("side")).toBe("from wt\nA\tnew.md");
-		expect(head()).not.toBe(git("rev-parse", "side").trim());
+		expect(readCommitted("side")).toBe("from wt\nA\tnew.md");
+		expect(readHead()).not.toBe(git("rev-parse", "side").trim());
 	});
 });
 
@@ -369,7 +370,7 @@ describe("a hook refusal — exit 3, intent-add left for a safe re-run", () => {
 		write("gate-refuses");
 		write("new.md");
 		write("a.md", "edited\n");
-		const tip = head();
+		const tip = readHead();
 
 		const refused = run(["-m", "gated", "--", "new.md", "a.md"]);
 		expect(refused.status).toBe(3);
@@ -378,13 +379,13 @@ describe("a hook refusal — exit 3, intent-add left for a safe re-run", () => {
 		expect(refused.stderr).toMatch(
 			/intent-add entries for new\.md are left in the index.*re-running the same command/s,
 		);
-		expect(head()).toBe(tip);
+		expect(readHead()).toBe(tip);
 		expect(git("ls-files", "--", "new.md")).toBe("new.md\n");
 
 		fs.rmSync(path.join(sb.repo, "gate-refuses"));
 		const again = run(["-m", "gated", "--", "new.md", "a.md"]);
 		expect(again.status).toBe(0);
-		expect(committed()).toBe("gated\nM\ta.md\nA\tnew.md");
+		expect(readCommitted()).toBe("gated\nM\ta.md\nA\tnew.md");
 		expect(git("status", "--porcelain")).toBe("");
 	});
 });
@@ -399,8 +400,8 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		fs.writeFileSync(path.join(sb.dir, "mine.patch"), mine);
 		return path.join(sb.dir, "mine.patch");
 	};
-	const bytes = (rel: string) => fs.readFileSync(path.join(sb.repo, rel));
-	const privates = () =>
+	const readBytes = (rel: string) => fs.readFileSync(path.join(sb.repo, rel));
+	const readPrivates = () =>
 		fs
 			.readdirSync(path.join(sb.repo, ".git"))
 			.filter((f) => f.startsWith("commit-paths-"));
@@ -412,12 +413,12 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		const r = run(["-m", "mine", "--patch", patch]);
 		expect(r.status).toBe(0);
 		expect(git("show", "HEAD:a.md")).toBe("mine\na\n");
-		expect(bytes("a.md").toString()).toBe("mine\na\ntheirs\n");
+		expect(readBytes("a.md").toString()).toBe("mine\na\ntheirs\n");
 		expect(fs.statSync(file).mtimeMs).toBe(mtime);
 		expect(git("diff", "--cached", "--name-only")).toBe("");
 		expect(git("diff", "-U0", "--", "a.md")).toMatch(/^\+theirs$/m);
 		expect(r.stdout).toMatch(/ a\.md \| 1 \+/);
-		expect(privates()).toEqual([]);
+		expect(readPrivates()).toEqual([]);
 	});
 
 	it("lands a pure insertion at its old-side line where an earlier hunk was cut (#1659)", () => {
@@ -455,7 +456,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		write("other.md");
 		const r = run(["-m", "both", "--patch", patch, "--", "new.md"]);
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("both\nM\ta.md\nA\tnew.md");
+		expect(readCommitted()).toBe("both\nM\ta.md\nA\tnew.md");
 		expect(git("status", "--porcelain")).toBe(" M a.md\n?? other.md\n");
 	});
 
@@ -476,7 +477,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 			".gitignore",
 		]);
 		expect(r.status).toBe(0);
-		expect(committed()).toBe(
+		expect(readCommitted()).toBe(
 			"untrack\nA\t.gitignore\nM\ta.md\nD\ttypes/t.d.ts",
 		);
 	});
@@ -490,7 +491,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		fs.symlinkSync("elsewhere.md", path.join(sb.repo, "link.md"));
 		const r = run(["-m", "repoint", "--patch", patch, "--", "link.md"]);
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("repoint\nM\ta.md\nM\tlink.md");
+		expect(readCommitted()).toBe("repoint\nM\ta.md\nM\tlink.md");
 	});
 
 	it("reads the patch's repo-root paths from a subdirectory", () => {
@@ -506,28 +507,28 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 			cwd: path.join(sb.repo, "src"),
 		});
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("sub\nM\tsrc/b.md");
+		expect(readCommitted()).toBe("sub\nM\tsrc/b.md");
 	});
 
 	it("refuses a re-run once the patch has landed, naming the file and leaving HEAD and the index as they were, rather than adding its lines twice", () => {
 		const patch = shared();
 		expect(run(["-m", "mine", "--patch", patch]).status).toBe(0);
-		const tip = head();
-		const before = index();
+		const tip = readHead();
+		const before = readIndex();
 		const r = run(["-m", "mine", "--patch", patch]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
 			/not cut against HEAD for a\.md.*already committed it, it is done/s,
 		);
-		expect(head()).toBe(tip);
-		expect(index()).toBe(before);
-		expect(privates()).toEqual([]);
+		expect(readHead()).toBe(tip);
+		expect(readIndex()).toBe(before);
+		expect(readPrivates()).toEqual([]);
 	});
 
 	it("refuses a file both in the patch and named whole, and a patch that does not apply, writing neither index", () => {
 		const patch = shared();
-		const tip = head();
-		const before = index();
+		const tip = readHead();
+		const before = readIndex();
 		let r = run(["-m", "x", "--patch", patch, "--", "a.md"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
@@ -544,9 +545,9 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(r.stderr).toMatch(
 			/the patch does not apply to HEAD.*Cut it from `git diff HEAD -U0/s,
 		);
-		expect(head()).toBe(tip);
-		expect(index()).toBe(before);
-		expect(privates()).toEqual([]);
+		expect(readHead()).toBe(tip);
+		expect(readIndex()).toBe(before);
+		expect(readPrivates()).toEqual([]);
 	});
 
 	it("refuses `.` from a subdirectory, a whole path holding a patched file, naming that file and leaving the index as it was", () => {
@@ -556,13 +557,13 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		write("src/b.md", "mine\nb\n");
 		const patch = path.join(sb.dir, "b.patch");
 		fs.writeFileSync(patch, git("diff", "HEAD", "-U0", "--", "src/b.md"));
-		const before = index();
+		const before = readIndex();
 		const r = run(["-m", "x", "--patch", patch, "--", "."], {
 			cwd: path.join(sb.repo, "src"),
 		});
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(/src\/b\.md is in the patch and also named whole/);
-		expect(index()).toBe(before);
+		expect(readIndex()).toBe(before);
 	});
 
 	it("commits a rename, resetting both its sides in the shared index", () => {
@@ -572,7 +573,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		git("reset", "-q");
 		const r = run(["-m", "move", "--patch", patch]);
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("move\nR100\ta.md\tmoved.md");
+		expect(readCommitted()).toBe("move\nR100\ta.md\tmoved.md");
 		expect(git("diff", "--cached", "--name-only")).toBe("");
 	});
 
@@ -608,11 +609,11 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 
 	it("refuses --patch given twice, leaving the index as it was", () => {
 		const patch = shared();
-		const before = index();
+		const before = readIndex();
 		const r = run(["-m", "x", "--patch", patch, "--patch", patch]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(/give --patch once/);
-		expect(index()).toBe(before);
+		expect(readIndex()).toBe(before);
 	});
 
 	it("runs the hooks against the private index, and a refusal touches neither the shared index nor the tree, leaves no private index and says a re-run is safe", () => {
@@ -624,18 +625,18 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		fs.chmodSync(hook, 0o755);
 		const patch = shared();
 		write("gate-refuses");
-		const before = index();
-		const tip = head();
+		const before = readIndex();
+		const tip = readHead();
 		const refused = run(["-m", "gated", "--patch", patch]);
 		expect(refused.status).toBe(3);
 		expect(refused.stderr).toMatch(/index=.*\.git\/commit-paths-\d+\.index/);
 		expect(refused.stderr).toMatch(
 			/re-running the same command after the fix is safe/,
 		);
-		expect(head()).toBe(tip);
-		expect(index()).toBe(before);
-		expect(bytes("a.md").toString()).toBe("mine\na\ntheirs\n");
-		expect(privates()).toEqual([]);
+		expect(readHead()).toBe(tip);
+		expect(readIndex()).toBe(before);
+		expect(readBytes("a.md").toString()).toBe("mine\na\ntheirs\n");
+		expect(readPrivates()).toEqual([]);
 
 		fs.rmSync(path.join(sb.repo, "gate-refuses"));
 		expect(run(["-m", "gated", "--patch", patch]).status).toBe(0);
@@ -655,8 +656,8 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		);
 		const r = run(["-m", "mine", "--patch", shared()]);
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("mine\nM\ta.md");
-		expect(privates()).toEqual([]);
+		expect(readCommitted()).toBe("mine\nM\ta.md");
+		expect(readPrivates()).toEqual([]);
 	});
 
 	it("hands prepare-commit-msg and commit-msg the message file as git does, committing what they leave in it", () => {
@@ -672,24 +673,24 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 
 	it("refuses a message the hooks leave empty, nothing written", () => {
 		hookScript("commit-msg", ': > "$1"');
-		const tip = head();
+		const tip = readHead();
 		const r = run(["-m", "mine", "--patch", shared()]);
 		expect(r.status).toBe(3);
 		expect(r.stderr).toMatch(
 			/the prepare-commit-msg or commit-msg hook left the message empty.*Read what that hook printed above\. Nothing written\./,
 		);
-		expect(head()).toBe(tip);
+		expect(readHead()).toBe(tip);
 	});
 
 	it("refuses a pre-commit that leaves the index matching HEAD, nothing written", () => {
 		hookScript("pre-commit", "git read-tree HEAD");
-		const tip = head();
+		const tip = readHead();
 		const r = run(["-m", "mine", "--patch", shared()]);
 		expect(r.status).toBe(3);
 		expect(r.stderr).toMatch(
 			/pre-commit hook left the index matching HEAD, so there is nothing to commit\. Read what the hook printed above/,
 		);
-		expect(head()).toBe(tip);
+		expect(readHead()).toBe(tip);
 	});
 
 	it("strips comment lines where commit.cleanup is strip, as git commit -m does", () => {
@@ -702,22 +703,25 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 	it("signs where commit.gpgSign is set, refusing as git commit does when signing fails", () => {
 		git("config", "commit.gpgSign", "true");
 		git("config", "gpg.program", "false");
-		const tip = head();
+		const tip = readHead();
 		const r = run(["-m", "mine", "--patch", shared()]);
 		expect(r.status).toBe(3);
 		expect(r.stderr).toMatch(/git or a hook refused the commit/);
-		expect(head()).toBe(tip);
+		expect(readHead()).toBe(tip);
 	});
 
 	it("refuses while a merge is in progress, nothing written", () => {
-		fs.writeFileSync(path.join(sb.repo, ".git", "MERGE_HEAD"), `${head()}\n`);
-		const before = index();
+		fs.writeFileSync(
+			path.join(sb.repo, ".git", "MERGE_HEAD"),
+			`${readHead()}\n`,
+		);
+		const before = readIndex();
 		const r = run(["-m", "mine", "--patch", shared()]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
 			/MERGE_HEAD is set: a merge, cherry-pick or revert is in progress.*Finish or abort it first\. Nothing written\./,
 		);
-		expect(index()).toBe(before);
+		expect(readIndex()).toBe(before);
 	});
 
 	it("refuses, nothing written, where a neighbour's commit moves HEAD while the hooks run", () => {
@@ -731,9 +735,9 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(r.stderr).toMatch(
 			/HEAD moved while the hooks ran.*Re-run the same command: it rebuilds on the new HEAD\./,
 		);
-		expect(committed()).toBe("neighbour");
+		expect(readCommitted()).toBe("neighbour");
 		expect(git("diff", "--cached", "--name-only")).toBe("");
-		expect(privates()).toEqual([]);
+		expect(readPrivates()).toEqual([]);
 	});
 });
 
@@ -757,7 +761,7 @@ describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
 		expect(r.stderr).toContain("declare the sweep");
 		expect(r.stderr).toContain("  Swept: a.md (Wayfinder 1584)");
 		expect(r.stderr).toContain("not a refusal");
-		expect(committed()).toBe("swept\nM\ta.md");
+		expect(readCommitted()).toBe("swept\nM\ta.md");
 	});
 
 	it("points at the session's other paths where the pathspec names some", () => {
@@ -778,8 +782,10 @@ describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
 		installLib(path.join(plugin, "lib"), {
 			keep: (f) => /\.(js|json)$/.test(f),
 		});
-		for (const f of ["commit-paths.js", "session-arbiter.js"])
-			fs.copyFileSync(path.join(__dirname, f), path.join(plugin, f));
+		fs.copyFileSync(
+			path.join(__dirname, "commit-paths.js"),
+			path.join(plugin, "commit-paths.js"),
+		);
 		for (let d = plugin; d !== path.dirname(d); d = path.dirname(d))
 			expect(fs.existsSync(path.join(d, "node_modules"))).toBe(false);
 
@@ -794,7 +800,7 @@ describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
 		expect(r.stderr).not.toContain("Cannot find module");
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("This commit names a.md");
-		expect(committed()).toBe("plugin\nM\ta.md");
+		expect(readCommitted()).toBe("plugin\nM\ta.md");
 	});
 
 	it("stays silent where no neighbour holds the path", () => {
@@ -814,7 +820,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 	const runWith = (args: string[], env: NodeJS.ProcessEnv) =>
 		runInProcess(SCRIPT, args, { cwd: sb.repo, env });
 	/** The outcome log's last line, split on its tabs. */
-	const lastOutcome = () =>
+	const readLastOutcome = () =>
 		fs
 			.readFileSync(store.paths.commitPathsLog(), "utf8")
 			.trim()
@@ -896,8 +902,8 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 			/index\.lock is held; no live git process in this worktree could be found to name\. Waiting up to 5\.0s in all, retrying\./,
 		);
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("after wait\nA\tnew.md");
-		const [, code, waited] = lastOutcome() ?? [];
+		expect(readCommitted()).toBe("after wait\nA\tnew.md");
+		const [, code, waited] = readLastOutcome() ?? [];
 		expect(code).toBe("committed");
 		expect(Number(waited)).toBeGreaterThanOrEqual(0.2);
 	});
@@ -916,14 +922,14 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 			`git pid ${pid} is live in this worktree (\`git commit -qm holder -- held.md\`), under session "Wayfinder 1584"`,
 		);
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("mine\nM\ta.md");
-		expect(committed("HEAD~1")).toBe("holder\nM\theld.md");
+		expect(readCommitted()).toBe("mine\nM\ta.md");
+		expect(readCommitted("HEAD~1")).toBe("holder\nM\theld.md");
 	});
 
 	it("stops at a ceiling set under a second, leaving the lock untouched and naming its age and the removal command", () => {
 		write("new.md");
-		const before = index();
-		const tip = head();
+		const before = readIndex();
+		const tip = readHead();
 		fs.writeFileSync(lockFile(), "a crashed git's");
 		const mtime = fs.statSync(lockFile()).mtimeMs;
 		const r = runWith(["-m", "x", "--", "new.md"], ceiling(300));
@@ -937,9 +943,9 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		expect(r.stderr).toContain("this command never does");
 		expect(fs.readFileSync(lockFile(), "utf8")).toBe("a crashed git's");
 		expect(fs.statSync(lockFile()).mtimeMs).toBe(mtime);
-		expect(index()).toBe(before);
-		expect(head()).toBe(tip);
-		const [, code, waited] = lastOutcome() ?? [];
+		expect(readIndex()).toBe(before);
+		expect(readHead()).toBe(tip);
+		const [, code, waited] = readLastOutcome() ?? [];
 		expect(code).toBe("lock-ceiling");
 		expect(Number(waited)).toBeGreaterThanOrEqual(0.3);
 		expect(Number(waited)).toBeLessThan(1);
@@ -975,7 +981,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 
 	it("passes a non-lock refusal of the intent-add through as exit 3, saying nothing was intent-added", () => {
 		write("new.md");
-		const before = index();
+		const before = readIndex();
 		const dotGit = path.join(sb.repo, ".git");
 		fs.chmodSync(dotGit, 0o555);
 		let r: ReturnType<typeof run>;
@@ -989,8 +995,8 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		expect(r.stderr).not.toContain(" is held;");
 		expect(r.stderr).toMatch(/nothing was intent-added\. Re-run once/);
 		expect(r.stderr).not.toContain("left in the index");
-		expect(index()).toBe(before);
-		expect(lastOutcome()?.slice(1)).toEqual(["git-refused", "0.0", "0.0"]);
+		expect(readIndex()).toBe(before);
+		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0", "0.0"]);
 	});
 
 	/**
@@ -1003,20 +1009,24 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		git("add", "held.md");
 		git("commit", "-qm", "seed held");
 		write("held.md", "edited\n");
-		const bin = path.join(sb.dir, "bin");
-		fs.mkdirSync(bin, { recursive: true });
-		const real = execFileSync("sh", ["-c", "command -v git"], {
-			encoding: "utf8",
-		}).trim();
 		const mark = path.join(sb.dir, "raced");
-		fs.writeFileSync(
-			path.join(bin, "git"),
-			`#!/bin/sh\nif [ "$1" = commit ] && { ${always} || [ ! -f '${mark}' ]; }; then\n  : > '${mark}'\n  '${real}' commit -qm neighbour -- held.md >/dev/null 2>&1\n  echo "fatal: cannot lock ref 'HEAD': is at $('${real}' rev-parse HEAD) but expected $('${real}' rev-parse HEAD~1)" >&2\n  exit 128\nfi\nexec '${real}' "$@"\n`,
+		const racer = writeFaultyGit(
+			{ first: "commit" },
+			{
+				script: [
+					`if ${always} || [ ! -f '${mark}' ]; then`,
+					`  : > '${mark}'`,
+					'  "$REAL_GIT" commit -qm neighbour -- held.md >/dev/null 2>&1',
+					`  echo "fatal: cannot lock ref 'HEAD': is at $("$REAL_GIT" rev-parse HEAD) but expected $("$REAL_GIT" rev-parse HEAD~1)" >&2`,
+					"  exit 128",
+					"fi",
+				].join("\n"),
+			},
+			{ under: sb.dir },
 		);
-		fs.chmodSync(path.join(bin, "git"), 0o755);
 		return (ms: number) => ({
 			...ceiling(ms),
-			WFC_GIT: path.join(bin, "git"),
+			WFC_GIT: racer.git,
 		});
 	};
 
@@ -1029,9 +1039,9 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		);
 		expect(r.stderr).not.toContain(" is held;");
 		expect(r.status).toBe(0);
-		expect(committed()).toBe("mine\nM\ta.md");
-		expect(committed("HEAD~1")).toBe("neighbour\nM\theld.md");
-		const [, code, waited] = lastOutcome() ?? [];
+		expect(readCommitted()).toBe("mine\nM\ta.md");
+		expect(readCommitted("HEAD~1")).toBe("neighbour\nM\theld.md");
+		const [, code, waited] = readLastOutcome() ?? [];
 		expect(code).toBe("committed");
 		expect(Number(waited)).toBeGreaterThanOrEqual(0.1);
 	});
@@ -1045,12 +1055,12 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 			"gave up after 0.3s: HEAD kept moving under the commit, so neighbours are committing faster than it can land. Nothing was committed.",
 		);
 		expect(r.stderr).not.toContain("rm -f");
-		expect(lastOutcome()?.[1]).toBe("lock-ceiling");
+		expect(readLastOutcome()?.[1]).toBe("lock-ceiling");
 	});
 
 	it("passes a stale HEAD.lock through as exit 3, relaying the git error — a `cannot lock ref` that is not HEAD moving", () => {
 		write("a.md", "edited\n");
-		const tip = head();
+		const tip = readHead();
 		const headLock = path.join(sb.repo, ".git", "HEAD.lock");
 		fs.writeFileSync(headLock, "");
 		let r: ReturnType<typeof run>;
@@ -1065,8 +1075,8 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		);
 		expect(r.stderr).not.toContain("HEAD moved");
 		expect(r.stderr).toContain("git or a hook refused the commit (exit 128)");
-		expect(head()).toBe(tip);
-		expect(lastOutcome()?.slice(1)).toEqual(["git-refused", "0.0", "0.0"]);
+		expect(readHead()).toBe(tip);
+		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0", "0.0"]);
 	});
 
 	it("jitters the backoff, so two waiters on one lock do not retry in step", async () => {
@@ -1105,7 +1115,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 				});
 				child.on("close", (status) => resolve({ status, stderr }));
 			});
-		const attempts = (file: string) =>
+		const readAttempts = (file: string) =>
 			fs.existsSync(trace(file))
 				? fs
 						.readFileSync(trace(file), "utf8")
@@ -1119,7 +1129,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		// Residual: a machine too slow for four attempts in 8 s still fails,
 		// naming the counts.
 		const deadline = Date.now() + ceilingMs - 1000;
-		const counts = () => waiters.map((f) => attempts(f).length);
+		const counts = () => waiters.map((f) => readAttempts(f).length);
 		while (counts().some((n) => n < retries) && Date.now() < deadline) {
 			await new Promise((r) => setTimeout(r, 25));
 		}
@@ -1138,7 +1148,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 
 		/** Milliseconds from a waiter's first commit attempt to each of its first four. */
 		const offsets = (file: string) => {
-			const ts = attempts(file).map((l) => {
+			const ts = readAttempts(file).map((l) => {
 				const [h, m, sec] = l.split(" ")[0].split(":").map(Number);
 				return ((h * 60 + m) * 60 + sec) * 1000;
 			});
@@ -1153,12 +1163,12 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 	it("logs a run that met no lock as waiting 0.0s", () => {
 		write("new.md");
 		expect(run(["-m", "x", "--", "new.md"]).status).toBe(0);
-		expect(lastOutcome()?.slice(1)).toEqual(["committed", "0.0", "0.0"]);
+		expect(readLastOutcome()?.slice(1)).toEqual(["committed", "0.0", "0.0"]);
 	});
 });
 
 describe("--tree: the tree the commit would carry, nothing written (#1695)", () => {
-	const logged = () => {
+	const readLog = () => {
 		try {
 			return fs.readFileSync(store.paths.commitPathsLog(), "utf8");
 		} catch {
@@ -1167,11 +1177,13 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 	};
 	/** The tree printed, asserting the index, the working tree and the log untouched. */
 	const tree = (args: string[]) => {
-		const before = [index(), git("status", "--porcelain"), logged()];
+		const before = [readIndex(), git("status", "--porcelain"), readLog()];
 		const r = run(["--tree", ...args]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
-		expect([index(), git("status", "--porcelain"), logged()]).toEqual(before);
+		expect([readIndex(), git("status", "--porcelain"), readLog()]).toEqual(
+			before,
+		);
 		expect(
 			fs
 				.readdirSync(path.join(sb.repo, ".git"))
@@ -1212,12 +1224,12 @@ describe("--tree: the tree the commit would carry, nothing written (#1695)", () 
 		["no change", ["--", "a.md"], "nothing to commit"],
 		["no paths", [], "no paths after `--`"],
 	])("refuses %s, logging no outcome", (_, args, why) => {
-		const before = logged();
+		const before = readLog();
 		const r = run(["--tree", ...args]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(why);
 		expect(r.stdout).toBe("");
-		expect(logged()).toBe(before);
+		expect(readLog()).toBe(before);
 	});
 
 	it("refuses a patch already committed, as the commit would", () => {

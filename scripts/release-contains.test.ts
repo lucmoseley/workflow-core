@@ -5,7 +5,7 @@
  * named, and exit 2 where it cannot ask (#797).
  *
  * The fixture cuts releases as release-plugin.js does — root commits made with
- * `git commit-tree`, off every branch, carrying its own `releaseMessage` — so
+ * `git commit-tree`, off every branch, carrying its own `buildReleaseMessage` — so
  * `git tag --contains` answers nothing here too, the trap #791 fell into (#797).
  *
  * A session or the founder runs it by hand (`docs/agents/adopter-upgrade.md`):
@@ -18,7 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
-import { releaseMessage } from "./lib/release-tags.js";
+import { buildReleaseMessage } from "./lib/release-tags.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "release-contains.js");
@@ -60,9 +60,9 @@ beforeEach(() => {
 
 	cut("v0.9.0", "Release demo v0.9.0");
 	first = commit("a");
-	cut("v1.0.0", releaseMessage("demo", "v1.0.0", first));
+	cut("v1.0.0", buildReleaseMessage("demo", "v1.0.0", first));
 	second = commit("b");
-	cut("v1.1.0", releaseMessage("demo", "v1.1.0", second));
+	cut("v1.1.0", buildReleaseMessage("demo", "v1.1.0", second));
 	unreleased = commit("c");
 });
 
@@ -95,7 +95,7 @@ describe("release-contains", () => {
 	});
 
 	it("names a tag whose source this clone lacks", () => {
-		cut("v1.2.0", releaseMessage("demo", "v1.2.0", "f".repeat(40)));
+		cut("v1.2.0", buildReleaseMessage("demo", "v1.2.0", "f".repeat(40)));
 		const r = ask(unreleased);
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(

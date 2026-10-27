@@ -3,14 +3,14 @@
  * session-arbiter.js — the file-claim CLI.
  *
  * THE SUBCOMMANDS ARE THE WHOLE PRODUCTION INTERFACE (mantahostels#158).
- * This file exports NOTHING. guard-file-claim.sh calls `check`, record-write.sh
- * calls `record`, guard-commit-form.sh and concision-backstop.sh call `writes`,
+ * This file exports NOTHING. lib/file-claim.js calls `check`,
+ * concision-backstop.sh calls `writes`, lib/code-signal.sh calls `own-paths`,
  * settings.json calls `prune-markers --detach`, and a session calls `release`,
  * `debt` and `wait` (#540) for itself. stale-write-back-gate.sh, a pre-commit
  * gate, calls `stale-check --staged`; `accept-head` is that gate's escape,
  * which a session runs for itself;
  * .husky/post-commit calls `release-committed`, `advance-bases` and
- * `record-commit`, and record-acts.sh calls `record-act`.
+ * `record-commit`, and record-acts.js calls `record-act`.
  *
  * What is left here is POLICY and PRESENTATION: which store operation a
  * subcommand runs, what it prints, and what it exits with.
@@ -50,6 +50,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const store = require("./lib/arbiter-store.js");
 const waitMod = require("./lib/arbiter-wait.js");
+const toolRecord = require("./lib/arbiter-tool-record.js");
 const { parseOrCode } = require("./lib/cli-args");
 const {
 	recordRun,
@@ -60,6 +61,8 @@ const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
 const { hasRoundMarker } = require("./lib/round-marker.js");
+const { readOwnPaths } = require("./lib/own-work.js");
+const { FULL_SHA } = require("./lib/commit-sha.js");
 
 /* How this CLI's own output names it, at the plugin root in an install (#1110). */
 const ARBITER = scriptPath("session-arbiter.js");
@@ -113,7 +116,7 @@ function detachPrune() {
  * would wait on the keyboard. RESIDUAL: a non-TTY stdin held open with no EOF
  * blocks here until the hook's own timeout; the harness closes it.
  */
-function hookSessionId() {
+function readHookSessionId() {
 	if (process.stdin.isTTY) return "";
 	try {
 		const id = JSON.parse(fs.readFileSync(0, "utf8")).session_id;
@@ -212,7 +215,7 @@ const HOLDER_HEARS =
  *   nameResolver(): its docstring holds why
  */
 const writeNotice = (rel, sessionId, nameOf) =>
-	store.requestNotice(rel, sessionId, {
+	store.buildRequestNotice(rel, sessionId, {
 		nameOf,
 		dirty: () => store.subjectDirty(rel) === true,
 	});
@@ -238,7 +241,7 @@ function requestNoticeFor(
 ) {
 	/** @type {((id: string|null) => string)|null} */
 	let nameOf = null;
-	return store.requestNotice(subject, sessionId, {
+	return store.buildRequestNotice(subject, sessionId, {
 		nameOf: (id) => {
 			nameOf ??= resolve();
 			return nameOf(id);
@@ -335,7 +338,7 @@ function describeHolder(lock, names = holderNames()) {
  * @param {LockRecord} lock
  * @param {Map<string, string>|null} [names]
  */
-function denyReason(rel, lock, names) {
+function buildDenyReason(rel, lock, names) {
 	/*
 	 * The subject actually HELD, which is not always the one asked for
 	 * (mantahostels#970): a neighbour holding the whole of docs/doc-map.md blocks a claim on one
@@ -372,7 +375,7 @@ const CLOBBER_ROUTES =
  * @param {string|null} was
  * @param {string} closing
  */
-function clobberNotice(rel, was, closing) {
+function buildClobberNotice(rel, was, closing) {
 	return (
 		`${rel} has changed since this session last wrote it, and no tool call of yours did it.\n\n` +
 		`Something reached the file by a route no hook watches — ${CLOBBER_ROUTES}.\n\n` +
@@ -404,7 +407,7 @@ function foreignClobberHeadline(rel, content) {
  * @param {{by: string|null, was?: string|null}} content
  * @param {string} closing
  */
-function foreignClobberNotice(rel, content, closing) {
+function buildForeignClobberNotice(rel, content, closing) {
 	return (
 		`${foreignClobberHeadline(rel, content)}\n\n` +
 		`That version is recoverable:\n  git cat-file -p ${content.was} > /tmp/recovered\n\n` +
@@ -414,7 +417,7 @@ function foreignClobberNotice(rel, content, closing) {
 
 /**
  * What a force leaves behind (mantahostels#411): who lost the claim, who took it, and how to
- * get their version back. The holder is told the same thing by breakNotice on
+ * get their version back. The holder is told the same thing by buildBreakNotice on
  * its next write to the path, if it ever makes one — this is the copy for the
  * person doing the forcing, who is the one about to overwrite the file.
  * @param {string} rel
@@ -422,7 +425,7 @@ function foreignClobberNotice(rel, content, closing) {
  * @param {Identity} me
  * @param {BreakRecord|null} record
  */
-function forcedNotice(rel, lock, me, record) {
+function buildForcedNotice(rel, lock, me, record) {
 	const pinned = record?.blob ?? lock?.blob ?? null;
 	return (
 		`The claim on ${rel} was broken, not handed over: session ${lock?.sessionId ?? "an unidentified session"} never released it and is not listed as live.\n\n` +
@@ -467,7 +470,7 @@ const CLOBBER_AT_DIRTY_RELEASE =
  * session that did not know it had taken one cannot know to release it.
  *
  * Every failure here falls OPEN to the whole-file claim and logs, per mantahostels#103 §6 —
- * the same fail-open contract guard-file-claim.sh runs under, writing to the
+ * the same fail-open contract lib/file-claim.js runs under, writing to the
  * same guard-errors.log lib/guard-log.sh appends to, so `npm run
  * check:guard-errors` reports both.
  * @param {string} rel
@@ -480,7 +483,7 @@ function claimSubjects(rel, anchor, anchorLength) {
 	const fallback = (/** @type {string|null} */ why) => {
 		// No anchor at all is a whole-file Write or a NotebookEdit, which really is
 		// a whole-file write: expected, not a fault, and so not LOGGED. It is still
-		// announced — wholeFileWriteNotice (mantahostels#2334).
+		// announced — buildWholeFileWriteNotice (mantahostels#2334).
 		if (!anchor) return { subjects: [rel], notes: [] };
 		store.logError(
 			"region",
@@ -531,24 +534,24 @@ function claimSubjects(rel, anchor, anchorLength) {
  * @param {string} file  the path every subject is a region of
  * @param {string[]} subjects
  */
-const straddleNotice = (file, subjects) =>
+const buildStraddleNotice = (file, subjects) =>
 	`This write claims ${subjects.length} regions of ${store.splitSubject(file).rel}, not one — the anchor straddles them, so the write holds every region it rewrites, and takes them all or none.\n\n` +
 	"Release them as soon as you are done:\n" +
 	subjects.map((s) => `  node ${ARBITER} release ${s}`).join("\n");
 
 /**
  * What a whole-file Write to a REGIONED path is told (mantahostels#2334) — SAID, like
- * straddleNotice above and for mantahostels#970's reason.
+ * buildStraddleNotice above and for mantahostels#970's reason.
  *
  * NOT logged, unlike the fallback claimSubjects falls to.
  *
- * PUSHED PAST THE DENY BRANCH, where straddleNotice is pushed and for its
+ * PUSHED PAST THE DENY BRANCH, where buildStraddleNotice is pushed and for its
  * reason.
  * @param {string} rel
  */
-const wholeFileWriteNotice = (rel) =>
+const buildWholeFileWriteNotice = (rel) =>
 	`This write claims the WHOLE of ${rel}, not one region of it: it carries no anchor to place, so it takes every region and blocks every other session on it until this one ends or releases it.\n\n` +
-	"A Write or a NotebookEdit belongs here — each rewrites the file entire. An Edit does not: it takes ONE region off its own anchor, so if this WAS an Edit its anchor could not be read (guard-file-claim.sh drops one jq cannot parse), and making it again should narrow the claim.\n\n" +
+	"A Write or a NotebookEdit belongs here — each rewrites the file entire. An Edit does not: it takes ONE region off its own anchor, so if this WAS an Edit its anchor could not be read (the file-claim guard drops one it cannot read), and making it again should narrow the claim.\n\n" +
 	"Release it as soon as you are done:\n" +
 	`  node ${ARBITER} release ${rel}`;
 
@@ -586,7 +589,7 @@ function unallocatedEntryNotes(file, newIds, sessionId) {
 		if (ids.length === 0) return [];
 		// null is "the store could not be read", never "this session holds
 		// nothing" (mantahostels#174) — the difference between silence and a false accusation.
-		const held = store.heldBy(sessionId);
+		const held = store.readHeldBy(sessionId);
 		if (held === null || held.includes(file)) return [];
 		const missing = ids.filter(
 			(id) => !held.includes(store.subjectFor(file, id)),
@@ -715,7 +718,7 @@ function cmdCheck(filePath, sessionId, { anchor, anchorLength, newIds } = {}) {
 function denyWrite(notes, broken, subjects, blocked) {
 	const set =
 		subjects.length > 1
-			? `None of the ${subjects.length} regions this write straddles was claimed — they go together, so ${putBackLine(blocked)}. Narrow the edit to one region, or make it again once the claim above clears.${stuckLine(blocked)}`
+			? `None of the ${subjects.length} regions this write straddles was claimed — they go together, so ${buildPutBackLine(blocked)}. Narrow the edit to one region, or make it again once the claim above clears.${buildStuckLine(blocked)}`
 			: null;
 	writeStdout(
 		`${JSON.stringify({
@@ -725,7 +728,7 @@ function denyWrite(notes, broken, subjects, blocked) {
 				permissionDecisionReason: [
 					...notes,
 					broken,
-					denyReason(blocked.rel, blocked.lock, null),
+					buildDenyReason(blocked.rel, blocked.lock, null),
 					set,
 				]
 					.filter(Boolean)
@@ -745,12 +748,12 @@ function denyWrite(notes, broken, subjects, blocked) {
  * @returns {string[]}
  */
 function subjectNotes(file, subjects, anchor, verdict) {
-	if (subjects.length > 1) return [straddleNotice(file, subjects)];
+	if (subjects.length > 1) return [buildStraddleNotice(file, subjects)];
 	// The anchorless arm: no anchor on a regioned path can only have fallen to the
 	// whole file (mantahostels#2334). Gated on a FRESH claim (mantahostels#122): a session writing the map
 	// five times has one claim and needs telling once.
 	if (!anchor && regions.isRegioned(file) && verdict === "claimed")
-		return [wholeFileWriteNotice(file)];
+		return [buildWholeFileWriteNotice(file)];
 	return [];
 }
 
@@ -778,7 +781,9 @@ function writeClobberNotes({ rel, verdict, lock }, sessionId) {
 		claimed && claimed.state !== "unknown"
 			? claimed
 			: store.observationState(rel, sessionId);
-	return state === "changed" ? [clobberNotice(rel, was, CLOBBER_AT_WRITE)] : [];
+	return state === "changed"
+		? [buildClobberNotice(rel, was, CLOBBER_AT_WRITE)]
+		: [];
 }
 
 /**
@@ -816,7 +821,7 @@ function freshDebtNotes(taken) {
 	for (const t of taken.filter(
 		(x) => x.verdict === "claimed" && store.isGuarded(x.rel),
 	)) {
-		const debt = store.debtNotice(t.rel);
+		const debt = store.buildDebtNotice(t.rel);
 		if (debt) notes.push(debt);
 	}
 	return notes;
@@ -875,7 +880,7 @@ const REGIONS_SHOWN = 12;
  * @param {string} rel
  * @param {string} region
  */
-function unknownRegionReason(rel, region) {
+function buildUnknownRegionReason(rel, region) {
 	let ids;
 	try {
 		const text = fs.readFileSync(
@@ -887,7 +892,8 @@ function unknownRegionReason(rel, region) {
 		const append = region.match(/^B(\d+)$/);
 		if (
 			append &&
-			Number(append[1]) >= regions.nextEntryNumber(text, highWaterMarkFor(rel))
+			Number(append[1]) >=
+				regions.nextEntryNumber(text, readHighWaterMarkFor(rel))
 		)
 			return null;
 		// A SIDECAR KEY SLOT, on the append slot's own reasoning (mantahostels#1414). The key's
@@ -975,7 +981,7 @@ function generatorOnlyRefusal(rel, region, generator) {
  * passed to the parser because the sidecar's keys parse under a different
  * reader (mantahostels#1848); without it every one of its regions is invisible.
  *
- * FAIL OPEN on the listing, like unknownRegionReason above: an unreadable or
+ * FAIL OPEN on the listing, like buildUnknownRegionReason above: an unreadable or
  * unparseable document costs the reader the list, never the claim. The
  * whole-file fact itself is read off `regions.isRegioned`, so it survives.
  * @param {string} rel
@@ -1065,7 +1071,7 @@ function cmdClaim(filePath, sessionId, generator = false) {
 	const { blocked, notices } = takeSet([rel], me);
 	sayEach(notices.broken);
 	if (blocked) {
-		writeStderr(`session-arbiter: ${denyReason(rel, blocked.lock)}\n`);
+		writeStderr(`session-arbiter: ${buildDenyReason(rel, blocked.lock)}\n`);
 		return 1;
 	}
 	// Exit 0, like every other fail-open: a broken store must not stop a script
@@ -1073,7 +1079,7 @@ function cmdClaim(filePath, sessionId, generator = false) {
 	// pipeline for every session (mantahostels#174).
 	sayEach(
 		notices.unchecked.map((r) =>
-			uncheckedLine(r, "this write is unprotected and no claim was taken"),
+			buildUncheckedLine(r, "this write is unprotected and no claim was taken"),
 		),
 	);
 	sayEach(notices.debts);
@@ -1102,10 +1108,10 @@ function refuseClaimSubject(rel, generator) {
 		return false;
 	}
 	// Ahead of the spelling check: `#A:docs/x.md` on the map is a well-formed
-	// id that unknownRegionReason waves through as a row slot.
+	// id that buildUnknownRegionReason waves through as a row slot.
 	const why =
 		generatorOnlyRefusal(named.rel, named.region, generator) ||
-		unknownRegionReason(named.rel, named.region);
+		buildUnknownRegionReason(named.rel, named.region);
 	if (!why) return false;
 	writeStderr(why);
 	return true;
@@ -1141,7 +1147,7 @@ function sayEach(texts) {
  * @param {string} rel
  * @param {string} consequence what the route took, or did not, as a result
  */
-const uncheckedLine = (rel, consequence) =>
+const buildUncheckedLine = (rel, consequence) =>
 	`could not check ${rel} — the file-claim store is unreadable, so ${consequence}. See: node ${scriptPath("check-guard-errors.js")}`;
 
 /**
@@ -1269,7 +1275,7 @@ function takeSet(rels, me, { probe = false, resolve = nameResolver } = {}) {
 	for (const rel of order) {
 		const { verdict, lock } = store.acquire(rel, me);
 		taken.push({ rel, verdict, lock });
-		const notice = store.breakNotice(rel, me.sessionId);
+		const notice = store.buildBreakNotice(rel, me.sessionId);
 		if (notice) broken.push(notice);
 		// `lock` is null for a claim minted by a session the registry cannot
 		// identify, and on takeSubjectLock's give-up path. takeLock guards its own
@@ -1326,7 +1332,7 @@ function rollBack(fresh) {
  * is the ordering working.
  * @param {Refused} blocked
  */
-const putBackLine = (blocked) =>
+const buildPutBackLine = (blocked) =>
 	blocked.fresh === 0
 		? "nothing had been taken yet"
 		: `${blocked.undone} of the ${blocked.fresh} taken by this call ${blocked.undone === 1 ? "was" : "were"} put back`;
@@ -1338,7 +1344,7 @@ const putBackLine = (blocked) =>
  * @param {Refused} blocked
  * @param {string} [prefix] each line of a CLI refusal carries the tool's name
  */
-const stuckLine = (blocked, prefix = "") =>
+const buildStuckLine = (blocked, prefix = "") =>
 	blocked.stuck.length > 0
 		? `\n${prefix}could NOT put back ${blocked.stuck.join(", ")} — the lock there is no longer the one this call took. Release ${blocked.stuck.length === 1 ? "it" : "them"} by hand before re-running.`
 		: "";
@@ -1381,7 +1387,7 @@ function cmdClaimAll(filePaths, sessionId) {
 		// --generator: the generator takes its one subject with `claim`.
 		const why =
 			generatorOnlyRefusal(named.rel, named.region, false) ||
-			unknownRegionReason(named.rel, named.region);
+			buildUnknownRegionReason(named.rel, named.region);
 		if (why) {
 			writeStderr(why);
 			return 2;
@@ -1404,9 +1410,9 @@ function cmdClaimAll(filePaths, sessionId) {
 	sayEach(notices.broken);
 	if (blocked) {
 		writeStderr(
-			`session-arbiter: ${denyReason(blocked.rel, blocked.lock)}` +
-				`\nsession-arbiter: the set was NOT taken — all ${rels.length} subject(s) go together, so ${putBackLine(blocked)}. ` +
-				`Re-run the whole command; do not claim the rest and wait for this one.${stuckLine(blocked, "session-arbiter: ")}\n`,
+			`session-arbiter: ${buildDenyReason(blocked.rel, blocked.lock)}` +
+				`\nsession-arbiter: the set was NOT taken — all ${rels.length} subject(s) go together, so ${buildPutBackLine(blocked)}. ` +
+				`Re-run the whole command; do not claim the rest and wait for this one.${buildStuckLine(blocked, "session-arbiter: ")}\n`,
 		);
 		return 1;
 	}
@@ -1415,7 +1421,7 @@ function cmdClaimAll(filePaths, sessionId) {
 	// prevent.
 	sayEach(
 		notices.unchecked.map((r) =>
-			uncheckedLine(
+			buildUncheckedLine(
 				r,
 				"no claim was taken on it and this subject is unprotected, though the rest of the set stands",
 			),
@@ -1519,8 +1525,8 @@ function reportWaits(locks) {
 		const issue = waitMod.issueOfWant(w.wants);
 		writeStdout(
 			issue === null
-				? fileWaitLine(w, locks, nameOf)
-				: issueWaitLine(w, issue, claims, nameOf),
+				? buildFileWaitLine(w, locks, nameOf)
+				: buildIssueWaitLine(w, issue, claims, nameOf),
 		);
 	}
 }
@@ -1577,7 +1583,7 @@ function printDeadlock(ring, nameOf, holdsOf) {
  * @param {IssueClaimRecord[]|null} claims
  * @param {ReturnType<typeof nameResolver>} nameOf
  */
-function issueWaitLine(w, issue, claims, nameOf) {
+function buildIssueWaitLine(w, issue, claims, nameOf) {
 	const holders = waitMod.issueHolders(claims, issue, w.sessionId);
 	if (holders === null)
 		return `WAITING  ${nameOf(w.sessionId)} wants ${w.wants} — whether anyone still claims it is UNKNOWN: the issue-claim store could not be read.\n`;
@@ -1592,7 +1598,7 @@ function issueWaitLine(w, issue, claims, nameOf) {
  * @param {ListedLock[]} locks
  * @param {ReturnType<typeof nameResolver>} nameOf
  */
-function fileWaitLine(w, locks, nameOf) {
+function buildFileWaitLine(w, locks, nameOf) {
 	const found = store.whoHolds(w.wants, w.sessionId, wasResumed, locks);
 	if (found?.holder)
 		return `WAITING  ${nameOf(w.sessionId)} wants ${w.wants}, held by ${nameOf(found.holder.sessionId)} — which is not itself waiting, so this one ends when that session finishes.\n`;
@@ -1658,7 +1664,7 @@ function reportRequests(locks) {
 function parkFirst(subject, sessionId) {
 	const rel = store.splitSubject(subject).rel;
 	const me = store.identify(sessionId);
-	if (ownSubjectsOn(rel, me.sessionId).length === 0) {
+	if (readOwnSubjectsOn(rel, me.sessionId).length === 0) {
 		writeStderr(
 			`session-arbiter: not parking ${rel} — this session holds no claim on it.\n` +
 				"--park sets aside YOUR unfinished edit. On somebody else's file it would be a force-release that destroyed the evidence, which is why --force refuses a dirty file too.\n",
@@ -1680,7 +1686,7 @@ function parkFirst(subject, sessionId) {
 
 	const result = store.park(rel, me);
 	if (result.verdict === "parked") {
-		writeStdout(parkedNotice(subject, rel, result));
+		writeStdout(buildParkedNotice(subject, rel, result));
 		return 0;
 	}
 	const why = parkRefusalWhy(rel, result);
@@ -1697,8 +1703,8 @@ function parkFirst(subject, sessionId) {
  * @param {string} rel
  * @param {string|null} sessionId
  */
-function ownSubjectsOn(rel, sessionId) {
-	return (store.heldBy(sessionId) ?? []).filter(
+function readOwnSubjectsOn(rel, sessionId) {
+	return (store.readHeldBy(sessionId) ?? []).filter(
 		(subject) => store.splitSubject(subject).rel === rel,
 	);
 }
@@ -1711,7 +1717,7 @@ function ownSubjectsOn(rel, sessionId) {
  * @param {string} rel
  * @param {ParkResult} result
  */
-function parkedNotice(subject, rel, result) {
+function buildParkedNotice(subject, rel, result) {
 	return (
 		`Parked the uncommitted changes in ${rel}.\n` +
 		(result.file
@@ -1900,7 +1906,7 @@ function cmdRelease(filePath, sessionId, opts = {}) {
 		// the file entire and then edited one entry holds both, and stopping at
 		// the regions would leave the file-wide claim standing behind a release
 		// that printed nothing but successes (mantahostels#121, mantahostels#126).
-		const held = ownSubjectsOn(rel, store.identify(sessionId).sessionId);
+		const held = readOwnSubjectsOn(rel, store.identify(sessionId).sessionId);
 		if (held.length > 0) {
 			let code = 0;
 			for (const subject of held)
@@ -1953,7 +1959,7 @@ function releaseSubject(
 	// this is its last reporting site (mantahostels#363).
 	if (out.observed?.state === "changed")
 		writeStderr(
-			`session-arbiter: ${clobberNotice(rel, out.observed.was, CLOBBER_AT_RELEASE)}\n`,
+			`session-arbiter: ${buildClobberNotice(rel, out.observed.was, CLOBBER_AT_RELEASE)}\n`,
 		);
 	const then = RELEASE_THEN[verdict];
 	if (then) return then(out);
@@ -2005,10 +2011,10 @@ const RELEASE_FIRST = {
 		return 1;
 	},
 	released: (o) => {
-		writeStdout(`Released ${o.rel}.${othersDirtNote(o.own)}\n`);
+		writeStdout(`Released ${o.rel}.${buildOthersDirtNote(o.own)}\n`);
 		if (o.content?.state === "changed")
 			writeStderr(
-				`session-arbiter: ${clobberNotice(o.rel, o.content.was, CLOBBER_AT_RELEASE)}\n`,
+				`session-arbiter: ${buildClobberNotice(o.rel, o.content.was, CLOBBER_AT_RELEASE)}\n`,
 			);
 		return 0;
 	},
@@ -2054,7 +2060,7 @@ function releasedForced({ rel, lock, me, record, content, observed }) {
 	// the record that knew what it wrote has just gone with the force (mantahostels#363).
 	if (observed?.state === "changed")
 		writeStderr(
-			`session-arbiter: ${clobberNotice(rel, observed.was, CLOBBER_AT_RELEASE)}\n`,
+			`session-arbiter: ${buildClobberNotice(rel, observed.was, CLOBBER_AT_RELEASE)}\n`,
 		);
 	// The headline alone, and before the break notice: that notice carries the
 	// recovery command this sentence qualifies (mantahostels#420).
@@ -2063,7 +2069,7 @@ function releasedForced({ rel, lock, me, record, content, observed }) {
 			`session-arbiter: ${foreignClobberHeadline(rel, content)}\n\n${CLOBBER_AT_FORCED_RELEASE}\n`,
 		);
 	writeStderr(
-		`session-arbiter: ${forcedNotice(rel, lock, me, record ?? null)}\n`,
+		`session-arbiter: ${buildForcedNotice(rel, lock, me, record ?? null)}\n`,
 	);
 	return 0;
 }
@@ -2082,7 +2088,7 @@ function releaseDirty({ rel, lock, content, force, own }) {
 					? `${rel} holds neither what its claimant ${lock?.sessionId ?? "an unidentified session"} last wrote nor a committed version: something reached it by a route no hook watches.\n\n` +
 						`That claimant's version is recoverable while its claim stands:\n  git cat-file -p ${content.was} > /tmp/recovered\n\n` +
 						"The refusal below says to commit or discard. Do neither until you have diffed that copy: committing puts somebody else's bytes under your own message (mantahostels#63)."
-					: clobberNotice(rel, content.was, CLOBBER_AT_DIRTY_RELEASE)
+					: buildClobberNotice(rel, content.was, CLOBBER_AT_DIRTY_RELEASE)
 			}\n`,
 		);
 	writeStderr(
@@ -2111,7 +2117,7 @@ function releaseDirty({ rel, lock, content, force, own }) {
  * @param {OwnHunks|undefined} own
  */
 function neighbourDirtExit(rel, own) {
-	if (own === "unproven") return `${notMineOffer(rel)}\n`;
+	if (own === "unproven") return `${buildNotMineOffer(rel)}\n`;
 	if (own === undefined)
 		return "Is the dirt a live neighbour's rather than yours? Then leave the claim standing: it is broken automatically once this session's process ends (`breakStale`), so nothing inherits it and there is nothing here to do.\n";
 	return "";
@@ -2135,7 +2141,7 @@ const DIRTY_HEADLINE = {
  * could not prove it of (#2148): named on every refusal that can block one.
  * @param {string} rel
  */
-function notMineOffer(rel) {
+function buildNotMineOffer(rel) {
 	return `Is every one of them another session's, all of yours already committed? Then \`node ${ARBITER} release --not-mine ${rel}\` releases it on your word — and a change of yours it could not see goes with the file to the next session (mantahostels#63).`;
 }
 
@@ -2144,7 +2150,7 @@ function notMineOffer(rel) {
  * knows the file it gave back is not clean (#2148).
  * @param {OwnHunks|undefined} own
  */
-function othersDirtNote(own) {
+function buildOthersDirtNote(own) {
 	if (own === "landed")
 		return " Every hunk this session wrote has landed; the uncommitted changes left in it are other sessions'.";
 	if (own === "unproven")
@@ -2166,8 +2172,8 @@ function releaseUnproven({ rel, verdict, content, force }) {
 		writeStderr(
 			`session-arbiter: ${
 				force
-					? foreignClobberNotice(rel, content, CLOBBER_AT_REFUSED_RELEASE)
-					: clobberNotice(rel, content.was, CLOBBER_AT_REFUSED_RELEASE)
+					? buildForeignClobberNotice(rel, content, CLOBBER_AT_REFUSED_RELEASE)
+					: buildClobberNotice(rel, content.was, CLOBBER_AT_REFUSED_RELEASE)
 			}\n`,
 		);
 	if (verdict === "uncheckable") {
@@ -2221,7 +2227,7 @@ function cmdReleaseCommitted(sessionId, paths) {
 		paths.map((p) => store.relativeToRepo(p)).filter((rel) => rel !== null),
 	);
 	const me = store.identify(sessionId);
-	const held = store.heldBy(sessionId);
+	const held = store.readHeldBy(sessionId);
 	// Fail open, and SAY SO: an unreadable store means the claim stands rather
 	// than being reported gone (mantahostels#174), and post-commit lets this reach a human.
 	if (!held) {
@@ -2248,9 +2254,9 @@ function cmdReleaseCommitted(sessionId, paths) {
 		if (result.verdict === "released") {
 			released.push(rel);
 			if (result.own === "landed") leftDirty.push(rel);
-		} else kept.push(keptLine(rel, result));
+		} else kept.push(buildKeptLine(rel, result));
 	}
-	writeStdout(committedReport(released, leftDirty, kept, landed));
+	writeStdout(buildCommittedReport(released, leftDirty, kept, landed));
 	return 0;
 }
 
@@ -2259,10 +2265,10 @@ function cmdReleaseCommitted(sessionId, paths) {
  * many — a many-file commit is routine — then one per path kept.
  * @param {string[]} released
  * @param {string[]} leftDirty the released paths other sessions' dirt still sits in
- * @param {string[]} kept keptLine's lines
+ * @param {string[]} kept buildKeptLine's lines
  * @param {Set<string>} landed
  */
-function committedReport(released, leftDirty, kept, landed) {
+function buildCommittedReport(released, leftDirty, kept, landed) {
 	if (released.length === 0 && kept.length === 0)
 		return `Released nothing — this session holds no whole-file claim on ${landed.size === 0 ? "any path named" : [...landed].join(", ")}.\n`;
 	if (released.length === 0) return kept.join("");
@@ -2274,7 +2280,7 @@ function committedReport(released, leftDirty, kept, landed) {
 }
 
 /**
- * Release one landed subject, its refusal left for keptLine to word.
+ * Release one landed subject, its refusal left for buildKeptLine to word.
  * @param {string} rel
  * @param {Identity} me
  * @returns {ClaimResult}
@@ -2297,11 +2303,11 @@ function releaseLanded(rel, me) {
 		verdict === "released" ? CLOBBER_AT_RELEASE : CLOBBER_AT_COMMITTED_REFUSAL;
 	if (content?.state === "changed" && content.was)
 		writeStderr(
-			`session-arbiter: ${clobberNotice(rel, content.was, closing)}\n`,
+			`session-arbiter: ${buildClobberNotice(rel, content.was, closing)}\n`,
 		);
 	else if (observed?.state === "changed")
 		writeStderr(
-			`session-arbiter: ${clobberNotice(rel, observed.was, CLOBBER_AT_RELEASE)}\n`,
+			`session-arbiter: ${buildClobberNotice(rel, observed.was, CLOBBER_AT_RELEASE)}\n`,
 		);
 
 	return result;
@@ -2312,11 +2318,11 @@ function releaseLanded(rel, me) {
  * @param {string} rel
  * @param {ClaimResult} result releaseLanded's refusal
  */
-function keptLine(rel, { verdict, own }) {
+function buildKeptLine(rel, { verdict, own }) {
 	if (verdict === "dirty" && own === "pending")
 		return `Kept ${rel} — an uncommitted change of this session's own is still in it; the commit that lands it releases the claim.\n`;
 	if (verdict === "dirty")
-		return `Kept ${rel} — it carries uncommitted changes, and nothing here could prove they are all another session's. ${notMineOffer(rel)}\n`;
+		return `Kept ${rel} — it carries uncommitted changes, and nothing here could prove they are all another session's. ${buildNotMineOffer(rel)}\n`;
 	const why = {
 		uncheckable: "git could not say whether it is clean",
 		contended: "the claim changed while releasing it",
@@ -2326,113 +2332,72 @@ function keptLine(rel, { verdict, own }) {
 }
 
 /**
- * The PostToolUse path, after a tool write that actually landed.
- *
- * It does two separate things to two separate stores: attributes the write to
- * this session in the ledger (mantahostels#114), and re-records what the file now holds
- * against this session's claim (mantahostels#295).
  * @param {string|undefined} filePath
  * @param {string} sessionId
  */
 function cmdRecord(filePath, sessionId) {
-	if (!filePath) return 0;
-	const rel = store.recordWrite(filePath, sessionId);
-	if (rel !== null && store.isWatched(rel))
-		recordFor(rel, store.identify(sessionId));
+	toolRecord.recordToolWrite(filePath, sessionId);
 	return 0;
 }
 
-/**
- * Re-record `rel` against whichever record this session has on it (mantahostels#363).
- *
- * recordContent answers null for every case the observation covers, so the first
- * non-null is the right one.
- *
- * It takes an identity rather than a session id because cmdRefresh loops:
- * identify() walks the sessions registry, and paying that per path would charge
- * every Bash call in every session for it.
- * @param {string} rel
- * @param {Identity} me
- * @param {{viaBash?: boolean}} [options]
- */
-function recordFor(rel, me, options) {
-	return (
-		store.recordContent(rel, me) ?? store.recordObservation(rel, me, options)
-	);
-}
-
-/**
- * The PostToolUse-on-Bash path (mantahostels#295): re-record every path this session holds,
- * because a Bash command may have written any of them and no other hook sees it.
- *
- * Without it, a session's own `sed -i` version bump on a file it holds reports as
- * a clobber (the measured share is in mantahostels#288).
- *
- * It refreshes what this session HOLDS, never what the command names: parsing a
- * shell command for its write targets is the arms race mantahostels#287 declined, and the
- * held set is both smaller and exactly right.
- *
- * It also SCANS (mantahostels#419): the held set is right for a session that tool-wrote
- * the file first, and empty for one that only ever reached it from Bash. The
- * scan mints a baseline for what moved, never a lock.
- * @param {string} sessionId
- */
+/** @param {string} sessionId */
 function cmdRefresh(sessionId) {
-	const held = store.heldBy(sessionId);
-	// The observed paths ride the same refresh (mantahostels#363).
-	const observed = store.observedBy(sessionId);
-	// null is an unreadable store, not an empty hold (mantahostels#174) — so each is skipped on
-	// its own. Nothing to say either way: this runs after every Bash call in every
-	// session, and the fault is already logged where it happened.
-	if (held === null && observed === null) return 0;
-	const me = store.identify(sessionId);
-	const covered = new Set([...(held ?? []), ...(observed ?? [])]);
-	// viaBash on BOTH loops, not the scan's alone. An observation the scan minted
-	// stands on a path with no lock at all, and refreshing it under the tool
-	// route's rules records nothing — so the session's SECOND `sed -i` on its own
-	// file reports as a clobber.
-	for (const rel of covered) recordFor(rel, me, { viaBash: true });
-	// The scan must not give one writer two baselines.
-	for (const rel of store.scanChanged(sessionId))
-		if (!covered.has(rel)) recordFor(rel, me, { viaBash: true });
+	toolRecord.refreshAfterBash(sessionId);
 	return 0;
 }
 
 /**
  * The reader's path: one repo-relative path per line, for a shell `grep -Fx`.
  *
- * Exit 1 with nothing on stdout is `read_arbiter()`'s contract in
- * guard-commit-form.sh: non-zero means *unavailable*, never *wrote nothing*.
+ * Exit 1 with nothing on stdout is the callers' contract: non-zero means
+ * *unavailable*, never *wrote nothing*.
  *
  * The status must be produced at or below this function. The module runner
  * catches to fail open (mantahostels#103 §6), so an error left to propagate out of
- * writesBy() would be turned back into exit 0 with empty stdout (mantahostels#135).
+ * readWritesBy() would be turned back into exit 0 with empty stdout (mantahostels#135).
  *
- * Both callers read it: guard-commit-form.sh falls back to its index-wide warn,
- * and concision-backstop.sh (mantahostels#137) stays silent, since a hook with no
- * attribution has no session to bill.
+ * concision-backstop.sh (mantahostels#137) stays silent on it, since a hook with
+ * no attribution has no session to bill.
  *
  * `--committed` adds every path the session's own commits touched, for the
- * review backstop and the push review warning (#2390). Where those will not
- * read it logs the fault and prints the writes alone: the write ledger's
- * answer still stands, and under-billing is the safe direction.
+ * review backstop and the push review warning (#2390): lib/arbiter-ledger.js's
+ * readBilledPathsBy, which the review tier reads too.
  * @param {string} sessionId
  * @param {boolean} committed
  */
 function cmdWrites(sessionId, committed) {
-	const written = store.writesBy(sessionId);
-	if (written === null) return 1;
-	const paths = new Set(written);
-	if (committed) {
-		const fromCommits = store.committedPathsBy(sessionId);
-		if (fromCommits === null)
-			store.logError(
-				"writes --committed",
-				new Error(`commit ledger or git unreadable for ${sessionId}`),
-			);
-		for (const rel of fromCommits ?? []) paths.add(rel);
-	}
+	const paths = committed
+		? store.readBilledPathsBy(sessionId, "writes --committed")
+		: store.readWritesBy(sessionId);
+	if (paths === null) return 1;
 	for (const rel of paths) writeStdout(`${rel}\n`);
+	return 0;
+}
+
+/**
+ * `own-paths` (#3099): the paths this session's own commits in `<from>..<to>`
+ * touched, one a line, by #1154's rule narrowed by patch (lib/own-work.js,
+ * #3108), for code-signal.sh's review_uncovered to bill a review marker's
+ * newer base= with. Exit 1 with
+ * nothing on stdout where the range or the ledger will not read, which the
+ * caller must not take for "made none".
+ * @param {string|undefined} from
+ * @param {string|undefined} to
+ * @param {string} sessionId
+ */
+function cmdOwnPaths(from, to, sessionId) {
+	if (!from || !to) return refuseUsage(usageOf("own-paths"));
+	if (!FULL_SHA.test(from) || !FULL_SHA.test(to)) {
+		writeStderr("session-arbiter: own-paths takes two full shas.\n");
+		return 2;
+	}
+	const own = readOwnPaths(store.paths.repoRoot(), from, {
+		sessionId,
+		tip: to,
+		byPatch: true,
+	});
+	if (own === null) return 1;
+	for (const rel of own.paths) writeStdout(`${rel}\n`);
 	return 0;
 }
 
@@ -2450,7 +2415,7 @@ function cmdWrites(sessionId, committed) {
 function cmdHeldRequests(sessionId) {
 	if (!sessionId) return 0;
 	try {
-		const held = store.heldBy(sessionId);
+		const held = store.readHeldBy(sessionId);
 		if (held === null) {
 			writeStderr(
 				`session-arbiter: held-requests: the claim store could not be read. See: node ${scriptPath("check-guard-errors.js")}\n`,
@@ -2469,42 +2434,6 @@ function cmdHeldRequests(sessionId) {
 		writeStderr(`session-arbiter: held-requests: ${caught(e).message}\n`);
 		return 1;
 	}
-}
-
-/**
- * Both answers guard-commit-form.sh needs about one `git commit`, in ONE spawn
- * (mantahostels#1561): what this session wrote, and which paths in the pathspec hold
- * another live session's uncommitted work.
- *
- * Why one verb rather than a second shell-out: the guard already spawns this
- * script once per commit, so a second node start-up buys nothing. The whole
- * call is budgeted at ~500 ms (mantahostels#1561); materially above ~1 s is a regression.
- *
- * Two line kinds, \x1f-separated so a path with a space in it survives:
- *
- *   S<US><rel><US><region or empty><US><holder>   a sweep risk (mantahostels#1558)
- *   W<US><rel>                                    a path this session wrote
- *
- * <US> is \x1f, not a tab: bash's `read` treats a tab as whitespace and
- * collapses two in a row, so an empty region field would shift the holder's
- * name into it.
- *
- * The S lines come FIRST and are printed whatever the ledger does, because the
- * pathspec branch of the guard needs no ledger. Exit 1 keeps cmdWrites's
- * contract for the branch that does: *unavailable*, never *wrote nothing*.
- * @param {string} sessionId
- * @param {string[]} paths the commit's pathspec, absolute or repo-relative
- */
-function cmdCommitCheck(sessionId, paths) {
-	const rels = paths
-		.map((p) => store.relativeToRepo(p))
-		.filter((r) => r !== null);
-	for (const f of store.sweepRisk(rels, sessionId))
-		writeStdout(`S\x1f${f.rel}\x1f${f.region ?? ""}\x1f${f.holder}\n`);
-	const written = store.writesBy(sessionId);
-	if (written === null) return 1;
-	for (const rel of written) writeStdout(`W\x1f${rel}\n`);
-	return 0;
 }
 
 /**
@@ -2531,7 +2460,7 @@ function cmdStaleCheck(filePath, staged, sessionId) {
 /**
  * `stale-check --staged`, the pre-commit gate's call (#113): every path the
  * commit modifies, judged as `stale-check` judges one, so a commit of any size
- * costs one node start. The listing is store.stagedModifications'.
+ * costs one node start. The listing is store.readStagedModifications'.
  *
  * Exit 3 refuses, not 1: node exits 1 itself on a crash main's catch never
  * sees — a half-written module failing to load — and the gate must read that
@@ -2541,7 +2470,7 @@ function cmdStaleCheck(filePath, staged, sessionId) {
 function cmdStaleCheckStaged(sessionId) {
 	if (!sessionId) return 0;
 	try {
-		const staged = store.stagedModifications();
+		const staged = store.readStagedModifications();
 		if (staged === null) {
 			failOpenStale("the commit", "git could not list its staged paths");
 			return 0;
@@ -2678,7 +2607,7 @@ function cmdRecordCommit(commit, sessionId) {
 }
 
 /**
- * `record-act` (#2308): record-acts.sh's call, adding one act to this
+ * `record-act` (#2308): record-acts.js's call, adding one act to this
  * session's acts ledger. A `round` reads the comment's body on stdin and is
  * recorded only where that body opens a question round.
  *
@@ -3281,7 +3210,7 @@ function notHeldWhy(w) {
  * @param {WaitRun} w
  * @param {any} h poll's `held`, for the reason given on WaitRun
  */
-function waitHolderText(w, h) {
+function buildWaitHolderText(w, h) {
 	if (!h) return "a holder that could not be identified";
 	if (w.issue === null) return describeHolder(h);
 	return describeSession(h.sessionId, holderNames()?.get(h.sessionId) || null);
@@ -3291,7 +3220,7 @@ function waitHolderText(w, h) {
  * This session's want, null where it has none, undefined where unread.
  * @param {string} myId
  */
-function ownWantOf(myId) {
+function readOwnWantOf(myId) {
 	const wants = store.readWants();
 	if (wants === null) return;
 	return wants.find((x) => x.sessionId === myId)?.wants ?? null;
@@ -3320,7 +3249,7 @@ function recordWaitWant(w) {
  * @param {WaitRun} w
  */
 function dropWaitWant(w) {
-	const own = ownWantOf(w.myId);
+	const own = readOwnWantOf(w.myId);
 	if (own === w.subject || own === undefined) store.dropWant(w.myId);
 }
 
@@ -3389,7 +3318,7 @@ function readOracle(w) {
  * @param {WaitRun} w
  * @param {WaitPoll} state the last poll
  */
-function ceilingText(w, state) {
+function buildCeilingText(w, state) {
 	const doubt =
 		(state.doubt
 			? ` Whether it is still held is UNKNOWN at the last read: ${state.doubt}.`
@@ -3398,7 +3327,7 @@ function ceilingText(w, state) {
 			? ` Whether its session has ended is UNKNOWN: ${w.oracleDoubt}`
 			: "");
 	return (
-		`still held by ${waitHolderText(w, w.holder)} after ${w.ceiling}s.${doubt} Next: ` +
+		`still held by ${buildWaitHolderText(w, w.holder)} after ${w.ceiling}s.${doubt} Next: ` +
 		(w.issue === null
 			? `ask for it — node ${ARBITER} request ${w.subject} "<why>" — or carry on with the rest of the ticket and register the blocked edit as a debt.`
 			: "carry on with other work.")
@@ -3413,18 +3342,18 @@ function ceilingText(w, state) {
 const VERDICT_TEXT = {
 	"NOT-HELD": (w) => notHeldWhy(w),
 	"HOLDER-DEAD": (w, state) =>
-		`${waitHolderText(w, state.free)} has stopped running, so its claim is stale and takeable: your next write claims it.`,
+		`${buildWaitHolderText(w, state.free)} has stopped running, so its claim is stale and takeable: your next write claims it.`,
 	RELEASED: (w) =>
 		w.issue === null
-			? `${waitHolderText(w, w.holder)} released it, so your next write claims it.`
-			: `${waitHolderText(w, w.holder)} released its claim.`,
+			? `${buildWaitHolderText(w, w.holder)} released it, so your next write claims it.`
+			: `${buildWaitHolderText(w, w.holder)} released its claim.`,
 	DEADLOCK: (w, _state, ring) =>
 		`${deadlockChain(ring, w.myId)} -> held by you. Each waits on the next, so none will release. Next: release or park what you hold — release <path> once committed, release --park <path> to set an edit aside, release-issue <n> — then wait again.`,
 	"HOLDER-ENDED": (w) =>
 		w.issue === null
-			? `${waitHolderText(w, w.holder)} has ended though its process runs on, so its claim is stale. Free it: node ${ARBITER} release --force ${w.holder.path ?? w.subject}`
-			: `${waitHolderText(w, w.holder)} has ended, so its claim is stale and nothing will release it. Next: treat the issue as unclaimed.`,
-	CEILING: ceilingText,
+			? `${buildWaitHolderText(w, w.holder)} has ended though its process runs on, so its claim is stale. Free it: node ${ARBITER} release --force ${w.holder.path ?? w.subject}`
+			: `${buildWaitHolderText(w, w.holder)} has ended, so its claim is stale and nothing will release it. Next: treat the issue as unclaimed.`,
+	CEILING: buildCeilingText,
 };
 
 /**
@@ -3449,7 +3378,7 @@ async function waitLoop(w) {
 		await new Promise((r) => setTimeout(r, Math.max(0, pause)));
 		const poll = pollWait(w, w.holder?.sessionId ?? null);
 		if (poll.held) w.holder = poll.held;
-		if (poll.free === undefined && ownWantOf(w.myId) === null)
+		if (poll.free === undefined && readOwnWantOf(w.myId) === null)
 			recordWaitWant(w);
 		const v = waitMod.nextVerdict({
 			poll,
@@ -3657,7 +3586,7 @@ function cmdList(all = false) {
  * file would otherwise read "no debt" and stop.
  * @param {string} rel
  */
-function regionHint(rel) {
+function buildRegionHint(rel) {
 	const { rel: file, region } = store.splitSubject(rel);
 	if (region === null) return "";
 	let carried;
@@ -3834,7 +3763,7 @@ function clearRefusal(result, rel) {
  * @param {string} rel
  * @param {string|undefined} issue as given
  */
-function clearedLine(result, rel, issue) {
+function buildClearedLine(result, rel, issue) {
 	if (result.status === "cleared") {
 		const owner = result.record.issue
 			? ` owned by #${result.record.issue}`
@@ -3842,7 +3771,7 @@ function clearedLine(result, rel, issue) {
 		return `Debt on ${rel}${owner} cleared.\n`;
 	}
 	const scope = issue === undefined ? "" : ` for ${issue}`;
-	return `No debt registered on ${rel}${scope}.${regionHint(rel)}\n`;
+	return `No debt registered on ${rel}${scope}.${buildRegionHint(rel)}\n`;
 }
 
 /**
@@ -3867,7 +3796,7 @@ function debtClear(rest) {
 	const result = store.clearDebt(rel, owner);
 	const refused = clearRefusal(result, rel);
 	if (refused !== undefined) return refused;
-	writeStdout(clearedLine(result, rel, issue));
+	writeStdout(buildClearedLine(result, rel, issue));
 	return 0;
 }
 
@@ -3877,7 +3806,7 @@ function debtClear(rest) {
  * `debt sweep`'s human report: what was retired, dropped and left standing.
  * @param {SweepResult} result
  */
-function sweepReport(result) {
+function buildSweepReport(result) {
 	if (result.status === "unreadable") {
 		writeStderr(
 			`BROKEN: could not read the debt store at ${store.paths.debtsDir()}, so what is owed is unknown — not nothing (mantahostels#174). Nothing was retired.\n`,
@@ -3929,7 +3858,7 @@ function debtSweep() {
 	// came back (mantahostels#1910, lib/detached-run.js). The record closes before anything
 	// below is printed — this seam is the sweep itself, not its report.
 	const result = recordRun(JOB_DEBT_SWEEP, () => store.sweepDebts());
-	return sweepReport(result);
+	return buildSweepReport(result);
 }
 
 /** `debt list`: the store as it stands. */
@@ -3978,7 +3907,7 @@ function cmdDebt(argv) {
  * check-doc-map.js's assertion 12 is what refuses a reused id (#2339).
  * @param {string} rel
  */
-function highWaterMarkFor(rel) {
+function readHighWaterMarkFor(rel) {
 	const file = path.join(
 		store.paths.repoRoot(),
 		path.dirname(rel),
@@ -4036,7 +3965,7 @@ function cmdAllocEntry(filePath, sessionId) {
 	}
 
 	const me = store.identify(sessionId);
-	const first = regions.nextEntryNumber(text, highWaterMarkFor(rel));
+	const first = regions.nextEntryNumber(text, readHighWaterMarkFor(rel));
 	let n = first;
 	// Enough to walk past every id a plausible burst of neighbours holds at once;
 	// far short of looping.
@@ -4067,7 +3996,7 @@ function cmdAllocEntry(filePath, sessionId) {
 		// Held by somebody. A WHOLE-FILE holder blocks every id equally, so walking
 		// on would be 64 pointless rounds against one neighbour.
 		if (lock && store.splitSubject(lock.path).region === null) {
-			// NOT denyReason: that text tells the reader to clear a stub the denial
+			// NOT buildDenyReason: that text tells the reader to clear a stub the denial
 			// wrote, and allocation registers none — the recipe would answer "no
 			// debt registered" and dead-end.
 			writeStderr(
@@ -4152,9 +4081,9 @@ const COMMANDS = {
 		flags: { "--committed": "boolean" },
 		max: 1,
 	},
-	"commit-check": {
-		line: "commit-check <session-id> [<path>...]",
-		max: Number.POSITIVE_INFINITY,
+	"own-paths": {
+		line: "own-paths <from-sha> <to-sha> [session-id]",
+		max: 3,
 	},
 	"stale-check": {
 		line: "stale-check <path> <staged-blob> | --staged",
@@ -4259,7 +4188,7 @@ function cmdPruneMarkers(detach, sessionId) {
 	if (detach) {
 		// The one SessionStart registration this script has, so the session's
 		// fallback base (#110) rides it — synchronously, being HEAD NOW.
-		store.mintSessionBase(sessionId || hookSessionId());
+		store.mintSessionBase(sessionId || readHookSessionId());
 		return detachPrune();
 	}
 	// Which families, and the order the pin-holding ones have to run in:
@@ -4332,14 +4261,15 @@ function main(argv) {
 		// own behalf, and its own claims are what the wait must not count.
 		case "wait":
 			return cmdWait(rest, sessionId);
-		// Called by refresh-claims.sh after every Bash call, so it takes the
-		// session id positionally the way the other hook paths do.
+		// The refresh-claims core's work after every Bash call, run by hand for
+		// a deliberate re-pin; it takes the session id positionally the way the
+		// other hook paths do.
 		case "refresh":
 			return cmdRefresh(rest[0] || sessionId);
 		case "writes":
 			return cmdWrites(rest[0] || sessionId, flags["--committed"] === true);
-		case "commit-check":
-			return cmdCommitCheck(rest[0] || sessionId, rest.slice(1));
+		case "own-paths":
+			return cmdOwnPaths(rest[0], rest[1], rest[2] || sessionId);
 		// No positional session id, for release's reason: the caller is the
 		// pre-commit stack, which inherits CLAUDE_CODE_SESSION_ID.
 		case "stale-check":
@@ -4355,7 +4285,7 @@ function main(argv) {
 		// The caller is .husky/post-commit, for release-committed's reason.
 		case "record-commit":
 			return cmdRecordCommit(rest[0], sessionId);
-		// The caller is record-acts.sh, for release-committed's reason.
+		// The caller is record-acts.js, for release-committed's reason.
 		case "record-act":
 			return cmdRecordAct(rest, sessionId);
 		case "list":

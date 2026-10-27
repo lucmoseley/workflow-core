@@ -25,13 +25,29 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vitest";
 import {
 	writeAdopterCheckout,
 	writeIssueClaim,
 	writeTornClaim,
 } from "./lib/claim-store-testkit";
-import { stubGhScript } from "./lib/gh-stub";
+import {
+	BLOCKED_BY_GRAPHQL_FAKE,
+	GH_GRAPHQL_NO_REPO,
+	GH_LOGGED_OUT,
+	GH_NOT_FOUND,
+	GH_PARENT_NOT_FOUND,
+	RECORDED_SHAPES,
+} from "./lib/gh-fake";
+import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
 
@@ -82,14 +98,17 @@ interface Fixture {
 	>;
 	/** issue numbers whose blocked_by call always fails */
 	failDeps?: number[];
-	/** issue numbers whose blocked_by call fails with the SAME error text —
-	 *  for the >3-failures-collapse case (#93), where failDeps's own
-	 *  per-issue text would defeat the "same error" grouping under test. */
-	failDepsSame?: number[];
 	/** issue numbers whose timeline call always fails */
 	failTimeline?: number[];
 	/** issue numbers whose blocked_by call fails once, then succeeds */
 	failDepsOnce?: number[];
+	/** the batched GraphQL blockers read itself fails, every time */
+	failGraphql?: boolean;
+	/** it fails once, then succeeds */
+	failGraphqlOnce?: boolean;
+	/** it exits 0 having printed `empty` nothing, or `noRepo` answers gh's
+	 *  missing repository: a null `repository` and its NOT_FOUND error */
+	graphqlAnswers?: "empty" | "noRepo";
 	/** the issues list call itself fails */
 	failList?: boolean;
 	/** The repo read's `open_issues_count`; the fixture's issue count by default. */
@@ -138,6 +157,8 @@ interface Fixture {
 		/** The launched job's own short id (mantahostels#3488) — absent reproduces a
 		 * pre-mantahostels#3488 entry, which `dispatchLiveness` reads as unknown. */
 		jobId?: string;
+		/** Follows the entry with a release row for its `jobId` (#2744). */
+		released?: boolean;
 	}>;
 	/** Makes the ledger path a directory, so the read throws EISDIR (mantahostels#1528). */
 	dispatchLedgerUnreadable?: boolean;
@@ -145,25 +166,47 @@ interface Fixture {
 	debtsUnreadable?: boolean;
 }
 
-const CALL_LOG = () => path.join(dir, "calls.log");
+/* The stub `gh`'s files in each test's sandbox, named once for the handler and the test. */
+const FIXTURE_FILE = "fixture.json";
+const CALL_LOG_FILE = "calls.log";
+const CALL_LOG = () => path.join(dir, CALL_LOG_FILE);
 
-/** Writes a stub `gh` serving `fx`. */
-const stubGh = (fx: Fixture) => {
-	fs.writeFileSync(path.join(dir, "fixture.json"), JSON.stringify(fx));
+/** The calls other than the batched blockers read, whose query text names
+ *  `labels` and `issue` as fields it reads. */
+const restCalls = (calls: string[]) =>
+	calls.filter((c) => !c.startsWith("api graphql "));
 
-	const stub = `#!/usr/bin/env node
-const fs = require("node:fs");
-const fx = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(dir, "fixture.json"))}, "utf8"));
-const argv = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(CALL_LOG())}, argv.join(" ") + "\\n");
+/** Every GraphQL call is a `query`, never a `mutation`. */
+const expectGraphqlReadsOnly = (calls: string[]) => {
+	for (const call of calls.filter((c) => c.startsWith("api graphql "))) {
+		expect(call).toMatch(/ -f query=query\(/);
+		expect(call).not.toMatch(/mutation/);
+	}
+};
+
+/*
+ * The `gh` every run calls: one stub server for the whole file (#2878), so a
+ * call costs a bash start rather than a node start. Each run names its own
+ * sandbox in GH_STUB_DIR, where the handler reads the fixture and keeps its
+ * call log and retry counts.
+ *
+ * It routes by path and counts retries across calls, which the shared gh
+ * fake's answers, each a function of one call, cannot, so each REST answer
+ * goes through `asRecorded`, which holds it to the fixture gh.contract.test.ts
+ * holds to the real gh.
+ */
+const GH_HANDLER = `const fs = require("node:fs");
+const path = require("node:path");
+const fx = JSON.parse(fs.readFileSync(path.join(env.GH_STUB_DIR, ${JSON.stringify(FIXTURE_FILE)}), "utf8"));
+fs.appendFileSync(path.join(env.GH_STUB_DIR, ${JSON.stringify(CALL_LOG_FILE)}), argv.join(" ") + "\\n");
 
 const p = argv[1] || "";
 const num = (re) => { const m = p.match(re); return m ? Number(m[1]) : null; };
-const die = (msg) => { process.stderr.write("gh: " + msg + "\\n"); process.exit(1); };
+const die = (msg) => { err("gh: " + msg + "\\n"); exit(1); };
 // --slurp wraps each page's array; one page is enough for every fixture here.
-const page = (rows) => process.stdout.write(JSON.stringify([rows]) + "\\n");
+const page = (kind, rows) => out(asRecorded(kind, [rows]) + "\\n");
 
-const seen = ${JSON.stringify(path.join(dir, "seen.json"))};
+const seen = path.join(env.GH_STUB_DIR, "seen.json");
 const bump = (k) => {
   const s = fs.existsSync(seen) ? JSON.parse(fs.readFileSync(seen, "utf8")) : {};
   s[k] = (s[k] || 0) + 1;
@@ -172,31 +215,46 @@ const bump = (k) => {
 };
 
 const edges = (rows) => rows.map((e) => ({
-  ...e,
+  number: e.number,
+  state: e.state,
   title: "issue " + (e.repo ? e.repo + "#" : "") + e.number,
   repository_url: e.repo ? "https://api.github.com/repos/" + e.repo : undefined,
 }));
 // The run's own repo is \`--repo o/r\`, or gh's \`{owner}/{repo}\`.
 const foreign = (p.match(/^repos\\/([^{][^/]*\\/[^/]+)\\/issues\\/(\\d+)/) || []).slice(1);
 if (foreign.length && foreign[0] !== "o/r" && /dependencies\\/blocked_by/.test(p))
-  return page(edges((fx.foreignDeps || {})[foreign[0] + "#" + foreign[1]] || []));
+  return page("blockedByPage", edges((fx.foreignDeps || {})[foreign[0] + "#" + foreign[1]] || []));
+// The batched read answers null for an issue whose REST read the fixture
+// fails, so that issue takes the REST path and meets the failure there.
+${BLOCKED_BY_GRAPHQL_FAKE}
+${RECORDED_SHAPES}
+// The embedded serveAnswer calls process.exit, which here ends the server.
+const answer = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
+const fail = () => answer(${JSON.stringify(GH_NOT_FOUND)});
+if (p === "graphql") {
+  if (fx.failGraphql) return fail();
+  if (fx.failGraphqlOnce && bump("graphql") === 1) return fail();
+  if (fx.graphqlAnswers === "empty") return;
+  if (fx.graphqlAnswers === "noRepo") return answer(${JSON.stringify(GH_GRAPHQL_NO_REPO)});
+  const failing = [...(fx.failDeps || []), ...(fx.failDepsOnce || [])];
+  return answer(answerBlockedBy(argv, (n) =>
+    failing.includes(n) ? null : (fx.deps || {})[n] || []));
+}
 if (/dependencies\\/blocked_by/.test(p)) {
   const n = num(/issues\\/(\\d+)\\/dependencies/);
-  if ((fx.failDeps || []).includes(n)) die("HTTP 502 (dependencies/" + n + ")");
-  if ((fx.failDepsSame || []).includes(n)) die("Service Unavailable (HTTP 503)");
-  if ((fx.failDepsOnce || []).includes(n) && bump("deps" + n) === 1)
-    die("HTTP 502 (transient)");
-  return page(edges((fx.deps || {})[n] || []));
+  if ((fx.failDeps || []).includes(n)) return fail();
+  if ((fx.failDepsOnce || []).includes(n) && bump("deps" + n) === 1) return fail();
+  return page("blockedByPage", edges((fx.deps || {})[n] || []));
 }
 if (/\\/parent$/.test(p)) {
   const parent = (fx.parents || {})[num(/issues\\/(\\d+)\\/parent/)];
-  if (!parent) die("No parent issue found (HTTP 404)");
-  return page({ url: parent.url, labels: parent.labels.map((name) => ({ name })) });
+  if (!parent) return answer(${JSON.stringify(GH_PARENT_NOT_FOUND)});
+  return page("parentPage", { url: parent.url, labels: parent.labels.map((name) => ({ name })) });
 }
 if (/\\/timeline/.test(p)) {
   const n = num(/issues\\/(\\d+)\\/timeline/);
-  if ((fx.failTimeline || []).includes(n)) die("HTTP 502 (timeline/" + n + ")");
-  return page(((fx.timeline || {})[n] || []).map((e) => ({
+  if ((fx.failTimeline || []).includes(n)) return fail();
+  return page("timelinePage", ((fx.timeline || {})[n] || []).map((e) => ({
     event: "labeled",
     label: { name: e.label },
     created_at: e.created_at,
@@ -204,10 +262,10 @@ if (/\\/timeline/.test(p)) {
   })));
 }
 if (/^repos\\/[^/]+\\/[^/]+$/.test(p))
-  return process.stdout.write(JSON.stringify({ open_issues_count: fx.openCount ?? fx.issues.length }) + "\\n");
+  return out(asRecorded("repo", { open_issues_count: fx.openCount ?? fx.issues.length }) + "\\n");
 if (/issues\\?state=open/.test(p)) {
-  if (fx.failList) die("HTTP 401: Bad credentials");
-  return page(fx.issues.map((i) => ({
+  if (fx.failList) return answer(${JSON.stringify(GH_LOGGED_OUT)});
+  return page("issuesPage", fx.issues.map((i) => ({
     number: i.number,
     title: i.title || ("issue " + i.number),
     body: i.body || "",
@@ -222,7 +280,17 @@ if (/issues\\?state=open/.test(p)) {
 }
 die("unexpected path: " + p);
 `;
-	return stubGhScript(dir, stub);
+
+let ghServer: GhStubServer;
+beforeAll(async () => {
+	ghServer = await serveGhStub(GH_HANDLER);
+});
+afterAll(() => ghServer.close());
+
+/** Points the stub server at `fx` for this run. */
+const stubGh = (fx: Fixture) => {
+	fs.writeFileSync(path.join(dir, FIXTURE_FILE), JSON.stringify(fx));
+	return stubGhScript(dir, ghServer.script);
 };
 
 /*
@@ -242,11 +310,14 @@ let sessionCeiling = "0";
 /** WFC_SESSION_FLOOR (#2501); empty is no floor, so the host's ~/.claude/session-floor is never read. */
 let sessionFloor = "";
 /** A `ps` line as the real one prints it: comm, then the full argv. */
-const psLine = (comm: string, args: string) => `${comm} ${args}`;
+const buildPsLine = (comm: string, args: string) => `${comm} ${args}`;
 /** The two processes one live session is (docs/environment.md). */
 const sessionProcs = (id: string, exe = "claude") => [
-	psLine("2.1.233", `${exe} bg-pty-host --bg-pty-host /tmp/${id}.pty.sock 200`),
-	psLine("2.1.233", `${exe} bg-spare --bg-spare /tmp/${id}.claim.sock`),
+	buildPsLine(
+		"2.1.233",
+		`${exe} bg-pty-host --bg-pty-host /tmp/${id}.pty.sock 200`,
+	),
+	buildPsLine("2.1.233", `${exe} bg-spare --bg-spare /tmp/${id}.claim.sock`),
 ];
 
 /** The tree the path annotation resolves backticked tokens against. */
@@ -487,18 +558,22 @@ const stubDispatchLedger = (fx: Fixture) => {
 	fs.writeFileSync(
 		file,
 		`${fx.dispatched
-			.map((d) =>
-				JSON.stringify({
-					ts: new Date(
-						Date.now() - (d.hoursAgo ?? 0.5) * 3_600_000,
-					).toISOString(),
+			.flatMap((d) => {
+				const ts = new Date(
+					Date.now() - (d.hoursAgo ?? 0.5) * 3_600_000,
+				).toISOString();
+				const launch = JSON.stringify({
+					ts,
 					issues: d.issues,
 					model: "opus",
 					prompt: d.prompt ?? `/implement ${d.issues.join(" ")}`,
 					session: "gone",
 					jobId: d.jobId ?? null,
-				}),
-			)
+				});
+				return d.released
+					? [launch, JSON.stringify({ ts, released: d.jobId })]
+					: [launch];
+			})
 			.join("\n")}\n`,
 	);
 };
@@ -518,7 +593,7 @@ const stubMachine = () => {
 	);
 	/*
 	 * A directory with no numbered subdirs, so `daemonSpareOverheadMb`'s
-	 * `pssKb(pid)` reads never resolve against this host's real /proc — a
+	 * `readPssKb(pid)` reads never resolve against this host's real /proc — a
 	 * fixture pid (111, say) could otherwise coincide with a live process here
 	 * and read a real smaps_rollup, making the reservation figure non-hermetic
 	 * (mantahostels#1295).
@@ -564,6 +639,7 @@ const run = async (
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
 		...stub.env,
+		GH_STUB_DIR: dir,
 		...stubMachine(),
 		...stubOracle(),
 		...stubClaims(fx),
@@ -913,7 +989,7 @@ describe("ordering", () => {
 		expect(r.out).toMatch(/#1\s+3\s/);
 	});
 
-	it("sorts a fresh urgent above everything, and reports who applied it", async () => {
+	it("sorts an urgent above every non-bug, and reports who applied it", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 2 }, { number: 3, labels: ["urgent"] }],
 			deps: { 2: [] },
@@ -926,15 +1002,68 @@ describe("ordering", () => {
 		expect(r.out).toMatch(/#3\s+applied by owner 2d ago/);
 	});
 
-	it("ignores an urgent older than 7 days without stripping it", async () => {
+	it("keeps an urgent applied 9 days ago in the urgent band — it never expires (#2664)", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 3, labels: ["urgent"] }],
 			timeline: {
 				3: [{ label: "urgent", created_at: daysAgo(9), actor: "owner" }],
 			},
 		});
-		expect(r.order()).toEqual([1, 3]);
-		expect(r.out).toMatch(/STALE urgent — ignored, never stripped: #3/);
+		expect(r.order()).toEqual([3, 1]);
+		expect(r.out).toMatch(/#3\s+applied by owner 9d ago/);
+	});
+
+	it("ranks a descendant of an urgent map as urgent, with no label of its own (#2664)", async () => {
+		const fx = {
+			issues: [
+				{ number: 1 },
+				{ number: 10, labels: ["wayfinder:map", "urgent"] },
+				{ number: 11, parent: 10 },
+				{ number: 12, parent: 11 },
+			],
+			timeline: {
+				10: [{ label: "urgent", created_at: daysAgo(10), actor: "owner" }],
+			},
+		};
+		const rows = (await run(fx, ["--json"])).json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([12, 1]);
+		expect(rows[0]).toMatchObject({ urgent: true, urgentVia: 10, bug: false });
+		const text = await run(fx);
+		expect(text.out).toMatch(/^ {2}#12 {2}urgent via #10$/m);
+		expect(text.out).toMatch(/#12\s+via\s/);
+	});
+
+	it("passes no urgency down from a parent that is not a map", async () => {
+		const r = await run({
+			issues: [
+				{ number: 1 },
+				{ number: 10, labels: ["kind:spec", "urgent"] },
+				{ number: 11, parent: 10 },
+			],
+			timeline: {
+				10: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
+			},
+		});
+		expect(r.order()).toEqual([1, 11]);
+	});
+
+	it("ranks an unlabelled bug above an urgent non-bug (#2664)", async () => {
+		const r = await run(
+			{
+				issues: [
+					{ number: 1 },
+					{ number: 2, labels: ["urgent"] },
+					{ number: 3, labels: ["bug"] },
+				],
+				timeline: {
+					2: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
+				},
+			},
+			["--json"],
+		);
+		const rows = r.json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([3, 2, 1]);
+		expect(rows[0]).toMatchObject({ bug: true, urgent: true, urgentVia: null });
 	});
 
 	it("flags an empty or whitespace-only body on the frontier under EMPTY BODY, naming each issue in text and JSON, excluding nothing (mantahostels#3443)", async () => {
@@ -964,15 +1093,13 @@ describe("ordering", () => {
 		expect(r.out).not.toMatch(/EMPTY BODY/);
 	});
 
-	it("treats an urgent whose timeline is unreachable as neither fresh nor stale", async () => {
-		// Both directions would be a claim: the label may be a day old or a year.
+	it("ranks an urgent whose timeline is unreachable, saying its start is unrecorded", async () => {
 		const r = await run({
 			issues: [{ number: 1 }, { number: 3, labels: ["urgent"] }],
 			failTimeline: [3],
 		});
-		expect(r.order()).toEqual([1, 3]);
-		expect(r.out).not.toMatch(/STALE urgent/);
-		expect(r.out).not.toMatch(/URGENT \(fresh/);
+		expect(r.order()).toEqual([3, 1]);
+		expect(r.out).toMatch(/^ {2}#3 {2}URGENT — start unrecorded$/m);
 	});
 
 	it("puts the goal band above reach, keeping the high-reach issue on screen", async () => {
@@ -1034,7 +1161,7 @@ describe("ordering", () => {
 		expect(frontier[5].asksQuestions).toBe(false);
 	});
 
-	it("keeps a fresh urgent, the goal set and a stalled wait above the type level", async () => {
+	it("keeps an urgent, the goal set and a stalled wait above the type level", async () => {
 		const r = await run(
 			{
 				issues: [
@@ -1193,7 +1320,7 @@ describe("the waiting:external escalation", () => {
 		expect(over.out).toMatch(/^#1\s+7d!\s/m);
 	});
 
-	it("keeps a fresh urgent and the goal set above even a long stall", async () => {
+	it("keeps an urgent and the goal set above even a long stall", async () => {
 		// Both are what a human just said matters; the stall is inferred.
 		const r = await run(
 			{
@@ -1271,7 +1398,8 @@ describe("the waiting:external escalation", () => {
 		});
 		for (const call of r.calls())
 			expect(call).not.toMatch(/(^|\s)(-X|--method)(\s|$)/);
-		expect(r.calls().join("\n")).not.toMatch(/labels/);
+		expect(restCalls(r.calls()).join("\n")).not.toMatch(/labels/);
+		expectGraphqlReadsOnly(r.calls());
 	});
 
 	it("carries the wait into --json, excluded issues included", async () => {
@@ -1296,15 +1424,16 @@ describe("the waiting:external escalation", () => {
 });
 
 /*
- * #2000: a parked ticket's round waits on the founder, so relaunching it
- * re-asks the round; the PARKED block keeps the park from going quiet.
+ * #2000, #2703: a parked ticket stays choosable; the refill loop holds it out
+ * of a launch (lib/refill-decide.js). The PARKED block keeps the park from
+ * going quiet.
  */
 describe("the parked label", () => {
 	const parked = (n: number, days: number) => ({
 		[n]: [{ label: "parked", created_at: daysAgo(days), actor: "owner" }],
 	});
 
-	it("excludes a parked ticket and lists it under PARKED with its age", async () => {
+	it("keeps a parked ticket choosable and lists it under PARKED with its age", async () => {
 		const r = await run({
 			issues: [
 				{ number: 1, labels: ["takes:wayfinder", "parked"] },
@@ -1312,12 +1441,26 @@ describe("the parked label", () => {
 			],
 			timeline: parked(1, 3),
 		});
-		expect(r.order()).toEqual([2]);
+		expect([...r.order()].sort()).toEqual([1, 2]);
 		expect(r.out).toMatch(/^PARKED — /m);
 		expect(r.out).toMatch(/#1\s+3d, since \S+/);
-		const excluded = r.out.split("\nEXCLUDED\n")[1];
-		expect(excluded).toMatch(/#1\s.*parked — its round waits on the founder/);
-		expect(r.out).toMatch(/open tally +2 open, 1 frontier, 1 parked \(#1\)/);
+		expect(r.out).toMatch(
+			/Choosable here; the refill loop never launches it\./,
+		);
+		expect(r.out).toMatch(/open tally +2 open, 2 frontier/);
+	});
+
+	it("puts a parked ticket on the --json frontier and in its parked list", async () => {
+		const r = await run(
+			{
+				issues: [{ number: 1, labels: ["parked"] }, { number: 2 }],
+				timeline: parked(1, 3),
+			},
+			["--json"],
+		);
+		const j = r.json();
+		expect(j.frontier.map((x: { number: number }) => x.number)).toContain(1);
+		expect(j.parked.map((x: { number: number }) => x.number)).toEqual([1]);
 	});
 
 	it("lists a parked ticket another limb excludes, oldest park first", async () => {
@@ -1343,7 +1486,6 @@ describe("the parked label", () => {
 			issues: [{ number: 1, labels: ["parked"] }, { number: 2 }],
 			failTimeline: [1],
 		});
-		expect(r.order()).toEqual([2]);
 		expect(r.out).toMatch(/#1\s+age unknown \(/);
 	});
 });
@@ -1353,16 +1495,16 @@ describe("possible file collisions", () => {
 	const table = (out: string) => out.split("-".repeat(106))[1].split("\n\n")[0];
 
 	it("reports two shortlisted issues whose bodies name the same tracked file", async () => {
-		stubRepo(["scripts/lib/guard-parse.sh", "scripts/pick-next.js"]);
+		stubRepo(["scripts/lib/guard-log.sh", "scripts/pick-next.js"]);
 		const r = await run({
 			issues: [
-				{ number: 181, body: "rework `scripts/lib/guard-parse.sh`" },
-				{ number: 183, body: "the parser in `scripts/lib/guard-parse.sh`" },
+				{ number: 181, body: "rework `scripts/lib/guard-log.sh`" },
+				{ number: 183, body: "the parser in `scripts/lib/guard-log.sh`" },
 				{ number: 184, body: "nothing shared here: `scripts/pick-next.js`" },
 			],
 		});
 		expect(r.out).toMatch(
-			/possible collision: #181 <-> #183 on scripts\/lib\/guard-parse\.sh/,
+			/possible collision: #181 <-> #183 on scripts\/lib\/guard-log\.sh/,
 		);
 		expect(r.out.match(/possible collision:/g)).toHaveLength(1);
 	});
@@ -1801,9 +1943,9 @@ describe("admission", () => {
 		psOut = [
 			...sessionProcs("a"),
 			...sessionProcs("b", "/usr/bin/claude.exe"),
-			psLine("2.1.233", "/home/lucmo/.local/bin/claude daemon run"),
-			psLine("node", "node scripts/pick-next.js"),
-			psLine("clauded", "clauded --not-ours"),
+			buildPsLine("2.1.233", "/home/lucmo/.local/bin/claude daemon run"),
+			buildPsLine("node", "node scripts/pick-next.js"),
+			buildPsLine("clauded", "clauded --not-ours"),
 		].join("\n");
 		const r = await run({ issues: [{ number: 1 }] });
 		expect(r.out).toMatch(/\(5 claude processes/);
@@ -1812,12 +1954,15 @@ describe("admission", () => {
 	it("counts the versioned binary a resumed session re-execs, whose basename is a version", async () => {
 		psOut = [
 			...sessionProcs("a"),
-			psLine(
+			buildPsLine(
 				"2.1.234",
 				"/home/lucmo/.local/share/claude/versions/2.1.234 --resume /home/lucmo/.claude/projects/p/s.jsonl",
 			),
 			// Some other tool's versions directory is not ours.
-			psLine("2.1.234", "/opt/acme/versions/2.1.234 --resume nothing-of-ours"),
+			buildPsLine(
+				"2.1.234",
+				"/opt/acme/versions/2.1.234 --resume nothing-of-ours",
+			),
 		].join("\n");
 		const r = await run({ issues: [{ number: 1 }] });
 		expect(r.out).toMatch(/\(3 claude processes/);
@@ -1843,8 +1988,8 @@ describe("admission", () => {
 		// A daemon and a host are claude processes but not sessions, so the
 		// oracle reports none alongside and the guarantee admits one anyway.
 		psOut = [
-			psLine("claude", "claude daemon run --origin transient"),
-			psLine("claude", "/home/lucmo/.local/bin/claude agents"),
+			buildPsLine("claude", "claude daemon run --origin transient"),
+			buildPsLine("claude", "/home/lucmo/.local/bin/claude agents"),
 		].join("\n");
 		memAvailableKb = 50 * 1024;
 		const r = await run({ issues: [{ number: 1 }] });
@@ -2556,6 +2701,67 @@ describe("when the tracker misbehaves", () => {
 		expect(r.out).not.toMatch(/DEGRADED/);
 	});
 
+	it("reads every issue's blockers in one batched call, no per-issue call (#2685)", async () => {
+		const r = await run({
+			issues: [{ number: 1 }, { number: 2 }, { number: 3 }],
+			deps: { 3: [{ number: 1, state: "open" }] },
+		});
+		expect(r.order()).toEqual([1, 2]);
+		const calls = fs.readFileSync(CALL_LOG(), "utf8");
+		expect(calls).not.toMatch(/dependencies\/blocked_by/);
+		expect(calls.match(/^api graphql /gm)).toHaveLength(1);
+	});
+
+	it("reads the full blocker list of an issue with more than the batch's inner page (#2685)", async () => {
+		// The batch reads 25 blockers per issue; #1's 26th, the only open one,
+		// is past that page, so only the REST read can see it.
+		const many = Array.from({ length: 26 }, (_, k) => ({
+			number: 100 + k,
+			state: k === 25 ? ("open" as const) : ("closed" as const),
+		}));
+		const r = await run({
+			issues: [{ number: 1 }, { number: 2 }, { number: 125 }],
+			deps: { 1: many },
+		});
+		expect(r.order()).toEqual([125, 2]);
+		const calls = fs.readFileSync(CALL_LOG(), "utf8");
+		expect(calls).toMatch(/issues\/1\/dependencies\/blocked_by/);
+		expect(calls).not.toMatch(/issues\/2\/dependencies\/blocked_by/);
+	});
+
+	it("holds every issue in a failed batch out as readiness unknown, never unblocked (#2685)", async () => {
+		const r = await run({
+			issues: [{ number: 1 }, { number: 2 }],
+			failGraphql: true,
+		});
+		expect(r.status).toBe(0);
+		expect(r.order()).toEqual([]);
+		expect(r.out).toMatch(/DEGRADED \(2\) — readiness unknown/);
+		expect(r.out).toContain(GH_NOT_FOUND.stderr.trim());
+		const calls = fs.readFileSync(CALL_LOG(), "utf8");
+		expect(calls).not.toMatch(/dependencies\/blocked_by/);
+	});
+
+	it("retries a failed batch once and keeps its issues on a success (#2685)", async () => {
+		const r = await run({
+			issues: [{ number: 1 }, { number: 2 }],
+			failGraphqlOnce: true,
+		});
+		expect(r.order()).toEqual([1, 2]);
+		expect(r.out).not.toMatch(/DEGRADED/);
+	});
+
+	for (const answer of ["empty", "noRepo"] as const)
+		it(`reads a batch answering ${answer} as readiness unknown, never as no blockers (#2685)`, async () => {
+			const r = await run({
+				issues: [{ number: 1 }],
+				deps: { 1: [{ number: 9, state: "open" }] },
+				graphqlAnswers: answer,
+			});
+			expect(r.order()).toEqual([]);
+			expect(r.out).toMatch(/DEGRADED \(1\) — readiness unknown/);
+		});
+
 	it("holds an issue out of the shortlist when its readiness stays unknown", async () => {
 		// Never assumed takeable: a session would claim work something else gates.
 		const r = await run({
@@ -2566,7 +2772,7 @@ describe("when the tracker misbehaves", () => {
 		expect(r.order()).toEqual([1]);
 		expect(r.out).toMatch(/DEGRADED \(1\) — readiness unknown/);
 		expect(r.out).toMatch(/#2\s/);
-		expect(r.out).toMatch(/HTTP 502/);
+		expect(r.out).toContain(GH_NOT_FOUND.stderr.trim());
 	});
 
 	it("qualifies the headline on the same line when any issue is degraded (#93)", async () => {
@@ -2589,12 +2795,12 @@ describe("when the tracker misbehaves", () => {
 		const numbers = [11, 12, 13, 14];
 		const r = await run({
 			issues: [{ number: 1 }, ...numbers.map((number) => ({ number }))],
-			failDepsSame: numbers,
+			failDeps: numbers,
 		});
 		expect(r.status).toBe(0);
 		expect(r.out).toMatch(/DEGRADED \(4\)/);
 		expect(r.out).toContain(
-			"4 failing the same way — gh: Service Unavailable (HTTP 503)",
+			`4 failing the same way — ${GH_NOT_FOUND.stderr.trim()}`,
 		);
 		for (const n of numbers) expect(r.out).toContain(`#${n}`);
 	});
@@ -2603,7 +2809,7 @@ describe("when the tracker misbehaves", () => {
 		const numbers = [21, 22, 23];
 		const r = await run({
 			issues: [{ number: 1 }, ...numbers.map((number) => ({ number }))],
-			failDepsSame: numbers,
+			failDeps: numbers,
 		});
 		expect(r.status).toBe(0);
 		expect(r.out).not.toMatch(/failing the same way/);
@@ -2666,7 +2872,8 @@ describe("advisory only", () => {
 		}
 		// The `urgent` path is the one mantahostels#101 (what defines urgency) and mantahostels#111 (who
 		// may apply it) both guarded: read and display, never apply, never strip.
-		expect(r.calls().join("\n")).not.toMatch(/labels/);
+		expect(restCalls(r.calls()).join("\n")).not.toMatch(/labels/);
+		expectGraphqlReadsOnly(r.calls());
 		expect(r.out).toMatch(/nothing here was written back to the tracker/);
 	});
 
@@ -2684,26 +2891,6 @@ describe("advisory only", () => {
 			{ number: 2, title: "issue 2", reason: "claimed by someone" },
 		]);
 		expect(j.degraded).toEqual([]);
-	});
-
-	it("reports a stale urgent in JSON, not only in the printed table", async () => {
-		// mantahostels#111 gave this skill display duty over `urgent`. A consumer reading
-		// --json must see a stale one too, or the duty holds in one mode only.
-		const r = await run(
-			{
-				issues: [{ number: 1 }, { number: 3, labels: ["urgent"] }],
-				timeline: {
-					3: [{ label: "urgent", created_at: daysAgo(9), actor: "owner" }],
-				},
-			},
-			["--json"],
-		);
-		expect(r.json().staleUrgent).toEqual([
-			{ number: 3, appliedBy: "owner", appliedAt: expect.any(String) },
-		]);
-		expect(r.json().frontier.map((f: { number: number }) => f.number)).toEqual([
-			1, 3,
-		]);
 	});
 
 	it("refuses a flag given as another flag's value, naming the flag that needs a value (#920)", async () => {
@@ -2743,7 +2930,8 @@ describe("--dump-bodies", () => {
 		expect(fs.readFileSync(path.join(dumpDir(), "2.md"), "utf8")).toContain(
 			"body two",
 		);
-		for (const call of r.calls()) expect(call).not.toMatch(/\bissue\b/);
+		for (const call of restCalls(r.calls()))
+			expect(call).not.toMatch(/\bissue\b/);
 		expect(r.calls().filter((c) => /issues\?state=open/.test(c))).toHaveLength(
 			1,
 		);
@@ -2830,7 +3018,7 @@ describe("the doc-map queue", () => {
 	 * prints issue numbers too (mantahostels#1002), so a bare /mantahostels#1, mantahostels#2/ over the run would
 	 * pass on either block.
 	 */
-	const queueLine = (out: string) =>
+	const parseQueueLine = (out: string) =>
 		out.match(/just the top:\n {2}(.*)/)?.[1] ?? null;
 
 	it("flags the bodies naming a §B entry as one queue, in shortlist order", async () => {
@@ -2842,7 +3030,7 @@ describe("the doc-map queue", () => {
 			],
 		});
 		expect(r.out).toMatch(/DOC-MAP QUEUE/);
-		expect(queueLine(r.out)).toBe("#2, #3");
+		expect(parseQueueLine(r.out)).toBe("#2, #3");
 	});
 
 	it("keeps out a bare B45 and a plain doc-map mention", async () => {
@@ -2864,7 +3052,7 @@ describe("the doc-map queue", () => {
 			],
 		});
 		expect(r.out).toMatch(/DOC-MAP QUEUE \(1\)/);
-		expect(queueLine(r.out)).toBe("#1");
+		expect(parseQueueLine(r.out)).toBe("#1");
 	});
 
 	it("prints the whole queue as one line, excluding none of it", async () => {
@@ -2874,7 +3062,7 @@ describe("the doc-map queue", () => {
 				{ number: 2, body: "§B2" },
 			],
 		});
-		expect(queueLine(r.out)).toBe("#1, #2");
+		expect(parseQueueLine(r.out)).toBe("#1, #2");
 		expect(r.order()).toEqual([1, 2]);
 		expect(r.out).not.toMatch(/EXCLUDED\n\n#/);
 	});
@@ -3115,7 +3303,7 @@ describe("the write-set cache", () => {
 	});
 
 	/** Every line of the warm-fraction log this tree has recorded, oldest first. */
-	const logged = () =>
+	const readLog = () =>
 		fs
 			.readFileSync(
 				path.join(repoRoot as string, warmFractionLog.LOG_SUBPATH),
@@ -3140,12 +3328,12 @@ describe("the write-set cache", () => {
 			],
 		};
 		await here(fx);
-		const first = logged()[0];
+		const first = readLog()[0];
 		// The band read the first run asked for, landing between the two runs.
 		store(1, "one");
 		derivedAt(1, new Date(Date.parse(first.at) + 1).toISOString());
 		await here(fx);
-		const lines = logged();
+		const lines = readLog();
 		expect(lines).toHaveLength(2);
 		// Nothing preceded the first run, so its interval is unknown, not empty.
 		expect(first.putsSinceLastRun).toBeNull();
@@ -3157,7 +3345,7 @@ describe("the write-set cache", () => {
 		store(1, "one");
 		await here(fx);
 		await here(fx);
-		expect(logged()[1].putsSinceLastRun).toBe(0);
+		expect(readLog()[1].putsSinceLastRun).toBe(0);
 	});
 
 	const logFile = () =>
@@ -3196,8 +3384,8 @@ describe("the write-set cache", () => {
 			["--limit", "1", "--no-prewarm"],
 		);
 		expect(r.order()).toEqual([1]);
-		expect(logged()[0].frontier).toBe(2);
-		expect(logged()[0].cold).toBe(2);
+		expect(readLog()[0].frontier).toBe(2);
+		expect(readLog()[0].cold).toBe(2);
 	});
 
 	it("leaves the exit code and the shortlist alone when the append fails", async () => {
@@ -3376,17 +3564,17 @@ describe("the write-set cache", () => {
 					{ number: 2, body: "two" },
 				],
 			});
-			expect(logged()[0].warm).toBe(1);
-			expect(logged()[0].provisional).toBe(1);
-			expect(logged()[0].cold).toBe(0);
-			expect(logged()[0].provisionalNumbers).toEqual([2]);
+			expect(readLog()[0].warm).toBe(1);
+			expect(readLog()[0].provisional).toBe(1);
+			expect(readLog()[0].cold).toBe(0);
+			expect(readLog()[0].provisionalNumbers).toEqual([2]);
 		});
 
 		it("does not count its own predictions as puts, which would defeat the collapse", async () => {
 			const fx = { issues: [{ number: 1, body: "one" }] };
 			await here(fx);
 			await here(fx);
-			expect(logged()[1].putsSinceLastRun).toBe(0);
+			expect(readLog()[1].putsSinceLastRun).toBe(0);
 		});
 
 		it("changes neither the order nor the shortlist", async () => {
@@ -4468,12 +4656,13 @@ describe("the full-JSON snapshot every run leaves on disk", () => {
 			".pick-next",
 			"last-run.json",
 		);
-	const snapshot = () => JSON.parse(fs.readFileSync(snapshotPath(), "utf8"));
+	const readSnapshot = () =>
+		JSON.parse(fs.readFileSync(snapshotPath(), "utf8"));
 
 	it("writes the report on a plain text run, which asked for no JSON at all", async () => {
 		const r = await here({ issues: [{ number: 1, body: "one" }] });
 		expect(r.status).toBe(0);
-		expect(snapshot().openIssues).toBe(1);
+		expect(readSnapshot().openIssues).toBe(1);
 	});
 
 	it("names the file it wrote, at the end where a tail still sees it", async () => {
@@ -4499,9 +4688,9 @@ describe("the full-JSON snapshot every run leaves on disk", () => {
 			"1",
 		]);
 		expect(r.status).toBe(0);
-		expect(snapshot().argv).toEqual(["--no-log", "--limit", "1"]);
-		expect(typeof snapshot().repo).toBe("string");
-		expect(snapshot().repo).toBeTruthy();
+		expect(readSnapshot().argv).toEqual(["--no-log", "--limit", "1"]);
+		expect(typeof readSnapshot().repo).toBe("string");
+		expect(readSnapshot().repo).toBeTruthy();
 	});
 
 	it("leaves no half-written file where a concurrent reader can see one", async () => {
@@ -4534,16 +4723,16 @@ describe("the full-JSON snapshot every run leaves on disk", () => {
 			["--limit", "1"],
 		);
 		expect(r.status).toBe(0);
-		expect(snapshot().frontier).toHaveLength(3);
-		expect(snapshot().frontierCount).toBe(3);
-		expect(snapshot().summary.shown).toBe(1);
+		expect(readSnapshot().frontier).toHaveLength(3);
+		expect(readSnapshot().frontierCount).toBe(3);
+		expect(readSnapshot().summary.shown).toBe(1);
 	});
 
 	it("writes the same report --json prints, so re-running buys nothing", async () => {
 		const r = await here({ issues: [{ number: 1, body: "one" }] }, ["--json"]);
 		expect(r.status).toBe(0);
 		const printed = r.json();
-		const written = snapshot();
+		const written = readSnapshot();
 		// generatedAt is the one field a second run would legitimately move.
 		delete printed.generatedAt;
 		delete written.generatedAt;
@@ -5227,6 +5416,17 @@ describe("issues the launcher has already dispatched", () => {
 			dispatched: [{ issues: [2], prompt: "/implement 2 7", hoursAgo: 0.5 }],
 		});
 		expect(r.out).toMatch(/#2\s+0\.5h ago — \/implement 2 7/);
+	});
+
+	it("re-admits one whose launch the refill loop handed off, inside the window (#2744)", async () => {
+		const r = await run({
+			issues: [{ number: 1 }, { number: 2 }, { number: 3 }],
+			dispatched: [
+				{ issues: [2], jobId: "job2", released: true },
+				{ issues: [3], jobId: "job3" },
+			],
+		});
+		expect(r.order()).toEqual([1, 2]);
 	});
 
 	it("re-admits one whose ledger entry has aged out of the window", async () => {

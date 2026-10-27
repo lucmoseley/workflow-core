@@ -15,6 +15,7 @@
  * filed Completed; tighten one and a well-formed turn is refused.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -22,8 +23,9 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EXEMPT_NAMES } from "./lib/priced-options-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { type StopBlock, stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
 import { buildBashCall, researchCalls } from "./lib/transcript-testkit";
+import { readProgramLibs } from "./lib-closure-fixture";
 
 /* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
@@ -100,7 +102,11 @@ const runGuardCli = (opts: {
 	stdin: string;
 	cwd: string;
 	env: NodeJS.ProcessEnv;
-}) => runInProcess(GUARD, [], opts);
+}) =>
+	runInProcess(GUARD, [], {
+		...opts,
+		env: { ...opts.env, CLAUDE_CONFIG_DIR: path.join(dir, "config") },
+	});
 
 /**
  * A `null` `jobDir` runs the guard as an interactive session. `extra`
@@ -111,7 +117,7 @@ const runGuard = (
 	jobDir: string | null,
 	extra: NodeJS.ProcessEnv = {},
 ): Block | null =>
-	stopGuardBlock(GUARD, {
+	readStopGuardBlock(GUARD, {
 		dir,
 		sid,
 		transcript,
@@ -129,14 +135,14 @@ function run(transcript: string): Block | null {
  * (mantahostels#1273), and no transcript to fall back to — so only the payload can answer.
  */
 const runWithMessage = (message: string) =>
-	stopGuardBlock(GUARD, { dir, sid, message });
+	readStopGuardBlock(GUARD, { dir, sid, message });
 
 /**
  * Run the guard as a background job with the turn's text on the payload and no
  * transcript behind it (mantahostels#1254).
  */
 const runInJobWithMessage = (message: string) =>
-	stopGuardBlock(GUARD, { dir, sid, message, job: dir });
+	readStopGuardBlock(GUARD, { dir, sid, message, job: dir });
 
 /** Run the guard as a background job, where the status line can be mislabelled. */
 function runInJob(transcript: string): Block | null {
@@ -991,7 +997,7 @@ describe("a needs input: written above the round it announces (#228)", () => {
 
 describe("it leaves proof that it ran (mantahostels#872)", () => {
 	/** One appended line per invocation, oldest first (mantahostels#1274). */
-	const records = () => {
+	const readRecords = () => {
 		const file = path.join(
 			hookRecord.recordsDir(dir),
 			`.hook-ran-guard-priced-options-${sid}`,
@@ -1004,20 +1010,20 @@ describe("it leaves proof that it ran (mantahostels#872)", () => {
 			.map((l) => JSON.parse(l));
 	};
 
-	const record = () => records()[records().length - 1] ?? null;
+	const readLastRecord = () => readRecords()[readRecords().length - 1] ?? null;
 
 	it("records a turn it allowed", () => {
 		expect(run(transcriptWith(GOOD))).toBeNull();
-		expect(records()).toHaveLength(1);
-		expect(record()).toMatchObject({ outcome: "message" });
+		expect(readRecords()).toHaveLength(1);
+		expect(readLastRecord()).toMatchObject({ outcome: "message" });
 	});
 
 	it("records a turn it blocked, without touching the block counter's job", () => {
 		expect(run(transcriptWith("❓ **Q1** - **X**: pick one."))?.decision).toBe(
 			"block",
 		);
-		expect(records()).toHaveLength(1);
-		expect(record()).toMatchObject({ outcome: "message" });
+		expect(readRecords()).toHaveLength(1);
+		expect(readLastRecord()).toMatchObject({ outcome: "message" });
 		expect(
 			fs.readFileSync(
 				path.join(markersDir(dir), `.priced-options-nagged-${sid}`),
@@ -1033,14 +1039,14 @@ describe("it leaves proof that it ran (mantahostels#872)", () => {
 			`${JSON.stringify({ type: "user", message: { content: "ask" } })}\n`,
 		);
 		expect(run(file)).toBeNull();
-		expect(records()).toHaveLength(1);
-		expect(record()).toMatchObject({ outcome: "empty-message" });
+		expect(readRecords()).toHaveLength(1);
+		expect(readLastRecord()).toMatchObject({ outcome: "empty-message" });
 	});
 
 	it("records a missing transcript", () => {
 		run(path.join(dir, "absent.jsonl"));
-		expect(records()).toHaveLength(1);
-		expect(record()).toMatchObject({ outcome: "no-transcript" });
+		expect(readRecords()).toHaveLength(1);
+		expect(readLastRecord()).toMatchObject({ outcome: "no-transcript" });
 	});
 
 	it("records every invocation, not only the blocking ones", () => {
@@ -1048,7 +1054,7 @@ describe("it leaves proof that it ran (mantahostels#872)", () => {
 		run(good);
 		run(good);
 		run(good);
-		expect(records()).toHaveLength(3);
+		expect(readRecords()).toHaveLength(3);
 		expect(
 			fs.existsSync(
 				path.join(markersDir(dir), `.priced-options-nagged-${sid}`),
@@ -1059,13 +1065,16 @@ describe("it leaves proof that it ran (mantahostels#872)", () => {
 	it("names the route the message came from", () => {
 		// No `last_assistant_message` on this payload, so the fallback runs.
 		run(transcriptWith(GOOD));
-		expect(record()).toMatchObject({ source: "transcript", payloadLen: null });
-		expect(record()?.transcriptLen).toBeGreaterThan(0);
+		expect(readLastRecord()).toMatchObject({
+			source: "transcript",
+			payloadLen: null,
+		});
+		expect(readLastRecord()?.transcriptLen).toBeGreaterThan(0);
 	});
 
 	it("takes the text off the payload when the harness supplies it", () => {
 		runWithMessage(GOOD);
-		expect(record()).toMatchObject({
+		expect(readLastRecord()).toMatchObject({
 			outcome: "message",
 			source: "payload",
 			payloadLen: GOOD.length,
@@ -2088,5 +2097,37 @@ describe("the ceiling is reserved by stake tier (mantahostels#3430)", () => {
 				path.join(markersDir(dir), `.priced-options-nagged-${sid}`),
 			),
 		).toBe(false);
+	});
+});
+
+/* Spawned, not run in process: the guard's load-failure handler is an
+ * `uncaughtException` listener, which a throw inside the test runner's own
+ * `require` never reaches. */
+describe("a lib that will not load (#2645)", () => {
+	it("blocks the stop naming it, then lets the re-stop and an unread payload through", () => {
+		const scripts = path.join(dir, "plugin", "scripts");
+		fs.mkdirSync(path.join(scripts, "lib"), { recursive: true });
+		const program = "guard-priced-options.js";
+		for (const f of [
+			program,
+			...readProgramLibs(program).map((l) => `lib/${l}`),
+		])
+			fs.copyFileSync(path.join(__dirname, f), path.join(scripts, f));
+		fs.rmSync(path.join(scripts, "lib", "shell-var-name.js"));
+		const runBroken = (input: string) =>
+			execFileSync("node", [path.join(scripts, program)], {
+				input,
+				encoding: "utf8",
+				env: { ...process.env, CLAUDE_CONFIG_DIR: path.join(dir, "config") },
+			});
+		const payload = { session_id: sid, last_assistant_message: "Done." };
+
+		const block = JSON.parse(runBroken(JSON.stringify(payload)));
+		expect(block.decision).toBe("block");
+		expect(block.reason).toContain("shell-var-name");
+		expect(
+			runBroken(JSON.stringify({ ...payload, stop_hook_active: true })),
+		).toBe("");
+		expect(runBroken("not json")).toBe("");
 	});
 });

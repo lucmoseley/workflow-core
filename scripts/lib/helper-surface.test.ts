@@ -445,7 +445,12 @@ import(pathToFileURL(process.argv[3]).href).then(({ default: c }) => {
 			const seed = () => {
 				const r = run("scripts/mutation-hold-gate.js", ["--seed"], {
 					cwd: dir,
-					env: { ...process.env, WFC_STRYKER: stub, CLAUDE_PROJECT_DIR: dir },
+					env: {
+						...process.env,
+						WFC_STRYKER: stub,
+						CLAUDE_PROJECT_DIR: dir,
+						CLAUDE_CONFIG_DIR: path.join(dir, ".config"),
+					},
 				});
 				codes.add(r.status);
 				return r;
@@ -507,14 +512,14 @@ import(pathToFileURL(process.argv[3]).href).then(({ default: c }) => {
 				codes.add(r.status);
 				return r;
 			};
-			const sidecar = () => JSON.parse(fs.readFileSync(data, "utf8"));
-			const claims = () =>
+			const readSidecar = () => JSON.parse(fs.readFileSync(data, "utf8"));
+			const readClaims = () =>
 				fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
 
 			const all = listed.filter((f) => f !== "--no-claim");
 			const r = register("docs/new.md", all);
 			expect(r.status, r.stderr).toBe(0);
-			expect(sidecar()["docs/new.md"]).toEqual({
+			expect(readSidecar()["docs/new.md"]).toEqual({
 				section: "New",
 				class: "derived",
 				classQualifier: "q",
@@ -523,12 +528,12 @@ import(pathToFileURL(process.argv[3]).href).then(({ default: c }) => {
 				consumes,
 				reader: "agent",
 			});
-			expect(claims()).toMatch(/^claim .*docs\/new\.md\n$/);
+			expect(readClaims()).toMatch(/^claim .*docs\/new\.md\n$/);
 
 			expect(register("docs/new.md", all).status).toBe(1);
-			expect(claims()).toMatch(/\nclaim .*\nrelease .*docs\/new\.md\n$/);
+			expect(readClaims()).toMatch(/\nclaim .*\nrelease .*docs\/new\.md\n$/);
 
-			const before = claims();
+			const before = readClaims();
 			given["--role"] = "a new role";
 			expect(
 				register("docs/new.md", [
@@ -538,8 +543,8 @@ import(pathToFileURL(process.argv[3]).href).then(({ default: c }) => {
 					"--data-file",
 				]).status,
 			).toBe(0);
-			expect(sidecar()["docs/new.md"].role).toBe("a new role");
-			expect(claims()).toBe(before);
+			expect(readSidecar()["docs/new.md"].role).toBe("a new role");
+			expect(readClaims()).toBe(before);
 
 			given["--data-file"] = path.join(dir, "absent.json");
 			expect(

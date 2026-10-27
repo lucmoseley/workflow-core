@@ -25,7 +25,7 @@ const {
 	readRuns,
 	summarise,
 	partition,
-	lastRunAt,
+	readLastRunAt,
 	DUP_WINDOW_MS,
 	verdictOn,
 	CLAIM,
@@ -163,7 +163,7 @@ describe("reading the log back", () => {
 
 describe("the instant the last run was recorded", () => {
 	it("is null before any run, so there is no interval to count puts over", () => {
-		expect(lastRunAt(root)).toBeNull();
+		expect(readLastRunAt(root)).toBeNull();
 	});
 
 	it("is the newest timestamp, not the last line, since pickers append out of order", () => {
@@ -173,7 +173,7 @@ describe("the instant the last run was recorded", () => {
 				logPath(root),
 				`${JSON.stringify({ at, frontier: 1, warm: 1, cold: 0 })}\n`,
 			);
-		expect(lastRunAt(root)).toBe("2026-08-19T09:00:00.000Z");
+		expect(readLastRunAt(root)).toBe("2026-08-19T09:00:00.000Z");
 	});
 });
 

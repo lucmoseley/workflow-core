@@ -13,11 +13,9 @@
  *
  * EACH FIELD FAILS SHUT ON ITS OWN. A forged, mistyped or off-vocabulary field
  * reads as absent and the others stand; a value that does not parse, or no
- * key at all, reads as a record with every field absent. A run started any
- * way but `run-vitest.js` — a hand-typed `vitest run`, a bare `vitest
- * --changed` — therefore certifies as the hand-typed run it is. Nothing here
- * tells a real record from one exported by hand, and the push gate warns
- * rather than refuses for that reason (mantahostels#908).
+ * key at all, reads as a record with every field absent. Nothing here tells a
+ * real record from one exported by hand, and the push gate warns rather than
+ * refuses for that reason (mantahostels#908).
  *
  * THE RUN REPORT crosses no boundary: vitest runs reporters and globalSetup in
  * one process and calls `onTestRunEnd` strictly before `teardown` (measured
@@ -27,18 +25,16 @@
  *
  * ONE TAKE CLEARS ALL OF IT. A null outcome means the reporter never ran, and
  * then no certificate is written: a missing certificate costs a warning, a
- * false one costs the gate. A stale closure would attest a later run's sha on
- * an earlier run's reads. The timings clear too (#1461 Q4): the teardown
+ * false one costs the gate. The timings clear too (#1461 Q4): the teardown
  * takes once per process, so nothing reads them a second time.
  *
- * THE TIMINGS ARE FILLED PER RUN, never in globalSetup (mantahostels#1953).
- * `setup` and `teardown` fire once per PROCESS; in watch mode one process
- * serves every re-run, so a bracket taken there would time the whole watch
- * session, idle minutes and all, while the certificate carries the last
- * re-run's verdict. The reporter's `onTestRunStart` and `onTestRunEnd` fire
- * per run, so the last fill describes the run the certificate is for.
+ * THE TIMINGS ARE FILLED PER RUN, in the reporter's `onTestRunStart` and
+ * `onTestRunEnd`, never in globalSetup, which fires once per watch-mode
+ * process (mantahostels#1953).
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
 const { FULL_REASONS, FULL_CAUSES } = require("./test-pass-marker.js");
 
 const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
@@ -54,27 +50,35 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   shared tree (mantahostels#2169, mantahostels#2187).
  * - `viaChanged`: the run came from `npm run test:changed` at all, pass or
  *   fail on the freshness check (mantahostels#2303). A DENOMINATOR, NEVER A
- *   CERTIFICATE: without it a failed `test:changed` is byte-identical in the
- *   store to a hand-typed file list, because the launcher consumes
- *   `--changed` before vitest sees it. No gate may read it. The launcher
- *   takes it off argv, never off the selection plan: a null plan is both a
+ *   CERTIFICATE: no gate may read it. The launcher takes it off argv, never
+ *   off the selection plan: a null plan is both a
  *   `--changed`-free argv and an expansion that failed open, and the second
  *   is the one the store could not otherwise see.
+ * - `touched`: the run is a bare one under the `landing` module, selecting
+ *   only the session's touched tests (#2930). A ledger kind, never a
+ *   certificate.
  * - `full`: why the run was unnarrowed, one of `FULL_REASONS` (mantahostels#3207).
  * - `fullCause`: why the session typed `--full=<cause>`, one of `FULL_CAUSES`
  *   (#182). Read only beside `full: "flag"`.
  * - `argv`: the launch's own argv before any flag was stripped (#182).
+ * - `resolvedFiles`, `wholeSlot`: the run's admission weight (#2931), the
+ *   test files its selection resolved to in its own repo, null where that
+ *   could not be counted, and whether that count took the whole-suite slot.
+ *   The queue and the `ps` weighers read these.
  * - `changedPaths`, `base`: the diff the narrowed selection was computed from
  *   and what it was diffed against (#189); absent on a full run and on an
- *   expansion that failed open, so such a certificate covers no path by them.
+ *   expansion that failed open, so such a certificate attests no path by them.
  *
  * @typedef {{
  *   admissible: boolean,
  *   isolated: boolean,
  *   viaChanged: boolean,
+ *   touched: boolean,
  *   full: string|null,
  *   fullCause: string|null,
  *   argv: string[]|null,
+ *   resolvedFiles: number|null,
+ *   wholeSlot: boolean,
  *   changedPaths: string[]|null,
  *   base: string|null,
  * }} Launch
@@ -99,9 +103,15 @@ function validLaunch(raw) {
 		admissible: raw.admissible === true,
 		isolated: raw.isolated === true,
 		viaChanged: raw.viaChanged === true,
+		touched: raw.touched === true,
 		full: oneOf(FULL_REASONS, raw.full),
 		fullCause: oneOf(FULL_CAUSES, raw.fullCause),
 		argv: stringsOrNull(raw.argv),
+		resolvedFiles:
+			Number.isInteger(raw.resolvedFiles) && Number(raw.resolvedFiles) >= 0
+				? Number(raw.resolvedFiles)
+				: null,
+		wholeSlot: raw.wholeSlot === true,
 		changedPaths: stringsOrNull(raw.changedPaths),
 		base:
 			typeof raw.base === "string" && raw.base.trim() ? raw.base.trim() : null,
@@ -132,34 +142,69 @@ function readLaunch(env = process.env) {
 	return validLaunch(raw !== null && typeof raw === "object" ? raw : {});
 }
 
+/** @typedef {Pick<Launch, "resolvedFiles"|"wholeSlot">} CarriedWeight */
+
 /**
- * What the reporter hands the teardown: the verdict, the scope, the
- * attestation (#189), and both halves of the time and CPU brackets
- * (mantahostels#1953). The bracket field names are `markerFrom`'s own.
+ * The admission weight a running process's launch record carries (#2931),
+ * read off `<proc>/<pid>/environ`. Null where the process carries none — a
+ * hand-typed `vitest run` — or its environment cannot be read.
+ * @param {number | null} pid
+ * @param {string} [proc]
+ * @returns {CarriedWeight | null}
+ */
+function readCarriedWeight(pid, proc = "/proc") {
+	if (pid === null) return null;
+	let environ;
+	try {
+		environ = fs.readFileSync(path.join(proc, String(pid), "environ"), "utf8");
+	} catch {
+		/* Gone, or another user's: weighed off its argv instead. */
+		return null;
+	}
+	const key = `${LAUNCH_ENV}=`;
+	const entry = environ.split("\0").find((e) => e.startsWith(key));
+	if (entry === undefined) return null;
+	const { resolvedFiles, wholeSlot } = readLaunch({
+		[LAUNCH_ENV]: entry.slice(key.length),
+	});
+	return resolvedFiles === null && !wholeSlot
+		? null
+		: { resolvedFiles, wholeSlot };
+}
+
+/**
+ * What the reporters hand the teardown: the verdict, the scope, the
+ * attestation (#189), both halves of the time and CPU brackets
+ * (mantahostels#1953), and the in-flight reporter's slowest files (#2770).
+ * The field names are `markerFrom`'s own.
  *
  * @typedef {{
  *   outcome: boolean|null,
  *   scope: import("./test-pass-marker.js").Scope|null,
  *   attestation: import("./test-pass-marker.js").Attestation|null,
  *   startedAtMs: number|null,
+ *   elapsedMs: number|null,
  *   machineStart: import("./cpu-sample.js").CpuSample|null,
  *   machineEnd: import("./cpu-sample.js").CpuSample|null,
  *   endedAtMs: number|null,
+ *   slowest: import("./test-file-timings.js").SlowFile[]|null,
  * }} RunReport
  */
 
 /** @returns {RunReport} */
-const emptyReport = () => ({
+const buildEmptyReport = () => ({
 	outcome: null,
 	scope: null,
 	attestation: null,
 	startedAtMs: null,
+	elapsedMs: null,
 	machineStart: null,
 	machineEnd: null,
 	endedAtMs: null,
+	slowest: null,
 });
 
-let report = emptyReport();
+let report = buildEmptyReport();
 
 /**
  * Sets the named fields, leaving the rest as they stand. Throws on a field
@@ -176,8 +221,14 @@ function fillRunReport(fields) {
 /** @returns {RunReport} the whole report, which it clears */
 function takeRunReport() {
 	const taken = report;
-	report = emptyReport();
+	report = buildEmptyReport();
 	return taken;
 }
 
-module.exports = { launchEnv, readLaunch, fillRunReport, takeRunReport };
+module.exports = {
+	launchEnv,
+	readLaunch,
+	readCarriedWeight,
+	fillRunReport,
+	takeRunReport,
+};

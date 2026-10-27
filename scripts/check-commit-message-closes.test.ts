@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 /*
- * scripts/check-commit-message-closes.sh (#138) — what the scanner matches,
+ * scripts/check-commit-message-closes.js (#138) — what the scanner matches,
  * given a message file.
  *
  * The seam it is wired into — which git hook fires on which route — is
@@ -10,8 +10,8 @@
  * otherwise fire: its own `#` template block, and the `--verbose` diff below
  * the scissors line, which is NOT comment-prefixed.
  *
- * The scanner runs as a real `bash` process over a message file written to
- * disk, the same call the hooks make.
+ * Its branch cases call main in process; its boundary set runs the .sh path
+ * the hooks run, through `bash`, over a file on disk.
  *
  * .husky/commit-msg and .husky/prepare-commit-msg refuse a commit on its hit:
  * a false pass lets a message close an issue server-side on the push, with no
@@ -27,15 +27,30 @@ import { mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 
+const { main } = require("./check-commit-message-closes.js") as {
+	main: (argv: string[]) => { code: number; stderr: string };
+};
+
 const SCANNER = path.join(ROOT, "scripts", "check-commit-message-closes.sh");
 const temps = registerTempCleanup();
 
-/** Runs the scanner over `message`, returning its exit code and stderr. */
-function scan(message: string): { code: number; output: string } {
+/** `message` written to a message file on disk; its path. */
+function messageFile(message: string) {
 	const dir = mkScratchDir("closing-keyword-");
 	temps.push(dir);
 	const file = path.join(dir, "COMMIT_EDITMSG");
 	fs.writeFileSync(file, message);
+	return file;
+}
+
+/** The scanner in process over `message`: its exit code and stderr. */
+function scan(message: string) {
+	const { code, stderr } = main([messageFile(message), "test"]);
+	return { code, output: stderr };
+}
+
+/** The scanner as the hooks run it: `bash` on the .sh path. */
+function scanSpawned(file: string) {
 	try {
 		execFileSync("bash", [SCANNER, file, "test"], {
 			encoding: "utf8",
@@ -51,7 +66,7 @@ function scan(message: string): { code: number; output: string } {
 	}
 }
 
-describe("check-commit-message-closes.sh (#138)", () => {
+describe("check-commit-message-closes.js (#138)", () => {
 	it.each([
 		["Fixes #12 do a thing\n", "Fixes #12"],
 		["Closed #12\n", "Closed #12"],
@@ -68,7 +83,7 @@ describe("check-commit-message-closes.sh (#138)", () => {
 	])("refuses %j, naming what matched", (message, matched) => {
 		const r = scan(message as string);
 		expect(r.code).toBe(1);
-		expect(r.output).toContain(`What matched: ${matched}`);
+		expect(r.output).toContain(`What matched: \`${matched}\``);
 	});
 
 	it.each([
@@ -88,31 +103,35 @@ describe("check-commit-message-closes.sh (#138)", () => {
 	});
 
 	it("refuses rather than passing a message file it cannot read", () => {
-		let code = 0;
-		let output = "";
-		try {
-			execFileSync("bash", [SCANNER, "/nonexistent/COMMIT_EDITMSG", "test"], {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-			});
-		} catch (e) {
-			const err = e as { status?: number; stdout?: string; stderr?: string };
-			code = err.status ?? 1;
-			output = `${err.stdout ?? ""}${err.stderr ?? ""}`;
-		}
-		expect(code).toBe(1);
-		expect(output).toContain("cannot read the commit message file");
-		expect(output).toContain("Refusing rather than passing a message");
+		const r = main(["/nonexistent/COMMIT_EDITMSG", "test"]);
+		expect(r.code).toBe(1);
+		expect(r.stderr).toContain("cannot read the commit message file");
+		expect(r.stderr).toContain("Refusing rather than passing a message");
+	});
+});
+
+describe("the .sh path the hooks run (boundary set)", () => {
+	it("refuses a closing message on stderr with exit 1", () => {
+		const r = scanSpawned(messageFile("Fixes #12 do a thing\n"));
+		expect(r.code).toBe(1);
+		expect(r.output).toContain("test: this commit message closes an issue");
+		expect(r.output).toContain("What matched: `Fixes #12`");
+		expect(r.output).toContain(
+			"Rewrite the message with a non-closing reference and commit again.",
+		);
 	});
 
-	it("shares its pattern with guard-commit-form.sh rather than copying it", () => {
-		const guard = fs.readFileSync(
-			path.join(ROOT, "scripts", "guard-commit-form.sh"),
-			"utf8",
-		);
-		const scanner = fs.readFileSync(SCANNER, "utf8");
-		for (const f of [guard, scanner])
-			expect(f).toContain("lib/closing-keyword.sh");
-		expect(guard).not.toContain("CLOSING_KEYWORD=");
+	it("passes a clean message silently with exit 0", () => {
+		expect(scanSpawned(messageFile("Refs #12 do a thing\n"))).toEqual({
+			code: 0,
+			output: "",
+		});
+	});
+
+	it("refuses an unreadable message file with exit 1", () => {
+		const r = scanSpawned("/nonexistent/COMMIT_EDITMSG");
+		expect(r.code).toBe(1);
+		expect(r.output).toContain("cannot read the commit message file");
+		expect(r.output).toContain("Refusing rather than passing a message");
 	});
 });

@@ -34,7 +34,7 @@
 
 const hookBlock = require("./lib/hook-block");
 const { describeCall, reportOnce } = require("./lib/report-once");
-const { ruleParagraph } = require("./lib/rule-text");
+const { readRuleParagraph } = require("./lib/rule-text");
 const sessionTranscript = require("./lib/session-transcript");
 const stopGuard = require("./lib/stop-guard");
 const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
@@ -59,7 +59,7 @@ const SEEN_PREFIX = ".automode-refusal-seen-";
  * @param {unknown} content
  * @returns {string}
  */
-function resultText(content) {
+function parseResultText(content) {
 	if (typeof content === "string") return content;
 	if (!Array.isArray(content)) return "";
 	return content
@@ -129,7 +129,9 @@ function refusalOf(record, block, uses) {
 		typeof record.toolDenialKind === "string" &&
 		record.toolDenialKind.startsWith("automode-");
 	const denial =
-		block.is_error === true ? DENIAL.exec(resultText(block.content)) : null;
+		block.is_error === true
+			? DENIAL.exec(parseResultText(block.content))
+			: null;
 	if (!tagged && !denial) return null;
 	return {
 		id: block.tool_use_id,
@@ -148,7 +150,7 @@ function reportFor(fresh) {
 		"",
 		...fresh.map((r) => `  ${r.call}\n    Reason: ${r.reason}`),
 		"",
-		ruleParagraph("founder-handover", PARAGRAPH_HEAD),
+		readRuleParagraph("founder-handover", PARAGRAPH_HEAD),
 		"",
 		"Before ending the turn, say which applies to each: reached the goal another way (how), dropped it (why), or handing over a `!` line naming what you tried.",
 		`Each refused call is shown this once, and this guard costs at most ${hookBlock.MAX_BLOCKS} turns a session.`,

@@ -13,17 +13,30 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { Needle, Subject } from "./lib/guard-fires.js";
 import { runInProcess } from "./lib/run-in-process";
 
-const { registeredGuards } = require("./lib/guard-fires.js");
-const { hooksAt, mergeHooks } = require("./lib/core-hooks.js");
-const { STOP_CLASS } = require("./lib/breach-score-rule.js");
+const {
+	registeredGuards,
+	readRegisteredGuardSubjects,
+} = require("./lib/guard-fires.js");
+const { readHooksAt, mergeHooks } = require("./lib/core-hooks.js");
+const {
+	STOP_CLASS,
+	JOB_DIR,
+	MOVED,
+	MIXED,
+	DENY_GUARD_JOIN,
+} = require("./lib/breach-score-rule.js");
+const { dispatchRows } = require("./lib/guard-cores.js");
 
 const ROOT = path.resolve(__dirname, "..");
 const cliPath = path.join(ROOT, "scripts", "score-session-breaches.js");
+/** The scorer reads its registry from `hostRoot()`; pin it to the root the test reads. */
+const ROOT_ENV = { ...process.env, CLAUDE_PROJECT_DIR: ROOT };
 
 /** A Stop refusal as the harness records it: the attachment, plus the user copy the scorer must not count. */
-const stopBlock = (guard: string, toolUseID: string, text: string) => [
+const buildStopBlock = (guard: string, toolUseID: string, text: string) => [
 	{
 		type: "attachment",
 		uuid: `a-${toolUseID}-${guard}`,
@@ -75,6 +88,8 @@ const assistant = (id: string) => ({
 
 const JOB_DIR_DENY =
 	"Refused: this writes a file straight into the job directory's own tmp folder — $CLAUDE_JOB_DIR/tmp/x.md";
+const WAIT_DENY =
+	"This waits 17 minutes — `sleep 1000` — and the limit is 15 minutes.";
 const SUITE_CAP_DENY =
 	"This would be suite 4, which is past the last rung anything has ever been measured on. Wait for one to finish";
 
@@ -93,7 +108,7 @@ describe("the score, run as a command", () => {
 			`${records.map((r) => JSON.stringify(r)).join("\n")}\n`,
 		);
 	const run = (args: string[]) => {
-		const r = runInProcess(cliPath, args, { cwd: ROOT });
+		const r = runInProcess(cliPath, args, { cwd: ROOT, env: ROOT_ENV });
 		return { out: r.stdout, err: r.stderr, code: r.status };
 	};
 	const scoreOf = (args: string[]) => JSON.parse(run([...args, "--json"]).out);
@@ -114,7 +129,7 @@ describe("the score, run as a command", () => {
 			"guard-uncommitted-work.js": 1,
 			"guard-inventory.js": 1,
 		});
-		expect(s.deny).toEqual({ "guard-job-dir-scratch.sh": 1 });
+		expect(s.deny).toEqual({ "guard-job-dir-scratch": 1 });
 		expect(s.notice).toEqual({ "guard-session-ceiling.js": 1 });
 		expect(s.families).toEqual({
 			inventory: 1,
@@ -129,12 +144,12 @@ describe("the score, run as a command", () => {
 		write("s1.jsonl", [
 			assistant("m1"),
 			assistant("m1"),
-			...stopBlock("guard-inventory.js", "t1", "Inventory owed."),
-			...stopBlock("guard-priced-options.js", "t2", "Price the options."),
-			...stopBlock("guard-session-ceiling.js", "t3", "Long session."),
-			...stopBlock("guard-lost-deny.js", "t4", "A deny failed open."),
-			...stopBlock("guard-automode-refusal.js", "t5", "Classifier."),
-			...stopBlock("concision-backstop.sh stop", "t6", "Review owed."),
+			...buildStopBlock("guard-inventory.js", "t1", "Inventory owed."),
+			...buildStopBlock("guard-priced-options.js", "t2", "Price the options."),
+			...buildStopBlock("guard-session-ceiling.js", "t3", "Long session."),
+			...buildStopBlock("guard-lost-deny.js", "t4", "A deny failed open."),
+			...buildStopBlock("guard-automode-refusal.js", "t5", "Classifier."),
+			...buildStopBlock("concision-backstop.sh stop", "t6", "Review owed."),
 			deny("toolu_1", JOB_DIR_DENY),
 			deny("toolu_2", SUITE_CAP_DENY),
 			assistant("m2"),
@@ -160,8 +175,18 @@ describe("the score, run as a command", () => {
 		expect(s.versions).toEqual(["2.1.302"]);
 	});
 
+	it("attributes a wait past the cap to the wait-loop guard", () => {
+		write("s1.jsonl", [deny("toolu_1", WAIT_DENY)]);
+		const [s] = scoreOf(["--dir", dir]);
+		expect(s.deny).toEqual({ "guard-wait-loop": 1 });
+	});
+
 	it("counts a duplicated attachment record, or a deny's repeat, once", () => {
-		const block = stopBlock("guard-unpushed-commits.js", "t1", "Unpushed.");
+		const block = buildStopBlock(
+			"guard-unpushed-commits.js",
+			"t1",
+			"Unpushed.",
+		);
 		write("s1.jsonl", [
 			...block,
 			{ ...block[0], uuid: "a-copy" },
@@ -207,7 +232,7 @@ describe("the score, run as a command", () => {
 	});
 
 	it("stops on a Stop guard the rule has not classed", () => {
-		write("s1.jsonl", stopBlock("guard-new-thing.js", "t1", "New."));
+		write("s1.jsonl", buildStopBlock("guard-new-thing.js", "t1", "New."));
 		const r = run(["--file", path.join(dir, "s1.jsonl")]);
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("guard-new-thing.js");
@@ -226,16 +251,67 @@ describe("the score, run as a command", () => {
 });
 
 describe("the pre-registered classes", () => {
-	it("class every Stop guard this repo and its plugin register", () => {
-		const read = (p: string) => JSON.parse(fs.readFileSync(p, "utf8"));
-		const stops = registeredGuards(
+	let dir: string;
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "breach-score-"));
+	});
+	afterEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+	});
+
+	const read = (p: string) => JSON.parse(fs.readFileSync(p, "utf8"));
+	const readStops = () =>
+		registeredGuards(
 			mergeHooks([
-				{ settings: { hooks: hooksAt(ROOT, "self-plugin/hooks/hooks.json") } },
+				{
+					settings: {
+						hooks: readHooksAt(ROOT, "self-plugin/hooks/hooks.json"),
+					},
+				},
 				{ settings: read(path.join(ROOT, "hooks", "hooks.json")) },
 			]),
 		)
 			.filter((r: { event: string }) => r.event === "Stop")
 			.map((r: { key: string }) => r.key.split(" ")[0]);
-		expect(stops.filter((g: string) => !STOP_CLASS[g])).toEqual([]);
+
+	it("class every Stop guard this repo and its plugin register", () => {
+		expect(readStops().filter((g: string) => !STOP_CLASS[g])).toEqual([]);
+	});
+
+	/** The guards the scorer attributes a deny to, given one deny per registered deny needle. */
+	const readDenyAttributed = () => {
+		const denies = (readRegisteredGuardSubjects(ROOT) as Subject[])
+			.flatMap((s) => s.needles.filter((n) => n.kind === "deny"))
+			.map((n: Needle, i) => deny(`toolu_${i}`, [n.text].flat().join(" ")));
+		const file = path.join(dir, "s1.jsonl");
+		fs.writeFileSync(
+			file,
+			`${denies.map((d) => JSON.stringify(d)).join("\n")}\n`,
+		);
+		const r = runInProcess(cliPath, ["--file", file, "--json"], {
+			cwd: ROOT,
+			env: ROOT_ENV,
+		});
+		expect(r.status, r.stderr).toBe(0);
+		return Object.keys(JSON.parse(r.stdout)[0].deny).flatMap((k) =>
+			k.split(DENY_GUARD_JOIN),
+		);
+	};
+
+	it("name only guards a refusal can be attributed to in MOVED and MIXED", () => {
+		const attributable = new Set([
+			...readDenyAttributed(),
+			...readStops().filter((g: string) => STOP_CLASS[g] === "breach"),
+		]);
+		expect([...MOVED, ...MIXED].filter((g) => !attributable.has(g))).toEqual(
+			[],
+		);
+	});
+
+	it("key the job-dir family on the dispatch core that denies it", () => {
+		const cores = dispatchRows("PreToolUse").map(
+			(r: { name: string }) => r.name,
+		);
+		expect(cores).toContain(JOB_DIR);
 	});
 });

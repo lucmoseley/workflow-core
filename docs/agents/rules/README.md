@@ -55,29 +55,26 @@ scripts/lib/rule-text.sh <id> [<id>…]  # a session: exits 1 on any unknown id,
 ```
 
 ```js
-const { ruleText } = require("./lib/rule-text"); // throws on an unknown id
+const { readRuleText } = require("./lib/rule-text"); // throws on an unknown id
 ```
 
-Pre-emptively, from a `PreToolUse` guard that has already called `gp_begin`
+Pre-emptively, from a `PreToolUse` guard's core
 (mantahostels#1804). This resolves each id, drops the ones this session has already been
 given, and emits the rest as `additionalContext` — it never sets a
 `permissionDecision`:
 
-```bash
-# shellcheck source=scripts/lib/guard-parse.sh
-source "$here/lib/guard-parse.sh"
-gp_rule <id> [<id>...]            # ids in priority order, highest first
+```js
+return { injectRules: ["<id>", "<id>"] }; // ids in priority order, highest first
 ```
 
-It exits 2 on a store fault and refuses the tool call. Over its byte ceiling it emits the
-ids that fit whole and defers the rest to the next trigger. Its own header
-carries the rest.
+`scripts/lib/guard-entry.js` refuses the tool call on a store fault. Over its byte ceiling it emits the
+ids that fit whole and defers the rest to the next trigger. Its header carries
+the rest.
 
 Never `cat` a fragment path directly. `scripts/check-guard-registry.js` reads
 the accessor call to decide which guard prints which rule, so a hand-rolled read
-makes the fragment look orphaned. A `gp_rule` call counts, but only where it
-OPENS its line — the pattern is anchored, so `if …; then gp_rule x; fi` is
-invisible to the gate.
+makes the fragment look orphaned. An `injectRules` id counts only as a quoted
+literal in the array; one built at run time is invisible to the gate.
 
 ## What the gate demands
 
@@ -112,11 +109,11 @@ Nothing asserts that a fragment also keeps a trigger line (mantahostels#2006).
    and safe to edit directly.
 
    No generated fragment carries a first-line "generated — edit `<source>`
-   instead" marker: the marker would cost bytes in every session a `gp_rule`
+   instead" marker: the marker would cost bytes in every session an `injectRules`
    or `rule-text` call reaches, repeated across every generated id, to guard
    against a mistake `--check` already refuses at commit time.
 2. Call the accessor from the guard and splice the text into its message — or
-   name the id in a `gp_rule` call, to hand it over before the mistake instead.
+   name the id in a core's `injectRules`, to hand it over before the mistake instead.
 3. Leave one trigger line in `CLAUDE.md` naming the trap and the id, never
    restating the rule — **only where the guard does not already hand the rule
    over before the mistake.** A rule fully on that route needs no pointer.
@@ -144,7 +141,7 @@ Nothing asserts that a fragment also keeps a trigger line (mantahostels#2006).
 
 **In an adopter, only the hand-written, printed route exists** (#925). Write
 `docs/agents/rules/<id>.txt` in the adopter's own store and print it —
-`rule_text`, `ruleText` or `gp_rule` — from a guard of its own under `scripts/`
+`rule_text` or `readRuleText` — from a guard of its own under `scripts/`
 or `.claude/`, wired from its own `.claude/settings.json`, a `package.json`
 script, a `.husky` hook or a workflow. The session-fetched class is core-only:
 `generate-rule-fragments.js`'s sources and triggers and the gate's command index

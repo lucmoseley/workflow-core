@@ -56,7 +56,7 @@ const GUARD_LOG = path.resolve(__dirname, "guard-log.sh");
  * `extraEnv` is spread last, so it overrides the two set above: the locale
  * case below needs the caller's own LC_ALL, which is otherwise inherited.
  */
-const slugViaGuardLog = (
+const readSlugViaGuardLog = (
 	root: string,
 	extraEnv: Record<string, string> = {},
 ): string => {
@@ -86,32 +86,32 @@ const slugViaGuardLog = (
 describe("guard-log.sh's slug restatement agrees with projectSlug() (mantahostels#2051)", () => {
 	it("agrees on this repo's own root", () => {
 		const root = path.resolve(__dirname, "..", "..");
-		expect(slugViaGuardLog(root)).toBe(projectSlug(root));
+		expect(readSlugViaGuardLog(root)).toBe(projectSlug(root));
 	});
 
 	it("agrees on a dot, not only on the slashes", () => {
 		const root = "/home/lucmo/.claude3/jobs/12fb6c3a/tmp";
-		expect(slugViaGuardLog(root)).toBe(projectSlug(root));
+		expect(readSlugViaGuardLog(root)).toBe(projectSlug(root));
 	});
 
 	it("agrees on case, neither side folding it", () => {
 		const root = "/tmp/armA";
-		expect(slugViaGuardLog(root)).toBe(projectSlug(root));
+		expect(readSlugViaGuardLog(root)).toBe(projectSlug(root));
 	});
 
 	it("agrees on a run of dots, neither side collapsing it to one hyphen", () => {
 		const root = "/a..b";
-		expect(slugViaGuardLog(root)).toBe(projectSlug(root));
+		expect(readSlugViaGuardLog(root)).toBe(projectSlug(root));
 	});
 
 	it("agrees on a space", () => {
 		const root = "/a b/c";
-		expect(slugViaGuardLog(root)).toBe(projectSlug(root));
+		expect(readSlugViaGuardLog(root)).toBe(projectSlug(root));
 	});
 
 	it("agrees on an underscore", () => {
 		const root = "/a_b/c";
-		expect(slugViaGuardLog(root)).toBe(projectSlug(root));
+		expect(readSlugViaGuardLog(root)).toBe(projectSlug(root));
 	});
 
 	it("agrees on a non-ASCII BMP character even when the caller is under LC_ALL=C (mantahostels#2096)", () => {
@@ -125,7 +125,7 @@ describe("guard-log.sh's slug restatement agrees with projectSlug() (mantahostel
 		// caller's — here C — and this goes red on the pre-fix values, which is
 		// the divergence and not a flake.
 		const root = "/tmp/a\u00e9b";
-		expect(slugViaGuardLog(root, { LC_ALL: "C" })).toBe(projectSlug(root));
+		expect(readSlugViaGuardLog(root, { LC_ALL: "C" })).toBe(projectSlug(root));
 	});
 });
 
@@ -135,7 +135,7 @@ describe("guard-log.sh's slug restatement agrees with projectSlug() (mantahostel
  * in a temp directory takes the `gr_root() { :; }` stub, and the fault is
  * reached without touching the checkout every other session is running from.
  */
-const rootlessLogDirs = (): string[] => {
+const readRootlessLogDirs = (): string[] => {
 	const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-log-root-"));
 	const libDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-log-lib-"));
 	try {
@@ -175,7 +175,7 @@ describe("gl_log with no repo root to slug (mantahostels#2438)", () => {
 		// BEHAVIOURAL, and the only thing holding the bash literal equal to
 		// project-slug.js's constant — guard-log.sh cannot require that file on the
 		// path it runs.
-		expect(rootlessLogDirs()).toEqual([
+		expect(readRootlessLogDirs()).toEqual([
 			`dir:${UNRESOLVED_ROOT_SLUG}:guard-errors.log`,
 		]);
 	});
@@ -183,7 +183,7 @@ describe("gl_log with no repo root to slug (mantahostels#2438)", () => {
 
 describe("gl_log's optional fourth field (#320)", () => {
 	/** Run gl_log with `args` (bash words) and return the one line it wrote. */
-	const record = (args: string): string => {
+	const readLoggedRecord = (args: string): string => {
 		const configDir = fs.mkdtempSync(path.join(os.tmpdir(), "guard-log-f4-"));
 		try {
 			execFileSync("bash", ["-c", `source "${GUARD_LOG}" && gl_log ${args}`], {
@@ -203,31 +203,40 @@ describe("gl_log's optional fourth field (#320)", () => {
 	};
 
 	it("writes the three-field line unchanged when no caller passes one", () => {
-		const fields = record("'what broke'").trimEnd().split("\t");
+		const fields = readLoggedRecord("'what broke'").trimEnd().split("\t");
 		expect(fields.slice(1)).toEqual(["guard", "what broke"]);
 	});
 
 	it("writes no field 4 for an empty detail, not a trailing tab", () => {
-		expect(record("'what broke' ''").trimEnd().split("\t")).toHaveLength(3);
+		expect(
+			readLoggedRecord("'what broke' ''").trimEnd().split("\t"),
+		).toHaveLength(3);
 	});
 
 	it("writes a passed detail as field 4, leaving field 3 alone", () => {
-		const fields = record("'what broke' 'target=$W pwd=/a'")
+		const fields = readLoggedRecord("'what broke' 'target=$W pwd=/a'")
 			.trimEnd()
 			.split("\t");
 		expect(fields.slice(2)).toEqual(["what broke", "target=$W pwd=/a"]);
 	});
 
 	it("collapses a tab, CR or newline in it, so it can neither shift a field nor forge a line", () => {
-		const line = record(`'what broke' $'a\\tb\\rc\\nd'`);
+		const line = readLoggedRecord(`'what broke' $'a\\tb\\rc\\nd'`);
 		expect(line.split("\n").filter(Boolean)).toHaveLength(1);
 		expect(line.trimEnd().split("\t")[3]).toBe("a b c d");
 	});
 
-	it("strips the \\x01 quote sentinel", () => {
-		const line = record(`'what broke' $'a\\x01QSTR\\x010\\x01b'`);
-		expect(line).not.toContain("\x01");
-		expect(line.trimEnd().split("\t")[3]).toBe("aQSTR0b");
+	it("collapses a tab or newline in field 3 the same way, so one fault is one line", () => {
+		// A reason routinely carries a path straight off the tool payload. A file
+		// named with a newline would append a forged record, and one with a tab
+		// shift every field, so check-guard-errors.js read the message as the guard.
+		const line = readLoggedRecord(
+			`"$(printf 'timed out on a\\tb\\nc — write allowed unchecked')"`,
+		);
+		expect(line.split("\n").filter(Boolean)).toHaveLength(1);
+		expect(line.trimEnd().split("\t").slice(2)).toEqual([
+			"timed out on a b c — write allowed unchecked",
+		]);
 	});
 });
 

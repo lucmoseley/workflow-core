@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The practice guard hands a session the craft list (#2324) and the
- * evidence-rung ranking (#2637) on its first touch of docs/practice/, and
+ * evidence-tier ranking (#2637) on its first touch of docs/practice/, and
  * refuses a note written under a slug off the list (#2324); at Stop, it
  * refuses once a session that wrote a tracked file with no **Practice:** line,
  * or one that does not hold up (#2326).
@@ -24,9 +24,9 @@ import { copyBlockPattern } from "./lib/settings-copy";
 const DOC = path.resolve(__dirname, "..", "docs", "claude-user-settings.md");
 const SESSION = "s1";
 const NO_LIST = /^practice-guard: no craft list at .*, so nothing is judged\n$/;
-/** The clause of the evidence-rung ranking a note writer most often gets wrong (#2637). */
+/** The clause of the evidence-tier ranking a note writer most often gets wrong (#2637, #2657). */
 const RANKING =
-	"A company's docs earn the top rung only for how its own product behaves or is configured";
+	"A project's docs, open-source or company-run, earn the top tier only for how that project's own product behaves or is configured";
 
 let dir: string;
 let hook: string;
@@ -393,7 +393,18 @@ describe("the Stop limb", () => {
 			"revert",
 			"version bump",
 			"reply that only answers a question",
-		])("skipped — %s, an exempt kind (#2601)", (kind) => {
+			"a typo or wording fix",
+			"reply that only answers a question (a triage relabel)",
+			"typo fix in the README",
+			"wording fix to the rule",
+			"propagating an already-settled fact to 4 docs",
+			"version bump for the release",
+			"concision cut over d2fb95fa9",
+			"revert on main",
+			"re-anchor after the rename",
+			"regeneration from the new source",
+			"version bump from 1.2 to 1.3",
+		])("skipped — %s, an exempt kind (#2601, #2806, #3077)", (kind) => {
 			expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
 		});
 
@@ -461,15 +472,6 @@ describe("the Stop limb", () => {
 				[declared("skipped — new feature, not a typo")],
 				"no exempt kind",
 			],
-			...[
-				"typography system overhaul",
-				"reverting nothing; built the new hook",
-				"reply-driven feature build",
-			].map((kind) => [
-				`skipped — a word an exempt kind's stem opens: ${kind} (#2601)`,
-				[declared(`skipped — ${kind}`)],
-				"no exempt kind",
-			]),
 			[
 				"none-fits — an off-list craft",
 				[declared("none-fits — nearest bash-hooks")],
@@ -483,13 +485,86 @@ describe("the Stop limb", () => {
 			expect(stop(session)).toBeNull();
 		});
 
+		it.each([
+			...[
+				"typography system overhaul",
+				"reverting nothing; built the new hook",
+				"reply-driven feature build",
+			].map((kind) => [
+				`a word an exempt kind's stem opens: ${kind} (#2601)`,
+				kind,
+				"no exempt kind",
+			]),
+			...[
+				"typo in the new scheduler design",
+				"reply that rewrote the parser",
+				"revert'd and built a new hook",
+			].map((kind) => [
+				`an invented kind opening with an exempt kind's head word: ${kind} (#2656)`,
+				kind,
+				"no exempt kind",
+			]),
+			...["typo", "propagation"].map((kind) => [
+				`a bare head word, no whole kind: ${kind} (#2656)`,
+				kind,
+				"no exempt kind",
+			]),
+			...[
+				"revert plus a new feature",
+				"revert of nothing; built a new scheduler",
+				"concision cut of 400 lines plus new guard",
+				"revert of one commit and a new feature",
+				"typo fix in the README — and a new hook",
+				"version bump (and a new feature)",
+				"revert (plus a new feature)",
+				"revert (or a new hook)",
+				"revert (but also a new hook)",
+				"revert (with a new scheduler)",
+				"revert (one commit) and a new feature",
+				"revert ( and a new feature)",
+				"revert, then a new feature",
+				"revert of one commit, built a new scheduler",
+				"revert of one commit: built a new scheduler",
+				"revert of one commit. Also built a scheduler",
+				"revert of one commit with a new scheduler",
+				"revert of one commit but also a new hook",
+				"revert of one commit or a new hook",
+				"revert of one commit & a new hook",
+				"revert of one commit + a new hook",
+				"revert of one commit then built a new scheduler",
+				"revert of one commit also built a scheduler",
+				"revert (one commit; and a new feature)",
+				"revert (one commit, plus a new hook)",
+				"revert (one commit — built a scheduler)",
+			].map((kind) => [
+				`an exempt kind with a second clause: ${kind} (#2806, #3077)`,
+				kind,
+				"adds a second clause to the exempt kind",
+			]),
+			...["revert because main was red", "revert about the hook"].map(
+				(kind) => [
+					`an exempt kind followed by an opener off PREPOSITIONS: ${kind} (#3077)`,
+					kind,
+					"with neither an aside in brackets nor a phrase opening with one of (of, in,",
+				],
+			),
+		])("skipped — %s", (_, kind, says) => {
+			expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toContain(
+				says,
+			);
+		});
+
 		it("refuses each session apart", () => {
 			expect(stop([wrote(code())])).not.toBeNull();
 			expect(stop([wrote(code())], { session: "s2" })).not.toBeNull();
 		});
 
-		it("refuses only a first stop where the session id latches nothing", () => {
-			const odd = { session: "../x" };
+		it("says so on stderr, and refuses only a first stop, where the session id latches nothing (#2656)", () => {
+			const odd = {
+				session: "../x",
+				stderr:
+					/^practice-guard: the session id "\.\.\/x" is no plain name, so nothing latches\n$/,
+			};
 			expect(stop([wrote(code())], odd)).not.toBeNull();
 			expect(stop([wrote(code())], { ...odd, active: true })).toBeNull();
 		});
@@ -583,26 +658,82 @@ describe("the Stop limb", () => {
 			).toBeNull();
 		});
 
-		it("but not prose that names the marker mid-line", () => {
-			const prose = text("The hook reads the latest **Practice:** line.");
-			expect(
-				stop([wrote(code()), declared("skipped — revert"), prose]),
-			).toBeNull();
-		});
+		const markerProse = [
+			{
+				where: "mid-line",
+				prose: "The hook reads the latest **Practice:** line.",
+				ticket: "",
+			},
+			{
+				where: "in quotes",
+				prose: 'It reads a line like "**Practice:** skipped — big change".',
+				ticket: " (#2656)",
+			},
+		];
 
-		it.each([
-			["mid-line", "The hook reads the latest **Practice:** line."],
-			[
-				"in quotes",
-				'It reads a line like "**Practice:** skipped — big change".',
-			],
-		])(
-			"but not body-file prose that names the marker %s (#2601)",
-			(_, prose) => {
+		it.each(markerProse)(
+			"but not prose that names the marker $where$ticket",
+			({ prose }) => {
+				expect(
+					stop([wrote(code()), declared("skipped — revert"), text(prose)]),
+				).toBeNull();
+			},
+		);
+
+		it.each(markerProse)(
+			"but not body-file prose that names the marker $where (#2601)",
+			({ prose }) => {
 				const close = closeWith(
 					`Shipped.\n\n**Practice:** skipped — revert\n\n${prose}\n`,
 				);
 				expect(stop([wrote(code()), close])).toBeNull();
+			},
+		);
+
+		it("but not an inline body quoting the marker mid-line (#2806)", () => {
+			const comment = toolUse("Bash", {
+				command:
+					"gh issue comment 5 --body \"The hook takes a line like '**Practice:** skipped — big change' as the declaration.\"",
+			});
+			expect(
+				stop([wrote(code()), declared("skipped — revert"), comment]),
+			).toBeNull();
+		});
+
+		it.each([
+			"--comment '**Practice:** skipped — revert'",
+			'-b "**Practice:** skipped — revert"',
+			'-c "**Practice:** skipped — revert"',
+			'--body="**Practice:** skipped — revert"',
+			'--comment "**Practice:** skipped — revert" --reason "not planned"',
+			'--comment "Shipped.\n\n**Practice:** skipped — revert" --reason "not planned"',
+			"--body 'It'\\''s done.\n\n**Practice:** skipped — revert'",
+			'--comment "Fixed \\"x\\".\n\n**Practice:** skipped — revert" --reason "not planned"',
+			"--body-file - <<'EOF'\nDone.\n\n**Practice:** skipped — revert\nEOF",
+			"--body \"$(cat <<'EOF'\nDone.\n\n**Practice:** skipped — revert\nEOF\n)\"",
+		])("an inline body under %s", (body) => {
+			const close = toolUse("Bash", { command: `gh issue close 12 ${body}` });
+			expect(stop([wrote(code()), close])).toBeNull();
+		});
+
+		it.each([
+			[
+				"an inline body",
+				"--body \"Use --body '**Practice:** skipped — big change' to declare.\"",
+			],
+			[
+				"a heredoc body",
+				"--body-file - <<'EOF'\nUse --body '**Practice:** skipped — big change' to declare.\nEOF",
+			],
+		])(
+			"but not %s whose prose quotes a marker after a body flag (#3077)",
+			(_, body) => {
+				const comment = toolUse("Bash", {
+					command: `gh issue comment 5 ${body}`,
+				});
+				expect(
+					stop([wrote(code()), declared("skipped — revert"), comment]),
+				).toBeNull();
 			},
 		);
 

@@ -1,6 +1,8 @@
 /*
  * dispatch-ledger.js — `.pick-next/dispatched.jsonl`, the record
- * scripts/dispatch-sessions.sh appends to as each session launches.
+ * scripts/dispatch-sessions.sh appends to as each session launches, and the
+ * refill loop appends a release row to as it hands one off (#2744), ending
+ * that launch's hold inside the window.
  *
  * TWO READERS, ONE SEAM (mantahostels#1528). check-duplicate-dispatch.js drops a set member
  * whose issues are already in here; pick-next.js holds those same issues out of
@@ -94,41 +96,44 @@ function entryHolds(rec, command) {
 }
 
 /**
- * One line of `.pick-next/dispatched.jsonl`.
+ * One launch line of `.pick-next/dispatched.jsonl`.
  *
  * `session` is the LAUNCHING session — the one that ran dispatch-sessions.sh —
  * never the launched job's own session (mantahostels#3488). `jobId` is that
  * job's own short id, the one `claude --bg` prints and
- * `claude stop`/`claude attach` take — `null` on an entry written before
- * mantahostels#3488 landed, which is the "unknown" case downstream readers
- * fall back to.
- * An entry written before #1200 may carry a `successorOf` field; nothing
- * reads it.
+ * `claude stop`/`claude attach` take, or `null` where unknown.
  * @typedef {{ts: string, issues: number[], model: string, prompt: string,
  *            session: string|null, jobId: string|null}} DispatchRecord
  */
 
 /**
- * Ledger entries inside the window. A malformed line is skipped rather than
- * failing the read — the ledger is append-only and a torn write must not
- * disarm every later check.
+ * A launch the refill loop handed off (#2744): `released` is its job id. It
+ * ends that launch's hold. It carries no `jobId` or `issues`, so a reader of
+ * raw lines never takes it for a launch.
+ * @typedef {{ts: string, released: string}} ReleaseRecord
+ */
+
+/**
+ * Every row inside the window, launches and releases alike. A malformed line
+ * is skipped rather than failing the read — the ledger is append-only and a
+ * torn write must not disarm every later check.
  * @param {string|undefined} root
  * @param {number} windowHours
- * @returns {{ok: boolean, entries: DispatchRecord[], error?: string}}
+ * @returns {{ok: boolean, rows: (DispatchRecord|ReleaseRecord)[], error?: string}}
  */
-function recentEntries(root, windowHours) {
+function readWindowRows(root, windowHours) {
 	const file = ledgerPath(root);
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (err) {
 		if (caught(err).code === "ENOENT") {
-			return { ok: true, entries: [] }; // never launched from here: not a failure
+			return { ok: true, rows: [] }; // never launched from here: not a failure
 		}
-		return { ok: false, entries: [], error: String(err) };
+		return { ok: false, rows: [], error: String(err) };
 	}
 	const cutoff = Date.now() - windowHours * 3600 * 1000;
-	const entries = /** @type {DispatchRecord[]} */ ([]);
+	const rows = /** @type {(DispatchRecord|ReleaseRecord)[]} */ ([]);
 	for (const line of text.split("\n")) {
 		if (!line.trim()) continue;
 		let rec;
@@ -139,51 +144,96 @@ function recentEntries(root, windowHours) {
 		}
 		const at = Date.parse(rec.ts);
 		if (Number.isNaN(at) || at < cutoff) continue;
-		entries.push(rec);
+		rows.push(rec);
 	}
-	return { ok: true, entries };
+	return { ok: true, rows };
 }
 
 /**
- * The latest launch's time in ms, any age, or null where this tree never
- * launched — the refill loop's cross-repo tie-break, which reads null as
- * launched longest ago. An unreadable ledger fails open to null too: it only
- * orders full ties, so the cost is that repo winning them (#2003).
+ * @param {DispatchRecord|ReleaseRecord} rec
+ * @returns {rec is DispatchRecord}
+ */
+const isLaunch = (rec) => !("released" in rec);
+
+/**
+ * Launches inside the window that still hold: a launch a later release row
+ * names is dropped.
+ * @param {string|undefined} root
+ * @param {number} windowHours
+ * @returns {{ok: boolean, entries: DispatchRecord[], error?: string}}
+ */
+function readRecentEntries(root, windowHours) {
+	const { rows, ...read } = readWindowRows(root, windowHours);
+	const released = new Set(
+		rows.flatMap((r) => (isLaunch(r) ? [] : [r.released])),
+	);
+	const entries = rows.filter(
+		(r) => isLaunch(r) && !(r.jobId && released.has(r.jobId)),
+	);
+	return { ...read, entries: /** @type {DispatchRecord[]} */ (entries) };
+}
+
+/**
+ * The latest launch's time in ms, any age, released or not, or null where
+ * this tree never launched — the refill loop's cross-repo tie-break, which
+ * reads null as launched longest ago. An unreadable ledger fails open to null
+ * too: it only orders full ties, so the cost is that repo winning them (#2003).
  * @param {string} root
  * @returns {number|null}
  */
-function lastLaunchAt(root) {
-	const { entries } = recentEntries(root, Number.POSITIVE_INFINITY);
-	return entries.reduce(
-		(/** @type {number|null} */ latest, e) =>
-			Math.max(latest ?? 0, Date.parse(e.ts)),
-		null,
-	);
+function readLastLaunchAt(root) {
+	const { rows } = readWindowRows(root, Number.POSITIVE_INFINITY);
+	return rows
+		.filter(isLaunch)
+		.reduce(
+			(/** @type {number|null} */ latest, e) =>
+				Math.max(latest ?? 0, Date.parse(e.ts)),
+			null,
+		);
 }
 
 /**
- * Append one launch. Never throws: a ledger that cannot be written must not
- * stop a launch that has already been permitted.
+ * Append one line. Never throws: a ledger that cannot be written must not
+ * stop the launch or hand-off it records (mantahostels#1528); the caller
+ * reports the false.
+ * @param {string|undefined} root
+ * @param {object} rec
+ * @returns {boolean} whether it was written
+ */
+function append(root, rec) {
+	const file = ledgerPath(root);
+	try {
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.appendFileSync(
+			file,
+			`${JSON.stringify({ ts: new Date().toISOString(), ...rec })}\n`,
+		);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * @param {{jobId: string, root?: string}} entry
+ * @returns {boolean} whether it was written
+ */
+function release(entry) {
+	return append(entry.root, { released: entry.jobId });
+}
+
+/**
  * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {
-	const file = ledgerPath(entry.root);
-	const line = `${JSON.stringify({
-		ts: new Date().toISOString(),
+	return append(entry.root, {
 		issues: entry.issues,
 		model: entry.model,
 		prompt: entry.prompt,
 		session: process.env.CLAUDE_CODE_SESSION_ID || null,
 		jobId: entry.jobId || null,
-	})}\n`;
-	try {
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.appendFileSync(file, line);
-		return true;
-	} catch {
-		return false;
-	}
+	});
 }
 
 module.exports = {
@@ -192,7 +242,8 @@ module.exports = {
 	issuesIn,
 	commandOf,
 	entryHolds,
-	recentEntries,
-	lastLaunchAt,
+	readRecentEntries,
+	readLastLaunchAt,
 	record,
+	release,
 };

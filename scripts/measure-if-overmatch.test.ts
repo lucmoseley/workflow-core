@@ -169,7 +169,7 @@ describe("invocation", () => {
 	});
 
 	it("reads a no-argument wrapper prefix as wrapped", async () => {
-		// The three spellings `guard-issue-phase-scope.sh` walks (mantahostels#2127).
+		// The three spellings `guard-issue-phase-scope.js` walks (mantahostels#2127).
 		expect(await invocation("timeout 60 gh issue view 1", "gh")).toBe(
 			"wrapped",
 		);
@@ -219,9 +219,9 @@ describe("heredoc bodies", () => {
 	});
 });
 
-describe("the wrapper walk mirrors guard-issue-phase-scope.sh judge()", () => {
+describe("the wrapper walk is guard-issue-phase-scope.js's", () => {
 	/*
-	 * judge() (`scripts/guard-issue-phase-scope.sh:348-363`) steps over a
+	 * The core's unwrapped() (`scripts/lib/issue-phase-scope.js`) steps over a
 	 * no-argument wrapper, plus the ONE leading value `timeout` and `nice` each
 	 * take, and stops on anything else.
 	 */

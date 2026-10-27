@@ -190,7 +190,7 @@ function rateOf(model) {
  * @param {string} file
  * @returns {{ text: string, capped: boolean }}
  */
-function head(file) {
+function readHead(file) {
 	const fd = fs.openSync(file, "r");
 	try {
 		const buf = Buffer.alloc(HEAD_BYTES);
@@ -481,7 +481,7 @@ function priceSession(file, cutoff) {
 function classifyTranscript(file, cutoff) {
 	let h;
 	try {
-		h = head(file);
+		h = readHead(file);
 	} catch {
 		return "unclassified";
 	}
@@ -520,7 +520,7 @@ function readSessions(files, cutoff) {
  * @param {number} unknown
  * @param {number} days
  */
-function cleanOkLine(total, unknown, days) {
+function buildCleanOkLine(total, unknown, days) {
 	if (unknown > 0)
 		return `${total - unknown} of ${total} /pick-next session(s) in the last ${days}d ran on Sonnet; ${unknown} carried a model this cannot read or cannot price.`;
 	return `every one of ${total} /pick-next session(s) in the last ${days}d ran on Sonnet.`;
@@ -619,7 +619,7 @@ runCheck({
 
 		if (missed.length === 0)
 			return {
-				okLine: cleanOkLine(sessions.length, unknownModel.length, days),
+				okLine: buildCleanOkLine(sessions.length, unknownModel.length, days),
 				data,
 			};
 

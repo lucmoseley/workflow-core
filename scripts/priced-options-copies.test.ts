@@ -22,7 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { Q_MARKER } from "./lib/round-marker";
-import { ruleText } from "./lib/rule-text";
+import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -43,7 +43,7 @@ const styleRule = (() => {
 	return line;
 })();
 
-const contractLine = (lead: string) => {
+const readContractLine = (lead: string) => {
 	const line = fs
 		.readFileSync(CONTRACT, "utf8")
 		.split("\n")
@@ -51,7 +51,9 @@ const contractLine = (lead: string) => {
 	if (!line) throw new Error(`the working contract's "${lead}" rule is gone`);
 	return line;
 };
-const houseRule = contractLine("- **Only a house decision reaches the founder");
+const houseRule = readContractLine(
+	"- **Only a house decision reaches the founder",
+);
 
 /* Each variable is pinned for the reason scripts/inject-tracker-docs.test.ts's
  * `run` gives beside it. The project and config dirs are an empty scratch dir,
@@ -226,7 +228,7 @@ describe("the house-decision rule", () => {
 	/* Case-blind: the fragment starts a sentence where the contract runs on. */
 	it("prints, in its refusal, each delegated-decision clause the contract's bullet binds (#2091)", () => {
 		const contract = houseRule.toLowerCase();
-		const refusal = ruleText("house-decision").toLowerCase();
+		const refusal = readRuleText("house-decision").toLowerCase();
 		for (const clause of [
 			"Approval is owed only for a house decision or an act hard to undo or seen outside",
 			"any other choice is a delegated decision",
@@ -245,7 +247,7 @@ describe("the house-decision rule", () => {
 		expect(injected).not.toContain("Measure before you price");
 		expect(injected).not.toContain("throwaway prototype");
 		/* The words it points by lead to the fragment the rule cites. */
-		expect(ruleText("house-decision")).toContain(
+		expect(readRuleText("house-decision")).toContain(
 			"Ask only what research leaves open, and name that gap.",
 		);
 	});

@@ -85,7 +85,7 @@ describe("the guards that share it", () => {
 	 * scripts/generate-test-read-edges.js — a lexical extractor — records both
 	 * guards as read here and test:changed selects this file when either one
 	 * changes. */
-	const declaresItsOwn = (file: string) =>
+	const readOwnMarkerDeclarations = (file: string) =>
 		fs
 			.readFileSync(file, "utf8")
 			.split("\n")
@@ -93,13 +93,17 @@ describe("the guards that share it", () => {
 
 	it("guard-priced-options.js declares no round-marker regex of its own", () => {
 		expect(
-			declaresItsOwn(path.join(__dirname, "..", "guard-priced-options.js")),
+			readOwnMarkerDeclarations(
+				path.join(__dirname, "..", "guard-priced-options.js"),
+			),
 		).toEqual([]);
 	});
 
 	it("guard-jev-advisory.js declares no round-marker regex of its own", () => {
 		expect(
-			declaresItsOwn(path.join(__dirname, "..", "guard-jev-advisory.js")),
+			readOwnMarkerDeclarations(
+				path.join(__dirname, "..", "guard-jev-advisory.js"),
+			),
 		).toEqual([]);
 	});
 });

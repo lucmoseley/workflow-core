@@ -57,10 +57,11 @@
  * a second copy of the path; priced-options-limbs.js at #1474, for the same
  * reason about guard-priced-options.js's prefixes.
  *
- * THE OTHER TWELVE FAMILIES WRITE `module.exports = {...}`, which is what
- * check-code-standards.js's §N7 unconsumed-export scan matches — the
- * `exports.<name> =` form is invisible to it, so the three cyclic files pay
- * that scan's coverage and nothing else does.
+ * THE OTHER TWELVE FAMILIES WRITE `module.exports = {...}`. The three keep one
+ * line per name rather than one `Object.assign(module.exports, {...})`, because
+ * checkJs types an `exports.<name> =` export and not a name assigned through
+ * Object.assign. check-code-standards.js's §N7 scan reads the
+ * `exports.<name> =` run as it does a `module.exports = {...}` block.
  *
  * arbiter-core.js is the one leaf — it requires no family — and arbiter-sweep.js
  * is the one root. Both hold, so a family may be read knowing only core.
@@ -129,7 +130,7 @@ module.exports = {
 	acceptHead: bases.acceptHead,
 	advanceBases: bases.advanceBases,
 	acquire: locksMod.acquire,
-	breakNotice: breaks.breakNotice,
+	buildBreakNotice: breaks.buildBreakNotice,
 	claimVersions: contentMod.claimVersions,
 	claimIssue: issues.claimIssue,
 	clearDebt: debts.clearDebt,
@@ -139,7 +140,7 @@ module.exports = {
 	// copy of that rule would sandbox differently under the proving harness.
 	configDirs: core.sessionDirs,
 	contentState: contentMod.contentState,
-	debtNotice: debts.debtNotice,
+	buildDebtNotice: debts.buildDebtNotice,
 	debtsOwnedBy: debts.debtsOwnedBy,
 	declineRequest: requests.declineRequest,
 	dropRequests: requests.dropRequests,
@@ -150,7 +151,7 @@ module.exports = {
 	forceRelease: locksMod.forceRelease,
 	gitDirty: core.gitDirty,
 	subjectDirty: core.subjectDirty,
-	heldBy: locksMod.heldBy,
+	readHeldBy: locksMod.readHeldBy,
 	heldIssues: issues.heldIssues,
 	identify: core.identify,
 	isGuarded: core.isGuarded,
@@ -166,13 +167,13 @@ module.exports = {
 	logError: core.logError,
 	mintSessionBase: bases.mintSessionBase,
 	observationState: observations.observationState,
-	observedBy: observations.observedBy,
+	readObservedBy: observations.readObservedBy,
 	observedVersions: observations.observedVersions,
 	ownDebt: debts.ownDebt,
 	park: locksMod.park,
-	actsBy: ledger.actsBy,
-	commitsBy: ledger.commitsBy,
-	committedPathsBy: ledger.committedPathsBy,
+	readActsBy: ledger.readActsBy,
+	readBilledPathsBy: ledger.readBilledPathsBy,
+	readCommitsBy: ledger.readCommitsBy,
 	paths: core.paths,
 	pruneAll: sweep.pruneAll,
 	readDebts: debts.readDebts,
@@ -195,19 +196,20 @@ module.exports = {
 	releaseIssue: issues.releaseIssue,
 	registryNames: core.registryNames,
 	resumedHolderTest: core.resumedHolderTest,
-	requestNotice: requests.requestNotice,
+	buildRequestNotice: requests.buildRequestNotice,
 	scanChanged: snapshots.scanChanged,
 	splitSubject: core.splitSubject,
-	stagedModifications: bases.stagedModifications,
+	readStagedModifications: bases.readStagedModifications,
 	stateDir: core.stateDir,
 	subjectFor: core.subjectFor,
 	subjectPath: core.subjectPath,
 	subjectsOverlap: core.subjectsOverlap,
 	sweepRisk: locksMod.sweepRisk,
 	sweepDebts: debts.sweepDebts,
-	selectsBy: ledger.selectsBy,
-	landedBy: ledger.landedBy,
-	writesBy: ledger.writesBy,
+	readSelectsBy: ledger.readSelectsBy,
+	readLandedBy: ledger.readLandedBy,
+	readWritesBy: ledger.readWritesBy,
 	whoHolds: locksMod.whoHolds,
-	lastWriterOf: ledger.lastWriterOf,
+	withGitTimeout: core.withGitTimeout,
+	readLastWriterOf: ledger.readLastWriterOf,
 };

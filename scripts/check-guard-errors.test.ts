@@ -289,7 +289,7 @@ describe("--notify — the quiet path", () => {
 
 		/* mantahostels#2277: asserted on the source, as "writes the stamp only after the
 		 * report, by source order" above is, because the branch this guards is
-		 * unreachable at runtime here — `procStartOf(process.pid)` reads this
+		 * unreachable at runtime here — `readProcStartOf(process.pid)` reads this
 		 * process's own real /proc, which succeeds on every machine this suite
 		 * runs on, so INERT can never actually fire in a test. */
 		it("withholds the INERT stamp where a library probe also fired, by source", () => {
@@ -413,7 +413,7 @@ describe("every guard, not just the file-claim one (mantahostels#147)", () => {
 	});
 });
 
-describe("the libraries the guards cannot report on themselves", () => {
+describe("the library the hooks cannot report on themselves", () => {
 	/*
 	 * A copy of the checker with its own lib/, so a library can be removed without
 	 * touching the real one — which would disarm every guard in every parallel
@@ -428,20 +428,17 @@ describe("the libraries the guards cannot report on themselves", () => {
 
 	const runAt = (script: string) => run([], {}, script);
 
-	it.each(["guard-log.sh", "guard-parse.sh"])(
-		"reports %s missing, which no guard can log for itself",
-		(lib) => {
-			// The one fail-open with no record: with the logger gone every guard
-			// degrades to a silent allow, and with the parser gone every guard that
-			// sources it disarms outright — both writing nothing to the log below, so an
-			// all-clear here would be manufactured by the very fault being looked for.
-			const r = runAt(detachedChecker([lib]));
-			expect(r.stderr).toContain(lib);
-			expect(r.status).toBe(1);
-		},
-	);
+	it("reports guard-log.sh missing, which no hook can log for itself", () => {
+		// The one fail-open with no record: with the logger gone every hook
+		// sourcing it degrades to a silent allow, writing nothing to the log below,
+		// so an all-clear here would be manufactured by the very fault being
+		// looked for.
+		const r = runAt(detachedChecker(["guard-log.sh"]));
+		expect(r.stderr).toContain("guard-log.sh");
+		expect(r.status).toBe(1);
+	});
 
-	it("says nothing about the libraries when both are readable", () => {
+	it("says nothing about the library when it is readable", () => {
 		const r = runAt(detachedChecker([]));
 		expect(r.stderr).not.toContain("unreadable");
 		expect(r.status).toBe(0);
@@ -607,7 +604,7 @@ describe("the records written with no repo root at all (mantahostels#2438)", () 
 		fs.mkdirSync(path.dirname(rootlessLog()), { recursive: true });
 		fs.appendFileSync(
 			rootlessLog(),
-			`${when.toISOString()}\tguard-parse.sh\t${what}\n`,
+			`${when.toISOString()}\tguard-log.sh\t${what}\n`,
 		);
 	}
 
@@ -689,7 +686,7 @@ describe("the records written with no repo root at all (mantahostels#2438)", () 
 		// Unrotated (mantahostels#181), this log's readFileSync ran inside the SessionStart
 		// hook's 10 s ceiling, in every project, while the checker was one.
 		fs.mkdirSync(path.dirname(rootlessLog()), { recursive: true });
-		const line = `${new Date().toISOString()}\tguard-parse.sh\t${"x".repeat(200)}\n`;
+		const line = `${new Date().toISOString()}\tguard-log.sh\t${"x".repeat(200)}\n`;
 		fs.writeFileSync(
 			rootlessLog(),
 			line.repeat(Math.ceil((8 * 1024 * 1024) / line.length) + 1),

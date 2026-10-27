@@ -74,15 +74,14 @@ const headless = require("./headless-sessions.js");
  * one field.
  *
  * `startedAt` is EPOCH MILLISECONDS, not an ISO string — the oracle emits a
- * number. It was absent from this typedef until mantahostels#2214, though the oracle has
- * always emitted it; `lib/scratch-sweep.js` is what needed it, a file being
- * safe to delete exactly where no live session predates its mtime.
+ * number. `lib/scratch-sweep.js` reads it: a file is safe to delete exactly
+ * where no live session predates its mtime.
  *
  * `kind: "headless"` marks a run lib/headless-sessions.js listed, which
  * `claude stop` cannot reach.
  *
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
- *   kind?: string, state?: string, status?: string,
+ *   kind?: string, state?: string, status?: string, tempo?: string,
  *   startedAt?: number, cwd?: string}} AgentRecord
  * @typedef {{agents: AgentRecord[], why?: undefined}
  *   | {why: string, agents?: undefined}} Listing
@@ -113,19 +112,17 @@ const oracleCall = () => `\`${claudeBin()} agents --json\``;
  * wedge a SessionStart hook.
  *
  * WHY A TIMEOUT IS RETRIED AND NOTHING ELSE IS (mantahostels#1900). One cap is not a clean
- * wedge signal. Six timed samples of the union oracle on 29 Aug 2026, with
- * 3.8 GB available, read 3.5 / 3.7 / 4.7 / 6.8 / 9.5 / 10.8 s — one in six over
- * the cap with the machine quiet. The tail is load-driven, so it blows at
- * SessionStart, when the machine is busiest and a finished-session reap is
- * worth the most memory; the reaper then refuses, and gigabytes sit in finished
+ * wedge signal: one timed sample in six ran over it with the machine quiet,
+ * the slowest at 10.8 s. The tail is load-driven, so it blows at SessionStart,
+ * when the machine is busiest and a finished-session reap is worth the most
+ * memory; the reaper then refuses, and gigabytes sit in finished
  * sessions until some later start catches a quiet moment. A timeout there says
  * "queued behind load", not "wedged". The retry gets a LONGER cap, so a second
  * timeout is the wedge signal the first cap was meant to be. Every other
  * failure — ENOENT, a non-zero exit — is deterministic, and retrying it only
  * doubles the wait before the same refusal.
  *
- * Both caps are overridable so the suite can drive them to milliseconds, the
- * same device as scripts/bg-run.sh's WFC_BG_* knobs.
+ * Both caps are overridable so the suite can drive them to milliseconds.
  */
 const oracleTimeoutMs = () => capMs("WFC_ORACLE_TIMEOUT_MS", 10_000);
 const oracleRetryTimeoutMs = () => capMs("WFC_ORACLE_RETRY_TIMEOUT_MS", 20_000);
@@ -149,18 +146,21 @@ const RUN_GROUPED = path.join(__dirname, "run-grouped.js");
 
 /**
  * One oracle call, capped. Separate so the retry cannot drift from the first
- * attempt in anything but its ceiling.
+ * attempt in anything but its ceiling, and exported so every other caller of
+ * the oracle kills the same group on its cap.
  *
  * @param {string} bin
  * @param {number} timeoutMs
+ * @param {NodeJS.ProcessEnv} [env]  the oracle's environment, else this process's
  * @returns {string}
  */
-function runOracle(bin, timeoutMs) {
+function runOracle(bin, timeoutMs, env) {
 	try {
 		return execFileSync(
 			process.execPath,
 			[RUN_GROUPED, bin, "agents", "--json"],
 			{
+				env,
 				encoding: "utf8",
 				timeout: timeoutMs,
 				stdio: ["ignore", "pipe", "pipe"],
@@ -203,10 +203,10 @@ function failure(e) {
 function readListing(opts) {
 	const bin = claudeBin();
 	const call = oracleCall();
-	const runs = headlessRuns();
+	const runs = readHeadlessRuns();
 	if ("why" in runs) return runs;
 
-	/* NO PLAIN CACHE HIT HERE ANY MORE (mantahostels#1960, module header above). Single-
+	/* NO PLAIN CACHE HIT HERE (mantahostels#1960, module header above). Single-
 	 * flight only: lead and spawn, or follow and take what the leader publishes
 	 * — three readers launched at one instant otherwise pay three spawns of the
 	 * same binary (mantahostels#1921, #1446). A follower given nothing usable falls through
@@ -341,9 +341,9 @@ function mergedListing(agents, headlessAgents, call, opts) {
  * read.
  * @returns {{agents: AgentRecord[]} | {why: string}}
  */
-function headlessRuns() {
+function readHeadlessRuns() {
 	try {
-		return { agents: headless.liveAgents() };
+		return { agents: headless.readLiveAgents() };
 	} catch (e) {
 		const { code, message } = caught(e);
 		return {
@@ -402,9 +402,18 @@ function listedAgents(opts) {
  * `status` IS DELIBERATELY NOT READ (mantahostels#768, https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md): a `shell` session
  * emits `state: done` with `status: busy`, so reading `status` drops finished
  * sessions.
+ *
+ * `tempo: "active"` IS NOT FINISHED (#2980): a forced Stop-hook turn runs
+ * under `state: done`, and `claude stop` itself counts a job settled only where
+ * `tempo` is not `active` — on one that is, it writes `stopped` over the
+ * result (#2977's research, Finding 3). So the reclaimable pools built off
+ * this predicate leave such a job out too: its memory is not yet the reaper's
+ * to return. Only the job record carries `tempo`; a CLI record lacks it and is
+ * judged on `state` alone.
  */
 /** @param {AgentRecord} a */
-const isFinishedAgent = (a) => a.kind === "background" && a.state === "done";
+const isFinishedAgent = (a) =>
+	a.kind === "background" && a.state === "done" && a.tempo !== "active";
 
 /**
  * The three states the oracle emits for a background session that has REACHED A
@@ -533,7 +542,7 @@ function sessionIdsOf(opts, allowEmpty) {
 				names,
 				/*
 				 * The finished-but-resident pool, for a caller reporting reclaimable
-				 * memory off this same read (mantahostels#653, which priced a second oracle call).
+				 * memory off this same read (mantahostels#653).
 				 *
 				 * REPORTING, never a reap: whether a member is past the reaper's grace
 				 * window is not readable here.
@@ -604,8 +613,6 @@ function sessionIdsOf(opts, allowEmpty) {
 function sweepSessionIds(opts) {
 	return refuseOnThrow(opts, false, (listed) => {
 		if (listed.why) return { why: listed.why };
-		/* Thrown so `refuseOnThrow` turns it into a why a reader can act on,
-		 * rather than leaving it to a TypeError raised further down. */
 		if (!listed.agents)
 			throw new TypeError("answered with neither agents nor a why");
 		const ids = new Set(listed.agents.map((a) => a.sessionId));
@@ -614,9 +621,8 @@ function sweepSessionIds(opts) {
 		for (const a of listed.agents) if (a.name) names.set(a.sessionId, a.name);
 		const me = process.env.CLAUDE_CODE_SESSION_ID;
 		if (me) ids.add(me);
-		// Off this same oracle read, never added for `me`: this caller is running,
-		// so adding itself back to `ids` above is correct but it was never in the
-		// oracle's own `finished` pool. Ditto `terminal`, which contains it.
+		// `me` is added to `ids` only, never to `finished` or `terminal`: this
+		// caller is running.
 		const finished = new Set(
 			listed.agents.filter(isFinishedAgent).map((a) => a.sessionId),
 		);
@@ -628,6 +634,7 @@ function sweepSessionIds(opts) {
 }
 
 module.exports = {
+	capMs,
 	claudeBin,
 	isFinishedAgent,
 	isListedLive,
@@ -635,6 +642,7 @@ module.exports = {
 	listedAgents,
 	listedSessionIds,
 	admissionSessionIds,
+	runOracle,
 	sweepSessionIds,
 	TERMINAL_STATES,
 };

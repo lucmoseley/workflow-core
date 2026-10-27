@@ -1,26 +1,31 @@
 // @vitest-environment node
 /*
- * record-acts.sh writes a session's raw `gh` close, question round, `takes:`
+ * record-acts.js writes a session's raw `gh` close, question round, `takes:`
  * relabel and blocked-by edge to its acts ledger, one line per act (#2308,
- * #2464, spec #2245).
+ * #2464, spec #2245). These are its boundary cases: the line hooks/hooks.json
+ * registers, run by bash as the harness runs it, on a harness-shaped payload —
+ * the wiring, the session id's two channels, the fail-open record, and the
+ * ledger, the fs and git crossed for real. Which call records which act is
+ * lib/gh-acts.test.ts's (#2799).
  *
- * Driven end to end: the hook, the real session-arbiter.js record-act, and the
- * ledger read back through actsBy, in arbiter-testkit's sandbox with the repo a
- * git checkout whose origin names owner/repo.
- *
- * The refill loop judges a launch's progress from these lines: a case loosened
- * here lets a launch that did nothing read as progress, or one that asked a
- * round read as idle and count toward the loop's no-progress stop.
+ * Break the line and the refill loop reads every launch as idle.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
+import { readFailOpenLog } from "./guard-log-fixture";
 import { freshSandbox, gitRepo, store } from "./lib/arbiter-testkit";
+import {
+	buildBashPayload,
+	guardOutput,
+	readHookLines,
+} from "./lib/pretool-guard-testkit";
 
-const HOOK = path.resolve(__dirname, "record-acts.sh");
-const SID = "sess-acts";
+const SCRIPT = "scripts/record-acts.js";
+const LINES = readHookLines("hooks/hooks.json", SCRIPT);
+const CHECKOUT = path.resolve(__dirname, "..");
 const ROUND =
 	"Some context.\n\n❓ **Q1** Which way?\n(A) This\nConfidence: 70% (60% - 80%). why\n";
 
@@ -35,161 +40,107 @@ beforeEach(() => {
 	);
 });
 
-const run = (command: string, sessionId: string | null = SID, stderr = "") => {
-	const payload: Record<string, unknown> = {
-		tool_name: "Bash",
-		tool_input: { command },
-		tool_response: { stdout: "", stderr },
-		cwd: sb.repo,
-	};
-	if (sessionId !== null) payload.session_id = sessionId;
-	const r = spawnSync(HOOK, [], {
-		cwd: sb.repo,
-		encoding: "utf8",
-		input: JSON.stringify(payload),
-		env: {
-			...process.env,
-			CLAUDE_CONFIG_DIR: sb.home,
-			CLAUDE_CODE_SESSION_ID: "",
+const fire = (
+	command: string,
+	{
+		session = "s1" as string | null,
+		stderr = "",
+		stdin,
+		env = {},
+	}: {
+		session?: string | null;
+		stderr?: string;
+		stdin?: string;
+		env?: NodeJS.ProcessEnv;
+	} = {},
+) =>
+	guardOutput(
+		"/bin/bash",
+		{
+			...buildBashPayload(command, session),
+			hook_event_name: "PostToolUse",
+			tool_response: { stdout: "", stderr },
 		},
-	});
-	if (r.status === null) throw new Error(`hook did not run: ${r.error}`);
-	// A recorder that speaks or fails is a defect whatever it recorded.
-	expect(r.status).toBe(0);
-	expect(r.stdout).toBe("");
-	expect(r.stderr).toBe("");
-};
+		{
+			project: sb.repo,
+			config: sb.home,
+			cwd: sb.repo,
+			args: ["-c", LINES[0] ?? ""],
+			stdin,
+			env: { CLAUDE_PLUGIN_ROOT: CHECKOUT, ...env },
+		},
+	);
 
-const acts = (sessionId = SID) => store.actsBy(sessionId, [sb.repo]).acts;
+const readActs = (session = "s1") => store.readActsBy(session, [sb.repo]).acts;
+const readFaults = () => readFailOpenLog(sb.home, sb.repo);
 
-describe("close", () => {
-	it("records one close line on gh issue close <n>", () => {
-		run("gh issue close 12 --reason completed");
-		expect(acts()).toEqual(["close owner/repo#12"]);
-	});
-
-	it("names the --repo a close names, and an issue URL's own repo", () => {
-		run("gh issue close 3 --repo other/thing");
-		run("gh issue close https://github.com/far/away/issues/9");
-		expect(acts()).toEqual(["close other/thing#3", "close far/away#9"]);
-	});
-
-	it("takes no repo from a URL whose number is no issue number (#2367)", () => {
-		run("gh issue close 5 https://github.com/far/away/issues/1234567890");
-		expect(acts()).toEqual(["close owner/repo#5"]);
-	});
-
-	it("records nothing for a close gh reports as already closed", () => {
-		run(
-			"gh issue close 12",
-			SID,
-			"! Issue owner/repo#12 (Some title) is already closed\n",
-		);
-		expect(acts()).toEqual([]);
-	});
-
-	it("never reads a --duplicate-of value as a second issue closed", () => {
-		run("gh issue close 5 --reason duplicate --duplicate-of 3");
-		expect(acts()).toEqual(["close owner/repo#5"]);
-	});
-
-	it("records nothing for a pr close, or with no session id", () => {
-		run("gh pr close 12");
-		run("gh issue close 13", null);
-		expect(acts()).toEqual([]);
+describe("the registered hook line", () => {
+	it("is one line, narrowed by `if: Bash(gh *)`, in the plugin and the self-plugin alike", () => {
+		for (const file of ["hooks/hooks.json", "self-plugin/hooks/hooks.json"]) {
+			const entries = Object.values(
+				JSON.parse(fs.readFileSync(path.join(CHECKOUT, file), "utf8"))
+					.hooks as Record<string, { hooks: Record<string, unknown>[] }[]>,
+			)
+				.flat()
+				.flatMap((group) => group.hooks)
+				.filter((hook) => String(hook.command).includes(SCRIPT));
+			expect(entries).toHaveLength(1);
+			expect(entries[0]).toMatchObject({ if: "Bash(gh *)" });
+			expect(entries[0]).not.toHaveProperty("args");
+		}
 	});
 });
 
-describe("round — every comment spelling the hook can see", () => {
-	it("reads an inline --body", () => {
-		run(`gh issue comment 5 --body '${ROUND}'`);
-		expect(acts()).toEqual(["round owner/repo#5"]);
+describe("each exit", () => {
+	it("writes the close to the payload's session's ledger, naming the origin's repo, silent on exit 0", () => {
+		expect(fire("gh issue close 12")).toBeNull();
+		expect(readActs()).toEqual(["close owner/repo#12"]);
+		expect(readFaults()).toBe("");
 	});
 
-	it("reads a --body-file path", () => {
+	it("falls back to CLAUDE_CODE_SESSION_ID where the payload names no session", () => {
+		fire("gh issue close 12", {
+			session: null,
+			env: { CLAUDE_CODE_SESSION_ID: "sess-env" },
+		});
+		expect(readActs("sess-env")).toEqual(["close owner/repo#12"]);
+	});
+
+	it("reads gh's already-closed line from the call's own output", () => {
+		fire("gh issue close 12", {
+			stderr: "! Issue owner/repo#12 (Some title) is already closed\n",
+		});
+		expect(readActs()).toEqual([]);
+	});
+
+	it("reads a round from a --body-file on disk", () => {
 		fs.writeFileSync(path.join(sb.repo, "c.md"), ROUND);
-		run("gh issue comment 5 --body-file c.md");
-		expect(acts()).toEqual(["round owner/repo#5"]);
-	});
-
-	it("reads stdin from a single-quoted heredoc", () => {
-		run(`gh issue comment 5 --body-file - <<'EOF'\n${ROUND}EOF`);
-		expect(acts()).toEqual(["round owner/repo#5"]);
-	});
-
-	it("reads stdin from a cat of a file", () => {
-		fs.writeFileSync(path.join(sb.repo, "c.md"), ROUND);
-		run("cat c.md | gh issue comment 5 --body-file -");
-		expect(acts()).toEqual(["round owner/repo#5"]);
-	});
-
-	it("records nothing for a comment that opens no round", () => {
-		run(`gh issue comment 5 --body 'Done: Q1 answered (A).'`);
-		expect(acts()).toEqual([]);
-	});
-
-	it("records nothing where the body cannot be read, or no new comment is posted", () => {
-		run(`gh issue comment 5 --body "$(cat c.md)"`);
-		run(`gh issue comment 5 --edit-last --body '${ROUND}'`);
-		run("gh issue comment 5 --body-file missing.md");
-		expect(acts()).toEqual([]);
+		fire("gh issue comment 5 --body-file c.md");
+		expect(readActs()).toEqual(["round owner/repo#5"]);
 	});
 });
 
-describe("relabel", () => {
-	it("records each takes: label added, per issue", () => {
-		run(
-			"gh issue edit 7 8 --add-label takes:implement,kind:ticket --remove-label takes:triage",
-		);
-		expect(acts()).toEqual([
-			"relabel owner/repo#7 takes:implement",
-			"relabel owner/repo#8 takes:implement",
-		]);
+describe("what it fails open on", () => {
+	it("is silent on a payload carrying no command, and records that it did", () => {
+		expect(
+			fire("", {
+				stdin: JSON.stringify({ session_id: "s1", tool_name: "Bash" }),
+			}),
+		).toBeNull();
+		expect(readFaults()).toMatch(/record-acts\.js\t.*no command in payload/);
 	});
 
-	it("never reads a --parent value as an issue relabelled", () => {
-		run("gh issue edit 7 --add-label takes:implement --parent 2245");
-		expect(acts()).toEqual(["relabel owner/repo#7 takes:implement"]);
+	it("records nothing on a payload that is not JSON, and records that it did", () => {
+		expect(fire("", { stdin: "not json" })).toBeNull();
+		expect(readFaults()).toMatch(
+			/record-acts\.js\t.*payload did not parse as JSON/,
+		);
 	});
 
-	it("records nothing for a removal alone or a label that is not takes:", () => {
-		run("gh issue edit 7 --remove-label takes:triage");
-		run("gh issue edit 7 --add-label urgent");
-		expect(acts()).toEqual([]);
-	});
-});
-
-describe("block", () => {
-	it("records a gh api POST to an issue's blocked_by, in each method spelling", () => {
-		run(
-			"gh api repos/far/away/issues/2347/dependencies/blocked_by -X POST -F issue_id=99",
-		);
-		run(
-			"gh api --method POST /repos/far/away/issues/2348/dependencies/blocked_by -F issue_id=99",
-		);
-		run(
-			"gh api repos/{owner}/{repo}/issues/2349/dependencies/blocked_by -F issue_id=99",
-		);
-		expect(acts()).toEqual([
-			"block far/away#2347",
-			"block far/away#2348",
-			"block owner/repo#2349",
-		]);
-	});
-
-	it("records a gh issue edit --add-blocked-by, per issue", () => {
-		run("gh issue edit 7 8 --add-blocked-by 200");
-		expect(acts()).toEqual(["block owner/repo#7", "block owner/repo#8"]);
-	});
-
-	it("records nothing for a read, a removal or a half-placeholder repo", () => {
-		run("gh api repos/far/away/issues/5/dependencies/blocked_by");
-		run("gh api -X DELETE repos/far/away/issues/5/dependencies/blocked_by/99");
-		run(
-			"gh api repos/{owner}/away/issues/5/dependencies/blocked_by -F issue_id=99",
-		);
-		run("gh api repos/far/away/issues/5/comments -f body=hi");
-		run("gh issue edit 5 --remove-blocked-by 200");
-		expect(acts()).toEqual([]);
+	it("records nothing, exit 0 and silent, where node is not on PATH", () => {
+		expect(
+			fire("gh issue close 12", { env: { PATH: "/nonexistent" } }),
+		).toBeNull();
+		expect(readActs()).toEqual([]);
 	});
 });

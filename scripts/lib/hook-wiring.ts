@@ -11,7 +11,7 @@
  * registration through lib/core-hooks.js.
  */
 
-import { runningHooks } from "./core-hooks.js";
+import { readRunningHooks } from "./core-hooks.js";
 import { hostRoot } from "./host-root.js";
 
 /**
@@ -42,7 +42,7 @@ export interface HookRegistration {
 	 * The exec form's argument list (mantahostels#2059), absent on the shell form. It holds
 	 * the script path where `command` is a bare interpreter, and the guard's own
 	 * arguments either way — so a reader matching on `command` alone cannot tell
-	 * two registrations of one script apart. Match through `commandLine` below.
+	 * two registrations of one script apart. Match through `buildCommandLine` below.
 	 */
 	args?: string[];
 	/**
@@ -62,11 +62,11 @@ export interface HookRegistration {
  * (mantahostels#2266).
  *
  * A malformed `args` contributes nothing rather than throwing, matching the
- * same tolerance in `rule-emission.js`'s `hookCommandLine`. The duplication
+ * same tolerance in `rule-emission.js`'s `buildHookCommandLine`. The duplication
  * between the two is mantahostels#1932's — this module is TypeScript and its JS consumers
  * cannot import it.
  */
-export function commandLine(
+export function buildCommandLine(
 	r: Pick<HookRegistration, "command" | "args">,
 ): string {
 	return [r.command, ...(Array.isArray(r.args) ? r.args : [])].join(" ");
@@ -78,9 +78,9 @@ interface SettingsShape {
 	>;
 }
 
-/** The hooks this repo runs (lib/core-hooks.js's `runningHooks`), settings-shaped. */
+/** The hooks this repo runs (lib/core-hooks.js's `readRunningHooks`), settings-shaped. */
 export function readCoreHooks(): SettingsShape {
-	return { hooks: runningHooks(hostRoot()) };
+	return { hooks: readRunningHooks(hostRoot()) };
 }
 
 /**
@@ -94,7 +94,7 @@ export function registrationsOf(
 	settings: SettingsShape = readCoreHooks(),
 ): HookRegistration[] {
 	return allRegistrations(settings)
-		.filter((r) => r.event === event && commandLine(r).includes(script))
+		.filter((r) => r.event === event && buildCommandLine(r).includes(script))
 		.map((r) => ({
 			matcher: r.matcher,
 			command: r.command,

@@ -1,13 +1,13 @@
 /*
  * session-start-roster.js — every persisting SessionStart producer the repo's
- * hooks wire (lib/core-hooks.js's `runningHooks`), for replay-notify-reports.js's
+ * hooks wire (lib/core-hooks.js's `readRunningHooks`), for replay-notify-reports.js's
  * own roster (mantahostels#2284).
  *
- * THE JOIN IS THE SHARED ONE. `commandLine`/`allRegistrations` in
+ * THE JOIN IS THE SHARED ONE. `buildCommandLine`/`allRegistrations` in
  * `lib/hook-wiring.ts` is the reader of record for what a hook entry runs
  * (mantahostels#2266), but that module is TypeScript and this is a plain-Node CLI
  * dependency — the same reason `lib/rule-emission.js` carries its own
- * `hookCommandLine` rather than requiring it (mantahostels#1932). Routed through THAT
+ * `buildHookCommandLine` rather than requiring it (mantahostels#1932). Routed through THAT
  * function rather than a third hand-rolled join, so an exec-form entry
  * (`"command": "node", "args": ["scripts/x.js", "--notify"]`) is read the
  * same way everywhere in JS-land.
@@ -21,8 +21,8 @@
 
 const path = require("node:path");
 
-const { runningHooks } = require("./core-hooks.js");
-const { hookCommandLine, WIRED_SCRIPT_RE } = require("./rule-emission");
+const { readRunningHooks } = require("./core-hooks.js");
+const { buildHookCommandLine, WIRED_SCRIPT_RE } = require("./rule-emission");
 const { requiredGroup } = require("./regex-group.js");
 
 /**
@@ -33,9 +33,9 @@ const { requiredGroup } = require("./regex-group.js");
  * @param {string} repoRoot
  * @returns {import("./core-hooks.js").Hooks | null}
  */
-function readableHooks(repoRoot) {
+function readHooksOrNull(repoRoot) {
 	try {
-		return runningHooks(repoRoot, { quiet: true });
+		return readRunningHooks(repoRoot, { quiet: true });
 	} catch {
 		return null;
 	}
@@ -43,7 +43,7 @@ function readableHooks(repoRoot) {
 
 /**
  * Whether the repo's hooks could be read at all — the one thing
- * `sessionStartRoster` below cannot say, since an unreadable file and a
+ * `readSessionStartRoster` below cannot say, since an unreadable file and a
  * genuinely empty roster both come back as `[]`.
  *
  * A CALLER THAT GATES ON ROSTER MEMBERSHIP HAS TO KNOW THE DIFFERENCE (mantahostels#2679).
@@ -51,7 +51,7 @@ function readableHooks(repoRoot) {
  * @returns {boolean}
  */
 function hasReadableHooks(repoRoot) {
-	return readableHooks(repoRoot) !== null;
+	return readHooksOrNull(repoRoot) !== null;
 }
 
 /**
@@ -75,7 +75,7 @@ function scriptsJsBasename(line) {
 /**
  * The one producer whose report key is not its script basename with
  * `check-` stripped (`check-cleared-trackers.js:156`). Exported so a second
- * caller of `sessionStartRoster()` — `check-hook-liveness.js`'s census
+ * caller of `readSessionStartRoster()` — `check-hook-liveness.js`'s census
  * included (mantahostels#2366) — reads it here rather than hand-copying it, which would
  * let the two silently drift.
  * @type {Record<string, string>}
@@ -94,8 +94,11 @@ const KEY_OVERRIDES = { "check-cleared-trackers": "check-cleared-trackers" };
  *   the reader does not name itself as a producer.
  * @returns {Array<{ key: string, script: string }>}
  */
-function sessionStartRoster(repoRoot, { keyOverrides = {}, self = "" } = {}) {
-	const matchers = readableHooks(repoRoot)?.SessionStart;
+function readSessionStartRoster(
+	repoRoot,
+	{ keyOverrides = {}, self = "" } = {},
+) {
+	const matchers = readHooksOrNull(repoRoot)?.SessionStart;
 	if (!Array.isArray(matchers)) return [];
 	const roster = new Map();
 	for (const matcher of matchers)
@@ -115,10 +118,10 @@ function sessionStartRoster(repoRoot, { keyOverrides = {}, self = "" } = {}) {
  * @returns {string | null}
  */
 function persistingScript(hook) {
-	const line = hookCommandLine(hook);
+	const line = buildHookCommandLine(hook);
 	if (!line.includes("WFC_NOTIFY_PERSIST=1") || !line.includes("--notify"))
 		return null;
 	return scriptsJsBasename(line);
 }
 
-module.exports = { sessionStartRoster, hasReadableHooks, KEY_OVERRIDES };
+module.exports = { readSessionStartRoster, hasReadableHooks, KEY_OVERRIDES };

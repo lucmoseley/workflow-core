@@ -22,6 +22,10 @@
 			"lines": ["Some errors were emitted while running checks."]
 		},
 		{
+			"id": "check-staged-biome",
+			"lines": ["which lints each staged path's worktree bytes"]
+		},
+		{
 			"id": "gitleaks",
 			"tool": "gitleaks",
 			"lines": ["leaks found: "]

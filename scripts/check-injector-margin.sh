@@ -168,14 +168,14 @@ printf '#!/bin/sh\necho takes:%s\n' "$longest" >"$tmp/gh" && chmod +x "$tmp/gh" 
 
 # What /code-review adds at run time from files this probe has no copy of
 # (#1697): the dispatch fragment, measured here as its short fallback, and the
-# review-tier envelope. Its rules are capped at GP_RULE_CAP and its areas
+# review-tier envelope. Its rules are capped at RULE_CAP and its areas
 # prelude is not, so a host declaring many areas can still cross the threshold;
 # the injector then puts the tier first, inside the preview. The `+ 2` is the
 # blank line joining the tier to the rest.
 review_reserve() {
   local cap shape len
-  cap="$(lib_const scripts/lib/guard-parse.sh GP_RULE_CAP)"
-  [ -n "$cap" ] || broken "no GP_RULE_CAP=<n> line in scripts/lib/guard-parse.sh"
+  cap="$(lib_const scripts/lib/hook-limits.sh RULE_CAP)"
+  [ -n "$cap" ] || broken "no RULE_CAP=<n> line in scripts/lib/hook-limits.sh"
   shape="$(read_source docs/agents/rules/review-dispatch-shape.txt 2>/dev/null)" ||
     broken "cannot read docs/agents/rules/review-dispatch-shape.txt"
   len="$(printf '%s' "$shape" | jq -Rs 'length')" || broken "jq could not measure review-dispatch-shape.txt"

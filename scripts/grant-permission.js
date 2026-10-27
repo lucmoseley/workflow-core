@@ -37,11 +37,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
-const { execFileSync } = require("node:child_process");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { caught } = require("./lib/caught.js");
+const { execGit } = require("./lib/git.js");
 
 const LOCAL = ".claude/settings.local.json";
 /** The first indented line's leading whitespace. */
@@ -88,7 +88,7 @@ function isPlainObject(v) {
  */
 function isGitIgnored(root, rel) {
 	try {
-		execFileSync("git", ["check-ignore", "-q", rel], {
+		execGit(["check-ignore", "-q", rel], {
 			cwd: root,
 			stdio: "ignore",
 		});

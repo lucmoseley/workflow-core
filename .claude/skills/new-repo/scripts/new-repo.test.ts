@@ -34,7 +34,11 @@ import {
 	renderHookShim,
 	withIgnoreBlock,
 } from "../../../../scripts/lib/adopter-skeleton.js";
-import { stubGhScript } from "../../../../scripts/lib/gh-stub";
+import {
+	type GhStubServer,
+	serveGhStub,
+	stubGhScript,
+} from "../../../../scripts/lib/gh-stub";
 import { installPathFor } from "../../../../scripts/lib/plugin-state.js";
 
 const SCRIPT = path.join(__dirname, "new-repo.js");
@@ -42,7 +46,7 @@ const IDEA =
 	"A tide-table app for surfers.\n\n## It has a heading\n\nAnd a second paragraph, kept as written.";
 
 /** A block in the shape the founder's `~/.bashrc` carries, unlike what the script writes. */
-const liveBlock = (repo: string, p: string) =>
+const buildLiveBlock = (repo: string, p: string) =>
 	[
 		`# --- ${repo}, one alias per plan ---`,
 		`# Mirrors fb1/fb2/fb3 but pointed at ~/${repo}.`,
@@ -53,9 +57,9 @@ const liveBlock = (repo: string, p: string) =>
 		`# --- end ${repo} block ---`,
 	].join("\n");
 const EXISTING_BLOCKS = [
-	liveBlock("fantasy-books", "fb"),
-	liveBlock("workflow-core", "wc"),
-	liveBlock("design-vault", "dv"),
+	buildLiveBlock("fantasy-books", "fb"),
+	buildLiveBlock("workflow-core", "wc"),
+	buildLiveBlock("design-vault", "dv"),
 ].join("\n\n");
 const BASHRC = `# ~/.bashrc\nexport EDITOR=vi\n\n${EXISTING_BLOCKS}\n`;
 
@@ -80,21 +84,23 @@ afterEach(() => {
  * `parent` its sub-issue link. A file
  * `<sb>/fail/<key>` makes that call fail; `issue-create` lands the issue and
  * still reports failure, as GitHub can. Every argv is logged to `<sb>/gh-calls`.
- * A `repo clone` ignores the git arguments after `--`.
+ * A `repo clone` ignores the git arguments after `--`. One server answers the
+ * whole file (`serveGhStub`), reading each call's sandbox from its
+ * NEW_REPO_SB (#2877).
  */
 const STUB = String.raw`
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
-const SB = process.env.NEW_REPO_SB;
-const a = process.argv.slice(2);
+const SB = env.NEW_REPO_SB;
+const a = argv;
 fs.appendFileSync(path.join(SB, "gh-calls"), JSON.stringify(a) + "\n");
 const joined = a.join(" ");
 const failing = (k) => fs.existsSync(path.join(SB, "fail", k));
 const flag = (n) => { const i = a.indexOf(n); return i < 0 ? undefined : a[i + 1]; };
 const flags = (n) => a.flatMap((x, i) => (x === n ? [a[i + 1]] : []));
-const die = (m) => { process.stderr.write(m + "\n"); process.exit(1); };
-const print = (v) => { process.stdout.write(typeof v === "string" ? v + "\n" : JSON.stringify(v) + "\n"); process.exit(0); };
+const die = (m) => { err(m + "\n"); exit(1); };
+const print = (v) => { out(typeof v === "string" ? v + "\n" : JSON.stringify(v) + "\n"); exit(0); };
 const statePath = (r) => path.join(SB, "github", r + ".json");
 const read = (r) => fs.existsSync(statePath(r)) ? JSON.parse(fs.readFileSync(statePath(r), "utf8")) : null;
 const write = (r, s) => fs.writeFileSync(statePath(r), JSON.stringify(s, null, 2));
@@ -135,29 +141,30 @@ if (a[0] === "repo") {
 	if (a[1] === "view") {
 		const s = need(r);
 		let empty = true;
-		try { empty = !execFileSync("git", ["-C", path.join(SB, "github", r + ".git"), "for-each-ref"], { encoding: "utf8" }).trim(); } catch {}
+		// A bare repo git cannot read is reported empty, as GitHub reports one with no refs.
+		try { empty = !execFileSync("git", ["-C", path.join(SB, "github", r + ".git"), "for-each-ref"], { cwd, env, encoding: "utf8" }).trim(); } catch {}
 		print({ isEmpty: empty, isPrivate: s.private, owner: { login: r.split("/")[0] }, defaultBranchRef: empty ? null : { name: s.defaultBranch ?? "main" }, licenseInfo: s.license ?? null });
 	}
 	if (a[1] === "create") {
 		if (failing("repo-create")) die("HTTP 502: Bad Gateway");
 		fs.mkdirSync(path.dirname(statePath(r)), { recursive: true });
-		execFileSync("git", ["init", "-q", "--bare", "-b", "main", path.join(SB, "github", r + ".git")]);
+		execFileSync("git", ["init", "-q", "--bare", "-b", "main", path.join(SB, "github", r + ".git")], { cwd, env });
 		write(r, { private: a.includes("--private"), labels: [], issues: [] });
 		print("https://github.com/" + r);
 	}
 	if (a[1] === "clone") {
 		need(r);
-		execFileSync("git", ["clone", "-q", "https://github.com/" + r + ".git", a[3]], { stdio: "ignore" });
-		process.exit(0);
+		execFileSync("git", ["clone", "-q", "https://github.com/" + r + ".git", a[3]], { cwd, env, stdio: "ignore" });
+		exit(0);
 	}
-	if (a[1] === "set-default") process.exit(0);
+	if (a[1] === "set-default") exit(0);
 }
 if (a[0] === "label" && a[1] === "create") {
 	const r = flag("--repo"), s = need(r);
 	if (!s.labels.includes(a[2])) s.labels.push(a[2]);
 	s.labelMeta = { ...s.labelMeta, [a[2]]: { color: flag("--color"), description: flag("--description") ?? "" } };
 	write(r, s);
-	process.exit(0);
+	exit(0);
 }
 if (a[0] === "label" && a[1] === "list") {
 	const s = need(flag("--repo"));
@@ -174,7 +181,7 @@ if (a[0] === "issue") {
 	}
 	if (a[1] === "create") {
 		const file = flag("--body-file");
-		const body = file === "-" ? fs.readFileSync(0, "utf8") : fs.readFileSync(file, "utf8");
+		const body = file === "-" ? stdin : fs.readFileSync(path.resolve(cwd, file), "utf8");
 		const labels = flags("--label");
 		const unknown = labels.filter((l) => !s.labels.includes(l));
 		if (unknown.length) die("could not add label: '" + unknown[0] + "' not found");
@@ -186,11 +193,19 @@ if (a[0] === "issue") {
 	}
 	const i = s.issues.find((x) => x.number === Number(a[2])) ?? die("issue " + a[2] + " not found");
 	if (a[1] === "view") print(shape(i, flag("--json")));
-	if (a[1] === "edit" && flag("--body-file")) { i.body = fs.readFileSync(flag("--body-file"), "utf8"); write(r, s); process.exit(0); }
-	if (a[1] === "close") { i.state = "CLOSED"; if (flag("--comment")) i.comments.push(flag("--comment")); write(r, s); process.exit(0); }
+	if (a[1] === "edit" && flag("--body-file")) { i.body = fs.readFileSync(path.resolve(cwd, flag("--body-file")), "utf8"); write(r, s); exit(0); }
+	if (a[1] === "close") { i.state = "CLOSED"; if (flag("--comment")) i.comments.push(flag("--comment")); write(r, s); exit(0); }
 }
 die("stub gh: unmodelled call: " + joined);
 `;
+
+let ghServer: GhStubServer;
+beforeAll(async () => {
+	ghServer = await serveGhStub(STUB);
+});
+afterAll(async () => {
+	await ghServer?.close();
+});
 
 /**
  * Turns `env`'s git hooks off by appending `core.hooksPath=/dev/null` as the
@@ -371,11 +386,7 @@ function sandbox({
 			mode: 0o755,
 		});
 	}
-	fs.writeFileSync(path.join(sb, "gh-stub.js"), STUB);
-	const stub = stubGhScript(
-		sb,
-		`#!/bin/sh\nexec "${process.execPath}" "${path.join(sb, "gh-stub.js")}" "$@"\n`,
-	);
+	const stub = stubGhScript(sb, ghServer.script);
 	let searchPath = stub.PATH;
 	if (failBashN) {
 		const realBash = execFileSync("sh", ["-c", "command -v bash"], {
@@ -442,11 +453,11 @@ function sandbox({
 	const run = (...extra: string[]) => spawn(args(...extra));
 	const resume = (...extra: string[]) =>
 		spawn(["--resume", "tides", "--no-plugin-install", ...extra]);
-	const state = (repo = "lucmoseley/tides") => {
+	const readState = (repo = "lucmoseley/tides") => {
 		const f = path.join(sb, "github", `${repo}.json`);
 		return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : null;
 	};
-	const calls = () =>
+	const readCalls = () =>
 		fs.existsSync(path.join(sb, "gh-calls"))
 			? fs
 					.readFileSync(path.join(sb, "gh-calls"), "utf8")
@@ -461,7 +472,7 @@ function sandbox({
 			env,
 		}).trim();
 	const rc = path.join(home, ".bashrc");
-	const backups = () =>
+	const readBackups = () =>
 		fs.readdirSync(home).filter((f) => f.startsWith(".bashrc.bak-new-repo-"));
 	return {
 		sb,
@@ -471,11 +482,11 @@ function sandbox({
 		clone: path.join(home, "tides"),
 		run,
 		resume,
-		state,
-		calls,
+		readState,
+		readCalls,
 		git,
 		rc,
-		backups,
+		readBackups,
 	};
 }
 
@@ -548,15 +559,15 @@ describe("new-repo.js on an empty project", () => {
 			// Appended after the three existing blocks, which are left as they were.
 			expect(fs.readFileSync(s.rc, "utf8")).toBe(`${BASHRC}\n${TIDES_BLOCK}\n`);
 			const start = `${BASHRC}\n`.split("\n").length;
-			const [backup] = s.backups();
-			expect(s.backups()).toHaveLength(1);
+			const [backup] = s.readBackups();
+			expect(s.readBackups()).toHaveLength(1);
 			expect(fs.readFileSync(path.join(s.home, backup), "utf8")).toBe(BASHRC);
 			expect(r.stdout).toContain(
 				`bashrc         done — ${s.rc} lines ${start}-${start + 4}, backed up to ${path.join(s.home, backup)}\n${TIDES_BLOCK.replace(/^/gm, "  ")}\n`,
 			);
 			expect(r.stdout).not.toContain("warning:");
 
-			const gh = s.state();
+			const gh = s.readState();
 			expect(gh.private).toBe(true);
 			expect(gh.issues).toHaveLength(1);
 			const [map] = gh.issues;
@@ -593,7 +604,7 @@ describe("new-repo.js on an empty project", () => {
 			expect(s.git("status", "--porcelain", "--untracked-files=all")).toBe(
 				"?? .claude/settings.local.json",
 			);
-			expect(ignoredScratch(s)).toBe(
+			expect(readIgnoredScratch(s)).toBe(
 				"private/x\n.claude/tmp/x\n.claude/worktrees/x\n",
 			);
 			expect(s.git("show", "HEAD:.gitignore")).toBe(IGNORE_BLOCK.trimEnd());
@@ -648,9 +659,9 @@ describe("new-repo.js on an empty project", () => {
 				])
 					expect(statusOf(again.stdout, step), step).toBe("skipped");
 			}
-			expect(s.state().issues).toHaveLength(1);
+			expect(s.readState().issues).toHaveLength(1);
 			expect(fs.readFileSync(s.rc, "utf8")).toBe(`${BASHRC}\n${TIDES_BLOCK}\n`);
-			expect(s.backups()).toHaveLength(1);
+			expect(s.readBackups()).toHaveLength(1);
 		},
 		340_000,
 	);
@@ -700,13 +711,13 @@ describe("new-repo.js on an empty project", () => {
 			].join("\n"),
 		);
 		expect(fs.readFileSync(s.rc, "utf8")).toBe(BASHRC);
-		expect(s.backups()).toEqual([]);
-		expect(s.state()).toBeNull();
+		expect(s.readBackups()).toEqual([]);
+		expect(s.readState()).toBeNull();
 		expect(fs.existsSync(s.clone)).toBe(false);
 		expect(fs.readdirSync(path.join(s.sb, "github"))).toEqual([]);
 		expect(
 			s
-				.calls()
+				.readCalls()
 				.map((c) => c.slice(0, 2).join(" "))
 				.sort(),
 		).toEqual([
@@ -782,7 +793,7 @@ describe("new-repo.js preflight: a run that will fail creates nothing", () => {
 		expect(r.stdout).toContain(
 			"Manual step: cut a workflow-core release first",
 		);
-		expect(s.state()).toBeNull();
+		expect(s.readState()).toBeNull();
 		expect(fs.existsSync(s.clone)).toBe(false);
 	});
 
@@ -817,9 +828,9 @@ describe("new-repo.js preflight: a run that will fail creates nothing", () => {
 			"Manual step: that name belongs to a repo this script did not make — pick another name or delete it on GitHub yourself\nThen start again: /new-repo",
 		);
 		expect(fs.existsSync(s.clone)).toBe(false);
-		expect(s.calls().some((c) => c[0] === "repo" && c[1] === "create")).toBe(
-			false,
-		);
+		expect(
+			s.readCalls().some((c) => c[0] === "repo" && c[1] === "create"),
+		).toBe(false);
 	});
 
 	it("refuses, exit 2, where ~/<name> is taken by something that is not its clone", () => {
@@ -834,7 +845,7 @@ describe("new-repo.js preflight: a run that will fail creates nothing", () => {
 		expect(r.stdout).toContain(
 			"Manual step: move ~/tides aside, or pick another name",
 		);
-		expect(s.state()).toBeNull();
+		expect(s.readState()).toBeNull();
 		expect(fs.readFileSync(path.join(s.clone, "notes.txt"), "utf8")).toBe(
 			"mine\n",
 		);
@@ -848,7 +859,7 @@ describe("new-repo.js preflight: a run that will fail creates nothing", () => {
 		expect(r.stdout).toContain(
 			"Manual step: log gh in: run `gh auth login` in a terminal",
 		);
-		expect(s.calls()).toEqual([["auth", "status"]]);
+		expect(s.readCalls()).toEqual([["auth", "status"]]);
 	});
 });
 
@@ -869,7 +880,7 @@ describe("new-repo.js after a part-way stop", () => {
 			"Manual step: delete ~/tides too and start fresh\nThen start again: /new-repo",
 		);
 		expect(r.stdout).not.toContain("--resume");
-		expect(s.state()).toBeNull();
+		expect(s.readState()).toBeNull();
 		expect(fs.existsSync(path.join(s.clone, ".git/new-repo.json"))).toBe(true);
 	});
 
@@ -885,11 +896,11 @@ describe("new-repo.js after a part-way stop", () => {
 				"Re-run: node .claude/skills/new-repo/scripts/new-repo.js --resume tides --no-plugin-install\n",
 			);
 			expect(r.stdout).not.toContain("Manual step:");
-			expect(s.state().issues).toHaveLength(1);
+			expect(s.readState().issues).toHaveLength(1);
 
 			/* Two more failed runs each filed a map before this one. */
 			fs.rmSync(path.join(s.sb, "fail/issue-create"));
-			const gh = s.state();
+			const gh = s.readState();
 			gh.issues.push(
 				{ ...gh.issues[0], number: 2 },
 				{ ...gh.issues[0], number: 3 },
@@ -902,7 +913,7 @@ describe("new-repo.js after a part-way stop", () => {
 			const again = s.resume();
 			expect(again.status, again.stdout).toBe(0);
 			expect(again.stdout).toMatch(/^first map {6}repaired — #1$/m);
-			const [kept, ...dups] = s.state().issues;
+			const [kept, ...dups] = s.readState().issues;
 			expect(kept.state).toBe("OPEN");
 			expect(kept.body).toContain("/wayfinder Chart the map on #1.");
 			for (const dup of dups) {
@@ -1057,7 +1068,7 @@ const steps = (copy: boolean): Step[] => [
 	[
 		"first map",
 		(s, g) => {
-			const gh = s.state();
+			const gh = s.readState();
 			gh.issues.push(g.issue);
 			fs.writeFileSync(
 				path.join(s.sb, "github/lucmoseley/tides.json"),
@@ -1158,8 +1169,8 @@ function worlds(golden: Golden, copy: boolean) {
 	};
 }
 
-const goldenOf = (s: Sandbox): Golden => ({
-	issue: s.state().issues[0],
+const readGolden = (s: Sandbox): Golden => ({
+	issue: s.readState().issues[0],
 	claude: fs.readFileSync(path.join(s.clone, "CLAUDE.md"), "utf8"),
 	local: fs
 		.readFileSync(path.join(s.clone, ".claude/settings.local.json"), "utf8")
@@ -1179,8 +1190,8 @@ const goldenOf = (s: Sandbox): Golden => ({
  * the pin's cache path under it (#736); the anchors hash those hooks, so only
  * their keys count.
  */
-function maskedTree(s: Sandbox) {
-	const body = (rel: string, mode: string) => {
+function readMaskedTree(s: Sandbox) {
+	const readBody = (rel: string, mode: string) => {
 		const at = path.join(s.clone, rel);
 		if (mode === "120000") return fs.readlinkSync(at);
 		const text = fs.readFileSync(at, "utf8");
@@ -1194,14 +1205,14 @@ function maskedTree(s: Sandbox) {
 		.map((l) => {
 			const [meta, rel] = l.split("\t");
 			const mode = meta.split(" ")[0];
-			return `${mode} ${rel}\n${body(rel, mode).replaceAll(s.home, "<HOME>")}`;
+			return `${mode} ${rel}\n${readBody(rel, mode).replaceAll(s.home, "<HOME>")}`;
 		});
 	return createHash("sha1").update(files.join("\0")).digest("hex");
 }
 
 /** Everything a finished run leaves, save the backup's timestamped name. */
-function endState(s: Sandbox) {
-	const gh = s.state();
+function readEndState(s: Sandbox) {
+	const gh = s.readState();
 	return {
 		private: gh.private,
 		labels: [...gh.labels].sort(),
@@ -1210,7 +1221,7 @@ function endState(s: Sandbox) {
 			labels: [...i.labels].sort(),
 		})),
 		bashrc: fs.readFileSync(s.rc, "utf8"),
-		tree: maskedTree(s),
+		tree: readMaskedTree(s),
 		commits: s.git("rev-list", "--count", "HEAD"),
 		pushed: s.git("rev-parse", "origin/main") === s.git("rev-parse", "HEAD"),
 		status: s.git("status", "--porcelain", "--untracked-files=all"),
@@ -1234,11 +1245,11 @@ function cleanRun(copy: boolean) {
 	const s = sandbox(copy ? { source: SOURCE_IGNORE } : {});
 	const r = s.run();
 	expect(r.status, r.stdout).toBe(0);
-	return { golden: goldenOf(s), goldenEnd: endState(s) };
+	return { golden: readGolden(s), goldenEnd: readEndState(s) };
 }
 
 /** Every file under `dir` but `.git`'s, by path, with its text or link target. */
-function filesUnder(dir: string, rel = ""): Record<string, string> {
+function readFilesUnder(dir: string, rel = ""): Record<string, string> {
 	if (!fs.existsSync(dir)) return {};
 	const found: Record<string, string> = {};
 	for (const e of fs.readdirSync(path.join(dir, rel), {
@@ -1246,7 +1257,7 @@ function filesUnder(dir: string, rel = ""): Record<string, string> {
 	})) {
 		const at = path.join(rel, e.name);
 		if (at === ".git") continue;
-		if (e.isDirectory()) Object.assign(found, filesUnder(dir, at));
+		if (e.isDirectory()) Object.assign(found, readFilesUnder(dir, at));
 		else
 			found[at] = e.isSymbolicLink()
 				? fs.readlinkSync(path.join(dir, at))
@@ -1256,16 +1267,16 @@ function filesUnder(dir: string, rel = ""): Record<string, string> {
 }
 
 /** What a dry run must leave as it found it. */
-function worldOf(s: Sandbox) {
+function readWorld(s: Sandbox) {
 	const cloned = fs.existsSync(s.clone);
 	return {
-		github: s.state(),
+		github: s.readState(),
 		bashrc: fs.readFileSync(s.rc, "utf8"),
-		backups: s.backups(),
-		files: filesUnder(s.clone),
+		backups: s.readBackups(),
+		files: readFilesUnder(s.clone),
 		refs: cloned ? s.git("for-each-ref") : null,
 		index: cloned ? s.git("ls-files", "-s") : null,
-		origin: s.state()
+		origin: s.readState()
 			? execFileSync("git", ["for-each-ref"], {
 					cwd: path.join(s.sb, "github/lucmoseley/tides.git"),
 					encoding: "utf8",
@@ -1282,17 +1293,17 @@ function worldOf(s: Sandbox) {
 function resumeFinishes(
 	s: Sandbox,
 	step: string,
-	goldenEnd: ReturnType<typeof endState>,
+	goldenEnd: ReturnType<typeof readEndState>,
 	copy: boolean,
 ) {
 	const past = stepIndex(step, copy);
 	// Before the clone nothing is saved, so the re-run is the full form.
 	const again = (...extra: string[]) =>
 		past === 0 ? s.run(...extra) : s.resume(...extra);
-	const before = worldOf(s);
+	const before = readWorld(s);
 	const dry = again("--dry-run");
 	expect(dry.status, dry.stdout).toBe(0);
-	expect(worldOf(s)).toEqual(before);
+	expect(readWorld(s)).toEqual(before);
 	const r = again();
 	expect(r.status, r.stdout).toBe(0);
 	reported(copy).forEach((name, i) => {
@@ -1304,14 +1315,14 @@ function resumeFinishes(
 		);
 	});
 	expect(r.stdout).not.toContain("warning:");
-	expect(endState(s)).toEqual(goldenEnd);
+	expect(readEndState(s)).toEqual(goldenEnd);
 	return { s, r, past };
 }
 
 describe("new-repo.js checks its arguments against the saved ones", () => {
 	it("refuses, exit 2, an argument differing from the saved one, naming each difference, and acts on nothing", () => {
 		const s = builtThrough("clone");
-		const before = s.calls().length;
+		const before = s.readCalls().length;
 		fs.writeFileSync(path.join(s.inputs, "title"), "tides: something else\n");
 		const r = s.run();
 		expect(r.status, r.stdout).toBe(2);
@@ -1333,7 +1344,7 @@ describe("new-repo.js checks its arguments against the saved ones", () => {
 		expect(beside.stdout).toContain(
 			`saved: --prefix gives "tx" where "td" was saved; --idea-file's text differs from the saved idea\n`,
 		);
-		expect(s.calls()).toHaveLength(before);
+		expect(s.readCalls()).toHaveLength(before);
 		expect(fs.readFileSync(s.rc, "utf8")).toBe(BASHRC);
 
 		const same = s.resume("--prefix", "td", "--dry-run");
@@ -1363,14 +1374,14 @@ describe("new-repo.js checks its arguments against the saved ones", () => {
 		expect(r.stdout).toContain(
 			"Manual step: a run that stopped before its clone existed saved nothing — start it again with every argument\nThen start again: /new-repo\n",
 		);
-		expect(s.calls()).toEqual([]);
+		expect(s.readCalls()).toEqual([]);
 	});
 });
 
 describe.skipIf(!HAS_GITLEAKS)(
 	"new-repo.js --resume after a part-way stop",
 	() => {
-		let goldenEnd: ReturnType<typeof endState>;
+		let goldenEnd: ReturnType<typeof readEndState>;
 		let world: ReturnType<typeof worlds>;
 		beforeAll(() => {
 			const clean = cleanRun(false);
@@ -1396,7 +1407,7 @@ describe.skipIf(!HAS_GITLEAKS)(
 			const s = sandbox({ hooks: false });
 			const r = s.run();
 			expect(r.status, r.stdout).toBe(0);
-			expect(endState(s)).toEqual(goldenEnd);
+			expect(readEndState(s)).toEqual(goldenEnd);
 		}, 170_000);
 
 		it.each(STEPS.map(([step]) => step))(
@@ -1409,7 +1420,9 @@ describe.skipIf(!HAS_GITLEAKS)(
 					false,
 				);
 				expect(r.stdout).toContain("Open a new terminal tab and run: td2\n");
-				expect(s.backups()).toHaveLength(past >= stepIndex("bashrc") ? 0 : 1);
+				expect(s.readBackups()).toHaveLength(
+					past >= stepIndex("bashrc") ? 0 : 1,
+				);
 			},
 			170_000,
 		);
@@ -1458,10 +1471,10 @@ describe.skipIf(!HAS_GITLEAKS)(
 			fs.appendFileSync(rules, "\nA line an older core rendered.\n");
 			s.git("-c", "core.hooksPath=/dev/null", "commit", "-q", "-am", "older");
 			s.git("-c", "core.hooksPath=/dev/null", "push", "-q", "origin", "main");
-			const before = worldOf(s);
+			const before = readWorld(s);
 			const dry = s.resume("--dry-run");
 			expect(dry.status, dry.stdout).toBe(0);
-			expect(worldOf(s)).toEqual(before);
+			expect(readWorld(s)).toEqual(before);
 			expect(fs.readdirSync(path.join(s.sb, "tmp"))).toEqual([]);
 			expect(statusOf(dry.stdout, "commit")).toBe("would");
 			expect(statusOf(dry.stdout, "push")).toBe("would");
@@ -1559,10 +1572,10 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 				`preflight      STOPPED — the prefix "td" clashes: ${clash}`,
 			);
 			expect(r.stdout).toContain("Manual step: pick another prefix");
-			expect(s.state()).toBeNull();
+			expect(s.readState()).toBeNull();
 			expect(fs.existsSync(s.clone)).toBe(false);
 			expect(fs.readFileSync(s.rc, "utf8")).toBe(bashrc);
-			expect(s.backups()).toEqual([]);
+			expect(s.readBackups()).toEqual([]);
 		},
 	);
 
@@ -1583,8 +1596,8 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 		expect(r.stdout).toContain(
 			`Manual step: fix ${s.rc} until \`bash -n ~/.bashrc\` passes`,
 		);
-		expect(s.state()).toBeNull();
-		expect(s.backups()).toEqual([]);
+		expect(s.readState()).toBeNull();
+		expect(s.readBackups()).toEqual([]);
 	});
 
 	it("refuses, exit 2, a block whose opening marker is never closed, naming the file and line and offering the end marker as the way out", () => {
@@ -1598,7 +1611,7 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 		expect(r.stdout).toContain(
 			"Manual step: add `# --- end tides block ---` below that block's last alias, or delete its opening line",
 		);
-		expect(s.state()).toBeNull();
+		expect(s.readState()).toBeNull();
 	});
 
 	it("backs ~/.bashrc up before writing, and restores it and stops, exit 2, when bash -n fails after, quoting the complaint of bash -n and naming the backup", () => {
@@ -1607,8 +1620,8 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 		expect(r.status, r.stdout).toBe(2);
 		expect(statusOf(r.stdout, "bashrc")).toBe("STOPPED");
 		expect(r.stdout).toContain("syntax error near unexpected token");
-		const [backup] = s.backups();
-		expect(s.backups()).toHaveLength(1);
+		const [backup] = s.readBackups();
+		expect(s.readBackups()).toHaveLength(1);
 		expect(r.stdout).toContain(`is restored from ${path.join(s.home, backup)}`);
 		expect(r.stdout).toContain(
 			`Manual step: read \`bash -n\`'s complaint above and settle ${s.rc} by hand`,
@@ -1620,7 +1633,7 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 	});
 
 	it("leaves a block already present untouched, warning where it differs with the block it would write, and never checks its own aliases as clashes", () => {
-		const old = liveBlock("tides", "td");
+		const old = buildLiveBlock("tides", "td");
 		const bashrc = `${BASHRC}\n${old}\n`;
 		const s = sandbox({ bashrc });
 		// Stop the run once the step is past, at the map, short of the commit.
@@ -1632,7 +1645,7 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 			`bashrc         skipped — kept as found — ${s.rc} lines ${start}-${start + 5}\n${old.replace(/^/gm, "  ")}\n  warning: the tides block in ${s.rc} differs from what this run would write, and is kept. This run would write:\n${TIDES_BLOCK.replace(/^/gm, "  ")}\n`,
 		);
 		expect(fs.readFileSync(s.rc, "utf8")).toBe(bashrc);
-		expect(s.backups()).toEqual([]);
+		expect(s.readBackups()).toEqual([]);
 	}, 170_000);
 
 	it("reads a block differing only by trailing whitespace as already written", () => {
@@ -1666,7 +1679,7 @@ describe("new-repo.js and the ~/.bashrc launch block", () => {
 });
 
 /** Scratch clones of the source repo left in TMPDIR, where the hook stack keeps files of its own. */
-const scratchLeft = (s: Sandbox) =>
+const readScratchLeft = (s: Sandbox) =>
 	fs
 		.readdirSync(path.join(s.sb, "tmp"))
 		.filter((f) => f.startsWith("new-repo-source-"));
@@ -1675,7 +1688,7 @@ const scratchLeft = (s: Sandbox) =>
 const IGNORE_BLOCK = withIgnoreBlock("") as string;
 
 /** `git check-ignore`'s verdict on a path under each ignored directory. */
-const ignoredScratch = (s: Sandbox) =>
+const readIgnoredScratch = (s: Sandbox) =>
 	spawnSync(
 		"git",
 		["check-ignore", "private/x", ".claude/tmp/x", ".claude/worktrees/x"],
@@ -1713,11 +1726,13 @@ describe("new-repo.js copying a source repo", () => {
 		expect(r.stdout).toContain(
 			`reconcile      would — "Reconcile octo/surf-lib's agent instructions with the core's" under the first map, labelled wayfinder:grilling + takes:wayfinder, unassigned\n`,
 		);
-		expect(s.state()).toBeNull();
+		expect(s.readState()).toBeNull();
 		expect(fs.existsSync(s.clone)).toBe(false);
-		expect(scratchLeft(s)).toEqual([]);
+		expect(readScratchLeft(s)).toEqual([]);
 		expect(
-			s.calls().some((c) => c.join(" ").startsWith(`repo clone ${SOURCE} `)),
+			s
+				.readCalls()
+				.some((c) => c.join(" ").startsWith(`repo clone ${SOURCE} `)),
 		).toBe(true);
 	});
 
@@ -1731,8 +1746,8 @@ describe("new-repo.js copying a source repo", () => {
 		expect(r.stdout).toContain(
 			"Manual step: pick another source repo: the core's files cannot be kept trackable past that line\nThen start again: /new-repo\n",
 		);
-		expect(s.state()).toBeNull();
-		expect(scratchLeft(s)).toEqual([]);
+		expect(s.readState()).toBeNull();
+		expect(readScratchLeft(s)).toEqual([]);
 	});
 
 	it("refuses, exit 2, a source repo with a hook the core's would overwrite, other than pre-commit, and creates nothing", () => {
@@ -1745,8 +1760,8 @@ describe("new-repo.js copying a source repo", () => {
 		expect(r.stdout).toContain(
 			"preflight      STOPPED — the source repo has .husky/pre-push, which the core's hook of the same name would overwrite\n\nManual step: pick another source repo: only a source pre-commit can be kept, as .husky/pre-commit.local\nThen start again: /new-repo\n",
 		);
-		expect(s.state()).toBeNull();
-		expect(scratchLeft(s)).toEqual([]);
+		expect(s.readState()).toBeNull();
+		expect(readScratchLeft(s)).toEqual([]);
 	});
 
 	it("refuses, exit 2, a source repo gh cannot reach, naming it and how to start again, and records no state", () => {
@@ -1756,7 +1771,7 @@ describe("new-repo.js copying a source repo", () => {
 		expect(r.stdout).toContain(
 			"STOPPED — the source repo octo/nowhere is not reachable\n\nManual step: check its owner/name, and that gh's account can read it\nThen start again: /new-repo\n",
 		);
-		expect(s.state()).toBeNull();
+		expect(s.readState()).toBeNull();
 	});
 
 	it("gives the same git check-ignore verdict on init's paths before init writes them as after, and init writes no path outside that list", () => {
@@ -1768,14 +1783,14 @@ describe("new-repo.js copying a source repo", () => {
 			".husky/\ndocs/*.json\n/AGENTS.md\n*.md\n!README.md\n.claude/*.json\n!/.claude/settings.json\n",
 		);
 		const paths: string[] = initPaths(["roadmap"]);
-		const verdict = () =>
+		const readIgnoreVerdict = () =>
 			spawnSync("git", ["check-ignore", "-v", "-n", "--stdin"], {
 				cwd: repo,
 				input: `${paths.join("\n")}\n`,
 				encoding: "utf8",
 				env: s.env,
 			}).stdout;
-		const before = verdict();
+		const before = readIgnoreVerdict();
 		expect(before).toMatch(/\.husky\/\t\.husky\/pre-commit$/m);
 		expect(before).toMatch(
 			/:!\/\.claude\/settings\.json\t\.claude\/settings\.json$/m,
@@ -1801,7 +1816,7 @@ describe("new-repo.js copying a source repo", () => {
 			},
 		);
 		expect(init.status, init.stdout + init.stderr).toBe(0);
-		expect(verdict()).toBe(before);
+		expect(readIgnoreVerdict()).toBe(before);
 		const written = execFileSync(
 			"git",
 			["ls-files", "--others", "--exclude-standard", "--ignored", "-o"],
@@ -1842,12 +1857,12 @@ describe("new-repo.js copying a source repo", () => {
 			expect(r.stdout).toMatch(/^init-adopter {3}done — .*, modules suites$/m);
 
 			// The default branch and tags only: never the stale branch, never a fork.
-			expect(endState(s).originRefs).toEqual([
+			expect(readEndState(s).originRefs).toEqual([
 				"refs/heads/main",
 				"refs/tags/v1",
 				"refs/tags/v2",
 			]);
-			expect(s.calls().some((c) => c.includes("fork"))).toBe(false);
+			expect(s.readCalls().some((c) => c.includes("fork"))).toBe(false);
 			expect(s.git("rev-list", "--count", "HEAD")).toBe("3");
 			expect(s.git("show", "HEAD:lib/tide.js")).toBe(
 				"module.exports = () => 2;",
@@ -1866,7 +1881,7 @@ describe("new-repo.js copying a source repo", () => {
 				`${SOURCE_IGNORE}${IGNORE_BLOCK}${KEEP_BLOCK}`,
 			);
 			// The negations follow the block and reach none of its paths.
-			expect(ignoredScratch(s)).toBe(
+			expect(readIgnoredScratch(s)).toBe(
 				"private/x\n.claude/tmp/x\n.claude/worktrees/x\n",
 			);
 			expect(s.git("ls-files", "CLAUDE.md", "AGENTS.md", ".gitignore")).toBe(
@@ -1922,7 +1937,7 @@ describe("new-repo.js copying a source repo", () => {
 				fs.readFileSync(path.join(s.clone, "docs/doc-map.md"), "utf8"),
 			).toContain("### Source repo docs (octo/surf-lib)\n");
 
-			const [, ticket] = s.state().issues;
+			const [, ticket] = s.readState().issues;
 			expect(ticket.title).toBe(
 				"Reconcile octo/surf-lib's agent instructions with the core's",
 			);
@@ -1935,15 +1950,15 @@ describe("new-repo.js copying a source repo", () => {
 			expect(ticket.body).toContain(
 				"- `docs/source/AGENTS.source.md` — the source repo's `AGENTS.md`",
 			);
-			expect(scratchLeft(s)).toEqual([]);
+			expect(readScratchLeft(s)).toEqual([]);
 
 			const again = s.resume();
 			expect(again.status, again.stdout).toBe(0);
 			for (const step of reported(true).filter((n) => n !== "init-adopter"))
 				expect(statusOf(again.stdout, step), step).toBe("skipped");
 			expect(again.stdout).toContain("  licence: MIT License\n");
-			expect(s.state().issues).toHaveLength(2);
-			expect(endState(s).originRefs).toHaveLength(3);
+			expect(s.readState().issues).toHaveLength(2);
+			expect(readEndState(s).originRefs).toHaveLength(3);
 		},
 		340_000,
 	);
@@ -2020,15 +2035,7 @@ describe("new-repo.js copying a source repo", () => {
 		expect(written).toBe(
 			`${SOURCE_IGNORE}${IGNORE_BLOCK}.husky/\n${KEEP_BLOCK.replace(
 				"# --- end",
-				`${[
-					"prepare-commit-msg",
-					"commit-msg",
-					"pre-merge-commit",
-					"pre-applypatch",
-					"post-commit",
-					"pre-push",
-					"pre-commit.local",
-				]
+				`${[...HOOKS.filter((h) => h !== "pre-commit"), "pre-commit.local"]
 					.map((h) => `!/.husky/${h}\n`)
 					.join("")}# --- end`,
 			)}`,
@@ -2163,7 +2170,7 @@ describe("new-repo.js copying a source repo", () => {
 describe.skipIf(!HAS_GITLEAKS)(
 	"new-repo.js --resume after a part-way copy",
 	() => {
-		let goldenEnd: ReturnType<typeof endState>;
+		let goldenEnd: ReturnType<typeof readEndState>;
 		let world: ReturnType<typeof worlds>;
 		beforeAll(() => {
 			const clean = cleanRun(true);
@@ -2222,7 +2229,7 @@ describe.skipIf(!HAS_GITLEAKS)(
 				fs.readlinkSync(path.join(s.clone, ".husky/pre-commit.local")),
 			).toBe("../scripts/hook.sh");
 			expect(r.stdout).toContain("reconcile      done — #2 under #1\n");
-			const [, ticket] = s.state().issues;
+			const [, ticket] = s.readState().issues;
 			expect(ticket.body).toContain(
 				"- the source repo's `CLAUDE.md` was a link to `docs/tides.md`",
 			);
@@ -2243,7 +2250,7 @@ describe.skipIf(!HAS_GITLEAKS)(
 
 		it("keeps the lowest reconcile ticket, links it under the map where a failed run left it unlinked, and closes every other", () => {
 			const s = world.at("push");
-			const gh = s.state();
+			const gh = s.readState();
 			const [map] = gh.issues;
 			const ticket = {
 				...map,
@@ -2262,7 +2269,7 @@ describe.skipIf(!HAS_GITLEAKS)(
 			const r = s.resume();
 			expect(r.status, r.stdout).toBe(0);
 			expect(r.stdout).toContain("reconcile      repaired — #2 under #1\n");
-			const [, kept, dup] = s.state().issues;
+			const [, kept, dup] = s.readState().issues;
 			expect(kept.state).toBe("OPEN");
 			expect(kept.parent).toBe(1);
 			expect(dup.state).toBe("CLOSED");

@@ -3,7 +3,7 @@ r"""scan_docmap_denials.py — denial events on the doc-map family, per day, ove
 
 Counting rule, kept identical to mantahostels#2409's:
   - both transcript tiers, top-level and subagent, on every seat root (#379)
-  - a denial is `denyReason()`'s fixed string `is held by session`
+  - a denial is `buildDenyReason()`'s fixed string `is held by session`
     (scripts/session-arbiter.js:226)
   - the subject counted is the one actually HELD, which is not always the one
     asked for (mantahostels#970)

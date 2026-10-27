@@ -162,7 +162,7 @@ describe("checker registrations", () => {
 
 	/*
 	 * The one convention for judging the commit rather than the working tree
-	 * (mantahostels#1801, mantahostels#1833). A checker carrying a checker-new-faults.js profile is one
+	 * (mantahostels#1801, mantahostels#1833). A checker carrying a lib/fault-profiles.js profile is one
 	 * whose faults get attributed to a commit, and `--against <rev>` in
 	 * scripts/lib/check.js is where that is done.
 	 */
@@ -183,7 +183,7 @@ describe("checker registrations", () => {
 				source.includes("[--against <rev>]")
 			);
 		};
-		const { PROFILES } = require("./checker-new-faults.js") as {
+		const { PROFILES } = require("./lib/fault-profiles.js") as {
 			PROFILES: Record<string, unknown>;
 		};
 

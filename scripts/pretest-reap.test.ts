@@ -18,16 +18,18 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { SUITE_RESTING_MB } from "./lib/admission.js";
+import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./lib/admission.js";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "pretest-reap.js");
 
-/** A rung's resting MB, read out of admission.js rather than copied (mantahostels#2715). */
-const R1 = SUITE_RESTING_MB[1];
-const R2 = SUITE_RESTING_MB[2];
-const R3 = SUITE_RESTING_MB[3];
+/** Rung n's resting MB, n whole suites of WHOLE_SUITE_WORKERS, read out of
+ * admission.js rather than copied (mantahostels#2715). */
+const rungMb = (n: number) => suiteRungMb(n * WHOLE_SUITE_WORKERS);
+const R1 = rungMb(1);
+const R2 = rungMb(2);
+const R3 = rungMb(3);
 const ONE = `the ${R1} MB one-suite rung`;
 
 /* A process line admission.js counts as one running vitest suite. */
@@ -41,7 +43,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const meminfoLine = (mb: number) => `MemAvailable: ${mb * 1024} kB\n`;
+const buildMeminfoLine = (mb: number) => `MemAvailable: ${mb * 1024} kB\n`;
 
 /**
  * Run the script with `mbs[0]` MB available before the reap and `mbs[1]` (or
@@ -58,7 +60,7 @@ function run(opts: {
 }) {
 	const meminfo = path.join(dir, "meminfo");
 	const mbs = opts.mbs ?? [];
-	if (!opts.unreadable) fs.writeFileSync(meminfo, meminfoLine(mbs[0]));
+	if (!opts.unreadable) fs.writeFileSync(meminfo, buildMeminfoLine(mbs[0]));
 	const count = path.join(dir, "reaps");
 	fs.rmSync(count, { force: true });
 	const reaper = path.join(dir, "reap.js");
@@ -71,7 +73,7 @@ throw new Error("boom");
 `
 			: `const fs = require("node:fs");
 fs.appendFileSync(${JSON.stringify(count)}, "x");
-${opts.unreadable ? "" : `fs.writeFileSync(${JSON.stringify(meminfo)}, ${JSON.stringify(meminfoLine(after))});`}
+${opts.unreadable ? "" : `fs.writeFileSync(${JSON.stringify(meminfo)}, ${JSON.stringify(buildMeminfoLine(after))});`}
 process.stdout.write("reap: 1 of 1 session(s) returned 400 MB.\\n");
 `,
 	);
@@ -148,7 +150,7 @@ describe("pretest-reap.js", () => {
 	] as const)(
 		"with %i running, judges against rung %i",
 		(suites, rung, name) => {
-			const mb = SUITE_RESTING_MB[rung];
+			const mb = rungMb(rung);
 			const short = run({ mbs: [mb - 1, mb + 100], suites });
 			expect(short.reaps).toBe(1);
 			expect(short.text).toContain(`${mb - 1} MB available, under ${name}`);
@@ -163,31 +165,31 @@ describe("pretest-reap.js", () => {
 
 	/* Past the cap the guard's extrapolated rung: 349 MB a worker past 9. */
 	it("judges a suite past the cap against the rung for its workers", () => {
-		const r = run({ mbs: [4699, 4699], suites: 3 });
+		const r = run({ mbs: [7499, 7499], suites: 3 });
 		expect(r.reaps).toBe(1);
 		expect(r.text).toContain(
-			"under the 4700 MB rung for 12 vitest workers, 9 of them already running",
+			"under the 7500 MB rung for 20 vitest workers, 15 of them already running",
 		);
-		const five = run({ mbs: [6799, 6799], suites: 5 });
+		const five = run({ mbs: [10_999, 10_999], suites: 5 });
 		expect(five.text).toContain(
-			"under the 6800 MB rung for 18 vitest workers, 15 of them already running",
+			"under the 11000 MB rung for 30 vitest workers, 25 of them already running",
 		);
-		const above = run({ mbs: [4700], suites: 3 });
+		const above = run({ mbs: [7500], suites: 3 });
 		expect(above.reaps).toBe(0);
 		expect(above.lines).toEqual([]);
 	});
 
 	/* A running 1-file run weighs 1 worker, not a whole suite (#2560). */
-	it("judges a whole launch beside one running 1-file run against the 2,500 MB rung", () => {
+	it("judges a whole launch beside one running 1-file run against the 3,250 MB rung", () => {
 		const ps = [
 			"node /r/node_modules/.bin/vitest run --passWithNoTests a.test.ts",
 		];
-		const short = run({ mbs: [2499, 2499], ps });
+		const short = run({ mbs: [3249, 3249], ps });
 		expect(short.reaps).toBe(1);
 		expect(short.text).toContain(
-			"under the 2500 MB rung for 4 vitest workers, 1 of them already running",
+			"under the 3250 MB rung for 6 vitest workers, 1 of them already running",
 		);
-		const at = run({ mbs: [2500], ps });
+		const at = run({ mbs: [3250], ps });
 		expect(at.reaps).toBe(0);
 		expect(at.lines).toEqual([]);
 	});

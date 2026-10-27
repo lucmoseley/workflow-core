@@ -117,7 +117,7 @@ describe("the breadcrumb the runner owns", () => {
 	 * guard, so reading them here proves the prologue crumbs before it hands
 	 * over, and names the right outcome rather than falling through to the
 	 * guard's first check (mantahostels#872's vocabulary). */
-	const crumb = () => {
+	const readCrumb = () => {
 		const file = path.join(
 			hookRecord.recordsDir(dir),
 			".hook-ran-guard-session-ceiling-unknown-session",
@@ -131,7 +131,7 @@ describe("the breadcrumb the runner owns", () => {
 
 	it("names no-payload where stdin will not parse", () => {
 		run("scripts/guard-session-ceiling.js", "not json");
-		expect(crumb()).toMatchObject({ outcome: "no-payload" });
+		expect(readCrumb()).toMatchObject({ outcome: "no-payload" });
 	});
 
 	it("names no-session-id on an empty session id, and reads no further", () => {
@@ -139,7 +139,7 @@ describe("the breadcrumb the runner owns", () => {
 			"scripts/guard-session-ceiling.js",
 			JSON.stringify({ hook_event_name: "Stop", session_id: "" }),
 		);
-		expect(crumb()).toMatchObject({ outcome: "no-session-id" });
+		expect(readCrumb()).toMatchObject({ outcome: "no-session-id" });
 	});
 });
 

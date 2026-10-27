@@ -59,7 +59,7 @@ describe("isHardCarveOut — original eight items still match", () => {
 
 describe("isHardCarveOut — mantahostels#2462's widened rules", () => {
 	const cases: [string, string][] = [
-		["scripts/lib/*", "scripts/lib/guard-parse.sh"],
+		["scripts/lib/*", "scripts/lib/guard-log.sh"],
 		["scripts/lib/*", "scripts/lib/arbiter-store.js"],
 		// A scripts/lib/ file naming neither "guard" nor "arbiter" — the
 		// deliberate widening past mantahostels#2462's own literal "scripts/lib/*guard*"
@@ -126,7 +126,7 @@ describe("isAdjacent — unchanged by mantahostels#2462", () => {
 describe("the paths a session committed", () => {
 	/** The pathspecs scanSession reads off one session's one commit command. */
 	function committed(commitCmd: string): string[] {
-		return carveout.scanSession(assistantLine("claude-opus-4", commitCmd))
+		return carveout.scanSession(buildAssistantLine("claude-opus-4", commitCmd))
 			.paths;
 	}
 
@@ -155,7 +155,7 @@ function line(record: Record<string, unknown>): string {
 }
 
 /** A user turn carrying the session's `<command-name>` block. */
-function commandLine(command: string, timestamp: string): string {
+function buildCommandLine(command: string, timestamp: string): string {
 	return line({
 		type: "user",
 		timestamp,
@@ -172,7 +172,7 @@ function commandLine(command: string, timestamp: string): string {
  * transcript-testkit's buildBashCall: the tier read needs `message.model`, which it
  * does not set, and a turn with no call at all.
  */
-function assistantLine(model: string, commitCmd?: string): string {
+function buildAssistantLine(model: string, commitCmd?: string): string {
 	const content: unknown[] = [];
 	if (commitCmd)
 		content.push({
@@ -186,8 +186,8 @@ function assistantLine(model: string, commitCmd?: string): string {
 describe("scanSession", () => {
 	it("reads the command, model tier and committed paths from a fake transcript", () => {
 		const text = [
-			commandLine("implement", "2026-08-26T00:00:00Z"),
-			assistantLine(
+			buildCommandLine("implement", "2026-08-26T00:00:00Z"),
+			buildAssistantLine(
 				"claude-opus-4",
 				'git commit -m "x" -- scripts/foo.js docs/agents/bar.md',
 			),
@@ -202,15 +202,15 @@ describe("scanSession", () => {
 
 	it("reports mixed where the session ran on both tiers", () => {
 		const text = [
-			commandLine("implement", "2026-08-26T00:00:00Z"),
-			assistantLine("claude-sonnet-4"),
-			assistantLine("claude-opus-4"),
+			buildCommandLine("implement", "2026-08-26T00:00:00Z"),
+			buildAssistantLine("claude-sonnet-4"),
+			buildAssistantLine("claude-opus-4"),
 		].join("\n");
 		expect(carveout.scanSession(text).model).toBe("mixed");
 	});
 
 	it("reports unknown model and null start for a transcript with neither", () => {
-		const s = carveout.scanSession(commandLine("implement", "not-a-date"));
+		const s = carveout.scanSession(buildCommandLine("implement", "not-a-date"));
 		expect(s.model).toBe("unknown");
 		expect(s.startedAt).toBeNull();
 	});
@@ -225,7 +225,7 @@ describe("scanSession", () => {
 	it("does not throw on a half-written line", () => {
 		expect(() =>
 			carveout.scanSession(
-				`${commandLine("implement", "2026-08-26T00:00:00Z")}\n{"type":"asse`,
+				`${buildCommandLine("implement", "2026-08-26T00:00:00Z")}\n{"type":"asse`,
 			),
 		).not.toThrow();
 	});

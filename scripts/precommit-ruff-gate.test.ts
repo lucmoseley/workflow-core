@@ -38,7 +38,7 @@ import {
 import {
 	PLUGIN_SELECT,
 	REAL_RUFF,
-	stubCalls,
+	readStubCalls,
 	writeRuffStub,
 } from "./lib/ruff-testkit";
 
@@ -177,7 +177,7 @@ function runGate(
 		code = err.status ?? 1;
 		output = `${err.stdout ?? ""}${err.stderr ?? ""}`;
 	}
-	const calls = stubCalls(path.join(repo.root, ARGS_FILE));
+	const calls = readStubCalls(path.join(repo.root, ARGS_FILE));
 	return { code, output, args: calls.flat(), invoked: calls.length > 0 };
 }
 

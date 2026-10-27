@@ -8,7 +8,7 @@
  * locks written straight to disk and the holder made certainly dead, because a
  * pin is a real ref over a real blob and a live holder is never broken.
  *
- * The arbiter runs behind `guard-file-claim.sh`, a `PreToolUse` hook on every
+ * The arbiter runs behind `lib/file-claim.js`, a `PreToolUse` core on every
  * Write and Edit: loosen a case here and a session whose stale claim was broken
  * comes back to a clobbered file unwarned, its own version unrecoverable.
  */
@@ -51,7 +51,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
 	});
 
-	const refs = () =>
+	const readRefs = () =>
 		execFileSync(
 			"git",
 			["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
@@ -83,8 +83,8 @@ describe("a broken claim — the clobber the content record could not reach (man
 
 		expect(locks.breakStale(rel, lock, durably("bob"))).toBe("freed");
 
-		expect(breaks.brokenClaimIds()).toEqual(new Set([lock.claimId]));
-		const notice = breaks.breakNotice(rel, "alice");
+		expect(breaks.readBrokenClaimIds()).toEqual(new Set([lock.claimId]));
+		const notice = breaks.buildBreakNotice(rel, "alice");
 		expect(notice).toContain(`claim on ${rel} was broken`);
 		expect(notice).toContain("by bob");
 		expect(notice).toContain(`git cat-file -p ${blob}`);
@@ -97,7 +97,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		put(rel, { ...liveHolder(), claimId: "fresh" });
 
 		expect(locks.breakStale(rel, existing, durably("bob"))).toBe("retry");
-		expect(breaks.brokenClaimIds()).toEqual(new Set());
+		expect(breaks.readBrokenClaimIds()).toEqual(new Set());
 	});
 
 	it("records nothing when a session breaks its own stale lock", () => {
@@ -107,8 +107,8 @@ describe("a broken claim — the clobber the content record could not reach (man
 		const { lock } = staleClaim("alice's work\n");
 
 		expect(locks.breakStale(rel, lock, durably("alice"))).toBe("freed");
-		expect(breaks.breakNotice(rel, "alice")).toBeNull();
-		expect(breaks.brokenClaimIds()).toEqual(new Set());
+		expect(breaks.buildBreakNotice(rel, "alice")).toBeNull();
+		expect(breaks.readBrokenClaimIds()).toEqual(new Set());
 	});
 
 	it("keeps the pin, so the lost version survives a gc after the break", () => {
@@ -148,7 +148,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		// alive for another week (mantahostels#1796).
 		store.pruneAll(noSessions);
 		expect(fs.existsSync(file)).toBe(false);
-		expect(refs()).toEqual([]);
+		expect(readRefs()).toEqual([]);
 	});
 
 	it("ages a break from when it happened, not from when it was read", () => {
@@ -166,7 +166,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 			}),
 		);
 
-		store.breakNotice(rel, "alice"); // the stamp, which refreshes mtime
+		store.buildBreakNotice(rel, "alice"); // the stamp, which refreshes mtime
 		breaks.pruneBreaks();
 		expect(fs.existsSync(file)).toBe(false);
 	});
@@ -180,7 +180,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		fs.writeFileSync(store.paths.break(rel, lock.claimId), "{not json");
 
 		store.pruneAll(noSessions);
-		expect(refs()).toEqual([`refs/arbiter/${lock.claimId}`]);
+		expect(readRefs()).toEqual([`refs/arbiter/${lock.claimId}`]);
 	});
 
 	it("ages out a record that will not parse, so nothing is pinned for ever", () => {
@@ -212,7 +212,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		locks.breakStale(rel, lock, durably("bob"));
 
 		store.pruneAll(noSessions);
-		expect(refs()).toEqual([`refs/arbiter/${lock.claimId}`]);
+		expect(readRefs()).toEqual([`refs/arbiter/${lock.claimId}`]);
 	});
 
 	it("deletes no pin when the break records cannot be read", () => {
@@ -224,7 +224,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		fs.writeFileSync(store.paths.breaksDir(), "not a directory");
 
 		store.pruneAll(noSessions);
-		expect(refs()).toEqual([`refs/arbiter/${lock.claimId}`]);
+		expect(readRefs()).toEqual([`refs/arbiter/${lock.claimId}`]);
 		expect(fs.readFileSync(sb.errorLog(), "utf8")).toContain("pruneBlobRefs");
 	});
 
@@ -245,7 +245,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 			const { blob, lock } = staleClaim("alice's work\n");
 			locks.breakStale(rel, lock, durably("bob"));
 
-			const notice = store.breakNotice(rel, "alice");
+			const notice = store.buildBreakNotice(rel, "alice");
 			expect(notice).toContain("bob");
 			expect(notice).toContain(`git cat-file -p ${blob}`);
 		});
@@ -253,21 +253,21 @@ describe("a broken claim — the clobber the content record could not reach (man
 		it("says nothing to the session that did the breaking", () => {
 			const { lock } = staleClaim("alice's work\n");
 			locks.breakStale(rel, lock, durably("bob"));
-			expect(store.breakNotice(rel, "bob")).toBeNull();
+			expect(store.buildBreakNotice(rel, "bob")).toBeNull();
 		});
 
 		it("says nothing about a path this session never lost", () => {
 			const { lock } = staleClaim("alice's work\n");
 			locks.breakStale(rel, lock, durably("bob"));
-			expect(store.breakNotice("docs/doc-map.md", "alice")).toBeNull();
+			expect(store.buildBreakNotice("docs/doc-map.md", "alice")).toBeNull();
 		});
 
 		it("is said once, not on every write for a week", () => {
 			const { lock } = staleClaim("alice's work\n");
 			locks.breakStale(rel, lock, durably("bob"));
 
-			expect(store.breakNotice(rel, "alice")).toBeTruthy();
-			expect(store.breakNotice(rel, "alice")).toBeNull();
+			expect(store.buildBreakNotice(rel, "alice")).toBeTruthy();
+			expect(store.buildBreakNotice(rel, "alice")).toBeNull();
 		});
 
 		it("says the version is gone where the broken claim recorded none", () => {
@@ -276,7 +276,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 			const { lock } = staleClaim("alice's work\n", "alice", false);
 			locks.breakStale(rel, lock, durably("bob"));
 
-			const notice = store.breakNotice(rel, "alice");
+			const notice = store.buildBreakNotice(rel, "alice");
 			expect(notice).toContain("not recoverable");
 			expect(notice).not.toContain("cat-file");
 		});
@@ -289,7 +289,7 @@ describe("a broken claim — the clobber the content record could not reach (man
 		fs.rmSync(path.join(sb.home, "sessions", `${process.pid}.json`));
 
 		expect(store.acquire(rel, live(sb, "bob")).verdict).toBe("claimed");
-		expect(breaks.brokenClaimIds()).toEqual(new Set([lock.claimId]));
-		expect(breaks.breakNotice(rel, "alice")).toContain("by bob");
+		expect(breaks.readBrokenClaimIds()).toEqual(new Set([lock.claimId]));
+		expect(breaks.buildBreakNotice(rel, "alice")).toContain("by bob");
 	});
 });

@@ -279,7 +279,7 @@ function plugin(
 /**
  * Enables `key` (`"<plugin>@<marketplace>"`) in the repo's own committed
  * `.claude/settings.json`, merged onto whatever that file already holds —
- * one of the files `enabledPluginsFor()` merges for the plugin-hosted checks
+ * one of the files `readEnabledPluginsFor()` merges for the plugin-hosted checks
  * (mantahostels#3515 F9).
  */
 function enablePlugin(key: string) {
@@ -871,7 +871,7 @@ describe("check-hook-liveness — the census", () => {
 		const stampDir = () => path.join(projectDir(dir), "notify-reports");
 		const persist = (...args: string[]) =>
 			runWithEnv({ WFC_NOTIFY_PERSIST: "1" }, ...args);
-		const report = () =>
+		const readReport = () =>
 			JSON.parse(
 				fs.readFileSync(
 					path.join(stampDir(), "hook-liveness.report.json"),
@@ -888,7 +888,7 @@ describe("check-hook-liveness — the census", () => {
 
 			for (const _ of [1, 2]) {
 				expect(persist("--notify", "--only", "census").status).toBe(0);
-				expect(report().text).toContain("60 failed");
+				expect(readReport().text).toContain("60 failed");
 			}
 		});
 
@@ -900,7 +900,7 @@ describe("check-hook-liveness — the census", () => {
 			expect(
 				fs.existsSync(path.join(stampDir(), "hook-liveness-census.notified")),
 			).toBe(false);
-			expect(report().text).toContain("60 failed");
+			expect(readReport().text).toContain("60 failed");
 		});
 
 		/* mantahostels#2277: the eight assertion stamps this checker can never write for
@@ -912,9 +912,9 @@ describe("check-hook-liveness — the census", () => {
 
 			persist("--notify", "--only", "census");
 
-			expect(report().stamps).toHaveProperty("hook-liveness-census");
-			expect(typeof report().stamps["hook-liveness-census"]).toBe("string");
-			expect(report().stamps["hook-liveness-census"]).not.toBe("");
+			expect(readReport().stamps).toHaveProperty("hook-liveness-census");
+			expect(typeof readReport().stamps["hook-liveness-census"]).toBe("string");
+			expect(readReport().stamps["hook-liveness-census"]).not.toBe("");
 		});
 	});
 
@@ -1242,7 +1242,7 @@ describe("check-hook-liveness — the census", () => {
 
 	it("says nothing about the async blind spot for a hook not wired to persist", () => {
 		transcript(dir, "s1", []);
-		// No WFC_NOTIFY_PERSIST=1 on the line: sessionStartRoster() excludes it.
+		// No WFC_NOTIFY_PERSIST=1 on the line: readSessionStartRoster() excludes it.
 		const at = path.join(repo, ".claude", "settings.json");
 		fs.mkdirSync(path.dirname(at), { recursive: true });
 		fs.writeFileSync(

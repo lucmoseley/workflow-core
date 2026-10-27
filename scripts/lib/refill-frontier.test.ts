@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { refillFrontier } = require("./refill-frontier.js");
+const { parseFailureLine, refillFrontier } = require("./refill-frontier.js");
 const { blockerGraph, pulledInOf } = require("./blocker-graph.js");
 const { decideTick } = require("./refill-decide.js");
 
@@ -31,6 +31,7 @@ afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
 
 const row = (number: number, over: Record<string, unknown> = {}) => ({
 	number,
+	bug: false,
 	urgent: false,
 	goal: false,
 	stallDays: 0,
@@ -301,5 +302,43 @@ describe("a checkout whose shortlist timed out (#2677)", () => {
 		const m = await refillFrontier([served, other], {}, s.fn);
 		expect(m.failed).toEqual([{ root: other, error: "timed out after 300 s" }]);
 		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([2]);
+	});
+});
+
+describe("a checkout whose shortlist fails (#2561)", () => {
+	it("idles the tick on that checkout and its reason, not on an empty frontier", async () => {
+		const s = shortlists({ [served]: { error: "exited 1 FAILED: offline" } });
+		const m = await refillFrontier([served], {}, s.fn);
+		expect(
+			decideTick({
+				now: NOW,
+				startedAt: NOW - 3_600_000,
+				stopRequested: false,
+				frontier: m.frontier,
+				retroBundles: m.retroBundles,
+				running: [],
+				freeSlots: 3,
+				lastPromptAt: null,
+				seats: [{ seat: "~/.claude2", week: 10, session: 10, fits: 9 }],
+				history: [],
+				failedShortlists: m.failed,
+			}),
+		).toMatchObject({
+			launches: [],
+			idle: "shortlist failed in served: exited 1 FAILED: offline",
+		});
+	});
+
+	it("keeps pick-next's FAILED: line over its closing line", () => {
+		expect(
+			parseFailureLine(
+				"FAILED: could not list open issues (Could not resolve host: github.com).\n" +
+					"        Check your connection.\n" +
+					"        No shortlist produced — do not read this as an empty frontier.\n",
+			),
+		).toBe(
+			"FAILED: could not list open issues (Could not resolve host: github.com).",
+		);
+		expect(parseFailureLine("boom\nlast line\n")).toBe("last line");
 	});
 });

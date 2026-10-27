@@ -11,7 +11,7 @@
  * The genuinely concurrent version lives in proving-run.test.ts, which owns
  * Tier 2.
  *
- * scripts/issue-body.js is the route `guard-issue-body.sh` (a `PreToolUse`
+ * scripts/issue-body.js is the route `guard-issue-body.js` (a `PreToolUse`
  * hook) sends every body edit through: loosen a case here and one session's
  * issue edit silently erases a concurrent session's.
  */
@@ -70,8 +70,8 @@ process.stderr.write("gh stub: unsupported: " + a.join(" ") + "\\n");
 process.exit(1);
 `;
 
-const edits = () => Number(fs.readFileSync(counter, "utf8"));
-const body = () => fs.readFileSync(store, "utf8");
+const readEdits = () => Number(fs.readFileSync(counter, "utf8"));
+const readBody = () => fs.readFileSync(store, "utf8");
 
 const SCRIPT = path.join(__dirname, "issue-body.js");
 /** The script, run in process against the fake `gh`. */
@@ -161,12 +161,12 @@ describe("every command but replace is idempotent", () => {
 	it.each(cases)("%s: running it twice writes once", (_name, args, start) => {
 		fs.writeFileSync(store, start);
 		expect(ib(...args).status).toBe(0);
-		const once = body();
+		const once = readBody();
 		expect(once).not.toBe(start);
-		expect(edits()).toBe(1);
+		expect(readEdits()).toBe(1);
 		expect(ib(...args).status).toBe(0);
-		expect(edits()).toBe(1);
-		expect(body()).toBe(once);
+		expect(readEdits()).toBe(1);
+		expect(readBody()).toBe(once);
 	});
 });
 
@@ -177,14 +177,14 @@ describe("what each command actually does", () => {
 		const r = ib(...args);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
-		return body();
+		return readBody();
 	};
 	/** The refusal `args` exits with, having written nothing. */
 	const refusal = (start: string, ...args: string[]) => {
 		fs.writeFileSync(store, start);
 		const r = ib(...args);
 		expect(r.status).toBe(2);
-		expect(edits()).toBe(0);
+		expect(readEdits()).toBe(0);
 		return r.stderr;
 	};
 
@@ -343,7 +343,7 @@ describe("the write loop", () => {
 	it("writes nothing at all when the change is already present", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n\nENTRY-A\n");
 		expect(ib("append", "96", "--text", "ENTRY-A").status).toBe(0);
-		expect(edits()).toBe(0);
+		expect(readEdits()).toBe(0);
 	});
 
 	it("refuses a nonsense attempt count instead of reporting NaN writes", () => {
@@ -351,7 +351,7 @@ describe("the write loop", () => {
 		const r = ib("append", "96", "--text", "ENTRY-A", "--attempts", "abc");
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(/positive whole number/);
-		expect(edits()).toBe(0);
+		expect(readEdits()).toBe(0);
 	});
 
 	it("dry-run prints the body and writes nothing", () => {
@@ -359,8 +359,8 @@ describe("the write loop", () => {
 		const r = ib("append", "96", "--text", "ENTRY-A", "--dry-run");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("ENTRY-A");
-		expect(edits()).toBe(0);
-		expect(body()).toBe("## Log\n\nv0\n");
+		expect(readEdits()).toBe(0);
+		expect(readBody()).toBe("## Log\n\nv0\n");
 	});
 
 	/**
@@ -379,8 +379,8 @@ describe("the write loop", () => {
 
 		const r = ib("append", "96", "--text", "ENTRY-A");
 
-		expect(body()).toContain("ENTRY-A");
-		expect(body()).toContain("ENTRY-B");
+		expect(readBody()).toContain("ENTRY-A");
+		expect(readBody()).toContain("ENTRY-B");
 		expect(r.stdout).toContain("written and verified (2 writes)");
 	});
 
@@ -392,7 +392,7 @@ describe("the write loop", () => {
 		const r = ib("append", "96", "--text", "ENTRY-A", "--attempts", "3");
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(/gave up after 3 writes/);
-		expect(edits()).toBe(3);
+		expect(readEdits()).toBe(3);
 
 		const rescue = path.join(
 			process.env.CLAUDE_JOB_DIR as string,
@@ -457,7 +457,7 @@ describe("the CLI", () => {
 			"--text",
 			"- #131 — safe path",
 		);
-		expect(body()).toBe(
+		expect(readBody()).toBe(
 			"## Decisions so far\n\n- #128 — one helper\n- #131 — safe path\n",
 		);
 	});
@@ -474,10 +474,10 @@ describe("the CLI", () => {
 			"--file",
 			file,
 		);
-		expect(body()).toBe(
+		expect(readBody()).toBe(
 			"## Decisions so far\n\n- #128 — one helper\n- #131 — a\n- #132 — b\n- #133 — c\n",
 		);
-		expect(edits()).toBe(1);
+		expect(readEdits()).toBe(1);
 	});
 
 	/**
@@ -498,8 +498,8 @@ describe("the CLI", () => {
 			status = (e as { status: number }).status;
 		}
 		expect(status).toBe(1);
-		expect(edits()).toBe(1);
-		expect(body()).toContain("ENTRY-B");
+		expect(readEdits()).toBe(1);
+		expect(readBody()).toContain("ENTRY-B");
 	});
 
 	it("replace writes a valid non-blank --file", () => {
@@ -507,8 +507,8 @@ describe("the CLI", () => {
 		const next = path.join(dir, "next.md");
 		fs.writeFileSync(next, "wholly new body\n");
 		run("replace", "96", "--file", next);
-		expect(edits()).toBe(1);
-		expect(body()).toBe("wholly new body\n");
+		expect(readEdits()).toBe(1);
+		expect(readBody()).toBe("wholly new body\n");
 	});
 
 	/**
@@ -534,8 +534,8 @@ describe("the CLI", () => {
 			expect(status).toBe(2);
 			expect(stderr).toContain("empty or whitespace-only");
 			expect(stderr).toContain(next);
-			expect(edits()).toBe(0);
-			expect(body()).toBe("## Log\n\nv0\n");
+			expect(readEdits()).toBe(0);
+			expect(readBody()).toBe("## Log\n\nv0\n");
 		},
 	);
 
@@ -559,7 +559,7 @@ describe("the CLI", () => {
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain("no `**Gate basis:**` line");
 		}
-		expect(edits()).toBe(0);
+		expect(readEdits()).toBe(0);
 	});
 
 	const dryReplace = (contents: string) => {
@@ -578,7 +578,7 @@ describe("the CLI", () => {
 		const r = dryReplace("wholly new body\n");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("wholly new body\n");
-		expect(body()).toBe("## Log\n\nv0\n");
+		expect(readBody()).toBe("## Log\n\nv0\n");
 	});
 
 	it("replace --dry-run is refused for a missing basis, as a real replace is", () => {
@@ -623,20 +623,20 @@ describe("the CLI", () => {
 		expect(r.stderr).toContain(
 			"Rule: docs/agents/issue-tracker.md §Gating an issue",
 		);
-		expect(edits()).toBe(0);
+		expect(readEdits()).toBe(0);
 	});
 
 	it("leaves a body's existing fault editable, and passes a written basis", () => {
 		fs.writeFileSync(store, "run it after a week live\n");
 		run("append", "96", "--text", "unrelated note");
-		expect(body()).toContain("unrelated note");
+		expect(readBody()).toContain("unrelated note");
 		run(
 			"append",
 			"96",
 			"--text",
 			"no earlier than 2026-09-29\n**Gate basis:** counters live 24 hours",
 		);
-		expect(body()).toContain("Gate basis");
+		expect(readBody()).toContain("Gate basis");
 	});
 });
 
@@ -658,7 +658,7 @@ describe("append-decision", () => {
 		const r = decide("531", "keyed append");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("issue 96: written and verified");
-		expect(body()).toBe(
+		expect(readBody()).toBe(
 			"## Decisions so far\n\n- #528 — neighbour's line\n- #531 — keyed append\n\n## Not yet specified\n\nfog\n",
 		);
 	});
@@ -677,15 +677,15 @@ describe("append-decision", () => {
 			expect(r.stdout).toContain(
 				"issue 96: #531 already has a line in Decisions so far, nothing written: - #531 — first gist",
 			);
-			expect(edits()).toBe(0);
-			expect(body()).toBe(start);
+			expect(readEdits()).toBe(0);
+			expect(readBody()).toBe(start);
 		},
 	);
 
 	it("keys on the whole number, so #53 is not mistaken for #531", () => {
 		fs.writeFileSync(store, "## Decisions so far\n\n- #53 — shorter\n");
 		expect(decide("531", "keyed append").status).toBe(0);
-		expect(body()).toContain("- #531 — keyed append");
+		expect(readBody()).toContain("- #531 — keyed append");
 	});
 
 	it("reports a neighbour's line lost in the write as not landed", () => {
@@ -700,7 +700,7 @@ describe("append-decision", () => {
 		expect(r.stdout).not.toContain("written and verified");
 		expect(r.stderr).toContain("- #528 — neighbour's line");
 		expect(r.stderr).toContain("Restore each with append-section");
-		expect(body()).toContain("- #531 — keyed append");
+		expect(readBody()).toContain("- #531 — keyed append");
 		const rescue = path.join(
 			process.env.CLAUDE_JOB_DIR as string,
 			"tmp",
@@ -716,8 +716,8 @@ describe("append-decision", () => {
 		expect(r.stderr).toContain(
 			"issue 96: no '## Decisions so far' section — add the section to the map by hand",
 		);
-		expect(edits()).toBe(0);
-		expect(body()).toBe("## Something else\n\nbody\n");
+		expect(readEdits()).toBe(0);
+		expect(readBody()).toBe("## Something else\n\nbody\n");
 	});
 
 	it.each([
@@ -736,7 +736,7 @@ describe("append-decision", () => {
 			const r = decide(child, gist);
 			expect(r.status).toBe(2);
 			expect(r.stderr).toContain(message);
-			expect(edits()).toBe(0);
+			expect(readEdits()).toBe(0);
 		},
 	);
 });
@@ -763,7 +763,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 	};
 
 	/** The lock's content as the fake `gh` saw it mid-write, or null where there was none. */
-	const seenMidWrite = () => {
+	const readSeenMidWrite = () => {
 		const seen = path.join(dir, "lock-seen");
 		return fs.existsSync(seen) ? fs.readFileSync(seen, "utf8") : null;
 	};
@@ -778,7 +778,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 		// A written temp file is linked in, so the lock never exists empty.
 		const r = appendUnder(0);
 		expect(r.status).toBe(0);
-		expect(JSON.parse(seenMidWrite() ?? "{}").pid).toBe(process.pid);
+		expect(JSON.parse(readSeenMidWrite() ?? "{}").pid).toBe(process.pid);
 		expect(fs.existsSync(lockFile())).toBe(false);
 	});
 
@@ -791,7 +791,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 			`issue-body: lock ${lockFile()} is still held by an unnamed holder after 0ms; writing without it\n`,
 		);
 		expect(fs.readFileSync(lockFile(), "utf8")).toBe("");
-		expect(body()).toContain("ENTRY-A");
+		expect(readBody()).toContain("ENTRY-A");
 	});
 
 	it("prints that it writes without the lock when the lock cannot be created (#595)", () => {
@@ -801,7 +801,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 			expect(r.stderr).toBe(
 				`issue-body: lock ${lockFile()} cannot be created (EACCES); writing without it\n`,
 			);
-			expect(body()).toContain("ENTRY-A");
+			expect(readBody()).toContain("ENTRY-A");
 		} finally {
 			fs.chmodSync(lockDir(), 0o700);
 		}
@@ -814,7 +814,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 
 		const r = appendUnder(0);
 		expect(r.stderr).toBe("");
-		expect(JSON.parse(seenMidWrite() ?? "{}").pid).toBe(process.pid);
+		expect(JSON.parse(readSeenMidWrite() ?? "{}").pid).toBe(process.pid);
 	});
 
 	it("refuses a lock held by a live process, printing that it writes without it (#595)", () => {
@@ -840,7 +840,7 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 
 		const r = appendUnder(0);
 		expect(r.stderr).toBe("");
-		expect(JSON.parse(seenMidWrite() ?? "{}").pid).toBe(process.pid);
+		expect(JSON.parse(readSeenMidWrite() ?? "{}").pid).toBe(process.pid);
 	});
 
 	it("gives up by the deadline on a stale lock it cannot delete (#586)", () => {

@@ -15,6 +15,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, issueClaims } from "./lib/arbiter-testkit";
 import {
+	buildStatLine,
 	EXIT,
 	holderRow,
 	MODEL_LIMIT_LINE,
@@ -24,7 +25,6 @@ import {
 	SHORT,
 	SID,
 	said,
-	statLine,
 	WEEKLY_LIMIT_LINE,
 	withTracker,
 } from "./lib/rescue-testkit";
@@ -41,7 +41,7 @@ const {
 	writeTranscript,
 	jobState,
 	ghostJob,
-	oracleCalls,
+	readOracleCalls,
 	run,
 } = rescueKit(sb);
 
@@ -49,7 +49,7 @@ const subagent = (dir = plan()) =>
 	path.join(dir, "projects", "p", SID, "subagents", "agent-a1.jsonl");
 
 const cpuTo = (pid: number, ppid: number, ticks: number) =>
-	`printf '%s' '${statLine(pid, ppid, ticks)}' > '${path.join(procRoot(), String(pid), "stat")}'`;
+	`printf '%s' '${buildStatLine(pid, ppid, ticks)}' > '${path.join(procRoot(), String(pid), "stat")}'`;
 
 const calling = (command: string) => JSON.stringify(buildBashCall(command));
 
@@ -472,7 +472,7 @@ describe("probe: GHOST, off the first sample alone", () => {
 		expect(r.status).toBe(EXIT.GHOST);
 		expect(r.stdout).toContain("listed with no process behind it");
 		expect(r.stdout).toContain('detail "starting…"');
-		expect(oracleCalls()).toBe(1);
+		expect(readOracleCalls()).toBe(1);
 	});
 
 	it("GHOST where no plan lists it at all", async () => {
@@ -488,7 +488,7 @@ describe("probe: GHOST, off the first sample alone", () => {
 		const r = await probe(["--session", SID]);
 		expect(r.status).toBe(EXIT.UNKNOWN);
 		expect(r.stdout).toContain("first sample: /proc would not read");
-		expect(oracleCalls()).toBe(2);
+		expect(readOracleCalls()).toBe(2);
 	});
 
 	it("not GHOST once it has written a transcript", async () => {
@@ -504,7 +504,7 @@ describe("probe: GHOST, off the first sample alone", () => {
 		lists([holderRow({ pid: undefined })]);
 		const r = await probe(["--session", SID]);
 		expect(r.status).toBe(EXIT.UNKNOWN);
-		expect(oracleCalls()).toBe(2);
+		expect(readOracleCalls()).toBe(2);
 	});
 
 	it("not GHOST where its record is no longer working", async () => {
@@ -512,7 +512,7 @@ describe("probe: GHOST, off the first sample alone", () => {
 		jobState({ state: "done" });
 		const r = await probe(["--session", SID]);
 		expect(r.status).toBe(EXIT.UNKNOWN);
-		expect(oracleCalls()).toBe(2);
+		expect(readOracleCalls()).toBe(2);
 	});
 });
 

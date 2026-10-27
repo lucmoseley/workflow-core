@@ -29,7 +29,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module
-const { procStartOf } = require("./lib/arbiter-proc.js") as any;
+const { readProcStartOf } = require("./lib/arbiter-proc.js") as any;
+// biome-ignore lint/suspicious/noExplicitAny: CommonJS module
+const { projectSlug } = require("./lib/project-slug.js") as any;
 
 const {
 	reap,
@@ -69,6 +71,7 @@ interface Agent {
 	kind: string;
 	state: string;
 	status: string;
+	tempo?: string;
 }
 
 function agent(over: Partial<Agent> = {}): Agent {
@@ -90,6 +93,7 @@ interface ReapOverrides {
 	self?: string | null;
 	state?: Record<string, StateRow>;
 	finishAt?: (a: Agent) => number | null;
+	lastTurn?: (a: Agent) => { ended: boolean; at: number | null } | null;
 	stop?: (id: string) => { ok: boolean; why?: string };
 	isDirty?: (f: string) => boolean | null;
 	runs?: Record<string, object>;
@@ -117,6 +121,8 @@ function reapWith(over: ReapOverrides = {}) {
 		// Default: finished long enough ago to be past the grace window.
 		state: { "aaaa-1": NOW - 1 },
 		finishAt: () => null,
+		// Default: its transcript shows its last turn ended.
+		lastTurn: () => ({ ended: true, at: null }),
 		stop: (id: string) => {
 			stopped.push(id);
 			return { ok: true };
@@ -191,7 +197,7 @@ const ids = (list: Agent[]) => list.map((a) => a.sessionId);
 function registered(seat: string, agents: Agent[]) {
 	const sessions = path.join(seat, "sessions");
 	fs.mkdirSync(sessions, { recursive: true });
-	const procStart = procStartOf(process.pid);
+	const procStart = readProcStartOf(process.pid);
 	agents.forEach((a, i) => {
 		fs.writeFileSync(
 			path.join(sessions, `${i + 1}.json`),
@@ -214,12 +220,46 @@ function registered(seat: string, agents: Agent[]) {
 				return;
 			}
 		fs.mkdirSync(path.dirname(file), { recursive: true });
-		fs.writeFileSync(
-			file,
-			JSON.stringify({ ...rec, sessionId: a.sessionId, state: a.state }),
-		);
+		const testLaidRecord = Object.keys(rec).length > 0;
+		const job: Record<string, unknown> = {
+			...rec,
+			...(!testLaidRecord && { cwd: "/registered" }),
+			sessionId: a.sessionId,
+			state: a.state,
+			...(a.tempo && { tempo: a.tempo }),
+		};
+		fs.writeFileSync(file, JSON.stringify(job));
+		if (!testLaidRecord) endedTranscript(seat, "/registered", a.sessionId);
 	});
 	return "exit 0\n";
+}
+
+/** A turn's closing rows, as the harness writes them once a turn has ended. */
+const ENDED_TURN = `${[
+	{ type: "assistant", message: { content: [] } },
+	{ type: "system", subtype: "stop_hook_summary" },
+	{ type: "system", subtype: "turn_duration" },
+]
+	.map((r) => JSON.stringify(r))
+	.join("\n")}\n`;
+
+/**
+ * A transcript whose last turn ended, where the program looks for `sessionId`'s
+ * — unless the test laid one there itself. Dated at `firstTerminalAt` where
+ * that is set, so the finish clock still reads the stamp the test laid.
+ */
+function endedTranscript(
+	seat: string,
+	cwd: string,
+	sessionId: string,
+	firstTerminalAt?: string,
+) {
+	const t = path.join(seat, "projects", projectSlug(cwd), `${sessionId}.jsonl`);
+	if (fs.existsSync(t)) return;
+	fs.mkdirSync(path.dirname(t), { recursive: true });
+	fs.writeFileSync(t, ENDED_TURN);
+	const at = Date.parse(String(firstTerminalAt));
+	if (Number.isFinite(at)) fs.utimesSync(t, at / 1000, at / 1000);
 }
 
 /**
@@ -322,8 +362,8 @@ describe("the claim store, as the run reads it", () => {
 		expect(r.claimsOf("holder-2")).toEqual(["b.md"]);
 	});
 
-	/* The paths are the whole reason this is read at all since mantahostels#747 — the reaper
-	 * no longer decides anything on a claim. */
+	/* The paths are the whole reason this is read at all: the reaper decides
+	 * nothing on a claim (mantahostels#747). */
 	it("reports every path one holder claims, grouped under it", () => {
 		writeLock("a", JSON.stringify({ sessionId: "holder-1", path: "a.md" }));
 		writeLock("b", JSON.stringify({ sessionId: "holder-1", path: "b.md" }));
@@ -376,8 +416,7 @@ describe("gate 1: finished", () => {
 
 	it("accepts a background session the oracle calls done, whatever its status", () => {
 		expect(gateOf(agent())).toBeNull();
-		// A registry `status: "shell"` emits `done` and `busy` together, which the
-		// deleted `status === "idle"` limb refused (mantahostels#768; https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md).
+		// A registry `status: "shell"` emits `done` and `busy` together (mantahostels#768; https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md).
 		expect(gateOf(agent({ status: "busy" }))).toBeNull();
 	});
 
@@ -386,6 +425,13 @@ describe("gate 1: finished", () => {
 			"finished",
 		);
 		expect(gateOf(agent({ state: "working" }))).toBe("finished");
+	});
+
+	/* #2980: a forced Stop-hook turn runs under `done`, and `claude stop` on a
+	 * job reading `tempo: active` writes `stopped` over its result. */
+	it("refuses a done session whose tempo is active", () => {
+		expect(gateOf(agent({ tempo: "active" }))).toBe("finished");
+		expect(gateOf(agent({ tempo: "idle" }))).toBeNull();
 	});
 
 	it("refuses an interactive record, which carries neither field", () => {
@@ -483,8 +529,7 @@ describe("plan", () => {
 	});
 
 	/* The stamp is written before the age gate, so it still lands on the run that
-	 * reaps — which is what keeps the fallback clock usable if the grace window is ever
-	 * raised again. */
+	 * reaps. */
 	it("stamps a newly-finished session even as it reaps it", () => {
 		const p = run({ state: {} });
 		expect(p.nextState["aaaa-1"]).toBe(NOW);
@@ -1044,9 +1089,9 @@ describe("the SessionStart wiring: the run's own session is not yet registered",
 		);
 	});
 
-	/* #920: `--help` fell through to a live reap and stopped five sessions. The
-	 * fake daemon records any call, list or stop, and the run record is what
-	 * openRun writes before the oracle is read. */
+	/* #920 (`--help` once ran a live reap). The fake daemon records any call,
+	 * list or stop, and the run record is what openRun writes before the oracle
+	 * is read. */
 	describe("a command line it does not take reaps nothing", () => {
 		function runArgv(argv: string[]) {
 			const called = path.join(sandbox, "claude-called");
@@ -1127,7 +1172,7 @@ describe("the finish clock, as the run reads it off disk", () => {
 			const proj = path.join(sandbox, "projects", slug);
 			fs.mkdirSync(proj, { recursive: true });
 			const t = path.join(proj, "aaaa-1.jsonl");
-			fs.writeFileSync(t, "");
+			fs.writeFileSync(t, ENDED_TURN);
 			const ms = now - (over.transcriptAgo ?? 30 * minute);
 			fs.utimesSync(t, ms / 1000, ms / 1000);
 		}
@@ -1144,6 +1189,22 @@ describe("the finish clock, as the run reads it off disk", () => {
 		const out = JSON.parse(res.stdout);
 		expect(out.reaped).toHaveLength(1);
 		return out.reaped[0];
+	}
+
+	/** Where the transcript cannot be found, the run holds the session for the
+	 * hold window, timed on the observation clock — never off the stamp alone,
+	 * and never off another session's transcript (#2980). */
+	function heldUnreadable() {
+		const res = runReaper(sandbox, registered(sandbox, [agent()]), [
+			"--dry-run",
+			"--json",
+		]);
+		expect(res.status, "reap-finished-sessions.js must exit 0").toBe(0);
+		const out = JSON.parse(res.stdout);
+		expect(out.reaped).toEqual([]);
+		expect(out.kept).toHaveLength(1);
+		expect(out.kept[0].gate).toBe("unreadable");
+		expect(out.kept[0].clock).toBe("observation");
 	}
 
 	const noTime = (row: { clock: string; why: string }) => {
@@ -1185,7 +1246,34 @@ describe("the finish clock, as the run reads it off disk", () => {
 		noTime(reaped());
 	});
 
-	it("gives no time where the job record carries no cwd to find the transcript by", () => {
+	it("holds a job whose transcript ends on a blocked Stop hook and the turn it forced (#2980)", () => {
+		lay({ transcriptAgo: 0 });
+		const t = path.join(sandbox, "projects", slug, "aaaa-1.jsonl");
+		fs.appendFileSync(
+			t,
+			`${[
+				{ type: "assistant", message: { content: [] } },
+				{
+					type: "attachment",
+					attachment: { type: "hook_blocking_error", hookEvent: "Stop" },
+				},
+				{ type: "api-request" },
+			]
+				.map((r) => JSON.stringify(r))
+				.join("\n")}\n`,
+		);
+		const res = runReaper(sandbox, registered(sandbox, [agent()]), [
+			"--dry-run",
+			"--json",
+		]);
+		expect(res.status, "reap-finished-sessions.js must exit 0").toBe(0);
+		const out = JSON.parse(res.stdout);
+		expect(out.reaped).toEqual([]);
+		expect(out.kept[0].gate).toBe("turn");
+		expect(out.kept[0].why).toMatch(/a turn still running/);
+	});
+
+	it("holds, on no time, a job whose record carries no cwd to find the transcript by", () => {
 		lay({
 			record: {
 				firstTerminalAt: new Date(Date.now() - 20 * minute).toISOString(),
@@ -1200,13 +1288,53 @@ describe("the finish clock, as the run reads it off disk", () => {
 			sandbox.replace(/[^a-zA-Z0-9]/g, "-"),
 		);
 		fs.mkdirSync(own, { recursive: true });
-		fs.writeFileSync(path.join(own, "aaaa-1.jsonl"), "");
-		noTime(reaped());
+		fs.writeFileSync(path.join(own, "aaaa-1.jsonl"), ENDED_TURN);
+		heldUnreadable();
 	});
 
-	it("gives no time where the transcript is missing, rather than reaping off the stamp alone", () => {
+	it("holds, on no time, a job whose transcript is missing, rather than reaping off the stamp alone", () => {
 		lay({ transcriptAgo: null });
-		noTime(reaped());
+		heldUnreadable();
+	});
+});
+
+/* #2980: a job reads `done` before its Stop hooks run, and a blocking one
+ * forces a turn under that `done`. */
+describe("plan — holding a job whose turn has not visibly ended", () => {
+	const Min = 60_000;
+	const withTurn = (
+		turn: { ended: boolean; at: number | null } | null,
+		finishedAgo: number,
+	) => run({ lastTurn: () => turn, finishAt: () => NOW - finishedAgo });
+	const running = { ended: false, at: null };
+
+	it("holds a job whose transcript shows a turn still running", () => {
+		const p = withTurn(running, 5000);
+		expect(p.reap).toEqual([]);
+		expect(p.kept[0].gate).toBe("turn");
+	});
+
+	it("reaps it fifteen minutes after its last turn row", () => {
+		const at = (ago: number) => ({ ended: false, at: NOW - ago });
+		const held = withTurn(at(15 * Min - 1000), 0).kept[0];
+		expect([held.gate, held.clock]).toEqual(["turn", "turn-row"]);
+		expect(held.why).toMatch(/last turn row 899s ago/);
+		// Bookkeeping rows moved the finish clock to now; the row still rules.
+		expect(ids(withTurn(at(15 * Min), 0).reap)).toEqual(["aaaa-1"]);
+	});
+
+	it("times a turn row with no timestamp off the finish clock", () => {
+		expect(withTurn(running, 15 * Min - 1000).kept[0].gate).toBe("turn");
+		expect(ids(withTurn(running, 15 * Min).reap)).toEqual(["aaaa-1"]);
+	});
+
+	it("holds a job whose transcript will not read for fifteen minutes from its last write", () => {
+		expect(withTurn(null, 15 * Min - 1000).kept[0].gate).toBe("unreadable");
+		expect(ids(withTurn(null, 15 * Min).reap)).toEqual(["aaaa-1"]);
+	});
+
+	it("reaps a job whose turn ended at once", () => {
+		expect(ids(withTurn({ ended: true, at: NOW }, 0).reap)).toEqual(["aaaa-1"]);
 	});
 });
 
@@ -1629,7 +1757,7 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 		return res.stdout;
 	}
 
-	const stopsAttempted = () => {
+	const readStopsAttempted = () => {
 		try {
 			return fs
 				.readFileSync(path.join(sandbox, "stops"), "utf8")
@@ -1653,7 +1781,7 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 		seed();
 
 		const first = runOnce(stub);
-		expect(stopsAttempted()).toEqual(["ghost"]);
+		expect(readStopsAttempted()).toEqual(["ghost"]);
 		expect(first).toContain("reap: could not stop ghost");
 		// The daemon's own answer, which is what tells a reader it is a ghost
 		// rather than a slow stop.
@@ -1661,14 +1789,14 @@ describe("a ghost the daemon lists but cannot stop, across consecutive runs", ()
 
 		const second = runOnce(stub);
 		// THE BUG: this read ["ghost", "ghost"], for ever, at every session start.
-		expect(stopsAttempted()).toEqual(["ghost"]);
+		expect(readStopsAttempted()).toEqual(["ghost"]);
 		expect(second).not.toContain("could not stop");
 
 		// A third run, because the record has to SURVIVE the runs it suppresses:
 		// a suppression that forgot the failure while holding the session back
 		// would pass on two runs and loop again on every one after.
 		runOnce(stub);
-		expect(stopsAttempted()).toEqual(["ghost"]);
+		expect(readStopsAttempted()).toEqual(["ghost"]);
 	});
 
 	it("reports the daemon's reason, not a warning printed above it", () => {
@@ -1885,7 +2013,7 @@ describe("the run record on disk (mantahostels#1920)", () => {
 	afterEach(() => fs.rmSync(sandbox, { recursive: true, force: true }));
 
 	const runFile = () => path.join(sandbox, "wfc-reap-run.json");
-	const runsOnDisk = () => JSON.parse(fs.readFileSync(runFile(), "utf8"));
+	const readRunsOnDisk = () => JSON.parse(fs.readFileSync(runFile(), "utf8"));
 
 	/** One run, against a daemon listing one session still working, so even a
 	 * live run stops nothing. */
@@ -1902,7 +2030,7 @@ describe("the run record on disk (mantahostels#1920)", () => {
 	it("leaves the other mode's record alone", () => {
 		runOnce([]);
 		runOnce(["--dry-run"]);
-		const runs = runsOnDisk();
+		const runs = readRunsOnDisk();
 		expect(runs.live).toMatchObject({
 			mode: "live",
 			finishedAt: expect.any(String),
@@ -1916,7 +2044,9 @@ describe("the run record on disk (mantahostels#1920)", () => {
 	it("reads an unparseable record as no record, rather than throwing", () => {
 		fs.writeFileSync(runFile(), "{oh no");
 		expect(runOnce(["--dry-run"])).not.toContain("never finished");
-		expect(runsOnDisk().dry).toMatchObject({ finishedAt: expect.any(String) });
+		expect(readRunsOnDisk().dry).toMatchObject({
+			finishedAt: expect.any(String),
+		});
 	});
 
 	it("is not in the state file, whose rows are rewritten whole each run", () => {
@@ -1925,7 +2055,7 @@ describe("the run record on disk (mantahostels#1920)", () => {
 			fs.readFileSync(path.join(sandbox, "wfc-reap-state.json"), "utf8"),
 		);
 		expect(Object.keys(state)).not.toContain("live");
-		expect(runsOnDisk().live).toMatchObject({ mode: "live" });
+		expect(readRunsOnDisk().live).toMatchObject({ mode: "live" });
 	});
 });
 
@@ -2025,8 +2155,7 @@ describe("openedRecord — a live reap cancelled at consecutive session starts (
 });
 
 /*
- * PERSIST MODE (mantahostels#2152, the ticket that joined the reaper to mantahostels#1949's
- * persist-and-replay set).
+ * PERSIST MODE (mantahostels#2152).
  *
  * Driven as a real subprocess rather than through `runInProcess` (§X3's third
  * shape, a real fd): the assertions read the report back off stdout as well as
@@ -2312,14 +2441,15 @@ describe("seats other than the run's own (#1571)", () => {
 	function record(seat: string, jobId: string, sessionId: string, agoMin = 0) {
 		const dir = path.join(seat, "jobs", jobId);
 		fs.mkdirSync(dir, { recursive: true });
+		const cwd = "/home/lucmo/mantahostels";
+		const firstTerminalAt = new Date(
+			Date.now() - agoMin * 60_000,
+		).toISOString();
 		fs.writeFileSync(
 			path.join(dir, "state.json"),
-			JSON.stringify({
-				sessionId,
-				cwd: "/home/lucmo/mantahostels",
-				firstTerminalAt: new Date(Date.now() - agoMin * 60_000).toISOString(),
-			}),
+			JSON.stringify({ sessionId, cwd, firstTerminalAt }),
 		);
+		endedTranscript(seat, cwd, sessionId, firstTerminalAt);
 	}
 
 	/* Each session in its own seat's registry, after the test's own job
@@ -2336,7 +2466,7 @@ describe("seats other than the run's own (#1571)", () => {
 		return res.stdout;
 	}
 
-	const stops = () => {
+	const readStops = () => {
 		try {
 			return fs
 				.readFileSync(path.join(root, "stops"), "utf8")
@@ -2351,7 +2481,7 @@ describe("seats other than the run's own (#1571)", () => {
 		record(seatB, "bbbb", "bbbb-1");
 		daemonHolds(seatB, "bbbb");
 		const out = reapFromA();
-		expect(stops()).toEqual([`${seatB} bbbb`]);
+		expect(readStops()).toEqual([`${seatB} bbbb`]);
 		expect(out).toContain("reap: stopped done on B");
 	});
 
@@ -2363,7 +2493,7 @@ describe("seats other than the run's own (#1571)", () => {
 		record(seatB, "bbbb", "bbbb-1");
 		daemonHolds(seatB, "bbbb");
 		reapFromA();
-		expect(stops()).toEqual([`${seatB} bbbb`]);
+		expect(readStops()).toEqual([`${seatB} bbbb`]);
 	});
 
 	it("retries a stop refused with No job matching on the other seat before reporting it", () => {
@@ -2371,14 +2501,14 @@ describe("seats other than the run's own (#1571)", () => {
 		 * record of the id, is asked next. */
 		daemonHolds(seatA, "bbbb");
 		const out = reapFromA();
-		expect(stops()).toEqual([`${seatB} bbbb`, `${seatA} bbbb`]);
+		expect(readStops()).toEqual([`${seatB} bbbb`, `${seatA} bbbb`]);
 		expect(out).toContain("reap: stopped done on B");
 		expect(out).not.toContain("could not stop");
 	});
 
 	it("reports No job matching only once every seat has refused it", () => {
 		const out = reapFromA();
-		expect(stops()).toEqual([`${seatB} bbbb`, `${seatA} bbbb`]);
+		expect(readStops()).toEqual([`${seatB} bbbb`, `${seatA} bbbb`]);
 		expect(out).toContain(
 			"reap: could not stop bbbb (exit 1: No job matching 'bbbb'. (on all 2 seats))",
 		);
@@ -2392,7 +2522,7 @@ describe("seats other than the run's own (#1571)", () => {
 		);
 		registerSeats();
 		const res = runReaper(seatA, busy, [], { env: buildSeatEnv() });
-		expect(stops()).toEqual([`${seatB} bbbb`]);
+		expect(readStops()).toEqual([`${seatB} bbbb`]);
 		expect(res.stdout).toContain(
 			"reap: could not stop bbbb (exit 1: daemon is busy)",
 		);
@@ -2404,7 +2534,7 @@ describe("seats other than the run's own (#1571)", () => {
 		record(seatA, "bbbb", "someone-else");
 		daemonHolds(seatA, "bbbb");
 		const out = reapFromA();
-		expect(stops()).toEqual([`${seatB} bbbb`]);
+		expect(readStops()).toEqual([`${seatB} bbbb`]);
 		expect(out).toContain("could not stop bbbb");
 	});
 

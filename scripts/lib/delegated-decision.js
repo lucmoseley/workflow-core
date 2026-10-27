@@ -149,7 +149,7 @@ const ledgerPath = () => {
  * @param {string} file
  * @returns {{lines: LedgerLine[], torn: number}}
  */
-function ledgerLines(file) {
+function readLedgerLines(file) {
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
@@ -177,7 +177,8 @@ function ledgerLines(file) {
  * those decisions silently.
  * @param {string} root
  */
-const readLedger = (root) => ledgerLines(path.join(root, MARKERS_REL, LEDGER));
+const readLedger = (root) =>
+	readLedgerLines(path.join(root, MARKERS_REL, LEDGER));
 
 /**
  * Whether the ledger holds a line for `commentUrl` already.
@@ -185,7 +186,7 @@ const readLedger = (root) => ledgerLines(path.join(root, MARKERS_REL, LEDGER));
  * @param {string} commentUrl
  */
 const hasEntry = (file, commentUrl) =>
-	ledgerLines(file).lines.some((line) => line.comment === commentUrl);
+	readLedgerLines(file).lines.some((line) => line.comment === commentUrl);
 
 /**
  * @param {string} file

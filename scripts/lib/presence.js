@@ -9,7 +9,7 @@
  * other repo and plan. `WFC_PRESENCE_MARKER` overrides it, so a test never
  * touches the machine's real marker.
  *
- * Caller: `lastTypedAt`, scripts/refill-loop.js's tick (#2012)
+ * Caller: `readLastTypedAt`, scripts/refill-loop.js's tick (#2012)
  */
 
 const fs = require("node:fs");
@@ -41,7 +41,7 @@ function markPresent(now, env = process.env) {
  * @param {Record<string, string | undefined>} [env]
  * @returns {number|null}
  */
-function lastTypedAt(env = process.env) {
+function readLastTypedAt(env = process.env) {
 	try {
 		const at = Date.parse(fs.readFileSync(markerPath(env), "utf8").trim());
 		return Number.isNaN(at) ? null : at;
@@ -65,7 +65,7 @@ function presenceAt(lastTyped, now) {
 }
 
 module.exports = {
-	lastTypedAt,
+	readLastTypedAt,
 	markPresent,
 	presenceAt,
 };

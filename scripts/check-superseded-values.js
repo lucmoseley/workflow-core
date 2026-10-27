@@ -135,7 +135,7 @@ const {
 	scanNeedles,
 	scanScope,
 	mapSkipLine,
-	supersedesText,
+	parseSupersedesText,
 } = require("./lib/doc-map");
 const { caught } = require("./lib/caught.js");
 const { reportGroupedHits } = require("./lib/grouped-hits");
@@ -395,7 +395,7 @@ runCheck({
 		/* Demanding a data file where there is nothing to put in it would make a
 		 * repo with no superseded values read as a broken checker. */
 		const owed = figures
-			.filter((fig) => supersedesText(fig.lines).trim())
+			.filter((fig) => parseSupersedesText(fig.lines).trim())
 			.map((fig) => fig.id);
 
 		const dataFile = path.join(dataDir, DATA_FILES.supersededNeedles);

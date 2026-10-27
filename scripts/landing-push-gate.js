@@ -2,23 +2,31 @@
 /*
  * landing-push-gate.js — the pre-push limb of the landing queue (#2409, spec
  * #2261): with the `landing` module on, refuse a push whose destination is
- * `main` unless the pushed sha is in the lander's green ledger. The lander ledgers a sha before it pushes it, so its own
- * push passes.
+ * `main` unless the pushed sha is in the lander's green ledger. The lander
+ * ledgers a sha before it pushes it, so its own push passes.
  *
  * git feeds `<local ref> <local sha> <remote ref> <remote sha>` per ref on
  * stdin. A deletion of `main` pushes the all-zero sha, which no ledger holds,
  * so it is refused too.
  *
- * LIMIT: `git push --no-verify` skips every pre-push hook, this one included,
- * and nothing local can refuse it; branch protection on the remote is the gate
- * that binds (#2414).
+ * A sha whose tree is a ledgered sha's tree passes: the suite tested that
+ * tree (#1954).
+ *
+ * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
+ * branch protection on the remote is the gate that binds (#2414).
+ *
+ * The module config is read as committed at the pushing tree's HEAD, and the
+ * ledger from the canonical checkout: the shared checkout's working copy of
+ * the config holds neighbours' half-written edits, one of which could turn the
+ * module off for every push (#3128, #3132). LIMIT: a push of a sha other than
+ * HEAD (`git push origin other:main`) is judged on HEAD's config, not that
+ * sha's.
  *
  * IN NO `scripts/` FAMILY (code-standards §N3), as run-mod-tests.js: 2
  * refuses and every other path exits 0. A fault it cannot judge through lets
  * the push through, printed, since a refusal there would refuse every push for
  * a fault that is not the push's. The same config fault opens the publish
- * guard's landing limb, logged there, so branch protection (#2414) is then the
- * one gate left.
+ * guard's landing limb, logged there.
  */
 
 const fs = require("node:fs");
@@ -30,15 +38,16 @@ const {
 } = require("./lib/landing-refs.js");
 const { fileLedger, landerFiles } = require("./lib/lander.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
+const { readTopLevel } = require("./lib/git-tree.js");
 const { caught } = require("./lib/caught.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { spawnGitSync } = require("./lib/git.js");
 
 const REFUSE = 2;
 const MAIN = `refs/heads/${VERIFIED_BRANCH}`;
 
 /**
- * Printed where a fault stops the judgement, and the push goes through (#2409).
- * @param {string} why
+ * @param {string} why the fault (#2409)
  */
 const unchecked = (why) =>
 	writeFd(2, `landing-push-gate: ${why} — push to main not checked.\n`);
@@ -55,16 +64,35 @@ function mainPushes(stdin) {
 }
 
 /**
+ * Each sha's tree, in order; `null` for one git cannot resolve.
+ * @param {string[]} shas
+ * @returns {(string|null)[]}
+ */
+function readTreesOf(shas) {
+	if (shas.length === 0) return [];
+	const out = spawnGitSync(["cat-file", "--batch-check=%(objectname)"], {
+		input: shas.map((sha) => `${sha}^{tree}\n`).join(""),
+		encoding: "utf8",
+	});
+	const lines = out.status === 0 ? out.stdout.split("\n") : [];
+	return shas.map((_, i) => {
+		const line = lines[i] ?? "";
+		return /^[0-9a-f]{40,64}$/.test(line) ? line : null;
+	});
+}
+
+/**
  * @param {string} stdin
- * @param {string} root the canonical checkout
+ * @param {{ tree: string, root: string }} at the pushing tree, whose HEAD
+ *   holds the config, and the canonical checkout, which holds the ledger
  * @returns {number}
  */
-function judge(stdin, root) {
+function judge(stdin, { tree, root }) {
 	const pushes = mainPushes(stdin);
 	if (pushes.length === 0) return 0;
 	let on;
 	try {
-		on = moduleOn("landing", { root });
+		on = moduleOn("landing", { root: tree, rev: "HEAD" });
 	} catch (e) {
 		unchecked(
 			`could not read the landing module's state (${caught(e).message})`,
@@ -73,12 +101,19 @@ function judge(stdin, root) {
 	}
 	if (!on) return 0;
 	const ledger = fileLedger(landerFiles(root).ledger);
-	const unledgered = pushes.filter((sha) => !ledger.has(sha));
-	if (unledgered.length === 0) return 0;
+	const green = new Set(
+		readTreesOf(ledger.readShas()).filter((t) => t !== null),
+	);
+	const pushed = readTreesOf(pushes);
+	const untested = pushes.filter((sha, i) => {
+		const pushedTree = pushed[i] ?? null;
+		return !ledger.has(sha) && (pushedTree === null || !green.has(pushedTree));
+	});
+	if (untested.length === 0) return 0;
 	writeFd(
 		2,
 		[
-			`pre-push: refused — this pushes ${unledgered.join(", ")} to ${VERIFIED_BRANCH}, which the lander's green ledger does not hold.`,
+			`pre-push: refused — this pushes ${untested.join(", ")} to ${VERIFIED_BRANCH}, and the lander's green ledger holds neither it nor its tree.`,
 			`With the landing module on, only the lander moves ${VERIFIED_BRANCH}, to a sha the full suite passed (#2261).`,
 			`Push to ${LANDING_BRANCH} instead: git push ${REMOTE} ${VERIFIED_BRANCH}:${LANDING_BRANCH} from the shared tree, or HEAD:${LANDING_BRANCH} from a worktree.`,
 			"",
@@ -89,8 +124,9 @@ function judge(stdin, root) {
 
 function main() {
 	const root = repoRoot();
-	if (root === null) {
-		unchecked("could not find the repository root");
+	const tree = readTopLevel(process.cwd());
+	if (root === null || tree === null) {
+		unchecked("could not find the repository root or the pushing tree");
 		return 0;
 	}
 	let stdin = "";
@@ -100,7 +136,7 @@ function main() {
 		unchecked(`could not read the pushed refs (${caught(e).message})`);
 		return 0;
 	}
-	return judge(stdin, root);
+	return judge(stdin, { tree, root });
 }
 
 process.exitCode = main();

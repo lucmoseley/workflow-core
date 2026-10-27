@@ -12,7 +12,7 @@
  *
  * check-doc-map.js (mantahostels#1824's extension) gets its OWN describe block below,
  * which runs the real checker throughout — a stub would only prove this file
- * can shell out, not that docMapEnvelope's throwaway detached worktree
+ * can shell out, not that readDocMapEnvelope's throwaway detached worktree
  * actually redirects check-doc-map.js's own `git ls-files` call and its
  * literal `HEAD` reads.
  *
@@ -378,7 +378,7 @@ describe("report-new-shared-faults", () => {
 
 /*
  * check-doc-map.js (mantahostels#1824) — the third checker report-new-shared-faults.js
- * diffs, and the only one that doesn't take --root (docMapEnvelope's own
+ * diffs, and the only one that doesn't take --root (readDocMapEnvelope's own
  * docstring in report-new-shared-faults.js).
  *
  * The fixture map is precommit-doc-map-gate.test.ts's "pointer count
@@ -624,7 +624,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 	 * only prove the sweep can be called.
 	 *
 	 * Nested inside this describe for writeDocMapFixture — the worktree is
-	 * docMapEnvelope's, so the kill has to land in a run that reads a doc map.
+	 * readDocMapEnvelope's, so the kill has to land in a run that reads a doc map.
 	 *
 	 * Each case gets a leftover root of its own, redirected through
 	 * LEFTOVER_ROOT_ENV: the production root is shared, and every neighbour
@@ -650,7 +650,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 
 		const leftoverRoot = () => process.env[LEFTOVER_ROOT_ENV] as string;
 
-		const leftovers = (stem: string) =>
+		const readLeftovers = (stem: string) =>
 			fs.existsSync(leftoverRoot())
 				? fs.readdirSync(leftoverRoot()).filter((b) => b.startsWith(stem))
 				: [];
@@ -663,7 +663,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 		}
 
 		/** A fixture repo with one clean doc-map commit on top of another, so
-		 * both of run()'s docMapEnvelope calls have something to read. */
+		 * both of run()'s readDocMapEnvelope calls have something to read. */
 		function docMapRepo(prefix: string) {
 			const repo = newRepo(prefix, temps);
 			writeDocMapFixture(repo.root, 1);
@@ -683,7 +683,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 			pid: number,
 		) {
 			while (child.exitCode === null && child.signalCode === null) {
-				if (leftovers(`dm-${pid}-`).length > 0) {
+				if (readLeftovers(`dm-${pid}-`).length > 0) {
 					child.kill("SIGKILL");
 					return true;
 				}
@@ -713,7 +713,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 				const pid = child.pid as number;
 				const killed = await killOnceWorktreeExists(child, pid);
 				await new Promise((r) => child.on("exit", r));
-				if (killed && leftovers(`dm-${pid}-`).length > 0) return pid;
+				if (killed && readLeftovers(`dm-${pid}-`).length > 0) return pid;
 			}
 			throw new Error("no attempt landed a SIGKILL while the worktree existed");
 		}
@@ -722,7 +722,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 		 * from git itself rather than from the directory listing — an
 		 * unregistered directory is litter, a registered one is a write to the
 		 * repository that outlives the process (mantahostels#1750's user story 20). */
-		function registered(repo: TempRepo) {
+		function readRegistered(repo: TempRepo) {
 			return repo
 				.git("worktree", "list", "--porcelain")
 				.toString()
@@ -737,14 +737,14 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 			const head = repo.git("rev-parse", "HEAD").toString().trim();
 			const pid = await killMidWorktree(head, repo.root);
 
-			expect(registered(repo).length).toBeGreaterThan(0);
-			expect(leftovers(`tree-${pid}-`).length).toBe(2);
+			expect(readRegistered(repo).length).toBeGreaterThan(0);
+			expect(readLeftovers(`tree-${pid}-`).length).toBe(2);
 
 			run(head, { checkers: {}, cwd: repo.root });
 
-			expect(registered(repo)).toEqual([]);
-			expect(leftovers(`dm-${pid}-`)).toEqual([]);
-			expect(leftovers(`tree-${pid}-`)).toEqual([]);
+			expect(readRegistered(repo)).toEqual([]);
+			expect(readLeftovers(`dm-${pid}-`)).toEqual([]);
+			expect(readLeftovers(`tree-${pid}-`)).toEqual([]);
 		}, 60_000);
 
 		it("leaves a live run's worktree and trees alone, so two concurrent runs cannot sweep each other", () => {
@@ -762,7 +762,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 			run(head, { checkers: {}, cwd: repo.root });
 
 			expect(fs.existsSync(liveTree)).toBe(true);
-			expect(registered(repo)).toEqual([liveWorktree]);
+			expect(readRegistered(repo)).toEqual([liveWorktree]);
 			repo.git("worktree", "remove", "--force", liveWorktree);
 		}, 30_000);
 
@@ -956,8 +956,8 @@ describe("the notice the session reads", () => {
 	 * two (mantahostels#1750): a profile the diff knows but the notice does not
 	 * cost throws rather than print an `undefined` clause. doc-map's own line is
 	 * the pointer-fault case's. */
-	it("carries a cost line for every checker-new-faults.js profile it reads by --root", () => {
-		const { PROFILES } = require("./checker-new-faults.js") as {
+	it("carries a cost line for every lib/fault-profiles.js profile it reads by --root", () => {
+		const { PROFILES } = require("./lib/fault-profiles.js") as {
 			PROFILES: Record<string, unknown>;
 		};
 		const { repo, child } = repoWithOneAddedFault("report-notice-every-");
@@ -981,7 +981,7 @@ describe("the notice the session reads", () => {
 	 * this script on the same sha reprints the same bytes, so `full` names the
 	 * checker itself. */
 	it("offers a route in that exists and is not a reprint of itself", () => {
-		const { PROFILES } = require("./checker-new-faults.js") as {
+		const { PROFILES } = require("./lib/fault-profiles.js") as {
 			PROFILES: Record<string, unknown>;
 		};
 		const { repo, child } = repoWithOneAddedFault("report-notice-route-");

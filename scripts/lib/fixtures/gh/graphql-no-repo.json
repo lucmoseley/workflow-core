@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "{\"data\":{\"repository\":null},\"errors\":[{\"type\":\"NOT_FOUND\",\"path\":[\"repository\"],\"locations\":[{\"line\":1,\"column\":42}],\"message\":\"Could not resolve to a Repository with the name 'o/missing'.\"}]}",
+	"stderr": "gh: Could not resolve to a Repository with the name 'o/missing'.\n"
+}

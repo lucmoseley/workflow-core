@@ -3,12 +3,14 @@
  * which `scripts/guard-uncommitted-work.js` subtracts from this session's write
  * ledger to judge which uncommitted tracked paths are its own (#615), and
  * `lib/own-selection.js` subtracts for `--isolated`'s dirty-tree attribution
- * (claims only, #1922).
+ * (claims only, #1922); and `readStrandedFiles`, a session's own uncommitted
+ * files once they are subtracted, which a park's hand-off owes (#2391).
  */
 
 const { listedSessionIds } = require("./agent-liveness");
 const proc = require("./arbiter-proc");
 const store = require("./arbiter-store");
+const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree");
 
 /**
  * @typedef {{ unreadable?: boolean, sessionId?: string, path?: string,
@@ -33,7 +35,7 @@ const store = require("./arbiter-store");
  * `AGENTS.md` and `scripts/`. Outside them the false positive stands: the
  * guard's block carries a diff-before-commit instruction for it.
  * A neighbour who wrote from Bash and so holds no claim is caught by
- * `observedElsewhere` below instead (mantahostels#2282).
+ * `readObservedElsewhere` below instead (mantahostels#2282).
  *
  * An unreadable lock store yields the empty set, subtracting nothing; a lock
  * naming no path is passed over.
@@ -41,7 +43,7 @@ const store = require("./arbiter-store");
  * @param {LockSource} [ledger] `lib/own-selection.js` passes its injected one
  * @returns {Set<string>}
  */
-function claimedElsewhere(sid, { readLocks, subjectPath } = store) {
+function readClaimedElsewhere(sid, { readLocks, subjectPath } = store) {
 	const locks = readLocks();
 	if (locks === null) return new Set();
 	/** @type {Set<string>} */
@@ -84,7 +86,7 @@ function claimedElsewhere(sid, { readLocks, subjectPath } = store) {
  *
  * IT WALKS THE LIVE SESSIONS AND ASKS EACH WHAT IT OBSERVES, rather than
  * reading the whole observation store and judging each record's session — the
- * direction `arbiter-store.js` exports. It is not free: `observedBy` filters by
+ * direction `arbiter-store.js` exports. It is not free: `readObservedBy` filters by
  * filename but readdirs the WHOLE store to do it, so the cost is one full scan
  * per live session, not the single prefix scan the ruling costed.
  *
@@ -98,28 +100,28 @@ function claimedElsewhere(sid, { readLocks, subjectPath } = store) {
  *
  * WHERE THE CHECK CANNOT RUN — an oracle that will not vouch, an observation
  * store that will not open — nothing is subtracted and the path stays named,
- * matching `claimedElsewhere` on an unreadable lock store. `why` is the sentence
+ * matching `readClaimedElsewhere` on an unreadable lock store. `why` is the sentence
  * the refusal then carries.
  *
  * RESIDUAL: a single observation record that will not PARSE is dropped inside
- * `observedBy` and reaches no reader, so a neighbour whose one record is corrupt
+ * `readObservedBy` and reaches no reader, so a neighbour whose one record is corrupt
  * is invisible here and their path is named. Only a directory that will not open
  * is reported.
  *
  * @param {string} sid
  * @returns {{paths: Set<string>, why: string|null}}
  */
-function observedElsewhere(sid) {
+function readObservedElsewhere(sid) {
 	const { ids, why } = listedSessionIds();
 	if (!ids) return { paths: new Set(), why };
 
 	const paths = new Set();
-	/* One flag, not a count: `observedBy` opens the one shared observations
+	/* One flag, not a count: `readObservedBy` opens the one shared observations
 	 * directory on every call, so darkness is the store's and not a session's. */
 	let dark = false;
 	for (const id of ids) {
 		if (id === sid) continue;
-		const observed = store.observedBy(id);
+		const observed = store.readObservedBy(id);
 		/* null is "the store would not open", never "observes nothing" (mantahostels#174), so
 		 * it sets `why` rather than being read as a clean answer. */
 		if (observed === null) {
@@ -136,4 +138,27 @@ function observedElsewhere(sid) {
 	};
 }
 
-module.exports = { claimedElsewhere, observedElsewhere };
+/**
+ * A session's ledgered files still uncommitted in `root` — tracked and dirty,
+ * or new and untracked — a live neighbour's claimed files aside; [] where the
+ * ledger or the tree cannot be read (#958: fail open).
+ * @param {string} sessionId
+ * @param {string} root
+ * @returns {string[]}
+ */
+function readStrandedFiles(sessionId, root) {
+	const written = store.readWritesBy(sessionId);
+	if (!written || written.length === 0) return [];
+	const dirty = readDirtyTracked(root);
+	if (!dirty) return [];
+	const theirs = readClaimedElsewhere(sessionId);
+	return [...dirty, ...(readUntrackedFiles(root) ?? [])].filter(
+		(p) => written.includes(p) && !theirs.has(p),
+	);
+}
+
+module.exports = {
+	readClaimedElsewhere,
+	readObservedElsewhere,
+	readStrandedFiles,
+};

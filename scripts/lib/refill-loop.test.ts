@@ -15,7 +15,10 @@
  * or a launch be judged without the session id its listing gave, or by
  * anything but what its own session did, or a batch's launches go unrecorded,
  * mis-stamped, or a member it never reached be dropped from the gate queue,
- * or a job that never started stay listed for good, or a live one be stopped.
+ * or a job that never started stay listed for good, or a live one be stopped,
+ * or an API-error session be judged finished between resumes, resumed twice
+ * for one try, or resumed off a listing that would not read, or a gate
+ * judgement's record lose the flag that keeps it out of the no-progress run.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -23,16 +26,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AS_ROOT, freshSandbox, store } from "./arbiter-testkit";
-import { recentEntries } from "./dispatch-ledger.js";
+import { readRecentEntries } from "./dispatch-ledger.js";
 import { decideTick, FULL } from "./refill-decide.js";
 import {
 	actsOf,
+	buildFinishLine,
+	buildStatusLines,
 	capArgs,
 	capFitsOf,
 	ceilingsOf,
 	dispatchCall,
 	FREE_SLOT_ARGS,
-	finishLine,
 	isRenewedSince,
 	isReviewRunDue,
 	judgedLaunches,
@@ -52,7 +56,6 @@ import {
 	seatsToRefresh,
 	settleTick,
 	sizedSeats,
-	statusLines,
 	stopNeverStarted,
 	summaryOf,
 } from "./refill-loop.js";
@@ -146,13 +149,28 @@ describe("the dispatcher call for one batch", () => {
 
 type Launch = import("./refill-loop.js").LoopLaunch;
 
+type Reading = import("./block-cause.js").Reading;
+
 /** The launches after one listing, every finished one judged with no progress
- * fields. */
+ * fields unless `progressOf` gives some, every parked one read as `cause`, or
+ * as an API_ERROR of kind `sub`. */
 const judged = (
 	launches: Launch[],
 	agents: ReturnType<typeof agent>[] | null,
-	progressOf: (l: Launch) => object = () => ({}),
-) => judgedLaunches(launches, agents, NOW, progressOf);
+	{
+		progressOf = () => ({}),
+		cause = "QUESTION",
+		sub,
+	}: {
+		progressOf?: (l: Launch) => object;
+		cause?: Reading["cause"];
+		sub?: import("./block-cause.js").ApiErrorKind;
+	} = {},
+) =>
+	judgedLaunches(launches, agents, NOW, {
+		progressOf,
+		causeOf: () => (sub ? { cause: "API_ERROR", sub } : { cause }) as Reading,
+	});
 
 const finished = (
 	launches: Launch[],
@@ -243,6 +261,40 @@ describe("which launches are parked on a question (#2118)", () => {
 	});
 });
 
+describe("a parked launch's block record (#2699)", () => {
+	const blocked = [agent("p", "blocked")];
+
+	it("records the cause read and the tick that first read it", () => {
+		const [out] = judged([record({ jobId: "p" })], blocked, {
+			cause: "PERMISSION",
+		});
+		expect(out?.block).toEqual({ cause: "PERMISSION", since: NOW });
+	});
+
+	it("keeps its start while it stays parked, across a change of cause", () => {
+		const was = record({
+			jobId: "p",
+			parked: true,
+			block: { cause: "QUESTION", since: NOW - 30 * MIN },
+		});
+		expect(judged([was], blocked, { cause: "PERMISSION" })[0]?.block).toEqual({
+			cause: "PERMISSION",
+			since: NOW - 30 * MIN,
+		});
+	});
+
+	it("drops it once the session works again", () => {
+		const was = record({
+			jobId: "p",
+			parked: true,
+			block: { cause: "QUESTION", since: NOW - MIN },
+		});
+		const [out] = judged([was], [agent("p", "working")]);
+		expect(out?.parked).toBe(false);
+		expect(out).not.toHaveProperty("block");
+	});
+});
+
 describe("the launched session's id (#2311)", () => {
 	it("takes it from the first listing that shows the job", () => {
 		const out = judged([record({ jobId: "a" })], [agent("a", "working")]);
@@ -251,9 +303,11 @@ describe("the launched session's id (#2311)", () => {
 
 	it("is on the launch its progress is judged for, where the first listing already shows it ended", () => {
 		const seen: (string | undefined)[] = [];
-		const out = judged([record({ jobId: "a" })], [agent("a", "done")], (l) => {
-			seen.push(l.sessionId);
-			return {};
+		const out = judged([record({ jobId: "a" })], [agent("a", "done")], {
+			progressOf: (l) => {
+				seen.push(l.sessionId);
+				return {};
+			},
 		});
 		expect(seen).toEqual(["s-a"]);
 		expect(out[0]).toMatchObject({ sessionId: "s-a", finishedAt: NOW });
@@ -293,7 +347,10 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 					: agent(id, "done");
 			}),
 			NOW,
-			(l) => actsOf(l, [sb.repo, other()], store.actsBy),
+			{
+				progressOf: (l) => actsOf(l, [sb.repo, other()], store.readActsBy),
+				causeOf: () => ({ cause: "QUESTION" }),
+			},
 		);
 
 	const ended = (job: string) =>
@@ -314,21 +371,43 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 			finishedAt: NOW,
 			acts: { file: 2, close: 1, commit: 1 },
 		});
-		expect(finishLine(l)).toBe(
+		expect(buildFinishLine(l)).toBe(
 			"finished design-vault /implement 1: file 2, commit 1, close 1",
 		);
+	});
+
+	it("sums the acts of a launch's first session and the copy a resume moved it to (#2969)", () => {
+		store.recordAct("file owner/repo#8", "s-first", sb.repo);
+		store.recordAct("close owner/repo#8", "s-j8", sb.repo);
+		store.recordAct("file owner/repo#9", "s-j8", sb.repo);
+		const [l] = judgedByLedger([
+			{ ...ended("j8"), sessionId: "s-j8", pastSessionIds: ["s-first"] },
+		]);
+		expect(l.acts).toEqual({ file: 2, close: 1 });
+	});
+
+	it("counts a session listed both past and current once (#2969)", () => {
+		store.recordAct("file owner/repo#9", "s-j9", sb.repo);
+		const [l] = judgedByLedger([
+			{ ...ended("j9"), sessionId: "s-j9", pastSessionIds: ["s-j9"] },
+		]);
+		expect(l.acts).toEqual({ file: 1 });
 	});
 
 	it("reads a session with an empty ledger as no progress, not unread", () => {
 		const [l] = judgedByLedger([ended("j2")]);
 		expect(l.acts).toEqual({});
-		expect(finishLine(l)).toBe("finished design-vault /implement 2: no acts");
+		expect(buildFinishLine(l)).toBe(
+			"finished design-vault /implement 2: no acts",
+		);
 	});
 
 	it("judges a launch unread where its session id was never captured", () => {
 		const [l] = judgedByLedger([ended("j3")], ["j3"]);
 		expect(l).toMatchObject({ finishedAt: NOW, acts: "unread" });
-		expect(finishLine(l)).toBe("finished design-vault /implement 3: unread");
+		expect(buildFinishLine(l)).toBe(
+			"finished design-vault /implement 3: unread",
+		);
 	});
 
 	it.skipIf(AS_ROOT)(
@@ -935,19 +1014,29 @@ describe("the cap's launch count (#2278)", () => {
 	});
 
 	it.each([
-		["no JSON", "oops", "printed no JSON"],
-		["no cap, the reading untrusted", "{}", "no trustworthy allowance reading"],
+		["no JSON", "oops", "printed no JSON", true],
+		[
+			"no cap, the reading untrusted",
+			"{}",
+			"no trustworthy allowance reading",
+			false,
+		],
 		[
 			"a cap error",
 			JSON.stringify({ cap: { launch: 0, error: "cost table unreadable" } }),
 			"cost table unreadable",
+			true,
 		],
-	])("reads %s as unsized, naming why", (_, stdout, why) => {
-		expect(capFitsOf(stdout)).toEqual({
-			fits: null,
-			why: expect.stringContaining(why),
-		});
-	});
+	])(
+		"reads %s as unsized, naming why and whether a fault (#2937)",
+		(_, stdout, why, fault) => {
+			expect(capFitsOf(stdout)).toEqual({
+				fits: null,
+				why: expect.stringContaining(why),
+				fault,
+			});
+		},
+	);
 });
 
 describe("dispatch's cap thresholds", () => {
@@ -1237,9 +1326,13 @@ describe("what status prints", () => {
 	const served = [WFC, MH];
 
 	it("gives start, stop time, launches since the start and the last stop", () => {
-		const out = statusLines({ control, state, pid: 123, runMs, served }).join(
-			"\n",
-		);
+		const out = buildStatusLines({
+			control,
+			state,
+			pid: 123,
+			runMs,
+			served,
+		}).join("\n");
 		expect(out).toContain("running, pid 123");
 		expect(out).toContain(
 			`started:   ${new Date(control.startedAt).toISOString()}`,
@@ -1256,6 +1349,23 @@ describe("what status prints", () => {
 		expect(out).toContain("last stop:");
 		expect(out).toContain("no-progress — three in a row");
 	});
+	it("counts a park the loop stopped as parked, and says it stopped it (#2699)", () => {
+		const stopped = record({
+			launchedAt: NOW - 20 * MIN,
+			prompt: "/implement 9",
+			finishedAt: NOW,
+			parkStopped: NOW - MIN,
+		});
+		const out = buildStatusLines({
+			control,
+			state: { ...state, launches: [...state.launches, stopped] },
+			pid: 123,
+			runMs,
+			served,
+		}).join("\n");
+		expect(out).toContain("launches:  2 since start, 1 running, 1 parked");
+		expect(out).toContain("/implement 9  parked, stopped");
+	});
 
 	it("lists the last tick's skipped rows, ten and a count past them (#2561)", () => {
 		const skipped = Array.from({ length: 12 }, (_, i) => ({
@@ -1263,7 +1373,7 @@ describe("what status prints", () => {
 			number: 100 + i,
 			why: i === 0 ? "parked" : "already running",
 		}));
-		const lines = statusLines({
+		const lines = buildStatusLines({
 			control,
 			state: {
 				...state,
@@ -1298,7 +1408,7 @@ describe("what status prints", () => {
 	});
 
 	it("shows a launch's session id where captured (#2311)", () => {
-		const out = statusLines({
+		const out = buildStatusLines({
 			control,
 			state: {
 				...state,
@@ -1312,13 +1422,17 @@ describe("what status prints", () => {
 	});
 
 	it("names the mode, the repos and the goal", () => {
-		const out = statusLines({ control, state, pid: 123, runMs, served }).join(
-			"\n",
-		);
+		const out = buildStatusLines({
+			control,
+			state,
+			pid: 123,
+			runMs,
+			served,
+		}).join("\n");
 		expect(out).toContain("mode:      normal");
 		expect(out).toContain("repos:     workflow-core, mantahostels");
 		expect(out).toContain("goal:      workflow-core #116, #117");
-		const awayOut = statusLines({
+		const awayOut = buildStatusLines({
 			control: { ...control, scope: away([DV]) },
 			state,
 			pid: 123,
@@ -1332,7 +1446,7 @@ describe("what status prints", () => {
 	});
 
 	it("says a requested stop is pending while the loop still runs", () => {
-		const out = statusLines({
+		const out = buildStatusLines({
 			control: { ...control, stopRequested: true },
 			state,
 			pid: 123,
@@ -1343,7 +1457,7 @@ describe("what status prints", () => {
 	});
 
 	it("says when the loop is not running or never started", () => {
-		const out = statusLines({
+		const out = buildStatusLines({
 			control: null,
 			state: { launches: [], lastTick: null, stopped: null, reviewRunOn: null },
 			pid: null,
@@ -1515,7 +1629,8 @@ done
 								out: `${ran.stdout}${ran.stderr}`.trim(),
 							};
 						},
-						entriesOf: (root) => recentEntries(root, 1).entries,
+						entriesOf: (root) => readRecentEntries(root, 1).entries,
+						sessionOf: () => undefined,
 					});
 					tried.push(...r.tried.map((l) => l.prompt));
 					refused.push(
@@ -1564,7 +1679,7 @@ done
 
 	it("stamps each member with its own ledger entry's time, not the call's start", () => {
 		const r = settle([pick("a", 1), pick("a", 2)], { a: "launch,launch" });
-		const ledger = recentEntries(path.join(dir, "a"), 1).entries;
+		const ledger = readRecentEntries(path.join(dir, "a"), 1).entries;
 		expect(r.launched.map((l) => l.launchedAt)).toEqual(
 			ledger.map((e) => Date.parse(e.ts)),
 		);
@@ -1659,7 +1774,7 @@ describe("a job that never started (#2467)", () => {
 	});
 
 	const job = (id: string, sessionId: string, agedMinutes: number) => ({
-		store: path.join(home, ".claude2", "jobs"),
+		seat: path.join(home, ".claude2"),
 		job: id,
 		rec: {
 			state: "working",
@@ -1770,5 +1885,237 @@ describe("a job that never started (#2467)", () => {
 			done,
 		]);
 		expect(r).toEqual({ stopped: [], lines: [] });
+	});
+});
+
+describe("the loop's resumes after a transient API stop (#2705)", () => {
+	const block = (sub: import("./block-cause.js").ApiErrorKind) => ({
+		cause: "API_ERROR" as const,
+		sub,
+		since: NOW - 2 * MIN,
+	});
+	const resuming = (over = {}): Launch =>
+		record({ jobId: "p", parked: true, block: block("transient"), ...over });
+	/** Resumes made, the last `ago` minutes back, the next due `dueIn`. */
+	const tried = (tries: number, ago: number, dueIn: number, over = {}) => ({
+		tries,
+		triedAt: NOW - ago * MIN,
+		nextAt: NOW + dueIn * MIN,
+		...over,
+	});
+	const blocked = [agent("p", "blocked")];
+
+	it("keeps an API_ERROR's kind on the block", () => {
+		const [out] = judged([record({ jobId: "p" })], blocked, { sub: "auth" });
+		expect(out?.block).toEqual({ cause: "API_ERROR", sub: "auth", since: NOW });
+	});
+
+	it("keeps a held launch unfinished, block and all, once its session ends", () => {
+		const held = resuming({ resumes: tried(2, 10, 5, { heldAt: NOW - MIN }) });
+		for (const agents of [[agent("p", "done")], []]) {
+			const [out] = judged([held], agents);
+			expect(out).toMatchObject({
+				finishedAt: null,
+				block: block("transient"),
+			});
+		}
+	});
+
+	it("judges finished a resuming launch whose session ended with no hold", () => {
+		const [out] = judged(
+			[resuming({ resumes: tried(1, 10, 5) })],
+			[agent("p", "done")],
+		);
+		expect(out?.finishedAt).toBe(NOW);
+	});
+
+	it("drops the block, keeping the count, once the session works again", () => {
+		const resumes = tried(3, 10, 5);
+		const [out] = judged([resuming({ resumes })], [agent("p", "working")]);
+		expect(out?.block).toBeUndefined();
+		expect(out?.resumes).toEqual(resumes);
+	});
+});
+
+describe("the launch lines status shows (#2850)", () => {
+	const statusOf = (launches: Launch[]) =>
+		buildStatusLines({
+			control: {
+				startedAt: NOW - 60 * MIN,
+				stopRequested: false,
+				seats: [],
+				scope: normal([DV]),
+			},
+			state: { launches, lastTick: null, stopped: null, reviewRunOn: null },
+			pid: 1,
+			runMs: 60 * MIN,
+			served: [DV],
+		}).join("\n");
+
+	it("shows a resumed-idle launch's idle start, and its resumes once made", () => {
+		expect(statusOf([record({ idleSince: NOW - 3 * MIN })])).toContain(
+			"resumed-idle since 2026-10-18T11:57:00.000Z, not yet resumed",
+		);
+		expect(
+			statusOf([
+				record({
+					idleSince: NOW - 9 * MIN,
+					idleResumes: { tries: 1, triedAt: NOW - 4 * MIN },
+				}),
+			]),
+		).toContain(
+			"resumed-idle since 2026-10-18T11:51:00.000Z, resumed 1 times, last at 2026-10-18T11:56:00.000Z",
+		);
+	});
+
+	it("shows an API-error launch's tries and its next try's time", () => {
+		const block = {
+			cause: "API_ERROR",
+			sub: "transient",
+			since: NOW - 8 * MIN,
+		};
+		expect(statusOf([record({ block })])).toContain(
+			"0 of 16 tries, next at 2026-10-18T11:52:00.000Z",
+		);
+		expect(
+			statusOf([
+				record({
+					block,
+					resumes: { tries: 2, triedAt: NOW - 2 * MIN, nextAt: NOW + 8 * MIN },
+				}),
+			]),
+		).toContain("2 of 16 tries, next at 2026-10-18T12:08:00.000Z");
+		expect(
+			statusOf([
+				record({
+					block,
+					resumes: {
+						tries: 1,
+						triedAt: NOW - MIN,
+						nextAt: NOW + 4 * MIN,
+						attachAt: NOW - MIN,
+					},
+				}),
+			]),
+		).toContain("1 of 16 tries, its typed resume being checked");
+	});
+
+	it("counts a resumed-idle launch as running", () => {
+		expect(statusOf([record({ idleSince: NOW - MIN })])).toContain(
+			"1 running, 0 parked",
+		);
+	});
+
+	it("lists a parked, resuming, resumed-idle or hand-off-owed launch behind ten newer finished ones", () => {
+		const newer = Array.from({ length: 10 }, (_, i) =>
+			record({
+				prompt: `/implement ${100 + i}`,
+				launchedAt: NOW - (20 - i) * MIN,
+				finishedAt: NOW - MIN,
+			}),
+		);
+		const older = [
+			record({
+				prompt: "/implement 1",
+				launchedAt: NOW - 50 * MIN,
+				parked: true,
+			}),
+			record({
+				prompt: "/implement 2",
+				launchedAt: NOW - 49 * MIN,
+				block: { cause: "API_ERROR", sub: "transient", since: NOW },
+			}),
+			record({
+				prompt: "/implement 3",
+				launchedAt: NOW - 48 * MIN,
+				idleSince: NOW - MIN,
+			}),
+			record({
+				prompt: "/implement 4",
+				launchedAt: NOW - 47 * MIN,
+				finishedAt: NOW,
+			}),
+			record({
+				prompt: "/implement 5",
+				launchedAt: NOW - 46 * MIN,
+				parkStopped: NOW - MIN,
+			}),
+			record({
+				prompt: "/implement 6",
+				launchedAt: NOW - 45 * MIN,
+				handOffTries: 1,
+			}),
+		];
+		const out = statusOf([...older, ...newer]);
+		for (const prompt of [
+			"/implement 1  parked",
+			"/implement 2",
+			"/implement 3",
+			"/implement 5  parked, stopped",
+			"/implement 6",
+		])
+			expect(out).toContain(prompt);
+		expect(out).not.toContain("/implement 4");
+		expect(out).toContain("/implement 100");
+	});
+});
+
+describe("a handed-off launch (#2659)", () => {
+	it("reads a handed-off launch's state for status", () => {
+		const out = buildStatusLines({
+			control: {
+				startedAt: NOW - 60 * MIN,
+				stopRequested: false,
+				seats: [],
+				scope: normal([DV]),
+			},
+			state: {
+				launches: [
+					record({ finishedAt: NOW, handedOff: NOW, launchedAt: NOW - MIN }),
+				],
+				lastTick: null,
+				stopped: null,
+				reviewRunOn: null,
+			},
+			pid: 1,
+			runMs: 60 * MIN,
+			served: [DV],
+		}).join("\n");
+		expect(out).toContain("handed off: stopped idle after its host's restart");
+	});
+});
+
+describe("launchBatch's records", () => {
+	it("carries a gate judgement's flag into its record and sets none on a ranking launch (#3092)", () => {
+		const member = (n: number, prompt: string, over = {}) => ({
+			root: "/home/u/wfc",
+			issues: [n],
+			prompt,
+			model: "opus" as const,
+			seat: "~/.claude3",
+			...over,
+		});
+		const batch = [
+			member(2906, "/triage 2906 — judge", { gate: true as const }),
+			member(7, "/implement 7"),
+		];
+		const ts = new Date().toISOString();
+		const r = launchBatch(batch, {
+			dispatcher: "dispatch.sh",
+			env: {},
+			run: () => ({ failed: null, out: "" }),
+			entriesOf: () =>
+				batch.map((l, i) => ({
+					ts,
+					issues: l.issues,
+					model: l.model,
+					prompt: l.prompt,
+					session: null,
+					jobId: `job${i}`,
+				})),
+			sessionOf: () => undefined,
+		});
+		expect(r.launched.map((l) => l.gate)).toEqual([true, undefined]);
+		expect(r.launched[1]).not.toHaveProperty("gate");
 	});
 });

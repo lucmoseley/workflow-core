@@ -4,8 +4,7 @@
  * on a suite launch's path can require it (#2493).
  */
 
-const { spawnSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
+const { spawnGitSync } = require("./git.js");
 const { CHILD_MAX_BUFFER: MAX_BUFFER } = require("./child-buffer.js");
 const { brokenError } = require("./outcome-error.js");
 
@@ -26,14 +25,13 @@ const { brokenError } = require("./outcome-error.js");
  * @param {{ cwd?: string, followSymlinks?: boolean, timeout?: number, maxBuffer?: number }} [opts]
  * @returns {({ type: string, body: Buffer } | null)[]}
  */
-function catFileBatch(
+function readObjectBatch(
 	objects,
 	what,
 	{ cwd, followSymlinks = false, timeout, maxBuffer = MAX_BUFFER } = {},
 ) {
 	if (objects.length === 0) return [];
-	const batch = spawnSync(
-		gitBinary(),
+	const batch = spawnGitSync(
 		["cat-file", "--batch", ...(followSymlinks ? ["--follow-symlinks"] : [])],
 		{
 			cwd,
@@ -96,10 +94,9 @@ function catFileBatch(
  * @returns {{ mode: string, sha: string, path: string }[]}
  */
 function listTree(rev, pathspecs, { cwd, recursive = true, timeout } = {}) {
-	const listing = spawnSync(
-		gitBinary(),
+	const listing = spawnGitSync(
 		["ls-tree", ...(recursive ? ["-r"] : []), "-z", rev, "--", ...pathspecs],
-		{ cwd, encoding: "buffer", maxBuffer: MAX_BUFFER, timeout },
+		{ cwd, encoding: "buffer", timeout },
 	);
 	if (listing.error || listing.status !== 0)
 		throw brokenError(
@@ -122,4 +119,4 @@ function listTree(rev, pathspecs, { cwd, recursive = true, timeout } = {}) {
 	return entries;
 }
 
-module.exports = { catFileBatch, listTree };
+module.exports = { readObjectBatch, listTree };

@@ -126,6 +126,7 @@ describe("a red run's timing (mantahostels#2182)", () => {
 		fillRunReport({
 			startedAtMs,
 			endedAtMs: startedAtMs + 5000,
+			elapsedMs: 5000,
 			outcome: false,
 		});
 
@@ -155,7 +156,7 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 		fs.rmSync(markerSandbox, { recursive: true, force: true });
 	});
 
-	it("stamps a green marker with isolated:true and a real treeAtEnd sha", () => {
+	it("stamps a certificate with isolated:true and a real treeAtEnd sha", () => {
 		stubLaunch({ isolated: true });
 		fillRunReport({ outcome: true });
 
@@ -166,7 +167,7 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 		expect(marker.treeAtEnd).toBe(tree.sha);
 	});
 
-	it("stamps the launch's argv off the launch record, on the green and the red marker alike (#1491)", () => {
+	it("stamps the launch's argv off the launch record, on the certificate and the red marker alike (#1491)", () => {
 		stubLaunch({ argv: ["--full=coverage"] });
 		fillRunReport({ outcome: true });
 		runTeardown(markerSandbox);
@@ -181,15 +182,15 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 		]);
 	});
 
-	it("stamps the closure the reporter handed over, on the green and the red marker alike (#189)", () => {
+	it("stamps the closure the reporter handed over, on the certificate and the red marker alike (#189)", () => {
 		fillRunReport({
 			outcome: true,
 			attestation: { closure: ["a.test.ts", "a.js"], changedPaths: ["a.js"] },
 		});
 		runTeardown(markerSandbox);
-		const [green] = markerLib.readMarkers({ root: markerSandbox });
-		expect(green.closure).toEqual(["a.test.ts", "a.js"]);
-		expect(green.changedPaths).toEqual(["a.js"]);
+		const [certificate] = markerLib.readMarkers({ root: markerSandbox });
+		expect(certificate.closure).toEqual(["a.test.ts", "a.js"]);
+		expect(certificate.changedPaths).toEqual(["a.js"]);
 		// Taken once: the next run's marker must not inherit this closure.
 		expect(takeRunReport().attestation).toBeNull();
 

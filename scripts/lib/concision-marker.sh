@@ -5,11 +5,13 @@
 # Callers: scripts/concision-backstop.sh at Stop, which reads the
 # `.concision-pass-<sid>` marker and, through lib/code-signal.sh's
 # review_uncovered, the `.codereview-pass-<sid>` one, as
-# scripts/guard-push-rules.sh does before a push; at pre-commit,
+# scripts/push-review-owed.sh does before a push; at pre-commit,
 # scripts/review-hold-gate.sh, which reads the second's tier=, areas=, tree=
-# and paths=; and scripts/inject-review-tier.sh at code-review's load, for the
-# start point alone. A second copy of either rule would let one caller accept a
-# marker another then nags about. join_comma is here because every reader of a
+# and paths=. A second copy of either rule would let one caller accept a
+# marker another then nags about; the start point alone has one Node twin,
+# lib/review-tier-host.js's sessionBase at code-review's load, and a change to
+# either changes both; review-tier.test.ts's "in both twins" cases hold the two
+# to one answer (#2971). join_comma is here because every reader of a
 # marker's areas= or paths= sources this file.
 #
 # SOURCED, NEVER RUN. bash: `[[ =~ ]]`, `local` and `mapfile`.

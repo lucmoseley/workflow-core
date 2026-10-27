@@ -14,12 +14,12 @@
  * trigger for a declared path its context-budget grep does not already cover.
  */
 
-const { execFileSync } = require("node:child_process");
-const { importedFiles } = require("./pool-imports.js");
+const { readImportedFiles } = require("./pool-imports.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { cutAt } = require("./cut-at.js");
 const { caught } = require("./caught.js");
 const { isCommit } = require("./commit-sha.js");
+const { execGit } = require("./git.js");
 
 /*
  * The pool's whole-file members where the host's config declares no
@@ -53,7 +53,7 @@ function getPoolFiles() {
 }
 
 /** The adopter's declared output style (`overrides.output_style`), or null. */
-const declaredStyle = () => readConfig().overrides.output_style || null;
+const readDeclaredStyle = () => readConfig().overrides.output_style || null;
 
 /**
  * The pool member(s) a top-level session pays TWICE: the adopter's declared
@@ -71,10 +71,12 @@ const declaredStyle = () => readConfig().overrides.output_style || null;
  * @returns {Set<string>}
  */
 function getDoubleLoadedFiles(root) {
-	const style = declaredStyle();
+	const style = readDeclaredStyle();
 	if (!style) return new Set();
 	const others = getPoolFiles().filter((f) => f !== style);
-	const imported = importedFiles(root, others).some((f) => f.path === style);
+	const imported = readImportedFiles(root, others).some(
+		(f) => f.path === style,
+	);
 	return new Set(imported ? [style] : []);
 }
 
@@ -127,9 +129,9 @@ const PATH_ABSENT = /path .* (does not exist|exists on disk, but not in)/;
  * @param {string} rel
  * @returns {number | null}
  */
-function blobBytesAt(rev, rel) {
+function readBlobBytesAt(rev, rel) {
 	try {
-		const out = execFileSync("git", ["cat-file", "-s", `${rev}:${rel}`], {
+		const out = execGit(["cat-file", "-s", `${rev}:${rel}`], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 		}).trim();
@@ -150,7 +152,7 @@ function poolBytesAt(rev) {
 	if (rev && !isCommit(process.cwd(), rev)) return null;
 	let total = 0;
 	for (const rel of getPoolFiles()) {
-		const n = blobBytesAt(rev, rel);
+		const n = readBlobBytesAt(rev, rel);
 		if (n === null) return null;
 		total += n;
 	}
@@ -168,7 +170,7 @@ function poolBytesAt(rev) {
  * checkout. A caller reads that as "cannot tell whether this commit adds pool
  * bytes" and asserts nothing.
  *
- * @param {string[]} revs the already-committed revs, `committedRevs()`
+ * @param {string[]} revs the already-committed revs, `readCommittedRevs()`
  * @returns {number | null}
  */
 function stagedPoolDelta(revs) {
@@ -279,7 +281,7 @@ if (require.main === module) {
 
 module.exports = {
 	getPoolFiles,
-	declaredStyle,
+	readDeclaredStyle,
 	getDoubleLoadedFiles,
 	TRIGGER_VERDICT_MARKER,
 	// Consumed by lib/doc-map.js's `compactionVerdictFaults` (mantahostels#1968): a

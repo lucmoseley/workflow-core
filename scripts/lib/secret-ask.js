@@ -9,16 +9,27 @@ const {
 	CONFIDENCE_ANY,
 	splitQuestions,
 	optionSpans,
-	optionBody,
+	parseOptionBody,
 } = require("./round-marker.js");
 const { SHELL_VAR_NAME } = require("./shell-var-name.js");
 
+/* A ``` or ~~~ fenced block as CommonMark reads one: opened at a line's start,
+ * indented to any depth so a list item's fence reads, with no backtick in a
+ * backtick fence's info string, and closed only by a line of the same
+ * character at least as long, else running to the text's end (#2645).
+ * `FENCE_CLOSED` leaves an unclosed fence unmatched, for a reader that drops
+ * what it matches: a stray ``` must not hide the prose below it. */
+const FENCE_OPEN = String.raw`(?<=^[ \t]*)(\`{3,}|~{3,})(?:(?<=\`)[^\`\n]*|(?<=~)[^\n]*)$`;
+const FENCE_CLOSED = String.raw`${FENCE_OPEN}\n[\s\S]*?^[ \t]*\1(?:(?<=\`)\`*|(?<=~)~*)[ \t\r]*$`;
+const FENCE = String.raw`${FENCE_OPEN}(?:\n[\s\S]*?^[ \t]*\1(?:(?<=\`)\`*|(?<=~)~*)[ \t\r]*$|[\s\S]*)`;
+
+const INLINE_SPAN = /`[^`\n]+`/g;
 /* Inline code spans and fenced blocks alike: where a pasteable text sits. */
-const CODE_SPAN = /```[\s\S]*?```|~~~[\s\S]*?~~~|`[^`\n]+`/g;
+const CODE_SPAN = new RegExp(`${FENCE}|${INLINE_SPAN.source}`, "gm");
 
 /* How far, in characters, a cue reaches from its verb or noun to the word that
  * completes it without crossing a clause: chosen, not measured, to span "the
- * command from my". The guard's `BACK_REFERENCE` reaches as far. */
+ * command from my". */
 const CLAUSE_REACH = 40;
 
 /* A supply verb reaching, within one clause, a credential noun. Not after
@@ -66,10 +77,10 @@ const ROUTE_SHAPE = "cd <dir> && node <path>/write-secret.js NAME";
  * "then", "and" or "followed by" between (#2612). Other words between ("type
  * `!`, then in a normal terminal run …") break it, as does a negation
  * governing the `!` ("never after `!`:", "without a `!`:", "no need for
- * `!`:"). Prose naming `!` some other way ("with `!` in front", "an
- * exclamation mark", "type `!`. Then: …") is not read, nor a negation that
- * only looks like one ("why not type `!`:"): the line still fails closed
- * there, write-secret.js refusing a stdin that is no terminal. */
+ * `!`:"). Prose naming `!` some other way ("with `!` in front", "type `!`.
+ * Then: …") is not read, nor a negation that only looks like one ("why not
+ * type `!`:"): the line still fails closed there, write-secret.js refusing a
+ * stdin that is no terminal. */
 const BANG_AHEAD =
 	/(?<!\b(?:not|never|no|without|don't|do\s+not)(?:\s+(?:need\s+for|a|an|the))?(?:\s+(?:after|with|behind|via|use|type))?\s*)(?:`\s*!\s*`|(?:^|\s)[*_"'(]*![*_"')]*)(?:[\s:,—–+*_-]|\b(?:then|and|followed\s+by)\b)*$/i;
 
@@ -79,13 +90,15 @@ const BANG_AHEAD =
  * the next.
  * @param {string} code
  */
-function commandLines(code) {
+function parseCommandLines(code) {
 	const body = /^(?:```|~~~)/.test(code)
-		? code.replace(/^[^\n]*\n?/, "").replace(/\n?[^\n]*$/, "")
-		: code.slice(1, -1);
+		? code.split("\n").slice(1)
+		: [code.slice(1, -1)];
+	/* An unclosed fence runs to the text's end, its last line no fence. */
+	if (/^\s*(?:`{3,}|~{3,})\s*$/.test(body.at(-1) ?? "")) body.pop();
 	/** @type {string[]} */
 	const lines = [];
-	for (const line of body.split("\n").map((l) => l.trim())) {
+	for (const line of body.map((l) => l.trim())) {
 		if (line === "" || line.startsWith("#")) continue;
 		const prev = lines.at(-1);
 		if (prev !== undefined && /(?:&&|\\)$/.test(prev))
@@ -107,7 +120,7 @@ function commandLines(code) {
  * @returns {("runnable" | "bang" | "broken")[]}
  */
 function routeKinds(code, before) {
-	const lines = commandLines(code);
+	const lines = parseCommandLines(code);
 	const command = lines.map((l) => l.replace(/^!\s*/, "")).join(" && ");
 	if (!ROUTE_SHAPED.test(command)) return [];
 	const runs = ROUTE_COMMAND.test(command);
@@ -116,14 +129,52 @@ function routeKinds(code, before) {
 	return runs ? ["runnable"] : ["broken"];
 }
 
+/* A variable named for a credential: its last `_`-separated part ending in
+ * KEY, TOKEN, SECRET, PASS, PASSWORD, PAT, CRED(S), CREDENTIAL(S) or AUTH, so
+ * APIKEY and GITHUB_PAT read and AUTHOR_NAME, SSH_AUTH_SOCK and PATTERN do
+ * not. */
+const SECRET_VAR = `(?=(?:[A-Za-z0-9]*_)*[A-Za-z0-9]*(?:KEY|TOKEN|SECRET|PASS(?:WORD)?|PAT|CREDS?|CREDENTIALS?|AUTH)(?![A-Za-z0-9_]))${SHELL_VAR_NAME}`;
+/* One shell value: quoted, a `<placeholder>` however many words it holds, or
+ * bare. */
+const VALUE = String.raw`(?:'[^'\n]*'|"[^"\n]*"|<[^<>\n]*>|[^\s<]\S*)`;
+/* Lines that put a credential where write-secret.js exists to keep it from
+ * (#2645): a credential variable exported, set or `setx`-ed, or assigned ahead
+ * of a command; and a `.env` file read into a pipe, a redirect or a copy, or
+ * written by one, a `.env.example` excepted. A warning not to
+ * ("never `cat .env`") reads as one too. */
+const LEAK_LINES = [
+	new RegExp(
+		String.raw`(?:^|[\s\x60;&|(!])(?:export\s+|set\s+|\$env:)${SECRET_VAR}\s*=|setx\s+${SECRET_VAR}\s|(?:^|[\x60;&|(!]\s*|&&\s*)${SECRET_VAR}=${VALUE}\s+\S`,
+		"i",
+	),
+	/\b(?:cat|cp|mv|tee)\s+(?:-\S+\s+)*\S*\.env(?!\.(?:example|sample|template|dist)\b)\b|(?:^|[\s/'"\x60])\.env(?:\.[\w-]+)?['"]?\s*(?:>{1,2}|\|(?!\|))|(?<![-=])>{1,2}\s*\S*\.env\b/,
+];
+/* A pipe or redirect feeding write-secret.js on a line outside any code span
+ * — prose, or an indented block — where `routeKinds` never looks (#2645). */
+const FED_ROUTE =
+	/\|\s*(?:node\s+)?\S*write-secret\.js\b|\bnode\s+\S*write-secret\.js\b[^\n]*?[<|]|<[^\n]*\bnode\s+\S*write-secret\.js\b/;
+
 /**
- * The kind of each of `text`'s code spans shaped as the route.
+ * The kind of each of `text`'s code spans shaped as the route, and a
+ * "broken" for each prose line feeding the route and each line, code or
+ * prose, leaking a credential.
  * @param {string} text
+ * @returns {("runnable" | "bang" | "broken")[]}
  */
-const spanKinds = (text) =>
-	[...text.matchAll(CODE_SPAN)].flatMap((m) =>
+const messageKinds = (text) => [
+	...[...text.matchAll(CODE_SPAN)].flatMap((m) =>
 		routeKinds(m[0], text.slice(0, m.index)),
-	);
+	),
+	...text
+		.replace(CODE_SPAN, ",")
+		.split("\n")
+		.filter((line) => FED_ROUTE.test(line))
+		.map(() => /** @type {const} */ ("broken")),
+	...text
+		.split("\n")
+		.filter((line) => LEAK_LINES.some((leak) => leak.test(line)))
+		.map(() => /** @type {const} */ ("broken")),
+];
 
 /**
  * Whether `text` hands over a runnable route and no broken one beside it: "or
@@ -132,7 +183,7 @@ const spanKinds = (text) =>
  * @param {string} text
  */
 const hasSecretRoute = (text) => {
-	const kinds = spanKinds(text);
+	const kinds = messageKinds(text);
 	return kinds.includes("runnable") && !kinds.includes("broken");
 };
 
@@ -140,7 +191,7 @@ const hasSecretRoute = (text) => {
  * Whether `text` hands over the route after `!`, where it cannot work.
  * @param {string} text
  */
-const hasBangSecretRoute = (text) => spanKinds(text).includes("bang");
+const hasBangSecretRoute = (text) => messageKinds(text).includes("bang");
 
 /**
  * `text` without its Confidence lines: "about 10k tokens" there is the
@@ -161,9 +212,9 @@ const withoutConfidence = (text) =>
  */
 const askPhrase = (text) => text.replace(/’/g, "'").match(SECRET_ASK)?.[0];
 
-/* A ``` or ~~~ fenced block, or a `>` quote line: text the message shows
- * rather than says — a prompt for another session, a quoted log. */
-const SHOWN = /^\s{0,3}(```|~~~)[^\n]*\n[\s\S]*?^\s{0,3}\1[^\n]*$|^\s*>.*$/gm;
+/* A fenced block or a `>` quote line: text the message shows rather than
+ * says — a prompt for another session, a quoted log. */
+const SHOWN = new RegExp(String.raw`${FENCE_CLOSED}|^\s*>.*$`, "gm");
 
 /**
  * The phrase in which a message's prose — every line outside its round
@@ -179,9 +230,9 @@ function proseAsk(message) {
 	let prose = message;
 	for (const block of splitQuestions(message))
 		for (const option of optionSpans(block.lines))
-			prose = prose.replace(optionBody(option.span), "");
+			prose = prose.replace(parseOptionBody(option.span), "");
 	return askPhrase(
-		withoutConfidence(prose).replace(SHOWN, "").replace(CODE_SPAN, ","),
+		withoutConfidence(prose).replace(SHOWN, "").replace(INLINE_SPAN, ","),
 	);
 }
 

@@ -22,7 +22,10 @@
  * the caller owns, and `cap.floored` whether that launch is the floor's one
  * member alone. Only where a trusted bar is past its threshold does it read
  * the running sessions — one `claude agents --json` call and their own
- * transcripts, no allowance spent. `cap.error` is set, and `cap.launch` is 0,
+ * transcripts, no allowance spent. A bar counts only the spend projected to
+ * land before its own `resetsAt`, by the cost table's `landedByHours`; spend
+ * after it falls in the next window, and a reset that does not parse counts
+ * all of it (#2925). `cap.error` is set, and `cap.launch` is 0,
  * where that read cannot be made: the cost table is unreadable, or the listing
  * will not answer. Never changes the exit code.
  */
@@ -38,7 +41,11 @@ const {
 	POINTS_PER_USD,
 } = require("./lib/allowance");
 const { listedAgents } = require("./lib/agent-liveness");
-const { readCostTable, runningRemainders } = require("./lib/session-spend");
+const {
+	readCostTable,
+	runningRemainders,
+	landedShare,
+} = require("./lib/session-spend");
 const { scriptPath } = require("./lib/script-path.js");
 
 const CLI = {
@@ -133,9 +140,20 @@ function capOf(result, args) {
 		configDir,
 	});
 	const runningUsd = running.reduce((s, r) => s + r.remainderUsd, 0);
+	/** @param {"session" | "weekly_all"} bar */
+	const landed = (bar) => {
+		const resetMs = Date.parse(result[bar].resetsAt ?? "");
+		return Number.isNaN(resetMs)
+			? 1
+			: landedShare(table, (resetMs - Date.now()) / 3_600_000);
+	};
+	const share = {
+		session: landed("session"),
+		weekly_all: landed("weekly_all"),
+	};
 	const points = (/** @type {number} */ usd) => ({
-		session: usd * POINTS_PER_USD.session,
-		weekly_all: usd * POINTS_PER_USD.weekly_all,
+		session: usd * share.session * POINTS_PER_USD.session,
+		weekly_all: usd * share.weekly_all * POINTS_PER_USD.weekly_all,
 	});
 	return {
 		...capSet({

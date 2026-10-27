@@ -2,13 +2,13 @@
 /*
  * The `npm run test:py` wrapper that leaves pytest's pre-push marker (mantahostels#1256).
  *
- * Run in process through runInProcess (§X3), its python3 a fake injected at
+ * Run in process through runInProcessAsync (§X3), its python3 a fake injected at
  * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the last case,
  * which spawns the wrapper as a script against a real pytest.
  *
  * `.husky/pre-push` and `npm run push:check` read the marker it leaves: loosen
- * a case and a red or dead pytest run is recorded green, so a push is counted
- * covered for Python tests that never passed on its sha.
+ * a case and a red or dead pytest run leaves a certificate, so a push is counted
+ * attested for Python tests that never passed on its sha.
  */
 
 import { spawnSync } from "node:child_process";
@@ -17,10 +17,12 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { runInProcess } from "./lib/run-in-process";
+import { freshSandbox, ledger } from "./lib/arbiter-testkit";
+import { runInProcessAsync } from "./lib/run-in-process";
 
 const require = createRequire(import.meta.url);
 const { readMarkers } = require("./lib/test-pass-marker.js");
+const { CEILING_ENV, DEADLINE_ENV } = require("./lib/suite-ceiling.js");
 
 const SCRIPT = path.join(__dirname, "run-pytest.js");
 
@@ -35,10 +37,12 @@ function hasPytest(): boolean {
 	);
 }
 
-/** A git repo with one commit, so `snapshot` and `repoRoot` both answer. */
-function repo() {
-	const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runpy-")));
-	dirs.push(dir);
+/** A git repo with one commit, so `readTreeSnapshot` and `repoRoot` both
+ * answer: at `at`, else a fresh temp dir. */
+function repo(at?: string) {
+	const dir =
+		at ?? fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "runpy-")));
+	if (!at) dirs.push(dir);
 	for (const args of [
 		["init", "-q"],
 		["config", "user.email", "t@example.com"],
@@ -70,17 +74,29 @@ interface PytestCall {
 	args: string[];
 	env: { PYTHONPATH: string; WFC_PYTEST_SCOPE_OUT?: string };
 	stdout: { dev: number; ino: number };
+	pid: number;
+	deadline: string | null;
+	grandchild?: number;
+}
+
+interface Hang {
+	/** What it writes where the plugin keeps the tests in flight. */
+	inflight?: unknown;
+	/** Whether it forks a child of its own before hanging. */
+	grandchild?: boolean;
 }
 
 /**
  * A stand-in for python, run as `python -m pytest …`: records its arguments,
- * the environment it was handed and the stdout it inherited, writes `result`
- * where the plugin would have written its verdict, and exits on `status` —
- * killing itself where `status` is null.
+ * the environment it was handed, the stdout it inherited and the deadline
+ * file it found, writes `result` where the plugin would have written its
+ * verdict, and exits on `status` — killing itself where `status` is null.
+ * Given `hang`, it never exits at all, as a pytest past the ceiling.
  */
 function fakePytest(
 	result: unknown,
 	status: number | null = 0,
+	hang?: Hang,
 ): [string, () => PytestCall[]] {
 	const dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "fakepy-")),
@@ -96,18 +112,29 @@ function fakePytest(
 		`#!${process.execPath}
 const fs = require("node:fs");
 const { dev, ino } = fs.fstatSync(1);
+const hang = ${JSON.stringify(hang ?? null)};
+const deadlineFile = process.env.${DEADLINE_ENV};
+const result = ${JSON.stringify(scopeOut)};
+if (result !== null) fs.writeFileSync(process.env.WFC_PYTEST_SCOPE_OUT, result);
+if (hang?.inflight !== undefined)
+	fs.writeFileSync(process.env.WFC_PYTEST_INFLIGHT_OUT, JSON.stringify(hang.inflight));
+const grandchild = hang?.grandchild
+	? require("node:child_process").spawn("sleep", ["60"], { stdio: "ignore" }).pid
+	: undefined;
 fs.appendFileSync(${JSON.stringify(callsFile)}, JSON.stringify({
 	args: process.argv.slice(2),
 	env: { PYTHONPATH: process.env.PYTHONPATH, WFC_PYTEST_SCOPE_OUT: process.env.WFC_PYTEST_SCOPE_OUT },
 	stdout: { dev, ino },
+	pid: process.pid,
+	deadline: deadlineFile && fs.existsSync(deadlineFile) ? fs.readFileSync(deadlineFile, "utf8") : null,
+	grandchild,
 }) + "\\n");
-const result = ${JSON.stringify(scopeOut)};
-if (result !== null) fs.writeFileSync(process.env.WFC_PYTEST_SCOPE_OUT, result);
-${status === null ? 'process.kill(process.pid, "SIGKILL");' : `process.exitCode = ${status};`}
+if (hang) setInterval(() => {}, 1000);
+else ${status === null ? 'process.kill(process.pid, "SIGKILL");' : `process.exitCode = ${status};`}
 `,
 		{ mode: 0o755 },
 	);
-	const calls = (): PytestCall[] =>
+	const readCalls = (): PytestCall[] =>
 		fs.existsSync(callsFile)
 			? fs
 					.readFileSync(callsFile, "utf8")
@@ -115,7 +142,7 @@ ${status === null ? 'process.kill(process.pid, "SIGKILL");' : `process.exitCode 
 					.filter(Boolean)
 					.map((l) => JSON.parse(l))
 			: [];
-	return [bin, calls];
+	return [bin, readCalls];
 }
 
 /** The wrapper run as `npm run test:py` runs it, rooted at `root`. */
@@ -125,7 +152,7 @@ function wrap(
 	args: string[] = [],
 	env: Record<string, string> = {},
 ) {
-	return runInProcess(SCRIPT, args, {
+	return runInProcessAsync(SCRIPT, args, {
 		cwd: root,
 		env: {
 			...process.env,
@@ -137,11 +164,11 @@ function wrap(
 }
 
 describe("what it hands pytest", () => {
-	it("passes the worker count and the plugin, then the caller's own arguments", () => {
-		const [python, calls] = fakePytest(undefined, 0);
-		wrap(python, repo(), ["-k", "corpus"]);
+	it("passes the worker count and the plugin, then the caller's own arguments", async () => {
+		const [python, readCalls] = fakePytest(undefined, 0);
+		await wrap(python, repo(), ["-k", "corpus"]);
 
-		expect(calls()[0]?.args).toEqual([
+		expect(readCalls()[0]?.args).toEqual([
 			"-m",
 			"pytest",
 			"-n",
@@ -156,12 +183,12 @@ describe("what it hands pytest", () => {
 	// `root` is a temp repo here, so the host's `scripts/` and the wrapper's own
 	// directory differ, as in a plugin install, where only the second holds the
 	// plugin (#1285).
-	it("puts the host's scripts/ then the wrapper's own directory on PYTHONPATH, since conftest has not run yet when the plugin loads", () => {
-		const [python, calls] = fakePytest(undefined, 0);
+	it("puts the host's scripts/ then the wrapper's own directory on PYTHONPATH, since conftest has not run yet when the plugin loads", async () => {
+		const [python, readCalls] = fakePytest(undefined, 0);
 		const root = repo();
-		wrap(python, root);
+		await wrap(python, root);
 
-		const [call] = calls();
+		const [call] = readCalls();
 		const entries = call?.env.PYTHONPATH.split(path.delimiter) ?? [];
 		const host = entries.indexOf(path.join(root, "scripts"));
 		const own = entries.indexOf(__dirname);
@@ -170,36 +197,216 @@ describe("what it hands pytest", () => {
 		expect(call?.env.WFC_PYTEST_SCOPE_OUT).toBeTruthy();
 	});
 
-	it("gives the child the terminal, so pytest's output is unchanged", () => {
-		const [python, calls] = fakePytest(undefined, 0);
-		wrap(python, repo());
+	it("gives the child the terminal, so pytest's output is unchanged", async () => {
+		const [python, readCalls] = fakePytest(undefined, 0);
+		await wrap(python, repo());
 		const { dev, ino } = fs.fstatSync(1);
-		expect(calls()[0]?.stdout).toEqual({ dev, ino });
+		expect(readCalls()[0]?.stdout).toEqual({ dev, ino });
+	});
+});
+
+/* A bare run under `landing` hands pytest the session's touched tests alone
+ * (#2934): loosen a case and it runs the whole suite again, or drops a test
+ * of the module changed until the lander's run. */
+describe("a bare run under landing", () => {
+	const Landing = { WFC_MODULES: "landing", CLAUDE_CODE_SESSION_ID: "" };
+
+	/** The run ledger's lines at `root`. */
+	const readLedger = (root: string) => {
+		const file = path.join(root, ".claude/tmp/markers/.test-runs.jsonl");
+		return fs.existsSync(file)
+			? fs
+					.readFileSync(file, "utf8")
+					.split("\n")
+					.filter(Boolean)
+					.map((l) => JSON.parse(l))
+			: [];
+	};
+
+	/** `repo(at)` holding a module, its test and an unrelated test, committed. */
+	function pyRepo(at?: string) {
+		const root = repo(at);
+		fs.mkdirSync(path.join(root, "scripts"));
+		for (const [f, text] of Object.entries({
+			"scripts/scan.py": "X = 1\n",
+			"scripts/test_scan.py": "import scan\n",
+			"scripts/test_other.py": "import os\n",
+			"README.md": "# r\n",
+		}))
+			fs.writeFileSync(path.join(root, f), text);
+		for (const args of [
+			["add", "."],
+			["commit", "-qm", "files"],
+		])
+			spawnSync("git", args, { cwd: root });
+		return root;
+	}
+
+	it("hands pytest exactly the touched test files", async () => {
+		const root = pyRepo();
+		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
+		const r = await wrap(python, root, [], Landing);
+
+		expect(readCalls()[0]?.args).toEqual([
+			"-m",
+			"pytest",
+			"-n",
+			"2",
+			"-p",
+			"pytest_pass_plugin",
+			"scripts/test_scan.py",
+		]);
+		expect(r.stdout).toContain("TOUCHED TESTS ONLY");
+		expect(r.status).toBe(0);
+	});
+
+	it("spawns nothing, exits 0 with the lander line and records no marker where nothing is touched", async () => {
+		const root = pyRepo();
+		fs.appendFileSync(path.join(root, "README.md"), "more\n");
+		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
+		const r = await wrap(python, root, [], Landing);
+
+		expect(readCalls()).toEqual([]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("NO TOUCHED TESTS");
+		expect(r.stdout).toContain("The lander runs the full suite");
+		expect(readMarkers({ root })).toEqual([]);
+		expect(readLedger(root)).toMatchObject([
+			{ kind: "touched", suite: "pytest", resolvedFiles: 0 },
+		]);
+	});
+
+	it("writes a touched ledger line carrying its file count on a touched run", async () => {
+		const root = pyRepo();
+		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
+		await wrap(python, root, [], Landing);
+
+		expect(readLedger(root)).toMatchObject([
+			{ kind: "touched", suite: "pytest", resolvedFiles: 1 },
+		]);
+	});
+
+	/* The write ledger, in the sandbox's config dir, says which dirt is whose. */
+	describe("with a session id, in the shared tree", () => {
+		const sb = freshSandbox();
+		const Own = { ...Landing, CLAUDE_CODE_SESSION_ID: "me" };
+
+		/** `pyRepo` at the sandbox, `scan.py` edited by this session and a
+		 * neighbour's edit and new test beside it. */
+		function sharedTree() {
+			const root = pyRepo(fs.realpathSync(sb.repo));
+			fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+			ledger.recordWrite(path.join(root, "scripts/scan.py"), "me");
+			fs.appendFileSync(path.join(root, "scripts/test_other.py"), "X = 1\n");
+			fs.writeFileSync(path.join(root, "scripts/test_new.py"), "import os\n");
+			return root;
+		}
+
+		it("selects neither a neighbour's uncommitted edit nor its untracked test (#2958)", async () => {
+			const root = sharedTree();
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], Own);
+
+			expect(r.status).toBe(0);
+			expect(readCalls()[0]?.args.slice(6)).toEqual(["scripts/test_scan.py"]);
+		});
+
+		it("still selects an untracked test of its own", async () => {
+			const root = sharedTree();
+			fs.writeFileSync(path.join(root, "scripts/test_mine.py"), "import os\n");
+			ledger.recordWrite(path.join(root, "scripts/test_mine.py"), "me");
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			await wrap(python, root, [], Own);
+
+			expect(readCalls()[0]?.args.slice(6)).toEqual([
+				"scripts/test_mine.py",
+				"scripts/test_scan.py",
+			]);
+		});
+	});
+
+	it("refuses, spawning nothing, where the changed paths cannot be read", async () => {
+		const root = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "runpy-nogit-")),
+		);
+		dirs.push(root);
+		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
+		const r = await wrap(python, root, [], Landing);
+
+		expect(readCalls()).toEqual([]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("NARROWING FAILED, SO NOTHING RAN");
+	});
+
+	it("refuses, spawning nothing, where the session's own work cannot be read", async () => {
+		const root = fs.realpathSync(
+			fs.mkdtempSync(path.join(os.tmpdir(), "runpy-nogit-")),
+		);
+		dirs.push(root);
+		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
+		const r = await wrap(python, root, [], {
+			...Landing,
+			CLAUDE_CODE_SESSION_ID: "me",
+		});
+
+		expect(readCalls()).toEqual([]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("this session's own work could not be read");
+	});
+
+	it("runs the whole suite as before with landing off", async () => {
+		const root = pyRepo();
+		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+		const [python, readCalls] = fakePytest(undefined, 0);
+		const r = await wrap(python, root, [], {
+			...Landing,
+			WFC_MODULES: "suites",
+		});
+
+		expect(readCalls()[0]?.args.slice(6)).toEqual([]);
+		expect(r.stdout).not.toContain("TOUCHED TESTS");
+	});
+
+	it("passes typed arguments through unchanged", async () => {
+		const root = pyRepo();
+		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+		const [python, readCalls] = fakePytest(undefined, 0);
+		await wrap(python, root, ["-k", "corpus"], Landing);
+
+		expect(readCalls()[0]?.args.slice(6)).toEqual(["-k", "corpus"]);
 	});
 });
 
 describe("the exit code", () => {
-	it("is the child's own, so a red pytest run is still red", () => {
+	it("is the child's own, so a red pytest run is still red", async () => {
 		const [python] = fakePytest({ passed: false, scope: null }, 1);
-		expect(wrap(python, repo()).status).toBe(1);
+		expect((await wrap(python, repo())).status).toBe(1);
 	});
 
-	it("is zero on a green run", () => {
+	it("is zero on a green run", async () => {
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		expect(wrap(python, repo()).status).toBe(0);
+		expect((await wrap(python, repo())).status).toBe(0);
 	});
 
-	it("is 1 where the child was killed by a signal and has no status", () => {
+	it("is 1 where the child was killed by a signal and has no status", async () => {
 		const [python] = fakePytest(undefined, null);
-		expect(wrap(python, repo()).status).toBe(1);
+		expect((await wrap(python, repo())).status).toBe(1);
 	});
 });
 
 describe("the marker it records", () => {
-	it("stamps HEAD, the scope and the suite on a green run", () => {
+	it("stamps HEAD, the scope and the suite on a green run", async () => {
 		const root = repo();
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		wrap(python, root);
+		await wrap(python, root);
 
 		const markers = readMarkers({ root });
 		expect(markers).toHaveLength(1);
@@ -207,52 +414,51 @@ describe("the marker it records", () => {
 		expect(markers[0].scope.modulesTotal).toBe(20);
 		expect(markers[0].sha).toMatch(/^[0-9a-f]{40}$/);
 		expect(markers[0].dirtyAtStart).toBe(false);
-		// pytest has no `--isolated` path: every run reads the shared tree, so
-		// this is always false rather than unknown.
+		// pytest has no `--isolated` path: every run reads the shared tree.
 		expect(markers[0].isolated).toBe(false);
 		expect(markers[0].treeAtEnd).toMatch(/^[0-9a-f]{40}$/);
 	});
 
-	it("records nothing on a red run", () => {
+	it("records nothing on a red run", async () => {
 		const root = repo();
 		const [python] = fakePytest({ passed: false, scope: scope() }, 1);
-		wrap(python, root);
+		await wrap(python, root);
 		expect(readMarkers({ root })).toEqual([]);
 	});
 
-	it("records nothing where pytest exited non-zero, however green the plugin said it was", () => {
+	it("records nothing where pytest exited non-zero, however green the plugin said it was", async () => {
 		const root = repo();
 		// `pytest_terminal_summary` runs before teardown and interpreter
 		// shutdown, so an INTERNALERROR after it — or earlyoom killing python
 		// between the two — leaves `passed: true` behind a non-zero exit.
 		const [python] = fakePytest({ passed: true, scope: scope() }, 3);
-		expect(wrap(python, root).status).toBe(3);
+		expect((await wrap(python, root)).status).toBe(3);
 		expect(readMarkers({ root })).toEqual([]);
 	});
 
-	it("records nothing where the plugin never wrote a verdict", () => {
+	it("records nothing where the plugin never wrote a verdict", async () => {
 		const root = repo();
 		const [python] = fakePytest(undefined, 0);
-		wrap(python, root);
+		await wrap(python, root);
 		expect(readMarkers({ root })).toEqual([]);
 	});
 
-	it("records a green whose scope the plugin could not read, as unknown", () => {
+	it("records a certificate whose scope the plugin could not read, as unknown", async () => {
 		const root = repo();
 		const [python] = fakePytest({ passed: true, scope: null }, 0);
-		wrap(python, root);
+		await wrap(python, root);
 
 		const [marker] = readMarkers({ root });
 		expect(marker.suite).toBe("pytest");
 		expect(marker.scope).toBeUndefined();
 	});
 
-	it("notices the tree was dirty when the run began", () => {
+	it("notices the tree was dirty when the run began", async () => {
 		const root = repo();
 		fs.writeFileSync(path.join(root, "tracked.txt"), "x");
 		spawnSync("git", ["add", "tracked.txt"], { cwd: root });
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		wrap(python, root);
+		await wrap(python, root);
 
 		const [marker] = readMarkers({ root });
 		expect(marker.dirtyAtStart).toBe(true);
@@ -261,9 +467,9 @@ describe("the marker it records", () => {
 });
 
 describe("what it says out loud", () => {
-	it("names a pytest it could not run at all, which the shell used to report", () => {
+	it("names a pytest it could not run at all, which the shell used to report", async () => {
 		const root = repo();
-		const r = wrap(path.join(root, "no-such-python"), root);
+		const r = await wrap(path.join(root, "no-such-python"), root);
 		expect(r.stderr).toContain("pytest could not be run");
 		expect(r.stderr).toContain("ENOENT");
 		expect(r.stderr).toContain("no-such-python");
@@ -272,7 +478,7 @@ describe("what it says out loud", () => {
 		expect(r.status).toBe(1);
 	});
 
-	it("prints what a narrowed run covered, at the terminal rather than at the push", () => {
+	it("prints what a narrowed run covered, at the terminal rather than at the push", async () => {
 		const [python] = fakePytest(
 			{
 				passed: true,
@@ -280,7 +486,7 @@ describe("what it says out loud", () => {
 			},
 			0,
 		);
-		const said = wrap(python, repo()).stdout;
+		const said = (await wrap(python, repo())).stdout;
 		expect(said).toContain("FILTERED RUN");
 		expect(said).toContain("1 of 20 files");
 		// pytest's filter arrives carrying its own flag; vitest's `-t` prefix
@@ -341,16 +547,16 @@ describe("the run-cost report (#1884)", () => {
 		fileSeconds,
 	});
 	const noCi = { CI: "" };
-	const costLines = (stdout: string) =>
+	const parseCostLines = (stdout: string) =>
 		stdout.split("\n").filter((l) => l.startsWith("RUN COST:"));
 
-	it("names a new file over budget in worker-seconds, marks a pre-existing one, and skips an unchanged file", () => {
+	it("names a new file over budget in worker-seconds, marks a pre-existing one, and skips an unchanged file", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(timed(root)), 0);
-		const r = wrap(python, root, [], noCi);
+		const r = await wrap(python, root, [], noCi);
 
 		expect(r.status).toBe(0);
-		const lines = costLines(r.stdout);
+		const lines = parseCostLines(r.stdout);
 		expect(lines).toHaveLength(3);
 		expect(lines[0]).toMatch(
 			/^RUN COST: scripts\/test_new\.py took 42\.3 worker-seconds, over the 10 s budget — new since HEAD/,
@@ -362,22 +568,24 @@ describe("the run-cost report (#1884)", () => {
 		expect(r.stdout).not.toContain("test_same.py");
 	});
 
-	it("prints after a red run too, and the exit code stays the suite's own", () => {
+	it("prints after a red run too, and the exit code stays the suite's own", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(timed(root), false), 1);
-		const r = wrap(python, root, [], noCi);
+		const r = await wrap(python, root, [], noCi);
 
 		expect(r.status).toBe(1);
-		expect(costLines(r.stdout)[0]).toContain("scripts/test_new.py took 42.3");
+		expect(parseCostLines(r.stdout)[0]).toContain(
+			"scripts/test_new.py took 42.3",
+		);
 	});
 
-	it("turns timings it cannot read into one fail-open line, and the suite's green stands", () => {
+	it("turns timings it cannot read into one fail-open line, and the suite's green stands", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(null), 0);
-		const r = wrap(python, root, [], noCi);
+		const r = await wrap(python, root, [], noCi);
 
 		expect(r.status).toBe(0);
-		expect(costLines(r.stdout)).toEqual([
+		expect(parseCostLines(r.stdout)).toEqual([
 			expect.stringMatching(
 				/^RUN COST: the report failed and printed nothing else; the suite's verdict stands/,
 			),
@@ -385,30 +593,139 @@ describe("the run-cost report (#1884)", () => {
 		expect(readMarkers({ root })).toHaveLength(1);
 	});
 
-	it("prints nothing where the plugin handed over no timings", () => {
+	it("prints nothing where the plugin handed over no timings", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		expect(costLines(wrap(python, root, [], noCi).stdout)).toEqual([]);
+		expect(parseCostLines((await wrap(python, root, [], noCi)).stdout)).toEqual(
+			[],
+		);
 	});
 });
 
 describe("the hand-off file", () => {
-	it("is deleted whether or not it parsed, and an unreadable one records nothing", () => {
+	it("is deleted whether or not it parsed, and an unreadable one records nothing", async () => {
 		const root = repo();
-		const [python, calls] = fakePytest("{not json", 0);
-		expect(wrap(python, root).status).toBe(0);
+		const [python, readCalls] = fakePytest("{not json", 0);
+		expect((await wrap(python, root)).status).toBe(0);
 
-		const handOff = calls()[0]?.env.WFC_PYTEST_SCOPE_OUT ?? "";
+		const handOff = readCalls()[0]?.env.WFC_PYTEST_SCOPE_OUT ?? "";
 		expect(handOff).not.toBe("");
 		expect(fs.existsSync(path.dirname(handOff))).toBe(false);
 		expect(readMarkers({ root })).toEqual([]);
 	});
 
-	it("is deleted after a verdict is read from it", () => {
-		const [python, calls] = fakePytest({ passed: true, scope: scope() }, 0);
-		wrap(python, repo());
-		const handOff = calls()[0]?.env.WFC_PYTEST_SCOPE_OUT ?? "";
+	it("is deleted after a verdict is read from it", async () => {
+		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
+		await wrap(python, repo());
+		const handOff = readCalls()[0]?.env.WFC_PYTEST_SCOPE_OUT ?? "";
 		expect(handOff).not.toBe("");
 		expect(fs.existsSync(path.dirname(handOff))).toBe(false);
+	});
+});
+
+// The fake hangs past a lowered ceiling. Each case waits on the kill itself,
+// not on elapsed time (docs/practice/test-design-and-reliability.md).
+describe("the suite ceiling (#2702)", () => {
+	/* The fake must start node and write its files before the kill: `node -e
+	 * 0` measured 20 ms at load 14 here, so 1 s is a 50x margin. */
+	const lowered = (dir: string) => ({
+		[CEILING_ENV]: "1000",
+		[DEADLINE_ENV]: path.join(dir, "deadline"),
+	});
+
+	/** Whether `pid` has gone, polled since init reaps it on its own clock:
+	 * up to 5 s, half the 10 s test timeout. */
+	async function gone(pid: number): Promise<boolean> {
+		for (let i = 0; i < 100; i++) {
+			try {
+				process.kill(pid, 0);
+			} catch {
+				return true;
+			}
+			await new Promise((r) => setTimeout(r, 50));
+		}
+		return false;
+	}
+
+	it("kills pytest and its children, exits 1 and records no marker, though the plugin said green", async () => {
+		const root = repo();
+		const [python, readCalls] = fakePytest(
+			{ passed: true, scope: scope() },
+			0,
+			{
+				grandchild: true,
+				inflight: { open: [], finished: 0, collected: 0 },
+			},
+		);
+		const r = await wrap(python, root, [], lowered(root));
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("SUITE CEILING");
+		const [call] = readCalls();
+		expect(await gone(call?.pid ?? 0)).toBe(true);
+		expect(await gone(call?.grandchild ?? 0)).toBe(true);
+		expect(readMarkers({ root })).toEqual([]);
+	});
+
+	it("names the tests pytest reported in flight with their stage, how many never started and how many finished", async () => {
+		const root = repo();
+		const [python] = fakePytest(undefined, 0, {
+			inflight: {
+				open: [{ nodeid: "scripts/test_slow.py::test_crawls", stage: "call" }],
+				finished: 41,
+				collected: 50,
+			},
+		});
+		const r = await wrap(python, root, [], lowered(root));
+
+		expect(r.stderr).toMatch(/at the 1\.0s ceiling \(#2667\)/);
+		expect(r.stderr).toContain(
+			"In flight:\n  scripts/test_slow.py::test_crawls — call",
+		);
+		expect(r.stderr).toContain("Never started: 8 test(s).");
+		expect(r.stderr).toContain("Finished: 41 test(s).");
+	});
+
+	it("says the never-started count is unavailable where pytest reported no collected count", async () => {
+		const root = repo();
+		const [python] = fakePytest(undefined, 0, {
+			inflight: { open: [], finished: 3, collected: null },
+		});
+		const r = await wrap(python, root, [], lowered(root));
+
+		expect(r.stderr).toContain("Never started: unavailable");
+		expect(r.stderr).toContain("Finished: 3 test(s).");
+	});
+
+	it("says the list is unavailable where pytest reported none", async () => {
+		const root = repo();
+		const [python] = fakePytest(undefined, 0, {});
+		const r = await wrap(python, root, [], lowered(root));
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("so the list is unavailable");
+		expect(r.stderr).not.toContain("In flight:");
+	});
+
+	it("writes the deadline and pytest's group where the environment names a file, and drops it once the run settles", async () => {
+		const root = repo();
+		const env = lowered(root);
+		const [python, readCalls] = fakePytest(undefined, 0, {});
+		await wrap(python, root, [], env);
+
+		const [call] = readCalls();
+		expect(call?.deadline).toMatch(new RegExp(`^\\d+ ${call?.pid}\\n$`));
+		expect(fs.existsSync(env[DEADLINE_ENV])).toBe(false);
+	});
+
+	it("leaves a run that closes inside the ceiling its own verdict", async () => {
+		const root = repo();
+		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
+		// Lowered still, but far past the fake's 20 ms exit.
+		const r = await wrap(python, root, [], { [CEILING_ENV]: "60000" });
+
+		expect(r.status).toBe(0);
+		expect(r.stderr).not.toContain("SUITE CEILING");
+		expect(readMarkers({ root })).toHaveLength(1);
 	});
 });

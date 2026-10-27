@@ -21,7 +21,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { GH_FAILING_SCRIPT } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
-import { guardErrorsLog } from "./lib/guard-errors-log";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "report-arch-scan-due.js");
@@ -154,7 +154,7 @@ const read = (f: string) =>
 	fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "";
 const ghCalls = (r: Repo) => read(r.argvLog);
 /** Each `gh issue create` call whole, its multi-line body included. */
-const creates = (r: Repo) =>
+const readCreates = (r: Repo) =>
 	ghCalls(r)
 		.split(/\n(?=issue (?:list|view|create|edit) )/)
 		.filter((l) => l.startsWith("issue create"));
@@ -659,8 +659,8 @@ describe("the daily filing run", () => {
 		const { code, stdout } = run(r, []);
 		expect(code).toBe(0);
 		expect(stdout).toContain("Filed https://github.com/o/r/issues/999");
-		const [create] = creates(r);
-		expect(creates(r)).toHaveLength(1);
+		const [create] = readCreates(r);
+		expect(readCreates(r)).toHaveLength(1);
 		expect(create).toContain(`--title ${TITLE}`);
 		expect(create).toContain("--label takes:implement");
 		expect(create).toContain(
@@ -681,7 +681,7 @@ describe("the daily filing run", () => {
 		const { code, stdout } = run(r, []);
 		expect(code).toBe(0);
 		expect(stdout).toContain("under the threshold, nothing filed");
-		expect(creates(r)).toEqual([]);
+		expect(readCreates(r)).toEqual([]);
 	});
 
 	it("refreshes the open due issue's body and files nothing new", () => {
@@ -693,7 +693,7 @@ describe("the daily filing run", () => {
 		const { code, stdout } = run(r, []);
 		expect(code).toBe(0);
 		expect(stdout).toContain("Refreshed #5.");
-		expect(creates(r)).toEqual([]);
+		expect(readCreates(r)).toEqual([]);
 		expect(read(r.bodyLog)).toMatch(/^replace 5 --file /);
 	});
 
@@ -724,12 +724,12 @@ describe("the daily filing run", () => {
 		expect(under.stdout).toContain(
 			"since 2026-10-05T00:00:00Z (the close of #100, which no scan followed): under the threshold",
 		);
-		expect(creates(r)).toEqual([]);
+		expect(readCreates(r)).toEqual([]);
 
 		commit(r, { "a.js": 1 }, "2026-10-09T00:00:00Z");
 		const over = run(r, [], "2026-10-13T06:00:00Z");
 		expect(over.stdout).toContain("Filed https://github.com/o/r/issues/999");
-		expect(creates(r)[0]).toContain("| 2 | +6 | `a.js` |");
+		expect(readCreates(r)[0]).toContain("| 2 | +6 | `a.js` |");
 	});
 
 	it("keeps counting from that close while the issue refiled from it is open", () => {
@@ -756,7 +756,7 @@ describe("the daily filing run", () => {
 
 		const { stdout } = run(r, []);
 		expect(stdout).toContain(`since ${head} (newest scan line)`);
-		expect(creates(r)[0]).toContain("| 1 | +2 | `a.js` |");
+		expect(readCreates(r)[0]).toContain("| 1 | +2 | `a.js` |");
 	});
 
 	it("reads at most once a day", () => {
@@ -775,7 +775,7 @@ describe("the daily filing run", () => {
 		expect(ghCalls(r)).toBe(calls);
 
 		run(r, [], new Date(Date.parse(NOW) + DAY).toISOString());
-		expect(creates(r)).toHaveLength(2);
+		expect(readCreates(r)).toHaveLength(2);
 	});
 
 	it("keeps its stamp in the git common directory, which a worktree shares", () => {
@@ -848,8 +848,8 @@ describe("the daily filing run", () => {
 			expect(stderr).toContain("FAILED OPEN: ");
 			expect(stderr).toContain(why);
 			expect(stderr).toContain("the next day's reading retries");
-			expect(guardErrorsLog(r.config)).toContain("report-arch-scan-due");
-			expect(creates(r)).toEqual([]);
+			expect(readGuardErrorsLog(r.config)).toContain("report-arch-scan-due");
+			expect(readCreates(r)).toEqual([]);
 		},
 	);
 });

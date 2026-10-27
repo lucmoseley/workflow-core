@@ -38,7 +38,7 @@ const SPANS = /** @type {const} */ ({
  * @param {string} dir
  * @returns {string[]}
  */
-function namesIn(dir) {
+function readNamesIn(dir) {
 	try {
 		return fs.readdirSync(dir);
 	} catch {
@@ -69,7 +69,7 @@ function writtenSince(file, fromMs) {
  * @returns {{ files: string[], linked: number } | null} null where the seat's
  *   `projects/` cannot be read
  */
-function transcriptsSince(seat, fromMs) {
+function readTranscriptsSince(seat, fromMs) {
 	const root = path.join(seat, "projects");
 	let projects;
 	try {
@@ -86,7 +86,7 @@ function transcriptsSince(seat, fromMs) {
 			continue;
 		}
 		if (!p.isDirectory()) continue;
-		for (const f of projectFiles(path.join(root, p.name), fromMs))
+		for (const f of readProjectFiles(path.join(root, p.name), fromMs))
 			files.push(f);
 	}
 	return { files, linked };
@@ -99,15 +99,15 @@ function transcriptsSince(seat, fromMs) {
  * @param {number} fromMs
  * @returns {string[]}
  */
-function projectFiles(dir, fromMs) {
+function readProjectFiles(dir, fromMs) {
 	/** @type {string[]} */
 	const files = [];
-	for (const n of namesIn(dir)) {
+	for (const n of readNamesIn(dir)) {
 		if (!n.endsWith(".jsonl")) continue;
 		const mainFile = path.join(dir, n);
 		if (writtenSince(mainFile, fromMs)) files.push(mainFile);
 		const subDir = path.join(dir, n.replace(/\.jsonl$/, ""), "subagents");
-		for (const s of namesIn(subDir)) {
+		for (const s of readNamesIn(subDir)) {
 			const sub = path.join(subDir, s);
 			if (/^agent-.*\.jsonl$/.test(s) && writtenSince(sub, fromMs))
 				files.push(sub);
@@ -156,7 +156,7 @@ function printBar({ seat, bar, bars, now }) {
 	}
 	const fromMs = resetsMs - SPANS[bar];
 	const toMs = Math.min(fetchedAtMs, resetsMs);
-	const found = transcriptsSince(seat, fromMs);
+	const found = readTranscriptsSince(seat, fromMs);
 	if (!found) {
 		writeFd(1, `${seat} ${bar}: ${seat}/projects is unreadable\n`);
 		return false;

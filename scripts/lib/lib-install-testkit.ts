@@ -3,9 +3,9 @@
  * fixture install (#2272).
  *
  * WHY THE WHOLE DIRECTORY, for one of three reasons: the program under test
- * reaches its libs through more than one runtime (a shell guard running a
- * node lib, a node script spawning a shell one), which neither `sourcedLibs`
- * nor `programLibs` in scripts/guard-parse-fixture.ts follows; the fixture
+ * reaches its libs through more than one runtime (a node script spawning a
+ * shell lib), which `readProgramLibs` in scripts/lib-closure-fixture.ts does
+ * not follow; the fixture
  * stands up a plugin install as shipped (#587); or the program reads every
  * lib as data. A hand-kept list goes stale the next time the program gains a
  * lib, failing as a missing lib in a test about something else.

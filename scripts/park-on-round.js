@@ -21,7 +21,7 @@
  */
 
 const { parkTargets } = require("./guard-inventory");
-const { markParked, parkedBy, setParked } = require("./lib/parked");
+const { markParked, readParkedBy, setParked } = require("./lib/parked");
 const stopGuard = require("./lib/stop-guard");
 const { trackerOf } = require("./lib/outstanding-line");
 
@@ -32,7 +32,7 @@ function review({ sessionId, message }) {
 	if (targets.length === 0 || !tracker) return;
 	const parked = targets.filter((n) => setParked(tracker, n, true) === null);
 	if (parked.length > 0)
-		markParked(sessionId, [...parkedBy(sessionId), ...parked]);
+		markParked(sessionId, [...readParkedBy(sessionId), ...parked]);
 }
 
 if (require.main === module) stopGuard.onMessage({ review });

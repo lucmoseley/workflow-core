@@ -4,9 +4,9 @@
  * declared sensitive path, while a planted bug on it survives every test
  * (#1906, spec #1871).
  *
- * IMPLICIT:  with the `mutation` module on, refuses a commit whose staged code paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json` while any mutant StrykerJS plants on a line the commit adds or changes survives, or has no covering test, or while the suite is red on HEAD plus the commit's changes; the refusal names the areas, one line per mutant and rule:mutation-hold. It refuses too, running nothing, an added `Stryker disable` comment stating no reason.
+ * IMPLICIT:  with the `mutation` module on, refuses a commit whose staged code paths match a glob `sensitivePaths` declares in `.claude/workflow-core.json` while any mutant StrykerJS plants on a line the commit adds or changes survives, or has no covering test, or while the suite is red on HEAD plus the commit's changes; the refusal names the areas, one line per mutant and rule:mutation-hold. It refuses too, running nothing, a `Stryker disable` comment stating no reason that the commit adds, arms, or widens over a line it adds.
  * JUSTIFIED: fail-safe — branch coverage reads high where planted bugs survive every test (#1851), so a test gap on money or personal-data code is seen at commit or not at all.
- * DEFEAT:    a reasoned `// Stryker disable` comment over the mutant; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack; WFC_STRYKER names the Stryker binary, so a value writing an all-killed report defeats it.
+ * DEFEAT:    a reasoned `// Stryker disable` comment over the mutant; `HUSKY=0` and `core.hooksPath` off .husky/_ skip it with the rest of the stack; WFC_STRYKER names the Stryker binary, so a value writing an all-killed report defeats it; WFC_MUTATION_COMMENTS_TIMEOUT_MS set too short leaves the disable comments unread, so Stryker honours an unreasoned one.
  *
  *   node scripts/mutation-hold-gate.js             from .husky/pre-commit
  *   node scripts/mutation-hold-gate.js --due       from commit-paths
@@ -61,9 +61,10 @@
  * goes through the instrumenter's `@babel/core` under the host's Babel config
  * and `mutator.plugins`, asynchronously as Stryker parses (#2573, #2624), so a
  * missing Stryker refuses first, and an unreasoned comment refuses before
- * Stryker runs. Residual: a Babel that will not load, a file it will not
- * parse, or a config that throws or ignores the file leaves those comments
- * unread, named on stderr and logged.
+ * Stryker runs. Residual: a Babel that will not load, a file it or git will
+ * not read, or a config that throws, ignores the file or runs past
+ * COMMENTS_TIMEOUT_MS leaves that file's comments unread, named on stderr and
+ * logged, and Stryker still judges every file (#2727).
  *
  * MISSING TOOLS refuse, never pass (#1911): either Stryker package, or vitest,
  * absent from the checkout's own `node_modules`, the one the run's worktree
@@ -81,7 +82,7 @@
  *    changed line) is never generated, so never enforced (#1901).
  *  - Code exercised only out of process, a test spawning it in a child, has
  *    no per-test coverage Stryker can see, and reads NoCoverage.
- *  - The run is invisible to guard-suite-concurrency.sh's suite count, as the
+ *  - The run is invisible to guard-suite-concurrency.js's suite count, as the
  *    pre-lock test run is: a commit launches it, not a Bash command the guard
  *    judges, and Stryker drives vitest through its API, never `.bin/vitest`
  *    (#1912).
@@ -101,7 +102,12 @@
  * `--seed`: 0 seeded · 1 nothing seeded, a fault included.
  */
 
-const { execFileSync, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
+const {
+	execGit,
+	gitCommonDirOrThrow,
+	GIT_TIMEOUT_MS,
+} = require("./lib/git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -110,16 +116,16 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
-const { GIT_TIMEOUT_MS, shellWord } = require("./lib/dirty-tree.js");
+const { shellWord } = require("./lib/dirty-tree.js");
 const { failOpenLogger } = require("./lib/fail-open-logger.js");
-const { firstLine: firstLineOf } = require("./lib/first-line.js");
+const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { parseHeader } = require("./lib/hunk-header.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
-const { ruleTextOr } = require("./lib/rule-text.js");
+const { readRuleTextOr } = require("./lib/rule-text.js");
 const { matchSensitivePaths } = require("./lib/sensitive-paths.js");
 const { requiredGroup } = require("./lib/regex-group.js");
-const { HOST_CONFIG_FAULT } = require("./lib/stryker-comments.js");
+const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
 const { readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -148,7 +154,7 @@ const RED_INITIAL = "There were failed tests in the initial test run";
 /** @typedef {import("./lib/stryker-comments.js").BabelComment} BabelComment */
 /** @typedef {import("./lib/stryker-comments.js").ParseEntry} ParseEntry */
 /** @typedef {import("./lib/stryker-comments.js").ParseKind} ParseKind */
-/** @typedef {Record<string, {comments: BabelComment[]} | {error: string}>} ReadComments */
+/** @typedef {import("./lib/stryker-comments.js").ReadComments} ReadComments */
 
 const REFUSING = new Set(["Survived", "NoCoverage"]);
 const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
@@ -211,6 +217,9 @@ const TS_SCRIPT_TYPES = ["ts", "text/typescript", "typescript"];
 const JS_SCRIPT_TYPES = ["js", "text/javascript", "javascript", "module"];
 const DISABLES_UNREAD = "could not read the added disable comments";
 const STRYKER_COMMENTS = path.join(__dirname, "lib", "stryker-comments.js");
+/* How long the comment read may run: a guess, far past Babel's load and parse
+ * of a commit's files, short of a hang anyone waits out. */
+const COMMENTS_TIMEOUT_MS = 30_000;
 
 const CACHE_NAME = "wfc-mutation-incremental.json";
 
@@ -233,29 +242,34 @@ class HoldFaultError extends Error {
 	}
 }
 
-/** @param {unknown} e */
-const firstLine = (e) => firstLineOf(caught(e).message);
-
 /** @param {string[]} args */
 const git = (args) =>
-	execFileSync("git", ["-c", "core.quotePath=false", ...args], {
+	execGit(["-c", "core.quotePath=false", ...args], {
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
 		timeout: GIT_TIMEOUT_MS,
-		maxBuffer: CHILD_MAX_BUFFER,
 	});
 
-/** @param {string[]} args @param {string} fault */
-function gitOr(args, fault) {
+/**
+ * `read()`, or a HoldFaultError naming `fault` where it throws.
+ * @template T
+ * @param {string} fault
+ * @param {() => T} read
+ * @returns {T}
+ */
+function orFault(fault, read) {
 	try {
-		return git(args);
+		return read();
 	} catch (e) {
 		throw new HoldFaultError(fault, {
-			detail: firstLine(e),
+			detail: parseErrorFirstLine(e),
 			cause: e,
 		});
 	}
 }
+
+/** @param {string[]} args @param {string} fault */
+const gitOr = (args, fault) => orFault(fault, () => git(args));
 
 /**
  * Whether the commit route commit-route.sh reads is a replay or a merge, read
@@ -289,14 +303,17 @@ function isSkippedRoute(gitDir) {
  * @param {string} spec `<rev>:<path>`, an empty rev the index
  * @param {string} fault
  */
-function blobAt(spec, fault) {
+function readBlobAt(spec, fault) {
 	try {
 		git(["rev-parse", "--verify", "--quiet", spec]);
 	} catch (e) {
 		// Exit 1 is an absent path or an unborn HEAD; anything else is a git
 		// that will not answer, and fails open, logged (#1871 §Faults).
 		if (caught(e).status !== 1)
-			throw new HoldFaultError(fault, { detail: firstLine(e), cause: e });
+			throw new HoldFaultError(fault, {
+				detail: parseErrorFirstLine(e),
+				cause: e,
+			});
 		return null;
 	}
 	return gitOr(["show", spec], fault);
@@ -315,7 +332,7 @@ function blobAt(spec, fault) {
 function configCopyAt(work, rev) {
 	const root = path.join(work, `root${rev}`);
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	const text = blobAt(
+	const text = readBlobAt(
 		`${rev}:.claude/workflow-core.json`,
 		"could not read .claude/workflow-core.json",
 	);
@@ -339,7 +356,7 @@ function isSwitchedOn({ root, text }) {
 }
 
 /** @param {ConfigCopy} copy */
-function configOf({ root }) {
+function readConfigOf({ root }) {
 	try {
 		return readConfig({ root, quiet: true });
 	} catch (e) {
@@ -355,7 +372,7 @@ function configOf({ root }) {
  * @param {string} file
  * @returns {HunkHeader[]}
  */
-function stagedHunks(file) {
+function readStagedHunks(file) {
 	const diff = gitOr(
 		[
 			"diff",
@@ -392,7 +409,7 @@ const addedRanges = (hunks) =>
  * @param {HunkHeader[]} hunks the file's, from a zero-context diff
  * @param {number} line
  */
-function headLine(hunks, line) {
+function findHeadLine(hunks, line) {
 	let shift = 0;
 	for (const h of hunks) {
 		const last = h.newStart + h.newCount - 1;
@@ -405,6 +422,16 @@ function headLine(hunks, line) {
 }
 
 /**
+ * Says a fail-open on stderr and writes it to the fail-open log.
+ * @param {string} stderrLine after its `pre-commit: ` prefix
+ * @param {string} logLine
+ */
+function reportFailOpen(stderrLine, logLine) {
+	writeFd(2, `pre-commit: ${stderrLine}\n`);
+	failOpenLogger("mutation-hold-gate.js")?.(logLine);
+}
+
+/**
  * Says on stderr and in the fail-open log that the disable comments `where`
  * names went unread, and `why`.
  * @param {string} where
@@ -412,11 +439,8 @@ function headLine(hunks, line) {
  */
 function reportUnread(where, why) {
 	const detail = `${where}: ${why}`;
-	writeFd(
-		2,
-		`pre-commit: the mutation hold ${DISABLES_UNREAD} in ${detail}, so Stryker alone judges them.\n`,
-	);
-	failOpenLogger("mutation-hold-gate.js")?.(
+	reportFailOpen(
+		`the mutation hold ${DISABLES_UNREAD} in ${detail}, so Stryker alone judges them.`,
 		`${DISABLES_UNREAD} — a commit's disable comments went unchecked\t${detail}`,
 	);
 }
@@ -490,23 +514,30 @@ function scriptsOf(file, source) {
 /**
  * Every comment in each entry, or the first line of why none was (#2624).
  * @param {string} root
- * @param {string|null} own the host's Stryker config, named under `root`
+ * @param {string|null} strykerConfig the host's Stryker config, named under `root`
  * @param {ParseEntry[]} entries
  * @returns {{files: ReadComments} | {error: string}}
  */
-function commentsInChild(root, own, entries) {
+function readCommentsInChild(root, strykerConfig, entries) {
+	const timeout =
+		Number(process.env.WFC_MUTATION_COMMENTS_TIMEOUT_MS) || COMMENTS_TIMEOUT_MS;
 	const r = spawnSync(process.execPath, [STRYKER_COMMENTS], {
-		input: JSON.stringify({ root, strykerConfig: own, entries }),
+		input: JSON.stringify({ root, strykerConfig, entries }),
 		encoding: "utf8",
+		// The result's own fd: a host config may print on stdout (#2727).
+		stdio: ["pipe", "ignore", "pipe", "pipe"],
 		maxBuffer: CHILD_MAX_BUFFER,
+		timeout,
 	});
+	if (caught(r.error).code === "ETIMEDOUT")
+		return { error: `timed out after ${timeout} ms` };
 	try {
-		return JSON.parse(r.stdout);
+		return JSON.parse(r.output[RESULT_FD] ?? "");
 	} catch {
 		return {
 			error: r.error
-				? firstLine(r.error)
-				: firstLineOf(r.stderr ?? "") || `exit ${r.status}`,
+				? parseErrorFirstLine(r.error)
+				: parseFirstLine(r.stderr ?? "") || `exit ${r.status}`,
 		};
 	}
 }
@@ -516,70 +547,216 @@ function commentsInChild(root, own, entries) {
  * text opens on the line break DIRECTIVE's `^\s?` lets through.
  * @param {BabelComment} c
  */
-const directiveLine = (c) =>
+const findDirectiveLine = (c) =>
 	c.loc.start.line + (c.value.startsWith("\n") ? 1 : 0);
+
+/** @typedef {{verb: string, scope: string | undefined, mutators: string[], reason: string | undefined}} ParsedDirective a DIRECTIVE match by part */
+/** @typedef {{comment: BabelComment, directive: ParsedDirective}} Directive a comment and its directive */
+
+/**
+ * A comment's Stryker directive by part, its mutators lower-cased, or null
+ * where its text holds none.
+ * @param {string} text the comment's value
+ * @returns {ParsedDirective | null}
+ */
+function parseDirective(text) {
+	const d = DIRECTIVE.exec(text);
+	if (d === null) return null;
+	return {
+		verb: requiredGroup(d, 1, DIRECTIVE),
+		scope: d[2],
+		mutators: requiredGroup(d, 3, DIRECTIVE)
+			.split(",")
+			.map((m) => m.trim().toLowerCase()),
+		reason: d[4],
+	};
+}
 
 /**
  * The comments holding a `Stryker disable` directive stating no reason after
- * its colon.
+ * its colon, each with its directive.
  * @param {BabelComment[]} comments
+ * @returns {Directive[]}
  */
 const unreasonedIn = (comments) =>
-	comments.filter((c) => {
-		const d = DIRECTIVE.exec(c.value);
-		return d?.[1] === "disable" && (d[4] === undefined || d[4].trim() === "");
+	comments.flatMap((comment) => {
+		const directive = parseDirective(comment.value);
+		return directive?.verb === "disable" &&
+			(directive.reason === undefined || directive.reason.trim() === "")
+			? [{ comment, directive }]
+			: [];
 	});
 
 /**
- * The `Stryker disable` comments the commit arms that state no reason after
- * their colon (#1909): each the staged file holds whose directive's line is
- * one the commit adds, or maps to a line where HEAD holds no such directive,
- * since editing an enclosing comment's text or delimiters can turn old text
- * into a directive (#2573, #2624). Every comment is read through Babel's
- * parser as Stryker reads it, so a `//` inside a string is no comment and a
- * directive on its own line inside a block comment is one (#2366).
+ * Whether the commit adds a line from `from` to `to`, inclusive.
+ * @param {LineRange[]} added
+ * @param {number} from
+ * @param {number} to
+ */
+const hasAddedBetween = (added, from, to) =>
+	added.some((r) => r.start <= to && from <= r.end);
+
+/**
+ * Whether Stryker reads a comment's directive: one leading a node no ancestor
+ * of which it skips for overlapping no line the commit adds.
+ * @param {BabelComment} c
+ * @param {LineRange[]} added
+ * @returns {c is BabelComment & {leads: number}}
+ */
+const isRead = (c, added) =>
+	c.leads !== undefined &&
+	(c.within ?? []).every(([s, e]) => hasAddedBetween(added, s, e));
+
+/**
+ * The line a region directive's reach ends before: the line the first later
+ * `restore` comment Stryker reads in its block leads that lifts every mutator
+ * it names, as Stryker's bookkeeper lifts them, or the line past its block.
+ * @param {Directive} disable
+ * @param {BabelComment[]} comments the file's, in source order
+ * @param {LineRange[]} added
+ */
+function regionEnd({ comment: c, directive }, comments, added) {
+	let open = directive.mutators;
+	for (const r of comments) {
+		if (r.start <= c.start || r.block !== c.block || !isRead(r, added))
+			continue;
+		const d = parseDirective(r.value);
+		if (d?.verb !== "restore" || d.scope === "next-line") continue;
+		const lifted = d.mutators;
+		if (!lifted.includes("all") && open.includes("all")) continue;
+		open = lifted.includes("all")
+			? []
+			: open.filter((m) => !lifted.includes(m));
+		if (open.length === 0) return r.leads;
+	}
+	return c.blockEnd + 1;
+}
+
+/**
+ * Whether a disable directive Stryker reads reaches a line the commit adds: a
+ * `next-line` one the line of the node its comment leads, a region from there
+ * to its regionEnd.
+ * @param {Directive} disable
+ * @param {BabelComment[]} comments the file's, in source order
+ * @param {LineRange[]} added
+ */
+function hasAddedInReach(disable, comments, added) {
+	if (!isRead(disable.comment, added)) return false;
+	const from = disable.comment.leads;
+	const until =
+		disable.directive.scope === "next-line"
+			? from + 1
+			: regionEnd(disable, comments, added);
+	return hasAddedBetween(added, from, until - 1);
+}
+
+/**
+ * The unreasoned `Stryker disable` directives in a staged file the commit
+ * answers for (#1909): each whose line the commit adds, or maps to a line
+ * where HEAD holds no such directive, since editing an enclosing comment's
+ * text or delimiters can turn old text into a directive (#2573, #2624); and
+ * each whose reach the commit widens over a line it adds, by adding a line
+ * under it or deleting its `restore` (#2727). Where HEAD's copy went unread
+ * (`held` null), one whose comment's opening line the commit adds stands in
+ * for the HEAD comparison.
+ * @param {BabelComment[]} comments the staged file's
+ * @param {HunkHeader[]} fileHunks
+ * @param {Set<number> | null} held HEAD's unreasoned directive lines
+ */
+function chargedIn(comments, fileHunks, held) {
+	const added = addedRanges(fileHunks);
+	return unreasonedIn(comments)
+		.filter((disable) => {
+			const line = findDirectiveLine(disable.comment);
+			const was = findHeadLine(fileHunks, line);
+			if (was === null) return true;
+			const armed =
+				held === null
+					? hasAddedBetween(added, disable.comment.loc.start.line, line)
+					: !held.has(was);
+			return armed || hasAddedInReach(disable, comments, added);
+		})
+		.map((disable) => disable.comment);
+}
+
+/**
+ * Says on stderr and in the fail-open log that `file`'s copy at HEAD went
+ * unread, and `why`.
+ * @param {string} file
+ * @param {string} why
+ */
+function reportDegraded(file, why) {
+	reportFailOpen(
+		`the mutation hold could not read ${file} at HEAD (${why}), so it charges only the directives on lines this commit adds, in comments whose opening line it adds, or whose reach it widens.`,
+		`could not read a file at HEAD — an old disable comment the commit arms went unchecked\t${file}: ${why}`,
+	);
+}
+
+/**
+ * The unreasoned `Stryker disable` comments the commit answers for, by
+ * chargedIn. Every comment is read through Babel's parser as Stryker reads
+ * it, so a `//` inside a string is no comment and a directive on its own line
+ * inside a block comment is one (#2366). A git fault reading one file's copy
+ * costs that file alone: its staged copy unread, or its HEAD copy read as
+ * unparseable (#2727).
  * Residual: any text after the colon passes, `: x` included; one armed in a
  * file the commit adds no line to passes, since that file is not read (and a
- * deletion-only commit runs nothing, #1871 story 30); one armed in a file
- * HEAD's copy of will not parse, where only directives on added lines are
- * charged, so no directive the commit never touched is; and the configs are
- * read from the working tree, Stryker's from the staged one, so an unstaged
- * edit to either parts the two reads.
+ * deletion-only commit runs nothing, #1871 story 30); where HEAD's copy went
+ * unread, one armed by any edit but to its comment's opening line passes; a
+ * region a later reasoned directive overrides is charged as its own; and the
+ * configs are read from the working tree, Stryker's from the staged one, so
+ * an unstaged edit to either parts the two reads.
  * @param {string} root
- * @param {string|null} own the host's Stryker config the staged tree holds
+ * @param {string|null} strykerConfig the host's Stryker config the staged tree holds
  * @param {Map<string, HunkHeader[]>} hunks each read file's
  * @returns {Disable[]}
  */
-function unreasonedDisables(root, own, hunks) {
-	const files = [...hunks.keys()];
+function unreasonedDisables(root, strykerConfig, hunks) {
+	/** @type {string[]} */
+	const files = [];
+	/** @type {Map<string, string>} why a file's HEAD copy went unread */
+	const headUnread = new Map();
 	/** @type {ParseEntry[]} */
-	const entries = files.flatMap((file) => {
-		const head = blobAt(`HEAD:${file}`, "could not read a file at HEAD");
-		return [
-			{
-				id: `:${file}`,
-				filename: file,
-				pieces: scriptsOf(
-					file,
-					gitOr(["show", `:${file}`], "could not read a staged file"),
-				),
-			},
-			...(head === null
-				? []
-				: [
-						{
-							id: `HEAD:${file}`,
-							filename: file,
-							pieces: scriptsOf(file, head),
-						},
-					]),
-		];
-	});
-	const read = commentsInChild(root, own, entries);
+	const entries = [];
+	/** @param {unknown} e */
+	const buildFaultText = (e) => {
+		if (!(e instanceof HoldFaultError)) throw e;
+		return `${e.message}: ${e.detail}`;
+	};
+	for (const file of hunks.keys()) {
+		let staged;
+		try {
+			staged = gitOr(["show", `:${file}`], "could not read a staged file");
+		} catch (e) {
+			// Fails open for this file alone; Stryker still judges every file (#2727).
+			reportUnread(file, buildFaultText(e));
+			continue;
+		}
+		files.push(file);
+		entries.push({
+			id: `:${file}`,
+			filename: file,
+			pieces: scriptsOf(file, staged),
+		});
+		try {
+			const head = readBlobAt(`HEAD:${file}`, "could not read a file at HEAD");
+			if (head !== null)
+				entries.push({
+					id: `HEAD:${file}`,
+					filename: file,
+					pieces: scriptsOf(file, head),
+				});
+		} catch (e) {
+			// Fails open to the degraded charge, reported per file below (#2727).
+			headUnread.set(file, buildFaultText(e));
+		}
+	}
+	if (files.length === 0) return [];
+	const read = readCommentsInChild(root, strykerConfig, entries);
 	if ("error" in read) {
 		// Fails open, logged: the tools the missing-tool check reads are
-		// installed, so only a Stryker laid out unlike 10.0.0's, or a child
-		// that will not run, gets here (#2366).
+		// installed, so only a Stryker laid out unlike 10.0.0's, a host config
+		// that hangs, or a child that will not run, gets here (#2366, #2727).
 		reportUnread(files.join(", "), read.error);
 		return [];
 	}
@@ -594,31 +771,25 @@ function unreasonedDisables(root, own, hunks) {
 			return [];
 		}
 		const head = byId[`HEAD:${file}`];
-		if (head !== undefined && "error" in head)
-			writeFd(
-				2,
-				`pre-commit: the mutation hold could not read ${file} at HEAD (${head.error}), so it charges only the directives on lines this commit adds.\n`,
-			);
-		/** @type {Set<number> | null} null where HEAD's copy went unread */
+		const headError =
+			headUnread.get(file) ??
+			(head !== undefined && "error" in head ? head.error : undefined);
+		/** @type {Set<number> | null} */
 		let held = new Set();
-		if (head !== undefined)
-			held =
-				"comments" in head
-					? new Set(unreasonedIn(head.comments).map(directiveLine))
-					: null;
-		const fileHunks = hunks.get(file) ?? [];
-		return unreasonedIn(staged.comments)
-			.filter((c) => {
-				const was = headLine(fileHunks, directiveLine(c));
-				return was === null || (held !== null && !held.has(was));
-			})
-			.map((c) => ({
-				at: `${file}:${directiveLine(c)}`,
-				text: (c.type === "CommentLine"
-					? `//${c.value}`
-					: `/*${c.value}*/`
-				).replace(/\s+/g, " "),
-			}));
+		if (headError !== undefined) {
+			reportDegraded(file, headError);
+			held = null;
+		} else if (head !== undefined && "comments" in head)
+			held = new Set(
+				unreasonedIn(head.comments).map((d) => findDirectiveLine(d.comment)),
+			);
+		return chargedIn(staged.comments, hunks.get(file) ?? [], held).map((c) => ({
+			at: `${file}:${findDirectiveLine(c)}`,
+			text: (c.type === "CommentLine"
+				? `//${c.value}`
+				: `/*${c.value}*/`
+			).replace(/\s+/g, " "),
+		}));
 	});
 }
 
@@ -663,7 +834,7 @@ const tail = (output) =>
  * there than a neighbour's unsaved edit to a tracked one.
  * @param {string} tree
  */
-function hostConfig(tree) {
+function readHostConfig(tree) {
 	const held = new Set(
 		gitOr(
 			[
@@ -685,15 +856,15 @@ function hostConfig(tree) {
  * The wrapper Stryker is given: the host's config, or the core default, under
  * the options the hold controls. A host config that will not read stops
  * Stryker with HOST_CONFIG_FAULT in its output (#1871 §Faults).
- * @param {string|null} own
+ * @param {string|null} strykerConfig the host's Stryker config, or null for the core default
  * @param {object} controlled
  */
-function buildWrapperConfig(own, controlled) {
+function buildWrapperConfig(strykerConfig, controlled) {
 	const base =
-		own === null
+		strykerConfig === null
 			? `const base = ${JSON.stringify(CORE_DEFAULT)};`
 			: `import { loadStrykerConfig } from ${JSON.stringify(pathToFileURL(STRYKER_COMMENTS).href)};
-const base = await loadStrykerConfig(${JSON.stringify(own)});`;
+const base = await loadStrykerConfig(${JSON.stringify(strykerConfig)});`;
 	return `${base}
 export default { ...base, ...${JSON.stringify(controlled, null, 2)} };
 `;
@@ -759,10 +930,9 @@ function writeBackCache(copy, cache, seeded, voice) {
 
 const cachePath = () =>
 	path.join(
-		gitOr(
-			["rev-parse", "--path-format=absolute", "--git-common-dir"],
-			"could not read the git common directory",
-		).trim(),
+		orFault("could not read the git common directory", () =>
+			gitCommonDirOrThrow(process.cwd(), { timeout: GIT_TIMEOUT_MS }),
+		),
 		CACHE_NAME,
 	);
 
@@ -792,7 +962,7 @@ function runStryker({ root, work, mutate, tree, voice }) {
 	};
 	fs.writeFileSync(
 		configPath,
-		buildWrapperConfig(hostConfig(tree), controlled),
+		buildWrapperConfig(readHostConfig(tree), controlled),
 	);
 	const stryker = process.env.WFC_STRYKER || "node_modules/.bin/stryker";
 	const seeded = seedCache(cache, incremental, voice);
@@ -888,7 +1058,7 @@ function judgeFile(file, entry, rs) {
 	if (!Array.isArray(entry.mutants)) throw buildUnparseable();
 	/** @type {string[]|undefined} */
 	let lines;
-	const sourceLines = () => {
+	const readSourceLines = () => {
 		const got =
 			lines ??
 			(typeof entry.source === "string"
@@ -914,7 +1084,7 @@ function judgeFile(file, entry, rs) {
 		if (verdict === "unjudged") out.unjudged.push(at);
 		if (verdict === "refuse")
 			out.refused.push(
-				`${at}  ${m.mutatorName}  ${originalOf(sourceLines(), loc, at)} → ${m.replacement ?? "?"}  ${m.status}`,
+				`${at}  ${m.mutatorName}  ${originalOf(readSourceLines(), loc, at)} → ${m.replacement ?? "?"}  ${m.status}`,
 			);
 	}
 	return out;
@@ -946,8 +1116,8 @@ function judge(report, ranges) {
  * @param {ConfigCopy[]} copies
  * @param {string[]} staged
  */
-function heldRanges(copies, staged) {
-	const configs = copies.map(configOf);
+function readHeldRanges(copies, staged) {
+	const configs = copies.map(readConfigOf);
 	/** @type {Set<string>} */
 	const areas = new Set();
 	/** @type {Set<string>} */
@@ -962,7 +1132,7 @@ function heldRanges(copies, staged) {
 	/** @type {Map<string, HunkHeader[]>} */
 	const hunks = new Map();
 	for (const p of mutableReportingSkips([...matched].sort(), HOOK_VOICE)) {
-		const hs = stagedHunks(p);
+		const hs = readStagedHunks(p);
 		const rs = addedRanges(hs);
 		if (rs.length === 0) continue;
 		ranges.set(p, rs);
@@ -992,7 +1162,7 @@ function mutableReportingSkips(paths, voice) {
  * @param {{red: string}|{failed: string}} run
  * @param {Voice} voice
  */
-function unjudgedRunText(run, voice) {
+function buildUnjudgedRunText(run, voice) {
 	return "red" in run
 		? `${tail(run.red)}\n${voice.prefix}: the mutation hold's initial test run is RED ${voice.tree}, so ${voice.unjudged}.\n  Fix the failing tests and ${voice.again}.\n`
 		: `${tail(run.failed)}\n${voice.prefix}: Stryker did not finish, so ${voice.unjudged}.\n  Fix what its output above names — a Stryker that will not start, or a config it refuses — and ${voice.again}.\n`;
@@ -1029,15 +1199,15 @@ function missingToolRefusal(root, voice) {
 function refuse(body) {
 	writeFd(
 		2,
-		`${body}\n${ruleOrPointer()}\n\npre-commit: the mutation hold refused this commit (rule:mutation-hold). Nothing was committed.\n`,
+		`${body}\n${readRuleOrPointer()}\n\npre-commit: the mutation hold refused this commit (rule:mutation-hold). Nothing was committed.\n`,
 	);
 	return 1;
 }
 
 // Fails open to a pointer: an unreadable rule file must not cost the
 // refusal itself, which is printed whole above it (#1906).
-function ruleOrPointer() {
-	return ruleTextOr(
+function readRuleOrPointer() {
+	return readRuleTextOr(
 		"mutation-hold",
 		"  A commit changing a line on a declared sensitive path is held while a planted bug on that line survives every test.",
 		"mutation-hold-gate",
@@ -1047,7 +1217,7 @@ function ruleOrPointer() {
 /** @param {Disable[]} unreasoned */
 function unreasonedRefusal(unreasoned) {
 	return [
-		"pre-commit: this commit adds a `Stryker disable` comment stating no reason on a declared sensitive path, so no mutant was judged (#1909).",
+		"pre-commit: this commit adds, arms or widens over its own lines a `Stryker disable` comment stating no reason on a declared sensitive path, so no mutant was judged (#1909, #2727).",
 		...unreasoned.map(({ at, text }) => `  ${at}  ${text.trim()}`),
 		"  Say after a colon why the mutants it clears cannot change behaviour — `// Stryker disable next-line <mutator>: <reason>` — and commit again.",
 		"",
@@ -1061,7 +1231,7 @@ function unreasonedRefusal(unreasoned) {
  * @param {Map<string, LineRange[]>} ranges
  */
 function refusal(run, areas, ranges) {
-	if (!("report" in run)) return unjudgedRunText(run, HOOK_VOICE);
+	if (!("report" in run)) return buildUnjudgedRunText(run, HOOK_VOICE);
 	const { refused, unjudged } = judge(run.report, ranges);
 	if (unjudged.length > 0)
 		writeFd(
@@ -1100,14 +1270,18 @@ function hold(mode) {
 			.filter((p) => p !== "");
 		if (staged.length === 0) return IDLE[mode];
 
-		const held = heldRanges(copies, staged);
+		const held = readHeldRanges(copies, staged);
 		if (held.ranges.size === 0) return IDLE[mode];
 		if (mode === "due") return 0;
 		const root = hostRoot();
 		const missing = missingToolRefusal(root, HOOK_VOICE);
 		if (missing !== null) return refuse(missing);
 		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();
-		const unreasoned = unreasonedDisables(root, hostConfig(tree), held.hunks);
+		const unreasoned = unreasonedDisables(
+			root,
+			readHostConfig(tree),
+			held.hunks,
+		);
 		if (unreasoned.length > 0) return refuse(unreasonedRefusal(unreasoned));
 		writeFd(
 			2,
@@ -1131,7 +1305,7 @@ function hold(mode) {
 function seed() {
 	const work = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-mutation-seed-"));
 	try {
-		const config = configOf(configCopyAt(work, "HEAD"));
+		const config = readConfigOf(configCopyAt(work, "HEAD"));
 		const tracked = gitOr(
 			["ls-tree", "-r", "-z", "--name-only", "--full-tree", "HEAD"],
 			"could not list HEAD's files",
@@ -1175,7 +1349,7 @@ function seed() {
 			voice: SEED_VOICE,
 		});
 		if (!("report" in run)) {
-			writeFd(2, unjudgedRunText(run, SEED_VOICE));
+			writeFd(2, buildUnjudgedRunText(run, SEED_VOICE));
 			return 1;
 		}
 		const results = Object.values(run.report?.files ?? {}).reduce(
@@ -1210,7 +1384,7 @@ function faultOf(e) {
 		e instanceof HoldFaultError
 			? e
 			: new HoldFaultError("failed", {
-					detail: firstLine(e),
+					detail: parseErrorFirstLine(e),
 				});
 	return {
 		fault,
@@ -1234,11 +1408,8 @@ function faultExit(mode, e) {
 		);
 		return IDLE[mode];
 	}
-	writeFd(
-		2,
-		`pre-commit: ${what} — this commit is NOT checked. See: node ${process.env.WFC_PLUGIN_ROOT ? `${process.env.WFC_PLUGIN_ROOT}/` : ""}scripts/check-guard-errors.js\n`,
-	);
-	failOpenLogger("mutation-hold-gate.js")?.(
+	reportFailOpen(
+		`${what} — this commit is NOT checked. See: node ${process.env.WFC_PLUGIN_ROOT ? `${process.env.WFC_PLUGIN_ROOT}/` : ""}scripts/check-guard-errors.js`,
 		`${fault.message} — a commit went unchecked for a surviving mutant${fault.detail ? `\t${fault.detail}` : ""}`,
 	);
 	return 0;

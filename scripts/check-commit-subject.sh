@@ -12,7 +12,7 @@
 #
 # Run from .husky/commit-msg, the one hook that reads the finished message on
 # every route: `-m`, `-F`, `-c`/`-C`, the editor, commit-paths.js and the
-# founder's terminal. scripts/guard-commit-form.sh carries no copy: it sees
+# founder's terminal. scripts/guard-commit-form.js carries no copy: it sees
 # `-m` values alone.
 #
 # THE SUBJECT is the first line that is neither a comment nor blank, read
@@ -63,7 +63,7 @@ length="$(printf '%s' "$subject" | LC_ALL=C tr -d '\200-\277' | wc -c | tr -d ' 
 # shellcheck source=scripts/lib/rule-text.sh
 source "$here/lib/rule-text.sh" 2>/dev/null
 if ! declare -F rule_text >/dev/null 2>&1 || ! rule="$(rule_text commit-message 2>/dev/null)"; then
-  rule="A commit subject is at most $LIMIT characters. The rule itself could not be read from docs/agents/rules/commit-message.txt; read that file before committing again."
+  rule="A commit subject is at most $LIMIT characters; the rule could not be read from docs/agents/rules/commit-message.txt. Read that file before committing again."
 fi
 
 {

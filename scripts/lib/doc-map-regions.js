@@ -124,7 +124,7 @@ function isRegioned(rel) {
  * so a claim on them taken deliberately is a session about to do the one thing
  * docs/doc-map.md:26 forbids. `A:<path>` is here as well as `section-a` because
  * the id survives in old claim records: asking for one now earns the same
- * routing message rather than unknownRegionReason's row-slot pass.
+ * routing message rather than buildUnknownRegionReason's row-slot pass.
  *
  * IT DOES NOT GATE THE WRITE HOOK, which mints a subject from an Edit's anchor
  * rather than from a spelling somebody chose. A write that really does land in
@@ -508,7 +508,7 @@ function spansRegions(touched, single) {
  * @param {string} [rel] threaded to `parseRegions` — see its own doc
  * @returns {string|null}
  */
-function regionText(text, region, rel) {
+function parseRegionText(text, region, rel) {
 	const found = parseRegions(text, rel).filter((r) => r.id === region);
 	if (found.length === 0) return null;
 	return found.map((r) => text.slice(r.start, r.end)).join("");
@@ -558,6 +558,6 @@ module.exports = {
 	isRegioned,
 	nextEntryNumber,
 	parseRegions,
-	regionText,
+	parseRegionText,
 	resolveRegion,
 };

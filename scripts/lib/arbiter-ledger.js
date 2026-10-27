@@ -43,8 +43,8 @@ const LEDGER_AGE_MS = 7 * 24 * 60 * 60 * 1000;
  * from the hook environment and never calls identify().
  *
  * The cost is a MISATTRIBUTION (mantahostels#135), not mantahostels#117's honest index-wide warn.
- * writesBy reads the missing file as [] via its ENOENT branch, and an empty
- * ledger matches nothing, so guard-commit-form.sh takes its attributed branch and
+ * readWritesBy reads the missing file as [] via its ENOENT branch, and an empty
+ * ledger matches nothing, so guard-commit-form.js takes its attributed branch and
  * names the session's own files as paths it "never wrote". Accepted anyway
  * (mantahostels#321): the warn is advisory.
  */
@@ -64,7 +64,7 @@ function pruneLedgers() {
  */
 function recordWrite(filePath, sessionId) {
 	if (!sessionId) return null;
-	// The ledger names FILES, because guard-commit-form.sh compares it against
+	// The ledger names FILES, because guard-commit-form.js compares it against
 	// staged paths and git stages no region: an unstripped `docs/doc-map.md#B42`
 	// matches nothing there, so the session is warned off its own commit.
 	const subject = core.relativeToRepo(filePath);
@@ -93,12 +93,12 @@ function recordWrite(filePath, sessionId) {
  * unavailable rather than empty (mantahostels#135).
  *
  * An empty list tells a caller "this session wrote nothing", which
- * `guard-commit-form.sh` reads as *every staged path is someone else's* — so
+ * `guard-commit-form.js` reads as *every staged path is someone else's* — so
  * returning it when the ledger could not be read names the session's own files
  * back at it.
  * @param {string} sessionId
  */
-function writesBy(sessionId) {
+function readWritesBy(sessionId) {
 	if (!sessionId) return null;
 	// ENOENT is read as the empty answer: recordWrite mints the ledger on the
 	// session's first write, so a session that has written nothing has no file
@@ -152,7 +152,7 @@ function recordSelect(rel, sessionId, at = Date.now()) {
  * @param {string} sessionId
  * @returns {{ path: string, at: number }[]|null}
  */
-function selectsBy(sessionId) {
+function readSelectsBy(sessionId) {
 	if (!sessionId) return null;
 	const lines = readLedger(
 		core.paths.selectLedger(sessionId),
@@ -218,7 +218,7 @@ function noteLandedRewrite(rel, sessionId) {
  * @param {string} sessionId
  * @returns {Set<string>|null}
  */
-function landedBy(sessionId) {
+function readLandedBy(sessionId) {
 	if (!sessionId) return null;
 	const lines = readLines(
 		core.paths.landedLedger(sessionId),
@@ -271,7 +271,7 @@ function readLines(file, what) {
  * @param {string} rel
  * @returns {{sessionId: string, at: number}|null}
  */
-function lastWriterOf(rel) {
+function readLastWriterOf(rel) {
 	let entries;
 	try {
 		entries = fs.readdirSync(core.paths.writesDir());
@@ -343,9 +343,9 @@ function pruneCommitAndActLedgers(root) {
  * @param {string} [root] the repo whose store to read; this one's by default
  * @returns {string[]|null}
  */
-function commitsBy(sessionId, root) {
+function readCommitsBy(sessionId, root) {
 	if (!sessionId) return null;
-	// ENOENT reads as "made none" for writesBy's reason, and holds only while
+	// ENOENT reads as "made none" for readWritesBy's reason, and holds only while
 	// pruneCommitAndActLedgers spares a live session.
 	return readLedger(
 		core.paths.commitLedger(sessionId, root),
@@ -365,8 +365,8 @@ function commitsBy(sessionId, root) {
  * @param {string} sessionId
  * @returns {string[]|null}
  */
-function committedPathsBy(sessionId) {
-	const commits = commitsBy(sessionId, ledgerRoot() ?? undefined);
+function readCommittedPathsBy(sessionId) {
+	const commits = readCommitsBy(sessionId, ledgerRoot() ?? undefined);
 	if (commits === null) return null;
 	if (commits.length === 0) return [];
 	const out = core.gitIn(
@@ -385,6 +385,29 @@ function committedPathsBy(sessionId) {
 	);
 	if (out === null) return null;
 	return [...new Set(out.split("\n").filter(Boolean))];
+}
+
+/**
+ * Every path this session wrote or its own commits touched: what a review is
+ * billed against (#2390), read alike by session-arbiter.js's `writes
+ * --committed` for the bash review nags and by lib/review-tier-host.js for the
+ * tier (#2971). `null` where the write ledger will not read; where the commits
+ * will not, it logs the fault under the caller's label and answers the writes
+ * alone, under-billing being the safe direction.
+ * @param {string} sessionId
+ * @param {string} what the log line's label
+ * @returns {string[]|null}
+ */
+function readBilledPathsBy(sessionId, what) {
+	const written = readWritesBy(sessionId);
+	if (written === null) return null;
+	const fromCommits = readCommittedPathsBy(sessionId);
+	if (fromCommits === null)
+		core.logError(
+			what,
+			new Error(`commit ledger or git unreadable for ${sessionId}`),
+		);
+	return [...new Set([...written, ...(fromCommits ?? [])])];
 }
 
 // ---------------------------------------------------------------------------
@@ -419,12 +442,12 @@ function recordAct(act, sessionId, root = ledgerRoot() ?? undefined) {
  * Every act `sessionId` made across `roots`' stores, its commits read as
  * `commit <sha>` — and the roots whose acts or commit ledger would not read,
  * which a caller must not take for "did nothing there". A missing ledger is
- * an empty one, for writesBy's reason.
+ * an empty one, for readWritesBy's reason.
  * @param {string} sessionId
  * @param {string[]} roots each a repo's main worktree
  * @returns {{acts: string[], unreadable: string[]}}
  */
-function actsBy(sessionId, roots) {
+function readActsBy(sessionId, roots) {
 	if (!sessionId) return { acts: [], unreadable: [...roots] };
 	/** @type {string[]} */
 	const acts = [];
@@ -435,7 +458,7 @@ function actsBy(sessionId, roots) {
 			core.paths.actLedger(sessionId, root),
 			`acts ${sessionId}`,
 		);
-		const commits = commitsBy(sessionId, root);
+		const commits = readCommitsBy(sessionId, root);
 		if (done === null || commits === null) unreadable.push(root);
 		acts.push(...(done ?? []), ...(commits ?? []).map((c) => `commit ${c}`));
 	}
@@ -461,14 +484,14 @@ function ledgerRoot() {
  * @param {string} [root] the repo whose store to read; this one's by default
  * @returns {Map<string, string>|null}
  */
-function ownersOf(commits, root) {
+function readOwnersOf(commits, root) {
 	const dir = core.paths.commitsDir(root);
 	let entries;
 	try {
 		entries = fs.readdirSync(dir);
 	} catch (e) {
 		if (caught(e).code === "ENOENT") return new Map();
-		core.logError("ownersOf", e);
+		core.logError("readOwnersOf", e);
 		return null;
 	}
 	const wanted = new Set(commits);
@@ -485,18 +508,18 @@ function ownersOf(commits, root) {
 }
 
 module.exports = {
-	actsBy,
-	commitsBy,
-	committedPathsBy,
-	landedBy,
+	readActsBy,
+	readBilledPathsBy,
+	readCommitsBy,
+	readLandedBy,
 	ledgerRoot,
-	ownersOf,
-	lastWriterOf,
+	readOwnersOf,
+	readLastWriterOf,
 	recordAct,
 	recordCommit,
 	recordLanded,
 	recordSelect,
 	recordWrite,
-	selectsBy,
-	writesBy,
+	readSelectsBy,
+	readWritesBy,
 };

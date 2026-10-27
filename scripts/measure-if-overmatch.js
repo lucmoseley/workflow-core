@@ -58,25 +58,10 @@
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const readline = require("node:readline");
-const { transcriptDir, transcriptFiles } = require("./lib/guard-fires");
+const { transcriptDir, readTranscriptFiles } = require("./lib/guard-fires");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 
-/*
- * Copied verbatim from `scripts/guard-issue-phase-scope.sh:339-344`'s
- * `is_wrapper()`, which is the only one of the eleven guards that walks past
- * more than `exec` (which `lib/guard-parse.sh` skips for the other nine).
- * Re-read that function before editing this list.
- */
-const WRAPPERS = new Set([
-	"env",
-	"command",
-	"exec",
-	"nohup",
-	"nice",
-	"timeout",
-	"stdbuf",
-	"setsid",
-]);
+const { unwrapped } = require("./lib/issue-phase-scope");
 
 /** @param {string} word */
 const basename = (word) => word.slice(word.lastIndexOf("/") + 1);
@@ -279,29 +264,11 @@ function spanInQuote(w, c) {
 
 /**
  * The index of the first word past any leading wrappers — 0 where the segment
- * leads with none.
- *
- * The walk `guard-issue-phase-scope.sh`'s judge() performs, mirrored:
- * only the no-argument wrapper forms are stepped over, plus the one
- * leading value `timeout` and `nice` each take. `env FOO=1 gh …` and
- * `timeout --signal=X …` stop the walk there, as they do in the guard.
+ * leads with none: the walk guard-issue-phase-scope.js's core performs.
  * @param {string[]} w the segment's words
  * @returns {number}
  */
-function wrapperEnd(w) {
-	let i = 0;
-	for (
-		let word = w[0];
-		word !== undefined && WRAPPERS.has(basename(word));
-		word = w[i]
-	) {
-		const was = basename(word);
-		i++;
-		if (was === "timeout" && /^[0-9]+(\.[0-9]+)?[smhd]?$/.test(w[i] ?? "")) i++;
-		else if (was === "nice" && w[i] === "-n") i += 2;
-	}
-	return i;
-}
+const wrapperEnd = (w) => w.length - unwrapped(w).length;
 
 /**
  * How a segment that does not lead with `tool` still reaches it: by path,
@@ -313,9 +280,9 @@ function wrapperEnd(w) {
 function indirectReach(w, tool) {
 	const [head] = w;
 	// Ten of the eleven guards resolve their command word through
-	// `basename` — the six gh guards (`guard-issue-phase-scope.sh:365` and
-	// five siblings) and the four git guards (`lib/guard-parse.sh`'s
-	// `_gp_parse_segment`) — so a path-spelled `/usr/bin/gh` or
+	// `basename` — the six gh guards (lib/issue-phase-scope.js's judge and
+	// five siblings) and the four git guards (`lib/shell-words.js`'s
+	// `gitWords`) — so a path-spelled `/usr/bin/gh` or
 	// `/usr/bin/git` IS judged by them, while the anchored `if` matches it
 	// in neither spelling. The eleventh, `place-new-issue.sh`, matches a
 	// bare `gh issue create` at the start of the command or after a
@@ -553,7 +520,7 @@ function countWasteWords(wasteWords, cmd, tool) {
  * One tool's report figures, off its counters.
  * @param {ToolStats} s
  */
-function toolReport(s) {
+function buildToolReport(s) {
 	const top = [...s.wasteWords.entries()]
 		.sort((a, b) => b[1] - a[1])
 		.slice(0, 8);
@@ -596,7 +563,7 @@ function writeDump(dumped, dump) {
 }
 
 /**
- * The run's report: the corpus figures, plus one `toolReport` per tool keyed
+ * The run's report: the corpus figures, plus one `buildToolReport` per tool keyed
  * by the tool's name. `any` because the two kinds of value share one object,
  * which `--json` prints whole.
  * @typedef {Record<string, any>} Report
@@ -644,7 +611,7 @@ function writeText(out, tools) {
 async function main() {
 	const { asJson, dump, dir, limit } = readFlags();
 
-	const files = transcriptFiles(dir);
+	const files = readTranscriptFiles(dir);
 	if (!files) {
 		write(`measure-if-overmatch: cannot read ${dir}\n`);
 		process.exit(1);
@@ -671,7 +638,7 @@ async function main() {
 		bashCalls: acc.calls,
 	};
 	for (const tool of tools)
-		out[tool] = toolReport(/** @type {ToolStats} */ (acc.stats[tool]));
+		out[tool] = buildToolReport(/** @type {ToolStats} */ (acc.stats[tool]));
 
 	if (dump) {
 		writeDump(acc.dumped, dump);

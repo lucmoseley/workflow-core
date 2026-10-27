@@ -32,7 +32,6 @@
 const fs = require("node:fs");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
 const { configDirs } = require("./arbiter-store");
 const { hostRoot } = require("./host-root.js");
 const { readUsageCache, hasResetPassed } = require("./usage-cache.js");
@@ -101,6 +100,7 @@ const RECORD_MIN_AGE_HOURS = 24;
  *  carries gate 2's trial declaration, so the path is owned by the module that
  *  parses that (mantahostels#2857) rather than spelled out twice. */
 const { LADDER } = require("./trial-window");
+const { gitOrNull } = require("./git.js");
 
 /**
  * The seven-day figure to test, with the window's own arithmetic applied.
@@ -398,24 +398,17 @@ function rungOneLogged() {
  * @returns {number | null} null where git will not answer
  */
 function commitsSince(hours) {
-	try {
-		const out = execFileSync(
-			"git",
-			[
-				"-C",
-				hostRoot(),
-				"rev-list",
-				"--count",
-				`--since=${hours} hours ago`,
-				"HEAD",
-			],
-			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-		);
-		const n = Number(out.trim());
-		return Number.isFinite(n) ? n : null;
-	} catch {
-		return null;
-	}
+	const out = gitOrNull([
+		"-C",
+		hostRoot(),
+		"rev-list",
+		"--count",
+		`--since=${hours} hours ago`,
+		"HEAD",
+	]);
+	if (out === null) return null;
+	const n = Number(out.trim());
+	return Number.isFinite(n) ? n : null;
 }
 
 /**

@@ -66,7 +66,7 @@ export const holderRow = (over: Partial<Row> = {}): Row => ({
 });
 
 /** A `/proc/<pid>/stat` line; `ticks` is utime, the only CPU field set. */
-export const statLine = (pid: number, ppid: number, ticks: number) =>
+export const buildStatLine = (pid: number, ppid: number, ticks: number) =>
 	`${pid} (x y) S ${ppid} 0 0 0 0 0 0 0 0 0 ${ticks} 0 0 0 0 0 0 0 ${pid}00\n`;
 
 const assistant = (content: object[]) =>
@@ -135,7 +135,7 @@ export function rescueKit(sb: Sandbox) {
 	const proc = (pid: number, ppid: number, ticks: number, argv: string) => {
 		const d = path.join(procRoot(), String(pid));
 		fs.mkdirSync(d, { recursive: true });
-		fs.writeFileSync(path.join(d, "stat"), statLine(pid, ppid, ticks));
+		fs.writeFileSync(path.join(d, "stat"), buildStatLine(pid, ppid, ticks));
 		fs.writeFileSync(
 			path.join(d, "cmdline"),
 			`${argv.split(" ").join("\0")}\0`,
@@ -184,7 +184,7 @@ export function rescueKit(sb: Sandbox) {
 	};
 
 	/** How many times the fake oracle has listed `dir`. */
-	const oracleCalls = (dir = plan()) =>
+	const readOracleCalls = (dir = plan()) =>
 		Number(fs.readFileSync(path.join(dir, "oracle-calls"), "utf8"));
 
 	/** `before`: shell lines run ahead of the serving, e.g. to log a call. */
@@ -246,7 +246,7 @@ export function rescueKit(sb: Sandbox) {
 		writeTranscript,
 		jobState,
 		ghostJob,
-		oracleCalls,
+		readOracleCalls,
 		run,
 	};
 }

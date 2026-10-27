@@ -19,7 +19,7 @@
  *
  * CORPUS. The close-check log (`lib/close-check-log.js`) in the markers
  * directory of every adopter on this laptop (lib/refill-repos.js's
- * adopterCheckouts, refillLoop ignored: the guard is not module-gated, #2115);
+ * readAdopterCheckouts, refillLoop ignored: the guard is not module-gated, #2115);
  * and every seat's transcripts, for the founder's replies.
  *
  * THE READING POINT, lib/log-reading.js's POINT_FIGURES. A repo is live from
@@ -63,10 +63,10 @@ const { CLOSE_CHECK_LOG } = require("./lib/priced-options-limbs");
 const { logPath } = require("./lib/refusal-log");
 const { errMessage } = require("./lib/check");
 const {
-	adopterRoots,
+	readAdopterRoots,
 	broken,
 	buildFiler,
-	firedLine,
+	buildFiredLine,
 	isOverLine,
 	minute,
 	now,
@@ -74,17 +74,17 @@ const {
 	ratio,
 	POINT_FIGURES,
 	bandHalfWidth,
-	pointLines,
+	buildPointLines,
 	readingAt,
 	isRead,
 	readingPoint,
 	readLogs,
-	repoLines,
+	buildRepoLines,
 	verdict,
 } = require("./lib/log-reading");
 const { isCoreHost } = require("./lib/plugin-state");
 const { CLOSE_RIVALS_PREFIX, limbOf } = require("./lib/priced-options-limbs");
-const { seatTranscripts } = require("./lib/project-dirs");
+const { readSeatTranscripts } = require("./lib/project-dirs");
 const { takesLabel } = require("./lib/takes-label");
 
 const USAGE =
@@ -152,7 +152,7 @@ const RUNG_LABEL = {
  * @returns {Baseline}
  * @throws where the dataset will not read
  */
-function baseline() {
+function readBaseline() {
 	const data = JSON.parse(
 		fs.readFileSync(path.join(hostRoot(), BASELINE), "utf8"),
 	);
@@ -176,13 +176,13 @@ const listed = (a, kind) => {
 	return `  - ${a.event.repo} ${a.event.session} Q${a.event.round} (${kind}${priced}), reply ${a.reply.at}: ${JSON.stringify(a.reply.text)}`;
 };
 
-const { filedAs, publish } = buildFiler({
+const { readFiledAs, publish } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".close-check-reading-filed",
 	script: "node scripts/report-close-check-reading.js",
-	issueBody: (reading) =>
+	buildIssueBody: (reading) =>
 		[
 			"The week-one reading of the close-rivals check, filed once by `scripts/report-close-check-reading.js` at its reading point (spec #1091; rulings #1061, #1067 and #1068). Closing this issue never re-files it.",
 			"",
@@ -216,7 +216,7 @@ function readCloseLogs(roots) {
 		return {
 			events: /** @type {LoggedEvent[]} */ (events),
 			live,
-			base: baseline(),
+			base: readBaseline(),
 		};
 	} catch (e) {
 		return errMessage(e);
@@ -227,7 +227,7 @@ function readCloseLogs(roots) {
  * @param {import("./lib/log-reading").Point} point
  * @returns {string}
  */
-const pointSentence = (point) =>
+const buildPointSentence = (point) =>
 	point.fixed
 		? `Reading point: ${minute(point.point)} — the later of ${POINT_FIGURES.clockDays} days after ${minute(point.clock)} and the ${POINT_FIGURES.countTarget}th answered question, capped at ${minute(point.ceiling)}.`
 		: `Reading point: ${minute(point.ceiling)} at the latest (${POINT_FIGURES.ceilingDays} days after the first repo went live); earlier once ${POINT_FIGURES.countTarget} refused questions are answered.`;
@@ -238,7 +238,7 @@ const pointSentence = (point) =>
  * @param {{ nowMs: number, live: Map<string, number>, repos: string[] }} at
  * @returns {string[]}
  */
-function unreadLines(point, { nowMs, live, repos }) {
+function buildUnreadLines(point, { nowMs, live, repos }) {
 	if (nowMs < point.ceiling) return [];
 	const unread = repos.filter((r) => !(Number(live.get(r)) <= point.ceiling));
 	return unread.length > 0
@@ -298,7 +298,7 @@ function tally(counted, replied) {
  * @param {number} unreadSessions
  * @returns {string[]}
  */
-function caveatLines(n, base, unreadSessions) {
+function buildCaveatLines(n, base, unreadSessions) {
 	const lines = [];
 	const targetBand = Math.round(
 		100 * bandHalfWidth(base.prompts / base.rounds, POINT_FIGURES.countTarget),
@@ -320,7 +320,7 @@ function caveatLines(n, base, unreadSessions) {
  * @param {Tally} t
  * @returns {{ verdict: Verdict, text: string }}
  */
-function untooledLine({ untooled, toolKnown, resends }) {
+function buildUntooledLine({ untooled, toolKnown, resends }) {
 	const line1 = isOverLine(untooled, toolKnown.length, UNTOOLED_LINE)
 		? verdict(
 				"fires",
@@ -338,7 +338,7 @@ function untooledLine({ untooled, toolKnown, resends }) {
  * @param {Baseline} base
  * @returns {{ verdict: Verdict, text: string }}
  */
-function promptRateLine({ n, stock, others }, base) {
+function buildPromptRateLine({ n, stock, others }, base) {
 	const needed = Math.ceil(PROMPT_LINE * n - FLOAT_SLACK) - stock;
 	/** @type {Verdict} */
 	let line2;
@@ -363,7 +363,7 @@ function promptRateLine({ n, stock, others }, base) {
  * @param {Tally} t
  * @returns {{ verdict: Verdict, text: string }}
  */
-function capSpentLine({ capSpent, refusedSessions }) {
+function buildCapSpentLine({ capSpent, refusedSessions }) {
 	const line3 = isOverLine(capSpent, refusedSessions.size, CAP_SPENT_LINE)
 		? verdict("fires", "FIRES — re-put the ceiling ruling (#1067)")
 		: verdict("holds", "holds");
@@ -377,7 +377,12 @@ function capSpentLine({ capSpent, refusedSessions }) {
  * @param {Tally} t
  * @returns {{ verdict: Verdict, text: string }}
  */
-function harmfulFourthLine({ harmful, atCapOthers, atCapReplies, counted }) {
+function buildHarmfulFourthLine({
+	harmful,
+	atCapOthers,
+	atCapReplies,
+	counted,
+}) {
 	/** @type {Verdict} */
 	let line4;
 	if (harmful >= HARMFUL_FOURTH_LINE)
@@ -401,7 +406,7 @@ function harmfulFourthLine({ harmful, atCapOthers, atCapReplies, counted }) {
  * @param {Tally} t
  * @returns {string[]}
  */
-function classifyLines({ others, atCapOthers }) {
+function buildClassifyLines({ others, atCapOthers }) {
 	if (others.length === 0 && atCapOthers.length === 0) return [];
 	return [
 		"",
@@ -417,7 +422,7 @@ function classifyLines({ others, atCapOthers }) {
  * @param {number} nowMs
  * @returns {string[]}
  */
-function ladderReadingLines(events, answers, nowMs) {
+function buildLadderReadingLines(events, answers, nowMs) {
 	const starts = events
 		.filter((e) => e.kind === "refused-ladder" || "rungs" in e)
 		.map((e) => Date.parse(e.at));
@@ -501,16 +506,16 @@ function main() {
 		);
 		return;
 	}
-	const filed = filedAs();
+	const filed = readFiledAs();
 	const nowMs = now();
 
 	const seats = lists["--config-dir"] ?? configDirs();
-	const { files } = seatTranscripts(seats);
+	const { files } = readSeatTranscripts(seats);
 	/** @type {Map<string, string>} session id → transcript */
 	const transcripts = new Map(
 		files.map((f) => [path.basename(f, ".jsonl"), f]),
 	);
-	const roots = adopterRoots();
+	const roots = readAdopterRoots();
 	const repos = [...roots.keys()];
 
 	const logs = readCloseLogs(roots);
@@ -522,7 +527,7 @@ function main() {
 		transcripts,
 		(kind) => kind === "passed-after-refusal" || kind === "passed-at-cap",
 	);
-	const ladder = ladderReadingLines(events, lastTurnAnswers, nowMs);
+	const ladder = buildLadderReadingLines(events, lastTurnAnswers, nowMs);
 	if (filed && !dryRun) {
 		console.log(
 			[
@@ -547,7 +552,7 @@ function main() {
 	const out = [
 		"Close-check reading (#1068, spec #1091)",
 		"",
-		...repoLines(repos, live, roots, "close-check"),
+		...buildRepoLines(repos, live, roots, "close-check"),
 	];
 	if (!point) {
 		out.push("", "Reading point: none yet — no repo is live.");
@@ -555,21 +560,21 @@ function main() {
 		return;
 	}
 	out.push(
-		...pointLines(pointSentence(point), at),
-		...unreadLines(point, { nowMs, live, repos }),
+		...buildPointLines(buildPointSentence(point), at),
+		...buildUnreadLines(point, { nowMs, live, repos }),
 	);
 
 	const t = tally(counted, replied);
-	out.push("", ...caveatLines(t.n, base, unreadSessions));
+	out.push("", ...buildCaveatLines(t.n, base, unreadSessions));
 	const lines = [
-		untooledLine(t),
-		promptRateLine(t, base),
-		capSpentLine(t),
-		harmfulFourthLine(t),
+		buildUntooledLine(t),
+		buildPromptRateLine(t, base),
+		buildCapSpentLine(t),
+		buildHarmfulFourthLine(t),
 	];
 	out.push(...lines.map((l) => l.text));
-	out.push("", firedLine(lines.map((l) => l.verdict)));
-	out.push(...classifyLines(t));
+	out.push("", buildFiredLine(lines.map((l) => l.verdict)));
+	out.push(...buildClassifyLines(t));
 	out.push(...ladder);
 	publish(out.join("\n"), { reached: at.reached, dryRun, filed });
 }

@@ -21,14 +21,13 @@
  * Exit codes: 0 done; 1 bad invocation or the store could not be written.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const cache = require("./lib/write-set-cache");
 const { hostRoot } = require("./lib/host-root.js");
 const { CliExit, flagValue, parse, printExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
+const { execGit } = require("./lib/git.js");
 
 const REPO_ROOT = process.env.WFC_REPO_ROOT || hostRoot();
 const CARRIED_HASH = /<!-- body-hash: ([0-9a-f]{64}) -->/;
@@ -74,12 +73,11 @@ const die = (msg) => {
 };
 
 /** Tracked paths, or null where git could not answer. */
-function trackedFiles() {
+function readTrackedFiles() {
 	try {
-		return execFileSync("git", ["ls-files", "-z"], {
+		return execGit(["ls-files", "-z"], {
 			cwd: REPO_ROOT,
 			encoding: "utf8",
-			maxBuffer: CHILD_MAX_BUFFER,
 		})
 			.split("\0")
 			.filter(Boolean);
@@ -130,7 +128,7 @@ function put(n) {
 	 * path was tracked when that is unknown would re-derive the entry the moment
 	 * git works again.
 	 */
-	const tracked = trackedFiles();
+	const tracked = readTrackedFiles();
 	const trackedAtDerive = tracked
 		? writeSet.filter((p) => tracked.includes(p))
 		: [];

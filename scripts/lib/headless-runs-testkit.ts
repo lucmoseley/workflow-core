@@ -6,7 +6,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { currentBootId, procStartOf } from "./arbiter-proc.js";
+import { readCurrentBootId, readProcStartOf } from "./arbiter-proc.js";
 
 /** The run store under a refill dir, as lib/headless-sessions.js places it. */
 export const headlessStore = (refill: string) =>
@@ -30,8 +30,8 @@ export function writeHeadlessRun(
 			jobId,
 			sessionId,
 			pid: process.pid,
-			procStart: live ? procStartOf(process.pid) : "0",
-			bootId: currentBootId(),
+			procStart: live ? readProcStartOf(process.pid) : "0",
+			bootId: readCurrentBootId(),
 			pgid: process.pid,
 			cwd: refill,
 			launchedAt: 1000,

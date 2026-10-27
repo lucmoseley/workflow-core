@@ -1,8 +1,8 @@
 /*
  * citation-tracker.js — the prefix test (#162), shared by its two callers:
  * `scripts/check-citation-tracker.js`, the pre-commit gate over the staged
- * diff, and `scripts/guard-citation-tracker.sh`, which judges a `Write` or
- * `Edit` as it lands and hands the session the rule (#2015).
+ * diff, and lib/citation-write.js, the dispatcher core that judges a `Write`
+ * or `Edit` as it lands and hands the session the rule (#2015).
  *
  * WHY THE FAULT EXISTS. `ec8654cd` rewrote every historical citation to the
  * `mantahostels#N` form, and this repo's own tracker numbers from 1 — so the
@@ -20,31 +20,21 @@
  * WHAT IT THEREFORE MISSES, and it is most of the class (#162): a number the
  * inherited tracker DID use. Distinguishing those needs both issues read, and
  * the inherited tracker is unreachable from here.
- *
- * Run as a CLI by the guard: `node citation-tracker.js <root> <rel-path>`, the
- * hook payload on stdin. It prints the notice naming each failed number and
- * exits 0; 3 where the write adds none, 4 where `ec8654cd` is absent (an
- * adopter's repo), 2 where git or the payload could not be read, the cause on
- * stderr.
+
  */
 
-const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
-const path = require("node:path");
-
 const { CITATION_CEILING } = require("./qualify-citations.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { caught } = require("./caught.js");
-const { GIT_TIMEOUT_MS } = require("./dirty-tree.js");
-const { writeFd } = require("./write-fd.js");
+const { spawnGitSync, GIT_TIMEOUT_MS } = require("./git.js");
 
 /*
  * The commit that rewrote every historical citation into the prefixed form.
  *
  * `WFC_CITATION_BASELINE` overrides it, and is a test-injection point alone:
- * every case runs in a throwaway repo that has no history of this one's.
+ * every case runs in a throwaway repo that has no history of this one's. Read
+ * at each call, so an in-process case can name its own repo's.
  */
-const REWRITE = process.env.WFC_CITATION_BASELINE || "ec8654cd";
+const baselineRev = (env = process.env) =>
+	env.WFC_CITATION_BASELINE || "ec8654cd";
 
 const PREFIX = "mantahostels";
 
@@ -55,7 +45,7 @@ const PREFIX = "mantahostels";
  *
  * qualify-citations.js's CITATION_CEILING, imported, so the two move together
  * (#726). The price of the headroom: a genuine new citation of an inherited
- * issue the corpus at `REWRITE` never spelled, numbered between this tracker's
+ * issue the corpus at the baseline commit never spelled, numbered between this tracker's
  * top and the ceiling, is refused and needs `citation-exempt:`. A ceiling
  * that lags the tracker instead lets a mis-copy through silently, and
  * check-citation-ceiling.js fails before that can happen.
@@ -79,7 +69,7 @@ const OWNED_CITE = new RegExp(
 
 /*
  * Genuine inherited citations the pre-rewrite test cannot clear, because the
- * corpus at `REWRITE` never spells them. #78, an inherited
+ * corpus at the baseline commit never spells them. #78, an inherited
  * consent ticket, survives in the classes sidecar as a declared external
  * reference and so has no prose citation to count. Each other group's
  * evidence is on the issue named above it.
@@ -127,6 +117,7 @@ const EXEMPT = /citation-exempt:[ \t]*[A-Za-z0-9]/;
 
 /**
  * @typedef {{ ok: true, out: string } | { ok: false, why: string }} GitRead
+ * @typedef {(args: string[], noMatch: number[]) => GitRead} GitReader
  */
 
 /**
@@ -144,13 +135,12 @@ const EXEMPT = /citation-exempt:[ \t]*[A-Za-z0-9]/;
  * @param {string} [cwd]
  * @returns {GitRead}
  */
-function gitOutcome(args, noMatch, cwd) {
-	const r = spawnSync("git", args, {
+function gitOutcome(args, noMatch, cwd, timeout = GIT_TIMEOUT_MS) {
+	const r = spawnGitSync(args, {
 		cwd,
 		encoding: "utf8",
-		timeout: GIT_TIMEOUT_MS,
+		timeout,
 		stdio: ["ignore", "pipe", "pipe"],
-		maxBuffer: CHILD_MAX_BUFFER,
 	});
 	if (r.error) return { ok: false, why: r.error.message };
 	if (r.status === 0) return { ok: true, out: r.stdout };
@@ -161,34 +151,31 @@ function gitOutcome(args, noMatch, cwd) {
 }
 
 /**
- * Whether `REWRITE` resolves: `out` empty where it does not.
+ * Whether the baseline commit resolves: `out` empty where it does not.
  *
- * @param {string} [cwd]
+ * @param {GitReader} [read]
+ * @param {string} [rev] baselineRev's answer
  * @returns {GitRead}
  */
-function baselineCommit(cwd) {
-	return gitOutcome(
-		["rev-parse", "--verify", "--quiet", `${REWRITE}^{commit}`],
-		[1],
-		cwd,
-	);
+function readBaselineCommit(read = gitOutcome, rev = baselineRev()) {
+	return read(["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], [1]);
 }
 
 /**
- * Every issue number the inherited tracker is cited by at `REWRITE`.
+ * Every issue number the inherited tracker is cited by at the baseline commit.
  *
  * An EMPTY set is a real answer, not a failure: a baseline holding no prefixed
  * citation at all means the prefix names nothing there. Only a git that could
  * not run is `ok: false`.
  *
- * @param {string} [cwd]
+ * @param {GitReader} [read]
+ * @param {string} [rev] baselineRev's answer
  * @returns {{ ok: true, out: Set<number> } | { ok: false, why: string }}
  */
-function inheritedNumbers(cwd) {
-	const r = gitOutcome(
-		["grep", "-oh", "-E", `${PREFIX}#[0-9]+`, REWRITE, "--", "."],
+function readInheritedNumbers(read = gitOutcome, rev = baselineRev()) {
+	const r = read(
+		["grep", "-oh", "-E", `${PREFIX}#[0-9]+`, rev, "--", "."],
 		[1],
-		cwd,
 	);
 	if (!r.ok) return r;
 	const seen = new Set();
@@ -222,86 +209,11 @@ function judgeLine({ file, line }, inherited) {
 	return { citations, found };
 }
 
-/**
- * The lines a `Write` or `Edit` adds: those of the new text that the text it
- * replaces does not already carry — the file on disk for a `Write`,
- * `old_string` for an `Edit` — so a write that only moves an old citation
- * is not judged for it.
- *
- * @param {string} root
- * @param {string} rel
- * @param {{tool_name?: string, tool_input?: Record<string, unknown>}} payload
- * @returns {string[]}
- */
-function writtenLines(root, rel, payload) {
-	const input = payload.tool_input ?? {};
-	const text = (/** @type {unknown} */ v) => (typeof v === "string" ? v : "");
-	let before = "";
-	let after = "";
-	if (payload.tool_name === "Edit") {
-		before = text(input.old_string);
-		after = text(input.new_string);
-	} else {
-		after = text(input.content);
-		try {
-			before = fs.readFileSync(path.join(root, rel), "utf8");
-		} catch (e) {
-			// A new file: every line is added. Any other fault is no answer.
-			if (caught(e).code !== "ENOENT") throw e;
-		}
-	}
-	const had = new Set(before.split("\n"));
-	return after.split("\n").filter((l) => !had.has(l));
-}
-
-/**
- * @param {string[]} argv `<root> <rel-path>`
- * @param {string} stdin the hook payload
- * @returns {{code: number, out: string}}
- */
-function main([root, rel], stdin) {
-	if (!root || !rel) return { code: 2, out: "" };
-	const lines = writtenLines(root, rel, JSON.parse(stdin)).filter((l) =>
-		l.includes(`${PREFIX}#`),
-	);
-	if (lines.length === 0) return { code: 3, out: "" };
-	const baseline = baselineCommit(root);
-	if (!baseline.ok) throw new Error(baseline.why);
-	if (!baseline.out.trim()) return { code: 4, out: "" };
-	const inherited = inheritedNumbers(root);
-	if (!inherited.ok) throw new Error(inherited.why);
-	const found = new Set();
-	for (const line of lines)
-		for (const n of judgeLine({ file: rel, line }, inherited.out).found)
-			found.add(n);
-	if (found.size === 0) return { code: 3, out: "" };
-	const named = [...found]
-		.sort((a, b) => a - b)
-		.map((n) => `${PREFIX}#${n} (write #${n})`)
-		.join(" ");
-	return {
-		code: 0,
-		out: `${rel} adds ${named} — the inherited tracker never used that number, so the citation means this repo's own issue.\n`,
-	};
-}
-
 module.exports = {
 	PREFIX,
-	REWRITE,
-	baselineCommit,
+	baselineRev,
+	readBaselineCommit,
 	gitOutcome,
-	inheritedNumbers,
+	readInheritedNumbers,
 	judgeLine,
 };
-
-if (require.main === module) {
-	let result;
-	try {
-		result = main(process.argv.slice(2), fs.readFileSync(0, "utf8"));
-	} catch (e) {
-		writeFd(2, `${caught(e).message}\n`);
-		result = { code: 2, out: "" };
-	}
-	if (result.out) writeFd(1, result.out);
-	process.exitCode = result.code;
-}

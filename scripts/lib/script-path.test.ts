@@ -25,7 +25,7 @@ const SCRIPTS = path.join(__dirname, "..");
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
 const lib = require("./script-path") as any;
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-const ruleText = require("./rule-text") as any;
+const ruleTextLib = require("./rule-text") as any;
 
 const temps: string[] = [];
 
@@ -293,7 +293,7 @@ describe("in a plugin install", () => {
 		const env = { WFC_SCRIPT_ROOT: root, WFC_RULES_DIR: rules };
 		Object.assign(process.env, env);
 		const want = `Route it through \`node ${root}/scripts/issue-body.js append\`.`;
-		expect(ruleText.ruleText("demo")).toBe(want);
+		expect(ruleTextLib.readRuleText("demo")).toBe(want);
 		const r = spawnSync("bash", [RULE_SH, "demo"], {
 			encoding: "utf8",
 			env: { ...process.env, ...env },

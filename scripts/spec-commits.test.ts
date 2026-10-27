@@ -136,11 +136,11 @@ esac
 	});
 
 	describe("--since <sha> (#897)", () => {
-		const shaOf = (subject: string) =>
+		const readShaOf = (subject: string) =>
 			git(["log", "--format=%H", `--grep=${subject}`]).trim();
 
 		it("lists only the citing commits after that sha", () => {
-			const first = shaOf("Build the first ticket");
+			const first = readShaOf("Build the first ticket");
 			const r = run([ticket(11), ticket(12)], ["--since", first, "--json"]);
 			expect(r.status).toBe(0);
 			const out = JSON.parse(r.stdout);
@@ -151,7 +151,7 @@ esac
 		});
 
 		it("says nothing new is to review, not that the spec is decision-only", () => {
-			const last = shaOf("Fix as review found");
+			const last = readShaOf("Fix as review found");
 			const r = run([ticket(11), ticket(12)], ["--since", last]);
 			expect(r.status).toBe(0);
 			expect(r.out).toContain("nothing new to review");

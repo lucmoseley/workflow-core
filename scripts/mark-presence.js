@@ -35,6 +35,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const hookMessage = require("./lib/hook-message");
+const { jobStateIn } = require("./lib/job-paths.js");
 const { hostRoot } = require("./lib/host-root");
 const { markPresent } = require("./lib/presence");
 const { isSubagentPayload } = require("./lib/subagent-payload");
@@ -48,9 +49,7 @@ function isLaunchPrompt(prompt) {
 	const jobDir = process.env.CLAUDE_JOB_DIR;
 	if (!jobDir) return false;
 	try {
-		const { intent } = JSON.parse(
-			fs.readFileSync(path.join(jobDir, "state.json"), "utf8"),
-		);
+		const { intent } = JSON.parse(fs.readFileSync(jobStateIn(jobDir), "utf8"));
 		return typeof intent === "string" && intent.trim() === prompt.trim();
 	} catch {
 		/* No readable job record marks nothing a launch (#2004). */

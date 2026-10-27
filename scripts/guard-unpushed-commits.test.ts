@@ -26,7 +26,7 @@ import {
 	POST_COMMIT,
 } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 const { projectSlug } = createRequire(__filename)("./lib/project-slug.js");
@@ -95,7 +95,7 @@ function run(
 	dir = root,
 	env: NodeJS.ProcessEnv = {},
 ) {
-	return stopGuardBlock(GUARD, {
+	return readStopGuardBlock(GUARD, {
 		dir,
 		sid,
 		config: config(),
@@ -182,10 +182,26 @@ describe("the warning", () => {
 		ledger(["0".repeat(40)]);
 		expect(run()).toBeNull();
 	});
+
+	it("tells the session to run push:check before it pushes", () => {
+		ledger([commit("mine")]);
+		expect(run()?.reason).toMatch(
+			/\(`rule:push-cadence`\): run `[^`]*push-check\.js`, then push\. /,
+		);
+	});
+
+	it("tells the session just to push where the suites module is off", () => {
+		ledger([commit("mine")]);
+		const out = run(undefined, undefined, root, { WFC_MODULES: "" });
+		expect(out?.reason).toContain(
+			'push to `origin/main` — module "suites" is off',
+		);
+		expect(out?.reason).not.toMatch(/push-check/);
+	});
 });
 
 describe("with the landing module on (#2408)", () => {
-	const landing = { WFC_MODULES: "landing" };
+	const landing = { WFC_MODULES: "suites,landing" };
 
 	it("names a commit on origin/main but not on origin/landing", () => {
 		git("push", "-q", "origin", "main:landing");
@@ -195,6 +211,29 @@ describe("with the landing module on (#2408)", () => {
 		const out = run(undefined, undefined, root, landing);
 		expect(out?.reason).toContain("not on origin/landing");
 		expect(out?.reason).toContain("mine");
+	});
+
+	it("tells the session to push to landing, with no push:check first (#2933)", () => {
+		git("push", "-q", "origin", "main:landing");
+		ledger([commit("mine")]);
+		const out = run(undefined, undefined, root, landing);
+		expect(out?.reason).toContain(
+			'push to `origin/landing` — module "landing" is on — the lander runs the full suite',
+		);
+		expect(out?.reason).toContain("(`rule:push-cadence-landing`)");
+		expect(out?.reason).not.toMatch(/push-check/);
+	});
+
+	it("names the base cadence rule and push_check where the config will not read", () => {
+		ledger([commit("mine")]);
+		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 99 }),
+		);
+		const out = run();
+		expect(out?.reason).toContain("(`rule:push-cadence`): run `");
+		expect(out?.reason).toContain("then push.");
 	});
 
 	it("says nothing once the commit is pushed to landing", () => {

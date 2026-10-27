@@ -7,18 +7,22 @@
  * THE SESSION'S COMMIT is the newest its commit ledger names that HEAD
  * contains (#766), so one left in a throwaway worktree or on a `spike/*`
  * branch is passed over. THE WORK JUDGED is its own: the range narrows to
- * `ownPaths` (#1156), or stays whole where that will not answer, which
+ * `readOwnPaths` (#1156), or stays whole where that will not answer, which
  * over-selects (#1154). The push gate judges every commit pushed and never
  * reads this (#789 Q1 (C), ADR-0009).
+ *
+ * WHERE THE PUSH-GATE PREDICATE SKIPS (test-gate.js's `pushGateState`), the
+ * `landing` module on among its reasons, nothing is owed (#2933).
  */
 
 const path = require("node:path");
 const arbiterLedger = require("./arbiter-ledger.js");
 const { gitRead } = require("./dirty-tree.js");
-const { ownPaths } = require("./own-work.js");
+const { readOwnPaths } = require("./own-work.js");
 const markerLib = require("./test-pass-marker.js");
-const { commandOrDefault } = require("./workflow-core-config.js");
+const { readCommandOrDefault } = require("./workflow-core-config.js");
 const { pushedRef } = require("./landing-refs.js");
+const { pushGateState } = require("./test-gate.js");
 
 const { shortSha } = markerLib;
 
@@ -31,13 +35,15 @@ const { shortSha } = markerLib;
  * @typedef {{unattested: string, reap: string, run: string, red: string}} OwedText
  * @typedef {{state: "attested", at: string|null}
  *   | {state: "owed", own: string, at: string, text: OwedText}
+ *   | {state: "skipped", why: string}
  *   | {state: "unjudged", why: string}} SessionVerdict
  */
 
 /**
- * Whether green runs cover the session's own last commit, or a later one up to
+ * Whether certificates attest the session's own last commit, or a later one up to
  * HEAD that contains it (`sessionAttestation`). `attested` with `at: null` is a
- * session that committed nothing here, which owes nothing.
+ * session that committed nothing here, which owes nothing; `skipped` is a host
+ * whose pushes owe no certificate, `why` the predicate's line.
  *
  * @param {string} sessionId
  * @param {{root?: string|null, ledger?: CommitLedger, execFn?: ExecFn,
@@ -57,9 +63,14 @@ function sessionVerdict(
 	} = {},
 ) {
 	if (!root) return { state: "unjudged", why: "no git repository to read" };
+	const gate = pushGateState({ root });
+	if (gate.state === "broken") return { state: "unjudged", why: gate.line };
+	if (gate.state === "skip") return { state: "skipped", why: gate.line };
 	const ledgerRoot = ledger.ledgerRoot();
 	/* null is "unavailable", never "committed nothing" (mantahostels#135). */
-	const commits = ledgerRoot ? ledger.commitsBy(sessionId, ledgerRoot) : null;
+	const commits = ledgerRoot
+		? ledger.readCommitsBy(sessionId, ledgerRoot)
+		: null;
 	if (!commits) return { state: "unjudged", why: "commit ledger unreadable" };
 	const own = newestContained(commits, root, execFn);
 	if (!own) return { state: "attested", at: null };
@@ -71,23 +82,23 @@ function sessionVerdict(
 	if (markers.length === 0)
 		return {
 			state: "unjudged",
-			why: "marker store missing, unreadable or holding no parseable marker",
+			why: "certificate store missing, unreadable or holding no parseable certificate",
 		};
 	const attestation = markerLib.sessionAttestation(own, markers, {
 		root,
-		within: ownWork(sessionId, root, ledger, execFn),
+		within: readOwnWork(sessionId, root, ledger, execFn),
 	});
 	if (!attestation.judged)
 		return {
 			state: "unjudged",
-			why: `could not judge the cover: ${attestation.why}`,
+			why: `could not judge attestation: ${attestation.why}`,
 		};
 	if (attestation.attested) return { state: "attested", at: attestation.at };
 	return {
 		state: "owed",
 		own,
 		at: attestation.at,
-		text: owedText(root, attestation, log),
+		text: buildOwedText(root, attestation, log),
 	};
 }
 
@@ -117,7 +128,7 @@ function newestContained(commits, root, execFn) {
  * @param {CommitLedger} ledger
  * @param {ExecFn} [execFn]
  */
-function ownWork(sessionId, root, ledger, execFn) {
+function readOwnWork(sessionId, root, ledger, execFn) {
 	const head = gitRead(["rev-parse", "HEAD"], root, execFn)?.trim();
 	const base = gitRead(
 		["merge-base", "HEAD", pushedRef({ root })],
@@ -126,7 +137,7 @@ function ownWork(sessionId, root, ledger, execFn) {
 	)?.trim();
 	if (!head || !base) return null;
 	return (
-		ownPaths(root, base, { sessionId, execFn, ledger, tip: head })?.paths ??
+		readOwnPaths(root, base, { sessionId, execFn, ledger, tip: head })?.paths ??
 		null
 	);
 }
@@ -145,27 +156,27 @@ function ownWork(sessionId, root, ledger, execFn) {
  * @param {(what: string) => void} log
  * @returns {OwedText}
  */
-function owedText(root, { at, verdict }, log) {
+function buildOwedText(root, { at, verdict }, log) {
 	const own = verdict.judged && verdict.within;
 	const pushed = pushedRef({ root });
 	return {
 		unattested:
-			"no set of green runs in `" +
+			"no set of certificates in `" +
 			markerLib.STORE +
-			"` covers it, or any later commit up to HEAD that contains it. A commit " +
-			"counts as tested when whole-suite or ADMISSIBLE `npm run test` greens, " +
-			"from any sessions, cover between them every file " +
+			"` attests it, or any later commit up to HEAD that contains it. A commit " +
+			"counts as tested when certificates of whole-suite or ADMISSIBLE `npm run test` " +
+			"runs, from any sessions, between them selected every file " +
 			(own
 				? `this session's own commits change in its range from \`${pushed}\``
 				: `its range from \`${pushed}\` changes`) +
 			", each still holding at the commit (ADR-0009). At " +
 			shortSha(at) +
 			":\n" +
-			unattestedLines(at, verdict) +
-			`\n\`${commandOrDefault("push_check")}\`` +
+			buildUnattestedLines(at, verdict) +
+			`\n\`${readCommandOrDefault("push_check")}\`` +
 			(own
 				? " judges every commit the next push sends, so it may also name a " +
-					"neighbour's, which is not this session's to cover."
+					"neighbour's, which is not this session's to attest."
 				: " prints the same."),
 		reap:
 			"A PRE-RUN `free -m` READ IS NOT THE TEST (mantahostels#1843): when it is short, " +
@@ -177,8 +188,8 @@ function owedText(root, { at, verdict }, log) {
 			"against the rung the run needs, and its line names that rung (#633). ",
 		run:
 			retestRun(verdict) ??
-			"npm run test\n\n`npm run test` is the run that covers a " +
-				"commit already made, and a green run now counts for your commit " +
+			"npm run test\n\n`npm run test` is the run whose certificate attests a " +
+				"commit already made, and that certificate now counts for your commit " +
 				"because HEAD contains it. `npm run test:changed` is not its equal: it " +
 				"selects only your uncommitted files, so after a commit it selects " +
 				"nothing from it (#1217). `scripts/run-vitest.js` SELECTS FROM YOUR DIFF " +
@@ -187,14 +198,14 @@ function owedText(root, { at, verdict }, log) {
 				"touches a dependency-graph root, or the expansion failed — so whichever " +
 				"certificate it records clears this, and the run says which you got " +
 				"(mantahostels#2146). ",
-		red: lastRedNote(root, log),
+		red: buildLastRedNote(root, log),
 	};
 }
 
 /**
- * The re-run of only the tests no green holds at the commit (#1860), where
- * that is all the commit owes — every owed suite vitest and every uncovered
- * file naming its tests — else null.
+ * The re-run of only the tests no certificate holds at the commit (#1860),
+ * where that is all the commit owes — every owed suite vitest and every
+ * unattested file naming its tests — else null.
  *
  * @param {ReturnType<typeof markerLib.attestationOf>} verdict
  */
@@ -216,7 +227,7 @@ function retestRun(verdict) {
 			)
 		: null;
 	return command
-		? `${command}\n\n\`--retest\` re-runs only the test(s) whose own reads changed since their green, which is all this commit owes (#1860). `
+		? `${command}\n\n\`--retest\` re-runs only the test(s) whose own reads changed since their certificate, which is all this commit owes (#1860). `
 		: null;
 }
 
@@ -227,7 +238,7 @@ function retestRun(verdict) {
  * @param {string} at
  * @param {ReturnType<typeof markerLib.attestationOf>} verdict
  */
-function unattestedLines(at, verdict) {
+function buildUnattestedLines(at, verdict) {
 	if (!verdict.judged) return "";
 	const owed = {
 		...verdict,
@@ -269,12 +280,12 @@ function redAge(at) {
  * refusal reading as it would with no red note at all. All three go through
  * `readFailures`, which answers [] for each, and each is LOGGED, because a
  * red store nobody can read is the same class of silent unprotection as an
- * unreadable green store.
+ * unreadable certificate store.
  *
  * @param {string} root
  * @param {(what: string) => void} log
  */
-function lastRedNote(root, log) {
+function buildLastRedNote(root, log) {
 	const markers = markerLib.readFailures({ root });
 	/* Logged where the STORE could not be read, never where it simply holds no
 	 * wide red. */

@@ -22,10 +22,10 @@
  * exit-code alphabet).
  */
 
-const { execFileSync } = require("node:child_process");
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
 const { corePath } = require("./lib/script-path.js");
+const { execGit } = require("./lib/git.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 
@@ -44,7 +44,7 @@ runCheck({
 	run(/** @type {Ctx} */ ctx) {
 		let staged;
 		try {
-			staged = execFileSync("git", ["diff", "--cached", "--name-only"], {
+			staged = execGit(["diff", "--cached", "--name-only"], {
 				encoding: "utf8",
 			})
 				.split("\n")

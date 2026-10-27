@@ -47,8 +47,8 @@ const {
 const { seedCoreCost, COST_TABLE } = require("./core-context-cost.js");
 const { ledgerPath } = require("./dispatch-ledger.js");
 const { MARKERS_REL } = require("./marker-root.js");
-const { SESSION_COST_TABLE } = require("./session-spend.js");
-const { gh, ghJson, errLine } = require("./gh.js");
+const { SESSION_COST_TABLE, readCostTable } = require("./session-spend.js");
+const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const {
@@ -346,15 +346,15 @@ const SESSION_COST_TIMEOUT_MS = 5 * 60 * 1000;
 
 /**
  * The cost table the capped launch sizes a set from, built from the host's own
- * dispatch ledger where it has none (#1734): another repo's table misprices
- * this one's sessions. An existing table is left alone — refreshing it is the
- * script's, by hand.
+ * dispatch ledger where it has none, or none this version reads (#1734,
+ * #2925): another repo's table misprices this one's sessions. A readable table
+ * is left alone — refreshing it is the script's, by hand.
  * Residual: a build that fails, as where no ledger entry matches a transcript,
  * is re-run on every upgrade and says FAILED each time until one succeeds.
  * @param {Context} ctx
  */
 function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
-	if (fs.existsSync(path.join(root, SESSION_COST_TABLE))) return [];
+	if (readCostTable(path.join(root, SESSION_COST_TABLE))) return [];
 	/* ledgerPath creates the markers directory, which a dry run must not. */
 	if (!fs.existsSync(path.join(root, MARKERS_REL))) return [];
 	if (!readIfPresent(ledgerPath(root))?.trim()) return [];
@@ -376,7 +376,7 @@ function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 		encoding: "utf8",
 		timeout: SESSION_COST_TIMEOUT_MS,
 	});
-	if (r.status !== 0 || !fs.existsSync(path.join(root, SESSION_COST_TABLE))) {
+	if (r.status !== 0 || !readCostTable(path.join(root, SESSION_COST_TABLE))) {
 		const said = (r.stderr || r.error?.message || "").trim().split("\n")[0];
 		out(
 			`FAILED building ${SESSION_COST_TABLE}: ${said || `exit ${r.status}`} — build it by hand: ${command}`,
@@ -390,7 +390,7 @@ function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 }
 
 /**
- * The host registries guard-registry-atomicity.sh and check-registrations.js
+ * The host registries guard-registry-atomicity.js and check-registrations.js
  * judge the repo's own hooks against, written empty where absent and never
  * touched after: the adopter fills them (#1456).
  * @param {Context} ctx
@@ -435,7 +435,7 @@ function bringLabels(ctx) {
 		config = renderConfig(ctx);
 		have = labels.list(repo);
 	} catch (err) {
-		out(`FAILED reading ${repo}'s labels: ${errLine(err)} — none synced`);
+		out(`FAILED reading ${repo}'s labels: ${parseErrLine(err)} — none synced`);
 		return [];
 	}
 	const plan = labelPlan({
@@ -453,7 +453,7 @@ function bringLabels(ctx) {
 			labels.create(repo, label);
 			return [];
 		} catch (err) {
-			return [`${label.name} (${errLine(err)})`];
+			return [`${label.name} (${parseErrLine(err)})`];
 		}
 	});
 	out(
@@ -475,7 +475,7 @@ function trackerOf({ root, out }) {
 		repo = resolveKey("tracker", { root });
 	} catch (err) {
 		out(
-			`labels   ${errLine(err)} — falling back to the origin remote's tracker`,
+			`labels   ${parseErrLine(err)} — falling back to the origin remote's tracker`,
 		);
 		repo = deriveTracker(root);
 	}

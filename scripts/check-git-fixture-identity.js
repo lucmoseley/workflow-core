@@ -70,9 +70,10 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { execFileSync } = require("node:child_process");
+const { execGit } = require("./lib/git.js");
+const { JS_TEST_FILE } = require("./lib/test-kind.js");
 
-const { runCheck, errMessage, MAX_BUFFER } = require("./lib/check.js");
+const { runCheck, errMessage } = require("./lib/check.js");
 
 /** The comment that drops a file, with its reason: `git-identity-exempt: <why>`. */
 const EXEMPT = /git-identity-exempt:[ \t]*[A-Za-z0-9]/;
@@ -196,7 +197,7 @@ function hasKeyedIdentityEvidence(
 }
 
 /**
- * Every `scripts/**\/*.test.ts` under `root`, walked off the filesystem.
+ * Every test file under `<root>/scripts/`, walked off the filesystem.
  *
  * Only ever called on a `--root` tree, which is a `git archive HEAD` extraction
  * (mantahostels#1753) — so everything in it is tracked at HEAD by construction, and the walk
@@ -215,14 +216,14 @@ function walkTests(/** @type {string} */ root) {
 		for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
 			const child = `${rel}/${e.name}`;
 			if (e.isDirectory()) walk(child);
-			else if (/\.test\.ts$/.test(e.name)) out.push(child);
+			else if (JS_TEST_FILE.test(e.name)) out.push(child);
 		}
 	};
 	walk("scripts");
 	return out;
 }
 
-function trackedTests(/** @type {any} */ ctx) {
+function readTrackedTests(/** @type {any} */ ctx) {
 	const rootFlag = ctx.value("--root");
 	if (rootFlag) {
 		const root = path.resolve(rootFlag);
@@ -230,10 +231,9 @@ function trackedTests(/** @type {any} */ ctx) {
 	}
 	const git = (/** @type {string[]} */ args, /** @type {string} */ what) => {
 		try {
-			return execFileSync("git", args, {
+			return execGit(args, {
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],
-				maxBuffer: MAX_BUFFER,
 			});
 		} catch (e) {
 			return ctx.broken(
@@ -248,7 +248,10 @@ function trackedTests(/** @type {any} */ ctx) {
 	const files = git(["-C", root, "ls-files", "-z"], "listing tracked files")
 		.split("\0")
 		.filter(Boolean)
-		.filter((/** @type {string} */ p) => /^scripts\/.*\.test\.ts$/.test(p));
+		.filter(
+			(/** @type {string} */ p) =>
+				p.startsWith("scripts/") && JS_TEST_FILE.test(p),
+		);
 	return { root, files };
 }
 
@@ -283,7 +286,7 @@ runCheck({
 	 * --against already materialises for it (scripts/lib/check.js §--against). */
 	against: { profile: "git-fixture-identity", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
-		const { root, files } = trackedTests(ctx);
+		const { root, files } = readTrackedTests(ctx);
 		const checked = /** @type {string[]} */ ([]);
 		const exempt = /** @type {string[]} */ ([]);
 

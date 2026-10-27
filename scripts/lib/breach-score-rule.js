@@ -29,44 +29,45 @@ const STOP_CLASS = {
 };
 
 /** Denies the machine caused, not the session (#2042). */
-const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency.sh"]);
+const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency.js"]);
+
+/**
+ * A guard the dispatcher runs is named by its `lib/guard-cores.json` row
+ * `name`, as the scorer attributes its deny (#2943).
+ */
 
 /** The two near-constant families (D3), each reported on its own. */
 const INVENTORY = "guard-inventory.js";
-const JOB_DIR = "guard-job-dir-scratch.sh";
+const JOB_DIR = "guard-job-dir-scratch";
 
 /**
  * D3's by-family split (#2046):
  * each guard whose rule text the cut moved out of the always-loaded load —
  * read off the arm A → arm B diff of `CLAUDE.md` and the user-level
- * `CLAUDE.md` — so arm B meets that rule first at the guard. `guard-npm-install.sh`
+ * `CLAUDE.md` — so arm B meets that rule first at the guard. `guard-npm-install.js`
  * is here whole for the bare-`npx` limb (call binaries by path), which named
  * no guard: its `--ignore-scripts` and new-package limbs follow `AGENTS.md`,
  * which neither arm loads, so they are counted as moved too, a small
- * over-count. Every other scored guard is
- * `kept`.
+ * over-count. A moved guard no refusal is ever attributed to is left out, as
+ * it scores nothing (#2946). Every other scored guard is `kept`.
  */
 const MOVED = new Set([
-	"browser-profile-guard.sh",
-	"guard-agent-poll.sh",
-	"guard-branch-publish.sh",
-	"guard-branch.sh",
-	"guard-claimed-bash-write.sh",
-	"guard-commit-form.sh",
-	"guard-dispatch-rewrite.sh",
-	"guard-file-claim.sh",
-	"guard-issue-body.sh",
-	"guard-issue-close.sh",
-	"guard-issue-create-label.sh",
-	"guard-npm-install.sh",
-	"guard-pull-form.sh",
-	"guard-push-rules.sh",
-	"guard-stale-script.sh",
-	"guard-suite-background.sh",
-	"guard-sweep-fire.sh",
+	"guard-agent-poll.js",
+	"guard-branch-publish",
+	"guard-branch.js",
+	"guard-commit-form.js",
+	"guard-dispatch-rewrite",
+	"guard-file-claim",
+	"guard-issue-body.js",
+	"guard-issue-close.js",
+	"guard-issue-create-label.js",
+	"guard-npm-install.js",
+	"guard-pull-form.js",
+	"guard-suite-background",
+	"guard-sweep-fire",
 	"guard-uncommitted-work.js",
 	"guard-unpushed-commits.js",
-	"guard-wait-loop.sh",
+	"guard-wait-loop",
 ]);
 
 /**

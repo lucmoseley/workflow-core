@@ -34,14 +34,14 @@ function run(script: string, input = "") {
 	});
 }
 
-const entries = () => fs.readdirSync(dir).sort();
+const readEntries = () => fs.readdirSync(dir).sort();
 
 describe("aw_write", () => {
 	it("replaces the file with stdin and leaves no aside", () => {
 		const r = run('aw_write "$F"', "new\n");
 		expect(r.status).toBe(0);
 		expect(fs.readFileSync(file, "utf8")).toBe("new\n");
-		expect(entries()).toEqual(["record"]);
+		expect(readEntries()).toEqual(["record"]);
 	});
 
 	it("replaces the file with a command's output, its arguments passed whole", () => {
@@ -84,7 +84,7 @@ describe("aw_write", () => {
 		const r = run(`aw_write "$F" sh -c 'printf partial; exit 3'`);
 		expect(r.status).toBe(1);
 		expect(fs.readFileSync(file, "utf8")).toBe("old\n");
-		expect(entries()).toEqual(["record"]);
+		expect(readEntries()).toEqual(["record"]);
 	});
 
 	it("removes the aside when the rename is refused", () => {
@@ -93,7 +93,7 @@ describe("aw_write", () => {
 		const r = run('aw_write "$F"', "new\n");
 		expect(r.status).toBe(1);
 		expect(fs.readdirSync(file)).toEqual([]);
-		expect(entries()).toEqual(["record"]);
+		expect(readEntries()).toEqual(["record"]);
 	});
 
 	it("returns 1 and writes nothing when the aside cannot be created", () => {
@@ -103,7 +103,7 @@ describe("aw_write", () => {
 			encoding: "utf8",
 		});
 		expect(r.status).toBe(1);
-		expect(entries()).toEqual(["record"]);
+		expect(readEntries()).toEqual(["record"]);
 	});
 
 	it("returns 1 under set -e without the caller's shell exiting first", () => {

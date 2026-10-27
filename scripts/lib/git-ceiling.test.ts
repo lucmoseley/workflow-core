@@ -14,10 +14,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-// Required, not imported: committedBytes tests for this module's own
+// Required, not imported: readCommittedBytes tests for this module's own
 // CeilingPassed, which an ESM import of it would load a second copy of.
 const require = createRequire(import.meta.url);
-const { committedBytes } = require("./census-digest.js");
+const { readCommittedBytes } = require("./census-digest.js");
 const { CeilingPassed, buildGitCeiling } = require("./git-ceiling.js");
 const { TOUCHED_BY_CEILING_MS } = require("./touched-by.js");
 
@@ -112,7 +112,7 @@ describe("buildGitCeiling (#2210)", () => {
 		);
 	});
 
-	it("lets committedBytes throw a passed ceiling rather than read it as an absent path", () => {
+	it("lets readCommittedBytes throw a passed ceiling rather than read it as an absent path", () => {
 		fs.writeFileSync(path.join(dir, "a.txt"), "on disk\n");
 		const c = clock();
 		const ceiling = buildGitCeiling({
@@ -121,9 +121,11 @@ describe("buildGitCeiling (#2210)", () => {
 			now: c.now,
 		});
 		c.at(10);
-		expect(() => committedBytes(dir, "a.txt", "HEAD", { ceiling })).toThrow(
+		expect(() => readCommittedBytes(dir, "a.txt", "HEAD", { ceiling })).toThrow(
 			CeilingPassed,
 		);
-		expect(committedBytes(dir, "a.txt", "HEAD")?.toString()).toBe("on disk\n");
+		expect(readCommittedBytes(dir, "a.txt", "HEAD")?.toString()).toBe(
+			"on disk\n",
+		);
 	});
 });

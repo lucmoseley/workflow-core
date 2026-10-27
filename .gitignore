@@ -67,7 +67,7 @@ graphify-out/
 # the one sanctioned in-repo scratch directory (mantahostels#2089; docs/environment.md §12,
 # which owns the rule and lists all four exclusions). Ignored here so scratch
 # never reaches a commit, which also drops it from Biome's scope via biome.json's
-# `vcs.useIgnoreFile` — deliberate, so scripts/post-write.sh stops reformatting
+# `vcs.useIgnoreFile` — deliberate, so the post-write core (scripts/lib/post-write.js) stops reformatting
 # scratch on every write. biome.json and vitest.config.ts exclude it too, and
 # neither reads this file, so all three are needed.
 .claude/tmp/

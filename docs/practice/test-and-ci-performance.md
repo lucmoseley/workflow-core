@@ -2,7 +2,7 @@
 
 Researched: 2026-10-22
 
-Rung tags: [standard or field body], [named expert], [survey or curated list], [unverified].
+Tier tags: [standard or field body], [named expert], [survey or curated list], [unverified]. An Agreement row takes the tiers of the rows it names.
 
 ## Test impact analysis and regression test selection
 
@@ -16,14 +16,14 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 
 ### Safety rules that all leaders apply
 
-- Always include new tests and tests that failed before. Azure TIA: "It includes existing impacted tests, previously failing tests, and newly added tests." https://learn.microsoft.com/en-us/azure/devops/pipelines/test/test-impact-analysis ("Test Impact Analysis has"), one vendor's product. [unverified] New tests are covered by Vitest's no-record rule above and failed tests by Bazel's `auto` rerun below [standard or field body], so the default holds.
-- Fall back to the full suite when the selector cannot reason about a change. Azure TIA: "For commits and scenarios that TIA can't understand, it falls back to running all tests." Same source, one vendor's product. [unverified] The Vitest and Nx rows below carry the default [standard or field body].
+- Always include new tests and tests that failed before. Azure TIA: "It includes existing impacted tests, previously failing tests, and newly added tests." https://learn.microsoft.com/en-us/azure/devops/pipelines/test/test-impact-analysis ("Test Impact Analysis has"), one vendor's product. [unverified] Vitest's no-record rule above and Bazel's `auto` rerun below are adopters too, so this sets no default.
+- Fall back to the full suite when the selector cannot reason about a change. Azure TIA: "For commits and scenarios that TIA can't understand, it falls back to running all tests." Same source, one vendor's product. [unverified] The Vitest and Nx rows below are adopters too, so this sets no default.
 - Vitest has the same fallback. `forceRerunTriggers` is a glob list that "will run the whole test suite if the trigger is found in the git diff". The default is `['**/package.json', '**/vitest.config.*', '**/vite.config.*']`. Use it for dependencies that the module graph cannot see, for example a test that calls a CLI on a built file. https://vitest.dev/config/forcereruntriggers. [standard or field body]
 - Nx marks "all" projects as affected when the lock file changes, "as a failsafe" (default `projectsAffectedByDependencyUpdates: "all"`). https://nx.dev/docs/features/ci-features/affected. [standard or field body]
 - Run the full suite at a set interval, to catch what selection misses. Azure TIA: "TIA can be conditioned to run all tests at a configured periodicity. Setting this option is recommended." https://learn.microsoft.com/en-us/azure/devops/pipelines/test/test-impact-analysis ("Manage Test Impact Analysis behavior"), one vendor's product [unverified]. Fowler/Hammant: a nightly full run can be the reference point for all the commits of that day. Source: https://martinfowler.com/articles/rise-test-impact-analysis.html. [named expert]
 - Validate the selector: run the selected tests, then all tests, and compare. Azure TIA: "If T1 passes, check that T2 passes as well. If there was a failing test in T1, check that T2 reports the same set of failures." https://learn.microsoft.com/en-us/azure/devops/pipelines/test/test-impact-analysis ("To evaluate whether TIA is selecting the appropriate tests"). Only one vendor's product docs carry this, so it sets no default. [unverified]
 - A dynamic map misses inputs that are not code, for example data files or external inputs. The user must name these files. Testar: "the user needs to explicitly specify all these files to Testar". https://martinfowler.com/articles/rise-test-impact-analysis.html (Testar section). [named expert]
-- Agreement (Azure TIA, Vitest, Nx, Fowler/Hammant): safe selection needs (a) an always-run set for new and failed tests, (b) a full-suite fallback list for files the map cannot model, and (c) a periodic full run.
+- Agreement (Azure TIA, Vitest, Nx, Fowler/Hammant): safe selection needs (a) an always-run set for new and failed tests, (b) a full-suite fallback list for files the map cannot model, and (c) a periodic full run. (a) and (b) rest on adopters alone, so only (c), on Fowler/Hammant, sets a default.
 
 ### Hub files that fan out to most tests
 
@@ -48,7 +48,7 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 - Gradle makes a cache key from the inputs of a task. "Gradle can compute a build cache key that uniquely defines the task's outputs based on its inputs." The `Test` task is cacheable. A shared cache "even works across developer machines and build agents." Caution: "Missing task inputs can cause incorrect cache hits." https://docs.gradle.org/current/userguide/build_cache.html. [standard or field body]
 - Turborepo hashes the inputs of a task into a "fingerprint". On a hit, it replays the logs of the first run. "Turborepo assumes that your tasks are deterministic." https://turborepo.dev/docs/crafting-your-repository/caching. [standard or field body]
 - Bazel turns off test caching for tests with an external dependency: tag `external` means "test has an external dependency; disable test caching." https://bazel.build/reference/test-encyclopedia (tag conventions). [standard or field body]
-- Agreement (Bazel, Gradle, Turborepo): key a cached test result on a hash of all its inputs (test file, files it reads, config, tool version, relevant env). Do not cache a failed result by default (Bazel `auto`). Do not cache a test that reads inputs outside the hash. For this repo, a read-edge manifest gives the input set. A hash of those files plus config can be the key.
+- Agreement (Bazel, Gradle, Turborepo): key a cached test result on a hash of all its inputs (test file, files it reads, config, tool version, relevant env). Do not cache a failed result by default (Bazel `auto`). Do not cache a test that reads inputs outside the hash. For this repo, a read-edge manifest gives the input set. A hash of those files plus config can be the key. Three adopters alone, so this sets no default.
 
 ### Deduplicate identical runs that are in flight
 
@@ -62,10 +62,10 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 
 - Buildkite orders jobs by priority, then by the time they were scheduled (oldest first). "Job priority is 0 by default". Priority "does not reserve an agent for dependent jobs." https://buildkite.com/docs/pipelines/configure/workflows/job-priority. One vendor's product, cited as an adopter. [unverified]
 - Slurm backfill lets a small or short job start before a larger queued job, but only if this "does not delay the expected start time of any higher priority jobs." Backfill needs time estimates: "reasonably accurate time limits are important for backfill scheduling to work well." Without backfill, a pending job at the head blocks all others in its partition. https://slurm.schedmd.com/sched_config.html (Backfill). [standard or field body]
-- Shortest job first gives the minimum total waiting time for a set of jobs (exchange-argument proof). But job size is not known in advance and must be predicted from past runs. https://courses.physics.illinois.edu/cs374/fa2020/lec_prerec/19/19_3_0_0.pdf (UIUC CS374, greedy scheduling); https://courses.cs.washington.edu/courses/cse451/98au/Lectures/6-schedule/tsld006.htm (UW CSE 451). [standard or field body]
+- Shortest job first gives the minimum total waiting time for a set of jobs (exchange-argument proof). But job size is not known in advance and must be predicted from past runs. https://courses.physics.illinois.edu/cs374/fa2020/lec_prerec/19/19_3_0_0.pdf (UIUC CS374, greedy scheduling); https://courses.cs.washington.edu/courses/cse451/98au/Lectures/6-schedule/tsld006.htm (UW CSE 451). [named expert]
 - Uber SubmitQueue ranks builds by the probability that they are needed, and cancels running builds that are no longer in the prioritised set. Result: CI resource use about 53% lower, CPU hours about 44% lower, P95 wait about 37% lower. https://arxiv.org/html/2501.03440v2 ("CI at Scale: Lean, Green, and Fast", Abstract, Sec. III-C, III-D, X). [named expert]
 - Google TAP batches changes when there are too many to test one by one, then splits a failed batch. https://abseil.io/resources/swe-book/html/ch23.html (TAP). [named expert]
-- Agreement (Buildkite, Slurm, scheduling theory): plain FIFO causes head-of-line blocking, where one large run delays many small runs. The leading fix is FIFO with backfill: a small run (predicted from its past duration or its selected test count) can take a free slot if it does not delay the start of the run at the head. Pure shortest-first can starve large runs, so keep an age bound. A predicted duration is necessary for backfill.
+- Agreement (Buildkite, Slurm, scheduling theory): plain FIFO causes head-of-line blocking, where one large run delays many small runs. The leading fix is FIFO with backfill: a small run (predicted from its past duration or its selected test count) can take a free slot if it does not delay the start of the run at the head. Pure shortest-first can starve large runs, so keep an age bound. A predicted duration is necessary for backfill. Backfill rests on Slurm and Buildkite as adopters, so that half sets no default.
 
 ## Suite growth control
 
@@ -75,14 +75,14 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 - Google gives a mix by test count as "a rough guideline": about 80% unit, 15% integration, 5% end-to-end. Same source ("Test Scope"). [named expert]
 - Bazel ties each size to a default timeout and to an assumed peak resource use. small: 20 MB RAM, 1 CPU, short (1 minute); medium: 100 MB, 1 CPU, moderate (5 minutes); large: 300 MB, 1 CPU, long (15 minutes); enormous: 800 MB, 1 CPU, eternal (60 minutes). https://bazel.build/reference/be/common-definitions (attribute `size`, `timeout`). [standard or field body]
 - Bazel warns about a test whose size or timeout is too generous: `--test_verbose_timeout_warnings` shows tests that end well under their limit, and the docs suggest a tighter `timeout` or `size`. https://bazel.build/reference/test-encyclopedia (Role of the test runner / timeouts). [standard or field body]
-- Agreement (Google SWE book, Bazel common definitions, Bazel test encyclopedia): give each test a declared size class. The class sets a hard timeout and a resource budget. The tool reports tests that are in the wrong class (both too slow and too generous).
+- Agreement (Google SWE book, Bazel common definitions, Bazel test encyclopedia): give each test a declared size class. The class sets a hard timeout and a resource budget. The tool reports tests that are in the wrong class (both too slow and too generous). The timeout, budget and report rest on Bazel alone, so only the size classes set a default.
 
 ### Per-test slow thresholds in the tools
 
 - Vitest `slowTestThreshold`: "The number of milliseconds after which a test or suite is considered slow and reported as such in the results." Default 300 ms. https://vitest.dev/config/slowtestthreshold. [standard or field body]
 - Jest `slowTestThreshold`: "The number of seconds after which a test is considered as slow". Default 5 s. Jest `testTimeout` default 5000 ms. https://jestjs.io/docs/configuration (`slowTestThreshold`, `testTimeout`). [standard or field body]
 - pytest `--durations=N --durations-min=S` lists the N slowest tests over S seconds. https://docs.pytest.org/en/stable/how-to/usage.html (Profiling test execution duration). [standard or field body]
-- Agreement (Vitest, Jest, pytest): every major runner has a built-in slow-test report. Use it to measure suite cost per test, and set the threshold in config so that new slow tests show in every run.
+- Agreement (Vitest, Jest, pytest): every major runner has a built-in slow-test report. Use it to measure suite cost per test, and set the threshold in config so that new slow tests show in every run. Three adopters alone, so this sets no default.
 
 ### Whole-suite budget
 
@@ -125,7 +125,7 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 - Vitest gives the arithmetic for many runs on one machine: on a 32-CPU machine, 4 shards with `VITEST_MAX_WORKERS=7` each, because each process also needs one main thread: (1+7) x 4 = 32. Vitest also says that with many workers "the main thread can become a bottleneck as it cannot handle all the requests". https://vitest.dev/guide/improving-performance (Sharding). [standard or field body]
 - Bazel uses one resource budget for all local actions, not a worker count per action. `--local_resources`: "Bazel will limit concurrently running actions based on the available resources and the resources required." Tests can declare the resources they need. `--local_test_jobs` (default `auto`) is "The max number of local test jobs to run concurrently", and it accepts forms such as `HOST_CPUS*.5`. https://bazel.build/reference/command-line-reference (`--local_resources`, `--local_test_jobs`). [standard or field body]
 - Bazel common definitions assume each test size uses 1 CPU core when it schedules local tests. https://bazel.build/reference/be/common-definitions (`size`). [standard or field body]
-- Agreement (Vitest, Bazel user manual/command-line reference, Jest watch default): the sum of (workers + 1 main thread) over all concurrent runs must not exceed the cores. The leading design is one machine-wide budget of CPU (and RAM) that each run draws from, not a fixed count of slots that each start a full-size pool. For this repo: 3 slots on 8 cores leaves about 2 workers per slot, if each slot also has one main thread ((1+1) x 3 = 6, or (1+2) x 3 = 9 for a small oversubscription).
+- Agreement (Vitest, Bazel user manual/command-line reference, Jest watch default): the sum of (workers + 1 main thread) over all concurrent runs must not exceed the cores. The leading design is one machine-wide budget of CPU (and RAM) that each run draws from, not a fixed count of slots that each start a full-size pool. The machine-wide budget rests on Bazel as an adopter, so that half sets no default; the worker sum rests on Vitest's own sharding guidance. For this repo: 3 slots on 8 cores leaves about 2 workers per slot, if each slot also has one main thread ((1+1) x 3 = 6, or (1+2) x 3 = 9 for a small oversubscription).
 
 ### Effects of contention on wall time and flakiness
 
@@ -139,22 +139,22 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 ### Size the charge from the run's own peak
 
 - Kubernetes VPA sizes memory from the container's own peak per interval: "there is one memory usage sample per interval (the maximum usage over that interval)". Target: p90 of those peaks (`target-memory-percentile` 0.9) plus `recommendation-margin-fraction` 0.15. After an OOM kill: +20%, at least 100 MiB. https://github.com/kubernetes/autoscaler/blob/master/vertical-pod-autoscaler/docs/flags.md. [standard or field body]
-- Google Borg Autopilot keeps each task's peak per 5-minute window, "because we typically want to to provision for (close to) the peak memory usage". Limit: "𝑆𝑝98 for jobs with low OOM tolerance. 𝑆max for jobs with minimal OOM tolerance", then "a 10–15% safety margin". Memory history half-life 48 hours. https://john.e-wilkes.com/papers/2020-EuroSys-Autopilot.pdf (sec. 3.2). [standard or field body]
+- Google Borg Autopilot keeps each task's peak per 5-minute window, "because we typically want to to provision for (close to) the peak memory usage". Limit: "𝑆𝑝98 for jobs with low OOM tolerance. 𝑆max for jobs with minimal OOM tolerance", then "a 10–15% safety margin". Memory history half-life 48 hours. https://john.e-wilkes.com/papers/2020-EuroSys-Autopilot.pdf (sec. 3.2). [named expert]
 - HTCondor compares `request_memory` with `MemoryUsage`, "the peak memory usage for the job". `ProportionalSetSizeKb` is "the maximum observed proportional set size (PSS) in KiB, summed across all processes in the job". https://github.com/htcondor/htcondor/blob/main/docs/classad-attributes/job-classad-attributes.rst. [standard or field body]
-- Slurm records `MaxRSS` per job ("Maximum resident set size of all tasks in job"), recommends cgroup accounting, and offers `UsePss` ("Use PSS value instead of RSS"). https://slurm.schedmd.com/sacct.html; https://slurm.schedmd.com/slurm.conf.html. An HPC centre: request "something a little larger than what seff reports", from a run that completed. https://doc.hpc.iter.es/2023.11/en/slurm/slurm_memory_limits/. [standard or field body] / [named expert]
+- Slurm records `MaxRSS` per job ("Maximum resident set size of all tasks in job"), recommends cgroup accounting, and offers `UsePss` ("Use PSS value instead of RSS"). https://slurm.schedmd.com/sacct.html; https://slurm.schedmd.com/slurm.conf.html. [standard or field body] An HPC centre: request "something a little larger than what seff reports", from a run that completed. https://doc.hpc.iter.es/2023.11/en/slurm/slurm_memory_limits/. [named expert]
 - CircleCI: use the job's Resources tab "to decide whether to make changes to the job's configured resource class". https://circleci.com/docs/guides/execute/resource-class-overview/. One vendor's product. [unverified]
-- Agreement (VPA, Autopilot, HTCondor, Slurm, CircleCI): size the charge from the run's own process-tree or cgroup peak, over many runs, at a high percentile or the maximum, plus 10–15%. No source sizes it from a host-wide free-memory dip.
+- Agreement (VPA, Autopilot, HTCondor, Slurm, CircleCI): size the charge from the run's own process-tree or cgroup peak, over many runs, at a high percentile or the maximum. The 10–15% margin is Autopilot's and VPA's, one lineage, so it sets no default. No source sizes it from a host-wide free-memory dip.
 
 ### What to measure
 
 - cgroup v2 `memory.peak`: "The max memory usage recorded for the cgroup and its descendants". https://docs.kernel.org/admin-guide/cgroup-v2.html. PSS divides each shared page "by the number of processes sharing it". https://docs.kernel.org/filesystems/proc.html. [standard or field body]
 - HTCondor does not use `memory.peak` as is, because it includes "many caches and kernel data structures"; it reads anon + shmem from `memory.stat` by polling. https://github.com/htcondor/htcondor/blob/main/src/condor_utils/proc_family_direct_cgroup_v2.cpp. [standard or field body]
-- Agreement (kernel docs, HTCondor, Slurm, Kubernetes): measure the job's own process tree: PSS summed over the tree, or the cgroup's working set or anon + shmem. A polled value can miss a short peak; a cgroup high-water mark cannot.
+- Agreement (kernel docs, HTCondor, Slurm, Kubernetes): measure the job's own process tree: PSS summed over the tree, or the cgroup's working set or anon + shmem. A polled value can miss a short peak; a cgroup high-water mark cannot. The kernel rows say what each counter measures; the choice rests on adopters, so it sets no default.
 
 ### Keep the node floor out of the job charge
 
 - Kubernetes: "'Allocatable' on a Kubernetes node is defined as the amount of compute resources that are available for pods." Eviction reserve and system reserve come off capacity one time ("resources reserved for evictions are not available for pods"); the scheduler keeps "the total memory `requests` across all pods" under Allocatable. https://kubernetes.io/docs/tasks/administer-cluster/reserve-compute-resources/. [standard or field body]
-- Agreement (Kubernetes; VPA and Autopilot size the request without a node term): subtract the node floor (earlyoom, eviction) one time from the machine total. Each run's charge is only that run's sized need.
+- Agreement (Kubernetes; VPA and Autopilot size the request without a node term): subtract the node floor (earlyoom, eviction) one time from the machine total. Each run's charge is only that run's sized need. Kubernetes alone, an adopter, so this sets no default.
 
 ### Scale the charge to the size of the run
 
@@ -162,7 +162,7 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 - Nextflow: "using a higher limit that fits all the tasks in your execution could significantly decrease the execution priority of your jobs"; directives can be "evaluated based on the process inputs", grow per attempt, or follow `task.previousTrace.memory`. https://www.nextflow.io/docs/latest/process.html. [standard or field body]
 - HTCondor: for memory that "depends on the data that is being processed", request the typical value and give "only the single worst-case value for retry_request_memory". https://github.com/htcondor/htcondor/blob/main/docs/users-manual/automatic-job-management.rst. [standard or field body]
 - GitLab Kubernetes executor sets memory per job (`KUBERNETES_MEMORY_REQUEST`), capped by `memory_request_overwrite_max_allowed`. https://docs.gitlab.com/runner/executors/kubernetes/. One vendor's product. [unverified]
-- Agreement (Snakemake, Nextflow, HTCondor, GitLab, Bazel `size`): the charge follows the run's input (for a test rerun: its file count), with a floor and a cap at the full-run value.
+- Agreement (Snakemake, Nextflow, HTCondor, GitLab, Bazel `size`): the charge follows the run's input (for a test rerun: its file count), with a floor and a cap at the full-run value. Adopters alone, so this sets no default.
 
 ## A red base in a landing queue
 
@@ -171,7 +171,7 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 - bors-ng: "Since the main branch contains the exact contents that were just tested, bit-for-bit, it's not broken." On red, "it splits the batch into two batches". https://github.com/bors-ng/bors-ng/blob/master/README.md. [standard or field body]
 - Zuul tests each change "applied to the tip of the branch", assumes the changes ahead pass, and drops the first failed change. https://zuul-ci.org/docs/zuul/latest/gating.html. [standard or field body]
 - GitHub merge queue removes a failed pull request and rebuilds the groups behind it; GitLab merge trains do the same. https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue; https://docs.gitlab.com/ci/pipelines/merge_trains/. Each one vendor's product. [unverified]
-- Agreement (bors-ng, Zuul, GitHub, GitLab): no queue tests the base alone. The base passed when it landed, so a failure in the batch is blamed on the batch.
+- Agreement (bors-ng, Zuul, GitHub, GitLab): no queue tests the base alone. The base passed when it landed, so a failure in the batch is blamed on the batch. Adopters alone, so this sets no default.
 
 ### Culprit search starts from a known pass, per test
 
@@ -183,7 +183,14 @@ Rung tags: [standard or field body], [named expert], [survey or curated list], [
 
 - Chromium: "If the tree is closed, CL will NOT be submitted until the tree is reopened." The tree opens again when "all (tree-closer) builds pass". https://github.com/luci/luci-go/blob/main/lucicfg/doc/README.md; https://github.com/luci/luci-go/blob/main/luci_notify/notify/tree_status.go. [standard or field body]
 - Mergify: "pause the merge queue until the incident is resolved". https://docs.mergify.com/merge-queue/pause/. GitLab: "Merge immediately" lands an urgent fix past the train, "only in critical situations". https://docs.gitlab.com/ci/pipelines/merge_trains/. Each one vendor's product. [unverified]
-- Agreement (Chromium, Mergify, GitLab): when the base is red, stop landing (close the tree or pause the queue) and land the fix by a separate path. Do not run each queue cycle against a base that is known red. Closing the tree rests on Chromium; landing the fix by a separate path rests on GitLab alone, so that half sets no default.
+- Agreement (Chromium, Mergify, GitLab): when the base is red, stop landing (close the tree or pause the queue) and land the fix by a separate path. Do not run each queue cycle against a base that is known red. Closing the tree rests on Chromium alone and landing the fix by a separate path on GitLab alone, both adopters, so this sets no default.
+
+## Mutation-test runs
+
+- PIT runs mutants in child JVMs and applies each mutant by rewriting a loaded class, which is "orders of magnitude faster than starting a new jvm or creating a new classloader"; a new JVM starts only on a timeout. https://pitest.org/faq/. [named expert]
+- Stryker keeps each test-runner worker alive across mutants: `maxTestRunnerReuse` "Restart each test runner worker process after `n` runs", default `0`, "infinite reuse", restart "Not recommended unless you are experiencing memory leaks". `concurrency` caps the workers, default `n-1` cores. https://stryker-mutator.io/docs/stryker-js/configuration/. One adopter [unverified]
+- mutmut imports the test suite once and "forks one child per mutant"; in forkserver mode there is "only one pytest import for the whole run". https://mutmut.readthedocs.io/en/latest/. One adopter [unverified]
+- Agreement (PIT, Stryker, mutmut): a mutation run loads its test runner once and swaps mutants inside it, under one bounded worker count for the whole run. It never starts and admits a fresh runner per mutant. The default rests on PIT's reasoned verdict; Stryker and mutmut are adopters.
 
 ## Gaps
 

@@ -91,10 +91,10 @@ const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
 const { parseEnvelope } = require("./lib/check-envelope");
 /* Aliased: lib/check.js exports a smaller MAX_BUFFER of its own. */
-const { errLine, MAX_BUFFER: GH_MAX_BUFFER } = require("./lib/gh");
+const { parseErrLine, MAX_BUFFER: GH_MAX_BUFFER } = require("./lib/gh");
 const { hostRoot } = require("./lib/host-root");
 const {
-	deliveredKeys,
+	readDeliveredKeys,
 	isCompleted,
 	isJudged,
 	judgeKeys,
@@ -103,7 +103,7 @@ const {
 const { checkoutOfCommonDir } = require("./lib/main-checkout");
 const notify = require("./lib/notify-report");
 const { isCoreHost } = require("./lib/plugin-state");
-const { periodicReading, skipLine } = require("./lib/periodic-reading");
+const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { projectSlug } = require("./lib/project-slug");
 const { REPO_CHECKS } = require("./lib/repo-checks-registry");
 const { coreRoot, scriptPath } = require("./lib/script-path");
@@ -117,10 +117,10 @@ const { readConfig, resolveKey } = require("./lib/workflow-core-config");
 const {
 	WHERE,
 	buildHandCommand,
-	commonDir,
 	reportName,
 	resultFile,
 } = require("./lib/repo-checks-reading");
+const { gitCommonDirOrThrow } = require("./lib/git.js");
 const { caught } = require("./lib/caught.js");
 const { takesLabel } = require("./lib/takes-label");
 
@@ -634,7 +634,7 @@ function judgeGains(jobs, repo, startMs) {
 			countedKeys,
 			/* Logged, then read as nothing delivered: a repeat, never a silence
 			 * (#1553). */
-			delivered: deliveredKeys(name, (s) =>
+			delivered: readDeliveredKeys(name, (s) =>
 				logError(
 					WHERE,
 					`delivery stamp ${s} will not parse; its keys read as new`,
@@ -798,7 +798,7 @@ function writeStandingIssue(host, jobs, { file, startMs }) {
 	} catch (e) {
 		logError(
 			WHERE,
-			`could not file or refresh "${ISSUE_TITLE}": ${errLine(e)}; the next reading retries`,
+			`could not file or refresh "${ISSUE_TITLE}": ${parseErrLine(e)}; the next reading retries`,
 		);
 	}
 }
@@ -827,7 +827,7 @@ function readingRoot(launched, gitCommonDir) {
 function main() {
 	try {
 		const launched = hostRoot();
-		const dir = commonDir(launched);
+		const dir = gitCommonDirOrThrow(launched);
 		const root = readingRoot(launched, dir);
 		if (root !== launched) process.env.CLAUDE_PROJECT_DIR = root;
 		/* The standing issue's gh calls find the tracker from here, as the
@@ -866,7 +866,7 @@ function main() {
 				return `${jobs.length} checks: ${tally(jobs)}. Result in ${result}.`;
 			},
 		);
-		writeFd(2, `${gate.ran ? gate.value : skipLine(gate, "a day")}\n`);
+		writeFd(2, `${gate.ran ? gate.value : buildSkipLine(gate, "a day")}\n`);
 	} catch (e) {
 		/* Fails open (#1548): a detached run nobody waits on never fails a
 		 * session start; the next day's reading retries. */

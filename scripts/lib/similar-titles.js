@@ -68,7 +68,8 @@ function similarOpen(query, issues) {
  * one spelling, so a reword cannot strand them (#1073).
  */
 /** @param {number[]} numbers */
-const distinctFromHint = (numbers) => `--distinct-from ${numbers.join(",")}.`;
+const buildDistinctFromHint = (numbers) =>
+	`--distinct-from ${numbers.join(",")}.`;
 
 /**
  * The numbers a refusal's hint names, comma-joined, or null.
@@ -77,4 +78,4 @@ const distinctFromHint = (numbers) => `--distinct-from ${numbers.join(",")}.`;
 const readDistinctFromHint = (text) =>
 	/--distinct-from ([\d,]+)\.$/m.exec(text)?.[1] ?? null;
 
-module.exports = { distinctFromHint, readDistinctFromHint, similarOpen };
+module.exports = { buildDistinctFromHint, readDistinctFromHint, similarOpen };

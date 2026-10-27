@@ -8,11 +8,17 @@
  * tighten it and real code drops out of both. Loosen COLLECTED_TEST and a repo
  * holding only test support counts as holding a suite, so its commits are
  * refused while the suites switch is off; tighten it and a real suite goes
- * ungated.
+ * ungated. Loosen isCollectedTestOrConftest and real code drops out of the
+ * plugin, the needle corpus and doc-map's section-reference check; tighten it
+ * and tests ship to adopters (#2759).
  */
 
 import { describe, expect, it } from "vitest";
-import { COLLECTED_TEST, isTestKind } from "./test-kind";
+import {
+	COLLECTED_TEST,
+	isCollectedTestOrConftest,
+	isTestKind,
+} from "./test-kind";
 
 describe("isTestKind", () => {
 	it.each([
@@ -85,5 +91,33 @@ describe("COLLECTED_TEST", () => {
 		"docs/spec.md",
 	])("calls %s no collected test", (rel) => {
 		expect(COLLECTED_TEST.test(rel)).toBe(false);
+	});
+});
+
+describe("isCollectedTestOrConftest", () => {
+	it.each([
+		"scripts/guard-x.test.ts",
+		"scripts/foo.test.tsx",
+		"scripts/foo.spec.ts",
+		"scripts/test_evidence_corpus.py",
+		"scripts/evidence_corpus_test.py",
+		"scripts/foo.test.py",
+		"scripts/conftest.py",
+		"conftest.py",
+		"foo.spec.js",
+	])("calls %s a collected test or conftest.py", (rel) => {
+		expect(isCollectedTestOrConftest(rel)).toBe(true);
+	});
+
+	it.each([
+		"scripts/guard-x.sh",
+		"scripts/check-test-marker.js",
+		"scripts/evidence_test_support.py",
+		"scripts/lib/git-fixture.ts",
+		"scripts/lib-closure-fixture.ts",
+		"scripts/my_conftest.py",
+		".husky/pre-commit",
+	])("calls %s neither", (rel) => {
+		expect(isCollectedTestOrConftest(rel)).toBe(false);
 	});
 });

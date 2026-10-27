@@ -13,7 +13,7 @@
  * WHY A CHECKER AND NOT A CLOSER, ruled at mantahostels#1699 over the auto-close, on two
  * counts kept here because they are what a later session would have to overturn.
  * An auto-close carries no `**Outstanding:**` line, the ritual
- * scripts/guard-issue-close.sh exists to enforce — and a close from inside a
+ * scripts/guard-issue-close.js exists to enforce — and a close from inside a
  * workflow is out of that guard's reach entirely (it matches parsed Bash tool
  * calls only), so the ritual would be skipped invisibly rather than refused.
  * And the conditions flap, so a closer would have to arbitrate a condition a
@@ -87,7 +87,7 @@ const { caught } = require("./lib/caught.js");
  */
 
 /** @param {string} text */
-function firstLine(text) {
+function parseFirstLine(text) {
 	const [line] = text.split("\n");
 	if (line === undefined) throw new Error("split yielded no line");
 	return line;
@@ -309,7 +309,7 @@ function judgeOpen(t, issue, tally) {
 			number: issue.number,
 			title: issue.title,
 			script: t.script,
-			reason: message ? firstLine(String(message)) : String(e),
+			reason: message ? parseFirstLine(String(message)) : String(e),
 		});
 		return;
 	}

@@ -63,7 +63,7 @@ const check = () =>
 		env: { ...env(), CLAUDE_PROJECT_DIR: dir },
 	});
 
-const modules = () =>
+const readModules = () =>
 	JSON.parse(
 		fs.readFileSync(path.join(dir, ".claude/workflow-core.json"), "utf8"),
 	).modules;
@@ -93,7 +93,7 @@ describe("init-adopter's module choice on a copied repo", () => {
 	it("writes all four modules where the tree holds all four subjects, leaving the checker nothing to refuse", () => {
 		const r = init();
 		expect(r.status, r.stdout + r.stderr).toBe(0);
-		expect([...modules()].sort()).toEqual(
+		expect([...readModules()].sort()).toEqual(
 			["governance", "roadmap", "site", "suites"].sort(),
 		);
 		const c = check();
@@ -103,7 +103,7 @@ describe("init-adopter's module choice on a copied repo", () => {
 	it("leaves every module off under an explicit empty --modules, and the checker refuses all four subjects", () => {
 		const r = init("--modules", "");
 		expect(r.status, r.stdout + r.stderr).toBe(0);
-		expect(modules()).toEqual([]);
+		expect(readModules()).toEqual([]);
 		fs.writeFileSync(
 			path.join(dir, ".claude/workflow-core.json"),
 			JSON.stringify({ contract: 1, founder: "A Founder", modules: [] }),
@@ -126,7 +126,7 @@ describe("init-adopter's module choice on a copied repo", () => {
 		git("mv", "lib/a.test.js", "lib/a.test.ts");
 		const r = init();
 		expect(r.status, r.stdout + r.stderr).toBe(0);
-		expect(modules()).toContain("suites");
+		expect(readModules()).toContain("suites");
 		const c = check();
 		expect(c.status).toBe(1);
 		expect(c.stderr).toContain(
@@ -139,6 +139,6 @@ describe("init-adopter's module choice on a copied repo", () => {
 		expect(init("--modules", "roadmap").status).toBe(0);
 		const again = init();
 		expect(again.status, again.stdout + again.stderr).toBe(0);
-		expect(modules()).toEqual(["roadmap"]);
+		expect(readModules()).toEqual(["roadmap"]);
 	});
 });

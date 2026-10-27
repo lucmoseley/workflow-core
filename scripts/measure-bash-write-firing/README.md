@@ -1,6 +1,6 @@
 # What the inline-interpreter arm costs, re-derived (mantahostels#2865)
 
-The figures behind `scripts/guard-claimed-bash-write.sh`'s inline-interpreter
+The figures behind `scripts/lib/claimed-bash-write.js`'s inline-interpreter
 arm — the firing rate, the false-warn rate, and the per-session candidate
 distribution the 2,000 B session budget rests on — were measured at mantahostels#2854 over
 this machine's own transcript corpus and are carried on mantahostels#2854, none of them in

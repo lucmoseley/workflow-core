@@ -12,8 +12,8 @@
  */
 
 const { citedIssues } = require("./cited-issues.js");
-const { errLine } = require("./gh.js");
-const { firstLine } = require("./first-line.js");
+const { parseErrLine } = require("./gh.js");
+const { parseFirstLine } = require("./first-line.js");
 const { short } = require("./lander.js");
 const { takesLabel } = require("./takes-label.js");
 
@@ -86,7 +86,7 @@ Reverted commit: \`${subject.replaceAll("`", "'")}\`
 function ticketFiler({ messageOf, similar, fileIssue, stateOf, reopen }) {
 	return {
 		fileFixTicket(t) {
-			const subject = firstLine(messageOf(t.culprit));
+			const subject = parseFirstLine(messageOf(t.culprit));
 			const { title, body } = fixTicketIssue({ ...t, subject });
 			const listed = similar(title);
 			const filed = listed.find((c) => c.title.includes(short(t.culprit)));
@@ -120,7 +120,7 @@ function ticketFiler({ messageOf, similar, fileIssue, stateOf, reopen }) {
 			const ran = file(["--standalone", placed.why]);
 			if (ran.status === 0) return ran.stdout.trim();
 			throw new Error(
-				`fix ticket for ${short(t.culprit)} not filed: ${firstLine(ran.stderr)}`,
+				`fix ticket for ${short(t.culprit)} not filed: ${parseFirstLine(ran.stderr)}`,
 			);
 		},
 	};
@@ -145,7 +145,7 @@ function fileUnderCited(cited, t, file, deps) {
 	const ran = file(["--parent", String(cited)]);
 	if (ran.status === 0) return { filed: ran.stdout.trim() };
 	return {
-		why: `file-issue refused it under #${cited}, which ${short(t.culprit)} cites: ${firstLine(ran.stderr)}`,
+		why: `file-issue refused it under #${cited}, which ${short(t.culprit)} cites: ${parseFirstLine(ran.stderr)}`,
 	};
 }
 
@@ -166,7 +166,7 @@ function underCited(cited, t, { stateOf, reopen }) {
 			);
 		return null;
 	} catch (err) {
-		return `#${cited}, which ${short(t.culprit)} cites, could not be read or reopened: ${errLine(err)}`;
+		return `#${cited}, which ${short(t.culprit)} cites, could not be read or reopened: ${parseErrLine(err)}`;
 	}
 }
 

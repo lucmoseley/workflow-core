@@ -32,9 +32,9 @@
  * IT NEVER WRITES: `claim-issue` is the working session's own call.
  *
  * `--map <n>` DOES THE WHOLE FRONTIER QUERY (mantahostels#1145): resolve the map's open
- * children, drop the untyped, fan out one blocker call per remaining child,
- * drop the blocked, the live-claimed and the body-GATED, print the rest in map
- * order.
+ * children, drop the untyped, read the remaining children's blockers in
+ * batches (lib/blocked-by-batch.js), drop the blocked, the live-claimed and
+ * the body-GATED, print the rest in map order.
  *
  * THE TYPE FILTER (#579): only a decision ticket belongs on the frontier, and a
  * decision ticket carries a `wayfinder:` label — any, as `check-issue-labels.js`'s
@@ -63,14 +63,15 @@
  * even though (unlike that case) `held` may still carry a partial read.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { listedSessionIds } = require("./lib/agent-liveness");
 const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
-const { errLine, ghGetRetrying, mapLimit } = require("./lib/gh");
+const { parseErrLine, ghGetRetrying } = require("./lib/gh");
+const { blockedByMany } = require("./lib/blocked-by-batch");
 const { resolveGate } = require("./lib/issue-gate");
 const store = require("./lib/arbiter-store");
+const { execGit } = require("./lib/git.js");
 
 /** @param {string} msg */
 const say = (msg) => process.stderr.write(`wayfinder-frontier: ${msg}\n`);
@@ -78,16 +79,12 @@ const say = (msg) => process.stderr.write(`wayfinder-frontier: ${msg}\n`);
 /** gh expands this from the checkout's own remote. */
 const REPO = "{owner}/{repo}";
 
-/* Blocker calls in flight at once. Unmeasured: a wayfinder map runs to a
- * handful of open children, so this bounds the fan-out rather than tuning it. */
-const BLOCKER_FANOUT = 6;
-
 /**
  * The same directory named two ways, or `null` where it cannot be resolved.
  * @param {string} dir
  * @returns {string | null}
  */
-function realOrNull(dir) {
+function readRealOrNull(dir) {
 	try {
 		return fs.realpathSync(dir);
 	} catch {
@@ -109,7 +106,7 @@ function realOrNull(dir) {
 function storeElsewhere() {
 	let cwdRoot;
 	try {
-		cwdRoot = execFileSync("git", ["rev-parse", "--show-toplevel"], {
+		cwdRoot = execGit(["rev-parse", "--show-toplevel"], {
 			encoding: "utf8",
 			// git's own "not a git repository" goes to stderr, where it would read
 			// as this command's complaint rather than a fact about the caller.
@@ -121,8 +118,8 @@ function storeElsewhere() {
 				"you are not in a git repository, so the claim store's tree cannot be compared with yours",
 		};
 	}
-	const a = realOrNull(store.paths.repoRoot());
-	const b = realOrNull(cwdRoot);
+	const a = readRealOrNull(store.paths.repoRoot());
+	const b = readRealOrNull(cwdRoot);
 	if (!a)
 		return {
 			unknown: `the claim store's root (${store.paths.repoRoot()}) does not resolve`,
@@ -284,26 +281,23 @@ function gatedChildren(children) {
  * The children with an open blocker. `{ error }` where any child's blockers
  * could not be read — see the fail-closed note in the header.
  *
- * Read from the canonical `dependencies/blocked_by` list, NEVER from
+ * Read from the canonical blocked-by connection, NEVER from
  * `issue_dependencies_summary.blocked_by` on the issue payload, which is
  * documented as the open-blocker count and is stale in practice.
  * @param {number[]} children
  * @returns {Promise<{ error: string } | { blocked: Set<number> }>}
  */
 async function blockedChildren(children) {
-	const results = await mapLimit(
-		children,
-		BLOCKER_FANOUT,
-		/** @param {number} n */ async (n) => ({
-			n,
-			r: await ghGetRetrying(
-				`repos/${REPO}/issues/${n}/dependencies/blocked_by`,
-				// An empty stdout would parse as `[]` — "no blockers" — and put a
-				// blocked issue on the frontier.
-				{ strict: true },
-			),
-		}),
+	// strict: an empty stdout would parse as `[]` — "no blockers" — and put a
+	// blocked issue on the frontier.
+	const reads = await blockedByMany(
+		children.map((number) => ({ number })),
+		{ repo: REPO, home: REPO, strict: true },
 	);
+	const results = reads.map(({ issue, read }) => ({
+		n: issue.number,
+		r: read,
+	}));
 	const failed = results.filter((x) => !x.r.ok);
 	const first = failed[0];
 	if (first && !first.r.ok)
@@ -315,7 +309,7 @@ async function blockedChildren(children) {
 	return {
 		blocked: new Set(
 			results
-				.filter((x) => x.r.ok && x.r.out.some((b) => b.state === "open"))
+				.filter((x) => x.r.ok && x.r.edges.some((b) => b.state === "open"))
 				.map((x) => x.n),
 		),
 	};
@@ -488,7 +482,7 @@ main(process.argv.slice(2)).then(
 		// Fail closed on anything unforeseen: an unhandled rejection would exit 0
 		// with an empty stdout.
 		say(
-			`${errLine(e)} — an unexpected failure, so nothing above is an answer. Drop nothing.`,
+			`${parseErrLine(e)} — an unexpected failure, so nothing above is an answer. Drop nothing.`,
 		);
 		process.exitCode = 1;
 	},

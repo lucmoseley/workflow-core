@@ -1,6 +1,6 @@
 /*
  * dispatch-rules.js — which of the dispatch rules one `Agent` call trips, for
- * `scripts/guard-dispatch-rewrite.sh` to print at that call (#2013).
+ * `scripts/lib/dispatch-rewrite.js` to print at that call (#2013).
  *
  * Each check returns the line naming what THIS call did, or null. A subagent
  * dispatching a grandchild is judged in the hook, on the payload's `agent_id`.

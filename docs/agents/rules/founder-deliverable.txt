@@ -6,7 +6,7 @@ A FOUNDER-FACING ITEM lives in an open issue, never only in chat. Three kinds co
 
 This holds in background and interactive sessions alike. Chat, a `needs input:` or `waiting:` ending, the status line, the job list and a closed issue's comment never count.
 
-FILE IT THE MOMENT the session produces the deliverable or names the act, not at session end. A `!` line the founder pastes in this session, or a secret the founder enters, is finished in the session and needs no issue.
+FILE IT THE MOMENT the session produces the deliverable or names the act, not at session end. A paste the founder runs while this session waits — a `!` line, or a line in his own terminal whose output he sends back — or a secret he enters, is finished in the session and needs no issue: the `waits on you:` line cites the ticket in hand.
 
 THE LABEL:
 

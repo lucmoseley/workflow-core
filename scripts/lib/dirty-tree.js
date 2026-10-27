@@ -8,8 +8,8 @@
  * refuses to spin a worktree at HEAD past them. Both messages tell a session to
  * commit a set of paths, so the two sets must agree.
  *
- * THREE READS. `trackedStatus` answers the tracked half both of those callers
- * share, `dirtyTracked` being its flat path set; the two untracked readers
+ * THREE READS. `readTrackedStatus` answers the tracked half both of those callers
+ * share, `readDirtyTracked` being its flat path set; the two untracked readers
  * differ on how a DIRECTORY is rendered, and each says which below.
  *
  * WHAT IS DELIBERATELY NOT HERE: the ATTRIBUTION policy. `attributeDirty` in
@@ -17,17 +17,14 @@
  * make genuinely different judgements — one warns on a neighbour's dirt and
  * refuses on its own, the other is silent on both — and sharing them would fuse
  * two policies that were separately ruled. `scripts/lib/doc-map.js`'s own
- * `untrackedFiles` stays separate too: it answers `[]` where git cannot, on
+ * `readUntrackedFiles` stays separate too: it answers `[]` where git cannot, on
  * purpose (mantahostels#1403), which is the opposite of the null this module returns.
  */
 
 const { execFileSync } = require("node:child_process");
+const { gitBinary, gitSpawnOptions, GIT_TIMEOUT_MS } = require("./git.js");
 
 /** @typedef {(file: string, args: string[], options: object) => string | Buffer} ExecFn */
-
-/* A ceiling on the git subprocess, unmeasured and there only so a wedged git
- * fails the read open rather than hanging a suite launch or a Stop hook. */
-const GIT_TIMEOUT_MS = 30_000;
 
 /*
  * How many paths a refusal names before it hands over `git status` instead.
@@ -47,17 +44,23 @@ const REFUSAL_NAMED_MAX = 10;
  * @param {string[]} args
  * @param {string} root
  * @param {ExecFn} [execFn]
+ * @param {string|null} [input] git's stdin, where it reads one
  * @returns {string|null}
  */
-function gitRead(args, root, execFn = execFileSync) {
+function gitRead(args, root, execFn = execFileSync, input = null) {
 	try {
 		return String(
-			execFn("git", args, {
-				cwd: root,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-				timeout: GIT_TIMEOUT_MS,
-			}) ?? "",
+			execFn(
+				gitBinary(),
+				args,
+				gitSpawnOptions({
+					cwd: root,
+					encoding: "utf8",
+					input: input ?? undefined,
+					stdio: [input === null ? "ignore" : "pipe", "pipe", "ignore"],
+					timeout: GIT_TIMEOUT_MS,
+				}),
+			) ?? "",
 		);
 	} catch {
 		return null;
@@ -91,14 +94,14 @@ function* porcelainEntries(out) {
 }
 
 /**
- * `trackedStatus`'s path set alone.
+ * `readTrackedStatus`'s path set alone.
  *
  * @param {string} root
  * @param {ExecFn} [execFn]
  * @returns {string[]|null} null where git could not answer
  */
-function dirtyTracked(root, execFn = execFileSync) {
-	return trackedStatus(root, execFn)?.dirty ?? null;
+function readDirtyTracked(root, execFn = execFileSync) {
+	return readTrackedStatus(root, execFn)?.dirty ?? null;
 }
 
 /**
@@ -125,7 +128,7 @@ function dirtyTracked(root, execFn = execFileSync) {
  * @returns {{ dirty: string[], renames: { path: string, source: string }[] }|null}
  *   null where git could not answer
  */
-function trackedStatus(root, execFn = execFileSync) {
+function readTrackedStatus(root, execFn = execFileSync) {
 	const out = gitRead(["status", "--porcelain", "-z", "-uno"], root, execFn);
 	if (out === null) return null;
 	/** @type {string[]} */
@@ -155,7 +158,7 @@ function trackedStatus(root, execFn = execFileSync) {
  * @param {ExecFn} [execFn]
  * @returns {string[]|null} null where git could not answer
  */
-function untrackedFiles(root, execFn = execFileSync) {
+function readUntrackedFiles(root, execFn = execFileSync) {
 	const out = gitRead(
 		["ls-files", "--others", "--exclude-standard", "-z"],
 		root,
@@ -175,7 +178,7 @@ function untrackedFiles(root, execFn = execFileSync) {
  * `SessionStart` report, which needs exactly this reading of the tree and is
  * blocked on mantahostels#2340. Delete this if mantahostels#2349 closes without taking it.
  *
- * SEPARATE FROM `untrackedFiles` ABOVE, DELIBERATELY (mantahostels#2211). That one walks a
+ * SEPARATE FROM `readUntrackedFiles` ABOVE, DELIBERATELY (mantahostels#2211). That one walks a
  * directory out into its files, which is what `--isolated` needs to intersect
  * against a write ledger; this one gives a whole-tree count in one line.
  *
@@ -186,7 +189,7 @@ function untrackedFiles(root, execFn = execFileSync) {
  * @param {string} root
  * @returns {string[]|null} null where git could not answer
  */
-function untrackedEntries(root) {
+function readUntrackedEntries(root) {
 	const out = gitRead(["status", "--porcelain", "-z"], root);
 	if (out === null) return null;
 	/** @type {string[]} */
@@ -209,12 +212,11 @@ function shellWord(p) {
 }
 
 module.exports = {
-	GIT_TIMEOUT_MS,
 	REFUSAL_NAMED_MAX,
-	dirtyTracked,
+	readDirtyTracked,
 	gitRead,
 	shellWord,
-	trackedStatus,
-	untrackedEntries,
-	untrackedFiles,
+	readTrackedStatus,
+	readUntrackedEntries,
+	readUntrackedFiles,
 };

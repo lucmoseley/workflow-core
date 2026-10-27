@@ -5,10 +5,10 @@
  * An adopter is a direct child of the home directory carrying
  * `.claude/workflow-core.json`. A linked worktree (`.git` a file, not a
  * directory) is its main checkout's second copy and is skipped.
- * adopterCheckouts returns every one; discoverRepos leaves out those whose
+ * readAdopterCheckouts returns every one; discoverRepos leaves out those whose
  * config sets `refillLoop: false`.
  *
- * adopterCheckouts' callers: report-close-check-reading.js and
+ * readAdopterCheckouts' callers: report-close-check-reading.js and
  * report-flip-line-reading.js, since every adopter runs the priced-options
  * guard whatever its refillLoop (#2121).
  * discoverRepos' callers: lib/refill-frontier.js, scripts/file-morning-review.js,
@@ -33,7 +33,7 @@ const { caught } = require("./caught.js");
  * @param {string} home
  * @returns {Discovery}
  */
-function adopterCheckouts(home) {
+function readAdopterCheckouts(home) {
 	/** @type {Discovery} */
 	const found = { included: [], excluded: [] };
 	for (const entry of fs.readdirSync(home, { withFileTypes: true })) {
@@ -59,7 +59,7 @@ function adopterCheckouts(home) {
  * @returns {Discovery}
  */
 function discoverRepos(home) {
-	const adopters = adopterCheckouts(home);
+	const adopters = readAdopterCheckouts(home);
 	/** @type {Discovery} */
 	const found = { included: [], excluded: [...adopters.excluded] };
 	for (const root of adopters.included) {
@@ -115,7 +115,7 @@ function checkoutEnv(root, env = process.env) {
 }
 
 module.exports = {
-	adopterCheckouts,
+	readAdopterCheckouts,
 	checkoutEnv,
 	discoverRepos,
 	exclusionOf,

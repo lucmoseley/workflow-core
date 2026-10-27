@@ -827,20 +827,20 @@ describe("check-roadmap-valid · the ladder the host config declares", () => {
  */
 describe("the relocated rule reaches the session whose commit fails", () => {
 	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-	const { ruleText } = require("./lib/rule-text") as any;
+	const { readRuleText } = require("./lib/rule-text") as any;
 
 	it("index mode carries the whole rule on a structural error", () => {
 		stage(HTML, roadmap(v(2), [card({ state: "nope" })]));
 		const r = check();
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(ruleText("roadmap-validity"));
+		expect(r.stderr).toContain(readRuleText("roadmap-validity"));
 	});
 
 	it("tree mode carries the same rule", () => {
 		put(HTML, roadmap(v(2), [card({ state: "nope" })]));
 		const r = tree();
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(ruleText("roadmap-validity"));
+		expect(r.stderr).toContain(readRuleText("roadmap-validity"));
 	});
 
 	/* A literal anchor, deliberately: every assertion above reads the fragment at
@@ -859,6 +859,6 @@ describe("the relocated rule reaches the session whose commit fails", () => {
 		stage(HTML, roadmap(v(2), [card()]));
 		const r = check();
 		expect(r.status).toBe(0);
-		expect(r.stderr).not.toContain(ruleText("roadmap-validity"));
+		expect(r.stderr).not.toContain(readRuleText("roadmap-validity"));
 	});
 });

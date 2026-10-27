@@ -36,8 +36,8 @@
  * Mutated again at mantahostels#2244, eleven of them, each failing exactly its own test.
  *
  * Mutated at mantahostels#1975, seven of them, each failing exactly its own test: dropping
- * the persist limb from seenStamp and from markDelivered; dropping the notify
- * limb from seenStamp; dropping the stamp from the persisted report
+ * the persist limb from readSeenStamp and from markDelivered; dropping the notify
+ * limb from readSeenStamp; dropping the stamp from the persisted report
  * (lib/check.js persistReport); never telling the ctx it is persisting;
  * ghost-jobs stamping the reported set rather than the standing one; and each
  * of the three producers calling the ctx-less `delivered` where
@@ -155,7 +155,7 @@ function delivered(checker, signature) {
  * @param {string} checker
  * @returns {string | null}
  */
-function seenStamp(ctx, checker) {
+function readSeenStamp(ctx, checker) {
 	if (!ctx.notify || ctx.persisting) return null;
 	return readStamp(checker);
 }
@@ -163,7 +163,7 @@ function seenStamp(ctx, checker) {
 /**
  * The high-water mark a producer should judge its findings against, as a
  * number, or null where it should judge them against nothing. Null for
- * everything `seenStamp` answers null for, and for a stamp that is an identity
+ * everything `readSeenStamp` answers null for, and for a stamp that is an identity
  * rather than a mark, or a mark that will not read as a number — all of which
  * mean the same thing here: report everything.
  *
@@ -173,8 +173,8 @@ function seenStamp(ctx, checker) {
  * @param {string} checker
  * @returns {number|null}
  */
-function seenHighWater(ctx, checker) {
-	const seen = seenStamp(ctx, checker);
+function readSeenHighWater(ctx, checker) {
+	const seen = readSeenStamp(ctx, checker);
 	if (seen === null || !seen.startsWith(HIGH_WATER)) return null;
 	const ms = Number(seen.slice(HIGH_WATER.length));
 	return Number.isFinite(ms) ? ms : null;
@@ -188,7 +188,7 @@ function seenHighWater(ctx, checker) {
  * @param {string} signature
  */
 function alreadyDelivered(ctx, checker, signature) {
-	const seen = seenStamp(ctx, checker);
+	const seen = readSeenStamp(ctx, checker);
 	return seen !== null && covers(seen, signature);
 }
 
@@ -217,8 +217,8 @@ module.exports = {
 	recordDelivery,
 	clearDelivery,
 	delivered,
-	seenStamp,
-	seenHighWater,
+	readSeenStamp,
+	readSeenHighWater,
 	alreadyDelivered,
 	markDelivered,
 };

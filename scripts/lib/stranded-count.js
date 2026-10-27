@@ -28,11 +28,11 @@
  * against pick-next's frozen default (above).
  */
 
-const { execFileSync } = require("node:child_process");
 const { isListedLive } = require("./agent-liveness.js");
 
 // The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
 const { paths, subjectPath } = require("./arbiter-store");
+const { gitOrNull } = require("./git.js");
 
 /*
  * How long a claim must stand after its holder stops being listed before the
@@ -96,18 +96,12 @@ function hoursHeld(claimedAt) {
  *   caller then reports the count and itemises nothing, rather than calling
  *   every claim clean.
  */
-function dirtyPaths() {
+function readDirtyPaths() {
 	const root = paths.repoRoot();
-	let out;
-	try {
-		out = execFileSync("git", ["status", "--porcelain", "-z", "-uall"], {
-			cwd: root,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-	} catch {
-		return null;
-	}
+	const out = gitOrNull(["status", "--porcelain", "-z", "-uall"], {
+		cwd: root,
+	});
+	if (out === null) return null;
 	const fields = out.split("\0").values();
 	const dirty = new Set();
 	for (const entry of fields) {
@@ -133,7 +127,7 @@ function dirtyPaths() {
  * of it (mantahostels#1747). A region claim is judged by its WHOLE file, so a neighbour's
  * live edit elsewhere in that file reads as work to recover.
  *
- * @param {Set<string> | null} dirty dirtyPaths()'s result.
+ * @param {Set<string> | null} dirty readDirtyPaths()'s result.
  * @param {string} subject the lock's `path`.
  */
 function isDirtyClaim(dirty, subject) {
@@ -237,7 +231,7 @@ function classifyClaims(
  * @param {Set<string> | null | undefined} listedIds
  *   either oracle reader's ids, or null/undefined where the running-session
  *   oracle could not be read.
- * @param {Set<string> | null} [dirty] dirtyPaths()'s result; omitted where the
+ * @param {Set<string> | null} [dirty] readDirtyPaths()'s result; omitted where the
  *   caller wants the standing count alone.
  * @param {Set<string>} [terminal] the same oracle read's stopped-but-resident
  *   pool — see `EMPTY_IDS` above for why omitting it is not a safe default
@@ -260,7 +254,7 @@ module.exports = {
 	STRANDED_AFTER_HOURS,
 	hoursHeld,
 	classifyClaims,
-	dirtyPaths,
+	readDirtyPaths,
 	isDirtyClaim,
 	countStranded,
 };

@@ -29,7 +29,7 @@
 
 const { runCheck } = require("./lib/check.js");
 const config = require("./lib/workflow-core-config.js");
-const { subjectsInIndex } = require("./lib/gate-subjects.js");
+const { readIndexSubjects } = require("./lib/gate-subjects.js");
 const { caught } = require("./lib/caught.js");
 const { corePath } = require("./lib/script-path.js");
 
@@ -60,7 +60,7 @@ function listedPaths(found) {
  */
 const moduleSwitch = (m) => ({
 	on: (cfg) => cfg.modules.includes(m),
-	gate: config.moduleOffLine(m),
+	gate: config.buildModuleOffLine(m),
 	fix: `add "${m}" to "modules"`,
 });
 
@@ -71,7 +71,7 @@ const moduleSwitch = (m) => ({
  */
 const TEST_SWITCH = {
 	on: (cfg) => Boolean(cfg.commands.test),
-	gate: config.commandUndeclaredLine("test"),
+	gate: config.buildCommandUndeclaredLine("test"),
 	fix: 'declare the command that runs them as "commands": { "test": "…" }',
 };
 
@@ -87,7 +87,7 @@ runCheck({
 		let subjects;
 		try {
 			cfg = config.readConfig({ quiet: true });
-			subjects = subjectsInIndex(process.cwd());
+			subjects = readIndexSubjects(process.cwd());
 		} catch (e) {
 			ctx.broken(caught(e).message);
 		}

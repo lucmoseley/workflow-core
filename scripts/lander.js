@@ -22,15 +22,15 @@
  * it refuses.
  */
 
-const path = require("node:path");
-const { spawn, spawnSync } = require("node:child_process");
-const { errorText } = require("./lib/caught.js");
+const { spawn } = require("node:child_process");
+const { spawnGitSync } = require("./lib/git.js");
+const { parseErrorText } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { ticketFiler } = require("./lib/fix-ticket.js");
-const { gh, ghIssueListAll } = require("./lib/gh.js");
+const { gh } = require("./lib/gh.js");
 const { heldQueueFiler } = require("./lib/held-queue.js");
 const {
-	actionLine,
+	buildActionLine,
 	fileLedger,
 	heartbeatWriter,
 	landerFiles,
@@ -40,12 +40,11 @@ const {
 } = require("./lib/lander.js");
 const { localTester } = require("./lib/local-tester.js");
 const { pidLock } = require("./lib/pid-lock.js");
+const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const { similarTitles } = require("./lib/tracker-ops.js");
-const { refresh } = require("./lib/tracking-issue.js");
 const {
-	moduleOffLine,
+	buildModuleOffLine,
 	moduleOn,
 	requireKey,
 } = require("./lib/workflow-core-config.js");
@@ -107,56 +106,15 @@ const commandTester = (command, root) => ({
 		}),
 });
 
-/**
- * file-issue.js run in `root`, the body on stdin.
- * @param {string} root
- * @returns {(args: string[], input: string) => import("./lib/fix-ticket.js").Ran}
- */
-const fileIssueIn = (root) => (args, input) => {
-	const r = spawnSync(
-		process.execPath,
-		[path.join(__dirname, "file-issue.js"), ...args],
-		{ cwd: root, encoding: "utf8", input },
-	);
-	return {
-		status: r.status,
-		stdout: r.stdout ?? "",
-		stderr: r.stderr || r.error?.message || "",
-	};
-};
-
 /** @param {string} root */
 function liveFiler(root) {
 	const repo = () => requireKey("tracker", { root });
-	const similar = (/** @type {string} */ title) => {
-		try {
-			return similarTitles(repo(), title).found;
-		} catch {
-			/* file-issue.js runs the same check itself and refuses on it. */
-			return [];
-		}
-	};
-	const held = heldQueueFiler({
-		openNumber: (title) =>
-			ghIssueListAll("issues", [
-				"--repo",
-				repo(),
-				"--state",
-				"open",
-				"--json",
-				"number,title",
-			]).find((/** @type {{title: string}} */ i) => i.title === title)
-				?.number ?? null,
-		similar,
-		fileIssue: fileIssueIn(root),
-		refresh: (n, body) =>
-			`held-queue issue: ${refresh(n, body, { repo: repo() })}`,
-	});
+	const deps = liveQueueDeps(root);
 	return {
-		...held,
+		...heldQueueFiler(deps),
 		...ticketFiler({
 			messageOf: (sha) => {
-				const r = spawnSync("git", ["log", "-1", "--format=%B", sha], {
+				const r = spawnGitSync(["log", "-1", "--format=%B", sha], {
 					cwd: root,
 					encoding: "utf8",
 				});
@@ -164,8 +122,8 @@ function liveFiler(root) {
 					throw new Error(`git log could not read ${sha}: ${r.stderr.trim()}`);
 				return r.stdout;
 			},
-			similar,
-			fileIssue: fileIssueIn(root),
+			similar: deps.similar,
+			fileIssue: deps.fileIssue,
 			stateOf: (n) =>
 				gh([
 					"issue",
@@ -206,7 +164,7 @@ async function main(argv = process.argv.slice(2)) {
 		return 1;
 	}
 	if (!moduleOn("landing", { root })) {
-		say(`SKIP: ${moduleOffLine("landing")}`);
+		say(`SKIP: ${buildModuleOffLine("landing")}`);
 		return 0;
 	}
 	const files = landerFiles(root);
@@ -218,11 +176,13 @@ async function main(argv = process.argv.slice(2)) {
 				: commandTester(tester, root),
 		tracker: liveFiler(root),
 		ledger: fileLedger(files.ledger),
+		noVerdict: fileLedger(files.noVerdict),
 		lock: pidLock(files.pid, "lander.js"),
 		beat: heartbeatWriter(files.heartbeat),
 		lastHold: () => readHeartbeat(files.heartbeat)?.hold ?? null,
 		lastRed: () => readHeartbeat(files.heartbeat)?.red ?? null,
-		log: (a) => say(`${new Date().toISOString()} ${actionLine(a)}`),
+		lastMoved: () => readHeartbeat(files.heartbeat)?.movedAt ?? null,
+		log: (a) => say(`${new Date().toISOString()} ${buildActionLine(a)}`),
 		say,
 	});
 	return 0;
@@ -232,7 +192,7 @@ if (require.main === module)
 	main().then(
 		(code) => process.exit(code),
 		(err) => {
-			writeFd(2, `lander: ${errorText(err)}\n`);
+			writeFd(2, `lander: ${parseErrorText(err)}\n`);
 			process.exit(1);
 		},
 	);

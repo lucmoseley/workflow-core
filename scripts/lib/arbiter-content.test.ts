@@ -49,7 +49,7 @@ describe("content identity — what the file held when its claimant last touched
 		return { me, blob: store.recordContent(rel, me) };
 	};
 
-	const lockOf = () => core.readRecord(store.paths.lock(rel));
+	const readLock = () => core.readRecord(store.paths.lock(rel));
 
 	it("records the blob on the claim, and an unrecorded claim reads as unknown", () => {
 		// No blob is a question never asked, not a clobber.
@@ -59,7 +59,7 @@ describe("content identity — what the file held when its claimant last touched
 
 		const { blob } = claimAndRecord("alice", "first\n");
 		expect(blob).toMatch(/^[0-9a-f]{40,64}$/);
-		expect(lockOf().blob).toBe(blob);
+		expect(readLock().blob).toBe(blob);
 	});
 
 	it("pins the blob so `git gc --prune=now` cannot drop it", () => {
@@ -75,7 +75,7 @@ describe("content identity — what the file held when its claimant last touched
 					encoding: "utf8",
 				},
 			),
-		).toContain(`refs/arbiter/${lockOf().claimId}`);
+		).toContain(`refs/arbiter/${readLock().claimId}`);
 
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
 
@@ -89,13 +89,13 @@ describe("content identity — what the file held when its claimant last touched
 
 	it("reports a change reaching the file by a route no hook watches", () => {
 		const { blob } = claimAndRecord("alice", "alice's work\n");
-		expect(store.contentState(rel, lockOf()).state).toBe("same");
+		expect(store.contentState(rel, readLock()).state).toBe("same");
 
 		// The clobber, by the shape the incident took: a whole-file write from
 		// outside this session entirely.
 		write("restored from a backup\n");
 
-		const seen = store.contentState(rel, lockOf());
+		const seen = store.contentState(rel, readLock());
 		expect(seen.state).toBe("changed");
 		expect(seen.was).toBe(blob);
 		expect(
@@ -114,7 +114,7 @@ describe("content identity — what the file held when its claimant last touched
 		const { me } = claimAndRecord("alice", "v1.35\n");
 		write("v1.36\n"); // the sed
 		store.recordContent(rel, me); // the PostToolUse Bash refresh
-		expect(store.contentState(rel, lockOf()).state).toBe("same");
+		expect(store.contentState(rel, readLock()).state).toBe("same");
 	});
 
 	it("treats a deletion as a change, not as an unanswerable question", () => {
@@ -122,7 +122,7 @@ describe("content identity — what the file held when its claimant last touched
 		// as "could not answer" everywhere else in this module.
 		claimAndRecord("alice", "here\n");
 		fs.rmSync(abs());
-		expect(store.contentState(rel, lockOf()).state).toBe("changed");
+		expect(store.contentState(rel, readLock()).state).toBe("changed");
 	});
 
 	it("refuses to record against a claim another session holds, leaving the claim with its holder", () => {
@@ -130,7 +130,7 @@ describe("content identity — what the file held when its claimant last touched
 		// write to, whatever the state of its holder.
 		claimAndRecord("alice", "alice's\n");
 		expect(store.recordContent(rel, live(sb, "bob"))).toBeNull();
-		expect(lockOf().sessionId).toBe("alice");
+		expect(readLock().sessionId).toBe("alice");
 	});
 
 	it("records nothing where there is no claim at all", () => {
@@ -159,7 +159,7 @@ describe("content identity — what the file held when its claimant last touched
 		const me = live(sb, "alice");
 		store.acquire(rel, me);
 		expect(store.recordContent(rel, me)).toBeNull();
-		expect(store.contentState(rel, lockOf()).state).toBe("unknown");
+		expect(store.contentState(rel, readLock()).state).toBe("unknown");
 	});
 
 	it("refuses a claim id that is not a safe ref name", () => {
@@ -172,7 +172,7 @@ describe("content identity — what the file held when its claimant last touched
 	});
 
 	describe("the pins are bounded by the arbiter's own sweep", () => {
-		const refs = () =>
+		const readRefs = () =>
 			execFileSync(
 				"git",
 				["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
@@ -186,18 +186,18 @@ describe("content identity — what the file held when its claimant last touched
 
 		it("drops the pins of claims that no longer exist, and keeps the live ones", () => {
 			claimAndRecord("alice", "held\n");
-			const liveRef = `refs/arbiter/${lockOf().claimId}`;
+			const liveRef = `refs/arbiter/${readLock().claimId}`;
 			execFileSync(
 				"git",
-				["update-ref", "refs/arbiter/a-dead-claim", lockOf().blob],
+				["update-ref", "refs/arbiter/a-dead-claim", readLock().blob],
 				{
 					cwd: sb.repo,
 				},
 			);
-			expect(refs()).toHaveLength(2);
+			expect(readRefs()).toHaveLength(2);
 
 			store.pruneAll(noSessions);
-			expect(refs()).toEqual([liveRef]);
+			expect(readRefs()).toEqual([liveRef]);
 		});
 
 		it("deletes nothing when the lock store cannot be read", () => {
@@ -205,12 +205,12 @@ describe("content identity — what the file held when its claimant last touched
 			// and dropping a live one destroys exactly the content this keeps
 			// recoverable (mantahostels#174).
 			claimAndRecord("alice", "held\n");
-			const before = refs();
+			const before = readRefs();
 			fs.rmSync(store.paths.locksDir(), { recursive: true, force: true });
 			fs.writeFileSync(store.paths.locksDir(), "not a directory");
 
 			store.pruneAll(noSessions);
-			expect(refs()).toEqual(before);
+			expect(readRefs()).toEqual(before);
 			expect(fs.readFileSync(sb.errorLog(), "utf8")).toContain("pruneBlobRefs");
 		});
 
@@ -218,7 +218,7 @@ describe("content identity — what the file held when its claimant last touched
 			const pin = (name: string) =>
 				execFileSync(
 					"git",
-					["update-ref", `refs/arbiter/${name}`, lockOf().blob],
+					["update-ref", `refs/arbiter/${name}`, readLock().blob],
 					{ cwd: sb.repo },
 				);
 			const lockFile = (name: string) =>
@@ -233,33 +233,35 @@ describe("content identity — what the file held when its claimant last touched
 
 			it("removes an aged lock and prunes its ref with the rest", () => {
 				claimAndRecord("alice", "held\n");
-				const liveRef = `refs/arbiter/${lockOf().claimId}`;
+				const liveRef = `refs/arbiter/${readLock().claimId}`;
 				for (const n of ["dead-1", "dead-2", "dead-3"]) pin(n);
 				lock("dead-2", past);
 
 				store.pruneAll(noSessions);
-				expect(refs()).toEqual([liveRef]);
+				expect(readRefs()).toEqual([liveRef]);
 				expect(fs.existsSync(lockFile("dead-2"))).toBe(false);
 			});
 
 			it("leaves a young lock and its ref, and still prunes the others", () => {
 				claimAndRecord("alice", "held\n");
-				const liveRef = `refs/arbiter/${lockOf().claimId}`;
+				const liveRef = `refs/arbiter/${readLock().claimId}`;
 				for (const n of ["dead-1", "dead-2", "dead-3"]) pin(n);
 				lock("dead-2", 1000);
 
 				store.pruneAll(noSessions);
-				expect(refs().sort()).toEqual([liveRef, "refs/arbiter/dead-2"].sort());
+				expect(readRefs().sort()).toEqual(
+					[liveRef, "refs/arbiter/dead-2"].sort(),
+				);
 				expect(fs.existsSync(lockFile("dead-2"))).toBe(true);
 			});
 
 			it("removes an aged lock on a live claim's pin and keeps the pin", () => {
 				claimAndRecord("alice", "held\n");
-				const id = lockOf().claimId;
+				const id = readLock().claimId;
 				lock(id, past);
 
 				store.pruneAll(noSessions);
-				expect(refs()).toEqual([`refs/arbiter/${id}`]);
+				expect(readRefs()).toEqual([`refs/arbiter/${id}`]);
 				expect(fs.existsSync(lockFile(id))).toBe(false);
 			});
 
@@ -272,7 +274,7 @@ describe("content identity — what the file held when its claimant last touched
 				fs.writeFileSync(path.join(sb.repo, ".git", "packed-refs.lock"), "");
 
 				store.pruneAll(noSessions);
-				expect(refs()).toContain("refs/arbiter/dead-1");
+				expect(readRefs()).toContain("refs/arbiter/dead-1");
 				expect(fs.readFileSync(sb.errorLog(), "utf8")).toMatch(
 					/pruneBlobRefs[\s\S]*update-ref --stdin refused 1 orphan pin[\s\S]*packed-refs\.lock/,
 				);
@@ -288,7 +290,7 @@ describe("content identity — what the file held when its claimant last touched
 				{ cwd: sb.repo },
 			);
 			expect(store.release(rel, me).verdict).toBe("released");
-			expect(refs()).toEqual([]);
+			expect(readRefs()).toEqual([]);
 		});
 	});
 
@@ -351,7 +353,7 @@ describe("content identity — what the file held when its claimant last touched
 					["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
 					{ cwd: sb.repo, encoding: "utf8" },
 				),
-			).toContain(`refs/arbiter/${lockOf().claimId}`);
+			).toContain(`refs/arbiter/${readLock().claimId}`);
 			expect(
 				execFileSync("git", ["cat-file", "-p", r.content.was], {
 					cwd: sb.repo,
@@ -384,8 +386,8 @@ describe("content identity — what the file held when its claimant last touched
 			);
 			expect(r.outcome).toBe("kept");
 			expect(r.restored).toBe(true);
-			expect(lockOf().blob).toBeNull();
-			expect(lockOf().sessionId).toBe("alice");
+			expect(readLock().blob).toBeNull();
+			expect(readLock().sessionId).toBe("alice");
 		});
 	});
 });
@@ -401,7 +403,7 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		fs.mkdirSync(path.dirname(abs()), { recursive: true });
 		fs.writeFileSync(abs(), text);
 	};
-	const lockOf = () => core.readRecord(store.paths.lock(rel));
+	const readLock = () => core.readRecord(store.paths.lock(rel));
 
 	beforeEach(() => {
 		gitRepo(sb);
@@ -423,14 +425,14 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 
 	it("keeps the sha a refresh replaced, so the clobbered version is namable", () => {
 		const me = claiming("alice");
-		const first = lockOf().blob;
+		const first = readLock().blob;
 
 		// The clobber that reports nothing: the holder's own `cp` from a backup,
 		// followed by the refresh that trusts it.
 		revise(me, "restored from a backup\n");
 
-		expect(lockOf().blob).not.toBe(first);
-		expect(lockOf().priorBlobs.map((v: { sha: string }) => v.sha)).toEqual([
+		expect(readLock().blob).not.toBe(first);
+		expect(readLock().priorBlobs.map((v: { sha: string }) => v.sha)).toEqual([
 			first,
 		]);
 		expect(
@@ -444,10 +446,10 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 	it("caps the chain, so forty refreshes do not grow the record without limit", () => {
 		const me = claiming("alice");
 		for (let i = 2; i <= 40; i++) revise(me, `v${i}\n`);
-		expect(lockOf().priorBlobs.length).toBe(content.PRIOR_BLOBS_MAX);
+		expect(readLock().priorBlobs.length).toBe(content.PRIOR_BLOBS_MAX);
 		// Newest first: the cap evicts the oldest, never the version just replaced.
 		expect(
-			execFileSync("git", ["cat-file", "-p", lockOf().priorBlobs[0].sha], {
+			execFileSync("git", ["cat-file", "-p", readLock().priorBlobs[0].sha], {
 				cwd: sb.repo,
 				encoding: "utf8",
 			}),
@@ -459,7 +461,7 @@ describe("the versions a claim has held — the holder's own clobber (mantahoste
 		// sha. Without this the cap fills with copies of one version.
 		const me = claiming("alice");
 		for (let i = 0; i < 20; i++) store.recordContent(rel, me);
-		expect(lockOf().priorBlobs).toEqual([]);
+		expect(readLock().priorBlobs).toEqual([]);
 	});
 
 	it("lists the versions newest first, current one first", () => {

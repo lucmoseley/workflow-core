@@ -14,7 +14,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	allRegistrations,
-	commandLine,
+	buildCommandLine,
 	hookIsWired,
 	readCoreHooks,
 	registrationsOf,
@@ -59,7 +59,7 @@ describe("registrationsOf", () => {
 	});
 
 	it("reports a missing timeout as undefined rather than defaulting one", () => {
-		// An unbounded hook is a real state: guard-last30days.sh has no timeout.
+		// A hook with no timeout is one the harness runs unbounded.
 		expect(
 			registrationsOf("PreToolUse", "guard-b.sh", settings)[0].timeout,
 		).toBe(undefined);
@@ -126,14 +126,14 @@ describe("the exec form's args (mantahostels#2266)", () => {
 	});
 
 	it("joins command and args into the one line the transcript records", () => {
-		expect(commandLine(allRegistrations(execFormSettings)[1])).toBe(
+		expect(buildCommandLine(allRegistrations(execFormSettings)[1])).toBe(
 			"node $DIR/scripts/backstop.sh start",
 		);
 	});
 
 	it("leaves a shell-form registration with no args key at all", () => {
 		expect("args" in allRegistrations(settings)[0]).toBe(false);
-		expect(commandLine({ command: "$DIR/scripts/guard-a.sh" })).toBe(
+		expect(buildCommandLine({ command: "$DIR/scripts/guard-a.sh" })).toBe(
 			"$DIR/scripts/guard-a.sh",
 		);
 	});
@@ -198,7 +198,7 @@ describe("the if narrowing (mantahostels#2811)", () => {
 	});
 
 	it("keeps if out of the command line", () => {
-		expect(commandLine(allRegistrations(narrowedSettings)[0])).toBe(
+		expect(buildCommandLine(allRegistrations(narrowedSettings)[0])).toBe(
 			"$DIR/scripts/guard-n.sh",
 		);
 	});
@@ -240,7 +240,7 @@ describe("against the real registration", () => {
 	});
 
 	it("finds a guard this repo genuinely wires", () => {
-		expect(hookIsWired("PreToolUse", "guard-file-claim.sh", "Edit")).toBe(true);
+		expect(hookIsWired("PreToolUse", "guard-dispatch.js", "Edit")).toBe(true);
 	});
 
 	/* The Jev advisory guard (#203), in the shape its five Stop siblings use: no

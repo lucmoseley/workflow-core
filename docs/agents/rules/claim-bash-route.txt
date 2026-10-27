@@ -8,8 +8,8 @@ alone. A `cp`, `mv`, `tee`, a `>` redirect, `git restore`, `git checkout --
 <path>`, `sed -i`, a heredoc and a script writing for you all reach
 the file unrefused — and the list is open.
 
-A Bash-parsing DENY was declined on price (mantahostels#287); guard-claimed-bash-write.sh
-warns instead, on a TIER-1 target and nine of those spellings (mantahostels#1818), plus the
+A Bash-parsing DENY was declined on price (mantahostels#287); guard-dispatch.js's guard-claimed-bash-write
+core warns instead, on a TIER-1 target and nine of those spellings (mantahostels#1818), plus the
 tier-1 paths an inline `python`/`node` QUOTES (mantahostels#2854). The content record
 (mantahostels#295) speaks AFTER the write: a scan following every Bash call
 baselines whatever moved, so a clobber is reported at your next write to that

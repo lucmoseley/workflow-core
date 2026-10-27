@@ -4,7 +4,7 @@
  * The shared worktree is repo-global, so a session running the suite is reading
  * files its neighbours are still writing. On 12 August 2026 that produced mantahostels#273:
  * three sessions editing at once, and one session's `npm run test` importing
- * another's half-written `check-superseded-values.js` and `lib/guard-parse.sh`.
+ * another's half-written `check-superseded-values.js` and a shell lib.
  * The suite went red with a different set of failures each run and green on the
  * re-run.
  *
@@ -35,10 +35,10 @@
  */
 
 const crypto = require("node:crypto");
-const { execFileSync } = require("node:child_process");
 const nodeFs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { execGit } = require("./git.js");
 
 /**
  * A tree as one moment saw it, and the claim rows `neighbourDirty` reads.
@@ -62,7 +62,7 @@ const path = require("node:path");
  * @returns {string}
  */
 const git = (root, args, env) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		cwd: root,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "ignore"],
@@ -123,7 +123,7 @@ const NAMED_PATHS = 12;
  * @param {typeof nodeFs} fs
  * @param {string} file
  */
-function hash(fs, file) {
+function readFileHash(fs, file) {
 	try {
 		return crypto
 			.createHash("sha1")
@@ -149,7 +149,7 @@ function hash(fs, file) {
  * @param {{fs?: typeof nodeFs}} [opts]
  * @returns {Snapshot|null}
  */
-function snapshot(root, { fs = nodeFs } = {}) {
+function readTreeSnapshot(root, { fs = nodeFs } = {}) {
 	let head;
 	let porcelain;
 	try {
@@ -165,7 +165,7 @@ function snapshot(root, { fs = nodeFs } = {}) {
 	/** @type {Record<string, string>} */
 	const files = {};
 	for (const p of dirtyPaths(porcelain))
-		files[p] = hash(fs, path.join(root, p));
+		files[p] = readFileHash(fs, path.join(root, p));
 	return { head, files, untracked: untrackedPaths(porcelain) };
 }
 
@@ -416,7 +416,7 @@ function fromArbiter(snap, loadStore = () => require("./arbiter-store.js")) {
  * path, which `stash create` also refused, reads as a tree holding it.
  *
  * Null where git will not answer at all — an unreadable tree, same as
- * `snapshot`'s null — which every reader of the marker's `treeAtEnd` treats as
+ * `readTreeSnapshot`'s null — which every reader of the marker's `treeAtEnd` treats as
  * unknown, never as "matched".
  *
  * @param {string} root
@@ -466,7 +466,7 @@ function privateIndexTree(root) {
 }
 
 module.exports = {
-	snapshot,
+	readTreeSnapshot,
 	drift,
 	format,
 	neighbourDirty,

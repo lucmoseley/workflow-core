@@ -7,7 +7,7 @@
  * Each case runs in arbiter-testkit's sandbox over a real `git init`, because a
  * baseline is a real blob, with the claim holder and second writer set by hand.
  *
- * The arbiter runs behind `guard-file-claim.sh`, a `PreToolUse` hook on every
+ * The arbiter runs behind `lib/file-claim.js`, a `PreToolUse` core on every
  * Write and Edit: loosen a case here and a clobber of a second writer's
  * scripts/ edit goes unreported, or its own refresh is reported as one.
  */
@@ -39,8 +39,8 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		fs.mkdirSync(path.dirname(abs()), { recursive: true });
 		fs.writeFileSync(abs(), text);
 	};
-	const lockOf = () => core.readRecord(store.paths.lock(rel));
-	const refs = () =>
+	const readLock = () => core.readRecord(store.paths.lock(rel));
+	const readRefs = () =>
 		execFileSync(
 			"git",
 			["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
@@ -51,7 +51,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		)
 			.split("\n")
 			.filter(Boolean);
-	const contentOf = (blob: string) =>
+	const readBlobContent = (blob: string) =>
 		execFileSync("git", ["cat-file", "-p", blob], {
 			cwd: sb.repo,
 			encoding: "utf8",
@@ -84,8 +84,8 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		expect(bob.blob).toMatch(/^[0-9a-f]{40,64}$/);
 		expect(bob.blob).not.toBe(alice.blob);
 		// The lock is the holder's record, and a second writer never touches it.
-		expect(lockOf().sessionId).toBe("alice");
-		expect(lockOf().blob).toBe(alice.blob);
+		expect(readLock().sessionId).toBe("alice");
+		expect(readLock().blob).toBe(alice.blob);
 	});
 
 	it("shows the second writer its OWN last write, never the holder's", () => {
@@ -100,17 +100,17 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		const seen = store.observationState(rel, "bob");
 		expect(seen.state).toBe("changed");
 		expect(seen.was).not.toBe(alice.blob);
-		expect(contentOf(seen.was)).toBe("bob's work\n");
+		expect(readBlobContent(seen.was)).toBe("bob's work\n");
 	});
 
 	it("leaves the holder's own report exactly as it was", () => {
 		const alice = holder("alice", "alice's work\n");
 		observer("bob", "bob's work\n");
 
-		const seen = store.contentState(rel, lockOf());
+		const seen = store.contentState(rel, readLock());
 		expect(seen.state).toBe("changed");
 		expect(seen.was).toBe(alice.blob);
-		expect(contentOf(seen.was)).toBe("alice's work\n");
+		expect(readBlobContent(seen.was)).toBe("alice's work\n");
 	});
 
 	it("says nothing when the second writer refreshed its own file", () => {
@@ -161,7 +161,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		write("clobbered\n");
 
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
-		expect(contentOf(bob.blob)).toBe("bob's work to survive\n");
+		expect(readBlobContent(bob.blob)).toBe("bob's work to survive\n");
 	});
 
 	it("keeps a second writer's pin through the sweep that collects orphans", () => {
@@ -171,8 +171,8 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		holder("alice", "alice's\n");
 		const bob = observer("bob", "bob's\n");
 		store.pruneAll(noSessions);
-		expect(refs()).toHaveLength(2);
-		expect(contentOf(bob.blob)).toBe("bob's\n");
+		expect(readRefs()).toHaveLength(2);
+		expect(readBlobContent(bob.blob)).toBe("bob's\n");
 	});
 
 	it("deletes nothing when the observations cannot be read at all (mantahostels#174)", () => {
@@ -182,7 +182,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		fs.writeFileSync(store.paths.observationsDir(), "not a directory");
 
 		store.pruneAll(noSessions);
-		expect(refs()).toHaveLength(2);
+		expect(readRefs()).toHaveLength(2);
 		expect(fs.readFileSync(sb.errorLog(), "utf8")).toContain("pruneBlobRefs");
 	});
 
@@ -199,12 +199,12 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 			expect(r.observed.state).toBe("changed");
 			expect(r.observed.was).toBe(bob.blob);
 			expect(fs.existsSync(store.paths.observation(rel, "bob"))).toBe(false);
-			expect(refs()).toEqual([`refs/arbiter/${lockOf().claimId}`]);
+			expect(readRefs()).toEqual([`refs/arbiter/${readLock().claimId}`]);
 		});
 
 		it("drops it on a path whose holder has since released, too", () => {
 			holder("alice", "alice's\n");
-			const aliceRef = `refs/arbiter/${lockOf().claimId}`;
+			const aliceRef = `refs/arbiter/${readLock().claimId}`;
 			observer("bob", "bob's\n");
 			fs.rmSync(store.paths.lock(rel)); // alice's claim, gone
 
@@ -213,7 +213,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 			expect(r.observed.state).toBe("same");
 			expect(fs.existsSync(store.paths.observation(rel, "bob"))).toBe(false);
 			// Bob's pin went with bob's record; alice's is now an orphan for the sweep.
-			expect(refs()).toEqual([aliceRef]);
+			expect(readRefs()).toEqual([aliceRef]);
 		});
 
 		it("drops it on the --force route, where the caller is never the holder", () => {
@@ -247,7 +247,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		});
 	});
 
-	describe("observedBy — the paths one session is a second writer on", () => {
+	describe("readObservedBy — the paths one session is a second writer on", () => {
 		it("names this session's observations and nobody else's", () => {
 			holder("alice", "alice's\n");
 			observer("bob", "bob's\n");
@@ -255,15 +255,18 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 			store.acquire("scripts/other.js", live(sb, "carol"));
 			store.recordObservation("scripts/other.js", live(sb, "bob"));
 
-			expect(store.observedBy("bob").sort()).toEqual([rel, "scripts/other.js"]);
-			expect(store.observedBy("alice")).toEqual([]);
+			expect(store.readObservedBy("bob").sort()).toEqual([
+				rel,
+				"scripts/other.js",
+			]);
+			expect(store.readObservedBy("alice")).toEqual([]);
 		});
 
 		it("returns null, not an empty set, when the store cannot be read (mantahostels#174)", () => {
 			fs.mkdirSync(store.stateDir(), { recursive: true });
 			fs.writeFileSync(store.paths.observationsDir(), "not a directory");
-			expect(store.observedBy("bob")).toBeNull();
-			expect(store.observedBy("")).toBeNull();
+			expect(store.readObservedBy("bob")).toBeNull();
+			expect(store.readObservedBy("")).toBeNull();
 		});
 	});
 
@@ -277,7 +280,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 
 			store.pruneAll(noSessions);
 			expect(fs.existsSync(file)).toBe(false);
-			expect(refs()).toEqual([`refs/arbiter/${lockOf().claimId}`]);
+			expect(readRefs()).toEqual([`refs/arbiter/${readLock().claimId}`]);
 		});
 
 		it("keeps a record written against inside the week", () => {
@@ -289,7 +292,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 	});
 });
 
-describe("observedBy reads its own records, not the whole store (mantahostels#419)", () => {
+describe("readObservedBy reads its own records, not the whole store (mantahostels#419)", () => {
 	// The observations directory is one flat store shared by every session, and the
 	// scan made it grow with every watched path any session Bash-touches. Opening
 	// all of it after every Bash call in every session is what would walk the hook
@@ -308,7 +311,7 @@ describe("observedBy reads its own records, not the whole store (mantahostels#41
 		store.recordObservation(rel, alice, { viaBash: true });
 		store.recordObservation("scripts/other.py", bob, { viaBash: true });
 
-		expect(store.observedBy("alice")).toEqual([rel]);
+		expect(store.readObservedBy("alice")).toEqual([rel]);
 	});
 
 	it("treats the filename as an index, never as the authority", () => {
@@ -318,7 +321,7 @@ describe("observedBy reads its own records, not the whole store (mantahostels#41
 		const record = JSON.parse(fs.readFileSync(file, "utf8"));
 		fs.writeFileSync(file, JSON.stringify({ ...record, sessionId: "bob" }));
 
-		expect(store.observedBy("alice")).toEqual([]);
+		expect(store.readObservedBy("alice")).toEqual([]);
 	});
 
 	it("still reports an unreadable store as unavailable, not as empty (mantahostels#174)", () => {
@@ -327,7 +330,7 @@ describe("observedBy reads its own records, not the whole store (mantahostels#41
 		fs.mkdirSync(store.paths.observationsDir(), { recursive: true });
 		fs.chmodSync(store.paths.observationsDir(), 0o000);
 		try {
-			expect(store.observedBy("alice")).toBeNull();
+			expect(store.readObservedBy("alice")).toBeNull();
 		} finally {
 			fs.chmodSync(store.paths.observationsDir(), 0o755);
 		}

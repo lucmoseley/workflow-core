@@ -20,8 +20,8 @@ docs, read 16 Oct 2026).
   a guard judging subjects as too noisy): whether a subject names an answer is
   a judgement no hook makes.
 - **Then put `Blind-checked: <HEAD sha>` in the dispatch prompt; a fork is never
-  blind.** **Enforced** (#1783): `scripts/guard-blind-dispatch.sh` refuses an
-  `Agent` dispatch whose prompt or description says "blind" and carries no
+  blind.** **Enforced** (#1783): `scripts/guard-dispatch.js` (its
+  `guard-blind-dispatch` core) refuses an `Agent` dispatch whose prompt or description says "blind" and carries no
   `Blind-checked:` line naming the current HEAD, and refuses a blind fork
   outright.
 <!-- guard-registry:end -->
@@ -34,7 +34,7 @@ CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1 claude -p "<the blind brief>"
 
 The child starts with no branch, status or commit lines, and so does every
 subagent it dispatches. The variable reaches the child's hooks too, so
-`guard-blind-dispatch.sh` stands down there. `--settings
+the `guard-blind-dispatch` core stands down there. `--settings
 '{"includeGitInstructions":false}'` hides the snapshot as well, but no hook can
 see a settings flag, so the guard still asks that child's dispatches for a
 `Blind-checked:` line.

@@ -45,19 +45,19 @@ const { parseOrExit } = require("./lib/cli-args");
 const { errMessage } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root");
 const {
-	adopterRoots,
+	readAdopterRoots,
 	broken,
 	buildFiler,
-	firedLine,
+	buildFiredLine,
 	minute,
 	now,
 	ratio,
-	pointLines,
+	buildPointLines,
 	readingAt,
 	isRead,
 	readingPoint,
 	readLogs,
-	repoLines,
+	buildRepoLines,
 	verdict,
 } = require("./lib/log-reading");
 const { isCoreHost } = require("./lib/plugin-state");
@@ -93,13 +93,13 @@ const TITLE = `Flip-line reading: should the low-top line of ${LOW_TOP} move to 
  * @typedef {import("./lib/log-reading").Verdict} Verdict
  */
 
-const { filedAs, publish } = buildFiler({
+const { readFiledAs, publish } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
 	record: ".flip-line-reading-filed",
 	script: "node scripts/report-flip-line-reading.js",
-	issueBody: (reading) =>
+	buildIssueBody: (reading) =>
 		[
 			`The reading of the low-top test's flip line (#2228), filed once by \`scripts/report-flip-line-reading.js\` at its reading point (#2331, spec #2260). Closing this issue never re-files it.`,
 			"",
@@ -166,7 +166,7 @@ function lowTopResends(events) {
  * @param {LoggedEvent[]} refusals every low-top refusal in the window
  * @param {number} days
  */
-function rateLine(refusals, days) {
+function buildRateLine(refusals, days) {
 	const alone = refusals.filter(isLowTopAlone).length;
 	const both = refusals.length - alone;
 	const rate = days > 0 ? (alone / days).toFixed(1) : "—";
@@ -177,7 +177,7 @@ function rateLine(refusals, days) {
 }
 
 /** @param {LoggedEvent[]} resends */
-function flipLine(resends) {
+function buildFlipLine(resends) {
 	const known = resends.filter((e) => typeof e.flipped === "boolean");
 	const flips = known.filter((e) => e.flipped).length;
 	/** @type {Verdict} */
@@ -198,7 +198,7 @@ function flipLine(resends) {
  * @param {import("./lib/log-reading").Point} point
  * @returns {string}
  */
-const pointSentence = (point) =>
+const buildPointSentence = (point) =>
 	point.fixed
 		? `Reading point: ${minute(point.point)} — the later of ${FIGURES.clockDays} days after ${QUORUM} repos had logged a low-top refusal (${minute(point.clock)}) and the ${FIGURES.countTarget}th low-top re-send, capped at ${minute(point.ceiling)}.`
 		: `Reading point: ${minute(point.ceiling)} at the latest (${FIGURES.ceilingDays} days after the first low-top refusal); earlier once ${QUORUM} repos have logged one and ${FIGURES.countTarget} low-top questions are re-sent.`;
@@ -215,13 +215,13 @@ function main() {
 		);
 		return;
 	}
-	const filed = filedAs();
+	const filed = readFiledAs();
 	if (filed && !dryRun) {
 		console.log(`The flip-line reading is filed as ${filed}; nothing to file.`);
 		return;
 	}
 	const nowMs = now();
-	const roots = adopterRoots();
+	const roots = readAdopterRoots();
 
 	let events;
 	try {
@@ -238,7 +238,7 @@ function main() {
 	const out = [
 		`Flip-line reading (#2228, spec #2260): the low-top line at ${LOW_TOP}`,
 		"",
-		...repoLines([...roots.keys()], live, roots, "low-top refusal"),
+		...buildRepoLines([...roots.keys()], live, roots, "low-top refusal"),
 	];
 	const point = readingPoint(
 		live,
@@ -256,7 +256,7 @@ function main() {
 	const at = readingAt(point, nowMs);
 	const start = Math.min(...live.values());
 	const days = (at.cutoff - start) / DAY_MS;
-	out.push(...pointLines(pointSentence(point), at));
+	out.push(...buildPointLines(buildPointSentence(point), at));
 
 	const counted = resends.filter((e) => isRead(at, e.at));
 	if (counted.length < FIGURES.countTarget)
@@ -265,14 +265,14 @@ function main() {
 			`THIN: ${counted.length} low-top re-send(s), under the ${FIGURES.countTarget} a reading needs to tell a flip share near 20% from ${FLIP_PCT}% (#2260's gate basis).`,
 		);
 	const lines = [
-		rateLine(
+		buildRateLine(
 			refusals.filter((e) => isRead(at, e.at)),
 			days,
 		),
-		flipLine(counted),
+		buildFlipLine(counted),
 	];
 	out.push("", ...lines.map((l) => l.text));
-	out.push("", firedLine(lines.map((l) => l.verdict)));
+	out.push("", buildFiredLine(lines.map((l) => l.verdict)));
 	publish(out.join("\n"), { reached: at.reached, dryRun, filed });
 }
 

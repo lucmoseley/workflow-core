@@ -8,9 +8,10 @@
  * at a throwaway directory so the counter, the seen set and the breadcrumbs
  * land there and never spend the shared tree's real allowance.
  *
- * It is a `Stop` hook in `self-plugin/hooks/hooks.json`: loosen a case and a
- * session ends silently on a refusal, stalling its ticket, or is sent back over
- * a transcript that merely quotes the denial.
+ * It is a `Stop` hook in `self-plugin/hooks/hooks.json` and the shipped
+ * plugin's `hooks/hooks.json`: loosen a case and a session ends silently on a
+ * refusal, stalling its ticket, or is sent back over a transcript that merely
+ * quotes the denial.
  */
 
 import fs from "node:fs";
@@ -18,7 +19,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type StopRun, stopGuardBlock } from "./lib/stop-guard-testkit";
+import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
@@ -63,7 +64,7 @@ const transcript = (records: object[]) =>
  * reads the turn's text from the transcript.
  */
 const run = (over: Partial<StopRun> = {}) => {
-	const block = stopGuardBlock(GUARD, {
+	const block = readStopGuardBlock(GUARD, {
 		dir,
 		sid,
 		config: dir,
@@ -73,7 +74,7 @@ const run = (over: Partial<StopRun> = {}) => {
 	return { blocked: block !== null, reason: block?.reason ?? "" };
 };
 
-const crumb = () => {
+const readCrumb = () => {
 	const lines = fs
 		.readFileSync(
 			path.join(
@@ -111,7 +112,7 @@ describe("a turn carrying a refusal", () => {
 		expect(r.reason).toContain("Reason: [Auto-Mode Bypass]");
 		expect(r.reason).toContain("AN AUTO-MODE REFUSAL");
 		expect(r.reason).not.toContain("A SECRET he must supply");
-		expect(crumb()).toMatchObject({ outcome: "message" });
+		expect(readCrumb()).toMatchObject({ outcome: "message" });
 	});
 
 	it("carries #1023's bare re-run clause, with its three limits and its pointer", () => {
@@ -170,7 +171,7 @@ describe("a turn it passes", () => {
 		]);
 
 		expect(run().blocked).toBe(false);
-		expect(crumb()).toMatchObject({ outcome: "no-finding" });
+		expect(readCrumb()).toMatchObject({ outcome: "no-finding" });
 	});
 
 	it("passes a refusal from before the last human prompt", () => {
@@ -263,14 +264,14 @@ describe("the cap", () => {
 describe("failing open", () => {
 	it("passes and crumbs where the transcript is not there", () => {
 		expect(run().blocked).toBe(false);
-		expect(crumb()).toMatchObject({ outcome: "no-transcript" });
+		expect(readCrumb()).toMatchObject({ outcome: "no-transcript" });
 	});
 
 	it("passes where the transcript is not a file it can read", () => {
 		fs.mkdirSync(path.join(dir, `${sid}.jsonl`));
 
 		expect(run().blocked).toBe(false);
-		expect(crumb()).toMatchObject({ outcome: "unreadable-transcript" });
+		expect(readCrumb()).toMatchObject({ outcome: "unreadable-transcript" });
 	});
 
 	it("points at the rule, never paraphrases it, where the fragment cannot be read", () => {

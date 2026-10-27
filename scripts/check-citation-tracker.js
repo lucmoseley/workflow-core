@@ -8,7 +8,7 @@
  *   (no arguments: the staged diff is read out of git)
  *
  * The test itself — the pre-rewrite use count, and what it misses — is
- * lib/citation-tracker.js's, shared with guard-citation-tracker.sh (#2015).
+ * lib/citation-tracker.js's, shared with lib/citation-write.js (#2015).
  *
  * STAGED, AND ADDED LINES ONLY. The ~13,000 citations already in the tree are
  * not this gate's business — it is prospective, exactly like the branch and
@@ -25,13 +25,13 @@
  */
 
 const { runCheck } = require("./lib/check.js");
-const { ruleTextOr } = require("./lib/rule-text");
+const { readRuleTextOr } = require("./lib/rule-text");
 const {
 	PREFIX,
-	REWRITE,
-	baselineCommit,
+	baselineRev,
+	readBaselineCommit,
 	gitOutcome,
-	inheritedNumbers,
+	readInheritedNumbers,
 	judgeLine,
 } = require("./lib/citation-tracker.js");
 const { requiredGroup } = require("./lib/regex-group");
@@ -54,7 +54,7 @@ const DEFEAT = "WFC_CITATION_TRACKER_OFF";
  * @param {string} diff
  * @returns {{file: string, line: string}[]}
  */
-function addedLines(diff) {
+function parseAddedLines(diff) {
 	const out = [];
 	let file = "";
 	let inHunk = false;
@@ -78,7 +78,7 @@ function addedLines(diff) {
 }
 
 /**
- * Every tracked citation, in the same shape `addedLines` returns — so `--all`
+ * Every tracked citation, in the same shape `parseAddedLines` returns — so `--all`
  * and the staged route share one judging loop.
  *
  * `:(top)` rather than `.`, so a run from a subdirectory still scans the whole
@@ -87,7 +87,7 @@ function addedLines(diff) {
  *
  * @returns {{ ok: true, out: {file: string, line: string}[] } | { ok: false, why: string }}
  */
-function everyLine() {
+function readEveryLine() {
 	const r = gitOutcome(
 		["grep", "-n", "-E", `${PREFIX}#[0-9]+`, "--", ":(top)"],
 		[1],
@@ -108,13 +108,13 @@ function everyLine() {
 }
 
 /*
- * The rule this checker prints, through `ruleTextOr` (mantahostels#1649's
- * split): `ruleText` throws on an unreadable store, and a throw here would
+ * The rule this checker prints, through `readRuleTextOr` (mantahostels#1649's
+ * split): `readRuleText` throws on an unreadable store, and a throw here would
  * report BROKEN — "the checker cannot do its job" — over a fault that has
  * nothing to do with the commit's diff.
  */
-function citationRule() {
-	return ruleTextOr(
+function readCitationRule() {
+	return readRuleTextOr(
 		"citation-tracker",
 		"A citation of this repo's tracker is bare `#N`; the mantahostels# prefix names the inherited tracker.",
 		"check-citation-tracker",
@@ -129,9 +129,9 @@ function citationRule() {
  * @param {boolean} all
  * @returns {{file: string, line: string}[]}
  */
-function subjectLines(ctx, all) {
+function readSubjectLines(ctx, all) {
 	if (all) {
-		const tree = everyLine();
+		const tree = readEveryLine();
 		if (!tree.ok)
 			return ctx.broken(
 				`could not list the tree's citations (${tree.why}), so none was judged.`,
@@ -146,7 +146,7 @@ function subjectLines(ctx, all) {
 		return ctx.broken(
 			`could not read the staged diff (${diff.why}), so no citation was judged.`,
 		);
-	return addedLines(diff.out);
+	return parseAddedLines(diff.out);
 }
 
 /**
@@ -182,24 +182,24 @@ runCheck({
 			);
 
 		/* A SKIP on apparatus would report a checker that never ran as a pass. */
-		const baseline = baselineCommit();
+		const baseline = readBaselineCommit();
 		if (!baseline.ok)
 			return ctx.broken(
-				`could not ask git for ${REWRITE} (${baseline.why}), so no citation was judged.`,
+				`could not ask git for ${baselineRev()} (${baseline.why}), so no citation was judged.`,
 			);
 		if (!baseline.out.trim())
 			ctx.skip(
-				`${REWRITE} is not in this repository, so there is no inherited tracker to confuse this one with.`,
+				`${baselineRev()} is not in this repository, so there is no inherited tracker to confuse this one with.`,
 			);
 
-		const inherited = inheritedNumbers();
+		const inherited = readInheritedNumbers();
 		if (!inherited.ok)
 			return ctx.broken(
-				`could not read the citations at ${REWRITE} (${inherited.why}), so no citation was judged.`,
+				`could not read the citations at ${baselineRev()} (${inherited.why}), so no citation was judged.`,
 			);
 
 		const all = ctx.has("--all");
-		const subject = subjectLines(ctx, all);
+		const subject = readSubjectLines(ctx, all);
 
 		/** @type {Set<number>} */
 		const found = new Set();
@@ -209,7 +209,7 @@ runCheck({
 			citations += judged.citations;
 			for (const n of judged.found) found.add(n);
 		}
-		if (found.size > 0) for (const line of citationRule()) ctx.say(line);
+		if (found.size > 0) for (const line of readCitationRule()) ctx.say(line);
 
 		return {
 			okLine: `${citations} citation(s) in the ${all ? "tree" : "staged diff"} name the inherited tracker for a number it actually used.`,

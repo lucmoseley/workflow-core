@@ -5,8 +5,7 @@
  * lines, run in a real bash against a throwaway host root (#2, #944), then
  * its parity with the JS reader (#1481).
  *
- * `lib/guard-parse.sh` sources it, so every bash `PreToolUse` guard in
- * `.claude/settings.json` reads its config through it; loosen a case and an
+ * Every bash hook reading config reads it through this; loosen a case and an
  * adopter's gated checks are silently skipped or run on a host that never
  * opted in, or the shell half drifts from the JS reader's defaults.
  */
@@ -281,7 +280,7 @@ describe("parity with the JS reader (#1481)", () => {
 			sh: (a: Asks) => `wfc_command ${a.command}`,
 			shAnswer: (out: string, rc: number) => (rc === 0 ? out : "undeclared"),
 			js: (root: string, a: Asks) =>
-				cfg.commandFor(a.command, { root }) ?? "undeclared",
+				cfg.readCommandFor(a.command, { root }) ?? "undeclared",
 		},
 		deploy: {
 			sh: () => "wfc_deploy",
@@ -299,7 +298,7 @@ describe("parity with the JS reader (#1481)", () => {
 			sh: () => "wfc_output_style",
 			shAnswer: (out: string) => out,
 			js: (root: string) =>
-				cfg.outputStylePath({
+				cfg.readOutputStylePath({
 					root,
 					say: () => {
 						/* only the path is compared */

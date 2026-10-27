@@ -25,7 +25,7 @@
  * observation store that will not open, a live session's ledger that will not
  * read — NOTHING IS REPORTED: SKIP. RESIDUAL: one lock
  * FILE that will not parse names no path, so it is passed over, as
- * `lib/neighbour-dirt.js`'s `claimedElsewhere` passes it; the holder's ledger
+ * `lib/neighbour-dirt.js`'s `readClaimedElsewhere` passes it; the holder's ledger
  * still excludes the file.
  *
  * FILED ONCE PER PATH AND BLOB. The blob is `git hash-object` of the working
@@ -56,7 +56,8 @@ const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError, runCheck } = require("./lib/check");
-const { dirtyTracked, gitRead, shellWord } = require("./lib/dirty-tree.js");
+const { readDirtyTracked, gitRead, shellWord } = require("./lib/dirty-tree.js");
+const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { readDistinctFromHint } = require("./lib/similar-titles.js");
 const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
@@ -105,10 +106,7 @@ function describeAge(hours) {
  * @param {string} root
  */
 function filedDir(root) {
-	const common = gitRead(
-		["rev-parse", "--path-format=absolute", "--git-common-dir"],
-		root,
-	)?.trim();
+	const common = gitCommonDir(root, { timeout: GIT_TIMEOUT_MS });
 	if (!common) return null;
 	const dir = path.join(common, FILED_DIR);
 	try {
@@ -159,14 +157,14 @@ function takeFiling(dir, o) {
  * sentence saying why that cannot be read.
  * @returns {{owned: Set<string>, why?: undefined, names: Map<string, string>} | {why: string, owned?: undefined, names?: undefined}}
  */
-function ownedByLive() {
+function readOwnedByLive() {
 	const locks = store.readLocks();
 	if (locks === null) return { why: "the arbiter's lock store would not read" };
 	const held = heldLockPaths(locks);
 
 	const listed = sweepSessionIds();
 	if (!listed.ids) return { why: listed.why };
-	const live = liveSessionPaths(listed);
+	const live = readLiveSessionPaths(listed);
 	if (live.paths === undefined) return { why: live.why };
 	const owned = new Set([...held, ...live.paths]);
 	return { owned, names: listed.names };
@@ -192,16 +190,16 @@ function heldLockPaths(locks) {
  * @param {any} listed
  * @returns {{paths: string[], why?: undefined} | {why: string, paths?: undefined}}
  */
-function liveSessionPaths(listed) {
+function readLiveSessionPaths(listed) {
 	/** @type {string[]} */
 	const paths = [];
 	for (const id of listed.ids) {
 		if (!isListedLive(id, listed.ids, listed.terminal)) continue;
-		const observed = store.observedBy(id);
+		const observed = store.readObservedBy(id);
 		if (observed === null)
 			return { why: "the arbiter's observation store would not read" };
 		for (const rel of observed) paths.push(store.subjectPath(rel));
-		const written = store.writesBy(id);
+		const written = store.readWritesBy(id);
 		if (written === null)
 			return { why: `session ${id}'s write ledger would not read` };
 		for (const rel of written) paths.push(rel);
@@ -319,7 +317,7 @@ function sortByAge(root, dirty, { hours, now }) {
  * @param {number} now
  */
 function describeWriter(rel, names, now) {
-	const w = store.lastWriterOf(rel);
+	const w = store.readLastWriterOf(rel);
 	if (!w) return "unknown — no surviving write ledger names it";
 	const name = names.get(w.sessionId);
 	return `session ${w.sessionId}${name ? ` (${name})` : ""}, ledger last written ${describeAge((now - w.at) / 3_600_000)} ago`;
@@ -337,7 +335,7 @@ function findOrphans(ctx, old, { root, hours, now }) {
 	/** @type {Orphan[]} */
 	const orphans = [];
 	if (old.length === 0) return orphans;
-	const live = ownedByLive();
+	const live = readOwnedByLive();
 	// Who owns a file is the subject asked about, not the apparatus: SKIP (§N4, #1240).
 	if (!live.owned)
 		ctx.skip(
@@ -480,7 +478,7 @@ runCheck({
 		);
 
 		const root = hostRoot();
-		const dirty = dirtyTracked(root);
+		const dirty = readDirtyTracked(root);
 		// git is the apparatus here, not the subject: BROKEN (§N4).
 		if (dirty === null)
 			throw brokenError(

@@ -45,7 +45,7 @@ export const markers = family("markers");
 export const snapshots = family("snapshots");
 
 /** The debt record on `rel` owned by `issue`, or with no issue the unowned stub; null where none. */
-export const debtOf = (rel: string, issue: number | null = null) =>
+export const readDebtOf = (rel: string, issue: number | null = null) =>
 	debts
 		.readDebts(rel)
 		.find(
@@ -274,7 +274,8 @@ export function registerSession(
 		JSON.stringify({
 			pid,
 			sessionId,
-			procStart: procStart === undefined ? proc.procStartOf(pid) : procStart,
+			procStart:
+				procStart === undefined ? proc.readProcStartOf(pid) : procStart,
 			status: "idle",
 			cwd: sb.repo,
 			...(name === undefined ? {} : { name }),
@@ -384,7 +385,7 @@ export const DEAD = { pid: 999_999, procStart: "1" };
 
 export const liveHolder = () => ({
 	pid: process.pid,
-	procStart: proc.procStartOf(process.pid),
+	procStart: proc.readProcStartOf(process.pid),
 });
 
 /** A claim on `rel` written straight into the sandbox's lock store. */

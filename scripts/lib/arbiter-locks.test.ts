@@ -10,7 +10,7 @@
  * disk and holders made live or certainly dead by hand, so a stale, corrupt or
  * half-broken lock is built exactly rather than raced for.
  *
- * The claim registry is what `guard-file-claim.sh`, a `PreToolUse` hook on
+ * The claim registry is what `lib/file-claim.js`, a `PreToolUse` core on
  * every Write and Edit, refuses on: loosen a case here and two sessions hold
  * one file and clobber each other, or a live session's claim is broken.
  */
@@ -363,7 +363,7 @@ describe("a stale lock whose session id still has a live entry (mantahostels#348
 		store.acquire("docs/doc-map.md", durably("bob"));
 
 		expect(JSON.parse(fs.readFileSync(p, "utf8")).bootId).toBe(
-			proc.currentBootId(),
+			proc.readCurrentBootId(),
 		);
 	});
 
@@ -806,7 +806,7 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 	// acquire() decides a lock is stale, then renames it aside, then re-judges what
 	// it actually moved. The interesting branches need the lock to CHANGE between
 	// those two steps, which no in-process test can arrange from outside acquire().
-	const asides = () =>
+	const readAsides = () =>
 		fs
 			.readdirSync(store.paths.locksDir())
 			.filter((f: string) => f.includes(".json.stale-"));
@@ -824,7 +824,7 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 		expect(locksMod.breakStale("docs/doc-map.md", existing)).toBe("freed");
 		expect(fs.existsSync(p)).toBe(false);
 		// The aside must be unlinked, not merely abandoned for the hourly sweep.
-		expect(asides()).toEqual([]);
+		expect(readAsides()).toEqual([]);
 	});
 
 	it("puts back a lock that turned live between the read and the rename", () => {
@@ -837,7 +837,7 @@ describe("the break path — reached directly, because acquire() cannot be", () 
 		expect(locksMod.breakStale("docs/doc-map.md", existing)).toBe("retry");
 		expect(fs.existsSync(p)).toBe(true);
 		expect(JSON.parse(fs.readFileSync(p, "utf8")).claimId).toBe("fresh");
-		expect(asides()).toEqual([]);
+		expect(readAsides()).toEqual([]);
 	});
 
 	it("puts back a lock it cannot read rather than treating it as free", () => {
@@ -876,11 +876,11 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		fs.writeFileSync(p, bytes);
 		return p;
 	};
-	const breaks = () =>
+	const readBreaks = () =>
 		fs.existsSync(store.paths.breaksDir())
 			? fs.readdirSync(store.paths.breaksDir())
 			: [];
-	const errors = () =>
+	const readErrors = () =>
 		fs.existsSync(store.errorLog())
 			? fs.readFileSync(store.errorLog(), "utf8")
 			: "";
@@ -929,7 +929,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 		expect(taken.verdict).toBe("claimed");
 		expect(taken.lock).not.toBeNull();
 		expect(core.readRecord(p)?.sessionId).toBe("a");
-		expect(errors()).not.toContain("no lock written");
+		expect(readErrors()).not.toContain("no lock written");
 	});
 
 	it("records the break, so a destroyed claim is visible rather than silent", () => {
@@ -938,15 +938,15 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 
 		store.acquire(rel, store.identify("a"));
 
-		expect(breaks()).toHaveLength(1);
+		expect(readBreaks()).toHaveLength(1);
 		const record = core.readRecord(
-			path.join(store.paths.breaksDir(), breaks()[0]),
+			path.join(store.paths.breaksDir(), readBreaks()[0]),
 		);
 		expect(record?.path).toBe(rel);
 		expect(record?.brokenBy).toBe("a");
 		// Unparseable means nothing is known about whose claim it was.
 		expect(record?.lostBy).toBeNull();
-		expect(errors()).toContain("unparseable lock record");
+		expect(readErrors()).toContain("unparseable lock record");
 	});
 
 	it("leaves no aside behind", () => {
@@ -1002,7 +1002,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 
 			expect(taken.verdict).toBe("held");
 			expect(taken.lock?.sessionId).toBe("mid-write");
-			expect(breaks()).toEqual([]);
+			expect(readBreaks()).toEqual([]);
 			expect(core.readRecord(p)?.sessionId).toBe("mid-write");
 			// And the settle branch is what answered.
 			// §X9: two processes at once: the write lands from a real child mid-pause, so only the clock shows the settle branch answered.
@@ -1020,7 +1020,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 
 		expect(locksMod.breakCorrupt(rel, durably("a"))).toBe("retry");
 		expect(core.readRecord(p)?.claimId).toBe("fresh");
-		expect(breaks()).toEqual([]);
+		expect(readBreaks()).toEqual([]);
 	});
 
 	it.skipIf(AS_ROOT)(
@@ -1039,7 +1039,7 @@ describe("a lock record that will never parse (mantahostels#1691)", () => {
 				fs.chmodSync(store.paths.lock(rel), 0o600);
 			}
 			expect(fs.readFileSync(store.paths.lock(rel), "utf8")).toBe("{not json");
-			expect(breaks()).toEqual([]);
+			expect(readBreaks()).toEqual([]);
 		},
 	);
 });
@@ -1187,21 +1187,24 @@ describe("listLocks", () => {
 		},
 	);
 
-	it("leaves heldBy answering without judging liveness at all", () => {
+	it("leaves readHeldBy answering without judging liveness at all", () => {
 		// It runs after every Bash call in every session, and a registry walk there
 		// is the cost mantahostels#322 ruled out of a hot path.
 		registerSession(sb, "resumed", process.pid);
 		put("docs/resumed.md", { sessionId: "resumed", ...DEAD });
-		expect(store.heldBy("resumed")).toEqual(["docs/resumed.md"]);
+		expect(store.readHeldBy("resumed")).toEqual(["docs/resumed.md"]);
 	});
 });
 
-describe("heldBy — the paths one session holds", () => {
+describe("readHeldBy — the paths one session holds", () => {
 	it("names this session's claims and nobody else's", () => {
 		store.acquire("docs/a.md", live(sb, "alice"));
 		store.acquire("scripts/b.js", live(sb, "alice"));
 		store.acquire("docs/c.md", live(sb, "bob"));
-		expect(store.heldBy("alice").sort()).toEqual(["docs/a.md", "scripts/b.js"]);
+		expect(store.readHeldBy("alice").sort()).toEqual([
+			"docs/a.md",
+			"scripts/b.js",
+		]);
 	});
 
 	it("returns null, not an empty hold, when the store cannot be read", () => {
@@ -1209,7 +1212,7 @@ describe("heldBy — the paths one session holds", () => {
 		// (mantahostels#174).
 		fs.mkdirSync(store.stateDir(), { recursive: true });
 		fs.writeFileSync(store.paths.locksDir(), "not a directory");
-		expect(store.heldBy("alice")).toBeNull();
+		expect(store.readHeldBy("alice")).toBeNull();
 	});
 });
 
@@ -1342,7 +1345,7 @@ describe("forceRelease — the supported escape for a stranded claim (mantahoste
 
 	const held = () =>
 		store.listLocks().some((l: { path: string }) => l.path === rel);
-	const refs = () =>
+	const readRefs = () =>
 		execFileSync(
 			"git",
 			["for-each-ref", "--format=%(refname)", "refs/arbiter/"],
@@ -1423,8 +1426,10 @@ describe("forceRelease — the supported escape for a stranded claim (mantahoste
 			brokenBy: "bob",
 			blob,
 		});
-		expect(breaksMod.brokenClaimIds()).toEqual(new Set([r.record.lostClaimId]));
-		expect(breaksMod.breakNotice(rel, "alice")).toContain("by bob");
+		expect(breaksMod.readBrokenClaimIds()).toEqual(
+			new Set([r.record.lostClaimId]),
+		);
+		expect(breaksMod.buildBreakNotice(rel, "alice")).toContain("by bob");
 	});
 
 	it("keeps the pin, so the version it took is still recoverable", () => {
@@ -1432,9 +1437,9 @@ describe("forceRelease — the supported escape for a stranded claim (mantahoste
 		// drops it, because there the holder is the one letting go.
 		const { blob, bob } = stranded();
 		const r = store.forceRelease(rel, bob, lists("bob"));
-		expect(refs()).toEqual([`refs/arbiter/${r.record.lostClaimId}`]);
+		expect(readRefs()).toEqual([`refs/arbiter/${r.record.lostClaimId}`]);
 		store.pruneAll(noSessions);
-		expect(refs()).toHaveLength(1);
+		expect(readRefs()).toHaveLength(1);
 		expect(
 			execFileSync("git", ["cat-file", "-p", blob], {
 				cwd: sb.repo,
@@ -1446,8 +1451,8 @@ describe("forceRelease — the supported escape for a stranded claim (mantahoste
 	it("tells the holder, once, at its next write to the path", () => {
 		const { bob } = stranded();
 		store.forceRelease(rel, bob, lists("bob"));
-		expect(store.breakNotice(rel, "alice")).toContain("git cat-file -p");
-		expect(store.breakNotice(rel, "alice")).toBeNull();
+		expect(store.buildBreakNotice(rel, "alice")).toContain("git cat-file -p");
+		expect(store.buildBreakNotice(rel, "alice")).toBeNull();
 	});
 
 	it("refuses a dirty file, exactly as release does", () => {

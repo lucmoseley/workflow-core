@@ -89,6 +89,33 @@ describe("which readings queue a judgement", () => {
 		expect(store.pending).toEqual([]);
 	});
 
+	it("queues a reading that changes every sweep once per 6 hours, the first sweep past the bound seeing the change (#3092)", async () => {
+		const queuedOn = [];
+		for (let i = 0; i <= 13; i++) {
+			const at = NOW + i * GATE_SWEEP_MS;
+			const { store } = await sweepOnce(envelope([row(2906, `load ${i}`)]), at);
+			if (store.pending.length > 0) queuedOn.push(i);
+			dropTried(file, [{ root: WFC, issues: [2906] }]);
+		}
+		expect(queuedOn).toEqual([0, 12]);
+	});
+
+	it("keeps the stored reading through the bound, so a reading that changed once inside it is queued after it", async () => {
+		await sweepOnce(envelope([row(2906, "load 30")]));
+		dropTried(file, [{ root: WFC, issues: [2906] }]);
+		const held = await sweepOnce(
+			envelope([row(2906, "load 2")]),
+			NOW + GATE_SWEEP_MS,
+		);
+		expect(held.store.pending).toEqual([]);
+		expect(held.store.readings[`${WFC}#2906`]).toBe("load 30");
+		const past = await sweepOnce(
+			envelope([row(2906, "load 2")]),
+			NOW + 6 * 60 * 60 * 1000,
+		);
+		expect(past.store.pending).toHaveLength(1);
+	});
+
 	it("queues one on a first sighting", async () => {
 		const { store } = await sweepOnce(envelope([row(7, "v1.3.15")]));
 		expect(store.pending.map((j: { number: number }) => j.number)).toEqual([7]);
@@ -257,6 +284,7 @@ describe("the decision core launches a queued judgement", () => {
 				root: WFC,
 				issues: [2046],
 				prompt: judgement.prompt,
+				gate: true,
 			}),
 		]);
 	});

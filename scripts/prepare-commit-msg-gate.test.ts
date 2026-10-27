@@ -79,7 +79,7 @@ const HAS_GITLEAKS = (() => {
  * the real bytes are spliced into it: delete or rename the block in the hook and
  * every stand-down case here fails.
  */
-function stampBlock(): string {
+function parseStampBlock(): string {
 	const lines = PRECOMMIT.split("\n");
 	const start = lines.findIndex((l) => l.startsWith("pc_stamp_dir="));
 	if (start === -1)
@@ -124,7 +124,7 @@ interface Probe {
 function precommitStub(log: string, code: number): string {
 	return (
 		`echo "pre-commit" >> "${log}"\n` +
-		(code === 0 ? `${stampBlock()}\nexit 0\n` : `exit ${code}\n`)
+		(code === 0 ? `${parseStampBlock()}\nexit 0\n` : `exit ${code}\n`)
 	);
 }
 
@@ -157,16 +157,14 @@ const buildTemplate = (root: string) => {
 	for (const f of ["prepare-commit-msg", "pre-merge-commit", "commit-msg"])
 		fs.copyFileSync(path.join(ROOT, ".husky", f), path.join(husky, f));
 
-	// The closing-keyword scanner and the pattern it shares with
-	// guard-commit-form.sh (#138), and the route module (#1503): both hooks
-	// FAIL CLOSED when either is absent, so without these copies every commit
+	// The closing-keyword scanner's launcher (#138) and the route module
+	// (#1503): both hooks FAIL CLOSED when either is absent, so without these copies every commit
 	// in this fixture is refused. commit-msg alone also fails closed without
 	// the subject check (#2332), and prints commit-message.txt on its refusal.
 	for (const rel of [
 		"scripts/lib/commit-route.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
-		"scripts/lib/closing-keyword.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
 		"docs/agents/rules/commit-message.txt",
@@ -179,13 +177,14 @@ const buildTemplate = (root: string) => {
 		path.join(root, "scripts/check-commit-message-closes.sh"),
 		0o755,
 	);
-	// commit-msg's Weakens: gate (#2235), linked rather than copied: node
-	// resolves its requires from the link's target, so its lib closure comes
-	// with it.
-	fs.symlinkSync(
-		path.join(ROOT, "scripts/check-weakens-line.js"),
-		path.join(root, "scripts/check-weakens-line.js"),
-	);
+	// The scanner the launcher runs, and commit-msg's Weakens: gate (#2235),
+	// linked rather than copied: node resolves their requires from the link's
+	// target, so their lib closure comes with them.
+	for (const rel of [
+		"scripts/check-commit-message-closes.js",
+		"scripts/check-weakens-line.js",
+	])
+		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));
 	git("config", "core.hooksPath", underscore);
 
 	const log = path.join(root, LOG);
@@ -592,7 +591,7 @@ describe("the stand-down stamp", () => {
  */
 describe("the replay path: cherry-pick, rebase and rebase --continue", () => {
 	/** The base branch by name: `git init` follows the machine's init.defaultBranch. */
-	const baseBranch = (p: Probe) =>
+	const readBaseBranch = (p: Probe) =>
 		execFileSync("git", ["symbolic-ref", "--short", "HEAD"], {
 			cwd: p.root,
 			encoding: "utf8",
@@ -603,7 +602,7 @@ describe("the replay path: cherry-pick, rebase and rebase --continue", () => {
 		fs.writeFileSync(path.join(p.root, "f.txt"), "base\n");
 		p.git("add", "--", "f.txt");
 		p.git("commit", "-qm", "f");
-		const base = baseBranch(p);
+		const base = readBaseBranch(p);
 		p.git("checkout", "-q", "-b", "side");
 		fs.writeFileSync(path.join(p.root, "f.txt"), "side\n");
 		p.git("commit", "-qm", "side", "--", "f.txt");
@@ -674,7 +673,7 @@ describe("the replay path: cherry-pick, rebase and rebase --continue", () => {
 			const p = probe();
 			sideBranch(p, "side", { "creds.txt": `${SECRET}\n` });
 			diverge(p);
-			const base = baseBranch(p);
+			const base = readBaseBranch(p);
 			p.git("checkout", "-q", "side");
 			p.precommitExits(1);
 			p.reset();
@@ -918,7 +917,7 @@ describe("the copied fixture is isolated from its template (mantahostels#2068)",
 /*
  * THE CLOSING-KEYWORD SEAMS (#138).
  *
- * `scripts/guard-commit-form.sh` denies the same pattern at PreToolUse, but it
+ * `scripts/guard-commit-form.js` denies the same pattern at PreToolUse, but it
  * reads `-m`/`--message` values alone. These cases drive the four routes that
  * reach GitHub past it — `-F <file>`, a `-c`/`-C` reuse, a message typed into
  * $EDITOR, and a `--no-verify` commit — through real git. The pattern itself
@@ -945,7 +944,7 @@ describe("the closing-keyword refusal (#138)", () => {
 		const r = attempt(p.root, "commit", "-qm", "Fixes #12 do a thing");
 		expect(r.code).not.toBe(0);
 		expect(r.output).toContain("prepare-commit-msg:");
-		expect(r.output).toContain("What matched: Fixes #12");
+		expect(r.output).toContain("What matched: `Fixes #12`");
 	});
 
 	it("refuses -F <file>, which the PreToolUse guard cannot see, quoting the keyword that matched", () => {
@@ -954,7 +953,7 @@ describe("the closing-keyword refusal (#138)", () => {
 		fs.writeFileSync(path.join(p.root, "msg.txt"), "Closes #13 via a file\n");
 		const r = attempt(p.root, "commit", "-q", "-F", "msg.txt");
 		expect(r.code).not.toBe(0);
-		expect(r.output).toContain("What matched: Closes #13");
+		expect(r.output).toContain("What matched: `Closes #13`");
 	});
 
 	it("refuses --no-verify, which cannot skip prepare-commit-msg", () => {
@@ -1000,7 +999,7 @@ describe("the closing-keyword refusal (#138)", () => {
 		// so the seam is named by excluding the other one.
 		expect(r.output).not.toContain("prepare-commit-msg:");
 		expect(r.output).toContain("commit-msg:");
-		expect(r.output).toContain("What matched: Resolves #14");
+		expect(r.output).toContain("What matched: `Resolves #14`");
 	});
 
 	it("carries the rule text, not just the match", () => {
@@ -1039,7 +1038,7 @@ describe("the closing-keyword refusal (#138)", () => {
 		stage(p, "j\n");
 		const r = attempt(p.root, "commit", "-q", "-C", "HEAD");
 		expect(r.code).not.toBe(0);
-		expect(r.output).toContain("What matched: Fixes #78");
+		expect(r.output).toContain("What matched: `Fixes #78`");
 	});
 
 	/*

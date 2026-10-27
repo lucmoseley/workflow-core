@@ -14,9 +14,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { upgrade } from "../upgrade.js";
 import { labelPlan } from "./adopter-skeleton.js";
 import { bringCoreFiles, skeletonPaths } from "./core-owned-files.js";
+import { upgrade } from "./upgrade-walk.js";
 
 let root: string;
 let pluginRoot: string;
@@ -81,13 +81,13 @@ function run(labels?: Parameters<typeof upgrade>[0]["labels"]) {
 }
 
 describe("the helpers (#1453)", () => {
-	const helper = () => fs.readFileSync(path.join(root, HELPER), "utf8");
-	const mode = () => fs.statSync(path.join(root, HELPER)).mode & 0o777;
+	const readHelper = () => fs.readFileSync(path.join(root, HELPER), "utf8");
+	const readMode = () => fs.statSync(path.join(root, HELPER)).mode & 0o777;
 
 	it("writes a missing helper executable, byte-identical to the plugin's", () => {
 		expect(run()).toContain(`wrote   ${HELPER}`);
-		expect(helper()).toBe(PLUGIN_HELPER);
-		expect(mode()).toBe(0o755);
+		expect(readHelper()).toBe(PLUGIN_HELPER);
+		expect(readMode()).toBe(0o755);
 	});
 
 	it("rewrites a stale or locally edited helper, saying the edit is gone", () => {
@@ -95,14 +95,14 @@ describe("the helpers (#1453)", () => {
 		expect(run()).toContain(
 			`rewrote ${HELPER} — it differed from the plugin's copy, so any local edit to it is gone`,
 		);
-		expect(helper()).toBe(PLUGIN_HELPER);
+		expect(readHelper()).toBe(PLUGIN_HELPER);
 	});
 
 	it("repairs a lost exec bit and nothing else, and a current helper says nothing", () => {
 		write(root, HELPER, PLUGIN_HELPER);
 		fs.chmodSync(path.join(root, HELPER), 0o644);
 		expect(run()).toContain(`repaired ${HELPER}'s exec bit`);
-		expect(mode()).toBe(0o755);
+		expect(readMode()).toBe(0o755);
 		expect(run().filter((l) => l.includes(HELPER))).toEqual([]);
 	});
 
@@ -242,10 +242,16 @@ describe("the session cost table (#1734)", () => {
 	 * measure-session-cost.test.ts's to pin. */
 	const stub = (body: string) =>
 		write(pluginRoot, scriptRel, `const fs = require("node:fs");\n${body}\n`);
-	const stubTableWriter = () =>
+	const readable = JSON.stringify({
+		meanUsd: 3,
+		quantilesUsd: [1, 5],
+		tailRemainderUsd: 2,
+		landedByHours: [[1, 1]],
+	});
+	const stubTableWriter = (body = readable) =>
 		stub(
 			`fs.mkdirSync(process.env.CLAUDE_PROJECT_DIR + "/docs/data", { recursive: true });
-fs.writeFileSync(process.env.CLAUDE_PROJECT_DIR + "/${tableRel}", "{}\\n");
+fs.writeFileSync(process.env.CLAUDE_PROJECT_DIR + "/${tableRel}", ${JSON.stringify(body)});
 console.log("n=2 mean=$3");`,
 		);
 	const table = () => path.join(root, tableRel);
@@ -260,12 +266,21 @@ console.log("n=2 mean=$3");`,
 		expect(fs.existsSync(table())).toBe(true);
 	});
 
-	it("leaves an existing table alone, saying nothing", () => {
+	it("leaves an existing readable table alone, saying nothing", () => {
 		stubTableWriter();
 		write(root, ledgerRel, '{"jobId":"abcdef12"}\n');
-		write(root, tableRel, "kept\n");
+		write(root, tableRel, `${readable}\n`);
 		expect(run().filter((l) => l.includes(tableRel))).toEqual([]);
-		expect(fs.readFileSync(table(), "utf8")).toBe("kept\n");
+		expect(fs.readFileSync(table(), "utf8")).toBe(`${readable}\n`);
+	});
+
+	it("rebuilds a table this version cannot read, as one an older release wrote", () => {
+		stubTableWriter();
+		write(root, ledgerRel, '{"jobId":"abcdef12"}\n');
+		write(root, tableRel, JSON.stringify({ meanUsd: 3, quantilesUsd: [1, 5] }));
+		expect(run()).toContain(
+			`built   ${tableRel} (n=2 mean=$3) — refresh it with ${command()}`,
+		);
 	});
 
 	it("builds nothing, and says nothing, where the host has no ledger history", () => {
@@ -273,6 +288,14 @@ console.log("n=2 mean=$3");`,
 		expect(run().filter((l) => l.includes(tableRel))).toEqual([]);
 		expect(fs.existsSync(table())).toBe(false);
 		expect(fs.existsSync(path.join(root, ".claude/tmp"))).toBe(false);
+	});
+
+	it("reports a build that exits 0 but leaves no readable table as failed", () => {
+		stubTableWriter("{}");
+		write(root, ledgerRel, '{"jobId":"abcdef12"}\n');
+		expect(run()).toContain(
+			`FAILED building ${tableRel}: exit 0 — build it by hand: ${command()}`,
+		);
 	});
 
 	it("reports a failed build with the hand-run command, and carries on", () => {

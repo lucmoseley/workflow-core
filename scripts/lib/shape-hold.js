@@ -64,7 +64,7 @@ const SHAPE_HELD =
  * @param {boolean} isLastRefusal whether this refusal spends the limb's cap
  * @returns {string | null}
  */
-const shapeOnlyReason = (flags, isLastRefusal) =>
+const buildShapeOnlyReason = (flags, isLastRefusal) =>
 	flags.every((flag) => flag.shapeOnly)
 		? [
 				"This turn re-sends a question this check refused with its shape " +
@@ -83,5 +83,5 @@ module.exports = {
 	isMisshapen,
 	buildRuleFlag,
 	buildMisshapenFlag,
-	shapeOnlyReason,
+	buildShapeOnlyReason,
 };

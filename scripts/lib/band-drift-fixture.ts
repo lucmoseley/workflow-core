@@ -42,15 +42,15 @@ export const times = (n: number, text: string) =>
  * band. `relation` sets the shape of the rounds at the line.
  */
 const AT_LINE = LOW_TOP + 5;
-const atLine = (relation?: string) =>
+const buildAtLine = (relation?: string) =>
 	round([AT_LINE, AT_LINE - 5, AT_LINE + 5], [25, 20, 30], relation);
-const overLine = () =>
+const buildOverLine = () =>
 	round([AT_LINE + 10, AT_LINE + 5, AT_LINE + 15], [20, 15, 25]);
 
 /** `n` priced tops, `at` of them at the line in `relation`'s shape. */
 export const topQuestions = (n: number, at: number, relation?: string) => [
-	...times(at, atLine(relation)),
-	...times(n - at, overLine()),
+	...times(at, buildAtLine(relation)),
+	...times(n - at, buildOverLine()),
 ];
 
 /** `n` band questions, `overlapping` of them with overlapping bands. */

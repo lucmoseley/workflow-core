@@ -29,7 +29,7 @@ import {
 	POST_COMMIT,
 	ROOT,
 } from "./lib/precommit-gate-testkit";
-import { ruleText } from "./lib/rule-text";
+import { readRuleText } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process";
 
 const sb = freshSandbox();
@@ -119,8 +119,8 @@ function commit(
 	opts: Hooks & { env?: Env; cwd?: string } = {},
 ) {
 	const cwd = opts.cwd ?? sb.repo;
-	const head = () => git("-C", cwd, "rev-parse", "HEAD");
-	const before = head();
+	const readHead = () => git("-C", cwd, "rev-parse", "HEAD");
+	const before = readHead();
 	const r = spawnSync(
 		"git",
 		["-c", `core.hooksPath=${hooks(opts)}`, "commit", "-q", ...args],
@@ -140,7 +140,7 @@ function commit(
 	return {
 		status: r.status,
 		stderr: r.stderr,
-		landed: head() !== before,
+		landed: readHead() !== before,
 		gateLines: r.stderr
 			.split("\n")
 			.filter((l) => /stale-write-back|stale write-back/.test(l)),
@@ -190,7 +190,7 @@ describe("the stale-write-back gate in the commit stack (#113)", () => {
 		expect(r.stderr).toContain("re-derive the file from HEAD");
 		expect(r.stderr).toContain(`accept-head ${DOC}`);
 		expect(r.stderr).toContain("rule:stale-write-back");
-		expect(r.stderr).toContain(ruleText("stale-write-back"));
+		expect(r.stderr).toContain(readRuleText("stale-write-back"));
 	});
 
 	it("refuses the whole commit where one path of several is stale, naming only the stale path", () => {
@@ -384,7 +384,7 @@ describe("the stale-write-back gate in the commit stack (#113)", () => {
 });
 
 describe("post-commit's base advance, seen through the gate (#114)", () => {
-	const baseOf = (rel: string, sessionId = "alice") => {
+	const readBaseOf = (rel: string, sessionId = "alice") => {
 		const file = store.paths.base(rel, sessionId);
 		return fs.existsSync(file)
 			? JSON.parse(fs.readFileSync(file, "utf8"))
@@ -436,7 +436,7 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 		start("alice");
 		store.acquire(DOC, live(sb, "alice"));
 		store.acquire(OTHER, live(sb, "alice"));
-		const other = baseOf(OTHER);
+		const other = readBaseOf(OTHER);
 		write(DOC, "alice's\n");
 		write("docs/new.md", "new\n");
 		git("add", "--", "docs/new.md");
@@ -445,12 +445,12 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 		).toBe(true);
 
 		const head = git("rev-parse", "HEAD");
-		expect(baseOf(DOC)).toMatchObject({
+		expect(readBaseOf(DOC)).toMatchObject({
 			head,
 			blob: git("rev-parse", `HEAD:${DOC}`),
 		});
-		expect(baseOf("docs/new.md")).toMatchObject({ head });
-		expect(baseOf(OTHER)).toEqual(other);
+		expect(readBaseOf("docs/new.md")).toMatchObject({ head });
+		expect(readBaseOf(OTHER)).toEqual(other);
 	});
 
 	it("advances nothing with no session id", () => {
@@ -460,7 +460,7 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 			env: { CLAUDE_CODE_SESSION_ID: "" },
 		});
 		expect(r.landed).toBe(true);
-		expect(baseOf(DOC, "")).toBeNull();
+		expect(readBaseOf(DOC, "")).toBeNull();
 		expect(fs.existsSync(store.paths.basesDir())).toBe(false);
 	});
 
@@ -468,7 +468,7 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 	const sideCommit = () => {
 		start("alice");
 		store.acquire(DOC, live(sb, "alice"));
-		const before = baseOf(DOC);
+		const before = readBaseOf(DOC);
 		git("checkout", "-qb", "side");
 		neighbourCommits(DOC, "seeded\nside line\n");
 		const sha = git("rev-parse", "HEAD");
@@ -488,7 +488,7 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 		const { before, sha } = sideCommit();
 		expect(aliceGit(["cherry-pick", sha]).status).toBe(0);
 		expect(git("show", `HEAD:${DOC}`)).toContain("side line");
-		expect(baseOf(DOC)).toEqual(before);
+		expect(readBaseOf(DOC)).toEqual(before);
 	});
 
 	it("advances nothing on a rebase replay", () => {
@@ -497,7 +497,7 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 		git("commit", "-qm", "main moves", "--", OTHER);
 		expect(aliceGit(["rebase", "-q", "main", "side"]).status).toBe(0);
 		expect(git("show", `HEAD:${DOC}`)).toContain("side line");
-		expect(baseOf(DOC)).toEqual(before);
+		expect(readBaseOf(DOC)).toEqual(before);
 	});
 
 	it("advances nothing on `git am`, which fires no post-commit", () => {
@@ -506,20 +506,20 @@ describe("post-commit's base advance, seen through the gate (#114)", () => {
 		const r = aliceGit(["am", "-q"], `${patch}\n`);
 		expect(r.status).toBe(0);
 		expect(git("show", `HEAD:${DOC}`)).toContain("side line");
-		expect(baseOf(DOC)).toEqual(before);
+		expect(readBaseOf(DOC)).toEqual(before);
 	});
 
 	it("advances nothing on a commit in a linked worktree", () => {
 		start("alice");
 		store.acquire(DOC, live(sb, "alice"));
-		const before = baseOf(DOC);
+		const before = readBaseOf(DOC);
 		const wt = path.join(sb.dir, "wt");
 		git("worktree", "add", "-q", "-b", "wt", wt);
 		fs.writeFileSync(path.join(wt, DOC), "worktree's\n");
 		expect(
 			commit(["-m", "wt", "--", DOC], { ...withAdvance, cwd: wt }).landed,
 		).toBe(true);
-		expect(baseOf(DOC)).toEqual(before);
+		expect(readBaseOf(DOC)).toEqual(before);
 	});
 });
 

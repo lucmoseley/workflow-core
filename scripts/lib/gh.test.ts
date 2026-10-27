@@ -1,13 +1,11 @@
 // @vitest-environment node
 /*
- * Direct tests for the gh seam (mantahostels#154). The callers' own suites exercise it
- * end-to-end; these pin the contract each caller leans on — the WFC_GH
- * injection point, the --slurp/.flat() normalisation, and the SKIP-on-
- * unreachable rule's exit code.
+ * Direct tests for the gh seam (mantahostels#154), pinning the contract each
+ * caller leans on; the callers' own suites exercise it end-to-end.
  *
  * Each case points WFC_GH at a stub script in a temp dir (gh-stub), so no
- * case reaches the network or the founder's `gh` login. The one exception is
- * the logged-out contract case.
+ * case reaches the network or the founder's `gh` login; gh.contract.test.ts
+ * holds the shared fake's answers to the real binary.
  *
  * Every Node script that calls GitHub goes through this seam, the checkers the
  * husky hooks run among them, so a loosened case can let an unreachable `gh`
@@ -19,14 +17,17 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caught } from "./caught.js";
-import {
-	GH_FAILING_SCRIPT,
-	GH_LOGGED_OUT_EXIT,
-	GH_LOGGED_OUT_NODE,
-	GH_LOGGED_OUT_STDERR,
-	stubGhScript,
-} from "./gh-stub";
+import { ghAnswer, ghFakeScript } from "./gh-fake";
+import { GH_FAILING_SCRIPT, stubGhScript } from "./gh-stub";
 import { runInProcess } from "./run-in-process";
+
+const ISSUE_LIST = path.join(__dirname, "fixtures/gh/issue-list.json");
+const NOT_FOUND = path.join(__dirname, "fixtures/gh/not-found.json");
+const UNKNOWN_FLAG = path.join(__dirname, "fixtures/gh/unknown-flag.json");
+const VALIDATION_FAILED = path.join(
+	__dirname,
+	"fixtures/gh/validation-failed.json",
+);
 
 const LIB = path.resolve(__dirname, "gh.js");
 const CHECK_LIB = path.resolve(__dirname, "check.js");
@@ -132,8 +133,8 @@ describe("run and workflow calls reach the code repo (#1963)", () => {
 });
 
 describe("errors", () => {
-	it("errLine returns the last stderr line — where gh puts the reason", async () => {
-		const { gh, errLine } = await load();
+	it("parseErrLine returns the last stderr line — where gh puts the reason", async () => {
+		const { gh, parseErrLine } = await load();
 		inject(
 			'#!/bin/sh\necho "warning: noise" >&2\necho "gh: no auth" >&2\nexit 1\n',
 		);
@@ -141,21 +142,21 @@ describe("errors", () => {
 			gh(["api", "x"]);
 			expect.unreachable("stub exits 1");
 		} catch (e) {
-			expect(errLine(e)).toBe("gh: no auth");
+			expect(parseErrLine(e)).toBe("gh: no auth");
 		}
 	});
 
 	/* A JS error is the other way up: the reason leads, and what follows is the
 	 * stack, or the input quoted back. */
-	it("errLine takes the FIRST line of a thrown error with no stderr", async () => {
-		const { ghJson, errLine } = await load();
+	it("parseErrLine takes the FIRST line of a thrown error with no stderr", async () => {
+		const { ghJson, parseErrLine } = await load();
 		inject("#!/bin/sh\nprintf 'not json\\nat all\\n'\n");
 		try {
 			ghJson(["issue", "list"]);
 			expect.unreachable("output is not JSON");
 		} catch (e) {
-			expect(errLine(e)).toMatch(/^Unexpected token/);
-			expect(errLine(e)).not.toBe('at all"');
+			expect(parseErrLine(e)).toMatch(/^Unexpected token/);
+			expect(parseErrLine(e)).not.toBe('at all"');
 		}
 	});
 });
@@ -163,8 +164,10 @@ describe("errors", () => {
 describe("JSON and pagination", () => {
 	it("ghJson parses stdout", async () => {
 		const { ghJson } = await load();
-		inject("#!/bin/sh\necho '{\"n\": 7}'\n");
-		expect(ghJson(["issue", "view", "7"])).toEqual({ n: 7 });
+		inject(ghFakeScript(ISSUE_LIST));
+		expect(ghJson(["issue", "list"])).toEqual(
+			JSON.parse(ghAnswer(ISSUE_LIST).stdout),
+		);
 	});
 
 	it("ghApiSlurp flattens --slurp page wrapping", async () => {
@@ -292,13 +295,13 @@ describe("the SKIP-on-unreachable rule", () => {
  */
 describe("classifying why a gh call failed", () => {
 	const reasonOf = async (stderr: string) => {
-		const { gh, ghFailureReason } = await load();
+		const { gh, parseGhFailureReason } = await load();
 		inject(`#!/bin/sh\necho ${JSON.stringify(stderr)} >&2\nexit 1\n`);
 		try {
 			gh(["issue", "list"]);
 			return expect.unreachable("stub exits 1");
 		} catch (e) {
-			return ghFailureReason(e);
+			return parseGhFailureReason(e);
 		}
 	};
 
@@ -314,10 +317,9 @@ describe("classifying why a gh call failed", () => {
 		expect(await reasonOf(stderr)).toBe("unreachable");
 	});
 
+	/* Hand-written, not a fixture: no read-only call reaches a scope 403 to
+	 * record. */
 	it.each([
-		["HTTP 422: Validation Failed", "a malformed request"],
-		["unknown flag: --slrup", "a typo in the call"],
-		["HTTP 404: Not Found", "asking for something absent"],
 		[
 			"HTTP 403: `checks` scope required",
 			"a 403 that is a scope fault, not a rate limit",
@@ -326,128 +328,68 @@ describe("classifying why a gh call failed", () => {
 		expect(await reasonOf(stderr)).toBe("broken");
 	});
 
+	it.each([
+		[NOT_FOUND, "asking for something absent"],
+		[VALIDATION_FAILED, "a malformed request"],
+		[UNKNOWN_FLAG, "a typo in the call"],
+	])("reads gh's answer in %s as broken — %s", async (fixture) => {
+		const { gh, parseGhFailureReason } = await load();
+		inject(ghFakeScript(fixture));
+		try {
+			gh(["api", "repos/o/r"]);
+			expect.unreachable("the fixture exits 1");
+		} catch (e) {
+			expect(parseGhFailureReason(e)).toBe("broken");
+		}
+	});
+
 	it("ignores the argv: an unreachable phrase in the ARGS stays broken", async () => {
-		const { gh, ghFailureReason } = await load();
+		const { gh, parseGhFailureReason } = await load();
 		inject('#!/bin/sh\necho "gh: HTTP 422" >&2\nexit 1\n');
 		try {
 			gh(["issue", "list", "--search", "rate limit GH_TOKEN"]);
 			expect.unreachable("stub exits 1");
 		} catch (e) {
 			expect((e as Error).message).toContain("rate limit");
-			expect(ghFailureReason(e)).toBe("broken");
+			expect(parseGhFailureReason(e)).toBe("broken");
 		}
 	});
 
 	it("reads a missing gh binary as unreachable", async () => {
-		const { gh, ghFailureReason } = await load();
+		const { gh, parseGhFailureReason } = await load();
 		process.env.WFC_GH = path.join(dir, "no-such-gh");
 		try {
 			gh(["issue", "list"]);
 			expect.unreachable("no binary to run");
 		} catch (e) {
 			expect(caught(e).code).toBe("ENOENT");
-			expect(ghFailureReason(e)).toBe("unreachable");
+			expect(parseGhFailureReason(e)).toBe("unreachable");
 		}
 	});
 
 	it("reads an overrun buffer as broken", async () => {
-		const { gh, ghFailureReason } = await load();
+		const { gh, parseGhFailureReason } = await load();
 		inject("#!/bin/sh\necho 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'\n");
 		try {
 			gh(["issue", "list"], { maxBuffer: 4 });
 			expect.unreachable("output exceeds the 4-byte buffer");
 		} catch (e) {
 			expect(caught(e).code).toBe("ENOBUFS");
-			expect(ghFailureReason(e)).toBe("broken");
+			expect(parseGhFailureReason(e)).toBe("broken");
 		}
 	});
 
 	it("reads unparseable output as broken, not as a quiet skip", async () => {
-		const { ghJson, ghFailureReason } = await load();
+		const { ghJson, parseGhFailureReason } = await load();
 		inject("#!/bin/sh\necho 'not json'\n");
 		try {
 			ghJson(["issue", "list"]);
 			expect.unreachable("output is not JSON");
 		} catch (e) {
-			expect(ghFailureReason(e)).toBe("broken");
+			expect(parseGhFailureReason(e)).toBe("broken");
 		}
 	});
 });
-
-const realGh = (process.env.PATH ?? "")
-	.split(path.delimiter)
-	.map((d) => path.join(d, "gh"))
-	.find((f) => {
-		try {
-			fs.accessSync(f, fs.constants.X_OK);
-			return true;
-		} catch {
-			return false;
-		}
-	});
-
-/*
- * A release that rewords gh's logged-out error or changes its exit code turns
- * this red instead of leaving every stubbed test green while production
- * misreads it (#2220). Offline: with no token and an empty config dir, gh
- * refuses before opening any socket. Deleting GH_HOST is part of that: set, gh
- * dials the host before it refuses. Its CI markers go too: set, gh swaps
- * that stderr for an automation hint. Red after a gh upgrade: re-run a
- * logged-out gh, copy its stderr and exit into gh-stub.ts, and repeat
- * `strace -f -e trace=connect` over it to confirm it still opens no socket.
- */
-// Residual: where no gh is installed this case skips, and the stub goes unchecked.
-describe.skipIf(!realGh)(
-	"the failing stub against a real logged-out gh (#2220)",
-	() => {
-		const loggedOutCall = async (bin: string) => {
-			const { gh, ghFailureReason } = await load();
-			for (const v of [
-				"GH_TOKEN",
-				"GITHUB_TOKEN",
-				"GH_ENTERPRISE_TOKEN",
-				"GITHUB_ENTERPRISE_TOKEN",
-				"GH_HOST",
-				"GITHUB_ACTIONS",
-				"CI",
-				"BUILD_NUMBER",
-				"RUN_ID",
-			])
-				delete process.env[v];
-			process.env.GH_CONFIG_DIR = fs.mkdtempSync(path.join(dir, "gh-config-"));
-			process.env.WFC_GH = bin;
-			let failure: unknown;
-			try {
-				gh(["api", "repos/o/r"]);
-			} catch (e) {
-				failure = e;
-			}
-			if (!failure) return expect.unreachable("a logged-out gh exits non-zero");
-			const { status, stderr } = caught(failure);
-			return {
-				status,
-				stderr: String(stderr),
-				reason: ghFailureReason(failure),
-			};
-		};
-
-		it("prints what the stubs print, exits as they exit, and reads unreachable like them", async () => {
-			const stub = stubGhScript(dir, "", { failing: true });
-			const nodeFake = stubGhScript(
-				path.join(dir, "node-fake"),
-				`#!/usr/bin/env node\n${GH_LOGGED_OUT_NODE}\n`,
-			);
-			const real = await loggedOutCall(realGh as string);
-			expect(real).toEqual({
-				status: GH_LOGGED_OUT_EXIT,
-				stderr: GH_LOGGED_OUT_STDERR,
-				reason: "unreachable",
-			});
-			expect(await loggedOutCall(stub.gh)).toEqual(real);
-			expect(await loggedOutCall(nodeFake.gh)).toEqual(real);
-		});
-	},
-);
 
 describe("a broken call exits loudly at 2", () => {
 	const runBroken = (stderr: string) => {
@@ -573,21 +515,21 @@ describe("an empty open-issue read (#2565)", () => {
 			].join("\n"),
 		);
 	};
-	const calls = () =>
+	const readCalls = () =>
 		fs.readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n");
 
 	it("re-reads once and returns the second answer, with no repo read", async () => {
 		const { ghOpenIssues } = await load();
 		lists(["[[]]", '[[{"number":7}]]'], 116);
 		expect(ghOpenIssues()).toEqual([{ number: 7 }]);
-		expect(calls()).toHaveLength(2);
+		expect(readCalls()).toHaveLength(2);
 	});
 
 	it("is believed when the repo counts no open issues either", async () => {
 		const { ghOpenIssues } = await load();
 		lists(["[[]]"], 0);
 		expect(ghOpenIssues()).toEqual([]);
-		expect(calls()[2]).toBe("api repos/{owner}/{repo}");
+		expect(readCalls()[2]).toBe("api repos/{owner}/{repo}");
 	});
 
 	it("is BROKEN, exit 2 and going no further, when the repo counts open issues", () => {
@@ -613,8 +555,8 @@ describe("an empty open-issue read (#2565)", () => {
 			const lib = await load();
 			lists(["[[]]"], 116);
 			expect(lib[fn]("x")).toEqual([]);
-			expect(calls()).toHaveLength(2);
-			expect(calls()).not.toContain("api repos/{owner}/{repo}");
+			expect(readCalls()).toHaveLength(2);
+			expect(readCalls()).not.toContain("api repos/{owner}/{repo}");
 		},
 	);
 });

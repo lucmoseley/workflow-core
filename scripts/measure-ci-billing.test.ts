@@ -102,19 +102,19 @@ const json = async (...argv: string[]) => {
 };
 
 /** Every path the stub was asked for, in order. */
-const calls = () => {
+const readCalls = () => {
 	const log = path.join(dir, "calls.log");
 	return fs.existsSync(log)
 		? fs.readFileSync(log, "utf8").split("\n").filter(Boolean)
 		: [];
 };
-const runsCalls = () => calls().filter((c) => !c.includes("/jobs?"));
-const jobsCallIds = () =>
-	calls()
+const readRunsCalls = () => readCalls().filter((c) => !c.includes("/jobs?"));
+const readJobsCallIds = () =>
+	readCalls()
 		.filter((c) => c.includes("/jobs?"))
 		.map((c) => c.replace(/.*\/runs\/([^/]+)\/jobs.*/, "$1"));
-const calledDays = () =>
-	runsCalls().map((c) => c.replace(/.*created=([0-9-]+)\.\..*/, "$1"));
+const readCalledDays = () =>
+	readRunsCalls().map((c) => c.replace(/.*created=([0-9-]+)\.\..*/, "$1"));
 
 const runOf = (id: string, day: string, extra: object = {}) => ({
 	id,
@@ -158,16 +158,18 @@ const serveCount = (
 	serveDay(day, pages.length > 0 ? pages : [{ ...counted, workflow_runs: [] }]);
 };
 
-const cacheEntries = () =>
+const readCacheEntries = () =>
 	fs.existsSync(cacheDir()) ? fs.readdirSync(cacheDir()) : [];
-const runsEntries = () => cacheEntries().filter((f) => !f.includes("_jobs_"));
-const jobsEntries = () => cacheEntries().filter((f) => f.includes("_jobs_"));
+const readRunsEntries = () =>
+	readCacheEntries().filter((f) => !f.includes("_jobs_"));
+const readJobsEntries = () =>
+	readCacheEntries().filter((f) => f.includes("_jobs_"));
 
 const refuses = async (argv: string[], message: RegExp | string) => {
 	const r = await run(...argv);
 	expect(r.status).not.toBe(0);
 	expect(r.stdout + r.stderr).toMatch(message);
-	expect(calls()).toEqual([]);
+	expect(readCalls()).toEqual([]);
 };
 
 const args = (...extra: string[]) => [
@@ -185,7 +187,7 @@ describe("the command line", () => {
 		expect(a.until).toBe("2026-08-13");
 		expect(a.branch).toBe("all");
 		expect(a.attempts).toBe("latest");
-		expect(calledDays()).toEqual(["2026-08-12", "2026-08-13"]);
+		expect(readCalledDays()).toEqual(["2026-08-12", "2026-08-13"]);
 	});
 
 	it("requires both ends of the window", async () => {
@@ -217,7 +219,7 @@ describe("the command line", () => {
 	it("accepts a single-day window", async () => {
 		const out = await json("--since", "2026-08-13", "--until", "2026-08-13");
 		expect(out.args.since).toBe("2026-08-13");
-		expect(calledDays()).toEqual(["2026-08-13"]);
+		expect(readCalledDays()).toEqual(["2026-08-13"]);
 	});
 
 	it("rejects an --attempts value the jobs API does not have, naming the two it does, before any API call", async () => {
@@ -230,7 +232,9 @@ describe("the command line", () => {
 	it("asks the jobs API for the attempts it was given", async () => {
 		serveCount("2026-08-13", 1);
 		await json(...args("--attempts", "all"));
-		expect(calls().find((c) => c.includes("/jobs?"))).toContain("filter=all");
+		expect(readCalls().find((c) => c.includes("/jobs?"))).toContain(
+			"filter=all",
+		);
 	});
 
 	it("rejects a non-numeric or negative cache age before making any API call", async () => {
@@ -300,7 +304,7 @@ describe("fetching the window", () => {
 
 	it("asks for one day at a time rather than the whole window", async () => {
 		await json(...window);
-		const asked = runsCalls();
+		const asked = readRunsCalls();
 		expect(asked).toHaveLength(3);
 		expect(asked[0]).toContain("created=2026-08-14..2026-08-14");
 		expect(asked[1]).toContain("created=2026-08-15..2026-08-15");
@@ -314,7 +318,7 @@ describe("fetching the window", () => {
 		const out = await json(...window);
 		expect(out.summary.runs).toBe(6);
 		/* The jobs calls follow the run set's own order. */
-		expect(jobsCallIds()).toEqual([
+		expect(readJobsCallIds()).toEqual([
 			"2026-08-14-0",
 			"2026-08-14-1",
 			"2026-08-15-0",
@@ -329,7 +333,7 @@ describe("fetching the window", () => {
 		serveCount("2026-08-14", 131);
 		const out = await json(...window);
 		expect(out.summary.runs).toBe(131);
-		expect(jobsCallIds().at(-1)).toBe("2026-08-14-130");
+		expect(readJobsCallIds().at(-1)).toBe("2026-08-14-130");
 		expect(out.totalCount).toBe(131);
 	});
 
@@ -371,7 +375,7 @@ describe("fetching the window", () => {
 			{ total_count: 1, workflow_runs: [runOf("b", "2026-08-16")] },
 		]);
 		const out = await json(...window);
-		expect(jobsCallIds()).toEqual(["a", "b"]);
+		expect(readJobsCallIds()).toEqual(["a", "b"]);
 		expect(out.summary.runs).toBe(2);
 		expect(out.duplicates).toBe(1);
 	});
@@ -399,10 +403,10 @@ describe("fetching the window", () => {
 
 	it("scopes to one branch unless the scope is every branch", async () => {
 		await json(...window, "--branch", "main");
-		expect(runsCalls()[0]).toContain("branch=main&");
+		expect(readRunsCalls()[0]).toContain("branch=main&");
 		fs.rmSync(path.join(dir, "calls.log"));
 		await json(...window);
-		expect(runsCalls()[0]).not.toContain("branch=");
+		expect(readRunsCalls()[0]).not.toContain("branch=");
 	});
 });
 
@@ -430,7 +434,7 @@ describe("the window that can be measured today", () => {
 		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).not.toContain("clamped");
-		expect(calledDays()).toEqual([isoDay(-3), isoDay(-2)]);
+		expect(readCalledDays()).toEqual([isoDay(-3), isoDay(-2)]);
 	});
 
 	it("pulls a window running into today back to the last finished day", async () => {
@@ -443,7 +447,7 @@ describe("the window that can be measured today", () => {
 		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`--until ${isoDay(5)} clamped to ${isoDay(-1)}`);
-		expect(calledDays()).toEqual([isoDay(-2), isoDay(-1)]);
+		expect(readCalledDays()).toEqual([isoDay(-2), isoDay(-1)]);
 	});
 
 	it("refuses a window the clamp empties rather than censusing nothing, naming the last day whose billing is final, before any API call", async () => {
@@ -558,14 +562,14 @@ describe("the response cache", () => {
 		it("caches a runs response whose every run has completed", async () => {
 			serveDay(day, completed);
 			const out = await json(...window);
-			expect(runsEntries()).toHaveLength(1);
+			expect(readRunsEntries()).toHaveLength(1);
 			expect(out.inFlightSkipped).toBe(0);
 		});
 
 		it("refuses a runs response carrying one run still in progress, but still counts it", async () => {
 			serveDay(day, inFlight);
 			const out = await json(...window);
-			expect(runsEntries()).toEqual([]);
+			expect(readRunsEntries()).toEqual([]);
 			expect(out.inFlightSkipped).toBe(1);
 			expect(out.summary.runs).toBe(1);
 		});
@@ -579,14 +583,14 @@ describe("the response cache", () => {
 				},
 			]);
 			await json(...window);
-			expect(runsEntries()).toEqual([]);
+			expect(readRunsEntries()).toEqual([]);
 		});
 
 		it("caches a jobs response whose every job has completed", async () => {
 			serveDay(day, completed);
 			serveJobs("1", [{ jobs: [{ status: "completed" }] }]);
 			await json(...window);
-			expect(jobsEntries()).toHaveLength(1);
+			expect(readJobsEntries()).toHaveLength(1);
 		});
 
 		it("refuses a jobs response carrying one job still queued", async () => {
@@ -595,25 +599,25 @@ describe("the response cache", () => {
 				{ jobs: [{ status: "completed" }, { status: "queued" }] },
 			]);
 			const out = await json(...window);
-			expect(jobsEntries()).toEqual([]);
+			expect(readJobsEntries()).toEqual([]);
 			expect(out.inFlightSkipped).toBe(1);
 		});
 
 		it("caches a day that ran nothing", async () => {
 			await json(...window);
-			expect(runsEntries()).toHaveLength(1);
+			expect(readRunsEntries()).toHaveLength(1);
 		});
 
 		it("refuses an error body, which says nothing about finality", async () => {
 			serveDay(day, [{ message: "Not Found" }]);
 			await json(...window);
-			expect(runsEntries()).toEqual([]);
+			expect(readRunsEntries()).toEqual([]);
 		});
 
 		it("refuses a slurp that returned no pages at all", async () => {
 			serveDay(day, "");
 			await json(...window);
-			expect(runsEntries()).toEqual([]);
+			expect(readRunsEntries()).toEqual([]);
 		});
 	});
 
@@ -640,15 +644,15 @@ describe("the response cache", () => {
 	it("serves a fresh cache entry without fetching again", async () => {
 		serveDay(day, completed);
 		const first = await json(...window);
-		const fetched = calls().length;
+		const fetched = readCalls().length;
 		const second = await json(...window);
-		expect(calls()).toHaveLength(fetched);
+		expect(readCalls()).toHaveLength(fetched);
 		expect(second.summary).toEqual(first.summary);
 	});
 
 	/** Overwrite the cached runs entry the first run wrote. */
 	const corruptRunsEntry = (content: string) => {
-		const [entry] = runsEntries();
+		const [entry] = readRunsEntries();
 		fs.writeFileSync(path.join(cacheDir(), entry), content);
 	};
 
@@ -657,7 +661,7 @@ describe("the response cache", () => {
 		await json(...window);
 		corruptRunsEntry(JSON.stringify(inFlight));
 		const out = await json(...window);
-		expect(runsCalls()).toHaveLength(2);
+		expect(readRunsCalls()).toHaveLength(2);
 		expect(out.inFlightSkipped).toBe(0);
 	});
 
@@ -671,7 +675,7 @@ describe("the response cache", () => {
 		await json(...window);
 		corruptRunsEntry(JSON.stringify([[{ status: "completed" }]]));
 		await json(...window);
-		expect(runsCalls()).toHaveLength(3);
+		expect(readRunsCalls()).toHaveLength(3);
 	});
 
 	it("never caches a fresh answer whose page is not a page object", async () => {
@@ -681,7 +685,7 @@ describe("the response cache", () => {
 		serveDay(day, [[{ status: "completed" }]]);
 		const out = await json(...window);
 		expect(out.inFlightSkipped).toBe(1);
-		expect(runsEntries()).toEqual([]);
+		expect(readRunsEntries()).toEqual([]);
 	});
 
 	it("refetches past --max-cache-age rather than serving a stale entry", async () => {
@@ -690,18 +694,18 @@ describe("the response cache", () => {
 		/* Age the entries rather than passing a negative max-cache-age, which the
 		 * command line rejects outright. */
 		const yesterday = Date.now() / 1000 - 86_400;
-		for (const f of cacheEntries())
+		for (const f of readCacheEntries())
 			fs.utimesSync(path.join(cacheDir(), f), yesterday, yesterday);
 		await json(...window, "--max-cache-age", "0.04");
-		expect(runsCalls()).toHaveLength(2);
+		expect(readRunsCalls()).toHaveLength(2);
 	});
 
 	it("--refresh bypasses the entry it then overwrites", async () => {
 		serveDay(day, completed);
 		await json(...window);
-		const entries = cacheEntries();
+		const entries = readCacheEntries();
 		await json(...window, "--refresh");
-		expect(runsCalls()).toHaveLength(2);
-		expect(cacheEntries()).toEqual(entries);
+		expect(readRunsCalls()).toHaveLength(2);
+		expect(readCacheEntries()).toEqual(entries);
 	});
 });

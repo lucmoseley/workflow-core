@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
- * push-check.js — `npm run push:check` (#814, #790 Q2): whether green runs
- * from any sessions cover, between them, every commit the next push of `main`
+ * push-check.js — `npm run push:check` (#814, #790 Q2): whether certificates
+ * from any sessions attest, between them, every commit the next push of `main`
  * would send (ADR-0009), each suite answering for itself (mantahostels#1256).
  * It never pushes and never runs tests.
  *
@@ -10,52 +10,52 @@
  * lib/landing-refs.js's `pushedRef`; nothing is fetched, so a stale ref only
  * widens it.
  *
- * Exits 0 where every commit is covered, naming the covering runs; 1 where a
- * run is owed, naming each uncovered file, its commit and the command to run;
- * 2 where it could not judge, with the reason. Where the `suites` module is
- * off or the tests are gated at commit, it prints the pre-push check's skip
- * line and exits 0.
+ * Exits 0 where every commit is attested, naming the certificates; 1 where a
+ * run is owed, naming each unattested file, its commit and the command to run;
+ * 2 where it could not judge, with the reason. Where lib/test-gate.js's
+ * `pushGateState` skips — `suites` off, `landing` on, or the tests gated at
+ * commit — it prints the pre-push check's skip line and exits 0.
  *
- * WHO ANSWERS FOR AN UNCOVERED COMMIT (#1213). A narrowed run selects only its
+ * WHO ANSWERS FOR AN UNATTESTED COMMIT (#1213). A narrowed run selects only its
  * own session's commits (#1156), so `npm run test` is advised only for the
  * pusher's own commits and those no ledger names. A commit another session's
- * ledger names (#1154) is that session's to cover while the arbiter calls it
- * live; once it has ended, one `--adopt` run over its uncovered paths covers
+ * ledger names (#1154) is that session's to attest while the arbiter calls it
+ * live; once it has ended, one `--adopt` run over its unattested paths attests
  * it.
  *
  * IN NO SCRIPT FAMILY (§N3): it gates nothing, so it takes neither `runCheck`
  * nor a `check-*` name.
  */
 
-const { execFileSync } = require("node:child_process");
 const core = require("./lib/arbiter-core.js");
-const { neighbourCommits } = require("./lib/own-work.js");
+const { readNeighbourCommits } = require("./lib/own-work.js");
 const idSeam = require("./lib/session-id.js");
 const {
 	attestationOf,
 	attestationReading,
 	readMarkers,
 	repoRoot,
-	rerunLines,
+	buildRerunLines,
 	namesTests,
 	shortSha,
 	suiteMeta,
 } = require("./lib/test-pass-marker.js");
 /** @typedef {import("./lib/test-pass-marker.js").Unattested} Unattested */
-const { pushGateSkip } = require("./lib/test-gate.js");
+const { pushGateState } = require("./lib/test-gate.js");
 const { caught } = require("./lib/caught.js");
 const { shellWord } = require("./lib/dirty-tree.js");
 const { pushedRef } = require("./lib/landing-refs.js");
+const { execGit } = require("./lib/git.js");
 
 /** @param {string} line */
 const say = (line) => process.stdout.write(`${line}\n`);
 
 /**
- * An owed vitest suite's advice by who made each uncovered commit (#1213), or
+ * An owed vitest suite's advice by who made each unattested commit (#1213), or
  * null where `attestationReading`'s own advice stands: no session id, no main worktree git will
- * name, a ledger that will not read, or every uncovered commit the pusher's
+ * name, a ledger that will not read, or every unattested commit the pusher's
  * own or unledgered — each a case where the bare run does not narrow, or
- * selects every uncovered commit anyway.
+ * selects every unattested commit anyway.
  *
  * A registry that will not read cannot call a session live, so its commits
  * are adopted: a needless run, where waiting on an ended owner waits forever.
@@ -64,20 +64,20 @@ const say = (line) => process.stdout.write(`${line}\n`);
  * @param {string} gate
  * @returns {string[]|null}
  */
-function ownerAdvice(s, gate) {
-	const owners = neighbourCommits(
+function buildOwnerAdvice(s, gate) {
+	const owners = readNeighbourCommits(
 		s.unattested.flatMap((g) => (g.commit ? g.commit : [])),
 		idSeam.fromEnv(),
 	);
 	if (!owners) return null;
-	const live = core.liveSessionIds();
+	const live = core.readLiveSessionIds();
 	const buckets = sortByOwner(s.unattested, owners, live);
 	if (buckets.waiting.size === 0 && buckets.adopt.length === 0) return null;
-	return ownerAdviceLines(buckets, gate, live, core.registryNames());
+	return buildOwnerAdviceLines(buckets, gate, live, core.registryNames());
 }
 
 /**
- * Each uncovered file sorted by who answers for it: the pusher, a live
+ * Each unattested file sorted by who answers for it: the pusher, a live
  * session, or an ended one whose commits are adopted.
  *
  * @param {Unattested[]} unattested
@@ -117,7 +117,7 @@ function sortByOwner(unattested, owners, live) {
  * @param {(id: string) => string} nameOf
  * @returns {string[]}
  */
-function ownerAdviceLines(
+function buildOwnerAdviceLines(
 	{ yours, waiting, orphans, adopt },
 	gate,
 	live,
@@ -129,11 +129,11 @@ function ownerAdviceLines(
 	const rerun = [...yours, ...adopt.filter(namesTests)];
 	return [
 		...(rerun.length > 0
-			? rerunLines(rerun, gate, ", from your own commits or no session's")
+			? buildRerunLines(rerun, gate, ", from your own commits or no session's")
 			: []),
 		...[...waiting].map(
 			([owner, shas]) =>
-				`   ${list(shas)}: made by ${nameOf(owner)}, still live — its own green covers them, so run nothing for them (#1213).`,
+				`   ${list(shas)}: made by ${nameOf(owner)}, still live — its own certificate will attest them, so run nothing for them (#1213).`,
 		),
 		...(adopted.length > 0
 			? [
@@ -146,13 +146,13 @@ function ownerAdviceLines(
 
 /** @returns {number} the exit code */
 function main() {
-	const skip = pushGateSkip();
-	if (skip && "broken" in skip) {
-		say(`could not judge: ${skip.broken}`);
+	const gate = pushGateState();
+	if (gate.state === "broken") {
+		say(`could not judge: ${gate.line}`);
 		return 2;
 	}
-	if (skip) {
-		say(`SKIP: ${skip.skip}`);
+	if (gate.state === "skip") {
+		say(`SKIP: ${gate.line}`);
 		return 0;
 	}
 	const root = repoRoot();
@@ -162,7 +162,7 @@ function main() {
 	}
 	let sha;
 	try {
-		sha = execFileSync("git", ["rev-parse", "--verify", "-q", "main"], {
+		sha = execGit(["rev-parse", "--verify", "-q", "main"], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
@@ -182,12 +182,12 @@ function main() {
 	const { state, text } = attestationReading(sha, verdict, {
 		advise: (s) => {
 			const suite = suiteMeta(s.suite);
-			return suite.certifiesFiltered ? ownerAdvice(s, suite.gate) : null;
+			return suite.attestsFiltered ? buildOwnerAdvice(s, suite.gate) : null;
 		},
 	});
 	if (state === "attested" && verdict.judged)
 		say(
-			`✓  every commit in ${shortSha(verdict.base)}..${shortSha(sha)} is covered — push.`,
+			`✓  every commit in ${shortSha(verdict.base)}..${shortSha(sha)} is attested — push.`,
 		);
 	process.stdout.write(text);
 	return { attested: 0, owed: 1, unjudged: 2 }[state];

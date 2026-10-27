@@ -44,10 +44,11 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
-const { execFileSync, spawnSync } = require("node:child_process");
+const { spawnSync } = require("node:child_process");
+const { execGit, spawnGitSync } = require("./lib/git.js");
 const { materialisePlugin, fixByHand } = require("./lib/materialise-plugin.js");
 const { UPSTREAM_CODE_REPO } = require("./lib/workflow-core-config.js");
-const { consumesFaults, trackedFiles } = require("./lib/doc-map.js");
+const { consumesFaults, readTrackedFiles } = require("./lib/doc-map.js");
 const { formatConfigJson } = require("./lib/config-json.js");
 const {
 	findInstallRecord,
@@ -61,7 +62,6 @@ const {
 	CliExit,
 	flagValue,
 } = require("./lib/cli-args");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 
 const TAG = "pre-wfc-cut";
@@ -145,7 +145,7 @@ const MANTA = {
 		/* The sets keep the vendored helpers but delete what they spawn or
 		 * source: generate-doc-pages.js spawns register-doc.js,
 		 * doc-map-generator.js spawns the arbiter to claim for itself, and
-		 * guard-log.sh and guard-parse.sh source the two shell libs. */
+		 * guard-log.sh sources guard-root.sh. */
 		"scripts/register-doc.js",
 		"scripts/session-arbiter.js",
 		"scripts/lib/agent-liveness.js",
@@ -366,7 +366,7 @@ const MANTA = {
 		/* It sends a session to the core's scripts/run-vitest.js, which Manta
 		 * does not have: its `npm run test` is plain vitest, because CI runs
 		 * without the plugin (#422's census). */
-		disabled: ["guard-vitest-wrapper.sh"],
+		disabled: ["guard-vitest-wrapper.js"],
 	},
 	/* #450: mantahostels keeps that paragraph's text as its ranking file. */
 	ranking: {
@@ -415,7 +415,7 @@ const MANTA = {
 	commitMessage:
 		"Run mantahostels' agent workflow from the pinned workflow-core release and delete its own copies of the machinery, so a fix lands once and reaches both repos (workflow-core#412)\n\n" +
 		"Made by workflow-core's scripts/cut-mantahostels.js (workflow-core#423). Rollback while the live acceptance is unrecorded: workflow-core#424.\n\n" +
-		"Declined core guard: guard-vitest-wrapper.sh, in .claude/workflow-core.json's `disabled` — this repo's test scripts run vitest directly now that the core's runner wrappers are gone, so a guard steering every run through them would refuse each one.\n\n" +
+		"Declined core guard: guard-vitest-wrapper.js, in .claude/workflow-core.json's `disabled` — this repo's test scripts run vitest directly now that the core's runner wrappers are gone, so a guard steering every run through them would refuse each one.\n\n" +
 		"Kept beyond the #422 report's sets, because kept files spawn or source them: scripts/register-doc.js, scripts/session-arbiter.js with lib/agent-liveness.js, lib/detached-run.js and lib/oracle-cache.js, lib/guard-root.sh, lib/rule-text.sh, lib/precommit-gate.sh; and scripts/instruction-surface-anchors.json, the core's instruction-surface baseline.",
 };
 
@@ -448,11 +448,10 @@ function parse(argv) {
  * @param {Record<string, string>} [env]
  */
 function git(cwd, args, env) {
-	return execFileSync("git", args, {
+	return execGit(args, {
 		cwd,
 		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
-		maxBuffer: CHILD_MAX_BUFFER,
 		...(env ? { env } : {}),
 	});
 }
@@ -502,7 +501,7 @@ const tagExists = (root) => git(root, ["tag", "--list", TAG]).trim() === TAG;
  * @param {string} root
  * @returns {string[]} one line per process
  */
-function processesInside(root) {
+function readProcessesInside(root) {
 	const trees = git(root, ["worktree", "list", "--porcelain"])
 		.split("\n")
 		.filter((l) => l.startsWith("worktree "))
@@ -534,7 +533,7 @@ function processesInside(root) {
  * Tracked files at HEAD, repo-relative.
  * @param {string} root
  */
-function tracked(root) {
+function readTrackedPaths(root) {
 	return git(root, ["ls-files", "-z"]).split("\0").filter(Boolean);
 }
 
@@ -809,7 +808,7 @@ function plan(root, pluginRoot, spec) {
 	const sets = JSON.parse(
 		fs.readFileSync(path.join(root, spec.setsFile), "utf8"),
 	);
-	const files = tracked(root);
+	const files = readTrackedPaths(root);
 	const all = new Set(files);
 
 	/* A file the sets classify, changed since the report read it, invalidates
@@ -1228,7 +1227,7 @@ function pruneDeadConsumes(root, pluginRoot, survivors, out) {
 	const classes = JSON.parse(read(root, "docs/doc-map-classes.json"));
 	const dead = new Set(
 		consumesFaults(classes, {
-			tracked: [...survivors, ...trackedFiles(pluginRoot)],
+			tracked: [...survivors, ...readTrackedFiles(pluginRoot)],
 			presentUntracked: () => false,
 			liveFigures: new Set(),
 		})
@@ -1300,7 +1299,7 @@ function cut(at) {
 	 * the pin was cut from. */
 	const planRoot = at.pluginRoot ?? path.join(__dirname, "..");
 
-	const inside = processesInside(root);
+	const inside = readProcessesInside(root);
 	if (inside.length > 0)
 		throw new Refusal(
 			`a process is working inside ${root} — end every mantahostels session first (spec story 7):\n${inside.join("\n")}`,
@@ -1347,12 +1346,11 @@ function cut(at) {
 
 	/* A sweeping add is safe only because plan() refused an unclean tree. */
 	git(root, ["add", "-A"], env);
-	const commit = spawnSync("git", ["commit", "-q", "-F", "-"], {
+	const commit = spawnGitSync(["commit", "-q", "-F", "-"], {
 		cwd: root,
 		env,
 		input: spec.commitMessage,
 		encoding: "utf8",
-		maxBuffer: CHILD_MAX_BUFFER,
 	});
 	if (commit.status !== 0)
 		throw new Error(

@@ -9,8 +9,7 @@
  * (mantahostels#1795), which binds a require added here.
  */
 
-const { spawnSync } = require("node:child_process");
-const { gitBinary } = require("./git-binary.js");
+const { gitCommonDir, spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const bases = require("./arbiter-bases.js");
@@ -55,7 +54,7 @@ function pruneBlobRefs() {
 	}
 	// A broken claim's pin has no lock by construction, so the locks alone would
 	// collect exactly the content mantahostels#349 keeps (mantahostels#174: unreadable deletes nothing).
-	const broken = breaks.brokenClaimIds();
+	const broken = breaks.readBrokenClaimIds();
 	if (broken === null) {
 		core.logError("pruneBlobRefs", new Error("break records unreadable"));
 		return;
@@ -63,7 +62,7 @@ function pruneBlobRefs() {
 	const claimed = new Set(locks.map((l) => l.claimId).filter(Boolean));
 	// A second writer holds no lock either, so without this the sweep collects the
 	// only copy of what it last wrote (mantahostels#363).
-	const observed = observations.observedIds();
+	const observed = observations.readObservedIds();
 	if (observed === null) {
 		core.logError("pruneBlobRefs", new Error("observations unreadable"));
 		return;
@@ -95,7 +94,7 @@ function pruneBlobRefs() {
 	if (orphans.length === 0) return;
 	// Not core.gitIn, which discards stderr — the one line naming the ref that
 	// sank the batch.
-	const res = spawnSync(gitBinary(), ["update-ref", "--stdin"], {
+	const res = spawnGitSync(["update-ref", "--stdin"], {
 		cwd: core.repoRoot(),
 		encoding: "utf8",
 		input: orphans.join(""),
@@ -139,11 +138,7 @@ const STALE_REF_LOCK_MS = 10 * 60 * 1000;
 function clearStaleRefLocks() {
 	/** @type {Set<string>} */
 	const locked = new Set();
-	const common = core.git([
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-common-dir",
-	]);
+	const common = gitCommonDir(core.repoRoot());
 	if (!common) return locked;
 	const dir = path.join(common, contentMod.BLOB_REF_PREFIX);
 	let names;
@@ -279,11 +274,11 @@ function pruneAll(liveness) {
 
 /**
  * Age out per-path bases (#110), sparing every one a live session owns — by
- * filename suffix, as observedBy finds its own. An unreadable registry sweeps
+ * filename suffix, as readObservedBy finds its own. An unreadable registry sweeps
  * nothing: a live session's base must not go on doubt.
  */
 function pruneBases() {
-	const live = core.liveOrLog("pruneBases");
+	const live = core.readLiveOrLog("pruneBases");
 	if (live === null) return;
 	const suffixes = [...live].map((id) => core.pairSuffix(id));
 	core.sweepAged(core.paths.basesDir(), bases.BASE_AGE_MS, (f) =>

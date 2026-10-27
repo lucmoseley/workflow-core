@@ -46,8 +46,8 @@ const path = require("node:path");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");
-const { CANONICAL, siblings } = require("./lib/plan-dirs.js");
-const { declaredSeats } = require("./lib/refill-seats.js");
+const { CANONICAL, readSiblings } = require("./lib/plan-dirs.js");
+const { readDeclaredSeats } = require("./lib/refill-seats.js");
 
 const USAGE = `Usage: node ${scriptPath("link-config-dirs.js")} [--check] [--home <dir>]`;
 
@@ -72,7 +72,7 @@ const REGISTRIES = {
 const BACKUP = ".pre-link";
 
 /** @param {string} p */
-function real(p) {
+function readRealOrNull(p) {
 	try {
 		return fs.realpathSync(p);
 	} catch {
@@ -99,7 +99,7 @@ function state(sibling, canonical, entry) {
 	 * the same today and breaks the day that sibling's link moves. */
 	if (st.isSymbolicLink()) {
 		return path.resolve(sibling, fs.readlinkSync(at)) === want &&
-			real(want) !== null
+			readRealOrNull(want) !== null
 			? "linked"
 			: "misdirected";
 	}
@@ -353,7 +353,7 @@ function fixEntry(fix) {
 	/* A link aimed elsewhere, with nothing at `~/.claude` to aim it at:
 	 * take what it resolves to, or leave it rather than dangle it. */
 	if (s === "misdirected" && !fs.existsSync(want)) {
-		const target = real(at);
+		const target = readRealOrNull(at);
 		if (target === null) {
 			out(`left ${at}: it resolves nowhere and ~/.claude has no ${entry}`);
 			return null;
@@ -402,8 +402,8 @@ function relinkDiverged(fix, at, want) {
  * the seat file refuses.
  * @param {string} home
  */
-function overflowDirs(home) {
-	const { seats, errors } = declaredSeats(home);
+function readOverflowDirs(home) {
+	const { seats, errors } = readDeclaredSeats(home);
 	if (errors.length > 0)
 		throw new Error(`the seat file refuses:\n  ${errors.join("\n  ")}`);
 	return seats.filter((s) => s.kind === "overflow").map((s) => s.dir);
@@ -418,7 +418,7 @@ function linkableOverflowDirs(home, check, out) {
 	const present = [];
 	const drift = [];
 	const created = [];
-	for (const dir of overflowDirs(home)) {
+	for (const dir of readOverflowDirs(home)) {
 		if (!fs.existsSync(dir)) {
 			drift.push({ sibling: dir, entry: "", state: "missing" });
 			if (check) continue;
@@ -451,7 +451,7 @@ function run({
 	const overflow = linkableOverflowDirs(home, check, out);
 	drift.push(...overflow.drift);
 	fixed.push(...overflow.created);
-	for (const sibling of new Set([...siblings(home), ...overflow.present])) {
+	for (const sibling of new Set([...readSiblings(home), ...overflow.present])) {
 		for (const entry of SHARED) {
 			const s = state(sibling, canonical, entry);
 			if (s === "linked" || s === "absent") continue;

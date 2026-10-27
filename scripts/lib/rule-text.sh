@@ -36,10 +36,8 @@
 # WFC_RULES_DIR redirects the store, for tests only; with it set,
 # WFC_RULES_FALLBACK_DIR is the only layer beneath it (rt_dirs).
 #
-# IT SOURCES NEITHER lib/guard-log.sh NOR lib/guard-parse.sh: this reads one file
-# and has no hook envelope, so it stays free of both and can be sourced by a
-# non-guard. The dependency runs the other way — guard-parse.sh's gp_rule
-# sources THIS, lazily, at its first call (mantahostels#1804). It DOES source
+# IT DOES NOT SOURCE lib/guard-log.sh: this reads one file and has no hook
+# envelope, so it can be sourced by a non-guard. It DOES source
 # lib/guard-root.sh and lib/script-path.sh, which have no state and no
 # dependencies of their own, so the rule holds.
 
@@ -86,9 +84,9 @@ rt_dir() {
 # Pure bash: GNU `realpath -ms` is no portable spelling of it.
 rt_resolve() {
   local p="$1" part
-  # rt_-prefixed: guard-parse.sh sources this file with shellcheck's -x, which
-  # flattens the two files' namespaces, so a bare `out` here reads as the same
-  # name as guard-parse.sh's unrelated scalar locals (SC2178/SC2128).
+  # rt_-prefixed: a sourcing file checked with shellcheck's -x flattens the
+  # two files' namespaces, so a bare `out` here could read as a caller's
+  # unrelated scalar local (SC2178/SC2128).
   local -a parts rt_out=()
   [[ "$p" == /* ]] || p="$PWD/$p"
   IFS=/ read -ra parts <<<"$p"

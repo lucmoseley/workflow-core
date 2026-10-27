@@ -1,0 +1,5 @@
+{
+	"status": 1,
+	"stdout": "{\"message\":\"Validation Failed\",\"errors\":[{\"resource\":\"Search\",\"field\":\"q\",\"code\":\"missing\"}],\"documentation_url\":\"https://docs.github.com/rest\",\"status\":\"422\"}",
+	"stderr": "gh: Validation Failed (HTTP 422)\n"
+}

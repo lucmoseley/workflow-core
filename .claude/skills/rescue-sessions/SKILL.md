@@ -97,7 +97,9 @@ sessions' tests first.
 
 While the rescue runs, the shared tree holds several dead sessions' uncommitted
 work at once, so **no full suite can go green for anyone** until each lands. Every
-successor must be told to use `npm run test:changed`, commit by pathspec, and
+successor must be told to run only the tests it touched — the bare
+`npm run test` with the `landing` module on, `npm run test:changed` with it
+off — commit by pathspec, and
 prove a red is a neighbour's by running the failing files in a detached worktree
 at clean `HEAD` rather than trusting the `mantahostels#291` banner.
 

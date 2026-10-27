@@ -72,7 +72,7 @@ function headlineOf(text) {
  * @param {string} markdown
  * @returns {Generator<{ line: number, raw: string } | null>}
  */
-function* proseLines(markdown) {
+function* parseProseLines(markdown) {
 	let fenced = false;
 	let commented = false;
 	for (const [n, raw] of markdown.split("\n").entries()) {
@@ -102,7 +102,7 @@ function poolItems(markdown) {
 	/** @type {{ line: number, text: string } | null} */
 	let open = null;
 	let inBlock = false;
-	for (const l of proseLines(markdown)) {
+	for (const l of parseProseLines(markdown)) {
 		if (l === null || !l.raw.trim() || l.raw.startsWith("#")) {
 			open = null;
 			inBlock = false;

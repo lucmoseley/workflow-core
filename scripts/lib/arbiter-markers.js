@@ -2,7 +2,7 @@
  * arbiter-markers.js — the session-suffixed marker files.
  *
  * The concision backstop's base SHA, the once-per-session nags, the rule latches
- * guard-parse.sh writes (mantahostels#1804). Not the `.said-` markers, which live in locks/
+ * guard-entry.js writes (mantahostels#1804). Not the `.said-` markers, which live in locks/
  * and are arbiter-locks.js's `sweepDebris` to clear.
  *
  * All three families live under `.claude/tmp/markers` (`marker-root.js`'s
@@ -64,7 +64,7 @@ const {
  * `.unasked-rerun-refused-` is lib/unasked-rerun.js's once-a-session latch
  * (#815), a marker rather than a counter. `.session-ceiling-compactions-` is
  * guard-session-ceiling.js's set of the autocompactions it has counted (#1032).
- * `.scratch-written-` is guard-scratch-overwrite.sh's record of the scratch
+ * `.scratch-written-` is lib/scratch-overwrite.js's record of the scratch
  * paths a session has written or been refused once on (#1167, #1728). `.compaction-trigger-` is
  * inject-compaction-count.js's hand-off from PreCompact to SessionStart (#1148).
  * `.self-plugin-loaded-` is write-self-plugin-marker.sh's proof, read by the
@@ -120,21 +120,21 @@ const MARKER_PREFIXES = [
 const BREADCRUMB_PREFIX = ".hook-ran-";
 
 /**
- * gp_rule's per-session, per-rule latch: `.rule-injected-<id>-<agent>-<sid>`
- * (scripts/lib/guard-parse.sh). Kept on the marker clock, but matched as a
+ * A guard's per-session, per-rule latch: `.rule-injected-<id>-<agent>-<sid>`
+ * (scripts/lib/guard-entry.js's latchPath). Kept on the marker clock, but matched as a
  * SUFFIX like a breadcrumb, not by slicing this prefix: TWO segments sit between
  * the prefix and the id, so a fixed-length slice yields `<rule-id>-<agent>-<sid>`
  * whole, matches no live id, and every latch is swept at 24h under a live
  * session — which un-latches a rule mid-run (mantahostels#1804).
  *
- * A SECOND matching hazard, intended rather than a defect: guard-parse.sh
+ * A SECOND matching hazard, intended rather than a defect: guard-entry.js
  * replaces every character outside `[A-Za-z0-9_-]` in the session id before
  * using it as a path segment, while liveBreadcrumb compares against the
  * registry's RAW ids. So an id failing that test can never match a live session
  * and has only the clock to retire its latch — the same trade
  * `.hook-ran-<guard>-unknown-session` takes above.
  *
- * arbiter-markers.test.ts pins this spelling against guard-parse.sh's: the two
+ * arbiter-markers.test.ts pins this spelling against guard-entry.js's: the two
  * are coupled by a string literal and nothing else (mantahostels#1804).
  */
 const RULE_LATCH_PREFIX = ".rule-injected-";
@@ -210,7 +210,7 @@ function liveBreadcrumb(f, live) {
  * paragraph of prose should not simply inherit it.
  */
 function pruneMarkers() {
-	const live = core.liveOrLog("pruneMarkers");
+	const live = core.readLiveOrLog("pruneMarkers");
 	if (live === null) return; // cannot tell live from finished: delete nothing
 	const root = core.repoRoot();
 	const markers = markersDir(root);

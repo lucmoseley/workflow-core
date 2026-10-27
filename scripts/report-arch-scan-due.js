@@ -60,7 +60,6 @@
  * those, and on a refused command line.
  */
 
-const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
@@ -68,7 +67,7 @@ const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
-const { periodicReading, skipLine } = require("./lib/periodic-reading");
+const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { requiredGroup } = require("./lib/regex-group");
 const { isTestKind } = require("./lib/test-kind");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
@@ -77,8 +76,8 @@ const {
 	readConfig,
 	UPSTREAM_TRACKER,
 } = require("./lib/workflow-core-config");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { takesLabel } = require("./lib/takes-label");
+const { execGit, gitCommonDirOrThrow } = require("./lib/git.js");
 
 const RECORD = "docs/data/arch-scan-runs.jsonl";
 /* The spec's chosen values: the start date at #1309 Q4 (A), the threshold,
@@ -125,10 +124,9 @@ const isCode = (p) =>
  * @returns {string}
  */
 const git = (args) =>
-	execFileSync("git", args, {
+	execGit(args, {
 		cwd: hostRoot(),
 		encoding: "utf8",
-		maxBuffer: CHILD_MAX_BUFFER,
 		stdio: ["ignore", "pipe", "pipe"],
 	});
 
@@ -240,7 +238,7 @@ function recalibrate(threshold, y) {
 }
 
 /** The window's end: origin's HEAD, else the checked-out HEAD. */
-function windowEnd() {
+function readWindowEnd() {
 	for (const ref of ["refs/remotes/origin/HEAD", "HEAD"]) {
 		try {
 			return { sha: git(["rev-parse", "--verify", "-q", ref]).trim(), ref };
@@ -266,7 +264,7 @@ function windowEnd() {
  * @param {string[]} exclude archScan.exclude
  * @returns {Set<string>}
  */
-function countedFiles(head, exclude) {
+function readCountedFiles(head, exclude) {
 	const emptyTree = git(["hash-object", "-t", "tree", "/dev/null"]).trim();
 	return new Set(
 		git([
@@ -309,7 +307,7 @@ function numstatName(name, tokens, renamedTo) {
  *
  * @param {RegExpExecArray} m @param {1 | 2} n
  */
-function numstatLines(m, n) {
+function parseNumstatCount(m, n) {
 	const g = requiredGroup(m, n, NUMSTAT_RE);
 	return g === "-" ? 0 : Number(g);
 }
@@ -323,7 +321,7 @@ function numstatLines(m, n) {
  * @param {string[] | undefined} exclude archScan.exclude
  * @returns {Array<Map<string, number>>}
  */
-function windowCommits(start, head, exclude = []) {
+function readWindowCommits(start, head, exclude = []) {
 	const range =
 		"sha" in start
 			? [`${start.sha}..${head}`]
@@ -336,7 +334,7 @@ function windowCommits(start, head, exclude = []) {
 		"--format=%x01%H",
 		...range,
 	]);
-	const counted = countedFiles(head, exclude);
+	const counted = readCountedFiles(head, exclude);
 
 	/** Newest name of each path a rename moved, built newest-first. */
 	/** @type {Map<string, string>} */
@@ -365,7 +363,9 @@ function windowCommits(start, head, exclude = []) {
 		if (!counted.has(name) || !isCode(name)) continue;
 		inCommit.set(
 			name,
-			(inCommit.get(name) ?? 0) + numstatLines(m, 1) - numstatLines(m, 2),
+			(inCommit.get(name) ?? 0) +
+				parseNumstatCount(m, 1) -
+				parseNumstatCount(m, 2),
 		);
 	}
 	return commits;
@@ -425,7 +425,7 @@ function partnersOf(commits, hot) {
 }
 
 /** The config's archScan, BROKEN-thrown on a malformed value. */
-function archScanConfig() {
+function readArchScanConfig() {
 	const c = readConfig();
 	const file = path.relative(hostRoot(), c.file);
 	const fault = archScanFault(c);
@@ -434,7 +434,7 @@ function archScanConfig() {
 }
 
 /** @param {Source} source @param {string} file */
-const sourceLine = (source, file) => {
+const buildSourceLine = (source, file) => {
 	if (source === "override") return `archScan.threshold in ${file}`;
 	if (source === "log") return `the newest close line in ${RECORD}`;
 	return "the start value";
@@ -453,8 +453,8 @@ const sourceLine = (source, file) => {
  * @returns {Reading}
  */
 function measure({ config, file }, rows, start) {
-	const end = windowEnd();
-	const hot = tally(windowCommits(start, end.sha, config.exclude));
+	const end = readWindowEnd();
+	const hot = tally(readWindowCommits(start, end.sha, config.exclude));
 	const { threshold, source } = thresholdInForce(rows, config.threshold);
 	return {
 		start,
@@ -463,12 +463,12 @@ function measure({ config, file }, rows, start) {
 		growth: hot.reduce((s, f) => s + f.net, 0),
 		threshold,
 		source,
-		sourceText: `${source}: ${sourceLine(source, file)}`,
+		sourceText: `${source}: ${buildSourceLine(source, file)}`,
 	};
 }
 
 /** @param {Start} start */
-const sinceText = (start) =>
+const buildSinceText = (start) =>
 	"sha" in start
 		? `${start.sha} (newest scan line)`
 		: `${start.date} (${start.from})`;
@@ -481,7 +481,7 @@ const hotRow = (f) =>
 	`  ${String(f.commits).padStart(5)} commits  ${signed(f.net).padStart(7)}  ${f.path}`;
 
 function dryRun() {
-	const archScan = archScanConfig();
+	const archScan = readArchScanConfig();
 	const rows = readRecord();
 	const reading = measure(archScan, rows, windowStart(rows));
 	const map = scanInFlight(rows);
@@ -492,7 +492,7 @@ function dryRun() {
 		filing =
 			"At or over the threshold: a filing run would file or refresh the due issue.";
 	const lines = [
-		`Window: since ${sinceText(reading.start)} to ${reading.end.sha} (${reading.end.ref})`,
+		`Window: since ${buildSinceText(reading.start)} to ${reading.end.sha} (${reading.end.ref})`,
 		"",
 		`Hot files, the ${HOT_COUNT} code files with the most commits:`,
 		...reading.hot.map(hotRow),
@@ -534,7 +534,7 @@ function body(reading) {
 		"",
 		"## This repo's busiest code has grown past its threshold",
 		"",
-		`Window: since ${sinceText(reading.start)} to ${reading.end.sha}.`,
+		`Window: since ${buildSinceText(reading.start)} to ${reading.end.sha}.`,
 		"",
 		`The ${HOT_COUNT} code files with the most commits in the window:`,
 		"",
@@ -582,7 +582,7 @@ function unscannedCloseStart(rows) {
 
 /** @returns {string} what happened, for the run to print */
 function fileRun() {
-	const archScan = archScanConfig();
+	const archScan = readArchScanConfig();
 	const rows = readRecord();
 	const map = scanInFlight(rows);
 	if (map)
@@ -592,14 +592,11 @@ function fileRun() {
 		rows,
 		unscannedCloseStart(rows) ?? windowStart(rows),
 	);
-	const figure = `Growth ${reading.growth} against ${reading.threshold} (${reading.source}), since ${sinceText(reading.start)}`;
+	const figure = `Growth ${reading.growth} against ${reading.threshold} (${reading.source}), since ${buildSinceText(reading.start)}`;
 	if (reading.growth < reading.threshold)
 		return `${figure}: under the threshold, nothing filed.`;
 	return `${figure}. ${fileOrRefresh({ title: TITLE, labels: [LABEL], body: body(reading) })}`;
 }
-
-const commonDir = () =>
-	git(["rev-parse", "--path-format=absolute", "--git-common-dir"]).trim();
 
 /**
  * A failed git or gh call's message holds its whole argv, a filed body
@@ -616,7 +613,7 @@ function reason(e) {
 function daily() {
 	try {
 		const nowMs = now();
-		const dir = commonDir();
+		const dir = gitCommonDirOrThrow(hostRoot());
 		const gate = periodicReading(
 			{
 				stamp: path.join(dir, STAMP),
@@ -626,7 +623,7 @@ function daily() {
 			},
 			fileRun,
 		);
-		console.log(gate.ran ? gate.value : skipLine(gate, "a day"));
+		console.log(gate.ran ? gate.value : buildSkipLine(gate, "a day"));
 	} catch (e) {
 		/* Fails open (#1378): a session start never waits on, or fails for, a
 		 * count nobody asked for. */
@@ -646,7 +643,7 @@ function nextThreshold(raw) {
 		);
 		process.exit(2);
 	}
-	const { config } = archScanConfig();
+	const { config } = readArchScanConfig();
 	const rows = readRecord();
 	const inForce = thresholdInForce(rows, config.threshold);
 	const learned = learnedThreshold(rows);
@@ -667,7 +664,7 @@ function nextThreshold(raw) {
  */
 function readSavedRun(file) {
 	if (!fs.existsSync(file))
-		throw new Error(`${file} does not exist — ${saveHint(file)}`);
+		throw new Error(`${file} does not exist — ${buildSaveHint(file)}`);
 	const text = fs.readFileSync(file, "utf8");
 	const hot = [...text.matchAll(HOT_ROW_RE)].map((m) => ({
 		path: requiredGroup(m, 3, HOT_ROW_RE),
@@ -676,13 +673,13 @@ function readSavedRun(file) {
 	}));
 	if (hot.length === 0)
 		throw new Error(
-			`${file} holds no hot-file row of a --dry-run output — ${saveHint(file)}`,
+			`${file} holds no hot-file row of a --dry-run output — ${buildSaveHint(file)}`,
 		);
 	return { text, hot };
 }
 
 /** @param {string} file */
-const saveHint = (file) =>
+const buildSaveHint = (file) =>
 	`save one with: node scripts/report-arch-scan-due.js --dry-run > ${file}`;
 
 /** @param {string} file a saved `--dry-run` output */
@@ -701,17 +698,17 @@ function partners(file) {
 	const m = WINDOW_RE.exec(text);
 	if (!m)
 		throw new Error(
-			`${file} holds no Window line of a --dry-run output — ${saveHint(file)}`,
+			`${file} holds no Window line of a --dry-run output — ${buildSaveHint(file)}`,
 		);
 	const since = requiredGroup(m, 1, WINDOW_RE);
 	/** @type {Start} */
 	const start = SHA_RE.test(since)
 		? { sha: since }
 		: { date: since, from: requiredGroup(m, 2, WINDOW_RE) };
-	const commits = windowCommits(
+	const commits = readWindowCommits(
 		start,
 		requiredGroup(m, 3, WINDOW_RE),
-		archScanConfig().config.exclude,
+		readArchScanConfig().config.exclude,
 	);
 	process.stdout.write(
 		`${JSON.stringify(hot.map((f) => ({ path: f.path, partners: partnersOf(commits, f.path) })))}\n`,

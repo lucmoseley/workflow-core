@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * runningHooks is the one answer to "which hooks does this repo run" (spec
+ * readRunningHooks is the one answer to "which hooks does this repo run" (spec
  * #2295, seam 1). At the core it is the self-plugin's file then the canary its
  * settings keep (#2473), at an adopter the host's settings merged with the
  * plugin's file. A reader answering from the
@@ -20,12 +20,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
 	SELF_PLUGIN_HOOKS,
-	runningHooks,
+	readRunningHooks,
 	flattenHooks,
-	hookSourcesOf,
+	readHostHookSources,
 	isCoreRoot,
-	ownHookSources,
-	ownHooks,
+	readOwnHookSources,
+	readOwnHooks,
 	ownHooksFile,
 	selfPluginSetup,
 } = require("./core-hooks.js");
@@ -65,12 +65,12 @@ afterEach(() => {
 	fs.rmSync(host, { recursive: true, force: true });
 });
 
-describe("runningHooks at the core's own checkout", () => {
+describe("readRunningHooks at the core's own checkout", () => {
 	it("reads the self-plugin's file then the settings' canary, not the plugin render (#2473)", () => {
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("self.sh") });
 		write(core, ".claude/settings.json", { hooks: stop("canary.sh") });
 		write(core, "hooks/hooks.json", { hooks: stop("render.sh") });
-		expect(runningHooks(core, { core })).toEqual({
+		expect(readRunningHooks(core, { core })).toEqual({
 			Stop: [...stop("self.sh").Stop, ...stop("canary.sh").Stop],
 		});
 	});
@@ -82,7 +82,7 @@ describe("runningHooks at the core's own checkout", () => {
 		git(core, "add", "-A");
 		git(core, "commit", "-qm", "first");
 		write(core, ".claude/settings.json", { hooks: stop("disk.sh") });
-		expect(runningHooks(core, { core, rev: "HEAD" })).toEqual({
+		expect(readRunningHooks(core, { core, rev: "HEAD" })).toEqual({
 			Stop: [...stop("self.sh").Stop, ...stop("committed.sh").Stop],
 		});
 	});
@@ -99,45 +99,47 @@ describe("runningHooks at the core's own checkout", () => {
 		git(core, "add", "-A");
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("disk.sh") });
 
-		expect(runningHooks(core, { core, rev: "HEAD~1" })).toEqual(
+		expect(readRunningHooks(core, { core, rev: "HEAD~1" })).toEqual(
 			stop("first.sh"),
 		);
-		expect(runningHooks(core, { core, rev: "HEAD" })).toEqual(
+		expect(readRunningHooks(core, { core, rev: "HEAD" })).toEqual(
 			stop("second.sh"),
 		);
-		expect(runningHooks(core, { core, rev: "" })).toEqual(stop("staged.sh"));
-		expect(runningHooks(core, { core })).toEqual(stop("disk.sh"));
+		expect(readRunningHooks(core, { core, rev: "" })).toEqual(
+			stop("staged.sh"),
+		);
+		expect(readRunningHooks(core, { core })).toEqual(stop("disk.sh"));
 	});
 
 	it("throws naming the file where it is absent, on disk or at a revision", () => {
-		expect(() => runningHooks(core, { core })).toThrow(
+		expect(() => readRunningHooks(core, { core })).toThrow(
 			`${SELF_PLUGIN_HOOKS} cannot be read at ${core}`,
 		);
 		initRepo(core);
 		write(core, "a", "a");
 		git(core, "add", "-A");
 		git(core, "commit", "-qm", "a");
-		expect(() => runningHooks(core, { core, rev: "HEAD" })).toThrow(
+		expect(() => readRunningHooks(core, { core, rev: "HEAD" })).toThrow(
 			`${SELF_PLUGIN_HOOKS} cannot be read at HEAD in ${core}`,
 		);
 	});
 
 	it("throws where the file is not JSON or carries no hooks object", () => {
 		write(core, SELF_PLUGIN_HOOKS, "not json");
-		expect(() => runningHooks(core, { core })).toThrow("is not valid JSON");
+		expect(() => readRunningHooks(core, { core })).toThrow("is not valid JSON");
 		write(core, SELF_PLUGIN_HOOKS, { hooks: [] });
-		expect(() => runningHooks(core, { core })).toThrow(
+		expect(() => readRunningHooks(core, { core })).toThrow(
 			"carries no hooks object",
 		);
 	});
 });
 
-describe("runningHooks at an adopter host", () => {
+describe("readRunningHooks at an adopter host", () => {
 	it("merges the host's settings with the plugin's file, settings first", () => {
 		write(host, ".claude/settings.json", { hooks: stop("host.sh") });
 		write(core, "hooks/hooks.json", { hooks: stop("plugin.sh") });
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("self.sh") });
-		expect(runningHooks(host, { core })).toEqual({
+		expect(readRunningHooks(host, { core })).toEqual({
 			Stop: [...stop("host.sh").Stop, ...stop("plugin.sh").Stop],
 		});
 	});
@@ -149,11 +151,11 @@ describe("runningHooks at an adopter host", () => {
 			.spyOn(fs, "writeSync")
 			.mockImplementation((_fd, data) => Buffer.byteLength(data as string));
 		try {
-			expect(runningHooks(host, { core, quiet: true })).toEqual(
+			expect(readRunningHooks(host, { core, quiet: true })).toEqual(
 				stop("plugin.sh"),
 			);
 			expect(written).not.toHaveBeenCalled();
-			runningHooks(host, { core });
+			readRunningHooks(host, { core });
 			expect(
 				written.mock.calls.map(([fd, data]) => [fd, String(data)]),
 			).toEqual([
@@ -172,14 +174,14 @@ describe("runningHooks at an adopter host", () => {
 		write(host, ".claude/settings.json", { hooks: stop("host.sh") });
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
-		expect(() => runningHooks(host, { core, rev: "HEAD" })).toThrow(
+		expect(() => readRunningHooks(host, { core, rev: "HEAD" })).toThrow(
 			"is read from disk only",
 		);
 	});
 
 	it("throws naming the file where one is not valid JSON", () => {
 		write(core, "hooks/hooks.json", "not json");
-		expect(() => runningHooks(host, { core })).toThrow(
+		expect(() => readRunningHooks(host, { core })).toThrow(
 			`${path.join(core, "hooks", "hooks.json")} is not valid JSON`,
 		);
 	});
@@ -195,10 +197,10 @@ describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("disk.sh") });
 		write(core, ".claude/settings.json", { hooks: stop("settings.sh") });
 		expect(ownHooksFile(core, { core })).toBe(SELF_PLUGIN_HOOKS);
-		expect(ownHooks(core, { core })).toEqual({
+		expect(readOwnHooks(core, { core })).toEqual({
 			Stop: [...stop("disk.sh").Stop, ...stop("settings.sh").Stop],
 		});
-		expect(ownHooks(core, { core, rev: "HEAD" })).toEqual({
+		expect(readOwnHooks(core, { core, rev: "HEAD" })).toEqual({
 			Stop: [...stop("committed.sh").Stop, ...stop("canary.sh").Stop],
 		});
 	});
@@ -207,7 +209,7 @@ describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 		write(host, ".claude/settings.json", { hooks: stop("host.sh") });
 		write(core, "hooks/hooks.json", { hooks: stop("plugin.sh") });
 		expect(ownHooksFile(host, { core })).toBe(".claude/settings.json");
-		expect(ownHooks(host, { core })).toEqual(stop("host.sh"));
+		expect(readOwnHooks(host, { core })).toEqual(stop("host.sh"));
 	});
 
 	it("reads an adopter's settings at a revision", () => {
@@ -216,30 +218,34 @@ describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
 		write(host, ".claude/settings.json", { hooks: stop("disk.sh") });
-		expect(ownHooks(host, { core, rev: "HEAD" })).toEqual(stop("committed.sh"));
+		expect(readOwnHooks(host, { core, rev: "HEAD" })).toEqual(
+			stop("committed.sh"),
+		);
 	});
 
 	it("answers null for an adopter's absent settings, and none for one with no hooks key", () => {
-		expect(ownHooks(host, { core })).toBeNull();
+		expect(readOwnHooks(host, { core })).toBeNull();
 		initRepo(host);
 		write(host, "a", "a");
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "a");
-		expect(ownHooks(host, { core, rev: "HEAD" })).toBeNull();
+		expect(readOwnHooks(host, { core, rev: "HEAD" })).toBeNull();
 		write(host, ".claude/settings.json", { permissions: {} });
-		expect(ownHooks(host, { core })).toEqual({});
+		expect(readOwnHooks(host, { core })).toEqual({});
 	});
 
 	it("throws on an absent self-plugin file at the core, and a malformed file anywhere", () => {
-		expect(() => ownHooks(core, { core })).toThrow(
+		expect(() => readOwnHooks(core, { core })).toThrow(
 			`${SELF_PLUGIN_HOOKS} cannot be read at ${core}`,
 		);
 		write(host, ".claude/settings.json", "not json");
-		expect(() => ownHooks(host, { core })).toThrow("is not valid JSON");
+		expect(() => readOwnHooks(host, { core })).toThrow("is not valid JSON");
 		write(host, ".claude/settings.json", { hooks: [] });
-		expect(() => ownHooks(host, { core })).toThrow("carries no hooks object");
+		expect(() => readOwnHooks(host, { core })).toThrow(
+			"carries no hooks object",
+		);
 		write(host, ".claude/settings.json", { hooks: { Stop: { hooks: [] } } });
-		expect(() => ownHooks(host, { core })).toThrow(
+		expect(() => readOwnHooks(host, { core })).toThrow(
 			"its Stop hooks are not a list",
 		);
 	});
@@ -248,7 +254,7 @@ describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("self.sh") });
 		write(core, ".claude/settings.json", { hooks: stop("canary.sh") });
 		write(host, ".claude/settings.json", { hooks: stop("host.sh") });
-		expect(ownHookSources(core, { core })).toEqual([
+		expect(readOwnHookSources(core, { core })).toEqual([
 			{
 				file: path.join(core, SELF_PLUGIN_HOOKS),
 				settings: { hooks: stop("self.sh") },
@@ -258,7 +264,7 @@ describe("ownHooks, the hooks a repo registers itself (#2442)", () => {
 				settings: { hooks: stop("canary.sh") },
 			},
 		]);
-		expect(ownHookSources(host, { core })).toEqual([
+		expect(readOwnHookSources(host, { core })).toEqual([
 			{
 				file: path.join(host, ".claude/settings.json"),
 				settings: { hooks: stop("host.sh") },
@@ -275,13 +281,13 @@ describe("a materialised core revision (#2445)", () => {
 			Stop: [...stop("self.sh").Stop, ...stop("settings.sh").Stop],
 		};
 		expect(ownHooksFile(host, { core })).toBe(SELF_PLUGIN_HOOKS);
-		expect(ownHooks(host, { core })).toEqual(both);
+		expect(readOwnHooks(host, { core })).toEqual(both);
 		initRepo(host);
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
 		write(host, SELF_PLUGIN_HOOKS, { hooks: stop("on-disk.sh") });
-		expect(ownHooks(host, { core, rev: "HEAD" })).toEqual(both);
-		expect(runningHooks(host, { core, rev: "HEAD" })).toEqual(both);
+		expect(readOwnHooks(host, { core, rev: "HEAD" })).toEqual(both);
+		expect(readRunningHooks(host, { core, rev: "HEAD" })).toEqual(both);
 	});
 
 	it("is an adopter at a revision that does not carry the file, though the disk does", () => {
@@ -293,7 +299,9 @@ describe("a materialised core revision (#2445)", () => {
 		expect(ownHooksFile(host, { core, rev: "HEAD" })).toBe(
 			".claude/settings.json",
 		);
-		expect(ownHooks(host, { core, rev: "HEAD" })).toEqual(stop("settings.sh"));
+		expect(readOwnHooks(host, { core, rev: "HEAD" })).toEqual(
+			stop("settings.sh"),
+		);
 	});
 
 	it("is an adopter where the self-plugin's folder holds no hooks file (#2633)", () => {
@@ -308,18 +316,18 @@ describe("a materialised core revision (#2445)", () => {
 		write(host, ".claude/settings.json", { hooks: stop("settings.sh") });
 		git(host, "add", "-A");
 		git(host, "commit", "-qm", "first");
-		expect(() => ownHooks(host, { core, rev: "no-such-rev" })).toThrow(
+		expect(() => readOwnHooks(host, { core, rev: "no-such-rev" })).toThrow(
 			/no-such-rev/,
 		);
 	});
 });
 
-describe("hookSourcesOf, the files registering a host's hooks (#2444)", () => {
+describe("readHostHookSources, the files registering a host's hooks (#2444)", () => {
 	it("answers the self-plugin's file then the settings at the core, never the plugin's (#2473)", () => {
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("self.sh") });
 		write(core, ".claude/settings.json", { hooks: stop("canary.sh") });
 		write(core, "hooks/hooks.json", { hooks: stop("plugin.sh") });
-		expect(hookSourcesOf(core, { core })).toEqual([
+		expect(readHostHookSources(core, { core })).toEqual([
 			{
 				file: path.join(core, SELF_PLUGIN_HOOKS),
 				settings: { hooks: stop("self.sh") },
@@ -333,7 +341,7 @@ describe("hookSourcesOf, the files registering a host's hooks (#2444)", () => {
 
 	it("answers an absent settings file at the core as registering nothing", () => {
 		write(core, SELF_PLUGIN_HOOKS, { hooks: stop("self.sh") });
-		expect(hookSourcesOf(core, { core })[1]).toEqual({
+		expect(readHostHookSources(core, { core })[1]).toEqual({
 			file: path.join(core, ".claude", "settings.json"),
 			settings: null,
 		});
@@ -342,7 +350,7 @@ describe("hookSourcesOf, the files registering a host's hooks (#2444)", () => {
 	it("answers an adopter's settings, then the plugin's hooks file", () => {
 		write(host, ".claude/settings.json", { hooks: stop("host.sh") });
 		write(core, "hooks/hooks.json", { hooks: stop("plugin.sh") });
-		expect(hookSourcesOf(host, { core })).toEqual([
+		expect(readHostHookSources(host, { core })).toEqual([
 			{
 				file: path.join(host, ".claude", "settings.json"),
 				settings: { hooks: stop("host.sh") },
@@ -355,7 +363,7 @@ describe("hookSourcesOf, the files registering a host's hooks (#2444)", () => {
 	});
 
 	it("throws at a core with no self-plugin file, naming it", () => {
-		expect(() => hookSourcesOf(core, { core })).toThrow(
+		expect(() => readHostHookSources(core, { core })).toThrow(
 			`${SELF_PLUGIN_HOOKS} cannot be read`,
 		);
 	});
@@ -479,7 +487,7 @@ describe("flattenHooks", () => {
 	});
 });
 
-describe("hookSourcesOf at an adopter host (#2297)", () => {
+describe("readHostHookSources at an adopter host (#2297)", () => {
 	beforeEach(() => fs.mkdirSync(path.join(core, "hooks")));
 
 	it("reads the host's settings, then the plugin's hooks, an absent one as null", () => {
@@ -487,7 +495,7 @@ describe("hookSourcesOf at an adopter host (#2297)", () => {
 			path.join(core, "hooks", "hooks.json"),
 			JSON.stringify({ hooks: { Stop: [] } }),
 		);
-		expect(hookSourcesOf(host, { core })).toEqual([
+		expect(readHostHookSources(host, { core })).toEqual([
 			{ file: path.join(host, ".claude", "settings.json"), settings: null },
 			{
 				file: path.join(core, "hooks", "hooks.json"),
@@ -499,7 +507,7 @@ describe("hookSourcesOf at an adopter host (#2297)", () => {
 	it("throws naming the file where one is not valid JSON", () => {
 		const file = path.join(core, "hooks", "hooks.json");
 		fs.writeFileSync(file, "not json");
-		expect(() => hookSourcesOf(host, { core })).toThrow(
+		expect(() => readHostHookSources(host, { core })).toThrow(
 			`${file} is not valid JSON`,
 		);
 	});
@@ -507,7 +515,7 @@ describe("hookSourcesOf at an adopter host (#2297)", () => {
 	it("throws naming the file where one cannot be read", () => {
 		const file = path.join(host, ".claude", "settings.json");
 		fs.mkdirSync(file, { recursive: true });
-		expect(() => hookSourcesOf(host, { core })).toThrow(
+		expect(() => readHostHookSources(host, { core })).toThrow(
 			`${file} cannot be read`,
 		);
 	});

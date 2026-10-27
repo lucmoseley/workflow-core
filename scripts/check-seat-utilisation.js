@@ -57,7 +57,7 @@
  *
  *   THE PRESCRIPTION CHANGES, so the trial is a MODE and not a filter (mantahostels#2845).
  *   A trial-time fire means the trial FAILED: seat 3 goes back that day and the
- *   $600 stands. It must never print blockedNotice, which would send the founder
+ *   $600 stands. It must never print buildBlockedNotice, which would send the founder
  *   to re-decide a ceiling off evidence about TWO seats.
  *
  *   THE CEILING RE-DECISION IS SUPPRESSED for the fortnight, deliberately, and
@@ -151,7 +151,7 @@ function seatTable(seats) {
  *
  * @param {ReturnType<typeof verdict>} v
  */
-function blockedNotice(v) {
+function buildBlockedNotice(v) {
 	const rung1 = rungOneLogged();
 	const opener =
 		rung1 === false
@@ -177,7 +177,7 @@ function blockedNotice(v) {
  * @param {ScopedModelState[]} exhausted
  * @param {{ severity?: boolean }} [opts]
  */
-function scopedModelsSummary(exhausted, opts = {}) {
+function buildScopedModelsSummary(exhausted, opts = {}) {
 	return exhausted.map((m) => ({
 		model: m.model,
 		seats: m.entries.map(({ seat, bar }) => ({
@@ -199,7 +199,7 @@ function scopedModelsSummary(exhausted, opts = {}) {
  *
  * @param {ScopedModelState[]} exhausted
  */
-function scopedTierNotice(exhausted) {
+function buildScopedTierNotice(exhausted) {
 	const resets = exhausted
 		.flatMap((m) => m.entries.map(({ bar }) => bar.resetsAt))
 		.map((iso) => (iso === null ? Number.NaN : Date.parse(iso)))
@@ -229,7 +229,7 @@ function scopedTierNotice(exhausted) {
 
 /** The measured window, as every trial notice states it. */
 /** @param {import("./lib/trial-window").TrialDeclaration} d */
-const windowLine = (d) =>
+const buildWindowLine = (d) =>
 	`${utc(d.startIso ?? null)} → ${utc(d.endIso ?? null)} UTC ` +
 	`(${Math.round(((d.endMs ?? 0) - (d.startMs ?? 0)) / 864e5)} days)`;
 
@@ -243,7 +243,7 @@ const windowLine = (d) =>
  *
  * @param {string} reason
  */
-const cannotHonourNotice = (reason) =>
+const buildCannotHonourNotice = (reason) =>
 	"TRIAL DECLARED, NOT HONOURED — gate 2's trial window in\n" +
 	`${ladderPath()} cannot be read against this machine:\n` +
 	`  ${reason}.\n` +
@@ -257,7 +257,7 @@ const cannotHonourNotice = (reason) =>
  *
  * @param {string} reason
  */
-const ladderUnreadableNotice = (reason) =>
+const buildLadderUnreadableNotice = (reason) =>
 	"GATE 2 LADDER UNREADABLE — whether a gate 2 trial is declared is unknown:\n" +
 	`  ${reason}.\n` +
 	"  The ordinary three-seat trigger is running unchanged, so nothing is being\n" +
@@ -275,7 +275,7 @@ const ladderUnreadableNotice = (reason) =>
  * @param {import("./lib/trial-window").TrialDeclaration} d
  * @param {number} nowMs
  */
-function trialFailedNotice(tv, d, nowMs) {
+function buildTrialFailedNotice(tv, d, nowMs) {
 	const v = /** @type {ReturnType<typeof verdict>} */ (tv.verdict);
 	const day = Math.floor((nowMs - (d.startMs ?? nowMs)) / 864e5) + 1;
 	const total = Math.round(((d.endMs ?? 0) - (d.startMs ?? 0)) / 864e5);
@@ -291,7 +291,7 @@ function trialFailedNotice(tv, d, nowMs) {
 		"  THE PRESCRIBED ACT IS: RE-ENABLE SEAT 3 TODAY. Probation ends, the seat stays,\n" +
 		"  and the $600/month ceiling stands — seat 3 is already paid for, so this costs\n" +
 		"  nothing and is NOT a purchase and NOT a ceiling re-decision (mantahostels#2845).\n" +
-		`  The ordinary ceiling trigger was SUPPRESSED for this trial — ${windowLine(d)} —\n` +
+		`  The ordinary ceiling trigger was SUPPRESSED for this trial — ${buildWindowLine(d)} —\n` +
 		"  and resumes over three seats the day the seat is back.\n" +
 		`${use}` +
 		`  Then clear the declaration block from ${ladderPath()}.\n`
@@ -306,7 +306,7 @@ function trialFailedNotice(tv, d, nowMs) {
  * @param {ReturnType<typeof trialReview>} r
  * @param {import("./lib/trial-window").TrialDeclaration} d
  */
-function trialEndedNotice(r, d) {
+function buildTrialEndedNotice(r, d) {
 	/** @type {string} */
 	let head;
 	if (r.kind === "unmeasured")
@@ -340,7 +340,7 @@ function trialEndedNotice(r, d) {
 		: "";
 	return (
 		`${head}` +
-		`  Window: ${windowLine(d)}.\n` +
+		`  Window: ${buildWindowLine(d)}.\n` +
 		`  COVERAGE — ${r.readingCount} reading(s) inside it, largest gap ${hours(r.largestGapHours)}. Judge the\n` +
 		"  verdict on that: a gap neither extends nor voids the window, because work\n" +
 		"  stopping is itself what this gate measures (mantahostels#2848), but an unmeasured stretch\n" +
@@ -361,8 +361,8 @@ function sayDeclarationState(ctx, { decl, tv, phase }) {
 	if (decl.state !== "none" && !tv.honoured) {
 		ctx.say(
 			(decl.state === "unreadable"
-				? ladderUnreadableNotice
-				: cannotHonourNotice)(
+				? buildLadderUnreadableNotice
+				: buildCannotHonourNotice)(
 				tv.reason ?? "the declaration could not be parsed",
 			),
 		);
@@ -373,7 +373,7 @@ function sayDeclarationState(ctx, { decl, tv, phase }) {
 		 * silent: those days look identical to a live trial from the outside. */
 		ctx.say(
 			`GATE 2 TRIAL PENDING — declared, and the measured window opens ${utc(decl.startIso ?? null)} UTC.\n` +
-				`  ${windowLine(decl)}. Until then nothing is measured and the ordinary\n` +
+				`  ${buildWindowLine(decl)}. Until then nothing is measured and the ordinary\n` +
 				"  three-seat trigger is running unchanged.\n",
 		);
 	}
@@ -398,7 +398,7 @@ function warnTrialFailed(ctx, { tv, liveVerdict, decl, t }) {
 			hoursToEarliestReset: liveVerdict.hoursToEarliestReset,
 		},
 	);
-	ctx.say(trialFailedNotice(tv, decl, t));
+	ctx.say(buildTrialFailedNotice(tv, decl, t));
 }
 
 /**
@@ -422,7 +422,7 @@ function reportReview(ctx, review, decl) {
 				...review,
 			},
 		);
-	ctx.say(trialEndedNotice(review, decl));
+	ctx.say(buildTrialEndedNotice(review, decl));
 }
 
 /**
@@ -442,7 +442,7 @@ function warnAllExhausted(ctx, v) {
 			hoursToEarliestReset: v.hoursToEarliestReset,
 		},
 	);
-	ctx.say(blockedNotice(v));
+	ctx.say(buildBlockedNotice(v));
 }
 
 /**
@@ -518,9 +518,9 @@ function warnScopedTier(ctx, scoped) {
 	ctx.warn(
 		"MODEL-TIER-SPENT",
 		`${scoped.exhausted.map((m) => m.model).join(", ")} weekly allowance is at ${BLOCKED_UTILISATION}% on every readable seat`,
-		{ models: scopedModelsSummary(scoped.exhausted) },
+		{ models: buildScopedModelsSummary(scoped.exhausted) },
 	);
-	ctx.say(scopedTierNotice(scoped.exhausted));
+	ctx.say(buildScopedTierNotice(scoped.exhausted));
 }
 
 /**
@@ -623,7 +623,7 @@ runCheck({
 
 		reportVerdict(ctx, { v, tv, decl, t, review, suppressed, phase });
 
-		/* #298's second state — never chained onto `blockedNotice`'s branch,
+		/* #298's second state — never chained onto `buildBlockedNotice`'s branch,
 		 * which prescribes a different act. `heldFire` prints NOTHING (ruling
 		 * 3): the ordinary trigger's own `SEAT UNREAD` notice already covers
 		 * the unread seat. */
@@ -639,7 +639,9 @@ runCheck({
 				scoped: {
 					fired: scoped.fired,
 					heldFire: scoped.heldFire,
-					models: scopedModelsSummary(scoped.exhausted, { severity: true }),
+					models: buildScopedModelsSummary(scoped.exhausted, {
+						severity: true,
+					}),
 					unread: scoped.unread.map((s) => s.dir),
 				},
 				trial: trialData({ phase, tv, decl, suppressed, review }),

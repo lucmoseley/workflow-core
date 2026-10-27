@@ -73,7 +73,7 @@ const waitForFile = async (file: string) => {
 /** The notice forced on, for the tests that are about what it prints. */
 const LOUD = { WFC_THROTTLE_NOTICE: "1" };
 
-const historyLines = () =>
+const readHistoryLines = () =>
 	fs
 		.readFileSync(history(), "utf8")
 		.trim()
@@ -304,7 +304,7 @@ describe("--notify", () => {
 		await waitForFile(state());
 		// Real time: a second sweep, had one been kicked, lands just after the first.
 		await sleep(1000);
-		expect(historyLines()).toHaveLength(1);
+		expect(readHistoryLines()).toHaveLength(1);
 	});
 
 	it("prints no raw null for a busy rate a corrupt cache left out", () => {
@@ -396,7 +396,7 @@ describe("the session-start notice, off by default (mantahostels#1404)", () => {
 		expect(r.stdout).toBe("");
 		await waitForFile(state());
 		expect(readState().episodes).toHaveLength(1);
-		expect(historyLines()).toHaveLength(1);
+		expect(readHistoryLines()).toHaveLength(1);
 	});
 
 	it("answers in full when asked directly, whatever the session start does", () => {
@@ -426,8 +426,8 @@ describe("the reading history", () => {
 		throttled();
 		run(["--refresh"]);
 		run(["--refresh"]);
-		expect(historyLines()).toHaveLength(2);
-		expect(historyLines()[0].episodes).toHaveLength(1);
+		expect(readHistoryLines()).toHaveLength(2);
+		expect(readHistoryLines()[0].episodes).toHaveLength(1);
 	});
 
 	it("keeps an episode after the transcripts behind it have aged out", () => {
@@ -438,7 +438,7 @@ describe("the reading history", () => {
 		run(["--refresh"]);
 
 		expect(readState().episodes).toEqual([]); // the live view has lost it
-		const lines = historyLines();
+		const lines = readHistoryLines();
 		expect(lines).toHaveLength(2);
 		expect(lines[0].episodes).toHaveLength(1); // the history has not
 		expect(lines[1].episodes).toEqual([]);
@@ -450,7 +450,7 @@ describe("the reading history", () => {
 		 * history cannot be told from a stretch nobody swept. */
 		throttled();
 		run(["--refresh"]);
-		const [line] = historyLines();
+		const [line] = readHistoryLines();
 		expect(Date.parse(line.sweptAt)).toBeGreaterThan(0);
 		expect(line.fileCount).toBe(1);
 		expect(line.turnCount).toBeGreaterThan(0);
@@ -462,7 +462,7 @@ describe("the reading history", () => {
 		 * near-misses, or a no-fire day records nothing comparable at all. */
 		throttled();
 		run(["--refresh"]);
-		const [line] = historyLines();
+		const [line] = readHistoryLines();
 		expect(line.busyRate).toBeGreaterThan(0);
 		expect(line.candidates.length).toBeGreaterThan(line.episodes.length);
 		expect(line.candidates[0]).toHaveProperty("beforeRatio");
@@ -472,7 +472,7 @@ describe("the reading history", () => {
 		/* The common case, and the one a fire list loses entirely. */
 		writeCorpus({ gapAtHour: 0, gapHours: 0 });
 		run(["--refresh"]);
-		const [line] = historyLines();
+		const [line] = readHistoryLines();
 		expect(line.episodes).toEqual([]);
 		expect(line.busyRate).toBeGreaterThan(0);
 	});

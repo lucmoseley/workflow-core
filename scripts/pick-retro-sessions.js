@@ -38,27 +38,25 @@
  * writing, and its `git` calls only read.
  */
 
-const { execFileSync } = require("node:child_process");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
-const os = require("node:os");
 const path = require("node:path");
 const { listedSessionIds, isListedLive } = require("./lib/agent-liveness");
-const { liveSessionIds } = require("./lib/arbiter-core");
+const { readLiveSessionIds } = require("./lib/arbiter-core");
 const { parseOrExit, exitWith, flagValue, CliExit } = require("./lib/cli-args");
 const { streamRecords } = require("./lib/encoding-use");
-const { isUnder } = require("./lib/is-under.js");
+const { readSessionHead, repoRootOf } = require("./lib/session-head.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state");
-const { realKey } = require("./lib/deref.js");
-const { seatTranscripts } = require("./lib/project-dirs");
+const { readSeatTranscripts } = require("./lib/project-dirs");
 const { seatsFrom } = require("./lib/seat-args");
 const {
 	STOP_FEEDBACK,
-	contentText,
+	parseContentText,
 	subagentDirOf,
 } = require("./lib/transcript");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
+const { execGit } = require("./lib/git.js");
 
 const USAGE = `Usage: node scripts/pick-retro-sessions.js [--week <date>] [--top <n>]
   [--calibrate [--seed <s>]] [--config-dir <dir>]...
@@ -95,7 +93,7 @@ const LIVENESS_ASK_MAX = 200;
 /** @typedef {{toolErrors: number, classifierDenials: number, stopBlocks: number,
  *   compactions: number, livenessAsks: number, apiErrors: number}} Signals
  * @typedef {{signals: Signals, requests: Set<string>}} Tally
- * @typedef {{firstTimestamp: string|null, cwd: string|null, entrypoint: string|null}} SessionHead
+ * @typedef {import("./lib/session-head.js").SessionHead} SessionHead
  * @typedef {{file: string, sessionId: string, subagentDir: string|null,
  *   subagentLogs: string[], changed: number, head: SessionHead, root: string,
  *   release: string|null}} Candidate */
@@ -127,50 +125,11 @@ function readDir(dir) {
 }
 
 /** NaN where the file cannot be stat'ed. @param {string} file */
-function mtimeOf(file) {
+function readMtimeOf(file) {
 	try {
 		return fs.statSync(file).mtimeMs;
 	} catch {
 		return Number.NaN;
-	}
-}
-
-/**
- * The first timestamp, cwd and entrypoint a log records, read only as far as
- * it takes to find all three. Throws where the log cannot be read.
- * @param {string} file
- * @returns {SessionHead}
- */
-function readSessionHead(file) {
-	/** @type {SessionHead} */
-	const out = { firstTimestamp: null, cwd: null, entrypoint: null };
-	for (const r of streamRecords(file, "main")) {
-		if (!out.firstTimestamp && typeof r.timestamp === "string")
-			out.firstTimestamp = r.timestamp;
-		if (!out.cwd && typeof r.cwd === "string") out.cwd = r.cwd;
-		if (!out.entrypoint && typeof r.entrypoint === "string")
-			out.entrypoint = r.entrypoint;
-		if (out.firstTimestamp && out.cwd && out.entrypoint) break;
-	}
-	return out;
-}
-
-/**
- * The repo root a session's cwd belongs to, or null where the cwd is job
- * temp, system temp or repo scratch.
- * @param {string} cwd
- */
-function repoRootOf(cwd) {
-	const p = path.resolve(cwd);
-	if (/\/\.claude[^/]*\/jobs\//.test(p)) return null;
-	const tmp = os.tmpdir();
-	if (isUnder(p, [tmp, realKey(tmp)], path.sep)) return null;
-	if (/\/\.claude\/tmp(\/|$)/.test(p)) return null;
-	const worktree = p.match(/^(.*)\/\.claude\/worktrees\/[^/]+/);
-	if (worktree) return worktree[1];
-	for (let at = p; ; at = path.dirname(at)) {
-		if (fs.existsSync(path.join(at, ".git"))) return at;
-		if (path.dirname(at) === at) return p;
 	}
 }
 
@@ -182,10 +141,10 @@ function repoRootOf(cwd) {
  * @param {string} at  an ISO timestamp
  * @returns {unknown}
  */
-function settingsAt(root, at) {
+function readSettingsAt(root, at) {
 	const rel = ".claude/settings.json";
 	const git = (/** @type {string[]} */ args) =>
-		execFileSync("git", ["-C", root, ...args], {
+		execGit(["-C", root, ...args], {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 			// A guess, never measured: a wedged git, not a slow one.
@@ -208,11 +167,11 @@ function settingsAt(root, at) {
  * @param {string} at
  * @returns {{release: string|null} | null}
  */
-function pluginOf(root, at) {
+function readPluginRelease(root, at) {
 	if (isCoreHost(root)) return { release: "self" };
 	const settings =
 		/** @type {import("./lib/plugin-state").AdopterSettings|null} */ (
-			settingsAt(root, at)
+			readSettingsAt(root, at)
 		);
 	const pin = findPin(settings, "workflow-core");
 	if (!pin.marketplace) return null;
@@ -246,7 +205,7 @@ function countSignals(file, tier, { signals, requests }) {
 function countUserSignals(r, signals) {
 	const content = r.message?.content;
 	if (Array.isArray(content)) countToolErrors(content, signals);
-	const text = contentText(content);
+	const text = parseContentText(content);
 	if (STOP_FEEDBACK.test(text)) signals.stopBlocks++;
 	else if (
 		r.origin?.kind === "human" &&
@@ -263,7 +222,8 @@ function countUserSignals(r, signals) {
 function countToolErrors(content, signals) {
 	for (const b of content) {
 		if (b?.type !== "tool_result" || !b.is_error) continue;
-		if (CLASSIFIER.test(contentText(b.content))) signals.classifierDenials++;
+		if (CLASSIFIER.test(parseContentText(b.content)))
+			signals.classifierDenials++;
 		else signals.toolErrors++;
 	}
 }
@@ -361,7 +321,7 @@ function poolCandidates(seats, start, end) {
 	const candidates = [];
 	/** @type {string[]} */
 	const unreadable = [];
-	const listing = seatTranscripts(seats);
+	const listing = readSeatTranscripts(seats);
 	for (const file of listing.files) {
 		const sessionId = path.basename(file, ".jsonl");
 		if (sessionId === me) continue;
@@ -385,7 +345,7 @@ function poolCandidates(seats, start, end) {
  * @returns {{ candidate: Candidate|null, unreadable: boolean }}
  */
 function candidateOf(file, sessionId, { start, end }) {
-	const own = mtimeOf(file);
+	const own = readMtimeOf(file);
 	if (Number.isNaN(own)) return { candidate: null, unreadable: true };
 	const subagentDir = subagentDirOf(file);
 	const subagentLogs = readDir(subagentDir)
@@ -394,7 +354,7 @@ function candidateOf(file, sessionId, { start, end }) {
 	// A subagent log that vanished since the listing changes nothing here.
 	const changed = Math.max(
 		own,
-		...subagentLogs.map(mtimeOf).filter((m) => !Number.isNaN(m)),
+		...subagentLogs.map(readMtimeOf).filter((m) => !Number.isNaN(m)),
 	);
 	// The first record is written before any later one, so a log last
 	// changed before the window opened cannot start inside it.
@@ -413,7 +373,7 @@ function candidateOf(file, sessionId, { start, end }) {
 	if (head.entrypoint === "sdk-cli") return excluded;
 	const root = repoRootOf(head.cwd);
 	if (!root) return excluded;
-	const plugin = pluginOf(root, head.firstTimestamp);
+	const plugin = readPluginRelease(root, head.firstTimestamp);
 	if (!plugin) return excluded;
 	return {
 		candidate: {
@@ -443,7 +403,7 @@ function candidateOf(file, sessionId, { start, end }) {
 function dropLive(candidates, t) {
 	if (candidates.length === 0) return candidates;
 	const listed = listedSessionIds();
-	const registry = liveSessionIds();
+	const registry = readLiveSessionIds();
 	/** @type {string[]} */
 	const doubts = [];
 	if (listed.why !== undefined)
@@ -607,6 +567,3 @@ function main() {
 }
 
 if (require.main === module) main();
-
-/* The close-check reading finds each repo's root the same way (#1103). */
-module.exports = { readSessionHead, repoRootOf };

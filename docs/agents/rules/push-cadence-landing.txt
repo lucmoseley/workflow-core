@@ -1,16 +1,16 @@
-PUSH TO `landing` WHEN `{command:push_check}` FINDS EVERY COMMIT IT SENDS
-COVERED — by your green or a neighbour's — and run the suite only for what it
-names. The push is your own act; never ask the founder for it. Push before the
-turn's last message, or say in that message why the push is held.
+PUSH TO `landing` ONCE THE TESTS YOU TOUCHED PASS — run them by name or with
+the bare test command; the lander runs the full suite. The push is your own
+act; never ask the founder for it. Push before the turn's last message, or say
+in that message why the push is held.
 
-  {command:push_check}
+  {command:test}
   {command:typecheck}
   {command:check}
   <the edited file's own checker>
   git push origin main:landing   # HEAD:landing from a worktree
 
 A push costs nothing; holding one back buys nothing. `.husky/post-commit`'s
-unpushed count is a reminder, not a prompt to push.
+unpushed count is a reminder, not a prompt.
 
 The push sends EVERY commit on `main`, a parallel session's too.
 

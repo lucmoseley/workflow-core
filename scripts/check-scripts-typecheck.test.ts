@@ -37,11 +37,11 @@ const checked = (name: string) =>
 	`#!/usr/bin/env node\n/*\n * ${name} — a fixture.\n */\n\nmodule.exports = {};\n`;
 
 /** A script that has silenced the checker and said why, in §N8's spelling. */
-const silencedWithReason = (name: string) =>
+const buildSilencedWithReason = (name: string) =>
 	`#!/usr/bin/env node\n// @ts-nocheck\n/*\n * ${name} — a fixture.\n *\n * NO type checking (§N8). Every value here crosses an untyped boundary.\n */\n\nmodule.exports = {};\n`;
 
 /** A script that has silenced the checker and said nothing about it. */
-const silencedBare = (name: string) =>
+const buildSilencedBare = (name: string) =>
 	`#!/usr/bin/env node\n// @ts-nocheck\n/*\n * ${name} — a fixture.\n */\n\nmodule.exports = {};\n`;
 
 /** Track and commit everything written so far. */
@@ -84,7 +84,7 @@ describe("the census — which tracked files have silenced the type checker", ()
 
 	it("names a silenced file and warns without gating", () => {
 		write("scripts/a.js", checked("a.js"));
-		write("scripts/off.js", silencedWithReason("off.js"));
+		write("scripts/off.js", buildSilencedWithReason("off.js"));
 		commitAll();
 		const { status, out } = run();
 		// WARN, so exit 0: standing repo state, and the session reading it is
@@ -96,8 +96,8 @@ describe("the census — which tracked files have silenced the type checker", ()
 	});
 
 	it("counts every silenced file, not just the first", () => {
-		write("scripts/one.js", silencedBare("one.js"));
-		write("scripts/two.js", silencedBare("two.js"));
+		write("scripts/one.js", buildSilencedBare("one.js"));
+		write("scripts/two.js", buildSilencedBare("two.js"));
 		commitAll();
 		const { out } = run();
 		expect(out).toMatch(/^WARN: 2 scripts\//m);
@@ -108,7 +108,7 @@ describe("the census — which tracked files have silenced the type checker", ()
 	it("ignores an untracked file, so a scratch copy never reads as a silencing", () => {
 		write("scripts/a.js", checked("a.js"));
 		commitAll();
-		write("scripts/scratch.js", silencedBare("scratch.js"));
+		write("scripts/scratch.js", buildSilencedBare("scratch.js"));
 		const { status, out } = run();
 		expect(status).toBe(0);
 		expect(out).not.toContain("scratch.js");
@@ -117,7 +117,7 @@ describe("the census — which tracked files have silenced the type checker", ()
 
 describe("the reason a silencing owes, and what it says when there is none", () => {
 	it("reads the §N8 spelling back and prints it under --full", () => {
-		write("scripts/off.js", silencedWithReason("off.js"));
+		write("scripts/off.js", buildSilencedWithReason("off.js"));
 		commitAll();
 		const { out } = run(["--full"]);
 		expect(out).toContain("Every value here crosses an untyped boundary");
@@ -125,7 +125,7 @@ describe("the reason a silencing owes, and what it says when there is none", () 
 	});
 
 	it("raises a distinct finding for a silencing that declares nothing, and prints the spelling to fix it", () => {
-		write("scripts/off.js", silencedBare("off.js"));
+		write("scripts/off.js", buildSilencedBare("off.js"));
 		commitAll();
 		const { status, out } = run(["--json"]);
 		expect(status).toBe(0);
@@ -137,7 +137,7 @@ describe("the reason a silencing owes, and what it says when there is none", () 
 
 	it("keeps the two findings apart, so a declared silencing is not reported as a breach", () => {
 		// The positive half of the case above: with a reason, the tag changes.
-		write("scripts/off.js", silencedWithReason("off.js"));
+		write("scripts/off.js", buildSilencedWithReason("off.js"));
 		commitAll();
 		const envelope = JSON.parse(run(["--json"]).out);
 		expect(envelope.findings[0].tag).toBe("TYPECHECK-SILENCED");
@@ -163,7 +163,7 @@ describe("where the pragma counts, which is where TypeScript honours it", () => 
 	});
 
 	it("counts a pragma in the leading region, which is the paired positive case", () => {
-		write("scripts/early.js", silencedBare("early.js"));
+		write("scripts/early.js", buildSilencedBare("early.js"));
 		commitAll();
 		expect(run().out).toMatch(/^WARN: 1 scripts\//m);
 	});
@@ -184,7 +184,7 @@ describe("where the pragma counts, which is where TypeScript honours it", () => 
 
 describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	it("ignores a silenced .js outside both globs", () => {
-		write("lib/off.js", silencedBare("off.js"));
+		write("lib/off.js", buildSilencedBare("off.js"));
 		write("scripts/a.js", checked("a.js"));
 		commitAll();
 		const { status, out } = run();
@@ -193,7 +193,7 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	});
 
 	it("covers a skill script one directory below .claude/skills (mantahostels#1147)", () => {
-		write(".claude/skills/demo/scripts/off.js", silencedBare("off.js"));
+		write(".claude/skills/demo/scripts/off.js", buildSilencedBare("off.js"));
 		commitAll();
 		const { out } = run();
 		expect(out).toContain(".claude/skills/demo/scripts/off.js");
@@ -202,7 +202,10 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 	it("does not walk deeper than one directory level under a skill (mantahostels#1147)", () => {
 		// The 25 vendored skills are symlinks, and a wider glob walks into
 		// whatever they ship.
-		write(".claude/skills/demo/scripts/nested/off.js", silencedBare("off.js"));
+		write(
+			".claude/skills/demo/scripts/nested/off.js",
+			buildSilencedBare("off.js"),
+		);
 		commitAll();
 		const { status, out } = run();
 		expect(status).toBe(0);
@@ -212,7 +215,7 @@ describe("scope — the two globs tsconfig.json lists in `include`", () => {
 
 describe("--notify — the session-start surface, quiet while the number holds", () => {
 	const seed = () => {
-		write("scripts/off.js", silencedBare("off.js"));
+		write("scripts/off.js", buildSilencedBare("off.js"));
 		commitAll();
 	};
 
@@ -234,7 +237,7 @@ describe("--notify — the session-start surface, quiet while the number holds",
 	it("speaks again when a file is silenced, naming the previous count", () => {
 		seed();
 		run(["--notify"]);
-		write("scripts/second.js", silencedBare("second.js"));
+		write("scripts/second.js", buildSilencedBare("second.js"));
 		commitAll();
 		const { out } = run(["--notify"]);
 		expect(out).toContain("Was 1 at the last session that read this");

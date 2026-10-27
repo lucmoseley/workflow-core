@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
- * The deny and warn texts #497 cut — guard-agent-poll.sh (#518), the two suite
- * guards (#519) and guard-recursive-dot-read.sh (#520) — may not regrow (#521).
+ * The deny and warn texts #497 cut — the agent-poll guard (#518), the two suite
+ * guards (#519) and the recursive-dot-read guard (#520) — may not regrow (#521).
  * Each is pinned at or under a byte ceiling. Only these four guards: the
  * ceiling is not widened to any other (#497 §Implementation Decisions).
  *
@@ -12,8 +12,10 @@
  * A text over its ceiling fails with its measurement. Cut the text; raise the
  * ceiling only on a ruling, re-measuring every row and recording it below.
  *
- * Each guard is spawned and its live text measured, never a copy. All four run
- * as `PreToolUse` Bash hooks (`self-plugin/hooks/hooks.json`,
+ * Each guard is spawned on the hook route that runs it for that tool, and its
+ * live text measured, never a copy: guard-agent-poll.js for the poll guard's
+ * Bash route, guard-dispatch.js for its Read and ListAgents routes and for the
+ * dot-read guard. All run as `PreToolUse` hooks (`self-plugin/hooks/hooks.json`,
  * `hooks/hooks.json`), so a ceiling loosened here lets a refusal regrow and
  * every session that trips it pays the bytes #497 cut, on every trip.
  */
@@ -107,6 +109,10 @@ const running =
 
 /** The same call, made by a subagent rather than the session itself. */
 const subagent = (): Setup => ({ payload: { agent_id: "x1" } });
+/* The dispatcher picks its cores by the payload's event (#2790). */
+const dispatched = (): Setup => ({
+	payload: { hook_event_name: "PreToolUse" },
+});
 
 /* The rule the dot-read warning carries on its first trip (#2060): route (f)'s
  * cap prices it, so it is not the guard's own words. */
@@ -136,8 +142,9 @@ const project = (): Setup => {
 	};
 };
 
-const POLL = "guard-agent-poll.sh";
-const CONCURRENCY = "guard-suite-concurrency.sh";
+const POLL = "guard-agent-poll.js";
+const DISPATCH = "guard-dispatch.js";
+const CONCURRENCY = "guard-suite-concurrency.js";
 
 /*
  * Each ceiling is its measurement plus 50 bytes: a reworded clause fits, an
@@ -157,7 +164,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's output-file re-read refusal",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "deny",
 		tool: "Read",
 		input: { file_path: "/tmp/claude-1000/proj/sess/tasks/bw0192d7i.output" },
@@ -168,7 +175,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the poll guard's ListAgents refusal",
-		guard: POLL,
+		guard: DISPATCH,
 		decision: "deny",
 		tool: "ListAgents",
 		input: {},
@@ -255,10 +262,11 @@ const ROWS: Row[] = [
 		ceiling: 412,
 	},
 	{
-		text: "the background guard's detached-suite refusal",
-		guard: "guard-suite-background.sh",
+		text: "the background core's detached-suite refusal",
+		guard: "guard-dispatch.js",
 		decision: "deny",
 		input: { command: "npm run test &" },
+		setup: dispatched,
 		quotes: ["npm run test"],
 		marks: "DETACHED INSIDE THE SHELL",
 		measured: 923,
@@ -354,7 +362,7 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the dot-read guard's root-expansion warning",
-		guard: "guard-recursive-dot-read.sh",
+		guard: DISPATCH,
 		decision: "warn",
 		input: { command: "grep -rn foo ." },
 		quotes: ["grep -rn foo CLAUDE.md app", heavyTreeRule],
@@ -373,6 +381,7 @@ const emitted = (row: Row) => {
 			cwd: dir,
 			encoding: "utf8",
 			input: JSON.stringify({
+				hook_event_name: "PreToolUse",
 				session_id: "s1",
 				tool_name: row.tool ?? "Bash",
 				tool_input: row.input,

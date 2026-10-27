@@ -61,7 +61,7 @@ const TOOLCHAIN = [
  * file: `CLAUDE.md` and `docs/` have to state the hazard in order to warn about
  * it, and a `*.test.*` file carries the offending string as a fixture or a
  * comment (scripts/lib/encoding-use.test.ts parses "npx vitest run …" as input;
- * scripts/post-write.test.ts recounts the old hook in a comment).
+ * scripts/lib/post-write.test.ts names `npx biome` in a comment).
  *
  * `.claude/skills/` is excluded for both reasons at once: 24 of its 46 tracked
  * entries are symlinks to directories under `.agents/skills/`, and the rest are
@@ -69,7 +69,7 @@ const TOOLCHAIN = [
  * reverted by the next re-pull unless it is declared in
  * `.agents/vendored-skill-edits.json` (mantahostels#1826), which is a cost, not the
  * impossibility this once claimed. Left as a residual on mantahostels#1538. */
-function executableSurfaces(root = ROOT): string[] {
+function readExecutableSurfaces(root = ROOT): string[] {
 	const tracked = execFileSync("git", ["ls-files", "-z"], {
 		cwd: root,
 		encoding: "utf8",
@@ -103,14 +103,14 @@ function isComment(line: string, file: string): boolean {
 /* `npx`, any run of flags, then the bare name — `npx --yes biome`, `npx -y tsc`.
  * A scoped name (`npx @biomejs/biome`) does not match: the `@` is consumed by
  * the flag-or-name boundary, and the assertion below re-proves that. */
-function bareNpxHits(root = ROOT): string[] {
+function readBareNpxHits(root = ROOT): string[] {
 	const re = new RegExp(
 		String.raw`\bnpx\s+(?:-{1,2}[\w-]+(?:=\S+)?\s+)*(${TOOLCHAIN.join("|")})\b`,
 		"g",
 	);
 	const hits: string[] = [];
 
-	for (const file of executableSurfaces(root)) {
+	for (const file of readExecutableSurfaces(root)) {
 		let body: string;
 		try {
 			body = fs.readFileSync(path.join(root, file), "utf8");
@@ -158,7 +158,7 @@ describe("no check reaches its binary by bare npx name", () => {
 		// pass (mantahostels#1266's shape). The rule is restated here because this message is
 		// where a session that has read no rule actually meets it.
 		expect(
-			bareNpxHits(),
+			readBareNpxHits(),
 			"Call the binary by path (node_modules/.bin/<tool>) or by scoped package " +
 				"name (npx @biomejs/biome). A bare `npx <tool>` resolves against the " +
 				"public registry when node_modules is absent, and `npx biome` is an " +
@@ -184,16 +184,16 @@ describe("no check reaches its binary by bare npx name", () => {
 		const files = Object.fromEntries(
 			covered.map((n) => [`scripts/${n}-probe.sh`, `npx ${n} --version\n`]),
 		);
-		expect(bareNpxHits(probeRepo(files))).toEqual(
+		expect(readBareNpxHits(probeRepo(files))).toEqual(
 			covered.map((n) => `scripts/${n}-probe.sh:1: npx ${n}`).sort(),
 		);
 	});
 
 	it("scans every surface arm it claims to scan", () => {
-		// A regression guard on the glob itself: an executableSurfaces() that
+		// A regression guard on the glob itself: a readExecutableSurfaces() that
 		// silently stopped matching would make the assertion above pass
 		// vacuously — the exact failure this whole ticket is about.
-		const surfaces = executableSurfaces();
+		const surfaces = readExecutableSurfaces();
 		expect(surfaces).toContain(".github/workflows/ci.yml");
 		expect(surfaces).toContain("scripts/bisect-step.sh");
 		expect(surfaces).toContain("package.json");
@@ -226,7 +226,7 @@ describe("no check reaches its binary by bare npx name", () => {
 			"scripts/blocked.js": "/*\n * never npx biome here\n */\n",
 			"docs/prose.md": "npx biome is the hazard\n",
 		});
-		expect(bareNpxHits(dir)).toEqual([
+		expect(readBareNpxHits(dir)).toEqual([
 			"scripts/bad.sh:1: npx biome",
 			"scripts/case-arm.sh:2: npx biome",
 			"scripts/flagged.sh:1: npx biome",
@@ -246,7 +246,7 @@ describe("no check reaches its binary by bare npx name", () => {
  *      → same test fails, naming scripts/bisect-step.sh.
  * 3. ci.yml's Biome step gutted to `run: echo skipped`
  *      → "still calls Biome at both of the sites" fails.
- * 4. executableSurfaces()'s `.github/workflows/` arm removed
+ * 4. readExecutableSurfaces()'s `.github/workflows/` arm removed
  *      → "scans every surface arm it claims to scan" fails.
  * 5. isComment() made to return true unconditionally
  *      → "clears the two spellings that are allowed" fails.

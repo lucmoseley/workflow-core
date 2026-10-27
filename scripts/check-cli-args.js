@@ -16,7 +16,7 @@
  * `.husky/pre-commit` runs this under `--against HEAD`, so a script a commit
  * adds or edits outside a strict parser refuses and an untouched one warns.
  * EDITED is what the finding's `content` hash buys: it is part of the fault's
- * identity (checker-new-faults.js's `cli-args` profile), so any change to the
+ * identity (lib/fault-profiles.js's `cli-args` profile), so any change to the
  * file reads as a new fault. Not in the scheduled sweeps, where the inherited
  * set would hold it red.
  *

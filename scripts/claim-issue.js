@@ -38,7 +38,7 @@ const {
 	scriptIo,
 } = require("./lib/tracker-ops.js");
 const { parseOrExit } = require("./lib/cli-args");
-const { errLine } = require("./lib/gh.js");
+const { parseErrLine } = require("./lib/gh.js");
 const { PARKED_LABEL, setParked } = require("./lib/parked.js");
 
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
@@ -46,7 +46,7 @@ const io = scriptIo("claim-issue");
 const USAGE = "usage: node scripts/claim-issue.js <issue-number>";
 
 /** @param {import("./lib/tracker-ops.js").Issue} i */
-const labelLine = (i) =>
+const buildLabelLine = (i) =>
 	`labels: ${i.labels.length > 0 ? i.labels.join(", ") : "(none)"}`;
 
 function main() {
@@ -74,7 +74,7 @@ function main() {
 	if (issue.labels.includes(PARKED_LABEL)) unpark(repo, n);
 	io.out("\n");
 	io.out(
-		`#${issue.number} ${issue.title}\nstate: ${issue.state}\n${labelLine(issue)}\n\n${issue.body}\n\n`,
+		`#${issue.number} ${issue.title}\nstate: ${issue.state}\n${buildLabelLine(issue)}\n\n${issue.body}\n\n`,
 	);
 
 	printParent(issue, n);
@@ -91,7 +91,7 @@ function readOpenIssue(repo, n) {
 	try {
 		issue = readIssue(repo, n);
 	} catch (e) {
-		io.fail(`could not read #${n} from ${repo} (${errLine(e)})`, 1);
+		io.fail(`could not read #${n} from ${repo} (${parseErrLine(e)})`, 1);
 	}
 	if (issue.isPullRequest) io.fail(`#${n} is a pull request, not an issue.`, 2);
 	if (issue.state !== "open")
@@ -140,7 +140,7 @@ function unpark(repo, n) {
 	const error = setParked(repo, n, false);
 	if (error)
 		io.warn(
-			`could not remove \`${PARKED_LABEL}\` from #${n} (${error}) — run \`gh issue edit ${n} --remove-label ${PARKED_LABEL}\`, or selection keeps skipping it once you hand it on.`,
+			`could not remove \`${PARKED_LABEL}\` from #${n} (${error}) — run \`gh issue edit ${n} --remove-label ${PARKED_LABEL}\`, or the refill loop keeps skipping it once you hand it on.`,
 		);
 	else io.out(`Removed \`${PARKED_LABEL}\` from #${n}.\n`);
 }
@@ -156,13 +156,13 @@ function printParent(issue, n) {
 		parent = readParent(issue);
 	} catch (e) {
 		io.fail(
-			`#${n} is claimed, but its parent (${issue.parentPath}) could not be read (${errLine(e)}).`,
+			`#${n} is claimed, but its parent (${issue.parentPath}) could not be read (${parseErrLine(e)}).`,
 			1,
 		);
 	}
 	io.out(
 		parent
-			? `Parent #${parent.number} ${parent.title}\n${labelLine(parent)}\n\n${parent.body}\n`
+			? `Parent #${parent.number} ${parent.title}\n${buildLabelLine(parent)}\n\n${parent.body}\n`
 			: `No parent: #${n} is standalone.\n`,
 	);
 }
