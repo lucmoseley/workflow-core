@@ -729,6 +729,9 @@ function runOnce(
 			inflight: record.open,
 			finished: record.finished,
 			argv: launch.argv ?? [],
+			/* A killed run writes no scope, and an escalated whole run's argv
+			 * names no `--full=`; the margin check reads this (#3237). */
+			...(weighed.full ? { full: weighed.full } : {}),
 		});
 		/* Read only when the timer fires, so a heartbeat costs the wrapper one
 		 * stat per threshold rather than one per test. */

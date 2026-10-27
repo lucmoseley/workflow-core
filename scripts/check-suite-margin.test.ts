@@ -26,10 +26,12 @@ const SHA = "a".repeat(40);
 
 let dir: string;
 let store: string;
+let failStore: string;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-margin-"));
 	store = path.join(dir, "pass.jsonl");
+	failStore = path.join(dir, "fail.jsonl");
 });
 
 afterEach(() => {
@@ -74,8 +76,15 @@ const marker = (fields: Record<string, unknown> = {}) => ({
 const write = (...markers: unknown[]) =>
 	fs.writeFileSync(store, markers.map((m) => JSON.stringify(m)).join("\n"));
 
+const writeFailures = (...markers: unknown[]) =>
+	fs.writeFileSync(failStore, markers.map((m) => JSON.stringify(m)).join("\n"));
+
 const run = () => {
-	const r = runInProcess(SCRIPT, ["--store", store], { cwd: dir });
+	const r = runInProcess(
+		SCRIPT,
+		["--store", store, "--fail-store", failStore],
+		{ cwd: dir },
+	);
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 };
 
@@ -187,10 +196,40 @@ describe("a sharded whole suite (#3090)", () => {
 		expect(out).toContain("No green run of shard 2/2 is recorded");
 	});
 
-	it("names a shard with no green run as unjudged", () => {
+	it("names a shard with no green run as unjudged, a WARN and never OK, with its way out (#3237)", () => {
 		write(half(1));
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("No green run of shard 2/2 is recorded");
+		expect(r.out).toContain("--shard=<k/n>");
+		expect(r.out).toContain("1 shard(s) with no green run");
+		expect(r.out).not.toMatch(/^OK/m);
+		expect(r.out).toMatch(/^WARN/m);
+		expect(r.out).not.toMatch(/ {2}No green run/);
+	});
+
+	it("prints the unjudged note with a single space beside a breach, and counts it (#3237)", () => {
+		write(half(1, { durationMs: TARGET_MS + 60_000 }));
 		const out = run().out;
+		expect(out).toContain("SUITE-MARGIN");
+		expect(out).toContain("2 run(s) over the target or shard(s) unjudged");
 		expect(out).toContain("No green run of shard 2/2 is recorded");
+		expect(out).not.toMatch(/ {2}No green run/);
+	});
+
+	it("reads a shard recorded before #3090 off its argv (#3237)", () => {
+		const old = (index: number, fields: Record<string, unknown> = {}) =>
+			marker({
+				scope: { ...WHOLE, modulesRun: 300, wholeSlot: true },
+				argv: ["--full=push-gate", "--shared", `--shard=${index}/2`],
+				durationMs: TARGET_MS - 1000,
+				...fields,
+			});
+		write(old(1), old(2, { durationMs: TARGET_MS + 60_000 }));
+		const r = run();
+		expect(r.out).toContain("SUITE-MARGIN");
+		expect(r.out).toContain("shard 2/2 of the whole suite, at");
+		expect(r.out).not.toContain("No green run");
 	});
 
 	it("reads a shard narrowed by a file filter as no shard of the whole suite", () => {
@@ -205,6 +244,96 @@ describe("a sharded whole suite (#3090)", () => {
 				},
 			}),
 		);
+		expect(run().out).not.toContain("SUITE-MARGIN");
+	});
+});
+
+describe("a ceiling kill in the fail store (#3237)", () => {
+	const Killed = "c".repeat(40);
+	const kill = (fields: Record<string, unknown> = {}) => ({
+		sha: Killed,
+		at: "2026-10-24T10:00:00.000Z",
+		suite: "vitest",
+		durationMs: CEILING_MS + 100,
+		ceilingKill: true,
+		ceilingMs: CEILING_MS,
+		machine: MACHINE,
+		inflight: [{ module: "inflight.test.ts", stage: "running its tests" }],
+		argv: ["--full=push-gate", "--shared", "--shard=1/2"],
+		...fields,
+	});
+	const half = (index: number) =>
+		marker({
+			scope: { ...WHOLE, modulesRun: 300, shard: { index, count: 2 } },
+			durationMs: TARGET_MS - 1000,
+		});
+
+	it("names a shard killed since its green run, with its sha, duration and what was in flight", () => {
+		write(half(1), half(2));
+		writeFailures(kill());
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("SUITE-MARGIN");
+		expect(r.out).toContain(
+			`shard 1/2 of the whole suite killed at the ceiling, at ${Killed.slice(0, 12)}`,
+		);
+		expect(r.out).toContain(secs(CEILING_MS + 100));
+		expect(r.out).toContain("in flight at the kill:");
+		expect(r.out).toContain("inflight.test.ts (running its tests)");
+		expect(r.out).not.toContain("shard 2/2 of the whole suite killed");
+	});
+
+	it("names every kill of a shard with no green run, and leaves it judged", () => {
+		write(half(1));
+		writeFailures(
+			kill({ argv: ["--full=push-gate", "--shared", "--shard=2/2"] }),
+			kill({
+				at: "2026-10-24T11:00:00.000Z",
+				argv: ["--full=push-gate", "--shared", "--shard=2/2"],
+			}),
+		);
+		const r = run();
+		expect(r.out).toContain("2 run(s) over the target");
+		expect(r.out).not.toContain("No green run of shard 2/2");
+	});
+
+	it("names a whole run killed with only its recorded `full` to show it whole", () => {
+		write(marker({ durationMs: 1000 }));
+		writeFailures(kill({ argv: [], full: "dependency-root" }));
+		const out = run().out;
+		expect(out).toContain("a whole suite killed at the ceiling");
+	});
+
+	it("hides no shard behind a hand whole run killed after them", () => {
+		write(
+			half(1),
+			marker({
+				scope: { ...WHOLE, modulesRun: 300, shard: { index: 2, count: 2 } },
+				durationMs: TARGET_MS + 60_000,
+			}),
+		);
+		writeFailures(
+			kill({ argv: ["--queue", "--full=other", "--shared", "--logHeapUsage"] }),
+		);
+		const out = run().out;
+		expect(out).toContain("a whole suite killed at the ceiling");
+		expect(out).toContain("the latest green shard 2/2 of the whole suite, at");
+		expect(out).toContain("2 run(s) over the target");
+	});
+
+	it.each([
+		["one older than the slot's green run", { at: "2026-10-24T08:00:00.000Z" }],
+		[
+			"a part-suite's, its argv naming files",
+			{
+				argv: ["--full=push-gate", "scripts/x.test.ts"],
+			},
+		],
+		["one with no `full` to show it whole", { argv: ["--queue"] }],
+		["a stall kill", { ceilingKill: undefined, stalled: true }],
+	])("reports nothing on %s", (_name, fields) => {
+		write(half(1), half(2));
+		writeFailures(kill(fields));
 		expect(run().out).not.toContain("SUITE-MARGIN");
 	});
 });

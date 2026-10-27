@@ -1466,11 +1466,12 @@ describe("the suite ceiling", () => {
 		root: string,
 		child: ReturnType<typeof parkedChild>,
 		opts: { stall: number; ceiling: number; inflightFile?: string },
+		argv = [SHARED_FLAG],
 	) {
 		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		try {
-			const code = await main([SHARED_FLAG], {
+			const code = await main(argv, {
 				spawnFn: () => child,
 				root,
 				...opts,
@@ -1586,6 +1587,18 @@ describe("the suite ceiling", () => {
 		expect(reds[0].argv).toEqual(expect.any(Array));
 		/* Linux's /proc answers; elsewhere the reading is left off. */
 		expect(reds[0].machine).toMatchObject({ load1: expect.anything() });
+	});
+
+	it("records a whole run's `full` on its kill, which carries no scope (#3237)", async () => {
+		const root = repo();
+		await run(root, printingChild(), { stall: 60_000, ceiling: 50 }, [
+			"--full=push-gate",
+			SHARED_FLAG,
+		]);
+
+		const reds = readFailures({ root });
+		expect(reds).toHaveLength(1);
+		expect(reds[0]).toMatchObject({ ceilingKill: true, full: "flag" });
 	});
 
 	it("settles at 1 where `close` never arrives, and lets go of the pipes", async () => {

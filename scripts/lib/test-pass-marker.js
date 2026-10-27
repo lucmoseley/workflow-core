@@ -88,6 +88,7 @@ const { appendLedgerLine } = require("./run-ledger.js");
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
  *   stalled?: boolean, stallMs?: number,
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
+ *   full?: string|null,
  *   inflight?: {module: string, stage: string}[], finished?: string[],
  *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
  * @typedef {{closure: "*"|string[], selected?: string[],
