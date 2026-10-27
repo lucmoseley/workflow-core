@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/issue-phase-scope.js, the guard-issue-phase-scope core (#2798), in
+ * lib/issue-phase-scope.js, guard-issue-phase-scope.js's core (#2798), in
  * process: it denies a `gh issue create` whose title names a roadmap card
  * outside Phase 0 that the founder has not called (mantahostels#1613).
  *
@@ -28,7 +28,7 @@ const { decide } = require("./issue-phase-scope.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };
 const { buildHostPorts } = require("./issue-phase-scope-host.js") as {
-	buildHostPorts: (root: string) => Record<string, unknown>;
+	buildHostPorts: (env: object) => Record<string, unknown>;
 };
 
 let dir: string;
@@ -74,7 +74,11 @@ const run = (command: string) =>
 			isDir: (p: string) =>
 				fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
 			log: (what: string) => faults.push(what),
-			...buildHostPorts(dir),
+			...buildHostPorts({
+				root: dir,
+				payload: {},
+				log: (what: string) => faults.push(what),
+			}),
 		}),
 	);
 
