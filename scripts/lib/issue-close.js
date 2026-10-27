@@ -1,5 +1,5 @@
 /*
- * issue-close.js — the guard-issue-close core (#2798, programme #2733): may
+ * issue-close.js — guard-issue-close.js's core (#2798, programme #2733): may
  * this `gh issue close` go ahead? Five rules, in this order: a roadmap card's
  * own issue is closed by /card-close (mantahostels#220), a completed close
  * leaves no unmet acceptance criteria (#1640), every close says what is still
@@ -16,91 +16,12 @@
  * other rules a verdict to reach is logged and the walk goes on.
  *
  * THE TIME BUDGET (docs/agents/guard-authoring.md §The ceiling your guard runs
- * under). The dispatcher's registration runs `onFailure: block`, so an
- * overrun refuses the close. Each close costs up to four external calls — the
- * issue read, the Outstanding open-check, the census read and the landing
- * read — so each gets what is left of the run budget as its own timeout,
- * which the host cuts again to what the dispatcher's budget leaves
- * (lib/hook-deadline.js); a call with too little left is not made but
- * recorded as a fail-open. Only each spawned read is bounded, so CPU work
- * between reads that outlasts the registration's timeout refuses the close.
- *
- * Why: a closed issue is corpus, not a queue — nothing surfaces it again — so
- * residual work parked in one is found only when the founder happens to read
- * the comment.
- *
- * THE OUTSTANDING RULE: every close carries a line beginning
- * `**Outstanding:**` — in the close's own --comment, or else the issue's
- * newest comment; an older marker does not count (#984). It holds the bare
- * word `none`, or items only, each `#N (what is left)` citing an OPEN issue
- * other than this one. DENY, not warn, and this is the distinction
- * mantahostels#103 draws: deny on a structured fact, warn where the hook is
- * inferring. Whether a comment's prose describes unfiled work is inference,
- * and no detector is built on it (mantahostels#185; examples on #1990): an
- * accepted limit and a real escape are written identically, so the prose
- * around the line stays unread. The LINE is a structured fact (#984, spec
- * #958): lib/outstanding-line.js reads its grammar and checks each cited
- * carrier open, and a shape miss or a closed, missing or self-referencing
- * carrier is denied.
- *
- * THE CARD RULE (mantahostels#220): closing a card's own issue by hand does
- * not merely skip a step — /card-close step 1 refuses to run on an issue
- * that is already CLOSED, so a hand close makes the command unusable and the
- * roadmap edit has to happen outside the one thing that sequences it
- * (mantahostels#165). The discriminator, settled at mantahostels#275: a child
- * ticket that merely shares a card-id prefix has a parent, a card's own issue
- * has none. Measured there — 33 of 39 prefixed closed issues had a parent and
- * were all children; all 5 card issues had none. A `wayfinder:*` label was
- * measured and rejected as *the* discriminator: it separates only 26 of the
- * 33, the doc-map-nav-check children carrying `kind:ticket` instead. ON TOP
- * of it, a `wayfinder:map` label exempts (mantahostels#1490): a map is
- * unparented like a card's own issue, so every card-prefixed map read as one.
- * The exemption survives mantahostels#275's measurement because it only has
- * to be true of maps, and a map is never a card's own issue. Known residual:
- * an unparented issue that borrows a card's prefix, carries no
- * `wayfinder:map` label, and is neither that card's issue nor a map, is
- * denied wrongly; the escape is --reason "not planned", or /card-close
- * itself.
- *
- * THE CRITERIA, CENSUS AND LANDING RULES are resolve-ticket.js's refusals,
- * read through lib/ticket-criteria.js (#1640), lib/census-digest.js (#1913,
- * #1876) and lib/unlanded-commits.js (#3101). The census rule stands down
- * where a `**Census:**` line says why, or the close names another repo, whose
- * commits cite this one's tracker; the landing rule where an `**Unlanded:**`
- * line says why.
- *
- * LIMITS
- *  - It matches the parsed command form — a segment whose command word is
- *    `gh`, subcommand pair `issue close` — never a substring, so a grep or a
- *    heredoc mentioning `gh issue close` passes. Its manifest row runs it only
- *    on a command `Bash(gh *)` admits (mantahostels#2127), so `/usr/bin/gh …`
- *    is unjudged.
- *  - A close through the GitHub UI, or through `gh api --method PATCH … -f
- *    state=closed`, is not seen. The api spelling is the known residual, left
- *    alone because the guard-issue-body core already carries the PATCH-shaped
- *    machinery and duplicating it here would put two readers on one endpoint.
- *  - It FAILS OPEN, house style (mantahostels#103 §6): an unparseable
- *    command, a missing or unreachable `gh`, a --comment it cannot wholly
- *    read (a `$` or backtick expansion, say), a census read that faulted or
- *    ran out of budget, an open-check the Outstanding-line parser could not
- *    make, and a run budget spent before a call are all allowed through — and
- *    all RECORDED (mantahostels#147) for check-guard-errors.js to report
- *    under `npm run status`.
- *  - THE RULE IT PRINTS lives in docs/agents/rules/ (mantahostels#1649, spec
- *    mantahostels#1641), spliced into its refusal. An unreadable fragment is
- *    the ONE fault it does not fail open on and does not log; it refuses with
- *    a pointer to the fragment instead.
- *  - It guards the Bash tool, so it binds agent sessions and not the
- *    founder's own terminal (mantahostels#109).
- *  - A `-R`/`--repo` close is judged against the repo it names (#553), and
- *    the card rule stands down where that is not the tracker
- *    `.claude/workflow-core.json` declares, or the origin remote's where it
- *    declares none. No tracker resolving leaves the card rule running. A
- *    `GH_REPO=… gh issue close N` is not seen: the parser strips the
- *    assignment, so that close is still read off this repo's #N.
- *  - A chained `gh issue comment N … && gh issue close N` is judged before
- *    the comment lands: the close carries its own line, or runs in a later
- *    call.
+ * under). The hook is cancelled at 10 s, and the entry runs `onFailure:
+ * block`, so an overrun refuses the close. Each close costs up to four
+ * external calls — the issue read, the Outstanding open-check, the census
+ * read and the landing read — so each gets what is left of the run budget as
+ * its own timeout; a call with too little left is not made but recorded as a
+ * fail-open.
  */
 
 /* The rule readers — ticket-criteria.js, outstanding-line.js,
@@ -118,7 +39,6 @@ const { parseCommand } = require("./shell-parse.js");
 const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
-const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
 
 /**
  * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
@@ -134,21 +54,20 @@ const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
  *   refusal over issue n's expired rows, "" where none is; outOfBudget where
  *   the read passed `timeoutMs`; throws where git, the anchors file or a
  *   formatter cannot answer
- * @property {(n: number, comment: string, timeoutMs: number,
- *   cwd: string | undefined) => RefusalRead} landing the refusal over issue
- *   n's commits, cited on the HEAD of the checkout at `cwd` (the host root
- *   where undefined) or named by sha in `comment`, that the pushed ref lacks,
- *   "" where none is; outOfBudget and throws as census
+ * @property {(n: number, comment: string, timeoutMs: number) => RefusalRead} landing
+ *   the refusal over issue n's commits, cited on the close's checkout's HEAD
+ *   or named by sha in `comment`, that the pushed ref lacks, "" where none
+ *   is; outOfBudget and throws as census
  * @typedef {import("./kit-context.js").KitContext & ClosePorts} CloseContext
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  * @typedef {import("./guard-entry.js").Decision} Decision
  */
 
-/* The ms clock lets no call end past the dispatcher's entry budget, counted
- * from the core's own start on its injected clock. The 4 s cap and the 1 s
- * floor are carried unmeasured. */
-const BUDGET_MS = ENTRY_BUDGET_MS;
+/* The ms clock lets no call end past 8 s, which leaves 2 s of the hook's 10 s
+ * (hooks/hooks.json) for node's start, the parse and the record. The 4 s cap
+ * and the 1 s floor are carried unmeasured. */
+const BUDGET_MS = 8000;
 const CALL_MS = 4000;
 const MIN_CALL_MS = 1000;
 
@@ -689,7 +608,7 @@ const LANDING_RULE = {
 	reading: (at) => `whether ${at}'s commits landed`,
 	line: "an Unlanded line",
 	hasLine: (text) => require("./unlanded-commits.js").hasUnlandedLine(text),
-	read: (ctx, n, comment, ms) => ctx.landing(n, comment, ms, ctx.cwd),
+	read: (ctx, n, comment, ms) => ctx.landing(n, comment, ms),
 	opening: "This close reports work that has not landed",
 	remedy: "they are pushed",
 };
@@ -766,4 +685,4 @@ Re-run the close once ${rule.remedy} or the line is written — or, abandoning t
 	);
 }
 
-module.exports = { field: "command", noun: "command", decide };
+module.exports = { decide };
