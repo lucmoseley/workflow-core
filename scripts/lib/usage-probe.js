@@ -29,7 +29,7 @@ const { readAllowance } = require("./allowance.js");
 const { killGroup } = require("./grouped-child.js");
 const { readUsageCache } = require("./usage-cache.js");
 
-/** The probe's ceiling. */
+/** The probe's ceiling: the dispatcher's `timeout 120` it replaced, itself a guess (#2306). */
 const PROBE_TIMEOUT_MS = 120_000;
 /* The CLI's stderr line opens with this; the refill loop reads the outcome
  * after it (#2362). */

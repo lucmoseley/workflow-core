@@ -9,6 +9,10 @@
  *
  * Every bar reads 100%, so no seat has room: the tick sizes no cap and reads
  * no shortlist, and so makes no GitHub call.
+ *
+ * Break it and the loop's stale-seat read leaves the shared probe: a stale
+ * seat costs a full `/usage` run per tick again, and a fresh one is probed
+ * for nothing.
  */
 import fs from "node:fs";
 import os from "node:os";
