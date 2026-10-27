@@ -1,19 +1,19 @@
 // @vitest-environment node
 /*
- * The guard-issue-create-label core of guard-dispatch.js refuses an issue
- * create carrying no valid `takes:` label (mantahostels#470, the build;
- * mantahostels#453, the ruling). These are its boundary cases, the dispatcher
- * entry run on it alone on a harness-shaped payload: each exit, the
- * fail-open record on disk, and the fs, the rule store and gh at WFC_GH
- * crossed for real. Which command is refused, and why, is
- * lib/issue-create-label.test.ts's; the entry's payload faults and the throw
- * policy are guard-dispatch's own tests' (#2796, #3225).
+ * guard-issue-create-label.js refuses an issue create carrying no valid
+ * `takes:` label (mantahostels#470, the build; mantahostels#453, the ruling).
+ * These are its boundary cases: the line hooks/hooks.json registers, run by
+ * bash as the harness runs it, on a harness-shaped payload — the wiring, each
+ * exit and its stream, the fail-open record on disk, and the fs, the rule
+ * store and gh at WFC_GH crossed for real. Which command is refused, and
+ * why, is lib/issue-create-label.test.ts's (#2796).
  *
+ * CLAUDE_PLUGIN_ROOT is this checkout, so the line finds the real entry;
  * CLAUDE_PROJECT_DIR is a temp project, so the fail-open log lands in the
  * temp CLAUDE_CONFIG_DIR and never the founder's.
  *
- * Make it allow an unlabelled create and every issue is filed unrouted; make
- * it deny on a fault and every `gh` call is wedged.
+ * Break the line and every issue is filed unrouted; make it deny on a fault
+ * and every `gh` call is wedged.
  */
 
 import fs from "node:fs";
@@ -24,12 +24,14 @@ import { ghFakeScript } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { UNFILLED_DESTINATION } from "./lib/issue-gate";
 import {
-	buildBashPayload,
-	dispatchCoreOutput,
+	expectShellHooks,
 	guardDirs,
+	hookLineOutput,
+	readHookLines,
 } from "./lib/pretool-guard-testkit";
 
-const CORE = "guard-issue-create-label";
+const SCRIPT = "scripts/guard-issue-create-label.js";
+const LINES = readHookLines("hooks/hooks.json", SCRIPT);
 const ISSUE_BODY = path.join(__dirname, "lib/fixtures/gh/issue-body.json");
 const MAP_LIST = path.join(__dirname, "lib/fixtures/gh/map-list.json");
 const { readRuleText } = require("./lib/rule-text") as {
@@ -49,16 +51,16 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The core's hookSpecificOutput for `command`, run in the temp project. */
+/** The hook's hookSpecificOutput for `command`, run in the temp project. */
 const emission = (
 	command: string,
-	{ env = {} }: { env?: NodeJS.ProcessEnv } = {},
+	run: { stdin?: string; env?: NodeJS.ProcessEnv } = {},
 ) =>
-	dispatchCoreOutput(CORE, buildBashPayload(command, "s1"), {
+	hookLineOutput(LINES[0] ?? "", command, {
 		project: dir,
 		config,
 		cwd: dir,
-		env,
+		...run,
 	});
 
 /** A gh at WFC_GH answering `fixture` with `stdout` swapped in. */
@@ -68,6 +70,12 @@ function ghAnswering(fixture: string, stdout: string) {
 	fs.writeFileSync(at, JSON.stringify({ ...answer, stdout }));
 	return stubGhScript(path.join(dir, "gh"), ghFakeScript(at)).env;
 }
+
+describe("the registered hook line", () => {
+	it("is one line, narrowed by `if: Bash(gh *)`, in the plugin and the self-plugin alike (mantahostels#2127)", () => {
+		expectShellHooks(SCRIPT, () => ({ if: "Bash(gh *)" }));
+	});
+});
 
 describe("each exit", () => {
 	it("refuses a create with no takes: label as permissionDecision JSON on exit 0, splicing the stored rule", () => {
@@ -196,6 +204,28 @@ describe("the adapters, crossed for real", () => {
 });
 
 describe("what it fails open on", () => {
+	it("allows a payload that is not JSON, and records that it did", () => {
+		expect(emission("", { stdin: "not json" })).toBeNull();
+		expect(readFailOpenRecords(config, dir)).toEqual([
+			[
+				expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+				"guard-issue-create-label.js",
+				expect.stringContaining("payload did not parse as JSON"),
+			],
+		]);
+	});
+
+	it("allows a payload carrying no command, and records that it did", () => {
+		expect(
+			emission("", {
+				stdin: JSON.stringify({ session_id: "s1", tool_name: "Bash" }),
+			}),
+		).toBeNull();
+		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
+			expect.stringContaining("no command in payload"),
+		]);
+	});
+
 	it("allows a relabel whose gh cannot be started, and records that it did", () => {
 		expect(
 			emission("gh issue edit 12 --add-label takes:human", {
@@ -205,5 +235,13 @@ describe("what it fails open on", () => {
 		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
 			"could not fetch #12's body for a takes:human relabel — relabel allowed unchecked",
 		]);
+	});
+
+	it("fails open, exit 0 and silent, where node is not on PATH", () => {
+		expect(
+			emission('gh issue create --title "t"', {
+				env: { PATH: "/nonexistent" },
+			}),
+		).toBeNull();
 	});
 });

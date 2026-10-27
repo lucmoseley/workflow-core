@@ -1,60 +1,7 @@
 /*
- * issue-phase-scope.js — the guard-issue-phase-scope core (#2798, programme
- * #2733, #3225): does an issue a Bash call creates name, in its title prefix,
- * a roadmap card outside Phase 0 that the founder has not called
- * (mantahostels#1613, which built and ruled it)?
- *
- * Why: on 26 August 2026 decision map mantahostels#1489 (`search-core`)
- * opened nine child issues in one day, against a Phase-1 card nobody had
- * asked for. It was not alone — 33 open issues turned out to be work spun up
- * against Phase-1 cards while the project is still validating Phase 0.
- *
- * The rule: a `gh issue create` whose TITLE begins `<card-id> — ` is denied
- * when that card's phase in docs/reference-roadmap.html is not 0 and the card
- * has no row in docs/called-cards.md.
- *
- * DENY, not warn, and this is the distinction mantahostels#103 draws: deny on
- * a structured fact, warn where the hook is inferring. The founder chose the
- * deny explicitly over a warn-only report, on the ground that warn-only
- * machinery here is absorbed as noise.
- *
- * WHY THE TITLE PREFIX AND NOTHING CLEVERER. `<card-id> — <subject>` is this
- * repo's title convention for card-derived issues, and every one of the 33
- * retired issues that carried a card carried it that way. The BODY is not
- * scanned for card ids: a workflow ticket that merely mentions `privacy-ops`
- * in passing would be refused, and refusing legitimate machinery work is a
- * worse failure than missing an occasional product ticket.
- *
- * LIMITS
- *  - AN ISSUE CARRYING NO CARD PREFIX ESCAPES ENTIRELY, and re-titling to
- *    drop the prefix is therefore a one-keystroke bypass. mantahostels#927
- *    (validate the launch catalogue before it publishes) was exactly that
- *    shape — Phase-1 seed-listings work with a bare title — and would pass.
- *    THE PREFIX IS AN HONESTY MARKER, NOT A SYNTAX RULE: nothing here can
- *    close that, so the deny text names the bypass and forbids it rather than
- *    pretending it does not exist. scripts/check-issue-card-drift.js is the
- *    reporting-tier control.
- *  - A WRAPPED COMMAND whose wrapper takes arguments of its own — `env FOO=1
- *    gh …`, `timeout --signal=INT 60 gh …`, `xargs gh …`, `sh -c '…'` — is
- *    not followed. The no-argument wrappers ARE, so the common `env gh …` and
- *    `timeout 60 gh …` spellings are judged; its manifest row's `Bash(*gh *)`
- *    is unanchored for them (mantahostels#2127).
- *  - It matches the parsed command form, never a substring, so an echo or a
- *    heredoc mentioning `gh issue create` passes.
- *  - `gh api --method POST …/issues` IS chased, gh's own POST default with
- *    it. `gh api graphql` is NOT: a createIssue mutation's title would have
- *    to be read out of query text, and the core would be inferring rather
- *    than reading.
- *  - A PreToolUse hook sees Bash tool calls only, so AN ISSUE CREATED BY A
- *    SCRIPT, FROM THE WEB UI OR IN THE FOUNDER'S OWN TERMINAL ESCAPES
- *    (mantahostels#109).
- *  - ANY SESSION WRITES THE REGISTER (mantahostels#3483); only the founder
- *    CALLS a card. Nothing checks a row against his instruction, and this
- *    core reads the file from disk, so a row need not even be committed.
- *  - It FAILS OPEN, house style (mantahostels#103 §6): an unreadable title,
- *    an unreadable roadmap or a missing register allow the creation, and all
- *    are RECORDED (mantahostels#147) for check-guard-errors.js to report
- *    under `npm run status`.
+ * issue-phase-scope.js — guard-issue-phase-scope.js's core (#2798, programme
+ * #2733): does an issue a Bash call creates name, in its title prefix, a
+ * roadmap card outside Phase 0 that the founder has not called?
  *
  * A CORE: it does no I/O. The roadmap and the register arrive through two
  * file-read ports, and the core-path spelling through a third;
@@ -409,4 +356,4 @@ The project is still validating Phase 0. On 27 August 2026, 33 issues that had b
 
 Rule: docs/called-cards.md; mantahostels#1613.`;
 
-module.exports = { field: "command", noun: "command", decide, unwrapped };
+module.exports = { decide, unwrapped };
