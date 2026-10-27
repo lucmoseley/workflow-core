@@ -99,7 +99,7 @@ tooling run leaves one that dispatched nothing, and a run that died before its
 report leaves the previous one untouched.
 
 `--json` prints that same report. The sort levels, in order:
-open `bug` → `urgent`, the issue's own or an ancestor map's (#2664) → goal-set membership → a `waiting:external` stall past 7 days →
+open `bug` → `urgent` (#2664) → goal-set membership → a `waiting:external` stall past 7 days →
 ticket type (`wayfinder:grilling`, `wayfinder:prototype` and untyped
 `takes:wayfinder` first, #2001) → chain depth → transitive downstream reach →
 collision estimate → issue number. The first three pass to an issue from
@@ -166,17 +166,18 @@ user does, which is rare — bar §6's `Not launched:` and `Memory:` blocks:
   files remain `node scripts/session-arbiter.js list` (mantahostels#437).
 - **A goal band is a boost, not a filter** (mantahostels#106), and **the ranking is a
   snapshot, not a queue.** Both govern how you rank, not what you report (§6).
-- **PROSE SELF-GATES** — a `**Blocked on** #<n>` line in the body, resolved
-  against the open-issue list the run already fetched, at no extra call
-  (mantahostels#1289). A number still open prints in the issue's `blocked by`
-  reason as `#<n> (prose only)`, which already holds it out of the frontier.
-  `--json`'s `proseBlocked` carries every issue naming one,
-  `named`/`open`/`resolved` split, plus `unparsed`.
+- **PROSE SELF-GATES** — a `**Blocked on** #<n>` line in the body, this
+  repo's resolved against the open-issue list the run already fetched, at no
+  extra call (mantahostels#1289). One still open or unreadable prints in the
+  issue's `blocked by` reason as `<ref> (prose only)`, unless a native edge
+  also names it, which already holds it out of the frontier. `--json`'s `proseBlocked` carries every issue naming
+  one, `named`/`open`/`closed`/`unreadable` split, plus `unparsed`.
   **A marker naming no issue number is reported, never resolved** (mantahostels#927): the
   same block prints it as `NAMES NO ISSUE NUMBER` with the sentence itself.
   Matched unanchored, so it is found mid-sentence where the `#<n>` form is not. It excludes nothing — it is the whole input to
   §5's disqualifier 2.
-  A marker may name `owner/name#<n>`; the run reads that issue's state.
+  A marker may name `owner/name#<n>`; in another repo the run reads that
+  issue's state.
 - **PULLED IN FROM OTHER REPOS** — open issues in another repo that hold an
   issue here out through the blocked-by chain, at any depth, and that nothing
   open holds themselves (#2427). Each shows the issues here it holds and its

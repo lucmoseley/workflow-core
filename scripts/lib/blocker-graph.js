@@ -44,11 +44,13 @@ const { judgeProseRefs, proseRefsOf } = require("./prose-blockers.js");
  * @property {boolean} served
  * @property {Edge|null} info null on a served node, which its caller holds
  * @property {{key: string, ref: IssueRef, prose: boolean}[]} blockers open ones
+ * @property {Awaited<ReturnType<typeof judgeProseRefs>>} prose every
+ *   `**Blocked on**` reference its body names, judged, native edges included
  * @property {string|null} unknown why its blockers could not be read
  */
 /**
  * One node another holds out directly: one it blocks, or its parent.
- * @typedef {{key: string, parent: boolean}} Hold
+ * @typedef {{key: string}} Hold
  */
 /**
  * A strongly connected set of nodes: its work count, the holds leaving it and
@@ -71,6 +73,12 @@ const inRepo = (ref, home) => ({
 	repo: ref.repo ?? home,
 	number: ref.number,
 });
+
+/**
+ * A node's verdicts where its body was never read.
+ * @returns {Node["prose"]}
+ */
+const noProse = () => ({ open: [], closed: [], unreadable: [] });
 
 /**
  * The graph over `served`'s open issues and every open blocker they reach.
@@ -104,12 +112,13 @@ async function blockerGraph(served, ownRepo, read) {
 	};
 
 	/**
-	 * A node's open blockers, native edges first, then markers no edge names.
-	 * An unreadable marker reference holds as open: launching past a blocker
-	 * is the one error the shortlist cannot take back.
+	 * A node's open blockers, native edges first, then markers no edge names,
+	 * and its markers' verdicts. An unreadable marker reference holds as open:
+	 * launching past a blocker is the one error the shortlist cannot take back.
 	 * @param {IssueRef} ref
 	 * @param {Edge[]} edges
 	 * @param {string} body
+	 * @returns {Promise<Pick<Node, "blockers" | "prose">>}
 	 */
 	const blockersOf = async (ref, edges, body) => {
 		/** @type {Node["blockers"]} */
@@ -122,9 +131,7 @@ async function blockerGraph(served, ownRepo, read) {
 			if (!isServed(b)) known.set(k, { ...e, ...b });
 			if (e.state === "open") out.push({ key: k, ref: b, prose: false });
 		}
-		const prose = proseRefsOf(body)
-			.map((r) => inRepo(r, ref.repo))
-			.filter((r) => !named.has(refKey(r)));
+		const prose = proseRefsOf(body).map((r) => inRepo(r, ref.repo));
 		const judged = await judgeProseRefs(prose, {
 			openLocal: openServed,
 			ownRepo,
@@ -133,9 +140,9 @@ async function blockerGraph(served, ownRepo, read) {
 		});
 		const closed = new Set(judged.closed.map(refKey));
 		for (const r of prose)
-			if (!closed.has(refKey(r)))
+			if (!named.has(refKey(r)) && !closed.has(refKey(r)))
 				out.push({ key: refKey(r), ref: r, prose: true });
-		return out;
+		return { blockers: out, prose: judged };
 	};
 
 	/** @type {Map<string, Node>} */
@@ -146,7 +153,7 @@ async function blockerGraph(served, ownRepo, read) {
 			ref,
 			served: true,
 			info: null,
-			blockers: await blockersOf(ref, s.edges, s.body),
+			...(await blockersOf(ref, s.edges, s.body)),
 			unknown: null,
 		};
 	});
@@ -171,15 +178,13 @@ async function blockerGraph(served, ownRepo, read) {
 				served: false,
 				info: s.ok ? s.issue : null,
 				blockers: [],
+				prose: noProse(),
 				unknown: s.ok ? null : s.error,
 			};
 			if (!s.ok) return node;
 			const d = await read.blockedBy(ref);
 			if (!d.ok) return { ...node, unknown: d.error };
-			return {
-				...node,
-				blockers: await blockersOf(ref, d.edges, s.issue.body),
-			};
+			return { ...node, ...(await blockersOf(ref, d.edges, s.issue.body)) };
 		});
 		for (const n of walked) nodes.set(refKey(n.ref), n);
 		layer = unvisited(walked);
@@ -188,16 +193,13 @@ async function blockerGraph(served, ownRepo, read) {
 	/** @type {Map<string, Hold[]>} key -> the open nodes it holds out directly */
 	const holds = new Map([...nodes.keys()].map((k) => [k, []]));
 	for (const [k, n] of nodes)
-		for (const b of n.blockers)
-			holds.get(b.key)?.push({ key: k, parent: false });
+		for (const b of n.blockers) holds.get(b.key)?.push({ key: k });
 	/** @type {Set<string>} open served parents: headings, not work */
 	const containers = new Set();
 	for (const s of served) {
 		if (s.parent === null || !openServed.has(s.parent)) continue;
 		const p = refKey({ repo: ownRepo, number: s.parent });
-		holds
-			.get(refKey({ repo: ownRepo, number: s.number }))
-			?.push({ key: p, parent: true });
+		holds.get(refKey({ repo: ownRepo, number: s.number }))?.push({ key: p });
 		containers.add(p);
 	}
 	return { nodes, holds, containers, ownRepo };
@@ -259,9 +261,8 @@ function heldBy(graph, key) {
  * issue in it counts, and an issue in it inherits what the cycle holds out.
  * @template {string} T
  * @param {Graph} graph
- * @param {Record<T, (n: number, parent: boolean) => boolean>} sources each
- *   tier's test of a served issue, `parent` true where it is reached as a
- *   parent, in the order the sort ranks the tiers
+ * @param {Record<T, (n: number) => boolean>} sources each tier's test of a
+ *   served issue, in the order the sort ranks the tiers
  * @returns {(ref: IssueRef) => {via: Record<T, Via|null>, depth: number}}
  */
 function inheritance(graph, sources) {
@@ -273,12 +274,12 @@ function inheritance(graph, sources) {
 	 * `stop` is the source a path ends on, null where it goes on to `next`.
 	 * @typedef {{len: number, next: Unit, entry: string, stop: string|null}} Step
 	 */
-	/** @param {(n: number, parent: boolean) => boolean} isSource */
+	/** @param {(n: number) => boolean} isSource */
 	const longest = (isSource) => {
 		/** @param {Hold} e */
 		const qualifies = (e) => {
 			const n = nodeAt(graph.nodes, e.key);
-			return n.served && isSource(n.ref.number, e.parent);
+			return n.served && isSource(n.ref.number);
 		};
 		/** @type {Map<Unit, Step|null>} filled sinks first, so `next` is set */
 		const best = new Map();
@@ -337,7 +338,7 @@ function inheritance(graph, sources) {
 			};
 		};
 	};
-	const tiers = /** @type {[T, (n: number, parent: boolean) => boolean][]} */ (
+	const tiers = /** @type {[T, (n: number) => boolean][]} */ (
 		Object.entries(sources)
 	).map(([tier, test]) => /** @type {const} */ ([tier, longest(test)]));
 	const anyServed = longest(() => true);
@@ -420,6 +421,14 @@ const reachOf = (graph, n) =>
 	heldBy(graph, refKey({ repo: graph.ownRepo, number: n })).length;
 
 /**
+ * The node of served issue `n`, undefined where the graph has none.
+ * @param {Graph} graph
+ * @param {number} n
+ */
+const servedNode = (graph, n) =>
+	graph.nodes.get(refKey({ repo: graph.ownRepo, number: n }));
+
+/**
  * A served issue's open blockers as a reader sees them, its own repo's by
  * number, then `owner/name#n` for those in another; `native` is false for a
  * marker-only one.
@@ -428,18 +437,58 @@ const reachOf = (graph, n) =>
  * @returns {{label: string, native: boolean}[]}
  */
 function openBlockersOf(graph, n) {
-	const node = graph.nodes.get(refKey({ repo: graph.ownRepo, number: n }));
-	const blockers = node?.blockers ?? [];
-	const own = blockers
-		.filter((b) => !isInOtherRepo(b.ref, graph.ownRepo))
-		.sort((a, b) => a.ref.number - b.ref.number);
-	const foreign = blockers
-		.filter((b) => isInOtherRepo(b.ref, graph.ownRepo))
-		.sort((a, b) => a.key.localeCompare(b.key));
-	return [...own, ...foreign].map((b) => ({
-		label: refLabel(b.ref, graph.ownRepo),
-		native: !b.prose,
-	}));
+	const node = servedNode(graph, n);
+	return inReadingOrder(node?.blockers ?? [], (b) => b.ref, graph.ownRepo).map(
+		(b) => ({ label: refLabel(b.ref, graph.ownRepo), native: !b.prose }),
+	);
+}
+
+/**
+ * `items` its own repo's first by number, then those in another by key.
+ * @template T
+ * @param {T[]} items
+ * @param {(item: T) => IssueRef} refOf
+ * @param {string|null} ownRepo
+ */
+function inReadingOrder(items, refOf, ownRepo) {
+	const own = items
+		.filter((i) => !isInOtherRepo(refOf(i), ownRepo))
+		.sort((a, b) => refOf(a).number - refOf(b).number);
+	const foreign = items
+		.filter((i) => isInOtherRepo(refOf(i), ownRepo))
+		.sort((a, b) => refKey(refOf(a)).localeCompare(refKey(refOf(b))));
+	return [...own, ...foreign];
+}
+
+/**
+ * A served issue's `**Blocked on**` references as a reader sees them, in
+ * openBlockersOf's order, split as judgeProseRefs judged them; `named` is
+ * every one.
+ * @param {Graph} graph
+ * @param {number} n
+ */
+function proseOf(graph, n) {
+	const node = servedNode(graph, n);
+	const prose = node?.prose ?? noProse();
+	/** @param {IssueRef[]} refs */
+	const labels = (refs) =>
+		inReadingOrder(refs, (r) => r, graph.ownRepo).map((r) =>
+			refLabel(r, graph.ownRepo),
+		);
+	return {
+		named: labels([
+			...prose.open,
+			...prose.closed,
+			...prose.unreadable.map((u) => u.ref),
+		]),
+		open: labels(prose.open),
+		closed: labels(prose.closed),
+		unreadable: inReadingOrder(
+			prose.unreadable,
+			(u) => u.ref,
+			graph.ownRepo,
+		).map((u) => ({ ref: refLabel(u.ref, graph.ownRepo), error: u.error })),
+	};
 }
 
 /**
@@ -486,6 +535,7 @@ module.exports = {
 	blockerGraph,
 	inheritance,
 	openBlockersOf,
+	proseOf,
 	pulledInOf,
 	reachOf,
 };

@@ -38,7 +38,7 @@
  *
  * The sort is mantahostels#106's five levels plus mantahostels#259's, #2001's, #2664's
  * and #3222's, lexicographic:
- *   open `bug` -> `urgent`, own or an ancestor map's -> goal-set membership
+ *   open `bug` -> `urgent`, own or inherited -> goal-set membership
  *   -> stalled wait -> ticket type
  *   -> chain depth -> transitive reach -> collision -> number
  *
@@ -114,7 +114,7 @@ const idSeam = require("./lib/session-id");
 const { MAP_LABEL, resolveGate } = require("./lib/issue-gate");
 const { holderName, parentVerdictOf } = require("./lib/parent-claims");
 const { isInOtherRepo, parseIssueRef } = require("./lib/issue-ref");
-const { resolveProseBlockers } = require("./lib/prose-blockers");
+const { unparsedBlockersOf } = require("./lib/prose-blockers");
 const blockerGraph = require("./lib/blocker-graph");
 const {
 	blockedByMany,
@@ -272,7 +272,7 @@ async function ghGet(path) {
  * @property {string[]} [paths]
  * @property {import("./lib/blocker-graph").Edge[]} [blockedBy]
  * @property {unknown} [depsUnknown]
- * @property {ReturnType<typeof resolveProseBlockers>} [proseBlocked]
+ * @property {ReturnType<typeof proseBlockedOf>} [proseBlocked]
  * @property {{label: string, native: boolean}[]} [openBlockers]
  * @property {number} [reach]
  * @property {ReturnType<typeof labelAge>|null} [urgency] the issue's own `urgent`'s age, null where the label is off
@@ -456,21 +456,18 @@ async function readTimelineOf(n) {
 
 /**
  * Each issue's inherited tiers and chain depth (#3222), read at selection
- * time and never written onto it. A `bug` and a goal-set member pass on from
- * any issue held out; `urgent` from one held out as a blocker, but up a parent
- * link only from a `wayfinder:map` (#2664).
+ * time and never written onto it. A `bug`, an `urgent` and a goal-set member
+ * pass on from any issue held out, as a blocker or as a parent (#3250).
  * @param {import("./lib/blocker-graph").Graph} graph
  * @param {Map<number, RawIssue>} byNumber
- * @param {Set<number>} mapNumbers
  */
-function inheritanceOf(graph, byNumber, mapNumbers) {
+function inheritanceOf(graph, byNumber) {
 	/** @param {number} n @param {string} label */
 	const has = (n, label) => byNumber.get(n)?.labels.includes(label) === true;
 	// In compareLevels' order: depth runs to the first of these an issue holds.
 	return blockerGraph.inheritance(graph, {
 		bug: (n) => has(n, "bug"),
-		urgent: (n, parent) =>
-			has(n, URGENT_LABEL) && (!parent || mapNumbers.has(n)),
+		urgent: (n) => has(n, URGENT_LABEL),
 		goal: (n) => goalSet.has(n),
 	});
 }
@@ -1869,15 +1866,16 @@ function buildPayload(state) {
 		})),
 		gated: gatedJson(gatedAll),
 		gatedOn: gatedOnJson(gatedOnAll),
-		// Resolved against the open list this run already fetched (mantahostels#1289).
-		// `open` still excludes; `resolved` spares a reader confirming it by
-		// hand.
+		// This repo's resolved against the open list this run already fetched
+		// (mantahostels#1289). `open` and `unreadable` still exclude; `closed`
+		// spares a reader confirming it by hand.
 		proseBlocked: proseBlockedAll.map((i) => ({
 			number: i.number,
 			title: i.title,
 			named: i.proseBlocked.named,
 			open: i.proseBlocked.open,
-			resolved: i.proseBlocked.resolved,
+			closed: i.proseBlocked.closed,
+			unreadable: i.proseBlocked.unreadable,
 			// Names no issue number, so it excludes nothing — §5's
 			// disqualifier 2 is read off this (mantahostels#927).
 			unparsed: i.proseBlocked.unparsed,
@@ -2637,12 +2635,17 @@ function renderGated(state) {
 
 /** @param {Issue} i */
 function printProseBlockedRow(i) {
-	if (i.proseBlocked.named.length > 0)
+	const { named, open, unreadable } = i.proseBlocked;
+	const verdicts = [
+		open.length > 0 ? `still blocked by ${open.join(", ")}` : "",
+		...unreadable.map((u) => `${u.ref} unreadable, held (${u.error})`),
+	].filter(Boolean);
+	if (named.length > 0)
 		console.log(
-			`  #${i.number}  names ${i.proseBlocked.named.map((/** @type {number} */ n) => `#${n}`).join(", ")}` +
-				(i.proseBlocked.open.length > 0
-					? ` — still blocked by ${i.proseBlocked.open.map((/** @type {number} */ n) => `#${n}`).join(", ")}`
-					: " — every named issue is closed, resolved"),
+			`  #${i.number}  names ${named.join(", ")} — ` +
+				(verdicts.length > 0
+					? verdicts.join("; ")
+					: "every named issue is closed, resolved"),
 		);
 	/*
 	 * NAMES NO NUMBER (mantahostels#927). Nothing here resolves against the open
@@ -2660,9 +2663,10 @@ function renderProseBlocked(state) {
 	const { proseBlockedAll } = state;
 	if (proseBlockedAll.length > 0) {
 		console.log(
-			"\nPROSE SELF-GATES — `**Blocked on** #<n>` in the body, resolved against\n" +
-				"the open list this run already fetched (mantahostels#1289). Folded into `blocked by`\n" +
-				"above where still open; a resolved one below needed no `gh issue view`.\n",
+			"\nPROSE SELF-GATES — `**Blocked on** #<n>` in the body, this repo's resolved\n" +
+				"against the open list this run already fetched (mantahostels#1289). Folded into\n" +
+				"`blocked by` above where still open or unreadable; a closed one in this\n" +
+				"repo needed no read.\n",
 		);
 		for (const i of proseBlockedAll) {
 			printProseBlockedRow(i);
@@ -3107,19 +3111,26 @@ async function resolveBlockers(issues, byNumber) {
 		},
 	);
 
-	/*
-	 * PROSE SELF-GATES (mantahostels#1289). A `**Blocked on** #<n>` line in the body, read
-	 * against `byNumber` — every open issue, already fetched — at no extra
-	 * call: a named number absent from that map is closed, and resolves for
-	 * free.
-	 */
-	const openNumbers = new Set(byNumber.keys());
 	return {
 		withDeps: withEdges.map((i) => ({
 			...i,
-			proseBlocked: resolveProseBlockers(i.body, openNumbers),
+			proseBlocked: proseBlockedOf(graph, i),
 		})),
 		blockers: graph,
+	};
+}
+
+/**
+ * PROSE SELF-GATES (mantahostels#1289): `i`'s `**Blocked on**` references as
+ * the graph judged them — this repo's against every open issue, already
+ * fetched, at no extra call — and the marker lines that name no number.
+ * @param {import("./lib/blocker-graph").Graph} graph
+ * @param {{number: number, body: string}} i
+ */
+function proseBlockedOf(graph, i) {
+	return {
+		...blockerGraph.proseOf(graph, i.number),
+		unparsed: unparsedBlockersOf(i.body),
 	};
 }
 
@@ -3754,7 +3765,7 @@ async function main() {
 	const ctx = {
 		blockers,
 		timelineByIssue,
-		inherit: inheritanceOf(blockers, byNumber, mapNumbers),
+		inherit: inheritanceOf(blockers, byNumber),
 		mapNumbers,
 		specNumbers,
 		listed,

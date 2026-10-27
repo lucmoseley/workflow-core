@@ -2,8 +2,8 @@
 /*
  * The prose self-gate reader (mantahostels#1289). In-process against plain strings — no
  * filesystem, no `gh` — so a regression here is the anchoring regex itself,
- * never a fixture. `resolveProseBlockers`' own set-membership test needs no
- * seam either: `openNumbers` is a plain `Set`, not a store.
+ * never a fixture. `judgeProseRefs`' own set-membership test needs no seam
+ * either: `openLocal` is a plain `Set`, not a store.
  *
  * `pick-next.js` reads it behind the `/pick-next` skill: loosen a case and the
  * picker offers an issue still blocked in prose, or holds back one that only
@@ -11,19 +11,13 @@
  */
 import { describe, expect, it } from "vitest";
 
-const { judgeProseRefs, proseRefsOf, resolveProseBlockers } =
+const { judgeProseRefs, proseRefsOf, unparsedBlockersOf } =
 	require("./prose-blockers.js") as typeof import("./prose-blockers");
 
-/*
- * The reading half of `resolveProseBlockers`, with nothing on the open list:
- * every named number lands in `named` whatever its state, so these cases pin
- * the marker parsing alone.
- */
-const named = (body: string) => resolveProseBlockers(body, new Set()).named;
-const unparsed = (body: string) =>
-	resolveProseBlockers(body, new Set()).unparsed;
+const named = (body: string) => proseRefsOf(body).map((r) => r.number);
+const unparsed = unparsedBlockersOf;
 
-describe("resolveProseBlockers: the numbers a marker names", () => {
+describe("proseRefsOf: the numbers a marker names", () => {
 	it("returns nothing where the body carries no marker", () => {
 		expect(named("no marker here")).toEqual([]);
 	});
@@ -54,8 +48,8 @@ describe("resolveProseBlockers: the numbers a marker names", () => {
 		expect(named("**Blocked on** #10, #11 and #12.")).toEqual([10, 11, 12]);
 	});
 
-	it("dedupes and sorts", () => {
-		expect(named("**Blocked on** #12, #10, #12.")).toEqual([10, 12]);
+	it("dedupes, in marker order", () => {
+		expect(named("**Blocked on** #12, #10, #12.")).toEqual([12, 10]);
 	});
 
 	it("is case-insensitive on the marker", () => {
@@ -67,40 +61,7 @@ describe("resolveProseBlockers: the numbers a marker names", () => {
 	});
 });
 
-describe("resolveProseBlockers: open against resolved", () => {
-	it("calls a named number still on the open list a live blocker", () => {
-		const r = resolveProseBlockers("**Blocked on** #831.", new Set([831, 900]));
-		expect(r).toEqual({
-			named: [831],
-			open: [831],
-			resolved: [],
-			unparsed: [],
-		});
-	});
-
-	it("calls a named number absent from the open list resolved, no second call needed", () => {
-		// mantahostels#831 closed; mantahostels#832/mantahostels#833/mantahostels#835 named it and were takeable all along.
-		const r = resolveProseBlockers("**Blocked on** #831.", new Set([900]));
-		expect(r).toEqual({
-			named: [831],
-			open: [],
-			resolved: [831],
-			unparsed: [],
-		});
-	});
-
-	it("splits a mix of still-open and already-resolved blockers", () => {
-		const r = resolveProseBlockers("**Blocked on** #1, #2.", new Set([1]));
-		expect(r).toEqual({
-			named: [1, 2],
-			open: [1],
-			resolved: [2],
-			unparsed: [],
-		});
-	});
-});
-
-describe("resolveProseBlockers: a marker naming no number", () => {
+describe("unparsedBlockersOf: a marker naming no number", () => {
 	/*
 	 * mantahostels#927's real body, verbatim. The marker opens mid-sentence and names a
 	 * ROADMAP CARD, so it carries no number for the open-issue list to settle.
@@ -140,28 +101,6 @@ describe("resolveProseBlockers: a marker naming no number", () => {
 		expect(unparsed("**Blocked on the card** and **something**")).toEqual([
 			"**Blocked on the card** and **something**",
 		]);
-	});
-
-	it("surfaces on resolveProseBlockers, which excludes nothing on it", () => {
-		const r = resolveProseBlockers(real, new Set([1, 2]));
-		expect(r.named).toEqual([]);
-		expect(r.open).toEqual([]);
-		expect(r.unparsed).toHaveLength(1);
-	});
-});
-
-describe("resolveProseBlockers: a reference into another repo (#2427)", () => {
-	it("is matched in the marker but left to the graph, not named or resolved here", () => {
-		const r = resolveProseBlockers(
-			"**Blocked on** lucmoseley/mantahostels#3842 and #1.",
-			new Set([1]),
-		);
-		expect(r).toEqual({
-			named: [1],
-			open: [1],
-			resolved: [],
-			unparsed: [],
-		});
 	});
 });
 

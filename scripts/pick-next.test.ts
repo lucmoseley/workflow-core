@@ -792,7 +792,7 @@ describe("readiness", () => {
 		const entry = r
 			.json()
 			.proseBlocked.find((p: { number: number }) => p.number === 9) as {
-			named: number[];
+			named: string[];
 			unparsed: string[];
 		};
 		expect(entry.named).toEqual([]);
@@ -819,20 +819,53 @@ describe("readiness", () => {
 			{
 				number: 2,
 				title: "issue 2",
-				named: [1],
-				open: [1],
-				resolved: [],
+				named: ["#1"],
+				open: ["#1"],
+				closed: [],
+				unreadable: [],
 				unparsed: [],
 			},
 			{
 				number: 3,
 				title: "issue 3",
-				named: [831],
+				named: ["#831"],
 				open: [],
-				resolved: [831],
+				closed: ["#831"],
+				unreadable: [],
 				unparsed: [],
 			},
 		]);
+	});
+
+	it("judges a marker naming this repo as `owner/name#n` against the open list (#3277)", async () => {
+		const r = await run({
+			issues: [
+				{ number: 1 },
+				{ number: 2, body: "**Blocked on** o/r#1." },
+				{ number: 3, body: "**Blocked on** O/R#831." },
+			],
+		});
+		expect(r.out).toMatch(/#2\s+names #1 — still blocked by #1/);
+		expect(r.out).toMatch(
+			/#3\s+names #831 — every named issue is closed, resolved/,
+		);
+		for (const call of r.calls()) expect(call).not.toMatch(/issues\/(1|831)\b/);
+	});
+
+	it("reports a marker in another repo whose read fails as unreadable, and holds it", async () => {
+		const fx = { issues: [{ number: 2, body: "**Blocked on** o/x#5." }] };
+		const text = await run(fx);
+		expect(text.out).toMatch(/#2\s+names o\/x#5 — o\/x#5 unreadable, held \(/);
+		const r = await run(fx, ["--json"]);
+		const row = r.json().proseBlocked[0];
+		expect(row.named).toEqual(["o/x#5"]);
+		expect(row.closed).toEqual([]);
+		expect(row.unreadable).toEqual([
+			{ ref: "o/x#5", error: expect.any(String) },
+		]);
+		expect(
+			r.json().frontier.map((f: { number: number }) => f.number),
+		).not.toContain(2);
 	});
 
 	it("prints the prose self-gate block, split by still-open and resolved", async () => {
@@ -1039,7 +1072,7 @@ describe("ordering", () => {
 		expect(text.out).toMatch(/#12\s+via\s/);
 	});
 
-	it("passes no urgency down from a parent that is not a map", async () => {
+	it("passes urgency down from a parent that is not a map (#3250)", async () => {
 		const r = await run({
 			issues: [
 				{ number: 1 },
@@ -1050,7 +1083,31 @@ describe("ordering", () => {
 				10: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
 			},
 		});
-		expect(r.order()).toEqual([1, 11]);
+		expect(r.order()).toEqual([11, 1]);
+	});
+
+	it("passes a plain ticket's urgency down its child, that child's blocker and on to its child (#3250)", async () => {
+		// #10 urgent, a plain ticket, parent of #11; #20 blocks #11; #21 is
+		// #20's child, so #20 is a heading and #21 the work.
+		const fx = {
+			issues: [
+				{ number: 1 },
+				{ number: 10, labels: ["urgent"] },
+				{ number: 11, parent: 10 },
+				{ number: 20 },
+				{ number: 21, parent: 20 },
+			],
+			deps: { 11: [{ number: 20, state: "open" as const }] },
+			timeline: {
+				10: [{ label: "urgent", created_at: daysAgo(1), actor: "owner" }],
+			},
+		};
+		const rows = (await run(fx, ["--json"])).json().frontier;
+		expect(rows.map((f: { number: number }) => f.number)).toEqual([21, 1]);
+		expect(rows[0]).toMatchObject({
+			urgent: true,
+			urgentVia: { number: 10, path: ["#20", "#11", "#10"] },
+		});
 	});
 
 	it("passes an urgent map's tier through its child to that child's blocker (#3222)", async () => {

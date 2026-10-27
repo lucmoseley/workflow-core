@@ -14,6 +14,7 @@ const {
 	blockerGraph,
 	inheritance,
 	openBlockersOf,
+	proseOf,
 	pulledInOf,
 	reachOf,
 } = require("./blocker-graph.js");
@@ -26,6 +27,8 @@ interface Fake {
 	deps?: Record<string, string[]>;
 	/** `owner/name#n` whose blocked_by read fails */
 	failDeps?: string[];
+	/** `owner/name#n` whose issue read fails */
+	failIssues?: string[];
 }
 
 const OWN = "me/served";
@@ -67,6 +70,8 @@ const graphOf = (
 		issue: async (ref: { repo: string; number: number }) => {
 			const key = `${ref.repo}#${ref.number}`;
 			reads.push(`issue ${key}`);
+			if (fake.failIssues?.includes(key))
+				return { ok: false, error: "HTTP 404" };
 			return { ok: true, issue: edge(fake, key) };
 		},
 		each: <T, R>(items: T[], fn: (item: T) => Promise<R>) =>
@@ -167,12 +172,9 @@ describe("a foreign number shared with a served issue", () => {
 });
 
 describe("what an issue inherits from what it holds out (#3222)", () => {
-	/** `urgent` from `urgent`, passing up a parent link only from a map in `maps`. */
-	const urgentOf = (graph: unknown, urgent: number[], maps: number[] = []) =>
-		inheritance(graph, {
-			urgent: (n: number, parent: boolean) =>
-				urgent.includes(n) && (!parent || maps.includes(n)),
-		});
+	/** `urgent` from each issue in `urgent`. */
+	const urgentOf = (graph: unknown, urgent: number[]) =>
+		inheritance(graph, { urgent: (n: number) => urgent.includes(n) });
 	const own = (number: number) => ({ repo: OWN, number });
 
 	it("passes a tier along a blocker chain, its depth the longest path", async () => {
@@ -232,17 +234,22 @@ describe("what an issue inherits from what it holds out (#3222)", () => {
 			5: {},
 		});
 		expect(reachOf(graph, 1)).toBe(1);
-		expect(urgentOf(graph, [5], [5])(own(1))).toEqual({
+		expect(urgentOf(graph, [5])(own(1))).toEqual({
 			via: { urgent: { number: 5, path: ["#2", "#5"] } },
 			depth: 1,
 		});
 	});
 
-	it("passes no urgency up a parent link from a parent that is no map", async () => {
-		const { graph } = await graphOf({ 2: { parent: 5 }, 5: {} });
-		expect(urgentOf(graph, [5])(own(2))).toEqual({
-			via: { urgent: null },
-			depth: 0,
+	it("passes urgency down a parent link to a child, then on to its blockers (#3250)", async () => {
+		// 5 is the parent of 2; 1 blocks 2; 1 is the parent of 3.
+		const { graph } = await graphOf({
+			1: {},
+			2: { deps: [`${OWN}#1`], parent: 5 },
+			3: { parent: 1 },
+			5: {},
+		});
+		expect(urgentOf(graph, [5])(own(3))).toMatchObject({
+			via: { urgent: { number: 5, path: ["#1", "#2", "#5"] } },
 		});
 	});
 
@@ -285,5 +292,40 @@ describe("`**Blocked on**` markers naming another repo", () => {
 			{ issues: { "o/y#10": { state: "open", body: "**Blocked on** #11." } } },
 		);
 		expect(pulled(graph)).toEqual(["o/y#11 reach 1 holds me/served#1"]);
+	});
+});
+
+describe("proseOf: a served issue's markers as judged (#3277)", () => {
+	it("judges this repo's, bare or `owner/name#n`, on the open list, and reads only another repo's", async () => {
+		const { graph, reads } = await graphOf(
+			{
+				1: {
+					body: "**Blocked on** o/y#11, #831, o/y#12, me/served#2 and o/y#10.",
+				},
+				2: {},
+			},
+			{
+				issues: { "o/y#11": { state: "closed" } },
+				failIssues: ["o/y#12"],
+			},
+		);
+		expect(proseOf(graph, 1)).toEqual({
+			named: ["#2", "#831", "o/y#10", "o/y#11", "o/y#12"],
+			open: ["#2", "o/y#10"],
+			closed: ["#831", "o/y#11"],
+			unreadable: [{ ref: "o/y#12", error: "HTTP 404" }],
+		});
+		expect(reads.filter((r: string) => r.startsWith("issue me/"))).toEqual([]);
+	});
+
+	it("judges a marker a native edge also names, at no extra read", async () => {
+		const { graph, reads } = await graphOf({
+			1: { deps: ["o/y#10"], body: "**Blocked on** o/y#10." },
+		});
+		expect(proseOf(graph, 1).open).toEqual(["o/y#10"]);
+		expect(openBlockersOf(graph, 1)).toEqual([
+			{ label: "o/y#10", native: true },
+		]);
+		expect(reads.filter((r: string) => r === "issue o/y#10")).toEqual([]);
 	});
 });

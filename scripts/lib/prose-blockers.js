@@ -9,12 +9,11 @@
  * native edge to match, and the picker's dependency read never saw it.
  *
  * WHAT IT ANSWERS, AND HOW CHEAPLY. `pick-next.js` already fetches every OPEN
- * issue in one call before this runs. A prose blocker naming a number NOT in
- * that set is a blocker that is closed (or never existed) — resolved for free,
- * no second call. A number still in the open set is still blocking, exactly as
- * a native edge would be. judgeProseRefs answers an `owner/name#<n>` in the
- * same repo the same way; one in another repo costs its caller's issue read
- * (#3271).
+ * issue in one call before this runs. judgeProseRefs judges a reference in the
+ * same repo, bare `#<n>` or `owner/name#<n>`, against that set: one NOT in it
+ * is closed (or never existed), resolved for free, no second call; one still
+ * in it is still blocking, exactly as a native edge would be. One in another
+ * repo costs its caller's issue read (#3271).
  */
 
 /*
@@ -89,29 +88,6 @@ function unparsedBlockersOf(body) {
 }
 
 /**
- * The bare `#<n>` numbers a marker names, sorted, split against `openNumbers`
- * (a `Set<number>` of every currently open issue — `pick-next.js`'s own list,
- * at no extra call). `open` is what still blocks; `resolved` is what does not,
- * because the fetched open list does not contain it. `unparsed` is every
- * marker line that named no number at all. An `owner/name#<n>` reference is
- * judgeProseRefs's to answer.
- * @param {string} body
- * @param {Set<number>} openNumbers
- */
-function resolveProseBlockers(body, openNumbers) {
-	const named = proseRefsOf(body)
-		.filter((r) => r.repo === null)
-		.map((r) => r.number)
-		.sort((a, b) => a - b);
-	return {
-		named,
-		open: named.filter((n) => openNumbers.has(n)),
-		resolved: named.filter((n) => !openNumbers.has(n)),
-		unparsed: unparsedBlockersOf(body),
-	};
-}
-
-/**
  * @typedef {(ref: import("./issue-ref.js").IssueRef) =>
  *   Promise<{ok: true, issue: {state: string}} | {ok: false, error: string}>} ReadIssue
  */
@@ -156,5 +132,5 @@ module.exports = {
 	NOT_READY_OPENING,
 	judgeProseRefs,
 	proseRefsOf,
-	resolveProseBlockers,
+	unparsedBlockersOf,
 };
