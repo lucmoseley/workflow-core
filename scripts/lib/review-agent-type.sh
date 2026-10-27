@@ -14,13 +14,13 @@
 # The core reads lib/review-agent-type.js, this file's Node twin; keep the two
 # in step (review-agent-type.test.ts holds them to one answer).
 # This file's directory without a `dirname` fork; `.` where sourced by a bare name.
-_RAT_HERE="${BASH_SOURCE[0]%/*}"
-[[ "$_RAT_HERE" == "${BASH_SOURCE[0]}" ]] && _RAT_HERE=.
+_rat_here="${BASH_SOURCE[0]%/*}"
+[[ "$_rat_here" == "${BASH_SOURCE[0]}" ]] && _rat_here=.
 if ! declare -F gr_root >/dev/null 2>&1; then
   # shellcheck source=scripts/lib/guard-root.sh
-  source "$_RAT_HERE/guard-root.sh"
+  source "$_rat_here/guard-root.sh"
 fi
-unset _RAT_HERE
+unset _rat_here
 
 review_agent_type() {
   if [[ -f "$(gr_root)/.claude/agents/code-reviewer.md" ]]; then

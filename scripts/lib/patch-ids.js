@@ -1,6 +1,8 @@
 /*
  * patch-ids.js — commits' `git patch-id --stable`, the identity a rebase
- * keeps.
+ * keeps. A landed commit is a rebased twin of the worktree commit a review
+ * read, with a new sha, so spec-commits.js --since matches the two by
+ * patch-id to skip what was already reviewed (#3240).
  */
 
 const { gitRead } = require("./dirty-tree.js");

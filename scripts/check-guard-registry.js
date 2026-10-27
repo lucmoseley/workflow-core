@@ -3649,6 +3649,8 @@ function settleStale(ctx, added) {
 function readHeldAtGate(ctx, inputs, pushed) {
 	if (pushed) return { held: new Map(), taken: new Map(), unavailable: null };
 	const ours = readStagedWhole();
+	/* Fails open: an unread index exempts nothing, so a claimed file this
+	 * commit stages whole still stands its row down, as before #3255. */
 	if (ours.error)
 		ctx.say(
 			`staged read failed (${ours.error}), so a claimed file this commit stages whole still stands its row down.`,

@@ -316,6 +316,25 @@ esac
 					JSON.parse(run([ticket(11)], ["--json"]).stdout).throughOnMain,
 				).toBe(false);
 			});
+
+			it("prints the fault, and no false warning, where git cannot tell whether the sha is on main", () => {
+				git(["checkout", "-q", "-b", "worktree"]);
+				commit("w.js", "Unlanded work (#11)", "2026-09-05T00:00:00Z");
+				const fake = path.join(dir, "git-no-merge-base");
+				fs.writeFileSync(
+					fake,
+					`#!/bin/sh\n[ "$1" = merge-base ] && { echo "fatal: broken" >&2; exit 128; }\nexec git "$@"\n`,
+					{ mode: 0o755 },
+				);
+				const r = runInProcess(SCRIPT, ["10"], {
+					cwd: repo,
+					env: { ...process.env, ...stub([ticket(11)]).env, WFC_GIT: fake },
+				});
+				expect(r.status).toBe(0);
+				expect(r.stdout).not.toContain("is not on main");
+				expect(r.stderr).toContain("could not tell whether");
+				expect(r.stderr).toContain("fatal: broken");
+			});
 		});
 
 		it("refuses --since with no sha, with usage", () => {

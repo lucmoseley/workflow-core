@@ -69,11 +69,8 @@ const marker = (fields: Record<string, unknown> = {}) => ({
 	...fields,
 });
 
-const write = (...markers: unknown[]) =>
-	fs.writeFileSync(store, markers.map((m) => JSON.stringify(m)).join("\n"));
-
-const writeFailures = (...markers: unknown[]) =>
-	fs.writeFileSync(failStore, markers.map((m) => JSON.stringify(m)).join("\n"));
+const writeJsonl = (file: string, ...markers: unknown[]) =>
+	fs.writeFileSync(file, markers.map((m) => JSON.stringify(m)).join("\n"));
 
 const run = () => {
 	const r = runInProcess(
@@ -88,7 +85,7 @@ const secs = (ms: number) => `${Math.round(ms / 1000)} s`;
 
 describe("a green whole suite over the target", () => {
 	it("is named with its sha, duration, target, ceiling, machine reading and slowest files, and exits 0", () => {
-		write(marker());
+		writeJsonl(store, marker());
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("SUITE-MARGIN");
@@ -104,12 +101,16 @@ describe("a green whole suite over the target", () => {
 	});
 
 	it("is named at exactly the target, which is not under it", () => {
-		write(marker({ durationMs: TARGET_MS }));
+		writeJsonl(store, marker({ durationMs: TARGET_MS }));
 		expect(run().out).toContain("SUITE-MARGIN");
 	});
 
 	it("is judged on the latest run alone", () => {
-		write(marker(), marker({ sha: "b".repeat(40), durationMs: 1000 }));
+		writeJsonl(
+			store,
+			marker(),
+			marker({ sha: "b".repeat(40), durationMs: 1000 }),
+		);
 		expect(run().out).not.toContain("SUITE-MARGIN");
 	});
 });
@@ -123,7 +124,12 @@ describe("a sharded whole suite (#3090)", () => {
 		});
 
 	it("names a shard over the target with its index, even when the latest shard is under it", () => {
-		write(half(1), half(2, { durationMs: TARGET_MS + 60_000 }), half(1));
+		writeJsonl(
+			store,
+			half(1),
+			half(2, { durationMs: TARGET_MS + 60_000 }),
+			half(1),
+		);
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("SUITE-MARGIN");
@@ -133,7 +139,12 @@ describe("a sharded whole suite (#3090)", () => {
 	});
 
 	it("stays silent when each shard's latest run is under the target, though an older one was over", () => {
-		write(half(2, { durationMs: TARGET_MS + 60_000 }), half(1), half(2));
+		writeJsonl(
+			store,
+			half(2, { durationMs: TARGET_MS + 60_000 }),
+			half(1),
+			half(2),
+		);
 		const out = run().out;
 		expect(out).not.toContain("SUITE-MARGIN");
 		expect(out).toContain("shard 1/2 of the whole suite");
@@ -143,7 +154,7 @@ describe("a sharded whole suite (#3090)", () => {
 
 	it("names both shards, each on its own line, when both are over", () => {
 		const over = { durationMs: TARGET_MS + 60_000 };
-		write(half(1, over), half(2, over));
+		writeJsonl(store, half(1, over), half(2, over));
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("shard 1/2 of the whole suite, at");
@@ -157,12 +168,13 @@ describe("a sharded whole suite (#3090)", () => {
 				scope: { ...WHOLE, modulesRun: 200, shard: { index, count: 3 } },
 				...fields,
 			});
-		write(thirds(1), half(1), half(2));
+		writeJsonl(store, thirds(1), half(1), half(2));
 		expect(run().out).not.toContain("SUITE-MARGIN");
 	});
 
 	it("reads a red shard over the target as no run to judge", () => {
-		write(
+		writeJsonl(
+			store,
 			half(1),
 			half(2, {
 				durationMs: TARGET_MS + 60_000,
@@ -180,14 +192,20 @@ describe("a sharded whole suite (#3090)", () => {
 	});
 
 	it("judges a whole suite newer than the shards on its own", () => {
-		write(half(1, { durationMs: TARGET_MS + 60_000 }), half(2), marker());
+		writeJsonl(
+			store,
+			half(1, { durationMs: TARGET_MS + 60_000 }),
+			half(2),
+			marker(),
+		);
 		const out = run().out;
 		expect(out).toContain("green whole suite, at");
 		expect(out).not.toContain("shard 1/2");
 	});
 
 	it("never judges a shard on a run older than the latest whole suite", () => {
-		write(
+		writeJsonl(
+			store,
 			half(2, { durationMs: TARGET_MS + 60_000 }),
 			marker({ durationMs: 1000 }),
 			half(1),
@@ -198,7 +216,7 @@ describe("a sharded whole suite (#3090)", () => {
 	});
 
 	it("names a shard with no green run as unjudged, a WARN and never OK, with its way out (#3237)", () => {
-		write(half(1));
+		writeJsonl(store, half(1));
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("No green run of shard 2/2 is recorded");
@@ -210,7 +228,7 @@ describe("a sharded whole suite (#3090)", () => {
 	});
 
 	it("prints the unjudged note with a single space beside a breach, and counts it (#3237)", () => {
-		write(half(1, { durationMs: TARGET_MS + 60_000 }));
+		writeJsonl(store, half(1, { durationMs: TARGET_MS + 60_000 }));
 		const out = run().out;
 		expect(out).toContain("SUITE-MARGIN");
 		expect(out).toContain("2 run(s) over the target or shard(s) unjudged");
@@ -226,7 +244,7 @@ describe("a sharded whole suite (#3090)", () => {
 				durationMs: TARGET_MS - 1000,
 				...fields,
 			});
-		write(old(1), old(2, { durationMs: TARGET_MS + 60_000 }));
+		writeJsonl(store, old(1), old(2, { durationMs: TARGET_MS + 60_000 }));
 		const r = run();
 		expect(r.out).toContain("SUITE-MARGIN");
 		expect(r.out).toContain("shard 2/2 of the whole suite, at");
@@ -234,7 +252,8 @@ describe("a sharded whole suite (#3090)", () => {
 	});
 
 	it("reads a shard narrowed by a file filter as no shard of the whole suite", () => {
-		write(
+		writeJsonl(
+			store,
 			half(1, {
 				durationMs: TARGET_MS + 60_000,
 				scope: {
@@ -250,9 +269,9 @@ describe("a sharded whole suite (#3090)", () => {
 });
 
 describe("a ceiling kill in the fail store (#3237)", () => {
-	const Killed = "c".repeat(40);
+	const killedSha = "c".repeat(40);
 	const kill = (fields: Record<string, unknown> = {}) => ({
-		sha: Killed,
+		sha: killedSha,
 		at: "2026-10-24T10:00:00.000Z",
 		suite: "vitest",
 		durationMs: CEILING_MS + 100,
@@ -270,13 +289,13 @@ describe("a ceiling kill in the fail store (#3237)", () => {
 		});
 
 	it("names a shard killed since its green run, with its sha, duration and what was in flight", () => {
-		write(half(1), half(2));
-		writeFailures(kill());
+		writeJsonl(store, half(1), half(2));
+		writeJsonl(failStore, kill());
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("SUITE-MARGIN");
 		expect(r.out).toContain(
-			`shard 1/2 of the whole suite killed at the ceiling, at ${Killed.slice(0, 12)}`,
+			`shard 1/2 of the whole suite killed at the ceiling, at ${killedSha.slice(0, 12)}`,
 		);
 		expect(r.out).toContain(secs(CEILING_MS + 100));
 		expect(r.out).toContain("in flight at the kill:");
@@ -285,8 +304,9 @@ describe("a ceiling kill in the fail store (#3237)", () => {
 	});
 
 	it("names every kill of a shard with no green run, and leaves it judged", () => {
-		write(half(1));
-		writeFailures(
+		writeJsonl(store, half(1));
+		writeJsonl(
+			failStore,
 			kill({ argv: ["--full=push-gate", "--shared", "--shard=2/2"] }),
 			kill({
 				at: "2026-10-24T11:00:00.000Z",
@@ -299,21 +319,23 @@ describe("a ceiling kill in the fail store (#3237)", () => {
 	});
 
 	it("names a whole run killed with only its recorded `full` to show it whole", () => {
-		write(marker({ durationMs: 1000 }));
-		writeFailures(kill({ argv: [], full: "dependency-root" }));
+		writeJsonl(store, marker({ durationMs: 1000 }));
+		writeJsonl(failStore, kill({ argv: [], full: "dependency-root" }));
 		const out = run().out;
 		expect(out).toContain("a whole suite killed at the ceiling");
 	});
 
 	it("hides no shard behind a hand whole run killed after them", () => {
-		write(
+		writeJsonl(
+			store,
 			half(1),
 			marker({
 				scope: { ...WHOLE, modulesRun: 300, shard: { index: 2, count: 2 } },
 				durationMs: TARGET_MS + 60_000,
 			}),
 		);
-		writeFailures(
+		writeJsonl(
+			failStore,
 			kill({ argv: ["--queue", "--full=other", "--shared", "--logHeapUsage"] }),
 		);
 		const out = run().out;
@@ -333,8 +355,8 @@ describe("a ceiling kill in the fail store (#3237)", () => {
 		["one with no `full` to show it whole", { argv: ["--queue"] }],
 		["a stall kill", { ceilingKill: undefined, stalled: true }],
 	])("reports nothing on %s", (_name, fields) => {
-		write(half(1), half(2));
-		writeFailures(kill(fields));
+		writeJsonl(store, half(1), half(2));
+		writeJsonl(failStore, kill(fields));
 		expect(run().out).not.toContain("SUITE-MARGIN");
 	});
 });
@@ -358,7 +380,7 @@ describe("silence", () => {
 		],
 		["a ceiling kill", marker({ ceilingKill: true })],
 	])("%s reports nothing", (_name, m) => {
-		write(m);
+		writeJsonl(store, m);
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).not.toContain("SUITE-MARGIN");

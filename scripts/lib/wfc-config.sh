@@ -16,13 +16,13 @@
 # per hook.
 
 # This file's directory without a `dirname` fork; `.` where sourced by a bare name.
-_WC_HERE="${BASH_SOURCE[0]%/*}"
-[[ "$_WC_HERE" == "${BASH_SOURCE[0]}" ]] && _WC_HERE=.
+_wc_here="${BASH_SOURCE[0]%/*}"
+[[ "$_wc_here" == "${BASH_SOURCE[0]}" ]] && _wc_here=.
 if ! declare -F gr_root >/dev/null 2>&1; then
   # shellcheck source=scripts/lib/guard-root.sh
-  source "$_WC_HERE/guard-root.sh"
+  source "$_wc_here/guard-root.sh"
 fi
-unset _WC_HERE
+unset _wc_here
 
 WFC_KNOWN_CONTRACTS="1"
 # The JS reader's MODULES, in its order; wfc-config.test.ts pins the two equal.

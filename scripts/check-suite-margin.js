@@ -30,7 +30,7 @@
 
 const { runCheck } = require("./lib/check.js");
 const {
-	FULL_PREFIX,
+	fullFlagWord,
 	isFullRunArgv,
 	stripWrapperFlags,
 } = require("./lib/launch-route.js");
@@ -92,7 +92,7 @@ const isFullShard = (m) => Boolean(shardOf(m)) && isUnnarrowedScope(m.scope);
 /**
  * A whole suite or a shard of one, killed at the ceiling. The kill record has
  * no scope, the run never having reported, so its selection is read off the
- * launch: `full` where run-vitest recorded it (#3237), else a typed `--full=`,
+ * launch: `full` where run-vitest recorded it (#3237), else a typed `--full` word,
  * and argv the launch route reads as full-shaped.
  * @param {Marker} m
  * @returns {m is TimedMarker}
@@ -101,7 +101,7 @@ function isWholeKill(m) {
 	if (suiteOf(m) !== DEFAULT_SUITE || !m.ceilingKill) return false;
 	if (typeof m.durationMs !== "number") return false;
 	const argv = m.argv ?? [];
-	if (!m.full && !argv.some((w) => w.startsWith(FULL_PREFIX))) return false;
+	if (!m.full && fullFlagWord(argv) === null) return false;
 	return isFullRunArgv(stripWrapperFlags(argv));
 }
 
@@ -180,7 +180,7 @@ function machineLine(machine) {
  * @param {Marker} m
  * @returns {string[]}
  */
-function fileLines(m) {
+function buildFileLines(m) {
 	if (m.ceilingKill) {
 		const inflight = m.inflight ?? [];
 		if (inflight.length === 0)
@@ -230,7 +230,7 @@ function reportBreach(ctx, marker, target) {
 		`SUITE-MARGIN — ${subject} (${marker.at ?? "undated"}), took ${secs(record.durationMs)}: over the ${secs(TARGET_MS)} target, against the ${secs(CEILING_MS)} ceiling.`,
 	);
 	ctx.say(`  ${machineLine(marker.machine)}`);
-	for (const line of fileLines(marker)) ctx.say(line);
+	for (const line of buildFileLines(marker)) ctx.say(line);
 	return record;
 }
 
@@ -251,13 +251,13 @@ runCheck({
 		/* An unjudged shard may be the one over the target, so it never reads
 		 * OK. */
 		/** @param {string[]} slots */
-		const unjudgedText = (slots) =>
+		const buildUnjudgedText = (slots) =>
 			`No green run of shard ${slots.join(", ")} is recorded, so it is unjudged: run it with \`npm run test -- --full=other --shard=<k/n>\`, or wait for the lander's next shard runs.`;
-		const unjudgedLine = unjudgedText(unjudged);
+		const unjudgedLine = buildUnjudgedText(unjudged);
 		for (const slot of unjudged)
 			ctx.warn(
 				"SUITE-MARGIN-UNJUDGED",
-				unjudgedText([slot]),
+				buildUnjudgedText([slot]),
 				{ shard: slot },
 				`SUITE-MARGIN-UNJUDGED\t${slot}`,
 			);

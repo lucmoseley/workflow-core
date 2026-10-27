@@ -19,15 +19,15 @@
 # path handed over is the physical plugin-cache path that #711's machine-local
 # Read rule names, never a ~/.claude2 or ~/.claude3 symlink spelling.
 # This file's directory without a `dirname` fork; `.` where sourced by a bare name.
-_RS_HERE="${BASH_SOURCE[0]%/*}"
-[[ "$_RS_HERE" == "${BASH_SOURCE[0]}" ]] && _RS_HERE=.
+_rs_here="${BASH_SOURCE[0]%/*}"
+[[ "$_rs_here" == "${BASH_SOURCE[0]}" ]] && _rs_here=.
 if ! declare -F gr_root >/dev/null 2>&1; then
   # shellcheck source=scripts/lib/guard-root.sh
-  source "$_RS_HERE/guard-root.sh"
+  source "$_rs_here/guard-root.sh"
 fi
 if ! declare -F sp_core_root >/dev/null 2>&1; then
   # shellcheck source=scripts/lib/script-path.sh
-  source "$_RS_HERE/script-path.sh"
+  source "$_rs_here/script-path.sh"
 fi
 
 # The base's absolute path, whether or not it exists. With the core root
@@ -111,7 +111,7 @@ review_standards_log_missing_base() {
   fi
   if ! declare -F gl_log >/dev/null 2>&1; then
     # shellcheck source=scripts/lib/guard-log.sh
-    source "$_RS_HERE/guard-log.sh" 2>/dev/null || return 0
+    source "$_rs_here/guard-log.sh" 2>/dev/null || return 0
   fi
   gl_log "$what" "$base_path"
 }

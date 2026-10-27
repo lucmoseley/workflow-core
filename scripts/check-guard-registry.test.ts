@@ -163,7 +163,7 @@ function reviewIn(
 	return r.stdout;
 }
 
-const neighbour = "neighbour-session";
+const NEIGHBOUR = "neighbour-session";
 
 /*
  * A lock record as `listLocks` hands one over. Injected at the STORE, not at
@@ -173,7 +173,7 @@ const neighbour = "neighbour-session";
 function lock(rel: string, { alive = true } = {}) {
 	return {
 		path: rel,
-		sessionId: neighbour,
+		sessionId: NEIGHBOUR,
 		pid: 4242,
 		alive,
 		claimedAt: new Date().toISOString(),
@@ -1118,7 +1118,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			env([lock("scripts/guard-a.sh")]),
 		);
 		expect(out).toContain("not anchored scripts/guard-a.sh");
-		expect(out).toContain(neighbour);
+		expect(out).toContain(NEIGHBOUR);
 		expect(out).toContain("0 path(s) re-anchored");
 		expect(out).toContain("Re-run once the holder releases");
 		expect(readAnchors(root)).toEqual(before);

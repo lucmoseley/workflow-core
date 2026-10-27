@@ -56,6 +56,7 @@ const { citedIssues } = require("./lib/cited-issues.js");
 const { commitSha } = require("./lib/commit-sha.js");
 const { execGit } = require("./lib/git.js");
 const { readPatchIds } = require("./lib/patch-ids.js");
+const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
 
 const USAGE =
 	"usage: node scripts/spec-commits.js <spec> [--since <sha>] [--json]";
@@ -124,18 +125,25 @@ function ancestorOfHead(rev) {
 	}
 }
 
-/** Whether `sha` is on main, or null where no `main` branch resolves.
+/** Whether `sha` is on main, or null where no `main` branch resolves or git
+ *  faults.
  *  @param {string} sha */
 function isOnMain(sha) {
-	if (commitSha(process.cwd(), "main") === null) return null;
+	if (commitSha(process.cwd(), VERIFIED_BRANCH) === null) return null;
 	try {
-		execGit(["merge-base", "--is-ancestor", sha, "main"], {
-			stdio: "ignore",
+		execGit(["merge-base", "--is-ancestor", sha, VERIFIED_BRANCH], {
+			stdio: ["ignore", "ignore", "pipe"],
 		});
 		return true;
-	} catch {
-		/* Not on main, or git failing alike. */
-		return false;
+	} catch (e) {
+		const err = /** @type {{status?: number|null, stderr?: Buffer}} */ (e);
+		if (err.status === 1) return false;
+		/* A fault is no answer, so it prints no false "not on main" warning
+		 * (#3240). */
+		process.stderr.write(
+			`spec-commits: could not tell whether ${sha} is on ${VERIFIED_BRANCH}: ${String(err.stderr ?? e).trim()}\n`,
+		);
+		return null;
 	}
 }
 
@@ -301,7 +309,7 @@ function buildJsonReport(v) {
  * @param {string | null} sha
  * @param {boolean | null} onMain null where no `main` branch resolves
  */
-const reviewedThroughLines = (sha, onMain) => [
+const buildReviewedThroughLines = (sha, onMain) => [
 	"  (a sha main keeps: one from a worktree not yet landed is rebased away, and the next --since reads its landed twin as new)",
 	`  **Reviewed through:** ${sha}`,
 	...(onMain === false && sha
@@ -349,7 +357,7 @@ function buildTextReport({
 				? `No commit after ${short(after)} cites ${cites}: nothing new to review. Say so in the triage comment, ending it with:`
 				: `No commit since #${n} was filed cites ${cites}: a decision-only spec. Skip the review, and say so in the triage comment.`,
 		);
-		if (after) lines.push(...reviewedThroughLines(after, throughOnMain));
+		if (after) lines.push(...buildReviewedThroughLines(after, throughOnMain));
 		return `${lines.join("\n")}\n`;
 	}
 	lines.push(
@@ -365,7 +373,7 @@ function buildTextReport({
 		lines.push(
 			"",
 			"Each is a twin of a reviewed commit: nothing new to review. Say so in the triage comment, ending it with:",
-			...reviewedThroughLines(reviewedThrough, throughOnMain),
+			...buildReviewedThroughLines(reviewedThrough, throughOnMain),
 		);
 		return `${lines.join("\n")}\n`;
 	}
@@ -384,7 +392,7 @@ function buildTextReport({
 		`  ${show}`,
 		"",
 		"Record in the triage comment:",
-		...reviewedThroughLines(reviewedThrough, throughOnMain),
+		...buildReviewedThroughLines(reviewedThrough, throughOnMain),
 	);
 	return `${lines.join("\n")}\n`;
 }
