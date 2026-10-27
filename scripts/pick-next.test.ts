@@ -915,15 +915,14 @@ describe("readiness", () => {
 	it("pulls in the open end of a foreign chain, held where no checkout tracks its repo (#2427)", async () => {
 		const home = path.join(dir, "adopters");
 		fs.mkdirSync(home);
-		const r = await run(
-			{
-				issues: [{ number: 1 }],
-				deps: { 1: [{ number: 10, state: "open", repo: "o/y" }] },
-				foreignDeps: { "o/y#10": [{ number: 20, state: "open", repo: "o/z" }] },
+		const fx = {
+			issues: [{ number: 1 }],
+			deps: { 1: [{ number: 10, state: "open" as const, repo: "o/y" }] },
+			foreignDeps: {
+				"o/y#10": [{ number: 20, state: "open" as const, repo: "o/z" }],
 			},
-			["--json"],
-			{ env: { HOME: home } },
-		);
+		};
+		const r = await run(fx, ["--json"], { env: { HOME: home } });
 		expect(r.json().pulledIn).toEqual([
 			expect.objectContaining({
 				repo: "o/z",
@@ -934,6 +933,10 @@ describe("readiness", () => {
 				held: `no checkout under ${home} tracks o/z`,
 			}),
 		]);
+		const text = await run(fx, [], { env: { HOME: home } });
+		expect(text.out).toMatch(
+			/PULLED IN FROM OTHER REPOS[\s\S]*o\/z#20\s+depth 1\s+reach 1\s+holds o\/r#1\s+HELD OUTSIDE THE LOOP: no checkout under \S+ tracks o\/z/,
+		);
 	});
 
 	it("offers a pulled-in blocker from its checkout, refillLoop: false or not (#2427, #3281)", async () => {

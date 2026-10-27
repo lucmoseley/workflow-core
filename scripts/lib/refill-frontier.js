@@ -18,8 +18,7 @@
  * counts the served issues it holds out, never its own repo's. It inherits
  * the `bug`, `urgent` and goal tiers of what it holds there, and the longest
  * chain depth (#3222). A pulled-in issue whose repo has no checkout here is
- * returned under `held`, never launched; one whose checkout sets
- * `refillLoop: false` launches like any other (#3281).
+ * returned under `held`, never launched.
  *
  * Caller: scripts/refill-loop.js's tick.
  */
@@ -193,15 +192,15 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 	const pulled = pulledAcross(served.map((s) => s.result));
 	const held = [
 		...pulled.flatMap((p) =>
-			p.held || !p.root
-				? [
+			p.root
+				? []
+				: [
 						{
 							ref: `${p.repo}#${p.number}`,
 							why: p.held ?? "no checkout",
 							holds: p.holds,
 						},
-					]
-				: [],
+					],
 		),
 		...served.flatMap((s) =>
 			s.result.pulledInUnread.map((u) => ({
@@ -214,7 +213,7 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 	/** @type {Map<string, Map<number, PulledRow>>} root -> number -> its pull */
 	const pulledByRoot = new Map();
 	for (const p of pulled) {
-		if (p.held || !p.root) continue;
+		if (!p.root) continue;
 		const of = pulledByRoot.get(p.root) ?? new Map();
 		of.set(p.number, p);
 		pulledByRoot.set(p.root, of);
