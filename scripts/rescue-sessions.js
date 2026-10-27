@@ -1462,7 +1462,7 @@ function jobsNaming(issue, me, dirs) {
 	for (const j of dirs.flatMap(readJobsOn)) {
 		if (!STUCK_STATES.has(j.state) || !j.sessionId || j.sessionId === me)
 			continue;
-		const named = j.intent.match(INTENT_ISSUES)?.[1] ?? "";
+		const named = j.intent.match(INTENT_ISSUES)?.[0] ?? "";
 		if (issuesIn(named).includes(issue)) out.add(j.sessionId);
 	}
 	return [...out];
@@ -2040,7 +2040,7 @@ function buildRedispatchText(rec, kept) {
 	const intent = typeof rec.intent === "string" ? rec.intent : "";
 	if (!intent || !model)
 		return `Its record names ${intent ? "no model" : "no intent"} — re-dispatch it by hand from ${kept}.`;
-	const issues = issuesIn(intent.match(INTENT_ISSUES)?.[1] ?? "");
+	const issues = issuesIn(intent.match(INTENT_ISSUES)?.[0] ?? "");
 	const held = readRecentEntries(undefined, DEFAULT_WINDOW_HOURS).entries.some(
 		(e) =>
 			e.issues.some((n) => issues.includes(n)) &&

@@ -420,10 +420,10 @@ const VALUE_FLAGS = new Map(
 	/** @type {[string, SetFlag][]} */ ([
 		[
 			"--issues",
-			(value) => ({
-				issues: issuesIn(value),
-				prompts: value.split("\n").filter((l) => l.trim()),
-			}),
+			(value) => {
+				const prompts = value.split("\n").filter((l) => l.trim());
+				return { issues: prompts.flatMap(issuesIn), prompts };
+			},
 		],
 		["--drop-index-out", (value) => ({ dropIndexOut: value })],
 		["--model", (value) => ({ model: value })],

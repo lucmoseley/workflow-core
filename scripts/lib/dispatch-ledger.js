@@ -53,8 +53,15 @@ function ledgerPath(root = ledgerRoot()) {
 }
 
 /**
- * Every issue number in a launch prompt. Prompts are `/<skill> <issues>`, so
- * every integer in one is an issue number.
+ * The issue numbers a launch prompt claims. Prompts are `/<skill> <issues>`, so
+ * every integer in one is an issue number — save the map in
+ * `/wayfinder <map> <ticket>`, which is context: two tickets on one map run in
+ * parallel (#3217). `/wayfinder <map>` alone claims the map.
+ *
+ * Residual: a running session's NAME carries no `/wayfinder`, so a live ticket
+ * session still holds its map against `/wayfinder <map>`, while a map-only
+ * session or ledger row no longer holds `/wayfinder <map> <ticket>` — only the
+ * claim limb's parent-map check refuses that (#2211).
  *
  * Residual: a prompt carrying a non-issue integer records a phantom issue, which
  * then refuses an unrelated dispatch of that number and hides it from the
@@ -63,7 +70,10 @@ function ledgerPath(root = ledgerRoot()) {
  * @returns {number[]}
  */
 function issuesIn(prompt) {
-	return (prompt.match(/\d+/g) || []).map(Number);
+	const issues = (prompt.match(/\d+/g) || []).map(Number);
+	return commandOf(prompt) === "wayfinder" && issues.length > 1
+		? issues.slice(1)
+		: issues;
 }
 
 /**

@@ -155,6 +155,60 @@ describe("reading issue numbers out of a launch prompt", () => {
 	it("finds none in a prompt carrying none", () => {
 		expect(ledger.issuesIn("/pick-next")).toEqual([]);
 	});
+
+	it("reads the map in `/wayfinder <map> <ticket>` as context, and claims a bare map (#3217)", () => {
+		expect(ledger.issuesIn("/wayfinder 3209 3212")).toEqual([3212]);
+		expect(ledger.issuesIn("/wayfinder 3209")).toEqual([3209]);
+	});
+});
+
+describe("two tickets on one map launch in parallel (#3217)", () => {
+	it("passes `/wayfinder <map> <ticket>` while another ticket on the map runs", () => {
+		stubOracle(["Wayfinder 3209, 3210: charting"]);
+		const r = verdict("/wayfinder 3209 3212");
+		expect(r.status).toBe(0);
+		expect(r.hits).toEqual([]);
+	});
+
+	it("passes it over a ledgered launch of another ticket on the map", () => {
+		stubOracle(idle);
+		runCli([
+			"--record",
+			"--issues",
+			"/wayfinder 3209 3210",
+			"--prompt",
+			"/wayfinder 3209 3210",
+		]);
+		expect(verdict("/wayfinder 3209 3212").status).toBe(0);
+		const repeat = verdict("/wayfinder 3209 3210");
+		expect(repeat.status).toBe(1);
+		expect(repeat.hits.map(({ issue, via }) => ({ issue, via }))).toEqual([
+			{ issue: 3210, via: "ledger" },
+		]);
+		expect(repeat.out).toContain("--force");
+	});
+
+	it("still refuses the map-only form on a running map", () => {
+		stubOracle(["Wayfinder 3209, 3210: charting"]);
+		const r = verdict("/wayfinder 3209");
+		expect(r.status).toBe(1);
+		expect(r.hits.map(({ issue, via }) => ({ issue, via }))).toEqual([
+			{ issue: 3209, via: "live" },
+		]);
+		expect(r.out).toContain("--force");
+	});
+
+	it("reads each member's map on its own line, not only the first", () => {
+		stubOracle(["Wayfinder 3209, 3210: charting"]);
+		const out = path.join(root, "drop");
+		runCli([
+			"--issues",
+			"/implement 1\n/wayfinder 3209 3212",
+			"--drop-index-out",
+			out,
+		]);
+		expect(fs.readFileSync(out, "utf8")).toBe("");
+	});
 });
 
 describe("the ledger limb — catches a set whose sessions have finished", () => {
