@@ -58,15 +58,46 @@ let ghCallsFile: string;
 let ghBin: string;
 
 /** A `gh` stub dispatching on `issue view --json labels|body`, `issue
- * comment` and `issue edit`. */
+ * comment`, `issue edit`, and `api` reads of the blocked-by edges and of an
+ * issue's state (`states`, keyed by number). An issue missing from `states`
+ * answers empty at exit 0; `apiExit` fails every `api` call, `failPath` only
+ * the one whose path ends with it. */
 function stubGh(
-	opts: { labels?: string[]; body?: string; labelsExit?: number } = {},
+	opts: {
+		labels?: string[];
+		body?: string;
+		labelsExit?: number;
+		edges?: { state: string }[];
+		apiExit?: number;
+		failPath?: string;
+		states?: Record<number, string>;
+	} = {},
 ) {
-	const { labels = [], body = "", labelsExit = 0 } = opts;
+	const {
+		labels = [],
+		body = "",
+		labelsExit = 0,
+		edges = [],
+		apiExit = 0,
+		failPath = "",
+		states = {},
+	} = opts;
 	fs.writeFileSync(path.join(sb.dir, "body.md"), body);
 	const script = [
 		"#!/bin/bash",
 		`printf '%s\\n' "$*" >> "${ghCallsFile}"`,
+		'if [ "$1" = "api" ]; then',
+		`  if [ ${apiExit} -ne 0 ]; then exit ${apiExit}; fi`,
+		`  if [ -n "${failPath}" ] && [ "\${2%${failPath}}" != "$2" ]; then exit 1; fi`,
+		'  case "$2" in',
+		`    */dependencies/blocked_by) printf '%s' '${JSON.stringify([edges])}' ;;`,
+		...Object.entries(states).map(
+			([n, state]) =>
+				`    */issues/${n}) printf '%s' '${JSON.stringify([[{ state }]])}' ;;`,
+		),
+		"  esac",
+		"  exit 0",
+		"fi",
 		'if [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
 		'  if printf "%s" "$*" | grep -q -- "--json labels"; then',
 		`    if [ ${labelsExit} -ne 0 ]; then exit ${labelsExit}; fi`,
@@ -180,7 +211,7 @@ describe("parking", () => {
 
 	it("adds waiting:external alongside the existing takes: label, never removing it", () => {
 		claimIssue(9);
-		stubGh({ labels: ["takes:implement"] });
+		stubGh({ labels: ["takes:implement"], edges: [{ state: "open" }] });
 		const r = run(["9", "waiting:external", "blocked on a vendor"]);
 		expect(r.code).toBe(0);
 		const edit = ghCalls().find((c) => c.startsWith("issue edit"));
@@ -270,6 +301,86 @@ describe("parking", () => {
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("could not read #9's labels");
 		expect(ghCalls().some((c) => /^issue (edit|comment)/.test(c))).toBe(false);
+	});
+});
+
+/* #3263: waiting:external gates nothing (mantahostels#243), and no hook sees
+   the comment this script posts, so the gate rule binds here. */
+describe("waiting:external needs a gate", () => {
+	const gateOn =
+		"**Gated on:** the vendor ships v2 — check: npm view vendor version — abandon if: the vendor folds\n**Gate basis:** the vendor names no date";
+
+	it.each([
+		["a Gated on line", { body: gateOn }],
+		["an open native blocker", { edges: [{ state: "open" }] }],
+		[
+			"an open Blocked on issue",
+			{ body: "**Blocked on** #40", states: { 40: "open" } },
+		],
+	])("parks an issue held by %s", (_, opts) => {
+		claimIssue(9);
+		stubGh({ labels: ["takes:implement"], ...opts });
+		const r = run(["9", "waiting:external", "blocked on a vendor"]);
+		expect(r.code).toBe(0);
+		expect(ghCalls().some((c) => c.startsWith("issue edit"))).toBe(true);
+		expect(heldIssue(9)).toBe(false);
+	});
+
+	it.each([
+		["nothing", {}],
+		["a Gated on line with no basis", { body: gateOn.split("\n")[0] }],
+		["a closed native blocker", { edges: [{ state: "closed" }] }],
+		[
+			"a closed Blocked on issue",
+			{ body: "**Blocked on** #40", states: { 40: "closed" } },
+		],
+	])(
+		"refuses an issue held by %s, printing the rule and writing nothing",
+		(_, opts) => {
+			claimIssue(9);
+			stubGh({ labels: ["takes:implement"], ...opts });
+			const r = run(["9", "waiting:external", "blocked on a vendor"]);
+			expect(r.code).toBe(3);
+			expect(r.stderr).toContain(
+				"A ticket you find not ready gets its gate written",
+			);
+			expect(r.stderr).toContain("dependencies/blocked_by -F issue_id=");
+			expect(r.stderr).toContain("issue-body.js append 9");
+			expect(ghCalls().some((c) => /^issue (edit|comment)/.test(c))).toBe(
+				false,
+			);
+			expect(heldIssue(9)).toBe(true);
+		},
+	);
+
+	it("refuses where the blockers cannot be read, writing nothing", () => {
+		claimIssue(9);
+		stubGh({ labels: ["takes:implement"], apiExit: 1 });
+		const r = run(["9", "waiting:external", "why"]);
+		expect(r.code).toBe(3);
+		expect(r.stderr).toContain("blockers are unreadable");
+		expect(r.stderr).toContain("re-run, or read them yourself: gh api");
+		expect(ghCalls().some((c) => /^issue (edit|comment)/.test(c))).toBe(false);
+	});
+
+	it("refuses where a Blocked on issue cannot be read, naming it", () => {
+		claimIssue(9);
+		stubGh({
+			labels: ["takes:implement"],
+			body: "**Blocked on** #40",
+			failPath: "/issues/40",
+		});
+		const r = run(["9", "waiting:external", "why"]);
+		expect(r.code).toBe(3);
+		expect(r.stderr).toContain("**Blocked on** #40 is unreadable");
+		expect(r.stderr).toContain("re-run, or read it yourself: gh issue view 40");
+		expect(ghCalls().some((c) => /^issue (edit|comment)/.test(c))).toBe(false);
+	});
+
+	it("parks takes:wayfinder without reading any blocker", () => {
+		const r = run(["9", "takes:wayfinder", "why"]);
+		expect(r.code).toBe(0);
+		expect(ghCalls().some((c) => c.startsWith("api"))).toBe(false);
 	});
 });
 
