@@ -72,15 +72,20 @@ function readPackage(root) {
 
 /* A command is read through each `npm run`, `pnpm run`, `yarn run` or
  * `bun run` it makes into the script that names, with the runner's flags
- * before the name and, for npm alone, after it up to a `--`: pnpm, yarn and
- * bun hand those on to the script (#3153). Residual: a runner's run-less shorthand (`yarn <script>`), and
- * a script reached through a shell file, are not followed. */
+ * before the name, and the words after it up to a `--`: npm's own flags,
+ * which it keeps, or the words pnpm, yarn and bun hand on to the script, so
+ * the script is walked with those on its end (#3153, #3193). Residual: a runner's run-less shorthand (`yarn <script>`), and
+ * a script reached through a shell file, are not followed, and what follows a
+ * `--`, or a quoted word, is not folded, so it reads as more than one
+ * command. */
 const RUN_SCRIPT =
-	/\b(?:npm|pnpm|yarn|bun)(?:\s+(?!run\b)[^\s;&|]+)*?\s+run(?:-script)?(?:\s+-\S+)*\s+["']?([^\s;&|"']+)(?:(?<=\bnpm\s[^;&|]*)\s+(?!--(?:\s|$))-[^\s;&|]+)*/g;
+	/\b(npm|pnpm|yarn|bun)(?:\s+(?!run\b)[^\s;&|]+)*?\s+run(?:-script)?(?:\s+-\S+)*\s+["']?([^\s;&|"']+)["']?((?:\s+(?!--(?:\s|$))(?:-|(?<!\bnpm\s[^;&|]*))[^\s;&|<>()`"']+)*)/g;
 
 /**
- * @typedef {{name: string|null, text: string}} Hop `text` is the command
- *   itself where `name` is null, else `package.json`'s script `name`.
+ * @typedef {{name: string|null, text: string, handed: string}} Hop `text` is
+ *   the command itself where `name` is null, else `package.json`'s script
+ *   `name`; `handed` is the words the run hands on to that script, each
+ *   after a space, or "".
  */
 
 /**
@@ -103,16 +108,23 @@ function walkRunScripts(scripts, command, visit) {
 		const hit = visit(text, hops);
 		if (hit !== undefined) return hit;
 		for (const m of text.matchAll(RUN_SCRIPT)) {
-			const name = requiredGroup(m, 1, RUN_SCRIPT);
+			const name = requiredGroup(m, 2, RUN_SCRIPT);
 			const script = scripts[name];
 			if (seen.has(name) || typeof script !== "string") continue;
 			seen.add(name);
-			const found = walk([...hops, { name, text: script }], script);
+			const handed =
+				requiredGroup(m, 1, RUN_SCRIPT) === "npm"
+					? ""
+					: requiredGroup(m, 3, RUN_SCRIPT);
+			const found = walk(
+				[...hops, { name, text: script, handed }],
+				`${script}${handed}`,
+			);
 			if (found !== undefined) return found;
 		}
 		return hit;
 	};
-	return walk([{ name: null, text: command }], command);
+	return walk([{ name: null, text: command, handed: "" }], command);
 }
 
 const LINT_STAGED = /(?:^|[\s;&|(/"'])lint-staged(?=$|[\s;&|)@"'])/;
@@ -440,7 +452,10 @@ function classifyCheckStaged(root, command, { inferred }) {
 	if (!hit) return { kind: "none" };
 	const via = hit.hops
 		.slice(1)
-		.map((h) => ` through package.json script "${h.name}" ("${h.text}")`)
+		.map(
+			(h) =>
+				` through package.json script "${h.name}" ("${h.text}")${h.handed ? `, handed${h.handed}` : ""}`,
+		)
 		.join(",");
 	/* Each hop above the Biome command must run that one script and nothing
 	 * else, as must the text holding it. */

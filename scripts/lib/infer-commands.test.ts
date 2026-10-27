@@ -417,16 +417,67 @@ describe("classifyCheckStaged", () => {
 		}
 	});
 
-	it.each(["pnpm", "yarn", "bun"])(
-		"refuses %s run with a flag after the name, which reaches the script (#3153)",
-		(runner) => {
-			const c = classify("biome check --staged", {
-				command: `${runner} run check:staged --write`,
+	it.each(
+		["pnpm", "yarn", "bun"].flatMap((runner) => [
+			[runner, "--write", "would map (auto-fix on commit dropped", ""],
+			[runner, "--verbose", "would map, and", " --verbose"],
+		]),
+	)(
+		"refuses %s run with %s after the name as the script with it on the end (#3153, #3193)",
+		(runner, flag, shape, carried) => {
+			const c = classify("biome check --staged --no-errors-on-unmatched", {
+				command: `${runner} run "check:staged" ${flag}`,
 				inferred: false,
 			});
-			expect(c.kind === "refused" && c.refusal).toContain("holds more than");
+			const refusal = c.kind === "refused" ? c.refusal : "";
+			expect(refusal).toContain(
+				`("biome check --staged --no-errors-on-unmatched"), handed ${flag},`,
+			);
+			expect(refusal).toContain(shape);
+			expect(refusal).toContain(
+				`Declare check_staged instead as '${BIOME_STAGED_COMMAND} --no-errors-on-unmatched${carried}'.`,
+			);
+			expect(refusal).not.toContain("a gate of its own");
 		},
 	);
+
+	it.each([
+		[
+			"a value after a space",
+			"--reporter json",
+			"with the = form, --reporter=json",
+		],
+		["a path", "src", `as '${BIOME_STAGED_COMMAND}', with no path`],
+	])(
+		"refuses a pnpm run handing on %s, judged as the script's own (#3193)",
+		(_, words, wayOut) => {
+			const c = classify("biome check --staged", {
+				command: `pnpm run check:staged ${words}`,
+			});
+			const refusal = c.kind === "refused" ? c.refusal : "";
+			expect(refusal).toContain(`, handed ${words},`);
+			expect(refusal).toContain(wayOut);
+		},
+	);
+
+	it("maps an inferred pnpm run with the flag it hands on (#3193)", () => {
+		expect(
+			classify("biome check --staged", {
+				command: "pnpm run check:staged --verbose",
+			}),
+		).toEqual({
+			kind: "mapped",
+			command: `${BIOME_STAGED_COMMAND} --verbose`,
+		});
+	});
+
+	it("refuses an npm run whose flag a redirect follows with no space (#3193)", () => {
+		const c = classify("biome check --staged", {
+			command: "npm run check:staged --silent>o",
+		});
+		const refusal = c.kind === "refused" ? c.refusal : "";
+		expect(refusal).toContain("holds more than");
+	});
 
 	it("refuses a script reached through a composite command", () => {
 		const c = classify("biome check --staged", {
