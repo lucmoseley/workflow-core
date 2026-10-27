@@ -465,12 +465,9 @@ describe("the CI half of the same gate", () => {
 		"utf8",
 	);
 
-	it("keeps the whole-repo run in the existing Lint and tests job", () => {
+	it("keeps the whole-repo run in the Lint and types job", () => {
 		// The pre-commit gate reads only the paths a commit names, so nothing but
 		// this step ever re-checks a guard whose sourced lib changed under it.
-		// Matched inside the step rather than as `run: npm run check:sh`: since
-		// #124 the step is a block that installs the pinned shellcheck first and
-		// invokes the script under its own PATH.
 		const step = /- name: Shellcheck\n((?:.*\n)*?) {6}- name:/.exec(ci);
 		expect(
 			step,
@@ -492,11 +489,19 @@ describe("the CI half of the same gate", () => {
 		// Vitest's adopter first-commit tests run the real pre-commit shellcheck
 		// gate; left on the image's 0.9.0 they went red on an info finding the
 		// pinned 0.11.0 does not raise (#1295).
-		const step = /- name: Shellcheck\n((?:.*\n)*?) {6}- name:/.exec(ci);
+		const action = fs.readFileSync(
+			path.join(ROOT, ".github", "actions", "shellcheck", "action.yml"),
+			"utf8",
+		);
+		expect(action).toMatch(/>> "\$GITHUB_PATH"/);
+		const install =
+			/- name: Install shellcheck\n.*\n {8}uses: \.\/\.github\/actions\/shellcheck\n/g;
 		expect(
-			step,
-			"the Shellcheck step no longer parses out of ci.yml",
-		).not.toBeNull();
-		expect((step as RegExpExecArray)[1]).toMatch(/>> "\$GITHUB_PATH"/);
+			ci.match(install),
+			"the lint and Vitest jobs each install it",
+		).toHaveLength(2);
+		expect(ci.indexOf("- name: Install shellcheck")).toBeLessThan(
+			ci.indexOf("- name: Shellcheck\n"),
+		);
 	});
 });

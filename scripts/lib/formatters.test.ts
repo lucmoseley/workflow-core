@@ -333,11 +333,11 @@ describe("the install lines a refusal names, and CI's ruff install, at the core'
 		expect(RUFF_INSTALL).toBe(`python3 -m pip install ruff==${pin}`);
 	});
 
-	it("has CI's test job install ruff from requirements-dev.txt's pin, never a version of its own (#1590)", () => {
+	it("has CI's Vitest job install ruff from requirements-dev.txt's pin, never a version of its own (#1590)", () => {
 		const ci = read(".github/workflows/ci.yml");
 		const testJob = ci.slice(
-			ci.indexOf("name: Lint and tests"),
-			ci.indexOf("name: Vitest"),
+			ci.indexOf("name: Vitest ("),
+			ci.indexOf("- name: Vitest\n"),
 		);
 		expect(testJob).toContain(
 			`pipx install "$(grep -E '^ruff==' requirements-dev.txt)"`,

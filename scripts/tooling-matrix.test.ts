@@ -749,7 +749,7 @@ describe("§W — which gate runs it in CI", () => {
 		const ci = read(".github/workflows/ci.yml");
 		const install = ci.indexOf("name: Install gitleaks");
 		expect(install).toBeGreaterThan(-1);
-		expect(install).toBeLessThan(ci.indexOf("name: Vitest"));
+		expect(install).toBeLessThan(ci.indexOf("- name: Vitest\n"));
 		expect(ci.slice(install).split("\n")[1]).toContain("!cancelled()");
 		expect(ci).toMatch(/GITLEAKS_SHA256: [0-9a-f]{64}/);
 	});

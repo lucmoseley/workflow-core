@@ -410,6 +410,9 @@
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-shellcheck-gate.test.ts"
 		],
+		".github/actions/shellcheck/action.yml": [
+			"scripts/precommit-shellcheck-gate.test.ts"
+		],
 		".github/dependabot.yml": [
 			"scripts/precommit-actionlint-gate.test.ts"
 		],
