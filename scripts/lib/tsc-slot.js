@@ -11,11 +11,7 @@
 
 const os = require("node:os");
 const path = require("node:path");
-const {
-	DRAW_MARGIN_MB,
-	EARLYOOM_FLOOR_MB,
-	WRAPPER_ARGV0,
-} = require("./suite-ladder.js");
+const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
 
 /* The peak single `tsc` RSS in `~/memwatch-archive.log`, 23–27 Oct 2026
  * (#3163), off its `^ *PID RSS node .*\/tsc` lines. MOVE IT ONLY WITH A
@@ -38,21 +34,20 @@ function defaultTscQueueDir() {
 }
 
 /*
- * The runner's path, one line per `tsc`: `node …/.bin/tsc`, or
- * `node …/typescript/bin/tsc` where typecheck-mods.js resolves it. npm's
- * `sh -c tsc …` and `npm exec tsc` lines name no such path, or open with a
- * wrapper, so a run counts once.
+ * The runner's line, one per `tsc`: node running `…/.bin/tsc`, or
+ * `…/typescript/bin/tsc` where typecheck-mods.js resolves it. Anchored on
+ * node's script argument, so npm's `sh -c tsc …`, a wrapper's line and a
+ * `queue-run.js --tsc -- …/.bin/tsc` waiter, which name the path further on,
+ * never count: a waiter counted as running holds the slot it waits on (#3276).
  */
-const TSC_RUNNER = /([.]bin|typescript\/bin)\/tsc( |$)/;
+const TSC_RUNNER = /^ *(\S*\/)?node +\S*([.]bin|typescript\/bin)\/tsc( |$)/;
 
 /**
  * @param {import("./suite-ladder.js").PsRow[]} rows
  * @returns {number}
  */
 function runningTsc(rows) {
-	return rows.filter(
-		({ args }) => TSC_RUNNER.test(args) && !WRAPPER_ARGV0.test(args),
-	).length;
+	return rows.filter(({ args }) => TSC_RUNNER.test(args)).length;
 }
 
 /**

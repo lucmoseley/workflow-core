@@ -23,12 +23,13 @@ describe("lib/tsc-slot.js", () => {
 		expect(TSC_RUNG_MB).toBe(2750);
 	});
 
-	it("counts a `tsc` by its runner path, never npm's, a shell's or a wrapper's line", () => {
+	it("counts a `tsc` by its runner path, never npm's, a shell's, a wrapper's or a queued waiter's line", () => {
 		const decoys = rows(
 			"sh -c tsc --noEmit && tsc -p tsconfig.strict.json --noEmit",
 			"npm exec tsc --noEmit",
 			"vim tsconfig.json",
 			"timeout 300 node /r/node_modules/.bin/tsc",
+			"node scripts/queue-run.js --tsc -- node_modules/.bin/tsc -p . --noEmit",
 		);
 		expect(tscDenial(decoys, 9000)).toBeNull();
 		for (const runner of [
