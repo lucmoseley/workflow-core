@@ -30,6 +30,19 @@ const AUTH_DETAIL =
 	/^(Login expired|Could not refresh your login|Invalid API key|Your organization has disabled)/;
 const AUTH_NEEDS = /^(login required|org disabled OAuth)/;
 const AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed"]);
+/* The `needs` a dialog writes to the job record, the one mark a parked row
+ * keeps of it: 2.1.311's `dialog open` table, its managed-settings emit and
+ * its startup-wedge watchdog, read from the binary (#3252). A dialog the
+ * table gives no `needs` never blocks the job, so a parked row never shows
+ * it. Residual: a later CLI's reworded or new `needs` reads QUESTION. */
+const DIALOG_NEEDS = new Set([
+	"acknowledge the classifier billing notice (Enter continues in auto mode)",
+	"choose: run ultraplan in the cloud",
+	"choose: make auto mode the default permission mode",
+	"choose: retry on fallback model or edit prompt",
+	"review: managed settings change",
+	"open this session to continue setup",
+]);
 const API_DETAIL = /^(API Error|Request timed out)/;
 const INVALID_NEEDS = new Set([
 	"request too large — /compact or trim",
@@ -186,7 +199,10 @@ const RULES = [
 					: "transient",
 		}),
 	],
-	[(f) => f.waiting === "dialog open", { cause: "OTHER_DIALOG" }],
+	[
+		(f) => f.waiting === "dialog open" || DIALOG_NEEDS.has(f.needs),
+		{ cause: "OTHER_DIALOG" },
+	],
 	[(f) => f.job.tempo === "blocked", { cause: "QUESTION" }],
 ];
 

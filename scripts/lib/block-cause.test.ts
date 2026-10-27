@@ -3,7 +3,8 @@
  * The block-cause classifier (#2699, rules from #2358 F9), one case per rule.
  * Each fixture is a real record's shape: the permission prompt from #2699's
  * live reading (job bd329336, 2.1.309), the model-text question from its
- * scratch job 926a9e02, and the transcript rows from #2358's census.
+ * scratch job 926a9e02, the transcript rows from #2358's census, and the
+ * dialog park from #3252's probe 85411fa1 and 2.1.311's dialog table.
  *
  * The resumed-idle fixtures are Implement 2636's and Implement 2634's
  * transcript tails (#2659) and a harness API retry's.
@@ -193,6 +194,53 @@ describe("another dialog (rule 8)", () => {
 				row({ status: "waiting", waitingFor: "dialog open" }),
 				job({ tempo: "idle" }),
 			),
+		).toEqual({ cause: "OTHER_DIALOG" });
+	});
+
+	it("reads a parked row off the job record's dialog needs (#3252)", () => {
+		const parked = row({ status: undefined, pid: undefined });
+		for (const needs of [
+			"acknowledge the classifier billing notice (Enter continues in auto mode)",
+			"choose: run ultraplan in the cloud",
+			"choose: make auto mode the default permission mode",
+			"choose: retry on fallback model or edit prompt",
+			"review: managed settings change",
+		])
+			expect(cause(parked, job({ needs, cliVersion: "2.1.311" }))).toEqual({
+				cause: "OTHER_DIALOG",
+			});
+	});
+
+	it("reads a startup-dialog park UNKNOWN before its first turn and OTHER_DIALOG after (#3252)", () => {
+		/* `claude --bg "/config"` on 2.1.311, its process killed while the
+		 * dialog was open: the listing row after, and the job record the
+		 * startup watchdog wrote. No turn ran, so no transcript was written;
+		 * a resumed session's record keeps its cliVersion and has one. */
+		const parked = {
+			id: "85411fa1",
+			cwd: "/home/lucmo/workflow-core",
+			kind: "background",
+			startedAt: 1_793_106_348_817,
+			sessionId: "85411fa1-9e11-49f3-b91d-043f8abf5490",
+			name: "Probe 3252 config dialog",
+			state: "blocked",
+		};
+		const wedged = {
+			state: "working",
+			detail: "stuck on a startup dialog",
+			tempo: "blocked",
+			needs: "open this session to continue setup",
+		};
+		expect(cause(parked, wedged, null)).toEqual({
+			cause: "UNKNOWN",
+			why: "no transcript",
+		});
+		expect(cause(parked, wedged, [])).toEqual({
+			cause: "UNKNOWN",
+			why: "cliVersion undefined is below 2.1.293",
+		});
+		expect(
+			cause(parked, job({ ...wedged, cliVersion: "2.1.311" }), tail),
 		).toEqual({ cause: "OTHER_DIALOG" });
 	});
 });
