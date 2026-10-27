@@ -802,10 +802,21 @@ fi
 # above, tsc cannot be scoped to the commit's own staged paths: it needs a whole
 # program, so it reads the WORKTREE — which in this shared tree holds parallel
 # sessions' half-written files.
+#
+# It never waits for the machine-wide type-check slot (#3278): this commit holds
+# .git/index.lock throughout, so a wait here stops every commit in the tree.
+# WFC_TSC_NO_WAIT has a `queue-run.js --tsc` command try the slot once and exit
+# 75 on a held one (lib/tsc-slot.js); any other command ignores it.
+# Residual: a declared command that exits 75 for a reason of its own is
+# reported as a held slot, its output unshown.
 if armed '\.(ts|tsx|mts)$|^tsconfig\.json$'; then
   if declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/workflow-core-config.js command typecheck; then
     tc_cmd="$declared_command"
-    if ! tsc_out="$(sh -c "$tc_cmd" 2>&1)"; then
+    tc_status=0
+    tsc_out="$(WFC_TSC_NO_WAIT=1 sh -c "$tc_cmd" 2>&1)" || tc_status=$?
+    if [ "$tc_status" -eq 75 ]; then
+      echo "pre-commit: the type-check slot is held — $tc_cmd skipped, not waited for, as this commit holds .git/index.lock (#3278). ci.yml's Typecheck step is the gate." >&2
+    elif [ "$tc_status" -ne 0 ]; then
       echo "pre-commit: $tc_cmd is RED — reporting only, this commit is NOT blocked." >&2
       printf '%s\n' "$tsc_out" >&2
       echo "  In this shared tree the error may be a parallel session's half-written file, not yours (mantahostels#273)." >&2

@@ -32,6 +32,8 @@
  * on its own rung (lib/tsc-slot.js). It waits in a queue directory of its own,
  * never behind a suite, and its gate counts `tsc` off `ps`, so an unwrapped
  * one holds it too. A command the classifier reads as a suite is refused.
+ * Under lib/tsc-slot.js's TSC_NO_WAIT_ENV it tries the slot once and exits
+ * TSC_BUSY_EXIT, running nothing, where it is held (#3278).
  */
 
 const { spawn } = require("node:child_process");
@@ -64,6 +66,8 @@ const {
 } = require("./lib/suite-queue.js");
 const { unwrap } = require("./lib/shell-words.js");
 const {
+	TSC_BUSY_EXIT,
+	TSC_NO_WAIT_ENV,
 	TSC_RUNG_MB,
 	defaultTscQueueDir,
 	tscDenial,
@@ -210,9 +214,55 @@ function exitStatus(code, signal) {
 
 /** @typedef {"seat" | "tsc" | null} Slot */
 
+/** @typedef {ReturnType<typeof queueStamps>} Stamps */
+
+/** @param {object} gate */
+const waitOn = (gate) => (/** @type {Stamps} */ stamps) => ({
+	...gate,
+	...stamps,
+});
+
+const refusedRun = () => 1;
+
+/**
+ * A `--tsc` try's wait under TSC_NO_WAIT_ENV (#3278): the gate's first answer
+ * is final, and a rival admitted on the same poll reads as a held slot, so
+ * the try refuses rather than sleep a poll.
+ *
+ * @param {{ gate: () => import("./lib/suite-queue.js").GateDenial | null }} gate
+ */
+const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
+	let yielded = false;
+	return {
+		...gate,
+		...stamps,
+		timeoutMs: 0,
+		out: { write: () => true },
+		sleepFn: () => Promise.resolve(),
+		admit: () => {
+			const admission = stamps.admit();
+			yielded = admission !== "admitted";
+			return admission;
+		},
+		gate: () => (yielded ? { limb: "count" } : gate.gate()),
+	};
+};
+
+/**
+ * @param {Out} err
+ * @returns {number}
+ */
+function sayTscHeld(err) {
+	err.write(
+		`${LABEL}: the type-check slot is held — not run, as ${TSC_NO_WAIT_ENV} asks (#3278)\n`,
+	);
+	return TSC_BUSY_EXIT;
+}
+
 /**
  * What a slot flag changes about the wait: the queue it joins, the weight it
- * joins with, and the gate options it waits on (#2918, #3163).
+ * joins with, the wait options it builds from its marker's stamps, and the
+ * exit a refusal takes (#2918, #3163, #3278).
  *
  * @param {Slot} slot
  * @param {Options} options
@@ -222,7 +272,8 @@ function slotWait(slot, options) {
 		return {
 			queue: options,
 			join: { ...options, weight: SEAT_WEIGHT },
-			gate: { gateWeight: SEAT_WEIGHT, part: true },
+			wait: waitOn({ gateWeight: SEAT_WEIGHT, part: true }),
+			refused: refusedRun,
 		};
 	if (slot === "tsc") {
 		/* The type-check slot's queue is a directory of its own. */
@@ -230,13 +281,17 @@ function slotWait(slot, options) {
 			...options,
 			queueDir: options.queueDir ?? defaultTscQueueDir(),
 		};
-		return {
-			queue,
-			join: queue,
-			gate: { gate: options.gate ?? tscGate, ...TSC_WAIT },
-		};
+		const gate = { gate: options.gate ?? tscGate, ...TSC_WAIT };
+		if (process.env[TSC_NO_WAIT_ENV] === "1")
+			return { queue, join: queue, wait: tryOn(gate), refused: sayTscHeld };
+		return { queue, join: queue, wait: waitOn(gate), refused: refusedRun };
 	}
-	return { queue: options, join: options, gate: {} };
+	return {
+		queue: options,
+		join: options,
+		wait: waitOn({}),
+		refused: refusedRun,
+	};
 }
 
 /**
@@ -292,7 +347,7 @@ async function main(argv, options = {}) {
 		err,
 	});
 
-	const { queue, join, gate } = slotWait(slot, options);
+	const { queue, join, wait, refused } = slotWait(slot, options);
 	const ticket = queueJoin(join);
 	const started = Date.now();
 	/** @type {import("node:child_process").ChildProcess | null} */
@@ -334,15 +389,14 @@ async function main(argv, options = {}) {
 		turn,
 		label: LABEL,
 		...queue,
-		...gate,
-		...queueStamps(ticket, queue),
+		...wait(queueStamps(ticket, queue)),
 		onExit: (reason, waitMs, heldBy) => {
 			waiting = false;
 			logExit(reason, waitMs, exitFields(reason, heldBy));
 		},
 	});
 	if (outcome === "refused") {
-		finish(1);
+		finish(refused(err));
 		return done;
 	}
 

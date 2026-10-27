@@ -28,6 +28,13 @@ const TSC_RUNG_MB =
  * been measured. */
 const TSC_MAX = 1;
 
+/* Set to `1`, a `--tsc` launch tries the slot once rather than wait for it,
+ * and exits TSC_BUSY_EXIT, running nothing, where it is held (#3278). The
+ * pre-commit hook sets it. 75 is sysexits.h's EX_TEMPFAIL, an exit no `tsc`
+ * gives. */
+const TSC_NO_WAIT_ENV = "WFC_TSC_NO_WAIT";
+const TSC_BUSY_EXIT = 75;
+
 /** @returns {string} */
 function defaultTscQueueDir() {
 	return path.join(os.tmpdir(), "wfc-tsc-queue");
@@ -82,6 +89,8 @@ function isTscLaunch(words) {
 }
 
 module.exports = {
+	TSC_BUSY_EXIT,
+	TSC_NO_WAIT_ENV,
 	TSC_RUNG_MB,
 	defaultTscQueueDir,
 	tscDenial,

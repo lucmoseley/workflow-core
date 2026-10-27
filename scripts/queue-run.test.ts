@@ -347,7 +347,12 @@ describe("queue-run.js", () => {
 	});
 	describe("--tsc, the machine-wide type-check slot (#3163)", () => {
 		const typecheck = ["--tsc", "--", "sh", "-c", "tsc --noEmit"];
-		const envKeys = ["WFC_PS", "WFC_MEMINFO", "TMPDIR"] as const;
+		const envKeys = [
+			"WFC_PS",
+			"WFC_MEMINFO",
+			"TMPDIR",
+			"WFC_TSC_NO_WAIT",
+		] as const;
 		const saved: Partial<Record<(typeof envKeys)[number], string>> = {};
 		beforeEach(() => {
 			for (const k of envKeys) saved[k] = process.env[k];
@@ -420,6 +425,64 @@ describe("queue-run.js", () => {
 					limb: "memory",
 				}),
 			]);
+		});
+
+		describe("under WFC_TSC_NO_WAIT, one try at the slot (#3278)", () => {
+			beforeEach(() => {
+				process.env.WFC_TSC_NO_WAIT = "1";
+			});
+
+			it.each([
+				["a `tsc` running", ["node /r/node_modules/.bin/tsc --noEmit"], 9000],
+				["MemAvailable under its rung", ["bash -l"], 1000],
+			])(
+				"exits 75 at once, running nothing and leaving the queue, with %s",
+				async (_held, lines, mb) => {
+					const f = fixture();
+					machine(f.dir, lines, mb);
+					const out: string[] = [];
+					const code = await main(
+						typecheck,
+						own(f, { out: { write: (s: string) => out.push(s) } }),
+					);
+					expect(code).toBe(75);
+					expect(f.spawned).toEqual([]);
+					expect(f.readMarkers()).toEqual([]);
+					expect(out).toEqual([]);
+					expect(f.err.join("")).toBe(
+						"queue-run.js: the type-check slot is held — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
+					);
+				},
+			);
+
+			it("exits 75 at once, never sleeping a poll, where a rival is admitted on the same poll", async () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				// The rival's admission lands between this waiter's turn and its own.
+				const turn = () => {
+					fs.writeFileSync(
+						path.join(f.dir, "wfc-suite-queue-999999.json"),
+						JSON.stringify({ pid: 999_999, at: 0, admitted: true }),
+					);
+					return true;
+				};
+				const code = await main(typecheck, {
+					...own(f, { alive: () => true }),
+					turn,
+				});
+				expect(code).toBe(75);
+				expect(f.spawned).toEqual([]);
+			});
+
+			it("runs the type-check where the slot is free", async () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				const code = main(typecheck, own(f));
+				await tick();
+				expect(f.spawned).toHaveLength(1);
+				f.spawned[0].child.emit("exit", 0, null);
+				expect(await code).toBe(0);
+			});
 		});
 
 		it("runs two type-checks one after the other", async () => {

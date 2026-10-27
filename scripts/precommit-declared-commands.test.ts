@@ -170,6 +170,19 @@ it("reports a red declared typecheck without blocking the commit", () => {
 	expect(out).toContain("is RED — reporting only");
 });
 
+it("skips the declared typecheck at once, saying so, where its no-wait try finds the type-check slot held (#3278)", () => {
+	const command = '[ "$WFC_TSC_NO_WAIT" = 1 ] && exit 75; touch RAN-typecheck';
+	const { code, out, ran } = run(
+		fixture({ commands: { typecheck: command } }),
+		GATES.typecheck,
+	);
+	expect(code).toBe(0);
+	expect(ran("typecheck")).toBe(false);
+	expect(out).toBe(
+		`pre-commit: the type-check slot is held — ${command} skipped, not waited for, as this commit holds .git/index.lock (#3278). ci.yml's Typecheck step is the gate.\n`,
+	);
+});
+
 it("skips the declared lint gate, saying so, where eslint is not on PATH", () => {
 	const root = fixture({ commands: { lint: declared.lint } });
 	const { code, out, ran } = run(

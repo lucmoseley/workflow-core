@@ -354,6 +354,7 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 const HOOK_NOTICES = [
 	"left as they are, the $dm_noun above reach the scheduled sweeps as DEAD",
 	"is RED — reporting only, this commit is NOT blocked.",
+	"skipped, not waited for, as this commit holds .git/index.lock",
 	"in the lock — no pre-lock green stands it down",
 	"no worktree holds this commit's tree alone",
 ];
