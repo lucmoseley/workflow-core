@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 /*
  * check-suite-margin.js — did the latest green whole vitest suite finish
- * inside the margin it is held to?
+ * under the target it is held to?
  *
  * Usage:
  *   node check-suite-margin.js [--store <pass-marker file>]
  *     [--fail-store <fail-marker file>] [--notify] [--json]
  *
- * A whole suite killed at the ceiling turns the push gate red (#2667), so the
- * margin is watched before the gate goes red (#2729, #2770; shards #3090): where the latest green whole
- * suite took longer than `TARGET_MS` (`scripts/lib/suite-ceiling.js`), this
+ * A lone whole suite is aimed at `TARGET_MS` (`scripts/lib/suite-ceiling.js`);
+ * the ceiling is the backstop that kills a runaway run and turns the push gate
+ * red (#2667). So where the latest green whole suite (#2729, #2770; shards
+ * #3090) took `TARGET_MS` or longer, this
  * names its sha, its duration against the target and the ceiling, the machine
  * reading across the run and its slowest files.
  *
@@ -22,8 +23,8 @@
  *
  * WARN-ONLY, ALWAYS (#1797).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), says when the latest green whole vitest suite, or any of its latest green shards, took longer than the target scripts/lib/suite-ceiling.js sets below the suite ceiling, or was killed at the ceiling since, with its sha, machine reading and slowest files, and names a shard with no run to judge. It refuses nothing.
- * JUSTIFIED: fail-safe — a suite outgrowing its margin is otherwise silent until a push gate is killed at the ceiling.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), says when the latest green whole vitest suite, or any of its latest green shards, took the target scripts/lib/suite-ceiling.js sets or longer, or was killed at the ceiling since, with its sha, machine reading and slowest files, and names a shard with no run to judge. It refuses nothing.
+ * JUSTIFIED: fail-safe — a suite over its target is otherwise silent until a push gate is killed at the ceiling.
  * DEFEAT:    convenience — --store and --fail-store read other marker files on a hand run.
  */
 
@@ -33,11 +34,7 @@ const {
 	isFullRunArgv,
 	stripWrapperFlags,
 } = require("./lib/launch-route.js");
-const {
-	CEILING_MS,
-	TARGET_FRACTION,
-	TARGET_MS,
-} = require("./lib/suite-ceiling.js");
+const { CEILING_MS, TARGET_MS } = require("./lib/suite-ceiling.js");
 const {
 	DEFAULT_SUITE,
 	isFullRun,
@@ -248,7 +245,7 @@ runCheck({
 		const markers = store ? readStoreFile(store) : readMarkers();
 		const failures = failStore ? readStoreFile(failStore) : readFailures();
 		const { runs, unjudged } = latestRuns(markers, failures);
-		const target = `the ${secs(TARGET_MS)} target (${Math.round(TARGET_FRACTION * 100)}% of the ${secs(CEILING_MS)} ceiling)`;
+		const target = `the ${secs(TARGET_MS)} target (the ${secs(CEILING_MS)} ceiling is the backstop)`;
 		if (runs.length === 0)
 			return { okLine: "no green whole vitest suite is recorded." };
 		/* An unjudged shard may be the one over the target, so it never reads
@@ -265,7 +262,7 @@ runCheck({
 				`SUITE-MARGIN-UNJUDGED\t${slot}`,
 			);
 
-		const over = runs.filter((m) => m.ceilingKill || m.durationMs > TARGET_MS);
+		const over = runs.filter((m) => m.ceilingKill || m.durationMs >= TARGET_MS);
 		if (over.length === 0) {
 			const inside = `${runs.map((m) => `${subjectOf(m)}, took ${secs(m.durationMs)}`).join("; ")}: inside ${target}.`;
 			if (unjudged.length === 0) return { okLine: inside };

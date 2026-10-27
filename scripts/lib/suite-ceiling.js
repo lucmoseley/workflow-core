@@ -23,12 +23,13 @@ const { caught } = require("./caught.js");
 /* 14 minutes, so bg-run's backstop at the deadline plus 60 s still lands
  * inside #2667's 15. */
 const CEILING_MS = 840_000;
-/* The margin a green whole suite is held to (#2729): 80% of the
- * ceiling, UNTRACED (#2729 §Values). It buys warning, not safety: the suite
- * grew 23% in the week #2729 measured, more than this margin.
- * `check-suite-margin.js` reports a run over it and refuses nothing. */
-const TARGET_FRACTION = 0.8;
-const TARGET_MS = CEILING_MS * TARGET_FRACTION;
+/* The target a green lone whole suite is held to (#2729): under 180 s, the
+ * founder's ruling of 24 and 27 Oct 2026. The ceiling is the backstop, this is
+ * the aim. `check-suite-margin.js` reports a run at or over it and refuses
+ * nothing. RESIDUAL: a sharded whole suite (`fullTestShards`) is judged shard
+ * by shard against this same figure, so shards each under it do not show the
+ * lone whole suite is. */
+const TARGET_MS = 180_000;
 const CEILING_ENV = "WFC_SUITE_CEILING_MS";
 /* Where a run writes `<deadline s> <pgid>`, one line, for bg-run's
  * `read -r` to take. The deadline is on CLOCK_MONOTONIC, the clock this
@@ -179,7 +180,6 @@ module.exports = {
 	CEILING_MS,
 	DEADLINE_ENV,
 	SETTLE_MS,
-	TARGET_FRACTION,
 	TARGET_MS,
 	armCeiling,
 	ceilingHeadline,

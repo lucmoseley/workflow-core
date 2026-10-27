@@ -5,7 +5,7 @@
  * sha, duration, target, ceiling, machine reading and slowest files — stays
  * silent on one under it, on a part-suite and on a red run, and exits 0 on a breach (#1797, the report-only ruling).
  *
- * Loosen a case and the suite outgrows its margin unreported until a push
+ * Loosen a case and a suite over its target goes unreported until a push
  * gate is killed at the ceiling, or a slow run starts refusing.
  */
 
@@ -15,11 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
-const {
-	CEILING_MS,
-	TARGET_FRACTION,
-	TARGET_MS,
-} = require("./lib/suite-ceiling.js");
+const { CEILING_MS, TARGET_MS } = require("./lib/suite-ceiling.js");
 
 const SCRIPT = path.resolve(__dirname, "check-suite-margin.js");
 const SHA = "a".repeat(40);
@@ -105,6 +101,11 @@ describe("a green whole suite over the target", () => {
 		expect(r.out).toContain("200.4 s  scripts/dispatch-sessions.test.ts");
 		expect(r.out).toContain("scripts/new-repo.test.ts");
 		expect(r.out).toContain("Cut its heavy tail by measured cost");
+	});
+
+	it("is named at exactly the target, which is not under it", () => {
+		write(marker({ durationMs: TARGET_MS }));
+		expect(run().out).toContain("SUITE-MARGIN");
 	});
 
 	it("is judged on the latest run alone", () => {
@@ -370,12 +371,16 @@ describe("silence", () => {
 	});
 });
 
+it("the target sits below the ceiling", () => {
+	expect(TARGET_MS).toBeLessThan(CEILING_MS);
+});
+
 it("docs/environment.md states the module's target", () => {
 	const doc = fs.readFileSync(
 		path.resolve(__dirname, "..", "docs/environment.md"),
 		"utf8",
 	);
 	expect(doc).toContain(
-		`${Math.round(TARGET_FRACTION * 100)}% of that ceiling (${TARGET_MS / 1000} s)`,
+		`held to a target of ${TARGET_MS / 1000} s, \`TARGET_MS\` in`,
 	);
 });
