@@ -66,11 +66,11 @@ const RANGE_RE =
  * session id's first group is not one either; from git's default 7-character
  * abbreviation to a full SHA-1's 40, a SHA-256 repo's 64 unread.
  * resolve-ticket.js reads the same test, through hasSha, to decide whether a
- * Door line is owed (#1247). HEX_WORD is it without the digit-and-letter
+ * Door line is owed (#1247). HEX_WORD_RE is it without the digit-and-letter
  * rule, which lib/unlanded-commits.js reads (#3230). */
-const HEX_WORD = /(?<![\w-])[0-9a-f]{7,40}(?![\w-])/;
+const HEX_WORD_RE = /(?<![\w-])[0-9a-f]{7,40}(?![\w-])/;
 const SHA_RE = new RegExp(
-	`(?=[0-9a-f]*\\d)(?=[0-9a-f]*[a-f])${HEX_WORD.source}`,
+	`(?=[0-9a-f]*\\d)(?=[0-9a-f]*[a-f])${HEX_WORD_RE.source}`,
 );
 const MARKER_RE = /^[ \t]*\*\*Outstanding:\*\*(.*)$/;
 const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
@@ -717,7 +717,7 @@ function buildRefusalText(verdict) {
 }
 
 module.exports = {
-	HEX_WORD,
+	HEX_WORD_RE,
 	hasOutstandingLine,
 	readCanonicalRef,
 	hasSha,

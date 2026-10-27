@@ -10,8 +10,13 @@
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
 
+/* git's shortest abbreviation, which core.abbrev=auto gives a small repo;
+ * each shape spans it, and the odds below are worked for it. */
 const SHORT = 7;
-const SHAPES = { digits: /^\d{7}/, letters: /^[a-f]{7}/ };
+const SHAPES = {
+	digits: new RegExp(`^\\d{${SHORT}}`),
+	letters: new RegExp(`^[a-f]{${SHORT}}`),
+};
 /* At 1 in 900 a try, 100,000 all miss about 1 time in e^111. */
 const TRIES = 100_000;
 /* Any fixed date works: the tree and parent already vary per repo. */
@@ -25,17 +30,19 @@ const buildCommitBody = (
 ) =>
 	`tree ${tree}\nparent ${parent}\nauthor t <t@t> ${at} +0000\ncommitter t <t@t> ${at} +0000\n\n${subject}\n`;
 
-const headOf = (cwd: string) => {
-	const git = (args: string[], input?: string) =>
-		execFileSync("git", args, { cwd, encoding: "utf8", input }).trim();
+const gitIn = (cwd: string) => (args: string[], input?: string) =>
+	execFileSync("git", args, { cwd, encoding: "utf8", input }).trim();
+
+const readHead = (cwd: string) => {
+	const git = gitIn(cwd);
 	return {
-		git,
 		tree: git(["rev-parse", "HEAD^{tree}"]),
 		parent: git(["rev-parse", "HEAD"]),
-		writeCommit: (body: string) =>
-			git(["hash-object", "-t", "commit", "-w", "--stdin"], body),
 	};
 };
+
+const commitWriter = (cwd: string) => (body: string) =>
+	gitIn(cwd)(["hash-object", "-t", "commit", "-w", "--stdin"], body);
 
 const shaOf = (body: string) =>
 	crypto
@@ -52,13 +59,14 @@ export function hexShaCommit(
 	subject: string,
 	shape: keyof typeof SHAPES,
 ): { sha: string; short: string } {
-	const { git, tree, parent, writeCommit } = headOf(cwd);
+	const { tree, parent } = readHead(cwd);
+	const writeCommit = commitWriter(cwd);
 	for (let at = FIRST_DATE; at < FIRST_DATE + TRIES; at++) {
 		const body = buildCommitBody(tree, parent, at, subject);
 		const sha = shaOf(body);
 		if (!SHAPES[shape].test(sha)) continue;
 		writeCommit(body);
-		git(["update-ref", "HEAD", sha]);
+		gitIn(cwd)(["update-ref", "HEAD", sha]);
 		return { sha, short: sha.slice(0, SHORT) };
 	}
 	throw new Error(`no all-${shape} short sha in ${TRIES} dates`);
@@ -76,7 +84,8 @@ export function sharedShortShaCommits(
 	cwd: string,
 	subjects: [string, string],
 ): { shas: [string, string]; short: string } {
-	const { tree, parent, writeCommit } = headOf(cwd);
+	const { tree, parent } = readHead(cwd);
+	const writeCommit = commitWriter(cwd);
 	const seen: [Map<string, string>, Map<string, string>] = [
 		new Map(),
 		new Map(),

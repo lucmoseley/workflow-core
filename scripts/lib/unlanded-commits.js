@@ -21,7 +21,7 @@ const { NO_CEILING, CeilingPassed } = require("./git-ceiling.js");
 const { FULL_SHA } = require("./commit-sha.js");
 const { REMOTE, pushedRef } = require("./landing-refs.js");
 const { hasLine } = require("./marker-line.js");
-const { HEX_WORD } = require("./outstanding-line.js");
+const { HEX_WORD_RE } = require("./outstanding-line.js");
 const { bareCitationGrep } = require("./qualify-citations.js");
 const { caught } = require("./caught.js");
 
@@ -33,7 +33,7 @@ const { caught } = require("./caught.js");
 
 /* Unlike SHA_RE, an all-digit or all-letter short sha too (#3230): each is
  * kept only where rev-parse finds a commit by it. */
-const HEX_WORDS = new RegExp(HEX_WORD.source, "g");
+const HEX_WORDS_RE = new RegExp(HEX_WORD_RE.source, "g");
 
 /**
  * An `**Unlanded:**` line with something after it: why the close stands
@@ -95,7 +95,7 @@ function readUnlandedCommits(root, n, comment, { ceiling = NO_CEILING } = {}) {
 	if (!commitOrThrow(read, pushed))
 		throw new Error(`no ${pushed} to compare against`);
 	const format = "--format=%h%x00%at%x00%s";
-	const named = [...new Set(comment.match(HEX_WORDS) ?? [])]
+	const named = [...new Set(comment.match(HEX_WORDS_RE) ?? [])]
 		.flatMap((w) => {
 			const sha = commitOrThrow(read, w);
 			if (sha) return [sha];
