@@ -149,6 +149,53 @@
 			"if": ["Bash(git *)", "Bash(*commit-paths.js*)"]
 		},
 		{
+			"name": "guard-registry-atomicity",
+			"core": "registry-atomicity.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "registry-atomicity-host.js",
+			"if": ["Bash(git *)", "Bash(*commit-paths.js*)"]
+		},
+		{
+			"name": "guard-pull-form",
+			"core": "pull-form.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "pull-form-host.js",
+			"if": ["Bash(git *)"]
+		},
+		{
+			"name": "guard-push-rules",
+			"core": "push-rules.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "push-rules-host.js",
+			"if": ["Bash(git *)"]
+		},
+		{
+			"name": "guard-node-heap",
+			"core": "node-heap.js",
+			"tools": "Bash",
+			"failure": "open",
+			"if": ["Bash(*max-old-space-size*)", "Bash(*max_old_space_size*)"]
+		},
+		{
+			"name": "guard-rm-unchecked",
+			"core": "unchecked-rm.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "unchecked-rm-host.js",
+			"if": ["Bash(*rm *)"]
+		},
+		{
+			"name": "guard-npm-install",
+			"core": "npm-install.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "npm-install-host.js",
+			"if": ["Bash(*npm *)", "Bash(*npx *)"]
+		},
+		{
 			"name": "guard-anthropic-report",
 			"core": "anthropic-report.js",
 			"tools": "Bash",

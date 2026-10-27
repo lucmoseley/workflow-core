@@ -312,7 +312,7 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 		expect(why).toContain(readRuleText("main-rewind"));
 	});
 
-	/* #1759: guard-pull-form.js prints the same fragment, so its needle must
+	/* #1759: the guard-pull-form core prints the same fragment, so its needle must
 	 * not credit itself with this refusal too. */
 	it.each([
 		["git push --force", "main-force-push"],

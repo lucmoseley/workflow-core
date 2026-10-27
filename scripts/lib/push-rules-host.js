@@ -1,6 +1,6 @@
 /*
- * push-rules-host.js — the production ports guard-push-rules.js wires into
- * its core, lib/push-rules.js (#2785).
+ * push-rules-host.js — the production ports the dispatcher wires into the
+ * guard-push-rules core, lib/push-rules.js (#2785, #3226).
  */
 
 const crypto = require("node:crypto");
@@ -12,16 +12,14 @@ const { pushGateState } = require("./test-gate.js");
 const { readConfig } = require("./workflow-core-config.js");
 
 /**
- * @param {import("./kit-context.js").PortEnv} env
+ * @param {string} root
+ * @param {(what: string, detail?: string) => void} log
  * @returns {import("./push-rules.js").PushPorts}
  */
-function buildHostPorts({ root, payload, log }) {
-	const sessionId =
-		typeof payload.session_id === "string" ? payload.session_id : "";
+function buildHostPorts(root, log) {
 	return {
-		sessionId,
-		reviewOwed: (tree) => reviewOwed({ sessionId, tree, log }),
-		markerSum: () => {
+		reviewOwed: (tree, sessionId) => reviewOwed({ sessionId, tree, log }),
+		markerSum: (sessionId) => {
 			if (!sessionId) return "";
 			try {
 				const marker = fs.readFileSync(
