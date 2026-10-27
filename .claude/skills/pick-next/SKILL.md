@@ -182,7 +182,7 @@ user does, which is rare — bar §6's `Not launched:` and `Memory:` blocks:
   issue here out through the blocked-by chain, at any depth, and that nothing
   open holds themselves (#2427). Each shows the issues here it holds and its
   reach over them; `HELD OUTSIDE THE LOOP` means no checkout here tracks its
-  repo or that checkout sets `refillLoop: false`. Report them; a session here
+  repo. Report them; a session here
   cannot launch them from this repo, the refill loop launches them from their
   own checkout. `--json` carries `pulledIn` and `pulledInUnread`.
 - **GATED — a condition gate is yours to judge** (#2279). For each

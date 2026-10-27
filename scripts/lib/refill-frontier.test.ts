@@ -3,10 +3,10 @@
  * Pins how the refill loop's frontier takes in issues from repos it does not
  * serve (#2427): a foreign blocker pulled in by a served shortlist is read
  * from its own checkout's shortlist and launched, ranked on the served
- * issues it holds out; one with no checkout or `refillLoop: false` is held.
+ * issues it holds out; one with no checkout is held.
  * Driven through a fake shortlist, so no pick-next runs. Loosen a case and
- * the loop launches another repo's whole frontier, launches into a repo
- * that opted out, or leaves a served ticket held by a blocker nobody works.
+ * the loop launches another repo's whole frontier, launches where no
+ * checkout is, or leaves a served ticket held by a blocker nobody works.
  */
 
 import fs from "node:fs";
@@ -232,7 +232,6 @@ describe("a pulled-in issue held outside the loop", () => {
 				rows: [],
 				retroBundles: [],
 				pulledIn: [
-					pulled(20, { held: "refillLoop: false" }),
 					pulled(30, {
 						repo: "o/far",
 						root: null,
@@ -245,7 +244,6 @@ describe("a pulled-in issue held outside the loop", () => {
 		expect(s.asked).toEqual([served]);
 		expect(m.frontier).toEqual([]);
 		expect(m.held).toEqual([
-			{ ref: "o/other#20", why: "refillLoop: false", holds: ["o/served#1"] },
 			{
 				ref: "o/far#30",
 				why: "no checkout under /home tracks o/far",

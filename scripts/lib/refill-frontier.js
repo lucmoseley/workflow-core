@@ -17,9 +17,9 @@
  * one already ranks the row, and gains the reach. Either way a row's reach
  * counts the served issues it holds out, never its own repo's. It inherits
  * the `bug`, `urgent` and goal tiers of what it holds there, and the longest
- * chain depth (#3222). A pulled-in
- * issue whose repo has no checkout here, or sets `refillLoop: false`, is
- * returned under `held`, never launched.
+ * chain depth (#3222). A pulled-in issue whose repo has no checkout here is
+ * returned under `held`, never launched; one whose checkout sets
+ * `refillLoop: false` launches like any other (#3281).
  *
  * Caller: scripts/refill-loop.js's tick.
  */

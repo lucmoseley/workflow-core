@@ -936,7 +936,7 @@ describe("readiness", () => {
 		]);
 	});
 
-	it("offers a pulled-in blocker from its checkout, or holds it on refillLoop: false (#2427)", async () => {
+	it("offers a pulled-in blocker from its checkout, refillLoop: false or not (#2427, #3281)", async () => {
 		const home = path.join(dir, "adopters");
 		const z = path.join(home, "z");
 		writeAdopterCheckout(z, "o/z");
@@ -950,10 +950,8 @@ describe("readiness", () => {
 			path.join(z, ".claude", "workflow-core.json"),
 			JSON.stringify({ tracker: "o/z", refillLoop: false }),
 		);
-		const text = await run(fx, [], { env: { HOME: home } });
-		expect(text.out).toMatch(
-			/PULLED IN FROM OTHER REPOS[\s\S]*o\/z#20\s+depth 1\s+reach 1\s+holds o\/r#1\s+HELD OUTSIDE THE LOOP: refillLoop: false/,
-		);
+		const off = await run(fx, ["--json"], { env: { HOME: home } });
+		expect(off.json().pulledIn[0]).toMatchObject({ root: z, held: null });
 	});
 
 	it("never calls the /dependencies/blocking endpoint", async () => {

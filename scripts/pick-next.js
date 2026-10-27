@@ -122,7 +122,6 @@ const {
 	edgeOf,
 } = require("./lib/blocked-by-batch");
 const {
-	exclusionOf: refillExclusionOf,
 	homeDir,
 	readCheckoutTracking,
 	readHostTracker,
@@ -3137,8 +3136,9 @@ function proseBlockedOf(graph, i) {
 /**
  * lib/blocker-graph.js's launch candidates in other repos, each with the
  * checkout it launches from, `root`, and `held`: why it is held outside the
- * loop, no checkout tracking its repo or that checkout setting
- * `refillLoop: false` (#2003), else null. Each carries the tiers and depth it
+ * loop, no checkout tracking its repo, else null. A checkout setting
+ * `refillLoop: false` is only left unserved, its blockers still launched
+ * (#3281). Each carries the tiers and depth it
  * inherits from what it holds here, for the refill merge to rank it by (#3222).
  * @param {import("./lib/blocker-graph").Graph} graph
  * @param {ReturnType<typeof inheritanceOf>} inherit
@@ -3153,9 +3153,7 @@ function pulledInRows(graph, inherit) {
 				...r,
 				...tiersOf({ bug: false, urgent: false, goal: false }, inherit(r)),
 				root,
-				held: root
-					? refillExclusionOf(root)
-					: /** @type {{why: string}} */ (checkout).why,
+				held: root ? null : /** @type {{why: string}} */ (checkout).why,
 			};
 		}),
 		unread,
