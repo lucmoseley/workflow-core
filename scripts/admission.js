@@ -53,7 +53,7 @@
  * Mutated at mantahostels#2598: dropping `hungJobs` from the `--json` payload, caught by
  * admission.test.ts's "includes hungJobs in --json even when empty" case.
  * Separately, dropping the TEXT-mode section `buildHungJobsText` renders is caught
- * by dispatch-sessions.test.ts's "names a HUNG-JOB inline" case, which reads
+ * by dispatch-sessions-reread.test.ts's "names a HUNG-JOB inline" case, which reads
  * dispatch-sessions.sh's own relay of it rather than this file's `--json`.
  */
 

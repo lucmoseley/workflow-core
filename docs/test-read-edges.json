@@ -2677,7 +2677,6 @@
 		"scripts/admission.js": [
 			"scripts/admission.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/dispatch-sessions.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -2827,6 +2826,11 @@
 		"scripts/bench_suite_concurrency.py": [
 			"scripts/check-suite-size-drift.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/bg-run-watcher.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -3356,7 +3360,6 @@
 		"scripts/check-ghost-jobs.js": [
 			"scripts/check-ghost-jobs.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/dispatch-sessions.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -4400,7 +4403,7 @@
 		],
 		"scripts/claude-interop-guard.sh": [
 			"scripts/checker-registrations.test.ts",
-			"scripts/dispatch-sessions.test.ts",
+			"scripts/dispatch-sessions-bridge.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -4581,6 +4584,11 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/dispatch-sessions-bridge.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/dispatch-sessions-overflow.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -4591,12 +4599,19 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/dispatch-sessions-reread.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/dispatch-sessions.sh": [
 			"scripts/admission.test.ts",
 			"scripts/allowance.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/dispatch-sessions-bridge.test.ts",
 			"scripts/dispatch-sessions-overflow.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/dispatch-sessions-reread.test.ts",
 			"scripts/dispatch-sessions.test.ts",
 			"scripts/launch.test.ts",
 			"scripts/lib/git.test.ts",
@@ -6979,6 +6994,19 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/bg-run-testkit.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-hook-escape.test.ts",
+			"scripts/guard-pull-form.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -17885,6 +17913,35 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/shard-plan.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-hook-escape.test.ts",
+			"scripts/guard-pull-form.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/shard-plan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/shard-plan.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-hook-escape.test.ts",
+			"scripts/guard-pull-form.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/shared-tree-skip.sh": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -18493,7 +18550,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/suite-ceiling.js": [
-			"scripts/bg-run.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-suite-margin.test.ts",
@@ -18712,7 +18768,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/suite-queue.js": [
-			"scripts/bg-run.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -18893,6 +18948,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/test-ceiling.js": [
+			"scripts/bg-run-watcher.test.ts",
 			"scripts/bg-run.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -22741,6 +22797,12 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/vitest-pass-reporter.test.ts"
+		],
+		"scripts/vitest-shard-sequencer.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/vitest-tree-watch.test.ts": [
 			"scripts/lib/helper-surface.test.ts",

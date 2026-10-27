@@ -15,6 +15,7 @@
  * the gate cases pin nothing.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -107,6 +108,50 @@ export interface DispatchFixture {
 	/** A WFC_SCHED_CLOCK directory whose run-queue clocks move `ratio` of the
 	 * 2 CPU-s the machine was busy: 0 reads frozen, 1 running. */
 	schedClock: (ratio: number) => string;
+	run: (
+		args: string[],
+		extraEnv?: Record<string, string>,
+	) => { stdout: string; stderr: string; code: number };
+	/**
+	 * A `sleep` on PATH that records its argument and returns at once (#146).
+	 * `sleepArgs()` reads the log back, so a stagger case asserts the exact
+	 * seconds the script asked for instead of an elapsed-time ceiling neighbour
+	 * load can breach. Returns the env overlay that puts it in front of the real
+	 * `sleep`.
+	 *
+	 * PATH rather than a `WFC_*` injection point like the other stubs: #146
+	 * forbids adding a seam to the dispatcher for a test's benefit, and the
+	 * shell's own command resolution is a seam already there. Residual —
+	 * every `sleep` in the process tree lands in one log with no caller recorded,
+	 * so a second one anywhere would break `toEqual(["2"])` naming nothing. The
+	 * script has exactly one.
+	 */
+	stubSleep: () => Record<string, string>;
+	/** Every argument the stubbed `sleep` was called with, in order. */
+	sleepArgs: () => string[];
+}
+
+/** A `$CLAUDE_CONFIG_DIR/.claude.json` usage cache (#280, #294) — the allowance
+ * gate's primary source, and admission.js's per-spawn re-read's only one. */
+export function writeCache(
+	configDir: string,
+	bars: { session?: number; weeklyAll?: number },
+	fetchedAtMs = Date.now(),
+): void {
+	fs.mkdirSync(configDir, { recursive: true });
+	const limits = [];
+	if (bars.session !== undefined) {
+		limits.push({ kind: "session", percent: bars.session });
+	}
+	if (bars.weeklyAll !== undefined) {
+		limits.push({ kind: "weekly_all", percent: bars.weeklyAll });
+	}
+	fs.writeFileSync(
+		path.join(configDir, ".claude.json"),
+		JSON.stringify({
+			cachedUsageUtilization: { fetchedAtMs, utilization: { limits } },
+		}),
+	);
 }
 
 /** Register the beforeEach/afterEach that build and remove a fresh root. */
@@ -122,6 +167,9 @@ export function dispatchFixture(): DispatchFixture {
 		readArgvLines,
 		regWedged,
 		schedClock,
+		run,
+		stubSleep,
+		sleepArgs,
 	};
 	let psEmpty = "";
 	let reapEmpty = "";
@@ -279,7 +327,7 @@ export function dispatchFixture(): DispatchFixture {
 			// configuration this machine's real file must not reach.
 			HOME: fx.dir,
 			// Deterministic tests never wait on the real stagger;
-			// dispatch-sessions.test.ts's stagger cases override it.
+			// dispatch-sessions-reread.test.ts's stagger cases override it.
 			WFC_DISPATCH_STAGGER_SECONDS: "0",
 			// Never the machine's real switch: with burn mode on, every `--model
 			// sonnet` assertion would read `opus[1m]` instead.
@@ -312,6 +360,38 @@ export function dispatchFixture(): DispatchFixture {
 			rq: 2 * ratio,
 			busy: 2,
 		});
+	}
+
+	function run(
+		args: string[],
+		extraEnv: Record<string, string> = {},
+	): { stdout: string; stderr: string; code: number } {
+		const r = spawnSync("bash", [SCRIPT, ...args], {
+			encoding: "utf8",
+			env: baseEnv(extraEnv),
+		});
+		return {
+			stdout: r.stdout ?? "",
+			stderr: r.stderr ?? "",
+			code: r.status ?? -1,
+		};
+	}
+
+	function stubSleep(): Record<string, string> {
+		const binDir = path.join(fx.dir, "stub-bin");
+		fs.mkdirSync(binDir, { recursive: true });
+		fs.writeFileSync(
+			path.join(binDir, "sleep"),
+			`#!/bin/bash\nprintf '%s\\n' "$*" >> "${path.join(fx.dir, "sleeps")}"\n`,
+			{ mode: 0o755 },
+		);
+		return { PATH: `${binDir}:${process.env.PATH ?? ""}` };
+	}
+
+	function sleepArgs(): string[] {
+		const log = path.join(fx.dir, "sleeps");
+		if (!fs.existsSync(log)) return [];
+		return fs.readFileSync(log, "utf8").split("\n").filter(Boolean);
 	}
 
 	return fx;

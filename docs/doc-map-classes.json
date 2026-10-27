@@ -1570,6 +1570,14 @@
 			}
 		]
 	},
+	"docs/data/ci-shard-timings.csv": {
+		"section": "Evidence & data",
+		"class": "derived",
+		"classQualifier": null,
+		"role": "The per-file seconds `scripts/vitest-shard-sequencer.ts` packs a `--shard` run by (#2413).",
+		"route": "Regenerated whole from one Actions run's shard reports: `gh run download <run-id> -R lucmoseley/workflow-core -p 'vitest-report-*' -D <dir>`, then `node scripts/suite-timings.js extract <dir> docs/data/ci-shard-timings.csv run=<run-id> sha=<sha>`",
+		"consumes": null
+	},
 	"docs/data/close-rounds-2026-10-09/answered-close-rounds.json": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",

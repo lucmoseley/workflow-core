@@ -2,7 +2,7 @@
 /*
  * The probe library's budget reset, read off what it exports after sourcing.
  * The end-to-end limb — a wedged bridge refused inside 45s at the default —
- * is dispatch-sessions.test.ts's (mantahostels#3535). It sources the real
+ * is dispatch-sessions-bridge.test.ts's (mantahostels#3535). It sources the real
  * library in bash, since the reset is shell arithmetic no in-process call runs.
  *
  * dispatch-sessions.sh and the interactive `claude` guard both source this

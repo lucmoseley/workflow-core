@@ -217,7 +217,8 @@ jobs:
 
   # One job per shard; the matrix's length is the shard count, read back
   # through `strategy`. Sized on the unsharded step's 449 s (#2413) so each
-  # shard's job, setup included, stays under 180 s.
+  # shard's job, setup included, stays under 180 s. Shards are packed by
+  # recorded file times, not file count (scripts/vitest-shard-sequencer.ts).
   # A batch is green only where every shard is.
   vitest:
     name: Vitest (${{ matrix.shard }}/${{ strategy.job-total }})
@@ -305,9 +306,24 @@ jobs:
       # Worse than empty, it is UNSTABLE: the narrowed default escalates to the
       # whole suite by itself on a stale read-graph manifest, so without the
       # flag this step tests everything or nothing depending on that file.
+      #
+      # WFC_VITEST_JSON adds vitest's JSON report, uploaded below: the per-file
+      # times docs/data/ci-shard-timings.csv is refreshed from, which
+      # vitest-shard-sequencer.ts packs the shards by (#2413).
       - name: Vitest
         if: ${{ !cancelled() }}
+        env:
+          WFC_VITEST_JSON: ${{ runner.temp }}/vitest-${{ matrix.shard }}.json
         run: npm run test -- --full=coverage --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+      - name: Upload Vitest report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-report-${{ matrix.shard }}
+          path: ${{ runner.temp }}/vitest-${{ matrix.shard }}.json
+          if-no-files-found: warn
+          retention-days: 14
 
 
   # A separate job, unlike Biome above: Python needs its own interpreter and pip

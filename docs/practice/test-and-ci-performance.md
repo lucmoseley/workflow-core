@@ -134,6 +134,14 @@ Tier tags: [standard or field body], [named expert], [survey or curated list], [
 - Google SRE: "many systems degrade in performance before they achieve 100% utilization, so having a utilization target is essential." https://sre.google/sre-book/monitoring-distributed-systems/ (saturation). [named expert]
 - Agreement (Silva et al., Google SWE book, Google SRE): oversubscribed CPU increases wall time and causes timeout-based and latency-based flaky failures. Keep the utilisation target below 100% of cores. Per-test timeouts must allow for the contention that the shared pool permits.
 
+## Splitting a suite across parallel jobs
+
+- CircleCI: "timing data from the previous test run is used to split a test suite as evenly as possible over a specified number of test environments", and "Timings-based test splitting gives the most accurate split". https://circleci.com/docs/guides/optimize/parallelism-faster-jobs/. [named expert]
+- Depot: "a shard with disproportionately slow tests becomes the bottleneck that determines when the suite finishes"; it uses "the time each candidate took in past runs to balance how long the shards take to run", and with no past results "filename candidates fall back to file-size splitting". https://depot.dev/docs/ci/how-to-guides/split-tests. [named expert]
+- Buildkite Test Engine feeds historic timings to "a bin packing algorithm" across the parallel jobs, with per-test timings summed per file. https://buildkite.com/docs/test-engine/test-splitting. [named expert]
+- Vitest's `sequence.sequencer` is "A custom class that defines methods for sharding and sorting", and "Sharding is happening before sorting, and only if `--shard` option is provided". Its default `BaseSequencer.shard` sorts files by a hash of their path and cuts equal counts (vitest 4.1.11 source). https://vitest.dev/config/sequence. [standard or field body]
+- Agreement (CircleCI, Depot, Buildkite): split by each file's recorded time, packed so the jobs finish together, not by file count. One file longer than a job's budget caps that job whatever the packing, so it must be split or made faster. For a file with no timing Depot falls back to file size; this repo charges the dataset's median instead, since a file's size here says little about its spawns.
+
 ## Memory reservation for a test run
 
 ### Size the charge from the run's own peak

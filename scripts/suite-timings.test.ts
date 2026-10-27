@@ -18,7 +18,13 @@
  * wrongly is superseded only by another full suite run.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -77,6 +83,43 @@ describe("extract", () => {
 		expect(`${r.stdout}${r.stderr}`).toContain("file-seconds: 4");
 		expect(readFileSync(target, "utf8")).toBe(
 			"# sha: abc\nfile,seconds,tests,status\na.test.ts,3.00,1,passed\nb.test.ts,1.00,1,passed\n",
+		);
+	});
+
+	it("merges every report under a directory, as one sharded run's (#2413)", () => {
+		const reports = join(dir, "reports");
+		mkdirSync(join(reports, "vitest-report-1"), { recursive: true });
+		mkdirSync(join(reports, "vitest-report-2"), { recursive: true });
+		writeFileSync(
+			join(reports, "vitest-report-1", "vitest-1.json"),
+			report([["a.test.ts", 3000]]),
+		);
+		writeFileSync(
+			join(reports, "vitest-report-2", "vitest-2.json"),
+			report([["b.test.ts", 1000]]),
+		);
+		const target = join(dir, "out.csv");
+		const r = run("extract", reports, target);
+		expect(r.status).toBe(0);
+		expect(readFileSync(target, "utf8")).toBe(
+			"file,seconds,tests,status\na.test.ts,3.00,1,passed\nb.test.ts,1.00,1,passed\n",
+		);
+	});
+
+	it("names files relative to the checkout the run used, not this one (#2413)", () => {
+		const runner = "/home/runner/work/wc/wc";
+		const source = join(dir, "runner.json");
+		writeFileSync(
+			source,
+			report([
+				["a.test.ts", 3000],
+				["scripts/b.test.ts", 1000],
+			]).replaceAll(REPO, runner),
+		);
+		const target = join(dir, "out.csv");
+		expect(run("extract", source, target).status).toBe(0);
+		expect(readFileSync(target, "utf8")).toBe(
+			"file,seconds,tests,status\na.test.ts,3.00,1,passed\nscripts/b.test.ts,1.00,1,passed\n",
 		);
 	});
 

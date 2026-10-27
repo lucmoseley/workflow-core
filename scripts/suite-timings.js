@@ -12,9 +12,11 @@
  */
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");
 const {
+	reportRoot,
 	rowsFrom,
 	shares,
 	toCsv,
@@ -25,11 +27,13 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 
 const USAGE = `Usage:
-  node scripts/suite-timings.js extract <vitest.json> <out.csv> [key=value ...]
+  node scripts/suite-timings.js extract <vitest.json|dir> <out.csv> [key=value ...]
   node scripts/suite-timings.js shares <dataset.csv>
 
 Produce the JSON with:
   npm run test -- --full=<cause> --reporter=default --reporter=json --outputFile.json=<vitest.json>
+A dir merges every *.json under it, as one sharded run's reports:
+  gh run download <run-id> -R lucmoseley/workflow-core -p 'vitest-report-*' -D <dir>
 `;
 
 const CLI = {
@@ -56,6 +60,28 @@ const err = (s) => writeFd(2, `${s}\n`);
 const ROOT = hostRoot();
 
 /**
+ * One vitest JSON report, or every report under a directory merged into one,
+ * as the shard jobs of one Actions run upload them (#2413).
+ * @param {string} source
+ * @returns {{ testResults: unknown[] }}
+ */
+function readReports(source) {
+	const files = fs.statSync(source).isDirectory()
+		? fs
+				.readdirSync(source, { recursive: true, encoding: "utf8" })
+				.filter((f) => f.endsWith(".json"))
+				.sort()
+				.map((f) => path.join(source, f))
+		: [source];
+	return {
+		testResults: files.flatMap((f) => {
+			const report = JSON.parse(fs.readFileSync(f, "utf8"));
+			return Array.isArray(report.testResults) ? report.testResults : [];
+		}),
+	};
+}
+
+/**
  * @param {string[]} argv
  * @returns {number} exit code
  */
@@ -75,7 +101,8 @@ function main(argv = process.argv.slice(2)) {
 			);
 			return 1;
 		}
-		const rows = rowsFrom(JSON.parse(fs.readFileSync(source, "utf8")), ROOT);
+		const report = readReports(source);
+		const rows = rowsFrom(report, reportRoot(report, ROOT));
 		fs.writeFileSync(target, toCsv(rows, meta));
 		out(`${rows.length} files → ${target}`);
 		out(formatShares(shares(rows)));

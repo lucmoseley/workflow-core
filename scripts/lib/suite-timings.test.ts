@@ -19,6 +19,7 @@ import {
 	formatShares,
 	parseCsv,
 	parseMeta,
+	reportRoot,
 	rowsFrom,
 	shares,
 	toCsv,
@@ -33,6 +34,26 @@ const fileResult = (name: string, start: number, end: number, tests = 1) => ({
 	endTime: end,
 	status: "passed",
 	assertionResults: Array.from({ length: tests }, () => ({})),
+});
+
+describe("reportRoot (#2413)", () => {
+	const named = (...names: string[]) => ({
+		testResults: names.map((name) => ({ name })),
+	});
+
+	it("keeps this checkout's root where every name is inside it", () => {
+		expect(reportRoot(named(`${ROOT}/a.test.ts`), ROOT)).toBe(ROOT);
+	});
+
+	it("takes another checkout's root from its names, as a runner's report has", () => {
+		const runner = "/home/runner/work/wc/wc/.claude/worktrees/isolated-1";
+		expect(
+			reportRoot(
+				named(`${runner}/eslint.config.test.ts`, `${runner}/scripts/x.test.ts`),
+				ROOT,
+			),
+		).toBe(runner);
+	});
 });
 
 describe("reading a vitest JSON report", () => {

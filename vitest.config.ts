@@ -2,6 +2,7 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 import { TEST_TIMEOUT_MS, WORKER_HEAP_MB } from "./scripts/lib/test-ceiling";
+import ShardSequencer from "./scripts/vitest-shard-sequencer";
 
 export default defineConfig({
 	plugins: [react()],
@@ -65,7 +66,18 @@ export default defineConfig({
 			"default",
 			"./scripts/vitest-pass-reporter.ts",
 			"./scripts/vitest-inflight-reporter.ts",
+			// ci.yml's Vitest step names a file here, and uploads the report
+			// `suite-timings.js extract` refreshes the shard timings from (#2413).
+			...(process.env.WFC_VITEST_JSON
+				? [
+						["json", { outputFile: process.env.WFC_VITEST_JSON }] as [
+							"json",
+							{ outputFile: string },
+						],
+					]
+				: []),
 		],
+		sequence: { sequencer: ShardSequencer },
 		pool: "forks",
 		// W, the workers a whole suite runs. One whole suite runs at a time
 		// (#2680), so W is sized to a lone run on this machine's 8 cores. #2772

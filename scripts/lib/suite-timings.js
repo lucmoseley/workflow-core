@@ -26,6 +26,31 @@ const META_PREFIX = "# ";
 const DEFAULT_SLICES = [5, 10, 20, 50, 100];
 
 /**
+ * The checkout a report's file names sit under: `root` where every name is
+ * inside it, else the deepest directory common to all of them. A report from
+ * an Actions runner names files under the runner's checkout, not this one
+ * (#2413).
+ *
+ * @param {{ testResults?: unknown[] }} report parsed vitest JSON
+ * @param {string} root this checkout
+ * @returns {string}
+ */
+function reportRoot(report, root) {
+	const results = Array.isArray(report.testResults) ? report.testResults : [];
+	const names = results.map((raw) =>
+		String(/** @type {Record<string, unknown>} */ (raw).name ?? ""),
+	);
+	if (names.every((n) => n.startsWith(`${root}${path.sep}`))) return root;
+	const dirs = names.map((n) => path.dirname(n).split(path.sep));
+	const first = dirs[0] ?? [];
+	const depth = first.findIndex((part, i) => dirs.some((d) => d[i] !== part));
+	return (
+		first.slice(0, depth === -1 ? first.length : depth).join(path.sep) ||
+		path.sep
+	);
+}
+
+/**
  * Per-file rows from vitest's JSON reporter output, heaviest first.
  *
  * A FILE MISSING EITHER TIMESTAMP IS KEPT WITH A NULL DURATION, never dropped
@@ -187,6 +212,7 @@ function parseMeta(pairs) {
 }
 
 module.exports = {
+	reportRoot,
 	rowsFrom,
 	shares,
 	toCsv,

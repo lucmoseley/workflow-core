@@ -4,7 +4,7 @@
  *
  * findHungJobs is called in-process, straight off a synthetic job list and
  * listing — the CLI-level fixtures in check-ghost-jobs.test.ts and
- * dispatch-sessions.test.ts already cover the shared silence/window logic
+ * dispatch-sessions-reread.test.ts already cover the shared silence/window logic
  * through the checker and the dispatcher; this file covers the one guarantee
  * neither of those exercises: a caller's OWN session never reads as hung on
  * its own re-read (mantahostels#2598's spec review, which found the CLI fixtures never
