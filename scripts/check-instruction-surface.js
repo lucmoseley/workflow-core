@@ -149,7 +149,7 @@ function readIfPresent(file) {
  * Both halves of a census verdict, always together.
  *
  * TIMING AND SUFFICIENCY ARE SEPARATE FINDINGS, and quoting either alone
- * misrepresents the census: `guard-issue-create-label.js` fires `at need` and
+ * misrepresents the census: the `guard-issue-create-label` core fires `at need` and
  * still sheds 0 B, which the census's join table records as a DOWNGRADE to
  * insufficient. A message carrying the timing verdict on its own reads as a
  * guard confirmed to work.

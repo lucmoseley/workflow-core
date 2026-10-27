@@ -17,7 +17,7 @@
  * side of it: every conditional-request header is refused outright, GraphQL's
  * updateIssue carries no version field, and `updated_at` has one-second
  * resolution — the race window itself. `scripts/issue-body.js` and its guard
- * `scripts/guard-issue-body.js` prevent the common spellings; `gh api graphql`
+ * `scripts/guard-dispatch.js` (its `guard-issue-body` core) prevent the common spellings; `gh api graphql`
  * with an updateIssue mutation, and any writer outside the local lock, are not
  * covered by either.
  *

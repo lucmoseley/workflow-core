@@ -10,7 +10,7 @@
  * `wayfinder:map`.
  *
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this holds for itself what
- * guard-issue-close.js holds on the hand spelling — `**Outstanding:**`, and a
+ * the guard-issue-close core holds on the hand spelling — `**Outstanding:**`, and a
  * roadmap card's own issue going to /card-close — and does what
  * release-issue-claim.js does after it.
  *

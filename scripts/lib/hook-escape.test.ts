@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/hook-escape.js, guard-hook-escape.js's core (#2801), in process: which
+ * lib/hook-escape.js, the guard-hook-escape core (#2801), in process: which
  * commands set one of the two git-hook escapes (#916) and are refused, and
  * which only mention one and pass.
  *

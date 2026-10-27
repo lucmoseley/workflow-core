@@ -493,7 +493,7 @@ describe("scanFlags", () => {
 
 	it("calls a lone - a flag, not a bare word", () => {
 		// `--body-file -` reads the body from stdin. Read as a bare word it would
-		// become guard-issue-close.js's issue number.
+		// become the guard-issue-close core's issue number.
 		expect(scan("-c", "-", "12")).toEqual(["flag|-|", "arg||12"]);
 	});
 

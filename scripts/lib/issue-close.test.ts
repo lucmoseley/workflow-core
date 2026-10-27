@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/issue-close.js, guard-issue-close.js's core (#2798), in process: it
+ * lib/issue-close.js, the guard-issue-close core (#2798), in process: it
  * denies a close that says nothing about what is still outstanding
  * (mantahostels#185), a hand close of a roadmap card's own issue
  * (mantahostels#220), a completed close over unticked acceptance criteria
@@ -47,12 +47,13 @@ const { decide } = require("./issue-close.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };
 const { buildHostPorts } = require("./issue-close-host.js") as {
-	buildHostPorts: (env: object) => Record<string, unknown> & {
+	buildHostPorts: (root: string) => Record<string, unknown> & {
 		census: (n: number, ms: number) => unknown;
 		landing: (
 			n: number,
 			comment: string,
 			ms: number,
+			cwd?: string,
 		) => { refusal: string } | { outOfBudget: true };
 	};
 };
@@ -137,12 +138,7 @@ const ghPort = (setup: Gh) => (args: string[]) => {
 	return ghFake(answering(JSON.stringify(payload)))(args);
 };
 
-const host = () =>
-	buildHostPorts({
-		root: shared,
-		payload: {},
-		log: (what: string) => faults.push(what),
-	});
+const host = () => buildHostPorts(shared);
 
 const run = (
 	command: string,
@@ -991,8 +987,7 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 			],
 			{ cwd: wt },
 		);
-		const ports = buildHostPorts({ root: shared, payload: { cwd: wt } });
-		expect(ports.landing(12, "", 4000)).toEqual({
+		expect(buildHostPorts(shared).landing(12, "", 4000, wt)).toEqual({
 			refusal: expect.stringContaining("#12's commit is not on origin/landing"),
 		});
 	});

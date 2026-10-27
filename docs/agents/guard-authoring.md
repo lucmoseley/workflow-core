@@ -83,7 +83,7 @@ bodies are 70–670 lines of bespoke judgement.
      command word, which all but those two do — almost, because all of them
      resolve that word through `basename`, so a path-spelled call is judged by
      the guard and matched by neither anchored spelling: 43 calls corpus-wide. **The exceptions are
-     `guard-issue-phase-scope.js` and the `guard-anthropic-report` core**, whose
+     the `guard-issue-phase-scope` and `guard-anthropic-report` cores**, whose
      walkers step past a `timeout`/`env`/`nohup` prefix: anchoring would leave
      `timeout 60 gh issue create` unjudged in silence, so they keep a
      wrapper-tolerant `Bash(*gh *)`. **Match the `if` to what the guard's own

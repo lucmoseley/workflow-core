@@ -399,7 +399,7 @@ function main() {
 	}
 
 	/* Labelled at creation because a create from a script is invisible to
-	 * scripts/guard-issue-create-label.js, which sees Bash tool calls only —
+	 * the guard-issue-create-label core, which sees Bash tool calls only —
 	 * mantahostels#464 is the live instance of an issue reaching the tracker bare (mantahostels#470). */
 	const filed = gh([
 		"issue",

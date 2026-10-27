@@ -96,7 +96,7 @@ least one guardrail was added this run.
    A guardrail already committed to `b` needs no label — it isn't a re-file
    trigger. The resolution comment names the card, states the question in
    plain words, and carries a line beginning `**Outstanding:**`, which
-   `scripts/guard-issue-close.js` requires.
+   `scripts/guard-dispatch.js` (its `guard-issue-close` core) requires.
 
    Close the map last, after its children.
 
@@ -107,7 +107,7 @@ least one guardrail was added this run.
 
 ## Closing a card's own issue
 
-`scripts/guard-issue-close.js` refuses a hand close of a roadmap card's own
+`scripts/guard-dispatch.js` (its `guard-issue-close` core) refuses a hand close of a roadmap card's own
 issue — that belongs to `/card-close` (mantahostels#165, mantahostels#220). Two things get past it
 legitimately: a `wayfinder:map` label exempts (mantahostels#1490), and a parented issue is
 not a card issue. Neither is a workaround; if the guard refuses, read its header

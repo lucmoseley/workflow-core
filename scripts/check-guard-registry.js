@@ -2303,7 +2303,7 @@ function parseHeredocBody(lines, delim) {
  * carry none, and the deny text has neither.
  *
  * A BACKTICKED SPAN IS DROPPED, on both sides. A path or a command is shared
- * vocabulary rather than shared prose: the rule naming `scripts/guard-issue-body.js`
+ * vocabulary rather than shared prose: the rule naming the `guard-issue-body` core
  * and that guard's own deny both point at `docs/agents/issue-tracker.md`, which
  * tokenises into eight words and carried the pair to 70% coverage on nothing but
  * the pointer — a rule mantahostels#964 read and ruled did not qualify. Comparing the words

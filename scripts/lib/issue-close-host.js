@@ -1,21 +1,24 @@
 /*
- * issue-close-host.js — the production ports guard-issue-close.js wires into
- * its core, lib/issue-close.js (#2798). Every gh call, the census read and
- * the landing read carry the timeout the core hands them, what is left of its
- * run budget and at most 4 s, so the last call ends under the hook's 10 s.
- * As in the core, what only a close reaches is required inside its port.
+ * issue-close-host.js — the production ports the dispatcher wires into the
+ * guard-issue-close core, lib/issue-close.js (#2798, #3225). Every gh call,
+ * the census read and the landing read carry the timeout the core hands them,
+ * what is left of its run budget and at most 4 s, cut to what the
+ * dispatcher's budget leaves (lib/hook-deadline.js). As in the core, what
+ * only a close reaches is required inside its port.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { budgetMs } = require("./hook-deadline.js");
 const { resolveKey } = require("./workflow-core-config.js");
 
 /**
- * @param {import("./kit-context.js").PortEnv} env
+ * @param {string} root
  * @returns {import("./issue-close.js").ClosePorts}
  */
-const buildHostPorts = ({ root, payload }) => ({
-	gh: (args, timeoutMs) => require("./gh.js").gh(args, { timeout: timeoutMs }),
+const buildHostPorts = (root) => ({
+	gh: (args, timeoutMs) =>
+		require("./gh.js").gh(args, { timeout: budgetMs(timeoutMs) }),
 	now: Date.now,
 	readFile: (rel) => {
 		try {
@@ -35,23 +38,27 @@ const buildHostPorts = ({ root, payload }) => ({
 		return typeof t === "string" && t ? t : undefined;
 	},
 	census: (n, timeoutMs) =>
-		readUnderCeiling("the census reader", timeoutMs, (ceiling) => {
+		readUnderCeiling("the census reader", budgetMs(timeoutMs), (ceiling) => {
 			const { censusRefusal, readExpiredRows } = require("./census-digest.js");
 			const rows = readExpiredRows(root, n, { ceiling });
 			return rows.length > 0 ? censusRefusal(n, rows) : "";
 		}),
-	landing: (n, comment, timeoutMs) =>
-		readUnderCeiling("the landing reader", timeoutMs, (ceiling) => {
+	landing: (n, comment, timeoutMs, cwd) =>
+		readUnderCeiling("the landing reader", budgetMs(timeoutMs), (ceiling) => {
 			const {
 				readUnlandedCommits,
 				unlandedRefusal,
 			} = require("./unlanded-commits.js");
 			const { worktreeRoot } = require("./host-root.js");
 			/* The close's own checkout, whose HEAD may be a linked worktree's. */
-			const cwd = typeof payload.cwd === "string" ? payload.cwd : root;
-			const unlanded = readUnlandedCommits(worktreeRoot(cwd), n, comment, {
-				ceiling,
-			});
+			const unlanded = readUnlandedCommits(
+				worktreeRoot(cwd ?? root),
+				n,
+				comment,
+				{
+					ceiling,
+				},
+			);
 			return unlanded.commits.length > 0 ? unlandedRefusal(n, unlanded) : "";
 		}),
 });

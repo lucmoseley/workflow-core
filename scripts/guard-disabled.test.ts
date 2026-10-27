@@ -93,6 +93,8 @@ function run(guard: string, disabled: string[], contract = CONTRACT) {
 		HOME: home,
 	};
 	delete env.CLAUDE_CODE_SESSION_ID;
+	/* An inherited root would send the guard's config read past `host`. */
+	delete env.WFC_REPO_ROOT;
 	const r = spawnSync(js ? "node" : file, js ? ["--require", shim, file] : [], {
 		cwd: host,
 		input: "not json",

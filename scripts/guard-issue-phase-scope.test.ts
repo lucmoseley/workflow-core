@@ -1,40 +1,34 @@
 // @vitest-environment node
 /*
- * guard-issue-phase-scope.js denies a `gh issue create` whose title names a
- * roadmap card outside Phase 0 that the founder has not called
- * (mantahostels#1613). These are its boundary cases: the line hooks/hooks.json
- * registers, run by bash as the harness runs it, on a harness-shaped payload
- * — the wiring, each exit and its stream, the fail-open record on disk, and
- * the roadmap and register read off the real fs under the host root. Which
- * command is refused, and why, is lib/issue-phase-scope.test.ts's (#2798).
+ * The guard-issue-phase-scope core of guard-dispatch.js denies a `gh issue
+ * create` whose title names a roadmap card outside Phase 0 that the founder
+ * has not called (mantahostels#1613). These are its boundary cases, the
+ * dispatcher entry run on it alone on a harness-shaped payload: each exit,
+ * the fail-open record on disk, and the roadmap and register read off the
+ * real fs under the host root. Which command is refused, and why, is
+ * lib/issue-phase-scope.test.ts's; the entry's payload faults and the throw
+ * policy are guard-dispatch's own tests' (#2798, #3225).
  *
- * CLAUDE_PLUGIN_ROOT is this checkout, so the line finds the real entry;
  * CLAUDE_PROJECT_DIR is a temp project holding FIXTURE docs, so a card moving
  * phase never changes a verdict here, and the fail-open log lands in the temp
  * CLAUDE_CONFIG_DIR and never the founder's.
  *
- * Break the line and a session files work on a later phase's card the founder
- * never called; make it deny on a fault and filing Phase-0 work is wedged.
+ * Make the guard allow an uncalled card and a session files work on a later
+ * phase's card the founder never called; make it deny on a fault and filing
+ * Phase-0 work is wedged.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFailOpenLog, readFailOpenRecords } from "./guard-log-fixture";
+import { readFailOpenRecords } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
-	expectShellHooks,
+	dispatchCoreOutput,
 	guardDirs,
-	guardOutput,
-	hookLineOutput,
 } from "./lib/pretool-guard-testkit";
 
-const SCRIPT = "scripts/guard-issue-phase-scope.js";
-/* The line the harness runs: node absent, it exits 0 unrecorded. */
-const LINE = `command -v node >/dev/null 2>&1 || exit 0; node "\${CLAUDE_PLUGIN_ROOT}"/${SCRIPT}`;
-/* The self-plugin's, rooted at the project. */
-const SELF_LINE = `command -v node >/dev/null 2>&1 || exit 0; node "$CLAUDE_PROJECT_DIR"/${SCRIPT}`;
+const CORE = "guard-issue-phase-scope";
 
 const ROADMAP = [
 	"const ITEMS = [",
@@ -62,22 +56,13 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** The hook's hookSpecificOutput for `command`, run in the temp project. */
-const emission = (
-	command: string,
-	run: { stdin?: string; env?: NodeJS.ProcessEnv } = {},
-) => hookLineOutput(LINE, command, { project: dir, config, cwd: dir, ...run });
-
-describe("the registered hook line", () => {
-	it("is this one line, narrowed by the unanchored `if: Bash(*gh *)`, in the plugin and the self-plugin alike (mantahostels#2127)", () => {
-		// Unanchored, so `timeout 60 gh …` and `nohup gh …` reach the judge.
-		expectShellHooks(SCRIPT, (file) => ({
-			command: file === "hooks/hooks.json" ? LINE : SELF_LINE,
-			if: "Bash(*gh *)",
-			onFailure: "block",
-		}));
+/** The core's hookSpecificOutput for `command`, run in the temp project. */
+const emission = (command: string) =>
+	dispatchCoreOutput(CORE, buildBashPayload(command, "s1"), {
+		project: dir,
+		config,
+		cwd: dir,
 	});
-});
 
 describe("each exit", () => {
 	it("refuses an uncalled Phase-1 card as permissionDecision JSON on exit 0, read off the roadmap on disk", () => {
@@ -103,21 +88,6 @@ describe("each exit", () => {
 		).toBeNull();
 		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});
-
-	it("refuses, logged, where its core throws", () => {
-		const out = guardOutput(
-			entryBesideThrowingCore(dir, SCRIPT, "issue-phase-scope.js"),
-			buildBashPayload('gh issue create --title "x" --body "y"', "s1"),
-			{ project: dir, config, cwd: dir },
-		);
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-issue-phase-scope.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, dir)).toMatch(
-			/core threw — the command was refused\tbroke/,
-		);
-	});
 });
 
 describe("what it fails open on", () => {
@@ -129,35 +99,9 @@ describe("what it fails open on", () => {
 		expect(readFailOpenRecords(config, dir)).toEqual([
 			[
 				expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
-				"guard-issue-phase-scope.js",
+				CORE,
 				"docs/reference-roadmap.html is unreadable — issue creation allowed unchecked",
 			],
 		]);
-	});
-
-	it("allows a payload that is not JSON, and records that it did", () => {
-		expect(emission("", { stdin: "not json" })).toBeNull();
-		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
-			expect.stringContaining("payload did not parse as JSON"),
-		]);
-	});
-
-	it("allows a payload carrying no command, and records that it did", () => {
-		expect(
-			emission("", {
-				stdin: JSON.stringify({ session_id: "s1", tool_name: "Bash" }),
-			}),
-		).toBeNull();
-		expect(readFailOpenRecords(config, dir).map((f) => f[2])).toEqual([
-			expect.stringContaining("no command in payload"),
-		]);
-	});
-
-	it("fails open, exit 0 and silent, where node is not on PATH", () => {
-		expect(
-			emission('gh issue create --title "search-core — a thing"', {
-				env: { PATH: "/nonexistent" },
-			}),
-		).toBeNull();
 	});
 });

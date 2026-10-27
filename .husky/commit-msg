@@ -16,7 +16,7 @@
 #            staged diff weakens a check its message names on no `Weakens:`
 #            line (scripts/check-weakens-line.js).
 # JUSTIFIED: fail-safe — the keyword closes the issue server-side on the push,
-#            so guard-issue-close.js never fires and the issue closes with no
+#            so the guard-issue-close core never fires and the issue closes with no
 #            resolution comment and no `**Outstanding:**` line (#118); a
 #            subject over 72 characters breaks `git log --oneline` (#2172); and a
 #            check weakened inside a large commit goes unseen until it bites
