@@ -118,6 +118,7 @@ const {
 	homeDir,
 } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
+const refillBatch = require("./lib/refill-batch.js");
 const blocks = require("./lib/refill-blocks.js");
 const { localDate } = require("./lib/morning-review.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -589,13 +590,13 @@ function readSeats(seats, slots, root) {
 }
 
 /**
- * Launch one repo's picks through one dispatcher call (lib/refill-loop.js's
+ * Launch one repo's picks through one dispatcher call (lib/refill-batch.js's
  * launchBatch), logged; the records of those it launched and the reasons for
  * those it refused, with each it tried taken off the gate-judgement queue.
  * @param {import("./lib/refill-decide.js").Launch[]} batch
  */
 function launchBatch(batch) {
-	const r = loop.launchBatch(batch, {
+	const r = refillBatch.launchBatch(batch, {
 		dispatcher: DISPATCHER,
 		env: process.env,
 		run: (call) =>
@@ -606,6 +607,7 @@ function launchBatch(batch) {
 			}),
 		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
 		sessionOf: headlessSessionOf,
+		now: Date.now,
 	});
 	log(
 		`dispatch ${loop.buildLaunchesLine(batch)}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
@@ -1130,6 +1132,7 @@ async function tick({ dryRun }) {
 			runReview,
 			writeState: (next) => loop.writeJson(files.state, next),
 			log,
+			now: Date.now,
 		},
 	);
 	return { decision: settled, startedAt: control.startedAt, agents };
@@ -1149,10 +1152,10 @@ async function printDryRun() {
 			.seats.filter((s) => s.kind === "overflow")
 			.map((s) => s.dir),
 	);
-	for (const batch of loop.batchesOf(d.launches)) {
+	for (const batch of refillBatch.batchesOf(d.launches)) {
 		say(
-			loop.buildWouldRunLine(
-				loop.dispatchCall(batch, DISPATCHER, process.env),
+			refillBatch.buildWouldRunLine(
+				refillBatch.dispatchCall(batch, DISPATCHER, process.env),
 				overflow,
 			),
 		);

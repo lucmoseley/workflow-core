@@ -6,7 +6,7 @@
  * lib/headless-sessions.js at the key's headroom, its job id in the ledger;
  * and a plan seat still on `claude --bg`.
  *
- * The calls go through lib/refill-loop.js's launchBatch, so a cut or refused
+ * The calls go through lib/refill-batch.js's launchBatch, so a cut or refused
  * member's reason is the one the loop's refusal parser reads. Every `claude`
  * is the testkit's stub and every key a fixture `.env` value.
  *
@@ -26,7 +26,7 @@ import { readRecentEntries } from "./lib/dispatch-ledger.js";
 import { dispatchFixture, SCRIPT } from "./lib/dispatch-sessions-testkit";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
 import { runOf } from "./lib/headless-sessions.js";
-import { launchBatch } from "./lib/refill-loop.js";
+import { launchBatch } from "./lib/refill-batch.js";
 
 const fx = dispatchFixture();
 const { stubClaude, baseEnv, readArgvLines } = fx;
@@ -105,6 +105,7 @@ function dispatch(
 		},
 		entriesOf: (root) => readRecentEntries(root, 1).entries,
 		sessionOf: (jobId) => storedRun(jobId)?.sessionId,
+		now: Date.now,
 	});
 }
 

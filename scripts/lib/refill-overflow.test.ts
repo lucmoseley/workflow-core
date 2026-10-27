@@ -20,14 +20,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { readLiveAgents } from "./headless-sessions.js";
+import { buildWouldRunLine, dispatchCall } from "./refill-batch.js";
 import { decideTick, FULL } from "./refill-decide.js";
-import {
-	actsOf,
-	buildWouldRunLine,
-	dispatchCall,
-	judgedLaunches,
-	overflowReadings,
-} from "./refill-loop.js";
+import { actsOf, judgedLaunches, overflowReadings } from "./refill-loop.js";
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const MIN = 60 * 1000;
