@@ -30,9 +30,22 @@ const SCRIPT_NAMES = {
 /* `npm init` writes this as the test script; it is no test command. */
 const NPM_INIT_PLACEHOLDER = /no test specified/;
 
+/** `package.json` does not parse. The message is init's way out; `detail`
+ * is the parser's, for a caller whose way out differs (#3192). */
+class PackageParseError extends Error {
+	/** @param {string} detail @param {ErrorOptions} options */
+	constructor(detail, options) {
+		super(
+			`package.json does not parse, so no command can be inferred from it — fix it, or name each with --command: ${detail}`,
+			options,
+		);
+		this.detail = detail;
+	}
+}
+
 /**
- * Throws on a `package.json` that does not parse, which would otherwise read
- * as one naming no script.
+ * Throws a PackageParseError on a `package.json` that does not parse, which
+ * would otherwise read as one naming no script.
  * @param {string} root
  */
 function readPackage(root) {
@@ -46,10 +59,7 @@ function readPackage(root) {
 	try {
 		pkg = JSON.parse(text);
 	} catch (err) {
-		throw new Error(
-			`package.json does not parse, so no command can be inferred from it — fix it, or name each with --command: ${caught(err).message}`,
-			{ cause: err },
-		);
+		throw new PackageParseError(caught(err).message, { cause: err });
 	}
 	const scripts = pkg?.scripts;
 	return {
@@ -581,7 +591,11 @@ function main(argv) {
 		if (verdict.kind !== "refused") return 0;
 		writeFd(2, `${named} ${verdict.refusal}\n`);
 	} catch (err) {
-		writeFd(2, `${named} cannot be checked: ${caught(err).message}\n`);
+		const why =
+			err instanceof PackageParseError
+				? `package.json does not parse (${err.detail}). Fix it, or declare check_staged in .claude/workflow-core.json as '${OWN_FLAGS}' or another command whose text contains neither 'run' nor 'biome', which the hook does not classify.`
+				: caught(err).message;
+		writeFd(2, `${named} cannot be checked: ${why}\n`);
 	}
 	return 1;
 }

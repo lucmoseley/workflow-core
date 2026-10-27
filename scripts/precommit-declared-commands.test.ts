@@ -336,7 +336,7 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 });
 
 describe("infer-commands.js check-staged", () => {
-	it("exits 1, refusing the commit, where the package.json cannot be read", () => {
+	it("exits 1 on a package.json that does not parse, naming the hook's way out rather than init's --command (#3192)", () => {
 		const { root } = biomeFixture("npm run check:staged");
 		fs.writeFileSync(path.join(root, "package.json"), "{ not json");
 		const r = runInProcess(INFER, ["check-staged", "npm run check:staged"], {
@@ -344,8 +344,12 @@ describe("infer-commands.js check-staged", () => {
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(
-			'pre-commit: check_staged "npm run check:staged" (.claude/workflow-core.json) cannot be checked: package.json does not parse',
+			'pre-commit: check_staged "npm run check:staged" (.claude/workflow-core.json) cannot be checked: package.json does not parse (',
 		);
+		expect(r.stderr).toContain(
+			`Fix it, or declare check_staged in .claude/workflow-core.json as 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js <flags>' or another command whose text contains neither 'run' nor 'biome'`,
+		);
+		expect(r.stderr).not.toContain("--command");
 	});
 
 	it("exits 2 on a missing command, printing the usage", () => {
