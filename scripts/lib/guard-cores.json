@@ -270,6 +270,58 @@
 			"if": ["Bash(*WFC_ALLOW_*)"]
 		},
 		{
+			"name": "guard-suite-concurrency",
+			"core": "suite-concurrency.js",
+			"tools": "Bash",
+			"failure": "open",
+			"host": "suite-concurrency-host.js",
+			"if": [
+				"Bash(*npm *)",
+				"Bash(*node *)",
+				"Bash(*next *)",
+				"Bash(*python*)",
+				"Bash(*pytest*)",
+				"Bash(*npx *)",
+				"Bash(*yarn *)",
+				"Bash(*pnpm *)",
+				"Bash(*bun *)",
+				"Bash(*make *)",
+				"Bash(*cargo *)",
+				"Bash(*go test*)",
+				"Bash(*tsc*)"
+			]
+		},
+		{
+			"name": "guard-unasked-rerun",
+			"core": "unasked-rerun-guard.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "unasked-rerun-guard-host.js",
+			"if": ["Bash(*npm *)"]
+		},
+		{
+			"name": "guard-vitest-wrapper",
+			"core": "vitest-wrapper.js",
+			"tools": "Bash",
+			"failure": "open",
+			"if": ["Bash(*vitest *)", "Bash(*npx *)"]
+		},
+		{
+			"name": "guard-root-find",
+			"core": "find-start.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "find-start-host.js",
+			"if": ["Bash(*find *)"]
+		},
+		{
+			"name": "guard-ugrep-pattern",
+			"core": "ugrep-pattern.js",
+			"tools": "Bash",
+			"failure": "open",
+			"if": ["Bash(grep *)"]
+		},
+		{
 			"name": "guard-recursive-dot-read",
 			"core": "recursive-dot-read.js",
 			"tools": "Bash",
@@ -279,9 +331,10 @@
 		{
 			"name": "guard-wide-read",
 			"core": "wide-read.js",
-			"tools": "Read",
+			"tools": "Bash|Read",
 			"failure": "open",
-			"host": "wide-read-host.js"
+			"host": "wide-read-host.js",
+			"if": ["Bash(*cat *)", "Bash(*sed *)", "Bash(*awk *)"]
 		},
 		{
 			"name": "guard-agent-poll",

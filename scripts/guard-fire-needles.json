@@ -1212,6 +1212,123 @@
 					"core": "guard-npm-install",
 					"kind": "deny",
 					"text": "by bare name, which resolves to two different things"
+				},
+				{
+					"id": "low-memory",
+					"core": "guard-suite-concurrency",
+					"kind": "warn",
+					"text": "MemAvailable is "
+				},
+				{
+					"id": "over-suite-cap",
+					"core": "guard-suite-concurrency",
+					"kind": "warn",
+					"text": "This would be suite "
+				},
+				{
+					"id": "watcher-rung",
+					"core": "guard-suite-concurrency",
+					"kind": "warn",
+					"text": "This opens a WATCHER"
+				},
+				{
+					"id": "suite-tree-dirty",
+					"core": "guard-suite-concurrency",
+					"kind": "inject",
+					"text": "A RED SUITE IN THE SHARED TREE MAY BE A NEIGHBOUR'S HALF-WRITTEN FILE"
+				},
+				{
+					"id": "targeted-runs",
+					"core": "guard-suite-concurrency",
+					"kind": "inject",
+					"text": "THIS RUNS THE WHOLE SUITE: prefer a targeted run"
+				},
+				{
+					"id": "memory-figure",
+					"core": "guard-suite-concurrency",
+					"kind": "inject",
+					"text": "RUN `free -h` BEFORE AND AFTER ANY BUILD OR FULL TEST RUN"
+				},
+				{
+					"id": "full-suite-admissible",
+					"core": "guard-suite-concurrency",
+					"kind": "inject",
+					"text": "WOULD MEET THE PUSH GATE HERE, AND THIS"
+				},
+				{
+					"id": "suite-count-cap",
+					"core": "guard-suite-concurrency",
+					"kind": "deny",
+					"text": "is past the last rung anything has ever been measured on"
+				},
+				{
+					"id": "suite-memory-ladder",
+					"core": "guard-suite-concurrency",
+					"kind": "deny",
+					"text": ", and earlyoom's SIGTERM line is 8% of the cap."
+				},
+				{
+					"id": "build-concurrency",
+					"core": "guard-suite-concurrency",
+					"kind": "deny",
+					"text": "NEVER RUN TWO BUILDS, OR TWO DEV SERVERS, AT ONCE."
+				},
+				{
+					"id": "build-concurrency-fallback",
+					"core": "guard-suite-concurrency",
+					"kind": "deny",
+					"text": [
+						"Never run two builds or two dev servers at once",
+						"the rule could not be read from"
+					]
+				},
+				{
+					"id": "unasked-rerun",
+					"core": "guard-unasked-rerun",
+					"kind": "deny",
+					"text": "Not run: certificates already attest what this run would test at"
+				},
+				{
+					"id": "vitest-wrapper",
+					"core": "guard-vitest-wrapper",
+					"kind": "warn",
+					"text": "A vitest run outside"
+				},
+				{
+					"id": "root-find",
+					"core": "guard-root-find",
+					"kind": "deny",
+					"text": "A find over the whole disk under WSL2 ran to the 2-minute timeout"
+				},
+				{
+					"id": "ugrep-pattern",
+					"core": "guard-ugrep-pattern",
+					"kind": "warn",
+					"text": "s bundled ugrep, and a bounded repeat in its pattern"
+				},
+				{
+					"id": "whole-file-cat",
+					"core": "guard-wide-read",
+					"kind": "warn",
+					"text": "Reading a whole file into context"
+				},
+				{
+					"id": "wide-sed-range",
+					"core": "guard-wide-read",
+					"kind": "warn",
+					"text": "range is wide"
+				},
+				{
+					"id": "uncounted-glob",
+					"core": "guard-wide-read",
+					"kind": "warn",
+					"text": "match count is unknown to you"
+				},
+				{
+					"id": "read-tool-whole-file",
+					"core": "guard-wide-read",
+					"kind": "warn",
+					"text": "pours a whole file into context"
 				}
 			]
 		},
@@ -1226,128 +1343,6 @@
 					"id": "skill-refused",
 					"kind": "inject",
 					"text": "A SKILL WHOSE FRONTMATTER CARRIES"
-				}
-			]
-		},
-		"guard-root-find.js": {
-			"needles": [
-				{
-					"id": "root-find",
-					"kind": "deny",
-					"text": "A find over the whole disk under WSL2 ran to the 2-minute timeout"
-				}
-			]
-		},
-		"guard-ugrep-pattern.js": {
-			"needles": [
-				{
-					"id": "ugrep-pattern",
-					"kind": "warn",
-					"text": "s bundled ugrep, and a bounded repeat in its pattern"
-				}
-			]
-		},
-		"guard-suite-concurrency.js": {
-			"needles": [
-				{
-					"id": "low-memory",
-					"kind": "warn",
-					"text": "MemAvailable is "
-				},
-				{
-					"id": "over-suite-cap",
-					"kind": "warn",
-					"text": "This would be suite "
-				},
-				{
-					"id": "watcher-rung",
-					"kind": "warn",
-					"text": "This opens a WATCHER"
-				},
-				{
-					"id": "suite-tree-dirty",
-					"kind": "inject",
-					"text": "A RED SUITE IN THE SHARED TREE MAY BE A NEIGHBOUR'S HALF-WRITTEN FILE"
-				},
-				{
-					"id": "targeted-runs",
-					"kind": "inject",
-					"text": "THIS RUNS THE WHOLE SUITE: prefer a targeted run"
-				},
-				{
-					"id": "memory-figure",
-					"kind": "inject",
-					"text": "RUN `free -h` BEFORE AND AFTER ANY BUILD OR FULL TEST RUN"
-				},
-				{
-					"id": "full-suite-admissible",
-					"kind": "inject",
-					"text": "WOULD MEET THE PUSH GATE HERE, AND THIS"
-				},
-				{
-					"id": "suite-count-cap",
-					"kind": "deny",
-					"text": "is past the last rung anything has ever been measured on"
-				},
-				{
-					"id": "suite-memory-ladder",
-					"kind": "deny",
-					"text": ", and earlyoom's SIGTERM line is 8% of the cap."
-				},
-				{
-					"id": "build-concurrency",
-					"kind": "deny",
-					"text": "NEVER RUN TWO BUILDS, OR TWO DEV SERVERS, AT ONCE."
-				},
-				{
-					"id": "build-concurrency-fallback",
-					"kind": "deny",
-					"text": [
-						"Never run two builds or two dev servers at once",
-						"the rule could not be read from"
-					]
-				}
-			]
-		},
-		"guard-unasked-rerun.js": {
-			"needles": [
-				{
-					"id": "unasked-rerun",
-					"kind": "deny",
-					"text": "Not run: certificates already attest what this run would test at"
-				}
-			]
-		},
-		"guard-vitest-wrapper.js": {
-			"needles": [
-				{
-					"id": "vitest-wrapper",
-					"kind": "warn",
-					"text": "A vitest run outside"
-				}
-			]
-		},
-		"guard-wide-read.js": {
-			"needles": [
-				{
-					"id": "whole-file-cat",
-					"kind": "warn",
-					"text": "Reading a whole file into context"
-				},
-				{
-					"id": "wide-sed-range",
-					"kind": "warn",
-					"text": "range is wide"
-				},
-				{
-					"id": "uncounted-glob",
-					"kind": "warn",
-					"text": "match count is unknown to you"
-				},
-				{
-					"id": "read-tool-whole-file",
-					"kind": "warn",
-					"text": "pours a whole file into context"
 				}
 			]
 		},

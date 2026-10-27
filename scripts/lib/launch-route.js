@@ -70,7 +70,7 @@ function fullFlagWord(argv) {
  * The four wrapper flags run-vitest.js consumes, none of which reaches vitest.
  * `--full=<cause>` is matched by prefix, the rest by the whole word.
  *
- * THE ONE LIST (#188): guard-suite-concurrency.js's plain-`--full` limb
+ * THE ONE LIST (#188): the guard-suite-concurrency core's plain-`--full` limb
  * requires `stripWrapperFlags` rather than keeping a copy, so a fifth flag
  * added here reaches it unedited.
  */

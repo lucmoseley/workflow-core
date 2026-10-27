@@ -29,7 +29,7 @@ const STOP_CLASS = {
 };
 
 /** Denies the machine caused, not the session (#2042). */
-const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency.js"]);
+const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency"]);
 
 /**
  * A guard the dispatcher runs is named by its `lib/guard-cores.json` row

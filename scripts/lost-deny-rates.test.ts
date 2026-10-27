@@ -823,16 +823,6 @@ describe("the staleness check against lib/guard-deny-rates.js", () => {
 		).toEqual([]);
 	});
 
-	it("says nothing about a guard the pinned table carries", () => {
-		expect(
-			unpinnedFor(
-				"guard-suite-concurrency.js",
-				'echo \'{"permissionDecision":"deny"}\'',
-				"deny",
-			),
-		).toEqual([]);
-	});
-
 	it("names the guards the pinned table has no row for in the text", () => {
 		const out = text(ROOT, []);
 		expect(out).toContain(
@@ -978,22 +968,27 @@ describe("main — the CLI surface", () => {
 	});
 
 	it("prices a different population under --scope nondeny than under the default", () => {
-		const empty = tempDir("ldr-scope-");
-		const base = run("--dir", empty, "--json").json();
-		const other = run("--dir", empty, "--json", "--scope", "nondeny").json();
+		const root = fixtureRoot({
+			hooks: {
+				PreToolUse: [
+					{
+						matcher: "Bash",
+						hooks: [
+							{ command: "scripts/denier.sh", if: "Bash(git *)" },
+							{ command: "scripts/warner.sh", if: "Bash(npm *)" },
+						],
+					},
+				],
+			},
+		});
+		const base = reportAt(root, []);
+		const other = reportAt(root, [], "--scope", "nondeny");
 		expect(base.corpus.scope).toBe("deny");
 		expect(other.corpus.scope).toBe("nondeny");
-		// Disjoint by construction, and both non-empty against the core's real
-		// self-plugin file — the assertion that the extension reaches guards the
-		// census never counted.
-		const names = (b: { rows: { guard: string }[] }) =>
-			b.rows.map((r) => r.guard);
-		expect(names(base).length).toBeGreaterThan(0);
-		expect(names(other).length).toBeGreaterThan(0);
-		expect(names(other).filter((g) => names(base).includes(g))).toEqual([]);
-		expect(other.rows.every((r: { cannotDeny: boolean }) => r.cannotDeny)).toBe(
-			true,
-		);
+		const names = (b: { rows: Row[] }) => b.rows.map((r) => r.guard);
+		expect(names(base)).toEqual(["denier.sh"]);
+		expect(names(other)).toEqual(["warner.sh"]);
+		expect(other.rows.every((r) => r.cannotDeny)).toBe(true);
 	});
 
 	it("unions the two under --scope all", () => {

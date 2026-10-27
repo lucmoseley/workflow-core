@@ -686,7 +686,7 @@ need **~2.15 / 3.25 / 3.65 GB resting** at launch (all three measured at
 four is unmeasured** — 3 GB buys one. Builds and dev servers at one, unmeasured.
 `docs/environment.md` §6 owns all three. **The ladder governs concurrent suite
 *launches*, and caps the size of a dispatch set at nothing** (mantahostels#1476). It is a resting-headroom test applied per launch
-inside an already-admitted session by `scripts/guard-suite-concurrency.js`, a
+inside an already-admitted session by `scripts/guard-dispatch.js` (its `guard-suite-concurrency` core), a
 `PreToolUse` hook that sends a launch short of its rung to the queue (#2305).
 Admission and the substrate test are the only things that cap the set.
 

@@ -128,7 +128,7 @@ describe("the registration", () => {
 
 describe("each exit path", () => {
 	it("hands a backgrounded Bash call its rule as context on exit 0, latched under the project", () => {
-		const call = bash({ command: "npm run test", run_in_background: true });
+		const call = bash({ command: "ls -la", run_in_background: true });
 		expect(emission(call)).toEqual({
 			hookEventName: "PreToolUse",
 			additionalContext: readRuleText("killed-background-job"),

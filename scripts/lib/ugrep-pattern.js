@@ -1,10 +1,23 @@
 /*
- * ugrep-pattern.js — guard-ugrep-pattern.js's core (#2801, programme #2733):
+ * ugrep-pattern.js — the guard-ugrep-pattern core (#2801, #3227, programme #2733):
  * does a bare `grep` pattern carry a bounded repeat that Claude Code's bundled
  * ugrep may refuse (#1021), and does the command discard the stderr that
  * would say so?
  *
  * A CORE: it does no I/O.
+ *
+ * WHY. Whether ugrep refuses depends on the repeat sizes (#1021), so any
+ * ranged repeat is warned on. WARN, NOT DENY (#1021 Q1): the pattern often
+ * works, and only the exit status tells the session which happened.
+ *
+ * ITS ROW'S `Bash(grep *)` CLAUSE IS ANCHORED on purpose: only a bare `grep` is
+ * the function, and every wrapper the unanchored form would admit — `xargs
+ * grep`, `command grep`, `timeout 5 grep` — execs GNU grep instead. Not folded
+ * into lib/recursive-dot-read.js, the one core already reading `grep` on every
+ * Bash call: this narrowing is what spares the rest.
+ *
+ * ADVISORY: a throw is allowed, logged — its row fails open — and so is every
+ * payload fault the kit names (mantahostels#103 §6, mantahostels#147).
  *
  * IT WARNS, NEVER DENIES, and once per (agent, session): the note rides as
  * the kit's prelude and latches `warn.ugrep-pattern` after it is written, the
@@ -216,4 +229,4 @@ function discardsStderr({ fd, kind, path, target }, writes, nullOut) {
 	return kind === "close" || (kind === "copy" && nullOut && target === "1");
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

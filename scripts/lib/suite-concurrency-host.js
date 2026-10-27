@@ -1,7 +1,7 @@
 /*
- * suite-concurrency-host.js — the production ports guard-suite-concurrency.js
- * wires into its core, lib/suite-concurrency.js, and the queue's in-process
- * read of the same gate (lib/suite-queue.js's gateDenies).
+ * suite-concurrency-host.js — the production ports the dispatcher wires into
+ * the guard-suite-concurrency core, lib/suite-concurrency.js (#3227), and the
+ * queue's in-process read of the same gate (lib/suite-queue.js's gateDenies).
  *
  * THE SEAMS. WFC_MEMINFO and WFC_PS stand in for /proc/meminfo and `ps`.
  *
@@ -85,10 +85,11 @@ function buildLaunchPorts({ root, log }) {
 }
 
 /**
- * @param {import("./kit-context.js").PortEnv} env
- * @returns {Omit<import("./suite-concurrency.js").SuitePorts, "fullLaunchPlain">}
+ * @param {string} root
+ * @param {(what: string, detail?: string) => void} log
+ * @returns {import("./suite-concurrency.js").SuitePorts}
  */
-function buildHostPorts({ root, payload, log }) {
+function buildHostPorts(root, log) {
 	const { readCommandFor } = require("./workflow-core-config.js");
 	return {
 		availableMb: readAvailableMb,
@@ -118,7 +119,10 @@ function buildHostPorts({ root, payload, log }) {
 			}
 		},
 		now,
-		sessionId: typeof payload.session_id === "string" ? payload.session_id : "",
+		/* Required at the call: full-launch-plain.js requires run-vitest.js,
+		 * which requires the queue, which requires this file. */
+		fullLaunchPlain: (argv) =>
+			require("./full-launch-plain.js").readFullLaunchPlain(argv),
 	};
 }
 
@@ -137,12 +141,12 @@ function buildHostPorts({ root, payload, log }) {
 function readGate(command, root, weight = null) {
 	const { guardDisabled, hostRoot } = require("./workflow-core-config.js");
 	const host = root ?? hostRoot();
-	if (guardDisabled("guard-suite-concurrency.js", { root: host })) return null;
+	if (guardDisabled("guard-suite-concurrency", { root: host })) return null;
 	const { logError } = require("./arbiter-core.js");
 	/** @param {string} what @param {string} [detail] */
 	const log = (what, detail) => {
 		try {
-			logError("guard-suite-concurrency.js", what, detail);
+			logError("guard-suite-concurrency", what, detail);
 		} catch {
 			/* A log that cannot be written must not break the poll. */
 		}
@@ -157,7 +161,8 @@ function readGate(command, root, weight = null) {
 		vars,
 		told: () => true,
 		readLatch: () => "",
-		...buildHostPorts(env),
+		session: "",
+		...buildHostPorts(host, log),
 		launchWeight: weight,
 		/* Never asked: `told` answers yes, so the limb is never weighed. */
 		fullLaunchPlain: () => ({ plain: false }),

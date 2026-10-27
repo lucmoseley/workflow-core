@@ -1,12 +1,14 @@
 // @vitest-environment node
 /*
- * guard-ugrep-pattern.js warns, once per agent and session and never denying,
- * when a bare `grep` pattern carries a ranged repeat that Claude Code's
- * bundled ugrep may refuse (#1021). These are its boundary cases (§X11): the
- * entry run on a harness-shaped payload — each exit and its stream, the warn
- * latch on disk, the core-path rewrite crossed for real, the fail-open record
- * and a core that throws. Which grep warns, and with which sentence, is
- * lib/ugrep-pattern.test.ts's (#2801).
+ * The guard-ugrep-pattern core of guard-dispatch.js warns, once per agent and
+ * session and never denying, when a bare `grep` pattern carries a ranged
+ * repeat that Claude Code's bundled ugrep may refuse (#1021). These are its
+ * boundary cases (§X11), the dispatcher entry run on it alone on a
+ * harness-shaped payload — each exit and its stream, the warn latch on disk,
+ * the core-path rewrite crossed for real and the fail-open record. Which grep
+ * warns, and with which sentence, is lib/ugrep-pattern.test.ts's (#2801); the
+ * entry's payload faults and the throw policy are guard-dispatch's own tests'
+ * (#3227).
  *
  * CLAUDE_PROJECT_DIR is a temp project, so the latch and any fail-open record
  * land under it and the temp CLAUDE_CONFIG_DIR, never the founder's own state.
@@ -18,16 +20,14 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readFailOpenLog, readFailOpenRecords } from "./guard-log-fixture";
+import { readFailOpenRecords } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-ugrep-pattern.js");
+const CORE = "guard-ugrep-pattern";
 const FIRES = 'grep -oE ".{0,80}x.{0,80}" f';
 
 let dir: string;
@@ -48,8 +48,8 @@ const emission = (
 		env = {},
 	}: { session?: string | null; agent?: string; env?: NodeJS.ProcessEnv } = {},
 ) => {
-	const out = nodeGuardOutput(
-		GUARD,
+	const out = dispatchCoreOutput(
+		CORE,
 		{
 			...buildBashPayload(command, session),
 			cwd: dir,
@@ -119,60 +119,8 @@ describe("the warning, end to end", () => {
 		expect(emission(FIRES, { session: null })).toContain("ugrep");
 		expect(emission(FIRES, { session: null })).toContain("ugrep");
 		expect(readFailOpenRecords(config, dir)[0]?.slice(1)).toEqual([
-			"guard-ugrep-pattern.js",
+			CORE,
 			"no session key — rule ugrep-pattern unlatchable, delivered again",
 		]);
-	});
-});
-
-describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, { project: dir, config, cwd: dir, stdin });
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(readFailOpenRecords(config, dir)).toEqual([]);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"{not json",
-			/payload did not parse as JSON/,
-		],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])("records %s, allowing", (_l, stdin, match) => {
-		const r = run(stdin);
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		const faults = readFailOpenRecords(config, dir);
-		expect(faults).toHaveLength(1);
-		expect(faults[0]).toEqual([
-			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-			"guard-ugrep-pattern.js",
-			expect.stringMatching(match),
-		]);
-	});
-
-	it("allows, logged, where its core throws: it is advisory", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-ugrep-pattern.js",
-			"ugrep-pattern.js",
-		);
-		const out = nodeGuardOutput(entry, buildBashPayload(FIRES, "mine"), {
-			project: dir,
-			config,
-			cwd: dir,
-		});
-		expect(out).toBeNull();
-		expect(readFailOpenLog(config, dir)).toMatch(
-			/guard threw — allowed unchecked: broke/,
-		);
-		expect(fs.existsSync(latch("main-mine"))).toBe(false);
 	});
 });

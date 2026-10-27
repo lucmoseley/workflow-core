@@ -338,18 +338,6 @@ describe("whether the loss was worth a turn", () => {
 		expect(r.reason).toContain("This one is worth the replay");
 	});
 
-	it("prices a guard off the pinned table", () => {
-		guardFile("guard-suite-concurrency.js", true);
-		transcript(lost("guard-suite-concurrency.js", "toolu_A"));
-
-		const r = run();
-
-		expect(r.blocked).toBe(true);
-		expect(r.reason).toContain(
-			"guard-suite-concurrency.js: denies 1.034% of calls (736 denials in 71,159 calls; 95% CI 0.96%-1.11%) — over the 1% cut, worth the replay",
-		);
-	});
-
 	it("calls an unmeasured guard unknown, never zero", () => {
 		guardFile("guard-invented-today.sh", true);
 		transcript([
@@ -509,7 +497,6 @@ describe("the deny-capable set", () => {
 				.map((r) => r.guard)
 				.sort(),
 		);
-		expect(rows.some((r) => !r.denyCapable)).toBe(true);
 	});
 
 	it("counts the real dispatcher, whose file-claim core refuses through the arbiter — #1815", () => {

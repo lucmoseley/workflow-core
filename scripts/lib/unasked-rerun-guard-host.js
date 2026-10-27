@@ -1,6 +1,6 @@
 /*
- * unasked-rerun-guard-host.js — the production ports guard-unasked-rerun.js
- * wires into its core, lib/unasked-rerun-guard.js (#2800).
+ * unasked-rerun-guard-host.js — the production ports the dispatcher wires into
+ * the guard-unasked-rerun core, lib/unasked-rerun-guard.js (#2800, #3227).
  *
  * The judge is lib/unasked-rerun.js's `judge`, called in process over
  * lib/unasked-rerun-io.js's ports at the kit's host root, each git call bounded
@@ -9,17 +9,16 @@
  */
 
 /**
- * @param {import("./kit-context.js").PortEnv} env
+ * @param {string} root
  * @returns {import("./unasked-rerun-guard.js").UnaskedPorts}
  */
-function buildHostPorts({ root, payload }) {
+function buildHostPorts(root) {
 	return {
 		judge: (input) =>
 			require("./unasked-rerun.js").judge(
 				input,
 				require("./unasked-rerun-io.js").judgeIO(root),
 			),
-		sessionId: typeof payload.session_id === "string" ? payload.session_id : "",
 	};
 }
 

@@ -17,9 +17,9 @@
  * guard added after the census joins that set with no edit anywhere — and this
  * table lags it by design. `guard-dispatch.js` is in that position:
  * deny-capable, no row. The census priced the issue-body, issue-close,
- * issue-create-label, issue-phase-scope, pull-form and registry-atomicity
- * guards as entries of their own, and those figures do not price the
- * dispatcher that now runs them as cores.
+ * issue-create-label, issue-phase-scope, pull-form, registry-atomicity and
+ * suite-concurrency guards as entries of their own, and those figures do
+ * not price the dispatcher that now runs them as cores.
  *
  * NOTHING DETECTS STALENESS AUTOMATICALLY. The signal is the report itself: a
  * guard printed as "deny rate unknown" is a guard this table has not been
@@ -35,8 +35,9 @@ const AS_OF = "5 Sep 2026";
 
 /*
  * Above this share of invocations a loss is worth a turn. A reading of one
- * census (mantahostels#3261), not a derived threshold — and `guard-suite-concurrency.js`
- * clears it at 1.034% on a band (0.96-1.11%) that straddles it.
+ * census (mantahostels#3261), not a derived threshold — and the census's
+ * guard-suite-concurrency entry cleared it at 1.034% on a band (0.96-1.11%)
+ * that straddles it.
  */
 const WORTH_REPLAYING_PCT = 1;
 
@@ -47,15 +48,7 @@ const WORTH_REPLAYING_PCT = 1;
  */
 
 /** @type {Record<string, Rate>} */
-const RATES = {
-	"guard-suite-concurrency.js": {
-		denies: 736,
-		population: 71_159,
-		pct: 1.034,
-		lowPct: 0.96,
-		highPct: 1.11,
-	},
-};
+const RATES = {};
 
 /**
  * The measured rate for a guard, or null where it has none.

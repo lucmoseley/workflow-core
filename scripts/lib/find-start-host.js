@@ -1,7 +1,7 @@
 /*
- * find-start-host.js — the production ports guard-root-find.js wires into its
- * core, lib/find-start.js (#2801): the plugin's own root, resolved physical
- * (symlinks followed), and the install's core-path rewrite.
+ * find-start-host.js — the production ports the dispatcher wires into the
+ * guard-root-find core, lib/find-start.js (#2801, #3227): the plugin's own
+ * root, resolved physical (symlinks followed).
  */
 
 const fs = require("node:fs");

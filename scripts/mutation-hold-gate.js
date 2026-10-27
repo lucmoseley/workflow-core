@@ -82,7 +82,7 @@
  *    changed line) is never generated, so never enforced (#1901).
  *  - Code exercised only out of process, a test spawning it in a child, has
  *    no per-test coverage Stryker can see, and reads NoCoverage.
- *  - The run is invisible to guard-suite-concurrency.js's suite count, as the
+ *  - The run is invisible to the guard-suite-concurrency core's suite count, as the
  *    pre-lock test run is: a commit launches it, not a Bash command the guard
  *    judges, and Stryker drives vitest through its API, never `.bin/vitest`
  *    (#1912).

@@ -386,7 +386,6 @@
 			"scripts/check-weakens-line.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/guard-disabled.test.ts",
-			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2618,7 +2617,6 @@
 			"scripts/coverage-declined.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/guard-lost-deny.test.ts",
-			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/host-root-plugin-cache.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -5264,17 +5262,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/guard-root-find.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/guard-root-find.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/core-deny-text.live.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/guard-root-find.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -5317,49 +5304,13 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/guard-suite-concurrency.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/guard-lost-deny.test.ts",
-			"scripts/guard-refusal-length.test.ts",
-			"scripts/guard-suite-concurrency.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/core-deny-text.live.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lost-deny-rates.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/guard-suite-concurrency.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/guard-ugrep-pattern.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/guard-ugrep-pattern.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/core-deny-text.live.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/guard-ugrep-pattern.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/guard-unasked-rerun.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/guard-unasked-rerun.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/core-deny-text.live.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -5404,30 +5355,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/guard-vitest-wrapper.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/guard-vitest-wrapper.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/core-deny-text.live.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/guard-vitest-wrapper.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/guard-wide-read.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/guard-wide-read.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/core-deny-text.live.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -8285,7 +8214,6 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/guard-pull-form.test.ts",
 			"scripts/lib/concurrency.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -8300,7 +8228,6 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/guard-pull-form.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -10539,6 +10466,7 @@
 			"scripts/count-guard-fires.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-disabled.test.ts",
+			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/guard-dispatch.test.ts",
 			"scripts/lib/rule-emission.test.ts",
@@ -11477,6 +11405,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-dispatch.test.ts",
@@ -17119,6 +17048,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -18023,20 +17953,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/lib/ugrep-pattern-host.js": [
-			"scripts/check-guard-errors.test.ts",
-			"scripts/check-guard-registry.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/commit-paths.test.ts",
-			"scripts/concision-backstop.test.ts",
-			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/lib/ugrep-pattern.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -18386,6 +18302,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-vitest-wrapper.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -18673,7 +18590,6 @@
 			"scripts/guard-push-rules.test.ts",
 			"scripts/guard-rm-unchecked.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
-			"scripts/guard-wide-read.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
