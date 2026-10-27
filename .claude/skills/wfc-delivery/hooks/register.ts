@@ -9,9 +9,9 @@
  * what is due: owner, allow-list, once per session, the arbiter's wording.
  *
  * Hooks `session.start`, and `turn.start` and `turn.complete` to run its
- * loop only while a main-loop turn runs: a session that has ended its turn
- * spawns nothing (#3247). Never calls `$.prompt.submit`: it can neither skip
- * a guard nor wake an idle session (#849 §Guard safety).
+ * loop only while a main-loop turn runs (#3247). Never calls
+ * `$.prompt.submit`: it can neither skip a guard nor wake an idle session
+ * (#849 §Guard safety).
  *
  * EVERYTHING LIVES INSIDE `register`. The tests stand for the load through
  * the workflow-core plugin by loading `register` again as an inline plugin,
@@ -72,9 +72,11 @@ export const register: Register = (on) => {
 	const messageOf = (err: unknown) =>
 		err instanceof Error ? err.message : String(err);
 
-	/* Set by the session.start that started this load; the turn hooks start
-	 * and stop its loop. */
-	let loop: { resume: () => void; pause: () => void } | undefined;
+	// Set by the session.start that started this load.
+	let loop: { resume: () => Promise<void>; pause: () => void } | undefined;
+	/* Kept apart from `loop`, so a turn that starts before session.start has
+	 * set the loop up still starts it. */
+	let isTurnRunning = false;
 
 	// Matches every cwd, so one module may hook `session.start` twice (#903 F2).
 	on("session.start", { cwd: /./ }, async ($, e, next) => {
@@ -223,31 +225,48 @@ export const register: Register = (on) => {
 					);
 			};
 
-			const tick = async () => {
+			/* Each step asks whether the loop still runs, so a tick a turn's end
+			 * overtakes forks and appends nothing more. */
+			const steps = async (isCiChecked: boolean) => {
+				// One source failing never starves the other.
+				for (const source of sources) {
+					if (!timer) return;
+					await fetch(source).catch(failed);
+				}
+				if (isCiChecked && timer) await recheckCi().catch(failed);
+				if (pending && timer) await deliver().catch(failed);
+			};
+
+			const tick = async (isCiChecked = true) => {
 				if (isBusy) return;
 				isBusy = true;
 				try {
-					// One source failing never starves the other.
-					for (const source of sources) await fetch(source).catch(failed);
-					await recheckCi().catch(failed);
-					if (pending) await deliver().catch(failed);
+					await steps(isCiChecked);
 				} finally {
 					isBusy = false;
 				}
 			};
 
+			/* A turn's first tick is awaited, so a row lands before the turn's
+			 * first model request, and skips the CI re-check, whose 30 s bound
+			 * would hold the turn up; the next tick runs it. What lands between
+			 * turns waits for the next main-loop turn (#3247). */
 			// `tick` catches its own failures, so nothing it returns is dropped.
 			loop = {
-				resume: () => {
+				resume: async () => {
 					if (timer) return;
 					timer = $.clock.every(tickMs, tick);
-					$.clock.after(0, tick);
+					await tick(false);
 				},
 				pause: () => {
 					timer?.cancel();
 					timer = undefined;
 				},
 			};
+			if (isTurnRunning)
+				loop
+					.resume()
+					.catch((err: unknown) => debug(`not resumed: ${messageOf(err)}`));
 		} catch (err) {
 			debug(`not started: ${messageOf(err)}`);
 		}
@@ -256,13 +275,19 @@ export const register: Register = (on) => {
 
 	/* A subagent's turn neither starts nor stops the loop. Each matcher matches
 	 * every turn, so one module may hook the event twice (#903 F2). */
-	on("turn.start", { turnId: /./ }, (_$, e, next) => {
-		if (e.agentId === undefined) loop?.resume();
+	on("turn.start", { turnId: /./ }, async (_$, e, next) => {
+		if (e.agentId === undefined) {
+			isTurnRunning = true;
+			await loop?.resume();
+		}
 		return next(e);
 	});
 
 	on("turn.complete", { turnId: /./ }, (_$, e, next) => {
-		if (e.agentId === undefined) loop?.pause();
+		if (e.agentId === undefined) {
+			isTurnRunning = false;
+			loop?.pause();
+		}
 		return next(e);
 	});
 };

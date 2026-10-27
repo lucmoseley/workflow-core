@@ -26,7 +26,8 @@ const hasClaude =
 	spawnSync(CLAUDE, ["--version"], { encoding: "utf8" }).status === 0;
 
 const MODS = [
-	// The matcher matches every cwd, so one module may hook it twice (#944).
+	/* Each matcher matches every cwd or turn, so one module may hook each event
+	 * twice (#944, #903 F2). */
 	{
 		mod: "wfc-delivery",
 		hooks:

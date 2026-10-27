@@ -55,6 +55,8 @@ interface World {
 	denyAppends?: number[];
 	/** Whether the repo carries the mod's own `.claude/skills/wfc-delivery/`. */
 	hasLocalCopy?: boolean;
+	/** Held open until the test releases it: the first `--reports` run. */
+	heldRun?: Promise<void>;
 }
 
 function world(on: On, w: World = {}) {
@@ -82,6 +84,7 @@ function world(on: On, w: World = {}) {
 	const prints = [...(w.prints ?? [])];
 	const requestPrints = [...(w.requestPrints ?? [])];
 	const ciPrints = [...(w.ciPrints ?? [])];
+	const heldRuns = w.heldRun === undefined ? [] : [w.heldRun];
 	// A call on `$` is answered `{ value }`; `{ deny }` rejects the caller.
 	on("session.version", () => ({
 		value: { version: w.version ?? "2.1.289" } as never,
@@ -143,7 +146,7 @@ function world(on: On, w: World = {}) {
 			},
 		} as const;
 	});
-	on("process.run", (_$, e, next) => {
+	on("process.run", async (_$, e, next) => {
 		const out = (stdout: string) => ({
 			value: {
 				exitCode: 0,
@@ -172,6 +175,7 @@ function world(on: On, w: World = {}) {
 			return out(requestPrints.shift() ?? "");
 		}
 		seen.reportRuns++;
+		await heldRuns.shift();
 		if (w.failRuns?.includes(seen.reportRuns))
 			return { deny: "process.run rejected" };
 		return out(prints.shift() ?? "");
@@ -191,13 +195,15 @@ interface Kit {
 	};
 }
 
-/** Starts the session, then a main-loop turn, where the loop runs (#3247). */
-const start = async ($: Kit) => {
-	await $.session.start({
+const sessionStart = ($: Kit) =>
+	$.session.start({
 		cwd: CWD,
 		surface: null,
 		isInteractive: false,
 	} as never);
+
+const start = async ($: Kit) => {
+	await sessionStart($);
 	await turnStart($);
 };
 
@@ -263,7 +269,6 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 	test("a rejected run leaves the next tick working", async ($, on) => {
 		const { clock, seen } = world(on, { prints: [REPORT], failRuns: [1] });
 		await start($);
-		await clock.advance(0);
 		expect(seen.reportRuns).toBe(1);
 		expect(seen.appendCalls).toBe(0);
 		await clock.advance(TICK);
@@ -274,7 +279,6 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 	test("a rejected append is offered again next tick, the script not re-run", async ($, on) => {
 		const { clock, seen } = world(on, { prints: [REPORT], failAppends: [1] });
 		await start($);
-		await clock.advance(0);
 		expect(seen.rows).toEqual([]);
 		expect(seen.logs).toEqual([expect.stringContaining("offer 1 of 3")]);
 		await clock.advance(TICK);
@@ -308,7 +312,6 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 			failAppends: [1],
 		});
 		await start($);
-		await clock.advance(0);
 		seen.mtime["/store"] = 2;
 		await clock.advance(TICK);
 		expect(seen.reportRuns).toBe(2);
@@ -413,11 +416,7 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
 	test("before its first turn it stats and spawns nothing", async ($, on) => {
 		const { clock, seen } = world(on, { prints: [REPORT] });
-		await $.session.start({
-			cwd: CWD,
-			surface: null,
-			isInteractive: false,
-		} as never);
+		await sessionStart($);
 		await clock.advance(CI_INTERVAL * 2);
 		expect(seen.stats + seen.forks()).toBe(0);
 	});
@@ -437,29 +436,63 @@ describe("wfc-delivery runs only inside a main-loop turn (#3247)", () => {
 		expect(seen.ciRuns).toBe(0);
 	});
 
+	test("a turn ending mid-tick stops the tick's later forks and its append", async ($, on) => {
+		let release: () => void = () => undefined;
+		const heldRun = new Promise<void>((resolve) => {
+			release = resolve;
+		});
+		const { clock, seen } = world(on, { prints: [REPORT], heldRun });
+		await sessionStart($);
+		const turn = turnStart($);
+		await clock.advance(0);
+		await turnEnd($);
+		release();
+		await turn;
+		await clock.advance(CI_INTERVAL);
+		expect(seen.reportRuns).toBe(1);
+		expect(seen.requestRuns).toBe(0);
+		expect(seen.appendCalls).toBe(0);
+	});
+
+	test("a turn that starts before session.start has finished still starts the loop", async ($, on) => {
+		const { clock, seen } = world(on);
+		await turnStart($);
+		await sessionStart($);
+		await clock.advance(0);
+		seen.mtime["/store"] = 2;
+		await clock.advance(TICK);
+		expect(seen.reportRuns).toBe(2);
+	});
+
+	test("the turn's first row is appended before turn.start resolves", async ($, on) => {
+		const { seen } = world(on, { requestPrints: [REQUEST] });
+		await start($);
+		expect(seen.rows).toEqual([expect.stringContaining("release-request")]);
+		expect(seen.ciRuns).toBe(0);
+	});
+
 	test("a subagent's turn ending leaves the loop running", async ($, on) => {
 		const { clock, seen } = world(on);
 		await start($);
-		await clock.advance(0);
 		await turnEnd($, "a-1");
 		seen.mtime["/store"] = 2;
 		await clock.advance(TICK);
 		expect(seen.reportRuns).toBe(2);
 	});
 
-	test("the next turn's start ticks at once, the CI re-check with it", async ($, on) => {
+	test("the next turn's start ticks at once, and its next tick re-checks CI", async ($, on) => {
 		const { clock, seen } = world(on, { requestPrints: ["", REQUEST] });
 		await start($);
-		await clock.advance(0);
 		await turnEnd($);
 		seen.mtime["/req"] = 2;
 		await clock.advance(CI_INTERVAL);
 		expect(seen.requestRuns).toBe(1);
 		await turnStart($);
-		await clock.advance(0);
 		expect(seen.requestRuns).toBe(2);
-		expect(seen.ciRuns).toBe(1);
+		expect(seen.ciRuns).toBe(0);
 		expect(seen.rows).toEqual([expect.stringContaining("release-request")]);
+		await clock.advance(TICK);
+		expect(seen.ciRuns).toBe(1);
 	});
 });
 
