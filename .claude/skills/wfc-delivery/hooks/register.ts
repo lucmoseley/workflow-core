@@ -75,11 +75,13 @@ export const register: Register = (on) => {
 	const messageOf = (err: unknown) =>
 		err instanceof Error ? err.message : String(err);
 
-	/* Set by the session.start that started this load. A turn that starts
-	 * before then is read from `turnRef`, written before `loop` is asked. */
+	// Set by the session.start that started this load.
 	let loop: { resume: () => Promise<void>; pause: () => void } | undefined;
-	// A load that starts nothing keeps nothing either.
-	let isNotStarted = false;
+	/* What this load's own turn hooks last saw, undefined until one runs. It
+	 * outranks `turnRef`, whose read may predate a turn hook's write (#3251). */
+	let isTurnSeen: boolean | undefined;
+	// A load its floor or double-load guard stands down keeps nothing either.
+	let isStoodDown = false;
 
 	// Matches every cwd, so one module may hook `session.start` twice (#903 F2).
 	on("session.start", { cwd: /./ }, async ($, e, next) => {
@@ -108,7 +110,7 @@ export const register: Register = (on) => {
 		try {
 			const why = await whyNotStarted();
 			if (why !== undefined) {
-				isNotStarted = true;
+				isStoodDown = true;
 				debug(why);
 				return next(e);
 			}
@@ -267,8 +269,8 @@ export const register: Register = (on) => {
 					timer = undefined;
 				},
 			};
-			const { value: isTurnRunning } = await $.state.get(turnRef);
-			if (isTurnRunning)
+			const { value: isKept } = await $.state.get(turnRef);
+			if (isTurnSeen ?? isKept)
 				loop
 					.resume()
 					.catch((err: unknown) => debug(`not resumed: ${messageOf(err)}`));
@@ -281,7 +283,10 @@ export const register: Register = (on) => {
 	/* A subagent's turn neither starts nor stops the loop. Each matcher matches
 	 * every turn, so one module may hook the event twice (#903 F2). */
 	on("turn.start", { turnId: /./ }, async ($, e, next) => {
-		if (e.agentId === undefined && !isNotStarted) {
+		if (e.agentId === undefined && !isStoodDown) {
+			isTurnSeen = true;
+			/* Residual: a failed write is logged and dropped, so a fresh load
+			 * after it reads the turn's state as it stood before. */
 			await $.state.set(turnRef, true).catch((err: unknown) =>
 				$.ui.log(`${modName}: turn start not kept: ${messageOf(err)}`, {
 					to: "debug",
@@ -294,7 +299,8 @@ export const register: Register = (on) => {
 
 	// Paused first, so a tick the write outlasts forks nothing more.
 	on("turn.complete", { turnId: /./ }, async ($, e, next) => {
-		if (e.agentId === undefined && !isNotStarted) {
+		if (e.agentId === undefined && !isStoodDown) {
+			isTurnSeen = false;
 			loop?.pause();
 			await $.state.set(turnRef, false).catch((err: unknown) =>
 				$.ui.log(`${modName}: turn end not kept: ${messageOf(err)}`, {

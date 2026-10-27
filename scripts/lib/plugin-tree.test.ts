@@ -246,7 +246,6 @@ describe("the tree rendered from the core", () => {
 		expect(contract).toContain("export interface LivenessRecord {");
 		expect(contract).not.toContain('"wfc-liveness"');
 		expect(contract).not.toContain('"wfc-delivery"');
-		// Each mod's shipped contract keeps its exports alone.
 		for (const rel of [LIVENESS_CONTRACT, DELIVERY_CONTRACT])
 			expect(fs.readFileSync(path.join(out, rel), "utf8")).not.toContain(
 				"PluginState",
@@ -1040,8 +1039,7 @@ describe("a render in a fixture", () => {
 
 describe("a mod's TypeScript in a fixture (#933)", () => {
 	const modDir = ".claude/skills/mod-x";
-	// The host manifest naming the composed contract.
-	const HostTypes = { types: `./${HOST_CONTRACT}` };
+	const hostTypes = { types: `./${HOST_CONTRACT}` };
 	const render = (tree: Record<string, string>, manifest = {}) => {
 		const root = path.join(tmp, "src");
 		const all: Record<string, string> = {
@@ -1164,7 +1162,7 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 				[`${modDir}/hooks/register.ts`]: module,
 				[`${modDir}/types/index.d.ts`]: contract,
 			},
-			HostTypes,
+			hostTypes,
 		);
 		const readShipped = (rel: string) =>
 			fs.readFileSync(path.join(tmp, "out", modDir, rel), "utf8");
@@ -1189,7 +1187,7 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 				[`${modDir}/types/index.d.ts`]:
 					'declare module "claude-code" {\n\tinterface PluginState {\n\t\t/** Ours. */\n\t\t"mod-x": { r: number };\n\t}\n}\n',
 			},
-			HostTypes,
+			hostTypes,
 		);
 		expect(
 			fs.readFileSync(path.join(tmp, "out", HOST_CONTRACT), "utf8"),
@@ -1205,13 +1203,72 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 			[`${modY}/.claude-plugin/plugin.json`]: JSON.stringify({ name: "mod-y" }),
 			[`${modY}/types/index.d.ts`]: contractOf("mod-y", yKey),
 		});
-		render(tree("s"), HostTypes);
+		render(tree("s"), hostTypes);
 		expect(
 			fs.readFileSync(path.join(tmp, "out", HOST_CONTRACT), "utf8"),
 		).toContain('"host": {\n\t\t\tr: number;\n\t\t\ts: number;\n\t\t};');
-		expect(() => render(tree("r"), HostTypes)).toThrow(
+		expect(() => render(tree("r"), hostTypes)).toThrow(
 			`${modY}/types/index.d.ts and ${modDir}/types/index.d.ts both declare the state key r`,
 		);
+	});
+
+	it("refuses a contract it cannot compose: PluginState elsewhere, or a brace never closed", () => {
+		expect(() =>
+			render(
+				{
+					[`${modDir}/hooks/state.d.ts`]:
+						'declare module "claude-code" {\n\tinterface PluginState {\n\t\t"mod-x": { r: number };\n\t}\n}\n',
+				},
+				hostTypes,
+			),
+		).toThrow(
+			`${modDir}/hooks/state.d.ts declares PluginState outside types/index.d.ts`,
+		);
+		expect(() =>
+			render(
+				{
+					[`${modDir}/types/index.d.ts`]:
+						'declare module "claude-code" {\n\tinterface PluginState {\n\t\t"mod-x": { r: number };\n',
+				},
+				hostTypes,
+			),
+		).toThrow(`${modDir}/types/index.d.ts opens a brace`);
+	});
+
+	it("reads a member key past a comment or string holding a brace or slashes", () => {
+		const modY = ".claude/skills/mod-y";
+		const contractOf = (mod: string, members: string) =>
+			`declare module "claude-code" {\n\tinterface PluginState {\n\t\t"${mod}": {\n${members}\n\t\t};\n\t}\n}\n`;
+		expect(() =>
+			render(
+				{
+					[`${modDir}/types/index.d.ts`]: contractOf(
+						"mod-x",
+						'\t\t\t/** A { brace. */\n\t\t\tkind: "a//b" | "{";\n\t\t\tnested: { r: number };',
+					),
+					[`${modY}/.claude-plugin/plugin.json`]: JSON.stringify({
+						name: "mod-y",
+					}),
+					[`${modY}/types/index.d.ts`]: contractOf("mod-y", "\t\t\tr: number;"),
+				},
+				hostTypes,
+			),
+		).not.toThrow();
+		expect(() =>
+			render(
+				{
+					[`${modDir}/types/index.d.ts`]: contractOf(
+						"mod-x",
+						'\t\t\tkind: "a//b";\n\t\t\tr: number;',
+					),
+					[`${modY}/.claude-plugin/plugin.json`]: JSON.stringify({
+						name: "mod-y",
+					}),
+					[`${modY}/types/index.d.ts`]: contractOf("mod-y", "\t\t\tr: number;"),
+				},
+				hostTypes,
+			),
+		).toThrow("both declare the state key r");
 	});
 
 	it("refuses a manifest naming any other types file than the composed one", () => {

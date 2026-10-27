@@ -242,7 +242,6 @@ const MOD_STANDALONE_CONFIG =
 	/^\.claude\/skills\/([^/]+)\/(?:tsconfig\.json|hooks\/hooks\.json)$/;
 /* A mod's own `$.state` contract, which its stand-alone manifest names. */
 const MOD_CONTRACT = /^\.claude\/skills\/([^/]+)\/types\/index\.d\.ts$/;
-// The release's one contract, composed from every MOD_CONTRACT.
 const HOST_CONTRACT = "types/index.d.ts";
 /* The specifier the engine's own declarations answer to: `declare module
  * "claude-code"`. */
@@ -408,9 +407,10 @@ function closingBrace(text, open) {
  * A mod contract split at its `declare module "claude-code"` block.
  * @param {string} text the contract
  * @param {string} mod the mod's own name
- * @returns {{ exports: string, isState: boolean, members: string | null }}
+ * @returns {{ exports: string, isState: boolean, members: string | null, isUnterminated?: boolean }}
  *   the text before the block, whether there is one, and the members of its
- *   `PluginState` key named `mod`, or null where it has none
+ *   `PluginState` key named `mod`, or null where it has none or a brace never
+ *   closes
  */
 function splitContract(text, mod) {
 	const declare = new RegExp(
@@ -418,31 +418,60 @@ function splitContract(text, mod) {
 	).exec(text);
 	if (!declare) return { exports: text, isState: false, members: null };
 	const exports = text.slice(0, declare.index);
-	const block = text.slice(
-		declare.index,
-		closingBrace(text, declare.index + declare[0].length - 1) + 1,
-	);
+	const unterminated = {
+		exports,
+		isState: true,
+		members: null,
+		isUnterminated: true,
+	};
+	const end = closingBrace(text, declare.index + declare[0].length - 1);
+	if (end < 0) return unterminated;
+	const block = text.slice(declare.index, end + 1);
 	const key = new RegExp(`${quotedName(mod)}\\s*:\\s*\\{`).exec(block);
 	if (!key) return { exports, isState: true, members: null };
 	const open = key.index + key[0].length - 1;
-	return {
-		exports,
-		isState: true,
-		members: block.slice(open + 1, closingBrace(block, open)),
-	};
+	const close = closingBrace(block, open);
+	if (close < 0) return unterminated;
+	return { exports, isState: true, members: block.slice(open + 1, close) };
 }
+
+/**
+ * `members` with its comments and nested brace blocks cut, strings kept.
+ * @param {string} members
+ * @returns {string}
+ */
+function topLevelOf(members) {
+	let flat = "";
+	let depth = 0;
+	for (let i = 0; i < members.length; i++) {
+		const end = skippedTo(members, i);
+		if (end < 0) break;
+		const piece = pieceAt(members, i, end);
+		if (piece === "{") depth++;
+		else if (piece === "}") depth--;
+		else if (depth === 0 || piece === "\n") flat += piece;
+		i = end;
+	}
+	return flat;
+}
+
+/**
+ * @param {string} text
+ * @param {number} i
+ * @param {number} end where skippedTo says what starts at `i` ends
+ * @returns {string} a character, a whole string, or a newline for a comment
+ */
+const pieceAt = (text, i, end) => {
+	if (end === i) return text.charAt(i);
+	return text[i] === "/" ? "\n" : text.slice(i, end + 1);
+};
 
 /**
  * @param {string} members a `PluginState` key's members
  * @returns {string[]} the names they declare, nested types' own left out
  */
-function memberKeys(members) {
-	let flat = members.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
-	for (let was = ""; was !== flat; ) {
-		was = flat;
-		flat = flat.replace(/\{[^{}]*\}/g, "");
-	}
-	return flat
+function parseMemberKeys(members) {
+	return topLevelOf(members)
 		.split(/[;\n]/)
 		.flatMap((line) => line.match(/^\s*["']?([\w$]+)["']?\??\s*:/)?.[1] ?? []);
 }
@@ -459,6 +488,14 @@ function memberKeys(members) {
 function renameStateOwner(text, rel, { mod, host }) {
 	if (MOD_CONTRACT.test(rel)) {
 		return { text: splitContract(text, mod).exports, faults: [] };
+	}
+	if (/\binterface\s+PluginState\b/.test(text)) {
+		return {
+			text,
+			faults: [
+				`${rel} declares PluginState outside types/index.d.ts, the one contract the release composes under ${host}, so it would ship under ${mod}'s own name (#3251)`,
+			],
+		};
 	}
 	const out = text.replace(
 		new RegExp(`(?<=\\bplugin\\s*:\\s*)${quotedName(mod)}`, "g"),
@@ -483,7 +520,7 @@ function renameStateOwner(text, rel, { mod, host }) {
  * contract, or its contract has no `declare module` block and so no state.
  * @param {string} root
  * @param {string} dir a folder under .claude/skills
- * @returns {{ rel: string, mod: string, exports: string, members: string | null } | null}
+ * @returns {{ rel: string, mod: string, exports: string, members: string | null, isUnterminated?: boolean } | null}
  */
 function readStateContract(root, dir) {
 	const rel = `.claude/skills/${dir}/types/index.d.ts`;
@@ -497,9 +534,26 @@ function readStateContract(root, dir) {
 }
 
 /**
- * The release's one contract: every mod state contract's exports, then one
- * `PluginState` key, the host's, holding all their members (#3251). A mod
- * contract with no `declare module` block declares no state and is left out.
+ * Records `rel` as the owner of each key `members` declares.
+ * @param {Map<string, string>} ownerOf each key's contract so far
+ * @param {string} members
+ * @param {string} rel
+ * @param {string | undefined} host
+ * @returns {string[]} a fault for each key another contract already holds
+ */
+function claimKeys(ownerOf, members, rel, host) {
+	return parseMemberKeys(members).flatMap((key) => {
+		const other = ownerOf.get(key);
+		ownerOf.set(key, rel);
+		return other
+			? [
+					`${rel} and ${other} both declare the state key ${key}, which the release composes under ${host} as one (#3251)`,
+				]
+			: [];
+	});
+}
+
+/**
  * @param {string} root
  * @returns {{ text: string | null, faults: string[] }} null where no mod
  *   declares state
@@ -525,20 +579,15 @@ function composeHostContract(root) {
 		host ??= readPluginName(manifest);
 		if (split.members === null) {
 			faults.push(
-				`${rel} declares no PluginState key "${mod}" to compose under ${host} (#903 F8)`,
+				split.isUnterminated
+					? `${rel} opens a brace in its \`declare module\` block that never closes (#3251)`
+					: `${rel} declares no PluginState key "${mod}" to compose under ${host} (#903 F8)`,
 			);
-			continue;
+		} else {
+			faults.push(...claimKeys(ownerOf, split.members, rel, host));
+			exports.push(split.exports.trim());
+			members.push(split.members.replace(/^\n+|\s+$/g, ""));
 		}
-		for (const key of memberKeys(split.members)) {
-			const other = ownerOf.get(key);
-			if (other)
-				faults.push(
-					`${rel} and ${other} both declare the state key ${key}, which the release composes under ${host} as one (#3251)`,
-				);
-			ownerOf.set(key, rel);
-		}
-		exports.push(split.exports.trim());
-		members.push(split.members.replace(/^\n+|\s+$/g, ""));
 	}
 	if (members.length === 0) return { text: null, faults };
 	const { types } = JSON.parse(fs.readFileSync(manifest, "utf8"));

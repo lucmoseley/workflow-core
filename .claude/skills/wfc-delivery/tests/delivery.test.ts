@@ -523,6 +523,27 @@ describe("wfc-delivery after a lost hooks worker (#3251)", () => {
 		await clock.advance(TICK);
 		expect(seen.reportRuns).toBe(2);
 	});
+
+	test("a turn this load saw outranks a kept value read before it", async ($, on) => {
+		const { clock, seen } = world(on);
+		on("state.get", () => ({ value: { value: false, version: 0 } as never }));
+		await turnStart($);
+		await sessionStart($);
+		await clock.advance(0);
+		seen.mtime["/store"] = 2;
+		await clock.advance(TICK);
+		expect(seen.reportRuns).toBe(2);
+	});
+
+	test("a turn end this load saw outranks a stale kept true", async ($, on) => {
+		const { clock, seen } = world(on);
+		on("state.get", () => ({ value: { value: true, version: 1 } as never }));
+		await turnStart($);
+		await turnEnd($);
+		await sessionStart($);
+		await clock.advance(CI_INTERVAL);
+		expect(seen.stats + seen.forks()).toBe(0);
+	});
 });
 
 describe("wfc-delivery and its two loads (#944)", () => {
