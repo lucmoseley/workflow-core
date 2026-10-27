@@ -116,7 +116,7 @@ const readParent = (issue) =>
 	issue.parentPath ? readIssueAt(issue.parentPath) : null;
 
 /**
- * A roadmap card's own issue, by the guard-issue-close core's discriminator: a
+ * A roadmap card's own issue, by guard-issue-close.js's discriminator: a
  * `<card-id> — ` title, no parent (a child borrows the prefix), no
  * `wayfinder:map` label (a map borrows it too).
  * @param {Issue} issue
