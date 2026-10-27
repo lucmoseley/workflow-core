@@ -21,6 +21,7 @@ const {
 	repoOf,
 	sessionOf,
 } = require("./gh-issue-ref.js");
+const { buildAct } = require("./act-line.js");
 const { hasRoundMarker } = require("./round-marker.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
@@ -118,7 +119,7 @@ function readIssueCall(sub, args, env) {
 }
 
 /**
- * A `gh api` blocked-by POST: the `owner/name#n` it adds an edge to, or null.
+ * A `gh api` blocked-by POST: the issue it adds an edge to, or null.
  * @param {string[]} args the words after `gh api`
  * @param {string[]} spans
  * @param {() => string} cwdRepo
@@ -140,7 +141,7 @@ function blockedByPost(args, spans, cwdRepo) {
 	const repo = endpointRepo(endpoint.text);
 	if (repo === null) return null;
 	const named = repo || cwdRepo();
-	return named ? `${named}#${n}` : null;
+	return named ? { repo: named, n } : null;
 }
 
 /**
@@ -167,14 +168,17 @@ function issueActs(sub, call, output) {
 	if (sub === "close")
 		return issues
 			.filter((n) => !isAlreadyClosed(output, `${repo}#${n} `))
-			.map((n) => ({ act: `close ${repo}#${n}` }));
+			.map((n) => ({ act: buildAct("close", repo, n) }));
 	if (sub === "comment")
 		return call.noPost || body.hidden || !body.given
 			? []
-			: issues.map((n) => ({ act: `round ${repo}#${n}`, body: body.text }));
+			: issues.map((n) => ({
+					act: buildAct("round", repo, n),
+					body: body.text,
+				}));
 	return issues.flatMap((n) => [
-		...call.takes.map((t) => ({ act: `relabel ${repo}#${n} ${t}` })),
-		...(call.blocked ? [{ act: `block ${repo}#${n}` }] : []),
+		...call.takes.map((t) => ({ act: buildAct("relabel", repo, n, t) })),
+		...(call.blocked ? [{ act: buildAct("block", repo, n) }] : []),
 	]);
 }
 
@@ -189,7 +193,7 @@ function commandActs({ words, cwd }, { subject, spans, output, ctx }) {
 	const cwdRepo = () => repoOf(ctx.originUrl(cwd || ctx.fallbackCwd));
 	if (words[1] === "api") {
 		const edge = blockedByPost(words.slice(2), spans, cwdRepo);
-		return edge ? [{ act: `block ${edge}` }] : [];
+		return edge ? [{ act: buildAct("block", edge.repo, edge.n) }] : [];
 	}
 	const sub = words[2];
 	if (

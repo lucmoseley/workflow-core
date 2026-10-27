@@ -15,6 +15,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const core = require("./arbiter-core.js");
+const { ACT_LINE, commitAct } = require("./act-line.js");
 const { caught } = require("./caught.js");
 const { mainCheckout } = require("./main-checkout.js");
 
@@ -329,7 +330,7 @@ function pruneCommitAndActLedgers(root) {
 		(id) => path.basename(core.paths.commitLedger(id, root)),
 	);
 	core.sweepSparingLive(
-		"pruneActLedgers",
+		"pruneCommitAndActLedgers",
 		core.paths.actsDir(root),
 		LEDGER_AGE_MS,
 		(id) => path.basename(core.paths.actLedger(id, root)),
@@ -414,17 +415,11 @@ function readBilledPathsBy(sessionId, what) {
 // The acts ledger (#2308)
 // ---------------------------------------------------------------------------
 
-/* What a session did beside committing, as `<kind> <owner/name>#<n>`, a
- * relabel adding ` takes:<x>`; a block is a blocked-by edge added (#2464). A commit is no line here: the commit ledger
- * already holds it. */
-const ACT_LINE =
-	/^(?:block|close|file|round) [\w.-]+\/[\w.-]+#\d+$|^relabel [\w.-]+\/[\w.-]+#\d+ takes:\S+$/;
-
 /**
  * Note that `sessionId` did `act`, one line per act, never deduplicated: two
  * rounds posted on one issue are two acts. Kept under the main worktree's
  * store, as post-commit keeps the commit ledger.
- * @param {string} act e.g. `close lucmoseley/workflow-core-tracker#12`
+ * @param {string} act a line lib/act-line.js's buildAct built
  * @param {string} sessionId
  * @param {string} [root] the repo whose store to write; the main worktree's by default
  * @returns {boolean} whether it was recorded
@@ -460,7 +455,7 @@ function readActsBy(sessionId, roots) {
 		);
 		const commits = readCommitsBy(sessionId, root);
 		if (done === null || commits === null) unreadable.push(root);
-		acts.push(...(done ?? []), ...(commits ?? []).map((c) => `commit ${c}`));
+		acts.push(...(done ?? []), ...(commits ?? []).map(commitAct));
 	}
 	return { acts, unreadable };
 }

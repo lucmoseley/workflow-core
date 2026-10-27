@@ -16,15 +16,13 @@
  * IT ONLY EVER RECORDS. Nothing is refused or injected, and every failure path
  * exits 0 in silence.
  *
- * WHAT A LINE IS:
- *   close <owner/name>#<n>             gh issue close
- *   round <owner/name>#<n>             gh issue comment whose body opens a
- *                                      `❓ **Qn**` round (lib/round-marker.js)
- *   relabel <owner/name>#<n> takes:<x> gh issue edit adding a takes: label, one
- *                                      line per label and issue
- *   block <owner/name>#<n>             a blocked-by edge added to <n>: a gh api
- *                                      POST to its dependencies/blocked_by, or
- *                                      gh issue edit --add-blocked-by
+ * WHAT EACH ACT IS (its line is lib/act-line.js's):
+ *   close    gh issue close
+ *   round    gh issue comment whose body opens a `❓ **Qn**` round
+ *            (lib/round-marker.js)
+ *   relabel  gh issue edit adding a takes: label, one line per label and issue
+ *   block    a blocked-by edge added: a gh api POST to the issue's
+ *            dependencies/blocked_by, or gh issue edit --add-blocked-by
  *
  * LIMITS
  *  - The repo is the call's `--repo`, an issue URL's own, or else the origin

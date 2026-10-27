@@ -257,7 +257,7 @@ function main() {
 		labels,
 		filedBody,
 	});
-	recordOwnAct(`file ${repo}#${n}`);
+	recordOwnAct("file", repo, n);
 	io.out(
 		`Filed #${n}: ${url}\nlabels: ${labels.join(", ")}${added.length > 0 ? ` (${added.join(", ")} added: #${opts.parent} is a spec)` : ""}\n`,
 	);

@@ -20,6 +20,7 @@ const { similarOpen } = require("./similar-titles.js");
 const { readTrackerTitles } = require("./closed-title-cache.js");
 const issueClaims = require("./arbiter-issue-claims.js");
 const ledger = require("./arbiter-ledger.js");
+const { buildAct } = require("./act-line.js");
 const { logError } = require("./arbiter-core.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
@@ -198,16 +199,19 @@ function releaseOwnClaim(io, n) {
 }
 
 /**
- * Add `act` to this session's acts ledger (#2308). Silent with no session id,
- * and on a failed write, which is logged: the act itself has landed, and a
- * missed line costs the refill loop one launch read as unproven.
- * @param {string} act e.g. `close lucmoseley/workflow-core-tracker#12`
+ * Add a `kind` act on issue `n` of `repo` to this session's acts ledger
+ * (#2308). Silent with no session id, and on a failed write, which is logged:
+ * the act itself has landed, and a missed line costs the refill loop one launch
+ * read as unproven.
+ * @param {"close"|"file"} kind
+ * @param {string} repo `owner/name`
+ * @param {number} n
  */
-function recordOwnAct(act) {
+function recordOwnAct(kind, repo, n) {
 	const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
 	if (!sessionId) return;
 	try {
-		ledger.recordAct(act, sessionId);
+		ledger.recordAct(buildAct(kind, repo, n), sessionId);
 	} catch (e) {
 		logError("record act", e);
 	}

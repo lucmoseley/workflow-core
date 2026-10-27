@@ -448,7 +448,7 @@ function main() {
 	} else {
 		postCommentOnce(repo, n, comment);
 		closeOrFail(repo, n, a.reason);
-		recordOwnAct(`close ${repo}#${n}`);
+		recordOwnAct("close", repo, n);
 	}
 
 	let code = releaseOwnClaim(io, n);

@@ -10,7 +10,7 @@
  * gate, calls `stale-check --staged`; `accept-head` is that gate's escape,
  * which a session runs for itself;
  * .husky/post-commit calls `release-committed`, `advance-bases` and
- * `record-commit`, and record-acts.js calls `record-act`.
+ * `record-commit`.
  *
  * What is left here is POLICY and PRESENTATION: which store operation a
  * subcommand runs, what it prints, and what it exits with.
@@ -60,7 +60,6 @@ const {
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
-const { hasRoundMarker } = require("./lib/round-marker.js");
 const { readOwnPaths } = require("./lib/own-work.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
 
@@ -2607,29 +2606,6 @@ function cmdRecordCommit(commit, sessionId) {
 }
 
 /**
- * `record-act` (#2308): record-acts.js's call, adding one act to this
- * session's acts ledger. A `round` reads the comment's body on stdin and is
- * recorded only where that body opens a question round.
- *
- * 0 but on usage, and silent with no session id, for cmdRecordCommit's reason.
- * @param {string[]} words the act, split as the shell split it
- * @param {string} sessionId
- */
-function cmdRecordAct(words, sessionId) {
-	const act = words.join(" ");
-	if (!sessionId) return 0;
-	try {
-		if (words[0] === "round" && !hasRoundMarker(fs.readFileSync(0, "utf8")))
-			return 0;
-		if (!store.recordAct(act, sessionId))
-			return refuseUsage(usageOf("record-act"));
-	} catch (e) {
-		store.logError("record act", e);
-	}
-	return 0;
-}
-
-/**
  * The versions a claimed path has passed through, newest first, each with the
  * command that gets it back (mantahostels#438).
  *
@@ -4093,10 +4069,6 @@ const COMMANDS = {
 	"accept-head": { line: "accept-head <path>", max: 1 },
 	"advance-bases": { line: "advance-bases <commit>", max: 1 },
 	"record-commit": { line: "record-commit <commit>", max: 1 },
-	"record-act": {
-		line: "record-act <block|close|file|round|relabel> <owner/name>#<n> [takes:<x>]",
-		max: 3,
-	},
 	list: { line: "list [--all]", flags: { "--all": "boolean" } },
 	versions: { line: "versions <path>", max: 1 },
 	"alloc-entry": { line: "alloc-entry [docs/doc-map.md]", max: 1 },
@@ -4285,9 +4257,6 @@ function main(argv) {
 		// The caller is .husky/post-commit, for release-committed's reason.
 		case "record-commit":
 			return cmdRecordCommit(rest[0], sessionId);
-		// The caller is record-acts.js, for release-committed's reason.
-		case "record-act":
-			return cmdRecordAct(rest, sessionId);
 		case "list":
 			return cmdList(flags["--all"] === true);
 		// The claim block is read whoever holds it; the session id selects the

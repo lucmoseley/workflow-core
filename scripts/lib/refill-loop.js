@@ -16,6 +16,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { parseAct } = require("./act-line.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const { RESUME_CAP } = require("./block-act.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
@@ -670,7 +671,7 @@ function actsOf(l, roots, readActsBy) {
 	/** @type {Record<string, number>} */
 	const counts = {};
 	for (const act of acts) {
-		const kind = act.replace(/ .*/s, "");
+		const { kind } = parseAct(act);
 		counts[kind] = (counts[kind] ?? 0) + 1;
 	}
 	return { acts: counts };
