@@ -16,7 +16,7 @@
 	"scripts/check-gate-switches.js": "09bec33a527824f7",
 	"scripts/check-guard-registry.js": "bf8cc9d465870849",
 	"scripts/check-harness-canary.js": "c6a8b24489fd3e1a",
-	"scripts/check-issue-labels.js": "8e2d70122dd69dc3",
+	"scripts/check-issue-labels.js": "9fd8436e71ac0498",
 	"scripts/check-jev-flags.js": "9fc72c15625ff6ef",
 	"scripts/check-kernel-stall.js": "db08db2bf523309f",
 	"scripts/check-lockfile-sync.js": "c5a07614f887fa75",
@@ -82,7 +82,7 @@
 	"scripts/reap-orphan-hooks.js": "96872d3387a2d362",
 	"scripts/reconcile-plugin.js": "142f1430a4bddeaf",
 	"scripts/record-acts.js": "41d7e6ce8a754db9",
-	"scripts/record-delegated-decision.js": "a4088a9d1f5ed927",
+	"scripts/record-delegated-decision.js": "80bd0ab77a4c9c20",
 	"scripts/record-divergence.js": "cad24774af295c6c",
 	"scripts/record-issue-claim.js": "2d8a9f189d67a06d",
 	"scripts/refill-wake.sh": "b9c328236970faa3",
@@ -99,7 +99,7 @@
 	"scripts/unpark-on-prompt.js": "7132d81b50eb7ae0",
 	"scripts/vitest-inflight-reporter.ts": "2458bc303e8b5930",
 	"scripts/vitest-pass-reporter.ts": "2ecab553433542eb",
-	"scripts/vitest-tree-watch.ts": "a4d854d1da24831d",
+	"scripts/vitest-tree-watch.ts": "4d761210fe1246d3",
 	"scripts/watch-artefact.js": "e7a95b219d0e9de6",
 	"scripts/write-self-plugin-marker.sh": "ecbf6c767782ff76"
 }
