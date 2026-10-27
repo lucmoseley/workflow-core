@@ -14,6 +14,15 @@
  * discoverRepos' callers: lib/refill-frontier.js, scripts/file-morning-review.js,
  * reading each repo's delegated-decision ledger (#2011), and refill-loop.js's
  * `start`, which starts nothing from an excluded checkout (#2014).
+ *
+ * It also links checkouts and trackers: readHostTracker reads a checkout's
+ * configured tracker, for check-duplicate-dispatch.js and pick-next.js, and
+ * readCheckoutTracking finds the adopter that tracks a repo, so pick-next.js
+ * and lib/parent-claims.js read that repo's claim store.
+ *
+ * checkoutEnv is the environment for a child run in another checkout, for
+ * refill-loop.js, lib/refill-batch.js, lib/refill-frontier.js,
+ * lib/lander-start.js and lib/file-through.js.
  */
 
 const fs = require("node:fs");

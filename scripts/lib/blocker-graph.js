@@ -13,8 +13,9 @@
  * repo, which cannot close while it is open (#3222). A parent in another repo
  * is not read.
  *
- * Callers: scripts/pick-next.js, which ranks on reachOf and inheritance and
- * reports pulledInOf's rows, and through its `--json` lib/refill-frontier.js.
+ * Callers: scripts/pick-next.js, which ranks on reachOf and inheritance,
+ * holds on openBlockersOf, and reports pulledInOf's rows and proseOf's
+ * markers; and through its `--json` lib/refill-frontier.js.
  */
 
 const { isInOtherRepo, refKey, refLabel } = require("./issue-ref.js");
@@ -49,13 +50,9 @@ const { judgeProseRefs, proseRefsOf } = require("./prose-blockers.js");
  * @property {string|null} unknown why its blockers could not be read
  */
 /**
- * One node another holds out directly: one it blocks, or its parent.
- * @typedef {{key: string}} Hold
- */
-/**
- * A strongly connected set of nodes: its work count, the holds leaving it and
- * the holds inside it.
- * @typedef {{work: number, out: Hold[], inner: Hold[]}} Unit
+ * A strongly connected set of nodes: its work count, and the keys of the
+ * nodes it holds out directly that lie outside it and inside it.
+ * @typedef {{work: number, out: string[], inner: string[]}} Unit
  */
 /**
  * Where an issue inherits a tier from: `number`, the held issue carrying it,
@@ -78,7 +75,7 @@ const inRepo = (ref, home) => ({
  * A node's verdicts where its body was never read.
  * @returns {Node["prose"]}
  */
-const noProse = () => ({ open: [], closed: [], unreadable: [] });
+const buildUnreadProse = () => ({ open: [], closed: [], unreadable: [] });
 
 /**
  * The graph over `served`'s open issues and every open blocker they reach.
@@ -178,7 +175,7 @@ async function blockerGraph(served, ownRepo, read) {
 				served: false,
 				info: s.ok ? s.issue : null,
 				blockers: [],
-				prose: noProse(),
+				prose: buildUnreadProse(),
 				unknown: s.ok ? null : s.error,
 			};
 			if (!s.ok) return node;
@@ -190,16 +187,17 @@ async function blockerGraph(served, ownRepo, read) {
 		layer = unvisited(walked);
 	}
 
-	/** @type {Map<string, Hold[]>} key -> the open nodes it holds out directly */
+	/** @type {Map<string, string[]>} key -> the open nodes it holds out
+	 * directly: those it blocks, and its parent */
 	const holds = new Map([...nodes.keys()].map((k) => [k, []]));
 	for (const [k, n] of nodes)
-		for (const b of n.blockers) holds.get(b.key)?.push({ key: k });
+		for (const b of n.blockers) holds.get(b.key)?.push(k);
 	/** @type {Set<string>} open served parents: headings, not work */
 	const containers = new Set();
 	for (const s of served) {
 		if (s.parent === null || !openServed.has(s.parent)) continue;
 		const p = refKey({ repo: ownRepo, number: s.parent });
-		holds.get(refKey({ repo: ownRepo, number: s.number }))?.push({ key: p });
+		holds.get(refKey({ repo: ownRepo, number: s.number }))?.push(p);
 		containers.add(p);
 	}
 	return { nodes, holds, containers, ownRepo };
@@ -236,12 +234,12 @@ const isWork = (graph, k) =>
 function heldBy(graph, key) {
 	/** @type {Set<string>} */
 	const seen = new Set();
-	const stack = (graph.holds.get(key) ?? []).map((h) => h.key);
+	const stack = [...(graph.holds.get(key) ?? [])];
 	for (let k = stack.pop(); k !== undefined; k = stack.pop()) {
 		if (seen.has(k)) continue;
 		seen.add(k);
 		for (const next of graph.holds.get(k) ?? [])
-			if (!seen.has(next.key)) stack.push(next.key);
+			if (!seen.has(next)) stack.push(next);
 	}
 	return [...seen]
 		.flatMap((k) =>
@@ -276,29 +274,26 @@ function inheritance(graph, sources) {
 	 */
 	/** @param {(n: number) => boolean} isSource */
 	const longest = (isSource) => {
-		/** @param {Hold} e */
-		const qualifies = (e) => {
-			const n = nodeAt(graph.nodes, e.key);
+		/** @param {string} k */
+		const qualifies = (k) => {
+			const n = nodeAt(graph.nodes, k);
 			return n.served && isSource(n.ref.number);
 		};
 		/** @type {Map<Unit, Step|null>} filled sinks first, so `next` is set */
 		const best = new Map();
-		/** @param {Hold} h @returns {Step|null} */
-		const through = (h) => {
-			const next = unitOf(h.key);
+		/** @param {string} k @returns {Step|null} */
+		const through = (k) => {
+			const next = unitOf(k);
 			const on = best.get(next);
 			const cont = on ? next.work + on.len : Number.NEGATIVE_INFINITY;
-			const [source] = [h, ...next.inner]
-				.filter(qualifies)
-				.map((e) => e.key)
-				.sort(byNumber);
+			const [source] = [k, ...next.inner].filter(qualifies).sort(byNumber);
 			const stop = source === undefined ? Number.NEGATIVE_INFINITY : next.work;
 			const len = Math.max(cont, stop);
 			if (len === Number.NEGATIVE_INFINITY) return null;
 			return {
 				len,
 				next,
-				entry: h.key,
+				entry: k,
 				stop: source !== undefined && stop >= cont ? source : null,
 			};
 		};
@@ -375,10 +370,10 @@ function unitsOf(graph) {
 		const me = { index: meta.size, low: meta.size };
 		meta.set(k, me);
 		stack.push(k);
-		for (const h of graph.holds.get(k) ?? []) {
-			const seen = meta.get(h.key);
-			if (!seen) me.low = Math.min(me.low, visit(h.key).low);
-			else if (!unitIndex.has(h.key)) me.low = Math.min(me.low, seen.index);
+		for (const held of graph.holds.get(k) ?? []) {
+			const seen = meta.get(held);
+			if (!seen) me.low = Math.min(me.low, visit(held).low);
+			else if (!unitIndex.has(held)) me.low = Math.min(me.low, seen.index);
 		}
 		if (me.low === me.index) {
 			const unit = stack.splice(stack.lastIndexOf(k));
@@ -388,17 +383,17 @@ function unitsOf(graph) {
 		return me;
 	};
 	for (const k of graph.nodes.keys()) if (!meta.has(k)) visit(k);
-	/** @param {Hold} a @param {Hold} b */
+	/** @param {string} a @param {string} b */
 	const order = (a, b) =>
-		nodeAt(graph.nodes, a.key).ref.number -
-			nodeAt(graph.nodes, b.key).ref.number || a.key.localeCompare(b.key);
+		nodeAt(graph.nodes, a).ref.number - nodeAt(graph.nodes, b).ref.number ||
+		a.localeCompare(b);
 	/** @type {Unit[]} */
 	const units = members.map((keys, u) => {
 		const holds = keys.flatMap((k) => graph.holds.get(k) ?? []);
 		return {
 			work: keys.filter((k) => isWork(graph, k)).length,
-			out: holds.filter((h) => unitIndex.get(h.key) !== u).sort(order),
-			inner: holds.filter((h) => unitIndex.get(h.key) === u),
+			out: holds.filter((k) => unitIndex.get(k) !== u).sort(order),
+			inner: holds.filter((k) => unitIndex.get(k) === u),
 		};
 	});
 	/** @param {string} k */
@@ -469,7 +464,7 @@ function inReadingOrder(items, refOf, ownRepo) {
  */
 function proseOf(graph, n) {
 	const node = servedNode(graph, n);
-	const prose = node?.prose ?? noProse();
+	const prose = node?.prose ?? buildUnreadProse();
 	/** @param {IssueRef[]} refs */
 	const labels = (refs) =>
 		inReadingOrder(refs, (r) => r, graph.ownRepo).map((r) =>

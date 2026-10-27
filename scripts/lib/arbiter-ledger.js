@@ -15,7 +15,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const core = require("./arbiter-core.js");
-const { ACT_LINE, commitAct } = require("./act-line.js");
+const { ACT_LINE, buildCommitAct } = require("./act-line.js");
 const { caught } = require("./caught.js");
 const { mainCheckout } = require("./main-checkout.js");
 
@@ -455,7 +455,7 @@ function readActsBy(sessionId, roots) {
 		);
 		const commits = readCommitsBy(sessionId, root);
 		if (done === null || commits === null) unreadable.push(root);
-		acts.push(...(done ?? []), ...(commits ?? []).map(commitAct));
+		acts.push(...(done ?? []), ...(commits ?? []).map(buildCommitAct));
 	}
 	return { acts, unreadable };
 }

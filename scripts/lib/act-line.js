@@ -31,7 +31,7 @@ function buildAct(kind, repo, n, takes) {
 /**
  * @param {string} sha
  */
-const commitAct = (sha) => `commit ${sha}`;
+const buildCommitAct = (sha) => `commit ${sha}`;
 
 /**
  * @param {string} line
@@ -42,4 +42,4 @@ function parseAct(line) {
 	return takes === undefined ? { kind, ref } : { kind, ref, takes };
 }
 
-module.exports = { ACT_LINE, buildAct, commitAct, parseAct };
+module.exports = { ACT_LINE, buildAct, buildCommitAct, parseAct };

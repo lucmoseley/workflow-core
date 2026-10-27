@@ -17,13 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readRecentEntries } from "./dispatch-ledger.js";
-import {
-	batchesOf,
-	dispatchCall,
-	launchBatch,
-	MEMBER_DROPPED,
-	MEMBER_REFUSED,
-} from "./refill-batch.js";
+import { batchesOf, dispatchCall, launchBatch } from "./refill-batch.js";
 
 type LoopLaunch = import("./refill-loop.js").LoopLaunch;
 
@@ -99,13 +93,39 @@ describe("the dispatcher call for one batch", () => {
 });
 
 describe("a refused member's reason (#2500)", () => {
-	it("keys on the member lines dispatch-sessions.sh prints", () => {
+	/* Each member line as dispatch-sessions.sh prints it for `prompt`. */
+	const printed = (format: RegExp, prompt: string) => {
 		const sh = fs.readFileSync(
 			path.join(__dirname, "..", "dispatch-sessions.sh"),
 			"utf8",
 		);
-		expect(sh).toContain(`printf '${MEMBER_REFUSED("%s")}\\n'`);
-		expect(sh).toContain(`printf '  ${MEMBER_DROPPED("%s")}\\n'`);
+		const lines = [...sh.matchAll(format)].map((m) =>
+			String(m[1]).replace("%s", prompt),
+		);
+		expect(lines).not.toEqual([]);
+		return lines;
+	};
+	const reasonFor = (out: string) =>
+		launchBatch([launch], {
+			...seededIo([]),
+			run: () => ({ failed: null, out }),
+		}).refused.map((f) => f.reason);
+
+	it("keys on the REFUSED member line dispatch-sessions.sh prints", () => {
+		for (const line of printed(
+			/printf '(REFUSED: %s — [^']*)\\n'/g,
+			launch.prompt,
+		))
+			expect(reasonFor(`${line}\n  slots              0 — HOLD`)).toEqual([
+				"slots 0 — HOLD",
+			]);
+	});
+
+	it("keys on the dropped member line dispatch-sessions.sh prints", () => {
+		for (const line of printed(/printf '( {2}dropped: %s)\\n'/g, launch.prompt))
+			expect(reasonFor(`DROPPING 1 issue(s)\n${line}`)).toEqual([
+				"DROPPING 1 issue(s)",
+			]);
 	});
 });
 

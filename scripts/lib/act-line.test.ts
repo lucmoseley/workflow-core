@@ -1,14 +1,23 @@
 // @vitest-environment node
+/*
+ * The acts ledger's line format (#3264): each line buildAct and
+ * buildCommitAct build, ACT_LINE's verdict on it, and parseAct's split of it.
+ * The module is pure, so the cases call it in process and touch no disk.
+ *
+ * Loosen one and a writer's line is refused by the ledger, a commit line
+ * lands in the acts ledger, or the refill loop's progress test misreads a
+ * launch's acts.
+ */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
 type Kind = "block" | "close" | "file" | "relabel" | "round";
-const { ACT_LINE, buildAct, commitAct, parseAct } = createRequire(__filename)(
-	"./act-line.js",
-) as {
+const { ACT_LINE, buildAct, buildCommitAct, parseAct } = createRequire(
+	__filename,
+)("./act-line.js") as {
 	ACT_LINE: RegExp;
 	buildAct: (kind: Kind, repo: string, n: number, takes?: string) => string;
-	commitAct: (sha: string) => string;
+	buildCommitAct: (sha: string) => string;
 	parseAct: (line: string) => { kind: string; ref: string; takes?: string };
 };
 
@@ -33,7 +42,7 @@ describe("act line", () => {
 	});
 
 	it("parses a commit line, which ACT_LINE keeps out of the acts ledger", () => {
-		const line = commitAct("a".repeat(40));
+		const line = buildCommitAct("a".repeat(40));
 		expect(line).not.toMatch(ACT_LINE);
 		expect(parseAct(line)).toEqual({ kind: "commit", ref: "a".repeat(40) });
 	});

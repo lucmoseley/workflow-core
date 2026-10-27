@@ -78,7 +78,7 @@ function buildWouldRunLine(call, overflow) {
  */
 
 /* The dispatcher's per-member lines parseRefusalReason keys on, which a test
- * pins to dispatch-sessions.sh's printf formats. */
+ * pins to dispatch-sessions.sh's printf formats through launchBatch. */
 const MEMBER_REFUSED = (/** @type {string} */ prompt) =>
 	`REFUSED: ${prompt} — not launching this member.`;
 const MEMBER_DROPPED = (/** @type {string} */ prompt) => `dropped: ${prompt}`;
@@ -186,8 +186,6 @@ function launchBatch(batch, io) {
 }
 
 module.exports = {
-	MEMBER_DROPPED,
-	MEMBER_REFUSED,
 	batchesOf,
 	buildWouldRunLine,
 	dispatchCall,

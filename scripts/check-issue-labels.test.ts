@@ -1615,7 +1615,7 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		).toBe(false);
 	});
 
-	it("stays silent where the body names an open prose blocker", () => {
+	it("stays silent where the body names an open prose blocker (#3262)", () => {
 		expect(
 			flagged({ comments: [Blocked], body: "**Blocked on** #8" }, [
 				{ number: 8 },
@@ -1672,7 +1672,7 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 
 	/* #3271: a marker naming its own repo is answered from the open list. */
 	const Here = "https://api.github.com/repos/acme/app";
-	it("judges an own-repo qualified prose blocker against the open list, reading nothing", () => {
+	it("judges an own-repo qualified prose blocker against the open list, reading nothing (#3271)", () => {
 		const open = flagged(
 			{
 				comments: [Blocked],
