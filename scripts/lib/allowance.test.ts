@@ -14,7 +14,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { capSet, readAllowance } from "./allowance";
-import { buildUsageText } from "./usage-probe-fake";
+import {
+	type Bars,
+	buildUsageCache,
+	buildUsageText,
+	type CacheOptions,
+	recordedLimit,
+} from "./usage-probe-fake";
 
 /** #280 ruling 3's five-minute window, pinned here rather than read back. */
 const STALE_MS = 5 * 60 * 1000;
@@ -25,49 +31,43 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+/** A seat cache of `bars`, stamped now unless `fetchedAtMs` says; absent
+ * options build each bar resetting one window after the stamp. */
 const writeCache = (
 	configDir: string,
-	limits: Record<string, unknown>[],
-	fetchedAtMs: number | null = Date.now(),
+	bars: Bars,
+	fetchedAtMs = Date.now(),
+	options?: CacheOptions,
 ) => {
 	fs.writeFileSync(
 		path.join(configDir, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: {
-				...(fetchedAtMs === null ? {} : { fetchedAtMs }),
-				utilization: { limits },
-			},
-		}),
+		JSON.stringify(buildUsageCache(bars, fetchedAtMs, options)),
 	);
 };
 
 describe("JSON source (#280 ruling 1-2)", () => {
 	it("matches kind: session and kind: weekly_all, ignoring weekly_scoped", () => {
 		const now = Date.now();
-		writeCache(dir, [
-			{
-				kind: "session",
-				percent: 23,
-				severity: "normal",
-				resets_at: new Date(now + 60 * 60 * 1000).toISOString(),
-			},
-			{
-				kind: "weekly_all",
-				percent: 7,
-				severity: "normal",
-				resets_at: new Date(now + 7 * 24 * 60 * 60 * 1000).toISOString(),
-			},
-			{ kind: "weekly_scoped", percent: 100, severity: "critical" },
-		]);
+		writeCache(dir, { session: 23, week: 7 }, now, {
+			scoped: [
+				{
+					model: "Opus",
+					percent: 100,
+					// Neither unscoped bar's recorded severity, so a misread shows.
+					severity: "warning",
+					resetsAt: new Date(now + 60 * 60 * 1000).toISOString(),
+				},
+			],
+		});
 		const r = readAllowance({ configDir: dir, now });
 		expect(r.session).toMatchObject({
 			percent: 23,
-			severity: "normal",
+			severity: recordedLimit("session").severity,
 			trust: "fresh",
 		});
 		expect(r.weekly_all).toMatchObject({
 			percent: 7,
-			severity: "normal",
+			severity: recordedLimit("weekly_all").severity,
 			trust: "fresh",
 		});
 	});
@@ -94,39 +94,23 @@ describe("JSON source (#280 ruling 1-2)", () => {
 describe("staleness (#280 ruling 3)", () => {
 	it("is fresh inside the 5-minute window", () => {
 		const now = Date.now();
-		writeCache(
-			dir,
-			[{ kind: "session", percent: 23 }],
-			now - (STALE_MS - 1000),
-		);
+		writeCache(dir, { session: 23 }, now - (STALE_MS - 1000));
 		const r = readAllowance({ configDir: dir, now });
 		expect(r.session.trust).toBe("fresh");
 	});
 
 	it("is stale past the 5-minute window", () => {
 		const now = Date.now();
-		writeCache(
-			dir,
-			[{ kind: "session", percent: 23 }],
-			now - (STALE_MS + 1000),
-		);
+		writeCache(dir, { session: 23 }, now - (STALE_MS + 1000));
 		const r = readAllowance({ configDir: dir, now });
 		expect(r.session.trust).toBe("stale");
 	});
 
 	it("is stale once its own resets_at has passed, whatever fetchedAtMs says", () => {
 		const now = Date.now();
-		writeCache(
-			dir,
-			[
-				{
-					kind: "session",
-					percent: 23,
-					resets_at: new Date(now - 1000).toISOString(),
-				},
-			],
-			now,
-		);
+		writeCache(dir, { session: 23 }, now, {
+			resetsAt: { session: new Date(now - 1000).toISOString() },
+		});
 		const r = readAllowance({ configDir: dir, now });
 		expect(r.session.trust).toBe("stale");
 	});
@@ -143,17 +127,13 @@ describe("text fallback (#280 ruling 1)", () => {
 
 	it("falls back per bar when the JSON reading is stale", () => {
 		const now = Date.now();
-		writeCache(
-			dir,
-			[{ kind: "session", percent: 97 }],
-			now - (STALE_MS + 1000),
-		);
+		writeCache(dir, { session: 97 }, now - (STALE_MS + 1000));
 		const r = readAllowance({ configDir: dir, usageText, now });
 		expect(r.session).toMatchObject({ percent: 12, trust: "fresh" });
 	});
 
 	it("prefers a fresh JSON reading over the text, even where both are present", () => {
-		writeCache(dir, [{ kind: "session", percent: 40 }]);
+		writeCache(dir, { session: 40 });
 		const r = readAllowance({ configDir: dir, usageText });
 		expect(r.session.percent).toBe(40);
 	});

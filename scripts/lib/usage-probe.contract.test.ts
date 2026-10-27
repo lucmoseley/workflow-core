@@ -184,3 +184,40 @@ it.skipIf(liveSkipReason())(
 			});
 	},
 );
+
+/** The live seat's raw `weekly_scoped` bar, parsed by hand because the
+ * shape check needs the keys lib/usage-cache.js drops; a seat on no model
+ * allowance caches none. */
+function liveScopedLimit(): Record<string, unknown> | undefined {
+	const parsed = JSON.parse(
+		fs.readFileSync(path.join(readLiveSeat(), ".claude.json"), "utf8"),
+	);
+	return parsed?.cachedUsageUtilization?.utilization?.limits?.find(
+		(l: { kind?: unknown }) => l?.kind === "weekly_scoped",
+	);
+}
+
+// Residual: a seat on no model allowance skips this, and the recorded
+// weekly_scoped bar goes unchecked against the live one.
+const scopedSkipReason = () =>
+	liveSkipReason() ??
+	(liveScopedLimit() ? undefined : "the live seat caches no weekly_scoped bar");
+
+it.skipIf(scopedSkipReason())(
+	"the live seat's weekly_scoped bar has the recorded shape (#3282)",
+	() => {
+		const live = liveScopedLimit() as Record<string, unknown>;
+		const recordedScoped = recordedLimit("weekly_scoped");
+		expect(keyTypes(live)).toEqual(keyTypes(recordedScoped));
+		const model = (l: Record<string, unknown>) =>
+			(l.scope as { model: object }).model;
+		expect(keyTypes(live.scope as object)).toEqual(
+			keyTypes(recordedScoped.scope as object),
+		);
+		expect(keyTypes(model(live))).toEqual(keyTypes(model(recordedScoped)));
+		const read = readUsageCache(readLiveSeat());
+		expect(
+			read.state === "ok" && read.bars.find((b) => b.kind === "weekly_scoped"),
+		).toMatchObject({ model: expect.any(String), percent: expect.any(Number) });
+	},
+);

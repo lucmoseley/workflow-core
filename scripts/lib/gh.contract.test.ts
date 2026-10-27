@@ -657,10 +657,10 @@ describe("offline: the recorded shapes", () => {
 			error: /repo\.topics holds elements gh's recorded answer lacks/,
 		},
 		{
-			kind: "issue",
+			kind: "pullRequest",
 			what: "a kind with no recording",
 			value: {},
-			error: /no recorded answer for issue/,
+			error: /no recorded answer for pullRequest/,
 		},
 	])("refuses $what, naming the offending path", ({ kind, value, error }) => {
 		expect(() => asRecorded(kind, value)).toThrow(error);

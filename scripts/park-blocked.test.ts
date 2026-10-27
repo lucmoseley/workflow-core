@@ -17,7 +17,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, gitRepo } from "./lib/arbiter-testkit";
-import { asRecorded } from "./lib/gh-fake";
+import { asRecorded, GH_NOT_FOUND, ghServeLines } from "./lib/gh-fake";
 
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
@@ -59,14 +59,16 @@ let ghBin: string;
 /** A `gh` stub dispatching on `issue view --json labels|body`, `issue
  * comment`, `issue edit`, and `api` reads of the blocked-by edges, of the
  * open list (#9 and every `states` entry that is open) and of an issue's
- * state. An issue missing from `states` answers empty at exit 0. */
+ * state, each REST answer held to its recording by `asRecorded`. An issue
+ * missing from `states` answers empty at exit 0. A failing read serves
+ * the recorded not-found. */
 function stubGh(
 	opts: {
 		labels?: string[];
 		body?: string;
 		labelsExit?: number;
 		edges?: { state: string }[];
-		apiExit?: number;
+		apiFails?: boolean;
 		failPath?: string;
 		states?: Record<number, string>;
 	} = {},
@@ -76,7 +78,7 @@ function stubGh(
 		body = "",
 		labelsExit = 0,
 		edges = [],
-		apiExit = 0,
+		apiFails = false,
 		failPath = "",
 		states = {},
 	} = opts;
@@ -85,10 +87,12 @@ function stubGh(
 		"#!/bin/bash",
 		`printf '%s\\n' "$*" >> "${ghCallsFile}"`,
 		'if [ "$1" = "api" ]; then',
-		`  if [ ${apiExit} -ne 0 ]; then exit ${apiExit}; fi`,
-		`  if [ -n "${failPath}" ] && [ "\${2%${failPath}}" != "$2" ]; then exit 1; fi`,
+		...(apiFails ? [ghServeLines(GH_NOT_FOUND)] : []),
+		`  if [ -n "${failPath}" ] && [ "\${2%${failPath}}" != "$2" ]; then`,
+		ghServeLines(GH_NOT_FOUND),
+		"  fi",
 		'  case "$2" in',
-		`    */dependencies/blocked_by) printf '%s' '${JSON.stringify([edges])}' ;;`,
+		`    */dependencies/blocked_by) printf '%s' '${asRecorded("blockedByPage", [edges])}' ;;`,
 		`    */issues) printf '%s' '${asRecorded("issuesPage", [
 			[
 				9,
@@ -97,7 +101,7 @@ function stubGh(
 		])}' ;;`,
 		...Object.entries(states).map(
 			([n, state]) =>
-				`    */issues/${n}) printf '%s' '${JSON.stringify([[{ state }]])}' ;;`,
+				`    */issues/${n}) printf '%s' '[${asRecorded("issue", { state })}]' ;;`,
 		),
 		"  esac",
 		"  exit 0",
@@ -375,7 +379,7 @@ describe("waiting:external needs a gate", () => {
 
 	it("refuses where the blockers cannot be read, writing nothing", () => {
 		claimIssue(9);
-		stubGh({ labels: ["takes:implement"], apiExit: 1 });
+		stubGh({ labels: ["takes:implement"], apiFails: true });
 		const r = run(["9", "waiting:external", "why"]);
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("blockers are unreadable");

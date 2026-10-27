@@ -256,6 +256,8 @@ function answerBlockedBy(argv, rowsOf) {
 export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 	const recorded = {
 		issuesPage: JSON.parse(${JSON.stringify(ISSUES_PAGE.stdout)}),
+		// REST answers issues/<n> with the issue object a list page holds.
+		issue: JSON.parse(${JSON.stringify(ISSUES_PAGE.stdout)})[0][0],
 		blockedByPage: JSON.parse(${JSON.stringify(BLOCKED_BY_PAGE.stdout)}),
 		timelinePage: JSON.parse(${JSON.stringify(TIMELINE_PAGE.stdout)}),
 		parentPage: JSON.parse(${JSON.stringify(PARENT_PAGE.stdout)}),

@@ -139,7 +139,7 @@ function scopedLimitOf(bar: ScopedBar): Limit {
 	};
 }
 
-interface CacheOptions {
+export interface CacheOptions {
 	resetsAt?: { session?: string; week?: string };
 	accountUuid?: string;
 	scoped?: ScopedBar[];

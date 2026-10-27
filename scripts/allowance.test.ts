@@ -18,7 +18,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
-import { buildUsageText } from "./lib/usage-probe-fake";
+import {
+	type Bars,
+	buildUsageCache,
+	buildUsageText,
+} from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "allowance.js");
 
@@ -28,24 +32,26 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-const writeCache = (configDir: string, limits: Record<string, unknown>[]) => {
+/** A fresh seat cache of `bars`; an absent `sessionResetsAt` resets the
+ * session bar one window after the stamp. */
+const writeCache = (
+	configDir: string,
+	bars: Bars,
+	sessionResetsAt?: string,
+) => {
 	fs.writeFileSync(
 		path.join(configDir, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: {
-				fetchedAtMs: Date.now(),
-				utilization: { limits },
-			},
-		}),
+		JSON.stringify(
+			buildUsageCache(bars, Date.now(), {
+				resetsAt: { session: sessionResetsAt },
+			}),
+		),
 	);
 };
 
 describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () => {
 	it("exits 0 and prints both bars where the JSON reading is fresh", () => {
-		writeCache(dir, [
-			{ kind: "session", percent: 23 },
-			{ kind: "weekly_all", percent: 7 },
-		]);
+		writeCache(dir, { session: 23, week: 7 });
 		const r = runInProcess(SCRIPT, ["--json", "--config-dir", dir], {
 			stdin: "",
 		});
@@ -56,7 +62,7 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 	});
 
 	it("exits 1 where either bar is not trustworthy, recording the missing bar as absent", () => {
-		writeCache(dir, [{ kind: "session", percent: 23 }]);
+		writeCache(dir, { session: 23 });
 		const r = runInProcess(SCRIPT, ["--json", "--config-dir", dir], {
 			stdin: "",
 		});
@@ -80,10 +86,7 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 	});
 
 	it("prints readable text, not JSON, without --json", () => {
-		writeCache(dir, [
-			{ kind: "session", percent: 23 },
-			{ kind: "weekly_all", percent: 7 },
-		]);
+		writeCache(dir, { session: 23, week: 7 });
 		const r = runInProcess(SCRIPT, ["--config-dir", dir], { stdin: "" });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/session\s+23% \(fresh\)/);
@@ -118,15 +121,14 @@ describe("--cap (#371)", () => {
 			CLAUDE_CONFIG_DIR: dir,
 		};
 	};
+	/** `--cap` over a 94% session, 7% week cache, its session bar resetting
+	 * at `sessionResetsAt`, else one window out. */
 	const capRun = (
 		args: string[],
 		listing: string,
-		session: Record<string, unknown> = {},
+		sessionResetsAt?: string,
 	) => {
-		writeCache(dir, [
-			{ kind: "session", percent: 94, ...session },
-			{ kind: "weekly_all", percent: 7 },
-		]);
+		writeCache(dir, { session: 94, week: 7 }, sessionResetsAt);
 		const r = runInProcess(
 			SCRIPT,
 			["--json", "--config-dir", dir, "--cap", "3", ...args],
@@ -148,13 +150,13 @@ describe("--cap (#371)", () => {
 		// points. Headroom 6 − 2.35 for the running session leaves room for two.
 		const resetsAt = new Date(Date.now() + 1_800_000).toISOString();
 		const listing = '[{"sessionId":"s1","state":"working"}]';
-		const soon = capRun(thresholds, listing, { resets_at: resetsAt });
+		const soon = capRun(thresholds, listing, resetsAt);
 		expect(soon.error).toBeUndefined();
 		expect(soon.binding.runningPoints).toBeCloseTo(2.35, 1);
 		expect(soon.binding.perSessionPoints).toBeCloseTo(2.35, 1);
 		expect(soon.launch).toBe(2);
 		// A reset that does not parse counts all of it: 6 − 4.7 leaves one.
-		const unparsed = capRun(thresholds, listing, { resets_at: "soon" });
+		const unparsed = capRun(thresholds, listing, "soon");
 		expect(unparsed.binding.runningPoints).toBeCloseTo(4.7, 1);
 		expect(unparsed.launch).toBe(1);
 	});
@@ -168,10 +170,7 @@ describe("--cap (#371)", () => {
 	it("names the plugin's own copy of the table builder where the table is missing in an install (#1734)", () => {
 		const install = path.join(dir, "install");
 		fs.mkdirSync(install);
-		writeCache(dir, [
-			{ kind: "session", percent: 94 },
-			{ kind: "weekly_all", percent: 7 },
-		]);
+		writeCache(dir, { session: 94, week: 7 });
 		const r = runInProcess(
 			SCRIPT,
 			["--json", "--config-dir", dir, "--cap", "3", ...thresholds],
