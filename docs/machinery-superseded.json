@@ -2287,5 +2287,38 @@
 				"scanned": true
 			}
 		]
+	},
+	"suite-margin-target": {
+		"needles": [
+			{
+				"needle": "672 s",
+				"scanned": true
+			},
+			{
+				"needle": "672s",
+				"scanned": true
+			},
+			{
+				"needle": "672,000",
+				"scanned": true
+			},
+			{
+				"needle": "672_000",
+				"scanned": true
+			},
+			{
+				"needle": "80% of the 840 s ceiling",
+				"scanned": true
+			},
+			{
+				"needle": "80% of that ceiling",
+				"scanned": true
+			},
+			{
+				"needle": "0.8 of the ceiling",
+				"scanned": true
+			}
+		],
+		"allowlist": []
 	}
 }
