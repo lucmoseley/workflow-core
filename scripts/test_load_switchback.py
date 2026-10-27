@@ -301,16 +301,22 @@ def test_draw_writes_the_schedule_and_will_not_draw_over_a_run(tmp_path):
     assert again.returncode != 0 and "events.jsonl already exists" in again.stderr
 
 
-def test_readout_reads_the_whole_trial_end_to_end(tmp_path, corpus, stub_bin):
+def _trial(tmp_path):
+    """Two pairs that began an hour ago, every block seen whole by a runner."""
     start = math.floor(time.time() / 60) * 60 - 3600
-    corpus("s1", [])
-    gh, calls = stub_bin("gh", _iso(start + 400).replace("+00:00", "Z") + "\n")
     p = setup(tmp_path, _blocks(24, 48, 48, 24), minute_lines(start, 60), start=start)
     with open(p["events"], "w") as f:
         for i in range(4):
             f.write(
                 json.dumps({"event": "block", "i": i, "ts": start + 900 * i + 1}) + "\n"
             )
+    return start
+
+
+def test_readout_reads_the_whole_trial_end_to_end(tmp_path, corpus, stub_bin):
+    start = _trial(tmp_path)
+    corpus("s1", [])
+    gh, calls = stub_bin("gh", _iso(start + 400).replace("+00:00", "Z") + "\n")
     out = _program(tmp_path, "readout", env={**os.environ, "WFC_GH": gh})
     assert out.returncode == 0, out.stderr
     assert "2 complete pairs" in out.stdout and "Ended: still running" in out.stdout
@@ -318,3 +324,20 @@ def test_readout_reads_the_whole_trial_end_to_end(tmp_path, corpus, stub_bin):
     assert "(unreadable files: 0, unparsed lines: 0)" in out.stdout
     (argv,) = calls()
     assert "reason:completed" in argv and "user:lucmoseley" in argv
+
+
+def test_readouts_leads_without_the_dropped_pairs_and_follows_with_all():
+    rows = _pairs((0.1, 3.0, 6), (1.0, 6.0, 6))
+    rows[2:4] = [_row(1, 24, (9.0, 9.0, 6)), _row(1, 48, (0.0, 1.0, 6))]
+    primary, sensitivity = ls.readouts(rows, "schedule complete", {1}).split(
+        "**Sensitivity — all pairs:**"
+    )
+    assert primary.startswith("**Primary — pairs 1 dropped:**")
+    assert "7 complete pairs" in primary and "9.00" not in primary
+    assert "8 complete pairs" in sensitivity and "9.00" in sensitivity
+
+
+def test_readout_refuses_a_pair_the_schedule_does_not_hold(tmp_path):
+    _trial(tmp_path)
+    out = _program(tmp_path, "readout", "--drop-pairs", "1,2")
+    assert out.returncode != 0 and "no pair [2]" in out.stderr and "0-1" in out.stderr

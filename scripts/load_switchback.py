@@ -17,7 +17,13 @@ previous block by then (autocorrelation 0.10 at 5 minutes, #3223).
              systemd-run --user --unit=wfc-load-switchback --collect \\
                -p ExecStopPost="/bin/rm -f $HOME/.claude/load-ceiling" \\
                python3 "$PWD/scripts/load_switchback.py" run
-  readout  print the markdown readout for the ticket
+  readout  print the markdown readout for the ticket; --drop-pairs 1,2,3 (pairs
+           count from 0) leads with the readout without those pairs and follows
+           it with all pairs, for pairs an incident logged on the ticket before
+           any readout ran (#3223 issuecomment-6446052849)
+
+Residual: nothing enforces that order; pairs dropped after a readout was seen
+are taken on trust.
 
 Residual: a WSL shutdown during a 48 block stops the unit without its
 ExecStopPost, leaving 48 in force until `rm ~/.claude/load-ceiling`.
@@ -415,8 +421,40 @@ def report(rows, end_why):
     return "\n".join(out), verdict
 
 
-def readout(p):
+def readouts(rows, end_why, drop_pairs):
+    """The readout of `rows`; with `drop_pairs`, the readout without them
+    first, the one the verdict is taken from, then all pairs beside it."""
+    if not drop_pairs:
+        return report(rows, end_why)[0]
+    named = ", ".join(map(str, sorted(drop_pairs)))
+    kept = [r for r in rows if r["pair"] not in drop_pairs]
+    return "\n\n".join(
+        [
+            f"**Primary — pairs {named} dropped:**",
+            report(kept, end_why)[0],
+            "**Sensitivity — all pairs:**",
+            report(rows, end_why)[0],
+        ]
+    )
+
+
+def pair_set(v):
+    try:
+        return {int(x) for x in v.split(",")}
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            f"{v!r} is not comma-separated pair numbers, e.g. 1,2,3"
+        ) from None
+
+
+def readout(p, drop_pairs):
     sched = load_schedule(p)
+    unknown = drop_pairs - {b["pair"] for b in sched["blocks"]}
+    if unknown:
+        last = sched["blocks"][-1]["pair"]
+        sys.exit(
+            f"readout: no pair {sorted(unknown)} in the schedule; pairs run 0-{last}"
+        )
     events = _events(p)
     last = events[-1] if events else {}
     end_why = last["why"] if last.get("event") == "end" else "still running"
@@ -433,7 +471,7 @@ def readout(p):
         close_ts=closes(since, until),
         until=until,
     )
-    return f"{report(rows, end_why)[0]}\n\nTranscripts skipped: {dense_minute.counts_line(tally)}"
+    return f"{readouts(rows, end_why, drop_pairs)}\n\nTranscripts skipped: {dense_minute.counts_line(tally)}"
 
 
 def main(argv=None):
@@ -442,7 +480,12 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("draw")
     sub.add_parser("run")
-    sub.add_parser("readout")
+    sub.add_parser("readout").add_argument(
+        "--drop-pairs",
+        type=pair_set,
+        default=set(),
+        help="comma-separated pair numbers, counted from 0, to lead the readout without",
+    )
     a = ap.parse_args(argv)
     p = paths(a.home)
     if a.cmd == "draw":
@@ -457,7 +500,7 @@ def main(argv=None):
     elif a.cmd == "run":
         print(f"run: ended — {run(p)}")
     else:
-        print(readout(p))
+        print(readout(p, a.drop_pairs))
 
 
 if __name__ == "__main__":
