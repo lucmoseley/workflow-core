@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
+import { buildUsageText } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "allowance.js");
 
@@ -69,9 +70,7 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 			SCRIPT,
 			["--json", "--config-dir", path.join(dir, "nope")],
 			{
-				stdin:
-					"Current session: 12% used · resets Aug 23, 11:49pm\n" +
-					"Current week (all models): 3% used · resets Aug 30, 7:59pm\n",
+				stdin: buildUsageText({ session: 12, week: 3 }),
 			},
 		);
 		expect(r.status).toBe(0);

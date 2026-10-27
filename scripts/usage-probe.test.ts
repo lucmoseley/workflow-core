@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { buildUsageBranch, buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "usage-probe.js");
 
@@ -26,7 +27,7 @@ beforeEach(() => {
 		[
 			"#!/bin/bash",
 			`printf '%s %s\\n' "$CLAUDE_CONFIG_DIR" "$*" >> "${path.join(dir, "argv")}"`,
-			"printf 'Current session: 12%% used · resets Aug 23, 11:49pm\\n'",
+			buildUsageBranch({ session: 12, week: 3 }),
 		].join("\n"),
 		{ mode: 0o755 },
 	);
@@ -37,15 +38,9 @@ afterEach(() => {
 });
 
 function cache(fetchedAtMs: number): void {
-	const limits = [
-		{ kind: "session", percent: 40 },
-		{ kind: "weekly_all", percent: 50 },
-	];
 	fs.writeFileSync(
 		path.join(seat, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: { fetchedAtMs, utilization: { limits } },
-		}),
+		JSON.stringify(buildUsageCache({ session: 40, week: 50 }, fetchedAtMs)),
 	);
 }
 

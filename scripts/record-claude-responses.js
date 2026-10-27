@@ -15,16 +15,22 @@
  *   - scripts/fixtures/claude-attach.json: `claude attach`'s exit off a
  *     terminal, and pty_type.py's, which the refill loop's typed resume
  *     reads, typing at it on one (#3014), both at the job waiting on its
- *     question.
+ *     question;
+ *   - scripts/fixtures/usage-probe.json: the bar lines `claude -p "/usage"`
+ *     prints and the seat cache it rewrites, which lib/usage-probe.js and
+ *     lib/allowance.js read (#3266), off one probe of this session's seat run
+ *     as lib/usage-probe.js runs it, to its end.
  *
  * Run it by hand after a harness upgrade, then `npm run test --
  * scripts/lib/bg-resume.contract.test.ts scripts/lib/agents-stop.contract.test.ts
- * scripts/lib/claude-attach.contract.test.ts`.
+ * scripts/lib/claude-attach.contract.test.ts
+ * scripts/lib/usage-probe.contract.test.ts`.
  * It launches one throwaway Haiku session in the repo root and resumes it
  * while it works, then again once stopped, launches a second told to ask one
  * question and a third told to run one command it must ask leave for, and
  * stops every job it started, so it spends up to six short turns. The command never
- * runs: the prompt is never answered.
+ * runs: the prompt is never answered. The `/usage` probe spends no turn, but
+ * first waits up to two minutes for the seat's cache to age into a refresh.
  *
  * In no family (§N3): it writes a fixture, but makes live sessions to do it,
  * so it is no `generate-*` a gate may run.
@@ -40,7 +46,13 @@ const {
 	buildTypedAttach,
 } = require("./lib/claude-attach.js");
 const { claudeBin } = require("./lib/claude-bin.js");
+const { configDir } = require("./lib/config-dir.js");
 const { hostRoot } = require("./lib/host-root.js");
+const {
+	PROBE_ARGV,
+	PROBE_CWD,
+	PROBE_TIMEOUT_MS,
+} = require("./lib/usage-probe.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const RESUME_FIXTURE = path.join(__dirname, "fixtures", "bg-resume.json");
@@ -50,6 +62,7 @@ const AGENTS_STOP_FIXTURE = path.join(
 	"agents-stop.json",
 );
 const ATTACH_FIXTURE = path.join(__dirname, "fixtures", "claude-attach.json");
+const USAGE_FIXTURE = path.join(__dirname, "fixtures", "usage-probe.json");
 const RECORDED_BY = "node scripts/record-claude-responses.js";
 /* An 8-hex job id no daemon issued, for `claude stop`'s "No job matching". */
 const NO_JOB = "00000000";
@@ -286,6 +299,68 @@ function lostShapes(rows) {
 	}
 }
 
+/* The probe rewrites the cache only once its stamp is 58-117 s old (#2189),
+ * so a stamp past the band's top makes the recorded refresh certain. */
+const USAGE_REFRESH_AGE_MS = 120_000;
+/* The cached bars lib/allowance.js reads. */
+const USAGE_KINDS = ["session", "weekly_all"];
+/* What the fixture carries in place of the seat's account and stamp. The
+ * bars' percents and reset times stay real: the reset text's format is what
+ * lib/allowance.js parses. */
+const SYNTHETIC_USAGE = {
+	accountUuid: "5e55acc0-0000-4000-8000-000000000000",
+	fetchedAtMs: 1_700_000_000_000,
+};
+
+/** The seat's `cachedUsageUtilization`, raw. @param {string} seat */
+function readUsageCacheOf(seat) {
+	const cache = JSON.parse(
+		fs.readFileSync(path.join(seat, ".claude.json"), "utf8"),
+	).cachedUsageUtilization;
+	if (typeof cache?.fetchedAtMs !== "number")
+		throw new Error(`${seat}/.claude.json holds no stamped usage cache`);
+	return cache;
+}
+
+/** One `/usage` probe of this session's seat, run to its end once the
+ * cache is old enough to refresh, as the fixture records it. */
+async function recordUsage() {
+	const seat = configDir();
+	/* Re-read after each wait: another session's probe may refresh it. */
+	for (
+		let ageMs = Date.now() - readUsageCacheOf(seat).fetchedAtMs;
+		ageMs < USAGE_REFRESH_AGE_MS;
+		ageMs = Date.now() - readUsageCacheOf(seat).fetchedAtMs
+	)
+		await new Promise((done) => setTimeout(done, USAGE_REFRESH_AGE_MS - ageMs));
+	const startMs = Date.now();
+	const r = spawnSync(claudeBin(), PROBE_ARGV, {
+		cwd: PROBE_CWD,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+		timeout: PROBE_TIMEOUT_MS,
+	});
+	if (r.error) throw r.error;
+	if (r.status !== 0)
+		throw new Error(`claude -p /usage exited ${r.status}: ${r.stderr.trim()}`);
+	const cache = readUsageCacheOf(seat);
+	if (!(cache.fetchedAtMs > startMs))
+		throw new Error(`claude -p /usage left ${seat}'s cache stamp unmoved`);
+	return {
+		refreshedAfterMs: cache.fetchedAtMs - startMs,
+		printed: r.stdout.split("\n").filter((l) => l.startsWith("Current ")),
+		cache: {
+			...cache,
+			...SYNTHETIC_USAGE,
+			utilization: {
+				limits: cache.utilization.limits.filter(
+					(/** @type {{kind: string}} */ l) => USAGE_KINDS.includes(l.kind),
+				),
+			},
+		},
+	};
+}
+
 /**
  * @param {string} file
  * @param {object} recorded
@@ -389,6 +464,13 @@ async function main() {
 		if (unstopped.length > 0)
 			writeFd(2, `still running, stop by hand: ${unstopped.join("; ")}\n`);
 	}
+	/* Last, once every job is stopped, so its wait or a failure costs no
+	 * other fixture. */
+	writeFixture(USAGE_FIXTURE, {
+		recordedBy: RECORDED_BY,
+		harness,
+		...(await recordUsage()),
+	});
 }
 
 main().catch((e) => {

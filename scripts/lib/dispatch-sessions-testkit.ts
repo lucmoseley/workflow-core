@@ -23,6 +23,11 @@ import { afterEach, beforeEach } from "vitest";
 import { writePsStub } from "./ps-stub";
 import { writeSchedClock } from "./sched-clock-fixture";
 import { PROBE_TIMEOUT_MS } from "./usage-probe.js";
+import {
+	buildRefreshBranch,
+	buildUsageBranch,
+	buildUsageCache,
+} from "./usage-probe-fake";
 
 /* The `probeHangs` stub's sleep, which runs out only where the stamp stop
  * failed. It must end before the probe's ceiling, whose kill would pass for
@@ -139,18 +144,14 @@ export function writeCache(
 	fetchedAtMs = Date.now(),
 ): void {
 	fs.mkdirSync(configDir, { recursive: true });
-	const limits = [];
-	if (bars.session !== undefined) {
-		limits.push({ kind: "session", percent: bars.session });
-	}
-	if (bars.weeklyAll !== undefined) {
-		limits.push({ kind: "weekly_all", percent: bars.weeklyAll });
-	}
 	fs.writeFileSync(
 		path.join(configDir, ".claude.json"),
-		JSON.stringify({
-			cachedUsageUtilization: { fetchedAtMs, utilization: { limits } },
-		}),
+		JSON.stringify(
+			buildUsageCache(
+				{ session: bars.session, week: bars.weeklyAll },
+				fetchedAtMs,
+			),
+		),
 	);
 }
 
@@ -242,10 +243,7 @@ export function dispatchFixture(): DispatchFixture {
 			probeHangs = false,
 		} = opts;
 		const refresh = probeRefreshes
-			? [
-					`  mkdir -p '${probeRefreshes.configDir}'`,
-					`  printf '{"cachedUsageUtilization":{"fetchedAtMs":%s,"utilization":{"limits":[{"kind":"session","percent":${probeRefreshes.session}},{"kind":"weekly_all","percent":${probeRefreshes.week}}]}}}' "$(($(date +%s%N) / 1000000))" > '${path.join(probeRefreshes.configDir, ".claude.json")}'`,
-				]
+			? buildRefreshBranch(probeRefreshes.configDir, probeRefreshes)
 			: [];
 		const script = [
 			"#!/bin/bash",
@@ -267,8 +265,7 @@ export function dispatchFixture(): DispatchFixture {
 			...refresh,
 			probeHangs ? `  sleep ${PROBE_HANG_SECONDS}` : "",
 			`  echo ended > "${path.join(fx.dir, "probe-ended")}"`,
-			`  printf 'Current session: ${session}%% used · resets Aug 23, 11:49pm\\n'`,
-			`  printf 'Current week (all models): ${week}%% used · resets Aug 30, 7:59pm\\n'`,
+			buildUsageBranch({ session, week }),
 			"  exit 0",
 			"fi",
 			`if [ "$1" = "agents" ]; then printf '%s\\n' '${agentsJson}'; exit 0; fi`,

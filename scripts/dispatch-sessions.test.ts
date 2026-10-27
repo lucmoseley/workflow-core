@@ -27,6 +27,7 @@ import {
 	SCRIPT,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
+import { printedResets } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
 const { stubClaude, stubPath, baseEnv, launchArgv, readArgvLines, run } = fx;
@@ -510,7 +511,7 @@ describe("the allowance gate", () => {
 		const r = run(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain(
-			"session allowance 100% used (threshold 90%), resets Aug 23, 11:49pm — the bar is full",
+			`session allowance 100% used (threshold 90%), resets ${printedResets.session} — the bar is full`,
 		);
 		expect(r.stderr).toContain("--force to override");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
@@ -597,7 +598,7 @@ describe("the allowance cap (#371)", () => {
 		const r = run(set, table());
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain(
-			"weekly allowance 100% used (threshold 97%), resets Aug 30, 7:59pm — the bar is full",
+			`weekly allowance 100% used (threshold 97%), resets ${printedResets.week} — the bar is full`,
 		);
 		expect(readLaunches()).toHaveLength(0);
 	});
@@ -635,7 +636,7 @@ describe("the allowance cap (#371)", () => {
 		const r = run(set, table());
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain(
-			"session allowance 100% used (threshold 90%), resets Aug 23, 11:49pm — the bar is full",
+			`session allowance 100% used (threshold 90%), resets ${printedResets.session} — the bar is full`,
 		);
 		expect(r.stderr).not.toContain("projected to spend");
 		expect(readLaunches()).toHaveLength(0);

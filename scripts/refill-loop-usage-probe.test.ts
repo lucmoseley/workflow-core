@@ -20,6 +20,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { writePsStub } from "./lib/ps-stub.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { buildRefreshLine, buildUsageCache } from "./lib/usage-probe-fake";
 
 const SCRIPT = path.resolve(__dirname, "refill-loop.js");
 const PROBE_CLI = path.resolve(__dirname, "usage-probe.js");
@@ -30,9 +31,8 @@ let seats: string[];
 let probeLog: string;
 let ghLog: string;
 
-/** A seat's usage cache at `fetchedAtMs`, a number or a printf placeholder. */
-const cacheJson = (fetchedAtMs: string) =>
-	`{"cachedUsageUtilization":{"fetchedAtMs":${fetchedAtMs},"utilization":{"limits":[{"kind":"session","percent":100},{"kind":"weekly_all","percent":100}]}}}`;
+/** Both bars full, so a seat reads as no room. */
+const FULL = { session: 100, week: 100 };
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-loop-usage-probe-"));
@@ -65,8 +65,7 @@ beforeEach(() => {
 			`if [ "$1" = "agents" ]; then printf '%s\\n' '${JSON.stringify([{ sessionId: SESSION_ID, pid: 1 }])}'; exit 0; fi`,
 			`printf '%s|%s|%s|%s|%s\\n' "$(tr '\\0' ' ' < /proc/$PPID/cmdline)" "$PWD" "$CLAUDE_CONFIG_DIR" "$*" "$(readlink /proc/self/fd/0)" >> '${probeLog}'`,
 			'if [ -n "$FAKE_ABORT" ]; then kill -TERM "$PPID"; sleep 5; exit 0; fi',
-			"now=$(($(date +%s%N) / 1000000))",
-			`for s in $FAKE_REFRESH; do printf '${cacheJson("%s")}' "$now" > "$s/.claude.json"; done`,
+			`for s in $FAKE_REFRESH; do ${buildRefreshLine(FULL, '"$s/.claude.json"')}; done`,
 		].join("\n"),
 		{ mode: 0o755 },
 	);
@@ -80,7 +79,7 @@ function cacheAll(fetchedAtMs: number) {
 	for (const s of seats)
 		fs.writeFileSync(
 			path.join(s, ".claude.json"),
-			cacheJson(String(fetchedAtMs)),
+			JSON.stringify(buildUsageCache(FULL, fetchedAtMs)),
 		);
 }
 

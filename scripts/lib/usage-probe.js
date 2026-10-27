@@ -35,6 +35,11 @@ const PROBE_TIMEOUT_MS = 120_000;
  * after it (#2362). */
 const OUTCOME_PREFIX = "usage probe: ";
 
+/** The probe's own arguments, after a caller's flags, and the directory it
+ * runs from. */
+const PROBE_ARGV = ["-p", "/usage", "--permission-mode", "manual"];
+const PROBE_CWD = "/";
+
 /** How often the cache stamp is read while a probe runs; a guess, not measured. */
 const STAMP_POLL_MS = 250;
 
@@ -65,17 +70,13 @@ async function probeUsage({
 	if (cached.session.trust === "fresh" && cached.weekly_all.trust === "fresh")
 		return { outcome: "cached", text: "" };
 	const startMs = Date.now();
-	const child = spawn(
-		claudeBin,
-		[...claudeArgs, "-p", "/usage", "--permission-mode", "manual"],
-		{
-			cwd: "/",
-			env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
-			stdio: ["ignore", "pipe", "ignore"],
-			// Its own group, so a stop reaches the hooks and helpers it starts.
-			detached: true,
-		},
-	);
+	const child = spawn(claudeBin, [...claudeArgs, ...PROBE_ARGV], {
+		cwd: PROBE_CWD,
+		env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
+		stdio: ["ignore", "pipe", "ignore"],
+		// Its own group, so a stop reaches the hooks and helpers it starts.
+		detached: true,
+	});
 	let text = "";
 	child.stdout.setEncoding("utf8");
 	child.stdout.on("data", (chunk) => {
@@ -121,4 +122,10 @@ async function probeUsage({
 	});
 }
 
-module.exports = { probeUsage, OUTCOME_PREFIX, PROBE_TIMEOUT_MS };
+module.exports = {
+	probeUsage,
+	OUTCOME_PREFIX,
+	PROBE_ARGV,
+	PROBE_CWD,
+	PROBE_TIMEOUT_MS,
+};

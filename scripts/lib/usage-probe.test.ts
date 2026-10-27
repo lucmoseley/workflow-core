@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { probeUsage } from "./usage-probe.js";
+import { buildUsageBranch } from "./usage-probe-fake";
 
 let dir: string;
 let hanging: string;
@@ -25,7 +26,7 @@ beforeEach(() => {
 		hanging,
 		[
 			"#!/bin/bash",
-			"printf 'Current session: 12%% used\\n'",
+			buildUsageBranch({ session: 12, week: 3 }),
 			"sleep 30",
 			`echo ended > "${path.join(dir, "ended")}"`,
 		].join("\n"),

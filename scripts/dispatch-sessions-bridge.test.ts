@@ -17,6 +17,7 @@ import {
 	dispatchFixture,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
+import { buildUsageBranch } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
 const { stubClaude, stubPath, launchArgv, readArgvLines, regWedged, run } = fx;
@@ -284,8 +285,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 				"done",
 				'if [ -n "$log" ]; then',
 				'  printf "[DEBUG] [AdvisorTool] Advisor model: opus\\n" > "$log"',
-				"  printf 'Current session: 12%% used · resets Aug 23, 11:49pm\\n'",
-				"  printf 'Current week (all models): 3%% used · resets Aug 30, 7:59pm\\n'",
+				buildUsageBranch({ session: 12, week: 3 }),
 				"  exit 0",
 				"fi",
 				`if [ "$1" = "agents" ]; then printf '%s\\n' '${agentsListing()}'; exit 0; fi`,

@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { capSet, readAllowance } from "./allowance";
+import { buildUsageText } from "./usage-probe-fake";
 
 /** #280 ruling 3's five-minute window, pinned here rather than read back. */
 const STALE_MS = 5 * 60 * 1000;
@@ -132,9 +133,7 @@ describe("staleness (#280 ruling 3)", () => {
 });
 
 describe("text fallback (#280 ruling 1)", () => {
-	const usageText =
-		"Current session: 12% used · resets Aug 23, 11:49pm\n" +
-		"Current week (all models): 3% used · resets Aug 30, 7:59pm\n";
+	const usageText = buildUsageText({ session: 12, week: 3 });
 
 	it("falls back to the printed bars when the JSON reading is absent", () => {
 		const r = readAllowance({ configDir: path.join(dir, "nope"), usageText });
