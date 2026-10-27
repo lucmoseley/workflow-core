@@ -18,7 +18,7 @@
  */
 
 const { isInOtherRepo, refKey, refLabel } = require("./issue-ref.js");
-const { proseRefsOf } = require("./prose-blockers.js");
+const { judgeProseRefs, proseRefsOf } = require("./prose-blockers.js");
 
 /** @typedef {import("./issue-ref.js").IssueRef} IssueRef */
 /**
@@ -125,14 +125,16 @@ async function blockerGraph(served, ownRepo, read) {
 		const prose = proseRefsOf(body)
 			.map((r) => inRepo(r, ref.repo))
 			.filter((r) => !named.has(refKey(r)));
-		const open = await read.each(prose, async (r) => {
-			if (isServed(r)) return openServed.has(r.number);
-			const s = await issueOf(r);
-			return !s.ok || s.issue.state === "open";
+		const judged = await judgeProseRefs(prose, {
+			openLocal: openServed,
+			ownRepo,
+			readIssue: issueOf,
+			each: read.each,
 		});
-		prose.forEach((r, idx) => {
-			if (open[idx]) out.push({ key: refKey(r), ref: r, prose: true });
-		});
+		const closed = new Set(judged.closed.map(refKey));
+		for (const r of prose)
+			if (!closed.has(refKey(r)))
+				out.push({ key: refKey(r), ref: r, prose: true });
 		return out;
 	};
 

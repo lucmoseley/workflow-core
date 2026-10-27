@@ -1670,6 +1670,28 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(r.out).not.toContain("BLOCKED-UNREADABLE");
 	});
 
+	/* #3271: a marker naming its own repo is answered from the open list. */
+	const Here = "https://api.github.com/repos/acme/app";
+	it("judges an own-repo qualified prose blocker against the open list, reading nothing", () => {
+		const open = flagged(
+			{
+				comments: [Blocked],
+				body: "**Blocked on** acme/app#8",
+				repository_url: Here,
+			},
+			[{ number: 8, repository_url: Here }],
+		);
+		expect(open.fault).toBe(false);
+		const closed = flagged({
+			comments: [Blocked],
+			body: "**Blocked on** acme/app#8",
+			repository_url: Here,
+		});
+		expect(closed.fault).toBe(true);
+		const calls = fs.readFileSync(path.join(dir, "calls.log"), "utf8");
+		expect(calls).not.toContain("repos/acme/app/issues/8");
+	});
+
 	it("stays silent where a gate line holds it", () => {
 		expect(flagged({ comments: [Blocked], body: Gate }).fault).toBe(false);
 	});

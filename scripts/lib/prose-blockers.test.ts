@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-const { proseRefsOf, resolveProseBlockers } =
+const { judgeProseRefs, proseRefsOf, resolveProseBlockers } =
 	require("./prose-blockers.js") as typeof import("./prose-blockers");
 
 /*
@@ -171,5 +171,38 @@ describe("proseRefsOf: every reference a marker names", () => {
 			{ repo: "o/x.y", number: 5 },
 			{ repo: null, number: 6 },
 		]);
+	});
+});
+
+describe("judgeProseRefs: open, closed and unreadable (#3271)", () => {
+	const reads: string[] = [];
+	const readIssue = async (ref: { repo: string | null; number: number }) => {
+		reads.push(`${ref.repo}#${ref.number}`);
+		if (ref.number === 9) return { ok: false as const, error: "HTTP 404" };
+		return {
+			ok: true as const,
+			issue: { state: ref.number === 4 ? "open" : "closed" },
+		};
+	};
+
+	it("answers bare and own-repo refs from the open set, reading only other repos", async () => {
+		reads.length = 0;
+		const r = await judgeProseRefs(
+			proseRefsOf("**Blocked on** #1, O/App#2, #3, o/lib#4, o/lib#5, o/lib#9"),
+			{ openLocal: new Set([1, 2]), ownRepo: "o/app", readIssue },
+		);
+		expect(r.open).toEqual([
+			{ repo: null, number: 1 },
+			{ repo: "O/App", number: 2 },
+			{ repo: "o/lib", number: 4 },
+		]);
+		expect(r.closed).toEqual([
+			{ repo: null, number: 3 },
+			{ repo: "o/lib", number: 5 },
+		]);
+		expect(r.unreadable).toEqual([
+			{ ref: { repo: "o/lib", number: 9 }, error: "HTTP 404" },
+		]);
+		expect(reads).toEqual(["o/lib#4", "o/lib#5", "o/lib#9"]);
 	});
 });

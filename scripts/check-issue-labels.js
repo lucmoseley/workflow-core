@@ -68,10 +68,11 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root");
 const { resolveGate } = require("./lib/issue-gate");
+const { isInOtherRepo, parseRepoOfUrl } = require("./lib/issue-ref");
 const {
 	NOT_READY_OPENING,
+	judgeProseRefs,
 	proseRefsOf,
-	resolveProseBlockers,
 } = require("./lib/prose-blockers");
 const {
 	parseErrLine,
@@ -674,6 +675,16 @@ function reportTakesFaults(ctx, takesFaults) {
 	);
 }
 
+/** @type {import("./lib/prose-blockers").ReadIssue} */
+async function readProseIssue(ref) {
+	const r = await ghGetRetrying(`repos/${ref.repo}/issues/${ref.number}`, {
+		strict: true,
+	});
+	if (!r.ok) return { ok: false, error: r.error };
+	const issue = r.out[0];
+	return issue ? { ok: true, issue } : { ok: false, error: "empty answer" };
+}
+
 /**
  * A ticket a launched session found not ready, left with a comment opening as
  * NOT_READY_OPENING matches and nothing pick-next.js holds it on: no open
@@ -687,7 +698,16 @@ function reportTakesFaults(ctx, takesFaults) {
 async function proseBlockedFault(iss, openNumbers) {
 	const gates = resolveGate(iss.body);
 	if (gates.gateHolds || gates.gateOnHolds) return null;
-	if (resolveProseBlockers(iss.body, openNumbers).open.length > 0) return null;
+	const ownRepo = parseRepoOfUrl(iss.repository_url);
+	const refs = proseRefsOf(iss.body);
+	const at = { openLocal: openNumbers, ownRepo, readIssue: readProseIssue };
+	/* Judged in two halves so another repo's reads are paid only on an issue
+	 * whose latest comment says it is not ready; this repo's cost none (#3271). */
+	const local = await judgeProseRefs(
+		refs.filter((r) => !isInOtherRepo(r, ownRepo)),
+		at,
+	);
+	if (local.open.length > 0) return null;
 	/* The last page at one comment a page is the latest comment. */
 	const latest = await ghGetRetrying(
 		`repos/{owner}/{repo}/issues/${iss.number}/comments?per_page=1&page=${iss.comments}`,
@@ -724,26 +744,20 @@ async function proseBlockedFault(iss, openNumbers) {
 			`re-run, or read them yourself: gh api repos/{owner}/{repo}/issues/${iss.number}/dependencies/blocked_by`,
 		];
 	if (edges.out.some((/** @type {any} */ b) => b.state === "open")) return null;
-	/* A marker naming another repo's issue is read for its state, as the
-	 * shortlist's lib/blocker-graph.js reads it (#3262). Every one is read, so
-	 * an unreadable marker never hides an open one. Where blocker-graph holds
-	 * on an unreadable marker, this warns BLOCKED-UNREADABLE. */
-	const foreign = proseRefsOf(iss.body).filter((p) => p.repo !== null);
-	const reads = await Promise.all(
-		foreign.map((r) =>
-			ghGetRetrying(`repos/${r.repo}/issues/${r.number}`, { strict: true }),
-		),
+	/* Every one is read, so an unreadable marker never hides an open one; where
+	 * lib/blocker-graph.js holds on an unreadable one, this warns (#3262). */
+	const foreign = await judgeProseRefs(
+		refs.filter((r) => isInOtherRepo(r, ownRepo)),
+		at,
 	);
-	if (reads.some((r) => r.ok && r.out[0]?.state === "open")) return null;
-	const at = reads.findIndex((r) => !r.ok);
-	const unread = foreign[at];
-	const failed = reads[at];
-	if (unread && failed && !failed.ok)
+	if (foreign.open.length > 0) return null;
+	const unread = foreign.unreadable[0];
+	if (unread)
 		return [
 			"WARN",
 			"BLOCKED-UNREADABLE",
-			`latest comment opens **${opening}, and its **Blocked on** ${unread.repo}#${unread.number} is unreadable (${failed.error})`,
-			`re-run, or read it yourself: gh issue view ${unread.number} --repo ${unread.repo}`,
+			`latest comment opens **${opening}, and its **Blocked on** ${unread.ref.repo}#${unread.ref.number} is unreadable (${unread.error})`,
+			`re-run, or read it yourself: gh issue view ${unread.ref.number} --repo ${unread.ref.repo}`,
 		];
 	return [
 		"WARN",
