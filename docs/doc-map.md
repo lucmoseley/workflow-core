@@ -131,7 +131,11 @@ npm run gen:doc-map-section-a
 | `.claude/skills/improve-codebase-architecture` | Improve codebase architecture — skill | `source-of-truth` | Vendored | — |
 | `.claude/skills/manual-sync/SKILL.md` | Manual sync — skill | `source-of-truth` | Direct | — |
 | `.claude/skills/new-repo/SKILL.md` | New repo — skill | `source-of-truth` | Direct | — |
+| `.claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts` | New repo copy resume.test — skill | `source-of-truth` | Direct; extend as above | — |
+| `.claude/skills/new-repo/scripts/new-repo-copy.test.ts` | New repo copy.test — skill | `source-of-truth` | Direct; extend as above | — |
 | `.claude/skills/new-repo/scripts/new-repo-page.test.ts` | New repo page.test — skill | `source-of-truth` | Direct; extend as above | — |
+| `.claude/skills/new-repo/scripts/new-repo-resume.test.ts` | New repo resume.test — skill | `source-of-truth` | Direct; extend as above | — |
+| `.claude/skills/new-repo/scripts/new-repo-testkit.ts` | New repo testkit — skill | `source-of-truth` | Direct | — |
 | `.claude/skills/new-repo/scripts/new-repo.js` | New repo — skill | `source-of-truth` | Direct | — |
 | `.claude/skills/new-repo/scripts/new-repo.test.ts` | New repo.test — skill | `source-of-truth` | Direct; extend as above | — |
 | `.claude/skills/pick-next/SKILL.md` | Pick next — skill | `source-of-truth` | Direct | `scripts/pick-next.js` (the shortlist it wraps) · `docs/agents/issue-tracker.md` (the frontier rules it inherits) · `references/measured-figures.md` (the figures its steps cite) |

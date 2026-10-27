@@ -432,12 +432,44 @@
 		"consumes": null,
 		"reader": "agent"
 	},
+	".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": null
+	},
+	".claude/skills/new-repo/scripts/new-repo-copy.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": null
+	},
 	".claude/skills/new-repo/scripts/new-repo-page.test.ts": {
 		"section": "Skills & settings",
 		"class": "source-of-truth",
 		"classQualifier": null,
 		"role": null,
 		"route": "Direct; extend as above",
+		"consumes": null
+	},
+	".claude/skills/new-repo/scripts/new-repo-resume.test.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct; extend as above",
+		"consumes": null
+	},
+	".claude/skills/new-repo/scripts/new-repo-testkit.ts": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": "Direct",
 		"consumes": null
 	},
 	".claude/skills/new-repo/scripts/new-repo.js": {

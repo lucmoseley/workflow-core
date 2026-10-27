@@ -99,6 +99,9 @@
 			"scripts/lib/plugin-tree.test.ts"
 		],
 		".claude/guard-registry-anchors.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/init-adopter.test.ts"
@@ -135,6 +138,7 @@
 			"scripts/upgrade.test.ts"
 		],
 		".claude/settings.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -264,7 +268,10 @@
 			"scripts/check-context-budget.test.ts"
 		],
 		".claude/skills/new-repo/scripts/new-repo.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/plugin-tree.test.ts"
@@ -301,7 +308,7 @@
 			"scripts/write-back-routes.test.ts"
 		],
 		".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-roadmap-pair.test.ts",
@@ -364,6 +371,7 @@
 			"scripts/check-context-budget.test.ts"
 		],
 		".claude/workflow-core.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
@@ -425,6 +433,9 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".github/workflows/ci.yml": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-ci-status.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -456,6 +467,9 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".gitignore": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -562,6 +576,9 @@
 			"scripts/prepare-commit-msg-gate.test.ts"
 		],
 		".husky/pre-commit": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -652,7 +669,7 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/pre-push": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/check-format-staged.test.ts",
@@ -691,6 +708,9 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"CLAUDE.md": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -2149,6 +2169,7 @@
 			"scripts/lib/self-match.test.ts"
 		],
 		"docs/called-cards.md": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -2237,10 +2258,13 @@
 			"scripts/register-doc.test.ts"
 		],
 		"docs/doc-map-admissions.json": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/init-adopter.test.ts"
 		],
 		"docs/doc-map-classes.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/archive-core-classes.test.ts",
 			"scripts/arm-tasks.test.ts",
@@ -2253,13 +2277,13 @@
 			"scripts/report-new-shared-faults.test.ts"
 		],
 		"docs/doc-map-high-water.json": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/report-new-shared-faults.test.ts"
 		],
 		"docs/doc-map-restatements.json": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
@@ -2267,19 +2291,22 @@
 			"scripts/report-new-shared-faults.test.ts"
 		],
 		"docs/doc-map-retired-vocabulary.json": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/report-new-shared-faults.test.ts"
 		],
 		"docs/doc-map-superseded.json": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/report-new-shared-faults.test.ts"
 		],
 		"docs/doc-map.md": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -2338,6 +2365,7 @@
 			"scripts/practice-guard.test.ts"
 		],
 		"docs/reference-roadmap.html": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -2372,7 +2400,7 @@
 			"scripts/score-session-breaches.test.ts"
 		],
 		"docs/roadmap-digest.md": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-roadmap-pair.test.ts",
@@ -2568,6 +2596,9 @@
 			"scripts/register-doc.test.ts"
 		],
 		"package.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -2886,6 +2917,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/browse.py": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -3407,7 +3439,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-guard-registry.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -4758,7 +4790,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/generate-doc-map-section-a.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-doc-map.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/generate-doc-map-section-a.test.ts",
@@ -5486,6 +5518,10 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/init-adopter.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/archive-core-classes.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/cut-mantahostels.test.ts",
@@ -5780,7 +5816,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/adopter-skeleton.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -7213,6 +7249,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/caught.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/admission.test.ts",
@@ -8465,6 +8502,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/config-json.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -8596,7 +8634,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/core-context-cost.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -8663,6 +8701,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/core-hooks.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -8714,7 +8753,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/core-owned-files.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -9910,7 +9949,6 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/logged-out.json": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/archive-closed-children.test.ts",
 			"scripts/capture-drain.test.ts",
 			"scripts/check-band-drift.test.ts",
@@ -10051,7 +10089,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/formatters.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -10200,7 +10238,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/gate-subjects.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -10436,7 +10474,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/gh.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -10652,8 +10690,8 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget.test.ts",
@@ -11593,8 +11631,8 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/host-root.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-always-loaded-pass.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
@@ -11886,7 +11924,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/infer-commands.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -13129,7 +13167,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/materialise-plugin.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -13528,6 +13566,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/output-styles.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -13991,7 +14030,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/plugin-record.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -14020,7 +14059,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/plugin-state.js": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -15471,6 +15510,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/regex-group.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
@@ -15816,6 +15856,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/resolve-core.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -19436,6 +19477,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/workflow-core-config.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
@@ -19548,8 +19590,8 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/write-fd.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -22039,7 +22081,6 @@
 			"scripts/lib/core-hooks.test.ts"
 		],
 		"self-plugin/hooks/hooks.json": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-ci-status.test.ts",
 			"scripts/check-code-standards.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
@@ -22135,7 +22176,6 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"vitest.setup.ts": [
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/lib/python-routes.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
