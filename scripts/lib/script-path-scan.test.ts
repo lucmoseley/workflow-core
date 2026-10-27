@@ -99,7 +99,7 @@ describe("guard and lib messages", () => {
 	/* The floor catches a manifest read that found nothing or stopped partway. */
 	it("reads the hook-wired scripts from both manifests", () => {
 		expect(wired).toContain("scripts/session-arbiter.js");
-		expect(wired.length).toBeGreaterThan(60);
+		expect(wired.length).toBeGreaterThan(50);
 	});
 
 	it("name no script bare in any hook-wired script printing past a resolver", () => {
