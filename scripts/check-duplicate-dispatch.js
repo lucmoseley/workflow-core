@@ -74,8 +74,7 @@ const { basename } = require("node:path");
 const { runCheck } = require("./lib/check");
 const { parseErrLine, gh } = require("./lib/gh");
 const { heldIssues } = require("./lib/arbiter-issue-claims");
-const { holderName, isMap, parentClaim } = require("./lib/parent-claims");
-const { parseIssueRef, refLabel } = require("./lib/issue-ref");
+const { holderName, parentVerdictOf } = require("./lib/parent-claims");
 const { readHostTracker } = require("./lib/refill-repos");
 const { fromEnv } = require("./lib/session-id");
 
@@ -303,50 +302,32 @@ function claimHitOf(n, { live, hostHeld, childRepo }, warnings) {
 			via: "claim",
 			detail: `claimed by ${sessionLabel(live.names, own)}`,
 		};
-	const parent = readParentOfIssue(n, childRepo);
-	if ("why" in parent) {
-		warnings.push(`${parent.why} — a claim on it would not be caught`);
-		return null;
-	}
-	if (!parent.ref || !parent.map) return null;
-	const claim = parentClaim(parent.ref, {
+	const verdict = parentVerdictOf(n, readParentOfIssue(n), {
 		childRepo,
 		listed: live.listed,
 		hostHeld,
 	});
-	if (!claim) return null;
-	if ("why" in claim) {
-		warnings.push(claim.why);
-		return null;
-	}
+	if (verdict.state === "unread") warnings.push(verdict.why);
+	if (verdict.state !== "claimed") return null;
 	return {
 		issue: n,
 		via: "parent-claim",
-		detail: `its parent map ${parent.label} is claimed by ${sessionLabel(live.names, claim.sessionId)}`,
+		detail: `its parent map ${verdict.label} is claimed by ${sessionLabel(live.names, verdict.sessionId)}`,
 	};
 }
 
 /**
- * Issue `n`'s parent, as `{ref, label, map}`, `{ref: null}` where it has
- * none, or `{why}` where the call failed. `map` reads the payload's labels.
+ * Issue `n`'s `issues/<n>/parent` payload, null where it has none, or
+ * `{error}` where the call failed.
  * @param {number} n
- * @param {string|null} childRepo the repo `n` lives in, which `label` is read from
- * @returns {{ref: import("./lib/issue-ref").IssueRef, label: string, map: boolean} | {ref: null} | {why: string}}
+ * @returns {Parameters<typeof parentVerdictOf>[1]}
  */
-function readParentOfIssue(n, childRepo) {
+function readParentOfIssue(n) {
 	try {
-		const parent = JSON.parse(
-			gh(["api", `repos/{owner}/{repo}/issues/${n}/parent`]),
-		);
-		const ref = parseIssueRef(parent?.url);
-		if (!ref)
-			return { why: `the parent of #${n} named no issue (${parent?.url})` };
-		return { ref, label: refLabel(ref, childRepo), map: isMap(parent) };
+		return JSON.parse(gh(["api", `repos/{owner}/{repo}/issues/${n}/parent`]));
 	} catch (e) {
-		if (/No parent issue found/.test(parseErrLine(e))) return { ref: null };
-		return {
-			why: `the parent of #${n} could not be read (${parseErrLine(e)})`,
-		};
+		if (/No parent issue found/.test(parseErrLine(e))) return null;
+		return { error: parseErrLine(e) };
 	}
 }
 

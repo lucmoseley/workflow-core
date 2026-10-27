@@ -19,7 +19,7 @@
 const { heldIssues } = require("./arbiter-issue-claims.js");
 const { homeDir, readCheckoutTracking } = require("./refill-repos.js");
 const { MAP_LABEL } = require("./issue-gate.js");
-const { isInOtherRepo, refLabel } = require("./issue-ref.js");
+const { isInOtherRepo, parseIssueRef, refLabel } = require("./issue-ref.js");
 
 /** @typedef {import("./issue-ref.js").IssueRef} IssueRef */
 /** @typedef {ReturnType<typeof heldIssues>} Held */
@@ -85,8 +85,47 @@ function parentClaim(parent, ctx) {
 	return sessionId ? { sessionId, kept: held.kept } : null;
 }
 
+/**
+ * @typedef {{state: "claimed", label: string, sessionId: string, kept: boolean}
+ *   | {state: "unread", why: string}
+ *   | {state: "free"}} ParentVerdict
+ */
+
+/**
+ * Whether issue `n` is held through its parent map, from the caller's read of
+ * its parent: the `issues/<n>/parent` payload, null where it has none, or
+ * `{error}` where the read failed. A caller may answer from data it already
+ * holds, so long as the payload carries the parent's url and labels.
+ * @param {number} n
+ * @param {{url?: string, labels?: (string|{name?: string})[]} | {error: string} | null} parentRead
+ * @param {{childRepo: string|null, listed: Listed, hostHeld: Held}} ctx as parentClaim's
+ * @returns {ParentVerdict}
+ */
+function parentVerdictOf(n, parentRead, ctx) {
+	if (!parentRead) return { state: "free" };
+	if ("error" in parentRead)
+		return {
+			state: "unread",
+			why: `the parent of #${n} could not be read (${parentRead.error}), so a claim on it was not checked`,
+		};
+	const ref = parseIssueRef(parentRead.url);
+	if (!ref)
+		return {
+			state: "unread",
+			why: `the parent of #${n} named no issue (${parentRead.url})`,
+		};
+	if (!isMap(parentRead)) return { state: "free" };
+	const claim = parentClaim(ref, ctx);
+	if (!claim) return { state: "free" };
+	if ("why" in claim) return { state: "unread", why: claim.why };
+	return {
+		state: "claimed",
+		label: refLabel(ref, ctx.childRepo),
+		...claim,
+	};
+}
+
 module.exports = {
 	holderName,
-	isMap,
-	parentClaim,
+	parentVerdictOf,
 };

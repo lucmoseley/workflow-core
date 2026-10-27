@@ -111,9 +111,9 @@ const writeSetPredict = require("./lib/write-set-predict");
 const warmFractionLog = require("./lib/warm-fraction-log");
 const selectionMarker = require("./lib/selection-marker");
 const idSeam = require("./lib/session-id");
-const { resolveGate } = require("./lib/issue-gate");
-const { holderName, isMap, parentClaim } = require("./lib/parent-claims");
-const { isInOtherRepo, parseIssueRef, refLabel } = require("./lib/issue-ref");
+const { MAP_LABEL, resolveGate } = require("./lib/issue-gate");
+const { holderName, parentVerdictOf } = require("./lib/parent-claims");
+const { isInOtherRepo, parseIssueRef } = require("./lib/issue-ref");
 const { resolveProseBlockers } = require("./lib/prose-blockers");
 const blockerGraph = require("./lib/blocker-graph");
 const {
@@ -3255,32 +3255,31 @@ async function parentClaims(issues, mapNumbers, claims, listed) {
 		const ref = parseIssueRef(i.parent);
 		return ref ? [{ i, ref }] : [];
 	});
-	const maps = await mapLimit(
+	const reads = await mapLimit(
 		withParent,
 		ISSUE_READ_CONCURRENCY,
 		async ({ i, ref }) => {
-			if (!isInOtherRepo(ref, i.repo)) return mapNumbers.has(ref.number);
+			if (!isInOtherRepo(ref, i.repo))
+				return {
+					url: i.parent,
+					labels: mapNumbers.has(ref.number) ? [MAP_LABEL] : [],
+				};
 			const r = await ghGetRetrying(`repos/${REPO}/issues/${i.number}/parent`);
-			if (r.ok) return isMap(r.out[0]);
-			unread.add(
-				`the parent of #${i.number} could not be read (${r.error}), so a claim on it was not checked`,
-			);
-			return false;
+			if (r.ok) return r.out[0];
+			return { error: r.error };
 		},
 	);
-	for (const [idx, { i, ref }] of withParent.entries()) {
-		if (!maps[idx]) continue;
-		const claim = parentClaim(ref, {
+	for (const [idx, { i }] of withParent.entries()) {
+		const verdict = parentVerdictOf(i.number, reads[idx], {
 			childRepo: i.repo,
 			listed,
 			hostHeld: claims,
 		});
-		if (claim && "why" in claim) unread.add(claim.why);
-		else if (claim)
-			held.set(i.number, {
-				label: refLabel(ref, i.repo),
-				...claim,
-			});
+		if (verdict.state === "unread") unread.add(verdict.why);
+		if (verdict.state === "claimed") {
+			const { state: _, ...claim } = verdict;
+			held.set(i.number, claim);
+		}
 	}
 	return { held, unread: [...unread] };
 }
