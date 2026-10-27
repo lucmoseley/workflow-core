@@ -84,7 +84,7 @@ name: roadmap-digest
 # guard-registry — also run in .husky/pre-commit, firing before a commit rather
 # than after a push. Price accepted at mantahostels#906: a
 # `--no-verify` commit and an auto-resolving merge (which git runs no pre-commit
-# hook for) escape both until the next scheduled run.
+# hook for) escape both until the next run.
 #
 # `workflow_call`, not a schedule of its own: the schedule lives in
 # .github/workflows/scheduled-checks.yml, which calls this file and ci.yml

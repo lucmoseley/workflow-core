@@ -1,8 +1,9 @@
 name: CI
 
-# NO PUSH OR PULL_REQUEST TRIGGER, DELIBERATELY (mantahostels#906, mantahostels#910). The reasoning and
-# the cadence live in .github/workflows/scheduled-checks.yml, which calls this
-# file four times a day (mantahostels#3490, dropped from six).
+# NO TRIGGER OF ITS OWN BUT DISPATCH (mantahostels#906, mantahostels#910).
+# .github/workflows/scheduled-checks.yml calls this file four times a day
+# (mantahostels#3490) and on every push to `landing`, where the lander reads
+# that run as its tester (#2413).
 #
 # It CALLS rather than holds the schedule because GitHub's idle auto-disable
 # takes down a whole workflow FILE, `workflow_dispatch` included (mantahostels#909) — so a
@@ -10,8 +11,9 @@ name: CI
 # called workflow `github.event_name` is the CALLER's event, so a step keyed on
 # `schedule` still reads `schedule`.
 #
-# No `concurrency` / `cancel-in-progress` block. Do not add one: four scheduled
-# runs six hours apart cannot overlap a ~3-minute suite.
+# No `concurrency` / `cancel-in-progress` block. Do not add one: a group keeps
+# one pending run and cancels the rest, so a `landing` tip pushed between two
+# others would go untested and the lander would read no verdict at it.
 #
 # A breakage sits on `main` for up to ~12 hours before anything catches it.
 # The cron asks for a 6h gap (mantahostels#3490, widened from 4h); GitHub delivers the
@@ -34,16 +36,15 @@ on:
 permissions:
   contents: read
 
-# Biome and Vitest share a job because they share a checkout, a Node setup and
-# an `npm ci`. Actions bills per job, rounded up to a whole minute, so splitting
-# them costs a billed minute per run (mantahostels#313).
+# Lint and Vitest are separate jobs, and Vitest a matrix of `--shard` jobs, so
+# a verdict lands in under 3 min once its jobs start (#2413, on the founder's
+# target captured at #2729). Minutes are free on the public repo (#1930), so
+# the repeated checkout and `npm ci` cost wall time only, inside each job.
 #
-# A lint failure and a test failure are still independent signals, and neither
-# masks the other: `if: ${{ !cancelled() }}` runs each regardless of what the
-# one before it returned, and the job ends red if either failed. Do not
-# re-split them to recover the second status tick — the step names carry it.
+# Within the lint job `if: ${{ !cancelled() }}` runs each step regardless of
+# what the one before it returned, so no failure masks another.
 #
-# This job is what actually guards the roadmap-edit scripts. The pre-commit
+# These jobs are what actually guard the roadmap-edit scripts. The pre-commit
 # hook runs `npm run check:staged` (Biome over the commit's own paths only,
 # mantahostels#179) and the roadmap/digest pair guard,
 # but not the tests — and any hook is one `--no-verify` away from being absent,
@@ -56,11 +57,11 @@ permissions:
 # path-filtered either; nor are the tests, because they cover code that a change
 # anywhere can break.
 jobs:
-  # Both jobs run only in the code repo, as scheduled-checks.yml says, so a
+  # Every job runs only in the code repo, as scheduled-checks.yml says, so a
   # `gh workflow run ci.yml` that reaches the private tracker bills nothing
   # (#1963).
-  test:
-    name: Lint and tests
+  lint:
+    name: Lint and types
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
     steps:
@@ -99,43 +100,15 @@ jobs:
       # The guard scripts under scripts/ are shell, which Biome does not read at
       # all, yet they enforce the commit, branch, pull and issue rules. A broken
       # guard fails OPEN (it allows the command it should have denied), so its
-      # breakage is silent by construction. Added to this job rather than its
-      # own for the billing reason in the comment above.
-      # THE VERSION IS PINNED, not taken from the runner image (#124), so that
-      # `npm run check:sh` and this step run the same binary. The image ships
-      # 0.9.0 and this machine runs 0.11.0.
-      #
-      # PROSPECTIVE, NOT A FIX FOR AN OBSERVED DISAGREEMENT: #118 looked like
-      # one and was not (#124 ran both versions over that tree and they agree).
-      # The pin removes a variable; do not cite #118 as proof they differ.
-      #
-      # Fetched as actionlint is below, for the reason its own comment gives.
-      # Unlike actionlint, koalaman publishes no checksums file, so the sha256
-      # below was taken from the release tarball itself — re-take it the same
-      # way on a bump, and bump ~/.local/bin's aarch64 binary in the same pass
-      # (docs/agents/rules/shellcheck-not-installed.txt owns the local side).
-      #
-      # The binary goes on `$GITHUB_PATH`, so every later step runs it too:
-      # Vitest's adopter first-commit tests run the real pre-commit shellcheck
-      # gate, and under the image's 0.9.0 they went red on an info finding
-      # 0.11.0 does not raise (#1295). Both this step and the ones after it are
-      # `if: !cancelled()`, so a failed fetch here does not stop them — they
-      # silently fall back to the image's 0.9.0.
+      # breakage is silent by construction. The binary is the pinned one
+      # .github/actions/shellcheck installs.
+      - name: Install shellcheck
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/shellcheck
+
       - name: Shellcheck
         if: ${{ !cancelled() }}
-        env:
-          SHELLCHECK_VERSION: 0.11.0
-          SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
-        run: |
-          txz="$RUNNER_TEMP/shellcheck.tar.xz"
-          curl -sSfL --retry 3 --retry-all-errors --retry-delay 5 -o "$txz" \
-            "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
-          echo "$SHELLCHECK_SHA256  $txz" | sha256sum -c -
-          mkdir -p "$RUNNER_TEMP/shellcheck-bin"
-          tar -xJf "$txz" -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 \
-            "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
-          echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"
-          PATH="$RUNNER_TEMP/shellcheck-bin:$PATH" npm run check:sh
+        run: npm run check:sh
 
       # shfmt over the same file set (#1332). No fetch: the WASM build is a
       # pinned devDependency, so `Install dependencies` above supplied it.
@@ -208,6 +181,67 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:copy
 
+      # Is every helper-surface export the last release promised still listed
+      # (#463)? The checkout carries no tags, and with none the checker SKIPs as
+      # if nothing were released, so they are fetched first — depth 1, each
+      # release commit being a root. In this job, so no Vitest shard sees the tags.
+      - name: Surface contract
+        if: ${{ !cancelled() }}
+        run: |
+          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
+          node scripts/check-surface-contract.js
+
+      # The mods' `claude plugin test`, on every mod in run-mod-tests.js's MODS
+      # (#1854). `.husky/pre-push` runs them too, but a `--no-verify` push or one
+      # from a machine with no `claude` skips them. A fresh runner needs no
+      # login or key (#1813).
+      #
+      # `latest`, UNPINNED, unlike the binaries above: adopters update Claude
+      # Code on their own schedule and the mod API changes between releases
+      # (#828). The version is printed
+      # first, and a failure names it again, because a red a release caused
+      # carries no culprit commit. The README floor is read all the same; on
+      # `latest` it can fail only where a README names a release not yet out.
+      #
+      # LAST, AND OFF `$GITHUB_PATH`, so no earlier step ever sees a `claude`.
+      # A release breaking a mod on a sha already green surfaces at the next
+      # sweep the gate lets test, not the next sweep (scheduled-checks.yml).
+      - name: Mod tests
+        if: ${{ !cancelled() }}
+        run: |
+          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 \
+            -o "$RUNNER_TEMP/install-claude.sh" https://claude.ai/install.sh
+          bash "$RUNNER_TEMP/install-claude.sh" latest
+          "$HOME/.local/bin/claude" --version
+          WFC_CLAUDE_BIN="$HOME/.local/bin/claude" node scripts/run-mod-tests.js --all
+
+  # One job per shard; the matrix's length is the shard count, read back
+  # through `strategy`. Sized on the unsharded step's 449 s (#2413) so each
+  # shard's job, setup included, stays under 180 s.
+  # A batch is green only where every shard is.
+  vitest:
+    name: Vitest (${{ matrix.shard }}/${{ strategy.job-total }})
+    if: ${{ github.repository == 'lucmoseley/workflow-core' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install shellcheck
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/shellcheck
+
       # The Vitest step's gitleaks cases — init-adopter's first-commit acceptance
       # tests and the hook gates' real-secret cases — skip where `gitleaks` is
       # not on PATH, and ubuntu-latest ships none (#55). `!cancelled()` like
@@ -273,41 +307,8 @@ jobs:
       # flag this step tests everything or nothing depending on that file.
       - name: Vitest
         if: ${{ !cancelled() }}
-        run: npm run test -- --full=coverage
+        run: npm run test -- --full=coverage --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
-      # Is every helper-surface export the last release promised still listed
-      # (#463)? The checkout carries no tags, and with none the checker SKIPs as
-      # if nothing were released, so they are fetched first — depth 1, each
-      # release commit being a root. After Vitest, so no test sees the tags.
-      - name: Surface contract
-        if: ${{ !cancelled() }}
-        run: |
-          git fetch --no-tags --depth=1 origin '+refs/tags/v*:refs/tags/v*'
-          node scripts/check-surface-contract.js
-
-      # The mods' `claude plugin test`, on every mod in run-mod-tests.js's MODS
-      # (#1854). `.husky/pre-push` runs them too, but a `--no-verify` push or one
-      # from a machine with no `claude` skips them. A fresh runner needs no
-      # login or key (#1813).
-      #
-      # `latest`, UNPINNED, unlike the binaries above: adopters update Claude
-      # Code on their own schedule and the mod API changes between releases
-      # (#828). The version is printed
-      # first, and a failure names it again, because a red a release caused
-      # carries no culprit commit. The README floor is read all the same; on
-      # `latest` it can fail only where a README names a release not yet out.
-      #
-      # LAST, AND OFF `$GITHUB_PATH`, so no earlier step ever sees a `claude`.
-      # A release breaking a mod on a sha already green surfaces at the next
-      # sweep the gate lets test, not the next sweep (scheduled-checks.yml).
-      - name: Mod tests
-        if: ${{ !cancelled() }}
-        run: |
-          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 \
-            -o "$RUNNER_TEMP/install-claude.sh" https://claude.ai/install.sh
-          bash "$RUNNER_TEMP/install-claude.sh" latest
-          "$HOME/.local/bin/claude" --version
-          WFC_CLAUDE_BIN="$HOME/.local/bin/claude" node scripts/run-mod-tests.js --all
 
   # A separate job, unlike Biome above: Python needs its own interpreter and pip
   # cache, not the Node setup, so folding it in would buy no shared steps — only

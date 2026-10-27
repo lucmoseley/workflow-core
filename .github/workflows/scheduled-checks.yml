@@ -1,11 +1,14 @@
 name: scheduled-checks
 
-# The repo's whole automatic verification, on a clock instead of on every push
-# (mantahostels#904, settled at mantahostels#906 and mantahostels#905, landed at mantahostels#910).
+# The repo's whole automatic verification, on a clock (mantahostels#904,
+# settled at mantahostels#906 and mantahostels#905, landed at mantahostels#910)
+# and on every push to `landing`, whose run the lander reads as its tester
+# (#2413, spec #2261). Minutes are free on the public repo (#1930), so a
+# push's jobs cost wall time alone.
 #
-# WHY A SCHEDULE AT ALL. Actions bills a one-minute minimum per job, so a job on
-# the push trigger costs by push count and not by how fast it runs. Settled at
-# mantahostels#906.
+# WHY A SCHEDULE AS WELL. `main` moves only to a `landing` tip a push run
+# passed; the schedule re-tests it while it sits still, so a flaky or
+# date-dependent test still surfaces (spec #2261).
 #
 # WHY THESE FOUR TIMES. 03:00/09:00/15:00/21:00 UTC = 11:00/17:00/23:00/05:00
 # on the founder's machine (UTC+8). Evenly spaced, so every blind window is 6h:
@@ -131,16 +134,19 @@ name: scheduled-checks
 # TWO MEASUREMENT TRAPS. A local speedup does not transfer to the 2-vCPU runner:
 # `pytest -n 2` gained 2.26x locally and ~7% on CI (mantahostels#313). Making the work
 # itself cheaper does transfer (mantahostels#314). And pushes/day is not derivable
-# from the runs API at all: a push leaves no run behind, so a census of the runs
+# from the runs API at all: a push to `main` leaves no run behind, so a census of the runs
 # listing reports zero pushes rather than none observed. Any future push-rate
 # figure must come from git history.
 #
 # VERIFY A TRIGGER WAS NOT MISSED:
 #   node scripts/measure-ci-billing.js --since <d> --until <d> --branch all \
 #     --exclude-event pull_request
-# over a full day — the `event` split must read `schedule` ~100%, `push` zero.
+# over a full day — on `main` the `event` split must read `schedule` ~100%,
+# `push` zero; `landing`'s push runs are the lander's tester (#2413).
 # Verified clean at mantahostels#386, over a heavy commit day.
 on:
+  push:
+    branches: [landing]
   schedule:
     # MINUTE 0, AND MOVING IT IS NOT THE ONE-LINE CHANGE IT LOOKS LIKE (mantahostels#2204).
     # GitHub names the top of the hour as its high-load window and moving off it
@@ -183,9 +189,12 @@ jobs:
   # surfaces on the next commit rather than at the next sweep. `gh workflow run
   # ci.yml` is how to re-test a still tree deliberately, and it spends a unit of
   # the same 3-a-day budget a fire of this file does (mantahostels#3514).
+  #
+  # NOT ON A PUSH RUN: a `landing` tip is new to every sweep, and the lander
+  # needs the suite's own verdict at it (#2413).
   gate:
     name: Decide whether to test
-    if: ${{ github.repository == 'lucmoseley/workflow-core' }}
+    if: ${{ github.event_name != 'push' && github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read

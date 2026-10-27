@@ -483,4 +483,4 @@ function localTester({
 	};
 }
 
-module.exports = { readLiveLanders, localTester, suiteSlot };
+module.exports = { failingFiles, readLiveLanders, localTester, suiteSlot };

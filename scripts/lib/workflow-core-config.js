@@ -98,6 +98,7 @@ const OWN_MISSING_LINE = `WARN ${CONFIG_PATH}: no own tracker resolves, so "corp
 /* What a host deploys on a push to `main` (#742): guard-push-rules.js hands
  * the Vercel rule only where this names it. */
 const DEPLOYS = /** @type {const} */ (["vercel"]);
+const LANDING_TESTERS = /** @type {const} */ (["local", "actions"]);
 
 const MODULES = /** @type {const} */ ([
 	"roadmap",
@@ -158,6 +159,7 @@ const KNOWN_KEYS = [
 	"sessionMeanMb",
 	"sessionSigmaMb",
 	"fullTestShards",
+	"landingTester",
 	"suiteRunners",
 	"worktreeLinks",
 	/* Read off the raw file by the migration walker (`upgrade.js` and
@@ -201,6 +203,7 @@ const defaultCommand = (name) =>
 /** @typedef {Module|Module[]} ModuleGate one module, or several all required */
 /** @typedef {typeof COMMANDS[number]} Command */
 /** @typedef {typeof DEPLOYS[number]} Deploy */
+/** @typedef {typeof LANDING_TESTERS[number]} LandingTester */
 /** @typedef {typeof PYTHON_KINDS[number]} PythonKind */
 /**
  * @typedef {object} ConfigOpts
@@ -239,6 +242,7 @@ const defaultCommand = (name) =>
  * @property {Record<string, PythonKind>} [pythonRoutes] the host's Python route rows, pathspec glob → code kind, first match winning, ahead of base §0's default map in scripts/check-swallowed-errors.js (#1830)
  * @property {number} [sessionMeanMb] the mean of one of this host's working sessions' memory draw, its tools included (#2139)
  * @property {number} [sessionSigmaMb] that draw's standard deviation (#2139)
+ * @property {LandingTester} [landingTester] which tester the lander runs: `local`, the suite in its own worktree (lib/local-tester.js), or `actions`, the suite workflow's push run on `landing` (lib/actions-tester.js); absent is `local` (#2413)
  * @property {number} [fullTestShards] how many `--shard=k/n` runs the lander's local tester splits `full_test` into, each in its own suite slot; absent runs it whole (#2996)
  * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
  * @property {string[]} [worktreeLinks] gitignored paths the suite reads, linked into each throwaway worktree a suite runs in (#1767)
@@ -319,6 +323,9 @@ const isNumber = (v) => typeof v === "number";
 
 /** @param {unknown} v @returns {v is Deploy} */
 const isDeploy = (v) => DEPLOYS.includes(/** @type {Deploy} */ (v));
+/** @param {unknown} v @returns {v is LandingTester} */
+const isLandingTester = (v) =>
+	LANDING_TESTERS.includes(/** @type {LandingTester} */ (v));
 
 /** @param {unknown} v @returns {v is Record<string, PythonKind>} */
 const isPythonRoutes = (v) =>
@@ -856,6 +863,12 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		isPositiveInt,
 		"a positive integer",
 	);
+	const landingTester = readKey(
+		cfg,
+		"landingTester",
+		isLandingTester,
+		`one of ${LANDING_TESTERS.join(", ")}`,
+	);
 
 	/* WFC_OUTPUT_STYLE REPLACES the declared value, the suite's injection point
 	 * for `overrides.output_style` as WFC_ALWAYS_LOADED is for `alwaysLoaded`.
@@ -950,6 +963,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		sessionMeanMb,
 		sessionSigmaMb,
 		fullTestShards,
+		landingTester,
 		suiteRunners,
 		worktreeLinks,
 		alwaysLoaded,

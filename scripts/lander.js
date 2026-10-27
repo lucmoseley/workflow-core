@@ -7,8 +7,11 @@
  *
  *   node scripts/lander.js run [--tester <command>]
  *
- * The tester is the local one (lib/local-tester.js): the suite in the
- * lander's own worktree. `--tester` swaps in `<command> <sha> [<file>…]`, run
+ * The tester is the one `landingTester` names in .claude/workflow-core.json:
+ * the local one (lib/local-tester.js), the suite in the lander's own
+ * worktree, or the Actions one (lib/actions-tester.js), the suite workflow's
+ * push run on `landing`, handing the local one what no push run tests.
+ * `--tester` swaps in `<command> <sha> [<file>…]`, run
  * in the canonical checkout:
  * the whole suite, or only the files where they are given. Exit 0 is green,
  * exit 1 red with each non-empty stdout line a failing file, any other exit
@@ -38,6 +41,7 @@ const {
 	remoteGit,
 	runLander,
 } = require("./lib/lander.js");
+const { actionsTester } = require("./lib/actions-tester.js");
 const { localTester } = require("./lib/local-tester.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { liveQueueDeps } = require("./lib/queue-issue.js");
@@ -46,12 +50,13 @@ const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
 	buildModuleOffLine,
 	moduleOn,
+	readConfig,
 	requireKey,
 } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("lander.js")} run [--tester <command>]
-  without --tester, the suite runs in the lander's own worktree
+  without --tester, the tester .claude/workflow-core.json's landingTester names
   <command> <sha> [<file>…] exits 0 green, 1 red (stdout: failing files),
   else no verdict`;
 
@@ -105,6 +110,18 @@ const commandTester = (command, root) => ({
 			});
 		}),
 });
+
+/**
+ * The tester `landingTester` names.
+ * @param {string} root
+ * @returns {import("./lib/lander.js").Tester}
+ */
+function configuredTester(root) {
+	const local = localTester({ root });
+	return readConfig({ root, quiet: true }).landingTester === "actions"
+		? actionsTester({ root, fallback: local })
+		: local;
+}
 
 /** @param {string} root */
 function liveFiler(root) {
@@ -172,7 +189,7 @@ async function main(argv = process.argv.slice(2)) {
 		git: remoteGit(root),
 		tester:
 			tester === undefined
-				? localTester({ root })
+				? configuredTester(root)
 				: commandTester(tester, root),
 		tracker: liveFiler(root),
 		ledger: fileLedger(files.ledger),

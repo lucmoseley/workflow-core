@@ -1,0 +1,36 @@
+name: Install shellcheck
+description: Puts the pinned shellcheck on $GITHUB_PATH.
+
+# THE VERSION IS PINNED, not taken from the runner image (#124), so that
+# `npm run check:sh` and CI run the same binary.
+#
+# PROSPECTIVE, NOT A FIX FOR AN OBSERVED DISAGREEMENT: #118 looked like one and
+# was not (#124 ran both versions over that tree and they agree). The pin
+# removes a variable; do not cite #118 as proof they differ.
+#
+# Fetched as ci.yml's actionlint is, for the reason its comment gives. Unlike
+# actionlint, koalaman publishes no checksums file, so the sha256 below was
+# taken from the release tarball itself — re-take it the same way on a bump,
+# and bump ~/.local/bin's aarch64 binary in the same pass
+# (docs/agents/rules/shellcheck-not-installed.txt owns the local side).
+#
+# On `$GITHUB_PATH`, so every later step runs it: Vitest's adopter
+# first-commit tests run the real pre-commit shellcheck gate, and under the
+# image's 0.9.0 they went red on an info finding 0.11.0 does not raise (#1295).
+# A failed fetch leaves the image's 0.9.0 on PATH.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        SHELLCHECK_VERSION: 0.11.0
+        SHELLCHECK_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+      run: |
+        txz="$RUNNER_TEMP/shellcheck.tar.xz"
+        curl -sSfL --retry 3 --retry-all-errors --retry-delay 5 -o "$txz" \
+          "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.linux.x86_64.tar.xz"
+        echo "$SHELLCHECK_SHA256  $txz" | sha256sum -c -
+        mkdir -p "$RUNNER_TEMP/shellcheck-bin"
+        tar -xJf "$txz" -C "$RUNNER_TEMP/shellcheck-bin" --strip-components=1 \
+          "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
+        echo "$RUNNER_TEMP/shellcheck-bin" >> "$GITHUB_PATH"

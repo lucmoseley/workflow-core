@@ -84,8 +84,9 @@ const NETWORK =
 	/Could not resolve host|Connection timed out|Connection reset|returned error: 5\d\d|HTTP 5\d\d/;
 
 /**
- * @typedef {{kind: "green"} | {kind: "red", files: string[]}
- *   | {kind: "unknown", reason: string}} Verdict
+ * @typedef {{kind: "green"} | {kind: "red", files: string[], jobs?: string[]}
+ *   | {kind: "unknown", reason: string}} Verdict `jobs` the failing CI jobs,
+ *   where the tester read a CI run
  * @typedef {"flake" | "bisect" | "confirm" | "parent" | "parent-files"}
  *   RerunWhy
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
@@ -430,7 +431,8 @@ function nextAction(s) {
  * @property {(tip: string, sha: string) => boolean} contains whether `sha`
  *   is `tip` or one of its ancestors
  * @typedef {{verdict: (sha: string, files?: string[]) => Promise<Verdict>}}
- *   Tester the whole suite at `sha`, or only `files` where they are given
+ *   Tester the whole suite at `sha`, or only `files` where they are given;
+ *   `files` absent is a batch's own test, present (empty too) a rerun
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
  * @typedef {{batch: string|null, reason: string, files: string[]}} Held a
  *   hold, with the batch and failing files of the red batch it held on
