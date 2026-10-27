@@ -1188,8 +1188,8 @@
 		"consumes": [
 			{
 				"kind": "path",
-				"ref": "scripts/guard-issue-create-label.js",
-				"gloss": "refuses a takes:human body without the Close-when line, printing this"
+				"ref": "scripts/lib/issue-create-label.js",
+				"gloss": "the guard-issue-create-label core, which refuses a takes:human body without the Close-when line, printing this"
 			},
 			{
 				"kind": "path",
@@ -1473,8 +1473,8 @@
 		"consumes": [
 			{
 				"kind": "path",
-				"ref": "scripts/guard-issue-phase-scope.js",
-				"gloss": "the hook that reads it"
+				"ref": "scripts/lib/issue-phase-scope.js",
+				"gloss": "the guard-issue-phase-scope core, which reads it"
 			},
 			{
 				"kind": "path",

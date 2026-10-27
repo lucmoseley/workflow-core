@@ -7,7 +7,7 @@
  *   node check-ticket-criteria.js [--warn] [--json]
  *
  * Backstop for the tracker doc's "Closing an issue with acceptance criteria"
- * rule: resolve-ticket.js and guard-issue-close.js refuse at close (#1640), so
+ * rule: resolve-ticket.js and the guard-issue-close core refuse at close (#1640), so
  * what reaches this is a close by the GitHub UI or `gh api`, or one made before
  * those refusals. Same posture as check-issue-card-drift.js.
  *

@@ -530,8 +530,8 @@ r_takes_label_nuances=$'- `rule:takes-label-nuances` — applying, removing or r
 r_waiting_external_vocabulary=$'- `rule:waiting-external-vocabulary` — reading `waiting:external` (a label edit has the tracker-rules guard print it)'
 
 # TWO ACTS STAY GUARD-ENFORCED AND SO STAY OUT OF THE INDEX ENTIRELY: a raw
-# \`gh issue edit --body\` (denied by guard-issue-body.js) and a close naming no
-# outstanding work (denied by guard-issue-close.js) — a session that never
+# \`gh issue edit --body\` (denied by the guard-issue-body core) and a close naming no
+# outstanding work (denied by the guard-issue-close core) — a session that never
 # reads anything still learns both at the moment it trips one.
 #
 # THE EMPTY-RESULT LINE IS PASTED, NOT INDEXED (#523): an empty result can

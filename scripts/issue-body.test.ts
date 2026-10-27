@@ -11,7 +11,7 @@
  * The genuinely concurrent version lives in proving-run.test.ts, which owns
  * Tier 2.
  *
- * scripts/issue-body.js is the route `guard-issue-body.js` (a `PreToolUse`
+ * scripts/issue-body.js is the route the `guard-issue-body` core (a `PreToolUse`
  * hook) sends every body edit through: loosen a case here and one session's
  * issue edit silently erases a concurrent session's.
  */

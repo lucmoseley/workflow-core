@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/issue-create-label.js, guard-issue-create-label.js's core (#2796), in
+ * lib/issue-create-label.js, the guard-issue-create-label core (#2796), in
  * process: it refuses a `gh issue create` that carries no `--label
  * takes:<value>`, and one whose value is outside the closed seven
  * (mantahostels#470, the build; mantahostels#453, the ruling).
@@ -440,7 +440,7 @@ describe("the api spelling of a creation", () => {
 		expect(readDenyReason(call)).toContain(INVALID);
 	});
 
-	// The `gh api` parser is shared with guard-issue-body.js: an `=`-joined or
+	// The `gh api` parser is shared with the guard-issue-body core: an `=`-joined or
 	// -i-bundled method reaches the endpoint test, and an `=`-joined field is not
 	// misread as a nameless one.
 	it("denies a POST whose method is joined by an =, or bundled behind -i", () => {
@@ -546,7 +546,7 @@ describe("the api spelling of a creation", () => {
 			"gh api --method GET repos/o/r/issues -f state=open",
 			"gh api --method POST repos/o/r/issues/12/comments -f body=x",
 			"gh api --method POST repos/o/r/issues/132/dependencies/blocked_by -F issue_id=1",
-			// Editing an issue that already exists is guard-issue-body.js's business.
+			// Editing an issue that already exists is the guard-issue-body core's business.
 			"gh api --method PATCH repos/o/r/issues/12 -f state=closed",
 			"gh api --method POST repos/o/r/labels -f name=bug",
 		]) {
@@ -733,7 +733,7 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 		// The residual, kept deliberately: an unreadable query MIGHT hide a
 		// createIssue, but a query from a file or a variable is routine here, and
 		// warning on every one would fire almost entirely on read-only queries.
-		// guard-issue-body.js already warns on exactly these commands, so the
+		// The guard-issue-body core already warns on exactly these commands, so the
 		// opacity is not invisible to the session, and a fail-open record on each
 		// would drown check-guard-errors.js.
 		for (const call of [

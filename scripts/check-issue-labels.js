@@ -15,7 +15,7 @@
  * A child of a `wayfinder:map` takes a `wayfinder:<type>`; a child of a
  * `kind:spec` takes `kind:ticket`.
  *
- * Prevention on the Bash route is scripts/guard-issue-create-label.js, which
+ * Prevention on the Bash route is the guard-issue-create-label core, which
  * denies a `gh issue create` carrying no `takes:` label, or one outside the
  * seven (mantahostels#453). That hook sees Bash tool calls only, so
  * this script is the sole control for the three routes it cannot reach: a

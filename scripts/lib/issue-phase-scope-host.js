@@ -1,18 +1,18 @@
 /*
- * issue-phase-scope-host.js — the production ports guard-issue-phase-scope.js
- * wires into its core, lib/issue-phase-scope.js (#2798): the roadmap and the
- * called-cards register read off disk under the host root, which `run`
- * resolved, and the core paths spelt for an install.
+ * issue-phase-scope-host.js — the production ports the dispatcher wires into
+ * the guard-issue-phase-scope core, lib/issue-phase-scope.js (#2798, #3225):
+ * the roadmap and the called-cards register read off disk under the host
+ * root, and the core paths spelt for an install.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 
 /**
- * @param {import("./kit-context.js").PortEnv} env
+ * @param {string} root
  * @returns {import("./issue-phase-scope.js").PhasePorts}
  */
-const buildHostPorts = ({ root }) => ({
+const buildHostPorts = (root) => ({
 	readable: (rel) => {
 		try {
 			fs.accessSync(path.join(root, rel), fs.constants.R_OK);

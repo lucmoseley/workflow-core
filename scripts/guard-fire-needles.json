@@ -1083,6 +1083,88 @@
 					"core": "guard-check-sh",
 					"kind": "inject",
 					"text": "THE FULL `npm run check:sh` TAKES MINUTES"
+				},
+				{
+					"id": "body-write",
+					"core": "guard-issue-body",
+					"kind": "deny",
+					"text": "This writes an issue body whole, erasing any parallel session"
+				},
+				{
+					"id": "unreadable-route",
+					"core": "guard-issue-body",
+					"kind": "warn",
+					"text": "If it writes the body, it writes it whole and erases any parallel session"
+				},
+				{
+					"id": "card-not-done",
+					"core": "guard-issue-close",
+					"kind": "deny",
+					"text": "Close it with **/card-close"
+				},
+				{
+					"id": "no-outstanding",
+					"core": "guard-issue-close",
+					"kind": "deny",
+					"text": "This close does not say what is still outstanding"
+				},
+				{
+					"id": "no-takes",
+					"core": "guard-issue-create-label",
+					"kind": "deny",
+					"text": ["This creates an issue with no", "takes:", "label"]
+				},
+				{
+					"id": "unknown-takes",
+					"core": "guard-issue-create-label",
+					"kind": "deny",
+					"text": [
+						"This creates an issue with a",
+						"takes:",
+						"label that does not exist"
+					]
+				},
+				{
+					"id": "graphql",
+					"core": "guard-issue-create-label",
+					"kind": "warn",
+					"text": "This files a GitHub issue through GraphQL"
+				},
+				{
+					"id": "human-no-act",
+					"core": "guard-issue-create-label",
+					"kind": "deny",
+					"text": "whose body names no act performed outside Claude Code"
+				},
+				{
+					"id": "edit-human-no-act",
+					"core": "guard-issue-create-label",
+					"kind": "deny",
+					"text": "applies `takes:human` to #"
+				},
+				{
+					"id": "repo-file-act",
+					"core": "guard-issue-create-label",
+					"kind": "deny",
+					"text": "whose outside act produces a file in this repository"
+				},
+				{
+					"id": "uncalled-card",
+					"core": "guard-issue-phase-scope",
+					"kind": "deny",
+					"text": "roadmap card the founder has not called"
+				},
+				{
+					"id": "headroom-reap",
+					"core": "guard-headroom-read",
+					"kind": "inject",
+					"text": "A short memory reading is not by itself a reason to stop"
+				},
+				{
+					"id": "hook-escape",
+					"core": "guard-hook-escape",
+					"kind": "deny",
+					"text": "This command sets a git-hook escape"
 				}
 			]
 		},
@@ -1097,90 +1179,6 @@
 					"id": "skill-refused",
 					"kind": "inject",
 					"text": "A SKILL WHOSE FRONTMATTER CARRIES"
-				}
-			]
-		},
-		"guard-issue-body.js": {
-			"needles": [
-				{
-					"id": "body-write",
-					"kind": "deny",
-					"text": "This writes an issue body whole, erasing any parallel session"
-				},
-				{
-					"id": "unreadable-route",
-					"kind": "warn",
-					"text": "If it writes the body, it writes it whole and erases any parallel session"
-				}
-			]
-		},
-		"guard-issue-close.js": {
-			"needles": [
-				{
-					"id": "card-not-done",
-					"kind": "deny",
-					"text": "Close it with **/card-close"
-				},
-				{
-					"id": "no-outstanding",
-					"kind": "deny",
-					"text": "This close does not say what is still outstanding"
-				}
-			]
-		},
-		"guard-issue-create-label.js": {
-			"needles": [
-				{
-					"id": "no-takes",
-					"kind": "deny",
-					"text": ["This creates an issue with no", "takes:", "label"]
-				},
-				{
-					"id": "unknown-takes",
-					"kind": "deny",
-					"text": [
-						"This creates an issue with a",
-						"takes:",
-						"label that does not exist"
-					]
-				},
-				{
-					"id": "graphql",
-					"kind": "warn",
-					"text": "This files a GitHub issue through GraphQL"
-				},
-				{
-					"id": "human-no-act",
-					"kind": "deny",
-					"text": "whose body names no act performed outside Claude Code"
-				},
-				{
-					"id": "edit-human-no-act",
-					"kind": "deny",
-					"text": "applies `takes:human` to #"
-				},
-				{
-					"id": "repo-file-act",
-					"kind": "deny",
-					"text": "whose outside act produces a file in this repository"
-				}
-			]
-		},
-		"guard-issue-phase-scope.js": {
-			"needles": [
-				{
-					"id": "uncalled-card",
-					"kind": "deny",
-					"text": "roadmap card the founder has not called"
-				}
-			]
-		},
-		"guard-headroom-read.js": {
-			"needles": [
-				{
-					"id": "headroom-reap",
-					"kind": "inject",
-					"text": "A short memory reading is not by itself a reason to stop"
 				}
 			]
 		},
@@ -1199,15 +1197,6 @@
 					"id": "node-heap",
 					"kind": "inject",
 					"text": "THIS COMMAND TOUCHES THE NODE HEAP CAP"
-				}
-			]
-		},
-		"guard-hook-escape.js": {
-			"needles": [
-				{
-					"id": "hook-escape",
-					"kind": "deny",
-					"text": "This command sets a git-hook escape"
 				}
 			]
 		},
@@ -1929,7 +1918,7 @@
 		},
 		"C8": {
 			"span": "— one of `wayfinder`, `to-spec`, `to-tickets`, `implement`, `triage`, `human`, `children`, …",
-			"printedBy": "guard-issue-create-label.js (both denies print the seven values)",
+			"printedBy": "scripts/lib/issue-create-label.js via guard-dispatch.js (both denies print the seven values)",
 			"route": "hook",
 			"needles": [
 				{
@@ -1940,7 +1929,7 @@
 		},
 		"C9": {
 			"span": "— a raw body write erases whatever a parallel session wrote in the window (mantahostels#128)",
-			"printedBy": "guard-issue-body.js deny",
+			"printedBy": "scripts/lib/issue-body-write.js via guard-dispatch.js, deny",
 			"route": "hook",
 			"needles": [
 				{

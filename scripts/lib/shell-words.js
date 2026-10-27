@@ -380,7 +380,7 @@ const splitString = (word, spans) =>
  * (mantahostels#2511, mantahostels#2524). A word after the command word —
  * `npm run test -- NAME=1` — is a flag value and no escape.
  *
- * guard-hook-escape.js refuses a wider set — empty values, `+=`, `export`,
+ * the guard-hook-escape core refuses a wider set — empty values, `+=`, `export`,
  * `exec NAME=1` — and reads the two sources itself; this answer would loosen
  * it.
  * @param {string} name

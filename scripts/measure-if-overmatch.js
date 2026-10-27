@@ -264,7 +264,7 @@ function spanInQuote(w, c) {
 
 /**
  * The index of the first word past any leading wrappers — 0 where the segment
- * leads with none: the walk guard-issue-phase-scope.js's core performs.
+ * leads with none: the walk the guard-issue-phase-scope core performs.
  * @param {string[]} w the segment's words
  * @returns {number}
  */

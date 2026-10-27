@@ -34,34 +34,6 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-issue-body.js",
-						"if": "Bash(gh *)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-issue-close.js",
-						"if": "Bash(gh *)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-issue-create-label.js",
-						"if": "Bash(gh *)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-issue-phase-scope.js",
-						"if": "Bash(*gh *)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*npm *)",
 						"timeout": 30,
@@ -172,18 +144,6 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-headroom-read.js",
-						"if": "Bash(*free *)",
-						"timeout": 10
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-headroom-read.js",
-						"if": "Bash(*/proc/meminfo*)",
-						"timeout": 10
-					},
-					{
-						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-node-heap.js",
 						"if": "Bash(*max-old-space-size*)",
 						"timeout": 10
@@ -226,13 +186,6 @@
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-npm-install.js",
 						"if": "Bash(*npx *)",
 						"timeout": 60,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-hook-escape.js",
-						"if": "Bash(*WFC_ALLOW_*)",
-						"timeout": 30,
 						"onFailure": "block"
 					},
 					{

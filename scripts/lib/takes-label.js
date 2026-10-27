@@ -3,7 +3,7 @@
  * Outside-line tests and its `**Close when:**` test, for the scripts that
  * write or audit a `takes:` value (#533, #983, #1095).
  *
- * The guard half is lib/issue-create-label.js, guard-issue-create-label.js's
+ * The guard half is lib/issue-create-label.js, the guard-issue-create-label
  * core, which requires this file (#2796). file-issue.test.ts asserts
  * TAKES_VALUES against docs/agents/triage-labels.md, and every Outside-line
  * verdict against scripts/fixtures/takes-human-bodies.json;

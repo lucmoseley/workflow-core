@@ -178,6 +178,51 @@
 			"if": ["Bash(*shellcheck *)", "Bash(*npm *)"]
 		},
 		{
+			"name": "guard-issue-body",
+			"core": "issue-body-write.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"if": ["Bash(gh *)"]
+		},
+		{
+			"name": "guard-issue-close",
+			"core": "issue-close.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "issue-close-host.js",
+			"if": ["Bash(gh *)"]
+		},
+		{
+			"name": "guard-issue-create-label",
+			"core": "issue-create-label.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "issue-create-label-host.js",
+			"if": ["Bash(gh *)"]
+		},
+		{
+			"name": "guard-issue-phase-scope",
+			"core": "issue-phase-scope.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"host": "issue-phase-scope-host.js",
+			"if": ["Bash(*gh *)"]
+		},
+		{
+			"name": "guard-headroom-read",
+			"core": "headroom-read.js",
+			"tools": "Bash",
+			"failure": "open",
+			"if": ["Bash(*free *)", "Bash(*/proc/meminfo*)"]
+		},
+		{
+			"name": "guard-hook-escape",
+			"core": "hook-escape.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"if": ["Bash(*WFC_ALLOW_*)"]
+		},
+		{
 			"name": "guard-recursive-dot-read",
 			"core": "recursive-dot-read.js",
 			"tools": "Bash",

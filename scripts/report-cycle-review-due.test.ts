@@ -152,7 +152,7 @@ describe("the scheduled 90-day cycle trigger", () => {
 
 	// mantahostels#942 §3 ruled the review is a conversation the founder holds, not something
 	// a command opens; and a create from inside a workflow is invisible to
-	// scripts/guard-issue-create-label.js (mantahostels#470), so the label has to be here.
+	// the guard-issue-create-label core (mantahostels#470), so the label has to be here.
 	it("labels the issue it files takes:wayfinder", () => {
 		const fx = fixture({
 			log: cycle(3, "2026-08-01", "2026-10-30", "open"),
