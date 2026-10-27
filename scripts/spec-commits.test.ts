@@ -77,7 +77,7 @@ esac
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "spec-commits-"));
 		repo = path.join(dir, "repo");
 		fs.mkdirSync(repo);
-		git(["init", "-q"]);
+		git(["init", "-q", "-b", "main"]);
 		commit(
 			"old.js",
 			"Inherited tracker's bare cite (#10)",
@@ -169,6 +169,153 @@ esac
 			expect(r.status).toBe(2);
 			expect(r.out).toContain("is not a commit on HEAD");
 			expect(r.out).toContain("or drop --since to review the whole spec");
+		});
+
+		describe("a rebased copy merged back onto HEAD (#3240)", () => {
+			/* `pre` holds the reviewed, pre-landing copies; main lands their
+			 * rebased twins — one patch-identical, one carrying an extra file
+			 * under its original author date, as a rebase keeps it — then merges
+			 * `pre` back, so both copies sit on HEAD. */
+			const landTwins = () => {
+				const base = git(["rev-parse", "HEAD"]).trim();
+				git(["checkout", "-q", "-b", "pre"]);
+				commit("p.js", "Land the parser (#11)", "2026-09-05T00:00:00Z");
+				commit("q.js", "Wire the parser (#12)", "2026-09-06T00:00:00Z");
+				const reviewed = git(["rev-parse", "HEAD"]).trim();
+				git(["checkout", "-q", "-"]);
+				expect(git(["rev-parse", "HEAD"]).trim()).toBe(base);
+				commit(
+					"n2.js",
+					"A neighbour lands first (#99)",
+					"2026-09-07T00:00:00Z",
+				);
+				commit("p.js", "Land the parser (#11)", "2026-09-08T00:00:00Z");
+				fs.writeFileSync(path.join(repo, "q.js"), "Wire the parser (#12)");
+				fs.writeFileSync(path.join(repo, "r.js"), "rebase fix-up");
+				git(["add", "q.js", "r.js"]);
+				git(
+					[
+						"commit",
+						"-q",
+						"--no-verify",
+						"--date=2026-09-06T00:00:00Z",
+						"-m",
+						"Wire the parser (#12)",
+					],
+					"2026-09-08T00:00:00Z",
+				);
+				git(
+					["merge", "-q", "--no-edit", "--no-verify", "pre"],
+					"2026-09-09T00:00:00Z",
+				);
+				commit("f.js", "Fix a finding (#12)", "2026-09-10T00:00:00Z");
+				return reviewed;
+			};
+
+			it("marks each landed twin, and leaves the patch-identical one out of the git show", () => {
+				const reviewed = landTwins();
+				const preCopy = (subject: string) =>
+					git(["log", "--format=%H", `--grep=${subject}`, "pre"])
+						.trim()
+						.split("\n")[0];
+				const r = run(
+					[ticket(11), ticket(12)],
+					["--since", reviewed, "--json"],
+				);
+				expect(r.status).toBe(0);
+				const out = JSON.parse(r.stdout);
+				expect(
+					out.commits.map((c: { subject: string; twin: unknown }) => [
+						c.subject,
+						c.twin,
+					]),
+				).toEqual([
+					[
+						"Land the parser (#11)",
+						{ sha: preCopy("Land the parser"), patchDiffers: false },
+					],
+					[
+						"Wire the parser (#12)",
+						{ sha: preCopy("Wire the parser"), patchDiffers: true },
+					],
+					["Fix a finding (#12)", null],
+				]);
+				const landed = out.commits.map((c: { sha: string }) =>
+					c.sha.slice(0, 12),
+				);
+				expect(out.show).toBe(`git show ${landed[1]} ${landed[2]}`);
+				expect(out.files.map((f: { path: string }) => f.path)).toEqual([
+					"f.js",
+					"q.js",
+					"r.js",
+				]);
+				expect(out.reviewedThrough).toBe(out.commits.at(-1).sha);
+
+				const text = run([ticket(11), ticket(12)], ["--since", reviewed]).out;
+				expect(text).toContain(
+					`Land the parser (#11)  [already reviewed (twin ${preCopy("Land the parser").slice(0, 12)})]`,
+				);
+				expect(text).toContain(
+					`Wire the parser (#12)  [rebased, patch differs (twin ${preCopy("Wire the parser").slice(0, 12)}) — read this landed form]`,
+				);
+				expect(text).toContain("a sha main keeps");
+			});
+
+			it("says nothing new is to review where every listed commit is a reviewed twin", () => {
+				const reviewed = landTwins();
+				git(["reset", "-q", "--hard", "HEAD~1"]);
+				const r = run([ticket(11)], ["--since", reviewed]);
+				expect(r.status).toBe(0);
+				expect(r.out).toContain("[already reviewed (twin");
+				expect(r.out).toContain(
+					"Each is a twin of a reviewed commit: nothing new to review",
+				);
+				expect(r.out).not.toContain("git show");
+				expect(r.out).toContain("a sha main keeps");
+				expect(r.out).not.toContain("is not on main");
+			});
+
+			it("does not call a later commit repeating a reviewed subject a twin", () => {
+				const reviewed = landTwins();
+				commit("g.js", "Wire the parser (#12)", "2026-09-11T00:00:00Z");
+				const out = JSON.parse(
+					run([ticket(11), ticket(12)], ["--since", reviewed, "--json"]).stdout,
+				);
+				expect(out.commits.at(-1).twin).toBeNull();
+			});
+
+			it("says so, marking nothing, where git gives no patch-ids", () => {
+				const reviewed = landTwins();
+				const fake = path.join(dir, "git-no-patch-id");
+				fs.writeFileSync(
+					fake,
+					`#!/bin/sh\n[ "$1" = patch-id ] && exit 1\nexec git "$@"\n`,
+					{ mode: 0o755 },
+				);
+				const r = runInProcess(SCRIPT, ["10", "--since", reviewed, "--json"], {
+					cwd: repo,
+					env: {
+						...process.env,
+						...stub([ticket(11), ticket(12)]).env,
+						WFC_GIT: fake,
+					},
+				});
+				const out = JSON.parse(r.stdout);
+				expect(out.twinsRead).toBe(false);
+				expect(
+					out.commits.every((c: { twin: unknown }) => c.twin === null),
+				).toBe(true);
+			});
+
+			it("warns where the sha to record is not on main", () => {
+				git(["checkout", "-q", "-b", "worktree"]);
+				commit("w.js", "Unlanded work (#11)", "2026-09-05T00:00:00Z");
+				const r = run([ticket(11)]);
+				expect(r.out).toMatch(/WARNING: [0-9a-f]{12} is not on main/);
+				expect(
+					JSON.parse(run([ticket(11)], ["--json"]).stdout).throughOnMain,
+				).toBe(false);
+			});
 		});
 
 		it("refuses --since with no sha, with usage", () => {

@@ -14,6 +14,17 @@
  * triage with its findings' fixes reviews those, not the whole spec again
  * (#897). The sha is the earlier triage comment's `**Reviewed through:**`.
  *
+ * TWINS OF REVIEWED COMMITS ARE MARKED (#3240). `--since` is ancestry, and a
+ * rebased copy merged back onto HEAD descends from neither copy, so a landed
+ * twin of a commit behind the sha would read as new. A commit whose
+ * `git patch-id` matches a spec commit behind the sha is marked already
+ * reviewed and left out of the `git show`; one sharing only its subject is
+ * marked rebased, so the reviewer reads the landed form. The printed
+ * `**Reviewed through:**` names a sha main keeps: run this on main once the
+ * spec's commits have landed.
+ * Residual: a twin whose rebase changed its own lines and its subject or
+ * author date reads as new.
+ *
  * NOT A RANGE. A spec's commits interleave with other sessions' work, so
  * `<first>^..<last>` would review a neighbour's commits as the spec's.
  *
@@ -44,6 +55,7 @@ const { cutAt } = require("./lib/cut-at");
 const { citedIssues } = require("./lib/cited-issues.js");
 const { commitSha } = require("./lib/commit-sha.js");
 const { execGit } = require("./lib/git.js");
+const { readPatchIds } = require("./lib/patch-ids.js");
 
 const USAGE =
 	"usage: node scripts/spec-commits.js <spec> [--since <sha>] [--json]";
@@ -61,22 +73,24 @@ const short = (sha) => sha.slice(0, SHORT_SHA);
 const cite = (ns) => ns.map((x) => `#${x}`).join(" ");
 
 /**
- * `git log` records — sha, subject, body, touched files — oldest first.
+ * `git log` records — sha, author date, subject, body, touched files — oldest
+ * first.
  * @param {string} raw output of the format `logArgs` asks for
- * @returns {{ sha: string, subject: string, message: string, files: string[] }[]}
+ * @returns {{ sha: string, authored: string, subject: string, message: string, files: string[] }[]}
  */
 function parseLog(raw) {
 	return raw
 		.split("\x1e")
 		.filter((r) => r.trim())
 		.map((r) => {
-			const [sha, message, rest = ""] = r.split("\x1f");
-			if (sha === undefined || message === undefined)
+			const [sha, authored, message, rest = ""] = r.split("\x1f");
+			if (sha === undefined || authored === undefined || message === undefined)
 				throw new Error(
 					`git log record ${JSON.stringify(r)} has no message field`,
 				);
 			return {
 				sha: sha.trim(),
+				authored,
 				subject: cutAt(message, "\n")[0],
 				message,
 				files: rest.split("\n").filter(Boolean),
@@ -84,14 +98,14 @@ function parseLog(raw) {
 		});
 }
 
-/** @param {string} filedAt ISO date @param {string | null} after sha */
-const logArgs = (filedAt, after) => [
+/** @param {string} filedAt ISO date @param {string} range revision range */
+const logArgs = (filedAt, range) => [
 	"log",
 	"--reverse",
 	`--since=${filedAt}`,
-	"--format=%x1e%H%x1f%B%x1f",
+	"--format=%x1e%H%x1f%aI%x1f%B%x1f",
 	"--name-only",
-	after ? `${after}..HEAD` : "HEAD",
+	range,
 ];
 
 /** The full sha of `rev` where it is a commit HEAD contains, else null.
@@ -110,18 +124,81 @@ function ancestorOfHead(rev) {
 	}
 }
 
+/** Whether `sha` is on main, or null where no `main` branch resolves.
+ *  @param {string} sha */
+function isOnMain(sha) {
+	if (commitSha(process.cwd(), "main") === null) return null;
+	try {
+		execGit(["merge-base", "--is-ancestor", sha, "main"], {
+			stdio: "ignore",
+		});
+		return true;
+	} catch {
+		/* Not on main, or git failing alike. */
+		return false;
+	}
+}
+
 /**
- * The commits citing any of `numbers`, and the files they touched.
+ * The commits citing any of `numbers`.
  * @param {ReturnType<typeof parseLog>} log
  * @param {Set<number>} numbers
  */
-function specCommits(log, numbers) {
-	const commits = log.filter((c) =>
-		[...citedIssues(c.message)].some((n) => numbers.has(n)),
+const specCommits = (log, numbers) =>
+	log.filter((c) => [...citedIssues(c.message)].some((n) => numbers.has(n)));
+
+/**
+ * @typedef {{ sha: string, patchDiffers: boolean }} Twin
+ * @typedef {ReturnType<typeof parseLog>[number] & { twin: Twin | null }} Listed
+ */
+
+/**
+ * Each of `commits` with its twin among `reviewed`: a patch-id match
+ * first, else a commit with the same subject and author date whose patch
+ * differs. `twinsRead` is false
+ * where git will not give patch-ids, so nothing is marked.
+ * @param {ReturnType<typeof parseLog>} commits
+ * @param {ReturnType<typeof parseLog>} reviewed
+ * @returns {{ commits: Listed[], twinsRead: boolean }}
+ */
+function markTwins(commits, reviewed) {
+	const unmarked = commits.map((c) => ({ ...c, twin: null }));
+	if (commits.length === 0 || reviewed.length === 0)
+		return { commits: unmarked, twinsRead: true };
+	const ids = readPatchIds(
+		[...commits, ...reviewed].map((c) => c.sha),
+		process.cwd(),
 	);
-	const files = [...new Set(commits.flatMap((c) => c.files))].sort();
-	return { commits, files };
+	if (ids === null) return { commits: unmarked, twinsRead: false };
+	/** @type {Map<string, string>} */
+	const byPatch = new Map();
+	/** @type {Map<string, string>} */
+	const bySubject = new Map();
+	for (const r of reviewed) {
+		const id = ids.get(r.sha);
+		if (id !== undefined) byPatch.set(id, r.sha);
+		bySubject.set(`${r.authored} ${r.subject}`, r.sha);
+	}
+	const marked = commits.map((c) => {
+		const id = ids.get(c.sha);
+		const patchTwin = id === undefined ? undefined : byPatch.get(id);
+		if (patchTwin !== undefined)
+			return { ...c, twin: { sha: patchTwin, patchDiffers: false } };
+		const subjectTwin = bySubject.get(`${c.authored} ${c.subject}`);
+		return {
+			...c,
+			twin:
+				subjectTwin === undefined
+					? null
+					: { sha: subjectTwin, patchDiffers: true },
+		};
+	});
+	return { commits: marked, twinsRead: true };
 }
+
+/** A twin with the same patch was reviewed already: nothing to read.
+ *  @param {Listed} c */
+const isUnreviewed = (c) => c.twin === null || c.twin.patchDiffers;
 
 /** `null` where the class register is unreadable: the listing still stands,
  *  so it fails open, and says so in the output (#892).
@@ -183,12 +260,14 @@ function readArgs(argv) {
  * @property {string | null} after
  * @property {{ number: number, state: string }[]} tickets
  * @property {number[]} open
- * @property {ReturnType<typeof parseLog>} commits
+ * @property {Listed[]} commits
+ * @property {boolean} twinsRead
  * @property {string[]} files
  * @property {Set<string> | null} marked
  * @property {Set<string>} generated
  * @property {string | null} show
  * @property {string | null} reviewedThrough
+ * @property {boolean | null} throughOnMain
  */
 
 /** @param {SpecView} v */
@@ -199,15 +278,45 @@ function buildJsonReport(v) {
 			since: v.after,
 			tickets: v.tickets.map((t) => t.number),
 			open: v.open,
-			commits: v.commits.map(({ sha, subject }) => ({ sha, subject })),
+			commits: v.commits.map(({ sha, subject, twin }) => ({
+				sha,
+				subject,
+				twin,
+			})),
+			twinsRead: v.twinsRead,
 			files: v.files.map((f) => ({ path: f, generated: v.generated.has(f) })),
 			generatedMarked: Boolean(v.marked),
 			show: v.show,
 			reviewedThrough: v.reviewedThrough,
+			throughOnMain: v.throughOnMain,
 		},
 		null,
 		2,
 	)}\n`;
+}
+
+/**
+ * The `**Reviewed through:**` line, under the rule that it names a sha main
+ * keeps.
+ * @param {string | null} sha
+ * @param {boolean | null} onMain null where no `main` branch resolves
+ */
+const reviewedThroughLines = (sha, onMain) => [
+	"  (a sha main keeps: one from a worktree not yet landed is rebased away, and the next --since reads its landed twin as new)",
+	`  **Reviewed through:** ${sha}`,
+	...(onMain === false && sha
+		? [
+				`  WARNING: ${short(sha)} is not on main. Land the spec's commits and re-run this on main for the sha to record.`,
+			]
+		: []),
+];
+
+/** @param {Twin | null} twin */
+function buildTwinMark(twin) {
+	if (twin === null) return "";
+	return twin.patchDiffers
+		? `  [rebased, patch differs (twin ${short(twin.sha)}) — read this landed form]`
+		: `  [already reviewed (twin ${short(twin.sha)})]`;
 }
 
 /** @param {SpecView} v */
@@ -217,11 +326,13 @@ function buildTextReport({
 	tickets,
 	open,
 	commits,
+	twinsRead,
 	files,
 	marked,
 	generated,
 	show,
 	reviewedThrough,
+	throughOnMain,
 }) {
 	const cites =
 		tickets.length > 0
@@ -235,15 +346,29 @@ function buildTextReport({
 	if (commits.length === 0) {
 		lines.push(
 			after
-				? `No commit after ${short(after)} cites ${cites}: nothing new to review. Say so in the triage comment, ending it with:\n  **Reviewed through:** ${after}`
+				? `No commit after ${short(after)} cites ${cites}: nothing new to review. Say so in the triage comment, ending it with:`
 				: `No commit since #${n} was filed cites ${cites}: a decision-only spec. Skip the review, and say so in the triage comment.`,
 		);
+		if (after) lines.push(...reviewedThroughLines(after, throughOnMain));
 		return `${lines.join("\n")}\n`;
 	}
 	lines.push(
 		`${commits.length} commit(s)${after ? ` after ${short(after)}` : ""} cite ${cites}, oldest first:`,
 	);
-	for (const c of commits) lines.push(`  ${short(c.sha)} ${c.subject}`);
+	if (!twinsRead)
+		lines.push(
+			"  NOTE: git gave no patch-ids, so no twin of a reviewed commit is marked.",
+		);
+	for (const c of commits)
+		lines.push(`  ${short(c.sha)} ${c.subject}${buildTwinMark(c.twin)}`);
+	if (show === null) {
+		lines.push(
+			"",
+			"Each is a twin of a reviewed commit: nothing new to review. Say so in the triage comment, ending it with:",
+			...reviewedThroughLines(reviewedThrough, throughOnMain),
+		);
+		return `${lines.join("\n")}\n`;
+	}
 	lines.push("", `Files they touched (${files.length}):`);
 	if (!marked)
 		lines.push(
@@ -259,7 +384,7 @@ function buildTextReport({
 		`  ${show}`,
 		"",
 		"Record in the triage comment:",
-		`  **Reviewed through:** ${reviewedThrough}`,
+		...reviewedThroughLines(reviewedThrough, throughOnMain),
 	);
 	return `${lines.join("\n")}\n`;
 }
@@ -286,16 +411,29 @@ function main(argv) {
 	const numbers = new Set([n, ...tickets.map((t) => t.number)]);
 	const open = tickets.filter((t) => t.state === "open").map((t) => t.number);
 
-	const raw = execGit(logArgs(spec.created_at, after), {
-		encoding: "utf8",
-		maxBuffer: LOG_MAX_BUFFER,
-	});
-	const { commits, files } = specCommits(parseLog(raw), numbers);
+	/** @param {string} range */
+	const readSpecCommits = (range) =>
+		specCommits(
+			parseLog(
+				execGit(logArgs(spec.created_at, range), {
+					encoding: "utf8",
+					maxBuffer: LOG_MAX_BUFFER,
+				}),
+			),
+			numbers,
+		);
+	const found = readSpecCommits(after ? `${after}..HEAD` : "HEAD");
+	const { commits, twinsRead } = markTwins(
+		found,
+		after ? readSpecCommits(after) : [],
+	);
+	const unread = commits.filter(isUnreviewed);
+	const files = [...new Set(unread.flatMap((c) => c.files))].sort();
 	const marked = generatedOf(files);
 	const generated = marked ?? new Set();
 	const show =
-		commits.length > 0
-			? `git show ${commits.map((c) => short(c.sha)).join(" ")}`
+		unread.length > 0
+			? `git show ${unread.map((c) => short(c.sha)).join(" ")}`
 			: null;
 	/* With nothing new, the last pass's sha still stands. */
 	const newest = commits.at(-1);
@@ -307,11 +445,13 @@ function main(argv) {
 		tickets,
 		open,
 		commits,
+		twinsRead,
 		files,
 		marked,
 		generated,
 		show,
 		reviewedThrough,
+		throughOnMain: reviewedThrough === null ? null : isOnMain(reviewedThrough),
 	};
 	process.stdout.write(json ? buildJsonReport(view) : buildTextReport(view));
 	return 0;
