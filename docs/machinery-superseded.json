@@ -2413,5 +2413,25 @@
 			}
 		],
 		"allowlist": []
+	},
+	"dispatcher-entry-budget": {
+		"needles": [
+			{
+				"needle": "dispatcher's 8 s",
+				"scanned": true
+			},
+			{
+				"needle": "entry's 8 s",
+				"scanned": true
+			},
+			{
+				"needle": "8 s entry budget",
+				"scanned": true
+			},
+			{
+				"needle": "8 s budget",
+				"scanned": true
+			}
+		]
 	}
 }
