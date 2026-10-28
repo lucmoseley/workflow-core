@@ -282,17 +282,15 @@ describe("probe: the verdict table, first match wins", () => {
 });
 
 describe("probe: finding the plan", () => {
-	it("UNKNOWN on a holder a second plan lists while the first will not read (#3512)", async () => {
+	it("UNKNOWN on every plan when one plan's dir will not read, naming each plan's failed read (#3512)", async () => {
 		frozenHolder();
 		fs.writeFileSync(path.join(plan(), "fail"), "");
 		const two = plan(".claude2");
 		lists([holderRow()], two);
-		writeTranscript([said("waiting: a subagent")], two);
-		jobState({ inFlight: { tasks: 0, queued: 0 } }, two);
-		between(`printf 'x\\n' >> '${transcript(two)}'`, two);
 		const r = await probe();
 		expect(r.status).toBe(EXIT.UNKNOWN);
 		expect(r.stdout).toContain("holder in no plan that read");
+		expect(r.stdout).toContain(`${plan()}: `);
 		expect(r.stdout).toContain(`${two}: `);
 	});
 
