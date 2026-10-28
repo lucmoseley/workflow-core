@@ -1303,12 +1303,36 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(held.stdout).toContain(
 			"--sole-writer refused — another session holds a claim in this tree",
 		);
-		const unread = soleWriter({ CLAUDE_CODE_SESSION_ID: "" });
+		const unidentified = soleWriter({
+			CLAUDE_CODE_SESSION_ID: "",
+			WFC_ANCHOR_LOCKS: JSON.stringify([lock("scripts/guard-b.sh")]),
+		});
+		expect(unidentified.status).toBe(2);
+		expect(unidentified.stdout).toContain(
+			"--sole-writer refused — another session holds a claim in this tree",
+		);
+		const unread = soleWriter({ ...env([]), WFC_ANCHOR_LOCKS: "null" });
 		expect(unread.status).toBe(2);
 		expect(unread.stdout).toContain(
-			"--sole-writer refused — this session is unidentified",
+			"--sole-writer refused — the claim store would not be read",
 		);
 		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("--sole-writer anchors for an unidentified caller where no other session holds a claim, as init run from a terminal needs (#3474)", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const out = reviewIn(root, ["--sole-writer"], {
+			CLAUDE_CODE_SESSION_ID: "",
+			WFC_ANCHOR_LOCKS: "[]",
+		});
+		expect(out).toContain("anchored scripts/guard-a.sh @");
+		expect(out).not.toContain("claim check skipped");
+		expect(readAnchors(root)["scripts/guard-a.sh"]).not.toBe(
+			before["scripts/guard-a.sh"],
+		);
 	});
 
 	it("reads a staged rename's old name as a dirty input (#3339)", () => {
