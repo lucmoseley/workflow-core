@@ -66,7 +66,11 @@
  * counts as B190 for the checker while being invisible to the allocator — which
  * then hands out B190 and manufactures the duplicate the checker fails on.
  */
-const { FIGURE_ID: ENTRY_HEADING, jsonStringEnd } = require("./doc-map.js");
+const {
+	FIGURE_ID: ENTRY_HEADING,
+	idNumber,
+	jsonStringEnd,
+} = require("./doc-map.js");
 const { requiredGroup } = require("./regex-group.js");
 
 /** A `Section <letter>` heading's letter. */
@@ -527,10 +531,7 @@ function parseRegionText(text, region, rel) {
  */
 function nextEntryNumber(text, mark) {
 	return (
-		entryIds(text).reduce(
-			(max, id) => Math.max(max, Number(id.slice(1))),
-			mark,
-		) + 1
+		entryIds(text).reduce((max, id) => Math.max(max, idNumber(id)), mark) + 1
 	);
 }
 

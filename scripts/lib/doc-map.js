@@ -1318,9 +1318,13 @@ function readHeadHighWaterMark(file) {
 	return raw === null ? null : parseHighWaterMark(raw);
 }
 
+/** The number a one-letter-prefixed id carries: `B12` → 12, `R3` → 3.
+ * @param {string} id */
+const idNumber = (id) => Number(id.slice(1));
+
 /** @param {string[]} ids */
 const sortedByIdNumber = (ids) =>
-	[...ids].sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+	[...ids].sort((a, b) => idNumber(a) - idNumber(b));
 
 /**
  * The §B ids `text` ADDS relative to the committed map (`readCommittedEntryIds`)
@@ -1338,7 +1342,7 @@ function newIdsAtOrBelowMark(text, mapPath, mark) {
 	if (headIds === null) return null;
 	return sortedByIdNumber(
 		Object.keys(sectionBEntryProseWords(text)).filter(
-			(id) => !headIds.has(id) && Number(id.slice(1)) <= mark,
+			(id) => !headIds.has(id) && idNumber(id) <= mark,
 		),
 	);
 }
@@ -3200,6 +3204,12 @@ function reportWholeFile(ctx, notes) {
 }
 
 /**
+ * One needle-ledger entry, superseded or machinery.
+ * @typedef {{needle: string, scanned: boolean}} ScanNeedle
+ * @typedef {{needles: ScanNeedle[], allowlist?: AllowlistRow[]}} NeedleEntry
+ */
+
+/**
  * One needle-ledger entry, superseded or machinery: its needles, each with a
  * stated `scanned` flag, and an optional allowlist.
  * @param {string} file
@@ -3240,13 +3250,11 @@ function validateNeedleEntry(file, id, entry) {
  *
  * The allowlist is per *entry*, not per needle — coarser, and chosen for one
  * shape across both instruments.
- * @typedef {{needle: string, scanned: boolean}} ScanNeedle
- * @typedef {{needles: ScanNeedle[], allowlist?: AllowlistRow[]}} SupersededEntry
  * @param {string} file
- * @returns {Record<string, SupersededEntry>}
+ * @returns {Record<string, NeedleEntry>}
  */
 function loadSupersededNeedles(file) {
-	return /** @type {Record<string, SupersededEntry>} */ (
+	return /** @type {Record<string, NeedleEntry>} */ (
 		loadKeyed(
 			file,
 			(id, entry) => validateNeedleEntry(file, id, entry),
@@ -3269,12 +3277,11 @@ const MACHINERY_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
  *
  * Not a §B registry and deliberately not shaped like one (mantahostels#1440):
  * check-machinery-superseded.js's header holds the why.
- * @typedef {{needles: ScanNeedle[], allowlist?: AllowlistRow[]}} MachineryEntry
  * @param {string} file
- * @returns {Record<string, MachineryEntry>}
+ * @returns {Record<string, NeedleEntry>}
  */
 function loadMachineryNeedles(file) {
-	return /** @type {Record<string, MachineryEntry>} */ (
+	return /** @type {Record<string, NeedleEntry>} */ (
 		loadKeyed(file, (id, entry) => validateNeedleEntry(file, id, entry), {
 			test: MACHINERY_ID,
 			noun: "a kebab-case machinery-figure key",
@@ -4552,6 +4559,7 @@ module.exports = {
 	parseRoutes,
 	readMap,
 	FIGURE_ID,
+	idNumber,
 	ROUTE_ID,
 	assertDataIdsKnown,
 	dataFileSelfExemption,

@@ -22,7 +22,7 @@
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args");
-const { figureHeadings, sectionBRange } = require("./lib/doc-map");
+const { figureHeadings, idNumber, sectionBRange } = require("./lib/doc-map");
 
 /* writeFd, never console: node buffers writes to a pipe and drops what is
  * still buffered at process.exit, and an agent reading this through Bash has a
@@ -58,7 +58,7 @@ const blockEnd = (start) => {
 };
 
 const headings = figureHeadings(lines).map((h) => ({
-	id: Number(h.id.slice(1)),
+	id: idNumber(h.id),
 	start: h.index,
 	end: blockEnd(h.index),
 	stray: h.stray,

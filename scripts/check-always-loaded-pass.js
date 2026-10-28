@@ -155,7 +155,7 @@ function readBudget(ctx, root) {
 }
 
 /**
- * The recorded pass, as a one-entry array.
+ * The recorded pass, or null where the `passes` array is empty.
  *
  * The file is tracked, so anything wrong with its bytes is BROKEN rather than a
  * finding.
@@ -163,7 +163,7 @@ function readBudget(ctx, root) {
  * @param {Ctx} ctx
  * @param {string} file
  */
-function readPasses(ctx, file) {
+function readPass(ctx, file) {
 	let raw;
 	try {
 		raw = fs.readFileSync(file, "utf8");
@@ -186,24 +186,24 @@ function readPasses(ctx, file) {
 		ctx.broken(
 			`${file} records ${data.passes.length} passes; it holds the newest alone, so replace the entry rather than appending one`,
 		);
-	for (const p of data.passes) {
-		const extra = Object.keys(p ?? {}).filter(
-			(k) => !["date", "sha", "issue"].includes(k),
+	if (data.passes.length === 0) return null;
+	const p = data.passes[0];
+	const extra = Object.keys(p ?? {}).filter(
+		(k) => !["date", "sha", "issue"].includes(k),
+	);
+	if (extra.length > 0)
+		ctx.broken(
+			`${file}: a pass carries date, sha and issue alone, got ${extra.join(", ")}`,
 		);
-		if (extra.length > 0)
-			ctx.broken(
-				`${file}: a pass carries date, sha and issue alone, got ${extra.join(", ")}`,
-			);
-		if (!p || !isDate(p.date))
-			ctx.broken(
-				`${file}: every pass needs a "date" of the form YYYY-MM-DD, got ${JSON.stringify(p?.date)}`,
-			);
-		if (!isSha(p.sha))
-			ctx.broken(
-				`${file}: pass ${p.date} needs a 40-hex "sha", got ${JSON.stringify(p.sha)}`,
-			);
-	}
-	return /** @type {Pass[]} */ (data.passes);
+	if (!p || !isDate(p.date))
+		ctx.broken(
+			`${file}: the pass needs a "date" of the form YYYY-MM-DD, got ${JSON.stringify(p?.date)}`,
+		);
+	if (!isSha(p.sha))
+		ctx.broken(
+			`${file}: pass ${p.date} needs a 40-hex "sha", got ${JSON.stringify(p.sha)}`,
+		);
+	return /** @type {Pass} */ (p);
 }
 
 /** @typedef {{ date: string, sha: string, issue?: string }} Pass */
@@ -309,12 +309,11 @@ const SPEC = {
 				`this repo has no ${RECORD_FILE} — no pool-pass cadence to check`,
 			);
 
-		const recorded = readPasses(ctx, file);
+		const last = readPass(ctx, file);
 		const today = new Date(now()).toISOString().slice(0, 10);
 
 		const { headroom, cap } = resolveHeadroom(ctx, root);
 
-		const last = recorded[0] ?? null;
 		const due = last ? addMonths(last.date, PERIOD_MONTHS) : null;
 		const overdueFrom = last ? addMonths(last.date, OVERDUE_MONTHS) : null;
 

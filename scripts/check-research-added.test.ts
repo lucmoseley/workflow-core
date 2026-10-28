@@ -2,7 +2,9 @@
 /*
  * check-research-added.js refuses a commit adding a file under docs/research/
  * and prints the rule (#2356). Each case stages in a throwaway repo with no
- * hooks and runs the checker in process against that index.
+ * hooks and runs the checker in process against that index. The checker is
+ * the rule's only enforcement, in .husky/pre-commit, so a case loosened here
+ * lets a research snapshot land in the tree with nothing refusing it.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

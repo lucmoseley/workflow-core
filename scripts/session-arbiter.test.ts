@@ -3585,6 +3585,14 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 		expect(alloc("alice").stdout.trim()).toBe("B10");
 	});
 
+	it("warns, naming the missing high-water file and how to write it, yet still hands out an id (#3357)", () => {
+		registerSession(sb, "alice", process.pid);
+		const r = alloc("alice");
+		expect(r.stdout.trim()).toBe("B8");
+		expect(r.stderr).toContain("doc-map-high-water.json is missing");
+		expect(r.stderr).toContain('{ "highWaterMark": <n> }');
+	});
+
 	it("gives a second session the NEXT id, not the same one", () => {
 		// The whole reason it exists: two sessions reading the file in the same
 		// second both write `### B8`, and mantahostels#892 forbids renumbering it away.

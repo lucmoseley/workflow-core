@@ -418,6 +418,7 @@ const {
 	readTrackedFiles,
 	unresolvedSectionRefs,
 	readUntrackedFiles,
+	idNumber,
 } = require("./lib/doc-map");
 
 const {
@@ -1062,10 +1063,7 @@ function checkRouteIds(r) {
 	const routeIds = collectRouteIds(text);
 
 	const heldRouteIds = new Set(routeIds);
-	const highestRoute = Math.max(
-		0,
-		...routeIds.map((id) => Number(id.slice(1))),
-	);
+	const highestRoute = Math.max(0, ...routeIds.map((id) => idNumber(id)));
 	/** @type {{ id: string, why: string }[]} */
 	const routeIdFaults = [];
 	for (let n = 1; n <= highestRoute; n++)
@@ -1867,7 +1865,7 @@ function checkHighWaterMark(r) {
 
 	const headMark = readHeadHighWaterMark(markFile);
 	const removedAbove = (removedOrNull || []).filter(
-		(id) => Number(id.slice(1)) > mark,
+		(id) => idNumber(id) > mark,
 	);
 	/** @type {string[]} */
 	const markFaults = removedAbove.map(
@@ -1878,7 +1876,7 @@ function checkHighWaterMark(r) {
 	const wanted = Math.max(
 		mark,
 		headMark ?? 0,
-		...removedAbove.map((id) => Number(id.slice(1))),
+		...removedAbove.map((id) => idNumber(id)),
 	);
 	reportFault(ctx, {
 		tag: "HIGH-WATER-MARK",

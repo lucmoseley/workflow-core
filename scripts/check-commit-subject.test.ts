@@ -136,6 +136,16 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 		expect(viaM(s).status).toBe(0);
 	});
 
+	it.each([
+		`Revert "${subject(20)}" and ${subject(60)}`,
+		`Reapply "${subject(20)}" and ${subject(60)}`,
+	])(
+		"refuses a typed subject running on past git's closing quote, %s (#3357)",
+		(s) => {
+			expectRefused(viaM(s), s);
+		},
+	);
+
 	it("skips leading # comment and blank lines to find the subject", () => {
 		const r = viaEditor(`# a note\n\n${subject(72)}\n\nBody.\n`);
 		expect(r.status, r.out).toBe(0);

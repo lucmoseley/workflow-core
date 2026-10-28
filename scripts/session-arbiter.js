@@ -156,7 +156,11 @@ function spawnable(bin) {
  * typedef names a want's shape; only `sessionId`, `wants` and `since` are read.
  */
 const regions = require("./lib/doc-map-regions.js");
-const { DATA_FILES, parseHighWaterMark } = require("./lib/doc-map.js");
+const {
+	DATA_FILES,
+	idNumber,
+	parseHighWaterMark,
+} = require("./lib/doc-map.js");
 
 /*
  * NOT ON THE HOOK PATH. cmdCheck stays on the bare id: the oracle costs ~465 ms,
@@ -928,7 +932,7 @@ function buildUnknownRegionReason(rel, region) {
 	// map running to B190 is shown B181..B190 rather than B1..B12. Two slots of
 	// headroom, so an id just above the typo shows too.
 	const below = asked
-		? near.filter((id) => Number(id.slice(1)) < Number(asked[1])).length
+		? near.filter((id) => idNumber(id) < Number(asked[1])).length
 		: 0;
 	const from = Math.max(0, below - REGIONS_SHOWN + 2);
 	const window = near.slice(from, from + REGIONS_SHOWN);
@@ -1005,7 +1009,7 @@ function wholeFileRegionWarning(rel) {
 		// pair of ids the file does not run between.
 		const entries = ids
 			.filter((id) => /^B\d+$/.test(id))
-			.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
+			.sort((a, b) => idNumber(a) - idNumber(b));
 		const sections = ids.filter(
 			(id) => !rows.includes(id) && !entries.includes(id),
 		);
@@ -3896,10 +3900,11 @@ function readHighWaterMarkFor(rel) {
 		);
 	} catch (e) {
 		const { code, message } = caught(e);
-		if (code !== "ENOENT")
-			writeStderr(
-				`session-arbiter: ${file} could not be read (${code || message}), so the id below may be one a removed entry held; check-doc-map.js will refuse it if so.\n`,
-			);
+		writeStderr(
+			code === "ENOENT"
+				? `session-arbiter: ${file} is missing, so the id below may be one a removed entry held, and check-doc-map.js reads the map BROKEN until it exists. Write it as { "highWaterMark": <n> }, n being the number of the highest §B id ever removed (0 where none has been).\n`
+				: `session-arbiter: ${file} could not be read (${code || message}), so the id below may be one a removed entry held; check-doc-map.js will refuse it if so.\n`,
+		);
 	}
 	return 0;
 }
