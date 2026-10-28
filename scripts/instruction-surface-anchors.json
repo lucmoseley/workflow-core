@@ -361,10 +361,10 @@
 			"source": "#2072, #3157, #3189"
 		},
 		"scripts/guard-selection-sum.js": {
-			"digest": "6a4821ed9b67e30c",
-			"verdict": "at need (the dispatch turn's Stop); silent for an unarmed session, as designed",
+			"digest": "7d8562dd4dd21ccf",
+			"verdict": "at need (the dispatch turn's Stop); silent for an unarmed session, as designed. Re-fed under #3377 after #2188's DISPATCH_LINE fix: unarmed 0 B; armed with no accounting line 1,419 B, and the same on a `- **`#341, # 353,  #366`**` line; wrong sum 561 B; correct sum 0 B; a failing 20-number double-spaced line 0 B in 0.1 s.",
 			"selfSufficient": "yes — defect, the run's measured figure and the template all inline",
-			"source": "#1604"
+			"source": "#1604, #3377"
 		},
 		"scripts/guard-uncommitted-work.js": {
 			"digest": "0786300e1253e24d",
