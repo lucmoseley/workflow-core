@@ -12,7 +12,9 @@
  * report-flip-line-reading.js, since every adopter runs the priced-options
  * guard whatever its refillLoop (#2121).
  * discoverRepos' callers: lib/refill-frontier.js, scripts/file-morning-review.js,
- * reading each repo's delegated-decision ledger (#2011), and refill-loop.js's
+ * reading each repo's delegated-decision ledger (#2011),
+ * scripts/answer-review-reversals.js, finding the checkout an entry's
+ * tracker names (#2017), and refill-loop.js's
  * `start`, which starts nothing from an excluded checkout (#2014).
  *
  * It also links checkouts and trackers: readHostTracker reads a checkout's
