@@ -228,11 +228,7 @@ describe("the tier scan re-hashes only what moved (#833)", () => {
 			{ under: sb.dir },
 		);
 		vi.stubEnv("WFC_GIT", git);
-		try {
-			body();
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		body();
 		if (!fs.existsSync(log)) return [];
 		return fs
 			.readFileSync(log, "utf8")
