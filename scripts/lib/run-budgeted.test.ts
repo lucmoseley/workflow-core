@@ -12,6 +12,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { isGroupDead } from "./process-fixture";
+import { runInProcess } from "./run-in-process.js";
 
 const {
 	RUN_BUDGETED,
@@ -37,6 +38,7 @@ async function expectGroupDead(pgid: number) {
 
 function runSh(script: string) {
 	const started = Date.now();
+	// spawn-kept: a timeout and a signal — the budget kills a real process group
 	const r = spawnSync(
 		process.execPath,
 		[
@@ -85,6 +87,9 @@ describe("inside the budget", () => {
 
 describe("its own failures", () => {
 	it("exits 125 with its prefix where the command would not start", () => {
+		/* spawn-kept: an async entry runInProcessAsync cannot load — no exported
+		 * main, and the exit lands in the child's `error` event, under an armed
+		 * budget timer, after the synchronous entry has returned. */
 		const r = spawnSync(
 			process.execPath,
 			[RUN_BUDGETED, "1000", "1000", "no-such-command-2855"],
@@ -95,13 +100,7 @@ describe("its own failures", () => {
 	});
 
 	it("exits 125 with its prefix on a usage error", () => {
-		const r = spawnSync(
-			process.execPath,
-			[RUN_BUDGETED, "soon", "1000", "true"],
-			{
-				encoding: "utf8",
-			},
-		);
+		const r = runInProcess(RUN_BUDGETED, ["soon", "1000", "true"]);
 		expect(r.status).toBe(APPARATUS_EXIT);
 		expect(r.stderr.startsWith(APPARATUS_PREFIX)).toBe(true);
 	});
@@ -111,6 +110,7 @@ describe("its own failures", () => {
  * that arms its handlers late fails this only some runs: 3 in 10 under a
  * whole suite's load, 0 in 10 idle. */
 it("kills the group and dies by the same signal when told to stop (#2928)", async () => {
+	// spawn-kept: a signal, sent to the runner mid-run
 	const child = spawn(
 		process.execPath,
 		[

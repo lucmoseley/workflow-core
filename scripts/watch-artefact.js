@@ -158,8 +158,11 @@ async function main() {
 	}
 }
 
+module.exports = { main };
+
 // Exit 1, a code no verdict uses, so a crash never reads as one.
-main().catch((/** @type {any} */ err) => {
-	writeFd(2, `watch-artefact: ${err?.stack ?? err}\n`);
-	process.exit(1);
-});
+if (require.main === module)
+	main().catch((/** @type {any} */ err) => {
+		writeFd(2, `watch-artefact: ${err?.stack ?? err}\n`);
+		process.exit(1);
+	});

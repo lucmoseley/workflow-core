@@ -130,6 +130,7 @@ const wait = setInterval(() => {
 }, 50);
 `,
 		);
+		// spawn-kept: the case is the caller process exiting while its child runs.
 		execFileSync(process.execPath, [caller], { stdio: "ignore" });
 		expect(await groupGone(Number(fs.readFileSync(pgidFile, "utf8")))).toBe(
 			true,

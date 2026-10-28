@@ -3,11 +3,10 @@
  * watch-artefact.test.ts — the watcher's verdicts, read the way the parent
  * session reads them: the stdout verdict line and the exit code (#539).
  *
- * KEEPS A SPAWN (§X3): a verdict case runs two things at once, the watcher and
- * the test growing its artefact on a timeline of its own, and runInProcess
- * refuses overlapping async work. The refusal cases spawn too: the script's
- * entry is async, so in-process its crash handler would reach the worker's
- * real process.exit after runInProcess had restored it.
+ * spawn-kept: two processes at once — a verdict case runs the watcher while
+ * the test grows its artefact on a timeline of its own, started off the
+ * watcher's live stderr, and runInProcess refuses overlapping async work. The
+ * refusal cases run in-process, through runInProcessAsync.
  *
  * The timeline starts when the watcher prints its start line, which follows
  * its baseline, so every event lands half an interval from the nearest check. A case that fails only under heavy load is that margin
@@ -30,6 +29,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = join(__dirname, "watch-artefact.js");
 const POLL_GUARD = join(__dirname, "guard-dispatch.js");
@@ -168,10 +168,8 @@ describe("a bad invocation", () => {
 		["no path", []],
 		["a zero interval", ["x", "0"]],
 		["a non-numeric ceiling", ["x", "1", "soon"]],
-	])("refuses %s with exit 2, printing no verdict", (_label, args) => {
-		const r = spawnSync(process.execPath, [SCRIPT, ...args], {
-			encoding: "utf8",
-		});
+	])("refuses %s with exit 2, printing no verdict", async (_label, args) => {
+		const r = await runInProcessAsync(SCRIPT, args);
 		expect(r.status).toBe(EXIT.USAGE);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toMatch(/^watch-artefact: .*\nusage: /);

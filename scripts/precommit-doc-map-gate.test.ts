@@ -48,6 +48,7 @@ import {
 	ROOT,
 	writeCheckerDelegates,
 } from "./lib/precommit-gate-testkit";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const CHECKER = "scripts/check-doc-map.js";
 
@@ -1038,22 +1039,12 @@ describe("the pre-commit doc-map gate", () => {
 		fs.writeFileSync(path.join(ROOT, scratch), "scratch\n");
 		let report: string;
 		try {
-			const run = spawnSync(
-				"node",
-				[
-					"scripts/check-doc-map.js",
-					path.join(dir, "doc-map.md"),
-					"--data-dir",
-					dir,
-				],
-				{
-					cwd: ROOT,
-					encoding: "utf8",
-					maxBuffer: 32 * 1024 * 1024,
-					env: NO_ANNOTATIONS,
-				},
+			const run = runInProcess(
+				path.join(ROOT, "scripts", "check-doc-map.js"),
+				[path.join(dir, "doc-map.md"), "--data-dir", dir],
+				{ cwd: ROOT, env: NO_ANNOTATIONS },
 			);
-			report = `${run.stdout ?? ""}${run.stderr ?? ""}`;
+			report = `${run.stdout}${run.stderr}`;
 		} finally {
 			fs.rmSync(path.join(ROOT, scratch), { force: true });
 		}
@@ -1136,22 +1127,12 @@ describe("the pre-commit doc-map gate", () => {
 			map.replace(heading, `${heading}\n\n${nearMiss}`),
 		);
 
-		const run = spawnSync(
-			"node",
-			[
-				"scripts/check-doc-map.js",
-				path.join(dir, "doc-map.md"),
-				"--data-dir",
-				dir,
-			],
-			{
-				cwd: ROOT,
-				encoding: "utf8",
-				maxBuffer: 32 * 1024 * 1024,
-				env: NO_ANNOTATIONS,
-			},
+		const run = runInProcess(
+			path.join(ROOT, "scripts", "check-doc-map.js"),
+			[path.join(dir, "doc-map.md"), "--data-dir", dir],
+			{ cwd: ROOT, env: NO_ANNOTATIONS },
 		);
-		const report = `${run.stdout ?? ""}${run.stderr ?? ""}`;
+		const report = `${run.stdout}${run.stderr}`;
 		expect(
 			report,
 			"the real checker did not raise the malformed marker",

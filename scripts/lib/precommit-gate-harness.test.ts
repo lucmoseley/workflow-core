@@ -20,7 +20,6 @@
  * put.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,6 +35,7 @@ import {
 	stagedRepo,
 } from "./precommit-gate-harness";
 import { HOOK, ROOT, writeCheckerDelegates } from "./precommit-gate-testkit";
+import { runInProcess } from "./run-in-process.js";
 
 const temps = registerTempCleanup();
 
@@ -390,12 +390,8 @@ describe("writeCheckerDelegates (mantahostels#2073)", () => {
 		writeCheckerDelegates(root, [fixtureName]);
 		const delegate = path.join(root, "scripts", fixtureName);
 
-		// spawnSync, not run-in-process: the delegate under test is itself a
-		// separate-process re-exec ending in an unconditional `process.exit`
-		// (precommit-gate-testkit.ts), so asserting on its own exit code needs a
-		// real child.
-		expect(spawnSync(process.execPath, [delegate, "refuse"]).status).toBe(1);
-		expect(spawnSync(process.execPath, [delegate, "pass"]).status).toBe(0);
+		expect(runInProcess(delegate, ["refuse"]).status).toBe(1);
+		expect(runInProcess(delegate, ["pass"]).status).toBe(0);
 	});
 
 	it("pins 128 + signal number when the real checker dies to a signal, distinct from a refusal's exit 1 (mantahostels#2128)", () => {
@@ -404,7 +400,7 @@ describe("writeCheckerDelegates (mantahostels#2073)", () => {
 		writeCheckerDelegates(root, [fixtureName]);
 		const delegate = path.join(root, "scripts", fixtureName);
 
-		const result = spawnSync(process.execPath, [delegate]);
+		const result = runInProcess(delegate);
 
 		expect(result.status).toBe(128 + os.constants.signals.SIGTERM);
 		expect(result.status).not.toBe(1);

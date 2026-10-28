@@ -16412,7 +16412,6 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/keep-hook-shims.test.ts",
 			"scripts/lib/git.test.ts",
-			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/run-in-process.test.ts",
 			"scripts/lib/script-path-scan.test.ts",

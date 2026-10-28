@@ -30,6 +30,7 @@ import {
 	CITATION_CEILING,
 	qualifyCitations,
 } from "./qualify-citations.js";
+import { runInProcess } from "./run-in-process.js";
 import { isCollectedTestOrConftest } from "./test-kind.js";
 
 const CORE = path.resolve(__dirname, "../..");
@@ -725,10 +726,10 @@ describe("citation qualification (#396)", () => {
 		const before = new Map(shipped.map((f) => [f, read(f)]));
 		buildTree(CORE, out);
 		expect(shipped.filter((f) => before.get(f) !== read(f))).toEqual([]);
-		const check = spawnSync(
-			process.execPath,
-			[path.join(CORE, "scripts/check-citation-tracker.js"), "--all"],
-			{ cwd: CORE, encoding: "utf8" },
+		const check = runInProcess(
+			path.join(CORE, "scripts/check-citation-tracker.js"),
+			["--all"],
+			{ cwd: CORE },
 		);
 		expect(check.status, check.stdout + check.stderr).toBe(0);
 	});

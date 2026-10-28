@@ -13,6 +13,10 @@
  *
  * It runs detached at every session start (`sweep-debts-detached.sh`), so a
  * regression files a wrong or duplicate GitHub issue unattended.
+ *
+ * spawn-kept: the failing-gh case spawns, since a real process.exit skips the
+ * gate's `finally`, which runInProcess's unwind would run, hiding a lock left
+ * behind.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -921,8 +925,6 @@ describe("filing the reading (#1104)", () => {
 		expect(ghCalls()).toBe("");
 	});
 
-	/* Spawned, not in-process: a real process.exit skips the gate's `finally`,
-	 * which runInProcess's unwind would run, hiding a lock left behind. */
 	it("drops its stamp and walk lock where gh refuses, so a re-run files at once (#3220)", () => {
 		reachedReading();
 		stubGh({ failing: true });

@@ -26,6 +26,7 @@ import { stubGhScript } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { registrationsOf } from "./lib/hook-wiring";
+import { runInProcess } from "./lib/run-in-process.js";
 import { readShellConst } from "./lib/shell-const-testkit";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -863,25 +864,21 @@ describe("a typed /code-review takes the Skill route's review tier (#1697)", () 
 
 	/** What the Skill route injects for the same change. */
 	const readSkillRouteContext = (): string => {
-		const out = execFileSync(
-			"node",
-			[tierHook, "--only", "inject-review-tier"],
-			{
-				input: JSON.stringify({
-					hook_event_name: "PreToolUse",
-					tool_name: "Skill",
-					tool_input: { skill: "code-review" },
-					session_id: sid(),
-				}),
-				encoding: "utf8",
-				env: {
-					...process.env,
-					CLAUDE_PROJECT_DIR: repo,
-					CLAUDE_CONFIG_DIR: SCRATCH,
-				},
+		const r = runInProcess(tierHook, ["--only", "inject-review-tier"], {
+			stdin: JSON.stringify({
+				hook_event_name: "PreToolUse",
+				tool_name: "Skill",
+				tool_input: { skill: "code-review" },
+				session_id: sid(),
+			}),
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: repo,
+				CLAUDE_CONFIG_DIR: SCRATCH,
 			},
-		);
-		return JSON.parse(out).hookSpecificOutput.additionalContext;
+		});
+		expect(r.status, r.stderr).toBe(0);
+		return JSON.parse(r.stdout).hookSpecificOutput.additionalContext;
 	};
 
 	it("ends on the Skill route's tier block, briefs and records for a change under a declared glob", () => {

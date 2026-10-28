@@ -23,12 +23,7 @@
  * that does not load, retries a bad tip every tick, or re-execs under a gate
  * sweep's children.
  */
-import {
-	type ChildProcess,
-	execFileSync,
-	spawn,
-	spawnSync,
-} from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -40,6 +35,7 @@ import {
 	readRunningCode,
 	SHA_SHOWN,
 } from "./refill-code.js";
+import { runInProcessAsync } from "./run-in-process.js";
 
 const CODE_LIB = path.resolve(__dirname, "refill-code.js");
 const LOOP = path.resolve(__dirname, "..", "refill-loop.js");
@@ -151,6 +147,7 @@ async function startLoop() {
 		codeDir,
 	});
 	if ("error" in launch) throw new Error(launch.error);
+	// spawn-kept: a long-running loop that re-execs under its pid while the test runs beside it
 	loopProc = spawn(process.execPath, [launch.program, "run"], {
 		env: { ...gitEnv, FIXTURE_DIR: dir },
 		stdio: "ignore",
@@ -203,7 +200,7 @@ describe("launchProgram", () => {
 });
 
 describe("start", () => {
-	it("spawns run from the loop-owned worktree at origin's tip, never the main checkout's working tree", () => {
+	it("spawns run from the loop-owned worktree at origin's tip, never the main checkout's working tree", async () => {
 		const libs = path.join(dir, "libs");
 		copyLibs(libs, readProgramLibs("refill-loop.js"));
 		const files: Record<string, string> = {
@@ -220,12 +217,11 @@ describe("start", () => {
 			"\n// dirty\n",
 		);
 		const state = path.join(dir, "state");
-		const r = spawnSync(
-			process.execPath,
-			[path.join(main, "scripts", "refill-loop.js"), "start"],
+		const r = await runInProcessAsync(
+			path.join(main, "scripts", "refill-loop.js"),
+			["start"],
 			{
 				cwd: main,
-				encoding: "utf8",
 				env: {
 					...gitEnv,
 					HOME: dir,

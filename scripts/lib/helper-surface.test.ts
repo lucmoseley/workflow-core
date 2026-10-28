@@ -5,13 +5,16 @@
  * load in a plain node process outside the core (#462), and each listed
  * command still reads the argv the manifest promises (#655).
  *
- * The commands are spawned, never run in-process: an adopter spawns them, and
- * the argv and exit code a real process sees are the contract. Their refusals
- * assert status alone, stderr wording being off the contract.
+ * The commands run as programs, end to end, since the argv and exit code a
+ * real process sees are the contract. Their refusals assert status alone,
+ * stderr wording being off the contract.
  *
  * The manifest is what adopters import and run against, so a loosened case
  * lets a release drop or reshape a promised helper or command line and break
  * an adopter's tests or hooks with nothing on this side going red.
+ *
+ * spawn-kept: the fixtures case is a plain node process outside vitest's
+ * loader, the shape an adopter loads them in (#462).
  */
 
 import { spawnSync } from "node:child_process";
@@ -20,9 +23,11 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { isShipped } from "./plugin-tree.js";
+import { runInProcess } from "./run-in-process.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const ROOT = path.join(__dirname, "..", "..");
+const RUN_VITEST = path.join(ROOT, "scripts", "run-vitest.js");
 interface Command {
 	positionals: { name: string; values?: string[] }[];
 	flags: { name: string; value?: string }[];
@@ -181,11 +186,7 @@ describe("the helper-surface commands", () => {
 		file: string,
 		argv: string[],
 		opts: { cwd?: string; env?: NodeJS.ProcessEnv } = {},
-	) =>
-		spawnSync(process.execPath, [path.join(ROOT, file), ...argv], {
-			encoding: "utf8",
-			...opts,
-		});
+	) => runInProcess(path.join(ROOT, file), argv, opts);
 	const exitCodes = () => {
 		const seen = new Set<string>();
 		return {
@@ -251,8 +252,13 @@ describe("the helper-surface commands", () => {
 				);
 				const codes = exitCodes();
 				const launch = (argv: string[], code: number) => {
-					const r = run("scripts/run-vitest.js", argv, {
+					/* spawn-kept: an async entry runInProcessAsync cannot load —
+					 * run-vitest.js's `main(argv, deps)` wants arguments that
+					 * seam's bare `main()` does not pass, and its guard runs the
+					 * refusals and the load hold first. */
+					const r = spawnSync(process.execPath, [RUN_VITEST, ...argv], {
 						cwd: dir,
+						encoding: "utf8",
 						env: {
 							...process.env,
 							WFC_RUN_VITEST_BIN: bin,

@@ -27,6 +27,7 @@ import {
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
 import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const temps = registerTempCleanup();
 
@@ -227,15 +228,10 @@ describe("the --root each side of the comparison is read through", () => {
 	const emptyTree = () => newRepo("empty-root-", temps).root;
 
 	const runChecker = (checker: string, args: string[]) =>
-		spawnSync(
-			process.execPath,
-			[path.join(ROOT, "scripts", checker), ...args],
-			{
-				cwd: ROOT,
-				encoding: "utf8",
-				env: { ...process.env, GITHUB_ACTIONS: "" },
-			},
-		);
+		runInProcess(path.join(ROOT, "scripts", checker), args, {
+			cwd: ROOT,
+			env: { ...process.env, GITHUB_ACTIONS: "" },
+		});
 
 	it("reads check-guard-registry.js's --root, not its own directory", () => {
 		const r = runChecker("check-guard-registry.js", [

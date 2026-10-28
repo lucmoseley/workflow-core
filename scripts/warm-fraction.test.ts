@@ -16,11 +16,11 @@
  * few runs.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const { LOG_SUBPATH, MIN_RUNS } = require("./lib/warm-fraction-log.js");
 
@@ -56,12 +56,10 @@ const write = (records: (object | string)[]) => {
 };
 
 const runReport = (...args: string[]) => {
-	const r = spawnSync(
-		"node",
-		[path.join(__dirname, "warm-fraction.js"), ...args],
-		{ env: { ...process.env, WFC_REPO_ROOT: root }, encoding: "utf8" },
-	);
-	return { status: r.status ?? -1, out: r.stdout ?? "", err: r.stderr ?? "" };
+	const r = runInProcess(path.join(__dirname, "warm-fraction.js"), args, {
+		env: { ...process.env, WFC_REPO_ROOT: root },
+	});
+	return { status: r.status, out: r.stdout, err: r.stderr };
 };
 
 const report = (...args: string[]) => {

@@ -47,12 +47,15 @@ const marker = () =>
 const readMarkerText = () => fs.readFileSync(marker(), "utf8");
 
 /** The tree `commit-paths.js --tree <args>` prints in the repo. */
-const readTree = (args: string[]) =>
-	execFileSync(process.execPath, [COMMIT_PATHS, "--tree", ...args], {
+const readTree = (args: string[]) => {
+	const r = runInProcess(COMMIT_PATHS, ["--tree", ...args], {
 		cwd: repo,
-		encoding: "utf8",
 		env: { ...env, CLAUDE_PROJECT_DIR: repo },
-	}).trim();
+	});
+	if (r.status !== 0)
+		throw new Error(`commit-paths.js exited ${r.status}: ${r.stderr}`);
+	return r.stdout.trim();
+};
 
 const artefact = (axis: "standards" | "spec", text = "- no findings\n") => {
 	fs.mkdirSync(path.join(repo, ".claude", "tmp"), { recursive: true });

@@ -59,19 +59,18 @@ function run(
 	return { code: r.status, out: lines(r.stdout), err: lines(r.stderr) };
 }
 
-/** Runs the real CLI as a subprocess against THIS repo's own git history;
+/** Runs the real CLI against THIS repo's own git history;
  * the cases below pick refs whose answer cannot drift with this
  * repo's ongoing history (a bad ref, and the repo's one root commit).
  * isolation-exempt: hostRoot() pinned to this real repo is the point — the
  * cases picked (a bad ref, the root commit) read no live state, so nothing
  * a CLAUDE_PROJECT_DIR redirect would protect is ever touched (#160). */
 function runCli(...args: string[]) {
-	const r = spawnSync(process.execPath, [SCRIPT, ...args], {
+	const r = runInProcess(SCRIPT, args, {
 		cwd: REPO_ROOT,
-		encoding: "utf8",
 		env: { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT },
 	});
-	return { code: r.status ?? -1, out: r.stdout, err: r.stderr };
+	return { code: r.status, out: r.stdout, err: r.stderr };
 }
 
 /** A stub checker.js: prints <root>/envelope.json verbatim, or `{"findings":[]}`
@@ -359,16 +358,11 @@ describe("report-new-shared-faults", () => {
 
 	it("pins the real check-guard-registry.js --json envelope shape", () => {
 		const envelope = JSON.parse(
-			spawnSync(
-				process.execPath,
-				[
-					path.join(__dirname, "check-guard-registry.js"),
-					"--root",
-					REPO_ROOT,
-					"--json",
-				],
-				{ encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
-			).stdout,
+			runInProcess(path.join(__dirname, "check-guard-registry.js"), [
+				"--root",
+				REPO_ROOT,
+				"--json",
+			]).stdout,
 		);
 
 		expect(envelope).toMatchObject({ checker: "guard-registry" });
@@ -703,6 +697,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 		 */
 		async function killMidWorktree(ref: string, root: string) {
 			for (let attempt = 0; attempt < 8; attempt++) {
+				// spawn-kept: a signal — the run is SIGKILLed mid-worktree.
 				const child = spawn(process.execPath, [SCRIPT, ref], {
 					cwd: root,
 					env: {

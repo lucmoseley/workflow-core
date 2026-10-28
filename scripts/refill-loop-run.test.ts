@@ -45,7 +45,7 @@ import {
 } from "./lib/dispatch-ledger.js";
 import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
-import { runInProcessAsync } from "./lib/run-in-process.js";
+import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
 import { readProgramLibs } from "./lib-closure-fixture";
 
@@ -205,6 +205,8 @@ const run = (slots: number, over: NodeJS.ProcessEnv = {}) =>
 const SETTLE_MS = 20 * 1000;
 
 const requestStop = () =>
+	/* spawn-kept: two processes at once — the stop lands while the loop is
+	 * still running in-process, which holds runInProcess's claim. */
 	spawnSync(process.execPath, [path.join(scripts, "request-stop.js")]);
 
 /** Whether `promise` settles inside SETTLE_MS, with its value where it does. */
@@ -838,22 +840,17 @@ const ledgerLaunch = (job: string) => {
 const readHeldIssues = () =>
 	readRecentEntries(repo, DEFAULT_WINDOW_HOURS).entries.map((e) => e.issues);
 const arbiterAs = (sessionId: string, ...args: string[]) =>
-	spawnSync(
-		process.execPath,
-		[path.join(scripts, "session-arbiter.js"), ...args],
-		{
-			cwd: repo,
-			encoding: "utf8",
-			env: {
-				...process.env,
-				HOME: dir,
-				CLAUDE_CONFIG_DIR: seat,
-				CLAUDE_PROJECT_DIR: repo,
-				WFC_REPO_ROOT: repo,
-				CLAUDE_CODE_SESSION_ID: sessionId,
-			},
+	runInProcess(path.join(scripts, "session-arbiter.js"), args, {
+		cwd: repo,
+		env: {
+			...process.env,
+			HOME: dir,
+			CLAUDE_CONFIG_DIR: seat,
+			CLAUDE_PROJECT_DIR: repo,
+			WFC_REPO_ROOT: repo,
+			CLAUDE_CODE_SESSION_ID: sessionId,
 		},
-	).stdout;
+	}).stdout;
 
 const writesCopyRecord = (record: string) => {
 	const jobDir = path.join(seat, "jobs", FAKE_COPY);

@@ -72,10 +72,9 @@ const init = (dir: string, ...args: string[]) =>
 	initIn(process.env, dir, ...args);
 
 const initIn = (env: NodeJS.ProcessEnv, dir: string, ...args: string[]) =>
-	spawnSync(
-		"node",
+	runInProcess(
+		SCRIPT,
 		[
-			SCRIPT,
 			"--root",
 			dir,
 			"--plugin-root",
@@ -88,7 +87,6 @@ const initIn = (env: NodeJS.ProcessEnv, dir: string, ...args: string[]) =>
 		],
 		{
 			cwd: dir,
-			encoding: "utf8",
 			/* init() passes NO CLAUDE_PROJECT_DIR: init sets it for its own
 			 * children, so supplying it would prove the harness rather than the
 			 * script (#5). */
@@ -169,10 +167,9 @@ describe("init in a fresh repository", () => {
 		const { dir } = repo();
 		const { WFC_GITLEAKS: _unused, ...rest } = process.env;
 		const env = { ...rest, PATH: "" };
-		const r = spawnSync(
-			process.execPath,
+		const r = runInProcess(
+			SCRIPT,
 			[
-				SCRIPT,
 				"--root",
 				dir,
 				"--plugin-root",
@@ -182,7 +179,7 @@ describe("init in a fresh repository", () => {
 				"--no-tracker",
 				"--dry-run",
 			],
-			{ cwd: dir, encoding: "utf8", env },
+			{ cwd: dir, env },
 		);
 		expect(r.status).toBe(0);
 		const line = r.stdout
@@ -213,10 +210,9 @@ describe("init in a fresh repository", () => {
 		made.push(stub);
 		const bin = path.join(stub, "gitleaks-elsewhere");
 		fs.writeFileSync(bin, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
-		const r = spawnSync(
-			process.execPath,
+		const r = runInProcess(
+			SCRIPT,
 			[
-				SCRIPT,
 				"--root",
 				dir,
 				"--plugin-root",
@@ -228,7 +224,6 @@ describe("init in a fresh repository", () => {
 			],
 			{
 				cwd: dir,
-				encoding: "utf8",
 				env: { ...process.env, PATH: "", WFC_GITLEAKS: bin },
 			},
 		);
@@ -252,10 +247,9 @@ describe("init in a fresh repository", () => {
 				mode: 0o755,
 			});
 		}
-		const r = spawnSync(
-			process.execPath,
+		const r = runInProcess(
+			SCRIPT,
 			[
-				SCRIPT,
 				"--root",
 				dir,
 				"--plugin-root",
@@ -265,7 +259,7 @@ describe("init in a fresh repository", () => {
 				"--no-tracker",
 				"--dry-run",
 			],
-			{ cwd: dir, encoding: "utf8", env: { ...process.env, PATH: stub } },
+			{ cwd: dir, env: { ...process.env, PATH: stub } },
 		);
 		expect(r.stdout).toContain(`tools    all present: ${TOOLS.join(", ")}`);
 	});
@@ -275,10 +269,9 @@ describe("init in a fresh repository", () => {
 			const { dir } = repo();
 			const log = path.join(dir, "claude-calls.log");
 			const stub = stubClaude(log);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -289,7 +282,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: {
 						...process.env,
 						WFC_CLAUDE_BIN: path.join(stub, "claude"),
@@ -327,10 +319,9 @@ describe("init in a fresh repository", () => {
 				{ mode: 0o755 },
 			);
 			const env = { ...process.env, WFC_CLAUDE_BIN: bin };
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -339,7 +330,7 @@ describe("init in a fresh repository", () => {
 					"A",
 					"--no-tracker",
 				],
-				{ cwd: dir, encoding: "utf8", env },
+				{ cwd: dir, env },
 			);
 			expect(r.status).toBe(0);
 			return env;
@@ -354,15 +345,10 @@ describe("init in a fresh repository", () => {
 				fs.readFileSync(path.join(dir, costTable), "utf8"),
 			);
 			expect(table.plugins[coreId].tokens).toBe(2273);
-			const budget = spawnSync(
-				process.execPath,
-				[
-					path.join(CORE, "scripts/check-context-budget.js"),
-					"--root",
-					dir,
-					"--json",
-				],
-				{ cwd: dir, encoding: "utf8", env },
+			const budget = runInProcess(
+				path.join(CORE, "scripts/check-context-budget.js"),
+				["--root", dir, "--json"],
+				{ cwd: dir, env },
 			);
 			const findings: { tag: string }[] = JSON.parse(budget.stdout).findings;
 			expect(findings.filter((f) => f.tag === "UNPRICED-PLUGIN")).toEqual([]);
@@ -419,10 +405,9 @@ describe("init in a fresh repository", () => {
 				].join("\n"),
 				{ mode: 0o755 },
 			);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -435,7 +420,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: {
 						...process.env,
 						WFC_CLAUDE_BIN: path.join(stub, "claude"),
@@ -460,10 +444,9 @@ describe("init in a fresh repository", () => {
 			const { dir } = repo();
 			const log = path.join(dir, "claude-calls.log");
 			const stub = stubClaude(log);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -475,7 +458,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: {
 						...process.env,
 						WFC_CLAUDE_BIN: path.join(stub, "claude"),
@@ -499,10 +481,9 @@ describe("init in a fresh repository", () => {
 				{ mode: 0o755 },
 			);
 			const { WFC_CLAUDE_BIN: _unused, ...withoutClaudeBin } = process.env;
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -513,7 +494,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					/* On PATH, not WFC_CLAUDE_BIN, and with that var dropped: the
 					 * fallback names whatever binary init resolved, and this asserts
 					 * the default `claude` (#775). */
@@ -564,10 +544,9 @@ describe("init in a fresh repository", () => {
 
 		it("prints what it would run under --dry-run, without a claude on PATH", () => {
 			const { dir } = repo();
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -577,7 +556,7 @@ describe("init in a fresh repository", () => {
 					"--no-tracker",
 					"--dry-run",
 				],
-				{ cwd: dir, encoding: "utf8", env: { ...process.env, PATH: "" } },
+				{ cwd: dir, env: { ...process.env, PATH: "" } },
 			);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
@@ -626,10 +605,9 @@ describe("init in a fresh repository", () => {
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
 			made.push(configDir);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -643,7 +621,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
 				},
 			);
@@ -662,10 +639,9 @@ describe("init in a fresh repository", () => {
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
 			made.push(configDir);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -679,7 +655,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
 				},
 			);
@@ -698,10 +673,9 @@ describe("init in a fresh repository", () => {
 			const { dir } = repo();
 			const bareRoot = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-nogit-"));
 			made.push(bareRoot);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -711,7 +685,7 @@ describe("init in a fresh repository", () => {
 					"--no-tracker",
 					"--dry-run",
 				],
-				{ cwd: dir, encoding: "utf8", env: process.env },
+				{ cwd: dir, env: process.env },
 			);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
@@ -738,10 +712,9 @@ describe("init in a fresh repository", () => {
 			git("commit", "-q", "-m", "seed");
 			const nested = path.join(ancestorRoot, "a", "b");
 			fs.mkdirSync(nested, { recursive: true });
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -751,7 +724,7 @@ describe("init in a fresh repository", () => {
 					"--no-tracker",
 					"--dry-run",
 				],
-				{ cwd: dir, encoding: "utf8", env: process.env },
+				{ cwd: dir, env: process.env },
 			);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
@@ -796,10 +769,9 @@ describe("init in a fresh repository", () => {
 				].join("\n"),
 				{ mode: 0o755 },
 			);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -812,7 +784,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: {
 						...process.env,
 						WFC_CLAUDE_BIN: path.join(stub, "claude"),
@@ -894,10 +865,9 @@ describe("init in a fresh repository", () => {
 				{ mode: 0o755 },
 			);
 
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -912,7 +882,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: {
 						...process.env,
 						WFC_CLAUDE_BIN: path.join(stub, "claude"),
@@ -954,10 +923,9 @@ describe("init in a fresh repository", () => {
 					},
 				}),
 			);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -971,7 +939,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
 				},
 			);
@@ -1041,10 +1008,9 @@ describe("init in a fresh repository", () => {
 				cwd: CORE,
 				encoding: "utf8",
 			}).trim();
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -1055,7 +1021,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: {
 						...process.env,
 						WFC_CLAUDE_BIN: path.join(stub, "claude"),
@@ -1116,10 +1081,9 @@ describe("init in a fresh repository", () => {
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
 			made.push(configDir);
-			const r = spawnSync(
-				process.execPath,
+			const r = runInProcess(
+				SCRIPT,
 				[
-					SCRIPT,
 					"--root",
 					dir,
 					"--plugin-root",
@@ -1134,7 +1098,6 @@ describe("init in a fresh repository", () => {
 				],
 				{
 					cwd: dir,
-					encoding: "utf8",
 					env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
 				},
 			);
@@ -1863,11 +1826,10 @@ describe("a complete day-one config (#715)", () => {
 		/* The commit the rules file asks for next: the module's documents are
 		 * registered, so the doc-map gate passes them. */
 		git("add", "-A");
-		const gate = spawnSync(
-			"node",
-			[path.join(CORE, "scripts/check-doc-map.js")],
-			{ cwd: dir, encoding: "utf8", env },
-		);
+		const gate = runInProcess(path.join(CORE, "scripts/check-doc-map.js"), [], {
+			cwd: dir,
+			env,
+		});
 		expect(gate.status, `${gate.stdout}${gate.stderr}`).toBe(0);
 		expect(
 			readSettings(dir).extraKnownMarketplaces["workflow-core"].source,
@@ -1907,9 +1869,8 @@ describe("a complete day-one config (#715)", () => {
 		delete env.CLAUDE_PROJECT_DIR;
 		delete env.CLAUDE_PLUGIN_ROOT;
 		const bare = () =>
-			spawnSync("node", [SCRIPT, "--no-plugin-install", "--no-tracker"], {
+			runInProcess(SCRIPT, ["--no-plugin-install", "--no-tracker"], {
 				cwd: dir,
-				encoding: "utf8",
 				env,
 			});
 		declarePath(checkout);
@@ -2274,10 +2235,10 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 		return { configDir, env };
 	}
 	const bare = (env: NodeJS.ProcessEnv, dir: string, ...args: string[]) =>
-		spawnSync(
-			process.execPath,
-			[SCRIPT, "--root", dir, "--founder", "A", "--no-tracker", ...args],
-			{ cwd: dir, encoding: "utf8", env },
+		runInProcess(
+			SCRIPT,
+			["--root", dir, "--founder", "A", "--no-tracker", ...args],
+			{ cwd: dir, env },
 		);
 	/** The cache copy an install lands, standing in as a link to this checkout. */
 	function cacheCopy(configDir: string, version: string) {
@@ -2634,12 +2595,11 @@ describe("a run refused before it writes anything (#743)", () => {
 	it("refuses to adopt the core's own checkout, run from inside it, leaving the checkout untouched", () => {
 		const dir = fakeCore();
 		const before = readTree(dir);
-		const r = spawnSync(
-			"node",
-			[SCRIPT, "--founder", "A Founder", "--no-tracker", "--no-plugin-install"],
+		const r = runInProcess(
+			SCRIPT,
+			["--founder", "A Founder", "--no-tracker", "--no-plugin-install"],
 			{
 				cwd: dir,
-				encoding: "utf8",
 				env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
 			},
 		);
@@ -2661,10 +2621,9 @@ describe("a run refused before it writes anything (#743)", () => {
 				path.join(other, ".claude-plugin", file),
 				JSON.stringify(body),
 			);
-		const r = spawnSync(
-			"node",
+		const r = runInProcess(
+			SCRIPT,
 			[
-				SCRIPT,
 				"--root",
 				dir,
 				"--plugin-root",
@@ -2676,7 +2635,7 @@ describe("a run refused before it writes anything (#743)", () => {
 				"--no-tracker",
 				"--no-plugin-install",
 			],
-			{ cwd: dir, encoding: "utf8" },
+			{ cwd: dir },
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("plugin's own checkout");
@@ -2689,10 +2648,9 @@ describe("a run refused before it writes anything (#743)", () => {
 		fs.rmSync(link, { force: true });
 		fs.symlinkSync(dir, link);
 		made.push(link);
-		const r = spawnSync(
-			"node",
+		const r = runInProcess(
+			SCRIPT,
 			[
-				SCRIPT,
 				"--root",
 				dir,
 				"--plugin-root",
@@ -2702,7 +2660,7 @@ describe("a run refused before it writes anything (#743)", () => {
 				"--no-tracker",
 				"--no-plugin-install",
 			],
-			{ cwd: dir, encoding: "utf8" },
+			{ cwd: dir },
 		);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("plugin's own checkout");

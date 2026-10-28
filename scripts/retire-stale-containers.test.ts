@@ -14,7 +14,6 @@
  * nothing to type.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +27,7 @@ import {
 	THERE,
 	writeSubIssues,
 } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "retire-stale-containers.js");
 
@@ -115,8 +115,7 @@ esac
 };
 
 const run = (args: string[] = [], stub?: StubGh) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			GITHUB_ACTIONS: "",

@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
+import { runInProcess } from "./run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const SCRIPTS = path.join(ROOT, "scripts");
@@ -31,6 +32,22 @@ beforeEach(() => {
 	dir = mkScratchDir("review-suffix-");
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+/** The dispatcher's stdout for one core, run on `payload` in `env`; a non-zero
+ * exit fails the case, as execFileSync's throw would. */
+const dispatch = (
+	core: string,
+	payload: object,
+	env: Record<string, string | undefined>,
+) => {
+	const r = runInProcess(
+		path.join(SCRIPTS, "guard-dispatch.js"),
+		["--only", core],
+		{ stdin: JSON.stringify(payload), env },
+	);
+	expect(r.status, r.stderr).toBe(0);
+	return r.stdout;
+};
 
 /** Every review-spec path suffix in `text`; `""` for a bare name. */
 const suffixes = (text: string) =>
@@ -57,19 +74,15 @@ const guardReviewRules = () => {
 		path.join(skill, "SKILL.md"),
 		"---\nname: code-review\n---\n",
 	);
-	const out = execFileSync(
-		"node",
-		[path.join(SCRIPTS, "guard-dispatch.js"), "--only", "guard-review-rules"],
+	const out = dispatch(
+		"guard-review-rules",
 		{
-			input: JSON.stringify({
-				hook_event_name: "PreToolUse",
-				tool_name: "Skill",
-				tool_input: { skill: "code-review" },
-				session_id: ID,
-			}),
-			encoding: "utf8",
-			env: { ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: dir },
+			hook_event_name: "PreToolUse",
+			tool_name: "Skill",
+			tool_input: { skill: "code-review" },
+			session_id: ID,
 		},
+		{ ...process.env, CLAUDE_PROJECT_DIR: dir, CLAUDE_CONFIG_DIR: dir },
 	);
 	return JSON.parse(out).hookSpecificOutput.additionalContext as string;
 };
@@ -126,11 +139,12 @@ const concisionBackstop = (
 			"\n",
 		),
 	);
-	execFileSync(
-		"node",
-		[path.join(SCRIPTS, "session-arbiter.js"), "record", "scripts/mine.ts", ID],
-		{ cwd: repo, env },
+	const recorded = runInProcess(
+		path.join(SCRIPTS, "session-arbiter.js"),
+		["record", "scripts/mine.ts", ID],
+		{ cwd: repo, env, stdin: "" },
 	);
+	expect(recorded.status, recorded.stderr).toBe(0);
 	return JSON.parse(hook("stop")).reason as string;
 };
 
@@ -156,19 +170,15 @@ const injectReviewTier = () => {
 	);
 	fs.writeFileSync(path.join(repo, "s.js"), "x\n");
 	execFileSync("git", ["add", "s.js"], { cwd: repo });
-	const out = execFileSync(
-		"node",
-		[path.join(SCRIPTS, "guard-dispatch.js"), "--only", "inject-review-tier"],
+	const out = dispatch(
+		"inject-review-tier",
 		{
-			input: JSON.stringify({
-				hook_event_name: "PreToolUse",
-				tool_name: "Skill",
-				tool_input: { skill: "code-review" },
-				session_id: ID,
-			}),
-			encoding: "utf8",
-			env: { ...process.env, CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: dir },
+			hook_event_name: "PreToolUse",
+			tool_name: "Skill",
+			tool_input: { skill: "code-review" },
+			session_id: ID,
 		},
+		{ ...process.env, CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: dir },
 	);
 	return JSON.parse(out).hookSpecificOutput.additionalContext as string;
 };
@@ -207,18 +217,11 @@ describe("the review-axis session suffix (mantahostels#3458)", () => {
 				path.join(repo, ".claude", "tmp", `review-${axis}${EXPECTED}.md`),
 				"- none\n",
 			);
-		const r = spawnSync(
-			process.execPath,
-			[
-				path.join(SCRIPTS, "write-review-marker.js"),
-				"--base",
-				"HEAD",
-				"--findings",
-				"0",
-			],
+		const r = runInProcess(
+			path.join(SCRIPTS, "write-review-marker.js"),
+			["--base", "HEAD", "--findings", "0"],
 			{
 				cwd: repo,
-				encoding: "utf8",
 				env: {
 					...process.env,
 					CLAUDE_PROJECT_DIR: repo,

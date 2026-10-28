@@ -13,6 +13,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
+import { runInProcess } from "./run-in-process.js";
 
 const CLI = path.join(__dirname, "commit-message.js");
 const SCISSORS = "# ------------------------ >8 ------------------------";
@@ -30,9 +31,8 @@ function recorded(raw: string, editor: string, cleanup?: string) {
 		spawnSync("git", ["config", "commit.cleanup", cleanup], { cwd: dir });
 	const file = path.join(dir, "MSG");
 	fs.writeFileSync(file, raw);
-	const r = spawnSync("node", [CLI, file], {
+	const r = runInProcess(CLI, [file], {
 		cwd: dir,
-		encoding: "utf8",
 		env: { ...process.env, GIT_EDITOR: editor },
 	});
 	expect(r.status, r.stderr).toBe(0);
@@ -71,7 +71,7 @@ describe("the lines git records, per cleanup mode", () => {
 	});
 
 	it("refuses a call naming no message file", () => {
-		const r = spawnSync("node", [CLI], { cwd: dir, encoding: "utf8" });
+		const r = runInProcess(CLI, [], { cwd: dir });
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("usage:");
 	});

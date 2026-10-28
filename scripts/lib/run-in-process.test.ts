@@ -8,6 +8,9 @@
  * runs through it, which is why most cases below assert parity against a real
  * spawn of the same fixture rather than against a hand-written expectation
  * (mantahostels#1907).
+ *
+ * spawn-kept: the `spawned` helper is the real node every parity case holds
+ * the seam to.
  */
 
 import { execFile, spawnSync } from "node:child_process";
@@ -197,6 +200,7 @@ const HANG_MS = 2000;
  * that it never exits, which is what the in-process refusal stands in for. */
 const hangs = (script: string, mode: string) =>
 	new Promise<{ stdout: string; killed: boolean }>((resolve) => {
+		// spawn-kept: a timeout — only a real process shows it never exits
 		execFile(
 			process.execPath,
 			[script, mode],

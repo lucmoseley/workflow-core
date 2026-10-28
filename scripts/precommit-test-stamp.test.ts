@@ -345,6 +345,7 @@ function fixture({
 			nodeArgs?: string[];
 			patch?: string;
 		} = {}) {
+			// spawn-kept: a signal to its own process group, and a sweeper it leaves running past its exit
 			const child = spawn(
 				process.execPath,
 				[...nodeArgs, COMMIT_PATHS, ...commitPathsArgs(patch)],

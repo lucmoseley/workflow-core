@@ -8,11 +8,11 @@
  * Loosen a case and the standing noise figure is measured on the wrong files,
  * or a file it could not read passes for a clean one.
  */
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "scan-injection.js");
 
@@ -25,11 +25,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-const run = (args: string[]) =>
-	spawnSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
-		input: "",
-	});
+const run = (args: string[]) => runInProcess(SCRIPT, args, { stdin: "" });
 
 describe("--file, the measurement path", () => {
 	it("refuses no --file, an unknown flag or a path without --file, printing the usage", () => {

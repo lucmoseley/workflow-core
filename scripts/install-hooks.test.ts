@@ -10,12 +10,17 @@
  * neighbour's half-written edit does.
  *
  * Loosen it and a neighbour's stale hook judges every worktree's commit again.
+ *
+ * spawn-kept: husky's bin.js, which the fixture runs, is an ES module, and
+ * node's ESM cache evaluates it once per process, so in-process it would
+ * run on the first case only.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..");
 const HUSKY = path.join(ROOT, "node_modules", "husky", "bin.js");
@@ -34,8 +39,7 @@ let wt: string;
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-const install = (cwd: string) =>
-	spawnSync(process.execPath, [INSTALL], { cwd, encoding: "utf8" });
+const install = (cwd: string) => runInProcess(INSTALL, [], { cwd });
 
 const writeChecker = (dir: string, body: string) =>
 	fs.writeFileSync(path.join(dir, "scripts", "check-guard-registry.js"), body);

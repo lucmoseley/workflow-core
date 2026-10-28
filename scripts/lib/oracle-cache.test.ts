@@ -15,6 +15,9 @@
  * `npm run status`, read session liveness through it, so a loosened case lets a cached
  * listing answer for a daemon that has since failed (mantahostels#1946) — every
  * one of them then judges live sessions off a stale read.
+ *
+ * spawn-kept: two processes running at once — the racing readers are separate
+ * processes, the race this cache exists for.
  */
 
 import { spawn } from "node:child_process";

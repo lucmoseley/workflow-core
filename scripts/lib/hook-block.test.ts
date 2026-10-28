@@ -25,6 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
 import { sweptMarkers } from "./arbiter-testkit";
+import { runInProcess } from "./run-in-process.js";
 
 const REPO = path.join(__dirname, "..", "..");
 const HOOK_BLOCK = path.join(__dirname, "hook-block.js");
@@ -253,19 +254,14 @@ function emitRun(
 	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "hook-block-"));
 	try {
 		const call = `require(${JSON.stringify(HOOK_BLOCK)}).blockStop(${JSON.stringify({ prefix: ".t-", sessionId: "s1", ...spec })})`;
-		let argv = ["-e", call];
-		if (entry) {
-			const file = path.join(cwd, entry);
-			fs.writeFileSync(file, call);
-			argv = [file];
-		}
+		const file = entry && path.join(cwd, entry);
+		if (file) fs.writeFileSync(file, call);
+		const env = { ...process.env, WFC_REPO_ROOT: cwd };
 		const out: Record<string, string>[] = [];
 		for (let i = 0; i < times; i++) {
-			const res = spawnSync("node", argv, {
-				cwd,
-				encoding: "utf8",
-				env: { ...process.env, WFC_REPO_ROOT: cwd },
-			});
+			const res = file
+				? runInProcess(file, [], { cwd, env })
+				: spawnSync("node", ["-e", call], { cwd, encoding: "utf8", env });
 			expect(res.status).toBe(0);
 			/* Empty stdout is a REFUSED call, which the cap tests below rely on
 			 * — so it contributes no entry rather than throwing. A caller

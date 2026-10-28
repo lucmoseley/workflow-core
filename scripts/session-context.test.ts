@@ -13,11 +13,11 @@
  * context would merge on for ever.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "session-context.js");
 const SID = "11111111-2222-3333-4444-555555555555";
@@ -64,8 +64,7 @@ const turn = (ctx: number, extra: Record<string, unknown> = {}) => ({
 });
 
 const run = (cfg: string, args: string[] = []) =>
-	spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			CLAUDE_CONFIG_DIR: cfg,
@@ -150,8 +149,7 @@ describe("session-context", () => {
 
 	it("says which session it could not identify when nothing names one", () => {
 		const cfg = configDir();
-		const r = spawnSync("node", [SCRIPT], {
-			encoding: "utf8",
+		const r = runInProcess(SCRIPT, [], {
 			env: {
 				...process.env,
 				CLAUDE_CONFIG_DIR: cfg,

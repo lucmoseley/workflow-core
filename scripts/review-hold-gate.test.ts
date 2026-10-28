@@ -507,10 +507,9 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 		expect(reason).not.toContain("was rejected");
 	};
 	const pushWarn = () => {
-		const r = spawnSync("node", [DISPATCH, "--only", "guard-push-rules"], {
+		const r = runInProcess(DISPATCH, ["--only", "guard-push-rules"], {
 			cwd: repo,
-			encoding: "utf8",
-			input: JSON.stringify({
+			stdin: JSON.stringify({
 				hook_event_name: "PreToolUse",
 				session_id: SID,
 				tool_name: "Bash",

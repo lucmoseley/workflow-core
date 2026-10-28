@@ -2,8 +2,8 @@
 /*
  * scratch-sweep.js's own suite — the reaper for `.claude/tmp/` (mantahostels#2214).
  *
- * The CLI tail is run as a real subprocess against a fixture directory:
- * nothing here points at the repo's own `.claude/tmp/`.
+ * The CLI tail is run in process, through lib/run-in-process.js, against a
+ * fixture directory: nothing here points at the repo's own `.claude/tmp/`.
  *
  * Every fixture is aged against a FIXED clock (`NOW`), never wall time, so no
  * assertion here can pass or fail on how long the run took — EXCEPT the
@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./run-in-process.js";
 
 const { earliestStart, sweepScratch, writtenAtMs } = require("./scratch-sweep");
 
@@ -493,12 +494,15 @@ describe("what the walk cannot do, it records", () => {
 });
 
 describe("the CLI tail, which is what the session-start launcher runs", () => {
-	/** Runs the module as the launcher does, against a fixture directory. */
-	const cli = (scratch: string, extraEnv: Record<string, string> = {}) =>
-		execFileSync(process.execPath, [path.join(__dirname, "scratch-sweep.js")], {
-			encoding: "utf8",
+	/** Runs the module as the launcher does, against a fixture directory, and
+	 * returns its stdout; a non-zero exit fails the case. */
+	const cli = (scratch: string, extraEnv: Record<string, string> = {}) => {
+		const r = runInProcess(path.join(__dirname, "scratch-sweep.js"), [], {
 			env: { ...process.env, WFC_SCRATCH_DIR: scratch, ...extraEnv },
 		});
+		expect(r.status, r.stderr).toBe(0);
+		return r.stdout;
+	};
 
 	/**
 	 * Stands a fake `claude` on WFC_CLAUDE_BIN — no CI runner has a real one
@@ -545,18 +549,7 @@ describe("the CLI tail, which is what the session-start launcher runs", () => {
 	});
 
 	it("exits 0 on a directory that does not exist", () => {
-		const r = execFileSync(
-			process.execPath,
-			[path.join(__dirname, "scratch-sweep.js")],
-			{
-				encoding: "utf8",
-				env: {
-					...process.env,
-					WFC_SCRATCH_DIR: path.join(freshDir(), "never-made"),
-				},
-			},
-		);
-		expect(r).toBe("");
+		expect(cli(path.join(freshDir(), "never-made"))).toBe("");
 	});
 });
 

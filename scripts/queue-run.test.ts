@@ -276,6 +276,9 @@ describe("queue-run.js", () => {
 
 	it("as a program, exits 2 on a refusal and names the queue to use", () => {
 		const { dir } = fixture();
+		/* spawn-kept: an async entry runInProcessAsync cannot load — main
+		 * returns its exit code for the require.main tail to set, rather than
+		 * setting process.exitCode, and takes argv with no default. */
 		const r = spawnSync("node", [PROGRAM, "--", "npm", "run", "test"], {
 			encoding: "utf8",
 			env: {
@@ -655,10 +658,10 @@ describe("queue-run.js", () => {
 			it("as a program, runs `queue-run.js --tsc` inside its own command once and exits", () => {
 				const f = fixture();
 				machine(f.dir, ["bash -l"], 9000);
-				/* A spawn, not run-in-process (§X3): two processes run at once,
-				 * the nested one's ancestry being the real process tree. */
 				const inner = `node ${PROGRAM} --tsc -- node -e "process.exit(7)"`;
 				const { WFC_TSC_SLOT: _held, ...env } = process.env;
+				/* spawn-kept: two processes run at once, the nested one's
+				 * ancestry being the real process tree, under a timeout. */
 				const r = spawnSync(
 					"node",
 					[PROGRAM, "--tsc", "--", "sh", "-c", inner],

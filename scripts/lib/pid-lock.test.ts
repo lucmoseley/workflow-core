@@ -85,6 +85,7 @@ describe("pidLock", () => {
 			const scriptPath = path.join(dir, "scripts", script);
 			fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
 			fs.writeFileSync(scriptPath, "setInterval(() => {}, 1000);\n");
+			// spawn-kept: two processes at once — a live holder whose command line the lock reads.
 			const proc = spawn(process.execPath, [scriptPath], { stdio: "ignore" });
 			try {
 				fs.writeFileSync(file, String(proc.pid));

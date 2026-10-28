@@ -4,8 +4,11 @@
  * claim holds it, refuses on any read it cannot complete, and never prints a
  * frontier longer than the truth (mantahostels#702; `--map`, mantahostels#1145).
  *
- * Spawned rather than imported — the frontier query is a shell step in a
- * hash-locked skill, so stdout shape and exit code are the whole interface.
+ * Run as a program — the frontier query is a shell step in a hash-locked
+ * skill, so stdout shape and exit code are the whole interface.
+ * spawn-kept: an async entry runInProcessAsync cannot load —
+ * wayfinder-frontier.js calls its main() at load, with no require.main guard
+ * and no exported main.
  * Loosen a case and `/wayfinder` offers a held issue as free to start, or a
  * finished session's leftover assignee hides work from it for good.
  */
@@ -23,6 +26,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { GH_NOT_FOUND, subIssuesAnswer } from "./lib/gh-fake";
 import { page, printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const FRONTIER = path.join(__dirname, "wayfinder-frontier.js");
 // `--map` refuses where it cannot confirm the claim store shares the caller's
@@ -50,8 +54,7 @@ function fakeClaude(rows: Row[], code = 0) {
 /** Record an issue claim the way the working session does — through the CLI. */
 function claimBy(sessionId: string, issue: string) {
 	registerSession(sb, sessionId, process.pid);
-	spawnSync(process.execPath, [SCRIPT, "claim-issue", issue], {
-		encoding: "utf8",
+	runInProcess(SCRIPT, ["claim-issue", issue], {
 		cwd: sb.repo,
 		env: { ...process.env, CLAUDE_CODE_SESSION_ID: sessionId },
 	});

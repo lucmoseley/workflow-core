@@ -302,6 +302,8 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		const out = path.join(at.tmp, "stdout.log");
 		const fd = fs.openSync(out, "a");
 		try {
+			/* spawn-kept: a real fd — the run's stdout and the stub's log share
+			 * one file, so the order they land in is the order they happened. */
 			execFileSync(process.execPath, [SCRIPT, "--session-end"], {
 				stdio: ["ignore", fd, "pipe"],
 				env: sessionEnv(at, { WFC_CLAUDE_BIN: claudeStub(at, { log: out }) }),

@@ -22,12 +22,13 @@
  * widen it and a read or an ignored write is refused.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type CoreRun, runCore, toolCall } from "./guard-core-testkit";
+import { runInProcess } from "./run-in-process.js";
 
 let dir: string;
 let repo: string;
@@ -505,10 +506,10 @@ describe("the once-a-session bound, deliberately gone", () => {
 describe("the context-budget scan against this core as it stands (mantahostels#2446)", () => {
 	it("raises no DEAD-LATCH for it", () => {
 		const root = path.resolve(__dirname, "..", "..");
-		const r = spawnSync(
-			process.execPath,
-			[path.join(root, "scripts", "check-context-budget.js"), "--json"],
-			{ cwd: root, encoding: "utf8" },
+		const r = runInProcess(
+			path.join(root, "scripts", "check-context-budget.js"),
+			["--json"],
+			{ cwd: root },
 		);
 		const findings = JSON.parse(r.stdout).findings as {
 			tag: string;

@@ -8,7 +8,7 @@
  * claim, unseen: no `PreToolUse` guard sees the `gh` calls this script makes.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, gitRepo } from "./lib/arbiter-testkit";
 import { GH_NOT_FOUND } from "./lib/gh-fake";
 import { page, printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
@@ -35,20 +36,26 @@ function arbiterEnv(extra: Record<string, string> = {}): NodeJS.ProcessEnv {
 	};
 }
 
-/** Claim the issue for SID through the real arbiter, so a release is seen. */
-function claimIssue(issue: number) {
-	execFileSync("node", [ARBITER, "claim-issue", String(issue)], {
+/** The real arbiter's stdout for `args`; a non-zero exit fails the case. */
+function arbiter(...args: string[]): string {
+	const r = runInProcess(ARBITER, args, {
 		cwd: sb.repo,
 		env: arbiterEnv(),
+		stdin: "",
 	});
+	expect(r.status, r.stderr).toBe(0);
+	return r.stdout;
+}
+
+/** Claim the issue for SID through the real arbiter, so a release is seen. */
+function claimIssue(issue: number) {
+	arbiter("claim-issue", String(issue));
 }
 
 function heldIssue(issue: number): boolean {
-	const out = execFileSync("node", [ARBITER, "issue-claims"], {
-		cwd: sb.repo,
-		env: arbiterEnv(),
-	}).toString();
-	return new RegExp(`^#${issue}\\s+${SID}\\s`, "m").test(out);
+	return new RegExp(`^#${issue}\\s+${SID}\\s`, "m").test(
+		arbiter("issue-claims"),
+	);
 }
 
 let ghCallsFile: string;

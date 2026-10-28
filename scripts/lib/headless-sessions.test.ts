@@ -9,9 +9,9 @@
  * Loosen one and an overflow run leaks its key into Bash, outlives its stop,
  * reads as live on a reused pid, or bills a spent key as a success (#2607).
  *
- * The CLI cases spawn rather than run in process (§X3's signal and
- * two-process shapes): each launch leaves a real detached process group
- * running beside the test, which stop then signals.
+ * spawn-kept: an async entry runInProcessAsync cannot load — the CLI's
+ * `main(argv)` is not exported, and returns its exit code where that seam
+ * calls a bare `main()` and reads `process.exitCode`.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";

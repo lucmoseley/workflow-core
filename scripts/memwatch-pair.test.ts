@@ -298,6 +298,7 @@ describe.skipIf(!hasProc || !present)("memwatch minute line", () => {
 		fs.mkdirSync(bin, { recursive: true });
 		const tsc = path.join(bin, "tsc");
 		fs.writeFileSync(tsc, "setTimeout(() => {}, 30_000);\n");
+		// spawn-kept: two processes at once — a live tsc for the watcher to count
 		const child = spawn(process.execPath, [tsc], { stdio: "ignore" });
 		try {
 			await setTimeout(300);

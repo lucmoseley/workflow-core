@@ -453,11 +453,19 @@ describe("the CLI's argument handling, before any gh call (#920)", () => {
 });
 
 describe("the CLI", () => {
-	const run = (...args: string[]) =>
-		execFileSync("node", [path.join(__dirname, "issue-body.js"), ...args], {
-			encoding: "utf8",
+	/* Throws on a non-zero exit, carrying status and stderr, as execFileSync
+	 * does: the refusal cases read both off the error. */
+	const run = (...args: string[]) => {
+		const r = runInProcess(path.join(__dirname, "issue-body.js"), args, {
 			env: process.env,
 		});
+		if (r.status !== 0)
+			throw Object.assign(
+				new Error(`issue-body.js exited ${r.status}\n${r.stderr}`),
+				r,
+			);
+		return r.stdout;
+	};
 
 	it("appends into a named section", () => {
 		fs.writeFileSync(store, "## Decisions so far\n\n- #128 — one helper\n");

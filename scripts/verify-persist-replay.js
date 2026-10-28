@@ -403,6 +403,8 @@ function buildVerdictLine(faultedCount, control) {
 	return "\nOK: every producer persisted a well-formed report — its CONTENT is unchecked, --no-control having skipped the comparison.";
 }
 
+module.exports = { main };
+
 if (require.main === module) {
 	main().catch((e) => {
 		console.error(e?.message ?? String(e));

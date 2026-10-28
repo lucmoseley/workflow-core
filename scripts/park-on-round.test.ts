@@ -12,13 +12,13 @@
  * the frontier until a claim clears it.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { NEEDS_INPUT, POSTED, ROUND } from "./lib/round-ending-fixture";
+import { runInProcess } from "./lib/run-in-process.js";
 import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 
 const HOOK = path.join(__dirname, "park-on-round.js");
@@ -63,9 +63,9 @@ function issue(comments: unknown[]) {
 
 /** Record `session`'s arbiter claim on issue `n`, in the store the hook reads. */
 function claim(n: number, session = sid) {
-	execFileSync(
-		process.execPath,
-		[path.join(__dirname, "session-arbiter.js"), "claim-issue", String(n)],
+	const r = runInProcess(
+		path.join(__dirname, "session-arbiter.js"),
+		["claim-issue", String(n)],
 		{
 			cwd: dir,
 			env: {
@@ -75,9 +75,10 @@ function claim(n: number, session = sid) {
 				WFC_REPO_ROOT: dir,
 				CLAUDE_CODE_SESSION_ID: session,
 			},
-			stdio: "pipe",
+			stdin: "",
 		},
 	);
+	expect(r.status, r.stderr).toBe(0);
 }
 
 /** Run the hook, as a background job unless `job` is false (an interactive session); it never blocks. */

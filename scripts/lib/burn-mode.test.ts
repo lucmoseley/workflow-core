@@ -8,14 +8,13 @@
  * The hook's shell half is tested in ../guard-dispatch-rewrite.test.ts,
  * the launcher's in ../dispatch-sessions.test.ts, the toggle's in
  * ../burn-mode.test.ts. Here the table's functions are called in process, and
- * its CLI spawned with node, since the shell halves read it through that CLI.
+ * its CLI run as a program, since the shell halves read it through that CLI.
  *
  * `lib/dispatch-rewrite.js`, `dispatch-sessions.sh` and the `burn-mode`
  * skill's toggle all remap through this table: loosen a case here and burn
  * mode spends allowance on the wrong model, or leaves Sonnet work unmoved.
  */
 
-import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { EFFORT_MODEL, EFFORT_OFF, EFFORT_ON, remapModel } from "./burn-mode";
@@ -23,7 +22,7 @@ import { runInProcess } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "burn-mode.js");
 
-const cli = (args: string[], stdin = "", env?: Record<string, string>) =>
+const cli = (args: string[], stdin = "", env?: NodeJS.ProcessEnv) =>
 	runInProcess(LIB, args, env ? { stdin, env } : { stdin });
 
 /** The model an Agent call naming `model` is dispatched on. */
@@ -157,9 +156,9 @@ describe("the CLI half", () => {
 
 	it("marker honours the override, and prints nothing on failure", () => {
 		expect(
-			spawnSync("node", [LIB, "marker"], {
-				encoding: "utf8",
-				env: { ...process.env, WFC_BURN_MARKER: "/x/y/.burn-mode" },
+			cli(["marker"], "", {
+				...process.env,
+				WFC_BURN_MARKER: "/x/y/.burn-mode",
 			}).stdout.trim(),
 		).toBe("/x/y/.burn-mode");
 		const r = cli(["nonsense"]);

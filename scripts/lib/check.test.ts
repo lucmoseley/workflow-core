@@ -7,14 +7,12 @@
  * Driven through a fixture checker rather than a real one, so a test that fails
  * here is the library's fault and never a checker's.
  *
- * The import-closure block spawns node rather than use runInProcess: it reads
- * the require cache, which this file's own persist tests fill in-process (#459).
- * The async-run cases spawn too: their fixture's run() is async and it exports
- * no `main`, which runInProcessAsync needs (#1586).
- *
  * Every checker the .husky/pre-commit stack and CI run reports through this
  * tail: loosen a case here and a checker that crashed reads as one that ran
  * clean, or a finding exits on the wrong code and a gate passes it.
+ *
+ * spawn-kept: the import-closure block reads the require cache, which this
+ * file's own persist tests fill in-process (#459).
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -586,6 +584,8 @@ const spawnRun = (
 	args: string[] = [],
 	env: Record<string, string> = {},
 ) => {
+	/* spawn-kept: an async entry runInProcessAsync cannot load — the fixture's
+	 * run() is async and it exports no `main` (#1586). */
 	const r = spawnSync("node", [file, ...args], {
 		cwd: dir,
 		encoding: "utf8",
@@ -683,9 +683,8 @@ describe("an async run() (#1586)", () => {
 		const file = path.join(root, "fixture-check.js");
 		fs.copyFileSync(checker("return Promise.resolve({});", AGAINST_SPEC), file);
 		git("add", "--", "fixture-check.js");
-		const r = spawnSync("node", [file, "--against", "HEAD"], {
+		const r = runInProcess(file, ["--against", "HEAD"], {
 			cwd: root,
-			encoding: "utf8",
 			env: { ...process.env, GITHUB_ACTIONS: "" },
 		});
 		expect(r.status).toBe(2);
@@ -972,6 +971,8 @@ runCheck({
 		}
 		if (worktree !== undefined)
 			fs.writeFileSync(path.join(root, "faults.txt"), worktree);
+		/* spawn-kept: a real fd — the re-exec streams the checker's own report
+		 * to fd 2 through its inherited stderr, past run-in-process's capture. */
 		const r = spawnSync(
 			"node",
 			[path.join(root, "fixture-check.js"), ...args],
@@ -1022,12 +1023,11 @@ runCheck({
 		const alt = path.join(dir, "alt-index");
 		git("add", "--", "faults.txt");
 		spawnSync("git", ["write-tree"], { cwd: root, encoding: "utf8" });
-		const r = spawnSync(
-			"node",
-			[path.join(root, "fixture-check.js"), "--against", "HEAD"],
+		const r = runInProcess(
+			path.join(root, "fixture-check.js"),
+			["--against", "HEAD"],
 			{
 				cwd: root,
-				encoding: "utf8",
 				env: { ...process.env, GITHUB_ACTIONS: "", GIT_INDEX_FILE: alt },
 			},
 		);
@@ -1076,12 +1076,11 @@ runCheck({
 		fs.copyFileSync(c, path.join(root, "skip-check.js"));
 		git("add", "--", "skip-check.js");
 		git("commit", "-qm", "add");
-		const r = spawnSync(
-			"node",
-			[path.join(root, "skip-check.js"), "--against", "HEAD"],
+		const r = runInProcess(
+			path.join(root, "skip-check.js"),
+			["--against", "HEAD"],
 			{
 				cwd: root,
-				encoding: "utf8",
 				env: { ...process.env, GITHUB_ACTIONS: "" },
 			},
 		);
@@ -1102,12 +1101,11 @@ runCheck({
 		git("commit", "-qm", "break HEAD");
 		fs.rmSync(path.join(root, "broken.txt"));
 		git("rm", "-q", "--cached", "broken.txt");
-		const r = spawnSync(
-			"node",
-			[path.join(root, "fixture-check.js"), "--against", "HEAD"],
+		const r = runInProcess(
+			path.join(root, "fixture-check.js"),
+			["--against", "HEAD"],
 			{
 				cwd: root,
-				encoding: "utf8",
 				env: { ...process.env, GITHUB_ACTIONS: "" },
 			},
 		);
@@ -1128,12 +1126,11 @@ runCheck({
 		fs.copyFileSync(c, path.join(root, "broken-check.js"));
 		git("add", "--", "broken-check.js");
 		git("commit", "-qm", "add");
-		const r = spawnSync(
-			"node",
-			[path.join(root, "broken-check.js"), "--against", "HEAD"],
+		const r = runInProcess(
+			path.join(root, "broken-check.js"),
+			["--against", "HEAD"],
 			{
 				cwd: root,
-				encoding: "utf8",
 				env: { ...process.env, GITHUB_ACTIONS: "" },
 			},
 		);
@@ -1235,6 +1232,8 @@ runCheck({
 		fs.copyFileSync(bad, path.join(root, "against-check.js"));
 		git("add", "--", "against-check.js");
 		git("commit", "-qm", "add");
+		/* spawn-kept: a real fd — the re-exec's ctx.say output reaches fd 2
+		 * through its inherited stderr, past run-in-process's capture. */
 		const r2 = spawnSync(
 			"node",
 			[path.join(root, "against-check.js"), "--against", "HEAD"],
@@ -1332,6 +1331,8 @@ runCheck({
 	};
 
 	const gateBlobs = (root: string, args: string[] = ["--against", "HEAD"]) => {
+		/* spawn-kept: a real fd — the re-exec's ctx.say output reaches fd 2
+		 * through its inherited stderr, past run-in-process's capture. */
 		const r = spawnSync(
 			"node",
 			[path.join(root, "fixture-check.js"), ...args],
@@ -1504,15 +1505,10 @@ runCheck({
 	};
 
 	const runNote = (root: string) =>
-		spawnSync(
-			"node",
-			[path.join(root, "fixture-check.js"), "--against", "HEAD"],
-			{
-				cwd: root,
-				encoding: "utf8",
-				env: { ...process.env, GITHUB_ACTIONS: "" },
-			},
-		);
+		runInProcess(path.join(root, "fixture-check.js"), ["--against", "HEAD"], {
+			cwd: root,
+			env: { ...process.env, GITHUB_ACTIONS: "" },
+		});
 
 	it("reads the baseline on a clean index and reports what grew, without gating", () => {
 		const { root, git } = noteRepo();

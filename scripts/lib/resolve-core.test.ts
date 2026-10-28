@@ -236,10 +236,9 @@ describe("resolveCore's stale-install warning (#461)", () => {
 
 describe("resolve-core.js run as a script (#552)", () => {
 	const self = path.join(__dirname, "resolve-core.js");
-	/** Runs the resolver's script form in `cwd` with only `env` set. A real
-	 * spawn, not run-in-process.js: the form under test hands its own stdio and
-	 * exit status to a child, which only a process of its own can show. */
+	/** Runs the resolver's script form in `cwd` with only `env` set. */
 	function run(cwd: string, env: Record<string, string>, args: string[]) {
+		// spawn-kept: a real fd — the form under test hands its stdio and exit status to a child
 		return spawnSync(process.execPath, [self, ...args], {
 			cwd,
 			env: { PATH: process.env.PATH ?? "", ...env },

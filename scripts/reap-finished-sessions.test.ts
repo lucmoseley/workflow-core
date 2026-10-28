@@ -265,9 +265,8 @@ function endedTranscript(
 /**
  * The program run for real with `sandbox` as its config dir and cwd, against a
  * fake `claude` whose shell body is `stub`, as a session the fake does not
- * list. `subprocess` spawns a real process instead, for a case that kills it
- * or reads a raw fd write `runInProcess` cannot capture; a timeout or a
- * non-zero exit then throws.
+ * list. `subprocess` spawns a real process instead, for a case that kills it;
+ * a timeout or a non-zero exit then throws.
  */
 function runReaper(
 	sandbox: string,
@@ -294,6 +293,7 @@ function runReaper(
 	};
 	if (!opts.subprocess)
 		return runInProcess(SCRIPT, argv, { cwd: sandbox, env });
+	// spawn-kept: a timeout kills the run inside its slow part (mantahostels#1920).
 	const res = spawnSync(process.execPath, [SCRIPT, ...argv], {
 		encoding: "utf8",
 		cwd: sandbox,
@@ -2156,12 +2156,6 @@ describe("openedRecord — a live reap cancelled at consecutive session starts (
 
 /*
  * PERSIST MODE (mantahostels#2152).
- *
- * Driven as a real subprocess rather than through `runInProcess` (§X3's third
- * shape, a real fd): the assertions read the report back off stdout as well as
- * off disk, and the fallback path writes it with `fs.writeSync(1, …)` — a raw
- * descriptor write `runInProcess` does not capture, because it replaces
- * console methods rather than the fd underneath them.
  */
 describe("persist mode: the report goes to a file, not to stdout", () => {
 	// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -2171,7 +2165,7 @@ describe("persist mode: the report goes to a file, not to stdout", () => {
 
 	beforeEach(() => {
 		sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "reap-persist-"));
-		/* Mirrored onto this process as well as the child's, so the two agree on
+		/* Mirrored onto this process as well as the run's, so the two agree on
 		 * where `base()` puts the report. */
 		process.env.CLAUDE_CONFIG_DIR = sandbox;
 		process.env.CLAUDE_PROJECT_DIR = sandbox;
@@ -2193,7 +2187,6 @@ describe("persist mode: the report goes to a file, not to stdout", () => {
 	) {
 		return runReaper(sandbox, registered(sandbox, listing), argv, {
 			env: { WFC_NOTIFY_PERSIST: "1", ...extra },
-			subprocess: {},
 		}).stdout;
 	}
 

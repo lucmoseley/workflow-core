@@ -15,7 +15,7 @@
  * that takes its command from the `command` verb skip or run the wrong one,
  * or a skill's `module`/`retro-count` gate misfire, in every adopter at once.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1198,20 +1198,21 @@ describe("ladderPath (#401)", () => {
 	});
 });
 
-/** A node run with the host's own module list, the suite default dropped. */
-const hostRun = (args: string[]) =>
-	spawnSync(process.execPath, args, {
-		encoding: "utf8",
+/** A run of `script` with the host's own module list, the suite default dropped. */
+const hostRun = (script: string, args: string[] = []) =>
+	runInProcess(script, args, {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, WFC_MODULES: undefined },
 	});
 
 describe("exitUnlessModule", () => {
 	const run = (config: string, gate = '"roadmap"') => {
 		writeConfig(dir, config);
-		return hostRun([
-			"-e",
-			`require(${JSON.stringify(require.resolve("./workflow-core-config.js"))}).exitUnlessModule(${gate}); console.log("ran")`,
-		]);
+		const gated = path.join(dir, "gated.js");
+		fs.writeFileSync(
+			gated,
+			`require(${JSON.stringify(require.resolve("./workflow-core-config.js"))}).exitUnlessModule(${gate}); console.log("ran")\n`,
+		);
+		return hostRun(gated);
 	};
 
 	it("exits 0 with the skip line when the module is off", () => {
@@ -1246,8 +1247,7 @@ describe("exitUnlessModule", () => {
 describe("the `module` verb, a skill's gate (#418)", () => {
 	const run = (config: string, ...modules: string[]) => {
 		writeConfig(dir, config);
-		return hostRun([
-			require.resolve("./workflow-core-config.js"),
+		return hostRun(require.resolve("./workflow-core-config.js"), [
 			"module",
 			...modules,
 		]);

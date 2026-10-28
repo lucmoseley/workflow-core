@@ -15,6 +15,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./run-in-process.js";
 import { pushGateState } from "./test-gate.js";
 
 const dirs: string[] = [];
@@ -188,11 +189,7 @@ describe("node test-gate.js <verb>", () => {
 		declare(root, config);
 		const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: root };
 		delete env.WFC_MODULES;
-		return spawnSync(
-			process.execPath,
-			[path.join(__dirname, "test-gate.js"), verb],
-			{ encoding: "utf8", env },
-		);
+		return runInProcess(path.join(__dirname, "test-gate.js"), [verb], { env });
 	};
 
 	it.each([

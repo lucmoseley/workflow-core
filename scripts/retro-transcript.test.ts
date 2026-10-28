@@ -8,8 +8,8 @@
  * a reduction that loads a large log whole.
  *
  * Every case runs in-process (scripts/lib/run-in-process.js, §X3) except the
- * memory bound, which spawns: a process's peak RSS is a property of a process
- * of its own, which runInProcess cannot give. That case also measures a
+ * memory bound. spawn-kept: a process's peak RSS, under node's heap flags and
+ * a preload, is a property of a fresh node of its own. That case also measures a
  * whole-file read of the same log, so the bound is shown to separate streaming
  * from loading rather than merely to pass.
  */

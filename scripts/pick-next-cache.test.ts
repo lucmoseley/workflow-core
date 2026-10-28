@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const writeSetCache = require("./lib/write-set-cache.js");
 
@@ -39,14 +40,10 @@ const stubRepo = (files: string[]) => {
 };
 
 const run = (...args: string[]) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, args, {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: root, WFC_REPO_ROOT: root },
 	});
-	return {
-		status: r.status ?? -1,
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
-	};
+	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
 
 beforeEach(() => {

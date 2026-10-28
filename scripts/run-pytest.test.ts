@@ -542,6 +542,7 @@ describe("what it says out loud", () => {
 		() => {
 			// `--collect-only` runs no tests and records no marker.
 			const checkout = path.join(__dirname, "..");
+			// spawn-kept: a real fd — pytest inherits stdio, writing past runInProcess.
 			const r = spawnSync(process.execPath, [SCRIPT, "--collect-only", "-q"], {
 				encoding: "utf8",
 				cwd: checkout,
