@@ -193,7 +193,7 @@
 			"source": "#2015, #2546, #2786, #3185"
 		},
 		"scripts/lib/test-rules-inject.js": {
-			"digest": "d5fe124397fda34d",
+			"digest": "b5a853aaf87aa15f",
 			"verdict": "at need — on the session's first Write, Edit or NotebookEdit to a file base §X binds in the checkout (test-kind.js's isTestKind or COLLECTED_TEST: a test or .spec. file, a tests/ or fixtures/ path, test support), before the bytes land; a test written through Bash is never seen; a write outside the checkout, however its `..` is spelled, gets nothing (#2546: fed after 19cd71794, `<checkout>/sub/../../tests/a.ts` gave nothing, `<checkout>/sub/../tests/a.ts` and `scripts/foo.test.ts` gave §X8-§X10). Run as a core of scripts/guard-dispatch.js (fed through scripts/guard-dispatch.js's hook line at #2786: `a.test.ts` written through a symlinked project dir gave §X8-§X10 ahead of the citation notice)",
 			"selfSufficient": "yes — base §X8, §X9 and §X10 inline, statement, items and stack clauses; §X8 (2) spells out §X11 item 3's real call rather than pointing at a rule never injected (#2872: fed at HEAD 1f2bc0186, `scripts/foo.test.ts` gave all three, 3184 B, under RULE_CAP's 4000)",
 			"source": "#2109, #2546, #2786, #2872"
