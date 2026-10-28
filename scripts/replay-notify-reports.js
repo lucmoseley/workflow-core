@@ -47,10 +47,13 @@
  * never fire.
  *
  * DELIVERY IS WHAT `--notify` MEANS HERE. Only a `--notify` run consumes what
- * it shows — recording the digest and applying the delivery stamps. A hand run
- * shows everything, stale and long-silent reports included, and records
- * nothing, so a session start's reports can be inspected without spending them
- * (mantahostels#1949 story 23).
+ * it shows — recording the digest and the start count and applying the
+ * delivery stamps. A plain hand run shows everything, stale and long-silent
+ * reports included, and records nothing, so a session start's reports can be
+ * inspected without spending them (mantahostels#1949 story 23). `--status`
+ * records nothing either, but spends the delivery stamps of the held-back
+ * reports it shows, bar under `--json`, since no start ever delivers them
+ * (#2038).
  *
  * IMPLICIT:  reads the persisted report files at every session start and
  *            injects into the session whatever a slow async producer finished
@@ -58,12 +61,12 @@
  *            `isHeldForStatus` keeps for `npm run status`.
  * JUSTIFIED: fail-safe — it touches local files and nothing else, under
  *            --notify writing only its own shown-records, start count and
- *            delivery stamps, so it cannot inherit the cancellation it exists
+ *            delivery stamps, and under --status only those stamps, so it cannot inherit the cancellation it exists
  *            to repair (mantahostels#1949 story 15);
  *            the alternative is a finished report no session ever sees.
  * DEFEAT:    none at the hook. --notify shows and consumes only what is fresh
  *            and unshown, so a start with nothing outstanding is silent, and a
- *            hand run without it shows everything and records nothing.
+ *            plain hand run shows everything and records nothing.
  */
 
 const crypto = require("node:crypto");
@@ -279,22 +282,21 @@ function readShown(checker) {
 }
 
 /**
- * How many starts this reader has served, counting this one, and the write
- * that lands it.
+ * How many starts this reader has served, as last written by `writeStarts`.
  *
  * A LOST UPDATE COSTS ONE START OF THE SILENCE COUNT and nothing else: two
  * sessions starting in the same instant both write the same number, so a
  * wedged producer is named at the fourth start rather than the third. Locking
  * a counter inside a hook that must never block is the wrong trade.
  */
-function bumpStarts() {
+function readStarts() {
 	const raw = notify.readJSON(startsFile());
-	const starts = (Number.isFinite(raw?.starts) ? Number(raw.starts) : 0) + 1;
-	return {
-		starts,
-		write: () => notify.atomicWriteJSON(startsFile(), { starts }),
-	};
+	return Number.isFinite(raw?.starts) ? Number(raw.starts) : 0;
 }
+
+/** @param {number} starts */
+const writeStarts = (starts) =>
+	notify.atomicWriteJSON(startsFile(), { starts });
 
 /**
  * An age a person reads at a glance. Rounded, and never more precise than the
@@ -721,13 +723,13 @@ function checkCancelled(pass, key) {
 /**
  * @param {Ctx} ctx
  * @param {[string, Shown][]} record
- * @param {() => unknown} writeStarts
+ * @param {number} startNo
  */
-function persistShown(ctx, record, writeStarts) {
+function persistShown(ctx, record, startNo) {
 	let unrecorded = 0;
 	for (const [key, next] of record)
 		if (!notify.atomicWriteJSON(shownFile(key), next)) unrecorded += 1;
-	writeStarts();
+	writeStarts(startNo);
 	/* SAID, NOT SWALLOWED (§N5). Every other failure in this family costs
 	 * one report; this one costs suppression itself, so every report
 	 * repeats at every start and no producer is ever named as wedged. */
@@ -787,8 +789,10 @@ const newPass = (given) => ({
 });
 
 /**
- * `--status`: the held-back reports alone, recording nothing, and none of the
- * producer faults a start already raises.
+ * `--status`: the held-back reports alone, and none of the producer faults a
+ * start already raises. Bar under `--json`, it spends the shown reports'
+ * once-only stamps, but it records no digest and leaves the start count
+ * where it is.
  * @param {Ctx} ctx
  */
 function statusView(ctx) {
@@ -800,7 +804,7 @@ function statusView(ctx) {
 		ctx,
 		delivering: false,
 		spending: !ctx.asJson,
-		startNo: bumpStarts().starts,
+		startNo: readStarts() + 1,
 		gated: () => false,
 	});
 	for (const key of notify.list().filter(isHeldForStatus)) replayKey(pass, key);
@@ -828,7 +832,7 @@ runCheck({
 		 * `--json` is excluded because say() prints nothing under it: nothing
 		 * reached anybody, so nothing may be marked as having done. */
 		const delivering = ctx.notify && !ctx.asJson;
-		const { starts: startNo, write: writeStarts } = bumpStarts();
+		const startNo = readStarts() + 1;
 
 		const { roster, gated, unwired } = readGate();
 		const pass = newPass({
@@ -855,7 +859,7 @@ runCheck({
 			checkCancelled(pass, key);
 		}
 
-		if (delivering) persistShown(ctx, pass.record, writeStarts);
+		if (delivering) persistShown(ctx, pass.record, startNo);
 
 		printSummary(ctx, pass, unwired);
 
