@@ -28,7 +28,7 @@
  * discharge and no session should be blocked on.
  *
  * IMPLICIT:  on `npm run status` (scripts/status-report.js), and in the daily repo-checks run, says when the test suite has drifted past 25% of the size the concurrent-suite memory ladder was measured on. It refuses nothing.
- * JUSTIFIED: fail-safe — the ladder going stale is silent and the cost of missing it is a frozen machine, while the cost of a spurious warning is one line in a status report; a run that cannot enumerate the suite is BROKEN rather than all-clear, and --notify still exits 0 so the hook is never switched off.
+ * JUSTIFIED: fail-safe — the ladder going stale is silent and the cost of missing it is a frozen machine, while the cost of a spurious warning is one line in a status report; a run that cannot enumerate the suite is BROKEN rather than all-clear.
  * DEFEAT:    convenience — --baseline and --threshold move the comparison on a hand run, and editing SUITE_LADDER_MEASURED_AT in scripts/lib/suite-ladder.js silences it outright. That constant's own comment forbids moving it without a re-measurement; nothing enforces that.
  */
 
