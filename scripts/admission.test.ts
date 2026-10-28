@@ -916,6 +916,31 @@ describe("the unlisted row (#3322)", () => {
 		expect(json.memory.unlisted.mb).toBeNull();
 		expect(json.memory.other.mb).toBeNull();
 	});
+
+	it("reads unknown where the listing is empty and unvouched, never every claimed pair as unlisted (#3504)", () => {
+		const { json } = unlisted({}, { sessions: [], self: "" });
+		expect(json.memory.unlisted).toEqual({
+			count: null,
+			mb: null,
+			unknown: expect.stringMatching(/^session listing: empty and unvouched/),
+			dirs: [],
+		});
+		expect(json.memory.other.mb).toBeNull();
+	});
+
+	it("reads none where the listing is empty and unvouched but no pair is claimed (#3504)", () => {
+		const { json } = unlisted(
+			{},
+			{ sessions: [], self: "", cwds: idleAt("111", "333") },
+		);
+		expect(json.memory.unlisted).toEqual({
+			count: 0,
+			mb: 0,
+			unknown: null,
+			dirs: [],
+		});
+		expect(json.memory.other.mb).not.toBeNull();
+	});
 });
 
 /*

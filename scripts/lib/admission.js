@@ -1287,7 +1287,7 @@ function unlistedDirs(unlisted, configDirOf) {
  * @param {{
  *   meminfo: MeminfoRead,
  *   ps: PsRead,
- *   listed: { why?: string, ids?: Set<string>, pids?: Map<string, number>, finished?: Set<string> },
+ *   listed: { why?: string, ids?: Set<string>, pids?: Map<string, number>, finished?: Set<string>, unvouched?: boolean },
  *   pssKbOf: (pid: string) => number | null,
  *   pool: SpareOverhead,
  *   pairs: SparePair[],
@@ -1385,11 +1385,16 @@ function memoryBreakdown({
 
 	/* Shown, never priced: no verdict charges it draw headroom, whether it owes
 	 * some being open (#2502); the concurrency readout raises it when it
-	 * reads above 0. */
-	const unlistedMem = {
-		...sessionsRow(unlistedIds),
-		dirs: unlistedDirs(unlisted, configDirOf),
-	};
+	 * reads above 0. An empty listing taken on trust may be a daemon fault
+	 * (#2180), so a claimed pair it does not name is not told unlisted
+	 * (#3504); with none claimed, 0 needs no listing to vouch for it. */
+	const unlistedMem =
+		refused === null && listed.unvouched === true && unlisted.length > 0
+			? UNVOUCHED_UNLISTED
+			: {
+					...sessionsRow(unlistedIds),
+					dirs: unlistedDirs(unlisted, configDirOf),
+				};
 
 	const parts = [free, working, finishedRow, poolMem, unlistedMem];
 	const blocked = parts.find((r) => r.unknown !== null);
@@ -1416,6 +1421,15 @@ function memoryBreakdown({
 		cpu,
 	};
 }
+
+/** @type {MemoryBreakdown["unlisted"]} */
+const UNVOUCHED_UNLISTED = {
+	count: null,
+	...unknownRow(
+		"session listing: empty and unvouched (#2180), so no claimed pair can be told unlisted",
+	),
+	dirs: [],
+};
 
 /** @param {MemoryBreakdown["unlisted"]} u */
 const unlistedText = (u) =>

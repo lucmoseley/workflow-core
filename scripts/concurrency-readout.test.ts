@@ -39,8 +39,9 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 /** The readout over a machine running one claimed pair, `abc`, that a
- * listing of this session alone does not name; `refused` fails the listing. */
-const run = ({ refused = false } = {}) => {
+ * listing of this session alone does not name; `refused` fails the listing,
+ * and `empty` runs outside any session over an empty one. */
+const run = ({ refused = false, empty = false } = {}) => {
 	const refill = path.join(dir, "refill");
 	fs.mkdirSync(refill, { recursive: true });
 	fs.writeFileSync(
@@ -60,6 +61,9 @@ const run = ({ refused = false } = {}) => {
 		buildMeminfo({ availableMb: 4000, swapTotalMb: 2048, swapFreeMb: 2048 }),
 	);
 	const host = writeHostRepo(dir, {});
+	const rows = empty
+		? []
+		: [buildJobRow("self", "working", { sessionId: SELF, cwd: host })];
 	return runInProcess(SCRIPT, [], {
 		env: {
 			...process.env,
@@ -76,13 +80,10 @@ const run = ({ refused = false } = {}) => {
 				cwds: { "111": "/home/u/repo" },
 			}),
 			WFC_CLAUDE_BIN: writeClaudeStub(path.join(dir, "claude"), [
-				buildAgentsBranch(
-					refused
-						? null
-						: [buildJobRow("self", "working", { sessionId: SELF, cwd: host })],
-				),
+				buildAgentsBranch(refused ? null : rows),
 			]),
 			CLAUDE_PROJECT_DIR: host,
+			...(empty ? { CLAUDE_CODE_SESSION_ID: "" } : {}),
 		},
 	});
 };
@@ -99,6 +100,15 @@ describe("the unlisted watch with the loop off (#3496)", () => {
 	it("prints unknown where admission's listing was refused", () => {
 		const r = run({ refused: true });
 		expect(r.stdout).toMatch(/^unlisted: {2}unknown now — session listing: /m);
+		expect(r.status).toBe(0);
+	});
+
+	it("prints unknown where admission's listing is empty and unvouched (#3504)", () => {
+		const r = run({ empty: true });
+		expect(r.stdout).toMatch(
+			/^unlisted: {2}unknown now — session listing: empty and unvouched/m,
+		);
+		expect(r.stdout).not.toContain("outside admission's listing");
 		expect(r.status).toBe(0);
 	});
 });
