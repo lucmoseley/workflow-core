@@ -8,7 +8,7 @@
 	".husky/pre-push": "fc72aa3d8f4cdb7c",
 	".husky/prepare-commit-msg": "d3ebc2bf740f2475",
 	"scripts/audit-escape-lines.js": "ed43f4789da1e279",
-	"scripts/check-ci-status.js": "dfdf73054935027d",
+	"scripts/check-ci-status.js": "f09205b31acbe535",
 	"scripts/check-citation-tracker.js": "0cddbd7ab0809a4e",
 	"scripts/check-commit-subject.sh": "54b77a383dd7c6c7",
 	"scripts/check-digest-version.js": "6a2cac1bbe395e85",

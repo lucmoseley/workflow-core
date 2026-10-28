@@ -7,14 +7,14 @@ name: scheduled-checks
 # push's jobs cost wall time alone.
 #
 # WHY A SCHEDULE AS WELL. `main` moves only to a `landing` tip a push run
-# passed; the schedule re-tests it while it sits still, so a flaky or
-# date-dependent test still surfaces (spec #2261).
+# passed, so a push run tests every pushed head; the schedule re-tests a still
+# tree, so a flaky or date-dependent test surfaces at the next slot rather
+# than the next commit (spec #2261, #1994).
 #
 # WHY THESE FOUR TIMES. 03:00/09:00/15:00/21:00 UTC = 11:00/17:00/23:00/05:00
 # on the founder's machine (UTC+8). Evenly spaced, so every blind window is 6h:
 # even spacing beats clustering the slots over the hours commits land in,
-# because the widest window is what a reader waits out (mantahostels#2166). Four
-# slots fit GitHub Free's 2,000-minute month (mantahostels#3490).
+# because the widest window is what a reader waits out (mantahostels#2166).
 #
 # WHY THE JOBS ARE `uses:` AND NOT COPIED HERE. GitHub's idle auto-disable takes
 # down a whole workflow FILE, `workflow_dispatch` included (mantahostels#909) — so the
@@ -34,54 +34,6 @@ name: scheduled-checks
 # tail of every gap on a schedule with nothing wrong with it. `SWEEP_STALE_MS`
 # in `scripts/check-ci-status.js` owns the value.
 #
-# WHAT IT COSTS, and why the healthy case is not once a day. The `ahead > 0`
-# limb is what makes this cheap: commits land 01:00-16:00 UTC, so the 21:00
-# sweep tests the day's last HEAD and the morning session start has nothing
-# untested to fire over. On a healthy schedule this fires rarely, not daily.
-#
-# THE SCHEDULE, WITH mantahostels#3502's GATE. A sweep that tests bills 14.42 billed min
-# (mantahostels#3491's measured 13.42, plus the gate job's own minute); one the gate skips
-# bills 2.06, being the gate and the ungated document guards. At the 54% skip
-# rate mantahostels#3502 measured that is ~7.74 a sweep, ~31 billed min/day, ~929 a month,
-# ~46% of the Free allowance for the SCHEDULE ALONE.
-#
-# THE GATE DOES NOT REACH THE AUTOFIRE, and the worst month turns on that.
-# check-ci-status.js fires only where HEAD has moved past the newest sweep
-# (`coverage.ahead > 0` is what feeds `staleMs`), so an AUTOFIRED sweep runs on
-# a sha no sweep has touched and the gate can never skip it. A DELIBERATE
-# hand-fire on an already-swept sha does skip. Worst case, all three of the day's fires
-# (`AUTOFIRE_DAILY_CAP`, `scripts/lib/sweep-budget.js`) being autofires: a fire
-# bills the dispatch limb's ~14.78 (mantahostels#3502, scaled from mantahostels#2163's 8.20/7.42 ratio
-# and never measured at this price) plus the gate's minute, so 3 x 15.78 x 30
-# = ~1,420 a month on top of the schedule's ~929 and the ~152 everything else
-# floors at — ~2,501, or ~125% of the 2,000-minute Free allowance, still over. THAT SUM IS
-# TWO STATES AT ONCE FOR THE AUTOFIRE, though: three a day needs the newest
-# sweep 8h stale three times over (SWEEP_STALE_MS), which a schedule delivering
-# its 6-hourly slots never is, so that limb is at its maximum only when the
-# other is not. THAT ESCAPE DOES NOT COVER A DELIBERATE HAND-FIRE: the 3-a-day
-# budget is shared (mantahostels#2202), and three hand-fires on fresh shas alongside a
-# healthy schedule reach the full ~2,501. So this lever MISSES mantahostels#3493's target of
-# a worst month inside Free. Uncapped, the 2-minute cooldown alone would allow
-# 720 a day — well over the whole month's allowance inside one. mantahostels#3493 holds the reserve levers for the
-# case where this one misses. `scripts/check-ci-status.js` owns the thresholds.
-#
-# THE ALLOWANCE. The account is on GitHub Free: 2,000 included private-repo
-# Actions minutes a month. Four slots is sized on the bill (mantahostels#3490;
-# measurement on mantahostels#2228).
-#
-# THE THREAT IS ALSO A DISPATCH SPREE, NOT ONLY THE CRON: 27-29 Aug 2026 cost
-# 545 billable minutes across 67 manual runs, the burst that followed the PAT
-# gaining `Actions: write` (mantahostels#948, mantahostels#1069). CLAUDE.md's 3-a-day fire budget and
-# `scripts/lib/sweep-fire.js` are what hold that line.
-#
-# WHAT OVERRUNNING DOES ON FREE: it bills the card at the $0.006/min rate below,
-# up to the account's $20 budget — an alert threshold, not a stop (founder-read at
-# mantahostels#916, mantahostels#3541). Nothing this repo uses sits
-# behind a Pro-only feature (verified 30 Aug 2026: no CODEOWNERS, wikis off, no
-# Pages workflow, Vercel-created environments with empty protection rules,
-# every workflow secret being the auto-issued `GITHUB_TOKEN`). `main`'s ruleset
-# (#2414) is free because the core repo is public.
-#
 # WHAT A SCHEDULE CANNOT TELL YOU. GitHub silently drops queued scheduled runs
 # under load; mantahostels#915 owns the liveness check that distinguishes a dropped run from
 # a clean night. Sweeps run LATE as a matter of course, so that check's grace
@@ -89,37 +41,9 @@ name: scheduled-checks
 # is in scripts/check-ci-status.js beside the threshold it sets (mantahostels#386). The lag
 # is GitHub-side, not this repo's own hand-fires (mantahostels#2204): at six a day,
 # 61 of the 88 slots expected from 1 Sep to 15 Sep 15:00 UTC arrived (69%), consecutive-run
-# gaps at a 6.3h median and 9h54m at worst (mantahostels#2228). The cadence of four
-# is set on the bill, not the lag (mantahostels#3490). One
+# gaps at a 6.3h median and 9h54m at worst (mantahostels#2228). One
 # verdict covers every commit since the last sweep, so a red needs
 # attributing rather than reading off a sha; mantahostels#907 owns that.
-#
-# HOW TO PRICE A PROPOSAL HERE. The sweep is the billable unit; a push costs
-# ZERO billed minutes, so push rate prices nothing. A sweep is four jobs: the
-# gate at 1.00 billed min, `Lint and tests` at 11.29, `Python` at 1.00 and
-# `Document guards` at 1.06 — the last three measured at mantahostels#3491 over 8-15 Sep
-# 2026 (n=31). #1854's `Mod tests` step adds ~17 s to `Lint and tests` (run
-# 39003626321), ~0.3 billed min a testing sweep, unmeasured in the figures here. A TESTING sweep
-# is ~14.42 and a gated one ~2.06, so at the 54% skip rate ~7.74 a sweep;
-# x4 a day (mantahostels#3490) = ~31 billed min/day, ~929/month, ~46% of
-# Free's 2,000-minute allowance for the SCHEDULE ALONE — read WHAT A SCHEDULE
-# CANNOT TELL YOU, above, before treating that as the bill. THAT IS THE CRON'S ASK, NOT ITS DELIVERY:
-# GitHub delivered 69% of slots at the six-a-day cadence over 1-15 Sep 2026
-# (mantahostels#2228); this cadence's delivery is unmeasured, so the figure above is the safe side of the estimate only if delivery does not also degrade
-# further. ADDING AN UNGATED JOB TO A SWEEP COSTS ~4 BILLED MIN/DAY WHATEVER IT
-# DOES — one per sweep, at this cadence — on the per-job one-minute minimum
-# above; adding one BEHIND THE GATE costs ~1.8, the 46% of sweeps that test: the
-# bill tracks job COUNT, not compute, and duration matters only at a 60-second
-# boundary (107s -> 61s saves nothing; 61s -> 59s saves a minute). Splitting
-# work across jobs is what costs money; `if: ${{ !cancelled() }}` is what makes
-# merging jobs safe. Time a job from its own started_at/completed_at — never
-# the /timing endpoint, which returns total_ms: 0 here; the measured
-# billed:wall ratios behind the rule are on mantahostels#313 and mantahostels#386. Rate $0.006/min on
-# Linux 2-core.
-#
-# The $20 Actions spending limit on the account is an ALERT THRESHOLD, not a
-# stop (read from the billing page by the founder at mantahostels#916 — no agent session can
-# read it).
 #
 # Docs-only pushes are not path-filtered: seven test files read real repo
 # documents (mantahostels#910). The document guards get no second, schedule-only
@@ -130,7 +54,9 @@ name: scheduled-checks
 #
 # TWO MEASUREMENT TRAPS. A local speedup does not transfer to the 2-vCPU runner:
 # `pytest -n 2` gained 2.26x locally and ~7% on CI (mantahostels#313). Making the work
-# itself cheaper does transfer (mantahostels#314). And pushes/day is not derivable
+# itself cheaper does transfer (mantahostels#314). Time a job from its own
+# started_at/completed_at — never the /timing endpoint, which returns
+# total_ms: 0 here. And pushes/day is not derivable
 # from the runs API at all: a push to `main` leaves no run behind, so a census of the runs
 # listing reports zero pushes rather than none observed. Any future push-rate
 # figure must come from git history.
@@ -164,70 +90,11 @@ on:
 # filer runs from the daily repo-checks run instead, where the session's own
 # token reaches the private tracker.
 jobs:
-  # A COMMIT AN EARLIER SWEEP ALREADY PASSED IS NOT RE-TESTED (mantahostels#3502). The
-  # schedule fires on a clock and `main` does not move on one, so 54% of the 61
-  # sweeps over 1-15 Sep 2026 re-derived a verdict already held. This job reads
-  # the Actions API for an earlier scheduled-checks run on THIS head sha whose
-  # `Full suite` jobs went green, and the suite below skips on it.
-  #
-  # IT COSTS A BILLED MINUTE ON EVERY SWEEP, skipped or not — the per-job
-  # minimum in the pricing paragraph above — and saves 12.36 on a skipped one.
-  # Folding the check into ci.yml's own steps instead would bill both suite jobs
-  # a minute each to answer the same question, which is worse on the 54%.
-  #
-  # The script fails OPEN: anything it cannot read answers "not covered" and the
-  # suite runs, and it never exits non-zero, so a GitHub-side change to either
-  # response shape degrades to re-testing rather than reddening the sweep. The
-  # JOB can still fail around it, which is what the suite's `!cancelled()` below
-  # is for.
-  #
-  # WHAT SKIPPING COSTS, accepted at mantahostels#3493: an unchanged commit is not
-  # re-tested, so a flaky failure, or a test that breaks with the passing date,
-  # surfaces on the next commit rather than at the next sweep. `gh workflow run
-  # ci.yml` is how to re-test a still tree deliberately, and it spends a unit of
-  # the same 3-a-day budget a fire of this file does (mantahostels#3514).
-  #
-  # NOT ON A PUSH RUN: a `landing` tip is new to every sweep, and the lander
-  # needs the suite's own verdict at it (#2413).
-  gate:
-    name: Decide whether to test
-    if: ${{ github.event_name != 'push' && github.repository == 'lucmoseley/workflow-core' }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      # The script's two reads are the workflow-runs and run-jobs endpoints, and
-      # a job carrying an explicit permissions block gets nothing it does not
-      # name (mantahostels#2297).
-      actions: read
-    outputs:
-      covered: ${{ steps.covered.outputs.covered }}
-    steps:
-      # No npm ci: the script and the two libraries it loads use node builtins
-      # and `gh` only, so the install would be the whole cost of the job.
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Look for an earlier sweep that took this sha green
-        id: covered
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/sweep-tests-covered.js
-
   # `secrets: inherit` is deliberately absent: neither called workflow reads a
   # repository secret, and both get `github.token` regardless.
   suite:
     name: Full suite
-    needs: [gate]
-    # `!cancelled()` IS THE FAIL-OPEN, and without it this gate is fail-CLOSED.
-    # A job `if` carrying no status function gets an implicit `success()`, so a
-    # gate job that FAILED — a checkout outage, a runner kill, a throw before
-    # the script's own try/catch is reached — would SKIP the suite and leave the
-    # tree untested silently.
-    # Then NOT-covered rather than `== 'false'`, so a gate that exited 0 having
-    # written no output runs the suite too — which is why the tracker guard is
-    # restated here: a gate skipped on the tracker writes no output either.
-    if: ${{ !cancelled() && github.repository == 'lucmoseley/workflow-core' && needs.gate.outputs.covered != 'true' }}
+    if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     # Restated for the reason the documents job below restates its own: a called
     # workflow cannot hold MORE than its caller grants, so naming nothing here
     # would hand ci.yml whatever the repository's default token carries (mantahostels#1209).
@@ -237,12 +104,6 @@ jobs:
 
   # Runs alongside the suite rather than after it — the two share no state, and
   # `needs:` here would only lengthen the sweep.
-  #
-  # UNGATED BY THE JOB ABOVE, for two reasons. Its release-pin step reads
-  # state that moves without a commit, the remote's tags, so skipping it on an
-  # unchanged sha would silence it for as long as `main` sat still. And a run whose every job
-  # skipped concludes `skipped` rather than `success`: this one running is what
-  # keeps a gated sweep filling its slot for `scripts/check-ci-status.js`.
   #
   # The permissions are restated here because a called workflow cannot hold MORE
   # than its caller grants, so naming nothing would hand roadmap-digest.yml
@@ -265,16 +126,14 @@ jobs:
   # neither of which holds the ruleset.
   verdict:
     name: Suite passed
-    needs: [gate, suite, documents]
+    needs: [suite, documents]
     if: ${{ always() && github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
     permissions: {}
     steps:
       - env:
           SUITE: ${{ needs.suite.result }}
-          COVERED: ${{ needs.gate.outputs.covered }}
           DOCUMENTS: ${{ needs.documents.result }}
         run: |
-          echo "suite=$SUITE covered=$COVERED documents=$DOCUMENTS"
-          [ "$DOCUMENTS" = success ] || exit 1
-          [ "$SUITE" = success ] || { [ "$SUITE" = skipped ] && [ "$COVERED" = true ]; }
+          echo "suite=$SUITE documents=$DOCUMENTS"
+          [ "$DOCUMENTS" = success ] && [ "$SUITE" = success ]

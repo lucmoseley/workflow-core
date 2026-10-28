@@ -462,7 +462,6 @@
 		".github/workflows/scheduled-checks.yml": [
 			"scripts/check-ci-status.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/sweep-tests-covered.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".gitignore": [
@@ -9758,7 +9757,6 @@
 			"scripts/retire-stale-containers.test.ts",
 			"scripts/spec-commits.test.ts",
 			"scripts/supervise-landing.test.ts",
-			"scripts/sweep-tests-covered.test.ts",
 			"scripts/unpark-on-prompt.test.ts"
 		],
 		"scripts/lib/fixtures/gh/map-list.json": [
@@ -15929,8 +15927,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
-			"scripts/suite-timings.test.ts",
-			"scripts/sweep-tests-covered.test.ts"
+			"scripts/suite-timings.test.ts"
 		],
 		"scripts/lib/run-in-process.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -20893,20 +20890,6 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/sweep-debts-detached.test.ts": [
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/sweep-tests-covered.js": [
-			"scripts/checker-registrations.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/sweep-tests-covered.test.ts"
-		],
-		"scripts/sweep-tests-covered.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"

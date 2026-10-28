@@ -15,10 +15,7 @@ name: CI
 # one pending run and cancels the rest, so a `landing` tip pushed between two
 # others would go untested and the lander would read no verdict at it.
 #
-# A breakage sits on `main` for up to ~12 hours before anything catches it.
-# The cron asks for a 6h gap (mantahostels#3490, widened from 4h); GitHub delivers the
-# slots late, and the gap is not this repo's to set (mantahostels#2204).
-# Run the suite early with `gh workflow run ci.yml` — ANY SESSION may: this
+# Run the suite by hand with `gh workflow run ci.yml` — ANY SESSION may: this
 # repo's PAT holds `Actions: Read and write` (mantahostels#1069). It spends a
 # unit of the 3-a-day sweep budget, the same one scheduled-checks.yml spends
 # (`scripts/lib/sweep-fire.js`, mantahostels#3514). Spending nothing? `npm run check:ci`
@@ -205,7 +202,7 @@ jobs:
       #
       # LAST, AND OFF `$GITHUB_PATH`, so no earlier step ever sees a `claude`.
       # A release breaking a mod on a sha already green surfaces at the next
-      # sweep the gate lets test, not the next sweep (scheduled-checks.yml).
+      # sweep (scheduled-checks.yml).
       - name: Mod tests
         if: ${{ !cancelled() }}
         run: |
@@ -365,10 +362,9 @@ jobs:
       # ruff, hard-failing (mantahostels#1135): pytest only ever imports what a test
       # imports, so a module no test reaches is never run, only read statically.
       #
-      # A step in this job rather than a job of its own: Actions bills a whole
-      # minute per job, and the pip install this needs has already run above.
-      # No install step for the same reason — ruff is pinned in
-      # requirements-dev.txt, so `Install dependencies` above already fetched it.
+      # A step in this job rather than a job of its own: the pip install this
+      # needs has already run above. No install step for the same reason —
+      # ruff is pinned in requirements-dev.txt, so `Install dependencies` above already fetched it.
       #
       # Hard-fails, unlike the .husky/pre-commit half, which warns and passes when
       # ruff is absent only because this step runs `ruff check`: remove it and

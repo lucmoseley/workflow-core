@@ -29,14 +29,15 @@ const { caught } = require("./caught.js");
 const { gitCommonDir } = require("./git.js");
 
 /* The DAILY cap, which the autofire's 2-minute cooldown is not (mantahostels#1816 asked for
- * one): the cooldown alone bounds a bad day at 720 firings, ~5,900 billed
- * minutes, over the whole month's allowance in a day. It bounds both routes
- * together (mantahostels#2202).
+ * one): the cooldown alone bounds a bad day at 720 firings. It bounds both
+ * routes together (mantahostels#2202).
  *
- * THREE (mantahostels#3495): the most firings a worst day can make every day and keep the
- * month inside GitHub Free's 2,000 minutes; four breaches it. The arithmetic is
- * `.github/workflows/scheduled-checks.yml`'s WHAT IT COSTS — re-derive it when
- * the cadence or the sweep price moves.
+ * THREE is mantahostels#3495's value, which was sized on GitHub Free's minutes
+ * and kept by #1965's ruling when the core's minutes became free (#1930); it
+ * was not re-derived. What the cap still buys: on the core, a bound on noisy
+ * failed fires (mantahostels#2188 counted 44.6% of dispatched sweeps failing,
+ * and 35 fires in one day); on a private adopter (mantahostels), a bound on
+ * that repo's Actions minutes.
  *
  * Once the cap is spent the session-start notice still reports; only the firing
  * stops. */
@@ -116,7 +117,7 @@ function spentToday(state, t) {
  * price: the cap bounds a runaway rather than being exact at the boundary, and a
  * lock file here would be a new stale-lock failure mode on a `PreToolUse` path — where a wedged lock
  * costs every `gh workflow run` in every session, against a worst case of one
- * extra 15.78-minute sweep. Revisit only if the boundary is ever load-bearing.
+ * extra sweep. Revisit only if the boundary is ever load-bearing.
  *
  * Throws on an unwritable marker; the caller decides what an uncountable fire
  * means for it.

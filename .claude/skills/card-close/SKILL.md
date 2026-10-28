@@ -157,7 +157,7 @@ Add any source document step 3's write-back edited to that pathspec.
 
 **Commit by pathspec, never `git add` first** — the index is repo-global, and a parallel session's commit lands in the gap between staging and committing, carrying your files under its message (`.claude/skills/roadmap-edit/SKILL.md` step 8).
 
-Then push, per `CLAUDE.md` §Conventions. No gate runs on push (mantahostels#910): the suite and the document guards run four times a day from `.github/workflows/scheduled-checks.yml`, so a pushed commit stays unverified until the next sweep — up to ~12 hours, not the 6 the cron asks for, because GitHub delivers the slots late (mantahostels#2204). **You can shorten that wait**: `gh workflow run scheduled-checks.yml` fires one now, ~15.78 billed minutes at \$0.006/min ≈ \$0.095 — unless an earlier sweep already took this sha green, in which case mantahostels#3502's gate skips the suite and it bills ~2.06. `npm run check:ci` names the last sweep that carried a verdict and how far ahead of it HEAD sits.
+Then push, per `CLAUDE.md` §Conventions. Every push to `landing` runs the suite and the document guards (`.github/workflows/scheduled-checks.yml`), and the lander moves `main` only to a tip that run passed (#2413); `node scripts/landing-status.js` says whether your commits have landed.
 
 The commit gives back this session's claims on the pair, the two most contended files in the repo, and prints `Released …` (#2058). Where it names only one — a partial commit left the other dirty — commit the rest, or release by hand once it is clean: `node scripts/session-arbiter.js release <path>`.
 
