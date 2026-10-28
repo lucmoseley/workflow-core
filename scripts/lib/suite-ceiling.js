@@ -27,7 +27,8 @@
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
-const { procRoot, readEnvironVar } = require("./proc-environ.js");
+const { readEnvironVar } = require("./proc-environ.js");
+const { procRoot } = require("./proc-root.js");
 
 /* 14 minutes, so bg-run's backstop at the deadline plus 60 s still lands
  * inside #2667's 15. */

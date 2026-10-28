@@ -129,14 +129,14 @@ const {
 const { walkAndCommit } = require("./lib/walk-and-commit.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
-const { readAncestorsOf, readParentOf } = require("./lib/proc-stat.js");
-const { procRoot, readEnvironVar } = require("./lib/proc-environ.js");
+const { readAncestorsOf } = require("./lib/proc-stat.js");
+const { readEnvironVar } = require("./lib/proc-environ.js");
 const { configDirFrom } = require("./lib/config-dir.js");
 
 const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 
 /* Overridable so the live-session count can be tested against a stub `ps` and
- * a fixture /proc tree — WFC_PS here, WFC_PROC in lib/proc-environ.js. */
+ * a fixture /proc tree — WFC_PS here, WFC_PROC in lib/proc-root.js. */
 const PS_BIN = () => process.env.WFC_PS || "ps";
 /** A `ps -eo pid=,args=` line: the pid, then argv[0]. */
 const PS_LINE = /^(\d+)\s+(\S+)/;
@@ -181,7 +181,7 @@ function readClaudePids() {
  * @returns {string|null}
  */
 function readConfigDirOf(pid) {
-	const record = readEnvironVar(pid, "CLAUDE_CONFIG_DIR", procRoot());
+	const record = readEnvironVar(pid, "CLAUDE_CONFIG_DIR");
 	if (!record.ok) return null;
 	return configDirFrom(record.value);
 }
@@ -202,11 +202,7 @@ function readConfigDirOf(pid) {
  * @param {string} pid
  */
 function readOwnPids(pid) {
-	const parentOf = (/** @type {number} */ at) => readParentOf(at, procRoot());
-	const seen = new Set([
-		pid,
-		...readAncestorsOf(Number(pid), { parentOf }).map(String),
-	]);
+	const seen = new Set([pid, ...readAncestorsOf(Number(pid)).map(String)]);
 	if (process.env.CLAUDE_PID) seen.add(String(process.env.CLAUDE_PID));
 	return seen;
 }

@@ -11,7 +11,7 @@
  * large silently misses orphans, too small invents them.
  *
  * Every reader takes the /proc to read as `root`; callers pass
- * lib/proc-environ.js's procRoot(), which WFC_PROC replaces with a fixture
+ * lib/proc-root.js's procRoot(), which WFC_PROC replaces with a fixture
  * lib/proc-fake.ts writes.
  */
 

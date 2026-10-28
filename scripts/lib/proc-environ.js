@@ -1,17 +1,13 @@
 /*
  * proc-environ.js — one variable out of `/proc/<pid>/environ` (#3322), which
- * holds a process's environment as it was at exec, NUL-separated; and the
- * repo's one /proc seam, `procRoot` on WFC_PROC, which every /proc reader
- * takes, environ or not (#3505).
+ * holds a process's environment as it was at exec, NUL-separated.
  *
- * A leaf: it depends on nothing but `fs` and `path`.
+ * A leaf: it depends on nothing but `fs`, `path` and lib/proc-root.js.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
-
-/** The /proc `WFC_PROC`'s readers take, environ or any other file (#3500). */
-const procRoot = () => process.env.WFC_PROC || "/proc";
+const { procRoot } = require("./proc-root.js");
 
 /**
  * `key`'s value in `pid`'s environment: `{ ok: false }` where the environ
@@ -22,7 +18,7 @@ const procRoot = () => process.env.WFC_PROC || "/proc";
  * @param {string} [proc] the /proc to read, a test's stand-in
  * @returns {{ ok: false } | { ok: true, value: string | null }}
  */
-function readEnvironVar(pid, key, proc = "/proc") {
+function readEnvironVar(pid, key, proc = procRoot()) {
 	let environ;
 	try {
 		environ = fs.readFileSync(path.join(proc, String(pid), "environ"), "utf8");
@@ -38,4 +34,4 @@ function readEnvironVar(pid, key, proc = "/proc") {
 	};
 }
 
-module.exports = { procRoot, readEnvironVar };
+module.exports = { readEnvironVar };

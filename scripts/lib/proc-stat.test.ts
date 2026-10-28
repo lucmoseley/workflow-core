@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	FIELD,
 	parseStatFields,
@@ -57,6 +57,23 @@ describe("readStatFields and readParentOf", () => {
 			fs.writeFileSync(path.join(root, "42", "stat"), line("x", 9));
 			expect(readParentOf(42, root)).toBe(9);
 		} finally {
+			fs.rmSync(root, { recursive: true, force: true });
+		}
+	});
+
+	it("read WFC_PROC's fixture where no root is passed (#3530)", () => {
+		const root = fs.mkdtempSync(path.join(os.tmpdir(), "proc-stat-"));
+		vi.stubEnv("WFC_PROC", root);
+		try {
+			fs.mkdirSync(path.join(root, String(process.pid)));
+			fs.writeFileSync(
+				path.join(root, String(process.pid), "stat"),
+				line("x", 9),
+			);
+			expect(readParentOf(process.pid)).toBe(9);
+			expect(readAncestorsOf(process.pid)).toEqual([9]);
+		} finally {
+			vi.unstubAllEnvs();
 			fs.rmSync(root, { recursive: true, force: true });
 		}
 	});
