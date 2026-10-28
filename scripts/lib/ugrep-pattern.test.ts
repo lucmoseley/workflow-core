@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/ugrep-pattern.js, guard-ugrep-pattern.js's core (#2801), in process: it
+ * lib/ugrep-pattern.js, the guard-ugrep-pattern core (#2801), in process: it
  * warns, never denying, when a bare `grep` pattern carries a ranged repeat
  * that Claude Code's bundled ugrep may refuse (#1021).
  *

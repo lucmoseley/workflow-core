@@ -1894,7 +1894,7 @@ function judgeRule(st, file, rule) {
 
 	/* ABOVE the marker branches, so no branch can return before it:
 	 * **Unenforceable** names a path too (CLAUDE.md's push rule names
-	 * scripts/guard-push-rules.js, which hands the rule over). Reported
+	 * the guard-push-rules core of scripts/guard-dispatch.js, which hands the rule over). Reported
 	 * alongside UNOWNED and NO-GUARD-NAMED rather than instead of either. */
 	checkNamedPaths(st, file, rule, guardPathsOf(rule.text));
 

@@ -1,12 +1,14 @@
 // @vitest-environment node
 /*
- * guard-wide-read.js warns where a Bash command pours a whole file, a wide
- * slice or an uncounted glob into the context window (mantahostels#1562).
- * These are its boundary cases (§X11), run as the harness runs it: the
- * payload on stdin, the WFC_WIDE_READ_* thresholds from the environment, the
- * hook's own directory for a relative path, and the real file-size, glob and
- * core-path adapters, end to end. Which command earns which warning, and the
- * `Read` limb the dispatcher runs, are lib/wide-read.test.ts's (#2791).
+ * The guard-wide-read core of guard-dispatch.js warns where a Bash command
+ * pours a whole file, a wide slice or an uncounted glob into the context
+ * window (mantahostels#1562). These are its Bash boundary cases (§X11), the
+ * dispatcher entry run on it alone: the payload on stdin, the
+ * WFC_WIDE_READ_* thresholds from the environment, the hook's own directory
+ * for a relative path, and the real file-size, glob and core-path adapters,
+ * end to end. Which command earns which warning, and the `Read` limb, are
+ * lib/wide-read.test.ts's (#2791); the entry's payload faults and the throw
+ * policy are guard-dispatch's own tests' (#3227).
  *
  * Every warning asserts no `permissionDecision`: this guard warns and must
  * never deny.
@@ -15,24 +17,16 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { failOpenLogPath } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	readHookLines,
-	runNodeGuard,
-	spawnGuard,
 } from "./lib/pretool-guard-testkit";
 
 const { CONTRACT } = require("./lib/workflow-core-config.js");
 
-const GUARD = path.resolve(__dirname, "guard-wide-read.js");
-const LINES = readHookLines(
-	"self-plugin/hooks/hooks.json",
-	"scripts/guard-wide-read.js",
-);
+const CORE = "guard-wide-read";
 
 let dir: string;
 let config: string;
@@ -51,7 +45,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const emission = (command: string, env: NodeJS.ProcessEnv = {}) =>
-	nodeGuardOutput(GUARD, buildBashPayload(command), {
+	dispatchCoreOutput(CORE, buildBashPayload(command), {
 		project,
 		config,
 		cwd: project,
@@ -98,23 +92,6 @@ describe("the guard, end to end", () => {
 			emission("cat big.md", { WFC_SCRIPT_ROOT: install }).additionalContext,
 		).toContain(`asks for: ${install}/docs/agents/tool-output.md.`);
 	});
-
-	it("runs from each of its registrations' hook lines", () => {
-		expect(LINES).toHaveLength(3);
-		for (const line of LINES) {
-			const r = spawnGuard("/bin/bash", buildBashPayload("cat big.md"), {
-				project: path.resolve(__dirname, ".."),
-				config,
-				cwd: project,
-				args: ["-c", line],
-				env: { WFC_WIDE_READ_BYTES: "1000" },
-			});
-			expect([r.status, r.stderr]).toEqual([0, ""]);
-			expect(JSON.parse(r.stdout).hookSpecificOutput.additionalContext).toMatch(
-				/^Reading a whole file into context: big\.md/,
-			);
-		}
-	});
 });
 
 describe("a host listing the guard under `disabled`", () => {
@@ -126,7 +103,7 @@ describe("a host listing the guard under `disabled`", () => {
 		);
 	};
 
-	it("is silenced by the dispatcher row's name, so one entry stands down both limbs (#569)", () => {
+	it("is silenced by the core's name, so one entry stands down both limbs (#569)", () => {
 		declare(["guard-wide-read"]);
 		expect(emission("cat big.md")).toBeNull();
 	});
@@ -135,60 +112,6 @@ describe("a host listing the guard under `disabled`", () => {
 		declare(["guard-branch"]);
 		expect(emission("cat big.md")?.additionalContext).toMatch(
 			/^Reading a whole file into context/,
-		);
-	});
-});
-
-describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, { project, config, cwd: project, stdin });
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"not json at all",
-			/payload did not parse as JSON/,
-		],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload — read allowed unchecked/,
-		],
-	])(
-		"records %s in three fields under its own name, allowing",
-		(_l, stdin, match) => {
-			const r = run(stdin);
-			expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-			const lines = readFailOpenLog(config, project).trim().split("\n");
-			expect(lines).toHaveLength(1);
-			expect(lines[0]?.split("\t")).toEqual([
-				expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-				"guard-wide-read.js",
-				expect.stringMatching(match),
-			]);
-		},
-	);
-
-	it("allows, logged, where its core throws", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-wide-read.js",
-			"wide-read.js",
-		);
-		const r = runNodeGuard(entry, buildBashPayload("cat big.md"), {
-			project,
-			config,
-			cwd: project,
-		});
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(readFailOpenLog(config, project)).toMatch(
-			/guard threw — allowed unchecked: broke/,
 		);
 	});
 });

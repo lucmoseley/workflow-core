@@ -1,10 +1,9 @@
 /*
  * wide-read.js — the core that warns where a call reads a whole file, a wide
  * slice or an uncounted glob back into the context window
- * (mantahostels#1562). Two composition roots run it: the PreToolUse
- * dispatcher's `guard-wide-read` row for the `Read` limb, and
- * scripts/guard-wide-read.js for the three Bash limbs its `if` narrowings
- * start. Its production ports are lib/wide-read-host.js.
+ * (mantahostels#1562), run as the PreToolUse dispatcher's `guard-wide-read`
+ * core over Bash and `Read` (#3227). Its production ports are
+ * lib/wide-read-host.js.
  *
  * WHY. Tool output is the largest single share of a long session's context
  * here, and mantahostels#1553 declined every capping setting the CLI offers —
@@ -29,17 +28,19 @@
  * and `grep … | wc -l` are the cheaper forms this guard is asking for, and
  * warning on them would be warning on the fix.
  *
- * The Bash narrowings, stated in scripts/guard-wide-read.js's header, name
- * the only three commands `DUMPERS` holds across limbs 1-3. The Read limb (mantahostels#2595) runs from the dispatcher, whose
- * row judges `Read` alone (mantahostels#2811): an `if` naming one tool never
- * matches another (hooks.md:123), so a Bash rule on a "Bash|Read" entry would
- * have silenced it.
+ * The row's three Bash clauses, `Bash(*cat *)`, `Bash(*sed *)` and
+ * `Bash(*awk *)`, name the only three commands `DUMPERS` holds across
+ * limbs 1-3 (mantahostels#2811). A clause naming Bash never narrows the Read
+ * limb (lib/if-clause.js's clausesAdmit).
  *
  * THE THRESHOLDS are overridable through WFC_WIDE_READ_BYTES, _LINES,
  * _MATCHES, _TOOL_BYTES and _CUT_BYTES, so a test can fire the limbs on
  * fixtures small enough to write.
  *
  * LIMITS
+ *  - The Bash narrowings are unanchored, so a `cat` behind a launcher or a
+ *    later segment reaches the core; a command holding `cat`, `sed` or `awk`
+ *    with no space after it never does.
  *  - The bounded test reads the RAW command string for `|` and `>`, so one
  *    inside a quoted span silences the guard. Fail-silent, which is the right
  *    direction for a warn: a missed nudge costs bytes, a wrong one costs trust.
@@ -92,7 +93,6 @@
  *    through the guard-error log (mantahostels#147).
  */
 
-const crypto = require("node:crypto");
 const path = require("node:path");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { isGlobPattern, literal } = require("./shell-words.js");
@@ -405,7 +405,10 @@ function judgeRead(file, ctx, t) {
 	 * because the latch name maps `/` to `_`, which would let `a/b.md` and
 	 * `a_b.md` share a latch, and a long path outgrow a filename. Sixteen hex
 	 * digits are 64 bits: by the birthday bound, n paths in one session share
-	 * a key with odds near n²/2⁶⁵, nil for the hundreds a session reads. */
+	 * a key with odds near n²/2⁶⁵, nil for the hundreds a session reads.
+	 * Required here, not at load: node:crypto costs ~6 ms, which every Bash
+	 * `cat`, `sed` or `awk` would pay serially in the dispatcher (#3227). */
+	const crypto = require("node:crypto");
 	const latch = `wide-read.${crypto.createHash("sha1").update(file).digest("hex").slice(0, 16)}`;
 	if (ctx.told(latch)) return null;
 	/* Deliberately NOT limb 1's opening words. scripts/guard-fire-needles.json

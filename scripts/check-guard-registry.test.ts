@@ -2757,6 +2757,7 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 			parent: null,
 			revert: made.sha,
 			files: [],
+			jobs: [],
 			stale: made.stale ?? [],
 		});
 		expect(bodies[0]).toContain(

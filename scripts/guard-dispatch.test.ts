@@ -102,13 +102,13 @@ describe("the registration", () => {
 		expect(new Set(LINES).size).toBe(1);
 	});
 
-	it("is one PreToolUse entry over its cores' tools, fail-closed at 30 s", () => {
+	it("is one PreToolUse entry over its cores' tools, fail-closed at 60 s (#3226)", () => {
 		const groups = readRegistered("PreToolUse");
 		expect(groups.map((g) => g.matcher)).toEqual([
 			"Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task",
 		]);
 		expect(groups[0]?.hooks.find((h) => h.command === LINES[0])).toMatchObject({
-			timeout: 30,
+			timeout: 60,
 			onFailure: "block",
 		});
 	});
@@ -128,7 +128,7 @@ describe("the registration", () => {
 
 describe("each exit path", () => {
 	it("hands a backgrounded Bash call its rule as context on exit 0, latched under the project", () => {
-		const call = bash({ command: "npm run test", run_in_background: true });
+		const call = bash({ command: "ls -la", run_in_background: true });
 		expect(emission(call)).toEqual({
 			hookEventName: "PreToolUse",
 			additionalContext: readRuleText("killed-background-job"),

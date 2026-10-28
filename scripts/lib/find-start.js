@@ -1,5 +1,5 @@
 /*
- * find-start.js — guard-root-find.js's core (#2801): a `find` whose start
+ * find-start.js — the guard-root-find core (#2801, #3227): a `find` whose start
  * point is `/`, at any depth, is refused, and the cheaper routes handed over
  * (#1006).
  *
@@ -7,7 +7,13 @@
  *
  * NO ESCAPE VARIABLE: a self-spellable bypass would make the deny a warn (mantahostels#109).
  *
+ * FAILS CLOSED on a throw, its manifest row's `failure`. Every input it cannot
+ * resolve still fails open, recorded (mantahostels#103 §6, mantahostels#147).
+ *
  * LIMITS
+ *  - Its row's `Bash(*find *)` clause is unanchored, because the walk strips
+ *    launchers (`timeout 120 find /`) that an anchored clause would miss. A
+ *    command holding `find` with no space after it never reaches it.
  *  - A start point spelled with an unexpanded variable — `$HOME`, `"$dir"` —
  *    is unread, and passes.
  *  - `/` is recognised after collapsing `.`, `..` and doubled slashes. A symlink to `/` is not followed.
@@ -114,4 +120,4 @@ function isRoot(word, cwd, spans) {
 	return normAbs(`${cwd}/${text}`) === "/";
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

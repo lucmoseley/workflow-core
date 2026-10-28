@@ -61,7 +61,7 @@ function main(argv = process.argv.slice(2)) {
 				landing: ticket.landing,
 				movedAt: new Date(ticket.movedAt).toISOString(),
 				batch: queue.heartbeat?.batch ?? null,
-				red: queue.heartbeat?.red?.files ?? null,
+				red: queue.heartbeat?.red ?? null,
 			}),
 		);
 	return 0;

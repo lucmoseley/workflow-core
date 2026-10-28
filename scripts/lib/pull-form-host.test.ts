@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/pull-form-host.js (#2797): each production read guard-pull-form.js's
+ * lib/pull-form-host.js (#2797): each production read the guard-pull-form core's
  * core asks of git and the landing config,
  * answered by a real throwaway repo, in process. What the core does with
  * each answer is lib/pull-form.test.ts's.
@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
 
 const { buildHostPorts } = require("./pull-form-host.js") as {
-	buildHostPorts: (env: { root: string }) => {
+	buildHostPorts: (root: string) => {
 		pullFf: (dir: string) => string;
 		cleanRequireForce: (dir: string) => string;
 		currentBranch: (dir: string) => string;
@@ -45,7 +45,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const ports = () => buildHostPorts({ root: repo });
+const ports = () => buildHostPorts(repo);
 
 describe("the git reads", () => {
 	it("reads pull.ff, and answers empty where it is unset or git cannot answer", () => {

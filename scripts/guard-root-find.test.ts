@@ -1,27 +1,26 @@
 // @vitest-environment node
 /*
- * guard-root-find.js refuses a `find` started at `/`, at any depth, and hands
- * over the plugin's own root, the repo's scratch and named roots (#1006).
- * These are its boundary cases (§X11), run as the harness runs it: the
- * payload on stdin, its cwd and the hook's own, the real plugin root and the
- * real core-path rewrite, end to end. Which command earns which verdict is
- * lib/find-start.test.ts's; the throw policy is lib/refuse-on-throw.test.ts's
- * (#2801).
+ * The guard-root-find core of guard-dispatch.js refuses a `find` started at
+ * `/`, at any depth, and hands over the plugin's own root, the repo's scratch
+ * and named roots (#1006). These are its boundary cases (§X11), the
+ * dispatcher entry run on it alone: the payload on stdin, its cwd and the
+ * hook's own, the real plugin root and the real core-path rewrite, end to
+ * end. Which command earns which verdict is lib/find-start.test.ts's (#2801);
+ * the entry's payload faults and the throw policy are guard-dispatch's own
+ * tests' (#3227).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
+import { failOpenLogPath } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-root-find.js");
+const CORE = "guard-root-find";
 const PLUGIN_ROOT = fs.realpathSync(path.resolve(__dirname, ".."));
 
 let dir: string;
@@ -36,8 +35,8 @@ const emission = (
 		env = {},
 	}: { cwd?: string; hookCwd?: string; env?: NodeJS.ProcessEnv } = {},
 ) =>
-	nodeGuardOutput(
-		GUARD,
+	dispatchCoreOutput(
+		CORE,
 		{ ...buildBashPayload(command, null), ...(cwd ? { cwd } : {}) },
 		{ project, config, cwd: hookCwd, env },
 	);
@@ -101,62 +100,5 @@ describe("the guard, end to end", () => {
 	it("is silent on a find it passes", () => {
 		expect(emission("find /usr -name x", { cwd: project })).toBeNull();
 		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
-	});
-});
-
-describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, { project, config, cwd: project, stdin });
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"not json at all",
-			/payload did not parse as JSON/,
-		],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])(
-		"records %s in three fields under its own name, allowing",
-		(_l, stdin, match) => {
-			const r = run(stdin);
-			expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-			const lines = readFailOpenLog(config, project).trim().split("\n");
-			expect(lines).toHaveLength(1);
-			expect(lines[0]?.split("\t")).toEqual([
-				expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-				"guard-root-find.js",
-				expect.stringMatching(match),
-			]);
-		},
-	);
-
-	it("refuses, logged, where its core throws", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-root-find.js",
-			"find-start.js",
-		);
-		const out = nodeGuardOutput(entry, buildBashPayload("find . -x", null), {
-			project,
-			config,
-			cwd: project,
-		});
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-root-find.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, project)).toMatch(
-			/core threw — the command was refused\tbroke/,
-		);
 	});
 });
