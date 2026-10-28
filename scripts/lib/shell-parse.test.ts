@@ -26,6 +26,7 @@ import {
 	asWritten,
 	normAbs,
 	parseCommand,
+	SCOPE_MARK,
 	unmask,
 	unsetText,
 	walkCommands,
@@ -333,6 +334,13 @@ describe("walkCommands", () => {
 	])("runs nothing from %s (#3375)", (_name, command) => {
 		expect(walkMap(command, (c) => c.words.join(" "))).not.toContain(
 			"gh search issues y",
+		);
+	});
+
+	it("keeps backticks as typed in the masked text (#3375)", () => {
+		const parsed = parseCommand("echo `gh x` && echo `gh y");
+		expect(asWritten(parsed.masked, parsed.spans)).toBe(
+			"echo `gh x` && echo `gh y",
 		);
 	});
 
@@ -895,13 +903,17 @@ describe("path resolution", () => {
  * ones.
  */
 describe("logical lines (mantahostels#182)", () => {
-	/** The command's own segments: the `cat` or `printf` a body's `"$(…)"`
-	 * runs is lifted into one of its own (#3375). */
-	const lines = (command: string) =>
-		shown(command)
-			.trim()
-			.split("\n")
-			.filter((l) => !/^\[(cat|printf) /.test(l));
+	/** The segments outside every bracket, a body's `"$(…)"` lifting its own
+	 * inside one (#3375). */
+	const lines = (command: string) => {
+		let depth = 0;
+		return parseCommand(command).segments.filter((seg) => {
+			if (seg === `${SCOPE_MARK}(`) depth++;
+			else if (seg === `${SCOPE_MARK})`) depth--;
+			else return depth === 0 && seg.trim() !== "";
+			return false;
+		});
+	};
 
 	it("keeps a multi-line quoted argument on one segment with what follows it", () => {
 		const command = 'git commit -m "Subject line\n\nBody." -- a.md';
@@ -1128,7 +1140,7 @@ describe("logical lines (mantahostels#182)", () => {
 	])("joins %s (#510)", (_, command) => {
 		const out = lines(command);
 		expect(out).toHaveLength(1);
-		expect(out[0]).toContain("[--label][takes:triage]");
+		expect(out[0]).toContain("--label takes:triage");
 	});
 
 	it("resolves a path argument after a joined line", () => {
