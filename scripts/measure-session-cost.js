@@ -14,8 +14,9 @@
  * Seats: `lib/seat-args.js`. Never run at launch.
  *
  * SHIPS IN THE PLUGIN (#1734): each host prices its own ledger, so an adopter
- * builds its own table — init and upgrade once, where none exists
- * (`lib/core-owned-files.js`), and this command by hand to refresh it.
+ * builds its own table — init and upgrade, where none exists or none this
+ * version reads (`lib/core-owned-files.js`), and this command by hand to
+ * refresh it.
  */
 
 const fs = require("node:fs");
