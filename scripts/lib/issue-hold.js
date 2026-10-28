@@ -6,7 +6,7 @@
  * accepts all four, as the shortlist does.
  */
 
-const { ghGetRetrying, ghJson, ghOpenIssues } = require("./gh");
+const { ghDefaultRepo, ghGetRetrying, ghOpenIssues } = require("./gh");
 const { resolveGate } = require("./issue-gate");
 const { isInOtherRepo } = require("./issue-ref");
 const { judgeProseRefs, proseRefsOf } = require("./prose-blockers");
@@ -99,9 +99,7 @@ async function readHold(iss, at) {
 async function readOwnHold(iss) {
 	const refs = proseRefsOf(iss.body);
 	try {
-		const ownRepo = refs.some((r) => r.repo)
-			? ghJson(["repo", "view", "--json", "nameWithOwner"]).nameWithOwner
-			: null;
+		const ownRepo = refs.some((r) => r.repo) ? ghDefaultRepo() : null;
 		const openLocal = refs.some((r) => !isInOtherRepo(r, ownRepo))
 			? new Set(ghOpenIssues().map((i) => i.number))
 			: new Set();

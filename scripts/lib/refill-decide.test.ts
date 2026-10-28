@@ -97,8 +97,8 @@ describe("decideTick stops (#2007)", () => {
 		expect(d.detail).toContain("wfc #9");
 	});
 
-	it.each(["commit", "close", "file", "round", "relabel"])(
-		"counts a %s act as progress (#2312)",
+	it.each(["commit", "close", "file", "round", "relabel", "gate"])(
+		"counts a %s act as progress (#2312, #3301)",
 		(kind) => {
 			const d = tick({
 				history: [

@@ -492,6 +492,17 @@ function parseAddedGateLines(before, after) {
 }
 
 /**
+ * Whether `after` gates an issue `before` left ungated: a reworded or removed
+ * line on an issue already gated is no new gate (#3301).
+ *
+ * @param {string} before
+ * @param {string} after
+ */
+const isNewlyGated = (before, after) =>
+	parseLiveGateLines(String(before || "")).length === 0 &&
+	parseLiveGateLines(String(after || "")).length > 0;
+
+/**
  * The gating rule, framed, where a write adds a gate line (#823). Advice,
  * never a refusal. Null where the write adds none.
  *
@@ -621,6 +632,7 @@ module.exports = {
 	introducedBasisFaults,
 	basisRefusal,
 	gateRuleHandover,
+	isNewlyGated,
 	MAP_LABEL,
 	UNFILLED_DESTINATION,
 	listOpenMaps,

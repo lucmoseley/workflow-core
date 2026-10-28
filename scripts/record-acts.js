@@ -6,9 +6,11 @@
  * tell what a launched session itself did. The core is lib/gh-acts.js, its
  * ports lib/gh-recorder-host.js.
  *
- * The scripted routes record their own acts: resolve-ticket.js its close and
- * file-issue.js its filing (lib/tracker-ops.js's recordOwnAct). A commit is the
- * post-commit hook's commit ledger, which the reader takes as an act.
+ * The scripted routes record their own acts: resolve-ticket.js its close,
+ * file-issue.js its filing, and issue-body.js a `gate` where its write gives an
+ * issue its first live gate line (#3301) (lib/tracker-ops.js's recordOwnAct).
+ * A commit is the post-commit hook's commit ledger, which the reader takes as
+ * an act.
  *
  * RUNS ONLY AFTER A CALL THAT EXITED 0 (#2308), so a call a sibling guard
  * denies, or one gh refuses, records nothing.

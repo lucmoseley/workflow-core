@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { store as arbiter, freshSandbox } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -48,6 +49,14 @@ const counter = process.env.STUB_COUNTER;
 const a = process.argv.slice(2);
 if (a[0] === "issue" && a[1] === "view") {
 	process.stdout.write(JSON.stringify({ body: fs.readFileSync(store, "utf8") }));
+	process.exit(0);
+}
+if (a[0] === "repo" && a[1] === "view") {
+	if (process.env.STUB_REPO_FAILS) {
+		process.stderr.write("gh stub: no default repo\\n");
+		process.exit(1);
+	}
+	process.stdout.write(JSON.stringify({ nameWithOwner: "acme/widgets" }));
 	process.exit(0);
 }
 if (a[0] === "issue" && a[1] === "edit") {
@@ -91,6 +100,8 @@ beforeEach(() => {
 	// test that wrote there could wedge a live session.
 	process.env.CLAUDE_CONFIG_DIR = path.join(dir, "config");
 	process.env.CLAUDE_JOB_DIR = path.join(dir, "job");
+	// A gate this suite adds would land in the real session's acts ledger.
+	delete process.env.CLAUDE_CODE_SESSION_ID;
 });
 
 afterEach(() => {
@@ -875,5 +886,71 @@ describe("the lock is never observable without its holder (mantahostels#139)", (
 	it("leaves no temp files beside the lock", () => {
 		appendUnder(0);
 		expect(fs.readdirSync(lockDir())).toEqual([]);
+	});
+});
+
+describe("the gate act (#3301)", () => {
+	const Me = "issue-body-gate-session";
+	const sb = freshSandbox();
+	const Gate = "**Gated until:** 2026-10-09 — x\n**Gate basis:** y";
+	const acts = () => arbiter.readActsBy(Me, [sb.repo]).acts;
+	const run = (...args: string[]) =>
+		runInProcess(SCRIPT, args, {
+			env: { ...process.env, CLAUDE_CODE_SESSION_ID: Me },
+		});
+	const replaceWith = (body: string, ...flags: string[]) => {
+		const next = path.join(dir, "next.md");
+		fs.writeFileSync(next, body);
+		return run("replace", "96", "--file", next, ...flags);
+	};
+
+	it("records one gate act where a write gives the issue its first gate line", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		expect(run("append", "96", "--text", Gate).status).toBe(0);
+		expect(acts()).toEqual(["gate acme/widgets#96"]);
+	});
+
+	it("still writes, recording nothing, where the repo will not resolve", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		process.env.STUB_REPO_FAILS = "1";
+		const r = run("append", "96", "--text", Gate);
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain("gated, but no gate act was recorded");
+		expect(readBody()).toContain("Gated until");
+		expect(acts()).toEqual([]);
+	});
+
+	it("records a Gated on line as it does a Gated until one", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const on =
+			"**Gated on:** x — check: true — abandon if: never\n**Gate basis:** y";
+		expect(run("append", "96", "--text", on).status).toBe(0);
+		expect(acts()).toEqual(["gate acme/widgets#96"]);
+	});
+
+	it("records nothing where a rival's write, not this one, added the gate", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		process.env.STUB_CLOBBER_ON = "1";
+		process.env.STUB_CLOBBER_BODY = `## Log\n\nv0\n\n${Gate}\n`;
+		expect(run("append", "96", "--text", "ENTRY-A").status).toBe(0);
+		expect(readBody()).toContain("ENTRY-A");
+		expect(acts()).toEqual([]);
+	});
+
+	it("names the --repo it wrote to, and records a whole-body replace too", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		expect(replaceWith(`${Gate}\n`, "--repo", "o/r").status).toBe(0);
+		expect(acts()).toEqual(["gate o/r#96"]);
+	});
+
+	it("records nothing for a reworded or removed gate line, or a dry run", () => {
+		fs.writeFileSync(store, `${Gate}\n`);
+		expect(replaceWith(`${Gate.replace("10-09", "10-11")}\n`).status).toBe(0);
+		expect(run("delete-lines", "96", "--match", "Gated until").status).toBe(0);
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		expect(run("append", "96", "--text", Gate, "--dry-run").status).toBe(0);
+		expect(replaceWith(`${Gate}\n`, "--dry-run").status).toBe(0);
+		expect(readEdits()).toBe(2);
+		expect(acts()).toEqual([]);
 	});
 });

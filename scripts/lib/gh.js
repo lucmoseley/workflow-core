@@ -143,6 +143,14 @@ function ghJson(args, opts = {}) {
 }
 
 /**
+ * gh's default repo for the directory it runs in, as `owner/name`.
+ * @param {import("node:child_process").ExecFileSyncOptions} [opts]
+ * @returns {string}
+ */
+const ghDefaultRepo = (opts = {}) =>
+	ghJson(["repo", "view", "--json", "nameWithOwner"], opts).nameWithOwner;
+
+/**
  * `gh api … --paginate --slurp`, parsed. --slurp wraps each page's array so
  * multi-page output stays parseable; older gh returns one flat array.
  * `.flat()` normalises both.
@@ -543,6 +551,7 @@ module.exports = {
 	gh,
 	ghAsync,
 	ghJson,
+	ghDefaultRepo,
 	ghApiSlurp,
 	ghApiSlurpAsync,
 	ghGetRetrying,

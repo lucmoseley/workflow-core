@@ -8,17 +8,18 @@
  */
 
 /* What a session did beside committing, as `<kind> <owner/name>#<n>`, a
- * relabel adding ` takes:<x>`; a block is a blocked-by edge added (#2464). A
- * commit is no line here: the commit ledger already holds it. */
+ * relabel adding ` takes:<x>`; a block is a blocked-by edge added (#2464), a
+ * gate an issue's first live gate line (#3301). A commit is no line here: the
+ * commit ledger already holds it. */
 const ACT_LINE =
-	/^(?:block|close|file|round) [\w.-]+\/[\w.-]+#\d+$|^relabel [\w.-]+\/[\w.-]+#\d+ takes:\S+$/;
+	/^(?:block|close|file|gate|round) [\w.-]+\/[\w.-]+#\d+$|^relabel [\w.-]+\/[\w.-]+#\d+ takes:\S+$/;
 
 /**
  * @typedef {{kind: string, ref: string, takes?: string}} Act
  */
 
 /**
- * @param {"block"|"close"|"file"|"relabel"|"round"} kind
+ * @param {"block"|"close"|"file"|"gate"|"relabel"|"round"} kind
  * @param {string} repo `owner/name`
  * @param {number|string} n
  * @param {string} [takes] a relabel's `takes:<x>`

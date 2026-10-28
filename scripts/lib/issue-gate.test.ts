@@ -24,6 +24,7 @@ const {
 	introducedBasisFaults,
 	basisRefusal,
 	gateRuleHandover,
+	isNewlyGated,
 	UNFILLED_DESTINATION,
 	secondMapVerdict,
 } = require("./issue-gate.js");
@@ -493,6 +494,25 @@ describe("gateRuleHandover — the gating rule at the moment of use (#823)", () 
 		expect(
 			gateRuleHandover("", "```\n**Gated until:** 2026-10-09\n```", rule),
 		).toBeNull();
+	});
+});
+
+describe("isNewlyGated — a gate that is progress (#3301)", () => {
+	const gateBlock = "**Gated until:** 2026-10-09 — x\n**Gate basis:** y";
+
+	it("holds where the write gives an ungated body its first gate line", () => {
+		expect(isNewlyGated("a plain body", gateBlock)).toBe(true);
+		expect(isNewlyGated("", "**Gated on:** #12 closes")).toBe(true);
+	});
+
+	it("holds nowhere else: a reworded, removed or fenced line", () => {
+		expect(isNewlyGated(gateBlock, gateBlock.replace("10-09", "10-11"))).toBe(
+			false,
+		);
+		expect(isNewlyGated(gateBlock, "a plain body")).toBe(false);
+		expect(isNewlyGated("", "```\n**Gated until:** 2026-10-09\n```")).toBe(
+			false,
+		);
 	});
 });
 

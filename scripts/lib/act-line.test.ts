@@ -11,7 +11,7 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
-type Kind = "block" | "close" | "file" | "relabel" | "round";
+type Kind = "block" | "close" | "file" | "gate" | "relabel" | "round";
 const { ACT_LINE, buildAct, buildCommitAct, parseAct } = createRequire(
 	__filename,
 )("./act-line.js") as {
@@ -22,7 +22,7 @@ const { ACT_LINE, buildAct, buildCommitAct, parseAct } = createRequire(
 };
 
 describe("act line", () => {
-	it.each(["block", "close", "file", "round"] as const)(
+	it.each(["block", "close", "file", "gate", "round"] as const)(
 		"builds a %s line ACT_LINE accepts and parseAct takes apart",
 		(kind) => {
 			const line = buildAct(kind, "owner/repo", 12);

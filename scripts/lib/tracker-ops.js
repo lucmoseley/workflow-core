@@ -203,9 +203,9 @@ function releaseOwnClaim(io, n) {
  * (#2308). Silent with no session id, and on a failed write, which is logged:
  * the act itself has landed, and a missed line costs the refill loop one launch
  * read as unproven.
- * @param {"close"|"file"} kind
+ * @param {"close"|"file"|"gate"} kind
  * @param {string} repo `owner/name`
- * @param {number} n
+ * @param {number|string} n
  */
 function recordOwnAct(kind, repo, n) {
 	const sessionId = process.env.CLAUDE_CODE_SESSION_ID;

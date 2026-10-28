@@ -49,6 +49,8 @@
  *
  * This script FAILS LOUD. The guards in this repo fail open because a broken
  * guard must not block work; a broken writer must not silently drop a decision.
+ * The one exception is the `gate` act it records after a landed write (#3301),
+ * which fails open: the act ledger is the refill loop's, not the body's.
  *
  * Two things the recovery route does not do (mantahostels#1579): `userContentEdits` is
  * not returned in edit order, so a caller must sort by `editedAt` before
@@ -64,12 +66,14 @@ const path = require("node:path");
 const { configDir } = require("./lib/config-dir.js");
 
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
-const { gh: ghRun } = require("./lib/gh");
+const { gh: ghRun, ghDefaultRepo } = require("./lib/gh");
 const {
 	introducedBasisFaults,
 	basisRefusal,
 	gateRuleHandover,
+	isNewlyGated,
 } = require("./lib/issue-gate");
+const { recordOwnAct } = require("./lib/tracker-ops.js");
 const { readRuleText } = require("./lib/rule-text");
 const { sleepSync } = require("./lib/sleep-sync");
 const { caught } = require("./lib/caught.js");
@@ -656,8 +660,9 @@ function withLock(issue, repo, fn) {
  * @param {string} [o.repo]          owner/name; omitted lets gh resolve from cwd
  * @param {number} [o.attempts]      total writes before giving up
  * @param {boolean} [o.dryRun]       compute and return, never write
- * @returns {{changed: boolean, attempts: number, body: string, before: string}}
- *   `before` is the body as first read, ahead of any write
+ * @returns {{changed: boolean, attempts: number, body: string, before: string,
+ *   base: string}} `before` is the body as first read, ahead of any write;
+ *   `base` the one the landing write was applied to
  */
 function editIssueBody({
 	issue,
@@ -692,10 +697,18 @@ function editIssueBody({
 			);
 
 		if (once === current)
-			return { changed: false, attempts: 0, body: current, before };
-		if (dryRun) return { changed: true, attempts: 0, body: once, before };
+			return {
+				changed: false,
+				attempts: 0,
+				body: current,
+				before,
+				base: before,
+			};
+		if (dryRun)
+			return { changed: true, attempts: 0, body: once, before, base: before };
 
 		let desired = once;
+		let base = before;
 		for (let n = 1; n <= attempts; n++) {
 			writeBody(issue, repo, desired);
 			current = fetchBody(issue, repo);
@@ -703,8 +716,9 @@ function editIssueBody({
 			// nothing, the change is present.
 			const reapplied = transform(current);
 			if (reapplied === current)
-				return { changed: true, attempts: n, body: current, before };
+				return { changed: true, attempts: n, body: current, before, base };
 			desired = reapplied;
+			base = current;
 		}
 
 		const rescue = rescueTo(issue, "unwritten", desired);
@@ -899,6 +913,7 @@ function replaceWhole(issue, repo, next, dryRun = false) {
 			);
 			return 1;
 		}
+		recordNewGate(issue, repo, before, after);
 		writeFd(1, `issue ${issue}: body replaced\n`);
 		return 0;
 	};
@@ -936,6 +951,34 @@ function refuseBasisFaults(before, after) {
 }
 
 /**
+ * A `gate` act in this session's acts ledger where a landed write gave the
+ * issue its first live gate line, so the refill loop reads it as progress
+ * (#3301). The repo unnamed is gh's own default, read where an act is owed.
+ *
+ * @param {number|string} issue
+ * @param {string|undefined} repo
+ * @param {string} before
+ * @param {string} after
+ */
+function recordNewGate(issue, repo, before, after) {
+	if (!process.env.CLAUDE_CODE_SESSION_ID || !isNewlyGated(before, after))
+		return;
+	let named = repo;
+	try {
+		named ??= ghDefaultRepo({ timeout: GH_TIMEOUT_MS });
+	} catch (e) {
+		// The write has landed, so a missed act costs the refill loop one launch
+		// read as unproven, never the edit (#2308).
+		writeFd(
+			2,
+			`issue ${issue}: gated, but no gate act was recorded — the repo would not resolve (${caught(e).message}).\n`,
+		);
+		return;
+	}
+	recordOwnAct("gate", named, issue);
+}
+
+/**
  * Checked against the transform's own input, so a re-application onto a
  * neighbour's body judges what this edit adds to THAT body.
  *
@@ -964,9 +1007,12 @@ function runEdit(o, repo, transform) {
 		attempts: o.attempts === undefined ? DEFAULT_ATTEMPTS : Number(o.attempts),
 		dryRun: Boolean(o.dryRun),
 	});
-	if (!o.dryRun) return r;
-	writeFd(1, r.body);
-	return null;
+	if (o.dryRun) {
+		writeFd(1, r.body);
+		return null;
+	}
+	if (r.changed) recordNewGate(o.issue, repo, r.base, r.body);
+	return r;
 }
 
 /**

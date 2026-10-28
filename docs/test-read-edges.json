@@ -21487,6 +21487,7 @@
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/guard-uncommitted-work.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
+			"scripts/issue-body.test.ts",
 			"scripts/lib/arbiter-bases.test.ts",
 			"scripts/lib/arbiter-breaks.test.ts",
 			"scripts/lib/arbiter-content.test.ts",
