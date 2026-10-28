@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/unchecked-rm.js, guard-rm-unchecked.js's core (#2801), in process:
+ * lib/unchecked-rm.js, the guard-rm-unchecked core (#2801), in process:
  * which `rm` commands Claude Code's built-in removal check cannot resolve
  * (#2436), what the refusal says, and when the once lets a re-send through.
  *

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/registry-atomicity.js, guard-registry-atomicity.js's core (#2794), in
+ * lib/registry-atomicity.js, the guard-registry-atomicity core (#2794), in
  * process: does a commit land a member of a repo-wide registry without the
  * wiring that registers it?
  *
@@ -762,12 +762,15 @@ describe("a repo judged against its host registries (#1456)", () => {
 		adopter();
 		edit(
 			".claude/settings.json",
-			hooksFileFor(["scripts/guard-existing.sh", "scripts/guard-pull-form.js"]),
+			hooksFileFor([
+				"scripts/guard-existing.sh",
+				"scripts/guard-uncommitted-work.js",
+			]),
 		);
 		edit(
 			".claude/registrations.json",
 			registrations({
-				hooks: [row("guard-existing.sh"), row("guard-pull-form.js")],
+				hooks: [row("guard-existing.sh"), row("guard-uncommitted-work.js")],
 			}),
 		);
 		expect(

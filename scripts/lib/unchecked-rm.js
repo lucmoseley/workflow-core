@@ -1,5 +1,5 @@
 /*
- * unchecked-rm.js — guard-rm-unchecked.js's core (#2801): refuse, once per
+ * unchecked-rm.js — the guard-rm-unchecked core (#2801, #3226): refuse, once per
  * command, an `rm` Claude Code's built-in removal check cannot resolve,
  * naming the two spellings that never meet it (#2436).
  *
@@ -24,7 +24,7 @@
  *
  * REFUSE-ONCE, NOT DENY: an inference (#2436), so on #1728's precedent a
  * re-send of the same command goes through. The once is keyed on the command's hash,
- * per (agent, session), at the latch path lib/guard-entry.js's latchPath
+ * per (agent, session), at the latch path lib/kit-context.js's latchPath
  * names.
  *
  * WHAT IT LEAVES ALONE (#2436): a bare `rm -rf $T`, a
@@ -39,6 +39,9 @@
  *    reasons, are not read.
  *  - It fails open, on the record, where the latch cannot be keyed or written:
  *    a refusal no re-send can clear would wedge the command.
+ *  - Its lib/guard-cores.json row narrows it to `Bash(*rm *)`, unanchored: an
+ *    anchored `Bash(rm *)` misses a `bash -c` script's `rm` and a loop's
+ *    `do rm …` (lib/if-clause.js).
  */
 
 const crypto = require("node:crypto");
@@ -304,4 +307,4 @@ function refusalText(reason, ctx) {
 	return denyText(ctx, "", text);
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

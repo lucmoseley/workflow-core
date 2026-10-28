@@ -1,6 +1,6 @@
 /*
  * The fake of the registry ports lib/npm-install-host.js wires into
- * guard-npm-install.js's core: `npm view <pkg> time.created --json` and curl
+ * the guard-npm-install core: `npm view <pkg> time.created --json` and curl
  * on the npm downloads endpoint (#2207, #2912), in-process and as WFC_NPM and
  * WFC_CURL stubs. lib/npm-registry.contract.test.ts holds it to the real npm
  * and curl. The bodies are synthetic in value and the real tools' in shape.
