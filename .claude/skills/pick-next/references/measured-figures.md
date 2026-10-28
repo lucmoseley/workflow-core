@@ -9,19 +9,18 @@ without the condition beside it.
 **What a run costs.** ~21 s over 105 open issues, warm — roughly 0.20 s per open
 issue (18 August 2026); one later sample ran ~2x slower, undiagnosed. End to
 end a real `/pick-next` costs **~14 minutes**, invocation
-to §6's dispatch lines, on a frontier of 89 at 128 open (mantahostels#1012, which timed a
-real run end to end and holds both figures).
+to §6's dispatch lines, on a frontier of 89 at 128 open (mantahostels#1012).
 
 **How long the text output runs.** ~1,300 lines at 171 open issues (24 August
 2026). **The open count is the measurement's condition, not today's**: it has
 since been read at 73 (6 September 2026).
 
 **A recompute costs O(issues created or body-edited since the last run), not
-O(frontier)** (mantahostels#690, which measured it against the cache).
+O(frontier)** (mantahostels#690).
 
 **The band read was 5m10s of a 10-minute run** — two parallel subagents at 310 s
 and 306 s, ~53k and ~56k tokens, 20 issues read, on the frontier of 80 at 119
-open of 26 August 2026 (mantahostels#1484, which opened on that reading). Six of the 20 were
+open of 26 August 2026 (mantahostels#1484). Six of the 20 were
 plausible merge partners; the other 14 bought nothing.
 
 **Nomination cuts the band read by about a fifth, not by two thirds** (mantahostels#1484,
@@ -181,8 +180,7 @@ measurement.
 ~45 s of dispatch, then one line per ~7–10 s. **Stalls are episodic, neither
 load-related nor endemic:** 16 bands across four repetitions on 19 August 2026
 gave **zero stalls**, under load from 7 busy sessions down to 3 — against the 18
-August incident's 2 of 4 stalling to the 600 s watchdog (mantahostels#585, which ran the
-comparison). Episodes cluster in time, not with load; likely a brief WiFi drop
+August incident's 2 of 4 stalling to the 600 s watchdog (mantahostels#585). Episodes cluster in time, not with load; likely a brief WiFi drop
 the stream never recovers from. **Keep the detection-and-fallback even
 though the measured rate is zero** — episodic means it returns without warning —
 and never wait toward the 600 s watchdog when a healthy band finishes by ~150 s.
@@ -402,10 +400,10 @@ why the number was low.
 **How stale the admission figure got over one band read** (§5, mantahostels#943): a set
 sized against a figure ~1 GB low and a count 40% high.
 
-**Why the reap's second reason no longer holds** (§5). The sessions that made
-§4's reading stale, the ones that finished during the band read, used to sit
-inside the reaper's grace window, but at the 1-minute grace a ~150 s band read
-outlasts it.
+**Why a reap does not un-stale §4's reading** (§5). A ~150 s band read
+outlasts the reaper's 1-minute grace window, so the sessions that made §4's
+reading stale, the ones that finished during the band read, do not sit inside
+it.
 
 **Why the admission overflow is named individually** (§5). It is bounded by
 construction, usually 0-3 issues, every one of them takeable *right now* and cut

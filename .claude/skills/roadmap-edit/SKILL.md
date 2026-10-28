@@ -64,8 +64,7 @@ scheduled census, is what lists it.
 
 - **Three more ceilings join the 250-word body one, on the same touch gate and
   the same WARN severity**: `mn` 30 words, `c.x` 80, `log` 80 (mantahostels#3187, mantahostels#3335).
-  **Unenforced** (mantahostels#3188, which ruled the census plus touch-gate regime): step
-  6's validator warns rather than refuses, through `scripts/check-roadmap-valid.js`
+  **Unenforced** (mantahostels#3188): step 6's validator warns rather than refuses, through `scripts/check-roadmap-valid.js`
   in the pre-commit gate, and all four share the blind spot above.
 - **`why` over 40 words is a validator ERROR the moment it's present at all**
   (mantahostels#3193). **Enforced**: `scripts/check-roadmap-valid.js` refuses the commit.
@@ -79,8 +78,8 @@ scheduled census, is what lists it.
   and read every entry it names** (mantahostels#3339). Where the sentence is the copy an
   entry's *The claim* line describes, the cut is a **propagation pass**, not a
   trim: correct `docs/doc-map-restatements.json` and the entry's `Restated in:`
-  count together, or leave the sentence. **Unenforced** (mantahostels#3191, which ruled it):
-  every roadmap locator is a bare card id (mantahostels#1573, the ruling that made it so),
+  count together, or leave the sentence. **Unenforced** (mantahostels#3191):
+  every roadmap locator is a bare card id (mantahostels#1573),
   so `check-doc-map.js`'s DEAD-ANCHOR check reads quoted locators only and skips
   every card path (`scripts/check-doc-map.js:1246-1249`), and the count FAIL fires
   on the sidecar edit this step exists to make.
@@ -96,8 +95,8 @@ scheduled census, is what lists it.
   a silenced touch.
 - **An over-ceiling `dw` is always cut, never exempted**: `capOk` cannot name
   it, so a `dw` over 60 words warns on every touch until its surplus is
-  relocated into `b` — which can be exempted — or dropped (mantahostels#3498, which ruled
-  it: a done-when is the completion condition, not a second body).
+  relocated into `b` — which can be exempted — or dropped: a done-when is the completion condition, not a second body
+  (mantahostels#3498).
   **Unenforced** (mantahostels#3188): step 6's validator warns rather than refuses on
   both the touch and a `dw` key under `capOk` (`MALFORMED EXEMPTION`),
   through `scripts/check-roadmap-valid.js` in the pre-commit gate.
@@ -237,8 +236,8 @@ never skip them.
    ```
    **Always pass `--original`** — it has no default by design, and it is the only
    check that the edit hit the card it was aimed at. On a failure, fix the edit
-   and keep the flag. An unreadable path is a fatal ERROR, so a lost baseline can
-   no longer pass as a clean run.
+   and keep the flag. An unreadable path is a fatal ERROR, so a lost baseline cannot
+   pass as a clean run.
 
    It extracts `ITEMS`/`AREAS` without executing the page's DOM code, checks the
    [`FIELDS.md`](FIELDS.md) rules it can enforce plus the docmeta stamp, and —

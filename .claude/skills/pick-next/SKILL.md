@@ -245,7 +245,7 @@ threshold would fire on essentially every run and permanently disable merging
 (`references/measured-figures.md`, "Why the skip is not keyed on `covered`").
 
 **Band-read the run's BAND-READ NOMINATIONS and the cold entries, and nothing
-else** (mantahostels#1484, which measured how much of a run the band read costs). The list is
+else** (mantahostels#1484). The list is
 `conflictGraph.nominated` in `--json` and a block of the same name in the text
 run: every candidate that has no size *and* shares a non-stamp path with another
 candidate. That is the whole set whose size can still change an outcome — why,
@@ -739,8 +739,7 @@ the merge rationale are never printed.
 
 > **341, 353, 366** - takes:implement · opus. mantahostels#341 first: it blocks mantahostels#412.
 
-**The model follows from the `takes:` value** (mantahostels#1093, which ruled which
-session kinds launch on plain Opus rather than Sonnet; #354). Sonnet is allowed only where a check would catch its error
+**The model follows from the `takes:` value** (mantahostels#1093; #354). Sonnet is allowed only where a check would catch its error
 before it lands. A `sonnet`
 line also gets an Opus advisor (mantahostels#1102) — print the bare model name, and §7's
 script attaches it. Models come from `scripts/lib/launch-models.sh`, and a

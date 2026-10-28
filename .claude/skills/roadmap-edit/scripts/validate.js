@@ -30,9 +30,9 @@
  * would mean silently diffing against a stale file. The two cases are therefore
  * kept sharply apart, and this script refuses to guess between them:
  *   - omitted            -> the scope diff is skipped, and that is fine
- *   - supplied, unreadable -> FATAL, non-zero exit. It used to be a warning,
- *     which meant a typo'd or vanished baseline silently removed the only
- *     safeguard against a mis-targeted card edit while still exiting 0.
+ *   - supplied, unreadable -> FATAL, non-zero exit. A warning here would let a
+ *     typo'd or vanished baseline silently remove the only safeguard against
+ *     a mis-targeted card edit while still exiting 0.
  */
 
 const fs = require("node:fs");
@@ -956,7 +956,7 @@ function readBaseline(originalPath) {
 function main(argv) {
 	const file = argv[2];
 	if (!file) usage("no roadmap file given");
-	// A flag in the positional slot used to sail past the !file guard above and die
+	// A flag in the positional slot passes the !file guard above, and would die
 	// at readFileSync with a raw ENOENT naming the flag, which reads as a missing
 	// file rather than as the argument-order mistake it actually is.
 	if (file.startsWith("--")) {

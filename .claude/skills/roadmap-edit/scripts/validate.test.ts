@@ -779,7 +779,7 @@ describe("capOk exemption discipline (mantahostels#3189)", () => {
 	});
 });
 
-// m is optional (mantahostels#831, which retired the tier vocabulary): absent, it means
+// m is optional (mantahostels#831): absent, it means
 // the Opus 5.5 · medium default and is not warned on. When present it must be
 // one of the closed exception codes.
 describe("m-code discipline", () => {
@@ -837,7 +837,7 @@ describe("m-code discipline", () => {
 });
 
 // The docmeta stamp is written from reckoning, not copied, and has gone wrong
-// both ways in the live roadmap (mantahostels#3499, which holds the two live failures).
+// both ways in the live roadmap (mantahostels#3499).
 describe("docmeta stamp sanity", () => {
 	it("accepts a stamp written now", () => {
 		const file = write(

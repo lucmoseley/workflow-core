@@ -4,10 +4,10 @@
  *
  * Usage:  node gen-roadmap-digest.js <roadmap.html> (--out <digest.md> | --stdout)
  *
- * An output destination is REQUIRED. This used to default to stdout, so a
- * forgotten --out printed 26k of digest, exited 0, and wrote nothing — the
- * roadmap HTML then shipped with a stale digest and only CI caught it. Wanting
- * stdout is now something you say out loud, with --stdout.
+ * An output destination is REQUIRED. A stdout default would let a forgotten
+ * --out print 26k of digest, exit 0 and write nothing — the roadmap HTML then
+ * ships with a stale digest that only CI catches. Wanting stdout is something
+ * you say out loud, with --stdout.
  *
  * Reads the canonical roadmap HTML, extracts ITEMS/PHASES and the docmeta
  * version line WITHOUT executing the page, and emits a compact markdown map:

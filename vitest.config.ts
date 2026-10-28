@@ -114,7 +114,7 @@ export default defineConfig({
 		// otherwise collect alongside the real ones, doubling the run.
 		//
 		// `.claude/tmp/**` is the sanctioned session scratch directory (mantahostels#2089,
-		// gitignored since mantahostels#2103, so `include` reaches it only because vitest does
+		// gitignored (mantahostels#2103), so `include` reaches it only because vitest does
 		// not read .gitignore), and
 		// a dead session can leave a frozen COPY of a test file there (mantahostels#2018: 60
 		// failures a run from one such snapshot of an older guard's tests). It can

@@ -28,8 +28,7 @@ repo, on open and closed issues alike (`scripts/lib/captures.js`).
 ## 2. Is it already in the repo?
 
 **For a residue capture this is the only place duplicate-checking happens**, the
-capture having deliberately done none (mantahostels#637, which measured how many captures
-were repo duplicates).
+capture having deliberately done none (mantahostels#637).
 
 Search files *and* closed issues (`gh issue list --state all --search`): a
 ruling lives on the issue and nowhere else. Already recorded → nothing to write;
@@ -49,8 +48,7 @@ placement §4 binds — read it before writing.
 node scripts/capture-drain.js mark <comment-id>
 ```
 
-A reaction, never an edit to the comment text (mantahostels#640, which ruled how a capture
-is caught and consumed).
+A reaction, never an edit to the comment text (mantahostels#640).
 
 **A capture you deliberately skip gets no reaction**, so it stays visibly
 undrained.

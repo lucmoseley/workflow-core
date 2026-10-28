@@ -178,8 +178,7 @@ is non-empty.
 ## Targeted-correction mode
 
 Use this when a single, already-settled fact needs to land in the manual now,
-rather than waiting for a run nobody is due to make (mantahostels#82, which ruled the mode
-in after three settled corrections stalled for want of a channel). It is not a
+rather than waiting for a run nobody is due to make (mantahostels#82). It is not a
 shortcut for a sync: it deliberately **skips the findings
 intake and passes (a) roadmap diff, (b) repo-reality and (c) unscoped survey**,
 so it never claims a review it did not do.

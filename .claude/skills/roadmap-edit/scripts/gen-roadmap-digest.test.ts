@@ -54,9 +54,9 @@ afterAll(() => {
 });
 
 describe("output destination", () => {
-	// Regression: this used to default to stdout, so a forgotten --out printed 26k
-	// of digest, exited 0 and wrote nothing — leaving the roadmap HTML paired with
-	// a stale digest that only CI would catch.
+	// Regression: a stdout default lets a forgotten --out print 26k of digest,
+	// exit 0 and write nothing — leaving the roadmap HTML paired with a stale
+	// digest that only CI would catch.
 	it("refuses to run with no destination rather than printing", () => {
 		const r = run(SCRIPT, [fixture]);
 		expect(r.status).toBe(1);
