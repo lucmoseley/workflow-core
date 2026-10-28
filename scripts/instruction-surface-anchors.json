@@ -277,10 +277,10 @@
 			"source": "#2790"
 		},
 		"scripts/lib/bg-job.js": {
-			"digest": "1a6d5b97e62805c3",
-			"verdict": "at need on the first `run_in_background` call of a session; once per session thereafter. Never fires on the routes its LIMITS name (`&`, nohup, harness auto-backgrounding after 600 s (mantahostels#1900)). Run as a core of scripts/guard-dispatch.js (fed through scripts/guard-dispatch.js's hook line at #2786: a backgrounded call gave the rule, then nothing, latched).",
+			"digest": "e28b9850ca26304a",
+			"verdict": "at need on the first `run_in_background: true` call of a session, before it runs: the rule whole, 2,590 B hook stdout; the same session's next backgrounded call silent. Silent on a foreground call, on the string `\"true\"`, and on the routes its LIMITS name (`&`, `nohup`, harness auto-backgrounding after 600 s (mantahostels#1900)); a command whose text mentions the flag is silent too. A backgrounded `git push origin main:landing` carries this rule and the guard-push-rules core's in one context, 4,184 B hook stdout, and its repeat, backgrounded or not, is silent. With the fragment missing from the rule store the backgrounded call is refused, its reason naming the missing id and listing every known one (2,865 B hook stdout), though the core's failure policy is open: guard-entry.js refuses any unreadable fragment. Fed through scripts/guard-dispatch.js at 0ba3c87a2 under #3359.",
 			"selfSufficient": "yes — mechanism, the wrapper commands, check semantics and the waiting ceiling are all inline",
-			"source": "#1604, #2786"
+			"source": "#1604, #2786, #3359"
 		},
 		"scripts/lib/suite-concurrency.js": {
 			"digest": "cd5adf7cd7ed2ce9",
