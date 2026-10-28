@@ -24,6 +24,7 @@ const {
 	walkCommands,
 	TEXT_ONLY_PORTS,
 } = require("./shell-parse.js");
+const { requiredGroup } = require("./regex-group.js");
 const { ghWords, literal } = require("./shell-words.js");
 
 /** @typedef {"rulings" | "web" | "subagent"} Rung */
@@ -54,16 +55,23 @@ const SUBAGENT_BUDGET = 15;
  * @param {string[]} names the flag's spellings, `--state` and `-s`
  * @returns {string[]}
  */
-function flagValues(args, names) {
+function parseFlagValues(args, names) {
 	/** @type {string[]} */
 	const values = [];
-	for (let i = 0; i < args.length; i++) {
-		const arg = args[i] ?? "";
+	let isValue = false;
+	for (const [i, arg] of args.entries()) {
+		if (isValue) {
+			isValue = false;
+			continue;
+		}
 		const eq = arg.indexOf("=");
+		const next = args[i + 1];
 		if (eq > 0 && names.includes(arg.slice(0, eq)))
 			values.push(arg.slice(eq + 1));
-		else if (names.includes(arg) && i + 1 < args.length)
-			values.push(args[++i] ?? "");
+		else if (names.includes(arg) && next !== undefined) {
+			values.push(next);
+			isValue = true;
+		}
 	}
 	return values;
 }
@@ -98,10 +106,10 @@ function isOnCorpus(repos, owners, corpus) {
  * @param {Corpus} corpus
  */
 function isRulingsList(args, corpus) {
-	if (flagValues(args, ["--search", "-S"]).length === 0) return false;
-	const states = flagValues(args, ["--state", "-s"]);
+	if (parseFlagValues(args, ["--search", "-S"]).length === 0) return false;
+	const states = parseFlagValues(args, ["--state", "-s"]);
 	if (!states.some((s) => s === "closed" || s === "all")) return false;
-	return isOnCorpus(flagValues(args, ["--repo", "-R"]), [], corpus);
+	return isOnCorpus(parseFlagValues(args, ["--repo", "-R"]), [], corpus);
 }
 
 /**
@@ -109,20 +117,27 @@ function isRulingsList(args, corpus) {
  * @param {Corpus} corpus
  */
 function isRulingsSearch(args, corpus) {
-	if (flagValues(args, ["--state"]).includes("open")) return false;
+	if (parseFlagValues(args, ["--state"]).includes("open")) return false;
 	/** @type {string[]} */
 	const query = [];
-	for (let i = 0; i < args.length; i++) {
-		const arg = args[i] ?? "";
-		if (SEARCH_VALUE_FLAGS.test(arg)) i++;
+	let isValue = false;
+	for (const arg of args) {
+		if (isValue) isValue = false;
+		else if (SEARCH_VALUE_FLAGS.test(arg)) isValue = true;
 		else if (!arg.startsWith("-")) query.push(...arg.split(/\s+/));
 	}
 	if (query.some((q) => /^(?:is|state):open$/i.test(q))) return false;
 	const qualifier = (/** @type {RegExp} */ re) =>
-		query.flatMap((q) => q.match(re)?.[1] ?? []);
+		query.flatMap((q) => {
+			const m = q.match(re);
+			return m ? [requiredGroup(m, 1, re)] : [];
+		});
 	return isOnCorpus(
-		[...flagValues(args, ["--repo", "-R"]), ...qualifier(/^repo:(\S+)$/i)],
-		[...flagValues(args, ["--owner"]), ...qualifier(/^(?:user|org):(\S+)$/i)],
+		[...parseFlagValues(args, ["--repo", "-R"]), ...qualifier(/^repo:(\S+)$/i)],
+		[
+			...parseFlagValues(args, ["--owner"]),
+			...qualifier(/^(?:user|org):(\S+)$/i),
+		],
 		corpus,
 	);
 }
