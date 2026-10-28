@@ -15,6 +15,7 @@ import {
 	resumedIdleSince,
 	turnedSince,
 } from "./block-cause.js";
+import { API_PROMPT, LOOP_PROMPT_PREFIX } from "./loop-prompts.js";
 import {
 	actOnBlocks,
 	actOnIdle,
@@ -25,8 +26,6 @@ import {
 
 const MIN = 60 * 1000;
 const NOW = Date.parse("2026-10-18T12:00:00Z");
-const API_PROMPT =
-	"resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.";
 
 type Launch = import("./refill-loop.js").LoopLaunch;
 type Cause = import("./block-cause.js").Cause;
@@ -374,7 +373,14 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			blocks([typed], blocked, "away", {
 				io: { readTimeline: () => timeline },
 			}).calls.includes("resume p");
-		expect(fellBack([row(NOW - MIN, "resume — your last…")])).toBe(false);
+		expect(
+			fellBack([
+				row(
+					NOW - MIN,
+					`${API_PROMPT.slice(0, LOOP_PROMPT_PREFIX.length + 12)}…`,
+				),
+			]),
+		).toBe(false);
 		expect(fellBack([row(NOW - 3 * MIN, API_PROMPT)])).toBe(true);
 		expect(fellBack([row(NOW - MIN, "API Error: 529")])).toBe(true);
 		expect(fellBack(null)).toBe(true);

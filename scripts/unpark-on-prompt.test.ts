@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "unpark-on-prompt.js");
@@ -46,8 +47,14 @@ function park(...numbers: number[]) {
 	fs.writeFileSync(markerPath(), `${numbers.join("\n")}\n`);
 }
 
-/** Run the hook on one prompt; `failOn` names an issue whose edit fails. */
-function run(failOn?: number) {
+/** Run the hook on `prompt`; `failOn` names an issue whose edit fails. */
+function run({
+	failOn,
+	prompt = "go with (A)",
+}: {
+	failOn?: number;
+	prompt?: string;
+} = {}) {
 	const { gh } = stubGhScript(
 		dir,
 		[
@@ -62,7 +69,7 @@ function run(failOn?: number) {
 		stdin: JSON.stringify({
 			session_id: sid,
 			hook_event_name: "UserPromptSubmit",
-			prompt: "go with (A)",
+			prompt,
 		}),
 		cwd: dir,
 		env: {
@@ -70,6 +77,8 @@ function run(failOn?: number) {
 			CLAUDE_PROJECT_DIR: dir,
 			WFC_REPO_ROOT: dir,
 			WFC_GH: gh,
+			CLAUDE_JOB_DIR: undefined,
+			CLAUDE_CODE_ENTRYPOINT: "cli",
 		},
 	});
 	expect(r.status).toBe(0);
@@ -95,13 +104,29 @@ describe("a prompt in a session that parked its issue", () => {
 
 	it("keeps an issue whose removal failed, for the next prompt to retry", () => {
 		park(31, 32);
-		run(32);
+		run({ failOn: 32 });
 		expect(readCalls()).toHaveLength(2);
 		expect(fs.readFileSync(markerPath(), "utf8").trim()).toBe("32");
 	});
 });
 
 describe("a prompt that unparks nothing", () => {
+	it.each([
+		[
+			"a subagent's hand-back",
+			'<agent-message from="a772b04c">\n[Subagent hand-back] done',
+		],
+		["a task notification", "<task-notification>\n<task-id>b1</task-id>"],
+		["a mod's delivery", "Delivered by the wfc-delivery mod: a report"],
+		["the loop's API-error resume", API_PROMPT],
+		["the loop's resumed-idle prompt", IDLE_PROMPT],
+	])("leaves the label for %s (#3369)", (_, prompt) => {
+		park(31);
+		run({ prompt });
+		expect(readCalls()).toEqual([]);
+		expect(fs.existsSync(markerPath())).toBe(true);
+	});
+
 	it("makes no GitHub call in a session that parked nothing", () => {
 		run();
 		expect(readCalls()).toEqual([]);

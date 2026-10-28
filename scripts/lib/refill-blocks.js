@@ -15,13 +15,8 @@ const {
 	nextTryAt,
 	resumeDueAt,
 } = require("./block-act.js");
+const { API_PROMPT, IDLE_PROMPT } = require("./loop-prompts.js");
 
-/* #2359's wording. */
-const API_PROMPT =
-	"resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.";
-/* #2659's wording. */
-const IDLE_PROMPT =
-	"resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.";
 /* #2359's "within one tick": a typed line reaches the timeline at once
  * (#2354 F8), so a minute is ample; untraced. */
 const ATTACH_VERDICT_MS = 60 * 1000;

@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const HOOK = path.join(__dirname, "mark-presence.js");
@@ -118,7 +119,9 @@ describe("a prompt nobody typed", () => {
 		],
 		["a task notification", "<task-notification>\n<task-id>b1</task-id>"],
 		["a mod's delivery", "Delivered by the wfc-delivery mod: a report"],
-	])("writes nothing for %s", (_, prompt) => {
+		["the loop's API-error resume", API_PROMPT],
+		["the loop's resumed-idle prompt", IDLE_PROMPT],
+	])("writes nothing for %s (#3369)", (_, prompt) => {
 		run(prompt);
 		expect(isMarked()).toBe(false);
 	});

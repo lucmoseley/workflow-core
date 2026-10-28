@@ -43,6 +43,7 @@ import {
 	ledgerPath,
 	readRecentEntries,
 } from "./lib/dispatch-ledger.js";
+import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageCache } from "./lib/usage-probe-fake";
@@ -790,8 +791,7 @@ const oneTick = async (what: string) => {
 
 describe("a launch stopped by a transient API error (#2705)", () => {
 	const Job = "job7";
-	const Prompt =
-		"resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.";
+	const Prompt = API_PROMPT;
 	const blockedRow = buildJobRow(Job, "blocked");
 	const jobDir = () => path.join(seat, "jobs", Job);
 	const ApiRun = "run with an API-error launch";
@@ -1070,8 +1070,7 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 
 describe("a session its host restarted that never takes a turn (#2707, #2978)", () => {
 	const Job = "job7";
-	const Prompt =
-		"resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.";
+	const Prompt = IDLE_PROMPT;
 	const IdleRun = "run with a resumed-idle launch";
 	const Min = 60 * 1000;
 	const workingRow = buildJobRow(Job, "working");
