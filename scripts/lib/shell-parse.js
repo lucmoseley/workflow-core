@@ -93,6 +93,8 @@ function indexOfAny(text, chars, from) {
  * close nothing. Inside a `$(…)`, brackets nest, quotes open spans of their
  * own, and a heredoc's body runs from the end of its opener's line to its
  * terminator line. `case` patterns and `#` comments there are not read.
+ * Outside every quote a backtick pair is written as the `$(…)` it means, so
+ * the flatten splits it as one (#3375).
  *
  * `frames` is the stack of open frames, innermost last: S `'…'`, E `$'…'`, D
  * `"…"`, C `$(…)`, H a heredoc body inside a C. Each frame's slot in `depth`,
@@ -116,6 +118,7 @@ class Lexer {
 	prefix = "";
 	escaped = false;
 	inComment = false;
+	backtick = false;
 	heredocLine = "";
 	/** @type {number[]} */
 	depth = [];
@@ -138,6 +141,7 @@ class Lexer {
 			prefix,
 			escaped,
 			inComment,
+			backtick,
 			heredocLine,
 		} = this;
 		return {
@@ -148,6 +152,7 @@ class Lexer {
 			prefix,
 			escaped,
 			inComment,
+			backtick,
 			heredocLine,
 			depth: [...this.depth],
 			term: [...this.term],
@@ -255,7 +260,7 @@ class Lexer {
 			i = nl;
 			this.inComment = false;
 		}
-		const j = indexOfAny(text, "'\"\\#", i);
+		const j = indexOfAny(text, "'\"\\#`", i);
 		if (j < 0) {
 			this.out += text.slice(i);
 			return -1;
@@ -267,7 +272,10 @@ class Lexer {
 			if (isWordStart(this.out)) this.inComment = true;
 			else this.out += "#";
 		} else if (c === "\\") this.escaped = true;
-		else this.openQuote(c, p);
+		else if (c === "`") {
+			this.out += this.backtick ? ")" : "$(";
+			this.backtick = !this.backtick;
+		} else this.openQuote(c, p);
 		return j + 1;
 	}
 
@@ -757,26 +765,148 @@ const isWriteRedirect = (kind) =>
  * a GUARDED_HEADS command — the lexer is not the whole of shell, and joining on
  * a stray quote would hide every line after it — EXCEPT inside a message
  * argument (mantahostels#232), whose lines are prose.
+ *
+ * Each command substitution a double-quoted span runs is LIFTED into segments
+ * of its own, bracketed as a subshell, ahead of the segment holding the span
+ * (#3375): it runs before that command does, and the masking blanks it whole.
  * @param {string} subject
  * @returns {Parsed}
  */
 function parseCommand(subject) {
 	/** @type {string[]} */
 	const spans = [];
-	const lx = new Lexer(spans);
-	const { commandLines, heredocLines } = readCommandLines(subject, lx);
-	spans.length = 0;
-	const masked = joinLogicalLines(commandLines, lx, spans)
-		.join("\n")
-		.replace(/\n+$/, "");
+	const { masked, heredocLines } = maskSubject(subject, spans);
 	/* Read BEFORE the flatten turns every `||` into a newline. The text before
 	 * the first one flattens to exactly the segments ahead of it. */
-	const conditional = masked.includes("||")
+	const before = masked.includes("||")
 		? (flatten(masked.slice(0, masked.indexOf("||")), true).match(/\n/g)
 				?.length ?? 0)
 		: -1;
-	const segments = flatten(masked, true).replace(/\n+$/, "").split("\n");
+	/** @type {string[]} */
+	const segments = [];
+	let conditional = -1;
+	flatSegments(masked).forEach((segment, i) => {
+		if (i === before) conditional = segments.length;
+		segments.push(...liftSubstitutions(segment, spans), segment);
+	});
+	if (before >= 0 && conditional < 0) conditional = segments.length;
 	return { subject, spans, masked, heredocLines, segments, conditional };
+}
+
+/**
+ * `subject` masked, its spans appended to `spans`, and the lines its heredoc
+ * bodies fill.
+ * @param {string} subject
+ * @param {string[]} spans
+ */
+function maskSubject(subject, spans) {
+	const start = spans.length;
+	const lx = new Lexer(spans);
+	const { commandLines, heredocLines } = readCommandLines(subject, lx);
+	spans.length = start;
+	const masked = joinLogicalLines(commandLines, lx, spans)
+		.join("\n")
+		.replace(/\n+$/, "");
+	return { masked, heredocLines };
+}
+
+/** @param {string} masked */
+const flatSegments = (masked) =>
+	flatten(masked, true).replace(/\n+$/, "").split("\n");
+
+/**
+ * The segments the command substitutions in `segment`'s double-quoted spans
+ * run, each bracketed by SCOPE_MARK lines, their own lifted first.
+ * @param {string} segment
+ * @param {string[]} spans
+ * @returns {string[]}
+ */
+function liftSubstitutions(segment, spans) {
+	/** @type {string[]} */
+	const lifted = [];
+	readSentinels(segment, (_lit, idx) => {
+		for (const inner of quotedSubstitutions(spans[idx ?? -1] ?? "")) {
+			const { masked } = maskSubject(inner, spans);
+			lifted.push(`${SCOPE_MARK}(`);
+			for (const seg of flatSegments(masked))
+				lifted.push(...liftSubstitutions(seg, spans), seg);
+			lifted.push(`${SCOPE_MARK})`);
+		}
+		return { text: "", stepPast: true };
+	});
+	return lifted;
+}
+
+/**
+ * The text of each `$(…)` and backtick pair a recorded span runs at its own
+ * level — none unless it is double-quoted, `'…'` running nothing. A `$((`
+ * is arithmetic and skipped. A backtick pair's `\$`, `` \` ``, `\\` and
+ * `\"` lose their backslash, as bash reads them there.
+ * @param {string} span as recorded, its opening quote first
+ */
+function quotedSubstitutions(span) {
+	/** @type {string[]} */
+	const found = [];
+	if (!span.startsWith('"')) return found;
+	let i = 1;
+	while (i > 0 && i < span.length) {
+		const { next, text } = readSubstitution(span, i);
+		if (text !== null) found.push(text);
+		i = next;
+	}
+	return found;
+}
+
+/**
+ * Read on from `i` in a double-quoted span: where to read on from, -1 where
+ * a substitution never closes, and the text of one that ends there.
+ * @param {string} span
+ * @param {number} i
+ * @returns {{ next: number, text: string | null }}
+ */
+function readSubstitution(span, i) {
+	const c = span.charAt(i);
+	if (c === "\\") return { next: i + 2, text: null };
+	if (c === "`") {
+		const end = backtickEnd(span, i + 1);
+		if (end < 0) return { next: -1, text: null };
+		const text = span.slice(i + 1, end).replace(/\\([$`\\"])/g, "$1");
+		return { next: end + 1, text };
+	}
+	if (!span.startsWith("$(", i)) return { next: i + 1, text: null };
+	const end = substitutionEnd(span, i + 2);
+	if (end < 0) return { next: -1, text: null };
+	const isArith = span.charAt(i + 2) === "(";
+	return { next: end, text: isArith ? null : span.slice(i + 2, end - 1) };
+}
+
+/**
+ * Where the `$(…)` whose text starts at `from` ends, just past its `)`, or -1.
+ * Read by the lexer's own C frame, so its quotes, brackets and heredocs nest
+ * as they did when the span was masked.
+ * @param {string} text
+ * @param {number} from
+ */
+function substitutionEnd(text, from) {
+	const lx = new Lexer([]);
+	lx.push("C");
+	let i = from;
+	while (lx.frames && i >= 0 && i < text.length) i = lx.lexStep(text, i);
+	return lx.frames ? -1 : i;
+}
+
+/**
+ * The index of the backtick closing one opened before `from`, or -1.
+ * @param {string} text
+ * @param {number} from
+ */
+function backtickEnd(text, from) {
+	for (let j = from; j < text.length; j++) {
+		const c = text.charAt(j);
+		if (c === "`") return j;
+		if (c === "\\") j++;
+	}
+	return -1;
 }
 
 /**

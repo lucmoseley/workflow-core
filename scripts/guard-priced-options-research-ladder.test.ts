@@ -236,6 +236,16 @@ describe("qualifying calls", () => {
 			'hits=$(gh issue list --state all --search "x") && echo "$hits"',
 		],
 		[
+			"a search inside a quoted $(…)",
+			"rulings",
+			'hits="$(gh issue list --state all --search "x")" && echo "$hits"',
+		],
+		[
+			"a search inside backticks",
+			"rulings",
+			'hits=`gh search issues x` && echo "$hits"',
+		],
+		[
 			"gh's own -R before the command word",
 			"rulings",
 			"gh -R acme/core issue list --state all -S x",

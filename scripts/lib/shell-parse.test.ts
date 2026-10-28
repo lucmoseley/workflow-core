@@ -312,6 +312,34 @@ describe("walkCommands", () => {
 		expect(out).toContain("[-c]");
 	});
 
+	it.each([
+		["a quoted $(…)", 'x="$(gh search issues y)"'],
+		["backticks", "x=`gh search issues y`"],
+		["backticks inside quotes", 'x="`gh search issues y`"'],
+		["a $(…) nested in a quoted $(…)", 'x="$(echo "$(gh search issues y)")"'],
+	])("hands over the command inside %s (#3375)", (_name, command) => {
+		expect(walkMap(command, (c) => c.words.join(" "))).toContain(
+			"gh search issues y",
+		);
+	});
+
+	it.each([
+		["single quotes", "x='$(gh search issues y)'"],
+		["a quoted arithmetic $((…))", 'x="$((1 + 2))"'],
+		[
+			"a heredoc body inside a quoted $(…)",
+			"gh issue create --body \"$(cat <<'EOF'\ngh search issues y\nEOF\n)\"",
+		],
+	])("runs nothing from %s (#3375)", (_name, command) => {
+		expect(walkMap(command, (c) => c.words.join(" "))).not.toContain(
+			"gh search issues y",
+		);
+	});
+
+	it("moves the conditional past a quoted $(…)'s segments (#3375)", () => {
+		expect(parseCommand('a || x="$(gh y)" && b').conditional).toBe(1);
+	});
+
 	it("treats a heredoc body as data, not as commands", () => {
 		const out = shown("gh api <<'EOF'\ngit checkout evil\nEOF\ngh issue list");
 		expect(out).not.toContain("[evil]");
@@ -373,6 +401,7 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 			"gh=/start",
 		]);
 		expect(cwds("cd /a && echo $(cd /b) && gh y").at(-1)).toBe("gh=/a");
+		expect(cwds('cd /a && x="$(cd /b)" && gh y').at(-1)).toBe("gh=/a");
 	});
 
 	it.each([
@@ -866,7 +895,13 @@ describe("path resolution", () => {
  * ones.
  */
 describe("logical lines (mantahostels#182)", () => {
-	const lines = (command: string) => shown(command).trim().split("\n");
+	/** The command's own segments: the `cat` or `printf` a body's `"$(…)"`
+	 * runs is lifted into one of its own (#3375). */
+	const lines = (command: string) =>
+		shown(command)
+			.trim()
+			.split("\n")
+			.filter((l) => !/^\[(cat|printf) /.test(l));
 
 	it("keeps a multi-line quoted argument on one segment with what follows it", () => {
 		const command = 'git commit -m "Subject line\n\nBody." -- a.md';
