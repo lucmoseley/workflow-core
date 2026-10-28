@@ -8,10 +8,12 @@ dirs by the env it reads, never a patched module global (#1275). `corpus` and
 `unkeyed` are the transcript scanners' tests' own, written once (#1297).
 """
 
+import atexit
 import json
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -54,6 +56,12 @@ _real_git = shutil.which(
 if _real_git:
     os.environ["WFC_HOST_GIT_REAL"] = _real_git
 os.environ["PATH"] = os.pathsep.join([_guard_dir] + _path_dirs)
+
+# No test reaches the session's host through CLAUDE_PROJECT_DIR (#3334): an
+# empty dir that is no repository, as vitest.setup.ts points it at.
+_test_host_dir = tempfile.mkdtemp(prefix="wfc-test-host-")
+os.environ["CLAUDE_PROJECT_DIR"] = _test_host_dir
+atexit.register(shutil.rmtree, _test_host_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")

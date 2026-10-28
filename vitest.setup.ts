@@ -67,7 +67,7 @@ process.env.PATH = [guardDir, ...pathDirs].join(path.delimiter);
 /*
  * NO TEST WRITES INTO THE DEVELOPER'S LIVE CLAUDE CONFIG DIR (#838).
  *
- * AN OVERRIDE, NOT A DEFAULT, unlike every block below: a session always has
+ * AN OVERRIDE, NOT A DEFAULT, unlike the `??=` blocks below: a session always has
  * the variable set, so `??=` would never fire. A case that sets its own — in a
  * child's env, or on `process.env` inside the case — still wins. The dir is no
  * seat, so `storeConfigDir()` keeps the arbiter's store inside it.
@@ -88,6 +88,9 @@ afterAll(() => fs.rmSync(testConfigDir, { recursive: true, force: true }));
  * developer's tree and went red only there. Pointed instead at an empty dir
  * that is no repository, such a test is red in CI and locally alike. An
  * override, as above; a case that pins its own still wins.
+ *
+ * WHAT IT DOES NOT COVER: a spawn that builds its `env` from scratch, which
+ * falls back to the git top level of its cwd — the same tree in CI and locally.
  */
 const testHostDir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-test-host-"));
 process.env.CLAUDE_PROJECT_DIR = testHostDir;

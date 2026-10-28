@@ -45,13 +45,13 @@ const rules = require("./rule-text.js") as {
 	readRuleText: (id: string, root: string) => string;
 };
 /* This checkout's store, rendered with the commands its config declares (#3334). */
-const readRuleText = (id: string) =>
+const readCheckoutRuleText = (id: string) =>
 	rules.readRuleText(id, path.resolve(__dirname, "..", ".."));
 
 const CWD = "/work";
 const SID = "sess-815";
 const JUDGE_DENY = "Not run: what this run would test is already attested.";
-const RULE = readRuleText("unasked-rerun");
+const RULE = readCheckoutRuleText("unasked-rerun");
 
 let calls: JudgeInput[];
 let logged: [string, string | undefined][];
@@ -62,7 +62,7 @@ function run(
 	{
 		answer = { deny: JUDGE_DENY },
 		sessionId = SID,
-		ruleText = readRuleText,
+		ruleText = readCheckoutRuleText,
 		vars = {},
 		moduleOn = () => false,
 	}: {
@@ -263,7 +263,7 @@ describe("the verdict, spent", () => {
 	it("owes only the touched tests before a push where landing is on (#2936)", () => {
 		const out = run("npm run test", { moduleOn: (m) => m === "landing" });
 		expect(out).toEqual({
-			deny: `${JUDGE_DENY}\n\n${readRuleText("unasked-rerun-landing")}`,
+			deny: `${JUDGE_DENY}\n\n${readCheckoutRuleText("unasked-rerun-landing")}`,
 		});
 		expect(out?.deny).toContain(
 			"Before a push, run the tests you touched; the lander runs the full suite.",

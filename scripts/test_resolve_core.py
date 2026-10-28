@@ -406,6 +406,7 @@ def release(tmp_path_factory):
     subprocess.run(
         ["node", "scripts/generate-plugin-tree.js", str(out)],
         cwd=REPO,
+        env={**os.environ, "CLAUDE_PROJECT_DIR": str(REPO)},
         check=True,
         capture_output=True,
     )
