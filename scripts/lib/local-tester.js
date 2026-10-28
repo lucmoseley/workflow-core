@@ -19,17 +19,13 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const {
-	DRAW_MARGIN_MB,
-	EARLYOOM_FLOOR_MB,
-	readAvailableMb,
-	readTreePssKb,
-} = require("./admission.js");
+const { readAvailableMb, readTreePssKb } = require("./admission.js");
 const { caught } = require("./caught.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { requiredGroup } = require("./regex-group.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
+const { rungMb } = require("./suite-ladder.js");
 const {
 	gateDenies,
 	readLiveRoleMarkers,
@@ -69,13 +65,6 @@ const rootlessEnv = () => {
  * 1,150. Named: 552 MB, the highest rerun peak (#2496), + ~10%, set at 600 by
  * #3323. The lander run record is what a re-size reads. */
 const CHARGE_MB = { whole: 1150, named: 600 };
-/**
- * The suite gate's memory rung for a run charged `chargeMb`, built as the
- * suite ladder's rungs are (docs/environment.md §6, #2416).
- * @param {number} chargeMb
- */
-const slotMb = (chargeMb) =>
-	Math.ceil((EARLYOOM_FLOOR_MB + chargeMb + DRAW_MARGIN_MB) / 50) * 50;
 /* The queue marker's role, which session admission reads (#2416). */
 const LANDER_ROLE = "lander";
 /* Untraced: room for `npm ci` over a slow link. */
@@ -160,9 +149,10 @@ function parseCeilingKillReason(out) {
 
 /**
  * One suite slot: a place in the suite queue, the suite gate open, and
- * MemAvailable at `slotMb(chargeMb)`, all three at once. Memory that cannot be read
- * holds the slot shut. An open slot is stamped admitted, so no other waiter
- * launches beside it before its suite spawns (#2650). At the ceiling it
+ * MemAvailable at `rungMb(chargeMb)` (docs/environment.md §6, #2416), all
+ * three at once. Memory that cannot be read holds the slot shut. An open slot
+ * is stamped admitted, so no other waiter launches beside it before its suite
+ * spawns (#2650). At the ceiling it
  * refuses on either limb: the lander then exits with no verdict, leaving the
  * batch for its next run (#2542).
  * @param {{chargeMb: number, pollMs?: number, timeoutMs?: number,
@@ -181,18 +171,18 @@ async function suiteSlot({
 	queueDir,
 }) {
 	const file = queueJoin({ queueDir, role: LANDER_ROLE, chargeMb });
-	const rungMb = slotMb(chargeMb);
+	const rung = rungMb(chargeMb);
 	let mem = memory();
 	const outcome = await waitForGate({
 		pollMs,
 		timeoutMs,
 		gate: (climbMb) => {
 			mem = memory();
-			if (!mem.ok || mem.mb - climbMb < rungMb)
+			if (!mem.ok || mem.mb - climbMb < rung)
 				return {
 					limb: "memory",
 					...(mem.ok ? { mb: mem.mb } : {}),
-					rungMb,
+					rungMb: rung,
 					...(climbMb > 0 ? { climbMb } : {}),
 				};
 			return gate(climbMb);
@@ -209,7 +199,7 @@ async function suiteSlot({
 		};
 	queueLeave(file);
 	const memoryRead = mem.ok
-		? `${mem.mb} MB available against ${rungMb} MB`
+		? `${mem.mb} MB available against ${rung} MB`
 		: `memory unread: ${mem.error}`;
 	return { ok: false, reason: `no suite slot by the ceiling (${memoryRead})` };
 }
@@ -506,9 +496,8 @@ async function runEach(groups, dir, { admit, exec, treePss, tally }) {
  * @param {Run[]} runs
  * @param {string} dir
  * @param {{spawned: () => void, treePss: (pid: number) => number,
- *   tally: SlotRuns["tally"], failing: Set<string>}} into `tally` and
- *   `failing` are accumulators: the runs' peak so far and the failing files
- *   so far
+ *   tally: SlotRuns["tally"], failing: Set<string>}} into accumulator:
+ *   `tally` takes the runs' peak so far and `failing` the failing files so far
  * @returns {Promise<string|null>} why a run reached no verdict, or null
  */
 async function runInSlot(runs, dir, { spawned, treePss, tally, failing }) {

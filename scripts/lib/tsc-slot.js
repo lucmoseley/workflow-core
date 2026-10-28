@@ -13,17 +13,14 @@
 
 const os = require("node:os");
 const path = require("node:path");
-const { DRAW_MARGIN_MB, EARLYOOM_FLOOR_MB } = require("./suite-ladder.js");
+const { rungMb } = require("./suite-ladder.js");
 
 /* The peak single `tsc` RSS in `~/memwatch-archive.log`, 23–27 Oct 2026
  * (#3163), off its `^ *PID RSS node .*\/tsc` lines. MOVE IT ONLY WITH A
  * RE-MEASUREMENT. */
 const TSC_PEAK_MB = 1638;
 
-/* The rung priced as a suite's is (lib/suite-ladder.js): earlyoom's floor,
- * the draw and the gate's margin, rounded up to the next 50 MB. */
-const TSC_RUNG_MB =
-	Math.ceil((EARLYOOM_FLOOR_MB + TSC_PEAK_MB + DRAW_MARGIN_MB) / 50) * 50;
+const TSC_RUNG_MB = rungMb(TSC_PEAK_MB);
 
 /* How many `tsc` run at once, machine-wide (#3163): one, as docs/environment.md
  * §6 keeps every unmeasured concurrent workload; only one `tsc` at a time has

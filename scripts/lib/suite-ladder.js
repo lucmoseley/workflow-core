@@ -28,9 +28,8 @@ const EARLYOOM_FLOOR_MB = 794;
  * Concurrent test suites, owned by `docs/environment.md` §6. THE LADDER IS THE
  * WHOLE RULE — there is no flat allowance above it.
  *
- * A rung is EARLYOOM_FLOOR_MB + the dip that many vitest workers make +
- * DRAW_MARGIN_MB, rounded up to the next 50 MB (#2558). SUITE_DIP_MB is §6's
- * dip at 0-3 suites of LADDER_SUITE_WORKERS workers each, the count #1603
+ * A rung is rungMb of the dip that many vitest workers make. SUITE_DIP_MB is
+ * §6's dip at 0-3 suites of LADDER_SUITE_WORKERS workers each, the count #1603
  * measured them at; w workers sit w/LADDER_SUITE_WORKERS of the way to the
  * next suite's dip. SUITE_MAX is the most suites measured (mantahostels#462,
  * mantahostels#954); past it each worker adds the one-suite dip's share of one
@@ -45,6 +44,14 @@ const SUITE_MAX = 3;
 const WHOLE_SUITE_MAX = 1;
 const LADDER_SUITE_WORKERS = 3;
 const SUITE_DIP_MB = [0, 1046, 2124, 2546];
+
+/**
+ * The memory rung for a workload that draws `chargeMb`: EARLYOOM_FLOOR_MB +
+ * the draw + DRAW_MARGIN_MB, rounded up to the next 50 MB (#2558).
+ * @param {number} chargeMb
+ */
+const rungMb = (chargeMb) =>
+	Math.ceil((EARLYOOM_FLOOR_MB + chargeMb + DRAW_MARGIN_MB) / 50) * 50;
 
 /**
  * MB of available that must be resting before `workers` concurrent vitest
@@ -71,7 +78,7 @@ function suiteRungMb(workers) {
 					((workers % LADDER_SUITE_WORKERS) * (dipAt(n + 1) - dipAt(n))) /
 						LADDER_SUITE_WORKERS,
 				);
-	return Math.ceil((EARLYOOM_FLOOR_MB + dip + DRAW_MARGIN_MB) / 50) * 50;
+	return rungMb(dip);
 }
 
 const SUITE_RESTING_MB = {
@@ -256,6 +263,7 @@ module.exports = {
 	WHOLE_SUITE_MAX,
 	LADDER_SUITE_WORKERS,
 	SUITE_DIP_MB,
+	rungMb,
 	suiteRungMb,
 	SUITE_RESTING_MB,
 	SUITE_GATE_MB,
