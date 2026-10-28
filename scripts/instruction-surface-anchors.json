@@ -217,8 +217,8 @@
 			"source": "#2386"
 		},
 		"scripts/lib/stale-script.js": {
-			"digest": "e9e4eb095f61641d",
-			"verdict": "at need (before the run) Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); at #2896 a refactor only (dirty read moved onto ctx.git), measured by stale-script.test.ts exact-text cases over a real git repo; at #3208 its run detection moved onto lib/script-runs.js, gaining the wrapper, cd, redirect and -c routes, the warning text unchanged and measured by the same cases",
+			"digest": "529dce4527e14ddf",
+			"verdict": "at need (before the run) Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); at #2896 a refactor only (dirty read moved onto ctx.git), measured by stale-script.test.ts exact-text cases over a real git repo; at #3208 its run detection moved onto lib/script-runs.js, gaining the wrapper, cd, redirect and -c routes, the warning text unchanged and measured by the same cases; at #3417 a bare script word is read like any other, the warning text unchanged and measured by the same cases plus the `cd scripts && node pick-next.js` rows",
 			"selfSufficient": "yes — says nothing is blocked, what to do if output looks wrong (re-run after commit), how to see claims, and the unclaimed-dirty residual",
 			"source": "#2789"
 		},
