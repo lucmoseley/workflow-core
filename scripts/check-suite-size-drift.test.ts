@@ -242,7 +242,7 @@ describe("the real repo", () => {
 		expect(r.json().baseline).toBe(SUITE_LADDER_MEASURED_AT.files);
 	});
 
-	it("counts the same suite from a subdirectory, since the hook's siblings run from the repo root", () => {
+	it("counts the same suite from a subdirectory as from the repo root", () => {
 		const fromRoot = runIn(REPO, "--json").json().files;
 		const fromSub = runIn(path.join(REPO, "docs"), "--json").json().files;
 		expect(fromSub).toBe(fromRoot);

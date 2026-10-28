@@ -450,7 +450,7 @@ describe("task: one run's sandbox", () => {
 		expect(fs.existsSync(to)).toBe(false);
 	});
 
-	it("refuses an --unapply patch that does not reverse-apply at --at, naming the regeneration, and leaves an empty --to empty", () => {
+	it("refuses an --unapply patch that does not reverse-apply at --at, naming the regeneration, and leaves an empty --to empty (#3350)", () => {
 		const patch = path.join(tmp, "stale.patch");
 		fs.writeFileSync(
 			patch,
@@ -477,7 +477,7 @@ describe("task: one run's sandbox", () => {
 		expect(fs.readdirSync(to)).toEqual([]);
 	});
 
-	it("refuses a --revert that conflicts at --at, naming the way out, and builds nothing", () => {
+	it("refuses a --revert that conflicts at --at, naming the way out, and builds nothing (#3350)", () => {
 		const repo = sourceRepo();
 		const root = git(repo, "rev-list", "--max-parents=0", "HEAD").stdout.trim();
 		const to = path.join(tmp, "run-1");
