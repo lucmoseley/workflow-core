@@ -187,10 +187,10 @@
 			"source": "#2792"
 		},
 		"scripts/lib/citation-write.js": {
-			"digest": "880c6a2bcf6e6209",
-			"verdict": "at need — on a Write or Edit in the checkout adding a mantahostels#N the inherited tracker never used, before the bytes land; a write through Bash or NotebookEdit is never seen, a number both trackers used passes, and a write outside the checkout, however its `..` is spelled, gets nothing (#2546). Run as a core of scripts/guard-dispatch.js (fed through scripts/guard-dispatch.js's hook line at #2786: a never-used number in a test write gave the notice and rule:citation-tracker after the test rules); at #2896 a rename only, measured by guard-dispatch.test.ts real-adapters case giving notice plus rule:citation-tracker",
-			"selfSufficient": "yes — every trigger names each number and its bare form; the session's first carries rule:citation-tracker whole (fed at HEAD 935829f81: a never-used number written twice gave notice plus rule, then notice alone; an inherited-used number gave nothing; fed after 19cd71794: the same, and `<checkout>/sub/../../d.md` gave nothing while `<checkout>/sub/../e.md` gave the notice)",
-			"source": "#2015, #2546, #2786"
+			"digest": "fae49e01a6088370",
+			"verdict": "at need — on a Write or Edit in the checkout adding a mantahostels#N the inherited tracker never used, before the bytes land; a write through Bash or NotebookEdit is never seen, a number both trackers used passes, and a write outside the checkout, however its `..` is spelled, gets nothing (#2546). Run as a core of scripts/guard-dispatch.js (fed through scripts/guard-dispatch.js's hook line at #2786: a never-used number in a test write gave the notice and rule:citation-tracker after the test rules); at #2896 a rename only, measured by guard-dispatch.test.ts real-adapters case giving notice plus rule:citation-tracker. Re-fed at 0baa87f71 under #3185 after #3068 put the baseline read on one fail-closed reader: a WFC_GIT that exits 1 or 128 on every rev-parse, or does not exist, gives no notice and logs `git did not judge <path> (…) — citation rule not injected` to guard-errors.log, naming the exit code or ENOENT; a WFC_CITATION_BASELINE that does not resolve stays silent and unlogged",
+			"selfSufficient": "yes — every trigger names each number and its bare form; the session's first carries rule:citation-tracker whole (fed at HEAD 935829f81: a never-used number written twice gave notice plus rule, then notice alone; an inherited-used number gave nothing; fed after 19cd71794: the same, and `<checkout>/sub/../../d.md` gave nothing while `<checkout>/sub/../e.md` gave the notice; re-fed under #3185: a never-used number twice and an inherited-used one gave the same, the `..` pair not re-fed)",
+			"source": "#2015, #2546, #2786, #3185"
 		},
 		"scripts/lib/test-rules-inject.js": {
 			"digest": "d5fe124397fda34d",
