@@ -4,14 +4,18 @@
  * that a push to `landing` started at the exact sha, through `gh` with the
  * read access the token already has, and never writes to a workflow.
  *
- * Green only on a finished, successful run whose every Vitest shard job
- * passed; red on a failed one, with its failing jobs and the test files their
- * logs name. A batch's run that is missing, in progress at the wait bound,
- * ended any other way, or cannot be read is no verdict, never green.
+ * Green only on a finished, successful run whose every Vitest shard job and
+ * whose `Suite passed` job passed, naming the run; red on a failed one, with
+ * its failing jobs and the test files their logs name. A batch's run that is
+ * missing, in progress at the wait bound, ended any other way, or cannot be
+ * read is no verdict, never green.
  *
- * A whole-suite rerun at a sha whose run failed reruns its failed jobs. What no push run
- * tests — named files, a bisect commit no push ran — goes to the fallback
- * tester where one is given.
+ * A whole-suite rerun, or one whose green would move `main`, at a sha whose
+ * run failed reruns its failed jobs, `Suite passed` with them (#3329). Any
+ * other rerun of named files, and one at a sha no push ran, goes to the
+ * fallback tester where one is given, its green naming no run: a rerun of a
+ * run's failed jobs judges more than the named files, and a red elsewhere
+ * would move a bisect.
  */
 
 const { execFileSync } = require("node:child_process");
@@ -29,6 +33,8 @@ const SUITE_WORKFLOW = "scheduled-checks.yml";
 const LANDING = "landing";
 /* ci.yml's matrix names each shard job `Vitest (k/n)`. */
 const SHARD_JOB = /\bVitest \((\d+)\/(\d+)\)$/;
+/* The aggregate job #2414's ruleset on `main` requires. */
+const SUITE_PASSED_JOB = "Suite passed";
 /* Untraced: GitHub lists a push run within seconds; the rest is room for a
  * slow queue. */
 const APPEAR_MS = 3 * 60 * 1000;
@@ -68,12 +74,15 @@ const newestRun = (sha, reads) =>
 		.sort((a, b) => b.databaseId - a.databaseId)[0];
 
 /**
- * Why a successful run's jobs do not show every shard passed, or null where
- * they do.
+ * Why a successful run's jobs do not show every shard and `Suite passed`
+ * passed, or null where they do.
  * @param {Job[]} jobs
  * @returns {string|null}
  */
-function shardGap(jobs) {
+function greenGap(jobs) {
+	const suite = jobs.find((j) => j.name === SUITE_PASSED_JOB);
+	if (suite?.conclusion !== "success")
+		return `its ${SUITE_PASSED_JOB} job is ${suite?.conclusion ?? "missing"}`;
 	/** @type {Map<number, string|null>} */
 	const passed = new Map();
 	let count = 0;
@@ -108,9 +117,9 @@ function runVerdict(sha, reads, after) {
 	const id = run.databaseId;
 	if (run.conclusion === "success") {
 		/* GitHub concludes `success` over jobs that all skipped. */
-		const gap = shardGap(reads.jobsOf(id));
+		const gap = greenGap(reads.jobsOf(id));
 		return gap === null
-			? { kind: "green" }
+			? { kind: "green", run: id }
 			: { kind: "unknown", reason: `run ${id} passed, but ${gap}` };
 	}
 	if (run.conclusion !== "failure")
@@ -275,31 +284,38 @@ function actionsTester({
 					/** @type {Verdict} */ ({ kind: "unknown", reason: why }),
 				);
 	/**
-	 * A whole-suite rerun at `sha`: a new attempt where its run failed, the
-	 * fallback where no push ran it.
+	 * A rerun at `sha`: of named files that do not land, the fallback; else a
+	 * new attempt of its run's failed jobs where it failed, its run read again
+	 * where it did not, and the fallback where no push ran it.
 	 * @param {string} sha
+	 * @param {string[]} files
+	 * @param {boolean} lands
 	 * @returns {Promise<Verdict>}
 	 */
-	async function rerunWhole(sha) {
+	async function rerunAt(sha, files, lands) {
+		if (files.length > 0 && !lands)
+			return handOff(sha, files, "a push run tests no named files");
 		/** @type {Run|undefined} */
 		let run;
 		try {
 			run = newestRun(sha, reads);
-			if (run === undefined)
-				return handOff(sha, [], `no ${SUITE_WORKFLOW} push run ran it`);
-			if (run.conclusion === "failure") reads.rerun(run.databaseId);
+			if (run?.conclusion === "failure") reads.rerun(run.databaseId);
 		} catch (err) {
 			return unreadable(err);
 		}
-		const after = run.conclusion === "failure" ? run.attempt : 0;
-		return settle(await pollRun(sha, poll, after), sha);
+		if (run?.conclusion === "failure")
+			return settle(await pollRun(sha, poll, run.attempt), sha);
+		if (files.length > 0)
+			return handOff(sha, files, "a push run tests no named files");
+		if (run === undefined)
+			return handOff(sha, [], `no ${SUITE_WORKFLOW} push run ran it`);
+		return settle(await pollRun(sha, poll, 0), sha);
 	}
 	return {
-		async verdict(sha, files) {
+		requiresRun: true,
+		async verdict(sha, files, lands = false) {
 			if (files === undefined) return settle(await pollRun(sha, poll, 0), sha);
-			if (files.length > 0)
-				return handOff(sha, files, "a push run tests no named files");
-			return rerunWhole(sha);
+			return rerunAt(sha, files, lands);
 		},
 	};
 }

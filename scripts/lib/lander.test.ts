@@ -57,12 +57,16 @@ async function run(
 		lastRed = null as Red | null,
 		lastMoved = null as string | null,
 		refsFail = ((_nth: number) => null) as (nth: number) => Error | null,
+		requiresRun = false,
+		pushRefused = null as string | null,
+		pushFails = null as (() => Error) | null,
 	} = {},
 ) {
 	const ledger = new Set<string>(ledgered);
 	const noVerdict = new Set<string>(stuck);
 	const pushes: { sha: string; ledgerAtPush: string[] }[] = [];
 	const tested: { sha: string; files?: string[] }[] = [];
+	const landing: { sha: string; files: string[] }[] = [];
 	const tickets: FixTicket[] = [];
 	const holds: Held[] = [];
 	const beats: {
@@ -73,6 +77,7 @@ async function run(
 	}[] = [];
 	const said: string[] = [];
 	const reverted: { culprit: string; parent: string | null }[] = [];
+	const revertWhys: string[] = [];
 	const actions: unknown[] = [];
 	let refsRead = 0;
 	let released = 0;
@@ -92,6 +97,11 @@ async function run(
 			},
 			pushMain: (sha) => {
 				pushes.push({ sha, ledgerAtPush: [...ledger] });
+				if (pushFails !== null) throw pushFails();
+				if (pushRefused !== null)
+					throw Object.assign(new Error("Command failed: git push"), {
+						stderr: pushRefused,
+					});
 				remote.main = sha;
 			},
 			chain: (base, sha) =>
@@ -99,8 +109,9 @@ async function run(
 					base === null ? 0 : history.indexOf(base) + 1,
 					history.indexOf(sha) + 1,
 				),
-			revertOnLanding: (culprit, parent) => {
+			revertOnLanding: (culprit, parent, why) => {
 				reverted.push({ culprit, parent });
+				revertWhys.push(why);
 				if (revertFails !== null) return { failed: revertFails };
 				const onto = remote.landing ?? A;
 				remote.landing = R;
@@ -113,8 +124,10 @@ async function run(
 				(at(sha) !== -1 && at(sha) <= at(tip)),
 		},
 		tester: {
-			verdict: async (sha, files) => {
+			requiresRun,
+			verdict: async (sha, files, lands) => {
 				tested.push(files ? { sha, files } : { sha });
+				if (lands && files) landing.push({ sha, files });
 				onTest(sha);
 				return verdictOf(
 					sha,
@@ -174,10 +187,12 @@ async function run(
 		pushes,
 		stuck: [...noVerdict],
 		tested,
+		landing,
 		tickets,
 		holds,
 		beats,
 		said,
+		revertWhys,
 		reverted,
 		actions,
 		released,
@@ -289,44 +304,28 @@ describe("runLander", () => {
 		]);
 	});
 
-	it("ends as an exit naming the error, releasing the lock, when a push is refused", async () => {
-		let released = 0;
-		const actions: unknown[] = [];
-		const end = await runLander({
-			git: {
-				refs: () => ({ main: A, landing: B, relation: "ahead" }),
-				pushMain: () => {
-					throw Object.assign(new Error("Command failed: git push"), {
-						stderr: "! [remote rejected] pre-push hook declined\n",
-					});
-				},
-				chain: () => [],
-				revertOnLanding: () => ({ sha: R, onto: B }),
-				contains: () => false,
-			},
-			tester: { verdict: async () => ({ kind: "green" }) },
-			tracker: { fileFixTicket: () => "", holdQueue: () => "" },
-			ledger: { has: () => false, add: () => undefined },
-			noVerdict: { has: () => false, add: () => undefined },
-			lock: {
-				acquire: () => true,
-				release: () => {
-					released++;
-				},
-			},
-			beat: () => undefined,
-			log: (a) => {
-				actions.push(a);
-			},
-			wait: async () => undefined,
+	it("holds on a push to main the remote refuses, naming the refusal, and never pushes it again (#3329)", async () => {
+		const refusal =
+			"remote: error: GH013: Repository rule violations found for refs/heads/main.\nTo github.com:o/r.git\n ! [remote rejected] bbbbbbbbb -> main (push declined due to repository rule violations)\nerror: failed to push some refs\n";
+		const reason =
+			"the push of bbbbbbbbb to main was refused:  ! [remote rejected] bbbbbbbbb -> main (push declined due to repository rule violations)";
+		const first = await run({ main: A, landing: B }, green, {
+			pushRefused: refusal,
 		});
-		const exit = {
-			kind: "exit",
-			reason: "stopped on an error: ! [remote rejected] pre-push hook declined",
-		};
-		expect(end).toEqual(exit);
-		expect(actions.at(-1)).toEqual(exit);
-		expect(released).toBe(1);
+		expect(first.end).toEqual({ kind: "hold", reason });
+		expect(first.pushes.map((p) => p.sha)).toEqual([B]);
+		expect(first.holds).toEqual([{ batch: B, reason, failing: null }]);
+		const hold = first.beats.at(-1)?.hold;
+		expect(hold).toEqual({ landing: B, reason, filed: "Filed #2" });
+		expect(first.beats.some((b) => b.movedAt)).toBe(false);
+		expect(first.released).toBe(1);
+
+		const next = await run({ main: A, landing: B }, green, {
+			ledgered: [B],
+			lastHold: hold ?? null,
+		});
+		expect(next.end).toMatchObject({ kind: "exit" });
+		expect(next.pushes).toEqual([]);
 	});
 });
 
@@ -360,6 +359,26 @@ describe("runLander on a failing remote (#2673)", () => {
 		expect(r.refsRead).toBe(5);
 		expect(r.released).toBe(1);
 	});
+
+	it.each([
+		["a network fault the retries do not outlast", dnsFailure, 5],
+		[
+			"a timeout git printed no refusal for",
+			() => new Error("git push b:refs/heads/main timed out after 20 min"),
+			1,
+		],
+	])(
+		"exits naming the error, holding nothing, on a push to main that fails on %s (#3329)",
+		async (_, fault, tries) => {
+			const r = await run({ main: A, landing: B }, green, {
+				pushFails: fault,
+			});
+			expect(r.end).toMatchObject({ kind: "exit" });
+			expect(r.end.reason).toMatch(/^stopped on an error: /);
+			expect(r.holds).toEqual([]);
+			expect(r.pushes).toHaveLength(tries);
+		},
+	);
 
 	it("retries no failure but the network's", async () => {
 		const r = await run({ main: A, landing: B }, green, {
@@ -451,13 +470,14 @@ describe("runLander on a red batch", () => {
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "fast-forward", sha: B },
-			{ kind: "revert", culprit: C, parent: B, files: FILES },
+			{ kind: "revert", culprit: C, parent: B, files: FILES, jobs: [] },
 			{
 				kind: "file-fix-ticket",
 				culprit: C,
 				parent: B,
 				revert: R,
 				files: FILES,
+				jobs: [],
 				stale: STALE,
 			},
 			{ kind: "test", sha: R },
@@ -465,7 +485,14 @@ describe("runLander on a red batch", () => {
 			{ kind: "exit", reason: "landing equals main" },
 		]);
 		expect(r.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
@@ -478,9 +505,17 @@ describe("runLander on a red batch", () => {
 			culprit: B,
 			parent: A,
 			files: FILES,
+			jobs: [],
 		});
 		expect(r.tickets).toEqual([
-			{ culprit: B, parent: A, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: B,
+				parent: A,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
 	});
@@ -511,7 +546,9 @@ describe("runLander on a red batch", () => {
 		const r = await redBatch(unconfirmedC);
 		const reason =
 			"culprit unconfirmed: ccccccccc passed x.test.ts on its second run";
-		expect(r.holds).toEqual([{ batch: D, reason, files: FILES }]);
+		expect(r.holds).toEqual([
+			{ batch: D, reason, failing: { files: FILES, jobs: [] } },
+		]);
 		expect(r.said).toContain("Filed #2");
 		expect(r.beats.at(-1)).toEqual({
 			batch: D,
@@ -646,6 +683,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			sha: D,
 			base: A,
 			files: FILES,
+			jobs: [],
 			flake: { kind: "red", files: FILES },
 		});
 	});
@@ -663,7 +701,14 @@ describe("runLander across runs on a red batch (#2673)", () => {
 		]);
 		expect(second.tested).not.toContainEqual({ sha: D });
 		expect(second.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 	});
 
@@ -680,6 +725,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			sha: D,
 			base: A,
 			files: FILES,
+			jobs: [],
 			flake: { kind: "unknown", reason: "tester died" },
 			onMain: null,
 			range: null,
@@ -703,6 +749,64 @@ describe("runLander across runs on a red batch (#2673)", () => {
 		const r = await redBatch(unconfirmedC);
 		expect(r.end).toMatchObject({ kind: "hold" });
 		expect(r.beats.at(-1)?.red).toBeUndefined();
+	});
+});
+
+describe("runLander on a red only a CI job names (#3253)", () => {
+	const job = "Full suite / Lint and types";
+	/** Every whole-suite run at `red` shas fails `job` alone, naming no file. */
+	const jobRed = (red: (sha: string, nth: number) => boolean) =>
+		run(
+			{ main: A, landing: D },
+			(sha, _files, nth) =>
+				sha !== R && red(sha, nth)
+					? { kind: "red", files: [], jobs: [job] }
+					: { kind: "green" },
+			{ history: [B, C, D] },
+		);
+
+	it("names the job in the revert and the fix ticket, rerunning the whole suite and never the job", async () => {
+		const r = await jobRed((sha) => sha === C || sha === D);
+		expect(r.tickets).toEqual([
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: [],
+				jobs: [job],
+				stale: STALE,
+			},
+		]);
+		expect(r.revertWhys).toEqual([
+			`The lander found it red on the CI jobs '${job}', twice, with its parent bbbbbbbbb green.`,
+		]);
+		expect(r.tested.filter((t) => t.files)).toEqual(
+			[D, B, C, C, B].map((sha) => ({ sha, files: [] })),
+		);
+	});
+
+	it("names the culprit's own failing jobs, not the tip's", async () => {
+		const docsJob = "Full suite / Document guards";
+		const r = await run(
+			{ main: A, landing: D },
+			(sha) => {
+				if (sha === D) return { kind: "red", files: [], jobs: [job, docsJob] };
+				if (sha === C) return { kind: "red", files: [], jobs: [job] };
+				return { kind: "green" };
+			},
+			{ history: [B, C, D] },
+		);
+		expect(r.tickets.map((t) => t.jobs)).toEqual([[job]]);
+		expect(r.revertWhys[0]).not.toContain(docsJob);
+	});
+
+	it("names the job in the hold reason and the held-queue filing", async () => {
+		const r = await jobRed((sha, nth) => sha === D || (sha === C && nth === 1));
+		const reason = `culprit unconfirmed: ccccccccc passed the CI jobs '${job}' on its second run`;
+		expect(r.end).toEqual({ kind: "hold", reason });
+		expect(r.holds).toEqual([
+			{ batch: D, reason, failing: { files: [], jobs: [job] } },
+		]);
 	});
 });
 
@@ -739,13 +843,14 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "rerun", sha: B, files: FILES, why: "parent-files" },
-			{ kind: "revert", culprit: C, parent: B, files: FILES },
+			{ kind: "revert", culprit: C, parent: B, files: FILES, jobs: [] },
 			{
 				kind: "file-fix-ticket",
 				culprit: C,
 				parent: B,
 				revert: R,
 				files: FILES,
+				jobs: [],
 				stale: STALE,
 			},
 			{ kind: "test", sha: R },
@@ -786,13 +891,20 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			{ kind: "rerun", sha: B, files: elsewhere.files, why: "bisect" },
 			{ kind: "rerun", sha: B, files: elsewhere.files, why: "confirm" },
 			{ kind: "rerun", sha: A, files: elsewhere.files, why: "parent-main" },
-			{ kind: "revert", culprit: B, parent: A, files: elsewhere.files },
+			{
+				kind: "revert",
+				culprit: B,
+				parent: A,
+				files: elsewhere.files,
+				jobs: [],
+			},
 			{
 				kind: "file-fix-ticket",
 				culprit: B,
 				parent: A,
 				revert: R,
 				files: elsewhere.files,
+				jobs: [],
 				stale: STALE,
 			},
 			{ kind: "test", sha: R },
@@ -829,6 +941,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			sha: D,
 			base: A,
 			files: FILES,
+			jobs: [],
 			flake: { kind: "red", files: FILES },
 			onMain: { kind: "green" },
 			range: [B, C, D],
@@ -878,7 +991,14 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 		});
 		expect(second.tested).not.toContainEqual({ sha: B, files: [] });
 		expect(second.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 	});
 });
@@ -1018,11 +1138,70 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 	});
 });
 
+describe("runLander where main takes only a sha a CI run passed (#3329)", () => {
+	const ran: Verdict = { kind: "green", run: 9 };
+	/**
+	 * The batch A..D, D's own test red on x.test.ts and the revert R's green
+	 * on a CI run: `flake` is D's rerun, and C, red on every rerun, is the
+	 * culprit whose parent B's whole suite is `parent`.
+	 */
+	const gated = (flake: Verdict, parent: Verdict = ran) =>
+		run(
+			{ main: A, landing: D },
+			(sha, files) => {
+				const red: Verdict = { kind: "red", files: FILES };
+				if (files === undefined) return sha === R ? ran : red;
+				const reruns: Record<string, Verdict> = { [D]: flake, [C]: red };
+				const whole = sha === B && files.length === 0;
+				return whole ? parent : (reruns[sha] ?? green());
+			},
+			{ history: [B, C, D], requiresRun: true },
+		);
+
+	it("lands a tip whose flake rerun a CI run passed, asking the tester for a rerun that lands", async () => {
+		const r = await gated(ran);
+		expect(r.pushes.map((p) => p.sha)).toEqual([D]);
+		expect(r.landing).toEqual([{ sha: D, files: FILES }]);
+	});
+
+	it("holds, pushing nothing, on a tip whose flake rerun passed off CI", async () => {
+		const r = await gated(green());
+		expect(r.end).toEqual({
+			kind: "hold",
+			reason:
+				"ddddddddd passed x.test.ts on a rerun no CI run made, and main takes only a sha a CI run passed",
+		});
+		expect(r.pushes).toEqual([]);
+	});
+
+	it("reverts past a confirmed culprit's parent no CI run passed, landing the revert's tip alone", async () => {
+		const r = await gated({ kind: "red", files: FILES }, green());
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+		expect(r.tickets.map((t) => t.culprit)).toEqual([C]);
+		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
+	});
+
+	it("lands a confirmed culprit's parent a CI run passed before the revert", async () => {
+		const r = await gated({ kind: "red", files: FILES });
+		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
+	});
+
+	it("exits on a batch's own green that names no CI run, pushing nothing", async () => {
+		const r = await run({ main: A, landing: B }, green, { requiresRun: true });
+		expect(r.end).toEqual({
+			kind: "exit",
+			reason: "no verdict at bbbbbbbbb: its green read no CI run",
+		});
+		expect(r.pushes).toEqual([]);
+	});
+});
+
 describe("runLander resuming a past run's red batch where the remote moved (#2673)", () => {
 	const pastRed = (): Red => ({
 		sha: D,
 		base: A,
 		files: FILES,
+		jobs: [],
 		flake: { kind: "red", files: FILES },
 		onMain: { kind: "green" },
 		range: null,

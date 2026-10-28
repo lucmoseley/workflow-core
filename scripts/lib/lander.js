@@ -9,7 +9,10 @@
  * on the culprit's failing files instead and stays off `main` (#2910). Files
  * red at `main` too are a known breakage: the bisect leaves them out, and a
  * culprit whose parent is `main` is confirmed there on its files alone, never
- * reverted where they fail (#3324).
+ * reverted where they fail (#3324). Where `main` takes only a sha a CI run
+ * passed, a green read off no run lands nothing: the flake check holds on it,
+ * and a confirmed culprit's parent is reverted past (#3329). A push to `main`
+ * that is refused holds, so no run retries it (#3329).
  *
  * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
  * no-verdict ledger (the same line per parent whose whole suite reached no
@@ -87,18 +90,21 @@ const NETWORK =
 	/Could not resolve host|Connection timed out|Connection reset|returned error: 5\d\d|HTTP 5\d\d/;
 
 /**
- * @typedef {{kind: "green"} | {kind: "red", files: string[], jobs?: string[]}
- *   | {kind: "unknown", reason: string}} Verdict `jobs` the failing CI jobs,
- *   where the tester read a CI run
+ * @typedef {{kind: "green", run?: number}
+ *   | {kind: "red", files: string[], jobs?: string[]}
+ *   | {kind: "unknown", reason: string}} Verdict `run` the CI run that passed
+ *   it and `jobs` the failing CI jobs, where the tester read a CI run
  * @typedef {"flake" | "base" | "bisect" | "confirm" | "parent"
  *   | "parent-main"
  *   | "parent-files"} RerunWhy
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
- *   | {kind: "revert", culprit: string, parent: string|null, files: string[]}
+ *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
+ *       jobs: string[]}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
- *       revert: string, files: string[], stale: RegistryRow[]|null}
+ *       revert: string, files: string[], jobs: string[],
+ *       stale: RegistryRow[]|null}
  *   | {kind: "hold", reason: string}
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
@@ -108,6 +114,8 @@ const NETWORK =
  * @property {string|null} base `main` when the batch was tested
  * @property {string[]} files the failing files, every rerun's target; empty
  *   where the tester named none, which reruns the whole suite
+ * @property {string[]} jobs the failing CI jobs, which name the red where
+ *   `files` is empty; never a rerun's target
  * @property {Verdict|null} flake the one rerun at the tip
  * @property {Verdict|null} onMain the base check: the tip's red files run at
  *   `base`, where those that fail are a known breakage the bisect leaves out
@@ -140,6 +148,10 @@ const NETWORK =
  *   tested the batch this run took and the tester's verdict on it, a red
  *   one becoming `red`
  * @property {Red|null} red
+ * @property {{sha: string, reason: string}|null} refused the push to `main`
+ *   this run made and the remote refused, with git's refusal line
+ * @property {boolean} requiresRun whether `main` takes only a sha a CI run
+ *   passed, the tester's `requiresRun`
  */
 
 /** @typedef {"ahead" | "equal" | "behind" | "diverged"} Relation */
@@ -153,6 +165,45 @@ const short = (sha) => sha.slice(0, 9);
 /** @param {string[]} files */
 const filesLabel = (files) =>
 	files.length > 0 ? files.join(", ") : "the whole suite";
+
+/**
+ * @typedef {{files: string[], jobs?: string[]}} Failing what a red failed;
+ *   `jobs` absent on a verdict read off no CI run
+ */
+
+/**
+ * The names that say what a red failed: its files, else its failing CI jobs
+ * (#3253), else none, the whole suite.
+ * @param {Failing} f
+ * @returns {{of: "files" | "jobs", names: string[]} | null}
+ */
+function failingNames({ files, jobs = [] }) {
+	if (files.length > 0) return { of: "files", names: files };
+	if (jobs.length > 0) return { of: "jobs", names: jobs };
+	return null;
+}
+
+/** @param {Failing} f */
+function failingLabel(f) {
+	const named = failingNames(f);
+	if (named?.of !== "jobs") return filesLabel(f.files);
+	return `the CI jobs ${named.names.map((j) => `'${j}'`).join(", ")}`;
+}
+
+/**
+ * `failingLabel` as an issue body's list.
+ * @param {Failing} f
+ */
+function failingList(f) {
+	const named = failingNames(f);
+	if (named === null)
+		return "- the whole suite (the tester named no failing file)";
+	if (named.of === "files")
+		return named.names.map((n) => `- \`${n}\``).join("\n");
+	return named.names
+		.map((n) => `- CI job \`${n}\` (the tester named no failing file)`)
+		.join("\n");
+}
 
 /**
  * The culprit the bisect has narrowed to, or the next commit to test: the
@@ -188,10 +239,10 @@ function bisectStep(r) {
  * its fix ticket. Anything short of that confirmation holds; a run with no
  * verdict exits.
  * @param {Red} r
- * @param {Pick<LanderState, "main" | "isStuck">} s
+ * @param {Pick<LanderState, "main" | "isStuck" | "requiresRun">} s
  * @returns {Action}
  */
-function redAction(r, { main, isStuck }) {
+function redAction(r, s) {
 	/** @type {[string|null, Verdict|null][]} */
 	const runs = [
 		[r.sha, r.flake],
@@ -205,7 +256,13 @@ function redAction(r, { main, isStuck }) {
 		return { kind: "rerun", sha: r.sha, files: r.files, why: "flake" };
 	/* Spec #2261's flake check. Residual: a flaky file outside `files` lands
 	 * unseen, the whole suite having run once, red. */
-	if (r.flake.kind === "green") return { kind: "fast-forward", sha: r.sha };
+	if (r.flake.kind === "green")
+		return isLandable(r.flake, s.requiresRun)
+			? { kind: "fast-forward", sha: r.sha }
+			: {
+					kind: "hold",
+					reason: `${short(r.sha)} passed ${failingLabel(r)} on a rerun no CI run made, and main takes only a sha a CI run passed`,
+				};
 	const tip = namedOr(r.flake, r.files);
 	/* Never once the bisect has begun: its verdicts were taken over `tip`. */
 	if (!r.onMain && !r.range && r.base !== null && tip.length > 0)
@@ -214,7 +271,7 @@ function redAction(r, { main, isStuck }) {
 	const files = tip.filter((f) => !known.includes(f));
 	if (known.length > 0 && files.length === 0)
 		return { kind: "hold", reason: buildAlreadyRedReason(known) };
-	const action = clearRed({ ...r, files }, { main, isStuck, known });
+	const action = clearRed({ ...r, files }, { ...s, known });
 	if (
 		action.kind !== "hold" ||
 		known.length === 0 ||
@@ -228,9 +285,19 @@ function redAction(r, { main, isStuck }) {
 }
 
 /**
- * @typedef {Pick<LanderState, "main" | "isStuck"> & {known: string[]}}
- *   Clearing `known` the tip's red files that are red on `main` too
+ * @typedef {Pick<LanderState, "main" | "isStuck" | "requiresRun">
+ *   & {known: string[]}} Clearing `known` the tip's red files that are red
+ *   on `main` too
  */
+
+/**
+ * Whether `main` may move to a sha `v` judged: green, and read off a CI run
+ * where `main` takes only a sha a run passed.
+ * @param {Verdict|undefined} v
+ * @param {boolean} requiresRun
+ */
+const isLandable = (v, requiresRun) =>
+	v?.kind === "green" && (!requiresRun || v.run !== undefined);
 
 /**
  * The bisect, the culprit's confirmation and what follows it, over `r.files`:
@@ -239,15 +306,12 @@ function redAction(r, { main, isStuck }) {
  * @param {Clearing} s
  * @returns {Action}
  */
-function clearRed(r, { main, isStuck, known }) {
+function clearRed(r, s) {
 	if (!r.range) return { kind: "bisect", base: r.base, sha: r.sha };
 	const step = bisectStep({ ...r, range: r.range });
 	if ("next" in step)
 		return { kind: "rerun", sha: step.next, files: r.files, why: "bisect" };
-	return (
-		confirmAction(r, step, { main, isStuck, known }) ??
-		culpritAction(r, step, main)
-	);
+	return confirmAction(r, step, s) ?? culpritAction(r, step, s);
 }
 
 /**
@@ -310,7 +374,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	if (again.kind === "green")
 		return {
 			kind: "hold",
-			reason: `culprit unconfirmed: ${short(culprit)} passed ${filesLabel(files)} on its second run`,
+			reason: `culprit unconfirmed: ${short(culprit)} passed ${failingLabel({ files, jobs: culpritJobs(r, culprit) })} on its second run`,
 		};
 	if (parent === null) return null;
 	const named = parent === main ? namedOr(again, r.files) : [];
@@ -329,7 +393,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 			reason: parentUnconfirmed(
 				culprit,
 				parent,
-				`fails the whole suite: ${filesLabel(before.files)}`,
+				`fails the whole suite: ${failingLabel(before)}`,
 			),
 		};
 	if (before && before.kind !== "unknown") return null;
@@ -357,7 +421,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 			reason: parentUnconfirmed(
 				culprit,
 				parent,
-				`fails ${filesLabel(onFiles.files)}`,
+				`fails ${failingLabel(onFiles)}`,
 			),
 		};
 	return null;
@@ -386,6 +450,18 @@ function mainConfirmAction(r, main, files, known) {
 }
 
 /**
+ * The CI jobs the culprit's own red failed, which differ from the tip's where
+ * `files` is empty and every rerun is the whole suite.
+ * @param {Red} r
+ * @param {string} culprit
+ */
+function culpritJobs(r, culprit) {
+	for (const v of [r.confirm[culprit], r.bisect[culprit]])
+		if (v?.kind === "red") return v.jobs ?? [];
+	return r.jobs;
+}
+
+/**
  * @param {string} culprit
  * @param {string} parent
  * @param {string} why
@@ -396,17 +472,23 @@ const parentUnconfirmed = (culprit, parent, why) =>
 /**
  * What follows a confirmed culprit: land its parent where it is ahead of
  * `main` and passed the whole suite, revert it on `landing`, then file its
- * fix ticket.
+ * fix ticket. A parent no CI run passed, where `main` requires one, is
+ * reverted past.
  * @param {Red} r
  * @param {{culprit: string, parent: string|null}} confirmed
- * @param {string|null} main
+ * @param {Pick<LanderState, "main" | "requiresRun">} s
  * @returns {Action}
  */
-function culpritAction(r, { culprit, parent }, main) {
+function culpritAction(r, { culprit, parent }, { main, requiresRun }) {
 	const { files } = r;
-	if (parent !== null && parent !== main && r.confirm[parent]?.kind === "green")
+	const jobs = culpritJobs(r, culprit);
+	if (
+		parent !== null &&
+		parent !== main &&
+		isLandable(r.confirm[parent], requiresRun)
+	)
 		return { kind: "fast-forward", sha: parent };
-	if (!r.revert) return { kind: "revert", culprit, parent, files };
+	if (!r.revert) return { kind: "revert", culprit, parent, files, jobs };
 	if ("failed" in r.revert)
 		return {
 			kind: "hold",
@@ -423,6 +505,7 @@ function culpritAction(r, { culprit, parent }, main) {
 		parent,
 		revert: r.revert.sha,
 		files,
+		jobs,
 		stale: r.revert.stale ?? null,
 	};
 }
@@ -444,13 +527,14 @@ function recordRerun(r, action, verdict) {
 /**
  * @param {string} sha
  * @param {string|null} base
- * @param {string[]} files
+ * @param {Extract<Verdict, {kind: "red"}>} verdict
  * @returns {Red}
  */
-const redBatch = (sha, base, files) => ({
+const redBatch = (sha, base, { files, jobs = [] }) => ({
 	sha,
 	base,
 	files,
+	jobs,
 	flake: null,
 	onMain: null,
 	range: null,
@@ -475,6 +559,8 @@ function resumable(r) {
 		);
 	return {
 		...r,
+		/* A heartbeat beaten before #3253 carried no jobs. */
+		jobs: r.jobs ?? [],
 		flake: r.flake?.kind === "unknown" ? null : r.flake,
 		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
@@ -500,13 +586,19 @@ function isNetworkFault(err) {
  * @returns {Action}
  */
 function nextAction(s) {
+	if (s.refused)
+		return {
+			kind: "hold",
+			reason: `the push of ${short(s.refused.sha)} to main was refused: ${s.refused.reason}`,
+		};
 	if (s.red) return redAction(s.red, s);
 	if (s.tested) {
 		const { sha, verdict } = s.tested;
-		if (verdict.kind === "green") return { kind: "fast-forward", sha };
+		if (isLandable(verdict, s.requiresRun))
+			return { kind: "fast-forward", sha };
 		return {
 			kind: "exit",
-			reason: `no verdict at ${short(sha)}: ${verdict.reason}`,
+			reason: `no verdict at ${short(sha)}: ${verdict.kind === "unknown" ? verdict.reason : "its green read no CI run"}`,
 		};
 	}
 	if (s.landing === null)
@@ -541,12 +633,16 @@ function nextAction(s) {
  *   closing its message
  * @property {(tip: string, sha: string) => boolean} contains whether `sha`
  *   is `tip` or one of its ancestors
- * @typedef {{verdict: (sha: string, files?: string[]) => Promise<Verdict>}}
- *   Tester the whole suite at `sha`, or only `files` where they are given;
- *   `files` absent is a batch's own test, present (empty too) a rerun
+ * @typedef {{verdict: (sha: string, files?: string[], lands?: boolean) =>
+ *   Promise<Verdict>, requiresRun?: boolean}} Tester the whole suite at
+ *   `sha`, or only `files` where they are given; `files` absent is a batch's
+ *   own test, present (empty too) a rerun, `lands` where its green would move
+ *   `main`. `requiresRun` where `main` takes only a sha a CI run passed, so
+ *   only a green naming its `run` lands
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
- * @typedef {{batch: string|null, reason: string, files: string[]}} Held a
- *   hold, with the batch and failing files of the red batch it held on
+ * @typedef {{batch: string|null, reason: string, failing: Failing|null}}
+ *   Held a hold, with its batch and what failed there, null where it held on
+ *   a refused push and no red batch
  * @typedef {{landing: string|null, reason: string, filed: string}} HoldNote
  *   the hold a run ended on: its tip as `heldTip` pins it, and what the
  *   held-queue filing printed
@@ -583,8 +679,8 @@ function nextAction(s) {
  */
 
 /**
- * @typedef {Pick<LanderState, "tested" | "red">} RunState what a run carries
- *   between actions
+ * @typedef {Pick<LanderState, "tested" | "red" | "refused">} RunState what a
+ *   run carries between actions
  * @typedef {Exclude<Action, {kind: "exit" | "hold"}>} Step
  */
 
@@ -592,12 +688,13 @@ function nextAction(s) {
  * @param {LanderDeps} deps
  * @param {string} sha
  * @param {string[]} [files]
+ * @param {boolean} [lands]
  */
-async function verdictAt({ tester, beat }, sha, files) {
+async function verdictAt({ tester, beat }, sha, files, lands) {
 	beat(sha);
 	const timer = setInterval(() => beat(sha), HEARTBEAT_MS);
 	try {
-		return await tester.verdict(sha, files);
+		return await tester.verdict(sha, files, lands);
 	} finally {
 		clearInterval(timer);
 	}
@@ -610,24 +707,54 @@ async function verdictAt({ tester, beat }, sha, files) {
  * @param {string|null} main `main` when the action was chosen
  * @returns {Promise<RunState>}
  */
-async function act(deps, action, { tested, red }, main) {
-	const { git, ledger } = deps;
+async function act(deps, action, state, main) {
+	const { ledger } = deps;
+	const { red } = state;
 	if (action.kind === "fast-forward") {
 		/* Ledgered first, so the pre-push check can tell this push from any
-		 * other. Residual: a push that then fails leaves the sha ledgered, and
-		 * the next run retries the push without a second test. */
+		 * other. Residual: a network fault that outlasts the retries leaves
+		 * the sha ledgered, and the next run retries the push without a second
+		 * test. */
 		ledger.add(action.sha);
-		await remote(deps, () => git.pushMain(action.sha));
-		return { tested: null, red: red?.sha === action.sha ? null : red };
+		const refusal = await pushRefusal(deps, action.sha);
+		if (refusal !== null)
+			return { ...state, refused: { sha: action.sha, reason: refusal } };
+		return {
+			...state,
+			tested: null,
+			red: red?.sha === action.sha ? null : red,
+		};
 	}
 	if (action.kind === "test") {
 		const verdict = await verdictAt(deps, action.sha);
 		return verdict.kind === "red"
-			? { tested, red: redBatch(action.sha, main, verdict.files) }
-			: { tested: { sha: action.sha, verdict }, red };
+			? { ...state, red: redBatch(action.sha, main, verdict) }
+			: { ...state, tested: { sha: action.sha, verdict } };
 	}
 	if (red === null) throw new Error(`${action.kind} with no red batch`);
-	return { tested, red: await advanceRed(deps, action, red) };
+	return { ...state, red: await advanceRed(deps, action, red) };
+}
+
+/**
+ * Git's line refusing the push of `sha` to `main`, or null where it landed.
+ * Only a push git itself refused, a ruleset's, a pre-push hook's or a `main`
+ * moved by hand, is one: pushed again, it is refused again (#3329). Any other
+ * failure, a network fault the retries do not outlast or a timeout, throws.
+ * @param {LanderDeps} deps
+ * @param {string} sha
+ * @returns {Promise<string|null>}
+ */
+async function pushRefusal(deps, sha) {
+	try {
+		await remote(deps, () => deps.git.pushMain(sha));
+		return null;
+	} catch (err) {
+		const refusal = isNetworkFault(err)
+			? null
+			: GIT_REFUSAL.exec(String(caught(err).stderr ?? ""));
+		if (!refusal) throw err;
+		return refusal[0];
+	}
 }
 
 /**
@@ -641,7 +768,12 @@ async function act(deps, action, { tested, red }, main) {
 async function advanceRed(deps, action, r) {
 	const { git, tracker, noVerdict, say = () => undefined } = deps;
 	if (action.kind === "rerun") {
-		const verdict = await verdictAt(deps, action.sha, action.files);
+		const verdict = await verdictAt(
+			deps,
+			action.sha,
+			action.files,
+			action.why === "flake" || action.why === "parent",
+		);
 		/* Ledgered, as a hold drops the red batch and the next push's bisect
 		 * would name the same parent again. */
 		if (action.why === "parent" && verdict.kind === "unknown")
@@ -662,7 +794,7 @@ async function advanceRed(deps, action, r) {
 				git.revertOnLanding(
 					action.culprit,
 					action.parent,
-					`The lander found it red on ${filesLabel(action.files)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
+					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
 				),
 			),
 		};
@@ -723,7 +855,7 @@ async function runLander(deps) {
 	}
 	/** @type {Carry} */
 	const carry = {
-		state: { tested: null, red: null },
+		state: { tested: null, red: null, refused: null },
 		held: lastHold(),
 		unread: lastRed(),
 		movedAt: lastMoved(),
@@ -778,6 +910,7 @@ function carried({ state, held, unread }) {
  */
 async function actUntilEnd(run, carry) {
 	const { git, ledger, noVerdict, log = () => undefined } = run;
+	const requiresRun = run.tester.requiresRun === true;
 	const isGreen = (/** @type {string} */ sha) => ledger.has(sha);
 	const isStuck = (/** @type {string} */ sha) => noVerdict.has(sha);
 	for (;;) {
@@ -798,16 +931,18 @@ async function actUntilEnd(run, carry) {
 		}
 		resume(git, carry, refs);
 		const { state } = carry;
-		const action = nextAction({ ...refs, isGreen, isStuck, ...state });
+		const action = nextAction({
+			...refs,
+			isGreen,
+			isStuck,
+			requiresRun,
+			...state,
+		});
 		log(action);
-		if (action.kind === "hold") {
-			if (!state.red) throw new Error("a hold with no red batch");
-			holdQueue(run, action, state.red);
-		}
+		if (action.kind === "hold") holdQueue(run, action, state);
 		if (action.kind === "exit" || action.kind === "hold") return action;
 		carry.state = await act(run, action, state, refs.main);
-		/* act throws where the push fails, so this is a move of `main`. */
-		if (action.kind === "fast-forward")
+		if (action.kind === "fast-forward" && !carry.state.refused)
 			carry.movedAt = new Date().toISOString();
 	}
 }
@@ -854,13 +989,22 @@ function isStillOwed(git, red, { main, landing }) {
  * the next run leaves the held tip alone.
  * @param {LanderDeps} deps
  * @param {Extract<Action, {kind: "hold"}>} hold
- * @param {Red} red
+ * @param {RunState} state its red batch, else its refused push
  */
-function holdQueue({ tracker, beat, say = () => undefined }, hold, red) {
-	const batch = red.sha;
+function holdQueue({ tracker, beat, say = () => undefined }, hold, state) {
+	const { red, refused } = state;
+	/* A push refused while clearing a red batch, its culprit's parent's,
+	 * pins the batch, so a push to `landing` releases it. */
+	const batch = red?.sha ?? refused?.sha;
+	if (batch === undefined)
+		throw new Error("a hold with no red batch or refused push");
 	let filed;
 	try {
-		filed = tracker.holdQueue({ batch, reason: hold.reason, files: red.files });
+		filed = tracker.holdQueue({
+			batch,
+			reason: hold.reason,
+			failing: red ? { files: red.files, jobs: red.jobs } : null,
+		});
 	} catch (err) {
 		/* The hold stands unfiled, named in the beat the stall check prints
 		 * (#2406). */
@@ -868,7 +1012,7 @@ function holdQueue({ tracker, beat, say = () => undefined }, hold, red) {
 	}
 	say(filed);
 	beat(batch, {
-		hold: { landing: heldTip(red), reason: hold.reason, filed },
+		hold: { landing: red ? heldTip(red) : batch, reason: hold.reason, filed },
 	});
 }
 
@@ -1342,6 +1486,7 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	HEARTBEAT_MS,
 	buildRevertLine,
+	failingList,
 	short,
 	buildActionLine,
 	runLander,
