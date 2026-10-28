@@ -123,7 +123,7 @@ const log = (line) => say(`${new Date().toISOString()} ${line}`);
 const parseErrText = (err) =>
 	err instanceof Error ? (err.stack ?? err.message) : String(err);
 
-const readControl = () => loop.readControlFile(log);
+const readControl = () => loop.readControlChecked(log);
 
 /**
  * @param {string} file
@@ -827,7 +827,8 @@ async function decide(input, scope) {
  */
 async function tick({ dryRun }) {
 	const now = Date.now();
-	const control = readControl() ?? {
+	const { control: parsed, damaged } = readControl();
+	const control = parsed ?? {
 		startedAt: now,
 		/* No control file is a loop nobody started: a real tick stops. */
 		stopRequested: !dryRun,
@@ -874,6 +875,8 @@ async function tick({ dryRun }) {
 		now,
 		startedAt: control.startedAt,
 		stopRequested: control.stopRequested,
+		/* A dry run previews launches over any control, as over none. */
+		controlDamaged: dryRun ? null : damaged,
 		frontier: [],
 		retroBundles: [],
 		running: loop.runningOf(judged),

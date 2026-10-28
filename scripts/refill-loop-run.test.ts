@@ -338,6 +338,26 @@ describe("run (#2435)", () => {
 		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
 	});
 
+	it("stops at its first tick on a damaged control file, recorded control-damaged (#3389)", async () => {
+		const control = at(".refill-loop-control.json");
+		fs.writeFileSync(control, "{ not json");
+		const r = await settled(run(1), "run over a damaged control file");
+		expect(r.status).toBe(0);
+		expect(readLines(at("dispatches"))).toEqual([]);
+		expect(readStopped()).toMatchObject({
+			reason: "control-damaged",
+			detail: expect.stringContaining(`${control} is damaged (`),
+		});
+	});
+
+	it("stops at its first tick on an absent control file, recorded explicit (#3389)", async () => {
+		fs.rmSync(at(".refill-loop-control.json"));
+		const r = await settled(run(1), "run with no control file");
+		expect(r.status).toBe(0);
+		expect(readLines(at("dispatches"))).toEqual([]);
+		expect(readStopped()).toMatchObject({ reason: "explicit" });
+	});
+
 	it("tickets earlyoom's kill incidents in its own checkout each tick (#3094)", async () => {
 		const code = path.dirname(scripts);
 		fs.mkdirSync(path.join(code, ".claude"), { recursive: true });

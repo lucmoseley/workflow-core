@@ -36,6 +36,7 @@ import {
 	parseProbeOutcome,
 	parseScope,
 	parseState,
+	readControlChecked,
 	readJson,
 	readSizedSeats,
 	reviewRunRecorded,
@@ -562,10 +563,13 @@ describe("a tick's log line (#2362)", () => {
 				refused: [],
 			}),
 			readControl = () => ({
-				startedAt: NOW,
-				stopRequested: false,
-				seats: [],
-				scope: away([]),
+				control: {
+					startedAt: NOW,
+					stopRequested: false,
+					seats: [],
+					scope: away([]),
+				},
+				damaged: null,
 			}),
 			read = null,
 			writes = [],
@@ -746,10 +750,13 @@ describe("a tick's log line (#2362)", () => {
 		let reads = 0;
 		const line = logged(decision, 2, [], {
 			readControl: () => ({
-				startedAt: NOW,
-				stopRequested: reads++ > 0,
-				seats: [],
-				scope: away([]),
+				control: {
+					startedAt: NOW,
+					stopRequested: reads++ > 0,
+					seats: [],
+					scope: away([]),
+				},
+				damaged: null,
 			}),
 		});
 		expect(line).toBe(
@@ -1003,6 +1010,72 @@ describe("a loop file's read (#3380)", () => {
 	});
 });
 
+describe("the tick's control read (#3389)", () => {
+	let tmp: string;
+	const saved = process.env.WFC_REFILL_DIR;
+	beforeEach(() => {
+		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-control-"));
+		process.env.WFC_REFILL_DIR = tmp;
+	});
+	afterEach(() => {
+		if (saved === undefined) delete process.env.WFC_REFILL_DIR;
+		else process.env.WFC_REFILL_DIR = saved;
+		fs.rmSync(tmp, { recursive: true, force: true });
+	});
+	const file = () => path.join(tmp, ".refill-loop-control.json");
+	const read = () => {
+		const lines: string[] = [];
+		return { ...readControlChecked((l) => lines.push(l)), lines };
+	};
+	const decided = (damaged: string | null) =>
+		decideTick({
+			now: NOW,
+			startedAt: NOW,
+			stopRequested: true,
+			controlDamaged: damaged,
+			frontier: [],
+			retroBundles: [],
+			running: [],
+			freeSlots: 1,
+			lastPromptAt: null,
+			seats: [],
+			history: [],
+		});
+
+	it("reads an absent control as none, not damaged, so a real tick stops as explicit", () => {
+		const r = read();
+		expect(r).toEqual({ control: null, damaged: null, lines: [] });
+		expect(decided(r.damaged)).toMatchObject({ stop: "explicit" });
+	});
+
+	it.each([
+		["unparseable", "{ not json", /JSON/],
+		["a JSON null", "null", /no startedAt/],
+		["not a control", JSON.stringify({ stopRequested: false }), /no startedAt/],
+	])(
+		"stops on an %s control under its own reason, naming the file",
+		(_, body, why) => {
+			fs.writeFileSync(file(), body);
+			const r = read();
+			expect(r.control).toBeNull();
+			expect(r.damaged).toContain(file());
+			expect(r.damaged).toMatch(why);
+			expect(r.lines).toEqual([
+				`${r.damaged}; the loop stops on it until a start rewrites it`,
+			]);
+			expect(decided(r.damaged)).toEqual({
+				stop: "control-damaged",
+				detail: r.damaged,
+			});
+		},
+	);
+
+	it("reads a whole control as itself", () => {
+		fs.writeFileSync(file(), JSON.stringify({ startedAt: 5 }));
+		expect(read()).toMatchObject({ control: { startedAt: 5 }, damaged: null });
+	});
+});
+
 describe("the control file", () => {
 	it("reads a malformed file as no start", () => {
 		expect(parseControl(null)).toBeNull();
@@ -1077,6 +1150,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 	function settle({
 		stopFirst = false,
 		gone = false,
+		damaged = false,
 		refused = [] as number[],
 		onLaunch = (_n: number, _stop: () => void): unknown => undefined,
 		onReview = (_stop: () => void): unknown => undefined,
@@ -1103,13 +1177,19 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 			},
 			{
 				readControl: () =>
-					gone
-						? null
+					gone || damaged
+						? {
+								control: null,
+								damaged: damaged ? "/r/control.json is damaged (bad)" : null,
+							}
 						: {
-								startedAt: 10,
-								stopRequested: stopWritten,
-								seats: [],
-								scope: away([]),
+								control: {
+									startedAt: 10,
+									stopRequested: stopWritten,
+									seats: [],
+									scope: away([]),
+								},
+								damaged: null,
 							},
 				launchBatch: ([l]) => {
 					const [n] = l.issues;
@@ -1171,6 +1251,16 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		const r = settle({ gone: true });
 		expect(r.dispatched).toEqual([]);
 		expect(r.state?.stopped).toMatchObject({ reason: "explicit" });
+	});
+
+	it("records a control file damaged mid-tick as its own stop (#3389)", () => {
+		const r = settle({ damaged: true });
+		expect(r.dispatched).toEqual([]);
+		expect(r.state?.stopped).toEqual({
+			at: NOW,
+			reason: "control-damaged",
+			detail: "/r/control.json is damaged (bad)",
+		});
 	});
 });
 

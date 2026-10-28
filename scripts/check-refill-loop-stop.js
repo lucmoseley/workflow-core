@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * check-refill-loop-stop.js — name, at the next session start, a refill loop
- * that stopped on no progress or on the allowance cut (#2014, spec #1995
- * story 32).
+ * that stopped on no progress, on the allowance cut or on a damaged control
+ * file (#2014, spec #1995 story 32; #3389).
  *
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
@@ -27,9 +27,9 @@
  * file is no stop. A damaged state file is its own WARN, named at every
  * session start until the loop's next tick rewrites it; a damaged control
  * file, read only beside a fresh stop, is named with it, until a `start`
- * rewrites it (#3380).
+ * rewrites it (#3380); beside the stop it caused, the stop line names it.
  *
- * IMPLICIT:  at every session start, prints the refill loop's last stop where it was no progress or the allowance cut and is newer than the stamp, then stamps it; and names a damaged state or control file.
+ * IMPLICIT:  at every session start, prints the refill loop's last stop where it was no progress, the allowance cut or a damaged control file and is newer than the stamp, then stamps it; and names a damaged state or control file.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping.
  * DEFEAT:    none needed — it never blocks; deleting the stamp names the last stop again.
  */
@@ -49,6 +49,7 @@ const {
 const STOP_REASON_WORDS = {
 	"no-progress": "no progress",
 	allowance: "the allowance cut",
+	"control-damaged": "a damaged control file",
 };
 
 /** @param {string} file */
@@ -117,8 +118,9 @@ runCheck({
 			stopped.at > readSeen(files.stopSeen);
 		if (fresh) {
 			const at = new Date(stopped.at).toISOString();
-			const control = loop.parseControl(
-				loop.readJson(files.control, reportDamaged),
+			/* A control-damaged stop's line names the damage already. */
+			const control = loop.readControlFile(
+				stopped.reason === "control-damaged" ? () => undefined : reportDamaged,
 			);
 			const renewed = loop.isRenewedSince(control, stopped.at);
 			const since = renewed

@@ -56,6 +56,13 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  */
 
 /**
+ * @typedef {object} ControlRead
+ * @property {Control|null} control
+ * @property {string|null} damaged the file and why, where it exists but is not
+ *   a control
+ */
+
+/**
  * Which repos the loop serves (#2123). Normal mode, what `/pick-next` starts,
  * serves `repos`; away mode, started only on the founder's ask, serves every
  * included checkout bar `exclude`.
@@ -124,27 +131,40 @@ function loopFiles() {
 }
 
 /**
- * The parsed file, or null where it is absent or damaged. A damaged file,
- * one that exists but will not read or parse, is a fault, so `log` gets a
- * line naming it and the error (#3380).
+ * The file's read: `found` false where it is absent, else its parsed `value`,
+ * or why it would not read or parse in `damage`.
+ * @param {string} file
+ * @returns {{found: boolean, value: unknown, damage: string|null}}
+ */
+function readJsonOutcome(file) {
+	try {
+		const value = JSON.parse(fs.readFileSync(file, "utf8"));
+		return { found: true, value, damage: null };
+	} catch (err) {
+		const { code, message } = caught(err);
+		return code === "ENOENT"
+			? { found: false, value: null, damage: null }
+			: { found: true, value: null, damage: message };
+	}
+}
+
+/**
+ * The parsed file, or null where it is absent or damaged. A damaged file is a
+ * fault, so `log` gets a line naming it and the error (#3380).
  * @param {string} file
  * @param {(line: string) => void} log
  * @returns {unknown}
  */
 function readJson(file, log) {
-	try {
-		return JSON.parse(fs.readFileSync(file, "utf8"));
-	} catch (err) {
-		/* Fail open (#2012): an absent file is a loop never started, and each
-		 * caller's parse reads null as its defaults, so a damaged file costs the
-		 * remembered state rather than stopping the loop. */
-		const { code, message } = caught(err);
-		if (code !== "ENOENT")
-			log(
-				`${file} is damaged (${message}); read as absent, so its defaults stand until its next write replaces it`,
-			);
-		return null;
-	}
+	/* Fail open (#2012): each caller's parse reads null as its defaults, so a
+	 * damaged file costs the remembered state rather than stopping the loop;
+	 * the control alone stops it, through readControlChecked. */
+	const { value, damage } = readJsonOutcome(file);
+	if (damage !== null)
+		log(
+			`${file} is damaged (${damage}); read as absent, so its defaults stand until its next write replaces it`,
+		);
+	return value;
 }
 
 /**
@@ -189,13 +209,30 @@ function parseScope(raw) {
 }
 
 /**
- * The control file `start` and `stop` write, parsed; null where it is absent
- * or not one.
+ * The control file `start` and `stop` write, parsed, and why where it exists
+ * but is not one. A damaged control is no loop nobody started: the tick stops
+ * on it under its own reason (#3389).
  * @param {(line: string) => void} log
- * @returns {Control|null}
+ * @returns {ControlRead}
  */
-const readControlFile = (log) =>
-	parseControl(readJson(loopFiles().control, log));
+function readControlChecked(log) {
+	const file = loopFiles().control;
+	const { found, value, damage } = readJsonOutcome(file);
+	const control = parseControl(value);
+	const why =
+		damage ??
+		(found && control === null ? "not a control: no startedAt" : null);
+	if (why === null) return { control, damaged: null };
+	const damaged = `${file} is damaged (${why})`;
+	log(`${damaged}; the loop stops on it until a start rewrites it`);
+	return { control: null, damaged };
+}
+
+/**
+ * The control file's fields, or null where it is absent or damaged.
+ * @param {(line: string) => void} log
+ */
+const readControlFile = (log) => readControlChecked(log).control;
 
 /**
  * The control file's fields, or null where it is not one.
@@ -838,12 +875,13 @@ const stoppedOf = (d, at) =>
  * for no stop, write the state before the morning review runs, so the
  * review's minutes cannot lose this tick's launches to a kill, then run it.
  * A stop that landed during the dispatches or the review is logged and
- * recorded as `stop: explicit`, so the loop ends at this tick's end, which
+ * recorded as `stop: explicit`, or `control-damaged` where the re-read found
+ * the control damaged, so the loop ends at this tick's end, which
  * `stop` promises (#2126).
  * @param {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision, state: LoopState,
  *   judged: LoopLaunch[], probes: Probe[], read: FrontierRead|null}} tick
- * @param {{readControl: () => Control|null,
+ * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   writeState: (state: LoopState) => void,
@@ -854,7 +892,7 @@ const stoppedOf = (d, at) =>
 function settleTick({ input, decision, state, judged, probes, read }, io) {
 	const outcome = launchUntilStopped(
 		"stop" in decision ? [] : batchesOf(decision.launches),
-		io.readControl,
+		() => io.readControl().control,
 		io.launchBatch,
 	);
 	const summary = buildTickLine(decision, outcome, {
@@ -875,10 +913,15 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 	};
 	io.writeState(next);
 	const reviewRunOn = io.runReview(state.reviewRunOn, input.now);
+	const reread = "stop" in decision ? null : io.readControl();
 	const late =
-		"stop" in decision || !isStopRequested(io.readControl())
+		reread === null || !isStopRequested(reread.control)
 			? null
-			: decideTick({ ...input, stopRequested: true });
+			: decideTick({
+					...input,
+					stopRequested: true,
+					controlDamaged: reread.damaged,
+				});
 	if (late) io.log(summaryOf(late));
 	if (late || reviewRunOn !== state.reviewRunOn)
 		io.writeState({
@@ -920,6 +963,7 @@ module.exports = {
 	parseCapFits,
 	ceilingsOf,
 	parseControl,
+	readControlChecked,
 	readControlFile,
 	buildFinishLine,
 	isRenewedSince,

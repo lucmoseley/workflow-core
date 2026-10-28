@@ -103,6 +103,8 @@ const ALREADY_RUNNING = "already running";
  * @property {number} now ms
  * @property {number} startedAt ms, the last `start` or renewal
  * @property {boolean} stopRequested
+ * @property {string|null} [controlDamaged] the control file and why, where it
+ *   exists but is not a control
  * @property {MergedRow[]} frontier lib/frontier-order.js's merged ranking
  * @property {MergedBundle[]} retroBundles
  * @property {{root: string, issues: number[]}[]} running
@@ -127,7 +129,10 @@ const ALREADY_RUNNING = "already running";
  * @property {true} [gate] a gate judgement's launch (#3092)
  */
 
-/** @typedef {"explicit" | "expired" | "no-progress" | "allowance"} StopReason */
+/**
+ * @typedef {"control-damaged" | "explicit" | "expired" | "no-progress"
+ *   | "allowance"} StopReason
+ */
 
 /** @typedef {{root: string, number: number, why: string}} Skip */
 
@@ -347,6 +352,8 @@ function rowLaunch(row, retroBundles, isTaken) {
  * @returns {Extract<Decision, {stop: StopReason}> | null}
  */
 function stopOf(input, pick) {
+	if (input.controlDamaged)
+		return { stop: "control-damaged", detail: input.controlDamaged };
 	if (input.stopRequested)
 		return { stop: "explicit", detail: "stop was requested" };
 	if (input.now >= input.startedAt + RUN_MS)

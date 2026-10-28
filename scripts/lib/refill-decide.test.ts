@@ -89,6 +89,12 @@ describe("decideTick stops (#2007)", () => {
 		expect(tick({ stopRequested: true })).toMatchObject({ stop: "explicit" });
 	});
 
+	it("stops on a damaged control ahead of the explicit stop it reads as (#3389)", () => {
+		expect(
+			tick({ stopRequested: true, controlDamaged: "/c is damaged (bad)" }),
+		).toEqual({ stop: "control-damaged", detail: "/c is damaged (bad)" });
+	});
+
 	it("stops 24 hours after the last start, not before", () => {
 		expect(tick({ startedAt: NOW - 24 * HOUR })).toMatchObject({
 			stop: "expired",

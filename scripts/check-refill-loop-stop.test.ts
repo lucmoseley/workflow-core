@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Pins that check-refill-loop-stop.js names a refill loop stopped on no
- * progress or the allowance cut once, at the next session start (#2014), and
+ * progress, the allowance cut or a damaged control file once, at the next
+ * session start (#2014, #3389), and
  * never an expiry or an explicit stop, and names a damaged state file (#3380).
  * WFC_REFILL_DIR points the loop's files
  * at a temp directory, so the machine's real loop is never read. Loosen a case
@@ -124,6 +125,19 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).toContain("REFILL-LOOP-STOPPED");
 		/* No control reads as no renewal, so the restart is named. */
 		expect(r.stdout).toContain("/pick-next");
+	});
+
+	it("names a damaged-control stop once, with the file, and no second warning (#3389)", () => {
+		const control = path.join(dir, ".refill-loop-control.json");
+		fs.writeFileSync(control, "{ not json");
+		writeState("control-damaged", `${control} is damaged (bad JSON)`);
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			`stopped on a damaged control file at 2026-10-18T03:00:00.000Z: ${control} is damaged (bad JSON)`,
+		);
+		expect(r.stdout).not.toContain("REFILL-LOOP-FILE-DAMAGED");
+		expect(run(["--notify"]).stdout).toBe("");
 	});
 
 	it("says the loop was started again where a start followed the stop", () => {
