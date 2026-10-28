@@ -72,9 +72,6 @@ process.exit(1);
 
 export const HOUR = 60 * 60 * 1000;
 
-/**
- * The fixture over `sb`, its `run` driving `script` in the checkout.
- */
 export function morningReviewFixture(
 	sb: ReturnType<typeof freshSandbox>,
 	script: string,
