@@ -58,6 +58,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
 const { SELF_PLUGIN_MARKETPLACE } = require("./lib/core-hooks.js");
+const { selfMarketplaceEntry } = require("./build-arm-sandbox.js");
 
 const TASKS_DIR = path.join(__dirname, "arm-tasks");
 const SANDBOX_CLI = path.join(__dirname, "build-arm-sandbox.js");
@@ -239,7 +240,7 @@ const fixPatch = (name) => path.join(path.dirname(tasksFile()), name);
  * @param {string} repo
  * @returns {string[]}
  */
-function taskPaths(task, repo) {
+function readTaskPaths(task, repo) {
 	const lists = task.fix
 		? [
 				git(repo, ["apply", "--numstat", fixPatch(task.fix)]).replace(
@@ -496,7 +497,7 @@ function acceptance(task, root) {
 		detail: `HEAD ${head.slice(0, 9)}, origin ${pushed.slice(0, 9)}`,
 	});
 
-	const paths = taskPaths(task, repo);
+	const paths = readTaskPaths(task, repo);
 	const dirty = git(repo, ["status", "--porcelain", "--", ...paths]);
 	results.push({
 		check: "the task's paths are committed",
@@ -597,12 +598,7 @@ function verifyOne(task, knownGood, { scratch, at, nodeModules }) {
 	fs.mkdirSync(path.join(config, "plugins"), { recursive: true });
 	fs.writeFileSync(
 		path.join(config, "plugins", "known_marketplaces.json"),
-		JSON.stringify({
-			[SELF_PLUGIN_MARKETPLACE]: {
-				source: { source: "directory", path: config },
-				installLocation: config,
-			},
-		}),
+		JSON.stringify({ [SELF_PLUGIN_MARKETPLACE]: selfMarketplaceEntry(config) }),
 	);
 	const args = ["build", task.id, "--at", at, "--to", to];
 	args.push("--node-modules", nodeModules, "--config-dir", config);

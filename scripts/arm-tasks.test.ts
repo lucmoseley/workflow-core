@@ -96,31 +96,45 @@ describe("the committed task set", () => {
 		git(ROOT, "rev-parse", "--verify", "--quiet", `${sha}^{commit}`) !== "";
 	const historyHeld = tasks.some((t) => t.revert.some(held));
 
+	// A generated-only file is a tool's output, not work done (#2080).
+	const classes: Record<string, { class: string }> = JSON.parse(
+		fs.readFileSync(path.join(ROOT, "docs/doc-map-classes.json"), "utf8"),
+	);
+	const expectWrittenFiles = (t: Task, touched: string) => {
+		const files = new Set(
+			touched
+				.split("\n")
+				.filter((f) => f && classes[f]?.class !== "generated-only"),
+		);
+		expect(files.size, t.id).toBeGreaterThanOrEqual(1);
+		expect(files.size, t.id).toBeLessThanOrEqual(4);
+	};
+
+	it("carries each fix patch in the tree, touching 1–4 files a session writes", () => {
+		for (const t of tasks)
+			if (t.fix)
+				expectWrittenFiles(
+					t,
+					git(ROOT, "apply", "--numstat", taskPatch(t.fix)).replace(
+						/^\S+\t\S+\t/gm,
+						"",
+					),
+				);
+	});
+
 	it.skipIf(!historyHeld)(
-		"reverts commits this repo holds, touching 1–4 files a session writes",
+		"reverts commits this repo holds, a task with no fix patch touching 1–4 files a session writes",
 		() => {
-			// A generated-only file is a tool's output, not work done (#2080).
-			const classes: Record<string, { class: string }> = JSON.parse(
-				fs.readFileSync(path.join(ROOT, "docs/doc-map-classes.json"), "utf8"),
-			);
 			for (const t of tasks) {
 				for (const sha of t.revert)
 					expect(held(sha), `${t.id} ${sha}`).toBe(true);
-				const touched = t.fix
-					? git(ROOT, "apply", "--numstat", taskPatch(t.fix)).replace(
-							/^\S+\t\S+\t/gm,
-							"",
-						)
-					: t.revert
+				if (!t.fix)
+					expectWrittenFiles(
+						t,
+						t.revert
 							.map((sha) => git(ROOT, "show", "--format=", "--name-only", sha))
-							.join("\n");
-				const files = new Set(
-					touched
-						.split("\n")
-						.filter((f) => f && classes[f]?.class !== "generated-only"),
-				);
-				expect(files.size, t.id).toBeGreaterThanOrEqual(1);
-				expect(files.size, t.id).toBeLessThanOrEqual(4);
+							.join("\n"),
+					);
 			}
 		},
 	);

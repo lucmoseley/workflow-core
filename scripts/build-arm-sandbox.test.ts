@@ -404,6 +404,76 @@ describe("task: one run's sandbox", () => {
 		expect(fs.existsSync(to)).toBe(false);
 	});
 
+	it("refuses an --unapply patch that is absent, naming it, and builds nothing", () => {
+		const patch = path.join(tmp, "absent.patch");
+		const to = path.join(tmp, "run-1");
+		const r = run([
+			"task",
+			"--repo",
+			sourceRepo(),
+			"--at",
+			"HEAD",
+			"--to",
+			to,
+			"--unapply",
+			patch,
+		]);
+		expect(r.code).toBe(1);
+		expect(r.err).toBe(
+			`✗ no --unapply patch ${patch}; name a patch file that exists, then build again.\n`,
+		);
+		expect(fs.existsSync(to)).toBe(false);
+	});
+
+	it("refuses an --unapply patch that does not reverse-apply at --at, naming the regeneration, and leaves an empty --to empty", () => {
+		const patch = path.join(tmp, "stale.patch");
+		fs.writeFileSync(
+			patch,
+			"diff --git a/f.txt b/f.txt\n--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-elsewhere\n+nowhere\n",
+		);
+		const to = path.join(tmp, "run-1");
+		fs.mkdirSync(to);
+		const r = run([
+			"task",
+			"--repo",
+			sourceRepo(),
+			"--at",
+			"HEAD",
+			"--to",
+			to,
+			"--unapply",
+			patch,
+		]);
+		expect(r.code).toBe(1);
+		expect(r.err).toContain(
+			`✗ --unapply patch ${patch} does not reverse-apply at HEAD; regenerate it against HEAD, then build again:\n`,
+		);
+		expect(r.err).toContain("f.txt: patch does not apply");
+		expect(fs.readdirSync(to)).toEqual([]);
+	});
+
+	it("refuses a --revert that conflicts at --at, naming the way out, and builds nothing", () => {
+		const repo = sourceRepo();
+		const root = git(repo, "rev-list", "--max-parents=0", "HEAD").stdout.trim();
+		const to = path.join(tmp, "run-1");
+		const r = run([
+			"task",
+			"--repo",
+			repo,
+			"--at",
+			"HEAD",
+			"--to",
+			to,
+			"--revert",
+			root,
+		]);
+		expect(r.code).toBe(1);
+		expect(r.err).toContain(
+			`✗ --revert ${root} does not revert cleanly at HEAD; pick an --at it reverts at, then build again:\n`,
+		);
+		expect(fs.existsSync(to)).toBe(false);
+	});
+
 	it.each([
 		["a config dir's jobs tree", path.join(".claude3", "jobs", "abc", "run")],
 		["a repo's worktrees", path.join("repo", ".claude", "worktrees", "run")],

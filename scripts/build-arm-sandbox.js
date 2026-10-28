@@ -22,7 +22,9 @@
  * `--revert`, then every `--unapply` patch in reverse, applied as one commit, whose `origin` is a local bare repo, and `bin/gh`, a stub
  * that logs every call and reaches nothing (`lib/arm-gh-stub.js`). It refuses a
  * target under any config dir's `jobs/` tree or a `.claude/worktrees` tree, where
- * lib/job-dir-scratch.js and the worktree rules would fire on every run.
+ * lib/job-dir-scratch.js and the worktree rules would fire on every run, and a
+ * `--revert` or `--unapply` that does not take at `--at`, leaving `--to` as it
+ * was.
  * With `--node-modules` linked, the clone's own `npm run prepare` arms its git
  * hooks, so the commit gates and pre-push run as they do live. Launch the
  * session with `sandbox.env` sourced, cwd `<to>/repo`: it puts the stub first
@@ -52,7 +54,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const { readCommit } = require("./lib/commit-sha.js");
-const { execGit, gitReader } = require("./lib/git.js");
+const { execGit, gitReader, spawnGitSync } = require("./lib/git.js");
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const {
 	readTrackerRemotes,
@@ -450,6 +452,16 @@ function pointDeclaredSelfMarketplace(settingsFile, dir) {
 }
 
 /**
+ * The `known_marketplaces.json` entry that registers the `wfc-self`
+ * marketplace loaded in place from `dir`.
+ * @param {string} dir
+ */
+const selfMarketplaceEntry = (dir) => ({
+	source: { source: "directory", path: dir },
+	installLocation: dir,
+});
+
+/**
  * Points `configDir`'s `wfc-self` marketplace, its `settings.json`
  * declaration, and any install record loaded in place from it, at `clone`'s
  * `self-plugin/`.
@@ -472,10 +484,11 @@ function pointSelfPlugin(configDir, clone) {
 			unpointed: `${knownFile} registers no ${SELF_PLUGIN_MARKETPLACE} marketplace`,
 		};
 	const was = entry.installLocation;
+	const pointed = selfMarketplaceEntry(dir);
 	known[SELF_PLUGIN_MARKETPLACE] = {
 		...entry,
-		source: { ...entry.source, path: dir },
-		installLocation: dir,
+		...pointed,
+		source: { ...entry.source, ...pointed.source },
 	};
 	fs.writeFileSync(knownFile, `${JSON.stringify(known, null, 2)}\n`);
 	const installedFile = path.join(
@@ -516,9 +529,12 @@ function armSelfPlugin(configDir, clone) {
  * @param {string} clone
  * @param {string[]} reverts
  * @param {string[]} unapplied absolute patch paths
+ * @param {string} at the revision the clone starts from, for the refusal
+ * @returns {string | null} the refusal where a sha does not revert or a patch
+ *   does not reverse-apply
  */
-function startTask(clone, reverts, unapplied) {
-	if (reverts.length + unapplied.length === 0) return;
+function startTask(clone, reverts, unapplied, at) {
+	if (reverts.length + unapplied.length === 0) return null;
 	const start = git(clone, ["rev-parse", "HEAD"]);
 	const identity = [
 		"-c",
@@ -526,12 +542,55 @@ function startTask(clone, reverts, unapplied) {
 		"-c",
 		"user.email=sandbox@invalid",
 	];
-	for (const sha of reverts)
-		git(clone, [...identity, "revert", "--no-edit", sha]);
-	for (const patch of unapplied)
-		git(clone, ["apply", "--reverse", "--3way", "--index", patch]);
+	/** @param {string[]} args */
+	const failure = (args) => {
+		const r = spawnGitSync(args, { cwd: clone, encoding: "utf8" });
+		return r.status === 0 ? null : String(r.stderr).trim();
+	};
+	for (const sha of reverts) {
+		const err = failure([...identity, "revert", "--no-edit", sha]);
+		if (err !== null)
+			return `--revert ${sha} does not revert cleanly at ${at}; pick an --at it reverts at, then build again:\n${err}`;
+	}
+	for (const patch of unapplied) {
+		const err = failure(["apply", "--reverse", "--3way", "--index", patch]);
+		if (err !== null)
+			return `--unapply patch ${patch} does not reverse-apply at ${at}; regenerate it against ${at}, then build again:\n${err}`;
+	}
 	git(clone, ["reset", "--quiet", "--soft", start]);
 	git(clone, [...identity, "commit", "--quiet", "-m", "Start the task"]);
+	return null;
+}
+
+/**
+ * Leaves `root` as the build found it, which `readTaskRefusal` has made
+ * empty or absent.
+ * @param {string} root
+ * @param {boolean} preexisting
+ */
+function unbuild(root, preexisting) {
+	const doomed = preexisting
+		? fs.readdirSync(root).map((e) => path.join(root, e))
+		: [root];
+	for (const p of doomed) fs.rmSync(p, { recursive: true, force: true });
+}
+
+/**
+ * Why a task sandbox cannot be built from these inputs, before anything is
+ * written.
+ * @param {{ repo: string, at: string, to: string, reverts: string[], unapplied: string[] }} inputs
+ * @returns {string | null}
+ */
+function readTaskRefusal({ repo, at, to, reverts, unapplied }) {
+	if (isInsideForbiddenTree(to))
+		return `${to} is inside a config dir's jobs/ tree or a .claude/worktrees tree; build the sandbox outside every one.`;
+	if (!isEmptyOrAbsent(to)) return `${to} exists and is not empty.`;
+	const missing = [at, ...reverts].filter((rev) => !hasCommit(repo, rev));
+	if (missing.length > 0) return refuseMissing(repo, missing);
+	const absent = unapplied.filter((p) => !fs.existsSync(p));
+	if (absent.length > 0)
+		return `no --unapply patch ${absent.join(", ")}; name a patch file that exists, then build again.`;
+	return null;
 }
 
 /**
@@ -545,21 +604,14 @@ function buildTask({ flags, lists }) {
 	const nodeModules = flagValue(flags, "--node-modules");
 	const configDir = flagValue(flags, "--config-dir");
 	if (!repo || !at || !to) return refuse(TASK_USAGE);
-	if (isInsideForbiddenTree(to))
-		return refuse(
-			`${to} is inside a config dir's jobs/ tree or a .claude/worktrees tree; build the sandbox outside every one.`,
-		);
-	if (!isEmptyOrAbsent(to)) return refuse(`${to} exists and is not empty.`);
 	const reverts = lists["--revert"] ?? [];
 	const unapplied = (lists["--unapply"] ?? []).map((p) => path.resolve(p));
-	const missing = [at, ...reverts].filter((rev) => !hasCommit(repo, rev));
-	if (missing.length > 0) return refuse(refuseMissing(repo, missing));
-	const absent = unapplied.filter((p) => !fs.existsSync(p));
-	if (absent.length > 0)
-		return refuse(`no --unapply patch ${absent.join(", ")}`);
+	const refusal = readTaskRefusal({ repo, at, to, reverts, unapplied });
+	if (refusal) return refuse(refusal);
 	const base = git(repo, ["rev-parse", "--verify", `${at}^{commit}`]);
 
 	const root = path.resolve(to);
+	const preexisting = fs.existsSync(root);
 	const origin = path.join(root, "origin.git");
 	const clone = path.join(root, "repo");
 	fs.mkdirSync(path.join(root, "bin"), { recursive: true });
@@ -567,7 +619,11 @@ function buildTask({ flags, lists }) {
 	git(root, ["init", "--quiet", "--bare", origin]);
 	git(root, ["clone", "--quiet", path.resolve(repo), clone]);
 	git(clone, ["checkout", "--quiet", "-B", "main", base]);
-	startTask(clone, reverts, unapplied);
+	const unstarted = startTask(clone, reverts, unapplied, at);
+	if (unstarted) {
+		unbuild(root, preexisting);
+		return refuse(unstarted);
+	}
 	git(clone, ["remote", "set-url", "origin", origin]);
 	git(clone, ["push", "--quiet", "origin", "main"]);
 	git(clone, ["fetch", "--quiet", "--prune", "origin"]);
@@ -624,4 +680,4 @@ function main(argv) {
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));
 
-module.exports = { main };
+module.exports = { main, selfMarketplaceEntry };
