@@ -8,11 +8,11 @@
  * creates the store's directories, and under an unreadable /proc path
  * mkdirSync blocks forever on this kernel rather than raising — a hang only
  * killable from outside (mantahostels#175). Unbounded, it would run the
- * dispatcher into its 10 s entry timeout, whose `block` refuses the Bash
- * call. LEDGER_TIMEOUT_MS, cut to what the entry's budget leaves
+ * dispatcher into its entry timeout, whose `block` refuses the Bash call.
+ * LEDGER_TIMEOUT_MS, cut to what the entry's budget leaves
  * (lib/hook-deadline.js), bounds each write far above the ~80 ms a real one
  * takes, and the first timeout fails every later write at once, so a
- * command crediting many paths still returns inside the entry's 10 s. A
+ * command crediting many paths still returns inside the entry's budget. A
  * failed write throws, which the core logs and passes.
  */
 

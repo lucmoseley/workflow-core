@@ -11,11 +11,13 @@
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
+const { budgetMs } = require("./hook-deadline.js");
 
 const SCRIPT = path.join(__dirname, "..", "push-review-owed.sh");
 
-/* A ceiling under the hook's 10 s, not a measurement: the adapter answered in
- * 0.5-1.3 s a call at load1 20 (#2785's baseline). */
+/* A ceiling, not a measurement, cut to what the dispatcher's entry budget
+ * leaves (hook-deadline.js): the adapter answered in 0.5-1.3 s a call at
+ * load1 20 (#2785's baseline). */
 const REVIEW_TIMEOUT_MS = 6000;
 
 /**
@@ -73,7 +75,7 @@ function readOwed(out) {
 function reviewOwed({ sessionId, tree, log }) {
 	const r = spawnSync("bash", [SCRIPT, sessionId, tree], {
 		encoding: "utf8",
-		timeout: REVIEW_TIMEOUT_MS,
+		timeout: budgetMs(REVIEW_TIMEOUT_MS),
 		stdio: ["ignore", "pipe", "ignore"],
 	});
 	if (r.error || r.status !== 0) {

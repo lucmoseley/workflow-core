@@ -2,12 +2,11 @@
  * branch-publish-host.js — the production port lib/branch-publish.js reads
  * through the dispatcher (#2792): the one `gh pr view` a `gh pr merge` naming
  * no `dependabot/` branch costs, run in the command's own directory under an
- * 8 s timeout, cut to what the dispatcher's budget leaves
- * (lib/hook-deadline.js).
+ * 8 s timeout, a guess over the 0.95–1.45 s five calls measured, which
+ * lib/gh.js cuts to what the dispatcher's 30 s budget leaves.
  */
 
 const { gh } = require("./gh.js");
-const { budgetMs } = require("./hook-deadline.js");
 
 const LOOKUP_TIMEOUT_MS = 8000;
 
@@ -18,7 +17,7 @@ function buildHostPorts() {
 			try {
 				return gh(args, {
 					cwd,
-					timeout: budgetMs(LOOKUP_TIMEOUT_MS),
+					timeout: LOOKUP_TIMEOUT_MS,
 					stdio: ["ignore", "pipe", "ignore"],
 				});
 			} catch {

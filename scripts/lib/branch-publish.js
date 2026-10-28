@@ -56,10 +56,10 @@
  *    "$B"`) is allowed and recorded: Bash calls share no shell state, so the
  *    name is unknowable here.
  *  - A `gh pr merge` naming no `dependabot/` branch costs one `gh pr view`,
- *    under the host's 8 s timeout: 0.95–1.45 s over five measured calls,
- *    leaving 2 s of the 10 s ceiling for the rest. Where the lookup fails — or
- *    cannot be aimed: an unreadable PR or repo word, a `GH_REPO` override, an
- *    unknown directory — the merge is allowed and recorded. The lookup runs
+ *    under the host's 8 s timeout: 0.95–1.45 s over five measured calls.
+ *    Where the lookup fails — or cannot be aimed: an unreadable PR or repo
+ *    word, a `GH_REPO` override, an unknown directory — the merge is allowed
+ *    and recorded. The lookup runs
  *    in the segment's own directory (walkCommands' cwd). A merge through `gh
  *    api` is not read. Adopters get the limb too (#2020).
  *  - Only a segment's own command word is read, after shell-words.js's unwrap

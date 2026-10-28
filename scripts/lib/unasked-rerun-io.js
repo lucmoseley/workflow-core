@@ -27,6 +27,7 @@ const {
 } = require("./test-pass-marker.js");
 const { caught } = require("./caught.js");
 const { gitAnswer, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
+const { budgetMs } = require("./hook-deadline.js");
 
 /* arbiter-markers.js's sweep names the same prefix. */
 const LATCH_PREFIX = ".unasked-rerun-refused-";
@@ -60,7 +61,10 @@ function judgeIO(root, { timeoutMs = HOOK_GIT_TIMEOUT_MS } = {}) {
 			/** @type {import("./dirty-tree.js").ExecFn} */
 			(file, args, options) => {
 				try {
-					return execFileSync(file, args, { ...options, timeout: timeoutMs });
+					return execFileSync(file, args, {
+						...options,
+						timeout: budgetMs(timeoutMs),
+					});
 				} catch (e) {
 					if (caught(e).code === "ETIMEDOUT") seen.timedOut = true;
 					throw e;

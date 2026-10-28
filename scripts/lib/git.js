@@ -20,21 +20,29 @@ const { promisify } = require("node:util");
 
 const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const { spawnTimeout } = require("./hook-deadline.js");
 
 const pExecFile = promisify(execFile);
 
 const gitBinary = () => process.env.WFC_GIT || "git";
 
 /**
+ * The options every git spawn takes: its timeout, or none, cut to what the
+ * dispatcher's entry budget leaves (hook-deadline.js).
  * @template {object} T
  * @param {T} [opts]
  * @returns {T & {maxBuffer: number}}
  */
-const gitSpawnOptions = (opts) =>
-	/** @type {T & {maxBuffer: number}} */ ({
+const gitSpawnOptions = (opts) => {
+	const timeout = spawnTimeout(
+		/** @type {{ timeout?: number } | undefined} */ (opts)?.timeout,
+	);
+	return /** @type {T & {maxBuffer: number}} */ ({
 		maxBuffer: CHILD_MAX_BUFFER,
 		...opts,
+		...(timeout ? { timeout } : {}),
 	});
+};
 
 /**
  * execFileSync on git: returns stdout, throws on a non-zero exit.
@@ -159,11 +167,11 @@ function spawnGitSync(args, opts = {}) {
 }
 
 /* The ceiling on one git call a hook makes, sized to the tightest budget any
- * caller answers to (#3248): the 8 s the PreToolUse dispatcher cuts its
- * budgeted reads to (hook-deadline.js). Its other adapters answer only to its
- * 60 s registration, and standalone hooks to their own, 10 s or more. A
+ * caller answers to (#3248): the 7.5 s the PostToolUse dispatcher cuts its
+ * reads to (hook-deadline.js). The PreToolUse dispatcher cuts them to 30 s,
+ * and standalone hooks answer to their own registration, 10 s or more. A
  * ceiling, not a measurement: `git rev-parse` answers in milliseconds, and two
- * wedged calls at 3 s leave 2 s of the 8 s to the rest. */
+ * wedged calls at 3 s leave 1.5 s of the 7.5 s to the rest. */
 const HOOK_GIT_TIMEOUT_MS = 3000;
 
 /* The ceiling on a git call not held to HOOK_GIT_TIMEOUT_MS, unmeasured and

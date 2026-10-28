@@ -17,8 +17,7 @@ const { resolveKey } = require("./workflow-core-config.js");
  * @returns {import("./issue-close.js").ClosePorts}
  */
 const buildHostPorts = (root) => ({
-	gh: (args, timeoutMs) =>
-		require("./gh.js").gh(args, { timeout: budgetMs(timeoutMs) }),
+	gh: (args, timeoutMs) => require("./gh.js").gh(args, { timeout: timeoutMs }),
 	now: Date.now,
 	readFile: (rel) => {
 		try {

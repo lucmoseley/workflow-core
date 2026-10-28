@@ -1368,7 +1368,7 @@ describe("the fail-opens it records", () => {
 });
 
 /*
- * The run budget: each call gets what is left of 8 s, at most 4 s, as its
+ * The run budget: each call gets what is left of 30 s, at most 4 s, as its
  * timeout, and a call with under 1 s left is not made but recorded.
  */
 describe("the time budget it runs under", () => {
@@ -1390,7 +1390,7 @@ describe("the time budget it runs under", () => {
 	});
 
 	it("allows and records a close whose Outstanding line it has no time left to judge", () => {
-		expect(verdict("gh issue close 12", { slow: 7500 })).toBe("allow");
+		expect(verdict("gh issue close 12", { slow: 29_500 })).toBe("allow");
 		expect(faults).toEqual([
 			"no time left in the guard's budget to judge #12's Outstanding line — close allowed unchecked",
 		]);
@@ -1400,7 +1400,7 @@ describe("the time budget it runs under", () => {
 		expect(
 			verdict(
 				"gh issue close 12",
-				newest("**Outstanding:** #181 (x)", { slow: 3600 }),
+				newest("**Outstanding:** #181 (x)", { slow: 14_600 }),
 			),
 		).toBe("allow");
 		expect(faults).toEqual([
@@ -1410,10 +1410,14 @@ describe("the time budget it runs under", () => {
 	});
 
 	it("makes no gh call with under a second left, and records the close unchecked", () => {
-		// The call starts at 0; every later reading is 7.001 s on.
+		// The call starts at 0; every later reading is 29.001 s on.
 		const readings = [0];
 		expect(
-			verdict("gh issue close 12", {}, { now: () => readings.shift() ?? 7001 }),
+			verdict(
+				"gh issue close 12",
+				{},
+				{ now: () => readings.shift() ?? 29_001 },
+			),
 		).toBe("allow");
 		expect(calls).toEqual([]);
 		expect(faults).toEqual([

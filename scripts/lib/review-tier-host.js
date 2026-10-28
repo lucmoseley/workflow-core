@@ -2,15 +2,13 @@
  * review-tier-host.js — the production ports lib/review-tier.js reads through
  * the dispatcher (#2792): git's view of the trees a review covers, this
  * session's start point and the paths it wrote or committed, and the host's
- * declared sensitive paths. Every git read carries the hook's git timeout, cut
- * to what the dispatcher's budget leaves (lib/hook-deadline.js), and answers
- * as an erroring one where it overruns.
+ * declared sensitive paths. Every git read carries the hook's git timeout, and
+ * answers as an erroring one where it overruns.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { gitCommonDir, gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
-const { budgetMs } = require("./hook-deadline.js");
 const { gitTopLevel } = require("./host-root.js");
 const { markersDir } = require("./marker-root.js");
 
@@ -20,7 +18,7 @@ const { markersDir } = require("./marker-root.js");
  * @param {string[]} args
  */
 const git = (dir, args) =>
-	gitOrNull(args, { cwd: dir, timeout: budgetMs(HOOK_GIT_TIMEOUT_MS) });
+	gitOrNull(args, { cwd: dir, timeout: HOOK_GIT_TIMEOUT_MS });
 
 /**
  * git's stdout as lines, none where git errors. core.quotePath=false, so a
@@ -41,14 +39,13 @@ function buildHostPorts(root) {
 	return {
 		topLevel: (dir) => {
 			try {
-				return gitTopLevel(dir, budgetMs(HOOK_GIT_TIMEOUT_MS));
+				return gitTopLevel(dir, HOOK_GIT_TIMEOUT_MS);
 			} catch {
 				/* Not a git tree, or git overran: no worktree to read. */
 				return null;
 			}
 		},
-		commonDir: (dir) =>
-			gitCommonDir(dir, { timeout: budgetMs(HOOK_GIT_TIMEOUT_MS) }),
+		commonDir: (dir) => gitCommonDir(dir, { timeout: HOOK_GIT_TIMEOUT_MS }),
 		staged: (tree) => lines(tree, ["diff", "--cached", "--name-only"]),
 		/* lib/concision-marker.sh's concision_session_base, its twin
 		 * (#2971). Existence is not
@@ -85,7 +82,7 @@ function buildHostPorts(root) {
 		billed: (sid) => {
 			try {
 				const store = require("./arbiter-store.js");
-				return store.withGitTimeout(budgetMs(HOOK_GIT_TIMEOUT_MS), () =>
+				return store.withGitTimeout(HOOK_GIT_TIMEOUT_MS, () =>
 					store.readBilledPathsBy(sid, "review tier"),
 				).value;
 			} catch {

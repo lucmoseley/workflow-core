@@ -13,6 +13,7 @@ const { promisify } = require("node:util");
 
 const { skipError, brokenError, isOutcomeError } = require("./check");
 const { ISSUE_LIST_LIMIT } = require("./gh-limits.js");
+const { spawnTimeout } = require("./hook-deadline.js");
 const { codeRepoArgs } = require("./workflow-core-config.js");
 
 const pExecFile = promisify(execFile);
@@ -111,8 +112,8 @@ function gh(args, opts = {}) {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "pipe"],
 			maxBuffer: MAX_BUFFER,
-			timeout: GH_TIMEOUT_MS,
 			...opts,
+			timeout: spawnTimeout(opts.timeout ?? GH_TIMEOUT_MS),
 		})
 	);
 }
@@ -127,8 +128,8 @@ async function ghAsync(args, opts = {}) {
 	const { stdout } = await pExecFile(ghBinary(), routed(args), {
 		encoding: "utf8",
 		maxBuffer: MAX_BUFFER,
-		timeout: GH_TIMEOUT_MS,
 		...opts,
+		timeout: spawnTimeout(opts.timeout ?? GH_TIMEOUT_MS),
 	});
 	return /** @type {string} */ (/** @type {unknown} */ (stdout));
 }

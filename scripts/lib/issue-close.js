@@ -148,7 +148,7 @@ const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
 /* The ms clock lets no call end past the dispatcher's entry budget, counted
  * from the core's own start on its injected clock. The 4 s cap and the 1 s
  * floor are carried unmeasured. */
-const BUDGET_MS = ENTRY_BUDGET_MS;
+const BUDGET_MS = ENTRY_BUDGET_MS.PreToolUse;
 const CALL_MS = 4000;
 const MIN_CALL_MS = 1000;
 
