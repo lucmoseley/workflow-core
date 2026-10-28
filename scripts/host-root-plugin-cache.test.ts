@@ -408,6 +408,9 @@ describe("every rooted script, loaded from the cache against the host", () => {
 					 * alone, not all of docs/agents, whose prose a script must
 					 * still read from the host. */
 					p !== path.join(cache, "hooks", "hooks.json") &&
+					/* The base standards: every repo reads them from the plugin,
+					 * in place, and writes only its local file (#3451). */
+					p !== path.join(cache, "docs", "code-standards-base.md") &&
 					!within(p, path.join(cache, "docs", "agents", "rules")) &&
 					/* script-path.js's checkout-or-install probe, which asks
 					 * where the core sits, never what the host holds (#343). */
