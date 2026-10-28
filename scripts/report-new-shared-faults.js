@@ -67,6 +67,7 @@ const CHECKERS = {
 	),
 	"host-root": path.join(CORE_SCRIPTS, "check-host-root.js"),
 	"skill-frontmatter": path.join(CORE_SCRIPTS, "check-skill-frontmatter.js"),
+	"jsonl-reads": path.join(CORE_SCRIPTS, "check-jsonl-reads.js"),
 	"cli-args": path.join(CORE_SCRIPTS, "check-cli-args.js"),
 };
 
@@ -154,6 +155,11 @@ const COSTS = {
 		why: "every script's host-root seam, direction-gated in .husky/pre-commit (#917)",
 		cost: "warns every other session's commit touching scripts/, .claude/ or .husky/",
 		full: "node scripts/check-host-root.js",
+	},
+	"jsonl-reads": {
+		why: "every hand split-and-parse of JSONL, direction-gated in .husky/pre-commit until #3453 (#3452)",
+		cost: "warns every other session's commit touching scripts/ until that site reads through lib/jsonl.js",
+		full: "node scripts/check-jsonl-reads.js",
 	},
 	"cli-args": {
 		why: "every top-level script's argv reader, direction-gated in .husky/pre-commit (#920)",

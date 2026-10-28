@@ -92,6 +92,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | ruff | a finding the commit introduces, under the repo's root ruff config, else the plugin's `ruff.toml` | staged `.py` outside `ruffExclude`; a missing binary refuses unless a workflow runs `ruff check` |
 | `scripts/check-swallowed-errors.js` | an `except` the commit adds that neither raises nor exits and cites no ticket (§N5) | staged program-routed `.py`; a missing `python3` refuses |
 | `scripts/check-cli-args.js` | a program reading its command line without a strict parser | a `scripts/*.js` the commit adds or edits; an inherited one only warns |
+| `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a site a staged `scripts/` program adds; an inherited one only warns, until #3453 |
 | `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity | a commit staging `scripts/` code, each judging the whole repo |
 | `scripts/check-host-root.js` | a script finding the host repository other than through the one host-root seam, or a file shipping with the plugin reached through the host root | a commit staging `scripts/`, `.claude/` or `.husky/`, judging the whole repo; skips in a repo shipping no plugin |
 | `scripts/check-primitives.js` | a primitives row whose exemplar or enforcing check path, or § id, does not resolve, or a local row naming a base row's job; a base row's fault only warns in an adopter | every commit, `--paths-only`, reading the worktree |
@@ -116,6 +117,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | A checker's outcome, report and exit | `runCheck` in `scripts/lib/check.js` and its five-outcome alphabet | `scripts/check-cli-args.js` | §N3, §N4 | Standards axis criterion |
 | Finding the host repository | `hostRoot()` in `scripts/lib/host-root.js` | `scripts/check-stale-git-locks.js` | §0, its floor table | `scripts/check-host-root.js` |
 | Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
+| Reading a JSONL file or text | `readJsonl` or `parseJsonl` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
 
 ---

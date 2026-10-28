@@ -472,6 +472,13 @@ if armed '^scripts/[^/]+\.js$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
 fi
 
+# A hand split-and-parse of JSONL rather than lib/jsonl.js (#3452).
+# Direction-gated as a stopgap until #3453 moves every reader: an inherited
+# site warns, and one this commit adds refuses.
+if armed '^scripts/.+\.[cm]?js$'; then
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js --against HEAD || exit "$?"
+fi
+
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml
 # (mantahostels#390, the ticket that moved this local). Rationale and measurement:
 # docs/doc-map.md §A.

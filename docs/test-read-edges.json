@@ -254,6 +254,9 @@
 		".claude/skills/handoff": [
 			"scripts/check-context-budget.test.ts"
 		],
+		".claude/skills/heresy-sweep/SKILL.md": [
+			"scripts/check-context-budget.test.ts"
+		],
 		".claude/skills/implement": [
 			"scripts/check-context-budget.test.ts"
 		],
@@ -3737,6 +3740,22 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-jev-flags.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-jsonl-reads.js": [
+			"scripts/check-jsonl-reads.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-jsonl-reads.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -12323,6 +12342,32 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/js-lex.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/jsonl.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/check-jsonl-reads.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/jsonl.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/jsonl.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",

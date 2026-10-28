@@ -224,6 +224,12 @@ const PROFILES = {
 	 */
 	"cli-args": findingsProfile(on("severity", "tag", "file", "content")),
 	/*
+	 * The subject is one hand-parse site (#3452). `match` is the split line's
+	 * text and its occurrence number in the file, so a line added above an
+	 * inherited site leaves it inherited and a second copy of one is new.
+	 */
+	"jsonl-reads": findingsProfile(on("severity", "tag", "file", "match")),
+	/*
 	 * check-doc-map.js (mantahostels#1688), whose envelope is the other shape: the faults are
 	 * the TOP-LEVEL lists — `uncovered`, `dead`, `pointerFaults`, the route lists —
 	 * one list per fault kind, so the key IS the kind.

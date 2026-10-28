@@ -17,7 +17,7 @@ const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
 const { requiredGroup } = require("./regex-group.js");
-const { caught } = require("./caught.js");
+const { readJsonl } = require("./jsonl.js");
 
 /** A prompt's leading `/<skill>`, any `<plugin>:` namespace aside. */
 const COMMAND_RE = /^\s*\/(?:[\w.-]+:)?([\w.-]+)/;
@@ -125,36 +125,26 @@ function entryHolds(rec, command) {
 
 /**
  * Every row inside the window, launches and releases alike. A malformed line
- * is skipped rather than failing the read — the ledger is append-only and a
- * torn write must not disarm every later check.
+ * is skipped rather than failing the read (lib/jsonl.js) — the ledger is
+ * append-only and a torn write must not disarm every later check.
  * @param {string|undefined} root
  * @param {number} windowHours
  * @returns {{ok: boolean, rows: (DispatchRecord|ReleaseRecord)[], error?: string}}
  */
 function readWindowRows(root, windowHours) {
-	const file = ledgerPath(root);
-	let text;
+	let read;
 	try {
-		text = fs.readFileSync(file, "utf8");
+		read = readJsonl(ledgerPath(root));
 	} catch (err) {
-		if (caught(err).code === "ENOENT") {
-			return { ok: true, rows: [] }; // never launched from here: not a failure
-		}
 		return { ok: false, rows: [], error: String(err) };
 	}
+	if (!read) return { ok: true, rows: [] }; // never launched from here: not a failure
 	const cutoff = Date.now() - windowHours * 3600 * 1000;
 	const rows = /** @type {(DispatchRecord|ReleaseRecord)[]} */ ([]);
-	for (const line of text.split("\n")) {
-		if (!line.trim()) continue;
-		let rec;
-		try {
-			rec = JSON.parse(line);
-		} catch {
-			continue;
-		}
-		const at = Date.parse(rec.ts);
+	for (const rec of read.rows) {
+		const at = Date.parse(String(rec.ts));
 		if (Number.isNaN(at) || at < cutoff) continue;
-		rows.push(rec);
+		rows.push(/** @type {DispatchRecord|ReleaseRecord} */ (rec));
 	}
 	return { ok: true, rows };
 }

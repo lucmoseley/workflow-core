@@ -205,6 +205,10 @@
 			"lines": ["fall through to the default action"]
 		},
 		{
+			"id": "jsonl-reads",
+			"lines": ["hand-parses JSONL"]
+		},
+		{
 			"id": "primitives",
 			"lines": ["primitives table fault(s)"]
 		},

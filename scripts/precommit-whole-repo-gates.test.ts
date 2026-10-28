@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Pins the whole-repo pre-commit gates (mantahostels#1753) — guard-registry,
- * guard-test-isolation, git-fixture-identity and cli-args — exercised as the
+ * guard-test-isolation, git-fixture-identity, jsonl-reads and cli-args — exercised as the
  * shell they are: each one `--against HEAD` call, refusing with the checker's
  * own exit code, and the `--root` each side of the comparison is read through.
  *
@@ -46,6 +46,11 @@ const GATES = [
 		profile: "git-fixture-identity",
 		checker: "scripts/check-git-fixture-identity.js",
 		staged: "scripts/a.test.ts",
+	},
+	{
+		profile: "jsonl-reads",
+		checker: "scripts/check-jsonl-reads.js",
+		staged: "scripts/a.js",
 	},
 	{
 		profile: "cli-args",
