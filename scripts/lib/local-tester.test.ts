@@ -272,6 +272,29 @@ it("runs the declared full_test over test, and the Python suite only where the c
 	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
 });
 
+it("runs the Python suite from a plugin path with a space in it", async () => {
+	const pytest = path.join(tmp, "a plugin", "fake-pytest.js");
+	const ran = path.join(tmp, "pytest-ran");
+	fs.mkdirSync(path.dirname(pytest));
+	fs.writeFileSync(
+		pytest,
+		`require("node:fs").appendFileSync(${JSON.stringify(ran)}, "ran\\n");`,
+	);
+	config({
+		commands: { test: "true" },
+		pythonRoutes: { "**/test_*.py": "test" },
+	});
+	const routed = commit("routes python");
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+		pytest,
+	});
+	expect(await tester.verdict(routed)).toEqual({ kind: "green" });
+	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
+});
+
 it("holds one slot for the run and releases it, and never runs past a shut gate", async () => {
 	const { log, admit } = admitted();
 	await localTester({ root: work, admit, exec: recordingExec().exec }).verdict(

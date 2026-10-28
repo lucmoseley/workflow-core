@@ -365,7 +365,7 @@ function install(dir, exec) {
  * Python is routed, the rest on `test`.
  * @param {string[]} files
  * @param {string|null} test
- * @param {string|false} python the runner's command, false where unrouted
+ * @param {Run|false} python the runner's run, false where unrouted
  * @returns {Run[] | string}
  */
 function rerunsOf(files, test, python) {
@@ -374,7 +374,9 @@ function rerunsOf(files, test, python) {
 	if (rest.length > 0 && !test) return "no test command is declared";
 	return [
 		...(test && rest.length > 0 ? [{ command: test, args: rest }] : []),
-		...(python && py.length > 0 ? [{ command: python, args: py }] : []),
+		...(python && py.length > 0
+			? [{ ...python, args: [...python.args, ...py] }]
+			: []),
 	];
 }
 
@@ -401,7 +403,14 @@ function readRunsAt(dir, pytest, files) {
 	const routesPython = Object.values(config.pythonRoutes ?? {}).includes(
 		"test",
 	);
-	const python = `node ${pytest}`;
+	/* An argument, not shell text, so a plugin path with a space reaches node
+	 * whole. */
+	/** @type {Run} */
+	const python = {
+		command: "node",
+		args: [pytest],
+		label: `node ${path.basename(pytest)}`,
+	};
 	if (files.length > 0) {
 		const runs = rerunsOf(files, test, routesPython && python);
 		return typeof runs === "string" ? runs : [runs];
@@ -415,9 +424,7 @@ function readRunsAt(dir, pytest, files) {
 			shards > 1
 				? { command: whole, args: [shard], label: `${whole} ${shard}` }
 				: { command: whole, args: [] },
-			...(routesPython && i === shards - 1
-				? [{ command: python, args: [] }]
-				: []),
+			...(routesPython && i === shards - 1 ? [python] : []),
 		];
 	});
 }
