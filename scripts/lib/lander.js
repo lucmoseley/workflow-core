@@ -314,6 +314,13 @@ function redOnMain(onMain, checked) {
 
 const ALREADY_RED = "already red on `main`: ";
 
+/**
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ * @param {string[]} known
+ */
+const isRedOnlyOn = (v, known) =>
+	v.files.length > 0 && v.files.every((f) => known.includes(f));
+
 /** @param {string[]} files */
 const buildAlreadyRedReason = (files) =>
 	`${ALREADY_RED}${filesLabel([...new Set(files)])}`;
@@ -351,13 +358,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	if (parent === null) return null;
 	const named = parent === main ? namedOr(again, r.files) : [];
 	if (named.length > 0)
-		return mainConfirmAction(
-			r,
-			parent,
-			/** @type {string} */ (main),
-			named,
-			known,
-		);
+		return mainConfirmAction(r, /** @type {string} */ (main), named, known);
 	/* The whole suite, as the parent lands on `main`, which only ever holds a
 	 * sha the full suite passed. */
 	const before = r.confirm[parent];
@@ -365,10 +366,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 		return { kind: "rerun", sha: parent, files: [], why: "parent" };
 	/* A parent red only on files red on `main` is reverted past, never landed:
 	 * culpritAction fast-forwards a parent only where its whole suite passed. */
-	if (
-		before?.kind === "red" &&
-		!(before.files.length > 0 && before.files.every((f) => known.includes(f)))
-	)
+	if (before?.kind === "red" && !isRedOnlyOn(before, known))
 		return {
 			kind: "hold",
 			reason: parentUnconfirmed(
@@ -413,16 +411,15 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
  * there, never the whole suite, as `main` lands nothing. A red naming no
  * file keeps confirmAction's whole-suite run.
  * @param {Red} r
- * @param {string} parent
- * @param {string} main
+ * @param {string} main the culprit's parent
  * @param {string[]} files the culprit's failing files
  * @param {string[]} known the tip's files the base check found red on `main`
  * @returns {Action|null}
  */
-function mainConfirmAction(r, parent, main, files, known) {
-	const before = r.confirm[parent];
+function mainConfirmAction(r, main, files, known) {
+	const before = r.confirm[main];
 	if (!before) return { kind: "rerun", sha: main, files, why: "parent-main" };
-	if (before.kind === "unknown") return buildNoVerdictExit(parent, before);
+	if (before.kind === "unknown") return buildNoVerdictExit(main, before);
 	if (before.kind === "red")
 		return {
 			kind: "hold",
