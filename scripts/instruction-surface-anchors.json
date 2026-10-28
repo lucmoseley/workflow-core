@@ -313,8 +313,8 @@
 			"source": "#3143"
 		},
 		"scripts/lib/headroom-read.js": {
-			"digest": "1b3f121f086ff230",
-			"verdict": "at need — on the reading, before the stop-or-launch conclusion is drawn; once per session (latch), so a second short reading later in the session gets nothing Run as a core of scripts/guard-dispatch.js since #3225; not re-measured there, so the figures are the deleted standalone entry's.",
+			"digest": "ce61bb15ae651c3e",
+			"verdict": "at need — on the reading, before the stop-or-launch conclusion is drawn; once per session (latch), so a second short reading later in the session gets nothing. Run as a core of scripts/guard-dispatch.js since #3225 (fed through it at e4976a2aa3 under #3305: `free -m`, `free -h`, `cat /proc/meminfo` and `grep MemAvail /proc/meminfo` each injected the headroom-reap rule as additionalContext, no `rule:` id printed, 1114 B; the same session's repeat `free -m` 0 B; `free --help` and `echo \"free -m\"` silent). Byte counts are the whole hook stdout.",
 			"selfSufficient": "yes for the action (reap with `node scripts/reap-finished-sessions.js`, re-read) — but the stop threshold is a pointer only (\"docs/environment.md §6's rung\"), no figure inline",
 			"source": "#2073"
 		},
