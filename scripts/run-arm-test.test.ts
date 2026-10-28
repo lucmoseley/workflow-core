@@ -805,13 +805,35 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 				hung: "x",
 			}),
 		);
+		const bad = path.join(root, "launched", "broken.json");
+		fs.writeFileSync(bad, "{}");
 		fs.rmSync(readPlan(root).cli.path);
 		const r = run(runArgs(root), env);
 		expect(r.code).toBe(2);
+		expect(r.err).toContain(`${bad} does not name its run`);
 		expect(r.err).toContain(
 			`${runs[0].id} may still be going: CLAUDE_CONFIG_DIR=${runs[0].configDir} claude stop j0`,
 		);
 		expect(r.err).not.toContain(runs[1].id);
+	});
+
+	it("names each run still going, and a record that will not parse by its file, once its loop throws (#3506)", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const { env, stops } = loopStub();
+		const { dir, runs } = seedLaunched(root, 0, 1);
+		const bad = path.join(dir, "broken.json");
+		fs.writeFileSync(bad, "{");
+		const r = run(runArgs(root), env);
+		expect(r.code).toBe(1);
+		expect(r.err).toContain("run threw:");
+		expect(r.err).toContain(
+			`${runs[0].id} may still be going: CLAUDE_CONFIG_DIR=${runs[0].configDir} claude stop j0`,
+		);
+		expect(r.err).toContain(
+			`${bad} does not name its run, which may still be going: find its job in its arm's \`claude agents\` and \`claude stop\` it`,
+		);
+		expect(fs.existsSync(stops)).toBe(false);
 	});
 });
 

@@ -41,9 +41,9 @@
  * repeat it, and exits once every run started has ended, still stopping at
  * the ceiling and the limit, so no run is left going unwatched (#3503). Where
  * the plan's CLI is gone nothing can stop a run, so it names each and the
- * `claude stop` that ends it. It drops the starting session's
- * id, which would outlive that session, and logs why a pair is held each time
- * the reason changes (#2046).
+ * `claude stop` that ends it, as it does where its loop throws (#3506). It
+ * drops the starting session's id, which would outlive that session, and logs
+ * why a pair is held each time the reason changes (#2046).
  *
  * `report` scores each launched run that has ended (`score-session-
  * breaches.js`), judges its sandbox (`arm-tasks.js accept`), checks the
@@ -392,13 +392,17 @@ const readPlan = (root) =>
  * @param {string} root
  * @returns {LaunchRecord[]}
  */
-function readLaunched(root) {
+const readLaunched = (root) =>
+	launchedFiles(root).map((f) => JSON.parse(fs.readFileSync(f, "utf8")));
+
+/** @param {string} root */
+function launchedFiles(root) {
 	const dir = path.join(root, "launched");
 	if (!fs.existsSync(dir)) return [];
 	return fs
 		.readdirSync(dir)
 		.filter((f) => f.endsWith(".json"))
-		.map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")));
+		.map((f) => path.join(dir, f));
 }
 
 /**
@@ -932,12 +936,38 @@ function stopAtLimit(root, bin, { limitMs, pollMs, failed }) {
 function refuseGoneCli(cli, root) {
 	const gone = cliGone(cli);
 	if (!gone) return null;
-	for (const rec of readLaunched(root).filter((r) => !stoppedByRun(r)))
-		writeFd(
-			2,
-			`✗ ${rec.id} may still be going: CLAUDE_CONFIG_DIR=${rec.configDir} claude stop ${rec.job}\n`,
-		);
+	nameStillGoing(root);
 	return refuse(gone);
+}
+
+/**
+ * Name each launched run not recorded ended with the `claude stop` that ends
+ * it, and each record that will not parse by its file, since it cannot name
+ * its own run.
+ * @param {string} root
+ */
+function nameStillGoing(root) {
+	for (const file of launchedFiles(root)) {
+		/** @type {LaunchRecord | undefined} */
+		let rec;
+		try {
+			rec = JSON.parse(fs.readFileSync(file, "utf8"));
+		} catch {
+			// Left undefined, so it is named by its file below.
+		}
+		if (!rec?.id || !rec.configDir || !rec.job) {
+			writeFd(
+				2,
+				`✗ ${file} does not name its run, which may still be going: find its job in its arm's \`claude agents\` and \`claude stop\` it\n`,
+			);
+			continue;
+		}
+		if (!stoppedByRun(rec))
+			writeFd(
+				2,
+				`✗ ${rec.id} may still be going: CLAUDE_CONFIG_DIR=${rec.configDir} claude stop ${rec.job}\n`,
+			);
+	}
 }
 
 /**
@@ -1038,11 +1068,31 @@ function logHeld(step, lastHeld) {
 	return held;
 }
 
-/** @param {import("./lib/cli-args").Parsed} parsed */
-function runAll({ flags }) {
-	const setup = runSetup(flags);
+/**
+ * `run`, naming each run left going where its loop throws (#3506).
+ * @param {import("./lib/cli-args").Parsed} parsed
+ */
+function runAll(parsed) {
+	const setup = runSetup(parsed.flags);
 	if (typeof setup === "string") return refuse(setup);
-	const { o, planned, limitMs } = setup;
+	try {
+		return runLoop(setup);
+	} catch (e) {
+		writeFd(2, `✗ run threw: ${e instanceof Error ? e.stack : e}\n`);
+		try {
+			nameStillGoing(setup.o.root);
+		} catch (listing) {
+			writeFd(
+				2,
+				`✗ cannot list ${path.join(setup.o.root, "launched")} (${listing instanceof Error ? listing.message : listing}), so any run started may still be going: check each arm's \`claude agents\`\n`,
+			);
+		}
+		return 1;
+	}
+}
+
+/** @param {Exclude<ReturnType<typeof runSetup>, string>} setup */
+function runLoop({ o, planned, limitMs }) {
 	// Monotonic, so a wall-clock step neither fires the limit early nor holds it off.
 	const startedAt = performance.now();
 	let lastHeld = "";
