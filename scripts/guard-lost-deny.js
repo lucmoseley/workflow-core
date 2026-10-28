@@ -176,7 +176,7 @@ function priceIn(dirs, calls, root) {
 	const isDenyCapable = isDenyCapableIn(dirs);
 	const host = coreHost(root);
 	return (guard, toolUseID) => {
-		const name = guard.replace(/ .*$/s, "");
+		const name = guard.split(" ", 1)[0] ?? "";
 		if (!isDenyCapable(name)) return [];
 		const call = calls.get(toolUseID);
 		if (name !== path.basename(DISPATCH_ENTRY) || !call) return [guard];
@@ -238,7 +238,7 @@ function howItWent(l) {
  * @returns {string}
  */
 function describeLost(lost) {
-	return lost.replace(/ .*$/s, "") === path.basename(DISPATCH_ENTRY)
+	return (lost.split(" ", 1)[0] ?? "") === path.basename(DISPATCH_ENTRY)
 		? `${lost}: its tool call is not in this transcript, so which cores it ran is UNKNOWN — treat it as worth replaying.`
 		: denyRates.describe(lost);
 }
@@ -400,7 +400,7 @@ function lastSessionId(text, tier) {
  * @returns {boolean} whether it denied the call
  */
 function replayGuard(guard, payload, dirs) {
-	const name = guard.replace(/ .*$/s, "");
+	const name = guard.split(" ", 1)[0] ?? "";
 	const args = guard.split(" ").slice(1);
 	process.stdout.write(`\n=== ${guard} ===\n`);
 	/* `lossesIn` admitted it on reading it there, so only a file removed since
