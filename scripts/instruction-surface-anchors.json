@@ -121,16 +121,16 @@
 			"source": "#3143"
 		},
 		"scripts/lib/branch-publish.js": {
-			"digest": "ec30b104271febde",
-			"verdict": "at need on the bare and the wrapped spellings — `env`, `timeout 30`, `timeout 30s` and `command` before `git push origin feat` are refused like the bare push, as the header's LIMITS say, and a timeout-wrapped `gh pr create` too. A force-push or remote deletion of `main` (`--force`, `-f`, `--force-with-lease` and its abbreviation, a `+` refspec, `heads/main`, `--delete`/`--del main`, `:main`), wrapped or bare, is refused with the main-rewind rule before it runs; a plain push to `main` and a deletion of another branch pass silent. A `gh pr merge` of a Dependabot PR — its `dependabot/*` branch named, or a `gh pr view` lookup answering true — is refused with the dependabot-merge rule; one the lookup clears, or `--disable-auto`, passes silent (#2020). Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases) Re-fed at #3146 through the entry: with the landing module on, a plain push to `main` is refused too (`main` only the lander moves), and with it off it passes silent as above.",
-			"selfSufficient": "yes — rule, both landing recipes and the pass list inline; the force/delete-`main` refusal carries the main-rewind reason, the follow-up-commit fix and the resets that pass; the Dependabot-merge refusal carries the whole local-fix recipe.; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/branch-publish.txt, branch-publish-landing.txt, main-rewind.txt, landing-rewind.txt or dependabot-merge.txt.",
-			"source": "#2792"
+			"digest": "fa7e173118395804",
+			"verdict": "at need on the bare and the wrapped spellings — with the landing module on, a push to a branch or to `main` (`main` only the lander moves), `gh pr create`, and `env`, `timeout 30`, `timeout 30s` or `command` before the push or a `gh pr create` are refused with the landing rule (1887–1913 B). A force-push or remote deletion of `main` (`--force`, `-f`, `--force-with-lease` and its abbreviation, a `+` refspec, `heads/main`, `--delete`/`--del main`, `:main`), wrapped or bare, is refused with the main-rewind rule before it runs (`--force` 1074 B, `:main` 1076 B); a push to `landing` and a deletion of another branch pass silent. A `gh pr merge` of a Dependabot PR — its `dependabot/*` branch named, or a `gh pr view` lookup answering true — is refused with the dependabot-merge rule (2456 B by branch name); one the lookup clears, or `--disable-auto`, passes silent (#2020). With landing off a plain push to `main` passes silent (re-fed at #3146). Run as a core of scripts/guard-dispatch.js (#2792) (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — rule, both landing recipes and the pass list inline; the force/delete-`main` refusal carries the main-rewind reason, the follow-up-commit fix and the resets that pass; the Dependabot-merge refusal carries the whole local-fix recipe and names the guard-npm-install core that refuses an install without `--ignore-scripts`. With the rule store empty each refusal keeps a one-line rule and names its file: branch-publish.txt, branch-publish-landing.txt, main-rewind.txt, landing-rewind.txt or dependabot-merge.txt (Dependabot 420 B, re-fed under #3201)",
+			"source": "#2792, #3201"
 		},
 		"scripts/lib/hook-escape.js": {
-			"digest": "bd79c9a56b479743",
-			"verdict": "at need — refused before the escaped commit runs, on every route incl. the commit-paths.js form (fed at 18a1598da under #3143, byte-identical to the tree before #3018: `WFC_ALLOW_BRANCH=1 git commit` 920 B, `export WFC_ALLOW_GATE_INPUT_DELETE=1` 914, commit-paths.js form 938, `env WFC_ALLOW_BRANCH=1 git commit` 916; an `echo` or `grep` mention silent). Rule store unreadable: still denies, frame plus the template fallback naming docs/agents/rules/hook-escape.txt (383 B). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3225; not re-measured there, so the figures are the deleted standalone entry's.",
-			"selfSufficient": "yes — the rule, the alternatives and the exact hand-over to the founder are inline; with the store unreadable the deny keeps the one-line rule and names the file.",
-			"source": "#3143"
+			"digest": "a1f1246b2506f9d7",
+			"verdict": "at need — refused before the escaped commit runs, on every route incl. the commit-paths.js form: `WFC_ALLOW_BRANCH=1 git commit` 920 B, `export WFC_ALLOW_GATE_INPUT_DELETE=1` 914, commit-paths.js form 938, `env WFC_ALLOW_BRANCH=1 git commit` 924; behind `cd … &&` or `ls;` still refused (920, 903). An `echo` or `grep` mention and an unexported `WFC_ALLOW_BRANCH=1;` before the commit pass silent. Rule store unreadable: still denies, frame plus the template fallback naming docs/agents/rules/hook-escape.txt (383 B). A throw in the core refuses, 188 B, logged (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — the rule, the alternatives and the exact hand-over to the founder are inline; with the store unreadable the deny keeps the one-line rule and names the file. A throw's refusal names only the core and the error",
+			"source": "#3143, #3201"
 		},
 		"scripts/lib/sweep-fire.js": {
 			"digest": "ef94dffb7d482caa",
@@ -145,22 +145,22 @@
 			"source": "#3136"
 		},
 		"scripts/lib/issue-body-write.js": {
-			"digest": "caaf7a61b2f2a19a",
-			"verdict": "at need — a gh issue edit --body/--body-file, a gh api PATCH to an issue with a body field, or a GraphQL updateIssue carrying body: is refused (1899–1919 B); a PATCH via --input (606 B) or a GraphQL query it cannot read (515 B) gets a warn instead; field-only edits and mentions pass silent (fed at 18a1598da under #3143). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3225; not re-measured there, so the figures are the deleted standalone entry's.",
-			"selfSufficient": "yes — the refusal quotes the command and carries the whole issue-body-clobber rule (1638 B): reason, the six issue-body.js commands, scope and blind spots inline; the trailing pointer to issue-tracker.md is only for edge spellings and recovery. With the rule unreadable it still refuses (388 B), naming the helper and the rule file",
-			"source": "#3143"
+			"digest": "7b857651fee11afa",
+			"verdict": "at need — a gh issue edit --body/--body-file, a gh api PATCH to an issue with a body field, or a GraphQL updateIssue carrying body: is refused (1899–1921 B), behind `cd … &&` or `true;` too; a PATCH via --input (611 B) or a GraphQL query it cannot read (520 B) gets a warn instead; field-only edits and mentions pass silent. A throw in the core refuses, 187 B, logged (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes — the refusal quotes the command and carries the whole issue-body-clobber rule: reason, the six issue-body.js commands, scope and blind spots inline; the trailing pointer to issue-tracker.md is only for edge spellings and recovery. With the rule unreadable it still refuses (394 B), naming the helper and the rule file. A throw's refusal names only the core and the error",
+			"source": "#3143, #3201"
 		},
 		"scripts/lib/issue-close.js": {
-			"digest": "4958ecdae665abf5",
-			"verdict": "at need — five checks, judged in order card, criteria, Outstanding, landing (#3101), census; a close failing several is refused by the first. Refusals: Outstanding line missing or bad 2163–2253 B, card not done 1410 B, unticked criteria 795 B, unpushed commit 815 B, expired census rows 1091 B. Not-planned closes, passing lines and an unreachable gh pass silent. The census read took 1.6–3.6 s at load 39 with gh stubbed (it was 6.2 s of an 8 s run at load 48 with real gh, #1913) (fed at 18a1598da under #3143). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3225; not re-measured there, so the figures are the deleted standalone entry's.",
-			"selfSufficient": "yes, except a close whose own --comment lacks the marker: it is told only that the issue's newest comment has no **Outstanding:** line. Shape, examples and the resolve-ticket.js route, which names every line it requires (Outstanding, Bound, Values, Practice, Door), are inline. The census refusal names each row, the --rebaseline --only command and the **Census:** escape; the landing refusal names each commit, push/fetch and the **Unlanded:** escape. With a rule unreadable, the card, criteria and Outstanding refusals still refuse, giving a one-line rule and the file path (Outstanding 1131 B)",
-			"source": "#3143"
+			"digest": "0361d2855446436b",
+			"verdict": "at need — five checks, judged in order card, criteria, Outstanding, landing (#3101), census; a close failing several is refused by the first. Refusals: Outstanding line missing 2185 B, unticked criteria 923 B, both behind `cd … &&` too; the landing check reads the payload's own checkout, refusing a close run from a linked worktree whose HEAD holds an unpushed commit citing the issue (780 B) and passing the same close from the host root. Not re-fed: card not done 1410 B. The census refusal (1091 B at #3143) was not reached: at load 12–15 the census read took 4.8–6.0 s unbounded, past the 4 s call cap, so closes of #3227, #3226 and #3327, gh real or stubbed, passed with `census rows unchecked` logged (#3411). Not-planned closes, passing lines, an unreachable gh and a path-spelled `/usr/bin/gh` pass silent. A throw in the core refuses, 188 B, logged (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes, except a close whose own --comment lacks the marker: it is told only that the issue's newest comment has no **Outstanding:** line. Shape, examples and the resolve-ticket.js route, which names every line it requires (Outstanding, Bound, Values, Practice, Door), are inline. The census refusal names each row, the --rebaseline --only command and the **Census:** escape; the landing refusal names each commit, push/fetch and the **Unlanded:** escape. With a rule unreadable, the card, criteria and Outstanding refusals still refuse, giving a one-line rule and the file path (Outstanding 1153 B). A throw's refusal names only the core and the error",
+			"source": "#3143, #3201"
 		},
 		"scripts/lib/issue-create-label.js": {
-			"digest": "d616d7ad05f89f08",
-			"verdict": "at need — a create with no takes: label is refused on the flag, REST and GraphQL routes (1372–1406 B), as is a misspelt value (1406 B), a blank `--body \"\"` or a missing body file (800/847 B), and a takes:human create or relabel failing its body checks (2213–2561 B). A GraphQL create with labelIds gets a warn instead (839 B). A valid label and mentions pass silent; a failed gh fetch on relabel fails open (fed at 18a1598da under #3143). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3225; not re-measured there, so the figures are the deleted standalone entry's.",
-			"selfSufficient": "yes for the fix — the seven values are inline in both refusals, and the missing-label refusal adds a corrected command keeping your own labels plus the file-issue.js route. The misspelt-value refusal gives the values but no corrected command. What each value routes to is still only pointed at. With the rule unreadable it still refuses (757 B) with the values, the fix and the rule file",
-			"source": "#3143"
+			"digest": "83742caed221adeb",
+			"verdict": "at need — a create with no takes: label is refused on the flag and REST routes (1406–1427 B), as is a misspelt value (1404 B), a blank `--body \"\"` or a missing body file (803/866 B), and a takes:human create or relabel failing its body checks (2242/2215 B). A GraphQL create with labelIds gets a warn instead (839 B). A valid label and mentions pass silent. A relabel whose body fetch fails or hangs fails open, logged; the hang is cut at 3.2 s by the host's 3 s gh timeout. A throw in the core refuses, 195 B, logged (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201; the GraphQL create with no label not re-fed). Byte counts are the whole hook stdout.",
+			"selfSufficient": "yes for the fix — the seven values are inline in both refusals, and the missing-label refusal adds a corrected command keeping your own labels plus the file-issue.js route. The misspelt-value refusal gives the values but no corrected command. What each value routes to is still only pointed at. With the rule unreadable it still refuses (797 B) with the values, the fix and the rule file. A throw's refusal names only the core and the error",
+			"source": "#3143, #3201"
 		},
 		"scripts/lib/issue-phase-scope.js": {
 			"digest": "c4cd27b1975d7b21",
@@ -289,10 +289,10 @@
 			"source": "#2024, #2237, #2305, #2560, #2586, #2907, #3163"
 		},
 		"scripts/lib/vitest-wrapper.js": {
-			"digest": "411184eecc2f5dd0",
-			"verdict": "at need — fires on the launch, before the unwatched run starts, as additionalContext, never a deny: `npx vitest run scripts/lib/cpu-load.test.ts` 1509 B the first time in a session (rule + `This command:`/`Wrapped:` lines), 259 B on the same session's next run (the standing line naming `rule:vitest-wrapper` + the wrapped command); `node_modules/.bin/vitest run …` 1523 B; `npx vitest --watch`, `npx vitest bench`, `node scripts/run-vitest.js …` and `npm run test` passed, 0 B. With the rule store unreadable it sent 348 B, the fallback naming docs/agents/rules/vitest-wrapper.txt, and still warned (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
+			"digest": "df9946a6be048a2f",
+			"verdict": "at need — fires on the launch, before the unwatched run starts, as additionalContext, never a deny: `npx vitest run scripts/lib/cpu-load.test.ts` 1509 B the first time in a session (rule + `This command:`/`Wrapped:` lines), 259 B on the same session's next run (the standing line naming `rule:vitest-wrapper` + the wrapped command); `node_modules/.bin/vitest run …` 1523 B; `npx vitest --watch`, `npx vitest bench`, `node scripts/run-vitest.js …` and `npm run test` passed, 0 B. With the rule store unreadable it sent 348 B, the fallback naming docs/agents/rules/vitest-wrapper.txt, and still warned (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201, byte-identical to the standalone entry's at #3143). Byte counts are the deny reason or context text alone, not hook stdout.",
 			"selfSufficient": "yes — the reason and the rule once a session, and the literal wrapped command every time; with the store unreadable the fallback names the file to read and the wrapped command still rides",
-			"source": "#3143"
+			"source": "#3143, #3201"
 		},
 		"scripts/lib/suite-background.js": {
 			"digest": "1130382607ff7806",
@@ -301,10 +301,10 @@
 			"source": "#2790"
 		},
 		"scripts/lib/unasked-rerun-guard.js": {
-			"digest": "fde1d835fdbb8867",
-			"verdict": "at need — refuses the redundant run before it starts, once a session: with a full-run vitest certificate at HEAD, `npm run test`, `npm test` and `npm run test -- --queue` each refused (987 B); the same session re-typing it, a run naming a file, `npm run test:changed` with no uncommitted files of its own, and a store with no certificates passed, 0 B. With the rule store unreadable it still refuses, 457 B, the rule swapped for the fallback naming docs/agents/rules/unasked-rerun-landing.txt. A judge that throws allows, logged; a throw outside the judge refuses (91 B) (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
+			"digest": "2b5a00cafabd8b75",
+			"verdict": "at need — refuses the redundant run before it starts, once a session: with a full-run vitest certificate at HEAD, `npm run test`, `npm test` and `npm run test -- --queue` each refused (968 B with the landing module on, 1025 B with it off, each printing its own twin of the rule); the same session re-typing it, a run naming a file and a payload with no session id passed, 0 B. With the rule store unreadable it still refuses, 447 B, the rule swapped for the fallback naming docs/agents/rules/unasked-rerun-landing.txt, or unasked-rerun.txt with landing off. A judge that cannot answer allows, logged — with landing on and no origin/landing ref, `could not resolve the merge-base` (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201; a throw outside the judge, 91 B at #3143, and a store with no certificates not re-fed). Byte counts are the deny reason or context text alone, not hook stdout.",
 			"selfSufficient": "yes — names the attesting certificate (date, sha, full run), the escape (re-type it), what is owed before a push (under landing the tests you touched, the lander running the full suite, #2936) and what is never refused",
-			"source": "#3143"
+			"source": "#3143, #3201"
 		},
 		"scripts/lib/check-sh-rules.js": {
 			"digest": "e1d9fcb186883bd3",
