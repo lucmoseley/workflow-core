@@ -222,9 +222,7 @@ function renderInjection(decision, { payload, root, name, log, room }) {
 		for (const id of decision.injectRules)
 			texts.set(bare(id), readRuleText(id, root));
 	} catch (e) {
-		const msg = caught(e).message;
-		log(`rule fragment unreadable — refusing: ${msg}`);
-		return { deny: refusal(`${name}: ${msg}`, prelude), latches: [] };
+		return refuseUnreadable(e, { name, log, prelude });
 	}
 	const skipped = new Set((decision.skip ?? []).map(bare));
 	const want = [...texts].filter(
@@ -254,6 +252,29 @@ function renderInjection(decision, { payload, root, name, log, room }) {
 			...(latchAfter ? [{ name: warnId(latchAfter), text: "" }] : []),
 			...latchWrites,
 		],
+	};
+}
+
+/**
+ * The refusal for a rule the store cannot give, whatever the core's failure
+ * policy (mantahostels#1762). A missing id's list of the ids the store does
+ * hold goes to the log, not the refusal (#3449).
+ * @param {unknown} e
+ * @param {{ name: string, log: (what: string) => void, prelude: string }} at
+ * @returns {Rendered}
+ */
+function refuseUnreadable(e, { name, log, prelude }) {
+	const msg = caught(e).message;
+	const { RuleMissing } = require("./rule-text.js");
+	log(`rule fragment unreadable — refusing: ${msg}`);
+	return {
+		deny: refusal(
+			e instanceof RuleMissing
+				? `${name}: ${e.brief} This refusal holds whatever the guard's failure policy, until the fragment is restored: \`git pull\`, or revert the change that removed it (mantahostels#1762).`
+				: `${name}: ${msg}`,
+			prelude,
+		),
+		latches: [],
 	};
 }
 

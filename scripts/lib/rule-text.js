@@ -188,6 +188,24 @@ function fragmentPath(bare, root) {
 }
 
 /**
+ * An id no fragment answers to. `brief` is the message without what the store
+ * does hold, which a hook's refusal carries in its place (#3449).
+ */
+class RuleMissing extends Error {
+	/** @override */
+	name = "RuleMissing";
+
+	/**
+	 * @param {string} message
+	 * @param {ErrorOptions & { brief: string }} options
+	 */
+	constructor(message, { brief, ...options }) {
+		super(message, options);
+		this.brief = brief;
+	}
+}
+
+/**
  * The operative text of rule `id`.
  *
  * Trailing newlines are trimmed so that a fragment splices into a guard's deny
@@ -199,7 +217,7 @@ function fragmentPath(bare, root) {
  *   it, so the root is resolved once a call
  * @returns {string}
  * @throws {Error} on a malformed id, an id no fragment answers to, or a
- *   fragment holding nothing but whitespace
+ *   fragment holding nothing but whitespace; the missing id's is a RuleMissing
  */
 function readRuleText(id, root) {
 	const bare = typeof id === "string" ? bareRuleId(id) : "";
@@ -215,13 +233,12 @@ function readRuleText(id, root) {
 		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
 		const known = readRuleIds(host);
-		throw new Error(
-			`rule-text: no fragment for rule id "${bare}" (looked in ${rulesDirs(host).join(", ")}). ` +
-				(known.length > 0
-					? `Known ids: ${known.join(", ")}.`
-					: "The store holds no fragments."),
-			{ cause: e },
-		);
+		const brief = `rule-text: no fragment for rule id "${bare}" (looked in ${rulesDirs(host).join(", ")}).`;
+		const held =
+			known.length > 0
+				? `Known ids: ${known.join(", ")}.`
+				: "The store holds no fragments.";
+		throw new RuleMissing(`${brief} ${held}`, { cause: e, brief });
 	}
 	const body = trimEndRun(text, "\n");
 	/* An empty fragment is the failure this module exists to prevent, arriving by
@@ -354,6 +371,7 @@ const fallbackLine = (lead, id) =>
 
 module.exports = {
 	RULES_DIR,
+	RuleMissing,
 	CORE_RULES,
 	rulesDir,
 	fragmentPath,

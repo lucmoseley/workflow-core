@@ -508,11 +508,25 @@ describe("failure policy", () => {
 		]);
 	});
 
-	it("refuses on a store fault whatever the policy (mantahostels#1762)", () => {
-		expect(
-			run([core("a", answers({ injectRules: ["ghost"] }))])?.permissionDecision,
-		).toBe("deny");
-	});
+	it.each(["open", "closed"] as const)(
+		"refuses on a %s core's store fault, naming only the missing id and its fix (mantahostels#1762)",
+		(failure) => {
+			fragment("alpha");
+			const out = run([
+				core("a", answers({ injectRules: ["ghost"] }), { failure }),
+			]);
+			expect(out?.permissionDecision).toBe("deny");
+			expect(out?.permissionDecisionReason).toMatch(
+				/^a: rule-text: no fragment for rule id "ghost" \(looked in [^)]+\)\. This refusal holds whatever the guard's failure policy/,
+			);
+			expect(out?.permissionDecisionReason).not.toContain("Known ids");
+			expect(logs).toEqual([
+				expect.stringMatching(
+					/^a\trule fragment unreadable — refusing: .*Known ids: alpha\./,
+				),
+			]);
+		},
+	);
 });
 
 describe("one adapter set a call", () => {
