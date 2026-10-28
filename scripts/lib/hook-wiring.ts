@@ -12,7 +12,7 @@
  */
 
 import { readRunningHooks } from "./core-hooks.js";
-import { hostRoot } from "./host-root.js";
+import { coreRoot } from "./script-path.js";
 
 /**
  * The events a hook registers on. A closed set deliberately: as a bare
@@ -80,7 +80,7 @@ interface SettingsShape {
 
 /** The hooks this repo runs (lib/core-hooks.js's `readRunningHooks`), settings-shaped. */
 export function readCoreHooks(): SettingsShape {
-	return { hooks: readRunningHooks(hostRoot()) };
+	return { hooks: readRunningHooks(coreRoot()) };
 }
 
 /**
