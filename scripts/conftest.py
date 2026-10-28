@@ -44,7 +44,9 @@ os.environ["WFC_HOST_GIT_DIR"] = subprocess.run(
     text=True,
     check=True,
 ).stdout.strip()
-_path_dirs = [d for d in os.environ.get("PATH", "").split(os.pathsep) if d and d != _guard_dir]
+_path_dirs = [
+    d for d in os.environ.get("PATH", "").split(os.pathsep) if d and d != _guard_dir
+]
 _real_git = shutil.which(
     "git",
     path=os.pathsep.join(d for d in _path_dirs if Path(d).name != "host-git-guard"),
