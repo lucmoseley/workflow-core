@@ -40,6 +40,7 @@ const {
 	queueStamps,
 	queueTurn,
 	passingTurn,
+	PART_PASS_AGE_MS,
 	readLiveRoleMarkers,
 	gateDenies,
 	heldSeat,
@@ -428,8 +429,6 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 		});
 
 		describe("passing an older part-suite the memory rung holds (#3058)", () => {
-			/* Mirrors PART_PASS_AGE_MS. */
-			const AgeMs = 7 * 60 * 1000;
 			const twoPartWaiters = (queueDir: string) => {
 				queueJoin({ queueDir, pid: 11, clock: () => 0, weight: PART });
 				queueJoin({ queueDir, pid: 99, clock: () => 1000, weight: PART });
@@ -441,14 +440,14 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 				const queueDir = qdir();
 				const turn = twoPartWaiters(queueDir);
 				queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-				expect(turn(AgeMs - 1)).toBe(true);
+				expect(turn(PART_PASS_AGE_MS - 1)).toBe(true);
 			});
 
 			it("stops passing once the older waiter's wait reaches the age bound", () => {
 				const queueDir = qdir();
 				const turn = twoPartWaiters(queueDir);
 				queueStamps(marker(queueDir, 11)).onMemoryHeld(true);
-				expect(turn(AgeMs)).toBe(false);
+				expect(turn(PART_PASS_AGE_MS)).toBe(false);
 			});
 
 			it("never passes an older waiter held only on its turn", () => {

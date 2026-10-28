@@ -119,6 +119,7 @@ describe("the passes the waiters recorded (#3115)", () => {
 				{ from: 6, to: 8, slotFree: true, reason: "opened" },
 				{ from: 0, to: 4, slotFree: true, reason: "refused" },
 				{ from: 0, to: 3, slotFree: false, reason: "opened" },
+				{ from: 0, to: 2, slotFree: true, reason: "opened", kind: "tsc" },
 			],
 		});
 		expect(r.memoryHeldPart).toEqual([600]);
@@ -221,12 +222,12 @@ describe("the limbs, in the gate's order", () => {
 		});
 		expect(hoursOf(r.limb)).toEqual({ memory: 900 });
 		expect(hoursOf(r.limbAlso)).toEqual({
-			"memory / fifo-part": 180,
+			"memory / fifo-part": 120,
 			"memory / load": 900,
 		});
 	});
 
-	it("lets a part waiter pass an older one the memory rung holds, until that one is 7 minutes old (#3058)", () => {
+	it("lets a part waiter pass an older one the memory rung holds, until that one is 8 minutes old (#3058)", () => {
 		const r = replayOf({
 			waiters: [
 				{ from: 0, to: 10, slotFree: true },
@@ -234,7 +235,7 @@ describe("the limbs, in the gate's order", () => {
 			],
 			mem: blocks(0, 10, 9000),
 		});
-		expect(hoursOf(r.limbAlso)).toEqual({ "memory / fifo-part": 180 });
+		expect(hoursOf(r.limbAlso)).toEqual({ "memory / fifo-part": 120 });
 	});
 });
 

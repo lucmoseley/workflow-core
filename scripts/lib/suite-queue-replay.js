@@ -24,7 +24,8 @@
  * PRE_FIELDS_GATE.
  * An exit line's own `passed` (#3115) is tallied beside the modelled pass, as
  * what the waiters themselves recorded. The opened part waits the memory limb
- * held at some tick are the sample PART_PASS_AGE_MS is derived from (#3115).
+ * held at some tick, `tsc` waits left out, are the sample PART_PASS_AGE_MS is
+ * derived from (#3115).
  */
 
 const fs = require("node:fs");
@@ -526,7 +527,8 @@ function tallyTick(tick, w, acc, parents) {
 		const [first = "open", ...also] = limbsOf(e, tick, w);
 		for (const a of also) add(acc.limbAlso, `${first} / ${a}`, TICK_S);
 		add(acc.limb, first, TICK_S);
-		if (!e.whole && memoryHolds(e, tick, w)) acc.memoryHeldPart.add(e);
+		if (!e.whole && e.kind !== "tsc" && memoryHolds(e, tick, w))
+			acc.memoryHeldPart.add(e);
 		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
 		addNested(acc.limbSession, e.session ?? "(no session)", first);
 		addNested(acc.limbEra, tick.era, first);
@@ -771,7 +773,6 @@ const byValue = (m) => [...m].sort((a, b) => b[1] - a[1]);
  */
 function render(r, w) {
 	const total = [...r.limb.values()].reduce((s, v) => s + v, 0);
-	const quantile = (/** @type {number} */ p) => quantileOf(r.gaps, p);
 	const held = r.memoryHeldPart;
 	const lines = [
 		`# Suite queue wait replay, ${new Date(w.since).toISOString()} to ${new Date(w.until).toISOString()}`,
@@ -847,7 +848,7 @@ function render(r, w) {
 					.join(", ")} |`,
 		),
 		"",
-		`Exit to spawn, ${r.gaps.length} matched waits: median ${quantile(0.5).toFixed(1)} s, p90 ${quantile(0.9).toFixed(1)} s, max ${(r.gaps.at(-1) ?? 0).toFixed(1)} s.`,
+		`Exit to spawn, ${r.gaps.length} matched waits: median ${quantileOf(r.gaps, 0.5).toFixed(1)} s, p90 ${quantileOf(r.gaps, 0.9).toFixed(1)} s, max ${(r.gaps.at(-1) ?? 0).toFixed(1)} s.`,
 		"",
 		"## Limits",
 		"",
