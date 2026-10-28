@@ -2712,6 +2712,7 @@
 		],
 		"scripts/admission.js": [
 			"scripts/admission.test.ts",
+			"scripts/agents-listing-count.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
@@ -2754,6 +2755,11 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/adopter-rule-copies.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/agents-listing-count.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -4736,6 +4742,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/agents-stop.json": [
+			"scripts/agents-listing-count.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run.test.ts"
@@ -4775,6 +4782,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/usage-probe.json": [
+			"scripts/agents-listing-count.test.ts",
 			"scripts/allowance.test.ts",
 			"scripts/check-seat-utilisation.test.ts",
 			"scripts/dispatch-sessions-bridge.test.ts",
@@ -9982,6 +9990,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/logged-out.json": [
+			"scripts/agents-listing-count.test.ts",
 			"scripts/archive-closed-children.test.ts",
 			"scripts/capture-drain.test.ts",
 			"scripts/check-band-drift.test.ts",
@@ -20921,6 +20930,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/refill-loop.js": [
+			"scripts/agents-listing-count.test.ts",
 			"scripts/check-ghost-jobs.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
