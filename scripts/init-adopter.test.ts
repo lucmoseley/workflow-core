@@ -1963,9 +1963,13 @@ describe("the skeleton's first commit", () => {
 			expect(init(dir, "--founder", "A Founder", "--no-tracker").status).toBe(
 				0,
 			);
+			/* A session's leaked CLAUDE_PROJECT_DIR, so CI too checks the
+			 * helper's override (#3296). */
 			const r = commitThroughHooks(
 				dir,
 				"Start the repo: the workflow-core skeleton",
+				SKELETON_PATHS,
+				{ ...process.env, CLAUDE_PROJECT_DIR: CORE },
 			);
 			expect(`${r.stdout}\n${r.stderr}`).not.toMatch(/^(FAIL|BROKEN):/m);
 			expect(r.status).toBe(0);
