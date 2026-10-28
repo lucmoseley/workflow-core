@@ -42,6 +42,8 @@ const shards = (...conclusions: (string | null)[]): Job[] =>
 		conclusion,
 	}));
 
+const SUITE_PASSED: Job = { name: "Suite passed", conclusion: "success" };
+
 const FAILED_LOG = [
 	"Full suite / Vitest (2/6)\tVitest\t2026-10-27T08:30:01.1234567Z \u001b[31m FAIL \u001b[39m scripts/lib/a.test.ts > a > b",
 	"Full suite / Vitest (2/6)\tVitest\t2026-10-27T08:30:01.2Z  FAIL  scripts/fixture-only.test.ts > printed by a test",
@@ -51,7 +53,7 @@ const FAILED_LOG = [
 /** Reads serving each listing in turn, the last one thereafter. */
 const reads = (
 	listings: (() => Run[])[],
-	jobs: Job[] = shards("success", "success"),
+	jobs: Job[] = [...shards("success", "success"), SUITE_PASSED],
 	present = ["scripts/lib/a.test.ts", "scripts/test_b.py"],
 ) => {
 	let n = 0;
@@ -90,10 +92,12 @@ const verdictOf = (
 	r: ReturnType<typeof reads>,
 	fallback?: Tester,
 	files?: string[],
+	lands?: boolean,
 ) =>
 	actionsTester({ root: "/", reads: r, fallback, ...clock() }).verdict(
 		SHA,
 		files,
+		lands,
 	);
 
 const recording = (verdict: Verdict) => {
@@ -107,9 +111,10 @@ const recording = (verdict: Verdict) => {
 	return { tester, asked };
 };
 
-it("reads a successful run at the sha as green", async () => {
+it("reads a successful run at the sha as green, naming the run", async () => {
 	expect(await verdictOf(reads([() => [run(1, "success")]]))).toEqual({
 		kind: "green",
+		run: 1,
 	});
 });
 
@@ -145,11 +150,22 @@ it.each(["cancelled", "timed_out", "startup_failure", "skipped"])(
 );
 
 it.each([
-	["skipped", shards("success", "skipped")],
-	["missing", shards("success", "success").slice(0, 1)],
-	["absent altogether", [{ name: "Lint and types", conclusion: "success" }]],
+	["shard jobs are skipped", [...shards("success", "skipped"), SUITE_PASSED]],
+	[
+		"shard jobs are missing",
+		[...shards("success", "success").slice(0, 1), SUITE_PASSED],
+	],
+	[
+		"shard jobs are absent altogether",
+		[{ name: "Lint and types", conclusion: "success" }, SUITE_PASSED],
+	],
+	[
+		"Suite passed job is skipped (#3329)",
+		[...shards("success"), { name: "Suite passed", conclusion: "skipped" }],
+	],
+	["Suite passed job is missing (#3329)", shards("success", "success")],
 ])(
-	"reads a successful run whose shard jobs are %s as unknown, never green",
+	"reads a successful run whose %s as unknown, never green",
 	async (_, jobs) => {
 		const v = await verdictOf(reads([() => [run(1, "success")]], jobs));
 		expect(v).toMatchObject({ kind: "unknown" });
@@ -158,7 +174,7 @@ it.each([
 
 it("waits out an unfinished run and returns its verdict", async () => {
 	const r = reads([() => [], () => [run(1, null)], () => [run(1, "success")]]);
-	expect(await verdictOf(r)).toEqual({ kind: "green" });
+	expect(await verdictOf(r)).toEqual({ kind: "green", run: 1 });
 	expect(r.calls()).toBe(3);
 });
 
@@ -207,17 +223,43 @@ it("reruns a failed run's failed jobs for a whole-suite rerun, judging only the 
 		() => [run(5, null, { attempt: 2 })],
 		() => [run(5, "success", { attempt: 2 })],
 	]);
-	expect(await verdictOf(r, undefined, [])).toEqual({ kind: "green" });
+	expect(await verdictOf(r, undefined, [])).toEqual({ kind: "green", run: 5 });
 	expect(r.reran).toEqual([5]);
 });
 
 it("reads a passed run again for a whole-suite rerun, starting no attempt", async () => {
 	const r = reads([() => [run(6, "success")]]);
-	expect(await verdictOf(r, undefined, [])).toEqual({ kind: "green" });
+	expect(await verdictOf(r, undefined, [])).toEqual({ kind: "green", run: 6 });
 	expect(r.reran).toEqual([]);
 });
 
-it("hands a rerun of named files to the fallback without reading a run", async () => {
+it("reruns a failed run's failed jobs for a rerun of named files that lands, never the fallback, so a passing flake rerun names its run (#3329)", async () => {
+	const { tester, asked } = recording({ kind: "green" });
+	const failed = run(5, "failure");
+	const r = reads([() => [failed], () => [run(5, "success", { attempt: 2 })]]);
+	expect(await verdictOf(r, tester, ["x.test.ts"], true)).toEqual({
+		kind: "green",
+		run: 5,
+	});
+	expect(r.reran).toEqual([5]);
+	expect(asked).toEqual([]);
+});
+
+it("declares that main takes only a sha a run passed (#3329)", () => {
+	expect(
+		actionsTester({ root: "/", reads: reads([() => []]) }).requiresRun,
+	).toBe(true);
+});
+
+it("hands a rerun of named files that lands nothing to the fallback without reading a run, as its failed jobs judge more than those files", async () => {
+	const { tester, asked } = recording({ kind: "green" });
+	const r = reads([() => [run(5, "failure")]]);
+	expect(await verdictOf(r, tester, ["x.test.ts"])).toEqual({ kind: "green" });
+	expect(asked).toEqual([[SHA, ["x.test.ts"]]]);
+	expect(r.calls()).toBe(0);
+});
+
+it("hands a rerun of named files that lands, at a sha whose run passed, to the fallback", async () => {
 	const { tester, asked } = recording({ kind: "red", files: ["x.test.ts"] });
 	const r = reads([() => [run(1, "success")]]);
 	const v = await actionsTester({
@@ -225,10 +267,10 @@ it("hands a rerun of named files to the fallback without reading a run", async (
 		fallback: tester,
 		reads: r,
 		...clock(),
-	}).verdict(SHA, ["x.test.ts"]);
+	}).verdict(SHA, ["x.test.ts"], true);
 	expect(v).toEqual({ kind: "red", files: ["x.test.ts"] });
 	expect(asked).toEqual([[SHA, ["x.test.ts"]]]);
-	expect(r.calls()).toBe(0);
+	expect(r.reran).toEqual([]);
 });
 
 it("reads a failed run through gh and the tree through git", async () => {

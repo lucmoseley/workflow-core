@@ -12,17 +12,14 @@ const TITLE = "Landing queue held: the lander cannot clear a batch";
  * @param {import("./lander.js").Held} h
  * @returns {string}
  */
-function buildHeldQueueBody({ batch, reason, files, jobs }) {
+function buildHeldQueueBody({ batch, reason, failing }) {
 	return `## What to build
 
 The lander (#2261) holds the landing queue: nothing on \`landing\` reaches \`main\` until this clears.
 
 - Batch: ${batch === null ? "(none read)" : `\`${batch}\``}
 - Reason: ${reason.replaceAll("`", "'")}
-
-Failing:
-${failingList({ files, jobs })}
-
+${failing === null ? "" : `\nFailing:\n${failingList(failing)}\n`}
 ## Acceptance criteria
 
 - [ ] A commit pushed to \`landing\` fixes or reverts what holds the batch, and the lander lands the new tip on \`main\`.

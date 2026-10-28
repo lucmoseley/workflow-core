@@ -57,12 +57,16 @@ async function run(
 		lastRed = null as Red | null,
 		lastMoved = null as string | null,
 		refsFail = ((_nth: number) => null) as (nth: number) => Error | null,
+		requiresRun = false,
+		pushRefused = null as string | null,
+		pushFails = null as (() => Error) | null,
 	} = {},
 ) {
 	const ledger = new Set<string>(ledgered);
 	const noVerdict = new Set<string>(stuck);
 	const pushes: { sha: string; ledgerAtPush: string[] }[] = [];
 	const tested: { sha: string; files?: string[] }[] = [];
+	const landing: { sha: string; files: string[] }[] = [];
 	const tickets: FixTicket[] = [];
 	const holds: Held[] = [];
 	const beats: {
@@ -93,6 +97,11 @@ async function run(
 			},
 			pushMain: (sha) => {
 				pushes.push({ sha, ledgerAtPush: [...ledger] });
+				if (pushFails !== null) throw pushFails();
+				if (pushRefused !== null)
+					throw Object.assign(new Error("Command failed: git push"), {
+						stderr: pushRefused,
+					});
 				remote.main = sha;
 			},
 			chain: (base, sha) =>
@@ -115,8 +124,10 @@ async function run(
 				(at(sha) !== -1 && at(sha) <= at(tip)),
 		},
 		tester: {
-			verdict: async (sha, files) => {
+			requiresRun,
+			verdict: async (sha, files, lands) => {
 				tested.push(files ? { sha, files } : { sha });
+				if (lands && files) landing.push({ sha, files });
 				onTest(sha);
 				return verdictOf(
 					sha,
@@ -176,6 +187,7 @@ async function run(
 		pushes,
 		stuck: [...noVerdict],
 		tested,
+		landing,
 		tickets,
 		holds,
 		beats,
@@ -292,44 +304,28 @@ describe("runLander", () => {
 		]);
 	});
 
-	it("ends as an exit naming the error, releasing the lock, when a push is refused", async () => {
-		let released = 0;
-		const actions: unknown[] = [];
-		const end = await runLander({
-			git: {
-				refs: () => ({ main: A, landing: B, relation: "ahead" }),
-				pushMain: () => {
-					throw Object.assign(new Error("Command failed: git push"), {
-						stderr: "! [remote rejected] pre-push hook declined\n",
-					});
-				},
-				chain: () => [],
-				revertOnLanding: () => ({ sha: R, onto: B }),
-				contains: () => false,
-			},
-			tester: { verdict: async () => ({ kind: "green" }) },
-			tracker: { fileFixTicket: () => "", holdQueue: () => "" },
-			ledger: { has: () => false, add: () => undefined },
-			noVerdict: { has: () => false, add: () => undefined },
-			lock: {
-				acquire: () => true,
-				release: () => {
-					released++;
-				},
-			},
-			beat: () => undefined,
-			log: (a) => {
-				actions.push(a);
-			},
-			wait: async () => undefined,
+	it("holds on a push to main the remote refuses, naming the refusal, and never pushes it again (#3329)", async () => {
+		const refusal =
+			"remote: error: GH013: Repository rule violations found for refs/heads/main.\nTo github.com:o/r.git\n ! [remote rejected] bbbbbbbbb -> main (push declined due to repository rule violations)\nerror: failed to push some refs\n";
+		const reason =
+			"the push of bbbbbbbbb to main was refused:  ! [remote rejected] bbbbbbbbb -> main (push declined due to repository rule violations)";
+		const first = await run({ main: A, landing: B }, green, {
+			pushRefused: refusal,
 		});
-		const exit = {
-			kind: "exit",
-			reason: "stopped on an error: ! [remote rejected] pre-push hook declined",
-		};
-		expect(end).toEqual(exit);
-		expect(actions.at(-1)).toEqual(exit);
-		expect(released).toBe(1);
+		expect(first.end).toEqual({ kind: "hold", reason });
+		expect(first.pushes.map((p) => p.sha)).toEqual([B]);
+		expect(first.holds).toEqual([{ batch: B, reason, failing: null }]);
+		const hold = first.beats.at(-1)?.hold;
+		expect(hold).toEqual({ landing: B, reason, filed: "Filed #2" });
+		expect(first.beats.some((b) => b.movedAt)).toBe(false);
+		expect(first.released).toBe(1);
+
+		const next = await run({ main: A, landing: B }, green, {
+			ledgered: [B],
+			lastHold: hold ?? null,
+		});
+		expect(next.end).toMatchObject({ kind: "exit" });
+		expect(next.pushes).toEqual([]);
 	});
 });
 
@@ -363,6 +359,26 @@ describe("runLander on a failing remote (#2673)", () => {
 		expect(r.refsRead).toBe(5);
 		expect(r.released).toBe(1);
 	});
+
+	it.each([
+		["a network fault the retries do not outlast", dnsFailure, 5],
+		[
+			"a timeout git printed no refusal for",
+			() => new Error("git push b:refs/heads/main timed out after 20 min"),
+			1,
+		],
+	])(
+		"exits naming the error, holding nothing, on a push to main that fails on %s (#3329)",
+		async (_, fault, tries) => {
+			const r = await run({ main: A, landing: B }, green, {
+				pushFails: fault,
+			});
+			expect(r.end).toMatchObject({ kind: "exit" });
+			expect(r.end.reason).toMatch(/^stopped on an error: /);
+			expect(r.holds).toEqual([]);
+			expect(r.pushes).toHaveLength(tries);
+		},
+	);
 
 	it("retries no failure but the network's", async () => {
 		const r = await run({ main: A, landing: B }, green, {
@@ -530,7 +546,9 @@ describe("runLander on a red batch", () => {
 		const r = await redBatch(unconfirmedC);
 		const reason =
 			"culprit unconfirmed: ccccccccc passed x.test.ts on its second run";
-		expect(r.holds).toEqual([{ batch: D, reason, files: FILES, jobs: [] }]);
+		expect(r.holds).toEqual([
+			{ batch: D, reason, failing: { files: FILES, jobs: [] } },
+		]);
 		expect(r.said).toContain("Filed #2");
 		expect(r.beats.at(-1)).toEqual({
 			batch: D,
@@ -786,7 +804,9 @@ describe("runLander on a red only a CI job names (#3253)", () => {
 		const r = await jobRed((sha, nth) => sha === D || (sha === C && nth === 1));
 		const reason = `culprit unconfirmed: ccccccccc passed the CI jobs '${job}' on its second run`;
 		expect(r.end).toEqual({ kind: "hold", reason });
-		expect(r.holds).toEqual([{ batch: D, reason, files: [], jobs: [job] }]);
+		expect(r.holds).toEqual([
+			{ batch: D, reason, failing: { files: [], jobs: [job] } },
+		]);
 	});
 });
 
@@ -1115,6 +1135,64 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 			why: "parent",
 		});
 		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+	});
+});
+
+describe("runLander where main takes only a sha a CI run passed (#3329)", () => {
+	const ran: Verdict = { kind: "green", run: 9 };
+	/**
+	 * The batch A..D, D's own test red on x.test.ts and the revert R's green
+	 * on a CI run: `flake` is D's rerun, and C, red on every rerun, is the
+	 * culprit whose parent B's whole suite is `parent`.
+	 */
+	const gated = (flake: Verdict, parent: Verdict = ran) =>
+		run(
+			{ main: A, landing: D },
+			(sha, files) => {
+				const red: Verdict = { kind: "red", files: FILES };
+				if (files === undefined) return sha === R ? ran : red;
+				const reruns: Record<string, Verdict> = { [D]: flake, [C]: red };
+				const whole = sha === B && files.length === 0;
+				return whole ? parent : (reruns[sha] ?? green());
+			},
+			{ history: [B, C, D], requiresRun: true },
+		);
+
+	it("lands a tip whose flake rerun a CI run passed, asking the tester for a rerun that lands", async () => {
+		const r = await gated(ran);
+		expect(r.pushes.map((p) => p.sha)).toEqual([D]);
+		expect(r.landing).toEqual([{ sha: D, files: FILES }]);
+	});
+
+	it("holds, pushing nothing, on a tip whose flake rerun passed off CI", async () => {
+		const r = await gated(green());
+		expect(r.end).toEqual({
+			kind: "hold",
+			reason:
+				"ddddddddd passed x.test.ts on a rerun no CI run made, and main takes only a sha a CI run passed",
+		});
+		expect(r.pushes).toEqual([]);
+	});
+
+	it("reverts past a confirmed culprit's parent no CI run passed, landing the revert's tip alone", async () => {
+		const r = await gated({ kind: "red", files: FILES }, green());
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+		expect(r.tickets.map((t) => t.culprit)).toEqual([C]);
+		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
+	});
+
+	it("lands a confirmed culprit's parent a CI run passed before the revert", async () => {
+		const r = await gated({ kind: "red", files: FILES });
+		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
+	});
+
+	it("exits on a batch's own green that names no CI run, pushing nothing", async () => {
+		const r = await run({ main: A, landing: B }, green, { requiresRun: true });
+		expect(r.end).toEqual({
+			kind: "exit",
+			reason: "no verdict at bbbbbbbbb: its green read no CI run",
+		});
+		expect(r.pushes).toEqual([]);
 	});
 });
 
