@@ -482,7 +482,14 @@ describe("runLander on a red batch", () => {
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "fast-forward", sha: B },
-			{ kind: "revert", culprit: C, parent: B, files: FILES, jobs: [] },
+			{
+				kind: "revert",
+				culprit: C,
+				parent: B,
+				files: FILES,
+				jobs: [],
+				parentIsMain: false,
+			},
 			{
 				kind: "file-fix-ticket",
 				culprit: C,
@@ -518,7 +525,11 @@ describe("runLander on a red batch", () => {
 			parent: A,
 			files: FILES,
 			jobs: [],
+			parentIsMain: true,
 		});
+		expect(r.revertWhys).toEqual([
+			"The lander found it red on x.test.ts, twice, with its parent aaaaaaaaa at `main`.",
+		]);
 		expect(r.tickets).toEqual([
 			{
 				culprit: B,
@@ -954,7 +965,14 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "rerun", sha: B, files: FILES, why: "parent-files" },
-			{ kind: "revert", culprit: C, parent: B, files: FILES, jobs: [] },
+			{
+				kind: "revert",
+				culprit: C,
+				parent: B,
+				files: FILES,
+				jobs: [],
+				parentIsMain: false,
+			},
 			{
 				kind: "file-fix-ticket",
 				culprit: C,
@@ -1008,6 +1026,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 				parent: A,
 				files: elsewhere.files,
 				jobs: [],
+				parentIsMain: true,
 			},
 			{
 				kind: "file-fix-ticket",
@@ -1088,6 +1107,19 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 		});
 		expect(r.tested).not.toContainEqual({ sha: B, files: [] });
 		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
+	});
+
+	it("says a stuck parent cleared on its files was green, not at main (#3533)", async () => {
+		const r = await run(
+			{ main: A, landing: D },
+			parentStuck({ kind: "green" }),
+			{ history: [B, C, D], stuck: [B] },
+		);
+		expect(r.tested).not.toContainEqual({ sha: B, files: [] });
+		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
+		expect(r.revertWhys).toEqual([
+			"The lander found it red on x.test.ts, twice, with its parent bbbbbbbbb green.",
+		]);
 	});
 
 	it("never runs a ledgered parent's whole suite again after a hold and a push", async () => {
