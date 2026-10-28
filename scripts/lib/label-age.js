@@ -4,8 +4,8 @@
  */
 
 /**
- * One event of an issue's timeline, as the GitHub REST API returns it; only the
- * fields read here.
+ * The fields read here off one event of an issue's timeline; a `labeled`
+ * event carries all of them.
  * @typedef {{event?: string, label?: {name?: string}, created_at: string,
  *   actor?: {login?: string} | null}} TimelineEvent
  * @typedef {{ok: boolean, events?: TimelineEvent[], error?: string}} Timeline

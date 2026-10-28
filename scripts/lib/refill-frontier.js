@@ -200,15 +200,15 @@ function unreturnedPulls(served, pulledByRoot) {
 /**
  * @param {string[]} roots
  * @param {Record<string, number[]>} goals keyed by root
- * @param {(root: string, goal: number[]) => Promise<Shortlist | {error: string}>} [shortlist]
+ * @param {(root: string, goal: number[]) => Promise<Shortlist | {error: string}>} [readList]
  */
-async function refillFrontier(roots, goals, shortlist = readShortlist) {
+async function refillFrontier(roots, goals, readList = readShortlist) {
 	/** @param {string[]} of @param {(root: string) => number[]} goal */
 	const read = (of, goal) =>
 		Promise.all(
 			of.map(async (root) => ({
 				root,
-				result: await shortlist(root, goal(root)),
+				result: await readList(root, goal(root)),
 			})),
 		);
 	const results = await read(roots, (root) => goals[root] ?? []);

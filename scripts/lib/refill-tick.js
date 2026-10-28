@@ -577,7 +577,7 @@ const jsonlRows = (text) =>
 		try {
 			return line ? [JSON.parse(line)] : [];
 		} catch {
-			/* A torn line is the harness's write in flight, not a fault (#2707). */
+			/* Skipped, not a fault: typically a line torn by a write in flight (#2707). */
 			return [];
 		}
 	});
