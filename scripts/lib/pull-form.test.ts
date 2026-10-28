@@ -777,6 +777,21 @@ describe("rewinding main is refused (#765)", () => {
 		["git update-ref -d refs/heads/main", "deleted directly"],
 		["git update-ref HEAD HEAD~1", "HEAD, which is main here"],
 		["git update-ref --stdin", "a list it cannot read"],
+		['git update-ref "$REF" HEAD~1', "a ref it cannot read"],
+		['git update-ref "refs/heads/$B" HEAD~1', "a branch ref it cannot read"],
+		[
+			'git update-ref "refs/$X" HEAD~1',
+			"a ref whose read head could still be main",
+		],
+		[
+			'git update-ref "refs/heads/ma$X" HEAD~1',
+			"read up to inside main's name",
+		],
+		['git update-ref "H$X" HEAD~1', "read up to inside HEAD"],
+		['git update-ref "$(echo refs/tags)/$T" HEAD~1', "led by a substitution"],
+		['git update-ref "refs/heads/ma\\i$X" HEAD~1', "read up to a backslash"],
+		["git update-ref main-worktree/HEAD HEAD~1", "the shared tree's HEAD"],
+		['git update-ref "m$X" HEAD~1', "read up to inside main-worktree/HEAD"],
 		["git branch -f main HEAD~1", "forced"],
 		["git branch --force main HEAD~1", "forced, long"],
 		["git branch -D main", "deleted"],
@@ -875,6 +890,15 @@ describe("rewinding main is refused (#765)", () => {
 		["git reset --help", "documentation"],
 		["git update-ref refs/heads/side HEAD", "another branch"],
 		["git update-ref -m why", "nothing named"],
+		[
+			'git update-ref "refs/reviewed/$T" "$T"',
+			"a ref whose read head rules main out (#3441)",
+		],
+		[
+			'git branch -D "side/$B"',
+			"a branch whose read head rules main out (#3441)",
+		],
+		["git update-ref refs/reviewed/$T $T", "the same, unquoted"],
 		["git branch -f side HEAD~1", "another branch forced"],
 		["git branch -D side", "another branch deleted"],
 		["git branch -c main backup", "main copied, not replaced"],
@@ -908,6 +932,8 @@ describe("rewinding main is refused (#765)", () => {
 
 	it.each([
 		"git update-ref refs/heads/main HEAD",
+		"git update-ref main-worktree/HEAD HEAD",
+		'git update-ref "main-worktree/$H" HEAD',
 		"git checkout -B main --ignore-other-worktrees HEAD",
 	])(
 		"but %s from a worktree still rewinds the one main, so is refused with the main-rewind rule",

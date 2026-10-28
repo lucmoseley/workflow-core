@@ -165,6 +165,7 @@ describe("literal (mantahostels#284)", () => {
 		expect(read("-f query='mutation{updateIssue}'")).toEqual({
 			text: "-f query=mutation{updateIssue}",
 			known: true,
+			head: "-f query=mutation{updateIssue}",
 		});
 	});
 
@@ -172,6 +173,7 @@ describe("literal (mantahostels#284)", () => {
 		expect(literal("-f state=closed", [])).toEqual({
 			text: "-f state=closed",
 			known: true,
+			head: "-f state=closed",
 		});
 	});
 
@@ -179,6 +181,7 @@ describe("literal (mantahostels#284)", () => {
 		expect(read("-f query='a $b c'")).toEqual({
 			text: "-f query=a $b c",
 			known: true,
+			head: "-f query=a $b c",
 		});
 	});
 
@@ -186,6 +189,7 @@ describe("literal (mantahostels#284)", () => {
 		expect(read('-f query="updateIssue($BODY)"')).toEqual({
 			text: "-f query=updateIssue($BODY)",
 			known: false,
+			head: "-f query=updateIssue(",
 		});
 	});
 
@@ -193,6 +197,7 @@ describe("literal (mantahostels#284)", () => {
 		expect(literal("-f query=$Q", [])).toEqual({
 			text: "-f query=$Q",
 			known: false,
+			head: "-f query=",
 		});
 	});
 
@@ -204,6 +209,7 @@ describe("literal (mantahostels#284)", () => {
 		expect(literal(`x${QUOTED}9\x01y`, [])).toEqual({
 			text: "x9\x01y",
 			known: false,
+			head: "x",
 		});
 	});
 
@@ -211,6 +217,7 @@ describe("literal (mantahostels#284)", () => {
 		expect(literal(`a${QUOTED}\x01b`, ['"s'])).toEqual({
 			text: "a\x01b",
 			known: false,
+			head: "a",
 		});
 	});
 
@@ -218,7 +225,17 @@ describe("literal (mantahostels#284)", () => {
 		expect(literal(`$X${QUOTED}0\x01`, ["'a"])).toEqual({
 			text: "$Xa",
 			known: false,
+			head: "",
 		});
+	});
+
+	it.each([
+		["refs/reviewed/$T", "refs/reviewed/"],
+		["'a$b'\"c$d\"", "a$bc"],
+		["pre`x`", "pre"],
+		["refs/heads/ma\\in", "refs/heads/ma"],
+	])("reads %s as far as %s before its first expansion (#3441)", (w, head) => {
+		expect(read(w).head).toBe(head);
 	});
 
 	it("leaves the spans it reads as they were", () => {

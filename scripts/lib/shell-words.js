@@ -74,30 +74,54 @@ function readSentinels(text, onSpan) {
 }
 
 /**
- * A word whose quoted spans were blanked, put back: `{ text, known }`, the
- * text printed EITHER WAY so a caller can judge on the visible part, `known`
- * false where any of it could not be read — an unexpanded `$VAR`, a command
- * substitution, or a sentinel naming a span never recorded, which is read on
- * from right after its prefix.
+ * Where a word stops reading as plain text: an expansion, or a backslash,
+ * whose escape the masked text still carries (#3441).
+ */
+const HEAD_STOP = /[$`\\]/;
+
+/**
+ * A word whose quoted spans were blanked, put back: `{ text, known, head }`,
+ * the text printed EITHER WAY so a caller can judge on the visible part,
+ * `known` false where any of it could not be read — an unexpanded `$VAR`, a
+ * command substitution, or a sentinel naming a span never recorded, which is
+ * read on from right after its prefix — and `head` the text before its first
+ * expansion, backslash or unrecorded sentinel, so text the shell reads as
+ * written (#3441).
  * @param {string} word
  * @param {string[]} spans
  */
 function literal(word, spans) {
 	let known = true;
+	/** @type {string | null} */
+	let head = null;
+	let seen = "";
+	/** @param {string} s the text after `seen`, read as the shell would */
+	const readOn = (s) => {
+		const at = s.search(HEAD_STOP);
+		if (head === null && at >= 0) head = seen + s.slice(0, at);
+		seen += s;
+	};
 	const { out, rest } = readSentinels(word, (lit, idx) => {
 		if (hasExpansion(lit)) known = false;
+		readOn(lit);
 		const recorded = idx === null ? undefined : spans[idx];
 		if (recorded === undefined) {
 			known = false;
+			head ??= seen;
 			return { text: lit, stepPast: false };
 		}
 		const span = recorded.slice(1);
 		/* A single-quoted span is literal whatever it holds. */
-		if (recorded.charAt(0) !== "'" && hasExpansion(span)) known = false;
+		if (recorded.charAt(0) === "'") seen += span;
+		else {
+			if (hasExpansion(span)) known = false;
+			readOn(span);
+		}
 		return { text: lit + span, stepPast: true };
 	});
 	if (hasExpansion(rest)) known = false;
-	return { text: out + rest, known };
+	readOn(rest);
+	return { text: out + rest, known, head: head ?? seen };
 }
 
 /** A word as `read -ra` splits one line: on runs of IFS whitespace. */

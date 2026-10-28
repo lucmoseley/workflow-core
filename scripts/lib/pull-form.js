@@ -167,6 +167,7 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {PullFormContext} ctx
  * @property {(word: string) => string | null} known a word's text, null
  *   where any of it is unreadable
+ * @property {(word: string) => ReturnType<typeof literal>} read a word, read
  * @property {(dir: string) => ReturnType<PullFormContext["treeClass"]>}
  *   treeClass the walk's, memoised
  * @property {() => void} subject marks a reconciliation the rule is about
@@ -462,8 +463,9 @@ const REF_ARGS = {
  * @property {string[]} positional
  * @property {string} scope the tree's class; "unknown" where unresolved
  * @property {(word: string | undefined, name: string) => boolean} refIs is
- *   the word, read literally, the name? An unreadable word answers yes
- *   unless git itself refuses the name wherever it is unreadable
+ *   the word, read literally, the name? An unreadable word answers yes where
+ *   its readable head begins the name, unless git itself refuses the name
+ *   wherever it is unreadable (#3441)
  * @property {(what: string) => Refusal} deny
  */
 
@@ -507,8 +509,11 @@ function judgeRef(j, { segment, sub, tree, args }) {
 		scope,
 		refIs: (word, name) => {
 			if (word === undefined) return false;
-			const text = j.known(word);
-			return text === null ? unreadIs : text === name;
+			const l = j.read(word);
+			/* Only the head reads as the shell would; what follows could be
+			 * anything (#3441). */
+			if (!l.known) return unreadIs && name.startsWith(l.head);
+			return l.head === name;
 		},
 		deny: (what) => rewindDeny(j, segment, what),
 	};
@@ -532,8 +537,12 @@ function judgeUpdateRef({ a, positional, scope, refIs, deny }) {
 		return deny(
 			"writes `main` directly, dropping whatever came after the commit it names",
 		);
-	/* HEAD is `main` only where `main` is checked out. */
-	if (scope !== "linked" && refIs(first, "HEAD"))
+	/* HEAD is `main` only where `main` is checked out; `main-worktree/HEAD`
+	 * reaches the shared tree's from any tree. */
+	if (
+		(scope !== "linked" && refIs(first, "HEAD")) ||
+		refIs(first, "main-worktree/HEAD")
+	)
 		return deny("writes the shared tree's HEAD, and so `main`, directly");
 	return null;
 }
@@ -1045,6 +1054,7 @@ function decide(command, ctx) {
 			const l = literal(word, parsed.spans);
 			return l.known ? l.text : null;
 		},
+		read: (word) => literal(word, parsed.spans),
 		/* The walk's tree class, read again by the ref judge: one git answer a
 		 * tree. */
 		treeClass: (dir) => {
