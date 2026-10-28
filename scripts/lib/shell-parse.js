@@ -1259,6 +1259,18 @@ function resolveWord(word, scope) {
  */
 
 /**
+ * Ports for a walk that judges the text alone: no payload cwd, no
+ * environment, no filesystem.
+ * @type {WalkPorts}
+ */
+const TEXT_ONLY_PORTS = Object.freeze({
+	cwd: undefined,
+	fallbackCwd: "/",
+	vars: {},
+	isDir: () => false,
+});
+
+/**
  * @typedef {object} Walk one walk's running state over a parse's segments
  *   (#2785): the cwd through `cd`, the subshell stack, arithmetic's redirect
  *   switch and the command's own assignments. Each walk keeps
@@ -2066,6 +2078,7 @@ function addIntoTarget(src, { base, dpath }, add, ctx) {
 module.exports = {
 	parseCommand,
 	walkCommands,
+	TEXT_ONLY_PORTS,
 	unmask,
 	asWritten,
 	normAbs,

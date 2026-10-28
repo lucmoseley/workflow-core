@@ -230,6 +230,21 @@ describe("qualifying calls", () => {
 			"gh issue list --state=all --search=x",
 		],
 		["a search after cd &&", "rulings", 'cd /x && gh search issues "y" | head'],
+		[
+			"a search inside $(…)",
+			"rulings",
+			'hits=$(gh issue list --state all --search "x") && echo "$hits"',
+		],
+		[
+			"gh's own -R before the command word",
+			"rulings",
+			"gh -R acme/core issue list --state all -S x",
+		],
+		[
+			"gh's own -R before search issues",
+			"rulings",
+			"gh -R acme/core search issues x",
+		],
 	])("counts %s", (_name, rung, command) => {
 		refuseOnce();
 		append(...others(rung as Rung), bash(command));
@@ -262,6 +277,12 @@ describe("qualifying calls", () => {
 		],
 		["gh issue view", "gh issue view 12"],
 		["a search quoted in an echo", "echo 'gh search issues x'"],
+		["a search as an unquoted echo's words", "echo gh search issues x"],
+		["a search in a heredoc body", "cat <<'EOF'\ngh search issues x\nEOF"],
+		[
+			"gh's own -R off the corpus",
+			"gh -R other/repo issue list --state all -S x",
+		],
 	])("does not count %s for past rulings", (_name, command) => {
 		refuseOnce();
 		append(...others("rulings"), bash(command));

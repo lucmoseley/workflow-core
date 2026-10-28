@@ -37,7 +37,12 @@
  *    seen: only a segment's own command word is read, as in lib/self-match.js.
  */
 
-const { asWritten, parseCommand, walkCommands } = require("./shell-parse.js");
+const {
+	asWritten,
+	parseCommand,
+	walkCommands,
+	TEXT_ONLY_PORTS,
+} = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
 const { SHELL_NAME, pgrepSelects, readPgrepArgs } = require("./pgrep-args.js");
 
@@ -65,7 +70,7 @@ function scanPaste(paste, log) {
 			const f = judgeSegment(c, parsed.spans, paste, log);
 			if (f) out.push(f);
 		},
-		{ cwd: undefined, fallbackCwd: "/", vars: {}, isDir: () => false },
+		TEXT_ONLY_PORTS,
 	);
 	return out;
 }

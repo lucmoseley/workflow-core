@@ -11,14 +11,20 @@
  *   web       a WebSearch or WebFetch call
  *   subagent  an Agent call (`Task`, its older name, too)
  *
- * RESIDUALS: the command is split on unquoted `;`, `&&`, `||`, `|` and
- * newlines and read word by word, so a `gh` call inside `$(…)`, a script or
- * an alias is unseen; and a repo named by a shell variable never matches the
- * corpus.
+ * Commands are read through shell-parse.js, an unquoted `$(…)` and each side
+ * of `&&` included. RESIDUALS: a `gh` call inside a quoted `"$(…)"`, backticks,
+ * `bash -c`, `eval`, a script or an alias, or behind a wrapper shell-words.js's
+ * unwrap does not strip (`timeout`, `watch`), is unseen; and a repo named by a
+ * shell variable never matches the corpus.
  */
 
 const { scriptPath } = require("./script-path.js");
-const { isGhCommand } = require("./shell-words.js");
+const {
+	parseCommand,
+	walkCommands,
+	TEXT_ONLY_PORTS,
+} = require("./shell-parse.js");
+const { ghWords, literal } = require("./shell-words.js");
 
 /** @typedef {"rulings" | "web" | "subagent"} Rung */
 /** @typedef {import("./tool-calls-since").ToolCall} ToolCall */
@@ -41,64 +47,6 @@ const RUNG_NAME = {
 const RULINGS_BUDGET = 5;
 const WEB_BUDGET = 10;
 const SUBAGENT_BUDGET = 15;
-
-const SEGMENT_END = new Set([";", "|", "&", "\n"]);
-const WORD_END = new Set([" ", "\t"]);
-const LITERAL_START = new Set(["'", '"', "\\"]);
-
-/**
- * The literal text a quote or backslash opens at `i`, and the index past it:
- * a `'` string as written, a `"` one taking backslash escapes, a backslash
- * the one character after it.
- * @param {string} command
- * @param {number} i
- * @returns {[string, number]}
- */
-function literal(command, i) {
-	const q = command[i];
-	if (q === "\\") return [command[i + 1] ?? "", i + 2];
-	let text = "";
-	let at = i + 1;
-	for (; at < command.length && command[at] !== q; at++) {
-		if (q === '"' && command[at] === "\\" && at + 1 < command.length) at++;
-		text += command[at];
-	}
-	return [text, at + 1];
-}
-
-/**
- * The command's words, segment by segment: split on unquoted `;`, `&&`, `||`,
- * `|` and newlines, quotes removed.
- * @param {string} command
- * @returns {string[][]}
- */
-function segments(command) {
-	/** @type {string[][]} */
-	const out = [[]];
-	/** @type {string | null} the word being read, null between words */
-	let word = null;
-	const endWord = () => {
-		if (word !== null) out.at(-1)?.push(word);
-		word = null;
-	};
-	for (let i = 0; i < command.length; ) {
-		const c = command[i] ?? "";
-		if (LITERAL_START.has(c)) {
-			const [text, next] = literal(command, i);
-			word = (word ?? "") + text;
-			i = next;
-			continue;
-		}
-		if (SEGMENT_END.has(c)) {
-			endWord();
-			out.push([]);
-		} else if (WORD_END.has(c)) endWord();
-		else word = (word ?? "") + c;
-		i++;
-	}
-	endWord();
-	return out.filter((words) => words.length > 0);
-}
 
 /**
  * Each value `args` gives a flag, `--name v`, `--name=v` and `-x v` alike.
@@ -185,16 +133,25 @@ function isRulingsSearch(args, corpus) {
  * @param {Corpus} corpus
  */
 function isRulingsCommand(command, corpus) {
-	for (const words of segments(command)) {
-		const at = words.findIndex(isGhCommand);
-		if (at === -1) continue;
-		const [sub, verb, ...args] = words.slice(at + 1);
-		if (sub === "issue" && verb === "list" && isRulingsList(args, corpus))
-			return true;
-		if (sub === "search" && verb === "issues" && isRulingsSearch(args, corpus))
-			return true;
-	}
-	return false;
+	const parsed = parseCommand(command);
+	const read = (/** @type {string} */ w) => literal(w, parsed.spans).text;
+	let found = false;
+	walkCommands(
+		parsed,
+		(cmd) => {
+			const gh = found ? null : ghWords(cmd.words, parsed.spans);
+			if (!gh) return;
+			const [sub, verb, ...args] = gh.args.map(read);
+			if (gh.repo) args.push("--repo", read(gh.repo));
+			found =
+				(sub === "issue" && verb === "list" && isRulingsList(args, corpus)) ||
+				(sub === "search" &&
+					verb === "issues" &&
+					isRulingsSearch(args, corpus));
+		},
+		TEXT_ONLY_PORTS,
+	);
+	return found;
 }
 
 /**

@@ -13,7 +13,12 @@
  * command is not seen.
  */
 
-const { asWritten, parseCommand, walkCommands } = require("./shell-parse.js");
+const {
+	asWritten,
+	parseCommand,
+	walkCommands,
+	TEXT_ONLY_PORTS,
+} = require("./shell-parse.js");
 const {
 	commitPathsArgs,
 	commitPathsParse,
@@ -73,7 +78,7 @@ function commitCalls(command) {
 				);
 			} else out.push({ call, flag: "-", word: "" });
 		},
-		{ cwd: undefined, fallbackCwd: "/", vars: {}, isDir: () => false },
+		TEXT_ONLY_PORTS,
 	);
 	return out;
 }
