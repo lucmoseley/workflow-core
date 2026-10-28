@@ -48,8 +48,8 @@
 # it is a control-flow signal rather than an error.
 #
 # DTZ (flake8-datetimez) JOINED AT #3364: a naive datetime, or `utcnow()`
-# (deprecated since Python 3.12), reads local time as UTC. Its first run found
-# only the three `utcnow()` calls it then fixed.
+# (deprecated since Python 3.12), is read as local time by Python's own methods,
+# so a UTC stamp shifts by the host's offset.
 #
 # No type checker either, and that was measured rather than assumed: on the seven
 # evidence-pipeline files, mypy at its defaults found 0, mypy --check-untyped-defs
