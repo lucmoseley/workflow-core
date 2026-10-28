@@ -1283,7 +1283,7 @@ function dispatchLivenessLabel(liveness) {
 
 /**
  * How much of the memory the admission arithmetic just called spent belongs to
- * sessions that have FINISHED and not exited (mantahostels#421, which measured the pool).
+ * sessions that have FINISHED and not exited (mantahostels#421).
  *
  * REPORT ONLY — this run reaps nothing (mantahostels#1029). The reaper keeps its single
  * `SessionStart` trigger. The standing reason is the oracle spawn this would

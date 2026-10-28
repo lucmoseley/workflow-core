@@ -2,7 +2,7 @@
 /*
  * pretest-reap.js — return finished sessions' memory before a suite runs.
  *
- * THE PROBLEM (mantahostels#1840, which ruled this seam). `reap-finished-sessions.js` runs
+ * THE PROBLEM (mantahostels#1840). `reap-finished-sessions.js` runs
  * at SessionStart and nowhere else, so a session that reaches `npm run test`
  * hours later reads the headroom the ladder demands (docs/environment.md §6)
  * against a pool holding 330-450 MB per finished-but-resident neighbour. The

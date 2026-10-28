@@ -6,8 +6,7 @@
  *
  *     Frontier 60: 5 dispatched + 51 disqualified + 4 no command.
  *
- * A hook rather than a written rule (mantahostels#844, which built it, on mantahostels#422's criterion —
- * written down, and failed on the runs after it).
+ * A hook rather than a written rule (mantahostels#844, on mantahostels#422's criterion).
  *
  * HOW IT KNOWS THIS IS A SELECTION SESSION. Not from the message, and not from
  * `CLAUDE_JOB_DIR`, which is set in every background job. `scripts/pick-next.js`

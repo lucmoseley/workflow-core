@@ -6,7 +6,7 @@
  *
  * Usage:  npm run check:ghost-jobs  [--minutes <n>] [--hung-minutes <n>] [--notify] [--json]
  *
- * WHAT IT IS FOR (mantahostels#1495, which measured the ghost). A job is created with
+ * WHAT IT IS FOR (mantahostels#1495). A job is created with
  * `state: "working"` and `detail: "starting…"`, and the daemon hands it a
  * pre-warmed spare. Where that spare never initialises a session, the job keeps
  * both values for good: no transcript is written, no pid is registered, and

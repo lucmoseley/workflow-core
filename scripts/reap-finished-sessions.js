@@ -56,8 +56,8 @@
  * ends that host, so the lock falls into the ordinary stale class and the next
  * claimant breaks it by the same rule that breaks any dead session's lock.
  *
- * GATE 4 READS A REAL FINISH TIME, NOT A SIGHTING (mantahostels#654, which chose the clock;
- * mantahostels#652, which measured the sources; readFinishAt below).
+ * GATE 4 READS A REAL FINISH TIME, NOT A SIGHTING (mantahostels#654;
+ * mantahostels#652; readFinishAt below).
  * The first session start after a burst finishes reaps it (mantahostels#632, the burst a
  * sighting clock could not reap: only a session start runs this script, so a
  * burst was always sighted at an age of zero). The first-sighting clock

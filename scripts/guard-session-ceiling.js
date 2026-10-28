@@ -14,7 +14,7 @@
  * only band heard by a session reaching 100 responses without ever crossing
  * 200,000.
  *
- * IT REPEATS TOO, BUT CAPPED AT THREE (mantahostels#2619, which carries the measurement).
+ * IT REPEATS TOO, BUT CAPPED AT THREE (mantahostels#2619).
  *
  * WHY IT EXISTS. Left to the session to read at a unit boundary, the policy
  * went unread (mantahostels#1731).

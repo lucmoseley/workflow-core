@@ -4,10 +4,10 @@
  *
  * Usage:  npm run check:guard-errors  [--days <n>] [--notify]
  *
- * EVERY PreToolUse GUARD, since mantahostels#147. Each one fails open by house rule (mantahostels#103
+ * EVERY PreToolUse GUARD (mantahostels#147). Each one fails open by house rule (mantahostels#103
  * §6) — a missing jq, an unparseable payload, a library it cannot read all ALLOW
  * the action — so a disarmed guard is indistinguishable from a guard finding
- * nothing wrong. They all now share one record, written by
+ * nothing wrong. They all share one record, written by
  * scripts/lib/guard-log.sh:
  *
  *   <ISO 8601 UTC>\t<guard script name>\t<what was allowed unchecked>[\t<detail>]

@@ -80,7 +80,7 @@ args="$*"
 
 case "$command" in
   card-close | roadmap-edit)
-    printf 'NOTE: %s is normally invoked as a skill inside an existing session, not launched standalone (mantahostels#1334, which struck it from the Sonnet table because a skill inside a host cannot set the host'"'"'s model). Launching on plain Opus, same as any kind outside the Sonnet table.\n' \
+    printf 'NOTE: %s is normally invoked as a skill inside an existing session, not launched standalone (mantahostels#1334: a skill inside a host cannot set the host'"'"'s model). Launching on plain Opus, same as any kind outside the Sonnet table.\n' \
       "$command" >&2
     ;;
 esac

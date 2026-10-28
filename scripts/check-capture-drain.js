@@ -4,8 +4,8 @@
  * undrained too long.
  *
  * A `**Captured fact:**` comment buys durability the moment it is written and
- * nothing else: the fact is in no document, so no session reads it (mantahostels#639, which
- * ruled durability and retrieval bought separately). The settling session
+ * nothing else: the fact is in no document, so no session reads it (mantahostels#639).
+ * The settling session
  * files the fact itself and marks its own comment consumed (mantahostels#2748), so what
  * this reports is an ESCAPED one — plus the historical residue on mantahostels#678, closed.
  * Nothing else asks for the drain.

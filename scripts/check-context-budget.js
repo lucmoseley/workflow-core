@@ -823,8 +823,8 @@ function readInjectedDocs(ctx, root) {
  * too double-counts its bytes, which the tripwire does not catch.
  *
  * MAINTAINED BY HAND — the `uncounted` tripwire below is what catches a string
- * that bypasses this list. It reads `emit "..."` and, since mantahostels#1853, a whole-line
- * bare `emit "$context"` too, then expands transitively through `refs` on both
+ * that bypasses this list. It reads `emit "..."` and a whole-line
+ * bare `emit "$context"` too (mantahostels#1853), then expands transitively through `refs` on both
  * sides of the comparison and checks each name's OWN bytes (refs zeroed out),
  * so a string reached only through the `context=` assignment still surfaces
  * there rather than counting as zero, and a pure container like `context`

@@ -6,7 +6,7 @@
  *
  * Usage:  npm run check:orphan-loops  [--minutes <n>] [--notify] [--json]
  *
- * WHAT IT IS FOR (mantahostels#2012, which found five; mantahostels#2017, the spec; mantahostels#2043, this limb).
+ * WHAT IT IS FOR (mantahostels#2012; mantahostels#2017, the spec; mantahostels#2043, this limb).
  * A session that waits on a background suite or a neighbour's claim writes
  * `until <condition>; do sleep 5; done` inside one Bash call. Where that
  * condition can never become true the shell loops for ever, outlives its

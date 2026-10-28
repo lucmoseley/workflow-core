@@ -611,7 +611,7 @@ function censusAssertion(ctx, days, budgetMs) {
 	 *
 	 * BOTH CLEAR SITES, AND NEITHER IS DEAD. The empty-`bad` clear below is
 	 * reached whenever one config dir is refused and the state directory is still
-	 * listable, which since mantahostels#1963 is the ordinary case. The unavailable return is
+	 * listable, which is the ordinary case (mantahostels#1963). The unavailable return is
 	 * reached when every dir is refused — mode `0o333` being the case that proves
 	 * it, since a directory can refuse listing while the stamp inside stays
 	 * readable by name (mantahostels#1964).
@@ -1133,10 +1133,7 @@ function readUpstreamManifest(marketplaceDir, rel, sha) {
 /**
  * Where a marketplace's own tree lives, for `readPluginSource`/`readUpstreamManifest`
  * to read — `scripts/lib/plugin-state.js`'s `resolveMarketplace`, which owns
- * the reading and documents it (mantahostels#3515 F9). This file used to hold a second copy
- * that ignored `installLocation` for a `git`/`github` source, so wherever the
- * CLI wrote one away from the clone path the two named different trees (#251
- * item 11). Kept as a wrapper because this file's callers want a bare path,
+ * the reading and documents it (mantahostels#3515 F9). A wrapper because this file's callers want a bare path,
  * never the source type beside it.
  *
  * @param {string} pluginsDir the config dir's `plugins` directory
@@ -1874,8 +1871,7 @@ const REAP_INFLIGHT_MS = 300_000;
  *
  * THE DRY HALF IS WHAT THIS BUYS, AND ONLY THAT HALF. A cancelled DRY run —
  * `admission.js` firing `--dry-run --json` from pick-next, away from any session
- * start — is announced to nobody (mantahostels#1931, which names the field and its one
- * consumer). Reading the record here reports it without giving admission a
+ * start — is announced to nobody (mantahostels#1931). Reading the record here reports it without giving admission a
  * route it would only fail closed on.
  *
  * WHY `open` CANNOT SEE A STANDING LIVE CANCELLATION (mantahostels#1952). The reaper is a

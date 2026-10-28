@@ -17,7 +17,7 @@
  *
  * It calls validateRoadmap() in-process rather than shelling out to that
  * validator's CLI, so the gate and the command line can never disagree about
- * what "valid" means (mantahostels#696, which split the function out).
+ * what "valid" means (mantahostels#696).
  *
  * Severity mapping (mantahostels#697):
  *

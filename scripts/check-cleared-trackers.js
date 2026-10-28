@@ -5,7 +5,7 @@
  *
  * Usage:  npm run check:cleared-trackers  [--notify] [--json]
  *
- * WHAT IT IS FOR (mantahostels#1699, which found the gap). scripts/lib/tracking-issue.js
+ * WHAT IT IS FOR (mantahostels#1699). scripts/lib/tracking-issue.js
  * exports openTrackingIssue, refresh and fileOrRefresh — file on the condition
  * arising, rewrite the body while it stands. There is NO CLOSE PATH, so every
  * reporter built on it does nothing at all when the condition clears.

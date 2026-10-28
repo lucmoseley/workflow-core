@@ -34,7 +34,7 @@
  * LOCAL ONLY. It reads the claim store under ~/.claude and asks the local daemon
  * what is running; a CI runner would find neither and report all-clear forever.
  *
- * WHAT --notify SAYS (mantahostels#1747, which retired the once-each stamp: a notice given
+ * WHAT --notify SAYS (mantahostels#1747: a notice given
  * once goes silent on a pile that never drains). It prints a STANDING count on
  * every run, and itemises only the claims that carry UNCOMMITTED WORK.
  *

@@ -251,7 +251,7 @@ const takesOf = (names) => names.filter((n) => n.startsWith("takes:"));
 
 /*
  * How many offenders --notify names before it stops, sized for a SessionStart
- * hook's stdout (mantahostels#1148, which capped it). Every other path
+ * hook's stdout (mantahostels#1148). Every other path
  * prints the lot — there a human is working the whole list. Findings are never
  * capped: --json and the Actions annotations still carry all of them.
  */

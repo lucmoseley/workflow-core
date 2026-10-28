@@ -341,9 +341,9 @@ runCheck({
 				"  vendor answered in a shape the guard cannot read, which is a fix here\n" +
 				"  rather than grounds for reversal (#226).\n" +
 				"\n  An unjudged flag is quoted above with the command that judges it,\n" +
-				"  so the judging no longer has to happen in the session that raised it\n" +
-				"  (#285). A flag logged before that change carries no text and cannot\n" +
-				"  be judged at all; it says so in place of the quote.\n" +
+				"  so the judging need not happen in the session that raised it\n" +
+				"  (#285). A flag logged with no text cannot be judged at all; it\n" +
+				"  says so in place of the quote.\n" +
 				`\n  Log: ${jevLog.logPath(root)}\n`,
 		);
 		ctx.say(standing ? buildStandingReport(standing) : UNREADABLE);

@@ -8,11 +8,10 @@
  *
  *   node scripts/count-guard-fires.js [--dir <path>] [--json] [--mentions] [--since <date>]
  *
- * Built at mantahostels#1246, the retrieval half of `docs/doc-map.md` §Capture and
- * placement route (e). `--since` added at mantahostels#1896 so §5's ripeness test — a
+ * The retrieval half of `docs/doc-map.md` §Capture and placement route (e)
+ * (mantahostels#1246). `--since` (mantahostels#1896) gives §5's ripeness test — a
  * prediction ripens once its subject fires at or after the prediction's date
- * (mantahostels#1886, which retired the earlier 5-fire threshold) — has a filter to run
- * at all; before this it counted lifetime fires only.
+ * (mantahostels#1886) — a filter to run.
  *
  * `--since` is deliberately strict: it accepts an ISO date or the corpus's own
  * `YYYY-MM-DDTHH:MM:SS.mmmZ` timestamp shape, refusing anything else rather

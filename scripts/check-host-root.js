@@ -176,7 +176,7 @@ const ALLOWED = {
 	"scripts/count-guard-fires.js": {
 		tags: ["SELF-ROOTED-JS"],
 		reason:
-			"reads the plugin's own hooks/hooks.json, which ships at the plugin root beside scripts/ and registers the hooks an adopter's settings no longer carry (#940)",
+			"reads the plugin's own hooks/hooks.json, which ships at the plugin root beside scripts/ and registers the plugin's hooks, which an adopter's settings do not carry (#940)",
 	},
 	"scripts/score-session-breaches.js": {
 		tags: ["SELF-ROOTED-JS"],

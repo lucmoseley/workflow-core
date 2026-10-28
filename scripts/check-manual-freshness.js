@@ -43,7 +43,7 @@
  *      recorded anchor that no longer matches the stamp means a full sync ran
  *      and failed to clear the log.
  *   5. Cited paths — every path-like token in a code span resolves on disk
- *      (mantahostels#1149, which moved this off the manual-sync skill's hand grep).
+ *      (mantahostels#1149).
  *      Findings are WARN: only a FAIL files an issue (mantahostels#391). A path the manual
  *      cites by basename needs an allowlist entry naming the file it stands
  *      for; without one it reports as a miss.

@@ -61,7 +61,7 @@
  * separate them, so such a needle is marked `also live` and its hits are reported
  * as ambiguous rather than dropped.
  *
- * A LINE PIN ROTS; AN ANCHOR DOES NOT (mantahostels#743, which measured the rate). A pin
+ * A LINE PIN ROTS; AN ANCHOR DOES NOT (mantahostels#743). A pin
  * drifts as lines are inserted above it, each move silently putting the hit
  * back in the report. So anchor a permanently-correct hit by content, and keep
  * a line pin only where no distinctive substring exists.

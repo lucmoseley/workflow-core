@@ -2,7 +2,7 @@
 #
 # bg-run.sh — make a background job's KILL distinguishable from its COMPLETION.
 #
-# THE PROBLEM (mantahostels#1900, which measured it). The harness kills a job started with
+# THE PROBLEM (mantahostels#1900). The harness kills a job started with
 # `run_in_background` intermittently: 2 of 13 instrumented arms on 29 Aug 2026,
 # one of them a `sleep`-only job killed inside 10 s with 2993 MB available. No
 # property of the job predicts it — not duration, not memory cost, not output
@@ -49,8 +49,7 @@
 # under the Bash tool's own timeout (120 s default, 600 s max), or the call is
 # killed before it can report anything.
 #
-# WHAT A KILL LEAVES BEHIND (mantahostels#2662, moved durable and made to fire on its own
-# at mantahostels#2691). `run` now also writes `started` (launch time) and, every beat,
+# WHAT A KILL LEAVES BEHIND (mantahostels#2662, mantahostels#2691). `run` also writes `started` (launch time) and, every beat,
 # `mem` (MemAvailable and the command's own RSS, sampled live since nothing
 # can be read off the process once it is gone). The first of `check` or the
 # run's own detached watcher (below) to see a run as KILLED appends one line
@@ -67,9 +66,7 @@
 # not double-append.
 #
 # THE WATCHER IS WHAT MAKES THIS FIRE WITHOUT A SESSION EVER CALLING `check`
-# (mantahostels#2691, which measured that almost nothing did — 7 of 1,544 historical
-# run dirs carried the `started` file the recorder needs, and zero
-# kills.jsonl existed anywhere on the machine 19h after mantahostels#2662 landed). `run`
+# (mantahostels#2691). `run`
 # launches a `setsid --fork`ed copy of itself on the internal `__watch` verb,
 # which polls the launching process's liveness and records the kill itself
 # the moment that process is gone with no `status` file — detached so that a
