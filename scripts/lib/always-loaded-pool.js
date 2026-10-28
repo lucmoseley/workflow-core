@@ -18,8 +18,8 @@ const { readImportedFiles } = require("./pool-imports.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { cutAt } = require("./cut-at.js");
 const { caught } = require("./caught.js");
-const { readCommit } = require("./commit-sha.js");
-const { execGit, gitReader } = require("./git.js");
+const { readCommitOrBroken } = require("./commit-sha.js");
+const { execGit } = require("./git.js");
 const { brokenError } = require("./outcome-error.js");
 
 /*
@@ -174,9 +174,7 @@ const readPoolBytesIn = (treeish) =>
  * @returns {number | null}
  */
 function readCommittedPoolBytes(rev) {
-	const r = readCommit(gitReader(process.cwd()), rev);
-	if (!r.ok) throw brokenError(`git would not resolve ${rev}: ${r.why}`);
-	return r.sha === null ? null : readPoolBytesIn(rev);
+	return readCommitOrBroken(rev) === null ? null : readPoolBytesIn(rev);
 }
 
 /**

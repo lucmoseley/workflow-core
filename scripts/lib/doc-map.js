@@ -23,9 +23,8 @@ const { cutAt } = require("./cut-at.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
-const { execGit, gitOrNull, gitReader } = require("./git.js");
-const { readCommit } = require("./commit-sha.js");
-const { brokenError } = require("./outcome-error.js");
+const { execGit, gitOrNull } = require("./git.js");
+const { readCommitOrBroken } = require("./commit-sha.js");
 const { siblingTests } = require("./test-kind.js");
 
 /** One inline-code span, capturing its text. */
@@ -1218,14 +1217,9 @@ const IN_FLIGHT_REFS = [
  */
 function readHeadAnd(refs) {
 	const revs = ["HEAD"];
-	const read = gitReader(process.cwd());
 	for (const ref of refs) {
-		const r = readCommit(read, ref);
-		if (!r.ok)
-			throw brokenError(
-				`git would not resolve ${ref}: ${r.why} — run \`git rev-parse --verify ${ref}\` to see git's own error`,
-			);
-		if (r.sha !== null) revs.push(r.sha);
+		const sha = readCommitOrBroken(ref);
+		if (sha !== null) revs.push(sha);
 	}
 	return revs;
 }

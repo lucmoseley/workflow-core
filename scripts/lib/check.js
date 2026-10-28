@@ -78,7 +78,7 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const { gitReader, spawnGitSync } = require("./git.js");
+const { spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -90,7 +90,7 @@ const { persisting } = require("./persist-mode.js");
 const { fromEnv: sessionFromEnv } = require("./session-id.js");
 const { ENVELOPE_FRAME_KEYS } = require("./envelope-frame-keys.js");
 const { isUnder } = require("./is-under.js");
-const { readCommit } = require("./commit-sha.js");
+const { readCommitOrBroken } = require("./commit-sha.js");
 const { GIT_MODE } = require("./git-mode.js");
 const {
 	brokenError,
@@ -536,20 +536,6 @@ function unborn() {
 function baselineOf(rev) {
 	if (rev !== "HEAD") return rev;
 	return readCommitOrBroken(rev) === null && unborn() ? EMPTY_TREE : rev;
-}
-
-/**
- * The full sha `rev` names, or null where it names none; a git that will not
- * answer is BROKEN, never "no commit" (#3068).
- *
- * @param {string} rev
- * @param {string} [root]
- * @returns {string | null}
- */
-function readCommitOrBroken(rev, root) {
-	const r = readCommit(gitReader(root), rev);
-	if (!r.ok) throw brokenError(`git would not resolve ${rev}: ${r.why}`);
-	return r.sha;
 }
 
 /**
@@ -1717,7 +1703,6 @@ module.exports = {
 	indexTree,
 	extractTree,
 	baselineOf,
-	readCommitOrBroken,
 	isAgainstSide,
 	isBaselineSide,
 	againstRevs,

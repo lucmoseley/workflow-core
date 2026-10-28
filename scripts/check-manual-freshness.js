@@ -64,7 +64,8 @@
 const fs = require("node:fs");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
-const { readCommitOrBroken, runCheck } = require("./lib/check");
+const { runCheck } = require("./lib/check");
+const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");

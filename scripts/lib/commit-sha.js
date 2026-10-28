@@ -10,6 +10,7 @@
  */
 
 const { caught } = require("./caught.js");
+const { brokenError } = require("./outcome-error.js");
 const {
 	gitBinary,
 	gitReader,
@@ -93,4 +94,22 @@ function commitSha(root, rev, execFn) {
 	return r.ok ? r.sha : null;
 }
 
-module.exports = { FULL_SHA, commitSha, readCommit };
+/**
+ * The full sha `rev` names, or null where it names none; a git that will not
+ * answer is BROKEN, never "no commit" (#3068).
+ *
+ * @param {string} rev
+ * @param {string} [root]
+ * @returns {string | null}
+ */
+function readCommitOrBroken(rev, root) {
+	const r = readCommit(gitReader(root), rev);
+	if (!r.ok) {
+		throw brokenError(
+			`git would not resolve ${rev}: ${r.why} — run \`git rev-parse --verify ${rev}\` to see git's own error`,
+		);
+	}
+	return r.sha;
+}
+
+module.exports = { FULL_SHA, commitSha, readCommit, readCommitOrBroken };

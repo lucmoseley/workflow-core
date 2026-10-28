@@ -728,7 +728,6 @@
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
-			"scripts/check-always-loaded-pass.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-registry.test.ts",

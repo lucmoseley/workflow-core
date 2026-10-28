@@ -4426,6 +4426,7 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(faulty.hits()).toBeGreaterThan(0);
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("git would not resolve HEAD");
+		expect(r.out).toContain("git rev-parse --verify HEAD");
 		expect(r.out).not.toContain("trigger verdict was not checked");
 	});
 

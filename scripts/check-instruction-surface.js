@@ -78,12 +78,8 @@ const {
 	digestOf,
 	guardsChangedBy,
 } = require("./lib/census-digest");
-const {
-	brokenError,
-	readCommitOrBroken,
-	runCheck,
-	errMessage,
-} = require("./lib/check");
+const { brokenError, runCheck, errMessage } = require("./lib/check");
+const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { readObjectBatch, listTree } = require("./lib/git-objects");
 const { GIT_MODE } = require("./lib/git-mode.js");
 const { claimDataFile } = require("./lib/doc-map-generator");
