@@ -45,6 +45,14 @@
  * no `kind: "deny"` needle registered reads as UNKNOWN, never as a measured
  * zero — nothing was there to catch a deny even if one occurred.
  *
+ * A DISPATCHER CORE IS ITS OWN GUARD (#3424). The trigger table expands the
+ * `guard-dispatch.js` registration into its cores, so every count is per
+ * core: a needle by its own `core`, a population by the core's own tools and
+ * `if`. A failure record names the dispatcher, not a core, so its loss is
+ * credited to every core of the scope that routes the call its `toolUseID`
+ * names — looked up among the transcript's own `tool_use` blocks. One whose
+ * call is not in its transcript is counted as unresolved and warned of.
+ *
  * STALENESS. The report ends with `lib/guard-deny-rates.js`'s pinned table
  * checked against the deny-capable set derived here: a guard with no row there
  * is named, which is the check mantahostels#3261 shipped without. Nothing recomputes that
@@ -113,9 +121,12 @@ const {
 	triggerTable,
 	triggerRows,
 	DENY_EVENT,
+	DISPATCHER,
 	EVENTS,
 	SCOPES,
 } = require("./lib/guard-triggers.js");
+const { manifestAt } = require("./lib/guard-cores.js");
+const { coreHost } = require("./lib/workflow-core-config.js");
 /* `parseSince` refuses an ISO spelling that parses but sorts wrong, which is
  * the fault it was written for (mantahostels#1896); duplicating it here would duplicate the
  * chance of getting that wrong. It is a CLI's export rather than a lib's
@@ -166,6 +177,8 @@ const OVERRIDE = process.env.WFC_LOST_DENY_ROOT
 const HOST = OVERRIDE ?? hostRoot();
 const CORE = OVERRIDE ?? path.join(__dirname, "..");
 const FAILURE_TYPES = new Set(["hook_cancelled", "hook_non_blocking_error"]);
+const CORE_MANIFEST = manifestAt(CORE);
+const CORE_HOST = coreHost(HOST);
 
 /**
  * The basename a `guardKey` opens with: everything before its first space.
@@ -181,7 +194,8 @@ const basenameOf = (key) => cutAt(key, " ")[0];
  *
  * The needle registry is keyed by `guardKey` — basename plus the arguments that
  * tell two registrations apart — and this collapses to the basename, matching
- * `triggerTable`: a deny is a deny whichever registration printed it.
+ * `triggerTable`: a deny is a deny whichever registration printed it. A
+ * dispatcher needle goes to the core it names, `triggerTable`'s row for it.
  *
  * NARROWED BY THE TRIGGER TABLE, not by `denyCapable` (mantahostels#3350): the table is
  * already the scope's population, and re-deriving the filter here would have
@@ -197,11 +211,11 @@ function denyNeedlesByGuard(needles, triggers) {
 	/** @type {Map<string, Needle[]>} */
 	const out = new Map();
 	for (const [key, entry] of Object.entries(needles?.guards ?? {})) {
-		const guard = basenameOf(key);
-		if (!triggers.has(guard)) continue;
-		const list = out.get(guard) ?? [];
-		for (const n of entry?.needles ?? []) list.push(n);
-		out.set(guard, list);
+		for (const n of entry?.needles ?? []) {
+			const guard = n.core ?? basenameOf(key);
+			if (!triggers.has(guard)) continue;
+			out.set(guard, [...(out.get(guard) ?? []), n]);
+		}
 	}
 	return out;
 }
@@ -312,7 +326,8 @@ function wilson(hits, n) {
  * EVERY TOOL-CALL EVENT IS SPLIT, not just `PreToolUse`. The buckets are defined
  * to hold exactly what the LOST count would credit to a guard on that event, so
  * a share taken over them RECONCILES with the tables above rather than merely
- * resembling them.
+ * resembling them — counted in records, where a dispatcher record is one
+ * record in its bucket and one loss for each core it ran (#3424).
  *
  *   <event>, unattributed — no readable guard name, or no `toolUseID` to pin it
  *     to a call. Exactly what the LOST count drops.
@@ -437,8 +452,10 @@ function hookTool(a, event) {
  * @typedef {{lost: Map<string, number>, denyCalls: Map<string, Set<string>>,
  *   anyCalls: Map<string, Set<string>>, population: Map<string, number>,
  *   lostCalls: Set<string>, failures: Map<string, number>,
- *   union: Map<string, UnionEntry>, undated: number,
+ *   union: Map<string, UnionEntry>, undated: number, unresolved: number,
  *   first: string | null, last: string | null, skipped: number}} ScanAcc
+ *   `unresolved`: dispatcher failure records whose call is not in their
+ *   transcript
  */
 
 /**
@@ -456,16 +473,28 @@ function scanTranscript(text, acc, options) {
 	const classify = options.classify ?? null;
 	const union = options.union ?? false;
 	const stats = { skipped: 0 };
-	for (const record of mainChainRecords(text, tier, stats)) {
+	const records = [...mainChainRecords(text, tier, stats)];
+	/* Every call, in the window or not, so a call made before the window
+	 * still resolves a dispatcher loss inside it. */
+	const calls = new Map(
+		records.flatMap(toolCalls).flatMap((c) => (c.id ? [[c.id, c]] : [])),
+	);
+	/** @type {Array<{id: string, at: string | null}>} */
+	const dispatched = [];
+	for (const record of records) {
 		const at = typeof record.timestamp === "string" ? record.timestamp : null;
 		const verdict = windowVerdict(at, window);
 		if (verdict === "undated") acc.undated++;
 		if (verdict !== "keep") continue;
 
 		// LOST.
-		const a = record?.attachment;
-		if (a && FAILURE_TYPES.has(a.type))
-			countFailure(a, at, acc, { event, classify, union, triggers });
+		const loss = countFailure(record?.attachment, at, acc, {
+			event,
+			classify,
+			union,
+			triggers,
+		});
+		if (loss) dispatched.push(loss);
 
 		// DENY EVENTS. A guard speaks through the harness's own records only, so
 		// the mention-contaminated `cli` route is refused here as it is in
@@ -476,19 +505,42 @@ function scanTranscript(text, acc, options) {
 		countPopulation(record, acc, { triggers, union });
 	}
 	acc.skipped += stats.skipped;
+	for (const loss of dispatched) creditCores(acc, triggers, calls, loss);
+}
+
+/**
+ * One killed dispatcher call's loss, credited to each core of `triggers` that
+ * routes it.
+ * @param {ScanAcc} acc accumulator: the cores' losses, or `unresolved`, are counted
+ * @param {Map<string, import("./lib/guard-triggers.js").Trigger>} triggers
+ * @param {Map<string, ToolCall>} calls
+ * @param {{id: string, at: string | null}} loss the record's `toolUseID` and timestamp
+ */
+function creditCores(acc, triggers, calls, { id, at }) {
+	const call = calls.get(id);
+	if (!call) {
+		acc.unresolved++;
+		return;
+	}
+	for (const [guard, t] of triggers)
+		if (t.via === DISPATCHER && firesOn(t, call.name, call.command))
+			recordLoss(acc, guard, id, at);
 }
 
 /**
  * One hook-failure record's share of the LOST count, the `--failures` split
- * and the `--union` count.
- * @param {TranscriptPart} a the record's `attachment`
+ * and the `--union` count; nothing for a record that is no hook failure.
+ * @param {TranscriptPart | undefined} a the record's `attachment`
  * @param {string | null} at the record's timestamp
  * @param {ScanAcc} acc accumulator: the failure's counts are added
  * @param {{event: string, classify: Map<string, Map<string, boolean>> | null,
  *   union: boolean,
  *   triggers: Map<string, import("./lib/guard-triggers.js").Trigger>}} ctx
+ * @returns {{id: string, at: string | null} | null} a dispatcher loss, for
+ *   `creditCores` once the transcript has been read
  */
 function countFailure(a, at, acc, ctx) {
+	if (!a || !FAILURE_TYPES.has(a.type)) return null;
 	const { event, classify, union, triggers } = ctx;
 	bucketFailure(a, classify, acc);
 	if (union && a.hookEvent === event) countUnionFailure(a, event, acc);
@@ -499,9 +551,11 @@ function countFailure(a, at, acc, ctx) {
 		typeof a.toolUseID !== "string" ||
 		!a.toolUseID
 	)
-		return;
+		return null;
 	const guard = basenameOf(guardKey(a.command));
+	if (guard === DISPATCHER) return { id: a.toolUseID, at };
 	if (triggers.has(guard)) recordLoss(acc, guard, a.toolUseID, at);
+	return null;
 }
 
 /**
@@ -603,10 +657,7 @@ function countPopulation(record, acc, ctx) {
 		if (!ctx.union || routed.length === 0) continue;
 		// A block with no id counts once, keyed off its line and place in it. Two
 		// id-less, uuid-less blocks at one index would collapse to one call.
-		const id =
-			typeof block.id === "string" && block.id
-				? block.id
-				: `${record.uuid ?? ""}#${i}`;
+		const id = call.id ?? `${record.uuid ?? ""}#${i}`;
 		const entry = unionEntry(acc.union, call.name);
 		entry.calls.add(id);
 		entry.blocks++;
@@ -614,9 +665,25 @@ function countPopulation(record, acc, ctx) {
 }
 
 /**
- * A `tool_use` block's tool name and Bash command, each `""` where absent.
+ * @typedef {{name: string, command: string, id: string | null}} ToolCall
+ */
+
+/**
+ * An assistant record's `tool_use` blocks as calls; none for any other record.
+ * @param {TranscriptPart} record
+ * @returns {ToolCall[]}
+ */
+function toolCalls(record) {
+	const content = record?.type === "assistant" && record.message?.content;
+	if (!Array.isArray(content)) return [];
+	return content.filter((b) => b?.type === "tool_use").map(toolCall);
+}
+
+/**
+ * A `tool_use` block's tool name and Bash command, each `""` where absent, and
+ * its id, null where absent.
  * @param {TranscriptPart} block
- * @returns {{name: string, command: string}}
+ * @returns {ToolCall}
  */
 function toolCall(block) {
 	const name = typeof block.name === "string" ? block.name : "";
@@ -624,7 +691,8 @@ function toolCall(block) {
 		block.input && typeof block.input.command === "string"
 			? block.input.command
 			: "";
-	return { name, command };
+	const id = typeof block.id === "string" && block.id ? block.id : null;
+	return { name, command, id };
 }
 
 /**
@@ -652,6 +720,7 @@ function freshAcc() {
 		/** @type {Map<string, UnionEntry>} keyed by tool */
 		union: new Map(),
 		undated: 0,
+		unresolved: 0,
 		first: null,
 		last: null,
 		skipped: 0,
@@ -673,6 +742,7 @@ function mergeAcc(into, from) {
 	addCounts(into.failures, from.failures);
 	mergeUnion(into.union, from.union);
 	into.undated += from.undated;
+	into.unresolved += from.unresolved;
 	into.skipped += from.skipped;
 	if (from.first && (!into.first || from.first < into.first))
 		into.first = from.first;
@@ -1065,7 +1135,7 @@ function num(n, dp) {
  * @param {ReturnType<typeof rows>} data
  * @param {{dir: string, event: string, files: number, scanned: number, unreadable: string[],
  *   window: {since: string|null, until: string|null}, undated: number,
- *   first: string|null, last: string|null, lostCalls: number,
+ *   first: string|null, last: string|null, lostCalls: number, unresolved: number,
  *   unpinned: string[], skipped: number, scope: string, guards: number}} corpus
  * @returns {string}
  */
@@ -1208,6 +1278,13 @@ function corpusWarnings(corpus) {
 			"    fix it by copying this run's figures into that table, dating them there.",
 		);
 	}
+	if (corpus.unresolved > 0) {
+		lines.push("");
+		lines.push(
+			`  ⚠ ${corpus.unresolved} ${DISPATCHER} failure record(s) name a call their transcript does not hold,`,
+			"    so no core could be credited: their losses are missing from the rows above.",
+		);
+	}
 	if (corpus.unreadable.length > 0) {
 		lines.push("");
 		lines.push(`  ⚠ unreadable (${corpus.unreadable.length}):`);
@@ -1272,6 +1349,8 @@ function main(argv) {
 	const triggers = triggerTable(settings, dirs, {
 		scope,
 		event,
+		manifest: CORE_MANIFEST,
+		host: CORE_HOST,
 	});
 	const classify = flags["--failures"]
 		? failureClassifier(settings, dirs)
@@ -1318,6 +1397,7 @@ function main(argv) {
 		first: acc.first,
 		last: acc.last,
 		lostCalls: acc.lostCalls.size,
+		unresolved: acc.unresolved,
 		unpinned: unpinned(triggers),
 		skipped: acc.skipped,
 		scope,
@@ -1437,23 +1517,30 @@ function readHookSourcesOrNull(err) {
  * The `--failures` split, built at `all` scope over EVERY tool-call event
  * whatever this run reports on, so the census is the same population every
  * time (mantahostels#3356).
+ *
+ * Keyed as a failure record names its hook, so a dispatcher core folds into
+ * the dispatcher, which can deny where any of its cores can (#3424).
  * @param {ReturnType<typeof mergeHooks>} settings
  * @param {string[]} dirs `lib/deny-capable.js` `guardDirs`
  * @returns {Map<string, Map<string, boolean>>}
  */
 function failureClassifier(settings, dirs) {
 	return new Map(
-		[...EVENTS].map((e) => [
-			e,
-			new Map(
-				[
-					...triggerTable(settings, dirs, {
-						scope: "all",
-						event: /** @type {"PreToolUse" | "PostToolUse"} */ (e),
-					}),
-				].map(([guard, t]) => [guard, t.denyCapable]),
-			),
-		]),
+		[...EVENTS].map((e) => {
+			/** @type {Map<string, boolean>} */
+			const guards = new Map();
+			const table = triggerTable(settings, dirs, {
+				scope: "all",
+				event: /** @type {"PreToolUse" | "PostToolUse"} */ (e),
+				manifest: CORE_MANIFEST,
+				host: CORE_HOST,
+			});
+			for (const [guard, t] of table) {
+				const named = t.via ?? guard;
+				guards.set(named, Boolean(guards.get(named)) || t.denyCapable);
+			}
+			return [e, guards];
+		}),
 	);
 }
 

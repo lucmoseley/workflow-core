@@ -473,6 +473,7 @@ describe("triggerRows", () => {
 		expect(rows).toEqual([
 			{
 				guard: "denier.sh",
+				via: null,
 				denyCapable: true,
 				matchers: ["Bash", "Read|ListAgents"],
 				conditions: ["Bash(git *)"],
@@ -513,6 +514,7 @@ describe("triggerRows", () => {
 		expect(rows).toEqual([
 			{
 				guard: "denier.sh",
+				via: null,
 				denyCapable: true,
 				matchers: [],
 				conditions: [],

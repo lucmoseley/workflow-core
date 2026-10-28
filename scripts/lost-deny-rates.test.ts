@@ -30,7 +30,7 @@ import { tmpdir } from "node:os";
 import path, { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
-import { buildBashCall } from "./lib/transcript-testkit";
+import { buildBashCall, buildToolCall } from "./lib/transcript-testkit";
 
 const SCRIPT = path.resolve(__dirname, "lost-deny-rates.js");
 
@@ -832,6 +832,182 @@ describe("the staleness check against lib/guard-deny-rates.js", () => {
 	});
 });
 
+describe("a dispatcher's cores, each its own guard — #3424", () => {
+	/**
+	 * A tree whose one PreToolUse registration is the dispatcher, running two
+	 * deny-capable cores — `core-git` on `git` commands, `core-any` on every
+	 * Bash and Read call — and `core-warn`, which cannot deny.
+	 */
+	function dispatcherRoot() {
+		const root = fixtureRoot(
+			{
+				hooks: {
+					PreToolUse: [
+						{
+							matcher: "Bash|Read",
+							hooks: [{ command: "node scripts/guard-dispatch.js" }],
+						},
+					],
+				},
+			},
+			{
+				guards: {
+					"guard-dispatch.js": {
+						needles: [
+							{ id: "g", core: "core-git", kind: "deny", text: "GIT REFUSED" },
+						],
+					},
+				},
+			},
+		);
+		mkdirSync(join(root, "scripts", "lib"));
+		const lib = (file: string, body: string) =>
+			writeFileSync(join(root, "scripts", "lib", file), body);
+		lib(
+			"guard-cores.json",
+			JSON.stringify({
+				PreToolUse: [
+					{
+						name: "core-git",
+						core: "core-git.js",
+						tools: "Bash",
+						failure: "open",
+						if: ["Bash(git *)"],
+					},
+					{
+						name: "core-any",
+						core: "core-any.js",
+						tools: "Bash|Read",
+						failure: "open",
+					},
+					{
+						name: "core-warn",
+						core: "core-warn.js",
+						tools: "Bash",
+						failure: "open",
+					},
+				],
+			}),
+		);
+		const denier = "module.exports = { judge: () => ({ deny: 'no' }) };\n";
+		lib("core-git.js", denier);
+		lib("core-any.js", denier);
+		lib(
+			"core-warn.js",
+			"module.exports = { judge: () => ({ context: 'hm' }) };\n",
+		);
+		return root;
+	}
+	const dispatched = dispatcherRoot();
+	const lost = (id: string) =>
+		lostRecord("guard-dispatch.js", id, "2026-09-01T00:00:00.000Z");
+
+	it("lists each deny-capable core on its own tools and if clauses, never the dispatcher", () => {
+		const r = cli(dispatched, [], "--triggers");
+		expect(r.status).toBe(0);
+		expect(r.json()).toEqual([
+			{
+				guard: "core-any",
+				via: "guard-dispatch.js",
+				denyCapable: true,
+				matchers: ["Bash|Read"],
+				conditions: [],
+				unconditionalMatchers: ["Bash|Read"],
+				unknown: null,
+			},
+			{
+				guard: "core-git",
+				via: "guard-dispatch.js",
+				denyCapable: true,
+				matchers: ["Bash"],
+				conditions: ["Bash(git *)"],
+				unconditionalMatchers: [],
+				unknown: null,
+			},
+		]);
+	});
+
+	it("counts a core's population as the dispatcher admits it, a compound command split", () => {
+		const { row } = reportAt(dispatched, [
+			buildBashCall("ls && git push", "c1"),
+			buildBashCall("ls", "c2"),
+			buildToolCall("Read", { file_path: "/x" }, "c3"),
+		]);
+		expect(row("core-git").population).toBe(1);
+		expect(row("core-any").population).toBe(3);
+	});
+
+	it("credits a killed dispatcher call to each core that routes it", () => {
+		const { row, corpus } = reportAt(dispatched, [
+			buildBashCall("git status", "c1"),
+			buildBashCall("ls", "c2"),
+			lost("c1"),
+			lost("c2"),
+		]);
+		expect(row("core-git").lost).toBe(1);
+		expect(row("core-any").lost).toBe(2);
+		expect(corpus.lostCalls).toBe(2);
+		expect(corpus.unresolved).toBe(0);
+	});
+
+	it("counts a dispatcher loss whose call is not in its transcript as unresolved, and warns", () => {
+		const { row, corpus } = reportAt(dispatched, [lost("gone")]);
+		expect(row("core-any").lost).toBe(0);
+		expect(corpus.unresolved).toBe(1);
+		expect(text(dispatched, [lost("gone")])).toContain(
+			"1 guard-dispatch.js failure record(s) name a call their transcript does not hold",
+		);
+	});
+
+	it("counts a core's deny needle as that core's deny", () => {
+		const { row } = reportAt(dispatched, [
+			buildBashCall("git push", "c1"),
+			denyRecord("u1", "GIT REFUSED", undefined, "c1"),
+		]);
+		expect(row("core-git").denies).toBe(1);
+		expect(row("core-any").denies).toBe(0);
+	});
+
+	it("credits a loss inside the window to a call made before it", () => {
+		const { row, corpus } = reportAt(
+			dispatched,
+			[
+				buildBashCall("ls", "c1", { timestamp: "2026-08-31T23:59:59.000Z" }),
+				lost("c1"),
+			],
+			"--since",
+			"2026-09-01",
+		);
+		expect(row("core-any").lost).toBe(1);
+		expect(corpus.unresolved).toBe(0);
+	});
+
+	it("drops a core the host's config disables", () => {
+		const root = dispatcherRoot();
+		mkdirSync(join(root, ".claude"));
+		writeFileSync(
+			join(root, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, disabled: ["core-git"] }),
+		);
+		const r = cli(root, [], "--triggers");
+		expect(r.json().map((t: { guard: string }) => t.guard)).toEqual([
+			"core-any",
+		]);
+	});
+
+	it("names the unpinned cores as stale, not the dispatcher", () => {
+		const { corpus } = reportAt(dispatched, []);
+		expect(corpus.unpinned).toEqual(["core-any", "core-git"]);
+	});
+
+	it("buckets a dispatcher failure as deny-capable where one of its cores can deny", () => {
+		const r = cli(dispatched, [lost("c1")], "--json", "--failures");
+		expect(r.json().failures.rows).toMatchObject([
+			{ bucket: "PreToolUse, deny-capable", records: 1 },
+		]);
+	});
+});
+
 describe("a transcript that throws mid-parse", () => {
 	// A JSONL line that parses (it is valid JSON) but is not a record — a field
 	// read on a bare `null` throws mid-scan, after the loss before it already
@@ -1045,7 +1221,8 @@ describe("WFC_LOST_DENY_ROOT — readJson's exit-2 branches (mantahostels#3307)"
  * #954: an adopter's settings register no guard of the plugin's, which come
  * from the plugin's `hooks/hooks.json` beside this script. Read off this
  * checkout's own plugin tree, so these cases break if `guard-dispatch.js`
- * leaves `hooks/hooks.json`.
+ * leaves `hooks/hooks.json` or its `guard-wait-loop` core leaves
+ * `scripts/lib/guard-cores.json`.
  */
 describe("in an adopter whose hooks come from the plugin", () => {
 	function runInHost(host: string, ...args: string[]) {
@@ -1062,7 +1239,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		writeFileSync(join(host, ".claude", "settings.json"), "{}");
 		const { status, stdout } = runInHost(host, "--triggers");
 		expect(status).toBe(0);
-		expect(guards(stdout)).toContain("guard-dispatch.js");
+		expect(guards(stdout)).toContain("guard-wait-loop");
 	});
 
 	it("exits 2 off a host settings.json that is not valid JSON", () => {
@@ -1079,7 +1256,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		const { status, stdout, stderr } = runInHost(host, "--triggers");
 		expect(status).toBe(0);
 		expect(stderr).toContain("settings.json is absent");
-		expect(guards(stdout)).toContain("guard-dispatch.js");
+		expect(guards(stdout)).toContain("guard-wait-loop");
 	});
 
 	it("reads the needles from the plugin too, so a full run in an empty host counts", () => {
@@ -1087,7 +1264,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		const { status, stdout } = runInHost(host, "--dir", corpusDir, "--json");
 		expect(status).toBe(0);
 		const rows: { guard: string }[] = JSON.parse(stdout).rows;
-		expect(rows.map((r) => r.guard)).toContain("guard-dispatch.js");
+		expect(rows.map((r) => r.guard)).toContain("guard-wait-loop");
 	});
 });
 
@@ -1436,9 +1613,15 @@ describe("main — --event and --failures (mantahostels#3356)", () => {
 				...(toolUseID ? { toolUseID } : {}),
 			},
 		});
+		// A WebFetch call, which the scan-injection core alone routes, so each
+		// dispatcher record is one core's loss.
+		const fetch = (id: string) =>
+			buildToolCall("WebFetch", { url: "https://example.com" }, id);
 		writeFileSync(
 			join(dir, "t.jsonl"),
 			`${[
+				fetch("tu1"),
+				fetch("tu2"),
 				post("node scripts/guard-dispatch.js", "tu1"),
 				post("node scripts/guard-dispatch.js", "tu2"),
 				post(null, "tu3"),

@@ -37,6 +37,14 @@
  *   - A `PreToolUse` HOOK THAT NEVER RAN IS INVISIBLE HERE. This says which
  *     calls settings.json routes to a guard, not which ones the harness
  *     actually delivered — the lost-deny population is exactly the gap.
+ *   - A DISPATCHER CORE IS READ OFF ITS MANIFEST ROW, NOT THE REGISTRATION
+ *     (#3424). The `guard-dispatch.js` registration is expanded into one row
+ *     per core of its event (`lib/guard-cores.js` `expandDispatched`), each on
+ *     its own `tools` and judged by the dispatcher's own `if` reading
+ *     (`lib/if-clause.js` `clausesAdmit`, which does split a compound
+ *     command). The host's
+ *     disabled cores and switched-off modules are read as they stand today,
+ *     not as they stood when the corpus was written.
  *   - A `PostToolUse` POPULATION IS AN UPPER BOUND ON DELIVERY, and by more
  *     than the `PreToolUse` one (mantahostels#3356). Every `tool_use` block is a routed
  *     call either way, but a `PostToolUse` hook additionally never fires on a
@@ -44,10 +52,24 @@
  *     `tool_use` block is written whether or not the call completed.
  */
 
+const path = require("node:path");
 const { registeredGuards } = require("./guard-fires.js");
 const { cutAt } = require("./cut-at.js");
-const { globToRegExp, parseIfClause } = require("./if-clause.js");
-const { isDenyCapableIn } = require("./deny-capable.js");
+const { clausesAdmit, globToRegExp, parseIfClause } = require("./if-clause.js");
+const { isDenyCapableIn, isDenyingCore } = require("./deny-capable.js");
+const {
+	DISPATCH_ENTRY,
+	MANIFEST,
+	corePath,
+	expandDispatched,
+	readManifest,
+} = require("./guard-cores.js");
+
+/** A host that disables no core and switches every module on. */
+const ALL_ON = { disabled: () => false, moduleOn: () => true };
+
+/** The dispatcher's basename, as a failure record's command names it. */
+const DISPATCHER = path.basename(DISPATCH_ENTRY);
 
 /** The hook event a deny can be issued on, and `triggerTable`'s default. */
 const DENY_EVENT = "PreToolUse";
@@ -85,7 +107,12 @@ const SCOPES = new Set(["deny", "nondeny", "all"]);
 
 /**
  * @typedef {object} Trigger
- * @property {string} guard the script's basename
+ * @property {string} guard the script's basename, or a dispatcher core's
+ *   name in lib/guard-cores.json
+ * @property {string | null} via the script a core runs under — the
+ *   dispatcher's basename — or null for a standalone guard. A core's
+ *   `conditions` are its `if` clauses, read as the dispatcher reads them; a
+ *   standalone guard's `rules` carry its registrations' own
  * @property {boolean} denyCapable whether the script can refuse a call
  *   (`lib/deny-capable.js`), and always false on `PostToolUse`, where nothing can. Carried
  *   on the row so a caller reading a `nondeny` or `all` table can say WHY a
@@ -149,14 +176,16 @@ function isInScope(scope, capable) {
  * @param {Map<string, Trigger>} table accumulator: a new guard's empty row is added
  * @param {string} guard
  * @param {boolean} capable
+ * @param {string | null} [via] the script a core runs under
  * @returns {Trigger}
  */
-function ensureRow(table, guard, capable) {
+function ensureRow(table, guard, capable, via = null) {
 	const existing = table.get(guard);
 	if (existing) return existing;
 	/** @type {Trigger} */
 	const row = {
 		guard,
+		via,
 		denyCapable: capable,
 		rules: [],
 		conditions: [],
@@ -221,6 +250,35 @@ function addRegistration(row, reg, note) {
 }
 
 /**
+ * Adds one dispatcher core's route to its row: the core's `tools` as the
+ * matcher, its `if` clauses as the dispatcher reads them.
+ * @param {Trigger} row accumulator: the core's rule and clauses, or its unknown reason, are added
+ * @param {import("./guard-cores.js").CoreRow} core
+ * @param {(guard: string, reason: string) => string} note  `addRegistration`'s
+ * @returns {void}
+ */
+function addCore(row, core, note) {
+	let matcher;
+	try {
+		matcher = new RegExp(`^(?:${core.tools})$`);
+	} catch {
+		row.unknown = note(
+			row.guard,
+			`core tools ${JSON.stringify(core.tools)} is not a regexp`,
+		);
+		return;
+	}
+	row.rules.push({
+		matcher,
+		raw: core.tools,
+		tool: null,
+		glob: null,
+		test: null,
+	});
+	row.conditions.push(...(core.if ?? []));
+}
+
+/**
  * The `event` guards the registration holds within `scope`, with the tool
  * calls that reach each.
  *
@@ -240,10 +298,19 @@ function addRegistration(row, reg, note) {
  * the event again after the filter — which is what lets a `PostToolUse`
  * denominator be compared with a `PreToolUse` one.
  *
+ * A DISPATCHER CORE GETS ITS OWN ROW, keyed by its manifest name. Each core's
+ * deny capability is read off its module (`lib/deny-capable.js`
+ * `isDenyingCore`), found beside `manifest`.
+ *
  * @param {Record<string, any>} settings
  * @param {string[]} guardDirs where the guard scripts are looked up, in order
  *   (`lib/deny-capable.js` `guardDirs`)
- * @param {{scope?: "deny" | "nondeny" | "all", event?: "PreToolUse" | "PostToolUse"}} [options]
+ * @param {{scope?: "deny" | "nondeny" | "all", event?: "PreToolUse" | "PostToolUse",
+ *   manifest?: string, host?: Parameters<typeof import("./guard-cores.js").runsOn>[2]}} [options]
+ *   `manifest` is the lib/guard-cores.json the dispatcher runs from
+ *   (`lib/guard-cores.js` `manifestAt`), this plugin's where unnamed; `host`
+ *   says which cores the host has disabled or switched off by module, none
+ *   where unnamed
  * @returns {Map<string, Trigger>}
  */
 function triggerTable(settings, guardDirs, options = {}) {
@@ -251,6 +318,8 @@ function triggerTable(settings, guardDirs, options = {}) {
 	const event = options.event ?? DENY_EVENT;
 	assertTableOptions(scope, event);
 	const isDenyCapable = isDenyCapableIn(guardDirs);
+	const manifestFile = options.manifest ?? MANIFEST;
+	const cores = hostCores(manifestFile, event, options.host ?? ALL_ON);
 	/** @type {Map<string, Trigger>} */
 	const table = new Map();
 	// The reasons behind each row's `unknown`, kept apart from the joined string
@@ -268,8 +337,19 @@ function triggerTable(settings, guardDirs, options = {}) {
 		reasons.set(guard, seen);
 		return seen.join("; ");
 	};
-	for (const reg of registeredGuards(settings)) {
-		if (reg.event !== event) continue;
+	const regs = registeredGuards(settings)
+		.filter((reg) => reg.event === event)
+		.map((reg) => ({ ...reg, commandLine: reg.command }));
+	for (const reg of expandDispatched(event, regs, { [event]: cores })) {
+		const core = reg.core && cores.find((c) => c.name === reg.core);
+		if (core) {
+			const capable =
+				event === DENY_EVENT &&
+				isDenyingCore(corePath(core.core, path.dirname(manifestFile)));
+			if (!isInScope(scope, capable)) continue;
+			addCore(ensureRow(table, core.name, capable, DISPATCHER), core, note);
+			continue;
+		}
 		const [guard] = cutAt(reg.key, " ");
 		// A deny is only issuable before the call runs, so the textual test is
 		// asked at all only on `PreToolUse` (mantahostels#3356). Otherwise a `PostToolUse`
@@ -283,12 +363,26 @@ function triggerTable(settings, guardDirs, options = {}) {
 }
 
 /**
+ * The manifest's `event` cores the host runs: not disabled, and their module,
+ * where they name one, on.
+ * @param {string} manifestFile
+ * @param {string} event
+ * @param {Parameters<typeof import("./guard-cores.js").runsOn>[2]} host
+ * @returns {import("./guard-cores.js").CoreRow[]}
+ */
+function hostCores(manifestFile, event, host) {
+	return (readManifest(manifestFile)[event] ?? []).filter(
+		(c) => !host.disabled(c.name) && !(c.module && !host.moduleOn(c.module)),
+	);
+}
+
+/**
  * Does this tool call reach this guard?
  *
  * `false` for an unknown guard: a caller must ask `trigger.unknown` first and
  * report the guard as uncounted rather than reading this as "no calls reached
- * it". Every caller in this repo does; this returns false rather than throwing
- * so that a caller that forgets under-counts one guard instead of dying.
+ * it". This returns false rather than throwing so that a caller that forgets
+ * under-counts one guard instead of dying.
  *
  * @param {Trigger} trigger
  * @param {string} toolName
@@ -297,6 +391,11 @@ function triggerTable(settings, guardDirs, options = {}) {
  */
 function firesOn(trigger, toolName, command) {
 	if (trigger.unknown) return false;
+	if (trigger.via)
+		return (
+			trigger.rules.some((r) => r.matcher?.test(toolName)) &&
+			clausesAdmit(trigger.conditions, toolName, command)
+		);
 	for (const rule of trigger.rules) {
 		// A null matcher is the all-tools wildcard.
 		if (rule.matcher !== null && !rule.matcher.test(toolName)) continue;
@@ -322,12 +421,13 @@ function firesOn(trigger, toolName, command) {
  * settings.json — nothing here reports them.
  *
  * @param {Map<string, Trigger>} table
- * @returns {Array<{guard: string, denyCapable: boolean, matchers: string[], conditions: string[], unconditionalMatchers: string[], unknown: string | null}>}
+ * @returns {Array<{guard: string, via: string | null, denyCapable: boolean, matchers: string[], conditions: string[], unconditionalMatchers: string[], unknown: string | null}>}
  */
 function triggerRows(table) {
 	return [...table.values()]
 		.map((t) => ({
 			guard: t.guard,
+			via: t.via,
 			// Reported even for an unknown guard, unlike the routes: it is read off
 			// the script on disk, not off the registration that would not parse.
 			denyCapable: t.denyCapable,
@@ -336,16 +436,28 @@ function triggerRows(table) {
 			// The matchers a registration binds with NO `if`, i.e. the tools every
 			// call of which reaches this guard. Empty where every route is
 			// condition-narrowed.
-			unconditionalMatchers: t.unknown
-				? []
-				: [
-						...new Set(
-							t.rules.filter((r) => r.test === null).map((r) => r.raw),
-						),
-					],
+			unconditionalMatchers: t.unknown ? [] : unconditionalMatchersOf(t),
 			unknown: t.unknown,
 		}))
 		.sort((a, b) => a.guard.localeCompare(b.guard));
+}
+
+/**
+ * The matchers every call of which reaches `t`: a registration's with no `if`,
+ * or a core's tools that none of its clauses names.
+ * @param {Trigger} t
+ * @returns {string[]}
+ */
+function unconditionalMatchersOf(t) {
+	if (!t.via)
+		return [
+			...new Set(t.rules.filter((r) => r.test === null).map((r) => r.raw)),
+		];
+	const named = new Set(t.conditions.map((c) => parseIfClause(c)?.tool));
+	const tools = t.rules
+		.flatMap((r) => r.raw.split("|"))
+		.filter((tool) => !named.has(tool));
+	return tools.length > 0 ? [tools.join("|")] : [];
 }
 
 module.exports = {
@@ -353,6 +465,7 @@ module.exports = {
 	triggerRows,
 	firesOn,
 	DENY_EVENT,
+	DISPATCHER,
 	EVENTS,
 	SCOPES,
 };

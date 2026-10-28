@@ -1303,6 +1303,22 @@ function guardDisabled(basename, opts) {
 }
 
 /**
+ * The host `root`'s config makes for a dispatcher core: the cores it disables
+ * and the modules it switches on, `lib/guard-cores.js` `runsOn`'s `host`. A
+ * config fault reads a module as off, as the dispatcher does; the
+ * dispatcher's own entry logs it.
+ * @param {string} root
+ * @returns {{ disabled: (name: string) => boolean,
+ *   moduleOn: (module: Module) => boolean }}
+ */
+function coreHost(root) {
+	return {
+		disabled: (name) => guardDisabled(name, { root }),
+		moduleOn: moduleReader(root, () => undefined),
+	};
+}
+
+/**
  * @param {Command} name
  * @param {ConfigOpts} [opts]
  * @returns {string|null}
@@ -1523,6 +1539,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+	coreHost,
 	hostRoot,
 	readConfig,
 	resolveKey,

@@ -593,9 +593,20 @@ describe("the deny-capable set", () => {
 			["--triggers", "--scope", "all"],
 			{ env: { ...process.env, WFC_LOST_DENY_ROOT: repo } },
 		);
-		const rows: { guard: string; denyCapable: boolean }[] = JSON.parse(
-			census.stdout,
-		);
+		// A core's row stands for the dispatcher, the script a failure record names.
+		const rows = Object.values(
+			Object.groupBy(
+				JSON.parse(census.stdout) as {
+					guard: string;
+					via: string | null;
+					denyCapable: boolean;
+				}[],
+				(r) => r.via ?? r.guard,
+			),
+		).map((named) => ({
+			guard: named?.[0].via ?? named?.[0].guard,
+			denyCapable: Boolean(named?.some((r) => r.denyCapable)),
+		}));
 		transcript([
 			fileCall("ls", "toolu_A"),
 			...rows.map((r) =>

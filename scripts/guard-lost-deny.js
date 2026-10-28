@@ -67,10 +67,7 @@ const { guardDirs, guardPath, isDenyCapableIn } = require("./lib/deny-capable");
 const { DISPATCH_ENTRY, denyingCoresOn } = require("./lib/guard-cores.js");
 const denyRates = require("./lib/guard-deny-rates");
 const { guardKey } = require("./lib/guard-fires");
-const {
-	guardDisabled,
-	moduleReader,
-} = require("./lib/workflow-core-config.js");
+const { coreHost } = require("./lib/workflow-core-config.js");
 const hookBlock = require("./lib/hook-block");
 const { describeCall, reportOnce } = require("./lib/report-once");
 const { coreRoot, scriptPath } = require("./lib/script-path.js");
@@ -177,12 +174,7 @@ function lossOf(record, priceOf) {
  */
 function priceIn(dirs, calls, root) {
 	const isDenyCapable = isDenyCapableIn(dirs);
-	const host = {
-		disabled: (/** @type {string} */ name) => guardDisabled(name, { root }),
-		/* A config fault reads a module as off, as the dispatcher does; the
-		 * dispatcher's own entry logs it. */
-		moduleOn: moduleReader(root, () => undefined),
-	};
+	const host = coreHost(root);
 	return (guard, toolUseID) => {
 		const name = guard.replace(/ .*$/s, "");
 		if (!isDenyCapable(name)) return [];

@@ -68,8 +68,9 @@ const modulePath = (module) => path.join("scripts", "lib", module);
 /**
  * A row's module or host as an absolute path, for a require.
  * @param {string} module a file under scripts/lib
+ * @param {string} [dir] the scripts/lib holding it, this plugin's where unnamed
  */
-const corePath = (module) => path.join(__dirname, module);
+const corePath = (module, dir = __dirname) => path.join(dir, module);
 
 /**
  * Whether `row`'s core judges a call of `tool`: its `tools` matched whole.
@@ -194,6 +195,7 @@ function expandDispatched(event, regs, manifest = readManifest()) {
 module.exports = {
 	DISPATCH_ENTRY,
 	admits,
+	MANIFEST,
 	MANIFEST_REL,
 	corePath,
 	denyingCoresOn,
