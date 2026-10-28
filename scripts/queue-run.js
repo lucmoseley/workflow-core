@@ -108,22 +108,25 @@ const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
 
 /* What a `--tsc` wait prints in place of a suite's (#3163). */
 const TSC_WAIT = {
-	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable under its ~${TSC_RUNG_MB} MB rung`,
+	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${TSC_RUNG_MB} MB rung`,
 	cap: "one `tsc` runs at a time (#3163)",
 };
 
 /**
  * The type-check slot's gate, off the guard's own `ps` and MemAvailable
- * readers (#3163); an unread one is logged and fails open.
+ * readers (#3163); an unread one is logged and fails open. `climbMb` is what
+ * the suite queue's launches have yet to draw (#3416).
+ *
+ * @param {number} climbMb
  */
-function tscGate() {
+function tscGate(climbMb) {
 	const log = logger(LABEL);
 	const ports = buildHostPorts(hostRoot(), log);
 	const rows = ports.psRows();
 	const mb = ports.availableMb();
 	if (rows === null) log("ps unreadable — the type-check slot read as free");
 	if (mb === null) log("MemAvailable unreadable — the type-check rung unread");
-	return tscDenial(rows, mb);
+	return tscDenial(rows, mb, climbMb);
 }
 
 /* The weight a seat joins and asks the gate with: one test file, a part-suite
@@ -237,7 +240,7 @@ const SLOT_ENVS = { seat: SEAT_ENV, tsc: TSC_SLOT_ENV };
  * is final, and a rival admitted on the same poll reads as a held slot, so
  * the try refuses rather than sleep a poll.
  *
- * @param {{ gate: () => import("./lib/suite-queue.js").GateDenial | null }} gate
+ * @param {{ gate: (climbMb: number) => import("./lib/suite-queue.js").GateDenial | null }} gate
  */
 const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
 	let yielded = false;
@@ -252,7 +255,8 @@ const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
 			yielded = admission !== "admitted";
 			return admission;
 		},
-		gate: () => (yielded ? { limb: "count" } : gate.gate()),
+		gate: (/** @type {number} */ climbMb) =>
+			yielded ? { limb: "count" } : gate.gate(climbMb),
 	};
 };
 
@@ -262,7 +266,7 @@ const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
  */
 function sayTscHeld(err) {
 	err.write(
-		`${LABEL}: the type-check slot is held, by a \`tsc\` running or a suite starting (#3203) — not run, as ${TSC_NO_WAIT_ENV} asks (#3278)\n`,
+		`${LABEL}: the type-check slot is held, by a \`tsc\` running, a suite starting (#3203) or MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung — not run, as ${TSC_NO_WAIT_ENV} asks (#3278)\n`,
 	);
 	return TSC_BUSY_EXIT;
 }

@@ -11,7 +11,8 @@ const { TSC_RUNG_MB, tscDenial, isTscLaunch } = require("./tsc-slot.js") as {
 	tscDenial: (
 		rows: { pid: number | null; args: string }[] | null,
 		mb: number | null,
-	) => { limb: string; mb?: number; rungMb?: number } | null;
+		climbMb?: number,
+	) => { limb: string; mb?: number; rungMb?: number; climbMb?: number } | null;
 	isTscLaunch: (words: string[]) => boolean;
 };
 
@@ -58,6 +59,16 @@ describe("lib/tsc-slot.js", () => {
 		["`ps` and MemAvailable both unread", null, null, null],
 	])("denies on %s", (_label, ps, mb, expected) => {
 		expect(tscDenial(ps, mb)).toEqual(expected);
+	});
+
+	it("charges what a climbing suite has yet to draw on the rung, naming it apart (#3416)", () => {
+		expect(tscDenial(rows("bash -l"), 3000, 251)).toEqual({
+			limb: "memory",
+			mb: 3000,
+			rungMb: 2750,
+			climbMb: 251,
+		});
+		expect(tscDenial(rows("bash -l"), 3000, 250)).toBeNull();
 	});
 
 	it.each([

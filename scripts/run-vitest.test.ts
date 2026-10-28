@@ -2646,6 +2646,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			expect(gateRead).toHaveBeenCalledWith(
 				"npm run test -- a.test.ts -t 'two words'",
 				{ resolvedFiles: 1, wholeSlot: false },
+				0,
 			);
 			expect(got.args).toContain("a.test.ts");
 		});

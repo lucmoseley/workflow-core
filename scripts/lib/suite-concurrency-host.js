@@ -133,12 +133,16 @@ function buildHostPorts(root, log) {
  * poll answer "open"; the session's latches are neither read nor spent. A
  * disabled guard reads open. `weight` is the launch's carried admission
  * weight (#2931), which the gate charges in place of its words' file count.
+ * `climbMb`, what the type-check slot's launches have yet to draw (#3416),
+ * comes off MemAvailable before the rung reads it; a memory denial gives the
+ * reading itself and the charge apart.
  * @param {string} command
  * @param {string} [root]
  * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
- * @returns {import("./suite-concurrency.js").Gate | null}
+ * @param {number} [climbMb]
+ * @returns {import("./suite-queue.js").GateDenial | null}
  */
-function readGate(command, root, weight = null) {
+function readGate(command, root, weight = null, climbMb = 0) {
 	const { guardDisabled, hostRoot } = require("./workflow-core-config.js");
 	const host = root ?? hostRoot();
 	if (guardDisabled("guard-suite-concurrency", { root: host })) return null;
@@ -156,19 +160,28 @@ function readGate(command, root, weight = null) {
 	const env = { root: host, payload: { cwd: host }, log };
 	const ctx = kitContext(env, sharedReaders(host, log));
 	const { WFC_SUITE_CONCURRENT: _escape, ...vars } = ctx.vars;
+	const ports = buildHostPorts(host, log);
 	const verdict = decide(command, {
 		...ctx,
 		vars,
 		told: () => true,
 		readLatch: () => "",
 		session: "",
-		...buildHostPorts(host, log),
+		...ports,
+		availableMb: () => {
+			const mb = ports.availableMb();
+			return mb === null ? null : mb - climbMb;
+		},
 		launchWeight: weight,
 		/* Never asked: `told` answers yes, so the limb is never weighed. */
 		fullLaunchPlain: () => ({ plain: false }),
 	});
 	if (!verdict || !("deny" in verdict)) return null;
-	return "gate" in verdict ? verdict.gate : { limb: "count" };
+	if (!("gate" in verdict)) return { limb: "count" };
+	const { gate } = verdict;
+	return gate.limb === "memory" && climbMb > 0
+		? { ...gate, mb: gate.mb + climbMb, climbMb }
+		: gate;
 }
 
 module.exports = {

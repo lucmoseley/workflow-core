@@ -2235,7 +2235,9 @@ async function runSeated({
 }) {
 	if (weight.wholeSlot || !heldSeat(options)) return queued();
 	const gate =
-		options.gate ?? (() => gateDenies(words, options.gateRead, weight));
+		options.gate ??
+		((/** @type {number} */ climbMb) =>
+			gateDenies(words, options.gateRead, weight, climbMb));
 	const logExit = queueExitLogger({
 		file: queueLogFile(options),
 		kind: "seat",
@@ -2259,8 +2261,8 @@ async function runSeated({
 		const outcome = await waitForGate({
 			hold: options.loadHold,
 			...options,
-			gate: () => {
-				const denial = gate();
+			gate: (climbMb) => {
+				const denial = gate(climbMb);
 				return denial?.limb === "memory" ? denial : null;
 			},
 			turn: () => true,

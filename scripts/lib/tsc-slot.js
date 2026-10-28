@@ -6,9 +6,9 @@
  *
  * A TYPE-CHECK IS NO SUITE: it waits in a queue directory of its own, so it
  * never queues behind a whole suite, and the suite ladder never counts it.
- * Both read MemAvailable live, so each sees what the other draws once it is
- * up; a launch admitted and not yet up is held by lib/suite-queue.js, which
- * reads both queues' admission stamps (#3203).
+ * Both read MemAvailable live, less what the other queue's launches have yet
+ * to draw as they climb (#3416); a launch admitted and not yet up is held by
+ * lib/suite-queue.js, which reads both queues' admission stamps (#3203).
  */
 
 const os = require("node:os");
@@ -76,16 +76,23 @@ function runningTsc(rows) {
 /**
  * Whether the slot would refuse a `tsc` now, and on which limb. Null where it
  * would not, and on an unread `ps` or MemAvailable that limb fails open
- * (mantahostels#103 §6).
+ * (mantahostels#103 §6). `climbMb`, what the suite queue's launches have yet
+ * to draw (#3416), comes off MemAvailable before the rung reads it.
  *
  * @param {import("./suite-ladder.js").PsRow[] | null} rows
  * @param {number | null} mb
+ * @param {number} [climbMb]
  * @returns {import("./suite-queue.js").GateDenial | null}
  */
-function tscDenial(rows, mb) {
+function tscDenial(rows, mb, climbMb = 0) {
 	if (rows !== null && runningTsc(rows) >= TSC_MAX) return { limb: "count" };
-	if (mb !== null && mb < TSC_RUNG_MB)
-		return { limb: "memory", mb, rungMb: TSC_RUNG_MB };
+	if (mb !== null && mb - climbMb < TSC_RUNG_MB)
+		return {
+			limb: "memory",
+			mb,
+			rungMb: TSC_RUNG_MB,
+			...(climbMb > 0 ? { climbMb } : {}),
+		};
 	return null;
 }
 
@@ -106,6 +113,7 @@ function isTscLaunch(words) {
 
 module.exports = {
 	TSC_BUSY_EXIT,
+	TSC_PEAK_MB,
 	TSC_NO_WAIT_ENV,
 	TSC_QUEUE_NAME,
 	TSC_RUNG_MB,

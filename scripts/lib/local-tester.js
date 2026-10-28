@@ -166,7 +166,7 @@ function parseCeilingKillReason(out) {
  * refuses on either limb: the lander then exits with no verdict, leaving the
  * batch for its next run (#2542).
  * @param {{chargeMb: number, pollMs?: number, timeoutMs?: number,
- *   gate?: () => import("./suite-queue.js").GateDenial | null,
+ *   gate?: (climbMb: number) => import("./suite-queue.js").GateDenial | null,
  *   memory?: () => import("./admission.js").MbResult, queueDir?: string}}
  *   options `gate` answers which limb of the suite gate denies a suite, if
  *   any; the poll and ceiling default to the suite queue's
@@ -176,7 +176,7 @@ async function suiteSlot({
 	chargeMb,
 	pollMs,
 	timeoutMs,
-	gate = () => gateDenies(),
+	gate = (climbMb) => gateDenies([], undefined, null, climbMb),
 	memory = readAvailableMb,
 	queueDir,
 }) {
@@ -186,15 +186,16 @@ async function suiteSlot({
 	const outcome = await waitForGate({
 		pollMs,
 		timeoutMs,
-		gate: () => {
+		gate: (climbMb) => {
 			mem = memory();
-			if (!mem.ok || mem.mb < rungMb)
+			if (!mem.ok || mem.mb - climbMb < rungMb)
 				return {
 					limb: "memory",
 					...(mem.ok ? { mb: mem.mb } : {}),
 					rungMb,
+					...(climbMb > 0 ? { climbMb } : {}),
 				};
-			return gate();
+			return gate(climbMb);
 		},
 		turn: () => queueTurn({ queueDir }),
 		...queueStamps(file, { queueDir }),

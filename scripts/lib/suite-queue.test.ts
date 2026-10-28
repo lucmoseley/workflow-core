@@ -1020,6 +1020,120 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 	});
 });
 
+describe("a launch still climbing, on the other queue's rung (#3416)", () => {
+	const alive = () => true;
+	/** Sibling suite and type-check queues, as under the temp root. */
+	const queues = () => {
+		const root = qdir();
+		return {
+			suiteDir: path.join(root, "wfc-suite-queue"),
+			tscDir: path.join(root, "wfc-tsc-queue"),
+		};
+	};
+	/** A launch `pid` in `queueDir`, admitted and spawned. */
+	const spawnedIn = (queueDir: string, pid: number) => {
+		const file = queueJoin({ queueDir, pid, clock: () => 0 });
+		queueSpawned(file);
+		return file;
+	};
+	/** What `queueDir`'s waiter reads its peers have yet to draw, each
+	 * peer's tree reading `mb`. */
+	const climbOf = (
+		queueDir: string,
+		mb: number,
+		live: (pid: number) => boolean = alive,
+	) =>
+		queueStamps("", {
+			queueDir,
+			alive: live,
+			treePssKb: () => mb * 1024,
+		}).climbMb();
+
+	it("charges a spawned `tsc` its 1,638 MB peak less its tree, never below 0", () => {
+		const { suiteDir, tscDir } = queues();
+		spawnedIn(tscDir, 22);
+		expect(climbOf(suiteDir, 400)).toBe(1238);
+		expect(climbOf(suiteDir, 1700)).toBe(0);
+	});
+
+	it("charges a spawned suite its measured 2,248 MB peak less its tree", () => {
+		const { suiteDir, tscDir } = queues();
+		spawnedIn(suiteDir, 11);
+		expect(climbOf(tscDir, 100)).toBe(2148);
+	});
+
+	it("charges none for a launch unspawned or stale, nor for its own queue's", () => {
+		const { suiteDir, tscDir } = queues();
+		queueJoin({ queueDir: tscDir, pid: 22, clock: () => 0 });
+		expect(climbOf(suiteDir, 400)).toBe(0);
+		spawnedIn(tscDir, 22);
+		expect(climbOf(tscDir, 400)).toBe(0);
+		expect(climbOf(suiteDir, 400, () => false)).toBe(0);
+	});
+
+	/* MemAvailable reads 6,500 MB less what the `tsc` has drawn, against a
+	 * 5,000 MB rung, so a live reading alone admits the suite at once. */
+	it("holds a suite admitted just after a `tsc` spawns until that `tsc`'s remaining climb fits", async () => {
+		const { suiteDir, tscDir } = queues();
+		spawnedIn(tscDir, 22);
+		const suite = queueJoin({ queueDir: suiteDir, pid: 11, clock: () => 0 });
+		const polls = [
+			{ tsc: 300, freed: 0 },
+			{ tsc: 900, freed: 0 },
+			{ tsc: 1000, freed: 700 },
+		];
+		let poll = 0;
+		const at = () => polls[Math.min(poll, polls.length - 1)] ?? polls[0];
+		const live: number[] = [];
+		const read = (_c: string, _w: unknown, climbMb: number) => {
+			const mb = 6500 - at().tsc + at().freed;
+			live.push(mb);
+			return mb - climbMb < 5000
+				? { limb: "memory", mb, rungMb: 5000, climbMb }
+				: null;
+		};
+		const outcome = await waitForGate({
+			gateRead: read,
+			...queueStamps(suite, {
+				queueDir: suiteDir,
+				pid: 11,
+				alive,
+				treePssKb: () => at().tsc * 1024,
+			}),
+			sleepFn: () => {
+				poll++;
+				return Promise.resolve();
+			},
+			out: { write: () => true },
+		});
+		expect(outcome).toBe("run");
+		expect(poll).toBe(2);
+		expect(live.slice(0, 2).every((mb) => mb >= 5000)).toBe(true);
+		expect(fs.existsSync(path.join(tscDir, "wfc-suite-queue-22.json"))).toBe(
+			true,
+		);
+	});
+
+	it("names the charge apart from the reading when the rung refuses at the bound", async () => {
+		const said: string[] = [];
+		await waitForGate({
+			gate: (climbMb: number) => ({
+				limb: "memory",
+				mb: 3000,
+				rungMb: 3250,
+				climbMb,
+			}),
+			climbMb: () => 700,
+			timeoutMs: 0,
+			admit: noQueue,
+			out: { write: (s: string) => said.push(s) },
+		});
+		expect(said.join("")).toMatch(
+			/\(MemAvailable 3000 MB, less 700 MB the other queue's launches have yet to draw, against the ~3250 MB rung\)/,
+		);
+	});
+});
+
 describe("waitForGate's load hold, before the gate's last read (#2622)", () => {
 	it("reads the gate and the turn again after the hold, and only then admits", async () => {
 		const order: string[] = [];
@@ -1231,7 +1345,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 	it("asks the gate about the launch's own words", async () => {
 		const gateRead = vi.fn(() => null);
 		await sleepsUnder(gateRead, ["a.test.ts"]);
-		expect(gateRead).toHaveBeenCalledWith("npm run test -- a.test.ts", null);
+		expect(gateRead).toHaveBeenCalledWith("npm run test -- a.test.ts", null, 0);
 	});
 
 	it("hands the gate the weight the launch carries (#2931)", async () => {
@@ -1248,6 +1362,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 		expect(gateRead).toHaveBeenCalledWith(
 			"npm run test -- --changed",
 			gateWeight,
+			0,
 		);
 	});
 
@@ -1388,7 +1503,7 @@ describe("gateDenies, the command it asks the gate about (#2558)", () => {
 	])("asks about %j as `%s`", (words, command) => {
 		const read = vi.fn(() => null);
 		expect(gateDenies(words, read)).toBeNull();
-		expect(read).toHaveBeenCalledWith(command, null);
+		expect(read).toHaveBeenCalledWith(command, null, 0);
 	});
 
 	it("hands back the limb the gate reads", () => {
@@ -1423,9 +1538,11 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		{
 			weight = null,
 			config = null,
+			climbMb = 0,
 		}: {
 			weight?: { resolvedFiles: number | null; wholeSlot: boolean } | null;
 			config?: string | null;
+			climbMb?: number;
 		} = {},
 	) => {
 		const dir = qdir();
@@ -1451,9 +1568,10 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		vi.stubEnv("WFC_SUITE_CONCURRENT", "1");
 		return gateDenies(
 			words,
-			(command: string, carried: typeof weight) =>
-				readGate(command, dir, carried),
+			(command: string, carried: typeof weight, climb: number) =>
+				readGate(command, dir, carried, climb),
 			weight,
+			climbMb,
 		);
 	};
 
@@ -1462,6 +1580,18 @@ describe("gateDenies, against the real gate (#2421)", () => {
 			limb: "memory",
 			mb: 500,
 			rungMb: expect.any(Number),
+		});
+	});
+
+	/* A whole suite's rung is ~2.9 GB, so 4,000 MB passes it alone and fails
+	 * it less a 1,500 MB climb (#3416). */
+	it("charges the climb off MemAvailable, giving the reading itself and the charge apart", () => {
+		expect(ask(4000, 0)).toBeNull();
+		expect(ask(4000, 0, [], { climbMb: 1500 })).toEqual({
+			limb: "memory",
+			mb: 4000,
+			rungMb: expect.any(Number),
+			climbMb: 1500,
 		});
 	});
 

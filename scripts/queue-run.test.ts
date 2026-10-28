@@ -392,7 +392,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out.join("")).toBe(
-				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable under its ~2750 MB rung\n",
+				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung\n",
 			);
 		});
 
@@ -404,7 +404,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out.join("")).toBe(
-				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable under its ~2750 MB rung\n",
+				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung\n",
 			);
 		});
 
@@ -456,7 +456,7 @@ describe("queue-run.js", () => {
 					expect(f.readMarkers()).toEqual([]);
 					expect(out).toEqual([]);
 					expect(f.err.join("")).toBe(
-						"queue-run.js: the type-check slot is held, by a `tsc` running or a suite starting (#3203) — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
+						"queue-run.js: the type-check slot is held, by a `tsc` running, a suite starting (#3203) or MemAvailable, less what a climbing suite has yet to draw (#3416), under its rung — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
 					);
 				},
 			);
@@ -546,7 +546,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toHaveLength(1);
 			expect(out).toEqual([
-				"102: queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable under its ~2750 MB rung\n",
+				"102: queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~2750 MB rung\n",
 			]);
 			f.spawned[0].child.emit("exit", 0, null);
 			expect(await first).toBe(0);

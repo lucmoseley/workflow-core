@@ -26,12 +26,13 @@ const {
 const { shellWord } = require("./dirty-tree.js");
 const { scriptPath } = require("./script-path.js");
 const { weighCarried } = require("./suite-bounded.js");
-const { TSC_QUEUE_NAME } = require("./tsc-slot.js");
+const { TSC_PEAK_MB, TSC_QUEUE_NAME } = require("./tsc-slot.js");
 
 /**
  * Which limb of the suite gate denied: its count cap, or its memory rung, with
- * the reading and the rung where the guard gave them.
- * @typedef {{ limb: "count" } | { limb: "memory", mb?: number, rungMb?: number }} GateDenial
+ * the reading and the rung where the guard gave them, and what the other
+ * queue's launches have yet to draw where the gate charged it (#3416).
+ * @typedef {{ limb: "count" } | { limb: "memory", mb?: number, rungMb?: number, climbMb?: number }} GateDenial
  */
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
@@ -62,9 +63,18 @@ function defaultQueueDir() {
 	return path.join(os.tmpdir(), QUEUE_NAME);
 }
 
-/* The queues admitting against one MemAvailable reading: the suite queue and
- * the type-check slot's (#3203). */
-const ADMITTING_QUEUES = [QUEUE_NAME, TSC_QUEUE_NAME];
+/*
+ * The queues admitting against one MemAvailable reading, the suite queue and
+ * the type-check slot's (#3203), each with the peak a launch in it is charged
+ * on the other's rung while it climbs (#3416). A whole suite's is off one
+ * `--full --shared` run's process tree, its RSS summed each second, 28 Oct
+ * 2026: 2,248 MB. One run, on a loaded machine; MOVE IT
+ * ONLY WITH A RE-MEASUREMENT. A part-suite is charged the same, its peak never
+ * above a whole one's.
+ */
+/** @type {Record<string, number>} */
+const PEAK_MB = { [QUEUE_NAME]: 2248, [TSC_QUEUE_NAME]: TSC_PEAK_MB };
+const ADMITTING_QUEUES = Object.keys(PEAK_MB);
 
 /**
  * The other queues admitting against the reading `queueDir`'s does: its
@@ -110,6 +120,42 @@ function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
 			.markers.map((m) => m.record)
 			.filter((r) => isUnspawnedAdmission(r) && !isMarkerStale(r, { alive })),
 	);
+}
+
+/**
+ * What `queueDir`'s peer queues' launches have yet to draw, in MB (#3416):
+ * each live marker stamped `spawned` is charged its queue's peak less its
+ * process tree's PSS, never below 0. MemAvailable counts a launch only as far
+ * as it has climbed, so a gate reading it live charges the rest itself. A
+ * launch admitted and unspawned closes the turn instead (`readTurn`).
+ *
+ * CHARGED FOR AS LONG AS ITS MARKER LIVES, not for a climb window: a `tsc`
+ * peaks at its end, a marker may hold several in series, and a suite's draw
+ * swings back to near its peak late in its run. A tree's PSS reads at most
+ * its RSS, against peaks measured as RSS, so the charge errs high.
+ *
+ * @param {string} queueDir
+ * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number }} [options]
+ * @returns {number}
+ */
+function readPeerClimbMb(
+	queueDir,
+	{
+		queueFs = fs,
+		alive = pidAlive,
+		/* Required at the call: admission.js costs a hook ~65 ms to load. */
+		treePssKb = (pid) => require("./admission.js").readTreePssKb(pid),
+	} = {},
+) {
+	let mb = 0;
+	for (const dir of peerQueueDirs(queueDir)) {
+		const peakMb = PEAK_MB[path.basename(dir)] ?? 0;
+		for (const { record } of readMarkers(dir, queueFs).markers) {
+			if (record.spawned !== true || isMarkerStale(record, { alive })) continue;
+			mb += Math.max(0, peakMb - Math.floor(treePssKb(record.pid) / 1024));
+		}
+	}
+	return mb;
 }
 
 /**
@@ -342,18 +388,22 @@ function queueSpawned(file, options = {}) {
 }
 
 /**
- * The stamps a queued waiter's `waitForGate` writes to its marker, spread
- * into its options as one, so no queued caller wires one without the other:
- * `admit` (`queueAdmit`), and `onMemoryHeld`, the `memoryHeld` stamp (#3058).
+ * What a queued waiter's `waitForGate` reads and writes through its queue,
+ * spread into its options as one, so no queued caller wires one without the
+ * others: `admit` (`queueAdmit`), `onMemoryHeld`, the `memoryHeld` stamp
+ * (#3058), and `climbMb`, what its peer queues' launches have yet to draw
+ * (#3416).
  *
  * @param {string} file
- * @param {Parameters<typeof queueAdmit>[1]} [options]
- * @returns {{ admit: () => Admission, onMemoryHeld: (memoryHeld: boolean) => void }}
+ * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
+ * @returns {{ admit: () => Admission, onMemoryHeld: (memoryHeld: boolean) => void, climbMb: () => number }}
  */
 function queueStamps(file, options = {}) {
 	return {
 		admit: () => queueAdmit(file, options),
 		onMemoryHeld: (memoryHeld) => stampMarker(file, { memoryHeld }, options),
+		climbMb: () =>
+			readPeerClimbMb(options.queueDir ?? defaultQueueDir(), options),
 	};
 }
 
@@ -461,11 +511,11 @@ function queueLeave(file, { queueFs = fs } = {}) {
  *
  * ACROSS QUEUES TOO (#3203): no turn comes while a peer queue's marker is
  * `admitted` and unspawned (`queueAdmit`'s peer queues). Every suite-queue marker
- * counts, a part-suite's and the lander's install included. Residuals: once
- * spawned, MemAvailable counts a launch only as far as it has climbed, so a
- * `tsc` early in its climb to its peak is charged short on the suite's rung;
- * and nothing orders the queues against each other, so suites admitted
- * between a `tsc`'s polls can hold its turn shut to its wait bound.
+ * counts, a part-suite's and the lander's install included. Once spawned, a
+ * launch is charged on the other queue's rung while it climbs
+ * (`readPeerClimbMb`). Residual: nothing orders the queues against each
+ * other, so suites admitted between a `tsc`'s polls can hold its turn shut to
+ * its wait bound.
  *
  * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run whose
  * carried weight resolves below the whole-slot bound (#2931), which the guard
@@ -613,26 +663,29 @@ const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
  * FAILS OPEN, so an unreadable gate never strands the suite: a launch that
  * cannot be judged proceeds (mantahostels#2024).
  * @param {string[]} [words]
- * @param {(command: string, weight: import("./suite-handoff.js").CarriedWeight | null) => GateDenial | null} [read]
+ * @param {(command: string, weight: import("./suite-handoff.js").CarriedWeight | null, climbMb: number) => GateDenial | null} [read]
  *   the gate's reading of a command
  * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
+ * @param {number} [climbMb]
  * @returns {GateDenial | null}
  */
 function gateDenies(
 	words = [],
-	read = (command, carried) =>
+	read = (command, carried, climb) =>
 		require("./suite-concurrency-host.js").readGate(
 			command,
 			undefined,
 			carried,
+			climb,
 		),
 	weight = null,
+	climbMb = 0,
 ) {
 	const command = ["npm run test", ...(words.length > 0 ? ["--"] : [])]
 		.concat(words.map(shellWord))
 		.join(" ");
 	try {
-		return read(command, weight);
+		return read(command, weight, climbMb);
 	} catch (err) {
 		try {
 			require("./arbiter-core.js").logError(
@@ -665,16 +718,21 @@ const HELD_LINE = {
 
 /**
  * The line a wait the memory rung still holds at its timeout ends on (#2421):
- * the reading and the rung where the guard gave them, and the reap.
+ * the reading, the other queue's climb charged on it (#3416) and the rung
+ * where the guard gave them, and the reap.
  *
  * @param {string} label
  * @param {number} secs
- * @param {{ mb?: number, rungMb?: number }} denial
+ * @param {{ mb?: number, rungMb?: number, climbMb?: number }} denial
  * @returns {string}
  */
-function memoryRefusal(label, secs, { mb, rungMb }) {
+function memoryRefusal(label, secs, { mb, rungMb, climbMb }) {
 	const rung = rungMb === undefined ? "" : ` against the ~${rungMb} MB rung`;
-	const reading = mb === undefined ? "" : ` (MemAvailable ${mb} MB${rung})`;
+	const climb = climbMb
+		? `, less ${climbMb} MB the other queue's launches have yet to draw${rung ? "," : ""}`
+		: "";
+	const reading =
+		mb === undefined ? "" : ` (MemAvailable ${mb} MB${climb}${rung})`;
 	return `${label}: gate still denies on memory after ${secs}s${reading} — refused, not run. Reap finished sessions (\`node ${scriptPath("reap-finished-sessions.js")}\`) and run it again (#2421).\n`;
 }
 
@@ -709,7 +767,10 @@ function memoryRefusal(label, secs, { mb, rungMb }) {
  * `onMemoryHeld` hears whether the memory rung holds the wait, each time that
  * changes: a queued caller stamps its marker with it (`queueStamps`, #3058).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: () => GateDenial | null, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: { limb: HeldLimb }) => void, clock?: () => number }} options
+ * `climbMb` is read each poll and handed to `gate` to charge on its memory
+ * rung (#3416).
+ *
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onMemoryHeld?: (held: boolean) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: { limb: HeldLimb }) => void, clock?: () => number }} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -718,7 +779,8 @@ function waitForGate({
 	gateRead,
 	gateWords = [],
 	gateWeight = null,
-	gate = () => gateDenies(gateWords, gateRead, gateWeight),
+	gate = (charged) => gateDenies(gateWords, gateRead, gateWeight, charged),
+	climbMb = () => 0,
 	turn = () => true,
 	leave = () => null,
 	hold,
@@ -818,7 +880,7 @@ function waitForGate({
 		/* BOTH conditions, not either. The gate answers "is the machine free",
 		 * the queue answers "is it my turn" — and a waiter that checks only the
 		 * gate joins a stampede the moment the machine frees up. */
-		const denial = gate();
+		const denial = gate(climbMb());
 		if ((denial?.limb === "memory") !== memoryHeld) {
 			memoryHeld = !memoryHeld;
 			onMemoryHeld(memoryHeld);
