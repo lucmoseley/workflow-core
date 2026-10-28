@@ -1246,6 +1246,23 @@ describe("the basis limb (#672)", () => {
 	});
 });
 
+describe("the check limb (#3487)", () => {
+	const create = "gh issue create --title x --label takes:implement";
+	const gated = (check: string) =>
+		`${create} --body-file - <<'BODY'\n**Gated on:** it lands — check: ${check} — abandon if: it is dropped\n**Gate basis:** the landing sets it\nBODY`;
+
+	it("denies a check that cannot run as a command", () => {
+		expect(readDenyReason(gated("`echo `x``"))).toContain(
+			"reads as NOT-A-COMMAND",
+		);
+	});
+
+	it("lets a runnable check through unrun, warning that nothing says it prints", () => {
+		expect(verdict(gated("`true`"))).toBe("warn");
+		expect(said(gated("`true`"))).toContain("was not run here");
+	});
+});
+
 describe("the second-map limb (#717)", () => {
 	const create =
 		"gh issue create --title x --label takes:wayfinder --label wayfinder:map --body y";

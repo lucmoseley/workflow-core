@@ -582,6 +582,20 @@ describe("the CLI", () => {
 		expect(readEdits()).toBe(0);
 	});
 
+	it("refuses an edit that adds a gate whose check prints nothing, and edits nothing (#3487)", () => {
+		fs.writeFileSync(store, "## Log\n\nv0\n");
+		const r = refusal(
+			"append",
+			"96",
+			"--text",
+			"**Gated on:** it lands — check: `true` — abandon if: it is dropped\n**Gate basis:** the landing sets it",
+		);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("Nothing written: the `check:` `true`");
+		expect(r.stderr).toContain('|| echo "not on main"');
+		expect(readEdits()).toBe(0);
+	});
+
 	const dryReplace = (contents: string) => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		process.env.STUB_EDIT_FAILS = "1";
@@ -932,7 +946,7 @@ describe("the gate act (#3301)", () => {
 	it("records a Gated on line as it does a Gated until one", () => {
 		fs.writeFileSync(store, "## Log\n\nv0\n");
 		const on =
-			"**Gated on:** x — check: true — abandon if: never\n**Gate basis:** y";
+			"**Gated on:** x — check: echo unmet — abandon if: never\n**Gate basis:** y";
 		expect(run("append", "96", "--text", on).status).toBe(0);
 		expect(acts()).toEqual(["gate acme/widgets#96"]);
 	});

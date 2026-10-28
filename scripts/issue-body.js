@@ -77,6 +77,7 @@ const { recordOwnAct } = require("./lib/tracker-ops.js");
 const { readRuleText } = require("./lib/rule-text");
 const { sleepSync } = require("./lib/sleep-sync");
 const { caught } = require("./lib/caught.js");
+const { addedCheckVerdict } = require("./lib/gate-check.js");
 
 /**
  * The parsed command line. `command` and `issue` are positional; every other
@@ -892,7 +893,7 @@ function buildTransform(o) {
 function replaceWhole(issue, repo, next, dryRun = false) {
 	const run = () => {
 		const before = fetchBody(issue, repo);
-		refuseBasisFaults(before, next);
+		refuseGateFaults(before, next);
 		if (normalise(before) === normalise(next)) {
 			writeFd(1, `issue ${issue}: already identical, nothing written\n`);
 			return 0;
@@ -929,13 +930,14 @@ let gateRuleHanded = false;
  * A gate or a prose wait the write would add with no `**Gate basis:**`, or
  * with a window its basis does not name, is refused before anything is
  * written (#672, #823) — after `rule:roadmap-gating` is handed over where the
- * write adds a gate line. The command line only: a script calling
+ * write adds a gate line — and so is an added `check:` that prints no
+ * reading (#3487). The command line only: a script calling
  * editIssueBody writes machine text, and is left alone.
  *
  * @param {string} before
  * @param {string} after
  */
-function refuseBasisFaults(before, after) {
+function refuseGateFaults(before, after) {
 	const handover = gateRuleHanded
 		? null
 		: gateRuleHandover(before, after, () => readRuleText("roadmap-gating"));
@@ -944,10 +946,14 @@ function refuseBasisFaults(before, after) {
 		writeFd(2, handover);
 	}
 	const added = introducedBasisFaults(before, after);
-	if (added.length === 0) return;
-	throw new CallerError(
-		`Nothing written: this edit adds ${basisRefusal(added, after)}`,
-	);
+	if (added.length > 0)
+		throw new CallerError(
+			`Nothing written: this edit adds ${basisRefusal(added, after)}`,
+		);
+	const checks = addedCheckVerdict(before, after, { run: true });
+	for (const w of checks.warnings) writeFd(2, `${w}\n`);
+	if (checks.refusals.length > 0)
+		throw new CallerError(`Nothing written: ${checks.refusals.join(" ")}`);
 }
 
 /**
@@ -989,7 +995,7 @@ function recordNewGate(issue, repo, before, after) {
  */
 const basisChecked = (transform) => (body) => {
 	const next = transform(body);
-	refuseBasisFaults(body, next);
+	refuseGateFaults(body, next);
 	return next;
 };
 

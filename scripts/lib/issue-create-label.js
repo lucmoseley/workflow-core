@@ -105,6 +105,8 @@
  *    gate line or a prose wait with no `**Gate basis:**`, or a window in
  *    either that the basis does not name (#823), through lib/issue-gate.js.
  *    It checks the basis names each window, never that it holds up.
+ *  - THE CHECK LIMB (#3487) refuses, on the same body, a gate `check:` that
+ *    cannot run as a command, and warns that one which can was not run.
  *  - THE SECOND-MAP LIMB (#717) refuses a flag-form or REST create carrying
  *    `wayfinder:map` while an open map's Destination still reads the new-repo
  *    placeholder (#1464). The GraphQL route is not judged: its labels are
@@ -143,6 +145,7 @@ const {
 	openMapsArgs,
 	secondMapVerdict,
 } = require("./issue-gate.js");
+const { addedCheckVerdict } = require("./gate-check.js");
 const {
 	defaultsToPost,
 	endpointRepo,
@@ -231,6 +234,7 @@ const API_FORM_COST =
  * @property {Parsed} parsed
  * @property {LabelContext} ctx
  * @property {string} warning the GraphQL warn
+ * @property {string[]} checkNotes the check limb's warnings
  * @property {boolean} humanApplied a `takes:human` passed every limb
  * @typedef {import("./shell-parse.js").Parsed} Parsed
  */
@@ -246,6 +250,7 @@ function decide(command, ctx) {
 		parsed: parseCommand(command),
 		ctx,
 		warning: "",
+		checkNotes: [],
 		humanApplied: false,
 	};
 	const stopped = walkVerdict(run.parsed, (cmd) => judge(run, cmd), ctx);
@@ -255,7 +260,9 @@ function decide(command, ctx) {
 	const pointer = run.humanApplied
 		? `${DELIVERABLE_POINTER_LEAD} ${ctx.scriptPath("lib/rule-text.sh")} founder-deliverable`
 		: "";
-	const said = [run.warning, pointer].filter(Boolean).join("\n\n");
+	const said = [run.warning, ...run.checkNotes, pointer]
+		.filter(Boolean)
+		.join("\n\n");
 	return said ? { injectRules: [], prelude: ctx.corePaths(said) } : null;
 }
 
@@ -439,6 +446,7 @@ function judgeBody(run, segment, body) {
 	if (!body.given || body.hidden) return;
 	if (!/[^ \t\n\v\f\r]/.test(body.text)) denyBlank(run, segment, "is empty");
 	judgeBasis(run, segment, body.text);
+	judgeCheck(run, segment, body.text);
 }
 
 /**
@@ -486,6 +494,28 @@ It carries ${basisRefusal(faults, text)}
 
 Ask of the window: what data sets it, and does anything shorter hold? Where the answer is a round figure, cut the window to what the data defends.`,
 	);
+}
+
+/**
+ * The check limb (#3487): a `check:` on a gate line that cannot run as a
+ * command is refused. One that runs is never run here: guard-dispatch.js's
+ * 60 s hook limit, shared by every core, cannot hold check-gates.js's 60 s
+ * budget and its kill grace, so it is warned.
+ * @param {Run} run accumulator: its warnings go on `checkNotes`
+ * @param {string} segment
+ * @param {string} text
+ */
+function judgeCheck(run, segment, text) {
+	const { refusals, warnings } = addedCheckVerdict("", text, { run: false });
+	if (refusals.length > 0)
+		deny(
+			run.ctx,
+			segment,
+			`This files a gate whose check no sweep can read: @CMD@
+
+Nothing filed: ${refusals.join(" ")}`,
+		);
+	run.checkNotes.push(...warnings);
 }
 
 /**

@@ -273,6 +273,19 @@ describe("the body", () => {
 		expect(ok.status).toBe(0);
 	});
 
+	it("refuses a gate whose check prints nothing with exit 2, naming the fix (#3487)", () => {
+		setUp();
+		const r = run(filing(["takes:implement"]), {
+			stdin:
+				"**Gated on:** it lands — check: `true` — abandon if: it is dropped\n**Gate basis:** the landing sets it\n",
+		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("Nothing filed: the `check:` `true`");
+		expect(r.stderr).toContain("reads as NO-OUTPUT");
+		expect(r.stderr).toContain('|| echo "not on main"');
+		expect(readGhCalls()).toEqual([]);
+	});
+
 	it("hands over rule:roadmap-gating with a gate line, and nothing without one (#823)", () => {
 		setUp();
 		const gated = run(filing(["takes:implement"]), {

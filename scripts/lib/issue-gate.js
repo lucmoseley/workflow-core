@@ -645,6 +645,7 @@ module.exports = {
 	basisRefusal,
 	gateRuleHandover,
 	isNewlyGated,
+	parseAddedGateLines,
 	MAP_LABEL,
 	UNFILLED_DESTINATION,
 	listOpenMaps,

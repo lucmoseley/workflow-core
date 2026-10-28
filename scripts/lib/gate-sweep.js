@@ -19,11 +19,17 @@
  * issue's stored reading and last queuing keyed by checkout and number, the
  * judgements still to launch, and when the last sweep started, so a restart
  * keeps all four.
+ *
+ * A REPAIR STATE SUMMONS A JUDGE TOO (#3487). A `check:` that printed nothing,
+ * did not parse, died or ran over budget is stored as its state's name, so the
+ * first sighting of one, and each change of state, queues a `/triage` that
+ * judges the condition by hand and repairs the segment.
  */
 
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const { PRINTING_FIX, REPAIR_STATES } = require("./gate-check.js");
 const { readJson, writeJson } = require("./refill-files.js");
 
 /* A guess: often enough that a met gate waits on its judge about as long as
@@ -61,6 +67,19 @@ const keyOf = (root, n) => `${root}#${n}`;
  */
 const buildJudgementPrompt = (n) =>
 	`/triage ${n} — its Gated on: reading changed. Run check-gates.js --issue ${n} and judge the reading against the condition: met, comment the evidence and strip the marker; unmet, leave the gate and end.`;
+
+/**
+ * The launch prompt for an issue whose `check:` reads as a repair state.
+ * @param {number} n
+ * @param {string} state
+ */
+const buildRepairPrompt = (n, state) =>
+	`/triage ${n} — its Gated on: check reads ${state}. Judge the condition by hand: met, comment the evidence and strip the marker; unmet, rewrite the check: so that it prints what it saw (for example ${PRINTING_FIX}), run check-gates.js --issue ${n} to see it print, and end.`;
+
+/* check-gates.js trims a reading, so a bracketed state name equals one only
+ * where a check prints exactly that text. */
+/** @param {string} state */
+const buildRepairSeen = (state) => `[${state}]`;
 
 /** @param {unknown} raw @returns {Record<string, unknown>} */
 const recordOf = (raw) =>
@@ -108,12 +127,17 @@ function readGateStore(file, log) {
 }
 
 /**
- * One checkout's rows from check-gates.js's --json envelope: each conditioned
- * issue, its reading where its `check:` printed one, else null. Null where the
- * envelope is unreadable or carries no rows, so nothing stored for that
- * checkout moves.
+ * @typedef {{number: number, seen: string|null, repair: string|null}} SweptRow
+ *   `seen` is what is stored and compared: the reading, a repair state's
+ *   bracketed name, else null.
+ */
+
+/**
+ * One checkout's rows from check-gates.js's --json envelope, one per
+ * conditioned issue. Null where the envelope is unreadable or carries no
+ * rows, so nothing stored for that checkout moves.
  * @param {string} stdout
- * @returns {{number: number, reading: string|null}[] | null}
+ * @returns {SweptRow[] | null}
  */
 function sweptRows(stdout) {
 	let rows;
@@ -123,28 +147,51 @@ function sweptRows(stdout) {
 		return null;
 	}
 	if (!Array.isArray(rows)) return null;
-	return rows.flatMap((r) => {
-		const { number, state, reading } = recordOf(r);
-		if (typeof number !== "number") return [];
-		return [
-			{
-				number,
-				reading:
-					state === "READING" && typeof reading === "string" ? reading : null,
-			},
-		];
-	});
+	return rows.flatMap(
+		/** @returns {SweptRow[]} */ (r) => {
+			const { number, state, reading } = recordOf(r);
+			if (typeof number !== "number") return [];
+			if (typeof state === "string" && REPAIR_STATES.has(state))
+				return [{ number, seen: buildRepairSeen(state), repair: state }];
+			return [
+				{
+					number,
+					seen:
+						state === "READING" && typeof reading === "string" ? reading : null,
+					repair: null,
+				},
+			];
+		},
+	);
+}
+
+/**
+ * Queue one issue's judgement, replacing one still pending for it, whose
+ * prompt may be for the state it has left.
+ * @param {Judgement[]} pending accumulator: the judgement is put here
+ * @param {string} root
+ * @param {number} number
+ * @param {string|null} repair
+ */
+function enqueue(pending, root, number, repair) {
+	const prompt =
+		repair === null
+			? buildJudgementPrompt(number)
+			: buildRepairPrompt(number, repair);
+	const at = pending.findIndex((j) => j.root === root && j.number === number);
+	if (at < 0) pending.push({ root, number, prompt });
+	else pending[at] = { root, number, prompt };
 }
 
 /**
  * The store after one checkout's sweep, and the issues it queued. A changed
- * reading is stored and queued once; one changed inside JUDGE_EVERY_MS of the
- * issue's last queuing is neither, so the first sweep past it sees the
- * change; a check that printed none keeps the reading stored and queues
- * nothing; an issue no longer gated leaves the store and the queue.
+ * reading or repair state is stored and queued once; one changed inside
+ * JUDGE_EVERY_MS of the issue's last queuing is neither, so the first sweep
+ * past it sees the change; a row with neither keeps what is stored and
+ * queues nothing; an issue no longer gated leaves the store and the queue.
  * @param {GateStore} store
  * @param {string} root
- * @param {{number: number, reading: string|null}[]} rows
+ * @param {SweptRow[]} rows
  * @param {number} now
  */
 function withSweep(store, root, rows, now) {
@@ -162,16 +209,15 @@ function withSweep(store, root, rows, now) {
 	const pending = store.pending.filter((j) => kept(keyOf(j.root, j.number)));
 	/** @type {number[]} */
 	const queued = [];
-	for (const { number, reading } of rows) {
+	for (const { number, seen, repair } of rows) {
 		const key = keyOf(root, number);
-		if (reading === null || readings[key] === reading) continue;
+		if (seen === null || readings[key] === seen) continue;
 		const last = queuedAt[key];
 		if (last !== undefined && now - last < JUDGE_EVERY_MS) continue;
-		readings[key] = reading;
+		readings[key] = seen;
 		queuedAt[key] = now;
 		queued.push(number);
-		if (!pending.some((j) => j.root === root && j.number === number))
-			pending.push({ root, number, prompt: buildJudgementPrompt(number) });
+		enqueue(pending, root, number, repair);
 	}
 	return { store: { ...store, readings, queuedAt, pending }, queued };
 }
@@ -252,7 +298,7 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 			writeJson(file, store);
 			if (queued.length > 0)
 				log(
-					`gate sweep in ${root}: reading changed on ${queued.map((n) => `#${n}`).join(", ")}; judgement queued`,
+					`gate sweep in ${root}: reading or repair state changed on ${queued.map((n) => `#${n}`).join(", ")}; judgement queued`,
 				);
 		}
 	}
@@ -282,6 +328,7 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 
 module.exports = {
 	GATE_SWEEP_MS,
+	JUDGE_EVERY_MS,
 	dropTried,
 	gateSweeper,
 	readGateStore,

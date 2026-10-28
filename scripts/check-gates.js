@@ -38,8 +38,9 @@
  * OVER-BUDGET and be run by hand when its reading is actually wanted. Checks run
  * in series, so the worst case is the budget times the conditioned issues.
  *
- * THE BUDGET IS SPENT THROUGH lib/run-budgeted.js, NOT node's own. `spawnSync`'s
- * `timeout` kills the shell it spawned and nothing the shell spawned, so mantahostels#2491's
+ * THE BUDGET IS SPENT THROUGH lib/run-budgeted.js, NOT node's own (both
+ * through lib/gate-check.js). `spawnSync`'s `timeout` kills the shell it
+ * spawned and nothing the shell spawned, so mantahostels#2491's
  * check — which is meant to hit the budget on every sweep — would leave a
  * ~22-minute node process orphaned on a 10 GB machine, once per sweep.
  * run-budgeted.js puts the command in a process group of its own and signals
@@ -53,9 +54,7 @@
  * owes a repair, or a gate with no `check:` at all (#1246).
  */
 
-const { spawnSync } = require("node:child_process");
-
-const { runCheck, brokenError } = require("./lib/check");
+const { runCheck } = require("./lib/check");
 const {
 	parseErrLine,
 	ghJson,
@@ -65,16 +64,11 @@ const {
 const { resolveGate } = require("./lib/issue-gate");
 const { hostRoot } = require("./lib/host-root.js");
 const {
-	RUN_BUDGETED,
-	TIMEOUT_EXIT,
-	KILLED_EXIT,
-	APPARATUS_EXIT,
-	APPARATUS_PREFIX,
-} = require("./lib/run-budgeted.js");
-
-/* Per check, not per sweep. Wide enough for every reading but mantahostels#2491's, which is
- * meant to come back OVER-BUDGET (see the header). */
-const DEFAULT_TIMEOUT_S = 60;
+	DEFAULT_TIMEOUT_S,
+	REPAIR_STATES,
+	runCheckCommand,
+	unwrap,
+} = require("./lib/gate-check.js");
 
 /* A reading is for a human to read, and a `gh run list` one runs to hundreds of
  * lines. Both figures are a judgement, not a measurement. The whole reading is in
@@ -82,174 +76,10 @@ const DEFAULT_TIMEOUT_S = 60;
 const ROW_LINES = 3;
 const ROW_WIDTH = 160;
 
-/* A quarter of lib/gh.js's own 256 MB ceiling, which is sized for a whole-tracker
- * GraphQL read: no `check:` command is that. */
-const MAX_BUFFER = 64e6;
-
-/* How long run-budgeted.js waits after its TERM before sending a KILL. A guess,
- * unmeasured: long enough for a check to flush a reading it was writing. */
-const KILL_AFTER_MS = 5000;
-
 /* Each issue's `check:` command runs against the host repo (#1), never the
  * core checkout — a plugin install's own files sit outside the tree the
  * command means to read. */
 const REPO_ROOT = hostRoot();
-
-/**
- * The command as written, unwrapped from the backticks the tracker's own
- * examples put round it — six of the eight live commands carry a pair.
- *
- * ANY SEGMENT THAT OPENS WITH A BACKTICK AND IS NOT EXACTLY ONE PAIR ROUND ONE
- * COMMAND COMES BACK AS A REPAIR, because there is no honest way to run one.
- * mantahostels#2065's segment trails prose past the closing backtick ("(see its header;
- * mantahostels#1985 landed it)"), and taking the backticked span alone would be a guess at
- * which part was meant — the silent mis-split mantahostels#1435 already accepted one of. A
- * segment carrying a second pair INSIDE the outer one is worse than a guess:
- * unwrapped and run, the inner pair becomes shell command substitution, so a
- * citation in prose executes.
- *
- * @param {string} raw
- * @returns {{ ok: true, command: string } | { ok: false, why: string }}
- */
-function unwrap(raw) {
-	const s = raw.trim();
-	if (!s.startsWith("`")) return { ok: true, command: s };
-	if (!s.endsWith("`") || s.length === 1)
-		return {
-			ok: false,
-			why: "opens with a backtick it never closes — prose wrapped round the command",
-		};
-	const inner = s.slice(1, -1).trim();
-	if (!inner) return { ok: false, why: "an empty pair of backticks" };
-	if (inner.includes("`"))
-		return {
-			ok: false,
-			why: "carries a second pair of backticks inside the first — the inner pair would run as shell command substitution",
-		};
-	return { ok: true, command: inner };
-}
-
-/**
- * @typedef {{ state: string, reading: string, detail: string | null }} Reading
- */
-
-/**
- * Run one `check:` command and classify what came back. The exit code is
- * deliberately not read as a verdict (mantahostels#1332): stdout is the reading whatever it
- * was, and the code only distinguishes a command that printed nothing because
- * it died from one that printed nothing because it had nothing to say.
- *
- * @param {string} command
- * @param {number} timeoutMs
- * @returns {Reading}
- */
-function runCommand(command, timeoutMs) {
-	/* No `shell: true`: run-budgeted.js runs `sh -c <command>` itself, so the
-	 * command still gets a shell — pipes, `&&` and quoting all work — but the
-	 * process group it signals is the shell's own, not this checker's. */
-	const r = spawnSync(
-		process.execPath,
-		[
-			RUN_BUDGETED,
-			String(timeoutMs),
-			String(KILL_AFTER_MS),
-			"sh",
-			"-c",
-			command,
-		],
-		{
-			cwd: REPO_ROOT,
-			encoding: "utf8",
-			maxBuffer: MAX_BUFFER,
-			stdio: ["ignore", "pipe", "pipe"],
-		},
-	);
-	const out = (r.stdout || "").trim();
-	const err = (r.stderr || "").trim();
-	const code = /** @type {{code?: string} | undefined} */ (r.error)?.code;
-	/* The runner failing is the apparatus failing, not a fact about the gate,
-	 * so it is BROKEN rather than a row saying the command is dead (§N4). */
-	if (r.status === APPARATUS_EXIT && err.startsWith(APPARATUS_PREFIX))
-		throw brokenError(
-			`${err.split("\n")[0]}\n        Nothing was read. Run a single check by hand.`,
-		);
-	/* An overrun is the reading being too big to hold, not the command failing —
-	 * and the ceiling is this script's, so it says which constant to raise, the
-	 * way gh.js does for its own. */
-	if (code === "ENOBUFS")
-		return {
-			state: "DEAD",
-			reading: `printed more than ${MAX_BUFFER / 1e6} MB — raise MAX_BUFFER in scripts/check-gates.js, or narrow the command`,
-			detail: null,
-		};
-	if (r.error)
-		return {
-			state: "DEAD",
-			reading: `could not run: ${r.error.message.split("\n")[0]}`,
-			detail: null,
-		};
-	return classifyExit(r, { out, err, timeoutMs });
-}
-
-/**
- * The last line of a command's stderr, or null where it printed none.
- *
- * @param {string} err
- */
-function parseLastErrLine(err) {
-	return err ? err.split("\n").pop() || null : null;
-}
-
-/**
- * Classify a `check:` command that ran to an exit or a signal.
- *
- * @param {import("node:child_process").SpawnSyncReturns<string>} r
- * @param {{ out: string, err: string, timeoutMs: number }} run
- * @returns {Reading}
- */
-function classifyExit(r, { out, err, timeoutMs }) {
-	const budgetS = Math.round(timeoutMs / 1000);
-	/* A signal death is something else killing the check — earlyoom, on this
-	 * machine — and stays DEAD: run-budgeted.js reports its own kills as 124
-	 * and 137, never as a signal. RESIDUAL: a command that exits 124 or 137 on
-	 * its own inside the budget, as `sh -c 'a && b'` does where earlyoom kills
-	 * `a`, reads as over budget, and nothing here can tell them apart. */
-	const overBudget = r.status === TIMEOUT_EXIT || r.status === KILLED_EXIT;
-	if (overBudget)
-		return {
-			state: "OVER-BUDGET",
-			reading: `killed at ${budgetS}s — run it by hand`,
-			detail: out || null,
-		};
-	/* `status` is null where a signal killed it, and `exit null` reads as a bug
-	 * in this script rather than as what happened to the command. */
-	if (r.status === null && !out)
-		return {
-			state: "DEAD",
-			reading: `killed by ${r.signal}, nothing on stdout`,
-			detail: parseLastErrLine(err),
-		};
-	if (out)
-		return {
-			state: "READING",
-			reading: out,
-			/* Carried, never promoted: a command that prints its reading and exits
-			 * non-zero is common (a `grep` finding nothing to filter), and reading
-			 * the code as a verdict is what mantahostels#1332 forbids. */
-			detail: r.status === 0 ? null : `exit ${r.status}`,
-		};
-	if (r.status !== 0)
-		return {
-			state: "DEAD",
-			reading: `exit ${r.status}, nothing on stdout`,
-			detail: parseLastErrLine(err),
-		};
-	return {
-		state: "NO-OUTPUT",
-		reading: "exit 0, nothing on stdout",
-		detail: parseLastErrLine(err),
-	};
-}
 
 /** @param {string} reading */
 function buildRowLines(reading) {
@@ -266,13 +96,7 @@ function buildRowLines(reading) {
  * finding; a reading is a row to read, not a fault. NOT-STATED is no repair
  * either, but is warned all the same (#1246): its condition is judged by hand,
  * and an OK summary hides it from everyone who never asks for this table. */
-const REPAIRS = new Set([
-	"DEAD",
-	"NO-OUTPUT",
-	"OVER-BUDGET",
-	"NOT-A-COMMAND",
-	"GATES-NOTHING",
-]);
+const REPAIRS = new Set([...REPAIR_STATES, "GATES-NOTHING"]);
 const WARNED = new Set([...REPAIRS, "NOT-STATED"]);
 
 /**
@@ -346,7 +170,7 @@ function gateRow(iss, timeoutMs) {
 	return {
 		...row,
 		command: u.command,
-		...runCommand(u.command, timeoutMs),
+		...runCheckCommand(u.command, timeoutMs, REPO_ROOT),
 	};
 }
 

@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const {
 	GATE_SWEEP_MS,
+	JUDGE_EVERY_MS,
 	dropTried,
 	gateSweeper,
 	readGateStore,
@@ -84,7 +85,9 @@ describe("which readings queue a judgement", () => {
 		expect(store.readings[`${WFC}#2046`]).toBe(
 			"every pair started and every run ended",
 		);
-		expect(lines.join("\n")).toContain("reading changed on #2046");
+		expect(lines.join("\n")).toContain(
+			"reading or repair state changed on #2046",
+		);
 	});
 
 	it("queues none on an unchanged reading", async () => {
@@ -127,7 +130,28 @@ describe("which readings queue a judgement", () => {
 		expect(store.pending.map((j: { number: number }) => j.number)).toEqual([7]);
 	});
 
-	it("queues none and keeps the stored reading where the check failed or ran over budget", async () => {
+	it.each([
+		["NO-OUTPUT", "exit 0, nothing on stdout"],
+		["NOT-A-COMMAND", "carries a second pair of backticks inside the first"],
+	])(
+		"queues one judgement on a first %s sighting, and none on the same state next sweep (#3487)",
+		async (state, reading) => {
+			const first = await sweepOnce(envelope([row(3223, reading, state)]));
+			expect(first.store.pending).toHaveLength(1);
+			expect(first.store.pending[0].prompt).toMatch(
+				new RegExp(`^/triage 3223 .*reads ${state}.*by hand.*prints`),
+			);
+			dropTried(file, [{ root: WFC, issues: [3223] }], throwOnLog);
+			const next = await sweepOnce(
+				envelope([row(3223, reading, state)]),
+				// Past the bound, so the bound is not what holds it.
+				NOW + JUDGE_EVERY_MS + GATE_SWEEP_MS,
+			);
+			expect(next.store.pending).toEqual([]);
+		},
+	);
+
+	it("queues one judgement where a reading turns to a repair state, under the same bound", async () => {
 		seed({ readings: { [`${WFC}#2491`]: "41 runs" } });
 		const { store } = await sweepOnce(
 			envelope([
@@ -135,8 +159,24 @@ describe("which readings queue a judgement", () => {
 				row(9, "exit 127, nothing on stdout", "DEAD"),
 			]),
 		);
+		expect(store.pending.map((j: { number: number }) => j.number)).toEqual([
+			2491, 9,
+		]);
+		expect(store.readings).toEqual({
+			[`${WFC}#2491`]: "[OVER-BUDGET]",
+			[`${WFC}#9`]: "[DEAD]",
+		});
+	});
+
+	it("queues none for a row that is no segment to repair", async () => {
+		const { store } = await sweepOnce(
+			envelope([
+				row(4, "no `check:` — judge the condition by hand", "NOT-STATED"),
+				row(6, "malformed marker", "GATES-NOTHING"),
+			]),
+		);
 		expect(store.pending).toEqual([]);
-		expect(store.readings).toEqual({ [`${WFC}#2491`]: "41 runs" });
+		expect(store.readings).toEqual({});
 	});
 
 	it("moves nothing for a checkout whose envelope carries no rows", async () => {

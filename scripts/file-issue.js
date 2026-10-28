@@ -68,6 +68,7 @@ const {
 	MAP_LABEL,
 	secondMapVerdict,
 } = require("./lib/issue-gate.js");
+const { addedCheckVerdict } = require("./lib/gate-check.js");
 const {
 	assignSelf,
 	claimIfFree,
@@ -281,7 +282,8 @@ function main() {
 }
 
 /**
- * The body's own refusals — the `takes:` tests and the basis check.
+ * The body's own refusals — the `takes:` tests, the basis check and a gate
+ * `check:` that prints no reading (#3487).
  * @param {string[]} labels
  * @param {string} body
  */
@@ -303,6 +305,10 @@ function checkBody(labels, body) {
 			`Nothing filed: the body carries ${basisRefusal(unbased, body)}`,
 			2,
 		);
+	const checks = addedCheckVerdict("", body, { run: true });
+	for (const w of checks.warnings) io.warn(w);
+	if (checks.refusals.length > 0)
+		io.fail(`Nothing filed: ${checks.refusals.join(" ")}`, 2);
 }
 
 /**
