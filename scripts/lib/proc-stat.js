@@ -6,10 +6,11 @@
  * so the fields are counted from after its LAST `)` — never by splitting the
  * whole line.
  *
- * A leaf: it depends on nothing but `fs`.
+ * A leaf: it depends on nothing but `fs` and lib/proc-root.js.
  */
 
 const fs = require("node:fs");
+const { procRoot } = require("./proc-root.js");
 
 /* Indices into the array `parseStatFields` returns, each proc(5)'s field
  * number less 3. */
@@ -40,7 +41,7 @@ function parseStatFields(stat) {
  * @param {string} [proc] the procfs root; a fixture tree in tests
  * @returns {string[] | null}
  */
-function readStatFields(pid, proc = "/proc") {
+function readStatFields(pid, proc = procRoot()) {
 	try {
 		return parseStatFields(fs.readFileSync(`${proc}/${pid}/stat`, "utf8"));
 	} catch {

@@ -38,7 +38,7 @@
  * a slot until someone kills it.
  *
  * /proc IS READ THROUGH lib/proc-table.js, which owns the stat parse and the
- * derivation of age from uptime; lib/proc-environ.js owns the WFC_PROC seam
+ * derivation of age from uptime; lib/proc-root.js owns the WFC_PROC seam
  * that replaces /proc with a fixture directory.
  *
  * DEGRADES TO SILENCE, NEVER TO "DEAD". No /proc, an unreadable root, an
@@ -76,7 +76,7 @@ const {
 	readProcTable,
 	readUptime,
 } = require("./lib/proc-table.js");
-const { procRoot } = require("./lib/proc-environ.js");
+const { procRoot } = require("./lib/proc-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 
 /* The threshold, a judgement and not a measurement (mantahostels#2012). */

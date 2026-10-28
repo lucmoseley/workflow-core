@@ -26,7 +26,7 @@
  * writes its fields). Lines are kept
  * RETAIN_MS. An unwritable log costs the line, never the kill.
  *
- * WFC_PROC REPLACES /proc (lib/proc-environ.js). A run against it names
+ * WFC_PROC REPLACES /proc (lib/proc-root.js). A run against it names
  * what it would kill and kills and logs nothing — unless WFC_REAP_FAKE_ROOT
  * is `kill`, which a test sets to cross the real kill and log against a fake
  * root that links in only its own orphan (#3057).
@@ -62,7 +62,7 @@ const {
 	readProcTable,
 	readUptime,
 } = require("./lib/proc-table.js");
-const { procRoot } = require("./lib/proc-environ.js");
+const { procRoot } = require("./lib/proc-root.js");
 const { sweepOrphanedRuns } = require("./lib/suite-ceiling.js");
 
 const REAP_LOG = ".orphan-hook-reaps.jsonl";
