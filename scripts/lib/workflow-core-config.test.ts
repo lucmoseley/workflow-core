@@ -422,7 +422,11 @@ describe("readConfig — defaults", () => {
 			{
 				name: "secret handling",
 				description: expect.any(String),
-				globs: ["scripts/write-secret.js", "scripts/lib/token-shapes.js"],
+				globs: [
+					"scripts/write-secret.js",
+					"scripts/lib/token-shapes.js",
+					"scripts/lib/env-file.js",
+				],
 				focus:
 					"what secret slips past the scan or gets written where git keeps it",
 				examples: [],

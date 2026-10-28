@@ -37,7 +37,11 @@
 		{
 			"name": "secret handling",
 			"description": "reading, writing or scanning for a credential",
-			"globs": ["scripts/write-secret.js", "scripts/lib/token-shapes.js"],
+			"globs": [
+				"scripts/write-secret.js",
+				"scripts/lib/token-shapes.js",
+				"scripts/lib/env-file.js"
+			],
 			"focus": "what secret slips past the scan or gets written where git keeps it",
 			"live": false
 		}
