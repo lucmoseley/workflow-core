@@ -297,6 +297,8 @@ const FIRST_NAP_MS = 1000;
 const MAX_NAP_MS = 5000;
 // So a test can reach the ceiling in under a second. The backoff scales with it.
 const CEILING_ENV = "WFC_COMMIT_LOCK_CEILING_MS";
+// So a test can fix the jitter's draw, in [0, 1), and bound the waits it makes.
+const JITTER_ENV = "WFC_COMMIT_LOCK_JITTER";
 
 const LOCK_REFUSAL =
 	/^fatal: Unable to create '([^']*index\.lock)': File exists\./;
@@ -578,7 +580,7 @@ function waitOut(
 		const left = ceiling - waitedMs;
 		if (left <= 0) giveUp(held, ceiling, { after, remedy, code });
 		// Jitter, so two waiters do not retry in step.
-		sleep(Math.min(nap * (0.5 + Math.random()), MAX_NAP_MS * scale, left));
+		sleep(Math.min(nap * (0.5 + jitterDraw()), MAX_NAP_MS * scale, left));
 		nap = Math.min(nap * 2, MAX_NAP_MS * scale);
 	}
 }
@@ -590,6 +592,16 @@ function waitOut(
 function lockCeiling() {
 	const envCeiling = Number(process.env[CEILING_ENV]);
 	return envCeiling > 0 ? envCeiling : CEILING_MS;
+}
+
+/**
+ * The jitter's draw in [0, 1): the test override where set, else random.
+ * @returns {number}
+ */
+function jitterDraw() {
+	const raw = process.env[JITTER_ENV];
+	const fixed = raw ? Number(raw) : Number.NaN;
+	return fixed >= 0 && fixed < 1 ? fixed : Math.random();
 }
 
 /**

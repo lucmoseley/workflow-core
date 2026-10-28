@@ -1205,85 +1205,85 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		expect(readLastOutcome()?.slice(1)).toEqual(["git-refused", "0.0", "0.0"]);
 	});
 
-	it("jitters the backoff, so two waiters on one lock do not retry in step", async () => {
-		write("b.md");
-		git("add", "b.md");
-		git("commit", "-qm", "seed b");
+	it("jitters the backoff, so a waiter's retries stretch with its draw", async () => {
 		write("a.md", "edited\n");
-		write("b.md", "edited\n");
 		fs.writeFileSync(lockFile(), "");
-		const waiters = ["a.md", "b.md"];
-		const ceilingMs = 9000;
-		/** Commit attempts each waiter must make while the lock is held. */
+		// Halves spec #574's backoff, so each gap's floor below clears the
+		// unjittered nap by 250-500 ms, more than a loaded machine's spawn delay.
+		const ceilingMs = 90_000;
+		/** Commit attempts the waiter must make while the lock is held. */
 		const retries = 4;
-		// git's own trace, one file per waiter: each attempt's start time, seen
-		// from outside the script.
-		const trace = (file: string) => path.join(sb.dir, `${file}.trace`);
-		// Spawned, not in-process: two processes running at once (§X3).
-		const contender = (file: string) =>
-			new Promise<{ status: number | null; stderr: string }>((resolve) => {
-				const child = spawn(
-					process.execPath,
-					[SCRIPT, "-m", file, "--", file],
-					{
-						cwd: sb.repo,
-						env: {
-							...ceiling(ceilingMs),
-							CLAUDE_PROJECT_DIR: sb.repo,
-							GIT_TRACE: trace(file),
-						},
-						stdio: ["ignore", "ignore", "pipe"],
-					},
-				);
-				let stderr = "";
-				child.stderr.on("data", (d) => {
-					stderr += d;
-				});
-				child.on("close", (status) => resolve({ status, stderr }));
-			});
-		const readAttempts = (file: string) =>
-			fs.existsSync(trace(file))
-				? fs
-						.readFileSync(trace(file), "utf8")
-						.split("\n")
-						.filter((l) => l.includes("trace: built-in: git commit"))
-				: [];
-		const both = Promise.all(waiters.map(contender));
-		// Free the lock once both have made their attempts, not after a fixed
-		// wait, which a loaded machine's slow start-up outlasted (#1185). The
-		// deadline sits 1 s under the ceiling, so no contender gives up first.
-		// Residual: a machine too slow for four attempts in 8 s still fails,
-		// naming the counts.
-		const deadline = Date.now() + ceilingMs - 1000;
-		const counts = () => waiters.map((f) => readAttempts(f).length);
-		while (counts().some((n) => n < retries) && Date.now() < deadline) {
+		// The jitter's draw, fixed near its top, so each nap is ~1.5x unjittered.
+		const draw = 0.999;
+		// git's own trace2 events: each attempt's start and exit, seen from
+		// outside the script.
+		const trace = path.join(sb.dir, "a.md.trace2");
+		const readCommits = () => {
+			if (!fs.existsSync(trace)) return [];
+			const events: {
+				event: string;
+				sid: string;
+				time: string;
+				argv?: string[];
+			}[] = fs
+				.readFileSync(trace, "utf8")
+				.split("\n")
+				.filter(Boolean)
+				.map((l) => JSON.parse(l))
+				// A hook's own git calls carry a nested sid.
+				.filter((e: { sid: string }) => !e.sid.includes("/"));
+			const exits = new Map(
+				events.filter((e) => e.event === "exit").map((e) => [e.sid, e.time]),
+			);
+			return events
+				.filter((e) => e.event === "start" && e.argv?.[1] === "commit")
+				.map((e) => ({
+					start: Date.parse(e.time),
+					exit: Date.parse(exits.get(e.sid) ?? ""),
+				}));
+		};
+		const done = waiter(
+			["-m", "a.md", "--", "a.md"],
+			{
+				...ceiling(ceilingMs),
+				WFC_COMMIT_LOCK_JITTER: String(draw),
+				GIT_TRACE2_EVENT: trace,
+			},
+			() => undefined,
+		);
+		// Free the lock once the waiter has made its attempts, not after a fixed
+		// wait, which a loaded machine's slow start-up outlasted (#1185).
+		// Residual: a machine too slow for four attempts in 60 s still fails,
+		// naming the count.
+		const deadline = Date.now() + 60_000;
+		while (readCommits().length < retries && Date.now() < deadline) {
 			await new Promise((r) => setTimeout(r, 25));
 		}
-		const seen = counts();
+		const seen = readCommits().length;
 		fs.rmSync(lockFile());
-		const results = await both;
-		// Status first: a crashed contender's stderr says more than its count.
-		expect(
-			results.map((r) => r.status),
-			results.map((r, i) => `contender ${waiters[i]}:\n${r.stderr}`).join("\n"),
-		).toEqual([0, 0]);
-		expect(
-			Math.min(...seen),
-			`attempts by ${waiters.join(", ")} when the lock was freed: ${seen.join(", ")}`,
-		).toBeGreaterThanOrEqual(retries);
+		const result = await done;
+		// Status first: a crashed waiter's stderr says more than its count.
+		expect(result.status, result.stderr).toBe(0);
+		expect(seen, "attempts when the lock was freed").toBeGreaterThanOrEqual(
+			retries,
+		);
 
-		/** Milliseconds from a waiter's first commit attempt to each of its first four. */
-		const offsets = (file: string) => {
-			const ts = readAttempts(file).map((l) => {
-				const [h, m, sec] = l.split(" ")[0].split(":").map(Number);
-				return ((h * 60 + m) * 60 + sec) * 1000;
-			});
-			return ts.slice(0, retries).map((t) => t - ts[0]);
-		};
-		const [a, b] = waiters.map(offsets);
-		expect(a.length).toBe(retries);
-		expect(b.length).toBe(retries);
-		expect(Math.max(...a.map((t, i) => Math.abs(t - b[i])))).toBeGreaterThan(5);
+		// Real time, as the script's sleep takes no injected clock. Each gap runs
+		// from one refused attempt's exit to the next one's start, so git's own
+		// run time drops out, and holds a whole nap — load only lengthens it.
+		// Residual: the Math.random fallback behind the override goes untested,
+		// as any assertion on a random draw is the chance failure this test
+		// replaced (#3479).
+		const attempts = readCommits();
+		const scale = ceilingMs / 180_000;
+		// commit-paths.js's FIRST_NAP_MS, doubling to MAX_NAP_MS.
+		for (const [i, nap] of [1000, 2000, 4000].entries()) {
+			const floor = Math.min(nap * scale * (0.5 + draw), 5000 * scale);
+			const gap = attempts[i + 1].start - attempts[i].exit;
+			expect(gap, `the nap before attempt ${i + 2}`).toBeGreaterThanOrEqual(
+				floor,
+			);
+		}
 	});
 
 	it("logs a run that met no lock as waiting 0.0s", () => {
