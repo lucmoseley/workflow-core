@@ -618,15 +618,11 @@ describe("the owed text's parts", () => {
 
 	it("owes nothing where the landing module is on (#2933)", () => {
 		vi.stubEnv("WFC_MODULES", "suites,landing");
-		try {
-			committedUnattested();
-			expect(verdict()).toEqual({
-				state: "skipped",
-				why: expect.stringContaining('module "landing" is on'),
-			});
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		committedUnattested();
+		expect(verdict()).toEqual({
+			state: "skipped",
+			why: expect.stringContaining('module "landing" is on'),
+		});
 	});
 
 	it("names the reap both npm suite scripts pay on their way in, and no hand reap", () => {

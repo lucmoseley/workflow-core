@@ -174,7 +174,6 @@ describe("a running run's carried weight (#2931)", () => {
 	describe("off WFC_PS and WFC_PROC", () => {
 		const dir = mkScratchDir("ps-");
 		afterAll(() => {
-			vi.unstubAllEnvs();
 			fs.rmSync(dir, { recursive: true, force: true });
 		});
 		const readPsListing = (lines: string[]) => {

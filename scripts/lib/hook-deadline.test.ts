@@ -102,7 +102,6 @@ describe("the git and gh seams", () => {
 
 	afterEach(() => {
 		vi.useRealTimers();
-		vi.unstubAllEnvs();
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
 

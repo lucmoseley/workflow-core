@@ -31,7 +31,6 @@ beforeEach(() => {
 	vi.stubEnv("CLAUDE_PROJECT_DIR", host);
 });
 afterEach(() => {
-	vi.unstubAllEnvs();
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 

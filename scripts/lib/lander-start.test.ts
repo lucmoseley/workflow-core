@@ -14,7 +14,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { launcherName, spawnDetachedRun, startLander } from "./lander-start.js";
 
 const start = (
@@ -145,8 +145,6 @@ const scopeWorks =
 	}).status === 0;
 
 describe("spawnDetachedRun", () => {
-	afterEach(() => vi.unstubAllEnvs());
-
 	it("starts the lander behind the wrapping words, keeping its pid", async () => {
 		const { pid, logged } = await probeRun(
 			"console.log(JSON.stringify([process.env.WRAPPED ?? null, process.argv.slice(2), process.pid]));",

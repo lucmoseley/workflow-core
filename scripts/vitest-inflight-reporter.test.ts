@@ -38,7 +38,6 @@ let dir: string;
 afterEach(() => {
 	vi.useRealTimers();
 	vi.restoreAllMocks();
-	vi.unstubAllEnvs();
 	if (dir) fs.rmSync(dir, { recursive: true, force: true });
 });
 

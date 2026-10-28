@@ -67,7 +67,6 @@ beforeEach(() => {
 	);
 });
 afterEach(() => {
-	vi.unstubAllEnvs();
 	for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
 	made = [];
 });

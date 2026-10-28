@@ -73,7 +73,6 @@ describe("readStatFields and readParentOf", () => {
 			expect(readParentOf(process.pid)).toBe(9);
 			expect(readAncestorsOf(process.pid)).toEqual([9]);
 		} finally {
-			vi.unstubAllEnvs();
 			fs.rmSync(root, { recursive: true, force: true });
 		}
 	});

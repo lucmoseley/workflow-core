@@ -34,7 +34,6 @@ const TITLE = "doc-map §B — drain the entries over the 300-word prose cap";
 
 const temps: string[] = [];
 afterEach(() => {
-	vi.unstubAllEnvs();
 	for (const t of temps.splice(0))
 		fs.rmSync(t, { recursive: true, force: true });
 });

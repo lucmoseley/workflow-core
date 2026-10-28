@@ -40,7 +40,6 @@ beforeEach(() => {
 	wake = files.wake;
 });
 afterEach(() => {
-	vi.unstubAllEnvs();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

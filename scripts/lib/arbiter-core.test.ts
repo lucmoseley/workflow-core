@@ -274,7 +274,6 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 		body: () => void,
 	) => {
 		const savedCwd = process.cwd();
-		const savedProject = process.env.CLAUDE_PROJECT_DIR;
 		vi.stubEnv("WFC_GIT", git.bin);
 		vi.stubEnv("PATH", git.decoys);
 		delete process.env.CLAUDE_PROJECT_DIR;
@@ -283,9 +282,6 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 			body();
 		} finally {
 			process.chdir(savedCwd);
-			vi.unstubAllEnvs();
-			if (savedProject !== undefined)
-				process.env.CLAUDE_PROJECT_DIR = savedProject;
 		}
 	};
 
@@ -346,12 +342,8 @@ describe("repoRoot is memoised (mantahostels#1775)", () => {
 		const git = stubGit(path.join(sb.dir, "gh-none"), "/never");
 		vi.stubEnv("WFC_GIT", git.bin);
 		vi.stubEnv("PATH", git.decoys);
-		try {
-			expect(store.paths.repoRoot()).toBe(sb.repo);
-			expect(store.paths.repoRoot()).toBe(sb.repo);
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		expect(store.paths.repoRoot()).toBe(sb.repo);
+		expect(store.paths.repoRoot()).toBe(sb.repo);
 		expect(git.count()).toBe(0);
 	});
 
@@ -396,7 +388,6 @@ describe("withGitTimeout bounds the store's git (#2891)", () => {
 		const here = fs.mkdtempSync(path.join(sb.dir, "cwd-hang-"));
 		const git = hangingGit(path.join(sb.dir, "g-hang"));
 		const savedCwd = process.cwd();
-		const savedProject = process.env.CLAUDE_PROJECT_DIR;
 		vi.stubEnv("WFC_GIT", git.bin);
 		delete process.env.CLAUDE_PROJECT_DIR;
 		process.chdir(here);
@@ -414,9 +405,6 @@ describe("withGitTimeout bounds the store's git (#2891)", () => {
 			]);
 		} finally {
 			process.chdir(savedCwd);
-			vi.unstubAllEnvs();
-			if (savedProject !== undefined)
-				process.env.CLAUDE_PROJECT_DIR = savedProject;
 		}
 		expect(git.count()).toBe(1);
 	});
@@ -424,17 +412,13 @@ describe("withGitTimeout bounds the store's git (#2891)", () => {
 	it("reads a hung git call as an overrun and null, spawning no git after it", () => {
 		const git = hangingGit(path.join(sb.dir, "g-hang-call"));
 		vi.stubEnv("WFC_GIT", git.bin);
-		try {
-			const { value, overran } = core.withGitTimeout(200, () => [
-				core.git(["status", "--porcelain"]),
-				core.gitRaw(["show", "HEAD:a.md"]),
-				core.gitIn(["hash-object", "--stdin"], "x"),
-			]);
-			expect(overran).toBe(true);
-			expect(value).toEqual([null, null, null]);
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		const { value, overran } = core.withGitTimeout(200, () => [
+			core.git(["status", "--porcelain"]),
+			core.gitRaw(["show", "HEAD:a.md"]),
+			core.gitIn(["hash-object", "--stdin"], "x"),
+		]);
+		expect(overran).toBe(true);
+		expect(value).toEqual([null, null, null]);
 		expect(git.count()).toBe(1);
 	});
 

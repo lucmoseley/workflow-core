@@ -1524,10 +1524,6 @@ describe("gateDenies, the command it asks the gate about (#2558)", () => {
 describe("gateDenies, against the real gate (#2421)", () => {
 	const { readGate } = require("./suite-concurrency-host.js");
 
-	afterEach(() => {
-		vi.unstubAllEnvs();
-	});
-
 	/** The gate's reading with `mb` available and `suites` running, for a
 	 * launch of `words` carrying `weight`, at a root whose workflow-core.json
 	 * holds `config`. */

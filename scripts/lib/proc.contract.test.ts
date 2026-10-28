@@ -168,8 +168,6 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 });
 
 describe.skipIf(!hasProc)("a fake smaps_rollup (needs Linux /proc)", () => {
-	afterEach(() => vi.unstubAllEnvs());
-
 	it("writes its lines as the real rollup holds them, in order, and reads back", () => {
 		const real = fs.readFileSync(`/proc/${process.pid}/smaps_rollup`, "utf8");
 		const kb = (key: string) =>
@@ -203,8 +201,6 @@ describe.skipIf(!hasProc)("a fake smaps_rollup (needs Linux /proc)", () => {
 });
 
 describe.skipIf(!hasProc)("a fake loadavg line (needs Linux /proc)", () => {
-	afterEach(() => vi.unstubAllEnvs());
-
 	it("has the real line's shape, and reads back as the real one does", () => {
 		const shape = /^\d+\.\d\d \d+\.\d\d \d+\.\d\d \d+\/\d+ \d+\n$/;
 		expect(fs.readFileSync("/proc/loadavg", "utf8")).toMatch(shape);

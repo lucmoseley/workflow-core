@@ -51,7 +51,6 @@ describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 	beforeEach(() => vi.stubEnv("CLAUDE_PROJECT_DIR", undefined));
 	afterEach(() => {
 		process.chdir(cwd);
-		vi.unstubAllEnvs();
 	});
 
 	/*

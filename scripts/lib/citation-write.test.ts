@@ -65,7 +65,6 @@ beforeAll(() => {
 beforeEach(() => {
 	vi.stubEnv("WFC_CITATION_BASELINE", baseline);
 	logs = [];
-	return () => vi.unstubAllEnvs();
 });
 
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));

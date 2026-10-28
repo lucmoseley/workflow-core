@@ -1303,7 +1303,6 @@ describe("re-rendering the adopter's session rules on a bump (#654)", () => {
 		made.push(configDir);
 		vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
 	});
-	afterEach(() => vi.unstubAllEnvs());
 	const installRow = (version: string, gitCommitSha: string) =>
 		writeJson(configDir, "plugins/installed_plugins.json", {
 			plugins: {

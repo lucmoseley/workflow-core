@@ -22,7 +22,6 @@ import os from "node:os";
 import path from "node:path";
 import {
 	afterAll,
-	afterEach,
 	beforeAll,
 	beforeEach,
 	describe,
@@ -89,7 +88,6 @@ describe("reportForRun", () => {
 			if (key.startsWith("GIT_")) vi.stubEnv(key, undefined);
 		vi.stubEnv("CI", "");
 	});
-	afterEach(() => vi.unstubAllEnvs());
 
 	/** `reportForRun` on the loaded machine; an absent `unit` means seconds. */
 	const report = (

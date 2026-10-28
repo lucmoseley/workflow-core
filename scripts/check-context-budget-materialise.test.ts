@@ -114,9 +114,6 @@ describe("--against's materialised trees", () => {
 		};
 		/* The hook wiring the list derives from is read off the host (#3334). */
 		vi.stubEnv("CLAUDE_PROJECT_DIR", REPO);
-		onTestFinished(() => {
-			vi.unstubAllEnvs();
-		});
 		copyListed(whole, fetched, materialisePathspecs(ctx, "HEAD"));
 
 		const plain = figures(whole);

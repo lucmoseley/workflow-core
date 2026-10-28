@@ -71,7 +71,6 @@ describe("readMachineSetting", () => {
 			});
 		} finally {
 			homedir.mockRestore();
-			vi.unstubAllEnvs();
 		}
 	});
 });

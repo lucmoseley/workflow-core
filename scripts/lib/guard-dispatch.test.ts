@@ -83,7 +83,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	vi.unstubAllEnvs();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

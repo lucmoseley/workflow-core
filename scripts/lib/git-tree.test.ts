@@ -166,12 +166,8 @@ describe("treeClassifier — one git call per question, under a timeout", () => 
 		const target = fresh("memo");
 		fs.cpSync(shared, target, { recursive: true });
 		const git = stubGit();
-		try {
-			expect(classify(target)).toBe("other");
-			expect(classify(target)).toBe("other");
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		expect(classify(target)).toBe("other");
+		expect(classify(target)).toBe("other");
 		expect(git.calls()).toEqual([
 			`rev-parse --path-format=absolute --git-common-dir @ ${fs.realpathSync(target)}`,
 			expect.stringContaining(
@@ -186,11 +182,7 @@ describe("treeClassifier — one git call per question, under a timeout", () => 
 		const classify = treeClassifier(shared, { timeoutMs: 100 });
 		const target = fresh("slow");
 		stubGit(1);
-		try {
-			expect(classify(target)).toBe("unknown");
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		expect(classify(target)).toBe("unknown");
 	});
 
 	it("answers `unknown` for a timeout in a directory in no repository", () => {
@@ -202,7 +194,6 @@ describe("treeClassifier — one git call per question, under a timeout", () => 
 		try {
 			expect(classify(opaque)).toBe("unknown");
 		} finally {
-			vi.unstubAllEnvs();
 			fs.rmSync(opaque, { recursive: true, force: true });
 		}
 	});
@@ -243,11 +234,7 @@ describe("patchFiles (#2147)", () => {
 
 	it("answers null for an unreadable or missing patch, asking git apply nothing", () => {
 		const git = stubGit();
-		try {
-			expect(patchFiles(shared, path.join(dir, "no-such.patch"))).toBeNull();
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		expect(patchFiles(shared, path.join(dir, "no-such.patch"))).toBeNull();
 		expect(git.calls().filter((c) => c.includes(" apply "))).toEqual([]);
 	});
 
@@ -263,11 +250,7 @@ describe("patchFiles (#2147)", () => {
 		const tree = fresh("slow-tree");
 		fs.cpSync(shared, tree, { recursive: true });
 		vi.stubEnv("WFC_GIT", slow);
-		try {
-			expect(patchFiles(tree, writePatch(), { timeoutMs: 1000 })).toBeNull();
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		expect(patchFiles(tree, writePatch(), { timeoutMs: 1000 })).toBeNull();
 	});
 
 	it("answers null for a patch git will not read", () => {

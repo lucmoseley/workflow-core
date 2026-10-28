@@ -26,7 +26,6 @@ describe("refusal script paths in an install (#1993)", () => {
 	});
 
 	afterEach(() => {
-		vi.unstubAllEnvs();
 		fs.rmSync(root, { recursive: true, force: true });
 	});
 

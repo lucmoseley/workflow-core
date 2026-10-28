@@ -166,12 +166,8 @@ describe("run-mod-tests (#857)", () => {
 		git(dir, "update-ref", "refs/remotes/origin/main", sha);
 		const claude = stubClaude();
 		vi.stubEnv("WFC_MODULES", "landing");
-		try {
-			const r = push(dir, sha, ZERO, { bin: claude.bin });
-			expect(r.status).toBe(0);
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		const r = push(dir, sha, ZERO, { bin: claude.bin });
+		expect(r.status).toBe(0);
 		expect(claude.runs()).toHaveLength(1);
 	});
 

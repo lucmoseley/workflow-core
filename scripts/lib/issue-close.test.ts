@@ -961,7 +961,6 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 		push();
 		commit("Fix the stop (#12)");
 	});
-	afterEach(() => vi.unstubAllEnvs());
 
 	it("denies a close whose commit is unpushed, naming it and the escape", () => {
 		const reason = readDenyReason("gh issue close 12", lined);

@@ -48,7 +48,6 @@ function messageFile(message: string) {
  * editor route, where git drops `#` lines. */
 beforeEach(() => {
 	vi.stubEnv("GIT_EDITOR", "vi");
-	return () => vi.unstubAllEnvs();
 });
 
 /** The scanner in process over `message`: its exit code and stderr. */

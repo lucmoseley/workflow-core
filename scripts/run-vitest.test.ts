@@ -141,7 +141,6 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	vi.unstubAllEnvs();
 	while (dirs.length > 0)
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
 });
@@ -3343,11 +3342,7 @@ async function underOuterLaunch<T>(
 	body: () => Promise<T>,
 ): Promise<T> {
 	stubLaunch(launch);
-	try {
-		return await body();
-	} finally {
-		vi.unstubAllEnvs();
-	}
+	return await body();
 }
 
 /** The env `main` hands the vitest child for `argv`. */

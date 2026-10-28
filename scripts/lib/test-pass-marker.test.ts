@@ -624,14 +624,10 @@ describe("markerFrom", () => {
 
 	it("reads no launch argv off the environment, the launch record being the teardown's to pass (#1491)", () => {
 		stubLaunch({ argv: ["--full=coverage"] });
-		try {
-			const m = markerFrom({ head: "old", files: {} }, after, null, {
-				sessionId: null,
-			});
-			expect(m).not.toHaveProperty("argv");
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		const m = markerFrom({ head: "old", files: {} }, after, null, {
+			sessionId: null,
+		});
+		expect(m).not.toHaveProperty("argv");
 	});
 
 	it("carries neither field where neither is known", () => {
@@ -2108,20 +2104,16 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			const { dir, root, b, c1, c2 } = twoSessions();
 			git(dir, "update-ref", "refs/remotes/origin/main", c2);
 			vi.stubEnv("WFC_MODULES", "landing");
-			try {
-				const missing = attestationOf(c2, [b], { root: dir });
-				expect(!missing.judged && missing.why).toContain("origin/landing");
-				git(dir, "update-ref", "refs/remotes/origin/landing", root);
-				const r = attestationOf(c2, [b], { root: dir });
-				expect(r.judged && r.base).toBe(root);
-				expect(vitest(r)).toEqual({
-					suite: "vitest",
-					attested: false,
-					unattested: [{ path: "a.js", commit: c1 }],
-				});
-			} finally {
-				vi.unstubAllEnvs();
-			}
+			const missing = attestationOf(c2, [b], { root: dir });
+			expect(!missing.judged && missing.why).toContain("origin/landing");
+			git(dir, "update-ref", "refs/remotes/origin/landing", root);
+			const r = attestationOf(c2, [b], { root: dir });
+			expect(r.judged && r.base).toBe(root);
+			expect(vitest(r)).toEqual({
+				suite: "vitest",
+				attested: false,
+				unattested: [{ path: "a.js", commit: c1 }],
+			});
 		});
 
 		it("judges nothing where git cannot name the range", () => {
@@ -2191,30 +2183,22 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 					unattested: [{ path: "a.js", commit: c1 }],
 				});
 			vi.stubEnv("WFC_MODULES", "landing");
-			try {
-				for (const m of [a, full]) {
-					const r = attestationOf(merge, [m], { root: dir });
-					expect(r.judged && r.range).toEqual(["a.js"]);
-					expect(vitest(r)?.attested).toBe(true);
-				}
-			} finally {
-				vi.unstubAllEnvs();
+			for (const m of [a, full]) {
+				const r = attestationOf(merge, [m], { root: dir });
+				expect(r.judged && r.range).toEqual(["a.js"]);
+				expect(vitest(r)?.attested).toBe(true);
 			}
 		});
 
 		it("voids a certificate over a merge whose conflict was resolved by hand, with the landing module on (#2517)", () => {
 			const { dir, a, full, c1, merge } = reconciled("a.js resolved\n");
 			vi.stubEnv("WFC_MODULES", "landing");
-			try {
-				for (const m of [a, full])
-					expect(vitest(attestationOf(merge, [m], { root: dir }))).toEqual({
-						suite: "vitest",
-						attested: false,
-						unattested: [{ path: "a.js", commit: c1 }],
-					});
-			} finally {
-				vi.unstubAllEnvs();
-			}
+			for (const m of [a, full])
+				expect(vitest(attestationOf(merge, [m], { root: dir }))).toEqual({
+					suite: "vitest",
+					attested: false,
+					unattested: [{ path: "a.js", commit: c1 }],
+				});
 		});
 
 		it("attests an empty range only where some member still holds", () => {
@@ -2239,16 +2223,12 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 				at: "V",
 			});
 			vi.stubEnv("WFC_MODULES", "landing");
-			try {
-				expect(vitest(attestationOf(c2, [stale], { root: dir }))).toEqual({
-					suite: "vitest",
-					attested: false,
-					unattested: [],
-					why: `no vitest certificate holds at ${c2.slice(0, 12)}`,
-				});
-			} finally {
-				vi.unstubAllEnvs();
-			}
+			expect(vitest(attestationOf(c2, [stale], { root: dir }))).toEqual({
+				suite: "vitest",
+				attested: false,
+				unattested: [],
+				why: `no vitest certificate holds at ${c2.slice(0, 12)}`,
+			});
 		});
 	});
 });
@@ -2368,21 +2348,17 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 	it("owes no test for a change already on origin/landing where the landing module is on, and still owes one for a change it has not taken (#2517)", () => {
 		const { dir, root, neighbour, own, session } = replay();
 		vi.stubEnv("WFC_MODULES", "landing");
-		try {
-			git(dir, "update-ref", "refs/remotes/origin/landing", neighbour);
-			expect(
-				vitest(attestationOf(own, [session], { root: dir }))?.attested,
-			).toBe(true);
-			git(dir, "update-ref", "refs/remotes/origin/landing", root);
-			const v = vitest(attestationOf(own, [session], { root: dir }));
-			expect(v?.attested === false && v.unattested).toContainEqual({
-				path: "narrow.js",
-				commit: own,
-				tests: ["wide.test.ts"],
-			});
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		git(dir, "update-ref", "refs/remotes/origin/landing", neighbour);
+		expect(vitest(attestationOf(own, [session], { root: dir }))?.attested).toBe(
+			true,
+		);
+		git(dir, "update-ref", "refs/remotes/origin/landing", root);
+		const v = vitest(attestationOf(own, [session], { root: dir }));
+		expect(v?.attested === false && v.unattested).toContainEqual({
+			path: "narrow.js",
+			commit: own,
+			tests: ["wide.test.ts"],
+		});
 	});
 
 	it("owes no test origin/landing added where the landing module is on, and owes it where it is off (#2517)", () => {
@@ -2401,14 +2377,10 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 			unattested: [{ path: "narrow.js", commit: own, tests: ["late.test.ts"] }],
 		});
 		vi.stubEnv("WFC_MODULES", "landing");
-		try {
-			git(dir, "update-ref", "refs/remotes/origin/landing", neighbour);
-			expect(
-				vitest(attestationOf(own, [session], { root: dir }))?.attested,
-			).toBe(true);
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		git(dir, "update-ref", "refs/remotes/origin/landing", neighbour);
+		expect(vitest(attestationOf(own, [session], { root: dir }))?.attested).toBe(
+			true,
+		);
 	});
 
 	it("is attested by the original certificate plus a re-run of the owed test alone", () => {

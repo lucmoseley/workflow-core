@@ -299,25 +299,21 @@ describe("selectTouched", () => {
 			const fake = "/opt/fake/python3";
 			vi.stubEnv("WFC_PYTHON", fake);
 			const ran: string[] = [];
-			try {
-				const { files } = pyRepo(
-					{ "pyproject.toml": "[tool.pytest.ini_options]\n" },
-					(cmd: unknown, args: unknown, opts: unknown) => {
-						if (cmd !== fake)
-							return execFileSync(
-								cmd as string,
-								args as string[],
-								opts as object,
-							);
-						ran.push(cmd);
-						return '{"testpaths": ["tools"]}';
-					},
-				);
-				expect(ran).toEqual([fake]);
-				expect(files).toEqual(["tools/test_x.py"]);
-			} finally {
-				vi.unstubAllEnvs();
-			}
+			const { files } = pyRepo(
+				{ "pyproject.toml": "[tool.pytest.ini_options]\n" },
+				(cmd: unknown, args: unknown, opts: unknown) => {
+					if (cmd !== fake)
+						return execFileSync(
+							cmd as string,
+							args as string[],
+							opts as object,
+						);
+					ran.push(cmd);
+					return '{"testpaths": ["tools"]}';
+				},
+			);
+			expect(ran).toEqual([fake]);
+			expect(files).toEqual(["tools/test_x.py"]);
 		});
 
 		it("keeps every default-named pytest file where no config sets testpaths", () => {

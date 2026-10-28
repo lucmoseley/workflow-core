@@ -161,7 +161,6 @@ describe("verdict", () => {
 
 const temps: string[] = [];
 afterEach(() => {
-	vi.unstubAllEnvs();
 	for (const t of temps.splice(0))
 		fs.rmSync(t, { recursive: true, force: true });
 });

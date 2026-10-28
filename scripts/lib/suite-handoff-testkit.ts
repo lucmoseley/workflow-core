@@ -5,7 +5,7 @@
  *
  * Every test worker inherits the real launch of the run driving the suite, so
  * a test that leaves its own behind makes THAT run's teardown stamp it.
- * `vi.unstubAllEnvs` undoes `stubLaunch`.
+ * vitest.config.ts's `unstubEnvs` undoes `stubLaunch` before the next test.
  */
 
 import { createRequire } from "node:module";

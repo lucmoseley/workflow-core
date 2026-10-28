@@ -154,7 +154,6 @@ beforeEach(() => {
 	fs.mkdirSync(elsewhere);
 });
 afterEach(() => {
-	vi.unstubAllEnvs();
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

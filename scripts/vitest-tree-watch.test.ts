@@ -14,7 +14,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
 	commitAll,
@@ -152,7 +152,6 @@ describe("isolated/treeAtEnd on the write path (mantahostels#2210)", () => {
 
 	afterEach(() => {
 		takeRunReport();
-		vi.unstubAllEnvs();
 		fs.rmSync(markerSandbox, { recursive: true, force: true });
 	});
 

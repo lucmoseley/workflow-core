@@ -76,7 +76,6 @@ export function reviewFixture() {
 	});
 
 	afterEach(() => {
-		vi.unstubAllEnvs();
 		fs.rmSync(f.dir, { recursive: true, force: true });
 	});
 

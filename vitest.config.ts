@@ -15,6 +15,10 @@ export default defineConfig({
 		environment: "jsdom",
 		globals: true,
 		setupFiles: ["./vitest.setup.ts"],
+		// Undoes every `vi.stubEnv` BEFORE each test, not after it (#3448): a
+		// stub set in `beforeAll` or at module scope is gone by the first test,
+		// and `afterEach` and `afterAll` still see the last test's stubs.
+		unstubEnvs: true,
 		// 90 s, not vitest's 5 s, because THE TESTS THAT CROSS THE BAR HERE ARE NOT
 		// THE SLOW ONES. Re-run on a quiet machine, every one of a loaded full run's
 		// 28 timeouts passes, 24 of 28 under 1 s. Load multiplies them by a median

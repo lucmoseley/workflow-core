@@ -2888,7 +2888,6 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 		temps.splice(temps.indexOf(built), 1);
 		template = built;
 	});
-	afterEach(() => vi.unstubAllEnvs());
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 
 	function repo() {

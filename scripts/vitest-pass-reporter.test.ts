@@ -94,7 +94,6 @@ beforeEach(() => {
 
 afterEach(() => {
 	takeRunReport();
-	vi.unstubAllEnvs();
 });
 
 describe("the verdict the reporter records", () => {
