@@ -205,10 +205,10 @@
 			"source": "#2386, #2529, #2581, #2792"
 		},
 		"scripts/lib/founder-wording.js": {
-			"digest": "b34207f263c83733",
+			"digest": "31cecedbd1a4a0f4",
 			"verdict": "at need on both routes — prompt route fires on the founder's message before the reply it governs; Skill route as diagnosing-bugs loads Its Skill route runs as a core of scripts/guard-dispatch.js, its prompt route through scripts/inject-founder-wording.js (#2792: every bash case moved to a module case with mutation proof)",
-			"selfSufficient": "yes — the four checks with the resolved tracker list, and the full re-pitch instructions, are inline",
-			"source": "#2792"
+			"selfSufficient": "yes — the four checks with the resolved tracker list, and the full re-pitch instructions, are inline; re-fed after #3378: the fault and re-pitch prompts 938 B and 914 B, the control and a loop resume or mod delivery quoting the phrases silent",
+			"source": "#2792, #3378"
 		},
 		"scripts/inject-tracker-docs.sh": {
 			"digest": "068ae76df2204b4b",
