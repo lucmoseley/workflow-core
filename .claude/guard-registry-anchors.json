@@ -87,7 +87,7 @@
 	"scripts/run-vitest.js": "229f035dbb535409",
 	"scripts/self-plugin-canary.sh": "bb8455efc6779d29",
 	"scripts/session-arbiter.js": "eeae8abb7d94c3cb",
-	"scripts/stale-write-back-gate.sh": "cbec199ac6dd92e0",
+	"scripts/stale-write-back-gate.sh": "2d3782d967aece89",
 	"scripts/start-lander-on-push.js": "03eb5dbdbfd31b46",
 	"scripts/sweep-debts-detached.sh": "b579223c61f51548",
 	"scripts/unpark-on-prompt.js": "7132d81b50eb7ae0",
