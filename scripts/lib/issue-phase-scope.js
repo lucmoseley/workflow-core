@@ -234,7 +234,7 @@ function createWord(scan, kind, name, value) {
  * @param {string[]} args
  */
 function judgeApi(run, cmd, args) {
-	const call = scanApi(args);
+	const call = scanApi(args, run.parsed.spans);
 	const { spans } = run.parsed;
 	const method = literal(call.method, spans);
 	const endpoint = literal(call.endpoint, spans);
@@ -246,13 +246,13 @@ function judgeApi(run, cmd, args) {
 			run.ctx,
 			"could not read a gh api issue creation — create allowed unchecked",
 		);
-	/* THE FIELD NAME DECIDES WHETHER THE VALUE MATTERS, so a field whose own
-	 * NAME is masked — `-f "$FIELD"` — could be the title and cannot be told
+	/* THE FIELD NAME DECIDES WHETHER THE VALUE MATTERS, so a field name that
+	 * would not read — `-f "$FIELD"` — could be the title and cannot be told
 	 * from any other. */
 	if (call.opaque)
 		open(
 			run.ctx,
-			"a gh api issue creation carried a masked field word — create allowed unchecked",
+			"could not read a field name on a gh api issue creation — create allowed unchecked",
 		);
 	const title = apiTitle(run, call.fields);
 	if (title) judgeTitle(run, cmd.segment, title);
@@ -267,8 +267,9 @@ const isPost = (method, call) =>
 	method ? method.toUpperCase() === "POST" : defaultsToPost(call);
 
 /**
- * The last `title=` field's value, "" where none; a field name or a title
- * value it cannot read fails open.
+ * The last `title=` field's value, "" where none; a title value it cannot
+ * read fails open. Every field name reads, call.opaque having failed open on
+ * one that does not.
  * @param {Run} run
  * @param {string[]} fields
  */
@@ -276,12 +277,6 @@ function apiTitle(run, fields) {
 	let title = "";
 	for (const field of fields) {
 		const { text } = literal(field, run.parsed.spans);
-		const eq = text.indexOf("=");
-		if (/[$`]/.test(eq < 0 ? text : text.slice(0, eq)))
-			open(
-				run.ctx,
-				"could not read a field name on a gh api issue creation — create allowed unchecked",
-			);
 		if (!text.startsWith("title=")) continue;
 		title = text.slice("title=".length);
 		/* The name read but the VALUE did not, so the card cannot be known. */

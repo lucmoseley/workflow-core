@@ -85,7 +85,7 @@ const {
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
 const { deny, ruleOrFallback, walkVerdict } = require("./guard-verdict.js");
 const { parseCommand, unmask } = require("./shell-parse.js");
-const { QUOTED, isGhCommand } = require("./shell-words.js");
+const { QUOTED, isGhCommand, literal } = require("./shell-words.js");
 
 /**
  * @typedef {import("./kit-context.js").KitContext} BodyContext
@@ -214,7 +214,7 @@ function judge(run, cmd) {
  * @param {string[]} args the words after `gh api`
  */
 function judgeApi(run, segment, args) {
-	const call = scanApi(args);
+	const call = scanApi(args, run.parsed.spans);
 	const graphql = scanGraphql(call.fields, run.parsed.spans);
 	const hiddenInput = judgeMutation(run, segment, graphql.query);
 	if (isGraphql(call.endpoint)) {
@@ -258,7 +258,9 @@ function judgeMutation(run, segment, query) {
  * @param {import("./gh-api-call.js").ApiCall} call
  */
 function judgePatch(run, segment, call) {
-	const body = call.fields.some((f) => f.startsWith("body="));
+	const body = call.fields.some((f) =>
+		literal(f, run.parsed.spans).text.startsWith("body="),
+	);
 	let hidden;
 	if (call.method.toUpperCase() === "PATCH") hidden = false;
 	else if (unread(call.method)) hidden = true;

@@ -748,9 +748,15 @@ describe("the graphql spelling of a creation (mantahostels#519)", () => {
 	});
 
 	it("warns where a createIssue rides beside a payload or a field it cannot name (#2796)", () => {
-		for (const extra of ["--input x.json", '-f "$K=v"', '-f "K"=v']) {
+		for (const extra of ["--input x.json", '-f "$K=v"']) {
 			expect(verdict(`${mutation('title:"t"')} ${extra}`)).toBe("warn");
 		}
+	});
+
+	it("denies an unlabelled createIssue beside a field whose quoted name reads back (#3421)", () => {
+		// exempt (mantahostels#2145): the unlabelled-create deny is pinned by
+		// "denies a create carrying no labels at all".
+		expect(verdict(`${mutation('title:"t"')} -f "K"=v`)).toBe("deny");
 	});
 
 	it("warns once, quoting the first create, where one command carries two (#2796)", () => {

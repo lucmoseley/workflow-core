@@ -149,6 +149,26 @@ describe("the creates it denies", () => {
 		).toBe("deny");
 	});
 
+	it.each([
+		[
+			'gh api --method POST repos/o/r/issues -f "title=search-core — x"',
+			"the title field quoted whole",
+		],
+		[
+			"gh api --method POST repos/o/r/issues -f title=\"search-core — x\" -f 'labels[]=takes:triage'",
+			"a label field quoted whole beside a readable title",
+		],
+		[
+			'gh api repos/o/r/issues -f "title=search-core — x" -f labels[]=takes:triage',
+			"title quoted whole and no method, gh defaulting to POST",
+		],
+	])("denies a REST creation — %s — %s", (command) => {
+		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
+		// escape — by "names the card, its phase, and who may call it". A quoted
+		// field name reads back through its span, so it is judged (#3421).
+		expect(verdict(command)).toBe("deny");
+	});
+
 	it("denies through the short -t spelling of the title", () => {
 		// exempt (mantahostels#2145): the guard has one deny message, pinned — card, phase and
 		// escape — by "names the card, its phase, and who may call it".
@@ -417,13 +437,13 @@ describe("what it fails open on, and records", () => {
 	});
 
 	it("allows and records a REST field whose own name is hidden", () => {
-		// The name decides whether the value matters, so a masked field could be
-		// the title and cannot be told from any other.
+		// The name decides whether the value matters, so a field whose name will
+		// not read could be the title and cannot be told from any other.
 		expect(verdict('gh api --method POST repos/o/r/issues -f "$FIELD"')).toBe(
 			"allow",
 		);
 		expect(readFaults()).toEqual([
-			"a gh api issue creation carried a masked field word — create allowed unchecked",
+			"could not read a field name on a gh api issue creation — create allowed unchecked",
 		]);
 	});
 

@@ -307,7 +307,7 @@ const REPOS_PATH_RE = /^repos\/([^/]+)\/([^/]+)(\/|$)/;
  * @param {string[]} args
  */
 function judgeApi(run, cmd, args) {
-	const call = scanApi(args);
+	const call = scanApi(args, run.parsed.spans);
 	/* The method and endpoint are read back through literal: the splitter
 	 * blanks every quoted span, so a quoted endpoint would otherwise walk past.
 	 * A method it cannot read is judged as a write. */

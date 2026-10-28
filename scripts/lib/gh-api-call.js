@@ -6,7 +6,7 @@
  * shell-words.js's literal.
  */
 
-const { QUOTED, literal } = require("./shell-words.js");
+const { QUOTED, hasExpansion, literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /**
@@ -14,9 +14,10 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {string} method the --method/-X value, "" where none was given
  * @property {string} endpoint the first bare word
  * @property {string[]} fields every -f/-F/--field/--raw-field value, in order
- * @property {boolean} opaque a field's own NAME is masked, so which field it
- *   is cannot be read off the word. Only the name decides: a masked VALUE —
- *   `-f title="New"` — is still visibly not the field a caller looks for
+ * @property {boolean} opaque a field's own NAME cannot be read even through
+ *   literal — `-f "$FIELD"` — so which field it is cannot be told. A name
+ *   merely quoted — `-f "title=x"`, `-f 'labels[]=y'` — reads back and is not
+ *   opaque (#3421); a masked VALUE never decides
  * @property {boolean} input the payload arrives whole through --input, so
  *   there are no field words to read at all
  */
@@ -35,9 +36,10 @@ const VALUE_FLAGS = [
 
 /**
  * @param {string[]} argv the invocation's words, `api` itself dropped
+ * @param {string[]} spans the parse's quoted spans, which literal reads back
  * @returns {ApiCall}
  */
-function scanApi(argv) {
+function scanApi(argv, spans) {
 	/** @type {ApiCall} */
 	const call = {
 		method: "",
@@ -49,13 +51,26 @@ function scanApi(argv) {
 	for (let i = 0; i < argv.length; ) {
 		const { val, step } = readWord(call, argv[i] ?? "", argv[i + 1] ?? "");
 		if (val) {
-			const eq = val.indexOf("=");
-			if (eq < 0 || val.slice(0, eq).includes(QUOTED)) call.opaque = true;
+			if (isNameUnread(val, spans)) call.opaque = true;
 			call.fields.push(val);
 		}
 		i += step;
 	}
 	return call;
+}
+
+/**
+ * Whether a field word's name, read back through literal, still cannot be
+ * known: no `=` to end it, an expansion, or a span never recorded.
+ * @param {string} val
+ * @param {string[]} spans
+ */
+function isNameUnread(val, spans) {
+	const { text } = literal(val, spans);
+	const eq = text.indexOf("=");
+	if (eq < 0) return true;
+	const name = text.slice(0, eq);
+	return hasExpansion(name) || name.includes(QUOTED);
 }
 
 /**

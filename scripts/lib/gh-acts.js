@@ -125,7 +125,7 @@ function readIssueCall(sub, args, env) {
  * @param {() => string} cwdRepo
  */
 function blockedByPost(args, spans, cwdRepo) {
-	const call = scanApi(args);
+	const call = scanApi(args, spans);
 	const method = literal(call.method, spans);
 	if (!method.known) return null;
 	if (

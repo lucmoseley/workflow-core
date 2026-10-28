@@ -168,7 +168,7 @@ const {
 	walkVerdict,
 } = require("./guard-verdict.js");
 const { parseCommand, unmask } = require("./shell-parse.js");
-const { QUOTED, isGhCommand, literal, scanFlags } = require("./shell-words.js");
+const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
 const {
 	CLOSE_WHEN_LINE,
 	FOUNDER_ACTS,
@@ -951,7 +951,7 @@ function denyUnreadRelabel(run, segment) {
  * @param {string[]} args
  */
 function judgeApi(run, cmd, args) {
-	const call = scanApi(args);
+	const call = scanApi(args, run.parsed.spans);
 	/* The method and the endpoint are READ BACK, not merely inspected: the
 	 * splitter blanks every quoted span, so judging the blanked word would let
 	 * a pair of quotes around `repos/o/r/issues` walk the creation past the
@@ -979,6 +979,11 @@ function judgeApi(run, cmd, args) {
 			run.ctx,
 			"could not read a gh api issue creation — create allowed unchecked",
 		);
+	if (call.opaque)
+		open(
+			run.ctx,
+			"could not read a field name on a gh api issue creation — create allowed unchecked",
+		);
 	const repo = endpointRepo(endpoint);
 	/** @type {Creation} */
 	const made = {
@@ -1003,8 +1008,7 @@ function judgeApi(run, cmd, args) {
  * way to pass a title, and literal fails on the whole word for the one `$` in
  * it — so failing open there would disarm the deny on almost every real
  * creation. The value is only read where the name says it is the labels or
- * the body. The opaque flag is deliberately not consulted: a masked field
- * name is still legible to literal, which is where every name is read.
+ * the body. A name that does not read has already failed open on call.opaque.
  * @param {Run} run
  * @param {string[]} fields
  * @param {Creation} made accumulator: the labels and body each field gives
@@ -1021,13 +1025,6 @@ function readApiFields(run, fields, made) {
 function readApiField(run, field, made) {
 	const { text: raw, known } = literal(field, run.parsed.spans);
 	const text = trimEndRun(raw, "\n");
-	const eq = text.indexOf("=");
-	const name = eq < 0 ? text : text.slice(0, eq);
-	if (/[$`]/.test(name) || name.includes(QUOTED))
-		open(
-			run.ctx,
-			"could not read a field name on a gh api issue creation — create allowed unchecked",
-		);
 	if (text.startsWith("body=")) {
 		/* The body, for the takes:human limb. `@file` is gh's read-from-disk
 		 * spelling on -F, and what follows it is a path rather than the text. */

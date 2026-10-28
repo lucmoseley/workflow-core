@@ -195,6 +195,10 @@ describe("the PATCH spelling of the same write is denied too", () => {
 			"gh api --paginate --method PATCH repos/o/r/issues/96 -f body=x",
 			"a flag that takes no value does not swallow the endpoint",
 		],
+		[
+			'gh api --method PATCH repos/o/r/issues/96 -f "body=new"',
+			"the whole field quoted, its name read back through the span (#3421)",
+		],
 	])("%s — %s", (command) => {
 		// exempt (mantahostels#2145): the guard has ONE deny message,
 		// pinned by "%s carries the whole rule — %s" below, and only a body-write
@@ -214,10 +218,6 @@ describe("a PATCH at an issue whose fields cannot be read warns", () => {
 		[
 			"gh api --method PATCH repos/o/r/issues/96 --input -",
 			"the payload is on stdin",
-		],
-		[
-			'gh api --method PATCH repos/o/r/issues/96 -f "body=new"',
-			"the whole field is quoted, so the parser has blanked it",
 		],
 		[
 			"gh api --input p.json --method PATCH repos/o/r/issues/96",
