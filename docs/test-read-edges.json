@@ -4655,9 +4655,15 @@
 		],
 		"scripts/concurrency-readout.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/concurrency-readout.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/concurrency-readout.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -4870,6 +4876,7 @@
 		],
 		"scripts/fixtures/agents-stop.json": [
 			"scripts/agents-listing-count.test.ts",
+			"scripts/concurrency-readout.test.ts",
 			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",

@@ -63,6 +63,9 @@ const SPREAD_CAP = 10;
 
 /** @typedef {{ts: string, sessions: number|null}} MinuteLine */
 /** @typedef {{dir: string, count: number}} UnlistedDir */
+/** The breakdown's unlisted row; `count` null where it went unread, `unknown`
+ * then saying why where known.
+ * @typedef {{count: number|null, mb: number|null, unknown?: string|null}} UnlistedRead */
 
 /**
  * The memory component holding most of what admission charges besides the
@@ -276,6 +279,7 @@ function readout({ ticks, minutes, now, windowMs }) {
 		: last.t.binding;
 	return {
 		lastTick: last?.t ?? null,
+		stale,
 		verdict,
 		also: stale ? [] : (last?.t.also ?? []),
 		sustained: activeMs > 0 ? weighted / activeMs : null,
@@ -295,8 +299,9 @@ const figure = (n) => (n === null ? "unread" : n.toFixed(1));
 /**
  * `npm run status`'s concurrency block.
  * @param {ReturnType<typeof readout>} r the 24-hour readout
+ * @param {() => UnlistedRead} readLive admission's unlisted row read now
  */
-function buildBlockText(r) {
+function buildBlockText(r, readLive) {
 	const t = r.lastTick;
 	const v = r.verdict;
 	const lines = [
@@ -312,20 +317,37 @@ function buildBlockText(r) {
 	const largest = /** @type {any} */ (t?.memory)?.largest;
 	if (largest)
 		lines.push(`memory:    ${largest.name} holds most (${largest.mb} MB)`);
-	/* The unlisted watch (#3322): whether these sessions owe draw headroom is
-	 * open (#2502), and this line is what raises it. */
-	const unlisted =
-		/** @type {{unlisted?: {count: number|null, mb: number|null}|null}|null|undefined} */ (
-			t?.memory
-		)?.unlisted;
-	if (unlisted?.count && unlisted.count > 0)
-		lines.push(
-			`unlisted:  ${unlisted.count} session(s) outside admission's listing hold ${unlisted.mb ?? "?"} MB, charged no draw headroom (#2502)`,
-		);
+	const unlisted = buildUnlistedLine(r, readLive);
+	if (unlisted) lines.push(unlisted);
 	lines.push(
 		`sustained: ${figure(r.sustained)} over the last 24h (${r.activeHours.toFixed(1)} h with any session working)`,
 	);
 	return lines.join("\n");
+}
+
+/**
+ * The unlisted watch's line (#3322), null where nothing is unlisted: whether
+ * these sessions owe draw headroom is open (#2502), and this line raises it.
+ * It reads the newest tick's row while that tick is fresh, else `readLive()`,
+ * as the loop is off unless being tested (#3215, #3496). An unread row prints,
+ * as unknown is never calm (mantahostels#1206).
+ * @param {ReturnType<typeof readout>} r
+ * @param {() => UnlistedRead} readLive
+ */
+function buildUnlistedLine(r, readLive) {
+	const [u, when] = r.stale
+		? [readLive(), "now"]
+		: [
+				/** @type {{unlisted?: UnlistedRead}|null|undefined} */ (
+					r.lastTick?.memory
+				)?.unlisted ?? null,
+				"at the last tick",
+			];
+	if (!u) return null;
+	if (u.count === null)
+		return `unlisted:  unknown ${when} — ${u.unknown ?? "unread"}`;
+	if (u.count <= 0) return null;
+	return `unlisted:  ${u.count} session(s) outside admission's listing hold ${u.mb ?? "?"} MB ${when}, charged no draw headroom (#2502)`;
 }
 
 function concurrencyFiles() {

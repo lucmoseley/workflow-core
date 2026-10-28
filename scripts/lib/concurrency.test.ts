@@ -19,6 +19,10 @@ const T0 = Date.parse("2026-10-28T00:00:00Z");
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
 const iso = (ms: number) => new Date(ms).toISOString();
+/* A live reader a fresh tick must never call. */
+const unread = () => {
+	throw new Error("read admission over a fresh tick");
+};
 
 const minute = (ms: number, sessions: number | null) => ({
 	ts: iso(ms),
@@ -210,7 +214,7 @@ describe("readout's verdict (#3317)", () => {
 			now: T0 + 5 * MIN,
 			windowMs: 24 * HOUR,
 		});
-		expect(buildBlockText(r)).toBe(
+		expect(buildBlockText(r, unread)).toBe(
 			[
 				`4 working at the last tick (${iso(T0)}), admission ceiling 6`,
 				"bound by:  allowance — allowance why",
@@ -222,33 +226,75 @@ describe("readout's verdict (#3317)", () => {
 	});
 });
 
-describe("the unlisted watch (#3322)", () => {
-	const block = (unlisted: unknown) =>
+describe("the unlisted watch (#3322, #3496)", () => {
+	const row = (count: number | null, unknown: string | null = null) => ({
+		count,
+		mb: count && count * 450,
+		unknown,
+		dirs: [],
+	});
+	/** The block over one tick `age` old keeping `kept`, admission read now
+	 * answering `live`. */
+	const block = (age: number, kept: unknown, live: unknown = unread) =>
 		buildBlockText(
 			readout({
 				ticks: [
 					{
 						...tickAt(T0, "memory"),
-						memory: { ...tickAt(T0, "memory").memory, unlisted },
+						memory: { ...tickAt(T0, "memory").memory, unlisted: kept },
 					},
 				],
 				minutes: [],
-				now: T0 + MIN,
+				now: T0 + age,
 				windowMs: 24 * HOUR,
 			}),
+			typeof live === "function" ? live : () => live,
 		);
 
-	it("prints a line naming the count and MB while the newest tick reads unlisted sessions", () => {
-		expect(block({ count: 2, mb: 900, dirs: [] })).toContain(
-			"unlisted:  2 session(s) outside admission's listing hold 900 MB, charged no draw headroom (#2502)",
+	it("reads a fresh tick's row, never admission now", () => {
+		expect(block(MIN, row(2))).toContain(
+			"unlisted:  2 session(s) outside admission's listing hold 900 MB at the last tick, charged no draw headroom (#2502)",
+		);
+	});
+
+	it("reads admission now over a stale tick's row", () => {
+		expect(block(STALE_MS + MIN, row(0), row(1))).toContain(
+			"unlisted:  1 session(s) outside admission's listing hold 450 MB now, charged no draw headroom (#2502)",
+		);
+	});
+
+	it("reads admission now where no tick is recorded", () => {
+		const r = readout({ ticks: [], minutes: [], now: T0, windowMs: HOUR });
+		expect(buildBlockText(r, () => row(1))).toContain(
+			"unlisted:  1 session(s) outside admission's listing hold 450 MB now",
 		);
 	});
 
 	it.each([
-		["reads none", { count: 0, mb: 0, dirs: [] }],
-		["carries no row", null],
-	])("prints no line where the newest tick %s", (_, unlisted) => {
-		expect(block(unlisted)).not.toContain("unlisted:");
+		{
+			name: "admission now could not read",
+			age: STALE_MS + MIN,
+			kept: row(2),
+			live: row(null, "session listing: refused"),
+			line: "unlisted:  unknown now — session listing: refused",
+		},
+		{
+			name: "a fresh tick kept an unread row",
+			age: MIN,
+			kept: row(null),
+			live: unread,
+			line: "unlisted:  unknown at the last tick — unread",
+		},
+	])("prints unknown where $name", ({ age, kept, live, line }) => {
+		expect(block(age, kept, live)).toContain(line);
+	});
+
+	it.each<[string, number, unknown, unknown]>([
+		["reads none", MIN, row(0), unread],
+		["carries no row", MIN, null, unread],
+		["is stale and admission now reads none", STALE_MS + MIN, row(2), row(0)],
+	])("prints no line where the newest tick %s", (_, age, kept, live) => {
+		expect(block(age, kept, live)).not.toContain("unlisted:");
 	});
 });
 
