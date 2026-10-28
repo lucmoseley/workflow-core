@@ -22,11 +22,6 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-	ADMITTED_AUTH,
-	REFUSED_AUTH,
-	writeSeatHelper,
-} from "./lib/auth-status-fake";
-import {
 	agentsListing,
 	dispatchFixture,
 	SCRIPT,
@@ -507,35 +502,6 @@ describe("the seat kind (#2605)", () => {
 			`${path.join(fx.dir, ".claude", "refill-seats")}:2: missing cycle-day=`,
 		);
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
-	});
-});
-
-describe("the launch's auth (#2236)", () => {
-	const launchedBg = () => readArgvLines().some((l) => l.includes("--bg"));
-
-	it.each(REFUSED_AUTH)("refuses under %s, launching nothing", (name, env) => {
-		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], env);
-		expect(r.code).toBe(2);
-		expect(r.stderr).toContain(`${name} is set`);
-		expect(r.stderr).toContain("#2236");
-		expect(launchedBg()).toBe(false);
-	});
-
-	it("refuses an apiKeyHelper in the seat's settings", () => {
-		stubClaude({});
-		const seat = path.join(fx.dir, "helped-seat");
-		writeSeatHelper(seat);
-		const r = run(["sonnet", "/implement 341"], { CLAUDE_CONFIG_DIR: seat });
-		expect(r.code).toBe(2);
-		expect(r.stderr).toContain("apiKeyHelper");
-		expect(launchedBg()).toBe(false);
-	});
-
-	it.each(ADMITTED_AUTH)("launches on %s", (_name, env) => {
-		stubClaude({});
-		expect(run(["sonnet", "/implement 341"], env).code).toBe(0);
-		expect(launchedBg()).toBe(true);
 	});
 });
 

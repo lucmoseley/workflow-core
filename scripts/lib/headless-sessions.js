@@ -15,8 +15,7 @@
  * or hook in the session sees it (#2604 (b)); the launch removes any
  * ANTHROPIC_API_KEY or seat variable it inherits. A missing `.env` or
  * variable refuses the launch by name before anything spawns, since the
- * helper runs only after; so does any other auth in force on the seat
- * (lib/launch-auth.js).
+ * helper runs only after.
  *
  * THE STORE is beside the refill loop's files (lib/refill-dir.js): one
  * directory per run, named by its 8-hex job id, holding `run.json`, the
@@ -52,7 +51,6 @@ const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { readEnvFileValue } = require("./env-file.js");
 const { readJsonl } = require("./jev-log.js");
-const { launchAuthRefusal } = require("./launch-auth.js");
 const { mainCheckout } = require("./main-checkout.js");
 const { refillPath } = require("./refill-dir.js");
 const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
@@ -166,32 +164,28 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
 	const key = keyCheck(seat.keyVar);
 	if ("why" in key) return key;
 
-	/** @type {NodeJS.ProcessEnv} */
-	const env = { ...process.env, CLAUDE_CONFIG_DIR: seat.dir };
-	/* The caller's session id would make the child claim to be the caller. */
-	delete env.CLAUDE_CODE_SESSION_ID;
-	delete env.ANTHROPIC_API_KEY;
-	delete env[seat.keyVar];
-	/* The child's own launches read the key from their own checkout. */
-	delete env.WFC_OVERFLOW_ENV_ROOT;
-	const refusal = launchAuthRefusal({
-		bin: claudeBin(),
-		env,
-		cwd,
-		overflow: true,
-	});
-	if (refusal) return { why: refusal };
-
 	const { jobId, dir } = freshRunDir();
 	const jobDir = path.join(dir, "job");
 	fs.mkdirSync(path.join(jobDir, "tmp"), { recursive: true });
-	env.CLAUDE_JOB_DIR = jobDir;
 	const log = path.join(dir, "out.jsonl");
 	const stderr = path.join(dir, "stderr.log");
 	const sessionId = crypto.randomUUID();
 	const helper = [process.execPath, __filename, "key", seat.keyVar, key.file]
 		.map(shellQuoted)
 		.join(" ");
+
+	/** @type {NodeJS.ProcessEnv} */
+	const env = {
+		...process.env,
+		CLAUDE_CONFIG_DIR: seat.dir,
+		CLAUDE_JOB_DIR: jobDir,
+	};
+	/* The caller's session id would make the child claim to be the caller. */
+	delete env.CLAUDE_CODE_SESSION_ID;
+	delete env.ANTHROPIC_API_KEY;
+	delete env[seat.keyVar];
+	/* The child's own launches read the key from their own checkout. */
+	delete env.WFC_OVERFLOW_ENV_ROOT;
 
 	const out = fs.openSync(log, "a");
 	const err = fs.openSync(stderr, "a");

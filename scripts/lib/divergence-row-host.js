@@ -39,7 +39,7 @@ const git = (args) => {
 function sessionsOff(ps) {
 	const { spawnSync } = require("node:child_process");
 	const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-	const { countSessions, readProcCwd } = require("./claude-sessions.js");
+	const { countSessions, isProcCwd } = require("./claude-sessions.js");
 	const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 	const r = spawnSync(ps, ["-eo", "pid=,ppid=,args="], {
 		encoding: "utf8",
@@ -48,7 +48,7 @@ function sessionsOff(ps) {
 		maxBuffer: CHILD_MAX_BUFFER,
 	});
 	if (r.error || r.status !== 0) return null;
-	return countSessions(r.stdout, (pid) => readProcCwd(pid));
+	return countSessions(r.stdout, isProcCwd);
 }
 
 /**

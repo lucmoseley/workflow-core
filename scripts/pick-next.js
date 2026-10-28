@@ -3533,6 +3533,13 @@ function logWarmFraction(cacheUsable, run) {
  * before the dispatch lines regardless. How many the next reap takes is
  * `reclaimableFrom`'s count, which matches the reaper's plan without running
  * it; the MB it would return stays uncredited.
+ *
+ * The daemon+spare RESERVATION costs no second oracle read: `listed.pids`
+ * hands back the pid set off the SAME read `listed` already is, so a live
+ * session's pair is not double-charged against the pool it is already
+ * priced through its draw (mantahostels#1295). An oracle refusal leaves it unset
+ * — an empty set reserves the whole spare pool rather than none, which
+ * over-reserves and shrinks `freeSlots` (fail-closed).
  * @param {ListedSessions} listed
  */
 function admissionOf(listed) {
@@ -3552,6 +3559,7 @@ function admissionOf(listed) {
 		memory,
 	} = machineAdmission({
 		listed,
+		livePids: new Set(listed.pids ? [...listed.pids.values()].map(String) : []),
 		reclaimable: reclaimable.ok
 			? { ok: true, mb: 0, count: reclaimable.count }
 			: reclaimable,

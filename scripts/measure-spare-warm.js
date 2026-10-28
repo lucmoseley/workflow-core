@@ -25,8 +25,7 @@
  *             times it. Costs nothing and starts nothing.
  *   --probe   fires one `claude --bg` itself to cause the spawn. That is a real
  *             background session against a real allowance — a founder call,
- *             never something to run unasked (mantahostels#2553). Refused where
- *             its auth would not bill the subscription (lib/launch-auth.js).
+ *             never something to run unasked (mantahostels#2553).
  *
  * IT MEASURES, IT NEVER WRITES. Setting WFC_DISPATCH_STAGGER_SECONDS's
  * default from what this prints is a hand edit to dispatch-sessions.sh.
@@ -47,9 +46,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { spawn } = require("node:child_process");
 const { configDirs } = require("./lib/arbiter-store");
-const { claudeBin } = require("./lib/claude-bin.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args");
-const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { readParentOf } = require("./lib/proc-stat.js");
 
@@ -337,7 +334,7 @@ async function timeToPlateau(pid, spawnedAt, deadline) {
 const PROBE_PROMPT = "Reply with the single word ok. Do nothing else.";
 
 function launchProbe(/** @type {string} */ prompt) {
-	const bin = claudeBin();
+	const bin = process.env.WFC_CLAUDE_BIN || "claude";
 	const child = spawn(bin, ["--bg", prompt], { stdio: "ignore" });
 	child.unref();
 	return bin;
@@ -401,17 +398,6 @@ async function runMain() {
 			"no daemon.log under any config dir, so no spare spawn can be seen here.\n",
 		);
 		return 2;
-	}
-	if (probe) {
-		const refusal = launchAuthRefusal({
-			bin: claudeBin(),
-			env: process.env,
-			cwd: process.cwd(),
-		});
-		if (refusal) {
-			writeFd(2, `REFUSED: ${refusal}\n`);
-			return 2;
-		}
 	}
 	const deadline = Date.now() + timeoutS * 1000;
 

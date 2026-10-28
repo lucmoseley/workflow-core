@@ -506,13 +506,6 @@ if [[ $overflow -eq 1 ]]; then
   done
 fi
 
-# --- launch auth -------------------------------------------------------------
-# A `--bg` launch must bill the subscription, not an API key in this shell
-# (lib/launch-auth.js, #2236). The headless launcher checks its own.
-if [[ $overflow -eq 0 ]]; then
-  node "$here/lib/launch-auth.js" || exit 2
-fi
-
 # --- duplicate gate --------------------------------------------------------
 # Placed BEFORE the allowance gate on cost: the allowance read spends up to 120
 # seconds in `claude -p "/usage"`, and a set that is already running should not

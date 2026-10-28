@@ -79,9 +79,9 @@ def count_sessions(rows, cwd_of=live_cwd):
     return len(hosts - spares)
 
 
-# DUPLICATED BY HAND from scripts/lib/claude-sessions.js's SPARE_SOCKET, and
-# session_pair from scripts/lib/admission.js's sessionPairPids, the unit
-# admission charges a session's pair in: move both, or neither (#2231).
+# DUPLICATED BY HAND from scripts/lib/admission.js's SPARE_SOCKET, and
+# session_pair from its sessionPairPids, the unit admission charges a session's
+# pair in: move both, or neither (#2231).
 SPARE_SOCKET = re.compile(r"/spare/([A-Za-z0-9]+)\.")
 
 

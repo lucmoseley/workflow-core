@@ -3,8 +3,7 @@
  * the carried-weight reader's WFC_PROC (#2948), one directory a process, its
  * `environ` NUL-separated as the kernel's is; and the orphan sweeps'
  * WFC_PROC_ROOT (#3057), each process's stat and cmdline and the machine's
- * uptime; and the spare-pair test's WFC_PROC (#2502), each process's `cwd`
- * link. proc.contract.test.ts holds all three to the kernel's.
+ * uptime. proc.contract.test.ts holds both to the kernel's.
  *
  * FOR TESTS ONLY.
  */
@@ -34,14 +33,6 @@ export function writeEnviron(
 ): number {
 	fs.mkdirSync(path.join(proc, String(pid)), { recursive: true });
 	fs.writeFileSync(path.join(proc, String(pid), "environ"), entries.join("\0"));
-	return pid;
-}
-
-/** Process `pid` under `proc`, its cwd `cwd`, replacing any link before it. */
-export function writeCwd(proc: string, pid: string, cwd: string): string {
-	fs.mkdirSync(path.join(proc, pid), { recursive: true });
-	fs.rmSync(path.join(proc, pid, "cwd"), { force: true });
-	fs.symlinkSync(cwd, path.join(proc, pid, "cwd"));
 	return pid;
 }
 

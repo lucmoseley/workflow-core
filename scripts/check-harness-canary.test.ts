@@ -21,12 +21,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	ADMITTED_AUTH,
-	buildAuthStatusNodeBranch,
-	REFUSED_AUTH,
-	writeSeatHelper,
-} from "./lib/auth-status-fake";
 import { stubGhScript } from "./lib/gh-stub.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -40,7 +34,6 @@ const FIXTURE = path.join(
 /* Rows: [listing, Skill call, loaded body]. The body carries the recorded
  * CANARY-0000, swapped for the nonce in the plugin it is handed. */
 const STUB = `#!/usr/bin/env node
-${buildAuthStatusNodeBranch()}
 const fs = require("node:fs");
 const path = require("node:path");
 const argv = process.argv.slice(2);
@@ -191,32 +184,6 @@ describe("the probe (--probe)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("another probe holds");
 		expect(probes()).toBe(0);
-	});
-});
-
-describe("the probe's auth (#2236)", () => {
-	it.each(REFUSED_AUTH)(
-		"is unprobed under %s, launching nothing",
-		(name, env) => {
-			const r = run(["--probe"], env);
-			expect(r.status).toBe(0);
-			expect(r.stderr).toContain(`${name} is set`);
-			expect(readState().last.verdict).toBe("unprobed");
-			expect(probes()).toBe(0);
-		},
-	);
-
-	it("is unprobed under an apiKeyHelper in the seat's settings", () => {
-		writeSeatHelper(config);
-		const r = run(["--probe"]);
-		expect(r.status).toBe(0);
-		expect(r.stderr).toContain("apiKeyHelper");
-		expect(probes()).toBe(0);
-	});
-
-	it.each(ADMITTED_AUTH)("probes on %s", (_name, env) => {
-		expect(run(["--probe"], env).status).toBe(0);
-		expect(readState().passed).toBe("2.1.302");
 	});
 });
 

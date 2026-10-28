@@ -97,7 +97,6 @@ const {
 } = require("./lib/block-cause.js");
 const { parseResumed } = require("./lib/bg-resume.js");
 const { stopOn } = require("./lib/claude-stop.js");
-const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { setParked } = require("./lib/parked.js");
 const { read: readTranscript } = require("./lib/session-transcript.js");
@@ -923,12 +922,9 @@ function moveClaims(l, from, to) {
  * @returns {import("./lib/refill-blocks.js").Resumed}
  */
 function resumeStopped(l, prompt, { sessionId, cwd }) {
-	const env = seatEnv(l);
-	const refusal = launchAuthRefusal({ bin: claudeBin(), env, cwd });
-	if (refusal) return { failed: refusal };
 	const r = runChild(claudeBin(), ["--bg", "--resume", sessionId, prompt], {
 		cwd,
-		env,
+		env: seatEnv(l),
 	});
 	const failed = childFailure(r);
 	if (failed) return { failed };

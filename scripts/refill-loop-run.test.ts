@@ -29,7 +29,6 @@ import {
 	buildStopBranch,
 	type Row,
 } from "./lib/agents-stop-fake";
-import { writeSeatHelper } from "./lib/auth-status-fake";
 import {
 	buildRekeyedResponse,
 	FAKE_COPY,
@@ -906,18 +905,6 @@ describe("a launch stopped by a transient API error (#2705)", () => {
 		});
 		expect(r.stdout).toMatch(
 			/resume 1 of 16 after an API error, repo \/implement 7, by stop and --bg --resume, the typed one unseen/,
-		);
-	});
-
-	it("refuses the --bg --resume where its auth would not bill the subscription (#2236)", async () => {
-		seed(tried({ attachAt: Date.now() - 2 * 60 * 1000 }));
-		fakeResumeClaude(Job, [LISTED, blockedRow]);
-		writeSeatHelper(seat);
-		const r = await oneTick(ApiRun);
-		expect(r.status).toBe(0);
-		expect(readLines(at("calls"))).toEqual([`stop ${Job}`]);
-		expect(r.stdout).toMatch(
-			/could not resume .*an apiKeyHelper setting is in force.*#2236/,
 		);
 	});
 

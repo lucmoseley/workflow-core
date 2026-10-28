@@ -61,7 +61,6 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { spawnSync } = require("node:child_process");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
-const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { isTerminalAgent } = require("./lib/agent-liveness.js");
 const { forgetSession } = require("./lib/session-id.js");
@@ -482,14 +481,6 @@ function prepare(run, { issues, nodeModules }) {
  * @returns {{ ok: true, record: LaunchRecord } | { ok: false, why: string }}
  */
 function start(run, { repo, prompt }, bin) {
-	const env = {
-		...process.env,
-		...sandboxEnv(run.sandbox),
-		CLAUDE_CONFIG_DIR: run.configDir,
-		PATH: `${path.join(run.sandbox, "bin")}:${process.env.PATH}`,
-	};
-	const refusal = launchAuthRefusal({ bin, env, cwd: repo });
-	if (refusal) return { ok: false, why: refusal };
 	const launched = spawnSync(
 		bin,
 		[
@@ -506,7 +497,12 @@ function start(run, { repo, prompt }, bin) {
 			cwd: repo,
 			encoding: "utf8",
 			timeout: CALL_TIMEOUT_MS,
-			env,
+			env: {
+				...process.env,
+				...sandboxEnv(run.sandbox),
+				CLAUDE_CONFIG_DIR: run.configDir,
+				PATH: `${path.join(run.sandbox, "bin")}:${process.env.PATH}`,
+			},
 		},
 	);
 	const job = /backgrounded\s+·\s+(\S+)/.exec(launched.stdout)?.[1];

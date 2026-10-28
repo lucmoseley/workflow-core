@@ -18,7 +18,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildAuthStatusBranch } from "./lib/auth-status-fake";
 import { writePsStub } from "./lib/ps-stub.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { buildRefreshLine, buildUsageCache } from "./lib/usage-probe-fake";
@@ -63,7 +62,6 @@ beforeEach(() => {
 		path.join(dir, "claude"),
 		[
 			"#!/bin/bash",
-			buildAuthStatusBranch(),
 			`if [ "$1" = "agents" ]; then printf '%s\\n' '${JSON.stringify([{ sessionId: SESSION_ID, pid: 1 }])}'; exit 0; fi`,
 			`printf '%s|%s|%s|%s|%s\\n' "$(tr '\\0' ' ' < /proc/$PPID/cmdline)" "$PWD" "$CLAUDE_CONFIG_DIR" "$*" "$(readlink /proc/self/fd/0)" >> '${probeLog}'`,
 			'if [ -n "$FAKE_ABORT" ]; then kill -TERM "$PPID"; sleep 5; exit 0; fi',

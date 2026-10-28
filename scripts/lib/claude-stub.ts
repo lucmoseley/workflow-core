@@ -5,11 +5,9 @@
  */
 
 import fs from "node:fs";
-import { buildAuthStatusBranch } from "./auth-status-fake";
 
-/** Write a bash `claude` stub at `bin` answering `auth status`
- * (lib/launch-auth.js), then running `lines` in turn, then exiting
- * `fallThroughExit`. */
+/** Write a bash `claude` stub at `bin` running `lines` in turn, then
+ * exiting `fallThroughExit`. */
 export function writeClaudeStub(
 	bin: string,
 	lines: string[],
@@ -17,13 +15,7 @@ export function writeClaudeStub(
 ) {
 	fs.writeFileSync(
 		bin,
-		[
-			"#!/bin/bash",
-			buildAuthStatusBranch(),
-			...lines,
-			`exit ${fallThroughExit}`,
-			"",
-		].join("\n"),
+		["#!/bin/bash", ...lines, `exit ${fallThroughExit}`, ""].join("\n"),
 		{ mode: 0o755 },
 	);
 	return bin;
