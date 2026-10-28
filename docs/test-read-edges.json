@@ -1736,6 +1736,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-escalated.txt": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/review-tier.test.ts",
@@ -1754,6 +1755,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-not-live.txt": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/review-tier.test.ts",
@@ -2415,6 +2417,7 @@
 		],
 		"docs/test-read-edges.json": [
 			"scripts/admissible-share.test.ts",
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-marker-integrity.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/guard-unasked-rerun.test.ts",
@@ -2843,15 +2846,19 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/arm-tasks/mutation-hold-disable-reason.patch": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/arm-tasks/rescue-sees-commit-paths.patch": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/arm-tasks/review-tier-marker-fetch.fix.patch": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/arm-tasks/review-tier-marker-fetch.patch": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/arm-tasks/tasks.json": [
@@ -2859,6 +2866,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/arm-tasks/vendored-licence-drift.patch": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/audit-escape-lines.js": [
@@ -4373,6 +4381,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-vendored-skills.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -15864,6 +15873,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/review-tier.js": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -15879,6 +15889,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/review-tier.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -19812,6 +19823,7 @@
 			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/mutation-hold-gate.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -20715,6 +20727,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/rescue-sessions.test.ts": [
+			"scripts/arm-tasks.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"

@@ -139,16 +139,46 @@ describe("the committed task set", () => {
 	});
 
 	// The working tree, not HEAD, so a session sees its own edit stale a patch
-	// before it pushes; a neighbour's uncommitted edit can redden it too.
-	it("unapplies every fix patch from the tree, and applies every hidden-test patch to it (#3165)", () => {
+	// before it pushes; a neighbour's uncommitted edit can redden it too. The
+	// patches are listed, not read off tasks.json, so the read graph selects
+	// this case on an edit to a file one targets (#3206).
+	it("unapplies every fix patch from the tree, applies every hidden-test patch to it, and holds exactly the patches the tasks name (#3165)", () => {
+		const fixes = new Set(tasks.flatMap((t) => (t.fix ? [t.fix] : [])));
+		const hidden = new Set(
+			tasks.flatMap((t) => t.hiddenTests.flatMap((h) => h.patch ?? [])),
+		);
+		const listed = fs
+			.readdirSync(path.join(ROOT, "scripts/arm-tasks"))
+			.filter((f) => f.endsWith(".patch"));
+		expect(listed.sort()).toEqual([...fixes, ...hidden].sort());
 		expect(
-			tasks.flatMap((t) => [
-				...(t.fix ? refusals(ROOT, taskPatch(t.fix), "--reverse") : []),
-				...t.hiddenTests.flatMap((h) =>
-					h.patch ? refusals(ROOT, taskPatch(h.patch)) : [],
-				),
-			]),
+			listed.flatMap((f) =>
+				fixes.has(f)
+					? refusals(ROOT, taskPatch(f), "--reverse")
+					: refusals(ROOT, taskPatch(f)),
+			),
 		).toEqual([]);
+	});
+
+	// Keeps the listing above the read graph's route here: read the patches
+	// off tasks.json again and every edit to a target stops selecting this file.
+	it("is selected by an edit to any tracked file a patch's headers name (#3206)", () => {
+		const { edges } = JSON.parse(
+			fs.readFileSync(path.join(ROOT, "docs/test-read-edges.json"), "utf8"),
+		);
+		const self = "scripts/arm-tasks.test.ts";
+		const unselected = fs
+			.readdirSync(path.join(ROOT, "scripts/arm-tasks"))
+			.filter((f) => f.endsWith(".patch"))
+			.flatMap((f) => [
+				...fs
+					.readFileSync(taskPatch(f), "utf8")
+					.matchAll(/^(?:---|\+\+\+) [ab]\/([^\t\n]+)/gm),
+			])
+			.map((m) => m[1])
+			.filter((p) => fs.existsSync(path.join(ROOT, p)))
+			.filter((p) => !edges[p]?.includes(self));
+		expect([...new Set(unselected)]).toEqual([]);
 	});
 
 	it("names the patch and the hunk git refuses, and nothing for a patch that applies", () => {

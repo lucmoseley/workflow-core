@@ -854,6 +854,36 @@ describe("buildManifest over a rule id read through readRuleText (#1296)", () =>
 	});
 });
 
+describe("buildManifest over a patch a test reads (#3206)", () => {
+	const fix = "scripts/fixes/x.patch";
+	const reader = "scripts/a.test.ts";
+	const files = new Set([...tracked, fix, "scripts/x.js", "scripts/x.test.ts"]);
+	/** What `reader` reads when it reads a patch holding `patch`. */
+	const readsWith = (patch: string) => {
+		const text: Record<string, string> = {
+			[reader]: `const ROOT = "."; read(ROOT, "${fix}");`,
+			[fix]: patch,
+		};
+		const { edges } = buildManifest(files, (p) => text[p] ?? "");
+		return Object.keys(edges)
+			.filter((p) => edges[p].includes(reader))
+			.sort();
+	};
+
+	it("selects the reader on an edit to a file the patch's headers name", () => {
+		expect(
+			readsWith(
+				"--- a/scripts/x.js\n+++ b/scripts/x.js\n@@ -1 +1 @@\n-a\n+b\n" +
+					"--- b/scripts/x.test.ts\t2026-01-01\n+++ a/scripts/x.test.ts\n",
+			),
+		).toEqual([fix, "scripts/x.js", "scripts/x.test.ts"]);
+	});
+
+	it("mints nothing for /dev/null or a header naming no tracked file", () => {
+		expect(readsWith("--- /dev/null\n+++ b/scripts/gone.js\n")).toEqual([fix]);
+	});
+});
+
 describe("testsReading", () => {
 	const edges = {
 		[DOC]: ["scripts/a.test.ts"],

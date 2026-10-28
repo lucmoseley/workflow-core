@@ -67,6 +67,10 @@
  * call forwards to `readRuleText`, so an id quoted for another reason is a false
  * edge (#1296).
  *
+ * A PATCH'S TARGETS — a test reading a tracked `.patch` reads the files its
+ * `---`/`+++` headers name too, since an edit to one stales the patch, and
+ * the test applying it is the case that catches it (#3206).
+ *
  * THE OWN-MODULE EDGE — `x.test.ts` selects its sibling `x.js` however it
  * loads it: a `require` or `createRequire` load is no edge in vitest's import
  * graph, and no literal for the passes above (#1123, #1126).
@@ -1993,7 +1997,7 @@ function addReader(byDoc, p, t) {
 
 /**
  * What one test reads from the tree: its own literals and rule fragments,
- * and the literals of each helper it imports.
+ * the literals of each helper it imports, and each read patch's targets.
  * @param {string} t  the test's path
  * @param {string} source  its text
  * @param {Set<string>} tracked
@@ -2006,8 +2010,28 @@ function testReads(t, source, tracked, read) {
 	for (const helper of importedHelpers(source, t, tracked))
 		for (const p of edgesFor(blankComments(read(helper)), tracked, helper))
 			if (p !== t) found.add(p);
+	for (const p of readPatchTargets(found, tracked, read))
+		if (p !== t) found.add(p);
 	return found;
 }
+
+/** A unified diff's `---`/`+++` header line, its path after the `a/` or `b/`
+ * prefix captured. */
+const PATCH_TARGET = /^(?:---|\+\+\+) [ab]\/([^\t\n]+)/gm;
+
+/**
+ * The tracked files the headers of each patch in `reads` name.
+ * @param {Set<string>} reads
+ * @param {Set<string>} tracked
+ * @param {(p: string) => string} read
+ * @returns {string[]}
+ */
+const readPatchTargets = (reads, tracked, read) =>
+	[...reads]
+		.filter((p) => p.endsWith(".patch"))
+		.flatMap((p) => [...read(p).matchAll(PATCH_TARGET)])
+		.map((m) => requiredGroup(m, 1, PATCH_TARGET))
+		.filter((p) => tracked.has(p));
 
 /** A word a shell line may name a root-relative path with, after any
  * `$var/` prefix that roots it. */
