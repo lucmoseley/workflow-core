@@ -22,41 +22,36 @@
  *
  * Residual: a checkout whose shim predates #3138 runs the canonical hook copy
  * until `npm run prepare` reruns there, and an `npm install` run where
- * package.json predates #3138 puts husky's stock shim back.
+ * package.json predates #3138 puts husky's stock shim back;
+ * check-husky-shim.js reports both on `npm run status` (#3172).
  */
 
 const fs = require("node:fs");
-const path = require("node:path");
 const { execGit, gitCommonDirOrThrow } = require("./lib/git.js");
+const {
+	HUSKY_LOOKUP,
+	OWN_LOOKUP,
+	readShim,
+	shimPaths,
+} = require("./lib/husky-shim.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-const HUSKY_LOOKUP = 's=$(dirname "$(dirname "$0")")/$n';
-const OWN_LOOKUP = `t=$(git rev-parse --show-toplevel 2>/dev/null) && [ -f "$t/.husky/$n" ] && s="$t/.husky/$n" || ${HUSKY_LOOKUP}`;
-
-const hooks = path.join(
-	path.dirname(gitCommonDirOrThrow(process.cwd())),
-	".husky",
-	"_",
-);
-const shim = path.join(hooks, "h");
-if (fs.existsSync(shim)) {
-	const body = fs.readFileSync(shim, "utf8");
-	if (!body.includes(OWN_LOOKUP)) {
-		if (!body.includes(HUSKY_LOOKUP)) {
-			writeFd(
-				2,
-				`install-hooks: BROKEN — ${shim} no longer carries husky's hook lookup \`${HUSKY_LOOKUP}\`, so a worktree's hooks cannot be pointed at its own tree. Read the installed husky's shim and update HUSKY_LOOKUP in scripts/install-hooks.js (#3138).\n`,
-			);
-			process.exit(2);
-		}
-		fs.writeFileSync(shim, body.replace(HUSKY_LOOKUP, OWN_LOOKUP));
-	}
-} else {
+const { hooks, shim } = shimPaths(gitCommonDirOrThrow(process.cwd()));
+const read = readShim(shim);
+if (read.state === "unknown") {
+	writeFd(
+		2,
+		`install-hooks: BROKEN — ${shim} no longer carries husky's hook lookup \`${HUSKY_LOOKUP}\`, so a worktree's hooks cannot be pointed at its own tree. Read the installed husky's shim and update HUSKY_LOOKUP in scripts/lib/husky-shim.js (#3138).\n`,
+	);
+	process.exit(2);
+}
+if (read.state === "stock")
+	fs.writeFileSync(shim, read.body.replace(HUSKY_LOOKUP, OWN_LOOKUP));
+if (read.state === "absent")
 	// husky writes none under HUSKY=0, CI's way of skipping hooks.
 	writeFd(
 		2,
 		`install-hooks: no ${shim}, so no hook was pointed at its own tree.\n`,
 	);
-}
 
 execGit(["config", "core.hooksPath", hooks]);

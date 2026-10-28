@@ -99,10 +99,10 @@ const ALLOWED = {
 		reason:
 			"a suite harness reading THIS checkout's .husky/pre-commit to compare it against the checkers it calls — the subject is the core's own hook, not a host's",
 	},
-	"scripts/install-hooks.js": {
+	"scripts/lib/husky-shim.js": {
 		tags: ["SECOND-SEAM-JS"],
 		reason:
-			"writes the shell line husky's shim runs inside each git hook, whose subject is the tree git runs the hook in — CLAUDE_PROJECT_DIR there names the shared checkout, the very copy the hook does not run (#3138)",
+			"holds the shell line install-hooks.js writes husky's shim runs inside each git hook, whose subject is the tree git runs the hook in — CLAUDE_PROJECT_DIR there names the shared checkout, the very copy the hook does not run (#3138)",
 	},
 	"scripts/proving-run.ts": {
 		tags: ["SELF-ROOTED-JS", "SECOND-SEAM-JS"],
