@@ -220,6 +220,35 @@ function scannerStub(dir: string, code: number): string {
 	return bin;
 }
 
+/**
+ * A `PATH` on which no gitleaks can be found: the host-git guard, a scratch dir
+ * holding only the `bash` it needs (#3403), and real git's own directory for
+ * the hook's `sh` and `dirname`. The `bash` is the one on `PATH`, ahead of
+ * git's directory, because the guard needs bash 4 and git's directory may hold
+ * 3.2. Throws where git's directory also holds gitleaks, which no such `PATH`
+ * can hide.
+ */
+function pathWithoutGitleaks(): string {
+	const guardBin = path.join(ROOT, "scripts", "lib", "host-git-guard");
+	const gitBin = (process.env.PATH ?? "")
+		.split(path.delimiter)
+		.find(
+			(d) => path.resolve(d) !== guardBin && fs.existsSync(path.join(d, "git")),
+		);
+	if (!gitBin) throw new Error("no real git on PATH behind the guard");
+	if (fs.existsSync(path.join(gitBin, "gitleaks")))
+		throw new Error(`${gitBin} holds both git and gitleaks`);
+	const bashBin = mkScratchDir("pre-applypatch-bash-");
+	temps.push(bashBin);
+	fs.symlinkSync(
+		execFileSync("sh", ["-c", "command -v bash"], {
+			encoding: "utf8",
+		}).trim(),
+		path.join(bashBin, "bash"),
+	);
+	return [guardBin, bashBin, gitBin].join(path.delimiter);
+}
+
 /** A `side` branch adding `files`, leaving the probe back on the base branch. */
 function sideBranch(p: Probe, files: Record<string, string>): void {
 	p.git("checkout", "-q", "-b", "side");
@@ -387,19 +416,16 @@ describe("what a refusal actually stops", () => {
 
 	it("refuses when gitleaks itself cannot run, rather than passing vacuously", () => {
 		// A missing binary exits non-zero exactly as a finding does, and the
-		// message says "did not pass" for that reason. Simulated by emptying PATH
-		// of everything but git's own directory — and by unsetting WFC_GITLEAKS,
-		// without which a machine that exports it would route around the point.
+		// message says "did not pass" for that reason. Simulated by a PATH with
+		// no gitleaks on it — and by unsetting WFC_GITLEAKS, without which a
+		// machine that exports it would route around the point.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
 		p.git("reset", "-q", "--hard", "HEAD");
-		const gitBin = path.dirname(
-			execFileSync("sh", ["-c", "command -v git"], { encoding: "utf8" }).trim(),
-		);
 
 		const r = run(p.root, ["am", patch], {
-			PATH: gitBin,
+			PATH: pathWithoutGitleaks(),
 			WFC_GITLEAKS: undefined,
 		});
 		expect(r.code).not.toBe(0);
