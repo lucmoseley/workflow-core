@@ -10,14 +10,12 @@
  * writing and re-applies your change onto a rival's body where it was
  * overwritten.
  *
- * DENY, not warn. With every caller routed through the script there is no
- * legitimate direct use of `gh issue edit --body` left at all —
- * mantahostels#103's deny side, which is deny on a structured fact where the
- * action has no legitimate use, warn where the hook is inferring.
+ * DENY, not warn (mantahostels#103). With every caller routed through the
+ * script there is no legitimate direct use of `gh issue edit --body` left at
+ * all.
  *
- * No WFC_ALLOW_* escape, and none is needed: issue-body.js calls GitHub from
- * Node rather than through the Bash tool, so the permitted path never reaches
- * this core.
+ * No WFC_ALLOW_* escape: issue-body.js calls GitHub from Node, never through
+ * the Bash tool.
  *
  * A CORE: it does no I/O. The rule store and the script paths arrive as
  * ports on lib/kit-context.js's context.
@@ -26,8 +24,7 @@
  * warn is held until the walk ends, in case a later segment denies.
  *
  * THE OTHER SPELLINGS
- *  - `gh api --method PATCH repos/…/issues/<n>` IS chased — the spelling a
- *    session reaches for the moment the flag form is denied. Where the PATCH
+ *  - `gh api --method PATCH repos/…/issues/<n>` IS chased. Where the PATCH
  *    is aimed at an issue but the core cannot see its fields — a fully
  *    quoted `-f "body=…"`, or `--input` — it WARNS rather than denying,
  *    because there it is inferring, not reading (mantahostels#103).
@@ -36,8 +33,7 @@
  *    span the parser blanked. Where the core cannot see that text it WARNS,
  *    the same inferring tier as the unreadable PATCH — `-F query=@file`,
  *    `--input`, a variable, a command substitution, or an input object passed
- *    whole as one variable. Denying every opaque `gh api graphql` would
- *    refuse the read-only queries that are routine here.
+ *    whole as one variable.
  *  - The graphql deny is judged on the `query=` field's VALUE, concatenated
  *    by scanGraphql and scoped by mutationArgs (both lib/gh-api-call.js), and
  *    `body:` counts only between `updateIssue(` and its first `)` — a
@@ -59,25 +55,19 @@
  *  - It matches the *parsed command form* — a segment whose command word is
  *    `gh`, whose subcommand pair is `issue edit`, carrying a body flag — never
  *    a substring, so a grep, an echo or a heredoc mentioning `gh issue edit
- *    --body` passes. The parser is lib/shell-parse.js, shared with every
- *    Node guard (mantahostels#123).
+ *    --body` passes.
  *  - Scope is the ISSUE body. `gh issue create --body` writes a body that
  *    does not exist yet; `gh issue comment` creates a new resource and reads
  *    no existing state; `gh pr edit --body` is a different resource with no
  *    helper to route to.
  *  - It FAILS CLOSED on a throw of its own, and open on every payload fault
  *    the dispatcher names, RECORDED (mantahostels#147) for
- *    check-guard-errors.js to report under `npm run status`. The
- *    unreadable-PATCH case is not one of these: it warns rather than failing
- *    open.
- *  - A write reached through a wrapper — `xargs gh issue edit`, a shell
- *    function, a script — is not seen, because only a segment's own command
- *    word is read.
+ *    check-guard-errors.js to report under `npm run status`.
  *  - Its manifest row runs it only on a command `Bash(gh *)` admits
  *    (mantahostels#2127): some segment leads with `gh`. NEARLY the same test
  *    as the core's own basename check, which differs on one spelling:
  *    `/usr/bin/gh …` passes the basename and matches the anchored form in
- *    neither spelling, so a path-spelled call is unjudged (mantahostels#2127).
+ *    neither spelling, so a path-spelled call is unjudged.
  *  - THE RULE IT PRINTS lives in docs/agents/rules/, not here
  *    (mantahostels#1649, spec mantahostels#1641), spliced into its refusal.
  *    An unreadable fragment is the ONE fault this core does not fail open on
@@ -122,8 +112,7 @@ function decide(command, ctx) {
 }
 
 /**
- * Refuse, the stored rule spliced under the framing line. An unreadable
- * fragment is NOT a fail-open and is not logged.
+ * Refuse, the stored rule spliced under the framing line.
  * @param {Run} run
  * @param {string} segment
  * @returns {never}

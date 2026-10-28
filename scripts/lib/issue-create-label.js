@@ -13,9 +13,8 @@
  * warn is held until the walk ends, in case a later segment denies.
  *
  * Why: `takes:` is the label naming the command that opens an issue, and
- * every open issue must carry exactly one — a missing value is a defect,
- * never a state to interpret. The core reads the COMMAND, never the call's
- * output: a backgrounded call's output is the harness's job stub
+ * every open issue must carry exactly one. The core reads the COMMAND, never
+ * the call's output: a backgrounded call's output is the harness's job stub
  * (mantahostels#453).
  *
  * mantahostels#136 rejected a label deny as "not always knowable at creation"
@@ -80,16 +79,15 @@
  *    command where the edit also carries an inline `--body`, and otherwise
  *    FETCHED — `gh issue view <n> --json body`, in the directory the edit
  *    runs in where it already exists, else the hook's, and against the repo
- *    an issue URL or `--repo` names, at most TWO
- *    fetches a command, each bounded by the host's GH_TIMEOUT_MS; a third
- *    number and beyond fail open, recorded. `gh` is
- *    `$WFC_GH`, else `gh` (base §N7). A fetch that fails, a `gh` that cannot
- *    be found, a number or a `--repo` the guard cannot read all FAIL OPEN,
- *    recorded. A `--body` it cannot read, or any `--body-file`, is REFUSED
- *    (#669): relabelling alone always has its body fetched, and the refusal
- *    names that spelling. `--remove-label` and every other edit pass
- *    unjudged, and a relabel by script, GraphQL or the web UI still escapes;
- *    check-issue-labels.js catches those after the fact.
+ *    an issue URL or `--repo` names, at most TWO fetches a command; a third
+ *    number and beyond fail open, recorded. `gh` is `$WFC_GH`, else `gh`
+ *    (base §N7). A fetch that fails, a `gh` that cannot be found, a number or
+ *    a `--repo` the guard cannot read all FAIL OPEN, recorded. A `--body` it
+ *    cannot read, or any `--body-file`, is REFUSED (#669): relabelling alone
+ *    always has its body fetched, and the refusal names that spelling.
+ *    `--remove-label` and every other edit pass unjudged, and a relabel by
+ *    script, GraphQL or the web UI still escapes; check-issue-labels.js
+ *    catches those after the fact.
  *  - THE BLANK-BODY LIMB (mantahostels#3443) refuses, whatever the label, a
  *    flag-form create whose body is empty or whitespace-only — on the
  *    command, in a heredoc, or in a file — or whose `--body-file` path, or
@@ -102,8 +100,7 @@
  *    writing a path the command never names is the false refusal left, and a
  *    same-named file in another directory, or a basename inside a longer
  *    word, the missed one. The REST and GraphQL routes are not judged, and
- *    neither is a create carrying no body flag at all, which gh itself
- *    refuses outside a terminal.
+ *    neither is a create carrying no body flag at all.
  *  - THE BASIS LIMB (#672) refuses, on a body the blank-body limb read, a
  *    gate line or a prose wait with no `**Gate basis:**`, or a window in
  *    either that the basis does not name (#823), through lib/issue-gate.js.
@@ -111,11 +108,10 @@
  *  - THE SECOND-MAP LIMB (#717) refuses a flag-form or REST create carrying
  *    `wayfinder:map` while an open map's Destination still reads the new-repo
  *    placeholder (#1464). The GraphQL route is not judged: its labels are
- *    opaque node ids, so telling a map create apart takes a lookup the hook's
- *    time limit has no room for — mantahostels#519's ground for the takes:
- *    limb. A `GH_REPO=…` on the create is not read: where no --repo or
- *    spelled-out REST endpoint names the repo, the maps are listed for the
- *    create's cwd, so that create is judged against the wrong repo.
+ *    opaque node ids, and a lookup would not fit the hook's time limit
+ *    (mantahostels#519). A `GH_REPO=…` on the create is not read: where no
+ *    --repo or spelled-out REST endpoint names the repo, the maps are listed
+ *    for the create's cwd, so that create is judged against the wrong repo.
  *  - It says nothing about PLACEMENT. The parent is not in the create
  *    command, so an unparented issue still passes;
  *    scripts/check-issue-orphans.js remains the only control there
@@ -125,11 +121,11 @@
  *    as the core's own basename check, which differs on one spelling:
  *    `/usr/bin/gh …` passes the basename but matches no `Bash(gh *)`
  *    pattern, so a path-spelled call is unjudged.
- *  - It FAILS OPEN, house style (mantahostels#103 §6): a label value it
- *    cannot read — an unexpanded $VAR, a command substitution — lets the
- *    whole call through unjudged, RECORDED (mantahostels#147) for
- *    check-guard-errors.js to report under `npm run status`, and so does
- *    every payload fault the dispatcher names. A throw of its own refuses.
+ *  - It FAILS OPEN (mantahostels#103 §6): a label value it cannot read — an
+ *    unexpanded $VAR, a command substitution — lets the whole call through
+ *    unjudged, RECORDED (mantahostels#147) for check-guard-errors.js to
+ *    report under `npm run status`, and so does every payload fault the
+ *    dispatcher names. A throw of its own refuses.
  *  - THE RULE IT PRINTS lives in docs/agents/rules/, not here
  *    (mantahostels#1649, spec mantahostels#1641): CLAUDE.md keeps a trigger
  *    line naming the id, and this core splices the fragment into its
@@ -225,7 +221,7 @@ const GRAPHQL_FIX =
 	'gh issue create --title "…" --body "…" --label takes:triage';
 
 const FLAG_FORM_COST =
-	"That is worse than a missing label. A `gh issue create` naming a label GitHub does not know ABORTS THE WHOLE CREATE AND STILL EXITS 0: nothing is filed, and the call reads as success.";
+	"A `gh issue create` naming a label GitHub does not know ABORTS THE WHOLE CREATE AND STILL EXITS 0: nothing is filed, and the call reads as success.";
 const API_FORM_COST =
 	"Whether GitHub creates the misspelt label or drops it, nothing downstream reads it: /pick-next shows `none` in its TAKES column, and the issue is as unroutable as one carrying no label at all.";
 
@@ -592,8 +588,7 @@ Rule: docs/agents/triage-labels.md §\`takes:\`, the nuances block (mantahostels
 
 /**
  * The `takes:human` limb (mantahostels#2775). Reached only where the create
- * carries a VALID takes:human — a missing or misspelt label is the older,
- * larger fault and is refused first.
+ * carries a VALID takes:human — a missing or misspelt label is refused first.
  *
  * An unreadable body is REFUSED here, not failed open (#668): the quoted
  * heredoc is a spelling this guard always reads, so every legitimate

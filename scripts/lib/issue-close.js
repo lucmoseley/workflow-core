@@ -76,9 +76,7 @@
  *    on a command `Bash(gh *)` admits (mantahostels#2127), so `/usr/bin/gh …`
  *    is unjudged.
  *  - A close through the GitHub UI, or through `gh api --method PATCH … -f
- *    state=closed`, is not seen. The api spelling is the known residual, left
- *    alone because the guard-issue-body core already carries the PATCH-shaped
- *    machinery and duplicating it here would put two readers on one endpoint.
+ *    state=closed`, is not seen. The api spelling is the known residual.
  *  - It FAILS OPEN, house style (mantahostels#103 §6): an unparseable
  *    command, a missing or unreachable `gh`, a --comment it cannot wholly
  *    read (a `$` or backtick expansion, say), a census read that faulted or
@@ -253,13 +251,8 @@ function judge(run, cmd) {
 			"could not read the --repo value of a gh issue close — close allowed unchecked",
 		);
 
-	/* mantahostels#220 runs FIRST, and its verdict is the more useful one where
-	 * both apply: this close should not be happening at all, so answering the
-	 * Outstanding rule first would send the session to perfect a comment on it
-	 * instead. */
+	/* mantahostels#220 runs FIRST. */
 	if (!elsewhere(run, close)) judgeCard(run, close);
-	/* Before the Outstanding rule: unmet criteria mean the close is premature,
-	 * not merely badly worded. */
 	const criteriaRead = judgeCriteria(run, close);
 	judgeOutstanding(run, close);
 	/* After the Outstanding rule: the census read is the slowest call, and

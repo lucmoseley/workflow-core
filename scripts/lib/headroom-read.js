@@ -8,11 +8,10 @@
  * NOT `-h`, free's human-readable flag. Or it is any word naming
  * /proc/meminfo, whatever the command. Words are read masked, so a quoted spelling is not seen.
  *
- * INJECTION ONLY — it never denies. Reading memory is the correct thing to do;
- * what the rule corrects is the conclusion drawn from the reading, which no
- * guard can observe. It fires on the read, not on the launch: a session that
- * stops on a short reading never launches, so the guard-suite-concurrency core
- * never fires.
+ * INJECTION ONLY — it never denies. What the rule corrects is the conclusion
+ * drawn from the reading, which no guard can observe. It fires on the read,
+ * not on the launch: a session that stops on a short reading never launches,
+ * so the guard-suite-concurrency core never fires.
  *
  * LIMITS
  *  - Its manifest row runs it only on a command its two `if` clauses admit,
@@ -21,7 +20,6 @@
  *    script, `memcheck` — states nothing.
  *  - It FAILS OPEN on anything it cannot resolve, except the rule store, which
  *    refuses the call on a fragment it cannot read or emit.
- *  - It guards the Bash tool. A reading taken outside Claude Code sees no hook.
  */
 // The two clauses, out of the block because the second spells its closer:
 // `if: Bash(*free *)` and `if: Bash(*/proc/meminfo*)`.

@@ -22,8 +22,7 @@
  * repo's title convention for card-derived issues, and every one of the 33
  * retired issues that carried a card carried it that way. The BODY is not
  * scanned for card ids: a workflow ticket that merely mentions `privacy-ops`
- * in passing would be refused, and refusing legitimate machinery work is a
- * worse failure than missing an occasional product ticket.
+ * in passing would be refused.
  *
  * LIMITS
  *  - AN ISSUE CARRYING NO CARD PREFIX ESCAPES ENTIRELY, and re-titling to
@@ -39,8 +38,6 @@
  *    not followed. The no-argument wrappers ARE, so the common `env gh …` and
  *    `timeout 60 gh …` spellings are judged; its manifest row's `Bash(*gh *)`
  *    is unanchored for them (mantahostels#2127).
- *  - It matches the parsed command form, never a substring, so an echo or a
- *    heredoc mentioning `gh issue create` passes.
  *  - `gh api --method POST …/issues` IS chased, gh's own POST default with
  *    it. `gh api graphql` is NOT: a createIssue mutation's title would have
  *    to be read out of query text, and the core would be inferring rather
@@ -56,9 +53,7 @@
  *    are RECORDED (mantahostels#147) for check-guard-errors.js to report
  *    under `npm run status`.
  *
- * A CORE: it does no I/O. The roadmap and the register arrive through two
- * file-read ports, and the core-path spelling through a third;
- * lib/issue-phase-scope-host.js builds the real ones.
+ * A CORE: it does no I/O; lib/issue-phase-scope-host.js builds its ports.
  *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
  * fail-open, which is logged and lets the whole call through unjudged.
@@ -403,7 +398,7 @@ The project is still validating Phase 0. On 27 August 2026, 33 issues that had b
 
 **A card becomes workable when the founder calls it, and only then — then any session adds its row to \`docs/called-cards.md\`. Never add the row to unblock yourself** — a session that can call its own card is under no constraint at all. Ask him, naming the card and what you want to open on it.
 
-**What to do instead: write the question onto the \`${card}\` card** in \`docs/reference-roadmap.html\`, through the \`roadmap-edit\` skill, as a parked question to re-file when the card is taken. That is where all 33 went, and it loses nothing.
+**What to do instead: write the question onto the \`${card}\` card** in \`docs/reference-roadmap.html\`, through the \`roadmap-edit\` skill, as a parked question to re-file when the card is taken.
 
 **Re-titling to get past this guard is the one thing you must not do.** This hook reads the \`${card} — \` prefix and nothing else, so removing it files the issue unchallenged — which makes the prefix an honesty marker, not a syntax rule. If you genuinely believe this is repo machinery rather than the adopter's product, business, catalogue or legal decision, that is a judgement the founder gets to check: say so to him in plain words and let him answer, rather than editing the title and proceeding.
 
