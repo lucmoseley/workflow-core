@@ -13,8 +13,8 @@
  * `docs/agents/issue-tracker.md` and the rescue-sessions skill send every
  * session through, so a loosened case puts two sessions on one ticket.
  *
- * The race case SPAWNS, the one shape here runInProcess cannot take: two
- * processes running at once (§X3).
+ * spawn-kept: the race case runs two processes at once, the one shape here
+ * runInProcess cannot take (§X3).
  */
 
 import { spawn } from "node:child_process";

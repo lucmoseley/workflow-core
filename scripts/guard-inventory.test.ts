@@ -30,6 +30,7 @@ import {
 	POSTED,
 	ROUND,
 } from "./lib/round-ending-fixture";
+import { runInProcess } from "./lib/run-in-process.js";
 import { readStopGuardReason, type StopRun } from "./lib/stop-guard-testkit";
 import {
 	failOpenLog,
@@ -85,42 +86,29 @@ const issue = (state: string, comments?: unknown[]) => ({
 	...(comments ? { comments: { nodes: comments } } : {}),
 });
 
+/** The arbiter run as `session` over this case's store, refusing a failure. */
+function arbiter(args: string[], session: string) {
+	const r = runInProcess(path.join(__dirname, "session-arbiter.js"), args, {
+		cwd: dir,
+		env: {
+			...process.env,
+			CLAUDE_CONFIG_DIR: path.join(dir, "config"),
+			CLAUDE_PROJECT_DIR: dir,
+			WFC_REPO_ROOT: dir,
+			CLAUDE_CODE_SESSION_ID: session,
+		},
+	});
+	if (r.status !== 0) throw new Error(`arbiter ${args[0]}: ${r.stderr}`);
+}
+
 /** Record `session`'s arbiter claim on issue `n`, in the store the guard reads. */
 function claim(n: number, session = sid) {
-	execFileSync(
-		process.execPath,
-		[path.join(__dirname, "session-arbiter.js"), "claim-issue", String(n)],
-		{
-			cwd: dir,
-			env: {
-				...process.env,
-				CLAUDE_CONFIG_DIR: path.join(dir, "config"),
-				CLAUDE_PROJECT_DIR: dir,
-				WFC_REPO_ROOT: dir,
-				CLAUDE_CODE_SESSION_ID: session,
-			},
-			stdio: "pipe",
-		},
-	);
+	arbiter(["claim-issue", String(n)], session);
 }
 
 /** Record `session`'s write of `rel` in the write ledger the guard reads. */
 function wrote(rel: string, session = sid) {
-	execFileSync(
-		process.execPath,
-		[path.join(__dirname, "session-arbiter.js"), "record", rel],
-		{
-			cwd: dir,
-			env: {
-				...process.env,
-				CLAUDE_CONFIG_DIR: path.join(dir, "config"),
-				CLAUDE_PROJECT_DIR: dir,
-				WFC_REPO_ROOT: dir,
-				CLAUDE_CODE_SESSION_ID: session,
-			},
-			stdio: "pipe",
-		},
-	);
+	arbiter(["record", rel], session);
 }
 
 /**

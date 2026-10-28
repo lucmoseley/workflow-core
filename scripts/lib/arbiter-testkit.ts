@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { caught } from "./caught.js";
+import { runInProcess } from "./run-in-process";
 import { sleepSync } from "./sleep-sync.js";
 
 // The arbiter is CommonJS and stays that way — it is spawned as a plain node
@@ -222,6 +223,26 @@ export function removeSandbox(
  * ordering nothing states and nothing checks; get it wrong and the work lands in
  * the wrong directory with nothing failing (mantahostels#205).
  */
+/**
+ * session-arbiter.js run in `sb.repo`: `cli` returns the whole result,
+ * `readListing` only stdout, throwing on a non-zero exit.
+ */
+export const arbiterCli = (sb: Sandbox) => ({
+	cli: (args: string[], env: Record<string, string> = {}) =>
+		runInProcess(SCRIPT, args, {
+			cwd: sb.repo,
+			env: { ...process.env, ...env },
+		}),
+	readListing: (args: string[]) => {
+		const r = runInProcess(SCRIPT, args, { cwd: sb.repo });
+		if (r.status !== 0)
+			throw new Error(
+				`session-arbiter.js ${args.join(" ")} exited ${r.status}\n${r.stdout}${r.stderr}`,
+			);
+		return r.stdout;
+	},
+});
+
 export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 	const sb: Sandbox = {
 		dir: "",

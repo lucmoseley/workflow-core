@@ -1219,11 +1219,11 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	 * `--git-path index` and `write-tree` in its own working directory, and hands
 	 * each materialised tree to the child itself.
 	 */
-	/* Stays a real spawn (mantahostels#1945's real-fd exemption): lib/check.js's `reread`
-	 * streams the index side's report by handing its own grandchild `stdio:
-	 * "inherit"` on stderr, which writes straight to this process's OS fd and
-	 * bypasses runInProcess's captured state.stderr entirely. */
 	function gate(...args: string[]) {
+		/* spawn-kept: a real fd (mantahostels#1945) — lib/check.js's `reread`
+		 * streams the index side's report by handing its own grandchild `stdio:
+		 * "inherit"` on stderr, which writes straight to this process's OS fd and
+		 * bypasses runInProcess's captured state.stderr entirely. */
 		const r = spawnSync("node", [SCRIPT, "--against", "HEAD", ...args], {
 			cwd: dir,
 			encoding: "utf8",

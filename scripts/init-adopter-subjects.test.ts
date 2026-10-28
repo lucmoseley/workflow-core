@@ -8,7 +8,7 @@
  * init runs as a process, as init-adopter.test.ts runs it, because what it
  * promises is a repo that commits (#5); the checker runs in-process.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -40,10 +40,9 @@ const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
 const init = (...args: string[]) =>
-	spawnSync(
-		process.execPath,
+	runInProcess(
+		INIT,
 		[
-			INIT,
 			"--root",
 			dir,
 			"--plugin-root",
@@ -54,7 +53,7 @@ const init = (...args: string[]) =>
 			"--no-plugin-install",
 			...args,
 		],
-		{ cwd: dir, encoding: "utf8", env: env() },
+		{ cwd: dir, env: env() },
 	);
 
 const check = () =>

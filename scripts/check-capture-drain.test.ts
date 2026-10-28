@@ -16,13 +16,13 @@
  * unreported, or a productive day reads as a backlog.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { STALE_CAPTURE_DAYS } from "./lib/captures";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process";
 
 /** The marker a capture comment opens with (mantahostels#640), restated so a
  * change to it fails here. */
@@ -95,8 +95,7 @@ const run = (
 	env: Record<string, string> = {},
 ) => {
 	const stub = stubGh(fx);
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			...stub.env,

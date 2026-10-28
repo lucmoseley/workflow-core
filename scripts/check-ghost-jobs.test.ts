@@ -5,7 +5,7 @@
  * too-young one, goes silent when the oracle is blind, and never writes a job
  * record.
  *
- * Every test drives the real script as a subprocess, the way `npm run status`
+ * Every test drives the real script end to end, the way `npm run status`
  * does, with a fake `claude` on WFC_CLAUDE_BIN standing in for the daemon
  * and every config dir pointed inside the case's own temp dir — so no run can
  * read or write the founder's live job store.
@@ -19,12 +19,13 @@
  * or a live job is called dead and its session retired by hand.
  */
 
-import { type ChildProcess, spawn, spawnSync } from "node:child_process";
+import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.join(__dirname, "check-ghost-jobs.js");
 
@@ -116,8 +117,7 @@ function run(...args: string[]) {
 
 /** Under a session id, the shape every mid-session caller has. */
 function runAs(sessionId: string, ...args: string[]) {
-	const res = spawnSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
+	const res = runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			CLAUDE_CONFIG_DIR: dir,
@@ -501,8 +501,7 @@ describe("check-ghost-jobs", () => {
 		});
 
 		const persist = (...args: string[]) =>
-			spawnSync(process.execPath, [SCRIPT, ...args], {
-				encoding: "utf8",
+			runInProcess(SCRIPT, args, {
 				env: {
 					...process.env,
 					WFC_NOTIFY_PERSIST: "1",

@@ -11,11 +11,12 @@
  * it never switched on, or a host that opted in gets a skip line where the
  * check should have run.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const CONFIG = ".claude/workflow-core.json";
 const buildModuleLine = (m: string) =>
@@ -101,25 +102,19 @@ afterEach(() => {
 });
 
 const run = (row: Row, env: Record<string, string | undefined> = {}) => {
-	const r = spawnSync(
-		process.execPath,
-		[path.resolve(__dirname, row.script), ...(row.args ?? [])],
-		{
-			cwd: host,
-			encoding: "utf8",
-			timeout: 60_000,
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: host,
-				// Never the founder's own ~/.claude: a gh or transcript read is not
-				// what these cases are about.
-				HOME: host,
-				WFC_GH: path.join(host, "no-gh"),
-				WFC_MODULES: undefined,
-				...env,
-			},
+	const r = runInProcess(path.resolve(__dirname, row.script), row.args ?? [], {
+		cwd: host,
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: host,
+			// Never the founder's own ~/.claude: a gh or transcript read is not
+			// what these cases are about.
+			HOME: host,
+			WFC_GH: path.join(host, "no-gh"),
+			WFC_MODULES: undefined,
+			...env,
 		},
-	);
+	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
 

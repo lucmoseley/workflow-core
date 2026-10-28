@@ -20,11 +20,11 @@
  * place.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-stale-suite-queue.js");
 
@@ -53,8 +53,7 @@ function marker(pid: number, extra: Record<string, unknown> = {}) {
 }
 
 const run = (args: string[] = []) =>
-	spawnSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
+	runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: root,

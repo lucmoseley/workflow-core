@@ -15,7 +15,7 @@
  * script lands, which installed as a plugin reads the plugin cache instead of
  * the adopter's repo.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -54,11 +54,7 @@ interface Envelope {
 }
 
 const run = (): Envelope =>
-	JSON.parse(
-		spawnSync("node", [SCRIPT, "--root", dir, "--json"], {
-			encoding: "utf8",
-		}).stdout,
-	);
+	JSON.parse(runInProcess(SCRIPT, ["--root", dir, "--json"]).stdout);
 
 const tags = (e: Envelope) => e.findings.map((f) => f.tag);
 const messages = (e: Envelope) => e.findings.map((f) => f.message).join("\n");
@@ -249,9 +245,7 @@ describe("nothing to scan", () => {
 		const empty = fs.mkdtempSync(path.join(os.tmpdir(), "host-root-empty-"));
 		try {
 			build(empty);
-			const r = spawnSync("node", [SCRIPT, "--root", empty, "--json"], {
-				encoding: "utf8",
-			});
+			const r = runInProcess(SCRIPT, ["--root", empty, "--json"]);
 			return JSON.parse(r.stdout).outcome;
 		} finally {
 			fs.rmSync(empty, { recursive: true, force: true });

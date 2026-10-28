@@ -115,8 +115,8 @@ function stage(...rels: string[]) {
 	git("add", "--", ...rels);
 }
 
-/* A real spawn: lib/check.js streams the index side's report to the OS fd. */
 function spawnGate(...args: string[]) {
+	// spawn-kept: a real fd — lib/check.js streams the index side's report to the OS fd through a grandchild.
 	return spawnSync("node", [SCRIPT, "--against", "HEAD", ...args], {
 		cwd: dir,
 		encoding: "utf8",

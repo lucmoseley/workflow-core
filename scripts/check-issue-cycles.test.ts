@@ -83,8 +83,8 @@ const stubGh = ({
 
 const run = (fx: Fixture, args: string[] = []) => {
 	const stub = stubGh(fx);
-	// A child process: the script calls runCheck at top level, with no
-	// exported `main` and no require.main guard, so runInProcessAsync cannot
+	// spawn-kept: an async entry — the script calls runCheck at top level, with
+	// no exported `main` and no require.main guard, so runInProcessAsync cannot
 	// await its async run().
 	const r = spawnSync("node", [SCRIPT, ...args], {
 		encoding: "utf8",

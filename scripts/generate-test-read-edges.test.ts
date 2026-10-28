@@ -34,21 +34,14 @@ const write = (file: string, body: string) => {
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-const run = (...args: string[]) =>
-	execFileSync("node", [SCRIPT, "--root", dir, ...args], {
-		cwd: dir,
-		encoding: "utf8",
-	});
-
-const runFailing = (...args: string[]) => {
-	try {
-		run(...args);
-		return { status: 0, stderr: "" };
-	} catch (e) {
-		const err = e as { status: number; stderr: string };
-		return { status: err.status, stderr: err.stderr };
-	}
+const run = (...args: string[]) => {
+	const r = runInProcess(SCRIPT, ["--root", dir, ...args], { cwd: dir });
+	if (r.status !== 0) throw new Error(r.stderr);
+	return r.stdout;
 };
+
+const runFailing = (...args: string[]) =>
+	runInProcess(SCRIPT, ["--root", dir, ...args], { cwd: dir });
 
 const readManifest = () =>
 	JSON.parse(fs.readFileSync(path.join(dir, OUT), "utf8")).edges;
@@ -130,8 +123,7 @@ describe("generate-test-read-edges.js", () => {
 		expect(readManifest()[DOC]).toEqual(["scripts/reader.test.ts"]);
 	});
 
-	const spawn = () =>
-		spawnSync("node", [SCRIPT, "--root", dir], { cwd: dir, encoding: "utf8" });
+	const spawn = () => runInProcess(SCRIPT, ["--root", dir], { cwd: dir });
 
 	it("warns on stderr, naming the uncommitted file, but still writes, when an over-populating edit is uncommitted (mantahostels#2270)", () => {
 		write(DOC2, "a second tracked document\n");

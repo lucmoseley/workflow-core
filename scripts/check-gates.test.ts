@@ -28,6 +28,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type StubGh, stubGhScript } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-gates.js");
 
@@ -69,16 +70,11 @@ const stubGh = (issues: Issue[], { failing = false } = {}) => {
 	);
 };
 
-/*
- * Spawned rather than required, per §X3: the script is an executable that ends
- * in `process.exit`, and the exit code is half of what these tests assert.
- */
 const run = (args: string[] = [], stub?: StubGh) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, args, {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...stub?.env },
 	});
-	return { status: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
+	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
 
 beforeEach(() => {

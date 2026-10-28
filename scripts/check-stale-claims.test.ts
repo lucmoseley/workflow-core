@@ -17,12 +17,12 @@
  * frontier unseen.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-stale-claims.js");
 
@@ -111,19 +111,18 @@ die("unexpected path: " + p);
 
 const run = (fx: Fixture, args: string[] = []) => {
 	const stub = stubGh(fx);
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, args, {
 		env: { ...process.env, ...stub.env, GITHUB_ACTIONS: "" },
 	});
 	const log = CALL_LOG();
 	return {
-		status: r.status ?? -1,
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+		status: r.status,
+		out: `${r.stdout}${r.stderr}`,
 		calls: () =>
 			fs.existsSync(log)
 				? fs.readFileSync(log, "utf8").trim().split("\n").filter(Boolean)
 				: [],
-		json: () => JSON.parse(r.stdout ?? ""),
+		json: () => JSON.parse(r.stdout),
 	};
 };
 

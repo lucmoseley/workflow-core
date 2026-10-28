@@ -24,12 +24,12 @@
  * as outstanding, with no signal anywhere.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { type StubGh, stubGhScript } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-card-drift.js");
 
@@ -101,8 +101,7 @@ esac
 };
 
 const run = (args: string[] = [], stub?: StubGh) => {
-	const r = spawnSync("node", [SCRIPT, ...args, roadmap], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, [...args, roadmap], {
 		env: { ...process.env, ...stub?.env },
 	});
 	return {
@@ -161,9 +160,7 @@ describe("roadmap parsing", () => {
 	});
 
 	it("exits 2 on an unreadable roadmap", () => {
-		const r = spawnSync("node", [SCRIPT, "/nonexistent/roadmap.html"], {
-			encoding: "utf8",
-		});
+		const r = runInProcess(SCRIPT, ["/nonexistent/roadmap.html"]);
 		expect(r.status).toBe(2);
 		expect(`${r.stdout}${r.stderr}`).toContain("cannot read");
 	});

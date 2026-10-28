@@ -14,6 +14,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { initPaths } from "../../../../scripts/init-adopter.js";
 import { HOOKS } from "../../../../scripts/lib/adopter-skeleton.js";
+import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 import {
 	builtThrough,
 	HAS_GITLEAKS,
@@ -137,10 +138,9 @@ describe("new-repo.js copying a source repo", () => {
 			/:!\/\.claude\/settings\.json\t\.claude\/settings\.json$/m,
 		);
 		expect(before).toMatch(/^::\tscripts\/browse\.py$/m);
-		const init = spawnSync(
-			process.execPath,
+		const init = runInProcess(
+			path.resolve(__dirname, "../../../../scripts/init-adopter.js"),
 			[
-				path.resolve(__dirname, "../../../../scripts/init-adopter.js"),
 				"--root",
 				repo,
 				"--founder",
@@ -150,11 +150,7 @@ describe("new-repo.js copying a source repo", () => {
 				"--no-tracker",
 				"--no-plugin-install",
 			],
-			{
-				cwd: repo,
-				encoding: "utf8",
-				env: { ...s.env, CLAUDE_PROJECT_DIR: repo },
-			},
+			{ cwd: repo, env: { ...s.env, CLAUDE_PROJECT_DIR: repo } },
 		);
 		expect(init.status, init.stdout + init.stderr).toBe(0);
 		expect(readIgnoreVerdict()).toBe(before);

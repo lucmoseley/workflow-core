@@ -12,9 +12,9 @@
  * live file's structure still trips something.
  */
 
-import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 
 export const SCRIPTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(SCRIPTS_DIR, "../../../..");
@@ -84,20 +84,11 @@ export interface Run {
 }
 
 /**
- * Run one of the scripts under node. A non-zero exit is the behaviour under test
- * in most of these cases, so this never throws on it — assert on `status`.
+ * Run one of the scripts as a program. A non-zero exit is the behaviour under
+ * test in most of these cases, so this never throws on it — assert on `status`.
  */
 export function run(script: string, args: string[]): Run {
-	const r = spawnSync("node", [path.join(SCRIPTS_DIR, script), ...args], {
-		encoding: "utf8",
-		cwd: REPO_ROOT,
-	});
-	if (r.error) throw r.error;
-	return {
-		status: r.status ?? -1,
-		stdout: r.stdout ?? "",
-		stderr: r.stderr ?? "",
-	};
+	return runInProcess(path.join(SCRIPTS_DIR, script), args, { cwd: REPO_ROOT });
 }
 
 /** A `witaStamp` offset over 24 hours back, so always an earlier WITA day. */

@@ -371,6 +371,8 @@ describe("every rooted script, loaded from the cache against the host", () => {
 			tmp,
 			`probe-${path.relative(cache, script).replace(/\W/g, "_")}.json`,
 		);
+		/* spawn-kept: a timeout — the probe patches `fs` and `child_process` for
+		 * its whole process and loads any rooted script, one of which may never exit. */
 		const r = spawnSync(process.execPath, [probe, script, record], {
 			cwd: host,
 			env: hostEnv({ CLAUDE_CONFIG_DIR: path.join(tmp, "config") }),

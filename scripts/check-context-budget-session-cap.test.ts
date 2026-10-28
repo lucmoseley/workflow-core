@@ -244,11 +244,8 @@ function ratchetTotal(total: number) {
 	return total;
 }
 
-/* A real spawn: what is under test is checker-new-faults.js's CLI entry, which
- * reads two envelope FILES off argv — the shape lib/check.js invokes. Its
- * PROFILES export is exercised in-process where that suffices instead. Shared
- * by both direction-gate describes below, over the session surface and the
- * ratchet surface, so there is one spawn site to justify rather than two. */
+/* What is under test is checker-new-faults.js's CLI entry, which reads two
+ * envelope FILES off argv — the shape lib/check.js invokes. */
 function direction(staged: unknown, baseline: unknown) {
 	const at = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-direction-"));
 	const file = (name: string, body: unknown) => {
@@ -256,18 +253,17 @@ function direction(staged: unknown, baseline: unknown) {
 		fs.writeFileSync(abs, JSON.stringify(body));
 		return abs;
 	};
-	const r = spawnSync(
-		"node",
+	const r = runInProcess(
+		NEW_FAULTS,
 		[
-			NEW_FAULTS,
 			"context-budget",
 			file("staged.json", staged),
 			file("baseline.json", baseline),
 		],
-		{ encoding: "utf8", cwd: ROOT },
+		{ cwd: ROOT },
 	);
 	fs.rmSync(at, { recursive: true, force: true });
-	return { code: r.status ?? -1, out: r.stdout ?? "" };
+	return { code: r.status, out: r.stdout };
 }
 
 describe("the per-session rule-emission cap", () => {
@@ -965,8 +961,8 @@ describe("--against HEAD over a guard's own bytes", () => {
 		return r.stdout;
 	}
 
-	/* A real spawn: --against re-execs itself over two materialised trees. */
 	function gate(...args: string[]) {
+		// spawn-kept: a real fd — --against re-execs itself over two materialised trees, and the grandchild streams its report to the OS fd 2 the cases read.
 		const r = spawnSync("node", [SCRIPT, "--against", "HEAD", ...args], {
 			cwd: dir,
 			encoding: "utf8",

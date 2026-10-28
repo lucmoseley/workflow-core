@@ -181,6 +181,9 @@ const run = (
 	stub?: StubGh,
 	extra: Record<string, string> = {},
 ) => {
+	// spawn-kept: an async entry — the script's async run() goes through
+	// runCheck at top level, with no exported `main` and no require.main guard,
+	// so runInProcessAsync cannot load it.
 	const r = spawnSync("node", [SCRIPT, ...args], {
 		encoding: "utf8",
 		/* GITHUB_ACTIONS off, deliberately: check.js puts an ::error:: on STDOUT

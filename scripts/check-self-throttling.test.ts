@@ -11,13 +11,14 @@
  * corpus, or a rationed week goes unreported before a cut to the agent bill.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { hookIsWired, registrationsOf } from "./lib/hook-wiring";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-self-throttling.js");
 const HOUR = 36e5;
@@ -60,10 +61,7 @@ const runEnv = (env: Record<string, string> = {}) => ({
 	...env,
 });
 const run = (args: string[], env: Record<string, string> = {}) =>
-	spawnSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
-		env: runEnv(env),
-	});
+	runInProcess(SCRIPT, args, { env: runEnv(env) });
 
 /** Up to 10 s for a detached sweep to land `file`. */
 const waitForFile = async (file: string) => {
@@ -290,11 +288,11 @@ describe("--notify", () => {
 
 	it("lets exactly one of several simultaneous starts kick", async () => {
 		throttled();
-		// Spawned, not spawnSync: the six starts must overlap.
 		const starts = Array.from(
 			{ length: 6 },
 			() =>
 				new Promise((resolve) =>
+					// spawn-kept: two processes running at once — the six starts must overlap.
 					spawn(process.execPath, [SCRIPT, "--notify"], {
 						env: runEnv(),
 					}).on("exit", resolve),

@@ -16,11 +16,12 @@
  * burying a real one.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-guard-test-isolation.js");
 const REPO = path.resolve(__dirname, "..");
@@ -73,14 +74,11 @@ const quietGuard = (name: string) =>
 	track(`scripts/${name}`, "echo '{}'\nexit 0\n");
 
 const run = (...args: string[]) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		cwd: dir,
-		encoding: "utf8",
-	});
+	const r = runInProcess(SCRIPT, args, { cwd: dir });
 	return {
-		status: r.status ?? -1,
-		stdout: r.stdout ?? "",
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+		status: r.status,
+		stdout: r.stdout,
+		out: `${r.stdout}${r.stderr}`,
 		json: () => JSON.parse(r.stdout),
 	};
 };
@@ -620,7 +618,7 @@ describe("the escape hatch and the caller-side cap", () => {
 describe("apparatus failures are BROKEN, never green", () => {
 	it("is BROKEN outside a git repo", () => {
 		const loose = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
-		const r = spawnSync("node", [SCRIPT], { cwd: loose, encoding: "utf8" });
+		const r = runInProcess(SCRIPT, [], { cwd: loose });
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(
 			"git rev-parse failed while locating the repo root",
@@ -631,10 +629,7 @@ describe("apparatus failures are BROKEN, never green", () => {
 
 describe("the real repository", () => {
 	it("passes, having found spawning tests to judge", () => {
-		const r = spawnSync("node", [SCRIPT, "--json"], {
-			cwd: REPO,
-			encoding: "utf8",
-		});
+		const r = runInProcess(SCRIPT, ["--json"], { cwd: REPO });
 		expect(r.status).toBe(0);
 		expect(JSON.parse(r.stdout ?? "{}").spawningTests).toBeGreaterThan(0);
 	});

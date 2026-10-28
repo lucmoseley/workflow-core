@@ -15,7 +15,6 @@
  * filed Completed; tighten one and a well-formed turn is refused.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -2133,12 +2132,14 @@ describe("a lib that will not load (#2645)", () => {
 		])
 			fs.copyFileSync(path.join(__dirname, f), path.join(scripts, f));
 		fs.rmSync(path.join(scripts, "lib", "shell-var-name.js"));
-		const runBroken = (input: string) =>
-			execFileSync("node", [path.join(scripts, program)], {
-				input,
-				encoding: "utf8",
+		const runBroken = (input: string) => {
+			const r = runInProcess(path.join(scripts, program), [], {
+				stdin: input,
 				env: { ...process.env, CLAUDE_CONFIG_DIR: path.join(dir, "config") },
 			});
+			expect(r.status).toBe(0);
+			return r.stdout;
+		};
 		const payload = { session_id: sid, last_assistant_message: "Done." };
 
 		const block = JSON.parse(runBroken(JSON.stringify(payload)));

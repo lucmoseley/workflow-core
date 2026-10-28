@@ -13,11 +13,11 @@
  * still being priced off its history.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-marker-integrity.js");
 const { STORE, FAIL_STORE } = require("./lib/test-pass-marker.js");
@@ -44,8 +44,7 @@ const marker = (sha: string) =>
 	JSON.stringify({ sha, at: new Date().toISOString() });
 
 const run = (args: string[] = []) =>
-	spawnSync(process.execPath, [SCRIPT, "--root", dir, ...args], {
-		encoding: "utf8",
+	runInProcess(SCRIPT, ["--root", dir, ...args], {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
 	});
 

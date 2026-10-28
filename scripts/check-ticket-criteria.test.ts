@@ -18,12 +18,12 @@
  * nobody verified passes unreported, or a reasonless waiver silences a box.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { catFixture, type StubGh, stubGhScript } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-ticket-criteria.js");
 
@@ -58,8 +58,7 @@ const stubGh = (closed: Issue[], { failing = false } = {}) => {
 };
 
 const run = (args: string[] = [], stub?: StubGh) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, args, {
 		env: { ...process.env, ...stub?.env },
 	});
 	return { status: r.status ?? -1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };

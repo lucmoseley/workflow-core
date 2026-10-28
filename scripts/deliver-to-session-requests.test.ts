@@ -12,7 +12,6 @@
  * hour, or reads an unreadable store as nothing asked.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -29,8 +28,7 @@ const DELIVER = path.resolve(__dirname, "deliver-to-session.js");
 const sb = freshSandbox();
 
 const node = (script: string, args: string[], session: string) =>
-	spawnSync(process.execPath, [script, ...args], {
-		encoding: "utf8",
+	runInProcess(script, args, {
 		cwd: sb.repo,
 		env: { ...process.env, CLAUDE_CODE_SESSION_ID: session },
 	});

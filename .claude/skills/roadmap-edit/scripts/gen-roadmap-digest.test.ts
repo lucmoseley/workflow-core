@@ -17,12 +17,12 @@
  * leaving the roadmap paired with a stale digest.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withHostConfig } from "../../../../scripts/lib/config-testkit";
+import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 import { card, roadmapHtml, run, SCRIPTS_DIR } from "./roadmap-fixture";
 
 const SCRIPT = "gen-roadmap-digest.js";
@@ -242,17 +242,16 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 				procStart: stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/)[19],
 			}),
 		);
-		const claimed = spawnSync("node", [arbiterScript, "claim", out, "holder"], {
-			encoding: "utf8",
+		const claimed = runInProcess(arbiterScript, ["claim", out, "holder"], {
 			env,
 			cwd: repo,
 		});
 		expect(claimed.status).toBe(0);
 
-		const r = spawnSync(
-			"node",
-			[path.join(SCRIPTS_DIR, SCRIPT), fixture, "--out", out],
-			{ encoding: "utf8", env, cwd: repo },
+		const r = runInProcess(
+			path.join(SCRIPTS_DIR, SCRIPT),
+			[fixture, "--out", out],
+			{ env, cwd: repo },
 		);
 		expect(r.status).toBe(1);
 		expect(`${r.stdout}${r.stderr}`).toContain("holder");

@@ -89,6 +89,8 @@ describe("stale git locks (#1193)", () => {
 
 	it("reaches the founder through npm run status", () => {
 		lock("logs/HEAD.lock", 2 * HOUR);
+		// spawn-kept: status-report.js's async entry has no require.main guard
+		// and no exported main, so runInProcessAsync cannot load it.
 		const out = execFileSync(
 			process.execPath,
 			[STATUS, "--only", "git-locks"],

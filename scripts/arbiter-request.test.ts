@@ -12,36 +12,24 @@
  * undelivered, or a dead request can keep nagging a holder that owes nothing.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	AS_ROOT,
+	arbiterCli,
 	freshSandbox,
 	live,
 	proc,
 	registerSession,
-	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
 
 const sb = freshSandbox();
 
-const cli = (args: string[], env: Record<string, string> = {}) =>
-	spawnSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
-		cwd: sb.repo,
-		env: { ...process.env, ...env },
-	});
-
-const readListing = (args: string[]) =>
-	execFileSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
-		cwd: sb.repo,
-		env: { ...process.env },
-	});
+const { cli, readListing } = arbiterCli(sb);
 
 const inRepo = (rel: string) => path.join(sb.repo, rel);
 

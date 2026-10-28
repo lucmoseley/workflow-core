@@ -13,6 +13,9 @@
  * is a network call and the sync seam returns before an awaited one has done
  * anything (`lib/run-in-process.js`'s own header).
  *
+ * spawn-kept: one case asserts the process boundary — module resolution off a
+ * fresh process's paths, which cannot find the `ai` SDK.
+ *
  * Every call path goes to a `node:http` server this file starts on a loopback
  * port, handed to the guard through `WFC_JEV_BASE_URL`.
  *

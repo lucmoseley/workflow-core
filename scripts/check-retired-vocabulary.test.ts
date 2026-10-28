@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-retired-vocabulary.js");
 const MAP = "docs/doc-map.md";
@@ -109,30 +110,37 @@ const plant = (phrases: Phrase[], allowlist?: Allow[]) => {
 const writeMap = (rows: string[], entries: string[]) =>
 	track(MAP, mapDoc(rows, entries));
 
-/** `timeout` absent: the run is never killed. */
-const checkWithin = (timeout: number | undefined, ...args: string[]) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		cwd: repo,
-		encoding: "utf8",
-		timeout,
-	});
-	return {
-		status: r.status ?? -1,
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
-		/* Under GITHUB_ACTIONS the harness puts its ::warning:: annotations on
-		 * stdout beside the envelope, which CI runs with and a bare `npm test`
-		 * does not. */
-		json: () =>
-			JSON.parse(
-				(r.stdout ?? "{}")
-					.split("\n")
-					.filter((l) => !l.startsWith("::"))
-					.join("\n"),
-			),
-	};
-};
+const shape = (r: {
+	status: number | null;
+	stdout: string;
+	stderr: string;
+}) => ({
+	status: r.status ?? -1,
+	out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+	/* Under GITHUB_ACTIONS the harness puts its ::warning:: annotations on
+	 * stdout beside the envelope, which CI runs with and a bare `npm test`
+	 * does not. */
+	json: () =>
+		JSON.parse(
+			(r.stdout ?? "{}")
+				.split("\n")
+				.filter((l) => !l.startsWith("::"))
+				.join("\n"),
+		),
+});
 
-const check = (...args: string[]) => checkWithin(undefined, ...args);
+const checkWithin = (timeout: number, ...args: string[]) =>
+	shape(
+		// spawn-kept: a timeout — a hung scan must be killed, which in-process cannot do.
+		spawnSync("node", [SCRIPT, ...args], {
+			cwd: repo,
+			encoding: "utf8",
+			timeout,
+		}),
+	);
+
+const check = (...args: string[]) =>
+	shape(runInProcess(SCRIPT, args, { cwd: repo }));
 
 beforeEach(() => {
 	repo = fs.mkdtempSync(path.join(os.tmpdir(), "vocab-"));

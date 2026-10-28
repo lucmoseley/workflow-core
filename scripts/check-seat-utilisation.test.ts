@@ -15,7 +15,6 @@
  * seat's allowance is spent and work has stopped.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -384,8 +383,7 @@ const TRIAL_END = "2026-09-10T00:00:00Z";
 
 describe("end to end", () => {
 	const run = (env: Record<string, string>, args: string[] = []) =>
-		spawnSync(process.execPath, [SCRIPT, ...args], {
-			encoding: "utf8",
+		runInProcess(SCRIPT, args, {
 			env: {
 				...process.env,
 				HOME: home,
@@ -572,8 +570,7 @@ describe("gate 2 — the trial reader (mantahostels#2849)", () => {
 	};
 
 	const run = (ladderPath: string | null, args: string[] = ["--notify"]) =>
-		spawnSync(process.execPath, [SCRIPT, ...args], {
-			encoding: "utf8",
+		runInProcess(SCRIPT, args, {
 			env: {
 				...process.env,
 				HOME: home,
@@ -972,7 +969,6 @@ describe("weekly_scoped — the tier-drop notice (#298, #304)", () => {
 	});
 
 	describe("end to end", () => {
-		// Through the in-process seam, not a fourth spawnSync site.
 		const runNotify = (env: Record<string, string> = {}) =>
 			runInProcess(SCRIPT, ["--notify"], {
 				env: {

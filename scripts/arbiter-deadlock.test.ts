@@ -17,35 +17,24 @@
  * neighbour's edit.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	arbiterCli,
 	commitAll,
 	freshSandbox,
 	gitRepo,
 	live,
 	registerSession,
-	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
+import { runInProcess } from "./lib/run-in-process";
 
 const sb = freshSandbox();
 
-const cli = (args: string[], env: Record<string, string> = {}) =>
-	spawnSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
-		cwd: sb.repo,
-		env: { ...process.env, ...env },
-	});
-
-const readListing = (args: string[]) =>
-	execFileSync(process.execPath, [SCRIPT, ...args], {
-		encoding: "utf8",
-		cwd: sb.repo,
-		env: { ...process.env },
-	});
+const { cli, readListing } = arbiterCli(sb);
 
 const inRepo = (rel: string) => path.join(sb.repo, rel);
 
@@ -1123,21 +1112,16 @@ describe("a claim holder blocks a park until the file accounts for them (mantaho
 		mineDirtiesB196("B197 as committed.");
 		writeMap(doc("B196, half-rewritten twice.", "B197 as committed."));
 		expect(park().status).toBe(1);
-		const hook = spawnSync(
-			process.execPath,
-			[path.join(__dirname, "guard-dispatch.js")],
-			{
-				cwd: sb.repo,
-				encoding: "utf8",
-				input: JSON.stringify({
-					session_id: "mine",
-					hook_event_name: "PostToolUse",
-					tool_name: "Bash",
-					tool_input: { command: "sed -i s/x/y/ docs/doc-map.md" },
-				}),
-				env: { ...process.env, CLAUDE_CONFIG_DIR: sb.home },
-			},
-		);
+		const hook = runInProcess(path.join(__dirname, "guard-dispatch.js"), [], {
+			cwd: sb.repo,
+			stdin: JSON.stringify({
+				session_id: "mine",
+				hook_event_name: "PostToolUse",
+				tool_name: "Bash",
+				tool_input: { command: "sed -i s/x/y/ docs/doc-map.md" },
+			}),
+			env: { ...process.env, CLAUDE_CONFIG_DIR: sb.home },
+		});
 		expect(hook.status).toBe(0);
 		expect(park().status).toBe(0);
 		expect(fs.readFileSync(inRepo(docMap), "utf8")).toBe(

@@ -29,6 +29,7 @@ import {
 	EARLIER_DAY_MIN,
 	witaStamp,
 } from "../.claude/skills/roadmap-edit/scripts/roadmap-fixture";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-valid.js");
 const HTML = "docs/reference-roadmap.html";
@@ -98,15 +99,14 @@ const stage = (file: string, body: string) => stageIn(repo, file, body);
 /* The host pin goes last, so no case's `extra` drops it: the session's own
  * CLAUDE_PROJECT_DIR would otherwise name this checkout (#3327). */
 const run = (args: string[], cwd = repo, extra: NodeJS.ProcessEnv = {}) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
+	const r = runInProcess(SCRIPT, args, {
 		cwd,
-		encoding: "utf8",
 		env: { ...process.env, ...extra, CLAUDE_PROJECT_DIR: cwd },
 	});
 	return {
-		status: r.status ?? -1,
-		stdout: r.stdout ?? "",
-		stderr: r.stderr ?? "",
+		status: r.status,
+		stdout: r.stdout,
+		stderr: r.stderr,
 	};
 };
 const check = (cwd = repo, extra: NodeJS.ProcessEnv = {}) =>

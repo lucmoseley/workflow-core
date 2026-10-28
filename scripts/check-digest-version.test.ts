@@ -17,11 +17,11 @@
  * the two untested hard CI gates.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-digest-version.js");
 const HTML = "docs/reference-roadmap.html";
@@ -46,13 +46,10 @@ const digest = (version: string, tail = " · 107 cards") =>
 	["# Roadmap digest", "", `${version}${tail}`, ""].join("\n");
 
 const check = (...args: string[]) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		cwd: dir,
-		encoding: "utf8",
-	});
+	const r = runInProcess(SCRIPT, args, { cwd: dir });
 	return {
-		status: r.status ?? -1,
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+		status: r.status,
+		out: `${r.stdout}${r.stderr}`,
 	};
 };
 

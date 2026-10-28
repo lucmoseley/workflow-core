@@ -12,12 +12,12 @@
  * no verdict on most turns while the report reads healthy.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 
@@ -103,8 +103,7 @@ interface Envelope {
 }
 
 function run(args: string[] = []): { env: Envelope; stdout: string } {
-	const res = spawnSync("node", [SCRIPT, "--root", dir, ...args], {
-		encoding: "utf8",
+	const res = runInProcess(SCRIPT, ["--root", dir, ...args], {
 		env: {
 			...process.env,
 			HOME: home,
@@ -313,30 +312,28 @@ describe("records it must not choke on", () => {
 	});
 
 	it("is BROKEN on a root it cannot read", () => {
-		const res = spawnSync(
-			"node",
-			[SCRIPT, "--root", path.join(dir, "nope"), "--json"],
-			{ encoding: "utf8" },
-		);
+		const res = runInProcess(SCRIPT, [
+			"--root",
+			path.join(dir, "nope"),
+			"--json",
+		]);
 		expect(JSON.parse(res.stdout).outcome).toBe("BROKEN");
 		expect(res.status).toBe(2);
 	});
 
 	it("is BROKEN on a --days that is not a number, printing usage on stderr", () => {
-		const res = spawnSync("node", [SCRIPT, "--root", dir, "--days", "soon"], {
-			encoding: "utf8",
-		});
+		const res = runInProcess(SCRIPT, ["--root", dir, "--days", "soon"]);
 		expect(res.stderr).toMatch(/BROKEN/);
 		expect(res.stderr).toMatch(/--days must be a positive number/);
 		expect(res.stderr).toMatch(/usage: node check-stop-guard-outcomes\.js/);
 	});
 
 	it("exits 0 under --notify even when broken, so the hook is not disabled", () => {
-		const res = spawnSync(
-			"node",
-			[SCRIPT, "--root", path.join(dir, "nope"), "--notify"],
-			{ encoding: "utf8" },
-		);
+		const res = runInProcess(SCRIPT, [
+			"--root",
+			path.join(dir, "nope"),
+			"--notify",
+		]);
 		expect(res.status).toBe(0);
 	});
 });
@@ -402,8 +399,7 @@ describe("what --notify says twice", () => {
 		});
 
 		const persist = () =>
-			spawnSync("node", [SCRIPT, "--root", dir, "--notify"], {
-				encoding: "utf8",
+			runInProcess(SCRIPT, ["--root", dir, "--notify"], {
 				env: { ...process.env, WFC_NOTIFY_PERSIST: "1" },
 			});
 

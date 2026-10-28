@@ -15,11 +15,12 @@
  * stale figure live.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-restatement-edges.js");
 const MAP = "docs/doc-map.md";
@@ -95,14 +96,11 @@ const writeMap = (rows: string[], entries: string[]) =>
 	track(MAP, mapDoc(rows, entries));
 
 const check = (...args: string[]) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
-		cwd: repo,
-		encoding: "utf8",
-	});
+	const r = runInProcess(SCRIPT, args, { cwd: repo });
 	return {
-		status: r.status ?? -1,
-		stdout: r.stdout ?? "",
-		out: `${r.stdout ?? ""}${r.stderr ?? ""}`,
+		status: r.status,
+		stdout: r.stdout,
+		out: `${r.stdout}${r.stderr}`,
 	};
 };
 

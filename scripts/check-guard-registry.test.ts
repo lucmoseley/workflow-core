@@ -961,6 +961,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			{ length: 1500 },
 			(_, i) => `scripts/guard-never-written-${String(i).padStart(4, "0")}.sh`,
 		);
+		// spawn-kept: a real fd — the pipe buffer, as above.
 		const r = spawnSync(
 			process.execPath,
 			[
@@ -1357,27 +1358,18 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 
 describe("the live repository", () => {
 	it("passes against this repo's own CLAUDE.md", () => {
-		// This is the case that catches a guard deleted or unwired later, and the
-		// one place here that keeps a real process: it runs against the live repo
-		// rather than a fixture, so a stray require of this repo's own modules
-		// into the test process would read as the checker's own state.
-		let code = 0;
-		try {
-			execFileSync(process.execPath, [REAL_SCRIPT], {
-				encoding: "utf8",
-				env: {
-					...process.env,
-					CLAUDE_PROJECT_DIR: path.resolve(__dirname, ".."),
-				},
-			});
-		} catch (e) {
-			code = (e as { status: number }).status;
-			throw new Error(
-				`check-guard-registry.js fails on the live repo:\n${(e as { stdout: string }).stdout}`,
-				{ cause: e },
-			);
-		}
-		expect(code).toBe(0);
+		// This is the case that catches a guard deleted or unwired later: it runs
+		// against the live repo rather than a fixture.
+		const r = runInProcess(REAL_SCRIPT, [], {
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: path.resolve(__dirname, ".."),
+			},
+		});
+		expect(
+			r.status,
+			`check-guard-registry.js fails on the live repo:\n${r.stdout}${r.stderr}`,
+		).toBe(0);
 	});
 });
 
@@ -1896,9 +1888,9 @@ describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs
 	});
 
 	it("reports the materialised side's gitignore filter as not run, never FAILED OPEN (#710)", () => {
-		/* A real subprocess: the re-exec streams its report to fd 2, which the
-		 * in-process run() cannot capture. */
 		const root = committedRepo({ claude: clean, files: cleanFiles });
+		/* spawn-kept: a real fd — the re-exec streams its report to fd 2, which
+		 * the in-process run() cannot capture. */
 		const r = spawnSync(
 			"node",
 			[
@@ -2657,6 +2649,8 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 		modules = "landing",
 		locks: unknown[] = [],
 	) =>
+		/* spawn-kept: a real fd — the gate hands the checker it spawns the real
+		 * fd 2, where these cases read its report. */
 		spawnSync(
 			"node",
 			[path.join(root, "scripts", "landing-registry-gate.js")],
@@ -2857,9 +2851,9 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 	});
 	const preCommit = (root: string, culprit?: string) =>
 		run(root, ["--against", "HEAD"], { cwd: root, env: env(culprit) });
-	/* A real spawn, as the #3074 describe's: the gate streams the checker's
-	 * report to fd 2 and runs at load, with no main to call in-process. */
 	const push = (root: string, sha: string, tip: string, culprit?: string) =>
+		/* spawn-kept: a real fd, as the #3074 describe's — the gate streams the
+		 * checker's report to the real fd 2. */
 		spawnSync(
 			"node",
 			[path.join(root, "scripts", "landing-registry-gate.js")],
@@ -3384,34 +3378,26 @@ describe("a thin shell guard's digest covers the program it runs (mantahostels#3
 describe("the checker breaking is not the same event as a rule being false", () => {
 	/**
 	 * Raw runner: these cases are about the process's own outcome, so nothing
-	 * here may assume the output parses — and this one keeps its spawn for the
-	 * same reason, needing a real fd layout (stdout piped, stdin closed) that
-	 * the in-process seam does not reproduce.
+	 * here may assume the output parses.
 	 */
 	function raw(root: string, extra: string[] = []) {
-		try {
-			const stdout = execFileSync(
-				process.execPath,
-				[path.join(root, "scripts", "check-guard-registry.js"), ...extra],
-				{
-					encoding: "utf8",
-					stdio: ["ignore", "pipe", "pipe"],
-					/* Off deliberately: with it set, check.js writes the BROKEN message
-					 * to stdout as a ::error:: annotation, and the stdout-discipline
-					 * assertions below are about the non-Actions path. Inheriting it made
-					 * these pass locally and fail on a runner. */
-					env: {
-						...process.env,
-						CLAUDE_PROJECT_DIR: root,
-						GITHUB_ACTIONS: "",
-					},
+		const r = runInProcess(
+			path.join(root, "scripts", "check-guard-registry.js"),
+			extra,
+			{
+				stdin: "",
+				/* Off deliberately: with it set, check.js writes the BROKEN message
+				 * to stdout as a ::error:: annotation, and the stdout-discipline
+				 * assertions below are about the non-Actions path. Inheriting it made
+				 * these pass locally and fail on a runner. */
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: root,
+					GITHUB_ACTIONS: "",
 				},
-			);
-			return { code: 0, stdout, stderr: "" };
-		} catch (e) {
-			const err = e as { status: number; stdout: string; stderr: string };
-			return { code: err.status, stdout: err.stdout, stderr: err.stderr };
-		}
+			},
+		);
+		return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 	}
 
 	const wellFormed = () =>
@@ -5383,9 +5369,8 @@ describe("an adopter that generates its own rule fragments", () => {
 		const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: root };
 		delete env.WFC_RULES_DIR;
 		delete env.WFC_RULES_FALLBACK_DIR;
-		const r = spawnSync("node", [REAL_SCRIPT, "--json", ...extra], {
+		const r = runInProcess(REAL_SCRIPT, ["--json", ...extra], {
 			cwd: root,
-			encoding: "utf8",
 			env,
 		});
 		const json = JSON.parse(r.stdout);
@@ -5401,11 +5386,8 @@ describe("an adopter that generates its own rule fragments", () => {
 	it("passes generate-rule-fragments --check and this gate on the same tree", () => {
 		const root = adopter();
 		const env = { ...process.env, CLAUDE_PROJECT_DIR: root };
-		spawnSync("node", [gen], { env });
-		const check = spawnSync("node", [gen, "--check"], {
-			env,
-			encoding: "utf8",
-		});
+		runInProcess(gen, [], { env });
+		const check = runInProcess(gen, ["--check"], { env });
 		expect(check.status, check.stderr).toBe(0);
 		expect(
 			fs.existsSync(
@@ -5432,7 +5414,7 @@ describe("an adopter that generates its own rule fragments", () => {
 			});
 		gitAsUser("add", "-A");
 		gitAsUser("commit", "-q", "-m", "start");
-		spawnSync("node", [gen], {
+		runInProcess(gen, [], {
 			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
 		});
 		fs.writeFileSync(
@@ -5449,7 +5431,7 @@ describe("an adopter that generates its own rule fragments", () => {
 	/* The adopter's own fragment, and a guard of its own that prints it —
 	 * wired by nothing until a case wires it. */
 	function ownGuard(root: string): void {
-		spawnSync("node", [gen], {
+		runInProcess(gen, [], {
 			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
 		});
 		fs.writeFileSync(

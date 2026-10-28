@@ -17,7 +17,6 @@
  * fires on every model switch or lets real drift go unsaid.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -124,8 +123,7 @@ describe("VOLATILE_KEYS", () => {
 		const livePath = path.join(dir, "settings.json");
 		fs.writeFileSync(docPath, doc({ theme: "dark" }));
 		fs.writeFileSync(livePath, JSON.stringify({ theme: "light" }));
-		const r = spawnSync("node", [SCRIPT, "--warn", docPath, livePath], {
-			encoding: "utf8",
+		const r = runInProcess(SCRIPT, ["--warn", docPath, livePath], {
 			env: { ...process.env, HOME: dir },
 		});
 		expect(r.status).toBe(0);

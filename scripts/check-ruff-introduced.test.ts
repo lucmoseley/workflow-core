@@ -19,7 +19,6 @@
  * files nobody can touch.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -36,6 +35,7 @@ import {
 	writeHostConfig,
 	writeRuffStub,
 } from "./lib/ruff-testkit";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const temps = registerTempCleanup();
 const CHECKER = path.join(ROOT, "scripts", "check-ruff-introduced.js");
@@ -65,14 +65,13 @@ function check(
 		temps.push(ruff);
 		writeRuffStub(ruff, path.join(r.root, ARGS_FILE), opts.ruffExit);
 	}
-	const run = spawnSync(process.execPath, [CHECKER, ...(opts.args ?? [])], {
+	const run = runInProcess(CHECKER, opts.args ?? [], {
 		cwd: r.root,
-		encoding: "utf8",
 		// Pinned, never inherited: the session's own CLAUDE_PROJECT_DIR would
 		// read this repo's config rather than the fixture's.
 		env: { ...process.env, WFC_RUFF: ruff, CLAUDE_PROJECT_DIR: r.root },
 	});
-	const code = run.status ?? 1;
+	const code = run.status;
 	const output = `${run.stdout}${run.stderr}`;
 	return { code, output, calls: readStubCalls(path.join(r.root, ARGS_FILE)) };
 }

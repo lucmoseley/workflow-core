@@ -315,12 +315,12 @@ describe("check-test-marker", () => {
 		expect(r.stderr).toBe(NOTHING);
 	});
 
-	/* A spawn, for a real fd 0 the read fails on: a directory, which the
-	 * in-process runner's string stdin cannot stand in for. */
 	it("says BROKEN, not OK, when stdin cannot be read (#1444)", () => {
 		const { dir } = repo();
 		const fd = fs.openSync(dir, "r");
 		try {
+			/* spawn-kept: a real fd 0 the read fails on — a directory, which the
+			 * in-process runner's string stdin cannot stand in for. */
 			const r = spawnSync(process.execPath, [SCRIPT], {
 				cwd: dir,
 				stdio: [fd, "pipe", "pipe"],
@@ -361,18 +361,18 @@ describe("check-test-marker", () => {
 		expect(r.stderr).toContain("never refuses a push");
 	});
 
-	/*
-	 * A SPAWN, KEPT FOR A REAL FD: the in-process runner captures writes before
-	 * any pipe sees them. node drops what is still buffered on a pipe at
-	 * process.exit, and 64 KiB is the pipe buffer. An owed reading lists 20
-	 * files at most and costs several git calls, so the report is built from
-	 * the cheapest one: 450 refs this checkout lacks, ~150 bytes each.
-	 */
 	it("prints a report longer than the pipe buffer whole, summary included (#1444)", () => {
 		const { dir } = repo();
 		const refs = Array.from({ length: 450 }, (_, i) =>
 			buildRefLine((i + 1).toString(16).padStart(40, "0"), "c".repeat(40)),
 		).join("");
+		/*
+		 * spawn-kept: a real fd — the in-process runner captures writes before
+		 * any pipe sees them. node drops what is still buffered on a pipe at
+		 * process.exit, and 64 KiB is the pipe buffer. An owed reading lists 20
+		 * files at most and costs several git calls, so the report is built from
+		 * the cheapest one: 450 refs this checkout lacks, ~150 bytes each.
+		 */
 		const r = spawnSync(process.execPath, [SCRIPT], {
 			cwd: dir,
 			input: refs,

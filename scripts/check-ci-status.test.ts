@@ -481,6 +481,7 @@ describe("--notify reports each failure once (mantahostels#143)", () => {
 		setRuns([run_({ databaseId: 200, conclusion: "failure" })]);
 		const full = fs.openSync("/dev/full", "w");
 
+		// spawn-kept: a real fd — stdout must be /dev/full so the report's write fails.
 		const r = spawnSync(process.execPath, [SCRIPT, "--notify"], {
 			encoding: "utf8",
 			env: { ...process.env, CLAUDE_PROJECT_DIR: sb.repo },

@@ -17,11 +17,11 @@
  * month with the sweep still green.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-doc-map-markers.js");
 
@@ -101,8 +101,7 @@ const registerDoc = (register: string[], entries: string[]) =>
 
 const write = (body: string) => fs.writeFileSync(mapPath, body);
 
-const run = (...args: string[]) =>
-	spawnSync("node", [SCRIPT, mapPath, ...args], { encoding: "utf8" });
+const run = (...args: string[]) => runInProcess(SCRIPT, [mapPath, ...args]);
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "markers-"));
@@ -735,9 +734,7 @@ describe("an undated marker", () => {
 
 describe("the checker itself", () => {
 	it("is BROKEN on a map it cannot read", () => {
-		const r = spawnSync("node", [SCRIPT, path.join(dir, "absent.md")], {
-			encoding: "utf8",
-		});
+		const r = runInProcess(SCRIPT, [path.join(dir, "absent.md")]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("BROKEN:");
 	});

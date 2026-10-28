@@ -35,9 +35,8 @@ const STORE = path.join("docs", "agents", "rules");
 const MANIFEST = "docs/agents/rules/manifest.json";
 
 const check = () =>
-	spawnSync("node", [GEN, "--check"], {
+	runInProcess(GEN, ["--check"], {
 		cwd: ROOT,
-		encoding: "utf8",
 		env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
 	});
 

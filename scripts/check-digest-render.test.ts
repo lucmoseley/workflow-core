@@ -18,7 +18,6 @@
  * code around it.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -63,11 +62,11 @@ const read = (file: string) => fs.readFileSync(path.join(dir, file), "utf8");
 
 /** Write the digest the way the roadmap-edit loop does, via --out. */
 const generate = () => {
-	const r = spawnSync(
-		process.execPath,
-		[GEN, path.join(dir, HTML), "--out", path.join(dir, DIGEST)],
-		{ encoding: "utf8" },
-	);
+	const r = runInProcess(GEN, [
+		path.join(dir, HTML),
+		"--out",
+		path.join(dir, DIGEST),
+	]);
 	if (r.status !== 0) throw new Error(`generator failed: ${r.stderr}`);
 };
 

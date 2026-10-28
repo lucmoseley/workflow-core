@@ -111,6 +111,7 @@ describe("answer-review-reversals.js (#2017)", () => {
 		);
 		fs.mkdirSync(path.dirname(holderScript), { recursive: true });
 		fs.writeFileSync(holderScript, "setInterval(() => {}, 1000);\n");
+		// spawn-kept: two processes at once — the live lock holder runs beside the call under test, and is killed by signal.
 		const holder = spawn(process.execPath, [holderScript], {
 			stdio: "ignore",
 		});

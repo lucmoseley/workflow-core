@@ -25,11 +25,12 @@
  * case). Each turned the cases named, or its own, red, and was reversed.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 
 const SCOPE = path.resolve(__dirname, "concision-scope.js");
 
@@ -52,10 +53,7 @@ const commit = (rel: string | string[], message: string) => {
 
 /** Runs the script from inside the repo, as the skill does. */
 const run = (...args: string[]) => {
-	const r = spawnSync("node", [SCOPE, ...args], {
-		cwd: repo,
-		encoding: "utf8",
-	});
+	const r = runInProcess(SCOPE, args, { cwd: repo });
 	return { code: r.status, out: `${r.stdout}${r.stderr}` };
 };
 

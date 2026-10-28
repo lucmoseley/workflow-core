@@ -6,12 +6,6 @@
  * known-good sandbox, fail a reverted one, and not be talked round by a
  * session that edits the test or never pushes.
  *
- * Every command is spawned, not run in process: `build` resolves its source
- * repo through hostRoot(), memoised per cwd, and the fixtures move it with
- * CLAUDE_PROJECT_DIR. What it spawns in turn — scripts/build-arm-sandbox.js,
- * scripts/lib/arm-gh-stub.js and the sandbox's scripts/session-arbiter.js —
- * decides these results too.
- *
  * Its ~15 s goes on eight sandbox builds and eight vitest runs, the least that
  * proves accept against both sandboxes, a real replay, a gamed one, two
  * landings it must refuse, a stale hidden test and a fix patch unapplied; the
@@ -24,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process";
 
 const ROOT = path.resolve(__dirname, "..");
 const CLI = path.join(ROOT, "scripts", "arm-tasks.js");
@@ -38,10 +33,9 @@ afterEach(() => {
 });
 
 const run = (args: string[], env: NodeJS.ProcessEnv = {}) => {
-	const r = spawnSync(process.execPath, [CLI, ...args], {
+	const r = runInProcess(CLI, args, {
 		cwd: ROOT,
 		env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT, ...env },
-		encoding: "utf8",
 	});
 	return { out: r.stdout, err: r.stderr, code: r.status };
 };
@@ -531,9 +525,9 @@ describe("build: the fake neighbour", () => {
 			path.join(repo, "self-plugin"),
 		);
 		const claim = (sid: string) =>
-			spawnSync(
-				process.execPath,
-				[path.join(repo, "scripts/session-arbiter.js"), "claim", held, sid],
+			runInProcess(
+				path.join(repo, "scripts/session-arbiter.js"),
+				["claim", held, sid],
 				{
 					cwd: repo,
 					env: {
@@ -541,7 +535,6 @@ describe("build: the fake neighbour", () => {
 						CLAUDE_CONFIG_DIR: config,
 						CLAUDE_PROJECT_DIR: repo,
 					},
-					encoding: "utf8",
 				},
 			).status;
 		try {

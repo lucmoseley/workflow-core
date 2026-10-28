@@ -34,7 +34,6 @@
  * read as outstanding, or a live one is called cleared and closed by hand.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -60,6 +59,7 @@ import {
 	writeTranscript,
 } from "./lib/band-drift-fixture";
 import { stubGhScript } from "./lib/gh-stub";
+import { runInProcess } from "./lib/run-in-process";
 import {
 	LABEL as CYCLE_LABEL,
 	TITLE as CYCLE_TITLE,
@@ -225,9 +225,8 @@ const run = (
 	sweep: Sweep | null = null,
 ) => {
 	const gh = stubGh(open, sweep);
-	const r = spawnSync("node", [SCRIPT, ...args], {
+	const r = runInProcess(SCRIPT, args, {
 		cwd: dir,
-		encoding: "utf8",
 		env: {
 			...process.env,
 			...gh.env,
@@ -581,9 +580,8 @@ describe("check-cleared-trackers", () => {
 	it("skips rather than reports when gh cannot be reached", () => {
 		fixture();
 		const gh = stubGhScript(dir, "", { failing: true });
-		const r = spawnSync("node", [SCRIPT], {
+		const r = runInProcess(SCRIPT, [], {
 			cwd: dir,
-			encoding: "utf8",
 			env: { ...process.env, ...gh.env, CYCLE_TODAY: TODAY },
 		});
 		expect(`${r.stdout}${r.stderr}`).toContain("SKIP");

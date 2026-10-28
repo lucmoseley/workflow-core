@@ -19,12 +19,13 @@
  * headroom that no longer holds and the machine freezes under `earlyoom`.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-suite-size-drift.js");
 const REPO = path.resolve(__dirname, "..");
@@ -63,9 +64,8 @@ const track = (p: string) => {
 
 /** Run the checker in `where` (the fixture repo by default), streams apart. */
 const runIn = (where: string, ...args: string[]) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
+	const r = runInProcess(SCRIPT, args, {
 		cwd: where,
-		encoding: "utf8",
 		env: { ...process.env, CLAUDE_PROJECT_DIR: where },
 	});
 	return {

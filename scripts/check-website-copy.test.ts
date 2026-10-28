@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-website-copy.js");
 
@@ -38,13 +39,18 @@ const commit = (file: string, body: string) => {
 };
 
 const check = (...args: string[]) => {
-	const r = spawnSync("node", [SCRIPT, ...args], {
+	const options = {
 		cwd: repo,
-		encoding: "utf8",
 		/* The config is read at CLAUDE_PROJECT_DIR, which a session exports —
 		 * inherited, it points the checker at the live repo's config (#452). */
 		env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
-	});
+	};
+	let r: { status: number | null; stdout: string; stderr: string };
+	if (args.includes("--against")) {
+		/* spawn-kept: a real fd — under --against the script re-execs itself
+		 * with stderr inherited, which writes past the in-process capture. */
+		r = spawnSync("node", [SCRIPT, ...args], { ...options, encoding: "utf8" });
+	} else r = runInProcess(SCRIPT, args, options);
 	return {
 		status: r.status ?? -1,
 		stdout: r.stdout ?? "",
@@ -88,16 +94,11 @@ describe("the profile the direction gate reads this envelope through", () => {
 			fs.writeFileSync(abs, body);
 			return abs;
 		};
-		const r = spawnSync(
-			"node",
-			[
-				newFaults,
-				"website-copy",
-				put("staged.json", staged),
-				put("baseline.json", baseline),
-			],
-			{ encoding: "utf8" },
-		);
+		const r = runInProcess(newFaults, [
+			"website-copy",
+			put("staged.json", staged),
+			put("baseline.json", baseline),
+		]);
 		fs.rmSync(at, { recursive: true, force: true });
 		return { code: r.status ?? -1, out: r.stdout ?? "" };
 	};

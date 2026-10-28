@@ -22,7 +22,6 @@
  * it blocks turns for nothing.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -589,15 +588,10 @@ describe("what it stays silent on", () => {
 describe("the deny-capable set", () => {
 	it("names exactly the guards the census counts deny-capable, over the real wiring — #1815", () => {
 		const repo = path.resolve(__dirname, "..");
-		const census = spawnSync(
-			process.execPath,
-			[
-				path.join(repo, "scripts", "lost-deny-rates.js"),
-				"--triggers",
-				"--scope",
-				"all",
-			],
-			{ encoding: "utf8", env: { ...process.env, WFC_LOST_DENY_ROOT: repo } },
+		const census = runInProcess(
+			path.join(repo, "scripts", "lost-deny-rates.js"),
+			["--triggers", "--scope", "all"],
+			{ env: { ...process.env, WFC_LOST_DENY_ROOT: repo } },
 		);
 		const rows: { guard: string; denyCapable: boolean }[] = JSON.parse(
 			census.stdout,

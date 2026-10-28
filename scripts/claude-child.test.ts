@@ -3,7 +3,7 @@
  * claude-child.js, driven through its command line against a stub `claude`
  * that records its argv, its CLAUDE_CONFIG_DIR and its stdin (#2040).
  *
- * Spawned, not run in-process (§X3): the script hands the child real fds —
+ * spawn-kept: a real fd (§X3) — the script hands the child real fds —
  * its own stdout and stderr, and the prompt file as stdin.
  */
 

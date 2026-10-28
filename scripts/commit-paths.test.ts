@@ -9,6 +9,9 @@
  *
  * Every refusal also asserts the index is untouched.
  *
+ * spawn-kept: one case asserts the process boundary — module resolution must
+ * start from a tree with no node_modules above it and no NODE_PATH.
+ *
  * It is the commit route `CLAUDE.md`'s pathspec rule and
  * the guard-commit-form core send every session down: loosen a case and a
  * commit sweeps in a neighbour's work, leaves a new file behind, or names the
@@ -863,8 +866,6 @@ describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
 	});
 
 	it("runs as an adopter's plugin copy with Node alone, no node_modules anywhere above it (#587)", () => {
-		// A real spawn, not runInProcess: module resolution must start from a
-		// tree with no node_modules above it and no NODE_PATH.
 		const plugin = path.join(sb.dir, "plugin", "scripts");
 		installLib(path.join(plugin, "lib"), {
 			keep: (f) => /\.(js|json)$/.test(f),
@@ -960,6 +961,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 	 */
 	const waiter = (args: string[], env: NodeJS.ProcessEnv, onHeld: () => void) =>
 		new Promise<{ status: number | null; stderr: string }>((resolve) => {
+			// spawn-kept: two processes at once.
 			const child = spawn(process.execPath, [SCRIPT, ...args], {
 				cwd: sb.repo,
 				env: { ...env, CLAUDE_PROJECT_DIR: sb.repo },

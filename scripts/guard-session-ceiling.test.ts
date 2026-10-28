@@ -15,12 +15,12 @@
  * turn.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -100,13 +100,12 @@ const run = (over: Partial<StopRun> = {}) => {
 
 /** Records this session's claim on `issue` through the arbiter's own CLI,
  * so the store path resolves exactly as a live session's does. */
-const claim = (issue: number, session = sid) =>
-	execFileSync(
-		process.execPath,
-		[path.join(__dirname, "session-arbiter.js"), "claim-issue", String(issue)],
+const claim = (issue: number, session = sid) => {
+	const r = runInProcess(
+		path.join(__dirname, "session-arbiter.js"),
+		["claim-issue", String(issue)],
 		{
 			cwd: dir,
-			stdio: "ignore",
 			env: {
 				...process.env,
 				CLAUDE_CODE_SESSION_ID: session,
@@ -116,6 +115,8 @@ const claim = (issue: number, session = sid) =>
 			},
 		},
 	);
+	if (r.status !== 0) throw new Error(`arbiter claim-issue: ${r.stderr}`);
+};
 
 /** A transcript of `count` distinct responses, each at `ctx` standing context
  * and written as `perResponse` assistant records sharing one request id. */

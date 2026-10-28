@@ -11,11 +11,12 @@
  * that reports one. Loosening the census block makes that edit invisible.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-scripts-typecheck.js");
 
@@ -52,8 +53,7 @@ const commitAll = () => {
 
 /** Run the checker against the throwaway repo. */
 const run = (args: string[] = [], env: Record<string, string> = {}) => {
-	const r = spawnSync("node", [SCRIPT, "--root", dir, ...args], {
-		encoding: "utf8",
+	const r = runInProcess(SCRIPT, ["--root", dir, ...args], {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
@@ -259,9 +259,7 @@ describe("--notify — the session-start surface, quiet while the number holds",
 	it("exits 0 even on a BROKEN read, so Claude Code does not disable the hook", () => {
 		// check.js:280.
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
-		const r = spawnSync("node", [SCRIPT, "--root", outside, "--notify"], {
-			encoding: "utf8",
-		});
+		const r = runInProcess(SCRIPT, ["--root", outside, "--notify"]);
 		fs.rmSync(outside, { recursive: true, force: true });
 		expect(r.status).toBe(0);
 		expect(`${r.stdout}${r.stderr}`).toMatch(/^BROKEN:/m);
@@ -273,9 +271,7 @@ describe("apparatus failures", () => {
 		// git is the reading apparatus, so this is BROKEN and never SKIP
 		// (check.js:16-26).
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
-		const r = spawnSync("node", [SCRIPT, "--root", outside], {
-			encoding: "utf8",
-		});
+		const r = runInProcess(SCRIPT, ["--root", outside]);
 		fs.rmSync(outside, { recursive: true, force: true });
 		expect(r.status).toBe(2);
 		expect(`${r.stdout}${r.stderr}`).toMatch(/^BROKEN: git ls-files failed/m);

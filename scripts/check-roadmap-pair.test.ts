@@ -7,9 +7,7 @@
  *
  * check-roadmap-pair.js reads the git index, so it is exercised inside a
  * throwaway repository rather than against this one — a test that staged files
- * here would fight the working tree it is running in. It is spawned, not run
- * in-process: check-roadmap-pair.js runs its check at load, with no main to
- * call (base §X3).
+ * here would fight the working tree it is running in.
  *
  * It is a hard gate in .husky/pre-commit: loosen a case and an interrupted
  * edit loop lands a roadmap whose digest describes another version.
@@ -20,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-roadmap-pair.js");
 const HTML = "docs/reference-roadmap.html";
@@ -36,12 +35,8 @@ const stage = (file: string, body: string) => {
 };
 
 const check = (env: NodeJS.ProcessEnv = process.env) => {
-	const r = spawnSync("node", [SCRIPT], { cwd: repo, encoding: "utf8", env });
-	return {
-		status: r.status ?? -1,
-		stdout: r.stdout ?? "",
-		stderr: r.stderr ?? "",
-	};
+	const r = runInProcess(SCRIPT, [], { cwd: repo, env });
+	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
 beforeEach(() => {
@@ -99,17 +94,13 @@ describe("check-roadmap-pair", () => {
 					encoding: "utf8",
 				});
 				expect(run.status, run.stderr).toBe(0);
-				const wrote = spawnSync(
-					"node",
-					[
-						path.resolve(
-							__dirname,
-							"../.claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js",
-						),
-						HTML,
-						"--stdout",
-					],
-					{ cwd: repo, encoding: "utf8" },
+				const wrote = runInProcess(
+					path.resolve(
+						__dirname,
+						"../.claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js",
+					),
+					[HTML, "--stdout"],
+					{ cwd: repo },
 				).stdout;
 				expect(fs.readFileSync(path.join(repo, DIGEST), "utf8")).toBe(wrote);
 			} finally {

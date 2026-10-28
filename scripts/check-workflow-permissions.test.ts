@@ -19,7 +19,6 @@
  * the R1 ceiling.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -53,8 +52,7 @@ const sameRepoHost = () => {
 };
 
 const run = (...args: string[]) =>
-	spawnSync("node", [SCRIPT, dir, ...args], {
-		encoding: "utf8",
+	runInProcess(SCRIPT, [dir, ...args], {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: sameRepoHost() },
 	});
 
@@ -329,9 +327,7 @@ describe("BROKEN, not a finding, when the input cannot be read (mantahostels#155
 
 	it("is BROKEN on a directory that does not exist, naming the path", () => {
 		const missing = path.join(dir, "nope");
-		const r = spawnSync("node", [SCRIPT, missing, "--json"], {
-			encoding: "utf8",
-		});
+		const r = runInProcess(SCRIPT, [missing, "--json"]);
 		expect(r.status).toBe(2);
 		const e = JSON.parse(r.stdout);
 		expect(e.outcome).toBe("BROKEN");
@@ -470,8 +466,7 @@ describe("invocation", () => {
 	});
 
 	it("defaults to the repo's own .github/workflows and inspects jobs there", () => {
-		const r = spawnSync("node", [SCRIPT, "--json"], {
-			encoding: "utf8",
+		const r = runInProcess(SCRIPT, ["--json"], {
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: path.resolve(__dirname, ".."),
