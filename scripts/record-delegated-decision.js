@@ -28,6 +28,7 @@
 const { parseErrLine, gh } = require("./lib/gh.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 const { findOwnComment, scriptIo } = require("./lib/tracker-ops.js");
 const decision = require("./lib/delegated-decision.js");
 const { LOW_TOP } = require("./lib/close-rivals.js");
@@ -88,9 +89,8 @@ function main() {
 		min: 1,
 	});
 	const ticket = positionals[0] ?? "";
-	if (!/^#?\d+$/.test(ticket))
-		io.fail(`'${ticket}' is not an issue number. ${USAGE}`, 2);
-	const n = Number(ticket.replace(/^#/, ""));
+	const n = parseIssueNumber(ticket);
+	if (n === null) io.fail(`'${ticket}' is not an issue number. ${USAGE}`, 2);
 
 	const parsed = decision.entryFrom(flags);
 	if ("faults" in parsed)

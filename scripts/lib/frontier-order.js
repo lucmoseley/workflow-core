@@ -1,8 +1,11 @@
 /*
  * frontier-order.js — the shortlist's sort levels, shared by pick-next.js,
  * which ranks one repo's frontier, and lib/refill-frontier.js, which merges
- * every included repo's (#2003).
+ * every included repo's (#2003); and the waiting label pick-next.js ranks and
+ * lib/refill-decide.js skips (#3372).
  */
+
+const WAITING_LABEL = "waiting:external";
 
 /**
  * @typedef {object} SortLevels
@@ -106,4 +109,9 @@ function mergeFrontiers(repos) {
 	return { frontier, retroBundles };
 }
 
-module.exports = { compareLevels, joinInherited, mergeFrontiers };
+module.exports = {
+	WAITING_LABEL,
+	compareLevels,
+	joinInherited,
+	mergeFrontiers,
+};

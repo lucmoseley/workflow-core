@@ -38,6 +38,7 @@ const {
 	parseHandOff,
 } = require("./lib/hand-off.js");
 const { parseOrExit } = require("./lib/cli-args");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 const { repoRoot } = require("./lib/hook-block");
 const { scriptIo } = require("./lib/tracker-ops.js");
 
@@ -126,8 +127,8 @@ function main() {
 		usage: USAGE,
 		max: 1,
 	}).positionals;
-	if (!arg || !/^#?\d+$/.test(arg)) io.fail(USAGE, 2);
-	const n = Number(arg.replace(/^#/, ""));
+	const n = parseIssueNumber(arg);
+	if (n === null) io.fail(USAGE, 2);
 	const repo = io.trackerOrFail();
 
 	/** @type {{body?: string, html_url?: string}[]} */

@@ -38,6 +38,7 @@ const {
 	scriptIo,
 } = require("./lib/tracker-ops.js");
 const { parseOrExit } = require("./lib/cli-args");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 const { parseErrLine } = require("./lib/gh.js");
 const { PARKED_LABEL, setParked } = require("./lib/parked.js");
 
@@ -54,8 +55,8 @@ function main() {
 		usage: USAGE,
 		max: 1,
 	}).positionals;
-	if (!arg || !/^#?\d+$/.test(arg)) io.fail(USAGE, 2);
-	const n = Number(arg.replace(/^#/, ""));
+	const n = parseIssueNumber(arg);
+	if (n === null) io.fail(USAGE, 2);
 
 	const repo = io.trackerOrFail();
 

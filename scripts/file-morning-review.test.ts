@@ -6,6 +6,7 @@
  * and the loop files no review, or two in a day.
  */
 
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -364,14 +365,52 @@ describe("file-morning-review.js (#2011)", () => {
 
 		it("files nothing while a live run holds the reversal lock", () => {
 			seed([openReview()]);
-			fs.writeFileSync(
-				path.join(wfc(), ".claude", "tmp", "markers", "review-reversals.lock"),
-				String(process.pid),
+			/* pid-lock.js reads a holder by its command line, so the holder runs
+			 * a file of this script's name. */
+			const holderScript = path.join(
+				sb.dir,
+				"holder",
+				"file-morning-review.js",
 			);
+			fs.mkdirSync(path.dirname(holderScript), { recursive: true });
+			fs.writeFileSync(holderScript, "setInterval(() => {}, 1000);\n");
+			const holder = spawn(process.execPath, [holderScript], {
+				stdio: "ignore",
+			});
+			try {
+				fs.writeFileSync(
+					path.join(
+						wfc(),
+						".claude",
+						"tmp",
+						"markers",
+						"review-reversals.lock",
+					),
+					String(holder.pid),
+				);
+				const r = run(["--reversals-only"]);
+				expect(r.status).toBe(0);
+				expect(r.stdout).toContain("another run is answering reversals");
+				expect(readCreated()).toHaveLength(0);
+			} finally {
+				holder.kill();
+			}
+		});
+
+		it("takes over a reversal lock a live process holds that runs no morning review", () => {
+			seed([openReview()]);
+			const lock = path.join(
+				wfc(),
+				".claude",
+				"tmp",
+				"markers",
+				"review-reversals.lock",
+			);
+			fs.writeFileSync(lock, String(process.ppid));
 			const r = run(["--reversals-only"]);
 			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("another run is answering reversals");
-			expect(readCreated()).toHaveLength(0);
+			expect(readCreated()).toHaveLength(1);
+			expect(fs.existsSync(lock)).toBe(false);
 		});
 	});
 

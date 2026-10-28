@@ -7,7 +7,13 @@
  */
 
 const path = require("node:path");
+const { WAITING_LABEL } = require("./frontier-order.js");
 const { PARKED_LABEL } = require("./parked.js");
+const {
+	COMMAND_VALUES,
+	TAKES_PREFIX,
+	takesValue,
+} = require("./takes-label.js");
 const { presenceAt } = require("./presence.js");
 
 /* Spec #1995's stops: 24 hours after the last start (#1918), and three
@@ -18,15 +24,7 @@ const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
 const UNREAD = "unread";
-const WAITING_LABEL = "waiting:external";
-/* `human` and `children` are absent: neither has a command to launch. */
-const LAUNCHABLE = new Set([
-	"implement",
-	"wayfinder",
-	"to-spec",
-	"to-tickets",
-	"triage",
-]);
+const WAYFINDER = takesValue("wayfinder");
 /* Spec #1995's launch list names these and untyped for a `takes:wayfinder`
  * row, so a map at `takes:wayfinder` is skipped and its children launch on
  * their own; a map at any other kind launches (#1920, #2639). */
@@ -307,9 +305,9 @@ function buildSkipReason(row) {
 	if (row.labels.includes(WAITING_LABEL)) return WAITING_LABEL;
 	const [kind, ...more] = row.takes;
 	if (kind === undefined || more.length > 0)
-		return `takes:${row.takes.join("+") || "none"}`;
-	if (!LAUNCHABLE.has(kind)) return `takes:${kind}`;
-	if (kind !== "wayfinder") return null;
+		return `${TAKES_PREFIX}${row.takes.join("+") || "none"}`;
+	if (!COMMAND_VALUES.includes(kind)) return `${TAKES_PREFIX}${kind}`;
+	if (kind !== WAYFINDER) return null;
 	const type = row.labels.find(
 		(l) =>
 			l.startsWith(WAYFINDER_PREFIX) &&

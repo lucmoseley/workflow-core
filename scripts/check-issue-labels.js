@@ -94,11 +94,10 @@ const { scriptPath } = require("./lib/script-path");
 const {
 	CLOSE_WHEN_LINE,
 	CLOSE_WHEN_MARKER,
+	COMMAND_VALUES,
 	OUTSIDE_MARKER,
-	TAKES_VALUES,
 	TRIED_MIN,
 	outsideLineFault,
-	NO_COMMAND_VALUES,
 	takesLabel,
 } = require("./lib/takes-label");
 
@@ -121,10 +120,6 @@ const CHILDREN_LABEL = takesLabel("children");
  */
 const FOUNDER_COMMAND_GATE =
 	/\bfounder\b[^—.;]*?\b(types?|typing|runs?|running|invokes?|fires?|launches?)\b[^—.;]*?[\s`(]\/([a-z][a-z0-9-]*)/i;
-/* The commands a `takes:` value names: every value but the two no command opens. */
-const TAKES_COMMANDS = new Set(
-	TAKES_VALUES.filter((v) => !NO_COMMAND_VALUES.includes(v)),
-);
 /** @type {Record<NonNullable<ReturnType<typeof outsideLineFault>>["fault"] | "NO-CLOSE-WHEN", [string, string]>} */
 const HUMAN_FAULTS = {
 	"NO-OUTSIDE-ACT": [
@@ -151,7 +146,7 @@ const HUMAN_FAULTS = {
 
 /** @param {string} name */
 const isCommand = (name) =>
-	TAKES_COMMANDS.has(name) ||
+	COMMAND_VALUES.includes(name) ||
 	fs.existsSync(path.join(hostRoot(), ".claude", "skills", name)) ||
 	fs.existsSync(path.join(hostRoot(), ".claude", "commands", `${name}.md`));
 
@@ -457,7 +452,7 @@ function checkGates(iss, raise) {
 			"FAIL",
 			"COMMAND-GATE",
 			`gated on the founder typing /${typed} — a dispatched session types it too, so the gate only stops dispatch`,
-			TAKES_COMMANDS.has(typed)
+			COMMAND_VALUES.includes(typed)
 				? `relabel takes:${typed} and delete the Gated on line`
 				: "delete the Gated on line and give it the takes: value of the command that opens it",
 		);

@@ -49,6 +49,7 @@ const { RUN_MS } = require("./lib/refill-decide.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { readDeclaredSeats } = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
+const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { checkoutEnv, exclusionOf, homeDir } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
 const refillBatch = require("./lib/refill-batch.js");
@@ -123,11 +124,9 @@ function parseStartScope(parsed, root) {
 		return "--repo is normal mode's; away mode serves every included checkout";
 	if (!away && exclude.length > 0) return "--exclude needs --away";
 	const goalText = String(parsed.flags["--goal"] ?? "");
-	const goal = goalText
-		.split(/[,\s]+/)
-		.filter(Boolean)
-		.map((s) => Number(s.replace(/^#/, "")));
-	if (goal.some((n) => !Number.isInteger(n) || n <= 0))
+	const words = parseIssueNumbers(goalText);
+	const goal = words.flatMap((n) => (n !== null && n > 0 ? [n] : []));
+	if (goal.length < words.length)
 		return `--goal takes issue numbers: ${goalText}`;
 	const named = checkoutsNamed(away ? exclude : repos);
 	if (typeof named === "string") return named;

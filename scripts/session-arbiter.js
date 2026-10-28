@@ -49,6 +49,7 @@ const {
 const fs = require("node:fs");
 const path = require("node:path");
 const store = require("./lib/arbiter-store.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 const waitMod = require("./lib/arbiter-wait.js");
 const toolRecord = require("./lib/arbiter-tool-record.js");
 const { parseOrCode } = require("./lib/cli-args");
@@ -3664,9 +3665,8 @@ function debtOwn(rest) {
 		writeStderr(`session-arbiter: ${filePath} is not in this repo\n`);
 		return 2;
 	}
-	if (issue === undefined || !/^#?\d+$/.test(issue))
-		return refuseUsage(buildUsage([DEBT_OWN]));
-	const number = Number(issue.replace(/^#/, ""));
+	const number = parseIssueNumber(issue);
+	if (number === null) return refuseUsage(buildUsage([DEBT_OWN]));
 	let stored;
 	try {
 		stored = store.ownDebt(
@@ -3763,12 +3763,11 @@ function debtClear(rest) {
 		writeStderr(`session-arbiter: ${filePath} is not in this repo\n`);
 		return 2;
 	}
-	if (issue !== undefined && !/^(#?\d+|unowned)$/.test(issue))
+	const named =
+		issue === undefined || issue === "unowned" ? null : parseIssueNumber(issue);
+	if (issue !== undefined && issue !== "unowned" && named === null)
 		return refuseUsage(buildUsage([DEBT_COMMANDS.clear.line]));
-	const owner =
-		issue === undefined || issue === "unowned"
-			? issue
-			: issue.replace(/^#/, "");
+	const owner = named === null ? issue : String(named);
 	const result = store.clearDebt(rel, owner);
 	const refused = clearRefusal(result, rel);
 	if (refused !== undefined) return refused;

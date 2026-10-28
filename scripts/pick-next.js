@@ -140,7 +140,8 @@ const {
 	entryHolds,
 	DEFAULT_WINDOW_HOURS: DISPATCH_WINDOW_HOURS,
 } = require("./lib/dispatch-ledger");
-const { compareLevels } = require("./lib/frontier-order.js");
+const { WAITING_LABEL, compareLevels } = require("./lib/frontier-order.js");
+const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { labelAge } = require("./lib/label-age.js");
 const { snapshotFile } = require("./lib/pick-next-snapshot.js");
 
@@ -180,7 +181,6 @@ const URGENT_LABEL = "urgent";
  * receipt-confirmation chase the research separates out — a factual question an
  * inbox answers without deciding anything — not the decision chase.
  */
-const WAITING_LABEL = "waiting:external";
 const WAITING_STALL_DAYS = 7;
 
 /*
@@ -226,11 +226,9 @@ const NO_LOG = flags["--no-log"] === true;
  */
 const NO_PREWARM = flags["--no-prewarm"] === true;
 const goalSet = new Set(
-	String(flagValue(flags, "--goal") ?? "")
-		.split(/[,\s]+/)
-		.filter(Boolean)
-		.map((s) => Number(s.replace(/^#/, "")))
-		.filter(Number.isInteger),
+	parseIssueNumbers(String(flagValue(flags, "--goal") ?? "")).filter(
+		(n) => n !== null,
+	),
 );
 
 /** @param {string} path */

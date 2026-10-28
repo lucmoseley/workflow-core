@@ -67,6 +67,7 @@ const fs = require("node:fs");
 const { listedSessionIds } = require("./lib/agent-liveness");
 const { scriptPath } = require("./lib/script-path.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 const { parseErrLine, ghGetRetrying } = require("./lib/gh");
 const { blockedByMany } = require("./lib/blocked-by-batch");
 const { resolveGate } = require("./lib/issue-gate");
@@ -150,11 +151,11 @@ function parseArgs(flags) {
 	if (raw === undefined) return { numbers, map: null };
 	// A non-number here would otherwise be pasted straight into an API path,
 	// where GitHub's 404 reads as "the map has no children".
-	if (!/^#?\d+$/.test(raw))
-		return { error: `--map wants an issue number, not ${raw}` };
+	const map = parseIssueNumber(raw);
+	if (map === null) return { error: `--map wants an issue number, not ${raw}` };
 	if (numbers)
 		return { error: "--numbers and --map are alternatives, not a pair" };
-	return { numbers, map: Number(raw.replace(/^#/, "")) };
+	return { numbers, map };
 }
 
 /**

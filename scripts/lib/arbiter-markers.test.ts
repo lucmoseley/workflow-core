@@ -24,6 +24,10 @@ import {
 	live,
 	markers as markersMod,
 } from "./arbiter-testkit";
+import { MARKER_PREFIX as PARKED_PREFIX } from "./parked-marker.js";
+
+/* An hour past arbiter-markers.js's 24-hour MARKER_AGE_MS. */
+const AGED_MS = 25 * 60 * 60 * 1000;
 
 const sb = freshSandbox();
 
@@ -45,7 +49,7 @@ describe("marker sweep — the backstop's per-session files in the repo root", (
 	/** The five files concision-backstop.sh leaves behind for one session. */
 	const markers = (sessionId: string, old = false) => {
 		fs.mkdirSync(markersDir(), { recursive: true });
-		const when = new Date(Date.now() - 25 * 60 * 60 * 1000);
+		const when = new Date(Date.now() - AGED_MS);
 		for (const p of prefixes) {
 			const full = path.join(markersDir(), p + sessionId);
 			fs.writeFileSync(full, "");
@@ -76,6 +80,19 @@ describe("marker sweep — the backstop's per-session files in the repo root", (
 		markersMod.pruneMarkers();
 
 		expect(surviving("bob")).toEqual([]);
+	});
+
+	it("sweeps a finished session's aged park marker, by parked-marker.js's own prefix (#3372)", () => {
+		markers("bob", true);
+		const parked = path.join(markersDir(), `${PARKED_PREFIX}bob`);
+		fs.writeFileSync(parked, "12\n");
+		const when = new Date(Date.now() - AGED_MS);
+		fs.utimesSync(parked, when, when);
+		finished(sb, "bob");
+
+		markersMod.pruneMarkers();
+
+		expect(fs.existsSync(parked)).toBe(false);
 	});
 
 	it("sweeps the markers of a session that was never registered", () => {

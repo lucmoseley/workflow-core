@@ -77,6 +77,7 @@ const {
 	similarTitles,
 } = require("./lib/tracker-ops.js");
 const { caught } = require("./lib/caught.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 
 const USAGE =
 	'usage: node scripts/file-issue.js --title T --label L [--label L…] (--parent P | --standalone "<why>") --body-file F|- [--assign-self] [--distinct-from N[,N…]]\n       node scripts/file-issue.js --check "<title>"';
@@ -99,13 +100,6 @@ const SPEC = {
 /** @type {import("./lib/tracker-ops.js").ScriptIo} */
 const io = scriptIo("file-issue");
 
-/**
- * `value` as an issue number, `#` optional; null where it is not one.
- * @param {string} value
- */
-const issueNumber = (value) =>
-	/^#?\d+$/.test(value.trim()) ? Number(value.trim().replace(/^#/, "")) : null;
-
 /** @param {import("./lib/cli-args.js").Parsed} parsed */
 function readOpts({ flags, lists }) {
 	/** @type {{title?: string, labels: string[], parent?: number, standalone?: string, bodyFile?: string, assignSelf: boolean, distinct: Set<number>}} */
@@ -119,7 +113,7 @@ function readOpts({ flags, lists }) {
 	};
 	const parent = flagValue(flags, "--parent");
 	if (parent !== undefined) {
-		const n = issueNumber(parent);
+		const n = parseIssueNumber(parent);
 		if (n === null) io.fail(`--parent '${parent}' is not an issue number.`, 2);
 		opts.parent = /** @type {number} */ (n);
 	}
@@ -154,7 +148,7 @@ function distinctFrom(csvs) {
 	const distinct = new Set();
 	for (const csv of csvs)
 		for (const part of csv.split(",")) {
-			const n = issueNumber(part);
+			const n = parseIssueNumber(part);
 			if (n === null)
 				io.fail(
 					`--distinct-from '${csv}' is not a comma-separated list of issue numbers.`,

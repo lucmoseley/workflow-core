@@ -44,6 +44,7 @@
  */
 
 const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const {
@@ -94,9 +95,10 @@ const pause = () => {
 
 function parseIssueArg() {
 	const [arg, ...extra] = process.argv.slice(2);
-	if (arg === undefined || extra.length > 0 || !/^#?\d+$/.test(arg))
+	const n = parseIssueNumber(arg);
+	if (n === null || extra.length > 0)
 		io.fail(`one issue number, the brief's, and nothing else. ${USAGE}`, 2);
-	return Number(arg.replace(/^#/, ""));
+	return n;
 }
 
 /**

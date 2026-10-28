@@ -96,6 +96,7 @@ const {
 	scriptIo,
 } = require("./lib/tracker-ops.js");
 const { caught } = require("./lib/caught.js");
+const { parseIssueNumber } = require("./lib/issue-number.js");
 
 const USAGE =
 	'usage: node scripts/resolve-ticket.js <n> --comment-file F|- [--decision "<one line>"] [--reason completed|"not planned"]';
@@ -111,8 +112,9 @@ function parseArgs(argv) {
 	const a = { reason: "completed" };
 	let i = 0;
 	for (let arg = argv[i]; arg !== undefined; arg = argv[++i]) {
-		if (/^#?\d+$/.test(arg) && a.n === undefined) {
-			a.n = Number(arg.replace(/^#/, ""));
+		const n = parseIssueNumber(arg);
+		if (n !== null && a.n === undefined) {
+			a.n = n;
 			continue;
 		}
 		if (!["--comment-file", "--decision", "--reason"].includes(arg))

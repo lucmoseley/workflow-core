@@ -67,6 +67,7 @@ const kills = require("./lib/earlyoom-kills.js");
 const review = require("./lib/morning-review.js");
 const reversal = require("./lib/review-reversal.js");
 const { markersDir } = require("./lib/marker-root.js");
+const { pidLock } = require("./lib/pid-lock.js");
 const { discoverRepos, homeDir } = require("./lib/refill-repos.js");
 const { labelAge } = require("./lib/label-age.js");
 const { PARKED_LABEL } = require("./lib/parked.js");
@@ -176,7 +177,7 @@ function readRepo(root, since) {
 	} catch (e) {
 		return {
 			reading: null,
-			unread: [{ repo, why: parseErrLine(e) || caught(e).message }],
+			unread: [{ repo, why: parseErrLine(e) }],
 		};
 	}
 }
@@ -203,9 +204,7 @@ function readStalls(repo) {
 	} catch (e) {
 		return {
 			read: [],
-			unread: [
-				{ repo, why: `stall tickets: ${parseErrLine(e) || caught(e).message}` },
-			],
+			unread: [{ repo, why: `stall tickets: ${parseErrLine(e)}` }],
 		};
 	}
 }
@@ -226,7 +225,7 @@ function readKills(tracker, since) {
 	} catch (e) {
 		return {
 			incidents,
-			tickets: parseErrLine(e) || caught(e).message,
+			tickets: parseErrLine(e),
 			why,
 		};
 	}
@@ -321,7 +320,7 @@ function readOpenLabelled(repo, label) {
 	} catch (e) {
 		return {
 			repo,
-			why: `${label} issues: ${parseErrLine(e) || caught(e).message}`,
+			why: `${label} issues: ${parseErrLine(e)}`,
 		};
 	}
 }
@@ -341,7 +340,7 @@ function readLabelAgeOn(repo, number, label) {
 			events: ghApiSlurp([`repos/${repo}/issues/${number}/timeline`]),
 		};
 	} catch (e) {
-		timeline = { ok: false, error: parseErrLine(e) || caught(e).message };
+		timeline = { ok: false, error: parseErrLine(e) };
 	}
 	return labelAge(timeline, label);
 }
@@ -576,33 +575,6 @@ function rootsByTracker() {
 }
 
 /**
- * Take the reversal lock: false where a live run holds it. A dead holder's
- * lock is taken over.
- * @param {string} lock
- */
-function takeLock(lock) {
-	for (let attempt = 0; attempt < 2; attempt++) {
-		try {
-			fs.writeFileSync(lock, String(process.pid), { flag: "wx" });
-			return true;
-		} catch (e) {
-			if (caught(e).code !== "EEXIST") throw e;
-			const pid = Number(fs.readFileSync(lock, "utf8").trim());
-			try {
-				if (pid > 0) {
-					process.kill(pid, 0);
-					return false;
-				}
-			} catch {
-				/* Its holder is gone. */
-			}
-			fs.rmSync(lock, { force: true });
-		}
-	}
-	return false;
-}
-
-/**
  * Answer every unanswered `reverse <n>` on the review issues open or closed
  * in the last RECENTLY_CLOSED_MS. The exit code, the worst of its requests'.
  * @param {string} tracker
@@ -633,8 +605,11 @@ function answerReversals(tracker, dryRun) {
 		return requests.length === 0 ? [] : [{ issue: i, requests }];
 	});
 	if (pending.length === 0) return 0;
-	const lock = path.join(markersDir(hostRoot()), LOCK);
-	if (!dryRun && !takeLock(lock)) {
+	const lock = pidLock(
+		path.join(markersDir(hostRoot()), LOCK),
+		path.basename(__filename),
+	);
+	if (!dryRun && !lock.acquire()) {
 		io.out("another run is answering reversals; left to it.\n");
 		return 0;
 	}
@@ -659,7 +634,7 @@ function answerReversals(tracker, dryRun) {
 		}
 		return code;
 	} finally {
-		if (!dryRun) fs.rmSync(lock, { force: true });
+		if (!dryRun) lock.release();
 	}
 }
 

@@ -34,6 +34,10 @@ const TAKES_PREFIX = "takes:";
 
 /* No `/`-command opens these two: human is founder work, children a container. */
 const NO_COMMAND_VALUES = ["human", "children"];
+/* The values a `/`-command opens: every value but those two. */
+const COMMAND_VALUES = TAKES_VALUES.filter(
+	(v) => !NO_COMMAND_VALUES.includes(v),
+);
 
 /**
  * `value`, refused where it is not one of the seven, so a script naming a
@@ -208,6 +212,7 @@ function takesRefusal(labels, body) {
 module.exports = {
 	CLOSE_WHEN_LINE,
 	CLOSE_WHEN_MARKER,
+	COMMAND_VALUES,
 	FOUNDER_ACTS,
 	NO_COMMAND_VALUES,
 	OUTSIDE_MARKER,

@@ -26,7 +26,8 @@ const { isFounderTyping } = require("./lib/founder-typing");
 const hookMessage = require("./lib/hook-message");
 const { hostRoot } = require("./lib/host-root");
 const { trackerOf } = require("./lib/outstanding-line");
-const { readParkedBy, setParked, writeParkedBy } = require("./lib/parked");
+const { setParked } = require("./lib/parked");
+const { readParkedBy, writeParkedBy } = require("./lib/parked-marker.js");
 const sessionId = require("./lib/session-id");
 const { guardDisabled } = require("./lib/workflow-core-config");
 

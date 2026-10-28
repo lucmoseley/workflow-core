@@ -31,6 +31,8 @@ const { markersDir } = require("./marker-root.js");
 const {
 	PREFIXES: pricedOptionsPrefixes,
 } = require("./priced-options-limbs.js");
+/* The park marker's prefix, off its owner for the same reason. */
+const { MARKER_PREFIX: PARKED_PREFIX } = require("./parked-marker.js");
 
 // ---------------------------------------------------------------------------
 // The hook markers — under .claude/tmp/markers (F8, mantahostels#3515, issue #2),
@@ -97,7 +99,7 @@ const MARKER_PREFIXES = [
 	".unpushed-nagged-",
 	".unpushed-seen-",
 	".paste-self-match-nagged-",
-	".parked-",
+	PARKED_PREFIX,
 	".jev-advisory-nagged-",
 	".jev-advisory-outage-",
 	".jev-advisory-malformed-",
