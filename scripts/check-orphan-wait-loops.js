@@ -37,9 +37,9 @@
  * ghost job is a record to retire; an orphaned loop is a live process consuming
  * a slot until someone kills it.
  *
- * /proc IS READ THROUGH lib/proc-table.js, which owns the stat parse, the
- * derivation of age from uptime, and the WFC_PROC_ROOT seam that replaces
- * /proc with a fixture directory.
+ * /proc IS READ THROUGH lib/proc-table.js, which owns the stat parse and the
+ * derivation of age from uptime; lib/proc-environ.js owns the WFC_PROC seam
+ * that replaces /proc with a fixture directory.
  *
  * DEGRADES TO SILENCE, NEVER TO "DEAD". No /proc, an unreadable root, an
  * unreadable uptime, or a root that lists pids of which NOT ONE reads — the
@@ -73,10 +73,10 @@ const {
 	ageSeconds,
 	describeAge,
 	ownTree,
-	procRoot,
 	readProcTable,
 	readUptime,
 } = require("./lib/proc-table.js");
+const { procRoot } = require("./lib/proc-environ.js");
 const { scriptPath } = require("./lib/script-path.js");
 
 /* The threshold, a judgement and not a measurement (mantahostels#2012). */

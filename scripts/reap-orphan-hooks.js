@@ -21,7 +21,7 @@
  * writes its fields). Lines are kept
  * RETAIN_MS. An unwritable log costs the line, never the kill.
  *
- * WFC_PROC_ROOT REPLACES /proc (lib/proc-table.js). A run against it names
+ * WFC_PROC REPLACES /proc (lib/proc-environ.js). A run against it names
  * what it would kill and kills and logs nothing — unless WFC_REAP_FAKE_ROOT
  * is `kill`, which a test sets to cross the real kill and log against a fake
  * root that links in only its own orphan (#3057).
@@ -36,7 +36,7 @@
  *
  * IMPLICIT:  at every session start, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; and names each kill in the session.
  * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a run that cannot read /proc kills nothing.
- * DEFEAT:    none at the hook; WFC_PROC_ROOT on a hand run reads a fixture and kills nothing.
+ * DEFEAT:    none at the hook; WFC_PROC on a hand run reads a fixture and kills nothing.
  */
 
 const { runCheck } = require("./lib/check");
@@ -54,10 +54,10 @@ const {
 const {
 	describeAge,
 	ownTree,
-	procRoot,
 	readProcTable,
 	readUptime,
 } = require("./lib/proc-table.js");
+const { procRoot } = require("./lib/proc-environ.js");
 
 const REAP_LOG = ".orphan-hook-reaps.jsonl";
 /* 30 days, chosen and not measured: a month of incident traces, the span

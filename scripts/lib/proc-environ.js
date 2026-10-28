@@ -1,6 +1,8 @@
 /*
  * proc-environ.js — one variable out of `/proc/<pid>/environ` (#3322), which
- * holds a process's environment as it was at exec, NUL-separated.
+ * holds a process's environment as it was at exec, NUL-separated; and the
+ * repo's one /proc seam, `procRoot` on WFC_PROC, which every /proc reader
+ * takes, environ or not (#3505).
  *
  * A leaf: it depends on nothing but `fs` and `path`.
  */

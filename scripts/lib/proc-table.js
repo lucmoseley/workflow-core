@@ -10,7 +10,9 @@
  * Node exposes no sysconf to read it. It is not a safe-either-way guess: too
  * large silently misses orphans, too small invents them.
  *
- * WFC_PROC_ROOT REPLACES /proc; lib/proc-fake.ts writes one.
+ * Every reader takes the /proc to read as `root`; callers pass
+ * lib/proc-environ.js's procRoot(), which WFC_PROC replaces with a fixture
+ * lib/proc-fake.ts writes.
  */
 
 const fs = require("node:fs");
@@ -20,8 +22,6 @@ const { trimEndRun } = require("./trim-run.js");
 
 /** Kernel clock ticks per second. */
 const USER_HZ = 100;
-
-const procRoot = () => process.env.WFC_PROC_ROOT || "/proc";
 
 /**
  * @typedef {{ pid: number, ppid: number, pgid: number, startTicks: number,
@@ -164,7 +164,6 @@ module.exports = {
 	ageSeconds,
 	describeAge,
 	ownTree,
-	procRoot,
 	readProcTable,
 	readStartTicks,
 	readUptime,

@@ -1,11 +1,10 @@
 /*
- * proc-fake.ts — the fake `/proc` a program test points its procfs seam at:
- * the carried-weight reader's WFC_PROC (#2948), one directory a process, its
- * `environ` NUL-separated as the kernel's is; and the orphan sweeps'
- * WFC_PROC_ROOT (#3057), each process's stat and cmdline and the machine's
- * uptime; and the spare-pair test's WFC_PROC (#2502), each process's `cwd`
- * link; and admission's WFC_PROC and WFC_LOADAVG (#3342), each process's
- * `smaps_rollup` and the machine's load. proc.contract.test.ts holds them all
+ * proc-fake.ts — the fake `/proc` a program test points WFC_PROC at: one
+ * directory a process, with the carried-weight reader's `environ`
+ * NUL-separated as the kernel's is (#2948); the orphan sweeps' stat and
+ * cmdline and the machine's uptime (#3057); the spare-pair test's `cwd` link
+ * (#2502); and admission's `smaps_rollup`, with WFC_LOADAVG the machine's
+ * load (#3342). proc.contract.test.ts holds them all
  * to the kernel's.
  *
  * FOR TESTS ONLY.

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Pins reap-orphan-hooks.js end to end against a synthetic /proc on
- * WFC_PROC_ROOT (lib/proc-fake.ts) and the core's real hook registry: it
+ * WFC_PROC (lib/proc-fake.ts) and the core's real hook registry: it
  * names an orphaned hook run past the ceiling, leaves one inside it alone,
  * kills nothing under a fixture root, degrades to SKIP where /proc or its
  * uptime cannot be read, and is BROKEN on a hook file it cannot parse
@@ -52,7 +52,7 @@ afterEach(() => {
 
 function run(
 	args: string[] = ["--json"],
-	env: Record<string, string> = { WFC_PROC_ROOT: fixture.root },
+	env: Record<string, string> = { WFC_PROC: fixture.root },
 	cwd?: string,
 ) {
 	return runInProcess(SCRIPT, args, {
@@ -111,7 +111,7 @@ describe("reap-orphan-hooks", () => {
 	});
 
 	it("skips, never all-clear, where /proc will not list", () => {
-		const out = json({ WFC_PROC_ROOT: path.join(fixture.root, "absent") });
+		const out = json({ WFC_PROC: path.join(fixture.root, "absent") });
 
 		expect(out.status).toBe(0);
 		expect(out.outcome).toBe("SKIP");
@@ -145,7 +145,7 @@ describe("reap-orphan-hooks", () => {
 			fs.writeFileSync(path.join(host, ".claude", "settings.json"), "{");
 
 			const out = json({
-				WFC_PROC_ROOT: fixture.root,
+				WFC_PROC: fixture.root,
 				CLAUDE_PROJECT_DIR: host,
 			});
 
@@ -218,7 +218,7 @@ describe("a real orphaned guard", () => {
 				const res = run(
 					["--json"],
 					{
-						WFC_PROC_ROOT: fake.root,
+						WFC_PROC: fake.root,
 						WFC_REAP_FAKE_ROOT: "kill",
 						CLAUDE_PROJECT_DIR: dir,
 					},

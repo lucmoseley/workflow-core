@@ -5,7 +5,7 @@
  * this session's own tree.
  *
  * Every test drives the real script end to end through lib/run-in-process.js,
- * against a synthetic /proc tree on WFC_PROC_ROOT (lib/proc-fake.ts).
+ * against a synthetic /proc tree on WFC_PROC (lib/proc-fake.ts).
  *
  * The fixture shape is the ruling (mantahostels#2017): parent an init (pid 1, or
  * a `/init` at another pid, #3055), an argv carrying a `while`/`until` and a
@@ -59,7 +59,7 @@ function proc(
 
 function run(...args: string[]) {
 	const res = runInProcess(SCRIPT, args, {
-		env: { ...process.env, WFC_PROC_ROOT: root },
+		env: { ...process.env, WFC_PROC: root },
 	});
 	return { ...res, out: `${res.stdout}${res.stderr}` };
 }
