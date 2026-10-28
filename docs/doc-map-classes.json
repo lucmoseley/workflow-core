@@ -2091,7 +2091,7 @@
 		"section": "Non-prose",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "Type-checks hooks/register.ts, with the liveness mod's copy of the engine's declarations and its state contract.",
+		"role": "Type-checks hooks/register.ts, with the liveness mod's copy of the engine's declarations and the liveness and delivery mods' state contracts.",
 		"route": "Edited directly; npm run typecheck runs it as its fifth pass.",
 		"consumes": null
 	},
