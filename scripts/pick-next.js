@@ -36,8 +36,7 @@
  *      open issues is the inverse of some open issue's blocked_by, so inverting
  *      halves the call count.
  *
- * The sort is mantahostels#106's five levels plus mantahostels#259's, #2001's, #2664's
- * and #3222's, lexicographic:
+ * The sort, lexicographic (mantahostels#106, mantahostels#259, #2001, #2664, #3222):
  *   open `bug` -> `urgent`, own or inherited -> goal-set membership
  *   -> stalled wait -> ticket type
  *   -> chain depth -> transitive reach -> collision -> number
@@ -523,12 +522,13 @@ function groupOf(issue, mapNumbers, specNumbers) {
 }
 
 /*
- * Collision estimate — mantahostels#106 level 4, and its weakest ruling (70%, band 55-82%). A
- * `wayfinder:grilling` or `:research` ticket resolves by writing a comment and
- * closing an issue, touching no repo file, so it cannot collide with a parallel
- * session on `doc-map.md` or the roadmap pair. Everything else is assumed to
- * write. This reads labels applied for other reasons — mantahostels#96 ruled out a label
- * declaring what a session will touch, because that is a promise agents break.
+ * Collision estimate — the collision sort level (mantahostels#106), and its
+ * weakest ruling (70%, band 55-82%). A `wayfinder:grilling` or `:research`
+ * ticket resolves by writing a comment and closing an issue, touching no repo
+ * file, so it cannot collide with a parallel session on `doc-map.md` or the
+ * roadmap pair. Everything else is assumed to write. This reads labels applied
+ * for other reasons — mantahostels#96 ruled out a label declaring what a
+ * session will touch, because that is a promise agents break.
  */
 const COMMENT_ONLY = ["wayfinder:grilling", "wayfinder:research"];
 /** @param {RawIssue} issue */
