@@ -1657,6 +1657,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-dispatch-shape.txt": [
+			"scripts/concision-backstop.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",

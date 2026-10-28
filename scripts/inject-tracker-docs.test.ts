@@ -792,7 +792,7 @@ describe("the review dispatch sentence (#1618, #1697)", () => {
 			const source = fs
 				.readFileSync(path.join(ROOT, "scripts", script), "utf8")
 				.replaceAll("\\`", "`");
-			expect(source).toContain("rule_text review-dispatch-shape");
+			expect(source).toMatch(/\brule_(?:text|or_path) review-dispatch-shape\b/);
 			expect(source).not.toContain("SINGLE message");
 			expect(source).not.toContain("three or four on an escalated");
 		},

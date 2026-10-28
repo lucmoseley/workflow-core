@@ -92,6 +92,21 @@ source "$here/lib/code-signal.sh" 2>/dev/null || {
 # shellcheck source=scripts/lib/rule-text.sh
 source "$here/lib/rule-text.sh" 2>/dev/null ||
   gl_log "lib/rule-text.sh did not load — nags named their rule fragments' paths"
+
+# rule_or_path <id> <lead-in> <tail> — rule fragment <id>'s text, else
+# "<lead-in> <its path><tail>", logging the miss.
+rule_or_path() {
+  local text where
+  text="$(rule_text "$1" 2>/dev/null)"
+  if [[ -n "$text" ]]; then
+    printf '%s' "$text"
+    return
+  fi
+  gl_log "rule:$1 unreadable — nag printed its path instead"
+  where="$(doc_path "agents/rules/$1.txt" 2>/dev/null)" || where="docs/agents/rules/$1.txt"
+  printf '%s %s%s' "$2" "$where" "$3"
+}
+
 cd "$(gr_root)" 2>/dev/null || exit 0
 # Resolved once, after the cd above, so every marker path below is this
 # absolute directory plus a bare filename.
@@ -262,11 +277,7 @@ if { [[ -z "$was_escalated" ]] || [[ -n "$new_marker" ]]; } &&
   # assignment there (RULE_TEXT_RHS), so a helper's output would count as zero.
   # inject-tracker-docs.test.ts finds the concision pass's pin by the
   # `fresh-reader agents on` before it (mantahostels#2614).
-  dispatch_shape="$(rule_text review-dispatch-shape 2>/dev/null)"
-  if [[ -z "$dispatch_shape" ]]; then
-    shape_path="$(doc_path agents/rules/review-dispatch-shape.txt 2>/dev/null)" || shape_path=docs/agents/rules/review-dispatch-shape.txt
-    dispatch_shape="Dispatch the review runs as $shape_path says."
-  fi
+  dispatch_shape="$(rule_or_path review-dispatch-shape "Dispatch the review runs as" " says.")"
   [[ -n "$cs_implement" ]] &&
     reason+="This session ran /implement, so the two-axis review is mandatory at any diff size — the ${CODE_THRESHOLD}-line churn floor does not apply here (mantahostels#2769). "
   review_standards_log_missing_base 2>/dev/null
@@ -280,13 +291,7 @@ fi
 # the code nag restates part: no preloaded text carries them (#2031), and
 # no other gives the prose-file limb or the Door line.
 if [[ -n "$cs_implement" ]]; then
-  closing_steps="$(rule_text implement-closing-steps 2>/dev/null)"
-  if [[ -z "$closing_steps" ]]; then
-    cs_log "rule:implement-closing-steps unreadable — /implement nag printed its path instead"
-    steps_path="$(doc_path agents/rules/implement-closing-steps.txt 2>/dev/null)" || steps_path=docs/agents/rules/implement-closing-steps.txt
-    closing_steps="This session ran /implement: its closing steps are in $steps_path."
-  fi
-  reason+=" $closing_steps"
+  reason+=" $(rule_or_path implement-closing-steps "This session ran /implement: its closing steps are in" .)"
 fi
 jq -n --arg r "$reason" '{decision: "block", reason: $r}' 2>/dev/null || exit 0
 exit 0

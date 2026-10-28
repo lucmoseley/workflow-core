@@ -1441,17 +1441,21 @@ describe("a declared sensitive glob owes the escalated tier at any size — #161
 	});
 });
 
-describe("the /implement closing steps — #2031", () => {
-	const closingSteps = fs
-		.readFileSync(
-			path.resolve(
-				__dirname,
-				"../docs/agents/rules/implement-closing-steps.txt",
-			),
-			"utf8",
-		)
-		.trim();
+/* Each rule fragment's text, as rule_text prints it. */
+const closingSteps = fs
+	.readFileSync(
+		path.resolve(__dirname, "../docs/agents/rules/implement-closing-steps.txt"),
+		"utf8",
+	)
+	.trim();
+const dispatchShape = fs
+	.readFileSync(
+		path.resolve(__dirname, "../docs/agents/rules/review-dispatch-shape.txt"),
+		"utf8",
+	)
+	.trim();
 
+describe("the /implement closing steps — #2031", () => {
 	it("prints them whole on the prose nag of an /implement session", () => {
 		implementRan();
 		write("docs/mine.md", PARAGRAPH);
@@ -1479,29 +1483,48 @@ describe("the /implement closing steps — #2031", () => {
 		expect(reason).not.toContain(closingSteps);
 	});
 
-	it("names the fragment's path when the rule store cannot supply it", () => {
-		implementRan();
-		write("docs/mine.md", PARAGRAPH);
-		record("docs/mine.md", ME);
-		const empty = path.join(dir, "no-rules");
-		fs.mkdirSync(empty);
-
-		const reason =
-			run("stop", ME, {
-				WFC_RULES_DIR: empty,
-				WFC_RULES_FALLBACK_DIR: empty,
-			}) ?? "";
-		expect(reason).not.toContain(closingSteps);
-		expect(reason).toContain(
-			"its closing steps are in docs/agents/rules/implement-closing-steps.txt",
-		);
-	});
-
 	it("prints nothing when an /implement session owes no pass", () => {
 		implementRan();
 		write("docs/mine.md", "three short words\n");
 		record("docs/mine.md", ME);
 
 		expect(run("stop")).toBeNull();
+	});
+});
+
+describe("a rule store that cannot supply the fragments (#3439)", () => {
+	const noRules = () => {
+		const empty = path.join(dir, "no-rules");
+		fs.mkdirSync(empty);
+		return { WFC_RULES_DIR: empty, WFC_RULES_FALLBACK_DIR: empty };
+	};
+
+	it("names the closing steps' path and logs the miss", () => {
+		implementRan();
+		write("docs/mine.md", PARAGRAPH);
+		record("docs/mine.md", ME);
+
+		const reason = run("stop", ME, noRules()) ?? "";
+		expect(reason).not.toContain(closingSteps);
+		expect(reason).toContain(
+			"its closing steps are in docs/agents/rules/implement-closing-steps.txt.",
+		);
+		expect(readGuardErrorsLog(cfg)).toContain(
+			"rule:implement-closing-steps unreadable",
+		);
+	});
+
+	it("names the dispatch shape's path and logs the miss", () => {
+		write("scripts/mine.ts", `${BIG_CODE}\n`);
+		record("scripts/mine.ts", ME);
+
+		const reason = run("stop", ME, noRules()) ?? "";
+		expect(reason).not.toContain(dispatchShape);
+		expect(reason).toContain(
+			"Dispatch the review runs as docs/agents/rules/review-dispatch-shape.txt says.",
+		);
+		expect(readGuardErrorsLog(cfg)).toContain(
+			"rule:review-dispatch-shape unreadable",
+		);
 	});
 });

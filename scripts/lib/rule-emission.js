@@ -147,15 +147,17 @@ const emissionMatches = (text) => [...text.matchAll(INJECT_RULES_RE)];
 const RULE_ARG_RE = /["']?(?:rule:)?([a-z0-9]+(?:-[a-z0-9]+)*)["']?/g;
 
 /**
- * The DIRECT accessor call — a shell hook's `rule_text <id>` — which splices
- * the fragment into text the hook composes itself.
+ * The DIRECT accessor call — a shell hook's `rule_text <id>`, or
+ * concision-backstop.sh's `rule_or_path <id>`, which wraps it with a logged
+ * pointer fallback (#3439) — which splices the fragment into text the hook
+ * composes itself.
  *
  * UNANCHORED: the call sits inside a condition rather than at the head of its
  * own statement. The cost is that a mention in a comment matches, which
  * over-reports the census.
  */
 const DIRECT_RULE_RE =
-	/\brule_text\s+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))/g;
+	/\brule_(?:text|or_path)\s+(?:"(?:rule:)?([a-z0-9-]+)"|'(?:rule:)?([a-z0-9-]+)'|(?:rule:)?([a-z0-9-]+))/g;
 /**
  * The Node accessors' direct call, the id a quoted literal first, split across
  * lines as Biome formats it: `readRuleText`, `readRuleTextOr`, and `ruleText`,

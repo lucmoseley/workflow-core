@@ -37,7 +37,7 @@
 	"scripts/claim-issue.js": "bc6f5e3adce1b182",
 	"scripts/clear-rule-latch.sh": "8e78765216bf9eb7",
 	"scripts/commit-paths.js": "2313ce3203a48438",
-	"scripts/concision-backstop.sh": "d31b1b7f6c16e0d1",
+	"scripts/concision-backstop.sh": "debbf9c195591c22",
 	"scripts/guard-automode-refusal.js": "28bce35ab26d9272",
 	"scripts/guard-dispatch.js": "67582d9a732daa54",
 	"scripts/guard-failed-call-rules.js": "1b79d77c0d49326a",
