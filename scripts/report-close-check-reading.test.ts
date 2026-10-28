@@ -11,9 +11,6 @@
  * script in-process with `gh` stubbed, because the real corpus is
  * machine-local and the real issue must never be filed by a test.
  *
- * It runs detached at every session start (`sweep-debts-detached.sh`), so a
- * regression files a wrong or duplicate GitHub issue unattended.
- *
  * spawn-kept: the failing-gh case spawns, since a real process.exit skips the
  * gate's `finally`, which runInProcess's unwind would run, hiding a lock left
  * behind.

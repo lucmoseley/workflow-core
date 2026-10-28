@@ -27,9 +27,9 @@ const { readSessionHead, repoRootOf } = require("./session-head.js");
 const DAY_MS = 86_400_000;
 const CLAIM = "filing";
 /* A claim this old belongs to a run that died mid-filing. A guess, not a
- * measurement: a run takes about 2 s, so 10 minutes leaves wide margin. A live
- * run slower than that is overwritten, and the gh check alone then stands
- * between it and a second filing. */
+ * measurement: the walk took 51 to 55 s at a load of about 27 (#3220), so 10
+ * minutes leaves wide margin. A live run slower than that is overwritten, and
+ * the gh check alone then stands between it and a second filing. */
 const CLAIM_STALE_MS = 10 * 60_000;
 
 /**
@@ -304,10 +304,7 @@ function pairReplies(events, transcripts, answerable) {
 }
 
 /* Both readings' point figures, #1068 Q3 (A), which #1691 carried over to
- * the round reading. Close rounds ran 1 to 30 a day, so 7 days alone can hold
- * too few to read; 40 answered questions give a band of about ±14 points at
- * the close reading's 32% baseline, the least that separates its 16% line
- * from it; 21 days caps the wait. */
+ * the round reading. */
 const POINT_FIGURES = {
 	clockDays: 7,
 	countTarget: 40,

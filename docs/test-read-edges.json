@@ -21554,7 +21554,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/report-close-check-reading.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/sweep-debts-detached.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
