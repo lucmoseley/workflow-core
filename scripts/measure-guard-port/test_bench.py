@@ -1,8 +1,13 @@
 """Pins bench.py's per-call figures and deny count, and the paired gate a
-guard port is read by (#2733, #2783, #3216).
+guard port is read by (#2733, #2783, #3216), and that each dispatched tool's
+payload carries what its cores read (#3176).
 
 `one_call` runs real `/bin/sh` commands, since the parallel start and the
-children's rusage are what it measures.
+children's rusage are what it measures. The payload cases run `node`, since the
+subject a core reads is the dispatcher's `subjectFor` on the core's own
+`field`, and the Skill case runs the dispatcher itself.
+
+full-sweep-only: the payload case loads every core `guard-cores.json` names.
 """
 
 import json
@@ -56,6 +61,90 @@ def test_a_post_call_payload_carries_the_answer_and_a_file_tool_its_path(tmp_pat
         payload(str(tmp_path), "t", event="PostToolUse", tool="Write", cmd="/f")
     )
     assert write["tool_input"]["file_path"] == "/f" and write["tool_response"]
+
+
+REPO = HERE.parent.parent
+
+# Each (event, tool, core) triple's subject, read off its bench payload by the
+# dispatcher's own subjectFor: a core finding none fails open unjudged (#3176).
+UNREAD = """
+const { corePath } = require("./scripts/lib/guard-cores.js");
+const { subjectFor } = require("./scripts/lib/guard-entry.js");
+const triples = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+console.log(JSON.stringify(triples
+  .filter(([, , core, body]) => subjectFor(body, require(corePath(core))) === null)
+  .map(([event, tool, core]) => `${event} ${tool} ${core}`)));
+"""
+
+
+def test_every_dispatched_tools_payload_carries_the_subject_its_cores_read(tmp_path):
+    manifest = json.loads((REPO / "scripts/lib/guard-cores.json").read_text())
+    triples = [
+        [
+            event,
+            tool,
+            row["core"],
+            json.loads(
+                payload(str(tmp_path), "t", event=event, tool=tool, cmd="bench")
+            ),
+        ]
+        for event, rows in manifest.items()
+        if isinstance(rows, list)
+        for row in rows
+        for tool in row["tools"].split("|")
+    ]
+    assert any(t[:3] == ["PreToolUse", "Skill", "last30days.js"] for t in triples)
+    planted = [
+        "PreToolUse",
+        "Skill",
+        "last30days.js",
+        {"tool_input": {"file_path": "bench"}},
+    ]
+    done = subprocess.run(
+        ["node", "-e", UNREAD],
+        input=json.dumps([*triples, planted]),
+        capture_output=True,
+        text=True,
+        cwd=REPO,
+    )
+    assert done.returncode == 0, done.stderr
+    assert json.loads(done.stdout) == ["PreToolUse Skill last30days.js"]
+
+
+def test_dispatch_edit_and_fetch_payloads_carry_what_their_cores_read_beyond_the_subject(
+    tmp_path,
+):
+    def given(event, tool):
+        return json.loads(payload(str(tmp_path), "t", event=event, tool=tool, cmd="s"))
+
+    agent = given("PreToolUse", "Agent")["tool_input"]
+    assert agent["description"] and agent["subagent_type"]
+    edit = given("PreToolUse", "Edit")["tool_input"]
+    assert {"old_string", "new_string"} <= edit.keys()
+    assert given("PostToolUse", "WebFetch")["tool_response"]["result"]
+    assert given("PostToolUse", "WebSearch")["tool_response"]["results"]
+
+
+def test_a_skill_call_is_denied_by_the_last30days_core_naming_the_subagent_route(
+    tmp_path,
+):
+    body = payload(
+        str(tmp_path), "t", event="PreToolUse", tool="Skill", cmd="last30days"
+    )
+    done = subprocess.run(
+        ["node", str(REPO / "scripts/guard-dispatch.js")],
+        input=body,
+        capture_output=True,
+        env=dict(
+            os.environ,
+            CLAUDE_PROJECT_DIR=str(tmp_path),
+            CLAUDE_CONFIG_DIR=str(tmp_path / "config"),
+        ),
+    )
+    assert done.stdout, "allowed with no decision: the cores found no skill (#3176)"
+    out = json.loads(done.stdout)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny"
+    assert "last30days must run in a subagent" in out["permissionDecisionReason"]
 
 
 def test_a_detached_child_is_counted_once_it_exits_and_refused_while_it_runs(tmp_path):

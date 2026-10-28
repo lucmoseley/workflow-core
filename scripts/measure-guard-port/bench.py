@@ -61,11 +61,14 @@ PR_SET_CHILD_SUBREAPER = 36
 
 
 def tool_call(event: str, tool: str, cmd: str) -> dict:
-    """The call's input, and on PostToolUse the answer a recorder hashes:
-    without one the echo recorder stops before its work (#2787). For a file
-    tool, `cmd` is the file's path."""
+    """The call's input, in the shape the tool's cores read their subject from,
+    and on PostToolUse the answer a recorder hashes: without one the echo
+    recorder stops before its work (#2787). `cmd` is the subject: a file
+    tool's path, a Skill's name, a dispatch's prompt, a fetch's URL, a search's
+    query; ListAgents takes none (#3176). Skill, Agent, Task and ListAgents
+    dispatch no PostToolUse hook, so their answer is empty."""
     if tool == "Bash":
-        call = {"tool_input": {"command": cmd, "description": "bench"}}
+        given = {"command": cmd, "description": "bench"}
         answer = {
             "stdout": "bench",
             "stderr": "",
@@ -73,11 +76,35 @@ def tool_call(event: str, tool: str, cmd: str) -> dict:
             "isImage": False,
         }
     elif tool == "Read":
-        call = {"tool_input": {"file_path": cmd}}
+        given = {"file_path": cmd}
         answer = {"type": "text", "file": {"filePath": cmd, "content": "bench\n"}}
+    elif tool == "Edit":
+        given = {"file_path": cmd, "old_string": "bench\n", "new_string": "bench\n"}
+        answer = {"filePath": cmd, "oldString": "bench\n", "newString": "bench\n"}
+    elif tool == "NotebookEdit":
+        given = {"notebook_path": cmd, "new_source": "bench\n"}
+        answer = {"notebook_path": cmd, "new_source": "bench\n"}
+    elif tool == "Skill":
+        given, answer = {"skill": cmd}, {}
+    elif tool in ("Agent", "Task"):
+        given = {
+            "prompt": cmd,
+            "description": "bench",
+            "subagent_type": "general-purpose",
+        }
+        answer = {}
+    elif tool == "ListAgents":
+        given, answer = {}, {}
+    elif tool == "WebFetch":
+        given = {"url": cmd, "prompt": "bench"}
+        answer = {"url": cmd, "code": 200, "codeText": "OK", "result": "bench"}
+    elif tool == "WebSearch":
+        given = {"query": cmd}
+        answer = {"query": cmd, "results": ["bench"]}
     else:
-        call = {"tool_input": {"file_path": cmd, "content": "bench\n"}}
+        given = {"file_path": cmd, "content": "bench\n"}
         answer = {"type": "create", "filePath": cmd, "content": "bench\n"}
+    call = {"tool_input": given}
     if event == "PostToolUse":
         call["tool_response"] = answer
     return call
