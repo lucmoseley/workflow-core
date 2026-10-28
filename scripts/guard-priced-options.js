@@ -1038,19 +1038,13 @@ function founderActRefusal(message) {
  * @returns {string}
  */
 function readHouseDecisionRule() {
-	try {
-		return require("./lib/rule-text").readRuleText("house-decision");
-	} catch (e) {
-		/* A missing fragment costs the rule's text, never the refusal (#1705). */
-		failOpenLogger("guard-priced-options house-decision")?.(
-			`rule-text house-decision unreadable: ${e} — short fallback printed`,
-		);
-		return (
-			"Only a house decision reaches the founder: ask only what research " +
-			"leaves open, and name that gap. " +
-			require("./lib/rule-text").rulePointer("house-decision")
-		);
-	}
+	/* A missing fragment costs the rule's text, never the refusal (#1705). */
+	return require("./lib/rule-text").readRuleTextOr(
+		"house-decision",
+		"Only a house decision reaches the founder: ask only what research " +
+			"leaves open, and name that gap",
+		"guard-priced-options house-decision",
+	);
 }
 
 /**
@@ -1064,7 +1058,8 @@ function readHandoverRule() {
 	return require("./lib/rule-text").readRuleTextOr(
 		"founder-handover",
 		"Give the founder the exact literal text of each step, where to paste " +
-			"it and what he should see, and name what stops you acting on a " +
+			"it and what he should see. Where nothing stops you, act and report " +
+			"rather than asking who does it, and name what does stop you on a " +
 			"line of its own: `Blocked: <the refusal you hit, quoted, or the act " +
 			"only a person can do>`",
 		"guard-priced-options founder-hand-over",

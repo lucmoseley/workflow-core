@@ -142,6 +142,25 @@ describe("the threshold", () => {
 		expect(reason).toContain(readRuleText("house-decision"));
 	});
 
+	it("points at the rule file where the store will not read (#3189)", () => {
+		writeTranscript(file, founder(), ...calls(MIN_CALLS - 1));
+		const empty = fs.mkdtempSync(path.join(dir, "rules-"));
+		const reason = readStopGuardReason(GUARD, {
+			dir,
+			sid,
+			message: round(),
+			transcript: file,
+			env: { WFC_RULES_DIR: empty },
+		});
+		expect(reason).toContain(UNDER);
+		expect(reason).toContain(
+			"the rule could not be read from docs/agents/rules/house-decision.txt",
+		);
+		expect(failOpenLog(path.join(dir, "config"))).toContain(
+			"guard-priced-options house-decision rule-text house-decision",
+		);
+	});
+
 	it("passes one at the threshold", () => {
 		writeTranscript(file, founder(), ...calls(MIN_CALLS));
 		expect(stop(round())).toBe("");

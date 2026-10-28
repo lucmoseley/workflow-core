@@ -20,6 +20,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readStopGuardReason } from "./lib/stop-guard-testkit";
+import { failOpenLog } from "./lib/transcript-testkit";
 import { readProgramLibs } from "./lib-closure-fixture";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -240,8 +241,12 @@ describe("the refusal", () => {
 			env: { WFC_RULES_DIR: empty },
 		});
 		expect(text).toContain("Q1 (A): back-reference");
+		expect(text).toContain("act and report rather than asking who does it");
 		expect(text).toContain(
-			"; the rule could not be read from docs/agents/rules/founder-handover.txt. Read that file before doing anything else.",
+			"the rule could not be read from docs/agents/rules/founder-handover.txt",
+		);
+		expect(failOpenLog(path.join(dir, "config"))).toContain(
+			"guard-priced-options founder-hand-over rule-text founder-handover",
 		);
 	});
 
