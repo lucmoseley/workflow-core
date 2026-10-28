@@ -439,7 +439,6 @@ const redBatch = (
 		onTest?: (sha: string) => void;
 		lastRed?: Red | null;
 		refsFail?: (nth: number) => Error | null;
-		history?: string[];
 	} = {},
 ) =>
 	run(
@@ -603,67 +602,20 @@ describe("runLander on a red batch", () => {
 		expect(r.pushes.map((p) => p.sha)).toEqual([D]);
 	});
 
-	it("pins a hold to the batch it tested, handing a red tip pushed mid-run to the next run (#2477, #3415)", async () => {
+	it("pins a hold to the batch it tested, so a tip pushed mid-run is tested by the next run (#2477)", async () => {
 		const remote = { main: A, landing: D };
 		const first = await redBatch(unconfirmedC, {
 			remote,
-			history: [B, C, D, F],
 			onTest: (sha) => {
 				if (sha === C) remote.landing = F;
 			},
 		});
 		expect(first.end).toMatchObject({ kind: "hold" });
-		expect(first.tested).toContainEqual({ sha: F });
-		const { hold = null, red = null } = first.beats.at(-1) ?? {};
+		const hold = first.beats.at(-1)?.hold ?? null;
 		expect(hold?.landing).toBe(D);
-		expect(red?.sha).toBe(F);
-		const second = await run(remote, green, {
-			history: [B, C, D, F],
-			lastHold: hold,
-			lastRed: red,
-		});
-		expect(second.tested).toEqual([{ sha: F, files: FILES }]);
+		const second = await run(remote, green, { lastHold: hold });
+		expect(second.tested).toEqual([{ sha: F }]);
 		expect(second.pushes.map((p) => p.sha)).toEqual([F]);
-	});
-
-	it("lands a green tip pushed past the batch mid-bisect, bisecting no further (#3486)", async () => {
-		const remote = { main: A, landing: D };
-		const r = await run(
-			remote,
-			(sha, files) =>
-				sha === F || (files !== undefined && sha !== C && sha !== D)
-					? green()
-					: { kind: "red", files: FILES },
-			{
-				history: [B, C, D, F],
-				onTest: (sha) => {
-					if (sha === B) remote.landing = F;
-				},
-			},
-		);
-		expect(r.actions).toEqual([
-			{ kind: "test", sha: D },
-			{ kind: "rerun", sha: D, files: FILES, why: "flake" },
-			{ kind: "rerun", sha: A, files: FILES, why: "base" },
-			{ kind: "bisect", base: A, sha: D },
-			{ kind: "rerun", sha: B, files: FILES, why: "bisect" },
-			{ kind: "test", sha: F },
-			{ kind: "fast-forward", sha: F },
-			{ kind: "exit", reason: "landing equals main" },
-		]);
-		expect(r.reverted).toEqual([]);
-	});
-
-	it("bisects on past a tip pushed mid-bisect that does not descend from the batch", async () => {
-		const remote = { main: A, landing: D };
-		const r = await redBatch((sha) => sha === C || sha === D, {
-			remote,
-			onTest: (sha) => {
-				if (sha === B) remote.landing = F;
-			},
-		});
-		expect(r.tested).not.toContainEqual({ sha: F });
-		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
 	});
 
 	it("holds on a revert that does not land, after landing the culprit's parent", async () => {
@@ -697,7 +649,6 @@ describe("runLander on a red batch", () => {
 		const r = await redBatch((sha) => sha === C || sha === D, {
 			remote,
 			fileFails: "gh down",
-			history: [B, C, D, F],
 			onTest: (sha) => {
 				if (sha === C) remote.landing = F;
 			},

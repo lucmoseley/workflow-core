@@ -141,8 +141,8 @@ const NETWORK =
  *   `main` last ran them, read where its parent is `main` and its red names
  *   no file
  * @property {{sha: string, verdict: Verdict|null}|null} pushedPast the
- *   `landing` tip a read of the refs found pushed past `sha`, and its own
- *   test's verdict, null until taken
+ *   `landing` tip a resuming run found pushed past `sha`, and its own test's
+ *   verdict, null until taken
  * @property {Revert|null} revert
  * @property {string|null} unfiled why the fix ticket was not filed
  * @typedef {{row: string, forward: string}} RegistryRow a guard-registry
@@ -697,10 +697,9 @@ function isNetworkFault(err) {
 }
 
 /**
- * The one action the lander takes next. A batch whose test was not red is
- * acted on before `landing` is read again, so commits pushed while it was
- * tested wait for the next batch rather than interrupting it; a red one is
- * put behind a tip pushed past it (#3486).
+ * The one action the lander takes next. A batch already tested is acted on
+ * before `landing` is read again, so commits pushed while it was tested wait
+ * for the next batch rather than interrupting it.
  * @param {LanderState} s
  * @returns {Action}
  */
@@ -1080,7 +1079,6 @@ async function actUntilEnd(run, carry) {
 			return end;
 		}
 		resume(git, carry, refs);
-		markPushedPast(git, carry, refs.landing);
 		const { state } = carry;
 		const action = nextAction({
 			...refs,
@@ -1100,7 +1098,10 @@ async function actUntilEnd(run, carry) {
 
 /**
  * Settles what the last run left, once the remote is read: its hold is done
- * with, and its red batch taken up where it is still owed.
+ * with, and its red batch taken up where it is still owed, behind a test of
+ * a `landing` tip pushed past it since, which lands in its place where it
+ * passes. Never once the batch's culprit is reverted, as its fix ticket is
+ * still owed.
  * @param {LanderGit} git
  * @param {Carry} carry accumulator: the run's state
  * @param {Refs} refs
@@ -1109,36 +1110,20 @@ function resume(git, carry, refs) {
 	const red = carry.unread;
 	carry.held = null;
 	carry.unread = null;
-	if (red && isStillOwed(git, red, refs))
-		carry.state = { ...carry.state, red: resumable(red) };
-}
-
-/**
- * Puts the red batch, resumed or this run's own, behind a test of a
- * `landing` tip pushed past it since, which lands in its place where it
- * passes, so a run mid-bisect lands a fix pushed during it (#3486). Never
- * once the batch's culprit is reverted, as its fix ticket is still owed, nor
- * on a refused push, whose hold hands on the last pushed-past tip's red.
- * @param {LanderGit} git
- * @param {Carry} carry accumulator: the run's state
- * @param {string|null} landing
- */
-function markPushedPast(git, carry, landing) {
-	const { red: r, refused } = carry.state;
-	if (
-		r &&
-		!refused &&
+	if (!red || !isStillOwed(git, red, refs)) return;
+	const r = resumable(red);
+	const { landing } = refs;
+	const isPushedPast =
 		landing !== null &&
 		landing !== r.sha &&
 		r.revert === null &&
-		r.pushedPast?.sha !== landing &&
-		/* A rewound `landing` holds no fix to the batch; its bisect goes on. */
-		git.contains(landing, r.sha)
-	)
-		carry.state = {
-			...carry.state,
-			red: { ...r, pushedPast: { sha: landing, verdict: null } },
-		};
+		r.pushedPast?.sha !== landing;
+	carry.state = {
+		...carry.state,
+		red: isPushedPast
+			? { ...r, pushedPast: { sha: landing, verdict: null } }
+			: r,
+	};
 }
 
 /**
@@ -1207,8 +1192,8 @@ function holdQueue(
 /**
  * The tip a hold pins: the red batch, or the lander's revert where it was
  * committed on that batch. Never `landing` as read at the hold, nor a revert
- * on a tip moved since: a commit pushed mid-run reaches the next run,
- * untested or handed on red (#2477, #3415).
+ * on a tip moved since: a commit pushed mid-run is untested and must reach
+ * the next run (#2477).
  * @param {Red} red
  */
 function heldTip(red) {
