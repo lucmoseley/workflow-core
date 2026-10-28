@@ -73,7 +73,7 @@ python_bin="${WFC_PYTHON:-python3}"
 run_check() {
   local st=0
   "$@" || st=$?
-  [ "$st" -eq 125 ] && st=1
+  [[ "$st" -eq 125 ]] && st=1
   return "$st"
 }
 
@@ -92,19 +92,19 @@ lint_and_tests() {
   # and it is reachable, every commit before Biome was adopted installing
   # cleanly without it. The bare name could not produce this: it always fetched
   # something.
-  if [ ! -x node_modules/.bin/biome ]; then
+  if [[ ! -x node_modules/.bin/biome ]]; then
     echo "bisect-step: node_modules/.bin/biome absent after a clean install — commit is untestable, skipping (125)" >&2
     return 125
   fi
 
   local st=0
   run_check node_modules/.bin/biome ci . || st=$?
-  [ "$st" -eq 0 ] && { run_check "$npm_bin" run check:sh || st=$?; }
+  [[ "$st" -eq 0 ]] && { run_check "$npm_bin" run check:sh || st=$?; }
   # --full=coverage: a whole-suite run genuinely needed here, so this caller
   # keeps asking for it explicitly once mantahostels#3154 narrows the bare default
   # (mantahostels#3206). `coverage` (#182): the blast radius of a bisect step is
   # unknown by construction, so nothing narrower would do.
-  [ "$st" -eq 0 ] && { run_check "$npm_bin" run test -- --full=coverage || st=$?; }
+  [[ "$st" -eq 0 ]] && { run_check "$npm_bin" run test -- --full=coverage || st=$?; }
   return "$st"
 }
 
@@ -112,7 +112,7 @@ lint_and_tests() {
 # this job's install step, and `npm run test:py` is `python3 -m pytest -n 2`,
 # which reads nothing out of node_modules.
 python_job() {
-  if ! "$python_bin" -m pip install -r requirements-dev.txt; then
+  if ! "$python_bin" -m pip install --require-hashes --only-binary :all: -r requirements-dev.txt; then
     echo "bisect-step: pip install failed — commit is untestable, skipping (125)" >&2
     return 125
   fi
@@ -128,23 +128,23 @@ python_job() {
 documents() {
   local st=0
   run_check "$node_bin" scripts/check-digest-version.js || st=$?
-  [ "$st" -eq 0 ] && { run_check "$node_bin" scripts/check-roadmap-valid.js --tree || st=$?; }
-  [ "$st" -eq 0 ] && { run_check "$node_bin" scripts/check-doc-map.js || st=$?; }
-  [ "$st" -eq 0 ] && { run_check "$node_bin" scripts/check-doc-map-markers.js || st=$?; }
-  [ "$st" -eq 0 ] && { run_check "$node_bin" scripts/check-guard-registry.js || st=$?; }
+  [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-roadmap-valid.js --tree || st=$?; }
+  [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-doc-map.js || st=$?; }
+  [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-doc-map-markers.js || st=$?; }
+  [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-guard-registry.js || st=$?; }
   return "$st"
 }
 
 everything() {
   local st=0
   lint_and_tests || st=$?
-  [ "$st" -eq 0 ] && { python_job || st=$?; }
-  [ "$st" -eq 0 ] && { documents || st=$?; }
+  [[ "$st" -eq 0 ]] && { python_job || st=$?; }
+  [[ "$st" -eq 0 ]] && { documents || st=$?; }
   return "$st"
 }
 
 check_set="${BISECT_CHECK_SET:-}"
-[ -n "$check_set" ] || check_set="lint-and-tests"
+[[ -n "$check_set" ]] || check_set="lint-and-tests"
 
 status=0
 case "$check_set" in

@@ -73,7 +73,7 @@
 	"scripts/release-issue-claim.js": "30e79c4506102910",
 	"scripts/replay-notify-reports.js": "5afadd1561208226",
 	"scripts/report-suite-queue-wait.js": "cd57e740c3e5f37b",
-	"scripts/run-vitest.js": "e0aff362a60d3c0a",
+	"scripts/run-vitest.js": "de9bb63394f76cc9",
 	"scripts/self-plugin-canary.sh": "bb8455efc6779d29",
 	"scripts/session-arbiter.js": "d9d195b7f641a434",
 	"scripts/stale-write-back-gate.sh": "b849f3491824e9b1",

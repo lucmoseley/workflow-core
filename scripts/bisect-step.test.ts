@@ -90,7 +90,7 @@ const LINT_CALLS = [
 ];
 
 const PY_CALLS = [
-	"python3 -m pip install -r requirements-dev.txt",
+	"python3 -m pip install --require-hashes --only-binary :all: -r requirements-dev.txt",
 	"npm run test:py",
 ];
 
@@ -148,8 +148,8 @@ esac`,
 	write(
 		"python3",
 		`case "$*" in
-  "-m pip install -r requirements-dev.txt") exit ${pip} ;;
-  *)                                        exit 0 ;;
+  "-m pip install --require-hashes --only-binary :all: -r requirements-dev.txt") exit ${pip} ;;
+  *) exit 0 ;;
 esac`,
 	);
 	const arms = Object.entries(node)

@@ -11,8 +11,8 @@ WHY A requirements*.txt AND NOT A uv.lock. Settled at mantahostels#930. The audi
 credits a version as resolved only when `version_source` is `lockfile` or
 `manifest-pin`; the sole Python lockfile it parses is `uv.lock`, and `uv` is not
 installed on this machine; it globs `requirements*.txt` and does *not* follow `-r` or
-`-c` includes. A compiled `requirements-dev.txt` is read by the auditor and
-installed by the unchanged `python3 -m pip install -r requirements-dev.txt`.
+`-c` includes. A compiled `requirements-dev.txt` is one file the auditor reads
+and pip installs.
 
 WHAT WOULD BREAK IT. Adding a dependency as a range, loosening a pin back to `>=`,
 editing a pin in the .in without recompiling, or bumping a pin without reinstalling.

@@ -561,7 +561,9 @@ describe("the CI half of the same gate", () => {
 		// of that job's `Install dependencies` (mantahostels#1135).
 		const python = CI.slice(CI.indexOf("\n  python:"));
 		expect(python).toContain("- name: Ruff");
-		expect(python).toMatch(/pip install .*-r requirements-dev\.txt/);
+		expect(python).toContain(
+			'python3 -m pip install --require-hashes --only-binary ":all:" -r requirements-dev.txt',
+		);
 		// Ahead of Pytest is not required, but AFTER `Install dependencies` is:
 		// ruff is pinned in requirements-dev.txt like everything else here.
 		expect(python.indexOf("Install dependencies")).toBeLessThan(

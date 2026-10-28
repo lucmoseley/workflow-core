@@ -73,9 +73,8 @@ jobs:
       # dependencies, so a failed install should stop the job.
       # `--ignore-scripts` on every install here, as guard-npm-install holds
       # local ones to: a dependency's install script would run with this job's
-      # token before anything has read it. No dependency needs its own script
-      # on Linux: fsevents is macOS-only and unrs-resolver's postinstall only
-      # re-fetches a native binding npm already took as an optional dependency.
+      # token before anything has read it (#3363). A dependency that needs its
+      # script gets an `npm rebuild <pkg>` after the install, naming it.
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
@@ -214,12 +213,13 @@ jobs:
       # detached signature is checked instead, against the release key's
       # fingerprint pinned here (code.claude.com/docs/en/setup, "Binary
       # integrity and code signing"), and the binary against that manifest's
-      # sha256: a release is taken unpinned, but only one Anthropic signed.
+      # sha256 (#3363).
       - name: Mod tests
         if: ${{ !cancelled() }}
         env:
           CLAUDE_RELEASES: https://downloads.claude.ai/claude-code-releases
           CLAUDE_SIGNER_FPR: 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
+          CLAUDE_PLATFORM: linux-x64
         run: |
           fetch() { curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-all-errors --retry-delay 5 "$@"; }
           dir="$RUNNER_TEMP/claude"
@@ -231,13 +231,14 @@ jobs:
           export GNUPGHOME="$dir/gnupg"
           mkdir -m 700 "$GNUPGHOME"
           gpg --batch --quiet --import "$dir/key.asc"
-          gpg --batch --status-fd 1 --verify "$dir/manifest.json.sig" "$dir/manifest.json" |
-            grep -q "^\[GNUPG:\] VALIDSIG $CLAUDE_SIGNER_FPR "
-          fetch -o "$dir/claude" "$CLAUDE_RELEASES/$version/linux-x64/claude"
-          echo "$(jq -r '.platforms["linux-x64"].checksum' "$dir/manifest.json")  $dir/claude" | sha256sum -c -
+          gpg --batch --status-fd 1 --verify "$dir/manifest.json.sig" "$dir/manifest.json" > "$dir/gpg-status"
+          grep -q "^\[GNUPG:\] GOODSIG " "$dir/gpg-status"
+          grep -q "^\[GNUPG:\] VALIDSIG $CLAUDE_SIGNER_FPR " "$dir/gpg-status"
+          fetch -o "$dir/claude" "$CLAUDE_RELEASES/$version/$CLAUDE_PLATFORM/claude"
+          echo "$(jq -r --arg p "$CLAUDE_PLATFORM" '.platforms[$p].checksum' "$dir/manifest.json")  $dir/claude" | sha256sum -c -
           chmod +x "$dir/claude"
           "$dir/claude" --version
-          DISABLE_AUTOUPDATER=1 WFC_CLAUDE_BIN="$dir/claude" node scripts/run-mod-tests.js --all
+          WFC_CLAUDE_BIN="$dir/claude" node scripts/run-mod-tests.js --all
 
   # One job per shard; the matrix's length is the shard count, read back
   # through `strategy`. Sized on the unsharded step's 449 s (#2413) so each
@@ -300,12 +301,13 @@ jobs:
       # requirements-dev.txt, which formatters.test.ts holds the gate's own
       # install line to, so a bump there moves both. A venv of its own because
       # the image's system pip is externally managed (PEP 668), and only the
-      # binary goes on PATH, so no later step meets the venv's python.
+      # binary goes on PATH, so no later step meets the venv's python (#3363).
       - name: Install ruff
         if: ${{ !cancelled() }}
         run: |
           awk '/^ruff==/ { on = 1 } on { print } on && !/\\$/ { exit }' \
             requirements-dev.txt > "$RUNNER_TEMP/ruff.txt"
+          grep -q '^ruff==' "$RUNNER_TEMP/ruff.txt"
           python3 -m venv "$RUNNER_TEMP/ruff-venv"
           "$RUNNER_TEMP/ruff-venv/bin/pip" install --require-hashes --only-binary :all: \
             -r "$RUNNER_TEMP/ruff.txt"

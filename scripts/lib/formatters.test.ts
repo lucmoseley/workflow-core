@@ -342,6 +342,9 @@ describe("the install lines a refusal names, and CI's ruff install, at the core'
 		expect(testJob).toContain(
 			`awk '/^ruff==/ { on = 1 } on { print } on && !/\\\\$/ { exit }' \\\n            requirements-dev.txt`,
 		);
+		expect(testJob).toContain(
+			'pip" install --require-hashes --only-binary :all: \\\n',
+		);
 		expect(ci).not.toMatch(/ruff==\d/);
 	});
 });

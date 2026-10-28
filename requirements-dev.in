@@ -3,19 +3,13 @@
 #
 # This file is what a person edits. pip installs requirements-dev.txt, compiled
 # from it with every transitive dependency pinned and each wheel's sha256 beside
-# it, so pip runs in hash-checking mode and a re-uploaded or swapped file fails
-# the install. After editing a pin here, recompile and reinstall in one step —
+# it. After editing a pin here, recompile and reinstall in one step —
 # scripts/test_requirements_pinned.py fails when this file, the compiled one and
 # the installed versions disagree:
 #
 #   python3 -m venv /tmp/pip-tools && /tmp/pip-tools/bin/pip install pip-tools==7.6.2
 #   /tmp/pip-tools/bin/pip-compile --generate-hashes --strip-extras requirements-dev.in
 #   python3 -m pip install --require-hashes --only-binary :all: -r requirements-dev.txt
-#
-# The compiled pins live in a requirements*.txt rather than a uv.lock because the
-# supply-chain auditor reads that glob and no other Python lockfile on this
-# machine (mantahostels#930). This .in is outside the glob, so the auditor reads
-# each version once.
 
 pytest==9.1.1
 
