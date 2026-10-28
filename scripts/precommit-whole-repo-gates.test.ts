@@ -294,13 +294,10 @@ describe("the --root each side of the comparison is read through", () => {
 
 	it("reads check-guard-test-isolation.js's --root instead of asking git", () => {
 		// Its live scope comes from `git ls-files`, which in a temp directory would
-		// read the enclosing repo or nothing at all. A root with no scripts/ is
-		// BROKEN (#3170), so the tree carries an empty one.
-		const root = emptyTree();
-		fs.mkdirSync(path.join(root, "scripts"));
+		// read the enclosing repo or nothing at all.
 		const r = runChecker("check-guard-test-isolation.js", [
 			"--root",
-			root,
+			emptyTree(),
 			"--json",
 		]);
 

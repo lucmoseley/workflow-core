@@ -1,11 +1,11 @@
 // @vitest-environment node
 /*
  * lib/tracked-scripts.js's `--root` walk (#3170): it answers the tracked
- * `scripts/` files an extracted tree holds, and a root it cannot read is the
- * checker's BROKEN. A module test over a temp tree and a stub ctx, since the
+ * `scripts/` files an extracted tree holds, none where it holds no `scripts/`,
+ * and a root it cannot read is the checker's BROKEN. A module test over a temp tree and a stub ctx, since the
  * walk reads only the filesystem. Loosen it and a mistyped `--root` reports
- * OK having read nothing; tighten it and a subdirectory removed mid-walk
- * fails the commit.
+ * OK having read nothing; tighten it and a tree with no `scripts/`, or a
+ * subdirectory removed mid-walk, fails the commit (#3387).
  */
 
 import fs from "node:fs";
@@ -30,17 +30,23 @@ const write = (rel: string) => {
 	fs.writeFileSync(path.join(dir, rel), "");
 };
 
-/** A ctx whose `--root` is `root` and whose BROKEN throws its message. */
+let said: string[];
+
+/** A ctx whose `--root` is `root`, whose BROKEN throws its message and whose
+ * report lines land in `said`. */
 const ctx = (root: string) =>
 	({
 		value: (flag: string) => (flag === "--root" ? root : undefined),
 		broken: (message: string) => {
 			throw new Error(`BROKEN ${message}`);
 		},
+		say: (message: string) => said.push(message),
 	}) as unknown as Parameters<typeof readTrackedScripts>[0];
 
-const read = (root = dir) =>
-	readTrackedScripts(ctx(root), (rel: string) => rel.endsWith(".ts"));
+const read = (root = dir) => {
+	said = [];
+	return readTrackedScripts(ctx(root), (rel: string) => rel.endsWith(".ts"));
+};
 
 describe("readTrackedScripts on --root", () => {
 	it("lists the scripts/ files its filter keeps, nested ones included", () => {
@@ -54,10 +60,24 @@ describe("readTrackedScripts on --root", () => {
 		});
 	});
 
-	it("is BROKEN on a root with no scripts/, never an empty set", () => {
+	it("is BROKEN on a missing root, never an empty set", () => {
 		expect(() => read(path.join(dir, "missing"))).toThrow(
-			/^BROKEN could not read .*missing\/scripts: .*No scripts\/ files read\.$/,
+			/^BROKEN could not read .*missing: .*No scripts\/ files read\.$/,
 		);
+	});
+
+	it("is BROKEN on an unreadable root", () => {
+		write("scripts/a.ts");
+		fs.chmodSync(dir, 0o000);
+		expect(() => read()).toThrow(
+			/^BROKEN could not read .*tracked-scripts-\w+: /,
+		);
+	});
+
+	it("lists none on a readable root with no scripts/, as git ls-files would", () => {
+		write("docs/d.ts");
+		expect(read()).toEqual({ root: dir, files: [] });
+		expect(said).toEqual([]);
 	});
 
 	it("is BROKEN on an unreadable subdirectory", () => {
@@ -85,5 +105,8 @@ describe("readTrackedScripts on --root", () => {
 			return real(p, o);
 		}) as typeof fs.readdirSync);
 		expect(read().files).toEqual(["scripts/a.ts"]);
+		expect(said).toEqual([
+			`${path.join(dir, "scripts", "gone")} vanished mid-walk; read as empty.`,
+		]);
 	});
 });
