@@ -14,9 +14,9 @@
  * inherited root would drop a marker into the shared working tree AND latch
  * every case after the first onto the short form.
  *
- * It is a `PreToolUse` Bash hook in `self-plugin/hooks/hooks.json` and the
- * shipped plugin's `hooks/hooks.json`: loosen a case here and a bare vitest
- * run parks on a hung call with no output and no filename, unwarned.
+ * It is a `PreToolUse` Bash hook in self-plugin/hooks/hooks.json: loosen a
+ * case here and a bare vitest run parks on a hung call with no output and no
+ * filename, unwarned.
  */
 
 import fs from "node:fs";

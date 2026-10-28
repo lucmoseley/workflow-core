@@ -11,10 +11,9 @@
  * real subprocesses either way, so nothing here needs a spawn of the guard
  * itself.
  *
- * The guard is a `Stop` hook in `self-plugin/hooks/hooks.json` and the shipped
- * plugin's `hooks/hooks.json`: loosen a case here and a background job can
- * stop mid-edit with work nobody else sees for hours, or blocks a session on
- * a neighbour's edits it cannot commit.
+ * The guard is a `Stop` hook in self-plugin/hooks/hooks.json: loosen a case
+ * here and a background job can stop mid-edit with work nobody else sees for
+ * hours, or blocks a session on a neighbour's edits it cannot commit.
  */
 
 import { execFileSync } from "node:child_process";
