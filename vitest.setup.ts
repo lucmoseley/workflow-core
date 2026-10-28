@@ -82,12 +82,10 @@ process.env.CLAUDE_CONFIG_DIR = testConfigDir;
 afterAll(() => fs.rmSync(testConfigDir, { recursive: true, force: true }));
 
 /*
- * NO TEST REACHES THE SESSION'S HOST THROUGH CLAUDE_PROJECT_DIR (#3334). A
- * session sets it to the live checkout and CI sets nothing, so a test that
- * dropped its pin, or reached hostRoot() in process, read and wrote the
- * developer's tree and went red only there. Pointed instead at an empty dir
- * that is no repository, such a test is red in CI and locally alike. An
- * override, as above; a case that pins its own still wins.
+ * NO TEST REACHES THE SESSION'S HOST THROUGH CLAUDE_PROJECT_DIR (#3334).
+ * Pointed at an empty dir that is no repository, a test that drops its pin, or
+ * reaches hostRoot() in process, is red in CI and locally alike. An override,
+ * as above; a case that pins its own still wins.
  *
  * WHAT IT DOES NOT COVER: a spawn that builds its `env` from scratch, which
  * falls back to the git top level of its cwd — the same tree in CI and locally.
