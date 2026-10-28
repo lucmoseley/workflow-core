@@ -163,6 +163,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
+const { deref } = require("./lib/deref.js");
 const { HOOK_EVENTS } = require("./lib/hook-events.js");
 const {
 	readRunningHooks,
@@ -244,6 +245,8 @@ function isForeignRule(id) {
 /** @param {string | null} dir */
 function setRoot(dir) {
 	if (!dir) {
+		const refusal = nestedCopyRefusal();
+		if (refusal) throw brokenError(refusal);
 		/* rule-text resolves its store on hostRoot(), the shared tree, so a
 		 * linked worktree's run would pair its own triggers with the shared
 		 * tree's fragments (#3386). */
@@ -253,6 +256,36 @@ function setRoot(dir) {
 	root = path.resolve(dir);
 	rootGiven = true;
 	pinStore();
+}
+
+/**
+ * Whether `core`, this file's own tree, is a copy nested inside `root` with no
+ * repository of its own — a `git archive` unpack under `.claude/tmp/` (#3450).
+ * Such a run resolves `root` to the enclosing checkout, so a re-anchoring
+ * meant for the copy's clean bytes would judge the shared tree. A `.git`
+ * between the two (a linked worktree, a submodule) makes the copy a tree of
+ * its own, and worktreeRoot() already answers for it.
+ * @param {string} core
+ */
+function isNestedCopy(core) {
+	const rel = path.relative(root, core);
+	if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+	let d = core;
+	for (const _ of rel.split(path.sep)) {
+		if (fs.existsSync(path.join(d, ".git"))) return false;
+		d = path.dirname(d);
+	}
+	return true;
+}
+
+function nestedCopyRefusal() {
+	const core = deref(CORE_ROOT);
+	if (!isNestedCopy(core)) return null;
+	return (
+		`this checker runs from ${core}, a copy nested in ${root} with no repository of its own, ` +
+		`so it would judge ${root}'s tree, not the copy's. Pass --root ${core}, or run it from a ` +
+		"clean worktree of HEAD outside this checkout (git worktree add --detach <dir> HEAD)."
+	);
 }
 
 /** Point lib/rule-text.js at `root`'s fragment store. */
@@ -397,7 +430,7 @@ let declaredIfUnreadable = 0;
  * path ignored, so a broad pattern someone adds to .gitignore cannot quietly
  * take a committed document out of the gate.
  *
- * NOT RUN on a materialised `--root` tree, which is in no git repo at all:
+ * NOT RUN on a materialised `--root` tree, which is no repo of its own:
  * `git archive` wrote only tracked files into it, so there is nothing to drop
  * (#710).
  *
@@ -415,7 +448,7 @@ let declaredIfUnreadable = 0;
  */
 function dropIgnored(files) {
 	if (files.length === 0) return files;
-	if (rootGiven && isOutsideAnyRepo(root)) {
+	if (rootGiven && isMaterialised(root)) {
 		ignoreSkipped = true;
 		return files;
 	}
@@ -436,20 +469,16 @@ function dropIgnored(files) {
 }
 
 /**
- * Whether `dir` sits in no git repository, found as git's own discovery finds
- * one but on disk — so a machine with no git at all still reaches the FAILED
- * OPEN line rather than passing for a materialised tree.
- *
- * RESIDUAL: `GIT_DIR` and `GIT_CEILING_DIRECTORIES` are not read, and a
- * TMPDIR inside a checkout puts the materialised tree under a `.git`, so git
- * is asked there and answers from the enclosing repo's rules.
+ * Whether `dir` is no repository's top level, read on disk — so a machine
+ * with no git at all still reaches the FAILED OPEN line on a real checkout.
+ * Its own `.git` and not an ancestor's: a materialised tree under a checkout
+ * (a TMPDIR inside one, an export under `.claude/tmp/`) would otherwise be
+ * filtered by the enclosing repo's rules, which drop every document in it
+ * (#3450).
  * @param {string} dir
  */
-function isOutsideAnyRepo(dir) {
-	for (let d = dir; ; d = path.dirname(d)) {
-		if (fs.existsSync(path.join(d, ".git"))) return false;
-		if (path.dirname(d) === d) return true;
-	}
+function isMaterialised(dir) {
+	return !fs.existsSync(path.join(dir, ".git"));
 }
 
 function scannedFiles() {
@@ -4481,6 +4510,10 @@ runCheck({
 				ctx.usageError(
 					"--review writes anchors into the tree it read, so it cannot run under --against.",
 				);
+			/* The parent never reaches setRoot(), and the children it re-execs
+			 * carry --root, so the nested-copy refusal is owed here (#3450). */
+			const refusal = nestedCopyRefusal();
+			if (refusal) throw brokenError(refusal);
 		},
 		settle: settleAdded,
 	},

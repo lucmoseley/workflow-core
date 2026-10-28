@@ -948,6 +948,54 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(readAnchors(tree)).not.toEqual(neighbourAnchors);
 	});
 
+	describe("a non-git export nested in the checkout (#3450)", () => {
+		/* The checkout ignores its scratch, so a filter asked of the enclosing
+		 * repo would drop every document in the export. */
+		function nestedExport() {
+			const shared = committedRepo({
+				...guardFixture,
+				files: { ...guardFixture.files, ".gitignore": ".claude/tmp/\n" },
+			});
+			const exportDir = path.join(shared, ".claude", "tmp", "export");
+			fs.mkdirSync(exportDir, { recursive: true });
+			const tar = path.join(shared, ".claude", "tmp", "head.tar");
+			execFileSync("git", ["archive", "-o", tar, "HEAD"], { cwd: shared });
+			execFileSync("tar", ["-xf", tar, "-C", exportDir]);
+			return { shared, exportDir };
+		}
+
+		it.each([["--review"], ["--against", "HEAD"]])(
+			"refuses %s, naming the checkout it would read",
+			(...args) => {
+				const { shared, exportDir } = nestedExport();
+				const r = runInProcess(
+					path.join(exportDir, "scripts", "check-guard-registry.js"),
+					args,
+					{
+						cwd: exportDir,
+						env: reviewEnv(shared, { WFC_ANCHOR_LOCKS: "[]" }),
+					},
+				);
+				expect(r.status).toBe(2);
+				const out = `${r.stdout}${r.stderr}`;
+				expect(out).toContain(
+					`a copy nested in ${fs.realpathSync(shared)} with no repository of its own`,
+				);
+				expect(out).toContain("git worktree add --detach <dir> HEAD");
+				expect(fs.existsSync(path.join(shared, ANCHORS))).toBe(false);
+				expect(fs.existsSync(path.join(exportDir, ANCHORS))).toBe(false);
+			},
+		);
+
+		it("reads the export under --root, unfiltered by the checkout's ignore rules", () => {
+			const { exportDir } = nestedExport();
+			const r = run(exportDir, ["--root", exportDir], { cwd: exportDir });
+			expect(r.code).toBe(0);
+			expect(r.report).toContain("1 guard-registry region(s)");
+			expect(r.report).toContain("Gitignore filter: not run");
+		});
+	});
+
 	/*
 	 * A SPAWN, KEPT FOR A REAL FD (§X3): the in-process runner captures writes
 	 * before any pipe sees them, so only a spawn shows what reaches a session's
