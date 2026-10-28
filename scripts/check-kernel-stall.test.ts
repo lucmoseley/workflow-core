@@ -6,9 +6,9 @@
  *
  * Most cases read a fixture through WFC_KERNEL_LOG; the reader cases unset it
  * and point WFC_JOURNALCTL at lib/earlyoom-journal-fake.ts's stub and
- * WFC_DMESG at a stub, so the machine's own kernel log is never read. Every
- * case reads the clock from a WFC_SCHED_CLOCK fixture, a running one unless it
- * says otherwise, so the machine's own is never read.
+ * WFC_DMESG at lib/dmesg-fake.ts's, so the machine's own kernel log is never
+ * read. Every case reads the clock from a WFC_SCHED_CLOCK fixture, a running
+ * one unless it says otherwise, so the machine's own is never read.
  *
  * It is a SessionStart `--notify` hook in .claude/settings.json, and
  * scripts/dispatch-sessions.sh refuses a launch on its plain run: loosen a case
@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { dmesgLine, writeDmesg } from "./lib/dmesg-fake";
 import {
 	kernelLine,
 	writeFailingJournalctl,
@@ -41,10 +42,10 @@ const CLEAN = [
 ];
 /** The stall's stamp, as kernelLine writes it. */
 const STALL_STAMP = "2026-10-07T14:43:24+00:00";
-const STALL_LINE = kernelLine(
-	Date.parse(STALL_STAMP),
-	"rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:",
-);
+const STALL_MSG = "rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:";
+const STALL_LINE = kernelLine(Date.parse(STALL_STAMP), STALL_MSG);
+/** The stall as dmesg -T holds it, at a wall time the journal's is not. */
+const DMESG_STALL = dmesgLine(Date.parse("2026-10-07T22:43:24Z"), STALL_MSG);
 const STALLED = [
 	...CLEAN,
 	STALL_LINE,
@@ -52,10 +53,7 @@ const STALLED = [
 		Date.parse(STALL_STAMP),
 		"rcu: rcu_preempt kthread timer wakeup did not happen for 2502 jiffies",
 	),
-	kernelLine(
-		Date.parse("2026-10-07T14:45:13+00:00"),
-		"rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:",
-	),
+	kernelLine(Date.parse("2026-10-07T14:45:13+00:00"), STALL_MSG),
 ];
 
 let dir: string;
@@ -69,12 +67,6 @@ afterEach(() => {
 function logFile(lines: string[]): string {
 	const at = path.join(dir, "kernel.log");
 	fs.writeFileSync(at, `${lines.join("\n")}\n`);
-	return at;
-}
-
-function stub(name: string, body: string): string {
-	const at = path.join(dir, name);
-	fs.writeFileSync(at, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
 	return at;
 }
 
@@ -261,10 +253,7 @@ describe("fails open, silently, where the kernel log cannot be read", () => {
 	it("where journalctl lacks permission and dmesg is restricted", () => {
 		const env = {
 			WFC_JOURNALCTL: writeJournalctl(dir, []),
-			WFC_DMESG: stub(
-				"dmesg",
-				"echo 'dmesg: read kernel buffer failed: Operation not permitted' >&2; exit 1",
-			),
+			WFC_DMESG: writeDmesg(dir, [DMESG_STALL], { restricted: true }),
 		};
 		const notify = run(["--notify"], env);
 		expect(notify.status).toBe(0);
@@ -285,10 +274,9 @@ describe("the readers", () => {
 	it("names the time from journalctl's stamp where both hold the stall", () => {
 		const r = run([], {
 			WFC_JOURNALCTL: writeJournalctl(dir, [STALL_LINE]),
-			WFC_DMESG: stub(
-				"dmesg",
-				"echo '[Thu Oct  1 00:00:00 2026] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:'",
-			),
+			WFC_DMESG: writeDmesg(dir, [
+				dmesgLine(Date.parse("2026-10-01T00:00:00Z"), STALL_MSG),
+			]),
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(STALL_STAMP);
@@ -297,10 +285,7 @@ describe("the readers", () => {
 	it("finds a stall dmesg holds and a journal with lines in it missed", () => {
 		const r = run([], {
 			WFC_JOURNALCTL: writeJournalctl(dir, [CLEAN[0]]),
-			WFC_DMESG: stub(
-				"dmesg",
-				'[ "$1" = -T ] || exit 2; echo "[Wed Oct  7 22:43:24 2026] rcu: INFO: rcu_preempt detected stalls on CPUs/tasks:"',
-			),
+			WFC_DMESG: writeDmesg(dir, [DMESG_STALL]),
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("Wed Oct 7 22:43:24 2026");
@@ -310,10 +295,7 @@ describe("the readers", () => {
 		const calls = path.join(dir, "calls");
 		const r = run(["--notify"], {
 			WFC_JOURNALCTL: writeJournalctl(dir, [STALL_LINE]),
-			WFC_DMESG: stub(
-				"dmesg",
-				`echo "dmesg $*" >> "${calls}"; echo '${STALL_LINE}'`,
-			),
+			WFC_DMESG: writeDmesg(dir, [DMESG_STALL]),
 		});
 		expect(r.stdout).toContain("Nothing was shut down");
 		expect(fs.readFileSync(calls, "utf8").trim().split("\n")).toEqual([
@@ -327,7 +309,7 @@ describe("--boot <n>, for the boot that already died", () => {
 	it("hands journalctl the offset and never reads dmesg", () => {
 		const r = run(["--boot", "-1"], {
 			WFC_JOURNALCTL: writeJournalctl(dir, [STALL_LINE]),
-			WFC_DMESG: stub("dmesg", "exit 3"),
+			WFC_DMESG: writeDmesg(dir, [DMESG_STALL]),
 		});
 		expect(fs.readFileSync(path.join(dir, "calls"), "utf8")).toBe(
 			"journalctl -k -b -1 --no-pager -o short-iso\n",
@@ -340,7 +322,7 @@ describe("--boot <n>, for the boot that already died", () => {
 	it("skips rather than reading the current boot from dmesg", () => {
 		const r = run(["--boot", "-1"], {
 			WFC_JOURNALCTL: writeFailingJournalctl(dir),
-			WFC_DMESG: stub("dmesg", `echo '${STALL_LINE}'`),
+			WFC_DMESG: writeDmesg(dir, [DMESG_STALL]),
 		});
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("SKIP: no reader would return boot -1");
