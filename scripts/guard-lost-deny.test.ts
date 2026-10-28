@@ -276,17 +276,19 @@ describe("whether the loss was worth a turn", () => {
 	});
 
 	it("prices the one guard that denies often enough to chase", () => {
-		guardFile("guard-issue-close.js", true);
+		guardFile("guard-suite-concurrency.js", true);
 		transcript([
-			fileCall("gh issue close 1", "toolu_A"),
-			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-issue-close.js" }),
+			fileCall("npm test", "toolu_A"),
+			killed({
+				command: "$CLAUDE_PROJECT_DIR/scripts/guard-suite-concurrency.js",
+			}),
 		]);
 
 		const r = run();
 
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain(
-			"guard-issue-close.js: denies 1.588% of calls (255 denials in 16,057 calls; 95% CI 1.41%-1.79%) — over the 1% cut, worth the replay",
+			"guard-suite-concurrency.js: denies 1.034% of calls (736 denials in 71,159 calls; 95% CI 0.96%-1.11%) — over the 1% cut, worth the replay",
 		);
 		expect(r.reason).toContain("This one is worth the replay");
 	});
@@ -311,11 +313,13 @@ describe("whether the loss was worth a turn", () => {
 	});
 
 	it("counts only the tool calls worth chasing where the block mixes both", () => {
-		guardFile("guard-issue-body.js", true);
+		guardFile("guard-registry-atomicity.js", true);
 		guardFile("guard-suite-concurrency.js", true);
 		transcript([
-			fileCall("gh issue create --body x", "toolu_A"),
-			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-issue-body.js" }),
+			fileCall("git commit -m x", "toolu_A"),
+			killed({
+				command: "$CLAUDE_PROJECT_DIR/scripts/guard-registry-atomicity.js",
+			}),
 			fileCall("npm test", "toolu_B"),
 			killed({
 				toolUseID: "toolu_B",
