@@ -7,7 +7,11 @@
  * Usage:
  *   node check-test-spawn.js [--root <dir>] [--against <rev>] [--json] [--warn]
  *
- * `.husky/pre-commit` runs it over the whole tree. Not in the scheduled sweeps.
+ * STOPGAP, DIRECTION-GATED, NEVER WHOLE-REPO (#3458): #3459 and #3460 move
+ * the inherited spawns. Until both close, `.husky/pre-commit` runs this under
+ * `--against HEAD`, so a spawn a commit adds refuses and an inherited one
+ * warns; the whole-tree limb replaces this once they do. Not in the scheduled
+ * sweeps.
  *
  * A SPAWN is one call of spawnSync, spawn, execFileSync or execFile whose
  * program is `"node"` or `process.execPath`, of execSync or exec on a command
@@ -23,7 +27,7 @@
  * above it, or in the file's opening comments, which covers every spawn in
  * the file. A marker with no word after it is no marker.
  *
- * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree without a `spawn-kept: <why>` comment, naming the file, line and run-in-process.js's exemplar.
+ * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses a spawn of `node` that commit adds without a `spawn-kept: <why>` comment, naming the file, line and run-in-process.js's exemplar.
  * JUSTIFIED: fail-safe — a spawn pays node's startup on every case (mantahostels#1907).
  * DEFEAT:    the `spawn-kept: <why>` marker, whatever its reason, the header's covering every later spawn in its file; --warn caps findings below the gating line; a program named through a variable, a helper or a testkit; a spawn inside a template literal, or behind an env prefix in a command string; a spawn swapped for another whose first line reads the same; a test file outside scripts/ and .claude/skills/.
  */
