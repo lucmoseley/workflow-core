@@ -20,12 +20,29 @@
 # `PATH`; a write that is no git call, such as `: > .git/refs/heads/main`;
 # a subcommand alias; `clone`, and `init` without `--separate-git-dir`.
 
-# The next `git` on `PATH` AFTER this one, skipping any other checkout's copy
-# of this guard; only where this one is not on `PATH` the first that is no
-# guard. Never one ahead of it (#3400): a fake there that takes `command -v
-# git` as its real git execs this guard, and the two called each other until
-# the fork chain filled the WSL init's pids cap. `-ef`, not the path string, so
-# a second spelling of this directory is still skipped.
+# The depth: how many calls of this guard enclose this one, itself included,
+# read through the environment. A hook's own git nests a few deep; a git that
+# calls this guard back (#3400) nests without end, a fork per hop where it
+# pipes, so past the ceiling it refuses. 32, a guess: far above any hook's
+# nesting, and the most links such a chain gets.
+depth=$((${WFC_HOST_GIT_GUARD_DEPTH:-0} + 1))
+((depth <= 32)) || {
+  echo "host-git-guard: entered $depth deep: a git on PATH calls this guard back (#3400)" >&2
+  exit 127
+}
+export WFC_HOST_GIT_GUARD_DEPTH=$depth
+
+# The real git: the next on `PATH` AFTER this one, skipping any other
+# checkout's copy of this guard (#3400). One ahead of it may be a fake whose
+# own real git is `command -v git`, this guard, and the two would call each
+# other without end. Where this one is not on `PATH`, the first git that is no
+# guard, the ceiling above bounding a fake there; where the only real git is
+# ahead of it, exit 127. `-ef`, not the path string, so a second spelling of
+# this directory is still skipped; another checkout's copy is known by its
+# directory's name alone.
+#
+# Residual: with two checkouts' copies on `PATH`, the first judges only its
+# own host, so a write to the other's runs unguarded.
 real=
 before=
 mine=

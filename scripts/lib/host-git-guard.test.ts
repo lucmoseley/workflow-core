@@ -46,6 +46,10 @@ const shim = (
 		cwd,
 		encoding: "utf8",
 		env: { ...process.env, ...env },
+		/* 10 s, a guess: far above one git call, so a case whose shim and a
+		 * git on PATH call each other (#3400) fails rather than hangs. It
+		 * crosses the real clock only as that bound, asserting no time. */
+		timeout: 10_000,
 	});
 
 beforeAll(() => {
@@ -228,31 +232,16 @@ describe("the host and the real git, unnamed", () => {
 		expect(r.status, r.stderr).toBe(0);
 	});
 
-	it("skips a second spelling of its own directory on PATH", () => {
-		const alias = path.join(dir, "guard-alias");
-		if (!fs.existsSync(alias)) fs.symlinkSync(path.dirname(SHIM), alias);
-		const r = shim(["rev-parse", "HEAD"], host, {
-			PATH: [path.dirname(SHIM), alias, process.env.PATH].join(path.delimiter),
-		});
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stdout.trim()).toBe(head(host));
-	});
-
 	/*
 	 * A LOOP HERE NEVER FORKS (#3400): each git below `exec`s, so a regression
-	 * spins one pid, which the spawn's timeout kills.
+	 * spins one pid, which shim's timeout kills.
 	 */
-	const resolves = (dirs: string[]) => {
-		const r = spawnSync(SHIM, ["rev-parse", "HEAD"], {
-			cwd: host,
-			encoding: "utf8",
-			timeout: 10_000,
-			env: {
-				...process.env,
-				WFC_HOST_GIT_DIR: hostCommon,
-				PATH: [...dirs, process.env.PATH].join(path.delimiter),
-			},
-		});
+	const onPath = (dirs: string[], rest = process.env.PATH) => ({
+		WFC_HOST_GIT_DIR: hostCommon,
+		PATH: [...dirs, rest].join(path.delimiter),
+	});
+	const expectResolvesPastGuard = (dirs: string[]) => {
+		const r = shim(["rev-parse", "HEAD"], host, onPath(dirs));
 		expect(
 			r.error,
 			"the shim and a git on PATH called each other",
@@ -260,8 +249,8 @@ describe("the host and the real git, unnamed", () => {
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout.trim()).toBe(head(host));
 	};
-
-	it("never takes a git ahead of it on PATH that execs the shim back (#3400)", () => {
+	/** A git that execs the shim back, as a fake whose real git is `command -v git`. */
+	const callsBack = () => {
 		const fake = path.join(dir, "fake-git");
 		fs.mkdirSync(fake, { recursive: true });
 		fs.writeFileSync(
@@ -271,7 +260,26 @@ describe("the host and the real git, unnamed", () => {
 				mode: 0o755,
 			},
 		);
-		resolves([fake, path.dirname(SHIM)]);
+		return fake;
+	};
+
+	it("skips a second spelling of its own directory on PATH", () => {
+		const alias = path.join(dir, "guard-alias");
+		if (!fs.existsSync(alias)) fs.symlinkSync(path.dirname(SHIM), alias);
+		expectResolvesPastGuard([path.dirname(SHIM), alias]);
+	});
+
+	it("never takes a git ahead of it on PATH that execs the shim back (#3400)", () => {
+		expectResolvesPastGuard([callsBack(), path.dirname(SHIM)]);
+	});
+
+	it("still refuses a host write with that git ahead of it (#3400)", () => {
+		const r = shim(
+			["update-ref", "refs/heads/x", "HEAD"],
+			host,
+			onPath([callsBack(), path.dirname(SHIM)]),
+		);
+		expectRefused(r, "update-ref");
 	});
 
 	it("skips another checkout's copy of the shim, either side of it (#3400)", () => {
@@ -279,8 +287,22 @@ describe("the host and the real git, unnamed", () => {
 		fs.mkdirSync(copy, { recursive: true });
 		fs.copyFileSync(SHIM, path.join(copy, "git"));
 		fs.chmodSync(path.join(copy, "git"), 0o755);
-		resolves([path.dirname(SHIM), copy]);
-		resolves([copy, path.dirname(SHIM)]);
+		expectResolvesPastGuard([path.dirname(SHIM), copy]);
+		expectResolvesPastGuard([copy, path.dirname(SHIM)]);
+	});
+
+	it("stops a git that calls it back where it is off PATH, at its depth ceiling (#3400)", () => {
+		const rest = (process.env.PATH ?? "")
+			.split(path.delimiter)
+			.filter((d) => d !== path.dirname(SHIM))
+			.join(path.delimiter);
+		const r = shim(["rev-parse", "HEAD"], host, onPath([callsBack()], rest));
+		expect(
+			r.error,
+			"the shim and a git on PATH called each other",
+		).toBeUndefined();
+		expect(r.status).toBe(127);
+		expect(r.stderr).toContain("calls this guard back (#3400)");
 	});
 });
 
