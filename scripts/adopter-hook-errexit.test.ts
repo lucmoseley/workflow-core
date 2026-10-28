@@ -102,7 +102,7 @@ function buildAdopter(opts: { local?: string; errexit?: boolean }) {
 		fs.writeFileSync(
 			abs,
 			ext === "sh"
-				? "exit 0\n"
+				? ":\n"
 				: `const c = Number(process.env.${exitVar} ?? 0);\nif (c) console.error("STUB ${rel}.${ext} exit " + c);\nprocess.exit(c);\n`,
 		);
 	}

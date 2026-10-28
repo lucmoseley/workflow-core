@@ -828,6 +828,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"lib/test-gate",
 			// Helpers the gates call.
 			"lib/precommit-gate",
+			"lib/hook-root",
 			"lib/serialised",
 			"lib/workflow-core-config",
 			"lib/formatters",
