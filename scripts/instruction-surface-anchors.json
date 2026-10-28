@@ -133,9 +133,9 @@
 			"source": "#3143"
 		},
 		"scripts/lib/sweep-fire.js": {
-			"digest": "4ec34d7915b87d43",
+			"digest": "a4880f35e1f378fb",
 			"verdict": "at need for the deny (4th fire of the UTC day, before it runs). The three allowed fires each spend a unit with 0 B printed — a session learns it spent budget only when the budget is already gone (by design: no injection limb, header cites the route-(f) Bash byte cap). Run as a core of scripts/guard-dispatch.js (#2790)",
-			"selfSufficient": "yes for the deny — budget state, reset time and rule inline.; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/sweep-fire-budget.txt, the budget state and the command still inline.",
+			"selfSufficient": "yes for the deny — budget state, reset time and rule inline.; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/sweep-fire-budget.txt, the budget state and the command still inline.; re-fed at #1994: fires 1-3 exit 0 with 0 B, fire 4 a 1502 B deny, its why-three now a pointer to scripts/lib/sweep-budget.js.",
 			"source": "#2790"
 		},
 		"scripts/check-roadmap-valid.js": {
