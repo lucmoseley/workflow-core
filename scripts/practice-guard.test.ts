@@ -404,9 +404,29 @@ describe("the Stop limb", () => {
 			"re-anchor after the rename",
 			"regeneration from the new source",
 			"version bump from 1.2 to 1.3",
-		])("skipped — %s, an exempt kind (#2601, #2806, #3077)", (kind) => {
+			"typo fixes",
+			"reverts of two commits",
+			"version bumps",
+			"concision cuts in practice notes",
+			"re-anchor of scripts/lib/gate-sweep.js",
+			"revert of #3011",
+			"typo fix in the README's intro",
+			"revert of the so-called fix",
+			"version bump of @biomejs/biome",
+		])("skipped — %s, an exempt kind (#2601, #2806, #3077, #3491)", (kind) => {
 			expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
 		});
+
+		it.each([
+			["a non-breaking space", "version bump of biome"],
+			["a zero-width space", "revert of​ one commit"],
+			["a narrow no-break space", "typo fix in the README"],
+		])(
+			"skipped — an exempt kind set off by %s, read as a plain space (#3491)",
+			(_, kind) => {
+				expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
+			},
+		);
 
 		it("an Edit counts as the session writing the note", () => {
 			const edit = toolUse("Edit", { file_path: path.join(repo, fresh) });
@@ -485,6 +505,13 @@ describe("the Stop limb", () => {
 			expect(stop(session)).toBeNull();
 		});
 
+		const noKind =
+			'is no exempt kind: the line opens with a kind\'s whole phrase, its last word singular or plural, and no word before it but "a", "an" or "the", as in "version bump of biome"';
+		const clause = (phrase: string) =>
+			`adds a second clause to the exempt kind "${phrase}"`;
+		const holds = (char: string) =>
+			`holds "${char}", off the tail's allowlist: ASCII letters and digits, spaces, "#", "'", "@", and a "-", "." or "/" inside a word`;
+		const nbsp = "\u00a0";
 		it.each([
 			...[
 				"typography system overhaul",
@@ -493,7 +520,7 @@ describe("the Stop limb", () => {
 			].map((kind) => [
 				`a word an exempt kind's stem opens: ${kind} (#2601)`,
 				kind,
-				"no exempt kind",
+				noKind,
 			]),
 			...[
 				"typo in the new scheduler design",
@@ -502,57 +529,127 @@ describe("the Stop limb", () => {
 			].map((kind) => [
 				`an invented kind opening with an exempt kind's head word: ${kind} (#2656)`,
 				kind,
-				"no exempt kind",
+				noKind,
 			]),
 			...["typo", "propagation"].map((kind) => [
 				`a bare head word, no whole kind: ${kind} (#2656)`,
 				kind,
-				"no exempt kind",
+				noKind,
+			]),
+			...["biome version bump", "new feature and a typo fix"].map((kind) => [
+				`a qualifier before the kind: ${kind} (#3491)`,
+				kind,
+				noKind,
 			]),
 			...[
-				"revert plus a new feature",
-				"revert of nothing; built a new scheduler",
-				"concision cut of 400 lines plus new guard",
-				"revert of one commit and a new feature",
-				"typo fix in the README — and a new hook",
-				"version bump (and a new feature)",
-				"revert (plus a new feature)",
-				"revert (or a new hook)",
-				"revert (but also a new hook)",
-				"revert (with a new scheduler)",
-				"revert (one commit) and a new feature",
-				"revert ( and a new feature)",
-				"revert, then a new feature",
-				"revert of one commit, built a new scheduler",
-				"revert of one commit: built a new scheduler",
-				"revert of one commit. Also built a scheduler",
-				"revert of one commit with a new scheduler",
-				"revert of one commit but also a new hook",
-				"revert of one commit or a new hook",
-				"revert of one commit & a new hook",
-				"revert of one commit + a new hook",
-				"revert of one commit then built a new scheduler",
-				"revert of one commit also built a scheduler",
-				"revert (one commit; and a new feature)",
-				"revert (one commit, plus a new hook)",
-				"revert (one commit — built a scheduler)",
-			].map((kind) => [
-				`an exempt kind with a second clause: ${kind} (#2806, #3077)`,
+				["revert plus a new feature", "revert"],
+				["concision cut of 400 lines plus new guard", "concision cut"],
+				["revert of one commit and a new feature", "revert"],
+				["version bump (and a new feature)", "version bump"],
+				["revert (plus a new feature)", "revert"],
+				["revert (or a new hook)", "revert"],
+				["revert (but also a new hook)", "revert"],
+				["revert (with a new scheduler)", "revert"],
+				["revert ( and a new feature)", "revert"],
+				["revert, then a new feature", "revert"],
+				["revert of one commit. Also built a scheduler", "revert"],
+				["revert of one commit with a new scheduler", "revert"],
+				["revert of one commit but also a new hook", "revert"],
+				["revert of one commit or a new hook", "revert"],
+				["revert of one commit then built a new scheduler", "revert"],
+				["revert of one commit also built a scheduler", "revert"],
+				["reverts of two commits and a new hook", "reverts"],
+				["revert of one commit 'and' built a scheduler", "revert"],
+				["revert of one commit/and built a scheduler", "revert"],
+				["revert of one commit.Also built a scheduler", "revert"],
+			].map(([kind, phrase]) => [
+				`an exempt kind with a second clause: ${kind} (#2806, #3077, #3491)`,
 				kind,
-				"adds a second clause to the exempt kind",
+				clause(phrase),
 			]),
-			...["revert because main was red", "revert about the hook"].map(
-				(kind) => [
-					`an exempt kind followed by an opener off PREPOSITIONS: ${kind} (#3077)`,
-					kind,
-					"with neither an aside in brackets nor a phrase opening with one of (of, in,",
-				],
-			),
+			...[
+				["revert of nothing; built a new scheduler", ";"],
+				["typo fix in the README — and a new hook", "—"],
+				["revert (one commit) and a new feature", ")"],
+				["revert of one commit, built a new scheduler", ","],
+				["revert of one commit: built a new scheduler", ":"],
+				["revert of one commit & a new hook", "&"],
+				["revert of one commit + a new hook", "+"],
+				["revert (one commit; and a new feature)", ";"],
+				["revert (one commit, plus a new hook)", ","],
+				["revert (one commit — built a scheduler)", "—"],
+				["revert of PR #12 (the guard)", "("],
+				...["―", "‒", "?", "!", "|", "…", "，", "；"].map((mark) => [
+					`revert of one commit${mark} built a scheduler`,
+					mark,
+				]),
+				["revert of one commit ａｎｄ built a scheduler", "ａ"],
+				["revert of one commit \u0430nd built a scheduler", "\u0430"],
+			].map(([kind, char]) => [
+				`a character off the tail's allowlist: ${kind} (#3077, #3491)`,
+				kind,
+				holds(char),
+			]),
+			[
+				"a slash outside a word (#3491)",
+				"revert of one commit / built a scheduler",
+				'puts a "-", "." or "/" outside a word',
+			],
+			...[
+				"and",
+				"but",
+				"or",
+				"nor",
+				"yet",
+				"so",
+				"plus",
+				"with",
+				"then",
+				"also",
+				"as well as",
+			].map((join) => [
+				`a JOINS word: ${join} (#3077, #3491)`,
+				`revert of one commit ${join} built a scheduler`,
+				clause("revert"),
+			]),
+			...[
+				["revert because main was red", "revert"],
+				["revert about the hook", "revert"],
+				["version bump 4.1 to 5.0", "version bump"],
+			].map(([kind, phrase]) => [
+				`an exempt kind followed by an opener off PREPOSITIONS: ${kind} (#3077, #3491)`,
+				kind,
+				`follows the exempt kind "${phrase}" with neither an aside in brackets nor a phrase opening with one of: of, in, on, to, for, from, over, after, before, since, across, at, by, into, under, via, per, during, through, between, within; write it as "${phrase} (<aside>)" or "${phrase} of <what>"`,
+			]),
 		])("skipped — %s", (_, kind, says) => {
-			expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toContain(
-				says,
-			);
+			const reason = stop([wrote(code()), declared(`skipped — ${kind}`)]);
+			// fault_in strips an aside's closing bracket before it names the line.
+			const named = kind.replace(/\)$/, "");
+			expect(reason).toContain(`skipped names "${named}", which ${says}`);
+			expect(reason).toContain(list);
 		});
+
+		it.each([
+			[
+				"a non-breaking space",
+				`revert of one commit${nbsp}and${nbsp}built a scheduler`,
+			],
+			[
+				"a zero-width space",
+				"revert of one commit and\u200b built a scheduler",
+			],
+			[
+				"a narrow no-break space",
+				"revert of one commit\u202fand built a scheduler",
+			],
+		])(
+			"skipped — a JOINS word set off by %s, read as a plain space (#3491)",
+			(_, kind) => {
+				const reason = stop([wrote(code()), declared(`skipped — ${kind}`)]);
+				expect(reason).toContain(`which ${clause("revert")}`);
+				expect(reason).toContain(list);
+			},
+		);
 
 		it("refuses each session apart", () => {
 			expect(stop([wrote(code())])).not.toBeNull();
@@ -622,6 +719,26 @@ describe("the Stop limb", () => {
 			});
 			expect(stop([wrote(code()), comment])).toBeNull();
 		});
+
+		it.each([
+			["revert", null],
+			[
+				"revert and a new hook",
+				'which adds a second clause to the exempt kind "revert"',
+			],
+			["revert of x\\'s fix", null],
+			["revert of one commit\\x2c built a scheduler", 'which holds "\\"'],
+		])(
+			"a gh comment's $'...' body, its \\n and \\' decoded and other escapes kept: skipped — %s (#3491)",
+			(kind, says) => {
+				const comment = toolUse("Bash", {
+					command: `gh issue comment 12 --body $'Done.\\n\\n**Practice:** skipped — ${kind}'`,
+				});
+				const reason = stop([wrote(code()), comment]);
+				if (says === null) expect(reason).toBeNull();
+				else expect(reason).toContain(says);
+			},
+		);
 
 		it.each([
 			["ran", () => `ran — ${fresh}`, () => [wrote(path.join(repo, fresh))]],
