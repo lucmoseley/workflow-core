@@ -20065,6 +20065,7 @@
 		"scripts/refill-loop.js": [
 			"scripts/agents-listing-count.test.ts",
 			"scripts/check-ghost-jobs.test.ts",
+			"scripts/check-refill-loop-stop.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",

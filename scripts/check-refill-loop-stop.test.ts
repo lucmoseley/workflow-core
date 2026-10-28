@@ -110,6 +110,66 @@ describe("at session start (--notify)", () => {
 	});
 });
 
+describe("the restart it names (#3371)", () => {
+	function writeControl(scope: object, startedAt = STOP_AT - 60_000) {
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-control.json"),
+			JSON.stringify({ startedAt, stopRequested: false, scope }),
+		);
+	}
+
+	it("names /pick-next for a normal-mode stop", () => {
+		writeState("no-progress");
+		writeControl({ mode: "normal", repos: ["/h/workflow-core"], goals: {} });
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		const out = r.stdout;
+		expect(out).toContain("Restart it with /pick-next.");
+		expect(out).not.toContain("--away");
+	});
+
+	it("names the away start, with its exclusions, for an away-mode stop", () => {
+		writeState("no-progress");
+		writeControl({ mode: "away", exclude: ["/h/mantahostels"], goals: {} });
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		const out = r.stdout;
+		expect(out).toContain(
+			`Restart away mode: node ${path.join(__dirname, "refill-loop.js")} start --away --exclude mantahostels\n`,
+		);
+		expect(out).not.toContain("/pick-next");
+	});
+
+	it("names one away start per goal's checkout, each with every exclusion", () => {
+		writeState("allowance");
+		writeControl({
+			mode: "away",
+			exclude: ["/h/mantahostels", "/h/fantasy-books"],
+			goals: { "/h/workflow-core": [116, 117], "/h/design-vault": [9] },
+		});
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		const out = r.stdout;
+		const away = `node ${path.join(__dirname, "refill-loop.js")} start --away --exclude mantahostels --exclude fantasy-books`;
+		expect(out).toContain(
+			`  CLAUDE_PROJECT_DIR=/h/workflow-core ${away} --goal 116,117\n`,
+		);
+		expect(out).toContain(
+			`  CLAUDE_PROJECT_DIR=/h/design-vault ${away} --goal 9\n`,
+		);
+	});
+
+	it("names no restart where the loop was started again since", () => {
+		writeState("no-progress");
+		writeControl({ mode: "away" }, STOP_AT + 60_000);
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		const out = r.stdout;
+		expect(out).not.toContain("Restart");
+		expect(out).toContain("Its status:");
+	});
+});
+
 describe("a plain run", () => {
 	it("names the stop and spends nothing", () => {
 		writeState("no-progress");

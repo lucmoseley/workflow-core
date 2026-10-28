@@ -16,6 +16,13 @@
  * stamp is per machine, as the loop is, so whichever session starts first on
  * any seat or repo spends it — a background job's start included.
  *
+ * THE RESTART MATCHES THE STOPPED SCOPE (#3371): `/pick-next` restarts normal
+ * mode only, so an away-mode stop names `refill-loop.js start --away` with its
+ * exclusions, one command per goal's checkout. `start` files a goal under
+ * CLAUDE_PROJECT_DIR before the working directory (lib/host-root.js), so each
+ * such command sets it, and names the script absolute. A loop started again
+ * since names no restart.
+ *
  * Severity is WARN: a notice for the founder. An absent or unreadable state
  * file is no stop.
  *
@@ -25,10 +32,15 @@
  */
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const loop = require("./lib/refill-loop.js");
-const { scriptPath } = require("./lib/script-path.js");
+const {
+	expandPastePaths,
+	scriptPath,
+	shellWord,
+} = require("./lib/script-path.js");
 
 /** @type {Partial<Record<import("./lib/refill-decide.js").StopReason, string>>} */
 const STOP_REASON_WORDS = {
@@ -45,6 +57,32 @@ function readSeen(file) {
 		/* Absent on the first run; unreadable only repeats the notice (#2014). */
 		return 0;
 	}
+}
+
+const STATUS = `node ${scriptPath("refill-loop.js")} status`;
+
+/**
+ * The restart for a stopped loop's scope: `/pick-next` where it was normal
+ * mode or is unknown, else an away start per goal's checkout (#3371).
+ * Residual: an away loop whose control file is lost after its stop is named
+ * `/pick-next`, which restarts it as normal mode.
+ * @param {import("./lib/refill-loop.js").Control|null} control
+ * @returns {string[]}
+ */
+function buildRestartLines(control) {
+	if (control === null || control.scope.mode === "normal")
+		return ["Restart it with /pick-next."];
+	const { exclude, goals } = control.scope;
+	const away = `node ${expandPastePaths("{script:refill-loop.js}", "")} start --away${exclude
+		.map((r) => ` --exclude ${path.basename(r)}`)
+		.join("")}`;
+	const perGoal = Object.entries(goals).map(
+		([root, issues]) =>
+			`  CLAUDE_PROJECT_DIR=${shellWord(root)} ${away} --goal ${issues.join(",")}`,
+	);
+	return perGoal.length === 0
+		? [`Restart away mode: ${away}`]
+		: ["Restart away mode, one start per goal's checkout:", ...perGoal];
 }
 
 runCheck({
@@ -70,9 +108,14 @@ runCheck({
 		if (fresh) {
 			const at = new Date(stopped.at).toISOString();
 			const control = loop.parseControl(loop.readJson(files.control));
-			const since = loop.isRenewedSince(control, stopped.at)
+			const renewed = loop.isRenewedSince(control, stopped.at);
+			const since = renewed
 				? " It has been started again since."
 				: " Running sessions finish; nothing new launches.";
+			const lines = [
+				...(renewed ? [] : buildRestartLines(control)),
+				`Its status: ${STATUS}`,
+			];
 			ctx.warn(
 				"REFILL-LOOP-STOPPED",
 				`the refill loop stopped on ${why} at ${at}`,
@@ -80,7 +123,7 @@ runCheck({
 			);
 			ctx.say(
 				`REFILL-LOOP-STOPPED — the refill loop stopped on ${why} at ${at}: ${stopped.detail}.${since}\n` +
-					`  Restart it with /pick-next; its status: node ${scriptPath("refill-loop.js")} status\n`,
+					lines.map((l) => `  ${l}\n`).join(""),
 			);
 			if (ctx.notify) fs.writeFileSync(files.stopSeen, `${stopped.at}\n`);
 		}
