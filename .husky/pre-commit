@@ -11,7 +11,7 @@
 # silently stops firing in worktrees; nothing reports it (mantahostels#344).
 #
 # IMPLICIT:  runs every gate below on each commit — the shared-tree branch check, the linters, the secret scan and the repo checkers — and refuses the commit on a red. Deliberately not enumerated: this file has carried ~14 gates and gains more, and a list here is one that goes stale (mantahostels#1261).
-# JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and since mantahostels#910 nothing runs on push, so a gate skipped here is unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery lag, not the 4-hourly cron.
+# JUSTIFIED: fail-safe — a commit is the last local moment before work is shared, and a gate skipped here runs next only in CI, after the push: with `landing` on, the lander's run on that push (#2413).
 # DEFEAT:    WFC_ALLOW_BRANCH=1 skips the shared-tree branch check alone, and WFC_ALLOW_GATE_INPUT_DELETE=1 lets one commit delete a staged gate's own required input, for the rare deliberate retirement (mantahostels#2894; the limb is in scripts/lib/precommit-gate.sh, so it reaches every staged_gate caller at once). Both are the founder's to set, and the guard-hook-escape core refuses an agent's spelling of either (#916). WFC_GITLEAKS names the secret scanner's binary (§N7, #224), so a value that exits 0 on everything defeats the scan alone. The stack itself has no escape flag: --no-verify no longer skips it, .husky/prepare-commit-msg running it instead (mantahostels#1705), and the guard-commit-form core denies that flag on `git commit` and `git merge` both. Defeats remain: HUSKY=0 among those disarming every hook (the whole list: scripts/lib/commit-form.js's LIMITS), and a caller setting WFC_TEST_STAMP or WFC_MUTATION_STAMP by hand to a stamp it wrote itself in the git directory, which stands the declared test gate or the mutation hold down (#1650, #1910). WFC_LANDER_REVERT=<sha> stands the guard-registry gate's staleness refusal down where the staged tree is that commit's clean revert onto HEAD, recomputed by scripts/lib/clean-revert.js (#3127): the lander sets it; an agent can too, but what it passes is a clean revert that leaves rows stale, never any other change or fault.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
@@ -187,9 +187,9 @@ fi
 #
 # DEFEAT: HUSKY=0 and `core.hooksPath` pointed off .husky/_ (the whole list:
 # scripts/lib/commit-form.js's LIMITS, #800). A commit landing by either route
-# is unchecked until roadmap-digest.yml's own digest-render step reaches it on the
-# sweeps, up to ~12 hours later (mantahostels#2895); `npm run check:digest-render` answers
-# sooner.
+# is unchecked until roadmap-digest.yml's own digest-render step reaches it, on
+# the next `landing` push run or scheduled sweep (#2413, mantahostels#2895);
+# `npm run check:digest-render` answers sooner.
 if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$'; then
   # IN AN ADOPTER THE GENERATOR IS THE PLUGIN'S (#551): $WFC_PLUGIN_ROOT set
   # and naming neither this worktree's top nor the canonical checkout, which a
@@ -700,9 +700,9 @@ if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\
   # never refuse on it: the ruling is WARN-only.
   #
   # Assertion 23's WARN (mantahostels#2124) is held the same way and replayed the same
-  # way. Unlike 22's, the sweeps DO see it — a malformed marker reads the same
-  # in a clean checkout — but up to ~12 hours later (mantahostels#2204), and the commit
-  # writing the misspelling is the one that can cheaply fix it.
+  # way. Unlike 22's, CI DOES see it — a malformed marker reads the same in a
+  # clean checkout — but only after the push, and the commit writing the
+  # misspelling is the one that can cheaply fix it.
   #
   # Assertion 24's WARN (mantahostels#2227) is 22's case exactly: it compares against the
   # parent, so the sweeps' clean checkout can never see a dropped marker, and
@@ -889,7 +889,7 @@ fi
 # the WORKTREE copy; scoping keeps that to files this commit names, so the only
 # divergence is your own edits since staging. And -x follows sources downward
 # only, so editing scripts/lib/*.sh does not re-check its dependents — CI's
-# whole-repo run catches that within ~12 hours (mantahostels#2204). Widen to the whole set on
+# whole-repo run catches that after the push. Widen to the whole set on
 # a staged lib if it bites again (mantahostels#1134).
 #
 # Serialised with every other shellcheck run on the machine (#2579, #2627).

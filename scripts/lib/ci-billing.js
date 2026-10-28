@@ -91,9 +91,9 @@ function filterRuns(runs, excluded = []) {
  * therefore the billable unit. One push fires several, so runs are collapsed to
  * their head_sha, and only push-triggered runs count: a schedule or a
  * workflow_dispatch costs minutes but is not a push anyone could have held
- * back. Since mantahostels#910 nothing runs on push at all and the sweep is the billable
- * unit, so a window after it has no push-triggered runs to collapse —
- * .github/workflows/scheduled-checks.yml carries the live pricing.
+ * back. Since mantahostels#910 nothing runs on a push to `main`, so a window after
+ * it has no push-triggered runs on `main` to collapse; a push to `landing` fires
+ * the lander's run (#2413).
  */
 const PUSH_EVENTS = new Set(["push"]);
 

@@ -738,9 +738,10 @@ describe("§W — which gate runs it in CI", () => {
 		]) {
 			expect(ci, step).toContain(step);
 		}
-		// Paired negative: nothing runs on push (mantahostels#910), so a CI file that simply listed
-		// every conceivable trigger would fail here rather than pass the presence
-		// checks above.
+		// Paired negative: ci.yml carries no push trigger of its own —
+		// scheduled-checks.yml's `landing` push calls it (#2413) — so a CI file
+		// that simply listed every conceivable trigger would fail here rather than
+		// pass the presence checks above.
 		expect(ci).not.toMatch(/^on:\s*\n\s*push:/m);
 	});
 

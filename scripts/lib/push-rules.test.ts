@@ -460,13 +460,12 @@ describe("the injected rules still carry their operative clauses", () => {
 	});
 
 	it.each([
-		["THIS PUSH DOES NOT TRIGGER A SUITE RUN", "the headline"],
-		["#910", "the ticket that unkeyed a run from a push"],
+		["A CI VERDICT COVERS A COMMIT RANGE", "the headline"],
 		["npm run check:ci", "the command that asks now"],
 		["ONCE after every push", "how often"],
 		["never rerun it", "why a second read tells nothing new"],
 		["only verdict for up to ~12 hours", "what the local checks are meanwhile"],
-		["four a day", "how often the suite actually runs, since a push runs none"],
+		["four a day", "how often a sweep-only host's suite runs"],
 		["the newest sweep", "the run both answers are keyed to, never your sha"],
 	])("ci-status-lag keeps %s — %s", (clause) => {
 		carries("ci-status-lag", clause);

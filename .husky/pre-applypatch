@@ -13,9 +13,8 @@
 # JUSTIFIED: fail-safe — a patch applied from a file is bytes no commit in this
 #            repository ever carried, which is the shape a pasted credential
 #            arrives in, and AGENTS.md §Secrets boundary makes a committed key
-#            permanent. Since mantahostels#910 nothing runs on push, so a gate skipped here
-#            is unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery
-#            lag, not the 4-hourly cron.
+#            permanent. A gate skipped here runs next only in CI, after the
+#            push, by which time the key is published.
 # DEFEAT:    `git am --no-verify`, which abbreviates down to `--no-v`, skips
 #            this hook; `git rebase --apply` accepts no such flag.
 #            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies the flag only

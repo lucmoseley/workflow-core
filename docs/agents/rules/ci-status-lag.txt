@@ -1,11 +1,10 @@
-THIS PUSH DOES NOT TRIGGER A SUITE RUN, AND NOTHING WILL REPORT ON YOUR SHA.
+A CI VERDICT COVERS A COMMIT RANGE, NOT THE SHA YOU JUST PUSHED.
 
-The whole suite runs on the scheduled sweep alone (mantahostels#910), four a day
-(mantahostels#3490), so the local checks are the session's only verdict
-for up to ~12 hours. Run `npm run check:ci` ONCE after every push, docs-only
-included, and read it; never rerun it. It and `check-ci-status.js --notify`
-answer off the newest sweep and the COMMIT RANGE it covered, never the sha you
-just pushed: nothing new until the next sweep lands.
+Run `npm run check:ci` ONCE after every push, docs-only included, and read it;
+never rerun it. It and `check-ci-status.js --notify` answer off the newest run
+carrying a verdict and the COMMIT RANGE back to the last green. Where nothing
+runs on push, that run is the newest sweep, four a day, and the local checks
+are the session's only verdict for up to ~12 hours (mantahostels#2204).
 
 THE RANGE IS WHAT IT COSTS. At ~9.4 commits/hour a 6-hourly sweep covers ~56
 commits, so localising a red by bisection is ~6 full-suite runs and not one.

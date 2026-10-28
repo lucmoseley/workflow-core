@@ -556,10 +556,9 @@ describe("the CI half of the same gate", () => {
 	});
 
 	it("sits in the python job, which already paid for the pip install", () => {
-		// Actions bills a whole minute per JOB, so a Ruff job of its own would
-		// cost ~4 billed minutes a day for a 0.05 s check. It also needs no
-		// install step of its own only because it is downstream of that job's
-		// `Install dependencies` (mantahostels#1135).
+		// A Ruff job of its own would repeat the checkout and pip install for a
+		// 0.05 s check; it needs no install step only because it is downstream
+		// of that job's `Install dependencies` (mantahostels#1135).
 		const python = CI.slice(CI.indexOf("\n  python:"));
 		expect(python).toContain("- name: Ruff");
 		expect(python).toContain("pip install -r requirements-dev.txt");

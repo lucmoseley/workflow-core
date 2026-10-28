@@ -1151,7 +1151,7 @@
 					"id": "ci-status-lag",
 					"core": "guard-push-rules",
 					"kind": "inject",
-					"text": "THIS PUSH DOES NOT TRIGGER A SUITE RUN"
+					"text": "A CI VERDICT COVERS A COMMIT RANGE"
 				},
 				{
 					"id": "ci-status-lag-landing",

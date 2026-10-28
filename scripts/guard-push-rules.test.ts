@@ -133,7 +133,7 @@ describe("the push rules, end to end", () => {
 		expect(ctx).toContain("IS TESTED BY THE LANDER");
 		// No push owes a certificate under landing (#2929).
 		expect(ctx).not.toMatch(/WARNS UNLESS|ATTESTED|push:check/);
-		expect(ctx).not.toContain("THIS PUSH DOES NOT TRIGGER");
+		expect(ctx).not.toContain("A CI VERDICT COVERS");
 		expect(Buffer.byteLength(ctx, "utf8")).toBeLessThan(readRuleCap());
 	});
 

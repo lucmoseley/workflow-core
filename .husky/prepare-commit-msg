@@ -20,9 +20,7 @@
 #            on, per hook: scripts/lib/commit-route.sh, whose absence
 #            refuses every commit.
 # JUSTIFIED: fail-safe — this is the last hook `--no-verify` cannot turn off,
-#            and since mantahostels#910 nothing runs on push, so a gate skipped here is
-#            unrun for up to ~12 hours (mantahostels#2204) — GitHub's measured delivery lag,
-#            not the 4-hourly cron.
+#            and a gate skipped here runs next only in CI, after the push.
 # DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
 #            turn off every hook in the repo at once.
 #            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies `--no-verify`

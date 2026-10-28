@@ -3,9 +3,9 @@
  * report-red-suite.js — mantahostels#2030 (the ticket that stopped a red scheduled suite
  * run filing nothing).
  *
- * The full suite runs on cron only (mantahostels#904 moved it off the push trigger to cut
- * Actions spend), so a breakage sits on `main` for up to ~12 hours — the cron
- * asks for 4, GitHub delivers the slots late, and the gap is not this repo's to
+ * A scheduled sweep re-tests `main` four times a day, so a red that only the
+ * still tree shows — a flaky or date-dependent test — waits for the next
+ * delivered slot; GitHub delivers them late, and the gap is not this repo's to
  * set (mantahostels#2204).
  *
  * ONE TRACKING ISSUE, MANY REDS. mantahostels#389's pattern (lib/tracking-issue.js) files

@@ -23,15 +23,15 @@ pytest==9.1.1
 # 8 GB cap.
 #
 # This is a LOCAL win only, measured 13 August 2026: 53.4s -> 23.6s here, but
-# 111s -> 103s on a GitHub runner, which is ~7% and leaves the CI job at the
-# same 3 billed minutes. Two vCPU do not scale this FP-heavy bootstrap. Kept
-# because the suite is run before every push by hand and halving that is worth
-# having; do not re-argue it as a CI saving.
+# 111s -> 103s on a GitHub runner, which is ~7%: the CI job barely moves. Two
+# vCPU do not scale this FP-heavy bootstrap. Kept because the suite is run
+# before every push by hand and halving that is worth having; do not re-argue it
+# as a CI saving.
 #
 # Cutting the CI job took the work itself getting cheaper, at mantahostels#314: vectorising
 # the Spearman bootstrap took the suite to 14.0s serial and 7.3s here, and the
-# CI job from 127s to 30s — 3 billed minutes to 1. Removing work transfers to a
-# runner; spreading it over vCPU there are only two of does not.
+# CI job from 127s to 30s. Removing work transfers to a runner; spreading it
+# over vCPU there are only two of does not.
 pytest-xdist==3.8.0
 
 # Already required at import time by scripts/collect-evidence.py, which reads the

@@ -149,9 +149,9 @@ jobs:
       # validator ERROR fails this step, WARNINGs print and pass.
       #
       # .husky/pre-commit catches a break before the commit; this catches one
-      # that arrived by a route the hook never saw, at a detection latency of up
-      # to ~12 hours — the cron asks for 4, GitHub delivers late (mantahostels#2204). Local
-      # backstop: `npm run check:roadmap:tree`.
+      # that arrived by a route the hook never saw, on the `landing` push run
+      # that tests it (#2413) or the next scheduled sweep. Local backstop:
+      # `npm run check:roadmap:tree`.
       - name: Check the roadmap is structurally valid as it stands
         if: ${{ !cancelled() }}
         run: node scripts/check-roadmap-valid.js --tree

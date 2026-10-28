@@ -34,11 +34,11 @@
  * the ordering leaves open.
  *
  * IT DOES FIRE UNATTENDED (#260): a step in the `Document guards` job of
- * .github/workflows/roadmap-digest.yml, which every scheduled sweep runs. That
- * job is ungated by scheduled-checks.yml's skip gate and its minute is already
- * billed, so the placement costs no Actions minutes. The detection lag is the
- * DELIVERED sweep interval, ~12 hours — the cron asks for four a day and
- * GitHub delivers late and drops slots (mantahostels#2228), so 6h is the ask, not the lag.
+ * .github/workflows/roadmap-digest.yml, which every `landing` push run and
+ * every scheduled sweep runs (#2413). The detection lag is the next of either;
+ * with no push it is the DELIVERED sweep interval, ~12 hours — the cron asks
+ * for four a day and GitHub delivers late and drops slots (mantahostels#2228),
+ * so 6h is the ask, not the lag.
  *
  * AN UNREACHABLE REMOTE GATES UNDER --require-remote, AND ONLY THERE (#263),
  * against lib/check.js's alphabet. The sweep step passes it and nothing else

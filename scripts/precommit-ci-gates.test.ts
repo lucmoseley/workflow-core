@@ -8,12 +8,11 @@
  * `check-digest-version.js` and `check-guard-registry.js` are now the local half
  * of a claim CLAUDE.md makes — the roadmap/digest pair cannot drift, and no
  * parallel-safety rule can claim an enforcement it does not have. Delete these
- * hook blocks and the next thing to run either check is the scheduled sweep, up
- * to ~12 hours later (mantahostels#2204) — the cron is 4-hourly, but delivery lags it.
+ * hook blocks and the next thing to run either check is CI, after the push: the
+ * `landing` push run or the scheduled sweep (#2413).
  *
  * UNVERIFIED, and deliberately: the CI half — the steps still in
- * roadmap-digest.yml, and the schedule in scheduled-checks.yml that now calls
- * it. Testing those means running a workflow.
+ * roadmap-digest.yml, and scheduled-checks.yml that calls it. Testing those means running a workflow.
  *
  * Both checkers are stubbed in each fixture so their exit codes are ours to
  * drive.

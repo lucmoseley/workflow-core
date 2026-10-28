@@ -267,8 +267,8 @@ describe("mutations of the gate are caught by the cases above", () => {
 });
 
 /*
- * The scheduled half (mantahostels#974). Not a second gate on the commit — it runs up to
- * ~12 hours later (mantahostels#2204) — but it is the only thing that ever sees a break arriving by
+ * The CI half (mantahostels#974). Not a second gate on the commit — it runs after
+ * the push — but it is the only thing that ever sees a break arriving by
  * a route the hook cannot: a `--no-verify` commit. An auto-resolving merge was a
  * second such route until mantahostels#1679 wired `.husky/pre-merge-commit`, which git DOES
  * run for one, to the whole pre-commit stack.

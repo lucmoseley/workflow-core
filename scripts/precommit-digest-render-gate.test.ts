@@ -12,7 +12,7 @@
  *
  * It is a hard gate in `.husky/pre-commit`: loosen a case and a digest no
  * render reproduces lands, read by pick-next and manual-sync as the roadmap's
- * state, until the sweeps' digest-render step reaches it up to ~12 hours later.
+ * state, until CI's digest-render step reaches it after the push.
  */
 
 import { execFileSync } from "node:child_process";

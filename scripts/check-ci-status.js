@@ -18,9 +18,9 @@
  * of the day is not seen until the next one opens.
  *
  * A RED ACCUSES A RANGE, NOT A SHA (mantahostels#945, on the attribution ruling at
- * mantahostels#907). Nothing runs on push (mantahostels#910): the suite is four scheduled sweeps a
- * day (mantahostels#3490; `cron: "0 3,9,15,21 * * *"`), so there is usually no run for
- * your sha at all and one verdict covers every commit since the last sweep. This
+ * mantahostels#907). Sweeps run four times a day (mantahostels#3490;
+ * `cron: "0 3,9,15,21 * * *"`) over whatever `main` holds, so one verdict
+ * covers every commit since the last sweep. This
  * keys on the newest run that CARRIES A VERDICT — whatever its sha — and then
  * says what a reader needs to narrow the search without opening GitHub: the
  * failing STEP, the commit range back to the last green run of the same
