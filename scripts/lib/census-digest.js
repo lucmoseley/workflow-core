@@ -44,6 +44,7 @@ const fs = require("node:fs");
 const { createRequire } = require("node:module");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { readCommit } = require("./commit-sha.js");
 const { loadShfmt } = require("./formatters.js");
 const { NO_CEILING } = require("./git-ceiling.js");
 const { MANIFEST_REL, hostOf } = require("./guard-cores.js");
@@ -134,18 +135,23 @@ function readSnapshot(root, rev, { disk = true, ceiling = NO_CEILING } = {}) {
 				what,
 			),
 		);
-	let commit;
-	try {
-		commit = git(
-			["rev-parse", "--verify", "--quiet", `${rev}^{commit}`],
-			`git rev-parse ${rev}`,
-		).trim();
-	} catch (e) {
-		/* An exit status is git's own answer; anything else (the ceiling, a
-		 * missing binary) is no answer, and never reads as an absent tree. */
-		if (typeof caught(e).status !== "number") throw e;
-		return { root, tree: null, disk, ceiling };
-	}
+	/** @type {import("./git.js").GitReader} */
+	const read = (args, noMatch) => {
+		try {
+			return { ok: true, out: git(args, `git rev-parse ${rev}`) };
+		} catch (e) {
+			/* An exit status is git's own answer; anything else (the ceiling, a
+			 * missing binary) is no answer, and never reads as an absent tree. */
+			const { status, message } = caught(e);
+			if (typeof status !== "number") throw e;
+			return noMatch.includes(status)
+				? { ok: true, out: "" }
+				: { ok: false, why: message };
+		}
+	};
+	const r = readCommit(read, rev);
+	if (!r.ok || r.sha === null) return { root, tree: null, disk, ceiling };
+	const commit = r.sha;
 	let tree = treeByCommit.get(commit);
 	if (tree === undefined) {
 		tree = new Map();

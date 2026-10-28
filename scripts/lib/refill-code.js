@@ -22,6 +22,7 @@ const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
+const { commitSha } = require("./commit-sha.js");
 const { isUnder } = require("./is-under.js");
 const {
 	REMOTE,
@@ -118,13 +119,7 @@ function fetchVerified(repo) {
  * The verified ref's sha as `repo` last fetched it, or null.
  * @param {string} repo
  */
-function readVerifiedSha(repo) {
-	try {
-		return git(repo, ["rev-parse", "--verify", `${VERIFIED_REF}^{commit}`]);
-	} catch {
-		return null;
-	}
-}
+const readVerifiedSha = (repo) => commitSha(repo, VERIFIED_REF);
 
 /**
  * The worktree at `sha` in `codeDir`, checked out where it is not yet.

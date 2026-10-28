@@ -18,7 +18,7 @@
  */
 
 const { NO_CEILING, CeilingPassed } = require("./git-ceiling.js");
-const { FULL_SHA } = require("./commit-sha.js");
+const { readCommit } = require("./commit-sha.js");
 const { REMOTE, pushedRef } = require("./landing-refs.js");
 const { hasLine } = require("./marker-line.js");
 const { HEX_WORD_RE } = require("./outstanding-line.js");
@@ -161,21 +161,15 @@ function unlandedOf(git, pushed, candidates) {
 
 /**
  * The full sha `rev` names, null where it names none; throws where git would
- * not answer. lib/commit-sha.js's readCommit, read under the ceiling: exit 1
- * stands as "no commit" only once `rev-parse --git-dir` answers.
+ * not answer.
  * @param {GitReader} read
  * @param {string} rev
  * @returns {string | null}
  */
 function commitOrThrow(read, rev) {
-	const r = read(["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], [1]);
-	const sha = r.ok ? r.out.trim() : "";
-	if (FULL_SHA.test(sha)) return sha;
-	const repo = r.ok && !sha ? read(["rev-parse", "--git-dir"], []) : r;
-	if (repo.ok && !sha) return null;
-	throw new Error(
-		`git rev-parse ${rev}: ${repo.ok ? `printed ${sha.slice(0, 80)}` : repo.why}`,
-	);
+	const r = readCommit(read, rev);
+	if (!r.ok) throw new Error(`${rev}: ${r.why}`);
+	return r.sha;
 }
 
 /**

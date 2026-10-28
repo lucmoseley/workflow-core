@@ -23,6 +23,10 @@ const {
 /** A full object name, SHA-1 or SHA-256, as `git rev-parse` prints one. */
 const FULL_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
+/* A guess, not a measurement: room for a 64-character sha and a few words
+ * past it, kept to one line of the error. */
+const PRINTED_CHARS_SHOWN = 80;
+
 /**
  * The full sha `rev` names, null where it names none, or `ok: false` where git
  * would not answer: `rev-parse --verify --quiet` exits 1 on a rev naming no
@@ -37,7 +41,11 @@ function readCommit(read, rev) {
 	if (!r.ok) return r;
 	const sha = r.out.trim();
 	if (FULL_SHA.test(sha)) return { ok: true, sha };
-	if (sha) return { ok: false, why: `rev-parse printed ${sha.slice(0, 80)}` };
+	if (sha)
+		return {
+			ok: false,
+			why: `rev-parse printed ${sha.slice(0, PRINTED_CHARS_SHOWN)}`,
+		};
 	const repo = read(["rev-parse", "--git-dir"], []);
 	return repo.ok ? { ok: true, sha: null } : repo;
 }

@@ -15,6 +15,7 @@
  * findings on every full run, and only staleness is exempt.
  */
 
+const { commitSha } = require("./commit-sha.js");
 const { spawnGitSync } = require("./git.js");
 
 const LANDER_REVERT_ENV = "WFC_LANDER_REVERT";
@@ -73,7 +74,7 @@ function whyNotCleanRevert(cwd, { culprit, onto, tree }) {
  */
 function whyNotLanderRevert(cwd, { culprit, sha, tip }) {
 	const [full, head, base] = [culprit, sha, tip].map((rev) =>
-		gitOut(cwd, ["rev-parse", "--verify", `${rev}^{commit}`])?.trim(),
+		commitSha(cwd, rev),
 	);
 	if (!full) return `${culprit} is not a commit here`;
 	if (!head || !base) return `${sha} or ${tip} is not a commit here`;

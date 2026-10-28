@@ -42,6 +42,7 @@
  *    (mantahostels#147); a branch, log or status git cannot give prints empty.
  */
 
+const { readCommit } = require("./commit-sha.js");
 const { textOf } = require("./guard-entry.js");
 
 /**
@@ -78,6 +79,16 @@ const chomp = (s) => s.replace(/\n+$/, "");
  */
 
 /**
+ * The full sha `rev` names, or "" where it names none or git would not say.
+ * @param {import("./git.js").GitReader} read
+ * @param {string} rev
+ */
+function readCommitSha(read, rev) {
+	const r = readCommit(read, rev);
+	return (r.ok && r.sha) || "";
+}
+
+/**
  * @param {string} prompt
  * @param {Ctx} ctx
  * @returns {Decision}
@@ -102,9 +113,11 @@ function decide(prompt, ctx) {
  */
 function judge(prompt, ctx) {
 	const cwd = ctx.cwd || ctx.root;
+	/** @type {import("./git.js").GitReader} */
+	const read = (args, noMatch) => ctx.git(["-C", cwd, ...args], noMatch);
 	/** @param {string[]} args @returns {string | null} */
 	const git = (...args) => {
-		const r = ctx.git(["-C", cwd, ...args], []);
+		const r = read(args, []);
 		return r.ok ? chomp(r.out) : null;
 	};
 	const head = git("rev-parse", "--verify", "-q", "HEAD");
@@ -117,8 +130,7 @@ function judge(prompt, ctx) {
 		.flatMap((l) => CHECKED.exec(l)?.[1] ?? [])
 		.at(-1);
 	if (checked) {
-		const resolved =
-			git("rev-parse", "--verify", "-q", `${checked}^{commit}`) ?? "";
+		const resolved = readCommitSha(read, checked);
 		if (resolved === head) return null;
 		if (resolved) {
 			const since =

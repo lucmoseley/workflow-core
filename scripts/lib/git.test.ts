@@ -266,3 +266,34 @@ describe("no `--git-common-dir` read outside gitCommonDir (#2737, #3066)", () =>
 		expect(offendersIn(files, commonDirLines)).toEqual([]);
 	});
 });
+
+describe("no `rev-parse … ^{commit}` probe outside readCommit (#3068, #3396)", () => {
+	const exempt = new Set(["scripts/lib/commit-sha.js"]);
+
+	/* A quoted `rev-parse` whose call, up to the next `;`, quotes a rev ending
+	 * `^{commit}`: `cat-file` names one too, and is no probe of this shape. */
+	const probeLines = (src: string) =>
+		uncommentedLines(src, /(["'`])rev-parse\1[^;]*?\^\{commit\}["'`]/g);
+
+	it("catches a quoted probe, and passes another command or a comment", () => {
+		expect(probeLines('read(["rev-parse", "-q", `HEAD^{commit}`]);')).toEqual([
+			1,
+		]);
+		expect(
+			probeLines('git(\n\t"rev-parse",\n\t"--verify",\n\t"HEAD^{commit}",\n);'),
+		).toEqual([2]);
+		expect(
+			probeLines('succeeds(["cat-file", "-e", "HEAD^{commit}"]);'),
+		).toEqual([]);
+		expect(probeLines(" * `git rev-parse x^{commit}` resolves")).toEqual([]);
+		expect(probeLines('// ["rev-parse", "HEAD^{commit}"]')).toEqual([]);
+	});
+
+	it("finds none in a tracked lib", () => {
+		const files = readTrackedScripts(
+			["ls-files", "-z", "--", "scripts/lib/*.js"],
+			exempt,
+		);
+		expect(offendersIn(files, probeLines)).toEqual([]);
+	});
+});

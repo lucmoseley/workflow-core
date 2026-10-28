@@ -34,14 +34,20 @@ function buildHostPorts() {
 				["ls-files", "--error-unmatch", "--", path.basename(abs)],
 				{
 					cwd: path.dirname(abs),
+					env: { ...process.env, LC_ALL: "C" },
+					encoding: "utf8",
 					timeout: HOOK_GIT_TIMEOUT_MS,
-					stdio: "ignore",
+					stdio: ["ignore", "ignore", "pipe"],
 				},
 			);
 			if (r.status === 0) return true;
-			/* 1 is an untracked file; 128 is no repository at all, which tracks
-			 * nothing. Anything else — a timeout, a missing git — cannot say. */
-			if (r.status === 1 || r.status === 128) return false;
+			/* 1 is an untracked file; a 128 saying "not a git repository", read
+			 * under LC_ALL=C so a translated git says it too, is no repository
+			 * at all, which tracks nothing. Any other 128 is git's general fatal
+			 * exit (#3396), and that, a timeout or a missing git cannot say. */
+			if (r.status === 1) return false;
+			if (r.status === 128 && /not a git repository/.test(String(r.stderr)))
+				return false;
 			return null;
 		},
 	};
