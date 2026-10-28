@@ -11,6 +11,7 @@
  * reached the tracker.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -121,7 +122,7 @@ function fixture(opts: {
 			"  else {",
 			"    const all = (d.hits[repo] ?? []).filter((h) => h.updated >= from && h.updated <= to);",
 			"    const start = Number(field('after') ?? 0);",
-			"    const nodes = all.slice(start, start + 100).map((h) => ({ number: h.number, comments: { totalCount: h.comments.length, nodes: h.comments.slice(0, 100).map((body) => ({ body })) } }));",
+			"    const nodes = all.slice(start, start + 100).map((h) => ({ number: h.number, comments: { totalCount: h.comments.length, nodes: h.comments.slice(0, 100).map((body) => ({ body, createdAt: h.updated + 'T12:00:00Z' })) } }));",
 			"    search({ issueCount: all.length + (d.short ? 1 : 0), pageInfo: { hasNextPage: start + 100 < all.length, endCursor: String(start + 100) }, nodes });",
 			"  }",
 			"} else if (a[0] === 'api' && a[1].startsWith('search/commits?')) {",
@@ -132,7 +133,7 @@ function fixture(opts: {
 			"} else if (a[0] === 'api') {",
 			"  const [, repo, n] = /^repos\\/(.+)\\/issues\\/(\\d+)\\/comments$/.exec(a[1]);",
 			"  const hit = d.hits[repo].find((h) => h.number === Number(n));",
-			"  out([hit.comments.map((body) => ({ body }))]);",
+			"  out([hit.comments.map((body) => ({ body, created_at: hit.updated + 'T12:00:00Z' }))]);",
 			"} else if (a[1] === 'list') out(d.issues);",
 			`else if (a[1] === 'view') process.stdout.write(fs.readFileSync(${JSON.stringify(issueBody.bodyFile)}, 'utf8'));`,
 			opts.createFails
@@ -145,6 +146,15 @@ function fixture(opts: {
 		gh,
 		issueBody,
 		config: path.join(root, "config"),
+		/** Replaces what the search serves, for hits built after the root. */
+		setHits: (hits: Record<string, Hit[]>) =>
+			fs.writeFileSync(
+				data,
+				JSON.stringify({
+					...JSON.parse(fs.readFileSync(data, "utf8")),
+					hits,
+				}),
+			),
 		calls: (): string[][] =>
 			fs.existsSync(argvLog)
 				? fs
@@ -164,6 +174,7 @@ function run(fx: ReturnType<typeof fixture>) {
 			WFC_GH: fx.gh,
 			WFC_ISSUE_BODY: fx.issueBody.script,
 			WFC_NOW: NOW,
+			HOME: fx.root,
 			CLAUDE_PROJECT_DIR: fx.root,
 			CLAUDE_CONFIG_DIR: fx.config,
 		},
@@ -339,6 +350,93 @@ describe("the re-measure trigger", () => {
 			code: 0,
 			stdout: "",
 			stderr: `UNPARSEABLE: ${fault}\n`,
+		});
+		expect(readGuardErrorsLog(fx.config)).toContain(
+			`report-remeasure-due\t${fault}`,
+		);
+	});
+
+	it("reports a record naming the tree its landed commit carries on its paths, judged in the checkout tracking its repo, and not one naming the pre-fix tree, one posted before the rule, one naming no paths, nor one that fixed nothing (#3444)", () => {
+		const fx = fixture({ hits: {} });
+		const code = path.join(fx.root, "code");
+		fs.mkdirSync(path.join(code, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(code, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, founder: "F", tracker: "o/core" }),
+		);
+		const git = (...a: string[]) =>
+			execFileSync(
+				"git",
+				[
+					"-c",
+					"user.name=t",
+					"-c",
+					"user.email=t@t",
+					"-c",
+					"core.hooksPath=/dev/null",
+					...a,
+				],
+				{ cwd: code, encoding: "utf8" },
+			).trim();
+		git("init", "-q");
+		/** Stages `text` as quote.ts. */
+		const stage = (text: string) => {
+			fs.writeFileSync(path.join(code, "quote.ts"), text);
+			git("add", "quote.ts");
+		};
+		stage("price = 0\n");
+		git("commit", "-qm", "seed");
+		const base = git("rev-parse", "HEAD");
+		const land = (text: string) => {
+			stage(text);
+			git("commit", "-qm", text);
+			return git("rev-parse", "HEAD");
+		};
+		stage("price = 1 // leak\n");
+		const preFix = git("write-tree");
+		const landed = [1, 2, 3, 4, 5].map((n) => land(`price = ${n}\n`));
+		const tree = (c: string) => git("rev-parse", `${c}^{tree}`);
+		const line = (
+			reviewed: string,
+			l: string,
+			paths = ", paths quote.ts",
+			disposed = "FIXED: a leak in the log line",
+		) =>
+			[
+				`**Review findings:** base ${base}, reviewed ${reviewed}, landed ${l}${paths}`,
+				`- ${disposed} (Focus)`,
+			].join("\n");
+		fx.setHits({
+			"o/core": [
+				{
+					number: 7,
+					updated: "2026-11-01",
+					comments: [
+						TIER_LINE,
+						line(tree(landed[0]), landed[0]),
+						line(preFix, landed[1]),
+						line(tree(landed[2]), landed[2], ""),
+						line(
+							tree(landed[4]),
+							landed[4],
+							undefined,
+							"TICKETED #9: a leak in the log line",
+						),
+					],
+				},
+				{
+					number: 8,
+					updated: "2026-10-28",
+					comments: [TIER_LINE, line(tree(landed[3]), landed[3])],
+				},
+			],
+		});
+		const r = run(fx);
+		const fault = `o/core#7 has a record naming reviewed ${tree(landed[0])}, the tree landed ${landed[0]} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`;
+		expect(r).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: `LANDED TREE: ${fault}\n`,
 		});
 		expect(readGuardErrorsLog(fx.config)).toContain(
 			`report-remeasure-due\t${fault}`,
