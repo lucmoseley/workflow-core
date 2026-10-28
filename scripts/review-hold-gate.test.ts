@@ -20,6 +20,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ledgerHead } from "./lib/arbiter-testkit";
 import { mkScratchDir } from "./lib/git-fixture";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
@@ -559,11 +560,7 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 			expect(commit(["lib/earlier.ts"]).status).toBe(0);
 			// What post-commit does; an unledgered commit is nobody's (#3108).
 			if (earlierBy === "this session")
-				expect(
-					runInProcess(ARBITER, ["record-commit", git("rev-parse", "HEAD")], {
-						env: { ...hookEnv(), CLAUDE_CODE_SESSION_ID: SID },
-					}).status,
-				).toBe(0);
+				ledgerHead(repo, { ...hookEnv(), CLAUDE_CODE_SESSION_ID: SID });
 			authored(PRICE, code);
 			return start;
 		};

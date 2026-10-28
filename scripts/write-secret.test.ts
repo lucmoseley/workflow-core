@@ -38,6 +38,10 @@ const isolatedEnv = (extra: Record<string, string> = {}) => ({
 	GIT_CONFIG_NOSYSTEM: "1",
 	...extra,
 });
+const gitIn =
+	(cwd: string) =>
+	(...args: string[]) =>
+		execFileSync("git", args, { cwd, env: isolatedEnv() });
 
 beforeEach(() => {
 	host = fs.realpathSync(
@@ -46,7 +50,7 @@ beforeEach(() => {
 	config = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "write-secret-config-")),
 	);
-	execFileSync("git", ["init", "-q"], { cwd: host, env: isolatedEnv() });
+	gitIn(host)("init", "-q");
 });
 afterEach(() => {
 	fs.rmSync(host, { recursive: true, force: true });
@@ -275,7 +279,7 @@ describe("write-secret", () => {
 	it("refuses with exit 1 where the config directory is a symlink into a git working tree", () => {
 		const dots = path.join(config, "dots");
 		fs.mkdirSync(path.join(dots, "config"), { recursive: true });
-		execFileSync("git", ["init", "-q"], { cwd: dots, env: isolatedEnv() });
+		gitIn(dots)("init", "-q");
 		const link = path.join(config, "linked");
 		fs.symlinkSync(path.join(dots, "config"), link);
 		const r = run(["K"], SECRET, { XDG_CONFIG_HOME: link });

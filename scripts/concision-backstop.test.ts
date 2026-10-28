@@ -25,6 +25,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ledgerHead } from "./lib/arbiter-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { installLib } from "./lib/lib-install-testkit";
@@ -104,11 +105,8 @@ const record = (rel: string, sid: string) =>
 	arbiter(["record", rel, sid], env());
 
 /** Note HEAD in `sid`'s commit ledger — what post-commit does for real. */
-const ledgerHead = (sid: string) =>
-	arbiter(["record-commit", git("rev-parse", "HEAD").trim()], {
-		...env(),
-		CLAUDE_CODE_SESSION_ID: sid,
-	});
+const ledgerHeadOf = (sid: string) =>
+	ledgerHead(repo, { ...env(), CLAUDE_CODE_SESSION_ID: sid });
 
 const write = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(repo, rel)), { recursive: true });
@@ -419,7 +417,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 			write("scripts/mine.ts", `${BIG_CODE}\n`);
 			git("add", "scripts/mine.ts");
 			git("commit", "-qm", "inline-interpreter edit");
-			ledgerHead(sid);
+			ledgerHeadOf(sid);
 		};
 
 		it("demands a review for code this session's own commit carries", () => {
@@ -680,7 +678,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 			write("scripts/mine.ts", body);
 			git("add", "scripts/mine.ts");
 			git("commit", "-qm", sid);
-			ledgerHead(sid);
+			ledgerHeadOf(sid);
 		};
 		const reviewedAtHead = () =>
 			marker(
@@ -732,7 +730,7 @@ describe("pass markers — the mantahostels#139 change", () => {
 		it("fires where it is this session's own commit rebased to a new sha", () => {
 			record("scripts/mine.ts", ME);
 			commitMine("export const x = 1;\n");
-			ledgerHead(ME);
+			ledgerHeadOf(ME);
 			const before = git("rev-parse", "HEAD").trim();
 			git("reset", "-q", "--hard", "HEAD~1");
 			git("commit", "-q", "--allow-empty", "-m", "neighbour");

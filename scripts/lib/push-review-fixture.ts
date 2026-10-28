@@ -8,6 +8,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
+import { ledgerHead } from "./arbiter-testkit";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./git-fixture";
 import { readShellConst } from "./shell-const-testkit";
 
@@ -120,19 +121,11 @@ export function reviewFixture() {
 		/** Commit `rel` billed to `sid` by the commit ledger alone (#2390). */
 		commitUnwritten: (rel: string, sid: string) => {
 			commitFile(rel, code(PAST_FLOOR));
-			execFileSync(
-				"node",
-				[ARBITER, "record-commit", git(f.shared, "rev-parse", "HEAD").trim()],
-				{ env: arbiterEnv(sid) },
-			);
+			ledgerHead(f.shared, arbiterEnv(sid));
 		},
 		/** Name `tree`'s HEAD in `sid`'s commit ledger, as post-commit does. */
 		ledgerHead: (sid: string, tree = f.shared) =>
-			execFileSync(
-				"node",
-				[ARBITER, "record-commit", git(tree, "rev-parse", "HEAD").trim()],
-				{ env: arbiterEnv(sid) },
-			),
+			ledgerHead(tree, arbiterEnv(sid)),
 		marker: (body: string) =>
 			fs.writeFileSync(path.join(markers(), `.codereview-pass-${ME}`), body),
 		declareRls: () =>

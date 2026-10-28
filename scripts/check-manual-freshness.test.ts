@@ -64,13 +64,18 @@ const writeBody = (body: string) =>
 		manual("**Corrections since last sync:** none.", sha, body),
 	);
 
-const checkWith = (...extra: string[]) => {
-	const r = runInProcess(SCRIPT, [MANUAL, ROADMAP, ...extra], { cwd: repo });
+/** The checker run under `env`, or this process's own where undefined. */
+const checkUnder = (env: NodeJS.ProcessEnv | undefined, ...extra: string[]) => {
+	const r = runInProcess(SCRIPT, [MANUAL, ROADMAP, ...extra], {
+		cwd: repo,
+		env,
+	});
 	return {
 		status: r.status,
 		out: `${r.stdout}${r.stderr}`,
 	};
 };
+const checkWith = (...extra: string[]) => checkUnder(undefined, ...extra);
 const check = checkWith;
 
 beforeEach(() => {
@@ -425,12 +430,9 @@ describe("check-manual-freshness — a git that will not answer (#3068)", () => 
 		write("**Corrections since last sync:** none.");
 		const exitsOne = path.join(repo, "git");
 		fs.writeFileSync(exitsOne, "#!/bin/sh\nexit 1\n", { mode: 0o755 });
-		const r = runInProcess(SCRIPT, [MANUAL, ROADMAP], {
-			cwd: repo,
-			env: { ...process.env, WFC_GIT: exitsOne },
-		});
+		const r = checkUnder({ ...process.env, WFC_GIT: exitsOne });
 		expect(r.status).toBe(2);
-		expect(`${r.stdout}${r.stderr}`).toMatch(/would not resolve/);
-		expect(`${r.stdout}${r.stderr}`).not.toMatch(/does not resolve/);
+		expect(r.out).toMatch(/would not resolve/);
+		expect(r.out).not.toMatch(/does not resolve/);
 	});
 });

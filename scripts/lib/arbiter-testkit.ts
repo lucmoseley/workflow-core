@@ -233,15 +233,34 @@ export const arbiterCli = (sb: Sandbox) => ({
 			cwd: sb.repo,
 			env: { ...process.env, ...env },
 		}),
-	readListing: (args: string[]) => {
-		const r = runInProcess(SCRIPT, args, { cwd: sb.repo });
-		if (r.status !== 0)
-			throw new Error(
-				`session-arbiter.js ${args.join(" ")} exited ${r.status}\n${r.stdout}${r.stderr}`,
-			);
-		return r.stdout;
-	},
+	readListing: (args: string[]) => arbiterOk(args, { cwd: sb.repo }),
 });
+
+/** session-arbiter.js's stdout, throwing on a non-zero exit. */
+const arbiterOk = (
+	args: string[],
+	options: { cwd?: string; env?: NodeJS.ProcessEnv },
+) => {
+	const r = runInProcess(SCRIPT, args, options);
+	if (r.status !== 0)
+		throw new Error(
+			`session-arbiter.js ${args.join(" ")} exited ${r.status}\n${r.stdout}${r.stderr}`,
+		);
+	return r.stdout;
+};
+
+/**
+ * Name `tree`'s HEAD in the commit ledger of `env`'s CLAUDE_CODE_SESSION_ID,
+ * as post-commit does; throws on a non-zero exit.
+ */
+export const ledgerHead = (tree: string, env: NodeJS.ProcessEnv) => {
+	const head = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: tree,
+		env,
+		encoding: "utf8",
+	}).trim();
+	arbiterOk(["record-commit", head], { env });
+};
 
 export function freshSandbox(setUp?: (sb: Sandbox) => void): Sandbox {
 	const sb: Sandbox = {

@@ -95,10 +95,10 @@ const SEARCH = `query($q: String!, $after: String) {
   }
 }`;
 const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
-const HEAD = "\\*\\*Review findings:\\*\\*";
+const RECORD_HEAD = "\\*\\*Review findings:\\*\\*";
 const REVIEWED_TREE = `reviewed\\s+${SHA}`;
 const FINDINGS = new RegExp(
-	`${HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:,[ \\t]*paths[ \\t]+([^\\n]+))?`,
+	`${RECORD_HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:,[ \\t]*paths[ \\t]+([^\\n]+))?`,
 	"g",
 );
 const TIER = /\*\*Review tier:\*\*\s*`?([A-Za-z-]+)/g;
@@ -108,11 +108,11 @@ const KNOWN = /^\s*-\s*(?:FIXED|TICKETED)\b/;
 const BLANK = /^\s*$/;
 /* A list ends at the next record, even one bulleted or indented, so its
  * defects are never counted under this one too. */
-const RECORD_START = new RegExp(HEAD);
+const RECORD_START = new RegExp(RECORD_HEAD);
 /* A backticked one names the format, as a review comment quoting it does.
  * Residual: an unbackticked mention in bold prose under a counted tier is
  * reported, and a record backticked whole is skipped unreported. */
-const RECORD_MENTION = new RegExp(`(?<!\`)${HEAD}`, "g");
+const RECORD_MENTION = new RegExp(`(?<!\`)${RECORD_HEAD}`, "g");
 const REVIEWED = new RegExp(REVIEWED_TREE);
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
