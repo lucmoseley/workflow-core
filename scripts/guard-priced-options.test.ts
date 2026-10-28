@@ -94,7 +94,7 @@ function transcriptWith(text: string, extra: object[] = []): string {
  * suite is itself run from a background job. Every runner below sets it
  * explicitly.
  */
-/** One channel since mantahostels#2350: `reason` carries the whole correction. */
+/** One channel (mantahostels#2350): `reason` carries the whole correction. */
 type Block = StopBlock;
 
 /* `stdin` is spawnSync's `input` under the name the seam uses. */
@@ -1084,8 +1084,8 @@ describe("it leaves proof that it ran (mantahostels#872)", () => {
 
 	it("still blocks when the record cannot be written", () => {
 		/* A directory where the record file goes, so the append fails. Recursive
-		 * because since mantahostels#3382 the breadcrumb directory itself does not exist until
-		 * a guard has written once, and this test blocks the first write. */
+		 * because the breadcrumb directory itself does not exist until
+		 * a guard has written once (mantahostels#3382), and this test blocks the first write. */
 		fs.mkdirSync(
 			path.join(
 				hookRecord.recordsDir(dir),

@@ -510,7 +510,7 @@ describe("plan", () => {
 		expect(p.reap[0].claims).toEqual([]);
 	});
 
-	/* Zero since mantahostels#1290 (docs/environment.md §5). */
+	/* Zero (mantahostels#1290; docs/environment.md §5). */
 	it("holds nothing back for age alone: the grace window is zero", () => {
 		expect(ids(run({ finishAt: () => NOW }).reap)).toEqual(["aaaa-1"]);
 		const ahead = run({ finishAt: () => NOW + 1 });
@@ -1464,7 +1464,7 @@ describe("the SessionStart wiring: one sighting is enough", () => {
  * tree. The marker's own logic is unit-covered above; the omission costs a
  * marker, never a wrong reap.
  */
-describe("the SessionStart wiring: a claim no longer keeps a session", () => {
+describe("the SessionStart wiring: a claim does not keep a session", () => {
 	let sandbox = "";
 	let project = "";
 

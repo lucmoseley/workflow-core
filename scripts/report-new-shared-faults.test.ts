@@ -439,7 +439,7 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 		);
 		for (const name of sidecars.slice(1))
 			fs.writeFileSync(path.join(root, "docs", name), emptyDataFile(name));
-		/* The class sidecar is the coverage register since mantahostels#1849 — a repo without
+		/* The class sidecar is the coverage register (mantahostels#1849) — a repo without
 		 * one is BROKEN, so the fixture owes it a key per registered path.
 		 * Written in register-doc.js's canonical form (mantahostels#3353) — sorted keys, tab
 		 * indent, one trailing newline — so it doesn't itself trip

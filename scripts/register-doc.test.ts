@@ -707,7 +707,7 @@ describe("register-doc", () => {
 		});
 	});
 
-	describe("argument shapes that used to slip past the checks", () => {
+	describe("argument shapes that could slip past the checks", () => {
 		it("refuses a value-taking flag whose value is the next flag, naming the flag and writing nothing", () => {
 			const r = run(
 				"docs/x.md",

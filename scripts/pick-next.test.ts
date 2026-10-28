@@ -3422,8 +3422,8 @@ describe("the write-set cache", () => {
 
 	it("covers the whole frontier, not the --limit slice", async () => {
 		// --limit is a display cap, and a warm entry hidden by it is one the band
-		// read pays for a second time. mantahostels#1289: `frontier` itself is no longer
-		// truncated either, so this checks the cache split, which was always the
+		// read pays for a second time. `frontier` itself is not truncated either
+		// (mantahostels#1289), so this checks the cache split, which is the
 		// full frontier — and the written report alongside it.
 		const r = await here(
 			{
@@ -3573,8 +3573,8 @@ describe("the write-set cache", () => {
 	});
 
 	it("says a failed append went unrecorded even with nothing to derive", async () => {
-		// The warning used to print inside the cache block, so a run with an empty
-		// frontier lost it.
+		// Printed inside the cache block, the warning would be lost by a run with
+		// an empty frontier.
 		fs.mkdirSync(logFile(), { recursive: true });
 		const r = await here({
 			issues: [{ number: 1, body: "one" }],
@@ -3587,7 +3587,7 @@ describe("the write-set cache", () => {
 
 	describe("pre-warming a miss in the run that finds it (mantahostels#1001)", () => {
 		it("leaves nothing to derive on a first run, so no band read is dispatched", async () => {
-			// The whole point: an issue filed since the last selection used to cost
+			// The whole point: an issue filed since the last selection would otherwise cost
 			// this run a ~60 s band-read subagent on its critical path.
 			const r = await here({
 				issues: [
@@ -4844,12 +4844,12 @@ describe("the full-JSON snapshot every run leaves on disk", () => {
 		// the top would be lost by exactly the reader who needs it.
 		const r = await here({ issues: [{ number: 1, body: "one" }] });
 		expect(r.out).toMatch(/FULL JSON OF THIS RUN: .*last-run\.json/);
-		// Genuinely last, not merely near the end: the "Advisory only" line used
-		// to print after it, so a reader tailing two lines saw neither.
+		// Genuinely last, not merely near the end: an "Advisory only" line
+		// printed after it would leave a reader tailing two lines seeing neither.
 		const lines = r.out.trimEnd().split("\n");
 		expect(lines.at(-3)).toMatch(/FULL JSON OF THIS RUN/);
 		expect(lines.at(-1)).toMatch(/Check its generatedAt and repo/);
-		// The line it used to hide behind now comes first.
+		// The "Advisory only" line comes before it.
 		expect(lines.slice(0, -3).join("\n")).toMatch(/Advisory only/);
 	});
 

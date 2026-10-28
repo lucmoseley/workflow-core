@@ -249,7 +249,7 @@ describe("the pre-commit Biome gate", () => {
 			"utf8",
 		);
 
-		// The adopter's declared command since #2; this repo declares check:staged.
+		// The adopter's declared command (#2); this repo declares check:staged.
 		expect(hook).toContain(
 			`${coreCall("node", "scripts/lib/workflow-core-config.js")} command check_staged`,
 		);

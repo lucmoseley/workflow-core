@@ -468,7 +468,7 @@ describe("the marker it records", () => {
 });
 
 describe("what it says out loud", () => {
-	it("names a pytest it could not run at all, which the shell used to report", async () => {
+	it("names a pytest it could not run at all", async () => {
 		const root = repo();
 		const r = await wrap(path.join(root, "no-such-python"), root);
 		expect(r.stderr).toContain("pytest could not be run");

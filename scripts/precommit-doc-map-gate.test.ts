@@ -4,8 +4,8 @@
  *
  * `.husky/pre-commit` calls `check-doc-map.js` only when the commit touches the
  * map's own scope, holds its output, and replays it on failure — plus, on a
- * green run, five blocks alone: the untracked-entry one, which since mantahostels#1300
- * refuses the commit where the row it names is one that commit ADDS, its
+ * green run, five blocks alone: the untracked-entry one, which refuses the
+ * commit where the row it names is one that commit ADDS (mantahostels#1300), its
  * Section C twin, and the three WARN blocks `dm_replay_warn` prints.
  *
  * `check-doc-map.js` is stubbed in each fixture so both exit codes can be
@@ -60,8 +60,8 @@ const { readTrackedFiles } =
  * seededRepoTemplate below; the customised minority build on this one.
  *
  * Deliberately NOT `./lib/precommit-gate-harness`'s own `newRepo` (mantahostels#953): that
- * function is imported by eleven other gate suites this ticket (mantahostels#2079) does
- * not cover, and this file no longer imports it.
+ * function is imported by eleven other gate suites (mantahostels#2079), and this
+ * file does not import it.
  */
 const bareRepoTemplate = defineTemplate((root) => {
 	execFileSync("git", ["init", "-q", "."], { cwd: root });
@@ -500,8 +500,7 @@ function fixture(opts: FixtureOpts): string {
 	 * (mantahostels#1688) is a second process, and its three verdicts have to be drivable
 	 * without building a real pair of --json envelopes per case.
 	 *
-	 * It refuses any profile but `doc-map` (mantahostels#1797, which merged the doc map's
-	 * own front end into the shared profile table): the real script exits 2 on
+	 * It refuses any profile but `doc-map` (mantahostels#1797): the real script exits 2 on
 	 * an unknown profile, so without this every case here would pass a gate
 	 * whose profile argument the hook had misspelled.
 	 */
@@ -1346,7 +1345,7 @@ describe("the pre-commit doc-map gate", () => {
 });
 
 /*
- * The direction gate (mantahostels#1688). A checker failure alone no longer refuses: the
+ * The direction gate (mantahostels#1688). A checker failure alone does not refuse: the
  * hook asks whether HEAD already had those faults, and only refuses the ones
  * this commit adds.
  */
@@ -1904,7 +1903,7 @@ describe("a pointer count disagreeing with its sidecar", () => {
 		for (const name of DOC_MAP_FILES)
 			if (!fs.existsSync(path.join(root, "docs", name)))
 				fs.writeFileSync(path.join(root, "docs", name), emptyDataFile(name));
-		/* The class sidecar is the coverage register since mantahostels#1849, and the loop
+		/* The class sidecar is the coverage register (mantahostels#1849), and the loop
 		 * above has already written it as `{}`. Overwrite that with the real
 		 * register: a repo whose sidecar keys no file is BROKEN. */
 		fs.writeFileSync(

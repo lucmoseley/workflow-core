@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * The census's three counts, asserted on a corpus small enough to read
- * (mantahostels#3287, which landed the instrument).
+ * (mantahostels#3287).
  *
  * The published figures are NOT asserted here and cannot be: the corpus is
  * machine-local, gitignored and growing, so a test pinned to 877 losses would

@@ -114,7 +114,7 @@ describe("mantahostels#63 — one session's staged files land inside another's c
 			// mantahostels#1804/mantahostels#1762: the guard hands a session its first clean commit-form
 			// command the whole rule text, unlatching only after. Consume that
 			// nudge first so this checks the warn logic, not the onboarding text.
-			// TWO calls since mantahostels#1805: `git add` draws the pathspec rule alone, and
+			// TWO calls (mantahostels#1805): `git add` draws the pathspec rule alone, and
 			// a docs/ commit draws four more, scoped to what the paths name.
 			bob.runGuard(
 				GUARDS.commitForm,
@@ -177,7 +177,7 @@ describe("mantahostels#63 — one session's staged files land inside another's c
 		// mantahostels#1804/mantahostels#1762: consume bob's first-commit-form-command onboarding nudge
 		// before the real assertion — see "after: B's own staged work draws no
 		// warn at all" above, for the same reason, including why it takes two
-		// calls since mantahostels#1805.
+		// calls (mantahostels#1805).
 		bob.runGuard(
 			GUARDS.commitForm,
 			bob.bashPayload("git add -N docs/warmup.md"),
@@ -447,8 +447,8 @@ describe("mantahostels#60/mantahostels#73 — mutual deadlock on uncommitted edi
 		GUARDS.fileClaim,
 		"after: an entry whose owning issue has closed is still shown, and still stands",
 		() => {
-			// The denial used to retire it here, on a `gh issue view` per entry that
-			// retired nothing (mantahostels#1111). Retirement is `debt sweep`'s alone now.
+			// The denial does not retire it: retirement is `debt sweep`'s alone
+			// (mantahostels#1111).
 			a.ghStub('echo \'{"state":"CLOSED"}\'');
 			alice.runGuard(GUARDS.fileClaim, alice.writePayload("docs/doc-map.md"));
 			bob.runGuard(GUARDS.fileClaim, bob.writePayload("docs/doc-map.md"));
@@ -470,7 +470,7 @@ describe("mantahostels#60/mantahostels#73 — mutual deadlock on uncommitted edi
 		"after: a gh that fails changes nothing about what the denial says",
 		() => {
 			// No auth, no network, rate-limited — all land here. The claim path asks
-			// GitHub nothing at all since mantahostels#1251, so a broken gh cannot reach it;
+			// GitHub nothing at all (mantahostels#1251), so a broken gh cannot reach it;
 			// `debt sweep`, which does ask, fails toward keeping every entry.
 			a.ghStub('echo "gh: not logged in" >&2; exit 1');
 			alice.runGuard(GUARDS.fileClaim, alice.writePayload("docs/doc-map.md"));

@@ -8,7 +8,7 @@
  * specified: after `check-roadmap-pair.js`, so the cheaper and more common
  * half-staged-pair failure reports first.
  *
- * The hook is the PRIMARY gate, and since mantahostels#974 no longer the only one: the
+ * The hook is the PRIMARY gate, and not the only one (mantahostels#974): the
  * scheduled `Document guards` job runs the same checker in `--tree` mode, which
  * judges the roadmap as it stands rather than a commit against its parent.
  *

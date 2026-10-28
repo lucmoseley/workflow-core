@@ -858,7 +858,7 @@ describe("release-plugin", () => {
 				);
 			}));
 
-		/* A render MISSING the entry point no longer reaches this check —
+		/* A render MISSING the entry point does not reach this check —
 		 * buildTree refuses it first (lib/surface-closure.js) — so the failing
 		 * check is one the render answers wrongly, its output riding under the
 		 * refusal. */

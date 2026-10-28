@@ -3,8 +3,7 @@
  * guard-session-ceiling.js speaks at Stop when a session crosses a band of the
  * session-context policy — the 200,000-token wind-up notice, the 100-turn band
  * and the 300,000-token tripwire — and stays silent on any path that cannot
- * read a figure (mantahostels#1731, which made the policy fire; #1178, which
- * made 300,000 a tripwire).
+ * read a figure (mantahostels#1731; #1178).
  *
  * Black-box: the guard is driven end to end with a payload on stdin, its
  * repo root pointed at a throwaway directory so the counters and breadcrumbs it

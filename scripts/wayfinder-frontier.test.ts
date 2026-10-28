@@ -683,7 +683,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 		});
 
 		it("refuses when it cannot even tell whose tree the claim store is, saying it is not in a git repository and printing no frontier", () => {
-			// The doubt cases used to read as "same tree, nothing claimed", which
+			// A doubt case must not read as "same tree, nothing claimed", which
 			// is the same empty claim set as a wrong store and lengthens the
 			// frontier the same way. Run from outside any repository.
 			claimBy("bob", "1145");

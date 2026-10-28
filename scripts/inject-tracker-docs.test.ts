@@ -566,7 +566,7 @@ describe("the review-axis Artefact paths are session-scoped (mantahostels#2220)"
 	);
 
 	it.each(["code-review"])(
-		"no longer hands /%s the bare, unsuffixed filename",
+		"does not hand /%s the bare, unsuffixed filename",
 		(cmd) => {
 			const ctx = withSession(cmd, "bbbbbbbb-cccc-dddd-eeee-ffffffffffff");
 			expect(ctx).not.toContain("`.claude/tmp/review-standards.md`");
@@ -620,7 +620,7 @@ describe("the rules that were already here", () => {
 		expect(ctx).not.toContain("Below is this command's index");
 	});
 
-	// The vendored code-review skill no longer says how to dispatch its two axes,
+	// The vendored code-review skill does not say how to dispatch its two axes,
 	// so a hook is the only thing carrying it: this one for a typed /code-review,
 	// scripts/lib/review-rules.js for the review /implement loads as a skill.
 	it("tells /code-review how to dispatch its two review axes", () => {
@@ -646,7 +646,7 @@ describe("the rules that were already here", () => {
 
 /*
  * mantahostels#1009 — the reviewer-model pin (docs/effort-guide.md) is one value,
- * written once since #1697: docs/agents/rules/review-dispatch-shape.txt, which
+ * written once (#1697): docs/agents/rules/review-dispatch-shape.txt, which
  * this hook and scripts/concision-backstop.sh's Stop nag print. The concision
  * pass's own fresh-reader pin, a different value, is spelled in those two and in
  * .claude/skills/concision-pass/SKILL.md §3 (mantahostels#2635).

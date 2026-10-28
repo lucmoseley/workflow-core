@@ -215,8 +215,8 @@ describe("a background job's result: on work the session verdict says is owed (m
 	it("never blocks a turn carrying no result: marker", () => {
 		committedUnattested();
 
-		/* `needs input:` rather than `waiting:`, which since mantahostels#2487 is refused by a
-		 * sibling limb unless the transcript shows a launch still out; and a round
+		/* `needs input:` rather than `waiting:`, which a sibling limb refuses
+		 * unless the transcript shows a launch still out (mantahostels#2487); and a round
 		 * above it, which mantahostels#2583 obliges of any `needs input:` in a
 		 * background job. */
 		expect(

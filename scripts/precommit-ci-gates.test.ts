@@ -71,7 +71,7 @@ function fixture(opts: {
 	const checker = `console.log("${STUB_MARKER}");
 const fs = require("node:fs");
 // Echo the file arguments the digest gate stages out. A flag or a rev — which
-// is all the guard-registry gate passes since #1833 — is not one, and reading
+// is all the guard-registry gate passes (#1833) — is not one, and reading
 // it would kill the stub before its chosen exit code.
 for (const a of process.argv.slice(2)) {
 	if (fs.existsSync(a) && fs.statSync(a).isFile())
@@ -317,8 +317,8 @@ describe("the pre-commit guard-registry gate", () => {
 
 	// The `^` and `$` anchors: a directory merely beginning with the letters
 	// "docs", and a file merely ending in "CLAUDE.md", are not in scope.
-	/* Which of the checker's faults this commit ADDS is no longer the hook's
-	 * question: since mantahostels#1833 it is `--against HEAD` inside scripts/lib/check.js,
+	/* Which of the checker's faults this commit ADDS is not the hook's
+	 * question: it is `--against HEAD` inside scripts/lib/check.js (mantahostels#1833),
 	 * proved once in scripts/lib/check.test.ts. The hook owns the arming
 	 * condition and the exit, and those alone are what this file still covers. */
 
@@ -349,9 +349,9 @@ describe("mutations of the two gates are caught by the cases above", () => {
 		find: string | RegExp,
 		replace: string,
 	): string => {
-		/* The whole script, library included: since mantahostels#1793 the staging, the exit
-		 * and the direction gate live in scripts/lib/precommit-gate.sh, so a
-		 * mutation of the block alone could no longer reach them. */
+		/* The whole script, library included: the staging, the exit and the
+		 * direction gate live in scripts/lib/precommit-gate.sh (mantahostels#1793),
+		 * so a mutation of the block alone could not reach them. */
 		const original = cutGateScript(checker);
 		const mutant = original.replace(find, replace);
 		expect(mutant, `mutation '${find}' did not apply`).not.toBe(original);

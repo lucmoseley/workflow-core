@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * report-cycle-review-due.test.ts — the scheduled 90-day cycle trigger
- * (mantahostels#1034, which built the ritual mantahostels#942 adopted).
+ * (mantahostels#1034, mantahostels#942).
  * Break it and the sweep files a review mid-cycle, or never.
  *
  * Driven end to end through `runInProcess` (§X3; #1194). `gh` is a real

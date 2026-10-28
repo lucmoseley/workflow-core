@@ -203,8 +203,8 @@ describe("the pre-commit context-budget gate", () => {
 		const docs = /^DOCS=\(([^)]*)\)/m.exec(script);
 		expect(docs, "DOCS no longer parses out of the injector").toBeTruthy();
 		const paths = (docs?.[1] ?? "").trim().split(/\s+/).filter(Boolean);
-		// DOCS stays empty by design since mantahostels#1870 — the injector points at docs
-		// now, it no longer pastes them. The loop below still enforces coverage
+		// DOCS stays empty by design (mantahostels#1870) — the injector points at docs
+		// rather than pasting them. The loop below still enforces coverage
 		// the moment a doc is pasted again.
 
 		const alternation = armingRegex();

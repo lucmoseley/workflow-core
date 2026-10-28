@@ -53,7 +53,7 @@ interface Registration {
 	 * The entry's `if` narrowing verbatim, absent where it carries none.
 	 *
 	 * Load-bearing the way `args` is: seven guards are registered several times
-	 * over since mantahostels#2811, once per permission rule, and every copy shares a command
+	 * over (mantahostels#2811), once per permission rule, and every copy shares a command
 	 * line. Without this the id below matches all of them and the single-match
 	 * assertion reads whichever sorted first — and a narrowing quietly widened
 	 * from `Bash(*npm *)` to `Bash(*)` would pass.
@@ -398,7 +398,7 @@ const REGISTRATIONS: Registration[] = [
 		matcher: null,
 		covers: [],
 	},
-	// Detached since mantahostels#1899: the sweep's cost tracks the record backlog, not the
+	// Detached (mantahostels#1899): the sweep's cost tracks the record backlog, not the
 	// session, so it cannot be held to a 10s hook budget — and nothing in the
 	// starting session reads it.
 	{

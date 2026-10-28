@@ -393,7 +393,7 @@ describe("the way out", () => {
 });
 
 describe("the block is bounded (lib/hook-block.js)", () => {
-	/* Six since mantahostels#2791, not the house three. */
+	/* Six (mantahostels#2791), not the house three. */
 	it("stops blocking after six, so an uncommittable session is not trapped", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
@@ -404,7 +404,7 @@ describe("the block is bounded (lib/hook-block.js)", () => {
 	});
 
 	/* Both `capSpent` and `blockStop` have to carry the 6 for this to pass. */
-	it("still blocks at three, the cap it used to stop at (mantahostels#2791)", () => {
+	it("still blocks at three, the house cap (mantahostels#2791)", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
 		fs.writeFileSync(path.join(root, `.uncommitted-nagged-${sid}`), "3\n");

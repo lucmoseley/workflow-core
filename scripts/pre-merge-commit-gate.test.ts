@@ -361,9 +361,9 @@ describe(".husky/pre-merge-commit", () => {
 	);
 
 	it("is skipped entirely by `git merge --no-verify`", () => {
-		// The residual this hook alone cannot close. It is no longer a hole:
-		// mantahostels#1705 put the gates behind `.husky/prepare-commit-msg`, which the flag
-		// cannot skip, and widened the guard-commit-form core's deny onto `git merge`.
+		// The residual this hook alone cannot close. It is not a hole: the gates
+		// sit behind `.husky/prepare-commit-msg`, which the flag cannot skip, and
+		// the guard-commit-form core's deny covers `git merge` (mantahostels#1705).
 		// This probe copies no prepare-commit-msg in, so what it measures is
 		// still THIS hook's own reach — scripts/prepare-commit-msg-gate.test.ts
 		// is where the merge is refused.
