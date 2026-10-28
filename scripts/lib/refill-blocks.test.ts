@@ -15,7 +15,7 @@ import {
 	resumedIdleSince,
 	turnedSince,
 } from "./block-cause.js";
-import { API_PROMPT, LOOP_PROMPT_PREFIX } from "./loop-prompts.js";
+import { API_PROMPT, IDLE_PROMPT } from "./loop-prompts.js";
 import {
 	actOnBlocks,
 	actOnIdle,
@@ -373,15 +373,14 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 			blocks([typed], blocked, "away", {
 				io: { readTimeline: () => timeline },
 			}).calls.includes("resume p");
+		// Half the prompt clears the head it shares with IDLE_PROMPT.
 		expect(
 			fellBack([
-				row(
-					NOW - MIN,
-					`${API_PROMPT.slice(0, LOOP_PROMPT_PREFIX.length + 12)}…`,
-				),
+				row(NOW - MIN, `${API_PROMPT.slice(0, API_PROMPT.length / 2)}…`),
 			]),
 		).toBe(false);
 		expect(fellBack([row(NOW - 3 * MIN, API_PROMPT)])).toBe(true);
+		expect(fellBack([row(NOW - MIN, IDLE_PROMPT)])).toBe(true);
 		expect(fellBack([row(NOW - MIN, "API Error: 529")])).toBe(true);
 		expect(fellBack(null)).toBe(true);
 	});

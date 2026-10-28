@@ -1,8 +1,9 @@
 /*
  * loop-prompts.js — the prompts the refill loop types into, or resumes, a
  * session it launched. Each opens with LOOP_PROMPT_PREFIX, so `isLoopPrompt`
- * tells lib/founder-typing.js and lib/tool-calls-since.js it is not the
- * founder's typing (#3369, #3378).
+ * tells lib/founder-typing.js, lib/tool-calls-since.js, retro-transcript.js
+ * and pick-retro-sessions.js it is not the founder's typing (#3369, #3378,
+ * #3381).
  */
 
 const LOOP_PROMPT_PREFIX = "[refill loop] ";
@@ -15,4 +16,4 @@ const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and
 /** @param {string} text */
 const isLoopPrompt = (text) => text.trimStart().startsWith(LOOP_PROMPT_PREFIX);
 
-module.exports = { API_PROMPT, IDLE_PROMPT, LOOP_PROMPT_PREFIX, isLoopPrompt };
+module.exports = { API_PROMPT, IDLE_PROMPT, isLoopPrompt };
