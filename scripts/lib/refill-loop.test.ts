@@ -36,6 +36,7 @@ import {
 	parseProbeOutcome,
 	parseScope,
 	parseState,
+	readJson,
 	readSizedSeats,
 	reviewRunRecorded,
 	runningOf,
@@ -971,6 +972,34 @@ describe("dispatch's cap thresholds", () => {
 				WFC_DISPATCH_SESSION_CEILING: "70",
 			}),
 		).toEqual({ week: 80, session: 70 });
+	});
+});
+
+describe("a loop file's read (#3380)", () => {
+	let tmp: string;
+	beforeEach(() => {
+		tmp = fs.mkdtempSync(path.join(os.tmpdir(), "refill-read-"));
+	});
+	afterEach(() => {
+		fs.rmSync(tmp, { recursive: true, force: true });
+	});
+
+	it("reads an absent file as null, logging nothing", () => {
+		const lines: string[] = [];
+		expect(readJson(path.join(tmp, "absent.json"), (l) => lines.push(l))).toBe(
+			null,
+		);
+		expect(lines).toEqual([]);
+	});
+
+	it("reads a damaged file as null, logging its path and the parse error", () => {
+		const file = path.join(tmp, ".refill-loop-state.json");
+		fs.writeFileSync(file, "{ not json");
+		const lines: string[] = [];
+		expect(readJson(file, (l) => lines.push(l))).toBe(null);
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toContain(file);
+		expect(lines[0]).toMatch(/JSON/);
 	});
 });
 

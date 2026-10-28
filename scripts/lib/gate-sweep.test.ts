@@ -31,6 +31,12 @@ const NOW = Date.parse("2026-10-21T17:00:00Z");
 let dir: string;
 let file: string;
 
+/* Every case but the damaged-store one seeds a sound store, so a logged
+ * line is a failure. */
+const throwOnLog = (line: string) => {
+	throw new Error(`unexpected log: ${line}`);
+};
+
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-sweep-"));
 	file = path.join(dir, "gates.json");
@@ -61,7 +67,7 @@ async function sweepOnce(stdout: string, now = NOW) {
 		cadenceMs: GATE_SWEEP_MS,
 	});
 	await sweeper.startIfDue([WFC], now);
-	return { store: readGateStore(file), lines };
+	return { store: readGateStore(file, throwOnLog), lines };
 }
 
 describe("which readings queue a judgement", () => {
@@ -95,14 +101,14 @@ describe("which readings queue a judgement", () => {
 			const at = NOW + i * GATE_SWEEP_MS;
 			const { store } = await sweepOnce(envelope([row(2906, `load ${i}`)]), at);
 			if (store.pending.length > 0) queuedOn.push(i);
-			dropTried(file, [{ root: WFC, issues: [2906] }]);
+			dropTried(file, [{ root: WFC, issues: [2906] }], throwOnLog);
 		}
 		expect(queuedOn).toEqual([0, 12]);
 	});
 
 	it("keeps the stored reading through the bound, so a reading that changed once inside it is queued after it", async () => {
 		await sweepOnce(envelope([row(2906, "load 30")]));
-		dropTried(file, [{ root: WFC, issues: [2906] }]);
+		dropTried(file, [{ root: WFC, issues: [2906] }], throwOnLog);
 		const held = await sweepOnce(
 			envelope([row(2906, "load 2")]),
 			NOW + GATE_SWEEP_MS,
@@ -175,16 +181,27 @@ describe("the store across ticks and restarts", () => {
 				{ root: WFC, number: 2, prompt: "/triage 2" },
 			],
 		});
-		dropTried(file, [{ root: WFC, issues: [1] }]);
+		dropTried(file, [{ root: WFC, issues: [1] }], throwOnLog);
 		expect(
-			readGateStore(file).pending.map((j: { number: number }) => j.number),
+			readGateStore(file, throwOnLog).pending.map(
+				(j: { number: number }) => j.number,
+			),
 		).toEqual([2]);
+	});
+
+	it("reads a damaged store as empty, logging its path (#3380)", () => {
+		fs.writeFileSync(file, "{ not json");
+		const lines: string[] = [];
+		expect(readGateStore(file, (l: string) => lines.push(l)).pending).toEqual(
+			[],
+		);
+		expect(lines).toEqual([expect.stringContaining(`${file} is damaged`)]);
 	});
 
 	it("keeps readings and the last sweep's start, so a restarted loop sweeps on cadence and queues nothing on an unchanged reading", async () => {
 		const stdout = envelope([row(2046, "3 of 4 runs ended")]);
 		await sweepOnce(stdout);
-		dropTried(file, [{ root: WFC, issues: [2046] }]);
+		dropTried(file, [{ root: WFC, issues: [2046] }], throwOnLog);
 
 		const restarted = gateSweeper({
 			file,
@@ -194,7 +211,7 @@ describe("the store across ticks and restarts", () => {
 		});
 		expect(restarted.startIfDue([WFC], NOW + GATE_SWEEP_MS - 1)).toBeNull();
 		await restarted.startIfDue([WFC], NOW + GATE_SWEEP_MS);
-		const store = readGateStore(file);
+		const store = readGateStore(file, throwOnLog);
 		expect(store.pending).toEqual([]);
 		expect(store.readings[`${WFC}#2046`]).toBe("3 of 4 runs ended");
 		expect(store.lastSweepAt).toBe(NOW + GATE_SWEEP_MS);
@@ -230,7 +247,7 @@ describe("never inside a tick", () => {
 		for (let tick = 0; tick < 2; tick++) {
 			await new Promise((r) => setImmediate(r));
 			expect(done).toBe(false);
-			expect(readGateStore(file).pending).toEqual([]);
+			expect(readGateStore(file, throwOnLog).pending).toEqual([]);
 		}
 		expect(sweeper.startIfDue([dir], NOW + GATE_SWEEP_MS)).toBeNull();
 		// The loop adopts no new code while this reads true (#2361).
@@ -238,7 +255,7 @@ describe("never inside a tick", () => {
 		fs.writeFileSync(release, "");
 		await sweep;
 		expect(sweeper.busy()).toBe(false);
-		expect(readGateStore(file).pending).toHaveLength(1);
+		expect(readGateStore(file, throwOnLog).pending).toHaveLength(1);
 	});
 });
 

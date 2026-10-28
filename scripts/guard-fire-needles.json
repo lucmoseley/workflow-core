@@ -1630,6 +1630,11 @@
 					"id": "refill-loop-stop",
 					"kind": "notice",
 					"text": "REFILL-LOOP-STOPPED — the refill loop stopped on"
+				},
+				{
+					"id": "refill-loop-file-damaged",
+					"kind": "notice",
+					"text": "REFILL-LOOP-FILE-DAMAGED — "
 				}
 			]
 		},

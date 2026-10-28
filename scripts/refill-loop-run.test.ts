@@ -329,6 +329,15 @@ describe("run (#2435)", () => {
 		expect(r.stdout).not.toContain(`landing in ${at("gone")}`);
 	});
 
+	it("logs a damaged state file and ticks on the defaults (#3380)", async () => {
+		const state = at(".refill-loop-state.json");
+		fs.writeFileSync(state, "{ not json");
+		const r = await settled(run(1), "run over a damaged state file");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`${state} is damaged (`);
+		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
+	});
+
 	it("tickets earlyoom's kill incidents in its own checkout each tick (#3094)", async () => {
 		const code = path.dirname(scripts);
 		fs.mkdirSync(path.join(code, ".claude"), { recursive: true });

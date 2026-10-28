@@ -254,7 +254,7 @@ function status() {
 	const pid = lock.holder();
 	for (const line of commands.buildStatusLines({
 		control,
-		state: loop.parseState(loop.readJson(files.state)),
+		state: loop.parseState(loop.readJson(files.state, log)),
 		pid,
 		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
 		runMs: RUN_MS,
@@ -282,7 +282,7 @@ async function printDryRun() {
 	const { decision: d, read } = await tick({ dryRun: true });
 	say(`dry run: ${loop.summaryOf(d)}`);
 	if (read) say(loop.buildFrontierReadText(read));
-	const { reviewRunOn } = loop.parseState(loop.readJson(files.state));
+	const { reviewRunOn } = loop.parseState(loop.readJson(files.state, log));
 	say(
 		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the full run is due" : "reversals only"}`,
 	);

@@ -306,6 +306,26 @@ describe("stop and status", () => {
 		);
 	});
 
+	it("names a damaged state file (#3380)", async () => {
+		const state = path.join(dir, ".refill-loop-state.json");
+		fs.writeFileSync(state, "{ not json");
+		const r = await run("status");
+		expect(r.status).toBe(0);
+		const line = r.stdout.split("\n").find((l) => l.includes(state));
+		expect(line).toContain(`${state} is damaged (`);
+		expect(line).toMatch(/JSON.*\); read as absent/);
+	});
+
+	it("names a damaged control file and reads it as no start (#3380)", async () => {
+		const control = path.join(dir, ".refill-loop-control.json");
+		fs.writeFileSync(control, "{ not json");
+		const r = await run("stop");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`${control} is damaged (`);
+		expect(r.stdout).toContain("refill loop: not running");
+		expect(fs.readFileSync(control, "utf8")).toBe("{ not json");
+	});
+
 	it("treats a pidfile whose process is not the loop as no loop", async () => {
 		holdPidfile("something-else.js");
 		expect((await run("stop")).stdout).toContain("refill loop: not running");

@@ -18,6 +18,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseAct } = require("./act-line.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
+const { caught } = require("./caught.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { REVIEW_HOUR, localDate } = require("./morning-review.js");
@@ -123,17 +124,25 @@ function loopFiles() {
 }
 
 /**
- * The parsed file, or null where it is absent or unparseable.
+ * The parsed file, or null where it is absent or damaged. A damaged file,
+ * one that exists but will not read or parse, is a fault, so `log` gets a
+ * line naming it and the error (#3380).
  * @param {string} file
+ * @param {(line: string) => void} log
  * @returns {unknown}
  */
-function readJson(file) {
+function readJson(file, log) {
 	try {
 		return JSON.parse(fs.readFileSync(file, "utf8"));
-	} catch {
+	} catch (err) {
 		/* Fail open (#2012): an absent file is a loop never started, and each
 		 * caller's parse reads null as its defaults, so a damaged file costs the
 		 * remembered state rather than stopping the loop. */
+		const { code, message } = caught(err);
+		if (code !== "ENOENT")
+			log(
+				`${file} is damaged (${message}); read as absent, so its defaults stand until its next write replaces it`,
+			);
 		return null;
 	}
 }

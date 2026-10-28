@@ -123,7 +123,7 @@ const log = (line) => say(`${new Date().toISOString()} ${line}`);
 const parseErrText = (err) =>
 	err instanceof Error ? (err.stack ?? err.message) : String(err);
 
-const readControl = () => loop.parseControl(loop.readJson(files.control));
+const readControl = () => loop.parseControl(loop.readJson(files.control, log));
 
 /**
  * @param {string} file
@@ -375,7 +375,7 @@ function launchBatch(batch) {
 	log(
 		`dispatch ${loop.buildLaunchesLine(batch)}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
 	);
-	gates.dropTried(files.gates, r.tried);
+	gates.dropTried(files.gates, r.tried, log);
 	return { launched: r.launched, refused: r.refused };
 }
 
@@ -838,7 +838,7 @@ async function tick({ dryRun }) {
 		scope: loop.parseScope(null),
 	};
 	reapFinished(dryRun);
-	const state = loop.parseState(loop.readJson(files.state));
+	const state = loop.parseState(loop.readJson(files.state, log));
 	const served = servedRoots(control.scope).roots;
 	/* Relief first, off the registry alone: the CLI listing below can outrun
 	 * its caps under the very pressure relief exists for (#2665). */
@@ -886,7 +886,7 @@ async function tick({ dryRun }) {
 		overflow,
 		history: judged,
 		judgements: gates
-			.readGateStore(files.gates)
+			.readGateStore(files.gates, log)
 			.pending.filter((j) => served.includes(j.root)),
 	};
 	const { decision, read } = await decide(input, control.scope);

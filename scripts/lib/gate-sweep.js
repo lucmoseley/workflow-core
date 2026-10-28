@@ -83,12 +83,14 @@ function judgementsOf(raw) {
 }
 
 /**
- * The store's fields; an absent or unreadable file is an empty store.
+ * The store's fields; an absent or damaged file is an empty store, and `log`
+ * names a damaged one.
  * @param {string} file
+ * @param {(line: string) => void} log
  * @returns {GateStore}
  */
-function readGateStore(file) {
-	const raw = recordOf(readJson(file));
+function readGateStore(file, log) {
+	const raw = recordOf(readJson(file, log));
 	/** @type {Record<string, string>} */
 	const readings = {};
 	for (const [k, v] of Object.entries(recordOf(raw.readings)))
@@ -180,9 +182,10 @@ function withSweep(store, root, rows, now) {
  * reading queues it again.
  * @param {string} file
  * @param {{root: string, issues: number[]}[]} tried
+ * @param {(line: string) => void} log
  */
-function dropTried(file, tried) {
-	const store = readGateStore(file);
+function dropTried(file, tried, log) {
+	const store = readGateStore(file, log);
 	const pending = store.pending.filter(
 		(j) => !tried.some((t) => t.root === j.root && t.issues.includes(j.number)),
 	);
@@ -240,7 +243,12 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 				);
 				continue;
 			}
-			const { store, queued } = withSweep(readGateStore(file), root, rows, now);
+			const { store, queued } = withSweep(
+				readGateStore(file, log),
+				root,
+				rows,
+				now,
+			);
 			writeJson(file, store);
 			if (queued.length > 0)
 				log(
@@ -259,7 +267,7 @@ function gateSweeper({ file, runRoot, log, cadenceMs }) {
 		 */
 		startIfDue(roots, now) {
 			if (inFlight !== null) return null;
-			const store = readGateStore(file);
+			const store = readGateStore(file, log);
 			if (store.lastSweepAt !== null && now - store.lastSweepAt < cadenceMs)
 				return null;
 			writeJson(file, { ...store, lastSweepAt: now });

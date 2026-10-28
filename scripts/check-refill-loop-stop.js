@@ -23,10 +23,13 @@
  * such command sets it, and names the script absolute. A loop started again
  * since names no restart.
  *
- * Severity is WARN: a notice for the founder. An absent or unreadable state
- * file is no stop.
+ * Severity is WARN: a notice for the founder. An absent or damaged state
+ * file is no stop. A damaged state file is its own WARN, named at every
+ * session start until the loop's next tick rewrites it; a damaged control
+ * file, read only beside a fresh stop, is named with it, until a `start`
+ * rewrites it (#3380).
  *
- * IMPLICIT:  at every session start, prints the refill loop's last stop where it was no progress or the allowance cut and is newer than the stamp, then stamps it.
+ * IMPLICIT:  at every session start, prints the refill loop's last stop where it was no progress or the allowance cut and is newer than the stamp, then stamps it; and names a damaged state or control file.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping.
  * DEFEAT:    none needed — it never blocks; deleting the stamp names the last stop again.
  */
@@ -93,7 +96,14 @@ runCheck({
 		if (ctx.notify && hookMessage.readPayload()?.source === "compact")
 			ctx.skip("a compaction is no session start.");
 		const files = loop.loopFiles();
-		const { stopped } = loop.parseState(loop.readJson(files.state));
+		/** @param {string} line */
+		const reportDamaged = (line) => {
+			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line);
+			ctx.say(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
+		};
+		const { stopped } = loop.parseState(
+			loop.readJson(files.state, reportDamaged),
+		);
 		const why = stopped
 			? STOP_REASON_WORDS[
 					/** @type {import("./lib/refill-decide.js").StopReason} */ (
@@ -107,7 +117,9 @@ runCheck({
 			stopped.at > readSeen(files.stopSeen);
 		if (fresh) {
 			const at = new Date(stopped.at).toISOString();
-			const control = loop.parseControl(loop.readJson(files.control));
+			const control = loop.parseControl(
+				loop.readJson(files.control, reportDamaged),
+			);
 			const renewed = loop.isRenewedSince(control, stopped.at);
 			const since = renewed
 				? " It has been started again since."
@@ -129,8 +141,7 @@ runCheck({
 		}
 		return {
 			okLine: "no refill loop stop to name.",
-			noun: "refill loop stop(s)",
-			count: fresh ? 1 : 0,
+			noun: "refill loop stop(s) or damaged file(s)",
 			data: { stopped },
 		};
 	},
