@@ -28,9 +28,10 @@ const { readSessionHead, repoRootOf } = require("./session-head.js");
 const DAY_MS = 86_400_000;
 const CLAIM = "filing";
 /* A claim this old belongs to a run that died mid-filing. A guess, not a
- * measurement: the walk took 51 to 55 s at a load of about 27 (#3220), so 10
- * minutes leaves wide margin. A live run slower than that is overwritten, and
- * the gh check alone then stands between it and a second filing. */
+ * measurement: the claim spans two gh calls, each capped at 5 minutes
+ * (`GH_TIMEOUT_MS`, gh.js), so only a live run held at both caps reaches it.
+ * One slower than that is overwritten, and the gh check alone then stands
+ * between it and a second filing. */
 const CLAIM_STALE_MS = 10 * 60_000;
 
 /**
