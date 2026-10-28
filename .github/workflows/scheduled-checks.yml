@@ -39,11 +39,9 @@ name: scheduled-checks
 # a clean night. Sweeps run LATE as a matter of course, so that check's grace
 # period is what stops a slow sweep reading as a dropped one — the measured lag
 # is in scripts/check-ci-status.js beside the threshold it sets (mantahostels#386). The lag
-# is GitHub-side, not this repo's own hand-fires (mantahostels#2204): at six a day,
-# 61 of the 88 slots expected from 1 Sep to 15 Sep 15:00 UTC arrived (69%), consecutive-run
-# gaps at a 6.3h median and 9h54m at worst (mantahostels#2228). One
-# verdict covers every commit since the last sweep, so a red needs
-# attributing rather than reading off a sha; mantahostels#907 owns that.
+# is GitHub-side, not this repo's own hand-fires (mantahostels#2204, measured at
+# mantahostels#2228). One verdict covers every commit since the last sweep, so a
+# red needs attributing rather than reading off a sha; mantahostels#907 owns that.
 #
 # Docs-only pushes are not path-filtered: seven test files read real repo
 # documents (mantahostels#910). The document guards get no second, schedule-only
@@ -52,21 +50,19 @@ name: scheduled-checks
 # written mid-session, and a commit touching only .json/.lock triggers neither
 # pass (mantahostels#316).
 #
-# TWO MEASUREMENT TRAPS. A local speedup does not transfer to the 2-vCPU runner:
-# `pytest -n 2` gained 2.26x locally and ~7% on CI (mantahostels#313). Making the work
-# itself cheaper does transfer (mantahostels#314). Time a job from its own
-# started_at/completed_at — never the /timing endpoint, which returns
-# total_ms: 0 here. And pushes/day is not derivable
-# from the runs API at all: a push to `main` leaves no run behind, so a census of the runs
-# listing reports zero pushes rather than none observed. Any future push-rate
-# figure must come from git history.
+# MEASUREMENT TRAPS. A local speedup does not transfer to the 2-vCPU runner
+# (mantahostels#313). Making the work itself cheaper does transfer
+# (mantahostels#314). Time a job from its own started_at/completed_at — never the
+# /timing endpoint, which returns total_ms: 0 here. And pushes/day is not
+# derivable from the runs API at all: a push to `main` leaves no run behind, so
+# a census of the runs listing reports zero pushes rather than none observed.
+# Any future push-rate figure must come from git history.
 #
 # VERIFY A TRIGGER WAS NOT MISSED:
 #   node scripts/measure-ci-billing.js --since <d> --until <d> --branch all \
 #     --exclude-event pull_request
 # over a full day — on `main` the `event` split must read `schedule` ~100%,
 # `push` zero; `landing`'s push runs are the lander's tester (#2413).
-# Verified clean at mantahostels#386, over a heavy commit day.
 on:
   push:
     branches: [landing]
@@ -81,12 +77,10 @@ on:
     - cron: "0 3,9,15,21 * * *"
   workflow_dispatch:
 
-# EVERY JOB RUNS ONLY IN `lucmoseley/workflow-core` (#1963). At the switch
-# (#1954) the current repo is renamed to the private tracker with this file
-# still in its tree, and a fresh public repo, where Actions minutes are free
-# (#1930), takes the name. The guard is what stops the tracker's frozen copy
-# testing a stale tree on the private repo's minutes, whatever it is renamed
-# to; a run whose every job skipped bills nothing. No job here reads or writes issues: the red-suite
+# EVERY JOB RUNS ONLY IN `lucmoseley/workflow-core` (#1963), the public code
+# repo. The private tracker carries a frozen copy of this file in its tree, and
+# the guard stops it testing a stale tree on that repo's billed minutes; a run
+# whose every job skipped bills nothing. No job here reads or writes issues: the red-suite
 # filer runs from the daily repo-checks run instead, where the session's own
 # token reaches the private tracker.
 jobs:
