@@ -4,7 +4,9 @@
  * `environ` NUL-separated as the kernel's is; and the orphan sweeps'
  * WFC_PROC_ROOT (#3057), each process's stat and cmdline and the machine's
  * uptime; and the spare-pair test's WFC_PROC (#2502), each process's `cwd`
- * link. proc.contract.test.ts holds all three to the kernel's.
+ * link; and admission's WFC_PROC and WFC_LOADAVG (#3342), each process's
+ * `smaps_rollup` and the machine's load. proc.contract.test.ts holds them all
+ * to the kernel's.
  *
  * FOR TESTS ONLY.
  */
@@ -102,6 +104,40 @@ export function statLine(
 	tail[FIELD.start] = startTicks;
 	return `${pid} (${comm}) ${tail.join(" ")}\n`;
 }
+
+/** A `smaps_rollup` as the kernel writes it: the rollup's header, then its
+ * Rss, Pss, Pss_Dirty and Shared_Clean lines in the kernel's order. The
+ * default Rss is one no test charges and the Pss_Dirty line follows Pss, so a
+ * reader taking Rss, the last line or a `Pss`-prefixed line in place of Pss
+ * fails. */
+export const smapsRollup = ({
+	rssKb = 999_999,
+	pssKb,
+	pssDirtyKb = 0,
+	sharedCleanKb = 0,
+}: {
+	rssKb?: number;
+	pssKb: number;
+	pssDirtyKb?: number;
+	sharedCleanKb?: number;
+}) =>
+	[
+		"00400000-ffffffffffff ---p 00000000 00:00 0                          [rollup]",
+		...Object.entries({
+			Rss: rssKb,
+			Pss: pssKb,
+			Pss_Dirty: pssDirtyKb,
+			Shared_Clean: sharedCleanKb,
+		}).map(
+			([key, kb]) => `${`${key}:`.padEnd(16)}${String(kb).padStart(8)} kB`,
+		),
+		"",
+	].join("\n");
+
+/** `load1` as the kernel writes /proc/loadavg: three loads, the running and
+ * total task counts, and the newest pid. */
+export const loadavgLine = (load1: number) =>
+	`${load1.toFixed(2)} 1.00 1.00 2/300 1\n`;
 
 /** `seconds` as the kernel writes /proc/uptime: uptime, then idle time. */
 export const uptimeLine = (seconds: number) =>

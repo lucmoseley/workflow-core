@@ -6,7 +6,13 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { writeCwd, writeEnviron } from "./proc-fake";
+import {
+	loadavgLine,
+	smapsRollup,
+	statLine,
+	writeCwd,
+	writeEnviron,
+} from "./proc-fake";
 
 export const SELF = "self-session-id";
 
@@ -32,10 +38,10 @@ const tmpRootWithLanders = (dir: string, landers: Lander[]) => {
 /*
  * A fake `/proc` carrying a `smaps_rollup` per pid in `pss` (kB), a `stat`
  * per pid in `parents`, naming its parent, a `cwd` symlink per pid in
- * `cwds`, and an `environ` per pid in `environs`. A pid with no rollup is the unreadable case the scan falls back to
- * RSS for, and one with no `cwd` the unreadable one the spare test reads as
- * claimed. The default is an empty tree, so no test ever reads the real
- * `/proc`.
+ * `cwds`, and an `environ` per pid in `environs`. A pid with no rollup is the
+ * unreadable case the scan falls back to RSS for, and one with no `cwd` the
+ * unreadable one the spare test reads as claimed. The default is an empty
+ * tree, so no test ever reads the real `/proc`.
  */
 export const writeProcRoot = (
 	dir: string,
@@ -59,7 +65,7 @@ export const writeProcRoot = (
 		fs.mkdirSync(path.join(root, pid), { recursive: true });
 		fs.writeFileSync(
 			path.join(root, pid, "smaps_rollup"),
-			`Rss:   999999 kB\nPss:   ${kb} kB\nShared_Clean:  1 kB\n`,
+			smapsRollup({ pssKb: kb }),
 		);
 	}
 	for (const [pid, ppid] of Object.entries(parents)) {
@@ -67,7 +73,11 @@ export const writeProcRoot = (
 		/* A command name holding a space and a `)`, as a real one may. */
 		fs.writeFileSync(
 			path.join(root, pid, "stat"),
-			`${pid} (node (x) y) S ${ppid} ${pid} ${pid} 0 -1\n`,
+			statLine(Number(pid), {
+				comm: "node (x) y",
+				ppid: Number(ppid),
+				startTicks: 0,
+			}),
 		);
 	}
 	fs.mkdirSync(root, { recursive: true });
@@ -102,7 +112,7 @@ export const writeReapScript = (
 export const writeLoadavg = (dir: string, load1: number | null) => {
 	const p = path.join(dir, "loadavg");
 	if (load1 === null) return path.join(dir, "no-such-loadavg");
-	fs.writeFileSync(p, `${load1.toFixed(2)} 1.00 1.00 2/300 1\n`);
+	fs.writeFileSync(p, loadavgLine(load1));
 	return p;
 };
 

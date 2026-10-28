@@ -11,18 +11,17 @@
  * exactly as it reads from /proc — and those fields are checked against what
  * Node knows of this process, so a field the parser and the fake both
  * misplace still fails.
- *
- * For the spare-pair test (#2502), a real process's cwd reads back through
- * readProcCwd the same off the fake as off /proc.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
-import { afterAll, afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 import {
 	launchEntry,
+	loadavgLine,
 	makeProcRoot,
+	smapsRollup,
 	statLine,
 	uptimeLine,
 	writeCwd,
@@ -40,6 +39,14 @@ const { readCarriedWeight } = require("./suite-handoff.js") as {
 
 const { readProcCwd } = require("./claude-sessions.js") as {
 	readProcCwd: (pid: string, proc?: string) => string | null;
+};
+
+const { readTreePssKb } = require("./admission.js") as {
+	readTreePssKb: (pid: number) => number;
+};
+
+const { sample } = require("./cpu-sample.js") as {
+	sample: () => { load1: number | null } | null;
 };
 
 const PATH = `PATH=${process.env.PATH ?? "/bin"}`;
@@ -157,5 +164,61 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 
 		expect(readProcTable(fake.root)?.procs.get(process.pid)).toEqual(live);
 		expect(readUptime(fake.root)).toBe(uptime);
+	});
+});
+
+describe.skipIf(!hasProc)("a fake smaps_rollup (needs Linux /proc)", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	it("writes its lines as the real rollup holds them, in order, and reads back", () => {
+		const real = fs.readFileSync(`/proc/${process.pid}/smaps_rollup`, "utf8");
+		const kb = (key: string) =>
+			Number(real.match(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m"))?.[1]);
+		const built = smapsRollup({
+			rssKb: kb("Rss"),
+			pssKb: kb("Pss"),
+			pssDirtyKb: kb("Pss_Dirty"),
+			sharedCleanKb: kb("Shared_Clean"),
+		});
+		const realLines = real.split("\n");
+		const [header, ...lines] = built.split("\n").filter(Boolean);
+		const rollupHeader = /^[0-9a-f]+-[0-9a-f]+ ---p 0+ 00:00 0 +\[rollup\]$/;
+
+		expect(realLines[0]).toMatch(rollupHeader);
+		expect(header).toMatch(rollupHeader);
+		const at = lines.map((line) => realLines.indexOf(line));
+		expect(at).not.toContain(-1);
+		expect(at).toEqual([...at].sort((a, b) => a - b));
+
+		const fake = mkScratchDir("proc-smaps-");
+		try {
+			fs.mkdirSync(`${fake}/${process.pid}`);
+			fs.writeFileSync(`${fake}/${process.pid}/smaps_rollup`, built);
+			vi.stubEnv("WFC_PROC", fake);
+			expect(readTreePssKb(process.pid)).toBe(kb("Pss"));
+		} finally {
+			fs.rmSync(fake, { recursive: true, force: true });
+		}
+	});
+});
+
+describe.skipIf(!hasProc)("a fake loadavg line (needs Linux /proc)", () => {
+	afterEach(() => vi.unstubAllEnvs());
+
+	it("has the real line's shape, and reads back as the real one does", () => {
+		const shape = /^\d+\.\d\d \d+\.\d\d \d+\.\d\d \d+\/\d+ \d+\n$/;
+		expect(fs.readFileSync("/proc/loadavg", "utf8")).toMatch(shape);
+		expect(loadavgLine(3.5)).toMatch(shape);
+		vi.stubEnv("WFC_LOADAVG", "");
+		expect(Number.isFinite(sample()?.load1)).toBe(true);
+
+		const fake = mkScratchDir("proc-loadavg-");
+		try {
+			fs.writeFileSync(`${fake}/loadavg`, loadavgLine(3.5));
+			vi.stubEnv("WFC_LOADAVG", `${fake}/loadavg`);
+			expect(sample()?.load1).toBe(3.5);
+		} finally {
+			fs.rmSync(fake, { recursive: true, force: true });
+		}
 	});
 });
