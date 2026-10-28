@@ -1,7 +1,8 @@
 /*
- * earlyoom's journal as `journalctl -u earlyoom -o short-iso` prints it, for
- * tests of lib/earlyoom-kills.js's readers (#3094): the line builders and a
- * stub journalctl honouring `--since @<s>`, injected at WFC_JOURNALCTL.
+ * journalctl's `-o short-iso` output, for tests of lib/earlyoom-kills.js's
+ * readers (#3094) and check-kernel-stall.js's kernel reader: the line builders
+ * and a stub journalctl honouring `--since @<s>`, injected at WFC_JOURNALCTL.
+ * Held to the real journalctl by earlyoom-journal.contract.test.ts (#3105).
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -25,9 +26,15 @@ export const signalLine = (
 export const otherLine = (ms: number) =>
 	`${stamp(ms)} Luctop earlyoom[180]: sending SIGTERM when mem <=  8.00% and swap <= 100.00%,`;
 
+/** A kernel line, as `journalctl -k` prints it. */
+export const kernelLine = (ms: number, msg: string) =>
+	`${stamp(ms)} Luctop kernel: ${msg}`;
+
 /**
- * A journalctl in `dir` serving `lines` from `--since` on, logging each
- * read's start to `dir/reads`. Its path, for WFC_JOURNALCTL.
+ * A journalctl in `dir` serving `lines` from `--since` on, or all of them
+ * without one, and `-- No entries --` where none is served, as the real one
+ * does. It appends each call's `journalctl <args>` to `dir/calls`. Its path,
+ * for WFC_JOURNALCTL.
  */
 export function writeJournalctl(dir: string, lines: string[]): string {
 	fs.mkdirSync(dir, { recursive: true });
@@ -39,10 +46,14 @@ export function writeJournalctl(dir: string, lines: string[]): string {
 		`#!/usr/bin/env node
 const fs = require("node:fs");
 const a = process.argv.slice(2);
-const since = Number(a[a.indexOf("--since") + 1].slice(1)) * 1000;
-fs.appendFileSync(${JSON.stringify(path.join(dir, "reads"))}, since + "\\n");
-for (const l of fs.readFileSync(${JSON.stringify(journal)}, "utf8").split("\\n"))
-	if (l && Date.parse(l.split(" ")[0]) >= since) process.stdout.write(l + "\\n");
+fs.appendFileSync(${JSON.stringify(path.join(dir, "calls"))}, ["journalctl", ...a].join(" ") + "\\n");
+const at = a.indexOf("--since");
+const since = at < 0 ? -Infinity : Number(a[at + 1].slice(1)) * 1000;
+const out = fs
+	.readFileSync(${JSON.stringify(journal)}, "utf8")
+	.split("\\n")
+	.filter((l) => l && Date.parse(l.split(" ")[0]) >= since);
+process.stdout.write((out.length ? out : ["-- No entries --"]).join("\\n") + "\\n");
 `,
 		{ mode: 0o755 },
 	);

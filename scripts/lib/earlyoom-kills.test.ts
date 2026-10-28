@@ -86,9 +86,11 @@ describe("readIncidents (#3094)", () => {
 		expect(incidents).toHaveLength(2);
 		expect(incidents[0].first).toBe(new Date(T0).toISOString());
 		expect(incidents[0].kills).toHaveLength(3);
+		const read = (ms: number) =>
+			`journalctl -u earlyoom --no-pager -o short-iso --since @${ms / 1000}`;
 		expect(
-			fs.readFileSync(path.join(dir, "reads"), "utf8").trim().split("\n"),
-		).toHaveLength(2);
+			fs.readFileSync(path.join(dir, "calls"), "utf8").trim().split("\n"),
+		).toEqual([read(T0 - 8 * MIN), read(T0 - 30 * MIN)]);
 	});
 
 	it("drops an incident wholly before the window", () => {
