@@ -33,6 +33,12 @@ let ghLog: string;
 
 const at = (name: string) => path.join(dir, name);
 
+const writeListingClaude = (sessionId: string) =>
+	writeClaudeStub(at("claude"), [
+		`if [ "$1" = "agents" ]; then printf '%s\\n' "$*" >> '${listingLog}'; fi`,
+		buildAgentsBranch([buildListedRow({ sessionId, pid: 1 })]),
+	]);
+
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "agents-listing-count-"));
 	listingLog = at("listings");
@@ -46,10 +52,7 @@ beforeEach(() => {
 	);
 	// Any reading: WFC_LOAD_CEILING is blanked, so load holds nothing.
 	fs.writeFileSync(at("loadavg"), "0.50 1.00 1.00 2/300 1\n");
-	writeClaudeStub(at("claude"), [
-		`if [ "$1" = "agents" ]; then printf '%s\\n' "$*" >> '${listingLog}'; fi`,
-		buildAgentsBranch([buildListedRow({ sessionId: SELF, pid: 1 })]),
-	]);
+	writeListingClaude(SELF);
 	fs.writeFileSync(
 		at("gh"),
 		GH_FAILING_SCRIPT.replace(
@@ -102,6 +105,22 @@ describe("claude agents --json unions (#3320)", () => {
 		expect(verdict.ok).toBe(true);
 		/* The reaper's plan was read, so its listing is in the count. */
 		expect(verdict.reclaimableError).toBeNull();
+		expect(readLines(listingLog)).toEqual(["agents --json"]);
+	});
+
+	/* Where the strict listing refuses, no reader lists again with
+	 * `requireSelf: false` to get past it (#3330). */
+	it("one admission run lists once where the session is unlisted", () => {
+		writeListingClaude("other");
+		const r = runInProcess(
+			path.resolve(__dirname, "admission.js"),
+			["--json"],
+			{ env: buildMachineEnv() },
+		);
+		expect(r.status).toBe(2);
+		expect(JSON.parse(r.stdout).error).toContain(
+			`does not list this very session (${SELF})`,
+		);
 		expect(readLines(listingLog)).toEqual(["agents --json"]);
 	});
 
