@@ -102,8 +102,8 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
  * @property {{at: number, summary: string,
  *   skipped?: import("./refill-decide.js").Skip[]}|null} lastTick
  * @property {{at: number, reason: string, detail: string}|null} stopped
- * @property {string|null} reviewRunOn machine-local date of the last full
- *   morning review run
+ * @property {string|null} reviewRunOn machine-local date of the last morning
+ *   review filing
  */
 
 /** @typedef {import("./refill-decide.js").SeatReading} SeatReading */
@@ -187,6 +187,15 @@ function parseScope(raw) {
 		goals,
 	};
 }
+
+/**
+ * The control file `start` and `stop` write, parsed; null where it is absent
+ * or not one.
+ * @param {(line: string) => void} log
+ * @returns {Control|null}
+ */
+const readControlFile = (log) =>
+	parseControl(readJson(loopFiles().control, log));
 
 /**
  * The control file's fields, or null where it is not one.
@@ -287,8 +296,8 @@ function parseState(raw) {
 }
 
 /**
- * Whether this tick runs the morning review generator in full: the first tick
- * at or after REVIEW_HOUR on a day it has not run (#2017).
+ * Whether this tick files the morning review: the first tick at or after
+ * REVIEW_HOUR on a day it has not filed (#2017).
  * @param {Date} now
  * @param {string|null} lastRunOn
  */
@@ -296,14 +305,20 @@ const isReviewRunDue = (now, lastRunOn) =>
 	now.getHours() >= REVIEW_HOUR && localDate(now) !== lastRunOn;
 
 /**
- * The last full run's date after a tick's review run: today once a due run
- * filed (exit 0) or was refused (exit 2, which a retry would only repeat);
- * unchanged after a gh failure (1) or a timeout or kill (null).
- * @param {{due: boolean, status: number|null, lastRunOn: string|null,
- *   today: string}} run
+ * The last filing's date after a tick's review children, read off the worse
+ * of their two exit statuses: today once a due tick's worse is 0, or 2, a
+ * refusal a retry would only repeat; unchanged where either timed out or was
+ * killed (null), or the worse is a gh failure (1), so the next tick retries
+ * both and the filing files nothing twice.
+ * @param {{due: boolean, filed: number|null, answered: number|null,
+ *   lastRunOn: string|null, today: string}} run `filed` and `answered`, the
+ *   two children's exit statuses
  */
-const reviewRunRecorded = ({ due, status, lastRunOn, today }) =>
-	due && (status === 0 || status === 2) ? today : lastRunOn;
+const reviewRunRecorded = ({ due, filed, answered, lastRunOn, today }) => {
+	if (!due || filed === null || answered === null) return lastRunOn;
+	const worse = Math.max(filed, answered);
+	return worse === 0 || worse === 2 ? today : lastRunOn;
+};
 
 /** @param {LoopLaunch[]} launches */
 const trimmed = (launches) => launches.slice(-HISTORY_KEPT);
@@ -905,6 +920,7 @@ module.exports = {
 	parseCapFits,
 	ceilingsOf,
 	parseControl,
+	readControlFile,
 	buildFinishLine,
 	isRenewedSince,
 	judgedLaunches,

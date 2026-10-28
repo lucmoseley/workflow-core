@@ -20,6 +20,12 @@
  * Each tick, and the seats it reads, are lib/refill-tick.js's; what `start`
  * and `status` print, lib/refill-commands.js's.
  *
+ * UNION ORACLE: every listing the loop and its reaper read must span all its
+ * seats, so the loop takes the union oracle as dispatch-sessions.sh does
+ * where WFC_CLAUDE_BIN is unset. Without that wrapper, a launch on a seat
+ * other than the loop's own is unlisted and judged finished once its grace
+ * passes.
+ *
  * CODE: in a git checkout, the loop runs from a detached worktree of its own
  * at the verified ref's tip, never from the checkout `start` was typed in, and
  * between ticks adopts a newer tip that changes its code by re-exec under the
@@ -47,7 +53,10 @@ const { pidLock } = require("./lib/pid-lock.js");
 const { hasConfig } = require("./lib/workflow-core-config.js");
 const { RUN_MS } = require("./lib/refill-decide.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
-const { readDeclaredSeats } = require("./lib/refill-seats.js");
+const {
+	readConfiguredSeats,
+	readDeclaredSeats,
+} = require("./lib/refill-seats.js");
 const wakes = require("./lib/refill-wake.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { checkoutEnv, exclusionOf, homeDir } = require("./lib/refill-repos.js");
@@ -57,17 +66,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
 const commands = require("./lib/refill-commands.js");
-const {
-	DISPATCHER,
-	files,
-	log,
-	parseErrText,
-	readConfiguredSeats,
-	readControl,
-	say,
-	servedRoots,
-	tick,
-} = require("./lib/refill-tick.js");
+const { DISPATCHER, servedRoots, tick } = require("./lib/refill-tick.js");
 
 /* Untraced: the loop's log is cut to its newer half past this. */
 const LOG_MAX_BYTES = 1024 * 1024;
@@ -78,7 +77,20 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status
   start --away [--exclude <dir>]… [--goal …]   away mode: every included checkout but those named
   <dir> is a checkout's directory name in the home directory`;
 
+const files = loop.loopFiles();
 const lock = pidLock(files.pid, "refill-loop.js");
+
+/** @param {string} line */
+const say = (line) => writeFd(1, `${line}\n`);
+
+/** @param {string} line */
+const log = (line) => say(`${new Date().toISOString()} ${line}`);
+
+/** @param {unknown} err */
+const parseErrText = (err) =>
+	err instanceof Error ? (err.stack ?? err.message) : String(err);
+
+const readControl = () => loop.readControlFile(log);
 
 /**
  * The listing oracle every seat's sessions show in: WFC_CLAUDE_BIN, else the
@@ -283,7 +295,7 @@ async function printDryRun() {
 	if (read) say(loop.buildFrontierReadText(read));
 	const { reviewRunOn } = loop.parseState(loop.readJson(files.state, log));
 	say(
-		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the full run is due" : "reversals only"}`,
+		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the filing is due, then reversals" : "reversals only"}`,
 	);
 	if ("stop" in d) return 0;
 	const overflow = new Set(

@@ -16,6 +16,7 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
+const { configDir } = require("./config-dir.js");
 const { homeDir } = require("./refill-repos.js");
 const { scriptPath } = require("./script-path.js");
 const { writeFd } = require("./write-fd.js");
@@ -145,7 +146,22 @@ function seatOf(list, dir, home = homeDir()) {
 	return list.seats.find((s) => s.dir === want) ?? { dir: want, kind: "plan" };
 }
 
-module.exports = { readDeclaredSeats, seatOf };
+/**
+ * The plan seats readDeclaredSeats reads, in failover order, else the seat
+ * this runs on, as where the seat file refuses. Overflow seats are read each
+ * refill tick (#2611).
+ */
+function readConfiguredSeats() {
+	const { seats, errors } = readDeclaredSeats();
+	const listed =
+		errors.length > 0
+			? []
+			: seats.filter((s) => s.kind === "plan").map((s) => s.dir);
+	if (listed.length > 0) return listed;
+	return [configDir()];
+}
+
+module.exports = { readConfiguredSeats, readDeclaredSeats, seatOf };
 
 /*
  * CLI mode, for the dispatcher.

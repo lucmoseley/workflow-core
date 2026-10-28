@@ -1,6 +1,6 @@
 /*
- * The refill loop's fixtures its pure-core tests share: a clock, three
- * checkout roots, a scope in each mode and a launch record.
+ * The refill loop's fixtures its pure-core tests share (#2012, #3370): a
+ * clock, three checkout roots, a scope in each mode and a launch record.
  */
 
 export const MIN = 60 * 1000;

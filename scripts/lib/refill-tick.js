@@ -31,10 +31,8 @@
  * plan's API credits once every plan seat is weekly-full, sized by their
  * budget gate and never probed with `/usage` (#2611, spec #2570). Host
  * configuration, not code, because the plugin ships to adopters. Every
- * listing the loop and its reaper read must span them all, so the loop takes
- * the union oracle as dispatch-sessions.sh does where WFC_CLAUDE_BIN is
- * unset. Without that wrapper, a launch on a seat other than the loop's own
- * is unlisted and judged finished once its grace passes.
+ * listing a tick and its reaper read must span them all
+ * (scripts/refill-loop.js's union oracle).
  *
  * A failed read inside a tick is logged and the tick carries on with what it
  * has.
@@ -49,7 +47,6 @@ const { readActsBy } = require("./arbiter-store.js");
 const { PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { readAllowance } = require("./allowance.js");
 const { claudeBin } = require("./claude-bin.js");
-const { configDir } = require("./config-dir.js");
 const { buildTypedAttach } = require("./claude-attach.js");
 const { childFailure, childVerdict } = require("./child-failure.js");
 const { parseErrLine, gh } = require("./gh.js");
@@ -80,7 +77,7 @@ const {
 	buildTickRecord,
 } = require("./concurrency.js");
 const { seatBudget } = require("./overflow-budget.js");
-const { readDeclaredSeats } = require("./refill-seats.js");
+const { readConfiguredSeats, readDeclaredSeats } = require("./refill-seats.js");
 const { runOf } = require("./headless-sessions.js");
 const {
 	checkoutEnv,
@@ -99,8 +96,10 @@ const CHILD_TIMEOUT_MS = 120 * 1000;
 /* The probe's ceiling plus node's start, so the probe meets its own ceiling
  * and stops its group before this one kills the wrapper; the 15 s is a guess. */
 const PROBE_CHILD_TIMEOUT_MS = PROBE_TIMEOUT_MS + 15 * 1000;
-/* Untraced: room for the full review's reads of every included repo's closes
- * with their comments, kept under the dispatch ceiling since it holds the tick. */
+/* Untraced: room for the filing's reads of every included repo's closes with
+ * their comments, and the reversals answered after it, kept under the
+ * dispatch ceiling since it holds the tick: one budget the two review
+ * children share. */
 const REVIEW_TIMEOUT_MS = 5 * 60 * 1000;
 /* The ledger's own hour, ample for one dispatcher call. */
 const LEDGER_WINDOW_HOURS = 1;
@@ -124,7 +123,7 @@ const log = (line) => say(`${new Date().toISOString()} ${line}`);
 const parseErrText = (err) =>
 	err instanceof Error ? (err.stack ?? err.message) : String(err);
 
-const readControl = () => loop.parseControl(loop.readJson(files.control, log));
+const readControl = () => loop.readControlFile(log);
 
 /**
  * @param {string} file
@@ -147,19 +146,6 @@ function runChild(file, args, opts = {}) {
 	return { ...child, ...childVerdict(child) };
 }
 
-/**
- * The plan seats lib/refill-seats.js reads, else the seat this runs on, as
- * where the seat file refuses. Overflow seats are read each tick (#2611).
- */
-function readConfiguredSeats() {
-	const { seats, errors } = readDeclaredSeats();
-	const listed =
-		errors.length > 0
-			? []
-			: seats.filter((s) => s.kind === "plan").map((s) => s.dir);
-	if (listed.length > 0) return listed;
-	return [configDir()];
-}
 /**
  * The roots a scope serves now.
  * @param {import("./refill-loop.js").Scope} scope
@@ -398,8 +384,8 @@ function headlessSessionOf(jobId) {
 
 /**
  * File the morning review where due, then answer its reversals
- * (scripts/answer-review-reversals.js), returning the date of the last full
- * run (lib/refill-loop.js's
+ * (scripts/answer-review-reversals.js) in what is left of REVIEW_TIMEOUT_MS,
+ * returning the date of the last filing (lib/refill-loop.js's
  * reviewRunRecorded). A missing config at REVIEW_ROOT is logged once a day.
  * @param {string|null} lastRunOn
  * @param {number} now
@@ -414,12 +400,14 @@ function runReview(lastRunOn, now) {
 			);
 		return due ? today : lastRunOn;
 	}
+	const deadline = Date.now() + REVIEW_TIMEOUT_MS;
+	/* spawnSync reads a timeout of 0 as none, so a spent budget still kills. */
 	/** @param {string} script */
 	const runInReviewRoot = (script) =>
 		runChild(process.execPath, [path.join(SCRIPTS, script)], {
 			cwd: REVIEW_ROOT,
 			env: checkoutEnv(REVIEW_ROOT),
-			timeout: REVIEW_TIMEOUT_MS,
+			timeout: Math.max(deadline - Date.now(), 1),
 		});
 	const filed = due ? runInReviewRoot("file-morning-review.js") : null;
 	if (filed)
@@ -431,13 +419,13 @@ function runReview(lastRunOn, now) {
 		log(
 			`morning review reversals: ${answered.failed ?? "exit 0"}\n  ${blocks.indented(answered.out)}`,
 		);
-	/* A due run is recorded only once its reversals answered too, so a
-	 * failed one is retried with the filing, which files nothing twice. */
-	const statuses = [filed?.status ?? 0, answered.status];
-	const status = statuses.includes(null)
-		? null
-		: Math.max(.../** @type {number[]} */ (statuses));
-	return loop.reviewRunRecorded({ due, status, lastRunOn, today });
+	return loop.reviewRunRecorded({
+		due,
+		filed: filed === null ? 0 : filed.status,
+		answered: answered.status,
+		lastRunOn,
+		today,
+	});
 }
 
 /**
@@ -918,12 +906,6 @@ async function tick({ dryRun }) {
 
 module.exports = {
 	DISPATCHER,
-	files,
-	log,
-	parseErrText,
-	readConfiguredSeats,
-	readControl,
-	say,
 	servedRoots,
 	tick,
 };

@@ -1,13 +1,13 @@
 // @vitest-environment node
 /*
- * The refill loop's pure readings (#2012) and its scope (#2123). No fixture
+ * The refill loop's pure readings (#2012) and the repos a tick serves
+ * (#2123). No fixture
  * touches disk but the reads of dispatch-sessions.sh that pin the loop's copies
  * of its cap thresholds and cap-call flags to the script's, and the acts
  * ledgers the progress cases write in arbiter-testkit's sandbox.
  *
  * Loosen one and a working session can be judged finished and stop the run
- * for no progress, failover leave its order, a /pick-next start silently
- * narrow or prolong a running away mode, a stop written mid-tick let the rest
+ * for no progress, failover leave its order, a stop written mid-tick let the rest
  * of the tick's picks launch or one written during the review go unrecorded,
  * or a launch be judged without the session id its listing gave, or by
  * anything but what its own session did, or a job that never started stay
@@ -1205,7 +1205,7 @@ describe("the checkouts whose landing a tick supervises (#3284)", () => {
 	});
 });
 
-describe("when a tick runs the morning review in full (#2017)", () => {
+describe("when a tick files the morning review (#2017)", () => {
 	/* Local time, as isReviewRunDue reads the hour and date locally. */
 	const at = (hour: number, minute = 0) => new Date(2026, 9, 19, hour, minute);
 
@@ -1221,18 +1221,27 @@ describe("when a tick runs the morning review in full (#2017)", () => {
 		expect(isReviewRunDue(at(15), "2026-10-18")).toBe(true);
 	});
 
-	it("records the day only once a due run filed or was refused", () => {
-		const run = (due: boolean, status: number | null) =>
+	it("records the day off the worse of a due tick's two review statuses, never past a timeout", () => {
+		const run = (
+			due: boolean,
+			filed: number | null,
+			answered: number | null = 0,
+		) =>
 			reviewRunRecorded({
 				due,
-				status,
+				filed,
+				answered,
 				lastRunOn: "2026-10-18",
 				today: "2026-10-19",
 			});
 		expect(run(true, 0)).toBe("2026-10-19");
 		expect(run(true, 2)).toBe("2026-10-19");
+		expect(run(true, 0, 2)).toBe("2026-10-19");
+		expect(run(true, 2, 1)).toBe("2026-10-19");
 		expect(run(true, 1)).toBe("2026-10-18");
 		expect(run(true, null)).toBe("2026-10-18");
+		expect(run(true, 0, 1)).toBe("2026-10-18");
+		expect(run(true, 0, null)).toBe("2026-10-18");
 		expect(run(false, 0)).toBe("2026-10-18");
 	});
 

@@ -260,7 +260,7 @@ describe("run (#2435)", () => {
 		expect(readLines(at("dispatches"))).toEqual(["opus /implement 5"]);
 		expect(readLines(at("ticks"))).toHaveLength(1);
 		expect(readStopped()).toMatchObject({ reason: "explicit" });
-		// The sandbox has no file-morning-review.js: a run of it logs an exit.
+		// The sandbox has neither review script: a run of one logs an exit.
 		expect(r.stdout).not.toMatch(/morning review( reversals)?: exit/);
 	});
 
