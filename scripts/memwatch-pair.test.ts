@@ -1,8 +1,8 @@
 // @vitest-environment node
 // Pins that memcheck prints the threshold the watchdog really uses, and that
-// memwatch logs its process rows, fires on CPU as well as memory, logs each
-// scheduler-clock freeze and clear, and rotates its log into an age-bounded
-// archive.
+// memwatch logs its process rows, fires on CPU and process count as well as
+// memory, logs each scheduler-clock freeze and clear, and rotates its log into
+// an age-bounded archive.
 // Drives the two home-directory watchdog scripts (~/memcheck.sh, ~/memwatch.sh)
 // from outside, per mantahostels#544's testing decisions: fabricated sources in, printed
 // output asserted. Skips wherever the scripts are absent — CI runners carry
@@ -533,3 +533,128 @@ describe.skipIf(!hasProc || !present || !fs.existsSync("/proc/schedstat"))(
 		});
 	},
 );
+
+/*
+ * The process-count trigger (#3402). The sleepers fork in a capped scope, so a
+ * fault here cannot reach the machine's own pids cap.
+ */
+const hasScope = (() => {
+	if (!hasProc || !present) return false;
+	try {
+		execFileSync("systemd-run", ["--user", "--scope", "--quiet", "true"], {
+			stdio: "ignore",
+		});
+		return true;
+	} catch {
+		return false;
+	}
+})();
+/* Past the shipped 2,000 default by more than the machine's own ~100-400. */
+const SLEEPERS = 2500;
+/* The sleepers, their bash and 100 tasks of slack. */
+const SCOPE_TASKS = SLEEPERS + 100;
+/*
+ * Seconds the scope may live: the case's own bound, so a sleeper this file
+ * fails to stop dies with it. 2,500 forks take ~5 s here.
+ */
+const SCOPE_S = 120;
+
+describe.skipIf(!hasScope)("memwatch process-count trigger", () => {
+	it(
+		"names the sleepers' command and their parent past the threshold",
+		async () => {
+			const unit = `memwatch-forks-${process.pid}.scope`;
+			const marker = `memwatch-fork-fixture-${process.pid}`;
+			const forker = spawn(
+				"systemd-run",
+				[
+					"--user",
+					"--scope",
+					"--quiet",
+					`--unit=${unit}`,
+					"-p",
+					`TasksMax=${SCOPE_TASKS}`,
+					"-p",
+					`RuntimeMaxSec=${SCOPE_S}`,
+					"bash",
+					"-c",
+					`: ${marker}; for _ in $(seq ${SLEEPERS}); do sleep 3402 & done; echo ready; wait`,
+				],
+				{ stdio: ["ignore", "pipe", "ignore"] },
+			);
+			try {
+				await new Promise<void>((resolve, reject) => {
+					forker.stdout.on("data", (b) => {
+						if (String(b).includes("ready")) resolve();
+					});
+					forker.on("exit", () => reject(new Error("forker exited early")));
+				});
+				const log = path.join(tmp, "procs.log");
+				// The shipped default threshold, never one inherited from the shell.
+				const { MEMWATCH_PROCS_THRESHOLD: _, ...env } = process.env;
+				execFileSync("bash", [MEMWATCH], {
+					env: {
+						...env,
+						MEMWATCH_ONCE: "1",
+						MEMWATCH_LOG: log,
+						MEMWATCH_THRESHOLD_MB: "99999999",
+						MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+					},
+					encoding: "utf8",
+				});
+				const lines = fs.readFileSync(log, "utf8").trimEnd().split("\n");
+				const head = lines.findIndex((l) =>
+					/^--- \d+ processes \| top commands by process count ---$/.test(l),
+				);
+				expect(head).toBeGreaterThan(-1);
+				expect(Number(lines[head].split(" ")[1])).toBeGreaterThan(SLEEPERS);
+				expect(lines[head + 2]).toMatch(
+					new RegExp(`^ +${SLEEPERS} sleep 3402$`),
+				);
+				const parents = lines.indexOf("--- top parents by direct children ---");
+				expect(parents).toBeGreaterThan(head);
+				// The parent's whole argv, never cut to the block's 110 columns.
+				expect(lines[parents + 2]).toMatch(
+					new RegExp(
+						`^ *\\d+ +${SLEEPERS} \\S*bash -c : ${marker};.* echo ready; wait$`,
+					),
+				);
+			} finally {
+				try {
+					execFileSync("systemctl", ["--user", "stop", unit], {
+						stdio: "ignore",
+					});
+				} catch {
+					// Already gone: RuntimeMaxSec ended it, or it never started.
+				}
+				forker.kill("SIGKILL");
+			}
+		},
+		SCOPE_S * 1000,
+	);
+
+	/*
+	 * Real time, as the CPU trigger's cases are: the cooldown is read off the
+	 * clock between passes 1 s apart, and 60 s is never shortened to test it.
+	 */
+	it("logs one block a cooldown however many passes cross the threshold", async () => {
+		const log = path.join(tmp, "procs-cooldown.log");
+		const child = spawn("bash", [MEMWATCH], {
+			env: {
+				...process.env,
+				MEMWATCH_LOG: log,
+				MEMWATCH_INTERVAL: "1",
+				MEMWATCH_THRESHOLD_MB: "99999999",
+				MEMWATCH_CPU_THRESHOLD_PCT: "99999",
+				MEMWATCH_PROCS_THRESHOLD: "0",
+			},
+		});
+		try {
+			await setTimeout(3500);
+		} finally {
+			child.kill("SIGKILL");
+		}
+		const out = fs.readFileSync(log, "utf8");
+		expect(out.match(/^--- \d+ processes \|/gm)).toHaveLength(1);
+	});
+});
