@@ -58,7 +58,7 @@
 		{
 			"file": "CLAUDE.md",
 			"headline": "A turn ends only on a real question or a notification you are waiting for — never on a progress report.",
-			"claim": "A session ends a turn on a progress report, or ends a background-job turn with no `result:`, `needs input:` or `waiting:` last line (the uncommitted-work limb leaves for `guard-uncommitted-work.js`)",
+			"claim": "A session ends a turn on a progress report (the last-line limb leaves for `guard-priced-options.js`, the uncommitted-work limb for `guard-uncommitted-work.js`)",
 			"route": "no-trigger"
 		},
 		{

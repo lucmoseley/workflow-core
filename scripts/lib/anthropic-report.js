@@ -12,7 +12,7 @@
  * a `timeout`/`env`/`nohup` prefix still reaches the walker that steps past it
  * (#3224).
  *
- * UNGUARDED (#1967): a GraphQL target named by node id or a file-read query,
+ * UNGUARDED (#1987): a GraphQL target named by node id or a file-read query,
  * an unreadable repo, a script, `curl` or alias, and a Chrome form.
  */
 
