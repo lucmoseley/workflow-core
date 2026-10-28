@@ -835,6 +835,15 @@ describe("runLander on a red only a CI job names (#3253)", () => {
 		);
 	});
 
+	it("runs no whole suite at a culprit's parent that is main (#3493)", async () => {
+		const r = await jobRed((sha) => sha !== A);
+		expect(r.tested).not.toContainEqual({ sha: A, files: [] });
+		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
+		expect(r.revertWhys).toEqual([
+			`The lander found it red on the CI jobs '${job}', twice, with its parent aaaaaaaaa at \`main\`.`,
+		]);
+	});
+
 	it("names the culprit's own failing jobs, not the tip's", async () => {
 		const docsJob = "Full suite / Document guards";
 		const r = await run(
@@ -1084,6 +1093,7 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 			{
 				kind: "hold",
 				reason: "already red on `main`: x.test.ts, y.test.ts",
+				cause: "already-red",
 			},
 		]);
 		expect(r.pushes).toEqual([]);
@@ -1131,6 +1141,7 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 		expect(r.end).toEqual({
 			kind: "hold",
 			reason: "already red on `main`: x.test.ts, y.test.ts",
+			cause: "already-red",
 		});
 	});
 
@@ -1169,7 +1180,11 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 		const r = await scripted((sha, nth) => (sha === A && nth === 1 ? [] : [X]));
 		expect(r.actions.slice(-2)).toEqual([
 			{ kind: "rerun", sha: A, files: [X], why: "parent-main" },
-			{ kind: "hold", reason: "already red on `main`: x.test.ts" },
+			{
+				kind: "hold",
+				reason: "already red on `main`: x.test.ts",
+				cause: "already-red",
+			},
 		]);
 		expect(r.tested).not.toContainEqual({ sha: A, files: [] });
 		expect(r.reverted).toEqual([]);

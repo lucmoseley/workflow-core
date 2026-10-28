@@ -10,7 +10,8 @@
  * culprit or bisected commit whose whole suite reaches none holds (#3410). Files
  * red at `main` too are a known breakage: the bisect leaves them out, and a
  * culprit whose parent is `main` is confirmed there on its files alone, never
- * reverted where they fail (#3324). Where `main` takes only a sha a CI run
+ * reverted where they fail (#3324); a red naming no file reruns nothing there
+ * (#3493). Where `main` takes only a sha a CI run
  * passed, a green read off no run lands nothing: the flake check holds on it,
  * and a confirmed culprit's parent is reverted past (#3329). A push to `main`
  * that is refused holds, so no run retries it (#3329). A run resuming a red
@@ -108,7 +109,7 @@ const NETWORK =
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
  *       revert: string, files: string[], jobs: string[],
  *       stale: RegistryRow[]|null}
- *   | {kind: "hold", reason: string}
+ *   | {kind: "hold", reason: string, cause?: "already-red"}
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
  *   End
@@ -278,13 +279,12 @@ function redAction(r, s) {
 		return { kind: "rerun", sha: r.base, files: tip, why: "base" };
 	const known = redOnMain(r.onMain, tip);
 	const files = tip.filter((f) => !known.includes(f));
-	if (known.length > 0 && files.length === 0)
-		return { kind: "hold", reason: buildAlreadyRedReason(known) };
+	if (known.length > 0 && files.length === 0) return buildAlreadyRedHold(known);
 	const action = clearRed({ ...r, files }, { ...s, known });
 	if (
 		action.kind !== "hold" ||
 		known.length === 0 ||
-		action.reason.startsWith(ALREADY_RED)
+		action.cause === "already-red"
 	)
 		return action;
 	return {
@@ -369,8 +369,6 @@ function redOnMain(onMain, checked) {
 	return named.length > 0 ? named : checked;
 }
 
-const ALREADY_RED = "already red on `main`: ";
-
 /**
  * @param {Extract<Verdict, {kind: "red"}>} v
  * @param {string[]} known
@@ -380,7 +378,17 @@ const isRedOnlyOn = (v, known) =>
 
 /** @param {string[]} files */
 const buildAlreadyRedReason = (files) =>
-	`${ALREADY_RED}${filesLabel([...new Set(files)])}`;
+	`already red on \`main\`: ${filesLabel([...new Set(files)])}`;
+
+/**
+ * @param {string[]} files
+ * @returns {Extract<Action, {kind: "hold"}>}
+ */
+const buildAlreadyRedHold = (files) => ({
+	kind: "hold",
+	reason: buildAlreadyRedReason(files),
+	cause: "already-red",
+});
 
 /**
  * @param {string} sha
@@ -407,11 +415,15 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	const again = r.confirm[culprit];
 	if (again?.kind !== "red") return secondRunAction(r, culprit, again, isStuck);
 	if (parent === null) return null;
-	const named = parent === main ? namedOr(again, r.files) : [];
-	if (named.length > 0)
-		return mainConfirmAction(r, /** @type {string} */ (main), named, known);
-	/* The whole suite, as the parent lands on `main`, which only ever holds a
-	 * sha the full suite passed. */
+	/* `main` only ever holds a sha the full suite passed. */
+	if (parent === main) {
+		/* A red naming no file reruns nothing there, which counts as passed
+		 * (#3493). Residual: a CI job already red on `main` then reverts the
+		 * culprit rather than holding. */
+		const named = namedOr(again, files);
+		return named.length > 0 ? mainConfirmAction(r, parent, named, known) : null;
+	}
+	/* The whole suite, as the parent lands on `main`. */
 	const before = r.confirm[parent];
 	if (!before && !isStuck(parent))
 		return { kind: "rerun", sha: parent, files: [], why: "parent" };
@@ -485,8 +497,7 @@ function secondRunAction(r, culprit, again, isStuck) {
 
 /**
  * The confirm of a parent that is `main`: the culprit's failing files rerun
- * there, never the whole suite, as `main` lands nothing. A red naming no
- * file keeps confirmAction's whole-suite run.
+ * there, never the whole suite, as `main` lands nothing.
  * @param {Red} r
  * @param {string} main the culprit's parent
  * @param {string[]} files the culprit's failing files
@@ -498,10 +509,7 @@ function mainConfirmAction(r, main, files, known) {
 	if (!before) return { kind: "rerun", sha: main, files, why: "parent-main" };
 	if (before.kind === "unknown") return buildNoVerdictExit(main, before);
 	if (before.kind === "red")
-		return {
-			kind: "hold",
-			reason: buildAlreadyRedReason([...known, ...redOnMain(before, files)]),
-		};
+		return buildAlreadyRedHold([...known, ...redOnMain(before, files)]);
 	return null;
 }
 
@@ -891,7 +899,7 @@ async function advanceRed(deps, action, r) {
 				git.revertOnLanding(
 					action.culprit,
 					action.parent,
-					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
+					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} ${action.parent && !r.confirm[action.parent] ? "at `main`" : "green"}.`,
 				),
 			),
 		};
