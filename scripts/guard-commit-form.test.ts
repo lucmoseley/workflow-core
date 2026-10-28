@@ -603,7 +603,7 @@ describe("a hung git under the arbiter store (#2891)", () => {
 		"fails the sweep check open on a hung blob read, overrunning once, the log naming it",
 		() => {
 			/* Three neighbour claims whose pins the tree still holds: unlatched,
-			 * each would pay its own ceiling, 9 s against the hook's 10 s. */
+			 * each would pay its own ceiling, 9 s in all. */
 			const claimed = ["a.md", "b.md", "c.md"];
 			fs.mkdirSync(path.join(shared, "docs"), { recursive: true });
 			for (const f of claimed)

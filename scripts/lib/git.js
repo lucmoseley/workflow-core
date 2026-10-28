@@ -158,11 +158,12 @@ function spawnGitSync(args, opts = {}) {
 	return spawnSync(gitBinary(), args, gitSpawnOptions(opts));
 }
 
-/* The ceiling on one git call a hook makes, under the tightest budget such a
- * call answers to: the PreToolUse dispatcher's 8 s for all its adapters
- * (hook-deadline.js's ENTRY_BUDGET_MS), not its registration's 60 s. A
- * ceiling, not a measurement: `git rev-parse` answers in milliseconds, and 3 s
- * leaves a wedged call room for one more read and the guard's core. */
+/* The ceiling on one git call a hook makes, sized to the tightest budget any
+ * caller answers to (#3248): the 8 s the PreToolUse dispatcher cuts its
+ * budgeted reads to (hook-deadline.js). Its other adapters answer only to its
+ * 60 s registration, and standalone hooks to their own, 10 s or more. A
+ * ceiling, not a measurement: `git rev-parse` answers in milliseconds, and two
+ * wedged calls at 3 s leave 2 s of the 8 s to the rest. */
 const HOOK_GIT_TIMEOUT_MS = 3000;
 
 /* The ceiling on a git call not held to HOOK_GIT_TIMEOUT_MS, unmeasured and
