@@ -415,7 +415,7 @@
 			"source": "#1842"
 		},
 		"scripts/concision-backstop.sh": {
-			"digest": "108f0581a9fafa05",
+			"digest": "234707395d23d782",
 			"verdict": "at need (the Stop after the session's own writes cross the threshold); SessionStart limb prints nothing, by design; a rejected review marker written after the code nag fired is nagged again at the next Stop, naming why, once per marker written (a valid marker clears it)",
 			"selfSufficient": "prose — pointer only for the pass itself (names the skill; criteria live there), closing marker inline; code — yes for dispatch mechanics, review substance in the code-review skill; a rejected marker's re-nag names the marker, the reason it was rejected, and the whole code nag again; in an /implement session either nag ends with rule:implement-closing-steps whole, or the fragment's path where the store cannot supply it (#2031, fed by its suite and by this session's own Stop nag); its Standards-axis text is the injector's word for word (#2097, fed by that session's own Stop nag)",
 			"source": "#2097"
