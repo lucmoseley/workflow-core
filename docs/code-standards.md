@@ -71,7 +71,7 @@ At commit, the core's `commands.check_staged` is Biome over the staged paths (ma
 | The read-shape warning, `scripts/generate-test-read-edges.js --check` | not run; `--unseen` lists every read the diff selector cannot attribute, on demand |
 | The run-cost report, `scripts/run-vitest.js` and `scripts/run-pytest.js` (a new or changed test file over 10 s of its own wall time, base §X8 (5); pytest's in worker-seconds) | not run — silent under `CI` (#1797). Locally it **reports only, never refuses**: printed after every suite run through either wrapper, never at commit, and never changing the suite's exit code (#1883, #1884) |
 
-Nothing runs on push since mantahostels#910 — four scheduled sweeps a day (mantahostels#3490) — so a CI-only verdict lags a commit by up to ~12 hours. The cron asks for a 6h gap; GitHub delivers the slots late, and the gap is not this repo's to set (mantahostels#2204).
+Every push to `landing` runs the full suite, and the lander reads that run as its tester (#2413), so a pushed head's CI verdict lags it by one run: 2.6 min median, 3.8 min at p90 and 8.2 min at worst over 71 push runs, 27–28 Oct 2026, each timed on its first attempt (`gh api repos/lucmoseley/workflow-core/actions/runs/<id>/attempts/1`). A re-run red stretches that to up to 30 min. Four scheduled sweeps a day (mantahostels#3490) re-test the still tree. The cron asks for a 6h gap; GitHub delivers the slots late, and the gap is not this repo's to set (mantahostels#2204).
 
 ### Biome's effective set is wider than `biome.json`
 

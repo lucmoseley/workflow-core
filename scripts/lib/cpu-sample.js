@@ -380,6 +380,7 @@ function holdForLoad({
 
 module.exports = {
 	sample,
+	readLoad1,
 	delta,
 	FIELDS,
 	overloadReading,
