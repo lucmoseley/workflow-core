@@ -23,7 +23,9 @@ const { cutAt } = require("./cut-at.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
-const { execGit, gitOrNull } = require("./git.js");
+const { execGit, gitOrNull, gitReader } = require("./git.js");
+const { readCommit } = require("./commit-sha.js");
+const { brokenError } = require("./outcome-error.js");
 const { siblingTests } = require("./test-kind.js");
 
 /** One inline-code span, capturing its text. */
@@ -1208,29 +1210,32 @@ const IN_FLIGHT_REFS = [
 ];
 
 /**
- * Every rev whose copy of the map counts as "already committed" right now:
- * `HEAD`, plus any in-flight second parent that resolves. An octopus merge
- * writes several shas into MERGE_HEAD, so each ref is read line by line.
- *
- * Never throws — a git that cannot answer contributes no rev, leaving the
- * caller with HEAD alone, which is the pre-merge behaviour.
+ * `HEAD`, plus the sha of each of `refs` that resolves. An absent ref is the
+ * ordinary case, nothing mid-flight; a git that will not answer is BROKEN,
+ * never a quiet HEAD alone (#3184).
+ * @param {readonly string[]} refs
  * @returns {string[]}
  */
-function readCommittedRevs() {
+function readHeadAnd(refs) {
 	const revs = ["HEAD"];
-	for (const ref of IN_FLIGHT_REFS) {
-		try {
-			const out = execGit(["rev-parse", "--verify", "--quiet", ref], {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			}).trim();
-			for (const sha of out.split("\n").filter(Boolean)) revs.push(sha);
-		} catch {
-			// The ref is absent, which is the ordinary case: nothing is mid-flight.
-		}
+	const read = gitReader(process.cwd());
+	for (const ref of refs) {
+		const r = readCommit(read, ref);
+		if (!r.ok)
+			throw brokenError(
+				`git would not resolve ${ref}: ${r.why} — run \`git rev-parse --verify ${ref}\` to see git's own error`,
+			);
+		if (r.sha !== null) revs.push(r.sha);
 	}
 	return revs;
 }
+
+/**
+ * Every rev whose copy of the map counts as "already committed" right now:
+ * `HEAD`, plus any in-flight second parent that resolves.
+ * @returns {string[]}
+ */
+const readCommittedRevs = () => readHeadAnd(IN_FLIGHT_REFS);
 
 /**
  * The §B ids ALREADY COMMITTED — HEAD's, widened by whatever is mid-flight
@@ -1241,7 +1246,7 @@ function readCommittedRevs() {
  * set was written by an earlier commit, so nothing this commit does to it is
  * that commit's to answer for. Returns null where HEAD holds no copy to
  * compare against — see `readHeadMapText`, whose "cannot tell which are new" is
- * not "none are".
+ * not "none are". A git that will not answer is BROKEN.
  * @param {string} mapPath
  * @returns {Set<string> | null}
  */
@@ -1446,19 +1451,7 @@ function admissionRowFault(row, named) {
  * baseline and mask real growth.
  * @returns {string[]}
  */
-function readParentRevs() {
-	const revs = ["HEAD"];
-	try {
-		const out = execGit(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-		for (const sha of out.split("\n").filter(Boolean)) revs.push(sha);
-	} catch {
-		// No merge in flight.
-	}
-	return revs;
-}
+const readParentRevs = () => readHeadAnd(["MERGE_HEAD"]);
 
 /**
  * Over-cap §B entries carrying an `Over cap by ruling (#n)` marker whose prose

@@ -4429,6 +4429,36 @@ describe("the pool-tranche trigger verdict", () => {
 		expect(r.out).not.toContain("trigger verdict was not checked");
 	});
 
+	it("is BROKEN where git will not probe an in-flight ref, never a HEAD-alone baseline (#3184)", () => {
+		base(ledger(bullet(8)));
+		writeMap(baselineRows, ledger(bullet(8)));
+		const faulty = writeFaultyGit(
+			{ argPrefix: "MERGE_HEAD^{commit}" },
+			{ exit: 128 },
+			{ under: repo },
+		);
+		const r = check({ WFC_GIT: faulty.git });
+		expect(faulty.hits()).toBeGreaterThan(0);
+		expect(r.status).toBe(2);
+		expect(r.out).toContain("git would not resolve MERGE_HEAD");
+		expect(r.out).toContain("git rev-parse --verify MERGE_HEAD");
+	});
+
+	it("passes an absent in-flight ref silently", () => {
+		base(ledger(bullet(8)));
+		writeMap(baselineRows, ledger(bullet(9), bullet(8)));
+		const faulty = writeFaultyGit(
+			{ argPrefix: "MERGE_HEAD^{commit}" },
+			{ exit: 1 },
+			{ under: repo },
+		);
+		const r = check({ WFC_GIT: faulty.git });
+		expect(faulty.hits()).toBeGreaterThan(0);
+		expect(r.status).toBe(0);
+		expect(r.out).not.toContain("MERGE_HEAD");
+		expect(r.out).not.toContain("trigger verdict was not checked");
+	});
+
 	/*
 	 * Asserted on the library rather than through the CLI: the whole checker
 	 * BROKENs on a corrupt index long before it reaches this assertion, so the
