@@ -18,7 +18,8 @@
  * counts the served issues it holds out, never its own repo's. It inherits
  * the `bug`, `urgent` and goal tiers of what it holds there, and the longest
  * chain depth (#3222). A pulled-in issue whose repo has no checkout here is
- * returned under `held`, never launched.
+ * returned under `held`, never launched, as is one its own shortlist does
+ * not return (claimed or gated).
  *
  * Caller: scripts/refill-loop.js's tick.
  */
@@ -166,6 +167,36 @@ const withPulled = (row, p) => ({
 	reach: row.reach + p.reach,
 });
 
+/** @typedef {{ref: string, why: string, holds: string[]}} Held */
+
+/**
+ * @param {PulledRow} p
+ * @param {string} why
+ * @returns {Held}
+ */
+const heldPull = (p, why) => ({
+	ref: `${p.repo}#${p.number}`,
+	why,
+	holds: p.holds,
+});
+
+/**
+ * The pulled-in issues their own repo's shortlist did not return (claimed or
+ * gated), held so a dropped blocker stays visible (#3285).
+ * Residual: the reason names the shortlist, not which hold applied.
+ * @param {{root: string, result: Shortlist}[]} served
+ * @param {Map<string, Map<number, PulledRow>>} pulledByRoot
+ * @returns {Held[]}
+ */
+function unreturnedPulls(served, pulledByRoot) {
+	return served.flatMap(({ root, result }) => {
+		const returned = new Set(result.rows.map((r) => r.number));
+		return [...(pulledByRoot.get(root)?.values() ?? [])]
+			.filter((p) => !returned.has(p.number))
+			.map((p) => heldPull(p, `not on ${p.repo}'s shortlist`));
+	});
+}
+
 /**
  * @param {string[]} roots
  * @param {Record<string, number[]>} goals keyed by root
@@ -192,15 +223,7 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 	const pulled = pulledAcross(served.map((s) => s.result));
 	const held = [
 		...pulled.flatMap((p) =>
-			p.root
-				? []
-				: [
-						{
-							ref: `${p.repo}#${p.number}`,
-							why: p.held ?? "no checkout",
-							holds: p.holds,
-						},
-					],
+			p.root ? [] : [heldPull(p, p.held ?? "no checkout")],
 		),
 		...served.flatMap((s) =>
 			s.result.pulledInUnread.map((u) => ({
@@ -234,6 +257,7 @@ async function refillFrontier(roots, goals, shortlist = shortlistOf) {
 					retroBundles: [],
 				},
 			});
+	held.push(...unreturnedPulls(served, pulledByRoot));
 
 	/** @type {RepoFrontier[]} */
 	const merged = served.map(({ root, result }) => ({

@@ -3,7 +3,8 @@
  * Pins how the refill loop's frontier takes in issues from repos it does not
  * serve (#2427): a foreign blocker pulled in by a served shortlist is read
  * from its own checkout's shortlist and launched, ranked on the served
- * issues it holds out; one with no checkout is held.
+ * issues it holds out; one with no checkout, or that its own shortlist does
+ * not return, is held.
  * Driven through a fake shortlist, so no pick-next runs. Loosen a case and
  * the loop launches another repo's whole frontier, launches where no
  * checkout is, or leaves a served ticket held by a blocker nobody works.
@@ -183,13 +184,30 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 		});
 	});
 
-	it("is not launched where its own shortlist holds it out", async () => {
+	it("is held, not launched, where its own shortlist leaves it out (#3285)", async () => {
 		const s = shortlists({
 			[served]: { rows: [], retroBundles: [], pulledIn: [pulled(20)] },
 			[other]: { rows: [], retroBundles: [], pulledIn: [], pulledInUnread: [] },
 		});
 		const m = await refillFrontier([served], {}, s.fn);
 		expect(m.frontier).toEqual([]);
+		expect(m.held).toEqual([
+			{
+				ref: "o/other#20",
+				why: "not on o/other's shortlist",
+				holds: ["o/served#1"],
+			},
+		]);
+	});
+
+	it("is held where its served repo's shortlist leaves it out (#3285)", async () => {
+		const s = shortlists({
+			[served]: { rows: [], retroBundles: [], pulledIn: [pulled(20)] },
+			[other]: { rows: [row(21)], retroBundles: [], pulledIn: [] },
+		});
+		const m = await refillFrontier([served, other], {}, s.fn);
+		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([21]);
+		expect(m.held.map((h: { ref: string }) => h.ref)).toEqual(["o/other#20"]);
 	});
 
 	it("adds its reach to the row where its repo is served already", async () => {
@@ -205,6 +223,7 @@ describe("a foreign blocker the served shortlist pulls in", () => {
 		const m = await refillFrontier([served, other], {}, s.fn);
 		expect(s.asked).toEqual([served, other]);
 		expect(m.frontier.map((r: { reach: number }) => r.reach)).toEqual([2]);
+		expect(m.held).toEqual([]);
 	});
 
 	it("sums its reach across the served repos that pull it in", async () => {
@@ -261,6 +280,7 @@ describe("a pulled-in repo whose shortlist fails", () => {
 		});
 		const m = await refillFrontier([served], {}, s.fn);
 		expect(m.failed).toEqual([{ root: other, error: "exit 1" }]);
+		expect(m.held).toEqual([]);
 		expect(m.frontier.map((r: { number: number }) => r.number)).toEqual([2]);
 	});
 });
