@@ -1,5 +1,5 @@
 /*
- * vitest-wrapper.js — guard-vitest-wrapper.js's core (#2800): a vitest run
+ * vitest-wrapper.js — the guard-vitest-wrapper core (#2800, #3227): a vitest run
  * that skips scripts/run-vitest.js has no stall watchdog (mantahostels#2002,
  * the follow-on to mantahostels#1910's).
  *
@@ -48,6 +48,16 @@
  * node_modules/vitest/vitest.mjs`, a shell function, a script that invokes
  * vitest for you, anything behind `sh -c`, and any launcher but `npx` —
  * `pnpm vitest`, `yarn vitest` and `npm exec vitest` all pass unseen.
+ *
+ * FAILS OPEN on everything — a throw, an unwritable latch — recorded on the
+ * guard-error log (mantahostels#103 §6, mantahostels#147). A rule the store
+ * cannot give is sent as a fallback sentence naming the file, logged, never
+ * refused.
+ *
+ * ITS ROW'S `Bash(*vitest *)` AND `Bash(*npx *)` CLAUSES (mantahostels#2811)
+ * admit no vitest invocation carrying no argument at all — `vitest`,
+ * `node_modules/.bin/vitest` — so one never reaches the core, though it would
+ * warn on it.
  */
 
 const { ruleOrFallback } = require("./guard-verdict.js");
@@ -110,7 +120,7 @@ const isVitestWord = (word) =>
  * bench run to use a wrapper that cannot serve it.
  *
  * `--watch=false` reads as a watcher and is wrong only in staying silent — the
- * same direction guard-suite-concurrency.js chose.
+ * same direction the guard-suite-concurrency core chose.
  * @param {string[]} args
  */
 const isUnservable = (args) =>
@@ -207,4 +217,4 @@ function decide(command, ctx) {
 	};
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

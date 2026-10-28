@@ -1,17 +1,17 @@
 // @vitest-environment node
 /*
- * guard-registry-atomicity.js refuses a commit landing a registry member
- * without its wiring (mantahostels#2671). These are its boundary cases: the
- * line hooks/hooks.json registers, run by bash as the harness runs it, on a
- * harness-shaped payload against a fixture repo — the wiring, the exit and
- * its stream, the fail-open record on disk, and git crossed for real and at
- * WFC_GIT.
+ * The guard-registry-atomicity core of guard-dispatch.js refuses a commit
+ * landing a registry member without its wiring (mantahostels#2671). These are
+ * its boundary cases, the dispatcher entry run on it alone, on a
+ * harness-shaped payload against a fixture repo: the wiring, the exit and its
+ * stream, the fail-open record on disk, and git crossed for real and at
+ * WFC_GIT. The entry's payload faults and the throw policy are
+ * guard-dispatch's own tests' (#3226).
  *
- * CLAUDE_PLUGIN_ROOT is this checkout, so the line finds the real entry;
  * CLAUDE_PROJECT_DIR is the fixture repo, so its fail-open log lands in the
  * temp CLAUDE_CONFIG_DIR and never the founder's.
  *
- * Break the line and a member lands without its wiring, reddening the
+ * Break the core and a member lands without its wiring, reddening the
  * whole-repo registry tests for every session; make it deny on a fault and
  * every commit is wedged.
  */
@@ -24,14 +24,11 @@ import { readFailOpenRecords } from "./guard-log-fixture";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import {
-	expectShellHooks,
-	hookLineOutput,
-	readHookLines,
+	buildBashPayload,
+	dispatchCoreOutput,
 } from "./lib/pretool-guard-testkit";
 
-const SCRIPT = "scripts/guard-registry-atomicity.js";
-const LINES = readHookLines("hooks/hooks.json", SCRIPT);
-const SELF_LINES = readHookLines("self-plugin/hooks/hooks.json", SCRIPT);
+const CORE = "guard-registry-atomicity";
 
 function git(cwd: string, ...args: string[]): string {
 	return execFileSync("git", args, { cwd, encoding: "utf8" });
@@ -85,30 +82,16 @@ function addUnwiredChecker(): void {
 	git(repo, "add", "-N", "--", "scripts/check-new.js");
 }
 
-/** The hook's hookSpecificOutput for `command`, run in the fixture repo. */
-const emission = (
-	command: string,
-	run: { stdin?: string; env?: NodeJS.ProcessEnv } = {},
-) =>
-	hookLineOutput(LINES[0] ?? "", command, {
+/** The core's hookSpecificOutput for `command`, run in the fixture repo. */
+const emission = (command: string, run: { env?: NodeJS.ProcessEnv } = {}) =>
+	dispatchCoreOutput(CORE, buildBashPayload(command, "s1"), {
 		project: repo,
 		config,
 		cwd: repo,
 		...run,
 	});
 
-describe("the registered hook line", () => {
-	it("is one line on both `if` narrowings, in the plugin and the self-plugin alike", () => {
-		expect(LINES).toHaveLength(2);
-		expect(new Set(LINES).size).toBe(1);
-		expect(SELF_LINES).toHaveLength(2);
-		expect(new Set(SELF_LINES).size).toBe(1);
-	});
-
-	it("is shell form, carrying no `args` key, so the harness runs it through a shell (mantahostels#2059)", () => {
-		expectShellHooks(SCRIPT, () => ({ onFailure: "block" }), 2);
-	});
-
+describe("the registry-atomicity core", () => {
 	it("refuses a commit landing an unwired checker as permissionDecision JSON on exit 0, recording no fault", () => {
 		addUnwiredChecker();
 		const out = emission('git commit -m "x" -- scripts/check-new.js');
@@ -143,22 +126,6 @@ describe("the registered hook line", () => {
 		expect(readFailOpenRecords(config, repo)).toEqual([]);
 	});
 
-	it("allows a payload carrying no command, and records that it did", () => {
-		addUnwiredChecker();
-		expect(
-			emission("", {
-				stdin: JSON.stringify({ session_id: "s1", tool_name: "Bash" }),
-			}),
-		).toBeNull();
-		expect(readFailOpenRecords(config, repo)).toEqual([
-			[
-				expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
-				"guard-registry-atomicity.js",
-				expect.stringContaining("no command in payload"),
-			],
-		]);
-	});
-
 	it("reads git at WFC_GIT, and allows a commit whose staged list it cannot read, recording that it did", () => {
 		addUnwiredChecker();
 		git(repo, "add", "--", "scripts/check-new.js");
@@ -175,14 +142,5 @@ describe("the registered hook line", () => {
 		expect(readFailOpenRecords(config, repo).map((f) => f[2])).toEqual([
 			`git could not read the staged path list in ${repo} — that commit was allowed unchecked`,
 		]);
-	});
-
-	it("fails open, exit 0 and silent, where node is not on PATH", () => {
-		addUnwiredChecker();
-		expect(
-			emission('git commit -m "x" -- scripts/check-new.js', {
-				env: { PATH: "/nonexistent" },
-			}),
-		).toBeNull();
 	});
 });

@@ -96,9 +96,11 @@ const NETWORK =
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
- *   | {kind: "revert", culprit: string, parent: string|null, files: string[]}
+ *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
+ *       jobs: string[]}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
- *       revert: string, files: string[], stale: RegistryRow[]|null}
+ *       revert: string, files: string[], jobs: string[],
+ *       stale: RegistryRow[]|null}
  *   | {kind: "hold", reason: string}
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
@@ -108,6 +110,8 @@ const NETWORK =
  * @property {string|null} base `main` when the batch was tested
  * @property {string[]} files the failing files, every rerun's target; empty
  *   where the tester named none, which reruns the whole suite
+ * @property {string[]} jobs the failing CI jobs, which name the red where
+ *   `files` is empty; never a rerun's target
  * @property {Verdict|null} flake the one rerun at the tip
  * @property {Verdict|null} onMain the base check: the tip's red files run at
  *   `base`, where those that fail are a known breakage the bisect leaves out
@@ -153,6 +157,45 @@ const short = (sha) => sha.slice(0, 9);
 /** @param {string[]} files */
 const filesLabel = (files) =>
 	files.length > 0 ? files.join(", ") : "the whole suite";
+
+/**
+ * @typedef {{files: string[], jobs?: string[]}} Failing what a red failed;
+ *   `jobs` absent on a verdict read off no CI run
+ */
+
+/**
+ * The names that say what a red failed: its files, else its failing CI jobs
+ * (#3253), else none, the whole suite.
+ * @param {Failing} f
+ * @returns {{of: "files" | "jobs", names: string[]} | null}
+ */
+function failingNames({ files, jobs = [] }) {
+	if (files.length > 0) return { of: "files", names: files };
+	if (jobs.length > 0) return { of: "jobs", names: jobs };
+	return null;
+}
+
+/** @param {Failing} f */
+function failingLabel(f) {
+	const named = failingNames(f);
+	if (named?.of !== "jobs") return filesLabel(f.files);
+	return `the CI jobs ${named.names.map((j) => `'${j}'`).join(", ")}`;
+}
+
+/**
+ * `failingLabel` as an issue body's list.
+ * @param {Failing} f
+ */
+function failingList(f) {
+	const named = failingNames(f);
+	if (named === null)
+		return "- the whole suite (the tester named no failing file)";
+	if (named.of === "files")
+		return named.names.map((n) => `- \`${n}\``).join("\n");
+	return named.names
+		.map((n) => `- CI job \`${n}\` (the tester named no failing file)`)
+		.join("\n");
+}
 
 /**
  * The culprit the bisect has narrowed to, or the next commit to test: the
@@ -310,7 +353,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	if (again.kind === "green")
 		return {
 			kind: "hold",
-			reason: `culprit unconfirmed: ${short(culprit)} passed ${filesLabel(files)} on its second run`,
+			reason: `culprit unconfirmed: ${short(culprit)} passed ${failingLabel({ files, jobs: culpritJobs(r, culprit) })} on its second run`,
 		};
 	if (parent === null) return null;
 	const named = parent === main ? namedOr(again, r.files) : [];
@@ -329,7 +372,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 			reason: parentUnconfirmed(
 				culprit,
 				parent,
-				`fails the whole suite: ${filesLabel(before.files)}`,
+				`fails the whole suite: ${failingLabel(before)}`,
 			),
 		};
 	if (before && before.kind !== "unknown") return null;
@@ -357,7 +400,7 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 			reason: parentUnconfirmed(
 				culprit,
 				parent,
-				`fails ${filesLabel(onFiles.files)}`,
+				`fails ${failingLabel(onFiles)}`,
 			),
 		};
 	return null;
@@ -386,6 +429,18 @@ function mainConfirmAction(r, main, files, known) {
 }
 
 /**
+ * The CI jobs the culprit's own red failed, which differ from the tip's where
+ * `files` is empty and every rerun is the whole suite.
+ * @param {Red} r
+ * @param {string} culprit
+ */
+function culpritJobs(r, culprit) {
+	for (const v of [r.confirm[culprit], r.bisect[culprit]])
+		if (v?.kind === "red") return v.jobs ?? [];
+	return r.jobs;
+}
+
+/**
  * @param {string} culprit
  * @param {string} parent
  * @param {string} why
@@ -404,9 +459,10 @@ const parentUnconfirmed = (culprit, parent, why) =>
  */
 function culpritAction(r, { culprit, parent }, main) {
 	const { files } = r;
+	const jobs = culpritJobs(r, culprit);
 	if (parent !== null && parent !== main && r.confirm[parent]?.kind === "green")
 		return { kind: "fast-forward", sha: parent };
-	if (!r.revert) return { kind: "revert", culprit, parent, files };
+	if (!r.revert) return { kind: "revert", culprit, parent, files, jobs };
 	if ("failed" in r.revert)
 		return {
 			kind: "hold",
@@ -423,6 +479,7 @@ function culpritAction(r, { culprit, parent }, main) {
 		parent,
 		revert: r.revert.sha,
 		files,
+		jobs,
 		stale: r.revert.stale ?? null,
 	};
 }
@@ -444,13 +501,14 @@ function recordRerun(r, action, verdict) {
 /**
  * @param {string} sha
  * @param {string|null} base
- * @param {string[]} files
+ * @param {Extract<Verdict, {kind: "red"}>} verdict
  * @returns {Red}
  */
-const redBatch = (sha, base, files) => ({
+const redBatch = (sha, base, { files, jobs = [] }) => ({
 	sha,
 	base,
 	files,
+	jobs,
 	flake: null,
 	onMain: null,
 	range: null,
@@ -475,6 +533,8 @@ function resumable(r) {
 		);
 	return {
 		...r,
+		/* A heartbeat beaten before #3253 carried no jobs. */
+		jobs: r.jobs ?? [],
 		flake: r.flake?.kind === "unknown" ? null : r.flake,
 		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
@@ -545,8 +605,9 @@ function nextAction(s) {
  *   Tester the whole suite at `sha`, or only `files` where they are given;
  *   `files` absent is a batch's own test, present (empty too) a rerun
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
- * @typedef {{batch: string|null, reason: string, files: string[]}} Held a
- *   hold, with the batch and failing files of the red batch it held on
+ * @typedef {{batch: string|null, reason: string, files: string[],
+ *   jobs: string[]}} Held a hold, with the batch, failing files and failing
+ *   CI jobs of the red batch it held on
  * @typedef {{landing: string|null, reason: string, filed: string}} HoldNote
  *   the hold a run ended on: its tip as `heldTip` pins it, and what the
  *   held-queue filing printed
@@ -623,7 +684,7 @@ async function act(deps, action, { tested, red }, main) {
 	if (action.kind === "test") {
 		const verdict = await verdictAt(deps, action.sha);
 		return verdict.kind === "red"
-			? { tested, red: redBatch(action.sha, main, verdict.files) }
+			? { tested, red: redBatch(action.sha, main, verdict) }
 			: { tested: { sha: action.sha, verdict }, red };
 	}
 	if (red === null) throw new Error(`${action.kind} with no red batch`);
@@ -662,7 +723,7 @@ async function advanceRed(deps, action, r) {
 				git.revertOnLanding(
 					action.culprit,
 					action.parent,
-					`The lander found it red on ${filesLabel(action.files)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
+					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
 				),
 			),
 		};
@@ -860,7 +921,12 @@ function holdQueue({ tracker, beat, say = () => undefined }, hold, red) {
 	const batch = red.sha;
 	let filed;
 	try {
-		filed = tracker.holdQueue({ batch, reason: hold.reason, files: red.files });
+		filed = tracker.holdQueue({
+			batch,
+			reason: hold.reason,
+			files: red.files,
+			jobs: red.jobs,
+		});
 	} catch (err) {
 		/* The hold stands unfiled, named in the beat the stall check prints
 		 * (#2406). */
@@ -1342,6 +1408,7 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	HEARTBEAT_MS,
 	buildRevertLine,
+	failingList,
 	short,
 	buildActionLine,
 	runLander,

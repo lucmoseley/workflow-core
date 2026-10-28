@@ -3,8 +3,8 @@
  * landing queue (#2406, spec #2261), filed as lib/queue-issue.js files it.
  */
 
-const { short } = require("./lander.js");
-const { failingList, queueIssueFiler } = require("./queue-issue.js");
+const { failingList, short } = require("./lander.js");
+const { queueIssueFiler } = require("./queue-issue.js");
 
 const TITLE = "Landing queue held: the lander cannot clear a batch";
 
@@ -12,7 +12,7 @@ const TITLE = "Landing queue held: the lander cannot clear a batch";
  * @param {import("./lander.js").Held} h
  * @returns {string}
  */
-function buildHeldQueueBody({ batch, reason, files }) {
+function buildHeldQueueBody({ batch, reason, files, jobs }) {
 	return `## What to build
 
 The lander (#2261) holds the landing queue: nothing on \`landing\` reaches \`main\` until this clears.
@@ -21,7 +21,7 @@ The lander (#2261) holds the landing queue: nothing on \`landing\` reaches \`mai
 - Reason: ${reason.replaceAll("`", "'")}
 
 Failing:
-${failingList(files)}
+${failingList({ files, jobs })}
 
 ## Acceptance criteria
 

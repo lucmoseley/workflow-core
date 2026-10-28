@@ -1,6 +1,6 @@
 /**
  * scripts/lib/needle-corpus.js — the corpus count-guard-fires.test.ts's "every needle is text this repo still
- * prints" assertion reads, and the drift judgement guard-registry-atomicity.js
+ * prints" assertion reads, and the drift judgement the guard-registry-atomicity core
  * makes against it at commit time (mantahostels#2708).
  *
  * Don't re-derive the walk, or which literals a needle claims, when a guard
@@ -50,7 +50,7 @@ const REGISTRY_REL = path.join("scripts", "guard-fire-needles.json");
  * a guard's wording carries its own copy of that wording, so a needle keyed on
  * the TEST satisfies containment while measuring nothing about the guard —
  * reword the guard and the check stays green (mantahostels#3288,
- * found on `guard-npm-install.js`'s `no-ignore-scripts`).
+ * found on the `guard-npm-install` core's `no-ignore-scripts`).
  *
  * How to key a needle whose printer spells the literal escaped:
  * `docs/agents/guard-authoring.md` surface 7.

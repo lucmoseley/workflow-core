@@ -762,6 +762,12 @@ describe("the manifest", () => {
 			["guard-branch-publish", "Bash", "closed", "function"],
 			["guard-branch", "Bash", "closed", "function"],
 			["guard-commit-form", "Bash", "closed", "function"],
+			["guard-registry-atomicity", "Bash", "open", "function"],
+			["guard-pull-form", "Bash", "closed", "function"],
+			["guard-push-rules", "Bash", "open", "function"],
+			["guard-node-heap", "Bash", "open", "function"],
+			["guard-rm-unchecked", "Bash", "open", "function"],
+			["guard-npm-install", "Bash", "closed", "function"],
 			["guard-anthropic-report", "Bash", "closed", "function"],
 			["guard-cpu-load", "Bash", "closed", "function"],
 			["guard-check-sh", "Bash", "open", "function"],
@@ -771,8 +777,13 @@ describe("the manifest", () => {
 			["guard-issue-phase-scope", "Bash", "closed", "function"],
 			["guard-headroom-read", "Bash", "open", "function"],
 			["guard-hook-escape", "Bash", "closed", "function"],
+			["guard-suite-concurrency", "Bash", "open", "function"],
+			["guard-unasked-rerun", "Bash", "closed", "function"],
+			["guard-vitest-wrapper", "Bash", "open", "function"],
+			["guard-root-find", "Bash", "closed", "function"],
+			["guard-ugrep-pattern", "Bash", "open", "function"],
 			["guard-recursive-dot-read", "Bash", "open", "function"],
-			["guard-wide-read", "Read", "open", "function"],
+			["guard-wide-read", "Bash|Read", "open", "function"],
 			["guard-agent-poll", "Bash|Read|ListAgents", "closed", "function"],
 			["guard-echo-call", "Bash|Read", "closed", "function"],
 			["guard-dispatch-rewrite", "Agent|Task", "closed", "function"],
@@ -781,7 +792,7 @@ describe("the manifest", () => {
 		expect(loadCores("Stop")).toEqual([]);
 	});
 
-	it("narrows each row by the `if` clauses its old registrations carried (#3224)", () => {
+	it("narrows each row by the `if` clauses its old registrations carried (#3224, #3226)", () => {
 		const { dispatchRows } = require("./guard-cores.js") as {
 			dispatchRows: (event: string) => Core[];
 		};
@@ -794,6 +805,15 @@ describe("the manifest", () => {
 		).toEqual({
 			"guard-branch": ["Bash(git *)"],
 			"guard-commit-form": ["Bash(git *)", "Bash(*commit-paths.js*)"],
+			"guard-registry-atomicity": ["Bash(git *)", "Bash(*commit-paths.js*)"],
+			"guard-pull-form": ["Bash(git *)"],
+			"guard-push-rules": ["Bash(git *)"],
+			"guard-node-heap": [
+				"Bash(*max-old-space-size*)",
+				"Bash(*max_old_space_size*)",
+			],
+			"guard-rm-unchecked": ["Bash(*rm *)"],
+			"guard-npm-install": ["Bash(*npm *)", "Bash(*npx *)"],
 			"guard-anthropic-report": ["Bash(*gh *)"],
 			"guard-cpu-load": [
 				"Bash(*yes*)",
@@ -809,6 +829,26 @@ describe("the manifest", () => {
 			"guard-issue-phase-scope": ["Bash(*gh *)"],
 			"guard-headroom-read": ["Bash(*free *)", "Bash(*/proc/meminfo*)"],
 			"guard-hook-escape": ["Bash(*WFC_ALLOW_*)"],
+			"guard-suite-concurrency": [
+				"Bash(*npm *)",
+				"Bash(*node *)",
+				"Bash(*next *)",
+				"Bash(*python*)",
+				"Bash(*pytest*)",
+				"Bash(*npx *)",
+				"Bash(*yarn *)",
+				"Bash(*pnpm *)",
+				"Bash(*bun *)",
+				"Bash(*make *)",
+				"Bash(*cargo *)",
+				"Bash(*go test*)",
+				"Bash(*tsc*)",
+			],
+			"guard-unasked-rerun": ["Bash(*npm *)"],
+			"guard-vitest-wrapper": ["Bash(*vitest *)", "Bash(*npx *)"],
+			"guard-root-find": ["Bash(*find *)"],
+			"guard-ugrep-pattern": ["Bash(grep *)"],
+			"guard-wide-read": ["Bash(*cat *)", "Bash(*sed *)", "Bash(*awk *)"],
 			"guard-agent-poll": [
 				"Bash(*sleep *)",
 				"Bash(true*)",

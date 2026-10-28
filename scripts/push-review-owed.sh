@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # push-review-owed.sh — whether the code a push carries owes a review no valid
-# marker covers (#1163): guard-push-rules.js's review adapter (#2785).
+# marker covers (#1163): the guard-push-rules core's review adapter (#2785).
 #
 #   push-review-owed.sh <session id> [<tree>]
 #

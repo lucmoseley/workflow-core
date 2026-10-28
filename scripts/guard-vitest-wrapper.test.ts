@@ -1,10 +1,12 @@
 // @vitest-environment node
 /*
- * guard-vitest-wrapper.js's boundary set (#2800): each exit path, each input
- * channel and each production adapter crossed once for real. Which commands
+ * The guard-vitest-wrapper core of guard-dispatch.js, its boundary set
+ * (#2800): each exit path, each input channel and each production adapter
+ * crossed once for real, the dispatcher entry run on it alone. Which commands
  * it warns on and what the warning says are lib/vitest-wrapper.test.ts's
- * module cases on the core. The last case reads the context-budget census
- * against the real repo (#2905).
+ * module cases on the core; the entry's payload faults and the throw policy
+ * are guard-dispatch's own tests' (#3227). The last case reads the
+ * context-budget census against the real repo (#2905).
  *
  * The entry runs in process (lib/run-in-process.js) on a hook payload, its
  * config and project directories under a temp dir, so its latch and
@@ -14,8 +16,7 @@
  * inherited root would drop a marker into the shared working tree AND latch
  * every case after the first onto the short form.
  *
- * It is a `PreToolUse` Bash hook in self-plugin/hooks/hooks.json: loosen a
- * case here and a bare vitest run parks on a hung call with no output and no
+ * It is a core of the PreToolUse dispatcher: loosen a case here and a bare vitest run parks on a hung call with no output and no
  * filename, unwarned.
  */
 
@@ -25,14 +26,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
-const GUARD = path.resolve(__dirname, "guard-vitest-wrapper.js");
+const CORE = "guard-vitest-wrapper";
 
 /** The rule fragment the first warning is meant to carry whole, once. */
 const FRAGMENT = fs
@@ -59,8 +58,10 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 /** The hook output for `payload`, parsed; null where it said nothing. */
-const output = (payload: unknown, env: NodeJS.ProcessEnv = {}) =>
-	nodeGuardOutput(GUARD, payload, { project: dir, config, cwd: dir, env });
+const output = (
+	payload: Record<string, unknown>,
+	env: NodeJS.ProcessEnv = {},
+) => dispatchCoreOutput(CORE, payload, { project: dir, config, cwd: dir, env });
 
 /** The warning's text; it must never deny. */
 const message = (
@@ -184,59 +185,13 @@ describe("each production adapter, crossed once", () => {
 	});
 });
 
-describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, { project: dir, config, cwd: dir, stdin });
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
-	});
-
-	it.each([
-		["a payload that is not JSON", "{not json", /payload did not parse/],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])("records %s, allowing", (_l, stdin, match) => {
-		const r = run(stdin);
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		const [line] = readFailOpenLog(config, dir).trim().split("\n");
-		expect(line?.split("\t")).toEqual([
-			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-			"guard-vitest-wrapper.js",
-			expect.stringMatching(match),
-		]);
-	});
-
-	it("allows, logged, where its core throws — an advisory guard fails open", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-vitest-wrapper.js",
-			"vitest-wrapper.js",
-		);
-		const r = runNodeGuard(entry, buildBashPayload("vitest run x", "test"), {
-			project: dir,
-			config,
-			cwd: dir,
-		});
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(readFailOpenLog(config, dir)).toMatch(
-			/guard threw — allowed unchecked: broke/,
-		);
-	});
-});
-
 /*
  * The census reads this guard's bound off its Node core — `ctx.ruleText`,
  * `ctx.told` and `latchAfter` (#2905) — and a spelling it stops seeing drops
  * the fragment out of the per-session budget unnoticed.
  */
 describe("the context-budget scan against this guard as it stands", () => {
-	it("reads its bound as bounded, from its Node entry", () => {
+	it("reads its bound as bounded, from its core", () => {
 		const root = path.resolve(__dirname, "..");
 		const r = runInProcess(
 			path.join(root, "scripts", "check-context-budget.js"),
@@ -250,7 +205,7 @@ describe("the context-budget scan against this guard as it stands", () => {
 			latched: string;
 		}[];
 		expect(fragments.find((f) => f.id === "vitest-wrapper")).toMatchObject({
-			guards: ["scripts/guard-vitest-wrapper.js"],
+			guards: ["scripts/lib/vitest-wrapper.js"],
 			latched: "bounded",
 		});
 	});

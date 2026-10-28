@@ -1,5 +1,5 @@
 /*
- * full-launch-plain.js — guard-suite-concurrency.js's port for the
+ * full-launch-plain.js — the guard-suite-concurrency core's port for the
  * plain-`--full` limb (#181). Apart from lib/suite-concurrency-host.js, which
  * the suite queue requires: this one requires run-vitest.js, which requires the
  * queue.

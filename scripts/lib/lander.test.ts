@@ -73,6 +73,7 @@ async function run(
 	}[] = [];
 	const said: string[] = [];
 	const reverted: { culprit: string; parent: string | null }[] = [];
+	const revertWhys: string[] = [];
 	const actions: unknown[] = [];
 	let refsRead = 0;
 	let released = 0;
@@ -99,8 +100,9 @@ async function run(
 					base === null ? 0 : history.indexOf(base) + 1,
 					history.indexOf(sha) + 1,
 				),
-			revertOnLanding: (culprit, parent) => {
+			revertOnLanding: (culprit, parent, why) => {
 				reverted.push({ culprit, parent });
+				revertWhys.push(why);
 				if (revertFails !== null) return { failed: revertFails };
 				const onto = remote.landing ?? A;
 				remote.landing = R;
@@ -178,6 +180,7 @@ async function run(
 		holds,
 		beats,
 		said,
+		revertWhys,
 		reverted,
 		actions,
 		released,
@@ -451,13 +454,14 @@ describe("runLander on a red batch", () => {
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "fast-forward", sha: B },
-			{ kind: "revert", culprit: C, parent: B, files: FILES },
+			{ kind: "revert", culprit: C, parent: B, files: FILES, jobs: [] },
 			{
 				kind: "file-fix-ticket",
 				culprit: C,
 				parent: B,
 				revert: R,
 				files: FILES,
+				jobs: [],
 				stale: STALE,
 			},
 			{ kind: "test", sha: R },
@@ -465,7 +469,14 @@ describe("runLander on a red batch", () => {
 			{ kind: "exit", reason: "landing equals main" },
 		]);
 		expect(r.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 		expect(r.reverted).toEqual([{ culprit: C, parent: B }]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([B, R]);
@@ -478,9 +489,17 @@ describe("runLander on a red batch", () => {
 			culprit: B,
 			parent: A,
 			files: FILES,
+			jobs: [],
 		});
 		expect(r.tickets).toEqual([
-			{ culprit: B, parent: A, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: B,
+				parent: A,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 		expect(r.pushes.map((p) => p.sha)).toEqual([R]);
 	});
@@ -511,7 +530,7 @@ describe("runLander on a red batch", () => {
 		const r = await redBatch(unconfirmedC);
 		const reason =
 			"culprit unconfirmed: ccccccccc passed x.test.ts on its second run";
-		expect(r.holds).toEqual([{ batch: D, reason, files: FILES }]);
+		expect(r.holds).toEqual([{ batch: D, reason, files: FILES, jobs: [] }]);
 		expect(r.said).toContain("Filed #2");
 		expect(r.beats.at(-1)).toEqual({
 			batch: D,
@@ -646,6 +665,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			sha: D,
 			base: A,
 			files: FILES,
+			jobs: [],
 			flake: { kind: "red", files: FILES },
 		});
 	});
@@ -663,7 +683,14 @@ describe("runLander across runs on a red batch (#2673)", () => {
 		]);
 		expect(second.tested).not.toContainEqual({ sha: D });
 		expect(second.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 	});
 
@@ -680,6 +707,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			sha: D,
 			base: A,
 			files: FILES,
+			jobs: [],
 			flake: { kind: "unknown", reason: "tester died" },
 			onMain: null,
 			range: null,
@@ -703,6 +731,62 @@ describe("runLander across runs on a red batch (#2673)", () => {
 		const r = await redBatch(unconfirmedC);
 		expect(r.end).toMatchObject({ kind: "hold" });
 		expect(r.beats.at(-1)?.red).toBeUndefined();
+	});
+});
+
+describe("runLander on a red only a CI job names (#3253)", () => {
+	const job = "Full suite / Lint and types";
+	/** Every whole-suite run at `red` shas fails `job` alone, naming no file. */
+	const jobRed = (red: (sha: string, nth: number) => boolean) =>
+		run(
+			{ main: A, landing: D },
+			(sha, _files, nth) =>
+				sha !== R && red(sha, nth)
+					? { kind: "red", files: [], jobs: [job] }
+					: { kind: "green" },
+			{ history: [B, C, D] },
+		);
+
+	it("names the job in the revert and the fix ticket, rerunning the whole suite and never the job", async () => {
+		const r = await jobRed((sha) => sha === C || sha === D);
+		expect(r.tickets).toEqual([
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: [],
+				jobs: [job],
+				stale: STALE,
+			},
+		]);
+		expect(r.revertWhys).toEqual([
+			`The lander found it red on the CI jobs '${job}', twice, with its parent bbbbbbbbb green.`,
+		]);
+		expect(r.tested.filter((t) => t.files)).toEqual(
+			[D, B, C, C, B].map((sha) => ({ sha, files: [] })),
+		);
+	});
+
+	it("names the culprit's own failing jobs, not the tip's", async () => {
+		const docsJob = "Full suite / Document guards";
+		const r = await run(
+			{ main: A, landing: D },
+			(sha) => {
+				if (sha === D) return { kind: "red", files: [], jobs: [job, docsJob] };
+				if (sha === C) return { kind: "red", files: [], jobs: [job] };
+				return { kind: "green" };
+			},
+			{ history: [B, C, D] },
+		);
+		expect(r.tickets.map((t) => t.jobs)).toEqual([[job]]);
+		expect(r.revertWhys[0]).not.toContain(docsJob);
+	});
+
+	it("names the job in the hold reason and the held-queue filing", async () => {
+		const r = await jobRed((sha, nth) => sha === D || (sha === C && nth === 1));
+		const reason = `culprit unconfirmed: ccccccccc passed the CI jobs '${job}' on its second run`;
+		expect(r.end).toEqual({ kind: "hold", reason });
+		expect(r.holds).toEqual([{ batch: D, reason, files: [], jobs: [job] }]);
 	});
 });
 
@@ -739,13 +823,14 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			{ kind: "rerun", sha: C, files: FILES, why: "confirm" },
 			{ kind: "rerun", sha: B, files: [], why: "parent" },
 			{ kind: "rerun", sha: B, files: FILES, why: "parent-files" },
-			{ kind: "revert", culprit: C, parent: B, files: FILES },
+			{ kind: "revert", culprit: C, parent: B, files: FILES, jobs: [] },
 			{
 				kind: "file-fix-ticket",
 				culprit: C,
 				parent: B,
 				revert: R,
 				files: FILES,
+				jobs: [],
 				stale: STALE,
 			},
 			{ kind: "test", sha: R },
@@ -786,13 +871,20 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			{ kind: "rerun", sha: B, files: elsewhere.files, why: "bisect" },
 			{ kind: "rerun", sha: B, files: elsewhere.files, why: "confirm" },
 			{ kind: "rerun", sha: A, files: elsewhere.files, why: "parent-main" },
-			{ kind: "revert", culprit: B, parent: A, files: elsewhere.files },
+			{
+				kind: "revert",
+				culprit: B,
+				parent: A,
+				files: elsewhere.files,
+				jobs: [],
+			},
 			{
 				kind: "file-fix-ticket",
 				culprit: B,
 				parent: A,
 				revert: R,
 				files: elsewhere.files,
+				jobs: [],
 				stale: STALE,
 			},
 			{ kind: "test", sha: R },
@@ -829,6 +921,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			sha: D,
 			base: A,
 			files: FILES,
+			jobs: [],
 			flake: { kind: "red", files: FILES },
 			onMain: { kind: "green" },
 			range: [B, C, D],
@@ -878,7 +971,14 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 		});
 		expect(second.tested).not.toContainEqual({ sha: B, files: [] });
 		expect(second.tickets).toEqual([
-			{ culprit: C, parent: B, revert: R, files: FILES, stale: STALE },
+			{
+				culprit: C,
+				parent: B,
+				revert: R,
+				files: FILES,
+				jobs: [],
+				stale: STALE,
+			},
 		]);
 	});
 });
@@ -1023,6 +1123,7 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 		sha: D,
 		base: A,
 		files: FILES,
+		jobs: [],
 		flake: { kind: "red", files: FILES },
 		onMain: { kind: "green" },
 		range: null,

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * scripts/lib/needle-corpus.js — the drift judgement
- * guard-registry-atomicity.js makes at commit time (mantahostels#2708).
+ * the guard-registry-atomicity core makes at commit time (mantahostels#2708).
  *
  * The corpus walk itself is covered where it is used —
  * count-guard-fires.test.ts asserts every real needle against the real tree.
@@ -11,7 +11,7 @@
  * Each case seeds a temp tree and hands in HEAD's bytes as a map, so no case
  * runs git or reads this repo's registry.
  *
- * guard-registry-atomicity.js, a `PreToolUse` hook on `git` commands, refuses
+ * the guard-registry-atomicity core, a `PreToolUse` hook on `git` commands, refuses
  * on this judgement, so a loosened case lets a reworded guard land with its
  * needle unmoved and red count-guard-fires.test.ts for every session, or
  * refuses a commit over drift it did not cause.

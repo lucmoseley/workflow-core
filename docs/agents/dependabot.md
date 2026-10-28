@@ -29,7 +29,7 @@ Commit `package.json` alongside `package-lock.json`.
 
 **Close the PR by deleting its head branch — `git push origin --delete dependabot/npm_and_yarn/<branch>`, the name read off `gh pr view <n> --json headRefName`.** GitHub closes a same-repo PR the moment its head ref is gone, and the PAT's `contents` write reaches that where its `pull_requests` write does not: `gh pr close` (`closePullRequest`), a PR comment (`addComment`) and the REST issues endpoint (`PATCH /repos/{o}/{r}/issues/{n}`) all answer `403 Resource not accessible by personal access token` (mantahostels#3351, mantahostels#3358).
 
-`--ignore-scripts` is not optional: `scripts/guard-npm-install.js` denies the install without it, because a package's `preinstall` and `postinstall` run as you before anything reads a byte of it (mantahostels#1767).
+`--ignore-scripts` is not optional: `scripts/guard-dispatch.js` (its `guard-npm-install` core) denies the install without it, because a package's `preinstall` and `postinstall` run as you before anything reads a byte of it (mantahostels#1767).
 
 **`npm install` can report `up to date` and leave the old version on disk** while `npm ls` reads the new one out of the lockfile. Check the installed copy directly — `grep -m1 '"version"' node_modules/<pkg>/package.json` — and where it disagrees, `rm -rf node_modules/<pkg>` and install again (mantahostels#3351).
 

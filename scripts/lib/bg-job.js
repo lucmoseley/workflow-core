@@ -9,7 +9,7 @@
  *    any other way sets no flag and is not seen: a `&` inside the command,
  *    `nohup`, a script that daemonises, and — deliberately — the harness
  *    backgrounding a foreground call itself after its 600 s timeout.
- *  - A `git push` carrying the flag also fires guard-push-rules.js, so one
+ *  - A `git push` carrying the flag also fires the guard-push-rules core, so one
  *    call can carry four ids, each capped per hook entry (mantahostels#2004,
  *    mantahostels#2046).
  */

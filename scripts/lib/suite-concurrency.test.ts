@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/suite-concurrency.js, guard-suite-concurrency.js's core (#2795), in
+ * lib/suite-concurrency.js, the guard-suite-concurrency core (#2795), in
  * process: which launches the suite gate refuses under the resting headroom
  * docs/environment.md §6 measures (#2305), sending them to the queue; which
  * second concurrent whole suite it refuses (#2680); which it only warns
@@ -192,7 +192,7 @@ function harness(over: Over = {}) {
 			return true;
 		},
 		now: () => NOW,
-		sessionId: "test",
+		session: "test",
 	});
 }
 

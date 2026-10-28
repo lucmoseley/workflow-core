@@ -258,37 +258,82 @@ describe("what it reports", () => {
 });
 
 describe("whether the loss was worth a turn", () => {
-	it("prices a guard that has never denied, and says so in the summary", () => {
-		guardFile("guard-pull-form.js", true);
-		transcript([
-			fileCall("git pull", "toolu_A"),
-			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-pull-form.js" }),
-		]);
+	/* Rows no live guard carries, so a fold that deletes a guard's entry
+	 * script leaves these cases standing (#3272). */
+	const priced = () => {
+		const rates = path.join(dir, "deny-rates.json");
+		fs.writeFileSync(
+			rates,
+			JSON.stringify({
+				"guard-never.js": {
+					denies: 0,
+					population: 21_952,
+					pct: 0,
+					lowPct: 0,
+					highPct: 0.02,
+				},
+				"guard-rare.js": {
+					denies: 9,
+					population: 38_601,
+					pct: 0.0233,
+					lowPct: 0.01,
+					highPct: 0.04,
+				},
+				"guard-often.js": {
+					denies: 736,
+					population: 71_159,
+					pct: 1.034,
+					lowPct: 0.96,
+					highPct: 1.11,
+				},
+			}),
+		);
+		return run({ env: { WFC_SCRIPT_ROOT: core, WFC_DENY_RATES: rates } });
+	};
 
-		const r = run();
+	/** One killed call of `guard`, on tool call `id`. */
+	const lost = (guard: string, id: string) => [
+		fileCall("git push", id),
+		killed({ toolUseID: id, command: `$CLAUDE_PROJECT_DIR/scripts/${guard}` }),
+	];
+
+	it("prices a guard that has never denied, and says so in the summary", () => {
+		guardFile("guard-never.js", true);
+		transcript(lost("guard-never.js", "toolu_A"));
+
+		const r = priced();
 
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain(
-			"guard-pull-form.js: denies 0% of calls (0 denials in 21,952 calls",
+			"guard-never.js: denies 0% of calls (0 denials in 21,952 calls",
 		);
 		expect(r.reason).toContain("under the 1% cut, so a replay rarely pays");
 		expect(r.reason).toContain("No guard here denies often enough");
 	});
 
-	it("prices the one guard that denies often enough to chase", () => {
-		guardFile("guard-suite-concurrency.js", true);
-		transcript([
-			fileCall("npm test", "toolu_A"),
-			killed({
-				command: "$CLAUDE_PROJECT_DIR/scripts/guard-suite-concurrency.js",
-			}),
-		]);
+	it("prices a guard that rarely denies", () => {
+		guardFile("guard-rare.js", true);
+		transcript(lost("guard-rare.js", "toolu_A"));
 
-		const r = run();
+		const r = priced();
 
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain(
-			"guard-suite-concurrency.js: denies 1.034% of calls (736 denials in 71,159 calls; 95% CI 0.96%-1.11%) — over the 1% cut, worth the replay",
+			"guard-rare.js: denies 0.0233% of calls (9 denials in 38,601 calls",
+		);
+		expect(r.reason).toContain("under the 1% cut, so a replay rarely pays");
+		expect(r.reason).toContain("No guard here denies often enough");
+	});
+
+	it("prices a guard that denies often enough to chase", () => {
+		guardFile("guard-often.js", true);
+		transcript(lost("guard-often.js", "toolu_A"));
+
+		const r = priced();
+
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain(
+			"guard-often.js: denies 1.034% of calls (736 denials in 71,159 calls; 95% CI 0.96%-1.11%) — over the 1% cut, worth the replay",
 		);
 		expect(r.reason).toContain("This one is worth the replay");
 	});
@@ -313,21 +358,14 @@ describe("whether the loss was worth a turn", () => {
 	});
 
 	it("counts only the tool calls worth chasing where the block mixes both", () => {
-		guardFile("guard-registry-atomicity.js", true);
-		guardFile("guard-suite-concurrency.js", true);
+		guardFile("guard-rare.js", true);
+		guardFile("guard-often.js", true);
 		transcript([
-			fileCall("git commit -m x", "toolu_A"),
-			killed({
-				command: "$CLAUDE_PROJECT_DIR/scripts/guard-registry-atomicity.js",
-			}),
-			fileCall("npm test", "toolu_B"),
-			killed({
-				toolUseID: "toolu_B",
-				command: "$CLAUDE_PROJECT_DIR/scripts/guard-suite-concurrency.js",
-			}),
+			...lost("guard-rare.js", "toolu_A"),
+			...lost("guard-often.js", "toolu_B"),
 		]);
 
-		const r = run();
+		const r = priced();
 
 		expect(r.blocked).toBe(true);
 		expect(r.reason).toContain("1 of 2 are worth the replay");
@@ -459,7 +497,6 @@ describe("the deny-capable set", () => {
 				.map((r) => r.guard)
 				.sort(),
 		);
-		expect(rows.some((r) => !r.denyCapable)).toBe(true);
 	});
 
 	it("counts the real dispatcher, whose file-claim core refuses through the arbiter — #1815", () => {

@@ -52,7 +52,7 @@ const buildHostPorts = (root) => ({
 			const { worktreeRoot } = require("./host-root.js");
 			/* The close's own checkout, whose HEAD may be a linked worktree's. */
 			const unlanded = readUnlandedCommits(
-				worktreeRoot(cwd ?? root),
+				worktreeRoot(cwd ?? root, { host: root }),
 				n,
 				comment,
 				{

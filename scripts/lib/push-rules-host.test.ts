@@ -11,13 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 
 const { buildHostPorts } = require("./push-rules-host.js") as {
-	buildHostPorts: (env: {
-		root: string;
-		payload: Record<string, unknown>;
-		log: (what: string, detail?: string) => void;
-	}) => {
-		sessionId: string;
-		markerSum: () => string;
+	buildHostPorts: (
+		root: string,
+		log: (what: string, detail?: string) => void,
+	) => {
+		markerSum: (session: string) => string;
 		pushOwesCertificate: () => boolean;
 		deploysVercel: () => boolean;
 		hasSweep: () => boolean;
@@ -42,12 +40,10 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-const ports = (payload: Record<string, unknown> = { session_id: "s1" }) =>
-	buildHostPorts({
-		root,
-		payload,
-		log: (what, detail) => logs.push(detail ? `${what}\t${detail}` : what),
-	});
+const ports = () =>
+	buildHostPorts(root, (what, detail) =>
+		logs.push(detail ? `${what}\t${detail}` : what),
+	);
 
 const write = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -156,19 +152,18 @@ describe("the session's review marker", () => {
 
 	it("is a checksum of its bytes, so a rewritten marker reads as new", () => {
 		write(marker, "base=x\n");
-		expect(ports().markerSum()).toBe(
+		expect(ports().markerSum("s1")).toBe(
 			crypto.createHash("sha256").update("base=x\n").digest("hex"),
 		);
 		write(marker, "base=y\n");
-		expect(ports().markerSum()).not.toBe(
+		expect(ports().markerSum("s1")).not.toBe(
 			crypto.createHash("sha256").update("base=x\n").digest("hex"),
 		);
 	});
 
 	it("reads as empty where there is none, or no session to own one", () => {
-		expect(ports().markerSum()).toBe("");
+		expect(ports().markerSum("s1")).toBe("");
 		write(marker, "base=x\n");
-		expect(ports({}).markerSum()).toBe("");
-		expect(ports({}).sessionId).toBe("");
+		expect(ports().markerSum("")).toBe("");
 	});
 });
