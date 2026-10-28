@@ -7,7 +7,7 @@
  * `gh` and the issue-body writer stubbed as files the script spawns. The gh
  * stub answers the GraphQL search per repo, filtered by the query's
  * `updated:` window and paged by cursor, each ticket carrying its first 100
- * comments, and REST for the rest; it logs its argv, so a case reads what
+ * comments, REST for the rest, and commit search per repo; it logs its argv, so a case reads what
  * reached the tracker.
  */
 
@@ -66,6 +66,11 @@ function fixture(opts: {
 	wideDays?: number | null;
 	/** Every search reports one hit more than it serves. */
 	short?: boolean;
+	/** What commit search finds in each repo. */
+	commits?: Record<string, { sha: string; message: string }[]>;
+	commitsFail?: boolean;
+	/** Every commit search reports one hit more than it serves. */
+	commitsShort?: boolean;
 	createFails?: boolean;
 }) {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "remeasure-"));
@@ -77,6 +82,7 @@ function fixture(opts: {
 			contract: 1,
 			founder: "F",
 			tracker: "o/core",
+			codeRepo: "o/core-code",
 			corpus: CORPUS,
 		}),
 	);
@@ -88,6 +94,9 @@ function fixture(opts: {
 			issues: opts.issues ?? [],
 			wideDays: opts.wideDays ?? null,
 			short: opts.short ?? false,
+			commits: opts.commits ?? {},
+			commitsFail: opts.commitsFail ?? false,
+			commitsShort: opts.commitsShort ?? false,
 		}),
 	);
 	const issueBody = fakeIssueBody(root);
@@ -115,6 +124,11 @@ function fixture(opts: {
 			"    const nodes = all.slice(start, start + 100).map((h) => ({ number: h.number, comments: { totalCount: h.comments.length, nodes: h.comments.slice(0, 100).map((body) => ({ body })) } }));",
 			"    search({ issueCount: all.length + (d.short ? 1 : 0), pageInfo: { hasNextPage: start + 100 < all.length, endCursor: String(start + 100) }, nodes });",
 			"  }",
+			"} else if (a[0] === 'api' && a[1].startsWith('search/commits?')) {",
+			"  if (d.commitsFail) { process.stderr.write('HTTP 502: Bad Gateway\\n'); process.exit(1); }",
+			"  const repo = / repo:(\\S+)/.exec(new URL(a[1], 'https://x/').searchParams.get('q'))[1];",
+			"  const items = (d.commits[repo] ?? []).map(({ sha, message }) => ({ sha, commit: { message } }));",
+			"  out([{ total_count: items.length + (d.commitsShort ? 1 : 0), items }]);",
 			"} else if (a[0] === 'api') {",
 			"  const [, repo, n] = /^repos\\/(.+)\\/issues\\/(\\d+)\\/comments$/.exec(a[1]);",
 			"  const hit = d.hits[repo].find((h) => h.number === Number(n));",
@@ -487,6 +501,72 @@ describe("the re-measure trigger", () => {
 		);
 		expect(creates(fx)).toEqual([]);
 	});
+
+	it("drops a commit whose revert is on main, in the tracker or, for its own tracker alone, its code repo, but not one whose revert was itself reverted (#3395)", () => {
+		const full = (n: number) => sha("c", n).padEnd(40, "0");
+		const revert = (by: string, of: string) => ({
+			sha: by,
+			message: `Revert "x"\n\nThis reverts commit ${of}.\n`,
+		});
+		const revertOf7 = "a".repeat(40);
+		const commits = {
+			"o/core-code": [revert("f".repeat(40), full(3))],
+			"o/core": [revert(revertOf7, full(7)), revert("d".repeat(40), revertOf7)],
+			"o/manta": [revert("e".repeat(40), full(17))],
+		};
+		const fx = fixture({
+			hits: {
+				"o/core": [ticket(1, range(1, 16))],
+				"o/manta": [ticket(2, [17])],
+			},
+			commits,
+		});
+		const r = run(fx);
+		expect(r.code).toBe(0);
+		expect(r.stdout).toContain("Re-measure due: 15 counted commits. Filed");
+		const body = flag(creates(fx)[0], "--body");
+		expect(body).not.toContain(`landed ${sha("c", 3)}`);
+		expect(body).not.toContain(`landed ${sha("c", 17)}`);
+		expect(body).toContain(`landed ${sha("c", 7)}`);
+		expect(
+			fx
+				.calls()
+				.filter((c) => c[1]?.startsWith("search/commits?"))
+				.map((c) => / repo:(\S+)/.exec(decodeURIComponent(c[1]))?.[1]),
+		).toEqual(["o/core", "o/core-code", "o/manta"]);
+		const below = fixture({
+			hits: { "o/core": [ticket(1, range(1, 15))] },
+			commits,
+		});
+		expect(run(below)).toEqual({ code: 0, stdout: "", stderr: "" });
+		expect(creates(below)).toEqual([]);
+	});
+
+	it.each([
+		["fails", { commitsFail: true }, "HTTP 502: Bad Gateway"],
+		[
+			"returns fewer hits than its count",
+			{ commitsShort: true },
+			"o/core: revert search returned 0 of 1 hits",
+		],
+	])(
+		"fails open, logging the fault, where the revert search %s (#3395)",
+		(_, opts, why) => {
+			const fx = fixture({
+				...opts,
+				hits: { "o/core": [ticket(1, range(1, 15))] },
+			});
+			const r = run(fx);
+			expect(r.code).toBe(0);
+			expect(r.stderr).toBe(
+				`FAILED OPEN: could not read the corpus's reverts — ${why} — recorded in the guard-error log.\nNothing was filed; the next day's run retries.\n`,
+			);
+			expect(readGuardErrorsLog(fx.config)).toContain(
+				`report-remeasure-due\tcould not read the corpus's reverts — ${why}`,
+			);
+			expect(creates(fx)).toEqual([]);
+		},
+	);
 
 	it("fails open, logging the fault, where the filing fails (#1698)", () => {
 		const fx = fixture({

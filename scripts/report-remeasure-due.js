@@ -12,8 +12,13 @@
  * or `- TICKETED` line among the bullets under it (`- DECLINED`
  * does not count), or an `**Escaped defect:** <sha>` line anywhere in the
  * corpus naming its landed sha. One commit recorded twice, by a short sha or
- * a full one, is counted once, its defects summed. Residual: the landed sha
- * is taken as on `main`, never checked against it.
+ * a full one, is counted once, its defects summed. A commit a revert on
+ * `main` names is not counted, unless that revert was itself reverted:
+ * searched only once the count reaches the threshold, since dropping one can
+ * only lower it, in the tracker's repo and, for this repo's own tracker, its
+ * `codeRepo` too, whose history before 2.0.0 lives in the tracker (#3395).
+ * Residual: an adopter's code repo apart from its tracker is not searched,
+ * and the landed sha is taken as on `main`, never checked against it.
  *
  * AN UNPARSEABLE RECORD — a `**Review findings:**` not in backticks, under a
  * counted tier, that the record form does not match — counts nothing and is
@@ -76,7 +81,8 @@ const LABEL = takesLabel("wayfinder");
 const THRESHOLD = 15;
 const FLOOR = "2026-10-14";
 const SEARCH_CAP = 1000;
-/* GraphQL's largest page, for tickets and for each ticket's comments. */
+/* GitHub's largest page: GraphQL's, for tickets and each ticket's comments,
+ * and REST search's, for reverts. */
 const PAGE = 100;
 const DAY_MS = 86_400_000;
 
@@ -110,6 +116,8 @@ const RECORD_MENTION = new RegExp(`(?<!\`)${HEAD}`, "g");
 const REVIEWED = new RegExp(REVIEWED_TREE);
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
+/* `git revert`'s own message line, which names the full sha. */
+const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
 
 /**
  * @typedef {{ repo: string, issue: number, base: string, tree: string,
@@ -379,6 +387,61 @@ function countedCommits(trackers, today) {
 	};
 }
 
+/**
+ * The shas the reverts on `repos`' default branches since FLOOR name, less
+ * each whose revert was itself reverted. Commit search reads the default
+ * branch alone.
+ *
+ * @param {string[]} repos
+ */
+function readRevertedShas(repos) {
+	/** @type {Map<string, string[]>} each target to the commits reverting it */
+	const reverts = new Map();
+	for (const repo of repos) {
+		/* A revert postdates its target, which postdates FLOOR. */
+		const q = `"This reverts commit" repo:${repo} committer-date:>=${FLOOR}`;
+		/** @type {{ total_count: number, items: { sha: string, commit: { message: string } }[] }[]} */
+		const pages = ghApiSlurp([
+			`search/commits?q=${encodeURIComponent(q)}&per_page=${PAGE}`,
+		]);
+		const first = pages[0];
+		if (!first) throw new Error(`${repo}: revert search returned no page`);
+		const items = pages.flatMap((p) => p.items);
+		if (items.length !== first.total_count)
+			throw new Error(
+				`${repo}: revert search returned ${items.length} of ${first.total_count} hits`,
+			);
+		for (const c of items)
+			for (const m of c.commit.message.matchAll(REVERTS)) {
+				const target = group(m, 1, REVERTS);
+				reverts.set(target, [...(reverts.get(target) ?? []), c.sha]);
+			}
+	}
+	/** @param {string} sha @returns {boolean} */
+	const isReverted = (sha) =>
+		(reverts.get(sha) ?? []).some((r) => !isReverted(r));
+	return [...reverts.keys()].filter(isReverted);
+}
+
+/**
+ * @param {ReviewRecord[]} commits
+ * @param {string} own this repo's tracker
+ * @param {string} code this repo's code repo
+ */
+function withoutReverted(commits, own, code) {
+	const reverted = new Map(
+		[...new Set(commits.map((c) => c.repo))].map((tracker) => [
+			tracker,
+			readRevertedShas(
+				tracker === own && code !== own ? [tracker, code] : [tracker],
+			),
+		]),
+	);
+	return commits.filter(
+		(c) => !reverted.get(c.repo)?.some((s) => isSameSha(s, c.landed)),
+	);
+}
+
 /** @param {ReviewRecord[]} commits */
 function buildBody(commits) {
 	return [
@@ -416,11 +479,12 @@ function main() {
 	parseOrExit(process.argv.slice(2), {
 		usage: "usage: node scripts/report-remeasure-due.js",
 	});
+	const root = hostRoot();
 	let commits;
 	let unparsed;
 	try {
 		({ commits, unparsed } = countedCommits(
-			/** @type {string[]} */ (resolveKey("corpus", { root: hostRoot() })),
+			/** @type {string[]} */ (resolveKey("corpus", { root })),
 			day(now()),
 		));
 	} catch (e) {
@@ -434,6 +498,20 @@ function main() {
 		const fault = `${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`;
 		logError(WHERE, fault);
 		writeFd(2, `UNPARSEABLE: ${fault}\n`);
+	}
+	if (commits.length < THRESHOLD) return;
+	try {
+		commits = withoutReverted(
+			commits,
+			/** @type {string} */ (resolveKey("tracker", { root })),
+			/** @type {string} */ (resolveKey("codeRepo", { root })),
+		);
+	} catch (e) {
+		failOpen(
+			`could not read the corpus's reverts — ${parseErrLine(e)}`,
+			`${remedy(e)}Nothing was filed; the next day's run retries.`,
+		);
+		return;
 	}
 	if (commits.length < THRESHOLD) return;
 	const text = buildBody(commits);
