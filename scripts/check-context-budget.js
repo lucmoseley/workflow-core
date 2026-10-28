@@ -231,11 +231,8 @@ const RATCHET_SURFACE = "rule-ratchet";
 
 /* The session cap's arithmetic, which is a module of its own so that this file
  * holds only the cap, the severity and the reporting (mantahostels#2003, mantahostels#2004). */
-const {
-	AFTER_EVENTS,
-	reachableAfterCall,
-	reachableByTool,
-} = require("./lib/rule-emission");
+const { reachableAfterCall, reachableByTool } = require("./lib/rule-emission");
+const { AFTER_EVENTS } = require("./lib/hook-events.js");
 const { RULES_DIR, CORE_RULES } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
 const { trimEndRun } = require("./lib/trim-run.js");

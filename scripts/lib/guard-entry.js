@@ -31,6 +31,7 @@ const { caught } = require("./caught.js");
 const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { logger, readPayload } = require("./entry-input.js");
 const { trimEndRun } = require("./trim-run.js");
+const { AFTER_EVENTS } = require("./hook-events.js");
 const {
 	agentKey,
 	bare,
@@ -41,7 +42,7 @@ const {
 } = require("./kit-context.js");
 
 /**
- * @typedef {"PreToolUse" | "PostToolUse" | "PostToolUseFailure" | "PostToolBatch" | "UserPromptSubmit"} HookEvent
+ * @typedef {"PreToolUse" | (typeof AFTER_EVENTS)[number] | "UserPromptSubmit"} HookEvent
  * @typedef {object} Injection
  * @property {string[]} injectRules the ids, highest priority first
  * @property {string[]} [skip] ids taken out of this call:
@@ -71,8 +72,6 @@ function guardFile() {
 	return path.basename(process.argv[1] || "guard");
 }
 
-const CONTEXT_EVENTS = ["PostToolUse", "PostToolUseFailure", "PostToolBatch"];
-
 /**
  * The event a context answers under: the payload's own where it is one that
  * takes additionalContext, else the entry's declared one.
@@ -81,7 +80,8 @@ const CONTEXT_EVENTS = ["PostToolUse", "PostToolUseFailure", "PostToolBatch"];
  * @returns {HookEvent}
  */
 const contextEvent = (named, declared) =>
-	typeof named === "string" && CONTEXT_EVENTS.includes(named)
+	typeof named === "string" &&
+	/** @type {readonly string[]} */ (AFTER_EVENTS).includes(named)
 		? /** @type {HookEvent} */ (named)
 		: declared;
 

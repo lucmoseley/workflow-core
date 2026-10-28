@@ -163,6 +163,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
+const { HOOK_EVENTS } = require("./lib/hook-events.js");
 const {
 	readRunningHooks,
 	readOwnHooks,
@@ -984,24 +985,17 @@ function unwiredNarrowingFindings(wired) {
  * guard-registry-anchors.json and --review rather than a second sidecar.
  */
 
-const ACTING_EVENTS = [
-	"PostToolUse",
-	// #1575. A Bash call exiting non-zero reaches this event instead.
-	"PostToolUseFailure",
-	// #2026. Fires once per batch with every call's result, a refused Skill's
-	// included, which no per-call event sees.
-	"PostToolBatch",
-	"UserPromptSubmit",
-	"SessionStart",
-	"Stop",
-	// mantahostels#1804. PreCompact deletes a session's rule latches unasked, which is an
-	// action on the same footing as anything on the four events above.
-	"PreCompact",
-	// #247. SessionEnd rotates this machine's shared marketplace clone and
-	// reinstalls the plugin, after the founder has stopped watching.
-	"SessionEnd",
-];
 const REFUSING_EVENT = "PreToolUse";
+/*
+ * Every other event acts (#3438): mantahostels#1804's PreCompact deletes a
+ * session's rule latches unasked, and #247's SessionEnd rotates this machine's
+ * shared marketplace clone and reinstalls the plugin, after the founder has
+ * stopped watching.
+ * Residual: an event added to HOOK_EVENTS lands here unasked, so a second
+ * refusing event would be read as acting.
+ */
+/** @type {readonly string[]} */
+const ACTING_EVENTS = HOOK_EVENTS.filter((e) => e !== REFUSING_EVENT);
 const HUSKY_DIR = ".husky";
 const VITEST_CONFIG = "vitest.config.ts";
 

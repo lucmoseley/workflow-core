@@ -17,13 +17,13 @@ const { requiredGroup } = require("./regex-group");
 const { CONFIG_PATH } = require("./workflow-core-config");
 const { getPoolFiles } = require("./always-loaded-pool");
 const { SELF_PLUGIN_HOOKS, readOwnHooks } = require("./core-hooks.js");
+const { AFTER_EVENTS } = require("./hook-events.js");
 const { hostRoot } = require("./host-root.js");
 const { MANIFEST_REL } = require("./guard-cores.js");
 const {
 	CAP_SOURCE,
 	WIRED_SCRIPT_RE,
 	EVENT,
-	AFTER_EVENTS,
 	registrationsOn,
 	readSourcedClosure,
 } = require("./rule-emission");
