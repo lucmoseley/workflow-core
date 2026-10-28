@@ -107,7 +107,6 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
-const os = require("node:os");
 const path = require("node:path");
 const {
 	isDeclined,
@@ -132,6 +131,7 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const { readAncestorsOf, readParentOf } = require("./lib/proc-stat.js");
 const { readEnvironVar } = require("./lib/proc-environ.js");
+const { configDirFrom } = require("./lib/config-dir.js");
 
 const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 
@@ -185,7 +185,7 @@ function readClaudePids() {
 function readConfigDirOf(pid) {
 	const record = readEnvironVar(pid, "CLAUDE_CONFIG_DIR", PROC());
 	if (!record.ok) return null;
-	return record.value ?? path.join(os.homedir(), ".claude");
+	return configDirFrom(record.value);
 }
 
 /**
