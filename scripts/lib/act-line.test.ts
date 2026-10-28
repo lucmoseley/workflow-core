@@ -11,18 +11,11 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
-type Kind = "block" | "close" | "file" | "gate" | "relabel" | "round";
-const { ACT_LINE, buildAct, buildCommitAct, parseAct } = createRequire(
-	__filename,
-)("./act-line.js") as {
-	ACT_LINE: RegExp;
-	buildAct: (kind: Kind, repo: string, n: number, takes?: string) => string;
-	buildCommitAct: (sha: string) => string;
-	parseAct: (line: string) => { kind: string; ref: string; takes?: string };
-};
+const { ACT_KINDS, ACT_LINE, buildAct, buildCommitAct, parseAct } =
+	createRequire(__filename)("./act-line.js") as typeof import("./act-line.js");
 
 describe("act line", () => {
-	it.each(["block", "close", "file", "gate", "round"] as const)(
+	it.each(ACT_KINDS.filter((k) => k !== "relabel"))(
 		"builds a %s line ACT_LINE accepts and parseAct takes apart",
 		(kind) => {
 			const line = buildAct(kind, "owner/repo", 12);

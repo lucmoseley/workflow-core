@@ -11,15 +11,33 @@
  * relabel adding ` takes:<x>`; a block is a blocked-by edge added (#2464), a
  * gate an issue's first live gate line (#3301). A commit is no line here: the
  * commit ledger already holds it. */
-const ACT_LINE =
-	/^(?:block|close|file|gate|round) [\w.-]+\/[\w.-]+#\d+$|^relabel [\w.-]+\/[\w.-]+#\d+ takes:\S+$/;
+const ACT_KINDS = /** @type {const} */ ([
+	"block",
+	"close",
+	"file",
+	"gate",
+	"relabel",
+	"round",
+]);
+
+/** @typedef {typeof ACT_KINDS[number]} ActKind */
+
+/** The one kind whose line carries a ` takes:<x>` suffix. */
+const TAKES_KIND = /** @type {const} */ ("relabel");
+
+/** @typedef {Exclude<ActKind, typeof TAKES_KIND>} BareActKind */
+
+const REF_SOURCE = String.raw`[\w.-]+\/[\w.-]+#\d+`;
+const ACT_LINE = new RegExp(
+	`^(?:${ACT_KINDS.filter((k) => k !== TAKES_KIND).join("|")}) ${REF_SOURCE}$|^${TAKES_KIND} ${REF_SOURCE} takes:\\S+$`,
+);
 
 /**
  * @typedef {{kind: string, ref: string, takes?: string}} Act
  */
 
 /**
- * @param {"block"|"close"|"file"|"gate"|"relabel"|"round"} kind
+ * @param {ActKind} kind
  * @param {string} repo `owner/name`
  * @param {number|string} n
  * @param {string} [takes] a relabel's `takes:<x>`
@@ -43,4 +61,4 @@ function parseAct(line) {
 	return takes === undefined ? { kind, ref } : { kind, ref, takes };
 }
 
-module.exports = { ACT_LINE, buildAct, buildCommitAct, parseAct };
+module.exports = { ACT_KINDS, ACT_LINE, buildAct, buildCommitAct, parseAct };

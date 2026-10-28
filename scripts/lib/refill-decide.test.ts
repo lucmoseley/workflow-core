@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
+const { ACT_KINDS } = require("./act-line.js");
 const { capSet } = require("./allowance.js");
 const { ALREADY_RUNNING, FULL, decideTick } = require("./refill-decide.js");
 const { capFitsOf, sizedSeats } = require("./refill-loop.js");
@@ -97,7 +98,7 @@ describe("decideTick stops (#2007)", () => {
 		expect(d.detail).toContain("wfc #9");
 	});
 
-	it.each(["commit", "close", "file", "round", "relabel", "gate"])(
+	it.each(["commit", ...ACT_KINDS])(
 		"counts a %s act as progress (#2312, #3301)",
 		(kind) => {
 			const d = tick({
