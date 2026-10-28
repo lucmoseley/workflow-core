@@ -1060,21 +1060,15 @@ function readHouseDecisionRule() {
  * @returns {string}
  */
 function readHandoverRule() {
-	try {
-		return require("./lib/rule-text").readRuleText("founder-handover");
-	} catch (e) {
-		/* A missing fragment costs the long form, never the refusal (#597). */
-		failOpenLogger("guard-priced-options founder-hand-over")?.(
-			`rule-text founder-handover unreadable: ${e} — short fallback printed`,
-		);
-		return (
-			"Give the founder the exact literal text of each step, where to paste " +
-			"it and what he should see. Where nothing stops you, act and report " +
-			"rather than asking who does it; where something does, name it on a " +
+	/* A missing fragment costs the long form, never the refusal (#597). */
+	return require("./lib/rule-text").readRuleTextOr(
+		"founder-handover",
+		"Give the founder the exact literal text of each step, where to paste " +
+			"it and what he should see, and name what stops you acting on a " +
 			"line of its own: `Blocked: <the refusal you hit, quoted, or the act " +
-			"only a person can do>`."
-		);
-	}
+			"only a person can do>`",
+		"guard-priced-options founder-hand-over",
+	);
 }
 
 /* The actor-only limb's leads (#598, #478 go 3), read at the head of an

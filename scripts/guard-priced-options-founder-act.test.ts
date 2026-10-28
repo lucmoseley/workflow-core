@@ -234,6 +234,17 @@ describe("the refusal", () => {
 		);
 	});
 
+	it("points at the rule file where the store will not read (#3189)", () => {
+		const empty = fs.mkdtempSync(path.join(dir, "rules-"));
+		const text = stop(round("You run the command above."), {
+			env: { WFC_RULES_DIR: empty },
+		});
+		expect(text).toContain("Q1 (A): back-reference");
+		expect(text).toContain(
+			"; the rule could not be read from docs/agents/rules/founder-handover.txt. Read that file before doing anything else.",
+		);
+	});
+
 	it("names every offending option across rounds", () => {
 		const text = stop(
 			`${round("Paste `! <cmd>`.")}\n\n${round("You run the command above.", { n: 2 })}`,
