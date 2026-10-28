@@ -49,12 +49,12 @@ const parseReviewDate = (title) => TITLE.exec(title)?.[1] ?? null;
  * one — when it reads one-way: its text after `one-way`, or null.
  * @param {{body: string}[]} comments oldest first
  */
-function oneWayDoor(comments) {
+function parseOneWayDoor(comments) {
 	const door = /^[ \t]*\*\*Door:\*\*[ \t]*(.*)$/m;
 	for (const { body } of [...comments].reverse()) {
 		const m = door.exec(body ?? "");
 		if (!m) continue;
-		const text = (m[1] ?? "").trim();
+		const text = requiredGroup(m, 1, door).trim();
 		return /^one-way\b/.test(text)
 			? text.replace(/^one-way\b[\s—–-]*/, "")
 			: null;
@@ -291,7 +291,7 @@ function renderReview({
 	);
 	const oneWay = readings.flatMap(({ repo, closed }) =>
 		closed.flatMap((c) => {
-			const door = oneWayDoor(c.comments);
+			const door = parseOneWayDoor(c.comments);
 			return door === null
 				? []
 				: [

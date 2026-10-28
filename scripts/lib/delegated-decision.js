@@ -63,7 +63,7 @@ const FLAGS = /** @type {Record<string, "value">} */ (
 /**
  * @param {string | undefined} raw
  */
-function figure(raw) {
+function parseFigure(raw) {
 	const m = /^\s*(\d{1,3})\s*%\s*$/.exec(raw ?? "");
 	return m && Number(m[1]) <= 100 ? Number(m[1]) : null;
 }
@@ -86,7 +86,7 @@ function entryFrom(flags) {
 	}
 	/** @param {string} flag */
 	const percent = (flag) => {
-		const value = figure(text(flag));
+		const value = parseFigure(text(flag));
 		if (value === null) faults.push(`${flag} must be a percentage such as 70%`);
 		return value ?? 0;
 	};

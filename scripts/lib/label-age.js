@@ -4,24 +4,29 @@
  */
 
 /**
+ * One event of an issue's timeline, as the GitHub REST API returns it; only the
+ * fields read here.
+ * @typedef {{event?: string, label?: {name?: string}, created_at: string,
+ *   actor?: {login?: string} | null}} TimelineEvent
+ * @typedef {{ok: boolean, events?: TimelineEvent[], error?: string}} Timeline
+ */
+
+/**
  * How long `name` has been on, from the most recent `labeled` event carrying
  * it. `null` where the label's start is unreadable — an unreachable timeline,
  * or a label applied by a route the timeline does not record — which is not the
  * same as the label being absent.
- * @param {{ok: boolean, events?: any[], error?: any}} timeline
+ * @param {Timeline} timeline
  * @param {string} name
- * @returns {{unknown: true, error: any}|{unknown?: false, ageDays: number, appliedAt: string, appliedBy: string}}
+ * @returns {{unknown: true, error: string | undefined}|{unknown?: false, ageDays: number, appliedAt: string, appliedBy: string}}
  */
 function labelAge(timeline, name) {
 	if (!timeline.ok) return { unknown: true, error: timeline.error };
 	const applied =
 		(timeline.events ?? [])
-			.filter(
-				(/** @type {any} */ e) =>
-					e.event === "labeled" && e.label && e.label.name === name,
-			)
+			.filter((e) => e.event === "labeled" && e.label && e.label.name === name)
 			.sort(
-				(/** @type {any} */ a, /** @type {any} */ b) =>
+				(a, b) =>
 					new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
 			)[0] || null;
 	if (!applied)

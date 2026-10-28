@@ -76,7 +76,7 @@ const SHORTLIST_TIMEOUT_MS = FALLBACK_MS;
  * @param {string} stdout
  * @returns {Shortlist | {error: string}}
  */
-function parsedShortlist(stdout) {
+function parseShortlist(stdout) {
 	try {
 		const out = JSON.parse(stdout);
 		if (!Array.isArray(out.pulledIn) || !Array.isArray(out.pulledInUnread))
@@ -99,7 +99,7 @@ function parsedShortlist(stdout) {
  * @param {number[]} goal
  * @returns {Promise<Shortlist | {error: string}>}
  */
-async function shortlistOf(root, goal) {
+async function readShortlist(root, goal) {
 	const run = await runGrouped(
 		process.execPath,
 		[
@@ -120,7 +120,7 @@ async function shortlistOf(root, goal) {
 			error:
 				`exited ${run.code ?? run.signal} ${parseFailureLine(run.stderr)}`.trim(),
 		};
-	return parsedShortlist(run.stdout);
+	return parseShortlist(run.stdout);
 }
 
 /**
@@ -202,7 +202,7 @@ function unreturnedPulls(served, pulledByRoot) {
  * @param {Record<string, number[]>} goals keyed by root
  * @param {(root: string, goal: number[]) => Promise<Shortlist | {error: string}>} [shortlist]
  */
-async function refillFrontier(roots, goals, shortlist = shortlistOf) {
+async function refillFrontier(roots, goals, shortlist = readShortlist) {
 	/** @param {string[]} of @param {(root: string) => number[]} goal */
 	const read = (of, goal) =>
 		Promise.all(

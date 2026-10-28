@@ -262,7 +262,7 @@ function readUrgent(root, repo) {
 	/** @type {Unread[]} */
 	const unread =
 		why === null ? [] : [{ repo, why: `pick-next's last run: ${why}` }];
-	const listed = openLabelled(repo, URGENT);
+	const listed = readOpenLabelled(repo, URGENT);
 	if ("why" in listed) return { read, unread: [...unread, listed] };
 	for (const { number, title } of listed.open) {
 		const age = readLabelAgeOn(repo, number, URGENT);
@@ -287,7 +287,7 @@ function readUrgent(root, repo) {
  * @returns {{read: import("./lib/morning-review.js").ParkedIssue[], unread: Unread[]}}
  */
 function readParked(repo) {
-	const listed = openLabelled(repo, PARKED_LABEL);
+	const listed = readOpenLabelled(repo, PARKED_LABEL);
 	if ("why" in listed) return { read: [], unread: [listed] };
 	const read = listed.open.map(({ number, title }) => {
 		const age = readLabelAgeOn(repo, number, PARKED_LABEL);
@@ -304,7 +304,7 @@ function readParked(repo) {
  * @param {string} label
  * @returns {{open: {number: number, title: string}[]} | Unread}
  */
-function openLabelled(repo, label) {
+function readOpenLabelled(repo, label) {
 	try {
 		return {
 			open: ghIssueListAll(`${label} issues`, [

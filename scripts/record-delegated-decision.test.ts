@@ -1,6 +1,13 @@
 // @vitest-environment node
 /*
  * record-delegated-decision.js, driven through its command line (#2002).
+ *
+ * GitHub is a stub `gh` (WFC_GH) keeping #534's comments in a file, with
+ * levers that fail the post or drop its URL, so a re-run sees what the first
+ * run posted; the config and ledger sit in a throwaway repository.
+ *
+ * WHAT BREAKING IT COSTS: a decision posted twice, or missing from the ledger
+ * the morning review issue lists from, so the founder never sees it.
  */
 
 import fs from "node:fs";

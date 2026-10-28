@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 const { capSet } = require("./allowance.js");
 const { ALREADY_RUNNING, FULL, decideTick } = require("./refill-decide.js");
-const { capFitsOf, sizedSeats } = require("./refill-loop.js");
+const { parseCapFits, sizedSeats } = require("./refill-loop.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -407,7 +407,7 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 			})),
 			2,
 			(name: string, members: number) =>
-				capFitsOf(
+				parseCapFits(
 					JSON.stringify({
 						cap: capSet({
 							readings: { session: 10, weekly_all: weeks[name] },

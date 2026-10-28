@@ -26,7 +26,6 @@ import {
 	buildFinishLine,
 	buildStatusLines,
 	capArgs,
-	capFitsOf,
 	ceilingsOf,
 	FREE_SLOT_ARGS,
 	isRenewedSince,
@@ -34,6 +33,7 @@ import {
 	judgedLaunches,
 	landingRoots,
 	mergedScope,
+	parseCapFits,
 	parseControl,
 	parseProbeOutcome,
 	parseScope,
@@ -935,14 +935,14 @@ describe("the cap's launch count (#2278)", () => {
 	});
 
 	it("reads cap.launch from allowance.js's payload", () => {
-		expect(capFitsOf(JSON.stringify({ cap: { launch: 2 } }))).toEqual({
+		expect(parseCapFits(JSON.stringify({ cap: { launch: 2 } }))).toEqual({
 			fits: 2,
 		});
 	});
 
 	it("reads a launch that is the floor's member alone as 0 (#2432)", () => {
 		expect(
-			capFitsOf(JSON.stringify({ cap: { launch: 1, floored: true } })),
+			parseCapFits(JSON.stringify({ cap: { launch: 1, floored: true } })),
 		).toEqual({ fits: 0 });
 	});
 
@@ -963,7 +963,7 @@ describe("the cap's launch count (#2278)", () => {
 	])(
 		"reads %s as unsized, naming why and whether a fault (#2937)",
 		(_, stdout, why, fault) => {
-			expect(capFitsOf(stdout)).toEqual({
+			expect(parseCapFits(stdout)).toEqual({
 				fits: null,
 				why: expect.stringContaining(why),
 				fault,

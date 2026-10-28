@@ -573,7 +573,7 @@ function capFits(root, seat, members, usageText) {
 			env: { ...checkoutEnv(root), CLAUDE_CONFIG_DIR: seat },
 		},
 	);
-	const cap = loop.capFitsOf(r.stdout);
+	const cap = loop.parseCapFits(r.stdout);
 	if (cap.fits === null)
 		log(
 			`${cap.fault || r.failed ? "fault: " : ""}cap on ${seat} unsized: ${cap.why}${r.failed ? ` (${r.failed})` : ""}`,
@@ -825,6 +825,7 @@ const jsonlRows = (text) =>
 		try {
 			return line ? [JSON.parse(line)] : [];
 		} catch {
+			/* A torn line is the harness's write in flight, not a fault (#2707). */
 			return [];
 		}
 	});

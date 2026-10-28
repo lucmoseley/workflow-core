@@ -144,6 +144,9 @@ function readJson(file) {
 	try {
 		return JSON.parse(fs.readFileSync(file, "utf8"));
 	} catch {
+		/* Fail open (#2012): an absent file is a loop never started, and each
+		 * caller's parse reads null as its defaults, so a damaged file costs the
+		 * remembered state rather than stopping the loop. */
 		return null;
 	}
 }
@@ -572,7 +575,7 @@ const capArgs = (seat, members, ceilings) => [
  * @param {string} stdout
  * @returns {{fits: number} | {fits: null, why: string, fault: boolean}}
  */
-function capFitsOf(stdout) {
+function parseCapFits(stdout) {
 	let payload;
 	try {
 		payload = JSON.parse(stdout);
@@ -1116,7 +1119,7 @@ module.exports = {
 	FREE_SLOT_ARGS,
 	actsOf,
 	capArgs,
-	capFitsOf,
+	parseCapFits,
 	ceilingsOf,
 	parseControl,
 	buildFinishLine,
