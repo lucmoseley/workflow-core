@@ -17,8 +17,7 @@ const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
 const {
 	NONE,
 	SPREAD_CAP,
-	SUSTAINED_SPAN,
-	SUSTAINED_WINDOW_MS,
+	SUSTAINED_WINDOW,
 	buildSustainedText,
 } = require("./concurrency.js");
 const { DAY_MS } = require("./retained-jsonl.js");
@@ -29,7 +28,7 @@ const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const STUCK_URGENT_DAYS = 7;
 /* The concurrency section's two readout windows; untraced (#3315). */
 const CONCURRENCY_WINDOWS = {
-	day: { ms: SUSTAINED_WINDOW_MS, span: SUSTAINED_SPAN },
+	day: SUSTAINED_WINDOW,
 	week: { ms: 7 * DAY_MS, span: "7 days" },
 };
 /* Untraced: spec #1995's "first tick after 07:00", machine-local. */
@@ -209,7 +208,9 @@ function renderConcurrencyLines({ day, week }) {
 		"",
 		...(charged.length === 0
 			? [
-					`No session worked over the last ${CONCURRENCY_WINDOWS.day.span}, so no hours to charge or spread.`,
+					day.minutesRead
+						? `No session worked over the last ${CONCURRENCY_WINDOWS.day.span}, so no hours to charge or spread.`
+						: "Hours by binding limit and their spread: unread, as memwatch's minute record did not read.",
 				]
 			: [
 					`Hours with any session working over the last ${CONCURRENCY_WINDOWS.day.span}, by the limit binding then:`,
