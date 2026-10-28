@@ -14,11 +14,16 @@
  * live when this process exits is killed with it. RESIDUAL: a SIGKILL to this
  * process cannot be caught and leaves the group running; the deadline file is
  * there for bg-run's backstop (#2704) to reach that case.
+ *
+ * AND EVERY PROCESS CARRYING THE RUN'S MARK (#3494). A worker that left the
+ * group, its parent dead, is reparented to init where no group kill reaches
+ * it.
  */
 
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { readEnvironVar } = require("./proc-environ.js");
 
 /* 14 minutes, so bg-run's backstop at the deadline plus 60 s still lands
  * inside #2667's 15. */
@@ -119,6 +124,46 @@ function killGroup(pgid, signal = "SIGKILL") {
 }
 
 /**
+ * SIGKILLs every process whose environment sets `key` to `value`, but `self`,
+ * which may carry it too. One already gone is no failure.
+ * @param {string} key
+ * @param {string} value
+ * @param {{ proc?: string, self?: number,
+ *   kill?: (pid: number, signal: NodeJS.Signals) => unknown }} [options]
+ * @returns {string|null} why a process may still be running, else null
+ */
+function killCarrying(
+	key,
+	value,
+	{
+		proc = "/proc",
+		self = process.pid,
+		kill = (pid, signal) => process.kill(pid, signal),
+	} = {},
+) {
+	let names;
+	try {
+		names = fs.readdirSync(proc);
+	} catch (e) {
+		return `${proc} will not list: ${caught(e).message}`;
+	}
+	let unkilled = null;
+	for (const name of names) {
+		const pid = Number(name);
+		/* An environ that will not read is no carrier. */
+		if (!/^\d+$/.test(name) || pid === self) continue;
+		const read = readEnvironVar(pid, key, proc);
+		if (!read.ok || read.value !== value) continue;
+		try {
+			kill(pid, "SIGKILL");
+		} catch (e) {
+			if (caught(e).code !== "ESRCH") unkilled ??= caught(e).message;
+		}
+	}
+	return unkilled;
+}
+
+/**
  * Start the ceiling on `pgid`, the leader of a group spawned with
  * `detached: true`: write the deadline where the environment names a file,
  * hold the group for the exit-time kill, and call `onCeiling` once the
@@ -186,6 +231,7 @@ module.exports = {
 	ceilingMs,
 	deadlineUnwritten,
 	groupUnkilled,
+	killCarrying,
 	killGroup,
 	monotonicMs,
 };

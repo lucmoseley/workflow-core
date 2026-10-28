@@ -9,6 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it } from "vitest";
+import { writeEnviron } from "./proc-fake";
 
 const {
 	CEILING_ENV,
@@ -16,6 +17,7 @@ const {
 	DEADLINE_ENV,
 	armCeiling,
 	ceilingMs,
+	killCarrying,
 } = require("./suite-ceiling.js");
 
 const dirs: string[] = [];
@@ -111,4 +113,39 @@ it("writes no deadline for a child with no pid", () => {
 	}).release();
 
 	expect(fs.existsSync(file)).toBe(false);
+});
+
+it("SIGKILLs every process carrying the run's mark but itself, and no other run's (#3494)", () => {
+	const proc = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-proc-"));
+	dirs.push(proc);
+	writeEnviron(proc, 100, ["A=1", "MARK=/tmp/run-1.json"]);
+	writeEnviron(proc, 200, ["MARK=/tmp/run-1.json"]);
+	writeEnviron(proc, 300, ["MARK=/tmp/run-2.json"]);
+	writeEnviron(proc, 400, ["A=1"]);
+	fs.mkdirSync(path.join(proc, "500"));
+	fs.writeFileSync(path.join(proc, "self"), "");
+	const killed: [number, string][] = [];
+	const unkilled = killCarrying("MARK", "/tmp/run-1.json", {
+		proc,
+		self: 200,
+		kill: (pid: number, signal: string) => killed.push([pid, signal]),
+	});
+	expect(killed).toEqual([[100, "SIGKILL"]]);
+	expect(unkilled).toBeNull();
+});
+
+it("reads a process gone before its kill as no failure, and names any other", () => {
+	const proc = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-proc-"));
+	dirs.push(proc);
+	for (const pid of [100, 200]) writeEnviron(proc, pid, ["MARK=x"]);
+	const fail = (code: string) => () => {
+		throw Object.assign(new Error(code), { code });
+	};
+	expect(killCarrying("MARK", "x", { proc, kill: fail("ESRCH") })).toBeNull();
+	expect(killCarrying("MARK", "x", { proc, kill: fail("EPERM") })).toBe(
+		"EPERM",
+	);
+	expect(killCarrying("MARK", "x", { proc: path.join(proc, "none") })).toMatch(
+		/will not list/,
+	);
 });

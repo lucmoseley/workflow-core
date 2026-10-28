@@ -35,7 +35,10 @@
  *
  * A SCOPE OF ITS OWN (#3401). vitest starts in a pids-capped user scope
  * (lib/user-scope.js), killed whole when the run ends; a run that hit the cap
- * exits 1, naming it.
+ * exits 1, naming it. Where no user manager makes one, a vitest that exits on
+ * a signal, or a wrapper killed by a catchable signal, takes with it every
+ * process its environment's in-flight file marks, a worker reparented to init
+ * included (#3494). The sweep runs on the scoped path too.
  *
  * AND IT PRINTS THE RUN-COST REPORT after the suite's own summary (#1883):
  * each new or changed test file over budget. It never touches the exit code
@@ -111,6 +114,7 @@ const {
 	ceilingMs,
 	deadlineUnwritten,
 	groupUnkilled,
+	killCarrying,
 	killGroup,
 } = require("./lib/suite-ceiling.js");
 const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
@@ -667,7 +671,10 @@ function runOnce(
 		const machineStart = sampleCpu();
 		/* A signal to this process would otherwise leave the group running:
 		 * the handlers exit, and the exit kills every group still held. */
-		if (child.pid) armSignals(fs);
+		if (child.pid) {
+			armSignals(fs);
+			heldRuns.add(inflightFile);
+		}
 		onSpawn();
 
 		// ENOENT, EACCES: spawn reports these through an `error` event on an
@@ -812,12 +819,23 @@ function runOnce(
 			capped ??= endRunScope(child);
 		};
 		child.on("exit", endScope);
+		/* A worker reparented to init, out of the group and of any scope
+		 * (#3494). */
+		child.on("exit", (_code, signal) => {
+			if (!signal) return;
+			const unkilled = killCarrying(inflight.INFLIGHT_ENV, inflightFile);
+			if (unkilled)
+				err.write(
+					`a process of this run could not be killed (${unkilled}); it may outlive this report.\n`,
+				);
+		});
 
 		let settled = false;
 		/** @param {number|null} code */
 		const settle = (code) => {
 			if (settled) return;
 			settled = true;
+			heldRuns.delete(inflightFile);
 			disarm();
 			held.release();
 			endScope();
@@ -886,6 +904,10 @@ const heldWorktrees = new Set();
  * leaves the queue through the handler below, never through `waitForGate`. */
 /** @type {Set<(signal: string) => void>} */
 const waitingExits = new Set();
+/* Each live run's in-flight file, whose carriers `releaseAndExit` kills
+ * (#3494). */
+/** @type {Set<string>} */
+const heldRuns = new Set();
 let signalsArmed = false;
 
 /**
@@ -896,6 +918,7 @@ let signalsArmed = false;
  */
 function releaseAndExit(signal, code, queueFs) {
 	for (const logExit of waitingExits) logExit(signal);
+	for (const file of heldRuns) killCarrying(inflight.INFLIGHT_ENV, file);
 	for (const file of heldMarkers) {
 		try {
 			queueFs.unlinkSync(file);

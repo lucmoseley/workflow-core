@@ -1809,6 +1809,113 @@ describe("the suite ceiling", () => {
 	});
 });
 
+/* #3494: where no user scope is made, a worker that left vitest's group and
+ * hangs in a synchronous call outlives the group kill, reparented to init,
+ * unless the run's environ sweep finds it. A plain spawn is the path
+ * spawnInRunScope falls back to when the user manager does not answer. */
+describe("a reparented worker with no user scope", {
+	timeout: REAL_CHILD_TIMEOUT_MS,
+}, () => {
+	/** A stand-in vitest that starts such a worker, records both pids, then
+	 * parks silent. */
+	function standIn(root: string) {
+		const bin = path.join(root, "fake-vitest.sh");
+		fs.writeFileSync(
+			bin,
+			[
+				"#!/bin/sh",
+				/* Not the group's leader, so setsid execs in place: $! is the
+				 * worker, in a session and group of its own. Off vitest's
+				 * pipes, so the run settles without waiting on it. */
+				`setsid sleep 300 </dev/null >/dev/null 2>&1 & echo $! > "${root}/worker.tmp"`,
+				`echo $$ > "${root}/child"`,
+				`mv "${root}/worker.tmp" "${root}/worker"`,
+				"exec sleep 300",
+				"",
+			].join("\n"),
+		);
+		fs.chmodSync(bin, 0o755);
+		return bin;
+	}
+
+	const pidIn = (root: string, name: string) =>
+		Number(fs.readFileSync(path.join(root, name), "utf8"));
+
+	/** Whether `pid` died within 10 s, SIGKILLed here where it did not.
+	 * Reaping an orphan can trail the kill; 10 s and its 50 ms poll are
+	 * guesses. */
+	async function diedWithin(pid: number) {
+		const by = Date.now() + 10_000;
+		while (!isDead(pid) && Date.now() < by)
+			await new Promise((r) => setTimeout(r, 50));
+		const alive = !isDead(pid);
+		if (alive) process.kill(pid, "SIGKILL");
+		return !alive;
+	}
+
+	it("kills it after a stall kill", async () => {
+		const root = repo();
+		const bin = standIn(root);
+		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+		let code: number;
+		try {
+			code = await main([SHARED_FLAG], {
+				root,
+				bin,
+				spawnFn: realSpawn,
+				/* A guess: long enough for the shell to start the worker. */
+				stall: 1000,
+				expand: () => null,
+				inflightFile: path.join(root, "run.inflight.json"),
+			});
+		} finally {
+			stderr.mockRestore();
+			stdout.mockRestore();
+		}
+		expect(code).toBe(1);
+		expect(isDead(pidIn(root, "child"))).toBe(true);
+		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
+	});
+
+	/* A harness kill of the wrapper: vitest leads a group of its own, so the
+	 * harness's group kill never reaches it, and only the wrapper's own
+	 * signal handler can. */
+	it("kills it when the wrapper is SIGTERMed", async () => {
+		const root = repo();
+		const wrapper = realSpawn(
+			process.execPath,
+			[
+				"-e",
+				`require(${JSON.stringify(path.resolve("scripts/run-vitest.js"))}).main(
+					[${JSON.stringify(SHARED_FLAG)}],
+					{
+						root: ${JSON.stringify(root)},
+						bin: ${JSON.stringify(standIn(root))},
+						spawnFn: require("node:child_process").spawn,
+						stall: 0,
+						expand: () => null,
+						out: { write: () => true },
+						err: { write: () => true },
+						inflightFile: ${JSON.stringify(path.join(root, "run.inflight.json"))},
+					},
+				);`,
+			],
+			{ stdio: "ignore" },
+		);
+		const ready = path.join(root, "worker");
+		/* As long as the stall case's guess allows the shell to start. */
+		const by = Date.now() + 10_000;
+		while (!fs.existsSync(ready) && Date.now() < by)
+			await new Promise((r) => setTimeout(r, 50));
+		await new Promise<void>((resolve) => {
+			wrapper.on("exit", () => resolve());
+			wrapper.kill("SIGTERM");
+		});
+		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
+	});
+});
+
 describe("the per-run in-flight file", () => {
 	/** Captures the env the wrapper hands its child. */
 	function envFrom(root: string) {
