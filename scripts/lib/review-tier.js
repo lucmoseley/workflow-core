@@ -46,15 +46,17 @@ const { ruleOrFallback } = require("./guard-verdict.js");
  * @typedef {{
  *   topLevel: (dir: string) => string | null,
  *   commonDir: (dir: string) => string | null,
- *   staged: (tree: string) => string[],
+ *   staged: (tree: string) => string[] | null,
  *   sessionBase: (sid: string) => string | null,
- *   changedSince: (tree: string, base: string) => string[],
+ *   changedSince: (tree: string, base: string) => string[] | null,
  *   billed: (sid: string) => string[] | null,
  *   declared: () => import("./workflow-core-config.js").SensitivePath[] | undefined,
  * }} TierPorts git's top level and absolute common dir of a directory, null
- *   where git will not say; a tree's staged paths; the session's start point,
- *   null where none is recorded or git cannot place it; a tree's paths changed
- *   since a commit, untracked ones included; the paths from the root the
+ *   where git will not say, the top level throwing where git overran; a
+ *   tree's staged paths, null where git will not say; the session's start
+ *   point, null where none is recorded or git cannot place it, throwing where
+ *   git overran; a tree's paths changed since a commit, untracked ones
+ *   included, null where git will not say; the paths from the root the
  *   session wrote or its own commits touched, null where its write ledger
  *   will not read; and the host's
  *   `sensitivePaths`, throwing where its config will not read
@@ -87,7 +89,7 @@ function decide(skill, ctx) {
 
 	const trees = treesOf(ctx);
 	const paths = [
-		...trees.flatMap((t) => ctx.staged(t)),
+		...trees.flatMap((t) => stagedIn(t, ctx)),
 		...ownChanges(trees, ctx),
 	];
 	/* A config warning is the config reader's to report, not this core's. */
@@ -195,7 +197,16 @@ function tierDecision(prelude, notLive, globless) {
 function treesOf(ctx) {
 	const trees = [ctx.root];
 	if (!ctx.cwd) return trees;
-	const top = ctx.topLevel(ctx.cwd);
+	let top;
+	try {
+		top = ctx.topLevel(ctx.cwd);
+	} catch (e) {
+		/* git overran: the fail-open is recorded (#3446). */
+		ctx.log(
+			`the top level of ${ctx.cwd} did not read — worktree paths left unmatched: ${caught(e).message}`,
+		);
+		return trees;
+	}
 	if (top === null || top === ctx.root) return trees;
 	/* A git before 2.31 rejects --path-format (#2529). */
 	const common = ctx.commonDir(ctx.cwd);
@@ -209,6 +220,20 @@ function treesOf(ctx) {
 }
 
 /**
+ * A tree's staged paths, none where git will not list them (#3446).
+ * @param {string} tree
+ * @param {TierContext} ctx
+ */
+function stagedIn(tree, ctx) {
+	const staged = ctx.staged(tree);
+	if (staged !== null) return staged;
+	ctx.log(
+		`git diff --cached failed in ${tree} — its staged paths left unmatched`,
+	);
+	return [];
+}
+
+/**
  * This session's own changes since its base in each tree, or none where the
  * base or the write ledger will not read: unattributable, they are billed to
  * nobody.
@@ -218,7 +243,16 @@ function treesOf(ctx) {
 function ownChanges(trees, ctx) {
 	if (!ctx.session) return [];
 	/* No base yet is a session that has recorded none, not a fault. */
-	const base = ctx.sessionBase(ctx.session);
+	let base;
+	try {
+		base = ctx.sessionBase(ctx.session);
+	} catch (e) {
+		/* git overran: the fail-open is recorded (#3446). */
+		ctx.log(
+			`this session's base did not place — its unstaged changes left unmatched: ${caught(e).message}`,
+		);
+		return [];
+	}
 	if (base === null) return [];
 	const ledger = ctx.billed(ctx.session);
 	if (ledger === null) {
@@ -228,8 +262,16 @@ function ownChanges(trees, ctx) {
 		return [];
 	}
 	return trees.flatMap((t) => {
+		const changed = ctx.changedSince(t, base);
+		/* git would not list them: the fail-open is recorded (#3446). */
+		if (changed === null) {
+			ctx.log(
+				`git diff or ls-files failed in ${t} — this session's unstaged changes there left unmatched`,
+			);
+			return [];
+		}
 		const mine = new Set(ledgerInTree(t, ledger, ctx.root));
-		return ctx.changedSince(t, base).filter((p) => mine.has(p));
+		return changed.filter((p) => mine.has(p));
 	});
 }
 

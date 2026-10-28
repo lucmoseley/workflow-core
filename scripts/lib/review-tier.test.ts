@@ -840,6 +840,56 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		expect(envelope({ cwd: tree })).toBeNull();
 	});
 
+	it("logs a staged listing git fails, and states no tier (#3446)", () => {
+		declare([RLS]);
+		stage(SQL);
+		process.env.WFC_GIT = writeFaultyGit(
+			{ words: ["diff", "--cached"] },
+			{ exit: 128 },
+			{ under: sb.dir },
+		).git;
+		expect(envelope()).toBeNull();
+		expect(logs).toContain(
+			`git diff --cached failed in ${sb.repo} — its staged paths left unmatched`,
+		);
+	});
+
+	/*
+	 * The real clock, crossed: only a spawn's own kill sets ETIMEDOUT. A spent
+	 * entry budget cuts every git call to 1 ms (lib/hook-deadline.js), so the
+	 * host's reads overrun at once rather than at HOOK_GIT_TIMEOUT_MS.
+	 */
+	it("answers git overrunning as the core logs it, in the host ports (#3446)", () => {
+		recordBase(ME);
+		const fresh = [
+			"./hook-deadline.js",
+			"./git.js",
+			"./host-root.js",
+			"./review-tier-host.js",
+		];
+		const drop = () => {
+			for (const m of fresh) delete require.cache[require.resolve(m)];
+		};
+		drop();
+		try {
+			require("./hook-deadline.js").startEntryClock(
+				"PostToolUse",
+				Date.now() - process.uptime() * 1000 - 7500,
+			);
+			const ports = require("./review-tier-host.js").buildHostPorts(sb.repo);
+			expect(() => ports.topLevel(sb.repo)).toThrow(
+				expect.objectContaining({ code: "ETIMEDOUT" }),
+			);
+			expect(() => ports.sessionBase(ME)).toThrow(
+				"git merge-base overran its timeout",
+			);
+			expect(ports.staged(sb.repo)).toBeNull();
+			expect(ports.changedSince(sb.repo, "HEAD")).toBeNull();
+		} finally {
+			drop();
+		}
+	});
+
 	it("logs a config that will not read, and says nothing", () => {
 		fs.writeFileSync(
 			path.join(sb.repo, ".claude", "workflow-core.json"),
@@ -941,6 +991,45 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				}) as never,
 			),
 		).toBeNull();
+	});
+
+	/** The log lines decide writes over a stub context. */
+	const logged = (over: Record<string, unknown>) => {
+		const said: string[] = [];
+		decide(
+			"code-review",
+			stubCtx({ ...over, log: (what: string) => said.push(what) }) as never,
+		);
+		return said;
+	};
+	const overran = () => {
+		throw new Error("git overran its timeout");
+	};
+
+	it("logs a staged listing git will not give (#3446)", () => {
+		expect(logged({ staged: () => null })).toEqual([
+			"git diff --cached failed in /r — its staged paths left unmatched",
+		]);
+	});
+
+	it("logs a top level that overran, and matches the root alone (#3446)", () => {
+		expect(logged({ cwd: "/wt", topLevel: overran })).toEqual([
+			"the top level of /wt did not read — worktree paths left unmatched: git overran its timeout",
+		]);
+	});
+
+	it("logs a session base that overran (#3446)", () => {
+		expect(logged({ session: ME, sessionBase: overran })).toEqual([
+			"this session's base did not place — its unstaged changes left unmatched: git overran its timeout",
+		]);
+	});
+
+	it("logs a changed-path listing git will not give (#3446)", () => {
+		expect(
+			logged({ session: ME, sessionBase: () => "b", changedSince: () => null }),
+		).toEqual([
+			"git diff or ls-files failed in /r — this session's unstaged changes there left unmatched",
+		]);
 	});
 
 	it("spells the undeclared line's core paths as an install reaches them", () => {
