@@ -28,6 +28,17 @@
  * ticket shares: a close draft holding a placeholder for the landed
  * sha, superseded by the close.
  *
+ * A RECORD NAMING THE LANDED TREE — a counted commit with a `- FIXED` line
+ * whose `reviewed` tree equals its landed commit's on the record's paths, the
+ * marker's post-fix `tree=` copied in place of the pin — still counts, and is
+ * reported the same way, since a replay finds none of its fixed defects
+ * (#3444). A commit that fixed nothing lands its pre-fix tree, so is not
+ * judged. Judged in the checkout on this machine that tracks the record's
+ * repo; a record posted before PINNED_FROM, one naming no paths, and one no
+ * such checkout answers for (none there, a sha it does not hold, git
+ * failing) go unjudged. Residual: a session that never took the pin cannot
+ * correct its record, which is reported each run.
+ *
  * THE SEARCH. Every `corpus` tracker, one GraphQL search a page of 100
  * tickets, each with its comments, for "Review tier" or "Escaped defect"
  * since FLOOR, the day the record formats landed. Not "Review findings":
@@ -63,7 +74,9 @@ const {
 	ghJson,
 	unreachableRemedy,
 } = require("./lib/gh");
+const { gitOutcome } = require("./lib/git");
 const { hostRoot } = require("./lib/host-root");
+const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
 const { requiredGroup } = require("./lib/regex-group");
 const { takesLabel, takesRefusal } = require("./lib/takes-label");
 const {
@@ -80,6 +93,9 @@ const LABEL = takesLabel("wayfinder");
  * many commits the comparison needs, not a measurement. */
 const THRESHOLD = 15;
 const FLOOR = "2026-10-14";
+/* The day the rule named the pre-fix tree (#3444). The records before it
+ * stand as filed, #3425 charting which of their defects replay. */
+const PINNED_FROM = "2026-10-29";
 const SEARCH_CAP = 1000;
 /* GitHub's largest page: GraphQL's, for tickets and each ticket's comments,
  * and REST search's, for reverts. */
@@ -91,7 +107,7 @@ const SEARCH = `query($q: String!, $after: String) {
   search(query: $q, type: ISSUE, first: ${PAGE}, after: $after) {
     issueCount
     pageInfo { hasNextPage endCursor }
-    nodes { ... on Issue { number comments(first: ${PAGE}) { totalCount nodes { body } } } }
+    nodes { ... on Issue { number comments(first: ${PAGE}) { totalCount nodes { body createdAt } } } }
   }
 }`;
 const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
@@ -105,6 +121,7 @@ const TIER = /\*\*Review tier:\*\*\s*`?([A-Za-z-]+)/g;
 const COUNTED_TIERS = new Set(["escalated", "mission-critical"]);
 const BULLET = /^\s*-\s/;
 const KNOWN = /^\s*-\s*(?:FIXED|TICKETED)\b/;
+const FIXED = /^\s*-\s*FIXED\b/;
 const BLANK = /^\s*$/;
 /* A list ends at the next record, even one bulleted or indented, so its
  * defects are never counted under this one too. */
@@ -120,8 +137,10 @@ const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
 const REVERTS = /^This reverts commit ([0-9a-f]{40})\b/gm;
 
 /**
+ * @typedef {{ body: string, createdAt: string }} Comment
  * @typedef {{ repo: string, issue: number, base: string, tree: string,
- *   landed: string, paths: string | null, tier: string, fixed: number, escaped: number }} ReviewRecord
+ *   landed: string, paths: string | null, posted: string, tier: string,
+ *   fixed: number, fixes: number, escaped: number }} ReviewRecord
  * @typedef {{ repo: string, issue: number, line: string }} Unparsed
  * @typedef {{ at: number, tier: string } | { at: number, record: RegExpExecArray }
  *   | { at: number, unparsed: string }} Mark
@@ -137,7 +156,7 @@ const day = (ms) => new Date(ms).toISOString().slice(0, 10);
  * @param {string} q
  * @param {string | null} after
  * @returns {{ issueCount: number, pageInfo: { hasNextPage: boolean, endCursor: string },
- *   nodes: { number?: number, comments?: { totalCount: number, nodes: { body: string }[] } }[] }}
+ *   nodes: { number?: number, comments?: { totalCount: number, nodes: Comment[] } }[] }}
  */
 function searchPage(q, after) {
 	return ghJson([
@@ -153,12 +172,12 @@ function searchPage(q, after) {
 
 /**
  * Every ticket in `repo` the search finds updated from `from` to `to`, with
- * its comments' bodies, halving the window while it holds more than the cap.
+ * its comments, halving the window while it holds more than the cap.
  *
  * @param {string} repo
  * @param {string} from YYYY-MM-DD
  * @param {string} to YYYY-MM-DD
- * @returns {{ issue: number, bodies: string[] }[]}
+ * @returns {{ issue: number, comments: Comment[] }[]}
  */
 function searchTickets(repo, from, to) {
 	const q = `${PHRASES} in:comments is:issue repo:${repo} updated:${from}..${to}`;
@@ -193,27 +212,31 @@ function searchTickets(repo, from, to) {
 		);
 	return tickets.map(({ issue, comments }) => ({
 		issue,
-		bodies:
+		comments:
 			comments.totalCount > comments.nodes.length
 				? ghApiSlurp([`repos/${repo}/issues/${issue}/comments`]).map(
-						(/** @type {{ body: string | null }} */ c) => c.body ?? "",
+						(/** @type {{ body: string | null, created_at: string }} */ c) => ({
+							body: c.body ?? "",
+							createdAt: c.created_at,
+						}),
 					)
-				: comments.nodes.map((c) => c.body),
+				: comments.nodes,
 	}));
 }
 
 /**
- * How many of the bullets under a record dispose a finding fixed or ticketed.
+ * How many of the bullets under a record match `disposed`: KNOWN or FIXED.
  * The list runs past blank lines and indented continuation lines (#1698), and
  * stops at the first other line.
  *
  * @param {string} after the text following the record's own line
+ * @param {RegExp} disposed
  */
-function knownDefects(after) {
+function countDisposed(after, disposed) {
 	let n = 0;
 	for (const line of after.split("\n").slice(1)) {
 		if (RECORD_START.test(line)) break;
-		if (KNOWN.test(line)) n++;
+		if (disposed.test(line)) n++;
 		else if (!BULLET.test(line) && !BLANK.test(line) && !INDENTED.test(line))
 			break;
 	}
@@ -257,10 +280,10 @@ function parseMarks(body) {
  *
  * @param {string} repo
  * @param {number} issue
- * @param {string[]} bodies
+ * @param {Comment[]} comments
  * @returns {{ records: ReviewRecord[], escaped: string[], unparsed: Unparsed[] }}
  */
-function parseIssue(repo, issue, bodies) {
+function parseIssue(repo, issue, comments) {
 	/** @type {ReviewRecord[]} */
 	const records = [];
 	/** @type {string[]} */
@@ -268,7 +291,7 @@ function parseIssue(repo, issue, bodies) {
 	/** @type {Unparsed[]} */
 	const unparsed = [];
 	let tier = "";
-	for (const body of bodies) {
+	for (const { body, createdAt } of comments) {
 		for (const m of body.matchAll(ESCAPED)) escaped.push(group(m, 1, ESCAPED));
 		const marks = parseMarks(body);
 		for (const mark of marks) {
@@ -289,8 +312,10 @@ function parseIssue(repo, issue, bodies) {
 				tree: group(m, 2, FINDINGS),
 				landed: group(m, 3, FINDINGS),
 				paths: pathsOf(m),
+				posted: day(Date.parse(createdAt)),
 				tier,
-				fixed: knownDefects(body.slice(m.index)),
+				fixed: countDisposed(body.slice(m.index), KNOWN),
+				fixes: countDisposed(body.slice(m.index), FIXED),
 				escaped: 0,
 			});
 		}
@@ -321,13 +346,14 @@ const isSameSha = (a, b) => a.startsWith(b) || b.startsWith(a);
 /**
  * Folds `r`, a later record of the same commit, into `seen`.
  *
- * @param {ReviewRecord} seen accumulator: `fixed` is written, `landed` where
- *   `r`'s is longer, and `issue`, `base`, `tree` and `paths` where `seen` names
+ * @param {ReviewRecord} seen accumulator: `fixed` and `fixes` are written, `landed` where
+ *   `r`'s is longer, and `issue`, `base`, `tree`, `paths` and `posted` where `seen` names
  *   no paths and `r` does
  * @param {ReviewRecord} r
  */
 function mergeRecord(seen, r) {
 	seen.fixed += r.fixed;
+	seen.fixes += r.fixes;
 	if (r.landed.length > seen.landed.length) seen.landed = r.landed;
 	/* The issue, base, tree and paths are one replay, so a record naming paths
 	 * replaces a pathless one's whole, never its paths alone (#2083). Where
@@ -338,6 +364,7 @@ function mergeRecord(seen, r) {
 			base: r.base,
 			tree: r.tree,
 			paths: r.paths,
+			posted: r.posted,
 		});
 }
 
@@ -360,8 +387,8 @@ function countedCommits(trackers, today) {
 		const tickets = searchTickets(repo, FLOOR, today).sort(
 			(a, b) => a.issue - b.issue,
 		);
-		for (const { issue, bodies } of tickets) {
-			const found = parseIssue(repo, issue, bodies);
+		for (const { issue, comments } of tickets) {
+			const found = parseIssue(repo, issue, comments);
 			records.push(...found.records);
 			escaped.push(...found.escaped);
 			unparsed.push(...found.unparsed);
@@ -385,6 +412,37 @@ function countedCommits(trackers, today) {
 		commits: commits.filter((c) => c.fixed + c.escaped > 0),
 		unparsed,
 	};
+}
+
+/**
+ * The commits whose record the header's A RECORD NAMING THE LANDED TREE
+ * reports, judged in the checkouts under `home`.
+ *
+ * @param {ReviewRecord[]} commits
+ * @param {string} home
+ */
+function readLandedTreeRecords(commits, home) {
+	return commits.filter((c) => {
+		if (c.fixes === 0 || c.paths === null || c.posted < PINNED_FROM)
+			return false;
+		const checkout = readCheckoutTracking(c.repo, home);
+		if (!("root" in checkout)) return false;
+		const paths = c.paths.split(/[\s,]+/).filter(Boolean);
+		const diff = gitOutcome(
+			[
+				"--literal-pathspecs",
+				"diff",
+				"--name-only",
+				c.tree,
+				c.landed,
+				"--",
+				...paths,
+			],
+			[],
+			checkout.root,
+		);
+		return diff.ok && diff.out === "";
+	});
 }
 
 /**
@@ -475,6 +533,18 @@ function failOpen(fault, next) {
 	);
 }
 
+/**
+ * A faulty record: one line to stderr and to the guard-error log, each run
+ * until it is corrected.
+ *
+ * @param {string} tag
+ * @param {string} fault
+ */
+function reportRecord(tag, fault) {
+	logError(WHERE, fault);
+	writeFd(2, `${tag}: ${fault}\n`);
+}
+
 function main() {
 	parseOrExit(process.argv.slice(2), {
 		usage: "usage: node scripts/report-remeasure-due.js",
@@ -494,11 +564,16 @@ function main() {
 		);
 		return;
 	}
-	for (const u of unparsed) {
-		const fault = `${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`;
-		logError(WHERE, fault);
-		writeFd(2, `UNPARSEABLE: ${fault}\n`);
-	}
+	for (const u of unparsed)
+		reportRecord(
+			"UNPARSEABLE",
+			`${u.repo}#${u.issue} has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${u.line}`,
+		);
+	for (const c of readLandedTreeRecords(commits, homeDir()))
+		reportRecord(
+			"LANDED TREE",
+			`${c.repo}#${c.issue} has a record naming reviewed ${c.tree}, the tree landed ${c.landed} carries on its paths, so a replay finds none of its fixed defects: name the tree pinned before the first round's dispatch, as \`scripts/lib/rule-text.sh review-tier-records\` says`,
+		);
 	if (commits.length < THRESHOLD) return;
 	try {
 		commits = withoutReverted(
