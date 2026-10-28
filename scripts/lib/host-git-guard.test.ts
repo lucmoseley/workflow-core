@@ -254,7 +254,7 @@ describe("the host and the real git, unnamed", () => {
 
 	/*
 	 * A LOOP HERE NEVER FORKS (#3400): each git below `exec`s, so a regression
-	 * spins one pid, which shim's timeout kills.
+	 * spins one pid.
 	 */
 	const onPath = (dirs: string[], rest = process.env.PATH) => ({
 		WFC_HOST_GIT_DIR: hostCommon,
