@@ -4,8 +4,10 @@
  * ranking, driven through `decideTick` from plain records, since the core is
  * pure. A break here launches the wrong ticket, or none, while he is away.
  *
- * The progress table lists act kinds by hand, not from act-line.js, so a kind
- * deleted there fails its own case; a kind added there gets none (#3312).
+ * The progress table lists act kinds by hand, so the progress test covers each
+ * kind a writer emits; a kind added to act-line.js gets no case. Deleting one
+ * there leaves this table green, since progress counts any key: act-line.test.ts
+ * is the table that goes red (#3312).
  */
 
 import { describe, expect, it } from "vitest";

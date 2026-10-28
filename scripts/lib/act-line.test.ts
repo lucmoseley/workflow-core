@@ -9,7 +9,7 @@
  * launch's acts.
  *
  * The kinds are listed by hand, not read from act-line.js, so a kind deleted
- * there fails its own case (#3312).
+ * there fails its own case; a kind added there gets none (#3312).
  */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";

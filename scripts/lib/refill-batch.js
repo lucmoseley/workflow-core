@@ -79,8 +79,9 @@ function buildWouldRunLine(call, overflow) {
 
 /* The dispatcher's per-member lines parseRefusalReason keys on, which a test
  * pins to dispatch-sessions.sh's printf formats through launchBatch. */
+const MEMBER_REFUSED_TAIL = "— not launching this member.";
 const buildMemberRefused = (/** @type {string} */ prompt) =>
-	`REFUSED: ${prompt} — not launching this member.`;
+	`REFUSED: ${prompt} ${MEMBER_REFUSED_TAIL}`;
 const buildMemberDropped = (/** @type {string} */ prompt) =>
 	`dropped: ${prompt}`;
 /* A set-level refusal or cut: the duplicate gate's REFUSED or DROPPING
@@ -99,7 +100,7 @@ const SET_HEADER = /^\s*(REFUSED: |DROPPING |CAPPED: )/;
 function parseRefusalReason(out, prompt, failed) {
 	const lines = out.split("\n");
 	const isSetHeader = (/** @type {string} */ l) =>
-		SET_HEADER.test(l) && !l.endsWith("— not launching this member.");
+		SET_HEADER.test(l) && !l.endsWith(MEMBER_REFUSED_TAIL);
 	const at = lines.indexOf(buildMemberRefused(prompt));
 	if (at !== -1) {
 		const end = lines.findIndex((l, i) => i > at && !l.startsWith("  "));
