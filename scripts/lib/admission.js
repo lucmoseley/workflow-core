@@ -2098,8 +2098,6 @@ module.exports = {
 	swapHoldText,
 	buildLiveDrawLine,
 	SUITE_GATE_MB,
-	EARLYOOM_FLOOR_MB,
-	DRAW_MARGIN_MB,
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
 	LADDER_SUITE_WORKERS,
