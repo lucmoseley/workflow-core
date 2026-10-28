@@ -4,11 +4,8 @@
  * Driven by argv with a stubbed `gh` and the real `session-arbiter.js`
  * against a throwaway store — `scripts/lib/arbiter-testkit.ts`'s
  * `freshSandbox()` — so a claim released here exercises the real claim store.
- * A gap here lets a parked ticket keep the wrong `takes:` label, or its claim,
- * with no hook to catch it: a `PreToolUse` guard never sees the `gh` calls
- * this script makes. This test, red in CI, is the only thing that would.
- *
- * `gh` is stubbed at WFC_GH.
+ * Breaking it lets a parked ticket keep the wrong `takes:` label, or its
+ * claim, unseen: no `PreToolUse` guard sees the `gh` calls this script makes.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -236,9 +233,7 @@ describe("parking", () => {
 		expect(r.code).toBe(0);
 	});
 
-	/* #140: blocked on the founder is takes:wayfinder — the founder decides
-	   inside Claude Code, in a /wayfinder session (mantahostels#3439). */
-	it("refuses takes:human outright, before any gh call, offering takes:wayfinder or keep instead", () => {
+	it("refuses takes:human outright, before any gh call, offering takes:wayfinder or keep instead (#140)", () => {
 		claimIssue(9);
 		stubGh({ labels: ["takes:implement"] });
 		const r = run(["9", "takes:human", "waiting on the founder"]);
