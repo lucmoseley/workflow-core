@@ -1170,6 +1170,31 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(readLog()).toContain("a commit's disable comments went unchecked");
 	});
 
+	it("reads a file HEAD holds a directory at as unparseable, still refusing an added unreasoned directive, logged (#3174)", () => {
+		git("rm", "-q", MONEY);
+		write(`${MONEY}/x`, "x\n");
+		git("add", "-A");
+		git("commit", "-qm", "a directory at the file's path, landed unheld");
+		fs.rmSync(path.join(repo, MONEY), { recursive: true });
+		disableAbove("// Stryker disable next-line all");
+		// Staged by hand: `commit -- lib/money.js` alone commits only the
+		// directory's deletion, leaving the new file untracked and unheld.
+		git("add", "-A");
+		const r = commit([]);
+		expect(r.status).toBe(1);
+		expect(commitCount()).toBe(2);
+		expect(r.stderr).toContain(
+			`could not read ${MONEY} at HEAD (could not read a file at HEAD: ${MONEY} at HEAD is not a file)`,
+		);
+		expect(r.stderr).toContain(
+			"  lib/money.js:2  // Stryker disable next-line all\n",
+		);
+		expect(r.stderr).toContain("Say after a colon why");
+		expect(readLog()).toContain(
+			`could not read a file at HEAD — an old disable comment the commit arms went unchecked ${MONEY}: could not read a file at HEAD: ${MONEY} at HEAD is not a file`,
+		);
+	});
+
 	it("reads a file whose HEAD copy git will not show as unparseable, still refusing an added unreasoned directive, logged (#2727)", () => {
 		disableAbove("// Stryker disable next-line all");
 		const r = commit([MONEY], { extra: batchRefuses(`HEAD:${MONEY}`) });
@@ -1181,6 +1206,7 @@ describe("mutation-hold-gate.js — the disable comment (#1909)", () => {
 		expect(r.stderr).toContain(
 			"  lib/money.js:2  // Stryker disable next-line all\n",
 		);
+		expect(r.stderr).toContain("Say after a colon why");
 		expect(readLog()).toContain(
 			`could not read a file at HEAD — an old disable comment the commit arms went unchecked ${MONEY}: `,
 		);
