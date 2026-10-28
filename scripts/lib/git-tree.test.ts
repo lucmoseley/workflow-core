@@ -3,18 +3,18 @@
  * Cases for scripts/lib/git-tree.js, the git calls the guard parser's git
  * walk takes (#2785): which tree a directory is, and which files a patch
  * touches. Against a real trio of repositories: `shared`, its linked worktree `wt`, and an unrelated
- * `elsewhere`. Never a git fake: where a case counts or slows git, the stub at
- * lib/git.js's WFC_GIT seam passes every call to the real binary.
+ * `elsewhere`. Where a case counts or slows git, the stub at lib/git.js's
+ * WFC_GIT seam passes every call to the real binary; the case that must
+ * outlive a timeout answers `git apply` from the fault fake instead.
  *
  * The classifier keeps one outcome per git argument list for the process, so
  * every case asks of a directory no earlier case has named.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { writeFaultyGit } from "./git-fault-fake";
+import { resolveRealGit, shellQuote, writeFaultyGit } from "./git-fault-fake";
 import {
 	defineTemplate,
 	mkDirOutsideRepo,
@@ -24,11 +24,6 @@ import {
 import { patchFiles, treeClassifier } from "./git-tree.js";
 
 const template = defineTemplate(trioTemplate());
-
-/** The real binary, for a stub that passes every call on to it. */
-const GIT = execFileSync("bash", ["-c", "command -v git"], {
-	encoding: "utf8",
-}).trim();
 
 let dir: string;
 let shared: string;
@@ -71,7 +66,7 @@ const stubGit = (delay = 0) => {
 	const log = path.join(at, "calls");
 	fs.writeFileSync(
 		bin,
-		`#!/bin/sh\necho "$* @ $(pwd -P)" >> ${JSON.stringify(log)}\n${delay ? `sleep ${delay}\n` : ""}exec ${JSON.stringify(GIT)} "$@"\n`,
+		`#!/bin/sh\necho "$* @ $(pwd -P)" >> ${shellQuote(log)}\n${delay ? `sleep ${delay}\n` : ""}exec ${shellQuote(resolveRealGit())} "$@"\n`,
 		{ mode: 0o755 },
 	);
 	vi.stubEnv("WFC_GIT", bin);

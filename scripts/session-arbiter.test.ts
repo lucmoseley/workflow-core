@@ -37,7 +37,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { throughFullPipe } from "./lib/full-pipe-testkit";
-import { writeFaultyGit } from "./lib/git-fault-fake";
+import { shellQuote, writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
 import { cutInReplay, cutShellFunction } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
@@ -2492,7 +2492,7 @@ describe("the clobber report — a write by a route no hook watches (mantahostel
 			const { git } = writeFaultyGit(
 				{ words: ["status"] },
 				{
-					script: `sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/' '${store.paths.lock(auditScript)}'`,
+					script: `sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/' ${shellQuote(store.paths.lock(auditScript))}`,
 				},
 				{ under: sb.dir },
 			);
@@ -2838,7 +2838,7 @@ describe("release --force, the escape for a stranded claim (mantahostels#411)", 
 		const { git } = writeFaultyGit(
 			{ words: ["status"] },
 			{
-				script: `sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/; s/("sessionId"[[:space:]]*:[[:space:]]*")[^"]*/\\1carol/' '${store.paths.lock(rel)}'`,
+				script: `sed -i -E 's/("claimId"[[:space:]]*:[[:space:]]*")[^"]*/\\1swapped/; s/("sessionId"[[:space:]]*:[[:space:]]*")[^"]*/\\1carol/' ${shellQuote(store.paths.lock(rel))}`,
 			},
 			{ under: sb.dir },
 		);

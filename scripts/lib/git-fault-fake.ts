@@ -30,7 +30,8 @@ export type GitFaultMatch =
  * What a matched call does: `exit` with that code;
  * `sleep` that many seconds, as the process a timeout kills; or run `script`,
  * an sh body seeing the call's argv and the real git at `$REAL_GIT`, which
- * falls through to the real git where it does not exit.
+ * falls through to the real git where it does not exit. A value the body
+ * names goes in through `shellQuote`.
  */
 export type GitFaultAction =
 	| { exit: number }
@@ -56,7 +57,8 @@ export const resolveRealGit = (): string => {
 	return realGit;
 };
 
-const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
+/** `s` as one sh word. */
+export const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 const matchLines = (match: GitFaultMatch): string[] => {
 	if ("words" in match)

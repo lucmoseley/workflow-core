@@ -26,7 +26,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { core, freshSandbox, store } from "./arbiter-testkit";
-import { writeFaultyGit } from "./git-fault-fake";
+import { shellQuote, writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { runInProcess } from "./run-in-process";
@@ -354,7 +354,7 @@ describe("a session in a linked worktree (#2386)", () => {
 	const oldGitAt = (at: string) => {
 		process.env.WFC_GIT = writeFaultyGit(
 			{ argPrefix: "--path-format=" },
-			{ script: `[ "$(pwd -P)" = '${at}' ] && exit 129` },
+			{ script: `[ "$(pwd -P)" = ${shellQuote(at)} ] && exit 129` },
 			{ under: sb.dir },
 		).git;
 	};

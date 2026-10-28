@@ -20,7 +20,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
-import { writeFaultyGit } from "./lib/git-fault-fake";
+import { shellQuote, writeFaultyGit } from "./lib/git-fault-fake";
 import { initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
 import { runInProcess } from "./lib/run-in-process";
@@ -1081,8 +1081,8 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 			{ first: "commit" },
 			{
 				script: [
-					`if ${always} || [ ! -f '${mark}' ]; then`,
-					`  : > '${mark}'`,
+					`if ${always} || [ ! -f ${shellQuote(mark)} ]; then`,
+					`  : > ${shellQuote(mark)}`,
 					'  "$REAL_GIT" commit -qm neighbour -- held.md >/dev/null 2>&1',
 					`  echo "fatal: cannot lock ref 'HEAD': is at $("$REAL_GIT" rev-parse HEAD) but expected $("$REAL_GIT" rev-parse HEAD~1)" >&2`,
 					"  exit 128",

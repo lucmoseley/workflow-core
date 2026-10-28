@@ -24,7 +24,7 @@ import {
 	noSessions,
 	store,
 } from "./arbiter-testkit";
-import { writeFaultyGit } from "./git-fault-fake";
+import { shellQuote, writeFaultyGit } from "./git-fault-fake";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
@@ -220,8 +220,8 @@ describe("the tier scan re-hashes only what moved (#833)", () => {
 			{ first: "hash-object" },
 			{
 				script: [
-					`echo -- >> '${log}'`,
-					`tee -a '${log}' | "$REAL_GIT" "$@"`,
+					`echo -- >> ${shellQuote(log)}`,
+					`tee -a ${shellQuote(log)} | "$REAL_GIT" "$@"`,
 					"exit",
 				].join("\n"),
 			},

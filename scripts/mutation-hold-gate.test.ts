@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stampFile, writeStamp } from "./lib/commit-key.js";
-import { writeFaultyGit } from "./lib/git-fault-fake";
+import { shellQuote, writeFaultyGit } from "./lib/git-fault-fake";
 import { mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import {
@@ -252,7 +252,7 @@ const batchRefuses = (object: string) => ({
 	WFC_GIT: writeFaultyGit(
 		{ words: ["cat-file", "--batch"] },
 		{
-			script: `in="$(cat)"; case "$in" in *"${object}"*) ${STUB_GIT_REFUSAL} ;; esac; printf '%s\\n' "$in" | "$REAL_GIT" "$@"; exit $?`,
+			script: `in="$(cat)"; case "$in" in *${shellQuote(object)}*) ${STUB_GIT_REFUSAL} ;; esac; printf '%s\\n' "$in" | "$REAL_GIT" "$@"; exit $?`,
 		},
 		{ under: scratch },
 	).git,
