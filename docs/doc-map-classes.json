@@ -398,6 +398,41 @@
 		"route": "Vendored",
 		"consumes": null
 	},
+	".claude/skills/heresy-sweep/SKILL.md": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": null,
+		"route": null,
+		"consumes": [
+			{
+				"kind": "path",
+				"ref": "docs/code-standards-base.md",
+				"gloss": "§1: the base primitives table it reads first"
+			},
+			{
+				"kind": "path",
+				"ref": "docs/code-standards.md",
+				"gloss": "§1: the local primitives table it reads first"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/check-primitives.js",
+				"gloss": "§1 and §5: the table checker, whose new-heresies count reads the due issue's sub-issues"
+			},
+			{
+				"kind": "path",
+				"ref": "scripts/resolve-ticket.js",
+				"gloss": "§6: which closes the due issue"
+			},
+			{
+				"kind": "issue",
+				"ref": "3365",
+				"gloss": "the spec it shipped under"
+			}
+		],
+		"reader": "agent"
+	},
 	".claude/skills/implement": {
 		"section": "Skills & settings",
 		"class": "source-of-truth",

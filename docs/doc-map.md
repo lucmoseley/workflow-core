@@ -127,6 +127,7 @@ npm run gen:doc-map-section-a
 | `.claude/skills/grill-with-docs` | Grill with docs — skill | `source-of-truth` | Vendored | — |
 | `.claude/skills/grilling` | Grilling — skill | `source-of-truth` | Vendored | — |
 | `.claude/skills/handoff` | Handoff — skill | `source-of-truth` | Vendored | — |
+| `.claude/skills/heresy-sweep/SKILL.md` | Heresy sweep — skill | `source-of-truth` | Direct | `docs/code-standards-base.md` (§1: the base primitives table it reads first) · `docs/code-standards.md` (§1: the local primitives table it reads first) · `scripts/check-primitives.js` (§1 and §5: the table checker, whose new-heresies count reads the due issue's sub-issues) · `scripts/resolve-ticket.js` (§6: which closes the due issue) · #3365 (the spec it shipped under) |
 | `.claude/skills/implement` | Implement — skill | `source-of-truth` | Vendored | — |
 | `.claude/skills/improve-codebase-architecture` | Improve codebase architecture — skill | `source-of-truth` | Vendored | — |
 | `.claude/skills/manual-sync/SKILL.md` | Manual sync — skill | `source-of-truth` | Direct | — |
