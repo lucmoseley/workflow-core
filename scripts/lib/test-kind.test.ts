@@ -13,8 +13,9 @@
  * and tests ship to adopters (#2759). Loosen siblingTests and a host guard
  * with no test passes the registry checks; tighten it and one tested by a
  * form the suite collects is refused as untested (#3170). Drift
- * .husky/pre-commit's test-file arms from JS_TEST_FILE and a commit staging
- * only a `.spec.` or `.mjs` test skips the gates that read it (#3170).
+ * .husky/pre-commit's JS_TEST_ERE from JS_TEST_FILE, or a test-file gate from
+ * JS_TEST_ERE, and a commit staging only a `.spec.` or `.mjs` test skips the
+ * gates that read it (#3170, #3387).
  */
 
 import { execFileSync } from "node:child_process";
@@ -222,24 +223,33 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 		);
 	});
 
+	const hook = () =>
+		fs.readFileSync(
+			path.resolve(__dirname, "..", "..", ".husky", "pre-commit"),
+			"utf8",
+		);
+
+	it("is .husky/pre-commit's JS_TEST_ERE, set once", () => {
+		expect(
+			[...hook().matchAll(/^JS_TEST_ERE='([^']*)'$/gm)].map((m) => m[1]),
+		).toEqual([JS_TEST_ERE]);
+	});
+
 	it.each([
-		"check-guard-test-isolation",
-		"check-host-root-test-isolation",
-		"check-git-fixture-identity",
+		["check-guard-test-isolation", "^scripts/.*$JS_TEST_ERE"],
+		["check-host-root-test-isolation", "^scripts/.*$JS_TEST_ERE"],
+		["check-git-fixture-identity", "^scripts/.*$JS_TEST_ERE"],
+		["generate-test-read-edges", "$JS_TEST_ERE"],
 	])(
 		"opens .husky/pre-commit's %s gate on every test file vitest collects",
-		(checker) => {
-			const hook = fs.readFileSync(
-				path.resolve(__dirname, "..", "..", ".husky", "pre-commit"),
-				"utf8",
-			);
-			const arm = hook.match(
+		(checker, opening) => {
+			const arm = hook().match(
 				new RegExp(
-					String.raw`^if armed '([^']*)'; then\n\s*node \S*${checker}\.js`,
+					String.raw`^if armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
 					"m",
 				),
 			)?.[1];
-			expect(arm?.split("|^")[0]).toBe(`^scripts/.*${JS_TEST_ERE}`);
+			expect(arm?.split("|^")[0]).toBe(opening);
 		},
 	);
 });

@@ -21,32 +21,45 @@
  * `JS_TEST_FILE` is a JS test file alone, what vitest.config.ts collects (#2545):
  * the guard-<name> or check-<name> file check-registrations.js and
  * registry-atomicity.js never count as a guard or checker and file-claim.js
- * never points at guard-authoring (#2869, #3012), and the test files the
- * isolation and fixture-identity checkers read;
+ * never points at guard-authoring (#2869, #3012), the test files the
+ * isolation and fixture-identity checkers read, and the suffix arm-tasks.js
+ * names a hidden test's copy by;
  * `PY_TEST_FILE` is a pytest test file alone, pytest's default `python_files`.
  * `isJsTestFile` is `JS_TEST_FILE` as a predicate. .husky/pre-commit's
- * test-file gates arm on it written in grep's ERE, pinned equal by
- * test-kind.test.ts. `siblingTests` is every name a test of one
+ * test-file gates arm on its `JS_TEST_ERE`, `JS_TEST_FILE` in grep's ERE,
+ * pinned equal by test-kind.test.ts. `siblingTests` is every name a test of one
  * script may take, by `JS_TEST_FILE` and `PY_COLLECTED_TEST`: the files
- * registrations.js, registry-atomicity.js and doc-map.js's self-filter take as
- * a script's own test; `pytestSiblings` is its pytest half, touched-tests.js's.
+ * registrations.js, registry-atomicity.js, the core's hook- and
+ * checker-registrations tests and doc-map.js's self-filter take as a script's
+ * own test; `pytestSiblings` is its pytest half, touched-tests.js's.
  * check-host-root.js adds the suite's apparatus to `JS_TEST_FILE`.
  *
  * One reading asks another runner's question and stays apart:
- * infer-commands.js's `NODE_TEST_FILE` is node --test's own default patterns,
- * which take `test/**` and `*-test.js` and no `.spec.` form.
+ * infer-commands.js's `NODE_TEST_FILE` is the `.js` family of node --test's own
+ * default patterns, which take `test/**` and `*-test.js` and no `.spec.` form;
+ * their `.ts` family is left out, for the reason infer-commands.js gives.
  */
 
-// Vitest's default include collects both forms (#2271).
-const JS_TEST_SOURCE = String.raw`\.(?:test|spec)\.[cm]?[jt]sx?$`;
-const JS_TEST_FILE = new RegExp(JS_TEST_SOURCE);
-/* `JS_TEST_SOURCE`'s parts, spelt out. */
+// Vitest's default include collects both kinds (#2271).
 const JS_TEST_PARTS = {
 	kind: ["test", "spec"],
 	module: ["", "c", "m"],
 	lang: ["j", "t"],
 	jsx: ["", "x"],
 };
+/**
+ * A part of single characters as a character class, `?` where it may be empty.
+ * @param {string[]} chars
+ */
+const buildCharClass = (chars) => {
+	const set = chars.filter(Boolean);
+	const one = set.length === 1 ? set[0] : `[${set.join("")}]`;
+	return chars.includes("") ? `${one}?` : one;
+};
+const JS_TEST_SOURCE = String.raw`\.(?:${JS_TEST_PARTS.kind.join("|")})\.${buildCharClass(
+	JS_TEST_PARTS.module,
+)}${buildCharClass(JS_TEST_PARTS.lang)}s${buildCharClass(JS_TEST_PARTS.jsx)}$`;
+const JS_TEST_FILE = new RegExp(JS_TEST_SOURCE);
 const JS_TEST_SUFFIXES = JS_TEST_PARTS.kind.flatMap((kind) =>
 	JS_TEST_PARTS.module.flatMap((module) =>
 		JS_TEST_PARTS.lang.flatMap((lang) =>

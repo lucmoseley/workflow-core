@@ -62,7 +62,7 @@
  * the damage it prevents is invisible for as long as it takes someone to audit
  * the log by hand.
  *
- * IMPLICIT:  on every commit staging a scripts/ TypeScript or shell file, refuses one where a test runs a fail-open-logging guard without redirecting CLAUDE_CONFIG_DIR.
+ * IMPLICIT:  on every commit staging a scripts/ test file, TypeScript or shell file, refuses one where a test runs a fail-open-logging guard without redirecting CLAUDE_CONFIG_DIR.
  * JUSTIFIED: fail-safe — a checker that cannot enumerate or read the tracked set is BROKEN rather than green, since a silent pass here restores exactly the blind spot mantahostels#1452 was.
  * DEFEAT:    --warn caps findings below the gating line; an `isolation-exempt:` comment in the test file drops that file, and nothing validates the reason it gives.
  */

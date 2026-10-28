@@ -14,7 +14,6 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -457,24 +456,5 @@ describe("the unseen-read warning and listing (#1881)", () => {
 		const r = list();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("0 read(s) the diff selector cannot attribute.\n");
-	});
-});
-
-describe("the pre-commit gate's arming (#2545)", () => {
-	it("arms on every test file vitest collects", () => {
-		const hook = fs.readFileSync(
-			path.resolve(__dirname, "..", ".husky", "pre-commit"),
-			"utf8",
-		);
-		const { JS_TEST_FILE } = createRequire(import.meta.url)(
-			"./lib/test-kind.js",
-		);
-		const arm = hook.match(
-			/^if armed '([^']*)'; then\n\s*node \S*generate-test-read-edges\.js --check/m,
-		)?.[1];
-		// grep's ERE has no non-capturing group.
-		expect(arm?.split("|^")[0]).toBe(
-			JS_TEST_FILE.source.replaceAll("(?:", "("),
-		);
 	});
 });

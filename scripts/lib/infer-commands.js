@@ -633,9 +633,9 @@ function hasNodeTestFile(dir, underTest = false) {
 	} catch {
 		return false;
 	}
-	const isTest = underTest ? NODE_TEST_DIR_FILE : NODE_TEST_FILE;
+	const testPattern = underTest ? NODE_TEST_DIR_FILE : NODE_TEST_FILE;
 	for (const e of entries) {
-		if (e.isFile() && isTest.test(e.name)) return true;
+		if (e.isFile() && testPattern.test(e.name)) return true;
 	}
 	return entries.some(
 		(e) =>

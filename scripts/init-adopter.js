@@ -528,7 +528,7 @@ function reportCommands({ sourced, kept, out }) {
 	else if (kept) out(`commands none declared in ${CONFIG_PATH}`);
 	else
 		out(
-			"commands none — no package.json script, pytest config or *.test.js file names one",
+			"commands none — no package.json script, pytest config or node --test .js test file names one",
 		);
 }
 
