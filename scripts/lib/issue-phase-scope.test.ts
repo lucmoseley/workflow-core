@@ -66,7 +66,7 @@ const writeFixtures = (registerBody: string) => {
 	fs.writeFileSync(at("docs/called-cards.md"), registerBody);
 };
 
-const run = (command: string) =>
+const run = (command: string, ports: Record<string, unknown> = {}) =>
 	decide(
 		command,
 		kitContextFake({
@@ -75,6 +75,7 @@ const run = (command: string) =>
 				fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
 			log: (what: string) => faults.push(what),
 			...buildHostPorts(dir),
+			...ports,
 		}),
 	);
 
@@ -479,13 +480,43 @@ describe("what it fails open on, and records", () => {
 		}
 	});
 
-	it("records nothing for a gh call that is not a creation", () => {
+	it("records nothing for a gh call that is not a creation (#3426)", () => {
 		// The roadmap check waits until the command is known to be a create;
 		// ahead of that, every `gh` call in the repo would write a fail-open record.
 		fs.rmSync(at("docs/reference-roadmap.html"));
 		expect(verdict("gh issue list --state open")).toBe("allow");
 		expect(verdict("gh pr view 5")).toBe("allow");
+		expect(verdict("gh api repos/o/r/issues/5")).toBe("allow");
+		expect(verdict('gh api graphql -f query="{viewer{login}}"')).toBe("allow");
 		expect(readFaults()).toEqual([]);
+	});
+
+	it("never asks for the roadmap on a gh api read, so a port that throws refuses none (#3426)", () => {
+		const readable = () => {
+			throw new Error("port down");
+		};
+		// The REST creation still asks, so the dispatcher's fail-closed path
+		// still reaches it.
+		expect(() =>
+			run('gh api repos/o/r/issues -f title="search-core — a thing"', {
+				readable,
+			}),
+		).toThrow("port down");
+		expect(run("gh api repos/o/r/issues/5", { readable })).toBeNull();
+		expect(
+			run('gh api graphql -f query="{viewer{login}}"', { readable }),
+		).toBeNull();
+		expect(readFaults()).toEqual([]);
+	});
+
+	it("allows and records a missing roadmap on a REST creation (#3426)", () => {
+		fs.rmSync(at("docs/reference-roadmap.html"));
+		expect(
+			verdict('gh api repos/o/r/issues -f title="search-core — a thing"'),
+		).toBe("allow");
+		expect(readFaults()).toEqual([
+			"docs/reference-roadmap.html is unreadable — issue creation allowed unchecked",
+		]);
 	});
 
 	it("allows and records a missing register", () => {

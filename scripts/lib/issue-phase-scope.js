@@ -159,17 +159,25 @@ function judge(run, cmd) {
 	if (head === undefined || !isGhCommand(head)) return;
 	if (sub === "issue") {
 		if (verb !== "create") return;
-	} else if (sub !== "api") return;
-	/* The roadmap is what says a card's phase, and a guard that cannot read
-	 * its own authority allows the work. Checked HERE, once the command is
-	 * known to be a creation. */
+		openIfRoadmapUnreadable(run);
+		judgeCreate(run, cmd, words.slice(3));
+	} else if (sub === "api") judgeApi(run, cmd, words.slice(2));
+}
+
+/**
+ * The roadmap is what says a card's phase, and a guard that cannot read its
+ * own authority allows the work. Asked only once the command is known to be a
+ * creation, or one that may be: asked of every `gh` call, a port fault would
+ * refuse plain reads and a missing roadmap would log creations that never were
+ * (#3426).
+ * @param {Run} run
+ */
+function openIfRoadmapUnreadable(run) {
 	if (!run.ctx.readable(ROADMAP))
 		open(
 			run.ctx,
 			`${ROADMAP} is unreadable — issue creation allowed unchecked`,
 		);
-	if (sub === "issue") judgeCreate(run, cmd, words.slice(3));
-	else judgeApi(run, cmd, words.slice(2));
 }
 
 /**
@@ -241,6 +249,7 @@ function judgeApi(run, cmd, args) {
 	if (method.known && !isPost(method.text, call)) return;
 	/* GraphQL is no issue collection, so it leaves here (LIMITS). */
 	if (endpoint.known && !isIssueCollection(endpoint.text)) return;
+	openIfRoadmapUnreadable(run);
 	if (!method.known || !endpoint.known || call.input)
 		open(
 			run.ctx,
