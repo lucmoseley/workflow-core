@@ -7,33 +7,6 @@
 				"hooks": [
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-registry-atomicity.js",
-						"if": "Bash(git *)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-registry-atomicity.js",
-						"if": "Bash(*commit-paths.js*)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-pull-form.js",
-						"if": "Bash(git *)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-push-rules.js",
-						"if": "Bash(git *)",
-						"timeout": 10
-					},
-					{
-						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-suite-concurrency.js",
 						"if": "Bash(*npm *)",
 						"timeout": 30,
@@ -144,25 +117,6 @@
 					},
 					{
 						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-node-heap.js",
-						"if": "Bash(*max-old-space-size*)",
-						"timeout": 10
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-node-heap.js",
-						"if": "Bash(*max_old_space_size*)",
-						"timeout": 10
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-rm-unchecked.js",
-						"if": "Bash(*rm *)",
-						"timeout": 30,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-root-find.js",
 						"if": "Bash(*find *)",
 						"timeout": 30,
@@ -173,20 +127,6 @@
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-ugrep-pattern.js",
 						"if": "Bash(grep *)",
 						"timeout": 10
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-npm-install.js",
-						"if": "Bash(*npm *)",
-						"timeout": 60,
-						"onFailure": "block"
-					},
-					{
-						"type": "command",
-						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-npm-install.js",
-						"if": "Bash(*npx *)",
-						"timeout": 60,
-						"onFailure": "block"
 					},
 					{
 						"type": "command",
@@ -214,7 +154,7 @@
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-dispatch.js",
-						"timeout": 30,
+						"timeout": 60,
 						"onFailure": "block"
 					}
 				]
