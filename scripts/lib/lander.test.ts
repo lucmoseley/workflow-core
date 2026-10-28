@@ -12,6 +12,7 @@ import {
 	type FixTicket,
 	type Held,
 	type HoldNote,
+	type JobsOnMain,
 	type Red,
 	runLander,
 	type Verdict,
@@ -39,7 +40,8 @@ const F = "f".repeat(40);
  * each fix ticket. `relation` defaults to what the shas say, reading any two
  * distinct shas as landing ahead. A revert lands on `landing` as `R`, onto
  * the tip it found there. `refsFail` throws from the nth read of the refs
- * where it returns an error.
+ * where it returns an error. `mainJobs`, where given, is the tester's read of
+ * CI jobs on `main`.
  */
 async function run(
 	remote: { main: string; landing: string | null; relation?: Relation },
@@ -60,6 +62,7 @@ async function run(
 		requiresRun = false,
 		pushRefused = null as string | null,
 		pushFails = null as (() => Error) | null,
+		mainJobs = null as ((jobs: string[]) => JobsOnMain) | null,
 	} = {},
 ) {
 	const ledger = new Set<string>(ledgered);
@@ -79,6 +82,7 @@ async function run(
 	const reverted: { culprit: string; parent: string | null }[] = [];
 	const revertWhys: string[] = [];
 	const actions: unknown[] = [];
+	const mainJobsRead: string[][] = [];
 	let refsRead = 0;
 	let released = 0;
 	const waits: number[] = [];
@@ -125,6 +129,12 @@ async function run(
 		},
 		tester: {
 			requiresRun,
+			...(mainJobs && {
+				jobsOnMain: async (jobs: string[]) => {
+					mainJobsRead.push(jobs);
+					return mainJobs(jobs);
+				},
+			}),
 			verdict: async (sha, files, lands) => {
 				tested.push(files ? { sha, files } : { sha });
 				if (lands && files) landing.push({ sha, files });
@@ -198,6 +208,7 @@ async function run(
 		released,
 		refsRead,
 		waits,
+		mainJobsRead,
 	};
 }
 
@@ -732,6 +743,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			bisect: {},
 			confirm: {},
 			parentOnFiles: null,
+			jobsOnMain: null,
 			revert: null,
 			unfiled: null,
 			pushedPast: null,
@@ -756,14 +768,17 @@ describe("runLander across runs on a red batch (#2673)", () => {
 describe("runLander on a red only a CI job names (#3253)", () => {
 	const job = "Full suite / Lint and types";
 	/** Every whole-suite run at `red` shas fails `job` alone, naming no file. */
-	const jobRed = (red: (sha: string, nth: number) => boolean) =>
+	const jobRed = (
+		red: (sha: string, nth: number) => boolean,
+		mainJobs: ((jobs: string[]) => JobsOnMain) | null = null,
+	) =>
 		run(
 			{ main: A, landing: D },
 			(sha, _files, nth) =>
 				sha !== R && red(sha, nth)
 					? { kind: "red", files: [], jobs: [job] }
 					: { kind: "green" },
-			{ history: [B, C, D] },
+			{ history: [B, C, D], mainJobs },
 		);
 
 	it("names the job in the revert and the fix ticket, rerunning the whole suite and never the job", async () => {
@@ -786,13 +801,50 @@ describe("runLander on a red only a CI job names (#3253)", () => {
 		);
 	});
 
-	it("runs no whole suite at a culprit's parent that is main (#3493)", async () => {
-		const r = await jobRed((sha) => sha !== A);
+	it("runs no whole suite at a culprit's parent that is main, reverting where the job is green there (#3493)", async () => {
+		const r = await jobRed(
+			(sha) => sha !== A,
+			() => ({ kind: "read", red: [] }),
+		);
 		expect(r.tested).not.toContainEqual({ sha: A, files: [] });
+		expect(r.mainJobsRead).toEqual([[job]]);
 		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
 		expect(r.revertWhys).toEqual([
 			`The lander found it red on the CI jobs '${job}', twice, with its parent aaaaaaaaa at \`main\`.`,
 		]);
+	});
+
+	it("holds, never reverting, where the job is already red on main (#3526)", async () => {
+		const r = await jobRed(
+			(sha) => sha !== A,
+			(jobs) => ({ kind: "read", red: jobs }),
+		);
+		expect(r.reverted).toEqual([]);
+		expect(r.tickets).toEqual([]);
+		expect(r.end).toEqual({
+			kind: "hold",
+			reason: `already red on \`main\`: the CI jobs '${job}'`,
+			cause: "already-red",
+		});
+	});
+
+	it("reverts where the job's state on main went unread, saying so (#3526)", async () => {
+		const r = await jobRed(
+			(sha) => sha !== A,
+			() => ({ kind: "unread", reason: "gh down" }),
+		);
+		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
+		expect(r.revertWhys).toEqual([
+			`The lander found it red on the CI jobs '${job}', twice, with its parent aaaaaaaaa at \`main\`. Their state on \`main\` was unread: gh down.`,
+		]);
+	});
+
+	it("reverts, saying the state on main was unread, where the tester reads no CI run", async () => {
+		const r = await jobRed((sha) => sha !== A);
+		expect(r.reverted).toEqual([{ culprit: B, parent: A }]);
+		expect(r.revertWhys[0]).toContain(
+			"Their state on `main` was unread: the tester reads no CI run.",
+		);
 	});
 
 	it("names the culprit's own failing jobs, not the tip's", async () => {
@@ -965,6 +1017,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 				[B]: { kind: "unknown", reason: ceiling },
 			},
 			parentOnFiles: null,
+			jobsOnMain: null,
 			revert: null,
 			unfiled: null,
 			pushedPast: null,
@@ -1107,6 +1160,7 @@ describe("runLander on a red batch whose files are red on main too (#3324)", () 
 			bisect: { [D]: { kind: "red", files: [X, Y] } },
 			confirm: {},
 			parentOnFiles: null,
+			jobsOnMain: null,
 			revert: null,
 			unfiled: null,
 		} as unknown as Red;
@@ -1225,6 +1279,7 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 		bisect: {},
 		confirm: {},
 		parentOnFiles: null,
+		jobsOnMain: null,
 		revert: null,
 		unfiled: null,
 		pushedPast: null,
@@ -1321,6 +1376,7 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 		},
 		confirm: {},
 		parentOnFiles: null,
+		jobsOnMain: null,
 		revert: null,
 		unfiled: null,
 		pushedPast: null,

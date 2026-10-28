@@ -65,7 +65,8 @@ const reads = (
 			if (!next) throw new Error("no listing");
 			return next();
 		},
-		jobsOf: () => jobs,
+		mainRuns: (): Run[] => [],
+		jobsOf: (_run: number) => jobs,
 		failedLogOf: () => FAILED_LOG,
 		presentAt: (_: string, files: string[]) =>
 			files.filter((f) => present.includes(f)),
@@ -289,6 +290,106 @@ it("hands a rerun of named files that lands, at a sha whose run passed, to the f
 	expect(v).toEqual({ kind: "red", files: ["x.test.ts"] });
 	expect(asked).toEqual([[SHA, ["x.test.ts"]]]);
 	expect(r.reran).toEqual([]);
+});
+
+const LINT = "Full suite / Lint and types";
+const DOCS = "Full suite / Document guards";
+
+/** Reads whose `main` runs are `runs`, the jobs of run n being `jobsByRun[n]`. */
+const mainReads = (runs: Run[], jobsByRun: Record<number, Job[]>) => ({
+	...reads([() => []]),
+	mainRuns: () => runs,
+	jobsOf: (id: number) => jobsByRun[id] ?? [],
+});
+
+const jobsOnMain = (r: ReturnType<typeof reads>, jobs: string[]) =>
+	actionsTester({ root: "/", reads: r, ...clock() }).jobsOnMain?.(jobs);
+
+it("reads a job red in main's newest finished run as red there (#3526)", async () => {
+	const r = mainReads([run(1, "success"), run(2, "failure"), run(3, null)], {
+		1: [{ name: LINT, conclusion: "success" }],
+		2: [{ name: LINT, conclusion: "failure" }],
+		3: [{ name: LINT, conclusion: "success" }],
+	});
+	expect(await jobsOnMain(r, [LINT])).toEqual({ kind: "read", red: [LINT] });
+});
+
+it("reads a job green in main's newest finished run as not red there", async () => {
+	const r = mainReads([run(1, "failure"), run(2, "success")], {
+		1: [{ name: LINT, conclusion: "failure" }],
+		2: [{ name: LINT, conclusion: "success" }],
+	});
+	expect(await jobsOnMain(r, [LINT])).toEqual({ kind: "read", red: [] });
+});
+
+it("takes each job from the newest run that passed or failed it", async () => {
+	const r = mainReads([run(1, "failure"), run(2, "cancelled")], {
+		1: [{ name: DOCS, conclusion: "failure" }],
+		2: [
+			{ name: LINT, conclusion: "success" },
+			{ name: DOCS, conclusion: "skipped" },
+		],
+	});
+	expect(await jobsOnMain(r, [LINT, DOCS])).toEqual({
+		kind: "read",
+		red: [DOCS],
+	});
+});
+
+it("reads a job no run on main settled as unread", async () => {
+	const r = mainReads([run(1, "success")], { 1: [] });
+	expect(await jobsOnMain(r, [LINT])).toEqual({
+		kind: "unread",
+		reason: `no finished scheduled-checks.yml run on main passed or failed '${LINT}'`,
+	});
+});
+
+it("reads an unreadable main listing as unread", async () => {
+	const r = {
+		...mainReads([], {}),
+		mainRuns: (): Run[] => {
+			throw new Error("HTTP 403");
+		},
+	};
+	const v = await jobsOnMain(r, [LINT]);
+	expect(v).toMatchObject({
+		kind: "unread",
+		reason: expect.stringContaining("runs unreadable: HTTP 403"),
+	});
+});
+
+it("never reads Suite passed on main, which fails with any job there", async () => {
+	const r = mainReads([run(1, "failure")], {
+		1: [
+			{ name: LINT, conclusion: "success" },
+			{ name: DOCS, conclusion: "failure" },
+			{ name: "Suite passed", conclusion: "failure" },
+		],
+	});
+	expect(await jobsOnMain(r, [LINT, "Suite passed"])).toEqual({
+		kind: "read",
+		red: [],
+	});
+});
+
+it("reads a job's state on main through gh", async () => {
+	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "actions-tester-"));
+	const answers = {
+		list: JSON.stringify([run(9, "failure")]),
+		jobs: JSON.stringify({ jobs: [{ name: LINT, conclusion: "failure" }] }),
+	};
+	process.env.WFC_GH = stubGhScript(
+		tmp,
+		`#!/usr/bin/env node
+const a = ${JSON.stringify(answers)};
+const argv = process.argv.slice(2);
+if (argv[1] === "list" && argv[argv.indexOf("--branch") + 1] !== "main") process.exit(1);
+process.stdout.write(argv[1] === "list" ? a.list : a.jobs);
+`,
+	).gh;
+	expect(
+		await actionsTester({ root: tmp, ...clock() }).jobsOnMain?.([LINT]),
+	).toEqual({ kind: "read", red: [LINT] });
 });
 
 it("reads a failed run through gh and the tree through git", async () => {
