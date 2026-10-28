@@ -245,7 +245,7 @@ const CLASSES = "docs/doc-map-classes.json";
  * rows and no test that is not about this sidecar has to think about it.
  *
  * Every key takes `source-of-truth`: the class the row's markdown cell spells is
- * read by nothing here since mantahostels#1849, and assertion 17 is silent over these
+ * read by nothing here (mantahostels#1849), and assertion 17 is silent over these
  * fixtures anyway — `mapDoc`'s three-column table is not the register table the
  * renderer places rows into.
  */
@@ -418,8 +418,8 @@ const graceTemplate = defineTemplate({
 
 /**
  * Switches the current test off the base template's copy and onto a
- * pairing-grace-window variant's, in place of the per-test
- * `writeMap`/`track`/`commit` sequence those tests used to run. Discards the
+ * pairing-grace-window variant's, in place of a per-test
+ * `writeMap`/`track`/`commit` sequence. Discards the
  * base copy `beforeEach` just instantiated rather than reusing it — kept this
  * way because a `beforeEach` that skips the base instantiation for the seven
  * grace tests alone would need to know a test's variant before it runs; the
@@ -459,7 +459,7 @@ describe("check-doc-map", () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("1 tracked file(s) in scope have no doc-map");
 		expect(r.out).toContain("docs/unregistered.md");
-		// the failure has to carry the way out — the command, since mantahostels#1849
+		// the failure has to carry the way out — the command (mantahostels#1849)
 		expect(r.out).toContain("node scripts/register-doc.js");
 	});
 
@@ -1016,7 +1016,7 @@ describe("check-doc-map", () => {
 		expect(r.stdout).not.toContain("::error::");
 	});
 
-	/* Report text alone since mantahostels#1665, so what is left to prove is the
+	/* Report text alone (mantahostels#1665), so what is left to prove is the
 	 * derivation: the route tally the OK line prints, and §B's rounded word
 	 * figure. */
 	describe("derived counts", () => {
@@ -1650,7 +1650,7 @@ describe("check-doc-map", () => {
 	/*
 	 * Every fault is raised through one helper taking the payload key as a
 	 * parameter. The key is what a --json consumer reads the items out of, and it
-	 * is no longer visible beside the tag.
+	 * is not visible beside the tag.
 	 */
 	it("gives every fault kind its own tag and payload key in --json", () => {
 		track("docs/unregistered.md");
@@ -1916,7 +1916,7 @@ describe("the restatement data file", () => {
 		expect(r.out).toContain("not an ISO YYYY-MM-DD date");
 	});
 
-	it("ignores the entry's own prose, which is no longer read at all", () => {
+	it("ignores the entry's own prose, which is not read at all", () => {
 		writeMap(baselineRows, sectionB("docs/gone.md"));
 		write(
 			data,
@@ -2149,8 +2149,8 @@ describe("distinct register keys", () => {
 	});
 
 	// The summary tally is a separate expression from the findings, so a repeat
-	// used to be reported beside "FAIL: 0 doc-map problem(s)" (mantahostels#1352). Two now,
-	// not one: `withRepeat`'s hand-built bytes are also 2-space-indented and
+	// can be reported beside "FAIL: 0 doc-map problem(s)" (mantahostels#1352). The tally
+	// is two: `withRepeat`'s hand-built bytes are also 2-space-indented and
 	// unsorted, so SIDECAR-NOT-CANONICAL (mantahostels#3353) fires alongside the duplicate.
 	it("counts the repeat in the summary tally", () => {
 		writeMap(baselineRows);

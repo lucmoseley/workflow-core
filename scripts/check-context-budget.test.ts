@@ -105,7 +105,7 @@ beforeEach(() => {
 	injector(["docs/agents/issue-tracker.md"], INJECTION_CAP - 1);
 });
 
-/* The fixture injector's own prose, which the cap counts since mantahostels#1284. */
+/* The fixture injector's own prose, which the cap counts (mantahostels#1284). */
 const FIXTURE_HEADER = "You invoked /implement, a fixture header.";
 
 /**
@@ -627,10 +627,10 @@ describe("skillOverrides", () => {
 	});
 
 	/*
-	 * BROKEN SINCE mantahostels#2004, and the whole run with it: settings that will not parse
+	 * BROKEN (mantahostels#2004), and the whole run with it: settings that will not parse
 	 * leave the PreToolUse wiring unknown, and the session cap reported as 0 B
 	 * there would pass whatever is really wired. The descriptions limb still
-	 * charges everything — that code is untouched — but the charge is no longer
+	 * charges everything, but the charge is not
 	 * observable through a full run, so what stays asserted here is the WARN, on
 	 * which the direction diff depends and which survives inside the BROKEN
 	 * envelope.
@@ -644,7 +644,7 @@ describe("skillOverrides", () => {
 		expect(r.json().summary).toContain(".claude/settings.json");
 		/* An unreadable settings file is not the same fact as no overrides, so it
 		 * must be said rather than folded silently into a full charge. A FINDING
-		 * since mantahostels#1834, not only a stream write: --against reads the envelope, and
+		 * (mantahostels#1834), not only a stream write: --against reads the envelope, and
 		 * a note that reaches stderr alone cannot reach the direction diff. */
 		const finding = r
 			.json()
@@ -1193,7 +1193,7 @@ describe("the injected tracker docs", () => {
 });
 
 /*
- * --against HEAD: the pre-commit gate (mantahostels#1834, which replaced --staged). Every
+ * --against HEAD: the pre-commit gate (mantahostels#1834). Every
  * fixture here commits a baseline and then stages a change, because the verdict
  * is index-minus-HEAD and neither revision alone can produce it.
  *
@@ -1300,7 +1300,7 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	 * The tree is shared, so a neighbour's half-saved settings must not un-charge
 	 * descriptions this commit still delivers. Pinned as a difference in what the
 	 * two readings CHARGE rather than as a row in the envelope: --against carries
-	 * the parent's own payload now, so the per-side rows are no longer in it.
+	 * the parent's own payload, so the per-side rows are not in it.
 	 */
 	it("reads the overrides from git at the revision, never from disk", () => {
 		const desc = "z".repeat(600);
@@ -1410,9 +1410,9 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	 * two-way ternary does by default — it tells a session to shed 15 kB to fix
 	 * a JSON syntax error.
 	 *
-	 * ASSERTED AGAINST THE PROFILE DIRECTLY since mantahostels#2004: a run whose settings
-	 * will not parse is BROKEN before any diff is composed, so this finding can
-	 * no longer reach `measure` through the gate.
+	 * ASSERTED AGAINST THE PROFILE DIRECTLY (mantahostels#2004): a run whose settings
+	 * will not parse is BROKEN before any diff is composed, so this finding cannot
+	 * reach `measure` through the gate.
 	 */
 	it("prints no delta beside a finding that measures nothing", () => {
 		pool(CAP - 5000);
@@ -1517,7 +1517,7 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		/*
 		 * The prompt and the cap must charge the same number. The voice contract is
 		 * double-loaded, so 100 B added to it costs the pool 200 (mantahostels#1503). The prompt
-		 * is one-sided since mantahostels#1834 and carries no delta of its own, so the doubling
+		 * is one-sided (mantahostels#1834) and carries no delta of its own, so the doubling
 		 * is pinned on the measurement the prompt fires off.
 		 */
 		it("charges the double-loaded file twice, as the cap does", () => {
@@ -1699,7 +1699,7 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	});
 
 	/* DOCS is data: nothing may assume which directory an injected doc sits in,
-	 * and since mantahostels#1834 that governs the MATERIALISATION too — the pathspec is read
+	 * and that governs the MATERIALISATION too (mantahostels#1834) — the pathspec is read
 	 * out of the injector at the revision, so a doc outside the fixed list is
 	 * fetched or it is not measured at all. */
 	it("measures an injected doc wherever DOCS puts it", () => {

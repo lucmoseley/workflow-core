@@ -139,7 +139,7 @@ describe("off", () => {
 		expect(effortOf(".claude2")).toBe("medium");
 	});
 
-	// mantahostels#130: off used to flatten a hand-set plan
+	// mantahostels#130: off must not flatten a hand-set plan
 	it("restores what on found, not the standing default", () => {
 		write(".claude2", withEffort("xhigh"));
 		run("on");

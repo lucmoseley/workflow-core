@@ -41,8 +41,8 @@ const ROOT = path.resolve(__dirname, "..");
  * imported, so that moving the cap is a visible edit on both sides. */
 const SESSION_CAP = 31_500;
 
-/* Route (f)'s second axis — the shared ratchet summed across every tool,
- * seeded at mantahostels#1787, unioned across every tool since mantahostels#2046. Mirrors
+/* Route (f)'s second axis — the shared ratchet summed across every tool
+ * (mantahostels#1787, mantahostels#2046). Mirrors
  * check-context-budget.js's own constant, for the same reason as SESSION_CAP
  * above. No fixture below writes its VALUE out (mantahostels#2223). */
 const RATCHET_CAP = 51_500;
@@ -433,8 +433,8 @@ describe("a ctx.told that bounds nothing (mantahostels#2283)", () => {
 			.findings.filter((f: { tag: string }) => f.tag === "DEAD-LATCH");
 
 	/** A guard splicing `id` itself, latched on `latch`, marking told unless `mark` is false. */
-	/* The fetch is EMITTED, not merely made: since mantahostels#2354 the bound is correlated
-	 * against the emission that spends the bytes, so a guard that fetches and
+	/* The fetch is EMITTED, not merely made: the bound is correlated against
+	 * the emission that spends the bytes (mantahostels#2354), so a guard that fetches and
 	 * says nothing has no bound to credit. */
 	const buildSplicerBody = (id: string, latch: string, mark = true) =>
 		`\tconst text = ctx.ruleText("${id}");\n\tif (!ctx.told("${latch}")) return { context: text${mark ? `, latchAfter: "${latch}"` : ""} };\n`;

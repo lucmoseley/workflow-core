@@ -47,8 +47,8 @@ const stampPath = () => path.join(notify.base(), "guard-errors.notified");
 
 /**
  * Append one fail-open line, as lib/guard-log.sh and the arbiter's logError both
- * write them. Field 2 is the guard's own script name: since mantahostels#147 they all write
- * here, and it is the only thing that tells them apart.
+ * write them. Field 2 is the guard's own script name: they all write
+ * here (mantahostels#147), and it is the only thing that tells them apart.
  */
 function logAt(when: Date, what: string, where = "guard-file-claim.sh") {
 	fs.appendFileSync(logPath(), `${when.toISOString()}\t${where}\t${what}\n`);
@@ -256,7 +256,7 @@ describe("--notify — the quiet path", () => {
 	});
 
 	/*
-	 * The producer's stdout is no longer the delivery under persist mode, so its
+	 * The producer's stdout is not the delivery under persist mode, so its
 	 * own stamp must not suppress anything (mantahostels#1975, mantahostels#2244).
 	 */
 	describe("under persist mode", () => {
@@ -663,7 +663,7 @@ describe("the records written with no repo root at all (mantahostels#2438)", () 
 
 	it("reports a timestamped last line cut short before its message as torn (#1342)", () => {
 		// This log is parsed past its last newline, so a record cut off after its
-		// guard field reaches the parser whole. It used to print as the fault "undefined".
+		// guard field reaches the parser whole, and must not print as the fault "undefined".
 		fs.mkdirSync(path.dirname(rootlessLog()), { recursive: true });
 		fs.writeFileSync(rootlessLog(), `${new Date().toISOString()}\tguard-x.sh`);
 		const out = run(["--notify"]).stdout;

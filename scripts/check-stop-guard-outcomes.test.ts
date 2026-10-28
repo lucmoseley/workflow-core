@@ -27,8 +27,8 @@ const OTHER = "guard-selection-sum";
 
 let dir: string;
 let home: string;
-/* Where the breadcrumbs actually sit under `dir` since mantahostels#3382. Built from the
- * module's own constant rather than spelled again here, so a second move breaks
+/* Where the breadcrumbs actually sit under `dir` (mantahostels#3382). Built from the
+ * module's own constant rather than spelled again here, so a move breaks
  * the production path and not these tests. */
 let crumbs: string;
 
@@ -383,7 +383,7 @@ describe("what --notify says twice", () => {
 	});
 
 	/*
-	 * The producer's stdout is no longer the delivery under persist mode, so
+	 * The producer's stdout is not the delivery under persist mode, so
 	 * suppressing on its own stamp would bury a report the reader never got the
 	 * chance to show (mantahostels#1975).
 	 */

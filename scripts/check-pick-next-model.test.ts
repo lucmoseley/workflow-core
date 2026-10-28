@@ -655,7 +655,7 @@ describe("what the throttle must never silence (mantahostels#2476)", () => {
 });
 
 describe("under persist mode (mantahostels#2476)", () => {
-	// The producer's stdout is no longer the delivery, so suppressing on its own
+	// The producer's stdout is not the delivery, so suppressing on its own
 	// stamp would bury a report the reader never got the chance to show (mantahostels#1975).
 	const persist = (args: string[] = ["--notify"]) =>
 		run(args, { WFC_NOTIFY_PERSIST: "1" });

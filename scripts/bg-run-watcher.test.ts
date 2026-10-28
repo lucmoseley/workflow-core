@@ -229,7 +229,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		/* WFC_BG_WATCH_GATE holds the old watcher in that gap, so the republish
 		 * lands there every time. Only the
 		 * old run carries the gate; the relaunch's own watcher must record its
-		 * kill unhindered, which is the dedup slot the race used to take. */
+		 * kill unhindered, which is the dedup slot the race would otherwise take. */
 		const gate = join(root, "gate");
 		const { pid: firstPid } = spawnDetached(
 			["run", "gapped", "sleep", KILLED_LIFETIME_S],

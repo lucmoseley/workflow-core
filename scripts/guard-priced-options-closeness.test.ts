@@ -1,7 +1,6 @@
 // @vitest-environment node
 /*
- * The closeness test lib/close-rivals.js exports (#472, which ruled what
- * "close" means; #487, which exported it for scripts/check-band-drift.js).
+ * The closeness test lib/close-rivals.js exports (#472, #487).
  *
  * Called directly on the export, since `splitQuestions` and `rivalPair` are
  * pure functions of a round's text and need no transcript or hook payload.

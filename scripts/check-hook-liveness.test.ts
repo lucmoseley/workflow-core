@@ -863,7 +863,7 @@ describe("check-hook-liveness — the census", () => {
 	});
 
 	/*
-	 * The producer's stdout is no longer the delivery under persist mode, so its
+	 * The producer's stdout is not the delivery under persist mode, so its
 	 * own stamp must not suppress anything (mantahostels#1975, mantahostels#2244).
 	 */
 	describe("under persist mode", () => {

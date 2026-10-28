@@ -489,7 +489,7 @@ describe("check-stray-scratch", () => {
 	});
 });
 
-/* THE AGE CUT (mantahostels#2436, whose census is on mantahostels#2418). */
+/* THE AGE CUT (mantahostels#2436, mantahostels#2418). */
 describe("the 24-hour cut on the scratch bucket", () => {
 	it("does not name a stray a live session may still be writing", () => {
 		writeFresh(".fresh2436.out");

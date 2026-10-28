@@ -639,9 +639,8 @@ describe("a hung git under the arbiter store (#2891)", () => {
 });
 
 /*
- * mantahostels#2016's original version of this block asserted against `template` and
- * `pathBearingFiles` directly, which the migration onto scripts/lib/git-fixture.ts
- * (mantahostels#2068) no longer exposes: the helper leak-checks every instantiate() call
+ * scripts/lib/git-fixture.ts (mantahostels#2068) exposes neither `template` nor
+ * `pathBearingFiles`: the helper leak-checks every instantiate() call
  * itself (proven in git-fixture.test.ts), so THIS beforeEach already throws
  * before any test body runs were the copy still pointing at the template. What
  * is left to assert here, and what mantahostels#2068's acceptance criteria ask for, is

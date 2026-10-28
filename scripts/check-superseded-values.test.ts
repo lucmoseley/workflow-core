@@ -711,7 +711,7 @@ describe("the needle data file", () => {
 
 	/* The line-pin diagnostic (#847), shared with check-retired-vocabulary.js
 	 * through the resolver: a pin whose line has stopped carrying the needle
-	 * suppresses nothing, and used to say nothing about it. */
+	 * suppresses nothing, and must not stay silent about it. */
 	it("names a line pin whose line no longer carries the needle", () => {
 		track("docs/notes.md", "a row inserted above\nhistory: was $18\n");
 		writeMap(
@@ -843,7 +843,7 @@ describe("the needle data file", () => {
 	});
 
 	/*
-	 * The hazard the relocation creates: with the prose no longer a source, an
+	 * The hazard of the data file being the source and the prose not one: an
 	 * entry whose bullet never reached the data file is scanned by nothing while
 	 * the summary still counts as though it were.
 	 */

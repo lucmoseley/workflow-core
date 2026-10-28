@@ -151,7 +151,7 @@ describe("where the pragma counts, which is where TypeScript honours it", () => 
 	it("does not count a pragma sitting below the header block (mantahostels#1395)", () => {
 		// TypeScript honours `@ts-nocheck` only in the leading comment region, so
 		// a line further down silences nothing and must not be reported as if it
-		// had. Carried over from the pragma this check used to count.
+		// had.
 		write(
 			"scripts/late.js",
 			"#!/usr/bin/env node\n/*\n * late.js — a fixture.\n */\n\nconst x = 1;\n// @ts-nocheck\nmodule.exports = { x };\n",

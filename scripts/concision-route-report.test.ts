@@ -73,7 +73,7 @@ describe("reporting the receipts in a directory (mantahostels#1099)", () => {
 });
 
 describe("a directory argument that is not usable (mantahostels#1099)", () => {
-	// The paired positive is the passing --dir above. A bare --dir used to reach
+	// The paired positive is the passing --dir above. A bare --dir must not reach
 	// readdirSync(undefined) and throw a stack trace at the one session that
 	// will ever run this.
 	it("names the missing path rather than crashing on a bare --dir", () => {

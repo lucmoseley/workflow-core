@@ -14,7 +14,7 @@
  *
  * Loosen a test here and a /pick-next set launches with no advisor attached, or
  * on `--model opus` in place of the configured 1M default, with nothing in
- * either session saying so (mantahostels#1102, which settled both) — or past an
+ * either session saying so (mantahostels#1102) — or past an
  * allowance gate, which is how the machine freezes.
  */
 import { execFileSync, spawnSync } from "node:child_process";

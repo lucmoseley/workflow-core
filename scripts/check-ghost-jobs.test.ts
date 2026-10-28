@@ -158,8 +158,8 @@ describe("check-ghost-jobs", () => {
 
 	it("says nothing about a working job backed by a listed process", () => {
 		/* A fresh transcript, so this stays a case about the ghost test alone:
-		 * since mantahostels#2588 a live job that has written nothing for hours is a
-		 * HUNG-JOB, and this fixture's record is eight hours old. */
+		 * a live job that has written nothing for hours is a
+		 * HUNG-JOB (mantahostels#2588), and this fixture's record is eight hours old. */
 		job("alive");
 		transcript("alive-0000-0000-0000-000000000000", 0);
 		fakeClaude(listing(agent("alive-0000-0000-0000-000000000000", 4242)));
@@ -478,7 +478,7 @@ describe("check-ghost-jobs", () => {
 	});
 
 	/*
-	 * The producer's stdout is no longer the delivery under persist mode, so its
+	 * The producer's stdout is not the delivery under persist mode, so its
 	 * own stamp must not suppress anything (mantahostels#1975).
 	 */
 	describe("under persist mode", () => {

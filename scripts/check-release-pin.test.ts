@@ -243,7 +243,7 @@ describe("check-release-pin", () => {
 	});
 
 	/* --warn is a caller-side CAP over a caller-side escalation: the finding is
-	 * still raised, and still prints, but no longer gates. */
+	 * still raised, and still prints, but does not gate. */
 	it("does not gate on an unreachable remote under --require-remote --warn", () => {
 		git(repo, "tag", "v1.2.3");
 		const r = check(

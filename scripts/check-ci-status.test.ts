@@ -11,7 +11,7 @@
  * (scripts/lib/run-in-process.js), not as a subprocess, because ~115 ms of node
  * startup per case was the suite's largest single term (mantahostels#1907). Both halves
  * §X3 asks for still hold — the exit code and the message are asserted off a
- * real run of the real script. What is no longer exercised is the process
+ * real run of the real script. What is not exercised is the process
  * boundary itself: the shebang, which node's module wrapper strips, and a
  * crash killing a process of its own. Sites that need the boundary keep their
  * spawn and say why where they stand.
@@ -501,7 +501,7 @@ describe("--notify reports each failure once (mantahostels#143)", () => {
 	});
 
 	/*
-	 * The producer's stdout is no longer the delivery under persist mode, so
+	 * The producer's stdout is not the delivery under persist mode, so
 	 * suppressing on its own stamp would bury a report the reader never got the
 	 * chance to show (mantahostels#1975).
 	 */
@@ -2424,7 +2424,7 @@ describe("a stale verdict fires its own sweep (mantahostels#1816)", () => {
 			);
 
 		const overCap = check(["--notify"], at("2026-08-21T22:33:00Z")).stdout;
-		// The count is BOTH routes' since mantahostels#2202, so the wording no longer says
+		// The count is BOTH routes' (mantahostels#2202), so the wording does not say
 		// `automatic` — a hand-fire could be any of the three.
 		expect(overCap).toContain("3 sweeps already fired today");
 		expect(overCap).not.toContain("Fired one automatically");

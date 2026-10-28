@@ -82,7 +82,7 @@ const storePath = (pick: (store: any) => string) => {
 		CLAUDE_CONFIG_DIR: cfg,
 	});
 	try {
-		// The store, not the CLI: session-arbiter.js exports nothing since mantahostels#158,
+		// The store, not the CLI: session-arbiter.js exports nothing (mantahostels#158),
 		// and requiring it would run a subcommand and exit this process.
 		return pick(createRequire(__filename)("./lib/arbiter-store.js"));
 	} finally {
@@ -604,8 +604,8 @@ describe("pass markers — the mantahostels#139 change", () => {
 		changedCode();
 
 		const reason = run("stop");
-		// Anchored on the phrase that follows it: since mantahostels#2614 the nag carries a
-		// second model pin, so the anchor ties the literal to the reviewer's
+		// Anchored on the phrase that follows it: the nag carries a second model
+		// pin (mantahostels#2614), so the anchor ties the literal to the reviewer's
 		// sentence rather than to whichever pin matches first.
 		expect(reason).toContain('`model: "opus"` on every one');
 		expect(reason).toContain("`workflow-core:code-reviewer`");

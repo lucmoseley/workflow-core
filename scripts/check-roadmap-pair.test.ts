@@ -118,8 +118,8 @@ describe("check-roadmap-pair", () => {
 		},
 	);
 
-	// mantahostels#975 denied --no-verify outright, so the message that used to offer it as
-	// "the explicit way out" would now send a session straight at a deny.
+	// --no-verify is denied outright (mantahostels#975), so a message offering it as
+	// "the explicit way out" would send a session straight at a deny.
 	it("does not offer --no-verify as the way out", () => {
 		stage(HTML, "roadmap v2\n");
 		const r = check();

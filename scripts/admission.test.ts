@@ -2256,7 +2256,7 @@ describe("the allowance re-read (#293, #294)", () => {
 		);
 	});
 
-	/* The launcher's threshold vars no longer reach this limb (#371 item 5). */
+	/* The launcher's threshold vars do not reach this limb (#371 item 5). */
 	it("ignores WFC_DISPATCH_*_CEILING, which size the launcher's cap only", () => {
 		const configDir = cacheDir();
 		writeCache(configDir, { session: 80, weeklyAll: 3 });

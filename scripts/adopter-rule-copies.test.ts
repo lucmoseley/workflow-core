@@ -8,8 +8,7 @@
  * pointer (the glossary does not ship), the bare guard name the template
  * spells guards by, a `node`/`bash`/`sh`/`python3 scripts/` command spelled at the plugin root as
  * the renderer spells it (#2005), and no core issue cites, which would resolve
- * against the adopter's own tracker (#1709, which wrote the house rules into the
- * template; #1739, whose review gave the copies this file).
+ * against the adopter's own tracker (#1709, #1739).
  *
  * The adopter's house-decision bullet stops before the contract's
  * `**Enforced**` tail, which the guard prints when it bites (#2035).
