@@ -14,7 +14,7 @@ import { describe, expect, it } from "vitest";
 
 const { capSet } = require("./allowance.js");
 const { ALREADY_RUNNING, FULL, decideTick } = require("./refill-decide.js");
-const { parseCapFits, sizedSeats } = require("./refill-loop.js");
+const { parseCapFits, readSizedSeats } = require("./refill-loop.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
@@ -405,14 +405,21 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 	 * reading of it; over 97% the running sessions are projected 3 points of
 	 * the week, past 100%. */
 	const sizedOn = (weeks: Record<string, number>) =>
-		sizedSeats(
-			Object.entries(weeks).map(([name, week]) => ({
-				seat: name,
-				week,
-				session: 10,
-			})),
-			2,
-			(name: string, members: number) =>
+		readSizedSeats(2, {
+			read: () =>
+				Object.entries(weeks).map(([name, week]) => ({
+					seat: name,
+					week,
+					session: 10,
+					weekFull: false,
+					sessionFull: false,
+					sessionResets: null,
+				})),
+			probe: (stale: string[]) => ({
+				usage: new Map(stale.map((s) => [s, ""])),
+				probes: [],
+			}),
+			sizeOf: (name: string, members: number) =>
 				parseCapFits(
 					JSON.stringify({
 						cap: capSet({
@@ -424,7 +431,7 @@ describe("decideTick on a seat whose cap fits only the floor's member (#2432)", 
 						}),
 					}),
 				).fits,
-		);
+		}).seats;
 
 	it("launches on the next seat with room", () => {
 		const d = tick({ seats: sizedOn({ s1: 98, s2: 10 }) });

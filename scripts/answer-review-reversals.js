@@ -199,7 +199,7 @@ const buildQuotedFirstLine = (text) =>
  * Each included checkout by the tracker it files on. One whose config cannot
  * be read is named on stderr, and its entries are answered as filed nowhere.
  */
-function rootsByTracker() {
+function readRootsByTracker() {
 	/** @type {Map<string, string>} */
 	const roots = new Map();
 	for (const root of discoverRepos(homeDir()).included) {
@@ -252,7 +252,7 @@ function answerReversals(tracker, dryRun) {
 		return 0;
 	}
 	try {
-		const roots = rootsByTracker();
+		const roots = readRootsByTracker();
 		const filed = readFiled();
 		let code = 0;
 		for (const { issue, requests } of pending) {

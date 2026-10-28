@@ -855,7 +855,9 @@ function liftSubstitutions(segment, spans) {
 	/** @type {string[]} */
 	const lifted = [];
 	readSentinels(segment, (_lit, idx) => {
-		for (const inner of quotedSubstitutions(spans[idx ?? -1] ?? "")) {
+		const span = idx === null ? undefined : spans[idx];
+		if (span === undefined) return { text: "", stepPast: true };
+		for (const inner of quotedSubstitutions(span)) {
 			const { masked } = maskSubject(inner, spans);
 			lifted.push(`${SCOPE_MARK}(`);
 			for (const seg of flatSegments(masked))

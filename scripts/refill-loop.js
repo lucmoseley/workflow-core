@@ -17,8 +17,8 @@
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *
- * Each tick, and the seats it reads, are lib/refill-tick.js's; what `start`
- * and `status` print, lib/refill-commands.js's.
+ * Each tick is lib/refill-tick.js's; the seats it reads, lib/refill-seats.js's;
+ * what `start` and `status` print, lib/refill-commands.js's.
  *
  * UNION ORACLE: every listing the loop and its reaper read must span all its
  * seats, so the loop takes the union oracle as dispatch-sessions.sh does

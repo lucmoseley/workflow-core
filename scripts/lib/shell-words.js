@@ -250,8 +250,8 @@ const PLAIN_WRAPPERS = [
 function unwrap(words, spans) {
 	/** @type {Strip} */
 	const st = { ws: [...words], inEnv: false, wrapperWords: [], watched: false };
-	while (st.ws.length > 0) {
-		const step = stripOne(st, spans);
+	for (let first = st.ws[0]; first !== undefined; first = st.ws[0]) {
+		const step = stripOne(st, first, spans);
 		if (step === "cut") st.ws = [];
 		if (step !== "next") break;
 	}
@@ -271,14 +271,14 @@ function unwrap(words, spans) {
  * Strip the wrapper `st.ws` opens with: "next" to read on, "done" where the
  * command word stands first, "cut" where the words ran out mid-strip.
  * @param {Strip} st
+ * @param {string} first `st.ws[0]`
  * @param {string[]} spans
  * @returns {"next" | "done" | "cut"}
  */
-function stripOne(st, spans) {
+function stripOne(st, first, spans) {
 	/* An assignment keeps its whole word: the text after the last `/` of
 	 * `A=/x/y` is `y`, which would stop the strip before a later `FOO=1`
 	 * (#1499). */
-	const first = st.ws[0] ?? "";
 	const w = ASSIGNMENT_RE.test(first) ? first : afterSlash(first);
 	const skip = OWN_GRAMMAR.get(w);
 	if (skip) return stepOwn(st, w, skip(st.ws.slice(1), spans));
@@ -335,8 +335,7 @@ const SWEPT_VALUE_FLAGS = ["-u", "-C", "--unset", "--chdir"];
  * @returns {"next" | "cut"}
  */
 function sweepFlags(st, w, spans) {
-	while ((st.ws[0] ?? "").startsWith("-")) {
-		const f = st.ws[0] ?? "";
+	for (let f = st.ws[0]; f?.startsWith("-"); f = st.ws[0]) {
 		if (st.inEnv && isSplitString(f)) return splitEnvString(st, f, spans);
 		const takes =
 			SWEPT_VALUE_FLAGS.includes(f) ||
@@ -362,8 +361,9 @@ function splitEnvString(st, f, spans) {
 	const rest = f.startsWith("--split-string=")
 		? [f.slice("--split-string=".length), ...st.ws.slice(1)]
 		: st.ws.slice(1);
-	if (rest.length === 0) return "cut";
-	st.ws = [...splitString(rest[0] ?? "", spans), ...rest.slice(1)];
+	const [head, ...tail] = rest;
+	if (head === undefined) return "cut";
+	st.ws = [...splitString(head, spans), ...tail];
 	return "next";
 }
 
@@ -374,10 +374,8 @@ function splitEnvString(st, f, spans) {
  */
 function skipTimeout(words) {
 	let ws = words;
-	while ((ws[0] ?? "").startsWith("-")) {
-		const takes = ["-k", "--kill-after", "-s", "--signal"].includes(
-			ws[0] ?? "",
-		);
+	for (let f = ws[0]; f?.startsWith("-"); f = ws[0]) {
+		const takes = ["-k", "--kill-after", "-s", "--signal"].includes(f);
 		if (takes && ws.length < 2) return null;
 		ws = ws.slice(takes ? 2 : 1);
 	}
@@ -395,8 +393,7 @@ const WATCH_VALUE_FLAGS = ["-n", "-q", "--interval", "--equexit"];
  */
 function skipWatch(words, spans) {
 	let ws = words;
-	while ((ws[0] ?? "").startsWith("-")) {
-		const f = ws[0] ?? "";
+	for (let f = ws[0]; f?.startsWith("-"); f = ws[0]) {
 		if (f === "--") {
 			ws = ws.slice(1);
 			break;
@@ -405,7 +402,9 @@ function skipWatch(words, spans) {
 		if (takes && ws.length < 2) return null;
 		ws = ws.slice(takes ? 2 : 1);
 	}
-	const rest = ws.length === 1 ? splitString(ws[0] ?? "", spans) : ws;
+	const [head, ...tail] = ws;
+	const rest =
+		head !== undefined && tail.length === 0 ? splitString(head, spans) : ws;
 	return rest.length > 0 ? rest : null;
 }
 

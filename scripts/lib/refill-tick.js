@@ -218,9 +218,9 @@ function fileKillTickets() {
  * (lib/refill-loop.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
  * broken read launches nothing (#2012). `admission` is the verdict behind
  * them, for the concurrency record, or null where it did not read.
- * @returns {{slots: number, admission: any}}
+ * @returns {{slots: number, admission: unknown}}
  */
-function freeSlots() {
+function readFreeSlots() {
 	const r = runChild(process.execPath, [
 		path.join(SCRIPTS, "admission.js"),
 		...loop.FREE_SLOT_ARGS,
@@ -355,7 +355,7 @@ function launchBatch(batch) {
 				timeout: call.timeout,
 			}),
 		entriesOf: (root) => readRecentEntries(root, LEDGER_WINDOW_HOURS).entries,
-		sessionOf: headlessSessionOf,
+		sessionOf: readHeadlessSession,
 		now: Date.now,
 	});
 	log(
@@ -371,7 +371,7 @@ function launchBatch(batch) {
  * read, the first listing that shows the job then giving it.
  * @param {string} jobId
  */
-function headlessSessionOf(jobId) {
+function readHeadlessSession(jobId) {
 	let record = null;
 	try {
 		record = runOf(jobId);
@@ -423,8 +423,8 @@ function runReview(lastRunOn, now) {
  */
 function judgeFinished(launches, agents, now, served) {
 	return loop.judgedLaunches(launches, agents, now, {
-		progressOf: (l) => progressOf(l, served),
-		causeOf,
+		progressOf: (l) => readProgress(l, served),
+		causeOf: readCause,
 	});
 }
 
@@ -434,7 +434,7 @@ function judgeFinished(launches, agents, now, served) {
  * @param {import("./refill-loop.js").LoopLaunch} l
  * @param {string[]} served
  */
-function progressOf(l, served) {
+function readProgress(l, served) {
 	const progress = loop.actsOf(
 		l,
 		[...new Set([...served, l.root])],
@@ -476,7 +476,7 @@ const unknownLogged = new Map();
  * logged with why, once per launch for each why (#3200).
  * @type {import("./refill-blocks.js").CauseOf}
  */
-function causeOf(l, row) {
+function readCause(l, row) {
 	const job = readJobRecordOf(l);
 	const tail =
 		readTranscriptRows(l, job)?.filter(
@@ -710,7 +710,7 @@ function readTranscriptRows(l, job) {
  * that never reads keeps the count until the launch finishes (#2847).
  * @param {import("./refill-loop.js").LoopLaunch & {jobId: string}} l
  */
-function idleSinceOf(l) {
+function readIdleSince(l) {
 	const job = readJobRecordOf(l);
 	const rows = readTranscriptRows(l, job);
 	const since = resumedIdleSince({ job, rows });
@@ -754,14 +754,14 @@ const blockIo = (served) => ({
 	resumeTargetOf: readResumeTargetOf,
 	resumeStopped,
 	readTimeline: readTimelineOf,
-	idleSince: idleSinceOf,
+	idleSince: readIdleSince,
 	turnedSince: (l, at) =>
 		turnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	labelParked,
 	comment: commentOn,
 	postHandOff,
 	release: (l) => release({ jobId: l.copiedFrom ?? l.jobId, root: l.root }),
-	progressOf: (l) => progressOf(l, served),
+	progressOf: (l) => readProgress(l, served),
 	log,
 });
 
@@ -847,7 +847,7 @@ async function tick({ dryRun }) {
 				control.scope.mode,
 				seen,
 			);
-	const { slots, admission } = freeSlots();
+	const { slots, admission } = readFreeSlots();
 	const { seats, probes } = readSeats(control.seats, slots, served[0]);
 	const overflow = loop.overflowReadings(
 		readDeclaredSeats(),

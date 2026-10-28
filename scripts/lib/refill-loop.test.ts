@@ -43,9 +43,7 @@ import {
 	runningOf,
 	scopeRoots,
 	seatReadingOf,
-	seatsToRefresh,
 	settleTick,
-	sizedSeats,
 	stopNeverStarted,
 	summaryOf,
 } from "./refill-loop.js";
@@ -505,42 +503,53 @@ describe("a seat's reading (#2606)", () => {
 	});
 });
 
+/**
+ * readSizedSeats over readings no probe changes, with the seats each probe
+ * was asked to refresh.
+ */
+function sizedRead(
+	readings: ReturnType<typeof seat>[],
+	slots: number,
+	sizeOf: (s: string, members: number) => number | null,
+) {
+	const probed: string[][] = [];
+	const { seats } = readSizedSeats(slots, {
+		read: () => readings,
+		probe: (stale: string[]) => {
+			probed.push(stale);
+			return { usage: new Map(stale.map((s) => [s, ""])), probes: [] };
+		},
+		sizeOf,
+	});
+	return { probed, seats };
+}
+
 describe("which seats are refreshed", () => {
+	const probedOn = (readings: ReturnType<typeof seat>[]) =>
+		sizedRead(readings, 2, () => 1).probed;
+
 	it("refreshes a stale seat ahead of a fresh one, so failover keeps order", () => {
-		expect(seatsToRefresh([seat("a", null, null), seat("b", 10, 10)])).toEqual([
-			"a",
+		expect(probedOn([seat("a", null, null), seat("b", 10, 10)])).toEqual([
+			["a"],
 		]);
 	});
 
 	it("reads a stale seat behind a full one rather than waiting on it", () => {
-		expect(seatsToRefresh([seat("a", 100, 10), seat("b", null, 5)])).toEqual([
-			"b",
-		]);
+		expect(probedOn([seat("a", 100, 10), seat("b", null, 5)])).toEqual([["b"]]);
 	});
 
 	it("refreshes nothing past a seat past the cap's threshold but under 100% (#2278)", () => {
-		expect(seatsToRefresh([seat("a", 98, 10), seat("b", null, null)])).toEqual(
-			[],
-		);
+		expect(probedOn([seat("a", 98, 10), seat("b", null, null)])).toEqual([]);
 	});
 
 	it("passes a seat full on a cached bar unread (#2606)", () => {
 		expect(
-			seatsToRefresh([
+			probedOn([
 				{ ...seat("a", null, null), weekFull: true },
 				{ ...seat("b", null, null), sessionFull: true },
 				seat("c", null, null),
 			]),
-		).toEqual(["c"]);
-	});
-
-	it("refreshes a stale seat behind one the cap sized 0 (#2432)", () => {
-		expect(
-			seatsToRefresh([
-				{ ...seat("a", 98, 10), fits: 0 },
-				seat("b", null, null),
-			]),
-		).toEqual(["b"]);
+		).toEqual([["c"]]);
 	});
 });
 
@@ -787,11 +796,11 @@ describe("which seats the cap is sized on (#2278)", () => {
 
 	it("sizes seats with room in order up to the first that sizes", () => {
 		const { asked, sizeOf } = sizer({ b: 1, c: 2 });
-		const out = sizedSeats(
+		const out = sizedRead(
 			[seat("a", 100, 10), seat("b", 98, 10), seat("c", 10, 10)],
 			3,
 			sizeOf,
-		);
+		).seats;
 		expect(asked).toEqual(["b:3"]);
 		expect(out.map((s: { fits: number | null }) => s.fits)).toEqual([
 			null,
@@ -802,11 +811,11 @@ describe("which seats the cap is sized on (#2278)", () => {
 
 	it("falls through a seat the cap sizes 0 to the next with room (#2432)", () => {
 		const { asked, sizeOf } = sizer({ a: 0, b: 2 });
-		const out = sizedSeats(
+		const out = sizedRead(
 			[seat("a", 98, 10), seat("b", 10, 10), seat("c", 10, 10)],
 			2,
 			sizeOf,
-		);
+		).seats;
 		expect(asked).toEqual(["a:2", "b:2"]);
 		expect(out.map((s: { fits: number | null }) => s.fits)).toEqual([
 			0,
@@ -817,13 +826,13 @@ describe("which seats the cap is sized on (#2278)", () => {
 
 	it("moves past a seat whose cap cannot be sized", () => {
 		const { asked, sizeOf } = sizer({ b: 2 });
-		sizedSeats([seat("a", 98, 10), seat("b", 10, 10)], 2, sizeOf);
+		sizedRead([seat("a", 98, 10), seat("b", 10, 10)], 2, sizeOf);
 		expect(asked).toEqual(["a:2", "b:2"]);
 	});
 
 	it("sizes nothing with no slot free", () => {
 		const { asked, sizeOf } = sizer({ a: 1 });
-		const out = sizedSeats([seat("a", 98, 10)], 0, sizeOf);
+		const out = sizedRead([seat("a", 98, 10)], 0, sizeOf).seats;
 		expect(asked).toEqual([]);
 		expect(out[0].fits).toBe(0);
 	});
