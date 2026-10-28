@@ -1,8 +1,8 @@
 # Out-of-Scope Knowledge Base
 
-The `.out-of-scope/` directory in a repo stores persistent records of rejected feature requests. It serves two purposes:
+The `.out-of-scope/` directory in a repo states what the project does not do, one rule per file. It serves two purposes:
 
-1. **Institutional memory**: why a feature was rejected, so the reasoning isn't lost when the issue is closed
+1. **The rule and its reason**: what is out of scope and why, so the reasoning isn't lost when the issue is closed
 2. **Deduplication**: when a new issue comes in that matches a prior rejection, the skill can surface the previous decision instead of re-litigating it
 
 ## Directory structure
@@ -14,7 +14,7 @@ The `.out-of-scope/` directory in a repo stores persistent records of rejected f
 └── graphql-api.md
 ```
 
-One file per **concept**, not per issue. Multiple issues requesting the same thing are grouped under one file.
+One file per **concept**, not per issue. Multiple issues requesting the same thing share one file, each cited by issue number on its rule line.
 
 ## File format
 
@@ -23,7 +23,7 @@ The file should be written in a relaxed, readable style, more like a short desig
 ```markdown
 # Dark Mode
 
-This project does not support dark mode or user-facing theming.
+This project does not support dark mode or user-facing theming (#42, #87, #134).
 
 ## Why this is out of scope
 
@@ -45,12 +45,6 @@ interface ThemeConfig {
   fonts: FontStack;
 }
 ```
-
-## Prior requests
-
-- #42: "Add dark mode support"
-- #87: "Night theme for accessibility"
-- #134: "Dark theme option"
 ```
 
 ### Naming the file
@@ -77,7 +71,7 @@ During triage (Step 1: Gather context), read all files in `.out-of-scope/`. When
 
 The maintainer may:
 
-- **Confirm**: the new issue gets added to the existing file's "Prior requests" list, then closed
+- **Confirm**: the new issue's number is added to the existing file's rule line, then the issue is closed
 - **Reconsider**: the out-of-scope file gets deleted or updated, and the issue proceeds through normal triage
 - **Disagree**: the issues are related but distinct, proceed with normal triage
 
@@ -91,8 +85,8 @@ The flow:
 
 1. Maintainer decides a feature request is out of scope
 2. Check if a matching `.out-of-scope/` file already exists
-3. If yes: append the new issue to the "Prior requests" list
-4. If no: create a new file with the concept name, decision, reason, and first prior request
+3. If yes: add the new issue's number to its rule line
+4. If no: create a new file with the concept name, the rule citing the issue's number, and the reason
 5. Post a comment on the issue explaining the decision and mentioning the `.out-of-scope/` file
 6. Close the issue with the `wontfix` label
 

@@ -120,22 +120,22 @@ prior discussion.
 
 **Desired behavior:**
 Rejected feature requests should be documented in `.out-of-scope/<concept>.md`
-files that capture the decision, reasoning, and links to all issues that
-requested the feature. When triaging new issues, these files should be
+files that state the current rule, its reasoning, and the number of
+each issue that requested the feature. When triaging new issues, these files should be
 checked for matches.
 
 **Key interfaces:**
 - Markdown file format in `.out-of-scope/`: each file should have a
-  `# Concept Name` heading, a `**Decision:**` line, a `**Reason:**` line,
-  and a `**Prior requests:**` list with issue links
+  `# Concept Name` heading, a rule line ("This project does not do X")
+  ending in the requesting issues' numbers, and a `**Reason:**` line
 - The triage workflow should read all `.out-of-scope/*.md` files early
   and match incoming issues against them by concept similarity
 
 **Acceptance criteria:**
 - [ ] Closing a feature as wontfix creates/updates a file in `.out-of-scope/`
-- [ ] The file includes the decision, reasoning, and link to the closed issue
-- [ ] If a matching `.out-of-scope/` file already exists, the new issue is
-      appended to its "Prior requests" list rather than creating a duplicate
+- [ ] The file includes the rule, its reasoning, and the closed issue's number
+- [ ] If a matching `.out-of-scope/` file already exists, the new issue's
+      number is added to its rule line rather than creating a duplicate
 - [ ] During triage, existing `.out-of-scope/` files are checked and surfaced
       when a new issue matches a prior rejection
 

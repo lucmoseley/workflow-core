@@ -99,6 +99,11 @@
 			"issue": 2036,
 			"why": "the frontmatter description removed, so the skill leaves the start listing"
 		},
+		".agents/skills/domain-modeling/ADR-FORMAT.md": {
+			"editedHash": "cce73834bd9b90034b52441db15c2c8ea2caf9bb27f1eff501a3a454deb5c882",
+			"issue": 3358,
+			"why": "the superseded Status and Considered Options optional sections removed; a changed decision's ADR is edited in place and a reversed one deleted; the rejected-alternatives qualifier recast as recording a rule against a tempting alternative; a deleted record's number is never reused (#2259 rows 1-2, #3358)"
+		},
 		".agents/skills/domain-modeling/SKILL.md": {
 			"editedHash": "96bd3a9fba6de5abc2bb3119ef596c038d54429f33ce9b66b878dd0bcf8ef311",
 			"issue": 2334,
@@ -139,10 +144,25 @@
 			"issue": 2036,
 			"why": "the frontmatter description removed, so the skill leaves the start listing (#2036)"
 		},
+		".agents/skills/teach/LEARNING-RECORD-FORMAT.md": {
+			"editedHash": "0ddd3876a860bf4accbf78c3398a6bf7cd168247b34cbc3143a7bbff8de553ba",
+			"issue": 3358,
+			"why": "the superseded Status section and the mark-superseded Supersession step removed; a deepened or corrected understanding edits the earlier record in place, or deletes it where a later record covers it; a deleted record's number is never reused (#2259 rows 1-2, #3358)"
+		},
 		".agents/skills/to-spec/SKILL.md": {
 			"editedHash": "a546178b81f1c8fbbf407c366c74f01ab237373ff4e1957b5c36f6815a003601",
 			"issue": 1701,
 			"why": "the seam check put to the user only where research leaves the seams open; the template gains a ## Values section listing the house and untraced values the spec relies on (#1701, built at #1706)"
+		},
+		".agents/skills/triage/AGENT-BRIEF.md": {
+			"editedHash": "701073c11c7758e21c07140908f3227b4a10f1baf9f1329caef74ccc3bfe8ed3",
+			"issue": 3358,
+			"why": "an out-of-scope entry states the current rule citing the requesting issues by number, with no prior-requests list (#2259 row 1, #3358)"
+		},
+		".agents/skills/triage/OUT-OF-SCOPE.md": {
+			"editedHash": "5c3d868638a91ffa4bc47cee32341b87064aab6eb36d5a6ad398e680cdd43edc",
+			"issue": 3358,
+			"why": "an out-of-scope entry states the current rule citing the requesting issues by number, with no prior-requests list (#2259 row 1, #3358)"
 		},
 		".agents/skills/wayfinder/SKILL.md": {
 			"editedHash": "734c733380d9c6f135613d746913eb1e4b907853ea9a0fc3ca294beb08cdb8e3",

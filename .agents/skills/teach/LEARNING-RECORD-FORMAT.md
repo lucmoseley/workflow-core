@@ -18,13 +18,12 @@ That is the whole format. A learning record can be a single paragraph. The value
 
 Only include these when they add genuine value. Most records won't need them.
 
-- **Status** frontmatter (`active | superseded by LR-NNNN`): useful when an earlier understanding turns out to be wrong and is replaced.
 - **Evidence**: how the user demonstrated the understanding (a question answered, an exercise completed, prior experience cited). Useful when the claim might be revisited.
 - **Implications**: what this unlocks or rules out for future sessions. Worth recording when non-obvious.
 
 ## Numbering
 
-Scan `./learning-records/` for the highest existing number and increment by one.
+Scan `./learning-records/` and its git history (`git log --diff-filter=D --name-only -- learning-records/`) for the highest number ever used and increment by one. A deleted record's number is never reused.
 
 ## When to write a learning record
 
@@ -41,6 +40,6 @@ Write one when any of these is true:
 - Anything already captured tersely in [[GLOSSARY.md]] as a term definition. Don't duplicate.
 - Session-by-session activity logs. Learning records are not a journal: they are decision-grade insights.
 
-## Supersession
+## Corrections
 
-When a later record contradicts an earlier one (the user's understanding deepened or corrected), mark the old record `Status: superseded by LR-NNNN` rather than deleting it. The history of how understanding evolved is itself useful signal.
+When the user's understanding deepens or is corrected, edit the earlier record in place to the current understanding, or delete it where a later record already covers it.
