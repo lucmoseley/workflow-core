@@ -158,7 +158,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
-const { hostRoot } = require("./lib/host-root.js");
+const { hostRoot, worktreeRoot } = require("./lib/host-root.js");
 const {
 	readRunningHooks,
 	readOwnHooks,
@@ -196,8 +196,13 @@ const {
  * they are too many to thread a root through. setRoot() is the ONE writer, and
  * runs at the top of run() before any scan reads it (mantahostels#1833, which took the flag
  * off ctx; it was read straight off process.argv until then).
+ *
+ * The working directory's worktree, not `hostRoot()`, in every mode (#3386):
+ * the harness sets CLAUDE_PROJECT_DIR to the shared tree, so a run inside a
+ * linked worktree would judge the shared tree's bytes, and --review would
+ * write its anchors there.
  */
-let root = hostRoot();
+let root = worktreeRoot();
 
 /** Whether `--root` named `root`, which is how a materialised tree arrives. */
 let rootGiven = false;
@@ -234,9 +239,20 @@ function isForeignRule(id) {
 
 /** @param {string | null} dir */
 function setRoot(dir) {
-	if (!dir) return;
+	if (!dir) {
+		/* rule-text resolves its store on hostRoot(), the shared tree, so a
+		 * linked worktree's run would pair its own triggers with the shared
+		 * tree's fragments (#3386). */
+		if (root !== hostRoot()) pinStore();
+		return;
+	}
 	root = path.resolve(dir);
 	rootGiven = true;
+	pinStore();
+}
+
+/** Point lib/rule-text.js at `root`'s fragment store. */
+function pinStore() {
 	/* lib/rule-text.js resolves the fragment store off its own __dirname, so
 	 * without this --root reads the WORKTREE's fragments while everything else
 	 * reads the copy — and a newly-staged unwired fragment appears in both
@@ -1985,7 +2001,7 @@ function judgeGuardedRule(st, file, rule, marker) {
  */
 function checkNamedPaths(st, file, rule, guards) {
 	for (const g of guards) {
-		/* Under the host root, else — where the root is no core tree at all —
+		/* Under the root, else — where the root is no core tree at all —
 		 * under the CORE's: an adopter's rules name the core's guards, which
 		 * live in the plugin and are never copied into the repo (#5). */
 		if (

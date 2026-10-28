@@ -10,7 +10,8 @@
  * copied into a `scripts/` inside each fixture, because the checker reads its
  * own siblings; but the TREE it scans is the host root, not `..` from its own
  * location, so every runner below names the fixture with `CLAUDE_PROJECT_DIR`
- * as well. Without that the checker walks this repo and every case reads the
+ * as well — unless it runs from a linked worktree of another tree, which the
+ * check then scans instead (#3386). Without that the checker walks this repo and every case reads the
  * live registry's findings.
  *
  * It is a hard gate in .husky/pre-commit and roadmap-digest.yml: loosen a case
@@ -851,16 +852,18 @@ describe("reporting", () => {
 });
 
 describe("stale prose — has the guard moved since anyone confirmed the sentence", () => {
+	const guardFixture: Fixture = {
+		claude: region(
+			"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
+		),
+		files: {
+			"scripts/guard-branch.sh": "#!/bin/sh\nexit 2\n",
+			[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-branch.sh"),
+		},
+	};
+
 	function guardRepo(): string {
-		return build({
-			claude: region(
-				"- Stay on `main`. **Enforced** (#110): `scripts/guard-branch.sh` denies the checkout.",
-			),
-			files: {
-				"scripts/guard-branch.sh": "#!/bin/sh\nexit 2\n",
-				[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-branch.sh"),
-			},
-		});
+		return build(guardFixture);
 	}
 
 	it("warns that a guard nobody has confirmed the prose against is unanchored, naming the guard", () => {
@@ -877,6 +880,34 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(out).toContain("describes: CLAUDE.md");
 		expect(Object.keys(readAnchors(root))).toEqual(["scripts/guard-branch.sh"]);
 		expect(run(root).json.warnings).toEqual([]);
+	});
+
+	it("--review inside a linked worktree hashes and writes that worktree, not CLAUDE_PROJECT_DIR's tree (#3386)", () => {
+		const shared = committedRepo(guardFixture);
+		const git = (...args: string[]) =>
+			execFileSync("git", args, { cwd: shared, encoding: "utf8" });
+		const tree = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-wt-"));
+		temps.push(tree);
+		git("worktree", "add", "-q", "--detach", tree);
+		/* The shared tree's guard differs, as a neighbour's uncommitted edit. */
+		fs.writeFileSync(
+			path.join(shared, "scripts", "guard-branch.sh"),
+			"#!/bin/sh\nexit 1\n",
+		);
+		const r = runInProcess(
+			path.join(tree, "scripts", "check-guard-registry.js"),
+			["--review", "scripts/guard-branch.sh"],
+			{ cwd: tree, env: reviewEnv(shared, { WFC_ANCHOR_LOCKS: "[]" }) },
+		);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("anchored scripts/guard-branch.sh");
+		expect(fs.existsSync(path.join(shared, ANCHORS))).toBe(false);
+		reviewIn(shared);
+		const neighbourAnchors = readAnchors(shared);
+		git("checkout", "--", "scripts/guard-branch.sh");
+		reviewIn(shared);
+		expect(readAnchors(tree)).toEqual(readAnchors(shared));
+		expect(readAnchors(tree)).not.toEqual(neighbourAnchors);
 	});
 
 	/*
@@ -4289,6 +4320,28 @@ describe("the rule-text store", () => {
 			}),
 		);
 		expect(r.kinds).toEqual([]);
+	});
+
+	it("reads a linked worktree's fragments, not CLAUDE_PROJECT_DIR's tree's (#3386)", () => {
+		const shared = committedRepo({
+			claude: region(
+				triggerRule("worktree-only-rule", "scripts/guard-commit.js"),
+			),
+			files: {
+				"docs/agents/rules/worktree-only-rule.txt": "Only in the worktree.\n",
+				"scripts/guard-commit.js": preemptiveEmitter("worktree-only-rule"),
+				[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-commit.js"),
+			},
+		});
+		const tree = fs.mkdtempSync(path.join(os.tmpdir(), "guard-registry-wt-"));
+		temps.push(tree);
+		execFileSync("git", ["worktree", "add", "-q", "--detach", tree], {
+			cwd: shared,
+		});
+		fs.rmSync(path.join(tree, "docs/agents/rules/worktree-only-rule.txt"));
+		expect(run(shared).kinds).toEqual([]);
+		const r = run(tree, [], { cwd: tree, env: { CLAUDE_PROJECT_DIR: shared } });
+		expect(r.kinds).toContain("ORPHAN-TRIGGER");
 	});
 
 	it("reads every id in one pre-emptive call, not just the first", () => {
