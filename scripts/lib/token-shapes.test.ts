@@ -3,7 +3,8 @@
  * lib/token-shapes.js masks a listed vendor's token wherever it can start:
  * an `sk-` token after a non-alphanumeric character or after an escape whose
  * last character is a letter or digit (#3394), every other shape after
- * anything (#3540). Break it and a token in a URL, a stringified tool input or
+ * anything (#3540), and a control sequence anywhere after a token's first
+ * character (#3547). Break it and a token in a URL, a stringified tool input or
  * coloured command output reaches the scratch files other sessions read,
  * through scripts/retro-transcript.js.
  */
@@ -111,6 +112,49 @@ describe("maskTokens across a colour code in the body (#3540)", () => {
 			expect(maskTokens(`sk-${seq}learn-is-a-python-library-name`).count).toBe(
 				0,
 			);
+		},
+	);
+});
+
+/* What `grep --color` wraps a match in. */
+const OPEN = "\u001b[01;31m\u001b[K";
+const CLOSE = "\u001b[m\u001b[K";
+
+describe("maskTokens across a colour code in the prefix (#3547)", () => {
+	it.each([
+		["github|_pat_", "github", `_pat_${"a".repeat(82)}`, "github-pat"],
+		["ghp|_", "ghp", `_${"a".repeat(36)}`, "github"],
+		["sk|-", "sk", `-${"a1".repeat(12)}`, "openai"],
+		["AK|IA", "AK", `IA${"A".repeat(16)}`, "aws"],
+	])("masks a token grep --color split at %s", (_name, matched, rest, rule) => {
+		expectMasked(OPEN, `${matched}${CLOSE}${rest}`, rule);
+		expectMasked(
+			JSON.stringify(OPEN).slice(1, -1),
+			`${matched}${JSON.stringify(CLOSE).slice(1, -1)}${rest}`,
+			rule,
+		);
+	});
+
+	it("leaves an sk- token split by a colour code after a letter", () => {
+		expect(maskTokens(`xs${CLOSE}k-${"a1".repeat(12)}`).count).toBe(0);
+	});
+
+	it.each([
+		["a github token", GITHUB, `ghp${CLOSE}_${"b".repeat(36)}`, "github"],
+		[
+			"a github token split at gh|p_",
+			GITHUB,
+			`gh${CLOSE}p_${"b".repeat(36)}`,
+			"github",
+		],
+		["an AWS key id", AWS, `AK${CLOSE}IA${"B".repeat(16)}`, "aws"],
+	])(
+		"masks %s then a split one with no separator",
+		(_name, first, second, rule) => {
+			expect(maskTokens(`${first}${second}`)).toEqual({
+				text: `[REDACTED:${rule}][REDACTED:${rule}]`,
+				count: 2,
+			});
 		},
 	);
 });

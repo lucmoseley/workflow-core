@@ -13,8 +13,8 @@
  * other prefixes plus their minimum bodies never occur mid-word, so they take
  * no lead and no escape can hide them (#3540).
  *
- * A TERMINAL CONTROL SEQUENCE IS TRANSPARENT inside a body, since
- * `grep --color` puts one between a matched prefix and the rest (#3540). A
+ * A TERMINAL CONTROL SEQUENCE IS TRANSPARENT after a token's first character,
+ * since `grep --color` puts one wherever its pattern ends (#3540, #3547). A
  * body stops before another shape's whole minimum token that its own
  * characters cannot spell, so back-to-back tokens are each masked.
  *
@@ -23,8 +23,7 @@
  * an `sk-` body holding no digit in its first 300 characters — the digit is
  * what tells a key from a long hyphenated word. An `sk-` token after an
  * escape `ESCAPES` does not list, such as quoted-printable's `=3D`, passes
- * too, and so does a prefix a control sequence splits (`gh`, colour, `p_`).
- * An escaped letter or digit (`%41`) counts as a lead, over-masking.
+ * too. An escaped letter or digit (`%41`) counts as a lead, over-masking.
  */
 
 /* ESC, raw or in any common escaped spelling, and the ECMA-48 sequence it
@@ -51,10 +50,13 @@ const ESCAPES = [
 
 const SK_LEAD = `(?:(?<![A-Za-z0-9])|(?<=${ESCAPES.join("|")}))`;
 
-/* The shortest whole token of each shape whose prefix holds a character an
- * alphanumeric body lacks, so a real body never spells one. */
-const NEXT_SK = "sk-[A-Za-z0-9_-]{20}";
-const NEXT_TOKEN = `hf_[A-Za-z0-9]{30}|${NEXT_SK}|gh[pousr]_[A-Za-z0-9]{30}|github_pat_[A-Za-z0-9_]{22}`;
+/**
+ * The source for a prefix with any control sequences between its characters;
+ * a `[…]` class is one character.
+ * @param {string} prefix
+ */
+const buildPrefix = (prefix) =>
+	(prefix.match(/\[[^\]]*\]|./g) ?? []).join(`(?:${CONTROL})*`);
 
 /**
  * The source for one body character, after any control sequences, that
@@ -65,28 +67,84 @@ const NEXT_TOKEN = `hf_[A-Za-z0-9]{30}|${NEXT_SK}|gh[pousr]_[A-Za-z0-9]{30}|gith
 const buildBodyUnit = (chars, stop) =>
 	`(?:${CONTROL})*${stop ? `(?!${stop})` : ""}${chars}`;
 
-const ALNUM = buildBodyUnit("[A-Za-z0-9]", NEXT_TOKEN);
+/** @typedef {{ prefix: string, chars: string, min: number }} Shape */
+
+/** @type {Shape} */
+const SK = { prefix: buildPrefix("sk-"), chars: "[A-Za-z0-9_-]", min: 20 };
+/** @type {Shape} */
+const ANTHROPIC = { ...SK, prefix: buildPrefix("sk-ant-") };
+/** @type {Shape} */
+const HUGGINGFACE = {
+	prefix: buildPrefix("hf_"),
+	chars: "[A-Za-z0-9]",
+	min: 30,
+};
+/** @type {Shape} */
+const GITHUB = {
+	prefix: buildPrefix("gh[pousr]_"),
+	chars: "[A-Za-z0-9]",
+	min: 30,
+};
+/** @type {Shape} */
+const GITHUB_PAT = {
+	prefix: buildPrefix("github_pat_"),
+	chars: "[A-Za-z0-9_]",
+	min: 22,
+};
+const AWS_PREFIX = buildPrefix("A[KS]IA");
+
+/** @param {Shape} shape */
+const buildShortest = ({ prefix, chars, min }) =>
+	`${prefix}(?:${buildBodyUnit(chars)}){${min}}`;
+
+/* The shortest whole token of each shape whose prefix holds a character an
+ * alphanumeric body lacks, so a real body never spells one. */
+const NEXT_SK = buildShortest(SK);
+const NEXT_TOKEN = [HUGGINGFACE, SK, GITHUB, GITHUB_PAT]
+	.map(buildShortest)
+	.join("|");
+
+/**
+ * The source for a shape's prefix, `guard`, then a body of at least its
+ * minimum whose characters do not start `stop`.
+ * @param {Shape} shape
+ * @param {{ stop?: string, guard?: string }} [options]
+ */
+const buildToken = ({ prefix, chars, min }, { stop, guard = "" } = {}) =>
+	`${prefix}${guard}(?:${buildBodyUnit(chars, stop)}){${min},}`;
+
 /* The digit lookahead is bounded so a long digitless run stays linear. */
-const SK_BODY = `(?=(?:${CONTROL}|[A-Za-z0-9_-]){0,300}?\\d)(?:${buildBodyUnit("[A-Za-z0-9_-]")}){20,}`;
+const SK_DIGIT = `(?=(?:${CONTROL}|${SK.chars}){0,300}?\\d)`;
+
+/** @param {Shape} shape */
+const buildSkToken = (shape) =>
+	`${SK_LEAD}${buildToken(shape, { guard: SK_DIGIT })}`;
 
 /** @type {{ rule: string, pattern: RegExp }[]} */
 const TOKEN_SHAPES = [
-	{ rule: "anthropic", pattern: new RegExp(`${SK_LEAD}sk-ant-${SK_BODY}`) },
-	{ rule: "openai", pattern: new RegExp(`${SK_LEAD}sk-${SK_BODY}`) },
+	{
+		rule: "anthropic",
+		pattern: new RegExp(buildSkToken(ANTHROPIC)),
+	},
+	{ rule: "openai", pattern: new RegExp(buildSkToken(SK)) },
 	{
 		rule: "github-pat",
-		pattern: new RegExp(
-			`github_pat_(?:${buildBodyUnit("[A-Za-z0-9_]", NEXT_SK)}){22,}`,
-		),
+		pattern: new RegExp(buildToken(GITHUB_PAT, { stop: NEXT_SK })),
 	},
-	{ rule: "huggingface", pattern: new RegExp(`hf_(?:${ALNUM}){30,}`) },
-	{ rule: "github", pattern: new RegExp(`gh[pousr]_(?:${ALNUM}){30,}`) },
+	{
+		rule: "huggingface",
+		pattern: new RegExp(buildToken(HUGGINGFACE, { stop: NEXT_TOKEN })),
+	},
+	{
+		rule: "github",
+		pattern: new RegExp(buildToken(GITHUB, { stop: NEXT_TOKEN })),
+	},
 	{
 		rule: "aws",
 		/* An uppercase body can spell another key id's prefix, so the fixed
 		 * length ends it there too. */
 		pattern: new RegExp(
-			`A[KS]IA(?:${buildBodyUnit("[0-9A-Z]")}){16}(?:(?![0-9A-Z])|(?=A[KS]IA))`,
+			`${AWS_PREFIX}(?:${buildBodyUnit("[0-9A-Z]")}){16}(?:(?![0-9A-Z])|(?=${AWS_PREFIX}))`,
 		),
 	},
 ];
