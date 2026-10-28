@@ -18,15 +18,32 @@
  * directory is created owner-only.
  *
  * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 the file sits in a
- * git working tree, is a symlink, or cannot be written; 2 bad arguments or a
+ * git working tree, is a symlink, lies in a directory others can reach, is
+ * held by another run too long, or cannot be written; 2 bad arguments or a
  * value no line can carry. Every refusal leaves the file untouched, and one
  * about the file itself comes before the value is asked for.
  *
  * IN A WORKING TREE IS REFUSED (#3202): a `.git` in the file's directory or
  * any above it, as where XDG_CONFIG_HOME names a checkout or the home directory is a
- * dotfiles repository, means a commit there could take it. Residual: a bare
- * repository whose work tree is set elsewhere, as a bare dotfiles setup, is
- * not seen.
+ * dotfiles repository, means a commit there could take it. It is checked
+ * before the prompt and again under the lock just before the write, so a
+ * `git init` while the value is typed is caught (#3539).
+ *
+ * A BARE REPOSITORY whose work tree is set elsewhere, as a bare dotfiles setup
+ * (`git --git-dir=~/.cfg --work-tree=~`, yadm), has no `.git` to find. The
+ * directory's own `.gitignore`, holding `*`, keeps the file out of its `add`
+ * (#3539). Residual: ignore rules never reach a file such a repository
+ * already tracks, nor an `add -f`; that file wants `git rm --cached` there.
+ *
+ * A DIRECTORY OTHERS CAN REACH IS REFUSED (#3539): the file's directory, and
+ * the aside before its rename, must be the user's own with no group or other
+ * access, checked before the prompt and again before the write. `mkdir`'s
+ * mode applies only on creation and a mount without
+ * `metadata` (WSL's `/mnt/c`) ignores `chmod`, so either can be left loose.
+ *
+ * CONCURRENT RUNS take turns by `lib/pid-lock.js`'s lock, `secrets.env.lock`,
+ * held from the read to the rename, so no run's key is lost to another's
+ * rename (#3539). A lock whose run is gone is taken over.
  *
  * A SYMLINK IS REFUSED: its target may lie in a working tree (#640 review).
  *
@@ -60,6 +77,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
+const { pidLock } = require("./lib/pid-lock.js");
+const { sleepSync } = require("./lib/sleep-sync.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { secretsFile } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -69,6 +88,11 @@ const { caught } = require("./lib/caught.js");
 const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
 
 const VAR_NAME = new RegExp(`^${SHELL_VAR_NAME}$`);
+
+/* First guesses, and stated as ones: a write holds the lock for milliseconds,
+ * so a run waits 10 s for another's before refusing, polling every 20 ms. */
+const LOCK_WAIT_MS = 10_000;
+const LOCK_POLL_MS = 20;
 
 const USAGE = `usage: write-secret.js <NAME>
   <NAME>  a shell variable name; the value is then asked for with typing hidden`;
@@ -83,6 +107,45 @@ function refuse(file, why, status) {
 	process.stderr.write(`write-secret: refused, ${file} untouched — ${why}\n`);
 	return status;
 }
+
+/**
+ * @param {string} file
+ * @param {string} what the directory or file found loose
+ * @param {string} why `looseWhy`'s reason
+ * @returns {number}
+ */
+function refuseLoose(file, what, why) {
+	const dir = path.dirname(file);
+	return refuse(
+		file,
+		`${what} ${why}, so another user could read or swap the file. Make ${dir} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+		1,
+	);
+}
+
+/**
+ * The refusal `file`'s directory earns, or null: it lies in a git working
+ * tree, or exists and is reachable by others.
+ * @param {string} file
+ * @returns {number | null}
+ */
+function dirRefusal(file) {
+	const dir = path.dirname(file);
+	const tree = findEnclosingTree(dir);
+	if (tree !== null) {
+		return refuse(
+			file,
+			`it lies in the git working tree at ${tree}, so a commit there could take it. Point XDG_CONFIG_HOME at a directory in no working tree, then re-run.`,
+			1,
+		);
+	}
+	if (!isDirectory(dir)) return null;
+	const why = looseWhy(dir);
+	return why === null ? null : refuseLoose(file, `its directory ${dir}`, why);
+}
+
+/** Thrown before the rename where the aside is reachable by others. */
+class LooseAside extends Error {}
 
 /**
  * The working tree `dir` or a directory above it holds, by its `.git`, or null.
@@ -105,6 +168,8 @@ function isSymlink(p) {
 	try {
 		return fs.lstatSync(p).isSymbolicLink();
 	} catch {
+		/* An absent file is no symlink, and any other fault meets the write,
+		 * which refuses naming it (#640, #3539). */
 		return false;
 	}
 }
@@ -114,8 +179,25 @@ function isDirectory(p) {
 	try {
 		return fs.statSync(p).isDirectory();
 	} catch {
+		/* A path that is absent or unreadable is no directory to look in: the
+		 * walk climbs past it, and the write refuses where it cannot be made
+		 * (#3202, #3539). */
 		return false;
 	}
+}
+
+/**
+ * Why `p` is reachable by someone other than this user, or null where it is
+ * not. stat, not lstat: a symlinked config directory is judged where it
+ * points, as the tree walk judges it.
+ * @param {string} p
+ * @returns {string | null}
+ */
+function looseWhy(p) {
+	const st = fs.statSync(p);
+	if (st.uid !== process.getuid?.()) return "is not owned by you";
+	if ((st.mode & 0o077) !== 0) return "gives access to others";
+	return null;
 }
 
 const LEFT = "a copy of the secrets file an earlier interrupted write left";
@@ -130,7 +212,8 @@ function sweepAsides(file) {
 	try {
 		names = fs.readdirSync(dir);
 	} catch (e) {
-		/* No directory yet, or a file where one goes: the write refuses. */
+		/* No directory yet, so no aside, and the write creates it; or a file
+		 * where it goes, and the write refuses. */
 		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR") return;
 		process.stderr.write(
 			`write-secret: warning — ${dir} could not be listed (${caught(e).code ?? "error"}), so ${LEFT} may remain there. Look for ${path.basename(file)}.*.tmp by hand.\n`,
@@ -231,21 +314,83 @@ function upsertEnv(file, name, raw, fromTerminal) {
 			2,
 		);
 	}
+	return storeValue(file, name, value);
+}
 
+/**
+ * Writes `<dir>/.gitignore` holding `*`, where it holds anything else.
+ * @param {string} dir
+ */
+function ignoreAll(dir) {
+	const ignore = path.join(dir, ".gitignore");
+	if (!fs.existsSync(ignore) || fs.readFileSync(ignore, "utf8") !== "*\n")
+		writeFileAtomic(ignore, "*\n", { mode: 0o600 });
+}
+
+/**
+ * Takes `lock`, waiting up to LOCK_WAIT_MS for a live holder.
+ * @param {ReturnType<typeof pidLock>} lock
+ * @returns {boolean} whether it is held
+ */
+function waitForLock(lock) {
+	const deadline = performance.now() + LOCK_WAIT_MS;
+	while (!lock.acquire()) {
+		if (performance.now() > deadline) return false;
+		sleepSync(LOCK_POLL_MS);
+	}
+	return true;
+}
+
+/**
+ * Upserts the checked value into `file` under the lock, once its directory is
+ * created and checked.
+ * @param {string} file
+ * @param {string} name
+ * @param {string} value as the line carries it
+ * @returns {number}
+ */
+function storeValue(file, name, value) {
+	const dir = path.dirname(file);
+	const lock = pidLock(`${file}.lock`, path.basename(__filename));
+	let locked = false;
 	try {
-		fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+		fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+		locked = waitForLock(lock);
+		if (!locked) {
+			return refuse(
+				file,
+				`another write-secret run (pid ${lock.holder() ?? "unknown"}) has held ${file}.lock for ${LOCK_WAIT_MS / 1000}s. Re-run once it finishes.`,
+				1,
+			);
+		}
+		/* Again under the lock, just before the write: the prompt and the wait
+		 * leave time for a `git init` or a `chmod` above the file. */
+		const refused = dirRefusal(file);
+		if (refused !== null) return refused;
+		ignoreAll(dir);
+
 		const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 		const next = upsert(text, name, value);
-		writeFileAtomic(file, next.text, { mode: 0o600 });
+		writeFileAtomic(file, next.text, {
+			mode: 0o600,
+			beforeRename(aside) {
+				const why = looseWhy(aside);
+				if (why !== null) throw new LooseAside(why);
+			},
+		});
 		process.stdout.write(
 			`write-secret: ${next.replaced ? "replaced" : "added"} ${name} in ${file}\n`,
 		);
 	} catch (e) {
+		if (e instanceof LooseAside)
+			return refuseLoose(file, "the file as written", e.message);
 		return refuse(
 			file,
 			`it could not be written (${caught(e).code ?? "error"}). Check it is a regular file you can write, then re-run.`,
 			1,
 		);
+	} finally {
+		if (locked) lock.release();
 	}
 
 	return 0;
@@ -272,14 +417,8 @@ function main(argv) {
 	}
 
 	sweepAsides(file);
-	const tree = findEnclosingTree(path.dirname(file));
-	if (tree !== null) {
-		return refuse(
-			file,
-			`it lies in the git working tree at ${tree}, so a commit there could take it. Point XDG_CONFIG_HOME at a directory in no working tree, then re-run.`,
-			1,
-		);
-	}
+	const refused = dirRefusal(file);
+	if (refused !== null) return refused;
 	if (isSymlink(file)) {
 		return refuse(
 			file,

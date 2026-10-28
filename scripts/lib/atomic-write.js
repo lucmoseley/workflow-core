@@ -21,8 +21,8 @@ const path = require("node:path");
  * @property {boolean} [mkdir] create the target's directory first
  * @property {number} [mode] the file's permission bits, applied to the aside
  *   before the rename, so the target never holds the bytes under looser ones
- * @property {() => void} [beforeRename] runs once the aside is whole and before
- *   the rename
+ * @property {(aside: string) => void} [beforeRename] runs on the aside once it
+ *   is whole and before the rename
  */
 
 /**
@@ -67,7 +67,7 @@ function writeFileAtomic(file, data, options = {}) {
 		fs.writeFileSync(aside, data, { flag: "wx", mode: options.mode });
 		// writeFile's mode is filtered through the umask; chmod is not.
 		if (options.mode !== undefined) fs.chmodSync(aside, options.mode);
-		options.beforeRename?.();
+		options.beforeRename?.(aside);
 		fs.renameSync(aside, file);
 	} catch (e) {
 		try {

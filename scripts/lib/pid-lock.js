@@ -1,7 +1,8 @@
 /*
  * pid-lock.js — a single-instance lock held as a pidfile, for a daemon only
  * one copy of may run per machine or checkout: the refill loop and the
- * lander (#2402).
+ * lander (#2402); and for a short read-to-rename write, write-secret.js's
+ * (#3539).
  *
  * The pidfile is linked into place from a file already holding the pid, so
  * no reader ever sees it empty. A pidfile whose process is gone, or whose

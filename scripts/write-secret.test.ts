@@ -14,11 +14,11 @@
  * `.env` write reaches it, or mangles the file's other entries.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gateway } from "./guard-jev-advisory.js";
 import { readEnvFileValue, secretsFile } from "./lib/env-file.js";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -76,8 +76,13 @@ const run = (
 	return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
+/** The store's directory, owner-only as the script requires (#3539). */
+const makeStoreDir = () => {
+	fs.mkdirSync(path.dirname(store()), { recursive: true, mode: 0o700 });
+	return path.dirname(store());
+};
 const seed = (text: string) => {
-	fs.mkdirSync(path.dirname(store()), { recursive: true });
+	makeStoreDir();
 	fs.writeFileSync(store(), text);
 };
 const read = () => fs.readFileSync(store(), "utf8");
@@ -302,7 +307,7 @@ describe("write-secret", () => {
 	it("refuses a symlinked file with exit 1, leaving its target untouched", () => {
 		const target = path.join(config, "real.env");
 		fs.writeFileSync(target, "A=1\n");
-		fs.mkdirSync(path.dirname(store()), { recursive: true });
+		makeStoreDir();
 		fs.symlinkSync(target, store());
 		const r = run(["K"], SECRET);
 		expect(r.status).toBe(1);
@@ -314,15 +319,137 @@ describe("write-secret", () => {
 		expect(fs.readFileSync(target, "utf8")).toBe("A=1\n");
 	});
 
-	it("refuses with exit 1 when the file cannot be written, leaving no temp file", () => {
-		fs.mkdirSync(store(), { recursive: true });
+	it("refuses with exit 1 when the file cannot be written, leaving no temp file or lock", () => {
+		fs.mkdirSync(store(), { recursive: true, mode: 0o700 });
 		const r = run(["K"], SECRET);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(
 			/could not be written \(E[A-Z]+\)\. Check it is a regular file you can write, then re-run\.\n$/,
 		);
-		expect(fs.readdirSync(path.dirname(store()))).toEqual(["secrets.env"]);
+		expect(fs.readdirSync(path.dirname(store())).sort()).toEqual([
+			".gitignore",
+			"secrets.env",
+		]);
 	});
+
+	/** One real `node` run per name, all started together. */
+	const runConcurrently = (names: string[]) =>
+		Promise.all(
+			names.map(
+				(name) =>
+					new Promise<number | null>((resolve) => {
+						// spawn-kept: two processes at once, the lock's race (§X3)
+						const child = spawn(process.execPath, [SCRIPT, name], {
+							cwd: host,
+							env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+							stdio: ["pipe", "ignore", "ignore"],
+						});
+						child.on("close", resolve);
+						child.stdin.end(`${name.toLowerCase()}-value\n`);
+					}),
+			),
+		);
+
+	it("keeps every key when runs write at once (#3539)", async () => {
+		const names = ["K1", "K2", "K3", "K4"];
+		for (let round = 0; round < 8; round++) {
+			fs.rmSync(store(), { force: true });
+			expect(await runConcurrently(names)).toEqual([0, 0, 0, 0]);
+			for (const name of names)
+				expect(readEnvFileValue(store(), name)).toBe(
+					`${name.toLowerCase()}-value`,
+				);
+		}
+		expect(fs.readdirSync(path.dirname(store())).sort()).toEqual([
+			".gitignore",
+			"secrets.env",
+		]);
+	}, 60_000);
+
+	it("takes over a lock a dead run left (#3539)", () => {
+		makeStoreDir();
+		fs.writeFileSync(`${store()}.lock`, String(DeadPid));
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(read()).toBe(`K=${SECRET}\n`);
+		expect(fs.existsSync(`${store()}.lock`)).toBe(false);
+	});
+
+	it("keeps the file out of a bare dotfiles repository's `add -A` (#3539)", () => {
+		const dots = path.join(host, "dots.git");
+		execFileSync("git", ["init", "-q", "--bare", dots], { env: isolatedEnv() });
+		const cfg = (...args: string[]) =>
+			execFileSync(
+				"git",
+				[`--git-dir=${dots}`, `--work-tree=${config}`, ...args],
+				{
+					cwd: config,
+					env: isolatedEnv(),
+					encoding: "utf8",
+				},
+			);
+		expect(run(["K"], SECRET).status).toBe(0);
+		fs.writeFileSync(path.join(config, "tracked.txt"), "x");
+		cfg("add", "-A");
+		cfg("add", ".");
+		expect(cfg("ls-files").split("\n").filter(Boolean)).toEqual([
+			"tracked.txt",
+		]);
+		expect(
+			fs.readFileSync(path.join(path.dirname(store()), ".gitignore"), "utf8"),
+		).toBe("*\n");
+	});
+
+	it("refuses with exit 1 where the mount ignores modes, so the written file would be loose, the file untouched (#3539)", () => {
+		seed("A=1\n");
+		/* A mount without `metadata`: chmod is a no-op and a new file is 0644. */
+		const writeFileSync = fs.writeFileSync;
+		vi.spyOn(fs, "chmodSync").mockImplementation(() => {
+			/* the mount drops it */
+		});
+		vi.spyOn(fs, "writeFileSync").mockImplementation((p, data, options) =>
+			writeFileSync(
+				p,
+				data,
+				String(p).endsWith(".tmp") ? { flag: "wx", mode: 0o644 } : options,
+			),
+		);
+		try {
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(
+				refused(
+					`the file as written gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+				),
+			);
+		} finally {
+			vi.restoreAllMocks();
+		}
+		expect(read()).toBe("A=1\n");
+		expect(fs.readdirSync(path.dirname(store())).sort()).toEqual([
+			".gitignore",
+			"secrets.env",
+		]);
+	});
+
+	it.each([
+		["group-readable", 0o750],
+		["world-writable", 0o777],
+	])(
+		"refuses with exit 1 where the existing directory is %s, the file untouched (#3539)",
+		(_l, mode) => {
+			seed("A=1\n");
+			fs.chmodSync(path.dirname(store()), mode);
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(
+				refused(
+					`its directory ${path.dirname(store())} gives access to others, so another user could read or swap the file. Make ${path.dirname(store())} yours with no access for anyone else (\`chmod 700\`), on a filesystem that keeps modes (not a Windows drive under WSL), then re-run.`,
+				),
+			);
+			expect(read()).toBe("A=1\n");
+			expect(fs.readdirSync(path.dirname(store()))).toEqual(["secrets.env"]);
+		},
+	);
 
 	const StaleCopy = "OLD_KEY=stale-copy-value\n";
 	/** Above Linux's 2^22 pid ceiling, so no process ever holds it. */
@@ -332,7 +459,7 @@ describe("write-secret", () => {
 		path.join(config, "workflow-core", `secrets.env.${pid}.${tag}.tmp`);
 	const left = "a copy of the secrets file an earlier interrupted write left";
 	const plant = (p: string) => {
-		fs.mkdirSync(path.dirname(p), { recursive: true });
+		makeStoreDir();
 		fs.writeFileSync(p, StaleCopy);
 	};
 
