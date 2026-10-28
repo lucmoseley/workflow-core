@@ -2197,7 +2197,8 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/wfc-config.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
-			"scripts/practice-guard.test.ts"
+			"scripts/practice-guard.test.ts",
+			"scripts/statusline.test.ts"
 		],
 		"docs/clobber-reviewed.json": [
 			"scripts/check-clobbered-bodies.test.ts"
@@ -2965,6 +2966,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/burn-mode.test.ts": [
@@ -8567,7 +8569,8 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/statusline.test.ts"
 		],
 		"scripts/lib/concurrency.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -21830,6 +21833,11 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/npm-run-hints.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/statusline.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/steps-owed.js": [

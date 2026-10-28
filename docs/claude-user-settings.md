@@ -217,7 +217,8 @@ one, so each entry wires its guard in all three config dirs.
 **The status line has a second half.** `statusLine` delegates to
 `~/.claude/statusline.sh`, which renders context usage *and* the design-mode
 and burn-mode states (`docs/doc-map.md` §A, `.claude/skills/design-mode/SKILL.md`,
-`.claude/skills/burn-mode/SKILL.md`). Restoring means writing both: the JSON
+`.claude/skills/burn-mode/SKILL.md`) and the refill loop's concurrency from the
+two files `scripts/lib/concurrency.js` writes (#3319). Restoring means writing both: the JSON
 block above, and the script block below (then `chmod +x`).
 
 ## Status-line script — reference copy
@@ -227,7 +228,8 @@ Verbatim copy of `~/.claude/statusline.sh`, mode `755`.
 <!-- BEGIN statusline.sh -->
 ```bash
 #!/usr/bin/env bash
-# Claude Code status line: context usage + design-mode state.
+# Claude Code status line: context usage, design and burn mode, and the refill
+# loop's concurrency.
 #
 # User-level (~/.claude/settings.json → statusLine), so it applies in every
 # repo and there is only ever one copy. The design segment self-suppresses
@@ -331,6 +333,23 @@ if [[ -f "$settings" ]]; then
   fi
 fi
 
+# --- workflow-core gate ---------------------------------------------------
+# The burn and concurrency segments show only in workflow-core's world. Two
+# gates, OR'd: scripts/burn-mode.sh existing (this repo's own checkout),
+# or the workflow-core plugin reading enabled in the project's settings.json
+# (an adopter install, mirroring the design segment above) — the script alone
+# is never distributed to an adopter (#198).
+show_wfc=false
+if [[ -f "${dir:--}/scripts/burn-mode.sh" ]]; then
+  show_wfc=true
+elif [[ -f "$settings" ]]; then
+  wc_enabled="$(jq -r '
+    if .enabledPlugins | has("workflow-core@workflow-core")
+    then (.enabledPlugins["workflow-core@workflow-core"] | tostring)
+    else empty end' "$settings" 2>/dev/null)"
+  [[ "$wc_enabled" == "true" ]] && show_wfc=true
+fi
+
 # --- burn-mode segment -----------------------------------------------------
 # The repo's scripts/burn-mode.sh keeps a `.burn-mode` marker at
 # ~/.claude/.burn-mode — ONE PER MACHINE, matching the settings.json half the
@@ -339,28 +358,13 @@ fi
 # workspace. Reading the git common dir here left this badge stuck on off in
 # every checkout once #127 moved the marker out of it (workflow-core#131).
 #
-# Two gates, OR'd: scripts/burn-mode.sh existing (this repo's own checkout),
-# or the workflow-core plugin reading enabled in the project's settings.json
-# (an adopter install, mirroring the design segment above) — the script alone
-# is never distributed to an adopter (#198).
-show_burn=false
-if [[ -f "${dir:--}/scripts/burn-mode.sh" ]]; then
-  show_burn=true
-elif [[ -f "$settings" ]]; then
-  wc_enabled="$(jq -r '
-    if .enabledPlugins | has("workflow-core@workflow-core")
-    then (.enabledPlugins["workflow-core@workflow-core"] | tostring)
-    else empty end' "$settings" 2>/dev/null)"
-  [[ "$wc_enabled" == "true" ]] && show_burn=true
-fi
-
 # The marker is read live and the flip is HALF live: scripts/lib/dispatch-rewrite.js
 # moves the next `sonnet` Agent dispatch to `opus` at once, while the `model`
 # key the toggle also writes is read at startup, so this session keeps the
 # model it booted on. Hence `(restart: model)` and not the design segment's
 # bare `(restart)`: the badge names the half that is still waiting.
 burn=""
-if [[ "$show_burn" == true ]]; then
+if [[ "$show_wfc" == true ]]; then
   if [[ -f "$HOME/.claude/.burn-mode" ]]; then now_burn=true; else now_burn=false; fi
   boot_burn="$(latch_boot .burn "$now_burn")"
   # Amber (256-colour 208) throughout; dim marks the off state, so the two
@@ -375,7 +379,33 @@ if [[ "$show_burn" == true ]]; then
   fi
 fi
 
-printf '%s%s%s\n' "$ctx" "$design" "$burn"
+# --- concurrency segment ---------------------------------------------------
+# The refill loop's last tick in concurrency.jsonl and the 24-hour sustained
+# figure it precomputes in concurrency-24h, both written by workflow-core's
+# scripts/lib/concurrency.js (#3317) to $WFC_REFILL_DIR, else ~/.claude. Read
+# with tail, jq and a builtin alone: a render spawns no node and no `claude
+# agents` listing (#3319). A tick older than 15 minutes (concurrency.js's
+# STALE_MS), a stop tick, or no readable tick reads "loop off".
+sess=""
+if [[ "$show_wfc" == true ]]; then
+  refill="${WFC_REFILL_DIR:-$HOME/.claude}"
+  sustained="-"
+  read -r sustained 2>/dev/null < "$refill/concurrency-24h"
+  tick="$(tail -n 1 "$refill/concurrency.jsonl" 2>/dev/null | jq -r '
+    (.at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) as $at
+    | if now - $at > 900 or .binding.limit == "loop not running" then empty
+      else "\(.working // "?")/\(.ceiling // "?") · \(.binding.limit // "none")"
+      end' 2>/dev/null)"
+  # Sky (256-colour 111); dim marks the loop off, so the two never rely on hue
+  # alone to be told apart.
+  if [[ -n "$tick" ]]; then
+    sess="$(printf '  \033[38;5;111mSess %s · 24h %s\033[0m' "$tick" "${sustained:--}")"
+  else
+    sess="$(printf '  \033[2;38;5;111mSess loop off · 24h %s\033[0m' "${sustained:--}")"
+  fi
+fi
+
+printf '%s%s%s%s\n' "$ctx" "$design" "$burn" "$sess"
 ```
 <!-- END statusline.sh -->
 
