@@ -23,6 +23,12 @@
  *     Declared, because most scripts here exit 2 on a usage error; it counts
  *     only where the script's body, below the header, carries an `exit 2`.
  *
+ * A DISPATCHER CORE (lib/guard-cores.json) has a fourth route, since it
+ * returns its verdict to lib/guard-dispatch.js rather than writing one:
+ * `isDenyingCore` reads its module for a `deny:` key, or for guard-verdict.js's
+ * `deny` or `denyText` helper, outside its whole-line comments (#3272).
+ * Residual: a `deny:` in a string or a trailing comment reads as one.
+ *
  * TEXTUAL, NOT A CALL GRAPH: a script that merely spells a deny verdict — in
  * a comment, or because it greps the guards for one — reads as deny-capable. Each
  * caller asks only of a `PreToolUse` registration, which is where that would
@@ -45,6 +51,9 @@ const DENIES_THROUGH_MARKER =
 const DENIES_BY_EXIT_MARKER =
 	/^[ \t]*(?:#|\*|\/\/)[ \t]*DENIES-BY:[ \t]*exit 2\b/m;
 const EXIT_2 = /\bexit 2\b/;
+
+const CORE_DENY =
+	/\bdeny\s*:|\{[^}]*\bdeny(?:Text)?\b[^}]*\}\s*=\s*require\(\s*["']\.\/guard-verdict\.js["']/;
 
 /* A header line: blank, a shebang, or a shell, block or line comment. */
 const HEADER_LINE = /^[ \t]*(?:$|#|\/\*|\*|\/\/)/;
@@ -159,6 +168,23 @@ function isDenyCapable(name, dirs) {
 }
 
 /**
+ * Whether the dispatcher core module at `file` can refuse a call. One the
+ * manifest names that will not read can: unknown is not zero, and the
+ * dispatcher would have loaded it (#3272).
+ *
+ * @param {string} file
+ * @returns {boolean}
+ */
+function isDenyingCore(file) {
+	const text = readOrNull(file);
+	if (!text) return true;
+	const code = text
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/^[ \t]*\/\/.*$/gm, "");
+	return CORE_DENY.test(code);
+}
+
+/**
  * `isDenyCapable` over fixed `dirs`, memoised for one process.
  *
  * @param {string[]} dirs
@@ -177,4 +203,4 @@ function isDenyCapableIn(dirs) {
 	};
 }
 
-module.exports = { guardDirs, guardPath, isDenyCapableIn };
+module.exports = { isDenyingCore, guardDirs, guardPath, isDenyCapableIn };

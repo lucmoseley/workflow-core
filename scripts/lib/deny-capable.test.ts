@@ -9,7 +9,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { guardDirs, guardPath, isDenyCapableIn } from "./deny-capable";
+import {
+	guardDirs,
+	guardPath,
+	isDenyCapableIn,
+	isDenyingCore,
+} from "./deny-capable";
 
 let a: string;
 let b: string;
@@ -120,6 +125,44 @@ describe("a DENIES-BY: exit 2 header line (#2473)", () => {
 
 	it("leaves a bare exit 2 undeclared, a usage error's spelling", () => {
 		expect(judged("#!/usr/bin/env bash\nexit 2\n")).toBe(false);
+	});
+});
+
+describe("a dispatcher core (#3272)", () => {
+	const core = (text: string) => {
+		const file = path.join(a, "core.js");
+		fs.writeFileSync(file, text);
+		return isDenyingCore(file);
+	};
+
+	it.each([
+		["a deny key", "return { deny: ctx.corePaths(REASON) };\n"],
+		[
+			"guard-verdict.js's deny helper",
+			'const { deny, walkVerdict } = require("./guard-verdict.js");\n',
+		],
+		[
+			"guard-verdict.js's denyText helper",
+			'const { denyText } = require("./guard-verdict.js");\n',
+		],
+	])("admits one returning %s", (_, text) => {
+		expect(core(text)).toBe(true);
+	});
+
+	it.each([
+		["a context alone", "return { context: NOTE };\n"],
+		["a deny named only in a block comment", "/* deny: never */\nrun();\n"],
+		["a deny named only in a line comment", "// deny: never\nrun();\n"],
+		[
+			"guard-verdict.js without a deny helper",
+			'const { open } = require("./guard-verdict.js");\n',
+		],
+	])("refuses one carrying %s", (_, text) => {
+		expect(core(text)).toBe(false);
+	});
+
+	it("admits one that will not read: unknown is not zero", () => {
+		expect(isDenyingCore(path.join(a, "missing.js"))).toBe(true);
 	});
 });
 

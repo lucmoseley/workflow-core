@@ -13,6 +13,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { isDenyingCore } = require("./deny-capable.js");
 const { clausesAdmit } = require("./if-clause.js");
 
 const DISPATCH_ENTRY = "scripts/guard-dispatch.js";
@@ -96,6 +97,41 @@ function admits(row, payload) {
 }
 
 /**
+ * Whether the dispatcher runs `row`'s core on `payload`'s call: its tools and
+ * `if` clauses admit the call, the host has not disabled it, and its module,
+ * where it names one, is on.
+ * @param {CoreRow} row
+ * @param {Record<string, unknown>} payload
+ * @param {{ disabled: (name: string) => boolean,
+ *   moduleOn: (module: Module) => boolean }} host
+ */
+function runsOn(row, payload, { disabled, moduleOn }) {
+	const tool =
+		typeof payload.tool_name === "string" ? payload.tool_name : undefined;
+	return (
+		isCoreFor(row, tool) &&
+		admits(row, payload) &&
+		!disabled(row.name) &&
+		!(row.module && !moduleOn(row.module))
+	);
+}
+
+/**
+ * The PreToolUse cores able to deny that the dispatcher runs on `payload`'s
+ * call, by name: what a killed dispatcher call lost (#3272).
+ * @param {Record<string, unknown>} payload
+ * @param {Parameters<typeof runsOn>[2]} host
+ * @returns {string[]}
+ */
+function denyingCoresOn(payload, host) {
+	return dispatchRows("PreToolUse")
+		.filter(
+			(row) => runsOn(row, payload, host) && isDenyingCore(corePath(row.core)),
+		)
+		.map((row) => row.name);
+}
+
+/**
  * @param {string} event
  * @returns {CoreRow[]}
  */
@@ -160,6 +196,7 @@ module.exports = {
 	admits,
 	MANIFEST_REL,
 	corePath,
+	denyingCoresOn,
 	dispatchRows,
 	hostOf,
 	readDispatchedCores,
@@ -169,4 +206,5 @@ module.exports = {
 	manifestRows,
 	modulePath,
 	readManifest,
+	runsOn,
 };

@@ -33,10 +33,10 @@
  * (mantahostels#1762). Anything else that throws here
  * crashes the entry, and the registration's `"onFailure": "block"` refuses the
  * call. There is no per-core time budget: a core does no I/O, and every
- * adapter that spawns carries its own timeout. The shared git reader's and
- * branch-publish's are cut to what the entry's budget leaves, and
- * npm-install's registry budget runs from the entry's start
- * (lib/hook-deadline.js); the other hosts' reads are not cut. An adapter working in process — the
+ * adapter that spawns carries its own timeout, cut to what the entry's budget
+ * leaves (lib/hook-deadline.js): each git and gh call's by lib/git.js and
+ * lib/gh.js, the other spawns' by their hosts, and npm-install's registry
+ * budget runs from the entry's start. An adapter working in process — the
  * PostToolUse cores' scratch stores and the arbiter's record — carries none:
  * only the entry's timeout bounds a hang there, and it costs every core still
  * to run on that call its say.
@@ -47,7 +47,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { watchRepoFault } = require("./refuse-on-throw.js");
 const { gitOutcome, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
-const { budgetMs, startEntryClock } = require("./hook-deadline.js");
+const { startEntryClock } = require("./hook-deadline.js");
 const { guardDisabled } = require("./workflow-core-config.js");
 const {
 	emit,
@@ -64,6 +64,7 @@ const {
 	corePath,
 	dispatchRows,
 	isCoreFor,
+	runsOn,
 } = require("./guard-cores.js");
 
 /**
@@ -171,16 +172,14 @@ function merge(parts) {
  */
 function dispatch(cores, env) {
 	const { payload, adapters, disabled } = env;
-	const tool = toolOf(payload);
+	const host = { disabled, moduleOn: adapters.moduleOn };
 	/** @type {Part[]} */
 	const parts = [];
 	/** @type {LatchSet[]} */
 	const latches = [];
 	let used = 0;
 	for (const core of cores) {
-		if (!isCoreFor(core, tool) || !admits(core, payload)) continue;
-		if (disabled(core.name)) continue;
-		if (core.module && !adapters.moduleOn(core.module)) continue;
+		if (!runsOn(core, payload, host)) continue;
 		const spent = used;
 		const room = () => persistRoom(env.persistChars(), spent);
 		const { part, latchSet } = runCore(core, env, room);
@@ -321,7 +320,7 @@ function hostAdapters(root, log) {
 			const key = JSON.stringify([args, noMatch]);
 			let r = seen.get(key);
 			if (!r) {
-				r = gitOutcome(args, noMatch, root, budgetMs(HOOK_GIT_TIMEOUT_MS));
+				r = gitOutcome(args, noMatch, root, HOOK_GIT_TIMEOUT_MS);
 				seen.set(key, r);
 			}
 			return r;
@@ -380,13 +379,13 @@ function repoRel(file, root) {
  * @param {string} [only]
  */
 function runDispatch(only) {
-	startEntryClock();
 	const root = hostRoot(process.cwd(), { timeoutMs: HOOK_GIT_TIMEOUT_MS });
 	if (guardDisabled(guardFile(), { root })) return;
 	const entryLog = logger(guardFile(), root);
 	const payload = readPayload("call", entryLog);
 	if (!payload) return;
 	const event = String(payload.hook_event_name ?? "");
+	startEntryClock(event);
 	const tool = toolOf(payload);
 	/* dispatch judges each core again; this filter only spares the load. */
 	const cores = loadCores(

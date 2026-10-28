@@ -12,9 +12,11 @@
  * after the census and so appears in neither. Nothing can; that one surfaces as
  * the block's own "deny rate UNKNOWN" line.
  *
- * A census row whose guard no longer denies — removed, or downgraded to a warn
- * (#497) — is dropped from the table, never edited, so only the rows of guards
- * still deny-capable are compared.
+ * A census row is keyed by what runs the guard now: its dispatcher core's name
+ * where it was folded into guard-dispatch.js, else its script (#3272). One
+ * whose guard no longer denies — removed, or downgraded to a warn (#497) — is
+ * dropped from the table, never edited, so only the rows of guards still
+ * deny-capable are compared.
  *
  * guard-lost-deny.js, a `Stop` hook, prints these rates so a session can
  * decide whether re-running a guard that failed open is worth a turn; a
@@ -24,11 +26,20 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { isDenyCapableIn } from "./deny-capable";
+import { isDenyCapableIn, isDenyingCore } from "./deny-capable";
+import { corePath, readManifest } from "./guard-cores";
 import { RATES } from "./guard-deny-rates";
 
 const SCRIPTS = path.join(__dirname, "..");
 const isDenyCapable = isDenyCapableIn([SCRIPTS]);
+
+/** The dispatcher's deny-event cores, by name. */
+const CORES = new Map(
+	readManifest(path.join(__dirname, "guard-cores.json")).PreToolUse.map((r) => [
+		r.name,
+		r,
+	]),
+);
 
 const CENSUS = path.join(
 	__dirname,
@@ -51,13 +62,24 @@ interface Row {
 /** `1.588% [1.41-1.79%]` and `0% [0-0.02%]` both. */
 const RATE_CELL = /^([\d.]+)%\s*\[([\d.]+)-([\d.]+)%\]$/;
 
-/** A census row's guard under the Node entry it was ported to, if it was. */
+/**
+ * A census row's guard under what runs it now: the dispatcher core it was
+ * folded into, else the Node entry it was ported to, else its own script.
+ */
 function portedName(guard: string): string {
+	const core = guard.replace(/\.sh$/, "");
+	if (CORES.has(core)) return core;
 	const js = guard.replace(/\.sh$/, ".js");
 	return !fs.existsSync(path.join(SCRIPTS, guard)) &&
 		fs.existsSync(path.join(SCRIPTS, js))
 		? js
 		: guard;
+}
+
+/** Whether what a census row now names can still deny. */
+function isLiveDenier(name: string): boolean {
+	const core = CORES.get(name);
+	return core ? isDenyingCore(corePath(core.core)) : isDenyCapable(name);
 }
 
 /**
@@ -88,7 +110,7 @@ function readCensusRows(): Record<string, Row> {
 /** The census rows whose guard can still deny. */
 function readLiveRows(): Record<string, Row> {
 	return Object.fromEntries(
-		Object.entries(readCensusRows()).filter(([g]) => isDenyCapable(g)),
+		Object.entries(readCensusRows()).filter(([g]) => isLiveDenier(g)),
 	);
 }
 

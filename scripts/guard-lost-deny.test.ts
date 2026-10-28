@@ -30,7 +30,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 import { readStopGuardBlock, type StopRun } from "./lib/stop-guard-testkit";
-import { buildBashCall } from "./lib/transcript-testkit";
+import { buildBashCall, buildToolCall } from "./lib/transcript-testkit";
 
 /* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
@@ -384,6 +384,128 @@ describe("whether the loss was worth a turn", () => {
 		expect(r.reason).toContain(
 			"https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md",
 		);
+	});
+});
+
+describe("a killed dispatcher call, priced as the cores it admitted — #3272", () => {
+	const repo = path.resolve(__dirname, "..");
+	const { denyingCoresOn, readManifest } = createRequire(__filename)(
+		"./lib/guard-cores.js",
+	);
+	const manifest = readManifest(
+		path.join(repo, "scripts", "lib", "guard-cores.json"),
+	);
+	const close = { name: "Bash", input: { command: "gh issue close 5" } };
+	/** The cores able to deny that run on `gh issue close 5`, live. */
+	const admitted: string[] = denyingCoresOn(
+		{ tool_name: close.name, tool_input: close.input },
+		{ disabled: () => false, moduleOn: () => true },
+	);
+
+	/** A killed guard-dispatch.js on `call`, priced from `rates` by core. */
+	const lostDispatch = (
+		call: { name: string; input: Record<string, unknown> },
+		rates: Record<string, number>,
+	) => {
+		transcript([
+			buildToolCall(call.name, call.input, "toolu_A"),
+			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-dispatch.js" }),
+		]);
+		const table = path.join(dir, "deny-rates.json");
+		fs.writeFileSync(
+			table,
+			JSON.stringify(
+				Object.fromEntries(
+					Object.entries(rates).map(([name, pct]) => [
+						name,
+						{ denies: 1, population: 100_000, pct, lowPct: 0, highPct: pct },
+					]),
+				),
+			),
+		);
+		return run({ env: { WFC_SCRIPT_ROOT: repo, WFC_DENY_RATES: table } });
+	};
+
+	/** Every admitted core at 0%, `over` replacing some. */
+	const zeroed = (over: Record<string, number> = {}) => ({
+		...Object.fromEntries(admitted.map((c) => [c, 0])),
+		...over,
+	});
+
+	it("takes the cores the call's tool and if clauses admit, and no other", () => {
+		const names = manifest.PreToolUse.map((r: { name: string }) => r.name);
+		expect(names).toEqual(expect.arrayContaining(admitted));
+		expect(admitted).toContain("guard-issue-close");
+		expect(admitted).toContain("guard-self-match");
+		expect(admitted).not.toContain("guard-pull-form");
+		expect(admitted).not.toContain("guard-bg-job");
+	});
+
+	it("prices each admitted core, never the dispatcher as unknown", () => {
+		const r = lostDispatch(close, zeroed({ "guard-issue-close": 0.0233 }));
+
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain("guard-dispatch.js — lost on");
+		expect(r.reason).toContain("guard-issue-close: denies 0.0233% of calls");
+		expect(r.reason).toContain("guard-self-match: denies 0% of calls");
+		expect(r.reason).not.toContain("UNKNOWN");
+		expect(r.reason).toContain(
+			`Together: at most 0.0233% of calls (the ${admitted.length} rates summed) — under the 1% cut`,
+		);
+		expect(r.reason).toContain("No guard here denies often enough");
+	});
+
+	it("chases a call whose cores together clear the cut, though none does alone", () => {
+		const r = lostDispatch(
+			close,
+			zeroed({ "guard-issue-close": 0.6, "guard-issue-body": 0.6 }),
+		);
+
+		expect(r.reason).toContain("guard-issue-close: denies 0.6% of calls");
+		expect(r.reason).toContain("Together: at most 1.2% of calls");
+		expect(r.reason).toContain("This one is worth the replay");
+	});
+
+	it("calls an admitted core with no row unknown, and the call worth the replay", () => {
+		const r = lostDispatch(close, {});
+
+		expect(r.reason).toContain(
+			"guard-issue-close: deny rate UNKNOWN — no row in the 5 Sep 2026 census",
+		);
+		expect(r.reason).not.toContain("Together:");
+		expect(r.reason).toContain("This one is worth the replay");
+	});
+
+	it("prices none of the cores the host has disabled", () => {
+		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, ".claude", "workflow-core.json"),
+			JSON.stringify({ disabled: admitted }),
+		);
+
+		const r = lostDispatch(close, zeroed());
+
+		expect(r.blocked).toBe(false);
+	});
+
+	it("says which cores ran is unknown where the call is gone from the transcript", () => {
+		transcript([
+			killed({ command: "$CLAUDE_PROJECT_DIR/scripts/guard-dispatch.js" }),
+		]);
+
+		const r = run({ env: { WFC_SCRIPT_ROOT: repo } });
+
+		expect(r.reason).toContain(
+			"guard-dispatch.js: its tool call is not in this transcript, so which cores it ran is UNKNOWN",
+		);
+		expect(r.reason).toContain("This one is worth the replay");
+	});
+
+	it("says nothing where the call reached no core that can deny", () => {
+		const r = lostDispatch({ name: "WebFetch", input: { url: "x" } }, {});
+
+		expect(r.blocked).toBe(false);
+		expect(readCrumb()).toMatchObject({ outcome: "no-finding" });
 	});
 });
 

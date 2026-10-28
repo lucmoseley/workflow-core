@@ -12,14 +12,17 @@
  * Bands are Wilson 95%. Source: `docs/data/lost-deny-census-2026-09-05/rates.md`
  * (the census's correct cut), over a corpus whose losses run 15 Aug – 5 Sep 2026.
  *
- * A GUARD WITH NO ROW IS UNKNOWN, NEVER ZERO. `guard-lost-deny.js` derives the
- * deny-capable set from each script's own source (`lib/deny-capable.js`), so a
- * guard added after the census joins that set with no edit anywhere — and this
- * table lags it by design. `guard-dispatch.js` is in that position:
- * deny-capable, no row. The census priced the issue-body, issue-close,
- * issue-create-label, issue-phase-scope, pull-form, registry-atomicity and
- * suite-concurrency guards as entries of their own, and those figures do
- * not price the dispatcher that now runs them as cores.
+ * A ROW IS KEYED BY WHAT RUNS: a dispatcher core by its name in
+ * lib/guard-cores.json, a standalone guard by its script. The census measured
+ * each guard on its own `if` narrowing, which its core row carries over, so a
+ * guard's figure still prices its core (#3272). A killed `guard-dispatch.js`
+ * call is priced from the cores able to deny that it ran on the call
+ * (`lib/guard-cores.js` `denyingCoresOn`).
+ *
+ * A GUARD OR CORE WITH NO ROW IS UNKNOWN, NEVER ZERO. `guard-lost-deny.js`
+ * derives the deny-capable set from each script's and core's own source
+ * (`lib/deny-capable.js`), so one added after the census joins that set with
+ * no edit anywhere — and this table lags it by design.
  *
  * NOTHING DETECTS STALENESS AUTOMATICALLY. The signal is the report itself: a
  * guard printed as "deny rate unknown" is a guard this table has not been
@@ -48,7 +51,113 @@ const WORTH_REPLAYING_PCT = 1;
  */
 
 /** @type {Record<string, Rate>} */
-const RATES = {};
+const RATES = {
+	"guard-issue-close": {
+		denies: 255,
+		population: 16_057,
+		pct: 1.588,
+		lowPct: 1.41,
+		highPct: 1.79,
+	},
+	"guard-agent-poll": {
+		denies: 881,
+		population: 40_198,
+		pct: 2.192,
+		lowPct: 2.05,
+		highPct: 2.34,
+	},
+	"guard-suite-concurrency": {
+		denies: 736,
+		population: 71_159,
+		pct: 1.034,
+		lowPct: 0.96,
+		highPct: 1.11,
+	},
+	"guard-issue-create-label": {
+		denies: 208,
+		population: 16_057,
+		pct: 1.295,
+		lowPct: 1.13,
+		highPct: 1.48,
+	},
+	"guard-issue-body": {
+		denies: 16,
+		population: 16_057,
+		pct: 0.0996,
+		lowPct: 0.06,
+		highPct: 0.16,
+	},
+	"guard-issue-phase-scope": {
+		denies: 9,
+		population: 38_601,
+		pct: 0.0233,
+		lowPct: 0.01,
+		highPct: 0.04,
+	},
+	"guard-self-match": {
+		denies: 79,
+		population: 291_734,
+		pct: 0.0271,
+		lowPct: 0.02,
+		highPct: 0.03,
+	},
+	"guard-suite-background": {
+		denies: 70,
+		population: 291_734,
+		pct: 0.024,
+		lowPct: 0.02,
+		highPct: 0.03,
+	},
+	"guard-echo-call": {
+		denies: 69,
+		population: 317_047,
+		pct: 0.0218,
+		lowPct: 0.02,
+		highPct: 0.03,
+	},
+	"guard-root-scratch": {
+		denies: 11,
+		population: 291_734,
+		pct: 0.0038,
+		lowPct: 0,
+		highPct: 0.01,
+	},
+	"guard-registry-atomicity": {
+		denies: 3,
+		population: 21_952,
+		pct: 0.0137,
+		lowPct: 0,
+		highPct: 0.04,
+	},
+	"guard-commit-form": {
+		denies: 1,
+		population: 21_952,
+		pct: 0.0046,
+		lowPct: 0,
+		highPct: 0.03,
+	},
+	"guard-pull-form": {
+		denies: 0,
+		population: 21_952,
+		pct: 0,
+		lowPct: 0,
+		highPct: 0.02,
+	},
+	"guard-branch": {
+		denies: 0,
+		population: 21_952,
+		pct: 0,
+		lowPct: 0,
+		highPct: 0.02,
+	},
+	"guard-sweep-fire": {
+		denies: 0,
+		population: 291_734,
+		pct: 0,
+		lowPct: 0,
+		highPct: 0.001,
+	},
+};
 
 /**
  * The measured rate for a guard, or null where it has none.
@@ -76,14 +185,31 @@ function readRateTable() {
 }
 
 /**
- * Whether a loss of this guard is worth the turn a replay costs. An unmeasured
- * guard reads as worth it: unknown is not zero.
- * @param {string} guard
+ * The chance at most that one of `lost` would have denied, as a percentage:
+ * their rates summed, which bounds the union whatever their overlap. Null where
+ * one of them is unmeasured.
+ * @param {string[]} lost
+ * @returns {number | null}
+ */
+function summedPct(lost) {
+	let sum = 0;
+	for (const key of lost) {
+		const rate = forGuard(key);
+		if (rate === null) return null;
+		sum += rate.pct;
+	}
+	return sum;
+}
+
+/**
+ * Whether losing `lost` together on one call is worth the turn a replay costs.
+ * An unmeasured one makes it worth it.
+ * @param {string[]} lost
  * @returns {boolean}
  */
-function isWorthReplaying(guard) {
-	const rate = forGuard(guard);
-	return rate === null || rate.pct >= WORTH_REPLAYING_PCT;
+function isWorthReplaying(lost) {
+	const sum = summedPct(lost);
+	return sum === null || sum >= WORTH_REPLAYING_PCT;
 }
 
 /**
@@ -101,6 +227,17 @@ function pct(n) {
 }
 
 /**
+ * A rate's verdict, stated against the cut rather than in words.
+ * @param {number} ratePct
+ * @returns {string}
+ */
+function verdictAt(ratePct) {
+	return ratePct >= WORTH_REPLAYING_PCT
+		? `over the ${WORTH_REPLAYING_PCT}% cut, worth the replay`
+		: `under the ${WORTH_REPLAYING_PCT}% cut, so a replay rarely pays`;
+}
+
+/**
  * One line saying how often this guard denies, and so whether the loss is worth
  * a turn.
  * @param {string} guard
@@ -112,14 +249,19 @@ function describe(guard) {
 		return `${guard}: deny rate UNKNOWN — no row in the ${AS_OF} census, so treat it as worth replaying.`;
 	const band = `95% CI ${pct(rate.lowPct)}-${pct(rate.highPct)}`;
 	const counts = `${rate.denies.toLocaleString("en-GB")} denial${rate.denies === 1 ? "" : "s"} in ${rate.population.toLocaleString("en-GB")} calls`;
-	/* Stated against the cut rather than in words: a big numerator beside "almost
-	 * never mattered" reads as a contradiction to anyone who has not seen the
-	 * denominator. */
-	const verdict =
-		rate.pct >= WORTH_REPLAYING_PCT
-			? `over the ${WORTH_REPLAYING_PCT}% cut, worth the replay`
-			: `under the ${WORTH_REPLAYING_PCT}% cut, so a replay rarely pays`;
-	return `${guard}: denies ${pct(rate.pct)} of calls (${counts}; ${band}) — ${verdict}.`;
+	return `${guard}: denies ${pct(rate.pct)} of calls (${counts}; ${band}) — ${verdictAt(rate.pct)}.`;
+}
+
+/**
+ * The verdict on several lost together on one call, from their summed rates;
+ * null where one is unmeasured, its own line having said so.
+ * @param {string[]} lost
+ * @returns {string | null}
+ */
+function describeTogether(lost) {
+	const sum = summedPct(lost);
+	if (sum === null) return null;
+	return `Together: at most ${pct(sum)} of calls (the ${lost.length} rates summed) — ${verdictAt(sum)}.`;
 }
 
 /**
@@ -130,4 +272,10 @@ function describe(guard) {
  */
 const PROVENANCE = `Deny rates as of ${AS_OF}, counted whole-corpus and unbounded: every tool_use record matching each guard's own if-narrowing, not just the firings that printed something. https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md §Q2.`;
 
-module.exports = { PROVENANCE, RATES, describe, isWorthReplaying };
+module.exports = {
+	PROVENANCE,
+	RATES,
+	describe,
+	describeTogether,
+	isWorthReplaying,
+};

@@ -61,10 +61,16 @@
  */
 
 const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 
 const { guardDirs, guardPath, isDenyCapableIn } = require("./lib/deny-capable");
+const { DISPATCH_ENTRY, denyingCoresOn } = require("./lib/guard-cores.js");
 const denyRates = require("./lib/guard-deny-rates");
 const { guardKey } = require("./lib/guard-fires");
+const {
+	guardDisabled,
+	moduleReader,
+} = require("./lib/workflow-core-config.js");
 const hookBlock = require("./lib/hook-block");
 const { describeCall, reportOnce } = require("./lib/report-once");
 const { coreRoot, scriptPath } = require("./lib/script-path.js");
@@ -83,7 +89,8 @@ const { caught } = require("./lib/caught.js");
  * One lost hook, as the harness records it.
  * @typedef {{toolUseID: string, guard: string, type: string,
  *   durationMs: number|null, timeoutMs: number|null,
- *   exitCode: number|null}} Loss
+ *   exitCode: number|null, pricedAs: string[]}} Loss `pricedAs` names
+ *   what the loss is priced as: the guard, or the dispatcher's cores (#3272)
  */
 
 /** The two attachment types that say a hook did not complete. */
@@ -111,15 +118,15 @@ const SEEN_PREFIX = ".lost-deny-seen-";
  *
  * @param {string} text the transcript
  * @param {"main" | "subagent"} tier
- * @param {(guard: string) => boolean} isDenyCapable
+ * @param {PriceOf} priceOf
  * @param {{skipped: number}} [stats]
  * @returns {Loss[]}
  */
-function lossesIn(text, tier, isDenyCapable, stats) {
+function lossesIn(text, tier, priceOf, stats) {
 	/** @type {Loss[]} */
 	const out = [];
 	for (const record of mainChainRecords(text, tier, stats)) {
-		const loss = lossOf(record, isDenyCapable);
+		const loss = lossOf(record, priceOf);
 		if (loss) out.push(loss);
 	}
 	return out;
@@ -129,10 +136,10 @@ function lossesIn(text, tier, isDenyCapable, stats) {
  * One record's loss of a deny-capable guard, or null where it records none.
  * @param {Record<string, any>} record as `mainChainRecords` yields it — a
  *   transcript is an external format this repo does not define
- * @param {(guard: string) => boolean} isDenyCapable
+ * @param {PriceOf} priceOf
  * @returns {Loss | null}
  */
-function lossOf(record, isDenyCapable) {
+function lossOf(record, priceOf) {
 	const a = record?.attachment;
 	if (!a || !FAILURE_TYPES.has(a.type)) return null;
 	if (typeof a.command !== "string" || !a.command) return null;
@@ -141,7 +148,9 @@ function lossOf(record, isDenyCapable) {
 	/* The harness writes the exec form's `args` into `.command` already
 	 * (measured at mantahostels#2059), so there is no second field to pass. */
 	const guard = guardKey(a.command);
-	if (!guard || !isDenyCapable(guard)) return null;
+	if (!guard) return null;
+	const pricedAs = priceOf(guard, a.toolUseID);
+	if (pricedAs.length === 0) return null;
 	return {
 		toolUseID: a.toolUseID,
 		guard,
@@ -149,19 +158,41 @@ function lossOf(record, isDenyCapable) {
 		durationMs: typeof a.durationMs === "number" ? a.durationMs : null,
 		timeoutMs: typeof a.timeoutMs === "number" ? a.timeoutMs : null,
 		exitCode: typeof a.exitCode === "number" ? a.exitCode : null,
+		pricedAs,
 	};
 }
 
 /**
- * Whether a lost guard can deny. guardKey appends the arguments that
- * distinguish two registrations of one script; the file is the first word.
+ * What a guard lost on a call is priced as, [] where it could not have denied
+ * it. guardKey appends the arguments that distinguish two registrations of
+ * one script; the file is the first word. The dispatcher is priced as the
+ * cores able to deny that it ran on the call, none where it ran none, and as
+ * itself where the transcript no longer holds the call (#3272).
+ * @typedef {(guard: string, toolUseID: string) => string[]} PriceOf
  *
  * @param {string[]} dirs
- * @returns {(guard: string) => boolean}
+ * @param {Map<string, {name: string, input: unknown}>} calls
+ * @param {string} root the session's repo, whose config disables cores
+ * @returns {PriceOf}
  */
-function denyCapableIn(dirs) {
+function priceIn(dirs, calls, root) {
 	const isDenyCapable = isDenyCapableIn(dirs);
-	return (guard) => isDenyCapable(guard.replace(/ .*$/s, ""));
+	const host = {
+		disabled: (/** @type {string} */ name) => guardDisabled(name, { root }),
+		/* A config fault reads a module as off, as the dispatcher does; the
+		 * dispatcher's own entry logs it. */
+		moduleOn: moduleReader(root, () => undefined),
+	};
+	return (guard, toolUseID) => {
+		const name = guard.replace(/ .*$/s, "");
+		if (!isDenyCapable(name)) return [];
+		const call = calls.get(toolUseID);
+		if (name !== path.basename(DISPATCH_ENTRY) || !call) return [guard];
+		return denyingCoresOn(
+			{ tool_name: call.name, tool_input: call.input },
+			host,
+		);
+	};
 }
 
 /**
@@ -210,6 +241,17 @@ function howItWent(l) {
 }
 
 /**
+ * One line pricing what a call lost.
+ * @param {string} lost a guard's key, or a core's name
+ * @returns {string}
+ */
+function describeLost(lost) {
+	return lost.replace(/ .*$/s, "") === path.basename(DISPATCH_ENTRY)
+		? `${lost}: its tool call is not in this transcript, so which cores it ran is UNKNOWN — treat it as worth replaying.`
+		: denyRates.describe(lost);
+}
+
+/**
  * The block's text: one stanza per tool call, each naming the guards lost on it
  * and the command that re-runs them against the same payload.
  *
@@ -228,21 +270,31 @@ function reportFor(fresh, calls, transcript, skipped = 0) {
 		byCall.set(loss.toolUseID, at);
 	}
 
+	const lostBy = new Map(
+		[...byCall.entries()].map(([id, group]) => [
+			id,
+			[...new Set(group.flatMap((l) => l.pricedAs))],
+		]),
+	);
+
 	const stanzas = [...byCall.entries()].map(([id, group]) => {
 		const guards = [...new Set(group.map((l) => l.guard))];
 		const timing = group.map(howItWent).join("; ");
+		const lost = lostBy.get(id) ?? [];
+		const together = lost.length > 1 ? denyRates.describeTogether(lost) : null;
 		return [
 			`${guards.join(", ")} — lost on ${describeCall(calls.get(id))}`,
 			`  ${timing}.`,
-			...guards.map((g) => `  ${denyRates.describe(g)}`),
+			...lost.map((g) => `  ${describeLost(g)}`),
+			...(together ? [`  ${together}`] : []),
 			"  Re-run it against that same payload:",
 			`    node ${scriptPath("guard-lost-deny.js")} replay ${transcript} ${id}`,
 		].join("\n");
 	});
 
 	const n = byCall.size;
-	const worth = [...byCall.values()].filter((group) =>
-		group.some((l) => denyRates.isWorthReplaying(l.guard)),
+	const worth = [...lostBy.values()].filter((lost) =>
+		denyRates.isWorthReplaying(lost),
 	).length;
 	let worthWhich = `${worth} of ${n} are`;
 	if (worth === n) worthWhich = n === 1 ? "This one is" : `All ${n} are`;
@@ -292,11 +344,13 @@ function review({ sessionId: sid, payload, root, note }) {
 	const tier = isSubagentTranscript(file) ? "subagent" : "main";
 	const stats = { skipped: 0 };
 	let losses;
+	let calls;
 	try {
+		calls = toolCallsIn(text, tier);
 		losses = lossesIn(
 			text,
 			tier,
-			denyCapableIn(guardDirs(coreRoot(), root)),
+			priceIn(guardDirs(coreRoot(), root), calls, root),
 			stats,
 		);
 	} catch {
@@ -327,7 +381,7 @@ function review({ sessionId: sid, payload, root, note }) {
 			hookBlock.blockStop({
 				prefix: ".lost-deny-nagged-",
 				sessionId: sid,
-				reason: reportFor(fresh, toolCallsIn(text, tier), file, stats.skipped),
+				reason: reportFor(fresh, calls, file, stats.skipped),
 			}),
 	});
 }
@@ -431,7 +485,8 @@ function replay(argv) {
 		stats.skipped
 			? ` (${stats.skipped} line(s) of it would not parse and were skipped, so the call may be there and unreadable.)`
 			: "";
-	const call = toolCallsIn(text, tier, stats).get(toolUseID);
+	const calls = toolCallsIn(text, tier, stats);
+	const call = calls.get(toolUseID);
 	if (!call) {
 		process.stderr.write(
 			`${toolUseID} is not a tool call in ${file}${partial()}\n`,
@@ -443,7 +498,7 @@ function replay(argv) {
 	stats.skipped = 0;
 	const guards = [
 		...new Set(
-			lossesIn(text, tier, denyCapableIn(dirs), stats)
+			lossesIn(text, tier, priceIn(dirs, calls, root), stats)
 				.filter((l) => l.toolUseID === toolUseID)
 				.map((l) => l.guard),
 		),
