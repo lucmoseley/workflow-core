@@ -63,7 +63,7 @@
 	"scripts/queue-run.js": "723f8435f35f669b",
 	"scripts/reap-finished-sessions.js": "78c64ab732b710d4",
 	"scripts/reap-orphan-hooks.js": "5cff4f83c9298e02",
-	"scripts/reconcile-plugin.js": "8b548392be82bb4e",
+	"scripts/reconcile-plugin.js": "696815d1113e445a",
 	"scripts/record-acts.js": "41d7e6ce8a754db9",
 	"scripts/record-delegated-decision.js": "429eb7119d9b9d60",
 	"scripts/record-divergence.js": "cad24774af295c6c",
