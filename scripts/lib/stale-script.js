@@ -36,8 +36,6 @@
  *    runs, is not seen.
  *  - A script named as an ARGUMENT is not a run: only the first word that is a
  *    file is read, because everything after it belongs to that script.
- *  - A script word with no `/` is passed over, even where it names a file in
- *    the directory the command stands in.
  *  - In a worktree the paths resolve outside the shared repo root and nothing
  *    warns — right, because a worktree runs its own copy of the file.
  *  - It fails open throughout (mantahostels#103 §6): no session id is
@@ -109,10 +107,7 @@ function staleCandidates(command, ctx) {
 			const name = npmScript(rest, spans);
 			if (name !== null) names.push(`npm-script:${name}`);
 		},
-	})
-		/* The bare-filename case holds this (#2789); #3417 would re-rule it. */
-		.filter((run) => run.shown.includes("/"))
-		.map((run) => run.abs);
+	}).map((run) => run.abs);
 	return [...paths, ...names];
 }
 

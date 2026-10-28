@@ -163,6 +163,23 @@ describe("the scripts a command runs", () => {
 		).toEqual(["scripts/pick-next.js"]);
 	});
 
+	it.each([
+		["cd scripts && node pick-next.js", "scripts/pick-next.js"],
+		["cd scripts && bash < thing.sh", "scripts/thing.sh"],
+		["cd scripts && source thing.sh", "scripts/thing.sh"],
+	])("reads a bare filename after a `cd` (#3417): %s", (command, rel) => {
+		heldHalfWritten("scripts/pick-next.js", "scripts/thing.sh");
+		expect(named(warned(command))).toEqual([rel]);
+	});
+
+	it("reads a bare filename against the directory the command stands in", () => {
+		heldHalfWritten("scripts/pick-next.js");
+		expect(
+			named(warned("node pick-next.js", path.join(sb.repo, "scripts"))),
+		).toEqual(["scripts/pick-next.js"]);
+		expect(warned("node pick-next.js")).toBe("");
+	});
+
 	it("reads a script sourced, and one run under `dash`", () => {
 		heldHalfWritten("scripts/thing.sh");
 		expect(named(warned("source scripts/thing.sh"))).toEqual([
@@ -325,20 +342,6 @@ describe("the cases a mutant must not survive (#2789)", () => {
 		expect(named(warned("/usr/bin/node scripts/pick-next.js"))).toEqual([
 			"scripts/pick-next.js",
 		]);
-	});
-
-	it("never reads a bare filename as a script path", () => {
-		heldHalfWritten("scripts/pick-next.js");
-		const { output } = runCore(
-			"guard-stale-script",
-			{
-				session_id: "mine",
-				tool_name: "Bash",
-				tool_input: { command: "node pick-next.js" },
-			},
-			{ root: sb.repo, cwd: path.join(sb.repo, "scripts") },
-		);
-		expect(output).toBeNull();
 	});
 
 	it("reads a script name only after `run`", () => {
