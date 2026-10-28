@@ -331,8 +331,8 @@
 			"source": "#2788"
 		},
 		"scripts/lib/job-dir-scratch.js": {
-			"digest": "da15b7b542cfa279",
-			"verdict": "at need — on the write call itself, run as a core of scripts/guard-dispatch.js. Fed at 18a1598da under #3143 through the entry (`--only guard-job-dir-scratch`, a fake CLAUDE_JOB_DIR): a Write, an Edit and a Bash `>` into the job dir's tmp folder refused (1987, 1990 and 2022 B; the Bash one also 2022 B through the whole entry); a Write into a subfolder there warned once (1639 B), then 0 B; a write outside any job dir and a Bash read of `$CLAUDE_JOB_DIR/tasks/x.output` passed, 0 B. With the rule store unreadable it still refuses (666 B) and warns (318 B), ending in the fallback naming docs/agents/rules/job-dir-scratch.txt. Byte counts are the deny reason or context text alone, not hook stdout.",
+			"digest": "de521d5e4549b8dc",
+			"verdict": "at need — on the write call itself, run as a core of scripts/guard-dispatch.js. Fed at 18a1598da under #3143 through the entry (`--only guard-job-dir-scratch`, a fake CLAUDE_JOB_DIR): a Write, an Edit and a Bash `>` into the job dir's tmp folder refused (1987, 1990 and 2022 B; the Bash one also 2022 B through the whole entry); a Write into a subfolder there warned once (1639 B), then 0 B; a write outside any job dir and a Bash read of `$CLAUDE_JOB_DIR/tasks/x.output` passed, 0 B. With the rule store unreadable it still refuses (666 B) and warns (318 B), ending in the fallback naming docs/agents/rules/job-dir-scratch.txt. Re-fed at f02912eec8 under #3178: a Write and a Bash `>` into `<job>/tmp/wt/.claude/tmp/` passed, 0 B; a Write climbing out of one by `..` into the flat tmp folder refused (1960 B). Byte counts are the deny reason or context text alone, not hook stdout.",
 			"selfSufficient": "yes — the deny hands the sanctioned target, whichever spelling wrote it (Same write / Move it to / Same command); the warn states the rule, the location, and the naming convention; the unreadable-store fallback names the file to read; re-fed at #3146 with an empty rule store, the same fallback through ruleOrFallback",
 			"source": "#3143"
 		},
