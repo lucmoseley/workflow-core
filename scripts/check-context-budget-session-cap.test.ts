@@ -970,6 +970,7 @@ describe("--against HEAD over a guard's own bytes", () => {
 		const r = spawnSync("node", [SCRIPT, "--against", "HEAD", ...args], {
 			cwd: dir,
 			encoding: "utf8",
+			env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
 		});
 		return { ...r, json: () => JSON.parse(r.stdout) };
 	}
@@ -1329,7 +1330,11 @@ describe("this repo's own figures", () => {
 	const live = (): any =>
 		JSON.parse(
 			runInProcess(SCRIPT, ["--json"], {
-				env: { ...process.env, WFC_MODULES: undefined },
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: ROOT,
+					WFC_MODULES: undefined,
+				},
 			}).stdout,
 		);
 

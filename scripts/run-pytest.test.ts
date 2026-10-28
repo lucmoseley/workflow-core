@@ -543,9 +543,11 @@ describe("what it says out loud", () => {
 		"runs as a script, passing its arguments through to a real pytest",
 		() => {
 			// `--collect-only` runs no tests and records no marker.
+			const checkout = path.join(__dirname, "..");
 			const r = spawnSync(process.execPath, [SCRIPT, "--collect-only", "-q"], {
 				encoding: "utf8",
-				cwd: path.join(__dirname, ".."),
+				cwd: checkout,
+				env: { ...process.env, CLAUDE_PROJECT_DIR: checkout },
 			});
 			expect(r.status, r.stderr).toBe(0);
 			expect(r.stdout).toContain("test_pytest_pass_plugin.py");

@@ -2174,7 +2174,7 @@ function buildCommittedNote(route, opts) {
 	const base = readDefaultChangedBase(root, execFn);
 	const own = readOwnPathsAt(root, base, withSession(route, opts));
 	if (!own || own.kept.length === 0) return null;
-	return `UNPUSHED WORK NOT SELECTED — \`--changed\` reads only uncommitted files, so none of your ${own.kept.length} unpushed commit(s) since ${shortSha(base)} is tested here. \`${readCommandOrDefault("test")}\` tests them, narrowed to your own work (#2182).\n`;
+	return `UNPUSHED WORK NOT SELECTED — \`--changed\` reads only uncommitted files, so none of your ${own.kept.length} unpushed commit(s) since ${shortSha(base)} is tested here. \`${readCommandOrDefault("test", { root })}\` tests them, narrowed to your own work (#2182).\n`;
 }
 
 /**
@@ -2189,13 +2189,10 @@ function buildCommittedNote(route, opts) {
 function buildNeighbourRangeNote(route, opts) {
 	const ref = changedFlag(route.rest)?.ref;
 	if (!ref) return null;
-	const own = readOwnWorkAt(
-		opts.root ?? TREE_ROOT,
-		ref,
-		withSession(route, opts),
-	);
+	const root = opts.root ?? TREE_ROOT;
+	const own = readOwnWorkAt(root, ref, withSession(route, opts));
 	if (!own) return null;
-	return `NEIGHBOURS' COMMITS TAKEN ON — \`--changed ${ref}\` takes on ${own.dropped.length} neighbour commit(s) in its range, whose reds are theirs: ${own.dropped.map(shortSha).join(", ")}. For your own unpushed commits and uncommitted files alone, run \`${readCommandOrDefault("test")}\` (#2182).\n`;
+	return `NEIGHBOURS' COMMITS TAKEN ON — \`--changed ${ref}\` takes on ${own.dropped.length} neighbour commit(s) in its range, whose reds are theirs: ${own.dropped.map(shortSha).join(", ")}. For your own unpushed commits and uncommitted files alone, run \`${readCommandOrDefault("test", { root })}\` (#2182).\n`;
 }
 
 /**
@@ -2210,7 +2207,7 @@ function buildQueueSkipLine(emptySource, root) {
 	const pushLine =
 		gate.state === "skip"
 			? `${gate.line} (#2961)`
-			: `\`${readCommandOrDefault("push_check")}\` says whether a certificate attests your push`;
+			: `\`${readCommandOrDefault("push_check", { root })}\` says whether a certificate attests your push`;
 	return `--queue: ${emptySource} reaches no test file, so this run skips the queue (#1016). ${pushLine}.\n`;
 }
 

@@ -35,11 +35,13 @@ def test_one_hyphen_per_character_never_one_per_run():
     assert project_slug("/a..b") == "-a--b"
 
 
-def test_slug_for_repo_names_this_checkout():
+def test_slug_for_repo_names_this_checkout(monkeypatch):
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(REPO_ROOT))
     assert slug_for_repo() == project_slug(str(REPO_ROOT))
 
 
-def test_agrees_with_the_js_sibling():
+def test_agrees_with_the_js_sibling(monkeypatch):
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(REPO_ROOT))
     got = subprocess.run(
         ["node", "-e", "console.log(require('./project-slug.js').slugForRepo())"],
         cwd=REPO_ROOT / "scripts" / "lib",

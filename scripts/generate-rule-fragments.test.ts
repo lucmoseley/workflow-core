@@ -35,7 +35,11 @@ const STORE = path.join("docs", "agents", "rules");
 const MANIFEST = "docs/agents/rules/manifest.json";
 
 const check = () =>
-	spawnSync("node", [GEN, "--check"], { cwd: ROOT, encoding: "utf8" });
+	spawnSync("node", [GEN, "--check"], {
+		cwd: ROOT,
+		encoding: "utf8",
+		env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
+	});
 
 /** The generator run over `dir` as the host repo. */
 const runOver = (dir: string, args: string[] = []) =>

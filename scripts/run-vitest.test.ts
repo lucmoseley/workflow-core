@@ -97,6 +97,22 @@ function repo() {
 	return dir;
 }
 
+/** `dir` declaring `commands`, which a message naming one reads off the root
+ * the wrapper was handed (#3334). */
+function declaringCommands(dir: string, commands: Record<string, string>) {
+	fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, ".claude/workflow-core.json"),
+		JSON.stringify({ commands }),
+	);
+	for (const args of [
+		["add", "-f", ".claude/workflow-core.json"],
+		["commit", "-q", "-m", "commands"],
+	])
+		require("node:child_process").spawnSync("git", args, { cwd: dir });
+	return dir;
+}
+
 /** A whole-slot bound's worth of test files (#2931). */
 const WHOLE_SLOT_TESTS = Array.from(
 	{ length: WHOLE_SLOT_BOUND },
@@ -2487,6 +2503,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				selects = [] as string[],
 				edges = {} as Record<string, string[]>,
 				gateRead = undefined as ((command: string) => null) | undefined,
+				root = repo(),
 			} = {},
 		) => {
 			const { spawnFn, calls } = spawnReturning({ code: 0 });
@@ -2498,7 +2515,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			try {
 				code = await main(argv, {
 					spawnFn,
-					root: repo(),
+					root,
 					fs: fakeFs(),
 					execFn: exec({ changed, selects }).fn,
 					loadEdges: () => edges,
@@ -2522,6 +2539,7 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 		it("never joins the queue where the selection is empty, and says what to run instead", async () => {
 			const got = await launch(["--queue", "--changed"], {
 				changed: ["docs/fixture-untested.md"],
+				root: declaringCommands(repo(), { push_check: "npm run push:check" }),
 			});
 			expect(got.joined).not.toHaveBeenCalled();
 			expect(got.gate).not.toHaveBeenCalled();
@@ -6628,7 +6646,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("counts the neighbour commits an explicit `--changed <ref>` takes on, and names the own-work run (#2182)", async () => {
-			const dir = repo();
+			const dir = declaringCommands(repo(), { test: "npm run test" });
 			const r = ownRange(dir);
 			const run = await runSeeing(dir, ["--changed", r.base], {
 				sessionId: "me",
@@ -6656,7 +6674,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			const note = "UNPUSHED WORK NOT SELECTED";
 
 			it("in the overlay, counting the launcher's and the unledgered commit", async () => {
-				const dir = repoWithDeps();
+				const dir = declaringCommands(repoWithDeps(), { test: "npm run test" });
 				const r = ownRange(dir);
 				const run = await runSeeing(dir, ["--changed"], {
 					sessionId: "me",

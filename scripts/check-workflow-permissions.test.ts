@@ -470,7 +470,13 @@ describe("invocation", () => {
 	});
 
 	it("defaults to the repo's own .github/workflows and inspects jobs there", () => {
-		const r = spawnSync("node", [SCRIPT, "--json"], { encoding: "utf8" });
+		const r = spawnSync("node", [SCRIPT, "--json"], {
+			encoding: "utf8",
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: path.resolve(__dirname, ".."),
+			},
+		});
 		const e: Envelope = JSON.parse(r.stdout);
 		expect(e.jobs).toBeGreaterThan(0);
 		expect(e.files.length).toBeGreaterThan(0);
