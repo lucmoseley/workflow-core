@@ -2715,6 +2715,7 @@
 			"scripts/admission.test.ts",
 			"scripts/agents-listing-count.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -4753,6 +4754,7 @@
 		],
 		"scripts/fixtures/agents-stop.json": [
 			"scripts/agents-listing-count.test.ts",
+			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/refill-loop-run.test.ts"
@@ -5820,6 +5822,29 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/admission-verdict-fake.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-pull-form.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/admission-verdict.contract.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-pull-form.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/admission.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -5829,6 +5854,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-pull-form.test.ts",
+			"scripts/lib/admission-verdict.contract.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",

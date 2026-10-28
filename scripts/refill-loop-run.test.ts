@@ -21,6 +21,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ADMISSION_VERDICT } from "./lib/admission-verdict-fake";
 import {
 	buildAgentsBranch,
 	buildJobRow,
@@ -146,7 +147,7 @@ beforeEach(() => {
 	stub(
 		"admission.js",
 		`require("node:fs").appendFileSync(${JSON.stringify(at("ticks"))}, "tick\\n");
-process.stdout.write(JSON.stringify({ ok: true, slots: Number(process.env.FAKE_SLOTS), memorySlots: 1, drawNeedMb: 900, memory: { working: { count: 2, mb: 1200 } } }));\n`,
+process.stdout.write(JSON.stringify({ ...${JSON.stringify(ADMISSION_VERDICT)}, slots: Number(process.env.FAKE_SLOTS) }));\n`,
 	);
 	stub(
 		"allowance.js",
@@ -266,18 +267,20 @@ describe("run (#2435)", () => {
 		await settled(run(1), "run after a mid-dispatch stop");
 		const lines = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
 		expect(lines).toHaveLength(1);
+		const { drawNeedMb, memory } = ADMISSION_VERDICT;
 		expect(lines[0]).toMatchObject({
-			working: 2,
-			ceiling: 3,
+			working: memory.working.count,
+			// The working sessions plus run(1)'s one free slot.
+			ceiling: memory.working.count + 1,
 			binding: {
 				limit: "loop not running",
 				why: "stopping: stop was requested",
 			},
 			also: [],
 			memory: {
-				drawNeedMb: 900,
-				rows: { working: 1200 },
-				largest: { name: "the live sessions' p95 draw", mb: 900 },
+				drawNeedMb,
+				rows: { working: memory.working.mb },
+				largest: { name: "the live sessions' p95 draw", mb: drawNeedMb },
 			},
 		});
 		expect(Number.isFinite(Date.parse(lines[0].at))).toBe(true);
