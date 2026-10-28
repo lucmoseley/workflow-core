@@ -137,7 +137,7 @@ function takeLock() {
 			fs.writeFileSync(lockPath(), new Date().toISOString(), { flag: "wx" });
 			return true;
 		} catch (e) {
-			if (/** @type {NodeJS.ErrnoException} */ (e).code !== "EEXIST") throw e;
+			if (caught(e).code !== "EEXIST") throw e;
 		}
 		let age;
 		try {
@@ -194,6 +194,14 @@ function transcriptOf(sid) {
 }
 
 /**
+ * @typedef {{ type?: string, name?: string, id?: string, input?: { skill?: string } }} ContentBlock
+ * @typedef {{ type?: string, isMeta?: boolean, sourceToolUseID?: string,
+ *   attachment?: { type?: string, names?: unknown[] },
+ *   message?: { content?: unknown } }} TranscriptRow
+ *   One JSONL record, read only through these optional fields.
+ */
+
+/**
  * What the transcript says: the names listed at start (null where no listing
  * was read), whether the model called the Skill tool on `bare`, and the body
  * that call loaded ("" where none). The first listing is the start's; a later
@@ -201,7 +209,7 @@ function transcriptOf(sid) {
  * @param {string} text
  */
 function parseTranscript(text) {
-	/** @type {any[]} */
+	/** @type {TranscriptRow[]} */
 	const rows = [];
 	for (const line of text.split("\n")) {
 		try {
@@ -211,18 +219,18 @@ function parseTranscript(text) {
 		}
 	}
 	const listing = rows.find((r) => r?.attachment?.type === "skill_listing");
-	const names = listing ? (listing.attachment.names ?? []).map(String) : null;
+	const names = listing ? (listing.attachment?.names ?? []).map(String) : null;
 	const call = rows
 		.flatMap((r) =>
 			r?.type === "assistant" && Array.isArray(r.message?.content)
-				? r.message.content
+				? /** @type {ContentBlock[]} */ (r.message.content)
 				: [],
 		)
 		.find(
 			(b) =>
 				b?.type === "tool_use" &&
 				b.name === "Skill" &&
-				[BARE, "bare"].includes(b.input?.skill),
+				[BARE, "bare"].includes(b.input?.skill ?? ""),
 		);
 	const body = call
 		? rows

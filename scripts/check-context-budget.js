@@ -1266,7 +1266,10 @@ function sessionFigures(ctx, opts) {
 	 * A KEY OF THE WRONG SHAPE IS NOT THAT CASE and falls through deliberately:
 	 * rule-emission.js throws on it, and a zero here would swallow that throw and
 	 * report a wiring nobody could read as compliant. */
-	const entries = /** @type {any} */ (opts.settings)?.hooks?.PreToolUse;
+	const entries =
+		/** @type {{ hooks?: { PreToolUse?: unknown } } | undefined} */ (
+			opts.settings
+		)?.hooks?.PreToolUse;
 	if (entries === undefined || (Array.isArray(entries) && entries.length === 0))
 		return {
 			cap: 0,

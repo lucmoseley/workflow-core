@@ -53,6 +53,7 @@ const path = require("node:path");
 const { execFileSync, spawn, spawnSync } = require("node:child_process");
 const { execGit, spawnGitSync } = require("./lib/git.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
+const { caught } = require("./lib/caught.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { writeFd } = require("./lib/write-fd.js");
@@ -471,7 +472,12 @@ function acceptance(task, root) {
 	const remotes = git(repo, ["remote", "-v"])
 		.split("\n")
 		.filter(Boolean)
-		.map((l) => l.split(/\s+/)[1] ?? "");
+		.map((l) => {
+			const [name, url] = l.split(/\s+/);
+			if (url === undefined)
+				throw new Error(`git remote -v line with no url: ${name}`);
+			return url;
+		});
 	const foreign = remotes.filter(
 		(url) => !fs.existsSync(url) || fs.realpathSync(url) !== origin,
 	);
@@ -561,7 +567,7 @@ function killNeighbour(root) {
 		process.kill(pid);
 	} catch (e) {
 		// ESRCH is a holder whose hold ran out, the claim releasing itself (#2044).
-		if (/** @type {NodeJS.ErrnoException} */ (e).code !== "ESRCH") throw e;
+		if (caught(e).code !== "ESRCH") throw e;
 	}
 }
 

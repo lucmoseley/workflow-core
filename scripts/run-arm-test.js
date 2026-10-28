@@ -92,6 +92,7 @@ const { throttleEnv } = require("./lib/throttle-paths.js");
 const { secondaryOf, summariseSecondary } = require("./lib/arm-secondary.js");
 const { readRegisteredGuardSubjects } = require("./lib/guard-fires.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { requiredGroup } = require("./lib/regex-group.js");
 
 /** `WFC_ARM_TASKS_CLI` stands a test's stub in for the task builder. */
 const armTasksCli = () =>
@@ -100,6 +101,10 @@ const armTasksCli = () =>
 const admissionCli = () =>
 	process.env.WFC_ADMISSION_CLI || path.join(__dirname, "admission.js");
 const SCORER = path.join(__dirname, "score-session-breaches.js");
+/** `A=<rev>@<config dir>`, as `--arm` takes it. */
+const ARM_SPEC = /^([^=]+)=([^@]+)@(.+)$/;
+/** Of a child's output, enough to name its error in one line; a guess. */
+const ERROR_CHARS = 200;
 /**
  * `WFC_ARM_CLAUDE_BIN` stands a test's stub in for `claude`, which `plan`
  * resolves and `report` runs. Not
@@ -271,10 +276,13 @@ function buildPlan({ tasks, runs, arms, seed, root }) {
  * @returns {Arm | null}
  */
 function parseArm(spec) {
-	const m = /^([^=]+)=([^@]+)@(.+)$/.exec(spec);
+	const m = ARM_SPEC.exec(spec);
 	if (!m) return null;
-	const [, arm = "", rev = "", dir = ""] = m;
-	return { arm, rev, configDir: path.resolve(dir) };
+	return {
+		arm: requiredGroup(m, 1, ARM_SPEC),
+		rev: requiredGroup(m, 2, ARM_SPEC),
+		configDir: path.resolve(requiredGroup(m, 3, ARM_SPEC)),
+	};
 }
 
 /**
@@ -460,7 +468,7 @@ function prepare(run, { issues, nodeModules }) {
 		// A builder that exits 0 without its record is a builder bug (#2045).
 		return {
 			ok: false,
-			why: `the builder printed no task record: ${built.stdout.slice(0, 200)}`,
+			why: `the builder printed no task record: ${built.stdout.slice(0, ERROR_CHARS)}`,
 		};
 	}
 	const repo = fs.realpathSync(task.sandbox.repo);
@@ -541,7 +549,7 @@ function readAdmissionSlots() {
 	} catch {
 		return {
 			slots: 0,
-			why: `admission printed no reading (exit ${r.status}): ${r.stderr.trim().slice(0, 200)}`,
+			why: `admission printed no reading (exit ${r.status}): ${r.stderr.trim().slice(0, ERROR_CHARS)}`,
 		};
 	}
 }

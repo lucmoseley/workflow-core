@@ -81,6 +81,7 @@ function buildHostPorts(root) {
 				if (!fs.statSync(file).isFile()) return null;
 				return fs.readFileSync(file, "utf8");
 			} catch {
+				// Any unreadable list is null by the port's contract; the caller logs it (mantahostels#3324).
 				return null;
 			}
 		},
