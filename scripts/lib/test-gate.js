@@ -2,7 +2,7 @@
 /*
  * test-gate.js — which gate runs the host's tests (#740): one answer, read by
  * .husky/pre-commit, commit-paths.js, check-test-marker.js and
- * guard-push-rules.js (#758), so none of them can disagree on who owns a suite.
+ * the guard-push-rules core (#758), so none of them can disagree on who owns a suite.
  *
  * "push" — the test-pass marker regime: pre-push warns on a sha no certificate
  * attests, and never refuses (mantahostels#908). Where `suites` is on and the
@@ -123,7 +123,7 @@ function pushGateState(opts = {}) {
 /* `node test-gate.js <commit|push>`: exit 0 where that gate owns the tests,
  * with the command on stdout where one is declared; the SKIP line and exit 1
  * where it does not; BROKEN and exit 2 on a config the reader refuses.
- * pre-commit reads `commit`, guard-push-rules.js `push` (#758). */
+ * pre-commit reads `commit`, the guard-push-rules core `push` (#758). */
 if (require.main === module) {
 	const want = process.argv.slice(2).join(" ");
 	if (want !== "commit" && want !== "push") {

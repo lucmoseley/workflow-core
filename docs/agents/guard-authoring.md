@@ -141,7 +141,7 @@ bodies are 70–670 lines of bespoke judgement.
    In an adopter, surfaces 5 and 7 live in the host instead (#1456): a
    `hooks` row in `.claude/registrations.json` and an entry in
    `.claude/guard-fire-needles.json`, judged by
-   `guard-registry-atomicity.js` and `check-registrations.js`.
+   the `guard-registry-atomicity` core and `check-registrations.js`.
 8. **A rule sentence** — a top-level bullet inside a `<!-- guard-registry:begin
    -->` region — tagged **Enforced** (naming the guard path in backticks),
    **Advisory** (naming the path of a guard that observes the rule and
@@ -387,11 +387,15 @@ and it runs at session start under `--notify`.
 but one carries that `timeout` value.
 
 **A guard with bounded external work derives its ceiling from that work** —
-`guard-npm-install.js`'s 60 s is the worked example. The guard
-runs a 30 s internal wall-clock budget, tested before each package; one package
-costs up to `timeout 12` + `curl --max-time 8` = 20 s; so a package can start at
-29 s and finish at 49 s, and 30 + 20 leaves 10 s of margin under the 60 s
-ceiling (`scripts/guard-npm-install.js`'s `30 s, not 40` comment, sized at mantahostels#1803's review H4).
+the `guard-npm-install` core's 60 s, the dispatcher's `PreToolUse`
+registration's `timeout`, is the worked example. The core runs a 30 s internal wall-clock budget, tested before each
+package; one package costs up to `timeout 12` + `curl --max-time 8` = 20 s; so
+a package can start at 29 s and finish at 49 s, and 30 + 20 leaves 10 s of
+margin under the 60 s ceiling (`scripts/lib/npm-install.js`'s `30 s, not 40`
+comment, sized at mantahostels#1803's review H4). The 30 s run from the
+dispatcher's start (`scripts/lib/hook-deadline.js`), so the cores ahead of it
+spend from the budget, never from the margin; a ceiling hit still refuses the
+call through `"onFailure": "block"`, never allows it.
 State the same arithmetic for any guard adding network or subprocess work.
 
 **A deny-capable `PreToolUse` hook fails closed when the harness ends it**
