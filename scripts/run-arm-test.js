@@ -7,7 +7,7 @@
  *       --arm A=<rev>@<config dir> --arm B=<rev>@<config dir> [--seed <n>]
  *   node scripts/run-arm-test.js launch <pair>… --root <dir> --issues <dir> --node-modules <dir>
  *   node scripts/run-arm-test.js run --root <dir> --issues <dir> --node-modules <dir>
- *       [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>]
+ *       [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] [--limit-min <n>]
  *   node scripts/run-arm-test.js report --root <dir> --baseline <arm> [--json] [--drop <fraction>] [--every-version] [--periods <pair>,…] [--ceiling-min <n>]
  *
  * `plan` writes `<root>/plan.json`: every task × run × arm, grouped into pairs
@@ -34,9 +34,12 @@
  * starts the next once `--pace-min` has passed since the last start and
  * `launch` would admit it, stops a run still going past `--ceiling-min` and
  * records it `hung`, and exits once every pair has started and every run has
- * ended. A build or launch failure exits, since the next pass would repeat
- * it. It drops the starting session's id, which would outlive that session,
- * and logs why a pair is held each time the reason changes (#2046).
+ * ended. Past `--limit-min` of its own it stops every run still going and
+ * exits, so a run held or stuck cannot leave sessions for days (#3495); a
+ * later `run` takes up the pairs not yet started. A build or launch failure
+ * exits, since the next pass would repeat it. It drops the starting session's
+ * id, which would outlive that session, and logs why a pair is held each time
+ * the reason changes (#2046).
  *
  * `report` scores each launched run that has ended (`score-session-
  * breaches.js`), judges its sandbox (`arm-tasks.js accept`), checks the
@@ -140,15 +143,19 @@ const DEFAULT_PACE_MIN = 20;
 const MS_PER_MIN = 60_000;
 /** A guess: a pass is a few `claude agents` calls, and pairs start 20 minutes apart. */
 const DEFAULT_POLL_SEC = 60;
+/** Untraced, a guess: what one pair's two builds and its passes' calls add to the whole-run limit. */
+const PAIR_ALLOWANCE_MIN = 10;
+/** Untraced, a guess: a stop failing three times running will not pass on a fourth. */
+const STOP_TRIES = 3;
 /** Hang guards, not measurements: each call returns in seconds when well. */
 const CALL_TIMEOUT_MS = 120_000;
-/** A scorer or acceptance check reads a whole sandbox or transcript. */
+/** A build, scorer or acceptance check reads a whole sandbox or transcript. */
 const READ_TIMEOUT_MS = 900_000;
 
 /** @type {import("./lib/cli-args").CliSpec} */
 const CLI = {
 	usage:
-		"Usage: node scripts/run-arm-test.js (plan --root <dir> --tasks <ids> --runs <n> --arm A=<rev>@<dir> --arm B=<rev>@<dir> [--seed <n>] | launch <pair>… --root <dir> --issues <dir> --node-modules <dir> | run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] | report --root <dir> --baseline <arm> [--json] [--drop <fraction>] [--every-version] [--periods <pair>,…] [--ceiling-min <n>])",
+		"Usage: node scripts/run-arm-test.js (plan --root <dir> --tasks <ids> --runs <n> --arm A=<rev>@<dir> --arm B=<rev>@<dir> [--seed <n>] | launch <pair>… --root <dir> --issues <dir> --node-modules <dir> | run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] [--limit-min <n>] | report --root <dir> --baseline <arm> [--json] [--drop <fraction>] [--every-version] [--periods <pair>,…] [--ceiling-min <n>])",
 	commands: {
 		plan: {
 			usage:
@@ -174,7 +181,7 @@ const CLI = {
 		},
 		run: {
 			usage:
-				"Usage: node scripts/run-arm-test.js run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>]",
+				"Usage: node scripts/run-arm-test.js run --root <dir> --issues <dir> --node-modules <dir> [--ceiling-min <n>] [--pace-min <n>] [--max-running <n>] [--poll-sec <n>] [--limit-min <n>]",
 			flags: {
 				"--root": "value",
 				"--issues": "value",
@@ -183,6 +190,7 @@ const CLI = {
 				"--pace-min": "value",
 				"--max-running": "value",
 				"--poll-sec": "value",
+				"--limit-min": "value",
 			},
 		},
 		report: {
@@ -206,7 +214,7 @@ const CLI = {
  * @typedef {Arm & { id: string, pair: number, task: string, run: number, sandbox: string }} Run
  * @typedef {{ path: string, version: string }} Cli
  * @typedef {{ seed: number, cli: Cli, runs: Run[] }} Plan
- * @typedef {Run & { repo: string, job: string, launchedAt: string, hung?: string }} LaunchRecord `hung` is when the ceiling stopped it
+ * @typedef {Run & { repo: string, job: string, launchedAt: string, hung?: string, limited?: string }} LaunchRecord `hung` is when the ceiling stopped it, `limited` when `run`'s whole-run limit did
  * @typedef {{ sessionId: string, state: string, kind: string }} Job
  * @typedef {Map<string, Job> | null} JobStates null where the listing cannot be read
  * @typedef {{ score: number, versions: string[], assistantMessages: number, stop: Record<string, number>, deny: Record<string, number>, families: { concision: number, environment: number } } | { error: string }} Score
@@ -453,7 +461,7 @@ function prepare(run, { issues, nodeModules }) {
 			"--config-dir",
 			run.configDir,
 		],
-		{ encoding: "utf8", maxBuffer: CHILD_MAX_BUFFER },
+		{ encoding: "utf8", timeout: READ_TIMEOUT_MS, maxBuffer: CHILD_MAX_BUFFER },
 	);
 	if (built.status !== 0)
 		return {
@@ -598,14 +606,14 @@ function readStatesByConfigDir(recs, bin) {
 /**
  * Whether a launched run has ended: done, failed or stopped, `blocked` on a
  * question, which nobody answers in either arm (#2045), or stopped at the
- * ceiling (#2046). A
+ * ceiling (#2046) or `run`'s limit (#3495). A
  * run whose job the listing does not show counts as running, so an
  * unreadable listing never admits another pair.
  * @param {LaunchRecord} rec
  * @param {Map<string, JobStates>} states
  */
 function ended(rec, states) {
-	if (rec.hung) return true;
+	if (rec.hung || rec.limited) return true;
 	const job = states.get(rec.configDir)?.get(rec.job);
 	if (job === undefined) return false;
 	return isTerminalAgent(job) || job.state === "blocked";
@@ -718,6 +726,25 @@ const sleep = (ms) =>
 	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 /**
+ * Stop `rec`'s job and stamp its record with `mark`, the time, so it reads
+ * ended from then on. Null where the stop held, a job the daemon no longer
+ * holds being already stopped; else why it failed.
+ * @param {string} root
+ * @param {LaunchRecord} rec
+ * @param {string} bin
+ * @param {"hung" | "limited"} mark
+ */
+function stopAndMark(root, rec, bin, mark) {
+	const r = stopOn(rec.configDir, rec.job, bin);
+	if (!r.ok && !r.noJob) return r.why;
+	fs.writeFileSync(
+		path.join(root, "launched", `${rec.id}.json`),
+		`${JSON.stringify({ ...rec, [mark]: new Date().toISOString() }, null, 2)}\n`,
+	);
+	return null;
+}
+
+/**
  * Stop each run the listing shows still going past `ceilingMs`, and record it
  * `hung`. A run the listing does not
  * show is left: an unreadable listing stops nothing.
@@ -732,18 +759,14 @@ function reapHung(root, ceilingMs, bin) {
 		if (ended(rec, states) || !states.get(rec.configDir)?.has(rec.job))
 			continue;
 		if (Date.now() - Date.parse(rec.launchedAt) <= ceilingMs) continue;
-		const r = stopOn(rec.configDir, rec.job, bin);
-		if (!r.ok) {
+		const why = stopAndMark(root, rec, bin, "hung");
+		if (why !== null) {
 			writeFd(
 				2,
-				`✗ ${rec.id}: past the ceiling but \`claude stop ${rec.job}\` failed (${r.why}); tried again next pass\n`,
+				`✗ ${rec.id}: past the ceiling but \`claude stop ${rec.job}\` failed (${why}); tried again next pass\n`,
 			);
 			continue;
 		}
-		fs.writeFileSync(
-			path.join(root, "launched", `${rec.id}.json`),
-			`${JSON.stringify({ ...rec, hung: new Date().toISOString() }, null, 2)}\n`,
-		);
 		writeFd(1, `${rec.id}: still going past the ceiling, stopped as hung\n`);
 	}
 }
@@ -817,6 +840,79 @@ function runOptions(flags) {
 }
 
 /**
+ * `run`'s default whole-run limit, in minutes: the longest a plan of `pairs`
+ * takes where admission never holds it. Under the least `--max-running`, one
+ * pair at a time, each pair starts within the pace, or the ceiling and a poll
+ * of the one before ending, whichever is later; running more at once only
+ * shortens it. Each pair also gets PAIR_ALLOWANCE_MIN for its builds and the
+ * passes' calls.
+ * @param {number} pairs
+ * @param {{ ceilingMs: number, paceMs: number, pollMs: number }} o
+ */
+const derivedLimitMin = (pairs, { ceilingMs, paceMs, pollMs }) =>
+	Math.ceil(
+		(pairs * (Math.max(paceMs, ceilingMs + pollMs) + pollMs)) / MS_PER_MIN,
+	) +
+	pairs * PAIR_ALLOWANCE_MIN;
+
+/**
+ * `--limit-min` as milliseconds, derived from the plan where absent, said on
+ * stdout; the refusal where it is not a number at least 0.
+ * @param {import("./lib/cli-args").Parsed["flags"]} flags
+ * @param {Plan} plan
+ * @param {Exclude<ReturnType<typeof runOptions>, string>} o
+ */
+function runLimitMs(flags, { runs }, o) {
+	const pairs = new Set(runs.map((r) => r.pair)).size;
+	const ms = durationFlag(flags, "--limit-min", {
+		fallback: derivedLimitMin(pairs, o),
+		unitMs: MS_PER_MIN,
+		min: 0,
+	});
+	if (ms === null)
+		return `--limit-min takes minutes, at least 0, got ${flagValue(flags, "--limit-min")}`;
+	writeFd(
+		1,
+		`stops every run still going after ${Math.round(ms / MS_PER_MIN)} minutes\n`,
+	);
+	return ms;
+}
+
+/**
+ * Stop every launched run not yet ended, the unlisted included, since an
+ * unreadable listing must not leave one going, trying a failed stop again
+ * after a poll up to STOP_TRIES times. Say what is left and return `run`'s
+ * exit status.
+ * @param {string} root
+ * @param {string} bin
+ * @param {{ limitMs: number, pollMs: number }} o
+ */
+function stopAtLimit(root, bin, { limitMs, pollMs }) {
+	const recs = readLaunched(root);
+	const states = readStatesByConfigDir(recs, bin);
+	let left = recs.filter((rec) => !ended(rec, states));
+	for (let tries = 0; tries < STOP_TRIES && left.length > 0; tries++) {
+		if (tries > 0) sleep(pollMs);
+		left = left.filter((rec) => {
+			const why = stopAndMark(root, rec, bin, "limited");
+			if (why === null) {
+				writeFd(1, `${rec.id}: stopped at the run's limit\n`);
+				return false;
+			}
+			writeFd(2, `✗ ${rec.id}: \`claude stop ${rec.job}\` failed (${why})\n`);
+			return true;
+		});
+	}
+	const minutes = Math.round(limitMs / MS_PER_MIN);
+	const stopped =
+		left.length === 0
+			? "stopped every run still going; run again to start the pairs left"
+			: `stopped all but ${left.map((r) => `${r.id} (job ${r.job} in ${r.configDir})`).join(", ")}, still running after ${STOP_TRIES} tries: stop each by hand`;
+	writeFd(2, `✗ the run's limit of ${minutes} minutes passed; ${stopped}\n`);
+	return 1;
+}
+
+/**
  * One pass of `run`: stop the hung, then start the next pair where the pace
  * and `launch`'s own checks allow. `done` once every pair has started and
  * every run ended; a number is the exit status of a failure.
@@ -850,16 +946,33 @@ function runPass({ cli, runs }, o) {
 		: 1;
 }
 
-/** @param {import("./lib/cli-args").Parsed} parsed */
-function runAll({ flags }) {
+/**
+ * `run`'s options, plan and whole-run limit, or the refusal where a flag is
+ * missing or malformed.
+ * @param {import("./lib/cli-args").Parsed["flags"]} flags
+ */
+function runSetup(flags) {
 	const o = runOptions(flags);
-	if (typeof o === "string") return refuse(o);
+	if (typeof o === "string") return o;
 	// Every child the loop spawns reads this environment, the launches included.
 	forgetSession(process.env);
 	const planned = readPlan(o.root);
 	fs.mkdirSync(path.join(o.root, "launched"), { recursive: true });
+	const limitMs = runLimitMs(flags, planned, o);
+	if (typeof limitMs === "string") return limitMs;
+	return { o, planned, limitMs };
+}
+
+/** @param {import("./lib/cli-args").Parsed} parsed */
+function runAll({ flags }) {
+	const setup = runSetup(flags);
+	if (typeof setup === "string") return refuse(setup);
+	const { o, planned, limitMs } = setup;
+	const startedAt = Date.now();
 	let lastHeld = "";
 	for (;;) {
+		if (Date.now() - startedAt >= limitMs)
+			return stopAtLimit(o.root, planned.cli.path, { ...o, limitMs });
 		const step = runPass(planned, o);
 		if (typeof step === "number") return step;
 		if (step === "done") {
@@ -944,6 +1057,7 @@ function readRun(rec, states, subjects) {
 		projectSlug(rec.repo),
 		`${job?.sessionId ?? rec.job}.jsonl`,
 	);
+	const stoppedAs = rec.hung ? "hung" : rec.limited && "limited";
 	/** @type {{ id: string, pair: number, task: string, arm: string, job: string, state: string, ended: boolean, transcriptInArmDir: boolean, jobDirInArmDir: boolean, score: Score | null, accept: boolean | { error: string } | null, spendUsd: number | null, tokens: number | null, wallMs: number | null, secondary: ReturnType<typeof secondaryOf> | null }} */
 	const row = {
 		id: rec.id,
@@ -951,7 +1065,7 @@ function readRun(rec, states, subjects) {
 		task: rec.task,
 		arm: rec.arm,
 		job: rec.job,
-		state: rec.hung ? "hung" : (job?.state ?? "unknown"),
+		state: stoppedAs || (job?.state ?? "unknown"),
 		ended: ended(rec, states),
 		transcriptInArmDir: fs.existsSync(transcript),
 		jobDirInArmDir: fs.existsSync(jobDirPath(rec.configDir, rec.job)),
@@ -962,7 +1076,8 @@ function readRun(rec, states, subjects) {
 		wallMs: null,
 		secondary: null,
 	};
-	if (!row.ended || !row.transcriptInArmDir) return row;
+	// A run cut off at `run`'s limit did an arbitrary share of its work, so it is no measure of its arm.
+	if (!row.ended || rec.limited || !row.transcriptInArmDir) return row;
 	row.spendUsd = sessionSpendUsd(transcript);
 	row.tokens = sessionTokens(transcript);
 	row.wallMs = readWallMs(transcript);

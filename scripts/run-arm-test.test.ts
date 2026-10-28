@@ -507,6 +507,88 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 		expect(typeof rec.hung).toBe("string");
 	});
 
+	it("stops every run still going once its whole-run limit passes, says so, and marks each record so a later run reads it ended (#3495)", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const { env, stops } = loopStub();
+		const { dir, runs, extra } = seedLaunched(root, 0, 4);
+		const r = run(runArgs(root, "--limit-min", "0"), {
+			...env,
+			WFC_STUB_EXTRA: extra,
+		});
+		expect(r.code).toBe(1);
+		expect(r.err).toContain(
+			"the run's limit of 0 minutes passed; stopped every run still going",
+		);
+		expect(r.out).toContain(`${runs[0].id}: stopped at the run's limit`);
+		expect(fs.readFileSync(stops, "utf8").trim().split("\n").sort()).toEqual([
+			"j0",
+			"j1",
+			"j2",
+			"j3",
+		]);
+		for (const x of runs)
+			expect(
+				typeof JSON.parse(
+					fs.readFileSync(path.join(dir, `${x.id}.json`), "utf8"),
+				).limited,
+			).toBe("string");
+		// Still listed as working, yet none of them holds a pair under the default cap.
+		const again = run(runArgs(root), { ...env, WFC_STUB_EXTRA: extra });
+		expect(again.code).toBe(0);
+		expect(again.out).not.toContain("still running");
+	});
+
+	it("stops a run its listing cannot read at the limit, so an unreadable listing leaves none going", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const { env, stops } = loopStub({
+			prelude: `if(a[0]==="agents"){process.exit(1)}`,
+		});
+		seedLaunched(root, 0, 2);
+		const r = run(runArgs(root, "--limit-min", "0"), env);
+		expect(r.code).toBe(1);
+		expect(fs.readFileSync(stops, "utf8").trim().split("\n").sort()).toEqual([
+			"j0",
+			"j1",
+		]);
+	});
+
+	it("tries a failed stop again at the limit, then names each run left and its job", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const tries = path.join(tmp, "stop-tries");
+		const { env } = loopStub({
+			prelude: `if(a[0]==="stop"){fs.appendFileSync(${JSON.stringify(tries)},"x");console.error("daemon unreachable");process.exit(1)}`,
+		});
+		const { runs, extra } = seedLaunched(root, 0, 2);
+		const r = run(runArgs(root, "--limit-min", "0"), {
+			...env,
+			WFC_STUB_EXTRA: extra,
+		});
+		expect(r.code).toBe(1);
+		expect(fs.readFileSync(tries, "utf8")).toHaveLength(6);
+		expect(r.err).toContain(
+			`stopped all but ${runs[0].id} (job j0 in ${runs[0].configDir}), ${runs[1].id} (job j1 in ${runs[1].configDir}), still running after 3 tries`,
+		);
+	});
+
+	it("derives its whole-run limit from the plan where --limit-min is absent: 6 pairs at a 40-minute ceiling, 10 minutes each besides", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const r = run(runArgs(root, "--ceiling-min", "40"), loopStub().env);
+		expect(r.code).toBe(0);
+		expect(r.out).toContain("stops every run still going after 300 minutes");
+	});
+
+	it("refuses a negative whole-run limit, naming the flag, its floor and the value given", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const r = run(runArgs(root, "--limit-min", "-1"), loopStub().env);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("--limit-min takes minutes, at least 0, got -1");
+	});
+
 	it("leaves a run under the ceiling going until it ends", () => {
 		const root = path.join(tmp, "p");
 		expect(run(planArgs(root, "3")).code).toBe(0);
