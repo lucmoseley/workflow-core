@@ -768,3 +768,61 @@ describe("the suite ceiling (#2702)", () => {
 		expect(readMarkers({ root })).toHaveLength(1);
 	});
 });
+
+describe("the task cap (#3401)", () => {
+	const { probeUserScope } = require("./lib/user-scope.js");
+
+	/** This process's test-run scopes the manager still has. */
+	const units = () =>
+		spawnSync(
+			"systemctl",
+			[
+				"--user",
+				"list-units",
+				"--all",
+				"--no-legend",
+				`wfc-test-${process.pid}-*`,
+			],
+			{ encoding: "utf8" },
+		).stdout.trim();
+	const running = (needle: string) =>
+		(spawnSync("pgrep", ["-f", needle], { encoding: "utf8" }).stdout ?? "")
+			.split("\n")
+			.filter(Boolean);
+
+	it.skipIf(probeUserScope().length === 0)(
+		"stops a fork chain at the cap, fails the run naming it, and leaves nothing in the scope running",
+		async () => {
+			const root = repo();
+			const dir = fs.realpathSync(
+				fs.mkdtempSync(path.join(os.tmpdir(), "forkchain-")),
+			);
+			dirs.push(dir);
+			/* Each link starts the next, then sleeps; at the cap a fork is
+			 * refused and the chain stops growing. The first leaves pytest's
+			 * process group, so only the scope's kill can reach the chain. */
+			const link = path.join(dir, "link.sh");
+			fs.writeFileSync(link, '#!/bin/sh\n"$0" &\nsleep 30\n', {
+				mode: 0o755,
+			});
+			const python = path.join(dir, "python3");
+			fs.writeFileSync(
+				python,
+				`#!/bin/sh\nsetsid ${JSON.stringify(link)} &\nsleep 1\n`,
+				{ mode: 0o755 },
+			);
+
+			const r = await wrap(python, root, ["-q"], { WFC_RUN_TASKS_MAX: "16" });
+
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("TASK CAP");
+			expect(r.stderr).toContain("cap at 16 tasks");
+			expect(readMarkers({ root })).toHaveLength(0);
+			/* cgroup.kill's SIGKILLs land asynchronously; 5 s is a guess. */
+			for (let i = 0; i < 50 && (running(dir).length > 0 || units()); i++)
+				await new Promise((done) => setTimeout(done, 100));
+			expect(running(dir)).toEqual([]);
+			expect(units()).toBe("");
+		},
+	);
+});

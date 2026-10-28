@@ -32,9 +32,12 @@
  * wrapper alone and is passed on to the group. RESIDUAL: a pytest that reads
  * the terminal (`--pdb`, `breakpoint()`, `input()` under `-s`) is stopped by
  * it and waits out the ceiling, and a Ctrl-Z stops this wrapper, not pytest.
+ *
+ * A SCOPE OF ITS OWN (#3401). pytest starts in a pids-capped user scope
+ * (lib/user-scope.js), killed whole when the run ends; a run that hit the cap
+ * exits 1 and records no certificate.
  */
 
-const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -62,6 +65,7 @@ const idSeam = require("./lib/session-id.js");
 const { reportForRun } = require("./lib/run-cost-report.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { pythonBin, pythonSpawnRemedy } = require("./lib/python-bin.js");
+const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
 const {
 	CEILING_CLOSE,
 	SETTLE_MS,
@@ -138,12 +142,7 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 	// before teardown and interpreter shutdown, so an INTERNALERROR after it —
 	// or earlyoom killing python between the two — leaves `passed: true` behind
 	// a non-zero exit, and that must not read as a pass.
-	if (
-		!run.ceilingKilled &&
-		run.status === 0 &&
-		result?.passed === true &&
-		after
-	) {
+	if (!run.forcedRed && run.status === 0 && result?.passed === true && after) {
 		record(
 			markerFrom(before, after, drifted, {
 				held: inherited,
@@ -172,7 +171,7 @@ async function runAndRecord({ args, resolvedFiles }, root) {
 		if (lines.length > 0) writeFd(1, `${lines.join("\n")}\n`);
 	}
 
-	process.exitCode = run.ceilingKilled || run.status === null ? 1 : run.status;
+	process.exitCode = run.forcedRed || run.status === null ? 1 : run.status;
 }
 
 /**
@@ -242,14 +241,15 @@ function pytestPlan(argv, root) {
  * @param {string|null} handOff
  * @param {string|null} inflightFile
  * @returns {Promise<{ status: number|null, error: Error|null,
- *   ceilingKilled: boolean }>}
+ *   forcedRed: boolean }>} `forcedRed` on a run killed at the ceiling or one
+ *   that hit its scope's task cap, which fails whatever pytest said
  */
 function runPytest(argv, root, handOff, inflightFile) {
 	const ceiling = ceilingMs();
 	return new Promise((resolve) => {
 		/* Injected at WFC_PYTHON, never by PATH, because the tests feed it chosen
 		 * hand-offs (§N7, #2102). */
-		const child = spawn(
+		const child = spawnInRunScope(
 			pythonBin(),
 			["-m", "pytest", ...DEFAULT_ARGS, ...argv],
 			{
@@ -322,7 +322,9 @@ function runPytest(argv, root, handOff, inflightFile) {
 			if (giveUp) clearTimeout(giveUp);
 			held.release();
 			for (const signal of FORWARDED) process.off(signal, forward);
-			resolve({ status, error, ceilingKilled });
+			const capped = endRunScope(child);
+			if (capped) writeFd(2, capped);
+			resolve({ status, error, forcedRed: ceilingKilled || capped !== null });
 		};
 		child.on("error", (error) => settle(null, error));
 		child.on("close", (status) => settle(status, null));

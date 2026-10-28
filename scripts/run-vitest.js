@@ -33,12 +33,16 @@
  * longer (#2667). Either kill takes vitest's whole process group, exits 1 and
  * names the files in flight.
  *
+ * A SCOPE OF ITS OWN (#3401). vitest starts in a pids-capped user scope
+ * (lib/user-scope.js), killed whole when the run ends; a run that hit the cap
+ * exits 1, naming it.
+ *
  * AND IT PRINTS THE RUN-COST REPORT after the suite's own summary (#1883):
  * each new or changed test file over budget. It never touches the exit code
  * (mantahostels#2255).
  */
 
-const { spawn, execFileSync } = require("node:child_process");
+const { execFileSync } = require("node:child_process");
 const {
 	execGit,
 	gitBinary,
@@ -109,6 +113,7 @@ const {
 	groupUnkilled,
 	killGroup,
 } = require("./lib/suite-ceiling.js");
+const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
 const {
 	CHANGED_FLAG,
 	PACKAGE_JSON,
@@ -523,7 +528,7 @@ function withLaunch(options, fields) {
  * would be named from.
  *
  * @param {string[]} argv
- * @param {{ spawnFn?: typeof spawn, root?: string, fs?: WrapperFs, bin?: string, stall?: number, ceiling?: number, inflightFile?: string, timingsFile?: string,
+ * @param {{ spawnFn?: typeof import("node:child_process").spawn, root?: string, fs?: WrapperFs, bin?: string, stall?: number, ceiling?: number, inflightFile?: string, timingsFile?: string,
  *   expand?: typeof expandChanged, out?: { write: (s: string) => unknown },
  *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
  *   launch?: LauncherLaunch, onSpawn?: () => void, emptyOnly?: boolean,
@@ -534,7 +539,11 @@ function withLaunch(options, fields) {
 function runOnce(
 	argv = process.argv.slice(2),
 	{
-		spawnFn = spawn,
+		/* spawn's last overload, the one this file calls, is spawnInRunScope's
+		 * own signature; the cast keeps the piped `stdout` non-null. */
+		spawnFn = /** @type {typeof import("node:child_process").spawn} */ (
+			spawnInRunScope
+		),
 		root = TREE_ROOT,
 		fs: fsImpl = fs,
 		bin = path.join(root, "node_modules", ".bin", "vitest"),
@@ -795,6 +804,15 @@ function runOnce(
 		forward(child.stdout, process.stdout);
 		forward(child.stderr, process.stderr);
 
+		/** @type {string|null} */
+		let capped = null;
+		/* On exit, not close: a process left in the scope can hold vitest's
+		 * pipes open, and `close` waits on them. */
+		const endScope = () => {
+			capped ??= endRunScope(child);
+		};
+		child.on("exit", endScope);
+
 		let settled = false;
 		/** @param {number|null} code */
 		const settle = (code) => {
@@ -802,6 +820,8 @@ function runOnce(
 			settled = true;
 			disarm();
 			held.release();
+			endScope();
+			if (capped) announce(capped);
 			/* After the suite's summary and into the log, so the teed record
 			 * keeps it. A stalled or killed run never reaches the reporter's
 			 * run end, so it leaves no timings and prints nothing here. */
@@ -839,7 +859,7 @@ function runOnce(
 				 * the errno of a child that never spawned, -2 for ENOENT: passed
 				 * on, it reads as REQUEUE or REQUEUE_WHOLE and re-queues the run
 				 * for ever (#3140). */
-				resolve(killedFor || code === null || code < 0 ? 1 : code);
+				resolve(killedFor || capped || code === null || code < 0 ? 1 : code);
 			};
 			if (stream) stream.end(finish);
 			else finish();

@@ -6,7 +6,7 @@
  * half-written source out of the repo-global worktree and went red with a
  * different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files a parallel session rewrote while the suite ran, and at run start the files already dirty and claimed elsewhere; and, on a verdict the reporter left, records the run's certificate or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads.
+ * IMPLICIT:  on every suite run, names the tracked files a parallel session rewrote while the suite ran, and at run start the files already dirty and claimed elsewhere; and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, the certificate being what the pre-push gate reads.
  * JUSTIFIED: fail-safe — a red caused by a neighbour's half-saved file is otherwise read as your own breakage (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
@@ -31,6 +31,7 @@ const {
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
 const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
+const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
 
 /*
  * The tree under test: vitest's own root, handed to `setup`. Never this file's
@@ -103,7 +104,10 @@ export function runTeardown(rootOverride?: string | null) {
 	// sandbox instead of this checkout's own store.
 	const root = rootOverride ?? repoRoot(treeRoot);
 
-	if (outcome === true && after)
+	/* A run that hit its scope's task cap fails, however green (#3401); the
+	 * wrapper names the cap. Read here, inside the scope, which the manager
+	 * collects once the run's last process exits. */
+	if (outcome === true && after && !hasOwnScopeHitCap())
 		record(markerFrom(before, after, drifted, buildMarkerRun()), { root });
 
 	/*
