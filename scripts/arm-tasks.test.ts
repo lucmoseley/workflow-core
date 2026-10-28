@@ -160,8 +160,6 @@ describe("the committed task set", () => {
 		).toEqual([]);
 	});
 
-	// Keeps the listing above the read graph's route here: read the patches
-	// off tasks.json again and every edit to a target stops selecting this file.
 	it("is selected by an edit to any tracked file a patch's headers name (#3206)", () => {
 		const { edges } = JSON.parse(
 			fs.readFileSync(path.join(ROOT, "docs/test-read-edges.json"), "utf8"),
