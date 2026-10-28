@@ -17,12 +17,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	BLOCKED_BY_GRAPHQL_FAKE,
-	GH_NOT_FOUND,
-	RECORDED_SHAPES,
-} from "./lib/gh-fake";
-import { GH_LOGGED_OUT_NODE, stubGhScript } from "./lib/gh-stub";
+import { GH_LOGGED_OUT, GH_NOT_FOUND } from "./lib/gh-fake";
+import { page, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-cycles.js");
 
@@ -54,56 +50,35 @@ interface Fixture {
 
 const CALL_LOG = () => path.join(dir, "calls.log");
 
-const stubGh = (fx: Fixture) => {
-	fs.writeFileSync(path.join(dir, "fixture.json"), JSON.stringify(fx));
-
-	const stub = `#!/usr/bin/env node
-const fs = require("node:fs");
-const fx = JSON.parse(fs.readFileSync(${JSON.stringify(path.join(dir, "fixture.json"))}, "utf8"));
-const argv = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(CALL_LOG())}, argv.join(" ") + "\\n");
-
-const p = argv.find((a) => a.startsWith("repos/")) || "";
-const die = (msg) => { process.stderr.write("gh: " + msg + "\\n"); process.exit(1); };
-${RECORDED_SHAPES}
-const page = (kind, rows) => process.stdout.write(asRecorded(kind, [rows]) + "\\n");
-
-if (fx.unreachable) { ${GH_LOGGED_OUT_NODE} }
-
-${BLOCKED_BY_GRAPHQL_FAKE}
-if (argv[1] === "graphql") {
-  if (fx.blockersUnreachable) { ${GH_LOGGED_OUT_NODE} }
-  serveAnswer(answerBlockedBy(argv, (n) => {
-    const i = fx.issues.find((x) => x.number === n);
-    if (i && i.failBlockers) return null;
-    return ((i && i.blockedBy) || []).map((b) => ({
-      ...b,
-      repo: b.repository_url && b.repository_url.replace("https://api.github.com/repos/", ""),
-    }));
-  }));
-}
-const dep = p.match(/issues\\/(\\d+)\\/dependencies\\/blocked_by/);
-if (dep) {
-  const i = fx.issues.find((x) => x.number === Number(dep[1]));
-  if (i && i.failBlockers) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
-  return page("blockedByPage", (i && i.blockedBy) || []);
-}
-if (/\\/issues$/.test(p) && argv.includes("state=open")) {
-  if (fx.failList) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
-  return page("issuesPage", fx.issues.map((i) => ({
-    number: i.number,
-    title: "issue " + i.number,
-    html_url: "http://example/" + i.number,
-    pull_request: i.pull_request,
-    repository_url: i.repository_url,
-    parent_issue_url: i.parent
-      ? "https://api.github.com/repos/o/r/issues/" + i.parent
-      : null,
-  })));
-}
-die("unexpected call: " + argv.join(" "));
-`;
-	return stubGhScript(dir, stub);
+const stubGh = ({
+	issues,
+	failList,
+	unreachable,
+	blockersUnreachable,
+}: Fixture) => {
+	const log = { log: CALL_LOG() };
+	if (unreachable) return stubGhRoutes(dir, { "*": GH_LOGGED_OUT }, log);
+	const routes: Record<string, RouteAnswer> = {};
+	if (blockersUnreachable) routes.graphql = GH_LOGGED_OUT;
+	for (const i of issues)
+		routes[`repos/{owner}/{repo}/issues/${i.number}/dependencies/blocked_by`] =
+			i.failBlockers ? GH_NOT_FOUND : page("blockedByPage", i.blockedBy ?? []);
+	routes["repos/{owner}/{repo}/issues?*state=open*"] = failList
+		? GH_NOT_FOUND
+		: page(
+				"issuesPage",
+				issues.map((i) => ({
+					number: i.number,
+					title: `issue ${i.number}`,
+					html_url: `http://example/${i.number}`,
+					pull_request: i.pull_request,
+					repository_url: i.repository_url,
+					parent_issue_url: i.parent
+						? `https://api.github.com/repos/o/r/issues/${i.parent}`
+						: null,
+				})),
+			);
+	return stubGhRoutes(dir, routes, log);
 };
 
 const run = (fx: Fixture, args: string[] = []) => {

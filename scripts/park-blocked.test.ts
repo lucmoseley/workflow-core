@@ -14,7 +14,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, gitRepo } from "./lib/arbiter-testkit";
-import { asRecorded, GH_NOT_FOUND, ghServeLines } from "./lib/gh-fake";
+import { GH_NOT_FOUND } from "./lib/gh-fake";
+import { page, printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
 
 const { markersDir } = createRequire(__filename)("./lib/marker-root.js");
 
@@ -53,17 +54,16 @@ function heldIssue(issue: number): boolean {
 let ghCallsFile: string;
 let ghBin: string;
 
-/** A `gh` stub dispatching on `issue view --json labels|body`, `issue
- * comment`, `issue edit`, and `api` reads of the blocked-by edges, of the
- * open list (#9 and every `states` entry that is open) and of an issue's
- * state, each REST answer held to its recording by `asRecorded`. An issue
- * missing from `states` answers empty at exit 0. A failing read serves
- * the recorded not-found. */
+/** A `gh` stub answering `issue view --json labels|body`, `issue comment`,
+ * `issue edit`, `repo view`, and `api` reads of the blocked-by edges, of the
+ * open list (#9 and every `states` entry that is open) and of each `states`
+ * issue. A failing read — every `api` read, or each whose path ends in
+ * `failPath` — serves the recorded not-found. */
 function stubGh(
 	opts: {
 		labels?: string[];
 		body?: string;
-		labelsExit?: number;
+		labelsFail?: boolean;
 		edges?: { state: string }[];
 		apiFails?: boolean;
 		failPath?: string;
@@ -73,55 +73,43 @@ function stubGh(
 	const {
 		labels = [],
 		body = "",
-		labelsExit = 0,
+		labelsFail = false,
 		edges = [],
 		apiFails = false,
 		failPath = "",
 		states = {},
 	} = opts;
-	fs.writeFileSync(path.join(sb.dir, "body.md"), body);
-	const script = [
-		"#!/bin/bash",
-		`printf '%s\\n' "$*" >> "${ghCallsFile}"`,
-		'if [ "$1" = "api" ]; then',
-		...(apiFails ? [ghServeLines(GH_NOT_FOUND)] : []),
-		`  if [ -n "${failPath}" ] && [ "\${2%${failPath}}" != "$2" ]; then`,
-		ghServeLines(GH_NOT_FOUND),
-		"  fi",
-		'  case "$2" in',
-		`    */dependencies/blocked_by) printf '%s' '${asRecorded("blockedByPage", [edges])}' ;;`,
-		`    */issues) printf '%s' '${asRecorded("issuesPage", [
-			[
-				9,
-				...Object.keys(states).filter((n) => states[Number(n)] === "open"),
-			].map((n) => ({ number: Number(n) })),
-		])}' ;;`,
-		...Object.entries(states).map(
-			([n, state]) =>
-				`    */issues/${n}) printf '%s' '[${asRecorded("issue", { state })}]' ;;`,
+	const routes: Record<string, RouteAnswer> = {};
+	if (apiFails) routes["repos/*"] = GH_NOT_FOUND;
+	if (failPath) {
+		routes[`*${failPath}`] = GH_NOT_FOUND;
+		routes[`*${failPath}?*`] = GH_NOT_FOUND;
+	}
+	// A failure set above keeps its key.
+	routes["*/dependencies/blocked_by"] ??= page("blockedByPage", edges);
+	routes["*/issues?*"] ??= page(
+		"issuesPage",
+		[9, ...Object.keys(states).filter((n) => states[Number(n)] === "open")].map(
+			(n) => ({ number: Number(n) }),
 		),
-		"  esac",
-		"  exit 0",
-		"fi",
-		'if [ "$1" = "repo" ] && [ "$2" = "view" ]; then',
-		`  printf '%s' '${asRecorded("repoView", { nameWithOwner: "acme/app" })}'`,
-		"  exit 0",
-		"fi",
-		'if [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
-		'  if printf "%s" "$*" | grep -q -- "--json labels"; then',
-		`    if [ ${labelsExit} -ne 0 ]; then exit ${labelsExit}; fi`,
-		...labels.map((l) => `    printf '%s\\n' '${l}'`),
-		"    exit 0",
-		"  fi",
-		'  if printf "%s" "$*" | grep -q -- "--json body"; then',
-		`    cat "${path.join(sb.dir, "body.md")}"`,
-		"    exit 0",
-		"  fi",
-		"fi",
-		"exit 0",
-	].join("\n");
-	fs.writeFileSync(ghBin, script);
-	fs.chmodSync(ghBin, 0o755);
+	);
+	for (const [n, state] of Object.entries(states))
+		routes[`*/issues/${n}`] ??= {
+			kind: "issue",
+			value: { state },
+			slurp: true,
+		};
+	routes["repo view*"] = {
+		kind: "repoView",
+		value: { nameWithOwner: "acme/app" },
+	};
+	routes["issue view * --json labels *"] = labelsFail
+		? GH_NOT_FOUND
+		: printed(labels.map((l) => `${l}\n`).join(""));
+	routes["issue view * --json body *"] = printed(body);
+	routes["issue comment *"] = printed();
+	routes["issue edit *"] = printed();
+	ghBin = stubGhRoutes(sb.dir, routes, { log: ghCallsFile }).gh;
 }
 
 function ghCalls(): string[] {
@@ -151,7 +139,6 @@ function run(
 beforeEach(() => {
 	gitRepo(sb);
 	ghCallsFile = path.join(sb.dir, "gh-calls");
-	ghBin = path.join(sb.dir, "gh-stub");
 	stubGh();
 });
 
@@ -301,7 +288,7 @@ describe("parking", () => {
 
 	it("keep refuses where the labels cannot be read, writing nothing", () => {
 		claimIssue(9);
-		stubGh({ labelsExit: 1, body: errand });
+		stubGh({ labelsFail: true, body: errand });
 		const r = run(["9", "keep", "why"]);
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("could not read #9's labels");

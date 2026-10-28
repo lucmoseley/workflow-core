@@ -24,18 +24,17 @@ import HUMAN_BODIES from "./fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import {
-	asRecorded,
 	GH_NOT_FOUND,
-	ghServeLines,
 	type SubIssuesAnswer,
+	subIssuesAnswer,
 } from "./lib/gh-fake";
 import {
 	HERE,
+	page,
+	type RouteAnswer,
 	type StubGh,
-	stubGhScript,
-	subIssuesArm,
+	stubGhRoutes,
 	THERE,
-	writeSubIssues,
 } from "./lib/gh-stub";
 
 const SCRIPT = path.resolve(__dirname, "check-issue-labels.js");
@@ -99,46 +98,35 @@ const rowOf = ({
 };
 
 /**
- * The files the comments and blocked_by arms serve: an issue's LATEST comment
- * alone, as a `per_page=1` read of its last page answers, and its edges.
+ * Each issue's comments and blocked_by routes: its LATEST comment alone, as a
+ * `per_page=1` read of its last page answers, and its edges.
  */
-const writeThreads = (issues: Issue[]) => {
+const threadRoutes = (issues: Issue[]) => {
+	const routes: Record<string, RouteAnswer> = {};
 	for (const i of issues) {
+		const at = `repos/{owner}/{repo}/issues/${i.number}`;
 		const last = i.comments?.at(-1);
-		if (i.latestRead === "fail")
-			fs.writeFileSync(path.join(dir, `latest-${i.number}.fail`), "");
+		if (i.latestRead === "fail") routes[`${at}/comments?*`] = GH_NOT_FOUND;
 		else if (i.latestRead === "empty")
-			fs.writeFileSync(
-				path.join(dir, `latest-${i.number}.json`),
-				asRecorded("commentsPage", [[]]),
-			);
+			routes[`${at}/comments?*`] = page("commentsPage", []);
 		else if (last !== undefined)
-			fs.writeFileSync(
-				path.join(dir, `latest-${i.number}.json`),
-				asRecorded("commentsPage", [[{ body: last }]]),
-			);
+			routes[`${at}/comments?*`] = page("commentsPage", [{ body: last }]);
 		if (i.blockers === "fail")
-			fs.writeFileSync(path.join(dir, `blockers-${i.number}.fail`), "");
+			routes[`${at}/dependencies/blocked_by`] = GH_NOT_FOUND;
 		else if (i.blockers)
-			fs.writeFileSync(
-				path.join(dir, `blockers-${i.number}.json`),
-				asRecorded("blockedByPage", [i.blockers]),
+			routes[`${at}/dependencies/blocked_by`] = page(
+				"blockedByPage",
+				i.blockers,
 			);
 	}
+	return routes;
 };
 
-const threadArms = () => `  */comments?*)
-    n=\`echo "$2" | sed 's|.*/issues/||; s|/comments.*||'\`
-    if [ -f ${dir}/latest-$n.fail ]; then
-      ${ghServeLines(GH_NOT_FOUND)}    fi
-    cat ${dir}/latest-$n.json
-    ;;
-  */dependencies/blocked_by)
-    n=\`echo "$2" | sed 's|.*/issues/||; s|/dependencies.*||'\`
-    if [ -f ${dir}/blockers-$n.fail ]; then
-      ${ghServeLines(GH_NOT_FOUND)}    fi
-    if [ -f ${dir}/blockers-$n.json ]; then cat ${dir}/blockers-$n.json; else echo '${asRecorded("blockedByPage", [[]])}'; fi
-    ;;`;
+/** What an issue no route names answers: no sub-issue and no blocker. */
+const NO_EDGES: Record<string, RouteAnswer> = {
+	"*/sub_issues": subIssuesAnswer([]),
+	"*/dependencies/blocked_by": page("blockedByPage", []),
+};
 
 /**
  * `/sub_issues` of N answers with the fixture's own rows parented on N, open
@@ -155,8 +143,6 @@ const stubGh = (
 	} = {},
 ) => {
 	const rows = issues.map(rowOf);
-	const fixture = path.join(dir, "issues.json");
-	fs.writeFileSync(fixture, asRecorded("issuesPage", [rows]));
 	const kidsOf: Record<number, SubIssuesAnswer> = {};
 	/* Rows built from `parent` only: a cross-repo parent URL is another repo's.
 	 * A pull request is no sub-issue, so /sub_issues never lists one. */
@@ -172,34 +158,22 @@ const stubGh = (
 		}
 	for (const [n, kids] of Object.entries(children))
 		kidsOf[Number(n)] = typeof kids === "string" ? kids : kids.map(rowOf);
-	writeSubIssues(dir, kidsOf);
-	writeThreads(issues);
+	const routes: Record<string, RouteAnswer> = threadRoutes(issues);
+	for (const [n, a] of Object.entries(kidsOf))
+		routes[`repos/{owner}/{repo}/issues/${n}/sub_issues`] = subIssuesAnswer(a);
 	for (const [n, state] of Object.entries(foreign))
-		fs.writeFileSync(
-			path.join(dir, `foreign-${n}.${state === "fail" ? "fail" : "json"}`),
-			JSON.stringify(
-				JSON.parse(
-					asRecorded("issuesPage", [[{ number: Number(n), state }]]),
-				)[0],
-			),
-		);
+		routes[`repos/acme/lib/issues/${n}`] =
+			state === "fail"
+				? GH_NOT_FOUND
+				: { kind: "issue", value: { number: Number(n), state }, slurp: true };
+	Object.assign(routes, NO_EDGES);
+	routes["repos/{owner}/{repo}/issues?*"] = page("issuesPage", rows);
 	/* Every argv line, so a test can assert what was NOT asked for. */
 	const callLog = path.join(dir, "calls.log");
-	const script = `#!/bin/sh
-echo "$@" >> ${callLog}
-case "$2" in
-${subIssuesArm(dir)}
-${threadArms()}
-  repos/acme/lib/issues/*)
-    n=\`echo "$2" | sed 's|.*/issues/||'\`
-    if [ -f ${dir}/foreign-$n.fail ]; then
-      ${ghServeLines(GH_NOT_FOUND)}    fi
-    cat ${dir}/foreign-$n.json
-    ;;
-  *) cat ${fixture} ;;
-esac
-`;
-	return { ...stubGhScript(dir, script, { failing }), callLog };
+	return {
+		...stubGhRoutes(dir, routes, { log: callLog, failing }),
+		callLog,
+	};
 };
 
 const run = (
@@ -1332,40 +1306,25 @@ describe("what it asks GitHub for", () => {
 	 */
 	const stubByState = (issues: Issue[]) => {
 		const rows = issues.map(rowOf);
-		const open = path.join(dir, "open.json");
-		fs.writeFileSync(
-			open,
-			JSON.stringify([rows.filter((r) => r.state === "open")]),
-		);
-		const closedWith = (label: string) => {
-			const f = path.join(dir, `closed-${label.replace(/\W/g, "_")}.json`);
-			fs.writeFileSync(
-				f,
-				JSON.stringify([
-					rows.filter(
-						(r) =>
-							r.state === "closed" && r.labels.some((l) => l.name === label),
-					),
-				]),
+		const closedWith = (label: string) =>
+			page(
+				"issuesPage",
+				rows.filter(
+					(r) => r.state === "closed" && r.labels.some((l) => l.name === label),
+				),
 			);
-			return f;
-		};
-		const map = closedWith("wayfinder:map");
-		const spec = closedWith("kind:spec");
 		const callLog = path.join(dir, "calls.log");
-		const script = [
-			"#!/bin/sh",
-			`echo "$@" >> ${callLog}`,
-			'case "$*" in',
-			'  *state=all*) echo "stub: refused a whole-tracker read" >&2; exit 1 ;;',
-			`  *labels=wayfinder:map*) cat ${map} ;;`,
-			`  *labels=kind:spec*) cat ${spec} ;;`,
-			`  *state=open*) cat ${open} ;;`,
-			'  *) echo "[[]]" ;;',
-			"esac",
-			"",
-		].join("\n");
-		return { ...stubGhScript(dir, script), callLog };
+		const routes: Record<string, RouteAnswer> = {
+			"*state=all*": GH_NOT_FOUND,
+			"*labels=wayfinder:map*": closedWith("wayfinder:map"),
+			"*labels=kind:spec*": closedWith("kind:spec"),
+			"*state=open*": page(
+				"issuesPage",
+				rows.filter((r) => r.state === "open"),
+			),
+			...NO_EDGES,
+		};
+		return { ...stubGhRoutes(dir, routes, { log: callLog }), callLog };
 	};
 
 	it("never reads the whole tracker", () => {

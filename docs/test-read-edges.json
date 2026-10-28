@@ -9747,12 +9747,14 @@
 			"scripts/lib/actions-tester.test.ts",
 			"scripts/lib/branch-publish.test.ts",
 			"scripts/lib/gh-stub-server.test.ts",
+			"scripts/lib/gh-stub.test.ts",
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/lib/gh.test.ts",
 			"scripts/lib/issue-close.test.ts",
 			"scripts/lib/outstanding-line.test.ts",
 			"scripts/measure-ci-billing.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/park-blocked.test.ts",
 			"scripts/park-on-round.test.ts",
 			"scripts/pick-next.test.ts",
 			"scripts/place-new-issue.test.ts",
@@ -9774,7 +9776,8 @@
 			"scripts/retire-stale-containers.test.ts",
 			"scripts/spec-commits.test.ts",
 			"scripts/supervise-landing.test.ts",
-			"scripts/unpark-on-prompt.test.ts"
+			"scripts/unpark-on-prompt.test.ts",
+			"scripts/wayfinder-frontier.test.ts"
 		],
 		"scripts/lib/fixtures/gh/map-list.json": [
 			"scripts/guard-issue-create-label.test.ts",
@@ -10205,12 +10208,23 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/gh-stub.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/gh-stub.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/gh-stub.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",

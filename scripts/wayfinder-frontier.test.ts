@@ -21,12 +21,8 @@ import {
 	SCRIPT,
 	store,
 } from "./lib/arbiter-testkit";
-import {
-	asRecorded,
-	BLOCKED_BY_GRAPHQL_FAKE,
-	GH_NOT_FOUND,
-	subIssuesAnswer,
-} from "./lib/gh-fake";
+import { GH_NOT_FOUND, subIssuesAnswer } from "./lib/gh-fake";
+import { page, printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
 
 const FRONTIER = path.join(__dirname, "wayfinder-frontier.js");
 // `--map` refuses where it cannot confirm the claim store shares the caller's
@@ -77,47 +73,22 @@ const asAlice = (args: string[] = [], cwd = sb.repo) =>
  * A `gh api` stand-in wired through WFC_GH. It serves `routes` by API path
  * and gh's recorded 404 on any path in `fails` or absent, consistently, so
  * the command's one retry re-fails rather than papering over a fixture. The
- * batched GraphQL blockers read answers from the same `blockedBy(n)` routes,
- * and answers null for a child whose route fails or is absent, which sends it
- * to that REST path. Each REST page is built by `pageOf`.
+ * batched GraphQL blockers read answers from the same `blockedBy(n)` routes.
  */
 function fakeGh(routes: Record<string, unknown>, fails: string[] = []) {
-	const fixture = path.join(sb.dir, "gh-routes.json");
-	const pages = Object.fromEntries(
-		Object.entries(routes).map(([p, rows]) => [p, pageOf(p, rows)]),
-	);
-	fs.writeFileSync(fixture, JSON.stringify({ routes, fails, pages }));
-	const log = ghLog();
-	const bin = path.join(sb.dir, "bin", "gh");
-	fs.mkdirSync(path.dirname(bin), { recursive: true });
-	fs.writeFileSync(
-		bin,
-		`#!/usr/bin/env node
-const fs = require("node:fs");
-const { routes, fails, pages } = JSON.parse(fs.readFileSync(${JSON.stringify(fixture)}, "utf8"));
-const p = process.argv[3];
-fs.appendFileSync(${JSON.stringify(log)}, process.argv.slice(2).join(" ") + "\\n");
-${BLOCKED_BY_GRAPHQL_FAKE}
-if (p === "graphql") {
-  serveAnswer(answerBlockedBy(process.argv.slice(2), (n) => {
-    const route = "repos/{owner}/{repo}/issues/" + n + "/dependencies/blocked_by";
-    return fails.includes(route) || !(route in routes) ? null : routes[route];
-  }));
-}
-if (fails.includes(p) || !(p in routes)) serveAnswer(${JSON.stringify(GH_NOT_FOUND)});
-process.stdout.write(pages[p]);
-`,
-		{ mode: 0o755 },
-	);
-	return bin;
+	const table: Record<string, RouteAnswer> = {};
+	for (const p of fails) table[p] = GH_NOT_FOUND;
+	for (const [p, rows] of Object.entries(routes))
+		if (!fails.includes(p)) table[p] = pageOf(p, rows);
+	table["*"] = GH_NOT_FOUND;
+	return stubGhRoutes(sb.dir, table, { log: ghLog() }).gh;
 }
 
 /** `rows` as the one --slurp page gh answers on route `p`. */
-function pageOf(p: string, rows: unknown) {
-	if (p.endsWith("/sub_issues"))
-		return subIssuesAnswer(rows as unknown[]).stdout;
+function pageOf(p: string, rows: unknown): RouteAnswer {
+	if (p.endsWith("/sub_issues")) return subIssuesAnswer(rows as unknown[]);
 	if (p.endsWith("/dependencies/blocked_by"))
-		return asRecorded("blockedByPage", [rows]);
+		return page("blockedByPage", rows as unknown[]);
 	throw new Error(`no recorded answer for route ${p}`);
 }
 
@@ -739,8 +710,10 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			// An empty stdout parses as `[]`, which on this endpoint is
 			// indistinguishable from "no blockers" — a blocked issue reported free.
 			fakeClaude(["alice"]);
-			const gh = fakeGh(mapWith(1080, [[1145, "open"]]));
-			fs.writeFileSync(gh, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+			const gh = stubGhRoutes(sb.dir, {
+				graphql: printed(),
+				"*": printed(),
+			}).gh;
 			const r = mapAsAlice(1080, gh);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toBe("");

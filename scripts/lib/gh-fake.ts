@@ -85,7 +85,8 @@ export function ghServe({
 
 export const ghFake = (fixture: string) => ghServe(ghAnswer(fixture));
 
-const quoted = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+/** `s` as one single-quoted shell word. */
+export const quoted = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 
 /** The shell lines that print `answer`, for a stub's own `case` arm. */
 export function ghServeLines({ status, stdout, stderr }: GhAnswer): string {
