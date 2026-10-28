@@ -22,6 +22,8 @@
  * read (#3365).
  */
 
+const { requiredGroup } = require("./regex-group.js");
+
 const COLUMNS = ["Job", "Primitive", "Exemplar", "Rule", "Enforcing check"];
 
 /* The Enforcing check cell's one non-path value: the row is a criterion
@@ -109,7 +111,8 @@ function sectionIds(text) {
 }
 
 /** @param {string} cell */
-const backticked = (cell) => [...cell.matchAll(BACKTICKED)].map((m) => m[1]);
+const backticked = (cell) =>
+	[...cell.matchAll(BACKTICKED)].map((m) => requiredGroup(m, 1, BACKTICKED));
 
 /** @param {string} job */
 const jobKey = (job) => job.toLowerCase().replace(/\s+/g, " ");
