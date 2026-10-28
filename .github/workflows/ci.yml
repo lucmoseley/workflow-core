@@ -71,8 +71,13 @@ jobs:
 
       # No `if:` here deliberately: nothing downstream can run without the
       # dependencies, so a failed install should stop the job.
+      # `--ignore-scripts` on every install here, as guard-npm-install holds
+      # local ones to: a dependency's install script would run with this job's
+      # token before anything has read it. No dependency needs its own script
+      # on Linux: fsevents is macOS-only and unrs-resolver's postinstall only
+      # re-fetches a native binding npm already took as an optional dependency.
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       # By path, never `npx biome`: the bare name is an unrelated package that
       # exits 0 having checked nothing (mantahostels#1538). `if: !cancelled()` runs this step
@@ -203,14 +208,36 @@ jobs:
       # LAST, AND OFF `$GITHUB_PATH`, so no earlier step ever sees a `claude`.
       # A release breaking a mod on a sha already green surfaces at the next
       # sweep (scheduled-checks.yml).
+      #
+      # Not install.sh, which checks the binary only against a manifest from
+      # the same host and runs a bootstrap binary of its own. The manifest's
+      # detached signature is checked instead, against the release key's
+      # fingerprint pinned here (code.claude.com/docs/en/setup, "Binary
+      # integrity and code signing"), and the binary against that manifest's
+      # sha256: a release is taken unpinned, but only one Anthropic signed.
       - name: Mod tests
         if: ${{ !cancelled() }}
+        env:
+          CLAUDE_RELEASES: https://downloads.claude.ai/claude-code-releases
+          CLAUDE_SIGNER_FPR: 31DDDE24DDFAB679F42D7BD2BAA929FF1A7ECACE
         run: |
-          curl -fsSL --retry 3 --retry-all-errors --retry-delay 5 \
-            -o "$RUNNER_TEMP/install-claude.sh" https://claude.ai/install.sh
-          bash "$RUNNER_TEMP/install-claude.sh" latest
-          "$HOME/.local/bin/claude" --version
-          WFC_CLAUDE_BIN="$HOME/.local/bin/claude" node scripts/run-mod-tests.js --all
+          fetch() { curl --proto '=https' --tlsv1.2 -fsSL --retry 3 --retry-all-errors --retry-delay 5 "$@"; }
+          dir="$RUNNER_TEMP/claude"
+          mkdir -p "$dir"
+          version=$(fetch "$CLAUDE_RELEASES/latest")
+          fetch -o "$dir/manifest.json" "$CLAUDE_RELEASES/$version/manifest.json"
+          fetch -o "$dir/manifest.json.sig" "$CLAUDE_RELEASES/$version/manifest.json.sig"
+          fetch -o "$dir/key.asc" https://downloads.claude.ai/keys/claude-code.asc
+          export GNUPGHOME="$dir/gnupg"
+          mkdir -m 700 "$GNUPGHOME"
+          gpg --batch --quiet --import "$dir/key.asc"
+          gpg --batch --status-fd 1 --verify "$dir/manifest.json.sig" "$dir/manifest.json" |
+            grep -q "^\[GNUPG:\] VALIDSIG $CLAUDE_SIGNER_FPR "
+          fetch -o "$dir/claude" "$CLAUDE_RELEASES/$version/linux-x64/claude"
+          echo "$(jq -r '.platforms["linux-x64"].checksum' "$dir/manifest.json")  $dir/claude" | sha256sum -c -
+          chmod +x "$dir/claude"
+          "$dir/claude" --version
+          DISABLE_AUTOUPDATER=1 WFC_CLAUDE_BIN="$dir/claude" node scripts/run-mod-tests.js --all
 
   # One job per shard; the matrix's length is the shard count, read back
   # through `strategy`. Sized on the unsharded step's 449 s (#2413) so each
@@ -233,8 +260,12 @@ jobs:
           node-version: 24
           cache: npm
 
+      # The repo's own `prepare` runs, as `--ignore-scripts` skipped it: the
+      # hook-gate tests copy the .husky/_ shims husky writes.
       - name: Install dependencies
-        run: npm ci
+        run: |
+          npm ci --ignore-scripts
+          npm run prepare
 
       - name: Install shellcheck
         if: ${{ !cancelled() }}
@@ -265,15 +296,23 @@ jobs:
 
       # The adopter first-commit tests stage the skeleton's browse.py, and the
       # pre-commit format gate refuses a staged .py path where ruff is absent
-      # (#1463, #1590). The pin is read from
+      # (#1463, #1590). The pin and its hashes are read from
       # requirements-dev.txt, which formatters.test.ts holds the gate's own
-      # install line to, so a bump there moves both. pipx because the image's
-      # system pip is externally managed (PEP 668); its bin dir is on PATH.
+      # install line to, so a bump there moves both. A venv of its own because
+      # the image's system pip is externally managed (PEP 668), and only the
+      # binary goes on PATH, so no later step meets the venv's python.
       - name: Install ruff
         if: ${{ !cancelled() }}
         run: |
-          pipx install "$(grep -E '^ruff==' requirements-dev.txt)"
-          ruff --version
+          awk '/^ruff==/ { on = 1 } on { print } on && !/\\$/ { exit }' \
+            requirements-dev.txt > "$RUNNER_TEMP/ruff.txt"
+          python3 -m venv "$RUNNER_TEMP/ruff-venv"
+          "$RUNNER_TEMP/ruff-venv/bin/pip" install --require-hashes --only-binary :all: \
+            -r "$RUNNER_TEMP/ruff.txt"
+          mkdir -p "$RUNNER_TEMP/ruff-bin"
+          ln -s "$RUNNER_TEMP/ruff-venv/bin/ruff" "$RUNNER_TEMP/ruff-bin/ruff"
+          "$RUNNER_TEMP/ruff-bin/ruff" --version
+          echo "$RUNNER_TEMP/ruff-bin" >> "$GITHUB_PATH"
 
       # The checkout is depth 1, and arm-tasks.test.ts pushes HEAD's history
       # to a sandbox origin, refused without the parents (#2099). Unshallowed here rather than `fetch-depth: 0`, which
@@ -356,8 +395,11 @@ jobs:
           # cache silently does nothing.
           cache-dependency-path: requirements-dev.txt
 
+      # Hash-checking mode, which the hashes in requirements-dev.txt switch on
+      # by themselves; the flag makes a hashless file fail rather than install
+      # unchecked. Wheels only, so no sdist's build script runs here.
       - name: Install dependencies
-        run: python3 -m pip install -r requirements-dev.txt
+        run: python3 -m pip install --require-hashes --only-binary ":all:" -r requirements-dev.txt
 
       # ruff, hard-failing (mantahostels#1135): pytest only ever imports what a test
       # imports, so a module no test reaches is never run, only read statically.

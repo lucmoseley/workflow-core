@@ -324,12 +324,12 @@ describe("formatters.js as a program — the pre-commit hook's reading (#1354)",
 });
 
 describe("the install lines a refusal names, and CI's ruff install, at the core's pins (#1463, #1590)", () => {
-	it("install shfmt at package.json's pin and ruff at requirements-dev.txt's", () => {
+	it("install shfmt at package.json's pin and ruff at requirements-dev.in's", () => {
 		const pkg = JSON.parse(read("package.json"));
 		expect(SHFMT_INSTALL).toMatch(
 			new RegExp(`@wasm-fmt/shfmt@${pkg.devDependencies["@wasm-fmt/shfmt"]}$`),
 		);
-		const pin = read("requirements-dev.txt").match(/^ruff==(\S+)$/m)?.[1];
+		const pin = read("requirements-dev.in").match(/^ruff==(\S+)$/m)?.[1];
 		expect(RUFF_INSTALL).toBe(`python3 -m pip install ruff==${pin}`);
 	});
 
@@ -340,7 +340,7 @@ describe("the install lines a refusal names, and CI's ruff install, at the core'
 			ci.indexOf("- name: Vitest\n"),
 		);
 		expect(testJob).toContain(
-			`pipx install "$(grep -E '^ruff==' requirements-dev.txt)"`,
+			`awk '/^ruff==/ { on = 1 } on { print } on && !/\\\\$/ { exit }' \\\n            requirements-dev.txt`,
 		);
 		expect(ci).not.toMatch(/ruff==\d/);
 	});

@@ -2685,12 +2685,15 @@
 			"scripts/precommit-declared-commands.test.ts",
 			"scripts/precommit-staged-gate.test.ts"
 		],
+		"requirements-dev.in": [
+			"scripts/lib/formatters.test.ts",
+			"scripts/markdown-tooling-declined.test.ts",
+			"scripts/precommit-ruff-gate.test.ts"
+		],
 		"requirements-dev.txt": [
 			"scripts/check-test-marker.test.ts",
 			"scripts/coverage-declined.test.ts",
-			"scripts/lib/formatters.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
-			"scripts/precommit-ruff-gate.test.ts",
 			"scripts/run-pytest.test.ts"
 		],
 		"ruff.toml": [

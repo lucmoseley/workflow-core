@@ -561,7 +561,7 @@ describe("the CI half of the same gate", () => {
 		// of that job's `Install dependencies` (mantahostels#1135).
 		const python = CI.slice(CI.indexOf("\n  python:"));
 		expect(python).toContain("- name: Ruff");
-		expect(python).toContain("pip install -r requirements-dev.txt");
+		expect(python).toMatch(/pip install .*-r requirements-dev\.txt/);
 		// Ahead of Pytest is not required, but AFTER `Install dependencies` is:
 		// ruff is pinned in requirements-dev.txt like everything else here.
 		expect(python.indexOf("Install dependencies")).toBeLessThan(
@@ -572,15 +572,15 @@ describe("the CI half of the same gate", () => {
 
 describe("the ruff adoption's own invariants", () => {
 	const requirements = fs.readFileSync(
-		path.join(ROOT, "requirements-dev.txt"),
+		path.join(ROOT, "requirements-dev.in"),
 		"utf8",
 	);
 
 	it("pins ruff exactly, as every other Python dependency here is pinned", () => {
 		// scripts/test_requirements_pinned.py fails when a pin and the installed
 		// version disagree, and the supply-chain auditor credits a version only
-		// from an `==` in this file (mantahostels#930). A range here would silently drop ruff
-		// out of both.
+		// from an `==` in the requirements-dev.txt compiled from this file
+		// (mantahostels#930). A range here would silently drop ruff out of both.
 		expect(requirements).toMatch(/^ruff==\d+\.\d+\.\d+$/m);
 	});
 

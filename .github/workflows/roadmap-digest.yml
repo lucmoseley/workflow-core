@@ -130,10 +130,10 @@ jobs:
       # `if:` here, unlike ci.yml's install, because a failed install must not
       # skip the ten guards that need nothing from it. The job still ends red
       # — and that one goes BROKEN rather than green, so a skipped install cannot
-      # read as a clean corpus.
+      # read as a clean corpus. `--ignore-scripts` on ci.yml's terms.
       - name: Install dependencies
         if: ${{ !cancelled() }}
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Check roadmap HTML and digest versions agree
         if: ${{ !cancelled() }}
