@@ -127,7 +127,7 @@ const { readRuleTextOr } = require("./lib/rule-text.js");
 const { matchSensitivePaths } = require("./lib/sensitive-paths.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { HOST_CONFIG_FAULT, RESULT_FD } = require("./lib/stryker-comments.js");
-const { readConfig } = require("./lib/workflow-core-config.js");
+const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE =
@@ -333,14 +333,13 @@ function readStagedFile(file) {
  */
 function configCopyAt(work, rev) {
 	const root = path.join(work, `root${rev}`);
-	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+	fs.mkdirSync(path.join(root, path.dirname(CONFIG_PATH)), { recursive: true });
 	const text = readFileOrFault(
 		rev,
-		".claude/workflow-core.json",
-		"could not read .claude/workflow-core.json",
+		CONFIG_PATH,
+		`could not read ${CONFIG_PATH}`,
 	);
-	if (text !== null)
-		fs.writeFileSync(path.join(root, ".claude", "workflow-core.json"), text);
+	if (text !== null) fs.writeFileSync(path.join(root, CONFIG_PATH), text);
 	return { root, text };
 }
 
@@ -363,7 +362,7 @@ function readConfigOf({ root }) {
 	try {
 		return readConfig({ root, quiet: true });
 	} catch (e) {
-		throw new HoldFaultError("could not read .claude/workflow-core.json", {
+		throw new HoldFaultError(`could not read ${CONFIG_PATH}`, {
 			detail: caught(e).message,
 			cause: e,
 		});

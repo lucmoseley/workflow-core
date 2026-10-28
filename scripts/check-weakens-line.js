@@ -57,13 +57,13 @@ const { requiredGroup } = require("./lib/regex-group.js");
 const { readRuleTextOr } = require("./lib/rule-text");
 const { COLLECTED_TEST } = require("./lib/test-kind.js");
 const { gitReader, spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
+const { CONFIG_PATH } = require("./lib/workflow-core-config.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {{ kind: string, name: string, what: string }} Weakening */
 /** @typedef {{ before: string | null, after: string | null }} Sides */
 /** @typedef {{ path: string, from: string | null, deleted: boolean }} Change */
 
-const CONFIG = ".claude/workflow-core.json";
 const WEAKENS_LINE = /^\s*Weakens:\s*(.*)$/i;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const STAND_DOWN = /^WFC_[A-Z0-9_]+_OFF$/;
@@ -185,7 +185,7 @@ function configLists(ctx, text, side) {
 	try {
 		value = JSON.parse(text);
 	} catch (e) {
-		ctx.broken(`${side} ${CONFIG} is not JSON — ${caught(e).message}`);
+		ctx.broken(`${side} ${CONFIG_PATH} is not JSON — ${caught(e).message}`);
 	}
 	const list = (/** @type {unknown} */ v) =>
 		Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
@@ -206,14 +206,14 @@ function modulesOff(ctx, { before, after }) {
 			.map((name) => ({
 				kind: "MODULE-OFF",
 				name,
-				what: `${name} added to ${CONFIG}'s disabled`,
+				what: `${name} added to ${CONFIG_PATH}'s disabled`,
 			})),
 		...was.modules
 			.filter((m) => !now.modules.includes(m))
 			.map((name) => ({
 				kind: "MODULE-OFF",
 				name,
-				what: `${name} dropped from ${CONFIG}'s modules`,
+				what: `${name} dropped from ${CONFIG_PATH}'s modules`,
 			})),
 	];
 }
@@ -307,7 +307,8 @@ function parseWeakensLines(message) {
  */
 function weakenings(ctx, changes) {
 	return changes.flatMap((change) => {
-		if (change.path === CONFIG) return modulesOff(ctx, readSides(ctx, change));
+		if (change.path === CONFIG_PATH)
+			return modulesOff(ctx, readSides(ctx, change));
 		if (
 			WORKFLOW.test(change.path) ||
 			(change.from && WORKFLOW.test(change.from))

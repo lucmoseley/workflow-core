@@ -47,7 +47,10 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { execGit, spawnGitSync } = require("./lib/git.js");
 const { materialisePlugin, fixByHand } = require("./lib/materialise-plugin.js");
-const { UPSTREAM_CODE_REPO } = require("./lib/workflow-core-config.js");
+const {
+	CONFIG_PATH,
+	UPSTREAM_CODE_REPO,
+} = require("./lib/workflow-core-config.js");
 const { consumesFaults, readTrackedFiles } = require("./lib/doc-map.js");
 const { formatConfigJson } = require("./lib/config-json.js");
 const {
@@ -302,7 +305,7 @@ const MANTA = {
 		"docs/notes/runninglean.md": "Runninglean — book note",
 	},
 	register: {
-		".claude/workflow-core.json": {
+		[CONFIG_PATH]: {
 			section: "Skills & settings",
 			class: "source-of-truth",
 			role: "The adopter's config — contract, modules, commands, categories",
@@ -1002,11 +1005,11 @@ function edit(root, spec, p, out) {
 		write(root, e.path, applyEdit(read(root, e.path), e));
 	out(`edited  ${[...new Set(spec.edits.map((e) => e.path))].join(", ")}`);
 
-	write(root, ".claude/workflow-core.json", formatConfigJson(spec.config));
+	write(root, CONFIG_PATH, formatConfigJson(spec.config));
 	const claudeMd = rewriteClaudeMd(read(root, "CLAUDE.md"), spec.claudeMd);
 	write(root, "CLAUDE.md", claudeMd);
 	out(
-		`wrote   .claude/workflow-core.json; rewrote CLAUDE.md per the line list at ${spec.claudeMdBase}`,
+		`wrote   ${CONFIG_PATH}; rewrote CLAUDE.md per the line list at ${spec.claudeMdBase}`,
 	);
 
 	const { settings, dropped } = dropUnkeptHooks(p.settings, p.keptHook);
@@ -1322,7 +1325,7 @@ function cut(at) {
 		spec.ranking.to,
 		...spec.edits.map((e) => e.path),
 		...Object.values(spec.move),
-		".claude/workflow-core.json",
+		CONFIG_PATH,
 		".claude/settings.json",
 		"package.json",
 	];

@@ -24,7 +24,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { requiredGroup } = require("./regex-group.js");
 const { runVerify } = require("./verify-run.js");
-const { MIGRATIONS_DIR } = require("./workflow-core-config.js");
+const { CONFIG_PATH, MIGRATIONS_DIR } = require("./workflow-core-config.js");
 const { bringCoreFiles, readIfPresent } = require("./core-owned-files.js");
 const { parseNote, parseSteps } = require("./migration-note.js");
 const { skillDrift } = require("./skill-drift.js");
@@ -156,7 +156,7 @@ const EVERY_RUN = /** @type {const} */ ([
  * @param {{root: string, out: (line: string) => void}} at
  */
 function applyContractResidue(contract, { root, out }) {
-	const { path: at, json } = readJson(root, ".claude/workflow-core.json");
+	const { path: at, json } = readJson(root, CONFIG_PATH);
 	if (json.contract === contract) return;
 	fs.writeFileSync(at, formatConfigJson({ ...json, contract }));
 	out(`residue  contract -> ${contract}`);
@@ -168,10 +168,7 @@ function applyContractResidue(contract, { root, out }) {
  * @param {{root: string, out: (line: string) => void}} at
  */
 function applyRoadmapMajorPinResidue({ root, out }) {
-	const { path: at, json: config } = readJson(
-		root,
-		".claude/workflow-core.json",
-	);
+	const { path: at, json: config } = readJson(root, CONFIG_PATH);
 	/* Already seeded — by init-adopter.js (#54) or a prior upgrade run —
 	 * so left alone: re-deriving it here could disagree with a value the
 	 * adopter has since hand-edited. */
@@ -519,7 +516,7 @@ function planWalk({
  *   holds a string
  */
 function readWalkedTo(root) {
-	const { json: wfConfig } = readJson(root, ".claude/workflow-core.json");
+	const { json: wfConfig } = readJson(root, CONFIG_PATH);
 	return typeof (/** @type {any} */ (wfConfig).walkedTo) === "string"
 		? /** @type {any} */ (wfConfig).walkedTo
 		: null;
@@ -634,10 +631,7 @@ function reportDirectoryFloor(pluginRoot, installed, out) {
  * @param {string} tag
  */
 function advanceWalkedTo(root, tag) {
-	const { path: at, json: current } = readJson(
-		root,
-		".claude/workflow-core.json",
-	);
+	const { path: at, json: current } = readJson(root, CONFIG_PATH);
 	const recorded = /** @type {{walkedTo?: unknown}} */ (current).walkedTo;
 	if (typeof recorded === "string" && semverCompare(tag, recorded) <= 0) return;
 	fs.writeFileSync(at, formatConfigJson({ ...current, walkedTo: tag }));

@@ -39,7 +39,8 @@ const { hostRoot } = require("./host-root.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 
-const CONFIG_PATH = path.join(".claude", "workflow-core.json");
+/* POSIX-joined: it is a git path as well as a filesystem one. */
+const CONFIG_PATH = path.posix.join(".claude", "workflow-core.json");
 
 /** @param {string} root */
 const hasConfig = (root) => fs.existsSync(path.join(root, CONFIG_PATH));

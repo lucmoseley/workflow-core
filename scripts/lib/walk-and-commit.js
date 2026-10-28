@@ -51,8 +51,7 @@ const { ghLabels } = require("./core-owned-files.js");
 const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree.js");
 const { readStepsOwed } = require("./steps-owed.js");
 const { caught } = require("./caught.js");
-
-const WFC_CONFIG_REL = path.join(".claude", "workflow-core.json");
+const { CONFIG_PATH } = require("./workflow-core-config.js");
 
 /**
  * @param {string} root
@@ -61,7 +60,7 @@ const WFC_CONFIG_REL = path.join(".claude", "workflow-core.json");
 function readWalkedTo(root) {
 	try {
 		const doc = JSON.parse(
-			fs.readFileSync(path.join(root, WFC_CONFIG_REL), "utf8"),
+			fs.readFileSync(path.join(root, CONFIG_PATH), "utf8"),
 		);
 		return typeof doc.walkedTo === "string" ? doc.walkedTo : null;
 	} catch {

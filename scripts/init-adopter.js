@@ -71,6 +71,7 @@ const {
 	UPSTREAM_TRACKER,
 	codeRepoUrl,
 	TRACKER_SHAPE,
+	CONFIG_PATH,
 } = require("./lib/workflow-core-config.js");
 const {
 	inferCommands,
@@ -121,7 +122,6 @@ const { execGit, gitOrNull, GIT_TIMEOUT_MS } = require("./lib/git.js");
 
 /** @typedef {Record<Command, SourcedCommand>} Sourced */
 
-const CONFIG = ".claude/workflow-core.json";
 const EXPLICIT = "--command";
 const SETTINGS = ".claude/settings.json";
 const ANCHORS = ".claude/guard-registry-anchors.json";
@@ -153,7 +153,7 @@ const CLASSES = {
 		class: "source-of-truth",
 		reader: "agent",
 	},
-	[CONFIG]: {
+	[CONFIG_PATH]: {
 		section: "Skills & settings",
 		class: "source-of-truth",
 		role: "The adopter's config — contract, modules, commands, categories",
@@ -525,7 +525,7 @@ function reportCommands({ sourced, kept, out }) {
 		return [`${c}: ${s.command} (${s.from}${s.note ? ` — ${s.note}` : ""})`];
 	});
 	if (found.length > 0) out(`commands ${found.join("; ")}`);
-	else if (kept) out(`commands none declared in ${CONFIG}`);
+	else if (kept) out(`commands none declared in ${CONFIG_PATH}`);
 	else
 		out(
 			"commands none — no package.json script, pytest config or *.test.js file names one",
@@ -541,7 +541,7 @@ function reportCorpus({ corpus, kept, out }) {
 	if (corpus && !kept) out(`corpus   ${corpus.join(", ")}`);
 	else if (corpus && JSON.stringify(kept?.corpus) !== JSON.stringify(corpus))
 		out(
-			`corpus   NOT written — ${CONFIG} is kept, so declare it there by hand: ${JSON.stringify(corpus)}`,
+			`corpus   NOT written — ${CONFIG_PATH} is kept, so declare it there by hand: ${JSON.stringify(corpus)}`,
 		);
 }
 
@@ -615,7 +615,7 @@ function init(at) {
 
 	/* 1. The config, core-owned only. */
 	w.write(
-		CONFIG,
+		CONFIG_PATH,
 		renderConfig({
 			founder,
 			corpus,
@@ -1325,7 +1325,7 @@ function adopt({ values, flags, categories, commands }) {
 	try {
 		/* Raw rather than through readConfig, whose `modules` WFC_MODULES
 		 * replaces: a suite's injection, not the adopter's choice. */
-		kept = readKeptJson(root, CONFIG);
+		kept = readKeptJson(root, CONFIG_PATH);
 		corpus = fullCorpus(root, values.corpus, flags.has("corpus"));
 		named = values.modules ?? (kept ? undefined : readInferredModules(root));
 	} catch (err) {
@@ -1525,7 +1525,7 @@ function commandSources({ commands, kept, declared, inferred }) {
 		if (commands[c])
 			return { command: commands[c], kind: "explicit", from: EXPLICIT };
 		if (kept && declared?.commands[c])
-			return { command: declared.commands[c], kind: "kept", from: CONFIG };
+			return { command: declared.commands[c], kind: "kept", from: CONFIG_PATH };
 		const hit = inferred[/** @type {keyof typeof inferred} */ (c)];
 		if (!hit) return { command: null };
 		return { ...hit, kind: "inferred", from: `inferred from ${hit.from}` };

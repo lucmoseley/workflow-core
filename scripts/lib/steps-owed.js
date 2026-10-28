@@ -17,8 +17,7 @@ const path = require("node:path");
 const { STEP_TYPES } = require("./migration-note.js");
 const { formatConfigJson } = require("./config-json.js");
 const { caught } = require("./caught.js");
-
-const CONFIG_REL = path.join(".claude", "workflow-core.json");
+const { CONFIG_PATH } = require("./workflow-core-config.js");
 
 /** @typedef {{tag: string, type: "act"|"choice"|"notice", text: string, declined?: boolean}} StepOwed */
 
@@ -38,7 +37,7 @@ function isValidEntry(e) {
 
 /** @param {string} root */
 function configPath(root) {
-	return path.join(root, CONFIG_REL);
+	return path.join(root, CONFIG_PATH);
 }
 
 /**
