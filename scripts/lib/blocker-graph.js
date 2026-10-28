@@ -225,6 +225,16 @@ const isWork = (graph, k) =>
 	graph.nodes.get(k)?.served === true && !graph.containers.has(k);
 
 /**
+ * Orders node keys by issue number, then by key, as numbers repeat across
+ * repos.
+ * @param {Graph} graph
+ * @returns {(a: string, b: string) => number}
+ */
+const byNumber = (graph) => (a, b) =>
+	nodeAt(graph.nodes, a).ref.number - nodeAt(graph.nodes, b).ref.number ||
+	a.localeCompare(b);
+
+/**
  * The served issues `key` transitively holds out, sorted: what its reach
  * counts. A foreign node or a container on the way passes the walk on but is
  * not counted.
@@ -265,9 +275,7 @@ function heldBy(graph, key) {
  */
 function inheritance(graph, sources) {
 	const { unitOf, units } = unitsOf(graph);
-	/** @param {string} a @param {string} b */
-	const byNumber = (a, b) =>
-		nodeAt(graph.nodes, a).ref.number - nodeAt(graph.nodes, b).ref.number;
+	const order = byNumber(graph);
 	/**
 	 * `stop` is the source a path ends on, null where it goes on to `next`.
 	 * @typedef {{len: number, next: Unit, entry: string, stop: string|null}} Step
@@ -286,7 +294,7 @@ function inheritance(graph, sources) {
 			const next = unitOf(k);
 			const on = best.get(next);
 			const cont = on ? next.work + on.len : Number.NEGATIVE_INFINITY;
-			const [source] = [k, ...next.inner].filter(qualifies).sort(byNumber);
+			const [source] = [k, ...next.inner].filter(qualifies).sort(order);
 			const stop = source === undefined ? Number.NEGATIVE_INFINITY : next.work;
 			const len = Math.max(cont, stop);
 			if (len === Number.NEGATIVE_INFINITY) return null;
@@ -383,10 +391,7 @@ function unitsOf(graph) {
 		return me;
 	};
 	for (const k of graph.nodes.keys()) if (!meta.has(k)) visit(k);
-	/** @param {string} a @param {string} b */
-	const order = (a, b) =>
-		nodeAt(graph.nodes, a).ref.number - nodeAt(graph.nodes, b).ref.number ||
-		a.localeCompare(b);
+	const order = byNumber(graph);
 	/** @type {Unit[]} */
 	const units = members.map((keys, u) => {
 		const holds = keys.flatMap((k) => graph.holds.get(k) ?? []);
