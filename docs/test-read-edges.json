@@ -11640,7 +11640,8 @@
 			"scripts/priced-options-copies.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/stale-write-back-gate.test.ts"
+			"scripts/stale-write-back-gate.test.ts",
+			"vitest.setup.test.ts"
 		],
 		"scripts/lib/host-root.test.ts": [
 			"scripts/check-guard-errors.test.ts",
@@ -21648,6 +21649,11 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/test_git_env_isolation.py": [
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/test_host_dir_isolation.py": [
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"

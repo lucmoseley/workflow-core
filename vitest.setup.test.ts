@@ -10,7 +10,9 @@
  * Breaking it lets tests write arbiter state and caches into the founder's
  * live ~/.claude* again (#838).
  *
- * Also pins its removal of git's repository-locating variables (#1677).
+ * Also pins its removal of git's repository-locating variables (#1677), and its
+ * empty host (#3334), without which a test that drops its CLAUDE_PROJECT_DIR
+ * pin reads the live checkout and is red only on the founder's machine.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -45,6 +47,47 @@ describe("the Claude config dir a test case sees", () => {
 	});
 });
 
+const REPO_ROOT = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Runs `<dir>/probe.test.ts` in a nested vitest under `env`, loading the real
+ * setup file unless `withSetup` is false. Returns the JSON the probe wrote to
+ * `<PROBE_OUT>/<outFile>`.
+ */
+const runNestedVitest = <T>(
+	dir: string,
+	env: NodeJS.ProcessEnv,
+	outFile: string,
+	withSetup = true,
+): T => {
+	const out = fs.mkdtempSync(path.join(dir, "out-"));
+	const config = path.join(dir, "probe.config.mts");
+	fs.writeFileSync(
+		config,
+		`export default ${JSON.stringify({
+			test: {
+				root: dir,
+				include: ["probe.test.ts"],
+				globals: true,
+				environment: "node",
+				setupFiles: withSetup ? [path.join(REPO_ROOT, "vitest.setup.ts")] : [],
+			},
+		})};\n`,
+	);
+	const r = spawnSync(
+		process.execPath,
+		[
+			path.join(REPO_ROOT, "node_modules/vitest/vitest.mjs"),
+			"run",
+			"--config",
+			config,
+		],
+		{ cwd: dir, encoding: "utf8", env: { ...env, PROBE_OUT: out } },
+	);
+	expect(r.status, r.stdout + r.stderr).toBe(0);
+	return JSON.parse(fs.readFileSync(path.join(out, outFile), "utf8")) as T;
+};
+
 /*
  * #1677: a run started under a linked worktree's exported `GIT_DIR` — a hook,
  * `git bisect run` — must not let a fixture's plain `git init <dir>` mark the
@@ -62,7 +105,6 @@ const GIT_LOCATORS = [
 ];
 
 describe("a run started under a worktree's exported git variables (#1677)", () => {
-	const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 	let dir: string;
 	let gitDir: string;
 
@@ -92,40 +134,13 @@ test("probe", () => {
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 	/** Runs the probe with `leaked` set, and returns the `GIT_*` names its worker saw. */
-	const runProbe = (leaked: Record<string, string>, withSetup = true) => {
-		const out = fs.mkdtempSync(path.join(dir, "out-"));
-		const config = path.join(dir, "probe.config.mts");
-		fs.writeFileSync(
-			config,
-			`export default ${JSON.stringify({
-				test: {
-					root: dir,
-					include: ["probe.test.ts"],
-					globals: true,
-					environment: "node",
-					setupFiles: withSetup ? [path.join(repoRoot, "vitest.setup.ts")] : [],
-				},
-			})};\n`,
+	const runProbe = (leaked: Record<string, string>, withSetup = true) =>
+		runNestedVitest<string[]>(
+			dir,
+			{ ...process.env, ...leaked },
+			"env.json",
+			withSetup,
 		);
-		const r = spawnSync(
-			process.execPath,
-			[
-				path.join(repoRoot, "node_modules/vitest/vitest.mjs"),
-				"run",
-				"--config",
-				config,
-			],
-			{
-				cwd: dir,
-				encoding: "utf8",
-				env: { ...process.env, ...leaked, PROBE_OUT: out },
-			},
-		);
-		expect(r.status, r.stdout + r.stderr).toBe(0);
-		return JSON.parse(
-			fs.readFileSync(path.join(out, "env.json"), "utf8"),
-		) as string[];
-	};
 	const readCoreBare = () =>
 		execFileSync(
 			"git",
@@ -159,5 +174,77 @@ test("probe", () => {
 			GIT_PREFIX: "sub/",
 		});
 		expect(GIT_LOCATORS.filter((name) => seen.includes(name))).toEqual([]);
+	});
+});
+
+/*
+ * #3334: a test that drops its `CLAUDE_PROJECT_DIR` pin, or reaches the host in
+ * process, reads the same empty non-repository whether the run started under a
+ * session's live checkout or, as in CI, with the variable unset, and so does a
+ * child spawned on the inherited env. The probe asks from inside this
+ * checkout, so without the setup file's override the git limb answers it.
+ */
+describe("the host a test that drops its pin reads (#3334)", () => {
+	const hostRootModule = path.join(REPO_ROOT, "scripts/lib/host-root.js");
+	let dir: string;
+
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-host-env-"));
+		fs.writeFileSync(
+			path.join(dir, "probe.test.ts"),
+			`import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { hostRoot, worktreeRoot } from ${JSON.stringify(hostRootModule)};
+test("probe", () => {
+	const from = ${JSON.stringify(REPO_ROOT)};
+	const host = hostRoot(from);
+	const spawned = execFileSync(
+		process.execPath,
+		["-e", ${JSON.stringify(`process.stdout.write(require(${JSON.stringify(hostRootModule)}).hostRoot())`)}],
+		{ cwd: from, encoding: "utf8" },
+	);
+	fs.writeFileSync(
+		path.join(process.env.PROBE_OUT as string, "host.json"),
+		JSON.stringify({
+			host,
+			worktree: worktreeRoot(from),
+			spawned,
+			entries: fs.readdirSync(host),
+		}),
+	);
+});
+`,
+		);
+	});
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+	const readHost = (projectDir: string | undefined, withSetup = true) => {
+		const env: NodeJS.ProcessEnv = { ...process.env };
+		if (projectDir === undefined) delete env.CLAUDE_PROJECT_DIR;
+		else env.CLAUDE_PROJECT_DIR = projectDir;
+		return runNestedVitest<{
+			host: string;
+			worktree: string;
+			spawned: string;
+			entries: string[];
+		}>(dir, env, "host.json", withSetup);
+	};
+
+	it("reads this checkout with the variable unset and no setup file: the control", () => {
+		expect(readHost(undefined, false).host).toBe(fs.realpathSync(REPO_ROOT));
+	});
+
+	it.each([
+		["set to a session's live checkout", REPO_ROOT],
+		["unset, as in CI", undefined],
+	])("is an empty temp dir when the run starts with it %s", (_, projectDir) => {
+		const seen = readHost(projectDir);
+		expect(seen.host.startsWith(fs.realpathSync(os.tmpdir()) + path.sep)).toBe(
+			true,
+		);
+		expect(seen.entries).toEqual([]);
+		expect(seen.worktree).toBe(seen.host);
+		expect(seen.spawned).toBe(seen.host);
 	});
 });
