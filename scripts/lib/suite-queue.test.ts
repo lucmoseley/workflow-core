@@ -429,7 +429,7 @@ describe("the queue's ordering, so waiters do not stampede (mantahostels#2024)",
 
 		describe("passing an older part-suite the memory rung holds (#3058)", () => {
 			/* Mirrors PART_PASS_AGE_MS. */
-			const AgeMs = 8 * 60 * 1000;
+			const AgeMs = 7 * 60 * 1000;
 			const twoPartWaiters = (queueDir: string) => {
 				queueJoin({ queueDir, pid: 11, clock: () => 0, weight: PART });
 				queueJoin({ queueDir, pid: 99, clock: () => 1000, weight: PART });

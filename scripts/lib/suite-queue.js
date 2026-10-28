@@ -492,11 +492,11 @@ function passingTurn(options = {}) {
 }
 
 /* The age past which no part-suite passes an older one the memory rung holds
- * (#3058), so passing never starves it: the p90 of queued part-suite waits,
- * rounded up. Those waits ran under strict part FIFO, so they include the
- * hold this pass removes, and p90 is a chosen rate, not a measured safe pass
- * time: re-derive from the first window run under the pass (#3115). */
-const PART_PASS_AGE_MS = 8 * 60 * 1000;
+ * (#3058), so passing never starves it: the p90 of opened part-suite waits the
+ * memory rung held, rounded up to the minute, read off the replay's
+ * memory-held line (#3115). p90 is a chosen rate, not a measured safe pass
+ * time. */
+const PART_PASS_AGE_MS = 7 * 60 * 1000;
 
 /* The signals a waiter drops its marker on, each with the shell's exit code
  * for it, 128 + its number (mantahostels#2034). */

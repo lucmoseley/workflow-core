@@ -111,6 +111,22 @@ describe("the passes the waiters recorded (#3115)", () => {
 		);
 	});
 
+	it("samples the opened part waits the memory limb held, the age bound's input", () => {
+		const r = replayOf({
+			mem: blocks(0, 5, 9000),
+			waiters: [
+				{ from: 0, to: 10, slotFree: true, reason: "opened" },
+				{ from: 6, to: 8, slotFree: true, reason: "opened" },
+				{ from: 0, to: 4, slotFree: true, reason: "refused" },
+				{ from: 0, to: 3, slotFree: false, reason: "opened" },
+			],
+		});
+		expect(r.memoryHeldPart).toEqual([600]);
+		expect(render(r, window())).toContain(
+			"1 opened part waits the memory limb held at some tick, wait p50 600 s, p90 600 s",
+		);
+	});
+
 	it("says where no line counts its passes", () => {
 		const r = replayOf({ waiters: [{ from: 0, to: 5, reason: "opened" }] });
 		expect(render(r, window())).toContain(
@@ -205,12 +221,12 @@ describe("the limbs, in the gate's order", () => {
 		});
 		expect(hoursOf(r.limb)).toEqual({ memory: 900 });
 		expect(hoursOf(r.limbAlso)).toEqual({
-			"memory / fifo-part": 120,
+			"memory / fifo-part": 180,
 			"memory / load": 900,
 		});
 	});
 
-	it("lets a part waiter pass an older one the memory rung holds, until that one is 8 minutes old (#3058)", () => {
+	it("lets a part waiter pass an older one the memory rung holds, until that one is 7 minutes old (#3058)", () => {
 		const r = replayOf({
 			waiters: [
 				{ from: 0, to: 10, slotFree: true },
@@ -218,7 +234,7 @@ describe("the limbs, in the gate's order", () => {
 			],
 			mem: blocks(0, 10, 9000),
 		});
-		expect(hoursOf(r.limbAlso)).toEqual({ "memory / fifo-part": 120 });
+		expect(hoursOf(r.limbAlso)).toEqual({ "memory / fifo-part": 180 });
 	});
 });
 

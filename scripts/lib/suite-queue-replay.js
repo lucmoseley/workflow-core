@@ -23,7 +23,8 @@
  * those fields existed is weighed from its vitest marker's module count and
  * PRE_FIELDS_GATE.
  * An exit line's own `passed` (#3115) is tallied beside the modelled pass, as
- * what the waiters themselves recorded.
+ * what the waiters themselves recorded. The opened part waits the memory limb
+ * held at some tick are the sample PART_PASS_AGE_MS is derived from (#3115).
  */
 
 const fs = require("node:fs");
@@ -506,6 +507,8 @@ function buildTallies() {
 		landerSlot: 0,
 		/** @type {Set<number>} */
 		memMinutes: new Set(),
+		/** @type {Set<Waiter>} */
+		memoryHeldPart: new Set(),
 	};
 }
 
@@ -523,6 +526,7 @@ function tallyTick(tick, w, acc, parents) {
 		const [first = "open", ...also] = limbsOf(e, tick, w);
 		for (const a of also) add(acc.limbAlso, `${first} / ${a}`, TICK_S);
 		add(acc.limb, first, TICK_S);
+		if (!e.whole && memoryHolds(e, tick, w)) acc.memoryHeldPart.add(e);
 		add(acc.limbClass, `${first} / ${e.cls}`, TICK_S);
 		addNested(acc.limbSession, e.session ?? "(no session)", first);
 		addNested(acc.limbEra, tick.era, first);
@@ -735,6 +739,10 @@ function replay(logs, w) {
 			.filter((e) => e.run)
 			.map((e) => e.gap)
 			.sort((a, b) => a - b),
+		memoryHeldPart: [...acc.memoryHeldPart]
+			.filter((e) => e.reason === "opened" && e.waitS > 0)
+			.map((e) => e.waitS)
+			.sort((a, b) => a - b),
 		unread: logs.unread,
 		memMinutes: acc.memMinutes.size,
 		minutes: Math.ceil((w.until - w.since) / 60_000),
@@ -743,6 +751,14 @@ function replay(logs, w) {
 
 /** @param {number} s */
 const hours = (s) => (s / 3600).toFixed(2);
+
+/**
+ * #3047's quantile rule.
+ * @param {number[]} sorted
+ * @param {number} p
+ */
+const quantileOf = (sorted, p) =>
+	sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))] ?? 0;
 
 /** @param {Map<string, number>} m */
 const byValue = (m) => [...m].sort((a, b) => b[1] - a[1]);
@@ -755,9 +771,8 @@ const byValue = (m) => [...m].sort((a, b) => b[1] - a[1]);
  */
 function render(r, w) {
 	const total = [...r.limb.values()].reduce((s, v) => s + v, 0);
-	/* #3047's quantile rule. */
-	const quantile = (/** @type {number} */ p) =>
-		r.gaps[Math.min(r.gaps.length - 1, Math.floor(p * r.gaps.length))] ?? 0;
+	const quantile = (/** @type {number} */ p) => quantileOf(r.gaps, p);
+	const held = r.memoryHeldPart;
 	const lines = [
 		`# Suite queue wait replay, ${new Date(w.since).toISOString()} to ${new Date(w.until).toISOString()}`,
 		"",
@@ -783,6 +798,8 @@ function render(r, w) {
 		r.passes.counted > 0
 			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (#3115).`
 			: "Recorded passes: no exit line in the window counts its passes (none logged before #3115 does); the fifo-part limb above is the replay's model alone.",
+		"",
+		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3115): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s.`,
 		"",
 		"## Whole slot",
 		"",
