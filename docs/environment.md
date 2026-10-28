@@ -66,7 +66,7 @@ Two limits:
 
 <!-- guard-registry:begin -->
 
-- **4096 stays. Never remove it, and never raise it. If a session needs more heap, cut concurrent sessions instead.** **Advisory** (#2025, mantahostels#465): `scripts/guard-node-heap.js` hands over `rule:node-heap` on a Bash command naming `max-old-space-size` or `max_old_space_size`, once a session. A `Write` or `Edit` of `~/.bashrc`, a heap set inside a script the command runs, and a mixed spelling such as `max-old_space-size` are never seen.
+- **4096 stays. Never remove it, and never raise it. If a session needs more heap, cut concurrent sessions instead.** **Advisory** (#2025, mantahostels#465): `scripts/guard-dispatch.js` (its `guard-node-heap` core) hands over `rule:node-heap` on a Bash command naming `max-old-space-size` or `max_old_space_size`, once a session. A `Write` or `Edit` of `~/.bashrc`, a heap set inside a script the command runs, and a mixed spelling such as `max-old_space-size` are never seen.
 
 <!-- guard-registry:end -->
 

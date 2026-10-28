@@ -33,8 +33,10 @@
  * (mantahostels#1762). Anything else that throws here
  * crashes the entry, and the registration's `"onFailure": "block"` refuses the
  * call. There is no per-core time budget: a core does no I/O, and every
- * adapter that spawns carries its own timeout, cut to what the entry's budget
- * leaves (lib/hook-deadline.js). An adapter working in process — the
+ * adapter that spawns carries its own timeout. The shared git reader's and
+ * branch-publish's are cut to what the entry's budget leaves, and
+ * npm-install's registry budget runs from the entry's start
+ * (lib/hook-deadline.js); the other hosts' reads are not cut. An adapter working in process — the
  * PostToolUse cores' scratch stores and the arbiter's record — carries none:
  * only the entry's timeout bounds a hang there, and it costs every core still
  * to run on that call its say.

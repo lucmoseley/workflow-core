@@ -1,19 +1,20 @@
 // @vitest-environment node
 /*
- * guard-pull-form.js refuses a non-fast-forward reconciliation of the shared
- * `main` (mantahostels#245), a rewind of `main` (#765) and a discard of the
- * shared tree's uncommitted work (#768), and hands the pull rule to a
- * sanctioned reconciliation instead. These are its boundary cases, run as the
- * harness runs it: each exit path, each input channel, and each production
- * read crossed once against a real repo. Which command earns which verdict
- * and text is lib/pull-form.test.ts's (#2797).
+ * The guard-pull-form core of guard-dispatch.js refuses a non-fast-forward
+ * reconciliation of the shared `main` (mantahostels#245), a rewind of `main`
+ * (#765) and a discard of the shared tree's uncommitted work (#768), and hands
+ * the pull rule to a sanctioned reconciliation instead. These are its boundary
+ * cases, the dispatcher entry run on it alone: each exit path, each input
+ * channel, and each production read crossed once against a real repo. Which
+ * command earns which verdict and text is lib/pull-form.test.ts's (#2797);
+ * the entry's payload faults and the throw policy are guard-dispatch's own
+ * tests' (#3226).
  *
  * The guard compares the target tree against CLAUDE_PROJECT_DIR's, so a
  * throwaway repo stands in for the shared tree and a worktree of it for the
  * exempt case.
  *
- * It runs as a `PreToolUse` Bash hook (`self-plugin/hooks/hooks.json`,
- * `hooks/hooks.json`): loosen it and a merge, rebase, rewind or discard in the
+ * It runs as a core of the `PreToolUse` dispatcher on a git command: loosen it and a merge, rebase, rewind or discard in the
  * shared tree can wipe a neighbour's commits or uncommitted edits; break it
  * and every git command is refused.
  */
@@ -26,11 +27,11 @@ import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
-	nodeGuardOutput,
-	runNodeGuard,
+	dispatchCoreOutput,
+	runDispatchCore,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-pull-form.js");
+const CORE = "guard-pull-form";
 
 let dir: string;
 let config: string;
@@ -51,20 +52,18 @@ interface Spawn {
 	cwd?: string;
 	session?: string | null;
 	env?: Record<string, string | undefined>;
-	stdin?: string;
 }
 
-/** Runs the guard on `command` (or raw `stdin`), as Claude Code would. */
+/** Runs the guard on `command`, as Claude Code would. */
 const runGuard = (
 	command: string,
-	{ cwd = shared, session = "test", env = {}, stdin }: Spawn = {},
+	{ cwd = shared, session = "test", env = {} }: Spawn = {},
 ) =>
-	runNodeGuard(GUARD, buildBashPayload(command, session), {
+	runDispatchCore(CORE, buildBashPayload(command, session), {
 		project: shared,
 		config,
 		cwd,
 		env,
-		stdin,
 	});
 
 /** The whole hook output for `command`, parsed. Null where it said nothing. */
@@ -72,7 +71,7 @@ const emission = (
 	command: string,
 	{ cwd = shared, session = "test", env = {} }: Spawn = {},
 ) =>
-	nodeGuardOutput(GUARD, buildBashPayload(command, session), {
+	dispatchCoreOutput(CORE, buildBashPayload(command, session), {
 		project: shared,
 		config,
 		cwd,
@@ -154,44 +153,20 @@ describe("each exit path", () => {
 		expect(fs.existsSync(failOpenLogPath(config, shared))).toBe(false);
 	});
 
-	it("refuses, logged, where its core throws", () => {
-		// A copy of the entry beside a core that throws; every other lib is the
-		// real one, linked.
-		const at = path.join(dir, "broken");
-		const lib = path.join(at, "scripts", "lib");
-		fs.mkdirSync(lib, { recursive: true });
-		fs.copyFileSync(GUARD, path.join(at, "scripts", "guard-pull-form.js"));
-		for (const f of fs.readdirSync(path.join(__dirname, "lib")))
-			if (f !== "pull-form.js")
-				fs.symlinkSync(path.join(__dirname, "lib", f), path.join(lib, f));
-		fs.writeFileSync(
-			path.join(lib, "pull-form.js"),
-			'module.exports = { decide() { throw new Error("broke"); } };\n',
-		);
-		const out = nodeGuardOutput(
-			path.join(at, "scripts", "guard-pull-form.js"),
-			buildBashPayload("git status", "test"),
-			{ project: shared, config, cwd: shared },
-		);
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-pull-form.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, shared)).toMatch(
-			/core threw — the command was refused\tbroke/,
-		);
-	});
-
 	it("allows, recorded, in a directory git cannot resolve to a repo at all", () => {
 		const notARepo = path.join(dir, "not-a-repo");
 		fs.mkdirSync(notARepo);
-		const r = runNodeGuard(GUARD, buildBashPayload("git rebase main", "test"), {
-			project: notARepo,
-			config,
-			cwd: notARepo,
-			// Otherwise git walks up out of the fixture into a real repository.
-			env: { GIT_CEILING_DIRECTORIES: dir },
-		});
+		const r = runDispatchCore(
+			CORE,
+			buildBashPayload("git rebase main", "test"),
+			{
+				project: notARepo,
+				config,
+				cwd: notARepo,
+				// Otherwise git walks up out of the fixture into a real repository.
+				env: { GIT_CEILING_DIRECTORIES: dir },
+			},
+		);
 		expect([r.status, r.stdout]).toEqual([0, ""]);
 		expect(readFailOpenLog(config, notARepo).split("\t")[2]).toMatch(
 			/^git could not resolve a git dir/,
@@ -200,34 +175,6 @@ describe("each exit path", () => {
 });
 
 describe("each input channel", () => {
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = runGuard("", { stdin: "" });
-		expect([r.status, r.stdout]).toEqual([0, ""]);
-		expect(fs.existsSync(failOpenLogPath(config, shared))).toBe(false);
-	});
-
-	it("allows a payload that is not JSON, recorded in the guard's own name", () => {
-		const r = runGuard("", { stdin: "{not json" });
-		expect([r.status, r.stdout]).toEqual([0, ""]);
-		const log = readFailOpenLog(config, shared);
-		expect(log).toMatch(/payload did not parse as JSON/);
-		const line = log.trim().split("\n")[0] ?? "";
-		const [when, where] = line.split("\t");
-		expect(line.split("\t")).toHaveLength(3);
-		expect(Number.isNaN(Date.parse(when ?? ""))).toBe(false);
-		expect(where).toMatch(/guard-pull-form\.js/);
-	});
-
-	it("allows a payload with no command, recorded", () => {
-		const r = runNodeGuard(
-			GUARD,
-			{ session_id: "test", tool_name: "Bash", tool_input: {} },
-			{ project: shared, config, cwd: shared },
-		);
-		expect([r.status, r.stdout]).toEqual([0, ""]);
-		expect(readFailOpenLog(config, shared)).toMatch(/no command in payload/);
-	});
-
 	it("says nothing and logs where the payload carries no session", () => {
 		// No session id is no latch key, so an injection would repeat every call.
 		const r = runGuard("git pull --ff-only", { session: null });
@@ -332,7 +279,7 @@ describe("each production read, crossed once", () => {
 		expect(r.status).toBe(0);
 		const out = JSON.parse(r.stdout).hookSpecificOutput;
 		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toMatch(/^guard-pull-form\.js: /);
+		expect(out.permissionDecisionReason).toMatch(/^guard-pull-form: /);
 		expect(out.permissionDecisionReason).toContain("pull-fast-forward");
 	});
 

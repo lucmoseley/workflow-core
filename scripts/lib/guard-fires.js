@@ -197,7 +197,7 @@ function hasNeedle(text, needle) {
 /**
  * Does `text` carry this needle's `text` and none of its `unless` literals?
  * An `unless` literal is one only ANOTHER guard prints beside the same words,
- * as lib/branch-publish.js's force-push deny reprints guard-pull-form.js's
+ * as lib/branch-publish.js's force-push deny reprints the guard-pull-form core's
  * rewind fragment: without it one deny counts under both guards.
  * Residual: a span carrying an `unless` literal for any other reason — a
  * compound command both guards deny, or the command echoed back — loses a
@@ -331,7 +331,7 @@ function spanFires(span, subject, stamp) {
 	const out = [];
 	for (const needle of subject.needles) {
 		// A needle may narrow the subject's routes further (mantahostels#2118).
-		// The guard-branch core and guard-pull-form.js each reprint their whole
+		// The guard-branch core and the guard-pull-form core each reprint their whole
 		// rule fragment INSIDE the deny as well as injecting it
 		// pre-emptively, so a needle on the fragment's own words matches
 		// both limbs: without this the deny counts twice, once as itself
