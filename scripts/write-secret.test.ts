@@ -160,6 +160,61 @@ describe("write-secret", () => {
 		expect(r.stdout).toBe(`write-secret: replaced API_KEY in ${store()}\n`);
 	});
 
+	it("writes a CRLF line its reader reads back (#3542)", () => {
+		seed("A=1\r\nK=old\r\n");
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(read()).toBe(`A=1\r\nK=${SECRET}\r\n`);
+		expect(readEnvFileValue(store(), "K")).toBe(SECRET);
+		expect(readEnvFileValue(store(), "A")).toBe("1");
+	});
+
+	it("replaces a BOM-led line rather than appending a second, keeping the BOM (#3542)", () => {
+		seed("\uFEFFK=old\nA=1\n");
+		const r = run(["K"], SECRET);
+		expect(r.stdout).toBe(`write-secret: replaced K in ${store()}\n`);
+		expect(read()).toBe(`\uFEFFK=${SECRET}\nA=1\n`);
+		expect(readEnvFileValue(store(), "K")).toBe(SECRET);
+	});
+
+	it.each([
+		[
+			"a BOM mid-file, as `cat` of two files leaves",
+			"A=1\n\uFEFFK=old\n",
+			"A=1\n\uFEFFK=",
+		],
+		["a no-break space before the =", "K\u00A0=old\n", "K\u00A0="],
+	])("replaces a line led or spaced by %s (#3542)", (_l, before, prefix) => {
+		seed(before);
+		const r = run(["K"], SECRET);
+		expect(r.stdout).toBe(`write-secret: replaced K in ${store()}\n`);
+		expect(read()).toBe(`${prefix}${SECRET}\n`);
+		expect(readEnvFileValue(store(), "K")).toBe(SECRET);
+	});
+
+	it.each([
+		["a CR-only file", "A=1\rK=old\r", 1],
+		["a U+2028 inside the line", "A=1\nK=old\u2028tail\n", 2],
+	])(
+		"refuses with exit 1 a line assigning the name across %s (#3542)",
+		(_l, before, line) => {
+			seed(before);
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(
+				refused(
+					`line ${line} assigns K across a line break (CR, U+2028 or U+2029) that no reader reads past, so its old value would stay in the file. Fix that line by hand, then re-run.`,
+				),
+			);
+			expect(read()).toBe(before);
+		},
+	);
+
+	it("writes the first line after a lone BOM (#3542)", () => {
+		seed("\uFEFF");
+		expect(run(["K"], SECRET).status).toBe(0);
+		expect(read()).toBe(`\uFEFFK=${SECRET}\n`);
+	});
+
 	it("a second run for the same name replaces the first value", () => {
 		run(["API_KEY"], "first-value");
 		fs.appendFileSync(store(), "OTHER=x\n");
@@ -224,11 +279,15 @@ describe("write-secret", () => {
 	);
 
 	it.each([
-		[
-			"a value holding a line break",
-			"one\ntwo\n",
-			"the value holds a line break, which one line cannot carry. Re-run and give it on one line.",
-		],
+		...[
+			["a line break", "one\ntwo\n"],
+			["a U+2028 (#3542)", "one\u2028two"],
+			["a U+2029 (#3542)", "one\u2029two"],
+		].map(([what, stdin]) => [
+			`a value holding ${what}`,
+			stdin,
+			"the value holds a line break (CR, LF, U+2028 or U+2029), which one line cannot carry. Re-run and give it on one line.",
+		]),
 		[
 			"a value needing quotes that holds a single quote",
 			"it's#mine",

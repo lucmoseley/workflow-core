@@ -19,9 +19,11 @@
  *
  * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 the file sits in a
  * git working tree, is a symlink, lies in a directory others can reach, is
- * held by another run too long, or cannot be written; 2 bad arguments or a
- * value no line can carry. Every refusal leaves the file untouched, and one
- * about the file itself comes before the value is asked for.
+ * held by another run too long, holds a line assigning <NAME> it cannot
+ * replace, or cannot be written; 2 bad arguments or a value no line can
+ * carry. Every refusal leaves the file untouched, and one about the file
+ * itself comes before the value is asked for, bar that line, which is read
+ * only under the lock.
  *
  * IN A WORKING TREE IS REFUSED (#3202): a `.git` in the file's directory or
  * any above it, as where XDG_CONFIG_HOME names a checkout or the home directory is a
@@ -51,10 +53,12 @@
  * nor is a malformed name, which is most likely the secret pasted in the
  * wrong place.
  *
- * THE UPSERT replaces the value on every line assigning <NAME> (`NAME=`,
- * `export NAME =`), keeping that line's prefix and CRLF ending; with none, it
- * appends `NAME=value`. Every other byte, and whether the file ends in a
- * newline, is kept. It lands by rename, owner-only.
+ * THE UPSERT replaces the value on every line `lib/env-file.js`'s grammar
+ * reads as assigning <NAME> (`NAME=`, `export NAME =`), keeping that line's
+ * prefix and CRLF ending; with none, it appends `NAME=value`. Every other
+ * byte, a leading BOM and whether the file ends in a newline are kept. It
+ * lands by rename, owner-only. A line assigning <NAME> across a mid-line
+ * break is refused (#3542).
  *
  * THE VALUE is trimmed, as `lib/env-file.js`'s reader and dotenv both trim. It
  * is written unquoted unless it holds `#` (dotenv's comment), `$` or a
@@ -67,7 +71,7 @@
  * beside it whose pid is not running (#2320). One whose pid runs is a
  * concurrent run's, or a reused pid's: it is named and left. Residual: a
  * concurrent run in another pid namespace reads as dead and loses its aside;
- * its rename then fails and it refuses, so nothing leaks.
+ * its rename then fails and it refuses.
  *
  * NO FILE CLAIM (spec #525's ruling for `grant-permission.js`): the file is in
  * no repository, and the founder's paste has no session to claim with.
@@ -80,7 +84,12 @@ const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { parseOrCode } = require("./lib/cli-args");
-const { secretsFile } = require("./lib/env-file.js");
+const {
+	assignsAcrossBreak,
+	parseEnvLine,
+	secretsFile,
+	splitEnvLines,
+} = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { emptyWhy } = require("./lib/empty-secret.js");
 const { readHidden } = require("./lib/read-hidden.js");
@@ -189,7 +198,7 @@ function isDirectory(p) {
 /**
  * Why `p` is reachable by someone other than this user, or null where it is
  * not. stat, not lstat: a symlinked config directory is judged where it
- * points, as the tree walk judges it.
+ * points.
  * @param {string} p
  * @returns {string | null}
  */
@@ -262,25 +271,26 @@ function quoteValue(value) {
 
 /**
  * `text` with <name>'s value replaced on every line assigning it, or the
- * assignment appended.
+ * assignment appended; or, where a line assigns it across a break the
+ * grammar cannot read, that line's number.
  * @param {string} text
  * @param {string} name
  * @param {string} value
- * @returns {{ text: string, replaced: boolean }}
+ * @returns {{ text: string, replaced: boolean } | { brokenLine: number }}
  */
 function upsert(text, name, value) {
-	const assigns = new RegExp(
-		`^([ \\t]*(?:export[ \\t]+)?${name}[ \\t]*=[ \\t]*).*?(\\r?)$`,
-	);
+	const { bom, lines } = splitEnvLines(text);
+	const broken = lines.findIndex(({ body }) => assignsAcrossBreak(body, name));
+	if (broken !== -1) return { brokenLine: broken + 1 };
 	let replaced = false;
-	const lines = text.split("\n").map((line) => {
-		const m = line.match(assigns);
-		if (!m) return line;
+	const next = lines.map(({ body, cr }) => {
+		const assignment = parseEnvLine(body);
+		if (assignment?.name !== name) return body + cr;
 		replaced = true;
-		return `${m[1]}${value}${m[2]}`;
+		return `${assignment.prefix}${value}${cr}`;
 	});
-	if (replaced) return { text: lines.join("\n"), replaced };
-	if (text === "") return { text: `${name}=${value}\n`, replaced };
+	if (replaced) return { text: bom + next.join("\n"), replaced };
+	if (text === bom) return { text: `${bom}${name}=${value}\n`, replaced };
 	return text.endsWith("\n")
 		? { text: `${text}${name}=${value}\n`, replaced }
 		: { text: `${text}\n${name}=${value}`, replaced };
@@ -295,16 +305,16 @@ function upsert(text, name, value) {
  * @returns {number}
  */
 function upsertEnv(file, name, raw, fromTerminal) {
-	if (/[\r\n]/.test(raw)) {
-		return refuse(
-			file,
-			"the value holds a line break, which one line cannot carry. Re-run and give it on one line.",
-			2,
-		);
-	}
 	const trimmed = raw.trim();
 	if (trimmed === "") {
 		return refuse(file, emptyWhy(name, hostRoot(), fromTerminal), 2);
+	}
+	if (parseEnvLine(`${name}=${trimmed}`)?.raw !== trimmed) {
+		return refuse(
+			file,
+			"the value holds a line break (CR, LF, U+2028 or U+2029), which one line cannot carry. Re-run and give it on one line.",
+			2,
+		);
 	}
 	const value = quoteValue(trimmed);
 	if (value === null) {
@@ -371,6 +381,13 @@ function storeValue(file, name, value) {
 
 		const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 		const next = upsert(text, name, value);
+		if ("brokenLine" in next) {
+			return refuse(
+				file,
+				`line ${next.brokenLine} assigns ${name} across a line break (CR, U+2028 or U+2029) that no reader reads past, so its old value would stay in the file. Fix that line by hand, then re-run.`,
+				1,
+			);
+		}
 		writeFileAtomic(file, next.text, {
 			mode: 0o600,
 			beforeRename(aside) {

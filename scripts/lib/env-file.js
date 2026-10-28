@@ -9,7 +9,11 @@
  * WFC_SECRETS_FILE stands in for it, for tests only.
  *
  * A LINE is `NAME=value` or `export NAME = value`, the value trimmed and one
- * quote stripped from each end.
+ * quote stripped from each end. The file's leading BOM and each line's
+ * trailing `\r` are no part of any line; the spaces between its parts are any
+ * whitespace but a line break (#3542). This grammar is the writer's too:
+ * `scripts/write-secret.js` replaces the value of exactly the lines this
+ * reader reads.
  *
  * THE RETURN VALUE IS A SECRET: a caller puts it in no log line or message.
  */
@@ -19,7 +23,67 @@ const os = require("node:os");
 const path = require("node:path");
 const { requiredGroup } = require("./regex-group");
 
-const ENV_LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?!\s)(.*)$/;
+/* `\s` less the line breaks `.` stops at, so a value holding one reads back
+ * as no line. */
+const SPACE = String.raw`[^\S\r\n\u2028\u2029]`;
+const ENV_LINE = new RegExp(
+	`^(${SPACE}*(?:export${SPACE}+)?([A-Za-z_][A-Za-z0-9_]*)${SPACE}*=${SPACE}*)(?!${SPACE})(.*)$`,
+);
+
+/** The breaks a line can hold mid-way once split on `\n`. */
+const INNER_BREAK = /[\r\u2028\u2029]/;
+
+const BOM = "\uFEFF";
+
+/**
+ * `text` as its leading BOM and its lines, each split from its trailing `\r`,
+ * so `bom + lines.map((l) => l.body + l.cr).join("\n")` is `text` again.
+ * @param {string} text
+ * @returns {{ bom: string, lines: { body: string, cr: string }[] }}
+ */
+function splitEnvLines(text) {
+	const bom = text.startsWith(BOM) ? BOM : "";
+	const lines = text
+		.slice(bom.length)
+		.split("\n")
+		.map((line) =>
+			line.endsWith("\r")
+				? { body: line.slice(0, -1), cr: "\r" }
+				: { body: line, cr: "" },
+		);
+	return { bom, lines };
+}
+
+/**
+ * The assignment a line body makes: everything before its value, the name,
+ * and the value as written; or null where it makes none.
+ * @param {string} body a line from `splitEnvLines`
+ * @returns {{ prefix: string, name: string, raw: string } | null}
+ */
+function parseEnvLine(body) {
+	const m = body.match(ENV_LINE);
+	if (!m) return null;
+	return {
+		prefix: requiredGroup(m, 1, ENV_LINE),
+		name: requiredGroup(m, 2, ENV_LINE),
+		raw: requiredGroup(m, 3, ENV_LINE),
+	};
+}
+
+/**
+ * Whether `body` holds an assignment to `name` that a break inside the line
+ * keeps `parseEnvLine` from reading, as a CR-only file or a pasted U+2028
+ * leaves.
+ * @param {string} body a line from `splitEnvLines`
+ * @param {string} name
+ * @returns {boolean}
+ */
+function assignsAcrossBreak(body, name) {
+	return (
+		parseEnvLine(body) === null &&
+		body.split(INNER_BREAK).some((part) => parseEnvLine(part)?.name === name)
+	);
+}
 
 /** @returns {string} */
 function secretsFile() {
@@ -39,15 +103,19 @@ function secretsFile() {
  * @throws where the file cannot be read; ENOENT where it is absent
  */
 function readEnvFileValue(file, name) {
-	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-		const m = line.match(ENV_LINE);
-		if (!m || m[1] !== name) continue;
-		const value = requiredGroup(m, 2, ENV_LINE)
-			.trim()
-			.replace(/^["']|["']$/g, "");
+	for (const { body } of splitEnvLines(fs.readFileSync(file, "utf8")).lines) {
+		const assignment = parseEnvLine(body);
+		if (assignment?.name !== name) continue;
+		const value = assignment.raw.trim().replace(/^["']|["']$/g, "");
 		if (value) return value;
 	}
 	return null;
 }
 
-module.exports = { readEnvFileValue, secretsFile };
+module.exports = {
+	assignsAcrossBreak,
+	parseEnvLine,
+	readEnvFileValue,
+	secretsFile,
+	splitEnvLines,
+};
