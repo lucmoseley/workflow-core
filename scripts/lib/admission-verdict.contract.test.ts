@@ -11,6 +11,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	buildIsolatedEnv,
+	SELF,
+	writeHostRepo,
+	writeProcRoot,
+} from "./admission-testkit";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
 import { buildAgentsBranch, buildJobRow } from "./agents-stop-fake";
 import { writeClaudeStub } from "./claude-stub";
@@ -20,7 +26,6 @@ import { FREE_SLOT_ARGS } from "./refill-loop.js";
 import { runInProcess } from "./run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "..", "admission.js");
-const SELF = "self-session-id";
 
 let dir: string;
 beforeEach(() => {
@@ -42,26 +47,18 @@ const write = (name: string, body: string, mode = 0o644) => {
  * fixture here, so no case reads this machine's own state.
  */
 function realVerdict() {
-	const host = at("host");
-	write("host/.claude/workflow-core.json", "{}\n");
-	fs.mkdirSync(path.join(host, ".git"));
+	const host = writeHostRepo(dir, {});
 	const claude = writeClaudeStub(at("claude"), [
 		buildAgentsBranch([
 			buildJobRow("self", "working", { sessionId: SELF, cwd: host, pid: 701 }),
 			buildJobRow("neighbour", "working", { cwd: host, pid: 702 }),
 		]),
 	]);
-	fs.mkdirSync(at("tmp/wfc-suite-queue"), { recursive: true });
-	// Each session's pair at 600 MB, so the working row reads a figure.
-	for (const pid of [701, 702])
-		write(`proc/${pid}/smaps_rollup`, `Pss:   ${600 * 1024} kB\n`);
 	const r = runInProcess(SCRIPT, FREE_SLOT_ARGS, {
 		env: {
 			...process.env,
-			TMPDIR: at("tmp"),
+			...buildIsolatedEnv(dir),
 			HOME: dir,
-			CLAUDE_CODE_SESSION_ID: SELF,
-			CLAUDE_CONFIG_DIR: at("no-such-config"),
 			CLAUDE_PROJECT_DIR: host,
 			WFC_MEMINFO: write(
 				"meminfo",
@@ -73,18 +70,10 @@ function realVerdict() {
 			),
 			WFC_PS: writePsStub(dir, ["claude /usr/bin/claude"]),
 			WFC_CLAUDE_BIN: claude,
-			WFC_PROC: at("proc"),
-			WFC_REAP_SCRIPT: write(
-				"reap.js",
-				`process.stdout.write(${JSON.stringify(JSON.stringify({ reaped: [], kept: [] }))});\n`,
-			),
-			WFC_LOADAVG: write("loadavg", "0.50 1.00 1.00 2/300 1\n"),
-			// Cleared so a founder's exported override cannot move the ceiling.
-			WFC_LOAD_CEILING: "",
-			// Set so neither the runner's core count nor an override moves it.
-			WFC_SESSION_CEILING: "0",
-			// Set, as unset reads `$HOME/.claude/session-floor` (#2501).
-			WFC_SESSION_FLOOR: "",
+			// Each session's pair at 600 MB, so the working row reads a figure.
+			WFC_PROC: writeProcRoot(dir, {
+				pss: { "701": 600 * 1024, "702": 600 * 1024 },
+			}),
 		},
 	});
 	expect(r.stderr).toBe("");

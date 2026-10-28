@@ -707,6 +707,9 @@
 			"scripts/stale-write-back-gate.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		".sonarcloud.properties": [
+			"scripts/markdown-tooling-declined.test.ts"
+		],
 		"CLAUDE.md": [
 			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
@@ -5818,6 +5821,18 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-pull-form.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/admission-testkit.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/guard-pull-form.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"

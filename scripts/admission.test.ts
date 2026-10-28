@@ -27,8 +27,17 @@ import {
 	SWAP_HOLD_AVAILABLE_MB,
 	WHOLE_SUITE_WORKERS,
 } from "./lib/admission";
+import {
+	buildIsolatedEnv,
+	type Lander,
+	SELF,
+	writeHostRepo,
+	writeLoadavg,
+	writeProcRoot,
+	writeReapScript,
+} from "./lib/admission-testkit";
 import { writeCache } from "./lib/dispatch-sessions-testkit";
-import { carrying, writeCwd, writeEnviron } from "./lib/proc-fake";
+import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -39,7 +48,6 @@ const FLOOR = 794;
 const rung = (n: 1 | 2 | 3) => SUITE_RESTING_MB[n];
 
 const SCRIPT = path.resolve(__dirname, "admission.js");
-const SELF = "self-session-id";
 /* The host draw every case declares unless it says otherwise (#2221): one
  * session's need at p95 is ceil(600k + 1.645 × 200 × √k), so 929, 1666, 2370
  * and 3058 MB for k of 1 to 4 with no live session. */
@@ -127,66 +135,6 @@ const claude = (
 	return p;
 };
 
-/*
- * A fake `/proc` carrying a `smaps_rollup` per pid in `pss` (kB), a `stat`
- * per pid in `parents`, naming its parent, a `cwd` symlink per pid in
- * `cwds`, and an `environ` per pid in `environs`. A pid with no rollup is the unreadable case the scan falls back to
- * RSS for, and one with no `cwd` the unreadable one the spare test reads as
- * claimed. The default is an empty tree, so no test ever reads the real
- * `/proc`.
- */
-const proc = (
-	pss: Record<string, number> = {},
-	parents: Record<string, string> = {},
-	cwds: Record<string, string> = {},
-	environs: Record<string, string[]> = {},
-) => {
-	const root = path.join(dir, "proc");
-	for (const [pid, cwd] of Object.entries(cwds)) writeCwd(root, pid, cwd);
-	for (const [pid, entries] of Object.entries(environs))
-		writeEnviron(root, Number(pid), entries);
-	for (const [pid, kb] of Object.entries(pss)) {
-		fs.mkdirSync(path.join(root, pid), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, pid, "smaps_rollup"),
-			`Rss:   999999 kB\nPss:   ${kb} kB\nShared_Clean:  1 kB\n`,
-		);
-	}
-	for (const [pid, ppid] of Object.entries(parents)) {
-		fs.mkdirSync(path.join(root, pid), { recursive: true });
-		/* A command name holding a space and a `)`, as a real one may. */
-		fs.writeFileSync(
-			path.join(root, pid, "stat"),
-			`${pid} (node (x) y) S ${ppid} ${pid} ${pid} 0 -1\n`,
-		);
-	}
-	fs.mkdirSync(root, { recursive: true });
-	return root;
-};
-
-/*
- * A fake reap-finished-sessions.js, so admission tests never touch the real
- * reaper (which would spawn the real oracle, read the real claim store and
- * write the real ~/.claude/wfc-reap-state.json). `reaped` is what it prints
- * under `--dry-run --json`; `fails`/`raw` cover the degraded paths.
- */
-const reapScript = (
-	reaped: Array<{ pss: number | null }> | null,
-	{ fails = false, raw }: { fails?: boolean; raw?: string } = {},
-) => {
-	const p = path.join(dir, "fake-reap.js");
-	if (fails) {
-		fs.writeFileSync(
-			p,
-			'process.stderr.write("reap: broken\\n"); process.exit(1);\n',
-		);
-		return p;
-	}
-	const body = raw ?? JSON.stringify({ reaped: reaped ?? [], kept: [] });
-	fs.writeFileSync(p, `process.stdout.write(${JSON.stringify(body)});\n`);
-	return p;
-};
-
 interface Machine {
 	mb?: number | null;
 	sessions?: string[] | null;
@@ -227,77 +175,8 @@ interface Machine {
 	swap?: { totalMb: number; freeMb: number } | null;
 }
 
-interface Lander {
-	pid: number;
-	chargeMb: number;
-}
 /* This process as a lander holding a whole suite, at its charge (#3323). */
 const WHOLE_LANDER: Lander = { pid: process.pid, chargeMb: 1150 };
-
-/* A temp root whose suite queue holds a marker per lander, the root every
- * case's TMPDIR names, so no case reads the machine's own suite queue. */
-const tmpRootWithLanders = (landers: Lander[]) => {
-	const root = path.join(dir, "tmp");
-	const q = path.join(root, "wfc-suite-queue");
-	fs.mkdirSync(q, { recursive: true });
-	for (const { pid, chargeMb } of landers)
-		fs.writeFileSync(
-			path.join(q, `wfc-suite-queue-${pid}.json`),
-			JSON.stringify({ pid, at: 1, role: "lander", chargeMb }),
-		);
-	return root;
-};
-
-/* A stand-in /proc/loadavg, so no admission test reads the live machine's load. */
-const loadavg = (load1: number | null) => {
-	const p = path.join(dir, "loadavg");
-	if (load1 === null) return path.join(dir, "no-such-loadavg");
-	fs.writeFileSync(p, `${load1.toFixed(2)} 1.00 1.00 2/300 1\n`);
-	return p;
-};
-
-/* A repo holding `config`, so each listed session sitting in it is charged
- * that draw. */
-const hostRepo = (config: Record<string, unknown> = HOST_DRAW) => {
-	const host = path.join(dir, "host");
-	fs.mkdirSync(path.join(host, ".claude"), { recursive: true });
-	fs.mkdirSync(path.join(host, ".git"), { recursive: true });
-	fs.writeFileSync(
-		path.join(host, ".claude", "workflow-core.json"),
-		JSON.stringify(config),
-	);
-	return host;
-};
-
-/*
- * The variables that hold a case off this machine's own state — its suite
- * queue, session id, reaper, load, `/proc`, allowance cache and exported
- * ceilings — in one copy, so a new one reaches every case. A case spreads it
- * and overrides what it varies.
- */
-const buildIsolatedEnv = ({
-	landers = [],
-	configDir = path.join(dir, "no-such-config"),
-}: {
-	landers?: Lander[];
-	configDir?: string;
-} = {}) => ({
-	TMPDIR: tmpRootWithLanders(landers),
-	CLAUDE_CODE_SESSION_ID: SELF,
-	// Isolates the allowance re-read (#294) from this machine's real
-	// `~/.claude/.claude.json` — a config dir with no cache file at all
-	// reads as ABSENT on both bars, which only warns, never refuses.
-	CLAUDE_CONFIG_DIR: configDir,
-	WFC_REAP_SCRIPT: reapScript([]),
-	WFC_LOADAVG: loadavg(0.5),
-	WFC_PROC: proc(),
-	// Cleared so a founder's exported override cannot move the ceiling.
-	WFC_LOAD_CEILING: "",
-	// Set so neither the runner's core count nor an override moves it.
-	WFC_SESSION_CEILING: "0",
-	// Set, as unset reads `$HOME/.claude/session-floor` (#2501).
-	WFC_SESSION_FLOOR: "",
-});
 
 const run = (m: Machine = {}) => {
 	const {
@@ -324,17 +203,20 @@ const run = (m: Machine = {}) => {
 		sessionFloor = "",
 		swap = null,
 	} = m;
-	const host = hostRepo(hostConfig);
+	const host = writeHostRepo(dir, hostConfig);
 	const r = runInProcess(SCRIPT, [...(json ? ["--json"] : []), ...args], {
 		env: {
 			...process.env,
-			...buildIsolatedEnv({ landers }),
+			...buildIsolatedEnv(dir, { landers }),
 			WFC_MEMINFO: meminfo(mb, swap),
 			WFC_PS: ps(psLines, { fails: psFails }),
 			WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
-			WFC_PROC: proc(pss, parents, cwds, environs),
-			WFC_REAP_SCRIPT: reapScript(reaped, { fails: reapFails, raw: reapRaw }),
-			WFC_LOADAVG: loadavg(load),
+			WFC_PROC: writeProcRoot(dir, { pss, parents, cwds, environs }),
+			WFC_REAP_SCRIPT: writeReapScript(dir, reaped, {
+				fails: reapFails,
+				raw: reapRaw,
+			}),
+			WFC_LOADAVG: writeLoadavg(dir, load),
 			WFC_SESSION_CEILING: sessionCeiling,
 			...(sessionFloor === null
 				? { WFC_SESSION_FLOOR: undefined, HOME: dir }
@@ -677,10 +559,10 @@ describe("the lander's suite reserve (#2416)", () => {
 
 	it("samples a tester run's tree peak as the PSS of its root and every process under it (#3323)", () => {
 		const was = process.env.WFC_PROC;
-		process.env.WFC_PROC = proc(
-			{ "50": 100, "51": 200, "52": 300, "60": 9000 },
-			{ "51": "50", "52": "51", "60": "1" },
-		);
+		process.env.WFC_PROC = writeProcRoot(dir, {
+			pss: { "50": 100, "51": 200, "52": 300, "60": 9000 },
+			parents: { "51": "50", "52": "51", "60": "1" },
+		});
 		try {
 			expect(readTreePssKb(50)).toBe(600);
 		} finally {
@@ -2139,11 +2021,13 @@ describe("text output stays a handful of figures", () => {
 		const r = runInProcess(SCRIPT, [], {
 			env: {
 				...process.env,
-				...buildIsolatedEnv(),
+				...buildIsolatedEnv(dir),
 				WFC_MEMINFO: meminfo(4000),
 				WFC_PS: ps(["claude /usr/bin/claude"]),
-				WFC_CLAUDE_BIN: claude([SELF, "other"], { cwd: hostRepo() }),
-				CLAUDE_PROJECT_DIR: hostRepo(),
+				WFC_CLAUDE_BIN: claude([SELF, "other"], {
+					cwd: writeHostRepo(dir, HOST_DRAW),
+				}),
+				CLAUDE_PROJECT_DIR: writeHostRepo(dir, HOST_DRAW),
 			},
 		});
 		const [figures, memory] = r.stdout.split("\n\n");
@@ -2165,7 +2049,7 @@ describe("text output stays a handful of figures", () => {
 		const r = runInProcess(SCRIPT, [], {
 			env: {
 				...process.env,
-				...buildIsolatedEnv(),
+				...buildIsolatedEnv(dir),
 				WFC_MEMINFO: meminfo(null),
 				WFC_PS: ps(["claude /usr/bin/claude"]),
 				WFC_CLAUDE_BIN: claude([SELF]),
@@ -2283,11 +2167,11 @@ describe("the allowance re-read (#293, #294)", () => {
 		const r = runInProcess(SCRIPT, ["--json"], {
 			env: {
 				...process.env,
-				...buildIsolatedEnv({ configDir }),
+				...buildIsolatedEnv(dir, { configDir }),
 				WFC_MEMINFO: meminfo(mb),
 				WFC_PS: ps(psLines),
 				WFC_CLAUDE_BIN: claude(sessions),
-				WFC_REAP_SCRIPT: reapScript(reaped),
+				WFC_REAP_SCRIPT: writeReapScript(dir, reaped),
 			},
 		});
 		return {
@@ -2352,7 +2236,7 @@ describe("the allowance re-read (#293, #294)", () => {
 		writeCache(configDir, { session: 100, weeklyAll: 100 });
 		const env = (mb: number) => ({
 			...process.env,
-			...buildIsolatedEnv({ configDir }),
+			...buildIsolatedEnv(dir, { configDir }),
 			WFC_MEMINFO: meminfo(mb),
 			WFC_PS: ps(["claude /usr/bin/claude"]),
 			WFC_CLAUDE_BIN: claude([SELF, "a-neighbour"]),
@@ -2379,7 +2263,7 @@ describe("the allowance re-read (#293, #294)", () => {
 		const r = runInProcess(SCRIPT, ["--json"], {
 			env: {
 				...process.env,
-				...buildIsolatedEnv({ configDir }),
+				...buildIsolatedEnv(dir, { configDir }),
 				WFC_MEMINFO: meminfo(4000),
 				WFC_PS: ps(["claude /usr/bin/claude"]),
 				WFC_CLAUDE_BIN: claude([SELF]),
@@ -2419,19 +2303,19 @@ describe("the memory breakdown (#589)", () => {
 	) => {
 		const meminfoPath = path.join(dir, "meminfo");
 		fs.writeFileSync(meminfoPath, s.meminfo);
-		const host = hostRepo();
+		const host = writeHostRepo(dir, HOST_DRAW);
 		const agents = s.agents.map((a) => ({ cwd: host, ...a }));
 		const r = runInProcess(SCRIPT, [...(json ? ["--json"] : []), ...s.args], {
 			cwd: host,
 			env: {
 				PATH: process.env.PATH,
 				HOME: dir,
-				...buildIsolatedEnv(),
+				...buildIsolatedEnv(dir),
 				WFC_MEMINFO: meminfoPath,
 				WFC_PS: ps(s.ps),
 				WFC_CLAUDE_BIN: claude(null, { raw: JSON.stringify(agents) }),
-				WFC_PROC: proc(s.pss, {}, idleAt("112")),
-				WFC_REAP_SCRIPT: reapScript(s.reaped, { fails: reapFails }),
+				WFC_PROC: writeProcRoot(dir, { pss: s.pss, cwds: idleAt("112") }),
+				WFC_REAP_SCRIPT: writeReapScript(dir, s.reaped, { fails: reapFails }),
 				CLAUDE_PROJECT_DIR: host,
 			},
 		});
