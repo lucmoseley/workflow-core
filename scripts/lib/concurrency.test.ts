@@ -316,6 +316,45 @@ describe("the unlisted watch (#3322, #3496, #3507)", () => {
 		);
 	});
 
+	const counted = { count: 2, mb: null, unknown: "pss: EACCES", dirs: [] };
+	const heldLine = (when: string, why: string) =>
+		`unlisted:  2 session(s) outside admission's listing hold ? MB ${when} (${why}), charged no draw headroom (#2502)`;
+
+	it("names a counted row's unread memory on a fresh tick (#3509)", () => {
+		const tick = buildTickRecord({
+			input: input(),
+			decision: idle("no free slot"),
+			admission: admission({
+				memory: { ...admission().memory, unlisted: counted },
+			}),
+		});
+		const r = readout({
+			ticks: [tick],
+			minutes: [],
+			now: T0 + MIN,
+			windowMs: HOUR,
+		});
+		expect(buildBlockText(r, unread)).toContain(
+			heldLine("at the last tick", "pss: EACCES"),
+		);
+	});
+
+	it.each([
+		{ name: "names", live: counted, why: "pss: EACCES" },
+		{
+			name: "marks unread",
+			live: { ...counted, unknown: null },
+			why: "unread",
+		},
+	])(
+		"$name a counted row's unread memory on admission now (#3509)",
+		({ live, why }) => {
+			expect(block(STALE_MS + MIN, row(0), live)).toContain(
+				heldLine("now", why),
+			);
+		},
+	);
+
 	it.each<[string, number, unknown, unknown]>([
 		["reads none", MIN, row(0), unread],
 		["carries no row", MIN, null, unread],
