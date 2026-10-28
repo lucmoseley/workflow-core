@@ -11,7 +11,8 @@
  * never files again (lib/log-reading.js's `buildFiler`).
  *
  * RUNS DETACHED AT EVERY SESSION START, from scripts/sweep-debts-detached.sh,
- * WORKFLOW-CORE ONLY, over every adopter's close-check log.
+ * WORKFLOW-CORE ONLY, over every adopter's close-check log, at most daily on a
+ * plain run (#3220, buildFiler's `readDaily`).
  *
  * THE READING POINT, lib/log-reading.js's point rule with FIGURES. A repo is
  * live from its first low-top refusal (`trigger` `low-top` or `both`). The
@@ -93,7 +94,7 @@ const TITLE = `Flip-line reading: should the low-top line of ${LOW_TOP} move to 
  * @typedef {import("./lib/log-reading").Verdict} Verdict
  */
 
-const { readFiledAs, publish } = buildFiler({
+const { readFiledAs, publish, readDaily } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
@@ -221,6 +222,16 @@ function main() {
 		return;
 	}
 	const nowMs = now();
+	const run = { nowMs, dryRun, filed };
+	readDaily(run, () => readAndPublish(run));
+}
+
+/**
+ * Walk the logs and publish the reading.
+ *
+ * @param {{ nowMs: number, dryRun: boolean, filed: string | null }} run
+ */
+function readAndPublish({ nowMs, dryRun, filed }) {
 	const roots = readAdopterRoots();
 
 	let events;

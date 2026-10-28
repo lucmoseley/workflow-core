@@ -15,7 +15,8 @@
  *
  * RUNS DETACHED AT EVERY SESSION START, from scripts/sweep-debts-detached.sh,
  * because the log and the transcripts are machine-local and no CI runner can
- * read them.
+ * read them. A plain run walks them at most daily, and never beside another
+ * run's walk (#3220, buildFiler's `readDaily`).
  *
  * WORKFLOW-CORE ONLY. In an adopter it prints a SKIP and exits 0, as
  * scripts/report-retro-due.js does: one reading covers every adopter.
@@ -179,7 +180,7 @@ const listed = (a, kind) => {
 	return `  - ${a.event.repo} ${a.event.session} Q${a.event.round} (${kind}${priced}), reply ${a.reply.at}: ${JSON.stringify(a.reply.text)}`;
 };
 
-const { readFiledAs, publish } = buildFiler({
+const { readFiledAs, publish, readDaily } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the close-check log is. */
@@ -517,8 +518,22 @@ function main() {
 		return;
 	}
 	const nowMs = now();
+	const run = {
+		nowMs,
+		dryRun,
+		filed,
+		seats: lists["--config-dir"] ?? configDirs(),
+	};
+	readDaily(run, () => readAndPublish(run));
+}
 
-	const seats = lists["--config-dir"] ?? configDirs();
+/**
+ * Walk the corpus and publish the reading.
+ *
+ * @param {{ nowMs: number, dryRun: boolean, filed: string | null,
+ *   seats: string[] }} run
+ */
+function readAndPublish({ nowMs, dryRun, filed, seats }) {
 	const { files } = readSeatTranscripts(seats);
 	/** @type {Map<string, string>} session id → transcript */
 	const transcripts = new Map(

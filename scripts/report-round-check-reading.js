@@ -17,8 +17,10 @@
  * never files again (lib/log-reading.js's `buildFiler`).
  *
  * RUNS DETACHED AT EVERY SESSION START, from scripts/sweep-debts-detached.sh:
- * the logs and transcripts are machine-local. WORKFLOW-CORE ONLY: in an
- * adopter it prints a SKIP and exits 0, as one reading covers every repo.
+ * the logs and transcripts are machine-local. A plain run walks them at most
+ * daily, and never beside another run's walk (#3220, buildFiler's
+ * `readDaily`). WORKFLOW-CORE ONLY: in an adopter it prints a SKIP and exits
+ * 0, as one reading covers every repo.
  *
  * CORPUS. The round-check log (lib/round-check.js) of every repo the baseline
  * has rows for, each root found from the first `cwd` a transcript of it
@@ -405,7 +407,7 @@ function repoPool(rounds, { base, repos }, side) {
 	};
 }
 
-const { readFiledAs, publish } = buildFiler({
+const { readFiledAs, publish, readDaily } = buildFiler({
 	title: TITLE,
 	label: takesLabel("wayfinder"),
 	/* Named outside every marker sweep family, as the round-check log is. */
@@ -683,21 +685,36 @@ function main() {
 		return;
 	}
 	const nowMs = now();
+	const file = flags["--classes"];
+	const run = {
+		nowMs,
+		dryRun,
+		filed,
+		seats: lists["--config-dir"] ?? configDirs(),
+		classesFile: typeof file === "string" ? file : undefined,
+	};
+	readDaily(run, () => readAndPublish(run));
+}
 
+/**
+ * Walk the corpus and publish the reading.
+ *
+ * @param {{ nowMs: number, dryRun: boolean, filed: string | null,
+ *   seats: string[], classesFile: string | undefined }} run
+ */
+function readAndPublish({ nowMs, dryRun, filed, seats, classesFile }) {
 	/** @type {Baseline} */
 	let base;
 	/** @type {Map<string, string>} */
 	let classes;
 	try {
 		base = readBaseline();
-		const file = flags["--classes"];
-		classes = readClasses(typeof file === "string" ? file : undefined);
+		classes = readClasses(classesFile);
 	} catch (e) {
 		return broken(`${errMessage(e)}\n${REMEDY}`);
 	}
 	const repos = [...base.byRepo.keys()].sort();
 
-	const seats = lists["--config-dir"] ?? configDirs();
 	const { files } = readSeatTranscripts(seats);
 	/** @type {Map<string, string>} session id → transcript */
 	const transcripts = new Map(

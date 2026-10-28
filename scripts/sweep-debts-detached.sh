@@ -100,8 +100,9 @@ detach_live node "$here/lib/scratch-sweep.js"
 # transcripts it reads are machine-local, so CI has no file to read at all.
 #
 # WHY DETACHED. Until the reading is filed it reads every seat's transcripts,
-# 3.0-3.2 s and ~360 MB RSS over 34 GB of them, at load ~15 on 28 Oct 2026
-# (#3326); once filed it returns on one local file read, 0.06-0.08 s and ~60 MB.
+# at most daily and never two at once (#3220): 4.2-5.6 s and ~350 MB RSS over
+# 34 GB of them, at load ~27 on 28 Oct 2026; once filed it returns on one local
+# file read, 0.06-0.08 s and ~60 MB (#3326).
 detach_live node "$here/report-close-check-reading.js"
 
 # SEVENTH JOB, SAME HOOK ENTRY (#1219). The daily queue-wait alarm (#1157).
@@ -137,7 +138,8 @@ detach_live node "$here/repo-checks.js"
 
 # TENTH JOB, SAME HOOK ENTRY (#1711). The reading of the under-researched-round
 # check (spec #1701), filed once, at its reading point, for the sixth job's
-# reasons.
+# reasons. Its walk is the costly one: 51-55 s and ~370 MB RSS at load ~27 on
+# 28 Oct 2026, under the same daily gate (#3220).
 detach_live node "$here/report-round-check-reading.js"
 
 # ELEVENTH JOB, SAME HOOK ENTRY (#2405). The lander's second start route (spec

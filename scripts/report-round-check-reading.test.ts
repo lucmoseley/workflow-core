@@ -748,6 +748,17 @@ describe("filing the reading", () => {
 		);
 	});
 
+	it("walks nothing within a day of its last walk, and calls gh not at all (#3220)", () => {
+		healthy();
+		fs.mkdirSync(path.dirname(filedRecord()), { recursive: true });
+		fs.writeFileSync(`${filedRecord()}-read-at`, iso(T0 + 8 * DAY - 60_000));
+		const r = file();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/under a day ago; nothing read\.\n$/);
+		expect(ghCalls()).toBe("");
+		expect(fs.existsSync(filedRecord())).toBe(false);
+	});
+
 	it("never files a second time, and calls gh not at all, once it has filed", () => {
 		healthy();
 		expect(file().status).toBe(0);

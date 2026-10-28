@@ -2,7 +2,8 @@
  * log-reading.js — what a session-start reporter reading a guard's decision
  * log shares: finding each repo's root, reading the log, pairing each logged
  * question with the founder's reply, placing the reading point, printing the
- * repo, point and fired-line summaries, and filing the reading once (#1708). Its
+ * repo, point and fired-line summaries, walking the corpus at most daily, and
+ * filing the reading once (#1708, #3220). Its
  * callers are report-close-check-reading.js, the round-check reporter (#1711)
  * and the flip-line reporter (#2331), each passing what they differ on as
  * parameters.
@@ -16,6 +17,7 @@ const { caught } = require("./caught.js");
 const { errMessage } = require("./check");
 const { streamRecords } = require("./encoding-use");
 const { markersDir } = require("./marker-root");
+const { buildSkipLine, periodicReading } = require("./periodic-reading");
 const { isFounderMessage, textOf } = require("./tool-calls-since");
 const { createIssue, findTrackingIssue } = require("./tracking-issue");
 const { writeFd } = require("./write-fd.js");
@@ -478,6 +480,8 @@ function fileOnce(file, { title, label }, body) {
  */
 function buildFiler({ title, label, record, script, buildIssueBody }) {
 	const recordPath = () => path.join(markersDir(), record);
+	const stampPath = () => `${recordPath()}-read-at`;
+	const lockPath = () => `${recordPath()}-read.lock`;
 
 	/** The issue the record holds, or null where none is recorded. */
 	function readFiledAs() {
@@ -519,6 +523,8 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 				buildIssueBody(reading),
 			);
 		} catch (e) {
+			/* Unstamped, so the retry the message promises is not held off. */
+			fs.rmSync(stampPath(), { force: true });
 			return broken(
 				`the reading would not file — ${errMessage(e)}\nNothing is recorded as filed, so the next session start tries again; run \`${script}\` to retry now.`,
 			);
@@ -526,7 +532,42 @@ function buildFiler({ title, label, record, script, buildIssueBody }) {
 		console.log(`\n${outcome}`);
 	}
 
-	return { readFiledAs, publish };
+	/**
+	 * Run `read`, the full walk of the logs and transcripts: at once on a dry
+	 * run, otherwise at most daily and never beside another plain run's
+	 * (#3220). A walk that exits through `broken` skips `finally`, so the lock
+	 * drops on process exit; the stamp, written first, holds the next walk off
+	 * for the day, except after a failed filing, which `publish` unstamps. One
+	 * stamp serves every `--config-dir` set, so a hand run over other seats
+	 * holds the session-start walk off too.
+	 *
+	 * @param {{ nowMs: number, dryRun: boolean }} run
+	 * @param {() => void} read
+	 */
+	function readDaily({ nowMs, dryRun }, read) {
+		if (dryRun) return read();
+		const lock = lockPath();
+		const release = () => fs.rmSync(lock, { force: true });
+		let gate;
+		try {
+			gate = periodicReading(
+				{ stamp: stampPath(), lock, nowMs, everyMs: DAY_MS },
+				() => {
+					process.once("exit", release);
+					try {
+						read();
+					} finally {
+						process.removeListener("exit", release);
+					}
+				},
+			);
+		} catch (e) {
+			return broken(`the daily gate would not read — ${errMessage(e)}`);
+		}
+		if (!gate.ran) console.log(buildSkipLine(gate, "a day"));
+	}
+
+	return { readFiledAs, publish, readDaily };
 }
 
 module.exports = {

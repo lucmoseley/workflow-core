@@ -15,7 +15,7 @@
  * regression files a wrong or duplicate GitHub issue unattended.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -884,6 +884,78 @@ describe("filing the reading (#1104)", () => {
 		const touched = watchSeatReads();
 		expect(file(T0 + 9 * DAY, ["--dry-run"]).status).toBe(0);
 		expect(touched).not.toEqual([]);
+	});
+
+	const walkLock = () => `${filedRecord()}-read.lock`;
+	/* Either side of lib/periodic-reading.js's 10-minute LOCK_STALE_MS. */
+	const LiveLockAge = 60_000;
+	const StaleLockAge = 11 * 60_000;
+	const holdWalkLock = (ageMs: number) => {
+		fs.mkdirSync(path.dirname(walkLock()), { recursive: true });
+		fs.writeFileSync(walkLock(), "1");
+		const at = new Date(Date.now() - ageMs);
+		fs.utimesSync(walkLock(), at, at);
+	};
+
+	it("walks the transcripts at most once a day before it files (#3220)", () => {
+		allLive();
+		answered(3, T0 + DAY, STOCK);
+		expect(file(T0 + 2 * DAY).stdout).toMatch(/Not reached/);
+		const touched = watchSeatReads();
+		const again = file(T0 + 3 * DAY - 60_000);
+		expect(again.status).toBe(0);
+		expect(again.stdout).toMatch(/under a day ago; nothing read\.\n$/);
+		expect(touched).toEqual([]);
+		expect(file(T0 + 3 * DAY).status).toBe(0);
+		expect(touched).not.toEqual([]);
+	});
+
+	it("walks nothing while another run holds a live walk lock (#3220)", () => {
+		reachedReading();
+		holdWalkLock(LiveLockAge);
+		const touched = watchSeatReads();
+		const r = file();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("Another run is reading; nothing read.\n");
+		expect(touched).toEqual([]);
+		expect(ghCalls()).toBe("");
+	});
+
+	/* Spawned, not in-process: a real process.exit skips the gate's `finally`,
+	 * which runInProcess's unwind would run, hiding a lock left behind. */
+	it("drops its stamp and walk lock where gh refuses, so a re-run files at once (#3220)", () => {
+		reachedReading();
+		stubGh({ failing: true });
+		const r = spawnSync(
+			"node",
+			[SCRIPT, ...seats.flatMap((s) => ["--config-dir", s])],
+			{
+				encoding: "utf8",
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: roots["workflow-core"],
+					CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
+					HOME: home,
+					WFC_NOW: iso(T0 + 8 * DAY),
+					TMPDIR: systmp,
+					...gh,
+				},
+			},
+		);
+		expect(r.status).toBe(2);
+		expect(fs.existsSync(`${filedRecord()}-read-at`)).toBe(false);
+		expect(fs.existsSync(walkLock())).toBe(false);
+		stubGh();
+		expect(file().stdout).toMatch(/Filed https:/);
+	});
+
+	it("takes over a walk lock left by a run that died walking (#3220)", () => {
+		reachedReading();
+		holdWalkLock(StaleLockAge);
+		const r = file();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/Filed https:/);
+		expect(fs.existsSync(walkLock())).toBe(false);
 	});
 
 	it("still prints the research ladder's reading on --dry-run once it has filed (#2010)", () => {
