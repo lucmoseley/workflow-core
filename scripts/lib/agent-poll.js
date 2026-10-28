@@ -64,7 +64,7 @@
  * Narrowed on Bash alone (mantahostels#2811, #3224). The Read and ListAgents
  * routes run unnarrowed, having no command to match on. The Bash routes run
  * only where one of the four `if` clauses on the core's lib/guard-cores.json
- * row matches, and between them they cover every ORDINARY spelling the three
+ * row matches — `if: Bash(*sleep *)`, `if: Bash(true*)`, `if: Bash(:*)`, `if: Bash(exit*)` — and between them they cover every ORDINARY spelling the three
  * Bash routes classify; lib/if-clause.js drops a segment's leading blanks
  * before matching. On the calls it does run on, a call no route classifies
  * leaves before the clock or the filesystem is touched.

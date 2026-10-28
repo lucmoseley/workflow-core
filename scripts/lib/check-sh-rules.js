@@ -18,6 +18,8 @@
  * segment is one.
  *
  * LIMITS
+ *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
+ *    clauses admits: `if: Bash(*shellcheck *)`, `if: Bash(*npm *)` (#3224).
  *  - SCOPE is `npm run check:sh` and `npm run check:sh:changed` (and their
  *    `npm check:sh…` shorthands) and a direct `shellcheck` invocation. Only
  *    the full run is told about `check:sh:changed`.

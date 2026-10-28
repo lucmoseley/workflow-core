@@ -97,6 +97,10 @@ bodies are 70–670 lines of bespoke judgement.
      naming that script carries, and `UNWIRED-IF` where the header states one
      and `self-plugin/hooks/hooks.json` names that script in no entry at all — a
      script dropped from the wiring entirely, not just missing its `if` field.
+     A dispatcher core's `scripts/lib/guard-cores.json` row counts as its
+     entry, the row's `if` clauses judged against the core's header the same
+     way (#3244). A clause holding `*/` goes in a `//` line after the header's
+     block comment, which it would otherwise close.
      Its remedy: delete the header's `if` line, or wire the script. It matches
      the string, never the sentence around it — whether the blind-spot
      enumeration beside it was recomputed against the narrowing is still a

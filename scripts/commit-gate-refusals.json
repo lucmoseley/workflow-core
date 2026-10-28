@@ -116,7 +116,7 @@
 				"Fix the rule or fix the claim",
 				"so its own header must say what",
 				"has two parts that must agree",
-				"decides whether a hook's script is"
+				"decides whether the script runs at all"
 			]
 		},
 		{

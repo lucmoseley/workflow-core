@@ -39,6 +39,8 @@
  * the capped form is the route.
  *
  * LIMITS
+ *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
+ *    clauses admits: `if: Bash(*yes*)`, `if: Bash(*stress*)`, `if: Bash(*done*)`, `if: Bash(*.sh*)`, `if: Bash(*sh -*)` (#3224).
  *  - A script is read only where its path resolves against the payload's cwd;
  *    a `cd` before it is not followed. A script spelled through a variable, or
  *    past MAX_SCRIPT_BYTES, is unread.

@@ -47,6 +47,8 @@
  * COMPROMISED. Nothing here is a substitute for a committed lockfile.
  *
  * LIMITS
+ *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
+ *    clauses admits: `if: Bash(*npm *)`, `if: Bash(*npx *)` (#3226).
  *  - npm only. `pnpm add`, `yarn add` and `bun add` are not read.
  *  - Only a registry spec is vetted. `npm i ./local`, `github:user/repo`, a
  *    tarball URL and a `file:` spec cannot be asked of the registry, so they

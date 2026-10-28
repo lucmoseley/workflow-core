@@ -645,9 +645,14 @@ function readDirFiles(/** @type {string} */ dir) {
  * EMITTER_EXTS (a Python or extensionless hook command carrying a narrowing);
  * and anything EMITTER_SKIP or NOT_EMITTERS excludes as never emitter-shaped.
  *
- * KNOWN LIMIT: a script reached only INDIRECTLY — one a wired dispatcher execs,
- * rather than one the hook registration names itself — is invisible to `wired`
- * and reads as unwired. Its own truthful header then raises
+ * guard-dispatch.js's cores are wired through its manifest instead
+ * (#3244): each row's `if` clauses are judged against the core's header by
+ * the same two limbs, and a core the manifest names is not unwired. A row's
+ * host is not: one whose header states a narrowing reads as unwired.
+ *
+ * KNOWN LIMIT: any other script reached only INDIRECTLY — one a wired script
+ * execs, rather than one the hook registration or the manifest names — is
+ * invisible to `wired` and reads as unwired. Its own truthful header then raises
  * UNWIRED-IF with no escape that fits: it is not unwired, and "wire the
  * script" describes a hook entry that would duplicate the dispatch it already
  * gets. Tracing delegation would reopen the call-graph question
@@ -672,7 +677,8 @@ function readDirFiles(/** @type {string} */ dir) {
  * KNOWN LIMIT: values are aggregated per script, not per entry, so a script
  * wired twice — once with an `if` and once without — satisfies both limbs on
  * the one declaration. Splitting it means a header stating which event each
- * narrowing belongs to, which nothing writes today.
+ * narrowing belongs to, which nothing writes today. A core in two manifest
+ * rows, one narrowed and one bare, aggregates the same way.
  */
 const HEADER_IF_RE = /\bif:\s*`?([A-Za-z][\w-]*\([^)`\n]*\))/g;
 
@@ -728,20 +734,63 @@ function scanIfNarrowing() {
 	}
 
 	const wired = wiredNarrowings(entries);
-
-	for (const [rel, actual] of [...wired].sort()) {
-		if (!fs.existsSync(path.join(root, rel))) continue; // assertion 1's fault, not this one's
-		judgeWiredNarrowing(rel, actual, findings);
+	/* A script both wired and dispatched is judged once, on the union of its
+	 * clauses, so neither source's half raises a STALE-IF against the other's. */
+	const reached = new Map(wired);
+	const sourceOf = new Map([...wired.keys()].map((k) => [k, hooksFile()]));
+	for (const [rel, clauses] of coreNarrowings(wired)) {
+		reached.set(rel, new Set([...(reached.get(rel) ?? []), ...clauses]));
+		sourceOf.set(
+			rel,
+			sourceOf.has(rel) ? `${hooksFile()} and ${MANIFEST_REL}` : MANIFEST_REL,
+		);
 	}
 
-	findings.push(...unwiredNarrowingFindings(wired));
+	for (const [rel, actual] of [...reached].sort()) {
+		/* A missing wired script is assertion 1's fault; a missing core fails
+		 * the dispatcher's own load. Neither is this assertion's to report. */
+		if (!fs.existsSync(path.join(root, rel))) continue;
+		judgeWiredNarrowing(
+			rel,
+			actual,
+			sourceOf.get(rel) ?? hooksFile(),
+			findings,
+		);
+	}
+
+	findings.push(...unwiredNarrowingFindings(reached));
 
 	return {
 		findings,
 		narrowed: new Map(
-			[...wired].filter(([, v]) => v.size).map(([k, v]) => [k, [...v].sort()]),
+			[...reached]
+				.filter(([, v]) => v.size)
+				.map(([k, v]) => [k, [...v].sort()]),
 		),
 	};
+}
+
+/**
+ * Every core the dispatcher's manifest runs, keyed to the `if` clauses its
+ * rows carry (#3244) — none where no hook entry runs the dispatcher.
+ *
+ * @param {Map<string, Set<string>>} wired
+ * @returns {Map<string, Set<string>>}
+ */
+function coreNarrowings(wired) {
+	/** @type {Map<string, Set<string>>} */
+	const cores = new Map();
+	if (!wired.has(DISPATCH_ENTRY)) return cores;
+	for (const row of manifestRows(manifestAt(root))) {
+		const clauses = row.if ?? [];
+		if (!Array.isArray(clauses))
+			throw brokenError(
+				`${MANIFEST_REL}: row ${row.name}'s \`if\` is not an array of clauses`,
+			);
+		const rel = modulePath(row.core);
+		cores.set(rel, new Set([...(cores.get(rel) ?? []), ...clauses]));
+	}
+	return cores;
 }
 
 /**
@@ -767,9 +816,10 @@ function wiredNarrowings(entries) {
  *
  * @param {string} rel
  * @param {Set<string>} actual
+ * @param {string} source the file whose entries or rows narrow `rel`
  * @param {Finding[]} findings accumulator: each limb's finding is pushed here
  */
-function judgeWiredNarrowing(rel, actual, findings) {
+function judgeWiredNarrowing(rel, actual, source, findings) {
 	const { declared, header } = readDeclaredNarrowings(rel);
 	const report = (
 		/** @type {string} */ kind,
@@ -781,7 +831,7 @@ function judgeWiredNarrowing(rel, actual, findings) {
 			surface: "if-narrowing",
 			file: rel,
 			line,
-			rule: `wired in ${hooksFile()}`,
+			rule: `wired in ${source}`,
 			detail,
 		});
 
@@ -794,7 +844,7 @@ function judgeWiredNarrowing(rel, actual, findings) {
 			report(
 				"UNDECLARED-IF",
 				1,
-				`${hooksFile()} narrows this hook with \`if: ${value}\`, so it is not exec'd on every ` +
+				`${source} narrows this script with \`if: ${value}\`, so it is not run on every ` +
 					"matched call — but its own header never says so, leaving any blind spot the " +
 					"header enumerates computed against a wiring that no longer holds (mantahostels#2126)",
 			);
@@ -808,7 +858,7 @@ function judgeWiredNarrowing(rel, actual, findings) {
 			report(
 				"STALE-IF",
 				line,
-				`its header states a narrowing of \`if: ${value}\`, and no hook entry in ${hooksFile()} ` +
+				`its header states a narrowing of \`if: ${value}\`, and no entry in ${source} ` +
 					`naming this script carries it${staleIfTail(actual)}`,
 			);
 }
@@ -966,9 +1016,9 @@ const {
 	DISPATCH_ENTRY,
 	MANIFEST_REL,
 	manifestAt,
+	manifestRows,
 	modulePath,
 	readDispatchedCores,
-	readManifest,
 } = require("./lib/guard-cores.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
 
@@ -2429,7 +2479,7 @@ function readDenyFile(rel) {
  */
 function denyGroupsOf(rel, ruleText, read) {
 	if (rel === DISPATCH_ENTRY) {
-		const rows = Object.values(readManifest(manifestAt(root))).flat();
+		const rows = manifestRows(manifestAt(root));
 		const named = rows.filter((r) => ruleText.includes(`\`${r.name}\``));
 		return (named.length > 0 ? named : rows).map((r) => {
 			const core = read(modulePath(r.core));
@@ -4220,8 +4270,8 @@ function sayFindings(
 		);
 	if (ifFindings.length > 0)
 		ctx.say(
-			`  An \`if\` field in ${hooksFile()} decides whether a hook's script is\n` +
-				"  exec'd at all, so every blind spot the script's header enumerates is\n" +
+			`  An \`if\` field in ${hooksFile()}, or on a core's row in ${MANIFEST_REL},\n` +
+				"  decides whether the script runs at all, so every blind spot its header enumerates is\n" +
 				"  computed against it. State the narrowing verbatim in that header —\n\n" +
 				"    #  - Wired with `if: Bash(*git*)` since mantahostels#2061 (best-effort: <what it costs>)\n\n" +
 				"  — one line where its LIMITS section already runs long, its own paragraph\n" +
@@ -4326,7 +4376,7 @@ runCheck({
 				`${implicitJustifications(implicitScripts).join(", ")}:\n` +
 				`Rule-text store: ${fragments.length} fragment(s) in ${RULES_DIR}/, ` +
 				`${triggerRefs.length} trigger(s) naming one.\n` +
-				`Hook \`if\` narrowings: ${narrowed.size} wired script(s) exec'd on a narrowed set, ` +
+				`Hook \`if\` narrowings: ${narrowed.size} wired script(s) or dispatcher core(s) run on a narrowed set, ` +
 				`${declaredIfUnreadable} unreadable emitter(s) skipped on the declared side (mantahostels#2234).\n` +
 				buildIgnoreLine(),
 		);

@@ -18,6 +18,8 @@
  * wedge ordinary work.
  *
  * LIMITS
+ *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
+ *    clauses admits: `if: Bash(git *)` (#3224).
  *  - It also refuses `git worktree add` carrying neither `-b`/`-B` nor
  *    `--detach` (mantahostels#1648) — the route a session takes to a worktree
  *    WITHOUT first running a branch move, so the recipe reached nobody on it.

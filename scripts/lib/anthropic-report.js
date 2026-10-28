@@ -7,6 +7,10 @@
  *
  * THE FIRST VERDICT ENDS THE CALL. A deny stops the walk, and so does a
  * fail-open, which is logged and lets the whole call through unjudged.
+ *
+ * NARROWED by its lib/guard-cores.json row to `if: Bash(*gh *)`, unanchored so
+ * a `timeout`/`env`/`nohup` prefix still reaches the walker that steps past it
+ * (#3224).
  */
 
 const {

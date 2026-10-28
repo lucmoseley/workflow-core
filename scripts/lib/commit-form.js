@@ -76,6 +76,8 @@
  * warn suppresses them. The merge family is handed nothing.
  *
  * LIMITS
+ *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
+ *    clauses admits: `if: Bash(git *)`, `if: Bash(*commit-paths.js*)` (#3224).
  *  - Scope is THIS repository. The three index verdicts, the pathspec warn and
  *    the `--amend` deny bind the shared working tree alone; `--no-verify`, the
  *    closing keyword and the two untracked-path warns bind in a linked

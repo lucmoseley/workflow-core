@@ -23,6 +23,8 @@
  *    refuses the call on a fragment it cannot read or emit.
  *  - It guards the Bash tool. A reading taken outside Claude Code sees no hook.
  */
+// The two clauses, out of the block because the second spells its closer:
+// `if: Bash(*free *)` and `if: Bash(*/proc/meminfo*)`.
 
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 

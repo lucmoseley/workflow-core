@@ -20,6 +20,9 @@
  *  - `export` naming one, with or without a value, and `declare`/`typeset`
  *    doing so under an `x` flag.
  *
+ * Its lib/guard-cores.json row runs it only on a call `if: Bash(*WFC_ALLOW_*)`
+ * admits (#3225).
+ *
  * LIMITS — lexical, and a Bash PreToolUse hook sees one command string:
  *  - an assignment-only segment (`WFC_ALLOW_BRANCH=1; git commit …`) is
  *    skipped by the walker. Unexported, it reaches no hook — unless `set -a`

@@ -1382,7 +1382,7 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 		});
 		const r = run(root);
 		expect(r.report).toContain(
-			"Hook `if` narrowings: 1 wired script(s) exec'd on a narrowed set, " +
+			"Hook `if` narrowings: 1 wired script(s) or dispatcher core(s) run on a narrowed set, " +
 				"0 unreadable emitter(s) skipped on the declared side (mantahostels#2234).",
 		);
 		expect(r.json).toMatchObject({
@@ -1580,6 +1580,92 @@ describe("assertion 4 — the hook `if` narrowing (mantahostels#2212)", () => {
 			r.json.findings.find((f) => f.kind === "UNWIRED-IF")?.detail,
 		).toContain("Delete the line or wire the script");
 		expect(r.code).toBe(1);
+	});
+
+	describe("a dispatcher core's manifest row (#3244)", () => {
+		const core = "scripts/lib/x.js";
+
+		/** The dispatcher wired, or not, its manifest running one core under `ifs`. */
+		function dispatched(header: string, ifs?: unknown, wired = true) {
+			return build({
+				claude: region(`- Rule. **Enforced** (#1): \`${DISPATCH_ENTRY}\`.`),
+				files: {
+					[DISPATCH_ENTRY]: "#!/usr/bin/env node\n",
+					[MANIFEST_REL]: JSON.stringify({
+						PreToolUse: [
+							{
+								name: "guard-x",
+								core: "x.js",
+								tools: "Bash",
+								failure: "open",
+								...(ifs ? { if: ifs } : {}),
+							},
+						],
+					}),
+					[core]: `/*\n${header}\n */\nmodule.exports = {};\n`,
+					[SELF_PLUGIN_HOOKS]: wired
+						? hooksWiring(DISPATCH_ENTRY)
+						: hooksWiring(),
+				},
+			});
+		}
+
+		it("calls a core's stated `if` unwired where no hook entry runs the dispatcher", () => {
+			const r = run(
+				dispatched(
+					" * Its row narrows it with `if: Bash(git *)`.",
+					["Bash(git *)"],
+					false,
+				),
+			);
+			expect(r.kinds).toContain("UNWIRED-IF");
+			expect(r.code).toBe(1);
+		});
+
+		it("breaks on a row whose `if` is not an array, rather than judging its characters", () => {
+			const r = run(dispatched(" * The x core.", "Bash(git *)"));
+			expect(r.kinds).not.toContain("UNDECLARED-IF");
+			expect(r.code).toBe(2);
+		});
+
+		it("fails a row's `if` the core's header never states, naming the manifest", () => {
+			const r = run(dispatched(" * The x core.", ["Bash(git *)"]));
+			const finding = r.json.findings.find((f) => f.kind === "UNDECLARED-IF");
+			expect(r.report).toContain("State the narrowing verbatim in that header");
+			expect(finding).toMatchObject({
+				file: core,
+				rule: `wired in ${MANIFEST_REL}`,
+			});
+			expect(r.code).toBe(1);
+		});
+
+		it("passes once the core's header states the row's `if`, and calls it neither unwired nor stale", () => {
+			const r = run(
+				dispatched(" * Its row narrows it with `if: Bash(git *)`.", [
+					"Bash(git *)",
+				]),
+			);
+			expect(r.kinds).not.toContain("UNDECLARED-IF");
+			expect(r.kinds).not.toContain("STALE-IF");
+			expect(r.kinds).not.toContain("UNWIRED-IF");
+			expect(r.code).toBe(0);
+			expect(r.json).toMatchObject({
+				ifNarrowings: [{ file: core, values: ["Bash(git *)"] }],
+			});
+		});
+
+		it("fails a core's header stating a clause its row does not carry", () => {
+			const r = run(
+				dispatched(" * Its row narrows it with `if: Bash(git *)`."),
+			);
+			expect(r.kinds).toContain("STALE-IF");
+			expect(r.kinds).not.toContain("UNWIRED-IF");
+			expect(
+				r.json.findings.find((f) => f.kind === "STALE-IF")?.detail,
+			).toContain(`no entry in ${MANIFEST_REL}`);
+			expect(r.report).toContain("fails the same way");
+			expect(r.code).toBe(1);
+		});
 	});
 });
 

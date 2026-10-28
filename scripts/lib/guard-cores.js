@@ -39,6 +39,14 @@ function readManifest(file = MANIFEST) {
 }
 
 /**
+ * Every row of the manifest at `file`, across events.
+ * @param {string} [file]
+ * @returns {CoreRow[]}
+ */
+const manifestRows = (file = MANIFEST) =>
+	Object.values(readManifest(file)).flat();
+
+/**
  * The manifest a tree rooted at `root` dispatches from: its own where it ships
  * one, so a materialised revision is read as committed rather than as the
  * live tree holds it (#2924); else this plugin's, as in an adopting host.
@@ -104,8 +112,7 @@ function dispatchRows(event) {
 function readDispatchedCores(file = MANIFEST) {
 	return [
 		...new Set(
-			Object.values(readManifest(file))
-				.flat()
+			manifestRows(file)
 				.flatMap((r) => [r.core, ...(r.host ? [r.host] : [])])
 				.map(modulePath),
 		),
@@ -159,6 +166,7 @@ module.exports = {
 	expandDispatched,
 	isCoreFor,
 	manifestAt,
+	manifestRows,
 	modulePath,
 	readManifest,
 };
