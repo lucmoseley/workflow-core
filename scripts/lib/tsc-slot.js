@@ -62,12 +62,15 @@ function defaultTscQueueDir() {
  */
 const TSC_RUNNER = /^ *(\S*\/)?node +\S*([.]bin|typescript\/bin)\/tsc( |$)/;
 
+/** @param {string} args  a process's command line */
+const isTscRunner = (args) => TSC_RUNNER.test(args);
+
 /**
  * @param {import("./suite-ladder.js").PsRow[]} rows
  * @returns {number}
  */
 function runningTsc(rows) {
-	return rows.filter(({ args }) => TSC_RUNNER.test(args)).length;
+	return rows.filter(({ args }) => isTscRunner(args)).length;
 }
 
 /**
@@ -106,8 +109,10 @@ module.exports = {
 	TSC_NO_WAIT_ENV,
 	TSC_QUEUE_NAME,
 	TSC_RUNG_MB,
+	TSC_MAX,
 	TSC_SLOT_ENV,
 	defaultTscQueueDir,
+	isTscRunner,
 	tscDenial,
 	isTscLaunch,
 };

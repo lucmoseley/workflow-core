@@ -72,13 +72,20 @@ const window = (until = 60, eras: { label: string; from: number }[] = []) => ({
 const blocks = (from: number, to: number, used: number, load = 1) =>
 	Array.from(
 		{ length: to - from },
-		(_, i) => [Math.floor(T0 / MIN) + from + i, { used, load }] as const,
+		(_, i) =>
+			[Math.floor(T0 / MIN) + from + i, { used, load, tsc: 0 }] as const,
 	);
+/** The same, each listing a running `tsc`. */
+const tscBlocks = (from: number, to: number, used: number, load = 1) =>
+	blocks(from, to, used, load).map(([k, b]) => [k, { ...b, tsc: 1 }] as const);
 
 function replayOf({
 	waiters = [] as Waiter[],
 	runs = [] as Run[],
-	mem = [] as (readonly [number, { used: number; load: number }])[],
+	mem = [] as (readonly [
+		number,
+		{ used: number; load: number; tsc: number },
+	])[],
 	parents = [] as { t: number; sha: string }[],
 	until = 60,
 	eras = [] as { label: string; from: number }[],
@@ -239,6 +246,52 @@ describe("the limbs, in the gate's order", () => {
 	});
 });
 
+describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
+	it("is held on a `tsc` running, then its own rung, never on a suite limb, in the Era table too", () => {
+		const cfg = {
+			runs: [{ from: 0, to: 10, kind: "lander", wholeSlot: true }],
+			waiters: [
+				{ from: 0, to: 10, kind: "bare", slotFree: false },
+				{ from: 1, to: 10, kind: "tsc", reason: "opened", session: null },
+			],
+			mem: [...tscBlocks(1, 4, 1000, 48), ...blocks(4, 7, 8000, 48)],
+		};
+		const r = replayOf(cfg);
+		expect(r.matched).toBe(0);
+		expect(r.matchable).toBe(0);
+		expect(hoursOf(r.limbClass)).toEqual({
+			"count / whole": 600,
+			"tsc-count / tsc": 180,
+			"tsc-memory / tsc": 180,
+			"open / tsc": 180,
+		});
+		expect(render(r, window())).toContain("| tsc-count | 0.05 |");
+		const eras = [{ label: "later", from: 4 }];
+		const out = render(replayOf({ ...cfg, eras }), window(60, eras));
+		expect(out).toContain("| fifo-part | tsc-count | tsc-memory | tsc-fifo |");
+		expect(out).toContain(
+			"| window start | 0.07 | 0.12 | 0.07 | — | — | — | 0.05 | — | — | — | — | — |",
+		);
+	});
+
+	it("queues behind an older `tsc` waiter alone, and holds no suite waiter's turn", () => {
+		const r = replayOf({
+			waiters: [
+				{ from: 0, to: 10, kind: "tsc" },
+				{ from: 2, to: 10, kind: "tsc" },
+				{ from: 4, to: 10, slotFree: true },
+				{ from: 6, to: 10, kind: "bare", slotFree: false },
+			],
+		});
+		expect(hoursOf(r.limbClass)).toEqual({
+			"open / tsc": 600,
+			"tsc-fifo / tsc": 480,
+			"open / part": 360,
+			"fifo-whole / whole": 240,
+		});
+	});
+});
+
 describe("matching a wait to its run", () => {
 	it("takes the same session's run spawned within 900 s, and weighs the waiter by it", () => {
 		const r = replayOf({
@@ -359,6 +412,9 @@ describe("reading the logs", () => {
 			[
 				`=== ${local(T0 + 30 * MIN)} 9500MB used | cpu: 700% busy of 800% (sys 1%), load 3.10 | claude sessions: 1 ===`,
 				"  1234 node vitest",
+				"  5678 1600000 node /repo/node_modules/.bin/tsc --noEmit",
+				"  9012 1200 node scripts/queue-run.js --tsc -- /repo/node_modules/.bin/tsc",
+				"  5678 R  12.8 1600000 node /repo/node_modules/.bin/tsc --noEmit",
 				`=== ${local(T0)} 9000MB used ===`,
 			].join("\n"),
 		);
@@ -375,7 +431,7 @@ describe("reading the logs", () => {
 		expect(logs.exits).toHaveLength(1);
 		expect(logs.runs).toHaveLength(1);
 		expect([...logs.mem]).toEqual([
-			[Math.floor(T0 / MIN) + 30, { used: 9500, load: 3.1 }],
+			[Math.floor(T0 / MIN) + 30, { used: 9500, load: 3.1, tsc: 1 }],
 		]);
 		expect(logs.parents).toEqual([{ t: T0 - MIN, sha: "abcdef123" }]);
 		expect(logs.unread.unparsed).toBe(1);

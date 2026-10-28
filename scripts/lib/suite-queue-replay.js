@@ -13,6 +13,12 @@
  *   admitted    another waiter between its `opened` exit and its spawn
  *   load        memwatch load1 at or over the load ceiling (#830)
  *   open        none of these: the replay cannot say what held it
+ * A `tsc` exit is a waiter of its own class, on the type-check slot's gate
+ * (lib/tsc-slot.js, #3163), which no suite limb reads:
+ *   tsc-count   memwatch's process lines show TSC_MAX `tsc` running
+ *   tsc-memory  memwatch's MemAvailable under TSC_RUNG_MB
+ *   tsc-fifo    an older `tsc` waiter, its queue being its own
+ * then `admitted`, a suite's admission holding its turn (#3203), and `open`.
  * Every later limb holding the same waiter-tick is tallied too, since one
  * cleared may leave the next binding
  * (docs/practice/capacity-planning-and-admission.md).
@@ -35,6 +41,7 @@ const { docPath } = require("./script-path.js");
 const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
 const { WHOLE_SUITE_MAX, suiteRungMb } = require("./suite-ladder");
 const { PART_PASS_AGE_MS } = require("./suite-queue");
+const { TSC_MAX, TSC_RUNG_MB, isTscRunner } = require("./tsc-slot");
 
 /* #2909's tick; the figures #3047 reports are at it. */
 const TICK_S = 10;
@@ -61,6 +68,9 @@ const LIMBS = [
 	"memory",
 	"fifo-whole",
 	"fifo-part",
+	"tsc-count",
+	"tsc-memory",
+	"tsc-fifo",
 	"admitted",
 	"load",
 	"open",
@@ -81,6 +91,9 @@ const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
 const PARENT_LINE = /^(\S+) rerun ([0-9a-f]{9})\S* \(parent\): the whole suite/;
 const MEMWATCH_HEADER =
 	/^=== (\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) (\d+)MB used \| cpu: \d+% .*?load ([\d.]+)/;
+/* A process line of a memwatch block: `PID RSS COMMAND`, or
+ * `PID S %CPU RSS COMMAND`. */
+const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
 
 /**
  * @typedef {{ at: string, waitS: number, reason: string, kind: string,
@@ -89,7 +102,7 @@ const MEMWATCH_HEADER =
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
  *   sha: string, modulesRun: number | null, modulesTotal: number | null }} Run
- * @typedef {{ used: number, load: number }} MemBlock
+ * @typedef {{ used: number, load: number, tsc: number }} MemBlock
  * @typedef {{ exits: Exit[], runs: Run[], mem: Map<number, MemBlock>,
  *   parents: { t: number, sha: string }[], unread: Unread }} Logs
  * @typedef {{ since: number, until: number, eras: { label: string, from: number }[],
@@ -181,8 +194,8 @@ function readLogs({ markers, memwatch, since, until }) {
 }
 
 /**
- * memwatch's block headers, keyed by local minute; the last block in a minute
- * stands for it.
+ * memwatch's block headers, with the `tsc` its process lines show running,
+ * keyed by local minute; the last block in a minute stands for it.
  *
  * @param {string[]} files
  * @param {Unread} unread  accumulator: the absent logs
@@ -191,20 +204,41 @@ function readMemwatch(files, unread) {
 	/** @type {Map<number, MemBlock>} */
 	const mem = new Map();
 	for (const file of files) {
-		if (!fs.existsSync(file)) {
-			unread.absent.push(file);
-			continue;
-		}
-		for (const line of fs.readFileSync(file, "latin1").split("\n")) {
-			const m = MEMWATCH_HEADER.exec(line);
-			if (!m) continue;
+		if (fs.existsSync(file))
+			parseMemwatch(fs.readFileSync(file, "latin1"), mem);
+		else unread.absent.push(file);
+	}
+	return mem;
+}
+
+/**
+ * @param {string} text  one memwatch log
+ * @param {Map<number, MemBlock>} mem  accumulator: its blocks are added
+ */
+function parseMemwatch(text, mem) {
+	/** @type {MemBlock | null} */
+	let block = null;
+	/* A block lists its top processes twice, by RSS and by CPU, so a `tsc` is
+	 * counted once by its pid. */
+	/** @type {Set<number>} */
+	const tscPids = new Set();
+	for (const line of text.split("\n")) {
+		const m = MEMWATCH_HEADER.exec(line);
+		if (m) {
 			const n = (/** @type {number} */ i) =>
 				Number(requiredGroup(m, i, MEMWATCH_HEADER));
 			const t = new Date(n(1), n(2) - 1, n(3), n(4), n(5), n(6)).getTime();
-			mem.set(Math.floor(t / 60_000), { used: n(7), load: n(8) });
+			block = { used: n(7), load: n(8), tsc: 0 };
+			tscPids.clear();
+			mem.set(Math.floor(t / 60_000), block);
+			continue;
 		}
+		const row = MEMWATCH_ROW.exec(line);
+		if (!block || !row) continue;
+		if (isTscRunner(requiredGroup(row, 2, MEMWATCH_ROW)))
+			tscPids.add(Number(requiredGroup(row, 1, MEMWATCH_ROW)));
+		block.tsc = tscPids.size;
 	}
-	return mem;
 }
 
 /**
@@ -404,7 +438,7 @@ const clip = (a, b, from, to) =>
 function matchRun(e, en, runs, used) {
 	/** @type {{ run: WeighedRun, gap: number } | null} */
 	let best = null;
-	if (e.reason !== "opened" && e.reason !== "timeout") return best;
+	if (!isMatchable(e)) return best;
 	for (const r of runs) {
 		if (used.has(r) || r.session !== (e.session ?? null)) continue;
 		const g = (r.st - en) / 1000;
@@ -418,6 +452,14 @@ function matchRun(e, en, runs, used) {
 	if (best) used.add(best.run);
 	return best;
 }
+
+/**
+ * Whether `e` launched a suite run the replay can match: an `opened` or
+ * `timeout` suite wait, a `tsc` running no suite.
+ * @param {Exit} e
+ */
+const isMatchable = (e) =>
+	e.kind !== "tsc" && (e.reason === "opened" || e.reason === "timeout");
 
 /**
  * Whole or part: `slotFree`, then the matched run, then the kind, marked `?`.
@@ -457,7 +499,10 @@ function toWaiters(queued, runs) {
 			run,
 			gap: Math.max(0, match?.gap ?? 0),
 			whole,
-			cls: `${whole ? "whole" : "part"}${sure ? "" : "?"}`,
+			cls:
+				e.kind === "tsc"
+					? "tsc"
+					: `${whole ? "whole" : "part"}${sure ? "" : "?"}`,
 			workers: run ? run.workers : unmatched,
 		};
 	});
@@ -543,10 +588,9 @@ function tallyTick(tick, w, acc, parents) {
  * @param {Window} w
  */
 function memoryHolds(e, tick, w) {
-	return (
-		tick.mem !== undefined &&
-		w.memTotalMb - tick.mem.used < suiteRungMb(tick.busy + e.workers)
-	);
+	const rung =
+		e.kind === "tsc" ? TSC_RUNG_MB : suiteRungMb(tick.busy + e.workers);
+	return tick.mem !== undefined && w.memTotalMb - tick.mem.used < rung;
 }
 
 /**
@@ -573,20 +617,33 @@ function passes(o, tick, w) {
  * @param {Window} w
  */
 function limbsOf(e, tick, w) {
-	const wholeWaiter = e.whole;
-	const older = tick.waiting.filter((o) => o !== e && o.st < e.st);
-	const held = {
-		count: wholeWaiter && tick.whole.length >= WHOLE_SUITE_MAX,
-		memory: memoryHolds(e, tick, w),
-		"fifo-whole": wholeWaiter && older.length > 0,
-		"fifo-part":
-			!wholeWaiter && older.some((o) => !o.whole && !passes(o, tick, w)),
-		admitted: tick.admitting.some(
-			(o) => o.pid !== e.pid && o.en <= tick.t && tick.t < o.en + o.gap * 1000,
-		),
-		load: w.loadCeiling !== null && (tick.mem?.load ?? 0) >= w.loadCeiling,
-	};
-	const limbs = LIMBS.filter((l) => held[/** @type {keyof typeof held} */ (l)]);
+	const tsc = e.kind === "tsc";
+	/* Each queue's turn reads its own directory alone (#3163). */
+	const older = tick.waiting.filter(
+		(o) => o !== e && o.st < e.st && (o.kind === "tsc") === tsc,
+	);
+	const memory = memoryHolds(e, tick, w);
+	const admitted = tick.admitting.some(
+		(o) => o.pid !== e.pid && o.en <= tick.t && tick.t < o.en + o.gap * 1000,
+	);
+	/** @type {Record<string, boolean>} */
+	const held = tsc
+		? {
+				"tsc-count": (tick.mem?.tsc ?? 0) >= TSC_MAX,
+				"tsc-memory": memory,
+				"tsc-fifo": older.length > 0,
+				admitted,
+			}
+		: {
+				count: e.whole && tick.whole.length >= WHOLE_SUITE_MAX,
+				memory,
+				"fifo-whole": e.whole && older.length > 0,
+				"fifo-part":
+					!e.whole && older.some((o) => !o.whole && !passes(o, tick, w)),
+				admitted,
+				load: w.loadCeiling !== null && (tick.mem?.load ?? 0) >= w.loadCeiling,
+			};
+	const limbs = LIMBS.filter((l) => held[l]);
 	return limbs.length > 0 ? limbs : ["open"];
 }
 
@@ -707,9 +764,7 @@ function replay(logs, w) {
 			waitS: waiters.reduce((s, e) => s + clip(e.st, e.en, from, to), 0),
 		};
 	});
-	const matchable = waiters.filter(
-		(e) => e.reason === "opened" || e.reason === "timeout",
-	);
+	const matchable = waiters.filter(isMatchable);
 	const counts = waiters.flatMap((e) =>
 		e.passed === undefined ? [] : [e.passed],
 	);
@@ -777,7 +832,7 @@ function render(r, w) {
 	const lines = [
 		`# Suite queue wait replay, ${new Date(w.since).toISOString()} to ${new Date(w.until).toISOString()}`,
 		"",
-		`${r.queued} queued waits (${r.exits} exits less ${r.skipped} skipped), ${hours(r.waitS)} h inside the window. ${r.matched} of ${r.matchable} opened or timed-out waits matched to their run. At most ${r.peak.n} waited at once, at ${new Date(r.peak.at).toISOString()}.`,
+		`${r.queued} queued waits (${r.exits} exits less ${r.skipped} skipped), ${hours(r.waitS)} h inside the window. ${r.matched} of ${r.matchable} opened or timed-out suite waits matched to their run. At most ${r.peak.n} waited at once, at ${new Date(r.peak.at).toISOString()}.`,
 		"",
 		"## Limb",
 		"",
@@ -853,6 +908,9 @@ function render(r, w) {
 		"## Limits",
 		"",
 		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
+		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short.",
+		"- tsc-count reads a `tsc` as lib/tsc-slot.js does since #3276 (27 Oct 2026 15:26 UTC); before it the gate also counted a queued `--tsc` waiter, so a wait it held then reads here as open or tsc-fifo.",
+		"- A `tsc` admission is matched to no run, so it holds no `admitted` limb, neither a younger `tsc` waiter's nor a suite waiter's (#3203).",
 		"- The lander's own queue wait is not in the exits log; its runs count here only as slot holders and busy workers.",
 		...(r.unread.absent.length > 0
 			? [

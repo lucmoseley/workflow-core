@@ -54,6 +54,33 @@ it("prints the reading over the window, the limb table first", () => {
 	expect(r.stdout).toContain("| window start | 1.00 | 0.17 |");
 });
 
+it("charges a `tsc` wait to the type-check slot's limbs, never a suite's (#3316)", () => {
+	fs.writeFileSync(
+		path.join(dir, ".suite-queue-exits.jsonl"),
+		`${JSON.stringify({
+			at: "2026-10-27T00:10:00.000Z",
+			waitS: 600,
+			reason: "opened",
+			kind: "tsc",
+			session: "a",
+			pid: 1,
+		})}\n${JSON.stringify({
+			at: "2026-10-27T00:10:00.000Z",
+			waitS: 300,
+			reason: "opened",
+			kind: "tsc",
+			session: "b",
+			pid: 2,
+		})}\n`,
+	);
+	const r = run("--since", SINCE, "--until", UNTIL);
+	expect(r.status).toBe(0);
+	expect(r.stdout).toContain("| tsc-fifo | 0.08 |");
+	expect(r.stdout).toContain("- tsc-fifo / tsc: 0.08 h");
+	expect(r.stdout).toContain("- open / tsc: 0.17 h");
+	expect(r.stdout).not.toMatch(/part\?|whole\?/);
+});
+
 describe("refuses with exit 2 and the usage", () => {
 	it.each([
 		["no window", []],
