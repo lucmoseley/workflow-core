@@ -1319,7 +1319,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(readAnchors(root)).toEqual(before);
 	});
 
-	it("--sole-writer anchors for an unidentified caller where no other session holds a claim, as init run from a terminal needs", () => {
+	it("--sole-writer anchors for an unidentified caller where no other session holds a claim, as init run from a terminal needs (#3474)", () => {
 		const root = twoGuards();
 		reviewIn(root);
 		const before = readAnchors(root);
@@ -1329,6 +1329,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			WFC_ANCHOR_LOCKS: "[]",
 		});
 		expect(out).toContain("anchored scripts/guard-a.sh @");
+		expect(out).not.toContain("claim check skipped");
 		expect(readAnchors(root)["scripts/guard-a.sh"]).not.toBe(
 			before["scripts/guard-a.sh"],
 		);
