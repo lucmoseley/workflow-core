@@ -151,6 +151,12 @@ interface FakeChildOptions {
 	error?: Error;
 }
 
+/** An `err` or `out` that keeps what is written to it. */
+function sink() {
+	const text: string[] = [];
+	return { text, write: (s: string) => text.push(s) };
+}
+
 /** Stands in for the vitest child: emits output, then closes. */
 function fakeChild({
 	stdoutChunks = [],
@@ -272,10 +278,15 @@ describe("the exit code", () => {
 			code: 5,
 		});
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const said = sink();
 		const io = fakeFs();
 		try {
-			const result = main([SHARED_FLAG], { spawnFn, root: repo(), fs: io });
+			const result = main([SHARED_FLAG], {
+				spawnFn,
+				root: repo(),
+				fs: io,
+				err: said,
+			});
 			// Synchronous window before the fake child's queued microtask fires:
 			// createWriteStream has already run, the real stream a late ENOSPC or
 			// EIO would break has not been asked to do anything yet.
@@ -285,12 +296,9 @@ describe("the exit code", () => {
 				"TEST LOG:",
 			);
 			// §N5: fail open, and say so — the failure is not silent.
-			expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toContain(
-				"ENOSPC",
-			);
+			expect(said.text.join("")).toContain("ENOSPC");
 		} finally {
 			stdout.mockRestore();
-			stderr.mockRestore();
 		}
 	});
 
@@ -307,17 +315,16 @@ describe("the exit code", () => {
 			statSync: fs.statSync.bind(fs),
 			unlinkSync: fs.unlinkSync.bind(fs),
 		};
-		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
-		try {
-			expect(
-				await main([SHARED_FLAG], { spawnFn, root: repo(), fs: brokenFs }),
-			).toBe(0);
-			expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toContain(
-				"EACCES",
-			);
-		} finally {
-			stderr.mockRestore();
-		}
+		const said = sink();
+		expect(
+			await main([SHARED_FLAG], {
+				spawnFn,
+				root: repo(),
+				fs: brokenFs,
+				err: said,
+			}),
+		).toBe(0);
+		expect(said.text.join("")).toContain("EACCES");
 	});
 });
 
@@ -390,18 +397,20 @@ describe("the tee", () => {
 			unlinkSync: fs.unlinkSync.bind(fs),
 		};
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
-		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const said = sink();
 		try {
-			await main([SHARED_FLAG], { spawnFn, root: repo(), fs: brokenFs });
+			await main([SHARED_FLAG], {
+				spawnFn,
+				root: repo(),
+				fs: brokenFs,
+				err: said,
+			});
 			expect(stdout.mock.calls.map((c) => String(c[0])).join("")).not.toContain(
 				"TEST LOG:",
 			);
-			expect(stderr.mock.calls.map((c) => String(c[0])).join("")).toContain(
-				"not written",
-			);
+			expect(said.text.join("")).toContain("not written");
 		} finally {
 			stdout.mockRestore();
-			stderr.mockRestore();
 		}
 	});
 });
@@ -1124,19 +1133,18 @@ describe("the stall watchdog", () => {
 	/** Runs `main` against a parked child with a 20 ms ceiling. */
 	async function parked(root: string, inflightFile?: string) {
 		const child = parkedChild();
-		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const err = sink();
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		try {
 			const code = await main([SHARED_FLAG], {
 				spawnFn: () => child,
 				root,
 				stall: 20,
+				err,
 				...(inflightFile ? { inflightFile } : {}),
 			});
-			const said = stderr.mock.calls.map((c) => String(c[0])).join("");
-			return { code, said, child };
+			return { code, said: err.text.join(""), child };
 		} finally {
-			stderr.mockRestore();
 			stdout.mockRestore();
 		}
 	}
@@ -1380,7 +1388,7 @@ describe("the stall ceiling from the environment", () => {
 	 */
 	async function killedAfter(ms: number) {
 		vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
-		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const err = sink();
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		const child = parkedChild();
 		let spawned = () => {
@@ -1398,17 +1406,17 @@ describe("the stall ceiling from the environment", () => {
 				},
 				root,
 				inflightFile: path.join(root, "run.inflight.json"),
+				err,
 			});
 			await up;
 			await vi.advanceTimersByTimeAsync(ms);
 			const killed = child.signals.length > 0;
 			if (!killed) child.emit("close", 0);
 			await run;
-			said = stderr.mock.calls.map((c) => String(c[0])).join("");
+			said = err.text.join("");
 			return killed;
 		} finally {
 			vi.useRealTimers();
-			stderr.mockRestore();
 			stdout.mockRestore();
 		}
 	}
@@ -1468,18 +1476,17 @@ describe("the suite ceiling", () => {
 		opts: { stall: number; ceiling: number; inflightFile?: string },
 		argv = [SHARED_FLAG],
 	) {
-		const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+		const err = sink();
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		try {
 			const code = await main(argv, {
 				spawnFn: () => child,
 				root,
+				err,
 				...opts,
 			});
-			const said = stderr.mock.calls.map((c) => String(c[0])).join("");
-			return { code, said };
+			return { code, said: err.text.join("") };
 		} finally {
-			stderr.mockRestore();
 			stdout.mockRestore();
 		}
 	}
@@ -3945,11 +3952,6 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		};
 	}
 
-	function sink() {
-		const text: string[] = [];
-		return { text, write: (s: string) => text.push(s) };
-	}
-
 	const worktreeOf = (dir: string, pid: number) =>
 		path.join(dir, worktreeDir, `isolated-${pid}`);
 
@@ -5442,16 +5444,14 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					let renders = 0;
 					const joined = vi.fn();
 					let spawns = 0;
-					const stderr = vi
-						.spyOn(process.stderr, "write")
-						.mockReturnValue(true);
+					const err = sink();
 					const code = await main(["--queue", SHARED_FLAG], {
 						root: make(),
 						execFn: fakeExec({ diff: ["a.test.ts"], list: ["a.test.ts"] }),
 						loadEdges: () => ({}),
 						renderEdges: () => (renders++ === 0 ? {} : renderFails()),
 						out: { write: () => true },
-						err: { write: () => true },
+						err,
 						fs: fakeFs(),
 						queueDir: qdir(),
 						queueFs: { ...fs, writeFileSync: joined },
@@ -5466,8 +5466,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 										code: -2,
 									}),
 					});
-					const said = stderr.mock.calls.map((c) => String(c[0])).join("");
-					stderr.mockRestore();
+					const said = err.text.join("");
 					expect(code).toBe(1);
 					expect(spawns).toBe(1);
 					expect(joined).toHaveBeenCalledTimes(joins);

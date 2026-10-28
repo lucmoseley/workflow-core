@@ -396,14 +396,15 @@ function vitestEnv({ inflightFile, timingsFile, plan, launch }) {
  * died before its end, or a config without the reporter — and prints nothing.
  * @param {string} root
  * @param {string} file
+ * @param {Writer} err
  * @returns {string[]}
  */
-function readRunCostLines(root, file) {
+function readRunCostLines(root, file, err) {
 	if (!fs.existsSync(file)) return [];
 	try {
 		return reportForFile(root, file);
 	} finally {
-		timings.clear(file);
+		timings.clear(file, err);
 	}
 }
 
@@ -527,7 +528,7 @@ function withLaunch(options, fields) {
  *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
  *   launch?: LauncherLaunch, onSpawn?: () => void, emptyOnly?: boolean,
  *   escalationRequeues?: boolean, session?: string|null,
- *   yieldCpu?: (child: { pid?: number }) => unknown }} [options]
+ *   yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown }} [options]
  * @returns {Promise<number>}
  */
 function runOnce(
@@ -559,6 +560,7 @@ function runOnce(
 		 * without one. */
 		session = idSeam.fromEnv(),
 		yieldCpu = yieldToWhole,
+		err = process.stderr,
 		...expandOptions
 	} = {},
 ) {
@@ -568,9 +570,9 @@ function runOnce(
 	/** @type {ReturnType<typeof expandChanged>} */
 	let plan;
 	try {
-		plan = expand(argv, { root, bin, ...expandOptions });
+		plan = expand(argv, { root, bin, err, ...expandOptions });
 	} catch (error) {
-		return refuseNarrowing(expandOptions, error);
+		return refuseNarrowing({ err }, error);
 	}
 	if (emptyOnly && plan && plan.files.length > 0)
 		return Promise.resolve(REQUEUE);
@@ -582,7 +584,7 @@ function runOnce(
 						root,
 						execFn: expandOptions.execFn,
 						slotFree: launch.slotFree,
-						err: expandOptions.err,
+						err,
 					}),
 				}
 			: launch;
@@ -612,7 +614,7 @@ function runOnce(
 	 * failed open. */
 	let stream = opened.stream;
 	if (opened.error)
-		process.stderr.write(
+		err.write(
 			`test log not written (${opened.error}) — this run's output is not being saved to ${file}\n`,
 		);
 	if (plan) {
@@ -621,7 +623,7 @@ function runOnce(
 	}
 	stream?.on("error", (error) => {
 		stream = null;
-		process.stderr.write(
+		err.write(
 			`test log write failed (${error}) — the rest of this run's output is not being saved to ${file}\n`,
 		);
 	});
@@ -632,7 +634,7 @@ function runOnce(
 	const startedAtMono = performance.now();
 	/* A previous run in this process may have left one; this run's report
 	 * must read only its own. */
-	timings.clear(timingsFile);
+	timings.clear(timingsFile, err);
 	return new Promise((resolve) => {
 		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
@@ -650,7 +652,7 @@ function runOnce(
 				detached: true,
 			},
 		);
-		if (!weighed.wholeSlot) yieldCpu(child);
+		if (!weighed.wholeSlot) yieldCpu(child, { err });
 		const spawnedAt = Date.now();
 		const spawnedAtMono = performance.now();
 		const machineStart = sampleCpu();
@@ -664,7 +666,7 @@ function runOnce(
 		// A real ChildProcess always has `.on`; the only caller that would not is
 		// a test double built wrong, and that should throw rather than hide it.
 		child.on("error", (error) => {
-			process.stderr.write(`vitest could not be run from ${bin}: ${error}\n`);
+			err.write(`vitest could not be run from ${bin}: ${error}\n`);
 		});
 
 		/* Set while the watchdog is armed; cleared once it kills or the child
@@ -697,7 +699,7 @@ function runOnce(
 		};
 		/** @param {string} report */
 		const announce = (report) => {
-			process.stderr.write(report);
+			err.write(report);
 			if (stream) stream.write(report);
 		};
 		/* SIGKILL, not SIGTERM: the parent may be wedged waiting on a worker
@@ -706,7 +708,7 @@ function runOnce(
 			killedFor = why;
 			disarm();
 			const unkilled = child.pid ? killGroup(child.pid) : null;
-			if (unkilled) process.stderr.write(groupUnkilled("vitest", unkilled));
+			if (unkilled) err.write(groupUnkilled("vitest", unkilled));
 			child.kill("SIGKILL");
 			/* `close` needs stdio EOF as well as exit, which a descendant that
 			 * left the group can withhold; settling on a timer keeps the report
@@ -740,7 +742,7 @@ function runOnce(
 			if (beat > since) return arm(beat);
 			const record = inflight.readRecord(inflightFile);
 			announce(buildStallReport(record.open, stall, target));
-			recordKill(target, {
+			recordKill(target, err, {
 				...killed(record),
 				startedAt: startedAt.toISOString(),
 				durationMs: performance.now() - startedAtMono,
@@ -757,7 +759,7 @@ function runOnce(
 			announce(
 				buildCeilingReport(record, { ceiling, elapsed, root: target, machine }),
 			);
-			recordKill(target, {
+			recordKill(target, err, {
 				...killed(record),
 				startedAt: new Date(spawnedAt).toISOString(),
 				durationMs: elapsed,
@@ -773,7 +775,7 @@ function runOnce(
 			ms: ceiling,
 			onCeiling,
 		});
-		if (held.error) process.stderr.write(deadlineUnwritten(held.error));
+		if (held.error) err.write(deadlineUnwritten(held.error));
 
 		/**
 		 * @param {{ on: (event: string, cb: (chunk: Buffer) => void) => void }} childStream
@@ -788,6 +790,8 @@ function runOnce(
 			});
 		};
 		arm();
+		/* vitest's own bytes go to the real streams; `out` and `err` carry
+		 * only the wrapper's messages (#3175). */
 		forward(child.stdout, process.stdout);
 		forward(child.stderr, process.stderr);
 
@@ -801,7 +805,7 @@ function runOnce(
 			/* After the suite's summary and into the log, so the teed record
 			 * keeps it. A stalled or killed run never reaches the reporter's
 			 * run end, so it leaves no timings and prints nothing here. */
-			const report = readRunCostLines(root, timingsFile).join("\n");
+			const report = readRunCostLines(root, timingsFile, err).join("\n");
 			if (report) {
 				out.write(`${report}\n`);
 				stream?.write(`${report}\n`);
@@ -825,7 +829,7 @@ function runOnce(
 						endedAt: new Date().toISOString(),
 					};
 					if (session && !recordRun(target, session, run))
-						process.stderr.write(
+						err.write(
 							`run record not written to ${runsPath(target, session)} — a hook cannot hand back this run's verdict if the output loses it\n`,
 						);
 					reap(dirPath(target), { fs: fsImpl });
@@ -1003,9 +1007,10 @@ function recordFullRefusal(root, word, argv) {
  * and says so, since a missing record reads as no kill.
  *
  * @param {string} root
+ * @param {Writer} err
  * @param {KillRecord} kill
  */
-function recordKill(root, kill) {
+function recordKill(root, err, kill) {
 	let landed = false;
 	try {
 		landed = recordFailure(kill, { root });
@@ -1013,7 +1018,7 @@ function recordKill(root, kill) {
 		/* reported below with the false return */
 	}
 	if (!landed)
-		process.stderr.write(
+		err.write(
 			"This kill was not recorded to the fail store, so it will not be counted.\n",
 		);
 }
