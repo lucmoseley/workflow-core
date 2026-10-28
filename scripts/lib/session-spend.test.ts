@@ -16,7 +16,15 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	onTestFinished,
+	vi,
+} from "vitest";
 import {
 	fileSpend,
 	LIST_PRICES,
@@ -267,6 +275,10 @@ describe("readSessionSpendEvents", () => {
 
 describe("readCostTable", () => {
 	it("reads the committed table", () => {
+		vi.stubEnv("CLAUDE_PROJECT_DIR", path.resolve(__dirname, "..", ".."));
+		onTestFinished(() => {
+			vi.unstubAllEnvs();
+		});
 		const t = readCostTable();
 		expect(t?.meanUsd).toBeGreaterThan(0);
 		expect(t?.quantilesUsd.length).toBeGreaterThanOrEqual(2);

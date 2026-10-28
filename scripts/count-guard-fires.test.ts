@@ -291,7 +291,7 @@ describe("the CLI, run as a command", () => {
 	const run = (args: string[], host?: string) => {
 		const r = runInProcess(cliPath, args, {
 			cwd: host ?? ROOT,
-			...(host && { env: { ...process.env, CLAUDE_PROJECT_DIR: host } }),
+			env: { ...process.env, CLAUDE_PROJECT_DIR: host ?? ROOT },
 		});
 		return { out: r.stdout, err: r.stderr, code: r.status };
 	};

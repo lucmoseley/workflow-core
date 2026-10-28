@@ -196,7 +196,7 @@ describe("the context-budget scan against this guard as it stands", () => {
 		const r = runInProcess(
 			path.join(root, "scripts", "check-context-budget.js"),
 			["--json"],
-			{ cwd: root },
+			{ cwd: root, env: { ...process.env, CLAUDE_PROJECT_DIR: root } },
 		);
 		/* Its exit is the repo's whole budget verdict, not this guard's. */
 		const fragments = JSON.parse(r.stdout).session.direct.fragments as {

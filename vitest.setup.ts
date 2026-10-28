@@ -82,6 +82,18 @@ process.env.CLAUDE_CONFIG_DIR = testConfigDir;
 afterAll(() => fs.rmSync(testConfigDir, { recursive: true, force: true }));
 
 /*
+ * NO TEST REACHES THE SESSION'S HOST THROUGH CLAUDE_PROJECT_DIR (#3334). A
+ * session sets it to the live checkout and CI sets nothing, so a test that
+ * dropped its pin, or reached hostRoot() in process, read and wrote the
+ * developer's tree and went red only there. Pointed instead at an empty dir
+ * that is no repository, such a test is red in CI and locally alike. An
+ * override, as above; a case that pins its own still wins.
+ */
+const testHostDir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-test-host-"));
+process.env.CLAUDE_PROJECT_DIR = testHostDir;
+afterAll(() => fs.rmSync(testHostDir, { recursive: true, force: true }));
+
+/*
  * NO TEST READS THE MACHINE'S REFILL FILES (#2608): every liveness read lists
  * the live headless runs in their store, so a run on this machine would join
  * every case's listing. An override, as above, and for the same reason.

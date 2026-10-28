@@ -15,6 +15,7 @@
  * judge refuses, or allows with no record.
  */
 
+import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { kitContextFake } from "./kit-context-fake";
 
@@ -40,9 +41,12 @@ const UNASKED_LANDING_RULE_FALLBACK =
 const { decide } = require("./unasked-rerun-guard.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };
-const { readRuleText } = require("./rule-text.js") as {
-	readRuleText: (id: string) => string;
+const rules = require("./rule-text.js") as {
+	readRuleText: (id: string, root: string) => string;
 };
+/* This checkout's store, rendered with the commands its config declares (#3334). */
+const readRuleText = (id: string) =>
+	rules.readRuleText(id, path.resolve(__dirname, "..", ".."));
 
 const CWD = "/work";
 const SID = "sess-815";
