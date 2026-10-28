@@ -182,7 +182,7 @@ const heldPull = (p, why) => ({
 
 /**
  * The pulled-in issues their own repo's shortlist did not return (claimed or
- * gated), held so a dropped blocker stays visible (#3285).
+ * gated), as held entries (#3285).
  * Residual: the reason names the shortlist, not which hold applied.
  * @param {{root: string, result: Shortlist}[]} served
  * @param {Map<string, Map<number, PulledRow>>} pulledByRoot
