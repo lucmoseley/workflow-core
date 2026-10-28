@@ -8,6 +8,9 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+/** The /proc `WFC_PROC`'s readers take, environ or any other file (#3500). */
+const procRoot = () => process.env.WFC_PROC || "/proc";
+
 /**
  * `key`'s value in `pid`'s environment: `{ ok: false }` where the environ
  * will not read — the process gone, or another user's — and `value: null`
@@ -33,4 +36,4 @@ function readEnvironVar(pid, key, proc = "/proc") {
 	};
 }
 
-module.exports = { readEnvironVar };
+module.exports = { procRoot, readEnvironVar };

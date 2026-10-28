@@ -840,6 +840,11 @@ describe("the unlisted row (#3322)", () => {
 			{ "111": ["PATH=/bin"] },
 			"~/.claude",
 		],
+		[
+			". where CLAUDE_CONFIG_DIR is set empty (#3500)",
+			{ "111": ["PATH=/bin", "CLAUDE_CONFIG_DIR="] },
+			".",
+		],
 		["the socket dir's hash id where environ will not read", {}, "x"],
 	])(
 		"sums a claimed unlisted pair and its tree, labelled %s",

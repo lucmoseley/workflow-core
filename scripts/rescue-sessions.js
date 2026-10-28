@@ -43,6 +43,7 @@ const { requiredGroup } = require("./lib/regex-group");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
+const { procRoot } = require("./lib/proc-environ.js");
 const { readOwnJob, stopOn } = require("./lib/claude-stop.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 const {
@@ -827,8 +828,6 @@ const CLK_TCK = 100;
 /* How much of a transcript's tail is read for its last turn. A guess: room
  * for one long final message and the tool results before it. */
 const TAIL_BYTES = 512 * 1024;
-
-const procRoot = () => process.env.WFC_PROC || "/proc";
 
 /**
  * @typedef {import("./lib/agent-liveness").AgentRecord} AgentRecord

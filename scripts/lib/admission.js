@@ -22,7 +22,8 @@ const nodePath = require("node:path");
 const os = require("node:os");
 const { parseErrLine } = require("./gh");
 const { readMachineSetting } = require("./machine-setting.js");
-const { readEnvironVar } = require("./proc-environ.js");
+const { procRoot, readEnvironVar } = require("./proc-environ.js");
+const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
 const { sparePairs, isDaemon, readProcCwd } = require("./claude-sessions.js");
@@ -615,7 +616,6 @@ function readRunningVitestSuites() {
 }
 
 const MEMINFO = () => process.env.WFC_MEMINFO || "/proc/meminfo";
-const PROC = () => process.env.WFC_PROC || "/proc";
 
 /** One `ps -eo pid=,rss=,args=` row: pid, RSS in KB, argv. */
 const PS_ROW_RE = /^(\d+)\s+(\d+)\s+(?!\s)(.*)$/;
@@ -654,7 +654,7 @@ function readPsRows() {
  * @returns {SparePair[]}
  */
 const readSparePairs = (ps) =>
-	ps.ok ? sparePairs(ps.rows, (pid) => readProcCwd(pid, PROC())) : [];
+	ps.ok ? sparePairs(ps.rows, (pid) => readProcCwd(pid, procRoot())) : [];
 
 /**
  * Where the spare pairs break the shape the idle test reads (#2502), which is
@@ -848,7 +848,7 @@ function reclaimableMb() {
 function readPssKb(pid) {
 	try {
 		const m = fs
-			.readFileSync(`${PROC()}/${pid}/smaps_rollup`, "utf8")
+			.readFileSync(`${procRoot()}/${pid}/smaps_rollup`, "utf8")
 			.match(/^Pss:\s+(\d+) kB$/m);
 		return m ? Number(m[1]) : null;
 	} catch {
@@ -999,7 +999,7 @@ function readProcessChildren() {
 	const children = new Map();
 	let entries;
 	try {
-		entries = fs.readdirSync(PROC());
+		entries = fs.readdirSync(procRoot());
 	} catch {
 		/* Unprinted: an unreadable /proc fails every PSS read too, which
 		 * buildLiveDrawLine already prints as memory unread (#2139). */
@@ -1009,7 +1009,7 @@ function readProcessChildren() {
 		if (!/^\d+$/.test(pid)) continue;
 		/* Unread where it exited since the listing: it has no children left to
 		 * count (#2139). */
-		const ppid = String(readParentOf(pid, PROC()));
+		const ppid = String(readParentOf(pid, procRoot()));
 		if (ppid === "0") continue;
 		const list = children.get(ppid);
 		if (list) list.push(pid);
@@ -1233,9 +1233,10 @@ function unlistedPairs(pairs, listedPids) {
 
 /**
  * The config dir an unlisted pair runs in: `CLAUDE_CONFIG_DIR` from its
- * `bg-spare`'s environ, `$HOME` shown as `~`; `~/.claude` where that variable
- * is absent; the daemon's socket-dir hash id where environ will not read, or
- * the pair's own socket id where it names no claim socket to take one from.
+ * `bg-spare`'s environ as config-dir.js resolves it, `$HOME` shown as `~` and
+ * an empty one as `.`, the cwd its records resolve against; the daemon's
+ * socket-dir hash id where environ will not read, or the pair's own socket id
+ * where it names no claim socket to take one from.
  * @param {SparePair} pair
  * @param {ReturnType<typeof readEnvironVar>} configDir its spare's
  *   `CLAUDE_CONFIG_DIR`
@@ -1246,8 +1247,7 @@ function configDirLabel(pair, configDir, home) {
 		return pair.dir === null
 			? pair.socket
 			: nodePath.basename(nodePath.dirname(pair.dir));
-	const dir = configDir.value;
-	if (!dir) return "~/.claude";
+	const dir = configDirFrom(configDir.value) || ".";
 	return home && (dir === home || dir.startsWith(`${home}/`))
 		? `~${dir.slice(home.length)}`
 		: dir;
@@ -2062,7 +2062,7 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 				readEnvironVar(
 					/** @type {string} */ (pair.spare),
 					"CLAUDE_CONFIG_DIR",
-					PROC(),
+					procRoot(),
 				),
 				os.homedir(),
 			),

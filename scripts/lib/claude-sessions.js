@@ -13,6 +13,13 @@
  *
  * Both are cores: they do no I/O, the one read they need — where a process
  * sits — arriving as a port. readProcCwd is its production adapter.
+ *
+ * The cwd test compares path strings where the shell twin's `-ef` compares
+ * inodes (#3318); they part only on a symlinked spare dir, which the daemon
+ * makes none of. Its dir is a literal `/tmp/cc-daemon-<uid>/<hash>/spare`
+ * (`$PREFIX/tmp` under Termux), TMPDIR unread, and a symlinked `$HOME` or
+ * config dir changes only the hash segment (Claude Code 2.1.312's daemon-dir
+ * builder, read from the binary); only a symlinked `/tmp` would part them.
  */
 
 const fs = require("node:fs");

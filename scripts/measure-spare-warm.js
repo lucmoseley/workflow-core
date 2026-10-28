@@ -52,6 +52,7 @@ const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { readParentOf } = require("./lib/proc-stat.js");
+const { procRoot } = require("./lib/proc-environ.js");
 
 /** Sampling interval, in ms. Fast enough to resolve a one-second plateau. */
 const SAMPLE_MS = 250;
@@ -68,9 +69,6 @@ const STABLE_MB = 2;
  * ceiling on the WAIT, not on the thing measured: the plateau itself is
  * expected in seconds. */
 const DEFAULT_TIMEOUT_S = 900;
-/* The one injection point for the process tree, so a test never samples a real
- * pid — the same `WFC_PROC` seam `scripts/lib/admission.js` reads. */
-const PROC = () => process.env.WFC_PROC || "/proc";
 
 /** The line the daemon writes when it refills the pool. */
 const SPAWN_LINE = /^\[([^\]]+)\].*bg spare spawned host pid=(\d+)/;
@@ -95,7 +93,7 @@ function daemonLogs() {
 function readRssMb(pid) {
 	try {
 		const statm = fs
-			.readFileSync(`${PROC()}/${pid}/statm`, "utf8")
+			.readFileSync(`${procRoot()}/${pid}/statm`, "utf8")
 			.split(/\s+/);
 		/* Field 2 is resident pages. `os.constants` carries no page size; 4096 is
 		 * this machine's (mantahostels#2588). It is NOT inert if wrong: STABLE_MB is a
@@ -118,14 +116,14 @@ function readChildrenOf(pid) {
 	const kids = [];
 	let entries;
 	try {
-		entries = fs.readdirSync(PROC());
+		entries = fs.readdirSync(procRoot());
 	} catch {
 		return kids;
 	}
 	for (const e of entries) {
 		if (!/^\d+$/.test(e)) continue;
 		/* Unread where the process exited between readdir and read. */
-		if (readParentOf(e, PROC()) === pid) kids.push(Number(e));
+		if (readParentOf(e, procRoot()) === pid) kids.push(Number(e));
 	}
 	return kids;
 }
