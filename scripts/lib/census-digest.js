@@ -110,6 +110,9 @@ const treeByCommit = new Map();
 const bytesByBlob = new Map();
 /** @type {Map<string, LibFacts>} */
 const factsByBlobAndDir = new Map();
+/* A reprint keys on its extension too, which picks the printer. */
+/** @type {Map<string, string | Buffer>} */
+const codeByBlobAndExt = new Map();
 
 /**
  * `rev`'s tree as each tracked path's blob id. `tree` is null where git
@@ -176,16 +179,25 @@ function readSnapshot(root, rev, { disk = true, ceiling = NO_CEILING } = {}) {
  * @param {Iterable<string>} rels
  */
 function prefetch(snap, rels) {
-	const { tree } = snap;
-	if (tree === null) return;
+	prefetchAcross([[snap, rels]]);
+}
+
+/**
+ * prefetch over several snapshots of one repo in one batch.
+ *
+ * @param {[Snapshot, Iterable<string>][]} reads
+ */
+function prefetchAcross(reads) {
 	/** @type {Map<string, string>} oid → the first path naming it */
 	const unread = new Map();
-	for (const rel of rels) {
-		const oid = tree.get(rel);
-		if (oid !== undefined && !bytesByBlob.has(oid) && !unread.has(oid))
-			unread.set(oid, rel);
-	}
-	if (unread.size === 0) return;
+	for (const [snap, rels] of reads)
+		for (const rel of rels) {
+			const oid = snap.tree?.get(rel);
+			if (oid !== undefined && !bytesByBlob.has(oid) && !unread.has(oid))
+				unread.set(oid, rel);
+		}
+	const snap = reads[0]?.[0];
+	if (unread.size === 0 || snap === undefined) return;
 	const what = `git cat-file --batch of ${[...unread.values()].join(", ")}`;
 	const out = /** @type {Buffer} */ (
 		snap.ceiling.git(
@@ -268,7 +280,7 @@ function readLibFacts(snap, rel) {
 	 * so a lib naming none is never reprinted. */
 	let ruleFiles = ruleFilesIn(text, emissionMatches(text));
 	if (ruleFiles.length > 0) {
-		const code = String(codeOf(rel, bytes));
+		const code = String(readCode(snap, rel));
 		ruleFiles = ruleFilesIn(code, emissionMatches(code));
 	}
 	const facts = { requires, ruleFiles };
@@ -298,6 +310,41 @@ function readDeeperRuleFiles(snap, starts) {
 		level = unseenRequires(snap, level, seen);
 	}
 	return [...files].sort();
+}
+
+/**
+ * Reads every file each snapshot's guards' digests reach — each guard, its
+ * host, every lib reached through relative requires and the rule files they
+ * name — in one batch per require level across every snapshot (#3411).
+ *
+ * @param {[Snapshot, string[]][]} reads each snapshot with its guards
+ */
+function prefetchReach(reads) {
+	prefetchAcross(reads.map(([snap, rels]) => [snap, [...rels, MANIFEST_REL]]));
+	const walks = reads.map(([snap, rels]) => {
+		const seen = new Set(rels);
+		const level = [...rels];
+		for (const rel of rels) {
+			const host = rel.endsWith(".js") ? readHost(snap, rel) : null;
+			if (host !== null && !seen.has(host)) {
+				seen.add(host);
+				level.push(host);
+			}
+		}
+		return { snap, seen, level, ruleFiles: new Set() };
+	});
+	let live = walks;
+	while (live.length > 0) {
+		prefetchAcross(live.map((w) => [w.snap, w.level]));
+		for (const w of live) {
+			for (const rel of w.level)
+				for (const file of readLibFacts(w.snap, rel)?.ruleFiles ?? [])
+					w.ruleFiles.add(file);
+			w.level = unseenRequires(w.snap, w.level, w.seen);
+		}
+		live = live.filter((w) => w.level.length > 0);
+	}
+	prefetchAcross(walks.map((w) => [w.snap, w.ruleFiles]));
 }
 
 /**
@@ -417,6 +464,26 @@ function codeOf(rel, bytes) {
 }
 
 /**
+ * `rel`'s code in `snap`, as codeOf gives it, or null where it is absent.
+ *
+ * @param {Snapshot} snap
+ * @param {string} rel
+ * @returns {string | Buffer | null}
+ */
+function readCode(snap, rel) {
+	const oid = snap.tree?.get(rel);
+	const key =
+		oid === undefined ? undefined : `${oid}\0${path.posix.extname(rel)}`;
+	const cached = key === undefined ? undefined : codeByBlobAndExt.get(key);
+	if (cached !== undefined) return cached;
+	const bytes = readAt(snap, rel);
+	if (bytes === null) return null;
+	const code = codeOf(rel, bytes);
+	if (key !== undefined) codeByBlobAndExt.set(key, code);
+	return code;
+}
+
+/**
  * The rule files a guard's code prints from, sorted.
  *
  * @param {string} rel
@@ -490,28 +557,24 @@ function libDirOf(rel) {
 }
 
 /**
- * `rel`'s code at `rev`, each lib it composes or its manifest host with that
+ * `rel`'s code in `snap`, each lib it composes or its manifest host with that
  * lib's code (null where absent), and the rule files all of them and their
  * deeper libs name, `rel`'s own first; null where `rel` is gone.
  *
- * @param {string} root
+ * @param {Snapshot} snap
  * @param {string} rel
- * @param {string} [rev]
- * @param {CensusReadOpts} [opts] as readCommittedBytes takes it
- * @returns {{ code: string | Buffer, libs: Map<string, string | Buffer | null>, ruleFiles: string[], snap: Snapshot } | null}
+ * @returns {{ code: string | Buffer, libs: Map<string, string | Buffer | null>, ruleFiles: string[] } | null}
  */
-function readInputs(root, rel, rev, opts) {
-	const snap = readSnapshot(root, rev ?? "HEAD", opts);
-	const bytes = readAt(snap, rel);
-	if (bytes === null) return null;
-	const code = codeOf(rel, bytes);
+function readInputs(snap, rel) {
+	const code = readCode(snap, rel);
+	if (code === null) return null;
 	/* Appended, never re-sorted: a lib-less row keeps its pre-#3129 digest. */
 	const ruleFiles = new Set(ruleFilesOf(rel, code));
 	const libs = rel.endsWith(".js")
 		? readComposed(snap, rel, code, ruleFiles)
 		: new Map();
 	prefetch(snap, ruleFiles);
-	return { code, libs, ruleFiles: [...ruleFiles], snap };
+	return { code, libs, ruleFiles: [...ruleFiles] };
 }
 
 /**
@@ -522,7 +585,7 @@ function readInputs(root, rel, rev, opts) {
  * @param {Snapshot} snap
  * @param {string} rel
  * @param {string | Buffer} code `rel`'s, as codeOf gives it
- * @param {Set<string>} ruleFiles
+ * @param {Set<string>} ruleFiles accumulator: the digest's rule files
  * @returns {Map<string, string | Buffer | null>}
  */
 function readComposed(snap, rel, code, ruleFiles) {
@@ -532,8 +595,7 @@ function readComposed(snap, rel, code, ruleFiles) {
 	/** @type {Map<string, string | Buffer | null>} */
 	const libs = new Map();
 	for (const lib of composed) {
-		const libBytes = readAt(snap, lib);
-		const libCode = libBytes === null ? null : codeOf(lib, libBytes);
+		const libCode = readCode(snap, lib);
 		libs.set(lib, libCode);
 		if (libCode !== null)
 			for (const file of ruleFilesOf(lib, libCode)) ruleFiles.add(file);
@@ -555,7 +617,18 @@ function readComposed(snap, rel, code, ruleFiles) {
  * @returns {string | null}
  */
 function digestOf(root, rel, rev, opts) {
-	const inputs = readInputs(root, rel, rev, opts);
+	return digestAt(readSnapshot(root, rev ?? "HEAD", opts), rel);
+}
+
+/**
+ * digestOf in `snap`.
+ *
+ * @param {Snapshot} snap
+ * @param {string} rel
+ * @returns {string | null}
+ */
+function digestAt(snap, rel) {
+	const inputs = readInputs(snap, rel);
 	if (inputs === null) return null;
 	const hash = crypto.createHash("sha256").update(inputs.code);
 	for (const [lib, code] of inputs.libs)
@@ -564,32 +637,8 @@ function digestOf(root, rel, rev, opts) {
 	 * that is absent hashes as a marker, not BROKEN: the guard then prints its
 	 * fallback, and adding the file moves the digest. */
 	for (const file of inputs.ruleFiles)
-		hash.update(`\0${file}\0`).update(readAt(inputs.snap, file) ?? "\0absent");
+		hash.update(`\0${file}\0`).update(readAt(snap, file) ?? "\0absent");
 	return hash.digest("hex").slice(0, 16);
-}
-
-/**
- * Which of `rels` compose each lib or name each rule file at `rev`: the
- * guards a commit to that file expires.
- *
- * @param {string} root
- * @param {string[]} rels
- * @param {string} [rev]
- * @param {CensusReadOpts} [opts] as readCommittedBytes takes it
- * @returns {Map<string, string[]>}
- */
-function inputReaders(root, rels, rev, opts) {
-	/** @type {Map<string, string[]>} */
-	const readers = new Map();
-	for (const rel of rels) {
-		const inputs = readInputs(root, rel, rev, opts);
-		for (const file of [
-			...(inputs?.libs.keys() ?? []),
-			...(inputs?.ruleFiles ?? []),
-		])
-			readers.set(file, [...(readers.get(file) ?? []), rel]);
-	}
-	return readers;
 }
 
 /**
@@ -605,15 +654,49 @@ function inputReaders(root, rels, rev, opts) {
  * @returns {(file: string) => string[]}
  */
 function guardsChangedBy(root, rels, rev, opts) {
+	return guardsChangedAt(() => readSnapshot(root, rev ?? "HEAD", opts), rels);
+}
+
+/**
+ * guardsChangedBy in the snapshot `snapOf` gives.
+ *
+ * @param {() => Snapshot} snapOf
+ * @param {string[]} rels
+ * @returns {(file: string) => string[]}
+ */
+function guardsChangedAt(snapOf, rels) {
 	const anchored = new Set(rels);
 	/** @type {Map<string, string[]> | undefined} */
 	let readers;
 	return (file) => {
 		if (anchored.has(file)) return [file];
 		if (!file.startsWith(`${RULES_DIR}/`) && !LIB_PATH_RE.test(file)) return [];
-		readers ??= inputReaders(root, rels, rev, opts);
+		readers ??= inputReaders(snapOf(), rels);
 		return readers.get(file) ?? [];
 	};
+}
+
+/**
+ * Which of `rels` compose each lib or name each rule file in `snap`: the
+ * guards a commit to that file expires.
+ *
+ * @param {Snapshot} snap
+ * @param {string[]} rels
+ * @returns {Map<string, string[]>}
+ */
+function inputReaders(snap, rels) {
+	prefetchReach([[snap, rels]]);
+	/** @type {Map<string, string[]>} */
+	const readers = new Map();
+	for (const rel of rels) {
+		const inputs = readInputs(snap, rel);
+		for (const file of [
+			...(inputs?.libs.keys() ?? []),
+			...(inputs?.ruleFiles ?? []),
+		])
+			readers.set(file, [...(readers.get(file) ?? []), rel]);
+	}
+	return readers;
 }
 
 /**
@@ -676,24 +759,47 @@ function readRowsExpiredByTicket(
 		RULES_DIR,
 		...libDirsOf(rels),
 	]);
-	const guardsOf = guardsChangedBy(root, rels, undefined, { ceiling });
+	/** @type {Snapshot | undefined} */
+	let head;
+	const headSnap = () => {
+		head ??= readSnapshot(root, "HEAD", { ceiling });
+		return head;
+	};
+	const guardsOf = guardsChangedAt(headSnap, rels);
+	/* Each commit's guards with its parent's and its own snapshot. */
+	const commits = log
+		.split("\0")
+		.slice(1)
+		.flatMap((entry) => {
+			const [sha, ...files] = entry.split("\n").filter(Boolean);
+			const touched = [...new Set(files.flatMap(guardsOf))];
+			if (sha === undefined || touched.length === 0) return [];
+			return [
+				{
+					touched,
+					before: readSnapshot(root, `${sha}^`, { disk: false, ceiling }),
+					after: readSnapshot(root, sha, { ceiling }),
+				},
+			];
+		});
+	if (commits.length === 0) return [];
+	const reached = [...new Set(commits.flatMap((c) => c.touched))];
+	prefetchReach([
+		...commits.flatMap(({ touched, before, after }) => [
+			/** @type {[Snapshot, string[]]} */ ([before, touched]),
+			/** @type {[Snapshot, string[]]} */ ([after, touched]),
+		]),
+		[headSnap(), reached],
+	]);
 	/** @type {Set<string>} */
 	const changed = new Set();
-	for (const entry of log.split("\0").slice(1)) {
-		const [sha, ...files] = entry.split("\n").filter(Boolean);
-		for (const rel of files.flatMap(guardsOf)) {
-			if (changed.has(rel)) continue;
-			if (
-				digestOf(root, rel, `${sha}^`, { disk: false, ceiling }) !==
-				digestOf(root, rel, sha, { ceiling })
-			)
+	for (const { touched, before, after } of commits)
+		for (const rel of touched)
+			if (!changed.has(rel) && digestAt(before, rel) !== digestAt(after, rel))
 				changed.add(rel);
-		}
-	}
 	return rels.filter(
 		(rel) =>
-			changed.has(rel) &&
-			digestOf(root, rel, undefined, { ceiling }) !== guards[rel]?.digest,
+			changed.has(rel) && digestAt(headSnap(), rel) !== guards[rel]?.digest,
 	);
 }
 

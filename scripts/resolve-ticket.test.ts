@@ -588,6 +588,55 @@ describe("census rows the ticket's commits expired (#1876)", () => {
 		untouched();
 	});
 
+	it("names each row the ticket's commits expired, one through a rule file its core's deeper lib names (#3411)", () => {
+		setUp({ parentLabels: null });
+		const core = "scripts/lib/four.js";
+		const write = (rel: string, body: string) => {
+			fs.mkdirSync(path.dirname(path.join(sb.repo, rel)), { recursive: true });
+			fs.writeFileSync(path.join(sb.repo, rel), body);
+		};
+		gitRepo(sb);
+		writeGuard("#!/bin/sh\necho rule one\n");
+		write(core, "module.exports = { decide: () => null };\n");
+		write(
+			"scripts/lib/four-host.js",
+			'const { refusal } = require("./deeper");\nmodule.exports = { buildHostPorts: () => ({ refusal }) };\n',
+		);
+		write(
+			"scripts/lib/deeper.js",
+			'module.exports = { refusal: () => readRuleTextOr("deep") };\n',
+		);
+		write(
+			"scripts/lib/guard-cores.json",
+			JSON.stringify({
+				PreToolUse: [{ name: "four", core: "four.js", host: "four-host.js" }],
+			}),
+		);
+		write("docs/agents/rules/deep.txt", "Deep.\n");
+		commitAll(sb, "seed");
+		write(
+			"scripts/instruction-surface-anchors.json",
+			JSON.stringify({
+				guards: Object.fromEntries(
+					[guardRel, core].map((rel) => [
+						rel,
+						{ digest: digestOf(sb.repo, rel), verdict: "v" },
+					]),
+				),
+			}),
+		);
+		commitAll(sb, "anchor");
+		writeGuard("#!/bin/sh\necho rule one, reworded\n");
+		commitAll(sb, "Reword the guard (#534)");
+		write("docs/agents/rules/deep.txt", "Deep, reworded.\n");
+		commitAll(sb, "Reword the deep rule (#534)");
+		const r = run([]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`  ${guardRel}\n`);
+		expect(r.stderr).toContain(`  ${core}\n`);
+		untouched();
+	});
+
 	it("passes where the ticket's commit only cut comments", () => {
 		setUp({ parentLabels: null });
 		anchored();
