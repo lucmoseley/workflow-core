@@ -69,6 +69,7 @@ const CHECKERS = {
 	"skill-frontmatter": path.join(CORE_SCRIPTS, "check-skill-frontmatter.js"),
 	"jsonl-reads": path.join(CORE_SCRIPTS, "check-jsonl-reads.js"),
 	"cli-args": path.join(CORE_SCRIPTS, "check-cli-args.js"),
+	"test-spawn": path.join(CORE_SCRIPTS, "check-test-spawn.js"),
 };
 
 const CHECK_DOC_MAP = path.join(CORE_SCRIPTS, "check-doc-map.js");
@@ -165,6 +166,11 @@ const COSTS = {
 		why: "every top-level script's argv reader, direction-gated in .husky/pre-commit (#920)",
 		cost: "refuses every other session's commit that edits that script until it parses its argv strictly",
 		full: "node scripts/check-cli-args.js",
+	},
+	"test-spawn": {
+		why: "every test's spawn of node on the program under test, direction-gated in .husky/pre-commit (#3458)",
+		cost: "refuses every other session's commit that edits that spawn's line until it runs in-process or states why",
+		full: "node scripts/check-test-spawn.js",
 	},
 	registrations: {
 		why: "a host's own hooks, guards and checkers, direction-gated in .husky/pre-commit (#1456)",

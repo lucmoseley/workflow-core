@@ -213,6 +213,10 @@
 			"lines": ["primitives table fault(s)"]
 		},
 		{
+			"id": "test-spawn",
+			"lines": ["spawns node on the program under test"]
+		},
+		{
 			"id": "doc-map",
 			"lines": [
 				{

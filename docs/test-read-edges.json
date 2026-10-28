@@ -4378,6 +4378,23 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/check-test-spawn.js": [
+			"scripts/check-test-spawn.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
+		],
+		"scripts/check-test-spawn.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/check-ticket-criteria.js": [
 			"scripts/check-ticket-criteria.test.ts",
 			"scripts/checker-registrations.test.ts",
