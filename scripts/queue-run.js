@@ -33,7 +33,9 @@
  * never behind a suite, and its gate counts `tsc` off `ps`, so an unwrapped
  * one holds it too. A command the classifier reads as a suite is refused.
  * Under lib/tsc-slot.js's TSC_NO_WAIT_ENV it tries the slot once and exits
- * TSC_BUSY_EXIT, running nothing, where it is held (#3278).
+ * TSC_BUSY_EXIT, running nothing, where it is held (#3278). Its command
+ * gets its marker in TSC_SLOT_ENV, and a `--tsc` launch inside that command's
+ * process tree runs at once, in the slot it already holds (#3404).
  */
 
 const { spawn } = require("node:child_process");
@@ -57,6 +59,7 @@ const { isQueueable, suiteLaunchKind } = require("./lib/suite-launch.js");
 const {
 	QUEUE_SIGNALS,
 	SEAT_ENV,
+	heldMarker,
 	queueJoin,
 	queueLeave,
 	queueStamps,
@@ -69,6 +72,7 @@ const {
 	TSC_BUSY_EXIT,
 	TSC_NO_WAIT_ENV,
 	TSC_RUNG_MB,
+	TSC_SLOT_ENV,
 	defaultTscQueueDir,
 	tscDenial,
 } = require("./lib/tsc-slot.js");
@@ -185,7 +189,7 @@ function refusalOf(words, slot) {
 
 /**
  * @typedef {{ write: (s: string) => unknown }} Out
- * @typedef {import("./lib/suite-queue.js").QueuedLaunchOptions & {
+ * @typedef {import("./lib/suite-queue.js").QueuedLaunchOptions & Parameters<typeof heldMarker>[1] & {
  *   spawnFn?: typeof spawn,
  *   signals?: { on: (signal: NodeJS.Signals, fn: () => void) => unknown },
  *   exit?: (code: number) => void,
@@ -223,6 +227,10 @@ const waitOn = (gate) => (/** @type {Stamps} */ stamps) => ({
 });
 
 const refusedRun = () => 1;
+
+/* The variable a slot hands its command, naming its marker (#2918, #3404). */
+/** @type {Record<"seat" | "tsc", string>} */
+const SLOT_ENVS = { seat: SEAT_ENV, tsc: TSC_SLOT_ENV };
 
 /**
  * A `--tsc` try's wait under TSC_NO_WAIT_ENV (#3278): the gate's first answer
@@ -334,7 +342,20 @@ async function main(argv, options = {}) {
 		err.write(`${LABEL}: not queued — ${why}\n`);
 		return 2;
 	}
+	return run(words, slot, options, err);
+}
 
+/**
+ * Wait in the slot's queue, then run the command, holding the marker until it
+ * exits.
+ *
+ * @param {string[]} words
+ * @param {Slot} slot
+ * @param {Options} options
+ * @param {Out} err
+ * @returns {Promise<number>}
+ */
+async function run(words, slot, options, err) {
 	const logExit = queueExitLogger({
 		file:
 			options.queueLog === undefined
@@ -347,12 +368,15 @@ async function main(argv, options = {}) {
 		err,
 	});
 
+	/* A `--tsc` launch inside a `--tsc` command's process tree: its slot is
+	 * held already, and queueing would wait behind it forever (#3404). */
+	const held = slot === "tsc" && heldMarker(TSC_SLOT_ENV, options) !== null;
 	const { queue, join, wait, refused } = slotWait(slot, options);
-	const ticket = queueJoin(join);
+	const ticket = held ? "" : queueJoin(join);
 	const started = Date.now();
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
-	let waiting = true;
+	let waiting = !held;
 	/** @type {(code: number) => void} */
 	let finish = () => {
 		/* replaced as `done` is built */
@@ -384,26 +408,29 @@ async function main(argv, options = {}) {
 		signals.on(name, () => onSignal(name, code));
 	}
 
-	const { turn, exitFields } = passingTurn(queue);
-	const outcome = await waitForGate({
-		turn,
-		label: LABEL,
-		...queue,
-		...wait(queueStamps(ticket, queue)),
-		onExit: (reason, waitMs, heldBy) => {
-			waiting = false;
-			logExit(reason, waitMs, exitFields(reason, heldBy));
-		},
-	});
-	if (outcome === "refused") {
-		finish(refused(err));
-		return done;
+	if (!held) {
+		const { turn, exitFields } = passingTurn(queue);
+		const outcome = await waitForGate({
+			turn,
+			label: LABEL,
+			...queue,
+			...wait(queueStamps(ticket, queue)),
+			onExit: (reason, waitMs, heldBy) => {
+				waiting = false;
+				logExit(reason, waitMs, exitFields(reason, heldBy));
+			},
+		});
+		if (outcome === "refused") {
+			finish(refused(err));
+			return done;
+		}
 	}
 
 	const [command = "", ...args] = words;
+	const handed = held || !slot ? null : SLOT_ENVS[slot];
 	const running = (options.spawnFn ?? spawn)(command, args, {
 		stdio: "inherit",
-		...(slot === "seat" ? { env: { ...process.env, [SEAT_ENV]: ticket } } : {}),
+		...(handed ? { env: { ...process.env, [handed]: ticket } } : {}),
 	});
 	child = running;
 	running.once("spawn", () => queueSpawned(ticket, queue));

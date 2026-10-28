@@ -4,8 +4,9 @@
  * other non-vitest runners. The gate, the turn, the spawn and the signals are
  * injected, those being shapes a real process cannot stage without a loaded
  * machine (§X3); the markers and the exit log are real files in a scratch
- * directory, and the classifier is the real lib/suite-launch.js. One case
- * runs the program itself, on a refusal, which queues nothing.
+ * directory, and the classifier is the real lib/suite-launch.js. Two cases
+ * run the program itself: a refusal, which queues nothing, and a `--tsc`
+ * launch nested in its own command (#3404).
  * In the world, a wrong verdict runs a fourth suite past the cap, strands a
  * waiter's marker so later waiters queue behind nothing, or leaves its wait
  * out of the daily queue-wait figure.
@@ -352,10 +353,12 @@ describe("queue-run.js", () => {
 			"WFC_MEMINFO",
 			"TMPDIR",
 			"WFC_TSC_NO_WAIT",
+			"WFC_TSC_SLOT",
 		] as const;
 		const saved: Partial<Record<(typeof envKeys)[number], string>> = {};
 		beforeEach(() => {
 			for (const k of envKeys) saved[k] = process.env[k];
+			delete process.env.WFC_TSC_SLOT;
 		});
 		afterEach(() => {
 			for (const k of envKeys)
@@ -538,6 +541,113 @@ describe("queue-run.js", () => {
 			expect(fs.readdirSync(path.join(f.dir, "wfc-tsc-queue"))).toEqual([
 				`wfc-suite-queue-${process.pid}.json`,
 			]);
+		});
+
+		describe("nested in a `--tsc` launch's own command (#3404)", () => {
+			const marker = (dir: string, pid: number) => {
+				const file = path.join(dir, `wfc-suite-queue-${pid}.json`);
+				fs.writeFileSync(
+					file,
+					JSON.stringify({ pid, at: 0, admitted: true, spawned: true }),
+				);
+				return file;
+			};
+
+			it("hands its command its marker in WFC_TSC_SLOT", async () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				main(typecheck, own(f));
+				await tick();
+				expect(f.spawned[0].opts.env?.WFC_TSC_SLOT).toBe(
+					path.join(f.dir, `wfc-suite-queue-${process.pid}.json`),
+				);
+			});
+
+			it("runs at once where its ancestor's marker is not yet stamped spawned", async () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				const outer = path.join(f.dir, "wfc-suite-queue-20.json");
+				fs.writeFileSync(
+					outer,
+					JSON.stringify({ pid: 20, at: 0, admitted: true }),
+				);
+				main(
+					typecheck,
+					own(f, {
+						env: { WFC_TSC_SLOT: outer },
+						pid: 30,
+						parentOf: () => 20,
+						alive: () => true,
+					}),
+				);
+				await tick();
+				expect(f.spawned).toHaveLength(1);
+			});
+
+			it("runs at once, joining no queue, where an ancestor holds the slot", async () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				const outer = marker(f.dir, 20);
+				/* 40 → 30 → 20: the launch is 40, the slot's holder 20. */
+				const code = main(
+					typecheck,
+					own(f, {
+						env: { WFC_TSC_SLOT: outer },
+						pid: 40,
+						parentOf: (pid: number) => (pid > 10 ? pid - 10 : 1),
+						alive: () => true,
+					}),
+				);
+				await tick();
+				expect(f.spawned).toHaveLength(1);
+				expect(f.spawned[0].opts.env).toBeUndefined();
+				expect(f.readMarkers()).toEqual(["wfc-suite-queue-20.json"]);
+				f.spawned[0].child.emit("spawn");
+				f.spawned[0].child.emit("exit", 4, null);
+				expect(await code).toBe(4);
+				expect(f.readMarkers()).toEqual(["wfc-suite-queue-20.json"]);
+				expect(f.readLog()).toEqual([]);
+			});
+
+			it("still waits behind another session's admitted ticket its variable names", async () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				const other = marker(f.dir, 999_999);
+				main(
+					typecheck,
+					own(f, { env: { WFC_TSC_SLOT: other }, alive: () => true }),
+				);
+				await tick();
+				expect(f.spawned).toEqual([]);
+				expect(f.readMarkers()).toHaveLength(2);
+			});
+
+			it("as a program, runs `queue-run.js --tsc` inside its own command once and exits", () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				/* A spawn, not run-in-process (§X3): two processes run at once,
+				 * the nested one's ancestry being the real process tree. */
+				const inner = `node ${PROGRAM} --tsc -- node -e "process.exit(7)"`;
+				const { WFC_TSC_SLOT: _held, ...env } = process.env;
+				const r = spawnSync(
+					"node",
+					[PROGRAM, "--tsc", "--", "sh", "-c", inner],
+					{
+						encoding: "utf8",
+						/* A deadlock never exits; the bound fails it rather than hang
+						 * the suite. 20 s is far above the ~0.5 s a pass takes. */
+						timeout: 20_000,
+						env: {
+							...env,
+							TMPDIR: f.dir,
+							CLAUDE_PROJECT_DIR: f.dir,
+							CLAUDE_CONFIG_DIR: path.join(f.dir, "config"),
+						},
+					},
+				);
+				expect(r.status).toBe(7);
+				expect(fs.readdirSync(path.join(f.dir, "wfc-tsc-queue"))).toEqual([]);
+			});
 		});
 
 		it.each([["npm run test"], ["pytest"]])(

@@ -320,30 +320,31 @@ function readLiveRoleMarkers(
  * (#2918). */
 const SEAT_ENV = "WFC_SUITE_SEAT";
 /**
- * The part-suite seat this process runs inside (#2918): the marker `SEAT_ENV`
- * names, where it is a live part marker, spawned, whose pid is an ancestor of
- * `pid`. Null otherwise, and the run then queues as any other.
+ * The marker `envName` names where this process runs inside its holder: a
+ * live marker whose pid is an ancestor of `pid`. Null otherwise. Unstamped
+ * `spawned` counts: the holder spawns its command only once admitted, and the
+ * stamp may land after a fast command reads it (#3404).
  *
  * THE ANCESTRY IS THE CHECK, not the variable: an environment leaks into any
  * process its holder starts, so a variable alone would let a run outside the
- * seat's process tree skip the queue.
+ * holder's process tree skip the queue.
  *
- * Residual: the seat is priced as one part-suite, but nothing counts the runs
- * inside it, so a driver running its mutants in parallel passes the count cap
- * with only the memory rung to hold it.
- *
+ * @param {string} envName
  * @param {{ env?: NodeJS.ProcessEnv, queueFs?: typeof fs, pid?: number, alive?: (pid: number) => boolean, startTime?: (pid: number) => number, parentOf?: (pid: number) => number }} [options]
- * @returns {string | null}
+ * @returns {{ file: string, record: QueueRecord } | null}
  */
-function heldSeat({
-	env = process.env,
-	queueFs = fs,
-	pid = process.pid,
-	alive = pidAlive,
-	startTime = readStartTimeOf,
-	parentOf = readParentOf,
-} = {}) {
-	const file = env[SEAT_ENV];
+function heldMarker(
+	envName,
+	{
+		env = process.env,
+		queueFs = fs,
+		pid = process.pid,
+		alive = pidAlive,
+		startTime = readStartTimeOf,
+		parentOf = readParentOf,
+	} = {},
+) {
+	const file = env[envName];
 	if (!file) return null;
 	/** @type {QueueRecord} */
 	let record;
@@ -352,9 +353,29 @@ function heldSeat({
 	} catch {
 		return null;
 	}
-	if (record?.part !== true || record.spawned !== true) return null;
-	if (isMarkerStale(record, { alive, startTime })) return null;
-	return readAncestorsOf(pid, { parentOf }).includes(record.pid) ? file : null;
+	if (!record || isMarkerStale(record, { alive, startTime })) return null;
+	return readAncestorsOf(pid, { parentOf }).includes(record.pid)
+		? { file, record }
+		: null;
+}
+
+/**
+ * The part-suite seat this process runs inside (#2918): the marker `SEAT_ENV`
+ * names, where `heldMarker` holds it and it is a part marker, spawned. Null otherwise,
+ * and the run then queues as any other.
+ *
+ * Residual: the seat is priced as one part-suite, but nothing counts the runs
+ * inside it, so a driver running its mutants in parallel passes the count cap
+ * with only the memory rung to hold it.
+ *
+ * @param {Parameters<typeof heldMarker>[1]} [options]
+ * @returns {string | null}
+ */
+function heldSeat(options = {}) {
+	const held = heldMarker(SEAT_ENV, options);
+	return held?.record.part === true && held.record.spawned === true
+		? held.file
+		: null;
 }
 
 /** @param {string} file */
@@ -754,6 +775,7 @@ module.exports = {
 	PART_PASS_AGE_MS,
 	QUEUE_SIGNALS,
 	SEAT_ENV,
+	heldMarker,
 	heldSeat,
 	defaultQueueDir,
 	readStartTimeOf,

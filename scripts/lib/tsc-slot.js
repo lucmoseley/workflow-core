@@ -35,6 +35,13 @@ const TSC_MAX = 1;
 const TSC_NO_WAIT_ENV = "WFC_TSC_NO_WAIT";
 const TSC_BUSY_EXIT = 75;
 
+/* The environment variable a `--tsc` launch hands its command: its marker's
+ * path, so a `--tsc` launch inside that command's process tree runs in the
+ * slot it holds rather than queue behind it (#3404).
+ * Residual: nothing counts the `tsc` runs inside the slot, so a command that
+ * starts two in parallel passes TSC_MAX and the rung. */
+const TSC_SLOT_ENV = "WFC_TSC_SLOT";
+
 /** @returns {string} */
 function defaultTscQueueDir() {
 	return path.join(os.tmpdir(), "wfc-tsc-queue");
@@ -92,6 +99,7 @@ module.exports = {
 	TSC_BUSY_EXIT,
 	TSC_NO_WAIT_ENV,
 	TSC_RUNG_MB,
+	TSC_SLOT_ENV,
 	defaultTscQueueDir,
 	tscDenial,
 	isTscLaunch,
