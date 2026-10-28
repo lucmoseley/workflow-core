@@ -824,7 +824,7 @@ describe("the guard-registry document (#2033)", () => {
 		expect(r.json.findings[0]?.file).toBe(registryDoc);
 	});
 
-	it("fails when it has lost its region, CLAUDE.md keeping its own", () => {
+	it("fails when it has lost its region, CLAUDE.md keeping its own, naming the registry document", () => {
 		const root = build({
 			claude: region(
 				"- Show the diff before committing. **Unenforceable**: nobody can see it.",

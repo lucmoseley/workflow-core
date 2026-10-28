@@ -473,10 +473,9 @@ function acceptance(task, root) {
 		.split("\n")
 		.filter(Boolean)
 		.map((l) => {
+			// A url-less remote is the session's own doing: a failed check, named.
 			const [name, url] = l.split(/\s+/);
-			if (url === undefined)
-				throw new Error(`git remote -v line with no url: ${name}`);
-			return url;
+			return url || `${name} (no url)`;
 		});
 	const foreign = remotes.filter(
 		(url) => !fs.existsSync(url) || fs.realpathSync(url) !== origin,
