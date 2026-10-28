@@ -427,7 +427,7 @@
 			"source": "#1604"
 		},
 		"scripts/lib/blind-dispatch.js": {
-			"digest": "ebaa97f2d6877c9e",
+			"digest": "16e34bdf7ae7928d",
 			"verdict": "at need — refuses the dispatch before the subagent takes its snapshot, on \"blind\" in prompt or description (\"blind spot\" excepted); a stale `Blind-checked:` sha is refused with the subjects landed since, an unknown one with the full snapshot, a fork outright; Explore, Plan and a CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS child pass. A blind dispatch that never says \"blind\" is unseen. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes for the common route — the branch, five subjects and status the subagent would read, the judgement to make, and the literal `Blind-checked: <HEAD>` line to add; the no-snapshot recipe is a pointer to docs/agents/blind-dispatch.md",
 			"source": "#2791"
