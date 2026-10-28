@@ -33,6 +33,10 @@
  * each incident with its ticket — read once from this machine's journal
  * (lib/earlyoom-kills.js), not per repo.
  *
+ * CONCURRENCY (#3321): the 24-hour and 7-day readouts of lib/concurrency.js,
+ * the core `npm run status` renders from, over the refill loop's tick record
+ * and memwatch's minute record.
+ *
  * REVERSALS (#2017): every run then answers each unanswered `reverse <n>`
  * comment on a review issue open or closed in the last RECENTLY_CLOSED_MS —
  * lib/review-reversal.js — filing a `takes:implement` ticket in the entry's
@@ -58,6 +62,7 @@ const { caught } = require("./lib/caught.js");
 const { fileThrough } = require("./lib/file-through.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readLedger } = require("./lib/delegated-decision.js");
+const concurrency = require("./lib/concurrency.js");
 const kills = require("./lib/earlyoom-kills.js");
 const review = require("./lib/morning-review.js");
 const reversal = require("./lib/review-reversal.js");
@@ -228,6 +233,20 @@ function readKills(tracker, since) {
 }
 
 /**
+ * The concurrency readouts over each review window ending `now`.
+ * @param {number} now
+ * @returns {import("./lib/morning-review.js").ConcurrencyReading}
+ */
+function readConcurrency(now) {
+	const records = concurrency.readRecords();
+	const { day, week } = review.CONCURRENCY_WINDOWS;
+	return {
+		day: concurrency.readout({ ...records, now, windowMs: day.ms }),
+		week: concurrency.readout({ ...records, now, windowMs: week.ms }),
+	};
+}
+
+/**
  * One checkout's open `urgent` issues, each with when its timeline last
  * records the label applied and why pick-next's last run there left it
  * unlaunched (#2693). An issue whose application date will not read is
@@ -367,6 +386,7 @@ function fileReview(tracker, dryRun) {
 		repos: read.flatMap((r) => (r.reading ? [r.reading] : [])),
 		failed: read.flatMap((r) => r.unread),
 		kills: readKills(tracker, since),
+		concurrency: readConcurrency(now.getTime()),
 	});
 
 	if (dryRun) {

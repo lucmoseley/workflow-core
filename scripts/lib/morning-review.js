@@ -14,12 +14,18 @@
 
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
+const { NONE, SPREAD_CAP } = require("./concurrency.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 const DAY_MS = 24 * 60 * 60 * 1000;
 /* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
  * unmeasured. */
 const STUCK_URGENT_DAYS = 7;
+/* The concurrency section's two readout windows; untraced (#3315). */
+const CONCURRENCY_WINDOWS = {
+	day: { ms: DAY_MS, span: "24 h" },
+	week: { ms: 7 * DAY_MS, span: "7 days" },
+};
 /* Untraced: spec #1995's "first tick after 07:00", machine-local. */
 const REVIEW_HOUR = 7;
 
@@ -72,9 +78,13 @@ function oneWayDoor(comments) {
  *   RepoReading the repo's ledger, its closes, its open stall ticket
  *   (lib/stall-ticket.js, #2692), its urgent issues and its parked ones
  * @typedef {{since: string, now: string, previous: number | null,
- *   repos: RepoReading[], failed: Unread[],
- *   kills: KillReading}} Reading the machine's earlyoom kills are read once,
- *   not per repo (#3094)
+ *   repos: RepoReading[], failed: Unread[], kills: KillReading,
+ *   concurrency: ConcurrencyReading}} Reading the machine's earlyoom kills
+ *   and its concurrency are read once, not per repo (#3094, #3321)
+ * @typedef {ReturnType<typeof import("./concurrency.js").readout>} Readout
+ * @typedef {Record<keyof typeof CONCURRENCY_WINDOWS, Readout>}
+ *   ConcurrencyReading the readout core's readout over each window, all
+ *   ending at the review's `now`
  * @typedef {{incidents: import("./earlyoom-kills.js").Incident[],
  *   tickets: Map<string, number> | string, why: string | null}} KillReading
  *   the incidents with a kill in the window, their tickets by title or why
@@ -157,11 +167,75 @@ function renderKillLines({ incidents, tickets, why }, lo, hi) {
 	];
 }
 
+/** @param {number} h */
+const hours = (h) => `${h.toFixed(1)} h`;
+
+/** @param {Readout} r @param {string} span */
+const sustainedText = (r, span) =>
+	r.sustained === null
+		? `no session recorded working over the last ${span}`
+		: `${r.sustained.toFixed(1)} over the last ${span} (${hours(r.activeHours)} with any session working)`;
+
+/**
+ * The "Concurrency" lines, every figure as lib/concurrency.js's readout gives
+ * it: the sustained figures, the last tick's ceiling, the day's working hours
+ * by the limit binding then, and how many sessions worked across them.
+ * @param {ConcurrencyReading} c
+ * @returns {string[]}
+ */
+function renderConcurrencyLines({ day, week }) {
+	const t = day.lastTick;
+	const charged = Object.entries(day.hours)
+		.sort(([, a], [, b]) => b - a)
+		.map(
+			([limit, h]) =>
+				`- ${limit === NONE ? "nothing (a slot was free)" : limit}: ${hours(h)}`,
+		);
+	const spread = Object.entries(day.spread)
+		.sort(([a], [b]) => Number(a) - Number(b))
+		.map(
+			([n, share]) =>
+				`- ${Number(n) === SPREAD_CAP ? `${n} or more` : n} working: ${Math.round(share * 100)}%`,
+		);
+	return [
+		"Sustained concurrency, the founder's own sessions counted:",
+		"",
+		`- ${sustainedText(day, CONCURRENCY_WINDOWS.day.span)}`,
+		`- ${sustainedText(week, CONCURRENCY_WINDOWS.week.span)}`,
+		"",
+		t
+			? `Admission ceiling: ${t.ceiling ?? "unread"} at the last refill-loop tick (${t.at}).`
+			: "Admission ceiling: no refill-loop tick recorded.",
+		"",
+		...(charged.length === 0
+			? [
+					`No session worked over the last ${CONCURRENCY_WINDOWS.day.span}, so no hours to charge or spread.`,
+				]
+			: [
+					`Hours with any session working over the last ${CONCURRENCY_WINDOWS.day.span}, by the limit binding then:`,
+					"",
+					...charged,
+					"",
+					"Share of those hours by how many sessions were working:",
+					"",
+					...spread,
+				]),
+	];
+}
+
 /**
  * @param {Reading} r
  * @returns {string}
  */
-function renderReview({ since, now, previous, repos, failed, kills }) {
+function renderReview({
+	since,
+	now,
+	previous,
+	repos,
+	failed,
+	kills,
+	concurrency,
+}) {
 	const lo = Date.parse(since);
 	const hi = Date.parse(now);
 	/** @param {string} at */
@@ -258,6 +332,10 @@ function renderReview({ since, now, previous, repos, failed, kills }) {
 		"",
 		...renderKillLines(kills, lo, hi),
 		"",
+		"## Concurrency",
+		"",
+		...renderConcurrencyLines(concurrency),
+		"",
 		"## Parked",
 		"",
 		"Open issues labelled `parked`, with how long each has been parked:",
@@ -321,6 +399,7 @@ function parseEntries(body) {
 }
 
 module.exports = {
+	CONCURRENCY_WINDOWS,
 	REVIEW_HOUR,
 	commentLink,
 	localDate,

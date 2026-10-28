@@ -160,6 +160,8 @@ const run = (argv: string[] = []) =>
 			CLAUDE_PROJECT_DIR: wfc(),
 			STUB_DIR: path.join(sb.dir, "gh"),
 			WFC_JOURNALCTL: stub("journalctl"),
+			WFC_REFILL_DIR: path.join(sb.dir, "refill"),
+			MEMWATCH_MINUTE_LOG: path.join(sb.dir, "refill", "memwatch-minute.jsonl"),
 		},
 	});
 
@@ -204,6 +206,72 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(second.status).toBe(0);
 		expect(second.stdout).toContain("is today's review issue already");
 		expect(readCreated()).toHaveLength(1);
+	});
+
+	it("files the concurrency section from the refill loop's ticks and memwatch's minutes (#3321)", () => {
+		seed([]);
+		/* One base instant, so a minute line and its paired tick share a time. */
+		const base = Date.now();
+		const at = (min: number) =>
+			new Date(base - (min / 60) * HOUR).toISOString();
+		const lines = (rows: object[]) =>
+			`${rows.map((r) => JSON.stringify(r)).join("\n")}\n`;
+		fs.mkdirSync(path.join(sb.dir, "refill"), { recursive: true });
+		/* Three days ago: 25 minutes at 6, inside the week only. Then the last
+		 * hour: 30 minutes at 2, then 30 at 4. */
+		fs.writeFileSync(
+			path.join(sb.dir, "refill", "memwatch-minute.jsonl"),
+			lines([
+				{ ts: at(72 * 60), sessions: 6 },
+				{ ts: at(72 * 60 - 10), sessions: 6 },
+				...[60, 50, 40].map((m) => ({ ts: at(m), sessions: 2 })),
+				...[30, 20, 10].map((m) => ({ ts: at(m), sessions: 4 })),
+			]),
+		);
+		const tick = (min: number, binding: object | null, ceiling: number) => ({
+			at: at(min),
+			working: 4,
+			ceiling,
+			binding,
+			also: [],
+			memory: null,
+		});
+		const memory = { limit: "memory", why: "the spare pool holds most" };
+		const last = tick(10, null, 6);
+		fs.writeFileSync(
+			path.join(sb.dir, "refill", "concurrency.jsonl"),
+			lines([
+				...[60, 50, 40, 30].map((m) => tick(m, memory, 4)),
+				tick(20, null, 6),
+				last,
+			]),
+		);
+		expect(run().status).toBe(0);
+		const [issue] = readCreated();
+		expect(issue.body).toContain(
+			[
+				"## Concurrency",
+				"",
+				"Sustained concurrency, the founder's own sessions counted:",
+				"",
+				"- 3.0 over the last 24 h (1.0 h with any session working)",
+				"- 3.9 over the last 7 days (1.4 h with any session working)",
+				"",
+				`Admission ceiling: 6 at the last refill-loop tick (${last.at}).`,
+				"",
+				"Hours with any session working over the last 24 h, by the limit binding then:",
+				"",
+				"- memory: 0.7 h",
+				"- nothing (a slot was free): 0.3 h",
+				"",
+				"Share of those hours by how many sessions were working:",
+				"",
+				"- 2 working: 50%",
+				"- 4 working: 50%",
+				"",
+				"## Parked",
+			].join("\n"),
+		);
 	});
 
 	it("files nothing when today's review issue is already closed", () => {

@@ -14,6 +14,7 @@ const {
 	buildReviewTitle,
 } = require("./morning-review.js");
 const { basisFaults } = require("./issue-gate.js");
+const { readout } = require("./concurrency.js");
 const { titleFirstLinks } = require("./title-first-links.js");
 
 const SINCE = "2026-10-17T07:00:00Z";
@@ -40,6 +41,15 @@ const closed = (number: number, closedAt: string, door?: string) => ({
 	],
 });
 
+const MIN = 60 * 1000;
+
+/** The readout core's 24-hour and 7-day readouts ending at NOW. */
+const concurrencyOver = (ticks: unknown[], minutes: unknown[]) => {
+	const r = (windowMs: number) =>
+		readout({ ticks, minutes, now: Date.parse(NOW), windowMs });
+	return { day: r(DAY), week: r(7 * DAY) };
+};
+
 const render = (
 	repos: unknown[],
 	failed: unknown[] = [],
@@ -53,6 +63,7 @@ const render = (
 		repos: repos.map((r) => ({ urgent: [], parked: [], ...(r as object) })),
 		failed,
 		kills,
+		concurrency: concurrencyOver([], []),
 	});
 
 describe("renderReview (#2011)", () => {
@@ -154,6 +165,61 @@ describe("renderReview (#2011)", () => {
 			}),
 		).toContain(
 			"## Memory kills\n\nNot read: `journalctl -u earlyoom: exit 1`.\n",
+		);
+	});
+
+	it("says no session worked and no tick was recorded where both records are empty (#3321)", () => {
+		expect(
+			render([{ repo: "acme/a", entries: [], stalls: [], closed: [] }]),
+		).toContain(
+			[
+				"## Concurrency",
+				"",
+				"Sustained concurrency, the founder's own sessions counted:",
+				"",
+				"- no session recorded working over the last 24 h",
+				"- no session recorded working over the last 7 days",
+				"",
+				"Admission ceiling: no refill-loop tick recorded.",
+				"",
+				"No session worked over the last 24 h, so no hours to charge or spread.",
+				"",
+				"## Parked",
+			].join("\n"),
+		);
+	});
+
+	it("buckets ten or more working sessions as one spread line, and reads an unread ceiling as such (#3321)", () => {
+		const now = Date.parse(NOW);
+		const minutes = [
+			{ ts: new Date(now - 20 * MIN).toISOString(), sessions: 12 },
+			{ ts: new Date(now - 10 * MIN).toISOString(), sessions: 10 },
+		];
+		const ticks = [
+			{
+				at: new Date(now - 20 * MIN).toISOString(),
+				working: null,
+				ceiling: null,
+				binding: { limit: "CPU", why: "load" },
+				also: [],
+				memory: null,
+			},
+		];
+		const body = renderReview({
+			since: SINCE,
+			now: NOW,
+			previous: 7,
+			repos: [],
+			failed: [],
+			kills: { incidents: [], tickets: new Map(), why: null },
+			concurrency: concurrencyOver(ticks, minutes),
+		});
+		expect(body).toContain(
+			"Admission ceiling: unread at the last refill-loop tick",
+		);
+		expect(body).toContain("- CPU: 0.3 h\n");
+		expect(body).toContain(
+			"Share of those hours by how many sessions were working:\n\n- 10 or more working: 100%\n",
 		);
 	});
 
