@@ -1,6 +1,6 @@
 /*
  * unasked-rerun.js — whether a bare `npm run test` or `npm run test:changed`
- * is an unasked re-run, the judgement `scripts/guard-unasked-rerun.js` refuses
+ * is an unasked re-run, the judgement the guard-unasked-rerun core refuses
  * on once a session (#815, ruled at #790 Q3 and Q7, spec #810), through its
  * core, lib/unasked-rerun-guard.js, which calls `judge` as a port.
  *

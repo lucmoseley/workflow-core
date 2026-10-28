@@ -1,7 +1,114 @@
 /*
- * suite-concurrency.js — guard-suite-concurrency.js's core: the suite gate
- * docs/environment.md §6 sets, read off one Bash command. No I/O of its own;
+ * suite-concurrency.js — the guard-suite-concurrency core (#3227): refuse a
+ * test suite launched under the headroom docs/environment.md §6 says it needs
+ * resting, sending it to the queue, warn before a build launches under it —
+ * and before a watcher launches (mantahostels#1927). No I/O of its own;
  * lib/suite-concurrency-host.js builds the ports it reads the machine through.
+ *
+ * Why: admission.js prices a NEW session at dispatch time and holds no memory
+ * back for the suites it may run (#2305); this covers a test suite or build
+ * inside an ALREADY-admitted one, judged against lib/suite-ladder.js's
+ * ladder (#2795).
+ *
+ * THE MEMORY LADDER QUEUES (#2305): a test launch short of its rung is refused,
+ * its first line the same launch through the queue, which polls this
+ * core (lib/suite-queue.js's gateDenies) until the rung is free. A `--queue`
+ * launch and a build are warned, never refused.
+ *
+ * THE COUNT CAP (#2680) refuses a SECOND concurrent whole suite the same way,
+ * so no run is stretched by others beside it. The count comes from `ps`, so a
+ * dead process leaves no line: there is no lock or latch to clear, and a deny
+ * you cannot reproduce has already lifted.
+ *
+ * THAT COUNT IS READ FROM `ps` AT PreToolUse TIME, SO TWO LAUNCHES INSIDE THE
+ * SAME WINDOW EACH SEE THEMSELVES AS FIRST and both are allowed. LEFT OPEN
+ * DELIBERATELY (mantahostels#2186, #159): a race can land a second whole suite
+ * beside the first, which costs both runs wall-clock rather than a wait.
+ *
+ * THE DENY OPENS WITH THE COMMAND TO RUN INSTEAD (#482, #519): 86% of refused
+ * sessions re-issued with `--queue`, but the fix sat inside up to 2,113 bytes.
+ * Line one is the denied launch as typed, with `--queue` appended — `-- --queue`
+ * on an npm launch carrying no `--`. It is the SEGMENT, not a compound command's
+ * whole, so there line one says to keep the rest. The walker hands the
+ * `--queue` and `--` checks the words either side of a redirection (#1007,
+ * #1488), so line one, re-submitted, passes; a quoted `--queue` is not the
+ * flag. A non-vitest runner (#330), and an npm script that does not run
+ * run-vitest.js, is queued by scripts/queue-run.js instead (#1776), so its
+ * line one is that launch through it. A watcher has no queue: its line one is
+ * the wait and then the same launch.
+ *
+ * ITS ESCAPE IS `WFC_SUITE_CONCURRENT=1` prefixed on the command
+ * (mantahostels#2486). Every use of it, prefixed or exported, is recorded
+ * (mantahostels#2183) — one JSON line per command stood down, at
+ * `.claude/tmp/markers/.suite-standdowns.jsonl`, joined forward by time to the
+ * next pass marker its session writes. Only the stand-down is written: a
+ * launch allowed for any other reason leaves nothing.
+ *
+ * TWO RESIDUALS OF ITS OWN. An open watcher counts as the suite already running,
+ * so a session holding one can launch nothing until it closes it — the refusal
+ * says so. And a build is never counted as a suite, being off the ladder.
+ *
+ * A BUILD BESIDE A RUNNING `next build`, AND A DEV SERVER BESIDE A RUNNING
+ * `next dev`, ARE DENIED (#1733, #1759), printing
+ * docs/agents/rules/build-concurrency.txt. No escape. A build is `npm run
+ * build`, `next build`, `npx next build` or a path ending `/next` then
+ * `build`, and a dev server the same with `dev`, npm's own flags read as npm
+ * reads them. It counts `next build` and `next dev` runners alone, so a script
+ * running another tool passes unseen, and a build beside a dev server is not
+ * the rule's to refuse.
+ *
+ * A BARE `tsc` THE TYPE-CHECK SLOT WOULD HOLD IS DENIED (#3163): one already
+ * running, or MemAvailable under its rung (lib/tsc-slot.js). Line one is the
+ * same launch through `queue-run.js --tsc`, which waits for the slot; no
+ * escape. `npm run typecheck` holds the slot itself, so it is never judged.
+ *
+ * SCOPE: `npm run test`, `npm run test:changed`, `npm run test:watch`,
+ * `node scripts/run-vitest.js` (mantahostels#2015), a build and a dev server.
+ * Also (#330) `node --test`, `pytest` and a Python test file run bare, plus the
+ * host's declared `suiteRunners`. `npm run test:py` is not judged at launch,
+ * its runner being a script, but its `pytest` counts once running; a whole run
+ * of it still draws the memory figure (#2024).
+ *
+ * A RUN NAMING ITS TEST FILES IS CHARGED BY THE VITEST WORKERS IT CAN OCCUPY
+ * (#2558, ruled at #2557), as lib/suite-bounded.js reads them: one per file
+ * named, up to a whole suite's. A TOUCHED RUN (#2935) — one naming its test
+ * files, however many, a `--retest`, or the bare `npm run test` under
+ * `landing` — is a part-suite, refused under its own rung alone and never at
+ * the count cap; the bare one, its selection unresolved, is charged a whole
+ * suite's workers. At launch any other run is a whole suite, a bare
+ * `test:changed` and a bare `npm run test` with `landing` off among them: a
+ * diff's selection has no ceiling before it is resolved, so it is judged on
+ * the full-suite ladder, an UPPER BOUND on what it will cost
+ * (mantahostels#1906). Once launched, a run is charged by the resolved weight
+ * its launch record carries (#2931).
+ *
+ * A LAUNCHER WRAPPER IS STRIPPED before the scope test (mantahostels#2511,
+ * mantahostels#2552, shell-words.js's `unwrap`). THE CLASS IS NOT CLOSED: a
+ * `sh -c "…"` and a heredoc walk past unjudged (mantahostels#2629). A bare
+ * `npx vitest` is counted once running but never judged on the way in. An
+ * `npm test -- --watch` is judged only as a one-shot: the watcher limb is
+ * decided on the script name alone.
+ *
+ * A COMPOUND COMMAND GETS ONE MESSAGE, so the watcher limb is decided by a
+ * pre-pass over every segment (mantahostels#1978) and rides on whichever
+ * warning fires. `||` is flattened like any other separator, so
+ * `npm run build || npm run test:watch` hangs the limb off the build's warning.
+ *
+ * AN OPEN WATCHER COSTS A FULL RUNG FOR AS LONG AS IT IS OPEN
+ * (mantahostels#1927). What an IDLE watcher actually dips is UNMEASURED.
+ *
+ * FAILS OPEN on anything unreadable — no MemAvailable line, a `ps` that will
+ * not run — per mantahostels#103 §6, on the guard-error log.
+ *
+ * Its manifest row is narrowed to the clauses `Bash(*npm *)`, `Bash(*node *)`,
+ * `Bash(*next *)` (mantahostels#2811), `Bash(*python*)` and `Bash(*pytest*)`
+ * (#330), and `Bash(*npx *)`, `Bash(*yarn *)`, `Bash(*pnpm *)`, `Bash(*bun *)`,
+ * `Bash(*make *)`, `Bash(*cargo *)` and `Bash(*go test*)`, for a host's
+ * declared `commands.test` (#2303), and `Bash(*tsc*)` (#3163). The narrowing is
+ * best-effort, so the count-cap deny does not rest on it: the core re-reads
+ * the command itself.
+ *
+ * A THROW IS ALLOWED, logged: its row fails open.
  */
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
@@ -33,7 +140,6 @@ const {
 	suiteLaunchKind,
 } = require("./suite-launch.js");
 const { npmCanon } = require("./npm-options.js");
-const { isTouchedRun, launchRoute } = require("./launch-route.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
 
 /**
@@ -59,13 +165,13 @@ const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
  * @property {(line: string) => boolean} appendStanddown one record appended
  *   to the stand-down log; false where it could not be
  * @property {() => string} now gl_when's timestamp
- * @property {string} sessionId the payload's
  * @typedef {import("./shell-parse.js").WalkPorts & SuitePorts &
  *   Pick<import("./kit-context.js").KitContext, "scriptPath" | "corePaths" | "ruleText" | "docPath"> & {
  *   moduleOn: (module: import("./workflow-core-config.js").Module) => boolean,
  *   log: (what: string, detail?: string) => void,
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
+ *   session: string,
  * }} Ctx the kit's context, the part this core reads, and its own ports
  */
 
@@ -501,6 +607,9 @@ function launchWeigh(st, launch, words, files) {
 function isTouchedLaunch(st, launch, words) {
 	const argv = launchArgv(launch, words);
 	if (argv === null || launch.script === "test:changed") return false;
+	/* Required here, not at load: its graph costs ~8 ms, which a folded core
+	 * pays serially on every admitted call (#3227). */
+	const { isTouchedRun, launchRoute } = require("./launch-route.js");
 	return isTouchedRun(
 		launchRoute(
 			argv.map((w) => literal(w, st.spans).text),
@@ -742,7 +851,7 @@ function logStanddown(st, j, limb) {
 	st.standdownLogged = true;
 	const line = JSON.stringify({
 		at: st.ctx.now(),
-		session: st.ctx.sessionId,
+		session: st.ctx.session,
 		running: j.whole,
 		nth: j.nth,
 		limb,
@@ -1015,4 +1124,10 @@ function decide(command, ctx) {
 	return verdict === undefined ? injectionOf(st, whole) : verdict;
 }
 
-module.exports = { decide, FULL_LIMB_ID, STANDDOWN_LOG };
+module.exports = {
+	field: "command",
+	noun: "command",
+	decide,
+	FULL_LIMB_ID,
+	STANDDOWN_LOG,
+};

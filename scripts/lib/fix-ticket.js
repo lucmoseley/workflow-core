@@ -1,7 +1,7 @@
 /*
  * fix-ticket.js — the ticket the lander files for a commit it reverted
  * (#2404, spec #2261): `takes:implement`, naming the revert and the failing
- * files, a sub-issue of the ticket the culprit's subject cites, or standalone
+ * files or CI jobs, a sub-issue of the ticket the culprit's subject cites, or standalone
  * where it cites none.
  *
  * A cited ticket that is closed is reopened first, its work having
@@ -14,7 +14,7 @@
 const { citedIssues } = require("./cited-issues.js");
 const { parseErrLine } = require("./gh.js");
 const { parseFirstLine } = require("./first-line.js");
-const { short } = require("./lander.js");
+const { failingList, short } = require("./lander.js");
 const { scriptPath } = require("./script-path.js");
 const { takesLabel } = require("./takes-label.js");
 
@@ -56,15 +56,19 @@ ${stale.map((r) => `- \`${r.row}\`: \`${r.forward}\``).join("\n")}
  * @param {import("./lander.js").FixTicket & {subject: string}} t
  * @returns {{title: string, body: string}}
  */
-function fixTicketIssue({ culprit, parent, revert, files, stale, subject }) {
+function fixTicketIssue({
+	culprit,
+	parent,
+	revert,
+	files,
+	jobs,
+	stale,
+	subject,
+}) {
 	const cut =
 		subject.length > SUBJECT_MAX
 			? `${subject.slice(0, SUBJECT_MAX - 1)}…`
 			: subject;
-	const failing =
-		files.length > 0
-			? files.map((f) => `- \`${f}\``).join("\n")
-			: "- the whole suite (the tester named no failing file)";
 	/* The subject sits in a code span, so file-issue's body checks never read
 	 * it as this ticket's own prose. */
 	return {
@@ -74,7 +78,7 @@ function fixTicketIssue({ culprit, parent, revert, files, stale, subject }) {
 The lander (#2261) found ${culprit} red on \`landing\` and reverted it in ${revert}. Its work is off \`landing\` until it is re-landed with these passing.
 
 Failing at ${short(culprit)}, red twice, with ${parent ? `its parent ${short(parent)}` : "no parent"} green:
-${failing}
+${failingList({ files, jobs })}
 
 Reverted commit: \`${subject.replaceAll("`", "'")}\`
 ${buildRereadSection(stale, revert)}

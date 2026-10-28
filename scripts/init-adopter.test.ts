@@ -2216,12 +2216,13 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 			const guardOn = (paths: string[]) => {
 				git("add", "-N", "--", ...paths);
 				return runInProcess(
-					path.join(__dirname, "guard-registry-atomicity.js"),
-					[],
+					path.join(__dirname, "guard-dispatch.js"),
+					["--only", "guard-registry-atomicity"],
 					{
 						cwd: dir,
 						env,
 						stdin: JSON.stringify({
+							hook_event_name: "PreToolUse",
 							session_id: "upgrader",
 							tool_name: "Bash",
 							tool_input: {
@@ -2717,11 +2718,15 @@ describe("the host registries (#1456)", () => {
 
 	function guardDenies(dir: string, command: string): boolean {
 		const { stdout: out } = runInProcess(
-			path.join(CORE, "scripts/guard-registry-atomicity.js"),
-			[],
+			path.join(CORE, "scripts/guard-dispatch.js"),
+			["--only", "guard-registry-atomicity"],
 			{
 				cwd: dir,
-				stdin: JSON.stringify({ tool_name: "Bash", tool_input: { command } }),
+				stdin: JSON.stringify({
+					hook_event_name: "PreToolUse",
+					tool_name: "Bash",
+					tool_input: { command },
+				}),
 				env: {
 					...process.env,
 					CLAUDE_PROJECT_DIR: dir,

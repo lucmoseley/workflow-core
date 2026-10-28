@@ -1,12 +1,14 @@
 // @vitest-environment node
 /*
- * guard-unasked-rerun.js — the refuse-once re-run guard (#815, spec #810) —
- * driven as the hook it is: a payload on stdin, the allow or deny read back.
- * These are its boundary cases (§X11, #2800): each exit, each payload field
- * and env var the entry reads, the judge, rule store and error log crossed
- * for real. Which command reaches the judge, and what each answer becomes, is
+ * The guard-unasked-rerun core of guard-dispatch.js — the refuse-once re-run
+ * guard (#815, spec #810) — driven through the dispatcher entry run on it
+ * alone: a payload on stdin, the allow or deny read back. These are its
+ * boundary cases (§X11, #2800): each exit, each payload field and env var it
+ * reads, the judge, rule store and error log crossed for real. Which command
+ * reaches the judge, and what each answer becomes, is
  * lib/unasked-rerun-guard.test.ts's; what the judge answers is
- * lib/unasked-rerun.test.ts's.
+ * lib/unasked-rerun.test.ts's; the entry's payload faults and the throw
+ * policy are guard-dispatch's own tests' (#3227).
  *
  * Each case copies a throwaway git repository with its own marker store, so
  * the refusal is the real judge's over real git.
@@ -21,13 +23,11 @@ import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import { defineTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
-	nodeGuardOutput,
-	runNodeGuard,
+	dispatchCoreOutput,
 } from "./lib/pretool-guard-testkit";
 import { storePath } from "./lib/test-pass-marker.js";
 
-const GUARD = path.resolve(__dirname, "guard-unasked-rerun.js");
+const CORE = "guard-unasked-rerun";
 const REFUSAL_LOG = ".unasked-rerun-refusals.jsonl";
 
 const SID = "sess-815";
@@ -99,8 +99,8 @@ const emission = (
 		env = {} as NodeJS.ProcessEnv,
 	} = {},
 ) =>
-	nodeGuardOutput(
-		GUARD,
+	dispatchCoreOutput(
+		CORE,
 		{ ...buildBashPayload(command, session), cwd },
 		{ project: root, config, cwd: root, env },
 	);
@@ -187,7 +187,7 @@ describe("the fail-open record", () => {
 		const [line] = readFailOpenLog(config, project).trim().split("\n");
 		expect(line?.split("\t")).toEqual([
 			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-			"guard-unasked-rerun.js",
+			CORE,
 			"could not judge whether certificates attest HEAD — a bare test run allowed unjudged",
 			"git could not resolve the run's working directory",
 		]);
@@ -205,39 +205,6 @@ describe("the fail-open record", () => {
 		).toBeNull();
 		expect(readFailOpenLog(config, outside)).toContain(
 			"git could not resolve the repository root",
-		);
-	});
-
-	it("records a payload that is not JSON, allowing", () => {
-		const r = runNodeGuard(GUARD, null, {
-			project,
-			config,
-			cwd: project,
-			stdin: "{not json",
-		});
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(readFailOpenLog(config, project)).toMatch(
-			/guard-unasked-rerun\.js\tpayload did not parse as JSON/,
-		);
-	});
-
-	it("refuses, logged, where its core throws", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-unasked-rerun.js",
-			"unasked-rerun-guard.js",
-		);
-		const out = nodeGuardOutput(entry, buildBashPayload("npm run test", SID), {
-			project,
-			config,
-			cwd: project,
-		});
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-unasked-rerun.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, project)).toMatch(
-			/core threw — the command was refused\tbroke/,
 		);
 	});
 });

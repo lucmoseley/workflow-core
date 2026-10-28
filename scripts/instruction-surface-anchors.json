@@ -47,24 +47,7 @@
 		}
 	},
 	"hookCommands": {
-		"PreToolUse scripts/guard-registry-atomicity.js if Bash(git *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-registry-atomicity.js",
-		"PreToolUse scripts/guard-pull-form.js if Bash(git *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-pull-form.js",
-		"PreToolUse scripts/guard-push-rules.js if Bash(git *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-push-rules.js",
 		"PreToolUse scripts/guard-dispatch.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*npm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*node *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*next *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*python*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*pytest*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-vitest-wrapper.js if Bash(*vitest *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-vitest-wrapper.js",
-		"PreToolUse scripts/guard-vitest-wrapper.js if Bash(*npx *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-vitest-wrapper.js",
-		"PreToolUse scripts/guard-unasked-rerun.js if Bash(*npm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-unasked-rerun.js",
-		"PreToolUse scripts/guard-node-heap.js if Bash(*max-old-space-size*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-node-heap.js",
-		"PreToolUse scripts/guard-node-heap.js if Bash(*max_old_space_size*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-node-heap.js",
-		"PreToolUse scripts/guard-root-find.js if Bash(*find *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-root-find.js",
-		"PreToolUse scripts/guard-ugrep-pattern.js if Bash(grep *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-ugrep-pattern.js",
-		"PreToolUse scripts/guard-npm-install.js if Bash(*npm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-npm-install.js",
-		"PreToolUse scripts/guard-npm-install.js if Bash(*npx *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-npm-install.js",
 		"PostToolUse scripts/guard-dispatch.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-dispatch.js",
 		"PostToolUse scripts/place-new-issue.sh if Bash(gh *)": "${CLAUDE_PROJECT_DIR}/scripts/place-new-issue.sh",
 		"PostToolUse scripts/record-issue-claim.js if Bash(gh *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/record-issue-claim.js",
@@ -104,7 +87,6 @@
 		"SessionStart scripts/check-seat-utilisation.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-seat-utilisation.js --notify || true",
 		"SessionStart scripts/reap-finished-sessions.js": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"$CLAUDE_PROJECT_DIR\"/scripts/reap-finished-sessions.js --notify || true",
 		"SessionEnd scripts/reconcile-plugin.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/reconcile-plugin.js --session-end || true",
-		"PreToolUse scripts/guard-registry-atomicity.js if Bash(*commit-paths.js*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-registry-atomicity.js",
 		"PostToolUse scripts/guard-lost-verdict.js if Bash(*test*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-verdict.js",
 		"PostToolUseFailure scripts/guard-lost-verdict.js if Bash(*test*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-verdict.js",
 		"SessionStart scripts/check-harness-canary.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/check-harness-canary.js --notify || true",
@@ -115,21 +97,9 @@
 		"UserPromptSubmit scripts/mark-presence.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/mark-presence.js || true",
 		"Stop scripts/park-on-round.js": "command -v node >/dev/null 2>&1 && node \"$CLAUDE_PROJECT_DIR\"/scripts/park-on-round.js || true",
 		"PreToolUse scripts/self-plugin-canary.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/self-plugin-canary.sh",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*npx *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*yarn *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*pnpm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*bun *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*make *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*cargo *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*go test*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-suite-concurrency.js if Bash(*tsc*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-suite-concurrency.js",
-		"PreToolUse scripts/guard-rm-unchecked.js if Bash(*rm *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-rm-unchecked.js",
 		"PostToolUse scripts/start-lander-on-push.js if Bash(*push*)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/start-lander-on-push.js",
 		"Stop scripts/refill-wake.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/refill-wake.sh",
-		"SessionStart scripts/write-self-plugin-marker.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/write-self-plugin-marker.sh",
-		"PreToolUse scripts/guard-wide-read.js if Bash(*cat *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-wide-read.js",
-		"PreToolUse scripts/guard-wide-read.js if Bash(*sed *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-wide-read.js",
-		"PreToolUse scripts/guard-wide-read.js if Bash(*awk *)": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-wide-read.js"
+		"SessionStart scripts/write-self-plugin-marker.sh": "\"$CLAUDE_PROJECT_DIR\"/scripts/write-self-plugin-marker.sh"
 	},
 	"skills": {
 		"distinct": 40,
@@ -149,24 +119,6 @@
 			"verdict": "at need — each deny names the exact offending command before it runs: `git commit -am`, `--amend --no-edit`, `--no-verify … -- a.md` and `-m 'Fixes #12' -- a.md` refused (875, 1018, 1422 and 2300 B, fed at 18a1598da under #3143, byte-identical to the tree before #3018's port move); `git add` warned (656 B). The first clean pathspec commit of a session handed the pathspec rule, the gated-path rules and the push rule last (3544 B, the A-12 payload), a bare commit the same less the gated rules (2784 B), the repeat silent; a warn defers them unlatched — a warned commit, then a clean one in the same session, was handed them (2784 B). A `commit-paths.js` call handed the show-diff and message rules plus the push rule (1255 B), under `docs/` the guard-registry and machinery-superseded rules too (2348 B), on `package.json` the Biome gate rule too (2015 B); the repeat and a `cat` of the file silent. The sweep warn, not re-fed: a pathspec naming a live neighbour's claimed, edited file warned, ending in the Swept: lines where it is the whole pathspec (562 B) and in the commit-your-own-paths form where it is not (416 B), fed at 6192d0f49; on the `commit-paths.js` form the guard gave none (commit-paths.js gives it, scripts/commit-paths.js:847). The push rule printed is `rule:push-cadence-landing`, this host running the landing module, and it defers to the next commit where the gate rules fill the ceiling (#2285): `-- docs/doc-map.md docs/roadmap-digest.md CLAUDE.md scripts/foo.js` was handed every gated rule but it (4078 B), and the session's next clean commit the push rule alone (991 B). With the rule store unreadable the injection limb refuses, naming the missing fragment (302 B: `rule-text: no fragment for rule id \"commit-pathspec\"`); the deny limbs carry no store text and print in full. Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes (deny limbs) — each carries reason and the corrected command inline, with or without the rule store; the sweep warn names the neighbour, and either the Swept: line or the own-paths form.",
 			"source": "#3143"
-		},
-		"scripts/guard-pull-form.js": {
-			"digest": "150ccc651783dc6e",
-			"verdict": "at need — deny before the rebase/merge/rewind/discard runs (fed at 18a1598da under #3143, byte-identical to the tree before #3018): in the shared tree `git pull --rebase` 1626 B, bare `git pull` 1617, `git merge origin/main` 1630, `git rebase origin/main` 1631; rewind `git reset --hard HEAD~1` 1208, `git branch -D main` 1059, `git update-ref refs/heads/main HEAD~1` 1136; discard `git reset --hard` 1131. Rule pre-injected on the first allowed `--ff-only` pull or merge (1490 B, the -landing twin), the repeat silent; `git merge --abort`, `git pull --help` and `echo git pull --rebase` silent. Rule store unreadable: each deny keeps its frame and prints its template fallback naming the file (409, 442, 441 B); the `--ff-only` injection refuses naming the missing fragment (302 B). Byte counts are the whole hook stdout.",
-			"selfSufficient": "yes — reason, the safe spelling and the full divergence recipe are inline; with the store unreadable each deny still names the act and the rule file to read.",
-			"source": "#3143"
-		},
-		"scripts/guard-push-rules.js": {
-			"digest": "f270f9992578a744",
-			"verdict": "at need — first push of the session, before it runs; the rules once per session only, push-cadence skipped where the commit-form guard already handed it this session (#2285). Its review warn fires on the first push carrying unreviewed code, again on an escalated change, and again for each marker written after a warn that is rejected, naming why. Wrapper spellings (`timeout`, `env`, `sh -c`) never fire, as declared.",
-			"selfSufficient": "yes — the recipe (push:check, typecheck, the declared whole-repo check, checker, push, then check:ci once) and the coverage rule are inline.",
-			"source": "#1998"
-		},
-		"scripts/guard-registry-atomicity.js": {
-			"digest": "4e5d3a4222a385cf",
-			"verdict": "at need, on both commit forms — wired on `Bash(git *)` and on `Bash(*commit-paths.js*)`, it refuses a `node scripts/commit-paths.js … -- <paths>` commit landing an unwired checker (untracked or intent-added) in the same words the hand `git commit -- <paths>` gives an intent-added one (an untracked one there meets git's own pathspec error first), and allows one carrying its caller and test; the files a `--patch` carries are judged with the rest. A `--tree` call commits nothing and is left alone.",
-			"selfSufficient": "yes when it fires — names each missing piece by path, the fix and the escape.",
-			"source": "#1780"
 		},
 		"scripts/lib/branch-publish.js": {
 			"digest": "ec30b104271febde",
@@ -278,7 +230,7 @@
 		},
 		"scripts/lib/wide-read.js": {
 			"digest": "546319954ab10a9e",
-			"verdict": "at need, all four limbs. Run as a core: its Bash limbs through scripts/guard-wide-read.js, its Read limb in scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
+			"verdict": "at need, all four limbs. Run as a core of scripts/guard-dispatch.js, its Read limb since #2791 and its Bash limbs since #3227 (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes — every limb carries the concrete cheaper command for its own file inline; docs/agents/tool-output.md is named only for the why",
 			"source": "#2791"
 		},
@@ -300,15 +252,15 @@
 			"selfSufficient": "yes — the ready-to-run replacement command, keeping what follows the search (`| head -5`), plus the mechanism (grep's read of ignored trees; the prompt, in a mode that shows one) and the expansion's losses are inline; the heavy-tree limb is yes — rule:heavy-tree-search whole, naming the source directories, a root-run `rg` and `-prune` as the routes",
 			"source": "#2791"
 		},
-		"scripts/guard-root-find.js": {
+		"scripts/lib/find-start.js": {
 			"digest": "5854444ce4c5c622",
-			"verdict": "at need, on every such call, unlatched (fed at 18a1598da under #3143, byte-identical to the tree before #3018 but the printed plugin root: `find / -name x` refused 692 B at a 70-char root, so ~646 B at /home/lucmo/workflow-core; `timeout 120 find / -name x` 704, `find //` 693, `find /tmp/..` 698, `find .` from a cwd of / refused; `find ~ -name x` passed; the same session's repeat refused again). A core throw refuses via onThrow (216 B: `guard-root-find.js could not judge this command, so it refuses it: …`). Byte counts are the whole hook stdout.",
+			"verdict": "at need, on every such call, unlatched (fed at 18a1598da under #3143, byte-identical to the tree before #3018 but the printed plugin root: `find / -name x` refused 692 B at a 70-char root, so ~646 B at /home/lucmo/workflow-core; `timeout 120 find / -name x` 704, `find //` 693, `find /tmp/..` 698, `find .` from a cwd of / refused; `find ~ -name x` passed; the same session's repeat refused again). A core throw refuses via onThrow (216 B: `guard-root-find.js could not judge this command, so it refuses it: …`). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — refusal, reason, and three concrete alternative roots inline, no pointer needed; it reads no rule store.",
 			"source": "#3143"
 		},
-		"scripts/guard-ugrep-pattern.js": {
+		"scripts/lib/ugrep-pattern.js": {
 			"digest": "e0c4524a4141ba33",
-			"verdict": "at need for the first ranged-repeat grep of a session (fed at 18a1598da under #3143, byte-identical to the tree before #3018: `grep -E 'a.{0,80}b'` and BRE `a\\{2,3\\}` warned 775 B; plain, exact-count `{3}` and `-P` greps silent); never fires again that session — the same session's next ranged grep 0 B — so a later grep, possibly the one actually refused, goes unwarned (by design: \"Warned once a session\"); clearing the latch re-warns. A throw on the path rewrite is allowed silent and logged, no latch written. Byte counts are the whole hook stdout.",
+			"verdict": "at need for the first ranged-repeat grep of a session (fed at 18a1598da under #3143, byte-identical to the tree before #3018: `grep -E 'a.{0,80}b'` and BRE `a\\{2,3\\}` warned 775 B; plain, exact-count `{3}` and `-P` greps silent); never fires again that session — the same session's next ranged grep 0 B — so a later grep, possibly the one actually refused, goes unwarned (by design: \"Warned once a session\"); clearing the latch re-warns. A throw on the path rewrite is allowed silent and logged, no latch written. Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — mechanism, how to read exit 2, and a re-spelling that keeps every other flag (and, for literals, `.`, bracket classes and bounded repeats, the output) inline; tool-output.md only named; it reads no rule store.",
 			"source": "#3143"
 		},
@@ -317,12 +269,6 @@
 			"verdict": "at need — on the reading, before the stop-or-launch conclusion is drawn; once per session (latch), so a second short reading later in the session gets nothing. Run as a core of scripts/guard-dispatch.js since #3225 (fed through it at e4976a2aa3 under #3305: `free -m`, `free -h`, `cat /proc/meminfo` and `grep MemAvail /proc/meminfo` each injected the headroom-reap rule as additionalContext, no `rule:` id printed, 1114 B; the same session's repeat `free -m` 0 B; `free --help` and `echo \"free -m\"` silent). Byte counts are the whole hook stdout.",
 			"selfSufficient": "yes for the action (reap with `node scripts/reap-finished-sessions.js`, re-read) — but the stop threshold is a pointer only (\"docs/environment.md §6's rung\"), no figure inline",
 			"source": "#2073"
-		},
-		"scripts/guard-node-heap.js": {
-			"digest": "35baa1c12688fc10",
-			"verdict": "at need — on the command naming `max-old-space-size` or `max_old_space_size`, before it runs; once per session (latch)",
-			"selfSufficient": "yes — fed `export NODE_OPTIONS=--max-old-space-size=8192` it prints the whole rule: the 4096 cap, never remove or raise it, that raising it enlarges what one runaway can take down, cut concurrent sessions instead, and that a per-command lowering is no raise; `echo $NODE_OPTIONS` gets nothing",
-			"source": "#2025"
 		},
 		"scripts/lib/wait-loop.js": {
 			"digest": "a56111fd3056447f",
@@ -336,15 +282,15 @@
 			"selfSufficient": "yes — mechanism, the wrapper commands, check semantics and the waiting ceiling are all inline",
 			"source": "#1604, #2786"
 		},
-		"scripts/guard-suite-concurrency.js": {
+		"scripts/lib/suite-concurrency.js": {
 			"digest": "575fe6b137c9734d",
-			"verdict": "at need — every limb fires on the launch itself, before the suite starts; a second `next build` or `next dev` beside a running one is denied whatever the headroom and with no escape (`WFC_SUITE_CONCURRENT=1` does not stand it down), npm's `run build` and `npx next dev` included; a launch already through `queue-run.js` passes the count cap, `node scripts/queue-run.js -- pytest` beside one running suite drawing the 363 B past-the-ladder warn; fed `npm run test` at 1000 MB it denies under the ~2900 MB whole-suite rung with `Run instead: npm run test -- --queue`, and `pytest` with `node scripts/queue-run.js -- pytest`, a `--queue` launch drawing the headroom warn instead (#2305); fed `npm run test -- a.test.ts` it denies at 1000 MB under that run's own ~1450 MB rung, naming the 1 vitest worker its named files can occupy, and passes it at 1500 (#2558); beside one running whole suite, read off `ps` argv or off a launch record carrying `wholeSlot`, a bare `npm run test:changed` or `--full` run is denied at the count cap, and a bare `npm run test` too in a host with `landing` off (#2680); with `landing` on, as here, a bare `npm run test` beside it is admitted as a touched run, the deny saying when every running one is an open watcher that it never finishes; a running process whose launch record carries 2 resolved files takes no slot and is charged its 2 workers, so `npm run test -- a.test.ts` beside it meets a ~2150 MB rung (#2931); a touched run, four named files or `--retest`, beside a running whole suite is admitted, and beside 3 running suites two or three named files are only warned past the ladder, never at the count cap (#2935); beside one running 1-file run `npm run test -- --full=flag` is denied at 2450 and 2950 MB under the ~3250 MB rung \"for 6 vitest workers, 1 of them already running\" and passes at 3300 (#2772); the first build or whole-suite launch a session makes (`npm run test:py` naming no path included) gets the MemAvailable reading and `rule:memory-figure` before it starts (#2024); in an adopter with `suites` on, fed `npm run test` over a plain `vitest run` script declared as `commands.test`, it hands over `rule:targeted-runs` ahead of `rule:suite-tree-dirty`, and nothing more on the repeat; `npm run test -- a.test.ts` and `npm run test:changed` get no `rule:targeted-runs` (#2237); in a host declaring `cargo test` as `commands.test`, that launch typed bare is handed `rule:targeted-runs` (269 B) once a session, beside three running suites too, and is never counted toward the count cap, as #2586 measured for `npx jest`, `yarn test`, `pnpm test`, `bun test`, `make test` and `go test ./...` through the seven #2303 registrations; a bare `tsc --noEmit` beside a running `.bin/tsc` is denied (275 B) and `npx tsc -p tsconfig.strict.json --noEmit` at 2000 MB under the ~2750 MB type-check rung (302 B), `WFC_SUITE_CONCURRENT=1` not standing it down, while `npm run typecheck` beside a running one and a bare `tsc` on a free slot pass silent (#3163). Fed at main b201208bd and at landing 44b882f87 under #2907, the `tsc` limb at landing c7b451e19 + 63bb56959 under #3163, `ps`, `/proc/meminfo` and `/proc/<pid>/environ` stubbed",
+			"verdict": "at need — every limb fires on the launch itself, before the suite starts; a second `next build` or `next dev` beside a running one is denied whatever the headroom and with no escape (`WFC_SUITE_CONCURRENT=1` does not stand it down), npm's `run build` and `npx next dev` included; a launch already through `queue-run.js` passes the count cap, `node scripts/queue-run.js -- pytest` beside one running suite drawing the 363 B past-the-ladder warn; fed `npm run test` at 1000 MB it denies under the ~2900 MB whole-suite rung with `Run instead: npm run test -- --queue`, and `pytest` with `node scripts/queue-run.js -- pytest`, a `--queue` launch drawing the headroom warn instead (#2305); fed `npm run test -- a.test.ts` it denies at 1000 MB under that run's own ~1450 MB rung, naming the 1 vitest worker its named files can occupy, and passes it at 1500 (#2558); beside one running whole suite, read off `ps` argv or off a launch record carrying `wholeSlot`, a bare `npm run test:changed` or `--full` run is denied at the count cap, and a bare `npm run test` too in a host with `landing` off (#2680); with `landing` on, as here, a bare `npm run test` beside it is admitted as a touched run, the deny saying when every running one is an open watcher that it never finishes; a running process whose launch record carries 2 resolved files takes no slot and is charged its 2 workers, so `npm run test -- a.test.ts` beside it meets a ~2150 MB rung (#2931); a touched run, four named files or `--retest`, beside a running whole suite is admitted, and beside 3 running suites two or three named files are only warned past the ladder, never at the count cap (#2935); beside one running 1-file run `npm run test -- --full=flag` is denied at 2450 and 2950 MB under the ~3250 MB rung \"for 6 vitest workers, 1 of them already running\" and passes at 3300 (#2772); the first build or whole-suite launch a session makes (`npm run test:py` naming no path included) gets the MemAvailable reading and `rule:memory-figure` before it starts (#2024); in an adopter with `suites` on, fed `npm run test` over a plain `vitest run` script declared as `commands.test`, it hands over `rule:targeted-runs` ahead of `rule:suite-tree-dirty`, and nothing more on the repeat; `npm run test -- a.test.ts` and `npm run test:changed` get no `rule:targeted-runs` (#2237); in a host declaring `cargo test` as `commands.test`, that launch typed bare is handed `rule:targeted-runs` (269 B) once a session, beside three running suites too, and is never counted toward the count cap, as #2586 measured for `npx jest`, `yarn test`, `pnpm test`, `bun test`, `make test` and `go test ./...` through the seven #2303 registrations; a bare `tsc --noEmit` beside a running `.bin/tsc` is denied (275 B) and `npx tsc -p tsconfig.strict.json --noEmit` at 2000 MB under the ~2750 MB type-check rung (302 B), `WFC_SUITE_CONCURRENT=1` not standing it down, while `npm run typecheck` beside a running one and a bare `tsc` on a free slot pass silent (#3163). Fed at main b201208bd and at landing 44b882f87 under #2907, the `tsc` limb at landing c7b451e19 + 63bb56959 under #3163, `ps`, `/proc/meminfo` and `/proc/<pid>/environ` stubbed Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — the count-cap deny and the deny of a test launch under its §6 memory rung, a named-file run's rung set by the vitest workers it can occupy (#2305, #2558), open with the literal command to run instead plus the escape: `--queue` on a run-vitest.js launch, `node scripts/queue-run.js -- <launch>` on any other suite (`node --test`, pytest, a plain npm script), as the whole command or as the launch to swap into a compound one, a loop's keywords dropped; a watcher gets the wait and its launch re-run, never `queue-run.js`, whatever its script body (#1927); both ladder warns name the figure, the shortfall and the lever (reap command / narrow the run, or wait where the run is narrowed as far as it goes); the injection carries the whole rule; the second-build/dev deny carries the never-two rule, the reason and the `ps` line that finds the running one; the memory-figure injection carries the before reading and the whole rule (#2024); the targeted-runs injection carries the whole rule (#2237); the bare-`tsc` deny opens with `node scripts/queue-run.js --tsc -- <launch>` and names the limb, a running `tsc` or the reading against the ~2750 MB rung (#3163)",
 			"source": "#2024, #2237, #2305, #2560, #2586, #2907, #3163"
 		},
-		"scripts/guard-vitest-wrapper.js": {
+		"scripts/lib/vitest-wrapper.js": {
 			"digest": "411184eecc2f5dd0",
-			"verdict": "at need — fires on the launch, before the unwatched run starts, as additionalContext, never a deny: `npx vitest run scripts/lib/cpu-load.test.ts` 1509 B the first time in a session (rule + `This command:`/`Wrapped:` lines), 259 B on the same session's next run (the standing line naming `rule:vitest-wrapper` + the wrapped command); `node_modules/.bin/vitest run …` 1523 B; `npx vitest --watch`, `npx vitest bench`, `node scripts/run-vitest.js …` and `npm run test` passed, 0 B. With the rule store unreadable it sent 348 B, the fallback naming docs/agents/rules/vitest-wrapper.txt, and still warned (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout.",
+			"verdict": "at need — fires on the launch, before the unwatched run starts, as additionalContext, never a deny: `npx vitest run scripts/lib/cpu-load.test.ts` 1509 B the first time in a session (rule + `This command:`/`Wrapped:` lines), 259 B on the same session's next run (the standing line naming `rule:vitest-wrapper` + the wrapped command); `node_modules/.bin/vitest run …` 1523 B; `npx vitest --watch`, `npx vitest bench`, `node scripts/run-vitest.js …` and `npm run test` passed, 0 B. With the rule store unreadable it sent 348 B, the fallback naming docs/agents/rules/vitest-wrapper.txt, and still warned (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — the reason and the rule once a session, and the literal wrapped command every time; with the store unreadable the fallback names the file to read and the wrapped command still rides",
 			"source": "#3143"
 		},
@@ -354,16 +300,10 @@
 			"selfSufficient": "yes — line one is the literal corrected command (detachment / timeout stripped), followed by the reason, the bg-run.sh/notification handling and the escape (`WFC_SUITE_DETACH=1` / `WFC_SUITE_TIMEOUT=1`)",
 			"source": "#2790"
 		},
-		"scripts/guard-unasked-rerun.js": {
+		"scripts/lib/unasked-rerun-guard.js": {
 			"digest": "fde1d835fdbb8867",
-			"verdict": "at need — refuses the redundant run before it starts, once a session: with a full-run vitest certificate at HEAD, `npm run test`, `npm test` and `npm run test -- --queue` each refused (987 B); the same session re-typing it, a run naming a file, `npm run test:changed` with no uncommitted files of its own, and a store with no certificates passed, 0 B. With the rule store unreadable it still refuses, 457 B, the rule swapped for the fallback naming docs/agents/rules/unasked-rerun-landing.txt. A judge that throws allows, logged; a throw outside the judge refuses (91 B) (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout.",
+			"verdict": "at need — refuses the redundant run before it starts, once a session: with a full-run vitest certificate at HEAD, `npm run test`, `npm test` and `npm run test -- --queue` each refused (987 B); the same session re-typing it, a run naming a file, `npm run test:changed` with no uncommitted files of its own, and a store with no certificates passed, 0 B. With the rule store unreadable it still refuses, 457 B, the rule swapped for the fallback naming docs/agents/rules/unasked-rerun-landing.txt. A judge that throws allows, logged; a throw outside the judge refuses (91 B) (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — names the attesting certificate (date, sha, full run), the escape (re-type it), what is owed before a push (under landing the tests you touched, the lander running the full suite, #2936) and what is never refused",
-			"source": "#3143"
-		},
-		"scripts/guard-npm-install.js": {
-			"digest": "09aefed0030135fc",
-			"verdict": "at need — every limb refuses before the install/exec runs; check 1 runs before any registry call, as designed: `npm install left-pad` 457 B and `npm i -D lodash` 450 B (check 1); `npm install --ignore-scripts frobnicate-xyz-3143` 468 B against the live registry (check 2, the missing-name limb); with `npm view` and `curl` stubbed through WFC_NPM and WFC_CURL, a package downloaded 12 times last month refused 580 B and one first published 3 days ago 594 B (check 2's thin and young limbs), and the thin one under `WFC_ALLOW_NEW_PACKAGE=1` passed, 0 B; `npx tsc --noEmit` 828 B, `npx biome check scripts` 840 B and `npx frobnicate-xyz` 801 B (check 3). `npm install`, `npm ci`, `npm install --ignore-scripts left-pad`, `npx -p typescript tsc`, `npx @biomejs/biome check` and `npm run typecheck` passed, 0 B. A throwing npmView or readManifest port refuses, 91/96 B (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout.",
-			"selfSufficient": "yes — each deny carries the reason and the corrected form (add `--ignore-scripts` and commit the lockfile; check the name against the tool's docs; on a thin or young package the `WFC_ALLOW_NEW_PACKAGE=1` escape, honoured only from Claude Code's own environment and never the command line, or the founder running the install from his own terminal; the two resolving spellings). Check 3 names the dependency whose installed `bin` carries the bin (`npx -p typescript tsc`, `npx @biomejs/biome`), says so where none does, and where node_modules is unread says it could not tell (~885 B, `npx -p <that dependency> tsc`), still naming `@biomejs/biome` for biome; its biome sentence reads as the incident behind the rule",
 			"source": "#3143"
 		},
 		"scripts/lib/check-sh-rules.js": {
@@ -465,7 +405,7 @@
 		"scripts/guard-unpushed-commits.js": {
 			"digest": "75fe5e92d25ff65c",
 			"verdict": "at need (end of the turn holding the session's unpushed commits; fed at 51b2b437b under #3070, one ledger commit ahead: suites on 598 B naming push-check.js under `rule:push-cadence`, suites off 645 B a bare push to origin/main, landing on 677 B the push to origin/landing under `rule:push-cadence-landing`, suites on with `commands.test` gated at commit (`pytest`) 643 B a bare push to origin/main naming that gate, a contract-99 config the push-check route; 0 B on each re-stop)",
-			"selfSufficient": "same subject only — the act and its first command (push:check, a bare push where suites is off or the tests are gated at commit, or under landing the push to `landing`) are inline, but the rest of the push cadence is a `rule:push-cadence` or `rule:push-cadence-landing` pointer, which guard-push-rules.js prints on the push itself",
+			"selfSufficient": "same subject only — the act and its first command (push:check, a bare push where suites is off or the tests are gated at commit, or under landing the push to `landing`) are inline, but the rest of the push cadence is a `rule:push-cadence` or `rule:push-cadence-landing` pointer, which the guard-push-rules core prints on the push itself",
 			"source": "#3070"
 		},
 		"scripts/guard-paste-self-match.js": {
@@ -510,12 +450,6 @@
 			"selfSufficient": "yes — the kill's likely cause, run `memcheck` first and the other causes are inline (634 B); or the slash-only rule and do-the-work-directly (418 B). With the rule unreadable it says nothing (0 B) and logs it, by design, so there is no fallback",
 			"source": "#3143"
 		},
-		"scripts/guard-rm-unchecked.js": {
-			"digest": "690d5da47d426dd9",
-			"verdict": "at need — before the command reaches the harness's removal check, once per command: `rm -rf \"$T\"/*`, `cd build && rm *.log` and `bash -c \"make clean\"; rm a.txt` each refused (1,084, 1,032 and 1,087 B, fed at #2801's Node port), the identical re-send and `rm -rf /tmp/x`, `rm -rf $T` and `R=/tmp; rm -rf $R/a` passed",
-			"selfSufficient": "yes — the limb's reason, the two spellings that never meet the check and the re-send escape inline",
-			"source": "#2586"
-		},
 		"scripts/self-plugin-canary.sh": {
 			"digest": "156ebc3e591c0655",
 			"verdict": "at need — every tool call of a session with no self-plugin marker exits 2, from the first (622 B on stderr; 767 B with the could-not-check line where the input carries no session id); silent once write-self-plugin-marker.sh has written the marker",
@@ -533,6 +467,42 @@
 			"verdict": "at need — once, on the Read that takes this agent's image total past 13 M base64 characters, before the 17.5 M request cap; then on each Read that pushes older images past the cap, as it does so, naming each file once. Silent on a text Read; an image from any route but Read is uncounted. Run as a core of scripts/guard-dispatch.js (#2787: its warning and notice text the bash guard's, kept by every message case moved into lib/image-budget.test.ts)",
 			"selfSufficient": "yes — the count, the cap, the `[media removed: request limit]` swap the Read result does not show, the files gone by name, and the act: do not judge them from memory, stop and report",
 			"source": "#2787"
+		},
+		"scripts/lib/pull-form.js": {
+			"digest": "150ccc651783dc6e",
+			"verdict": "at need — deny before the rebase/merge/rewind/discard runs (fed at 18a1598da under #3143, byte-identical to the tree before #3018): in the shared tree `git pull --rebase` 1626 B, bare `git pull` 1617, `git merge origin/main` 1630, `git rebase origin/main` 1631; rewind `git reset --hard HEAD~1` 1208, `git branch -D main` 1059, `git update-ref refs/heads/main HEAD~1` 1136; discard `git reset --hard` 1131. Rule pre-injected on the first allowed `--ff-only` pull or merge (1490 B, the -landing twin), the repeat silent; `git merge --abort`, `git pull --help` and `echo git pull --rebase` silent. Rule store unreadable: each deny keeps its frame and prints its template fallback naming the file (409, 442, 441 B); the `--ff-only` injection refuses naming the missing fragment (302 B). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3226; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — reason, the safe spelling and the full divergence recipe are inline; with the store unreadable each deny still names the act and the rule file to read.",
+			"source": "#3143"
+		},
+		"scripts/lib/push-rules.js": {
+			"digest": "42bb56720ab377ea",
+			"verdict": "at need — first push of the session, before it runs; the rules once per session only, push-cadence skipped where the commit-form guard already handed it this session (#2285). Its review warn fires on the first push carrying unreviewed code, again on an escalated change, and again for each marker written after a warn that is rejected, naming why. Wrapper spellings (`timeout`, `env`, `sh -c`) never fire, as declared. Run as a core of scripts/guard-dispatch.js since #3226; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — the recipe (push:check, typecheck, the declared whole-repo check, checker, push, then check:ci once) and the coverage rule are inline.",
+			"source": "#1998"
+		},
+		"scripts/lib/registry-atomicity.js": {
+			"digest": "4e5d3a4222a385cf",
+			"verdict": "at need, on both commit forms — wired on `Bash(git *)` and on `Bash(*commit-paths.js*)`, it refuses a `node scripts/commit-paths.js … -- <paths>` commit landing an unwired checker (untracked or intent-added) in the same words the hand `git commit -- <paths>` gives an intent-added one (an untracked one there meets git's own pathspec error first), and allows one carrying its caller and test; the files a `--patch` carries are judged with the rest. A `--tree` call commits nothing and is left alone. Run as a core of scripts/guard-dispatch.js since #3226; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes when it fires — names each missing piece by path, the fix and the escape.",
+			"source": "#1780"
+		},
+		"scripts/lib/node-heap.js": {
+			"digest": "35baa1c12688fc10",
+			"verdict": "at need — on the command naming `max-old-space-size` or `max_old_space_size`, before it runs; once per session (latch) Run as a core of scripts/guard-dispatch.js since #3226; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — fed `export NODE_OPTIONS=--max-old-space-size=8192` it prints the whole rule: the 4096 cap, never remove or raise it, that raising it enlarges what one runaway can take down, cut concurrent sessions instead, and that a per-command lowering is no raise; `echo $NODE_OPTIONS` gets nothing",
+			"source": "#2025"
+		},
+		"scripts/lib/npm-install.js": {
+			"digest": "09aefed0030135fc",
+			"verdict": "at need — every limb refuses before the install/exec runs; check 1 runs before any registry call, as designed: `npm install left-pad` 457 B and `npm i -D lodash` 450 B (check 1); `npm install --ignore-scripts frobnicate-xyz-3143` 468 B against the live registry (check 2, the missing-name limb); with `npm view` and `curl` stubbed through WFC_NPM and WFC_CURL, a package downloaded 12 times last month refused 580 B and one first published 3 days ago 594 B (check 2's thin and young limbs), and the thin one under `WFC_ALLOW_NEW_PACKAGE=1` passed, 0 B; `npx tsc --noEmit` 828 B, `npx biome check scripts` 840 B and `npx frobnicate-xyz` 801 B (check 3). `npm install`, `npm ci`, `npm install --ignore-scripts left-pad`, `npx -p typescript tsc`, `npx @biomejs/biome check` and `npm run typecheck` passed, 0 B. A throwing npmView or readManifest port refuses, 91/96 B (fed at 18a1598da under #3143). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3226; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — each deny carries the reason and the corrected form (add `--ignore-scripts` and commit the lockfile; check the name against the tool's docs; on a thin or young package the `WFC_ALLOW_NEW_PACKAGE=1` escape, honoured only from Claude Code's own environment and never the command line, or the founder running the install from his own terminal; the two resolving spellings). Check 3 names the dependency whose installed `bin` carries the bin (`npx -p typescript tsc`, `npx @biomejs/biome`), says so where none does, and where node_modules is unread says it could not tell (~885 B, `npx -p <that dependency> tsc`), still naming `@biomejs/biome` for biome; its biome sentence reads as the incident behind the rule",
+			"source": "#3143"
+		},
+		"scripts/lib/unchecked-rm.js": {
+			"digest": "690d5da47d426dd9",
+			"verdict": "at need — before the command reaches the harness's removal check, once per command: `rm -rf \"$T\"/*`, `cd build && rm *.log` and `bash -c \"make clean\"; rm a.txt` each refused (1,084, 1,032 and 1,087 B, fed at #2801's Node port), the identical re-send and `rm -rf /tmp/x`, `rm -rf $T` and `R=/tmp; rm -rf $R/a` passed Run as a core of scripts/guard-dispatch.js since #3226; not re-measured there, so the figures are the deleted standalone entry's.",
+			"selfSufficient": "yes — the limb's reason, the two spellings that never meet the check and the re-send escape inline",
+			"source": "#2586"
 		}
 	}
 }

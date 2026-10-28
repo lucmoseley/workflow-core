@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/find-start.js, guard-root-find.js's core (#2801), in process: which
+ * lib/find-start.js, the guard-root-find core (#2801), in process: which
  * `find` commands start at `/` and are refused (#1006), what the refusal
  * hands over, and which pass. The first fire list and the first pass list are
  * #1006's acceptance criteria; do not thin them.

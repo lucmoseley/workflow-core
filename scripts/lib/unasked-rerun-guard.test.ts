@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/unasked-rerun-guard.js, guard-unasked-rerun.js's core (#2800), in
+ * lib/unasked-rerun-guard.js, the guard-unasked-rerun core (#2800), in
  * process: which command reaches the judge — a bare `npm run test`, `npm run
  * test:changed` or `npm test`, `--` and `--queue` alone after it (#1153 Q1) —
  * and what the guard makes of each answer the judge can give.
@@ -77,7 +77,7 @@ function run(
 			vars,
 			isDir: () => true,
 			log: (what: string, detail?: string) => logged.push([what, detail]),
-			sessionId,
+			session: sessionId,
 			ruleText,
 			docPath,
 			moduleOn,

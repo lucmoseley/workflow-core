@@ -75,7 +75,7 @@
  *  - A join mantahostels#287 named stays open: a write-shaped line swallowed
  *    into a mis-paired multi-line string above it is invisible. The guarded
  *    head is not widened to bound that join (mantahostels#1818): it made
- *    `guard-npm-install.js` deny a benign command whose prose named an install.
+ *    the `guard-npm-install` core deny a benign command whose prose named an install.
  *  - The tier test in addTarget only saves the store a read: claim-warning.js's
  *    `isGuarded` decides, and drift here makes it UNDER-fire — a missed
  *    warning, never a wrong one.

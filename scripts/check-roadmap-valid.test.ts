@@ -95,15 +95,13 @@ const stageIn = (cwd: string, file: string, body: string) => {
 };
 const stage = (file: string, body: string) => stageIn(repo, file, body);
 
-const run = (
-	args: string[],
-	cwd = repo,
-	env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: cwd },
-) => {
+/* The host pin goes last, so no case's `extra` drops it: the session's own
+ * CLAUDE_PROJECT_DIR would otherwise name this checkout (#3327). */
+const run = (args: string[], cwd = repo, extra: NodeJS.ProcessEnv = {}) => {
 	const r = spawnSync("node", [SCRIPT, ...args], {
 		cwd,
 		encoding: "utf8",
-		env,
+		env: { ...process.env, ...extra, CLAUDE_PROJECT_DIR: cwd },
 	});
 	return {
 		status: r.status ?? -1,
@@ -111,11 +109,10 @@ const run = (
 		stderr: r.stderr ?? "",
 	};
 };
-const check = (cwd = repo) => run([], cwd);
-const tree = (
-	cwd = repo,
-	env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: cwd },
-) => run(["--tree"], cwd, env);
+const check = (cwd = repo, extra: NodeJS.ProcessEnv = {}) =>
+	run([], cwd, extra);
+const tree = (cwd = repo, extra: NodeJS.ProcessEnv = {}) =>
+	run(["--tree"], cwd, extra);
 
 /* Writes the working tree WITHOUT staging, which is what tree mode judges. */
 const put = (file: string, body: string, cwd = repo) => {
@@ -389,15 +386,7 @@ describe("check-roadmap-valid", () => {
 
 	it("annotates its findings for Actions, on stdout", () => {
 		stage(HTML, roadmap(v(2), [card({ state: "nope" })]));
-		const r = spawnSync("node", [SCRIPT], {
-			cwd: repo,
-			encoding: "utf8",
-			env: {
-				...process.env,
-				GITHUB_ACTIONS: "true",
-				CLAUDE_PROJECT_DIR: repo,
-			},
-		});
+		const r = check(repo, { GITHUB_ACTIONS: "true" });
 		expect(r.status).toBe(1);
 		expect(r.stdout).toContain("::error::");
 		expect(r.stdout).toContain('bad state "nope"');
@@ -518,7 +507,7 @@ describe("check-roadmap-valid --tree", () => {
 
 	it("annotates its findings for Actions, on stdout", () => {
 		put(HTML, roadmap(v(2), [card({ state: "nope" })]));
-		const r = tree(repo, { ...process.env, GITHUB_ACTIONS: "true" });
+		const r = tree(repo, { GITHUB_ACTIONS: "true" });
 		expect(r.status).toBe(1);
 		expect(r.stdout).toContain("::error::");
 		expect(r.stdout).toContain('bad state "nope"');
@@ -658,7 +647,7 @@ describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 	it("annotates the unrecorded boundary for Actions, on stdout", () => {
 		put(ladderPath, ladder("None yet."));
 		put(HTML, gate("done"));
-		const r = tree(repo, { ...process.env, GITHUB_ACTIONS: "true" });
+		const r = tree(repo, { GITHUB_ACTIONS: "true" });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("::warning::");
 		expect(r.stdout).toContain("validate-p0 reads done");

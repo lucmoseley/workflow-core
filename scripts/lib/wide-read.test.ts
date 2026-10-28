@@ -13,10 +13,9 @@
  * Module cases, over small files in a temp repo with the thresholds passed as
  * WFC_WIDE_READ_* so fixtures stay tiny; one block binds the shipped default
  * instead. The `Read` limb runs through lib/guard-core-testkit.ts as the
- * dispatcher runs it, latches and all. The Bash limbs run from
- * scripts/guard-wide-read.js, not the dispatcher, so they call `decide` with
- * the production host ports (lib/wide-read-host.js) and a built context; the
- * entry itself is crossed in guard-wide-read.test.ts.
+ * dispatcher runs it, latches and all. The Bash limbs call `decide` with the
+ * production host ports (lib/wide-read-host.js) and a built context; the
+ * dispatcher entry is crossed for them in guard-wide-read.test.ts.
  *
  * Loosen a fire case and whole files pour into a session's context unwarned,
  * the largest share of a long session's spend (mantahostels#1553); loosen a

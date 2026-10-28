@@ -1,5 +1,5 @@
 /*
- * npm-install.js — guard-npm-install.js's core (#2800): the npm install
+ * npm-install.js — the guard-npm-install core (#2800, #3226): the npm install
  * boundary (mantahostels#1803, ruled at mantahostels#1767).
  *
  * The gate on a new dependency: three refusals on one hook, all of them
@@ -86,15 +86,17 @@ const { literal, scanFlags } = require("./shell-words.js");
 const MIN_AGE_DAYS = 180;
 const MIN_DOWNLOADS = 1000;
 
-/* THE WALL-CLOCK BUDGET, in seconds. The hook's own 60 s timeout is not a
- * verdict: a hook killed at the ceiling emits nothing, which Claude Code reads
- * as no objection — the one fail-open this guard could not record. So it stops
- * asking the registry at 30 s and refuses on what it could not check.
+/* THE WALL-CLOCK BUDGET, in seconds. The dispatcher's 60 s timeout is not a
+ * verdict: a hook killed at the ceiling refuses through `"onFailure":
+ * "block"`, naming nothing it checked. So it stops asking the registry at 30 s
+ * and refuses on what it could not check, saying which.
  *
  * 30 s, not 40: the budget is tested BEFORE each package and one package costs
  * up to the npm call's 12 s and curl's 8 s (lib/npm-install-host.js), so a
  * 40 s budget could start a package at 39 s and finish at 59 s — inside the
- * ceiling only by luck (mantahostels#1803's review, H4). 30 + 20 leaves 10 s. */
+ * ceiling only by luck (mantahostels#1803's review, H4). The 30 s run from
+ * the dispatcher's start, not this core's, so the cores ahead of it spend from
+ * them, and 30 + 20 leaves 10 s for the output write. */
 const BUDGET_S = 30;
 
 /* npm's install aliases, as npm itself accepts them. */
@@ -135,6 +137,8 @@ const NPX_REMOVED = new Set(
  * @property {(pkg: string) => Call} downloads last month's downloads endpoint
  *   for `pkg`
  * @property {() => number} now the clock, in epoch milliseconds
+ * @property {() => number} startedAt when the dispatcher started, in epoch
+ *   milliseconds; the budget runs from it
  * @property {boolean} allowNewPackage `WFC_ALLOW_NEW_PACKAGE` set in the
  *   hook's own environment
  * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts} NpmInstallContext
@@ -197,7 +201,7 @@ ${ESCAPE_NOTE}`,
 	budget: (name) =>
 		`This guard ran out of its own time budget before it could check \`${name}\`, so nothing is known about it: @CMD@
 
-The budget is ${BUDGET_S} s, under the hook's 60 s ceiling — a hook killed at that ceiling emits nothing at all, which reads as no objection. Install one package at a time and each gets checked.
+The budget is ${BUDGET_S} s from the hook's start, under its 60 s ceiling — a hook killed at that ceiling is refused without saying which package was unchecked. Install one package at a time and each gets checked.
 
 ${ESCAPE_NOTE}`,
 	unreachable: (name) =>
@@ -629,7 +633,7 @@ function sortSpecs(specs, deps) {
  * @returns {string | null}
  */
 function legitimacy(fresh, ctx) {
-	const deadline = seconds(ctx.now()) + BUDGET_S;
+	const deadline = seconds(ctx.startedAt()) + BUDGET_S;
 	for (const name of fresh) {
 		/** @type {RegistryVerdict} */
 		const v =
@@ -851,4 +855,4 @@ function decide(command, ctx) {
 	return verdict;
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

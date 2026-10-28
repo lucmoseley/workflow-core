@@ -71,7 +71,7 @@
  *  - Command-position matching, by lib/shell-parse.js's git walk: a grep, an
  *    echo, a quoted string or a heredoc mentioning `git pull` is not a pull. A
  *    pull reached through a wrapper (`xargs`, `timeout`, `sh -c`) is not seen,
- *    the same blind spot guard-pull-form.js carries.
+ *    the same blind spot the guard-pull-form core carries.
  *  - It records what the Bash TOOL ran. A pull typed in a terminal sees no hook,
  *    so the rate this measures is the agent-session rate, which is the rate #289
  *    counted in transcripts.
