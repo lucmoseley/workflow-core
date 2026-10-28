@@ -229,10 +229,10 @@
 			"source": "#2790"
 		},
 		"scripts/lib/wide-read.js": {
-			"digest": "546319954ab10a9e",
-			"verdict": "at need, all four limbs. Run as a core of scripts/guard-dispatch.js, its Read limb since #2791 and its Bash limbs since #3227 (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
+			"digest": "1ed371f04f11e372",
+			"verdict": "at need, all four limbs, before the read runs, warn only. Census Part 2's payload: `cat docs/reference-roadmap.html` (47,346 B) warned 791 B, and again on the same session's repeat (the Bash limbs are unlatched); `sed -n 1,400p scripts/lib/wide-read.js` 379 B; `awk 1 scripts/guard-*.js` 518 B; a `Read` of the roadmap with no limit 597 B at a 41-char root, the same session's second `Read` of it silent. The census's stray backslash in the cat limb's redirect example is gone. Aimed at the #3227 fold, which narrowed its Bash limbs to the row's unanchored `Bash(*cat *)`, `Bash(*sed *)`, `Bash(*awk *)` clauses: `X=1 cat …` and `true && cat …` warn 791 B; `timeout 5 cat …` reaches the core and passes silent, as do `cat<file`, `cat … | head -50` and `cd docs && cat reference-roadmap.html` (relative to the hook's directory, per its LIMITS). Byte counts are the whole hook stdout; no other core spoke on these calls. Fed through scripts/guard-dispatch.js at 0e59b60a9 under #3443.",
 			"selfSufficient": "yes — every limb carries the concrete cheaper command for its own file inline; docs/agents/tool-output.md is named only for the why",
-			"source": "#2791"
+			"source": "#2791, #3443"
 		},
 		"scripts/lib/agent-poll.js": {
 			"digest": "069e53ab80fc311c",
@@ -253,16 +253,16 @@
 			"source": "#2791"
 		},
 		"scripts/lib/find-start.js": {
-			"digest": "5854444ce4c5c622",
-			"verdict": "at need, on every such call, unlatched (fed at 18a1598da under #3143, byte-identical to the tree before #3018 but the printed plugin root: `find / -name x` refused 692 B at a 70-char root, so ~646 B at /home/lucmo/workflow-core; `timeout 120 find / -name x` 704, `find //` 693, `find /tmp/..` 698, `find .` from a cwd of / refused; `find ~ -name x` passed; the same session's repeat refused again). A core throw refuses via onThrow (216 B: `guard-root-find.js could not judge this command, so it refuses it: …`). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
+			"digest": "04a573d6d0b3d545",
+			"verdict": "at need, on every such call, unlatched, the same text as the standalone entry's at #3143 but the printed plugin root. Census Part 2's payload: `find / -name guard-parse.sh 2>/dev/null` refused 688 B and `timeout 120 find / -xdev -maxdepth 3 -name x` 693 B at a 41-char root. `find / -name x` 663 B there, so 646 B at /home/lucmo/workflow-core; `find //` 664, `find /tmp/..` 669, `find .` from a cwd of / refused; `find ~ -name x` passed; the same session's repeat refused again. Aimed at the #3227 fold: `X=1 find / -name x` (667 B) and `cd /tmp && find / -name x` refused through the row's unanchored `Bash(*find *)` clause. A core throw now refuses in the dispatcher's words, 175 B plus the error message (`guard-root-find could not judge this call, and it fails closed: …`), logged `core threw — refused` to guard-errors.log; a non-`find` call with the core throwing is never reached, 0 B. Byte counts are the whole hook stdout. Fed through scripts/guard-dispatch.js at 0e59b60a9 under #3443.",
 			"selfSufficient": "yes — refusal, reason, and three concrete alternative roots inline, no pointer needed; it reads no rule store.",
-			"source": "#3143"
+			"source": "#3143, #3443"
 		},
 		"scripts/lib/ugrep-pattern.js": {
-			"digest": "e0c4524a4141ba33",
-			"verdict": "at need for the first ranged-repeat grep of a session (fed at 18a1598da under #3143, byte-identical to the tree before #3018: `grep -E 'a.{0,80}b'` and BRE `a\\{2,3\\}` warned 775 B; plain, exact-count `{3}` and `-P` greps silent); never fires again that session — the same session's next ranged grep 0 B — so a later grep, possibly the one actually refused, goes unwarned (by design: \"Warned once a session\"); clearing the latch re-warns. A throw on the path rewrite is allowed silent and logged, no latch written. Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3227; not re-measured there, so the figures are the deleted standalone entry's.",
+			"digest": "a4c1b0ad25df3c05",
+			"verdict": "at need for the first ranged-repeat grep of a session, the same text as the standalone entry's at #3143; never fires again that session, so a later grep, possibly the one actually refused, goes unwarned (by design: \"Warned once a session\"); clearing the latch re-warns. Census Part 2's payload: `grep -nE '[0-9]{2,40}' scripts/lib/find-start.js 2>/dev/null` warned 838 B with the discarded-stderr sentence, the same session's `grep -nE 'x{1,9}' package.json` 0 B, and that grep in a fresh session 775 B. `grep -E 'a.{0,80}b'` and BRE `a\\{2,3\\}` warned 775 B; plain, exact-count `{3}` and `-P` greps silent. Aimed at the #3227 fold, which narrowed it to the row's anchored `Bash(grep *)` clause: `X=1 grep -E 'a{1,3}'` and `ls && grep -E 'a{1,3}'` warn 775 B; `timeout 5 grep`, `xargs grep` and `command grep` pass silent. A core throw is allowed silent, logged `core threw — allowed unchecked` to guard-errors.log, no latch written: the same session's next ranged grep warns. Byte counts are the whole hook stdout; no other core spoke on these calls. Fed through scripts/guard-dispatch.js at 0e59b60a9 under #3443.",
 			"selfSufficient": "yes — mechanism, how to read exit 2, and a re-spelling that keeps every other flag (and, for literals, `.`, bracket classes and bounded repeats, the output) inline; tool-output.md only named; it reads no rule store.",
-			"source": "#3143"
+			"source": "#3143, #3443"
 		},
 		"scripts/lib/headroom-read.js": {
 			"digest": "ce61bb15ae651c3e",
@@ -295,10 +295,10 @@
 			"source": "#3143, #3201"
 		},
 		"scripts/lib/suite-background.js": {
-			"digest": "1130382607ff7806",
-			"verdict": "at need — refuses the launch itself Run as a core of scripts/guard-dispatch.js (#2790: its refusal and warning text byte-identical to the bash guard over 213 differential commands)",
+			"digest": "b6274b64793ec28c",
+			"verdict": "at need — refuses the launch itself. Census Part 2's payload, the core alone (`--only guard-suite-background`): `nohup npm run test -- --full=pre-push > /tmp/x.log 2>&1 &` refused 1,099 B, `timeout 300 npm run test` 727 B, each 4 B under the census as the #3227 fold took `.js` off the guard-suite-concurrency name it cites; `timeout 300 node scripts/run-vitest.js scripts/foo.test.ts` silent. `setsid npm run test -- --full=x` refused 1,074 B and `ls; npm run test & disown` 1,066 B; `WFC_SUITE_DETACH=1` and `WFC_SUITE_TIMEOUT=1` prefixes pass it. Aimed at the fold: through the whole dispatcher the same calls carry the suite-concurrency core's notices in one hook output, its reason first and theirs as context (1,692 B and 1,274 B on this machine's memory reading at the time), and an escaped launch can still be refused by that core's memory rung. Byte counts are the whole hook stdout. Fed through scripts/guard-dispatch.js at 0e59b60a9 under #3443.",
 			"selfSufficient": "yes — line one is the literal corrected command (detachment / timeout stripped), followed by the reason, the bg-run.sh/notification handling and the escape (`WFC_SUITE_DETACH=1` / `WFC_SUITE_TIMEOUT=1`)",
-			"source": "#2790"
+			"source": "#2790, #3443"
 		},
 		"scripts/lib/unasked-rerun-guard.js": {
 			"digest": "2b5a00cafabd8b75",
