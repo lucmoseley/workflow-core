@@ -339,6 +339,43 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC2}: 1 -> 0 reader(s)`);
 	});
+
+	it("converges on the regenerate a refused --check names over an intent-to-add entry re-added on a tracked path (#3419)", () => {
+		write("scripts/reader.test.ts", `process.cwd(); read("${DOC2}");`);
+		write(DOC2, "a tracked document\n");
+		git("add", "-A");
+		run();
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		git("rm", "-q", "--cached", DOC2);
+		git("add", "-N", DOC2);
+		const { stderr } = runFailing("--check");
+		const named = /-- --only (.+)\n/.exec(stderr)?.[1];
+		expect(named).toBe(`${DOC2} ${OUT}`);
+		run("--only", ...(named ?? "").split(" "));
+		git("add", OUT);
+		expect(runFailing("--check").status).toBe(0);
+	});
+
+	it("keeps a named new intent-to-add path's edges under --only, as the commit carries its disk bytes", () => {
+		git("commit", "-q", "-m", "initial");
+		write(DOC2, "a new document\n");
+		git("add", "-N", DOC2);
+		write("scripts/late.test.ts", `process.cwd(); read("${DOC2}");`);
+		git("add", "scripts/late.test.ts");
+		run("--only", DOC2, "scripts/late.test.ts", OUT);
+		expect(readManifest()[DOC2]).toEqual(["scripts/late.test.ts"]);
+	});
+
+	it("still reads a named path from disk under --only where it is un-tracked but not intent-added", () => {
+		write("scripts/reader.test.ts", `process.cwd(); read("${DOC2}");`);
+		write(DOC2, "a tracked document\n");
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		git("rm", "-q", "--cached", DOC2);
+		run("--only", DOC2, OUT);
+		expect(readManifest()[DOC2]).toEqual(["scripts/reader.test.ts"]);
+	});
 });
 
 describe("the unseen-read warning and listing (#1881)", () => {

@@ -46,9 +46,10 @@ function hasHead(root) {
  * one and calls one over a HEAD path deleted.
  *
  * @param {string} root
+ * @param {Map<string, string>} [head]  HEAD's blob ids, where already read
  * @returns {(file: string) => boolean}
  */
-function readIsIntentToAdd(root) {
+function readIsIntentToAdd(root, head) {
 	const fields = gitList(root, [
 		"diff",
 		"--cached",
@@ -62,9 +63,9 @@ function readIsIntentToAdd(root) {
 		const [status, file] = fields.slice(i, i + 2);
 		if (status && file) staged.set(file, status);
 	}
-	const head = hasHead(root) ? readHeadBlobIds(root) : new Map();
+	const headIds = head ?? (hasHead(root) ? readHeadBlobIds(root) : new Map());
 	return (file) =>
-		staged.get(file) === "D" || (!staged.has(file) && !head.has(file));
+		staged.get(file) === "D" || (!staged.has(file) && !headIds.has(file));
 }
 
 /**
@@ -170,17 +171,29 @@ const readIndexTree = (root) => blobTree(root, readIndexBlobIds(root));
 /**
  * What `git commit -- <only>` will carry, rendered before the commit: HEAD,
  * with each named path taken from disk or, where the disk has lost it, dropped.
+ * A named intent-to-add entry over a HEAD path is dropped too, as the bare
+ * commit whose refused `--check` named these paths deletes it (#3419). A
+ * pathspec commit naming that path carries its disk bytes instead, so its own
+ * `--check` refuses rather than passing falsely.
  *
  * @param {string} root
  * @param {string[]} only  file paths, as the commit names them
  */
 function readCommitTree(root, only) {
 	const head = readHeadBlobIds(root);
-	for (const p of only) head.delete(p);
+	const isIntentToAdd = readIsIntentToAdd(root, head);
+	const indexed = new Set(gitList(root, ["ls-files", "-z"]));
+	const isDroppedIntentToAdd = (/** @type {string} */ p) =>
+		head.has(p) && indexed.has(p) && isIntentToAdd(p);
+	const named = new Set(only);
 	return blobTree(
 		root,
-		head,
-		new Set(only.filter((p) => fs.existsSync(path.join(root, p)))),
+		new Map([...head].filter(([p]) => !named.has(p))),
+		new Set(
+			only.filter(
+				(p) => !isDroppedIntentToAdd(p) && fs.existsSync(path.join(root, p)),
+			),
+		),
 	);
 }
 

@@ -11,8 +11,10 @@
  *          what the pre-commit gate runs, so a stale manifest cannot be
  *          committed — and the index is what the commit carries (#557).
  * --only   render what `git commit -- <path>...` will carry — HEAD plus those
- *          paths from disk — rather than the whole working tree. Every
- *          positional is a path, and a positional without --only refuses.
+ *          paths from disk — rather than the whole working tree; a named
+ *          intent-to-add entry over a HEAD path is dropped, as the bare
+ *          commit a refused --check judged drops it. Every positional is
+ *          a path, and a positional without --only refuses.
  * --unseen list every read in the tree's tests the selector cannot attribute,
  *          writing nothing (#1881). --check warns about the same reads in the
  *          test files the commit adds or changes, and never refuses on one: an
