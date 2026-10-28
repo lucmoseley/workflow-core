@@ -171,9 +171,11 @@ function associativeNames(source) {
  */
 function subscriptOwner(out, at) {
 	const before = out.slice(0, at);
-	const direct = before.match(/(?<=(?:^|\W)\d*)([A-Za-z_]\w*)$/);
+	const direct = before.match(/(?=[A-Za-z_])(?<=(?:^|\W)\d*)([A-Za-z_]\w*)$/);
 	if (direct) return direct[1];
-	return [...before.matchAll(/(?<=(?:^|\W)\d*)([A-Za-z_]\w*)=\(/g)].at(-1)?.[1];
+	return [
+		...before.matchAll(/(?=[A-Za-z_])(?<=(?:^|\W)\d*)([A-Za-z_]\w*)=\(/g),
+	].at(-1)?.[1];
 }
 
 /**

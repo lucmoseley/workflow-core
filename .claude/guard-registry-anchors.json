@@ -43,7 +43,7 @@
 	"scripts/guard-failed-call-rules.js": "1b79d77c0d49326a",
 	"scripts/guard-inventory.js": "732bdb982e2d6755",
 	"scripts/guard-jev-advisory.js": "236374990712facd",
-	"scripts/guard-lost-deny.js": "654f4063af0cfcbe",
+	"scripts/guard-lost-deny.js": "90c326a55fba78c3",
 	"scripts/guard-lost-verdict.js": "cbbd96f4e3562caa",
 	"scripts/guard-paste-self-match.js": "79f85c518c48d192",
 	"scripts/guard-priced-options.js": "b245f82785e4ec33",

@@ -53,7 +53,7 @@ const DENIES_BY_EXIT_MARKER =
 const EXIT_2 = /\bexit 2\b/;
 
 const CORE_DENY =
-	/\bdeny\s*:|\{[^}]*\bdeny(?:Text)?\b[^}]*\}\s*=\s*require\(\s*["']\.\/guard-verdict\.js["']/;
+	/\bdeny\s*:|(?:^|\})[^{}]*\{(?=[^}]*\bdeny(?:Text)?\b)[^}]*\}\s*=\s*require\(\s*["']\.\/guard-verdict\.js["']/;
 
 /* A header line: blank, a shebang, or a shell, block or line comment. */
 const HEADER_LINE = /^[ \t]*(?:$|#|\/\*|\*|\/\/)/;

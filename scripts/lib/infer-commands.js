@@ -84,7 +84,7 @@ const REDIRECT = new RegExp(
 const CONTINUATION = /\\\n/g;
 /* A command substitution, a parameter, brace or ANSI-C escape expansion,
  * whose words are not known until the shell runs it (#3422). */
-const EXPANSION = /\$[({\w@*#?!$'-]|`|\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}/;
+const EXPANSION = /\$[({\w@*#?!$'-]|`|\{(?=[^{}\s]*(?:,|\.\.))[^{}\s]*\}/;
 
 /* A command is read through each `npm run`, `pnpm run`, `yarn run` or
  * `bun run` it makes into the script that names, with the runner's flags
