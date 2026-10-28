@@ -903,6 +903,8 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 
 	beforeEach(() => {
 		vi.stubEnv("WFC_MODULES", undefined);
+		// The port judges by the host it holds, never a session's own (#3327).
+		vi.stubEnv("CLAUDE_PROJECT_DIR", dir);
 		writeTracker({ tracker: "acme/tracker", modules: ["landing"] });
 		push();
 		commit("Fix the stop (#12)");
