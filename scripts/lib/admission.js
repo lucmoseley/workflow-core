@@ -2102,6 +2102,17 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 	};
 }
 
+/**
+ * A readable `admission.js --json` verdict, as its readers parse it: the
+ * strict verdict with the breakdown and the fields `writeJson` sets beside it.
+ * @typedef {Extract<ReturnType<typeof strictAdmission>, {ok: true}> & {
+ *   memory: MemoryBreakdown,
+ *   hungJobs: ReturnType<typeof import("./hung-jobs.js").findHungJobs>,
+ *   allowanceWarning: string | null,
+ *   sessionFloorProblem: string | null,
+ * }} AdmissionJson
+ */
+
 module.exports = {
 	machineAdmission,
 	LAUNCH_SPARES,

@@ -222,7 +222,8 @@ function fileKillTickets() {
  * (lib/refill-loop.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
  * broken read launches nothing (#2012). `admission` is the verdict behind
  * them, for the concurrency record, or null where it did not read.
- * @returns {{slots: number, admission: unknown}}
+ * @returns {{slots: number,
+ *   admission: import("./admission.js").AdmissionJson | null}}
  */
 function readFreeSlots() {
 	const r = runChild(process.execPath, [
@@ -230,6 +231,8 @@ function readFreeSlots() {
 		...loop.FREE_SLOT_ARGS,
 	]);
 	try {
+		/* admission.js's own `--json` shape (writeJson), typed, not checked. */
+		/** @type {import("./admission.js").AdmissionJson | {ok: false}} */
 		const verdict = JSON.parse(r.stdout);
 		return verdict.ok
 			? { slots: Number(verdict.slots) || 0, admission: verdict }

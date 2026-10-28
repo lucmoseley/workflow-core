@@ -48,7 +48,11 @@ function readLiveUnlisted() {
 	 * alike, so the parse judges the read, not the exit. */
 	let row = null;
 	try {
-		row = JSON.parse(r.stdout).memory?.unlisted;
+		/* Read off any verdict, a refusal included, which also carries
+		 * `memory`. */
+		/** @type {{memory?: {unlisted?: import("./lib/concurrency.js").UnlistedRead}}} */
+		const verdict = JSON.parse(r.stdout);
+		row = verdict.memory?.unlisted;
 	} catch {
 		row = null;
 	}
@@ -61,10 +65,18 @@ function readLiveUnlisted() {
 	);
 }
 
-const r = readout({
-	...readRecords(),
-	now: Date.now(),
-	windowMs: SUSTAINED_WINDOW_MS,
-});
-writeSustained(r);
-writeFd(1, `${buildBlockText(r, readLiveUnlisted)}\n`);
+/** @returns {number} */
+function main() {
+	const r = readout({
+		...readRecords(),
+		now: Date.now(),
+		windowMs: SUSTAINED_WINDOW_MS,
+	});
+	writeSustained(r);
+	writeFd(1, `${buildBlockText(r, readLiveUnlisted)}\n`);
+	return 0;
+}
+
+if (require.main === module) process.exit(main());
+
+module.exports = { main };

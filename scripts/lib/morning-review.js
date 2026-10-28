@@ -14,16 +14,22 @@
 
 const { requiredGroup } = require("./regex-group.js");
 const { byKind, incidentTitle, isOver } = require("./earlyoom-kills.js");
-const { NONE, SPREAD_CAP } = require("./concurrency.js");
+const {
+	NONE,
+	SPREAD_CAP,
+	SUSTAINED_SPAN,
+	SUSTAINED_WINDOW_MS,
+	buildSustainedText,
+} = require("./concurrency.js");
+const { DAY_MS } = require("./retained-jsonl.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
-const DAY_MS = 24 * 60 * 60 * 1000;
 /* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
  * unmeasured. */
 const STUCK_URGENT_DAYS = 7;
 /* The concurrency section's two readout windows; untraced (#3315). */
 const CONCURRENCY_WINDOWS = {
-	day: { ms: DAY_MS, span: "24 h" },
+	day: { ms: SUSTAINED_WINDOW_MS, span: SUSTAINED_SPAN },
 	week: { ms: 7 * DAY_MS, span: "7 days" },
 };
 /* Untraced: spec #1995's "first tick after 07:00", machine-local. */
@@ -170,12 +176,6 @@ function renderKillLines({ incidents, tickets, why }, lo, hi) {
 /** @param {number} h */
 const hours = (h) => `${h.toFixed(1)} h`;
 
-/** @param {Readout} r @param {string} span */
-const sustainedText = (r, span) =>
-	r.sustained === null
-		? `no session recorded working over the last ${span}`
-		: `${r.sustained.toFixed(1)} over the last ${span} (${hours(r.activeHours)} with any session working)`;
-
 /**
  * The "Concurrency" lines, every figure as lib/concurrency.js's readout gives
  * it: the sustained figures, the last tick's ceiling, the day's working hours
@@ -200,8 +200,8 @@ function renderConcurrencyLines({ day, week }) {
 	return [
 		"Sustained concurrency, the founder's own sessions counted:",
 		"",
-		`- ${sustainedText(day, CONCURRENCY_WINDOWS.day.span)}`,
-		`- ${sustainedText(week, CONCURRENCY_WINDOWS.week.span)}`,
+		`- ${buildSustainedText(day, CONCURRENCY_WINDOWS.day.span)}`,
+		`- ${buildSustainedText(week, CONCURRENCY_WINDOWS.week.span)}`,
 		"",
 		t
 			? `Admission ceiling: ${t.ceiling ?? "unread"} at the last refill-loop tick (${t.at}).`
