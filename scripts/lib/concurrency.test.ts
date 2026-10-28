@@ -226,7 +226,7 @@ describe("readout's verdict (#3317)", () => {
 	});
 });
 
-describe("the unlisted watch (#3322, #3496)", () => {
+describe("the unlisted watch (#3322, #3496, #3507)", () => {
 	const row = (count: number | null, unknown: string | null = null) => ({
 		count,
 		mb: count && count * 450,
@@ -287,6 +287,33 @@ describe("the unlisted watch (#3322, #3496)", () => {
 		},
 	])("prints unknown where $name", ({ age, kept, live, line }) => {
 		expect(block(age, kept, live)).toContain(line);
+	});
+
+	it("prints the reason a fresh tick's unlisted row went unread (#3507)", () => {
+		const tick = buildTickRecord({
+			input: input(),
+			decision: idle("no free slot"),
+			admission: admission({
+				memory: {
+					...admission().memory,
+					unlisted: {
+						count: null,
+						mb: null,
+						unknown: "no ids listed",
+						dirs: [],
+					},
+				},
+			}),
+		});
+		const r = readout({
+			ticks: [tick],
+			minutes: [],
+			now: T0 + MIN,
+			windowMs: HOUR,
+		});
+		expect(buildBlockText(r, unread)).toContain(
+			"unlisted:  unknown at the last tick — no ids listed",
+		);
 	});
 
 	it.each<[string, number, unknown, unknown]>([
@@ -435,7 +462,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 				},
 			}),
 		});
-		expect(r.memory?.unlisted).toEqual(unlisted);
+		expect(r.memory?.unlisted).toEqual({ ...unlisted, unknown: null });
 	});
 
 	it("records null counts and memory where admission did not read", () => {

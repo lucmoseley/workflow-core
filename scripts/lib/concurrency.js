@@ -214,12 +214,17 @@ function buildTickRecord(tick) {
 /**
  * The breakdown's unlisted row as a tick keeps it (#3322); null where the
  * admission read carried none.
- * @param {{count?: number|null, mb?: number|null, dirs?: UnlistedDir[]}|null|undefined} u
- * @returns {{count: number|null, mb: number|null, dirs: UnlistedDir[]}|null}
+ * @param {(Partial<UnlistedRead> & {dirs?: UnlistedDir[]})|null|undefined} u
+ * @returns {UnlistedRead & {dirs: UnlistedDir[]}|null}
  */
 function unlistedOf(u) {
 	if (!u) return null;
-	return { count: u.count ?? null, mb: u.mb ?? null, dirs: u.dirs ?? [] };
+	return {
+		count: u.count ?? null,
+		mb: u.mb ?? null,
+		unknown: u.unknown ?? null,
+		dirs: u.dirs ?? [],
+	};
 }
 
 /**
