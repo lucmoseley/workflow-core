@@ -24,9 +24,11 @@
  * counted tier, that the record form does not match — counts nothing and is
  * reported, remedy included: one line to stderr and to the guard-error log,
  * which is what the daily run keeps, per record each run until it is
- * corrected (#3064). Not one whose `reviewed <tree>` a parsed record on its
- * ticket shares: a close draft holding a placeholder for the landed
- * sha, superseded by the close.
+ * corrected (#3064). A note after the landed sha, as a record posted before
+ * its commit landed carries, is unparseable too (#3541). Not one a parsed
+ * record on its ticket supersedes, sharing its `reviewed <tree>`, or its
+ * `base` and paths. Residual: two commits a ticket records from one base over
+ * the same paths hide each other's unparseable record.
  *
  * A RECORD NAMING THE LANDED TREE — a counted commit with a `- FIXED` line
  * whose `reviewed` tree equals its landed commit's on the record's paths, the
@@ -114,7 +116,7 @@ const SHA = "`?([0-9a-f]{7,40})(?![0-9a-z])`?";
 const RECORD_HEAD = "\\*\\*Review findings:\\*\\*";
 const REVIEWED_TREE = `reviewed\\s+${SHA}`;
 const FINDINGS = new RegExp(
-	`${RECORD_HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:,[ \\t]*paths[ \\t]+([^\\n]+))?`,
+	`${RECORD_HEAD}\\s*base\\s+${SHA},\\s*${REVIEWED_TREE},\\s*landed\\s+${SHA}(?:,[ \\t]*paths[ \\t]+([^\\n]+)|[ \\t\\r]*(?=\\n|$))`,
 	"g",
 );
 const TIER = /\*\*Review tier:\*\*\s*`?([A-Za-z-]+)/g;
@@ -131,6 +133,8 @@ const RECORD_START = new RegExp(RECORD_HEAD);
  * reported, and a record backticked whole is skipped unreported. */
 const RECORD_MENTION = new RegExp(`(?<!\`)${RECORD_HEAD}`, "g");
 const REVIEWED = new RegExp(REVIEWED_TREE);
+const BASE = new RegExp(`\\bbase\\s+${SHA}`);
+const UNPARSED_PATHS = /,[ \t]*paths[ \t]+([^\n]+)$/;
 const INDENTED = /^\s+\S/;
 const ESCAPED = new RegExp(`\\*\\*Escaped defect:\\*\\*\\s*${SHA}`, "g");
 /* `git revert`'s own message line, which names the full sha. */
@@ -251,6 +255,15 @@ function countDisposed(after, disposed) {
 const pathsOf = (m) =>
 	m[4] === undefined ? null : m[4].replace(/`/g, "").trim();
 
+/** @param {string} paths */
+const pathSetOf = (paths) =>
+	paths
+		.replace(/`/g, "")
+		.split(/[\s,]+/)
+		.filter(Boolean)
+		.sort()
+		.join(",");
+
 /**
  * @param {string} body
  * @returns {Mark[]}
@@ -328,16 +341,30 @@ function parseIssue(repo, issue, comments) {
 }
 
 /**
- * Whether `u` is the superseded close draft the header exempts.
+ * Whether a parsed record on its ticket supersedes `u`, by reviewed tree or
+ * by base and paths, as the header exempts.
  *
  * @param {Unparsed} u
  * @param {ReviewRecord[]} records
  */
 function isSuperseded(u, records) {
-	const m = REVIEWED.exec(u.line);
-	if (!m) return false;
-	const tree = group(m, 1, REVIEWED);
-	return records.some((r) => isSameSha(r.tree, tree));
+	const treeMatch = REVIEWED.exec(u.line);
+	const baseMatch = BASE.exec(u.line);
+	const pathsMatch = UNPARSED_PATHS.exec(u.line);
+	const pathSet =
+		pathsMatch === null
+			? null
+			: pathSetOf(requiredGroup(pathsMatch, 1, UNPARSED_PATHS));
+	return records.some(
+		(r) =>
+			(treeMatch !== null &&
+				isSameSha(r.tree, group(treeMatch, 1, REVIEWED))) ||
+			(baseMatch !== null &&
+				pathSet !== null &&
+				r.paths !== null &&
+				isSameSha(r.base, group(baseMatch, 1, BASE)) &&
+				pathSetOf(r.paths) === pathSet),
+	);
 }
 
 /** @param {string} a @param {string} b */

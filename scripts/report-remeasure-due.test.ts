@@ -43,9 +43,10 @@ const record = (
 	n: number,
 	disposed = ["FIXED: a leak in the log line"],
 	landed = sha("c", n),
+	paths?: string,
 ) =>
 	[
-		`**Review findings:** base ${sha("b", n)}, reviewed ${sha("e", n)}, landed ${landed}`,
+		`**Review findings:** base ${sha("b", n)}, reviewed ${sha("e", n)}, landed ${landed}${paths === undefined ? "" : `, paths ${paths}`}`,
 		...disposed.map((d) => `- ${d} (Standards)`),
 		"Standards 1, Spec 0, Focus 0. 0 raised by more than one run.",
 	].join("\n");
@@ -356,6 +357,64 @@ describe("the re-measure trigger", () => {
 		);
 	});
 
+	it("reports a record with a note after its landed sha, never reading it pathless, and counts its commit once, with paths, under the record of its tree, or of its base and paths, that supersedes it (#3541)", () => {
+		const noted = record(15).replace(
+			/landed (\S+)/,
+			"landed $1 (queued on landing), paths lib/pricing/quote.ts",
+		);
+		const fault = `o/core#2 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${noted.split("\n")[0]}`;
+		const alone = run(
+			fixture({
+				hits: {
+					"o/core": [ticket(1, range(1, 14)), ticket(2, [], [noted])],
+				},
+			}),
+		);
+		expect(alone).toEqual({
+			code: 0,
+			stdout: "",
+			stderr: `UNPARSEABLE: ${fault}\n`,
+		});
+		const stray = record(18, undefined, "LANDED_SHA", "a.ts").replace(
+			sha("b", 18),
+			sha("b", 17),
+		);
+		const fx = fixture({
+			hits: {
+				"o/core": [
+					ticket(1, range(1, 14)),
+					ticket(
+						2,
+						[],
+						[noted, record(15, undefined, undefined, "lib/pricing/quote.ts")],
+					),
+					/* A draft naming the landed tree, its correction the pinned one. */
+					ticket(
+						3,
+						[],
+						[
+							record(16, undefined, "LANDED_SHA", "a.ts,b.ts").replace(
+								sha("e", 16),
+								sha("c", 16),
+							),
+							record(16, undefined, undefined, "b.ts a.ts"),
+						],
+					),
+					/* Another commit from the same base, over other paths. */
+					ticket(4, [], [record(17, undefined, undefined, "b.ts"), stray]),
+				],
+			},
+		});
+		const r = run(fx);
+		expect(r.stderr).toBe(
+			`UNPARSEABLE: o/core#4 has a record not in \`scripts/lib/rule-text.sh review-tier-records\`'s form, so its commit is not counted until it is corrected: ${stray.split("\n")[0]}\n`,
+		);
+		expect(r.stdout).toContain("17 counted commits");
+		expect(flag(creates(fx)[0], "--body")).toContain(
+			`- o/core#2: landed ${sha("c", 15)}, base ${sha("b", 15)}, tree ${sha("e", 15)}, paths lib/pricing/quote.ts; 1 fixed or ticketed, 0 escaped`,
+		);
+	});
+
 	it("reports a record naming the tree its landed commit carries on its paths, judged in the checkout tracking its repo, and not one naming the pre-fix tree, one posted before the rule, one naming no paths, nor one that fixed nothing (#3444)", () => {
 		const fx = fixture({ hits: {} });
 		const code = path.join(fx.root, "code");
@@ -501,10 +560,9 @@ describe("the re-measure trigger", () => {
 	});
 
 	/** record(15) re-reviewed: base and tree of 16, naming quote.ts. */
-	const withPaths = record(15)
+	const withPaths = record(15, undefined, undefined, "`lib/pricing/quote.ts`")
 		.replace(sha("b", 15), sha("b", 16))
-		.replace(sha("e", 15), sha("e", 16))
-		.replace(/landed (\S+)/, "landed $1, paths `lib/pricing/quote.ts`");
+		.replace(sha("e", 15), sha("e", 16));
 
 	it("keeps a later record's paths, with its ticket, base and tree, where an earlier record of the same commit named none (#2083)", () => {
 		const fx = fixture({
