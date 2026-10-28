@@ -3219,8 +3219,9 @@ const printLine = (line) => writeFd(1, `${line}\n`);
  * anything" when it may mean the claim store never answered.
  *
  * `mine` is every path this session's own claims name, and `othersLive`
- * whether any other session holds a live or unreadable claim here; both null
- * where the claims went unread (#3339).
+ * whether any other session holds a live or unreadable claim here. `mine` is
+ * null where the claims went unread or no session is identified, and
+ * `othersLive` only where the store went unread (#3339, #3474).
  *
  * `WFC_ANCHOR_LOCKS` replaces the claim store with a JSON array of lock
  * records. Unguarded, and deliberately at the store boundary rather than at
@@ -3278,13 +3279,20 @@ function readHeldElsewhere(targets, ours) {
  */
 function sortClaims(found, snap, wanted, ours) {
 	const self = process.env.CLAUDE_CODE_SESSION_ID || "";
-	if (!self) return "this session is unidentified";
 	const injected = process.env.WFC_ANCHOR_LOCKS;
 	/** @type {import("./lib/tree-drift.js").Lock[] | null} */
 	const locks = injected
 		? JSON.parse(injected)
 		: require("./lib/arbiter-store.js").listLocks();
 	if (locks === null) return "the claim store would not be read";
+	/* Read before the identity check, so --sole-writer can run with no
+	 * session: init from a terminal, an adopter's or CI's, writes a fresh tree
+	 * no one else claims (#3474). Residual: a person editing at a terminal
+	 * beside a session that holds no claim is anchored over. */
+	found.othersLive = locks.some(
+		(l) => l && l.sessionId !== self && (l.unreadable || l.alive),
+	);
+	if (!self) return "this session is unidentified";
 	const { neighbourDirty } = require("./lib/tree-drift.js");
 	const nameFor = require("./lib/arbiter-core.js").registryNames();
 	for (const e of (snap && neighbourDirty(snap, locks, self)) ?? []) {
@@ -3296,9 +3304,6 @@ function sortClaims(found, snap, wanted, ours) {
 	}
 	const mine = locks.filter((l) => l?.sessionId === self && !l.unreadable);
 	found.mine = new Set(mine.flatMap((l) => (l.path ? [l.path] : [])));
-	found.othersLive = locks.some(
-		(l) => l && l.sessionId !== self && (l.unreadable || l.alive),
-	);
 	return null;
 }
 
@@ -3575,7 +3580,7 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 		printLine(
 			`taking ${p} from ${h.holder}${h.dead ? " (GONE)" : ""}'s claim — put it in this commit's pathspec`,
 		);
-	if (unavailable)
+	if (unavailable && !soleWriter)
 		printLine(
 			`claim check skipped — ${unavailable}, so no dirty input is known to be this session's and none is anchored`,
 		);
@@ -3629,7 +3634,7 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 function refuseSoleWriter(read) {
 	if (read.othersLive === false) return new Set();
 	printLine(
-		`--sole-writer refused — ${read.unavailable ?? "another session holds a claim in this tree"}, and the flag is for a tree no session works yet.`,
+		`--sole-writer refused — ${read.othersLive ? "another session holds a claim in this tree" : read.unavailable}, and the flag is for a tree no session works yet.`,
 	);
 	process.exit(2);
 }
