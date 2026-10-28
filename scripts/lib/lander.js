@@ -6,17 +6,20 @@
  * lands its parent once the culprit fails twice and the parent passes the
  * whole suite, reverts the culprit on `landing` and files its fix ticket, or
  * holds (#2404). A parent whose whole suite reaches no verdict is confirmed
- * on the culprit's failing files instead and stays off `main` (#2910). Files
+ * on the culprit's failing files instead and stays off `main` (#2910); a
+ * culprit or bisected commit whose whole suite reaches none holds (#3410). Files
  * red at `main` too are a known breakage: the bisect leaves them out, and a
  * culprit whose parent is `main` is confirmed there on its files alone, never
  * reverted where they fail (#3324). Where `main` takes only a sha a CI run
  * passed, a green read off no run lands nothing: the flake check holds on it,
  * and a confirmed culprit's parent is reverted past (#3329). A push to `main`
- * that is refused holds, so no run retries it (#3329).
+ * that is refused holds, so no run retries it (#3329). A run resuming a red
+ * batch that `landing` was pushed past tests that tip first, landing it in
+ * the batch's place where it is landable (#3410).
  *
  * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
- * no-verdict ledger (the same line per parent whose whole suite reached no
- * verdict, never run whole again), pidfile and heartbeat sit under the canonical checkout's markers directory,
+ * no-verdict ledger (the same line per parent, culprit or bisected commit
+ * whose whole suite reached no verdict, never run whole again), pidfile and heartbeat sit under the canonical checkout's markers directory,
  * machine-local and gitignored, so a worktree's lander shares them with the
  * main tree's.
  */
@@ -128,6 +131,9 @@ const NETWORK =
  *   culprit it named
  * @property {Verdict|null} parentOnFiles the parent's run on `files`, taken
  *   only where its whole suite reached no verdict
+ * @property {{sha: string, verdict: Verdict|null}|null} pushedPast the
+ *   `landing` tip a resuming run found pushed past `sha`, and its own test's
+ *   verdict, null until taken
  * @property {Revert|null} revert
  * @property {string|null} unfiled why the fix ticket was not filed
  * @typedef {{row: string, forward: string}} RegistryRow a guard-registry
@@ -233,16 +239,19 @@ function bisectStep(r) {
 }
 
 /**
- * The next action on a red batch: rerun the failing files at the tip, and
- * where they stay red, bisect to the first red commit, confirm it red twice
- * with its parent green, then land the parent, revert the culprit and file
- * its fix ticket. Anything short of that confirmation holds; a run with no
+ * The next action on a red batch: test the tip `landing` was pushed past it
+ * to and land that where it passes, else rerun the failing files at the tip,
+ * and where they stay red, bisect to the first red commit, confirm it red
+ * twice with its parent green, then land the parent, revert the culprit and
+ * file its fix ticket. Anything short of that confirmation holds; a run with no
  * verdict exits.
  * @param {Red} r
- * @param {Pick<LanderState, "main" | "isStuck" | "requiresRun">} s
+ * @param {Pick<LanderState, "main" | "isGreen" | "isStuck" | "requiresRun">} s
  * @returns {Action}
  */
 function redAction(r, s) {
+	const pushed = pushedPastAction(r, s);
+	if (pushed) return pushed;
 	/** @type {[string|null, Verdict|null][]} */
 	const runs = [
 		[r.sha, r.flake],
@@ -285,7 +294,22 @@ function redAction(r, s) {
 }
 
 /**
- * @typedef {Pick<LanderState, "main" | "isStuck" | "requiresRun">
+ * The test of the tip `landing` was pushed past `r` to, or its landing where
+ * the ledger holds it or it passed; null once it did not.
+ * @param {Red} r
+ * @param {Pick<LanderState, "isGreen" | "requiresRun">} s
+ * @returns {Action|null}
+ */
+function pushedPastAction({ pushedPast }, { isGreen, requiresRun }) {
+	if (!pushedPast) return null;
+	const { sha, verdict } = pushedPast;
+	if (isGreen(sha) || (verdict && isLandable(verdict, requiresRun)))
+		return { kind: "fast-forward", sha };
+	return verdict ? null : { kind: "test", sha };
+}
+
+/**
+ * @typedef {Pick<LanderState, "main" | "isGreen" | "isStuck" | "requiresRun">
  *   & {known: string[]}} Clearing `known` the tip's red files that are red
  *   on `main` too
  */
@@ -309,10 +333,22 @@ const isLandable = (v, requiresRun) =>
 function clearRed(r, s) {
 	if (!r.range) return { kind: "bisect", base: r.base, sha: r.sha };
 	const step = bisectStep({ ...r, range: r.range });
+	if ("next" in step && isWholeSuite(r.files) && s.isStuck(step.next))
+		return {
+			kind: "hold",
+			reason: `bisect unfinished: ${short(step.next)}'s whole suite reached no verdict on a past run`,
+		};
 	if ("next" in step)
 		return { kind: "rerun", sha: step.next, files: r.files, why: "bisect" };
 	return confirmAction(r, step, s) ?? culpritAction(r, step, s);
 }
+
+/**
+ * Whether a rerun on `files` runs the whole suite: the no-verdict ledger's
+ * one kind of run.
+ * @param {string[]} files
+ */
+const isWholeSuite = (files) => files.length === 0;
 
 /**
  * @param {Verdict|undefined} v
@@ -359,8 +395,8 @@ const buildNoVerdictExit = (sha, v) => ({
 /**
  * The culprit's confirming runs, or null once it failed twice and its parent
  * passed. A parent whose whole suite reached no verdict is run on `files`
- * alone, once: rerunning the whole suite would end the same way on every
- * start.
+ * alone, once, and a culprit whose whole suite reached none holds: rerunning
+ * the whole suite would end the same way on every start.
  * @param {Red} r
  * @param {{culprit: string, parent: string|null}} bisected
  * @param {Clearing} s
@@ -369,13 +405,7 @@ const buildNoVerdictExit = (sha, v) => ({
 function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	const { files } = r;
 	const again = r.confirm[culprit];
-	if (!again) return { kind: "rerun", sha: culprit, files, why: "confirm" };
-	if (again.kind === "unknown") return buildNoVerdictExit(culprit, again);
-	if (again.kind === "green")
-		return {
-			kind: "hold",
-			reason: `culprit unconfirmed: ${short(culprit)} passed ${failingLabel({ files, jobs: culpritJobs(r, culprit) })} on its second run`,
-		};
+	if (again?.kind !== "red") return secondRunAction(r, culprit, again, isStuck);
 	if (parent === null) return null;
 	const named = parent === main ? namedOr(again, r.files) : [];
 	if (named.length > 0)
@@ -425,6 +455,32 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 			),
 		};
 	return null;
+}
+
+/**
+ * The culprit's second run, or the hold where it did not fail. One whose
+ * whole suite reached no verdict, now or on a past run, holds.
+ * @param {Red} r
+ * @param {string} culprit
+ * @param {Exclude<Verdict, {kind: "red"}>|undefined} again its second run
+ * @param {(sha: string) => boolean} isStuck
+ * @returns {Action}
+ */
+function secondRunAction(r, culprit, again, isStuck) {
+	const { files } = r;
+	const whole = isWholeSuite(files);
+	if (!again && !(whole && isStuck(culprit)))
+		return { kind: "rerun", sha: culprit, files, why: "confirm" };
+	if (again?.kind === "green")
+		return {
+			kind: "hold",
+			reason: `culprit unconfirmed: ${short(culprit)} passed ${failingLabel({ files, jobs: culpritJobs(r, culprit) })} on its second run`,
+		};
+	if (again && !whole) return buildNoVerdictExit(culprit, again);
+	return {
+		kind: "hold",
+		reason: `culprit unconfirmed: ${short(culprit)}'s whole suite reached no verdict on its second run${again ? `: ${again.reason}` : ""}`,
+	};
 }
 
 /**
@@ -543,6 +599,7 @@ const redBatch = (sha, base, { files, jobs = [] }) => ({
 	parentOnFiles: null,
 	revert: null,
 	unfiled: null,
+	pushedPast: null,
 });
 
 /**
@@ -561,6 +618,12 @@ function resumable(r) {
 		...r,
 		/* A heartbeat beaten before #3253 carried no jobs. */
 		jobs: r.jobs ?? [],
+		/* Nor, before #3410, a pushed-past tip; one whose test was not red is
+		 * tested again, as a no-verdict or a green off CI may not recur. */
+		pushedPast:
+			r.pushedPast && r.pushedPast.verdict?.kind !== "red"
+				? { ...r.pushedPast, verdict: null }
+				: (r.pushedPast ?? null),
 		flake: r.flake?.kind === "unknown" ? null : r.flake,
 		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
@@ -722,11 +785,18 @@ async function act(deps, action, state, main) {
 		return {
 			...state,
 			tested: null,
-			red: red?.sha === action.sha ? null : red,
+			red: red && deps.git.contains(action.sha, red.sha) ? null : red,
 		};
 	}
 	if (action.kind === "test") {
 		const verdict = await verdictAt(deps, action.sha);
+		/* While a red batch stands, nextAction hands it to redAction, whose one
+		 * test is the tip `landing` was pushed past it to. */
+		if (red)
+			return {
+				...state,
+				red: { ...red, pushedPast: { sha: action.sha, verdict } },
+			};
 		return verdict.kind === "red"
 			? { ...state, red: redBatch(action.sha, main, verdict) }
 			: { ...state, tested: { sha: action.sha, verdict } };
@@ -775,8 +845,14 @@ async function advanceRed(deps, action, r) {
 			action.why === "flake" || action.why === "parent",
 		);
 		/* Ledgered, as a hold drops the red batch and the next push's bisect
-		 * would name the same parent again. */
-		if (action.why === "parent" && verdict.kind === "unknown")
+		 * would name the same commit again. */
+		if (
+			(action.why === "parent" ||
+				action.why === "confirm" ||
+				action.why === "bisect") &&
+			isWholeSuite(action.files) &&
+			verdict.kind === "unknown"
+		)
 			noVerdict.add(action.sha);
 		return recordRerun(r, action, verdict);
 	}
@@ -949,7 +1025,10 @@ async function actUntilEnd(run, carry) {
 
 /**
  * Settles what the last run left, once the remote is read: its hold is done
- * with, and its red batch taken up where it is still owed.
+ * with, and its red batch taken up where it is still owed, behind a test of
+ * a `landing` tip pushed past it since, which lands in its place where it
+ * passes. Never once the batch's culprit is reverted, as its fix ticket is
+ * still owed.
  * @param {LanderGit} git
  * @param {Carry} carry accumulator: the run's state
  * @param {Refs} refs
@@ -958,8 +1037,20 @@ function resume(git, carry, refs) {
 	const red = carry.unread;
 	carry.held = null;
 	carry.unread = null;
-	if (red && isStillOwed(git, red, refs))
-		carry.state = { ...carry.state, red: resumable(red) };
+	if (!red || !isStillOwed(git, red, refs)) return;
+	const r = resumable(red);
+	const { landing } = refs;
+	const isPushedPast =
+		landing !== null &&
+		landing !== r.sha &&
+		r.revert === null &&
+		r.pushedPast?.sha !== landing;
+	carry.state = {
+		...carry.state,
+		red: isPushedPast
+			? { ...r, pushedPast: { sha: landing, verdict: null } }
+			: r,
+	};
 }
 
 /**

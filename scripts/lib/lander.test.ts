@@ -734,6 +734,7 @@ describe("runLander across runs on a red batch (#2673)", () => {
 			parentOnFiles: null,
 			revert: null,
 			unfiled: null,
+			pushedPast: null,
 		};
 		const r = await redBatch(() => false, { lastRed: red });
 		expect(r.actions[0]).toEqual({
@@ -957,6 +958,7 @@ describe("runLander where the culprit's parent reaches no verdict on the whole s
 			parentOnFiles: null,
 			revert: null,
 			unfiled: null,
+			pushedPast: null,
 		};
 		const r = await run(
 			{ main: A, landing: D },
@@ -1210,9 +1212,10 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 		parentOnFiles: null,
 		revert: null,
 		unfiled: null,
+		pushedPast: null,
 	});
 
-	it("resumes it on a landing pushed past it", async () => {
+	it("resumes it on a landing pushed past it to a red tip, once that tip is tested (#3410)", async () => {
 		const r = await run(
 			{ main: A, landing: F },
 			(sha, files) =>
@@ -1221,15 +1224,40 @@ describe("runLander resuming a past run's red batch where the remote moved (#267
 					: { kind: "green" },
 			{ history: [B, C, D, F], lastRed: pastRed() },
 		);
-		expect(r.actions[0]).toEqual({ kind: "bisect", base: A, sha: D });
+		expect(r.actions.slice(0, 2)).toEqual([
+			{ kind: "test", sha: F },
+			{ kind: "bisect", base: A, sha: D },
+		]);
 	});
 
 	it("resumes its bisect where its range steps from its base", async () => {
-		const r = await run({ main: B, landing: F }, green, {
-			history: [B, C, D, F],
-			lastRed: { ...pastRed(), base: B, range: [C, D] },
+		const r = await run(
+			{ main: B, landing: F },
+			(_, files) =>
+				files === undefined ? { kind: "red", files: FILES } : green(),
+			{
+				history: [B, C, D, F],
+				lastRed: { ...pastRed(), base: B, range: [C, D] },
+			},
+		);
+		expect(r.actions[1]).toEqual({
+			kind: "rerun",
+			sha: C,
+			files: FILES,
+			why: "bisect",
 		});
-		expect(r.actions[0]).not.toEqual({ kind: "test", sha: F });
+	});
+
+	it("tests no pushed-past tip a past run already tested (#3410)", async () => {
+		const r = await run({ main: A, landing: F }, green, {
+			history: [B, C, D, F],
+			lastRed: {
+				...pastRed(),
+				pushedPast: { sha: F, verdict: { kind: "red", files: FILES } },
+			},
+		});
+		expect(r.tested).not.toContainEqual({ sha: F });
+		expect(r.actions[0]).toEqual({ kind: "bisect", base: A, sha: D });
 	});
 
 	it("tests afresh where its range holds a commit main cannot fast-forward to (#2996)", async () => {
@@ -1257,4 +1285,189 @@ it("keeps the last run's hold in its beats where the remote cannot be read (#267
 	});
 	expect(r.end).toMatchObject({ kind: "exit" });
 	expect(r.beats.every((b) => b.hold === hold)).toBe(true);
+});
+
+describe("runLander where the culprit's whole-suite confirm reaches no verdict (#3410)", () => {
+	const ceiling = "exited 1 naming no failing file in the tree";
+	/** The #3399 heartbeat: C bisected as the culprit of D on the whole
+	 * suite, its confirm not yet taken. */
+	const bisected = (): Red => ({
+		sha: D,
+		base: A,
+		files: [],
+		jobs: ["Vitest (1/4)"],
+		flake: { kind: "red", files: [] },
+		onMain: null,
+		range: [B, C, D],
+		bisect: {
+			[B]: { kind: "green" },
+			[C]: { kind: "red", files: [] },
+			[D]: { kind: "red", files: [] },
+		},
+		confirm: {},
+		parentOnFiles: null,
+		revert: null,
+		unfiled: null,
+		pushedPast: null,
+	});
+	/** C's whole suite stalls; F, a fix pushed past D, passes. */
+	const stalls = (sha: string, files: string[] | undefined): Verdict => {
+		if (sha === C && files?.length === 0)
+			return { kind: "unknown", reason: ceiling };
+		return sha === F || sha === B ? green() : { kind: "red", files: [] };
+	};
+
+	it("holds and ledgers the culprit, never running its whole suite again until landing moves, then lands the tip pushed past it", async () => {
+		const remote = { main: A, landing: D };
+		const history = [B, C, D, F];
+		const first = await run(remote, stalls, { history, lastRed: bisected() });
+		expect(first.end).toEqual({
+			kind: "hold",
+			reason: `culprit unconfirmed: ccccccccc's whole suite reached no verdict on its second run: ${ceiling}`,
+		});
+		expect(first.stuck).toEqual([C]);
+		expect(first.pushes).toEqual([]);
+
+		const second = await run(remote, stalls, {
+			history,
+			lastHold: first.beats.at(-1)?.hold ?? null,
+			stuck: first.stuck,
+		});
+		expect(second.tested).toEqual([]);
+
+		remote.landing = F;
+		const third = await run(remote, stalls, {
+			history,
+			lastHold: second.beats.at(-1)?.hold ?? null,
+			stuck: first.stuck,
+		});
+		expect(third.actions).toEqual([
+			{ kind: "test", sha: F },
+			{ kind: "fast-forward", sha: F },
+			{ kind: "exit", reason: "landing equals main" },
+		]);
+		expect(remote.main).toBe(F);
+	});
+
+	it("lands a green tip pushed past the #3399 heartbeat's red batch, never rerunning its culprit's confirm", async () => {
+		const remote = { main: A, landing: F };
+		const r = await run(remote, stalls, {
+			history: [B, C, D, F],
+			lastRed: bisected(),
+		});
+		expect(r.actions).toEqual([
+			{ kind: "test", sha: F },
+			{ kind: "fast-forward", sha: F },
+			{ kind: "exit", reason: "landing equals main" },
+		]);
+		expect(r.tested).not.toContainEqual({ sha: C, files: [] });
+		expect(remote.main).toBe(F);
+	});
+
+	it("tests again a pushed-past tip a past run's test reached no verdict on", async () => {
+		const remote = { main: A, landing: F };
+		const r = await run(remote, stalls, {
+			history: [B, C, D, F],
+			lastRed: {
+				...bisected(),
+				pushedPast: { sha: F, verdict: { kind: "unknown", reason: ceiling } },
+			},
+		});
+		expect(r.actions[0]).toEqual({ kind: "test", sha: F });
+		expect(remote.main).toBe(F);
+	});
+
+	it("lands a pushed-past tip the ledger holds without testing it", async () => {
+		const remote = { main: A, landing: F };
+		const r = await run(remote, stalls, {
+			history: [B, C, D, F],
+			lastRed: bisected(),
+			ledgered: [F],
+		});
+		expect(r.tested).toEqual([]);
+		expect(remote.main).toBe(F);
+	});
+
+	it("tests no pushed-past tip once the batch's culprit is reverted, filing its fix ticket", async () => {
+		const r = await run({ main: A, landing: F }, stalls, {
+			history: [B, C, D, F],
+			lastRed: {
+				...bisected(),
+				confirm: { [C]: { kind: "red", files: [] }, [B]: green() },
+				revert: { sha: R, onto: D, stale: null },
+			},
+		});
+		expect(r.actions.slice(0, 2)).toEqual([
+			{ kind: "fast-forward", sha: B },
+			expect.objectContaining({ kind: "file-fix-ticket", culprit: C }),
+		]);
+		expect(r.tickets.map((t) => t.culprit)).toEqual([C]);
+	});
+
+	it("ledgers a bisected commit whose whole suite reaches no verdict, then holds on it rather than running it again", async () => {
+		const remote = { main: A, landing: D };
+		const stallsAtB = (sha: string, files: string[] | undefined): Verdict =>
+			sha === B && files?.length === 0
+				? { kind: "unknown", reason: ceiling }
+				: { kind: "red", files: [] };
+		const fresh = {
+			...bisected(),
+			range: [B, C, D],
+			bisect: { [D]: { kind: "red", files: [] } as Verdict },
+		};
+		const first = await run(remote, stallsAtB, {
+			history: [B, C, D],
+			lastRed: fresh,
+		});
+		expect(first.end).toMatchObject({ kind: "exit" });
+		expect(first.stuck).toEqual([B]);
+		const second = await run(remote, stallsAtB, {
+			history: [B, C, D],
+			lastRed: first.beats.at(-1)?.red ?? null,
+			stuck: first.stuck,
+		});
+		expect(second.end).toEqual({
+			kind: "hold",
+			reason:
+				"bisect unfinished: bbbbbbbbb's whole suite reached no verdict on a past run",
+		});
+		expect(second.tested).toEqual([]);
+	});
+
+	it("holds on a ledgered culprit a fresh bisect names, running no confirm", async () => {
+		const r = await run({ main: A, landing: D }, stalls, {
+			history: [B, C, D],
+			lastRed: bisected(),
+			stuck: [C],
+		});
+		expect(r.end).toEqual({
+			kind: "hold",
+			reason:
+				"culprit unconfirmed: ccccccccc's whole suite reached no verdict on its second run",
+		});
+		expect(r.tested).toEqual([]);
+	});
+
+	it("exits, ledgering nothing, where a confirm on named files reaches no verdict", async () => {
+		const r = await run(
+			{ main: A, landing: D },
+			(sha, files) =>
+				sha === C && files?.length
+					? { kind: "unknown", reason: "tester died" }
+					: stalls(sha, files),
+			{
+				history: [B, C, D],
+				lastRed: {
+					...bisected(),
+					files: FILES,
+					bisect: { [B]: green(), [C]: { kind: "red", files: FILES } },
+				},
+			},
+		);
+		expect(r.end).toEqual({
+			kind: "exit",
+			reason: "no verdict at ccccccccc: tester died",
+		});
+		expect(r.stuck).toEqual([]);
+	});
 });
