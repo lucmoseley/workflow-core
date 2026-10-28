@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { API_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -186,6 +187,25 @@ describe("reduction", () => {
 		const out = readTranscript(r.stdout).join("\n");
 		expect(out).not.toMatch(/DROPPED/);
 		expect(out).toBe(`L${DROPPED.length + 1} 09:00:00 FOUNDER: only me`);
+	});
+
+	it("labels a refill-loop resume prompt LOOP, never FOUNDER, though its origin is human (#3381)", () => {
+		const log = sessionLog([
+			user(API_PROMPT, { origin: { kind: "human" } }),
+			attachment({
+				type: "queued_command",
+				commandMode: "prompt",
+				prompt: IDLE_PROMPT,
+				origin: { kind: "human" },
+			}),
+		]);
+		const r = run([log]);
+		expect(r.status).toBe(0);
+		const out = readTranscript(r.stdout);
+		expect(out).toEqual([
+			`L1 09:00:00 LOOP: ${API_PROMPT}`,
+			`L2 09:00:00 LOOP queued: ${IDLE_PROMPT}`,
+		]);
 	});
 
 	it("cuts a long tool result to 300 characters and marks the cut", () => {

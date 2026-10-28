@@ -20,7 +20,7 @@ Read `{{WFC}}/.agents/skills/retro/SKILL.md` and follow it as written, with thes
 ## 2. The session
 
 - Reduced transcript: `{{TRANSCRIPT}}`. **Read it in pages** (`Read` with `offset` and `limit`, ~150 lines a page — halve it where `Read` refuses on size), never whole. Append each candidate as you meet it.
-- **Over ~600 KB** (`wc -c`): read the first and last pages, then the neighbourhood of every `RESULT ERROR`, `HOOK`, `API-ERROR`, `COMPACTION` and `FOUNDER` line (`grep -n`), and say so on the `Bound:` line.
+- **Over ~600 KB** (`wc -c`): read the first and last pages, then the neighbourhood of every `RESULT ERROR`, `HOOK`, `API-ERROR`, `COMPACTION`, `FOUNDER` and `LOOP` line (`grep -n`), and say so on the `Bound:` line.
 - Each line opens `L<n>`, the raw log's line number: `{{RAW_LOG}}`. A folded subagent's lines open `[<agentId>] L<n>`, the line of `{{SUBAGENT_DIR}}/agent-<agentId>.jsonl`. Cite those; open a raw log only for a line the reduction cut short.
 - Session `{{SESSION_ID}}`, started `{{FIRST_TIMESTAMP}}`, in repo `{{REPO_ROOT}}`.
 - Plugin release the session ran (a version is the release the repo pinned): `{{RELEASE}}`. Judge every candidate against workflow-core as it is now (`{{WFC}}` at `{{WFC_HEAD}}`), never against that release.

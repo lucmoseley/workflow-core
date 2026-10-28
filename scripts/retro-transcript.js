@@ -6,11 +6,12 @@
  *   node scripts/retro-transcript.js <session.jsonl> [--out <path>]
  *
  * KEPT, one output line per item, each opening `L<n>` — the line of the log it
- * came from: founder messages; assistant text; each tool call's name and a
- * short input; each tool result's error flag and its first 300 characters;
- * hook feedback; compaction boundaries; API errors. Everything else — thinking,
- * the compaction summary, task notifications, peer and plugin messages, and
- * every bookkeeping record — is dropped.
+ * came from: founder messages; the refill loop's resume prompts, as LOOP;
+ * assistant text; each tool call's name and a short input; each tool result's
+ * error flag and its first 300 characters; hook feedback; compaction
+ * boundaries; API errors. Everything else — thinking, the compaction summary,
+ * task notifications, peer and plugin messages, and every bookkeeping record —
+ * is dropped.
  *
  * SUBAGENT LOGS ARE FOLDED IN directly under the tool call that dispatched
  * them, matched on the `toolUseId` their `.meta.json` records and labelled by
@@ -49,6 +50,7 @@ const { StringDecoder } = require("node:string_decoder");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
+const { isLoopPrompt } = require("./lib/loop-prompts");
 const { maskTokens } = require("./lib/token-shapes");
 const {
 	STOP_FEEDBACK,
@@ -195,7 +197,10 @@ function reduceUser(record, tier) {
 	if (record.isMeta) {
 		if (STOP_FEEDBACK.test(text))
 			items.push(["HOOK Stop", short(text, LIMIT.hook)]);
-	} else if (isFounder(kind))
+	} else if (isLoopPrompt(text))
+		/* Origin `human` too, but the loop typed it (#3381). */
+		items.push(["LOOP", short(text, LIMIT.founder)]);
+	else if (isFounder(kind))
 		/* A subagent's opening message is its dispatch prompt, not the founder. */
 		items.push([
 			tier === "main" ? "FOUNDER" : "PROMPT",
@@ -316,6 +321,11 @@ function reduceAttachment(record) {
 		]);
 	else if (a.type === "hook_cancelled")
 		items.push([`HOOK CANCELLED${hook}`, ""]);
+	else if (isLoopQueued(a))
+		items.push([
+			"LOOP queued",
+			short(parseContentText(a.prompt), LIMIT.founder),
+		]);
 	else if (isFounderQueued(a))
 		/* Typed while the session was busy, so logged only here, never as a
 		 * user record. A peer's queued message fails `isFounder`. */
@@ -327,10 +337,16 @@ function reduceAttachment(record) {
 }
 
 /** @param {LogRecord} a  an attachment */
+const isPromptQueued = (a) =>
+	a.type === "queued_command" && a.commandMode === "prompt";
+
+/** @param {LogRecord} a  an attachment */
+const isLoopQueued = (a) =>
+	isPromptQueued(a) && isLoopPrompt(parseContentText(a.prompt));
+
+/** @param {LogRecord} a  an attachment */
 const isFounderQueued = (a) =>
-	a.type === "queued_command" &&
-	a.commandMode === "prompt" &&
-	isFounder(a.origin?.kind);
+	isPromptQueued(a) && !isLoopQueued(a) && isFounder(a.origin?.kind);
 
 /** @type {Map<unknown, (record: LogRecord, tier: "main" | "subagent") => Reduced>} */
 const REDUCERS = new Map([

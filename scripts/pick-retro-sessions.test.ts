@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { API_PROMPT } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 import { seatDirs } from "./lib/seat-testkit";
 
@@ -444,6 +445,15 @@ describe("signals and score", () => {
 		expect(s.apiResponses).toBe(3);
 		expect(s.score).toBe(7);
 		expect(s.subagentDir).toBe(path.join(file.slice(0, -6), "subagents"));
+	});
+
+	it("counts no refill-loop resume prompt as a liveness ask, even one worded like one (#3381)", () => {
+		session(repos.core, "resumed", {
+			lines: [founder(`${API_PROMPT} are you stuck?`)],
+		});
+
+		const [s] = run().json.sessions;
+		expect(s.signals.livenessAsks).toBe(0);
 	});
 
 	it("caps each signal at 10, so one runaway signal cannot outrank a broader session", () => {

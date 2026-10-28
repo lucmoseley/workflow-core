@@ -48,6 +48,7 @@ const { parseOrExit, exitWith, flagValue, CliExit } = require("./lib/cli-args");
 const { streamRecords } = require("./lib/encoding-use");
 const { readSessionHead, repoRootOf } = require("./lib/session-head.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state");
+const { isLoopPrompt } = require("./lib/loop-prompts");
 const { readSeatTranscripts } = require("./lib/project-dirs");
 const { seatsFrom } = require("./lib/seat-args");
 const {
@@ -87,7 +88,8 @@ const LIVENESS_ASK =
 /* A first guess, and stated as one: the #883 asks run to ~120 characters, and
  * a longer message mentioning "progress" is the founder briefing new work.
  * Only `origin.kind` human counts: a subagent log's dispatch prompt is a plain
- * user string too. Each `[image]` marker in the text counts toward the cap. */
+ * user string too. A refill-loop resume prompt is human too, so it is skipped
+ * by its text (#3381). Each `[image]` marker in the text counts toward the cap. */
 const LIVENESS_ASK_MAX = 200;
 
 /** @typedef {{toolErrors: number, classifierDenials: number, stopBlocks: number,
@@ -209,6 +211,7 @@ function countUserSignals(r, signals) {
 	if (STOP_FEEDBACK.test(text)) signals.stopBlocks++;
 	else if (
 		r.origin?.kind === "human" &&
+		!isLoopPrompt(text) &&
 		text.length <= LIVENESS_ASK_MAX &&
 		LIVENESS_ASK.test(text)
 	)
