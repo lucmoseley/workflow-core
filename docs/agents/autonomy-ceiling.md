@@ -10,7 +10,7 @@ How far agent work may go here on its own authority. Ruled by the founder at man
 
 **Human** or **timer**.
 
-> A **driven session** is a Claude Code session whose start was caused by a human action in the current sitting — a typed prompt, or a dispatch set launched by a command the human typed — or that away mode's refill loop launched up to 24 hours after the human last started or renewed the loop with a command he typed (#1897). Its opposite is a session started by a timer.
+> A **driven session** is a Claude Code session whose start was caused by a human action in the current sitting — a typed prompt, or a dispatch set launched by a command the human typed — or that the refill loop, in normal or away mode, launched up to 24 hours after the human last started or renewed the loop with a command he typed (#1897; the two modes, #2123). Its opposite is a session started by a timer.
 
 The loop's own tick is not a timer start: every launch traces to that typed command, and none is made after its 24 hours.
 

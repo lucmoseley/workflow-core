@@ -149,7 +149,7 @@ How the leading professionals of a task's field do it and the tools they use, Cl
 _Avoid_: best practice (unranked), industry standard (only the first evidence tier), popular (adoption alone)
 
 **Away mode**:
-The machine's one refill loop scoped to every included workflow-core repo, bar any the founder names, picking the next ticket and launching it whenever a session finishes or parks and frees a slot. It starts only on his explicit ask (`refill-loop.js start --away`); `/pick-next` runs the same loop in normal mode, over its own repo and any he names, and never narrows a running away mode. It stops 24 hours after the last start, on request, at dispatch's allowance cut, or after three sessions in a row make no progress.
+The machine's one refill loop scoped to every included workflow-core repo, bar any the founder names, picking the next ticket and launching it whenever a session finishes or parks and frees a slot. It starts only on his explicit ask (`refill-loop.js start --away`); `/pick-next` runs the same loop in normal mode, over its own repo and any he names, and never narrows a running away mode. It stops 24 hours after the last start or renewal, on request, at dispatch's allowance cut, or after three sessions in a row make no progress. Its launches, and normal mode's, are driven sessions (`docs/agents/autonomy-ceiling.md`).
 _Avoid_: night mode, night loop (it is not tied to the clock), autopilot (says nothing of the 24-hour bound)
 
 **Parked**:
