@@ -193,10 +193,10 @@ afterEach(() => {
 	outlived = false;
 });
 
-const run = (slots: number) =>
+const run = (slots: number, over: NodeJS.ProcessEnv = {}) =>
 	runInProcessAsync(path.join(scripts, "refill-loop.js"), ["run"], {
 		cwd: dir,
-		env: loopEnv({ FAKE_SLOTS: String(slots) }),
+		env: loopEnv({ FAKE_SLOTS: String(slots), ...over }),
 	});
 
 /* A guess: some 30 times a case's 0.7 s run, and well inside the loop's
@@ -358,10 +358,16 @@ describe("run (#2435)", () => {
 		expect(readStopped()).toMatchObject({ reason: "explicit" });
 	});
 
-	it("tickets earlyoom's kill incidents in its own checkout each tick (#3094)", async () => {
+	/** Gives the sandbox's code root, the review root, a workflow-core config. */
+	const configureCodeRoot = () => {
 		const code = path.dirname(scripts);
 		fs.mkdirSync(path.join(code, ".claude"), { recursive: true });
 		fs.writeFileSync(path.join(code, ".claude", "workflow-core.json"), "{}\n");
+		return code;
+	};
+
+	it("tickets earlyoom's kill incidents in its own checkout each tick (#3094)", async () => {
+		const code = configureCodeRoot();
 		stub(
 			"file-memory-kill-tickets.js",
 			`require("node:fs").appendFileSync(${JSON.stringify(at("kill-filer"))}, process.cwd() + "\\n");
@@ -375,6 +381,77 @@ process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n
 		expect(r.stdout).toContain(
 			"memory kills: exit 0\n  Memory kill incident from 2026-10-26 03:56: filed #9.",
 		);
+	});
+
+	describe("the morning review child a tick runs (#3405)", () => {
+		/* An Etc/GMT zone where the local hour is now `hour`, and its local
+		 * date. The offset spans -12..11, all valid zones; Etc/GMT's sign is
+		 * inverted. */
+		const zoneAt = (hour: number) => {
+			const offset = ((hour - new Date().getUTCHours() + 36) % 24) - 12;
+			return {
+				zone: `Etc/GMT${offset > 0 ? "-" : "+"}${Math.abs(offset)}`,
+				today: new Date(Date.now() + offset * 3600 * 1000)
+					.toISOString()
+					.slice(0, 10),
+			};
+		};
+
+		/* TZ steers the due rule's clock: runInProcess writes process.env in
+		 * place, and node re-reads its zone on each TZ assignment. */
+		const runTickReviewing = async (
+			reviewRunOn: string | null,
+			zone: string,
+		) => {
+			configureCodeRoot();
+			stub("file-memory-kill-tickets.js", "");
+			for (const name of [
+				"file-morning-review.js",
+				"answer-review-reversals.js",
+			])
+				stub(
+					name,
+					`require("node:fs").appendFileSync(${JSON.stringify(at("reviews"))}, ${JSON.stringify(`${name}\n`)});
+process.stdout.write(${JSON.stringify(name)});\n`,
+				);
+			fs.writeFileSync(
+				at(".refill-loop-state.json"),
+				JSON.stringify({ launches: [], reviewRunOn }),
+			);
+			const r = await settled(run(1, { TZ: zone }), "run with a review config");
+			expect(r.status).toBe(0);
+			return r;
+		};
+
+		it("runs only file-morning-review.js on a due tick, recording today", async () => {
+			const { zone, today } = zoneAt(12);
+			const r = await runTickReviewing(null, zone);
+			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
+			expect(r.stdout).toContain(
+				"morning review: exit 0\n  file-morning-review.js",
+			);
+			expect(
+				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
+					.reviewRunOn,
+			).toBe(today);
+		});
+
+		it("runs only answer-review-reversals.js once today's review is filed", async () => {
+			const { zone, today } = zoneAt(12);
+			const r = await runTickReviewing(today, zone);
+			expect(readLines(at("reviews"))).toEqual(["answer-review-reversals.js"]);
+			expect(r.stdout).toContain(
+				"morning review reversals: exit 0\n  answer-review-reversals.js",
+			);
+		});
+
+		it("runs only answer-review-reversals.js before REVIEW_HOUR", async () => {
+			const r = await runTickReviewing(null, zoneAt(3).zone);
+			expect(readLines(at("reviews"))).toEqual(["answer-review-reversals.js"]);
+			expect(r.stdout).toContain(
+				"morning review reversals: exit 0\n  answer-review-reversals.js",
+			);
+		});
 	});
 
 	it("ticks on a wake line, logging its waker, and ends on a stop's wake", async () => {
