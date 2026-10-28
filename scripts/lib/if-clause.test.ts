@@ -39,6 +39,17 @@ describe("clausesAdmit", () => {
 		expect(clausesAdmit(["Bash(git *)"], "Bash", command)).toBe(admitted);
 	});
 
+	// Crosses the real clock: a regex match is synchronous, so no seam or
+	// vitest timeout can interrupt a backtracking one (CodeQL js/redos). 20
+	// pairs take ~12 s when each quote pair can also match as two `\S`.
+	it("reads a long run of quotes with no command after it", () => {
+		const start = Date.now();
+		expect(clausesAdmit(["Bash(git *)"], "Bash", `A=${'""'.repeat(20)}`)).toBe(
+			false,
+		);
+		expect(Date.now() - start).toBeLessThan(1000);
+	});
+
 	it("matches a glob across lines", () => {
 		expect(clausesAdmit(["Bash(*npm *)"], "Bash", "ls\nnpm test")).toBe(true);
 	});
