@@ -77,13 +77,10 @@ name: scheduled-checks
 # WHAT OVERRUNNING DOES ON FREE: it bills the card at the $0.006/min rate below,
 # up to the account's $20 budget — an alert threshold, not a stop (founder-read at
 # mantahostels#916, mantahostels#3541). Nothing this repo uses sits
-# behind a Pro-only feature (verified 30 Aug 2026: `main` unprotected, no
-# rulesets, no CODEOWNERS, wikis off, no Pages workflow, Vercel-created
-# environments with empty protection rules, every workflow secret being the
-# auto-issued `GITHUB_TOKEN`). The single forfeit is prospective: on Free,
-# branch protection and rulesets are unavailable on a private repo, so the
-# never-force-push-`main` rule can never move from convention to a
-# GitHub-enforced gate. It is unenforced today regardless.
+# behind a Pro-only feature (verified 30 Aug 2026: no CODEOWNERS, wikis off, no
+# Pages workflow, Vercel-created environments with empty protection rules,
+# every workflow secret being the auto-issued `GITHUB_TOKEN`). `main`'s ruleset
+# (#2414) is free because the core repo is public.
 #
 # WHAT A SCHEDULE CANNOT TELL YOU. GitHub silently drops queued scheduled runs
 # under load; mantahostels#915 owns the liveness check that distinguishes a dropped run from
@@ -257,21 +254,19 @@ jobs:
       contents: read
     uses: ./.github/workflows/roadmap-digest.yml
 
-  # THE ONE CHECK `main`'S RULESET REQUIRES (#2414): GitHub refuses a push to
-  # `main` of a sha without it green, so its name is pinned in that ruleset —
-  # renaming this job locks `main` until the ruleset is edited to match.
-  # One aggregate job rather than the suite's own jobs, so a change to the
-  # shard count never touches the ruleset.
+  # THE ONE CHECK `main`'S RULESET REQUIRES (#2414): its name is pinned in that
+  # ruleset, so renaming this job locks `main` until the ruleset is edited to
+  # match. One aggregate job rather than the suite's own jobs, so a change to
+  # the shard count never touches the ruleset.
   #
   # It must never SKIP: GitHub counts a skipped required check as passed, so
-  # `!cancelled()` runs it whatever its needs did, and a `workflow_dispatch` on
-  # an untested branch cannot mint a passing check by skipping it. Green only
-  # where the document guards passed and the suite either passed or skipped on
-  # an earlier sweep that took this sha green.
+  # `always()` runs it whatever its needs did, a cancelled run included, where
+  # it goes red. The repository limb skips it only on a fork or the tracker,
+  # neither of which holds the ruleset.
   verdict:
     name: Suite passed
     needs: [gate, suite, documents]
-    if: ${{ !cancelled() && github.repository == 'lucmoseley/workflow-core' }}
+    if: ${{ always() && github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
     permissions: {}
     steps:

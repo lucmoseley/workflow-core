@@ -1028,6 +1028,28 @@ describe("a red run says whether an open issue already covers it (#532)", () => 
 		expect(fs.existsSync(issueArgsFile)).toBe(false);
 	});
 
+	it("asks no ticket of the Suite passed aggregate, whose red restates another job's (#2414)", () => {
+		redSweep();
+		stubRunsAndJobs([
+			{
+				name: "Document guards",
+				conclusion: "failure",
+				steps: [{ name: "Check the doc map", conclusion: "failure" }],
+			},
+			{
+				name: "Suite passed",
+				conclusion: "failure",
+				steps: [{ name: "Run", conclusion: "failure" }],
+			},
+		]);
+
+		const out = check(["--notify"]).stdout;
+		expect(out).toContain(
+			"Ticket for Document guards: no filer covers this job",
+		);
+		expect(out).not.toContain("Ticket for Suite passed");
+	});
+
 	it("says no filer covers a Full suite job in a workflow the filer never runs in", () => {
 		redSweep({ workflowName: "CI" });
 		suiteJobFailed();

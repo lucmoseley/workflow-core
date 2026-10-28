@@ -150,6 +150,10 @@ const {
 } = require("./lib/commit-range");
 const { gh, parseErrLine, parseGhFailureReason } = require("./lib/gh");
 const { openTrackingIssue } = require("./lib/tracking-issue");
+/* scheduled-checks.yml's aggregate that `main`'s ruleset requires (#2414). It
+ * goes red only where another job did, so it owes no ticket of its own. */
+const VERDICT_JOB = "Suite passed";
+
 // The red-suite filer's own spellings (#532).
 const redSuite = require("./report-red-suite");
 const { fileWhereUnfiled } = require("./lib/red-suite-fallback");
@@ -844,7 +848,7 @@ function buildTicketLines(isSweep, failures, ticket, indent) {
 	/** @param {string} name */
 	const filerOwns = (name) => isSweep && name.startsWith(redSuite.SUITE_JOB);
 	const lines = failures.jobs
-		.filter((name) => !filerOwns(name))
+		.filter((name) => !filerOwns(name) && !(isSweep && name === VERDICT_JOB))
 		.map((name) => `${indent}Ticket for ${name}: no filer covers this job`);
 	if (!isSweep) return lines;
 	if (redSuite.filesFor(failures.rows))

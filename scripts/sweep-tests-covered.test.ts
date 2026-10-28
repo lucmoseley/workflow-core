@@ -19,6 +19,9 @@
  * GitHub answers — the gate job is unconditional, so a throw would redden every
  * sweep. `execFileSync` throws on a non-zero exit, so every `run()` below
  * asserts it in passing.
+ *
+ * It also pins the workflow's `Suite passed` job (#2414), the one check
+ * `main`'s ruleset requires, running that job's step under bash.
  */
 
 import { execFileSync } from "node:child_process";
@@ -390,6 +393,7 @@ describe("sweep-tests-covered", () => {
 		describe("the `Suite passed` verdict main's ruleset requires (#2414)", () => {
 			const verdict = wf.jobs.verdict;
 			const step = (verdict.steps as { run: string }[])[0];
+			/* Actions' own `run:` shell, so `-e` stops the step as it does there. */
 			const passes = (env: Record<string, string>) => {
 				try {
 					execFileSync("bash", ["-eo", "pipefail", "-c", step.run], {
@@ -397,8 +401,9 @@ describe("sweep-tests-covered", () => {
 						stdio: "pipe",
 					});
 					return true;
-				} catch {
-					return false;
+				} catch (err) {
+					if ((err as { status?: number }).status === 1) return false;
+					throw err;
 				}
 			};
 
@@ -406,28 +411,37 @@ describe("sweep-tests-covered", () => {
 				expect(verdict.name).toBe("Suite passed");
 				expect(verdict.needs).toEqual(["gate", "suite", "documents"]);
 				expect(verdict.if).toBe(
-					expr(
-						"!cancelled() && github.repository == 'lucmoseley/workflow-core'",
-					),
+					expr("always() && github.repository == 'lucmoseley/workflow-core'"),
 				);
 			});
 
-			/* suite result, gate's covered output, documents result → green */
 			it.each([
-				["success", "", "success", true],
-				["skipped", "true", "success", true],
-				["skipped", "false", "success", false],
-				["skipped", "", "success", false],
-				["failure", "", "success", false],
-				["cancelled", "", "success", false],
-				["success", "", "failure", false],
-				["success", "", "skipped", false],
-			] as const)("suite %s, covered '%s', documents %s → %s", (...row) => {
-				const [suite, covered, documents, isGreen] = row;
-				expect(
-					passes({ SUITE: suite, COVERED: covered, DOCUMENTS: documents }),
-				).toBe(isGreen);
-			});
+				["success", "", "success"],
+				["skipped", "true", "success"],
+			])(
+				"goes green on suite %s, covered '%s', documents %s",
+				(suite, covered, documents) => {
+					expect(
+						passes({ SUITE: suite, COVERED: covered, DOCUMENTS: documents }),
+					).toBe(true);
+				},
+			);
+
+			it.each([
+				["skipped", "false", "success"],
+				["skipped", "", "success"],
+				["failure", "", "success"],
+				["cancelled", "", "success"],
+				["success", "", "failure"],
+				["success", "", "skipped"],
+			])(
+				"stays red on suite %s, covered '%s', documents %s",
+				(suite, covered, documents) => {
+					expect(
+						passes({ SUITE: suite, COVERED: covered, DOCUMENTS: documents }),
+					).toBe(false);
+				},
+			);
 		});
 
 		it("gives the gate the actions: read it needs to see earlier runs", () => {
