@@ -21,6 +21,7 @@ import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { GH_FAILING_SCRIPT } from "./lib/gh-stub";
 import { buildMeminfo } from "./lib/meminfo-fake";
+import { loadavgLine } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
 import { buildUsageCache } from "./lib/usage-probe-fake";
@@ -51,7 +52,7 @@ beforeEach(() => {
 		buildMeminfo({ availableMb: 8192, swapTotalMb: 2048, swapFreeMb: 2048 }),
 	);
 	// Any reading: WFC_LOAD_CEILING is blanked, so load holds nothing.
-	fs.writeFileSync(at("loadavg"), "0.50 1.00 1.00 2/300 1\n");
+	fs.writeFileSync(at("loadavg"), loadavgLine(0.5));
 	writeListingClaude(SELF);
 	fs.writeFileSync(
 		at("gh"),

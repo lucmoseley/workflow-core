@@ -48,7 +48,7 @@ import {
 	RECORDED_SHAPES,
 } from "./lib/gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
-import { writeCwd } from "./lib/proc-fake";
+import { loadavgLine, writeCwd, writeSmapsRollup } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
 
@@ -603,13 +603,11 @@ const stubMachine = () => {
 	 */
 	const proc = path.join(dir, "proc");
 	fs.mkdirSync(proc, { recursive: true });
-	for (const [pid, kb] of Object.entries(procPssKb)) {
-		fs.mkdirSync(path.join(proc, pid), { recursive: true });
-		fs.writeFileSync(path.join(proc, pid, "smaps_rollup"), `Pss: ${kb} kB\n`);
-	}
+	for (const [pid, kb] of Object.entries(procPssKb))
+		writeSmapsRollup(proc, pid, kb);
 	for (const [pid, cwd] of Object.entries(procCwds)) writeCwd(proc, pid, cwd);
 	const loadavg = path.join(dir, "loadavg");
-	fs.writeFileSync(loadavg, `${load1.toFixed(2)} 1.00 1.00 2/300 1\n`);
+	fs.writeFileSync(loadavg, loadavgLine(load1));
 	return {
 		WFC_PS: ps,
 		WFC_MEMINFO: meminfo,
@@ -2418,13 +2416,8 @@ describe("admission", () => {
 			oracleFinished = fixture.agents
 				.filter((a) => a.state === "done")
 				.map((a) => a.sessionId);
-			for (const [pid, kb] of Object.entries(pss)) {
-				fs.mkdirSync(path.join(dir, "proc", pid), { recursive: true });
-				fs.writeFileSync(
-					path.join(dir, "proc", pid, "smaps_rollup"),
-					`Pss:   ${kb} kB\n`,
-				);
-			}
+			for (const [pid, kb] of Object.entries(pss))
+				writeSmapsRollup(path.join(dir, "proc"), pid, kb);
 		};
 		const breakdownOf = (out: string, indent = "") =>
 			(out.match(/^ *memory {13}of [\s\S]*?slot arithmetic .*$/m)?.[0] ?? "")

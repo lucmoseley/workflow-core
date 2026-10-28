@@ -8,10 +8,10 @@ import fs from "node:fs";
 import path from "node:path";
 import {
 	loadavgLine,
-	smapsRollup,
 	statLine,
 	writeCwd,
 	writeEnviron,
+	writeSmapsRollup,
 } from "./proc-fake";
 
 export const SELF = "self-session-id";
@@ -61,13 +61,7 @@ export const writeProcRoot = (
 	for (const [pid, cwd] of Object.entries(cwds)) writeCwd(root, pid, cwd);
 	for (const [pid, entries] of Object.entries(environs))
 		writeEnviron(root, Number(pid), entries);
-	for (const [pid, kb] of Object.entries(pss)) {
-		fs.mkdirSync(path.join(root, pid), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, pid, "smaps_rollup"),
-			smapsRollup({ pssKb: kb }),
-		);
-	}
+	for (const [pid, kb] of Object.entries(pss)) writeSmapsRollup(root, pid, kb);
 	for (const [pid, ppid] of Object.entries(parents)) {
 		fs.mkdirSync(path.join(root, pid), { recursive: true });
 		/* A command name holding a space and a `)`, as a real one may. */

@@ -21,6 +21,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
 import { buildAuthStatusBranch } from "./auth-status-fake";
+import { loadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
 import { writeSchedClock } from "./sched-clock-fixture";
 import { PROBE_TIMEOUT_MS } from "./usage-probe.js";
@@ -212,7 +213,7 @@ export function dispatchFixture(): DispatchFixture {
 		// The re-read's CPU limb (#830) reads this rather than the live load, so a
 		// busy machine never refuses a case; the load cases overwrite it.
 		fx.loadavg = path.join(fx.dir, "loadavg");
-		fs.writeFileSync(fx.loadavg, "0.50 0.50 0.50 1/300 1\n");
+		fs.writeFileSync(fx.loadavg, loadavgLine(0.5));
 		// The kernel-stall check (#867) reads this rather than the machine's own
 		// kernel log, so a stalled boot never refuses a case.
 		kernelClean = path.join(fx.dir, "kernel-clean.log");

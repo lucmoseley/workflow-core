@@ -26,6 +26,7 @@ import {
 	SELF_SESSION_ID,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
+import { loadavgLine } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 
 const fx = dispatchFixture();
@@ -141,8 +142,8 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 });
 
 describe("a CPU load hold at the re-read (#830, #834)", () => {
-	const overloaded = () =>
-		fs.writeFileSync(fx.loadavg, "60.00 50.00 40.00 9/900 1\n");
+	// load1 well over the testkit's WFC_LOAD_CEILING of 10.
+	const overloaded = () => fs.writeFileSync(fx.loadavg, loadavgLine(60));
 
 	it("names the load remedy, and neither the memory one nor the roster", () => {
 		stubClaude({});

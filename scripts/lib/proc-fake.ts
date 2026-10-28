@@ -134,6 +134,15 @@ export const smapsRollup = ({
 		"",
 	].join("\n");
 
+/** Process `pid` under `proc`, its `smaps_rollup` charging `pssKb`. */
+export function writeSmapsRollup(proc: string, pid: string, pssKb: number) {
+	fs.mkdirSync(path.join(proc, pid), { recursive: true });
+	fs.writeFileSync(
+		path.join(proc, pid, "smaps_rollup"),
+		smapsRollup({ pssKb }),
+	);
+}
+
 /** `load1` as the kernel writes /proc/loadavg: three loads, the running and
  * total task counts, and the newest pid. */
 export const loadavgLine = (load1: number) =>
