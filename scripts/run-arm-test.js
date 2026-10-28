@@ -968,10 +968,11 @@ function runAll({ flags }) {
 	const setup = runSetup(flags);
 	if (typeof setup === "string") return refuse(setup);
 	const { o, planned, limitMs } = setup;
-	const startedAt = Date.now();
+	// Monotonic, so a wall-clock step neither fires the limit early nor holds it off.
+	const startedAt = performance.now();
 	let lastHeld = "";
 	for (;;) {
-		if (Date.now() - startedAt >= limitMs)
+		if (performance.now() - startedAt >= limitMs)
 			return stopAtLimit(o.root, planned.cli.path, { ...o, limitMs });
 		const step = runPass(planned, o);
 		if (typeof step === "number") return step;
