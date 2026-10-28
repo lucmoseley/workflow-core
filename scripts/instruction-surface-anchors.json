@@ -247,7 +247,7 @@
 			"source": "#2791"
 		},
 		"scripts/lib/recursive-dot-read.js": {
-			"digest": "7cad825375286f58",
+			"digest": "9c477465de30ecf4",
 			"verdict": "at need, before the search runs, on a root named (`grep -rn PAT .`) or none (`grep -r PAT`, `rg PAT`). The prompt is named only where the payload's permission mode shows one: in `auto` a recursive grep warns on the node_modules/.git/build-output read it really makes, and an `rg` search passes silent. A path-less `rg` fed by a pipe passes, per its LIMITS. The heavy-tree limb, #2060: fed at 3ef670321 `grep -rn foo node_modules` and `find . -name x` it hands over rule:heavy-tree-search, and the same command again in that session nothing; `grep -rn PAT .` gets the rewrite warning with the rule after it; `grep -rn PAT scripts`, `find scripts -name x` and `rg -l PAT .` in auto mode nothing. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes — the ready-to-run replacement command, keeping what follows the search (`| head -5`), plus the mechanism (grep's read of ignored trees; the prompt, in a mode that shows one) and the expansion's losses are inline; the heavy-tree limb is yes — rule:heavy-tree-search whole, naming the source directories, a root-run `rg` and `-prune` as the routes",
 			"source": "#2791"
