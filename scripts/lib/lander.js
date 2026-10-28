@@ -11,7 +11,8 @@
  * red at `main` too are a known breakage: the bisect leaves them out, and a
  * culprit whose parent is `main` is confirmed there on its files alone, never
  * reverted where they fail (#3324); a red naming no file reruns nothing there
- * (#3493). Where `main` takes only a sha a CI run
+ * (#3493), but reads its CI jobs' newest state on `main`, holding where one
+ * is red there and reverting where none is or it went unread (#3526). Where `main` takes only a sha a CI run
  * passed, a green read off no run lands nothing: the flake check holds on it,
  * and a confirmed culprit's parent is reverted past (#3329). A push to `main`
  * that is refused holds, so no run retries it (#3329). A run resuming a red
@@ -104,6 +105,7 @@ const NETWORK =
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
+ *   | {kind: "read-main-jobs", jobs: string[]}
  *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
  *       jobs: string[]}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
@@ -113,6 +115,9 @@ const NETWORK =
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
  *   End
+ * @typedef {{kind: "read", red: string[]} | {kind: "unread", reason: string}}
+ *   JobsOnMain which of a set of CI jobs `main`'s newest run of each failed,
+ *   or why that went unread
  * @typedef {object} Red a red batch while the lander clears it
  * @property {string} sha the batch's tip
  * @property {string|null} base `main` when the batch was tested
@@ -132,6 +137,9 @@ const NETWORK =
  *   culprit it named
  * @property {Verdict|null} parentOnFiles the parent's run on `files`, taken
  *   only where its whole suite reached no verdict
+ * @property {JobsOnMain|null} jobsOnMain the culprit's failing CI jobs as
+ *   `main` last ran them, read where its parent is `main` and its red names
+ *   no file
  * @property {{sha: string, verdict: Verdict|null}|null} pushedPast the
  *   `landing` tip a read of the refs found pushed past `sha`, and its own
  *   test's verdict, null until taken
@@ -417,11 +425,9 @@ function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	if (parent === null) return null;
 	/* `main` only ever holds a sha the full suite passed. */
 	if (parent === main) {
-		/* A red naming no file reruns nothing there, which counts as passed
-		 * (#3493). Residual: a CI job already red on `main` then reverts the
-		 * culprit rather than holding. */
 		const named = namedOr(again, files);
-		return named.length > 0 ? mainConfirmAction(r, parent, named, known) : null;
+		if (named.length > 0) return mainConfirmAction(r, parent, named, known);
+		return mainJobsAction(r, parent, culpritJobs(r, culprit));
 	}
 	/* The whole suite, as the parent lands on `main`. */
 	const before = r.confirm[parent];
@@ -511,6 +517,28 @@ function mainConfirmAction(r, main, files, known) {
 	if (before.kind === "red")
 		return buildAlreadyRedHold([...known, ...redOnMain(before, files)]);
 	return null;
+}
+
+/**
+ * The read of the culprit's failing CI jobs on `main`, or the hold where one
+ * is red there; null where `main` is the parent this batch landed, its whole
+ * suite passed. Residual: a job already red on `main` that no recent run
+ * there passed or failed reverts the culprit.
+ * @param {Red} r
+ * @param {string} main the culprit's parent
+ * @param {string[]} jobs the culprit's failing CI jobs
+ * @returns {Action|null}
+ */
+function mainJobsAction(r, main, jobs) {
+	if (jobs.length === 0 || r.confirm[main]) return null;
+	const read = r.jobsOnMain;
+	if (!read) return { kind: "read-main-jobs", jobs };
+	if (read.kind === "unread" || read.red.length === 0) return null;
+	return {
+		kind: "hold",
+		reason: `already red on \`main\`: ${failingLabel({ files: [], jobs: read.red })}`,
+		cause: "already-red",
+	};
 }
 
 /**
@@ -605,6 +633,7 @@ const redBatch = (sha, base, { files, jobs = [] }) => ({
 	bisect: {},
 	confirm: {},
 	parentOnFiles: null,
+	jobsOnMain: null,
 	revert: null,
 	unfiled: null,
 	pushedPast: null,
@@ -652,6 +681,8 @@ function resumable(r) {
 		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
 		confirm: reached(r.confirm),
+		/* Read again, as `main`'s jobs may have run since. */
+		jobsOnMain: null,
 	};
 }
 
@@ -722,11 +753,13 @@ function nextAction(s) {
  * @property {(tip: string, sha: string) => boolean} contains whether `sha`
  *   is `tip` or one of its ancestors
  * @typedef {{verdict: (sha: string, files?: string[], lands?: boolean) =>
- *   Promise<Verdict>, requiresRun?: boolean}} Tester the whole suite at
- *   `sha`, or only `files` where they are given; `files` absent is a batch's
- *   own test, present (empty too) a rerun, `lands` where its green would move
- *   `main`. `requiresRun` where `main` takes only a sha a CI run passed, so
- *   only a green naming its `run` lands
+ *   Promise<Verdict>, requiresRun?: boolean,
+ *   jobsOnMain?: (jobs: string[]) => Promise<JobsOnMain>}} Tester the whole
+ *   suite at `sha`, or only `files` where they are given; `files` absent is a
+ *   batch's own test, present (empty too) a rerun, `lands` where its green
+ *   would move `main`. `requiresRun` where `main` takes only a sha a CI run
+ *   passed, so only a green naming its `run` lands. `jobsOnMain` where it
+ *   reads CI runs, as only then does a red name jobs
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
  * @typedef {{batch: string|null, reason: string, failing: Failing|null}}
  *   Held a hold, with its batch and what failed there, null where it held on
@@ -892,17 +925,29 @@ async function advanceRed(deps, action, r) {
 			/* The tip's rerun is the bisect's first red. */
 			bisect: { [action.sha]: /** @type {Verdict} */ (r.flake) },
 		};
-	if (action.kind === "revert")
+	if (action.kind === "read-main-jobs")
+		return {
+			...r,
+			jobsOnMain: deps.tester.jobsOnMain
+				? await deps.tester.jobsOnMain(action.jobs)
+				: { kind: "unread", reason: "the tester reads no CI run" },
+		};
+	if (action.kind === "revert") {
+		const unread =
+			r.jobsOnMain?.kind === "unread"
+				? ` Their state on \`main\` was unread: ${r.jobsOnMain.reason}.`
+				: "";
 		return {
 			...r,
 			revert: await remote(deps, () =>
 				git.revertOnLanding(
 					action.culprit,
 					action.parent,
-					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} ${action.parent && !r.confirm[action.parent] ? "at `main`" : "green"}.`,
+					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} ${action.parent && !r.confirm[action.parent] ? "at `main`" : "green"}.${unread}`,
 				),
 			),
 		};
+	}
 	const { kind: _, ...ticket } = action;
 	try {
 		say(tracker.fileFixTicket(ticket));
@@ -1183,6 +1228,8 @@ function buildActionLine(a) {
 			return `rerun ${a.sha} (${a.why}): ${filesLabel(a.files)}`;
 		case "bisect":
 			return `bisect ${a.base ?? "(root)"}..${a.sha}`;
+		case "read-main-jobs":
+			return `read-main-jobs ${failingLabel({ files: [], jobs: a.jobs })}`;
 		case "revert":
 			return `revert ${a.culprit} on landing`;
 		case "file-fix-ticket":
