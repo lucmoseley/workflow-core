@@ -198,8 +198,7 @@ const {
  *
  * Module-level and mutable, because every scan below is written against it and
  * they are too many to thread a root through. setRoot() is the ONE writer, and
- * runs at the top of run() before any scan reads it (mantahostels#1833, which took the flag
- * off ctx; it was read straight off process.argv until then).
+ * runs at the top of run() before any scan reads it (mantahostels#1833).
  *
  * The working directory's worktree, not `hostRoot()`, in every mode (#3386):
  * the harness sets CLAUDE_PROJECT_DIR to the shared tree, so a run inside a
@@ -390,7 +389,7 @@ let declaredIfUnreadable = 0;
  * IGNORED, not untracked. An uncommitted new file is real scope — it
  * is one `git add` from a commit, and `--against` reads the INDEX, so a
  * `git ls-files` filter would drop it while it is still the only copy anyone
- * reads (mantahostels#2243, which measured how many).
+ * reads (mantahostels#2243).
  *
  * A TRACKED FILE CAN NEVER BE DROPPED, and that is the whole safety net: without
  * `--no-index`, `check-ignore` consults the index and refuses to call a tracked
@@ -1625,7 +1624,7 @@ const SOURCE_RE =
  * the same file either way, and only the second reading finds it.
  *
  * FAN-OUT: one edit to a shared lib warns on every registry entry reaching it,
- * by require or by running the CLI (mantahostels#358, which measured it).
+ * by require or by running the CLI (mantahostels#358).
  */
 const NODE_RUN_RE =
 	/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$[^\n]*?\/([\w-][\w./-]*\.js)/gm;
