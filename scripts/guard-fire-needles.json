@@ -71,117 +71,6 @@
 			"needles": [],
 			"silent": "Appends one row per refused ff-only pull and rejected push to the per-repo divergence log (#289). It never writes to stdout, so no session ever reads it."
 		},
-		"guard-registry-atomicity.js": {
-			"needles": [
-				{
-					"id": "checker-unwired",
-					"kind": "deny",
-					"text": "is a new checker, and this commit does not carry its wiring"
-				},
-				{
-					"id": "guard-unwired",
-					"kind": "deny",
-					"text": "is a new guard, and this commit does not carry its wiring"
-				},
-				{
-					"id": "settings-registry-drift",
-					"kind": "deny",
-					"text": "the registries that track them do not move with it"
-				},
-				{
-					"id": "needle-text-drift",
-					"kind": "deny",
-					"text": "keys a needle on, and the needle does not move with it"
-				}
-			]
-		},
-		"guard-pull-form.js": {
-			"needles": [
-				{
-					"id": "non-ff",
-					"kind": "deny",
-					"text": [
-						"This reconciles the shared",
-						"main",
-						"by rewriting or merging, not by fast-forward"
-					]
-				},
-				{
-					"id": "pull-fast-forward",
-					"kind": "inject",
-					"routes": ["hook"],
-					"text": "RECONCILE THE SHARED `main` BY FAST-FORWARD OR NOT AT ALL."
-				},
-				{
-					"id": "pull-fast-forward-landing",
-					"kind": "inject",
-					"routes": ["hook"],
-					"text": "WITH `landing` BY FAST-FORWARD OR NOT AT ALL."
-				},
-				{
-					"id": "main-rewind",
-					"kind": "deny",
-					"text": "NEVER MOVE `main` BACKWARDS, FROM ANY TREE.",
-					"unless": ["force-pushes", "` on the remote"]
-				},
-				{
-					"id": "main-rewind-fallback",
-					"kind": "deny",
-					"text": [
-						"Never move `main` backwards",
-						"the rule could not be read from"
-					],
-					"unless": ["force-pushes", "` on the remote"]
-				},
-				{
-					"id": "shared-tree-discard",
-					"kind": "deny",
-					"text": "NEVER DISCARD WORK ACROSS THE WHOLE SHARED TREE."
-				},
-				{
-					"id": "shared-tree-discard-fallback",
-					"kind": "deny",
-					"text": [
-						"Never discard work across the whole shared tree",
-						"the rule could not be read from"
-					]
-				}
-			]
-		},
-		"guard-push-rules.js": {
-			"needles": [
-				{
-					"id": "push-cadence",
-					"kind": "inject",
-					"text": "FINDS EVERY COMMIT BEING PUSHED ATTESTED"
-				},
-				{
-					"id": "push-cadence-landing",
-					"kind": "inject",
-					"text": "ONCE THE TESTS YOU TOUCHED PASS"
-				},
-				{
-					"id": "push-green-suite",
-					"kind": "inject",
-					"text": "A PUSH WARNS UNLESS CERTIFICATES OF FULL"
-				},
-				{
-					"id": "vercel-build-on-push",
-					"kind": "inject",
-					"text": "CI RUNS NO `next build`"
-				},
-				{
-					"id": "ci-status-lag",
-					"kind": "inject",
-					"text": "THIS PUSH DOES NOT TRIGGER A SUITE RUN"
-				},
-				{
-					"id": "ci-status-lag-landing",
-					"kind": "inject",
-					"text": "IS TESTED BY THE LANDER"
-				}
-			]
-		},
 		"guard-dispatch.js": {
 			"needles": [
 				{
@@ -1165,6 +1054,164 @@
 					"core": "guard-hook-escape",
 					"kind": "deny",
 					"text": "This command sets a git-hook escape"
+				},
+				{
+					"id": "checker-unwired",
+					"core": "guard-registry-atomicity",
+					"kind": "deny",
+					"text": "is a new checker, and this commit does not carry its wiring"
+				},
+				{
+					"id": "guard-unwired",
+					"core": "guard-registry-atomicity",
+					"kind": "deny",
+					"text": "is a new guard, and this commit does not carry its wiring"
+				},
+				{
+					"id": "settings-registry-drift",
+					"core": "guard-registry-atomicity",
+					"kind": "deny",
+					"text": "the registries that track them do not move with it"
+				},
+				{
+					"id": "needle-text-drift",
+					"core": "guard-registry-atomicity",
+					"kind": "deny",
+					"text": "keys a needle on, and the needle does not move with it"
+				},
+				{
+					"id": "non-ff",
+					"core": "guard-pull-form",
+					"kind": "deny",
+					"text": [
+						"This reconciles the shared",
+						"main",
+						"by rewriting or merging, not by fast-forward"
+					]
+				},
+				{
+					"id": "pull-fast-forward",
+					"core": "guard-pull-form",
+					"kind": "inject",
+					"routes": ["hook"],
+					"text": "RECONCILE THE SHARED `main` BY FAST-FORWARD OR NOT AT ALL."
+				},
+				{
+					"id": "pull-fast-forward-landing",
+					"core": "guard-pull-form",
+					"kind": "inject",
+					"routes": ["hook"],
+					"text": "WITH `landing` BY FAST-FORWARD OR NOT AT ALL."
+				},
+				{
+					"id": "main-rewind",
+					"core": "guard-pull-form",
+					"kind": "deny",
+					"text": "NEVER MOVE `main` BACKWARDS, FROM ANY TREE.",
+					"unless": ["force-pushes", "` on the remote"]
+				},
+				{
+					"id": "main-rewind-fallback",
+					"core": "guard-pull-form",
+					"kind": "deny",
+					"text": [
+						"Never move `main` backwards",
+						"the rule could not be read from"
+					],
+					"unless": ["force-pushes", "` on the remote"]
+				},
+				{
+					"id": "shared-tree-discard",
+					"core": "guard-pull-form",
+					"kind": "deny",
+					"text": "NEVER DISCARD WORK ACROSS THE WHOLE SHARED TREE."
+				},
+				{
+					"id": "shared-tree-discard-fallback",
+					"core": "guard-pull-form",
+					"kind": "deny",
+					"text": [
+						"Never discard work across the whole shared tree",
+						"the rule could not be read from"
+					]
+				},
+				{
+					"id": "push-green-suite",
+					"core": "guard-push-rules",
+					"kind": "inject",
+					"text": "A PUSH WARNS UNLESS CERTIFICATES OF FULL"
+				},
+				{
+					"id": "vercel-build-on-push",
+					"core": "guard-push-rules",
+					"kind": "inject",
+					"text": "CI RUNS NO `next build`"
+				},
+				{
+					"id": "ci-status-lag",
+					"core": "guard-push-rules",
+					"kind": "inject",
+					"text": "THIS PUSH DOES NOT TRIGGER A SUITE RUN"
+				},
+				{
+					"id": "ci-status-lag-landing",
+					"core": "guard-push-rules",
+					"kind": "inject",
+					"text": "IS TESTED BY THE LANDER"
+				},
+				{
+					"id": "node-heap",
+					"core": "guard-node-heap",
+					"kind": "inject",
+					"text": "THIS COMMAND TOUCHES THE NODE HEAP CAP"
+				},
+				{
+					"id": "rm-unchecked",
+					"core": "guard-rm-unchecked",
+					"kind": "deny",
+					"text": "Refused once: Claude Code's built-in removal check would prompt on this command"
+				},
+				{
+					"id": "no-ignore-scripts",
+					"core": "guard-npm-install",
+					"kind": "deny",
+					"text": "package(s) this repo does not yet depend on"
+				},
+				{
+					"id": "name-missing",
+					"core": "guard-npm-install",
+					"kind": "deny",
+					"text": "exists on the npm registry"
+				},
+				{
+					"id": "too-young",
+					"core": "guard-npm-install",
+					"kind": "deny",
+					"text": "was first published"
+				},
+				{
+					"id": "too-thin",
+					"core": "guard-npm-install",
+					"kind": "deny",
+					"text": "time(s) last month, under this guard's floor of"
+				},
+				{
+					"id": "registry-unreachable",
+					"core": "guard-npm-install",
+					"kind": "deny",
+					"text": "The npm registry could not be reached to check"
+				},
+				{
+					"id": "unvettable-spec",
+					"core": "guard-npm-install",
+					"kind": "deny",
+					"text": "registry cannot be asked about"
+				},
+				{
+					"id": "bare-npx",
+					"core": "guard-npm-install",
+					"kind": "deny",
+					"text": "by bare name, which resolves to two different things"
 				}
 			]
 		},
@@ -1179,24 +1226,6 @@
 					"id": "skill-refused",
 					"kind": "inject",
 					"text": "A SKILL WHOSE FRONTMATTER CARRIES"
-				}
-			]
-		},
-		"guard-rm-unchecked.js": {
-			"needles": [
-				{
-					"id": "rm-unchecked",
-					"kind": "deny",
-					"text": "Refused once: Claude Code's built-in removal check would prompt on this command"
-				}
-			]
-		},
-		"guard-node-heap.js": {
-			"needles": [
-				{
-					"id": "node-heap",
-					"kind": "inject",
-					"text": "THIS COMMAND TOUCHES THE NODE HEAP CAP"
 				}
 			]
 		},
@@ -1319,45 +1348,6 @@
 					"id": "read-tool-whole-file",
 					"kind": "warn",
 					"text": "pours a whole file into context"
-				}
-			]
-		},
-		"guard-npm-install.js": {
-			"needles": [
-				{
-					"id": "no-ignore-scripts",
-					"kind": "deny",
-					"text": "package(s) this repo does not yet depend on"
-				},
-				{
-					"id": "name-missing",
-					"kind": "deny",
-					"text": "exists on the npm registry"
-				},
-				{
-					"id": "too-young",
-					"kind": "deny",
-					"text": "was first published"
-				},
-				{
-					"id": "too-thin",
-					"kind": "deny",
-					"text": "time(s) last month, under this guard's floor of"
-				},
-				{
-					"id": "registry-unreachable",
-					"kind": "deny",
-					"text": "The npm registry could not be reached to check"
-				},
-				{
-					"id": "unvettable-spec",
-					"kind": "deny",
-					"text": "registry cannot be asked about"
-				},
-				{
-					"id": "bare-npx",
-					"kind": "deny",
-					"text": "by bare name, which resolves to two different things"
 				}
 			]
 		},

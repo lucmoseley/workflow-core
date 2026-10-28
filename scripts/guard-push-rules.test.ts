@@ -1,14 +1,16 @@
 // @vitest-environment node
 /*
- * guard-push-rules.js states the push rules before a push rather than after
- * one (mantahostels#1648, spec mantahostels#1762), with the review warn
- * ahead of them (#1163). These are its boundary cases, run as the harness runs
- * it: the payload, the host's own files, the rule store, the latch and the
- * review adapter, end to end. Which push is handed which rule is
- * lib/push-rules.test.ts's; each premise's read is lib/push-rules-host.test.ts's;
- * the adapter's answers are push-review-owed.test.ts's (#2785).
+ * The guard-push-rules core of guard-dispatch.js states the push rules before
+ * a push rather than after one (mantahostels#1648, spec mantahostels#1762),
+ * with the review warn ahead of them (#1163). These are its boundary cases,
+ * the dispatcher entry run on it alone: the payload, the host's own files, the
+ * rule store, the latch and the review adapter, end to end. Which push is
+ * handed which rule is lib/push-rules.test.ts's; each premise's read is
+ * lib/push-rules-host.test.ts's; the adapter's answers are
+ * push-review-owed.test.ts's (#2785); the entry's payload faults and the
+ * throw policy are guard-dispatch's own tests' (#3226).
  *
- * It runs as a `PreToolUse` Bash hook and is the only route by which the push
+ * It runs as a core of the `PreToolUse` dispatcher and is the only route by which the push
  * rules reach a session before it pushes: break it and a session pushes
  * unattested or unreviewed commits unwarned; make it deny and every push is
  * wedged.
@@ -21,12 +23,12 @@ import { readFailOpenLog } from "./guard-log-fixture";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./lib/git-fixture";
 import {
 	buildBashPayload,
-	guardOutput,
-	spawnGuard,
+	dispatchCoreOutput,
+	runDispatchCore,
 } from "./lib/pretool-guard-testkit";
 import { code, ME, PAST_FLOOR, reviewFixture } from "./lib/push-review-fixture";
 
-const GUARD = path.resolve(__dirname, "guard-push-rules.js");
+const CORE = "guard-push-rules";
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
@@ -54,7 +56,7 @@ const emission = (
 		env?: Record<string, string | undefined>;
 	} = {},
 ) =>
-	guardOutput(GUARD, buildBashPayload(command, session), {
+	dispatchCoreOutput(CORE, buildBashPayload(command, session), {
 		project: at.shared,
 		config: at.config,
 		cwd,
@@ -195,8 +197,8 @@ describe("the push rules, end to end", () => {
 
 	it("says nothing and logs when the payload carries no session", () => {
 		// No session id is no latch key, so an injection would repeat on every call.
-		const r = spawnGuard(
-			GUARD,
+		const r = runDispatchCore(
+			CORE,
 			buildBashPayload("git push origin main", null),
 			{
 				project: at.shared,
@@ -205,15 +207,15 @@ describe("the push rules, end to end", () => {
 			},
 		);
 		expect(r.status).toBe(0);
-		expect(r.stdout ?? "").toBe("");
+		expect(r.stdout).toBe("");
 		expect(readFailOpenLog(at.config, at.shared)).toMatch(
 			/no session_id in payload/,
 		);
 	});
 
 	it("refuses the call as JSON on exit 0 when a fragment cannot be read, naming the rule (mantahostels#1762)", () => {
-		const r = spawnGuard(
-			GUARD,
+		const r = runDispatchCore(
+			CORE,
 			buildBashPayload("git push origin main", "test"),
 			{
 				project: at.shared,

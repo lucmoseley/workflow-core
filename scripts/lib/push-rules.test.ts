@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/push-rules.js, guard-push-rules.js's core (#2785), in process: which
+ * lib/push-rules.js, the guard-push-rules core (#2785), in process: which
  * pushes are handed which rules, and when the review warn rides ahead of them.
  */
 
@@ -83,7 +83,7 @@ function harness(over: Over = {}) {
 		log: (what, detail) => logs.push(detail ? `${what}\t${detail}` : what),
 		told: (id) => (over.told ?? []).includes(id),
 		readLatch: (name) => over.latches?.[name] ?? null,
-		sessionId: SID,
+		session: SID,
 		reviewOwed: (tree: string) => {
 			reviewed.push(tree);
 			return owed(tree);
