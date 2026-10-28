@@ -74,6 +74,7 @@ const { isTerminalAgent } = require("./lib/agent-liveness.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { stopOn } = require("./lib/claude-stop.js");
+const { readClaudeVersionOrWhy } = require("./lib/claude-version.js");
 const { jobDirPath } = require("./lib/job-paths.js");
 const {
 	geoComparison,
@@ -321,14 +322,9 @@ function resolveCli() {
 	});
 	if (!found) return `no executable \`${name}\` on PATH`;
 	const real = fs.realpathSync(found);
-	const r = spawnSync(real, ["--version"], {
-		encoding: "utf8",
-		timeout: CALL_TIMEOUT_MS,
-	});
-	const version = /^\S+/.exec((r.stdout ?? "").trim())?.[0];
-	if (r.status !== 0 || !version)
-		return `${real} --version printed no version (exit ${r.status}${r.error ? `, ${r.error.message}` : ""})`;
-	return { path: real, version };
+	const v = readClaudeVersionOrWhy(real);
+	if ("why" in v) return `${real} --version printed no version (${v.why})`;
+	return { path: real, version: v.version };
 }
 
 /**

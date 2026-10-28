@@ -386,17 +386,16 @@ const git = (cwd, args) =>
 	execGit(args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
 
 /**
- * @param {string} cwd
- * @param {string[]} args
- * @returns {string} the output, or "none" where git exits non-zero
+ * `core.hooksPath` in `repo`, or "none" where it is unset; any other git
+ * failure throws (#3440).
+ * @param {string} repo
+ * @returns {string}
  */
-function gitOrNone(cwd, args) {
-	try {
-		return git(cwd, args) || "none";
-	} catch {
-		// `git config <key>` exits 1 on an unset key, which is an answer here.
-		return "none";
-	}
+function readHooksPath(repo) {
+	// `git config <key>` exits 1 on an unset key, which is an answer here.
+	const r = gitReader(repo)(["config", "core.hooksPath"], [1]);
+	if (!r.ok) throw new Error(`git config core.hooksPath: ${r.why}`);
+	return r.out.trim() || "none";
 }
 
 /**
@@ -636,7 +635,7 @@ function buildTask({ flags, lists }) {
 			cwd: clone,
 			stdio: "pipe",
 		});
-		hooksPath = gitOrNone(clone, ["config", "core.hooksPath"]);
+		hooksPath = readHooksPath(clone);
 	}
 
 	for (const spec of lists["--issue"] ?? []) {

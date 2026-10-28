@@ -219,7 +219,7 @@ describe("task: one run's sandbox", () => {
 			},
 		);
 
-	const sourceRepo = () => {
+	const sourceRepo = (prepare = "git config core.hooksPath .hooks") => {
 		const repo = path.join(tmp, "source");
 		fs.mkdirSync(repo);
 		git(repo, "init", "--quiet", "-b", "main");
@@ -230,7 +230,7 @@ describe("task: one run's sandbox", () => {
 		fs.writeFileSync(
 			path.join(repo, "package.json"),
 			JSON.stringify({
-				scripts: { prepare: "git config core.hooksPath .hooks" },
+				scripts: { prepare },
 			}),
 		);
 		fs.mkdirSync(path.join(repo, ".hooks"));
@@ -245,6 +245,31 @@ describe("task: one run's sandbox", () => {
 		git(repo, "commit", "--quiet", "-am", "the landing commit");
 		return repo;
 	};
+
+	const buildTask = (repo: string) =>
+		run([
+			"task",
+			"--repo",
+			repo,
+			"--at",
+			"HEAD",
+			"--to",
+			path.join(tmp, "run-1"),
+			"--node-modules",
+			fs.mkdtempSync(path.join(tmp, "nm-")),
+		]);
+
+	it("records the hooks path as none where prepare sets none", () => {
+		const r = buildTask(sourceRepo("true"));
+		expect(r.code, r.err).toBe(0);
+		expect(JSON.parse(r.out).hooksPath).toBe("none");
+	});
+
+	it("throws where git cannot read the clone's config, rather than calling it none", () => {
+		const r = buildTask(sourceRepo("printf '[broken' >> .git/config"));
+		expect(r.code).not.toBe(0);
+		expect(r.err).toContain("git config core.hooksPath:");
+	});
 
 	it("reverts the task's commit, pushes only to its own bare origin, and stubs gh", () => {
 		const repo = sourceRepo();

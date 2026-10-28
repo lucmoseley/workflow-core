@@ -56,6 +56,7 @@ const {
 	JOB_DIR,
 	DENY_GUARD_JOIN,
 	UNATTRIBUTED,
+	guardNameOf,
 } = require("./lib/breach-score-rule.js");
 
 /** F2: the prefix the harness gives a denied call's error result. */
@@ -63,25 +64,22 @@ const DENY_HEAD = /^PreToolUse:\S+ hook error: /;
 /** D3, by way of F2: a Stop refusal dedupes on its text's first 200 characters. */
 const STOP_KEY_CHARS = 200;
 
-/** @param {string} key */
-const scriptOf = (key) => key.replace(/ .*/s, "");
-
 /**
- * Each guard `root` registers that has a deny needle, by script, with those
+ * Each guard `root` registers that has a deny needle, by name, with those
  * needles; a dispatcher's needle names its `core`.
  * @param {string} root
- * @returns {{script: string, needles: import("./lib/guard-fires").Needle[]}[]}
+ * @returns {{name: string, needles: import("./lib/guard-fires").Needle[]}[]}
  */
 function readDenyingGuards(root) {
 	/** @type {Map<string, import("./lib/guard-fires").Needle[]>} */
-	const byScript = new Map();
+	const byName = new Map();
 	for (const s of readRegisteredGuardSubjects(root))
 		for (const n of s.needles) {
 			if (n.kind !== "deny") continue;
-			const script = n.core ?? scriptOf(s.id.slice("guard:".length));
-			byScript.set(script, [...(byScript.get(script) ?? []), n]);
+			const name = n.core ?? guardNameOf(s.id.slice("guard:".length));
+			byName.set(name, [...(byName.get(name) ?? []), n]);
 		}
-	return [...byScript].map(([script, needles]) => ({ script, needles }));
+	return [...byName].map(([name, needles]) => ({ name, needles }));
 }
 
 /**
@@ -94,7 +92,7 @@ function buildDenyAttributor() {
 	return (text) =>
 		guards
 			.filter((g) => g.needles.some((n) => needleIn(text, n)))
-			.map((g) => g.script);
+			.map((g) => g.name);
 }
 
 /**
@@ -134,7 +132,7 @@ function refusalsIn(record) {
 			{
 				kind: "stop",
 				key: `stop ${a.toolUseID ?? record.uuid} ${blockText.slice(0, STOP_KEY_CHARS)}`,
-				guard: scriptOf(guardKey(a.blockingError?.command ?? "")),
+				guard: guardNameOf(guardKey(a.blockingError?.command ?? "")),
 			},
 		];
 	}

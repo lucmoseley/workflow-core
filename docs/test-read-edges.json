@@ -5472,8 +5472,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/stop-guard.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/score-session-breaches.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/guard-uncommitted-work.test.ts": [
 			"scripts/lib/helper-surface.test.ts",

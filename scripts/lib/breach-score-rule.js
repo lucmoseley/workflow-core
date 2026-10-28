@@ -2,7 +2,12 @@
  * breach-score-rule.js — the before/after test's pre-registered scoring
  * classes (#2042, `docs/research/startup-load-before-after-test.md` D3), read
  * by `score-session-breaches.js`. Committed before any run: a change here
- * after the first run voids the comparison.
+ * after the first run voids the comparison, unless it renames a guard and
+ * keeps every class, as the report re-scores each transcript.
+ *
+ * Every table names a guard as the scorer attributes it: a core the dispatcher
+ * runs by its `lib/guard-cores.json` row `name` (#2943), any other guard by
+ * its script's file name less its `.js` or `.sh` (#3440).
  */
 
 /**
@@ -13,31 +18,26 @@
  * @type {Readonly<Record<string, "breach" | "notice" | "concision">>}
  */
 const STOP_CLASS = {
-	"guard-inventory.js": "breach",
-	"guard-priced-options.js": "breach",
-	"guard-unpushed-commits.js": "breach",
-	"guard-selection-sum.js": "breach",
-	"guard-uncommitted-work.js": "breach",
-	"guard-paste-self-match.js": "breach",
-	"guard-session-ceiling.js": "notice",
-	"guard-lost-deny.js": "notice",
-	"guard-automode-refusal.js": "notice",
-	"guard-jev-advisory.js": "notice",
-	"park-on-round.js": "notice",
-	"refill-wake.sh": "notice",
-	"concision-backstop.sh": "concision",
+	"guard-inventory": "breach",
+	"guard-priced-options": "breach",
+	"guard-unpushed-commits": "breach",
+	"guard-selection-sum": "breach",
+	"guard-uncommitted-work": "breach",
+	"guard-paste-self-match": "breach",
+	"guard-session-ceiling": "notice",
+	"guard-lost-deny": "notice",
+	"guard-automode-refusal": "notice",
+	"guard-jev-advisory": "notice",
+	"park-on-round": "notice",
+	"refill-wake": "notice",
+	"concision-backstop": "concision",
 };
 
 /** Denies the machine caused, not the session (#2042). */
 const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency"]);
 
-/**
- * A guard the dispatcher runs is named by its `lib/guard-cores.json` row
- * `name`, as the scorer attributes its deny (#2943).
- */
-
 /** The two near-constant families (D3), each reported on its own. */
-const INVENTORY = "guard-inventory.js";
+const INVENTORY = "guard-inventory";
 const JOB_DIR = "guard-job-dir-scratch";
 
 /**
@@ -65,8 +65,8 @@ const MOVED = new Set([
 	"guard-pull-form",
 	"guard-suite-background",
 	"guard-sweep-fire",
-	"guard-uncommitted-work.js",
-	"guard-unpushed-commits.js",
+	"guard-uncommitted-work",
+	"guard-unpushed-commits",
 	"guard-wait-loop",
 ]);
 
@@ -75,7 +75,14 @@ const MOVED = new Set([
  * guard's status-marker limb left with the background-wait rule, while its
  * question-round shape stays in the voice.
  */
-const MIXED = new Set(["guard-priced-options.js"]);
+const MIXED = new Set(["guard-priced-options"]);
+
+/**
+ * A registration key's guard, as every table here names one that is no
+ * dispatcher core.
+ * @param {string} key
+ */
+const guardNameOf = (key) => key.replace(/ .*/s, "").replace(/\.(js|sh)$/, "");
 
 /** How the scorer keys a deny by its guards. */
 const DENY_GUARD_JOIN = "+";
@@ -90,4 +97,5 @@ module.exports = {
 	JOB_DIR,
 	MOVED,
 	MIXED,
+	guardNameOf,
 };

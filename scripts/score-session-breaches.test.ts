@@ -27,6 +27,7 @@ const {
 	MOVED,
 	MIXED,
 	DENY_GUARD_JOIN,
+	guardNameOf,
 } = require("./lib/breach-score-rule.js");
 const { dispatchRows } = require("./lib/guard-cores.js");
 
@@ -124,13 +125,13 @@ describe("the score, run as a command", () => {
 		const [s] = scoreOf(["--file", recorded]);
 		expect(s.score).toBe(5);
 		expect(s.stop).toEqual({
-			"guard-priced-options.js": 1,
-			"guard-unpushed-commits.js": 1,
-			"guard-uncommitted-work.js": 1,
-			"guard-inventory.js": 1,
+			"guard-priced-options": 1,
+			"guard-unpushed-commits": 1,
+			"guard-uncommitted-work": 1,
+			"guard-inventory": 1,
 		});
 		expect(s.deny).toEqual({ "guard-job-dir-scratch": 1 });
-		expect(s.notice).toEqual({ "guard-session-ceiling.js": 1 });
+		expect(s.notice).toEqual({ "guard-session-ceiling": 1 });
 		expect(s.families).toEqual({
 			inventory: 1,
 			jobDir: 1,
@@ -157,8 +158,8 @@ describe("the score, run as a command", () => {
 		const [s] = scoreOf(["--dir", dir]);
 		expect(s.score).toBe(3);
 		expect(s.stop).toEqual({
-			"guard-inventory.js": 1,
-			"guard-priced-options.js": 1,
+			"guard-inventory": 1,
+			"guard-priced-options": 1,
 		});
 		expect(s.families).toEqual({
 			inventory: 1,
@@ -167,9 +168,9 @@ describe("the score, run as a command", () => {
 			environment: 1,
 		});
 		expect(Object.keys(s.notice).sort()).toEqual([
-			"guard-automode-refusal.js",
-			"guard-lost-deny.js",
-			"guard-session-ceiling.js",
+			"guard-automode-refusal",
+			"guard-lost-deny",
+			"guard-session-ceiling",
 		]);
 		expect(s.assistantMessages).toBe(2);
 		expect(s.versions).toEqual(["2.1.302"]);
@@ -235,7 +236,7 @@ describe("the score, run as a command", () => {
 		write("s1.jsonl", buildStopBlock("guard-new-thing.js", "t1", "New."));
 		const r = run(["--file", path.join(dir, "s1.jsonl")]);
 		expect(r.code).toBe(2);
-		expect(r.err).toContain("guard-new-thing.js");
+		expect(r.err).toContain("guard-new-thing");
 		expect(r.err).toContain("Class each in STOP_CLASS");
 		expect(r.err).toContain("scripts/lib/breach-score-rule.js");
 	});
@@ -272,7 +273,7 @@ describe("the pre-registered classes", () => {
 			]),
 		)
 			.filter((r: { event: string }) => r.event === "Stop")
-			.map((r: { key: string }) => r.key.split(" ")[0]);
+			.map((r: { key: string }) => guardNameOf(r.key));
 
 	it("class every Stop guard this repo and its plugin register", () => {
 		expect(readStops().filter((g: string) => !STOP_CLASS[g])).toEqual([]);
@@ -306,6 +307,20 @@ describe("the pre-registered classes", () => {
 		expect([...MOVED, ...MIXED].filter((g) => !attributable.has(g))).toEqual(
 			[],
 		);
+	});
+
+	it("name no scored standalone guard as a dispatcher core is named", () => {
+		const cores = new Set(
+			["PreToolUse", "PostToolUse"].flatMap((e) =>
+				dispatchRows(e).map((r: { name: string }) => r.name),
+			),
+		);
+		const standaloneDeniers = (readRegisteredGuardSubjects(ROOT) as Subject[])
+			.filter((s) => s.needles.some((n) => n.kind === "deny" && !n.core))
+			.map((s) => guardNameOf(s.id.slice("guard:".length)));
+		expect(
+			[...readStops(), ...standaloneDeniers].filter((g) => cores.has(g)),
+		).toEqual([]);
 	});
 
 	it("key the job-dir family on the dispatch core that denies it", () => {
