@@ -821,16 +821,18 @@ describe("daemon + spare-pool reservation", () => {
 	/*
 	 * `docs/environment.md`: "Match `argv[0]` here too" (mantahostels#1287).
 	 */
-	it("ignores a non-claude process whose command line merely names /spare/", () => {
+	it("ignores a non-claude process whose command line merely names /spare/ or `daemon run`", () => {
 		const { json } = run({
 			mb: 4000,
 			psLines: [
 				"111 900000 awk {print} /tmp/x/spare/abc.claim.sock",
 				"112 900000 /bin/bash -c grep /spare/ somewhere",
+				"113 900000 /bin/bash -c claude daemon run",
 			],
 			cwds: idleAt("111", "112"),
 		});
 		expect(json.reservedMb).toBe(PAIR);
+		expect(json.memory.pool.mb).toBe(0);
 		expect(json.slots).toBe(3);
 	});
 

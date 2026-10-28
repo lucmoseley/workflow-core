@@ -138,6 +138,16 @@ function sparePairs(procs, cwdOf) {
 }
 
 /**
+ * Whether `args` is the spare daemon itself: a Claude argv[0] running
+ * `daemon run`. The argv[0] test comes first, so a shell pipeline whose
+ * command line merely mentions `daemon run` is not one.
+ * @param {string} args argv as one string
+ */
+const isDaemon = (args) =>
+	isClaude(args.trim().split(/[ \t]+/)[0] ?? "") &&
+	/(^|[ \t])daemon[ \t]+run([ \t]|$)/.test(args);
+
+/**
  * `pid`'s cwd as `<proc>/<pid>/cwd` names it, the path string the Python twin
  * compares, as wfc_session_count's `-ef` does not: a symlinked spare
  * directory reads claimed, high, the safe direction. Null where it has
@@ -158,6 +168,7 @@ function readProcCwd(pid, proc = "/proc") {
 module.exports = {
 	countSessions,
 	sparePairs,
+	isDaemon,
 	readProcCwd,
 	SPARE_SOCKET,
 };

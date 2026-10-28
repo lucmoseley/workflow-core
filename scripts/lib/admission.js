@@ -25,11 +25,7 @@ const { caught } = require("./caught.js");
 const { readEnvironVar } = require("./proc-environ.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
-const {
-	sparePairs,
-	readProcCwd,
-	SPARE_SOCKET,
-} = require("./claude-sessions.js");
+const { sparePairs, isDaemon, readProcCwd } = require("./claude-sessions.js");
 const {
 	overloadReading,
 	buildOverloadText,
@@ -485,10 +481,11 @@ function selfId(ids) {
  * charged its whole draw; one with no cwd, outside any repo, or whose repo
  * config will not read, is charged the default draw, and `problems` says why.
  * @param {{ ids?: Set<string>, pids?: Map<string, number>, terminal?: Set<string>, cwds?: Map<string, string> }} listed
- * @param {{ ps: PsRead, pssKbOf: (pid: string) => number | null, children: Map<string, string[]> }} readings
+ * @param {{ pairs: SparePair[], pssKbOf: (pid: string) => number | null, children: Map<string, string[]> }} readings
+ *   `pairs` from `readSparePairs`
  * @returns {LiveDraw}
  */
-function liveDraw({ ids, pids, terminal, cwds }, { ps, pssKbOf, children }) {
+function liveDraw({ ids, pids, terminal, cwds }, { pairs, pssKbOf, children }) {
 	/** @type {LiveDraw} */
 	const draw = { ...NO_LIVE_DRAW, problems: [] };
 	if (!ids) return { ...draw, refused: true };
@@ -497,7 +494,6 @@ function liveDraw({ ids, pids, terminal, cwds }, { ps, pssKbOf, children }) {
 	 * the one live session would charge it nothing (#2139). */
 	const me = process.env.CLAUDE_CODE_SESSION_ID;
 	const ended = terminal ?? new Set();
-	const spares = ps.ok ? spareProcesses(ps.rows) : [];
 	/** @type {Map<string, SessionDraw>} */
 	const byRoot = new Map();
 	let heldKb = 0;
@@ -508,7 +504,7 @@ function liveDraw({ ids, pids, terminal, cwds }, { ps, pssKbOf, children }) {
 		draw.sessions++;
 		draw.meanMb += own.draw.meanMb;
 		draw.varianceMb2 += own.draw.sigmaMb ** 2;
-		const sum = sessionsPssKb([id], { pids, spares, pssKbOf, children });
+		const sum = sessionsPssKb([id], { pids, pairs, pssKbOf, children });
 		draw.noProcess += sum.noProcess;
 		if (sum.kb === null) draw.unread++;
 		else heldKb += sum.kb;
@@ -665,25 +661,6 @@ function readPsRows() {
 }
 
 /**
- * The claude processes the spare-pool scan prices: the daemon and every
- * `/spare/` process, each with its pair's socket id.
- *
- * The claude test on argv[0] comes FIRST, so a shell pipeline whose command
- * line merely mentions `/spare/` is not swept in (`docs/environment.md` §5).
- * @param {PsRow[]} rows
- */
-function spareProcesses(rows) {
-	return rows
-		.filter((r) => {
-			if (!isClaudeArgv0(r.args.split(/\s+/)[0] || "")) return false;
-			return (
-				r.args.includes("/spare/") || /(^|\s)daemon\s+run(\s|$)/.test(r.args)
-			);
-		})
-		.map((r) => ({ ...r, socket: r.args.match(SPARE_SOCKET)?.[1] }));
-}
-
-/**
  * The spare pairs a `ps` read lists, each read idle or claimed off `/proc`.
  * @param {PsRead} ps
  * @returns {SparePair[]}
@@ -747,51 +724,42 @@ function spareShapeDrift(pairs) {
  */
 function daemonSpareOverheadMb(ps, pairs) {
 	if (!ps.ok) return { ok: false, error: ps.error };
-	const idlePids = new Set(pairs.filter((p) => p.idle).flatMap((p) => p.pids));
+	/* One pair per socket id, both halves sharing it (mantahostels#2588). */
+	const idle = pairs.filter((p) => p.idle);
+	const idlePids = new Set(idle.flatMap((p) => p.pids));
 	let kb = 0;
 	/* The idle pairs' own PSS, the daemon left out: it is one process
 	 * whatever the pool's size, so no pair costs a share of it (#2283). */
 	let pairKb = 0;
-	/* The idle pool's own PAIR count — one socket id per pair, both halves
-	 * sharing it (mantahostels#2588). */
-	const idleSockets = new Set();
-	for (const r of spareProcesses(ps.rows)) {
-		if (r.socket && !idlePids.has(r.pid)) continue;
-		const pss = readPssKb(r.pid);
-		const rowKb = pss === null ? r.rssKb : pss;
+	for (const r of ps.rows) {
+		const inPair = idlePids.has(r.pid);
+		if (!inPair && !isDaemon(r.args)) continue;
+		const rowKb = readPssKb(r.pid) ?? r.rssKb;
 		kb += rowKb;
-		if (r.socket) {
-			idleSockets.add(r.socket);
-			pairKb += rowKb;
-		}
+		if (inPair) pairKb += rowKb;
 	}
 	return {
 		ok: true,
 		mb: Math.floor(kb / 1024),
-		idlePairs: idleSockets.size,
+		idlePairs: idle.length,
 		/* null, never a fallback, where the pool holds no idle pair: the
 		 * caller decides what an unmeasurable pair costs, and a 0 here would
 		 * read as a free one. */
-		perPairMb:
-			idleSockets.size > 0
-				? Math.floor(pairKb / 1024 / idleSockets.size)
-				: null,
+		perPairMb: idle.length > 0 ? Math.floor(pairKb / 1024 / idle.length) : null,
 		drift: spareShapeDrift(pairs),
 	};
 }
 
 /**
- * A session's pids: its own and its socket partner's, paired as the pool scan
- * pairs them. A session with no `/spare/` socket is its own pid alone.
+ * A session's pids: its own and its socket partner's, its pair in `pairs`. A
+ * session with no `/spare/` socket is its own pid alone.
  * DUPLICATED BY HAND as session_pair in scripts/lib/claude_sessions.py: move
  * both, or neither (#2231).
- * @param {ReturnType<typeof spareProcesses>} spares
+ * @param {SparePair[]} pairs
  * @param {string} pid
  */
-function sessionPairPids(spares, pid) {
-	const socket = spares.find((r) => r.pid === pid)?.socket;
-	if (!socket) return [pid];
-	return spares.filter((r) => r.socket === socket).map((r) => r.pid);
+function sessionPairPids(pairs, pid) {
+	return pairs.find((p) => p.pids.includes(pid))?.pids ?? [pid];
 }
 
 /*
@@ -1072,13 +1040,13 @@ function readProcessChildren() {
  * @param {string[]} ids
  * @param {{
  *   pids: Map<string, number> | undefined,
- *   spares: ReturnType<typeof spareProcesses>,
+ *   pairs: SparePair[],
  *   pssKbOf: (pid: string) => number | null,
  *   children: Map<string, string[]>,
  * }} ctx
  * @returns {({ kb: number, unknown: null } | { kb: null, unknown: string }) & { reached: string[], noProcess: number }}
  */
-function sessionsPssKb(ids, { pids, spares, pssKbOf, children }) {
+function sessionsPssKb(ids, { pids, pairs, pssKbOf, children }) {
 	let kb = 0;
 	let noProcess = 0;
 	/** @type {string[]} */
@@ -1090,7 +1058,7 @@ function sessionsPssKb(ids, { pids, spares, pssKbOf, children }) {
 			noProcess++;
 			continue;
 		}
-		for (const p of sessionPairPids(spares, String(pid))) {
+		for (const p of sessionPairPids(pairs, String(pid))) {
 			reached.push(p);
 			const pss = pssKbOf(p);
 			if (pss === null)
@@ -1191,12 +1159,12 @@ function readTreePssKb(pid) {
  *   totalMb: number | null,
  *   parts: MemRow[],
  *   ps: PsRead,
- *   spares: ReturnType<typeof spareProcesses>,
+ *   pairs: SparePair[],
  *   sessionPids: Set<string>,
  * }} input
  * @returns {MemoryBreakdown["other"]}
  */
-function otherRow({ blocked, totalMb, parts, ps, spares, sessionPids }) {
+function otherRow({ blocked, totalMb, parts, ps, pairs, sessionPids }) {
 	if (blocked || totalMb === null)
 		return {
 			...unknownRow(
@@ -1207,7 +1175,10 @@ function otherRow({ blocked, totalMb, parts, ps, spares, sessionPids }) {
 		};
 	const rest =
 		totalMb - parts.reduce((n, r) => n + /** @type {number} */ (r.mb), 0);
-	const poolPids = new Set(spares.map((r) => r.pid));
+	const poolPids = new Set([
+		...pairs.flatMap((p) => p.pids),
+		...(ps.ok ? ps.rows.filter((r) => isDaemon(r.args)).map((r) => r.pid) : []),
+	]);
 	const largest = ps.ok
 		? ps.rows
 				.filter((r) => !sessionPids.has(r.pid) && !poolPids.has(r.pid))
@@ -1361,7 +1332,6 @@ function memoryBreakdown({
 		? { mb: Math.floor(meminfo.availableKb / 1024), unknown: null }
 		: unknownRow(`memory unreadable: ${meminfo.error}`);
 
-	const spares = ps.ok ? spareProcesses(ps.rows) : [];
 	/* Filled as the session rows are summed, to keep sessions out of the
 	 * largest-process list. An early `unknown` return leaves it partial, which
 	 * is safe only because that makes everything else unknown too. */
@@ -1396,7 +1366,7 @@ function memoryBreakdown({
 			};
 		const sum = sessionsPssKb(ids, {
 			pids: allPids,
-			spares,
+			pairs,
 			pssKbOf,
 			children,
 		});
@@ -1440,7 +1410,7 @@ function memoryBreakdown({
 		totalMb,
 		parts,
 		ps,
-		spares,
+		pairs,
 		sessionPids,
 	});
 	const slots = slotsRow(verdict);
@@ -2069,7 +2039,7 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 	const mem = availableFrom(meminfo);
 	const procs = liveSessions(listed);
 	const host = readSessionDraw();
-	const live = liveDraw(listed, { ps, pssKbOf: readPssKb, children });
+	const live = liveDraw(listed, { pairs, pssKbOf: readPssKb, children });
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children, pairs);
 	const floorRead = readDeclaredSessionFloor();
