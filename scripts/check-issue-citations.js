@@ -77,7 +77,7 @@ let tracker = "";
  *     flags the correction as the fault. What remains after stripping is a
  *     description with no number attached to it — the actual defect.
  */
-const BLOCKER_LINE = /^\s*[*_\-\s]*(?:un)?block(?:ed by|s|ing)\b/i;
+const BLOCKER_LINE = /^[*_\-\s]*(?:un)?block(?:ed by|s|ing)\b/i;
 const HEADING = /^\s{0,3}#{1,6}\s/;
 const CITED = /#\d+\s*(?:\([^)]*\))?/g;
 const REFERRING_PHRASE =

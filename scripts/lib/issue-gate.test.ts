@@ -102,6 +102,17 @@ describe("what it reads out of a body", () => {
 		});
 	});
 
+	it("reads the tail less its outer blanks, and a tail of blanks alone as malformed", () => {
+		expect(
+			gateOf("**Gated until:** \t 2026-09-01 — x y \t", BOTH_24),
+		).toMatchObject({ iso: "2026-09-01", reason: "x y" });
+		expect(gateOf("**Gated until:** \t ", BOTH_24)).toEqual({
+			malformed: true,
+			raw: " ",
+			reason: null,
+		});
+	});
+
 	it("rejects a well-shaped date that is not a real day, recording it as raw", () => {
 		// 2026-02-30 parses in JS and silently becomes 2 March.
 		expect(gateOf("**Gated until:** 2026-02-30 — typo", BOTH_24)).toMatchObject(

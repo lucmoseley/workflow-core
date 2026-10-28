@@ -37,10 +37,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
 
 DENY = re.compile(
-    r"(\S*docs/doc-map\.md\S*) (?:is held by session|cannot be claimed while it is covered)"
+    r"(?<!\S)(?=\S*docs/doc-map\.md)(\S+) (?:is held by session|cannot be claimed while it is covered)"
 )
 CLI = re.compile(
-    r"^(?:Exit code \d+\s*|rc=\d+\s*)?session-arbiter: (\S*docs/doc-map\.md\S*) (?:is held by session|cannot be claimed)",
+    r"^(?:Exit code \d+\s*|rc=\d+\s*)?session-arbiter: (?=\S*docs/doc-map\.md)(\S+) (?:is held by session|cannot be claimed)",
     re.M,
 )
 HOOK_MARK = "A claim is taken by writing the file"

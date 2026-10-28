@@ -19,6 +19,7 @@ const {
 	entryLabel: ledgerEntryLabel,
 } = require("./always-loaded-pool.js");
 const { requiredGroup } = require("./regex-group.js");
+const { trimEndRun } = require("./trim-run.js");
 const { cutAt } = require("./cut-at.js");
 const { byCodeUnit } = require("./by-code-unit.js");
 const { caught } = require("./caught.js");
@@ -67,7 +68,7 @@ const BINARY_CLASS = "binary-asset";
  * @param {string} entry
  */
 function wildcardPrefix(entry) {
-	return entry.replace(/\*+$/, "");
+	return trimEndRun(entry, "*");
 }
 
 /**
@@ -109,7 +110,7 @@ function citationMatcher(token) {
 		return (/** @type {string} */ f) => f === exact;
 	}
 	if (token.endsWith("*") || token.endsWith("/")) {
-		const prefix = token.replace(/\*+$/, "");
+		const prefix = trimEndRun(token, "*");
 		return (/** @type {string} */ f) =>
 			f.startsWith(prefix) || f.includes(`/${prefix}`);
 	}
@@ -852,7 +853,7 @@ function entryExemptedAt(lines) {
  * prose that merely discusses the cap.
  */
 const EXEMPTION_MARKER_NEAR_MISS =
-	/^\s*(?:[-*+]\s*)?[*_]{0,3}\s*over[- ]cap by ruling\b/i;
+	/^\s*(?:[-*+]\s*)?(?:[*_]{1,3}\s*)?over[- ]cap by ruling\b/i;
 
 /**
  * Entries carrying a near-miss marker and no valid one (mantahostels#2124). Such an entry
@@ -2316,7 +2317,10 @@ function parseRetiredVocabularyText(lines) {
  * Dash forms vary across files (en dash in the map, hyphen elsewhere), so both
  * the literal and the search pattern below accept either. */
 const MONEY = /~?\$\s?\d[\d,]*(?:\.\d+)?(?:\s*[–—-]\s*\$?\d[\d,]*(?:\.\d+)?)?/g;
-const PERCENT = /~?\d[\d,]*(?:\.\d+)?(?:\s*[–—-]\s*\d[\d,]*(?:\.\d+)?)?\s*%/g;
+/* Tried only at a number's first digit: one later in it can only repeat the
+ * match its first digit makes. */
+const PERCENT =
+	/~?(?=\d)(?<!\d,*)\d[\d,]*(?:\.\d+)?(?:\s*[–—-]\s*\d[\d,]*(?:\.\d+)?)?\s*%/g;
 
 /**
  * The distinctive value literals in a span — money and percentages, whitespace
@@ -2428,7 +2432,7 @@ function assertDataIdsKnown(ctx, data, figures, file) {
  * scan never returns either. The test is a shape check, not a proof; a stem it
  * clears can still be slow. Shared with check-retired-vocabulary.js, whose
  * prose path runs the same gate. */
-const CATASTROPHIC = /\([^()]*[*+}][^()]*\)\s*(?:[*+]|\{\d+,\d*\})/;
+const CATASTROPHIC = /\([^()*+}]*[*+}][^()]*\)\s*(?:[*+]|\{\d+,\d*\})/;
 
 /**
  * @param {unknown} v
@@ -4039,8 +4043,10 @@ const SECTION_REF = /(?<![\w/:.-])(?:docs\/)?doc-map\.md`?[ \t]*§([^\n]*)/g;
  * @typedef {{ preamble: boolean, count: number, numbered: Set<string> }} SectionName
  */
 
-/** A `##`–`######` heading: its hashes, then its title. */
-const NAMED_HEADING = /^(#{2,6}) (.+?)\s*$/;
+/** A `##`–`######` heading: its hashes, then its title — runs that each end
+ * on a non-blank, or one character, so trailing blanks are read once. */
+const NAMED_HEADING =
+	/^(#{2,6}) ((?:[^\S\n\r\u2028\u2029]*\S)+|[^\n\r\u2028\u2029])\s*$/;
 const SECTION_LETTER = /^Section ([A-Z])\b/;
 const SUB_NUMBER = /^(\d+)\./;
 /** A `§<n>` straight after a section name, capturing `<n>`. */
@@ -4138,6 +4144,21 @@ function recordSectionNames(names, keys, heading) {
 }
 
 /**
+ * `rest` with its trailing run of quotes, `*`, `+`, `,`, `;`, `)`, blanks and
+ * written `\n` escapes cut.
+ * @param {string} rest
+ */
+function withoutRefTail(rest) {
+	let end = rest.length;
+	for (;;) {
+		if (end > 0 && /["'`*+,;)\s]/.test(rest.charAt(end - 1))) end--;
+		else if (rest.endsWith("\\n", end)) end -= 2;
+		else break;
+	}
+	return rest.slice(0, end);
+}
+
+/**
  * Whether one reference's line-rest names a section of the map. The longest
  * name the rest opens with, ending at a non-alphanumeric, wins — so `§B71`
  * needs a `B71` heading while `§B entry` resolves to Section B. A bare `§<n>`
@@ -4167,7 +4188,7 @@ function isLiveSectionRef(rest, names) {
 		if (sub) return name.numbered.has(requiredGroup(sub, 1, SUB_REF));
 		return /^(?:'s)?\s+preamble\b/i.test(after) ? name.preamble : true;
 	}
-	const head = rest.replace(/(?:\\n|["'`*+,;)\s])+$/, "");
+	const head = withoutRefTail(rest);
 	return (
 		head.length > 0 &&
 		[...names.keys()].some(
@@ -4211,7 +4232,8 @@ function unresolvedSectionRefs(mapText, files) {
  * ruling, never because its table looks long. */
 const LIST_SECTIONS = new Set(["Research runs"]);
 
-const SUBSECTION_HEADING = /^### (.+?)\s*$/;
+const SUBSECTION_HEADING =
+	/^### ((?:[^\S\n\r\u2028\u2029]*\S)+|[^\n\r\u2028\u2029])\s*$/;
 
 /**
  * The §A subsection a heading names, or null on any other line.

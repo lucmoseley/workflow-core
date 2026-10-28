@@ -220,7 +220,7 @@ function isWorthReplaying(lost) {
  */
 function pct(n) {
 	if (n === 0) return "0%";
-	if (n >= 1) return `${n.toFixed(3).replace(/\.?0+$/, "")}%`;
+	if (n >= 1) return `${n.toFixed(3).replace(/\.?(?<!0)0+$/, "")}%`;
 	/* Three significant figures below 1%, which keeps 0.0046% distinguishable
 	 * from 0.0038% without printing noise digits on 0.0996%. */
 	return `${Number(n.toPrecision(3))}%`;

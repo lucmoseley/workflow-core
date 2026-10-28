@@ -7,6 +7,7 @@
  */
 
 const { QUOTED, literal } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} ApiCall raw words, quoted spans still masked
@@ -207,7 +208,7 @@ function scanGraphql(fields, spans) {
 	let hidden = false;
 	for (const val of fields) {
 		const { text, known } = literal(val, spans);
-		const field = text.replace(/\n+$/, "");
+		const field = trimEndRun(text, "\n");
 		/* `@file` and `@-` are gh's own file and stdin spellings. */
 		if (field.startsWith("query=@")) hidden = true;
 		else if (field.startsWith("query=")) {

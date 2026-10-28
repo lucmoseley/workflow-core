@@ -86,6 +86,7 @@ const {
 	walkGit,
 } = require("./shell-parse.js");
 const { carriesVar, ghWords, literal, scanFlags } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} BranchPublishPorts
@@ -244,7 +245,7 @@ function judgePush(ctx, spans, { segment, tree, args }) {
 			["-C", tree, "rev-parse", "--symbolic-full-name", src],
 			[],
 		);
-		return r.ok ? r.out.replace(/\n+$/, "") : "";
+		return r.ok ? trimEndRun(r.out, "\n") : "";
 	});
 	if (read.inert) return null;
 	if (read.all && !read.delete)
@@ -501,7 +502,7 @@ function judgeMerge(ctx, spans, { segment, repo, repoEnv, cwd, args }) {
 		DEPENDABOT_JQ,
 	]);
 	if (found === null) return unchecked("pr merge's PR could not be looked up");
-	return found.replace(/\n+$/, "") === "true"
+	return trimEndRun(found, "\n") === "true"
 		? dependabotMerge(ctx, segment)
 		: null;
 }

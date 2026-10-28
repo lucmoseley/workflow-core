@@ -59,6 +59,7 @@ const { runCheck } = require("./lib/check");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 
@@ -122,12 +123,12 @@ const LS_REMOTE_TIMEOUT_MS = 15_000;
  * @returns {string}
  */
 function normaliseUrl(url) {
-	return url
+	const hostPath = url
 		.trim()
 		.replace(/^[a-z+]+:\/\//i, "")
 		.replace(/^[^@/]+@/, "")
-		.replace(/:(?=[^\d/])/, "/")
-		.replace(/\/+$/, "")
+		.replace(/:(?=[^\d/])/, "/");
+	return trimEndRun(hostPath, "/")
 		.replace(/\.git$/, "")
 		.toLowerCase();
 }

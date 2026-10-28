@@ -77,7 +77,10 @@ const entryPath = (root, n) =>
 // markdown link `[x](url)`, making two bodies that differ only there collide.
 /** @param {string|null|undefined} body */
 const normaliseBody = (body) =>
-	String(body ?? "").replace(/^(\s*[-*]\s*)\[[xX]\]/gm, "$1[ ]");
+	String(body ?? "").replace(
+		/^([^\S\n\r\u2028\u2029]*[-*]\s*)\[[xX]\]/gm,
+		"$1[ ]",
+	);
 
 /** @param {string|null|undefined} body */
 const bodyHash = (body) =>

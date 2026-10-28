@@ -56,7 +56,10 @@ const TYPED_BULLET = new RegExp(
  */
 const fence = (lang) => new RegExp(`\`\`\`${lang}\\n([\\s\\S]*?)\`\`\``, "m");
 
-const HEADING_RE = /^##\s+(.+?)\s*$/gm;
+/* A name runs from its first non-blank to its last; the second limb is a
+ * heading of blanks alone at the end of the text, named by its last blank. */
+const HEADING_RE =
+	/^##(?:\s+(\S(?:.*\S)?)\s*|\s\s*([^\S\n\r\u2028\u2029])[\n\r\u2028\u2029]*)$/gm;
 const BRACKETED_RE = /^[-*]\s+\[([^\]]*)\]/;
 const TAG_RE = /^#\s+(v\d+\.\d+\.\d+)\s*$/m;
 
@@ -80,7 +83,7 @@ function parseFencedBody(section, lang) {
  */
 function parseNote(text) {
 	const headings = [...text.matchAll(HEADING_RE)].map((m) => ({
-		name: requiredGroup(m, 1, HEADING_RE),
+		name: m[1] ?? requiredGroup(m, 2, HEADING_RE),
 		index: m.index ?? 0,
 	}));
 	const faults = structureFaults(headings.map((h) => h.name));

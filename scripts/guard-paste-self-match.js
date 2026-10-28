@@ -139,7 +139,7 @@ function spanPastes(prose) {
 		const end = closer.exec(prose);
 		if (!end) continue;
 		let body = prose.slice(start, end.index).replace(/\n/g, " ");
-		if (/^ .*[^ ].* $/s.test(body)) body = body.slice(1, -1);
+		if (/^ +[^ ].* $/s.test(body)) body = body.slice(1, -1);
 		const paste = asPaste(body);
 		if (paste) out.push(paste);
 		run.lastIndex = end.index + ticks.length;

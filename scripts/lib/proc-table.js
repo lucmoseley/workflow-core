@@ -16,6 +16,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { FIELD, parseStatFields, readAncestorsOf } = require("./proc-stat.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /** Kernel clock ticks per second. */
 const USER_HZ = 100;
@@ -92,7 +93,7 @@ function readProcTable(root) {
 			continue;
 		}
 		if (parsed.state === "Z" || parsed.state === "X") continue;
-		const argv = cmdline.replace(/\0+$/, "").split("\0").filter(Boolean);
+		const argv = trimEndRun(cmdline, "\0").split("\0").filter(Boolean);
 		if (argv.length === 0) continue;
 		const pid = Number(entry);
 		const { ppid, pgid, startTicks } = parsed;

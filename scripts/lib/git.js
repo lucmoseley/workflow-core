@@ -215,7 +215,8 @@ function gitOutcome(args, noMatch, cwd, timeout = GIT_TIMEOUT_MS) {
 	const why =
 		String(r.stderr || "")
 			.trim()
-			.replace(/\s*\n\s*/g, "; ") || `git exited ${r.status}`;
+			.replace(/\s+/g, (run) => (run.includes("\n") ? "; " : run)) ||
+		`git exited ${r.status}`;
 	return { ok: false, why };
 }
 

@@ -19,7 +19,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { requiredGroup } = require("./regex-group");
 
-const ENV_LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/;
+const ENV_LINE = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?!\s)(.*)$/;
 
 /** @returns {string} */
 function secretsFile() {

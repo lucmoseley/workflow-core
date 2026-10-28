@@ -53,7 +53,7 @@ Both analyse the public `lucmoseley/workflow-core` on every push to `main`, non-
 - **SonarQube Cloud** reads without auth: `curl -s "https://sonarcloud.io/api/issues/search?componentKeys=lucmoseley_workflow-core&rules=<rule>&ps=100"`, its rule counts with `&ps=1&facets=rules`.
 - **CodeQL** alerts answer `403` to the PAT. Read them at `https://github.com/lucmoseley/workflow-core/security/code-scanning` through a Chrome child (`browser-ladder` skill).
 
-Most of what both raise is false here. The rules triaged false across the board: Sonar's javascript:S3403 (the `undefined` checks `noUncheckedIndexedAccess` requires), shelldre:S7688, S2871, S4036, the `*security:S87xx` taint rules (every source is argv) and S8786 (quadratic regexes on KB-sized local input); and CodeQL's js/clear-text-logging (it reads session ids as secrets). The rules that found real defects are Sonar's javascript:S5852 and its githubactions:* rules (#3363), and CodeQL's js/redos.
+Most of what both raise is false here. The rules triaged false across the board: Sonar's javascript:S3403 (the `undefined` checks `noUncheckedIndexedAccess` requires), shelldre:S7688, S2871, S4036, and the `*security:S87xx` taint rules (every source is argv); and CodeQL's js/clear-text-logging (it reads session ids as secrets). The rules that found real defects are Sonar's javascript:S5852 and its githubactions:* rules (#3363), and CodeQL's js/redos.
 
 ## What the config does
 

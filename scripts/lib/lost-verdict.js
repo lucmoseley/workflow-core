@@ -34,7 +34,7 @@ const { literal, unwrap } = require("./shell-words.js");
  */
 
 /* vitest's two summary lines, as it prints them to a pipe. */
-const VERDICT_RE = /^\s*(Test Files|Tests)\s+\d/m;
+const VERDICT_RE = /^[^\S\n\r\u2028\u2029]*(Test Files|Tests)\s+\d/m;
 const TEST_LOG_RE = /^TEST LOG: (.+)$/gm;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI colour codes
 const ANSI_RE = /\u001b\[[0-9;]*m/g;

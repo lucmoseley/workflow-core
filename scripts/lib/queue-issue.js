@@ -54,7 +54,7 @@ function queueIssueFiler({
 	addLabels,
 }) {
 	return ({ title, standalone, noun, subject }, text) => {
-		const body = `${text.replace(/\s+$/, "")}\n\nStandalone: ${standalone}\n`;
+		const body = `${text.trimEnd()}\n\nStandalone: ${standalone}\n`;
 		const found = openIssue(title);
 		if (found !== null)
 			return `${noun}: ${refresh(found.number, body)}${relabel(found, addLabels)}`;

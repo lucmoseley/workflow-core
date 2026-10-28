@@ -20,7 +20,6 @@
  * arming limb and every session, selection or not, is examined.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,6 +28,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import markerRoot from "./lib/marker-root";
 import { runInProcess } from "./lib/run-in-process";
 import selectionMarker from "./lib/selection-marker";
+import { readStopGuardBlockWithin } from "./lib/stop-guard-testkit";
 
 const GUARD = path.join(__dirname, "guard-selection-sum.js");
 
@@ -174,29 +174,51 @@ describe("what counts as a dispatch message", () => {
 		expect(r.reason).toContain("without stating");
 	});
 
-	// A regex match is synchronous, so only a process timeout can stop a
-	// backtracking one (#2188, Sonar javascript:S5852): 40 double-spaced
-	// numbers never finish when each comma's spaces can split two ways, and
-	// finish in milliseconds when they cannot. 10 s is far above a linear read
-	// on any machine and far below that exponential one.
+	// 40 double-spaced numbers never finish when each comma's spaces can split
+	// two ways, and finish in milliseconds when they cannot (#2188, Sonar
+	// javascript:S5852).
 	it("reads a long bold number list that dispatches nothing, promptly", () => {
 		const numbers = Array.from({ length: 40 }, (_, i) => i + 1).join(",  ");
-		const r = spawnSync(process.execPath, [GUARD], {
-			input: JSON.stringify({
-				session_id: sid,
-				transcript_path: transcriptWith(`**${numbers}** were read.`),
+		expect(
+			readStopGuardBlockWithin(GUARD, {
+				dir,
+				sid,
+				transcript: transcriptWith(`**${numbers}** were read.`),
+				env: { CLAUDE_PROJECT_DIR: root, WFC_REPO_ROOT: root },
 			}),
-			cwd: dir,
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: root,
-				WFC_REPO_ROOT: root,
-				CLAUDE_JOB_DIR: "",
-			},
-			timeout: 10_000,
+		).toBeNull();
+	});
+
+	// Long blank stretches (#3383, Sonar S8786): were a line's opening blank to
+	// run across line breaks, or a term's blanks to split two ways, each of
+	// 100,000 blanks would re-read every one after it, minutes in all; each is
+	// read once, milliseconds. The refusal each case ends on is reached only
+	// past its stretch, so it proves the whole message was read.
+	it("reads an accounting line past a long blank stretch, promptly", () => {
+		const line = `Wave 1 of 2 — Frontier 60: 1 dispatched + 57 disqualified + 1 pending + 1${" ".repeat(100_000)}x + 1 no command.`;
+		const block = readStopGuardBlockWithin(GUARD, {
+			dir,
+			sid,
+			transcript: transcriptWith(
+				`**341** - takes:implement.${"\n".repeat(100_000)}Still reading.\n${line}`,
+			),
+			env: { CLAUDE_PROJECT_DIR: root, WFC_REPO_ROOT: root },
 		});
-		expect(r.signal).toBeNull();
-		expect(r.stdout.toString().trim()).toBe("");
+		expect(block?.reason).toContain("after `pending`");
+	});
+
+	it("reads a background job's dispatch ending in a long blank stretch, promptly", () => {
+		armed(60, 1);
+		const block = readStopGuardBlockWithin(GUARD, {
+			dir,
+			sid,
+			transcript: transcriptWith(
+				`**341** - takes:implement.\nFrontier 60: 1 dispatched + 59 disqualified.\n**Not launched:** none.${"\n".repeat(100_000)}Still running.`,
+			),
+			job: true,
+			env: { CLAUDE_PROJECT_DIR: root, WFC_REPO_ROOT: root },
+		});
+		expect(block?.reason).toContain("without a completion mark");
 	});
 
 	it("recognises a hash and a space before a later number", () => {

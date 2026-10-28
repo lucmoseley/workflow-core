@@ -84,6 +84,7 @@ const { NOT_READY_OPENING } = require("./prose-blockers.js");
 const { isJobDir } = require("./job-dir.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext & {
@@ -259,7 +260,7 @@ function labelEdits(words, spans) {
 		else return;
 		out.push(v.replaceAll(",", "\n"));
 	});
-	const text = out.join("\n").replace(/\n+$/, "");
+	const text = trimEndRun(out.join("\n"), "\n");
 	return text === "" ? [] : text.split("\n");
 }
 

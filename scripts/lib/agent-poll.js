@@ -135,7 +135,7 @@ const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const WINDOW_TEXT = `${spelt(WINDOW / 60)} minutes`;
 
 const NOOP =
-	/^[ \t\n\v\f\r]*(true|:|exit([ \t\n\v\f\r]+0)?)[ \t\n\v\f\r]*;?[ \t\n\v\f\r]*(#.*)?$/s;
+	/^[ \t\n\v\f\r]*(true|:|exit([ \t\n\v\f\r]+0)?)[ \t\n\v\f\r]*(?:;[ \t\n\v\f\r]*)?(#.*)?$/s;
 const SLEEP = /^[ \t\n\v\f\r]*sleep[ \t\n\v\f\r]+[0-9]/;
 const JOB_BEAT = /bg-run\.sh[ \t\n\v\f\r]+check([ \t\n\v\f\r]|$)/;
 

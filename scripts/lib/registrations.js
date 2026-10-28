@@ -144,6 +144,16 @@ const isPinnedBy = (row, r) =>
 	(row.narrowing ?? null) === (r.if ?? null);
 
 /**
+ * `s` before the first match of `re`, or all of `s` where it has none.
+ * @param {string} s
+ * @param {RegExp} re
+ */
+function upTo(s, re) {
+	const at = s.search(re);
+	return at === -1 ? s : s.slice(0, at);
+}
+
+/**
  * A row a reader can paste for an unpinned registration. Its id is the
  * script path and arguments where the command names one under scripts/.
  * @param {Registration} r
@@ -155,16 +165,13 @@ function suggestedRow(r) {
 	const candidate =
 		at === -1
 			? line
-			: line
-					.slice(at)
-					.replace(/"/g, "")
-					.replace(/\s+(?:\|\||&&|;|2>\/dev\/null)[\s\S]*$/, "")
-					.trim();
+			: upTo(
+					line.slice(at).replace(/"/g, ""),
+					/(?<!\s)\s+(?:\|\||&&|;|2>\/dev\/null)/,
+				).trim();
 	/* A quote closing after the path splits it from its arguments, and the id
 	 * must stay a substring of the command line. */
-	const id = line.includes(candidate)
-		? candidate
-		: candidate.replace(/\s[\s\S]*$/, "");
+	const id = line.includes(candidate) ? candidate : upTo(candidate, /\s/);
 	const matcher = r.matcher ?? null;
 	return {
 		event: r.event,

@@ -54,12 +54,12 @@ function jsSpecifier(m) {
 }
 
 const DIRNAME_JOIN =
-	/\bpath\.(?:join|resolve)\(\s*__dirname((?:\s*,\s*["'][^"']+["'])+)\s*,?\s*\)/g;
+	/\bpath\.(?:join|resolve)\(\s*__dirname((?:\s*,\s*["'][^"']+["'])+)\s*(?:,\s*)?\)/g;
 const QUOTED = /["']([^"']+)["']/g;
 const SH_SIBLING =
 	/(?:\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\)|\$\{BASH_SOURCE\[0\]%\/\*\})\/([\w./-]+\.(?:sh|js|py))/g;
 const PY_IMPORT =
-	/^\s*(?:from\s+(\.+[\w.]*|[\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
+	/^\s*(?:from\s+([\w.]+)\s+import\s+\(?([\w., ]*)|import\s+([\w., ]+))/;
 const PY_STRING_BLOCK = /("""|''')[\s\S]*?\1/g;
 
 /**

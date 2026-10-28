@@ -69,7 +69,7 @@ const OUTSIDE_TEXT = /Outside Claude Code:[^\n]*/;
  * than mantahostels#3555 item 4 lists: a line naming the act without the path
  * passes. */
 const REPO_FILE_ACT =
-	/`(docs|app|scripts|components|lib|public)\/[^`]*`|(^|[^A-Za-z0-9_])[A-Za-z0-9_-]+\.(svg|png|md|js|ts)($|[^A-Za-z0-9_])|[Ii]nkscape|[Ff]igma|[Pp]hotoshop|[Ss]preadsheet/;
+	/`(docs|app|scripts|components|lib|public)\/[^`]*`|(?<![A-Za-z0-9_-])[A-Za-z0-9_-]+\.(svg|png|md|js|ts)($|[^A-Za-z0-9_])|[Ii]nkscape|[Ff]igma|[Pp]hotoshop|[Ss]preadsheet/;
 
 /* A real outside act names an ACTION; an Outside line naming a PROHIBITION is
  * the barred-is-not-impossible mistake (mantahostels#2775). Every alternative

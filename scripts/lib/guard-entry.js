@@ -30,6 +30,7 @@ const { guardDisabled } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { logger, readPayload } = require("./entry-input.js");
+const { trimEndRun } = require("./trim-run.js");
 const {
 	agentKey,
 	bare,
@@ -149,7 +150,7 @@ function tabRecords(text, n) {
 		.map((line) => {
 			/** @type {string[]} */
 			const out = [];
-			let rest = line.replace(/^\t+/, "").replace(/\t+$/, "");
+			let rest = trimEndRun(line.replace(/^\t+/, ""), "\t");
 			while (out.length < n - 1) {
 				const at = rest.indexOf("\t");
 				if (at < 0) break;

@@ -88,6 +88,7 @@ const {
 const { Q_MARKER, hasRoundMarker, roundNumber } = require("./lib/round-marker");
 const { scriptPath } = require("./lib/script-path");
 const { requiredGroup } = require("./lib/regex-group");
+const { trimRun } = require("./lib/trim-run");
 const {
 	HAND_OFF_SHAPE,
 	handOffFaults,
@@ -105,7 +106,8 @@ const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
 const HEADER_RE = /^[ \t]*waits on you:(.*)$/;
 const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
 const TAIL_NOTHING_RE = /[—–-][ \t]*nothing waits on you\.?[ \t]*$/i;
-const TAIL_REFS_RE = /[—–-][ \t]*waits on you:[ \t]*(.*?)\.?[ \t]*$/i;
+/* Read on the status line's last line, as the tail runs to its end. */
+const TAIL_REFS_RE = /[—–-][ \t]*waits on you:(.*)/i;
 const OWED = new Set(["result:", "needs input:"]);
 
 const DRAFT_FENCE_RE = /^\s*(```|~~~)/;
@@ -514,11 +516,12 @@ function tailFaults(payload, verdict) {
 					`the status line says nothing waits on you, but the block lists ${listed}`,
 				]
 			: [];
-	const m = TAIL_REFS_RE.exec(payload);
+	const m = TAIL_REFS_RE.exec(payload.split(/[\n\r\u2028\u2029]/).pop() ?? "");
 	if (!m) return [`the status line ends with no tail: ${INVENTORY.statusTail}`];
 	/* A block that failed its grammar has no item list worth comparing. */
 	if (verdict.refusals.some((r) => !r.ref)) return [];
-	const tail = requiredGroup(m, 1, TAIL_REFS_RE);
+	const refsText = trimRun(requiredGroup(m, 1, TAIL_REFS_RE), " \t");
+	const tail = refsText.endsWith(".") ? refsText.slice(0, -1) : refsText;
 	const tokens = tail.split(/[\s,;]+/).filter((t) => t && !/^and$/i.test(t));
 	const refs = tokens.map((t) => readCanonicalRef(t));
 	if (refs.length === 0 || refs.includes(null))

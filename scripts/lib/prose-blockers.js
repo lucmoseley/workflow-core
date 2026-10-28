@@ -31,7 +31,9 @@ const { isInOtherRepo, refKey } = require("./issue-ref.js");
 
 const BLOCKED_ON_RE =
 	/^[ \t]{0,3}\*\*Blocked on\*\*[ \t]*((?:(?:[\w.-]+\/[\w.-]+)?#\d+(?:[ \t]*(?:,|and)[ \t]*)?)+)/gim;
-const ISSUE_REF_RE = /(?:([\w.-]+\/[\w.-]+))?#(\d+)/g;
+/* An owner is read from the head of its run, or from the last match's end. */
+const ISSUE_REF_RE =
+	/(?:(?:(?<![\w.-])|(?<=#\d+)(?!\d))([\w.-]+\/[\w.-]+))?#(\d+)/g;
 
 /*
  * DELIBERATELY NOT ANCHORED TO THE LINE HEAD, unlike `BLOCKED_ON_RE` above:

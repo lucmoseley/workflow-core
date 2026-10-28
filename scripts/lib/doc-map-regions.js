@@ -72,6 +72,7 @@ const {
 	jsonStringEnd,
 } = require("./doc-map.js");
 const { requiredGroup } = require("./regex-group.js");
+const { trimEndRun, trimRun } = require("./trim-run.js");
 
 /** A `Section <letter>` heading's letter. */
 const SECTION_LETTER = /^Section ([A-Za-z])\b/;
@@ -157,19 +158,15 @@ function sectionId(heading) {
 	const section = title.match(SECTION_LETTER);
 	if (section)
 		return `section-${requiredGroup(section, 1, SECTION_LETTER).toLowerCase()}`;
-	const slug = title
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, "-")
-		.replace(/^-+|-+$/g, "");
+	const dashed = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+	const slug = trimRun(dashed, "-");
 	if (slug.length <= 40) return slug || "section";
 	// Over the cap: cut at a word boundary where there is one, so an id truncated
 	// mid-word does not read as a typo in the denial that prints it — but cap it
 	// either way.
 	return (
-		slug
-			.slice(0, 40)
-			.replace(/-[^-]*$/, "")
-			.replace(/-+$/, "") || slug.slice(0, 40)
+		trimEndRun(slug.slice(0, 40).replace(/-[^-]*$/, ""), "-") ||
+		slug.slice(0, 40)
 	);
 }
 

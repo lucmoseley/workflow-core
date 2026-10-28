@@ -135,9 +135,35 @@ const SHAPE_PREFIX = ".selection-sum-shape-nagged-";
 const DISPATCH_LINE =
 	/^\s{0,3}(?:[-*>]\s+)?\*\*\s*(?:`\s*)?#?\d+(?:\s*,\s*(?:#\s*)?\d+)*\s*(?:`\s*)?\*\*\s*[-–—:]\s*`?takes:/im;
 
+/**
+ * The source of a label line's opening: up to three of indent, then a bullet
+ * and its blanks with emphasis after, or bare emphasis, or neither, each
+ * followed by blanks. Each run reads one way, and with `blank` stopping at a
+ * line break, the next line's own `^` reads on from there: a long blank
+ * stretch is read once, not once per line (#3383).
+ * @param {string} emphasis the class of one emphasis mark
+ * @param {{ space?: string, blank?: string, bullet?: string }} [spelling] the
+ *   blank in the indent and after the bullet, the blank after the emphasis,
+ *   and the bullet
+ */
+const lineOpening = (
+	emphasis,
+	{
+		space = String.raw`\s`,
+		blank = String.raw`[^\S\n\r\u2028\u2029]`,
+		bullet = "[-*>]",
+	} = {},
+) =>
+	`^${space}{0,3}(?:${bullet}${space}+(?:${emphasis}+${blank}*)?|${emphasis}+${blank}*|${blank}*)`;
+
+const STAR_OPENING = lineOpening(String.raw`\*`);
+
 /* §6's hold line: the set is empty, and the accounting is owed just as much —
  * a hold is the claim that every frontier issue is disqualified. */
-const HOLD_LINE = /^\s{0,3}(?:[-*>]\s+)?\**\s*Hold\s*\**\s*[-–—:]/im;
+const HOLD_LINE = new RegExp(
+	STAR_OPENING + /Hold\s*(?:\*+\s*)?[-–—:]/.source,
+	"im",
+);
 
 /* The accounting itself. Bold and backticks are tolerated on the numbers, the
  * label and the whole line, the skill's own example being backticked (#1025); the
@@ -151,25 +177,37 @@ const HOLD_LINE = /^\s{0,3}(?:[-*>]\s+)?\**\s*Hold\s*\**\s*[-–—:]/im;
  * total, 3 frontier, 4 dispatched, 5 disqualified, 6 no command (absent on a
  * line written before the run measured it), 7 pending (absent on a closing or
  * single-wave line). */
-const ACCOUNTING =
-	/^\s{0,3}(?:[-*>]\s+)?[*`]*\s*(?:Wave\s*[*`]*\s*(\d+)\s*[*`]*\s*of\s*[*`]*\s*(\d+)\s*[*`]*\s*[-–—:]\s*[*`]*\s*)?Frontier\s*[*`]*\s*(\d+)\s*[*`]*\s*:\s*[*`]*\s*(\d+)\s*[*`]*\s*dispatched[*`]*\s*\+\s*[*`]*\s*(\d+)\s*[*`]*\s*disqualified[*`]*(?:\s*\+\s*[*`]*\s*(\d+)\s*[*`]*\s*no[ -]command[*`]*)?(?:\s*\+\s*[*`]*\s*(\d+)\s*[*`]*\s*pending)?/im;
+const ACCOUNTING = new RegExp(
+	lineOpening("[*`]") +
+		/(?:Wave\s*(?:[*`]+\s*)?(\d+)\s*(?:[*`]+\s*)?of\s*(?:[*`]+\s*)?(\d+)\s*(?:[*`]+\s*)?[-–—:]\s*(?:[*`]+\s*)?)?Frontier\s*(?:[*`]+\s*)?(\d+)\s*(?:[*`]+\s*)?:\s*(?:[*`]+\s*)?(\d+)\s*(?:[*`]+\s*)?dispatched[*`]*\s*\+\s*(?:[*`]+\s*)?(\d+)\s*(?:[*`]+\s*)?disqualified[*`]*(?:\s*\+\s*(?:[*`]+\s*)?(\d+)\s*(?:[*`]+\s*)?no[ -]command[*`]*)?(?:\s*\+\s*(?:[*`]+\s*)?(\d+)\s*(?:[*`]+\s*)?pending)?/
+			.source,
+	"im",
+);
 
 /* §6's admission-cut line: the candidates cut on §5's third disqualifier, by
  * number — or `none` where the set filled the machine and nothing overflowed. */
 /* A `no command` term after `pending`, which the accounting regex cannot
- * reach — see `misplacedTerm`. `[\s\S]` rather than the `s` (dotAll) flag: this file's target predates
- * ES2018, and `[\s\S]*?` matches the same "any character, non-greedy" span
- * without it (mantahostels#1464). */
-const MISPLACED_TERM = /\bpending\b[\s\S]*?(\d+)\s*[*`]*\s*no[ -]command/i;
+ * reach — see `misplacedTerm`. A whole number only: `(?:^|\D)` and not a lookbehind, this
+ * file's target predating ES2018 (mantahostels#1464). */
+const MISPLACED_TERM = /(?:^|\D)(\d+)\s*(?:[*`]+\s*)?no[ -]command/i;
 
-const ADMISSION_CUT =
-	/^\s{0,3}(?:[-*>]\s+)?\**\s*Admission[ -]cut\s*\**\s*[-–—:]\s*\**\s*(?:#?\d+|none\b)/im;
+const ADMISSION_CUT = new RegExp(
+	STAR_OPENING +
+		/Admission[ -]cut\s*(?:\*+\s*)?[-–—:]\s*(?:\*+\s*)?(?:#?\d+|none\b)/.source,
+	"im",
+);
 
 /* The not-launched block (#592), which replaces the admission-cut line: its
  * header, as a label or a heading. The block runs on to the first blank line —
  * one straight after the header excepted — or to a line opening `**` or `# `. */
-const NOT_LAUNCHED_HEAD =
-	/^[ \t]{0,3}(?:#{1,6}[ \t]+|[-*>][ \t]+)?\**[ \t]*Not[ -]launched[ \t]*\**[ \t]*(?:[-–—:][ \t]*\**)?(.*)$/gim;
+const NOT_LAUNCHED_HEAD = new RegExp(
+	lineOpening(String.raw`\*`, {
+		space: String.raw`[ \t]`,
+		blank: String.raw`[ \t]`,
+		bullet: "(?:#{1,6}|[-*>])",
+	}) + /Not[ -]launched[ \t]*(?:\*+[ \t]*)?(?:[-–—:][ \t]*\**)?(.*)$/.source,
+	"gim",
+);
 
 /**
  * Whether the message carries a not-launched block that names an issue or says
@@ -205,8 +243,10 @@ function hasNotLaunched(message) {
  * work satisfies this limb. Anchoring it to the last line would refuse honest
  * messages that close with a sign-off, and `guard-priced-options.js` already
  * refuses a `result:` paired with an approval-seeking phrase. */
-const COMPLETION_MARK =
-	/^\s{0,3}(?:[-*>]\s+)?\**\s*(?:result|needs input|failed)\s*\**\s*:/im;
+const COMPLETION_MARK = new RegExp(
+	STAR_OPENING + /(?:result|needs input|failed)\s*(?:\*+\s*)?:/.source,
+	"im",
+);
 
 const TEMPLATE =
 	"Frontier <F>: <D> dispatched + <Q> disqualified + <U> no command.";
@@ -340,7 +380,11 @@ function misplacedTerm(message, m) {
 	if (m[6] !== undefined) return;
 	const end = (m.index ?? 0) + m[0].length;
 	const line = m[0] + message.slice(end).split("\n")[0];
-	return line.match(MISPLACED_TERM)?.[1];
+	const pending = /\bpending\b/i.exec(line);
+	if (!pending) return;
+	return line
+		.slice(pending.index + pending[0].length)
+		.match(MISPLACED_TERM)?.[1];
 }
 
 /**

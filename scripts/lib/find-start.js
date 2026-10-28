@@ -31,8 +31,14 @@
  */
 
 const { denyText } = require("./guard-verdict.js");
-const { normAbs, parseCommand, walkCommands } = require("./shell-parse.js");
+const {
+	BASH_SPACE,
+	normAbs,
+	parseCommand,
+	walkCommands,
+} = require("./shell-parse.js");
 const { findStarts, literal, unwrap } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * The refusal: the ROOT placeholder takes the plugin's own root, the CMD one
@@ -80,7 +86,7 @@ function decide(command, ctx) {
 	}
 	/* Trailing whitespace off the segment, as bash's [[:space:]] strip. The
 	 * cast undoes the narrowing to null the walk's closure hides from tsc. */
-	const shown = /** @type {string} */ (refused).replace(/[ \t\n\v\f\r]+$/, "");
+	const shown = trimEndRun(/** @type {string} */ (refused), BASH_SPACE);
 	return {
 		deny: denyText(
 			ctx,

@@ -618,7 +618,7 @@ const MEMINFO = () => process.env.WFC_MEMINFO || "/proc/meminfo";
 const PROC = () => process.env.WFC_PROC || "/proc";
 
 /** One `ps -eo pid=,rss=,args=` row: pid, RSS in KB, argv. */
-const PS_ROW_RE = /^(\d+)\s+(\d+)\s+(.*)$/;
+const PS_ROW_RE = /^(\d+)\s+(\d+)\s+(?!\s)(.*)$/;
 
 /**
  * Every process one `ps` read lists, so the spare-pool scan and the memory

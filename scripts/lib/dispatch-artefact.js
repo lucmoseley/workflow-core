@@ -21,14 +21,16 @@
 const crypto = require("node:crypto");
 const path = require("node:path");
 const { requiredGroup } = require("./regex-group.js");
+const { trimEndRun, trimRun } = require("./trim-run.js");
 
 /*
  * `- `/`* ` bullet, optional `**` bold on either side of the colon, either
  * spelling, any case. The anchor is load-bearing: without `^` the marker fires
- * on prose merely containing the word.
+ * on prose merely containing the word. The value opens on a non-blank, so the
+ * blanks before it are read one way.
  */
 const MARKER =
-	/^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?:artefacts?|artifacts?)(?:\*\*)?[ \t]*:(?:\*\*)?[ \t]*(.*)$/i;
+	/^[ \t]*(?:[-*+][ \t]+)?(?:\*\*)?(?:artefacts?|artifacts?)(?:\*\*)?[ \t]*:(?:\*\*)?[ \t]*((?:(?![ \t]).*)?)$/i;
 
 /*
  * Values that satisfy the letter and not the rule — an unfilled template, or a
@@ -58,10 +60,10 @@ const PLACEHOLDERS = new Set([
  * @returns {string}
  */
 function clean(token) {
-	return token
-		.replace(/^[`'"([]+/, "")
-		.replace(/[`'")\]]+$/, "")
-		.replace(/[.,;:]+$/, "");
+	return trimEndRun(
+		trimEndRun(token.replace(/^[`'"([]+/, ""), "`'\")]"),
+		".,;:",
+	);
 }
 
 /**
@@ -166,11 +168,13 @@ function artefactFile(
 	id = crypto.randomBytes(4).toString("hex"),
 ) {
 	const slug =
-		(typeof description === "string" ? description : "")
-			.toLowerCase()
-			.replace(/[^a-z0-9]+/g, "-")
-			.slice(0, 48)
-			.replace(/^-+|-+$/g, "") || "agent";
+		trimRun(
+			(typeof description === "string" ? description : "")
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "-")
+				.slice(0, 48),
+			"-",
+		) || "agent";
 	return path.join(root, AGENTS_DIR, `${slug}-${id}.md`);
 }
 
@@ -206,7 +210,7 @@ function withArtefact(prompt, file) {
 		);
 		return lines.join("\n");
 	}
-	return `${prompt.replace(/\s+$/, "")}\n\nArtefact: ${file}\n${ARTEFACT_INSTRUCTIONS}\n`;
+	return `${prompt.trimEnd()}\n\nArtefact: ${file}\n${ARTEFACT_INSTRUCTIONS}\n`;
 }
 
 /**

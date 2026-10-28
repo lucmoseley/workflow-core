@@ -174,12 +174,12 @@ const TELLS = [
  * a `:` alternative silently dropped all of it. An object key that really is a
  * token is caught by isTokenShaped instead. */
 const IDENTIFIER_ATTRS =
-	/(?:^|[\s{(,])(?:className|class|href|src|srcSet|id|key|rel|as|type|role|slug|sizes|charSet|style|name|width|height|viewBox|fill|stroke|d|data-[\w-]+|aria-[\w-]+)\s*=\s*\{?\s*$/;
+	/(?:^|[\s{(,])(?:className|class|href|src|srcSet|id|key|rel|as|type|role|slug|sizes|charSet|style|name|width|height|viewBox|fill|stroke|d|data-[\w-]+|aria-[\w-]+)\s*=\s*(?:\{\s*)?$/;
 
 /* A module specifier: `from "…"`, `import "…"`, `import("…")`, `require("…")`.
  * Nearly every one is token-shaped and would be dropped anyway; this catches the
  * legal minority that are not, such as a stylesheet whose filename has a space. */
-const SPECIFIER = /(?:\b(?:from|import)\s*\(?|\brequire\s*\()\s*$/;
+const SPECIFIER = /(?:\b(?:from|import)\s*(?:\(\s*)?|\brequire\s*\(\s*)$/;
 
 /* A token rather than a sentence: no whitespace, nothing outside the
  * identifier/path/URL character set, and at least one character that a plain

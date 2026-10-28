@@ -42,7 +42,7 @@ const { mainChainRecords } = require("./transcript.js");
 const HEAD_BYTES = 1024 * 1024;
 
 const COMMAND_RE =
-	/<command-name>\s*\/?\s*([a-zA-Z0-9_:-]+)\s*<\/command-name>/;
+	/<command-name>\s*(?:\/\s*)?([a-zA-Z0-9_:-]+)\s*<\/command-name>/;
 
 /**
  * @typedef {{ name: string, test: (path: string) => boolean }} Rule
@@ -151,7 +151,7 @@ function isAdjacent(paths) {
 		: { hit: false, path: null, rule: null };
 }
 
-const PATHSPEC_TAIL_RE = /--\s+(.+)$/m;
+const PATHSPEC_TAIL_RE = /--\s+(\S.*)$/m;
 
 /**
  * Pull every committed pathspec out of a set of `git commit` Bash command

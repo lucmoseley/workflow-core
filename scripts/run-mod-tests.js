@@ -59,7 +59,7 @@ const REFUSE = 2;
 /* The runner's summary line on a failing test, and its prefix when it refuses
  * the folder itself (no hooks module, no such folder) — both read off 2.1.289's
  * output. */
-const FAIL_COUNT = /^\s*[1-9]\d* fail$/m;
+const FAIL_COUNT = /^[^\S\n\r\u2028\u2029]*[1-9]\d* fail$/m;
 const FOLDER_REFUSED = "claude plugin test: ";
 /* The README sentence carrying a mod's test floor (#896, #901). */
 const TEST_FLOOR =

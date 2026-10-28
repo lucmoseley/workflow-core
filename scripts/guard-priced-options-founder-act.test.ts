@@ -19,7 +19,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { readStopGuardReason } from "./lib/stop-guard-testkit";
+import {
+	readStopGuardBlockWithin,
+	readStopGuardReason,
+} from "./lib/stop-guard-testkit";
 import { failOpenLog } from "./lib/transcript-testkit";
 import { readProgramLibs } from "./lib-closure-fixture";
 
@@ -461,6 +464,21 @@ describe("a write-secret line after `!` (#2554)", () => {
 				"Paste the token at the prompt this opens, in a normal terminal:\n\n~~~\ncd /srv/host && node /srv/host/scripts/write-secret.js HF_TOKEN\n~~~",
 			),
 		).toBe("");
+	});
+
+	// Were the `!` test to read its negation behind every character, each of
+	// 100,000 blanks ahead of the `!` would re-read the run behind it, minutes
+	// in all; read at the `!` alone, milliseconds (#3383, Sonar S8786). The
+	// two lines after it hold the same for the leak and fed-route reads: a run
+	// of option words ahead of no `.env`, and a run of `<` with no route after
+	// it. Neither leaks or feeds, so the refusal is the `!` one, reached only
+	// past the blanks.
+	it("reads long runs around a route after `!`, promptly", () => {
+		const message =
+			`Run${" ".repeat(100_000)}! \`cd /srv/host && node /srv/host/scripts/write-secret.js HF_TOKEN\`, then paste the token at its prompt.\n` +
+			`cat ${"-cat ".repeat(20_000)}\n${"<".repeat(100_000)} x`;
+		const block = readStopGuardBlockWithin(GUARD, { dir, sid, message });
+		expect(block?.reason).toContain(bangRefused);
 	});
 });
 

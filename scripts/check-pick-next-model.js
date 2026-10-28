@@ -154,7 +154,7 @@ const WHOLE_FILE_LIMIT = 64 * 1024 * 1024;
  * extraction, which costs the head read this checker's affordability rests on.
  */
 const COMMAND_RE =
-	/<command-name>\s*\/?\s*([a-zA-Z0-9_:-]+)\s*<\/command-name>/;
+	/<command-name>\s*(?:\/\s*)?([a-zA-Z0-9_:-]+)\s*<\/command-name>/;
 
 /**
  * The cost-equivalent of one request's token classes at a model's rates.

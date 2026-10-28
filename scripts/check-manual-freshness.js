@@ -69,6 +69,7 @@ const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 
 /** Also read by report-manual-staleness.js, which skips on its absence too. */
 const MANUAL = "docs/operating-manual.md";
@@ -171,7 +172,7 @@ function citedTokens(text) {
 	const out = [];
 	for (const m of text.matchAll(INLINE_CODE))
 		for (const raw of requiredGroup(m, 1, INLINE_CODE).split(/\s+/)) {
-			const t = raw.replace(/^[("'`]+/, "").replace(/["'`).,;:!?]+$/, "");
+			const t = trimEndRun(raw.replace(/^[("'`]+/, ""), "\"'`).,;:!?");
 			if (t && TOKEN.test(t) && !out.includes(t)) out.push(t);
 		}
 	return out;

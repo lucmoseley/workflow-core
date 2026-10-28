@@ -6,6 +6,7 @@
  */
 
 const { literal } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} Body what the body words of one call read, appended to
@@ -50,7 +51,7 @@ const newBody = () => ({
  */
 function captured(word, spans) {
 	const { text, known } = literal(word, spans);
-	return known ? text.replace(/\n+$/, "") : null;
+	return known ? trimEndRun(text, "\n") : null;
 }
 
 /**
@@ -132,7 +133,7 @@ function diskBody(body, { at, before, tilde }, env) {
 		return;
 	}
 	body.hidden = false;
-	body.text += text.replace(/\n+$/, "");
+	body.text += trimEndRun(text, "\n");
 }
 
 /**

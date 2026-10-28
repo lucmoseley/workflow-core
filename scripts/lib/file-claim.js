@@ -113,6 +113,7 @@
 const { caught } = require("./caught.js");
 const { ruleModule } = require("./rule-gates.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /** The anchor's argv share, below Linux's 128 KB single-argument cap. */
 const ANCHOR_MAX = 8000;
@@ -408,7 +409,7 @@ function decide(file, ctx) {
 	if ("decision" in answer) return answer.decision;
 	const { note } = answer;
 	/* A root spelled with a trailing slash once made every strip a no-op. */
-	const root = ctx.root.replace(/\/+$/, "");
+	const root = trimEndRun(ctx.root, "/");
 	const rel = (
 		file.startsWith(`${root}/`) ? file.slice(root.length + 1) : file
 	).replace(/^\.\//, "");

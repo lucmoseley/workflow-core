@@ -40,6 +40,7 @@ const {
 	scriptPath,
 } = require("./script-path.js");
 const { caught } = require("./caught.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /** The store's home, relative to the repo root. */
 const RULES_DIR = "docs/agents/rules";
@@ -222,7 +223,7 @@ function readRuleText(id, root) {
 			{ cause: e },
 		);
 	}
-	const body = text.replace(/\n+$/, "");
+	const body = trimEndRun(text, "\n");
 	/* An empty fragment is the failure this module exists to prevent, arriving by
 	 * the one route the id check cannot see. */
 	if (!body.trim())

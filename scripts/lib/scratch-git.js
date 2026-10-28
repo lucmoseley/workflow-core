@@ -126,7 +126,7 @@ const GIT_WRITE = new RegExp(
 const DOT_GIT = /(?:^|[\s"'=/<>])\.git(?![\w.-])/;
 const MOVES = /^\s*(?:cd|pushd|source|\.)(?:\s|$)/;
 const OPTION_WORD = /^([-+])([a-zA-Z]+)$/;
-const SET_LINE = /^\s*set\s+(.*)$/;
+const SET_LINE = /^\s*set\s+(?!\s)(.*)$/;
 
 /* The long `-o` names this core reads, as the letter each shortens to. */
 const LONG_OPTS = new Map([

@@ -96,8 +96,52 @@ function loadShfmt() {
 	return null;
 }
 
-// A subscript shfmt printed as arithmetic: `[a - b]`.
-const SPACED_SUBSCRIPT = /\[([^\]\s"'$]+(?: [-+*/%] [^\]\s"'$]+)+)\]/g;
+/** A character of a subscript's term: not `]`, a blank, a quote or `$`. */
+const TERM_CHAR = /[^\]\s"'$]/;
+const ARITHMETIC_OPS = "-+*/%";
+
+/** The end of the subscript term at `from`; `from` itself where none opens. */
+function termEnd(/** @type {string} */ s, /** @type {number} */ from) {
+	let end = from;
+	while (end < s.length && TERM_CHAR.test(s.charAt(end))) end++;
+	return end;
+}
+
+/**
+ * The subscripts shfmt printed as arithmetic, `[a - b]`: two or more terms
+ * joined by ` <op> `, each its `[`'s index and the text inside the brackets.
+ * The same matches as the `g` regex `\[(T+(?: O T+)+)\]`, with T a TERM_CHAR
+ * and O one of ARITHMETIC_OPS. A term may hold a `[`, so a subscript that
+ * does not close fails for every `[` inside it too, and the search resumes
+ * where it failed; as that regex, each `[` is a fresh start that rereads the
+ * rest, quadratic on `[a + a` repeated.
+ * @param {string} s
+ * @returns {{index: number, spaced: string}[]}
+ */
+function spacedSubscripts(s) {
+	const found = [];
+	let open = s.indexOf("[");
+	while (open >= 0) {
+		let end = termEnd(s, open + 1);
+		let terms = end > open + 1 ? 1 : 0;
+		while (
+			terms > 0 &&
+			s.charAt(end) === " " &&
+			s.charAt(end + 2) === " " &&
+			ARITHMETIC_OPS.includes(s.charAt(end + 1))
+		) {
+			const next = termEnd(s, end + " + ".length);
+			if (next === end + " + ".length) break;
+			end = next;
+			terms++;
+		}
+		const closed = terms > 1 && s.charAt(end) === "]";
+		if (closed) found.push({ index: open, spaced: s.slice(open + 1, end) });
+		open = s.indexOf("[", closed ? end + 1 : end);
+	}
+	return found;
+}
+
 const DECLARATION =
 	/\b(?:declare|local|typeset)((?:[ \t]+-\w+)+)[ \t]+([^;\n|&)]*)/g;
 
@@ -127,9 +171,9 @@ function associativeNames(source) {
  */
 function subscriptOwner(out, at) {
 	const before = out.slice(0, at);
-	const direct = before.match(/([A-Za-z_]\w*)$/);
+	const direct = before.match(/(?<=(?:^|\W)\d*)([A-Za-z_]\w*)$/);
 	if (direct) return direct[1];
-	return [...before.matchAll(/([A-Za-z_]\w*)=\(/g)].at(-1)?.[1];
+	return [...before.matchAll(/(?<=(?:^|\W)\d*)([A-Za-z_]\w*)=\(/g)].at(-1)?.[1];
 }
 
 /**
@@ -147,10 +191,9 @@ function formatShell(format, source, file) {
 	const out = format(source, file, SHFMT_OPTIONS);
 	const associative = associativeNames(source);
 	if (associative.size === 0) return out;
-	for (const m of out.matchAll(SPACED_SUBSCRIPT)) {
-		const spaced = requiredGroup(m, 1, SPACED_SUBSCRIPT);
+	for (const { index, spaced } of spacedSubscripts(out)) {
 		const key = spaced.replaceAll(" ", "");
-		const owner = subscriptOwner(out, m.index);
+		const owner = subscriptOwner(out, index);
 		if (
 			owner &&
 			associative.has(owner) &&
@@ -317,7 +360,7 @@ function ruffConfigArgs() {
 	if (
 		has("ruff.toml") ||
 		has(".ruff.toml") ||
-		/^\s*\[tool\.ruff/m.test(pyproject)
+		/^[^\S\n\r\u2028\u2029]*\[tool\.ruff/m.test(pyproject)
 	)
 		return [];
 	const root = process.env.WFC_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT;

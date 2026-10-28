@@ -123,8 +123,8 @@ function mask(text) {
 			/* A HEX LETTER IS REQUIRED, so a run id or an issue number keeps its
 			 * digits: an all-decimal token of the same length is a figure the
 			 * comparison must be able to see change. */
-			.replace(/\b(?=[0-9a-f]{7,40}\b)[0-9a-f]*[a-f][0-9a-f]*\b/g, "<sha>")
-			.replace(/[ \t]+$/gm, "")
+			.replace(/\b(?=[0-9a-f]{7,40}\b)[0-9]*[a-f][0-9a-f]*\b/g, "<sha>")
+			.replace(/(?<![ \t])[ \t]+$/gm, "")
 			.replace(/\n{2,}/g, "\n")
 			.trim()
 	);

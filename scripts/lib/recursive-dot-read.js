@@ -113,6 +113,7 @@
  */
 
 const {
+	BASH_SPACE,
 	asWritten,
 	parseCommand,
 	unmask,
@@ -125,6 +126,7 @@ const {
 	scanFlags,
 	unwrap,
 } = require("./shell-words.js");
+const { trimEndRun, trimRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} DotReadPorts
@@ -158,9 +160,6 @@ const RG_VALUE_FLAGS =
 
 const RECURSIVE_FLAGS = ["-r", "-R", "--recursive", "--dereference-recursive"];
 const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
-
-/** bash's [[:space:]], each end. */
-const TRIM = /^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g;
 
 /**
  * @typedef {object} Judgement one command's running state
@@ -287,7 +286,7 @@ It covers ${root}/.env, named by the \`Read(./.env)\` deny rule in
 .claude/settings.json, so this session's \`${mode || "default"}\` permission mode
 shows a permission prompt whether or not a .env exists (mantahostels#2717).
 Auto mode shows none (#482).`;
-	const warning = ctx.corePaths(`${unmask(rewritten).replace(/\n+$/, "")}
+	const warning = ctx.corePaths(`${trimEndRun(unmask(rewritten), "\n")}
 
 That is your search with its root expanded; yours runs as written.${why}
 
@@ -629,12 +628,12 @@ function bareSearch({ raw, spans }, segment, words, head) {
 		if (afterSlash(x) === "xargs") return null;
 	}
 	if (head === "rg" && segment.includes("<")) return null;
-	const text = asWritten(segment, spans).replace(TRIM, "");
+	const text = trimRun(asWritten(segment, spans), BASH_SPACE);
 	const at = raw.indexOf(text);
 	if (!text || at < 0) return null;
 	/* Twice in the command, and which one is this search is unreadable. */
 	if (raw.indexOf(text, at + text.length) >= 0) return null;
-	const before = raw.slice(0, at).replace(/[ \t\n\v\f\r]+$/, "");
+	const before = trimEndRun(raw.slice(0, at), BASH_SPACE);
 	if (head === "rg" && before.endsWith("|") && !before.endsWith("||"))
 		return null;
 	return text;

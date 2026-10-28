@@ -130,7 +130,7 @@ const FLIP_COST = FLIP_REFUSALS / FLIP_SENDBACKS;
 
 /* A reply that is only "accept recommendation(s)", hand-classed (a) (#1691). */
 const ACCEPT =
-	/^\s*accept\s+(?:all\s+)?(?:the\s+)?recommendations?\s*[.!]?\s*$/i;
+	/^\s*accept\s+(?:all\s+)?(?:the\s+)?recommendations?\s*(?:[.!]\s*)?$/i;
 
 const CLASSES = ["a", "b", "c", "d", "e", "f"];
 

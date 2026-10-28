@@ -71,6 +71,7 @@
  */
 
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { endRun } = require("./trim-run.js");
 
 /** `[[:space:]]`, without JavaScript's wider Unicode `\s`. */
 const SP = " \\t\\n\\v\\f\\r";
@@ -206,7 +207,7 @@ function count({ kw, body, condition }) {
 	if (kw === "for") return forCount(condition);
 	const cap = CAP_RE.exec(condition);
 	if (!cap || !BUMP_RE.test(body)) return null;
-	const digits = /[0-9]*$/.exec(cap[0])?.[0] ?? "";
+	const digits = endRun(cap[0], "0123456789");
 	return digits.length < 10 ? Number(digits) : 999_999_999;
 }
 

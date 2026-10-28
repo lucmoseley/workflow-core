@@ -9,6 +9,7 @@ const { readCommit } = require("./commit-sha.js");
 const { gitOrNull, gitReader, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { readTopLevel } = require("./git-tree.js");
 const { pushedRef } = require("./landing-refs.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * git's stdout in `dir`, trailing newlines off as a command substitution
@@ -17,9 +18,10 @@ const { pushedRef } = require("./landing-refs.js");
  * @param {string[]} args
  */
 const read = (dir, args) =>
-	(
-		gitOrNull(["-C", dir, ...args], { timeout: HOOK_GIT_TIMEOUT_MS }) ?? ""
-	).replace(/\n+$/, "");
+	trimEndRun(
+		gitOrNull(["-C", dir, ...args], { timeout: HOOK_GIT_TIMEOUT_MS }) ?? "",
+		"\n",
+	);
 
 /**
  * Whether git answers in `dir` without error.

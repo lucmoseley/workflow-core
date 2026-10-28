@@ -126,7 +126,7 @@ class CallerError extends Error {}
  * therefore rewritten once, then converges.
  */
 /** @param {string} body */
-const normalise = (body) => body.replace(/\r\n/g, "\n").replace(/\s*$/, "");
+const normalise = (body) => body.replace(/\r\n/g, "\n").trimEnd();
 
 /**
  * Append a block at the end of the body, once. Idempotent because the block is
@@ -162,7 +162,7 @@ const append = (text) => {
 const appendSection = (heading, text) => {
 	const incoming = normalise(text)
 		.split("\n")
-		.map((l) => l.replace(/\s+$/, ""))
+		.map((l) => l.trimEnd())
 		.filter((l) => l.trim() !== "");
 	if (incoming.length === 0) throw new CallerError("nothing to append");
 	if (incoming.some((l) => /^##\s/.test(l)))
@@ -285,7 +285,7 @@ const deleteLines = (match) => {
 			.split("\n")
 			.filter((l) => !l.includes(match))
 			.join("\n")
-			.replace(/\s*$/, "")}\n`;
+			.trimEnd()}\n`;
 };
 
 /**
@@ -333,7 +333,7 @@ const annotate = (match, suffix) => {
 		const out = lines.map((l) => {
 			if (!l.includes(match)) return l;
 			hit = true;
-			return l.includes(tail) ? l : `${l.replace(/\s+$/, "")} ${tail}`;
+			return l.includes(tail) ? l : `${l.trimEnd()} ${tail}`;
 		});
 		if (!hit) throw new CallerError(`no line contains: ${match}`);
 		return `${out.join("\n")}\n`;

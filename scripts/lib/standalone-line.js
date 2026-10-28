@@ -7,7 +7,9 @@
  * Residual: a line inside a quote or code fence counts.
  */
 
+/* Leading blanks stop at a line break, where `^` re-anchors anyway (#3383). */
 /** @param {string | null | undefined} body */
-const hasStandaloneLine = (body) => /^\s*Standalone:/m.test(body || "");
+const hasStandaloneLine = (body) =>
+	/^[^\S\n\r\u2028\u2029]*Standalone:/m.test(body || "");
 
 module.exports = { hasStandaloneLine };

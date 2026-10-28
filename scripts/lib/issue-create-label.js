@@ -176,6 +176,7 @@ const {
 	TRIED_MIN,
 	outsideLineFault,
 } = require("./takes-label.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} LabelPorts
@@ -914,7 +915,7 @@ function fetchBody(run, cmd, number, repo) {
 	const { ctx } = run;
 	const dir = cmd.cwd && ctx.isDir(cmd.cwd) ? cmd.cwd : ctx.fallbackCwd;
 	try {
-		return ctx.gh(args, dir).replace(/\n+$/, "");
+		return trimEndRun(ctx.gh(args, dir), "\n");
 	} catch {
 		return null;
 	}
@@ -1019,7 +1020,7 @@ function readApiFields(run, fields, made) {
  */
 function readApiField(run, field, made) {
 	const { text: raw, known } = literal(field, run.parsed.spans);
-	const text = raw.replace(/\n+$/, "");
+	const text = trimEndRun(raw, "\n");
 	const eq = text.indexOf("=");
 	const name = eq < 0 ? text : text.slice(0, eq);
 	if (/[$`]/.test(name) || name.includes(QUOTED))

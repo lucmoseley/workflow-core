@@ -24,6 +24,7 @@ const {
 	commandName,
 	isGitValueOption,
 } = require("./shell-words.js");
+const { endRun, trimEndRun } = require("./trim-run.js");
 
 /** The flatten's subshell marker, standing a bracket on a line of its own so a
  * walk can end a subshell's `cd` at its `)` (mantahostels#3453). */
@@ -181,7 +182,7 @@ class Lexer {
 	/** Open the frame a `'` opens after text `p`.
 	 * @param {string} p */
 	single(p) {
-		const dollars = /\$*$/.exec(p)?.[0].length ?? 0;
+		const dollars = endRun(p, "$").length;
 		this.push(dollars % 2 ? "E" : "S");
 	}
 
@@ -822,15 +823,16 @@ function maskSubject(subject, spans) {
 	const lx = new Lexer(spans);
 	const { commandLines, heredocLines } = readCommandLines(subject, lx);
 	spans.length = start;
-	const masked = joinLogicalLines(commandLines, lx, spans)
-		.join("\n")
-		.replace(/\n+$/, "");
+	const masked = trimEndRun(
+		joinLogicalLines(commandLines, lx, spans).join("\n"),
+		"\n",
+	);
 	return { masked, heredocLines };
 }
 
 /** @param {string} masked */
 const flatSegments = (masked) =>
-	flatten(masked, true).replace(/\n+$/, "").split("\n");
+	trimEndRun(flatten(masked, true), "\n").split("\n");
 
 /**
  * `segment`, behind the segments its quoted substitutions run.
@@ -980,8 +982,7 @@ function isLineContinued(lx, line) {
 }
 
 /** @param {string} line */
-const hasOddTrailingBackslashes = (line) =>
-	(/\\*$/.exec(line)?.[0].length ?? 0) % 2 === 1;
+const hasOddTrailingBackslashes = (line) => endRun(line, "\\").length % 2 === 1;
 
 /**
  * The terminator a line's heredoc opener names, or "". Read on the masked
@@ -1219,7 +1220,7 @@ function lookupVar(name, scope) {
 /** A command that can assign a name without the text naming it (#325
  * review). */
 const SOURCING_RE =
-	/(^|[;&|(]|\n|then|do|else)[ \t\n\v\f\r]*(source|\.|eval)[ \t\n\v\f\r]/;
+	/(?:(?:^|[;&|(]|then|do|else)[ \t\n\v\f\r]*|\n[ \t\v\f\r]*)(source|\.|eval)[ \t\n\v\f\r]/;
 
 /**
  * Under a git walk's emptyUnset opt-in (#325), is `$<name>` empty for certain,
@@ -2232,4 +2233,5 @@ module.exports = {
 	normAbs,
 	walkGit,
 	unsetText,
+	BASH_SPACE: SPACE,
 };

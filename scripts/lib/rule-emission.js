@@ -804,9 +804,9 @@ function sourcedLibs(text, rel) {
 	/** @type {string[]} */
 	const out = [];
 	for (const m of text.matchAll(SOURCE_LINE_RE)) {
-		const tail = (m[1] ?? "")
+		const [tail = ""] = (m[1] ?? "")
 			.replace(SOURCE_PREFIX_RE, "")
-			.replace(/["'\s].*$/, "");
+			.split(/["'\s]/, 1);
 		if (!/^[\w.-]+(?:\/[\w.-]+)*\.sh$/.test(tail)) continue;
 		const resolved = path.posix.normalize(path.posix.join(dir, tail));
 		if (resolved.startsWith("..")) continue;

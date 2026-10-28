@@ -81,10 +81,28 @@ function inlineInterp(/** @type {string} */ cmd) {
 	return false;
 }
 
+/**
+ * Whether a stretch of `cmd` between `|` and `;` runs `tool` followed by a
+ * blank and, later in that stretch, carries `-i`. The first `tool` in a
+ * stretch leaves the most room after it, so it alone is read; as one regex,
+ * every `tool` is a fresh start that rereads the stretch.
+ * @param {string} cmd
+ * @param {RegExp} tool the tool's name and the blank after it
+ */
+const editsInPlace = (cmd, tool) =>
+	cmd.split(/[|;]/).some((stretch) => {
+		const at = tool.exec(stretch);
+		return at !== null && stretch.includes("-i", at.index + at[0].length);
+	});
+
 /** The nine spellings already read, approximated for a RATIO only. */
 function oldRoute(/** @type {string} */ cmd) {
-	return /(^|[\s;|&(])(cp|mv|tee|truncate)\s|sed\s+[^|;]*-i|perl\s+[^|;]*-i|git\s+restore\s|git\s+checkout\s+--\s|[0-9]?>>?\s*[^\s&|]/.test(
-		cmd,
+	return (
+		/(^|[\s;|&(])(cp|mv|tee|truncate)\s|git\s+restore\s|git\s+checkout\s+--\s|[0-9]?>>?\s*[^\s&|]/.test(
+			cmd,
+		) ||
+		editsInPlace(cmd, /sed\s/) ||
+		editsInPlace(cmd, /perl\s/)
 	);
 }
 

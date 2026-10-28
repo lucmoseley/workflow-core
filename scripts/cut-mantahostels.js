@@ -624,13 +624,15 @@ function rewriteClaudeMd(text, claudeMdPlan) {
 }
 
 const RELATIVE_IMPORT =
-	/(?:require\(|from\s+|import\()\s*["'](\.{1,2}\/[^"']+)["']/g;
+	/(?:(?:require|import)\(\s*|from\s+)["'](\.{1,2}\/[^"']+)["']/g;
 const DIRNAME_JOIN =
 	/path\.(?:join|resolve)\(\s*__dirname\s*,\s*((?:["'][^"']+["']\s*,?\s*)+)\)/g;
 const QUOTED = /["']([^"']+)["']/g;
-/* A shell lib sourced from beside the script, in each spelling the hooks use. */
+/* A shell lib sourced from beside the script, in each spelling the hooks use.
+ * The indent stops at a line break, the next line's `^` reading on from there,
+ * so a long blank stretch is read once (#3383). */
 const SOURCE_BESIDE =
-	/^\s*(?:source|\.)\s+"(?:\$\{BASH_SOURCE\[0\]%\/\*\}|\$here|\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\))\/([^"$]+)"/gm;
+	/^[^\S\n\r\u2028\u2029]*(?:source|\.)\s+"(?:\$\{BASH_SOURCE\[0\]%\/\*\}|\$here|\$\(dirname "\$\{BASH_SOURCE\[0\]\}"\))\/([^"$]+)"/gm;
 const SCRIPT_PATH =
 	/(?:^|[\s"'}/])(scripts\/[\w./-]+\.(?:js|cjs|mjs|sh|py|ts))/g;
 

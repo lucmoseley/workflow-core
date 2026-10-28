@@ -112,6 +112,7 @@ const { isUnder } = require("./is-under.js");
 const { MIGRATIONS_DIR } = require("./workflow-core-config.js");
 const { isCollectedTestOrConftest } = require("./test-kind.js");
 const { noticeFaults } = require("./vendored-notices.js");
+const { trimStartRun } = require("./trim-run.js");
 
 const STANDARDS_BASE = "docs/code-standards-base.md";
 const COPIED = [
@@ -586,7 +587,7 @@ function composeHostContract(root) {
 		} else {
 			faults.push(...claimKeys(ownerOf, split.members, rel, host));
 			exports.push(split.exports.trim());
-			members.push(split.members.replace(/^\n+|\s+$/g, ""));
+			members.push(trimStartRun(split.members, "\n").trimEnd());
 		}
 	}
 	if (members.length === 0) return { text: null, faults };

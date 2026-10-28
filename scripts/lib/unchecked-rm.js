@@ -48,6 +48,7 @@ const crypto = require("node:crypto");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, unwrap } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /* A target opening on a variable, then a slash. */
 const VAR_SLASH = /^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?\//;
@@ -80,7 +81,6 @@ const DECLARATION = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s;
  * A text as a command substitution reads it back: trailing newlines gone.
  * @param {string} s
  */
-const chomp = (s) => s.replace(/\n+$/, "");
 
 /**
  * @param {string} command
@@ -88,7 +88,7 @@ const chomp = (s) => s.replace(/\n+$/, "");
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(command, ctx) {
-	const subject = chomp(command);
+	const subject = trimEndRun(command, "\n");
 	const reason = reasonFor(scan(subject, ctx));
 	if (reason === null) return null;
 	const name = `rm-unchecked.${crypto.createHash("sha1").update(subject).digest("hex").slice(0, 16)}`;
@@ -128,7 +128,7 @@ function scan(subject, ctx) {
 	/** @param {string} w */
 	const lit = (w) => {
 		const r = literal(w, parsed.spans);
-		return { text: chomp(r.text), known: r.known };
+		return { text: trimEndRun(r.text, "\n"), known: r.known };
 	};
 	walkCommands(
 		parsed,

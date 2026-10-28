@@ -61,7 +61,7 @@ function countSessions(psText, cwdOf) {
 	/** @type {{ pid: string, args: string }[]} */
 	const procs = [];
 	for (const line of psText.split("\n")) {
-		const m = line.trim().match(/^(\S+)[ \t]+\S+[ \t]+(.+)$/);
+		const m = line.trim().match(/^(\S+)[ \t]+\S+[ \t]+((?![ \t]).+)$/);
 		if (m?.[1] && m[2]) procs.push({ pid: m[1], args: m[2] });
 	}
 	const idleHosts = new Set(

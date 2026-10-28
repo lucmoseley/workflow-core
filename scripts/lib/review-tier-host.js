@@ -11,6 +11,7 @@ const path = require("node:path");
 const { gitCommonDir, gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { markersDir } = require("./marker-root.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * git's stdout in `dir`, or null where git could not answer.
@@ -54,12 +55,13 @@ function buildHostPorts(root) {
 		sessionBase: (sid) => {
 			let base;
 			try {
-				base = fs
-					.readFileSync(
+				base = trimEndRun(
+					fs.readFileSync(
 						path.join(markersDir(root), `.concision-base-${sid}`),
 						"utf8",
-					)
-					.replace(/\n+$/, "");
+					),
+					"\n",
+				);
 			} catch {
 				/* No recorded base: the session bills nothing since one. */
 				return null;

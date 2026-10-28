@@ -42,6 +42,7 @@ const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");
+const { segmentTailMatches } = require("./lib/line-scan.js");
 
 /** The comment that drops a file, with its reason: `isolation-exempt: <why>`. */
 const EXEMPT = /isolation-exempt:[ \t]*[A-Za-z0-9]/;
@@ -143,10 +144,12 @@ function callsGrRoot(/** @type {string} */ text) {
  * basename: the sourced path is spelt through a `$here`-style variable, so
  * the basename is all that can be read. Residual: a sourced file outside
  * `scripts/lib/`, or in a subdirectory of it, resolves to no file and is not
- * walked.
+ * walked. Leading blanks stop at a line break, where `^` re-anchors anyway,
+ * and the name opens where no `[\w-]` precedes it (#3383).
  */
 function sourcedLibTargets(/** @type {string} */ text) {
-	const sourced = /^\s*(?:source|\.)\s+\S*?([\w-]+\.sh)\b/gm;
+	const sourced =
+		/^[^\S\n\r\u2028\u2029]*(?:source|\.)\s+\S*?(?<![\w-])([\w-]+\.sh)\b/gm;
 	return [...text.matchAll(sourced)].map(
 		(m) => `scripts/lib/${requiredGroup(m, 1, sourced)}`,
 	);
@@ -182,12 +185,12 @@ function boundScripts(
 	/** @type {Map<string, boolean>} */ cache,
 ) {
 	const bound = new Map();
-	const binding =
-		/\b(?:const|let)\s+(\w+)\s*=\s*[^;\n]*["']([\w./-]+\.(?:js|sh))["']/g;
-	for (const m of source.matchAll(binding)) {
-		const rel = scriptsRel(requiredGroup(m, 2, binding));
+	const binding = /\b(?:const|let)\s+(\w+)\s*=\s*(?!\s)/g;
+	const pathLiteral = /[^;\n]*["']([\w./-]+\.(?:js|sh))["']/y;
+	for (const m of segmentTailMatches(source, binding, pathLiteral, ";\n")) {
+		const rel = scriptsRel(requiredGroup(m.tail, 1, pathLiteral));
 		if (isHostRooted(root, rel, cache)) {
-			bound.set(requiredGroup(m, 1, binding), rel);
+			bound.set(requiredGroup(m.head, 1, binding), rel);
 		}
 	}
 	const rebinding = /\b(?:const|let)\s+(\w+)\s*=\s*([^;\n]*)/g;
@@ -223,7 +226,7 @@ function spawnedScripts(
 	 * `["add", rel]`) rather than a disguised script path — flagging it would
 	 * cost a false positive on every such call, not just the guilty one. */
 	const spawnCall =
-		/\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*((?:[^,()]|\([^()]*\))*),\s*\[\s*([^,\]]*)/g;
+		/\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*(?!\s)((?:[^,()]|\([^()]*\))*),\s*\[\s*([^,\]]*)/g;
 	const scriptLiteral = /"([\w./-]+\.(?:js|sh))"/;
 	for (const m of source.matchAll(spawnCall)) {
 		const interp = requiredGroup(m, 1, spawnCall).trim();

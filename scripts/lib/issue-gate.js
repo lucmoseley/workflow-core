@@ -29,8 +29,20 @@ const { caught } = require("./caught.js");
  */
 const AT_LINE_HEAD = "^[ \\t]{0,3}";
 
+/*
+ * A marker's tail less the blanks around it: it opens and closes on a
+ * character that is neither a blank nor a line break, so the line is read once
+ * to its end and back to that last character. As a lazy group before a
+ * trailing blank run, every character of a long blank stretch would retry the
+ * run to the line's end (#3383).
+ */
+const EDGE = "[^ \\t\\n\\r\\u2028\\u2029]";
+const TAIL = `${EDGE}(?:.*${EDGE})?`;
+
+/* A tail of blanks alone is read as its last blank, so the marker is reported
+ * malformed rather than read as absent. */
 const GATE_RE = new RegExp(
-	`${AT_LINE_HEAD}\\*\\*Gated until:\\*\\*[ \\t]*(.+?)[ \\t]*$`,
+	`${AT_LINE_HEAD}\\*\\*Gated until:\\*\\*[ \\t]*(${TAIL}|[ \\t])[ \\t]*$`,
 	"gim",
 );
 
@@ -39,7 +51,7 @@ const GATE_RE = new RegExp(
  * contains hyphens, so splitting on the reason's dash first mangles the date it
  * was meant to leave alone.
  */
-const GATE_DATE = /^(\d{4}-\d{2}-\d{2})(?:[ \t]*[—–-][ \t]*(.*))?$/;
+const GATE_DATE = /^(\d{4}-\d{2}-\d{2})(?:[ \t]*[—–-][ \t]*(?![ \t])(.*))?$/;
 
 /**
  * The date gate rots by being reached.
@@ -79,7 +91,7 @@ function gateOf(body, at = Date.now()) {
 }
 
 const GATE_ON_RE = new RegExp(
-	`${AT_LINE_HEAD}\\*\\*Gated on:\\*\\*[ \\t]*(.*?)[ \\t]*$`,
+	`${AT_LINE_HEAD}\\*\\*Gated on:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
 	"gim",
 );
 
@@ -145,8 +157,8 @@ function liveMatches(re, body) {
  * indistinguishable from a real second segment, so the line is malformed rather
  * than split on a guess (mantahostels#1435).
  */
-const ABANDON_SEG = /[ \t]*[—–-][ \t]*abandon if:[ \t]*/gi;
-const CHECK_SEG = /[ \t]*[—–-][ \t]*check:[ \t]*/gi;
+const ABANDON_SEG = /[—–-][ \t]*abandon if:[ \t]*/gi;
+const CHECK_SEG = /[—–-][ \t]*check:[ \t]*/gi;
 
 /**
  * @param {RegExp} re a `/g` regex
@@ -210,7 +222,7 @@ function gateOnOf(body) {
 }
 
 const BASIS_RE = new RegExp(
-	`${AT_LINE_HEAD}\\*\\*Gate basis:\\*\\*[ \\t]*(.*?)[ \\t]*$`,
+	`${AT_LINE_HEAD}\\*\\*Gate basis:\\*\\*[ \\t]*((?:${TAIL})?)[ \\t]*$`,
 	"gim",
 );
 

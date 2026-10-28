@@ -47,6 +47,7 @@ const {
 } = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
 const { copyBlockPattern } = require("./lib/settings-copy");
+const { trimEndRun } = require("./lib/trim-run.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 
@@ -289,7 +290,7 @@ function compareCopy(ctx, { doc, docPath }, { live, fence, missingIsDrift }) {
 			difference: `${name}: ${livePath} has no copy in ${docPath} — expected between ${markers}`,
 		};
 
-	const liveText = fs.readFileSync(livePath, "utf8").replace(/\n+$/, "");
+	const liveText = trimEndRun(fs.readFileSync(livePath, "utf8"), "\n");
 	const docText = requiredGroup(found, 1, pattern);
 	if (docText === liveText)
 		return {

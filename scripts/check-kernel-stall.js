@@ -163,7 +163,7 @@ function readClock(schedstatPath, statPath) {
 		.split("\n")
 		.filter((l) => /^cpu\d+ /.test(l))
 		.map((l) => Number(l.split(/\s+/)[7]));
-	const line = stat.match(/^cpu\s+(.*)$/m);
+	const line = stat.match(/^cpu\s+(\S.*)?$/m);
 	if (rqNs.length === 0 || !line?.[1]) return null;
 	const cpu = line[1].split(/\s+/).map(Number);
 	if (cpu.length < 8) return null;

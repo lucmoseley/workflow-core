@@ -43,8 +43,8 @@ function criteriaSection(body) {
  * red run by ticking something untrue. The reason is required; a bare marker
  * still fails.
  */
-const WAIVER = /\*\*waived:?\*\*\s*(.*)$/i;
-const TASK_ITEM = /^\s*[-*+]\s+\[([ xX])\]\s*(.*)$/;
+const WAIVER = /\*\*waived:?\*\*\s*(\S.*|)$/i;
+const TASK_ITEM = /^\s*[-*+]\s+\[([ xX])\]\s*(\S.*|)$/;
 
 /**
  * GFM task-list items in a chunk of markdown, as {ticked, waived, text}.

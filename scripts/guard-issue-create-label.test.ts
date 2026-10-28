@@ -27,7 +27,9 @@ import {
 	buildBashPayload,
 	dispatchCoreOutput,
 	guardDirs,
+	guardOutput,
 } from "./lib/pretool-guard-testkit";
+import { HANG_TIMEOUT_MS } from "./lib/stop-guard-testkit";
 
 const CORE = "guard-issue-create-label";
 const ISSUE_BODY = path.join(__dirname, "lib/fixtures/gh/issue-body.json");
@@ -139,6 +141,41 @@ describe("each exit", () => {
 		expect(out.additionalContext).toBe(
 			`${DELIVERABLE_POINTER_LEAD} ${plugin}/scripts/lib/rule-text.sh founder-deliverable`,
 		);
+	});
+
+	// Were a gate line's tail a lazy group before its trailing blanks, each of
+	// 100,000 blanks inside it would retry the run to the line's end, a minute
+	// or more; read to the end and back once, milliseconds (#3383). All three
+	// marker lines are read past their blanks: the refusal names the window the
+	// gate line writes and the basis line does not.
+	it("judges a body whose gate lines hold long blank stretches, promptly", () => {
+		const blanks = " ".repeat(100_000);
+		const body =
+			`**Gated until:** 2026-01-01 — a${blanks}b\n` +
+			`**Gated on:** 3 days pass after the launch${blanks}b — abandon if: c\n` +
+			`**Gate basis:** the launch${blanks}date`;
+		const out = guardOutput(
+			path.join(__dirname, "guard-dispatch.js"),
+			{
+				hook_event_name: "PreToolUse",
+				...buildBashPayload(
+					`gh issue create --title t --label takes:implement --body '${body}'`,
+					"s1",
+				),
+			},
+			{
+				project: dir,
+				config,
+				cwd: dir,
+				args: ["--only", CORE],
+				timeout: HANG_TIMEOUT_MS,
+			},
+		);
+		expect(out.permissionDecision).toBe("deny");
+		expect(out.permissionDecisionReason).toContain(
+			'It carries "3 days", a window the `**Gate basis:**` line does not name.',
+		);
+		expect(readFailOpenRecords(config, dir)).toEqual([]);
 	});
 });
 

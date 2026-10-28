@@ -23,7 +23,7 @@ function readAvailableMb() {
 			process.env.WFC_MEMINFO || "/proc/meminfo",
 			"utf8",
 		);
-		const kb = /^MemAvailable:.*?([0-9]+) kB/m.exec(text)?.[1];
+		const kb = /^MemAvailable:.*?(?<![0-9])([0-9]+) kB/m.exec(text)?.[1];
 		return kb === undefined ? null : Math.floor(Number(kb) / 1024);
 	} catch {
 		return null;

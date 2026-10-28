@@ -18,7 +18,7 @@ const LEDGER_PATH = "docs/pool-admission-ledger.json";
 
 const ROUTES = new Set(["no-trigger", "trigger", "pre-first-tool-call"]);
 
-const ITEM = /^(?:[-*+]|\d+[.)])\s+(.*)$/;
+const ITEM = /^(?:[-*+]|\d+[.)])\s+(\S.*|)$/;
 const ANY_ITEM = /^\s*(?:[-*+]|\d+[.)])\s/;
 const FENCE = /^\s*(```|~~~)/;
 const COMMENT_OPEN = /^\s*<!--/;

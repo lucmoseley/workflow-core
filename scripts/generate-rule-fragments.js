@@ -36,6 +36,7 @@ const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group.js");
+const { trimEndRun, trimRun } = require("./lib/trim-run.js");
 const { caught } = require("./lib/caught.js");
 
 /* Every path here — the source documents and the fragment store — is host
@@ -199,7 +200,7 @@ function closeRegion(scan, end, at) {
 		throw new Error(
 			`${at}: rule:${end[1]} closes ${open ? `rule:${open}` : "nothing"}`,
 		);
-	const text = `${scan.body.join("\n").replace(/^\n+|\n+$/g, "")}\n`;
+	const text = `${trimRun(scan.body.join("\n"), "\n")}\n`;
 	if (!text.trim())
 		throw new Error(`${at}: rule:${open}'s anchored region is empty`);
 	scan.out.push({ id: open, text, source: scan.source });
@@ -282,7 +283,7 @@ function reconcile(regions, check) {
 		const same =
 			file === MANIFEST
 				? on === text
-				: on !== null && on.replace(/\n+$/, "") === text.replace(/\n+$/, "");
+				: on !== null && trimEndRun(on, "\n") === trimEndRun(text, "\n");
 		if (same) continue;
 		stale.push(path.relative(ROOT, file));
 		if (check) continue;

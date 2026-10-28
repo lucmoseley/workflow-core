@@ -12,6 +12,8 @@
  * span sentinel and its reader included, so neither requires the other.
  */
 
+const { trimEndRun } = require("./trim-run.js");
+
 /**
  * The prefix a blanked quoted span is written as: each outermost span becomes
  * `${QUOTED}<index>\x01`, its text kept at `spans[index]` behind its quote
@@ -117,7 +119,7 @@ const afterSlash = (w) => w.slice(w.lastIndexOf("/") + 1);
  * @param {string} w
  */
 function commandName(w) {
-	const trimmed = w.replace(/\/+$/, "");
+	const trimmed = trimEndRun(w, "/");
 	return trimmed === "" && w !== "" ? "/" : afterSlash(trimmed);
 }
 

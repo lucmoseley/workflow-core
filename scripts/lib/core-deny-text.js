@@ -58,8 +58,10 @@ const CLOSERS = ")]}";
 
 /* `decide` destructured off a sibling module, as an entry running a core
  * through guard-entry.js's `run()` takes it. */
+/* Opened at a run's first `{` after a `}`: a later `{` before the same `}`
+ * shares its tail, so trying it again only re-reads the run. */
 const DECIDE_FROM_RE =
-	/\{[^}]*\bdecide\b[^}]*\}\s*=\s*require\(\s*["'](\.\/lib\/[\w.-]+)["']\s*\)/;
+	/(?:^|\})[^{}]*\{(?=[^}]*\bdecide\b)[^}]*\}\s*=\s*require\(\s*["'](\.\/lib\/[\w.-]+)["']\s*\)/;
 
 /**
  * A literal's text, quotes dropped and escapes read. A template's

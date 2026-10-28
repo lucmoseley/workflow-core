@@ -90,7 +90,11 @@ function bandsOf(block) {
  * lettered extension or a `/`. Lexical, a reading for the log and never a
  * gate (#2010). */
 const URL_CITE = /https?:\/\/[^\s)>\]`"']*[^\s)>\]`"'.,;:]/g;
-const ISSUE_CITE = /(?<![\w&{$])(?:[\w.-]+\/[\w.-]+|[\w-]+)?#\d+(?!\w)/g;
+/* Each prefix run is entered only at its first start the lookbehind allows
+ * (its head, past its first `.`/`-`, or past the last match's end), not at
+ * every character of it. */
+const ISSUE_CITE =
+	/(?:(?:(?<![\w.&{$-])|(?<=[&{$]\w*[.-])|(?<=#\d+[.-]))[\w.-]+\/[\w.-]+|(?:(?<![\w&{$-])|(?<=[&{$]\w*-)|(?<=#\d+-))[\w-]+|(?<![\w&{$]))#\d+(?!\w)/g;
 const PATH_LINE_CITE =
 	/(?<![\w/.-])(?:[\w.-]*(?:\/[\w.-]+)*\.[A-Za-z]\w*|[\w.-]+(?:\/[\w.-]+)+):\d+(?::\d+)?(?![\d:])/g;
 

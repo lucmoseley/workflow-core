@@ -70,6 +70,7 @@
 const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
 const { ghWords, literal, scanFlags } = require("./shell-words.js");
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} CoreContext
@@ -133,7 +134,7 @@ function refusal({ spent, cap, day }, segment, ctx) {
 		"A hand-fired sweep spends the same three-a-day budget the autofire spends",
 	);
 	return ctx.corePaths(
-		`Today's sweep budget is gone: ${spent} of ${cap} already fired on ${day} (UTC), so the next unit is available on the day after ${day}.\n\n${rule}\n\nThe command: ${unmask(segment).replace(/\n+$/, "")}`,
+		`Today's sweep budget is gone: ${spent} of ${cap} already fired on ${day} (UTC), so the next unit is available on the day after ${day}.\n\n${rule}\n\nThe command: ${trimEndRun(unmask(segment), "\n")}`,
 	);
 }
 

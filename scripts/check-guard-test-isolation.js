@@ -75,6 +75,7 @@ const { blankComments, inertSpans } = require("./lib/js-lex.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");
+const { segmentTailMatches } = require("./lib/line-scan.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
 
@@ -125,7 +126,7 @@ function hasFailOpenLogging(root, rel, cache, seen = new Set()) {
 		? ENTRY_LOGGERS.includes(rel) ||
 			(path.posix.dirname(rel) === "scripts" && hasLogErrorCall(text)) ||
 			hasLoggingDependency(path.posix.dirname(rel), text, REQUIRED, scan)
-		: /^\s*source\s+.*guard-log\.sh/m.test(text) ||
+		: /^[^\S\n\r\u2028\u2029]*source\s+(?!\s).*guard-log\.sh/m.test(text) ||
 			hasLoggingDependency("scripts", text, SOURCED, scan);
 	cache.set(rel, answer);
 	return answer;
@@ -155,8 +156,10 @@ const hasLogErrorCall = (/** @type {string} */ text) => {
 
 /** A relative require, its group 1 the path. */
 const REQUIRED = /\brequire\(\s*"(\.{1,2}\/[\w./-]+)"\s*\)/g;
-/** A lib sourced off the guard's own directory, its group 1 the path. */
-const SOURCED = /^\s*source\s+"?\$\{?here\}?"?\/([\w./-]+\.sh)/gm;
+/** A lib sourced off the guard's own directory, its group 1 the path. Leading
+ * blanks stop at a line break, where `^` re-anchors anyway (#3383). */
+const SOURCED =
+	/^[^\S\n\r\u2028\u2029]*source\s+"?\$\{?here\}?"?\/([\w./-]+\.sh)/gm;
 
 /**
  * Whether a file `pattern` names in `text`, resolved against `dir`, logs its
@@ -298,14 +301,14 @@ function boundGuards(
 	/** @type {Map<string, boolean>} */ cache,
 ) {
 	const bound = new Map();
-	const binding =
-		/\b(?:const|let)\s+(\w+)\s*=\s*[^;\n]*(?<!\[)"([\w./-]+\.(?:sh|js))"/g;
+	const binding = /\b(?:const|let)\s+(\w+)\s*=\s*(?!\s)/g;
+	const guardLiteral = /[^;\n]*(?<!\[)"([\w./-]+\.(?:sh|js))"/y;
 	const inert = inertSpans(source);
-	for (const m of source.matchAll(binding)) {
+	for (const m of segmentTailMatches(source, binding, guardLiteral, ";\n")) {
 		if (isInert(inert, m.index)) continue;
-		const rel = resolveGuard(root, requiredGroup(m, 2, binding));
+		const rel = resolveGuard(root, requiredGroup(m.tail, 1, guardLiteral));
 		if (rel && hasFailOpenLogging(root, rel, cache))
-			bound.set(requiredGroup(m, 1, binding), rel);
+			bound.set(requiredGroup(m.head, 1, binding), rel);
 	}
 	return bound;
 }

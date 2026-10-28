@@ -117,7 +117,8 @@ const classify = (src) => {
 	const m = REASON.exec(pre);
 	const said = m
 		? requiredGroup(m, 1, REASON)
-				.replace(/\s*\*\/?\s*$/, "")
+				.trimEnd()
+				.replace(/\*\/?$/, "")
 				.trim()
 		: "";
 	return { silenced: true, reason: said || null };

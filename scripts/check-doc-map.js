@@ -1510,7 +1510,10 @@ function checkSettledAt(ctx, figures) {
 	 * map's own fenced examples carry it. */
 	/** @type {string[]} */
 	const settledMissing = figures
-		.filter((f) => !/^\s*-\s*\*\*Settled at/m.test(f.lines.join("\n")))
+		.filter(
+			(f) =>
+				!/^[^\S\n\r\u2028\u2029]*-\s*\*\*Settled at/m.test(f.lines.join("\n")),
+		)
 		.map((f) => f.id);
 
 	reportFault(ctx, {
@@ -1672,7 +1675,7 @@ function supersedesFaults({ f, supersededData }, line) {
 function vocabCountFaults({ f, vocabData }) {
 	const vocabText = parseRetiredVocabularyText(f.lines);
 	if (vocabText === null) return [];
-	const m = vocabText.match(/(\d+)\s+phrases?\b/i);
+	const m = vocabText.match(/(?<!\d)(\d+)\s+phrases?\b/i);
 	const vocabPhrases = vocabData?.[f.id]?.phrases;
 	if (!m)
 		return [`${f.id} — \`Retired vocabulary\` bullet states no phrase count`];
@@ -2127,7 +2130,11 @@ function checkAdmissions(r, figures) {
 	const settledIssues = {};
 	for (const f of figures) {
 		const nums = [
-			...f.lines.join("\n").matchAll(/^\s*-\s*\*\*Settled at[^\n]*?#(\d+)/gm),
+			...f.lines
+				.join("\n")
+				.matchAll(
+					/^[^\S\n\r\u2028\u2029]*-\s*\*\*Settled at(?:[^\n#]|#(?!\d))*#(\d+)/gm,
+				),
 		].map((m) => Number(m[1]));
 		if (nums.length > 0) settledIssues[f.id] = nums;
 	}

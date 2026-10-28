@@ -525,15 +525,121 @@ function declaredDirs(scan, source, name, hops) {
 	return found;
 }
 
-/** A regex literal tested against a name, optionally negated: its source,
- * flags, and the name it tests. */
-const FILTER_RE =
-	/(!?)\s*\/((?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n[])+)\/([dgimsuy]*)\.test\(\s*([\w$.]+)\s*\)/g;
+/** What a regex literal's closing `/` leads to in a filter: its flags, then
+ * `.test(` on a name. */
+const FILTER_TAIL = /([dgimsuy]*)\.test\(\s*([\w$.]+)\s*\)/y;
+
+/** The characters `.` refuses without the `s` flag. */
+const LINE_BREAKS = "\n\r\u2028\u2029";
+
+/**
+ * An array with one entry per position of `body`, plus one for its end: the
+ * `]` closing a regex class whose content opens there, past escapes, as
+ * `(?:\\.|[^\]\\])*\]` reads it; -1 where none closes.
+ * @param {string} body
+ */
+function classCloses(body) {
+	const n = body.length;
+	const close = new Int32Array(n + 2).fill(-1);
+	for (let i = n - 1; i >= 0; i--) {
+		const ch = body.charAt(i);
+		if (ch === "]") close[i] = i;
+		else if (ch !== "\\") close[i] = close[i + 1] ?? -1;
+		else if (escapes(body, i)) close[i] = close[i + 2] ?? -1;
+	}
+	return close;
+}
+
+/** Whether the `\` at `i` escapes a next character, which `.` must match. */
+const escapes = (/** @type {string} */ body, /** @type {number} */ i) =>
+	i + 1 < body.length && !LINE_BREAKS.includes(body.charAt(i + 1));
+
+/**
+ * An array with one entry per position of `body`, plus one for its end: where
+ * a regex literal's source read from that position stops, at the first
+ * character that opens no escape, class or plain character, as
+ * `(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n[])*` reads it. Each piece is decided by
+ * its first character, so reading from any position is one fixed path and
+ * one backward pass settles every position.
+ * @param {string} body
+ */
+function sourceStops(body) {
+	const n = body.length;
+	const classClose = classCloses(body);
+	/** The end of the piece opening at `i`, or -1 where none opens there. */
+	const pieceEnd = (/** @type {number} */ i) => {
+		const ch = body.charAt(i);
+		if (ch === "\\") return escapes(body, i) ? i + 2 : -1;
+		if (ch !== "[") return ch === "/" || ch === "\n" ? -1 : i + 1;
+		const close = classClose[i + 1] ?? -1;
+		return close >= 0 ? close + 1 : -1;
+	};
+	const stop = new Int32Array(n + 1).fill(n);
+	for (let i = n - 1; i >= 0; i--) {
+		const end = pieceEnd(i);
+		stop[i] = end < 0 ? i : (stop[end] ?? n);
+	}
+	return stop;
+}
+
+/**
+ * The regex literals a filter body tests against a name, in order: an
+ * optional `!`, blanks that follow no blank, then `/source/flags.test(name)`.
+ * Each is whether it is negated, its source, its flags and the name. The
+ * same as the `g` regex
+ * `(!?)(?<!\s)\s*\/((?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\\n[])+)\/([dgimsuy]*)\.test\(\s*([\w$.]+)\s*\)`
+ * finds. As that regex, every `/` is a fresh start whose class reads on to
+ * the next `]`, quadratic on `/[` repeated; here each source and each tail
+ * is read once.
+ * @param {string} body
+ * @returns {{negated: boolean, source: string, flags: string, name: string}[]}
+ */
+function regexFilters(body) {
+	const n = body.length;
+	const stop = sourceStops(body);
+	/** @type {Map<number, RegExpExecArray | null>} */
+	const tails = new Map();
+	const tailAt = (/** @type {number} */ close) => {
+		if (!tails.has(close)) {
+			FILTER_TAIL.lastIndex = close + 1;
+			tails.set(close, FILTER_TAIL.exec(body));
+		}
+		return tails.get(close) ?? null;
+	};
+	/** @param {number} from @param {boolean} negated */
+	const literalAt = (from, negated) => {
+		let open = from;
+		while (open < n && /\s/.test(body.charAt(open))) open++;
+		if (body.charAt(open) !== "/") return null;
+		const close = stop[open + 1] ?? n;
+		if (close === open + 1 || body.charAt(close) !== "/") return null;
+		const tail = tailAt(close);
+		if (!tail) return null;
+		const end = close + 1 + tail[0].length;
+		const source = body.slice(open + 1, close);
+		const flags = requiredGroup(tail, 1, FILTER_TAIL);
+		const name = requiredGroup(tail, 2, FILTER_TAIL);
+		return { end, filter: { negated, source, flags, name } };
+	};
+	const found = [];
+	for (let at = 0; at < n; ) {
+		const hit =
+			(body.charAt(at) === "!" ? literalAt(at + 1, true) : null) ??
+			(at === 0 || !/\s/.test(body.charAt(at - 1))
+				? literalAt(at, false)
+				: null);
+		if (hit) {
+			found.push(hit.filter);
+			at = hit.end;
+		} else at++;
+	}
+	return found;
+}
 
 /** A string method tested against a name, optionally negated: the name, the
  * method and its literal. */
 const FILTER_STR =
-	/(!?)\s*([\w$.]+)\.(endsWith|startsWith|includes)\(\s*["']([^"'\n]*)["']\s*\)/g;
+	/(!?)(?:(?<!\s)\s+|(?<![\s\w$.]))([\w$.]+)\.(endsWith|startsWith|includes)\(\s*["']([^"'\n]*)["']\s*\)/g;
 
 /** A filter body this cannot read as a conjunction of tests: an `||`, a
  * ternary, a negated group, a comparison against a boolean, or a block. */
@@ -557,11 +663,10 @@ const STRING_TESTS = {
 function nameChecks(body, v) {
 	const onName = (/** @type {string} */ r) => r === v || r === `${v}.name`;
 	const checks = [];
-	for (const m of body.matchAll(FILTER_RE)) {
-		if (m[1] || !onName(requiredGroup(m, 4, FILTER_RE))) continue;
+	for (const f of regexFilters(body)) {
+		if (f.negated || !onName(f.name)) continue;
 		try {
-			const flags = requiredGroup(m, 3, FILTER_RE).replace(/[gy]/g, "");
-			const re = new RegExp(requiredGroup(m, 2, FILTER_RE), flags);
+			const re = new RegExp(f.source, f.flags.replace(/[gy]/g, ""));
 			checks.push((/** @type {string} */ n) => re.test(n));
 		} catch {
 			return null;
@@ -915,10 +1020,14 @@ const SOURCE_LINE = /^[ \t]*(?:source|\.)[ \t]+(\S.*)$/gm;
 /**
  * A source argument's path: an optional directory-variable prefix, then a
  * literal tail. The `BASH_SOURCE`/`$0` spellings are the file's own directory;
- * any other variable is tried against that directory, then the root.
+ * any other variable is tried against that directory, then the root. A bare
+ * variable's name is tried whole, then less its last character, and no
+ * shorter, since every shorter split ends the tail in the same place: each
+ * `(?=(…))\k<…>` is an atomic group, so the name is not re-split at every
+ * length.
  */
 const SOURCE_ARG =
-	/^["']?(?<dirVar>\$\(dirname\s+"?\$(?:\{BASH_SOURCE\[0\]\}|BASH_SOURCE|0)"?\)|\$\{BASH_SOURCE\[0\]%\/\*\}|\$\{?[A-Za-z_][A-Za-z0-9_]*\}?)?(?<tail>\/?[A-Za-z0-9_./-]+)["']?(?:\s|;|$)/;
+	/^["']?(?<dirVar>\$\(dirname\s+"?\$(?:\{BASH_SOURCE\[0\]\}|BASH_SOURCE|0)"?\)|\$\{BASH_SOURCE\[0\]%\/\*\}|\$\{?[A-Za-z_](?:(?=(?<whole>[A-Za-z0-9_]*))\k<whole>\}?|(?=(?<lessLast>[A-Za-z0-9_]*)[A-Za-z0-9_])\k<lessLast>))?(?<tail>\/?[A-Za-z0-9_./-]+)["']?(?:\s|;|$)/;
 
 /**
  * Where a `source`/`.` argument may point: the file's own directory first,
@@ -1039,7 +1148,7 @@ const READ_CALL = /\b(readFileSync|readFile|readdirSync|readdir)\(/g;
 
 const READ_OR_LIST = new RegExp(`${READ_CALL.source}|["']ls-files["']`);
 
-const FULL_SWEEP_ONLY = /^[\s/*]*full-sweep-only:/m;
+const FULL_SWEEP_ONLY = /^(?:[^\S\n\r\u2028\u2029]|[/*])*full-sweep-only:/m;
 
 /** How many paths one argument may stand for before the rest are dropped.
  * A guess: the most any test held on 17 Oct 2026 was a handful. */
@@ -1120,7 +1229,8 @@ function declInits(scan, name) {
 const KEEPS_ELEMENTS = /^\.\s*(?:filter|sort|toSorted|slice|reverse)\(/;
 
 /** A `withFileTypes` listing's entries mapped back to their names. */
-const DIRENT_NAMES = /^\.\s*map\(\s*\(?\s*([\w$]+)\s*\)?\s*=>\s*\1\.name\s*\)/;
+const DIRENT_NAMES =
+	/^\.\s*map\(\s*(?:\(\s*)?([\w$]+)\s*(?:\)\s*)?=>\s*\1\.name\s*\)/;
 
 /** A git call returning `ls-files` output, the list opening its arguments. */
 const LS_FILES_CALL =
@@ -1189,7 +1299,7 @@ function linkStart(scan, end) {
 		if (head === -1) return -1;
 		j = head - 1;
 	}
-	const ident = /[\w$]+$/.exec(scan.source.slice(0, j + 1));
+	const ident = /(?<![\w$])[\w$]+$/.exec(scan.source.slice(0, j + 1));
 	return ident ? ident.index : head;
 }
 

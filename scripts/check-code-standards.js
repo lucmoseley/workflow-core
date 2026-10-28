@@ -470,17 +470,16 @@ const EXPORT_SCOPE =
  */
 const EXPORT_BLOCK = /\nmodule\.exports = \{([\s\S]*?)\};/g;
 /**
- * The form a file in a require cycle keeps instead, filling the exports object
- * in place (arbiter-store.js's THE SPLIT RULE): a trailing run of
- * `exports.<name> = …;` lines, comment lines among them. A line no
+ * One line of the form a file in a require cycle keeps instead, filling the
+ * exports object in place (arbiter-store.js's THE SPLIT RULE): a trailing run
+ * of `exports.<name> = …;` lines, comment lines among them. A line no
  * `EXPORTS_RUN_LINE` fits stays in the run, so it counts as unparsed.
  */
-const EXPORTS_RUN =
-	/\n((?:(?:exports\.[^\n]*|[ \t]*(?:\/\/|\/\*|\*)[^\n]*)\n)*exports\.[^\n]*)\s*$/;
+const EXPORTS_RUN_MEMBER = /^(?:exports\.|[ \t]*(?:\/\/|\/\*|\*))/;
 /** One line of that run, rewritten as the block entry it stands for. */
 const EXPORTS_RUN_LINE = /^exports\.([A-Za-z_$][\w$]*) = ([\w$.]+);$/;
 /** One entry in it: `name,` or the re-export form `name: other.thing,`. */
-const EXPORT_ENTRY = /^\s*([A-Za-z_$][\w$]*)\s*(?::\s*[\w.$]+)?\s*,?$/;
+const EXPORT_ENTRY = /^\s*([A-Za-z_$][\w$]*)\s*(?::\s*[\w.$]+\s*)?,?$/;
 /** A comment-shaped line — the exemption's whole test, its content unread. */
 const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
 /** Every identifier a file spells. */
@@ -499,9 +498,10 @@ const MEMBER_RE = /\.\s*([A-Za-z_$][\w$]*)/g;
  * A path's last segment, and the `/` or quote opening it where one does —
  * `./thing` in a `require`, `scripts/thing.js` in a spawned command,
  * `"thing.js"` in a `path.join`. A segment a `/` follows is a directory, not a
- * module, so it is no match.
+ * module, so it is no match. A bare segment opens only where no `[\w-]`
+ * precedes it, so a long run is read once, not from each of its characters.
  */
-const PATH_TAIL_RE = /([/"'`])?([\w-]+(?:\.[\w-]+)*)(?![\w/-])/g;
+const PATH_TAIL_RE = /(?:([/"'`])|(?<![\w-]))([\w-]+(?:\.[\w-]+)*)(?![\w/-])/g;
 const SCRIPT_EXT = /\.[cm]?[jt]sx?$/;
 /** The opening comment block, shebang and blank lines included — a file's header. */
 const HEADER = /^(?:#![^\n]*\n)?(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*))*/;
@@ -510,8 +510,10 @@ const HEADER = /^(?:#![^\n]*\n)?(?:\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*))*/;
  * that caller's ticket — `Unbuilt caller: app/reviews/page.tsx (#575)`. Its
  * exports are interface, not test-only (base §G6).
  * Detected by presence, like the comment escape.
+ * Its leading blanks stop at a line break, where `^` re-anchors anyway (#3383).
  */
-const UNBUILT_CALLER = /^\s*(?:\/\*+|\*|\/\/)\s*Unbuilt caller:.*#\d+/im;
+const UNBUILT_CALLER =
+	/^[^\S\n\r\u2028\u2029]*(?:\/\*+|\*|\/\/)\s*Unbuilt caller:.*#\d+/im;
 /**
  * The harness whose generic `entry.exports?.main` read IS the run-in-process
  * consumption the entry-point exemption models, so it vouches for no `main`
@@ -607,16 +609,28 @@ function moduleExportsBlock(text) {
  * @returns {{index: number, entries: string[], oneLine: boolean} | null}
  */
 function exportsRun(text) {
-	const run = EXPORTS_RUN.exec(text);
-	if (!run) return null;
-	const entries = requiredGroup(run, 1, EXPORTS_RUN)
-		.split("\n")
+	/* Walked back line by line: as one regex, every line of a long run that
+	 * stops short of the end is a fresh start rescanning the rest (#3383). The
+	 * run closes on the last non-blank line, an `exports.` one, and never takes
+	 * in the file's first line. */
+	const lines = text.split("\n");
+	let last = lines.length - 1;
+	while (last > 0 && !/\S/.test(lines[last] ?? "")) last--;
+	if (last < 1 || !lines[last]?.startsWith("exports.")) return null;
+	let first = last;
+	while (first > 1 && EXPORTS_RUN_MEMBER.test(lines[first - 1] ?? "")) first--;
+	const entries = lines
+		.slice(first, last + 1)
 		.map((line) =>
 			line.replace(EXPORTS_RUN_LINE, (_, name, value) =>
 				name === value ? `${name},` : `${name}: ${value},`,
 			),
 		);
-	return { index: run.index, entries, oneLine: false };
+	return {
+		index: lines.slice(0, first).join("\n").length,
+		entries,
+		oneLine: false,
+	};
 }
 
 /**

@@ -244,7 +244,7 @@ function main() {
 	const filedBody =
 		opts.standalone === undefined || hasOwnStandalone
 			? body
-			: `${body.replace(/\s+$/, "")}\n\nStandalone: ${opts.standalone.trim()}\n`;
+			: `${body.trimEnd()}\n\nStandalone: ${opts.standalone.trim()}\n`;
 	const { n, url } = create({
 		repo,
 		title: /** @type {string} */ (opts.title),
@@ -484,7 +484,7 @@ function linkFiled({ repo, parent, n, claimLater }) {
  * @returns {string}
  */
 function linkRemedy(error, parent, n) {
-	const grand = parent.parentPath?.match(/(\d+)$/)?.[1];
+	const grand = parent.parentPath?.match(/(?<!\d)(\d+)$/)?.[1];
 	// Both caps are told apart by gh's 422 prose alone, as link-sub-issue.sh
 	// tells the 7-layer one: a reword by GitHub demotes either to the
 	// generic remedy, which still names the finishing link.

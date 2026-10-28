@@ -684,7 +684,8 @@ function readFrozenIssue(n, before) {
 		...issue,
 		state: "OPEN",
 		assignees: [],
-		body: issue.body.replace(/^(\s*[-*] )\[x\]/gim, "$1[ ]"),
+		/* The indent stops at a line break, so blank lines are read once (#3383). */
+		body: issue.body.replace(/^([^\S\n\r\u2028\u2029]*[-*] )\[x\]/gim, "$1[ ]"),
 		comments: issue.comments.filter((c) => Date.parse(c.createdAt) < cutoff),
 	};
 }

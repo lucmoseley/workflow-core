@@ -66,6 +66,7 @@ const { gh } = require("./lib/gh.js");
 const { fromEnv } = require("./lib/session-id.js");
 const { caught } = require("./lib/caught.js");
 const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 
 const USAGE =
 	`usage: node ${scriptPath("deliver-to-session.js")} --reports | --requests | --ci | --paths\n` +
@@ -234,7 +235,7 @@ function buildReportBlock(session, checker, given) {
 	const entry = `${checker}:${digestOf(report.text)}`;
 	if (given.has(entry)) return null;
 	given.add(entry);
-	return `▸ ${report.checker}\n${report.text.replace(/\n+$/, "")}`;
+	return `▸ ${report.checker}\n${trimEndRun(report.text, "\n")}`;
 }
 
 /**

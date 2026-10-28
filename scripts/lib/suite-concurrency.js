@@ -113,6 +113,7 @@
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const {
+	BASH_SPACE,
 	asWritten,
 	parseCommand,
 	unmask,
@@ -141,6 +142,7 @@ const {
 } = require("./suite-launch.js");
 const { npmCanon } = require("./npm-options.js");
 const { TSC_RUNG_MB, isTscLaunch, tscDenial } = require("./tsc-slot.js");
+const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
 
 /**
  * @typedef {import("./suite-launch.js").Launch} Launch
@@ -207,8 +209,6 @@ const STANDDOWN_LOG = ".suite-standdowns.jsonl";
 
 /* What one finished-but-resident session holds (reap-finished-sessions.js). */
 const REAP_GAIN = "330-450 MB";
-const trimEnd = (/** @type {string} */ s) => s.replace(/[ \t\n\v\f\r]+$/, "");
-const trimStart = (/** @type {string} */ s) => s.replace(/^[ \t\n\v\f\r]+/, "");
 /* A trailing `#` comment cut, as bash's `${x%%[[:space:]]#*}` cuts it. */
 const cutComment = (/** @type {string} */ s) =>
 	s.replace(/[ \t\n\v\f\r]#[\s\S]*$/, "");
@@ -327,8 +327,10 @@ const unqueued = (/** @type {string} */ s) =>
  */
 function queuedLaunch(segment, spans, queueRun) {
 	const { lead, rest } = splitLead(cutComment(segment));
-	const ledBy = trimStart(asWritten(lead, spans));
-	const out = unqueued(trimEnd(asWritten(trimStart(rest), spans)));
+	const ledBy = trimStartRun(asWritten(lead, spans), BASH_SPACE);
+	const out = unqueued(
+		trimEndRun(asWritten(trimStartRun(rest, BASH_SPACE), spans), BASH_SPACE),
+	);
 	return `${ledBy ? `${ledBy} ` : ""}node ${queueRun} -- ${out}`;
 }
 
@@ -415,7 +417,7 @@ function buildState(command, parsed, ctx) {
 		},
 		watcherSegment: "",
 		escaped: false,
-		trimmedCommand: trimEnd(trimStart(cutComment(command))),
+		trimmedCommand: trimRun(cutComment(command), BASH_SPACE),
 		ruleSubject: false,
 		fullLaunchWords: null,
 		memoryKind: "",
@@ -689,7 +691,7 @@ function denyBareTsc(st, segment) {
  * @param {string} segment
  */
 const typedLaunchOf = (st, segment) =>
-	trimEnd(trimStart(asWritten(cutComment(segment), st.spans)));
+	trimRun(asWritten(cutComment(segment), st.spans), BASH_SPACE);
 
 /**
  * A deny's line one: the launch to run, as the whole command where the
@@ -855,7 +857,7 @@ function logStanddown(st, j, limb) {
 		running: j.whole,
 		nth: j.nth,
 		limb,
-		command: trimEnd(unmask(j.segment)),
+		command: trimEndRun(unmask(j.segment), BASH_SPACE),
 	});
 	if (!st.ctx.appendStanddown(line))
 		st.ctx.log(

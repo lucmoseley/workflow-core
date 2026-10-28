@@ -44,6 +44,7 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
 const { readOwnJob, stopOn } = require("./lib/claude-stop.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 const {
 	jobStatePath,
 	jobStorePath,
@@ -469,7 +470,7 @@ function heredocOf(command, call) {
 	const heredoc = command
 		.slice(Math.max(command.indexOf(call), 0))
 		.match(
-			/-m\s+"\$\(cat\s+<<(-?)\s*['"]?(\w+)['"]?\s*\n([\s\S]*?)(?:^[\t ]*\2(?=\s*\)|[\t ]*$)|$(?![\s\S]))/m,
+			/-m\s+"\$\(cat\s+<<(-?)\s*['"]?(\w+)['"]?(?:[^\S\n]*\n)+([\s\S]*?)(?:^[\t ]*\2(?=\s*\)|[\t ]*$)|$(?![\s\S]))/m,
 		);
 	if (!heredoc) return null;
 	const raw = heredoc[3] ?? "";
@@ -1103,9 +1104,10 @@ function readProcRow(root, e) {
  */
 function readProcArgv(root, e) {
 	try {
-		return fs
-			.readFileSync(path.join(root, e, "cmdline"), "utf8")
-			.replace(/\0+$/, "")
+		return trimEndRun(
+			fs.readFileSync(path.join(root, e, "cmdline"), "utf8"),
+			"\0",
+		)
 			.split("\0")
 			.join(" ");
 	} catch {

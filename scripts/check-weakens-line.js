@@ -64,7 +64,7 @@ const { CONFIG_PATH } = require("./lib/workflow-core-config.js");
 /** @typedef {{ before: string | null, after: string | null }} Sides */
 /** @typedef {{ path: string, from: string | null, deleted: boolean }} Change */
 
-const WEAKENS_LINE = /^\s*Weakens:\s*(.*)$/i;
+const WEAKENS_LINE = /^\s*Weakens:\s*(\S.*|)$/i;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const STAND_DOWN = /^WFC_[A-Z0-9_]+_OFF$/;
 

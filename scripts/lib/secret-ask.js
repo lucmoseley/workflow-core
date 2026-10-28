@@ -81,8 +81,14 @@ const ROUTE_SHAPE = "cd <dir> && node <path>/write-secret.js NAME";
  * Then: …") is not read, nor a negation that only looks like one ("why not
  * type `!`:"): the line still fails closed there, write-secret.js refusing a
  * stdin that is no terminal. */
-const BANG_AHEAD =
-	/(?<!\b(?:not|never|no|without|don't|do\s+not)(?:\s+(?:need\s+for|a|an|the))?(?:\s+(?:after|with|behind|via|use|type))?\s*)(?:`\s*!\s*`|(?:^|\s)[*_"'(]*![*_"')]*)(?:[\s:,—–+*_-]|\b(?:then|and|followed\s+by)\b)*$/i;
+const BANG_NEGATED = String.raw`\b(?:not|never|no|without|don't|do\s+not)(?:\s+(?:need\s+for|a|an|the))?(?:\s+(?:after|with|behind|via|use|type))?\s*`;
+/* Each lookbehind is read at a `!` or a backtick, never at every character,
+ * and the emphasis after the `!` stops at its last quote, so a long blank or
+ * emphasis run is read once (#3383). */
+const BANG_AHEAD = new RegExp(
+	String.raw`(?:\x60(?<!${BANG_NEGATED}\x60)\s*!\s*\x60|!(?<=(?:^|\s)[*_"'(]*!)(?<!${BANG_NEGATED}\s[*_"'(]*!)(?:[*_]*["')])*)(?:[\s:,—–+*_-]|\b(?:then|and|followed\s+by)\b)*$`,
+	"i",
+);
 
 /**
  * A code span's command lines: its delimiters, blank lines and comment lines
@@ -141,18 +147,38 @@ const VALUE = String.raw`(?:'[^'\n]*'|"[^"\n]*"|<[^<>\n]*>|[^\s<]\S*)`;
  * (#2645): a credential variable exported, set or `setx`-ed, or assigned ahead
  * of a command; and a `.env` file read into a pipe, a redirect or a copy, or
  * written by one, a `.env.example` excepted. A warning not to
- * ("never `cat .env`") reads as one too. */
+ * ("never `cat .env`") reads as one too. An option word ending in `cat`, `cp`,
+ * `mv` or `tee` hands on to the command it names, and a redirect's file word
+ * stops at a `>` no `-` or `=` precedes, a later `>` reading on from there, so
+ * no word is read once per command or `>` in it (#3383). */
 const LEAK_LINES = [
 	new RegExp(
 		String.raw`(?:^|[\s\x60;&|(!])(?:export\s+|set\s+|\$env:)${SECRET_VAR}\s*=|setx\s+${SECRET_VAR}\s|(?:^|[\x60;&|(!]\s*|&&\s*)${SECRET_VAR}=${VALUE}\s+\S`,
 		"i",
 	),
-	/\b(?:cat|cp|mv|tee)\s+(?:-\S+\s+)*\S*\.env(?!\.(?:example|sample|template|dist)\b)\b|(?:^|[\s/'"\x60])\.env(?:\.[\w-]+)?['"]?\s*(?:>{1,2}|\|(?!\|))|(?<![-=])>{1,2}\s*\S*\.env\b/,
+	/\b(?:cat|cp|mv|tee)\s+(?:-\S+(?<!\b(?:cat|cp|mv|tee))\s+)*\S*\.env(?!\.(?:example|sample|template|dist)\b)\b|(?:^|[\s/'"\x60])\.env(?:\.[\w-]+)?['"]?\s*(?:>{1,2}|\|(?!\|))|(?<![-=])>(?:>?\s+\S*|(?:[^\s.>]|\.(?!env\b)|(?<=[-=])>)*)\.env\b/,
 ];
 /* A pipe or redirect feeding write-secret.js on a line outside any code span
- * — prose, or an indented block — where `routeKinds` never looks (#2645). */
-const FED_ROUTE =
-	/\|\s*(?:node\s+)?\S*write-secret\.js\b|\bnode\s+\S*write-secret\.js\b[^\n]*?[<|]|<[^\n]*\bnode\s+\S*write-secret\.js\b/;
+ * — prose, or an indented block — where `routeKinds` never looks (#2645):
+ * piped into it, or `node … write-secret.js` with a `<` or `|` anywhere
+ * else on the line. A pipe's word stops at the next `|`, which reads on from
+ * there, and the line is searched for the route twice, never once per `<`,
+ * so a long run of either is read once (#3383). */
+const PIPED_ROUTE = /\|\s*(?:node\s+)?[^\s|]*write-secret\.js\b/;
+const NODE_ROUTE = /\bnode\s+\S*?write-secret\.js\b/;
+
+/**
+ * @param {string} line
+ * @returns {boolean}
+ */
+function feedsRoute(line) {
+	if (PIPED_ROUTE.test(line)) return true;
+	const first = NODE_ROUTE.exec(line);
+	if (!first) return false;
+	if (/[<|]/.test(line.slice(first.index + first[0].length))) return true;
+	const redirect = line.indexOf("<");
+	return redirect >= 0 && NODE_ROUTE.test(line.slice(redirect + 1));
+}
 
 /**
  * The kind of each of `text`'s code spans shaped as the route, and a
@@ -168,7 +194,7 @@ const messageKinds = (text) => [
 	...text
 		.replace(CODE_SPAN, ",")
 		.split("\n")
-		.filter((line) => FED_ROUTE.test(line))
+		.filter(feedsRoute)
 		.map(() => /** @type {const} */ ("broken")),
 	...text
 		.split("\n")

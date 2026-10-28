@@ -23,7 +23,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { EXEMPT_NAMES } from "./lib/priced-options-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
+import {
+	readStopGuardBlock,
+	readStopGuardBlockWithin,
+	type StopBlock,
+} from "./lib/stop-guard-testkit";
 import { buildBashCall, researchCalls } from "./lib/transcript-testkit";
 import { readProgramLibs } from "./lib-closure-fixture";
 
@@ -1636,6 +1640,21 @@ describe("a recommendation that contradicts its own prices", () => {
 
 	it("leaves a message with no recommendation alone", () => {
 		expect(run(transcriptWith(THREE_OPTIONS))).toBeNull();
+	});
+
+	// Were an option reference to start at any blank, each of 100,000 blanks
+	// ahead of a word would re-read the run after them, minutes in all;
+	// started only where the run starts, milliseconds (#3383, Sonar S8786).
+	// The refusal names the option read past the stretch.
+	it("reads a recommendation with a long blank stretch mid-line, promptly", () => {
+		const block = readStopGuardBlockWithin(GUARD, {
+			dir,
+			sid,
+			transcript: transcriptWith(
+				`${THREE_OPTIONS}\nMy recommendation is${" ".repeat(100_000)}the third, (C).`,
+			),
+		});
+		expect(block?.reason).toContain("#1344");
 	});
 });
 

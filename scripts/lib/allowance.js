@@ -17,7 +17,7 @@ const { hasResetPassed, readUsageCache } = require("./usage-cache.js");
 const { requiredGroup } = require("./regex-group.js");
 
 /** A usage line's share used, as a whole percent. */
-const USED_RE = /([0-9]+)% used/;
+const USED_RE = /(?<![0-9])([0-9]+)% used/;
 /** A usage line's reset time, to the end of the line. */
 const RESETS_RE = /resets (.*)$/;
 

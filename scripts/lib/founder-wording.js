@@ -55,6 +55,7 @@
  */
 
 const { isMachineWrittenPrompt } = require("./founder-typing.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {{ trackers: string[], ownMissing: boolean }} Corpus
@@ -201,11 +202,7 @@ function skillBody(file) {
 	const fences = lines.flatMap((l, i) => (l === "---" ? [i] : []));
 	const second = fences[1];
 	if (second === undefined) return "";
-	return lines
-		.slice(second + 1)
-		.join("\n")
-		.replace(/\n+$/, "")
-		.trimStart();
+	return trimEndRun(lines.slice(second + 1).join("\n"), "\n").trimStart();
 }
 
 /**

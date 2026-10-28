@@ -238,6 +238,7 @@ const {
 } = require("./lib/rule-emission");
 const { RULES_DIR, CORE_RULES } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 const { readImportedFiles } = require("./lib/pool-imports.js");
 const { renderedPayloads } = require("./lib/rendered-injection.js");
 const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
@@ -1010,9 +1011,10 @@ const RULE_TEXT_RHS = /^"\$\(rule_text ([a-z0-9-]+) 2>\/dev\/null\)"$/;
 function readRuleFragment(root, id) {
 	for (const dir of [path.join(root, RULES_DIR), CORE_RULES]) {
 		try {
-			return fs
-				.readFileSync(path.join(dir, `${id}.txt`), "utf8")
-				.replace(/\n+$/, "");
+			return trimEndRun(
+				fs.readFileSync(path.join(dir, `${id}.txt`), "utf8"),
+				"\n",
+			);
 		} catch {
 			/* Absent at this layer: the next one answers, or null does. */
 		}
@@ -1050,14 +1052,14 @@ function injectorStrings(script, fragment) {
 	const emitted = new Set();
 
 	const emitRe = /^\s*emit\s+"(.*)"\s*$/;
-	const assignRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)=(["$].*?)\s*$/;
+	const assignRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)=(["$].*)$/;
 	for (const line of script.split("\n")) {
 		const emit = line.match(emitRe);
 		if (emit) {
 			addEmitted(requiredGroup(emit, 1, emitRe), emitted);
 			continue;
 		}
-		const m = line.match(assignRe);
+		const m = line.trimEnd().match(assignRe);
 		if (!m) continue;
 		const name = requiredGroup(m, 1, assignRe);
 		const rhs = requiredGroup(m, 2, assignRe);

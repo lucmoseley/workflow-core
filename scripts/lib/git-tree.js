@@ -20,6 +20,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { caught } = require("./caught.js");
+const { trimEndRun } = require("./trim-run.js");
 const {
 	execGit,
 	gitCommonDirOrThrow,
@@ -50,7 +51,7 @@ function remembered(key, read) {
 	let outcome;
 	try {
 		const stdout = read();
-		outcome = { out: stdout.replace(/\n+$/, ""), stdout, timedOut: false };
+		outcome = { out: trimEndRun(stdout, "\n"), stdout, timedOut: false };
 	} catch (e) {
 		const err = caught(e);
 		outcome = {

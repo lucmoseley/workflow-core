@@ -19,7 +19,8 @@ const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { SELF_PLUGIN_ID } = require("./core-hooks.js");
 
-const ALWAYS_ON_RE = /Always-on:\s*~?\s*([\d,]+(?:\.\d+)?)\s*(k)?\s*tok/i;
+const ALWAYS_ON_RE =
+	/Always-on:\s*(?:~\s*)?([\d,]+(?:\.\d+)?)\s*(?:(k)\s*)?tok/i;
 
 const COST_TABLE = ".claude/plugin-context-cost.json";
 const SETTINGS = ".claude/settings.json";

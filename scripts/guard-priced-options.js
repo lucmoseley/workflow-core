@@ -1595,8 +1595,10 @@ const RECOMMENDS_IN_PROSE = /\brecommend(?:s|ation|ations|ing|ed)?\b/i;
 
 /* An option reference inside a recommendation: `(A)`, `1(A)`, `**2(B)**`. The
  * leading digits are the question number where a message puts more than one
- * question, which is how a letter is attributed to its own group. */
-const OPTION_REF = /(\d+)?\s*\*{0,2}\(([A-Z])\)/g;
+ * question, which is how a letter is attributed to its own group. A match
+ * starts only where a run of digits or blanks does, the one place a leftmost
+ * match can, so a long run is not read again from each character (#3383). */
+const OPTION_REF = /(?<!\d)(\d+)?(?<!\s)\s*\*{0,2}\(([A-Z])\)/g;
 
 const CONFIDENCE_FIGURE = /Confidence:\s*(\d{1,3})\s*%/;
 

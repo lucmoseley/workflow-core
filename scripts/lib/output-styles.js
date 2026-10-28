@@ -26,7 +26,29 @@ const BUILT_IN_STYLES = [
 	"Learning",
 ];
 
-const NAME_RE = /^---\r?\n[\s\S]*?^name:[ \t]*(.+?)[ \t]*\r?$[\s\S]*?^---/m;
+const OPEN_RE = /^---\r?\n/m;
+/* A `name:` line's value less its outer blanks; a value of blanks alone is
+ * its last blank. Each blank run is read once. */
+const NAME_LINE_RE =
+	/^name:(?:[ \t]*(?=[^ \t\n\r\u2028\u2029])|[ \t]*(?=[ \t]$))((?:[ \t]*[^ \t\n\r\u2028\u2029])+|[ \t])[ \t]*\r?$/m;
+const CLOSE_RE = /^---/m;
+
+/**
+ * The frontmatter `name:` value, or "" where there is none. Only the first
+ * `---` line can open it and only the first `name:` line after it can name
+ * it: a later one has no closing `---` where the first had none.
+ * @param {string} text
+ */
+function frontmatterName(text) {
+	const open = OPEN_RE.exec(text);
+	if (!open) return "";
+	const rest = text.slice(open.index + open[0].length);
+	const m = NAME_LINE_RE.exec(rest);
+	if (!m) return "";
+	return CLOSE_RE.test(rest.slice(m.index + m[0].length))
+		? requiredGroup(m, 1, NAME_LINE_RE)
+		: "";
+}
 
 /**
  * The style names a directory of `.md` files declares.
@@ -45,8 +67,7 @@ function readStylesIn(dir) {
 		.filter((n) => n.endsWith(".md"))
 		.map((n) => {
 			const text = fs.readFileSync(path.join(dir, n), "utf8");
-			const m = NAME_RE.exec(text);
-			const name = m ? requiredGroup(m, 1, NAME_RE) : "";
+			const name = frontmatterName(text);
 			return name.replace(/^(["'])(.*)\1$/, "$2") || n.slice(0, -3);
 		});
 }

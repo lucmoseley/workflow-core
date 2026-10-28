@@ -41,7 +41,9 @@ const CLOSING_RE = new RegExp(
 function closingMatch(text) {
 	const m = CLOSING_RE.exec(text);
 	if (!m) return null;
-	return m[0].replace(/^[^A-Za-z0-9]+/, "").replace(/[^A-Za-z0-9]+$/, "");
+	return m[0]
+		.replace(/^[^A-Za-z0-9]+/, "")
+		.replace(/(?<![^A-Za-z0-9])[^A-Za-z0-9]+$/, "");
 }
 
 /**

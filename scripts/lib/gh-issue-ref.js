@@ -7,6 +7,7 @@
  */
 
 const { isGhCommand, literal } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /* The flags each `gh issue` subcommand takes a value for, short and long
  * together, as gh 2.95.0's `gh issue <sub> --help` lists them. Leave one out
@@ -38,10 +39,10 @@ function issueWord(word, spans) {
 	const { text: raw, known } = literal(word, spans);
 	if (!known) return null;
 	/* A command substitution's capture, which gi_issue_word reads through. */
-	let text = raw.replace(/\n+$/, "").replace(/^#/, "");
+	let text = trimEndRun(raw, "\n").replace(/^#/, "");
 	let repo = "";
 	if (text.includes("/issues/")) {
-		const m = /([^/]+)\/([^/]+)\/issues\/([0-9]+)/.exec(text);
+		const m = /(?<![^/])([^/]+)\/([^/]+)\/issues\/([0-9]+)/.exec(text);
 		if (!m) return null;
 		repo = `${m[1]}/${m[2]}`;
 		text = m[3] ?? "";
@@ -55,7 +56,7 @@ function issueWord(word, spans) {
  * @param {string} text
  */
 function repoOf(text) {
-	const m = /([^/:]+)\/([^/]+)$/.exec(text.replace(/\.git$/, ""));
+	const m = /(?<![^/:])([^/:]+)\/([^/]+)$/.exec(text.replace(/\.git$/, ""));
 	return m ? `${m[1]}/${m[2]}` : "";
 }
 

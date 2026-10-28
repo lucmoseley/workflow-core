@@ -52,7 +52,7 @@ const PROJECT = ".claude/settings.json";
  * (`mcp__srv__tool`, `mcp__srv__*`), then an optional non-blank specifier
  * running to the rule's last character. Parentheses inside it are not paired:
  * `Bash(echo ")")` is one specifier to the harness. */
-const RULE = /^[A-Za-z][A-Za-z0-9_*-]*(\([^\n]*\S[^\n]*\))?$/;
+const RULE = /^[A-Za-z][A-Za-z0-9_*-]*(\([^\S\n]*\S[^\n]*\))?$/;
 
 const USAGE = `usage: grant-permission.js '<rule>' [--project]
   <rule>     a tool name, optionally with a parenthesised specifier: 'Bash(git status *)'

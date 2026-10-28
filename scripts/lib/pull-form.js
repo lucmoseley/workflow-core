@@ -138,6 +138,7 @@ const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { normAbs, parseCommand, walkGit } = require("./shell-parse.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} PullFormPorts
@@ -413,7 +414,9 @@ function resetLands(j, tree, commit, ddash) {
  * @returns {boolean}
  */
 function isAncestorStep(j, tree, word) {
-	const stem = word.replace(/(?:[~^]\d*)+$/, "");
+	const bare = trimEndRun(word, "~^0123456789");
+	const step = word.slice(bare.length).search(/[~^]/);
+	const stem = step < 0 ? word : word.slice(0, bare.length + step);
 	if (stem === word || stem === "") return false;
 	return isHead(stem) || j.ctx.isCommit(tree, stem);
 }

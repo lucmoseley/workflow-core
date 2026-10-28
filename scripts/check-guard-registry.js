@@ -1595,16 +1595,12 @@ function gist(text) {
 
 // --- staleness anchors ------------------------------------------------------
 
-/*
- * A guard's dependencies, as paths relative to `root`: a shell guard's `source`
- * lines and a JS guard's relative `require`s.
- *
- * Only lib/ is followed, in both languages. A guard pulls in its shared library
- * and nothing else here, and widening this to arbitrary paths would start
- * resolving `$PATH` lookups and command substitutions that no regex can settle.
- */
-const SOURCE_RE =
-	/^[^#\n]*?(?:^|\s)(?:source|\.)\s+[^\n]*?(lib\/[\w.-]+\.sh)/gm;
+const {
+	parseNodeRuns,
+	parseNodeVars,
+	parseSourcedLibs,
+} = require("./lib/line-scan.js");
+
 /*
  * The third spelling (mantahostels#358): a shell guard that reaches its logic by RUNNING a
  * node program rather than sourcing it, shelling out for every decision the
@@ -1626,37 +1622,38 @@ const SOURCE_RE =
  * FAN-OUT: one edit to a shared lib warns on every registry entry reaching it,
  * by require or by running the CLI (mantahostels#358).
  */
-const NODE_RUN_RE =
-	/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$[^\n]*?\/([\w-][\w./-]*\.js)/gm;
 /*
  * The fourth spelling (#2487): the program's path assigned to a variable the
  * guard then runs, `lib="$here/lib/x.js"` and then `node "$lib"`. The
- * assignment must be self-relative as NODE_RUN_RE's path is, and only a
+ * assignment must be self-relative as parseNodeRuns' path is, and only a
  * variable that `node` actually runs is followed, so a path assigned for some
  * other use stays out of the digest. A name assigned twice follows both paths,
  * as .husky/post-commit's `script` names two programs.
  */
 const VAR_PATH_RE =
 	/^[ \t]*(?:local\s+|readonly\s+)?(\w+)="?\$[^\n]*?\/([\w-][\w./-]*\.js)"?[ \t]*(?:#[^\n]*)?$/gm;
-const NODE_VAR_RE =
-	/^([^#\n]*?)(?:^|[\s(|;&])node\s+"?\$\{?(\w+)\}?(?=["\s;|)]|$)/gm;
 
 /**
+ * A guard's dependencies, as paths relative to `root`: a shell guard's `source`
+ * lines and a JS guard's relative `require`s.
+ *
+ * Only lib/ is followed, in both languages. A guard pulls in its shared library
+ * and nothing else here, and widening this to arbitrary paths would start
+ * resolving `$PATH` lookups and command substitutions that no regex can settle.
  * @param {string} rel
  * @param {string} text
  * @param {string} [base] the tree run targets and the dispatch manifest resolve in
  */
 function sourcedBy(rel, text, base = root) {
 	const dir = path.dirname(rel);
-	const shell = [...text.matchAll(SOURCE_RE)].map((m) =>
-		path.join(dir, requiredGroup(m, 1, SOURCE_RE)),
-	);
+	const shell = parseSourcedLibs(text).map((lib) => path.join(dir, lib));
 	// Resolve first, then keep only lib/: `session-arbiter.js` reaches its store
 	// as `./lib/arbiter-store.js` but the store reaches the proc leaf as
 	// `./arbiter-proc.js`, already inside lib/, so the specifier alone cannot say.
 	const js = [...text.matchAll(REQUIRE_RE)]
 		// A commented-out require is not a dependency. Only `//` is honoured, as
-		// SOURCE_RE honours only `#`: a require inside a block comment still counts.
+		// parseSourcedLibs honours only `#`: a require inside a block comment
+		// still counts.
 		// The prefix is sliced back to the line start rather than captured by the
 		// pattern, because anchoring at `^` let only the first require on a line
 		// match — a second one on the same line dropped out of the digest silently.
@@ -1670,14 +1667,11 @@ function sourcedBy(rel, text, base = root) {
 		.filter((p) => p.startsWith(`scripts${path.sep}lib${path.sep}`));
 	// A delegated program is a sibling under scripts/, not under lib/.
 	// `//` is honoured here as well as `#`, because sourcedBy runs over JS
-	// guards too. The prefix is captured rather than sliced off m.index as
-	// REQUIRE_RE's is: these patterns are anchored at `^`, so the text before the
-	// match is always empty and the test would pass on everything.
-	/** @param {RegExp} re */
-	const live = (re) =>
-		[...text.matchAll(re)].filter(
-			(m) => !requiredGroup(m, 1, re).includes("//"),
-		);
+	// guards too. The prefix comes back with each match rather than sliced off
+	// m.index as REQUIRE_RE's is: these matches open at a line start, so the text
+	// before one is always empty and the test would pass on everything.
+	/** @param {{prefix: string, value: string}[]} matches */
+	const live = (matches) => matches.filter((m) => !m.prefix.includes("//"));
 	/** @type {Map<string, string[]>} */
 	const assigned = new Map();
 	for (const m of text.matchAll(VAR_PATH_RE)) {
@@ -1688,10 +1682,8 @@ function sourcedBy(rel, text, base = root) {
 		]);
 	}
 	const tails = [
-		...live(NODE_RUN_RE).map((m) => requiredGroup(m, 2, NODE_RUN_RE)),
-		...live(NODE_VAR_RE).flatMap(
-			(m) => assigned.get(requiredGroup(m, 2, NODE_VAR_RE)) ?? [],
-		),
+		...live(parseNodeRuns(text)).map((m) => m.value),
+		...live(parseNodeVars(text)).flatMap((m) => assigned.get(m.value) ?? []),
 	];
 	const run = tails.map((tail) => resolveRun(base, dir, tail)).filter(keptRun);
 	/* The dispatcher's kit loads its cores by manifest path, which no require
@@ -2270,9 +2262,10 @@ const REPRINT_COVERAGE = 0.6;
 
 /* `# deny-timing: delayed — <why>`, in either comment spelling. Only the
  * delayed verdict is spellable: first-trigger is the default, so a guard
- * declaring it would be declaring the absence of a declaration. */
+ * declaring it would be declaring the absence of a declaration. Leading
+ * blanks stop at a line break, where `^` re-anchors anyway (#3383). */
 const DENY_TIMING_RE =
-	/^[^\S\n]*(?:#|\/\/)[^\S\n]*deny-timing:[^\S\n]*delayed\b/m;
+	/^[^\S\n\r\u2028\u2029]*(?:#|\/\/)[^\S\n]*deny-timing:[^\S\n]*delayed\b/m;
 
 /* The house spelling for a deny message: a quoted heredoc read into a variable,
  * handed to gp_deny. The `$(cat <<…)` form is accepted too; a warn message is
@@ -2382,12 +2375,37 @@ function parseHeredocBody(lines, delim) {
  */
 /** @param {string} text */
 function normaliseProse(text) {
-	return text
-		.replace(/`[^`]*`/g, " ")
-		.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
+	return linkLabels(text.replace(/`[^`]*`/g, " "))
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, " ")
 		.trim();
+}
+
+/**
+ * `text` with each Markdown link `[label](target)` cut to its label, as
+ * `/\[([^\]]*)\]\([^)]*\)/g` with `$1` would, in one pass: as that regex,
+ * every `[` is a fresh start that rescans to the next `]`, quadratic on a run
+ * of them (#3383).
+ * @param {string} text
+ */
+function linkLabels(text) {
+	let out = "";
+	let from = 0;
+	let open = text.indexOf("[");
+	while (open >= 0) {
+		const close = text.indexOf("]", open + 1);
+		if (close < 0) break;
+		if (text[close + 1] !== "(") {
+			open = text.indexOf("[", close + 1);
+			continue;
+		}
+		const end = text.indexOf(")", close + 2);
+		if (end < 0) break;
+		out += text.slice(from, open) + text.slice(open + 1, close);
+		from = end + 1;
+		open = text.indexOf("[", from);
+	}
+	return out + text.slice(from);
 }
 
 /* One rule is many candidate spans: its own sentence, and each sub-bullet's.

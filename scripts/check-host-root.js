@@ -81,6 +81,7 @@ const { isUnder } = require("./lib/is-under.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { hostRoot } = require("./lib/host-root.js");
 const { JS_TEST_FILE } = require("./lib/test-kind.js");
+const { segmentTailMatches } = require("./lib/line-scan.js");
 
 const CWD_SUITE_CHECKER = {
 	tags: ["SECOND-SEAM-JS"],
@@ -260,9 +261,12 @@ const hostCoreJoin = (root) =>
 const hostCoreTemplate = (/** @type {string} */ root) =>
 	new RegExp(String.raw`\$\{\s*${root}\s*\}/(?:scripts|\.husky)/`, "g");
 
-/** An identifier assigned from an expression calling `hostRoot()`. */
-const JS_ROOT_VAR =
-	/(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*[^;\n]*\bhostRoot\(\)/g;
+/** An identifier assigned from an expression calling `hostRoot()`: the
+ * assignment, then the rest of its statement's line naming the call. Only the
+ * head's first reading can reach the call: a shorter `(?:\s*\n)?` leaves the
+ * call's search on a line of blanks. */
+const JS_ROOT_VAR = /(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=(?:\s*\n)?/g;
+const JS_ROOT_CALL = /[^;\n]*\bhostRoot\(\)/y;
 
 /** A constant naming a core path: `"scripts/…"` or `path.join("scripts", …)`. */
 const JS_CORE_CONST = new RegExp(
@@ -516,8 +520,8 @@ function judgeHostRootedCore(ctx, rel, text, importable) {
 	const roots = [
 		"hostRoot\\(\\)",
 		...new Set(
-			[...text.matchAll(JS_ROOT_VAR)].map((m) =>
-				escapeRe(requiredGroup(m, 1, JS_ROOT_VAR)),
+			segmentTailMatches(text, JS_ROOT_VAR, JS_ROOT_CALL, ";\n").map((m) =>
+				escapeRe(requiredGroup(m.head, 1, JS_ROOT_VAR)),
 			),
 		),
 	];

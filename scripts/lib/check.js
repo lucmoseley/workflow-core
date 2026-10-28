@@ -1639,7 +1639,7 @@ const exitFor = (ctx, outcome) => (ctx.notify ? 0 : OUTCOMES[outcome].exit);
 /** @type {(s: unknown) => string} */
 const toOneLine = (s) =>
 	String(s)
-		.replace(/\s*\n\s*/g, " ")
+		.replace(/\s+/g, (run) => (run.includes("\n") ? " " : run))
 		.trim();
 
 /**

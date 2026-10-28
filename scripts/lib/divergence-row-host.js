@@ -23,10 +23,8 @@ const fs = require("node:fs");
  */
 const git = (args) => {
 	const { gitOrNull, HOOK_GIT_TIMEOUT_MS } = require("./git.js");
-	return (
-		gitOrNull(args, { timeout: HOOK_GIT_TIMEOUT_MS })?.replace(/\n+$/, "") ??
-		null
-	);
+	const out = gitOrNull(args, { timeout: HOOK_GIT_TIMEOUT_MS });
+	return out === null ? null : require("./trim-run.js").trimEndRun(out, "\n");
 };
 
 /**

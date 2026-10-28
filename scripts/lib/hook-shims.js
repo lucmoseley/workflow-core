@@ -29,6 +29,8 @@
  * (`keep-hook-shims.js` wires the production ones).
  */
 
+const { trimEndRun } = require("./trim-run.js");
+
 const MARK = "wfc hook shim (#2879)";
 const EXCLUDE_BEGIN = `# ${MARK}: managed by scripts/keep-hook-shims.js`;
 const EXCLUDE_END = `# end ${MARK}`;
@@ -119,7 +121,7 @@ function withExcludes(exclude, paths) {
 		begin !== -1 && end !== -1
 			? [...lines.slice(0, begin), ...lines.slice(end + 1)]
 			: lines;
-	const body = kept.join("\n").replace(/\n+$/, "");
+	const body = trimEndRun(kept.join("\n"), "\n");
 	const head = body === "" ? "" : `${body}\n`;
 	if (paths.length === 0) return head;
 	const block = [

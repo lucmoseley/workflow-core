@@ -116,7 +116,7 @@ function interpreterArgs(words, shell) {
 	let i = 0;
 	for (; i < words.length; i++) {
 		const w = /** @type {string} */ (words[i]);
-		if (shell && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(w))
+		if (shell && /^-[a-bd-zA-Z]*c[a-zA-Z]*$/.test(w))
 			return { inline: words[i + 1] ?? "" };
 		if (w === "--") return { opts, operands: words.slice(i + 1) };
 		if (!/^[-+]/.test(w)) break;

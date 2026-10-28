@@ -59,6 +59,7 @@
 
 const { parseCommand, unmask } = require("./shell-parse.js");
 const { literal, unwrap } = require("./shell-words.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /* bash arithmetic's constants: the BigInt literal outruns the ES2018 target
  * the type-check holds scripts/ to. */
@@ -175,7 +176,7 @@ const WS = "[ \\t\\n\\v\\f\\r]*";
  */
 function lit(word, spans) {
 	const { text, known } = literal(word, spans);
-	return { text: text.replace(/\n+$/, ""), known };
+	return { text: trimEndRun(text, "\n"), known };
 }
 
 /** @param {string} w */
@@ -393,7 +394,7 @@ function scanScript(word, spans, depth, scan) {
 	if (text === null) return null;
 	/* As `$(<file)` reads it: no NUL, no trailing newline. */
 	return scanText(
-		text.replaceAll("\0", "").replace(/\n+$/, ""),
+		trimEndRun(text.replaceAll("\0", ""), "\n"),
 		depth,
 		shown,
 		scan,

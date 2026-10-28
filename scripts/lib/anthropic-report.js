@@ -30,6 +30,7 @@ const { parseCommand } = require("./shell-parse.js");
 const { ghWords, literal, unwrap } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} ReportPorts
@@ -111,7 +112,7 @@ function refuseRepo(run, segment, repo) {
  */
 function captured(run, word) {
 	const { text, known } = literal(word, run.parsed.spans);
-	return known ? text.replace(/\n+$/, "") : null;
+	return known ? trimEndRun(text, "\n") : null;
 }
 
 /**
@@ -345,7 +346,7 @@ function judgeGraphql(run, cmd, args, call) {
 	const mutation = query.includes("mutation");
 	if (!mutation && !hidden) return;
 	const text = args
-		.map((w) => ` ${literal(w, run.parsed.spans).text.replace(/\n+$/, "")}`)
+		.map((w) => ` ${trimEndRun(literal(w, run.parsed.spans).text, "\n")}`)
 		.join("");
 	const m = NAMES_ANTHROPICS_RE.exec(text.toLowerCase());
 	if (!m) return;

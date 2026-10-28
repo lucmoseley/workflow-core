@@ -46,7 +46,7 @@ const { isSubagentTranscript, mainChainRecords } = require("./lib/transcript");
 
 /** How the harness opens every classifier refusal (#860). */
 const DENIAL =
-	/^\s*(?:Error:\s*)?Permission for this action was denied by the Claude Code auto mode classifier\.(?:\s*Reason:\s*([^.]*)\.)?/;
+	/^\s*(?:Error:\s*)?Permission for this action was denied by the Claude Code auto mode classifier\.(?:\s*Reason:\s*([^\s.][^.]*|)\.)?/;
 
 /** The paragraph of `rule:founder-handover` this guard prints. */
 const PARAGRAPH_HEAD = "AN AUTO-MODE REFUSAL";

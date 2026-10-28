@@ -39,7 +39,6 @@ const {
 	parseGhFailureReason,
 	raiseGhFailure,
 } = require("./lib/gh");
-const { requiredGroup } = require("./lib/regex-group");
 const { takesLabel } = require("./lib/takes-label");
 
 // GitHub refuses a 101st sub-issue (docs/agents/issue-tracker.md, "Placing a
@@ -51,7 +50,24 @@ const NEAR_CAP = 90;
 // under one of these that its command never picks up is never reported.
 const ROUTED_LABELS = ["to-spec", "wayfinder", "triage"].map(takesLabel);
 
-const SECTION_HEAD_RE = /^##\s+(.+?)\s*$/;
+/* A line break, which no section name holds. */
+const LINE_BREAK = /[\n\r\u2028\u2029]/;
+
+/**
+ * The lowercased name a `## ` heading gives its section, or null where `line`
+ * is no such heading: the text after `##` and a blank, less its outer blanks.
+ * A name holding a line break is none, and a heading of blanks alone names ""
+ * only where a blank other than a line break follows its first.
+ * @param {string} line
+ */
+function sectionHeadName(line) {
+	if (!/^##\s/.test(line)) return null;
+	const rest = line.slice("## ".length);
+	const name = rest.trim();
+	if (LINE_BREAK.test(name)) return null;
+	if (name === "" && !/[^\n\r\u2028\u2029]/.test(rest)) return null;
+	return name.toLowerCase();
+}
 
 /** @typedef {{ number: number, title?: string, html_url?: string, body?: string, pull_request?: object, state?: string, labels?: { name?: string }[] }} GhIssue */
 
@@ -73,10 +89,10 @@ function sections(body) {
 	/** @type {string[]} */
 	let buf = [];
 	for (const line of lines) {
-		const m = SECTION_HEAD_RE.exec(line);
-		if (m) {
+		const head = sectionHeadName(line);
+		if (head !== null) {
 			if (name !== null) out.set(name, buf.join("\n"));
-			name = requiredGroup(m, 1, SECTION_HEAD_RE).trim().toLowerCase();
+			name = head;
 			buf = [];
 		} else if (name !== null) {
 			buf.push(line);

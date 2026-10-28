@@ -112,9 +112,10 @@ const CAP_SLOTS = limbOf(CLOSE_RIVALS_PREFIX).cap;
  * of the family, outside "really no", turns checks down ("No more checks or
  * research — go with A"). Lexical, so a decline worded otherwise ("I do not
  * want any more checks or research") still matches and a request opening "are
- * there no more…" does not. */
+ * there no more…" does not. The lookahead first, so the lookbehind is read at
+ * the family's first word alone, never at every character of a long run (#3383). */
 const STOCK_PROMPT =
-	/(?<!(?<!\b(?:really|truly)\W+)\bno\W+)\b(?:further|more|any|(?:really|truly)\W+no)\W+(?:checks?\W+(?:and|or)\W+research|research\W+(?:and|or)\W+checks?)\b/i;
+	/\b(?=further|more|any|really|truly)(?<!(?<!\b(?:really|truly)\W+)\bno\W+)(?:further|more|any|(?:really|truly)\W+no)\W+(?:checks?\W+(?:and|or)\W+research|research\W+(?:and|or)\W+checks?)\b/i;
 
 const BASELINE = "docs/data/close-rounds-2026-10-09/answered-close-rounds.json";
 

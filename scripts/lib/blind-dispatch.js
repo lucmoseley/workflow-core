@@ -44,6 +44,7 @@
 
 const { readCommit } = require("./commit-sha.js");
 const { textOf } = require("./guard-entry.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * How many subjects or status entries a refusal prints before counting the
@@ -71,7 +72,7 @@ const field = "prompt";
 const noun = "agent dispatch";
 
 /** A command's output as `$(…)` keeps it: trailing newlines dropped. @param {string} s */
-const chomp = (s) => s.replace(/\n+$/, "");
+const chomp = (s) => trimEndRun(s, "\n");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext} Ctx

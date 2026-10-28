@@ -59,8 +59,7 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
  * read for its module alone.
  */
 const PY_IMPORT = /^[ \t]*import[ \t]+([\w.][\w., \t]*)/gm;
-const PY_FROM =
-	/^[ \t]*from[ \t]+(\.*[\w.]*)[ \t]+import[ \t]+\(?([\w, \t]*)/gm;
+const PY_FROM = /^[ \t]*from[ \t]+([\w.]*)[ \t]+import[ \t]+\(?([\w, \t]*)/gm;
 
 /**
  * The modules `source` imports, as written: dotted, relative ones led by

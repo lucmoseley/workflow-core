@@ -66,8 +66,9 @@ const {
 } = require("./gh-api-call.js");
 const { deny, open, walkVerdict } = require("./guard-verdict.js");
 const { ISSUE_VALUE_FLAGS } = require("./gh-issue-ref.js");
-const { parseCommand } = require("./shell-parse.js");
+const { BASH_SPACE, parseCommand } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
+const { trimRun } = require("./trim-run.js");
 const {
 	commandName,
 	isGhCommand,
@@ -307,9 +308,7 @@ function cardOf(title) {
 		if (at >= 0) break;
 	}
 	if (at < 0) return null;
-	const prefix = title
-		.slice(0, at)
-		.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, "");
+	const prefix = trimRun(title.slice(0, at), BASH_SPACE);
 	return CARD_ID.test(prefix) ? prefix : null;
 }
 

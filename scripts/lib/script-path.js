@@ -27,6 +27,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { trimEndRun } = require("./trim-run.js");
 
 /** @returns {string} absolute path of the core root the running code sits in */
 function coreRoot() {
@@ -129,7 +130,7 @@ const CORE_PATH = /(?<![\w./$}-])(?:\.\/)?(scripts|docs)\/([\w*.-][\w*./-]*)/g;
 function resolveScriptPaths(text) {
 	if (inCheckout()) return text;
 	return text.replace(CORE_PATH, (whole, dir, rest) => {
-		const name = rest.replace(/\.+$/, "");
+		const name = trimEndRun(rest, ".");
 		const file = `${coreRoot()}/${dir}/${name}`;
 		if (!name || !fs.existsSync(file)) return whole;
 		return shellWord(file) + rest.slice(name.length);

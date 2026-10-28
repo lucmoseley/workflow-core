@@ -44,7 +44,7 @@ const PYTEST_CONFIGS = [
 ];
 
 const INI_HEAD = /^\[(.+)\]\s*$/;
-const INI_KEY = /^([\w-]+)\s*[=:]\s*(.*)$/;
+const INI_KEY = /^([\w-]+)\s*[=:]\s*(\S.*|)$/;
 
 /**
  * `section`'s keys in ini `text`, each value split on whitespace; null where

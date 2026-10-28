@@ -90,6 +90,7 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 
@@ -641,7 +642,7 @@ function inject(pass, report, r, { held, stamps }) {
 	pass.blocks.push(
 		`▸ ${r.name} — ${humanAge(r.age)}` +
 			`${held ? ` (${held}: a session start would not be shown this)` : ""}\n` +
-			report.text.replace(/\n+$/, ""),
+			trimEndRun(report.text, "\n"),
 	);
 	/* The producer carried its once-only signature(s) rather than applying
 	 * them, so this — the delivery — is where they are spent (mantahostels#1975, mantahostels#2277). */

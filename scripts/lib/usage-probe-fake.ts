@@ -50,7 +50,7 @@ const PREFIX: Record<Kind, string> = {
 	weekly_all: "Current week (all models):",
 };
 
-const USED = /[0-9]+% used/;
+const USED = /(?<![0-9])[0-9]+% used/;
 
 /** The recorded line of `kind`'s bar, reading `percent`. */
 function printedLine(kind: Kind, percent: Percent): string {

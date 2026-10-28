@@ -57,6 +57,12 @@ Researched: 2026-10-22
 - Adopters of a per-user location outside any project: `gh` keeps its config at `$XDG_CONFIG_HOME/gh`, else `$HOME/.config/gh` (cli.github.com/manual/gh_help_environment); the AWS CLI keeps credentials in `~/.aws/credentials` (docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html). [unverified]
 - Thus: a CLI's stored secret lives in a per-user file under `$XDG_CONFIG_HOME/<tool>/`, owner-only, never in a working tree. A gitignored `.env` in the repo root keeps it out of commits but not out of reach of a stray write.
 
+## Regexes that backtrack
+
+- OWASP: a regex is "evil" when it holds a repeated group whose inside repeats again or has alternatives that overlap, such as `(a+)+$` or `(a|aa)+$`. An input that almost matches can then "hang the system". owasp.org/www-community/attacks/Regular_expression_Denial_of_Service_-_ReDoS [standard or field body]
+- Stack Overflow, 20 July 2016: `^[\s\u200c]+|[\s\u200c]+$` took the site down on one post with 20,000 spaces that were not at the end. The engine restarts `\s+$` at each space of the run, so the work is quadratic. stackstatus.net/post/147710624694 [named expert]
+- Thus, on input the script did not write (issue bodies, `gh` output, a transcript): cut a trailing run with `trimEnd()` or a one-pass loop, not with `/x+$/`. Give a quantifier alternatives that cannot both match one character. In a hook, test for a hang with a process timeout, because a regex match blocks and nothing in the same process can stop it. Derived from the two rows above, so it sets no default [unverified]
+
 ## Testing CLI scripts
 
 - Keep the entry guard small so a test can import the script. Python: "If a module like this was imported ... for example to unit test it, the script code would unintentionally execute"; put "as few statements as possible" under `if __name__ == '__main__'`, and write `sys.exit(main())` with `main()` that returns an int. docs.python.org/3/library/__main__.html [standard or field body]

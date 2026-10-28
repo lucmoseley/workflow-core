@@ -164,6 +164,7 @@ const {
 const { testGate } = require("./lib/test-gate.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
+const { trimEndRun } = require("./lib/trim-run.js");
 
 const NAME = "commit-paths";
 const USAGE = `usage: node scripts/${NAME}.js (-m <message> | -F <file|->) -- <path>...
@@ -1247,9 +1248,12 @@ function readPatched(root, patch) {
 function refuseWholeInPatch(whole, patched) {
 	const prefix = git(["rev-parse", "--show-prefix"]).stdout.trim();
 	for (const p of whole) {
-		const rel = path.posix
-			.normalize(prefix + path.relative(process.cwd(), path.resolve(p)))
-			.replace(/\/+$/, "");
+		const rel = trimEndRun(
+			path.posix.normalize(
+				prefix + path.relative(process.cwd(), path.resolve(p)),
+			),
+			"/",
+		);
 		const hit = patched.find((q) => rel === "." || isUnder(q, [rel]));
 		if (hit)
 			fail(

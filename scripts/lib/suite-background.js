@@ -124,9 +124,15 @@
  */
 
 const { QUOTED, carriesVar, literal, unwrap } = require("./shell-words.js");
-const { asWritten, parseCommand, walkCommands } = require("./shell-parse.js");
+const {
+	BASH_SPACE,
+	asWritten,
+	parseCommand,
+	walkCommands,
+} = require("./shell-parse.js");
 const { afterSlash, suiteLaunchKind } = require("./suite-launch.js");
 const { launchTestFileCount } = require("./suite-bounded.js");
+const { endRun, trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext &
@@ -190,13 +196,15 @@ function stripDetachment(text) {
 		(t, op, i) => t.split(op).join(String.fromCharCode(2 + i)),
 		text,
 	);
-	s = s
-		.split("\n")
-		.map((line) =>
-			DETACH_REWRITES.reduce((l, [re, to]) => l.replace(re, to), line),
-		)
-		.join("\n")
-		.replace(/\n+$/, "");
+	s = trimEndRun(
+		s
+			.split("\n")
+			.map((line) =>
+				DETACH_REWRITES.reduce((l, [re, to]) => l.replace(re, to), line),
+			)
+			.join("\n"),
+		"\n",
+	);
 	s = NOT_DETACHING.reduce(
 		(t, op, i) => t.split(String.fromCharCode(2 + i)).join(op),
 		s,
@@ -240,7 +248,7 @@ function putBackHeredocs(s, kept) {
 			out =
 				out.slice(0, at) + (kept.get(n) ?? "") + out.slice(at + held(n).length);
 	}
-	return out.replace(/\n+$/, "");
+	return trimEndRun(out, "\n");
 }
 
 /** The flags of `timeout` that take the next word. */
@@ -264,7 +272,7 @@ function stripTimeout(seg, commandWord) {
 	if (nwrap < 0) return null;
 	const kept = keptWrappers(segWords.slice(0, nwrap));
 	const lead = /^[ \t\n\v\f\r]*/.exec(seg)?.[0] ?? "";
-	const trail = /[ \t\n\v\f\r]*$/.exec(seg)?.[0] ?? "";
+	const trail = endRun(seg, BASH_SPACE);
 	return lead + [...kept, ...segWords.slice(nwrap)].join(" ") + trail;
 }
 

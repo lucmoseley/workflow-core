@@ -117,6 +117,7 @@ const { isGhCommand, literal, scanFlags } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
 const { repoSlug } = require("./workflow-core-config.js");
 const { ENTRY_BUDGET_MS } = require("./hook-deadline.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {{ refusal: string } | { outOfBudget: true }} RefusalRead
@@ -554,10 +555,12 @@ function judgeCriteria(run, close) {
 	const body = field(issue.data?.body);
 	if (!CRITERIA_HEADING_RE.test(body.toLowerCase())) return true;
 	const { unmetCriteria } = require("./ticket-criteria.js");
-	const unmet = unmetCriteria(body)
-		.map((i) => i.text)
-		.join("\n")
-		.replace(/\n+$/, "");
+	const unmet = trimEndRun(
+		unmetCriteria(body)
+			.map((i) => i.text)
+			.join("\n"),
+		"\n",
+	);
 	if (!unmet) return true;
 	deny(
 		run.ctx,
@@ -640,7 +643,7 @@ function judgeOutstanding(run, close) {
 		`This close does not say what is still outstanding in the form this guard reads: @CMD@
 
 Read: ${from}.
-${buildRefusalText(verdict).replace(/\n+$/, "")}
+${trimEndRun(buildRefusalText(verdict), "\n")}
 
 ${ruleOrFallback(run.ctx, "close-outstanding", "Every close says what is still outstanding, on a line beginning **Outstanding:**")}
 
