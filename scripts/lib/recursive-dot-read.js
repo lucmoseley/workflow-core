@@ -158,7 +158,6 @@ const RG_VALUE_FLAGS =
 
 const RECURSIVE_FLAGS = ["-r", "-R", "--recursive", "--dereference-recursive"];
 const PATTERN_FLAGS = ["-e", "--regexp", "-f", "--file"];
-const WATCH_VALUE_FLAGS = ["-n", "--interval", "-q", "--equexit"];
 
 /** bash's [[:space:]], each end. */
 const TRIM = /^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g;
@@ -439,37 +438,6 @@ function judgeFind(scene, words, cwd) {
 }
 
 /**
- * `watch` runs its command through `sh -c`, so a single word is split back
- * into the command it holds: its first line, on blanks.
- * @param {Scene} scene accumulator: its `judgement` is advanced here
- * @param {string} segment
- * @param {string[]} words the words after `watch`
- * @param {string} cwd
- */
-function judgeWatch(scene, segment, words, cwd) {
-	let i = 0;
-	for (; i < words.length; i++) {
-		const lit = literal(words[i] ?? "", scene.spans).text;
-		if (WATCH_VALUE_FLAGS.includes(lit)) i++;
-		else if (lit === "--") {
-			i++;
-			break;
-		} else if (!lit.startsWith("-")) break;
-	}
-	const rest = words.slice(i);
-	if (rest.length === 0) return;
-	scene.judgement.inWatch = true;
-	const inner =
-		rest.length === 1
-			? (literal(rest[0] ?? "", scene.spans).text.split("\n")[0] ?? "")
-					.split(/[ \t]+/)
-					.filter(Boolean)
-			: rest;
-	judge(scene, segment, inner, cwd);
-	scene.judgement.inWatch = false;
-}
-
-/**
  * @typedef {{ grepLike: boolean, recursive: boolean, spec: string,
  *   inert: string[] }} SearchKind a searching command's grammar
  */
@@ -512,16 +480,15 @@ const isRootSpelling = (w, root) =>
  * @param {string} cwd where it runs
  */
 function judge(scene, segment, words, cwd) {
-	const w = unwrap(words, scene.spans).words;
+	const { words: w, watched } = unwrap(words, scene.spans);
 	const [head, ...args] = w;
 	if (head === undefined) return;
+	scene.judgement.inWatch = watched;
 	const kind = SEARCHES.get(head);
 	if (kind) judgeSearch(scene, { segment, words, cwd, head, kind, args });
 	else if (head === "cd" || head === "pushd" || head === "popd")
 		scene.judgement.moved = true;
 	else if (head === "find") judgeFind(scene, args, cwd);
-	else if (head === "watch" && !scene.judgement.inWatch)
-		judgeWatch(scene, segment, args, cwd);
 }
 
 /**

@@ -230,6 +230,8 @@ describe("qualifying calls", () => {
 			"gh issue list --state=all --search=x",
 		],
 		["a search after cd &&", "rulings", 'cd /x && gh search issues "y" | head'],
+		["a search behind timeout", "rulings", "timeout 30 gh search issues x"],
+		["a search behind watch", "rulings", "watch -n 2 gh search issues x"],
 		[
 			"a search inside $(…)",
 			"rulings",

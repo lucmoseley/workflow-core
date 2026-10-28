@@ -82,6 +82,12 @@ describe("ghWords (#772)", () => {
 		["gh -R o/r pr create", "[pr][create]"],
 		["gh --repo o/r workflow run ci.yml", "[workflow][run][ci.yml]"],
 		["timeout 60 gh workflow run ci.yml", "[workflow][run][ci.yml]"],
+		["timeout -s KILL 5 gh api /x", "[api][/x]"],
+		["watch -n 2 gh run list", "[run][list]"],
+		// watch's -C is --no-color: it takes no value (#3376).
+		["watch -C -d gh run list", "[run][list]"],
+		// watch runs one word through `sh -c`, so it is split back (#3376).
+		["watch -n 2 -- 'gh run list'", "[run][list]"],
 		["env A=1 nohup gh api /x", "[api][/x]"],
 		// An expansion in a flag leaves literal unknown; it is still a flag.
 		["gh --repo=$R workflow run ci.yml", "[workflow][run][ci.yml]"],
@@ -204,7 +210,11 @@ describe("carriesVar (#1499)", () => {
 	it("leaves unwrap's answer over the words it was handed", () => {
 		expect(
 			one("env FOO=1 nohup npm test", (c, spans) => unwrap(c.words, spans)),
-		).toEqual({ words: ["npm", "test"], wrapperWords: ["FOO=1"] });
+		).toEqual({
+			words: ["npm", "test"],
+			wrapperWords: ["FOO=1"],
+			watched: false,
+		});
 	});
 });
 
@@ -245,6 +255,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip("nohup FOO=1 npm test")).toEqual({
 			words: ["FOO=1", "npm", "test"],
 			wrapperWords: [],
+			watched: false,
 		});
 	});
 
@@ -252,6 +263,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip("env A=/x/y FOO=1 npm test")).toEqual({
 			words: ["npm", "test"],
 			wrapperWords: ["A=/x/y", "FOO=1"],
+			watched: false,
 		});
 	});
 
@@ -273,6 +285,7 @@ describe("unwrap (mantahostels#2511, mantahostels#2524, mantahostels#2552)", () 
 		expect(strip(`env -S 'FOO=1 npm run test'`)).toEqual({
 			words: ["npm", "run", "test"],
 			wrapperWords: ["FOO=1"],
+			watched: false,
 		});
 	});
 

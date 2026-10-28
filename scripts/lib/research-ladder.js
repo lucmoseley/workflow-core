@@ -14,8 +14,8 @@
  * Commands are read through shell-parse.js, a `$(…)` quoted or not,
  * backticks and each side of `&&` included. RESIDUALS: a `gh` call inside
  * `bash -c`, `eval`, a script or an alias, or behind a wrapper shell-words.js's
- * unwrap does not strip (`timeout`, `watch`), is unseen; and a repo named by a
- * shell variable never matches the corpus.
+ * unwrap does not strip, is unseen; and a repo named by a shell variable never
+ * matches the corpus.
  */
 
 const { scriptPath } = require("./script-path.js");

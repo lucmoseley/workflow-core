@@ -208,7 +208,7 @@ const PLAIN_WRAPPERS = [
 /**
  * Strip the launcher wrappers off one command's words, so the command
  * actually being run stands first (mantahostels#2511, mantahostels#2524,
- * mantahostels#2552): `{ words, wrapperWords }`.
+ * mantahostels#2552): `{ words, wrapperWords, watched }`.
  *
  *   words         what is left to judge. Empty where the wrappers ran out of
  *                 words mid-strip; a caller must test that before reading
@@ -219,6 +219,7 @@ const PLAIN_WRAPPERS = [
  *                 escape from the command string must still see — inside an
  *                 `env` prefix the escape is a WORD, not a leading shell
  *                 assignment the walk has already stepped past.
+ *   watched       a `watch` was stripped: the command reruns on a timer.
  *
  * `nohup FOO=1 cmd` execs a program literally named `FOO=1` and starts
  * nothing, so an assignment after any other wrapper is the command word and
@@ -229,6 +230,9 @@ const PLAIN_WRAPPERS = [
  * suite then does. Its job NAME is free text and is never an escape.
  *
  * `sudo` IS STRIPPED, DELIBERATELY: stripping only ever widens what is judged.
+ *
+ * `watch` RUNS ITS COMMAND THROUGH `sh -c`, so a single word left after its
+ * flags is split as `env -S` splits its string (#3376).
  *
  * `env -S <string>` IS SPLIT, NOT SKIPPED. The string is the command, so
  * skipping it as an ordinary flag value would leave nothing to judge and allow
@@ -241,17 +245,17 @@ const PLAIN_WRAPPERS = [
  * leaves its value where the command word is looked for.
  * @param {string[]} words masked
  * @param {string[]} spans
- * @returns {{ words: string[], wrapperWords: string[] }}
+ * @returns {{ words: string[], wrapperWords: string[], watched: boolean }}
  */
 function unwrap(words, spans) {
 	/** @type {Strip} */
-	const st = { ws: [...words], inEnv: false, wrapperWords: [] };
+	const st = { ws: [...words], inEnv: false, wrapperWords: [], watched: false };
 	while (st.ws.length > 0) {
 		const step = stripOne(st, spans);
-		if (step === "cut") return { words: [], wrapperWords: st.wrapperWords };
-		if (step === "done") break;
+		if (step === "cut") st.ws = [];
+		if (step !== "next") break;
 	}
-	return { words: st.ws, wrapperWords: st.wrapperWords };
+	return { words: st.ws, wrapperWords: st.wrapperWords, watched: st.watched };
 }
 
 /**
@@ -260,6 +264,7 @@ function unwrap(words, spans) {
  * @property {boolean} inEnv whether the last wrapper was `env`, whose
  *   assignments are words of its own
  * @property {string[]} wrapperWords
+ * @property {boolean} watched
  */
 
 /**
@@ -275,13 +280,8 @@ function stripOne(st, spans) {
 	 * (#1499). */
 	const first = st.ws[0] ?? "";
 	const w = ASSIGNMENT_RE.test(first) ? first : afterSlash(first);
-	if (w === "timeout") {
-		const rest = skipTimeout(st.ws.slice(1));
-		if (!rest) return "cut";
-		st.inEnv = false;
-		st.ws = rest;
-		return "next";
-	}
+	const skip = OWN_GRAMMAR.get(w);
+	if (skip) return stepOwn(st, w, skip(st.ws.slice(1), spans));
 	if (w === "bg-run.sh") {
 		if (st.ws[1] !== "run" || st.ws.length < 3) return "done";
 		st.inEnv = false;
@@ -293,6 +293,31 @@ function stripOne(st, spans) {
 	else return "done";
 	st.ws = st.ws.slice(1);
 	return sweepFlags(st, w, spans);
+}
+
+/**
+ * The wrappers read by their own stepper, not the shared sweep: `timeout`'s
+ * duration is a bare positional, and `watch`'s `-C` takes no value.
+ * @type {Map<string, (words: string[], spans: string[]) => string[] | null>}
+ */
+const OWN_GRAMMAR = new Map([
+	["timeout", skipTimeout],
+	["watch", skipWatch],
+]);
+
+/**
+ * Stand on what an OWN_GRAMMAR stepper left after wrapper `w`.
+ * @param {Strip} st
+ * @param {string} w
+ * @param {string[] | null} rest
+ * @returns {"next" | "cut"}
+ */
+function stepOwn(st, w, rest) {
+	if (!rest) return "cut";
+	if (w === "watch") st.watched = true;
+	st.inEnv = false;
+	st.ws = rest;
+	return "next";
 }
 
 /** The flags unwrap sweeps with their SEPARATE value for every wrapper. */
@@ -357,6 +382,31 @@ function skipTimeout(words) {
 		ws = ws.slice(takes ? 2 : 1);
 	}
 	return ws.length > 0 ? ws.slice(1) : null;
+}
+
+/** `watch`'s flags that take the next word. */
+const WATCH_VALUE_FLAGS = ["-n", "-q", "--interval", "--equexit"];
+
+/**
+ * The words after `watch`'s flags and any `--`, a single one split back into
+ * the command it holds; null where none are left.
+ * @param {string[]} words the words after `watch`
+ * @param {string[]} spans
+ */
+function skipWatch(words, spans) {
+	let ws = words;
+	while ((ws[0] ?? "").startsWith("-")) {
+		const f = ws[0] ?? "";
+		if (f === "--") {
+			ws = ws.slice(1);
+			break;
+		}
+		const takes = WATCH_VALUE_FLAGS.includes(f);
+		if (takes && ws.length < 2) return null;
+		ws = ws.slice(takes ? 2 : 1);
+	}
+	const rest = ws.length === 1 ? splitString(ws[0] ?? "", spans) : ws;
+	return rest.length > 0 ? rest : null;
 }
 
 /**
