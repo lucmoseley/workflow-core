@@ -62,12 +62,14 @@ function run(
 /** Runs the real CLI as a subprocess against THIS repo's own git history;
  * the cases below pick refs whose answer cannot drift with this
  * repo's ongoing history (a bad ref, and the repo's one root commit).
- * isolation-exempt: hostRoot() resolving to this real repo is the point — the
+ * isolation-exempt: hostRoot() pinned to this real repo is the point — the
  * cases picked (a bad ref, the root commit) read no live state, so nothing
  * a CLAUDE_PROJECT_DIR redirect would protect is ever touched (#160). */
 function runCli(...args: string[]) {
 	const r = spawnSync(process.execPath, [SCRIPT, ...args], {
+		cwd: REPO_ROOT,
 		encoding: "utf8",
+		env: { ...process.env, CLAUDE_PROJECT_DIR: REPO_ROOT },
 	});
 	return { code: r.status ?? -1, out: r.stdout, err: r.stderr };
 }

@@ -743,7 +743,7 @@ describe("the profiles against the real checkers", () => {
 			["--json", ...extra],
 			{
 				cwd: ROOT,
-				env: { ...process.env, GITHUB_ACTIONS: "" },
+				env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT, GITHUB_ACTIONS: "" },
 			},
 		);
 		expect(r.stdout, `${checker} printed no --json envelope`).toContain(

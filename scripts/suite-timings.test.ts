@@ -63,8 +63,13 @@ const writeGivenReport = (files: [string, number][]) => {
 	return path;
 };
 
+/* The script relativises against its host, so the host is this checkout the
+ * reports are named under (#3334). */
 const run = (...args: string[]) =>
-	runInProcess(SCRIPT, args, { cwd: REPO, env: { ...process.env } });
+	runInProcess(SCRIPT, args, {
+		cwd: REPO,
+		env: { ...process.env, CLAUDE_PROJECT_DIR: REPO },
+	});
 
 describe("extract", () => {
 	it("writes a dataset of every file and reports the count and the shares", () => {

@@ -455,6 +455,7 @@
 		],
 		".github/workflows/roadmap-digest.yml": [
 			"scripts/check-release-pin.test.ts",
+			"scripts/check-workflow-permissions.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -767,6 +768,9 @@
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/tooling-matrix.test.ts"
+		],
+		"docs/agents/autonomy-ceiling.md": [
+			"scripts/check-workflow-permissions.test.ts"
 		],
 		"docs/agents/dependabot.md": [
 			"scripts/check-guard-registry.test.ts",
@@ -2260,6 +2264,12 @@
 			"scripts/report-round-check-reading.test.ts"
 		],
 		"docs/data/session-cost-table.json": [
+			"scripts/admission.test.ts",
+			"scripts/dispatch-sessions-bridge.test.ts",
+			"scripts/dispatch-sessions-overflow.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/dispatch-sessions-reread.test.ts",
+			"scripts/dispatch-sessions.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/session-spend.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
@@ -5962,6 +5972,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/session-spend.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -16119,6 +16130,7 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/test-read-edges.test.ts",
+			"scripts/lib/unasked-rerun-guard.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"

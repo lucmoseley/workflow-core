@@ -40,7 +40,7 @@ afterEach(() => {
 const run = (args: string[], env: NodeJS.ProcessEnv = {}) => {
 	const r = spawnSync(process.execPath, [CLI, ...args], {
 		cwd: ROOT,
-		env: { ...process.env, ...env },
+		env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT, ...env },
 		encoding: "utf8",
 	});
 	return { out: r.stdout, err: r.stderr, code: r.status };

@@ -30,7 +30,7 @@ import { code, ME, PAST_FLOOR, reviewFixture } from "./lib/push-review-fixture";
 
 const CORE = "guard-push-rules";
 const { readRuleText } = require("./lib/rule-text") as {
-	readRuleText: (id: string) => string;
+	readRuleText: (id: string, root?: string) => string;
 };
 const { readRuleCap } = require("./lib/rule-emission") as {
 	readRuleCap: () => number;
@@ -117,7 +117,7 @@ describe("the push rules, end to end", () => {
 			"vercel-build-on-push",
 			"ci-status-lag",
 		])
-			expect(ctx).toContain(readRuleText(id));
+			expect(ctx).toContain(readRuleText(id, at.shared));
 		expect(ctx.indexOf(CADENCE)).toBeLessThan(
 			ctx.indexOf("A PUSH WARNS UNLESS"),
 		);
@@ -168,7 +168,7 @@ describe("the push rules, end to end", () => {
 			session: "s",
 			env: offSuite,
 		}).additionalContext as string;
-		expect(ctx).toContain(readRuleText("vercel-build-on-push"));
+		expect(ctx).toContain(readRuleText("vercel-build-on-push", at.shared));
 		expect(ctx).not.toContain(CADENCE);
 	});
 

@@ -39,6 +39,12 @@ import {
 const PROBE_HANG_SECONDS = PROBE_TIMEOUT_MS / 2 / 1000;
 
 export const SCRIPT = path.resolve(__dirname, "..", "dispatch-sessions.sh");
+const COMMITTED_COST_TABLE = path.resolve(
+	__dirname,
+	"..",
+	"..",
+	"docs/data/session-cost-table.json",
+);
 
 /** Must match `CLAUDE_CODE_SESSION_ID` in `baseEnv()` below — the self-test
  * `scripts/lib/agent-liveness.js` runs on every `agents --json` listing. */
@@ -336,6 +342,10 @@ export function dispatchFixture(): DispatchFixture {
 			WFC_KERNEL_LOG: kernelClean,
 			WFC_SCHED_CLOCK: schedRunning,
 			WFC_GH: ghNoParent,
+			// The allowance gate sizes its cap off the committed cost table, read
+			// off the host where unpinned — no checkout under test (#3334).
+			// dispatch-sessions.test.ts's cap cases override it.
+			WFC_SESSION_COST_TABLE: COMMITTED_COST_TABLE,
 			...extra,
 		};
 	}

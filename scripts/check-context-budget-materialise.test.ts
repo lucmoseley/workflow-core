@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
@@ -112,6 +112,11 @@ describe("--against's materialised trees", () => {
 				throw new Error(m);
 			},
 		};
+		/* The hook wiring the list derives from is read off the host (#3334). */
+		vi.stubEnv("CLAUDE_PROJECT_DIR", REPO);
+		onTestFinished(() => {
+			vi.unstubAllEnvs();
+		});
 		copyListed(whole, fetched, materialisePathspecs(ctx, "HEAD"));
 
 		const plain = figures(whole);

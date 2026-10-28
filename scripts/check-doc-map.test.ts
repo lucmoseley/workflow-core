@@ -4918,7 +4918,7 @@ describe("Section A render agreement", () => {
 			const generate = runInProcess(
 				path.join(plugin, "scripts", "generate-doc-map-section-a.js"),
 				[],
-				{ cwd: repo, env: process.env },
+				{ cwd: repo, env: { ...process.env, CLAUDE_PROJECT_DIR: repo } },
 			);
 			expect(generate.status, generate.stderr).toBe(0);
 			expect(check({ WFC_SCRIPT_ROOT: plugin }).status).toBe(0);

@@ -1363,7 +1363,13 @@ describe("the live repository", () => {
 		// into the test process would read as the checker's own state.
 		let code = 0;
 		try {
-			execFileSync(process.execPath, [REAL_SCRIPT], { encoding: "utf8" });
+			execFileSync(process.execPath, [REAL_SCRIPT], {
+				encoding: "utf8",
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: path.resolve(__dirname, ".."),
+				},
+			});
 		} catch (e) {
 			code = (e as { status: number }).status;
 			throw new Error(
