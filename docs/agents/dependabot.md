@@ -38,7 +38,7 @@ Commit `package.json` alongside `package-lock.json`.
 
 ## Read the alerts with `npm audit`, not the API
 
-This repo's `gh` PAT has no `security_events` scope, so `gh api repos/<tracker>/dependabot/alerts` answers `403 Resource not accessible by personal access token`. Secret scanning answers the same. Code scanning is not enabled at all, and says so rather than 403-ing.
+This repo's `gh` PAT has no `security_events` scope, so `gh api repos/<tracker>/dependabot/alerts` answers `403 Resource not accessible by personal access token`. Secret scanning and code scanning answer the same.
 
 `npm audit --json` reads the same GitHub advisory database and needs no scope. Tie its findings to the badge by count: where the badge's number and the audit's advisory count agree, they are the same set.
 
@@ -47,6 +47,15 @@ This repo's `gh` PAT has no `security_events` scope, so `gh api repos/<tracker>/
 ## Judge exposure before treating an advisory as urgent
 
 Trace the dependency path — `npm ls <package> --all` — before reading a CVSS score as a live risk. A dev-only package reached through the lint toolchain never enters a client bundle, and an availability-only advisory (`A:H` with `C:N/I:N`) against a build-time tool with no untrusted input is not a production exposure. Fix it anyway, because the fix is cheap; do not escalate it.
+
+## Code scanning: CodeQL and SonarQube Cloud
+
+Both analyse the public `lucmoseley/workflow-core` on every push to `main`, non-gating, and both are kept because each found a real defect no CI check looks for (#2188): an exponentially backtracking regex on a hook path, among others. No CI check overlaps either: ESLint and Biome's nearest rules are scoped to `app/**` and `lib/**`, which this repo does not have.
+
+- **SonarQube Cloud** reads without auth: `curl -s "https://sonarcloud.io/api/issues/search?componentKeys=lucmoseley_workflow-core&rules=<rule>&ps=100"`, its rule counts with `&ps=1&facets=rules`. Its config is `.sonarcloud.properties`.
+- **CodeQL** alerts answer `403` to the PAT. Read them at `https://github.com/lucmoseley/workflow-core/security/code-scanning` through a Chrome child (`browser-ladder` skill).
+
+Most of what both raise is false here; judge a finding before acting on it. The rules triaged false across the board on 28 Oct 2026: Sonar's javascript:S3403 (the `undefined` checks `noUncheckedIndexedAccess` requires), shelldre:S7688 (`[[` style, also raised in POSIX `sh`), S2871 (`.sort()` on strings), S4036 (PATH lookups), the `*security:S87xx` taint rules (every source is argv) and S8786 (quadratic regexes on KB-sized local input); and CodeQL's js/clear-text-logging (it reads session ids as secrets). The rules that found real defects are Sonar's javascript:S5852 and its githubactions:* rules (#3363), and CodeQL's js/redos.
 
 ## What the config does
 
