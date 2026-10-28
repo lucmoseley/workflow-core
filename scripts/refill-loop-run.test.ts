@@ -261,6 +261,46 @@ describe("run (#2435)", () => {
 		expect(r.stdout).not.toMatch(/morning review( reversals)?: exit/);
 	});
 
+	it("supervises a foreign checkout's launches to landing, finished or not, skipping a gone one (#3284)", async () => {
+		const running = at("foreign");
+		const finished = at("foreign-finished");
+		for (const root of [running, finished]) {
+			fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(root, ".claude", "workflow-core.json"),
+				"{}\n",
+			);
+		}
+		const launch = (root: string, n: number, finishedAt: number | null) => ({
+			root,
+			issues: [n],
+			prompt: `/implement ${n}`,
+			seat,
+			jobId: `job${n}`,
+			launchedAt: Date.now(),
+			finishedAt,
+		});
+		fs.writeFileSync(
+			at(".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [
+					launch(running, 8, null),
+					launch(finished, 9, Date.now()),
+					launch(at("gone"), 10, Date.now()),
+				],
+			}),
+		);
+		const r = await settled(run(1), "run with foreign launches");
+		expect(r.status).toBe(0);
+		expect(readLines(at("supervised"))).toEqual(
+			[repo, running, finished].map((d) => fs.realpathSync(d)),
+		);
+		expect(r.stdout).toContain(
+			`landing in ${running}: exit 0\n  started the lander`,
+		);
+		expect(r.stdout).not.toContain(`landing in ${at("gone")}`);
+	});
+
 	it("tickets earlyoom's kill incidents in its own checkout each tick (#3094)", async () => {
 		const code = path.dirname(scripts);
 		fs.mkdirSync(path.join(code, ".claude"), { recursive: true });

@@ -255,6 +255,18 @@ function scopeRoots(scope, included, exclusionOf) {
 }
 
 /**
+ * The checkouts whose landing queue a tick supervises: `served`, then each
+ * other root a recorded launch ran in (#3284). Finished launches count, since
+ * a landing outlives its session. Residual: a foreign root drops out once its last launch ages out
+ * of the HISTORY_KEPT record, landed or not.
+ * @param {string[]} served
+ * @param {LoopLaunch[]} launches
+ */
+const landingRoots = (served, launches) => [
+	...new Set([...served, ...launches.map((l) => l.root)]),
+];
+
+/**
  * @param {Control} control
  * @param {number} runMs
  */
@@ -1122,6 +1134,7 @@ module.exports = {
 	buildScopeLines,
 	parseScope,
 	scopeRoots,
+	landingRoots,
 	parseProbeOutcome,
 	overflowReadings,
 	seatReadingOf,

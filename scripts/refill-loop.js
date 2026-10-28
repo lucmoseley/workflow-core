@@ -30,7 +30,8 @@
  * duplicate drop, memory re-read and allowance cap apply. The decision core
  * is asked first with an empty frontier: the per-repo shortlists cost GitHub
  * calls, so they are read only on a tick that could launch. Before the
- * decision, each served checkout's landing queue is supervised
+ * decision, the landing queue of each served checkout, and of each checkout
+ * a recorded launch ran in, is supervised
  * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
  * ticketed, and each earlyoom kill incident that is over is ticketed
  * (scripts/file-memory-kill-tickets.js, #3094). Last, the morning review generator runs: in full on the first tick after 07:00,
@@ -433,12 +434,14 @@ function stopNeverStarted(registry) {
 }
 
 /**
- * Supervise each served checkout's landing queue, in that checkout
- * (scripts/supervise-landing.js).
+ * Supervise each checkout's landing queue, in that checkout
+ * (scripts/supervise-landing.js). A checkout gone since its launch is skipped.
  * @param {string[]} roots
  */
 function superviseLanding(roots) {
 	for (const root of roots) {
+		if (!fs.existsSync(path.join(root, ".claude", "workflow-core.json")))
+			continue;
 		const r = runChild(
 			process.execPath,
 			[path.join(SCRIPTS, "supervise-landing.js")],
@@ -1077,7 +1080,7 @@ async function tick({ dryRun }) {
 	 * its caps under the very pressure relief exists for (#2665). */
 	const registry = readRegistryAgents();
 	if (!dryRun) for (const line of stopNeverStarted(registry)) log(line);
-	if (!dryRun) superviseLanding(served);
+	if (!dryRun) superviseLanding(loop.landingRoots(served, state.launches));
 	if (!dryRun) fileKillTickets();
 	const agents = listedAgents({ requireSelf: false }).agents ?? null;
 	/* Read side by side here anyway, so the undocumented registry the relief

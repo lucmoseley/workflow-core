@@ -2,11 +2,11 @@
 /*
  * supervise-landing.js — one supervision pass over the landing queue of the
  * checkout it runs in (#2692, ruled at #2672), which the refill loop runs in
- * every served checkout each tick: where `landing` is ahead of `main` and no
- * lander runs, it starts one through start-lander.js; where `main` has not
- * moved for lib/landing-stall.js's STALL_MS, it files or refreshes the stall
- * ticket (lib/stall-ticket.js). A held queue it leaves to the held-queue
- * issue.
+ * every served or launched-in checkout each tick: where `landing` is ahead
+ * of `main` and no lander runs, it starts one through start-lander.js; where
+ * `main` has not moved for lib/landing-stall.js's STALL_MS, it files or
+ * refreshes the stall ticket (lib/stall-ticket.js). A held queue it leaves to
+ * the held-queue issue.
  *
  *   node scripts/supervise-landing.js [--tester <command>]
  *

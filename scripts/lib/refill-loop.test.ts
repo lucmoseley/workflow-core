@@ -32,6 +32,7 @@ import {
 	isRenewedSince,
 	isReviewRunDue,
 	judgedLaunches,
+	landingRoots,
 	mergedScope,
 	parseControl,
 	parseProbeOutcome,
@@ -1227,6 +1228,17 @@ describe("the repos a tick serves", () => {
 			roots: [WFC],
 			dropped: [{ root: MH, why: "refillLoop: false" }],
 		});
+	});
+});
+
+describe("the checkouts whose landing a tick supervises (#3284)", () => {
+	it("adds each foreign root a launch ran in, finished or not, once", () => {
+		const launches = [
+			record({ root: DV }),
+			record({ root: WFC }),
+			record({ root: DV, finishedAt: NOW }),
+		];
+		expect(landingRoots([WFC, MH], launches)).toEqual([WFC, MH, DV]);
 	});
 });
 
