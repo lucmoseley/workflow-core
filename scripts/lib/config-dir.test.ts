@@ -13,12 +13,17 @@
  *
  * A divergence sends the shell guards' arbiter seat and settings reads to a
  * different dir than the JS arbiter writes, silently.
+ *
+ * configDirFrom runs in-process, as it reads no environment: it pins the
+ * null-versus-"" contract reconcile-plugin.js's readConfigDirOf hands it from
+ * another process's environ.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { configDirFrom } from "./config-dir.js";
 
 const LIB = __dirname;
 const PASSWD_HOME = os.userInfo().homedir;
@@ -101,5 +106,12 @@ describe("configDir and gr_config_dir", () => {
 			expect(path.normalize(`${sh}/settings.json`)).toBe(
 				path.join(js, "settings.json"),
 			);
+	});
+});
+
+describe("configDirFrom", () => {
+	it("reads an environ's unset null as unset, an empty value as set (#2095)", () => {
+		expect(configDirFrom(null)).toBe(path.join(os.homedir(), ".claude"));
+		expect(configDirFrom("")).toBe("");
 	});
 });

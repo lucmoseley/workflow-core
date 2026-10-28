@@ -10,14 +10,25 @@
  * resolver reads it (2.1.304: `CLAUDE_CONFIG_DIR ?? join(homedir(), ".claude")`),
  * so its records resolve against the cwd and are read where the harness wrote
  * them, never in the live ~/.claude (#2095). lib/guard-root.sh's gr_config_dir
- * is the shell twin.
+ * is the shell twin, and resolve-core.js spells the rule itself, as it ships to
+ * adopters alone and requires node builtins only.
  */
 
 const os = require("node:os");
 const path = require("node:path");
 
-function configDir() {
-	return process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), ".claude");
+/**
+ * The config dir a CLAUDE_CONFIG_DIR value names: this process's own, or one
+ * read from another process's environ.
+ * @param {string|null|undefined} value
+ * @returns {string}
+ */
+function configDirFrom(value) {
+	return value ?? path.join(os.homedir(), ".claude");
 }
 
-module.exports = { configDir };
+function configDir() {
+	return configDirFrom(process.env.CLAUDE_CONFIG_DIR);
+}
+
+module.exports = { configDir, configDirFrom };
