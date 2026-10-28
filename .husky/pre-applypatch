@@ -37,6 +37,9 @@
 # scripts/lib/commit-route.sh tells them apart and owns the scan.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
 
 here="$(dirname "$0")"
 route_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"

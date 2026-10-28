@@ -39,6 +39,9 @@
 # DEFEAT:    `git push --no-verify` skips all five, and nothing denies it. The mod check warns and passes where the `claude` binary is missing, unusable or its run cannot finish, and refuses only on its own exit 2, so a crashed or unreachable checker never fails a push; the landing gate likewise refuses only on its exit 2, and passes, printed, where it cannot read the config, the ref list, the repo root or the pushing tree; the landing registry gate does the same, and passes, printed, a push creating `landing` and one whose check cannot answer, an unfetched tip included, and with WFC_LANDER_REVERT=<sha> passes the stale rows of a pushed commit that is one commit on `landing`'s tip carrying git's revert line for that sha with a tree equal to its clean revert (#3127), which anyone can set but which carries no other change or fault past it; the public-repo gate passes, printed, where it cannot read the config, the ref list or the pushing tree, and past the destination check refuses on any fault, a clone with no remote naming the tracker included. In a bare repository, which has no tree, they run only from `WFC_PLUGIN_ROOT`, each failing to load and passing without it.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || :
 refs="$(cat)"

@@ -36,6 +36,34 @@ function fakeCore(dir: string, version: string, log: string) {
 	return dir;
 }
 
+/** The prelude line sourcing hook-root.sh, which every core hook carries. */
+const sourcesHookRoot = (text: string) =>
+	text.split("\n").find((line) => line.includes("/scripts/lib/hook-root.sh"));
+const HOOK_ROOT_LINE = sourcesHookRoot(
+	fs.readFileSync(path.join(ROOT, ".husky", "pre-commit"), "utf8"),
+);
+
+/** A fake core whose every hook runs the real core's hook-root prelude. */
+function rootCore(dir: string, log: string) {
+	fakeCore(dir, "1.0.0", log);
+	fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
+	fs.copyFileSync(
+		path.join(ROOT, "scripts", "lib", "hook-root.sh"),
+		path.join(dir, "scripts", "lib", "hook-root.sh"),
+	);
+	for (const hook of HOOKS) {
+		fs.writeFileSync(
+			path.join(dir, ".husky", hook),
+			`${HOOK_ROOT_LINE}\nprintf '%s %s\\n' ${hook} "\${CLAUDE_PROJECT_DIR-unset}" >> '${log}'\n${
+				hook === "pre-commit"
+					? `node '${ROOT}/scripts/lib/workflow-core-config.js' command check_staged >> '${log}' 2>&1 || :\n`
+					: ""
+			}${hook === "pre-push" ? "cat >/dev/null\n" : ""}`,
+		);
+	}
+	return dir;
+}
+
 /** The adopter, pinned at v1.0.0, carrying what init writes for the hooks. */
 function buildAdopter() {
 	const { root: made, git } = newRepo("hook-shim-", temps);
@@ -206,6 +234,82 @@ describe("an adopter's hook shims (#1839)", () => {
 		expect(r.log).toContain(`pre-commit ${installed}\n`);
 	});
 
+	it("hands the core the committed repo as CLAUDE_PROJECT_DIR where an inherited one names another repo (#3307)", () => {
+		const a = buildAdopter();
+		const core = rootCore(path.join(a.work, "core"), a.log);
+		const { root: other } = newRepo("hook-shim-other-", temps);
+		const config = (root: string, cmd: string) => {
+			fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+			fs.writeFileSync(
+				path.join(root, ".claude", "workflow-core.json"),
+				JSON.stringify({ founder: "f", commands: { check_staged: cmd } }),
+			);
+		};
+		config(other, "npm run other-repo-gate");
+		config(a.root, "npm run adopter-gate");
+		const r = a.commit(a.root, {
+			WORKFLOW_CORE_DIR: core,
+			CLAUDE_PROJECT_DIR: other,
+		});
+		expect(r.landed).toBe(true);
+		expect(r.log).toContain(`pre-commit ${a.root}\n`);
+		expect(r.log).toContain(`commit-msg ${a.root}\n`);
+		expect(r.log).toContain("npm run adopter-gate");
+		expect(r.log).not.toContain(other);
+		expect(r.log).not.toContain("other-repo-gate");
+	});
+
+	it("keeps an inherited CLAUDE_PROJECT_DIR naming the main tree for a commit in a linked worktree (#3307)", () => {
+		const a = buildAdopter();
+		const core = rootCore(path.join(a.work, "core"), a.log);
+		const tree = path.join(a.work, "tree");
+		a.git("worktree", "add", "-q", "-b", "side", tree);
+		const r = a.commit(tree, {
+			WORKFLOW_CORE_DIR: core,
+			CLAUDE_PROJECT_DIR: a.root,
+		});
+		expect(r.landed).toBe(true);
+		expect(r.log).toContain(`pre-commit ${a.root}\n`);
+		expect(r.log).not.toContain(tree);
+	});
+
+	it("hands the committed repo where CLAUDE_PROJECT_DIR is empty (#3307)", () => {
+		const a = buildAdopter();
+		const core = rootCore(path.join(a.work, "core"), a.log);
+		const r = a.commit(a.root, {
+			WORKFLOW_CORE_DIR: core,
+			CLAUDE_PROJECT_DIR: "",
+		});
+		expect(r.log).toContain(`pre-commit ${a.root}\n`);
+	});
+
+	it("unsets an inherited CLAUDE_PROJECT_DIR naming another repo for a push from a bare repository (#3307)", () => {
+		const a = buildAdopter();
+		const core = rootCore(path.join(a.work, "core"), a.log);
+		const { root: other } = newRepo("hook-shim-other-", temps);
+		const bare = path.join(a.work, "bare.git");
+		execFileSync("git", ["clone", "-q", "--bare", a.root, bare], {
+			cwd: a.work,
+		});
+		execFileSync(
+			"git",
+			["config", "core.hooksPath", path.join(core, ".husky")],
+			{
+				cwd: bare,
+			},
+		);
+		fs.chmodSync(path.join(core, ".husky", "pre-push"), 0o755);
+		const remote = path.join(a.work, "remote.git");
+		execFileSync("git", ["init", "-q", "--bare", remote], { cwd: a.work });
+		const r = spawnSync("git", ["push", "-q", remote, "HEAD:refs/heads/main"], {
+			cwd: bare,
+			encoding: "utf8",
+			env: a.env({ CLAUDE_PROJECT_DIR: other }),
+		});
+		expect(r.status).toBe(0);
+		expect(fs.readFileSync(a.log, "utf8")).toBe("pre-push unset\n");
+	});
+
 	it("hands pre-push its refs on stdin", () => {
 		const a = buildAdopter();
 		const installed = fakeCore(
@@ -266,6 +370,13 @@ describe("the core hooks an adopter's shims run (#1839)", () => {
 
 	it("lists every hook an adopter shims", () => {
 		expect([...huskyHooks].sort()).toEqual([...HOOKS].sort());
+	});
+
+	it.each(huskyHooks)("%s sources hook-root.sh (#3307)", (hook) => {
+		expect(HOOK_ROOT_LINE).toBeDefined();
+		expect(
+			sourcesHookRoot(fs.readFileSync(path.join(ROOT, ".husky", hook), "utf8")),
+		).toBe(HOOK_ROOT_LINE);
 	});
 
 	it.each(huskyHooks)(

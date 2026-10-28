@@ -31,6 +31,9 @@
 # A refusal aborts the commit: git exits 1 and writes nothing.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
 
 here="$(dirname "$0")"
 scanner="${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-commit-message-closes.sh"

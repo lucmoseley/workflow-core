@@ -18,6 +18,9 @@
 # DEFEAT:    no flag or env var for the four reporters; every block but the unpushed count and the shim keeper is skipped mid-replay or when scripts/lib/commit-route.sh is missing, and the release, the advance and the record by unsetting CLAUDE_CODE_SESSION_ID; the shim keeper takes no flag and is skipped when scripts/keep-hook-shims.js is missing.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
 
 # THIS commit, read before any block runs: report_new_shared_faults takes
 # seconds, and a neighbour's commit landing in them would otherwise be the sha
