@@ -109,7 +109,8 @@ function sectionIds(text) {
 }
 
 /** @param {string} cell */
-const backticked = (cell) => [...cell.matchAll(BACKTICKED)].map((m) => m[1]);
+const backticked = (cell) =>
+	[...cell.matchAll(BACKTICKED)].flatMap((m) => (m[1] ? [m[1]] : []));
 
 /** @param {string} job */
 const jobKey = (job) => job.toLowerCase().replace(/\s+/g, " ");
