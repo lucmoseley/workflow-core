@@ -134,7 +134,7 @@ const SHAPE_PREFIX = ".selection-sum-shape-nagged-";
  * `**341, 353, 366** - takes:implement.` Backticks and a leading bullet are
  * tolerated because the contract's own template carries them. */
 const DISPATCH_LINE =
-	/^\s{0,3}(?:[-*>]\s+)?\*\*\s*`?\s*#?\d+(?:\s*,\s*#?\s*\d+)*\s*`?\s*\*\*\s*[-–—:]\s*`?takes:/im;
+	/^\s{0,3}(?:[-*>]\s+)?\*\*\s*(?:`\s*)?#?\d+(?:\s*,\s*(?:#\s*)?\d+)*\s*(?:`\s*)?\*\*\s*[-–—:]\s*`?takes:/im;
 
 /* §6's hold line: the set is empty, and the accounting is owed just as much —
  * a hold is the claim that every frontier issue is disqualified. */

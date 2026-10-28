@@ -173,6 +173,22 @@ describe("what counts as a dispatch message", () => {
 		expect(r.reason).toContain("without stating");
 	});
 
+	// Crosses the real clock: a regex match is synchronous, so no seam can
+	// interrupt a backtracking one (Sonar javascript:S5852). 16 numbers took
+	// ~2 s, doubling per number, when each comma's spaces could split two ways.
+	it("reads a long bold number list that dispatches nothing, promptly", () => {
+		const numbers = Array.from({ length: 16 }, (_, i) => i + 1).join(",  ");
+		const start = Date.now();
+		expect(run(`**${numbers}** were read.`).blocked).toBe(false);
+		expect(Date.now() - start).toBeLessThan(1000);
+	});
+
+	it("recognises a hash and a space before a later number", () => {
+		const r = run("**#341, # 353** - takes:implement.");
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain("without stating");
+	});
+
 	it("recognises the contract's backticked spelling", () => {
 		const r = run("**`341, 353`** - `takes:implement`.");
 		expect(r.blocked).toBe(true);

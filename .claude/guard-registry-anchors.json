@@ -47,7 +47,7 @@
 	"scripts/guard-lost-verdict.js": "32ddd24a940854b3",
 	"scripts/guard-paste-self-match.js": "84c0299857ffdefa",
 	"scripts/guard-priced-options.js": "53e70cbefdf97c6c",
-	"scripts/guard-selection-sum.js": "87fc493fc3e5918f",
+	"scripts/guard-selection-sum.js": "8038211ef61f00f4",
 	"scripts/guard-session-ceiling.js": "102915c746a840e1",
 	"scripts/guard-uncommitted-work.js": "92501caa5a57b0f4",
 	"scripts/guard-unpushed-commits.js": "c5de9a361175f522",
