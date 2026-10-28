@@ -32,7 +32,7 @@ import {
 	registerTempCleanup,
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
-import { cutInReplay } from "./lib/precommit-gate-testkit";
+import { commitOverSequencer, cutInReplay } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const temps = registerTempCleanup();
@@ -1200,13 +1200,12 @@ describe(".husky/post-commit's fault-notice block", () => {
 		expectSurvived(r);
 	});
 
-	/* Every sentinel the block lists, one case each. `sequencer` is git's
-	 * multi-pick directory; the rest are what an in-progress rebase,
-	 * cherry-pick, revert or bisect leave in the git dir. */
+	/* Every sentinel the block lists, one case each: what an in-progress
+	 * rebase, cherry-pick, revert or bisect leave in the git dir. `sequencer`,
+	 * a multi-commit revert's, is below. */
 	it.each([
 		["rebase-merge", "dir"],
 		["rebase-apply", "dir"],
-		["sequencer", "dir"],
 		["CHERRY_PICK_HEAD", "file"],
 		["REVERT_HEAD", "file"],
 		["BISECT_LOG", "file"],
@@ -1227,6 +1226,22 @@ describe(".husky/post-commit's fault-notice block", () => {
 			expectSurvived(r);
 		},
 	);
+
+	it.each([
+		["stays quiet mid revert sequence", true, ""],
+		["prints over a leftover sequencer (#3298)", false, "a fault notice\n"],
+	])("%s", (_name, live, expected) => {
+		const repo = hookRepo(
+			"post-commit-sequencer-",
+			`process.stdout.write("a fault notice\\n"); process.exit(1);\n`,
+		);
+		commitOverSequencer(repo.root, live);
+
+		const r = runBlock(repo.root);
+
+		expect(r.out).toBe(expected);
+		expectSurvived(r);
+	});
 
 	/* The inverse: with no sentinel present the same fixture DOES print. */
 	it("prints where no replay is in progress", () => {

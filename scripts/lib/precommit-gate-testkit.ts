@@ -104,6 +104,31 @@ export const POST_COMMIT = fs.readFileSync(
 	"utf8",
 );
 
+/**
+ * A commit in `root` over `.git/sequencer`, `git commit -q -m two` plus `args`.
+ * `live` makes it as a `git revert A B` step does, which post-commit reads as
+ * `revert-sequence`; otherwise as an ordinary commit over a leftover whose
+ * `abort-safety` names HEAD, which a single pick leaves (#3298).
+ */
+export function commitOverSequencer(
+	root: string,
+	live: boolean,
+	args = ["--allow-empty"],
+): void {
+	const dir = path.join(root, ".git", "sequencer");
+	const head = execFileSync("git", ["rev-parse", "HEAD"], {
+		cwd: root,
+		encoding: "utf8",
+	});
+	fs.mkdirSync(dir);
+	fs.writeFileSync(path.join(dir, "abort-safety"), head);
+	const { GIT_REFLOG_ACTION: _, ...env } = process.env;
+	execFileSync("git", ["commit", "-q", "-m", "two", ...args], {
+		cwd: root,
+		env: live ? { ...env, GIT_REFLOG_ACTION: "revert" } : env,
+	});
+}
+
 /** A `name() { … }` shell function of `hook`, verbatim, to its closing `}` at column zero. */
 export function cutShellFunction(name: string, hook = POST_COMMIT): string {
 	const lines = hook.split("\n");

@@ -37,7 +37,9 @@
 #                    CHERRY_PICK_HEAD at pre-commit through commit-msg, nothing
 #                    at post-commit
 #   revert-sequence  `git revert A B`: `sequencer` at prepare-commit-msg and
-#                    post-commit; no pre-commit
+#                    post-commit, its `abort-safety` naming the commit this one
+#                    is made on, and at post-commit a `revert:` HEAD reflog
+#                    entry; no pre-commit
 #   revert-continue  REVERT_HEAD at pre-commit through commit-msg, nothing at
 #                    post-commit
 #   rebase           a replay: rebase-merge and CHERRY_PICK_HEAD at
@@ -55,8 +57,14 @@
 # replay sets too; CHERRY_PICK_HEAD and REVERT_HEAD before `sequencer`, which a
 # range of either sets; and MERGE_HEAD before `sequencer`, which a cherry-pick
 # range stopped on a conflict and finished by a plain `git commit` leaves behind,
-# so that a later merge still reads as one. An ordinary commit made over that
-# leftover reads as `revert-sequence`.
+# so that a later merge still reads as one.
+#
+# A LEFTOVER `sequencer` IS NOT A SEQUENCE (#3298): a stopped range finished by
+# hand leaves one until `git revert --quit`. A single pick or revert over it
+# rewrites its `abort-safety` as a sequence's own step does, so post-commit
+# also asks the HEAD reflog (wfc_cr_sequencing). The hooks before it, with no
+# reflog entry yet, read a commit right after such a pick as `revert-sequence`;
+# none of them acts on that route.
 
 # wfc_commit_route <hook> <gitdir> — prints the route. An empty <gitdir>, a git
 # that would not answer, reads as no marker at all. Exits 2 on a hook with no
@@ -99,7 +107,7 @@ wfc_commit_route() {
     echo merge
   elif [ "${1-}" = pre-commit ] && wfc_cr_merging; then
     echo merge
-  elif [ -e "$wfc_cr_dir/sequencer" ]; then
+  elif wfc_cr_sequencing "${1-}"; then
     echo revert-sequence
   elif [ -e "$wfc_cr_dir/BISECT_LOG" ]; then
     echo bisect
@@ -114,6 +122,26 @@ wfc_cr_merging() {
     merge* | pull*) return 0 ;;
   esac
   return 1
+}
+
+# wfc_cr_sequencing <hook> — whether `sequencer` is a live sequence: its
+# `abort-safety` names the commit this one is made on, HEAD before post-commit;
+# at post-commit HEAD's parent, with HEAD's last reflog entry the sequence's
+# own. No `abort-safety` or reflog, or a git that would not answer, reads as a
+# leftover.
+wfc_cr_sequencing() {
+  [ -e "$wfc_cr_dir/sequencer" ] || return 1
+  wfc_cr_safety="$(cat "$wfc_cr_dir/sequencer/abort-safety" 2>/dev/null)" || return 1
+  [ -n "$wfc_cr_safety" ] || return 1
+  wfc_cr_made_on=HEAD
+  if [ "${1-}" = post-commit ]; then
+    case "$(tail -n 1 "$wfc_cr_dir/logs/HEAD" 2>/dev/null)" in
+      *"	revert: "* | *"	cherry-pick: "*) ;;
+      *) return 1 ;;
+    esac
+    wfc_cr_made_on=HEAD^
+  fi
+  [ "$(git --git-dir="$wfc_cr_dir" rev-parse -q --verify "$wfc_cr_made_on" 2>/dev/null)" = "$wfc_cr_safety" ]
 }
 
 # wfc_commit_route_replays <route> — 0 for the routes that replay commits

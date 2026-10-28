@@ -246,6 +246,51 @@ const CASES: [string, (r: Repo) => void, string[]][] = [
 		]),
 	],
 	[
+		"a `git commit` by hand resolving a stopped `git revert A B`",
+		(r) => {
+			r.commit("g", "1");
+			r.commit("g", "2");
+			r.stops("revert", "--no-edit", "HEAD~1", "HEAD");
+			fs.writeFileSync(path.join(r.root, "g"), "resolved\n");
+			r.git("add", "g");
+			r.act();
+			r.git("commit", "-qm", "by hand");
+		},
+		[...COMMIT_HOOKS("revert-continue").slice(0, 3), "post-commit commit"],
+	],
+	[
+		"an ordinary commit over the `sequencer` that resolving leaves (#3298)",
+		(r) => {
+			r.commit("g", "1");
+			r.commit("g", "2");
+			r.stops("revert", "--no-edit", "HEAD~1", "HEAD");
+			fs.writeFileSync(path.join(r.root, "g"), "resolved\n");
+			r.git("add", "g");
+			r.git("commit", "-qm", "by hand");
+			r.act();
+			r.commit("a", "x");
+		},
+		COMMIT_HOOKS("commit"),
+	],
+	[
+		"an ordinary commit after a single cherry-pick over a leftover `sequencer`",
+		(r) => {
+			forked(r, ["s"]);
+			r.commit("g", "1");
+			r.commit("g", "2");
+			r.stops("revert", "--no-edit", "HEAD~1", "HEAD");
+			fs.writeFileSync(path.join(r.root, "g"), "resolved\n");
+			r.git("add", "g");
+			r.git("commit", "-qm", "by hand");
+			r.git("cherry-pick", "side");
+			r.act();
+			r.commit("a", "x");
+		},
+		// Before post-commit only abort-safety is there to read, and the pick
+		// rewrote it; no hook acts on the route this reads as.
+		[...COMMIT_HOOKS("revert-sequence").slice(0, 3), "post-commit commit"],
+	],
+	[
 		"`git revert --continue`",
 		(r) => {
 			r.commit("g", "1");
@@ -408,9 +453,14 @@ describe.each(["sh", "bash"] as const)("wfc_commit_route under %s", (shell) => {
 			"merge",
 		],
 		[
-			"sequencer alone as a multi-commit revert",
+			"a sequencer with no abort-safety as a leftover",
 			["sequencer/"],
-			"revert-sequence",
+			"commit",
+		],
+		[
+			"a sequencer whose abort-safety git cannot match as a leftover",
+			["sequencer/abort-safety"],
+			"commit",
 		],
 		["MERGE_HEAD before BISECT_LOG", ["MERGE_HEAD", "BISECT_LOG"], "merge"],
 		[

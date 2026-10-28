@@ -21,6 +21,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
+	commitOverSequencer,
 	cutInReplay,
 	cutShellFunction,
 	POST_COMMIT,
@@ -138,13 +139,12 @@ describe(".husky/post-commit's release-on-commit block", () => {
 	// All six, not a representative one: the states are a hand-written list, and
 	// a name dropped from it is exactly the regression this catches. Two are
 	// directories in production (`rebase-merge`, `rebase-apply`) — the block
-	// tests `-e`, so a file stands in.
+	// tests `-e`, so a file stands in. The sixth, `sequencer`, is below.
 	it.each([
 		"rebase-merge",
 		"rebase-apply",
 		"CHERRY_PICK_HEAD",
 		"REVERT_HEAD",
-		"sequencer",
 		"BISECT_LOG",
 	])(
 		"stands down mid-replay under %s, where the paths are somebody else's",
@@ -162,6 +162,35 @@ describe(".husky/post-commit's release-on-commit block", () => {
 			expectSurvived(r);
 		},
 	);
+
+	/** A second commit on doc-map.md, by commitOverSequencer. */
+	function sequencedRepo(prefix: string, live: boolean) {
+		const repo = hookRepo(prefix, ["docs/doc-map.md"], ECHO_ARGV);
+		fs.writeFileSync(path.join(repo.root, "docs", "doc-map.md"), "y");
+		commitOverSequencer(repo.root, live, ["-a"]);
+		return repo;
+	}
+
+	it("stands down mid revert sequence, where the paths are somebody else's", () => {
+		const r = runBlock(
+			sequencedRepo("post-commit-release-sequence-", true).root,
+		);
+
+		expect(r.out).toBe("");
+		expectSurvived(r);
+	});
+
+	it("releases a commit made over a leftover sequencer (#3298)", () => {
+		const r = runBlock(
+			sequencedRepo("post-commit-release-leftover-", false).root,
+		);
+
+		expect(r.out.split("\n").filter(Boolean)).toEqual([
+			"release-committed",
+			"docs/doc-map.md",
+		]);
+		expectSurvived(r);
+	});
 
 	it("says nothing where the arbiter is missing altogether", () => {
 		const repo = hookRepo("post-commit-release-missing-", ["docs/doc-map.md"]);

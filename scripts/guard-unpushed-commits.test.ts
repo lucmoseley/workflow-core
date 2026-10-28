@@ -21,6 +21,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
+	commitOverSequencer,
 	cutInReplay,
 	cutShellFunction,
 	POST_COMMIT,
@@ -451,6 +452,22 @@ describe(".husky/post-commit's record block", () => {
 	it("records nothing without a session id", () => {
 		const repo = hookRepo();
 		const { out } = runBlock(repo.root, { CLAUDE_CODE_SESSION_ID: "" });
+		expect(out).toBe("");
+	});
+
+	it("records a commit made over a leftover sequencer (#3298)", () => {
+		const repo = hookRepo();
+		commitOverSequencer(repo.root, false);
+		const { head, out } = runBlock(repo.root, {
+			CLAUDE_CODE_SESSION_ID: "s1",
+		});
+		expect(out).toContain(`record-commit ${head}`);
+	});
+
+	it("records nothing mid revert sequence", () => {
+		const repo = hookRepo();
+		commitOverSequencer(repo.root, true);
+		const { out } = runBlock(repo.root, { CLAUDE_CODE_SESSION_ID: "s1" });
 		expect(out).toBe("");
 	});
 
