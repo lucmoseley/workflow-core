@@ -964,8 +964,8 @@ describe("the state file — an unwritable config dir", () => {
 	});
 });
 
-/* main() is the wiring the unit tests above cannot reach (mantahostels#535, where the
- * oracle refused a listing not naming the session the hook was starting in). */
+/* main() is the wiring the unit tests above cannot reach: the oracle refuses a
+ * listing not naming the session the hook is starting in (mantahostels#535). */
 describe("the SessionStart wiring: the run's own session is not yet registered", () => {
 	let sandbox = "";
 

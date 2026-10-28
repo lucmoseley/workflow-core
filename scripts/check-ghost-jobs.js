@@ -464,7 +464,7 @@ runCheck({
 			.map((j) => unreadableOf(j, "its state.json would not parse"));
 
 		// Ask only where there is something to ask about: the oracle costs ~465 ms
-		// (mantahostels#411, which barred it from a PreToolUse hook on that figure).
+		// — too slow for a PreToolUse hook (mantahostels#411).
 		const judged =
 			working.length > 0
 				? judgeWorking(ctx, { jobs, working, unreadable, minutes, hungMinutes })

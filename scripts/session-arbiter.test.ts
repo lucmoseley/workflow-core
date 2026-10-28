@@ -154,7 +154,7 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 
 	it("says nothing when the file is free", () => {
 		// An UNREGIONED guarded path: a whole-file write to the doc map is never
-		// silent since mantahostels#2334.
+		// silent (mantahostels#2334).
 		registerSession(sb, "a", process.pid);
 		expect(out(["check", inRepo("docs/other.md"), "a"])).toBe("");
 	});
@@ -245,8 +245,8 @@ describe("the CLI, as the hook and the scripts invoke it", () => {
 
 	it("exits 0 when its registry is unreachable, but says the write is unprotected", () => {
 		// Fail-open is house style (mantahostels#103 §6): exit 0, no deny, the write proceeds.
-		// What it no longer does is go SILENT — that silence was mantahostels#174, a broken
-		// guard looking exactly like one finding nothing wrong.
+		// It never goes SILENT: a broken guard would look exactly like one finding
+		// nothing wrong (mantahostels#174).
 		const r = spawnSync(
 			process.execPath,
 			[SCRIPT, "check", inRepo("docs/doc-map.md"), "a"],
@@ -1693,8 +1693,8 @@ describe("debt — the denied session's half", () => {
 		it.skipIf(AS_ROOT)(
 			"exits 1 naming the path when the store refuses, without claiming a write failed",
 			() => {
-				// `own` reads the existing stub before writing, and since mantahostels#174 that read
-				// can refuse.
+				// `own` reads the existing stub before writing, and that read can refuse
+				// (mantahostels#174).
 				store.registerDenial(rel);
 				fs.chmodSync(store.paths.debtsDir(), 0o000);
 				try {
@@ -1831,36 +1831,33 @@ describe("debt — the denied session's half", () => {
 			},
 		);
 
-		it.skipIf(AS_ROOT)(
-			"names a refused deletion on the OFFLINE route, where none was named before",
-			() => {
-				// Deletions happen offline since mantahostels#1302, so a refused unlink there was
-				// silently re-listed among the standing entries.
-				fakeGh(sb, "exit 1");
-				fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
-				fs.writeFileSync(
-					store.paths.debt("docs/other.md"),
-					JSON.stringify({
-						path: "docs/other.md",
-						issue: null,
-						gist: null,
-						createdAt: "2026-08-01T04:48:51.243Z",
-					}),
-				);
-				own("308", "keeps the sweep asking");
-				fs.chmodSync(store.paths.debtsDir(), 0o555);
-				let r: ReturnType<typeof debt>;
-				try {
-					r = debt("sweep");
-				} finally {
-					fs.chmodSync(store.paths.debtsDir(), 0o755);
-				}
-				expect(r.stderr).toContain("SKIP");
-				expect(r.stderr).toContain(
-					"the uncompletable stub on docs/other.md could not be deleted",
-				);
-			},
-		);
+		it.skipIf(AS_ROOT)("names a refused deletion on the OFFLINE route", () => {
+			// Deletions happen offline (mantahostels#1302), so a refused unlink there must
+			// be named, not silently re-listed among the standing entries.
+			fakeGh(sb, "exit 1");
+			fs.mkdirSync(store.paths.debtsDir(), { recursive: true });
+			fs.writeFileSync(
+				store.paths.debt("docs/other.md"),
+				JSON.stringify({
+					path: "docs/other.md",
+					issue: null,
+					gist: null,
+					createdAt: "2026-08-01T04:48:51.243Z",
+				}),
+			);
+			own("308", "keeps the sweep asking");
+			fs.chmodSync(store.paths.debtsDir(), 0o555);
+			let r: ReturnType<typeof debt>;
+			try {
+				r = debt("sweep");
+			} finally {
+				fs.chmodSync(store.paths.debtsDir(), 0o755);
+			}
+			expect(r.stderr).toContain("SKIP");
+			expect(r.stderr).toContain(
+				"the uncompletable stub on docs/other.md could not be deleted",
+			);
+		});
 
 		it("warns the reader that a survivor is not proof the work is outstanding", () => {
 			// mantahostels#1203 spot-checked three standing entries whose edits the live files
@@ -3994,7 +3991,7 @@ describe("warns when a regioned path is claimed with no region (mantahostels#185
 		const { stderr } = claim(docMap);
 		expect(stderr).toContain("section-a");
 		expect(stderr).toContain("2 `B<n>` entries, B1 to B2");
-		// The map's §A row carries no region of its own since mantahostels#2422.
+		// The map's §A row carries no region of its own (mantahostels#2422).
 		expect(stderr).not.toContain("register row");
 	});
 

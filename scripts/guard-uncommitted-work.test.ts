@@ -404,7 +404,7 @@ describe("the block is bounded (lib/hook-block.js)", () => {
 	});
 
 	/* Both `capSpent` and `blockStop` have to carry the 6 for this to pass. */
-	it("still blocks at three, the house cap (mantahostels#2791)", () => {
+	it("still blocks at three, the house default this guard raises to six (mantahostels#2791)", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
 		fs.writeFileSync(path.join(root, `.uncommitted-nagged-${sid}`), "3\n");

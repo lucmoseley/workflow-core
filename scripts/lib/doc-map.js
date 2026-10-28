@@ -91,8 +91,8 @@ function sectionAMatcher(entry) {
  * Over-matching only marks a route live or suppresses a report the entry's
  * author asked to suppress. Never use it on a Section A row.
  *
- * The `*` form keeps check-doc-map.js's dead-path gate from reading a route or
- * restatement path written `docs/research/*` as dead.
+ * Residual: the `*` form loosens check-doc-map.js's dead-path gate, which never
+ * reads a route or restatement path written `docs/research/*` as dead.
  *
  * A leading `./` PINS the token to an exact path, suppressing the suffix
  * match: `./vitest.config.ts` matches the root-level file only, never
