@@ -1583,7 +1583,7 @@
 		"section": "Governance & process docs",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "The core's local standards file, read beside `code-standards-base.md` (#967): its changes to the base (exception rows only), route rows sending its Python tests to test and its other Python to program, and the core's own sections. **§W is the live tooling matrix** (mantahostels#1537), the check a candidate rule passes before it is written: which checker sees which surface, which CI gate runs each checker and whether it refuses, and what is not measured by decision; the pre-commit floor is base §0's. Then Smells not raised and Out of scope. Never shipped: an adopter keeps its own.",
+		"role": "The core's local standards file, read beside `code-standards-base.md` (#967): its changes to the base (exception rows only), its route rows, and the core's own sections. **§W is the live tooling matrix** (mantahostels#1537), the check a candidate rule passes before it is written: which checker sees which surface, which CI gate runs each checker and whether it refuses, and what is not measured by decision; the pre-commit floor is base §0's. Then Smells not raised and Out of scope. Never shipped: an adopter keeps its own.",
 		"route": null,
 		"consumes": null,
 		"reader": "agent"

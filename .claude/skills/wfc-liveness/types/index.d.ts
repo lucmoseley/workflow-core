@@ -1,7 +1,7 @@
 /*
- * The liveness mod's `$.state` contract: one record per subagent loop it has
- * seen a step from or listed, keyed by `agentId`. Held by the host, so a hot
- * reload of the module keeps it (#863 §What it watches).
+ * index.d.ts, the liveness mod's `$.state` contract: one record per subagent
+ * loop it has seen a step from or listed, keyed by `agentId`. Held by the
+ * host, so a hot reload of the module keeps it (#863 §What it watches).
  */
 
 export interface LivenessRecord {
