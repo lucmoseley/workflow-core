@@ -33,8 +33,7 @@
  * process (mantahostels#1953).
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
+const { readEnvironVar } = require("./proc-environ.js");
 const { FULL_REASONS, FULL_CAUSES } = require("./test-pass-marker.js");
 
 const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
@@ -154,19 +153,10 @@ function readLaunch(env = process.env) {
  */
 function readCarriedWeight(pid, proc = "/proc") {
 	if (pid === null) return null;
-	let environ;
-	try {
-		environ = fs.readFileSync(path.join(proc, String(pid), "environ"), "utf8");
-	} catch {
-		/* Gone, or another user's: weighed off its argv instead. */
-		return null;
-	}
-	const key = `${LAUNCH_ENV}=`;
-	const entry = environ.split("\0").find((e) => e.startsWith(key));
-	if (entry === undefined) return null;
-	const { resolvedFiles, wholeSlot } = readLaunch({
-		[LAUNCH_ENV]: entry.slice(key.length),
-	});
+	const read = readEnvironVar(pid, LAUNCH_ENV, proc);
+	/* Unreadable — gone, or another user's — it is weighed off its argv instead. */
+	if (!read.ok || read.value === null) return null;
+	const { resolvedFiles, wholeSlot } = readLaunch({ [LAUNCH_ENV]: read.value });
 	return resolvedFiles === null && !wholeSlot
 		? null
 		: { resolvedFiles, wholeSlot };
