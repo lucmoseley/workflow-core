@@ -263,7 +263,22 @@ describe("a new checker", () => {
 			buildNoCallerLine("self-plugin/hooks/hooks.json"),
 		);
 		expect(v.reason).not.toContain(".claude/settings.json");
-		expect(v.reason).toContain("scripts/check-new.test.ts");
+		expect(v.reason).toContain("scripts/check-new.{test,spec}.");
+	});
+
+	/* The core takes every form siblingTests names, as the suite's own
+	 * registry tests do (#3387). */
+	it("counts a .spec.ts sibling as its test", () => {
+		add("scripts/check-new.js", "// new\n");
+		add("scripts/check-new.spec.ts", "// covered\n");
+		add("scripts/wire.sh", "#!/usr/bin/env bash\nnode scripts/check-new.js\n");
+		expect(
+			run(
+				commit(
+					"scripts/check-new.js scripts/check-new.spec.ts scripts/wire.sh",
+				),
+			).denied,
+		).toBe(false);
 	});
 
 	it("counts a self-plugin hooks.json registration as its caller (#2457)", () => {

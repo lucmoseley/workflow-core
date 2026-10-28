@@ -28,6 +28,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { siblingTests } from "./lib/test-kind.js";
 
 const SCRIPTS = __dirname;
 const ROOT = path.join(SCRIPTS, "..");
@@ -151,10 +152,12 @@ describe("checker registrations", () => {
 		expect(unwired).toEqual([]);
 	});
 
-	it("every scripts/check-*.js has a sibling scripts/check-<name>.test.ts", () => {
+	it("every scripts/check-*.js has a sibling test", () => {
 		const untested = CHECKER_FILES.filter(
 			(file) =>
-				!fs.existsSync(path.join(SCRIPTS, file.replace(/\.js$/, ".test.ts"))),
+				!siblingTests(`scripts/${file.replace(/\.js$/, "")}`).some((p) =>
+					fs.existsSync(path.join(ROOT, p)),
+				),
 		);
 
 		expect(untested).toEqual([]);

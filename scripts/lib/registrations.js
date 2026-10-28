@@ -243,8 +243,7 @@ function hookFaults(rows, regs) {
 }
 
 /**
- * Does `scripts/<stem>` have a test of any form a host runner collects? The
- * core's own tests take `.test.ts` alone.
+ * Does `scripts/<stem>` have a test of any form a runner collects?
  * @param {string} stem
  * @param {(rel: string) => boolean} exists
  */
@@ -354,5 +353,6 @@ module.exports = {
 	hookFaults,
 	guardFaults,
 	checkerFaults,
+	hasSibling,
 	unexplained,
 };

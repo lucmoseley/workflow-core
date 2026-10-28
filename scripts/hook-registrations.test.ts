@@ -32,6 +32,7 @@ import {
 	type HookEvent,
 	registrationsOf,
 } from "./lib/hook-wiring";
+import { siblingTests } from "./lib/test-kind.js";
 
 /**
  * Guards invoked by another script rather than by a hook, so no
@@ -584,11 +585,11 @@ describe("hook registrations", () => {
 		expect(unwired).toEqual([]);
 	});
 
-	it("every scripts/guard-*.{sh,js} has a sibling scripts/guard-<name>.test.ts", () => {
+	it("every scripts/guard-*.{sh,js} has a sibling test", () => {
 		const untested = guardFiles.filter(
 			(file) =>
-				!fs.existsSync(
-					path.join(__dirname, file.replace(/\.(sh|js)$/, ".test.ts")),
+				!siblingTests(`scripts/${file.replace(/\.(sh|js)$/, "")}`).some((p) =>
+					fs.existsSync(path.join(__dirname, "..", p)),
 				),
 		);
 

@@ -154,6 +154,7 @@
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -4574,6 +4575,7 @@
 		"scripts/clear-rule-latch.sh": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/clear-rule-latch.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/marker-root.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -5042,6 +5044,7 @@
 		"scripts/guard-automode-refusal.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-automode-refusal.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5096,6 +5099,7 @@
 			"scripts/guard-lost-deny.test.ts",
 			"scripts/guard-refusal-length.test.ts",
 			"scripts/guard-uncommitted-work.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -5122,6 +5126,7 @@
 		"scripts/guard-failed-call-rules.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5157,6 +5162,7 @@
 		"scripts/guard-inventory.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-inventory.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5196,6 +5202,7 @@
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-jev-advisory.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5220,6 +5227,7 @@
 		"scripts/guard-lost-deny.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-lost-deny.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5238,6 +5246,7 @@
 		"scripts/guard-lost-verdict.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-lost-verdict.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5264,6 +5273,7 @@
 		"scripts/guard-paste-self-match.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-paste-self-match.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5342,6 +5352,7 @@
 			"scripts/guard-priced-options-standing-round.test.ts",
 			"scripts/guard-priced-options-waiting.test.ts",
 			"scripts/guard-priced-options.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5392,6 +5403,7 @@
 		"scripts/guard-selection-sum.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-selection-sum.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5410,6 +5422,7 @@
 		"scripts/guard-session-ceiling.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/inject-compaction-count.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
@@ -5444,6 +5457,7 @@
 		"scripts/guard-uncommitted-work.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-uncommitted-work.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5462,6 +5476,7 @@
 		"scripts/guard-unpushed-commits.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5545,6 +5560,7 @@
 		],
 		"scripts/inject-compaction-count.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/inject-compaction-count.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5559,6 +5575,7 @@
 		],
 		"scripts/inject-founder-wording.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5574,6 +5591,7 @@
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/concision-backstop.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -18070,7 +18088,6 @@
 		"scripts/lib/test-kind.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
@@ -19514,6 +19531,7 @@
 		],
 		"scripts/mark-presence.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -20051,6 +20069,7 @@
 		],
 		"scripts/name-issue-session.sh": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/name-issue-session.test.ts",
@@ -20094,6 +20113,7 @@
 		],
 		"scripts/park-on-round.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -20159,6 +20179,7 @@
 		"scripts/place-new-issue.sh": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/file-issue.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/link-sub-issue.test.ts",
@@ -20495,6 +20516,7 @@
 		],
 		"scripts/record-acts.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -20537,6 +20559,7 @@
 		],
 		"scripts/record-divergence.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -20552,6 +20575,7 @@
 		],
 		"scripts/record-issue-claim.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
@@ -20597,6 +20621,7 @@
 		],
 		"scripts/refill-wake.sh": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/refill-wake.test.ts",
@@ -20638,6 +20663,7 @@
 		],
 		"scripts/release-issue-claim.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -21127,6 +21153,7 @@
 		"scripts/self-plugin-canary.sh": [
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/core-hooks.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -21328,6 +21355,7 @@
 		],
 		"scripts/start-lander-on-push.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -21421,6 +21449,7 @@
 		"scripts/sweep-debts-detached.sh": [
 			"scripts/check-self-throttling.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -21584,6 +21613,7 @@
 		],
 		"scripts/unpark-on-prompt.js": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -21803,6 +21833,7 @@
 		],
 		"scripts/write-self-plugin-marker.sh": [
 			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",

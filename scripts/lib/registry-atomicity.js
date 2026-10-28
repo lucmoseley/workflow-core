@@ -41,8 +41,8 @@
  * demands move to the host-side file every adopter is seeded with:
  * .claude/registrations.json — a `hooks` row for the REGISTRATIONS entry, a
  * `registeredElsewhere` or `calledElsewhere` key for the two allowlists — and
- * .claude/guard-fire-needles.json. A host sibling test may be any of
- * lib/test-kind.js's siblingTests, and node
+ * .claude/guard-fire-needles.json. A sibling test, the core's or a host's,
+ * may be any of lib/test-kind.js's siblingTests, and node
  * <plugin>/scripts/check-registrations.js holds the whole-repo form. A host
  * file that does not exist yet is judged as empty.
  *
@@ -146,6 +146,7 @@ const {
 	HOST_REGISTRATIONS,
 	allRegistrations,
 	buildCommandLine,
+	hasSibling,
 	isPinnedBy,
 } = require("./registrations.js");
 const {
@@ -160,11 +161,7 @@ const {
 	literal,
 	scanFlags,
 } = require("./shell-words.js");
-const {
-	JS_TEST_FILE,
-	siblingTests,
-	spellSiblingTests,
-} = require("./test-kind.js");
+const { JS_TEST_FILE, spellSiblingTests } = require("./test-kind.js");
 
 const HOST_SETTINGS = ".claude/settings.json";
 
@@ -926,28 +923,15 @@ function hasCoreNeedle(view, key) {
 }
 
 /**
- * Does scripts/`stem` have a sibling test after this commit? The core's tests
- * take .test.ts alone.
+ * The refusal line for scripts/`stem` having no sibling test after this
+ * commit, or "".
  * @param {View} view
  * @param {string} stem
- * @param {string} reg the registry judging it
  */
-function hasSibling(view, stem, reg) {
-	const tests = isHost(reg)
-		? siblingTests(`scripts/${stem}`)
-		: [`scripts/${stem}.test.ts`];
-	return tests.some((p) => view.willExist(p));
-}
-
-/**
- * The sibling test a refusal asks for, spelt for the registry `reg`.
- * @param {string} stem
- * @param {string} reg
- */
-function siblingName(stem, reg) {
-	return isHost(reg)
-		? spellSiblingTests(`scripts/${stem}`)
-		: `scripts/${stem}.test.ts`;
+function siblingFault(view, stem) {
+	return hasSibling(stem, (p) => view.willExist(p))
+		? ""
+		: `  - no sibling test: no ${spellSiblingTests(`scripts/${stem}`)} in this commit or in HEAD\n`;
 }
 
 /**
@@ -1013,8 +997,7 @@ function judgeChecker(file, view) {
 	let missing = "";
 	if (!wired)
 		missing += `  - no caller: nothing in .husky/, .github/workflows/, ${regFile} or another scripts/ file names it after this commit\n`;
-	if (!hasSibling(view, stem, checkerReg))
-		missing += `  - no sibling test: no ${siblingName(stem, checkerReg)} in this commit or in HEAD\n`;
+	missing += siblingFault(view, stem);
 	if (!missing) return "";
 	const allowEntry = isHost(checkerReg)
 		? `a \`calledElsewhere\` entry to ${checkerReg}, keyed by the file name with its reason,`
@@ -1053,8 +1036,7 @@ function judgeGuard(file, view) {
 		if (!view.willHold(needleReg, `"${file}`))
 			missing += `  - not counted: ${needleReg} has no entry for it after this commit\n`;
 	}
-	if (!hasSibling(view, stem, hookReg))
-		missing += `  - no sibling test: no ${siblingName(stem, hookReg)} in this commit or in HEAD\n`;
+	missing += siblingFault(view, stem);
 	if (!missing) return "";
 	return `scripts/${file} is a new guard, and this commit does not carry its wiring:
 
