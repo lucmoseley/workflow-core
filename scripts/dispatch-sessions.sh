@@ -64,11 +64,6 @@
 # WFC_DISPATCH_STAGGER_SECONDS between launches (default 2; mantahostels#2588)
 # so the next member's re-read sees the previous one's bg-spare.
 #
-# WFC_UNION_WRAPPER names the multi-plan liveness wrapper this script falls back
-# to when WFC_CLAUDE_BIN is unset (see that var's own comment below). Default
-# $HOME/.local/bin/claude-agents-union; point it elsewhere, or at a path that
-# does not exist, to keep a run off the machine's real one.
-#
 # Exit codes: 0 launched (or dry-run; a member dropped by either drop above
 #             still exits 0, as does a set the allowance cap cut short),
 #             2 usage error, a seat file that refuses, or a non-Opus member
@@ -203,52 +198,9 @@ fi
 # included. A test that cannot point it at a stub launches real background
 # sessions (mantahostels#1374).
 #
-# The default below is the bare `claude` CLI, whose `agents --json` — read by
-# the duplicate gate's live limb below, through agent-liveness.js — is scoped
-# to one CLAUDE_CONFIG_DIR. On a machine running several Claude plans (this one:
-# `.claude`, `.claude2` and `.claude3`), a session live under ANOTHER plan is
-# invisible to it, and its issue can be dispatched a second time — the mantahostels#1337
-# failure the gate exists to stop. `~/.local/bin/claude-agents-union` unions all
-# plans' listings; `~/.bashrc`'s `ca1`/`ca2`/`ca3` aliases already point this var at
-# it — but under MANTA_CLAUDE_BIN, which nothing in this repo reads (#277).
-#
-# So: when the var is unset and that wrapper is a regular executable file on
-# THIS machine, take it, and say on stderr which binary was picked. A checkout
-# without the wrapper falls through to the bare CLI.
-#
-# THE RESIDUAL IS A DEGRADED GATE, not a wrong binary. A wrapper that is slow or
-# broken leaves the duplicate gate WEAKER than bare `claude` would: it spawns
-# three CLI starts against agent-liveness.js's 10s oracle cap, and exits
-# non-zero on any non-array listing, so the live limb drops entirely rather than
-# answering for one plan.
-#
-# WFC_UNION_WRAPPER overrides where the lookup points. HOME may legitimately be
-# unset under cron or systemd, and dereferencing it bare under `set -u` (above)
-# would abort the whole script before any gate — so the probe is skipped rather
-# than risked.
-wfc_claude_bin_was_unset=0
-wfc_claude_bin_autopicked=0
-if [[ -z "${WFC_UNION_WRAPPER:-}" && -n "${HOME:-}" ]]; then
-  WFC_UNION_WRAPPER="$HOME/.local/bin/claude-agents-union"
-fi
-WFC_UNION_WRAPPER="${WFC_UNION_WRAPPER:-}"
-if [[ -z "${WFC_CLAUDE_BIN:-}" ]]; then
-  wfc_claude_bin_was_unset=1
-  if [[ -n "$WFC_UNION_WRAPPER" && -f "$WFC_UNION_WRAPPER" && -x "$WFC_UNION_WRAPPER" ]]; then
-    WFC_CLAUDE_BIN="$WFC_UNION_WRAPPER"
-    wfc_claude_bin_autopicked=1
-  fi
-fi
+# The duplicate gate's live limb reads every Claude plan's sessions through
+# agent-liveness.js, whichever plan this runs under (#3512).
 export WFC_CLAUDE_BIN="${WFC_CLAUDE_BIN:-claude}"
-
-# Announced here rather than with the unset-warning below, which `--force`
-# skips: the selection above is unconditional, so a --force run would otherwise
-# swap the launch binary and say nothing. `NOTE:` is a prefix
-# .claude/skills/pick-next/SKILL.md §7 tells the calling session to relay.
-if [[ $wfc_claude_bin_autopicked -eq 1 ]]; then
-  printf 'NOTE: WFC_CLAUDE_BIN was unset; using the union wrapper found on this\n' >&2
-  printf '  machine, so the duplicate gate sees every plan: %s\n' "$WFC_CLAUDE_BIN" >&2
-fi
 
 # The advisor a Sonnet session gets — the escalation path that makes mantahostels#1093's
 # Sonnet arm acceptable between checks.
@@ -522,22 +474,7 @@ fi
 # check itself writes nothing.
 #
 # Refusal is per MEMBER, not per set.
-#
-# The WFC_CLAUDE_BIN-unset warning fires here rather than at the assignment:
-# only inside the block that actually reads `agents --json`, so `--force` —
-# which skips this gate outright — never gets a false alarm (mantahostels#1401).
 if [[ $force -eq 0 ]]; then
-  if [[ $wfc_claude_bin_was_unset -eq 1 && $wfc_claude_bin_autopicked -eq 0 ]]; then
-    printf 'WARNING: WFC_CLAUDE_BIN is unset and no union wrapper was found at\n' >&2
-    printf '  %s, so the duplicate gate'"'"'s live check will\n' \
-      "${WFC_UNION_WRAPPER:-<no path: HOME unset>}" >&2
-    printf '  only see sessions in this Claude plan'"'"'s config dir. On a machine\n' >&2
-    printf '  running more than one plan, set it to the union wrapper or point\n' >&2
-    printf '  WFC_UNION_WRAPPER at where that wrapper lives, or a same-issue\n' >&2
-    printf '  duplicate under another plan will not be caught. Set\n' >&2
-    printf '  WFC_CLAUDE_BIN=claude to silence this on a single-plan machine.\n' >&2
-  fi
-
   prompts=""
   for ((i = 2; i <= $#; i += 2)); do
     if [[ -z "${!i//[[:space:]]/}" ]]; then

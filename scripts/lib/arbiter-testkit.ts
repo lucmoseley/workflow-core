@@ -95,11 +95,10 @@ function dropSiblingConfigs(env: NodeJS.ProcessEnv) {
  * Point every external oracle the arbiter shells out to at a stub inside the
  * sandbox.
  *
- * WITHOUT THIS THE SUITE READS THE MACHINE (mantahostels#1902). A real Claude Code session
- * exports `WFC_CLAUDE_BIN` — here `claude-agents-union`, which unions the
- * founder's three live session registries — so a case reaching the liveness
- * oracle without a shim of its own asks which sessions are running RIGHT NOW,
- * and answers differently minute to minute. `WFC_ARBITER_GH` is unset there,
+ * WITHOUT THIS THE SUITE READS THE MACHINE (mantahostels#1902). A case reaching
+ * the liveness oracle without a shim of its own runs the real `claude` over the
+ * founder's three live session registries, asking which sessions are running
+ * RIGHT NOW, and answers differently minute to minute. `WFC_ARBITER_GH` is unset there,
  * falling the debt lifecycle back on the real `gh`. NEITHER BINARY IS REACHABLE
  * IN CI, so a green CI run says nothing about this.
  *

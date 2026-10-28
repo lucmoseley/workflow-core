@@ -114,7 +114,7 @@ beforeEach(() => {
 		...readProgramLibs("refill-loop.js").map((l) => `lib/${l}`),
 		/* Spawned by path, not required: lib/agent-liveness.js runs the listing
 		 * through it, which reads unread without it. */
-		"lib/run-grouped.js",
+		"lib/list-agents.js",
 		/* Spawned by path: the resume typed into a live session (#2705). */
 		"pty_type.py",
 		/* Spawned by path: a copy's issue claims moved (#2963). */

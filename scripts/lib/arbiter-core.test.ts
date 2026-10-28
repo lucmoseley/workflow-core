@@ -1068,9 +1068,7 @@ describe("several config dirs — a neighbour plan's sessions registry (mantahos
 	});
 
 	it("still defaults _B and _C when only WFC_CLAUDE_CONFIG_A is set", () => {
-		// Each knob falls back on its own, the spelling claude-agents-union uses.
-		// Defaulting them together would let the agents oracle and this reader
-		// disagree about which plans exist, on one set of env vars.
+		// Each knob falls back on its own.
 		process.env.WFC_CLAUDE_CONFIG_A = path.join(sb.dir, "plan-a");
 
 		expect(store.paths.sessionDirs()).toEqual([

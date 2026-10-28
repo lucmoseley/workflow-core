@@ -106,8 +106,7 @@ at clean `HEAD` rather than trusting the `mantahostels#291` banner.
 Watch with one backgrounded beat. A beat checks the issue states and
 `git status --porcelain | grep -c '^ M'`; the dirty count falling is the
 progress signal that matters. `claude agents --json` reads ONE plan, so scope it
-to the destination dir, or use `~/.local/bin/claude-agents-union` to see every
-plan at once.
+to the destination dir.
 
 ## Takeover: one frozen session
 

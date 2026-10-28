@@ -592,12 +592,14 @@ function deathPoint(narration) {
  */
 function liveSessions(dir) {
 	try {
-		const raw = runOracle(
+		const out = runOracle(
 			claudeBin(),
 			// A guess, never measured: a wedged daemon, not a slow one.
 			capMs("WFC_RESCUE_ORACLE_TIMEOUT_MS", 45_000),
-			{ ...process.env, CLAUDE_CONFIG_DIR: dir },
+			[dir],
 		);
+		const [raw] = JSON.parse(out);
+		if (typeof raw !== "string") return null;
 		const parsed = JSON.parse(raw);
 		if (!Array.isArray(parsed)) return null;
 		return new Set(parsed.map((a) => String(a.id || "").slice(0, 8)));
@@ -847,10 +849,11 @@ const TAIL_BYTES = 512 * 1024;
  */
 
 /**
- * Every existing plan's own `claude agents --json`, read in parallel, each
- * through agent-liveness.js in a child so its timeout, single-flight and
- * degrade-to-doubt rules come with it. The self-test is waived: this session
- * is listed by one plan at most, so the others would all refuse.
+ * Every existing plan's listing, read in parallel, each through
+ * agent-liveness.js in a child so its timeout, single-flight and
+ * degrade-to-doubt rules come with it. Each lists every plan's sessions, so
+ * the plans agree unless a read fails; one read would do (#3525). The
+ * self-test is waived, as it was when each plan listed only its own.
  *
  * @param {string[]} dirs
  * @returns {Promise<PlanListing[]>}
@@ -1179,11 +1182,11 @@ function takeSample(listings, sessionId) {
  * The plan holding the session's transcript, with its job record where that
  * record names the session.
  *
- * A union oracle (WFC_CLAUDE_BIN=claude-agents-union) lists every session on
- * every plan, so the listing plan need not be the session's own: the plan
+ * agent-liveness.js lists every plan's sessions under any plan's dir
+ * (#3512), so the listing plan need not be the session's own: the plan
  * holding its transcript is, and where two do, the one whose job record
  * names it — a record under the same short id may be another session's
- * (#1146). The listing plan is tried first, so a plain oracle's answer holds.
+ * (#1146). The listing plan is tried first.
  *
  * @param {PlanListing[]} listings
  * @param {{dir: string} | null | undefined} listed

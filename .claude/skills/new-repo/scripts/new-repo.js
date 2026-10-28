@@ -2136,8 +2136,6 @@ function push({ inp, clone, env, dry }, committing) {
 	report("push", "done", "main");
 }
 
-/** The cross-plan wrapper agent-liveness.js reads from WFC_CLAUDE_BIN, under HOME. */
-const UNION_WRAPPER = ".local/bin/claude-agents-union";
 /** Each plan's config-dir suffix, in alias order: `<prefix>1` is `~/.claude`. */
 const PLANS = ["", "2", "3"];
 
@@ -2154,20 +2152,16 @@ const markers = (name) => ({
 
 /**
  * The launch block (#697): one alias per plan, agents view only, in the
- * existing blocks' shape — but the wrapper spelled in full rather than as a
- * variable defined elsewhere in ~/.bashrc, so the block stands alone.
+ * existing blocks' shape.
  * @param {Inputs} inp
  */
 function buildLaunchBlock(inp) {
-	const union = fs.existsSync(path.join(os.homedir(), UNION_WRAPPER));
-	const dirs = PLANS.map((d) => `CLAUDE_CONFIG_DIR=$HOME/.claude${d}`);
-	const width = Math.max(...dirs.map((d) => d.length));
-	const aliases = dirs.map(
+	const aliases = PLANS.map(
 		(d, i) =>
-			`alias ${inp.prefix}${i + 1}='(cd ~/${inp.name} && ${union ? `${d.padEnd(width)} WFC_CLAUDE_BIN=$HOME/${UNION_WRAPPER}` : d} claude agents)'`,
+			`alias ${inp.prefix}${i + 1}='(cd ~/${inp.name} && CLAUDE_CONFIG_DIR=$HOME/.claude${d} claude agents)'`,
 	);
 	const { open, close } = markers(inp.name);
-	return { union, block: [open, ...aliases, close].join("\n") };
+	return [open, ...aliases, close].join("\n");
 }
 
 /**
@@ -2303,22 +2297,15 @@ function blockLead(text) {
 function launchAliases(inp, dryRun) {
 	const file = bashrcPath();
 	const text = readBashrc();
-	const { union, block } = buildLaunchBlock(inp);
+	const block = buildLaunchBlock(inp);
 	const found = findBlock(text, inp.name);
 	if (found) return keepFoundBlock({ inp, file, found, block });
 	const lead = blockLead(text);
 	const start = `${text}${lead}`.split("\n").length;
 	const range = `${file} lines ${start}-${start + block.split("\n").length - 1}`;
-	const warnUnion = () => {
-		if (!union)
-			out(
-				`  warning: ~/${UNION_WRAPPER} is absent, so the block leaves out WFC_CLAUDE_BIN — a session on one plan may read another plan's sessions as dead`,
-			);
-	};
 	if (dryRun) {
 		report("bashrc", "would", `append to ${range}, backing it up first`);
 		showBlock(block);
-		warnUnion();
 		return block;
 	}
 	const existed = fs.existsSync(file);
@@ -2344,7 +2331,6 @@ function launchAliases(inp, dryRun) {
 		`${range}, ${existed ? `backed up to ${backup}` : "a new file"}`,
 	);
 	showBlock(block);
-	warnUnion();
 	return block;
 }
 

@@ -162,8 +162,8 @@ const tablePath = () => path.join(hostRoot(), SESSION_COST_TABLE);
  * A listed session with no transcript yet started within this window is a
  * just-launched one and counts at the full mean (#371 item 6). Ten minutes is
  * a first guess, not a measurement. Older and still absent,
- * it is a session another seat's transcript holds — listed only through the
- * multi-seat union wrapper — and spends that seat, not this one.
+ * it is a session another seat's transcript holds — the oracle lists every
+ * seat's sessions — and spends that seat, not this one.
  */
 const FRESH_LAUNCH_MS = 10 * 60 * 1000;
 

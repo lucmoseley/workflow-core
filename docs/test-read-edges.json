@@ -6241,6 +6241,7 @@
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/host-root-byte-identity.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
+			"scripts/lib/agents-stop.contract.test.ts",
 			"scripts/lib/anthropic-report.test.ts",
 			"scripts/lib/arbiter-core.test.ts",
 			"scripts/lib/arbiter-modules.test.ts",
@@ -6265,6 +6266,7 @@
 			"scripts/lib/project-slug.test.ts",
 			"scripts/lib/pull-form.test.ts",
 			"scripts/lib/push-rules.test.ts",
+			"scripts/lib/refill-wake.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -12869,6 +12871,23 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/list-agents.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/agents-stop.contract.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/refill-wake.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/load-failure-stop.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -16454,23 +16473,6 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/lib/run-grouped.js": [
-			"scripts/check-guard-errors.test.ts",
-			"scripts/check-guard-registry.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/commit-paths.test.ts",
-			"scripts/concision-backstop.test.ts",
-			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/lib/agents-stop.contract.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/refill-wake.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/record-divergence.test.ts",
-			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/run-in-process.js": [

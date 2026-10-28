@@ -42,12 +42,12 @@ const EXISTING_BLOCKS = [
 ].join("\n\n");
 export const BASHRC = `# ~/.bashrc\nexport EDITOR=vi\n\n${EXISTING_BLOCKS}\n`;
 
-/** What the script writes for tides/td, with the cross-plan wrapper present. */
+/** What the script writes for tides/td. */
 export const TIDES_BLOCK = [
 	"# --- tides, one alias per plan ---",
-	"alias td1='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude  WFC_CLAUDE_BIN=$HOME/.local/bin/claude-agents-union claude agents)'",
-	"alias td2='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude2 WFC_CLAUDE_BIN=$HOME/.local/bin/claude-agents-union claude agents)'",
-	"alias td3='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude3 WFC_CLAUDE_BIN=$HOME/.local/bin/claude-agents-union claude agents)'",
+	"alias td1='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude claude agents)'",
+	"alias td2='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude2 claude agents)'",
+	"alias td3='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude3 claude agents)'",
 	"# --- end tides block ---",
 ].join("\n");
 
@@ -314,7 +314,7 @@ function makeSource(
 }
 
 /**
- * `bashrc` seeds ~/.bashrc, `union` the cross-plan wrapper beside it.
+ * `bashrc` seeds ~/.bashrc.
  * `failBashN` puts a `bash` first on PATH whose `-n` refuses any file holding
  * the tides block, as a write that broke the file's syntax would read — on
  * PATH, not through an env var, because the script carries no test hook
@@ -326,7 +326,6 @@ function makeSource(
 export function sandbox({
 	tags = ["v1.9.3", "v1.10.0", "nightly", "v0.99.0"],
 	bashrc = BASHRC as string | null,
-	union = true,
 	failBashN = false,
 	source = null as string | null,
 	sourceFiles = {} as Record<string, string | { link: string } | null>,
@@ -364,12 +363,6 @@ export function sandbox({
 	// The scratch clone of the source repo lands here, where a test can see it gone.
 	fs.mkdirSync(path.join(sb, "tmp"));
 	if (bashrc !== null) fs.writeFileSync(path.join(home, ".bashrc"), bashrc);
-	if (union) {
-		fs.mkdirSync(path.join(home, ".local/bin"), { recursive: true });
-		fs.writeFileSync(path.join(home, ".local/bin/claude-agents-union"), "", {
-			mode: 0o755,
-		});
-	}
 	const stub = stubGhScript(sb, ghServer.script);
 	let searchPath = stub.PATH;
 	if (failBashN) {

@@ -92,19 +92,6 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status
 const lock = pidLock(files.pid, "refill-loop.js");
 
 /**
- * The listing oracle every seat's sessions show in: WFC_CLAUDE_BIN, else the
- * union wrapper where it is installed.
- * @param {NodeJS.ProcessEnv} env
- */
-function withUnionOracle(env) {
-	if (env.WFC_CLAUDE_BIN) return env;
-	const wrapper =
-		env.WFC_UNION_WRAPPER ||
-		path.join(homeDir(), ".local", "bin", "claude-agents-union");
-	return fs.existsSync(wrapper) ? { ...env, WFC_CLAUDE_BIN: wrapper } : env;
-}
-
-/**
  * The checkout roots `names` give, each a directory in the home directory
  * carrying a workflow-core config: discovery's own reach (lib/refill-repos.js),
  * so a checkout elsewhere is never served (#2123).
@@ -413,7 +400,6 @@ async function main(argv = process.argv.slice(2)) {
 		process.exitCode = parsed;
 		return;
 	}
-	Object.assign(process.env, withUnionOracle(process.env));
 	/* cli-args.js refuses a command not declared, so one is always named. */
 	const command = /** @type {keyof typeof COMMANDS} */ (parsed.command);
 	process.exitCode = await COMMANDS[command](parsed);

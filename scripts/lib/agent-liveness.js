@@ -45,6 +45,10 @@
  * (#2180). Inside a session an empty list is still a fault. It is its own
  * export, never an option, so no reader judging by absence can pass it.
  *
+ * EVERY LISTING IS EVERY PLAN'S (#3512). `claude agents --json` is scoped to
+ * CLAUDE_CONFIG_DIR, so the oracle is read once per `sessionDirs()` dir
+ * (lib/arbiter-core.js). One dir's read failing refuses the whole listing.
+ *
  * EVERY LISTING CARRIES THE LIVE HEADLESS RUNS (lib/headless-sessions.js,
  * #2608), which the oracle cannot see: `claude -p` on an overflow seat has no
  * daemon job. They are merged on every read and never cached, and the
@@ -58,7 +62,9 @@
  */
 
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
 const path = require("node:path");
+const { sessionDirs } = require("./arbiter-core.js");
 const cache = require("./oracle-cache");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
@@ -140,27 +146,41 @@ function capMs(env, fallback) {
 	return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/* Runs the oracle in its own process group, so a capped read kills the union
- * wrapper's per-seat children too, not the wrapper alone (#2665). */
-const RUN_GROUPED = path.join(__dirname, "run-grouped.js");
+/* Each read runs in a process group of its own, so a capped read kills every
+ * child, not the runner alone (#2665). */
+const LIST_AGENTS = path.join(__dirname, "list-agents.js");
+
+/* A guess: the runner's own ceiling, as a multiple of the cap `runOracle` sets. */
+const BACKSTOP_FACTOR = 2;
 
 /**
- * One oracle call, capped. Separate so the retry cannot drift from the first
- * attempt in anything but its ceiling, and exported so every other caller of
- * the oracle kills the same group on its cap.
+ * The config dirs the oracle is read in: this caller's own, then every other
+ * seat's that exists.
+ * @returns {string[]}
+ */
+function oracleDirs() {
+	return sessionDirs().filter((d, i) => i === 0 || fs.existsSync(d));
+}
+
+/**
+ * One oracle call per dir, all at once and capped together, answering the
+ * runner's stdout: a JSON array of each dir's stdout, in `dirs` order.
+ * Exported so every other caller of the oracle kills the same groups on its
+ * cap.
  *
  * @param {string} bin
  * @param {number} timeoutMs
- * @param {NodeJS.ProcessEnv} [env]  the oracle's environment, else this process's
+ * @param {string[]} dirs
  * @returns {string}
  */
-function runOracle(bin, timeoutMs, env) {
+function runOracle(bin, timeoutMs, dirs) {
 	try {
 		return execFileSync(
 			process.execPath,
-			[RUN_GROUPED, bin, "agents", "--json"],
+			/* This cap fires first, so a timeout reads ETIMEDOUT here and earns the
+			 * retry. */
+			[LIST_AGENTS, String(timeoutMs * BACKSTOP_FACTOR), bin, ...dirs],
 			{
-				env,
 				encoding: "utf8",
 				timeout: timeoutMs,
 				stdio: ["ignore", "pipe", "pipe"],
@@ -169,13 +189,78 @@ function runOracle(bin, timeoutMs, env) {
 		);
 	} catch (e) {
 		/* A binary that would not start is named by its spawn code, as a
-		 * direct spawn names it; run-grouped.js prints only that code. */
+		 * direct spawn names it. */
 		const { status, stderr, code } = caught(e);
 		const spawnCode = String(stderr ?? "").trim();
 		if (!code && status === 127 && /^E[A-Z]+$/.test(spawnCode))
 			throw Object.assign(new Error(spawnCode), { code: spawnCode });
 		throw e;
 	}
+}
+
+/**
+ * One oracle stdout as its parsed array, or `{why}` where it is not one. Its
+ * records are `any`, as `mergedListing` takes them: each is judged there field
+ * by field.
+ * @param {string} raw
+ * @param {string} call
+ * @returns {{agents: any[]} | {why: string}}
+ */
+function parseListing(raw, call) {
+	let agents;
+	try {
+		agents = JSON.parse(raw);
+	} catch {
+		return { why: `${call} did not return JSON` };
+	}
+	if (!Array.isArray(agents))
+		return { why: `${call} returned ${typeof agents}, not the expected array` };
+	return { agents };
+}
+
+/**
+ * The runner's per-dir stdouts as one JSON array, the first record per
+ * session id kept, or `{why}` where any one is not an array. A record with no
+ * id is kept for `mergedListing` to judge.
+ *
+ * @param {string} out  the runner's stdout
+ * @param {string} call
+ * @returns {{raw: string} | {why: string}}
+ */
+function unionOf(out, call) {
+	let raws;
+	try {
+		raws = JSON.parse(out);
+	} catch {
+		raws = null;
+	}
+	if (!Array.isArray(raws) || !raws.every((r) => typeof r === "string"))
+		return { why: `${call} gave no listing per dir` };
+	/** @type {unknown[]} */
+	const all = [];
+	for (const raw of raws) {
+		const parsed = parseListing(raw, call);
+		if ("why" in parsed) return parsed;
+		all.push(...parsed.agents);
+	}
+	const seen = new Set();
+	const union = all.filter((a) => {
+		const id = sessionIdOf(a);
+		if (id === null) return true;
+		if (seen.has(id)) return false;
+		seen.add(id);
+		return true;
+	});
+	return { raw: JSON.stringify(union) };
+}
+
+/**
+ * @param {unknown} a
+ * @returns {string | null}
+ */
+function sessionIdOf(a) {
+	if (typeof a !== "object" || a === null || !("sessionId" in a)) return null;
+	return typeof a.sessionId === "string" ? a.sessionId : null;
 }
 
 /**
@@ -220,10 +305,12 @@ function readListing(opts) {
 		}
 	}
 
+	const dirs = oracleDirs();
 	let raw;
 	try {
+		let out;
 		try {
-			raw = runOracle(bin, oracleTimeoutMs());
+			out = runOracle(bin, oracleTimeoutMs(), dirs);
 		} catch (e) {
 			const err = caught(e);
 			if (err.code !== "ETIMEDOUT")
@@ -234,13 +321,16 @@ function readListing(opts) {
 			// a loop here would wedge the SessionStart hook the cap protects.
 			const retryMs = oracleRetryTimeoutMs();
 			try {
-				raw = runOracle(bin, retryMs);
+				out = runOracle(bin, retryMs, dirs);
 			} catch (again) {
 				return {
 					why: `${call} would not run (${failure(again)}) — twice, the retry given ${retryMs} ms`,
 				};
 			}
 		}
+		const union = unionOf(out, call);
+		if ("why" in union) return union;
+		raw = union.raw;
 		/* PUBLISHED BEFORE THE LOCK IS DROPPED.
 		 * A follower treats "no record and no lock" as a leader that died, and
 		 * spawns; releasing first opens exactly that window on the happy path, so
@@ -270,15 +360,9 @@ function readListing(opts) {
  * @returns {Listing}
  */
 function classifyRaw(raw, call, opts, headlessAgents) {
-	let agents;
-	try {
-		agents = JSON.parse(raw);
-	} catch {
-		return { why: `${call} did not return JSON` };
-	}
-	if (!Array.isArray(agents))
-		return { why: `${call} returned ${typeof agents}, not the expected array` };
-	return mergedListing(agents, headlessAgents, call, opts);
+	const parsed = parseListing(raw, call);
+	if ("why" in parsed) return parsed;
+	return mergedListing(parsed.agents, headlessAgents, call, opts);
 }
 
 /**

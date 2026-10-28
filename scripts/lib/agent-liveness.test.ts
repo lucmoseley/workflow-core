@@ -170,8 +170,11 @@ describe("the oracle times out (mantahostels#1900)", () => {
 		expect(Number(fs.readFileSync(count, "utf8").trim())).toBe(1);
 	});
 
-	it("leaves no child of a wrapper behind it (#2665)", async () => {
-		// The union wrapper's shape: a child per seat backgrounded, then waited on.
+	it("leaves no child of the oracle behind it (#2665)", async () => {
+		// An oracle that backgrounds children, then waits on them. A guess: caps
+		// roomy enough that each read starts its child under load before its cap.
+		process.env.WFC_ORACLE_TIMEOUT_MS = "1000";
+		process.env.WFC_ORACLE_RETRY_TIMEOUT_MS = "2000";
 		const pids = path.join(dir, "pids");
 		const bin = path.join(dir, "claude");
 		fs.writeFileSync(
@@ -388,6 +391,51 @@ describe("what it returns when it can answer", () => {
 		expect(liveness.claudeBin()).toBe(path.join(dir, "claude"));
 		delete process.env.WFC_CLAUDE_BIN;
 		expect(liveness.claudeBin()).toBe("claude");
+	});
+});
+
+describe("every plan's listing (#3512)", () => {
+	/** Seats A and B beside this caller's own dir, each listing its own ids. */
+	function seats() {
+		const a = path.join(dir, "seat-a");
+		const b = path.join(dir, "seat-b");
+		fs.mkdirSync(a);
+		fs.mkdirSync(b);
+		process.env.WFC_CLAUDE_CONFIG_A = a;
+		process.env.WFC_CLAUDE_CONFIG_B = b;
+		const absent = path.join(dir, "no-such-seat");
+		process.env.WFC_CLAUDE_CONFIG_C = absent;
+		const bin = path.join(dir, "claude");
+		fs.writeFileSync(
+			bin,
+			[
+				"#!/bin/sh",
+				`case "$CLAUDE_CONFIG_DIR" in`,
+				`  "${a}") echo '${listing("a1", "shared")}' ;;`,
+				`  "${b}") [ -e "${path.join(dir, "b-fails")}" ] && exit 4; echo '${listing("b1", "shared")}' ;;`,
+				`  "${absent}") echo '${listing("absent")}' ;;`,
+				`  *) echo '${listing("own")}' ;;`,
+				"esac",
+			].join("\n"),
+			{ mode: 0o755 },
+		);
+		process.env.WFC_CLAUDE_BIN = bin;
+	}
+
+	it("unions every existing seat's listing, one record per session, reading no absent seat", () => {
+		seats();
+		const ids = liveness
+			.listedAgents()
+			.agents.map((r: { sessionId: string }) => r.sessionId);
+		expect(ids.sort()).toEqual(["a1", "b1", "own", "shared"]);
+	});
+
+	it("refuses the whole listing where any one seat's read fails", () => {
+		seats();
+		fs.writeFileSync(path.join(dir, "b-fails"), "");
+		const r = liveness.listedAgents();
+		expect(r.agents).toBeUndefined();
+		expect(r.why).toContain("exit 4");
 	});
 });
 

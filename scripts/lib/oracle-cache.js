@@ -123,9 +123,8 @@ const pollMs = () => capMs("WFC_ORACLE_CACHE_POLL_MS", 100);
  * OFF BY ONE ENV VAR, so a session that suspects the cache can rule it out.
  *
  * IT IS DELIBERATELY NOT KEYED OFF `WFC_CLAUDE_BIN` BEING SET. That was tried
- * and measured wrong: this machine exports WFC_CLAUDE_BIN in the real shell —
- * `~/.local/bin/claude-agents-union` — so treating it as a test-only seam turned
- * the cache off in production and the benchmark read a flat nothing. The suite
+ * and measured wrong: a real shell may export WFC_CLAUDE_BIN, so treating it as
+ * a test-only seam turned the cache off in production. The suite
  * is kept out of the way by keying every path to the binary instead, and the
  * sweep in `write` collects what the suite leaves.
  */

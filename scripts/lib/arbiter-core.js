@@ -54,18 +54,9 @@ const DEFAULT_CONFIG_DIR_NAMES = [".claude", ".claude2", ".claude3"];
  * NOT per seat: every seat's sessions keep it under the first seat
  * (`storeConfigDir()`, #383), so a claim taken on one is seen on all.
  *
- * WFC_CLAUDE_CONFIG_A / _B / _C name the set, EACH FALLING BACK ON ITS OWN.
- * Defaulting them together instead would let the two readers of one set of knobs
- * disagree about which plans exist — `~/.local/bin/claude-agents-union` being the
- * other reader, which unions the same dirs for the agents oracle and is what
- * `scripts/dispatch-sessions.sh` autopicks when WFC_CLAUDE_BIN is unset.
- *
- * THE WRAPPER READS THESE NAMES, with no fallback to the pre-rename
- * MANTA_CLAUDE_CONFIG_* it read until #277: nothing on this machine exports
- * those, and a second spelling on one side only is the divergence #277 closed.
- *
- * IT ALSO DERIVES THE SET THE SAME WAY, ruled at #283: siblings of the config
- * dir, that dir itself prepended, deduped by resolved path.
+ * WFC_CLAUDE_CONFIG_A / _B / _C name the set, EACH FALLING BACK ON ITS OWN,
+ * with no fallback to the pre-rename MANTA_CLAUDE_CONFIG_* (#277). The agents
+ * oracle reads this same set (lib/agent-liveness.js, #3512).
  *
  * DERIVED FROM configDir(), NOT FROM HOME: siblings of the config dir land
  * inside the test sandbox and siblings of the real home do not (configDir()

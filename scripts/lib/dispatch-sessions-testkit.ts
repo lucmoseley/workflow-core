@@ -297,12 +297,6 @@ export function dispatchFixture(): DispatchFixture {
 			...process.env,
 			LC_ALL: "C",
 			WFC_CLAUDE_BIN: stubPath(),
-			/* An unset WFC_CLAUDE_BIN falls back to the union wrapper where the
-			 * machine has one, so every case points that lookup at a path that
-			 * does not exist. The case exercising the fallback overrides it —
-			 * so any new case that deletes WFC_CLAUDE_BIN lands on the no-wrapper
-			 * branch unless it sets this too. */
-			WFC_UNION_WRAPPER: path.join(fx.dir, "no-such-union-wrapper"),
 			/* The launcher records every launch to a ledger (mantahostels#1337). These runs drive
 			 * the real script against a stubbed `claude`, so without redirecting it
 			 * they append fake launches to the working ledger and the next real

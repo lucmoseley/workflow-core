@@ -88,7 +88,14 @@ describe("a grouped child", () => {
 			stdout: "ok",
 			stderr: "e\n",
 			killedFor: null,
+			spawnCode: null,
 		});
+	});
+
+	it("names the spawn code of a file that will not start", async () => {
+		const run = await runGrouped(path.join(home, "no-such-file"), [], opts());
+		expect(run.spawnCode).toBe("ENOENT");
+		expect(run.code).toBeNull();
 	});
 
 	it("past its cap, settles timed out and kills the whole group, the grandchild with it", async () => {

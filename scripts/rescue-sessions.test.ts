@@ -293,8 +293,8 @@ describe("the jobs list reads", () => {
 		expect(res.stdout).toContain("process LIVE");
 	});
 
-	it("leaves no child of a timed-out wrapper behind it (#2682)", async () => {
-		// The union wrapper's shape: a child per seat backgrounded, then waited on.
+	it("leaves no child of a timed-out oracle behind it (#2682)", async () => {
+		// An oracle that backgrounds children, then waits on them.
 		// §X9: it crosses a real process timeout, as the kill is what is tested.
 		const cfg = configDirOf({ aaaaaaaa: { state: "blocked" } });
 		const pids = join(cfg, "pids");

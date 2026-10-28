@@ -222,7 +222,7 @@ describe("new-repo.js on an empty project", () => {
 	);
 
 	it("--dry-run runs every preflight check, prints each planned step, and writes nothing", () => {
-		const s = sandbox({ union: false });
+		const s = sandbox();
 		const r = s.run("--dry-run");
 		expect(r.status, r.stdout + r.stderr).toBe(0);
 		expect(statusOf(r.stdout, "preflight")).toBe("done");
@@ -249,7 +249,6 @@ describe("new-repo.js on an empty project", () => {
 				"  alias td2='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude2 claude agents)'",
 				"  alias td3='(cd ~/tides && CLAUDE_CONFIG_DIR=$HOME/.claude3 claude agents)'",
 				"  # --- end tides block ---",
-				"  warning: ~/.local/bin/claude-agents-union is absent, so the block leaves out WFC_CLAUDE_BIN",
 			].join("\n"),
 		);
 		expect(fs.readFileSync(s.rc, "utf8")).toBe(BASHRC);

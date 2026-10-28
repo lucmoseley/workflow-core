@@ -5,8 +5,6 @@
  *
  * A group still live when this process exits is killed with it. RESIDUAL: a
  * SIGKILL to this process cannot be caught, and leaves the group running.
- *
- * The synchronous route is run-grouped.js (#2665).
  */
 
 const { spawn } = require("node:child_process");
@@ -38,12 +36,14 @@ function killGroup(pgid, signal) {
  * Run `file` with `args` in a group of its own, collecting its output. Past
  * `timeoutMs`, or once stdout passes `maxBuffer` bytes, the group gets SIGKILL
  * and the run settles at once with `killedFor`, without waiting on pipes a
- * descendant that left the group may hold open.
+ * descendant that left the group may hold open. `spawnCode` names why `file`
+ * would not start (ENOENT, EACCES), else null.
  * @param {string} file
  * @param {string[]} args
  * @param {{cwd: string, env: NodeJS.ProcessEnv, timeoutMs: number, maxBuffer: number}} opts
  * @returns {Promise<{code: number|null, signal: NodeJS.Signals|null,
- *   stdout: string, stderr: string, killedFor: string|null}>}
+ *   stdout: string, stderr: string, killedFor: string|null,
+ *   spawnCode: string|null}>}
  */
 function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer }) {
 	const child = spawn(file, args, {
@@ -82,6 +82,7 @@ function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer }) {
 				code: null,
 				signal: null,
 				killedFor: failed ? `${why}, unkilled: ${failed}` : why,
+				spawnCode: null,
 			});
 		};
 		child.stdout.on("data", (/** @type {Buffer} */ chunk) => {
@@ -102,11 +103,16 @@ function runGrouped(file, args, { cwd, env, timeoutMs, maxBuffer }) {
 		);
 		child.on("error", (e) => {
 			live.delete(pgid);
-			settle({ code: null, signal: null, killedFor: e.message });
+			settle({
+				code: null,
+				signal: null,
+				killedFor: e.message,
+				spawnCode: caught(e).code ?? null,
+			});
 		});
 		child.on("close", (code, signal) => {
 			live.delete(pgid);
-			settle({ code, signal, killedFor: null });
+			settle({ code, signal, killedFor: null, spawnCode: null });
 		});
 	});
 }
