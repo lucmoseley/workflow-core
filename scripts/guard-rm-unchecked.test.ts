@@ -1,10 +1,12 @@
 // @vitest-environment node
 /*
- * guard-rm-unchecked.js refuses, once per command, an `rm` Claude Code's
- * built-in removal check cannot resolve (#2436). These are its boundary cases
- * (§X11), run as the harness runs it: the payload on stdin, the rule store,
- * and the latch on disk under CLAUDE_PROJECT_DIR. Which command earns which
- * verdict, and the refusal's words, are lib/unchecked-rm.test.ts's (#2801).
+ * The guard-rm-unchecked core of guard-dispatch.js refuses, once per command,
+ * an `rm` Claude Code's built-in removal check cannot resolve (#2436). These
+ * are its boundary cases (§X11), the dispatcher entry run on it alone: the
+ * payload on stdin, the rule store, and the latch on disk under
+ * CLAUDE_PROJECT_DIR. Which command earns which verdict, and the refusal's
+ * words, are lib/unchecked-rm.test.ts's (#2801); the entry's payload faults
+ * and the throw policy are guard-dispatch's own tests' (#3226).
  *
  * `CLAUDE_PROJECT_DIR` and `CLAUDE_CONFIG_DIR` sit in a temp directory so the
  * latch and the fail-open log never land in the real checkout or the
@@ -18,14 +20,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
+	dispatchCoreOutput,
 	guardDirs,
-	nodeGuardOutput,
-	runNodeGuard,
 } from "./lib/pretool-guard-testkit";
 import { readRuleText } from "./lib/rule-text";
 
-const GUARD = path.resolve(__dirname, "guard-rm-unchecked.js");
+const CORE = "guard-rm-unchecked";
 
 const COMMAND = "rm -rf $T/*";
 
@@ -44,8 +44,10 @@ afterEach(() => {
 
 /** The hook's hookSpecificOutput for `payload`, or null; exit 0 and a quiet
  * stderr asserted on every call. */
-const emission = (payload: object, env: NodeJS.ProcessEnv = {}) =>
-	nodeGuardOutput(GUARD, payload, { project: dir, config, cwd: dir, env });
+const emission = (
+	payload: Record<string, unknown>,
+	env: NodeJS.ProcessEnv = {},
+) => dispatchCoreOutput(CORE, payload, { project: dir, config, cwd: dir, env });
 
 /** The latch file at guard-entry.js's latchPath for `command`. */
 const latchFile = (command: string, session: string, agent = "main") =>
@@ -125,34 +127,6 @@ describe("the refusal, end to end", () => {
 });
 
 describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, { project: dir, config, cwd: dir, stdin });
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, dir))).toBe(false);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"{not json",
-			/payload did not parse as JSON/,
-		],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])("records %s, allowing", (_l, stdin, match) => {
-		const r = run(stdin);
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(readLogLines()).toEqual([
-			["guard-rm-unchecked.js", expect.stringMatching(match)],
-		]);
-	});
-
 	it.each([
 		["no session id", buildBashPayload(COMMAND, null)],
 		["an empty session id", buildBashPayload(COMMAND, "")],
@@ -163,10 +137,7 @@ describe("the fail-open record", () => {
 	])("allows, logged, a payload with %s to key the latch on", (_l, payload) => {
 		expect(emission(payload)).toBeNull();
 		expect(readLogLines()).toEqual([
-			[
-				"guard-rm-unchecked.js",
-				"latch path unresolved — an unchecked rm allowed unrefused",
-			],
+			[CORE, "latch path unresolved — an unchecked rm allowed unrefused"],
 		]);
 	});
 
@@ -176,28 +147,7 @@ describe("the fail-open record", () => {
 		fs.chmodSync(markers, 0o555);
 		expect(emission(buildBashPayload(COMMAND))).toBeNull();
 		expect(readLogLines()).toEqual([
-			[
-				"guard-rm-unchecked.js",
-				"latch directory unwritable — an unchecked rm allowed unrefused",
-			],
-		]);
-	});
-
-	it("allows, logged, where its core throws: the refusal is advisory", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-rm-unchecked.js",
-			"unchecked-rm.js",
-		);
-		expect(
-			nodeGuardOutput(entry, buildBashPayload(COMMAND), {
-				project: dir,
-				config,
-				cwd: dir,
-			}),
-		).toBeNull();
-		expect(readLogLines()).toEqual([
-			["guard-rm-unchecked.js", "guard threw — allowed unchecked: broke"],
+			[CORE, "latch directory unwritable — an unchecked rm allowed unrefused"],
 		]);
 	});
 });

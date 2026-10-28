@@ -390,7 +390,7 @@ function bringSessionCostTable({ root, pluginRoot, dryRun, out }) {
 }
 
 /**
- * The host registries guard-registry-atomicity.js and check-registrations.js
+ * The host registries the guard-registry-atomicity core and check-registrations.js
  * judge the repo's own hooks against, written empty where absent and never
  * touched after: the adopter fills them (#1456).
  * @param {Context} ctx

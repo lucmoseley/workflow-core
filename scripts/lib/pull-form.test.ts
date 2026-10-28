@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/pull-form.js, guard-pull-form.js's core (#2797), in process: which
+ * lib/pull-form.js, the guard-pull-form core (#2797), in process: which
  * commands are refused a non-fast-forward reconciliation of the shared `main`
  * (mantahostels#245, #290), a rewind of `main` (#765) or a wholesale discard
  * of the shared tree's uncommitted work (#768), with what text, and which are
@@ -844,7 +844,7 @@ describe("rewinding main is refused (#765)", () => {
 		"%s counts once, as a main-rewind refusal",
 		(command) => {
 			expect(denyFires(readDenyReason(command))).toEqual([
-				"guard:guard-pull-form.js/main-rewind",
+				"guard:guard-dispatch.js/main-rewind",
 			]);
 		},
 	);

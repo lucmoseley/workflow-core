@@ -1,11 +1,12 @@
 // @vitest-environment node
 /*
- * guard-npm-install.js vets a new dependency with a deny at the install
- * boundary (mantahostels#1803, ruled at mantahostels#1767). These are its
- * boundary cases (§X11), run as the harness runs it: the payload, a real
- * package.json and node_modules, and the two registry programs, end to end.
- * Which command earns which verdict is lib/npm-install.test.ts's; the throw
- * policy is lib/refuse-on-throw.test.ts's (#2800).
+ * The guard-npm-install core of guard-dispatch.js vets a new dependency with
+ * a deny at the install boundary (mantahostels#1803, ruled at
+ * mantahostels#1767). These are its boundary cases (§X11), the dispatcher
+ * entry run on it alone: the payload, a real package.json and node_modules,
+ * and the two registry programs, end to end. Which command earns which
+ * verdict is lib/npm-install.test.ts's (#2800); the entry's payload faults
+ * and the throw policy are guard-dispatch's own tests' (#3226).
  *
  * NOTHING HERE TOUCHES THE NETWORK. `npm` and `curl` are
  * lib/npm-registry-fake.ts's stubs injected at WFC_NPM and WFC_CURL (§N7: they
@@ -31,12 +32,10 @@ import {
 } from "./lib/npm-registry-fake";
 import {
 	buildBashPayload,
-	entryBesideThrowingCore,
-	nodeGuardOutput,
-	runNodeGuard,
+	dispatchCoreOutput,
 } from "./lib/pretool-guard-testkit";
 
-const GUARD = path.resolve(__dirname, "guard-npm-install.js");
+const CORE = "guard-npm-install";
 
 let dir: string;
 let config: string;
@@ -71,7 +70,7 @@ const emission = (
 	reg: Partial<Registry> = {},
 	over: NodeJS.ProcessEnv = {},
 ) =>
-	nodeGuardOutput(GUARD, buildBashPayload(command, "test"), {
+	dispatchCoreOutput(CORE, buildBashPayload(command, "test"), {
 		project: shared,
 		config,
 		cwd: shared,
@@ -243,42 +242,13 @@ describe("fail-closed, where the registry cannot be asked", () => {
 		const [line] = readFailOpenLog(config, shared).trim().split("\n");
 		expect(line?.split("\t")).toEqual([
 			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-			"guard-npm-install.js",
+			CORE,
 			`${tool} not found — ${tool === "npm" ? "legitimacy" : "download history"} of left-pad could not be checked, denying`,
 		]);
-	});
-
-	it("refuses, logged, where its core throws", () => {
-		const entry = entryBesideThrowingCore(
-			dir,
-			"scripts/guard-npm-install.js",
-			"npm-install.js",
-		);
-		const out = nodeGuardOutput(entry, buildBashPayload("npm ci", "test"), {
-			project: shared,
-			config,
-			cwd: shared,
-		});
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			"guard-npm-install.js could not judge this command, so it refuses it: broke",
-		);
-		expect(readFailOpenLog(config, shared)).toMatch(
-			/core threw — the command was refused\tbroke/,
-		);
 	});
 });
 
 describe("the fail-open record", () => {
-	const run = (stdin: string) =>
-		runNodeGuard(GUARD, null, {
-			project: shared,
-			config,
-			cwd: shared,
-			stdin,
-			env: env({}, {}),
-		});
-
 	it.each([
 		[
 			"no readable package.json",
@@ -296,33 +266,5 @@ describe("the fail-open record", () => {
 		damage();
 		expect(emission("npm install left-pad")).toBeNull();
 		expect(readFailOpenLog(config, shared)).toMatch(match);
-	});
-
-	it("treats an empty payload as nothing to check, not a fault", () => {
-		const r = run("");
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		expect(fs.existsSync(failOpenLogPath(config, shared))).toBe(false);
-	});
-
-	it.each([
-		[
-			"a payload that is not JSON",
-			"{not json",
-			/payload did not parse as JSON/,
-		],
-		[
-			"a payload carrying no command",
-			JSON.stringify({ session_id: "t", tool_name: "Bash", tool_input: {} }),
-			/no command in payload/,
-		],
-	])("records %s, allowing", (_l, stdin, match) => {
-		const r = run(stdin);
-		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
-		const [line] = readFailOpenLog(config, shared).trim().split("\n");
-		expect(line?.split("\t")).toEqual([
-			expect.stringMatching(/^\d{4}-\d\d-\d\dT/),
-			"guard-npm-install.js",
-			expect.stringMatching(match),
-		]);
 	});
 });

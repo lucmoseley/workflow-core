@@ -1049,8 +1049,8 @@ describe("WFC_LOST_DENY_ROOT — readJson's exit-2 branches (mantahostels#3307)"
 /*
  * #954: an adopter's settings register no guard of the plugin's, which come
  * from the plugin's `hooks/hooks.json` beside this script. Read off this
- * checkout's own plugin tree, so these cases break if `guard-pull-form.js` leaves
- * `hooks/hooks.json`.
+ * checkout's own plugin tree, so these cases break if `guard-dispatch.js`
+ * leaves `hooks/hooks.json`.
  */
 describe("in an adopter whose hooks come from the plugin", () => {
 	function runInHost(host: string, ...args: string[]) {
@@ -1067,7 +1067,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		writeFileSync(join(host, ".claude", "settings.json"), "{}");
 		const { status, stdout } = runInHost(host, "--triggers");
 		expect(status).toBe(0);
-		expect(guards(stdout)).toContain("guard-pull-form.js");
+		expect(guards(stdout)).toContain("guard-dispatch.js");
 	});
 
 	it("exits 2 off a host settings.json that is not valid JSON", () => {
@@ -1084,7 +1084,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		const { status, stdout, stderr } = runInHost(host, "--triggers");
 		expect(status).toBe(0);
 		expect(stderr).toContain("settings.json is absent");
-		expect(guards(stdout)).toContain("guard-pull-form.js");
+		expect(guards(stdout)).toContain("guard-dispatch.js");
 	});
 
 	it("reads the needles from the plugin too, so a full run in an empty host counts", () => {
@@ -1092,7 +1092,7 @@ describe("in an adopter whose hooks come from the plugin", () => {
 		const { status, stdout } = runInHost(host, "--dir", corpusDir, "--json");
 		expect(status).toBe(0);
 		const rows: { guard: string }[] = JSON.parse(stdout).rows;
-		expect(rows.map((r) => r.guard)).toContain("guard-pull-form.js");
+		expect(rows.map((r) => r.guard)).toContain("guard-dispatch.js");
 	});
 });
 
