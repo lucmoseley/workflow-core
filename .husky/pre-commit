@@ -474,10 +474,11 @@ if armed '^scripts/[^/]+\.js$'; then
 fi
 
 # A test spawning node on the program under test rather than running it
-# through runInProcess, with no `spawn-kept: <why>` (§X3), judging the whole
-# tree (#3458).
+# through runInProcess, with no `spawn-kept: <why>` (§X3).
+# Stopgap, direction-gated until #3459 and #3460 move the inherited spawns:
+# an inherited spawn warns, one this commit adds refuses (#3458).
 if armed '^(scripts|\.claude/skills)/.*\.(test|spec)\.[cm]?[jt]sx?$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js --against HEAD || exit "$?"
 fi
 
 # A hand split-and-parse of JSONL rather than lib/jsonl.js (#3452).
