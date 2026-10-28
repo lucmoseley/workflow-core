@@ -3,7 +3,8 @@
  * file-morning-review.js, driven through its command line against a stub gh
  * (#2011). Filing goes through the real file-issue.js, so its label refusals
  * and similar-title check run on the review issue as on any other. Break it
- * and the loop files no review, or two in a day.
+ * and the loop files no review, or two in a day, or a hand run leaves the
+ * founder's `reverse <n>` comments unanswered (#3388).
  */
 
 import fs from "node:fs";
@@ -217,6 +218,68 @@ describe("file-morning-review.js (#2011)", () => {
 		);
 		const calls = fs.readFileSync(stub("calls.log"), "utf8");
 		expect(calls).not.toMatch(/issue edit|--(add|remove)-label|labels\/parked/);
+	});
+
+	describe("answering reversals on the same run (#3388)", () => {
+		const reviewWithRequest = () => ({
+			number: 5,
+			title: "Morning review — 2000-01-01",
+			state: "OPEN",
+			createdAt: ago(24),
+			body: "1. acme/wfc#2 — `Inside the window` — taken: `(A) keep` (52%) — [#2 comment](https://github.com/acme/wfc/issues/2#issuecomment-1)\n",
+			comments: [
+				{
+					url: "https://github.com/acme/wfc/issues/5#issuecomment-50",
+					body: "reverse 1",
+				},
+			],
+		});
+		const readReplies = () =>
+			JSON.parse(fs.readFileSync(stub("reviews.json"), "utf8"))
+				.find((i: { number: number }) => i.number === 5)
+				.comments.slice(1);
+
+		it("files today's review and a takes:implement ticket for each unanswered reverse <n>", () => {
+			seed([reviewWithRequest()]);
+			const r = run();
+			expect(r.stderr).toBe("");
+			expect(r.status).toBe(0);
+			expect(readCreated().map((c) => c.title)).toEqual([
+				TODAY,
+				"Reverse a delegated decision on #2: Inside the window",
+			]);
+			expect(readReplies()).toHaveLength(1);
+		});
+
+		it("exits non-zero when the answering fails after a filing", () => {
+			seed([reviewWithRequest()]);
+			fs.writeFileSync(stub("fail-comment"), "");
+			const r = run();
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("the reply failed (HTTP 502)");
+			expect(readCreated().map((c) => c.title)).toContain(TODAY);
+		});
+
+		it("answers reversals and exits non-zero when the filing fails", () => {
+			seed([reviewWithRequest()]);
+			fs.writeFileSync(stub("fail-review-create"), "");
+			const r = run();
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("HTTP 502");
+			expect(readCreated().map((c) => c.title)).toEqual([
+				"Reverse a delegated decision on #2: Inside the window",
+			]);
+			expect(readReplies()).toHaveLength(1);
+		});
+
+		it("files and answers nothing on --dry-run", () => {
+			seed([reviewWithRequest()]);
+			const r = run(["--dry-run"]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("would file in acme/wfc: Reverse");
+			expect(readCreated()).toHaveLength(0);
+			expect(readReplies()).toHaveLength(0);
+		});
 	});
 
 	it("prints the body and files nothing on --dry-run", () => {

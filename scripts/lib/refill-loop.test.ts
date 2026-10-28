@@ -1311,28 +1311,19 @@ describe("when a tick files the morning review (#2017)", () => {
 		expect(isReviewRunDue(at(15), "2026-10-18")).toBe(true);
 	});
 
-	it("records the day off the worse of a due tick's two review statuses, never past a timeout", () => {
-		const run = (
-			due: boolean,
-			filed: number | null,
-			answered: number | null = 0,
-		) =>
+	it("records the day off a due tick's review status, never past a timeout or on a tick not due", () => {
+		const run = (status: number | null, due = true) =>
 			reviewRunRecorded({
 				due,
-				filed,
-				answered,
+				status,
 				lastRunOn: "2026-10-18",
 				today: "2026-10-19",
 			});
-		expect(run(true, 0)).toBe("2026-10-19");
-		expect(run(true, 2)).toBe("2026-10-19");
-		expect(run(true, 0, 2)).toBe("2026-10-19");
-		expect(run(true, 2, 1)).toBe("2026-10-19");
-		expect(run(true, 1)).toBe("2026-10-18");
-		expect(run(true, null)).toBe("2026-10-18");
-		expect(run(true, 0, 1)).toBe("2026-10-18");
-		expect(run(true, 0, null)).toBe("2026-10-18");
-		expect(run(false, 0)).toBe("2026-10-18");
+		expect(run(0)).toBe("2026-10-19");
+		expect(run(2)).toBe("2026-10-19");
+		expect(run(1)).toBe("2026-10-18");
+		expect(run(null)).toBe("2026-10-18");
+		expect(run(0, false)).toBe("2026-10-18");
 	});
 
 	it("keeps the last run's date across a state round trip", () => {

@@ -98,8 +98,7 @@ const CHILD_TIMEOUT_MS = 120 * 1000;
 const PROBE_CHILD_TIMEOUT_MS = PROBE_TIMEOUT_MS + 15 * 1000;
 /* Untraced: room for the filing's reads of every included repo's closes with
  * their comments, and the reversals answered after it, kept under the
- * dispatch ceiling since it holds the tick: one budget the two review
- * children share. */
+ * dispatch ceiling since it holds the tick. */
 const REVIEW_TIMEOUT_MS = 5 * 60 * 1000;
 /* The ledger's own hour, ample for one dispatcher call. */
 const LEDGER_WINDOW_HOURS = 1;
@@ -383,10 +382,10 @@ function headlessSessionOf(jobId) {
 }
 
 /**
- * File the morning review where due, then answer its reversals
- * (scripts/answer-review-reversals.js) in what is left of REVIEW_TIMEOUT_MS,
- * returning the date of the last filing (lib/refill-loop.js's
- * reviewRunRecorded). A missing config at REVIEW_ROOT is logged once a day.
+ * File the morning review where due, which answers its reversals too, or
+ * else answer them alone (scripts/answer-review-reversals.js), returning the
+ * date of the last filing (lib/refill-loop.js's reviewRunRecorded). A missing
+ * config at REVIEW_ROOT is logged once a day.
  * @param {string|null} lastRunOn
  * @param {number} now
  */
@@ -400,32 +399,17 @@ function runReview(lastRunOn, now) {
 			);
 		return due ? today : lastRunOn;
 	}
-	const deadline = Date.now() + REVIEW_TIMEOUT_MS;
-	/* spawnSync reads a timeout of 0 as none, so a spent budget still kills. */
-	/** @param {string} script */
-	const runInReviewRoot = (script) =>
-		runChild(process.execPath, [path.join(SCRIPTS, script)], {
-			cwd: REVIEW_ROOT,
-			env: checkoutEnv(REVIEW_ROOT),
-			timeout: Math.max(deadline - Date.now(), 1),
-		});
-	const filed = due ? runInReviewRoot("file-morning-review.js") : null;
-	if (filed)
-		log(
-			`morning review: ${filed.failed ?? "exit 0"}\n  ${blocks.indented(filed.out)}`,
-		);
-	const answered = runInReviewRoot("answer-review-reversals.js");
-	if (answered.out || answered.failed)
-		log(
-			`morning review reversals: ${answered.failed ?? "exit 0"}\n  ${blocks.indented(answered.out)}`,
-		);
-	return loop.reviewRunRecorded({
-		due,
-		filed: filed === null ? 0 : filed.status,
-		answered: answered.status,
-		lastRunOn,
-		today,
+	const [script, label] = due
+		? ["file-morning-review.js", "morning review"]
+		: ["answer-review-reversals.js", "morning review reversals"];
+	const ran = runChild(process.execPath, [path.join(SCRIPTS, script)], {
+		cwd: REVIEW_ROOT,
+		env: checkoutEnv(REVIEW_ROOT),
+		timeout: REVIEW_TIMEOUT_MS,
 	});
+	if (due || ran.out || ran.failed)
+		log(`${label}: ${ran.failed ?? "exit 0"}\n  ${blocks.indented(ran.out)}`);
+	return loop.reviewRunRecorded({ due, status: ran.status, lastRunOn, today });
 }
 
 /**

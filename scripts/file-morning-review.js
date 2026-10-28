@@ -37,17 +37,21 @@
  * the core `npm run status` renders from, over the refill loop's tick record
  * and memwatch's minute record.
  *
- * Reversals of its entries are scripts/answer-review-reversals.js's (#2017).
+ * REVERSALS (#3388): after filing, it answers each unanswered `reverse <n>`
+ * through scripts/answer-review-reversals.js (#2017), so a hand run while the
+ * loop is stopped answers them too. `--dry-run` passes to both.
  *
  * Joins no §N3 family: it files an issue as `report-*` does, but a run whose
  * filing failed on gh exits 1, and one file-issue.js refused exits
  * with its code, so the loop that runs it can tell a filing from a failure.
+ * The exit code is the worse of the filing's and the answering's.
  *
  * Caller: the refill loop, on its first tick after 07:00
  * (lib/refill-tick.js).
  */
 
 const path = require("node:path");
+const { answerReversals } = require("./answer-review-reversals.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { parseErrLine, ghApiSlurp, ghIssueListAll } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -358,10 +362,15 @@ function main() {
 		usage: USAGE,
 		flags: { "--dry-run": "boolean" },
 	});
-	process.exitCode = fileReview(
-		io.trackerOrFail(),
-		flags["--dry-run"] === true,
-	);
+	const tracker = io.trackerOrFail();
+	const dryRun = flags["--dry-run"] === true;
+	/* A filing that throws still answers before the throw ends the run. */
+	let filed = 1;
+	try {
+		filed = fileReview(tracker, dryRun);
+	} finally {
+		process.exitCode = Math.max(filed, answerReversals(tracker, dryRun));
+	}
 }
 
 if (require.main === module) main();

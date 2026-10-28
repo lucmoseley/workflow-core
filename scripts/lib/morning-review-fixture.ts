@@ -19,11 +19,12 @@ import { runInProcess } from "./run-in-process";
 /**
  * `gh` over one tracker's review issues (`reviews.json`), closes
  * (`closed.json`), and open `urgent` and `parked` issues (`urgent.json`,
- * `parked.json`) with their timelines (`timelines.json`), logging every call to `calls.log`. A review's create appends to `reviews.json`, so a second
- * run sees the first's issue, and a comment appends to its issue there unless
- * `fail-comment` exists. file-issue.js's similar-title list also holds an open
- * lookalike, #1995, among enough unrelated titles that it scores above the
- * cut.
+ * `parked.json`) with their timelines (`timelines.json`), logging every call
+ * to `calls.log`. A review's create appends to `reviews.json`, so a second
+ * run sees the first's issue, and fails where `fail-review-create` exists; a
+ * comment appends to its issue there unless `fail-comment` exists.
+ * file-issue.js's similar-title list also holds an open lookalike, #1995,
+ * among enough unrelated titles that it scores above the cut.
  */
 const Stub = `#!/usr/bin/env node
 const fs = require("node:fs");
@@ -59,6 +60,7 @@ if (a[0] === "issue" && a[1] === "create") {
 	const reviews = read("reviews.json");
 	const number = 900 + reviews.length;
 	const title = a[a.indexOf("--title") + 1];
+	if (title.startsWith("Morning review") && fs.existsSync(f("fail-review-create"))) { process.stderr.write("HTTP 502\\n"); process.exit(1); }
 	const labels = a.flatMap((x, i) => (a[i - 1] === "--label" ? [x] : []));
 	fs.writeFileSync(f("created-" + number + ".json"), JSON.stringify({ title, labels, body: fs.readFileSync(0, "utf8") }));
 	if (title.startsWith("Morning review"))

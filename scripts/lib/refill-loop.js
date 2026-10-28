@@ -342,20 +342,17 @@ const isReviewRunDue = (now, lastRunOn) =>
 	now.getHours() >= REVIEW_HOUR && localDate(now) !== lastRunOn;
 
 /**
- * The last filing's date after a tick's review children, read off the worse
- * of their two exit statuses: today once a due tick's worse is 0, or 2, a
- * refusal a retry would only repeat; unchanged where either timed out or was
- * killed (null), or the worse is a gh failure (1), so the next tick retries
- * both and the filing files nothing twice.
- * @param {{due: boolean, filed: number|null, answered: number|null,
- *   lastRunOn: string|null, today: string}} run `filed` and `answered`, the
- *   two children's exit statuses
+ * The last filing's date after a tick's review child, read off its exit
+ * status, on a due tick file-morning-review.js's worse of its filing's and
+ * its answering's: today once a due tick's is 0, or 2, a refusal a retry
+ * would only repeat; unchanged on a tick not due, where it timed out or was
+ * killed (null), or on a gh failure (1), so the next tick retries and the
+ * filing files nothing twice.
+ * @param {{due: boolean, status: number|null, lastRunOn: string|null,
+ *   today: string}} run
  */
-const reviewRunRecorded = ({ due, filed, answered, lastRunOn, today }) => {
-	if (!due || filed === null || answered === null) return lastRunOn;
-	const worse = Math.max(filed, answered);
-	return worse === 0 || worse === 2 ? today : lastRunOn;
-};
+const reviewRunRecorded = ({ due, status, lastRunOn, today }) =>
+	due && (status === 0 || status === 2) ? today : lastRunOn;
 
 /** @param {LoopLaunch[]} launches */
 const trimmed = (launches) => launches.slice(-HISTORY_KEPT);
