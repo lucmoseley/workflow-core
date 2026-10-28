@@ -190,7 +190,7 @@
 				"has no `hooks` row",
 				"the `hooks` row for ",
 				{
-					"text": "has no sibling test (scripts/",
+					"text": "has no sibling test (",
 					"sites": 2
 				},
 				"`calledElsewhere` names "
