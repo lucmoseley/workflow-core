@@ -6,7 +6,9 @@
  *
  * A TYPE-CHECK IS NO SUITE: it waits in a queue directory of its own, so it
  * never queues behind a whole suite, and the suite ladder never counts it.
- * Both read MemAvailable live, so each sees what the other draws.
+ * Both read MemAvailable live, so each sees what the other draws once it is
+ * up; a launch admitted and not yet up is held by lib/suite-queue.js, which
+ * reads both queues' admission stamps (#3203).
  */
 
 const os = require("node:os");
@@ -42,9 +44,13 @@ const TSC_BUSY_EXIT = 75;
  * starts two in parallel passes TSC_MAX and the rung. */
 const TSC_SLOT_ENV = "WFC_TSC_SLOT";
 
+/* The slot's queue directory's name under the temp root, which
+ * lib/suite-queue.js also reads to find this queue's admissions (#3203). */
+const TSC_QUEUE_NAME = "wfc-tsc-queue";
+
 /** @returns {string} */
 function defaultTscQueueDir() {
-	return path.join(os.tmpdir(), "wfc-tsc-queue");
+	return path.join(os.tmpdir(), TSC_QUEUE_NAME);
 }
 
 /*
@@ -98,6 +104,7 @@ function isTscLaunch(words) {
 module.exports = {
 	TSC_BUSY_EXIT,
 	TSC_NO_WAIT_ENV,
+	TSC_QUEUE_NAME,
 	TSC_RUNG_MB,
 	TSC_SLOT_ENV,
 	defaultTscQueueDir,

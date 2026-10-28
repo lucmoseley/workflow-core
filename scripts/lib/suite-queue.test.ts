@@ -917,6 +917,109 @@ describe("two launches whose turns came true on one poll (#2622)", () => {
 	});
 });
 
+describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
+	const alive = () => true;
+	interface Waiter {
+		pid: number;
+		queueDir: string;
+		file: string;
+	}
+	/** The suite queue and the type-check slot's, siblings as under the
+	 * temp root, with a whole suite 11 waiting in one and a `tsc` 22 in the
+	 * other. */
+	const queues = () => {
+		const root = qdir();
+		const waiter = (name: string, pid: number): Waiter => {
+			const queueDir = path.join(root, name);
+			const file = queueJoin({ queueDir, pid, clock: () => pid });
+			return { pid, queueDir, file };
+		};
+		return {
+			suite: waiter("wfc-suite-queue", 11),
+			tsc: waiter("wfc-tsc-queue", 22),
+		};
+	};
+	const stamped = (w: Waiter) => JSON.parse(fs.readFileSync(w.file, "utf8"));
+	const admit = (w: Waiter, queueFs: typeof fs = fs) =>
+		queueAdmit(w.file, { queueDir: w.queueDir, queueFs, pid: w.pid, alive });
+	const turn = (w: Waiter) =>
+		queueTurn({ queueDir: w.queueDir, pid: w.pid, alive });
+
+	it.each([
+		["the suite", "suite", "tsc", "ahead"],
+		["the `tsc`", "tsc", "suite", "behind"],
+	] as const)(
+		"yields as %s where both stamped before either re-read",
+		(_, mine, theirs, how) => {
+			const waiters = queues();
+			const rival = waiters[theirs];
+			const queueFs = {
+				...fs,
+				readdirSync: (dir: string) => {
+					fs.writeFileSync(
+						rival.file,
+						JSON.stringify({ ...stamped(rival), admitted: true }),
+					);
+					return fs.readdirSync(dir);
+				},
+			} as typeof fs;
+			expect(admit(waiters[mine], queueFs)).toBe(how);
+			expect(stamped(waiters[mine]).admitted).toBeUndefined();
+			expect(admit(rival)).toBe("admitted");
+		},
+	);
+
+	it("closes the other queue's turn until the admitted launch spawns", () => {
+		const { suite, tsc } = queues();
+		expect(admit(tsc)).toBe("admitted");
+		expect(turn(suite)).toBe(false);
+		queueSpawned(tsc.file);
+		expect(turn(suite)).toBe(true);
+	});
+
+	it("reads no peer for a queue directory of another name", () => {
+		const { tsc } = queues();
+		const queueDir = qdir();
+		const other = {
+			pid: 33,
+			queueDir,
+			file: queueJoin({ queueDir, pid: 33, clock: () => 33 }),
+		};
+		admit(tsc);
+		expect(turn(other)).toBe(true);
+		expect(admit(other)).toBe("admitted");
+	});
+
+	/* Both gates open on one poll, each wait with its own load hold: one
+	 * launches and the other is held until it spawns. A launch spawns once
+	 * its rival next sleeps. */
+	it("never launches both unspawned", async () => {
+		const { suite, tsc } = queues();
+		const launched: Waiter[] = [];
+		const beside: boolean[] = [];
+		const wait = (w: Waiter, rival: Waiter) =>
+			waitForGate({
+				gate: () => null,
+				turn: () => turn(w),
+				hold: () => Promise.resolve(true),
+				admit: () => admit(w),
+				sleepFn: () => {
+					for (const done of launched) queueSpawned(done.file);
+					return Promise.resolve();
+				},
+				out: { write: () => true },
+			}).then((outcome: string) => {
+				const record = stamped(rival);
+				beside.push(record.admitted === true && record.spawned !== true);
+				launched.push(w);
+				expect(outcome).toBe("run");
+			});
+		await Promise.all([wait(suite, tsc), wait(tsc, suite)]);
+		expect(launched).toHaveLength(2);
+		expect(beside).toEqual([false, false]);
+	});
+});
+
 describe("waitForGate's load hold, before the gate's last read (#2622)", () => {
 	it("reads the gate and the turn again after the hold, and only then admits", async () => {
 		const order: string[] = [];

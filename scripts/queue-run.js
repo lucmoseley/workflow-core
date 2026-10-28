@@ -108,7 +108,7 @@ const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
 
 /* What a `--tsc` wait prints in place of a suite's (#3163). */
 const TSC_WAIT = {
-	waiting: `waiting for the type-check slot: a \`tsc\` running, or MemAvailable under its ~${TSC_RUNG_MB} MB rung`,
+	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable under its ~${TSC_RUNG_MB} MB rung`,
 	cap: "one `tsc` runs at a time (#3163)",
 };
 
@@ -262,7 +262,7 @@ const tryOn = (gate) => (/** @type {Stamps} */ stamps) => {
  */
 function sayTscHeld(err) {
 	err.write(
-		`${LABEL}: the type-check slot is held — not run, as ${TSC_NO_WAIT_ENV} asks (#3278)\n`,
+		`${LABEL}: the type-check slot is held, by a \`tsc\` running or a suite starting (#3203) — not run, as ${TSC_NO_WAIT_ENV} asks (#3278)\n`,
 	);
 	return TSC_BUSY_EXIT;
 }

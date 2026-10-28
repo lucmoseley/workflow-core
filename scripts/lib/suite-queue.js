@@ -26,6 +26,7 @@ const {
 const { shellWord } = require("./dirty-tree.js");
 const { scriptPath } = require("./script-path.js");
 const { weighCarried } = require("./suite-bounded.js");
+const { TSC_QUEUE_NAME } = require("./tsc-slot.js");
 
 /**
  * Which limb of the suite gate denied: its count cap, or its memory rung, with
@@ -48,6 +49,7 @@ const { weighCarried } = require("./suite-bounded.js");
  */
 
 const QUEUE_PREFIX = "wfc-suite-queue-";
+const QUEUE_NAME = "wfc-suite-queue";
 
 /**
  * The queue's own directory under the temp root, which every default reads.
@@ -57,7 +59,57 @@ const QUEUE_PREFIX = "wfc-suite-queue-";
  * @returns {string}
  */
 function defaultQueueDir() {
-	return path.join(os.tmpdir(), "wfc-suite-queue");
+	return path.join(os.tmpdir(), QUEUE_NAME);
+}
+
+/* The queues admitting against one MemAvailable reading: the suite queue and
+ * the type-check slot's (#3203). */
+const ADMITTING_QUEUES = [QUEUE_NAME, TSC_QUEUE_NAME];
+
+/**
+ * The other queues admitting against the reading `queueDir`'s does: its
+ * siblings among ADMITTING_QUEUES, or none where `queueDir` is not one of
+ * them.
+ *
+ * @param {string} queueDir
+ * @returns {string[]}
+ */
+function peerQueueDirs(queueDir) {
+	const name = path.basename(queueDir);
+	if (!ADMITTING_QUEUES.includes(name)) return [];
+	return ADMITTING_QUEUES.filter((n) => n !== name).map((n) =>
+		path.join(path.dirname(queueDir), n),
+	);
+}
+
+/**
+ * Whether a marker is stamped `admitted` and not yet `spawned`: a launch about
+ * to start that no `ps` count or MemAvailable reading sees yet.
+ *
+ * @param {QueueRecord} record
+ */
+function isUnspawnedAdmission(record) {
+	return record.admitted === true && record.spawned !== true;
+}
+
+/**
+ * The live unspawned admissions in `queueDir`'s peer queues (#3203). Sweeps
+ * nothing, a peer queue's stale markers being its own `queueTurn`'s to remove.
+ *
+ * A PEER DIRECTORY THAT WILL NOT READ CONTRIBUTES NONE, failing open as an
+ * unreadable own queue does: the peer's gate still reads
+ * MemAvailable live, so what is lost is the same-poll yield, never the rung.
+ *
+ * @param {string} queueDir
+ * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
+ * @returns {QueueRecord[]}
+ */
+function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
+	return peerQueueDirs(queueDir).flatMap((dir) =>
+		readMarkers(dir, queueFs)
+			.markers.map((m) => m.record)
+			.filter((r) => isUnspawnedAdmission(r) && !isMarkerStale(r, { alive })),
+	);
 }
 
 /**
@@ -237,6 +289,11 @@ function joinedBefore(a, b) {
  * marker joined ahead of it, to wait a poll, `ahead` where every such marker
  * joined behind it, to re-read at once and launch once they yield in turn.
  *
+ * THE RE-READ COVERS EVERY QUEUE ON THE SAME READING (#3203): its peer queues,
+ * the type-check slot's queue for a suite and the suite queue for a `tsc`, so a
+ * whole suite and a `tsc` admitted on one poll never both launch. The pid
+ * order holds across queues.
+ *
  * FAILS OPEN, silently like `queueTurn`, where there is nothing to contest
  * with: no marker of its own (an unwritable queue, `queueJoin`'s "") or a
  * queue directory that will not read. Residual: a dropped stamp that will not
@@ -261,13 +318,14 @@ function queueAdmit(
 	if (error) return "admitted";
 	const records = markers.map((m) => m.record);
 	const mine = records.find((r) => r.pid === pid);
-	const rivals = records.filter(
-		(r) =>
-			r.pid !== pid &&
-			r.admitted === true &&
-			r.spawned !== true &&
-			!isMarkerStale(r, { alive }),
-	);
+	const rivals = records
+		.filter(
+			(r) =>
+				r.pid !== pid &&
+				isUnspawnedAdmission(r) &&
+				!isMarkerStale(r, { alive }),
+		)
+		.concat(readPeerAdmissions(queueDir, { queueFs, alive }));
 	if (!mine || rivals.length === 0) return "admitted";
 	stampMarker(file, { admitted: false }, { queueFs });
 	return rivals.some((r) => joinedBefore(r, mine)) ? "behind" : "ahead";
@@ -401,6 +459,14 @@ function queueLeave(file, { queueFs = fs } = {}) {
  * `admitted` and unspawned, and a whole suite's turn also waits on every
  * waiter ahead having spawned.
  *
+ * ACROSS QUEUES TOO (#3203): no turn comes while a peer queue's marker is
+ * `admitted` and unspawned (`queueAdmit`'s peer queues). Every suite-queue marker
+ * counts, a part-suite's and the lander's install included. Residuals: once
+ * spawned, MemAvailable counts a launch only as far as it has climbed, so a
+ * `tsc` early in its climb to its peak is charged short on the suite's rung;
+ * and nothing orders the queues against each other, so suites admitted
+ * between a `tsc`'s polls can hold its turn shut to its wait bound.
+ *
  * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run whose
  * carried weight resolves below the whole-slot bound (#2931), which the guard
  * never holds at its count cap. IT BACKFILLS PAST WHOLE SUITES (#2578): its turn waits on the
@@ -470,7 +536,9 @@ function readTurn({
 	const ahead = live.filter((r) => joinedBefore(r, mine));
 	const spawned = (/** @type {{ spawned?: boolean }} */ r) =>
 		r.spawned === true;
-	if (live.some((r) => r.pid !== pid && r.admitted === true && !spawned(r)))
+	if (live.some((r) => r.pid !== pid && isUnspawnedAdmission(r)))
+		return { open: false };
+	if (readPeerAdmissions(queueDir, { queueFs, alive }).length > 0)
 		return { open: false };
 	const isPassable = (/** @type {QueueRecord} */ r) =>
 		r.memoryHeld === true && clock() - r.at < PART_PASS_AGE_MS;

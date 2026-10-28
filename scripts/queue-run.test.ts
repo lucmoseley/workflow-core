@@ -389,7 +389,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out.join("")).toBe(
-				"queue-run.js: waiting for the type-check slot: a `tsc` running, or MemAvailable under its ~2750 MB rung\n",
+				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable under its ~2750 MB rung\n",
 			);
 		});
 
@@ -401,7 +401,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toEqual([]);
 			expect(out.join("")).toBe(
-				"queue-run.js: waiting for the type-check slot: a `tsc` running, or MemAvailable under its ~2750 MB rung\n",
+				"queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable under its ~2750 MB rung\n",
 			);
 		});
 
@@ -453,7 +453,7 @@ describe("queue-run.js", () => {
 					expect(f.readMarkers()).toEqual([]);
 					expect(out).toEqual([]);
 					expect(f.err.join("")).toBe(
-						"queue-run.js: the type-check slot is held — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
+						"queue-run.js: the type-check slot is held, by a `tsc` running or a suite starting (#3203) — not run, as WFC_TSC_NO_WAIT asks (#3278)\n",
 					);
 				},
 			);
@@ -486,6 +486,36 @@ describe("queue-run.js", () => {
 				f.spawned[0].child.emit("exit", 0, null);
 				expect(await code).toBe(0);
 			});
+
+			/* A suite admitted and not yet up is a draw MemAvailable does not
+			 * count yet (#3203). */
+			it("exits 75 while a suite is starting, and runs once it is up", async () => {
+				const f = fixture();
+				machine(f.dir, ["bash -l"], 9000);
+				process.env.TMPDIR = f.dir;
+				const suites = path.join(f.dir, "wfc-suite-queue");
+				fs.mkdirSync(suites);
+				const suite = path.join(suites, `wfc-suite-queue-${process.ppid}.json`);
+				fs.writeFileSync(
+					suite,
+					JSON.stringify({ pid: process.ppid, at: 0, admitted: true }),
+				);
+				const opts = own(f, { queueDir: undefined, alive: () => true });
+				expect(await main(typecheck, opts)).toBe(75);
+				expect(f.spawned).toEqual([]);
+				fs.writeFileSync(
+					suite,
+					JSON.stringify({
+						pid: process.ppid,
+						at: 0,
+						admitted: true,
+						spawned: true,
+					}),
+				);
+				main(typecheck, opts);
+				await tick();
+				expect(f.spawned).toHaveLength(1);
+			});
 		});
 
 		it("runs two type-checks one after the other", async () => {
@@ -513,7 +543,7 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toHaveLength(1);
 			expect(out).toEqual([
-				"102: queue-run.js: waiting for the type-check slot: a `tsc` running, or MemAvailable under its ~2750 MB rung\n",
+				"102: queue-run.js: waiting for the type-check slot: a `tsc` running, a suite starting (#3203), or MemAvailable under its ~2750 MB rung\n",
 			]);
 			f.spawned[0].child.emit("exit", 0, null);
 			expect(await first).toBe(0);
