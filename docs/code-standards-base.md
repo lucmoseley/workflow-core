@@ -330,7 +330,7 @@ Three sub-rules a reviewer may cite directly against a program reporting in the 
 
 - **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:15-23`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
 - **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:29-32`).
-- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:323` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
+- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:327` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
 
 *House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:197-198`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
 
