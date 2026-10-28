@@ -304,7 +304,7 @@ def process_file(path, is_subagent, tally, out):
 def main():
     open(FINDINGS, "w").close()
     log("# Issue mantahostels#1081 bucket-breakdown findings\n")
-    log(f"Run started: {datetime.datetime.utcnow().isoformat()}Z\n")
+    log(f"Run started: {datetime.datetime.now(datetime.UTC).isoformat()}\n")
 
     os.system("free -m")
     import subprocess

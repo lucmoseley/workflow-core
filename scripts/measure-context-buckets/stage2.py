@@ -51,7 +51,7 @@ def main():
     sub_tool_byte_totals = d["sub_tool_byte_totals"]
 
     log("\n---\n## Stage 2: analysis\n")
-    log(f"Analysis run: {datetime.datetime.utcnow().isoformat()}Z\n")
+    log(f"Analysis run: {datetime.datetime.now(datetime.UTC).isoformat()}\n")
 
     # ---------- split cli vs sdk-py ----------
     cli_rows = [r for r in rows if r[2] == "cli"]

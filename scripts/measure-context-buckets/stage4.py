@@ -197,7 +197,11 @@ def main():
         "\nCandidates whose cumulative share crosses ~20% of the median per-turn re-read total (largest-first, NOT correctness-weighted): the top rows above until cum%~20%. Parent should judge correctness cost per row before acting on any of them.\n"
     )
 
-    log("\n---\n## Run complete: " + datetime.datetime.utcnow().isoformat() + "Z\n")
+    log(
+        "\n---\n## Run complete: "
+        + datetime.datetime.now(datetime.UTC).isoformat()
+        + "\n"
+    )
 
 
 if __name__ == "__main__":

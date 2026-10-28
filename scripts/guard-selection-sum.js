@@ -716,7 +716,7 @@ function reviewOpeningWave(
 				TEMPLATE,
 		};
 	}
-	if (waveIndex !== null && waveTotal !== null && waveIndex >= waveTotal) {
+	if (waveIndex >= waveTotal) {
 		return {
 			wave: null,
 			reason:
