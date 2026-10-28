@@ -6,9 +6,9 @@
  * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the last case,
  * which spawns the wrapper as a script against a real pytest.
  *
- * `.husky/pre-push` and `npm run push:check` read the marker it leaves: loosen
- * a case and a red or dead pytest run leaves a certificate, so a push is counted
- * attested for Python tests that never passed on its sha.
+ * `.husky/pre-push` and `npm run push:check` read the certificate it leaves:
+ * loosen a case and a red or dead run leaves one the push gate counts as
+ * attesting.
  */
 
 import { spawnSync } from "node:child_process";
@@ -206,9 +206,7 @@ describe("what it hands pytest", () => {
 	});
 });
 
-/* A bare run under `landing` hands pytest the session's touched tests alone
- * (#2934): loosen a case and it runs the whole suite again, or drops a test
- * of the module changed until the lander's run. */
+// A bare run under `landing` hands pytest the session's touched tests alone (#2934).
 describe("a bare run under landing", () => {
 	const Landing = { WFC_MODULES: "landing", CLAUDE_CODE_SESSION_ID: "" };
 

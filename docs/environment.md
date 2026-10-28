@@ -227,7 +227,7 @@ The binding constraint **on memory** is **single-session runaway growth**, not s
 
 **Do not raise the WSL cap on parallelism grounds alone.** Raise it only if `~/memwatch.log` shows total above ~**8.8 GB** — 88% of the cap, the same fraction ~7 GB was of 8 GB — **with no single process spiking**.
 
-**This test fired on 17 August 2026 and is what licensed the 8 → 10 GB raise** (§1). In every crossing the largest process was 620–772 MB — accumulation, against the §7 runaway's *single* process at 7317 MB, which is the distinction this test draws.
+What passes this test: in every ~7 GB crossing at the 8 GB cap that licensed the raise to 10 GB (§1), the largest process was 620–772 MB — accumulation, against the §7 runaway's *single* process at 7317 MB.
 
 ### Concurrent test suites — one whole suite at a time, on a headroom ladder; builds stay at one
 
@@ -257,9 +257,9 @@ A count is admitted by what it needs *resting* in `MemAvailable` immediately bef
 
 ⚠ **Four things invalidate the ladder: a total worker count past the ladder's measured 9, a heap change that reaches what a legitimate worker uses (§2's 1024 MB worker cap clears every one memwatch has recorded), or a core-count change — and A CHANGE IN THE SIZE OF THE SUITE ITSELF** (mantahostels#954). **`scripts/check-suite-size-drift.js` reports that fourth one** — WARN-only, on `npm run status` and in the daily repo-checks run, off `SUITE_LADDER_MEASURED_AT` in `scripts/lib/admission.js`. It counts test *files*, not tests, and a file that grows its own assertion count without being added is its blind spot.
 
-**THE WHOLE LADDER IS MEASURED AT 3 WORKERS A SUITE, 16 October 2026 (#1603)** — one interleaved six-row bench on a 485-file / 19,646-test suite (485 tracked, the drift check's count; 483 collected), two stationary rows per count. ⚠ **File count is a weak proxy for the dip**, though it is what `check-suite-size-drift.js` watches: against mantahostels#2705's 282-file bench, a suite 72% larger in files dipped 25%, 6% and 14% less at the three rungs, all twelve rows of both benches `baseline_stationary: true`, so the stationarity check does not explain it and the cause is unmeasured. **A third worker's per-suite cost is not constant in the suite count**, so no rung is scaled from another worker count's dips (mantahostels#2705). **`SUITE_LADDER_MEASURED_AT` names #1603's bench**: with all three rungs off one run there is no stalest rung for it to track.
+**THE WHOLE LADDER IS MEASURED AT 3 WORKERS A SUITE, on 485 tracked test files, the drift check's count (#1603; its six rows are below).** ⚠ **File count is a weak proxy for the dip**, though it is what `check-suite-size-drift.js` watches: against mantahostels#2705's 282-file bench, a suite 72% larger in files dipped 25%, 6% and 14% less at the three rungs, all twelve rows of both benches `baseline_stationary: true`, so the stationarity check does not explain it and the cause is unmeasured. **A third worker's per-suite cost is not constant in the suite count**, so no rung is scaled from another worker count's dips (mantahostels#2705). **`SUITE_LADDER_MEASURED_AT` names #1603's bench**: with all three rungs off one run there is no stalest rung for it to track.
 
-**The rungs: ~2.15 / 3.25 / 3.65 GB resting for 1/2/3 three-worker suites** — `earlyoom`'s 794 MB + that count's dip (**1,046 / 2,124 / 2,546 MB**, #1603) + the **~300 MB margin that is fitted, not measured** (mantahostels#463) — one flat margin across all three counts, never a per-count one — rounded up to the next 50 MB (2,140.4 / 3,218.4 / 3,640.0 MB before rounding).
+**The rungs: ~2.15 / 3.25 / 3.65 GB resting for 1/2/3 three-worker suites** — `earlyoom`'s 794 MB + that count's dip (**1,046 / 2,124 / 2,546 MB**, #1603) + the **~300 MB margin that is fitted, not measured** (mantahostels#463) — one flat margin across all three counts, never a per-count one — rounded up to the next 50 MB.
 
 **A run is charged by the vitest workers its test files can occupy** (#2558, ruled at #2557): a run resolving to fewer than 121 test files in its own repo (`WHOLE_SLOT_FILES`, a quarter of the 485 the ladder was measured on, #2931) is a part-suite of `w` = its files, up to `maxWorkers`, adding `w/3` of the dip the next suite would, 3 being the workers per suite the ladder was measured at; any other run is whole, at `maxWorkers` (5, `WHOLE_SUITE_WORKERS`). **A touched run is a part-suite at any count** (#2935): one naming its test files, a `--retest`, or the bare `npm run test` under `landing`. It never takes or waits for the whole-suite slot, and forks `w` workers; at launch the bare one, its selection unresolved, is charged `maxWorkers`. At launch the guard counts the files a command names; `run-vitest.js` resolves its selection once before it queues and carries the count in its launch record. **A running run is weighed by that carried count** (#2931), read off its process's environment; a run carrying none is weighed off the test files its runner line names (#2560, ruled at #2559), and a watcher, a run naming none, a non-vitest runner and one carrying a bare filter word each weigh `maxWorkers`. The rung is a function of the total worker count, the running weights plus `w`, and only a whole run counts toward the cap. The table's rows are whole suites running:
 
@@ -314,11 +314,11 @@ All six `baseline_stationary: true` (shifts 0–102.2 MB), `cpu_valid: true`, no
 
 **A full run isolates by default** (mantahostels#2278, below); `npm run test -- --isolated` names the same path explicitly and is what a filtered run needs to opt into it. Either way runs the suite in a detached worktree checked out at HEAD (mantahostels#2169). **A bare `npm run test` is not a full run** (mantahostels#3208) — it narrows to the diff. **From a session, that narrowed run reads a worktree at HEAD carrying the session's own uncommitted files and nobody else's** (#812): the attribution below picks them, a live neighbour's claim subtracted, and a file it misses is read at HEAD's version. Where that worktree cannot be built the run says so and reads the shared tree; with no session id, or under `--shared`, it reads the shared tree as before. The isolating full run is `npm run test -- --full=<cause>` (#182: a required, closed-vocabulary reason), and the default's own escalation to the whole suite isolates too. **A narrowing that fails — the diff, `vitest list` or its timeout, or any other throw — is refused, never widened** (#2698): the run spawns nothing, exits 1 and names the cause and the `--full=<cause>` route; an explicit `--changed <ref>` is refused the same way. Type `npm run test`, not a bare `node scripts/run-vitest.js`: the npm script carries `NODE_OPTIONS=--max-old-space-size=2048` and the bare one hands `~/.bashrc`'s 4096, twice the heap the ladder above was measured under, to vitest's main process — the workers hold §2's 1024 MB either way — and this binds every bare-wrapper full run, isolated or not. **It composes with `--queue`**, which is the sanctioned form for a full run here — the concurrency guard refuses a second suite outright. Nothing but that run writes into the worktree, for its tracked content, and its HEAD cannot move, so `headMovedDuringRun` is structurally false and the re-run a neighbour's mid-run commit forces disappears (mantahostels#2098). The certificate follows the run there: `scripts/vitest-tree-watch.ts` takes its drift snapshot against the worktree, while the marker still lands in the canonical checkout's store, keyed by the sha that ran and flagged isolated (the launch record's `isolated`, `scripts/lib/suite-handoff.js`). `--isolated --changed <ref>` stays admissible at the push (mantahostels#2146): isolation freezes what the suite READS, it does not narrow what it SELECTS.
 
-**`--isolated` is the default for a full run** (mantahostels#2278, ruled on certificate honesty rather than the red rate mantahostels#2169 §4 gated on and never cleared). 62% of this machine's full runs (58 of 94 in the marker stores) read between 1 and 15 of another session's uncommitted files while depositing a certificate keyed to a sha whose tree they had not read; isolation makes that 0%. The measured price: the own-uncommitted-work refusal fires on **1.1%** of historical full runs (a floor — a Bash-route write is invisible to the attribution ledger, mantahostels#296), and the wall cost is **1 s in 301** on the one same-sha paired point in the corpus, plus 0.17 s `git worktree add` and 0.02 s `git worktree remove` measured live. mantahostels#2169 §4's red-rate gate is retired as un-passable (mantahostels#2278). A run naming test files, a `nameFilter`, or `--changed` keeps today's non-isolated behaviour — the ruling is scoped to full runs; an explicit `--shared` escape restores the old shared-tree path for a full run. mantahostels#2156's exposure-window inference is corrected rather than confirmed (mantahostels#2173): 299 of the worst pre-ruling run's 300 failures were timeouts, 298 of them `Test timed out in 5000ms` and 279 of those one file's cascade off 16 slow cases (mantahostels#2254), leaving a single genuine assertion — the mechanism was the fixed per-test timeout under concurrent-suite load (whether it should scale with that load is open at mantahostels#2255), not tree mutation.
+**`--isolated` is the default for a full run** (mantahostels#2278, ruled on certificate honesty rather than the red rate mantahostels#2169 §4 gated on and never cleared): a shared-tree full run can read another session's uncommitted files while depositing a certificate keyed to a sha whose tree it had not read. A run naming test files, a `nameFilter`, or `--changed` keeps today's non-isolated behaviour — the ruling is scoped to full runs; an explicit `--shared` escape restores the old shared-tree path for a full run. Isolation does not cure timeout reds: the worst pre-ruling run failed on the fixed per-test timeout under concurrent-suite load, not tree mutation (mantahostels#2173, mantahostels#2254); whether that timeout should scale with load is open at mantahostels#2255.
 
 **Four refusals, each printing what to do instead** (`scripts/run-vitest.js`; the first three are `isolatedRefusal` and `isolatedArgvRefusal`, the fourth inline in `runIsolated`). Since isolation is now the default for a full run, all four fire unasked on `npm run test -- --full=<cause>` — and on a bare `npm run test` only where its narrowing escalates (mantahostels#3208) — not only on a run naming `--isolated` explicitly: a file THIS SESSION wrote sitting uncommitted, since a worktree at HEAD reads not one byte of it and its certificate would look exactly like one that attested it; a bare `--changed`, which selects nothing against HEAD and would exit 0 having tested nothing; an argument naming an absolute path inside the canonical checkout, which the worktree would read live rather than frozen; and a git that will not say whether the tree is clean. **A neighbour's uncommitted file only warns** — this tree is never clean, so refusing on the whole dirty set would refuse every isolated run this machine will ever start. **That split needs a session id and a readable ledger, and degrades to a warn on the whole dirty set without either** — so from a hook or in CI, where no session id exists, the first refusal above does not fire at all. Attribution is the ledger `scripts/guard-uncommitted-work.js` uses, so it inherits that ledger's blind spot too: a file this session wrote from Bash — a `>` redirect, a heredoc, `sed -i` — is invisible to it and warns as a neighbour's (mantahostels#296).
 
-**Three surfaces a worktree does not freeze.** `/proc` and the git common dir, which worktrees share, are named at mantahostels#2173 and unmeasured. The third is measured and is the one that has already cost a reading: a gitignored artefact the suite needs is not reproduced by `git worktree add`, so it is symlinked in from the canonical checkout off a **declared list** in `scripts/run-vitest.js` — `node_modules` and `.husky/_` — and is a neighbour's to mutate mid-run. **An artefact missing from that list is missing from the run**, and the red it fabricates looks like a genuine one: an unlisted `.husky/_` made `prepare-commit-msg-gate.test.ts` fail 28 of 31 on `ENOENT … .husky/_/h` in every isolated reading before mantahostels#2213 fixed it. **That residual is closed, at those two shas**: two isolated full runs have gone green over 244/244 and 245/245 tracked test files with zero failures. A file added to the suite since either sha has not yet had an isolated green of its own — compare `git ls-tree -r --name-only HEAD | grep -cE '\.test\.(ts|tsx)$'` against the newest isolated marker's file count before treating the residual as still closed today. The worktree itself goes under gitignored `.claude/worktrees/`, pid-scoped, and a leftover from a dead process is swept at the next isolated run.
+**Three surfaces a worktree does not freeze.** `/proc` and the git common dir, which worktrees share, are named at mantahostels#2173 and unmeasured. The third is measured and is the one that has already cost a reading: a gitignored artefact the suite needs is not reproduced by `git worktree add`, so it is symlinked in from the canonical checkout off a **declared list** in `scripts/run-vitest.js` — `node_modules` and `.husky/_` — and is a neighbour's to mutate mid-run. **An artefact missing from that list is missing from the run**, and the red it fabricates looks like a genuine one: an unlisted `.husky/_` made `prepare-commit-msg-gate.test.ts` fail 28 of 31 on `ENOENT … .husky/_/h` in every isolated reading before mantahostels#2213 fixed it, and isolated full runs have gone green since (lucmoseley/mantahostels#2279). **Before treating that residual as closed today**, compare `git ls-tree -r --name-only HEAD | grep -cE '\.test\.(ts|tsx)$'` against the newest isolated marker's file count: a test file added since has had no isolated green of its own. The worktree itself goes under gitignored `.claude/worktrees/`, pid-scoped, and a leftover from a dead process is swept at the next isolated run.
 
 ### What the gates above actually refuse
 
@@ -334,14 +334,7 @@ quoting a refusal rate. **Quote that split rather than "memory is the
 constraint"**, which is true of suites and false of sessions. ⚠ **What the suite
 bind costs is unmeasured** — nothing records a deferral.
 
-⚠ **CPU binds at high session counts (mantahostels#1953).** At ~36 session
-processes this machine sustained **553–778% of the 800% ceiling** across six
-windows, load1 48–68: session count is the variable that drives it.
-
-**What binds is sessions, and what it costs is kernel time.** Claude sessions
-drew **71–100% of all busy CPU** across those windows.
-
-⚠ **Over half of it is not work.** **`system` time was 52–55% of all busy CPU**
+⚠ **Over half of busy CPU is not work, but kernel time** (mantahostels#1953). **`system` time was 52–55% of all busy CPU**
 (300–400% of 800) at a fork rate of **535–625/s**, against **2–4% in `user`** —
 process creation and syscall overhead, not computation. **And a Claude session
 runs at NI 5, so its CPU lands in `nice` (253–293%), never in `user`**.
@@ -351,10 +344,14 @@ Quote the split, never a bare busy figure.
 
 **Each test run runs in a pids-capped scope of its own** (#3401). `scripts/run-vitest.js` and `scripts/run-pytest.js` start their test child under `systemd-run --user --scope` as `wfc-test-<pid>-<n>.scope`, with `TasksMax=1024` and `RuntimeMaxSec=900` (`scripts/lib/user-scope.js`). A runaway fork chain is refused forks at the cap, not left to fill `/init.scope`, whose abort takes WSL's init down (#3400). A run whose `pids.events` reads `max` above 0 fails, records no certificate, and prints `TASK CAP` with the cap. When the run ends, by any route, the wrapper writes `1` to the scope's `cgroup.kill`, which kills processes that left the process group too. `RuntimeMaxSec` stops the scope if the wrapper died first. Where the user manager makes no scope, the run shares its starter's cgroup, uncapped, and prints one line saying so. `WFC_RUN_TASKS_MAX` can only lower the cap.
 
-**The suite ladder is the wrong gate to answer this with.** The gate that
-governs the workload that *does* saturate the CPU is **session admission**, and
-every admission verdict holds at the load ceiling, whatever memory is free
+The gate that governs the workload that saturates the CPU is **session
+admission**, not the suite ladder, and every admission verdict holds at the
+load ceiling, whatever memory is free
 (#830, #834, mantahostels#1953; *The load ceiling* below).
+
+A test run's marker carries a `machine` block, the CPU split measured as a delta
+across the run itself (`scripts/lib/cpu-sample.js`, mantahostels#1953); absence
+means unreadable, never a quiet machine.
 
 ⚠ **THE MARKER CANNOT SEE THE RUNS THIS WAS BUILT FOR, AND THE WATCHDOG IS WHAT
 COVERS THEM.** A marker is written only for a run that finished with an observed
@@ -368,14 +365,6 @@ whether anything finished. Fixing the marker properly means writing a
 provisional record at run start and upgrading it on the verdict; not done, and
 **mantahostels#1979 is gated on a rate this instrument alone cannot supply.**
 
-**Both instruments record CPU** (mantahostels#1953). A test
-run's marker carries a `machine` block — `busyPct`, `systemPct`, `nicePct`,
-`userPct`, `iowaitPct`, `load1`, against `ceilingPct` — measured as a delta
-across the run itself (`scripts/lib/cpu-sample.js`, bracketed by
-`vitest-pass-reporter.ts`); absence means unreadable, never a quiet machine. And
-`~/memwatch.sh` gained a **CPU trigger of its own**, at `MEMWATCH_CPU_THRESHOLD_PCT`
-(default **600** of 800).
-
 ### The load ceiling — new work holds at load1 3 per core (#830, #3223)
 
 Two launch points read `/proc/loadavg` before adding work, against
@@ -386,9 +375,7 @@ Two launch points read `/proc/loadavg` before adding work, against
 | A test run through `scripts/run-vitest.js` — every `npm run test` and `test:changed` | **holds**, re-reading every 15 s, and **refuses** if still over after 5 minutes, as `--queue` refuses at its timeout on the memory rung: a refusal costs one session a retry, a freeze (§7) costs all of them. A `--queue` run holds again once its gate opens, before it spawns (#834) |
 | A session, at `lib/admission.js`'s verdicts — `dispatch-sessions.sh` re-reads `scripts/admission.js` before every member | **HOLD**, exit 1, 0 slots and a `cpu load` line — `dispatch-sessions.sh` skips that member with a load remedy. `--force-memory` re-reads the load alone (`--load-only`), so no flag lifts the hold (#834). pick-next's ADMISSION block holds and reads 0 free slots too, and prints a `cpu load` line over the ceiling or where the load is unreadable |
 
-**Why 24.** Above load1 24 hook-timeout refusals run about 10 times higher
-(7 → 72 an hour), the Bash round-trip doubles and closes per hour halve, across
-the 13–27 Oct hours (#3209). A stopgap, ruled on #3211, held until #3223's
+The 24 is a stopgap on #3209's measurement, ruled on #3211, held until #3223's
 switchback reads it. `WFC_LOAD_CEILING=<n>` overrides it; where that is unset,
 `~/.claude/load-ceiling` does, re-read at every launch so a change reaches
 running sessions; `0` turns it off. Both launch points **fail open** on an
@@ -419,11 +406,6 @@ member with a session remedy. `--force-memory`'s `--load-only` judges this ceili
 too. pick-next's ADMISSION block prints the same line, and the breakdown has a
 `cpu slots` row. `WFC_SESSION_CEILING=<n>` overrides it, `0` turns it off, and an
 override under 1 keeps the default. An unreadable `ps` caps nothing.
-
-**Why 12.** Each point of load1 slows work by about 3.5%, with no knee, and load1
-runs about 2.2 per session. So total progress peaks near 13 sessions, and at 12
-each session runs about 1.5× slower than on an idle machine. The measurement and
-its biases are on #2141.
 
 Subagent transcripts sit inside a session's own memory slot and must never be
 pooled with it as separate sessions.
