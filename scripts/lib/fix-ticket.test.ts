@@ -17,6 +17,7 @@ const TICKET = {
 	parent: P,
 	revert: R,
 	files: ["x.test.ts"],
+	jobs: [] as string[],
 	stale: [] as { row: string; forward: string }[] | null,
 };
 
@@ -77,6 +78,28 @@ describe("ticketFiler", () => {
 		expect(input).toContain("- `x.test.ts`");
 		expect(input).toContain("Reverted commit: `Add the widget (#12)`");
 		expect(f.reopened).toEqual([]);
+	});
+
+	it("names the failing CI jobs where the tester named no failing file (#3253)", () => {
+		const bodies: string[] = [];
+		ticketFiler({
+			messageOf: () => "Add the widget",
+			similar: () => [],
+			fileIssue: (_args, input) => {
+				bodies.push(input);
+				return { status: 0, stdout: "Filed #9: https://x/9\n", stderr: "" };
+			},
+			stateOf: () => "open",
+			reopen: () => undefined,
+		}).fileFixTicket({
+			...TICKET,
+			files: [],
+			jobs: ["Full suite / Lint and types"],
+		});
+		expect(bodies[0]).toContain(
+			"- CI job `Full suite / Lint and types` (the tester named no failing file)",
+		);
+		expect(bodies[0]).not.toContain("the whole suite");
 	});
 
 	it("reopens a closed cited ticket before filing under it", () => {

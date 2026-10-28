@@ -6,7 +6,10 @@
  * lands its parent once the culprit fails twice and the parent passes the
  * whole suite, reverts the culprit on `landing` and files its fix ticket, or
  * holds (#2404). A parent whose whole suite reaches no verdict is confirmed
- * on the culprit's failing files instead and stays off `main` (#2910).
+ * on the culprit's failing files instead and stays off `main` (#2910). Files
+ * red at `main` too are a known breakage: the bisect leaves them out, and a
+ * culprit whose parent is `main` is confirmed there on its files alone, never
+ * reverted where they fail (#3324).
  *
  * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
  * no-verdict ledger (the same line per parent whose whole suite reached no
@@ -87,14 +90,17 @@ const NETWORK =
  * @typedef {{kind: "green"} | {kind: "red", files: string[], jobs?: string[]}
  *   | {kind: "unknown", reason: string}} Verdict `jobs` the failing CI jobs,
  *   where the tester read a CI run
- * @typedef {"flake" | "bisect" | "confirm" | "parent" | "parent-files"}
- *   RerunWhy
+ * @typedef {"flake" | "base" | "bisect" | "confirm" | "parent"
+ *   | "parent-main"
+ *   | "parent-files"} RerunWhy
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
- *   | {kind: "revert", culprit: string, parent: string|null, files: string[]}
+ *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
+ *       jobs: string[]}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
- *       revert: string, files: string[], stale: RegistryRow[]|null}
+ *       revert: string, files: string[], jobs: string[],
+ *       stale: RegistryRow[]|null}
  *   | {kind: "hold", reason: string}
  *   | {kind: "exit", reason: string}} Action
  * @typedef {Extract<Action, {kind: "exit"}> | Extract<Action, {kind: "hold"}>}
@@ -104,13 +110,18 @@ const NETWORK =
  * @property {string|null} base `main` when the batch was tested
  * @property {string[]} files the failing files, every rerun's target; empty
  *   where the tester named none, which reruns the whole suite
+ * @property {string[]} jobs the failing CI jobs, which name the red where
+ *   `files` is empty; never a rerun's target
  * @property {Verdict|null} flake the one rerun at the tip
+ * @property {Verdict|null} onMain the base check: the tip's red files run at
+ *   `base`, where those that fail are a known breakage the bisect leaves out
  * @property {string[]|null} range the commits after `base` up to the tip,
  *   oldest first
  * @property {Record<string, Verdict>} bisect each bisected commit's verdict
  * @property {Record<string, Verdict>} confirm the culprit's second run and
- *   its parent's whole-suite run, apart from the bisect's so they never move
- *   the culprit it named
+ *   its parent's run, the whole suite or, where the parent is `main`, the
+ *   culprit's failing files; apart from the bisect's so they never move the
+ *   culprit it named
  * @property {Verdict|null} parentOnFiles the parent's run on `files`, taken
  *   only where its whole suite reached no verdict
  * @property {Revert|null} revert
@@ -146,6 +157,45 @@ const short = (sha) => sha.slice(0, 9);
 /** @param {string[]} files */
 const filesLabel = (files) =>
 	files.length > 0 ? files.join(", ") : "the whole suite";
+
+/**
+ * @typedef {{files: string[], jobs?: string[]}} Failing what a red failed;
+ *   `jobs` absent on a verdict read off no CI run
+ */
+
+/**
+ * The names that say what a red failed: its files, else its failing CI jobs
+ * (#3253), else none, the whole suite.
+ * @param {Failing} f
+ * @returns {{of: "files" | "jobs", names: string[]} | null}
+ */
+function failingNames({ files, jobs = [] }) {
+	if (files.length > 0) return { of: "files", names: files };
+	if (jobs.length > 0) return { of: "jobs", names: jobs };
+	return null;
+}
+
+/** @param {Failing} f */
+function failingLabel(f) {
+	const named = failingNames(f);
+	if (named?.of !== "jobs") return filesLabel(f.files);
+	return `the CI jobs ${named.names.map((j) => `'${j}'`).join(", ")}`;
+}
+
+/**
+ * `failingLabel` as an issue body's list.
+ * @param {Failing} f
+ */
+function failingList(f) {
+	const named = failingNames(f);
+	if (named === null)
+		return "- the whole suite (the tester named no failing file)";
+	if (named.of === "files")
+		return named.names.map((n) => `- \`${n}\``).join("\n");
+	return named.names
+		.map((n) => `- CI job \`${n}\` (the tester named no failing file)`)
+		.join("\n");
+}
 
 /**
  * The culprit the bisect has narrowed to, or the next commit to test: the
@@ -185,21 +235,88 @@ function bisectStep(r) {
  * @returns {Action}
  */
 function redAction(r, { main, isStuck }) {
-	const { files } = r;
-	/** @type {[string, Verdict|null][]} */
-	const runs = [[r.sha, r.flake], ...Object.entries(r.bisect)];
+	/** @type {[string|null, Verdict|null][]} */
+	const runs = [
+		[r.sha, r.flake],
+		[r.base, r.onMain],
+		...Object.entries(r.bisect),
+	];
 	for (const [sha, v] of runs)
-		if (v?.kind === "unknown") return buildNoVerdictExit(sha, v);
-	if (!r.flake) return { kind: "rerun", sha: r.sha, files, why: "flake" };
+		if (sha !== null && v?.kind === "unknown")
+			return buildNoVerdictExit(sha, v);
+	if (!r.flake)
+		return { kind: "rerun", sha: r.sha, files: r.files, why: "flake" };
 	/* Spec #2261's flake check. Residual: a flaky file outside `files` lands
 	 * unseen, the whole suite having run once, red. */
 	if (r.flake.kind === "green") return { kind: "fast-forward", sha: r.sha };
+	const tip = namedOr(r.flake, r.files);
+	/* Never once the bisect has begun: its verdicts were taken over `tip`. */
+	if (!r.onMain && !r.range && r.base !== null && tip.length > 0)
+		return { kind: "rerun", sha: r.base, files: tip, why: "base" };
+	const known = redOnMain(r.onMain, tip);
+	const files = tip.filter((f) => !known.includes(f));
+	if (known.length > 0 && files.length === 0)
+		return { kind: "hold", reason: buildAlreadyRedReason(known) };
+	const action = clearRed({ ...r, files }, { main, isStuck, known });
+	if (
+		action.kind !== "hold" ||
+		known.length === 0 ||
+		action.reason.startsWith(ALREADY_RED)
+	)
+		return action;
+	return {
+		kind: "hold",
+		reason: `${action.reason}; ${buildAlreadyRedReason(known)}`,
+	};
+}
+
+/**
+ * @typedef {Pick<LanderState, "main" | "isStuck"> & {known: string[]}}
+ *   Clearing `known` the tip's red files that are red on `main` too
+ */
+
+/**
+ * The bisect, the culprit's confirmation and what follows it, over `r.files`:
+ * the tip's red files that pass on `main`.
+ * @param {Red} r
+ * @param {Clearing} s
+ * @returns {Action}
+ */
+function clearRed(r, { main, isStuck, known }) {
 	if (!r.range) return { kind: "bisect", base: r.base, sha: r.sha };
 	const step = bisectStep({ ...r, range: r.range });
 	if ("next" in step)
-		return { kind: "rerun", sha: step.next, files, why: "bisect" };
-	return confirmAction(r, step, isStuck) ?? culpritAction(r, step, main);
+		return { kind: "rerun", sha: step.next, files: r.files, why: "bisect" };
+	return (
+		confirmAction(r, step, { main, isStuck, known }) ??
+		culpritAction(r, step, main)
+	);
 }
+
+/**
+ * @param {Verdict|undefined} v
+ * @param {string[]} files
+ */
+const namedOr = (v, files) =>
+	v?.kind === "red" && v.files.length > 0 ? v.files : files;
+
+/**
+ * The files of `checked` red on `main`: those a red run there named, or all
+ * of them where it named none of them.
+ * @param {Verdict|null} onMain
+ * @param {string[]} checked
+ */
+function redOnMain(onMain, checked) {
+	if (onMain?.kind !== "red") return [];
+	const named = checked.filter((f) => onMain.files.includes(f));
+	return named.length > 0 ? named : checked;
+}
+
+const ALREADY_RED = "already red on `main`: ";
+
+/** @param {string[]} files */
+const buildAlreadyRedReason = (files) =>
+	`${ALREADY_RED}${filesLabel([...new Set(files)])}`;
 
 /**
  * @param {string} sha
@@ -218,10 +335,10 @@ const buildNoVerdictExit = (sha, v) => ({
  * start.
  * @param {Red} r
  * @param {{culprit: string, parent: string|null}} bisected
- * @param {(sha: string) => boolean} isStuck
+ * @param {Clearing} s
  * @returns {Action|null}
  */
-function confirmAction(r, { culprit, parent }, isStuck) {
+function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	const { files } = r;
 	const again = r.confirm[culprit];
 	if (!again) return { kind: "rerun", sha: culprit, files, why: "confirm" };
@@ -229,24 +346,38 @@ function confirmAction(r, { culprit, parent }, isStuck) {
 	if (again.kind === "green")
 		return {
 			kind: "hold",
-			reason: `culprit unconfirmed: ${short(culprit)} passed ${filesLabel(files)} on its second run`,
+			reason: `culprit unconfirmed: ${short(culprit)} passed ${failingLabel({ files, jobs: culpritJobs(r, culprit) })} on its second run`,
 		};
 	if (parent === null) return null;
+	const named = parent === main ? namedOr(again, r.files) : [];
+	if (named.length > 0)
+		return mainConfirmAction(
+			r,
+			parent,
+			/** @type {string} */ (main),
+			named,
+			known,
+		);
 	/* The whole suite, as the parent lands on `main`, which only ever holds a
 	 * sha the full suite passed. */
 	const before = r.confirm[parent];
 	if (!before && !isStuck(parent))
 		return { kind: "rerun", sha: parent, files: [], why: "parent" };
-	if (before?.kind === "red")
+	/* A parent red only on files red on `main` is reverted past, never landed:
+	 * culpritAction fast-forwards a parent only where its whole suite passed. */
+	if (
+		before?.kind === "red" &&
+		!(before.files.length > 0 && before.files.every((f) => known.includes(f)))
+	)
 		return {
 			kind: "hold",
 			reason: parentUnconfirmed(
 				culprit,
 				parent,
-				`fails the whole suite: ${filesLabel(before.files)}`,
+				`fails the whole suite: ${failingLabel(before)}`,
 			),
 		};
-	if (before?.kind === "green") return null;
+	if (before && before.kind !== "unknown") return null;
 	/* Residual (#2910): the revert then rests on `files` alone at the parent,
 	 * so a parent red elsewhere in the suite goes unseen here. Bound:
 	 * culpritAction fast-forwards only a parent whose whole suite passed, and
@@ -271,10 +402,45 @@ function confirmAction(r, { culprit, parent }, isStuck) {
 			reason: parentUnconfirmed(
 				culprit,
 				parent,
-				`fails ${filesLabel(onFiles.files)}`,
+				`fails ${failingLabel(onFiles)}`,
 			),
 		};
 	return null;
+}
+
+/**
+ * The confirm of a parent that is `main`: the culprit's failing files rerun
+ * there, never the whole suite, as `main` lands nothing. A red naming no
+ * file keeps confirmAction's whole-suite run.
+ * @param {Red} r
+ * @param {string} parent
+ * @param {string} main
+ * @param {string[]} files the culprit's failing files
+ * @param {string[]} known the tip's files the base check found red on `main`
+ * @returns {Action|null}
+ */
+function mainConfirmAction(r, parent, main, files, known) {
+	const before = r.confirm[parent];
+	if (!before) return { kind: "rerun", sha: main, files, why: "parent-main" };
+	if (before.kind === "unknown") return buildNoVerdictExit(parent, before);
+	if (before.kind === "red")
+		return {
+			kind: "hold",
+			reason: buildAlreadyRedReason([...known, ...redOnMain(before, files)]),
+		};
+	return null;
+}
+
+/**
+ * The CI jobs the culprit's own red failed, which differ from the tip's where
+ * `files` is empty and every rerun is the whole suite.
+ * @param {Red} r
+ * @param {string} culprit
+ */
+function culpritJobs(r, culprit) {
+	for (const v of [r.confirm[culprit], r.bisect[culprit]])
+		if (v?.kind === "red") return v.jobs ?? [];
+	return r.jobs;
 }
 
 /**
@@ -296,9 +462,10 @@ const parentUnconfirmed = (culprit, parent, why) =>
  */
 function culpritAction(r, { culprit, parent }, main) {
 	const { files } = r;
+	const jobs = culpritJobs(r, culprit);
 	if (parent !== null && parent !== main && r.confirm[parent]?.kind === "green")
 		return { kind: "fast-forward", sha: parent };
-	if (!r.revert) return { kind: "revert", culprit, parent, files };
+	if (!r.revert) return { kind: "revert", culprit, parent, files, jobs };
 	if ("failed" in r.revert)
 		return {
 			kind: "hold",
@@ -315,6 +482,7 @@ function culpritAction(r, { culprit, parent }, main) {
 		parent,
 		revert: r.revert.sha,
 		files,
+		jobs,
 		stale: r.revert.stale ?? null,
 	};
 }
@@ -327,6 +495,7 @@ function culpritAction(r, { culprit, parent }, main) {
  */
 function recordRerun(r, action, verdict) {
 	if (action.why === "flake") return { ...r, flake: verdict };
+	if (action.why === "base") return { ...r, onMain: verdict };
 	if (action.why === "parent-files") return { ...r, parentOnFiles: verdict };
 	const slot = action.why === "bisect" ? "bisect" : "confirm";
 	return { ...r, [slot]: { ...r[slot], [action.sha]: verdict } };
@@ -335,14 +504,16 @@ function recordRerun(r, action, verdict) {
 /**
  * @param {string} sha
  * @param {string|null} base
- * @param {string[]} files
+ * @param {Extract<Verdict, {kind: "red"}>} verdict
  * @returns {Red}
  */
-const redBatch = (sha, base, files) => ({
+const redBatch = (sha, base, { files, jobs = [] }) => ({
 	sha,
 	base,
 	files,
+	jobs,
 	flake: null,
+	onMain: null,
 	range: null,
 	bisect: {},
 	confirm: {},
@@ -365,7 +536,10 @@ function resumable(r) {
 		);
 	return {
 		...r,
+		/* A heartbeat beaten before #3253 carried no jobs. */
+		jobs: r.jobs ?? [],
 		flake: r.flake?.kind === "unknown" ? null : r.flake,
+		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
 		confirm: reached(r.confirm),
 	};
@@ -434,8 +608,9 @@ function nextAction(s) {
  *   Tester the whole suite at `sha`, or only `files` where they are given;
  *   `files` absent is a batch's own test, present (empty too) a rerun
  * @typedef {Omit<Extract<Action, {kind: "file-fix-ticket"}>, "kind">} FixTicket
- * @typedef {{batch: string|null, reason: string, files: string[]}} Held a
- *   hold, with the batch and failing files of the red batch it held on
+ * @typedef {{batch: string|null, reason: string, files: string[],
+ *   jobs: string[]}} Held a hold, with the batch, failing files and failing
+ *   CI jobs of the red batch it held on
  * @typedef {{landing: string|null, reason: string, filed: string}} HoldNote
  *   the hold a run ended on: its tip as `heldTip` pins it, and what the
  *   held-queue filing printed
@@ -512,7 +687,7 @@ async function act(deps, action, { tested, red }, main) {
 	if (action.kind === "test") {
 		const verdict = await verdictAt(deps, action.sha);
 		return verdict.kind === "red"
-			? { tested, red: redBatch(action.sha, main, verdict.files) }
+			? { tested, red: redBatch(action.sha, main, verdict) }
 			: { tested: { sha: action.sha, verdict }, red };
 	}
 	if (red === null) throw new Error(`${action.kind} with no red batch`);
@@ -551,7 +726,7 @@ async function advanceRed(deps, action, r) {
 				git.revertOnLanding(
 					action.culprit,
 					action.parent,
-					`The lander found it red on ${filesLabel(action.files)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
+					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} green.`,
 				),
 			),
 		};
@@ -749,7 +924,12 @@ function holdQueue({ tracker, beat, say = () => undefined }, hold, red) {
 	const batch = red.sha;
 	let filed;
 	try {
-		filed = tracker.holdQueue({ batch, reason: hold.reason, files: red.files });
+		filed = tracker.holdQueue({
+			batch,
+			reason: hold.reason,
+			files: red.files,
+			jobs: red.jobs,
+		});
 	} catch (err) {
 		/* The hold stands unfiled, named in the beat the stall check prints
 		 * (#2406). */
@@ -1231,6 +1411,7 @@ module.exports = {
 	LANDER_GIT_TIMEOUT_MS,
 	HEARTBEAT_MS,
 	buildRevertLine,
+	failingList,
 	short,
 	buildActionLine,
 	runLander,

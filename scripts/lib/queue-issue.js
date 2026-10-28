@@ -42,14 +42,6 @@ const LABELS = ["urgent", "bug", takesLabel("implement"), "kind:ticket"];
  */
 
 /**
- * @param {string[]} files
- */
-const failingList = (files) =>
-	files.length > 0
-		? files.map((f) => `- \`${f}\``).join("\n")
-		: "- the whole suite (the tester named no failing file)";
-
-/**
  * @param {QueueIssueDeps} deps
  * @returns {(issue: QueueIssue, body: string) => string} files or refreshes
  *   the issue, returning a line naming it
@@ -171,4 +163,4 @@ function liveQueueDeps(root) {
 	};
 }
 
-module.exports = { failingList, queueIssueFiler, liveQueueDeps };
+module.exports = { queueIssueFiler, liveQueueDeps };

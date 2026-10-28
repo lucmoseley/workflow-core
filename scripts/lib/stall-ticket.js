@@ -3,11 +3,13 @@
  * has not moved for lib/landing-stall.js's STALL_MS with `landing` ahead (#2692,
  * ruled at #2672), filed as lib/queue-issue.js files it.
  *
- * Its body changes only with the batch, its red files or `main`'s last move.
+ * Its body changes only with the batch, its red files or jobs, or `main`'s
+ * last move.
  */
 
 const { STALL_MS } = require("./landing-stall.js");
-const { failingList, queueIssueFiler } = require("./queue-issue.js");
+const { failingList } = require("./lander.js");
+const { queueIssueFiler } = require("./queue-issue.js");
 
 const TITLE = "Landing queue stalled: main has not moved for 2 h";
 
@@ -16,8 +18,8 @@ const TITLE = "Landing queue stalled: main has not moved for 2 h";
  * @property {string} landing `landing`'s tip
  * @property {string} movedAt when `main` last moved, ISO
  * @property {string|null} batch the batch the lander has under test
- * @property {string[]|null} red the red batch's failing files, null where no
- *   batch is red
+ * @property {import("./lander.js").Failing|null} red the
+ *   red batch's failing files and CI jobs, null where no batch is red
  */
 
 /** @param {Stall} s */
