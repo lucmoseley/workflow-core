@@ -11,7 +11,7 @@
  * accepted too — the test seam; the hand-over never uses it, because a piped
  * value sits in the shell's history. Under Claude Code's `!` prefix stdin is
  * no terminal and carries nothing, and there is no controlling terminal to
- * open instead (#2554): `lib/empty-secret.js` words that refusal.
+ * open instead (#2554).
  *
  * TARGET: `.env` at the host root, `lib/host-root.js`'s, so an install writes
  * into the adopter's tree, never the plugin cache.
@@ -401,7 +401,7 @@ function readGitDir(dir) {
 		if (!fs.statSync(entry).isFile()) return realpathOrNull(entry);
 		const m = fs.readFileSync(entry, "utf8").match(GITFILE);
 		if (!m) return null;
-		// Joined, not path.resolve'd, which would collapse a `..` as text.
+		// Concatenated, not path.join'd or resolve'd, which collapse a `..` as text.
 		const target = requiredGroup(m, 1, GITFILE);
 		return realpathOrNull(
 			path.isAbsolute(target) ? target : `${dir}${path.sep}${target}`,
