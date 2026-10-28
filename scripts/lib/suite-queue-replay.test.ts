@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { PART_PASS_AGE_MS } from "./suite-queue";
 import { readLogs, render, replay } from "./suite-queue-replay";
 
 const MIN = 60_000;
@@ -229,12 +230,12 @@ describe("the limbs, in the gate's order", () => {
 		});
 		expect(hoursOf(r.limb)).toEqual({ memory: 900 });
 		expect(hoursOf(r.limbAlso)).toEqual({
-			"memory / fifo-part": 120,
+			"memory / fifo-part": (10 * MIN - PART_PASS_AGE_MS) / 1000,
 			"memory / load": 900,
 		});
 	});
 
-	it("lets a part waiter pass an older one the memory rung holds, until that one is 8 minutes old (#3058)", () => {
+	it("lets a part waiter pass an older one the memory rung holds, until that one is PART_PASS_AGE_MS old (#3058)", () => {
 		const r = replayOf({
 			waiters: [
 				{ from: 0, to: 10, slotFree: true },
@@ -242,7 +243,9 @@ describe("the limbs, in the gate's order", () => {
 			],
 			mem: blocks(0, 10, 9000),
 		});
-		expect(hoursOf(r.limbAlso)).toEqual({ "memory / fifo-part": 120 });
+		expect(hoursOf(r.limbAlso)).toEqual({
+			"memory / fifo-part": (10 * MIN - PART_PASS_AGE_MS) / 1000,
+		});
 	});
 });
 

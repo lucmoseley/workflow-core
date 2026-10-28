@@ -31,7 +31,7 @@
  * An exit line's own `passed` (#3115) is tallied beside the modelled pass, as
  * what the waiters themselves recorded. The opened part waits the memory limb
  * held at some tick, `tsc` waits left out, are the sample PART_PASS_AGE_MS is
- * derived from (#3115).
+ * derived from (#3361).
  */
 
 const fs = require("node:fs");
@@ -855,7 +855,7 @@ function render(r, w) {
 			? `Recorded passes: ${r.passes.passing} of the ${r.passes.counted} waits whose exit line counts its passes opened their turn past ${r.passes.passed} older part waiter(s) the memory rung held (#3115).`
 			: "Recorded passes: no exit line in the window counts its passes (none logged before #3115 does); the fifo-part limb above is the replay's model alone.",
 		"",
-		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3115): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s.`,
+		`Memory-held part waits, the sample PART_PASS_AGE_MS is derived from (#3361): ${held.length} opened part waits the memory limb held at some tick, wait p50 ${quantileOf(held, 0.5)} s, p90 ${quantileOf(held, 0.9)} s, max ${held.at(-1) ?? 0} s.`,
 		"",
 		"## Whole slot",
 		"",
