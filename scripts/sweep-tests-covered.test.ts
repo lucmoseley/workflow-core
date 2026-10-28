@@ -387,6 +387,49 @@ describe("sweep-tests-covered", () => {
 			expect(wf.jobs.documents.needs).toBeUndefined();
 		});
 
+		describe("the `Suite passed` verdict main's ruleset requires (#2414)", () => {
+			const verdict = wf.jobs.verdict;
+			const step = (verdict.steps as { run: string }[])[0];
+			const passes = (env: Record<string, string>) => {
+				try {
+					execFileSync("bash", ["-eo", "pipefail", "-c", step.run], {
+						env: { PATH: process.env.PATH, ...env },
+						stdio: "pipe",
+					});
+					return true;
+				} catch {
+					return false;
+				}
+			};
+
+			it("runs whatever its needs did, so it never skips into a pass", () => {
+				expect(verdict.name).toBe("Suite passed");
+				expect(verdict.needs).toEqual(["gate", "suite", "documents"]);
+				expect(verdict.if).toBe(
+					expr(
+						"!cancelled() && github.repository == 'lucmoseley/workflow-core'",
+					),
+				);
+			});
+
+			/* suite result, gate's covered output, documents result → green */
+			it.each([
+				["success", "", "success", true],
+				["skipped", "true", "success", true],
+				["skipped", "false", "success", false],
+				["skipped", "", "success", false],
+				["failure", "", "success", false],
+				["cancelled", "", "success", false],
+				["success", "", "failure", false],
+				["success", "", "skipped", false],
+			] as const)("suite %s, covered '%s', documents %s → %s", (...row) => {
+				const [suite, covered, documents, isGreen] = row;
+				expect(
+					passes({ SUITE: suite, COVERED: covered, DOCUMENTS: documents }),
+				).toBe(isGreen);
+			});
+		});
+
 		it("gives the gate the actions: read it needs to see earlier runs", () => {
 			expect(wf.jobs.gate.permissions).toMatchObject({ actions: "read" });
 		});

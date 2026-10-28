@@ -256,3 +256,30 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/roadmap-digest.yml
+
+  # THE ONE CHECK `main`'S RULESET REQUIRES (#2414): GitHub refuses a push to
+  # `main` of a sha without it green, so its name is pinned in that ruleset —
+  # renaming this job locks `main` until the ruleset is edited to match.
+  # One aggregate job rather than the suite's own jobs, so a change to the
+  # shard count never touches the ruleset.
+  #
+  # It must never SKIP: GitHub counts a skipped required check as passed, so
+  # `!cancelled()` runs it whatever its needs did, and a `workflow_dispatch` on
+  # an untested branch cannot mint a passing check by skipping it. Green only
+  # where the document guards passed and the suite either passed or skipped on
+  # an earlier sweep that took this sha green.
+  verdict:
+    name: Suite passed
+    needs: [gate, suite, documents]
+    if: ${{ !cancelled() && github.repository == 'lucmoseley/workflow-core' }}
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - env:
+          SUITE: ${{ needs.suite.result }}
+          COVERED: ${{ needs.gate.outputs.covered }}
+          DOCUMENTS: ${{ needs.documents.result }}
+        run: |
+          echo "suite=$SUITE covered=$COVERED documents=$DOCUMENTS"
+          [ "$DOCUMENTS" = success ] || exit 1
+          [ "$SUITE" = success ] || { [ "$SUITE" = skipped ] && [ "$COVERED" = true ]; }
