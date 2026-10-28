@@ -308,7 +308,7 @@ describe("where it runs", () => {
 		const r = run(T0 + DAY);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toMatch(
-			/BROKEN: .*mantahostels.*\.close-check-log\.jsonl:2 is not JSON/,
+			/BROKEN: .*mantahostels.*\.close-check-log\.jsonl:2 is not a JSON object/,
 		);
 	});
 });

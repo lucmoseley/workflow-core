@@ -26,6 +26,7 @@ const readline = require("node:readline");
 
 const { slugForRepo } = require("../lib/project-slug");
 const { configDir } = require("../lib/config-dir.js");
+const { parseJsonlRow } = require("../lib/jsonl.js");
 
 const dir =
 	process.env.WFC_TRANSCRIPT_DIR ||
@@ -65,11 +66,11 @@ async function extractTranscript(f, tally) {
 	});
 	for await (const line of rl) {
 		if (!line.includes('"Bash"')) continue;
-		let rec;
-		try {
-			rec = JSON.parse(line);
-		} catch {
-			tally.unparsed++;
+		const rec = /** @type {Record<string, any> | null | undefined} */ (
+			parseJsonlRow(line)
+		);
+		if (!rec) {
+			if (rec === undefined) tally.unparsed++;
 			continue;
 		}
 		for (const cmd of bashCommands(rec)) {

@@ -13,6 +13,7 @@ const path = require("node:path");
 const { parseArgs } = require("node:util");
 const { caught } = require("./caught.js");
 const { endResultOf, readStoredRuns } = require("./headless-sessions.js");
+const { readJsonl } = require("./jsonl.js");
 const { localDate } = require("./morning-review.js");
 const { refillPath } = require("./refill-dir.js");
 const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
@@ -41,21 +42,13 @@ const ledgerFile = (seat) =>
  * @returns {LedgerEntry[]}
  */
 function readLedger(seat) {
-	let text;
-	try {
-		text = fs.readFileSync(ledgerFile(seat), "utf8");
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return [];
-		throw err;
-	}
+	const rows = /** @type {LedgerEntry[]} */ (
+		readJsonl(ledgerFile(seat))?.rows ?? []
+	);
 	/** @type {Map<string, LedgerEntry>} */
 	const bySession = new Map();
-	for (const line of text.split("\n")) {
-		if (!line.trim()) continue;
-		/** @type {LedgerEntry} */
-		const e = JSON.parse(line);
+	for (const e of rows)
 		if (!bySession.has(e.sessionId)) bySession.set(e.sessionId, e);
-	}
 	return [...bySession.values()];
 }
 

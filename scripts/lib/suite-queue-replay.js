@@ -36,6 +36,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readJsonl } = require("./jsonl.js");
 const { requiredGroup } = require("./regex-group");
 const { docPath } = require("./script-path.js");
 const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
@@ -122,24 +123,17 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *
  * @param {string} file
  * @param {Unread} unread  accumulator: the absent file and the torn lines
- * @param {(line: string) => boolean} pre
+ * @param {(line: string) => boolean} [pre]
  * @returns {any[]}
  */
-function readJsonl(file, unread, pre = () => true) {
-	if (!fs.existsSync(file)) {
+function readRows(file, unread, pre) {
+	const read = readJsonl(file, pre);
+	if (!read) {
 		unread.absent.push(file);
 		return [];
 	}
-	const rows = [];
-	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-		if (!line.trim() || !pre(line)) continue;
-		try {
-			rows.push(JSON.parse(line));
-		} catch {
-			unread.unparsed++;
-		}
-	}
-	return rows;
+	unread.unparsed += read.bad.length;
+	return read.rows;
 }
 
 /** @param {string} s */
@@ -163,11 +157,11 @@ function readLogs({ markers, memwatch, since, until }) {
 	};
 	/** @type {Unread} */
 	const unread = { absent: [], unparsed: 0 };
-	const exits = readJsonl(
+	const exits = readRows(
 		path.join(markers, ".suite-queue-exits.jsonl"),
 		unread,
 	);
-	const logged = readJsonl(
+	const logged = readRows(
 		path.join(markers, ".test-runs.jsonl"),
 		unread,
 		inRange,
@@ -280,7 +274,7 @@ function readModuleCounts(markers, unread, inRange) {
 		`.test-${store}-markers.archive.jsonl`,
 	]);
 	for (const file of files)
-		for (const d of readJsonl(path.join(markers, file), unread, inRange)) {
+		for (const d of readRows(path.join(markers, file), unread, inRange)) {
 			const list = bySession.get(d.sessionId) ?? [];
 			list.push({
 				st: Date.parse(d.startedAt),

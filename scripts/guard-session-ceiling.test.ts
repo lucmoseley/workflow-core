@@ -662,12 +662,11 @@ describe("waiting for the session's own background work (#1179)", () => {
 		expect(run().reason).not.toContain("background work");
 	});
 
-	it("fails open on a record the transcript readers throw on, with a launch out", () => {
+	it("reads past a record that is no object, still seeing the launch out", () => {
 		transcript([PAST_WIND_UP]);
 		launch("toolu_a", "Run the suite");
-		/* A bare `null` record throws in every reader, the launch reader included. */
 		fs.appendFileSync(path.join(dir, `${sid}.jsonl`), "null\n");
-		expect(run().blocked).toBe(false);
+		expect(run().blocked).toBe(true);
 	});
 
 	it("fails open on a transcript it cannot read, with a launch out", () => {

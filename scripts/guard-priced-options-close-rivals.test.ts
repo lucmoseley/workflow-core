@@ -54,7 +54,7 @@ const {
 } = createRequire(__filename)("./lib/priced-options-limbs.js");
 const { logPath } = createRequire(__filename)("./lib/refusal-log.js");
 const closeLog = (root: string): string => logPath(root, CLOSE_CHECK_LOG);
-const { readJsonl } = createRequire(__filename)("./lib/jev-log.js");
+const { readJsonl } = createRequire(__filename)("./lib/jsonl.js");
 
 const {
 	reset,
@@ -803,7 +803,7 @@ describe("a misshapen close question, held on its shape only where the shape lim
 		expect(reason).not.toContain(CLOSE);
 		expect(reason).not.toContain(readRuleText("house-decision"));
 		expect(counter(".close-rivals-nagged-")).toBe(2);
-		expect(readJsonl(closeLog(dir))?.lines.at(-1)).toEqual(
+		expect(readJsonl(closeLog(dir))?.rows.at(-1)).toEqual(
 			expect.objectContaining({
 				round: "1",
 				kind: "refused-misshapen",
@@ -1109,7 +1109,7 @@ describe("the re-price refusal's budget", () => {
 });
 
 const readLogLines = (): Record<string, unknown>[] =>
-	readJsonl(closeLog(dir))?.lines ?? [];
+	readJsonl(closeLog(dir))?.rows ?? [];
 const readKinds = () => readLogLines().map((line) => line.kind);
 const expectOnlyThePass = () =>
 	expect(JSON.parse(fs.readFileSync(recordFile(), "utf8")).questions).toEqual([
@@ -1370,7 +1370,7 @@ describe("a pass another Stop hook refuses (#1844)", () => {
 	it("leaves to the under-researched-round limb a question it passed, re-sent close (#1949)", () => {
 		expect(stop(round(NEITHER))).toBe("");
 		const countRoundLines = () =>
-			readJsonl(logPath(dir, ROUND_CHECK_LOG))?.lines.length;
+			readJsonl(logPath(dir, ROUND_CHECK_LOG))?.rows.length;
 		const logged = countRoundLines();
 		append(buildSiblingBlock());
 		expect(stop(round(BOTH))).toBe("");

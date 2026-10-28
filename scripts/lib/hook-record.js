@@ -33,6 +33,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 
 /**
@@ -190,17 +191,8 @@ function sizeOf(file) {
  * @returns {boolean}
  */
 function isCapped(file) {
-	let raw;
 	try {
-		raw = fs.readFileSync(file, "utf8");
-	} catch {
-		return false;
-	}
-	const lines = raw.split("\n").filter((l) => l.trim());
-	const last = lines.at(-1);
-	if (!last) return false;
-	try {
-		return JSON.parse(last).capped === true;
+		return readJsonl(file)?.rows.at(-1)?.capped === true;
 	} catch {
 		return false;
 	}

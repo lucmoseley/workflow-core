@@ -21,8 +21,8 @@
  * lib/cli-args.js refuses.
  */
 
-const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
+const { readJsonl } = require("./lib/jsonl.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
@@ -45,15 +45,17 @@ const DUE_DAYS = 7;
  * none. Throws on a line it cannot read: a corrupt record must not read as
  * "never run", which would file on every run.
  *
- * @param {string} text
+ * @param {import("./lib/jsonl.js").Jsonl} read
  * @returns {string | null} YYYY-MM-DD
  */
-function newestWeekly(text) {
+function newestWeekly(read) {
+	const [bad] = read.bad;
+	if (bad !== undefined)
+		throw new Error(`${RECORD}:${bad} is not a JSON object`);
 	/** @type {string | null} */
 	let newest = null;
-	const lines = text.split("\n");
-	for (const [i, line] of lines.entries()) {
-		const date = weeklyDate(line, i);
+	for (const [k, row] of read.rows.entries()) {
+		const date = weeklyDate(row, /** @type {number} */ (read.rowLines[k]));
 		if (date === null) continue;
 		if (!newest || date > newest) newest = date;
 	}
@@ -61,29 +63,19 @@ function newestWeekly(text) {
 }
 
 /**
- * The date of one record line's `weekly` run, or null for a blank line or a
- * run of another mode. Throws as newestWeekly documents.
+ * The date of one record row's `weekly` run, or null for a run of another
+ * mode. Throws as newestWeekly documents.
  *
- * @param {string} line
- * @param {number} i zero-based line index
+ * @param {Record<string, unknown>} row
+ * @param {number} line its 1-based line in the record
  * @returns {string | null} YYYY-MM-DD
  */
-function weeklyDate(line, i) {
-	if (!line.trim()) return null;
-	let row;
-	try {
-		row = JSON.parse(line);
-	} catch (e) {
-		throw new Error(
-			`${RECORD}:${i + 1} is not JSON — ${e instanceof Error ? e.message : String(e)}`,
-			{ cause: e },
-		);
-	}
-	if (row?.mode !== "weekly") return null;
+function weeklyDate(row, line) {
+	if (row.mode !== "weekly") return null;
 	const date = typeof row.date === "string" ? row.date.slice(0, 10) : "";
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date)))
 		throw new Error(
-			`${RECORD}:${i + 1} is a weekly run with no readable "date" (YYYY-MM-DD)`,
+			`${RECORD}:${line} is a weekly run with no readable "date" (YYYY-MM-DD)`,
 		);
 	return date;
 }
@@ -152,12 +144,12 @@ function condition(todayIso) {
 		return {
 			skip: `SKIP: retro.weeklyCount is unset in ${c.file}; the calibration batch sets it.`,
 		};
-	const file = path.join(hostRoot(), RECORD);
-	if (!fs.existsSync(file))
+	const read = readJsonl(path.join(hostRoot(), RECORD));
+	if (!read)
 		throw new Error(
 			`${RECORD} is missing. It is committed empty; restore it with \`git checkout -- ${RECORD}\`.`,
 		);
-	const newest = newestWeekly(fs.readFileSync(file, "utf8"));
+	const newest = newestWeekly(read);
 	return {
 		skip: null,
 		weeklyCount: c.retro.weeklyCount,

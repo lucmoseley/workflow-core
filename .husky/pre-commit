@@ -477,11 +477,10 @@ if armed '^(scripts|\.claude/skills)/.*\.(test|spec)\.[cm]?[jt]sx?$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js || exit "$?"
 fi
 
-# A hand split-and-parse of JSONL rather than lib/jsonl.js (#3452).
-# Direction-gated as a stopgap until #3453 moves every reader: an inherited
-# site warns, and one this commit adds refuses.
+# A hand split-and-parse of JSONL rather than lib/jsonl.js, judging the whole
+# tree (#3452, #3453).
 if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js --against HEAD || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js || exit "$?"
 fi
 
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml

@@ -27,11 +27,10 @@
  * `.claude/tmp/retro-transcripts/<log name>.txt` in the host repo. Any other
  * path, or a tracked one, is refused before the log is opened.
  *
- * A line that will not parse is skipped and counted, never thrown on: a live
- * log's last line can be half-written (lib/transcript.js, mantahostels#3311).
- * NOT lib/transcript.js's `mainChainRecords`, which takes the whole text: its
- * parse, skip count and sidechain rule are restated in `parseLine` and
- * `records` over streamed lines.
+ * Each streamed line is read by lib/jsonl.js's `parseJsonlRow`; one that is no
+ * record is skipped and counted, never thrown on. NOT lib/transcript.js's
+ * `mainChainRecords`, which takes the whole text: its skip count and sidechain
+ * rule are restated in `parseLine` and `records` over streamed lines.
  *
  * TOKEN-SHAPED SUBSTRINGS ARE MASKED (#1031) to `[REDACTED:<rule>]` in every
  * line written, by `lib/token-shapes.js`: a token pasted into a session would
@@ -58,6 +57,7 @@ const {
 	subagentDirOf,
 } = require("./lib/transcript");
 const { caught } = require("./lib/caught.js");
+const { parseJsonlRow } = require("./lib/jsonl.js");
 const { execGit } = require("./lib/git.js");
 
 const USAGE = `Usage: node scripts/retro-transcript.js <session.jsonl> [--out <path>]
@@ -477,12 +477,11 @@ function* records(file, tier, onUnparseable) {
  * @returns {LogRecord | null}
  */
 function parseLine(line, tier, onUnparseable) {
-	if (!line) return null;
-	/** @type {LogRecord} */
-	let record;
-	try {
-		record = JSON.parse(line);
-	} catch {
+	const record = /** @type {LogRecord | null | undefined} */ (
+		parseJsonlRow(line)
+	);
+	if (record === null) return null;
+	if (record === undefined) {
 		onUnparseable();
 		return null;
 	}
