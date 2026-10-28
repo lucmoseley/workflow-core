@@ -131,6 +131,7 @@ const { walkAndCommit } = require("./lib/walk-and-commit.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const { readAncestorsOf, readParentOf } = require("./lib/proc-stat.js");
+const { readEnvironVar } = require("./lib/proc-environ.js");
 
 const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
 
@@ -182,16 +183,9 @@ function readClaudePids() {
  * @returns {string|null}
  */
 function readConfigDirOf(pid) {
-	let environ;
-	try {
-		environ = fs.readFileSync(path.join(PROC(), pid, "environ"), "utf8");
-	} catch {
-		return null;
-	}
-	for (const entry of environ.split("\0"))
-		if (entry.startsWith("CLAUDE_CONFIG_DIR="))
-			return entry.slice("CLAUDE_CONFIG_DIR=".length);
-	return path.join(os.homedir(), ".claude");
+	const record = readEnvironVar(pid, "CLAUDE_CONFIG_DIR", PROC());
+	if (!record.ok) return null;
+	return record.value ?? path.join(os.homedir(), ".claude");
 }
 
 /**
