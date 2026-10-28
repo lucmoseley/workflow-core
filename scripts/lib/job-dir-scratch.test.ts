@@ -3,7 +3,8 @@
  * lib/job-dir-scratch.js, a PreToolUse dispatcher core (#2789), answers one
  * question about a tool call: does it WRITE session scratch under the
  * harness's per-job directory? A file straight into the job's own `tmp/` is
- * refused; every other job-dir write is warned (#1139).
+ * refused; every other job-dir write is warned (#1139), bar one into the
+ * `.claude/tmp/` of a checkout under the job's `tmp/` (#3178).
  *
  * THE SPELLINGS ARE THE POINT. The background-job preamble prints both the
  * variable and the path it resolved to, so a session pastes either — and the
@@ -415,6 +416,53 @@ describe("what it leaves alone", () => {
 		expect(
 			run({ tool: "Write", filePath: "/home/someone/repo/.claude/tmp/n.md" }),
 		).toBeNull();
+	});
+
+	/* #3178: the preamble puts a background job's worktree under the job
+	 * directory, so its own `.claude/tmp/` is the sanctioned target there. */
+	it.each([
+		["Write", { tool: "Write", filePath: `${JOB_DIR}/tmp/wt/.claude/tmp/x` }],
+		[
+			"Bash",
+			{
+				tool: "Bash",
+				command: "echo hi > $CLAUDE_JOB_DIR/tmp/wt/.claude/tmp/x",
+			},
+		],
+		[
+			"a cd into the worktree",
+			{
+				tool: "Bash",
+				command: `cd ${JOB_DIR}/tmp/wt && echo hi > .claude/tmp/x`,
+			},
+		],
+	])(
+		"is silent on a job-dir worktree's own .claude/tmp/ — %s (#3178)",
+		(_, p) => {
+			expect(run(p)).toBeNull();
+		},
+	);
+
+	it.each([
+		[`${JOB_DIR}/.claude/tmp/x`, "the job directory's root"],
+		[`${JOB_DIR}/tmp/.claude/tmp/x`, "the job's own tmp/"],
+		[`${JOB_DIR}/tasks/.claude/tmp/x`, "the harness's tasks/"],
+	])(
+		"still warns on a .claude/tmp/ in %s, which is no checkout (#3178)",
+		(filePath) => {
+			expect(warned(run({ tool: "Write", filePath }))).toContain(
+				".claude/tmp/",
+			);
+		},
+	);
+
+	it("still refuses a climb out of a worktree's .claude/tmp/ into the job's tmp/ (#3178)", () => {
+		refused(
+			run({
+				tool: "Write",
+				filePath: "$CLAUDE_JOB_DIR/tmp/wt/.claude/tmp/../../../x",
+			}),
+		);
 	});
 });
 

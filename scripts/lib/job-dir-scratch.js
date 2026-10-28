@@ -41,6 +41,12 @@
  *   `<job>/tmp/<dir>/<file>`, or outside `tmp/` altogether — is WARNED. A
  *   command holding one of each is refused.
  *
+ *   EXCEPT A CHECKOUT'S OWN `.claude/tmp/` (#3178). The preamble places a
+ *   background job's worktree under `<job>/tmp/`, and that worktree's
+ *   `.claude/tmp/` is the very target the remedy names, so a file below
+ *   `<job>/tmp/<dir>/…/.claude/tmp/` is silent. Read from the text alone: any
+ *   folder there passes as a checkout, git or not.
+ *
  * WHY A READ IS NOT A BREACH. `cat $CLAUDE_JOB_DIR/tasks/x.output` is how a
  * session reads its own background job's output and is correct. Only a WRITE
  * is read here, which is why the Bash limb walks write targets rather than the
@@ -77,6 +83,7 @@
  *    which this core sees (#1140).
  */
 
+const path = require("node:path");
 const { parseCommand, walkCommands, normAbs } = require("./shell-parse.js");
 const { literal } = require("./shell-words.js");
 const { isJobDir, jobRel } = require("./job-dir.js");
@@ -98,16 +105,22 @@ const JOB_DIR_STANDIN = "/CLAUDE_JOB_DIR";
 const RULE = "job-dir-scratch";
 
 /**
- * The file's own name where `p`, a job-dir path, is a file directly in the
- * job's `tmp/`, no subfolder between; null otherwise.
- * @param {string} p
- * @param {import("./job-dir.js").Where} where
+ * The file's own name where `rel`, a path relative to the job directory, is a
+ * file directly in the job's `tmp/`, no subfolder between; null otherwise.
+ * @param {string | null} rel
  */
-function flatName(p, where) {
-	const rel = jobRel(p, where);
+function flatName(rel) {
 	if (rel === null || !rel.startsWith("tmp/")) return null;
 	const name = rel.slice(4);
 	return name && !name.includes("/") ? name : null;
+}
+
+/** A file in the `.claude/tmp/` of a checkout under the job's `tmp/`. */
+const CHECKOUT_SCRATCH_RE = /^tmp\/[^/]+\/(?:.*\/)?\.claude\/tmp\/./s;
+
+/** @param {string | null} rel */
+function inCheckoutScratch(rel) {
+	return rel !== null && CHECKOUT_SCRATCH_RE.test(rel);
 }
 
 /**
@@ -121,9 +134,11 @@ function decide(subject, ctx) {
 	const live = ctx.env.CLAUDE_JOB_DIR ?? "";
 	/** @param {string} shown @param {string} p @param {string} jobDir */
 	const classify = (shown, p, jobDir) => {
-		const name = found.flat
-			? null
-			: flatName(p, { pwd: ctx.fallbackCwd, jobDir });
+		/* Folded here, since the `$CLAUDE_JOB_DIR` spelling keeps its `..`. */
+		const raw = jobRel(p, { pwd: ctx.fallbackCwd, jobDir });
+		const rel = raw === null ? null : path.posix.normalize(raw);
+		if (inCheckoutScratch(rel)) return;
+		const name = found.flat ? null : flatName(rel);
 		if (name !== null) {
 			found.flat = shown;
 			found.flatName = name;
