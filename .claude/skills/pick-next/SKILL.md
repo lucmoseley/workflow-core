@@ -53,6 +53,9 @@ One JSON object per line, not an array.
   real `<card-id> — ` title prefix. Name the ones that matched and state that the
   rest of the phase has no open issue.
 
+- **Bare issue numbers** (`#116 #117`, as a stopped loop's restart line names
+  them) — that set as written, never widened.
+
 A word naming a sibling checkout (a home-directory folder carrying
 `.claude/workflow-core.json`) is no goal text: set it aside for §8's `--repo`.
 

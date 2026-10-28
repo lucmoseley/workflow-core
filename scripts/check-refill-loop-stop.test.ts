@@ -168,6 +168,47 @@ describe("the restart it names (#3371)", () => {
 		expect(out).not.toContain("--away");
 	});
 
+	it("names a normal stop's goal and other repos in its checkout (#3390)", () => {
+		writeState("no-progress");
+		writeControl({
+			mode: "normal",
+			repos: ["/h/workflow-core", "/h/mantahostels"],
+			goals: { "/h/workflow-core": [116, 117] },
+		});
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"  Restart it in workflow-core: /pick-next #116 #117 mantahostels\n",
+		);
+	});
+
+	it.each([
+		[{ "/h/workflow-core": [116] }, ["/h/workflow-core"], "/pick-next #116"],
+		[{}, ["/h/workflow-core", "/h/mantahostels"], "/pick-next mantahostels"],
+	])("names a normal stop's goal or repos alone (%j)", (goals, repos, line) => {
+		writeState("no-progress");
+		writeControl({ mode: "normal", repos, goals });
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(`  Restart it in workflow-core: ${line}\n`);
+	});
+
+	it("names one /pick-next per goal's checkout for a normal stop", () => {
+		writeState("allowance");
+		writeControl({
+			mode: "normal",
+			repos: ["/h/workflow-core", "/h/design-vault"],
+			goals: { "/h/design-vault": [9] },
+		});
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"  Restart it with /pick-next, one per goal's checkout:\n" +
+				"    in workflow-core: /pick-next design-vault\n" +
+				"    in design-vault: /pick-next #9\n",
+		);
+	});
+
 	it("names the away start, with its exclusions, for an away-mode stop", () => {
 		writeState("no-progress");
 		writeControl({ mode: "away", exclude: ["/h/mantahostels"], goals: {} });
