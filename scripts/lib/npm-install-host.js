@@ -1,6 +1,6 @@
 /*
- * npm-install-host.js — the production ports guard-npm-install.js wires into
- * its core, lib/npm-install.js (#2800).
+ * npm-install-host.js — the production ports the dispatcher wires into the
+ * guard-npm-install core, lib/npm-install.js (#2800, #3226).
  *
  * THE SEAMS. WFC_NPM and WFC_CURL name the two registry programs, never PATH
  * (#2266, #2422).
@@ -14,6 +14,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const { entryStartedAt } = require("./hook-deadline.js");
 
 const NPM_TIMEOUT_MS = 12_000;
 const CURL_MAX_TIME_S = 8;
@@ -52,10 +53,10 @@ function readOrNull(file) {
 }
 
 /**
- * @param {import("./kit-context.js").PortEnv} env
+ * @param {string} root
  * @returns {import("./npm-install.js").NpmInstallPorts}
  */
-function buildHostPorts({ root }) {
+function buildHostPorts(root) {
 	const npm = process.env.WFC_NPM || "npm";
 	const curl = process.env.WFC_CURL || "curl";
 	const pkg = path.join(root, "package.json");
@@ -77,6 +78,7 @@ function buildHostPorts({ root }) {
 				CURL_MAX_TIME_S * 1000,
 			),
 		now: () => Date.now(),
+		startedAt: () => entryStartedAt() ?? Date.now(),
 		allowNewPackage: Boolean(process.env.WFC_ALLOW_NEW_PACKAGE),
 	};
 }

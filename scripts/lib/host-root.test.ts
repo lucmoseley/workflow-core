@@ -96,6 +96,28 @@ describe("worktreeRoot", () => {
 		expect(readFrom(at.wt, undefined)).toBe("worktree\n");
 	});
 
+	it("judges the worktree against a host the caller declares, over CLAUDE_PROJECT_DIR (#3327)", () => {
+		fs.writeFileSync(path.join(at.elsewhere, "a.md"), "elsewhere\n");
+		expect(
+			readThrough(
+				`require(${JSON.stringify(SEAM)}).worktreeRoot(undefined, { host: ${JSON.stringify(at.shared)} })`,
+				at.wt,
+				at.elsewhere,
+			),
+		).toBe("worktree\n");
+	});
+
+	it("keeps a declared host when launched in an unrelated repository with CLAUDE_PROJECT_DIR unset (#3327)", () => {
+		fs.writeFileSync(path.join(at.elsewhere, "a.md"), "elsewhere\n");
+		expect(
+			readThrough(
+				`require(${JSON.stringify(SEAM)}).worktreeRoot(undefined, { host: ${JSON.stringify(`${at.shared}/`)} })`,
+				at.elsewhere,
+				undefined,
+			),
+		).toBe("a\n");
+	});
+
 	/* Each runner, launched bare in the worktree, finds `landing` on in the
 	 * worktree's own config, which the shared tree lacks, and so selects its
 	 * touched tests: none, spawning nothing. Rooted on the shared tree, it

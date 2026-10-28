@@ -114,7 +114,7 @@ const TSC_WAIT = {
  */
 function tscGate() {
 	const log = logger(LABEL);
-	const ports = buildHostPorts({ root: hostRoot(), payload: {}, log });
+	const ports = buildHostPorts(hostRoot(), log);
 	const rows = ports.psRows();
 	const mb = ports.availableMb();
 	if (rows === null) log("ps unreadable — the type-check slot read as free");

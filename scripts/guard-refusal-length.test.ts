@@ -14,7 +14,8 @@
  *
  * Each guard is spawned on the hook route that runs it for that tool, and its
  * live text measured, never a copy: guard-dispatch.js for the poll and
- * dot-read guards. All run as `PreToolUse` hooks (`self-plugin/hooks/hooks.json`,
+ * dot-read guards, and for a Bash core through `--only`, so a refusal
+ * measures alone the core whose text it is. All run as `PreToolUse` hooks (`self-plugin/hooks/hooks.json`,
  * `hooks/hooks.json`), so a ceiling loosened here lets a refusal regrow and
  * every session that trips it pays the bytes #497 cut, on every trip.
  */
@@ -66,6 +67,8 @@ interface Row {
 	/** Completes the case title, "keeps … within its ceiling". */
 	text: string;
 	guard: string;
+	/** The one dispatcher core run, where the row measures a core alone. */
+	only?: string;
 	decision: "deny" | "warn";
 	tool?: string;
 	input: Record<string, unknown>;
@@ -142,7 +145,6 @@ const project = (): Setup => {
 };
 
 const DISPATCH = "guard-dispatch.js";
-const CONCURRENCY = "guard-suite-concurrency.js";
 
 /*
  * Each ceiling is its measurement plus 50 bytes: a reworded clause fits, an
@@ -262,6 +264,7 @@ const ROWS: Row[] = [
 	{
 		text: "the background core's detached-suite refusal",
 		guard: "guard-dispatch.js",
+		only: "guard-suite-background",
 		decision: "deny",
 		input: { command: "npm run test &" },
 		setup: dispatched,
@@ -272,7 +275,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal handing back a queued launch",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "npm run test" },
 		quotes: ["npm run test"],
@@ -283,7 +287,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal queueing behind watchers alone",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "npm run test" },
 		quotes: ["npm run test"],
@@ -294,7 +299,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal for a launch inside a compound command",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "cd app && npm run test" },
 		quotes: ["npm run test"],
@@ -305,7 +311,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal for a watcher launch",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "npm run test:watch" },
 		quotes: ["npm run test:watch"],
@@ -316,7 +323,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal for a watcher launch among one-shots and watchers",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "npm run test:watch" },
 		quotes: ["npm run test:watch"],
@@ -327,7 +335,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal for a watcher launch behind watchers alone",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "npm run test:watch" },
 		quotes: ["npm run test:watch"],
@@ -338,7 +347,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal for a non-vitest runner, routed through queue-run.js",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "node --test" },
 		quotes: ["node --test"],
@@ -349,7 +359,8 @@ const ROWS: Row[] = [
 	},
 	{
 		text: "the concurrency refusal for a non-vitest runner, among watchers only",
-		guard: CONCURRENCY,
+		guard: DISPATCH,
+		only: "guard-suite-concurrency",
 		decision: "deny",
 		input: { command: "node --test" },
 		quotes: ["node --test"],
@@ -375,24 +386,28 @@ const ROWS: Row[] = [
 const emitted = (row: Row) => {
 	const setup = row.setup?.() ?? {};
 	const call = () =>
-		spawnSync(path.resolve(__dirname, row.guard), [], {
-			cwd: dir,
-			encoding: "utf8",
-			input: JSON.stringify({
-				hook_event_name: "PreToolUse",
-				session_id: "s1",
-				tool_name: row.tool ?? "Bash",
-				tool_input: row.input,
-				...setup.payload,
-			}),
-			env: {
-				...process.env,
-				TMPDIR: dir,
-				CLAUDE_CONFIG_DIR: path.join(dir, "config"),
-				CLAUDE_PROJECT_DIR: dir,
-				...setup.env,
+		spawnSync(
+			path.resolve(__dirname, row.guard),
+			row.only ? ["--only", row.only] : [],
+			{
+				cwd: dir,
+				encoding: "utf8",
+				input: JSON.stringify({
+					hook_event_name: "PreToolUse",
+					session_id: "s1",
+					tool_name: row.tool ?? "Bash",
+					tool_input: row.input,
+					...setup.payload,
+				}),
+				env: {
+					...process.env,
+					TMPDIR: dir,
+					CLAUDE_CONFIG_DIR: path.join(dir, "config"),
+					CLAUDE_PROJECT_DIR: dir,
+					...setup.env,
+				},
 			},
-		});
+		);
 	for (let i = 0; i < (row.spent ?? 0); i++) call();
 	const r = call();
 	if (r.status === null) throw new Error(`guard did not run: ${r.error}`);

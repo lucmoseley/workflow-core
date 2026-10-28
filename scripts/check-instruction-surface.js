@@ -233,7 +233,7 @@ function hookCounts(ctx, root, rev) {
  * different args (`concision-backstop.sh start`/`stop`) would otherwise
  * collide on a path-only key and silently drop one command. The `if` suffix
  * is needed because one script wired once per condition in one event
- * (`guard-wide-read.js` under `Bash(*cat *)`, `Bash(*sed *)`, …) is one key
+ * (one script under `Bash(*cat *)`, another under `Bash(*sed *)`, …) is one key
  * per condition, not a collision (#1604). Two entries with the same script
  * and condition, and a command whose script path is wrapped
  * (`bg-run.sh run … node scripts/real.js`, keying on the wrapper), both still

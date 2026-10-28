@@ -1,5 +1,5 @@
 /*
- * push-review.js — the review port guard-push-rules.js's core reads (#2785):
+ * push-review.js — the review port the guard-push-rules core reads (#2785):
  * whether the code a push carries owes a review no valid marker covers,
  * answered by scripts/push-review-owed.sh, which reads lib/code-signal.sh's
  * one definition of it (#1163).

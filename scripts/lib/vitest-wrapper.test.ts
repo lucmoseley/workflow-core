@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/vitest-wrapper.js, guard-vitest-wrapper.js's core (#2800), in process:
+ * lib/vitest-wrapper.js, the guard-vitest-wrapper core (#2800), in process:
  * which vitest runs it warns are outside scripts/run-vitest.js's stall
  * watchdog (mantahostels#2002, the follow-on to mantahostels#1910's), what
  * the warning says, and when it drops the rule for the standing line

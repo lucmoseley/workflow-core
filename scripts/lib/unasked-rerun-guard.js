@@ -1,5 +1,5 @@
 /*
- * unasked-rerun-guard.js — guard-unasked-rerun.js's core (#2800): find the
+ * unasked-rerun-guard.js — the guard-unasked-rerun core (#2800, #3227): find the
  * bare test segment in a command and spend the judge's verdict on it.
  *
  * It does no I/O. The judgement — the attestation, the ledger read, the latch and
@@ -24,6 +24,25 @@
  * has the `landing` module on (#2936), or a fallback naming the fragment's
  * file where the store cannot give it — a refusal, so never a fail-open
  * record.
+ *
+ * ONCE A SESSION, AND RE-TYPING RUNS IT (#790 Q7, the waste #787 counted). The
+ * refusal names the runs whose certificates attest the session's own work. A
+ * throw refuses: its manifest row fails closed.
+ *
+ * LIMITS
+ *  - Fails closed on the rule fragment's wording only: an unreadable fragment
+ *    still refuses, carrying a fallback that names its file.
+ *  - A file this session wrote through Bash is absent from its write ledger, so
+ *    a session whose only uncommitted edits went that way is refused (#816).
+ *    The judge reads the run's own `attributeDirty` (#1218), which credits
+ *    inline python and node writes; `sed -i` and redirects are credited only
+ *    on a code path no live neighbour holds (mantahostels#2778).
+ *    Elsewhere they stay uncredited.
+ *  - A neighbour's commit in no commit ledger counts as the session's own
+ *    (#1154), so an untested one lets a pure repeat through.
+ *  - `npm run -s test` is unread: its flag sits before the script name.
+ *  - Its row's `Bash(*npm *)` clause is best-effort (docs/agents/guard-authoring.md's
+ *    surface 4), so the core re-reads the command itself.
  */
 
 const { ruleOrFallback } = require("./guard-verdict.js");
@@ -45,8 +64,8 @@ const LAUNCH_PORTS = { runners: () => [], isWrapperScript: () => true };
  * @typedef {object} UnaskedPorts
  * @property {(input: { sessionId: string, cwd: string, command: string }) => Verdict} judge
  *   whether the run is an unasked re-run; latches and logs a refusal itself
- * @property {string} sessionId the payload's, "" where it carries none
- * @typedef {import("./kit-context.js").KitContext & UnaskedPorts} UnaskedContext
+ * @typedef {import("./kit-context.js").KitContext & UnaskedPorts & { session: string }} UnaskedContext
+ *   `session` the payload's, "" where it carries none
  */
 
 /**
@@ -93,12 +112,12 @@ function bareSegment(command, ports) {
  */
 function decide(command, ctx) {
 	const bare = bareSegment(command, ctx);
-	if (!bare || !ctx.sessionId) return null;
+	if (!bare || !ctx.session) return null;
 	/** @type {Verdict} */
 	let out;
 	try {
 		out = ctx.judge({
-			sessionId: ctx.sessionId,
+			sessionId: ctx.session,
 			cwd: bare.cwd,
 			command: unmask(bare.segment),
 		});
@@ -144,4 +163,4 @@ function unaskedRule(ctx) {
 			);
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

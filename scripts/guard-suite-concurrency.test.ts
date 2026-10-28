@@ -1,22 +1,21 @@
 // @vitest-environment node
 /*
- * guard-suite-concurrency.js refuses a test suite launched under the resting
- * headroom docs/environment.md §6 measures, or beside a running whole suite,
- * sending it to the queue (#2305, #2680); warns a build or a queued launch;
- * and hands a quiet launch its rules once a session (mantahostels#1805, #181,
- * #2024, #2237). These are its boundary cases: the
- * payload, the env seams, the host's own files, the rule store, the latch and
- * the stand-down log, end to end (#2795). Which launch draws which verdict and
- * which text is lib/suite-concurrency.test.ts's.
+ * The guard-suite-concurrency core of guard-dispatch.js refuses a test suite
+ * launched under the resting headroom docs/environment.md §6 measures, or
+ * beside a running whole suite, sending it to the queue (#2305, #2680); warns
+ * a build or a queued launch; and hands a quiet launch its rules once a
+ * session (mantahostels#1805, #181, #2024, #2237). These are its boundary
+ * cases, the dispatcher entry run on it alone: the payload, the env seams,
+ * the host's own files, the rule store, the latch and the stand-down log, end
+ * to end (#2795). Which launch draws which verdict and which text is
+ * lib/suite-concurrency.test.ts's; the entry's payload faults and the throw
+ * policy are guard-dispatch's own tests' (#3227).
  *
- * The guard runs in process (base §X3) with a fabricated `/proc/meminfo` at
+ * The entry runs in process (base §X3) with a fabricated `/proc/meminfo` at
  * WFC_MEMINFO and a stub `ps` at WFC_PS, so no verdict depends on the machine
- * running the suite, save the one case that crosses both for real. One case
- * keeps a spawn, saying so where it stands: the registered hook line, which
- * is a shell command, and node missing from PATH, which only a real process
- * can lack.
+ * running the suite, save the one case that crosses both for real.
  *
- * The guard is a `PreToolUse` Bash hook: break it and a second whole suite, or
+ * The core judges PreToolUse Bash calls: break it and a second whole suite, or
  * a launch under the measured headroom, runs unrefused into the 10 GB cap that
  * earlyoom enforces by killing live sessions; make it throw and every launch
  * goes unjudged in silence, its fail-open line the only trace.
@@ -26,19 +25,17 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
-import { registrationsOf } from "./lib/hook-wiring";
+import { admits, readManifest } from "./lib/guard-cores.js";
 import {
 	buildBashPayload,
+	dispatchCoreOutput,
 	guardDirs,
-	guardOutput,
-	nodeGuardOutput,
-	readHookLines,
-	runNodeGuard,
+	runDispatchCore,
 } from "./lib/pretool-guard-testkit";
 import { writePsStub } from "./lib/ps-stub";
 import { readRuleText } from "./lib/rule-text";
 
-const GUARD = path.resolve(__dirname, "guard-suite-concurrency.js");
+const CORE = "guard-suite-concurrency";
 
 /** Well above the three-suite rung, so no headroom warn swallows a verdict. */
 const ROOMY_MB = 8000;
@@ -94,25 +91,23 @@ const emission = (
 		env = {},
 	}: { session?: string; env?: Record<string, string | undefined> } = {},
 ) =>
-	nodeGuardOutput(GUARD, buildBashPayload(command, session), {
+	dispatchCoreOutput(CORE, buildBashPayload(command, session), {
 		project: root,
 		config,
 		cwd: root,
 		env: seams(env),
 	});
 
-/** The raw run, for a case reading the streams or a malformed payload. */
+/** The raw run, for a case reading the streams. */
 const raw = (
-	payload: unknown,
+	payload: Record<string, unknown>,
 	env: Record<string, string | undefined> = {},
-	stdin?: string,
 ) =>
-	runNodeGuard(GUARD, payload, {
+	runDispatchCore(CORE, payload, {
 		project: root,
 		config,
 		cwd: root,
 		env: seams(env),
-		stdin,
 	});
 
 const failOpenLog = () => readFailOpenLog(config, root);
@@ -327,13 +322,6 @@ describe("the seams and the fail-open record (mantahostels#103 §6, mantahostels
 		expect(failOpenLog()).toContain("ps unreadable");
 	});
 
-	it("allows unchecked, recording it, where the payload is not JSON", () => {
-		const r = raw(null, {}, "{not json");
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("");
-		expect(failOpenLog()).toContain("payload did not parse as JSON");
-	});
-
 	/* The paired negative: a run whose reads all land records nothing. */
 	it("records nothing where every read lands", () => {
 		setMb(1000);
@@ -418,94 +406,28 @@ describe("the production adapters, crossed for real", () => {
 	});
 });
 
-describe("the entry's header", () => {
+describe("the core's header", () => {
 	/* The deny is cut to what changes the next call (#519); its reasons live
 	 * here. */
 	it("keeps the deny's reasons", () => {
-		const header = fs.readFileSync(GUARD, "utf8").split("\nconst { run }")[0];
+		const header = fs
+			.readFileSync(path.join(__dirname, "lib", "suite-concurrency.js"), "utf8")
+			.split("\nconst ")[0];
 		for (const text of ["#482", "2,113 bytes", "86%", "#2680"])
 			expect(header, text).toContain(text);
 	});
 });
 
-describe("the plugin's wiring (#2303)", () => {
-	/* hooks/hooks.json is the wiring an adopter's plugin install runs, so a
-	 * declared command no registration there lets through is never told.
-	 * Claude Code also tries an `if` on each subcommand of a compound command,
-	 * which this does not. */
-	const pluginReaches = (command: string) => {
-		const manifest = JSON.parse(
-			fs.readFileSync(
-				path.resolve(__dirname, "..", "hooks", "hooks.json"),
-				"utf8",
-			),
-		);
-		return registrationsOf(
-			"PreToolUse",
-			"scripts/guard-suite-concurrency.js",
-			manifest,
-		).some((r) => {
-			if (
-				r.matcher !== undefined &&
-				!new RegExp(`^(${r.matcher})$`).test("Bash")
-			)
-				return false;
-			if (r.if === undefined) return true;
-			const glob = /^Bash\((.*)\)$/s.exec(r.if)?.[1];
-			if (glob === undefined) return false;
-			const pattern = glob
-				.split("*")
-				.map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
-				.join(".*");
-			return new RegExp(`^${pattern}$`, "s").test(command);
-		});
-	};
+describe("the manifest row's wiring (#2303)", () => {
+	const row = readManifest().PreToolUse?.find((r) => r.name === CORE);
+	/* The dispatcher reaches the core only on a call its row's `if` admits, so
+	 * a declared command no clause lets through is never told. */
+	const reaches = (command: string) =>
+		row !== undefined &&
+		admits(row, { tool_name: "Bash", tool_input: { command } });
 
-	it("is one shell-form line on every narrowing, failing closed, in the plugin and the self-plugin alike", () => {
-		const pluginRoot = ["$", "{CLAUDE_PLUGIN_ROOT}"].join("");
-		for (const [file, hookRoot] of [
-			["hooks/hooks.json", `"${pluginRoot}"`],
-			["self-plugin/hooks/hooks.json", '"$CLAUDE_PROJECT_DIR"'],
-		]) {
-			const entries = Object.values(
-				JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", file), "utf8"))
-					.hooks as Record<string, { hooks: Record<string, unknown>[] }[]>,
-			)
-				.flat()
-				.flatMap((group) => group.hooks)
-				.filter((hook) =>
-					String(hook.command).includes("guard-suite-concurrency"),
-				);
-			expect(entries).toHaveLength(13);
-			for (const entry of entries) {
-				expect(entry).toMatchObject({
-					command: `command -v node >/dev/null 2>&1 || exit 0; node ${hookRoot}/scripts/guard-suite-concurrency.js`,
-					onFailure: "block",
-				});
-				// Shell form, so the harness runs it through a shell (mantahostels#2059).
-				expect(entry).not.toHaveProperty("args");
-			}
-		}
-	});
-
-	/* A spawn: the line is a shell command, and only a real process can be
-	 * missing node. */
-	it("runs the self-plugin line through bash as the harness does: refusing, and silent where node is not on PATH", () => {
-		const [line] = readHookLines(
-			"self-plugin/hooks/hooks.json",
-			"scripts/guard-suite-concurrency.js",
-		);
-		fs.symlinkSync(path.resolve(__dirname), path.join(root, "scripts"));
-		const through = (env: Record<string, string>) =>
-			guardOutput("/bin/bash", buildBashPayload("npm run test", "s1"), {
-				project: root,
-				config,
-				cwd: root,
-				args: ["-c", line],
-				env: seams({ WFC_PS: psOf([RUNNER], "ps-line"), ...env }),
-			});
-		expect(through({}).permissionDecision).toBe("deny");
-		expect(through({ PATH: "/nonexistent" })).toBeNull();
+	it("is one Bash row, failing open", () => {
+		expect(row).toMatchObject({ tools: "Bash", failure: "open" });
 	});
 
 	it("lets every common runner's test command through", () => {
@@ -518,7 +440,7 @@ describe("the plugin's wiring (#2303)", () => {
 			"cargo test",
 			"go test ./...",
 		])
-			expect([command, pluginReaches(command)]).toEqual([command, true]);
-		expect(pluginReaches("git status")).toBe(false);
+			expect([command, reaches(command)]).toEqual([command, true]);
+		expect(reaches("git status")).toBe(false);
 	});
 });

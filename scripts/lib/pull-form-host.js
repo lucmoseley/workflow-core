@@ -1,6 +1,6 @@
 /*
- * pull-form-host.js — the production ports guard-pull-form.js wires into its
- * core, lib/pull-form.js (#2797). Every git read carries the hook's git
+ * pull-form-host.js — the production ports the dispatcher wires into the
+ * guard-pull-form core, lib/pull-form.js (#2797, #3226). Every git read carries the hook's git
  * timeout, and a timed-out or erroring read answers "" or false, as the
  * bash guard's `|| x=""` did.
  */
@@ -30,10 +30,10 @@ const isAnswered = (dir, args) =>
 	gitOrNull(["-C", dir, ...args], { timeout: HOOK_GIT_TIMEOUT_MS }) !== null;
 
 /**
- * @param {import("./kit-context.js").PortEnv} env
+ * @param {string} root
  * @returns {import("./pull-form.js").PullFormPorts}
  */
-const buildHostPorts = ({ root }) => ({
+const buildHostPorts = (root) => ({
 	pullFf: (dir) => read(dir, ["config", "--get", "pull.ff"]),
 	cleanRequireForce: (dir) =>
 		read(dir, ["config", "--type=bool", "--get", "clean.requireForce"]),

@@ -366,7 +366,7 @@ const MANTA = {
 		/* It sends a session to the core's scripts/run-vitest.js, which Manta
 		 * does not have: its `npm run test` is plain vitest, because CI runs
 		 * without the plugin (#422's census). */
-		disabled: ["guard-vitest-wrapper.js"],
+		disabled: ["guard-vitest-wrapper"],
 	},
 	/* #450: mantahostels keeps that paragraph's text as its ranking file. */
 	ranking: {
@@ -415,7 +415,7 @@ const MANTA = {
 	commitMessage:
 		"Run mantahostels' agent workflow from the pinned workflow-core release and delete its own copies of the machinery, so a fix lands once and reaches both repos (workflow-core#412)\n\n" +
 		"Made by workflow-core's scripts/cut-mantahostels.js (workflow-core#423). Rollback while the live acceptance is unrecorded: workflow-core#424.\n\n" +
-		"Declined core guard: guard-vitest-wrapper.js, in .claude/workflow-core.json's `disabled` — this repo's test scripts run vitest directly now that the core's runner wrappers are gone, so a guard steering every run through them would refuse each one.\n\n" +
+		"Declined core guard: guard-vitest-wrapper, in .claude/workflow-core.json's `disabled` — this repo's test scripts run vitest directly now that the core's runner wrappers are gone, so a guard steering every run through them would refuse each one.\n\n" +
 		"Kept beyond the #422 report's sets, because kept files spawn or source them: scripts/register-doc.js, scripts/session-arbiter.js with lib/agent-liveness.js, lib/detached-run.js and lib/oracle-cache.js, lib/guard-root.sh, lib/rule-text.sh, lib/precommit-gate.sh; and scripts/instruction-surface-anchors.json, the core's instruction-surface baseline.",
 };
 

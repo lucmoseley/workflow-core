@@ -104,11 +104,14 @@ function hostRoot(cwd = process.cwd(), { timeoutMs, onTimeout } = {}) {
  * store on the git common dir: only which files are under test follows the
  * worktree.
  * @param {string} [cwd]
+ * @param {{ host?: string }} [opts] the host, where the caller already holds
+ *   it, so the answer reads no ambient `CLAUDE_PROJECT_DIR` (#3327); else
+ *   `hostRoot()`, and with neither the git top level is host and worktree alike
  * @returns {string}
  */
-function worktreeRoot(cwd = process.cwd()) {
-	const host = hostRoot(cwd);
-	if (!process.env.CLAUDE_PROJECT_DIR) return host;
+function worktreeRoot(cwd = process.cwd(), { host: given } = {}) {
+	if (!given && !process.env.CLAUDE_PROJECT_DIR) return hostRoot(cwd);
+	const host = given ? deref(stripSlash(given)) : hostRoot(cwd);
 	let top;
 	try {
 		top = gitTopLevel(cwd);

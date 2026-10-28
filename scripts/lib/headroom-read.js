@@ -11,7 +11,7 @@
  * INJECTION ONLY — it never denies. Reading memory is the correct thing to do;
  * what the rule corrects is the conclusion drawn from the reading, which no
  * guard can observe. It fires on the read, not on the launch: a session that
- * stops on a short reading never launches, so scripts/guard-suite-concurrency.js
+ * stops on a short reading never launches, so the guard-suite-concurrency core
  * never fires.
  *
  * LIMITS

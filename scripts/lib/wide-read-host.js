@@ -1,8 +1,7 @@
 /*
  * wide-read-host.js — the production ports lib/wide-read.js reads (#2791),
- * wired by both of its composition roots: the dispatcher's row for the Read
- * limb and scripts/guard-wide-read.js for the Bash limbs. A file's size, the
- * bytes a line window holds, and a glob's expansion.
+ * wired by the dispatcher's `guard-wide-read` row: a file's size, the bytes a
+ * line window holds, and a glob's expansion.
  */
 
 const fs = require("node:fs");

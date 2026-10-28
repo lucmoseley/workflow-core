@@ -135,7 +135,10 @@ describe("the shipped manifest's onFailure", () => {
 		// Named by hand, so a fault in the derivation the generator shares
 		// cannot pass both sides.
 		expect(
-			hooks.find(({ guard }) => guard === "guard-pull-form.js")?.hook.onFailure,
+			hooks.find(
+				({ event, guard }) =>
+					event === "PreToolUse" && guard === "guard-dispatch.js",
+			)?.hook.onFailure,
 		).toBe("block");
 	});
 

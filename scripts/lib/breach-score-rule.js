@@ -29,7 +29,7 @@ const STOP_CLASS = {
 };
 
 /** Denies the machine caused, not the session (#2042). */
-const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency.js"]);
+const ENVIRONMENT_DENY = new Set(["guard-suite-concurrency"]);
 
 /**
  * A guard the dispatcher runs is named by its `lib/guard-cores.json` row
@@ -44,7 +44,7 @@ const JOB_DIR = "guard-job-dir-scratch";
  * D3's by-family split (#2046):
  * each guard whose rule text the cut moved out of the always-loaded load —
  * read off the arm A → arm B diff of `CLAUDE.md` and the user-level
- * `CLAUDE.md` — so arm B meets that rule first at the guard. `guard-npm-install.js`
+ * `CLAUDE.md` — so arm B meets that rule first at the guard. The `guard-npm-install` core
  * is here whole for the bare-`npx` limb (call binaries by path), which named
  * no guard: its `--ignore-scripts` and new-package limbs follow `AGENTS.md`,
  * which neither arm loads, so they are counted as moved too, a small
@@ -61,8 +61,8 @@ const MOVED = new Set([
 	"guard-issue-body",
 	"guard-issue-close",
 	"guard-issue-create-label",
-	"guard-npm-install.js",
-	"guard-pull-form.js",
+	"guard-npm-install",
+	"guard-pull-form",
 	"guard-suite-background",
 	"guard-sweep-fire",
 	"guard-uncommitted-work.js",
