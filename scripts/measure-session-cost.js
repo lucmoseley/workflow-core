@@ -15,8 +15,8 @@
  *
  * SHIPS IN THE PLUGIN (#1734): each host prices its own ledger, so an adopter
  * builds its own table — init and upgrade, where none exists or none this
- * version reads (`lib/core-owned-files.js`), and this command by hand to
- * refresh it.
+ * version reads (#2925, `lib/core-owned-files.js`), and this command by hand
+ * to refresh it.
  */
 
 const fs = require("node:fs");
