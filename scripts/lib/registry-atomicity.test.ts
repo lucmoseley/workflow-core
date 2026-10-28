@@ -207,32 +207,28 @@ function run(
 	let classify:
 		| ((dir: string) => import("./git-tree.js").TreeClass)
 		| undefined;
-	try {
-		const vars: Record<string, string> = {};
-		for (const [k, v] of Object.entries(process.env))
-			if (v !== undefined) vars[k] = v;
-		const d = decide(
-			command,
-			kitContextFake({
-				fallbackCwd: cwd,
-				vars,
-				isDir: (p: string) =>
-					fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
-				moduleOn: () => true,
-				treeClass: (tree: string) => {
-					classify ??= treeClassifier(repo);
-					return classify(tree);
-				},
-				log: (what: string, detail?: string) =>
-					faults.push(detail ? `${what}\t${detail}` : what),
-				...host,
-				repo: (tree: string, root: string) => wrap(host.repo(tree, root)),
-			}),
-		);
-		return { denied: Boolean(d?.deny), reason: d?.deny ?? "" };
-	} finally {
-		vi.unstubAllEnvs();
-	}
+	const vars: Record<string, string> = {};
+	for (const [k, v] of Object.entries(process.env))
+		if (v !== undefined) vars[k] = v;
+	const d = decide(
+		command,
+		kitContextFake({
+			fallbackCwd: cwd,
+			vars,
+			isDir: (p: string) =>
+				fs.statSync(p, { throwIfNoEntry: false })?.isDirectory() ?? false,
+			moduleOn: () => true,
+			treeClass: (tree: string) => {
+				classify ??= treeClassifier(repo);
+				return classify(tree);
+			},
+			log: (what: string, detail?: string) =>
+				faults.push(detail ? `${what}\t${detail}` : what),
+			...host,
+			repo: (tree: string, root: string) => wrap(host.repo(tree, root)),
+		}),
+	);
+	return { denied: Boolean(d?.deny), reason: d?.deny ?? "" };
 }
 
 const readFaultReasons = () => faults.map((f) => f.split("\t")[0]);
