@@ -781,8 +781,11 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 		const { env, stops } = loopStub();
 		// Unlisted, so neither the ceiling nor its end can stop the drain: only the limit.
 		const { runs } = seedLaunched(root, 0, 1);
-		// 60 ms: past by the second pass, since the first spawns the listings.
-		const r = run(runArgs(root, "--limit-min", "0.001"), env);
+		// Half the limit a read, so it passes at the second pass's check.
+		const r = run(runArgs(root, "--limit-min", "1"), {
+			...env,
+			WFC_ARM_CLOCK_STEP_MS: "30000",
+		});
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("pair 1 is half-launched");
 		expect(r.out).toContain(`${runs[0].id}: stopped at the run's limit`);

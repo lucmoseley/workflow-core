@@ -122,6 +122,22 @@ const ERROR_CHARS = 200;
  */
 const claudeBin = () => process.env.WFC_ARM_CLAUDE_BIN || "claude";
 /**
+ * `run`'s clock, monotonic so a wall-clock step neither fires the limit early
+ * nor holds it off. `WFC_ARM_CLOCK_STEP_MS` stands a test's clock in for it,
+ * one that moves that far on each read, so a test counts reads, not time
+ * (#3532).
+ */
+function buildRunClock() {
+	const step = Number(process.env.WFC_ARM_CLOCK_STEP_MS);
+	if (!(step > 0)) return () => performance.now();
+	let reads = 0;
+	return () => step * reads++;
+}
+/** What `run` says to do once every run started has ended. */
+const RERUN = "run again to start the pairs left";
+/** {@link RERUN}, once a failure stopped its pairs. */
+const RERUN_LEFT = `clear the failure above and ${RERUN}`;
+/**
  * `docs/effort-guide.md`'s standing default, named on the launch so both arms
  * run it whatever each config dir's settings say.
  */
@@ -916,7 +932,7 @@ function stopAtLimit(root, bin, { limitMs, pollMs, failed }) {
 	const minutes = Math.round(limitMs / MS_PER_MIN);
 	const stopped =
 		left.length === 0
-			? `stopped every run still going; ${failed === 0 ? "" : "clear the failure above and "}run again to start the pairs left`
+			? `stopped every run still going; ${failed === 0 ? RERUN : RERUN_LEFT}`
 			: `stopped all but ${left.map((r) => `${r.id} (job ${r.job} in ${r.configDir})`).join(", ")}, still running after ${STOP_TRIES} tries: stop each by hand`;
 	writeFd(2, `✗ the run's limit of ${minutes} minutes passed; ${stopped}\n`);
 	return failed || 1;
@@ -949,7 +965,7 @@ function nameStillGoing(root) {
 		try {
 			rec = JSON.parse(fs.readFileSync(file, "utf8"));
 		} catch {
-			// Left undefined, so it is named by its file below.
+			// Left undefined, so it is named by its file below (#3506).
 		}
 		if (!rec?.id || !rec.configDir || !rec.job) {
 			writeFd(
@@ -976,10 +992,7 @@ function reportEnd(failed) {
 		writeFd(1, "every pair started and every run ended\n");
 		return 0;
 	}
-	writeFd(
-		2,
-		"✗ every run started has ended; clear the failure above and run again to start the pairs left\n",
-	);
+	writeFd(2, `✗ every run started has ended; ${RERUN_LEFT}\n`);
 	return failed;
 }
 
@@ -1089,15 +1102,15 @@ function runAll(parsed) {
 
 /** @param {Exclude<ReturnType<typeof runSetup>, string>} setup */
 function runLoop({ o, planned, limitMs }) {
-	// Monotonic, so a wall-clock step neither fires the limit early nor holds it off.
-	const startedAt = performance.now();
+	const now = buildRunClock();
+	const startedAt = now();
 	let lastHeld = "";
 	/** The failure's exit status once one stops further pairs, else 0. */
 	let failed = 0;
 	for (;;) {
 		const exit = refuseGoneCli(planned.cli, o.root);
 		if (exit !== null) return exit;
-		if (performance.now() - startedAt >= limitMs)
+		if (now() - startedAt >= limitMs)
 			return stopAtLimit(o.root, planned.cli.path, { ...o, limitMs, failed });
 		const step =
 			failed === 0 ? runPass(planned, o) : drainPass(planned.cli.path, o);
