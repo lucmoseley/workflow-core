@@ -258,7 +258,7 @@ async function judge({ root, dirs, gapMs = GAP_MS }) {
 		audit.writeItems(root, unique, unreadable);
 
 		const { gateway: gw } = require("./guard-jev-advisory");
-		const key = gw.readKey(root);
+		const key = gw.readKey();
 		if (!key || gw.sdkMissing())
 			return {
 				items: unique.length,

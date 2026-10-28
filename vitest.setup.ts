@@ -93,6 +93,18 @@ process.env.WFC_REFILL_DIR = testRefillDir;
 afterAll(() => fs.rmSync(testRefillDir, { recursive: true, force: true }));
 
 /*
+ * NO TEST READS OR WRITES THE MACHINE'S SECRETS FILE (#3202): a guard reaching
+ * for its key would find the real one, and a pasted write-secret.js line would
+ * add to it. An override, as above. WFC_SECRETS_FILE rather than
+ * XDG_CONFIG_HOME, which gh and git read their own config from.
+ */
+const testSecretsDir = fs.mkdtempSync(
+	path.join(os.tmpdir(), "wfc-test-secrets-"),
+);
+process.env.WFC_SECRETS_FILE = path.join(testSecretsDir, "secrets.env");
+afterAll(() => fs.rmSync(testSecretsDir, { recursive: true, force: true }));
+
+/*
  * THE RULE STORE THE SUITE READS IS THIS CHECKOUT'S.
  *
  * Almost every guard test spawns its guard with `CLAUDE_PROJECT_DIR` pointed at

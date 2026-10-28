@@ -22,15 +22,15 @@ Put the exact rule you need in place of the example. Add `--project` only where 
 
 AN AUTO-MODE REFUSAL — the classifier denying a call — is never the end of the work and never a reason to ask for another permission mode: every session runs in auto mode, the founder entering background ones from the agents view. Scrutinise the refused act first — what it touches, what it could break — and say what you concluded. Not a good idea: drop it and say why on the ticket. Still needed: work hard to reach the goal without the founder — a narrower act, another legitimate approach, a design that does not need it — but never the same act by another path, which the classifier refuses as bypass. A refused compound (`&&`, `;`, `|` …) whose substantive command matches a `permissions.allow` rule is not that: re-run that command once, on its own, and each read-only extra as a separate call — the same call under the founder's allow rule, which a compound misses (`docs/environment.md` §Auto mode's permission classifier). Never re-chain it, wrap it differently, or retry a bare command that was itself refused (#1023). After any block, run each follow-up read as one bare command, never a compound: the classifier reviews reads too, against what the session just tried (#2040). A `!` line he pastes into this session, a file he must write included, is the last resort, handed over only once every reasonable route has failed, naming what you tried; then wait. Never release the ticket over a refusal (#851). A turn ending on a refusal is sent back with this paragraph by `scripts/guard-automode-refusal.js` (#860).
 
-A SECRET he must supply — an API key, a token — never enters the chat, so it is never a `!` line. It is one line he pastes into a normal terminal, which asks for the value with typing hidden, writes it into the repository's `.env`, and prints the variable's name and the file it wrote, never the value:
+A SECRET he must supply — an API key, a token — never enters the chat, so it is never a `!` line. It is one line he pastes into a normal terminal, which asks for the value with typing hidden, writes it into the secrets file, `~/.config/workflow-core/secrets.env` unless XDG_CONFIG_HOME moves it, outside every working tree, and prints the variable's name and the file it wrote, never the value:
 
 cd {host-root} && node {script:write-secret.js} AI_GATEWAY_API_KEY
 
 Put the exact variable name you need in place of the example. Then check it landed without reading it — this prints a count, and 1 or more means it is set:
 
-grep -cE '^[[:space:]]*(export[[:space:]]+)?AI_GATEWAY_API_KEY[[:space:]]*=' {host-root}/.env
+grep -cE '^[[:space:]]*(export[[:space:]]+)?AI_GATEWAY_API_KEY[[:space:]]*=' "${XDG_CONFIG_HOME:-$HOME/.config}/workflow-core/secrets.env"
 
-Never `cat`, `source` or print any line of `.env`.
+Never `cat`, `source` or print any line of that file.
 
 NEVER ASK WHO DOES IT where nothing stops you: act, then report. A "you or me?" round — "you do it" against "I do it" — carries a line of its own, `Blocked: <the refusal you hit, quoted, or the act only a person can do>`. A preference to ask first is not a block.
 

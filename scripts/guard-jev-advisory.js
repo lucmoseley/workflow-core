@@ -75,14 +75,13 @@
 const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
-const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
 const { scriptPath } = require("./lib/script-path.js");
 const stopGuard = require("./lib/stop-guard");
 const jevLog = require("./lib/jev-log.js");
 const { guardDisabled } = require("./lib/workflow-core-config");
 const { hasRoundMarker } = require("./lib/round-marker");
-const { readEnvFileValue } = require("./lib/env-file.js");
+const { readEnvFileValue, secretsFile } = require("./lib/env-file.js");
 
 /**
  * The master switch's spelling in `.claude/workflow-core.json`'s `disabled`
@@ -208,7 +207,7 @@ function servedBy(result) {
 	};
 }
 
-/** The gateway credential, read from the environment or the gitignored `.env`. */
+/** The gateway credential, read from the environment or the secrets file. */
 const KEY_VAR = "AI_GATEWAY_API_KEY";
 
 /**
@@ -406,23 +405,22 @@ function switchedOff(root) {
 }
 
 /**
- * The gateway key, from the process environment or the gitignored repo-root
- * `.env` (lib/env-file.js).
+ * The gateway key, from the process environment or the secrets file
+ * (lib/env-file.js).
  *
  * THE RETURN VALUE IS THE SECRET. It reaches `createGateway` and nothing else:
  * no caller below puts it in a log line, a breadcrumb or a message, and the
  * gate reports only whether it was found.
- * @param {string} root
  * @returns {string|null}
  */
-function readKey(root) {
+function readKey() {
 	const fromEnv = process.env[KEY_VAR]?.trim();
 	if (fromEnv) return fromEnv;
 	try {
-		return readEnvFileValue(path.join(root, ".env"), KEY_VAR);
+		return readEnvFileValue(secretsFile(), KEY_VAR);
 	} catch {
-		/* No `.env`, or one that cannot be read: both are "no key", which skips
-		 * the turn. */
+		/* No secrets file, or one that cannot be read: both are "no key", which
+		 * skips the turn. */
 		return null;
 	}
 }
@@ -605,7 +603,7 @@ function preflight({ message, sessionId, root }) {
 	/* `why` tells the two halves apart in the log without widening #200's
 	 * outcome vocabulary. */
 	if (sdkMissing()) return { outcome: "skipped-no-sdk", why: "sdk" };
-	const key = readKey(root);
+	const key = readKey();
 	if (!key) return { outcome: "skipped-no-sdk", why: "key" };
 	const refusal = sweepRefusal({ message });
 	if (refusal) return { outcome: "skipped-redaction", why: refusal };

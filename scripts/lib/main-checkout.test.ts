@@ -9,11 +9,11 @@
  * reads what `git rev-parse --git-common-dir` prints and only real git prints
  * it. checkoutOfCommonDir takes that output as a string, so its case does not.
  *
- * mainCheckout places the commit ledgers (arbiter-ledger.js), the seat-key
- * `.env` (headless-sessions.js) and the self-plugin setup path
- * (core-hooks.js); checkoutOfCommonDir picks repo-checks.js's reading root. A
- * loosened case lets a worktree session keep its ledgers or read its keys in
- * its own worktree, or print a setup path that is not the main checkout's.
+ * mainCheckout places the commit ledgers (arbiter-ledger.js) and the
+ * self-plugin setup path (core-hooks.js); checkoutOfCommonDir picks
+ * repo-checks.js's reading root. A loosened case lets a worktree session keep
+ * its ledgers in its own worktree, or print a setup path that is not the main
+ * checkout's.
  */
 
 import { execFileSync } from "node:child_process";

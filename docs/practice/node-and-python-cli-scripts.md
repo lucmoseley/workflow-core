@@ -50,6 +50,13 @@ Researched: 2026-10-22
 - Linux: `CLOCK_REALTIME` "is affected by discontinuous jumps in the system time"; `CLOCK_MONOTONIC` is not, and "does not count time that the system is suspended"; `CLOCK_BOOTTIME` is monotonic and does count it. So pick `CLOCK_BOOTTIME` only where suspended time must count. man7.org/linux/man-pages/man2/clock_gettime.2.html [standard or field body]
 - Python: a program timing a timeout or a duration on system time "may fail to run events at the right moment or stop the timeout too early or too late"; use `time.monotonic()`. peps.python.org/pep-0418/ [named expert]
 
+## Where a CLI keeps credentials
+
+- Per-user config goes under `$XDG_CONFIG_HOME`: "If `$XDG_CONFIG_HOME` is either not set or empty, a default equal to `$HOME`/.config should be used." "All paths set in these environment variables must be absolute"; a relative one is "invalid" and ignored. A missing directory is created "with permission `0700`"; an existing one's permissions "should not be changed". specifications.freedesktop.org/basedir/latest/ [standard or field body]
+- OWASP's Secrets Management Cheat Sheet treats secrets "hardcoded within the source code" as the problem to solve, and advises "secrets detection at the developer level to avoid checking secrets into code before commit/PR". cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html [standard or field body]
+- Adopters of a per-user location outside any project: `gh` keeps its config at `$XDG_CONFIG_HOME/gh`, else `$HOME/.config/gh` (cli.github.com/manual/gh_help_environment); the AWS CLI keeps credentials in `~/.aws/credentials` (docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html). [unverified]
+- Thus: a CLI's stored secret lives in a per-user file under `$XDG_CONFIG_HOME/<tool>/`, owner-only, never in a working tree. A gitignored `.env` in the repo root keeps it out of commits but not out of reach of a stray write.
+
 ## Testing CLI scripts
 
 - Keep the entry guard small so a test can import the script. Python: "If a module like this was imported ... for example to unit test it, the script code would unintentionally execute"; put "as few statements as possible" under `if __name__ == '__main__'`, and write `sys.exit(main())` with `main()` that returns an int. docs.python.org/3/library/__main__.html [standard or field body]

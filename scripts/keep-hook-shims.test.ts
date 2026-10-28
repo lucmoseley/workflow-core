@@ -69,7 +69,6 @@ function keep(startedAt: number, cwd = repo, ...args: string[]) {
 			CLAUDE_CONFIG_DIR: config,
 			WFC_CLAUDE_BIN: bin,
 			WFC_ORACLE_CACHE: "0",
-			WFC_OVERFLOW_ENV_ROOT: path.dirname(bin),
 		},
 	});
 }
@@ -170,7 +169,6 @@ describe("keep-hook-shims.js on a real repository", () => {
 				CLAUDE_CONFIG_DIR: config,
 				WFC_CLAUDE_BIN: bin,
 				WFC_ORACLE_CACHE: "0",
-				WFC_OVERFLOW_ENV_ROOT: repo,
 			},
 		});
 		expect(r.status).toBe(0);

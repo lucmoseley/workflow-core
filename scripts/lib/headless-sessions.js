@@ -10,10 +10,10 @@
  *
  * THE KEY reaches the child only through an `apiKeyHelper` in `--settings`,
  * this module's `key` command, which prints the seat's named variable from
- * the `.env` at the main checkout of the workflow-core tree this file is in.
+ * the secrets file (lib/env-file.js).
  * It is in neither the caller's environment nor the child's, so no Bash call
  * or hook in the session sees it (#2604 (b)); the launch removes any
- * ANTHROPIC_API_KEY or seat variable it inherits. A missing `.env` or
+ * ANTHROPIC_API_KEY or seat variable it inherits. A missing file or
  * variable refuses the launch by name before anything spawns, since the
  * helper runs only after; so does any other auth in force on the seat
  * (lib/launch-auth.js).
@@ -27,8 +27,7 @@
  * `result` per turn while a background task keeps it alive (#2604 (a)), so a
  * `result` never says the run ended; the last one gives its outcome and cost.
  *
- * WFC_CLAUDE_BIN names the `claude` to spawn. WFC_OVERFLOW_ENV_ROOT stands in
- * for the main checkout whose `.env` holds the key, for tests only.
+ * WFC_CLAUDE_BIN names the `claude` to spawn.
  *
  * dispatch-sessions.sh launches through the CLI, lib/overflow-budget.js
  * settles ended runs through readStoredRuns() and endResultOf(), and
@@ -50,10 +49,9 @@ const {
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
-const { readEnvFileValue } = require("./env-file.js");
+const { readEnvFileValue, secretsFile } = require("./env-file.js");
 const { readJsonl } = require("./jev-log.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
-const { mainCheckout } = require("./main-checkout.js");
 const { refillPath } = require("./refill-dir.js");
 const { readDeclaredSeats, seatOf } = require("./refill-seats.js");
 const { scriptPath } = require("./script-path.js");
@@ -101,35 +99,21 @@ const storeDir = () => refillPath(".headless-runs");
 const shellQuoted = (s) => `'${s.replaceAll("'", "'\\''")}'`;
 
 /**
- * The `.env` holding the seat keys, or why there is none.
- * @returns {{file: string}|{why: string}}
- */
-function keyEnvFile() {
-	const root = process.env.WFC_OVERFLOW_ENV_ROOT || mainCheckout(__dirname);
-	if (!root)
-		return {
-			why: `${__dirname} is in no git checkout, so there is no .env to read the key from`,
-		};
-	return { file: path.join(root, ".env") };
-}
-
-/**
  * Why the seat's key cannot be read, or null where it can. Names the variable
  * and the file, never the value.
  * @param {string} keyVar
  * @returns {{file: string}|{why: string}}
  */
 function keyCheck(keyVar) {
-	const env = keyEnvFile();
-	if ("why" in env) return { why: `no ${keyVar}: ${env.why}` };
+	const file = secretsFile();
 	try {
-		if (readEnvFileValue(env.file, keyVar) !== null) return env;
-		return { why: `${keyVar} is not set in ${env.file}` };
+		if (readEnvFileValue(file, keyVar) !== null) return { file };
+		return { why: `${keyVar} is not set in ${file}` };
 	} catch (err) {
 		return caught(err).code === "ENOENT"
-			? { why: `no ${env.file} to read ${keyVar} from` }
+			? { why: `no ${file} to read ${keyVar} from` }
 			: {
-					why: `cannot read ${env.file} for ${keyVar}: ${caught(err).message}`,
+					why: `cannot read ${file} for ${keyVar}: ${caught(err).message}`,
 				};
 	}
 }
@@ -172,8 +156,6 @@ function launch({ seat: seatDir, cwd, budgetUsd, prompt }) {
 	delete env.CLAUDE_CODE_SESSION_ID;
 	delete env.ANTHROPIC_API_KEY;
 	delete env[seat.keyVar];
-	/* The child's own launches read the key from their own checkout. */
-	delete env.WFC_OVERFLOW_ENV_ROOT;
 	const refusal = launchAuthRefusal({
 		bin: claudeBin(),
 		env,
@@ -387,7 +369,7 @@ module.exports = {
  *   list               the live runs, as a JSON array of liveness records
  *   stop <job id>      `stopped`, `killed`, `not running` or `unknown`
  *   result <job id>    the run's EndResult as JSON
- *   key <var> <.env>   the variable's value: the child's apiKeyHelper
+ *   key <var> <file>   the variable's value: the child's apiKeyHelper
  */
 const usage = () => {
 	writeFd(

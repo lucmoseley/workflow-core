@@ -278,10 +278,10 @@ describe("the founder hand-over rule (#597)", () => {
 		expect(entry).toContain("`rule:founder-handover`");
 	});
 
-	/* Whole but for the secret lines, whose paths the accessor spells in (#643). */
+	/* Whole but for the secret line, whose paths the accessor spells in (#643). */
 	const printedWhole = (text: string) => {
 		const pieces = fragment.trim().split(/^.*\{host-root\}.*$/m);
-		expect(pieces).toHaveLength(3);
+		expect(pieces).toHaveLength(2);
 		for (const piece of pieces) expect(text).toContain(piece);
 		expect(text).not.toMatch(/\{host-root\}|\{script:/);
 	};

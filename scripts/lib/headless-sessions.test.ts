@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * Pins lib/headless-sessions.js through its CLI, as the dispatcher drives it,
- * with a fake `claude` through WFC_CLAUDE_BIN and a fixture `.env` through
- * WFC_OVERFLOW_ENV_ROOT: the launch's job id, flags and child environment,
+ * with a fake `claude` through WFC_CLAUDE_BIN and a fixture secrets file
+ * through WFC_SECRETS_FILE: the launch's job id, flags and child environment,
  * the key's route through the apiKeyHelper alone, the refusals by name, the
  * listing's liveness, the group stop, and the end-result reading.
  *
@@ -83,7 +83,8 @@ setInterval(() => {
 let tmp: string;
 let home: string;
 let refill: string;
-let checkout: string;
+let config: string;
+let secrets: string;
 let target: string;
 let fakeOut: string;
 let seat: string;
@@ -93,17 +94,24 @@ beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "headless-"));
 	home = path.join(tmp, "home");
 	refill = path.join(tmp, "refill");
-	checkout = path.join(tmp, "checkout");
+	config = path.join(tmp, "config");
+	secrets = path.join(config, "workflow-core", "secrets.env");
 	target = path.join(tmp, "target");
 	fakeOut = path.join(tmp, "fake-out");
 	seat = path.join(home, ".claude2-api");
-	for (const d of [path.join(home, ".claude"), seat, checkout, target, fakeOut])
+	for (const d of [
+		path.join(home, ".claude"),
+		seat,
+		path.dirname(secrets),
+		target,
+		fakeOut,
+	])
 		fs.mkdirSync(d, { recursive: true });
 	fs.writeFileSync(
 		path.join(home, ".claude", "refill-seats"),
 		`${path.join(home, ".claude2")}\n~/.claude2-api api key=${KEY_VAR} grant=200 cycle-day=20\n`,
 	);
-	fs.writeFileSync(path.join(checkout, ".env"), `OTHER=1\n${KEY_VAR}=${KEY}\n`);
+	fs.writeFileSync(secrets, `OTHER=1\n${KEY_VAR}=${KEY}\n`);
 	fs.writeFileSync(path.join(tmp, "claude"), FAKE, { mode: 0o755 });
 	process.env.WFC_REFILL_DIR = refill;
 });
@@ -132,7 +140,7 @@ const env = (extra: Record<string, string> = {}) => ({
 	HOME: home,
 	WFC_REFILL_DIR: refill,
 	WFC_CLAUDE_BIN: path.join(tmp, "claude"),
-	WFC_OVERFLOW_ENV_ROOT: checkout,
+	WFC_SECRETS_FILE: secrets,
 	FAKE_OUT: fakeOut,
 	FAKE_MODE: "sleep",
 	/* Past one case and its hooks, so a fake never dies mid-case. */
@@ -272,10 +280,10 @@ describe("launch", () => {
 	});
 
 	it.each([
-		["no .env", () => fs.rmSync(path.join(checkout, ".env"))],
+		["no secrets file", () => fs.rmSync(secrets)],
 		[
-			"a .env without the variable",
-			() => fs.writeFileSync(path.join(checkout, ".env"), "OTHER=1\n"),
+			"a secrets file without the variable",
+			() => fs.writeFileSync(secrets, "OTHER=1\n"),
 		],
 	])("refuses with %s, naming the variable, and spawns nothing", (_, setUp) => {
 		setUp();

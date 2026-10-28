@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * write-secret.js — reads one secret with typing hidden and writes it into the
- * host repository's `.env`, so a founder hand-over can capture a credential
- * without its value ever entering the chat (#640, spec #632).
+ * secrets file, so a founder hand-over can capture a credential without its
+ * value ever entering the chat (#640, spec #632).
  *
  * Usage:
  *   node write-secret.js <NAME>
@@ -13,16 +13,22 @@
  * no terminal and carries nothing, and there is no controlling terminal to
  * open instead (#2554).
  *
- * TARGET: `.env` at the host root, `lib/host-root.js`'s, so an install writes
- * into the adopter's tree, never the plugin cache.
+ * TARGET: `lib/env-file.js`'s secrets file, outside every working tree, so a
+ * stray relative `.env` write in any checkout cannot destroy it (#3202). Its
+ * directory is created owner-only.
  *
- * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 `.env` is tracked by
- * git, is a symlink, or cannot be written; 2 bad arguments or a value no .env
- * line can carry. Every refusal leaves `.env` untouched, and one about `.env`
- * itself comes before the value is asked for.
+ * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 the file sits in a
+ * git working tree, is a symlink, or cannot be written; 2 bad arguments or a
+ * value no line can carry. Every refusal leaves the file untouched, and one
+ * about the file itself comes before the value is asked for.
  *
- * A SYMLINKED `.env` IS REFUSED: its target may be a tracked file, which the
- * tracked check on `.env` itself cannot see (#640 review).
+ * IN A WORKING TREE IS REFUSED (#3202): a `.git` in the file's directory or
+ * any above it, as where XDG_CONFIG_HOME names a checkout or the home directory is a
+ * dotfiles repository, means a commit there could take it. Residual: a bare
+ * repository whose work tree is set elsewhere, as a bare dotfiles setup, is
+ * not seen.
+ *
+ * A SYMLINK IS REFUSED: its target may lie in a working tree (#640 review).
  *
  * NOTHING OF THE VALUE IS PRINTED — not it, its length or any part of it — and
  * nor is a malformed name, which is most likely the secret pasted in the
@@ -31,46 +37,36 @@
  * THE UPSERT replaces the value on every line assigning <NAME> (`NAME=`,
  * `export NAME =`), keeping that line's prefix and CRLF ending; with none, it
  * appends `NAME=value`. Every other byte, and whether the file ends in a
- * newline, is kept. It lands by rename; a new `.env` is created owner-only, an
- * existing one keeps its mode.
+ * newline, is kept. It lands by rename, owner-only.
  *
- * THE VALUE is trimmed, as `guard-jev-advisory.js`'s reader and dotenv both
- * trim. It is written unquoted unless it holds `#` (dotenv's comment), `$` or a
+ * THE VALUE is trimmed, as `lib/env-file.js`'s reader and dotenv both trim. It
+ * is written unquoted unless it holds `#` (dotenv's comment), `$` or a
  * backtick (expansion), or starts or ends with a quote (which both readers
  * strip) — then single-quoted, which both read back literally. A value needing
  * quotes that holds a single quote is refused: no quoting survives both.
  *
- * A STALE ASIDE an earlier run left, a full copy of `.env`, is removed first,
- * before any refusal: a regular file `.env.<pid>.<hex>.tmp` at the host root
- * whose pid is not running. Only this writer makes that name there (#2320).
- * One whose pid runs is a concurrent run's, or a reused pid's: it is named and
- * left. One git tracks is named and left too, as its copy is in history, and
- * so is one git cannot say is tracked, with the same rotate warning (#2736).
- * Residual: a concurrent run in another pid namespace reads as dead and loses
- * its aside; its rename then fails and it refuses, so nothing leaks.
+ * A STALE ASIDE an earlier run left, a full copy of the file, is removed
+ * first, before any refusal: a regular file `secrets.env.<pid>.<hex>.tmp`
+ * beside it whose pid is not running (#2320). One whose pid runs is a
+ * concurrent run's, or a reused pid's: it is named and left. Residual: a
+ * concurrent run in another pid namespace reads as dead and loses its aside;
+ * its rename then fails and it refuses, so nothing leaks.
  *
- * NO FILE CLAIM (spec #525's ruling for `grant-permission.js`): `.env` is
- * untracked, and the founder's paste has no session to claim with.
+ * NO FILE CLAIM (spec #525's ruling for `grant-permission.js`): the file is in
+ * no repository, and the founder's paste has no session to claim with.
  */
 
 const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
-const {
-	asidePath,
-	asidePid,
-	writeFileAtomic,
-} = require("./lib/atomic-write.js");
+const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
 const { parseOrCode } = require("./lib/cli-args");
+const { secretsFile } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { emptyWhy } = require("./lib/empty-secret.js");
 const { readHidden } = require("./lib/read-hidden.js");
 const { caught } = require("./lib/caught.js");
 const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
-const { spawnGitSync } = require("./lib/git.js");
-const { requiredGroup } = require("./lib/regex-group.js");
-const { isUnder } = require("./lib/is-under.js");
 
 const VAR_NAME = new RegExp(`^${SHELL_VAR_NAME}$`);
 
@@ -78,982 +74,88 @@ const USAGE = `usage: write-secret.js <NAME>
   <NAME>  a shell variable name; the value is then asked for with typing hidden`;
 
 /**
+ * @param {string} file
  * @param {string} why
  * @param {number} status
  * @returns {number}
  */
-function refuse(why, status) {
-	process.stderr.write(`write-secret: refused, .env untouched — ${why}\n`);
+function refuse(file, why, status) {
+	process.stderr.write(`write-secret: refused, ${file} untouched — ${why}\n`);
 	return status;
 }
 
-/* A git hook sets GIT_DIR and GIT_INDEX_FILE, so a run under one would ask
- * another repository than the host root's. The replace-object pair swaps
- * the commit HEAD reads for one a plain shell's `git reset` does not restore
- * (#3393). */
-const REDIRECTS = [
-	"GIT_REPLACE_REF_BASE",
-	"GIT_NO_REPLACE_OBJECTS",
-	"GIT_DIR",
-	"GIT_WORK_TREE",
-	"GIT_INDEX_FILE",
-	"GIT_COMMON_DIR",
-	"GIT_OBJECT_DIRECTORY",
-	"GIT_CEILING_DIRECTORIES",
-	"GIT_DISCOVERY_ACROSS_FILESYSTEM",
-];
-
-/* Each changes how the pathspec below is read: GIT_LITERAL_PATHSPECS turns
- * its magic off (#3063). */
-const PATHSPEC_MODES = [
-	"GIT_LITERAL_PATHSPECS",
-	"GIT_GLOB_PATHSPECS",
-	"GIT_NOGLOB_PATHSPECS",
-	"GIT_ICASE_PATHSPECS",
-];
-
 /**
- * Whether `name` injects config, `core.excludesFile` among it, that a commit
- * from a shell without it would not see (#3063). GIT_CONFIG_NOSYSTEM is kept:
- * it can only drop an exclude.
- * @param {string} name
- * @returns {boolean}
- */
-function isConfigInjection(name) {
-	return /^GIT_CONFIG(_|$)/.test(name) && name !== "GIT_CONFIG_NOSYSTEM";
-}
-
-/**
- * `env` with git's global config and excludes read where a shell the real
- * user commits from reads them: XDG_CONFIG_HOME dropped and HOME the passwd
- * entry's home (#3393). Without a passwd entry HOME is dropped too, so no
- * global exclude applies, which fails toward the warning. No seam redirects
- * that home, as one a caller could set would silence the warning again.
- * @param {NodeJS.ProcessEnv} env
- * @returns {NodeJS.ProcessEnv}
- */
-function buildUserHomeEnv(env) {
-	const rest = buildEnvWithout(
-		env,
-		(n) => isConfigInjection(n) || n === "XDG_CONFIG_HOME" || n === "HOME",
-	);
-	const home = readPasswdHome();
-	return home ? { ...rest, HOME: home } : rest;
-}
-
-/** The passwd entry's home, or null where there is none (#3393). */
-function readPasswdHome() {
-	try {
-		return os.userInfo().homedir || null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * @param {NodeJS.ProcessEnv} env
- * @param {(name: string) => boolean} drop
- * @returns {NodeJS.ProcessEnv}
- */
-function buildEnvWithout(env, drop) {
-	return Object.fromEntries(Object.entries(env).filter(([n]) => !drop(n)));
-}
-
-/**
- * Whether `dir` holds a `.git` entry. One lstat cannot read for any reason
- * but its absence counts as one, so a check leaning on it fails closed.
- * @param {string} dir
- */
-function hasGitEntry(dir) {
-	try {
-		fs.lstatSync(path.join(dir, ".git"));
-		return true;
-	} catch (e) {
-		return caught(e).code !== "ENOENT";
-	}
-}
-
-/**
- * The directories from `dir` up that hold a `.git` entry, nearest first,
- * stopping below `stop` where it is met.
- * @param {string} dir
- * @param {string} [stop]
- * @returns {string[]}
- */
-function readGitEntryDirs(dir, stop) {
-	const found = [];
-	for (let d = dir; d !== stop; d = path.dirname(d)) {
-		if (hasGitEntry(d)) found.push(d);
-		if (path.dirname(d) === d) return found;
-	}
-	return found;
-}
-
-/**
- * Whether the `.git` entry in `dir` may be a repository: anything but an
- * empty directory.
- * @param {string} dir
- * @returns {boolean}
- */
-function isRepoEntry(dir) {
-	const entry = path.join(dir, ".git");
-	try {
-		return (
-			!fs.lstatSync(entry).isDirectory() || fs.readdirSync(entry).length > 0
-		);
-	} catch {
-		return true;
-	}
-}
-
-/**
- * Who a query stands for, which sets the 128s isOutsideAnyRepo trusts: the
- * host root's plain shell, the caller's shell, or a plain shell pinned to the
- * `.git` entry in its own directory.
- * @typedef {"root" | "caller" | "pinned"} QueryKind
- * @typedef {{ cwd: string, env: NodeJS.ProcessEnv, kind: QueryKind }} GitQuery
- */
-
-/**
- * The caller's environment less PATHSPEC_MODES, git's messages untranslated.
- * @returns {NodeJS.ProcessEnv}
- */
-function buildCallerEnv() {
-	return buildEnvWithout({ ...process.env, LC_ALL: "C" }, (n) =>
-		PATHSPEC_MODES.includes(n),
-	);
-}
-
-/**
- * `env` as a shell without REDIRECTS or injected config holds it.
- * @param {NodeJS.ProcessEnv} env
- * @returns {NodeJS.ProcessEnv}
- */
-function buildPlainEnv(env) {
-	return buildEnvWithout(
-		env,
-		(n) => REDIRECTS.includes(n) || isConfigInjection(n),
-	);
-}
-
-/**
- * Where git is asked about a file under `root`: from `root` in a plain
- * shell, as one without REDIRECTS or injected config finds the repository;
- * from the caller's directory with the caller's environment, as a commit
- * from the caller's shell sees it, which a bare repository entered through
- * GIT_DIR and GIT_WORK_TREE, or a `core.worktree` naming the root, is
- * (#3063); and from `root` with it, as that shell sees it once in `root`,
- * where a GIT_DIR with no work tree takes `root` as its work tree.
- * @param {string} root
- * @returns {GitQuery[]}
- */
-function buildHostQueries(root) {
-	const caller = buildCallerEnv();
-	return [
-		{ cwd: root, env: buildPlainEnv(caller), kind: "root" },
-		{ cwd: process.cwd(), env: caller, kind: "caller" },
-		{ cwd: root, env: caller, kind: "caller" },
-	];
-}
-
-/**
- * buildHostQueries, and a plain shell's pinned to each `.git` entry that may
- * be a repository from `root` or the caller's directory up: a repository
- * nested at the root hides an outer one that may still track the file
- * (#3063), and git's own search steps past a damaged `.git` to the healthy
- * one above it, where pinned it fails (#3080). It is pinned by a ceiling at
- * its parent, not GIT_DIR, which would skip git's ownership check, the
- * guard against running another user's config. Residual: a `.git` there
- * that another user owns fails git's ownership check, so every run refuses
- * as "git could not say".
- * @param {string} root
- * @returns {GitQuery[]}
- */
-function buildTrackedQueries(root) {
-	const dirs = new Set(
-		[...readGitEntryDirs(root), ...readGitEntryDirs(process.cwd())].filter(
-			isRepoEntry,
-		),
-	);
-	return buildHostQueries(root).concat([...dirs].map(buildPinnedQuery));
-}
-
-/**
- * A plain shell's query pinned to the `.git` entry in `dir`.
- * @param {string} dir
- * @returns {GitQuery}
- */
-function buildPinnedQuery(dir) {
-	return {
-		cwd: dir,
-		env: {
-			...buildPlainEnv(buildCallerEnv()),
-			GIT_CEILING_DIRECTORIES: path.dirname(dir),
-		},
-		kind: "pinned",
-	};
-}
-
-/**
- * buildHostQueries, plus a pinned query per `.git` above `root` whose index
- * holds entries under it: git descends into a directory it tracks files in
- * even where that directory holds a repository of its own, so `add -A` there
- * stages a `.env` only the nested one ignores (#3073). One that says it
- * tracks nothing under `root`, a dotfiles `~/.git` above every project, never
- * descends, so it is not asked; one that cannot say is, failing toward the
- * warning. Each runs less injected config, its global config read from the
- * passwd home (#3063, #3393).
- * @param {string} root
- * @returns {GitQuery[]}
- */
-function buildIgnoredQueries(root) {
-	const host = buildHostQueries(root);
-	const outer = readGitEntryDirs(root)
-		.filter((d) => d !== root && isRepoEntry(d))
-		.map(buildPinnedQuery)
-		.filter((q) =>
-			buildSpellings(q, root, "").some(
-				(named) => isTrackedBy(q, root, named) !== false,
-			),
-		);
-	return host
-		.concat(outer)
-		.map((q) => ({ ...q, env: buildUserHomeEnv(q.env) }));
-}
-
-/**
- * @param {GitQuery} query
- * @param {string[]} args
- * @param {"ignore" | "pipe"} [stdout]
- */
-function runQuery(query, args, stdout = "ignore") {
-	return spawnGitSync(args, {
-		cwd: query.cwd,
-		env: query.env,
-		encoding: "utf8",
-		stdio: ["ignore", stdout, "pipe"],
-	});
-}
-
-/**
- * Whether any `.git` from `dir` up, below `stop`, isRepoEntry. After a
- * no-repository 128 it is one git cannot open (lost HEAD, refs or index; a
- * gitfile or symlink whose target moved) that a commit may take the file
- * into once it is mended (#2777, #3063). `stop` is the mount point git's
- * search stopped at: a `.git` above it has a pinned query of its own (#3080).
- * Residual: an empty directory that is a git directory's unmounted mount
- * point reads as no repository.
- * @param {string} dir
- * @param {string} [stop]
- * @returns {boolean}
- */
-function mayHoldRepo(dir, stop) {
-	return readGitEntryDirs(dir, stop).some(isRepoEntry);
-}
-
-const MOUNT_STOP =
-	/^fatal: not a git repository \(or any parent up to mount point (.+)\)$/m;
-
-/**
- * Whether git's fatal 128 says it found a repository that cannot take the
- * file: outside the work tree, inside a submodule, or with no work tree.
- * @param {string} stderr
- * @returns {boolean}
- */
-function isOutsideMessage(stderr) {
-	return (
-		stderr.includes("' is outside repository at '") ||
-		stderr.includes("' is in submodule '") ||
-		stderr.startsWith("fatal: this operation must be run in a work tree")
-	);
-}
-
-/**
- * Whether git's fatal 128 under `query` says no repository it reaches can
- * commit a file under `root`: git names it outside the work tree it found or
- * inside a submodule, has no work tree, or finds no repository. The caller's
- * queries trust no-repository only where git searched and found none, as the
- * path form there may name an inherited GIT_DIR mid-move (#3063). A pinned
- * query's no-repository is its own `.git` damaged. The root's trusts one
- * where mayHoldRepo finds nothing from the root up, and no 128 where the
- * root holds a `.git` of its own, since a damaged one there prints the same
- * from inside a repository (#2777). Residual: a bare repository the
- * caller's directory is, damaged so git cannot open it, holds no `.git` to
- * ask from, so a GIT_WORK_TREE naming the root and its no-repository reads
- * as outside.
- * @param {GitQuery} query
- * @param {string} root
- * @param {string} stderr
- * @returns {boolean}
- */
-function isOutsideAnyRepo(query, root, stderr) {
-	const outside = isOutsideMessage(stderr);
-	if (query.kind === "caller")
-		return outside || stderr.startsWith("fatal: not a git repository (or any");
-	if (query.kind === "pinned") return outside;
-	if (hasGitEntry(root)) return false;
-	const mount = stderr.match(MOUNT_STOP);
-	return (
-		outside ||
-		(stderr.startsWith("fatal: not a git repository") &&
-			!mayHoldRepo(
-				query.cwd,
-				mount ? requiredGroup(mount, 1, MOUNT_STOP) : undefined,
-			))
-	);
-}
-
-/**
- * `p` as the kernel resolves it: the JS realpath reads a `..` after a
- * symlink as text, naming a directory git never opens (#3080).
- * @param {string} p
- * @returns {string | null}
- */
-function realpathOrNull(p) {
-	try {
-		return fs.realpathSync.native(p);
-	} catch {
-		return null;
-	}
-}
-
-const GITFILE = /^gitdir: (.+)$/m;
-
-/**
- * The git directory the `.git` entry in `dir` names, resolved, or null where
- * it names none.
+ * The working tree `dir` or a directory above it holds, by its `.git`, or null.
+ * The walk starts from the real path of `dir`'s deepest existing directory, so
+ * a symlinked config directory is judged where it points.
  * @param {string} dir
  * @returns {string | null}
  */
-function readGitDir(dir) {
-	const entry = path.join(dir, ".git");
+function findEnclosingTree(dir) {
+	let d = path.resolve(dir);
+	while (!isDirectory(d)) d = path.dirname(d);
+	for (d = fs.realpathSync(d); ; d = path.dirname(d)) {
+		if (fs.lstatSync(path.join(d, ".git"), { throwIfNoEntry: false })) return d;
+		if (d === path.dirname(d)) return null;
+	}
+}
+
+/** @param {string} p */
+function isSymlink(p) {
 	try {
-		if (!fs.statSync(entry).isFile()) return realpathOrNull(entry);
-		const m = fs.readFileSync(entry, "utf8").match(GITFILE);
-		if (!m) return null;
-		// Concatenated, not path.join'd or resolve'd, which collapse a `..` as text.
-		const target = requiredGroup(m, 1, GITFILE);
-		return realpathOrNull(
-			path.isAbsolute(target) ? target : `${dir}${path.sep}${target}`,
-		);
+		return fs.lstatSync(p).isSymbolicLink();
 	} catch {
-		return null;
-	}
-}
-
-/**
- * What `git <args>` prints under `query`, its newline dropped, or null where
- * it fails.
- * @param {GitQuery} query
- * @param {string[]} args
- * @returns {string | null}
- */
-function readGitOutput(query, args) {
-	const r = runQuery(query, args, "pipe");
-	return r.status === 0 ? r.stdout.replace(/\n$/, "") : null;
-}
-
-/**
- * Whether a pinned query opened its own `.git`: GIT_CEILING_DIRECTORIES
- * splits on `:` with no escape, so a parent path holding one sets no
- * ceiling (#3080). Where git opens none, ls-files reports that itself.
- * @param {GitQuery} query
- * @returns {boolean}
- */
-function isPinHeld(query) {
-	const dir = readGitOutput(query, ["rev-parse", "--absolute-git-dir"]);
-	return dir === null || isOwnGitDir(dir, query.cwd);
-}
-
-/**
- * Whether `gitDir`, as git printed it, is the one the `.git` entry in `dir`
- * names.
- * @param {string} gitDir
- * @param {string} dir
- * @returns {boolean}
- */
-function isOwnGitDir(gitDir, dir) {
-	const opened = realpathOrNull(gitDir);
-	return opened !== null && opened === readGitDir(dir);
-}
-
-/**
- * Whether a root query's fatal 128 comes from the root's own `.git` being a
- * bare repository (#3088). Git has no work tree to place the absolute
- * spelling in, while the relative one still reads the index, so the 128 says
- * nothing about tracking. A damaged `.git` is never the one git opens, so
- * #2777's distrust of it stands. isIgnored does not take it: a bare
- * repository cannot say it ignores the file a dotfiles alias's `--work-tree`
- * would commit.
- * @param {GitQuery} query
- * @param {string} root
- * @param {string} stderr
- * @returns {boolean}
- */
-function isBareRootOutside(query, root, stderr) {
-	if (query.kind !== "root" || !isOutsideMessage(stderr)) return false;
-	const out = readGitOutput(query, [
-		"rev-parse",
-		"--is-bare-repository",
-		"--absolute-git-dir",
-	]);
-	const [bare, dir] = out?.split("\n") ?? [];
-	return bare === "true" && dir !== undefined && isOwnGitDir(dir, root);
-}
-
-/**
- * Whether the index of the git directory `query` reaches is missing. Where
- * git cannot name it, it reads as present: ls-files reports the failure
- * itself.
- * @param {GitQuery} query
- * @returns {boolean}
- */
-function isIndexMissing(query) {
-	const p = resolveGitPath(query, "index");
-	return p !== null && !fs.existsSync(p);
-}
-
-/**
- * The absolute path of `name` under the git directory `query` reaches, or
- * null where git cannot name it.
- * @param {GitQuery} query
- * @param {string} name
- * @returns {string | null}
- */
-function resolveGitPath(query, name) {
-	const p = readGitOutput(query, ["rev-parse", "--git-path", name]);
-	return p === null ? null : path.resolve(query.cwd, p);
-}
-
-const GITLINK_MODE = "160000";
-
-const NULL_OID = /^0+$/;
-
-/**
- * The text of file `name` under the git dir, empty where it is absent; null
- * where git cannot name it or it cannot be read.
- * @param {GitQuery} query
- * @param {string} name
- * @returns {string | null}
- */
-function readGitFile(query, name) {
-	const p = resolveGitPath(query, name);
-	if (p === null) return null;
-	try {
-		return fs.readFileSync(p, "utf8");
-	} catch (e) {
-		return caught(e).code === "ENOENT" ? "" : null;
-	}
-}
-
-/**
- * The commit the newest entry of reflog `log` moved to, or from where that
- * move deleted the ref: none where the reflog is absent or holds no entry,
- * the deleted ref was unborn, or `deletedOnly` asks and the move deleted
- * nothing; null where git cannot name it or it cannot be read.
- * @param {GitQuery} query
- * @param {string} log
- * @param {boolean} [deletedOnly]
- * @returns {string[] | null}
- */
-function readReflogTip(query, log, deletedOnly = false) {
-	const text = readGitFile(query, log);
-	if (text === null) return null;
-	const last = text.trimEnd().split("\n").pop() ?? "";
-	if (last === "") return [];
-	const [from, to] = last.split(" ");
-	if (from === undefined || to === undefined) return null;
-	if (!NULL_OID.test(to)) return deletedOnly ? [] : [to];
-	return NULL_OID.test(from) ? [] : [from];
-}
-
-/**
- * The commit packed-refs holds for `ref`: none where it holds no line for it
- * or is absent, null where it cannot be read.
- * @param {GitQuery} query
- * @param {string} ref
- * @returns {string[] | null}
- */
-function readPackedTip(query, ref) {
-	const text = readGitFile(query, "packed-refs");
-	if (text === null) return null;
-	for (const line of text.split("\n")) {
-		const [oid, name] = line.trimEnd().split(" ");
-		if (name === ref && oid !== undefined) return [oid];
-	}
-	return [];
-}
-
-/**
- * The commits HEAD would be restored to, or null where git cannot name one.
- * A HEAD that resolves is its commit; one that does not is the tip of its
- * branch's reflog and of HEAD's, as restoring a lost ref takes it from
- * there, and the branch's packed-refs line, which deleting an emptied loose
- * ref brings back where no reflog entry remains (#3406), for each ref down a
- * branch alias's chain: none where none has one, an unborn branch. Without
- * `headLog`, HEAD's counts only where its newest entry deleted the ref,
- * which `update-ref -d` logs there alone: an orphan has the tip of the
- * branch it left in HEAD's reflog, as checking it out logs no move. Without
- * HEAD's reflog a branch HEAD cannot name is null. A git older than 2.45
- * echoes `--show-ref-format` back, and knows no other format.
- * Residual: reftable keeps no reflog files, so its unresolved HEAD is null,
- * and a project dir in a reftable repository whose HEAD is unborn, fresh
- * from `git init` before its first `git add` writes an index among them,
- * refuses as git could not say (#3100, #3098). git's own reflog commands
- * cannot stand in, as they refuse a reflog whose ref is lost. And a current
- * branch deleted from another worktree, which logs the deletion in that
- * worktree's HEAD reflog alone, leaves reflogs no read tells from an
- * orphan's, so it reads as unborn (#3393).
- * @param {GitQuery} query
- * @param {boolean} [headLog]
- * @returns {string[] | null}
- */
-function readHeadCommits(query, headLog = true) {
-	const head = readGitOutput(query, ["rev-parse", "--verify", "-q", "HEAD"]);
-	if (head !== null) return [head];
-	const format = readGitOutput(query, ["rev-parse", "--show-ref-format"]);
-	if (format !== "files" && format !== "--show-ref-format") return null;
-	const refs = readSymrefChain(query);
-	if (refs.length === 0 && !headLog) return null;
-	const reflogs = [
-		{ log: "logs/HEAD", deletedOnly: !headLog },
-		...refs.map((ref) => ({ log: `logs/${ref}`, deletedOnly: false })),
-	];
-	/** @type {string[]} */
-	const commits = [];
-	for (const { log, deletedOnly } of reflogs) {
-		const tip = readReflogTip(query, log, deletedOnly);
-		if (tip === null) return null;
-		commits.push(...tip);
-	}
-	for (const ref of refs) {
-		const packed = readPackedTip(query, ref);
-		if (packed === null) return null;
-		commits.push(...packed);
-	}
-	return commits;
-}
-
-/** git's own cap on the symbolic refs it follows from one name. */
-const SYMREF_MAXDEPTH = 5;
-
-/**
- * The refs HEAD names hop by hop, down a chain of symbolic refs such as a
- * branch alias to the branch it ends at (#3406). A git without
- * `--no-recurse` names the end branch alone, and only where it resolves.
- * @param {GitQuery} query
- * @returns {string[]}
- */
-function readSymrefChain(query) {
-	/** @type {string[]} */
-	const refs = [];
-	let name = "HEAD";
-	while (refs.length < SYMREF_MAXDEPTH) {
-		const next = readGitOutput(query, [
-			"symbolic-ref",
-			"-q",
-			"--no-recurse",
-			name,
-		]);
-		if (next === null) break;
-		refs.push(next);
-		name = next;
-	}
-	if (refs.length > 0) return refs;
-	const ref = readGitOutput(query, ["symbolic-ref", "-q", "HEAD"]);
-	return ref === null ? [] : [ref];
-}
-
-/**
- * The paths at which the index of the work tree `query`
- * reaches, or a commit its HEAD would be restored to, records a gitlink, a
- * submodule: HEAD too, as a `git reset` brings back one `git rm --cached`
- * staged out. Null where git cannot list either.
- * @param {GitQuery} query
- * @returns {Set<string> | null}
- */
-function readGitlinks(query) {
-	const staged = runQuery(
-		query,
-		["ls-files", "-s", "-z", "--full-name", "--", ":(top)"],
-		"pipe",
-	);
-	if (staged.status !== 0) return null;
-	const commits = readHeadCommits(query);
-	if (commits === null) return null;
-	const listed = [staged.stdout];
-	for (const commit of commits) {
-		const r = runQuery(
-			query,
-			["ls-tree", "-r", "-z", "--full-tree", commit],
-			"pipe",
-		);
-		if (r.status !== 0) return null;
-		listed.push(r.stdout);
-	}
-	return new Set(
-		listed
-			.join("\0")
-			.split("\0")
-			.filter((e) => e.startsWith(`${GITLINK_MODE} `))
-			.map((e) => e.slice(e.indexOf("\t") + 1)),
-	);
-}
-
-/**
- * Whether a path in `gitlinks`, under `top`, names directory `d` though
- * spelt otherwise: the filesystem folds case or Unicode form there, as
- * macOS's and a Windows drive's do, so `.env` written in `d` lands in that
- * submodule (#3063). One inode for both spellings proves it. Where the
- * filesystem mints an inode per spelling (CIFS under `noserverino`, FUSE
- * without `use_ino`), names equal once folded match wherever either is not
- * listed under its own spelling.
- * On ext4 a healthy `Lib` beside a plain `lib/` is another directory, both
- * listed (#3100).
- * @param {Set<string>} gitlinks
- * @param {string} top
- * @param {string} d
- * @returns {boolean}
- */
-function isFoldedGitlink(gitlinks, top, d) {
-	const rel = path.relative(top, d);
-	const at = statOrNull(d);
-	for (const g of gitlinks) {
-		const other = statOrNull(path.join(top, g));
-		if (at && other && other.dev === at.dev && other.ino === at.ino)
-			return true;
-		if (
-			foldName(g) === foldName(rel) &&
-			!(isListed(top, rel) && isListed(top, g))
-		)
-			return true;
-	}
-	return false;
-}
-
-/**
- * `p` folded as near as JS can to a filesystem's case and Unicode folding:
- * upper then lower case meets `σ` and `ς`, and NFC meets HFS+'s decomposed
- * names. It folds some pairs no filesystem does (`ß` and `ss`); those match
- * only where isListed finds a spelling unlisted, and refuse.
- * @param {string} p
- * @returns {string}
- */
-function foldName(p) {
-	return p.normalize("NFC").toUpperCase().toLowerCase();
-}
-
-/**
- * Whether each segment of `rel` under `top` is listed under that spelling.
- * A directory that cannot be listed reads as not, so the caller refuses.
- * @param {string} top
- * @param {string} rel
- * @returns {boolean}
- */
-function isListed(top, rel) {
-	let dir = top;
-	for (const seg of rel.split(path.sep)) {
-		try {
-			if (!fs.readdirSync(dir).includes(seg)) return false;
-		} catch {
-			return false;
-		}
-		dir = path.join(dir, seg);
-	}
-	return true;
-}
-
-/**
- * Any failure reads as no inode: isFoldedGitlink's name check then decides.
- * @param {string} p
- * @returns {fs.Stats | null}
- */
-function statOrNull(p) {
-	try {
-		return fs.statSync(p);
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Whether a directory from `root` up to the top of the work tree `query`
- * reaches is a submodule git cannot open: the work tree records a gitlink
- * there and the directory holds no repository. Its git directory, wherever
- * it is kept, may still track the file, and a restored `.git` file commits
- * it (#3087). An uninitialised or deinitialised submodule reads so too, as
- * does any directory there where git cannot list the gitlinks. A `.git`
- * that cannot be read counts as a repository, whose pinned query answers.
- * A gitlink spelt otherwise than the root matches only where
- * isFoldedGitlink finds the filesystem folds it (#3100).
- * Residual: a submodule neither the index nor a commit HEAD would be
- * restored to records (added but never committed with the index lost,
- * moved but not committed with the index lost, removed in a commit, or
- * recorded only on a branch HEAD is not on) whose
- * directory and git directory remain, and one whose directory now holds
- * another repository, are not found: reading its git directory would mean
- * opening it through GIT_DIR.
- * @param {GitQuery} query
- * @param {string} root
- * @returns {boolean}
- */
-function hasLostSubmodule(query, root) {
-	// --show-cdup, as --show-toplevel is check-host-root.js's second
-	// host-root seam. Where git cannot place the work tree, isTrackedBy's
-	// query reports that failure itself.
-	const cdup = readGitOutput(query, ["rev-parse", "--show-cdup"]);
-	const top =
-		cdup === null ? null : realpathOrNull(path.resolve(query.cwd, cdup));
-	const real = realpathOrNull(root);
-	if (top === null || real === null) return false;
-	// A root outside this work tree lies in none of its submodules, and
-	// isTrackedBy reads this query as outside it; the query whose work tree
-	// does hold the root runs this check for itself (#3100).
-	if (top !== path.parse(top).root && !isUnder(real, [top], path.sep))
 		return false;
-	/** @type {Set<string> | null | undefined} */
-	let gitlinks;
-	for (let d = real; d !== top; d = path.dirname(d)) {
-		if (hasGitEntry(d) && isRepoEntry(d)) continue;
-		gitlinks ??= readGitlinks(query);
-		if (gitlinks === null) return true;
-		if (
-			gitlinks.has(path.relative(top, d)) ||
-			isFoldedGitlink(gitlinks, top, d)
-		)
-			return true;
 	}
-	return false;
 }
 
-/**
- * One query's answer on `file`, one spelling of it: `ls-files --error-unmatch`
- * exits 0 tracked, 1 untracked. Its 128 is git's general fatal exit, so it
- * reads as untracked only where isOutsideAnyRepo says so. Any other 128 (a
- * corrupt index, dubious ownership) and anything else, git missing included,
- * is null: FAILS CLOSED (#640 review, #2777).
- * HEAD'S FILES COUNT TOO (#3393): what HEAD tracks, a `git reset` or `git
- * stash` puts back, past a lost index (#3080) or an uncommitted `git rm
- * --cached`. A HEAD git cannot resolve counts the commit its branch's reflog
- * or packed-refs line would restore a lost or emptied branch ref to (#3406),
- * and where the index is lost too HEAD's reflog's, reading as unborn only
- * where none has one (#3098, #3393): HEAD's reflog tip on a new orphan
- * branch is the branch it left.
- * Residual: a `git reset HEAD~` past the commit that untracked `.env` tracks
- * it again, which no check short of every commit sees; the rotate advice
- * covers its history. Nor is a `git stash --all`, which stores an ignored
- * `.env` in `refs/stash`.
- * CASE-BLIND (#3063): on a case-insensitive filesystem a tracked `.ENV`, or
- * `.env` under a directory or work tree spelled in another case, is the file
- * a write to `.env` lands in. The pathspec's `icase` covers the path inside
- * the work tree and `core.ignorecase` the work tree's own prefix.
- * @param {GitQuery} query
- * @param {string} root
- * @param {string} file
- * @returns {boolean | null}
- */
-function isTrackedBy(query, root, file) {
-	const r = runLsFiles(query, file, "HEAD");
-	if (r.status === 0) return true;
-	if (r.status === 1) return false;
-	if (
-		r.status === 128 &&
-		r.stderr.startsWith("fatal: tree-ish HEAD not found")
-	) {
-		const indexLost = isIndexMissing(query);
-		if (!indexLost) {
-			const staged = runLsFiles(query, file, null);
-			if (staged.status === 0) return true;
-			if (staged.status !== 1) return null;
-		}
-		return isTrackedInRestoredHead(query, file, indexLost);
-	}
-	if (
-		r.status === 128 &&
-		(isOutsideAnyRepo(query, root, r.stderr) ||
-			isBareRootOutside(query, root, r.stderr))
-	)
+/** @param {string} p */
+function isDirectory(p) {
+	try {
+		return fs.statSync(p).isDirectory();
+	} catch {
 		return false;
-	return null;
-}
-
-/**
- * `ls-files --error-unmatch` on `file`, counting `tree`'s files too where
- * one is given.
- * @param {GitQuery} query
- * @param {string} file
- * @param {string | null} tree
- */
-function runLsFiles(query, file, tree) {
-	return runQuery(query, [
-		"-c",
-		"core.ignorecase=true",
-		"ls-files",
-		...(tree === null ? [] : [`--with-tree=${tree}`]),
-		"--error-unmatch",
-		"--",
-		`:(icase,literal)${file}`,
-	]);
-}
-
-/**
- * Whether a commit an unresolved HEAD would be restored to tracks `file`:
- * true where one does, false where there is none, an unborn branch, and
- * otherwise null. A tip that leaves `file` untracked is not proof,
- * as ORIG_HEAD may restore an older commit that tracks it.
- * @param {GitQuery} query
- * @param {string} file
- * @param {boolean} headLog
- * @returns {boolean | null}
- */
-function isTrackedInRestoredHead(query, file, headLog) {
-	const commits = readHeadCommits(query, headLog);
-	if (commits === null) return null;
-	if (commits.length === 0) return false;
-	return commits.some((c) => runLsFiles(query, file, c).status === 0)
-		? true
-		: null;
-}
-
-/**
- * `file` under `root` as a query names it: absolute, and relative to the
- * query's directory. Each misreads one layout, so both are asked (#3063):
- * a relative path from outside the work tree names a path under its top,
- * and an absolute one reads as outside a work tree only injected
- * `core.worktree` names.
- * @param {GitQuery} query
- * @param {string} root
- * @param {string} file
- * @returns {string[]}
- */
-function buildSpellings(query, root, file) {
-	const absolute = path.join(root, file);
-	return [absolute, path.relative(query.cwd, absolute)];
-}
-
-/**
- * Whether git tracks `file` under `root`, the strictest of the queries'
- * answers.
- * The binary is WFC_GIT's (base §N7): a stub answering 1, or 128 with a
- * message isOutsideAnyRepo trusts, defeats this check, as a decoy `git`
- * first on PATH does where WFC_GIT is unset. Residual: a repository git
- * reaches through neither the environment nor a `.git` entry, a dotfiles
- * alias passing `--git-dir`, is not asked; nor is a linked worktree whose
- * `.git` gitfile was deleted, whose index under the main repository's
- * `worktrees/` may still track the file, as nothing at the root names it
- * (#3080).
- * @param {string} root
- * @param {string} file
- * @returns {boolean | null}
- */
-function isTracked(root, file) {
-	const answers = buildTrackedQueries(root).flatMap((q) => {
-		if (q.kind === "pinned" && !isPinHeld(q)) return [null];
-		if (hasLostSubmodule(q, root)) return [null];
-		return buildSpellings(q, root, file).map((f) => isTrackedBy(q, root, f));
-	});
-	if (answers.includes(true)) return true;
-	return answers.includes(null) ? null : false;
-}
-
-/**
- * Whether git ignores `file` under `root` in every query and spelling that
- * reaches a repository able to commit it. Any other failure reads as "not ignored",
- * which fails toward the warning (#640).
- * A plain path, not isTrackedBy's pathspec: `check-ignore` refuses pathspec
- * magic, and forcing `core.ignorecase` here could only silence the warning.
- * @param {string} root
- * @param {string} file
- * @returns {boolean}
- */
-function isIgnored(root, file) {
-	return buildIgnoredQueries(root).every((query) =>
-		buildSpellings(query, root, file).every((named) => {
-			const r = runQuery(query, ["check-ignore", "-q", "--", named]);
-			return (
-				r.status === 0 ||
-				(r.status === 128 && isOutsideAnyRepo(query, root, r.stderr))
-			);
-		}),
-	);
-}
-
-/**
- * Warns where git would let `.env`, or the aside writeFileAtomic leaves when a
- * run dies or its cleanup fails, be committed. Before the value is asked for,
- * so a refused or killed run is warned too (#2255).
- * @param {string} root
- */
-function warnUnignored(root) {
-	const aside = asidePath(".env", "<pid>", "<hex>");
-	// A real aside's shape, which an ignore rule for that shape must match.
-	const sample = asidePath(".env", 0, "00000000");
-	if (!isIgnored(root, ".env")) {
-		process.stderr.write(
-			`write-secret: warning — git does not ignore .env in ${root}, so it could be committed. Add .env and .env.*.tmp to .gitignore.\n`,
-		);
-	} else if (!isIgnored(root, sample)) {
-		process.stderr.write(
-			`write-secret: warning — git ignores .env in ${root} but not ${aside}, the copy of .env an interrupted write leaves, so it could be committed. Add .env.*.tmp to .gitignore.\n`,
-		);
 	}
 }
 
-const LEFT = "a copy of .env an earlier interrupted write left";
-const ROTATE =
-	"its secrets are in history. Rotate them, then git rm --cached it";
+const LEFT = "a copy of the secrets file an earlier interrupted write left";
 
 /**
- * Removes, or names and leaves, the aside `name` at `root`, written by `pid`,
- * never reading it.
- * @param {string} root
- * @param {string} name
- * @param {number} pid
+ * Removes, or names and leaves, each aside of `file`, never reading one.
+ * @param {string} file
  */
-function sweepAside(root, name, pid) {
-	const file = path.join(root, name);
-	const tracked = isTracked(root, name);
-	if (tracked === null) {
-		const when = pidAlive(pid) ? " once no write-secret runs" : "";
-		process.stderr.write(
-			`write-secret: warning — ${file}, ${LEFT}, was left: git could not say whether it is tracked. If it is, ${ROTATE}; either way, delete it${when}.\n`,
-		);
-	} else if (tracked) {
-		process.stderr.write(
-			`write-secret: warning — ${file}, ${LEFT}, is tracked by git, so ${ROTATE}.\n`,
-		);
-	} else if (pidAlive(pid)) {
-		process.stderr.write(
-			`write-secret: left ${file}, a copy of .env: its pid ${pid} is running, so it may be a run still writing. Delete it once no write-secret runs.\n`,
-		);
-	} else {
-		try {
-			fs.rmSync(file);
-			process.stderr.write(`write-secret: removed ${file}, ${LEFT}.\n`);
-		} catch (e) {
-			process.stderr.write(
-				`write-secret: warning — ${file}, ${LEFT}, could not be removed (${caught(e).code ?? "error"}). Delete it by hand.\n`,
-			);
-		}
-	}
-}
-
-/** @param {string} root */
-function sweepAsides(root) {
+function sweepAsides(file) {
+	const dir = path.dirname(file);
 	let names;
 	try {
-		names = fs.readdirSync(root);
+		names = fs.readdirSync(dir);
 	} catch (e) {
+		/* No directory yet, or a file where one goes: the write refuses. */
+		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR") return;
 		process.stderr.write(
-			`write-secret: warning — ${root} could not be listed (${caught(e).code ?? "error"}), so ${LEFT} may remain there. Look for .env.*.tmp by hand.\n`,
+			`write-secret: warning — ${dir} could not be listed (${caught(e).code ?? "error"}), so ${LEFT} may remain there. Look for ${path.basename(file)}.*.tmp by hand.\n`,
 		);
 		return;
 	}
 	for (const name of names) {
-		const pid = asidePid(".env", name);
+		const pid = asidePid(path.basename(file), name);
 		if (pid === null) continue;
-		const stat = fs.lstatSync(path.join(root, name), { throwIfNoEntry: false });
-		if (stat?.isFile()) sweepAside(root, name, pid);
+		const aside = path.join(dir, name);
+		if (!fs.lstatSync(aside, { throwIfNoEntry: false })?.isFile()) continue;
+		if (pidAlive(pid)) {
+			process.stderr.write(
+				`write-secret: left ${aside}, a copy of the secrets file: its pid ${pid} is running, so it may be a run still writing. Delete it once no write-secret runs.\n`,
+			);
+			continue;
+		}
+		try {
+			fs.rmSync(aside);
+			process.stderr.write(`write-secret: removed ${aside}, ${LEFT}.\n`);
+		} catch (e) {
+			process.stderr.write(
+				`write-secret: warning — ${aside}, ${LEFT}, could not be removed (${caught(e).code ?? "error"}). Delete it by hand.\n`,
+			);
+		}
 	}
 }
 
@@ -1102,48 +204,46 @@ function upsert(text, name, value) {
 }
 
 /**
- * Upserts the value, once it is in hand, into `.env` at `root`.
- * @param {string} root
+ * Upserts the value, once it is in hand, into `file`.
+ * @param {string} file
  * @param {string} name
  * @param {string} raw
  * @param {boolean} fromTerminal whether `raw` was typed at the hidden prompt
  * @returns {number}
  */
-function upsertEnv(root, name, raw, fromTerminal) {
+function upsertEnv(file, name, raw, fromTerminal) {
 	if (/[\r\n]/.test(raw)) {
 		return refuse(
-			"the value holds a line break, which one .env line cannot carry. Re-run and give it on one line.",
+			file,
+			"the value holds a line break, which one line cannot carry. Re-run and give it on one line.",
 			2,
 		);
 	}
 	const trimmed = raw.trim();
 	if (trimmed === "") {
-		return refuse(emptyWhy(name, root, fromTerminal), 2);
+		return refuse(file, emptyWhy(name, hostRoot(), fromTerminal), 2);
 	}
 	const value = quoteValue(trimmed);
 	if (value === null) {
 		return refuse(
+			file,
 			"the value holds a single quote as well as #, $, a backtick or a quote at an end, which no .env quoting reads back intact. Store it elsewhere, or rotate to a value without them.",
 			2,
 		);
 	}
 
-	const envPath = path.join(root, ".env");
 	try {
-		let text = "";
-		let mode = 0o600;
-		if (fs.existsSync(envPath)) {
-			text = fs.readFileSync(envPath, "utf8");
-			mode = fs.statSync(envPath).mode & 0o777;
-		}
+		fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+		const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 		const next = upsert(text, name, value);
-		writeFileAtomic(envPath, next.text, { mode });
+		writeFileAtomic(file, next.text, { mode: 0o600 });
 		process.stdout.write(
-			`write-secret: ${next.replaced ? "replaced" : "added"} ${name} in ${envPath}\n`,
+			`write-secret: ${next.replaced ? "replaced" : "added"} ${name} in ${file}\n`,
 		);
 	} catch (e) {
 		return refuse(
-			`${envPath} could not be written (${caught(e).code ?? "error"}). Check it is a regular file you can write, then re-run.`,
+			file,
+			`it could not be written (${caught(e).code ?? "error"}). Check it is a regular file you can write, then re-run.`,
 			1,
 		);
 	}
@@ -1156,6 +256,7 @@ function upsertEnv(root, name, raw, fromTerminal) {
  * @returns {number | Promise<number>} exit status
  */
 function main(argv) {
+	const file = secretsFile();
 	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
 	if (typeof parsed === "number") return parsed;
 	const { positionals } = parsed;
@@ -1164,46 +265,39 @@ function main(argv) {
 		throw new Error("parse passed no <NAME> despite min: 1");
 	if (!VAR_NAME.test(name)) {
 		return refuse(
+			file,
 			"the argument is not a shell variable name (letters, digits and underscores, not starting with a digit). The value is asked for afterwards, never given on the command line.",
 			2,
 		);
 	}
 
-	const root = hostRoot();
-	sweepAsides(root);
-	const envPath = path.join(root, ".env");
-	const tracked = isTracked(root, ".env");
-	if (tracked === null) {
+	sweepAsides(file);
+	const tree = findEnclosingTree(path.dirname(file));
+	if (tree !== null) {
 		return refuse(
-			`git could not say whether ${envPath} is tracked, so the secret might be committed. Check git runs in ${root}, then re-run.`,
+			file,
+			`it lies in the git working tree at ${tree}, so a commit there could take it. Point XDG_CONFIG_HOME at a directory in no working tree, then re-run.`,
 			1,
 		);
 	}
-	if (tracked) {
+	if (isSymlink(file)) {
 		return refuse(
-			`${envPath} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.`,
-			1,
-		);
-	}
-	if (fs.lstatSync(envPath, { throwIfNoEntry: false })?.isSymbolicLink()) {
-		return refuse(
-			`${envPath} is a symlink, whose target git may track. Replace it with a regular file, then re-run.`,
+			file,
+			"it is a symlink, whose target may lie in a working tree. Replace it with a regular file, then re-run.",
 			1,
 		);
 	}
 
-	warnUnignored(root);
-
-	if (!process.stdin.isTTY) return upsertEnv(root, name, readPiped(), false);
+	if (!process.stdin.isTTY) return upsertEnv(file, name, readPiped(), false);
 	process.stderr.write(`Value for ${name} (typing hidden, Enter to finish): `);
 	return readHidden(process.stdin).then(
 		(raw) => {
 			process.stderr.write("\n");
-			return upsertEnv(root, name, raw, true);
+			return upsertEnv(file, name, raw, true);
 		},
 		() => {
 			process.stderr.write("\n");
-			return refuse("interrupted. Re-run to enter the value.", 2);
+			return refuse(file, "interrupted. Re-run to enter the value.", 2);
 		},
 	);
 }

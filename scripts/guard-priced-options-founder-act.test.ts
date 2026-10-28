@@ -740,20 +740,33 @@ const parseSecretLine = (reason: string) => {
 
 /** The post-paste check as the refusal prints it. */
 const parseCheckLine = (reason: string) => {
-	const m = reason.match(/^(grep -cE .*AI_GATEWAY_API_KEY.*\/\.env)$/m);
+	const m = reason.match(
+		/^(grep -cE .*AI_GATEWAY_API_KEY.* "\$\{XDG_CONFIG_HOME:-\$HOME\/\.config\}\/workflow-core\/secrets\.env")$/m,
+	);
 	if (!m) throw new Error(`no check line in:\n${reason}`);
 	return m[1];
 };
 
 describe("the secret line it prints", () => {
-	/* A git host whose `.env` is ignored, as write-secret.js wants it. */
 	const host = (name = "host") => {
 		const h = path.join(dir, name);
 		fs.mkdirSync(h);
 		execFileSync("git", ["init", "-q"], { cwd: h });
-		fs.writeFileSync(path.join(h, ".gitignore"), ".env\n");
 		return h;
 	};
+	/* A home of the test's own, so the secrets file lands in it. */
+	const shellEnv = () => ({
+		...process.env,
+		HOME: path.join(dir, "home"),
+		XDG_CONFIG_HOME: "",
+		WFC_SECRETS_FILE: "",
+		CLAUDE_PROJECT_DIR: "",
+	});
+	const stored = () =>
+		fs.readFileSync(
+			path.join(dir, "home", ".config", "workflow-core", "secrets.env"),
+			"utf8",
+		);
 	/* Run from a directory that is not the host, as a new terminal opens. */
 	const paste = (line: string) => {
 		const elsewhere = path.join(dir, "elsewhere");
@@ -762,7 +775,7 @@ describe("the secret line it prints", () => {
 			cwd: elsewhere,
 			input: "s3cret-value\n",
 			encoding: "utf8",
-			env: { ...process.env, CLAUDE_PROJECT_DIR: "" },
+			env: shellEnv(),
 		});
 	};
 
@@ -776,12 +789,11 @@ describe("the secret line it prints", () => {
 			`cd '${h}' && node ${ROOT}/scripts/write-secret.js AI_GATEWAY_API_KEY`,
 		);
 		expect(paste(line)).not.toContain("s3cret-value");
-		expect(fs.readFileSync(path.join(h, ".env"), "utf8")).toBe(
-			"AI_GATEWAY_API_KEY=s3cret-value\n",
-		);
+		expect(stored()).toBe("AI_GATEWAY_API_KEY=s3cret-value\n");
 		expect(
 			execFileSync("bash", ["-c", parseCheckLine(reason)], {
 				encoding: "utf8",
+				env: shellEnv(),
 			}),
 		).toBe("1\n");
 	});
@@ -813,9 +825,7 @@ describe("the secret line it prints", () => {
 			`cd ${h} && node ${plugin}/scripts/write-secret.js AI_GATEWAY_API_KEY`,
 		);
 		paste(line);
-		expect(fs.readFileSync(path.join(h, ".env"), "utf8")).toBe(
-			"AI_GATEWAY_API_KEY=s3cret-value\n",
-		);
+		expect(stored()).toBe("AI_GATEWAY_API_KEY=s3cret-value\n");
 	});
 });
 

@@ -157,11 +157,16 @@ async function answering(probability: number): Promise<{
 
 /**
  * Run the guard over `text`. `WFC_REPO_ROOT` points every marker, counter and
- * log at the sandbox; the key and the switch are cleared so no developer's real
- * environment can change which limb a test takes.
+ * log at the sandbox, and `WFC_SECRETS_FILE` the secrets file; the key and the
+ * switch are cleared so no developer's real environment can change which limb
+ * a test takes.
  */
 async function run(text: string, env: NodeJS.ProcessEnv = {}) {
-	const base: NodeJS.ProcessEnv = { ...process.env, WFC_REPO_ROOT: dir };
+	const base: NodeJS.ProcessEnv = {
+		...process.env,
+		WFC_REPO_ROOT: dir,
+		WFC_SECRETS_FILE: path.join(dir, "workflow-core", "secrets.env"),
+	};
 	for (const k of [
 		"AI_GATEWAY_API_KEY",
 		"WFC_JEV_ADVISORY",
@@ -449,10 +454,11 @@ describe("the vendor gate", () => {
 		expect(readLogLines()[0].why).toBe("sdk");
 	}, 20_000);
 
-	it("takes the key from a gitignored .env where the environment has none", async () => {
+	it("takes the key from the secrets file where the environment has none", async () => {
+		fs.mkdirSync(path.join(dir, "workflow-core"));
 		fs.writeFileSync(
-			path.join(dir, ".env"),
-			'AI_GATEWAY_API_KEY="from-dotenv"\n',
+			path.join(dir, "workflow-core", "secrets.env"),
+			'AI_GATEWAY_API_KEY="from-the-file"\n',
 		);
 		const { base, asks } = await answering(0.9);
 		await run(PLAIN, { WFC_JEV_BASE_URL: base });
@@ -460,10 +466,11 @@ describe("the vendor gate", () => {
 		expect(readLogLines()[0].outcome).toBe("flagged");
 	});
 
-	it("prefers the environment over the .env file", async () => {
+	it("prefers the environment over the secrets file", async () => {
+		fs.mkdirSync(path.join(dir, "workflow-core"));
 		fs.writeFileSync(
-			path.join(dir, ".env"),
-			"AI_GATEWAY_API_KEY=from-dotenv\n",
+			path.join(dir, "workflow-core", "secrets.env"),
+			"AI_GATEWAY_API_KEY=from-the-file\n",
 		);
 		const { base, asks } = await answering(0.9);
 		await run(PLAIN, {

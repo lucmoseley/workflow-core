@@ -419,14 +419,18 @@ const HOOKS = [
  * The credential reads no session has a reason to make, as `permissions.deny`
  * patterns. Repo-relative and `~`-relative only: the core spells its home
  * directory absolutely, which is one machine's path, so an adopter's own
- * absolute entries are the founder's to add.
+ * absolute entries are the founder's to add. The secrets file's pair names its
+ * default home only: one moved by XDG_CONFIG_HOME (lib/env-file.js) is not
+ * covered (#3202).
  */
 const SECRET_DENIES = [
 	"Read(./.env)",
 	"Read(./.env.*)",
 	"Read(./**/*.pem)",
+	"Read(~/.config/workflow-core/**)",
 	"Bash(cat ~/.ssh/*)",
 	"Bash(cat ~/.config/gh/*)",
+	"Bash(cat ~/.config/workflow-core/*)",
 	"Bash(cat .env*)",
 	"Bash(gh auth token*)",
 ];

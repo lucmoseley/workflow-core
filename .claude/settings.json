@@ -33,11 +33,13 @@
       "Read(//home/lucmo/.aws/**)",
       "Read(//home/lucmo/.npmrc)",
       "Read(//home/lucmo/.netrc)",
+      "Read(//home/lucmo/.config/workflow-core/**)",
       "Read(./.env)",
       "Read(./.env.*)",
       "Read(./**/*.pem)",
       "Bash(cat ~/.ssh/*)",
       "Bash(cat ~/.config/gh/*)",
+      "Bash(cat ~/.config/workflow-core/*)",
       "Bash(cat .env*)",
       "Bash(gh auth token*)"
     ],

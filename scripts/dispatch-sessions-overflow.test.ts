@@ -8,7 +8,7 @@
  *
  * The calls go through lib/refill-batch.js's launchBatch, so a cut or refused
  * member's reason is the one the loop's refusal parser reads. Every `claude`
- * is the testkit's stub and every key a fixture `.env` value.
+ * is the testkit's stub and every key a fixture secrets-file value.
  *
  * Over the 10 s run-cost line (§X8 (5)): each case runs the real dispatcher,
  * whose gates each spawn a node process, since the subject is the script's
@@ -46,10 +46,10 @@ function overflowEnv(
 		path.join(fx.dir, ".claude", "refill-seats"),
 		`~/.claude2\n~/.claude2-api api key=${KEY_VAR} grant=${grant} cycle-day=20\n`,
 	);
-	const checkout = path.join(fx.dir, "checkout");
-	fs.mkdirSync(checkout, { recursive: true });
+	const config = path.join(fx.dir, "config");
+	fs.mkdirSync(path.join(config, "workflow-core"), { recursive: true });
 	fs.writeFileSync(
-		path.join(checkout, ".env"),
+		path.join(config, "workflow-core", "secrets.env"),
 		key ? `${KEY_VAR}=sk-fake-overflow\n` : "OTHER=1\n",
 	);
 	const table = path.join(fx.dir, "cost-table.json");
@@ -66,7 +66,7 @@ function overflowEnv(
 	return {
 		CLAUDE_CONFIG_DIR: seat(),
 		WFC_REFILL_DIR: refill(),
-		WFC_OVERFLOW_ENV_ROOT: checkout,
+		WFC_SECRETS_FILE: path.join(config, "workflow-core", "secrets.env"),
 		WFC_SESSION_COST_TABLE: table,
 	};
 }
@@ -239,7 +239,7 @@ describe("an overflow seat (#2610)", () => {
 		expect(readArgvLines()).toEqual([]);
 	});
 
-	it("records nothing where the key is missing from the checkout's .env, naming the variable", () => {
+	it("records nothing where the key is missing from the secrets file, naming the variable", () => {
 		stubClaude({});
 		const r = dispatch(1, overflowEnv(200, { key: false }));
 		expect(r.out).toContain(`REFUSED: ${KEY_VAR} is not set in`);
