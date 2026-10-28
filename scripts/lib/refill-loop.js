@@ -2,7 +2,7 @@
  * refill-loop.js — the refill loop's files, the pure readings around
  * lib/refill-decide.js, and the steps that settle a tick and read its seats
  * with their effects and clock passed in (#2012, spec #1995). Launching a tick's picks
- * is lib/refill-batch.js's.
+ * is lib/refill-batch.js's; what `start` and `status` print, lib/refill-commands.js's.
  *
  * THREE FILES, ONE WRITER EACH, under lib/refill-dir.js's directory, so
  * `start` and `stop` never race the loop's own tick:
@@ -18,7 +18,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { parseAct } = require("./act-line.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
-const { RESUME_CAP } = require("./block-act.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { REVIEW_HOUR, localDate } = require("./morning-review.js");
@@ -32,15 +31,7 @@ const {
 	fitsLaunch,
 	hasRoom,
 } = require("./refill-decide.js");
-const {
-	isHeld,
-	isResuming,
-	isSwapHeld,
-	iso,
-	launchName,
-	markParked,
-	nextResumeAt,
-} = require("./refill-blocks.js");
+const { isHeld, launchName, markParked } = require("./refill-blocks.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
 /* A finished session drops off the listing; one just launched may not be on
@@ -48,12 +39,8 @@ const { OUTCOME_PREFIX } = require("./usage-probe.js");
 const LISTING_GRACE_MS = 2 * 60 * 1000;
 /* Enough for the no-progress run and for `status`. Untraced. */
 const HISTORY_KEPT = 50;
-/* Untraced. */
-const STATUS_LAUNCHES = 10;
-/* The skipped rows an idle tick's log line names, and `status` lists.
- * Untraced. */
+/* The skipped rows an idle tick's log line names. Untraced. */
 const LINE_SKIPS = 3;
-const STATUS_SKIPS = 10;
 /* dispatch-sessions.sh's WEEK_CEILING and SESSION_CEILING defaults, the
  * thresholds its cap sizes a launch past; its test pins the two copies
  * together. */
@@ -208,30 +195,6 @@ function parseControl(raw) {
 }
 
 /**
- * The scope a `start` writes, given the running loop's (null where none
- * runs) and the one asked for from `root`. A normal start adds its repos to
- * a running normal loop's; an away start widens whatever runs; a normal
- * start never narrows a running away mode, nor renews its 24 hours. In
- * every case the asked goal replaces `root`'s, a bare start clearing it
- * (#2119, #2123).
- * @param {Scope|null} running
- * @param {Scope} asked
- * @param {string} root
- * @returns {{scope: Scope, renew: boolean}}
- */
-function mergedScope(running, asked, root) {
-	if (running === null) return { scope: asked, renew: true };
-	const goals = { ...running.goals };
-	delete goals[root];
-	Object.assign(goals, asked.goals);
-	if (asked.mode === "away") return { scope: { ...asked, goals }, renew: true };
-	if (running.mode === "away")
-		return { scope: { ...running, goals }, renew: false };
-	const repos = [...new Set([...running.repos, ...asked.repos])];
-	return { scope: { ...asked, repos, goals }, renew: true };
-}
-
-/**
  * The roots a tick serves, and why each root in scope is not. `included` is
  * discovery's set, read for away mode only; `exclusionOf` re-reads a normal
  * root's config, so a repo that opts out mid-run is dropped.
@@ -268,40 +231,6 @@ function scopeRoots(scope, included, exclusionOf) {
 const landingRoots = (served, launches) => [
 	...new Set([...served, ...launches.map((l) => l.root)]),
 ];
-
-/**
- * @param {Control} control
- * @param {number} runMs
- */
-const buildStopLine = (control, runMs) =>
-	control.stopRequested
-		? "stops:     at its next tick, on request"
-		: `stops by:  ${iso(control.startedAt + runMs)}`;
-
-/**
- * The lines naming what a loop serves, on which seats and until when.
- * @param {Control} control
- * @param {{runMs: number, served: string[], running: boolean}} opts
- *   `served`, scopeRoots's roots
- */
-function buildScopeLines(control, { runMs, served, running }) {
-	const { scope } = control;
-	const names = (/** @type {string[]} */ roots) =>
-		roots.map((r) => path.basename(r)).join(", ") || "none";
-	const goals = Object.entries(scope.goals).map(
-		([root, issues]) =>
-			`${path.basename(root)} ${issues.map((n) => `#${n}`).join(", ")}`,
-	);
-	const away = scope.mode === "away";
-	return [
-		away ? "mode:      away (every included repo)" : "mode:      normal",
-		`repos:     ${names(served)}`,
-		...(away ? [`excluding: ${names(scope.exclude)}`] : []),
-		`goal:      ${goals.join("; ") || "none"}`,
-		...(running ? [buildStopLine(control, runMs)] : []),
-		`seats:     ${control.seats.join(", ") || "none"}`,
-	];
-}
 
 /** @param {unknown} raw @returns {LoopState["stopped"]} */
 function parseStopped(raw) {
@@ -599,8 +528,7 @@ function parseCapFits(stdout) {
  * The launches whose session has left the listing or ended, and are not
  * judged yet. Nothing is judged off an unread listing, and a launch with no
  * job id is never judged: nothing ties it to a listed session. The listing
- * must span every seat the loop launches on (scripts/refill-loop.js's
- * SEATS).
+ * must span every seat the loop launches on (lib/refill-tick.js's SEATS).
  * @param {LoopLaunch[]} launches
  * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
  * @param {number} now
@@ -938,160 +866,6 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 }
 
 /**
- * Where a launch stands, for `status`.
- * @typedef {"park-stopped"|"handed-off"|"hand-off-owed"|"finished"
- *   |"resuming"|"swap-held"|"resumed-idle"|"parked"|"running"} LaunchKind
- * @param {LoopLaunch} l
- * @returns {LaunchKind}
- */
-function launchKindOf(l) {
-	if (l.parkStopped !== undefined) return "park-stopped";
-	if (l.handedOff !== undefined) return "handed-off";
-	if (l.handOffTries !== undefined) return "hand-off-owed";
-	if (l.finishedAt !== null) return "finished";
-	if (isResuming(l)) return "resuming";
-	if (isSwapHeld(l)) return "swap-held";
-	if (l.idleSince !== undefined) return "resumed-idle";
-	return l.parked ? "parked" : "running";
-}
-
-/** The kinds `status` lists past its launch window: each waits on the
- * founder or on the loop's resumes or hand-off. */
-const UNSETTLED = new Set([
-	"park-stopped",
-	"hand-off-owed",
-	"resuming",
-	"swap-held",
-	"resumed-idle",
-	"parked",
-]);
-
-/** @param {LoopLaunch} l */
-function launchStateOf(l) {
-	switch (launchKindOf(l)) {
-		case "park-stopped":
-			return "parked, stopped";
-		case "handed-off":
-			return "handed off: stopped idle after its host's restart";
-		case "hand-off-owed":
-			return `stopped idle after its host's restart, its hand-off failed ${l.handOffTries} times`;
-		case "finished":
-			return "finished";
-		case "resuming": {
-			const blocked =
-				/** @type {LoopLaunch & {block: import("./block-act.js").Block}} */ (l);
-			const next =
-				l.resumes?.attachAt === undefined
-					? `next at ${iso(nextResumeAt(blocked))}`
-					: "its typed resume being checked";
-			return `resuming after an API error, ${l.resumes?.tries ?? 0} of ${RESUME_CAP} tries, ${next}`;
-		}
-		case "swap-held":
-			return `stopped under the swap hold since ${iso(/** @type {number} */ (l.swapHeld?.at))}, resumed once it clears`;
-		case "resumed-idle": {
-			const r = l.idleResumes;
-			return `resumed-idle since ${iso(/** @type {number} */ (l.idleSince))}, ${r ? `resumed ${r.tries} times, last at ${iso(r.triedAt)}` : "not yet resumed"}`;
-		}
-		case "parked":
-			return "parked";
-		default:
-			return "running";
-	}
-}
-
-/**
- * The lines a recorded start gives `status`: launches since it, and any still
- * running from before a renewal.
- * @param {Control} control
- * @param {LoopState} state
- * @param {{runMs: number, served: string[], running: boolean}} opts
- */
-function buildControlLines(control, state, opts) {
-	const lines = [`started:   ${iso(control.startedAt)}`];
-	lines.push(...buildScopeLines(control, opts));
-	const since = state.launches.filter(
-		(l) => l.launchedAt >= control.startedAt,
-	).length;
-	const shown = state.launches.filter(
-		(l) => l.launchedAt >= control.startedAt || l.finishedAt === null,
-	);
-	const kinds = shown.map(launchKindOf);
-	const running = kinds.filter(
-		(k) => k === "running" || k === "resumed-idle",
-	).length;
-	const parked = kinds.filter(
-		(k) => k === "park-stopped" || k === "parked",
-	).length;
-	lines.push(
-		`launches:  ${since} since start, ${running} running, ${parked} parked`,
-	);
-	const listed = shown.filter(
-		(l, i) =>
-			i >= shown.length - STATUS_LAUNCHES || UNSETTLED.has(launchKindOf(l)),
-	);
-	for (const l of listed) {
-		const at = launchStateOf(l);
-		const session = l.sessionId ? `  session ${l.sessionId}` : "";
-		lines.push(
-			`  ${iso(l.launchedAt)}  ${path.basename(l.root)}  ${l.prompt}  ${at}${session}`,
-		);
-	}
-	return lines;
-}
-
-/**
- * The last tick's line, then the rows it skipped (#2561).
- * @param {NonNullable<LoopState["lastTick"]>} t
- */
-function buildLastTickLines(t) {
-	const skipped = t.skipped ?? [];
-	return [
-		`last tick: ${iso(t.at)}  ${t.summary}`,
-		...skipped
-			.slice(0, STATUS_SKIPS)
-			.map((s) => `  skipped ${buildSkipText(s)}`),
-		...(skipped.length > STATUS_SKIPS
-			? [`  … and ${skipped.length - STATUS_SKIPS} more skipped`]
-			: []),
-	];
-}
-
-/**
- * @param {{control: Control|null, state: LoopState, pid: number|null,
- *   runMs: number, served: string[], codeSha?: string|null}} input `served`,
- *   scopeRoots's roots; `codeSha`, lib/refill-code.js's readRunningCode
- * @returns {string[]}
- */
-function buildStatusLines({
-	control,
-	state,
-	pid,
-	runMs,
-	served,
-	codeSha = null,
-}) {
-	return [
-		pid === null
-			? "refill loop: not running"
-			: `refill loop: running, pid ${pid}`,
-		...(pid !== null && codeSha ? [`code:      ${codeSha}`] : []),
-		...(control
-			? buildControlLines(control, state, {
-					runMs,
-					served,
-					running: pid !== null,
-				})
-			: ["never started on this machine"]),
-		...(state.lastTick ? buildLastTickLines(state.lastTick) : []),
-		...(state.stopped
-			? [
-					`last stop: ${iso(state.stopped.at)}  ${state.stopped.reason} — ${state.stopped.detail}`,
-				]
-			: []),
-	];
-}
-
-/**
  * Stop each job that never started (lib/hung-jobs.js's neverStartedJobs,
  * #2467) through `stop(job)`, a `claude stop <short id>` on its seat that
  * answers null or why it failed; the log line for each. Its live processes
@@ -1127,14 +901,12 @@ module.exports = {
 	judgedLaunches,
 	buildLaunchesLine,
 	loopFiles,
-	mergedScope,
 	readJson,
 	buildFrontierReadText,
 	buildSkipText,
 	isReviewRunDue,
 	reviewRunRecorded,
 	runningOf,
-	buildScopeLines,
 	parseScope,
 	scopeRoots,
 	landingRoots,
@@ -1146,7 +918,6 @@ module.exports = {
 	readSizedSeats,
 	sizedSeats,
 	parseState,
-	buildStatusLines,
 	stopNeverStarted,
 	summaryOf,
 	writeJson,

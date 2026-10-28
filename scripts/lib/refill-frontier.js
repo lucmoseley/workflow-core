@@ -21,7 +21,7 @@
  * returned under `held`, never launched, as is one its own shortlist does
  * not return (claimed or gated).
  *
- * Caller: scripts/refill-loop.js's tick.
+ * Caller: lib/refill-tick.js's tick.
  */
 
 const path = require("node:path");

@@ -3,7 +3,7 @@
  * function from a tick's readings to either the launches to make or the stop
  * that ends launching.
  *
- * Caller: scripts/refill-loop.js's tick (#2012)
+ * Caller: lib/refill-tick.js's tick (#2012)
  */
 
 const path = require("node:path");

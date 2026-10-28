@@ -9,7 +9,7 @@
  * other repo and plan. `WFC_PRESENCE_MARKER` overrides it, so a test never
  * touches the machine's real marker.
  *
- * Caller: `readLastTypedAt`, scripts/refill-loop.js's tick (#2012)
+ * Caller: `readLastTypedAt`, lib/refill-tick.js's tick (#2012)
  */
 
 const fs = require("node:fs");
