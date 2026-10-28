@@ -163,6 +163,16 @@ function lossOf(record, priceOf) {
 }
 
 /**
+ * A guard key's script file: its first word, as guardKey writes it.
+ *
+ * @param {string} key
+ */
+function guardName(key) {
+	const space = key.indexOf(" ");
+	return space === -1 ? key : key.slice(0, space);
+}
+
+/**
  * What a guard lost on a call is priced as, [] where it could not have denied
  * it. guardKey appends the arguments that distinguish two registrations of
  * one script; the file is the first word. The dispatcher is priced as the
@@ -184,7 +194,7 @@ function priceIn(dirs, calls, root) {
 		moduleOn: moduleReader(root, () => undefined),
 	};
 	return (guard, toolUseID) => {
-		const name = guard.split(" ", 1)[0] ?? "";
+		const name = guardName(guard);
 		if (!isDenyCapable(name)) return [];
 		const call = calls.get(toolUseID);
 		if (name !== path.basename(DISPATCH_ENTRY) || !call) return [guard];
@@ -246,7 +256,7 @@ function howItWent(l) {
  * @returns {string}
  */
 function describeLost(lost) {
-	return (lost.split(" ", 1)[0] ?? "") === path.basename(DISPATCH_ENTRY)
+	return guardName(lost) === path.basename(DISPATCH_ENTRY)
 		? `${lost}: its tool call is not in this transcript, so which cores it ran is UNKNOWN — treat it as worth replaying.`
 		: denyRates.describe(lost);
 }
@@ -408,7 +418,7 @@ function lastSessionId(text, tier) {
  * @returns {boolean} whether it denied the call
  */
 function replayGuard(guard, payload, dirs) {
-	const name = guard.split(" ", 1)[0] ?? "";
+	const name = guardName(guard);
 	const args = guard.split(" ").slice(1);
 	process.stdout.write(`\n=== ${guard} ===\n`);
 	/* `lossesIn` admitted it on reading it there, so only a file removed since
