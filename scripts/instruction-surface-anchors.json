@@ -163,10 +163,10 @@
 			"source": "#3143, #3201"
 		},
 		"scripts/lib/issue-phase-scope.js": {
-			"digest": "c4cd27b1975d7b21",
-			"verdict": "at need — a create whose title starts with the id of a Phase 1+ card the founder has not called is refused (1650–1664 B), REST and `timeout 60 gh` included. Phase-0 cards, unprefixed titles, unknown ids and GraphQL creates pass silent (fed at 18a1598da under #3143). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3225; not re-measured there, so the figures are the deleted standalone entry's.",
-			"selfSufficient": "yes — the rule, the ban on calling the card yourself, the alternative (park the question on the card with roadmap-edit) and the ban on re-titling are all inline. Nothing comes from the rule store, so there is no fallback text; a core that throws refuses (218 B) naming the guard and the error",
-			"source": "#3143"
+			"digest": "662cf20383c1fdaa",
+			"verdict": "at need — a create whose title starts with the id of a Phase 1+ card the founder has not called is refused, its reason 1521–1559 B; the whole hook stdout 1644–1681 B where it is the only output, and 3.4 KB more on a session's first `gh` call, which also carries the tracker-rules context. Reached on `gh issue create`, `gh api` POST to `…/issues` (`--method POST` and gh's own default), `timeout 60 gh`, `env gh`, `/usr/bin/gh`, and behind `cd … &&`, `;` and `&&`. Phase-0 cards, unprefixed titles, unknown ids, GraphQL creates, `--help`, a non-POST `gh api` and a called card's row pass silent; `env FOO=1 gh` is not followed. Failing open, logged, by design: an unreadable `--title`, a missing roadmap, a missing or unreadable `docs/called-cards.md`. A REST field word quoted whole (`-f \"title=…\"`, `-f 'labels[]=…'`) fails open too, logged (#3421). The roadmap is checked on every `gh api` call before its method is read, so a missing roadmap logs \"issue creation allowed unchecked\" on a plain GET (#3426). A throw in the core refuses every `gh issue create` and every `gh api` call, GET and GraphQL included, a non-card title too, `gh issue list` not: `guard-issue-phase-scope could not judge this call, and it fails closed: <error>`, reason 94 B and stdout 205 B for a 22-char error, logged. Fed through scripts/guard-dispatch.js at 856d533c4 under #3279.",
+			"selfSufficient": "yes — the rule, the ban on calling the card yourself, the alternative (park the question on the card with roadmap-edit) and the ban on re-titling are all inline. Nothing comes from the rule store, so there is no fallback text; a throw's refusal names only the core and the error",
+			"source": "#3143, #3279"
 		},
 		"scripts/lib/tracker-rules.js": {
 			"digest": "ef286ce9d3457de4",
