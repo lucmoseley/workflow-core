@@ -20,15 +20,15 @@ Reopening either needs new evidence, not a re-reading of the same figures.
 
 ## Where the thresholds come from
 
-**The byte threshold is 20,000 characters, and it is a price, not a percentile** — the break-even against the remedy this convention names, grep-then-sed, two extra tool calls each a turn at full context (mantahostels#2571, which carries the derivation). **Treat it as a rough centre, not a bound in either direction**; re-tune from mantahostels#2571, not from this paragraph.
+**The byte threshold is 20,000 characters, and it is a price, not a percentile** — the break-even against the remedy this convention names, grep-then-sed, two extra tool calls each a turn at full context (mantahostels#2571). **Treat it as a rough centre, not a bound in either direction**; re-tune from mantahostels#2571, not from this paragraph.
 
-**The `Read` limb's threshold is 10,000 — half the figure above, by construction rather than by a second measurement** (mantahostels#2595, which carries the derivation and the firing rates). Every term in the model is shared between the two limbs but the remedy's call count: grep-then-sed is two calls, a `Read` carrying `offset` and `limit` one. Both limbs price a turn at its marginal cost; pricing it at its mean instead would move both together, to 13,100 (Bash) and 6,600 (`Read`), and one limb on each price is not defensible. It is overridable per run through `WFC_WIDE_READ_TOOL_BYTES`, and it is the figure to move first if the Read limb warns too often.
+**The `Read` limb's threshold is 10,000 — half the figure above, by construction rather than by a second measurement** (mantahostels#2595). Every term in the model is shared between the two limbs but the remedy's call count: grep-then-sed is two calls, a `Read` carrying `offset` and `limit` one. Both limbs price a turn at its marginal cost; pricing it at its mean instead would move both together, to 13,100 (Bash) and 6,600 (`Read`), and one limb on each price is not defensible. It is overridable per run through `WFC_WIDE_READ_TOOL_BYTES`, and it is the figure to move first if the Read limb warns too often.
 
 The 200-line span and the 5-file match count are unmeasured judgement, and are the first to move if this warns too often. Each is stated beside its constant in `scripts/lib/wide-read.js`, and each is overridable per run through `WFC_WIDE_READ_BYTES`, `WFC_WIDE_READ_LINES` and `WFC_WIDE_READ_MATCHES`. The 30,000-character cut-off sentence is not a judgement but the CLI's default cap, overridable through `WFC_WIDE_READ_CUT_BYTES`.
 
 ## Reading the read-call count
 
-**Exclude `cat` of a backgrounded job's own output file before counting reads in a transcript** (mantahostels#2571). **The swing to `Read` on 30 August 2026 was a change in which model ran, not in read behaviour** (mantahostels#2595, which holds the per-model figures and the hypotheses ruled out).
+**Exclude `cat` of a backgrounded job's own output file before counting reads in a transcript** (mantahostels#2571). **The swing to `Read` on 30 August 2026 was a change in which model ran, not in read behaviour** (mantahostels#2595).
 
 ## What it does not catch
 

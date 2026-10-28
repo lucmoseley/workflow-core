@@ -42,11 +42,11 @@ A data condition keeps the issue open whether or not a roadmap card exists.
 
 **No single command tests your condition? That is still the middle row.** Write the condition without a `check:` and leave the reader to judge it — never a guessed date.
 
-**`check:` names a command that prints a reading, never one whose exit code is a verdict** (mantahostels#1332, which ruled what happens when a check cannot run). Where the command is gone, crashes or prints nothing, **judge the condition by whatever other means are available, then repair or delete the dead segment before you finish** — a broken command is never itself the blocker, in either direction.
+**`check:` names a command that prints a reading, never one whose exit code is a verdict** (mantahostels#1332). Where the command is gone, crashes or prints nothing, **judge the condition by whatever other means are available, then repair or delete the dead segment before you finish** — a broken command is never itself the blocker, in either direction.
 
 **`npm run check:gates` runs every open condition's `check:` command and prints the reading, and it is what makes a met condition noticeable at all** (mantahostels#2656). `scripts/pick-next.js` excludes a conditioned issue before any session can take it, so the judgement the middle row asks for has no other moment at which it happens. It runs in the `npm run status` fan-out and nowhere automatic; **it decides nothing**, so a row saying `DEAD`, `NO-OUTPUT`, `OVER-BUDGET` or `NOT-A-COMMAND` is the repair above, and a reading is still yours to judge against the condition.
 
-**Never write the literal text `— check: ` or `— abandon if: ` inside the condition or the command itself** — a second occurrence is reported malformed, and even one, in the marker's own separator shape, still silently mis-splits (mantahostels#1435, which found no quoting syntax worth inventing for it).
+**Never write the literal text `— check: ` or `— abandon if: ` inside the condition or the command itself** — a second occurrence is reported malformed, and even one, in the marker's own separator shape, still silently mis-splits (mantahostels#1435).
 
 Fourteen days governs dated gates alone — a judgement, not a measurement. A data condition rots by being met rather than by a date arriving, so it has no distance to compare against. `abandon if:` is the only thing that ever retires one.
 
@@ -240,7 +240,7 @@ the `guard-issue-body` core denies the raw form at `PreToolUse` (mantahostels#13
 **`gh` reads a `$CLAUDE_JOB_DIR` path fine** (mantahostels#2688), piped `--body-file -` included. The real hazard is unrelated to `gh`: **`$CLAUDE_JOB_DIR` can fail to resolve** (mantahostels#2088), breaking the path before any tool opens it. Use `.claude/tmp/` regardless — `docs/agents/rules/job-dir-scratch.txt`.
 <!-- rule:gh-job-dir-unreadable:end -->
 
-**It is not an absolute guarantee.** Sessions on this machine serialise through a local lock, but a writer outside it — your own terminal, another machine, CI — can still overwrite you in the gap between your write and your re-read, and you would be told the write succeeded. **If a body is clobbered, the lost text is recoverable:** GraphQL `Issue.userContentEdits` holds every past body in full (mantahostels#128) — **but not in edit order** (mantahostels#1579, which found `last:1` returning the *oldest* node): sort by `editedAt` before taking the latest one.
+**It is not an absolute guarantee.** Sessions on this machine serialise through a local lock, but a writer outside it — your own terminal, another machine, CI — can still overwrite you in the gap between your write and your re-read, and you would be told the write succeeded. **If a body is clobbered, the lost text is recoverable:** GraphQL `Issue.userContentEdits` holds every past body in full (mantahostels#128) — **but not in edit order**, `last:1` able to return the *oldest* node (mantahostels#1579): sort by `editedAt` before taking the latest one.
 
 **And it is detected, daily.** `scripts/check-clobbered-bodies.js` (`npm run check:clobbers`, daily over a widening window in `scripts/repo-checks.js`) reads that same revision history. It keys off a **stale base** — everything one revision added is gone from the next, while essentially all of what preceded it survives — not off a shrink (mantahostels#141; `scripts/check-clobbered-bodies.js`'s header owns the figures, and corrects the transition count quoted on mantahostels#141 itself).
 

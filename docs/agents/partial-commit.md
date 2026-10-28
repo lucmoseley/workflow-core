@@ -101,4 +101,4 @@ and it refuses while any other live session is a writer on the path — so a
 vanished hunk with no `parked/` copy on disk did not come from there.
 
 Nothing else in the repo restores committed content over a working-tree file
-(mantahostels#2384, which holds the sweep).
+(mantahostels#2384).

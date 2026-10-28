@@ -68,8 +68,7 @@ TypeScript. Verify the key against `node_modules/<pkg>/dist/**/*.d.ts` rather
 than recalling the API.
 
 A key copied from an older major version is silently ignored by the tool while
-failing the build's type-check (mantahostels#641, which records the Vitest worker cap that
-was never in force).
+failing the build's type-check (mantahostels#641).
 
 ## Asserting that a checker passed
 

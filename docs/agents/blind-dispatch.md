@@ -16,8 +16,7 @@ docs, read 16 Oct 2026).
   names an item under test or its expected answer: hold back your own commit
   until the run reports, or give a commit that must land first a subject naming
   neither; where the commit has already landed, yours or a neighbour's, run the
-  blind work through the recipe below. **Unenforceable** (#1783, which rejected
-  a guard judging subjects as too noisy): whether a subject names an answer is
+  blind work through the recipe below. **Unenforceable** (#1783): whether a subject names an answer is
   a judgement no hook makes.
 - **Then put `Blind-checked: <HEAD sha>` in the dispatch prompt; a fork is never
   blind.** **Enforced** (#1783): `scripts/guard-dispatch.js` (its

@@ -1,4 +1,4 @@
-A BASH WAIT OF MORE THAN 15 MINUTES IS BANNED (#1286, which ruled it; #1288).
+A BASH WAIT OF MORE THAN 15 MINUTES IS BANNED (#1286, #1288).
 
 The command's sleeps summed, a counted loop's count × interval, or a `timeout`
 around an unmeasured sleep or loop, past 900 seconds, is refused, foreground or
