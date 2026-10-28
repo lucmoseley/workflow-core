@@ -206,6 +206,8 @@ describe("each production read, crossed once", () => {
 			`This moves the shared \`main\` to another commit, dropping whatever came after it if that commit is behind — to move \`main\` forward, \`git merge --ff-only <commit>\`: git reset --hard HEAD~1\n\n${readRuleText("main-rewind")}`,
 		);
 		expect(verdict("git reset a.md")).toBe("allow");
+		/* #3177: real git, not the fake, finding no HEAD~5. */
+		expect(verdict("git reset --hard HEAD~5")).toBe("deny");
 		expect(verdict("git reset --soft main")).toBe("allow");
 		expect(verdict("git reset --soft side")).toBe("deny");
 	});

@@ -388,14 +388,41 @@ function judgeReset(j, { segment, tree, args }) {
  * @returns {"here" | "path" | "elsewhere"}
  */
 function resetLands(j, tree, commit, ddash) {
-	if (commit === "HEAD" || commit === "@") return "here";
+	if (isHead(commit)) return "here";
 	if (!tree) return "elsewhere";
 	const branch = j.ctx.currentBranch(tree);
 	if (branch && (commit === branch || commit === `refs/heads/${branch}`))
 		return "here";
-	/* No `--` and no such commit: git reads the word as a path. */
-	return ddash || j.ctx.isCommit(tree, commit) ? "elsewhere" : "path";
+	/* No `--` and no such commit: git reads the word as a path — unless it is
+	 * ancestor steps off a commit, a revision whether or not it resolves
+	 * (#3177). Residual: an unresolving `@{1}`, `main@{u}` or `x^{commit}`
+	 * still reads as a path, resting on git's own refusal. */
+	return ddash ||
+		j.ctx.isCommit(tree, commit) ||
+		isAncestorStep(j, tree, commit)
+		? "elsewhere"
+		: "path";
 }
+
+/**
+ * Is `word` a commit followed by `~N`/`^N` steps, such as `HEAD~5`? A word
+ * whose stem is no commit, such as an editor's `a.md~`, stays a path.
+ * @param {Judging} j
+ * @param {string} tree
+ * @param {string} word
+ * @returns {boolean}
+ */
+function isAncestorStep(j, tree, word) {
+	const stem = word.replace(/(?:[~^]\d*)+$/, "");
+	if (stem === word || stem === "") return false;
+	return isHead(stem) || j.ctx.isCommit(tree, stem);
+}
+
+/** HEAD in either spelling, answered without asking git.
+ * @param {string} word
+ * @returns {boolean}
+ */
+const isHead = (word) => word === "HEAD" || word === "@";
 
 /**
  * @typedef {{ helping: boolean, force: boolean, stdin: boolean,
