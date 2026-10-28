@@ -71,7 +71,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
-const { JS_TEST_FILE } = require("./lib/test-kind.js");
+const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 
@@ -227,9 +227,7 @@ runCheck({
 	 * --against already materialises for it (scripts/lib/check.js §--against). */
 	against: { profile: "git-fixture-identity", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
-		const { root, files } = readTrackedScripts(ctx, (rel) =>
-			JS_TEST_FILE.test(rel),
-		);
+		const { root, files } = readTrackedScripts(ctx, isJsTestFile);
 		const checked = /** @type {string[]} */ ([]);
 		const exempt = /** @type {string[]} */ ([]);
 

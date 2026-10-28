@@ -40,7 +40,7 @@
 	"scripts/concision-backstop.sh": "edaa61d0992af5a9",
 	"scripts/guard-automode-refusal.js": "cf9e9587b80195ce",
 	"scripts/guard-dispatch.js": "39b33fd9eb8cd956",
-	"scripts/guard-failed-call-rules.js": "9447b9e1e0a3a281",
+	"scripts/guard-failed-call-rules.js": "642d8af187c5c261",
 	"scripts/guard-inventory.js": "ed6c2e41b4dc36e3",
 	"scripts/guard-jev-advisory.js": "de2508a72705292a",
 	"scripts/guard-lost-deny.js": "f655f1eea092e747",

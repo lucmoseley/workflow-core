@@ -13,23 +13,13 @@
  * through lib/registry-atomicity.js.
  */
 
+const { siblingTests, spellSiblingTests } = require("./test-kind.js");
+
 /** The host registry, every adopter seeded with `emptyRegistry()`. */
 const HOST_REGISTRATIONS = ".claude/registrations.json";
 
 /** The host's own fire-count needles, merged by count-guard-fires.js (#1267). */
 const HOST_NEEDLES = ".claude/guard-fire-needles.json";
-
-/**
- * What counts as a member's sibling test outside the core, whose own tests
- * accept `.test.ts` alone.
- */
-const SIBLING_SUFFIXES = [
-	".test.ts",
-	".test.js",
-	".test.mjs",
-	".test.cjs",
-	".test.py",
-];
 
 /** The husky hooks that run a checker unasked, as checker-registrations.test.ts lists them. */
 const CALLER_HOOKS = [
@@ -253,12 +243,13 @@ function hookFaults(rows, regs) {
 }
 
 /**
- * Does any of `suffixes` give `scripts/<stem><suffix>` a file?
+ * Does `scripts/<stem>` have a test of any form a host runner collects? The
+ * core's own tests take `.test.ts` alone.
  * @param {string} stem
  * @param {(rel: string) => boolean} exists
  */
 const hasSibling = (stem, exists) =>
-	SIBLING_SUFFIXES.some((s) => exists(`scripts/${stem}${s}`));
+	siblingTests(`scripts/${stem}`).some(exists);
 
 /**
  * The guards half: every scripts/guard-* run by a hook or allowlisted, and
@@ -283,7 +274,7 @@ function guardFaults({ guards, regs, elsewhere, exists }) {
 		if (!hasSibling(stem, exists))
 			out.push({
 				key: `untested ${rel}`,
-				message: `${rel} has no sibling test (scripts/${stem}.test.{ts,js,mjs,cjs,py})`,
+				message: `${rel} has no sibling test (${spellSiblingTests(`scripts/${stem}`)})`,
 			});
 	}
 	return out;
@@ -329,7 +320,7 @@ function checkerFaults({ checkers, callers, elsewhere, exists }) {
 		if (!hasSibling(stem, exists))
 			out.push({
 				key: `untested ${rel}`,
-				message: `${rel} has no sibling test (scripts/${stem}.test.{ts,js,mjs,cjs,py})`,
+				message: `${rel} has no sibling test (${spellSiblingTests(`scripts/${stem}`)})`,
 			});
 	}
 	for (const file of Object.keys(elsewhere))
@@ -353,7 +344,6 @@ const unexplained = (elsewhere) =>
 module.exports = {
 	HOST_REGISTRATIONS,
 	HOST_NEEDLES,
-	SIBLING_SUFFIXES,
 	CALLER_HOOKS,
 	emptyRegistry,
 	emptyNeedles,

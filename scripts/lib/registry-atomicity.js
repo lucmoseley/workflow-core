@@ -42,7 +42,7 @@
  * .claude/registrations.json — a `hooks` row for the REGISTRATIONS entry, a
  * `registeredElsewhere` or `calledElsewhere` key for the two allowlists — and
  * .claude/guard-fire-needles.json. A host sibling test may be any of
- * lib/registrations.js's SIBLING_SUFFIXES, and node
+ * lib/test-kind.js's siblingTests, and node
  * <plugin>/scripts/check-registrations.js holds the whole-repo form. A host
  * file that does not exist yet is judged as empty.
  *
@@ -144,7 +144,6 @@ const { CORPUS_DIRS } = require("./needle-corpus.js");
 const {
 	HOST_NEEDLES,
 	HOST_REGISTRATIONS,
-	SIBLING_SUFFIXES,
 	allRegistrations,
 	buildCommandLine,
 	isPinnedBy,
@@ -161,7 +160,11 @@ const {
 	literal,
 	scanFlags,
 } = require("./shell-words.js");
-const { JS_TEST_FILE } = require("./test-kind.js");
+const {
+	JS_TEST_FILE,
+	siblingTests,
+	spellSiblingTests,
+} = require("./test-kind.js");
 
 const HOST_SETTINGS = ".claude/settings.json";
 
@@ -930,8 +933,10 @@ function hasCoreNeedle(view, key) {
  * @param {string} reg the registry judging it
  */
 function hasSibling(view, stem, reg) {
-	const suffixes = isHost(reg) ? SIBLING_SUFFIXES : [".test.ts"];
-	return suffixes.some((s) => view.willExist(`scripts/${stem}${s}`));
+	const tests = isHost(reg)
+		? siblingTests(`scripts/${stem}`)
+		: [`scripts/${stem}.test.ts`];
+	return tests.some((p) => view.willExist(p));
 }
 
 /**
@@ -940,9 +945,9 @@ function hasSibling(view, stem, reg) {
  * @param {string} reg
  */
 function siblingName(stem, reg) {
-	if (!isHost(reg)) return `scripts/${stem}.test.ts`;
-	const exts = SIBLING_SUFFIXES.map((s) => s.replace(".test.", ""));
-	return `scripts/${stem}.test.{${exts.join(",")}}`;
+	return isHost(reg)
+		? spellSiblingTests(`scripts/${stem}`)
+		: `scripts/${stem}.test.ts`;
 }
 
 /**

@@ -509,30 +509,37 @@ function hasPytestConfig(root) {
 	});
 }
 
-/* node --test's own defaults: the `.js`-family file pattern, and its skip of
- * dot-directories and `node_modules`. */
-const NODE_TEST_FILE = /\.test\.[cm]?js$/;
+/* node --test's own default patterns' `.js` family (Node 24 docs, §Running
+ * tests from the command line): `*.test`, `*-test`, `*_test`, `test-*`, `test`
+ * and anything under a `test/` directory. Its `.ts` family is left out: a
+ * `.ts` test in a repo declaring no test command is a vitest or jest suite far
+ * more often than a type-stripped node one (#3170), so a repo whose node
+ * tests are all `.ts` gets no command inferred. The walk skips dot-directories and `node_modules`. */
+const NODE_TEST_FILE = /^(?:.*[.\-_]test|test-.*|test)\.[cm]?js$/;
+const NODE_TEST_DIR_FILE = /\.[cm]?js$/;
 
 /**
  * @param {string} dir
+ * @param {boolean} [underTest] whether `dir` is, or sits under, a `test/`
  * @returns {boolean}
  */
-function hasNodeTestFile(dir) {
+function hasNodeTestFile(dir, underTest = false) {
 	let entries;
 	try {
 		entries = fs.readdirSync(dir, { withFileTypes: true });
 	} catch {
 		return false;
 	}
+	const isTest = underTest ? NODE_TEST_DIR_FILE : NODE_TEST_FILE;
 	for (const e of entries) {
-		if (e.isFile() && NODE_TEST_FILE.test(e.name)) return true;
+		if (e.isFile() && isTest.test(e.name)) return true;
 	}
 	return entries.some(
 		(e) =>
 			e.isDirectory() &&
 			!e.name.startsWith(".") &&
 			e.name !== "node_modules" &&
-			hasNodeTestFile(path.join(dir, e.name)),
+			hasNodeTestFile(path.join(dir, e.name), underTest || e.name === "test"),
 	);
 }
 
@@ -580,7 +587,10 @@ function inferCommands(root) {
 	if (!found.test && hasPytestConfig(root))
 		found.test = { command: "python3 -m pytest", from: "pytest config" };
 	else if (!found.test && hasNodeTestFile(root))
-		found.test = { command: "node --test", from: "*.test.js files" };
+		found.test = {
+			command: "node --test",
+			from: "node --test's default test files",
+		};
 	return found;
 }
 

@@ -52,8 +52,9 @@
  * WHAT IS NOT SCANNED. A test, a fixture and a test harness root at the CORE
  * checkout because that checkout is their subject: `__dirname` there is the copy
  * under test, and pointing them at a host root would aim them at whatever tree
- * the suite happened to run in. `*.test.*`, `*-fixture.*`, `*-testkit.*` and the
- * vitest configs are therefore out of scope, by name.
+ * the suite happened to run in. lib/test-kind.js's `JS_TEST_FILE` (`*.test.*`
+ * and `*.spec.*`), `*-fixture.*`, `*-testkit.*` and the vitest configs are
+ * therefore out of scope, by name.
  *
  * WHAT IT CANNOT SEE. A root passed as a parameter rather than assigned from
  * `hostRoot()` in the same file, a read made inside an imported helper, a
@@ -79,6 +80,7 @@ const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { hostRoot } = require("./lib/host-root.js");
+const { JS_TEST_FILE } = require("./lib/test-kind.js");
 
 const CWD_SUITE_CHECKER = {
 	tags: ["SECOND-SEAM-JS"],
@@ -197,7 +199,11 @@ const ALLOWED = {
 			"buildHookRootBlock reads the adopter's own .husky/ hooks at `root` to check the plugin root they name (#1168) — the host's hooks are the subject, not a core file read through the host",
 	},
 	"scripts/check-suite-size-drift.js": CWD_SUITE_CHECKER,
-	"scripts/lib/tracked-scripts.js": CWD_SUITE_CHECKER,
+	"scripts/lib/tracked-scripts.js": {
+		tags: ["SECOND-SEAM-JS"],
+		reason:
+			"lists the tracked scripts/ files of the checkout it runs in for check-guard-test-isolation.js, check-host-root-test-isolation.js and check-git-fixture-identity.js, whose suites drive them by cwd into fixture repos, where an inherited CLAUDE_PROJECT_DIR would aim them at the live tree (#3131)",
+	},
 };
 
 /*
@@ -213,8 +219,9 @@ const SCANNED = ["scripts"];
 const JS_EXT = new Set([".js", ".ts", ".mjs", ".cjs"]);
 
 /* The suite and its apparatus — see WHAT IS NOT SCANNED above. */
-const TEST_FILE =
-	/(?:\.test\.[cm]?[jt]sx?$|-fixture\.[cm]?[jt]s$|-testkit\.[cm]?[jt]s$|^vitest\.(?:config|setup)\.[cm]?[jt]s$)/;
+const TEST_FILE = new RegExp(
+	String.raw`(?:${JS_TEST_FILE.source}|-fixture\.[cm]?[jt]s$|-testkit\.[cm]?[jt]s$|^vitest\.(?:config|setup)\.[cm]?[jt]s$)`,
+);
 const isTestFile = (/** @type {string} */ rel) =>
 	TEST_FILE.test(path.basename(rel));
 

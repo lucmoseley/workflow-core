@@ -53,6 +53,7 @@ const FILES: Record<string, string> = {
 	"scripts/m/scan.py": "X = 1\n",
 	"scripts/m/scan.test.ts": "export {};\n",
 	"scripts/m/test_scan.py": "import os, scan as s\n",
+	"scripts/m/scan_test.py": "import os\n",
 	"scripts/m/wrap.py": "import scan\n",
 	"scripts/m/test_wrap.py": "from wrap import X\n",
 	"scripts/m/test_other.py": "import os\n",
@@ -228,9 +229,9 @@ describe("selectTouched", () => {
 		).toEqual(["scripts/m/test_pkg.py", "scripts/m/test_run.py"]);
 	});
 
-	it("falls back on pytest's route to test_<stem>.py beside a changed <stem>.py", () => {
+	it("falls back on pytest's route to test_<stem>.py and <stem>_test.py beside a changed <stem>.py (#3170)", () => {
 		const { files, banner } = resolvePy(["scripts/m/scan.py"], failing);
-		expect(files).toEqual(["scripts/m/test_scan.py"]);
+		expect(files).toEqual(["scripts/m/scan_test.py", "scripts/m/test_scan.py"]);
 		expect(banner).toMatch(/FELL BACK.*render failed/);
 	});
 

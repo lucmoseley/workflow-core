@@ -15,21 +15,30 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execGit } = require("./git.js");
 const { errMessage } = require("./check.js");
+const { caught } = require("./caught.js");
 
 /** @typedef {import("./check.js").Ctx} Ctx */
 
 /**
+ * A missing `<root>/scripts`, or any read error but a subdirectory gone, is
+ * the checker's BROKEN, never an empty set.
+ * @param {Ctx} ctx
  * @param {string} root
  * @param {(rel: string) => boolean} keep
  */
-function walkScripts(root, keep) {
+function walkScripts(ctx, root, keep) {
 	const out = /** @type {string[]} */ ([]);
 	const walk = (/** @type {string} */ rel) => {
 		let entries;
 		try {
 			entries = fs.readdirSync(path.join(root, rel), { withFileTypes: true });
-		} catch {
-			return;
+		} catch (e) {
+			/* Listed by its parent, then gone: a parallel write in the tree, and
+			 * nothing under it to read. */
+			if (rel !== "scripts" && caught(e).code === "ENOENT") return;
+			return ctx.broken(
+				`could not read ${path.join(root, rel)}: ${errMessage(e)}. No scripts/ files read.`,
+			);
 		}
 		for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
 			const child = `${rel}/${e.name}`;
@@ -51,7 +60,7 @@ function readTrackedScripts(ctx, keep) {
 	const rootFlag = ctx.value("--root");
 	if (rootFlag) {
 		const root = path.resolve(rootFlag);
-		return { root, files: walkScripts(root, keep) };
+		return { root, files: walkScripts(ctx, root, keep) };
 	}
 	const git = (/** @type {string[]} */ args, /** @type {string} */ what) => {
 		try {

@@ -4,10 +4,14 @@
  * itself, or through the `package.json` scripts it runs, however the call is
  * spelled. Its `classifyCheckStaged` (#2731): each `biome check --staged`
  * shape maps to biome-staged.js or is refused, naming the way out (#2599).
+ * Its `inferCommands` infers `node --test` from node's own default test
+ * patterns (#3170).
  *
  * A module test over a temp `package.json`, since both read only the scripts
  * it declares. Loosen a case and an unsafe `check_staged` passes init and the
- * pre-commit hook, linting or writing a neighbour's worktree bytes (#2583).
+ * pre-commit hook, linting or writing a neighbour's worktree bytes (#2583);
+ * loosen the node patterns and a repo whose tests node never runs is handed
+ * `node --test`.
  */
 
 import fs from "node:fs";
@@ -17,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	BIOME_STAGED_COMMAND,
 	classifyCheckStaged,
+	inferCommands,
 	runsLintStaged,
 } from "./infer-commands.js";
 
@@ -500,5 +505,38 @@ describe("classifyCheckStaged", () => {
 		expect(
 			classify("biome check --staged", { command, inferred: false }),
 		).toEqual({ kind: "none" });
+	});
+});
+
+describe("inferCommands' node --test patterns (#3170)", () => {
+	const write = (rel: string) => {
+		fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+		fs.writeFileSync(path.join(dir, rel), "");
+	};
+
+	it.each([
+		"lib/a.test.js",
+		"lib/a-test.mjs",
+		"lib/a_test.cjs",
+		"lib/test-a.js",
+		"lib/test.js",
+		"test/a.js",
+		"test/deep/helper.mjs",
+	])("infers node --test from %s", (rel) => {
+		write(rel);
+		expect(inferCommands(dir).test?.command).toBe("node --test");
+	});
+
+	it.each([
+		"lib/a.spec.js",
+		"lib/a.test.ts",
+		"lib/latest.js",
+		"lib/contest-a.js",
+		"tests/a.js",
+		".test/a.js",
+		"node_modules/dep/a.test.js",
+	])("infers nothing from %s", (rel) => {
+		write(rel);
+		expect(inferCommands(dir).test).toBeUndefined();
 	});
 });

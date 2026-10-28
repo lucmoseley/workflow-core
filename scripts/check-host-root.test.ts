@@ -129,10 +129,11 @@ describe("JavaScript", () => {
 		expect(run().outcome).toBe("OK");
 	});
 
-	it("does not judge a test, a fixture or a testkit", () => {
+	it("does not judge a test, a spec, a fixture or a testkit", () => {
 		clean();
 		for (const name of [
 			"scripts/a.test.ts",
+			"scripts/a2.spec.ts",
 			"scripts/b-fixture.ts",
 			"scripts/c-testkit.ts",
 			"scripts/vitest.config.ts",

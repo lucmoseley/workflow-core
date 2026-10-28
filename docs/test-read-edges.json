@@ -617,6 +617,7 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/serialised.test.ts",
 			"scripts/lib/shared-tree-skip.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
@@ -2419,6 +2420,7 @@
 			"scripts/guard-unasked-rerun.test.ts",
 			"scripts/lib/run-ledger.test.ts",
 			"scripts/lib/session-verdict.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/test-pass-marker.test.ts",
 			"scripts/lib/unasked-rerun-io.contract.test.ts",
 			"scripts/push-check.test.ts",
@@ -3176,6 +3178,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
@@ -4272,6 +4275,7 @@
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pre-push-worktree-config.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -4550,6 +4554,7 @@
 		"scripts/conftest.py": [
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/python-routes.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -5628,6 +5633,7 @@
 		"scripts/lib-closure-fixture.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -10335,6 +10341,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/git-fixture.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -18034,6 +18041,17 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/tracked-scripts.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/tracked-scripts.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"

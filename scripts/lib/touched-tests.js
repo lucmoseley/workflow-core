@@ -27,7 +27,11 @@
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { JS_TEST_FILE, PY_TEST_FILE } = require("./test-kind.js");
+const {
+	PY_TEST_FILE,
+	isJsTestFile,
+	pytestSiblings,
+} = require("./test-kind.js");
 const { pytestCollected } = require("./pytest-collection.js");
 const {
 	directImports,
@@ -162,10 +166,10 @@ function pythonReads(source, self, tracked) {
  */
 const ROUTES = {
 	vitest: {
-		isTest: (p) => JS_TEST_FILE.test(p),
+		isTest: isJsTestFile,
 		edges: directImports,
 		isSibling: (name, stem) =>
-			JS_TEST_FILE.test(name) && name.startsWith(`${stem}.`),
+			isJsTestFile(name) && name.startsWith(`${stem}.`),
 		collected: readVitestCollected,
 	},
 	pytest: {
@@ -175,7 +179,7 @@ const ROUTES = {
 				...pythonImports(source, self, tracked),
 				...pythonReads(source, self, tracked),
 			]),
-		isSibling: (name, stem) => name === `test_${stem}.py`,
+		isSibling: (name, stem) => pytestSiblings(stem).includes(name),
 		collected: pytestCollected,
 	},
 };

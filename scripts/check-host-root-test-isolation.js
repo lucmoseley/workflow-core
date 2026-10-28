@@ -38,7 +38,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
-const { JS_TEST_FILE } = require("./lib/test-kind.js");
+const { isJsTestFile } = require("./lib/test-kind.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");
@@ -256,9 +256,7 @@ runCheck({
 	 * (scripts/lib/check.js §--against, mantahostels#1833). */
 	against: { profile: "host-root-test-isolation", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
-		const { root, files } = readTrackedScripts(ctx, (rel) =>
-			JS_TEST_FILE.test(rel),
-		);
+		const { root, files } = readTrackedScripts(ctx, isJsTestFile);
 		const cache = /** @type {Map<string, boolean>} */ (new Map());
 		const checked = /** @type {string[]} */ ([]);
 		const exempt = /** @type {string[]} */ ([]);

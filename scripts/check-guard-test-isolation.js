@@ -70,7 +70,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
-const { JS_TEST_FILE } = require("./lib/test-kind.js");
+const { isJsTestFile } = require("./lib/test-kind.js");
 const { blankComments, inertSpans } = require("./lib/js-lex.js");
 
 const { runCheck, errMessage } = require("./lib/check.js");
@@ -93,7 +93,7 @@ const GUARD_LITERAL = /"([\w./-]+\.(?:sh|js))"/;
 
 /** Tests of any JS form, and the shared `.ts` helpers they import (#837). */
 const isTestOrTsHelper = (/** @type {string} */ rel) =>
-	rel.endsWith(".ts") || JS_TEST_FILE.test(rel);
+	rel.endsWith(".ts") || isJsTestFile(rel);
 
 /**
  * Does `rel` log its fail-opens? A `….sh` reaches lib/guard-log.sh, a `….js`
@@ -561,7 +561,7 @@ runCheck({
 
 		const sources = readSources(ctx, root, files);
 		const helpers = new Set(
-			files.filter((/** @type {string} */ rel) => !JS_TEST_FILE.test(rel)),
+			files.filter((/** @type {string} */ rel) => !isJsTestFile(rel)),
 		);
 
 		const handed = handedGuards({ root, sources, helpers, cache });

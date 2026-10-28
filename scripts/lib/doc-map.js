@@ -24,6 +24,7 @@ const { byCodeUnit } = require("./by-code-unit.js");
 const { caught } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { execGit, gitOrNull } = require("./git.js");
+const { siblingTests } = require("./test-kind.js");
 
 /** One inline-code span, capturing its text. */
 const BACKTICKED = /`([^`]+)`/g;
@@ -2219,10 +2220,11 @@ function readTextLines(file) {
  * @param {string} script
  */
 function selfFilter(script) {
-	const re = new RegExp(
-		`^scripts/${script.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(\\.test\\.ts|\\.js)$`,
-	);
-	return (/** @type {string} */ f) => re.test(f);
+	const self = new Set([
+		`scripts/${script}.js`,
+		...siblingTests(`scripts/${script}`),
+	]);
+	return (/** @type {string} */ f) => self.has(f);
 }
 
 /*

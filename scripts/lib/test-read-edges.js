@@ -137,7 +137,7 @@ const {
 } = require("./js-lex.js");
 const { requiredGroup } = require("./regex-group.js");
 const { byCodeUnit } = require("./by-code-unit.js");
-const { JS_TEST_FILE } = require("./test-kind.js");
+const { JS_TEST_FILE, isJsTestFile } = require("./test-kind.js");
 
 /** The names a root anchor is spelled with, `hostRoot()` aside. */
 const ROOT_NAMES =
@@ -208,9 +208,6 @@ const TYPE_ONLY = /^[ \t]*(?:import|export)[ \t]+type\b[^;]*;?/gm;
 
 /** Extensions tried, in order, when a specifier names no file suffix. */
 const EXTENSIONS = [".ts", ".tsx", ".js", ".mjs", ".cjs"];
-
-/** @param {string} p */
-const isTestFile = (p) => JS_TEST_FILE.test(p);
 
 /** The suffixes an own-module edge pairs with `x.test.ts` or `x.spec.ts`. `.ts` is for a
  * module no test imports, the vitest setup file being one. */
@@ -2231,7 +2228,7 @@ function once(fn) {
  */
 function addNearestReaders(byDoc, byClosure, esm) {
 	for (const [p, readers] of byClosure) {
-		if (byDoc.has(p) || esm.has(p) || isTestFile(p)) continue;
+		if (byDoc.has(p) || esm.has(p) || isJsTestFile(p)) continue;
 		const nearest = Math.min(...readers.values());
 		for (const [t, depth] of readers)
 			if (depth === nearest) addReader(byDoc, p, t);
@@ -2247,7 +2244,7 @@ function addNearestReaders(byDoc, byClosure, esm) {
  *   `unseen` is empty unless `sites` asked for it
  */
 function buildManifest(tracked, read, { sites: findSites = false } = {}) {
-	const tests = [...tracked].filter(isTestFile).sort();
+	const tests = [...tracked].filter(isJsTestFile).sort();
 	/** @type {Map<string, Set<string>>} */
 	const byDoc = new Map();
 	/** @type {Map<string, Map<string, number>>} file -> reading test -> depth */

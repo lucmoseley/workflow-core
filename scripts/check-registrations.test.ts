@@ -160,7 +160,9 @@ describe("check-registrations", () => {
 		write("scripts/guard-c.sh", "#!/usr/bin/env bash\n");
 		const r = run();
 		expect(r.out).toContain("scripts/guard-c.sh is run by no hook");
-		expect(r.out).toContain("scripts/guard-c.sh has no sibling test");
+		expect(r.out).toContain(
+			"scripts/guard-c.sh has no sibling test (scripts/guard-c.{test,spec}.{,c,m}{j,t}s{,x}, scripts/test_guard-c.py, scripts/guard-c_test.py or scripts/guard-c.test.py)",
+		);
 		write(
 			".claude/registrations.json",
 			registry({
@@ -171,6 +173,25 @@ describe("check-registrations", () => {
 		write("scripts/guard-c.test.ts", "// covered\n");
 		expect(run().status).toBe(0);
 	});
+
+	it.each(["guard-c.spec.js", "guard-c.test.mts", "guard-c_test.py"])(
+		"takes %s as the guard's sibling test (#3170)",
+		(test) => {
+			registeredAdopter();
+			write("scripts/guard-c.sh", "#!/usr/bin/env bash\n");
+			write(
+				".claude/registrations.json",
+				registry({
+					hooks: [row("guard-a.sh")],
+					registeredElsewhere: { "guard-c.sh": "run by guard-a.sh" },
+				}),
+			);
+			write(`scripts/${test}`, "// covered\n");
+			const r = run();
+			expect(r.out).not.toContain("no sibling test");
+			expect(r.status).toBe(0);
+		},
+	);
 
 	it("names an uncalled checker, ignoring a mention in a comment, and takes a calledElsewhere key", () => {
 		registeredAdopter();

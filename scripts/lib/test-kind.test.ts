@@ -10,14 +10,26 @@
  * refused while the suites switch is off; tighten it and a real suite goes
  * ungated. Loosen isCollectedTestOrConftest and real code drops out of the
  * plugin, the needle corpus and doc-map's section-reference check; tighten it
- * and tests ship to adopters (#2759).
+ * and tests ship to adopters (#2759). Loosen siblingTests and a host guard
+ * with no test passes the registry checks; tighten it and one tested by a
+ * form the suite collects is refused as untested (#3170). Drift
+ * .husky/pre-commit's test-file arms from JS_TEST_FILE and a commit staging
+ * only a `.spec.` or `.mjs` test skips the gates that read it (#3170).
  */
 
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	COLLECTED_TEST,
 	isCollectedTestOrConftest,
 	isTestKind,
+	JS_TEST_FILE,
+	PY_COLLECTED_TEST,
+	pytestSiblings,
+	siblingTests,
+	spellSiblingTests,
 } from "./test-kind";
 
 describe("isTestKind", () => {
@@ -120,4 +132,114 @@ describe("isCollectedTestOrConftest", () => {
 	])("calls %s neither", (rel) => {
 		expect(isCollectedTestOrConftest(rel)).toBe(false);
 	});
+});
+
+describe("siblingTests", () => {
+	const tests = siblingTests("scripts/guard-c");
+
+	it("names each form once, every one a test the suite collects", () => {
+		expect(new Set(tests).size).toBe(tests.length);
+		for (const t of tests)
+			expect(JS_TEST_FILE.test(t) || PY_COLLECTED_TEST.test(t), t).toBe(true);
+	});
+
+	it("spells out every suffix JS_TEST_FILE takes, so a form added there reaches it", () => {
+		const letters = ["", "c", "m", "j", "t", "x", "p", "s"];
+		const exts = letters.flatMap((a) =>
+			letters.flatMap((b) => letters.map((c) => `${a}${b}${c}s`)),
+		);
+		const candidates = ["test", "spec", "tests", "e2e"].flatMap((kind) =>
+			[...exts, ...exts.map((e) => `${e}x`)].map(
+				(ext) => `scripts/guard-c.${kind}.${ext}`,
+			),
+		);
+		expect(tests.filter((t) => JS_TEST_FILE.test(t)).sort()).toEqual(
+			[...new Set(candidates.filter((t) => JS_TEST_FILE.test(t)))].sort(),
+		);
+	});
+
+	it.each([
+		"scripts/guard-c.test.ts",
+		"scripts/guard-c.test.js",
+		"scripts/guard-c.test.mts",
+		"scripts/guard-c.spec.js",
+		"scripts/guard-c.spec.cjs",
+		"scripts/test_guard-c.py",
+		"scripts/guard-c_test.py",
+		"scripts/guard-c.test.py",
+	])("takes %s", (rel) => {
+		expect(tests).toContain(rel);
+	});
+
+	it.each([
+		"scripts/guard-c.sh",
+		"scripts/guard-c.js",
+		"scripts/guard-cx.test.ts",
+		"scripts/lib/guard-c.test.ts",
+		"scripts/guard-c.spec.py",
+	])("leaves out %s", (rel) => {
+		expect(tests).not.toContain(rel);
+	});
+
+	it("spells the forms for a refusal, the Python ones in the stem's directory", () => {
+		expect(spellSiblingTests("scripts/guard-c")).toBe(
+			"scripts/guard-c.{test,spec}.{,c,m}{j,t}s{,x}, scripts/test_guard-c.py, scripts/guard-c_test.py or scripts/guard-c.test.py",
+		);
+	});
+
+	it("gives pytest's half by its default python_files", () => {
+		expect(pytestSiblings("corpus")).toEqual([
+			"test_corpus.py",
+			"corpus_test.py",
+		]);
+	});
+});
+
+/* grep's ERE has no non-capturing group. */
+const JS_TEST_ERE = JS_TEST_FILE.source.replaceAll("(?:", "(");
+
+describe("JS_TEST_FILE in grep's ERE", () => {
+	it("is JS_TEST_FILE to grep -E, path for path", () => {
+		const paths = [
+			...siblingTests("scripts/a"),
+			"scripts/a.js",
+			"scripts/a.test.tsy",
+			"scripts/a.tests.ts",
+			"scripts/a.test.ts.bak",
+			"scripts/atest.ts",
+		];
+		let matched = "";
+		try {
+			matched = execFileSync("grep", ["-E", "-e", JS_TEST_ERE], {
+				input: `${paths.join("\n")}\n`,
+				encoding: "utf8",
+			});
+		} catch {
+			/* grep exits 1 where nothing matches. */
+		}
+		expect(matched.split("\n").filter(Boolean)).toEqual(
+			paths.filter((p) => JS_TEST_FILE.test(p)),
+		);
+	});
+
+	it.each([
+		"check-guard-test-isolation",
+		"check-host-root-test-isolation",
+		"check-git-fixture-identity",
+	])(
+		"opens .husky/pre-commit's %s gate on every test file vitest collects",
+		(checker) => {
+			const hook = fs.readFileSync(
+				path.resolve(__dirname, "..", "..", ".husky", "pre-commit"),
+				"utf8",
+			);
+			const arm = hook.match(
+				new RegExp(
+					String.raw`^if armed '([^']*)'; then\n\s*node \S*${checker}\.js`,
+					"m",
+				),
+			)?.[1];
+			expect(arm?.split("|^")[0]).toBe(`^scripts/.*${JS_TEST_ERE}`);
+		},
+	);
 });

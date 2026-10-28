@@ -24,13 +24,36 @@
  * never points at guard-authoring (#2869, #3012), and the test files the
  * isolation and fixture-identity checkers read;
  * `PY_TEST_FILE` is a pytest test file alone, pytest's default `python_files`.
- * check-host-root.js's pattern asks another question and stays apart: it names
- * the suite's apparatus by basename.
+ * `isJsTestFile` is `JS_TEST_FILE` as a predicate. .husky/pre-commit's
+ * test-file gates arm on it written in grep's ERE, pinned equal by
+ * test-kind.test.ts. `siblingTests` is every name a test of one
+ * script may take, by `JS_TEST_FILE` and `PY_COLLECTED_TEST`: the files
+ * registrations.js, registry-atomicity.js and doc-map.js's self-filter take as
+ * a script's own test; `pytestSiblings` is its pytest half, touched-tests.js's.
+ * check-host-root.js adds the suite's apparatus to `JS_TEST_FILE`.
+ *
+ * One reading asks another runner's question and stays apart:
+ * infer-commands.js's `NODE_TEST_FILE` is node --test's own default patterns,
+ * which take `test/**` and `*-test.js` and no `.spec.` form.
  */
 
 // Vitest's default include collects both forms (#2271).
 const JS_TEST_SOURCE = String.raw`\.(?:test|spec)\.[cm]?[jt]sx?$`;
 const JS_TEST_FILE = new RegExp(JS_TEST_SOURCE);
+/* `JS_TEST_SOURCE`'s parts, spelt out. */
+const JS_TEST_PARTS = {
+	kind: ["test", "spec"],
+	module: ["", "c", "m"],
+	lang: ["j", "t"],
+	jsx: ["", "x"],
+};
+const JS_TEST_SUFFIXES = JS_TEST_PARTS.kind.flatMap((kind) =>
+	JS_TEST_PARTS.module.flatMap((module) =>
+		JS_TEST_PARTS.lang.flatMap((lang) =>
+			JS_TEST_PARTS.jsx.map((jsx) => `.${kind}.${module}${lang}s${jsx}`),
+		),
+	),
+);
 const PY_TEST = String.raw`(?:^|\/)(?:test_[^/]*|[^/]*_test)\.py$`;
 const PY_TEST_FILE = new RegExp(PY_TEST);
 /* `PY_TEST` as globs: pytest's default `python_files`. */
@@ -54,6 +77,52 @@ const TEST_KIND = new RegExp(
 	String.raw`(?:${JS_TEST_SOURCE}|(?:^|\/)(?:tests?|fixtures|testkits?|stubs|fakes)\/|[-_.]${SUPPORT_NAME}\.[cm]?[jt]sx?$|(?:^|\/)${SUPPORT_NAME}(?:[-_.][^/]*)?\.[cm]?[jt]sx?$|${PY_TEST}|${CONFTEST.source})`,
 );
 
+/** @param {string} rel repo-relative or a basename, forward slashes */
+const isJsTestFile = (rel) => JS_TEST_FILE.test(rel);
+
+/**
+ * The pytest test names of `stem`, by its default `python_files`.
+ * @param {string} stem a basename without its extension
+ */
+const pytestSiblings = (stem) =>
+	PYTEST_DEFAULT_FILES.map((glob) => glob.replace("*", stem));
+
+/**
+ * `stem` split at its last slash, the directory keeping it.
+ * @param {string} stem
+ */
+const splitStem = (stem) => {
+	const slash = stem.lastIndexOf("/") + 1;
+	return { dir: stem.slice(0, slash), base: stem.slice(slash) };
+};
+
+/**
+ * Every path a test of the script at `stem` may take.
+ * @param {string} stem the script's path without its extension, forward slashes
+ */
+function siblingTests(stem) {
+	const { dir, base } = splitStem(stem);
+	return [
+		...JS_TEST_SUFFIXES.map((s) => `${stem}${s}`),
+		...pytestSiblings(base).map((n) => `${dir}${n}`),
+		`${stem}.test.py`,
+	];
+}
+
+/**
+ * `siblingTests` as a refusal spells it.
+ * @param {string} stem
+ */
+function spellSiblingTests(stem) {
+	const { dir, base } = splitStem(stem);
+	const { kind, module, lang, jsx } = JS_TEST_PARTS;
+	return `${stem}.{${kind}}.{${module}}{${lang}}s{${jsx}}, ${pytestSiblings(
+		base,
+	)
+		.map((n) => `${dir}${n}`)
+		.join(", ")} or ${stem}.test.py`;
+}
+
 /** @param {string} rel repo-relative, forward slashes */
 const isTestKind = (rel) => TEST_KIND.test(rel);
 
@@ -68,5 +137,9 @@ module.exports = {
 	PY_TEST_FILE,
 	PYTEST_DEFAULT_FILES,
 	isCollectedTestOrConftest,
+	isJsTestFile,
 	isTestKind,
+	pytestSiblings,
+	siblingTests,
+	spellSiblingTests,
 };

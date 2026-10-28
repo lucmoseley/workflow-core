@@ -309,7 +309,11 @@ fi
 # guard-registry gate above — the finding is a relationship between a test and a
 # script, and either half can be the one this commit stages — and on --against
 # for the same reason too (mantahostels#1753, mantahostels#1833).
-if armed '^scripts/.*\.(ts|sh)$'; then
+#
+# This gate, host-root-test-isolation's and git-fixture-identity's open on
+# lib/test-kind.js's `JS_TEST_FILE` in grep's ERE, pinned equal to it by
+# test-kind.test.ts.
+if armed '^scripts/.*\.(test|spec)\.[cm]?[jt]sx?$|^scripts/.*\.(ts|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
 fi
 
@@ -320,7 +324,7 @@ fi
 # Whole-repo and on --against for the same reason as the guard-test-isolation
 # gate above: the finding pairs a test with whatever script it spawns, and
 # either half can be the one this commit stages.
-if armed '^scripts/.*\.(test\.ts|js|sh)$'; then
+if armed '^scripts/.*\.(test|spec)\.[cm]?[jt]sx?$|^scripts/.*\.(js|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root-test-isolation.js --against HEAD || exit "$?"
 fi
 
@@ -333,7 +337,7 @@ fi
 # gate above: the finding pairs an init site with a commit site anywhere in
 # the same file, and a pathspec commit's staged-paths-only view could hold one
 # half without the other.
-if armed '^scripts/.*\.test\.ts$'; then
+if armed '^scripts/.*\.(test|spec)\.[cm]?[jt]sx?$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-git-fixture-identity.js --against HEAD || exit "$?"
 fi
 

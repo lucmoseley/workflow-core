@@ -618,7 +618,7 @@ describe("a repo judged against its host registries (#1456)", () => {
 			"not counted: .claude/guard-fire-needles.json has no entry",
 		);
 		expect(v.reason).toContain(
-			"no sibling test: no scripts/guard-new.test.{ts,js,mjs,cjs,py}",
+			"no sibling test: no scripts/guard-new.{test,spec}.{,c,m}{j,t}s{,x}, scripts/test_guard-new.py, scripts/guard-new_test.py or scripts/guard-new.test.py in this commit or in HEAD",
 		);
 		expect(v.reason).toContain("check-registrations.js` lists every hook");
 		expect(v.reason).not.toContain("hook-registrations.test.ts");
@@ -698,6 +698,26 @@ describe("a repo judged against its host registries (#1456)", () => {
 				),
 			).denied,
 		).toBe(false);
+	});
+
+	it("takes a .spec.js as a new host checker's sibling test (#3170)", () => {
+		adopter();
+		add("scripts/check-new.js", "// new\n");
+		add("scripts/check-new.spec.js", "// covered\n");
+		edit(
+			".claude/registrations.json",
+			registrations({
+				hooks: [row("guard-existing.sh")],
+				calledElsewhere: { "check-new.js": "hand-only (#1)" },
+			}),
+		);
+		const v = run(
+			commit(
+				"scripts/check-new.js scripts/check-new.spec.js .claude/registrations.json",
+			),
+		);
+		expect(v.reason ?? "").not.toContain("no sibling test");
+		expect(v.denied).toBe(false);
 	});
 
 	it("never reads a check-<name>.test.js or .spec.js as a new checker, nor a guard-<name>.spec.js as a guard (#3012)", () => {
