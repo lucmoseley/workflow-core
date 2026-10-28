@@ -72,14 +72,49 @@ function readPackage(root) {
 
 /* A command is read through each `npm run`, `pnpm run`, `yarn run` or
  * `bun run` it makes into the script that names, with the runner's flags
- * before the name, and the words after it up to a `--`: npm's own flags,
- * which it keeps, or the words pnpm, yarn and bun hand on to the script, so
- * the script is walked with those on its end (#3153, #3193). Residual: a runner's run-less shorthand (`yarn <script>`), and
- * a script reached through a shell file, are not followed, and what follows a
- * `--`, or a quoted word, is not folded, so it reads as more than one
- * command. */
-const RUN_SCRIPT =
-	/\b(npm|pnpm|yarn|bun)(?:\s+(?!run\b)[^\s;&|]+)*?\s+run(?:-script)?(?:\s+-\S+)*\s+["']?([^\s;&|"']+)["']?((?:\s+(?!--(?:\s|$))(?:-|(?<!\bnpm\s[^;&|]*))[^\s;&|<>()`"']+)*)/g;
+ * before the name, and the script is walked with the words the run hands on
+ * to it on its end (#3153, #3193). Those words run to the end of the line or
+ * an operator; `parseHandedWords` decides which reach the script. Residual: a
+ * runner's run-less shorthand (`yarn <script>`), and a script reached
+ * through a shell file, are not followed. */
+const RUN_WORD = /(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|<>()`"'])+/g;
+const RUN_SCRIPT = new RegExp(
+	String.raw`\b(npm|pnpm|yarn|bun)(?:\s+(?!run\b)[^\s;&|]+)*?\s+run(?:-script)?(?:\s+-\S+)*\s+["']?([^\s;&|"']+)["']?((?:[^\S\n]+${RUN_WORD.source})*)`,
+	"g",
+);
+const QUOTED = /"([^"]*)"|'([^']*)'/g;
+
+/**
+ * The words after a run's script name that reach the script, unquoted, each
+ * after a space, one holding a space kept quoted. npm keeps the flags before
+ * a `--` as its own and drops the `--`; pnpm, yarn and bun hand on every
+ * word (#3413). Residual: the value of an npm flag given after a space
+ * (`--loglevel silent`) reads as a word handed on.
+ * @param {string} runner
+ * @param {string} words
+ */
+function parseHandedWords(runner, words) {
+	const all = [...words.matchAll(RUN_WORD)].map((m) =>
+		m[0].replace(QUOTED, (_, d, q) => d ?? q),
+	);
+	const cut = all.indexOf("--");
+	const kept =
+		runner === "npm"
+			? [
+					...(cut < 0 ? all : all.slice(0, cut)).filter(
+						(w) => !w.startsWith("-"),
+					),
+					...(cut < 0 ? [] : all.slice(cut + 1)),
+				]
+			: all;
+	return kept.map((w) => (/\s/.test(w) ? ` "${w}"` : ` ${w}`)).join("");
+}
+
+/* A text with each run's runner and name shed and its handed-on words kept,
+ * so words a run's own quote does not close, or a missing script's, are
+ * still read where they stand (#3413). */
+/** @param {string} text */
+const unrun = (text) => text.replace(RUN_SCRIPT, (...m) => ` ${m[3]}`);
 
 /**
  * @typedef {{name: string|null, text: string, handed: string}} Hop `text` is
@@ -112,10 +147,10 @@ function walkRunScripts(scripts, command, visit) {
 			const script = scripts[name];
 			if (seen.has(name) || typeof script !== "string") continue;
 			seen.add(name);
-			const handed =
-				requiredGroup(m, 1, RUN_SCRIPT) === "npm"
-					? ""
-					: requiredGroup(m, 3, RUN_SCRIPT);
+			const handed = parseHandedWords(
+				requiredGroup(m, 1, RUN_SCRIPT),
+				requiredGroup(m, 3, RUN_SCRIPT),
+			);
 			const found = walk(
 				[...hops, { name, text: script, handed }],
 				`${script}${handed}`,
@@ -140,7 +175,7 @@ function runsLintStaged(root, command) {
 	const { scripts } = readPackage(root);
 	return (
 		walkRunScripts(scripts, command, (text) =>
-			LINT_STAGED.test(text.replace(RUN_SCRIPT, " ")) ? true : undefined,
+			LINT_STAGED.test(unrun(text)) ? true : undefined,
 		) ?? false
 	);
 }
@@ -438,8 +473,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 		command,
 		/** @param {string} text @param {Hop[]} hops */
 		(text, hops) => {
-			const segment = text
-				.replace(RUN_SCRIPT, " ")
+			const segment = unrun(text)
 				.split(SEGMENT)
 				.map(shed)
 				.find((s) => {

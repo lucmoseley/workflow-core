@@ -61,6 +61,12 @@ describe("runsLintStaged", () => {
 		"npm --prefix . run pre",
 		"pnpm run --silent pre",
 		"biome check . && yarn run pre",
+		// A missing script's handed words stop at the line's end (#3413).
+		"pnpm run nosuch\nlint-staged",
+		'concurrently "pnpm run nosuch" "lint-staged"',
+		"npm run nosuch lint-staged",
+		"pnpm run nosuch -- lint-staged",
+		'yarn run nosuch "lint-staged"',
 	])("counts %j", (command) => {
 		expect(runsLintStaged(dir, command)).toBe(true);
 	});
@@ -70,6 +76,8 @@ describe("runsLintStaged", () => {
 		"npm run lint-staged",
 		"npm run missing",
 		"npm run loop",
+		"pnpm run nosuch\ntsc",
+		'concurrently "pnpm run nosuch" "tsc"',
 	])("does not count %j", (command) => {
 		expect(runsLintStaged(dir, command)).toBe(false);
 	});
@@ -473,6 +481,36 @@ describe("classifyCheckStaged", () => {
 		).toEqual({
 			kind: "mapped",
 			command: `${BIOME_STAGED_COMMAND} --verbose`,
+		});
+	});
+
+	it.each([
+		["pnpm run nosuch\nbiome check --staged", "holds more than"],
+		["npm run check:staged -- --staged", "handed --staged,"],
+		["pnpm run check:staged -- --staged", "handed -- --staged,"],
+		["bun run check:staged -- --staged", "handed -- --staged,"],
+		['yarn run check:staged "--staged"', "handed --staged,"],
+		['concurrently "npm run nosuch" "biome check --staged"', "#2583"],
+		['concurrently "npm run tsc" "biome check --staged"', "#2583"],
+		["npm run nosuch biome check --staged", "#2583"],
+		["pnpm run nosuch -- biome check --staged", "#2583"],
+	])(
+		"refuses %j, reading the words a run hands on (#3413)",
+		(command, shape) => {
+			const c = classify("biome check", { command, inferred: false });
+			expect(c.kind === "refused" && c.refusal).toContain(shape);
+		},
+	);
+
+	it.each([
+		"pnpm run nosuch\nbiome check",
+		"npm run check:staged -- --verbose",
+		"npm run check:staged --staged",
+		'yarn run check:staged "--verbose"',
+		'concurrently "npm run nosuch" "biome check"',
+	])("leaves %j, which hands on no --staged, unclassified", (command) => {
+		expect(classify("biome check", { command, inferred: false })).toEqual({
+			kind: "none",
 		});
 	});
 
