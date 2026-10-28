@@ -58,7 +58,7 @@ const SEGMENT_RE = /&&|\|\||[;|&\n(`]|\$\(/;
 /** What may stand before a segment's command: a compound command's keyword,
  * `!`, a brace group, `time`, and `NAME=value` assignments. */
 const PREFIX_RE =
-	/^(?:\s*(?:(?:if|then|elif|else|do|while|until|time|!|\{)(?=\s)|[A-Za-z_]\w*=(?:"[^"]*"|'[^']*'|[^\s"'])*(?=\s)))*\s*/;
+	/^(?:\s*(?:(?:if|then|elif|else|do|while|until|time|!|\{)(?=\s)|[A-Za-z_]\w*=(?:"(?:[^"\\]|\\.)*"|'[^']*'|\\.|[^\s"'\\])*(?=\s)))*\s*/;
 
 /**
  * Whether `clauses` let a `tool` call whose judged text is `subject` through:

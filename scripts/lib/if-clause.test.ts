@@ -5,6 +5,7 @@
  * segment cases are guard-authoring.md's measured splits.
  */
 
+import { spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
 
 const { clausesAdmit } = require("./if-clause.js") as {
@@ -30,6 +31,10 @@ describe("clausesAdmit", () => {
 		["! git push", true],
 		["x=1 git commit -a -m y", true],
 		["A='a b' B=2 git push", true],
+		['A="" git status', true],
+		["A=it\\'s git push", true],
+		['A=a\\"b git push', true],
+		['A="a\\"b" git push', true],
 		["time git status", true],
 		["ls .gitignore", false],
 		["thenx git status", false],
@@ -39,15 +44,23 @@ describe("clausesAdmit", () => {
 		expect(clausesAdmit(["Bash(git *)"], "Bash", command)).toBe(admitted);
 	});
 
-	// Crosses the real clock: a regex match is synchronous, so no seam or
-	// vitest timeout can interrupt a backtracking one (CodeQL js/redos). 20
-	// pairs take ~12 s when each quote pair can also match as two `\S`.
+	// A regex match is synchronous, so only a process timeout can stop a
+	// backtracking one (#2188, CodeQL js/redos): 40 empty quote pairs never
+	// finish when each pair can also read as two bare characters, and finish
+	// in milliseconds when it cannot. 10 s is far above a linear read on any
+	// machine and far below that exponential one.
 	it("reads a long run of quotes with no command after it", () => {
-		const start = Date.now();
-		expect(clausesAdmit(["Bash(git *)"], "Bash", `A=${'""'.repeat(20)}`)).toBe(
-			false,
+		const r = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`process.exit(require(${JSON.stringify(require.resolve("./if-clause.js"))}).clausesAdmit(["Bash(git *)"], "Bash", process.argv[1]) ? 1 : 0)`,
+				`A=${'""'.repeat(40)}`,
+			],
+			{ timeout: 10_000 },
 		);
-		expect(Date.now() - start).toBeLessThan(1000);
+		expect(r.signal).toBeNull();
+		expect(r.status).toBe(0);
 	});
 
 	it("matches a glob across lines", () => {

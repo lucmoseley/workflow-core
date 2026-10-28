@@ -20,6 +20,7 @@
  * arming limb and every session, selection or not, is examined.
  */
 
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -173,14 +174,29 @@ describe("what counts as a dispatch message", () => {
 		expect(r.reason).toContain("without stating");
 	});
 
-	// Crosses the real clock: a regex match is synchronous, so no seam can
-	// interrupt a backtracking one (Sonar javascript:S5852). 16 numbers took
-	// ~2 s, doubling per number, when each comma's spaces could split two ways.
+	// A regex match is synchronous, so only a process timeout can stop a
+	// backtracking one (#2188, Sonar javascript:S5852): 40 double-spaced
+	// numbers never finish when each comma's spaces can split two ways, and
+	// finish in milliseconds when they cannot. 10 s is far above a linear read
+	// on any machine and far below that exponential one.
 	it("reads a long bold number list that dispatches nothing, promptly", () => {
-		const numbers = Array.from({ length: 16 }, (_, i) => i + 1).join(",  ");
-		const start = Date.now();
-		expect(run(`**${numbers}** were read.`).blocked).toBe(false);
-		expect(Date.now() - start).toBeLessThan(1000);
+		const numbers = Array.from({ length: 40 }, (_, i) => i + 1).join(",  ");
+		const r = spawnSync(process.execPath, [GUARD], {
+			input: JSON.stringify({
+				session_id: sid,
+				transcript_path: transcriptWith(`**${numbers}** were read.`),
+			}),
+			cwd: dir,
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: root,
+				WFC_REPO_ROOT: root,
+				CLAUDE_JOB_DIR: "",
+			},
+			timeout: 10_000,
+		});
+		expect(r.signal).toBeNull();
+		expect(r.stdout.toString().trim()).toBe("");
 	});
 
 	it("recognises a hash and a space before a later number", () => {

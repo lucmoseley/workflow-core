@@ -272,6 +272,8 @@ it("runs the declared full_test over test, and the Python suite only where the c
 	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
 });
 
+// #2188 (CodeQL js/shell-command-injection-from-environment): the runner's
+// path once went into `sh -c` unquoted.
 it("runs the Python suite from a plugin path with a space in it", async () => {
 	const pytest = path.join(tmp, "a plugin", "fake-pytest.js");
 	const ran = path.join(tmp, "pytest-ran");
