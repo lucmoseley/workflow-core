@@ -69,6 +69,50 @@ describe("mergeFrontiers (#2003)", () => {
 		expect(ranked(merged)).toEqual(["never#5", "older#9", "recent#1"]);
 	});
 
+	it("gives a full tie to the oldest issue across repos, before the repo tie-break", () => {
+		const merged = mergeFrontiers([
+			{
+				root: "older",
+				lastLaunchAt: 1000,
+				retroBundles: [],
+				rows: [row(900, { createdAt: "2026-09-01T00:00:00Z" })],
+			},
+			{
+				root: "recent",
+				lastLaunchAt: 2000,
+				retroBundles: [],
+				rows: [row(3, { createdAt: "2026-01-01T00:00:00Z" })],
+			},
+		]);
+		expect(ranked(merged)).toEqual(["recent#3", "older#900"]);
+	});
+
+	it("passes a row without a date to the repo tie-break", () => {
+		const merged = mergeFrontiers([
+			{ root: "recent", lastLaunchAt: 2000, retroBundles: [], rows: [row(1)] },
+			{
+				root: "older",
+				lastLaunchAt: 1000,
+				retroBundles: [],
+				rows: [row(9, { createdAt: "2026-09-01T00:00:00Z" })],
+			},
+		]);
+		expect(ranked(merged)).toEqual(["older#9", "recent#1"]);
+	});
+
+	it("passes a row without a date to the repo tie-break when its repo launched longer ago", () => {
+		const merged = mergeFrontiers([
+			{
+				root: "recent",
+				lastLaunchAt: 2000,
+				retroBundles: [],
+				rows: [row(1, { createdAt: "2026-01-01T00:00:00Z" })],
+			},
+			{ root: "older", lastLaunchAt: 1000, retroBundles: [], rows: [row(9)] },
+		]);
+		expect(ranked(merged)).toEqual(["older#9", "recent#1"]);
+	});
+
 	it("lets a higher sort level beat the repo tie-break", () => {
 		const merged = mergeFrontiers([
 			{ root: "older", lastLaunchAt: 1000, retroBundles: [], rows: [row(1)] },

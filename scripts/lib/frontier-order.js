@@ -23,7 +23,7 @@ const WAITING_LABEL = "waiting:external";
 
 /**
  * One pick-next `--json` frontier row, as far as the merge reads it.
- * @typedef {Omit<SortLevels, "collision"> & {number: number, collision: string}} FrontierRow
+ * @typedef {Omit<SortLevels, "collision"> & {number: number, createdAt?: string, collision: string}} FrontierRow
  */
 
 /**
@@ -77,8 +77,8 @@ const joinInherited = (a, b) => ({
 
 /**
  * Every repo's rows in one ranking, and its retro bundles in one list, each
- * tagged with its `root`. Below collision, the repo launched least recently
- * wins, a never-launched one first.
+ * tagged with its `root`. Below collision, the oldest issue wins; then the
+ * repo launched least recently, a never-launched one first.
  * @param {RepoFrontier[]} repos
  */
 function mergeFrontiers(repos) {
@@ -94,10 +94,14 @@ function mergeFrontiers(repos) {
 		...row,
 		collision: row.collision !== "comment-only",
 	});
+	/** Oldest first; a row without a date ties on age (#3385). @param {FrontierRow} a @param {FrontierRow} b */
+	const byAge = (a, b) =>
+		Date.parse(a.createdAt ?? "") - Date.parse(b.createdAt ?? "") || 0;
 	const frontier = tagged
 		.sort(
 			(a, b) =>
 				compareLevels(levels(a.row), levels(b.row)) ||
+				byAge(a.row, b.row) ||
 				a.launched - b.launched ||
 				a.row.number - b.row.number ||
 				a.root.localeCompare(b.root),

@@ -70,6 +70,7 @@ interface Issue {
 	number: number;
 	title?: string;
 	body?: string;
+	createdAt?: string;
 	labels?: string[];
 	assignees?: string[];
 	parent?: number | null;
@@ -271,6 +272,7 @@ if (/issues\\?state=open/.test(p)) {
     title: i.title || ("issue " + i.number),
     body: i.body || "",
     html_url: "http://example/" + i.number,
+    created_at: i.createdAt,
     assignees: (i.assignees || []).map((login) => ({ login })),
     labels: (i.labels || []).map((name) => ({ name })),
     parent_issue_url: i.parentUrl || (i.parent ? "http://api/issues/" + i.parent : null),
@@ -1343,6 +1345,14 @@ describe("ordering", () => {
 			issues: [{ number: 9 }, { number: 4 }, { number: 7 }],
 		});
 		expect(r.order()).toEqual([4, 7, 9]);
+	});
+
+	it("hands each frontier row's creation date to the merge across repos", async () => {
+		const r = await run(
+			{ issues: [{ number: 4, createdAt: "2026-01-02T03:04:05Z" }] },
+			["--json"],
+		);
+		expect(r.json().frontier[0].createdAt).toBe("2026-01-02T03:04:05Z");
 	});
 });
 

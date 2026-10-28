@@ -185,9 +185,10 @@ function readRecentEntries(root, windowHours) {
 
 /**
  * The latest launch's time in ms, any age, released or not, or null where
- * this tree never launched — the refill loop's cross-repo tie-break, which
- * reads null as launched longest ago. An unreadable ledger fails open to null
- * too: it only orders full ties, so the cost is that repo winning them (#2003).
+ * this tree never launched — the refill loop's cross-repo tie-break after
+ * ticket age (#3385), which reads null as launched longest ago. An unreadable
+ * ledger fails open to null too: it only orders full ties, so the cost is that
+ * repo winning them (#2003).
  * @param {string} root
  * @returns {number|null}
  */

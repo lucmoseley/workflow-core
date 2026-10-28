@@ -247,6 +247,7 @@ async function ghGet(path) {
  * @property {number} number
  * @property {string} title
  * @property {string} url
+ * @property {string} createdAt ISO 8601, GitHub's `created_at`
  * @property {string[]} assignees
  * @property {string[]} labels
  * @property {string} body
@@ -417,6 +418,7 @@ async function openIssues() {
 				// The list's own repo where a row carries no repository_url, so a
 				// same-repo parent is never read as another repo's.
 				...edgeOf(i, listRepo()),
+				createdAt: i.created_at,
 				assignees: (i.assignees || []).map((/** @type {any} */ a) => a.login),
 				parent: i.parent_issue_url,
 			}))
@@ -1738,6 +1740,8 @@ function frontierJson(i) {
 		number: i.number,
 		title: i.title,
 		url: i.url,
+		// mergeFrontiers' age tie-break across repos (#3385)
+		createdAt: i.createdAt,
 		bug: i.bug,
 		urgent: i.urgent,
 		urgentVia: i.urgentVia,
