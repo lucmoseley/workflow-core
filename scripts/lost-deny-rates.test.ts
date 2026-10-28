@@ -826,7 +826,7 @@ describe("the staleness check against lib/guard-deny-rates.js", () => {
 	it("says nothing about a guard the pinned table carries", () => {
 		expect(
 			unpinnedFor(
-				"guard-issue-close.js",
+				"guard-suite-concurrency.js",
 				'echo \'{"permissionDecision":"deny"}\'',
 				"deny",
 			),
