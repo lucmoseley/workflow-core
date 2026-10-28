@@ -1,10 +1,11 @@
 // @vitest-environment node
 /*
  * Pins the probe CLI as the refill loop's stale-seat read calls it (#2306):
- * `--config-dir` names the seat, a fresh cache runs no `claude`, and a stale
- * one hands the probe's printed bars to stdout. The dispatcher's own route
- * through it is pinned in dispatch-sessions.test.ts. Break it and the loop
- * reads a seat it never probed, or probes one it need not.
+ * `--config-dir` names the seat, even an empty one (#2095), a fresh cache runs
+ * no `claude`, and a stale one hands the probe's printed bars to stdout. The
+ * dispatcher's own route through it is pinned in dispatch-sessions.test.ts.
+ * Break it and the loop reads a seat it never probed, or probes one it need
+ * not.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -18,17 +19,19 @@ const SCRIPT = path.resolve(__dirname, "usage-probe.js");
 
 let dir: string;
 let seat: string;
+let argv: string;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "usage-probe-"));
 	seat = path.join(dir, "seat");
+	argv = path.join(dir, "argv");
 	fs.mkdirSync(seat);
 	fs.writeFileSync(
 		path.join(dir, "claude"),
 		[
 			"#!/bin/bash",
 			buildAuthStatusBranch(),
-			`printf '%s %s\\n' "$CLAUDE_CONFIG_DIR" "$*" >> "${path.join(dir, "argv")}"`,
+			`printf '%s %s\\n' "$CLAUDE_CONFIG_DIR" "$*" >> "${argv}"`,
 			buildUsageBranch({ session: 12, week: 3 }),
 		].join("\n"),
 		{ mode: 0o755 },
@@ -46,16 +49,16 @@ function cache(fetchedAtMs: number): void {
 	);
 }
 
-function run() {
-	return runInProcessAsync(SCRIPT, ["--config-dir", seat], {
-		env: { ...process.env, WFC_CLAUDE_BIN: path.join(dir, "claude") },
+function run(configDir = seat, env: NodeJS.ProcessEnv = {}) {
+	return runInProcessAsync(SCRIPT, ["--config-dir", configDir], {
+		env: { ...process.env, ...env, WFC_CLAUDE_BIN: path.join(dir, "claude") },
+		// An empty seat reads `.claude.json` against the cwd: keep it off the repo's.
+		cwd: dir,
 	});
 }
 
 const readCalls = () =>
-	fs.existsSync(path.join(dir, "argv"))
-		? fs.readFileSync(path.join(dir, "argv"), "utf8").trim().split("\n")
-		: [];
+	fs.existsSync(argv) ? fs.readFileSync(argv, "utf8").trim().split("\n") : [];
 
 describe("the usage probe CLI (#2306)", () => {
 	it("exits 3 and runs no claude on the named seat while its cache is fresh", async () => {
@@ -74,5 +77,17 @@ describe("the usage probe CLI (#2306)", () => {
 		expect(r.stdout).toContain("Current session: 12% used");
 		expect(r.stderr).toBe("usage probe: finished\n");
 		expect(readCalls()).toEqual([`${seat} -p /usage --permission-mode manual`]);
+	});
+
+	it("keeps an empty --config-dir set over CLAUDE_CONFIG_DIR's seat (#2095, #3355)", async () => {
+		// A fresh cache on CLAUDE_CONFIG_DIR's seat: falling through to it would exit 3.
+		cache(Date.now());
+		const r = await run("", { CLAUDE_CONFIG_DIR: seat });
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("usage probe: finished\n");
+		// Raw, since readCalls' trim would eat the leading space an empty seat prints.
+		expect(fs.readFileSync(argv, "utf8")).toBe(
+			" -p /usage --permission-mode manual\n",
+		);
 	});
 });

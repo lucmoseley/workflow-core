@@ -10,7 +10,7 @@
  * fresh, for `allowance.js` to read on stdin; one `usage probe: <outcome>`
  * line on stderr, for a log. Flags after `--` go to `claude` before
  * `-p "/usage"`. The binary is WFC_CLAUDE_BIN, else `claude` on PATH; the
- * seat is --config-dir, else lib/config-dir.js's. A SIGTERM, SIGINT or SIGHUP
+ * seat is --config-dir, even an empty one (#2095), else lib/config-dir.js's. A SIGTERM, SIGINT or SIGHUP
  * stops the probe's group before this exits, so a caller's own timeout
  * orphans nothing; only a SIGKILL does.
  *
@@ -51,7 +51,7 @@ async function main() {
 	for (const sig of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.once(sig, () => abort.abort());
 	const r = await probeUsage({
-		configDir: flagValue(flags, "--config-dir") || defaultConfigDir(),
+		configDir: flagValue(flags, "--config-dir") ?? defaultConfigDir(),
 		claudeBin: claudeBin(),
 		claudeArgs: positionals,
 		signal: abort.signal,
