@@ -19,7 +19,7 @@ workflow-core — the hooks, guards, skills and checks that let many Claude Code
 
 ## Commands
 
-- `npm run status` — the repo-health checkers that no longer fire at session start; run it on demand.
+- `npm run status` — the repo-health checkers, which run only on demand.
 - `npm run typecheck` — the only type-check; neither `lint` nor `check` is one.
 - `npm run test:py` — pytest over your touched tests, across two workers (`-n 2`, pytest-xdist), through `scripts/run-pytest.js`; `-- scripts` runs the whole suite. Deps are `requirements-dev.txt`, installed by hand (`python3 -m pip install -r requirements-dev.txt`), never by `npm install`.
 - Biome on named files is `node_modules/.bin/biome check <paths>` (in a worktree `npx @biomejs/biome check <paths>`), never a bare `npx biome`.

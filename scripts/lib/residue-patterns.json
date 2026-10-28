@@ -54,7 +54,7 @@
 		{
 			"kind": "K6",
 			"name": "history glosses",
-			"pattern": "\\([\\w.-]*#[0-9]+, (which|where|whose)|since #[0-9]+|no longer|used to|(was|were) removed|retired (at|in|by|on)|superseded (at|by|in|on)",
+			"pattern": "\\([\\w.-]*#[0-9]+, (which|where|whose)|since [\\w.-]*#[0-9]+|no longer|used to|(was|were) removed|retired (at|in|by|on)|superseded (at|by|in|on)",
 			"precision": "~80%"
 		},
 		{
@@ -67,7 +67,8 @@
 			"kind": "K8",
 			"name": "ledgers and checkers",
 			"ledgerPattern": "(^|/)(doc-map-superseded|doc-map-retired-vocabulary|machinery-superseded)\\.json$",
-			"counted": "each entry in a ledgerPattern file holding any field beyond its search terms and allowlist is one hit, the ledger itself being live checker data (#2162); each repoPaths file is one hit",
+			"counted": "each entry in a ledgerPattern file holding any field beyond keptFields is one hit, the ledger itself being live checker data (#2162); each repoPaths file is one hit",
+			"keptFields": ["needles", "phrases", "allowlist"],
 			"repoPaths": {
 				"mantahostels": [
 					"docs/machinery/delete-zone.md",

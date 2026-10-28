@@ -14,6 +14,7 @@ interface Kind {
 	kind: string;
 	pattern?: string;
 	ledgerPattern?: string;
+	keptFields?: string[];
 	testFilesOnly?: boolean;
 }
 
@@ -21,13 +22,18 @@ const { testFile, kinds }: { testFile: string; kinds: Kind[] } = JSON.parse(
 	fs.readFileSync(path.join(__dirname, "residue-patterns.json"), "utf8"),
 );
 
-/** Each hit as `<line> <kind> <text>`, line 0 for a K8 ledger. */
+/** Each hit as `<line> <kind> <text>`, line 0 and the entry key for K8. */
 function residueHits(text: string, file: string): string[] {
 	const isTest = new RegExp(testFile).test(file);
 	const hits: string[] = [];
 	for (const k of kinds) {
-		if (k.ledgerPattern && new RegExp(k.ledgerPattern).test(file))
-			hits.push(`0 ${k.kind} ${file}`);
+		if (k.ledgerPattern && new RegExp(k.ledgerPattern).test(file)) {
+			const kept = new Set(k.keptFields);
+			const ledger: Record<string, object> = JSON.parse(text);
+			for (const [key, entry] of Object.entries(ledger))
+				if (Object.keys(entry).some((f) => !kept.has(f)))
+					hits.push(`0 ${k.kind} ${key}`);
+		}
 		if (!k.pattern || (k.testFilesOnly && !isTest)) continue;
 		const re = new RegExp(k.pattern);
 		text.split("\n").forEach((l, i) => {
@@ -61,6 +67,7 @@ describe("the strict patterns", () => {
 		["K3", "a legacy alias for flavour"],
 		["K4", "reads the legacy shape"],
 		["K6", "the checkers that no longer fire at session start"],
+		["K6", "the coverage authority since mantahostels#1849"],
 		["K7", "Rejected: a paid provider now."],
 	])("%s fires on %j", (kind, line) => {
 		expect(kindsHit(line)).toContain(kind);
@@ -81,9 +88,16 @@ describe("the strict patterns", () => {
 		expect(kindsHit(line, "scripts/a.js")).not.toContain("K5");
 	});
 
-	it("names a K8 ledger by its path alone", () => {
-		expect(kindsHit("{}", "docs/doc-map-superseded.json")).toEqual(["K8"]);
-		expect(kindsHit("{}", "docs/doc-map-restatements.json")).toEqual([]);
+	it("counts a K8 ledger entry only where it holds a narration field", () => {
+		const ledger = JSON.stringify({
+			cut: { needles: [{ needle: "82k" }], allowlist: [] },
+			vocab: { phrases: ["old name"] },
+			narrated: { needles: [], figure: "82k", retiredBy: "#9" },
+		});
+		expect(residueHits(ledger, "docs/doc-map-superseded.json")).toEqual([
+			"0 K8 narrated",
+		]);
+		expect(kindsHit(ledger, "docs/doc-map-restatements.json")).toEqual([]);
 	});
 
 	it("is case-sensitive", () => {
