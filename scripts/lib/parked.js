@@ -76,7 +76,7 @@ function readParkedBy(sessionId) {
  * @param {string} sessionId
  * @param {number[]} numbers
  */
-function markParked(sessionId, numbers) {
+function writeParkedBy(sessionId, numbers) {
 	const file = markerOf(sessionId);
 	if (numbers.length === 0) fs.rmSync(file, { force: true });
 	else fs.writeFileSync(file, `${[...new Set(numbers)].join("\n")}\n`);
@@ -84,7 +84,7 @@ function markParked(sessionId, numbers) {
 
 module.exports = {
 	PARKED_LABEL,
-	markParked,
+	writeParkedBy,
 	readParkedBy,
 	setParked,
 };
