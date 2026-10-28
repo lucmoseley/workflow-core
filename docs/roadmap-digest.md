@@ -1,6 +1,6 @@
 # workflow-core roadmap — digest (map only)
 
-v1.4 · updated 22 October 2026, 00:50 · 5 cards
+v1.5 · updated 28 October 2026, 20:33 · 5 cards
 
 > DERIVED ARTIFACT — do not edit by hand. Generated from `reference-roadmap.html` by `gen-roadmap-digest.js` as a step of the roadmap-edit loop. Card body, done-when and callouts are NOT here: when building a card, open the HTML and paste that card in full. This map exists so a build session knows what every other card is — its state, dependencies, m-code and execution surface — without loading the whole file. The version line above must match the roadmap HTML's; CI fails the build if they drift.
 
