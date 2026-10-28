@@ -119,6 +119,11 @@ const result = ${JSON.stringify(scopeOut)};
 if (result !== null) fs.writeFileSync(process.env.WFC_PYTEST_SCOPE_OUT, result);
 if (hang?.inflight !== undefined)
 	fs.writeFileSync(process.env.WFC_PYTEST_INFLIGHT_OUT, JSON.stringify(hang.inflight));
+// The wrapper writes the deadline once pytest has a pid; wait on that write
+// rather than on the order of two processes starting (#3516). Up to 5 s, half
+// the 10 s test timeout; a hanging fake skips it, as it would spend the ceiling.
+for (let i = 0; !hang && deadlineFile && !fs.existsSync(deadlineFile) && i < 100; i++)
+	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 50);
 const grandchild = hang?.grandchild
 	? require("node:child_process").spawn("sleep", ["60"], { stdio: "ignore" }).pid
 	: undefined;
@@ -683,8 +688,11 @@ describe("the hand-off file", () => {
 // The fake hangs past a lowered ceiling. Each case waits on the kill itself,
 // not on elapsed time (docs/practice/test-design-and-reliability.md).
 describe("the suite ceiling (#2702)", () => {
-	/* The fake must start node and write its files before the kill: `node -e
-	 * 0` measured 20 ms at load 14 here, so 1 s is a 50x margin. */
+	/* The fake must start node and write its files before the kill, which a
+	 * load-24 run missed at 1 s (#3516); the cases that need the kill still
+	 * race it (#3520). */
+	/** Lowered still, but far past any fake's exit. */
+	const FarCeiling = "60000";
 	const lowered = (dir: string) => ({
 		[CEILING_ENV]: "1000",
 		[DEADLINE_ENV]: path.join(dir, "deadline"),
@@ -718,6 +726,7 @@ describe("the suite ceiling (#2702)", () => {
 
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("SUITE CEILING");
+		expect(fs.existsSync(lowered(root)[DEADLINE_ENV])).toBe(false);
 		const [call] = readCalls();
 		expect(await gone(call?.pid ?? 0)).toBe(true);
 		expect(await gone(call?.grandchild ?? 0)).toBe(true);
@@ -766,8 +775,12 @@ describe("the suite ceiling (#2702)", () => {
 
 	it("writes the deadline and pytest's group where the environment names a file, and drops it once the run settles", async () => {
 		const root = repo();
-		const env = lowered(root);
-		const [python, readCalls] = fakePytest(undefined, 0, {});
+		// No kill to race the fake's record (#3516).
+		const env = {
+			[CEILING_ENV]: FarCeiling,
+			[DEADLINE_ENV]: path.join(root, "deadline"),
+		};
+		const [python, readCalls] = fakePytest(undefined, 0);
 		await wrap(python, root, [], env);
 
 		const [call] = readCalls();
@@ -778,8 +791,7 @@ describe("the suite ceiling (#2702)", () => {
 	it("leaves a run that closes inside the ceiling its own verdict", async () => {
 		const root = repo();
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		// Lowered still, but far past the fake's 20 ms exit.
-		const r = await wrap(python, root, [], { [CEILING_ENV]: "60000" });
+		const r = await wrap(python, root, [], { [CEILING_ENV]: FarCeiling });
 
 		expect(r.status).toBe(0);
 		expect(r.stderr).not.toContain("SUITE CEILING");
