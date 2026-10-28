@@ -19,11 +19,12 @@
  *
  * NO FAMILY (§N3), as `grant-permission.js`: 0 written; 1 the file sits in a
  * git working tree, is a symlink, lies in a directory others can reach, is
- * held by another run too long, holds a line assigning <NAME> it cannot
- * replace, or cannot be written; 2 bad arguments or a value no line can
- * carry. Every refusal leaves the file untouched, and one about the file
- * itself comes before the value is asked for, bar that line, which is read
- * only under the lock.
+ * not clean UTF-8, is held by another run too long, holds a line assigning
+ * <NAME> it cannot replace, or cannot be written; 2 bad arguments or a value
+ * no line can carry. Every refusal leaves the file untouched, and one about
+ * the file itself comes before the value is asked for, bar that line, which
+ * is read only under the lock, and a fault reading or writing it, met at the
+ * write.
  *
  * IN A WORKING TREE IS REFUSED (#3202): a `.git` in the file's directory or
  * any above it, as where XDG_CONFIG_HOME names a checkout or the home directory is a
@@ -48,6 +49,13 @@
  * rename (#3539). A lock whose run is gone is taken over.
  *
  * A SYMLINK IS REFUSED: its target may lie in a working tree (#640 review).
+ *
+ * A FILE NOT CLEAN UTF-8 IS REFUSED (#3550): a lossy decode would write each
+ * bad byte back as U+FFFD, so a UTF-16 file (Notepad's "Unicode") or a
+ * Latin-1 value stored by hand would be mangled. A NUL byte, which no .env
+ * line carries, is read as UTF-16 too: without its mark, ASCII in UTF-16 is
+ * valid UTF-8 whose lines no reader parses, so a rotated key's old value
+ * would stay. Checked before the prompt and again under the lock.
  *
  * NOTHING OF THE VALUE IS PRINTED — not it, its length or any part of it — and
  * nor is a malformed name, which is most likely the secret pasted in the
@@ -207,6 +215,52 @@ function looseWhy(p) {
 	if (st.uid !== process.getuid?.()) return "is not owned by you";
 	if ((st.mode & 0o077) !== 0) return "gives access to others";
 	return null;
+}
+
+const UTF8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+
+/**
+ * `file`'s text, empty where it is absent; or, where its bytes are not clean
+ * UTF-8, why not.
+ * @param {string} file
+ * @returns {{ text: string } | { why: string }}
+ */
+function readSecrets(file) {
+	if (!fs.existsSync(file)) return { text: "" };
+	const bytes = fs.readFileSync(file);
+	const resave = "Re-save it as UTF-8, then re-run.";
+	if (
+		(bytes[0] === 0xff && bytes[1] === 0xfe) ||
+		(bytes[0] === 0xfe && bytes[1] === 0xff) ||
+		bytes.includes(0)
+	) {
+		return {
+			why: `it opens with a UTF-16 mark or holds a NUL byte, so it looks saved as UTF-16 (Notepad's "Unicode"), which a rewrite would mangle. ${resave}`,
+		};
+	}
+	try {
+		return { text: UTF8.decode(bytes) };
+	} catch {
+		return {
+			why: `it holds bytes that are not valid UTF-8, which a rewrite would replace with U+FFFD. ${resave}`,
+		};
+	}
+}
+
+/**
+ * The refusal `file`'s encoding earns before the prompt, or null.
+ * @param {string} file
+ * @returns {number | null}
+ */
+function encodingRefusal(file) {
+	try {
+		const read = readSecrets(file);
+		return "why" in read ? refuse(file, read.why, 1) : null;
+	} catch {
+		/* Residual (#3550): a file that cannot be read is refused at the write,
+		 * naming its fault, so only after the value is typed. */
+		return null;
+	}
 }
 
 const LEFT = "a copy of the secrets file an earlier interrupted write left";
@@ -379,8 +433,9 @@ function storeValue(file, name, value) {
 		if (refused !== null) return refused;
 		ignoreAll(dir);
 
-		const text = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
-		const next = upsert(text, name, value);
+		const read = readSecrets(file);
+		if ("why" in read) return refuse(file, read.why, 1);
+		const next = upsert(read.text, name, value);
 		if ("brokenLine" in next) {
 			return refuse(
 				file,
@@ -443,6 +498,8 @@ function main(argv) {
 			1,
 		);
 	}
+	const unclean = encodingRefusal(file);
+	if (unclean !== null) return unclean;
 
 	if (!process.stdin.isTTY) return upsertEnv(file, name, readPiped(), false);
 	process.stderr.write(`Value for ${name} (typing hidden, Enter to finish): `);

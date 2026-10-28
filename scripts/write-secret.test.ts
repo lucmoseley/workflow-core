@@ -86,6 +86,7 @@ const seed = (text: string) => {
 	fs.writeFileSync(store(), text);
 };
 const read = () => fs.readFileSync(store(), "utf8");
+const UTF16_WHY = `it opens with a UTF-16 mark or holds a NUL byte, so it looks saved as UTF-16 (Notepad's "Unicode"), which a rewrite would mangle. Re-save it as UTF-8, then re-run.`;
 const modeOf = (p: string) => fs.statSync(p).mode & 0o777;
 const refused = (why: string) =>
 	`write-secret: refused, ${store()} untouched — ${why}\n`;
@@ -206,6 +207,38 @@ describe("write-secret", () => {
 				),
 			);
 			expect(read()).toBe(before);
+		},
+	);
+
+	it.each([
+		[
+			'a UTF-16 LE file, as Notepad saves "Unicode"',
+			Buffer.from("\uFEFFA=1\r\nK=old\r\n", "utf16le"),
+			UTF16_WHY,
+		],
+		[
+			"a UTF-16 LE file without its mark, which decodes as UTF-8",
+			Buffer.from("A=1\nK=old\n", "utf16le"),
+			UTF16_WHY,
+		],
+		[
+			"a file holding an invalid UTF-8 byte",
+			Buffer.concat([
+				Buffer.from("A=caf"),
+				Buffer.from([0xe9]),
+				Buffer.from("\nK=old\n"),
+			]),
+			"it holds bytes that are not valid UTF-8, which a rewrite would replace with U+FFFD. Re-save it as UTF-8, then re-run.",
+		],
+	])(
+		"refuses with exit 1 %s, its bytes unchanged (#3550)",
+		(_l, before, why) => {
+			makeStoreDir();
+			fs.writeFileSync(store(), before);
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(refused(why));
+			expect(fs.readFileSync(store())).toEqual(before);
 		},
 	);
 
