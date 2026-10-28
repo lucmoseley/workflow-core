@@ -480,6 +480,7 @@ module.exports = {
 	mergeHooks,
 	readOwnHookSources,
 	readOwnHooks,
+	readSettingsAt,
 	ownHooksFile,
 	pluginHooksFile,
 	selfPluginSetup,

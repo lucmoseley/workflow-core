@@ -53,8 +53,9 @@ const {
 	SELF_PLUGIN_HOOKS,
 	flattenHooks,
 	isCoreRoot,
-	readOwnHookSources,
+	readHooksAt,
 	readOwnHooks,
+	readSettingsAt,
 	ownHooksFile,
 } = require("./lib/core-hooks.js");
 const R = require("./lib/registrations.js");
@@ -245,15 +246,8 @@ function settingsFaults(ctx, root) {
 	/** @type {import("./lib/core-hooks.js").HookEntry[]} */
 	let self;
 	try {
-		const sources = readOwnHookSources(root);
-		/** @param {string} rel */
-		const of = (rel) => {
-			const source = sources.find(({ file }) => file === path.join(root, rel));
-			if (!source) throw new Error(`the shared reader returned no ${rel}`);
-			return flattenHooks(source.settings?.hooks ?? {});
-		};
-		settings = of(HOST_SETTINGS);
-		self = of(SELF_PLUGIN_HOOKS);
+		self = flattenHooks(readHooksAt(root, SELF_PLUGIN_HOOKS));
+		settings = flattenHooks(readSettingsAt(root)?.hooks ?? {});
 	} catch (e) {
 		return ctx.broken(
 			`${e instanceof Error ? e.message : String(e)} — nothing was judged`,
