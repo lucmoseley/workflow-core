@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/npm-install.js, guard-npm-install.js's core (#2800), in process: the
+ * lib/npm-install.js, the guard-npm-install core (#2800), in process: the
  * npm install boundary (mantahostels#1803, ruled at mantahostels#1767).
  *
  * THREE CHECKS, tested in both directions each: the execution window
@@ -68,6 +68,7 @@ interface Over {
 	manifests?: Record<string, string>;
 	allow?: boolean;
 	now?: () => number;
+	startedAt?: number;
 	vars?: Record<string, string>;
 }
 
@@ -95,6 +96,7 @@ function harness(reg: Partial<Registry> = {}, over: Over = {}) {
 			return downloadsAnswer(full);
 		},
 		now: over.now ?? (() => NOW),
+		startedAt: () => over.startedAt ?? NOW,
 		allowNewPackage: over.allow ?? false,
 	});
 	return { ctx, logs, calls };
@@ -343,7 +345,7 @@ ${ESCAPE}`,
 			denial(
 				install,
 				{ created: daysAgo(0) },
-				{ now: () => NOW + 10 * 86_400_000 },
+				{ now: () => NOW + 10 * 86_400_000, startedAt: NOW + 10 * 86_400_000 },
 			),
 		).toMatch(/first published 10 days ago/);
 	});
@@ -677,24 +679,28 @@ describe("the time budget", () => {
 	};
 
 	it("refuses, in full, a package the budget ran out before", () => {
-		// Reads: the deadline, left-pad's start, its age, then ms's start at
-		// 30 s past the deadline's base.
-		expect(denial(install, {}, { now: stepping(10) })).toBe(
+		// Reads: left-pad's start, its age, then ms's start at 30 s past the
+		// hook's start.
+		expect(denial(install, {}, { now: stepping(15) })).toBe(
 			`This guard ran out of its own time budget before it could check \`ms\`, so nothing is known about it: ${install}
 
-The budget is 30 s, under the hook's 60 s ceiling — a hook killed at that ceiling emits nothing at all, which reads as no objection. Install one package at a time and each gets checked.
+The budget is 30 s from the hook's start, under its 60 s ceiling — a hook killed at that ceiling is refused without saying which package was unchecked. Install one package at a time and each gets checked.
 
 ${ESCAPE}`,
 		);
 	});
 
 	it("asks about every package started inside the budget", () => {
-		// ms starts at 27 s, inside the 30 s budget.
-		expect(allows(install, {}, { now: stepping(9) })).toBe(true);
+		// ms starts at 28 s, inside the 30 s budget.
+		expect(allows(install, {}, { now: stepping(14) })).toBe(true);
+	});
+
+	it("spends the budget the cores ahead of it used", () => {
+		expect(callsOf(install, {}, { startedAt: NOW - 30_000 })).toEqual([]);
 	});
 
 	it("never asks the registry about a package past the budget", () => {
-		expect(callsOf(install, {}, { now: stepping(10) })).toEqual([
+		expect(callsOf(install, {}, { now: stepping(15) })).toEqual([
 			"npm view left-pad time.created --json",
 			"downloads left-pad",
 		]);

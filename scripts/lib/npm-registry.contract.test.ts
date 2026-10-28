@@ -39,7 +39,7 @@ const { decide } = require("./npm-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
 };
 const { buildHostPorts } = require("./npm-install-host.js") as {
-	buildHostPorts: (env: { root: string }) => {
+	buildHostPorts: (root: string) => {
 		npmView: (pkg: string) => Call;
 		downloads: (pkg: string) => Call;
 	};
@@ -113,6 +113,7 @@ function verdictOf(port: Port, pkg: string, answer: Call): string | null {
 		downloads: () => downloadsAnswer(PASSING),
 		[port]: () => answer,
 		now: () => Date.now(),
+		startedAt: () => Date.now(),
 		allowNewPackage: false,
 	});
 	return decide(`npm i --ignore-scripts ${pkg}`, ctx)?.deny ?? null;
@@ -164,14 +165,14 @@ const realAnswer = (port: Port, c: (typeof CASES)[number]) => {
 		process.env.WFC_NPM = path.join(dir, "no-such-npm");
 		process.env.WFC_CURL = path.join(dir, "no-such-curl");
 	}
-	return buildHostPorts({ root: dir })[port](c.pkg);
+	return buildHostPorts(dir)[port](c.pkg);
 };
 
 const stubAnswer = (port: Port, c: (typeof CASES)[number]) => {
 	Object.assign(process.env, writeRegistryStubs(dir)(c.reg), {
 		STUB_CALLS: path.join(dir, "calls.log"),
 	});
-	return buildHostPorts({ root: dir })[port](c.pkg);
+	return buildHostPorts(dir)[port](c.pkg);
 };
 
 const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
