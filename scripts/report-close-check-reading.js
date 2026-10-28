@@ -8,7 +8,10 @@
  * FILES ONE ISSUE, ONCE (#1104). A plain run at the reading point files the
  * reading as TITLE, `takes:wayfinder`; before it, and on `--dry-run`, it
  * prints the figures so far and files nothing. Once its issue exists, open or
- * closed, it never files again (lib/log-reading.js's `buildFiler`).
+ * closed, it never files again (lib/log-reading.js's `buildFiler`), and a
+ * plain run returns on reading its record, before any log or transcript
+ * (#3326): it then prints no ladder line and exits 0 on a log or baseline
+ * that will not read, which only `--dry-run` still reports.
  *
  * RUNS DETACHED AT EVERY SESSION START, from scripts/sweep-debts-detached.sh,
  * because the log and the transcripts are machine-local and no CI runner can
@@ -43,7 +46,7 @@
  * own window: LADDER_DAYS from its first refusal or the first re-send
  * logging its `rungs`, whichever is sooner. Its success line is the
  * founder's prompts after a still-caught re-send falling to LADDER_LINE or
- * less; it is printed on every run, after the reading has
+ * less; it is printed with the reading, on `--dry-run` after the reading has
  * filed too, never filed, and fires nothing above.
  *
  * Exit 0 whether or not it files, SKIP included; exit 2 for a log or baseline
@@ -507,6 +510,12 @@ function main() {
 		return;
 	}
 	const filed = readFiledAs();
+	if (filed && !dryRun) {
+		console.log(
+			`The close-check reading is filed as ${filed}; nothing to file.`,
+		);
+		return;
+	}
 	const nowMs = now();
 
 	const seats = lists["--config-dir"] ?? configDirs();
@@ -527,16 +536,6 @@ function main() {
 		transcripts,
 		(kind) => kind === "passed-after-refusal" || kind === "passed-at-cap",
 	);
-	const ladder = buildLadderReadingLines(events, lastTurnAnswers, nowMs);
-	if (filed && !dryRun) {
-		console.log(
-			[
-				`The close-check reading is filed as ${filed}; nothing to file.`,
-				...ladder,
-			].join("\n"),
-		);
-		return;
-	}
 
 	const point = readingPoint(
 		live,
@@ -575,7 +574,7 @@ function main() {
 	out.push(...lines.map((l) => l.text));
 	out.push("", buildFiredLine(lines.map((l) => l.verdict)));
 	out.push(...buildClassifyLines(t));
-	out.push(...ladder);
+	out.push(...buildLadderReadingLines(events, lastTurnAnswers, nowMs));
 	publish(out.join("\n"), { reached: at.reached, dryRun, filed });
 }
 

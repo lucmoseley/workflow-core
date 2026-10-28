@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { minute } from "./lib/log-reading";
 import { MARKERS_REL } from "./lib/marker-root";
@@ -790,6 +790,7 @@ describe("filing the reading (#1104)", () => {
 		run(now, args, "workflow-core", gh);
 
 	beforeEach(() => stubGh());
+	afterEach(() => vi.restoreAllMocks());
 
 	it("files nothing, and calls gh not at all, before the reading point", () => {
 		allLive();
@@ -839,7 +840,53 @@ describe("filing the reading (#1104)", () => {
 		expect(ghCalls()).toBe("");
 	});
 
-	it("still prints the research ladder's reading once it has filed (#2010)", () => {
+	/** Records each listing or read under a seat's `projects/`, and throws on
+	 *  it, so a read the reporter does not catch fails the run as well. */
+	const watchSeatReads = () => {
+		const underSeats = (p: unknown) =>
+			typeof p !== "number" &&
+			seats.some((s) => String(p).startsWith(path.join(s, "projects")));
+		const touched: string[] = [];
+		const throwing = <A extends unknown[], R>(real: (...a: A) => R) =>
+			((...a: A) => {
+				if (underSeats(a[0])) {
+					touched.push(String(a[0]));
+					throw new Error("transcript read");
+				}
+				return real(...a);
+			}) as (...a: A) => R;
+		const readdir = throwing(fs.readdirSync.bind(fs));
+		const readFile = throwing(fs.readFileSync.bind(fs));
+		vi.spyOn(fs, "readdirSync").mockImplementation(
+			readdir as typeof fs.readdirSync,
+		);
+		vi.spyOn(fs, "readFileSync").mockImplementation(
+			readFile as typeof fs.readFileSync,
+		);
+		return touched;
+	};
+
+	it("returns once it has filed without listing or reading any seat's transcripts (#3326)", () => {
+		reachedReading();
+		expect(file().status).toBe(0);
+		const touched = watchSeatReads();
+		const r = file(T0 + 9 * DAY);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe(
+			"The close-check reading is filed as https://github.com/o/r/issues/999; nothing to file.\n",
+		);
+		expect(touched).toEqual([]);
+	});
+
+	it("still walks the transcripts on --dry-run once it has filed (#3326)", () => {
+		reachedReading();
+		expect(file().status).toBe(0);
+		const touched = watchSeatReads();
+		expect(file(T0 + 9 * DAY, ["--dry-run"]).status).toBe(0);
+		expect(touched).not.toEqual([]);
+	});
+
+	it("still prints the research ladder's reading on --dry-run once it has filed (#2010)", () => {
 		reachedReading();
 		expect(file().status).toBe(0);
 		log("workflow-core", T0 + 8 * DAY, "laddered", {
@@ -850,11 +897,9 @@ describe("filing the reading (#1104)", () => {
 			flipped: true,
 			citesNewFact: true,
 		});
-		const r = file(T0 + 9 * DAY);
+		const r = file(T0 + 9 * DAY, ["--dry-run"]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			"nothing to file.\n\nResearch ladder (#2006, #2010)",
-		);
+		expect(r.stdout).toContain("Research ladder (#2006, #2010)");
 		expect(r.stdout).toContain(
 			"- Still-caught re-sends passed: 1, of 1 re-sends.",
 		);
