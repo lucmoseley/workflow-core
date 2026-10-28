@@ -20,7 +20,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { projectSlug, slugForRepo } = require("./project-slug.js");
 
@@ -46,7 +46,13 @@ describe("projectSlug — the spelling the harness writes", () => {
 
 describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 	const cwd = process.cwd();
-	afterEach(() => process.chdir(cwd));
+	const repo = path.join(__dirname, "..", "..");
+	// Unset, so the cases read the git top level of the cwd.
+	beforeEach(() => vi.stubEnv("CLAUDE_PROJECT_DIR", undefined));
+	afterEach(() => {
+		process.chdir(cwd);
+		vi.unstubAllEnvs();
+	});
 
 	/*
 	 * A SUBDIRECTORY OF THE REPO, not `os.tmpdir()` (#1). Since the seam,
@@ -64,7 +70,7 @@ describe("slugForRepo — for a script with no repoRoot() of its own", () => {
 	});
 
 	it("agrees with projectSlug on the repo root", () => {
-		expect(slugForRepo()).toBe(projectSlug(path.join(__dirname, "..", "..")));
+		expect(slugForRepo()).toBe(projectSlug(repo));
 	});
 });
 
