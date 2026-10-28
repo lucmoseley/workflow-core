@@ -335,7 +335,8 @@ function buildBlockText(r, readLive) {
  * these sessions owe draw headroom is open (#2502), and this line raises it.
  * It reads the newest tick's row while that tick is fresh, else `readLive()`,
  * as the loop is off unless being tested (#3215, #3496). An unread row prints,
- * as unknown is never calm (mantahostels#1206).
+ * as unknown is never calm (mantahostels#1206), and so does the reason a
+ * counted row's memory went unread (#3509).
  * @param {ReturnType<typeof readout>} r
  * @param {() => UnlistedRead} readLive
  */
@@ -349,10 +350,11 @@ function buildUnlistedLine(r, readLive) {
 				"at the last tick",
 			];
 	if (!u) return null;
-	if (u.count === null)
-		return `unlisted:  unknown ${when} — ${u.unknown ?? "unread"}`;
+	const why = u.unknown ?? "unread";
+	if (u.count === null) return `unlisted:  unknown ${when} — ${why}`;
 	if (u.count <= 0) return null;
-	return `unlisted:  ${u.count} session(s) outside admission's listing hold ${u.mb ?? "?"} MB ${when}, charged no draw headroom (#2502)`;
+	const held = u.mb == null ? `? MB ${when} (${why})` : `${u.mb} MB ${when}`;
+	return `unlisted:  ${u.count} session(s) outside admission's listing hold ${held}, charged no draw headroom (#2502)`;
 }
 
 function concurrencyFiles() {
