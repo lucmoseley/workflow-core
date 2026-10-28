@@ -67,6 +67,8 @@ describe("runsLintStaged", () => {
 		"npm run nosuch lint-staged",
 		"pnpm run nosuch -- lint-staged",
 		'yarn run nosuch "lint-staged"',
+		// A script name quoted in part (#3445).
+		'npm run p"re"',
 	])("counts %j", (command) => {
 		expect(runsLintStaged(dir, command)).toBe(true);
 	});
@@ -527,12 +529,12 @@ describe("classifyCheckStaged", () => {
 		["npm run check:staged -- 2>&1 --staged", "holds more than"],
 		["pnpm run check:staged $(echo --staged)", "command substitution"],
 		["pnpm run check:staged `echo --staged`", "command substitution"],
-		["pnpm run check:staged $FLAGS", "a parameter, brace"],
+		["pnpm run check:staged $FLAGS", "a parameter or brace range"],
 		["yarn run check:staged $'--staged'", "handed --staged,"],
 		['pnpm run check:staged -- $"--staged"', "handed -- --staged,"],
 		["pnpm run check:staged --sta\\\nged", "handed --staged,"],
-		["pnpm run check:staged --{staged,x}", "brace"],
-		["pnpm run check:staged $'\\x2d\\x2dstaged'", "ANSI-C"],
+		["pnpm run check:staged --{staged,x}", "handed --staged --x,"],
+		["pnpm run check:staged $'\\x2d\\x2dstaged'", "handed --staged,"],
 		['pnpm run check:staged >"o x" --staged', "holds more than"],
 	])(
 		"refuses %j, reading a continuation, redirect, $-quote or expansion in the words a run hands on (#3422)",
@@ -570,6 +572,61 @@ describe("classifyCheckStaged", () => {
 		expect(classify("biome check", { command, inferred: false })).toEqual({
 			kind: "none",
 		});
+	});
+
+	it.each([
+		["bi$@ome check --staged", "a command substitution, or a parameter"],
+		["biome check --sta$@ged", "a command substitution, or a parameter"],
+		["biome ch$1eck --staged", "a command substitution, or a parameter"],
+		["$B check --staged", "a command substitution, or a parameter"],
+		// Decoded and expanded before the shell runs anything.
+		["biome check $'--stag\\x65d'", "quotes or backslash-escapes a word"],
+		["$'bi\\x6fme' check --staged", "quotes or backslash-escapes a word"],
+		["biome check {--staged,}", "writes words as a brace expansion"],
+		["{biome,check} --staged", "writes words as a brace expansion"],
+		["biome {check,--staged}", "writes words as a brace expansion"],
+		// A $(( whose first ( closes first is a subshell in a substitution.
+		[
+			"echo $((cd /; biome check --staged) )",
+			`'${BIOME_STAGED_COMMAND}' for the Biome part`,
+		],
+		[
+			"biome check --staged <<< x",
+			`'${BIOME_STAGED_COMMAND}' for the Biome part`,
+		],
+		[
+			'biome check --staged <<< "a b"',
+			`'${BIOME_STAGED_COMMAND}' for the Biome part`,
+		],
+	])("refuses %j, read through the tokeniser (#3445)", (script, shape) => {
+		const c = classify(script);
+		expect(c.kind === "refused" && c.refusal).toContain(shape);
+	});
+
+	it("follows a script name quoted in part (#3445)", () => {
+		expect(
+			classify("biome check --staged", { command: 'npm run check:"staged"' }),
+		).toEqual({
+			kind: "mapped",
+			command: BIOME_STAGED_COMMAND,
+		});
+	});
+
+	it("reads a single-quoted '$x' handed on as a literal (#3445)", () => {
+		const c = classify("biome check --staged", {
+			command: "pnpm run check:staged '$x'",
+		});
+		const refusal = c.kind === "refused" ? c.refusal : "";
+		expect(refusal).toContain('passes the path "$x"');
+		expect(refusal).not.toContain("expansion");
+	});
+
+	it.each([
+		// A word that is only an expansion is an unknown value (#3422).
+		"biome check $(git diff --name-only)",
+		"biome check # --staged",
+	])("leaves %j, which runs no --staged, unclassified (#3445)", (script) => {
+		expect(classify(script)).toEqual({ kind: "none" });
 	});
 
 	it("refuses an npm run whose flag a redirect follows with no space (#3193)", () => {

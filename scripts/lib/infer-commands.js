@@ -13,8 +13,11 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { requiredGroup } = require("./regex-group.js");
+const { isOpaque, tokenise } = require("./shell-tokens.js");
 const { writeFd } = require("./write-fd.js");
+
+/** @typedef {import("./shell-tokens.js").Word} Word */
+/** @typedef {import("./shell-tokens.js").Token} Token */
 
 /** The `package.json` script names each command is read from, first match
  *  wins. Past the command's own name, a guess at the common spelling. */
@@ -70,125 +73,179 @@ function readPackage(root) {
 	};
 }
 
-/* A quoted span, `$'…'` and `$"…"` included (#3422). */
-const QUOTED_SPAN = /\$?(?:"[^"]*"|'[^']*')/g;
-/** A `$'…'` holding an escape is kept as written, for EXPANSION to refuse.
- * @param {string} span */
-const unquote = (span) =>
-	/^\$'.*\\/s.test(span) ? span : span.replace(/^\$?["']|["']$/g, "");
-const REDIRECT = new RegExp(
-	String.raw`(?:(?<![^\s(\`])\d+)?(?:&>>?|[<>]&|>>?|<)[^\S\n]*(?:${QUOTED_SPAN.source}|[^\s()\`"'])*`,
-	"g",
-);
 /* A backslash-newline, which the shell deletes. */
 const CONTINUATION = /\\\n/g;
-/* A command substitution, a parameter, brace or ANSI-C escape expansion,
- * whose words are not known until the shell runs it (#3422). */
-const EXPANSION = /\$[({\w@*#?!$'-]|`|\{(?=[^{}\s]*(?:,|\.\.))[^{}\s]*\}/;
+
+/** @param {Token[]} tokens each simple command's words, split at operators */
+function simpleCommands(tokens) {
+	/** @type {Word[][]} */
+	const commands = [];
+	/** @type {Word[]} */
+	let current = [];
+	for (const t of tokens) {
+		if (t.type === "word") current.push(t);
+		else if (t.type === "op") {
+			commands.push(current);
+			current = [];
+		}
+	}
+	commands.push(current);
+	return commands.filter((c) => c.length > 0);
+}
+
+/**
+ * Every simple command `tokens` holds: its own, then each substitution's and
+ * each quoted span's, which a runner such as `concurrently` runs.
+ * @param {Token[]} tokens
+ * @returns {Word[][]}
+ */
+function allCommands(tokens) {
+	return simpleCommands(tokens).concat(
+		tokens.flatMap((t) => {
+			const word = t.type === "redirect" ? t.target : t;
+			return word?.type === "word"
+				? [...word.subs, ...word.spans.map(tokenise)].flatMap(allCommands)
+				: [];
+		}),
+	);
+}
 
 /* A command is read through each `npm run`, `pnpm run`, `yarn run` or
  * `bun run` it makes into the script that names, with the runner's flags
  * before the name, and the script is walked with the words the run hands on
- * to it on its end (#3153, #3193). Those words run to the end of the line or
- * an operator; `parseHandedWords` decides which reach the script.
- * Residual: a runner's run-less shorthand (`yarn <script>`), a name quoted in
- * part (`li"nt"`), and a script reached through a shell file, are not
- * followed. */
-const RUN_WORD = new RegExp(
-	String.raw`(?:${QUOTED_SPAN.source}|\$\(|[^\s;&|<>()"'])+`,
-	"g",
-);
-const RUN_SCRIPT = new RegExp(
-	String.raw`\b(npm|pnpm|yarn|bun)(?:\s+(?!run\b)[^\s;&|]+)*?\s+run(?:-script)?(?:\s+-\S+)*\s+(${QUOTED_SPAN.source}|[^\s;&|<>()"']+)((?:[^\S\n]*${REDIRECT.source}|[^\S\n]+${RUN_WORD.source})*)`,
-	"g",
-);
-const HANDED_TOKEN = new RegExp(`(${REDIRECT.source})|${RUN_WORD.source}`, "g");
+ * to it on its end (#3153, #3193). Residual: a runner's run-less shorthand
+ * (`yarn <script>`), a script name holding an expansion, and a script reached
+ * through a shell file, are not followed. */
+const RUNNERS = new Set(["npm", "pnpm", "yarn", "bun"]);
+
+/** @typedef {{runner: string, name: string, at: number, end: number}} Run
+ *  `at` the runner's index in its command, `end` past the script name's. */
+
+/** @param {Word[]} command @returns {Run|undefined} */
+function findRun(command) {
+	const at = command.findIndex((w) => !isOpaque(w) && RUNNERS.has(w.value));
+	const runner = command[at];
+	if (!runner) return;
+	let k = command.findIndex(
+		(w, i) => i > at && (w.value === "run" || w.value === "run-script"),
+	);
+	if (k < 0) return;
+	do k++;
+	while (command[k]?.value.startsWith("-"));
+	const name = command[k];
+	if (!name || isOpaque(name)) return;
+	return { runner: runner.value, name: name.value, at, end: k + 1 };
+}
+
+/* A command with its run's runner and name shed and its handed-on words
+ * kept, so words a missing script's run hands on are still read where they
+ * stand (#3413). */
+/** @param {Word[]} command */
+function withoutRun(command) {
+	const run = findRun(command);
+	return run
+		? [...command.slice(0, run.at), ...command.slice(run.end)]
+		: command;
+}
+
+/** Whether a word holds a space, so it cannot be written unquoted.
+ * @param {Word} w */
+const hasSpace = (w) => /\s/.test(w.value);
 
 /**
- * The words after a run's script name that reach the script, unquoted, each
- * after a space, one holding a space kept quoted. npm keeps the flags before
- * a `--` as its own and drops the `--`; pnpm, yarn and bun hand on every
- * word (#3413). Residual: the value of an npm flag given after a space
- * (`--loglevel silent`) reads as a word handed on.
+ * The words after a run's script name that reach the script. npm keeps the
+ * flags before a `--` as its own and drops the `--`; pnpm, yarn and bun hand
+ * on every word (#3413). Each reaches the script as one literal word, so it
+ * counts as quoted only where it holds a space, and as braced never. Residual: the value of an npm
+ * flag given after a space (`--loglevel silent`) reads as a word handed on.
  * @param {string} runner
- * @param {string} words
+ * @param {Word[]} words
+ * @returns {Word[]}
  */
-function parseHandedWords(runner, words) {
-	const all = [...words.matchAll(HANDED_TOKEN)]
-		.filter((m) => m[1] === undefined)
-		.map((m) => m[0].replace(QUOTED_SPAN, unquote));
-	const cut = all.indexOf("--");
+function handedWords(runner, words) {
+	const cut = words.findIndex((w) => w.value === "--");
 	const kept =
 		runner === "npm"
 			? [
-					...(cut < 0 ? all : all.slice(0, cut)).filter(
-						(w) => !w.startsWith("-"),
+					...(cut < 0 ? words : words.slice(0, cut)).filter(
+						(w) => !w.value.startsWith("-"),
 					),
-					...(cut < 0 ? [] : all.slice(cut + 1)),
+					...(cut < 0 ? [] : words.slice(cut + 1)),
 				]
-			: all;
-	return kept.map((w) => (/\s/.test(w) ? ` "${w}"` : ` ${w}`)).join("");
+			: words;
+	return kept.map((w) => ({ ...w, quoted: hasSpace(w), braced: false }));
 }
 
-/* A text with each run's runner and name shed and its handed-on words kept,
- * so words a run's own quote does not close, or a missing script's, are
- * still read where they stand (#3413). */
-/** @param {string} text */
-const replaceRunsWithHandedWords = (text) =>
-	text.replace(RUN_SCRIPT, (...m) => ` ${m[3]}`);
+/** @param {Word[]} words */
+const showHanded = (words) => words.map(showWord).join("");
+
+/** @param {Word} w */
+function showWord(w) {
+	if (isOpaque(w)) return ` ${w.raw}`;
+	return hasSpace(w) ? ` "${w.value}"` : ` ${w.value}`;
+}
 
 /**
- * @typedef {{name: string|null, text: string, handed: string}} Hop `text` is
- *   the command itself where `name` is null, else `package.json`'s script
- *   `name`, its backslash-newlines folded; `handed` is the words the run
- *   hands on to that script, each after a space, or "".
+ * @typedef {{name: string|null, text: string, handed: string, tokens:
+ *   Token[], opaque: boolean}} Hop `text` is the command itself where `name`
+ *   is null, else `package.json`'s script `name`, its backslash-newlines
+ *   folded; `handed` the words the run hands on to that script, each after a
+ *   space, or ""; `tokens` the text's with those words on the end; `opaque`
+ *   whether one of those words holds an expansion.
  */
 
 /**
- * Walks `command`, then each script it runs, each script once, handing `visit` the path of hops to each; the first result `visit`
- * returns that is not undefined is the walk's.
+ * Walks `command`, then each script it runs, each script once, handing
+ * `visit` each hop and the path of hops to it; the first result `visit` returns that is
+ * not undefined is the walk's.
  * @template T
  * @param {Record<string, unknown>} scripts
  * @param {string} command
- * @param {(text: string, hops: Hop[]) => T|undefined} visit
+ * @param {(hop: Hop, hops: Hop[]) => T|undefined} visit
  * @returns {T|undefined}
  */
 function walkRunScripts(scripts, command, visit) {
 	const seen = new Set();
 	/**
-	 * @param {Hop[]} hops ending at the hop walked
-	 * @param {string} text that hop's text
+	 * @param {Hop} hop
+	 * @param {Hop[]} hops ending at `hop`
 	 * @returns {T|undefined}
 	 */
-	const walk = (hops, text) => {
-		const hit = visit(text, hops);
+	const walk = (hop, hops) => {
+		const hit = visit(hop, hops);
 		if (hit !== undefined) return hit;
-		for (const m of text.matchAll(RUN_SCRIPT)) {
-			const name = requiredGroup(m, 2, RUN_SCRIPT).replace(
-				QUOTED_SPAN,
-				unquote,
-			);
-			const raw = scripts[name];
-			if (seen.has(name) || typeof raw !== "string") continue;
-			seen.add(name);
-			const script = raw.replace(CONTINUATION, "");
-			const handed = parseHandedWords(
-				requiredGroup(m, 1, RUN_SCRIPT),
-				requiredGroup(m, 3, RUN_SCRIPT),
-			);
-			const found = walk(
-				[...hops, { name, text: script, handed }],
-				`${script}${handed}`,
-			);
+		for (const simple of allCommands(hop.tokens)) {
+			const run = findRun(simple);
+			if (!run) continue;
+			const raw = scripts[run.name];
+			if (seen.has(run.name) || typeof raw !== "string") continue;
+			seen.add(run.name);
+			const handed = handedWords(run.runner, simple.slice(run.end));
+			/** @type {Hop} */
+			const next = {
+				name: run.name,
+				text: raw.replace(CONTINUATION, ""),
+				handed: showHanded(handed),
+				tokens: [...tokenise(raw), ...handed],
+				opaque: handed.some(isOpaque),
+			};
+			const found = walk(next, [...hops, next]);
 			if (found !== undefined) return found;
 		}
 		return hit;
 	};
-	const folded = command.replace(CONTINUATION, "");
-	return walk([{ name: null, text: folded, handed: "" }], folded);
+	/** @type {Hop} */
+	const top = {
+		name: null,
+		text: command.replace(CONTINUATION, ""),
+		handed: "",
+		tokens: tokenise(command),
+		opaque: false,
+	};
+	return walk(top, [top]);
 }
 
-const LINT_STAGED = /(?:^|[\s;&|(/"'])lint-staged(?=$|[\s;&|)@"'])/;
+const LINT_STAGED = /(?:^|\/)lint-staged(?:@.*)?$/;
 
 /**
  * Whether `command` runs lint-staged, itself or through a `package.json`
@@ -200,8 +257,12 @@ const LINT_STAGED = /(?:^|[\s;&|(/"'])lint-staged(?=$|[\s;&|)@"'])/;
 function runsLintStaged(root, command) {
 	const { scripts } = readPackage(root);
 	return (
-		walkRunScripts(scripts, command, (text) =>
-			LINT_STAGED.test(replaceRunsWithHandedWords(text)) ? true : undefined,
+		walkRunScripts(scripts, command, (hop) =>
+			allCommands(hop.tokens).some((c) =>
+				withoutRun(c).some((w) => LINT_STAGED.test(w.value)),
+			)
+				? true
+				: undefined,
 		) ?? false
 	);
 }
@@ -210,35 +271,41 @@ const BIOME_STAGED_COMMAND = 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js';
 
 /* Biome's --staged lints the worktree's bytes of each staged path, so a
  * `commit-paths.js --patch` commit (#801) is judged on a neighbour's unstaged
- * hunks; biome-staged.js lints the index's (#2429, #2540). A command segment
- * runs it where a `biome check` carries `--staged`. */
-const SEGMENT = /&&|\|\||[;|\n]|(?<![<>])&(?!>)/;
-const BIOME_CHECK = /(?:^|[\s/])(?:@biomejs\/)?biome(?:@\S*)?\s+check(?=\s|$)/;
-const STAGED = /(?:^|\s)--staged(?=[\s=]|$)/;
-/* Anything that makes the text more than one command (#2599). */
-const COMPOSITE = /[;&|<>()\n`]/;
+ * hunks; biome-staged.js lints the index's (#2429, #2540). A simple command
+ * runs it where a `biome` word, then `check`, is followed by `--staged`. */
+const BIOME_WORD = /(?:^|\/)biome(?:@.*)?$/;
+const CHECK_WORD = /^check$/;
+const STAGED_WORD = /^--staged(?:=|$)/;
 const PINNED = /(?:^|\s)(?:@biomejs\/)?biome@/;
-/* What a segment sheds before it is searched for `biome check --staged`, and
- * a composite's Biome part before it is mapped: a redirect with its target, a
- * subshell's or substitution's brackets, a group's braces, and quoting, a
- * quoted span's spaces joined so it stays one word. Each may touch a word
- * with no space between (#3153, #3191, #3414). Residual: a here-string's
- * word after a space is left behind, to be read as a path; and an expansion
- * inside the command's own words, not handed on (`bi$@ome`, `--sta$@ged`), is
- * read as written, so the word is no `biome` or `--staged` (#3422). */
-const BRACKETING = /\$?[()`]|(?<!\S)[{}](?!\S)/g;
-const QUOTING = /\$?["']|\\/g;
-/** A quoted span's own commands, which a runner such as `concurrently` runs.
- * @param {string} text */
-const quotedCommands = (text) =>
-	[...text.matchAll(QUOTED_SPAN)].flatMap((m) => unquote(m[0]).split(SEGMENT));
-/** @param {string} segment */
-const shed = (segment) =>
-	segment
-		.replace(REDIRECT, " ")
-		.replace(BRACKETING, " ")
-		.replace(QUOTED_SPAN, (span) => unquote(span).replace(/\s/g, "_"))
-		.replace(QUOTING, "");
+
+/**
+ * Whether `word` is, or could be once expanded, a word `re` matches, as
+ * `canonical` does. A word that is only an expansion is an unknown value, not
+ * a hidden one, so it never counts: `biome check $(…)` is no `--staged` (#3422).
+ * @param {Word} word @param {RegExp} re @param {string} canonical
+ */
+function isPossibly(word, re, canonical) {
+	if (re.test(word.value)) return true;
+	if (!isOpaque(word) || !word.value) return false;
+	const glob = word.pieces
+		.map((p) => (p === null ? ".*" : p.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")))
+		.join("");
+	return new RegExp(`^${glob}$`, "s").test(canonical);
+}
+
+/** The index of `command`'s `biome` word followed by `check`, or -1. A word
+ * that is only an expansion counts as the `biome` before a `check` written
+ * out (#3445), unlike the unknown value of #3422.
+ * @param {Word[]} command */
+const biomeCheckAt = (command) =>
+	command.findIndex((w, i) => {
+		const next = command[i + 1];
+		return (
+			next !== undefined &&
+			(isPossibly(w, BIOME_WORD, "biome") || (isOpaque(w) && !w.value)) &&
+			isPossibly(next, CHECK_WORD, "check")
+		);
+	});
 
 /* The names that find the `biome` the hook puts on PATH from
  * `node_modules/.bin` (#2597 §7), as the words before `check`, bare or after
@@ -441,36 +508,45 @@ function judgeFlag(name, value, next) {
 	};
 }
 
+/** @type {Unmapped} */
+const EXPANDED = {
+	shape:
+		"holds a command substitution, or a parameter or brace range expansion, whose words are not known until the shell runs it",
+	wayOut: declareCheckStaged("with every word written out"),
+};
+
+/** @type {Unmapped} */
+const BRACED = {
+	shape:
+		"writes words as a brace expansion, which this classifier cannot carry into biome-staged.js",
+	wayOut: declareCheckStaged("with every word written out"),
+};
+
+/** @type {Unmapped} */
+const QUOTED = {
+	shape:
+		"quotes or backslash-escapes a word, which this classifier cannot judge against biome-staged.js's allowlist",
+	wayOut: declareCheckStaged("with every word unquoted and unescaped"),
+};
+
 /**
- * The one Biome command `text` holds, mapped, or why it does not map. A
+ * The one Biome command `words` makes, mapped, or why it does not map. A
  * write flag is dropped before the rest is judged.
- * @param {string} text
+ * @param {Word[]} words
  * @param {boolean} biome whether `package.json` declares `@biomejs/biome`
  * @returns {MappedCommand | Unmapped}
  */
-function mapBiome(text, biome) {
-	const words = text.trim().split(/\s+/);
-	const at = words.indexOf("check");
-	const runner = words.slice(0, at).join(" ");
-	if (!MAPPED_NAMES.has(runner.replace(/^npx /, "")))
-		return {
-			shape: PINNED.test(runner)
-				? `pins Biome's version through "${runner}", which biome-staged.js cannot`
-				: `runs Biome through "${runner}"`,
-			wayOut: declareCheckStaged(
-				`instead as a bare "biome check --staged …" script, or '${OWN_FLAGS}'`,
-			),
-		};
-	if (!biome)
-		return {
-			shape:
-				"package.json does not declare @biomejs/biome, whose node_modules/.bin/biome biome-staged.js runs",
-			wayOut: "Add @biomejs/biome to devDependencies.",
-		};
+function mapBiome(words, biome) {
+	const values = words.map((w) => w.value);
+	const at = values.indexOf("check");
+	const why =
+		unwrittenWord(words) ??
+		unmappedRunner(values.slice(0, at).join(" "), biome);
+	if (why) return why;
 	const kept = [];
 	const paths = [];
 	let dropped = false;
-	const flags = words.slice(at + 1);
+	const flags = values.slice(at + 1);
 	for (const [i, word] of flags.entries()) {
 		const verdict = judgeWord(word, flags[i + 1]);
 		if (typeof verdict === "object") return verdict;
@@ -490,23 +566,68 @@ function mapBiome(text, biome) {
 }
 
 /**
+ * Why the words before `check` do not find the `biome` biome-staged.js runs,
+ * or null.
+ * @param {string} runner
+ * @param {boolean} biome
+ * @returns {Unmapped|null}
+ */
+function unmappedRunner(runner, biome) {
+	if (!MAPPED_NAMES.has(runner.replace(/^npx /, "")))
+		return {
+			shape: PINNED.test(runner)
+				? `pins Biome's version through "${runner}", which biome-staged.js cannot`
+				: `runs Biome through "${runner}"`,
+			wayOut: declareCheckStaged(
+				`instead as a bare "biome check --staged …" script, or '${OWN_FLAGS}'`,
+			),
+		};
+	return biome
+		? null
+		: {
+				shape:
+					"package.json does not declare @biomejs/biome, whose node_modules/.bin/biome biome-staged.js runs",
+				wayOut: "Add @biomejs/biome to devDependencies.",
+			};
+}
+
+/**
+ * Why `words` cannot be carried into the mapped command as they stand, or
+ * null.
+ * @param {Word[]} words
+ * @returns {Unmapped|null}
+ */
+function unwrittenWord(words) {
+	if (words.some(isOpaque)) return EXPANDED;
+	if (words.some((w) => w.braced)) return BRACED;
+	return words.some(hasSpace) ? QUOTED : null;
+}
+
+/**
  * mapBiome on a command as written, which is refused, not unquoted, where it
- * quotes or escapes a word: split on spaces, a quoted word cannot be judged
- * against the allowlist (#3414). A composite's Biome part is mapped from its
- * shed, unquoted segment instead.
- * @param {string} text
+ * quotes or escapes a word: a quoted word is not judged against the
+ * allowlist (#3414). A composite's Biome part is mapped from its unquoted
+ * words instead.
+ * @param {Word[]} words
  * @param {boolean} biome
  * @returns {MappedCommand | Unmapped}
  */
-function mapAsWritten(text, biome) {
-	if (text.search(QUOTING) >= 0)
-		return {
-			shape:
-				"quotes or backslash-escapes a word, which this classifier cannot judge against biome-staged.js's allowlist",
-			wayOut: declareCheckStaged("with every word unquoted and unescaped"),
-		};
-	return mapBiome(text, biome);
+function mapAsWritten(words, biome) {
+	if (!words.some(isOpaque) && words.some((w) => w.quoted)) return QUOTED;
+	return mapBiome(words, biome);
 }
+
+/** Whether `tokens` hold no operator, redirect or substitution.
+ * @param {Token[]} tokens */
+const isPlain = (tokens) =>
+	tokens.every((t) => t.type === "word" && t.subs.length === 0);
+
+/** Whether `tokens` are one simple command and nothing else, and what it is.
+ * @param {Token[]} tokens */
+const onlyCommand = (tokens) => {
+	const [only, ...more] = simpleCommands(tokens);
+	return isPlain(tokens) && more.length === 0 ? only : undefined;
+};
 
 /**
  * How a `check_staged` command that runs `biome check --staged` — itself or
@@ -527,20 +648,24 @@ function classifyCheckStaged(root, command, { inferred }) {
 	const hit = walkRunScripts(
 		scripts,
 		command,
-		/** @param {string} text @param {Hop[]} hops */
-		(text, hops) => {
-			const opaque = hops.some((h) => EXPANSION.test(h.handed));
-			const segment = replaceRunsWithHandedWords(text)
-				.split(SEGMENT)
-				.concat(quotedCommands(text))
-				.map(shed)
-				.find((s) => {
-					const m = BIOME_CHECK.exec(s);
-					return m && (opaque || STAGED.test(s.slice(m.index + m[0].length)));
-				});
-			return segment === undefined
-				? undefined
-				: { text, hops, segment, opaque };
+		/** @param {Hop} hop @param {Hop[]} hops */
+		({ tokens }, hops) => {
+			const opaque = hops.some((h) => h.opaque);
+			const candidates = allCommands(tokens).map(withoutRun);
+			const segment = candidates.find((c) => {
+				const at = biomeCheckAt(c);
+				return (
+					at >= 0 &&
+					(opaque ||
+						c.slice(at + 2).some((w) => isPossibly(w, STAGED_WORD, "--staged")))
+				);
+			});
+			if (segment === undefined) return;
+			const only = onlyCommand(tokens);
+			/* The Biome command is the text's one command, with no run shed. */
+			const own =
+				only !== undefined && !findRun(only) && segment === candidates[0];
+			return { hops, segment, opaque, own };
 		},
 	);
 	if (!hit) return { kind: "none" };
@@ -552,18 +677,13 @@ function classifyCheckStaged(root, command, { inferred }) {
 		)
 		.join(",");
 	/* Each hop above the Biome command must run that one script and nothing
-	 * else, a redirect among its handed-on words included, as must the text
-	 * holding it. */
-	const above = hit.hops.slice(0, -1);
+	 * else, a redirect among its handed-on words included. */
 	const single =
-		above.every(
-			(h) =>
-				[...h.text.matchAll(RUN_SCRIPT)].length === 1 &&
-				!h.text.replace(RUN_SCRIPT, "").trim(),
-		) &&
-		![...above.map((h) => h.text), hit.text].some((t) =>
-			COMPOSITE.test(t.trim()),
-		);
+		hit.own &&
+		hit.hops.slice(0, -1).every((h) => {
+			const only = onlyCommand(h.tokens);
+			return only !== undefined && findRun(only)?.at === 0;
+		});
 	/** @param {string} shape @param {string} wayOut */
 	const refused = (shape, wayOut) => ({
 		kind: /** @type {const} */ ("refused"),
@@ -571,7 +691,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 	});
 	if (hit.opaque)
 		return refused(
-			"is handed a command substitution, or a parameter, brace or ANSI-C escape expansion, whose words are not known until the shell runs it",
+			"is handed a command substitution, or a parameter or brace range expansion, whose words are not known until the shell runs it",
 			declareCheckStaged("with the words it hands on written out"),
 		);
 	if (!single) {
@@ -583,7 +703,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			),
 		);
 	}
-	const mapped = mapAsWritten(hit.text, biome);
+	const mapped = mapAsWritten(hit.segment, biome);
 	if (!("command" in mapped)) return refused(mapped.shape, mapped.wayOut);
 	if (!inferred)
 		return refused(
