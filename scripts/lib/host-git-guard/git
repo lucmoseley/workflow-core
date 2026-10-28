@@ -1,0 +1,166 @@
+#!/usr/bin/env bash
+# host-git-guard/git — the test suites' `git` (#3161). vitest.setup.ts and
+# scripts/conftest.py put this directory first on `PATH`, so every `git` a test
+# or the program under test spawns by name lands here first.
+#
+# REFUSES A WRITE TO THE HOST REPOSITORY: the one holding this file, by its git
+# common dir, which every linked worktree of it shares. There a call runs only
+# when it reads, or writes nothing but new objects, which no ref, index or file
+# reaches; anything else exits 128, git's own fatal status, before git runs. A call in any other repository, or in none, runs untouched.
+#
+# The reads are an allowlist: a subcommand the fast-path `case` below or
+# `ambiguous_reads` does not name is a write. A test that needs another read of
+# the host repo adds it there.
+#
+# `WFC_HOST_GIT_DIR` caches the host's common dir, which the setups set once
+# per worker so a write costs one `rev-parse` here, not two. A spawn that
+# rebuilt its `env` without it still gets the guard.
+#
+# WHAT IT DOES NOT COVER: git run by absolute path; a spawn whose `env` drops
+# `PATH`; a write that is no git call, such as `: > .git/refs/heads/main`;
+# a subcommand alias; `clone`, and `init` without `--separate-git-dir`.
+
+# The next `git` on `PATH` after this one. `-ef`, not the path string, so a
+# second spelling of this directory is still skipped.
+real=
+IFS=: read -ra dirs <<<"$PATH"
+for d in "${dirs[@]}"; do
+  [[ -x "$d/git" && ! "$d/git" -ef "${BASH_SOURCE[0]}" ]] && real="$d/git" && break
+done
+[[ -n "$real" ]] || {
+  echo "host-git-guard: no git on PATH after this one" >&2
+  exit 127 # the shell's status for a command not found
+}
+
+# run — the real git, with the `argv[0]` a `git` found on `PATH` gets, so a
+# process listing reads as it would without the guard.
+run() { exec -a git "$real" "$@"; }
+
+# git's own options before the subcommand; these take their value as the next
+# word.
+i=0
+sub=
+takes=
+for a in "$@"; do
+  i=$((i + 1))
+  if [[ -n "$takes" ]]; then
+    takes=
+    continue
+  fi
+  case "$a" in
+    -C | -c | --git-dir | --work-tree | --namespace | --config-env | --attr-source) takes=1 ;;
+    -*) ;;
+    *)
+      sub="$a"
+      break
+      ;;
+  esac
+done
+args=("${@:i+1}")
+
+case "$sub" in
+  "" | clone | version | help | status | log | show | diff | diff-tree | \
+    diff-index | diff-files | rev-parse | rev-list | ls-files | ls-tree | \
+    ls-remote | cat-file | for-each-ref | show-ref | show-branch | merge-base | \
+    merge-tree | describe | blame | grep | name-rev | shortlog | check-ignore | \
+    check-attr | check-mailmap | check-ref-format | count-objects | var | \
+    whatchanged | cherry | range-diff | archive | hash-object | write-tree | \
+    mktree | commit-tree)
+    run "$@"
+    ;;
+  init) [[ " ${args[*]} " == *" --separate-git-dir"[\ =]* ]] || run "$@" ;;
+esac
+
+# The host lookup drops a spawn's own `GIT_DIR`, which names its repository,
+# not the one holding this file.
+host="${WFC_HOST_GIT_DIR:-$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR \
+  "$real" -C "${BASH_SOURCE[0]%/*}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)}"
+[[ -n "$host" ]] || run "$@"
+if [[ "$sub" == init ]]; then
+  # `--separate-git-dir` moves the `.git` of the directory it initialises, so
+  # that directory is what must not be the host's top level.
+  target=.
+  skip=
+  for w in "${args[@]}"; do
+    if [[ -n "$skip" ]]; then
+      skip=
+      continue
+    fi
+    case "$w" in
+      -b | --initial-branch | --template | --object-format | --ref-format | --separate-git-dir) skip=1 ;;
+      -*) ;;
+      *) target="$w" ;;
+    esac
+  done
+  mapfile -t at < <("$real" "${@:1:i-1}" -C "$target" rev-parse \
+    --path-format=absolute --git-common-dir --show-prefix 2>/dev/null)
+  [[ "${at[0]}" == "$host" && -z "${at[1]}" ]] || run "$@"
+else
+  common=$("$real" "${@:1:i-1}" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)
+  [[ "$common" == "$host" ]] || run "$@"
+fi
+
+# ambiguous_reads <word>… — whether a subcommand that both reads and writes is
+# reading here, from the words after it.
+ambiguous_reads() {
+  local pos=() flags=() valued=() w skip=''
+  case "$sub" in
+    branch | tag) valued=(--format --sort --color --column) ;;
+    config) valued=(-f --file --blob --type --default --comment) ;;
+    reflog) valued=(-n --max-count --format --pretty) ;;
+  esac
+  for w in "$@"; do
+    if [[ -n "$skip" ]]; then
+      skip=
+    # After the first word, config's every word is a key or a value: `-1` too.
+    elif [[ "$w" == -* && ! ("$sub" == config && ${#pos[@]} -gt 0) ]]; then
+      flags+=("$w")
+      [[ " ${valued[*]} " == *" $w "* ]] && skip=1
+    else
+      pos+=("$w")
+    fi
+  done
+  has() {
+    local f p
+    for f in "${flags[@]}"; do
+      for p in "$@"; do [[ "$f" == "$p" || "$f" == "$p="* ]] && return 0; done
+    done
+    return 1
+  }
+  case "$sub" in
+    branch)
+      has -d -D -m -M -c -C -f -u --delete --move --copy --force \
+        --set-upstream-to --unset-upstream --edit-description && return 1
+      ((${#pos[@]} == 0)) || has -l --list --contains --no-contains --merged \
+        --no-merged --points-at
+      ;;
+    tag)
+      has -d -f -a -s -u -m -F --delete --force --annotate --sign \
+        --local-user --message --file && return 1
+      ((${#pos[@]} == 0)) || has -l --list --contains --no-contains --merged \
+        --no-merged --points-at
+      ;;
+    config)
+      has --get --get-all --get-regexp --get-urlmatch --get-color \
+        --get-colorbool -l --list && return 0
+      has --unset --unset-all --add --replace-all --rename-section \
+        --remove-section -e --edit && return 1
+      # Another file than the repository's own.
+      has --global --system -f --file && ! has --local --worktree && return 0
+      [[ "${pos[0]}" == get || "${pos[0]}" == list ]] || ((${#pos[@]} == 1))
+      ;;
+    worktree) [[ "${pos[0]}" == list ]] ;;
+    stash) [[ "${pos[0]}" == list || "${pos[0]}" == show ]] ;;
+    reflog) [[ "${pos[0]}" != expire && "${pos[0]}" != delete ]] ;;
+    remote | notes | submodule)
+      [[ -z "${pos[0]}" || " show get-url list status summary " == *" ${pos[0]} "* ]]
+      ;;
+    symbolic-ref) ! has -d --delete && ((${#pos[@]} < 2)) ;;
+    *) return 1 ;;
+  esac
+}
+
+ambiguous_reads "${args[@]}" && run "$@"
+echo "host-git-guard: refused \`git $sub\` on the host repository ($host)." \
+  "A test writes only to a repository of its own (#3161)." >&2
+exit 128

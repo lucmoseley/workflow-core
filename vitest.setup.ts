@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -28,6 +29,29 @@ for (const name of [
 	"GIT_PREFIX",
 ])
 	delete process.env[name];
+
+/*
+ * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
+ * whose `cwd` misses its fixture walks up to the real `.git`. The `git` on
+ * `PATH` becomes scripts/lib/host-git-guard/git, which refuses a write there.
+ * `WFC_HOST_GIT_DIR` is its cache of the host. Set again on every file the
+ * worker loads, so `PATH` does not stack.
+ */
+const guardDir = path.resolve(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"scripts/lib/host-git-guard",
+);
+process.env.WFC_HOST_GIT_DIR = execFileSync(
+	"git",
+	["rev-parse", "--path-format=absolute", "--git-common-dir"],
+	{ cwd: guardDir, encoding: "utf8" },
+).trim();
+process.env.PATH = [
+	guardDir,
+	...(process.env.PATH ?? "")
+		.split(path.delimiter)
+		.filter((dir) => dir && dir !== guardDir),
+].join(path.delimiter);
 
 /*
  * NO TEST WRITES INTO THE DEVELOPER'S LIVE CLAUDE CONFIG DIR (#838).

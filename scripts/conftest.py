@@ -10,6 +10,7 @@ dirs by the env it reads, never a patched module global (#1275). `corpus` and
 
 import json
 import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -31,6 +32,21 @@ for _name in (
     "GIT_PREFIX",
 ):
     os.environ.pop(_name, None)
+
+# No test's git call writes to this checkout's repository (#3161): the `git`
+# on `PATH` becomes lib/host-git-guard/git, as vitest.setup.ts makes it.
+_guard_dir = str(Path(__file__).resolve().parent / "lib" / "host-git-guard")
+os.environ["WFC_HOST_GIT_DIR"] = subprocess.run(
+    ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+    cwd=_guard_dir,
+    capture_output=True,
+    text=True,
+    check=True,
+).stdout.strip()
+os.environ["PATH"] = os.pathsep.join(
+    [_guard_dir]
+    + [d for d in os.environ.get("PATH", "").split(os.pathsep) if d and d != _guard_dir]
+)
 
 
 @pytest.fixture(scope="session")
