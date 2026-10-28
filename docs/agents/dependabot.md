@@ -6,8 +6,6 @@ Read this when a Dependabot pull request is open, or when the GitHub UI shows a 
 
 `docs/agents/guard-registry.md` §Conventions bars a session from opening a PR: hand edits and agent work commit direct to `main`. That rule binds **sessions**. Dependabot is a GitHub app, so a PR is the only shape it has, and its PRs were never covered.
 
-They also cannot clear themselves. `.github/workflows/ci.yml` is `workflow_call` / `workflow_dispatch` only, with no push or pull_request trigger (mantahostels#906, mantahostels#910), so a Dependabot PR never gets a check run, never goes green, and hangs until a human notices the badge.
-
 <!-- rule:dependabot-merge:begin -->
 **Never merge a Dependabot PR — take its fix locally and commit it direct to `main`.**
 
@@ -27,9 +25,9 @@ npm install --ignore-scripts
 
 Commit `package.json` alongside `package-lock.json`.
 
-**Close the PR by deleting its head branch — `git push origin --delete dependabot/npm_and_yarn/<branch>`, the name read off `gh pr view <n> --json headRefName`.** GitHub closes a same-repo PR the moment its head ref is gone, and the PAT's `contents` write reaches that where its `pull_requests` write does not: `gh pr close` (`closePullRequest`), a PR comment (`addComment`) and the REST issues endpoint (`PATCH /repos/{o}/{r}/issues/{n}`) all answer `403 Resource not accessible by personal access token` (mantahostels#3351, mantahostels#3358).
+**Close the PR by deleting its head branch — `git push origin --delete dependabot/npm_and_yarn/<branch>`, the name read off `gh pr view <n> --json headRefName`.** `gh pr close`, a PR comment and the REST issues `PATCH` all answer `403 Resource not accessible by personal access token` (mantahostels#3351, mantahostels#3358).
 
-`--ignore-scripts` is not optional: `scripts/guard-dispatch.js` (its `guard-npm-install` core) denies the install without it, because a package's `preinstall` and `postinstall` run as you before anything reads a byte of it (mantahostels#1767).
+`--ignore-scripts` is not optional: a package's `preinstall` and `postinstall` run as you before anything reads a byte of it (mantahostels#1767). Nothing enforces it on these recipes — `scripts/guard-dispatch.js` (its `guard-npm-install` core) denies only an install naming a package `package.json` lacks.
 
 **`npm install` can report `up to date` and leave the old version on disk** while `npm ls` reads the new one out of the lockfile. Check the installed copy directly — `grep -m1 '"version"' node_modules/<pkg>/package.json` — and where it disagrees, `rm -rf node_modules/<pkg>` and install again (mantahostels#3351).
 
@@ -59,8 +57,6 @@ Most of what both raise is false here. The rules triaged false across the board:
 
 ## What the config does
 
-`.github/dependabot.yml` governs **version** updates only, and sets `open-pull-requests-limit: 0` on both ecosystems, so Dependabot opens none. A routine bump earns little on a pre-launch repo with three production dependencies, and an open PR should mean an advisory.
+`.github/dependabot.yml` governs **version** updates only, and sets `open-pull-requests-limit: 0` on both ecosystems, so Dependabot opens none (mantahostels#3351).
 
 **Security** updates are a repository setting, not a key in that file, and the limit does not reach them — so an advisory still opens a PR. That is the only shape of Dependabot PR this repo expects to see.
-
-Routine bumps are not grouped instead: one npm PR a week and one actions PR a month still put them on the tab needing weekly disposal, which is the thing the tab is meant to stop meaning (mantahostels#3351).
