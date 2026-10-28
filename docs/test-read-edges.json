@@ -21220,6 +21220,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/run-pytest.js": [
+			"scripts/bisect-step.test.ts",
 			"scripts/check-test-marker.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",

@@ -10,11 +10,11 @@
  * first. So the plugin answers "did it pass, and how much ran", this answers
  * everything else, and the two meet in a JSON temp file.
  *
- * IT MUST NOT CHANGE WHAT `test:py` MEANS. Arguments pass straight through,
- * pytest writes to the terminal unbuffered, and this exits on the child's own
- * code — a marker that cannot be written costs a warning at the next push,
- * never a red run. cli-args-exempt: every argument is pytest's, passed through
- * unparsed.
+ * IT MUST NOT CHANGE WHAT `test:py` MEANS. Arguments but a lone `--full` pass
+ * straight through, pytest writes to the terminal unbuffered, and this exits
+ * on the child's own code — a marker that cannot be written costs a warning
+ * at the next push, never a red run. cli-args-exempt: every argument is pytest's, passed through
+ * unparsed, bar the one whole-argv match below.
  *
  * UNDER THE `landing` MODULE A BARE RUN IS A TOUCHED ONE (#2934): it hands
  * pytest only the test files `lib/touched-tests.js` resolves from the
@@ -23,7 +23,10 @@
  * shared tree, so a neighbour's uncommitted or untracked file selects nothing
  * (#2958). An empty set spawns nothing, records no marker, writes its ledger
  * line and exits 0; the lander runs the full suite. Any argument at all keeps
- * the run exactly as typed.
+ * the run exactly as typed. A lone `--full` is the whole suite, handed to
+ * pytest as no argument: a full-suite caller — CI, the lander, bisect — runs
+ * from a clean checkout, where a bare run selects nothing (#3508). Beside
+ * other words it is pytest's, which refuses it, so it never quietly narrows.
  *
  * THE SUITE CEILING (#2702, ruled at #2667). pytest leads a process group of
  * its own, and at the ceiling `lib/suite-ceiling.js` sets, the whole group is
@@ -91,6 +94,10 @@ const TREE_ROOT = worktreeRoot();
 /* `-p` here rather than in pytest.ini's addopts, so a bare `pytest` run
  * writes no marker. */
 const DEFAULT_ARGS = ["-n", "2", "-p", "pytest_pass_plugin"];
+
+/* No cause, unlike run-vitest.js's `--full=<cause>` (#182): the whole pytest
+ * suite takes seconds, so nothing rations it. */
+const FULL = "--full";
 
 /* Passed on to pytest's group rather than left to end this wrapper, so pytest
  * still prints its own interrupted summary. */
@@ -193,7 +200,8 @@ function runScope(scope, resolvedFiles) {
  */
 
 /**
- * What pytest is handed: `argv` as typed, or under `landing` a bare run's
+ * What pytest is handed: `argv` as typed, none for a lone `--full`, or under
+ * `landing` a bare run's
  * touched files, its banner printed. A number is the exit code of a run that
  * spawns nothing: 0 on an empty selection, 1 where the changed paths could
  * not be read (#2698).
@@ -204,7 +212,10 @@ function runScope(scope, resolvedFiles) {
  */
 function pytestPlan(argv, root) {
 	if (argv.length > 0 || !moduleOn("landing", { root }))
-		return { args: argv, resolvedFiles: null };
+		return {
+			args: argv.length === 1 && argv[0] === FULL ? [] : argv,
+			resolvedFiles: null,
+		};
 	const sessionId = idSeam.fromEnv();
 	try {
 		const ownWork = sessionId ? ownDefaultWork(root, sessionId) : undefined;

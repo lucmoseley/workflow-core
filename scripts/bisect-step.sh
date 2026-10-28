@@ -109,8 +109,9 @@ lint_and_tests() {
 }
 
 # ci.yml's `Python` job. No npm ci: the pip install of the pinned requirements is
-# this job's install step, and `npm run test:py` is `python3 -m pytest -n 2`,
-# which reads nothing out of node_modules.
+# this job's install step, and `run-pytest.js` reads nothing out of
+# node_modules. `--full`, since a bare run in a clean checkout selects no
+# touched test (#3508).
 python_job() {
   if ! "$python_bin" -m pip install --require-hashes --only-binary :all: -r requirements-dev.txt; then
     echo "bisect-step: pip install failed — commit is untestable, skipping (125)" >&2
@@ -118,7 +119,7 @@ python_job() {
   fi
 
   local st=0
-  run_check "$npm_bin" run test:py || st=$?
+  run_check "$npm_bin" run test:py -- --full || st=$?
   return "$st"
 }
 

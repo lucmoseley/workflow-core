@@ -423,10 +423,11 @@ jobs:
       # a failing test fails the build. Keep it that way.
       # Collection is pinned to scripts/ by pytest.ini. Invoked through npm rather
       # than pytest directly so CI exercises the same one command a local run uses —
-      # no setup-node step is needed for it, since the script body is `python3` and
-      # npm is preinstalled on the runner.
+      # no setup-node step is needed for it: the runner ships node and npm, and
+      # `run-pytest.js` reads nothing out of node_modules. `--full`, since a bare
+      # run in a clean checkout selects no touched test (#3508).
       - name: Pytest
-        run: npm run test:py
+        run: npm run test:py -- --full
 
       # Base §N5 over every program-routed .py, through the pre-commit gate's
       # own walk and routing (#1830). Node is preinstalled on the runner, and

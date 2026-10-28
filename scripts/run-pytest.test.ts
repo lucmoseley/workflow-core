@@ -374,6 +374,23 @@ describe("a bare run under landing", () => {
 		expect(r.stdout).not.toContain("TOUCHED TESTS");
 	});
 
+	it("runs the whole suite on `--full`, handing pytest no `--full` (#3508)", async () => {
+		const root = pyRepo();
+		const [python, readCalls] = fakePytest(undefined, 0);
+		const r = await wrap(python, root, ["--full"], Landing);
+
+		expect(readCalls()[0]?.args.slice(6)).toEqual([]);
+		expect(r.stdout).not.toContain("TOUCHED TESTS");
+	});
+
+	it("hands pytest a `--full` that has other words beside it", async () => {
+		const root = pyRepo();
+		const [python, readCalls] = fakePytest(undefined, 0);
+		await wrap(python, root, ["--full", "-k", "corpus"], Landing);
+
+		expect(readCalls()[0]?.args.slice(6)).toEqual(["--full", "-k", "corpus"]);
+	});
+
 	it("passes typed arguments through unchanged", async () => {
 		const root = pyRepo();
 		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");

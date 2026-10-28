@@ -91,7 +91,7 @@ const LINT_CALLS = [
 
 const PY_CALLS = [
 	"python3 -m pip install --require-hashes --only-binary :all: -r requirements-dev.txt",
-	"npm run test:py",
+	"npm run test:py -- --full",
 ];
 
 /* Fake `npm`, `python3` and `node` that exit with whatever the caller asked for,
@@ -126,7 +126,7 @@ function stubTools({
 		`case "$*" in
   ci)             exit ${ci} ;;
   "run check:sh") exit ${sh} ;;
-  "run test:py")  exit ${testpy} ;;
+  "run test:py -- --full") exit ${testpy} ;;
   *)              exit ${test} ;;
 esac`,
 	);
@@ -270,8 +270,8 @@ describe("bisect-step.sh — the python check set", () => {
 	});
 
 	it("runs no npm ci — the pip install is this job's install step", () => {
-		// ci.yml's Python job has no setup-node and no npm ci; `npm run test:py`
-		// is `python3 -m pytest -n 2`, which reads nothing out of node_modules.
+		// ci.yml's Python job has no setup-node and no npm ci; `run-pytest.js`
+		// reads nothing out of node_modules.
 		const t = stubTools({});
 		run(t, "python");
 		expect(readCalls(t.dir)).not.toContain("npm ci");

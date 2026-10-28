@@ -297,6 +297,28 @@ it("runs the Python suite from a plugin path with a space in it", async () => {
 	expect(fs.readFileSync(ran, "utf8")).toBe("ran\n");
 });
 
+it("asks the Python runner for the whole suite (#3508)", async () => {
+	const pytest = path.join(tmp, "fake-pytest.js");
+	const ran = path.join(tmp, "pytest-argv");
+	fs.writeFileSync(
+		pytest,
+		`require("node:fs").appendFileSync(${JSON.stringify(ran)}, process.argv.slice(2).join(" ") + "\\n");`,
+	);
+	config({
+		commands: { test: "true" },
+		pythonRoutes: { "**/test_*.py": "test" },
+	});
+	const routed = commit("routes python");
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+		pytest,
+	});
+	expect(await tester.verdict(routed)).toEqual({ kind: "green" });
+	expect(fs.readFileSync(ran, "utf8")).toBe("--full\n");
+});
+
 it("holds one slot for the run and releases it, and never runs past a shut gate", async () => {
 	const { log, admit } = admitted();
 	await localTester({ root: work, admit, exec: recordingExec().exec }).verdict(

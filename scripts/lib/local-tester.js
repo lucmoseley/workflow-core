@@ -409,13 +409,20 @@ function readRunsAt(dir, pytest, files) {
 	const whole = full_test ?? test;
 	if (!whole) return "no test command is declared";
 	const shards = config.fullTestShards ?? 1;
+	/* A bare run in this clean worktree selects no touched test (#3508). */
+	/** @type {Run} */
+	const wholePython = {
+		...python,
+		args: [pytest, "--full"],
+		label: `${python.label} --full`,
+	};
 	return Array.from({ length: shards }, (_, i) => {
 		const shard = `--shard=${i + 1}/${shards}`;
 		return [
 			shards > 1
 				? { command: whole, args: [shard], label: `${whole} ${shard}` }
 				: { command: whole, args: [] },
-			...(routesPython && i === shards - 1 ? [python] : []),
+			...(routesPython && i === shards - 1 ? [wholePython] : []),
 		];
 	});
 }
