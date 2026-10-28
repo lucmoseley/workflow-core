@@ -755,9 +755,9 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		hookScript(
 			"pre-commit",
 			[
-				`if ${always} || [ ! -f '${mark}' ]; then`,
-				`  : > '${mark}'`,
-				`  export GIT_INDEX_FILE='${path.join(sb.dir, "neighbour.index")}'`,
+				`if ${always} || [ ! -f ${shellQuote(mark)} ]; then`,
+				`  : > ${shellQuote(mark)}`,
+				`  export GIT_INDEX_FILE=${shellQuote(path.join(sb.dir, "neighbour.index"))}`,
 				"  git read-tree HEAD",
 				`  ${change}`,
 				'  git update-ref HEAD "$(git commit-tree "$(git write-tree)" -p HEAD -m neighbour)"',
@@ -985,7 +985,7 @@ describe("the index lock (#585) — wait, retry, and stop at the ceiling", () =>
 		// A 20 s bound, so a failing test cannot leave the holder running.
 		fs.writeFileSync(
 			hook,
-			`#!/bin/sh\n[ -z "$HOLD" ] && exit 0\ni=0\nwhile [ ! -f '${released}' ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done\n`,
+			`#!/bin/sh\n[ -z "$HOLD" ] && exit 0\ni=0\nwhile [ ! -f ${shellQuote(released)} ] && [ $i -lt 400 ]; do sleep 0.05; i=$((i+1)); done\n`,
 		);
 		fs.chmodSync(hook, 0o755);
 		const at = (...args: string[]) =>
