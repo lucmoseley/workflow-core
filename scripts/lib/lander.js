@@ -6,7 +6,10 @@
  * lands its parent once the culprit fails twice and the parent passes the
  * whole suite, reverts the culprit on `landing` and files its fix ticket, or
  * holds (#2404). A parent whose whole suite reaches no verdict is confirmed
- * on the culprit's failing files instead and stays off `main` (#2910).
+ * on the culprit's failing files instead and stays off `main` (#2910). Files
+ * red at `main` too are a known breakage: the bisect leaves them out, and a
+ * culprit whose parent is `main` is confirmed there on its files alone, never
+ * reverted where they fail (#3324).
  *
  * Its green ledger (one `<sha> <iso time>` line per sha it lands), its
  * no-verdict ledger (the same line per parent whose whole suite reached no
@@ -87,8 +90,9 @@ const NETWORK =
  * @typedef {{kind: "green"} | {kind: "red", files: string[], jobs?: string[]}
  *   | {kind: "unknown", reason: string}} Verdict `jobs` the failing CI jobs,
  *   where the tester read a CI run
- * @typedef {"flake" | "bisect" | "confirm" | "parent" | "parent-files"}
- *   RerunWhy
+ * @typedef {"flake" | "base" | "bisect" | "confirm" | "parent"
+ *   | "parent-main"
+ *   | "parent-files"} RerunWhy
  * @typedef {{kind: "test", sha: string} | {kind: "fast-forward", sha: string}
  *   | {kind: "rerun", sha: string, files: string[], why: RerunWhy}
  *   | {kind: "bisect", base: string|null, sha: string}
@@ -105,12 +109,15 @@ const NETWORK =
  * @property {string[]} files the failing files, every rerun's target; empty
  *   where the tester named none, which reruns the whole suite
  * @property {Verdict|null} flake the one rerun at the tip
+ * @property {Verdict|null} onMain the base check: the tip's red files run at
+ *   `base`, where those that fail are a known breakage the bisect leaves out
  * @property {string[]|null} range the commits after `base` up to the tip,
  *   oldest first
  * @property {Record<string, Verdict>} bisect each bisected commit's verdict
  * @property {Record<string, Verdict>} confirm the culprit's second run and
- *   its parent's whole-suite run, apart from the bisect's so they never move
- *   the culprit it named
+ *   its parent's run, the whole suite or, where the parent is `main`, the
+ *   culprit's failing files; apart from the bisect's so they never move the
+ *   culprit it named
  * @property {Verdict|null} parentOnFiles the parent's run on `files`, taken
  *   only where its whole suite reached no verdict
  * @property {Revert|null} revert
@@ -185,21 +192,95 @@ function bisectStep(r) {
  * @returns {Action}
  */
 function redAction(r, { main, isStuck }) {
-	const { files } = r;
-	/** @type {[string, Verdict|null][]} */
-	const runs = [[r.sha, r.flake], ...Object.entries(r.bisect)];
+	/** @type {[string|null, Verdict|null][]} */
+	const runs = [
+		[r.sha, r.flake],
+		[r.base, r.onMain],
+		...Object.entries(r.bisect),
+	];
 	for (const [sha, v] of runs)
-		if (v?.kind === "unknown") return buildNoVerdictExit(sha, v);
-	if (!r.flake) return { kind: "rerun", sha: r.sha, files, why: "flake" };
+		if (sha !== null && v?.kind === "unknown")
+			return buildNoVerdictExit(sha, v);
+	if (!r.flake)
+		return { kind: "rerun", sha: r.sha, files: r.files, why: "flake" };
 	/* Spec #2261's flake check. Residual: a flaky file outside `files` lands
 	 * unseen, the whole suite having run once, red. */
 	if (r.flake.kind === "green") return { kind: "fast-forward", sha: r.sha };
+	const tip = namedOr(r.flake, r.files);
+	/* Never once the bisect has begun: its verdicts were taken over `tip`. */
+	if (!r.onMain && !r.range && r.base !== null && tip.length > 0)
+		return { kind: "rerun", sha: r.base, files: tip, why: "base" };
+	const known = redOnMain(r.onMain, tip);
+	const files = tip.filter((f) => !known.includes(f));
+	if (known.length > 0 && files.length === 0)
+		return { kind: "hold", reason: buildAlreadyRedReason(known) };
+	const action = clearRed({ ...r, files }, { main, isStuck, known });
+	if (
+		action.kind !== "hold" ||
+		known.length === 0 ||
+		action.reason.startsWith(ALREADY_RED)
+	)
+		return action;
+	return {
+		kind: "hold",
+		reason: `${action.reason}; ${buildAlreadyRedReason(known)}`,
+	};
+}
+
+/**
+ * @typedef {Pick<LanderState, "main" | "isStuck"> & {known: string[]}}
+ *   Clearing `known` the tip's red files that are red on `main` too
+ */
+
+/**
+ * The bisect, the culprit's confirmation and what follows it, over `r.files`:
+ * the tip's red files that pass on `main`.
+ * @param {Red} r
+ * @param {Clearing} s
+ * @returns {Action}
+ */
+function clearRed(r, { main, isStuck, known }) {
 	if (!r.range) return { kind: "bisect", base: r.base, sha: r.sha };
 	const step = bisectStep({ ...r, range: r.range });
 	if ("next" in step)
-		return { kind: "rerun", sha: step.next, files, why: "bisect" };
-	return confirmAction(r, step, isStuck) ?? culpritAction(r, step, main);
+		return { kind: "rerun", sha: step.next, files: r.files, why: "bisect" };
+	return (
+		confirmAction(r, step, { main, isStuck, known }) ??
+		culpritAction(r, step, main)
+	);
 }
+
+/**
+ * @param {Verdict|undefined} v
+ * @param {string[]} files
+ */
+const namedOr = (v, files) =>
+	v?.kind === "red" && v.files.length > 0 ? v.files : files;
+
+/**
+ * The files of `checked` red on `main`: those a red run there named, or all
+ * of them where it named none of them.
+ * @param {Verdict|null} onMain
+ * @param {string[]} checked
+ */
+function redOnMain(onMain, checked) {
+	if (onMain?.kind !== "red") return [];
+	const named = checked.filter((f) => onMain.files.includes(f));
+	return named.length > 0 ? named : checked;
+}
+
+const ALREADY_RED = "already red on `main`: ";
+
+/**
+ * @param {Extract<Verdict, {kind: "red"}>} v
+ * @param {string[]} known
+ */
+const isRedOnlyOn = (v, known) =>
+	v.files.length > 0 && v.files.every((f) => known.includes(f));
+
+/** @param {string[]} files */
+const buildAlreadyRedReason = (files) =>
+	`${ALREADY_RED}${filesLabel([...new Set(files)])}`;
 
 /**
  * @param {string} sha
@@ -218,10 +299,10 @@ const buildNoVerdictExit = (sha, v) => ({
  * start.
  * @param {Red} r
  * @param {{culprit: string, parent: string|null}} bisected
- * @param {(sha: string) => boolean} isStuck
+ * @param {Clearing} s
  * @returns {Action|null}
  */
-function confirmAction(r, { culprit, parent }, isStuck) {
+function confirmAction(r, { culprit, parent }, { main, isStuck, known }) {
 	const { files } = r;
 	const again = r.confirm[culprit];
 	if (!again) return { kind: "rerun", sha: culprit, files, why: "confirm" };
@@ -232,12 +313,17 @@ function confirmAction(r, { culprit, parent }, isStuck) {
 			reason: `culprit unconfirmed: ${short(culprit)} passed ${filesLabel(files)} on its second run`,
 		};
 	if (parent === null) return null;
+	const named = parent === main ? namedOr(again, r.files) : [];
+	if (named.length > 0)
+		return mainConfirmAction(r, /** @type {string} */ (main), named, known);
 	/* The whole suite, as the parent lands on `main`, which only ever holds a
 	 * sha the full suite passed. */
 	const before = r.confirm[parent];
 	if (!before && !isStuck(parent))
 		return { kind: "rerun", sha: parent, files: [], why: "parent" };
-	if (before?.kind === "red")
+	/* A parent red only on files red on `main` is reverted past, never landed:
+	 * culpritAction fast-forwards a parent only where its whole suite passed. */
+	if (before?.kind === "red" && !isRedOnlyOn(before, known))
 		return {
 			kind: "hold",
 			reason: parentUnconfirmed(
@@ -246,7 +332,7 @@ function confirmAction(r, { culprit, parent }, isStuck) {
 				`fails the whole suite: ${filesLabel(before.files)}`,
 			),
 		};
-	if (before?.kind === "green") return null;
+	if (before && before.kind !== "unknown") return null;
 	/* Residual (#2910): the revert then rests on `files` alone at the parent,
 	 * so a parent red elsewhere in the suite goes unseen here. Bound:
 	 * culpritAction fast-forwards only a parent whose whole suite passed, and
@@ -273,6 +359,28 @@ function confirmAction(r, { culprit, parent }, isStuck) {
 				parent,
 				`fails ${filesLabel(onFiles.files)}`,
 			),
+		};
+	return null;
+}
+
+/**
+ * The confirm of a parent that is `main`: the culprit's failing files rerun
+ * there, never the whole suite, as `main` lands nothing. A red naming no
+ * file keeps confirmAction's whole-suite run.
+ * @param {Red} r
+ * @param {string} main the culprit's parent
+ * @param {string[]} files the culprit's failing files
+ * @param {string[]} known the tip's files the base check found red on `main`
+ * @returns {Action|null}
+ */
+function mainConfirmAction(r, main, files, known) {
+	const before = r.confirm[main];
+	if (!before) return { kind: "rerun", sha: main, files, why: "parent-main" };
+	if (before.kind === "unknown") return buildNoVerdictExit(main, before);
+	if (before.kind === "red")
+		return {
+			kind: "hold",
+			reason: buildAlreadyRedReason([...known, ...redOnMain(before, files)]),
 		};
 	return null;
 }
@@ -327,6 +435,7 @@ function culpritAction(r, { culprit, parent }, main) {
  */
 function recordRerun(r, action, verdict) {
 	if (action.why === "flake") return { ...r, flake: verdict };
+	if (action.why === "base") return { ...r, onMain: verdict };
 	if (action.why === "parent-files") return { ...r, parentOnFiles: verdict };
 	const slot = action.why === "bisect" ? "bisect" : "confirm";
 	return { ...r, [slot]: { ...r[slot], [action.sha]: verdict } };
@@ -343,6 +452,7 @@ const redBatch = (sha, base, files) => ({
 	base,
 	files,
 	flake: null,
+	onMain: null,
 	range: null,
 	bisect: {},
 	confirm: {},
@@ -366,6 +476,7 @@ function resumable(r) {
 	return {
 		...r,
 		flake: r.flake?.kind === "unknown" ? null : r.flake,
+		onMain: r.onMain?.kind === "unknown" ? null : (r.onMain ?? null),
 		bisect: reached(r.bisect),
 		confirm: reached(r.confirm),
 	};

@@ -153,7 +153,7 @@ esac
 	expect(body).toContain("Standalone:");
 });
 
-it("holds, moving nothing, where the culprit's parent fails too", async () => {
+it("holds without a bisect, moving nothing, where the failing files are red on main too (#3324)", async () => {
 	const seed = git(remote, "rev-parse", "main");
 	const sha = commit("work");
 	git(work, "push", "-q", "origin", "HEAD:landing");
@@ -161,9 +161,9 @@ it("holds, moving nothing, where the culprit's parent fails too", async () => {
 	const r = await runLander(stubTester(1, "scripts/x.test.ts"));
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toContain(
-		`hold culprit unconfirmed: ${sha.slice(0, 9)}'s parent ${seed.slice(0, 9)} fails the whole suite: scripts/x.test.ts`,
-	);
+	expect(r.stdout).toContain(`rerun ${seed} (base): scripts/x.test.ts`);
+	expect(r.stdout).toContain("hold already red on `main`: scripts/x.test.ts");
+	expect(r.stdout).not.toContain("bisect");
 	expect(git(remote, "rev-parse", "main")).toBe(seed);
 	expect(git(remote, "rev-parse", "landing")).toBe(sha);
 });
