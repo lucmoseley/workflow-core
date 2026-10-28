@@ -39,7 +39,7 @@ A rule can be on and never run (nothing gated ESLint until mantahostels#1133), o
 | `scripts/**` `.ts`, `.claude/skills/*/scripts/*.ts` | yes | no | yes (mantahostels#1138), plus `noUncheckedIndexedAccess` via `tsconfig.strict.json` outside test files (#1336) |
 | `.claude/skills/wfc-delivery/{hooks,tests}/*.ts`, the delivery mod | yes | no | yes locally, against its own `tsconfig.json` and an untracked copy of the engine's declarations: `npm run typecheck`'s third pass (#854), skipped on CI, which has no copy (#1960) |
 | `.claude/skills/wfc-liveness/{hooks,tests,types}/*.{ts,tsx}`, the liveness mod | yes | no | yes locally, as the delivery mod: `npm run typecheck`'s fourth pass (#865), skipped on CI (#1960) |
-| `hooks/register.ts`, the plugin's entry module | yes | no | yes locally, against `hooks/tsconfig.json` with the liveness mod's engine declarations and contract: `npm run typecheck`'s fifth pass (#946), skipped on CI (#1960) |
+| `hooks/register.ts`, the plugin's entry module | yes | no | yes locally, against `hooks/tsconfig.json` with the liveness mod's engine declarations and the liveness and delivery mods' state contracts: `npm run typecheck`'s fifth pass (#946), skipped on CI (#1960) |
 | Every tracked shell file `scripts/lib/formatters.js shell-files --tracked` lists: the seven husky hooks, `.sh` and `.bash` files, and extensionless files with a shell shebang, minus `.gitattributes`' vendored and generated paths (#1828) | no | no | no |
 | `.github/workflows/*.yml` | no | no | no |
 | `*.py` | no | no | no |
