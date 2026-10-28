@@ -29,7 +29,10 @@ const TAKES_KIND = /** @type {const} */ ("relabel");
 
 const REF_SOURCE = String.raw`[\w.-]+\/[\w.-]+#\d+`;
 const ACT_LINE = new RegExp(
-	`^(?:${ACT_KINDS.filter((k) => k !== TAKES_KIND).join("|")}) ${REF_SOURCE}$|^${TAKES_KIND} ${REF_SOURCE} takes:\\S+$`,
+	ACT_KINDS.map(
+		(k) =>
+			`^${k} ${REF_SOURCE}${k === TAKES_KIND ? String.raw` takes:\S+` : ""}$`,
+	).join("|"),
 );
 
 /**
@@ -61,4 +64,4 @@ function parseAct(line) {
 	return takes === undefined ? { kind, ref } : { kind, ref, takes };
 }
 
-module.exports = { ACT_KINDS, ACT_LINE, buildAct, buildCommitAct, parseAct };
+module.exports = { ACT_LINE, buildAct, buildCommitAct, parseAct };

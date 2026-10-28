@@ -3,11 +3,13 @@
  * seat failover, the founder's free slot, the launch filter and the merged
  * ranking, driven through `decideTick` from plain records, since the core is
  * pure. A break here launches the wrong ticket, or none, while he is away.
+ *
+ * The progress table lists act kinds by hand, not from act-line.js, so a kind
+ * deleted there fails its own case; a kind added there gets none (#3312).
  */
 
 import { describe, expect, it } from "vitest";
 
-const { ACT_KINDS } = require("./act-line.js");
 const { capSet } = require("./allowance.js");
 const { ALREADY_RUNNING, FULL, decideTick } = require("./refill-decide.js");
 const { capFitsOf, sizedSeats } = require("./refill-loop.js");
@@ -98,7 +100,7 @@ describe("decideTick stops (#2007)", () => {
 		expect(d.detail).toContain("wfc #9");
 	});
 
-	it.each(["commit", ...ACT_KINDS])(
+	it.each(["block", "close", "commit", "file", "gate", "relabel", "round"])(
 		"counts a %s act as progress (#2312, #3301)",
 		(kind) => {
 			const d = tick({

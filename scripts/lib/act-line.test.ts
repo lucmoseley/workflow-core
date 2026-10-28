@@ -7,15 +7,19 @@
  * Loosen one and a writer's line is refused by the ledger, a commit line
  * lands in the acts ledger, or the refill loop's progress test misreads a
  * launch's acts.
+ *
+ * The kinds are listed by hand, not read from act-line.js, so a kind deleted
+ * there fails its own case (#3312).
  */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 
-const { ACT_KINDS, ACT_LINE, buildAct, buildCommitAct, parseAct } =
-	createRequire(__filename)("./act-line.js") as typeof import("./act-line.js");
+const { ACT_LINE, buildAct, buildCommitAct, parseAct } = createRequire(
+	__filename,
+)("./act-line.js") as typeof import("./act-line.js");
 
 describe("act line", () => {
-	it.each(ACT_KINDS.filter((k) => k !== "relabel"))(
+	it.each(["block", "close", "file", "gate", "round"] as const)(
 		"builds a %s line ACT_LINE accepts and parseAct takes apart",
 		(kind) => {
 			const line = buildAct(kind, "owner/repo", 12);
