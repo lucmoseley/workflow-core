@@ -127,11 +127,19 @@ function commitThroughHooks(
 	/* The shims run this checkout, as CI's WORKFLOW_CORE_CHECKOUT would: the
 	 * fixture has no install row for them to resolve (#1839). The skeleton's
 	 * hooks arm the real shellcheck gate, so the commit takes the fixture's own
-	 * TMPDIR for its lock, set after `env` so no caller's replaces it (#2648). */
+	 * TMPDIR for its lock, set after `env` so no caller's replaces it (#2648).
+	 * CLAUDE_PROJECT_DIR is the adopter's, as its own session's would be: a
+	 * session's inherited value names this checkout, and the hooks would read
+	 * its config and run its `npm run check:staged` in the adopter (#3296). */
 	return spawnSync("git", ["commit", "-m", message, "--", ...paths], {
 		cwd: dir,
 		encoding: "utf8",
-		env: { WORKFLOW_CORE_DIR: CORE, ...env, TMPDIR: gateTmpdir(dir) },
+		env: {
+			WORKFLOW_CORE_DIR: CORE,
+			...env,
+			CLAUDE_PROJECT_DIR: dir,
+			TMPDIR: gateTmpdir(dir),
+		},
 	});
 }
 
