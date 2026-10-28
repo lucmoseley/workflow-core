@@ -909,7 +909,7 @@ function render(r, w) {
 		"",
 		`- The memory limb is a lower bound: memwatch wrote a block in ${r.memMinutes} of the window's ${r.minutes} minutes, only above its used-memory or CPU threshold (${docPath("environment.md")} §4), and a minute with none counts as memory open.`,
 		"- The tsc-count limb is a lower bound too: it reads a `tsc` off memwatch's process lines, which list the top few by RSS and by CPU and cut each command short.",
-		"- tsc-count reads a `tsc` as lib/tsc-slot.js does since #3276 (27 Oct 2026 15:26 UTC); before it the gate also counted a queued `--tsc` waiter, so a wait it held then reads here as open or tsc-fifo.",
+		"- tsc-count reads a `tsc` as lib/tsc-slot.js does since 27 Oct 2026 15:26 UTC (#3276); before then the gate also counted a queued `--tsc` waiter, so a wait it held then reads here as open or tsc-fifo.",
 		"- A `tsc` admission is matched to no run, so it holds no `admitted` limb, neither a younger `tsc` waiter's nor a suite waiter's (#3203).",
 		"- The lander's own queue wait is not in the exits log; its runs count here only as slot holders and busy workers.",
 		...(r.unread.absent.length > 0
