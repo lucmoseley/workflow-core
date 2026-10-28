@@ -391,7 +391,7 @@
 			"source": "#2263"
 		},
 		"scripts/guard-lost-deny.js": {
-			"digest": "e6b0a253c0d4468e",
+			"digest": "021180e5cda1e7fb",
 			"verdict": "too late by construction for the act (the escaped call already ran) but at the earliest point the session can still act — the turn's Stop after the cancellation; it fires for a guard refusing through a DENIES-THROUGH: delegate (guard-dispatch.js, only where the call ran a core able to deny, and priced as those cores) and for an adopter's own guard writing its deny by hand, and stays silent on one that only adds context",
 			"selfSufficient": "yes — names what escaped, whether a replay is worth it (a guard with no measured rate is called worth it), and the literal replay command; it does not restate the escaped guard's own rule (here, the branch rule), which the replay would print",
 			"source": "#1846"
