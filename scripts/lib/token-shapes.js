@@ -8,16 +8,31 @@
  * ("task-notification", "sk-learn", a short `hf_` name) is left alone. The
  * minima sit under each vendor's real length — chosen, not measured against a
  * corpus. A prefix must not follow a letter or digit, so "risk-…" never reads
- * as an `sk-` key.
+ * as an `sk-` key — unless that character closes an escape (`%3D`, `\u0022`),
+ * which hides the separator a log's encoding replaced (#3394).
  *
  * RESIDUALS: a token of a vendor not listed passes unmasked, and so does an
  * `sk-` body holding no digit — the digit is what tells a key from a long
- * hyphenated word.
+ * hyphenated word. A token after an escape `ESCAPES` does not list, such as
+ * quoted-printable's `=3D`, passes too.
+ * An escaped letter or digit (`%41`) counts as a lead, over-masking.
  */
 
-/* Or after a JSON escape (`\n`, `\r`, `\t`): a tool input reaches the masker
- * stringified. */
-const LEAD = String.raw`(?:(?<![A-Za-z0-9])|(?<=\\[nrt]))`;
+/* The escapes a token may follow, each ending in a letter or digit: JSON's
+ * (a tool input reaches the masker stringified), a URL's percent-escape at
+ * any depth of re-encoding, `\x`/`\U`/`%u` from printf, Python and old
+ * JavaScript, and an ECMA-48 terminal control sequence (a colour code, a line
+ * clear) behind ESC raw or in any common escaped spelling (#3394). */
+const ESCAPES = [
+	String.raw`\\[bfnrt]`,
+	String.raw`\\x[0-9A-Fa-f]{2}`,
+	String.raw`(?:\\u|%u)[0-9A-Fa-f]{4}`,
+	String.raw`\\U[0-9A-Fa-f]{8}`,
+	"%(?:25)*[0-9A-Fa-f]{2}",
+	String.raw`(?:\x1b|\\(?:u001[bB]|x1[bB]|033|e))\[[0-?]*[ -/]*[@-~]`,
+];
+
+const LEAD = `(?:(?<![A-Za-z0-9])|(?<=${ESCAPES.join("|")}))`;
 
 /** @type {{ rule: string, pattern: RegExp }[]} */
 const TOKEN_SHAPES = [
