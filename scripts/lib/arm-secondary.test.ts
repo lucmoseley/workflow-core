@@ -256,6 +256,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	registrations: ["scripts/lib/registrations.js"],
 	"workflow-permissions": ["scripts/check-workflow-permissions.js"],
 	"cli-args": ["scripts/check-cli-args.js"],
+	primitives: ["scripts/check-primitives.js"],
 	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	"context-budget": ["scripts/check-context-budget.js"],
 	"injector-margin": ["scripts/check-injector-margin.sh"],

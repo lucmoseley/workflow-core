@@ -424,6 +424,13 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-user-settings-drift.js --warn
 # standards.js:405,433).
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-code-standards.js --touching HEAD --warn
 
+# A primitives row naming a path or § id that does not resolve, or a local
+# row taking a base row's job (#3451). Every commit, since a renamed exemplar
+# can sit anywhere; --paths-only keeps it to stat calls, the count line being
+# `npm run status`'s. It reads the worktree, so a neighbour's unstaged rename
+# can surface here; a base row's fault only warns in an adopter.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-primitives.js --paths-only || exit "$?"
+
 # An own skill body this commit grows past the size its re-reading pays for
 # (mantahostels#3136), report-only by ruling; and a skill or command body
 # holding an unescaped $<digit>, which the harness rewrites to an argument —

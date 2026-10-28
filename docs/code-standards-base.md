@@ -61,11 +61,11 @@ A rule enters this base because it is right, never because the code already does
 - **judgement** — real, citable, but a change may have a good reason to differ. Say what the reason would have to be.
 
 
-### A local file changes this base only through its changes table, its route rows and its local rules
+### A local file changes this base only through its changes table, its route rows, its local rules and its primitives rows
 
-A repo's local file makes exactly four kinds of change. Two are rows of its changes table: it switches off a stack or house clause, or excepts named paths from a base rule, with a reason and a ticket. The reason names one of the five merit grounds above; a reason that the code does not do it yet, lacks the setup, or would cost work to bring up names none, and is itself a finding. The third, adding or overriding route rows and risk paths, sits in its route-rows section. A route row may send a path to "none", binding no section, only where the repo neither writes nor runs that code (#1262): vendored, generated, or a reference export nothing imports. Such a row says which of the three it is and cites its ruling. The fourth adds a local rule (`§L` + kind letter + number, such as `§LX1`) in its own section, and contradicts nothing. It never switches off a principle and never changes a severity.
+A repo's local file makes exactly five kinds of change. Two are rows of its changes table: it switches off a stack or house clause, or excepts named paths from a base rule, with a reason and a ticket. The reason names one of the five merit grounds above; a reason that the code does not do it yet, lacks the setup, or would cost work to bring up names none, and is itself a finding. The third, adding or overriding route rows and risk paths, sits in its route-rows section. A route row may send a path to "none", binding no section, only where the repo neither writes nor runs that code (#1262): vendored, generated, or a reference export nothing imports. Such a row says which of the three it is and cites its ruling. The fourth adds a local rule (`§L` + kind letter + number, such as `§LX1`) in its own section, and contradicts nothing. It never switches off a principle and never changes a severity. The fifth adds rows to its own primitives table, of the base table's shape (§Primitives below), each for a job the base table has no row for.
 
-**A sentence in a local file that contradicts this base outside its changes table, its route rows and its local rules is itself a finding, and the base wins. So is a local rule that contradicts it, a row that switches off a principle or changes a severity, a "none" row over code the repo writes or runs, or a route row that sends code to a kind it is not, which excepts it from its own kind's rules with no reason or ticket.** A finding narrowed by a local row cites both: *§X2 (base), excepted by local row 2*.
+**A sentence in a local file that contradicts this base outside its changes table, its route rows, its local rules and its primitives rows is itself a finding, and the base wins. So is a local rule that contradicts it, a row that switches off a principle or changes a severity, a "none" row over code the repo writes or runs, a local primitives row naming a base row's job, or a route row that sends code to a kind it is not, which excepts it from its own kind's rules with no reason or ticket.** A finding narrowed by a local row cites both: *§X2 (base), excepted by local row 2*.
 
 **A documented rule overrides the Fowler smell baseline.** The local file's "Smells not raised" names the smells that repo deliberately contradicts; do not raise them.
 
@@ -77,7 +77,7 @@ The plugin's citation checker (`scripts/check-code-standards.js`) reports a quot
 
 Nothing here restates a rule a tool already enforces. Check a candidate rule, and a finding, against the floor below and then the local file's §W before writing or citing it. A breach a tool already refuses is a duplicate finding.
 
-The floor is every gate in the plugin's own `.husky/pre-commit` that judges code, whether it refuses or warns only, in every repo it runs in, so no local file restates it (#1826). The hook's other gates judge documents, the roadmap, the copy and the repo's own registers, and no code finding repeats them. A local §W lists only what its repo adds: the rule sets its own linter configs and declared commands carry, what its CI runs, floor gates included, and the gates its `.husky/pre-commit.local` runs.
+The floor is every gate in the plugin's own `.husky/pre-commit` that judges code, whether it refuses or warns only, in every repo it runs in, so no local file restates it (#1826). A local §W lists only what its repo adds: the rule sets its own linter configs and declared commands carry, what its CI runs, floor gates included, and the gates its `.husky/pre-commit.local` runs.
 
 | Gate | Refuses | Where it runs |
 |---|---|---|
@@ -94,6 +94,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-cli-args.js` | a program reading its command line without a strict parser | a `scripts/*.js` the commit adds or edits; an inherited one only warns |
 | `scripts/check-guard-test-isolation.js`, `scripts/check-host-root-test-isolation.js`, `scripts/check-git-fixture-identity.js` | a `scripts/` test that spawns a guard without redirecting `CLAUDE_CONFIG_DIR`, spawns a `hostRoot()`- or `gr_root`-rooted script without redirecting `CLAUDE_PROJECT_DIR`, or commits in a git fixture it gave no identity | a commit staging `scripts/` code, each judging the whole repo |
 | `scripts/check-host-root.js` | a script finding the host repository other than through the one host-root seam, or a file shipping with the plugin reached through the host root | a commit staging `scripts/`, `.claude/` or `.husky/`, judging the whole repo; skips in a repo shipping no plugin |
+| `scripts/check-primitives.js` | a primitives row whose exemplar or enforcing check path, or § id, does not resolve, or a local row naming a base row's job; a base row's fault only warns in an adopter | every commit, `--paths-only`, reading the worktree |
 | `scripts/check-registrations.js` | a hook, guard or checker the commit adds unregistered or untested | a commit staging `scripts/`, `.husky/`, `.github/workflows/` or the registration files, judging the whole repo |
 | `scripts/check-workflow-permissions.js` | a workflow job reaching past the timer-triggered autonomy ceiling | staged `.github/workflows/*.yml` and `*.yaml`, read from the worktree |
 | `scripts/generate-test-read-edges.js --check` | a `docs/test-read-edges.json` the commit's tests no longer match; a test read the selector cannot attribute only warns | staged test files or the manifest, where the manifest exists |
@@ -102,6 +103,20 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/mutation-hold-gate.js` | a changed line on a declared sensitive path where a planted bug survives every test | with the `mutation` module on |
 
 A gate that skips here refuses nothing, so a finding it would have refused is no duplicate in that repo; nor is one a gate only warns of.
+
+---
+
+## Primitives
+
+Copy a row's exemplar, never the nearest file doing the same job (**Primitive**, `GLOSSARY.md`). Base rows' paths resolve at the plugin root, local rows' at the host root.
+
+| Job | Primitive | Exemplar | Rule | Enforcing check |
+|---|---|---|---|---|
+| Ending a guard's hook call with a decision | `scripts/lib/guard-entry.js`'s `run`, the core returning a decision | `scripts/guard-failed-call-rules.js` | §S4 | Standards axis criterion |
+| A checker's outcome, report and exit | `runCheck` in `scripts/lib/check.js` and its five-outcome alphabet | `scripts/check-cli-args.js` | §N3, §N4 | Standards axis criterion |
+| Finding the host repository | `hostRoot()` in `scripts/lib/host-root.js` | `scripts/check-stale-git-locks.js` | §0, its floor table | `scripts/check-host-root.js` |
+| Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
+| Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | Standards axis criterion |
 
 ---
 

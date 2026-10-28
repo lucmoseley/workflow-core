@@ -57,7 +57,8 @@ const POOL_WIDTH = 4;
  * tag it asks about does not resolve until after the bump is committed (#257).
  * `band-drift` (#487), `citation-ceiling` (#726), `orphaned-edits` (#813),
  * `git-locks` (#1193), `output-style` (#1944) and `husky-shim` (#3172) were
- * built for this surface.
+ * built for this surface. `primitives` (#3451) runs at commit with
+ * `--paths-only`, and here prints the count line.
  * `throttling` is a 10-19 s live sweep. `harness-canary` (#2037)'s start hook
  * prints only a red verdict, and the agent_id probe's "fixed" (#2819): here it
  * also shows a version not yet probed, a probe that could not run, and the
@@ -98,6 +99,7 @@ const CHECKS = [
 	["orphaned-edits", "check-orphaned-edits.js"],
 	["git-locks", "check-stale-git-locks.js"],
 	["husky-shim", "check-husky-shim.js"],
+	["primitives", "check-primitives.js"],
 	["output-style", "check-output-style.js"],
 	["held-reports", "replay-notify-reports.js", "--status"],
 	["jev-flags", "check-jev-flags.js", "--notify"],

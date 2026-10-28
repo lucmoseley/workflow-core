@@ -1,6 +1,6 @@
 # Code standards — the core's local file
 
-The core's own choices beside the plugin's standards base, `docs/code-standards-base.md`, which holds every rule and its §-id. `/code-review`'s Standards axis reads both. It changes the base only through its changes table and route rows.
+The core's own choices beside the plugin's standards base, `docs/code-standards-base.md`, which holds every rule and its §-id. `/code-review`'s Standards axis reads both. It changes the base only through its changes table, route rows and primitives rows.
 
 ## Changes to the base
 
@@ -13,6 +13,13 @@ None.
 | `scripts/**/test_*.py`, `scripts/conftest.py`, `scripts/pytest_pass_plugin.py` | test: pytest's cases and the support files only pytest loads (#1262) |
 | `scripts/**/*.py`, shebang or not | program, the `scripts/lib/` modules included (#1262) |
 | `.claude/skills/*/types/*.d.ts` | hook module: a mod's `$.state` contract, typing the state its hooks module keeps (#3267) |
+
+## Primitives
+
+The core's own primitives, beside the base's table. None yet.
+
+| Job | Primitive | Exemplar | Rule | Enforcing check |
+|---|---|---|---|---|
 
 ---
 

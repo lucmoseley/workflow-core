@@ -205,6 +205,10 @@
 			"lines": ["fall through to the default action"]
 		},
 		{
+			"id": "primitives",
+			"lines": ["primitives table fault(s)"]
+		},
+		{
 			"id": "doc-map",
 			"lines": [
 				{
