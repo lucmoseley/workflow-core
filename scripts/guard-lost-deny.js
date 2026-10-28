@@ -5,46 +5,45 @@
  * the act that escaped. That happens only below Claude Code 2.1.295 or on a
  * registration without `onFailure: "block"` (#2670).
  *
- * WHY IT EXISTS (mantahostels#2299, ruled at mantahostels#2289 option (A); part of the mantahostels#2265 map). A
- * guard cancelled at its timeout fails open silently: the tool call it was
- * judging simply proceeds, and nothing in the session says so.
+ * WHY IT EXISTS (mantahostels#2299). A guard cancelled at its timeout fails open
+ * silently: the tool call it was judging simply proceeds, and nothing in the
+ * session says so.
  *
  * WHAT IS LEFT TO IT (#2670). Every deny-capable registration the plugin ships
  * carries `"onFailure": "block"`, so on Claude Code 2.1.295 and later the
- * harness refuses the call instead and writes no `hook_cancelled` record
- * (measured on 2.1.309). A registration without the field is an adopter's own.
+ * harness refuses the call instead and writes no `hook_cancelled` record. A
+ * registration without the field is an adopter's own.
  *
- * WHY Stop AND NOT SessionStart OR PreToolUse (censuses at mantahostels#2299). The two
- * existing reporters, check-hook-liveness.js and check-guard-errors.js, ran at
- * SessionStart then, where the failure volume is and where they were themselves
- * cancelled — and they reached a session before its loss had happened, not one
- * that could still act. Both now run only under `npm run status`. A PreToolUse reporter would add a 21st shell to the
- * fan-out that causes the burst in the first place (mantahostels#2287).
+ * WHY Stop AND NOT SessionStart OR PreToolUse (censuses at mantahostels#2299). A
+ * SessionStart reporter runs where the failure volume is and is itself
+ * cancelled there, and it reaches a session before its loss has happened, not
+ * one that could still act. A PreToolUse reporter would add one more shell to
+ * the fan-out that causes the burst in the first place (mantahostels#2287).
  *
  * THE DENY-CAPABLE SET IS DERIVED, NEVER LISTED. `lib/deny-capable.js` reads
  * each guard's own source for a route to a refusal, so a guard added later
  * joins the set with no edit here.
  *
- * IT SPEAKS BY BLOCKING, WHICH IS THE ONE THING mantahostels#2299 ASKED IT NOT TO DO. A Stop
- * hook has no other channel to the model — an exit-0 hook reaches the transcript
- * and the user, never the session — so a report that is never read is no report.
+ * IT SPEAKS BY BLOCKING. A Stop hook has no other channel to the model — an
+ * exit-0 hook reaches the transcript and the user, never the session — so a
+ * report that is never read is no report.
  * The block is bounded twice over: once per tool call for ever, and at most
  * MAX_BLOCKS turns per session. Demanding nothing of the turn makes it a
  * REPORTING guard (docs/agents/guard-authoring.md), which is why the first
  * bound is a `seen` set of toolUseIDs and not a counter.
  *
  * IMPLICIT:  reads this session's own transcript at every Stop and refuses one
- *            turn where a deny-capable PreToolUse guard was cancelled or
- *            exited non-zero, and the call went ahead, since the last report, recording each reported
- *            call and block under .claude/tmp/markers.
+ *            turn where, since the last report, a deny-capable PreToolUse
+ *            guard was cancelled or exited non-zero and the call went ahead;
+ *            records each reported call and block under .claude/tmp/markers.
  * JUSTIFIED: fail-safe — an unenforced rule the session does not know about is
  *            the failure this exists to end, and the remedy is one command.
  * DEFEAT:    once per tool call and at most MAX_BLOCKS times per session; silent
  *            where no deny-capable guard was lost, and on every failure path.
  *
- * EACH GUARD IT NAMES CARRIES ITS MEASURED DENY RATE (mantahostels#3261, on mantahostels#3260's
- * census). A replay costs a second turn, and the rate is what tells a session
- * whether to spend it. `lib/guard-deny-rates.js` holds the figures, the cut and
+ * EACH GUARD IT NAMES CARRIES ITS MEASURED DENY RATE (mantahostels#3261). A
+ * replay costs a second turn, and the rate is what tells a session whether to
+ * spend it. `lib/guard-deny-rates.js` holds the figures, the cut and
  * their provenance.
  *
  * IT HAS A SECOND MODE, WHICH IS NOT A HOOK. `replay <transcript> <toolUseID>`
@@ -309,10 +308,9 @@ function reportFor(fresh, calls, transcript, skipped = 0) {
 }
 
 /**
- * EVERY PATH BELOW FAILS OPEN AND LEAVES A BREADCRUMB (mantahostels#1731, on the house rule
- * at mantahostels#103 §6 — breaking a session is worse than missing one). The two paths that
- * do not appear here — an unparseable payload and a missing session id — are
- * `lib/stop-guard.js`'s, and crumb the same vocabulary from there.
+ * EVERY PATH BELOW FAILS OPEN AND LEAVES A BREADCRUMB (mantahostels#1731). The two
+ * paths that do not appear here — an unparseable payload and a missing session
+ * id — are `lib/stop-guard.js`'s, and crumb the same vocabulary from there.
  *
  * @param {{sessionId: string, payload: Payload, root: string,
  *   note: (outcome: string, payload?: Payload) => void}} ctx

@@ -7,11 +7,9 @@
  * WHY DERIVED. The lost-deny census (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md)
  * needed a true-invocation denominator per guard: not "how often did it print
  * something" but "how many tool calls reached it at all", silent allows
- * included. Its scratch instrument carried that as a hand-written 21-row table,
- * and mantahostels#3287 was written to land that table as checked-in data on the assumption
- * it could not be derived. It can: `matcher` already names the tools a
- * registration binds to, and `if` already names the command condition, so the
- * table is a reading of the registration and goes stale only if it does.
+ * included. `matcher` already names the tools a registration binds to, and
+ * `if` already names the command condition, so the table is a reading of the
+ * registration and goes stale only if it does.
  *
  * A GUARD WITH NO READABLE TRIGGER IS `unknown`, NEVER ZERO — the same rule
  * `lib/guard-deny-rates.js` states for a guard with no measured row. An `if`
@@ -98,8 +96,7 @@ const EVENTS = new Set(["PreToolUse", "PostToolUse"]);
  * ONLY `all` IS ACCEPTED ON `PostToolUse` (mantahostels#3356). The tool call has already
  * run by the time that event fires, so no `PostToolUse` hook can deny one
  * whatever its source says; `deny` there would report an empty table and
- * `nondeny` a table indistinguishable from `all`, both of them reading as a
- * measurement.
+ * `nondeny` a table indistinguishable from `all`.
  *
  * @type {ReadonlySet<string>}
  */
@@ -149,8 +146,8 @@ function assertTableOptions(scope, event) {
 		throw new Error(
 			`unknown scope ${JSON.stringify(scope)} — one of ${[...SCOPES].join(", ")}`,
 		);
-	// Same rule, same reason: a typo, or an event that fires on no tool call,
-	// would match no registration and report an empty table as a measurement.
+	// A typo, or an event that fires on no tool call, would match no
+	// registration and report an empty table as a measurement.
 	if (!EVENTS.has(event))
 		throw new Error(
 			`unknown event ${JSON.stringify(event)} — one of ${[...EVENTS].join(", ")}`,
@@ -295,8 +292,7 @@ function addCore(row, core, note) {
  * EVENT CHANGES WHICH REGISTRATIONS ARE READ, AND NOTHING ELSE (mantahostels#3356). A
  * `PostToolUse` registration carries the same `matcher` and the same
  * `Tool(pattern)` `if`, so the derivation, `addRegistration`, never looks at
- * the event again after the filter — which is what lets a `PostToolUse`
- * denominator be compared with a `PreToolUse` one.
+ * the event again after the filter.
  *
  * A DISPATCHER CORE GETS ITS OWN ROW, keyed by its manifest name. Each core's
  * deny capability is read off its module (`lib/deny-capable.js`

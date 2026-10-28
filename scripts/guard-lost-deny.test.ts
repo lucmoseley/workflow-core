@@ -3,18 +3,15 @@
  * guard-lost-deny.js tells a session, at Stop, that a deny-capable guard was
  * killed at its timeout and failed open on one of its tool calls — naming the
  * guard, the call and a replay command, once per call — and stays silent where
- * nothing deny-capable was lost (mantahostels#2299, ruled at mantahostels#2289).
+ * nothing deny-capable was lost (mantahostels#2299).
  *
  * Black-box: the guard is driven end to end with a Stop payload on stdin and
  * its repo root pointed at a throwaway directory, so the counters, the seen
  * set and the breadcrumbs it mints never land in the shared tree. The core it
  * reads the guards from (WFC_SCRIPT_ROOT) is that same directory, except where
  * a test splits the two to stand in for an adopter (#1017) or points it at
- * this repo to read the real guards (#1815). `replay`
- * still spawns the lost guards themselves for real; that spawn is the guard's,
- * not the test's, and runInProcess captures it like any other write to fd 1/2
- * since it goes through the patched `process.stdout.write`, never
- * `stdio: "inherit"`.
+ * this repo to read the real guards (#1815). `replay` still spawns the lost
+ * guards themselves for real.
  *
  * It runs at every `Stop` and is the only reporter a session hears while it
  * can still act: break it and a tool call that escaped a killed deny guard

@@ -10,7 +10,7 @@
  * THE FIGURES ARE PINNED, NOT COMPUTED. Nothing on `main` recomputes them
  * (mantahostels#3263). Copy any change from a fresh census; never adjust a number by hand.
  * Bands are Wilson 95%. Source: `docs/data/lost-deny-census-2026-09-05/rates.md`
- * (the census's correct cut), over a corpus whose losses run 15 Aug – 5 Sep 2026.
+ * (the census's correct cut).
  *
  * A ROW IS KEYED BY WHAT RUNS: a dispatcher core by its name in
  * lib/guard-cores.json, a standalone guard by its script. The census measured
@@ -38,9 +38,7 @@ const AS_OF = "5 Sep 2026";
 
 /*
  * Above this share of invocations a loss is worth a turn. A reading of one
- * census (mantahostels#3261), not a derived threshold — and the census's
- * guard-suite-concurrency entry cleared it at 1.034% on a band (0.96-1.11%)
- * that straddles it.
+ * census (mantahostels#3261), not a derived threshold.
  */
 const WORTH_REPLAYING_PCT = 1;
 
@@ -221,8 +219,7 @@ function isWorthReplaying(lost) {
 function pct(n) {
 	if (n === 0) return "0%";
 	if (n >= 1) return `${n.toFixed(3).replace(/\.?(?<!0)0+$/, "")}%`;
-	/* Three significant figures below 1%, which keeps 0.0046% distinguishable
-	 * from 0.0038% without printing noise digits on 0.0996%. */
+	// Three significant figures: 0.0046% stays distinct from 0.0038%.
 	return `${Number(n.toPrecision(3))}%`;
 }
 
@@ -264,12 +261,7 @@ function describeTogether(lost) {
 	return `Together: at most ${pct(sum)} of calls (the ${lost.length} rates summed) — ${verdictAt(sum)}.`;
 }
 
-/**
- * The one line that dates the figures and says what they were priced against.
- * The date is the census's loss-window END, which is as close as it comes to
- * recording when it ran; the counts themselves are whole-corpus and unbounded,
- * so the window is not their window.
- */
+/** The one line that dates the figures and says what they were priced against. */
 const PROVENANCE = `Deny rates as of ${AS_OF}, counted whole-corpus and unbounded: every tool_use record matching each guard's own if-narrowing, not just the firings that printed something. https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md §Q2.`;
 
 module.exports = {

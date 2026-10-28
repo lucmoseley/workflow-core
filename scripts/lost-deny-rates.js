@@ -4,13 +4,11 @@
  *
  *   Usage: CLI below, which `--help` prints.
  *
- * WHAT IT ANSWERS (mantahostels#3287, landing the instrument mantahostels#3263 left in scratch). For
- * each deny-capable `PreToolUse` guard: how often it failed open, how often it
- * actually denied, how many tool calls reached it at all, and therefore how
- * many real denies escaped. https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md states
- * those figures for a corpus whose losses run 15 Aug – 5 Sep 2026;
- * `docs/data/lost-deny-*-2026-09-06.csv` is that run's output, and this
- * recomputes it.
+ * WHAT IT ANSWERS (mantahostels#3287). For each deny-capable `PreToolUse`
+ * guard: how often it failed open, how often it actually denied, how many tool
+ * calls reached it at all, and therefore how many real denies escaped.
+ * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/lost-deny-recoverability.md
+ * states those figures for one corpus, and this recomputes them.
  *
  * A RE-RUN NEVER REPRODUCES THE PUBLISHED FIGURES EXACTLY. The corpus is
  * machine-local and grows every session, so a later run prices a later window;
@@ -55,9 +53,8 @@
  *
  * STALENESS. The report ends with `lib/guard-deny-rates.js`'s pinned table
  * checked against the deny-capable set derived here: a guard with no row there
- * is named, which is the check mantahostels#3261 shipped without. Nothing recomputes that
- * table automatically, deliberately — the figures in it are a dated census, not
- * a live reading.
+ * is named. Nothing recomputes that table automatically, deliberately — the
+ * figures in it are a dated census, not a live reading.
  *
  * `--scope` (mantahostels#3350). `deny` is the default and the census's own population.
  * `nondeny` swaps in the `PreToolUse` guards that cannot deny — they
@@ -68,8 +65,8 @@
  * A NON-DENY GUARD HAS NO DENY RATE AND NO ESCAPED-DENY ESTIMATE, BY
  * CONSTRUCTION, and its row says so rather than reporting a zero. Its `lost`
  * count is still real and still a loss — the session lost a warning, a claim
- * announcement or a rule hand-over. Its `spoke` count is real too, so a `lost / population` rate
- * reads honestly; only the deny column is meaningless.
+ * announcement or a rule hand-over. Its `spoke` count is real too; only the
+ * deny column is meaningless.
  *
  * `--event` (mantahostels#3356). `PreToolUse` is the default and everything above.
  * `PostToolUse` swaps the table for the hooks that run AFTER a tool call —
@@ -127,10 +124,8 @@ const {
 } = require("./lib/guard-triggers.js");
 const { manifestAt } = require("./lib/guard-cores.js");
 const { coreHost } = require("./lib/workflow-core-config.js");
-/* `parseSince` refuses an ISO spelling that parses but sorts wrong, which is
- * the fault it was written for (mantahostels#1896); duplicating it here would duplicate the
- * chance of getting that wrong. It is a CLI's export rather than a lib's
- * because it has only ever had one caller. */
+/* Shared, never copied: it refuses an ISO spelling that parses but sorts
+ * wrong (mantahostels#1896). */
 const { parseSince } = require("./count-guard-fires.js");
 const rateTable = require("./lib/guard-deny-rates.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -198,10 +193,7 @@ const basenameOf = (key) => cutAt(key, " ")[0];
  * dispatcher needle goes to the core it names, `triggerTable`'s row for it.
  *
  * NARROWED BY THE TRIGGER TABLE, not by `denyCapable` (mantahostels#3350): the table is
- * already the scope's population, and re-deriving the filter here would have
- * dropped every non-deny guard's needles under `--scope nondeny`, reporting a
- * silent zero in the `spoke` column for guards that speak on most of their
- * calls.
+ * already the scope's population.
  *
  * @param {Record<string, any>} needles
  * @param {Map<string, unknown>} triggers the scope's guards, keyed by basename
@@ -250,12 +242,12 @@ function addCall(into, guard, id) {
  * `tool_result` blocks (parallel tool calls, more than one denied) returns
  * every one of them.
  *
- * THIS IS NOW THE FALLBACK, NOT THE ATTRIBUTION (mantahostels#3311). `fireSpans` tags each
- * span with the `tool_use_id` its own `tool_result` block carried, so
+ * THE FALLBACK, NOT THE ATTRIBUTION (mantahostels#3311). `fireSpans` tags each span
+ * with the `tool_use_id` its own `tool_result` block carried, so
  * `scanTranscript` credits a matched span to that one call rather than to every
- * id this returns — the bounded over-count mantahostels#3307 accepted is gone. What is left
- * here is the case no span names: a deny result with no `tool_use_id` at all,
- * where the record's uuid is the only identity available.
+ * id this returns. What is left here is the case no span names: a deny result
+ * with no `tool_use_id` at all, where the record's uuid is the only identity
+ * available.
  *
  * @param {Record<string, any>} record
  * @returns {string[]}
@@ -296,9 +288,6 @@ function windowVerdict(at, window) {
  * Wilson score interval for a proportion, as percentages. `null` with no
  * observations — a rate over an empty population is unknown, not zero.
  *
- * Rounded to 10 decimal places, which no real figure here reaches and which
- * stops the arithmetic's own dust being printed.
- *
  * @param {number} hits
  * @param {number} n
  * @returns {{pct: number, lowPct: number, highPct: number} | null}
@@ -311,7 +300,8 @@ function wilson(hits, n) {
 	const d = 1 + (z * z) / n;
 	const centre = p + (z * z) / (2 * n);
 	const spread = z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n));
-	/** @param {number} x */
+	/** 10 places: past any real figure, short of the arithmetic's own dust.
+	 * @param {number} x */
 	const round = (x) => Number(Math.min(100, Math.max(0, x * 100)).toFixed(10));
 	return {
 		pct: round(p),
