@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **26 October 2026**.
+Snapshot of `~/.claude/settings.json` as of **29 October 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -1067,10 +1067,6 @@ fence is four backticks so the file's own fences cannot close it.
 # Machine notes — every repo, every subscription
 
 This machine is WSL2 on Windows.
-
-## Node heap
-
-`~/.bashrc` sets `NODE_OPTIONS=--max-old-space-size=4096`, so a heap OOM near 4 GB is that cap, not the machine. Never remove it and never raise it: raising it enlarges what one runaway can take down under the 10 GB WSL cap (mantahostels#465). Derivation: `~/workflow-core/docs/environment.md` §2.
 
 ## Using Chrome as the founder (Claude in Chrome)
 
