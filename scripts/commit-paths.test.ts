@@ -18,11 +18,17 @@
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { shellQuote, writeFaultyGit } from "./lib/git-fault-fake";
 import { initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
+import {
+	cutInReplay,
+	cutShellFunction,
+	plantSequencer,
+	ROOT,
+} from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "commit-paths.js");
@@ -890,6 +896,59 @@ describe("a live neighbour's claim on a named path (mantahostels#1539)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toBe("");
 	});
+});
+
+describe("post-commit's claim release after a commit-paths commit (#3254)", () => {
+	// Three files, one on the detect-only scripts/ tier.
+	const held = ["a.md", "scripts/lib/one.js", "notes.md"];
+
+	// The fixture's post-commit: the real hook's release block, calling the real arbiter.
+	beforeEach(() => {
+		const hook = path.join(hooks, "post-commit");
+		fs.writeFileSync(
+			hook,
+			`#!/bin/sh\nset -e\nWFC_PLUGIN_ROOT=${shellQuote(ROOT)}\n${cutInReplay()}\n${cutShellFunction("release_committed_claims")}\nrelease_committed_claims\n`,
+		);
+		fs.chmodSync(hook, 0o755);
+	});
+
+	const commitHeld = () => {
+		const alice = live(sb, "alice");
+		for (const rel of held) {
+			store.acquire(rel, alice);
+			write(rel, "alice's edit\n");
+		}
+		return runWith(["-m", "mine", "--", ...held], {
+			...process.env,
+			CLAUDE_CODE_SESSION_ID: "alice",
+		});
+	};
+
+	/** git hands a hook's stdout to its own stderr. */
+	const expectReleased = (r: { status: number | null; stderr: string }) => {
+		expect(r.status).toBe(0);
+		expect(r.stderr).toMatch(/^Released .* — the commit holding/m);
+		for (const rel of held) expect(r.stderr).toContain(rel);
+		expect(store.listLocks()).toEqual([]);
+	};
+
+	it("drops every claim once every hunk the session held has landed", () => {
+		expectReleased(commitHeld());
+	});
+
+	it.each([
+		["HEAD^", "a stopped range left"],
+		["HEAD", "a single pick rewrote"],
+	])(
+		"drops them over a leftover .git/sequencer whose abort-safety names %s, as %s (#3298)",
+		(rev) => {
+			write("b.md");
+			git("add", "b.md");
+			git("commit", "-qm", "seed b");
+			plantSequencer(sb.repo, rev);
+			expectReleased(commitHeld());
+		},
+	);
 });
 
 describe("the index lock (#585) — wait, retry, and stop at the ceiling", () => {

@@ -105,6 +105,20 @@ export const POST_COMMIT = fs.readFileSync(
 );
 
 /**
+ * A `.git/sequencer` in `root` whose `abort-safety` names `rev`: HEAD as a
+ * single pick over a leftover leaves it, an older commit as a stopped range
+ * finished by hand does (#3298).
+ */
+export function plantSequencer(root: string, rev: string): void {
+	const dir = path.join(root, ".git", "sequencer");
+	fs.mkdirSync(dir);
+	fs.writeFileSync(
+		path.join(dir, "abort-safety"),
+		execFileSync("git", ["rev-parse", rev], { cwd: root, encoding: "utf8" }),
+	);
+}
+
+/**
  * A commit in `root` over `.git/sequencer`, `git commit -q -m two` plus `args`.
  * `live` makes it as a `git revert A B` step does, which post-commit reads as
  * `revert-sequence`; otherwise as an ordinary commit over a leftover whose
@@ -115,13 +129,7 @@ export function commitOverSequencer(
 	live: boolean,
 	args = ["--allow-empty"],
 ): void {
-	const dir = path.join(root, ".git", "sequencer");
-	const head = execFileSync("git", ["rev-parse", "HEAD"], {
-		cwd: root,
-		encoding: "utf8",
-	});
-	fs.mkdirSync(dir);
-	fs.writeFileSync(path.join(dir, "abort-safety"), head);
+	plantSequencer(root, "HEAD");
 	const { GIT_REFLOG_ACTION: _, ...env } = process.env;
 	execFileSync("git", ["commit", "-q", "-m", "two", ...args], {
 		cwd: root,
