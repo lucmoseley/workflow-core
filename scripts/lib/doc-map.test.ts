@@ -3408,6 +3408,16 @@ describe("Section A rendering", () => {
 			expect(line.split(/(?<!\\)\|/)).toHaveLength(7);
 		});
 
+		it("escapes a `\\` before a `|`, which would otherwise unescape the break (#3364)", () => {
+			const line = renderedRow(
+				"docs/research/foo.md",
+				entry({ role: "quotes `a \\| b`" }),
+			);
+			expect(line).toContain("`a \\\\\\| b`");
+			// A break is a `|` behind an even run of `\`.
+			expect(line.match(/(?<!\\)(?:\\\\)*\|/g)).toHaveLength(6);
+		});
+
 		/* mantahostels#2419: `consumes` typed as a reference list. */
 		it("renders each kind in the form §A prints it, joined ` · `", () => {
 			expect(

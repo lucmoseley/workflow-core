@@ -2725,7 +2725,7 @@ function validateAllowAnchor(file, ctx, anchor) {
 				"allowlists with no needle in hand — write the anchor as a " +
 				"plain string",
 		);
-	if (needleNames !== null && !needleNames.has(anchor.needle))
+	if (!needleNames.has(anchor.needle))
 		fail(
 			file,
 			`${where} anchor \`${anchor.anchor}\` ` +
@@ -3727,10 +3727,12 @@ function renderRole(p) {
 }
 
 /** A cell's `|` is a column break in GFM unless it is escaped, so a Role, a
- * Consumes or a class qualifier quoting one splits its own row (mantahostels#1863, mantahostels#2507). */
+ * Consumes or a class qualifier quoting one splits its own row (mantahostels#1863, mantahostels#2507).
+ * A `\` is escaped too, or a quoted `\|` would read as an escaped `\` before a
+ * bare break (#3364). */
 /** @param {string} s */
 function escapeCell(s) {
-	return s.replace(/\|/g, "\\|");
+	return s.replace(/[\\|]/g, "\\$&");
 }
 
 /**
