@@ -5,8 +5,8 @@
  * and a pre-reboot lock all read dead (mantahostels#104, mantahostels#158).
  *
  * Nothing here touches the store, so these tests need no sandbox. The /proc
- * cases spawn real processes — one named by a symlink, one left a zombie —
- * because a stat line's comm and state are the kernel's to write.
+ * cases use real processes — the worker under a renamed comm, a child left a
+ * zombie — because a stat line's comm and state are the kernel's to write.
  *
  * They exist ALONGSIDE the proving run (scripts/proving-run.test.ts), which
  * covers the same subsystem end to end, because the harness reaches only one of
@@ -23,23 +23,36 @@
 
 import { type ChildProcess, spawn } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { proc } from "./arbiter-testkit";
 
 describe("procStart — the kernel token that makes a recycled pid detectable", () => {
-	it("reads field 22 for a live process", () => {
-		const mine = proc.readProcStartOf(process.pid);
-		expect(mine).toMatch(/^\d+$/);
-		// Field 22 counted from the last ')', because comm is parenthesised and may
-		// itself contain spaces or brackets.
-		const stat = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8");
-		expect(stat.slice(stat.lastIndexOf(")") + 2).split(/\s+/)[19]).toBe(mine);
-	});
-
 	it("returns null for a pid with no process", () => {
 		expect(proc.readProcStartOf(4_194_303)).toBeNull();
+	});
+
+	it("reads field 22 for a live process, past a comm full of traps", () => {
+		// comm is parenthesised and may itself contain spaces and brackets, so
+		// fields count from the LAST ')'. The worker renames its own comm rather
+		// than spawn a child under the trap name: a child that dies early stays a
+		// zombie whose stat still carries the token, so the reader's correct null
+		// would read as a parse failure (#3480).
+		// Residual: safe only under vitest's forks pool, where the worker is this
+		// file's alone, and only where /proc/self/comm is writable.
+		const comm = "/proc/self/comm";
+		const saved = fs.readFileSync(comm, "utf8").trim();
+		fs.writeFileSync(comm, "w) x (y");
+		try {
+			const stat = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8");
+			const known = `${process.pid} (w) x (y) `;
+			expect(stat.startsWith(known)).toBe(true);
+			expect(proc.readProcStartOf(process.pid)).toMatch(/^\d+$/);
+			expect(proc.readProcStartOf(process.pid)).toBe(
+				stat.slice(known.length).split(" ")[19],
+			);
+		} finally {
+			fs.writeFileSync(comm, saved);
+		}
 	});
 });
 
@@ -58,26 +71,6 @@ describe("what /proc calls alive", () => {
 		}
 		throw new Error(`no ${ready} in /proc after 2s`);
 	};
-
-	it("reads the start token past a comm full of traps", async () => {
-		// comm is parenthesised and may itself contain spaces and brackets, so
-		// fields count from the LAST ')'. A symlink's name becomes the comm.
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "proc-comm-"));
-		const trap = path.join(dir, "w) x (y");
-		fs.symlinkSync("/bin/sleep", trap);
-		const child = spawn(trap, ["5"]);
-		try {
-			const pid = await started(child, /\(w\) x \(y\) /);
-			const stat = fs.readFileSync(`/proc/${pid}/stat`, "utf8");
-			const known = `${pid} (w) x (y) `;
-			expect(proc.readProcStartOf(pid)).toBe(
-				stat.slice(known.length).split(" ")[19],
-			);
-		} finally {
-			child.kill();
-			fs.rmSync(dir, { recursive: true, force: true });
-		}
-	});
 
 	it("counts a ZOMBIE as no process at all", async () => {
 		// A zombie keeps its stat entry, start time intact, until its parent reaps
