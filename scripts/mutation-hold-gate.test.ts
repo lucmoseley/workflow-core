@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stampFile, writeStamp } from "./lib/commit-key.js";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import {
@@ -227,33 +228,35 @@ const commitCount = () => Number(git("rev-list", "--count", "HEAD"));
 /** Every fail-open record the gate logged, check-guard-errors.js's input. */
 const readLog = () => readGuardErrorsLog(scratch);
 
-const REAL_GIT = spawnSync("sh", ["-c", "command -v git"], {
-	encoding: "utf8",
-}).stdout.trim();
 /**
- * git and sh are faked here, failing one chosen call, as neither has a WFC_
- * variable to name a stub by and the hook calls both itself.
+ * sh is faked here, failing one chosen call, as it has no WFC_ variable to
+ * name a stub by and the hook calls it itself.
  */
 const onPath = (name: string, script: string) =>
 	fs.writeFileSync(path.join(scratch, "bin", name), `#!/bin/sh\n${script}`, {
 		mode: 0o755,
 	});
-/** Put on GIT_EXEC_PATH, which git puts first on a hook's PATH; `call` names the args it refuses. */
-const gitRefuses = (call = "diff --cached --name-only --no-renames -z") => {
-	onPath(
-		"git",
-		`case " $* " in *" ${call} "*) echo "fatal: stub git will not answer" >&2; exit 128 ;; esac\nexec ${REAL_GIT} "$@"\n`,
-	);
-	return { GIT_EXEC_PATH: path.join(scratch, "bin") };
-};
+const STUB_GIT_REFUSAL = 'echo "fatal: stub git will not answer" >&2; exit 128';
+/** A git call holding `words` in a row fails; every other call runs. */
+const gitRefuses = (
+	words = ["diff", "--cached", "--name-only", "--no-renames", "-z"],
+) => ({
+	WFC_GIT: writeFaultyGit(
+		{ words },
+		{ script: STUB_GIT_REFUSAL },
+		{ under: scratch },
+	).git,
+});
 /** A `git cat-file --batch` asked for `object` fails; every other call runs. */
-const batchRefuses = (object: string) => {
-	onPath(
-		"git",
-		`case " $* " in *" cat-file --batch "*) in="$(cat)"; case "$in" in *"${object}"*) echo "fatal: stub git will not answer" >&2; exit 128 ;; esac; printf '%s\\n' "$in" | exec ${REAL_GIT} "$@" ;; esac\nexec ${REAL_GIT} "$@"\n`,
-	);
-	return { GIT_EXEC_PATH: path.join(scratch, "bin") };
-};
+const batchRefuses = (object: string) => ({
+	WFC_GIT: writeFaultyGit(
+		{ words: ["cat-file", "--batch"] },
+		{
+			script: `in="$(cat)"; case "$in" in *"${object}"*) ${STUB_GIT_REFUSAL} ;; esac; printf '%s\\n' "$in" | "$REAL_GIT" "$@"; exit $?`,
+		},
+		{ under: scratch },
+	).git,
+});
 const routeRefuses = () =>
 	onPath(
 		"sh",
