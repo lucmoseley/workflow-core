@@ -220,8 +220,33 @@ describe("readout's verdict (#3317)", () => {
 				"bound by:  allowance — allowance why",
 				"also:      memory (memory why)",
 				"memory:    non-session processes holds most (1400 MB)",
-				"sustained: 4.0 over the last 24h (0.1 h with any session working)",
+				"sustained: 4.0 over the last 24 h (0.1 h with any session working)",
 			].join("\n"),
+		);
+	});
+
+	it("names a record that would not read above the verdict", () => {
+		const r = readout({
+			ticks: [],
+			minutes: [],
+			now: T0,
+			windowMs: 24 * HOUR,
+			unreadable: ["/x/concurrency.jsonl — EACCES"],
+		});
+		expect(buildBlockText(r, () => ({ count: 0, mb: 0 }))).toMatch(
+			/^unreadable: \/x\/concurrency.jsonl — EACCES\nno refill-loop tick recorded$/m,
+		);
+	});
+
+	it("prints a null sustained figure as the morning review does", () => {
+		const r = readout({
+			ticks: [tickAt(T0, "allowance", [])],
+			minutes: [],
+			now: T0 + MIN,
+			windowMs: 24 * HOUR,
+		});
+		expect(buildBlockText(r, unread)).toMatch(
+			/^sustained: no session recorded working over the last 24 h$/m,
 		);
 	});
 });

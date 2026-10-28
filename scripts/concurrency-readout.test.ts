@@ -8,7 +8,8 @@
  * The program runs in-process over a refill record holding a stale tick, and
  * spawns the real admission.js over fake `ps`, `/proc`, `claude` and meminfo,
  * so its live read finds one claimed pair that no listing names. Which row the
- * watch reads, tick or live, is lib/concurrency.test.ts's.
+ * watch reads, tick or live, is lib/concurrency.test.ts's. It also pins the
+ * precomputed 24-hour file the status line reads (#3498).
  */
 
 import fs from "node:fs";
@@ -40,14 +41,15 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 /** The readout over a machine running one claimed pair, `abc`, that a
  * listing of this session alone does not name; `refused` fails the listing,
- * and `empty` runs outside any session over an empty one. */
-const run = ({ refused = false, empty = false } = {}) => {
+ * `empty` runs outside any session over an empty one, and `fresh` seeds a
+ * fresh tick. */
+const run = ({ refused = false, empty = false, fresh = false } = {}) => {
 	const refill = path.join(dir, "refill");
 	fs.mkdirSync(refill, { recursive: true });
 	fs.writeFileSync(
 		path.join(refill, "concurrency.jsonl"),
 		`${JSON.stringify({
-			at: new Date(Date.now() - 2 * STALE_MS).toISOString(),
+			at: new Date(Date.now() - (fresh ? 0 : 2 * STALE_MS)).toISOString(),
 			working: 1,
 			ceiling: 2,
 			binding: null,
@@ -69,7 +71,7 @@ const run = ({ refused = false, empty = false } = {}) => {
 			...process.env,
 			...buildIsolatedEnv(dir),
 			WFC_REFILL_DIR: refill,
-			MEMWATCH_MINUTE_LOG: path.join(dir, "no-minutes.jsonl"),
+			MEMWATCH_MINUTE_LOG: path.join(dir, "minutes.jsonl"),
 			WFC_MEMINFO: meminfo,
 			WFC_PS: writePsStub(dir, [
 				"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
@@ -109,6 +111,37 @@ describe("the unlisted watch with the loop off (#3496)", () => {
 			/^unlisted: {2}unknown now — session listing: empty and unvouched/m,
 		);
 		expect(r.stdout).not.toContain("outside admission's listing");
+		expect(r.status).toBe(0);
+	});
+});
+
+describe("the sustained figure the status line reads (#3498)", () => {
+	const sustainedFile = () =>
+		fs.readFileSync(path.join(dir, "refill", "concurrency-24h"), "utf8");
+
+	it("writes the 24-hour figure and prints it", () => {
+		const at = (ago: number) => new Date(Date.now() - ago).toISOString();
+		fs.writeFileSync(
+			path.join(dir, "minutes.jsonl"),
+			[
+				{ ts: at(10 * 60 * 1000), sessions: 3 },
+				{ ts: at(5 * 60 * 1000), sessions: 3 },
+			]
+				.map((m) => `${JSON.stringify(m)}\n`)
+				.join(""),
+		);
+		const r = run({ fresh: true });
+		expect(sustainedFile()).toBe("3.0\n");
+		expect(r.stdout).toMatch(/^sustained: 3\.0 over the last 24 h /m);
+		expect(r.status).toBe(0);
+	});
+
+	it("writes `-` where no session was recorded working", () => {
+		const r = run({ fresh: true });
+		expect(sustainedFile()).toBe("-\n");
+		expect(r.stdout).toMatch(
+			/^sustained: no session recorded working over the last 24 h$/m,
+		);
 		expect(r.status).toBe(0);
 	});
 });

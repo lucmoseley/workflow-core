@@ -25,9 +25,11 @@
  * never throw, so a broken record costs a reading, never a tick.
  */
 
-const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { caught } = require("./caught.js");
+const { readJsonl } = require("./jsonl.js");
 const { presenceAt } = require("./presence.js");
 const { NOTHING_LAUNCHABLE, pickSeat } = require("./refill-decide.js");
 const { refillPath } = require("./refill-dir.js");
@@ -40,12 +42,16 @@ const STALE_MS = 15 * MINUTE_MS;
 /* Matched to memwatch's minute record (MEMWATCH_MINUTE_DAYS), so the 7-day
  * review window always has both records. */
 const RETAIN_MS = 28 * DAY_MS;
-const SUSTAINED_WINDOW_MS = 24 * HOUR_MS;
+/* The status line's and the morning review's sustained window; untraced
+ * (#3315). */
+const SUSTAINED_WINDOW_MS = DAY_MS;
+const SUSTAINED_SPAN = "24 h";
 
 const LOOP_OFF = "loop not running";
 /* Where no limit fails: a slot is free and the loop launches into it. */
 const NONE = "none";
-/* The spread's top bucket; a count at or past it shares one. */
+/* The spread's top bucket; a count at or past it shares one. Untraced
+ * (#3315). */
 const SPREAD_CAP = 10;
 
 /** @typedef {{limit: string, why: string}} Failing */
@@ -58,8 +64,10 @@ const SPREAD_CAP = 10;
  * @property {number|null} ceiling the working count plus admission's slots
  * @property {Failing|null} binding
  * @property {Failing[]} also
- * @property {Record<string, unknown>|null} memory
+ * @property {TickMemory|null} memory
  */
+/** @typedef {import("./admission.js").AdmissionJson} AdmissionJson */
+/** @typedef {ReturnType<typeof buildTickMemory>} TickMemory */
 
 /** @typedef {{ts: string, sessions: number|null}} MinuteLine */
 /** @typedef {{dir: string, count: number}} UnlistedDir */
@@ -70,12 +78,12 @@ const SPREAD_CAP = 10;
 /**
  * The memory component holding most of what admission charges besides the
  * free budget.
- * @param {any} a admission's `--json` verdict
+ * @param {AdmissionJson} a
  * @returns {{name: string, mb: number}}
  */
 function largestHolder(a) {
-	const m = a.memory ?? {};
-	/** @type {[string, unknown][]} */
+	const m = a.memory;
+	/** @type {[string, number|null|undefined][]} */
 	const holders = [
 		["the live sessions' p95 draw", a.drawNeedMb],
 		["the earlyoom floor + margin", (a.floorMb ?? 0) + (a.marginMb ?? 0)],
@@ -132,7 +140,7 @@ function policyFailing(input, decision) {
 /**
  * Admission's failing limits: memory where it prices no slot, CPU where the
  * load or the session ceiling holds every one.
- * @param {any} a admission's `--json` verdict, or null where unread
+ * @param {AdmissionJson|null} a null where unread
  * @returns {Failing[]}
  */
 function resourceFailing(a) {
@@ -149,7 +157,7 @@ function resourceFailing(a) {
 		const top = largestHolder(a);
 		out.push({ limit: "memory", why: `${top.name} holds most (${top.mb} MB)` });
 	}
-	const { load = {}, cpu = {} } = a;
+	const { load, cpu } = a;
 	if (load.overloaded)
 		out.push({ limit: "CPU", why: `load1 ${load.load1} over ${load.ceiling}` });
 	else if (cpu.full || cpu.slots === 0)
@@ -162,8 +170,7 @@ function resourceFailing(a) {
 
 /**
  * Every limit failing at this tick, in the verdict's order.
- * @param {{input: import("./refill-decide.js").TickInput,
- *   decision: import("./refill-decide.js").Decision, admission: any}} tick
+ * @param {Tick} tick
  * @returns {Failing[]}
  */
 function failingAt({ input, decision, admission }) {
@@ -171,43 +178,53 @@ function failingAt({ input, decision, admission }) {
 }
 
 /**
+ * @typedef {{input: import("./refill-decide.js").TickInput,
+ *   decision: import("./refill-decide.js").Decision,
+ *   admission: AdmissionJson|null}} Tick
+ */
+
+/**
  * The record line for one tick.
- * @param {{input: import("./refill-decide.js").TickInput,
- *   decision: import("./refill-decide.js").Decision, admission: any}} tick
+ * @param {Tick} tick
  * @returns {TickRecord}
  */
 function buildTickRecord(tick) {
 	const { input, admission: a } = tick;
 	const [binding = null, ...also] = failingAt(tick);
-	const working = a?.memory?.working?.count;
-	const known = typeof working === "number" && typeof a.slots === "number";
+	const working = a?.memory?.working?.count ?? null;
 	return {
 		at: new Date(input.now).toISOString(),
-		working: known ? working : null,
-		ceiling: known ? working + a.slots : null,
+		working,
+		ceiling: a && working !== null ? working + a.slots : null,
 		binding,
 		also,
-		memory: a
-			? {
-					availableMb: a.availableMb,
-					budgetMb: a.budgetMb,
-					drawNeedMb: a.drawNeedMb,
-					nextNeedMb: a.nextNeedMb,
-					reservedMb: a.reservedMb,
-					landerMb: a.landerMb,
-					floorMb: a.floorMb,
-					marginMb: a.marginMb,
-					memorySlots: a.memorySlots,
-					rows: {
-						working: a.memory?.working?.mb ?? null,
-						finished: a.memory?.finished?.mb ?? null,
-						pool: a.memory?.pool?.mb ?? null,
-						other: a.memory?.other?.mb ?? null,
-					},
-					unlisted: unlistedOf(a.memory?.unlisted),
-					largest: largestHolder(a),
-				}
-			: null,
+		memory: a ? buildTickMemory(a) : null,
+	};
+}
+
+/**
+ * The memory figures a tick keeps from admission's verdict.
+ * @param {AdmissionJson} a
+ */
+function buildTickMemory(a) {
+	return {
+		availableMb: a.availableMb,
+		budgetMb: a.budgetMb,
+		drawNeedMb: a.drawNeedMb,
+		nextNeedMb: a.nextNeedMb,
+		reservedMb: a.reservedMb,
+		landerMb: a.landerMb,
+		floorMb: a.floorMb,
+		marginMb: a.marginMb,
+		memorySlots: a.memorySlots,
+		rows: {
+			working: a.memory?.working?.mb ?? null,
+			finished: a.memory?.finished?.mb ?? null,
+			pool: a.memory?.pool?.mb ?? null,
+			other: a.memory?.other?.mb ?? null,
+		},
+		unlisted: unlistedOf(a.memory?.unlisted),
+		largest: largestHolder(a),
 	};
 }
 
@@ -230,9 +247,10 @@ function unlistedOf(u) {
 /**
  * The time-weighted readout over the `windowMs` before `now`.
  * @param {{ticks: TickRecord[], minutes: MinuteLine[], now: number,
- *   windowMs: number}} input
+ *   windowMs: number, unreadable?: string[]}} input `unreadable` names
+ *   each record that would not read, carried through for the block to print
  */
-function readout({ ticks, minutes, now, windowMs }) {
+function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 	const from = now - windowMs;
 	const timed = ticks
 		.map((t) => ({ t, ms: Date.parse(t.at) }))
@@ -283,6 +301,7 @@ function readout({ ticks, minutes, now, windowMs }) {
 			}
 		: last.t.binding;
 	return {
+		unreadable,
 		lastTick: last?.t ?? null,
 		stale,
 		verdict,
@@ -298,8 +317,16 @@ function readout({ ticks, minutes, now, windowMs }) {
 	};
 }
 
-/** @param {number|null} n */
-const figure = (n) => (n === null ? "unread" : n.toFixed(1));
+/**
+ * The sustained figure over `span`, as both the status block and the morning
+ * review print it.
+ * @param {ReturnType<typeof readout>} r
+ * @param {string} span
+ */
+const buildSustainedText = (r, span) =>
+	r.sustained === null
+		? `no session recorded working over the last ${span}`
+		: `${r.sustained.toFixed(1)} over the last ${span} (${r.activeHours.toFixed(1)} h with any session working)`;
 
 /**
  * `npm run status`'s concurrency block.
@@ -310,6 +337,7 @@ function buildBlockText(r, readLive) {
 	const t = r.lastTick;
 	const v = r.verdict;
 	const lines = [
+		...r.unreadable.map((u) => `unreadable: ${u}`),
 		t
 			? `${t.working ?? "?"} working at the last tick (${t.at}), admission ceiling ${t.ceiling ?? "?"}`
 			: "no refill-loop tick recorded",
@@ -319,14 +347,12 @@ function buildBlockText(r, readLive) {
 		lines.push(
 			`also:      ${r.also.map((f) => `${f.limit} (${f.why})`).join(", ")}`,
 		);
-	const largest = /** @type {any} */ (t?.memory)?.largest;
+	const largest = t?.memory?.largest;
 	if (largest)
 		lines.push(`memory:    ${largest.name} holds most (${largest.mb} MB)`);
 	const unlisted = buildUnlistedLine(r, readLive);
 	if (unlisted) lines.push(unlisted);
-	lines.push(
-		`sustained: ${figure(r.sustained)} over the last 24h (${r.activeHours.toFixed(1)} h with any session working)`,
-	);
+	lines.push(`sustained: ${buildSustainedText(r, SUSTAINED_SPAN)}`);
 	return lines.join("\n");
 }
 
@@ -341,14 +367,10 @@ function buildBlockText(r, readLive) {
  * @param {() => UnlistedRead} readLive
  */
 function buildUnlistedLine(r, readLive) {
+	/** @type {[UnlistedRead|null, string]} */
 	const [u, when] = r.stale
 		? [readLive(), "now"]
-		: [
-				/** @type {{unlisted?: UnlistedRead}|null|undefined} */ (
-					r.lastTick?.memory
-				)?.unlisted ?? null,
-				"at the last tick",
-			];
+		: [r.lastTick?.memory?.unlisted ?? null, "at the last tick"];
 	if (!u) return null;
 	const why = u.unknown ?? "unread";
 	if (u.count === null) return `unlisted:  unknown ${when} — ${why}`;
@@ -363,38 +385,38 @@ function concurrencyFiles() {
 		sustained: refillPath("concurrency-24h"),
 		minutes:
 			process.env.MEMWATCH_MINUTE_LOG ||
-			path.join(process.env.HOME || "", "memwatch-minute.jsonl"),
+			path.join(os.homedir(), "memwatch-minute.jsonl"),
 	};
 }
 
 /**
+ * A record's rows, none where it is missing or would not read; a failed read
+ * is named in `unreadable`, so the block never prints it as an empty record.
  * @param {string} file
+ * @param {string[]} unreadable
  * @returns {Record<string, unknown>[]}
  */
-function readJsonLines(file) {
-	let text;
+function readJsonLines(file, unreadable) {
 	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch {
-		/* No record yet, or unreadable: the readout reads it as empty. */
+		return readJsonl(file)?.rows ?? [];
+	} catch (e) {
+		unreadable.push(`${file} — ${caught(e).code ?? caught(e).message}`);
 		return [];
 	}
-	return text.split("\n").flatMap((line) => {
-		try {
-			const v = JSON.parse(line);
-			return v && typeof v === "object" && !Array.isArray(v) ? [v] : [];
-		} catch {
-			/* A torn or blank line costs that line alone. */
-			return [];
-		}
-	});
 }
 
 function readRecords() {
 	const files = concurrencyFiles();
+	/** @type {string[]} */
+	const unreadable = [];
 	return {
-		ticks: /** @type {TickRecord[]} */ (readJsonLines(files.record)),
-		minutes: /** @type {MinuteLine[]} */ (readJsonLines(files.minutes)),
+		ticks: /** @type {TickRecord[]} */ (
+			readJsonLines(files.record, unreadable)
+		),
+		minutes: /** @type {MinuteLine[]} */ (
+			readJsonLines(files.minutes, unreadable)
+		),
+		unreadable,
 	};
 }
 
@@ -434,6 +456,7 @@ function appendTick(record) {
 module.exports = {
 	NONE,
 	SPREAD_CAP,
+	SUSTAINED_SPAN,
 	SUSTAINED_WINDOW_MS,
 	appendTick,
 	buildBlockText,
@@ -441,5 +464,6 @@ module.exports = {
 	concurrencyFiles,
 	readRecords,
 	readout,
+	buildSustainedText,
 	writeSustained,
 };
