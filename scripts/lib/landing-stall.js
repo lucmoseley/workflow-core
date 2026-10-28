@@ -1,14 +1,18 @@
 /*
  * landing-stall.js — what the session-start stall check and the refill loop's
  * supervision read off the landing queue, and the one read both take (#2406, spec #2261, #2692): a
- * stalled queue, a dead lander, or a held one.
+ * stalled queue, a dead lander, or a held one. The read also keeps the record
+ * of when `landing` went ahead.
  *
- * STALLED: `landing` holds commits `main` lacks, and `main` has not moved for
- * STALL_MS. It last moved at the later of the time the lander's heartbeat
- * records for its last move and `main`'s tip's committer time, which no move
- * to that tip can predate: the second covers a `main` no lander has moved yet,
- * or one pushed by hand. Counting from `main`, not from a queued commit, tells
- * a slow red batch, which moves `main` as it lands parents, from a stuck queue.
+ * STALLED: `landing` holds commits `main` lacks, and has for STALL_MS without
+ * `main` moving. `main` last moved at the later of the time the lander's
+ * heartbeat records for its last move and `main`'s tip's committer time, which
+ * no move to that tip can predate: the second covers a `main` no lander has
+ * moved yet, or one pushed by hand. Counting from `main`, not from a queued
+ * commit, tells a slow red batch, which moves `main` as it lands parents, from
+ * a stuck queue. The clock starts no earlier than the first reading that found
+ * `landing` ahead of the present `main`, so a push onto a `main` idle for
+ * hours is not a stall the moment it lands (#3303).
  *
  * Both below need `landing` ahead of `main` and the pid the heartbeat names
  * not running. A live pid with a stale beat is a lander inside one push,
@@ -21,7 +25,11 @@
  * DEAD: otherwise, where the heartbeat is absent or older than STALE_MS.
  */
 
+const fs = require("node:fs");
+const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
+const { writeFileAtomic } = require("./atomic-write.js");
+const { markersDir } = require("./marker-root.js");
 const {
 	HEARTBEAT_MS,
 	landerFiles,
@@ -46,6 +54,8 @@ const STALE_MS = 5 * HEARTBEAT_MS;
  * @property {import("./lander.js").Relation} relation
  * @property {number|null} mainAt `main`'s tip's committer time in ms, null
  *   where the remote has no `main`
+ * @property {number|null} aheadSince when a reading first found `landing`
+ *   ahead of, or diverged from, the present `main`, in ms; null where unknown
  * @property {import("./lander.js").Heartbeat|null} heartbeat
  * @property {(pid: number) => boolean} alive
  */
@@ -54,15 +64,23 @@ const STALE_MS = 5 * HEARTBEAT_MS;
  * @param {QueueReading} r
  * @returns {StallFinding[]}
  */
-function stallFindings({ now, landing, relation, mainAt, heartbeat, alive }) {
+function stallFindings({
+	now,
+	landing,
+	relation,
+	mainAt,
+	aheadSince,
+	heartbeat,
+	alive,
+}) {
 	/** @type {StallFinding[]} */
 	const found = [];
 	const moved = mainMovedAt(mainAt, heartbeat);
 	if (
 		landing !== null &&
-		(relation === "ahead" || relation === "diverged") &&
+		queued(relation) &&
 		moved !== null &&
-		now - moved > STALL_MS
+		now - Math.max(moved, aheadSince ?? moved) > STALL_MS
 	)
 		found.push({
 			tag: "LANDING-STALLED",
@@ -84,6 +102,9 @@ function stallFindings({ now, landing, relation, mainAt, heartbeat, alive }) {
 		});
 	return found;
 }
+
+/** @param {import("./lander.js").Relation} relation */
+const queued = (relation) => relation === "ahead" || relation === "diverged";
 
 /**
  * When `main` last moved: the later of the heartbeat's record and its tip's
@@ -136,13 +157,60 @@ function supervision(r) {
 function readQueue(root) {
 	const git = remoteGit(root);
 	const refs = git.refs();
+	const now = Date.now();
 	return {
-		now: Date.now(),
+		now,
 		...refs,
 		mainAt: refs.main === null ? null : git.committedAt(refs.main),
+		aheadSince: recordAhead(path.join(markersDir(root), AHEAD), {
+			main: queued(refs.relation) ? refs.main : null,
+			now,
+		}),
 		heartbeat: readHeartbeat(landerFiles(root).heartbeat),
 		alive: pidAlive,
 	};
 }
 
-module.exports = { STALL_MS, readQueue, stallFindings, supervision };
+/* When `landing` was first read ahead of `main`. */
+const AHEAD = ".landing-ahead.json";
+
+/**
+ * When `file` records `main` was first read behind `landing`, recording `now`
+ * where it names another `main` or none, and clearing it where `main` is null
+ * (`landing` not ahead). Null where the record cannot be written, so the
+ * clock falls back to `main`'s last move rather than never starting (#3303).
+ * @param {string} file
+ * @param {{main: string|null, now: number}} at
+ */
+function recordAhead(file, { main, now }) {
+	try {
+		if (main === null) {
+			fs.rmSync(file, { force: true });
+			return null;
+		}
+		let rec = null;
+		try {
+			rec = JSON.parse(fs.readFileSync(file, "utf8"));
+		} catch {
+			/* Absent, or torn by a hand edit: timed afresh (#3303). */
+		}
+		const since = rec?.main === main ? Date.parse(rec.since) : Number.NaN;
+		if (Number.isFinite(since)) return since;
+		writeFileAtomic(
+			file,
+			`${JSON.stringify({ main, since: new Date(now).toISOString() })}\n`,
+			{ mkdir: true },
+		);
+		return now;
+	} catch {
+		/* An unwritable markers directory must not stop a dead lander's restart. */
+		return null;
+	}
+}
+
+module.exports = {
+	STALL_MS,
+	readQueue,
+	stallFindings,
+	supervision,
+};

@@ -5,7 +5,8 @@
  *
  * Loosen it and a stalled or dead lander holds every landing back unseen, a
  * lander inside a push or a held queue is reported dead, or a slow red batch
- * that still moves main is ticketed as a stall.
+ * that still moves main, or a push onto a main idle for hours, is ticketed
+ * as a stall.
  */
 import { describe, expect, it } from "vitest";
 import { stallFindings, supervision } from "./landing-stall.js";
@@ -22,6 +23,7 @@ const reading = (over: Partial<Parameters<typeof stallFindings>[0]> = {}) => ({
 	landing: L,
 	relation: "ahead" as const,
 	mainAt: NOW - 10 * MIN,
+	aheadSince: null,
 	heartbeat: { pid: 7, at: new Date(NOW - MIN).toISOString(), batch: L },
 	alive: () => false,
 	...over,
@@ -72,6 +74,20 @@ describe("stallFindings", () => {
 			movedAt: new Date(stale(60)).toISOString(),
 		};
 		expect(tags({ mainAt: NOW - 10 * MIN, heartbeat })).toEqual([]);
+	});
+
+	it("warns of no stall where landing went ahead within 2 h, though main has stood for hours (#3303)", () => {
+		expect(tags({ mainAt: stale(6 * 60), aheadSince: NOW - 4 * MIN })).toEqual(
+			[],
+		);
+	});
+
+	it("warns of a stall where landing has been ahead over 2 h, naming when main last moved (#3303)", () => {
+		const f = found({ mainAt: stale(6 * 60), aheadSince: stale(1) });
+		expect(f.map((x) => x.tag)).toEqual(["LANDING-STALLED"]);
+		expect(f[0]?.line).toContain(
+			`main has not moved since ${new Date(stale(6 * 60)).toISOString()}`,
+		);
 	});
 
 	it("warns of no stall where main moved recently", () => {

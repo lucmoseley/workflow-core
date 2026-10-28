@@ -45,6 +45,18 @@ const commit = (name: string, ago: number, ...branches: string[]) => {
 
 const markers = () => path.join(work, ".claude", "tmp", "markers");
 
+/** A record that `landing` was first read ahead of `main` `ago` ms back. */
+const aheadFor = (ago: number) => {
+	fs.mkdirSync(markers(), { recursive: true });
+	fs.writeFileSync(
+		path.join(markers(), ".landing-ahead.json"),
+		JSON.stringify({
+			main: git(work, ["rev-parse", "origin/main"]),
+			since: new Date(Date.now() - ago).toISOString(),
+		}),
+	);
+};
+
 /** A heartbeat from `pid`, written now. */
 const beat = (pid: number, extra: Record<string, unknown> = {}) => {
 	fs.mkdirSync(markers(), { recursive: true });
@@ -161,6 +173,7 @@ it("starts a lander where landing is ahead and none runs, naming the refill loop
 it("files one urgent bug stall ticket for a running lander whose main has stood 2 h, and finds it current on the next pass", () => {
 	commit("seed", 121 * MIN, "main", "landing");
 	const tip = commit("work", MIN, "landing");
+	aheadFor(121 * MIN);
 	beat(process.pid, {
 		batch: tip,
 		red: { sha: tip, files: ["scripts/x.test.ts"] },
@@ -192,6 +205,7 @@ it("files one urgent bug stall ticket for a running lander whose main has stood 
 it("starts a dead lander and files the stall ticket too where main has stood 2 h", () => {
 	commit("seed", 121 * MIN, "main", "landing");
 	commit("work", MIN, "landing");
+	aheadFor(121 * MIN);
 	const tester = path.join(tmp, "tester.sh");
 	fs.writeFileSync(tester, "#!/bin/sh\nexit 2\n");
 	fs.chmodSync(tester, 0o755);
@@ -202,6 +216,17 @@ it("starts a dead lander and files the stall ticket too where main has stood 2 h
 	expect(r.stdout).toContain("started the lander");
 	expect(r.stdout).toContain("Filed #100");
 	expect(readIssues()).toHaveLength(1);
+});
+
+it("files nothing on a push onto a main idle for hours, read ahead for the first time (#3303)", () => {
+	commit("seed", 8 * 60 * MIN, "main", "landing");
+	commit("work", MIN, "landing");
+	beat(process.pid);
+
+	const r = supervise();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(readIssues()).toEqual([]);
 });
 
 it("files nothing where a running lander moved main within 2 h", () => {

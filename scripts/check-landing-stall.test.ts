@@ -36,22 +36,35 @@ const queue = (name: string, ago: number) => {
 	git(work, ["push", "-q", "origin", "HEAD:landing"]);
 };
 
-/** A heartbeat `ago` ms old, from a pid that has exited. */
-const beat = (ago: number, movedAt?: number) => {
-	const dir = path.join(work, ".claude", "tmp", "markers");
-	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(
-		path.join(dir, ".lander-heartbeat.json"),
-		JSON.stringify({
-			pid: spawnSync("true").pid,
-			at: new Date(Date.now() - ago).toISOString(),
-			batch: null,
-			...(movedAt === undefined
-				? {}
-				: { movedAt: new Date(Date.now() - movedAt).toISOString() }),
-		}),
-	);
+const markers = () => path.join(work, ".claude", "tmp", "markers");
+
+const writeMarker = (name: string, body: object) => {
+	fs.mkdirSync(markers(), { recursive: true });
+	fs.writeFileSync(path.join(markers(), name), JSON.stringify(body));
 };
+
+const readAhead = () =>
+	JSON.parse(
+		fs.readFileSync(path.join(markers(), ".landing-ahead.json"), "utf8"),
+	);
+
+/** A heartbeat `ago` ms old, from a pid that has exited. */
+const beat = (ago: number, movedAt?: number) =>
+	writeMarker(".lander-heartbeat.json", {
+		pid: spawnSync("true").pid,
+		at: new Date(Date.now() - ago).toISOString(),
+		batch: null,
+		...(movedAt === undefined
+			? {}
+			: { movedAt: new Date(Date.now() - movedAt).toISOString() }),
+	});
+
+/** A record that `landing` was first read ahead of `main`'s tip `ago` ms back. */
+const aheadFor = (ago: number) =>
+	writeMarker(".landing-ahead.json", {
+		main: git(work, ["rev-parse", "origin/main"]),
+		since: new Date(Date.now() - ago).toISOString(),
+	});
 
 const check = (modules = "landing") => {
 	const env: NodeJS.ProcessEnv = {
@@ -88,6 +101,7 @@ it("warns of a stall where landing is ahead and main's tip is over 2 h old with 
 	mainAt(121 * MIN);
 	queue("new", MIN);
 	beat(0);
+	aheadFor(121 * MIN);
 
 	const r = check();
 
@@ -100,6 +114,68 @@ it("warns of a stall where landing is ahead and main's tip is over 2 h old with 
 		`with landing ${git(work, ["rev-parse", "--short=9", "HEAD"])} ahead of it`,
 	);
 	expect(r.stdout).not.toContain("LANDER-DEAD");
+});
+
+it("warns of no stall on the first reading of landing ahead of a main idle for hours, timing it from that reading (#3303)", () => {
+	mainAt(8 * 60 * MIN);
+	queue("new", MIN);
+	beat(0);
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe("");
+	const rec = readAhead();
+	expect(rec.main).toBe(git(work, ["rev-parse", "origin/main"]));
+	/* The real clock: the check takes no clock seam. */
+	expect(Date.now() - Date.parse(rec.since)).toBeLessThan(MIN);
+});
+
+it("warns of no stall where landing was first read ahead within 2 h, though main has stood longer (#3303)", () => {
+	mainAt(8 * 60 * MIN);
+	queue("new", MIN);
+	beat(0);
+	aheadFor(10 * MIN);
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe("");
+});
+
+it("times landing ahead afresh once main has moved past the recorded tip (#3303)", () => {
+	mainAt(8 * 60 * MIN);
+	aheadFor(5 * 60 * MIN);
+	mainAt(8 * 60 * MIN);
+	queue("new", MIN);
+	beat(0);
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toBe("");
+	expect(readAhead().main).toBe(git(work, ["rev-parse", "origin/main"]));
+});
+
+it("clears the record where landing equals main (#3303)", () => {
+	aheadFor(5 * 60 * MIN);
+	beat(0);
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(fs.existsSync(path.join(markers(), ".landing-ahead.json"))).toBe(
+		false,
+	);
+});
+
+it("names a dead lander where no markers directory exists yet", () => {
+	queue("new", MIN);
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).toContain("LANDER-DEAD");
 });
 
 it("warns of no stall where the heartbeat records a move within 2 h, though main's tip is older", () => {

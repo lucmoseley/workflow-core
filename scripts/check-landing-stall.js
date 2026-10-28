@@ -13,7 +13,7 @@
  *
  * Where the `landing` module is off it prints nothing under --notify.
  *
- * IMPLICIT:  at every session start where the `landing` module is on, reads the remote's two branches, fetching their commits where missing, and warns where `landing` holds commits `main` lacks and `main` has not moved for 2 h, or where `landing` is ahead and no lander is running.
+ * IMPLICIT:  at every session start where the `landing` module is on, reads the remote's two branches, fetching their commits where missing, and warns where `landing` holds commits `main` lacks and has for 2 h without `main` moving, or where `landing` is ahead and no lander is running.
  * JUSTIFIED: fail-safe — the lander runs outside any session, so nothing else reports it stalling or dying.
  * DEFEAT:    none needed — it never blocks.
  */
