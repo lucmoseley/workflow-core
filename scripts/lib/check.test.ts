@@ -183,10 +183,14 @@ describe("--notify", () => {
 	/* Its stdout is injected into every session that starts, so a clean run has
 	 * to say nothing at all. */
 	it("stays silent on an OK or SKIP run", () => {
-		expect(
-			run(checker(`return { okLine: "clean." };`), ["--notify"]).stdout,
-		).toBe("");
-		expect(run(checker(`ctx.skip("no net");`), ["--notify"]).stdout).toBe("");
+		for (const body of [
+			`return { okLine: "clean." };`,
+			`ctx.skip("no net");`,
+		]) {
+			const r = run(checker(body), ["--notify"]);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toBe("");
+		}
 	});
 
 	it("still reports a WARN under --notify", () => {
@@ -195,6 +199,7 @@ describe("--notify", () => {
 		]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("WARN: 1 n");
+		expect(r.stderr).toBe("");
 	});
 
 	it("moves the report to stdout", () => {
@@ -208,6 +213,7 @@ describe("--notify", () => {
 		const notified = run(c, ["--notify"]);
 		expect(notified.stdout).toContain("detail line");
 		expect(notified.stdout).toContain("FAIL: 1 n");
+		expect(notified.stderr).toBe("");
 	});
 });
 

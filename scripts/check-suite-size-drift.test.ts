@@ -248,32 +248,3 @@ describe("the real repo", () => {
 		expect(fromSub).toBe(fromRoot);
 	});
 });
-
-/*
- * --notify is lib/check.js's SessionStart-hook mode: it moves the report to
- * stdout and swallows the exit code. This checker runs from `npm run status`,
- * not a hook, but keeps the mode working. Both are `lib/check.js` contracts
- * rather than this checker's, so a fix goes there.
- */
-describe("the --notify contract a SessionStart hook would rest on", () => {
-	it("puts a drift report on stdout, where a SessionStart hook can read it", () => {
-		addTests(100);
-		const r = run("--baseline", "10", "--notify");
-		expect(r.stdout).toContain("WARN");
-		expect(r.stderr).toBe("");
-	});
-
-	it("says nothing at all when the suite has not drifted", () => {
-		addTests(10);
-		const r = run("--baseline", "10", "--notify");
-		expect(r.stdout).toBe("");
-		expect(r.stderr).toBe("");
-	});
-
-	it("exits 0 even when it is BROKEN, so the hook is not switched off", () => {
-		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
-		const r = runIn(outside, "--baseline", "10", "--notify");
-		fs.rmSync(outside, { recursive: true, force: true });
-		expect(r.status).toBe(0);
-	});
-});
