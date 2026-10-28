@@ -469,10 +469,10 @@
 			"source": "#2787"
 		},
 		"scripts/lib/pull-form.js": {
-			"digest": "150ccc651783dc6e",
-			"verdict": "at need — deny before the rebase/merge/rewind/discard runs (fed at 18a1598da under #3143, byte-identical to the tree before #3018): in the shared tree `git pull --rebase` 1626 B, bare `git pull` 1617, `git merge origin/main` 1630, `git rebase origin/main` 1631; rewind `git reset --hard HEAD~1` 1208, `git branch -D main` 1059, `git update-ref refs/heads/main HEAD~1` 1136; discard `git reset --hard` 1131. Rule pre-injected on the first allowed `--ff-only` pull or merge (1490 B, the -landing twin), the repeat silent; `git merge --abort`, `git pull --help` and `echo git pull --rebase` silent. Rule store unreadable: each deny keeps its frame and prints its template fallback naming the file (409, 442, 441 B); the `--ff-only` injection refuses naming the missing fragment (302 B). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3226; not re-measured there, so the figures are the deleted standalone entry's.",
+			"digest": "fc27922d7a9272cf",
+			"verdict": "at need — deny before the rebase/merge/rewind/discard runs (fed at 1788b637ce under #3177 through scripts/guard-dispatch.js, each shared-tree figure byte-identical to #3143's at 18a1598da; the store-unreadable figures are #3143's, not re-fed): in the shared tree `git pull --rebase` 1626 B, bare `git pull` 1617, `git merge origin/main` 1630, `git rebase origin/main` 1631; rewind `git reset --hard HEAD~1` 1208, unresolving `git reset --hard HEAD~999999` 1213 (0 before #3177), `git branch -D main` 1059, `git update-ref refs/heads/main HEAD~1` 1136; discard `git reset --hard` 1131. Rule pre-injected on the first allowed `--ff-only` pull or merge (1490 B, the -landing twin), the repeat silent; `git merge --abort`, `git pull --help` and `echo git pull --rebase` silent. Rule store unreadable: each deny keeps its frame and prints its template fallback naming the file (409, 442, 441 B); the `--ff-only` injection refuses naming the missing fragment (302 B). Byte counts are the whole hook stdout.",
 			"selfSufficient": "yes — reason, the safe spelling and the full divergence recipe are inline; with the store unreadable each deny still names the act and the rule file to read.",
-			"source": "#3143"
+			"source": "#3177"
 		},
 		"scripts/lib/push-rules.js": {
 			"digest": "42bb56720ab377ea",
