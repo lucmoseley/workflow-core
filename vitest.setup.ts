@@ -34,8 +34,9 @@ for (const name of [
  * NO TEST'S GIT CALL WRITES TO THIS CHECKOUT'S REPOSITORY (#3161): a call
  * whose `cwd` misses its fixture walks up to the real `.git`. The `git` on
  * `PATH` becomes scripts/lib/host-git-guard/git, which refuses a write there.
- * `WFC_HOST_GIT_DIR` is its cache of the host. Set again on every file the
- * worker loads, so `PATH` does not stack.
+ * `WFC_HOST_GIT_DIR` is its cache of the host, `WFC_HOST_GIT_REAL` the git
+ * it runs where a test's own `PATH` holds no other. Set again on every file
+ * the worker loads, so `PATH` does not stack.
  */
 const guardDir = path.resolve(
 	path.dirname(fileURLToPath(import.meta.url)),
@@ -46,12 +47,22 @@ process.env.WFC_HOST_GIT_DIR = execFileSync(
 	["rev-parse", "--path-format=absolute", "--git-common-dir"],
 	{ cwd: guardDir, encoding: "utf8" },
 ).trim();
-process.env.PATH = [
-	guardDir,
-	...(process.env.PATH ?? "")
-		.split(path.delimiter)
-		.filter((dir) => dir && dir !== guardDir),
-].join(path.delimiter);
+const pathDirs = (process.env.PATH ?? "")
+	.split(path.delimiter)
+	.filter((dir) => dir && dir !== guardDir);
+const realGit = pathDirs
+	.filter((dir) => path.basename(dir) !== "host-git-guard")
+	.map((dir) => path.join(dir, "git"))
+	.find((git) => {
+		try {
+			fs.accessSync(git, fs.constants.X_OK);
+			return true;
+		} catch {
+			return false;
+		}
+	});
+if (realGit) process.env.WFC_HOST_GIT_REAL = realGit;
+process.env.PATH = [guardDir, ...pathDirs].join(path.delimiter);
 
 /*
  * NO TEST WRITES INTO THE DEVELOPER'S LIVE CLAUDE CONFIG DIR (#838).

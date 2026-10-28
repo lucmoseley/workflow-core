@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # host-git-guard/git — the test suites' `git` (#3161). vitest.setup.ts and
 # scripts/conftest.py put this directory first on `PATH`, so every `git` a test
 # or the program under test spawns by name lands here first.
@@ -14,7 +14,13 @@
 #
 # `WFC_HOST_GIT_DIR` caches the host's common dir, which the setups set once
 # per worker so a write costs one `rev-parse` here, not two. A spawn that
-# rebuilt its `env` without it still gets the guard.
+# rebuilt its `env` without it still gets the guard. `WFC_HOST_GIT_REAL` is the
+# real git the setups found on the worker's own `PATH`; not `WFC_GIT`, which a
+# test may point at a stub.
+#
+# `/bin/bash`, not `env bash` (#3399): a test that builds a `PATH` of symlinks
+# from `command -v` links this guard as its git, and that `PATH` holds no bash.
+# So the suites run only where `/bin/bash` is bash 4 or later: not macOS's.
 #
 # WHAT IT DOES NOT COVER: git run by absolute path; a spawn whose `env` drops
 # `PATH`; a write that is no git call, such as `: > .git/refs/heads/main`;
@@ -61,6 +67,9 @@ for d in "${dirs[@]}"; do
   fi
 done
 [[ -n "$mine" ]] || real="$before"
+# Where `PATH` holds no other git, as in such a symlinked `PATH`, the setups'.
+[[ -n "$real" || ! -x "$WFC_HOST_GIT_REAL" || "$WFC_HOST_GIT_REAL" -ef "${BASH_SOURCE[0]}" ]] ||
+  real=$WFC_HOST_GIT_REAL
 [[ -n "$real" ]] || {
   echo "host-git-guard: no git on PATH after this one" >&2
   exit 127 # the shell's status for a command not found
@@ -184,6 +193,16 @@ ambiguous_reads() {
       [[ "${pos[0]}" == get || "${pos[0]}" == list ]] || ((${#pos[@]} == 1))
       ;;
     worktree) [[ "${pos[0]}" == list ]] ;;
+    # These print in place of applying, unless `--apply`, or any abbreviation
+    # of it git accepts, asks for both, or a `--no-` form takes one back.
+    apply)
+      local f
+      for f in "${flags[@]}"; do
+        [[ "$f" == --a?* && --apply == "${f%%=*}"* ]] && return 1
+      done
+      has --check --stat --numstat --summary &&
+        ! has --no-check --no-stat --no-numstat --no-summary
+      ;;
     stash) [[ "${pos[0]}" == list || "${pos[0]}" == show ]] ;;
     reflog) [[ "${pos[0]}" != expire && "${pos[0]}" != delete ]] ;;
     remote | notes | submodule)

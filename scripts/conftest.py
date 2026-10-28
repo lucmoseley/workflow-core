@@ -10,6 +10,7 @@ dirs by the env it reads, never a patched module global (#1275). `corpus` and
 
 import json
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -43,10 +44,16 @@ os.environ["WFC_HOST_GIT_DIR"] = subprocess.run(
     text=True,
     check=True,
 ).stdout.strip()
-os.environ["PATH"] = os.pathsep.join(
-    [_guard_dir]
-    + [d for d in os.environ.get("PATH", "").split(os.pathsep) if d and d != _guard_dir]
+_path_dirs = [
+    d for d in os.environ.get("PATH", "").split(os.pathsep) if d and d != _guard_dir
+]
+_real_git = shutil.which(
+    "git",
+    path=os.pathsep.join(d for d in _path_dirs if Path(d).name != "host-git-guard"),
 )
+if _real_git:
+    os.environ["WFC_HOST_GIT_REAL"] = _real_git
+os.environ["PATH"] = os.pathsep.join([_guard_dir] + _path_dirs)
 
 
 @pytest.fixture(scope="session")

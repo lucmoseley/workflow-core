@@ -157,6 +157,26 @@ describe("a read of the host repository", () => {
 		expect(r.stderr).not.toContain("host-git-guard");
 	});
 
+	it("checks a patch, and refuses applying one (#3399)", () => {
+		const patch = path.join(dir, "new-file.patch");
+		fs.writeFileSync(
+			patch,
+			"--- /dev/null\n+++ b/new-file\n@@ -0,0 +1 @@\n+x\n",
+		);
+		for (const flag of ["--check", "--stat", "--numstat", "--summary"]) {
+			const r = shim(["apply", flag, patch]);
+			expect(r.status, r.stderr).toBe(0);
+		}
+		for (const args of [
+			["--check", "--apply"],
+			["--check", "--appl"],
+			["--stat", "--ap"],
+			["--check", "--no-check"],
+		])
+			expectRefused(shim(["apply", ...args, patch]), "apply");
+		expect(fs.existsSync(path.join(host, "new-file"))).toBe(false);
+	});
+
 	it("writes an object, which moves no ref", () => {
 		const r = spawnSync(SHIM, ["hash-object", "-w", "--stdin"], {
 			cwd: host,
@@ -282,6 +302,40 @@ describe("the host and the real git, unnamed", () => {
 		expectRefused(r, "update-ref");
 	});
 
+	/** The shim as a symlinked PATH's only git, with no bash on that PATH. */
+	const isolated = (args: string[], real = process.env.WFC_HOST_GIT_REAL) => {
+		const bin = path.join(dir, "isolated-bin");
+		fs.mkdirSync(bin, { recursive: true });
+		if (!fs.existsSync(path.join(bin, "git")))
+			fs.symlinkSync(SHIM, path.join(bin, "git"));
+		return spawnSync("git", args, {
+			cwd: host,
+			input: "",
+			encoding: "utf8",
+			env: {
+				...process.env,
+				WFC_HOST_GIT_DIR: hostCommon,
+				WFC_HOST_GIT_REAL: real,
+				PATH: bin,
+			},
+		});
+	};
+
+	it("runs the setups' real git as a symlinked PATH's only git (#3399)", () => {
+		const r = isolated(["rev-parse", "HEAD"]);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout.trim()).toBe(head(host));
+		expectRefused(isolated(["update-ref", "--stdin"]), "update-ref");
+	});
+
+	it("exits 127 there without a real git from the setups, or with itself as one (#3399)", () => {
+		for (const real of ["", SHIM]) {
+			const r = isolated(["rev-parse", "HEAD"], real);
+			expect(r.status, r.stderr).toBe(127);
+			expect(r.stderr).toContain("no git on PATH after this one");
+		}
+	});
+
 	it("skips another checkout's copy of the shim, either side of it (#3400)", () => {
 		const copy = path.join(dir, "checkout-b", "host-git-guard");
 		fs.mkdirSync(copy, { recursive: true });
@@ -309,6 +363,10 @@ describe("the host and the real git, unnamed", () => {
 describe("the suite's wiring in vitest.setup.ts", () => {
 	it("puts the shim first on this worker's PATH", () => {
 		expect(process.env.PATH?.split(path.delimiter)[0]).toBe(path.dirname(SHIM));
+		expect(process.env.WFC_HOST_GIT_REAL).toBeTruthy();
+		expect(
+			path.basename(path.dirname(process.env.WFC_HOST_GIT_REAL ?? "")),
+		).not.toBe("host-git-guard");
 		expect(process.env.WFC_HOST_GIT_DIR).toBe(
 			execFileSync(
 				"git",
