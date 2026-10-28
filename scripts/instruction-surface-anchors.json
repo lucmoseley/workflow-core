@@ -157,7 +157,7 @@
 			"source": "#3143"
 		},
 		"scripts/guard-push-rules.js": {
-			"digest": "42bb56720ab377ea",
+			"digest": "f270f9992578a744",
 			"verdict": "at need — first push of the session, before it runs; the rules once per session only, push-cadence skipped where the commit-form guard already handed it this session (#2285). Its review warn fires on the first push carrying unreviewed code, again on an escalated change, and again for each marker written after a warn that is rejected, naming why. Wrapper spellings (`timeout`, `env`, `sh -c`) never fire, as declared.",
 			"selfSufficient": "yes — the recipe (push:check, typecheck, the declared whole-repo check, checker, push, then check:ci once) and the coverage rule are inline.",
 			"source": "#1998"
@@ -217,7 +217,7 @@
 			"source": "#3143"
 		},
 		"scripts/lib/tracker-rules.js": {
-			"digest": "fb47496e0e626852",
+			"digest": "d86fc418485a7343",
 			"verdict": "at need on the first engaging call of the session; latched once per session per id thereafter Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
 			"selfSufficient": "yes — each fragment carries rule, reason and the command shape inline",
 			"source": "#2792"
