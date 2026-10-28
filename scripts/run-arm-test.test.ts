@@ -12,6 +12,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildAuthStatusNodeBranch } from "./lib/auth-status-fake";
 import { runInProcess } from "./lib/run-in-process";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -45,7 +46,7 @@ const claudeStub = (
 	);
 	fs.writeFileSync(
 		file,
-		`#!/usr/bin/env node\nconst a=process.argv.slice(2);if(a[0]==="--version"){console.log("${STUB_VERSION} (Claude Code)");process.exit(0)}if(a[0]==="agents"){console.log(${JSON.stringify(listed)});process.exit(0)}if(a[0]==="auth"){console.log('{"loggedIn":true}');process.exit(0)}require("fs").appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:a,cwd:process.cwd(),cfg:process.env.CLAUDE_CONFIG_DIR,path:process.env.PATH})+"\\n");console.log("backgrounded · job"+Math.random().toString(16).slice(2,8));\n`,
+		`#!/usr/bin/env node\nconst a=process.argv.slice(2);if(a[0]==="--version"){console.log("${STUB_VERSION} (Claude Code)");process.exit(0)}if(a[0]==="agents"){console.log(${JSON.stringify(listed)});process.exit(0)}${buildAuthStatusNodeBranch()}require("fs").appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:a,cwd:process.cwd(),cfg:process.env.CLAUDE_CONFIG_DIR,path:process.env.PATH})+"\\n");console.log("backgrounded · job"+Math.random().toString(16).slice(2,8));\n`,
 	);
 	fs.chmodSync(file, 0o755);
 	return file;
@@ -342,7 +343,7 @@ describe("run", () => {
 	 * named in `WFC_STUB_EXTRA` as `working` — for its first
 	 * `WFC_STUB_EXTRA_LISTINGS` listings, then `done`, where that is set —
 	 * `stop` is logged, a launch runs `onLaunch` and answers a new id. Every
-	 * call but `--version` first runs `prelude`.
+	 * call but `--version` and `auth` first runs `prelude`.
 	 */
 	const loopStub = ({
 		file = path.join(tmp, "claude"),
@@ -357,6 +358,7 @@ describe("run", () => {
 			`#!/usr/bin/env node
 const fs=require("fs");const a=process.argv.slice(2);
 if(a[0]==="--version"){console.log("${STUB_VERSION} (Claude Code)");process.exit(0)}
+${buildAuthStatusNodeBranch()}
 ${prelude}
 const read=(f)=>fs.existsSync(f)?fs.readFileSync(f,"utf8").trim().split("\\n").filter(Boolean):[];
 if(a[0]==="agents"){const st=process.env.WFC_STUB_STATE||"done";const extra=(process.env.WFC_STUB_EXTRA||"").split(",").filter(Boolean);fs.appendFileSync(${JSON.stringify(listings)},"x");const n=fs.readFileSync(${JSON.stringify(listings)},"utf8").length;const lim=Number(process.env.WFC_STUB_EXTRA_LISTINGS||Infinity);const ex=n<=lim?"working":"done";console.log(JSON.stringify([...read(${JSON.stringify(jobs)}).map(id=>({id,kind:"background",state:st})),...extra.map(id=>({id,kind:"background",state:ex}))]));process.exit(0)}

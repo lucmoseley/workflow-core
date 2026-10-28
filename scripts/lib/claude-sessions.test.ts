@@ -5,7 +5,10 @@
  * session per Claude `bg-pty-host`, less the daemon's unclaimed spare (#1798).
  * The spare is a real sleeping process whose cwd is its claim socket's
  * directory, as the daemon leaves one, since both read /proc — the Node twin
- * through its production adapter, isProcCwd.
+ * through its production adapter, readProcCwd. That directory is a realpath:
+ * the Node twin compares the cwd's path string where the shell's `-ef` compares
+ * inodes. sparePairs, which has no shell twin, runs its own cases below on a
+ * stub cwd reader.
  *
  * Break it and record-divergence.js's `sessions` column and the shell-start
  * warning read one high for as long as the daemon runs.
@@ -26,7 +29,9 @@ let sleeper: ChildProcess;
 let sleeper2: ChildProcess;
 
 beforeAll(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "claude-sessions-"));
+	dir = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), "claude-sessions-")),
+	);
 	spareDir = path.join(dir, "spare");
 	fs.mkdirSync(spareDir);
 	// 60 s only has to outlive this file's tests; afterAll kills it sooner.
@@ -40,13 +45,18 @@ afterAll(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const { countSessions, isProcCwd } = require("./claude-sessions.js") as {
-	countSessions: (
-		ps: string,
-		isCwd: (pid: string, dir: string) => boolean,
-	) => number;
-	isProcCwd: (pid: string, dir: string) => boolean;
-};
+const { countSessions, readProcCwd, sparePairs } =
+	require("./claude-sessions.js") as {
+		countSessions: (
+			ps: string,
+			cwdOf: (pid: string) => string | null,
+		) => number;
+		readProcCwd: (pid: string) => string | null;
+		sparePairs: (
+			procs: { pid: string; args: string }[],
+			cwdOf: (pid: string) => string | null,
+		) => { socket: string; pids: string[]; idle: boolean }[];
+	};
 
 function countSh(rows: string[], column?: number): string {
 	return execFileSync(
@@ -57,7 +67,7 @@ function countSh(rows: string[], column?: number): string {
 }
 
 const countJs = (rows: string[]): string =>
-	String(countSessions(`${rows.join("\n")}\n`, isProcCwd));
+	String(countSessions(`${rows.join("\n")}\n`, (pid) => readProcCwd(pid)));
 
 const host = (pid: number, sock: string) =>
 	`${pid} 1 claude bg-pty-host --bg-pty-host ${spareDir}/${sock}.pty.sock 200 50`;
@@ -115,5 +125,45 @@ describe.skipIf(!hasProc).each([
 describe("wfc_session_count", () => {
 	it("reads argv from the column it is told, past an rss column", () => {
 		expect(countSh(["10 1 524288 claude bg-pty-host --job x"], 4)).toBe("1");
+	});
+});
+
+describe("sparePairs", () => {
+	const sp = "/tmp/d/spare";
+	const cwds: Record<string, string> = { "11": sp, "21": "/home/u/repo" };
+	const read = (pid: string) => cwds[pid] ?? null;
+	const pair = (pid: number, id: string) => [
+		{
+			pid: String(pid),
+			args: `claude bg-pty-host --bg-pty-host ${sp}/${id}.pty.sock`,
+		},
+		{
+			pid: String(pid + 1),
+			args: `claude bg-spare --bg-spare ${sp}/${id}.claim.sock`,
+		},
+	];
+	const idleOf = (procs: { pid: string; args: string }[]) =>
+		Object.fromEntries(sparePairs(procs, read).map((p) => [p.socket, p.idle]));
+
+	it("reads a pair idle only while its bg-spare sits in its claim socket's directory", () => {
+		expect(idleOf([...pair(10, "a"), ...pair(20, "b")])).toEqual({
+			a: true,
+			b: false,
+		});
+	});
+
+	it("reads a pair claimed where its cwd will not read, or it has no bg-spare half", () => {
+		expect(idleOf([...pair(30, "c"), pair(10, "d")[0]])).toEqual({
+			c: false,
+			d: false,
+		});
+	});
+
+	it("groups both halves under one socket id and skips any argv[0] not Claude's", () => {
+		const pairs = sparePairs(
+			[...pair(10, "a"), { pid: "99", args: `awk ${sp}/a.claim.sock` }],
+			read,
+		);
+		expect(pairs.map((p) => p.pids)).toEqual([["10", "11"]]);
 	});
 });

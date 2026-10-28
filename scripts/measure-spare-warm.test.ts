@@ -11,7 +11,8 @@
  * helper the program keeps to itself (#1369, §G6: nothing is exported only for
  * its tests). Nothing here launches a session or reads the real process tree:
  * `--probe` is a founder call, and a test that could fire one would spend an
- * allowance nobody asked it to.
+ * allowance nobody asked it to, so it is driven only against a stub `claude`
+ * (WFC_CLAUDE_BIN), for its launch-auth check (#2236).
  *
  * Its reading sets `WFC_DISPATCH_STAGGER_SECONDS` in `dispatch-sessions.sh`:
  * a figure timed short lets the next member's admission miss memory the
@@ -22,6 +23,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	ADMITTED_AUTH,
+	buildAuthStatusBranch,
+	REFUSED_AUTH,
+	writeSeatHelper,
+} from "./lib/auth-status-fake";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "measure-spare-warm.js");
@@ -310,8 +317,9 @@ describe("a spawn line split across two reads (mantahostels#2588)", () => {
 	});
 });
 
-/* mantahostels#2588. `--probe` is never driven here — it would spend a real allowance — so
- * only the paths that reach a verdict without one are. */
+/* mantahostels#2588. `--probe` is never driven here against a real `claude` — it
+ * would spend a real allowance — so only the paths that reach a verdict
+ * without one are. */
 describe("the script itself (mantahostels#2588)", () => {
 	it("refuses --watch and --probe together, and refuses neither, each with usage on stderr", async () => {
 		fs.writeFileSync(logA(), "");
@@ -400,5 +408,47 @@ describe("the script itself (mantahostels#2588)", () => {
 		expect(r.reading.plateauMb).toBe(400);
 		// Never a probe binary on a watch: nothing was launched.
 		expect(r.reading.probeBin).toBeNull();
+	});
+});
+
+describe("the probe's auth (#2236)", () => {
+	const bgCalls = () => path.join(dir, "bg-calls");
+	const probe = (env: Record<string, string> = {}) => {
+		const stub = path.join(dir, "claude");
+		fs.writeFileSync(
+			stub,
+			`#!/bin/bash\n${buildAuthStatusBranch()}\necho "$*" >> "${bgCalls()}"\n`,
+			{ mode: 0o755 },
+		);
+		fs.writeFileSync(logA(), "");
+		return runInProcessAsync(SCRIPT, ["--probe", "--timeout-seconds", "1"], {
+			env: { ...runEnv(), WFC_CLAUDE_BIN: stub, ...env },
+		});
+	};
+
+	it.each(REFUSED_AUTH)(
+		"refuses under %s, before any probe launches",
+		async (name, env) => {
+			const r = await probe(env);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toMatch(new RegExp(`^REFUSED: .*${name} is set`));
+			expect(fs.existsSync(bgCalls())).toBe(false);
+		},
+	);
+
+	it("refuses an apiKeyHelper in the seat's settings", async () => {
+		writeSeatHelper(path.join(dir, "a"));
+		const r = await probe();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("apiKeyHelper");
+		expect(fs.existsSync(bgCalls())).toBe(false);
+	});
+
+	/* Crosses the real clock (§X9): nothing spawns a spare, so the watch
+	 * runs out its 1 s window and the run ends on exit 1. */
+	it.each(ADMITTED_AUTH)("launches the probe on %s", async (_name, env) => {
+		const r = await probe(env);
+		expect(r.status).toBe(1);
+		expect(fs.readFileSync(bgCalls(), "utf8")).toMatch(/^--bg /);
 	});
 });

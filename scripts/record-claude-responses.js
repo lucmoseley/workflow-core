@@ -49,6 +49,7 @@ const {
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const {
 	PROBE_ARGV,
 	PROBE_CWD,
@@ -372,6 +373,12 @@ function writeFixture(file, recorded) {
 }
 
 async function main() {
+	const refusal = launchAuthRefusal({
+		bin: claudeBin(),
+		env: process.env,
+		cwd: hostRoot(),
+	});
+	if (refusal) throw new Error(refusal);
 	const harness = claude(["--version"]).stdout.split(" ")[0];
 	const original = launch(PROMPT);
 	const started = [original];

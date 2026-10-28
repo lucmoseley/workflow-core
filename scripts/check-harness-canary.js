@@ -19,7 +19,8 @@
  *   green     `control` listed, `bare` absent, `bare`'s body loaded
  *   red       `bare` listed, or the Skill call for it loaded no body
  *   unprobed  the probe failed for its own reasons: no listing read,
- *             `control` absent from it, or the model never called the tool
+ *             `control` absent from it, the model never called the tool,
+ *             or its auth would not bill the subscription (lib/launch-auth.js)
  * Only green records the version, as `passed`. A red lasts until a later
  * version passes: the probe tests the harness, not the shipped skills.
  *
@@ -57,6 +58,7 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { runCheck } = require("./lib/check");
 const { probeAgentId } = require("./lib/agent-id-probe.js");
 const { caught } = require("./lib/caught.js");
+const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
 const { configDir } = require("./lib/config-dir.js");
 const { isCoreRoot } = require("./lib/core-hooks.js");
@@ -278,6 +280,12 @@ function probe(version) {
 		const plugin = writePlugin(root, nonce);
 		const cwd = path.join(root, "project");
 		fs.mkdirSync(cwd);
+		const refusal = launchAuthRefusal({
+			bin: claudeBin(),
+			env: process.env,
+			cwd,
+		});
+		if (refusal) return verdictOf("unprobed", [refusal]);
 		const r = spawnSync(
 			claudeBin(),
 			[

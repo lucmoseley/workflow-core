@@ -6634,6 +6634,27 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/auth-status-fake.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/auth-status.contract.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/band-baseline.js": [
 			"scripts/check-band-drift.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -7662,17 +7683,24 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/claude-sessions.js": [
+			"scripts/admission.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-suite-size-drift.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/claude-sessions.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/meminfo.contract.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/refill-blocks.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pretest-reap.test.ts",
+			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -9570,6 +9598,24 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/fixtures/auth-status.js": [
+			"scripts/check-harness-canary.test.ts",
+			"scripts/claude-child.test.ts",
+			"scripts/dispatch-sessions-bridge.test.ts",
+			"scripts/dispatch-sessions.test.ts",
+			"scripts/lib/auth-status.contract.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
+			"scripts/lib/launch-auth.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/usage-probe.test.ts",
+			"scripts/measure-spare-warm.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-usage-probe.test.ts",
+			"scripts/run-arm-test.test.ts",
+			"scripts/usage-probe.test.ts"
 		],
 		"scripts/lib/fixtures/gh/blocked-by-page.json": [
 			"scripts/lib/gh.contract.test.ts",
@@ -12302,6 +12348,34 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/last30days.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/launch-auth.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-overflow.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
+			"scripts/lib/launch-auth.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/refill-overflow.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/launch-auth.test.ts": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/commit-paths.test.ts",

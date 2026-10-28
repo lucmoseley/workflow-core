@@ -39,6 +39,10 @@ if [ "$TICKS" -le "$HOLD" ]; then
   exit 2
 fi
 
+# Each arm is a billed `claude -p` turn: refuse one off the subscription
+# (lib/launch-auth.js, #2236).
+node "$(dirname "$0")/lib/launch-auth.js" || exit 2
+
 probe=$(mktemp -d "${TMPDIR:-/tmp}/async-hook-probe.XXXXXX")
 trap 'rm -rf "$probe"' EXIT
 mkdir -p "$probe/.claude"

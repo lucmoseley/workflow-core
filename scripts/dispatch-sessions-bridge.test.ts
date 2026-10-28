@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { buildAuthStatusBranch } from "./lib/auth-status-fake";
 import {
 	agentsListing,
 	dispatchFixture,
@@ -273,6 +274,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			at,
 			[
 				"#!/bin/bash",
+				buildAuthStatusBranch(),
 				`printf '%s\\n' "$*" >> "${path.join(fx.dir, "argv")}"`,
 				'for a in "$@"; do',
 				'  if [ "$a" = "--bg" ]; then sleep 600; fi',
