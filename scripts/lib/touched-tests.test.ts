@@ -60,6 +60,9 @@ const FILES: Record<string, string> = {
 	"scripts/pkg/__init__.py": "",
 	"scripts/pkg/mod.py": "Y = 1\n",
 	"scripts/m/test_pkg.py": "from pkg import (mod,\n  other)\n",
+	/* `near.py`, imported relatively by `test_rel.py`. */
+	"scripts/m/near.py": "W = 1\n",
+	"scripts/m/test_rel.py": "from . import near\n",
 	/* Reached by path, never imported: `run.py` as a subprocess,
 	 * `sub/load.py` through `spec_from_file_location`. */
 	"scripts/m/run.py": "print(1)\n",
@@ -210,6 +213,12 @@ describe("selectTouched", () => {
 	it("selects a pytest file importing a changed submodule from its package", () => {
 		expect(resolvePy(["scripts/pkg/mod.py"]).files).toEqual([
 			"scripts/m/test_pkg.py",
+		]);
+	});
+
+	it("selects a pytest file importing a changed module relatively", () => {
+		expect(resolvePy(["scripts/m/near.py"]).files).toEqual([
+			"scripts/m/test_rel.py",
 		]);
 	});
 
