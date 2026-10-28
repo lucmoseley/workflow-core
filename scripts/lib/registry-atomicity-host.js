@@ -1,6 +1,6 @@
 /*
- * registry-atomicity-host.js — the production ports guard-registry-atomicity.js
- * wires into its core, lib/registry-atomicity.js (#2794). Every git read
+ * registry-atomicity-host.js — the production ports the dispatcher wires into
+ * the guard-registry-atomicity core, lib/registry-atomicity.js (#2794, #3226). Every git read
  * carries the hook's git timeout, and a timed-out read answers as an erroring
  * one: null, which the core reads as "git could not tell".
  */

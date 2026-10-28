@@ -184,7 +184,7 @@ const CADENCE_CITATION = {
  * The push, with `push_check` before it only where a push still owes a
  * certificate — `pushGateState` decides (#2933). A config it cannot read
  * keeps the check, which prints the fault itself. The rule named is the
- * route's: `landing` swaps in its twin, as guard-push-rules.js does (#2409).
+ * route's: `landing` swaps in its twin, as the guard-push-rules core does (#2409).
  * @param {string} ref
  */
 function buildPushStep(ref) {
