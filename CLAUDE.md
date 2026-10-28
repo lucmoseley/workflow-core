@@ -29,7 +29,7 @@ workflow-core — the hooks, guards, skills and checks that let many Claude Code
 <!-- guard-registry:begin -->
 <!-- Every rule here carries **Enforced** / **Advisory** / **Unenforced** / **Unenforceable**; `scripts/check-guard-registry.js` gates it. Rules a guard prints at need live in `docs/agents/guard-registry.md`. -->
 
-- **A turn ends only on a real question or a notification you are waiting for — never on a progress report.** The one-line `waiting:` hand-off while something runs in the background is the exception and the only one. In a background job the last line of every turn is `result:`, `needs input:` or `waiting:`. **Unenforced** (mantahostels#1555): nothing checks the progress-report limb.
+- **A turn ends only on a real question or a notification you are waiting for — never on a progress report.** The one-line `waiting:` hand-off while something runs in the background is the exception and the only one. In a background job the last line of every turn is `result:`, `needs input:` or `waiting:`. **Unenforced** (mantahostels#1555).
 <!-- guard-registry:end -->
 
 - **Write scope is this repository.** Do not write to, upload to, or modify any external surface — Claude Design projects, project knowledge, connectors — unless the instruction names that surface explicitly. Instructions about Chat project knowledge are operator steps for the founder, not actions to execute; Claude Code cannot write to claude.ai project knowledge.

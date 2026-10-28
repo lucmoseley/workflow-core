@@ -5,7 +5,7 @@
  *
  * The uncommitted-work half of the turn-end rule, which this guard enforces,
  * lives in docs/agents/guard-registry.md §Conventions (#2034); the
- * progress-report half is CLAUDE.md's (mantahostels#1555).
+ * progress-report half is CLAUDE.md's, and nothing checks it (mantahostels#1555).
  *
  * It BLOCKS where mantahostels#908's push warning only warned. That ruling declined to
  * block on a red that may be a neighbour's half-written file; here the ledger
