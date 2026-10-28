@@ -4,7 +4,8 @@
  * mantahostels#1900).
  *
  * LIMITS
- *  - INJECTION ONLY: it never refuses.
+ *  - INJECTION ONLY: it never refuses. guard-entry.js still refuses the call
+ *    when the rule fragment is unreadable (#3449).
  *  - It reads the Bash tool's own flag and nothing else. A job backgrounded
  *    any other way sets no flag and is not seen: a `&` inside the command,
  *    `nohup`, a script that daemonises, and — deliberately — the harness
