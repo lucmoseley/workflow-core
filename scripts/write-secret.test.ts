@@ -1632,6 +1632,36 @@ describe("write-secret", () => {
 		},
 	);
 
+	it.each<[string, (() => void) | null]>([
+		["its reflogs expired", null],
+		[
+			"no reflog ever kept, a bare repository's default",
+			() => git("config", "core.logAllRefUpdates", "false"),
+		],
+		[
+			"HEAD on an alias of it",
+			() => {
+				const ref = git("symbolic-ref", "HEAD").toString().trim();
+				git("symbolic-ref", "refs/heads/alias", ref);
+				git("symbolic-ref", "HEAD", "refs/heads/alias");
+			},
+		],
+	])(
+		"refuses a .env whose removal is staged where the branch ref is packed then emptied, %s, which deleting the loose ref brings back (#3406)",
+		(_l, setup) => {
+			setup?.();
+			buildStagedUntrack();
+			git("reflog", "expire", "--expire=now", "--all");
+			git("pack-refs", "--all");
+			const ref = git("symbolic-ref", "HEAD").toString().trim();
+			fs.writeFileSync(path.join(host, ".git", ref), "");
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(trackedRefusal(env()));
+			expect(read()).toBe("A=1\n");
+		},
+	);
+
 	it("refuses a .env whose removal is staged under an inherited GIT_REPLACE_REF_BASE swapping HEAD for a commit without it (#3393)", () => {
 		buildStagedUntrack();
 		const head = git("rev-parse", "HEAD").toString().trim();

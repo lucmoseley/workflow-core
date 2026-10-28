@@ -530,6 +530,23 @@ const GITLINK_MODE = "160000";
 const NULL_OID = /^0+$/;
 
 /**
+ * The text of file `name` under the git dir, empty where it is absent; null
+ * where git cannot name it or it cannot be read.
+ * @param {GitQuery} query
+ * @param {string} name
+ * @returns {string | null}
+ */
+function readGitFile(query, name) {
+	const p = resolveGitPath(query, name);
+	if (p === null) return null;
+	try {
+		return fs.readFileSync(p, "utf8");
+	} catch (e) {
+		return caught(e).code === "ENOENT" ? "" : null;
+	}
+}
+
+/**
  * The commit the newest entry of reflog `log` moved to, or from where that
  * move deleted the ref: none where the reflog is absent or holds no entry,
  * the deleted ref was unborn, or `deletedOnly` asks and the move deleted
@@ -540,15 +557,8 @@ const NULL_OID = /^0+$/;
  * @returns {string[] | null}
  */
 function readReflogTip(query, log, deletedOnly = false) {
-	const p = resolveGitPath(query, log);
-	if (p === null) return null;
-	/** @type {string} */
-	let text;
-	try {
-		text = fs.readFileSync(p, "utf8");
-	} catch (e) {
-		return caught(e).code === "ENOENT" ? [] : null;
-	}
+	const text = readGitFile(query, log);
+	if (text === null) return null;
 	const last = text.trimEnd().split("\n").pop() ?? "";
 	if (last === "") return [];
 	const [from, to] = last.split(" ");
@@ -558,16 +568,34 @@ function readReflogTip(query, log, deletedOnly = false) {
 }
 
 /**
+ * The commit packed-refs holds for `ref`: none where it holds no line for it
+ * or is absent, null where it cannot be read.
+ * @param {GitQuery} query
+ * @param {string} ref
+ * @returns {string[] | null}
+ */
+function readPackedTip(query, ref) {
+	const text = readGitFile(query, "packed-refs");
+	if (text === null) return null;
+	for (const line of text.split("\n")) {
+		const [oid, name] = line.trimEnd().split(" ");
+		if (name === ref && oid !== undefined) return [oid];
+	}
+	return [];
+}
+
+/**
  * The commits HEAD would be restored to, or null where git cannot name one.
  * A HEAD that resolves is its commit; one that does not is the tip of its
  * branch's reflog and of HEAD's, as restoring a lost ref takes it from
- * there, and none where none has one: an unborn branch. Without `headLog`,
- * HEAD's counts only where its newest entry deleted the ref, which
- * `update-ref -d` logs there alone: an orphan has the tip of the branch it
- * left in HEAD's reflog, as checking it out logs no move. `--no-recurse`
- * names a branch whose ref is emptied, and without HEAD's reflog a branch it
- * cannot name is null. A git older than 2.45 echoes `--show-ref-format`
- * back, and knows no other format.
+ * there, and the branch's packed-refs line, which deleting an emptied loose
+ * ref brings back where no reflog entry remains (#3406), for each ref down a
+ * branch alias's chain: none where none has one, an unborn branch. Without
+ * `headLog`, HEAD's counts only where its newest entry deleted the ref,
+ * which `update-ref -d` logs there alone: an orphan has the tip of the
+ * branch it left in HEAD's reflog, as checking it out logs no move. Without
+ * HEAD's reflog a branch HEAD cannot name is null. A git older than 2.45
+ * echoes `--show-ref-format` back, and knows no other format.
  * Residual: reftable keeps no reflog files, so its unresolved HEAD is null,
  * and a project dir in a reftable repository whose HEAD is unborn, fresh
  * from `git init` before its first `git add` writes an index among them,
@@ -585,12 +613,12 @@ function readHeadCommits(query, headLog = true) {
 	if (head !== null) return [head];
 	const format = readGitOutput(query, ["rev-parse", "--show-ref-format"]);
 	if (format !== "files" && format !== "--show-ref-format") return null;
-	const reflogs = [{ log: "logs/HEAD", deletedOnly: !headLog }];
-	const ref =
-		readGitOutput(query, ["symbolic-ref", "-q", "--no-recurse", "HEAD"]) ??
-		readGitOutput(query, ["symbolic-ref", "-q", "HEAD"]);
-	if (ref !== null) reflogs.push({ log: `logs/${ref}`, deletedOnly: false });
-	else if (!headLog) return null;
+	const refs = readSymrefChain(query);
+	if (refs.length === 0 && !headLog) return null;
+	const reflogs = [
+		{ log: "logs/HEAD", deletedOnly: !headLog },
+		...refs.map((ref) => ({ log: `logs/${ref}`, deletedOnly: false })),
+	];
 	/** @type {string[]} */
 	const commits = [];
 	for (const { log, deletedOnly } of reflogs) {
@@ -598,7 +626,42 @@ function readHeadCommits(query, headLog = true) {
 		if (tip === null) return null;
 		commits.push(...tip);
 	}
+	for (const ref of refs) {
+		const packed = readPackedTip(query, ref);
+		if (packed === null) return null;
+		commits.push(...packed);
+	}
 	return commits;
+}
+
+/** git's own cap on the symbolic refs it follows from one name. */
+const SYMREF_MAXDEPTH = 5;
+
+/**
+ * The refs HEAD names hop by hop, down a chain of symbolic refs such as a
+ * branch alias to the branch it ends at (#3406). A git without
+ * `--no-recurse` names the end branch alone, and only where it resolves.
+ * @param {GitQuery} query
+ * @returns {string[]}
+ */
+function readSymrefChain(query) {
+	/** @type {string[]} */
+	const refs = [];
+	let name = "HEAD";
+	while (refs.length < SYMREF_MAXDEPTH) {
+		const next = readGitOutput(query, [
+			"symbolic-ref",
+			"-q",
+			"--no-recurse",
+			name,
+		]);
+		if (next === null) break;
+		refs.push(next);
+		name = next;
+	}
+	if (refs.length > 0) return refs;
+	const ref = readGitOutput(query, ["symbolic-ref", "-q", "HEAD"]);
+	return ref === null ? [] : [ref];
 }
 
 /**
@@ -772,9 +835,10 @@ function hasLostSubmodule(query, root) {
  * HEAD'S FILES COUNT TOO (#3393): what HEAD tracks, a `git reset` or `git
  * stash` puts back, past a lost index (#3080) or an uncommitted `git rm
  * --cached`. A HEAD git cannot resolve counts the commit its branch's reflog
- * would restore a lost or emptied branch ref to, and where the index is lost
- * too HEAD's reflog's, reading as unborn only where none has one (#3098,
- * #3393): HEAD's reflog tip on a new orphan branch is the branch it left.
+ * or packed-refs line would restore a lost or emptied branch ref to (#3406),
+ * and where the index is lost too HEAD's reflog's, reading as unborn only
+ * where none has one (#3098, #3393): HEAD's reflog tip on a new orphan
+ * branch is the branch it left.
  * Residual: a `git reset HEAD~` past the commit that untracked `.env` tracks
  * it again, which no check short of every commit sees; the rotate advice
  * covers its history. Nor is a `git stash --all`, which stores an ignored
@@ -835,8 +899,8 @@ function runLsFiles(query, file, tree) {
 /**
  * Whether a commit an unresolved HEAD would be restored to tracks `file`:
  * true where one does, false where there is none, an unborn branch, and
- * otherwise null. A reflog tip that leaves `file` untracked is not proof,
- * as packed-refs or ORIG_HEAD may restore an older commit that tracks it.
+ * otherwise null. A tip that leaves `file` untracked is not proof,
+ * as ORIG_HEAD may restore an older commit that tracks it.
  * @param {GitQuery} query
  * @param {string} file
  * @param {boolean} headLog
