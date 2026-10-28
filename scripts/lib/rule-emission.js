@@ -64,6 +64,7 @@ const { moduleOn } = require("./workflow-core-config");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
 const { readOwnHooks } = require("./core-hooks.js");
+const { AFTER_EVENTS } = require("./hook-events.js");
 const { blankComments, closeOf, statementEnd } = require("./js-lex.js");
 const {
 	expandDispatched,
@@ -82,12 +83,6 @@ const CAP_FILE = path.join(__dirname, "hook-limits.sh");
 /** The event a pre-emptive emission rides, and the only one route (f)'s caps price (spec
  * mantahostels#1932). */
 const EVENT = "PreToolUse";
-
-/**
- * The events that fire once a call has run (#2144). reachableAfterCall prices
- * their hooks; no cap does (docs/doc-map.md §Capture and placement §3).
- */
-const AFTER_EVENTS = ["PostToolUse", "PostToolUseFailure", "PostToolBatch"];
 
 /** Where RULE_CAP is assigned, relative to the repo root. */
 const CAP_SOURCE = path.join("scripts", "lib", "hook-limits.sh");
@@ -1524,6 +1519,7 @@ function afterSplit(g) {
  * as reachableByTool prices a PreToolUse guard: an id is paid once a session
  * where a latch bounds it — the injection latch, or a direct call's
  * `bounded` `ctx.told` — and the session figure is the union of those ids.
+ * No cap prices them (docs/doc-map.md §Capture and placement §3).
  *
  * AN UNBOUNDED DIRECT CALL IS PAID EVERY TIME ITS HOOK FIRES, so it goes in
  * `perFire` and on no session figure; `ambiguous` counts as unbounded, the
@@ -1594,7 +1590,6 @@ function reachableAfterCall(options = {}) {
 
 module.exports = {
 	REQUIRE_RE,
-	AFTER_EVENTS,
 	CAP_SOURCE,
 	EVENT,
 	registrationsOn,

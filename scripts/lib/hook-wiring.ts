@@ -12,25 +12,10 @@
  */
 
 import { readRunningHooks } from "./core-hooks.js";
+import type { HOOK_EVENTS } from "./hook-events.js";
 import { coreRoot } from "./script-path.js";
 
-/**
- * The events a hook registers on. A closed set deliberately: as a bare
- * string, a misspelt event finds no registration and reads as "not wired".
- * A typo is a compile error instead.
- */
-export const HOOK_EVENTS = [
-	"PreToolUse",
-	"PostToolUse",
-	"PostToolUseFailure",
-	"PostToolBatch",
-	"UserPromptSubmit",
-	"Stop",
-	"SessionStart",
-	"PreCompact",
-	"SessionEnd",
-] as const;
-
+/** An event a hook registers on, closed over lib/hook-events.js's list. */
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 /** One hook's registration, flattened out of the entry that carries its matcher. */
