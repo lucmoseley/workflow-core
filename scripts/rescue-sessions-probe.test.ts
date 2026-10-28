@@ -282,7 +282,7 @@ describe("probe: the verdict table, first match wins", () => {
 });
 
 describe("probe: finding the plan", () => {
-	it("finds the holder on a second plan while the first will not read", async () => {
+	it("UNKNOWN on a holder a second plan lists while the first will not read (#3512)", async () => {
 		frozenHolder();
 		fs.writeFileSync(path.join(plan(), "fail"), "");
 		const two = plan(".claude2");
@@ -291,8 +291,9 @@ describe("probe: finding the plan", () => {
 		jobState({ inFlight: { tasks: 0, queued: 0 } }, two);
 		between(`printf 'x\\n' >> '${transcript(two)}'`, two);
 		const r = await probe();
-		expect(r.status).toBe(EXIT.SLOW);
-		expect(r.stdout).toContain(`on plan ${two}`);
+		expect(r.status).toBe(EXIT.UNKNOWN);
+		expect(r.stdout).toContain("holder in no plan that read");
+		expect(r.stdout).toContain(`${two}: `);
 	});
 
 	it("reads the transcript off the plan whose records hold it, where every plan lists it (#1146)", async () => {
