@@ -25,7 +25,7 @@
  *      register-doc.js and the command that clears it, unless the file itself
  *      landed within the pairing grace window (mantahostels#1785, `PAIRING_GRACE_MS` in
  *      lib/doc-map.js) — a split commit pair WARNs instead until the window
- *      expires. The SIDECAR is the coverage authority since mantahostels#1849, not §A's
+ *      expires. The SIDECAR is the coverage authority (mantahostels#1849), not §A's
  *      rows: §A is rendered from it (assertion 17), so a row is a projection
  *      and a projection cannot be the register. A sidecar that is absent or
  *      will not parse is BROKEN, on the restatement file's reasoning (mantahostels#591) —
@@ -638,7 +638,7 @@ function readMap(ctx, mapPath) {
  */
 function readClassSidecar(ctx, { dataDir, underRoot }) {
 	/*
-	 * THE REGISTER, since mantahostels#1849: coverage is asked of these keys, never of §A's
+	 * THE REGISTER (mantahostels#1849): coverage is asked of these keys, never of §A's
 	 * rows, which assertion 17 renders from them. Absent or unparseable is
 	 * BROKEN on the restatement file's reasoning (mantahostels#591) — a checker that cannot
 	 * read its register must not report the tree covered.
@@ -1581,8 +1581,8 @@ function readVocabData(ctx, dataDir) {
 	 *
 	 * Residual (mantahostels#2324): check-retired-vocabulary.js runs only on the
 	 * scheduled sweeps — unlike check-superseded-values.js, which also runs
-	 * in .husky/pre-commit. A malformed vocab sidecar this guard used to
-	 * catch at commit time is now caught only on the next sweep. */
+	 * in .husky/pre-commit. A vocab sidecar that parses but breaks that
+	 * script's schema is caught only on the next sweep, never at commit time. */
 	const vocabFile = path.join(dataDir, DATA_FILES.retiredVocabulary);
 	/** @type {Record<string, { phrases?: unknown[] }> | null} */
 	let vocabData = null;
@@ -1753,7 +1753,7 @@ function isMapDirty(ctx, mapPath) {
 	// Against a clean map the same fault is still FAIL: the committed
 	// sidecar genuinely disagrees with the committed map it describes.
 	//
-	// --map-dirty is how .husky/pre-commit says so: since mantahostels#1191 it feeds this
+	// --map-dirty is how .husky/pre-commit says so (mantahostels#1191): it feeds this
 	// script a `$(mktemp -d)` copy of docs/doc-map.md, a path with no git
 	// identity of its own, so isDirty(mapPath) below would always read
 	// "clean" there regardless of the real file — the one route the FAIL

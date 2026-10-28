@@ -91,8 +91,8 @@ function sectionAMatcher(entry) {
  * Over-matching only marks a route live or suppresses a report the entry's
  * author asked to suppress. Never use it on a Section A row.
  *
- * The `*` form leaves check-doc-map.js's dead-path gate looser than it was: a
- * route or restatement path written `docs/research/*` used to read as dead.
+ * The `*` form keeps check-doc-map.js's dead-path gate from reading a route or
+ * restatement path written `docs/research/*` as dead.
  *
  * A leading `./` PINS the token to an exact path, suppressing the suffix
  * match: `./vitest.config.ts` matches the root-level file only, never
@@ -141,7 +141,7 @@ function registerRowPaths(line) {
 
 /*
  * A register LIST — the second shape a §A subsection registers its documents
- * in, since mantahostels#2743. A subsection whose every row carries the same class renders
+ * in (mantahostels#2743). A subsection whose every row carries the same class renders
  * as one path per line between the two markers below, the class stated once on
  * the opening marker, and Role, Update route and Consumes left in the sidecar
  * rather than rendered.
@@ -1168,7 +1168,7 @@ function readCommittedTextAt(rev, file, fallback) {
  * `rev`'s copy of the doc map as text, or null where there is none to read.
  *
  * Two candidate paths, in order, because the map handed to a checker is not
- * always the tracked file: since mantahostels#1191 `.husky/pre-commit` feeds it a
+ * always the tracked file: `.husky/pre-commit` feeds it (mantahostels#1191) a
  * `$(mktemp -d)` copy of the INDEX, a path with no git identity at all, so
  * `<rev>:<that>` resolves to nothing, and the tracked path answers instead
  * (mantahostels#1384).
@@ -2148,7 +2148,7 @@ function readConflictedPaths() {
  * an apparatus failure here must never manufacture a WARN.
  *
  * `relPath` must be the real tracked path — `.husky/pre-commit` feeds
- * check-doc-map.js a `$(mktemp -d)` copy of the map since mantahostels#1191, and that path
+ * check-doc-map.js a `$(mktemp -d)` copy of the map (mantahostels#1191), and that path
  * is never in the repo, so `isDirty` on it always answers `false` (apparatus
  * failure, not "clean"). A caller that only has the temp path must ask this
  * against the real one instead — check-doc-map.js's `--map-dirty` flag exists
@@ -3606,7 +3606,7 @@ function skipJsonSpace(text, k) {
 
 /**
  * The sidecar keys its own bytes carry more than once — assertion 8's worklist
- * since mantahostels#1849 moved the register key off §A's rows. `JSON.parse` keeps the last
+ * (mantahostels#1849), the register key living in the sidecar. `JSON.parse` keeps the last
  * of a repeated key and drops the rest without a word, so a duplicate is
  * invisible to every reader that walks the parsed object: the raw text is read
  * for the same reason assertion 6 counts §B headings rather than parsed entries.
@@ -4601,7 +4601,7 @@ module.exports = {
 	staleExemptionMarkers,
 	malformedExemptionMarkers,
 	readMapTextAt,
-	// Consumed by check-doc-map.js's assertion 16 since mantahostels#1788 — it reads the
+	// Consumed by check-doc-map.js's assertion 16 (mantahostels#1788) — it reads the
 	// same already-committed rev list for the pool delta and for the ledger.
 	readCommittedRevs,
 	newOverCapEntries,
