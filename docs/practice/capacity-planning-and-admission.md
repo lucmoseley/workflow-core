@@ -16,6 +16,12 @@ Researched: 2026-10-23
 - Google and Kubernetes put the margin at 10–15% and allow a high percentile of per-interval peaks in place of the peak; they are one lineage, so these figures set no default. Autopilot §3.2 ("increased by a 10–15% safety margin"; "S_p98 for jobs with low OOM tolerance"); Kubernetes VPA recommender (kubernetes/autoscaler `vertical-pod-autoscaler`, untagged, read 2026-10-23: memory keeps "the maximum usage over that interval", 90th percentile, `recommendation-margin-fraction` 0.15) — Autopilot §7: "Kubernetes' approach was directly inspired by our moving window recommenders". Autopilot [named expert]; the VPA recommender, one adopter [unverified]
 - Research: #2548, its 2026-10-23 research comment (issuecomment-6351857252).
 
+## Restarting work held back by an outage
+
+- Let held work back through the same admission as new work, and ramp it, never release it all at once when the cause clears: a restored system meets the backlog at once and fails again. Google SRE book, "Addressing Cascading Failures" ("When adding load to a cluster, slowly increase the load"; servers coming back can be "bombarded with an extremely high rate of requests and fail almost immediately") [named expert]; Yanacek, "Avoiding insurmountable queue backlogs", Amazon Builders' Library (other systems "might not be prepared to handle a huge increase in processing as you work through the backlog"; a per-workload semaphore caps the concurrency the drain may take) [named expert]; Fowler, "CircuitBreaker" (after the reset timeout a half-open breaker lets "a real call as trial" through before closing) [named expert]
+- Order the drain by whether old work has lost its value: where callers have moved on, take the newest first; where every held item is still wanted, the order serves fairness alone. Yanacek, Amazon Builders' Library ("Real time systems often are implemented with FIFO-ish queues, but prefer LIFO-ish behavior") [named expert]
+- Research: #3308, its resolution comment (researched 2026-10-28).
+
 ## Projecting a running job's remaining draw
 
 - Project a running job's remaining draw as its conditional mean, E[X − t | X > t] for draw so far t, never as the unconditional mean and never floored at zero. Sigman, Columbia IEOR 4106 notes on the exponential (remaining life given survival to an age); "A Smallest-Need-First Job Scheduling Framework…", arXiv 2608.29656 (an active job's remaining runtime as its conditional mean less elapsed time) [named expert]
