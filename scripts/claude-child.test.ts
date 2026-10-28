@@ -12,6 +12,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	ADMITTED_AUTH,
+	buildAuthStatusBranch,
+	buildAuthStatusNodeBranch,
+	REFUSED_AUTH,
+	writeSeatHelper,
+} from "./lib/auth-status-fake";
 
 const SCRIPT = path.resolve(__dirname, "claude-child.js");
 
@@ -19,6 +26,7 @@ let dir = "";
 let seat = "";
 
 const STUB = `#!/usr/bin/env node
+${buildAuthStatusNodeBranch()}
 const fs = require("node:fs");
 const out = process.env.STUB_OUT;
 fs.writeFileSync(out, JSON.stringify({
@@ -81,11 +89,28 @@ describe("usage", () => {
 		).toBe(3);
 	});
 
-	it("names the cached reading where the child cannot start", () => {
+	it("refuses a binary that cannot answer for its auth, naming the cached reading", () => {
 		const r = run(["usage", "--config-dir", seat], {
 			WFC_CLAUDE_BIN: path.join(dir, "missing"),
 		});
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("auth status` failed");
+		expect(r.stderr).toContain("allowance.js --config-dir");
+	});
+
+	it("names the cached reading where the child cannot start", () => {
+		/* Answers `auth status`, then is gone before the launch. */
+		const vanishing = path.join(dir, "vanishing");
+		fs.writeFileSync(
+			vanishing,
+			`#!/bin/bash\nif [ "$1" = "auth" ]; then rm -- "$0"; fi\n${buildAuthStatusBranch()}\n`,
+			{ mode: 0o755 },
+		);
+		const r = run(["usage", "--config-dir", seat], {
+			WFC_CLAUDE_BIN: vanishing,
+		});
 		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("the child did not finish");
 		expect(r.stderr).toContain("allowance.js --config-dir");
 	});
 });
@@ -190,5 +215,28 @@ describe("refuses, launching nothing", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(says);
 		expect(launched()).toBe(false);
+	});
+});
+
+describe("the launch's auth (#2236)", () => {
+	it.each(REFUSED_AUTH)("refuses under %s, launching nothing", (name, env) => {
+		const r = run(["usage", "--config-dir", seat], env);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`${name} is set`);
+		expect(r.stderr).toContain("#2236");
+		expect(launched()).toBe(false);
+	});
+
+	it("refuses an apiKeyHelper in the seat's settings", () => {
+		writeSeatHelper(seat);
+		const r = run(["usage", "--config-dir", seat]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("apiKeyHelper");
+		expect(launched()).toBe(false);
+	});
+
+	it.each(ADMITTED_AUTH)("launches on %s", (_name, env) => {
+		expect(run(["usage", "--config-dir", seat], env).status).toBe(0);
+		expect(launched()).toBe(true);
 	});
 });

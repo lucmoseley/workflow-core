@@ -22,6 +22,8 @@
  *
  * --config-dir must be one of this machine's own seats (lib/arbiter-store.js's
  * configDirs). There is no free-prompt mode and no way to pass another flag.
+ * A launch whose auth would not bill the subscription is refused
+ * (lib/launch-auth.js).
  *
  * The binary is WFC_CLAUDE_BIN, else `claude` on PATH. Joins no §N3 family:
  * it exits with the child's status, 2 on a usage error or refusal, and 1
@@ -31,9 +33,11 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const { caught } = require("./lib/caught.js");
+const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
 const { realKey } = require("./lib/deref.js");
+const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = [
@@ -144,15 +148,17 @@ function main() {
 		};
 	}
 
-	const r = spawnSync(process.env.WFC_CLAUDE_BIN || "claude", args, {
-		...opts,
-		env: { ...process.env, CLAUDE_CONFIG_DIR: seat },
-	});
+	const bin = claudeBin();
+	const env = { ...process.env, CLAUDE_CONFIG_DIR: seat };
+	const cached =
+		command === "usage"
+			? ` Read the cached bars instead: node scripts/allowance.js --config-dir ${seat}`
+			: "";
+	const refusal = launchAuthRefusal({ bin, env, cwd: process.cwd() });
+	if (refusal) fail(`${refusal}${cached}`, 2);
+	const r = spawnSync(bin, args, { ...opts, env });
 	if (r.error)
-		fail(
-			`the child did not finish (${r.error.message})${command === "usage" ? `; read the cached bars instead: node scripts/allowance.js --config-dir ${seat}` : ""}.`,
-			1,
-		);
+		fail(`the child did not finish (${r.error.message}).${cached}`, 1);
 	if (r.signal) fail(`the child was killed by ${r.signal}.`, 1);
 	process.exitCode = r.status ?? 1;
 }

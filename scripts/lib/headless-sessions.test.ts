@@ -19,6 +19,12 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readProcStartOf } from "./arbiter-proc.js";
+import {
+	ADMITTED_AUTH,
+	buildAuthStatusNodeBranch,
+	REFUSED_AUTH,
+	writeSeatHelper,
+} from "./auth-status-fake";
 import { headlessStore, writeHeadlessRun } from "./headless-runs-testkit";
 import { endResultOf, launch as launchRun, stop } from "./headless-sessions.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
@@ -38,6 +44,7 @@ const KEY_VAR = "WFC_TEST_OVERFLOW_KEY";
  * each second (a guess). Never a parent-death check: the launch CLI exits
  * at once, so every fake is reparented to init while its case runs. */
 const FAKE = `#!/usr/bin/env node
+${buildAuthStatusNodeBranch()}
 const fs = require("node:fs");
 const path = require("node:path");
 const { execSync, spawn } = require("node:child_process");
@@ -285,6 +292,36 @@ describe("launch", () => {
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("is not an overflow seat");
 		expect(readSeenOrNull()).toBeNull();
+	});
+});
+
+describe("the launch's auth (#2236)", () => {
+	/* The launch strips the seat's API key and supplies its own, so an
+	 * ANTHROPIC_API_KEY it inherits is admitted on an overflow seat (#2570). */
+	const refused = REFUSED_AUTH.filter(([name]) => name !== "ANTHROPIC_API_KEY");
+
+	it.each(refused)("refuses under %s, spawning nothing", (name, extra) => {
+		const r = launch(extra);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(new RegExp(`^REFUSED: .*${name} is set.*#2236`));
+		expect(readSeenOrNull()).toBeNull();
+		expect(fs.existsSync(headlessStore(refill))).toBe(false);
+	});
+
+	it("refuses an apiKeyHelper in the seat's own settings", () => {
+		writeSeatHelper(seat);
+		const r = launch();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("apiKeyHelper");
+		expect(readSeenOrNull()).toBeNull();
+	});
+
+	it.each([
+		...ADMITTED_AUTH,
+		["ANTHROPIC_API_KEY", { ANTHROPIC_API_KEY: "k" }] as const,
+	])("launches on %s", async (_name, extra) => {
+		expect(launch({ ...extra }).status).toBe(0);
+		await until(() => readSeenOrNull() !== null);
 	});
 });
 

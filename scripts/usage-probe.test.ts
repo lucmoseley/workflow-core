@@ -10,6 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildAuthStatusBranch } from "./lib/auth-status-fake";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { buildUsageBranch, buildUsageCache } from "./lib/usage-probe-fake";
 
@@ -26,6 +27,7 @@ beforeEach(() => {
 		path.join(dir, "claude"),
 		[
 			"#!/bin/bash",
+			buildAuthStatusBranch(),
 			`printf '%s %s\\n' "$CLAUDE_CONFIG_DIR" "$*" >> "${path.join(dir, "argv")}"`,
 			buildUsageBranch({ session: 12, week: 3 }),
 		].join("\n"),

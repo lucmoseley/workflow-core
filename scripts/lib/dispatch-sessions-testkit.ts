@@ -20,6 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach } from "vitest";
+import { buildAuthStatusBranch } from "./auth-status-fake";
 import { writePsStub } from "./ps-stub";
 import { writeSchedClock } from "./sched-clock-fixture";
 import { PROBE_TIMEOUT_MS } from "./usage-probe.js";
@@ -247,6 +248,7 @@ export function dispatchFixture(): DispatchFixture {
 			: [];
 		const script = [
 			"#!/bin/bash",
+			buildAuthStatusBranch(),
 			`printf '%s\\n' "$*" >> "${argvLog}"`,
 			// The probe call carries --debug-file; the launch calls do not.
 			'log=""',

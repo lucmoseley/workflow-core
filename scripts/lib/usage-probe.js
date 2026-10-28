@@ -27,6 +27,7 @@
 const { spawn } = require("node:child_process");
 const { readAllowance } = require("./allowance.js");
 const { killGroup } = require("./grouped-child.js");
+const { launchAuthRefusal } = require("./launch-auth.js");
 const { readUsageCache } = require("./usage-cache.js");
 
 /** The probe's ceiling: the dispatcher's `timeout 120` it replaced, itself a guess (#2306). */
@@ -47,7 +48,8 @@ const STAMP_POLL_MS = 250;
  * How the call ended: `cached`, no probe ran; `stopped`, the stamp moved and
  * the probe was stopped; `finished`, it exited by itself; `timed-out`, it was
  * stopped at the ceiling; `aborted`, the caller's `signal` stopped it;
- * `failed`, it would not start, or would not be stopped.
+ * `failed`, it would not start, its auth would not bill the subscription
+ * (lib/launch-auth.js), or it would not be stopped.
  * @typedef {"cached" | "stopped" | "finished" | "timed-out" | "aborted" | "failed"} ProbeOutcome
  */
 
@@ -69,10 +71,13 @@ async function probeUsage({
 	const cached = readAllowance({ configDir });
 	if (cached.session.trust === "fresh" && cached.weekly_all.trust === "fresh")
 		return { outcome: "cached", text: "" };
+	const env = { ...process.env, CLAUDE_CONFIG_DIR: configDir };
+	const refusal = launchAuthRefusal({ bin: claudeBin, env, cwd: PROBE_CWD });
+	if (refusal) return { outcome: "failed", text: "", error: refusal };
 	const startMs = Date.now();
 	const child = spawn(claudeBin, [...claudeArgs, ...PROBE_ARGV], {
 		cwd: PROBE_CWD,
-		env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
+		env,
 		stdio: ["ignore", "pipe", "ignore"],
 		// Its own group, so a stop reaches the hooks and helpers it starts.
 		detached: true,
