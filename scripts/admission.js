@@ -72,7 +72,7 @@ const {
 	SUITE_RESTING_MB,
 } = require("./lib/admission");
 const { readLiveLanders } = require("./lib/local-tester.js");
-const { admissionSessionIds, listedAgents } = require("./lib/agent-liveness");
+const { admissionSessionIds } = require("./lib/agent-liveness");
 const { readJobs, findHungJobs } = require("./lib/hung-jobs");
 const { readAllowance } = require("./lib/allowance");
 const { overloadReading, buildOverloadText } = require("./lib/cpu-sample");
@@ -129,27 +129,6 @@ function allowanceCheck() {
 	return { breach, warning: warnings.length > 0 ? warnings.join("; ") : null };
 }
 
-/**
- * The pids of the sessions the oracle lists, so the overhead scan can tell a
- * CLAIMED spare — a live session, already priced through its draw — from an
- * idle one (mantahostels#1287). An oracle that will not answer yields an empty set, which
- * over-reserves rather than under-reserves.
- *
- * Off the strict listing where it answered, so the per-member re-read pays one
- * oracle spawn (#2876); the `requireSelf: false` read only where it refused.
- * @param {ReturnType<typeof admissionSessionIds>} strict
- */
-function liveSessionPids(strict) {
-	if (strict.pids) return new Set([...strict.pids.values()].map(String));
-	const listed = listedAgents({ requireSelf: false });
-	if (listed.why || !listed.agents) return new Set();
-	return new Set(
-		listed.agents
-			.filter((/** @type {{ pid?: unknown }} */ a) => a.pid)
-			.map((/** @type {{ pid?: unknown }} */ a) => String(a.pid)),
-	);
-}
-
 /* Unknown is never calm (mantahostels#1206): the limb fails open on it, so it says so. */
 const CPU_LOAD_UNKNOWN =
 	"cpu load           unknown — /proc/loadavg unreadable, so nothing is held on load";
@@ -193,7 +172,6 @@ function main() {
 	const { overhead, host, live, load, cpu, floorRead, verdict, memory } =
 		machineAdmission({
 			listed,
-			livePids: liveSessionPids(listed),
 			reclaimable: reclaimableMb(),
 			pendingSpares: spares,
 			landers: readLiveLanders(),

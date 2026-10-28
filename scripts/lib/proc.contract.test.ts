@@ -11,6 +11,9 @@
  * exactly as it reads from /proc — and those fields are checked against what
  * Node knows of this process, so a field the parser and the fake both
  * misplace still fails.
+ *
+ * For the spare-pair test (#2502), a real process's cwd reads back through
+ * readProcCwd the same off the fake as off /proc.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -22,6 +25,7 @@ import {
 	makeProcRoot,
 	statLine,
 	uptimeLine,
+	writeCwd,
 	writeEnviron,
 } from "./proc-fake";
 import { parseStatFields } from "./proc-stat.js";
@@ -32,6 +36,10 @@ const { readCarriedWeight } = require("./suite-handoff.js") as {
 		pid: number | null,
 		proc?: string,
 	) => { resolvedFiles: number | null; wholeSlot: boolean } | null;
+};
+
+const { readProcCwd } = require("./claude-sessions.js") as {
+	readProcCwd: (pid: string, proc?: string) => string | null;
 };
 
 const PATH = `PATH=${process.env.PATH ?? "/bin"}`;
@@ -75,6 +83,20 @@ describe.skipIf(!hasProc)(
 		});
 	},
 );
+
+describe.skipIf(!hasProc)("a fake cwd link (needs Linux /proc)", () => {
+	it("reads back through readProcCwd as a real process's does", () => {
+		const fake = mkScratchDir("proc-cwd-");
+		try {
+			const pid = String(process.pid);
+			writeCwd(fake, pid, process.cwd());
+			expect(readProcCwd(pid, fake)).toBe(readProcCwd(pid));
+			expect(readProcCwd(pid)).toBe(fs.realpathSync(process.cwd()));
+		} finally {
+			fs.rmSync(fake, { recursive: true, force: true });
+		}
+	});
+});
 
 const realStat = hasProc
 	? fs.readFileSync(`/proc/${process.pid}/stat`, "utf8")

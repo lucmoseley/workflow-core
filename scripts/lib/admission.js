@@ -25,6 +25,11 @@ const { caught } = require("./caught.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
 const {
+	sparePairs,
+	readProcCwd,
+	SPARE_SOCKET,
+} = require("./claude-sessions.js");
+const {
 	overloadReading,
 	buildOverloadText,
 	sessionCeiling,
@@ -65,14 +70,16 @@ const LOAD_UNREAD = { overloaded: false, load1: null, ceiling: null };
 /**
  * `full` is the verdict, as `overloaded` is the load limb's; `slots` is null,
  * capping nothing, where `ceiling` is null (turned off) or `unknown` says why
- * the count went unread.
- * @typedef {{ ceiling: number | null, sessions: number | null, slots: number | null, full: boolean, unknown: string | null }} CpuSlots
+ * the count went unread. `idleSpares` is how many of `sessions` are an idle
+ * spare's host, shown beside it and never taken off it (#2502).
+ * @typedef {{ ceiling: number | null, sessions: number | null, idleSpares: number | null, slots: number | null, full: boolean, unknown: string | null }} CpuSlots
  */
 
 /** @type {CpuSlots} */
 const CPU_UNREAD = {
 	ceiling: null,
 	sessions: null,
+	idleSpares: null,
 	slots: null,
 	full: false,
 	unknown: "not read",
@@ -85,35 +92,53 @@ const CPU_UNREAD = {
  * agents` lists this plan's alone, and so does this run's own, whose memory is
  * already out of MemAvailable but which still runs. A host whose daemon has
  * gone (parent pid 1) is left out; an interactive terminal session runs no
- * host and goes uncounted.
+ * host and goes uncounted. Each daemon's idle spare host is counted too
+ * (#2502).
  *
  * @param {PsRead} ps
  * @param {Map<string, string[]>} children
+ * @param {SparePair[]} pairs from `readSparePairs`
  * @returns {CpuSlots}
  */
-function cpuSlots(ps, children) {
+function cpuSlots(ps, children, pairs) {
 	const ceiling = sessionCeiling();
 	if (!ps.ok)
 		return {
 			ceiling,
 			sessions: null,
+			idleSpares: null,
 			slots: null,
 			full: false,
 			unknown: `ps unreadable: ${ps.error}`,
 		};
 	const orphans = new Set(children.get("1") ?? []);
-	const sessions = ps.rows.filter((r) => {
-		const [argv0, role] = r.args.split(/\s+/);
-		return (
-			isClaudeArgv0(argv0) && role === "bg-pty-host" && !orphans.has(r.pid)
-		);
-	}).length;
+	const hosts = ps.rows
+		.filter((r) => {
+			const [argv0, role] = r.args.split(/\s+/);
+			return (
+				isClaudeArgv0(argv0) && role === "bg-pty-host" && !orphans.has(r.pid)
+			);
+		})
+		.map((r) => r.pid);
+	const idleHosts = new Set(pairs.filter((p) => p.idle).map((p) => p.host));
+	const sessions = hosts.length;
+	const idleSpares = hosts.filter((pid) => idleHosts.has(pid)).length;
 	const slots = ceiling === null ? null : Math.max(0, ceiling - sessions);
-	return { ceiling, sessions, slots, full: slots === 0, unknown: null };
+	return {
+		ceiling,
+		sessions,
+		idleSpares,
+		slots,
+		full: slots === 0,
+		unknown: null,
+	};
 }
 
 /** `cpuSlots` off reads of its own, for a caller that has taken none. */
-const readCpuSlots = () => cpuSlots(readPsRows(), readProcessChildren());
+const readCpuSlots = () => {
+	const ps = readPsRows();
+	return cpuSlots(ps, readProcessChildren(), readSparePairs(ps));
+};
 
 /**
  * @param {number} slots
@@ -126,7 +151,7 @@ const cpuCapped = (slots, cpu) =>
  * @param {CpuSlots} cpu
  */
 const buildSessionCeilingText = (cpu) =>
-	`${cpu.sessions} session(s) running on the machine against the ${cpu.ceiling}-session CPU ceiling (#2141), so ${cpu.slots} slot(s)`;
+	`${cpu.sessions} session(s) running on the machine${cpu.idleSpares ? ` (${cpu.idleSpares} of them an idle spare)` : ""} against the ${cpu.ceiling}-session CPU ceiling (#2141), so ${cpu.slots} slot(s)`;
 
 /**
  * @param {CpuSlots} cpu
@@ -140,7 +165,8 @@ function cpuSlotsRow(cpu) {
 
 /**
  * @typedef {{ ok: true, mb: number } | { ok: false, error: string }} MbResult
- * @typedef {({ ok: true, mb: number, idlePairs: number, perPairMb: number | null }) | { ok: false, error: string }} SpareOverhead
+ * @typedef {import("./claude-sessions.js").SparePair} SparePair
+ * @typedef {({ ok: true, mb: number, idlePairs: number, perPairMb: number | null, drift: string[] }) | { ok: false, error: string }} SpareOverhead
  * @typedef {({ ok: true, mb: number, perPairMb: number, pendingMb: number }) | { ok: false, error: string }} PoolReserve
  * @typedef {{ ok: true, sessions: number, working: number, self?: boolean, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
  * @typedef {{ sessions: number, problem?: string }} SessionFloor
@@ -606,42 +632,6 @@ function readRunningVitestSuites() {
 const MEMINFO = () => process.env.WFC_MEMINFO || "/proc/meminfo";
 const PROC = () => process.env.WFC_PROC || "/proc";
 
-/*
- * The daemon process itself plus every pre-warmed spare pair it keeps idle for
- * fast launch, which the memory breakdown shows as resident.
- *
- * THE RESERVE IS ONE IDLE PAIR, NOT THIS WHOLE POOL (#2223). The pool is
- * resident, so `MemAvailable` already excludes it. What admission cannot yet
- * see is a spare the daemon spawns beyond the claims it refills, at most one
- * pair in flight at a time; a spare is resident within a second, so the next
- * reading counts it. `poolReserve` prices that one pair.
- *
- * PSS, NEVER RSS (mantahostels#1287). The pool's processes are near-identical forks of one
- * binary, so most of their resident pages are SHARED, and summing RSS counts
- * every one of those pages once per process (`docs/environment.md` §5).
- * `/proc/<pid>/smaps_rollup` divides each shared page by its sharer count. A
- * process whose rollup cannot be read falls back to its own RSS, which
- * over-states rather than under-states.
- *
- * A CLAIMED SPARE IS A LIVE SESSION AND KEEPS ITS `/spare/` PATH (mantahostels#1287,
- * measurement there too). The claim does not rewrite argv, and no process
- * carries `--session-id`, so nothing on the command line tells a claimed pair
- * from an idle one. `livePids` is the discriminator: `claude agents --json` gives
- * each session's pid, that pid IS the `bg-spare` process, and both halves of
- * its pair share one socket id. A live session is priced through its
- * session draw, so counting it here would over-state the idle pair's price.
- *
- * Passing no `livePids` counts every pair as idle — an over-statement, never
- * an under-statement.
- *
- * The claude test on argv[0] comes FIRST, so a shell pipeline whose command
- * line merely mentions `/spare/` is not swept in (`docs/environment.md` §5).
- *
- * DUPLICATED BY HAND as SPARE_SOCKET in scripts/lib/claude_sessions.py, which
- * the session memory sampler pairs by: move both, or neither (#2231).
- */
-const SPARE_SOCKET = /\/spare\/([A-Za-z0-9]+)\./;
-
 /** One `ps -eo pid=,rss=,args=` row: pid, RSS in KB, argv. */
 const PS_ROW_RE = /^(\d+)\s+(\d+)\s+(.*)$/;
 
@@ -676,6 +666,9 @@ function readPsRows() {
 /**
  * The claude processes the spare-pool scan prices: the daemon and every
  * `/spare/` process, each with its pair's socket id.
+ *
+ * The claude test on argv[0] comes FIRST, so a shell pipeline whose command
+ * line merely mentions `/spare/` is not swept in (`docs/environment.md` §5).
  * @param {PsRow[]} rows
  */
 function spareProcesses(rows) {
@@ -690,17 +683,70 @@ function spareProcesses(rows) {
 }
 
 /**
- * @param {Set<string>} [livePids]
- * @param {PsRead} [ps] a `readPsRows()` read already taken, else one is taken here
+ * The spare pairs a `ps` read lists, each read idle or claimed off `/proc`.
+ * @param {PsRead} ps
+ * @returns {SparePair[]}
+ */
+const readSparePairs = (ps) =>
+	ps.ok ? sparePairs(ps.rows, (pid) => readProcCwd(pid, PROC())) : [];
+
+/**
+ * Where the spare pairs break the shape the idle test reads (#2502), which is
+ * vendor internals: a daemon holding more than one idle pair whose claim
+ * socket is made, where it keeps one and boots at most one more; or a pair
+ * read claimed that still has its claim socket. A booting spare, idle with no
+ * socket yet, trips neither. The verdict does not change on it.
+ * @param {SparePair[]} pairs
+ * @returns {string[]}
+ */
+function spareShapeDrift(pairs) {
+	/** @type {string[]} */
+	const drift = [];
+	/** @type {Map<string, number>} */
+	const idleByDaemon = new Map();
+	for (const p of pairs) {
+		if (p.claimSock === null || p.dir === null || !fs.existsSync(p.claimSock))
+			continue;
+		if (p.idle) idleByDaemon.set(p.dir, (idleByDaemon.get(p.dir) ?? 0) + 1);
+		else drift.push(`pair ${p.socket} reads claimed but keeps ${p.claimSock}`);
+	}
+	for (const [dir, n] of idleByDaemon)
+		if (n > 1)
+			drift.push(`${dir} holds ${n} idle pairs, where its daemon keeps one`);
+	return drift;
+}
+
+/**
+ * The daemon process itself plus every pre-warmed spare pair it keeps idle for
+ * fast launch, which the memory breakdown shows as resident.
+ *
+ * THE RESERVE IS ONE IDLE PAIR, NOT THIS WHOLE POOL (#2223). The pool is
+ * resident, so `MemAvailable` already excludes it. What admission cannot yet
+ * see is a spare the daemon spawns beyond the claims it refills, at most one
+ * pair in flight at a time; a spare is resident within a second, so the next
+ * reading counts it. `poolReserve` prices that one pair.
+ *
+ * PSS, NEVER RSS (mantahostels#1287). The pool's processes are near-identical forks of one
+ * binary, so most of their resident pages are SHARED, and summing RSS counts
+ * every one of those pages once per process (`docs/environment.md` §5).
+ * `/proc/<pid>/smaps_rollup` divides each shared page by its sharer count. A
+ * process whose rollup cannot be read falls back to its own RSS, which
+ * over-states rather than under-states.
+ *
+ * A CLAIMED SPARE IS A SESSION AND KEEPS ITS `/spare/` PATH (mantahostels#1287,
+ * measurement there too). The claim does not rewrite argv, so only the
+ * `bg-spare` half's cwd tells a claimed pair from an idle one, in every config
+ * dir alike (#2502): `sparePairs` in lib/claude-sessions.js holds that test.
+ * A session is priced through its session draw, so counting it here would
+ * over-state the idle pair's price.
+ *
+ * @param {PsRead} ps
+ * @param {SparePair[]} pairs from `readSparePairs` over that read
  * @returns {SpareOverhead}
  */
-function daemonSpareOverheadMb(livePids = new Set(), ps = readPsRows()) {
+function daemonSpareOverheadMb(ps, pairs) {
 	if (!ps.ok) return { ok: false, error: ps.error };
-	const rows = spareProcesses(ps.rows);
-	/* Both halves of a claimed pair share the live session's socket id. */
-	const liveSockets = new Set(
-		rows.filter((r) => livePids.has(r.pid) && r.socket).map((r) => r.socket),
-	);
+	const idlePids = new Set(pairs.filter((p) => p.idle).flatMap((p) => p.pids));
 	let kb = 0;
 	/* The idle pairs' own PSS, the daemon left out: it is one process
 	 * whatever the pool's size, so no pair costs a share of it (#2283). */
@@ -708,9 +754,8 @@ function daemonSpareOverheadMb(livePids = new Set(), ps = readPsRows()) {
 	/* The idle pool's own PAIR count — one socket id per pair, both halves
 	 * sharing it (mantahostels#2588). */
 	const idleSockets = new Set();
-	for (const r of rows) {
-		if (livePids.has(r.pid)) continue;
-		if (r.socket && liveSockets.has(r.socket)) continue;
+	for (const r of spareProcesses(ps.rows)) {
+		if (r.socket && !idlePids.has(r.pid)) continue;
 		const pss = readPssKb(r.pid);
 		const rowKb = pss === null ? r.rssKb : pss;
 		kb += rowKb;
@@ -730,6 +775,7 @@ function daemonSpareOverheadMb(livePids = new Set(), ps = readPsRows()) {
 			idleSockets.size > 0
 				? Math.floor(pairKb / 1024 / idleSockets.size)
 				: null,
+		drift: spareShapeDrift(pairs),
 	};
 }
 
@@ -966,7 +1012,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   free: MemRow,
  *   working: MemRow & { count: number | null, noProcess?: number },
  *   finished: MemRow & { count: number | null, reapable: number | null, reapableUnknown: string | null },
- *   pool: MemRow,
+ *   pool: MemRow & { drift: string[] },
  *   other: MemRow & { overlapMb: number, largest: { pid: string, rssMb: number, command: string }[] },
  *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, sessionFloor?: number, sessionFloorLifted?: boolean, slots?: number, overloaded?: boolean },
  *   cpu: CpuSlots,
@@ -1281,8 +1327,8 @@ function memoryBreakdown({
 		reapableUnknown: reclaimable.ok ? null : `reap plan: ${reclaimable.error}`,
 	};
 	const poolMem = pool.ok
-		? { mb: pool.mb, unknown: null }
-		: unknownRow(`spare-pool scan: ${pool.error}`);
+		? { mb: pool.mb, unknown: null, drift: pool.drift }
+		: { ...unknownRow(`spare-pool scan: ${pool.error}`), drift: [] };
 
 	const parts = [free, working, finishedRow, poolMem];
 	const blocked = parts.find((r) => r.unknown !== null);
@@ -1342,6 +1388,7 @@ function buildMemoryBreakdownLines(m) {
 		`  working          ${orUnknown(m.working, `${m.working.count} session(s)${m.working.noProcess ? ` (${m.working.noProcess} with no process)` : ""}, ${m.working.mb} MB PSS`)}`,
 		`  finished         ${orUnknown(f, `${f.count} session(s) still resident, ${f.mb} MB PSS, ${f.reapable === null ? `unknown (${f.reapableUnknown})` : f.reapable} taken by the next reap`)}`,
 		`  daemon + spares  ${orUnknown(m.pool, `${m.pool.mb} MB PSS`)}`,
+		...m.pool.drift.map((why) => `    spare shape drift: ${why}`),
 		`  everything else  ${orUnknown(
 			m.other,
 			`${m.other.mb} MB${m.other.overlapMb ? ` (the rows above overlap by ${m.other.overlapMb} MB of page cache)` : ""}${
@@ -1891,31 +1938,22 @@ function strictAdmission(
  * The machine reads both `admission.js` and `pick-next.js` make, the strict
  * verdict over them and the memory breakdown (#614). It reads memory, `ps`,
  * PSS and the load itself; the session listing and the reclaim reading come in, each
- * caller already making them for other uses, and so does `livePids`, the
- * listed pids the pool scan leaves out: `admission.js` takes them off the
- * strict listing, reading the oracle again, self-optional, only where that
- * listing refuses (#2876). An empty set prices every pair as idle, erring safe.
+ * caller already making them for other uses.
  *
  * `pool` is the spare pool as resident, which the breakdown's pool row shows;
  * `overhead` is what the verdict reserves for it, from `poolReserve`.
  * @param {{
  *   listed: Parameters<typeof memoryBreakdown>[0]["listed"] & Parameters<typeof liveDraw>[0] & Parameters<typeof liveSessions>[0],
- *   livePids: Set<string>,
  *   reclaimable: Parameters<typeof memoryBreakdown>[0]["reclaimable"],
  *   pendingSpares?: number,
  *   landers: Landers,
  * }} inputs `landers` are the live landers, from `readLiveLanders`
  */
-function machineAdmission({
-	listed,
-	livePids,
-	reclaimable,
-	pendingSpares = 0,
-	landers,
-}) {
+function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 	const ps = readPsRows();
 	const children = readProcessChildren();
-	const pool = daemonSpareOverheadMb(livePids, ps);
+	const pairs = readSparePairs(ps);
+	const pool = daemonSpareOverheadMb(ps, pairs);
 	const overhead = poolReserve(pool, pendingSpares);
 	const launchMb = overhead.ok ? overhead.pendingMb : 0;
 	const meminfo = readMeminfoKb();
@@ -1924,7 +1962,7 @@ function machineAdmission({
 	const host = readSessionDraw();
 	const live = liveDraw(listed, { ps, pssKbOf: readPssKb, children });
 	const load = overloadReading();
-	const cpu = cpuSlots(ps, children);
+	const cpu = cpuSlots(ps, children, pairs);
 	const floorRead = readDeclaredSessionFloor();
 	const swapHold = swapHoldOf(meminfo);
 	const landerMb = landerHeldMb(landers, {

@@ -7941,8 +7941,10 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/claude-sessions.js": [
+			"scripts/admission.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-suite-size-drift.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -7950,9 +7952,14 @@
 			"scripts/guard-pull-form.test.ts",
 			"scripts/lib/claude-sessions.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/meminfo.contract.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/refill-blocks.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pretest-reap.test.ts",
+			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],

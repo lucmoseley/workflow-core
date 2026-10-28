@@ -27,7 +27,7 @@ import {
 	WHOLE_SUITE_WORKERS,
 } from "./lib/admission";
 import { writeCache } from "./lib/dispatch-sessions-testkit";
-import { carrying } from "./lib/proc-fake";
+import { carrying, writeCwd } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -54,6 +54,10 @@ const GROWN = "other@701";
 /** A pair PSS of `mb`, in the kB a `pss` fixture takes. */
 const mbKb = (mb: number) => mb * 1024;
 const GROWN_PSS = { "701": mbKb(640) };
+const SPARE_DIR = "/tmp/x/spare";
+/** `cwds` for `bg-spare` pids still sitting in it: their pairs read idle (#2502). */
+const idleAt = (...pids: string[]) =>
+	Object.fromEntries(pids.map((pid) => [pid, SPARE_DIR]));
 
 let dir: string;
 
@@ -123,16 +127,20 @@ const claude = (
 };
 
 /*
- * A fake `/proc` carrying a `smaps_rollup` per pid in `pss` (kB) and a `stat`
- * per pid in `parents`, naming its parent. A pid with no rollup is the
- * unreadable case the scan falls back to RSS for. The default is an empty
- * tree, so no test ever reads the real `/proc`.
+ * A fake `/proc` carrying a `smaps_rollup` per pid in `pss` (kB), a `stat`
+ * per pid in `parents`, naming its parent, and a `cwd` symlink per pid in
+ * `cwds`. A pid with no rollup is the unreadable case the scan falls back to
+ * RSS for, and one with no `cwd` the unreadable one the spare test reads as
+ * claimed. The default is an empty tree, so no test ever reads the real
+ * `/proc`.
  */
 const proc = (
 	pss: Record<string, number> = {},
 	parents: Record<string, string> = {},
+	cwds: Record<string, string> = {},
 ) => {
 	const root = path.join(dir, "proc");
+	for (const [pid, cwd] of Object.entries(cwds)) writeCwd(root, pid, cwd);
 	for (const [pid, kb] of Object.entries(pss)) {
 		fs.mkdirSync(path.join(root, pid), { recursive: true });
 		fs.writeFileSync(
@@ -184,6 +192,8 @@ interface Machine {
 	pss?: Record<string, number>;
 	/** Each descendant pid's parent, for the fake `/proc`'s `stat` files. */
 	parents?: Record<string, string>;
+	/** Each pid's cwd, for the fake `/proc`'s `cwd` symlinks. */
+	cwds?: Record<string, string>;
 	reaped?: Array<{ pss: number | null }> | null;
 	reapFails?: boolean;
 	reapRaw?: string;
@@ -284,6 +294,7 @@ const run = (m: Machine = {}) => {
 		self = SELF,
 		pss = {},
 		parents = {},
+		cwds = {},
 		reaped = [],
 		reapFails = false,
 		reapRaw,
@@ -306,7 +317,7 @@ const run = (m: Machine = {}) => {
 			WFC_MEMINFO: meminfo(mb, swap),
 			WFC_PS: ps(psLines, { fails: psFails }),
 			WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
-			WFC_PROC: proc(pss, parents),
+			WFC_PROC: proc(pss, parents, cwds),
 			WFC_REAP_SCRIPT: reapScript(reaped, { fails: reapFails, raw: reapRaw }),
 			WFC_LOADAVG: loadavg(load),
 			WFC_SESSION_CEILING: sessionCeiling,
@@ -683,10 +694,10 @@ describe("the lander's suite reserve (#2416)", () => {
 describe("daemon + spare-pool reservation", () => {
 	/*
 	 * One idle pair is reserved off the top before the draw is fitted, priced
-	 * at the idle pairs' PSS (a `/spare/` claim path) over their count (#2223),
-	 * the daemon's own process (`daemon run`) left out (#2283). A live
-	 * session's own host, matched on `--session-id` rather than `/spare/`, is
-	 * no idle pair: it is priced through its draw.
+	 * at the idle pairs' PSS over their count (#2223), the daemon's own process
+	 * (`daemon run`) left out (#2283). A pair is idle while its `bg-spare` sits
+	 * in its claim socket's directory (#2502); a live session's own host,
+	 * matched on `--session-id` rather than `/spare/`, is no pair at all.
 	 *
 	 * `ps` here is `pid=,rss=,args=`; a pid with no fixture in `pss` has no
 	 * readable rollup, so the scan falls back to that process's RSS. With no
@@ -697,10 +708,12 @@ describe("daemon + spare-pool reservation", () => {
 		const { json } = run({
 			mb: 4000,
 			psLines: [
-				"111 605000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock -- claude --bg-spare /tmp/x/spare/abc.claim.sock",
+				"110 305000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock",
+				"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 				"112 223000 claude daemon run --origin transient",
 				"113 400000 /home/u/.local/share/claude/versions/2.1.241 --session-id abc123",
 			],
+			cwds: idleAt("111"),
 		});
 		expect(json.reservedMb).toBe(590); // floor(605000 / 1024), the daemon's 223000 left out
 		expect(json.memory.pool.mb).toBe(808); // floor((605000 + 223000) / 1024), the daemon kept
@@ -731,6 +744,7 @@ describe("daemon + spare-pool reservation", () => {
 				"112 700000 claude bg-spare --bg-spare /tmp/x/spare/def.claim.sock",
 			],
 			pss: { "111": 200_000, "112": 200_000 },
+			cwds: idleAt("111", "112"),
 		});
 		expect(json.reservedMb).toBe(195); // floor(400000 / 1024) over 2 pairs, not 683
 	});
@@ -743,6 +757,7 @@ describe("daemon + spare-pool reservation", () => {
 				"112 700000 claude bg-spare --bg-spare /tmp/x/spare/def.claim.sock",
 			],
 			pss: { "111": 200_000 }, // 112 has no rollup
+			cwds: idleAt("111", "112"),
 		});
 		expect(json.reservedMb).toBe(439); // floor((200000 + 700000) / 1024) over 2 pairs
 	});
@@ -760,6 +775,7 @@ describe("daemon + spare-pool reservation", () => {
 				"112 300000 claude bg-spare --bg-spare /tmp/x/spare/def.claim.sock",
 				"113 300000 claude bg-spare --bg-spare /tmp/x/spare/ghi.claim.sock",
 			],
+			cwds: idleAt("111", "112", "113"),
 		});
 		expect(json.reservedMb).toBe(292); // floor(900000 / 1024) over 3 pairs
 		expect(json.memory.pool.mb).toBe(878);
@@ -776,37 +792,19 @@ describe("daemon + spare-pool reservation", () => {
 				"111 900000 awk {print} /tmp/x/spare/abc.claim.sock",
 				"112 900000 /bin/bash -c grep /spare/ somewhere",
 			],
+			cwds: idleAt("111", "112"),
 		});
 		expect(json.reservedMb).toBe(PAIR);
 		expect(json.slots).toBe(3);
 	});
 
 	/*
-	 * A CLAIMED spare is a live session and keeps its `/spare/` path, so the
-	 * pool scan must not charge it as idle pre-warm — memory the session draw
-	 * already prices. The oracle's pid is the discriminator, and both halves of
-	 * a claimed pair share one socket id (mantahostels#1287).
+	 * A CLAIMED spare is a session and keeps its `/spare/` path, so the pool
+	 * scan must not charge it as idle pre-warm — memory the session draw
+	 * already prices. Its `bg-spare` has left the claim socket's directory for
+	 * the job's cwd, whichever config dir it runs in and whether or not this
+	 * run's listing names it (#2502). `abc` is claimed, `def` idle.
 	 */
-	it("does not reserve a claimed spare — a live session keeps its /spare/ path", () => {
-		const { json } = run({
-			mb: 4000,
-			// `abc` is claimed by the live session at pid 111; `def` is idle.
-			sessions: [`${SELF}@111`, "other@222"],
-			psLines: [
-				"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
-				"110 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock 200 50 --",
-				"333 300000 claude bg-spare --bg-spare /tmp/x/spare/def.claim.sock",
-				"332 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/def.pty.sock 200 50 --",
-			],
-		});
-		// Only the idle `def` pair: floor((300000 + 100000) / 1024).
-		expect(json.reservedMb).toBe(390);
-	});
-
-	/* #2876: the claimed pids come off the strict listing where it answers; where
-	 * it refuses for want of this session, the `requireSelf: false` read still
-	 * names them. The pool row tells the two apart where `reservedMb`, one idle
-	 * pair either way, cannot. */
 	const claimedAndIdle = [
 		"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 		"110 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock 200 50 --",
@@ -814,11 +812,55 @@ describe("daemon + spare-pool reservation", () => {
 		"332 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/def.pty.sock 200 50 --",
 	];
 	it.each([
-		["off the listing that names this session", [`${SELF}@111`, "other@222"]],
-		["where the oracle omits this session", ["other@111", "another@222"]],
-	])("leaves a claimed pair out of the pool %s", (_, sessions) => {
-		const { json } = run({ mb: 4000, sessions, psLines: claimedAndIdle });
+		["listed", [`${SELF}@111`, "other@222"]],
+		["unlisted", [SELF]],
+	])("prices only the idle pair, a %s claimed pair left out", (_, sessions) => {
+		const { json } = run({
+			mb: 4000,
+			sessions,
+			psLines: claimedAndIdle,
+			cwds: { "111": "/home/u/repo", ...idleAt("333") },
+		});
+		// Only the idle `def` pair: floor((300000 + 100000) / 1024).
+		expect(json.reservedMb).toBe(390);
 		expect(json.memory.pool.mb).toBe(390);
+	});
+
+	it("puts a claimed listed pair in working, not the pool", () => {
+		const { json } = run({
+			mb: 4000,
+			sessions: [SELF, "other@111"],
+			states: { other: "working" },
+			psLines: claimedAndIdle,
+			pss: { "111": 102_400, "110": 51_200, "333": 102_400, "332": 51_200 },
+			cwds: { "111": "/home/u/repo", ...idleAt("333") },
+		});
+		expect(json.memory.working).toMatchObject({ count: 2, mb: 150 });
+		expect(json.memory.pool.mb).toBe(150);
+	});
+
+	it("counts a pair whose spare's cwd will not read as claimed", () => {
+		const { json } = run({
+			mb: 4000,
+			psLines: claimedAndIdle,
+			cwds: idleAt("333"),
+		});
+		expect(json.memory.pool.mb).toBe(390);
+	});
+
+	it("averages the reserved pair over the idle pairs alone", () => {
+		const { json } = run({
+			mb: 4000,
+			psLines: [
+				...claimedAndIdle,
+				"444 300000 claude bg-spare --bg-spare /tmp/x/spare/ghi.claim.sock",
+				"443 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/ghi.pty.sock 200 50 --",
+			],
+			pss: { "111": 900_000, "333": 200_000, "444": 100_000 },
+			cwds: { "111": "/home/u/repo", ...idleAt("333", "444") },
+		});
+		// floor((200000 + 100000 + 100000 + 100000) / 1024) over 2 idle pairs
+		expect(json.reservedMb).toBe(244);
 	});
 
 	it("fails open to no reservation where the overhead scan cannot run", () => {
@@ -832,6 +874,60 @@ describe("daemon + spare-pool reservation", () => {
 		expect(status).toBe(0);
 		expect(json.reservedMb).toBe(0);
 		expect(json.slots).toBe(3);
+	});
+});
+
+/*
+ * #2502: the spare shape is vendor internals, so the breakdown names a break
+ * in it under the pool row, the verdict unmoved.
+ */
+describe("spare shape drift (#2502)", () => {
+	const sock = (id: string, made: boolean) => {
+		const d = path.join(dir, "daemon", "spare");
+		fs.mkdirSync(d, { recursive: true });
+		const p = path.join(d, `${id}.claim.sock`);
+		if (made) fs.writeFileSync(p, "");
+		return p;
+	};
+	const pair = (pid: number, id: string, made = true) => [
+		`${pid} 100000 claude bg-spare --bg-spare ${sock(id, made)}`,
+		`${pid + 1} 100000 claude bg-pty-host --bg-pty-host ${path.dirname(sock(id, made))}/${id}.pty.sock`,
+	];
+	const spareDir = () => path.join(dir, "daemon", "spare");
+	const driftLines = (stdout: string) =>
+		stdout.split("\n").filter((l) => l.includes("spare shape drift"));
+
+	it("names a daemon holding more than one idle pair", () => {
+		const r = run({
+			json: false,
+			psLines: [...pair(110, "aaa"), ...pair(120, "bbb")],
+			cwds: { "110": spareDir(), "120": spareDir() },
+		});
+		expect(driftLines(r.stdout)).toEqual([
+			`    spare shape drift: ${spareDir()} holds 2 idle pairs, where its daemon keeps one`,
+		]);
+	});
+
+	it("names a claimed pair that keeps its claim socket", () => {
+		const r = run({
+			json: false,
+			psLines: pair(110, "aaa"),
+			cwds: { "110": "/home/u/repo" },
+		});
+		expect(driftLines(r.stdout)).toEqual([
+			`    spare shape drift: pair aaa reads claimed but keeps ${spareDir()}/aaa.claim.sock`,
+		]);
+	});
+
+	it("reads a booting spare, its socket not yet made, as idle and no drift", () => {
+		const r = run({
+			mb: 4000,
+			psLines: [...pair(110, "aaa"), ...pair(120, "bbb", false)],
+			pss: { "110": 51_200, "111": 51_200, "120": 51_200, "121": 51_200 },
+			cwds: { "110": spareDir(), "120": spareDir() },
+		});
+		expect(r.json.memory.pool).toEqual({ mb: 200, unknown: null, drift: [] });
+		expect(r.json.reservedMb).toBe(100);
 	});
 });
 
@@ -1127,6 +1223,7 @@ describe("reclaimable pool (mantahostels#1288)", () => {
 				"111 400000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 			],
 			pss: { "111": 400_000 },
+			cwds: idleAt("111"),
 			reaped: [{ pss: 400 }],
 		});
 		expect(json.reservedMb).toBe(390); // effective rung(1) - 290, under the rung
@@ -1582,6 +1679,7 @@ describe("admissionFrom's CPU limb (#834)", () => {
 		const cpu = {
 			ceiling: 3,
 			sessions: 2,
+			idleSpares: 0,
 			slots: 1,
 			full: false,
 			unknown: null,
@@ -1668,6 +1766,7 @@ describe("admissionFrom's session floor (#2507)", () => {
 		const cpu = {
 			ceiling: 3,
 			sessions: 2,
+			idleSpares: 0,
 			slots: 1,
 			full: false,
 			unknown: null,
@@ -1721,6 +1820,7 @@ describe("the session ceiling (#2141)", () => {
 		expect(r.json.cpu).toEqual({
 			ceiling: 5,
 			sessions: 3,
+			idleSpares: 0,
 			slots: 2,
 			full: false,
 			unknown: null,
@@ -1741,6 +1841,24 @@ describe("the session ceiling (#2141)", () => {
 		});
 		expect(r.json.cpu.sessions).toBe(4);
 		expect(r.json.slots).toBe(1);
+	});
+
+	/* Counted all the same, the unit #2141's ceiling was fitted in (#2502). */
+	it("names how many of the hosts are an idle spare's", () => {
+		const r = run({
+			mb: roomy,
+			psLines: [
+				...hosts(2),
+				"950 1000 claude bg-spare --bg-spare /tmp/x/spare/ab.claim.sock",
+				"951 1000 claude bg-pty-host --bg-pty-host /tmp/x/spare/ab.pty.sock",
+			],
+			cwds: idleAt("950"),
+			sessionCeiling: "5",
+			json: false,
+		});
+		expect(r.stdout).toMatch(
+			/^ {2}cpu slots {8}3 session\(s\) running on the machine \(1 of them an idle spare\) against the 5-session CPU ceiling \(#2141\), so 2 slot\(s\)$/m,
+		);
 	});
 
 	it("leaves out a host whose daemon has gone, and any other claude process", () => {
@@ -1922,6 +2040,7 @@ describe("the pending-spare reserve (mantahostels#2588)", () => {
 			"114 700000 claude bg-pty-host --bg-pty-host /tmp/x/spare/def.pty.sock",
 		],
 		pss: { "111": 200_000, "112": 200_000, "113": 200_000, "114": 200_000 },
+		cwds: idleAt("111", "113"),
 	};
 
 	it("reserves nothing extra without the flag", () => {
@@ -2157,7 +2276,7 @@ describe("the memory breakdown (#589)", () => {
 				WFC_MEMINFO: meminfoPath,
 				WFC_PS: ps(s.ps),
 				WFC_CLAUDE_BIN: claude(null, { raw: JSON.stringify(agents) }),
-				WFC_PROC: proc(s.pss),
+				WFC_PROC: proc(s.pss, {}, idleAt("112")),
 				WFC_REAP_SCRIPT: reapScript(s.reaped, { fails: reapFails }),
 				CLAUDE_PROJECT_DIR: host,
 			},
@@ -2189,7 +2308,7 @@ describe("the memory breakdown (#589)", () => {
 		expect(m.free).toEqual({ mb: 6000, unknown: null });
 		expect(m.working).toEqual({ count: 2, mb: 957, unknown: null });
 		expect(m.finished).toMatchObject({ count: 1, mb: 410, reapable: 1 });
-		expect(m.pool).toEqual({ mb: 400, unknown: null });
+		expect(m.pool).toEqual({ mb: 400, unknown: null, drift: [] });
 		expect(m.other.mb).toBe(10_000 - 6000 - 957 - 410 - 400);
 		expect(
 			m.free.mb + m.working.mb + m.finished.mb + m.pool.mb + m.other.mb,

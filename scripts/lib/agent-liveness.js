@@ -555,9 +555,9 @@ function sessionIdsOf(opts, allowEmpty) {
 					listed.agents.filter(isTerminalAgent).map((a) => a.sessionId),
 				),
 				/*
-				 * Off this SAME oracle read, so a caller pricing the daemon+spare
-				 * overhead (`daemonSpareOverheadMb`) can build its live-pid set without
-				 * a second `claude agents --json` spawn (mantahostels#1295, additive to the shape
+				 * Off this SAME oracle read, so admission can pair each session
+				 * with its processes for its draw and memory rows without a
+				 * second `claude agents --json` spawn (mantahostels#1295, additive to the shape
 				 * `admission.js`, `wayfinder-frontier.js` and `session-arbiter.js`
 				 * already destructure).
 				 */

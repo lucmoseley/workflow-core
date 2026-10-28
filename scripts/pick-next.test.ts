@@ -48,6 +48,7 @@ import {
 	RECORDED_SHAPES,
 } from "./lib/gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
+import { writeCwd } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
 
@@ -345,9 +346,8 @@ const stubBrokenRepo = () => {
  * one of them — the shared reader refuses a list that omits it — so the count
  * admission prints is one fewer than the length here.
  *
- * An entry may carry `@<pid>` to say which pid that session is, for the
- * spare pool's reserve tests below — a claimed `/spare/` pair must not be
- * double-charged (mantahostels#1295).
+ * An entry may carry `@<pid>` to say which pid that session is, so its
+ * processes are paired with it (mantahostels#1295).
  */
 let oracleSessions: string[] = ["self"];
 let oracleFails = false;
@@ -363,6 +363,9 @@ let oracleFinished: string[] = [];
 let oracleWorking: string[] = [];
 /* Pair PSS in kB by pid, written under the stub /proc. */
 let procPssKb: Record<string, number> = {};
+/* Each pid's cwd, a `cwd` symlink under the stub /proc: a `bg-spare` in its
+ * claim socket's directory is an idle spare (#2502). */
+let procCwds: Record<string, string> = {};
 /* The draw the admission cases' arithmetic is written at, declared in each
  * fixture repo, so a re-measured DEFAULT_SESSION_DRAW moves none of them
  * (#2231). */
@@ -604,6 +607,7 @@ const stubMachine = () => {
 		fs.mkdirSync(path.join(proc, pid), { recursive: true });
 		fs.writeFileSync(path.join(proc, pid, "smaps_rollup"), `Pss: ${kb} kB\n`);
 	}
+	for (const [pid, cwd] of Object.entries(procCwds)) writeCwd(proc, pid, cwd);
 	const loadavg = path.join(dir, "loadavg");
 	fs.writeFileSync(loadavg, `${load1.toFixed(2)} 1.00 1.00 2/300 1\n`);
 	return {
@@ -691,6 +695,7 @@ beforeEach(() => {
 	oracleFinished = [];
 	oracleWorking = [];
 	procPssKb = {};
+	procCwds = {};
 	oracleSelfId = "self";
 	memAvailableKb = 4096 * 1024;
 	meminfoText = null;
@@ -2310,6 +2315,7 @@ describe("admission", () => {
 			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 		].join("\n");
 		memAvailableKb = 4000 * 1024;
+		procCwds = { "111": "/tmp/x/spare" };
 		const j = (await run({ issues: [{ number: 1 }] }, ["--json"])).json();
 		// the idle pair and the one a launch warms
 		expect(j.admission.reservedMb).toBe(1180);
@@ -2337,6 +2343,7 @@ describe("admission", () => {
 			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 		].join("\n");
 		memAvailableKb = 4000 * 1024;
+		procCwds = { "111": "/tmp/x/spare" };
 		const r = await run({ issues: [{ number: 1 }] });
 		// 4000 − 2 × 590 − 794 − 300 = 1726 MB: 2 more and a pair fit, 3 more and two do not.
 		expect(r.out).toMatch(/free slots\s+2/);
@@ -2372,6 +2379,7 @@ describe("admission", () => {
 			"111 605000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 		].join("\n");
 		memAvailableKb = 4000 * 1024;
+		procCwds = { "111": "/tmp/x/spare" };
 		const r = await run({ issues: [{ number: 1 }] });
 		expect(r.out).toMatch(/free slots\s+1/);
 		expect(r.out).toMatch(
@@ -2402,6 +2410,8 @@ describe("admission", () => {
 
 		const machine = (pss = fixture.pss) => {
 			meminfoText = fixture.meminfo;
+			/* The fixture's idle `aaa` pair, its spare in the claim socket's directory. */
+			procCwds = { "112": "/tmp/x/spare" };
 			psOut = fixture.ps.join("\n");
 			oracleSelfId = selfSessionId;
 			oracleSessions = fixture.agents.map((a) => `${a.sessionId}@${a.pid}`);
