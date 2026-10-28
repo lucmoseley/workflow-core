@@ -155,8 +155,7 @@ describe("what counts as firing the sweep", () => {
 		"timeout -k 5 60 gh workflow run scheduled-checks.yml",
 		"nohup gh workflow run scheduled-checks.yml",
 		"env GH_TOKEN=x gh workflow run scheduled-checks.yml",
-		// The suite by its own file (mantahostels#3514): mantahostels#3502's gate made this the only
-		// route that re-tests an already-swept sha.
+		// The suite by its own file (mantahostels#3514).
 		"gh workflow run ci.yml",
 		"gh workflow run .github/workflows/ci.yml",
 		'gh workflow run "ci.yml" --ref main',

@@ -121,7 +121,7 @@
  * filer did not file, it launches that filer detached
  * (lib/red-suite-fallback.js), at no gh call of this run's own.
  *
- * IMPLICIT:  at every session start, asks GitHub whether the last sweep on the branch went red, injects the verdict into the session's context, dispatches a billed sweep the session never asked for when that verdict has gone stale (mantahostels#1816), and launches the red-suite filer, which files or comments on the tracker, where the daily filer did not (#2480).
+ * IMPLICIT:  at every session start, asks GitHub whether the last sweep on the branch went red, injects the verdict into the session's context, dispatches a sweep the session never asked for when that verdict has gone stale (mantahostels#1816), and launches the red-suite filer, which files or comments on the tracker, where the daily filer did not (#2480).
  * JUSTIFIED: fail-safe — nothing reports a red between the local gates and the next sweep, so every detector here is a poll and this is the only one that fires unasked; a verdict nothing refreshes is the fault mantahostels#1816 measured at a 15h35m blind window; and a broken daily filer left a red unticketed for three days (#2480).
  * DEFEAT:    none at the hook; --notify is silent unless the run it reads is red or the newest sweep is older than SWEEP_STALE_MS. The dispatch is capped by AUTOFIRE_COOLDOWN_MS and withheld where HEAD is already covered; the filer launch at one an hour, on the core host only.
  */
@@ -259,8 +259,8 @@ const SWEEP_GRACE_MS = 5 * 60 * 60 * 1000;
  * exists to fire on. The census is the SIX-slot cadence's, though, and delivery
  * on mantahostels#3490's four-slot grid is unmeasured. mantahostels#2204's 310-687 minute lags stand as
  * the magnitude of the GitHub-side delay, not as a current delivery reading.
- * What bounds the bill either way is lib/sweep-budget.js's three-a-day cap, not
- * this — sized against the bill, not the schedule's slot count (mantahostels#3495). */
+ * What bounds the firings either way is lib/sweep-budget.js's three-a-day cap,
+ * not this. */
 const SWEEP_STALE_MS = 8 * 60 * 60 * 1000;
 
 /* A firing makes the newest sweep fresh, so SWEEP_STALE_MS is its own cooldown
@@ -294,29 +294,6 @@ const AUTOFIRE_COOLDOWN_MS = 2 * 60 * 1000;
  * SWEEP_GRACE_MS above). Reading back to the last green instead is unbounded: a
  * week away and this prints dozens of missed slots at session start. */
 const SWEEP_LEDGER_MS = 24 * 60 * 60 * 1000;
-
-/* What one hand-fired sweep costs, printed beside the command that fires it so
- * the habit stays visible (mantahostels#949).
- *
- * .github/workflows/scheduled-checks.yml's DISPATCH limb, ~15.78 billed
- * minutes: mantahostels#3502's ~14.78 a fire — mantahostels#3491's measured 13.42 scaled by mantahostels#2163's
- * 8.20/7.42 dispatch premium, never re-measured at the new price — plus that
- * file's gate job. At mantahostels#909's $0.006/min.
- *
- * THE TESTING PRICE AND NOT mantahostels#3502's GATED 2.06, because this is only ever
- * printed beside a firing, and a firing happens only where HEAD has moved past
- * the newest sweep (the `coverage.ahead > 0` limb feeding `staleMs` below) — so
- * the sha it fires on is one no sweep has run and that gate can never skip it.
- * A deliberate hand-fire on an already-swept sha is the cheap case this
- * over-prices.
- *
- * mantahostels#949 and mantahostels#976 both say ~4 minutes and $0.024, which is
- * .github/workflows/scheduled-checks.yml's cost of ADDING A JOB to every sweep
- * of a day, not of a sweep — do not "correct" this back to them. That figure is
- * ~4 minutes at mantahostels#3490's cadence, one per sweep (was ~6 at mantahostels#2166's six-slot
- * cadence). */
-const SWEEP_PRICE =
-	"~15.78 billed minutes at $0.006/min ≈ $0.095 a firing (.github/workflows/scheduled-checks.yml)";
 
 /* The wall-clock deadline, from run() start, over a --notify run's gh()
  * calls (mantahostels#2177), held 8s under `self-plugin/hooks/hooks.json`'s
@@ -767,7 +744,7 @@ function fireSweepOnStale(t, deadline) {
 
 	try {
 		gh(["workflow", "run", SWEEP_WORKFLOW], { timeout });
-		return `  Fired one automatically (verdict was stale; ${SWEEP_PRICE}).`;
+		return "  Fired one automatically (verdict was stale).";
 	} catch (e) {
 		return `  Could not fire one automatically: ${parseErrLine(e)}`;
 	}

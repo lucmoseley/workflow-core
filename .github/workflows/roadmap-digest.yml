@@ -93,8 +93,8 @@ on:
   workflow_call:
   workflow_dispatch:
 
-# ONE JOB, TWELVE GUARD STEPS, NOT TWELVE JOBS. Splitting these into separate
-# jobs billed a minute per job regardless of runtime (mantahostels#313).
+# ONE JOB, TWELVE GUARD STEPS, NOT TWELVE JOBS: one checkout serves every
+# guard.
 #
 # The property the split existed to protect — no guard masks another, each
 # failure attributable on its own — is preserved by `if: ${{ !cancelled() }}` on
@@ -222,17 +222,10 @@ jobs:
       # cut the marketplace does not pin, and this refuses a pin no adopter can
       # fetch.
       #
-      # WHY THIS JOB AND NOT A NEW ONE. Actions bills a one-minute minimum per
-      # JOB, so a new one would cost ~4 billed min/day whatever it did; a step
-      # here costs nothing, this job being ungated by scheduled-checks.yml's
-      # skip gate and so already billed on every sweep (#260).
-      #
-      # THE TIMEOUT, NOT THE STEP'S OWN ~1.5s, IS WHAT CAN SPEND THE HEADROOM —
-      # with no further step added. check-release-pin.js caps its one ls-remote
-      # at LS_REMOTE_TIMEOUT_MS, 15s, so a remote that is SLOW rather than
-      # unreachable makes this step ~15s and the job ~55s against a job last
-      # measured at 40s worst (#260). A job crossing 60s bills a second minute,
-      # ~4 more billed min/day.
+      # THE TIMEOUT, NOT THE STEP'S OWN ~1.5s, IS WHAT CAN LENGTHEN THE JOB.
+      # check-release-pin.js caps its one ls-remote at LS_REMOTE_TIMEOUT_MS,
+      # 15s, so a remote that is SLOW rather than unreachable makes this step
+      # ~15s (#260).
       #
       # The only step here reaching a remote. `origin` is preferred over the
       # marketplace's bare URL so the checkout's own credentials carry it while

@@ -8,14 +8,10 @@
  * against the `.sweep-autofire` marker in the git common dir. A session typing
  * `gh workflow run scheduled-checks.yml` spent nothing at all.
  *
- * `ci.yml` IS THE SAME SPEND (mantahostels#3514). mantahostels#3502's gate makes
- * a re-fire of scheduled-checks.yml a no-op on an already-swept sha, so the
- * documented way to re-test a still tree is `gh workflow run ci.yml` — the same
- * `Full suite` the counter prices. Chosen over a second, cheaper counter for
- * `ci.yml`: mantahostels#3495's three is derived from ONE GitHub Free minute
- * pool, and a second counter would be spend that arithmetic never priced. A
- * `ci.yml` run buys check-ci-status.js no verdict — it reads scheduled-checks
- * runs alone.
+ * `ci.yml` IS THE SAME SPEND (mantahostels#3514): it runs the same `Full
+ * suite` a scheduled-checks fire runs, so a second counter for it would be a
+ * second three. A `ci.yml` run buys check-ci-status.js no verdict — it reads
+ * scheduled-checks runs alone.
  *
  * ONE BUDGET, THREE A DAY, SPENT BY EVERY ROUTE. Three of one, three of another
  * or any mix exhausts the day. The counter is `scripts/lib/sweep-budget.js`,

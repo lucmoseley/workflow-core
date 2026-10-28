@@ -1353,6 +1353,26 @@
 			{
 				"needle": "~44.5 billed min/day",
 				"scanned": true
+			},
+			{
+				"needle": "~31 billed min/day",
+				"scanned": true
+			},
+			{
+				"needle": "~929 a month",
+				"scanned": true
+			},
+			{
+				"needle": "~929/month",
+				"scanned": true
+			},
+			{
+				"needle": "~46% of",
+				"scanned": true
+			},
+			{
+				"needle": "0.46",
+				"scanned": false
 			}
 		],
 		"allowlist": [
@@ -1477,16 +1497,85 @@
 			{
 				"needle": "41% of the Free cap",
 				"scanned": true
+			},
+			{
+				"needle": "14.42 billed min",
+				"scanned": true
+			},
+			{
+				"needle": "~14.42",
+				"scanned": true
+			},
+			{
+				"needle": "GATED 2.06",
+				"scanned": true
+			},
+			{
+				"needle": "bills 2.06",
+				"scanned": true
+			},
+			{
+				"needle": "~7.74",
+				"scanned": true
+			},
+			{
+				"needle": "~2,501",
+				"scanned": true
+			},
+			{
+				"needle": "~125% of",
+				"scanned": true
+			},
+			{
+				"needle": "1.25",
+				"scanned": false
+			},
+			{
+				"needle": "~15.78",
+				"scanned": true
+			},
+			{
+				"needle": "15.78 billed",
+				"scanned": true
+			},
+			{
+				"needle": "15.78-minute",
+				"scanned": true
+			},
+			{
+				"needle": "~14.78",
+				"scanned": true
+			},
+			{
+				"needle": "$0.095",
+				"scanned": true
+			},
+			{
+				"needle": "~1,420",
+				"scanned": true
+			},
+			{
+				"needle": "~152 everything else",
+				"scanned": true
+			},
+			{
+				"needle": "12.36",
+				"scanned": true
+			},
+			{
+				"needle": "54% skip rate",
+				"scanned": true
+			},
+			{
+				"needle": "0.54",
+				"scanned": false
+			},
+			{
+				"needle": "~4 billed min/day",
+				"scanned": true
 			}
 		],
-		"allowlist": [
-			{
-				"path": "scripts/check-ci-status.js",
-				"anchors": [
-					"8.20/7.42 dispatch premium"
-				]
-			}
-		]
+		"allowlist": []
 	},
 	"ledger-entry-cap": {
 		"needles": [
@@ -2001,6 +2090,10 @@
 			{
 				"needle": "1.26",
 				"scanned": false
+			},
+			{
+				"needle": "~5,900 billed minutes",
+				"scanned": true
 			}
 		]
 	},

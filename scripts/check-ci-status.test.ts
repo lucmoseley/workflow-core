@@ -1478,8 +1478,6 @@ describe("how long HEAD stays untested is reported, never offered (mantahostels#
 		expect(out).toContain("Nothing has tested HEAD");
 		expect(out).toContain("15:00 UTC");
 		expect(out).not.toContain("gh workflow run scheduled-checks.yml");
-		expect(out).not.toContain("15.78 billed minutes");
-		expect(out).not.toContain("$0.095 a firing");
 	});
 
 	it("withholds the report when the next sweep is less than two hours away", () => {
@@ -2159,6 +2157,19 @@ describe("what fills a slot, and what merely covers the tree (mantahostels#1024)
 			sweepAt("03:00"),
 			sweepAt("09:00"),
 			sweepAt("16:00", { event: "workflow_dispatch" }),
+		]);
+
+		const out = check(["--notify"], at(SWEEP_NOW)).stdout;
+		expect(out).toContain("missed 15:00 UTC");
+	});
+
+	it("does not let a push run fill a slot either (#1994)", () => {
+		// Every push to `landing` runs this workflow (#2413), so a push run
+		// landing just after a slot is the ordinary case, not a rare one.
+		setSweeps([
+			sweepAt("03:00"),
+			sweepAt("09:00"),
+			sweepAt("15:10", { event: "push" }),
 		]);
 
 		const out = check(["--notify"], at(SWEEP_NOW)).stdout;
