@@ -111,13 +111,12 @@ const { execGit, gitOrNull, GIT_TIMEOUT_MS } = require("./lib/git.js");
 
 /** @typedef {import("./lib/workflow-core-config.js").Module} Module */
 /** @typedef {import("./lib/workflow-core-config.js").Command} Command */
+/** @typedef {import("./lib/infer-commands.js").MappedCommand} MappedCommand */
 /**
  * One command, where it came from — `kind` to branch on, `from` to print —
- * and any note inference left on it, or a null command where nothing
- * declares it.
- * @typedef {{command: null} | {command: string,
- *   kind: "explicit"|"kept"|"inferred", from: string,
- *   note?: string}} SourcedCommand
+ * or a null command where nothing declares it.
+ * @typedef {{command: null} | (MappedCommand & {
+ *   kind: "explicit"|"kept"|"inferred", from: string})} SourcedCommand
  */
 
 /** @typedef {Record<Command, SourcedCommand>} Sourced */
@@ -1529,12 +1528,7 @@ function commandSources({ commands, kept, declared, inferred }) {
 			return { command: declared.commands[c], kind: "kept", from: CONFIG };
 		const hit = inferred[/** @type {keyof typeof inferred} */ (c)];
 		if (!hit) return { command: null };
-		return {
-			command: hit.command,
-			kind: "inferred",
-			from: `inferred from ${hit.from}`,
-			note: hit.note,
-		};
+		return { ...hit, kind: "inferred", from: `inferred from ${hit.from}` };
 	};
 	return /** @type {Sourced} */ (
 		Object.fromEntries(COMMANDS.map((c) => [c, source(c)]))
