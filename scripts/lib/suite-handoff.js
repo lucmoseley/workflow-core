@@ -153,10 +153,13 @@ function readLaunch(env = process.env) {
  */
 function readCarriedWeight(pid, proc = "/proc") {
 	if (pid === null) return null;
-	const read = readEnvironVar(pid, LAUNCH_ENV, proc);
-	/* Unreadable — gone, or another user's — it is weighed off its argv instead. */
-	if (!read.ok || read.value === null) return null;
-	const { resolvedFiles, wholeSlot } = readLaunch({ [LAUNCH_ENV]: read.value });
+	const record = readEnvironVar(pid, LAUNCH_ENV, proc);
+	/* Unreadable (gone, or another user's) or carrying no record (hand-typed):
+	 * weighed off its argv instead. */
+	if (!record.ok || record.value === null) return null;
+	const { resolvedFiles, wholeSlot } = readLaunch({
+		[LAUNCH_ENV]: record.value,
+	});
 	return resolvedFiles === null && !wholeSlot
 		? null
 		: { resolvedFiles, wholeSlot };

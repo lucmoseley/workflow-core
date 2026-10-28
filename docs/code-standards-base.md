@@ -188,7 +188,7 @@ The push gate asks whether certificates attest a commit, so its verdict is `atte
 
 **Program, library and hook module.** §N9 holds what a function is passed; this holds the state it reaches without being passed: Fowler's Global Data smell, and the other half of his Mutable Data smell (#1308, #1821). That state is a module-scope `let`, a module-scope object, array, Map or Set, or `process.env`. It is written by one function, or only by functions whose names say what each does to it, so a reader finds every write from the declaration. Another module never writes it directly, only through one of those functions. `process.env` has no declaration, so each variable counts as state of its own, and a write through a general setter such as `setEnv` is its caller's. The breach is a second writer named for something else.
 
-`scripts/lib/suite-handoff.js:162-180` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:171-181` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:397`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
+`scripts/lib/suite-handoff.js:200-219` keeps `report` behind `fillRunReport` and `takeRunReport`, declared beneath it. `scripts/session-arbiter.js:171-181` keeps its oracle memo behind `listedOnce` and `relistSessions`; `scripts/check-hook-liveness.js:397`'s `saidBeforeElseQueue` names the stamp it queues as well as the question it answers.
 
 The fixes, best first: return the value, so the caller holds it; pass it in, so the write shows at the call site, where §N9 holds a program to it; or move each write into a function named for it, declared beside the state (Fowler's Encapsulate Variable).
 
