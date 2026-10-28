@@ -124,8 +124,36 @@ describe("start", () => {
 
 	it("falls back to the seat it ran on alone", async () => {
 		holdPidfile();
-		await run("start");
+		const r = await run("start");
+		expect(r.status).toBe(0);
 		expect(readControl().seats).toEqual([path.join(dir, ".claude3")]);
+	});
+
+	it("falls back to ~/.claude where CLAUDE_CONFIG_DIR is unset", async () => {
+		holdPidfile();
+		const r = await runInProcessAsync(SCRIPT, ["start"], {
+			cwd: dir,
+			env: {
+				...Object.fromEntries(
+					Object.entries(process.env).filter(
+						([k]) => k !== "CLAUDE_CONFIG_DIR",
+					),
+				),
+				WFC_REFILL_DIR: dir,
+				CLAUDE_PROJECT_DIR: dir,
+				HOME: dir,
+				WFC_CLAUDE_BIN: path.join(dir, "no-claude"),
+			},
+		});
+		expect(r.status).toBe(0);
+		expect(readControl().seats).toEqual([path.join(dir, ".claude")]);
+	});
+
+	it("takes an empty CLAUDE_CONFIG_DIR as set, as Claude Code reads it (#2095)", async () => {
+		holdPidfile();
+		const r = await runEnv({ CLAUDE_CONFIG_DIR: "" }, "start");
+		expect(r.status).toBe(0);
+		expect(readControl().seats).toEqual([""]);
 	});
 });
 

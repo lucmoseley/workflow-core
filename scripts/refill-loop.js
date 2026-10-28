@@ -78,6 +78,7 @@ const { PROBE_TIMEOUT_MS } = require("./lib/usage-probe.js");
 const { readAllowance } = require("./lib/allowance.js");
 const { caught } = require("./lib/caught.js");
 const { claudeBin } = require("./lib/claude-bin.js");
+const { configDir } = require("./lib/config-dir.js");
 const { buildTypedAttach } = require("./lib/claude-attach.js");
 const { childFailure, childVerdict } = require("./lib/child-failure.js");
 const { parseErrLine, gh } = require("./lib/gh.js");
@@ -204,7 +205,7 @@ function readConfiguredSeats() {
 			? []
 			: seats.filter((s) => s.kind === "plan").map((s) => s.dir);
 	if (listed.length > 0) return listed;
-	return [process.env.CLAUDE_CONFIG_DIR || path.join(homeDir(), ".claude")];
+	return [configDir()];
 }
 
 /**
