@@ -603,6 +603,22 @@ const redBatch = (sha, base, { files, jobs = [] }) => ({
 });
 
 /**
+ * The batch `r`'s end hands on: its pushed-past tip's, where that tip's test
+ * was red, started from that verdict rather than a second whole-suite run of
+ * the tip (#3415). None once `r`'s revert landed, as `landing` moved to
+ * the revert.
+ * @param {Red} r
+ * @param {string|null} main `main` as the next batch starts
+ * @returns {Red|null}
+ */
+function buildHandedOnBatch({ pushedPast, revert }, main) {
+	const verdict = pushedPast?.verdict;
+	return pushedPast && verdict?.kind === "red" && !(revert && "sha" in revert)
+		? redBatch(pushedPast.sha, main, verdict)
+		: null;
+}
+
+/**
  * `r` with each run that reached no verdict dropped, so a run resuming it
  * reruns them rather than exiting on them again.
  * @param {Red} r
@@ -709,8 +725,9 @@ function nextAction(s) {
  * @typedef {{landing: string|null, reason: string, filed: string}} HoldNote
  *   the hold a run ended on: its tip as `heldTip` pins it, and what the
  *   held-queue filing printed
- * @typedef {{hold: HoldNote} | {red: Red}} BeatNote a heartbeat's hold, or
- *   the red batch the run is clearing
+ * @typedef {{hold: HoldNote, red?: Red} | {red: Red}} BeatNote a heartbeat's
+ *   hold, with the batch it hands the next run, or the red batch the run is
+ *   clearing
  * @typedef {object} LanderTracker
  * @property {(t: FixTicket) => string} fileFixTicket files the fix ticket,
  *   returning a line naming it
@@ -785,7 +802,10 @@ async function act(deps, action, state, main) {
 		return {
 			...state,
 			tested: null,
-			red: red && deps.git.contains(action.sha, red.sha) ? null : red,
+			red:
+				red && deps.git.contains(action.sha, red.sha)
+					? buildHandedOnBatch(red, action.sha)
+					: red,
 		};
 	}
 	if (action.kind === "test") {
@@ -1015,7 +1035,7 @@ async function actUntilEnd(run, carry) {
 			...state,
 		});
 		log(action);
-		if (action.kind === "hold") holdQueue(run, action, state);
+		if (action.kind === "hold") holdQueue(run, action, state, refs.main);
 		if (action.kind === "exit" || action.kind === "hold") return action;
 		carry.state = await act(run, action, state, refs.main);
 		if (action.kind === "fast-forward" && !carry.state.refused)
@@ -1077,12 +1097,19 @@ function isStillOwed(git, red, { main, landing }) {
 /**
  * Files or refreshes the held-queue issue, then beats once more naming the
  * hold, so the stall check reads a held queue apart from a dead lander and
- * the next run leaves the held tip alone.
+ * the next run leaves the held tip alone, taking up the batch its end hands
+ * on instead.
  * @param {LanderDeps} deps
  * @param {Extract<Action, {kind: "hold"}>} hold
  * @param {RunState} state its red batch, else its refused push
+ * @param {string|null} main `main` when the hold was chosen
  */
-function holdQueue({ tracker, beat, say = () => undefined }, hold, state) {
+function holdQueue(
+	{ tracker, beat, say = () => undefined },
+	hold,
+	state,
+	main,
+) {
 	const { red, refused } = state;
 	/* A push refused while clearing a red batch, its culprit's parent's,
 	 * pins the batch, so a push to `landing` releases it. */
@@ -1102,8 +1129,10 @@ function holdQueue({ tracker, beat, say = () => undefined }, hold, state) {
 		filed = `held-queue issue not filed: ${caught(err).message}`;
 	}
 	say(filed);
+	const next = red && buildHandedOnBatch(red, main);
 	beat(batch, {
 		hold: { landing: red ? heldTip(red) : batch, reason: hold.reason, filed },
+		...(next ? { red: next } : {}),
 	});
 }
 

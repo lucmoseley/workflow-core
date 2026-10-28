@@ -1470,4 +1470,81 @@ describe("runLander where the culprit's whole-suite confirm reaches no verdict (
 		});
 		expect(r.stuck).toEqual([]);
 	});
+	/** As `stalls`, but F fails x.test.ts. */
+	const redAtF = (sha: string, files: string[] | undefined): Verdict =>
+		sha === F ? { kind: "red", files: FILES } : stalls(sha, files);
+	const wholeSuiteRunsOfF = (tested: { sha: string; files?: string[] }[]) =>
+		tested.filter((t) => t.sha === F && t.files === undefined);
+
+	it("starts the batch after a held one from its red pushed-past tip's test, running that tip's whole suite once across the two (#3415)", async () => {
+		const remote = { main: A, landing: F };
+		const history = [B, C, D, F];
+		const first = await run(remote, redAtF, { history, lastRed: bisected() });
+		expect(first.end).toMatchObject({ kind: "hold" });
+		const last = first.beats.at(-1);
+		const second = await run(remote, redAtF, {
+			history,
+			lastHold: last?.hold ?? null,
+			lastRed: last?.red ?? null,
+			stuck: first.stuck,
+		});
+		expect(second.actions[0]).toEqual({
+			kind: "rerun",
+			sha: F,
+			files: FILES,
+			why: "flake",
+		});
+		expect(wholeSuiteRunsOfF([...first.tested, ...second.tested])).toEqual([
+			{ sha: F },
+		]);
+	});
+
+	it("starts the batch after one it landed from its red pushed-past tip's test (#3415)", async () => {
+		const remote = { main: A, landing: F };
+		const r = await run(
+			remote,
+			(sha, files) =>
+				sha === F && files === undefined
+					? { kind: "red", files: FILES }
+					: green(),
+			{
+				history: [B, C, D, F],
+				lastRed: { ...bisected(), files: FILES, flake: null, range: null },
+			},
+		);
+		expect(r.actions).toEqual([
+			{ kind: "test", sha: F },
+			{ kind: "rerun", sha: D, files: FILES, why: "flake" },
+			{ kind: "fast-forward", sha: D },
+			{ kind: "rerun", sha: F, files: FILES, why: "flake" },
+			{ kind: "fast-forward", sha: F },
+			{ kind: "exit", reason: "landing equals main" },
+		]);
+		expect(wholeSuiteRunsOfF(r.tested)).toEqual([{ sha: F }]);
+	});
+
+	it("starts the batch after one held on a revert that did not land from its red pushed-past tip's test (#3415)", async () => {
+		const r = await run({ main: B, landing: F }, redAtF, {
+			history: [B, C, D, F],
+			lastRed: {
+				...bisected(),
+				confirm: { [C]: { kind: "red", files: [] }, [B]: green() },
+				revert: { failed: "error: could not revert ccccccc" },
+				pushedPast: { sha: F, verdict: { kind: "red", files: FILES } },
+			},
+		});
+		expect(r.end).toMatchObject({ kind: "hold" });
+		expect(r.beats.at(-1)?.red).toMatchObject({ sha: F, base: B });
+	});
+
+	it("hands on no batch from a hold whose pushed-past tip's test was not red (#3415)", async () => {
+		const r = await run(
+			{ main: A, landing: F },
+			(sha, files) =>
+				sha === F ? { kind: "unknown", reason: ceiling } : stalls(sha, files),
+			{ history: [B, C, D, F], lastRed: bisected() },
+		);
+		expect(r.end).toMatchObject({ kind: "hold" });
+		expect(r.beats.at(-1)?.red).toBeUndefined();
+	});
 });
