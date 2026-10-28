@@ -145,7 +145,7 @@ beforeEach(() => {
 	stub(
 		"admission.js",
 		`require("node:fs").appendFileSync(${JSON.stringify(at("ticks"))}, "tick\\n");
-process.stdout.write(JSON.stringify({ ok: true, slots: Number(process.env.FAKE_SLOTS) }));\n`,
+process.stdout.write(JSON.stringify({ ok: true, slots: Number(process.env.FAKE_SLOTS), memorySlots: 1, drawNeedMb: 900, memory: { working: { count: 2, mb: 1200 } } }));\n`,
 	);
 	stub(
 		"allowance.js",
@@ -259,6 +259,29 @@ describe("run (#2435)", () => {
 		expect(readStopped()).toMatchObject({ reason: "explicit" });
 		// The sandbox has no file-morning-review.js: a run of it logs an exit.
 		expect(r.stdout).not.toMatch(/morning review( reversals)?: exit/);
+	});
+
+	it("appends each tick's line to the concurrency record and refreshes the 24-hour figure (#3317)", async () => {
+		await settled(run(1), "run after a mid-dispatch stop");
+		const lines = readLines(at("concurrency.jsonl")).map((l) => JSON.parse(l));
+		expect(lines).toHaveLength(1);
+		expect(lines[0]).toMatchObject({
+			working: 2,
+			ceiling: 3,
+			binding: {
+				limit: "loop not running",
+				why: "stopping: stop was requested",
+			},
+			also: [],
+			memory: {
+				drawNeedMb: 900,
+				rows: { working: 1200 },
+				largest: { name: "the live sessions' p95 draw", mb: 900 },
+			},
+		});
+		expect(Number.isFinite(Date.parse(lines[0].at))).toBe(true);
+		// No memwatch minute record in the sandbox's HOME: no figure yet.
+		expect(fs.readFileSync(at("concurrency-24h"), "utf8")).toBe("-\n");
 	});
 
 	it("supervises a foreign checkout's launches to landing, finished or not, skipping a gone one (#3284)", async () => {

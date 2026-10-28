@@ -60,7 +60,7 @@ const POOL_WIDTH = 4;
  * `throttling` is a 10-19 s live sweep. `harness-canary` (#2037)'s start hook
  * prints only a red verdict, and the agent_id probe's "fixed" (#2819): here it
  * also shows a version not yet probed, a probe that could not run, and the
- * agent_id verdict.
+ * agent_id verdict. `concurrency` (#3317) prints a standing, never a fault.
  *
  * `jev-flags` takes `--notify`, the one hook-style run here: it shows only the
  * flags logged since the last one it showed, and records them — a hand run
@@ -103,6 +103,7 @@ const CHECKS = [
 	["throttling", "check-self-throttling.js"],
 	["config-links", "link-config-dirs.js", "--check"],
 	["harness-canary", "check-harness-canary.js"],
+	["concurrency", "concurrency-readout.js"],
 ];
 
 /**

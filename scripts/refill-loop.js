@@ -35,7 +35,8 @@
  * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
  * ticketed, and each earlyoom kill incident that is over is ticketed
  * (scripts/file-memory-kill-tickets.js, #3094). Last, the morning review generator runs: in full on the first tick after 07:00,
- * answering reversals only on every other (#2017).
+ * answering reversals only on every other (#2017). Then the tick's line is
+ * appended to the concurrency record (lib/concurrency.js, #2497).
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
  * declares (lib/refill-seats.js), else the seat `start` ran on alone. Its
@@ -108,6 +109,11 @@ const {
 	decideTick,
 } = require("./lib/refill-decide.js");
 const { refillFrontier } = require("./lib/refill-frontier.js");
+const {
+	appendTick,
+	concurrencyFiles,
+	buildTickRecord,
+} = require("./lib/concurrency.js");
 const { buildBudgetLine, seatBudget } = require("./lib/overflow-budget.js");
 const { readDeclaredSeats } = require("./lib/refill-seats.js");
 const { runOf } = require("./lib/headless-sessions.js");
@@ -470,7 +476,9 @@ function fileKillTickets() {
 /**
  * Admission's free slots, read as the dispatcher's re-read reads them
  * (lib/refill-loop.js's FREE_SLOT_ARGS); 0 where it could not judge, so a
- * broken read launches nothing (#2012).
+ * broken read launches nothing (#2012). `admission` is the verdict behind
+ * them, for the concurrency record, or null where it did not read.
+ * @returns {{slots: number, admission: any}}
  */
 function freeSlots() {
 	const r = runChild(process.execPath, [
@@ -479,10 +487,12 @@ function freeSlots() {
 	]);
 	try {
 		const verdict = JSON.parse(r.stdout);
-		return verdict.ok ? Number(verdict.slots) || 0 : 0;
+		return verdict.ok
+			? { slots: Number(verdict.slots) || 0, admission: verdict }
+			: { slots: 0, admission: null };
 	} catch {
 		log(`admission unreadable: ${r.failed ?? ""} ${r.out.split("\n")[0]}`);
-		return 0;
+		return { slots: 0, admission: null };
 	}
 }
 
@@ -1097,7 +1107,7 @@ async function tick({ dryRun }) {
 				control.scope.mode,
 				seen,
 			);
-	const slots = freeSlots();
+	const { slots, admission } = freeSlots();
 	const { seats, probes } = readSeats(control.seats, slots, served[0]);
 	const overflow = loop.overflowReadings(
 		readDeclaredSeats(),
@@ -1134,6 +1144,8 @@ async function tick({ dryRun }) {
 			now: Date.now,
 		},
 	);
+	if (!appendTick(buildTickRecord({ input, decision: settled, admission })))
+		log(`concurrency record: not written to ${concurrencyFiles().record}`);
 	return { decision: settled, startedAt: control.startedAt, agents };
 }
 

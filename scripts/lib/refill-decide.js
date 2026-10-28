@@ -486,4 +486,5 @@ module.exports = {
 	decideTick,
 	fitsLaunch,
 	hasRoom,
+	pickSeat,
 };
