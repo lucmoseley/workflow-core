@@ -12,7 +12,9 @@
  * `<task-notification>` (origin kind `task-notification`), and a skill's
  * expanded body (meta). Most records carry `origin.kind`, which settles it
  * where present; an origin-less one — an older harness, or a scripted
- * `claude -p` prompt — is read by its text instead. Census on #488.
+ * `claude -p` prompt — is read by its text instead. Census on #488. The
+ * refill loop's resume prompts (lib/loop-prompts.js) carry origin kind
+ * `human`, so their prefix is read before the origin (#3378).
  *
  * A TRANSCRIPT TOO LARGE TO READ WHOLE IS READ BY ITS TAIL
  * (`lib/session-transcript.js`), so a moment before the tail's start counts
@@ -22,6 +24,7 @@
 const { read } = require("./session-transcript");
 const { STOP_FEEDBACK, mainChainRecords } = require("./transcript");
 const { roundNumber } = require("./round-marker");
+const { isLoopPrompt } = require("./loop-prompts");
 
 /* A parsed transcript line, typed as loosely as `mainChainRecords` yields it:
  * the harness's record shapes are undocumented and vary by record type. */
@@ -68,7 +71,7 @@ function isFounderMessage(rec) {
 			.map((p) => p.text ?? "")
 			.join("");
 	} else return false;
-	if (!text.trim()) return false;
+	if (!text.trim() || isLoopPrompt(text)) return false;
 	return (
 		Boolean(rec.origin) ||
 		!(HARNESS_TEXT.test(text) || STOP_FEEDBACK.test(text))

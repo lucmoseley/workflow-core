@@ -36,12 +36,11 @@
  *  - Re-pitch is silent on a prompt starting with `/wait-what`, which already
  *    delivers the text, and has no Skill route: `disable-model-invocation`
  *    keeps the Skill tool from loading it.
- *  - A prompt opening with a harness frame — a background-task notification,
- *    a subagent's hand-back, a local command's output, Stop-hook feedback —
- *    never fires, whatever it quotes (#652). So a founder paste opening with
- *    one is silent too, and any other pasted transcript quoting the phrases
- *    fires. The hand-back's frame was captured on this route; the
- *    notification's is the transcript's, never seen here.
+ *  - A prompt lib/founder-typing.js's `isMachineWrittenPrompt` marks — a
+ *    background-task notification, a subagent's hand-back, a mod's delivery,
+ *    the refill loop's resume — never fires, whatever it quotes (#652,
+ *    #3378). So a founder paste opening with one is silent too, and any other
+ *    pasted transcript quoting the phrases fires.
  *  - The prompt route is not latched: every matching prompt fires, since each
  *    may name a different fault or follow a different reply that missed. The
  *    Skill route is, once per session, agent and pattern, through the kit's
@@ -54,6 +53,8 @@
  *    (mantahostels#147), naming the pattern it dropped.
  *  - Disabling is whole-guard: no host can silence one pattern alone.
  */
+
+const { isMachineWrittenPrompt } = require("./founder-typing.js");
 
 /**
  * @typedef {{ trackers: string[], ownMissing: boolean }} Corpus
@@ -122,12 +123,6 @@ const PATTERNS = {
 		text: repitchText,
 	},
 };
-
-/* lib/tool-calls-since.js's HARNESS_TEXT and lib/transcript.js's
- * STOP_FEEDBACK, plus a subagent's hand-back (#652): the hook gets it from
- * `<agent-message`, the transcript from `Another Claude…`. */
-const HARNESS_FRAME =
-	/^\s*(?:<task-notification>|<local-command-|<bash-stdout>|<bash-stderr>|Stop hook feedback|<agent-message\s|Another Claude session sent a message:)/;
 
 /* Each pattern with its phrase, whose leading class keeps a match from
  * starting mid-word. */
@@ -257,14 +252,15 @@ function decide(skill, ctx) {
 
 /**
  * The prompt route: every pattern whose wording, or typed skill command, the
- * prompt holds, unlatched; silent on a harness frame (#652) and, per pattern,
+ * prompt holds, unlatched; silent on a prompt `isMachineWrittenPrompt` marks
+ * (#652, #3378) and, per pattern,
  * on its own command.
  * @param {string} prompt
  * @param {PromptContext} ctx
  * @returns {{ context: string } | null}
  */
 function decidePrompt(prompt, ctx) {
-	if (HARNESS_FRAME.test(prompt)) return null;
+	if (isMachineWrittenPrompt(prompt)) return null;
 	/** @type {[string, Pattern][]} */
 	const matched = [];
 	for (const [name, p, phrase] of PHRASED) {

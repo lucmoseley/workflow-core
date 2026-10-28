@@ -44,6 +44,7 @@ const { buildHostPorts } = require("./founder-wording-host.js") as {
 	};
 };
 const { CONTRACT, UPSTREAM_TRACKER } = require("./workflow-core-config.js");
+const { API_PROMPT } = require("./loop-prompts.js");
 
 const ENTRY = path.resolve(__dirname, "../inject-founder-wording.js");
 const SKILL_FILE = path.resolve(
@@ -372,48 +373,26 @@ describe("the re-pitch pattern", () => {
 	});
 });
 
-describe("a harness-delivered prompt quoting the phrases stays silent (#652)", () => {
+describe("a harness-delivered prompt quoting the phrases stays silent (#652, #3378)", () => {
 	it.each([
 		[
 			"<task-notification>\n<summary>Command killed: echo 'second time, explain it simpler'</summary>\n</task-notification>",
 		],
-		// A hand-back as the hook receives it, and as the transcript stores it.
 		[
 			'<agent-message from="reviewer">\n  The re-pitch fires on "you\'ve lost me" and on "keeps happening".\n</agent-message>',
 		],
-		[
-			'Another Claude session sent a message:\n<agent-message from="reviewer">The re-pitch fires on "you\'ve lost me".</agent-message>',
-		],
-		["<local-command-stdout>this keeps happening</local-command-stdout>"],
-		["<bash-stdout>simpler please</bash-stdout>"],
-		["<bash-stderr>second time it failed</bash-stderr>"],
-		["Stop hook feedback: the answer is too long"],
+		["Delivered by the wfc-delivery mod: simpler please"],
+		[API_PROMPT],
 	])("stays silent on %s", (prompt) => {
-		expect(injected(prompt)).toBeUndefined();
-	});
-
-	// The core mirrors lib/tool-calls-since.js's HARNESS_TEXT and
-	// lib/transcript.js's STOP_FEEDBACK; a frame added there and not here
-	// fails this.
-	it("stays silent on every frame the transcript reader treats as the harness's", () => {
-		const read = (lib: string) =>
-			fs.readFileSync(path.resolve(__dirname, lib), "utf8");
-		const frames = read("tool-calls-since.js").match(
-			/HARNESS_TEXT =\s*\/\^\\s\*\(\?:([^)]*)\)\//,
-		)?.[1];
-		const stop = read("transcript.js").match(
-			/STOP_FEEDBACK = \/\^\\s\*([^/]*)\//,
-		)?.[1];
-		expect(frames).toBeDefined();
-		expect(stop).toBeDefined();
-		for (const frame of [...(frames ?? "").split("|"), stop ?? ""]) {
-			expect(injected(`${frame} simpler please`), frame).toBeUndefined();
-		}
+		expect(injected(`${prompt} — this keeps happening`)).toBeUndefined();
 	});
 
 	it("still fires where the founder's own prompt only mentions a frame", () => {
 		expect(
 			injected("simpler please — what was that <task-notification> about?"),
+		).toContain(FRAMING);
+		expect(
+			injected(`simpler please — why did it send ${API_PROMPT}`),
 		).toContain(FRAMING);
 	});
 });
@@ -510,8 +489,10 @@ describe("cases a mutant must not survive", () => {
 	it("needs a word boundary before a phrase, not after the frame's leading space", () => {
 		expect(injected("unsimpler")).toBeUndefined();
 		expect(injected("(simpler)")).toContain(FRAMING);
-		expect(injected("   <bash-stdout>simpler</bash-stdout>")).toBeUndefined();
-		expect(injected("x <bash-stdout>simpler")).toContain(FRAMING);
+		expect(
+			injected("   <task-notification>simpler</task-notification>"),
+		).toBeUndefined();
+		expect(injected("x <task-notification>simpler")).toContain(FRAMING);
 	});
 
 	it("reads a command only where whitespace or the end follows it", () => {

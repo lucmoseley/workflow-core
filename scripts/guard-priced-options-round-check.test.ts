@@ -61,6 +61,7 @@ const {
 } = req("./lib/priced-options-limbs.js");
 const { readJsonl } = req("./lib/jev-log.js");
 const { firstDrafts, MIN_CALLS } = req("./lib/round-check.js");
+const { API_PROMPT } = req("./lib/loop-prompts.js");
 
 const { reset, founder, notification, buildSiblingBlock, stopFeedback } =
 	transcriptRecords("2026-09-27T10:00:00Z");
@@ -149,6 +150,18 @@ describe("the threshold", () => {
 	it("counts only since the founder's last message", () => {
 		writeTranscript(file, founder(), ...calls(12), founder(), ...calls(2));
 		expect(stop(round())).toContain("Q1: 2 tool calls");
+	});
+
+	/* A loop resume lands with origin kind `human`, as he would (#3378). */
+	it("counts past a refill loop's resume prompt", () => {
+		writeTranscript(
+			file,
+			founder(),
+			...calls(MIN_CALLS - 2),
+			founder(API_PROMPT),
+			...calls(2),
+		);
+		expect(stop(round())).toBe("");
 	});
 
 	it("leaves a message with no round alone", () => {

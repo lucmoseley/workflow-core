@@ -18,17 +18,22 @@
  *     intent test alone would count it.
  *   - a subagent's payload (lib/subagent-payload.js).
  *
+ * The transcript's own frames — `<bash-stdout>`, `<local-command-`, Stop
+ * hook feedback — never reach this hook: a `!` command, a local slash
+ * command and a Stop block fire no UserPromptSubmit (probed on 2.1.312,
+ * #3378).
+ *
  * BLIND SPOTS: a scheduled task's or `/loop` iteration's prompt is its own
  * text, and counts.
  */
 
 const fs = require("node:fs");
 const { jobStateIn } = require("./job-paths.js");
-const { LOOP_PROMPT_PREFIX } = require("./loop-prompts.js");
+const { isLoopPrompt } = require("./loop-prompts.js");
 const { isSubagentPayload } = require("./subagent-payload.js");
 
 const HARNESS_PROMPT =
-	/^\s*(?:<agent-message |<task-notification>|Delivered by the wfc-delivery mod)/;
+	/^\s*(?:<agent-message\s|<task-notification>|Delivered by the wfc-delivery mod)/;
 
 /** @param {string} prompt */
 function isLaunchPrompt(prompt) {
@@ -43,17 +48,20 @@ function isLaunchPrompt(prompt) {
 	}
 }
 
+/**
+ * Whether a prompt's text alone marks it the harness's or the loop's.
+ * @param {string} prompt
+ */
+const isMachineWrittenPrompt = (prompt) =>
+	HARNESS_PROMPT.test(prompt) || isLoopPrompt(prompt);
+
 /** @param {unknown} payload  the hook's parsed stdin */
 function isFounderTyping(payload) {
 	if (process.env.CLAUDE_CODE_ENTRYPOINT === "sdk-cli") return false;
 	if (isSubagentPayload(payload)) return false;
 	const raw = /** @type {{prompt?: unknown}|null} */ (payload)?.prompt;
 	const prompt = typeof raw === "string" ? raw : "";
-	return !(
-		HARNESS_PROMPT.test(prompt) ||
-		prompt.trimStart().startsWith(LOOP_PROMPT_PREFIX) ||
-		isLaunchPrompt(prompt)
-	);
+	return !(isMachineWrittenPrompt(prompt) || isLaunchPrompt(prompt));
 }
 
-module.exports = { isFounderTyping };
+module.exports = { isFounderTyping, isMachineWrittenPrompt };
