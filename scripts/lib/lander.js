@@ -107,7 +107,7 @@ const NETWORK =
  *   | {kind: "bisect", base: string|null, sha: string}
  *   | {kind: "read-main-jobs", jobs: string[]}
  *   | {kind: "revert", culprit: string, parent: string|null, files: string[],
- *       jobs: string[]}
+ *       jobs: string[], parentIsMain: boolean}
  *   | {kind: "file-fix-ticket", culprit: string, parent: string|null,
  *       revert: string, files: string[], jobs: string[],
  *       stale: RegistryRow[]|null}
@@ -580,7 +580,18 @@ function culpritAction(r, { culprit, parent }, { main, requiresRun }) {
 		isLandable(r.confirm[parent], requiresRun)
 	)
 		return { kind: "fast-forward", sha: parent };
-	if (!r.revert) return { kind: "revert", culprit, parent, files, jobs };
+	if (!r.revert)
+		return {
+			kind: "revert",
+			culprit,
+			parent,
+			files,
+			jobs,
+			/* `main` both as the batch was tested and now: a parent landed
+			 * since is `main` now but was confirmed on its own run, and a base
+			 * `main` has moved off was confirmed as a parent (#3533). */
+			parentIsMain: parent !== null && parent === r.base && parent === main,
+		};
 	if ("failed" in r.revert)
 		return {
 			kind: "hold",
@@ -942,7 +953,7 @@ async function advanceRed(deps, action, r) {
 				git.revertOnLanding(
 					action.culprit,
 					action.parent,
-					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} ${action.parent && !r.confirm[action.parent] ? "at `main`" : "green"}.${unread}`,
+					`The lander found it red on ${failingLabel(action)}, twice, with its parent ${action.parent ? short(action.parent) : "(none)"} ${action.parentIsMain ? "at `main`" : "green"}.${unread}`,
 				),
 			),
 		};
