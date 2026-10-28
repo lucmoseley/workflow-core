@@ -198,7 +198,6 @@ function transcriptOf(sid) {
  * @typedef {{ type?: string, isMeta?: boolean, sourceToolUseID?: string,
  *   attachment?: { type?: string, names?: unknown[] },
  *   message?: { content?: unknown } }} TranscriptRow
- *   One JSONL record, read only through these optional fields.
  */
 
 /**
