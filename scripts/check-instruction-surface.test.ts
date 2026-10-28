@@ -19,7 +19,15 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+} from "vitest";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -955,6 +963,105 @@ describe("the behavioural verdicts", () => {
 		});
 	});
 
+	describe("a dispatched core's digest folds its manifest host, and the rule files deeper libs name (#3167)", () => {
+		const core = "scripts/lib/four.js";
+		let template: string;
+		beforeAll(() => {
+			dir = fs.mkdtempSync(path.join(os.tmpdir(), "instr-surface-"));
+			buildTree();
+			write(core, "module.exports = { decide: () => null };\n");
+			write(
+				"scripts/lib/four-host.js",
+				'const { refusal } = require("./deeper");\nmodule.exports = { buildHostPorts: () => ({ refusal }) };\n',
+			);
+			write(
+				"scripts/lib/deeper.js",
+				'const { parse } = require("./shared.js");\nmodule.exports = { refusal: () => readRuleTextOr("deep", parse("x")) };\n',
+			);
+			write(
+				"scripts/lib/shared.js",
+				"const ids = ['other'];\nmodule.exports = { parse: (s) => s, injectRules: ids };\n",
+			);
+			write(
+				"scripts/lib/guard-cores.json",
+				JSON.stringify({
+					PreToolUse: [
+						{
+							name: "four",
+							core: "four.js",
+							tools: "Bash",
+							failure: "open",
+							host: "four-host.js",
+						},
+					],
+				}),
+			);
+			write("docs/agents/rules/deep.txt", "Deep.\n");
+			write("docs/agents/rules/other.txt", "Another rule.\n");
+			write(
+				BASELINE,
+				JSON.stringify(
+					baseline({
+						guards: {
+							...baseline().guards,
+							[core]: {
+								digest: "",
+								verdict: "at need",
+								selfSufficient: "yes",
+							},
+						},
+					}),
+					null,
+					"\t",
+				),
+			);
+			run("--rebaseline", "--no-claim");
+			template = dir;
+		});
+		afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
+		const anchorCore = () => fs.cpSync(template, dir, { recursive: true });
+		const expectExpired = () => {
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).toMatch(/GUARD-CHANGED\s+scripts\/lib\/four\.js/);
+		};
+		const expectNone = () => {
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).not.toMatch(/GUARD-CHANGED|BROKEN/);
+		};
+
+		it("expires the core on a code edit to its host", () => {
+			anchorCore();
+			write(
+				"scripts/lib/four-host.js",
+				"module.exports = { buildHostPorts: () => ({}) };\n",
+			);
+			expectExpired();
+		});
+
+		it("expires the core on a reworded fragment a lib its host requires names", () => {
+			anchorCore();
+			write("docs/agents/rules/deep.txt", "Deep, reworded.\n");
+			expectExpired();
+		});
+
+		it("expires nothing on a code edit to a deeper lib", () => {
+			anchorCore();
+			write(
+				"scripts/lib/shared.js",
+				"const ids = ['other'];\nmodule.exports = { parse: (s) => s.trim(), injectRules: ids };\n",
+			);
+			expectNone();
+		});
+
+		it("expires nothing on a rule a deeper lib hands injectRules by no literal", () => {
+			anchorCore();
+			write("docs/agents/rules/other.txt", "Another rule, reworded.\n");
+			expectNone();
+		});
+	});
+
 	it("warns GUARD-GONE when a guard the census measured has gone, naming it", () => {
 		writeBaseline();
 		fs.rmSync(path.join(dir, "scripts/guard-one.sh"));
@@ -1535,36 +1642,43 @@ describe("reading git rather than the working tree", () => {
 			expect(r.out).toMatch(/does not combine with --rebaseline/);
 		});
 
-		it("is BROKEN past its ceiling, naming the git read it killed (#2210)", () => {
-			writeBaseline();
-			commit("anchor");
-			write("scripts/guard-two.sh", "#!/bin/sh\necho reworded\n");
-			commit("reword");
-			// Crosses the real clock: the kill is execFileSync's own timeout. A
-			// git that hangs on `show` alone lets diff-tree through, so the read
-			// killed is one runTouched reaches only through rowsTouched.
-			const hung = writeFaultyGit({ words: ["show"] }, { sleep: 30 });
-			try {
-				const r = runInProcess(
-					SCRIPT,
-					["--root", dir, "--touched-by", "HEAD"],
-					{
-						env: {
-							...process.env,
-							GITHUB_ACTIONS: "",
-							WFC_GIT: hung.git,
-							WFC_TOUCHED_BY_CEILING_MS: "1500",
+		it.each([
+			["cat-file", "git cat-file --batch of scripts/guard-two.sh"],
+			// The tree listing, which a hung git must never turn into a disk read.
+			["ls-tree", "git ls-tree HEAD"],
+		])(
+			"is BROKEN past its ceiling on a hung `%s`, naming the git read it killed (#2210, #3167)",
+			(word, read) => {
+				writeBaseline();
+				commit("anchor");
+				write("scripts/guard-two.sh", "#!/bin/sh\necho reworded\n");
+				commit("reword");
+				// Crosses the real clock: the kill is execFileSync's own timeout. A
+				// git that hangs on one word alone lets diff-tree through, so the
+				// read killed is one runTouched reaches only through rowsTouched.
+				const hung = writeFaultyGit({ words: [word] }, { sleep: 30 });
+				try {
+					const r = runInProcess(
+						SCRIPT,
+						["--root", dir, "--touched-by", "HEAD"],
+						{
+							env: {
+								...process.env,
+								GITHUB_ACTIONS: "",
+								WFC_GIT: hung.git,
+								WFC_TOUCHED_BY_CEILING_MS: "1500",
+							},
 						},
-					},
-				);
-				expect(r.status).toBe(2);
-				expect(`${r.stdout}${r.stderr}`).toContain(
-					"--touched-by passed its 1.5s ceiling waiting on git show HEAD:scripts/guard-two.sh, and killed it",
-				);
-			} finally {
-				fs.rmSync(hung.dir, { recursive: true, force: true });
-			}
-		});
+					);
+					expect(r.status).toBe(2);
+					expect(`${r.stdout}${r.stderr}`).toContain(
+						`--touched-by passed its 1.5s ceiling waiting on ${read}, and killed it`,
+					);
+				} finally {
+					fs.rmSync(hung.dir, { recursive: true, force: true });
+				}
+			},
+		);
 
 		it("is BROKEN on a revision git cannot resolve", () => {
 			writeBaseline();

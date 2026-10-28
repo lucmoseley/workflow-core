@@ -20,10 +20,19 @@
  * COMPOSES (#3129): each `./lib/<name>.js` its literal require binds `decide`
  * or `buildHostPorts` from (lib/guard-entry.js's composition root), code and
  * rule files both, an absent one hashing as a marker. guard-entry.js itself
- * is the kit every wrapper runs, so an edit to it expires none.
- * Residual: an id a sourced lib names, one a composed lib's own requires name,
- * one a wrapper's other required libs name, or one built at run time, is
- * unread.
+ * is the kit every wrapper runs, so an edit to it expires none. A dispatched
+ * core's digest hashes the host ports lib/guard-cores.json binds it to (#3167)
+ * the same way.
+ *
+ * DEEPER LIBS FOLD THEIR RULE FILES, NOT THEIR CODE (#3167): every lib the
+ * guard, its composed libs and its host reach through relative requires adds
+ * the rule files it names. The cores share shell-parse.js, guard-verdict.js
+ * and rule-gates.js, so folding deeper code would expire every row on an edit
+ * to any of them.
+ * Residual: a deeper lib's non-literal ids, an id a sourced lib names, and
+ * one built at run time, are unread. A manifest edit
+ * alone rebinding a core's host to an existing lib is unread at a ticket's
+ * close, though the census run still reads it.
  *
  * Residual: the reprint belongs to the pinned shfmt and typescript, so a bump
  * that changes either's printing expires every row of that language at once.
@@ -34,8 +43,10 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { createRequire } = require("node:module");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { loadShfmt } = require("./formatters.js");
-const { CeilingPassed, NO_CEILING } = require("./git-ceiling.js");
+const { NO_CEILING } = require("./git-ceiling.js");
+const { MANIFEST_REL, hostOf } = require("./guard-cores.js");
 const { hasLine } = require("./marker-line.js");
 const {
 	RULE_ARG_RE,
@@ -67,7 +78,8 @@ class DigestUnavailable extends Error {}
 /* ~10x the largest guard in the set, so a runaway is bounded and nothing real
  * is ever truncated. A ticket's `git log --name-only` over the guards is a
  * few hundred bytes a commit, and a commit's `diff-tree` path list tens of
- * bytes a path, both far under it too. */
+ * bytes a path, both far under it too, as are the tree listing and blob
+ * batches (#3167); an overflow throws, never reading as an absent path. */
 const GIT_MAX_BUFFER = 8 * 1024 * 1024;
 
 /* The directory beside a Node guard its composed libs sit in. */
@@ -82,6 +94,246 @@ const LIB_REQUIRE_RE = new RegExp(
 /* Where LIB_REQUIRE_RE's path can lead, from any guard's directory. */
 const LIB_PATH_RE = new RegExp(`(?:^|/)${LIB_DIR}/${LIB_FILE}$`);
 const COMPOSED_BINDING_RE = /(?<![\w$])(?:decide|buildHostPorts)(?![\w$])/;
+/**
+ * @typedef {{ requires: string[], ruleFiles: string[] }} LibFacts
+ * @typedef {{ root: string, tree: Map<string, string> | null, disk: boolean,
+ *   ceiling: import("./git-ceiling.js").GitCeiling }} Snapshot
+ */
+
+/* Keyed by commit and by blob id, neither of which ever changes, so a pass
+ * over every row lists each tree once and reads and scans each file once.
+ * A lib's facts key on its directory too, its requires resolving from it. */
+/** @type {Map<string, Map<string, string>>} */
+const treeByCommit = new Map();
+/** @type {Map<string, Buffer>} */
+const bytesByBlob = new Map();
+/** @type {Map<string, LibFacts>} */
+const factsByBlobAndDir = new Map();
+
+/**
+ * `rev`'s tree as each tracked path's blob id. `tree` is null where git
+ * answers that `root` is no repo or `rev` no commit, every path then reading
+ * from disk unless `disk` is false; any other failure throws.
+ *
+ * @param {string} root
+ * @param {string} rev
+ * @param {CensusReadOpts} [opts]
+ * @returns {Snapshot}
+ */
+function readSnapshot(root, rev, { disk = true, ceiling = NO_CEILING } = {}) {
+	/** @param {string[]} args @param {string} what */
+	const git = (args, what) =>
+		String(
+			ceiling.git(
+				["-C", root, ...args],
+				{
+					encoding: "utf8",
+					maxBuffer: GIT_MAX_BUFFER,
+					stdio: ["ignore", "pipe", "ignore"],
+				},
+				what,
+			),
+		);
+	let commit;
+	try {
+		commit = git(
+			["rev-parse", "--verify", "--quiet", `${rev}^{commit}`],
+			`git rev-parse ${rev}`,
+		).trim();
+	} catch (e) {
+		/* An exit status is git's own answer; anything else (the ceiling, a
+		 * missing binary) is no answer, and never reads as an absent tree. */
+		if (typeof caught(e).status !== "number") throw e;
+		return { root, tree: null, disk, ceiling };
+	}
+	let tree = treeByCommit.get(commit);
+	if (tree === undefined) {
+		tree = new Map();
+		for (const entry of git(
+			["ls-tree", "-r", "-z", "--full-tree", commit],
+			`git ls-tree ${rev}`,
+		).split("\0")) {
+			const tab = entry.indexOf("\t");
+			const [, type, oid] = entry.slice(0, tab).split(" ");
+			if (type === "blob" && oid) tree.set(entry.slice(tab + 1), oid);
+		}
+		treeByCommit.set(commit, tree);
+	}
+	return { root, tree, disk, ceiling };
+}
+
+/**
+ * Reads every one of `rels` tracked in `snap` and not yet read, in one
+ * `cat-file --batch`.
+ *
+ * @param {Snapshot} snap
+ * @param {Iterable<string>} rels
+ */
+function prefetch(snap, rels) {
+	const { tree } = snap;
+	if (tree === null) return;
+	/** @type {Map<string, string>} oid → the first path naming it */
+	const unread = new Map();
+	for (const rel of rels) {
+		const oid = tree.get(rel);
+		if (oid !== undefined && !bytesByBlob.has(oid) && !unread.has(oid))
+			unread.set(oid, rel);
+	}
+	if (unread.size === 0) return;
+	const what = `git cat-file --batch of ${[...unread.values()].join(", ")}`;
+	const out = /** @type {Buffer} */ (
+		snap.ceiling.git(
+			["-C", snap.root, "cat-file", "--batch"],
+			{
+				input: `${[...unread.keys()].join("\n")}\n`,
+				maxBuffer: GIT_MAX_BUFFER,
+				stdio: ["pipe", "pipe", "ignore"],
+			},
+			what,
+		)
+	);
+	/* Each object is `<oid> <type> <size>\n<bytes>\n`. */
+	let at = 0;
+	while (at < out.length) {
+		const eol = out.indexOf(0x0a, at);
+		const header = out.subarray(at, eol).toString();
+		const [oid, , size] = header.split(" ");
+		if (!oid || !/^\d+$/.test(size ?? ""))
+			throw new Error(`${what} answered \`${header}\`, not an object`);
+		const end = eol + 1 + Number(size);
+		bytesByBlob.set(oid, out.subarray(eol + 1, end));
+		at = end + 1;
+	}
+}
+
+/**
+ * `rel`'s bytes in `snap`, as readCommittedBytes reads them.
+ *
+ * @param {Snapshot} snap
+ * @param {string} rel
+ * @returns {Buffer | null}
+ */
+function readAt(snap, rel) {
+	const oid = snap.tree?.get(rel);
+	if (oid !== undefined) {
+		prefetch(snap, [rel]);
+		return bytesByBlob.get(oid) ?? null;
+	}
+	if (!snap.disk) return null;
+	try {
+		return fs.readFileSync(path.join(snap.root, rel));
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * `rel`'s relative requires, as paths from the root, and the rule files its
+ * literal ids name, or null where `rel` is absent from `snap`. A non-literal
+ * injectRules is no BROKEN here: rule-emission.js's own scans spell the key.
+ *
+ * @param {Snapshot} snap
+ * @param {string} rel
+ * @returns {LibFacts | null}
+ */
+function readLibFacts(snap, rel) {
+	const dir = path.posix.dirname(rel);
+	const oid = snap.tree?.get(rel);
+	const key = oid === undefined ? undefined : `${oid}\0${dir}`;
+	const cached = key === undefined ? undefined : factsByBlobAndDir.get(key);
+	if (cached !== undefined) return cached;
+	const bytes = readAt(snap, rel);
+	if (bytes === null) return null;
+	const text = bytes.toString("utf8");
+	/** @type {{ fileName: string }[]} */
+	const imported = loadTypescript().preProcessFile(
+		text,
+		true,
+		true,
+	).importedFiles;
+	const requires = imported
+		.map((f) => f.fileName)
+		.filter((name) => /^\.\.?\//.test(name))
+		.map((name) =>
+			path.posix.join(dir, path.posix.extname(name) ? name : `${name}.js`),
+		)
+		.filter((lib) => lib.endsWith(".js"));
+	/* The raw text's ids are a superset of the reprint's, comments included,
+	 * so a lib naming none is never reprinted. */
+	let ruleFiles = ruleFilesIn(text, emissionMatches(text));
+	if (ruleFiles.length > 0) {
+		const code = String(codeOf(rel, bytes));
+		ruleFiles = ruleFilesIn(code, emissionMatches(code));
+	}
+	const facts = { requires, ruleFiles };
+	if (key !== undefined) factsByBlobAndDir.set(key, facts);
+	return facts;
+}
+
+/**
+ * The rule files every lib `starts` reach through relative requires names,
+ * `starts`' own excluded: each level's unread files read in one batch.
+ *
+ * @param {Snapshot} snap
+ * @param {string[]} starts
+ * @returns {string[]}
+ */
+function readDeeperRuleFiles(snap, starts) {
+	/** @type {Set<string>} */
+	const files = new Set();
+	const seen = new Set(starts);
+	prefetch(snap, starts);
+	let level = unseenRequires(snap, starts, seen);
+	while (level.length > 0) {
+		prefetch(snap, level);
+		for (const rel of level)
+			for (const file of readLibFacts(snap, rel)?.ruleFiles ?? [])
+				files.add(file);
+		level = unseenRequires(snap, level, seen);
+	}
+	return [...files].sort();
+}
+
+/**
+ * The libs `level` requires that `seen` lacks, each added to it.
+ *
+ * @param {Snapshot} snap
+ * @param {string[]} level
+ * @param {Set<string>} seen accumulator: every lib already reached
+ * @returns {string[]}
+ */
+function unseenRequires(snap, level, seen) {
+	/** @type {string[]} */
+	const next = [];
+	for (const rel of level)
+		for (const lib of readLibFacts(snap, rel)?.requires ?? [])
+			if (!seen.has(lib)) {
+				seen.add(lib);
+				next.push(lib);
+			}
+	return next;
+}
+
+/**
+ * The host lib guard-cores.json binds the dispatched core at `rel` to in
+ * `snap`, or null.
+ *
+ * @param {Snapshot} snap
+ * @param {string} rel
+ * @returns {string | null}
+ */
+function readHost(snap, rel) {
+	const bytes = readAt(snap, MANIFEST_REL);
+	if (bytes === null) return null;
+	try {
+		return hostOf(JSON.parse(bytes.toString("utf8")), rel);
+	} catch (e) {
+		throw new DigestUnavailable(
+			`${MANIFEST_REL} will not read as a manifest (${caught(e).message}), so the host ports a core composes cannot be read.`,
+			{ cause: e },
+		);
+	}
+}
 
 /**
  * A tracked path's bytes AT `rev`, falling back to disk where git cannot answer.
@@ -99,35 +351,8 @@ const COMPOSED_BINDING_RE = /(?<![\w$])(?:decide|buildHostPorts)(?![\w$])/;
  * @param {CensusReadOpts} [opts]
  * @returns {Buffer | null}
  */
-function readCommittedBytes(
-	root,
-	rel,
-	rev = "HEAD",
-	{ disk = true, ceiling = NO_CEILING } = {},
-) {
-	const args = ["-C", root, "show", `${rev}:${rel}`];
-	/** @type {import("node:child_process").ExecFileSyncOptions} */
-	const opts = {
-		maxBuffer: GIT_MAX_BUFFER,
-		/* git's own "does not exist in HEAD" goes to stderr on every untracked
-		 * path, which is a normal answer here rather than something to print. */
-		stdio: ["ignore", "pipe", "ignore"],
-	};
-	try {
-		return /** @type {Buffer} */ (
-			ceiling.git(args, opts, `git show ${rev}:${rel}`)
-		);
-	} catch (e) {
-		if (e instanceof CeilingPassed) throw e;
-		if (!disk) return null;
-		/* Either git cannot answer at all (no repo) or the path is not in HEAD.
-		 * Disk decides which: present on disk means untracked or unstaged-new. */
-		try {
-			return fs.readFileSync(path.join(root, rel));
-		} catch {
-			return null;
-		}
-	}
+function readCommittedBytes(root, rel, rev = "HEAD", opts = {}) {
+	return readAt(readSnapshot(root, rev, opts), rel);
 }
 
 /** @type {any} */
@@ -259,32 +484,57 @@ function libDirOf(rel) {
 }
 
 /**
- * `rel`'s code at `rev`, each lib it composes with that lib's code (null
- * where absent), and the rule files all of them name, `rel`'s own first;
- * null where `rel` is gone.
+ * `rel`'s code at `rev`, each lib it composes or its manifest host with that
+ * lib's code (null where absent), and the rule files all of them and their
+ * deeper libs name, `rel`'s own first; null where `rel` is gone.
  *
  * @param {string} root
  * @param {string} rel
  * @param {string} [rev]
  * @param {CensusReadOpts} [opts] as readCommittedBytes takes it
- * @returns {{ code: string | Buffer, libs: Map<string, string | Buffer | null>, ruleFiles: string[] } | null}
+ * @returns {{ code: string | Buffer, libs: Map<string, string | Buffer | null>, ruleFiles: string[], snap: Snapshot } | null}
  */
 function readInputs(root, rel, rev, opts) {
-	const bytes = readCommittedBytes(root, rel, rev, opts);
+	const snap = readSnapshot(root, rev ?? "HEAD", opts);
+	const bytes = readAt(snap, rel);
 	if (bytes === null) return null;
 	const code = codeOf(rel, bytes);
 	/* Appended, never re-sorted: a lib-less row keeps its pre-#3129 digest. */
 	const ruleFiles = new Set(ruleFilesOf(rel, code));
+	const libs = rel.endsWith(".js")
+		? readComposed(snap, rel, code, ruleFiles)
+		: new Map();
+	prefetch(snap, ruleFiles);
+	return { code, libs, ruleFiles: [...ruleFiles], snap };
+}
+
+/**
+ * The libs the Node guard at `rel` composes or its manifest host, each with
+ * its code (null where absent), adding to `ruleFiles` theirs and their deeper
+ * libs'.
+ *
+ * @param {Snapshot} snap
+ * @param {string} rel
+ * @param {string | Buffer} code `rel`'s, as codeOf gives it
+ * @param {Set<string>} ruleFiles
+ * @returns {Map<string, string | Buffer | null>}
+ */
+function readComposed(snap, rel, code, ruleFiles) {
+	const host = readHost(snap, rel);
+	const composed = [...composedLibsOf(rel, code), ...(host ? [host] : [])];
+	prefetch(snap, composed);
 	/** @type {Map<string, string | Buffer | null>} */
 	const libs = new Map();
-	for (const lib of composedLibsOf(rel, code)) {
-		const libBytes = readCommittedBytes(root, lib, rev, opts);
+	for (const lib of composed) {
+		const libBytes = readAt(snap, lib);
 		const libCode = libBytes === null ? null : codeOf(lib, libBytes);
 		libs.set(lib, libCode);
 		if (libCode !== null)
 			for (const file of ruleFilesOf(lib, libCode)) ruleFiles.add(file);
 	}
-	return { code, libs, ruleFiles: [...ruleFiles] };
+	for (const file of readDeeperRuleFiles(snap, [rel, ...composed]))
+		ruleFiles.add(file);
+	return libs;
 }
 
 /**
@@ -308,9 +558,7 @@ function digestOf(root, rel, rev, opts) {
 	 * that is absent hashes as a marker, not BROKEN: the guard then prints its
 	 * fallback, and adding the file moves the digest. */
 	for (const file of inputs.ruleFiles)
-		hash
-			.update(`\0${file}\0`)
-			.update(readCommittedBytes(root, file, rev, opts) ?? "\0absent");
+		hash.update(`\0${file}\0`).update(readAt(inputs.snap, file) ?? "\0absent");
 	return hash.digest("hex").slice(0, 16);
 }
 
@@ -444,12 +692,15 @@ function readRowsExpiredByTicket(
 }
 
 /**
- * The lib/ directories `rels`' Node guards can compose a lib from.
+ * The directories `rels`' Node guards can compose a lib from: each wrapper's
+ * lib/, and the manifest's where a core's host sits.
  *
  * @param {string[]} rels
  */
 function libDirsOf(rels) {
-	return [...new Set(rels.map(libDirOf).filter((dir) => dir !== null))];
+	const dirs = rels.map(libDirOf).filter((dir) => dir !== null);
+	if (dirs.length > 0) dirs.push(path.posix.dirname(MANIFEST_REL));
+	return [...new Set(dirs)];
 }
 
 /**

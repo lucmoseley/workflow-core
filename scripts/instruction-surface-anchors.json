@@ -109,13 +109,13 @@
 	},
 	"guards": {
 		"scripts/lib/branch-move.js": {
-			"digest": "ccf9eb6b5c486d8c",
+			"digest": "e1f46d8c0dcb8e19",
 			"verdict": "at need (fed at 18a1598da under #3143, byte-identical to the tree before #3018) — in the shared tree `git checkout -b foo` (1747 B), `git switch feature` (1746 B) and `git worktree add /tmp/x` lacking -b/--detach (1658 B) refused; `git worktree add -b`/`--detach` and `git checkout main` allowed and handed the rule once a session (1664 B), before the first worktree; the repeat silent, a later `checkout -b` still refused. `git checkout -- a.md` silent; `checkout -b` in a linked worktree silent. Wrapper `env git checkout -b foo`: silent (0 B), as declared in LIMITS. Rule store unreadable: the deny keeps its frame and restore escape and names the file to read (460 B, the template fallback); the injection limb refuses naming the missing fragment (300 B). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — deny and injection carry the rule, the reason, the worktree recipe and the restore escape inline; with the store unreadable the deny still carries reason and restore escape and names docs/agents/rules/branch-shared-tree.txt.",
 			"source": "#3143"
 		},
 		"scripts/lib/commit-form.js": {
-			"digest": "adfa48257ce708da",
+			"digest": "e7e6ffa90642298e",
 			"verdict": "at need — each deny names the exact offending command before it runs: `git commit -am`, `--amend --no-edit`, `--no-verify … -- a.md` and `-m 'Fixes #12' -- a.md` refused (875, 1018, 1422 and 2300 B, fed at 18a1598da under #3143, byte-identical to the tree before #3018's port move); `git add` warned (656 B). The first clean pathspec commit of a session handed the pathspec rule, the gated-path rules and the push rule last (3544 B, the A-12 payload), a bare commit the same less the gated rules (2784 B), the repeat silent; a warn defers them unlatched — a warned commit, then a clean one in the same session, was handed them (2784 B). A `commit-paths.js` call handed the show-diff and message rules plus the push rule (1255 B), under `docs/` the guard-registry and machinery-superseded rules too (2348 B), on `package.json` the Biome gate rule too (2015 B); the repeat and a `cat` of the file silent. The sweep warn, not re-fed: a pathspec naming a live neighbour's claimed, edited file warned, ending in the Swept: lines where it is the whole pathspec (562 B) and in the commit-your-own-paths form where it is not (416 B), fed at 6192d0f49; on the `commit-paths.js` form the guard gave none (commit-paths.js gives it, scripts/commit-paths.js:847). The push rule printed is `rule:push-cadence-landing`, this host running the landing module, and it defers to the next commit where the gate rules fill the ceiling (#2285): `-- docs/doc-map.md docs/roadmap-digest.md CLAUDE.md scripts/foo.js` was handed every gated rule but it (4078 B), and the session's next clean commit the push rule alone (991 B). With the rule store unreadable the injection limb refuses, naming the missing fragment (302 B: `rule-text: no fragment for rule id \"commit-pathspec\"`); the deny limbs carry no store text and print in full. Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes (deny limbs) — each carries reason and the corrected command inline, with or without the rule store; the sweep warn names the neighbour, and either the Swept: line or the own-paths form.",
 			"source": "#3143"
@@ -133,7 +133,7 @@
 			"source": "#3143"
 		},
 		"scripts/lib/sweep-fire.js": {
-			"digest": "a4880f35e1f378fb",
+			"digest": "ef94dffb7d482caa",
 			"verdict": "at need for the deny (4th fire of the UTC day, before it runs). The three allowed fires each spend a unit with 0 B printed — a session learns it spent budget only when the budget is already gone (by design: no injection limb, header cites the route-(f) Bash byte cap). Run as a core of scripts/guard-dispatch.js (#2790)",
 			"selfSufficient": "yes for the deny — budget state, reset time and rule inline.; re-fed at #3146 through the entry with an empty rule store: the rule's place takes the fallback template line naming docs/agents/rules/sweep-fire-budget.txt, the budget state and the command still inline.; re-fed at #1994: fires 1-3 exit 0 with 0 B, fire 4 a 1502 B deny, its why-three now a pointer to scripts/lib/sweep-budget.js.",
 			"source": "#2790"
@@ -169,7 +169,7 @@
 			"source": "#3143"
 		},
 		"scripts/lib/tracker-rules.js": {
-			"digest": "d86fc418485a7343",
+			"digest": "ef286ce9d3457de4",
 			"verdict": "at need on the first engaging call of the session; latched once per session per id thereafter Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
 			"selfSufficient": "yes — each fragment carries rule, reason and the command shape inline",
 			"source": "#2792"
@@ -181,7 +181,7 @@
 			"source": "#2792"
 		},
 		"scripts/lib/review-rules.js": {
-			"digest": "1a76e7c696fd71ee",
+			"digest": "e67b718b129b6acb",
 			"verdict": "at need — lands as the skill loads, before the dispatch and disposition it binds Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
 			"selfSufficient": "yes — every rule carries its act, paths and order inline, the hand-over of the suite's RUN COST lines to the Standards axis among them; in an adopter a bare `code-review` is refused with the namespaced name to call instead",
 			"source": "#2792"
@@ -199,13 +199,13 @@
 			"source": "#2109, #2546, #2786, #2872"
 		},
 		"scripts/lib/review-tier.js": {
-			"digest": "07026909fa0bc93e",
+			"digest": "403bc7568fb05288",
 			"verdict": "at need — as the code-review skill loads via the Skill tool, before the Agent dispatch it shapes, reading the shared tree and the worktree the payload's cwd sits in together (#2386: fed from a throwaway worktree with CLAUDE_PROJECT_DIR on the shared tree and scripts/write-secret.js staged there, it printed the escalated tier for secret handling; #2529: fed from a worktree with the sensitive path staged or written in the shared tree, it printed the escalated tier, and a failed common-dir read in the worktree logged a fail-open line; #2581: a failed common-dir read in the root, through a WFC_GIT stub, logged the same line and matched the root alone); a declared globless area is handed to every review for judgement, its glob-adding commit named as held Run as a core of scripts/guard-dispatch.js (#2792: every bash case moved to a module case with mutation proof, the boundary set kept as program cases)",
 			"selfSufficient": "yes — tier, runs, records and commands inline, the runs diffing the tree pinned before dispatch (`git diff HEAD $t -- <commit paths>`, #2081), the pin over `<unpatched paths>` (#2254), the marker lines one named fetch away (`scripts/lib/rule-text.sh review-hold`, its `--areas` naming any globless area judged touched, #2254), worktree included; a `mission-critical: yes` must name the access rule or money calculation altered (#2082); an undeclared repo is told the one-line fix (`sensitivePaths`, `[]` for none) on every review; re-fed at #3146 through the entry with no sensitivePaths and an empty rule store: the undeclared line takes the fallback template naming docs/agents/rules/review-sensitive-undeclared.txt",
 			"source": "#2386, #2529, #2581, #2792"
 		},
 		"scripts/lib/founder-wording.js": {
-			"digest": "f334c70c0be3f766",
+			"digest": "b34207f263c83733",
 			"verdict": "at need on both routes — prompt route fires on the founder's message before the reply it governs; Skill route as diagnosing-bugs loads Its Skill route runs as a core of scripts/guard-dispatch.js, its prompt route through scripts/inject-founder-wording.js (#2792: every bash case moved to a module case with mutation proof)",
 			"selfSufficient": "yes — the four checks with the resolved tracker list, and the full re-pitch instructions, are inline",
 			"source": "#2792"
@@ -217,7 +217,7 @@
 			"source": "#2386"
 		},
 		"scripts/lib/stale-script.js": {
-			"digest": "1d4901bbc421c881",
+			"digest": "4de2fde6b01a6259",
 			"verdict": "at need (before the run) Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); at #2896 a refactor only (dirty read moved onto ctx.git), measured by stale-script.test.ts exact-text cases over a real git repo",
 			"selfSufficient": "yes — says nothing is blocked, what to do if output looks wrong (re-run after commit), how to see claims, and the unclaimed-dirty residual",
 			"source": "#2789"
@@ -235,19 +235,19 @@
 			"source": "#2791"
 		},
 		"scripts/lib/agent-poll.js": {
-			"digest": "49c000bcc940fbe0",
+			"digest": "069e53ab80fc311c",
 			"verdict": "too late — deny lands on the 3rd call for agents and read:<file> (and for a subagent's read), on the 2nd for noop; check and check:job never deny, warning from the 4th call inside 5 minutes. The harmful look has already run 2 times (1 for noop) before any text reaches the session. Run as a core of scripts/guard-dispatch.js, on Bash, Read and ListAgents since #3224 (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion); at #2896 an import move only (segment from review-suffix.js), measured by agent-poll.test.ts exact-text cases",
 			"selfSufficient": "yes, but late — each deny opens with the corrected command and the #845 mechanism; subagent variant correctly says wait inside the turn instead of ending it, on all five limbs. The parent's check:job warn ends \"the backgrounded watch is what wakes this session\" though its own advice names no backgrounded watch, only `sleep 120` spacing.",
 			"source": "#2791"
 		},
 		"scripts/lib/echo-call.js": {
-			"digest": "1a643594560c3e12",
+			"digest": "438d34ae9a35ce94",
 			"verdict": "at need for the runaway (3rd identical call, before it runs); the two wasted repeats are its design, not a lag. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes — says end the turn (to a subagent: wait inside it, Bash and Read alike), or vary the command, and how the chain clears",
 			"source": "#2791"
 		},
 		"scripts/lib/recursive-dot-read.js": {
-			"digest": "7581c16d0425efb6",
+			"digest": "7cad825375286f58",
 			"verdict": "at need, before the search runs, on a root named (`grep -rn PAT .`) or none (`grep -r PAT`, `rg PAT`). The prompt is named only where the payload's permission mode shows one: in `auto` a recursive grep warns on the node_modules/.git/build-output read it really makes, and an `rg` search passes silent. A path-less `rg` fed by a pipe passes, per its LIMITS. The heavy-tree limb, #2060: fed at 3ef670321 `grep -rn foo node_modules` and `find . -name x` it hands over rule:heavy-tree-search, and the same command again in that session nothing; `grep -rn PAT .` gets the rewrite warning with the rule after it; `grep -rn PAT scripts`, `find scripts -name x` and `rg -l PAT .` in auto mode nothing. Run as a core of scripts/guard-dispatch.js (#2791: its refusal and warning text byte-identical to the bash guard's, captured before its deletion)",
 			"selfSufficient": "yes — the ready-to-run replacement command, keeping what follows the search (`| head -5`), plus the mechanism (grep's read of ignored trees; the prompt, in a mode that shows one) and the expansion's losses are inline; the heavy-tree limb is yes — rule:heavy-tree-search whole, naming the source directories, a root-run `rg` and `-prune` as the routes",
 			"source": "#2791"
@@ -325,7 +325,7 @@
 			"source": "#2788"
 		},
 		"scripts/lib/claimed-bash-write.js": {
-			"digest": "8652eeac4673a0da",
+			"digest": "c6754e82d7cbe8b2",
 			"verdict": "at need — on the clobbering command itself, before it runs. Second firing on the same (lock, holder, target) triple is silent by design, including a different write spelling (redirect vs sed -i) — the ledger keys on the target, not the spelling. The restore limb (#2028) fires once a session on a `cp`/`mv` destination, `git restore` path or `git checkout` path, `--` or not, that `git diff HEAD` finds changed, landing with the command's result; silent on a clean or untracked target, a branch name, an unstage and a redirect. Run as a core of scripts/guard-dispatch.js (#2788)",
 			"selfSufficient": "yes — names the holder, says nothing will refuse it, and gives the `request` command; it does not repeat `wait`, which the file-claim cluster carries. The restore limb is yes — rule:whole-file-restore whole: the inverse edit, the per-path discard, the cp ban and what to say once a neighbour's edit is gone (fed at HEAD 1038a8067 in a sandbox repo with f.txt edited: `git restore -- f.txt` gave the rule, 807 B, then nothing on the repeat; `cp /tmp/f.bak f.txt > log` (#2142's redirect-led row) and `git checkout f.txt`, each in a fresh session, the rule; `cp /tmp/f.bak log > f.txt`, `git checkout main` and `echo b > f.txt` nothing; the claim warning riding ahead of it is the suite's stub-judge case, not fed live)",
 			"source": "#2788"
@@ -343,7 +343,7 @@
 			"source": "#2789"
 		},
 		"scripts/lib/scratch-overwrite.js": {
-			"digest": "04921b40038cc47c",
+			"digest": "0982d2bea170b2e5",
 			"verdict": "at need — refuses the first Write over the unrecorded file, before its bytes are replaced (778 B deny); the identical re-send passes silent. Once per path. Run as a core of scripts/guard-dispatch.js (#2789: its refusal and warning text byte-identical to the bash guard over 78 differential cases); re-fed at #2896 through the entry: an unrecorded .claude/tmp file gave the same once-only deny with the session-suffixed path",
 			"selfSufficient": "yes — states the risk, hands a ready-made session-suffixed path, and names the re-send as the escape.",
 			"source": "#2789"
@@ -373,13 +373,13 @@
 			"source": "#2073, #3066"
 		},
 		"scripts/guard-session-ceiling.js": {
-			"digest": "f78f94baac0a1db2",
+			"digest": "09680091ea64adc3",
 			"verdict": "at need (wind-up band on a session-ending `result:` turn; `waiting:` passes unblocked, per #919, and so, below the tripwire, does a `result:` ending whose inventory guard-inventory.js passes with no launch of its own out). Fed at landing 2c6d99fe3 under #3157: at 210,000 tokens a `result:` Stop blocked (3,488 B) and every later one again (1,739 B), one carrying stop_hook_active passing; `waiting:` at 210,000 and `result:` at 150,000 passed, 0 B; at 310,000 a `waiting:` Stop met the tripwire (3,575 B).",
 			"selfSufficient": "yes on the first block (full rule inline); pointer-plus-summary on repeats — the summary paragraph still carries the act and the format; fed at #3157 with an empty rule store: the inventory step keeps its summary and the rule's place takes the fallback template line naming docs/agents/rules/founder-deliverable.txt (2,035 B)",
 			"source": "#1810, #3157"
 		},
 		"scripts/guard-inventory.js": {
-			"digest": "546dd6edcf0933ab",
+			"digest": "c1b20308c13e4414",
 			"verdict": "at need (the ending turn of a background job)",
 			"selfSufficient": "yes — the defect, the exact shape to write and the whole underlying rule are inline",
 			"source": "#1810"
@@ -433,7 +433,7 @@
 			"source": "#2791"
 		},
 		"scripts/lib/anthropic-report.js": {
-			"digest": "f7df58255bda5992",
+			"digest": "5e3f5a2c24bbe2fe",
 			"verdict": "at need — any gh issue, pr or api write tied to an anthropics/* repo, whether through --repo/-R, an issue URL, the api endpoint, GH_REPO or `timeout 60 gh`, is refused (510–533 B); a gh api call whose method it cannot read counts as a write. Reads, other repos and gh release pass silent (fed at 18a1598da under #3143). Byte counts are the whole hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — the refusal names the repo it read, quotes the command and prints the whole rule with the in-repo alternative. With the rule unreadable it still refuses (399 B), giving a one-line rule and the file path",
 			"source": "#3143"
@@ -457,13 +457,13 @@
 			"source": "#2586"
 		},
 		"scripts/lib/cpu-load.js": {
-			"digest": "f0b2662190406a5a",
+			"digest": "53a6581c8e926b32",
 			"verdict": "at need — before the generator starts, every call, no latch: `yes > /dev/null &`, `stress-ng --cpu 8 --timeout 60`, `while true; do :; done &`, `bash load.sh` (the script backgrounding `yes`, its 490 B net of the longer scratch path it was fed at) and `bash -c 'yes > /dev/null &'` each refused (477, 490, 486, 490 and 496 B, fed at 18a1598da under #3143 with WFC_CPU_COUNT=8); `yes | head -3`, `stress-ng --version`, a `sleep` loop, a script with no generator, `sh -c 'echo hi'` and the `systemd-run -p CPUQuota=400%` and `taskset -c 0-3` forms passed, 0 B; a core that throws refuses (90 B, `guard-cpu-load.js could not judge this command, so it refuses it: …`). Byte counts are the deny reason or context text alone, not hook stdout. Run as a core of scripts/guard-dispatch.js since #3224; not re-measured there, so the figures are the deleted standalone entry's.",
 			"selfSufficient": "yes — the reason, the machine's core count, both capped forms with this machine's cap and the pass shape inline",
 			"source": "#3143"
 		},
 		"scripts/lib/image-budget.js": {
-			"digest": "cd260f44d4becc2b",
+			"digest": "a6f587024f16adb9",
 			"verdict": "at need — once, on the Read that takes this agent's image total past 13 M base64 characters, before the 17.5 M request cap; then on each Read that pushes older images past the cap, as it does so, naming each file once. Silent on a text Read; an image from any route but Read is uncounted. Run as a core of scripts/guard-dispatch.js (#2787: its warning and notice text the bash guard's, kept by every message case moved into lib/image-budget.test.ts)",
 			"selfSufficient": "yes — the count, the cap, the `[media removed: request limit]` swap the Read result does not show, the files gone by name, and the act: do not judge them from memory, stop and report",
 			"source": "#2787"

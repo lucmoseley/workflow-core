@@ -10571,6 +10571,7 @@
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/core-deny-text.live.test.ts",
 			"scripts/lib/guard-dispatch.test.ts",
+			"scripts/lib/issue-close.test.ts",
 			"scripts/lib/rule-emission.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",

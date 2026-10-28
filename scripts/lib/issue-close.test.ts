@@ -808,6 +808,58 @@ describe("the census rows it reads", () => {
 		);
 	});
 
+	it("denies a close whose commit reworded only a rule a measured core's host reaches through a deeper lib (#3167)", () => {
+		const core = "scripts/lib/four.js";
+		const lib = (name: string) => path.join(shared, "scripts/lib", name);
+		fs.mkdirSync(lib(""));
+		fs.writeFileSync(
+			lib("four.js"),
+			"module.exports = { decide: () => null };\n",
+		);
+		fs.writeFileSync(
+			lib("four-host.js"),
+			'const { refusal } = require("./deeper.js");\nmodule.exports = { buildHostPorts: () => ({ refusal }) };\n',
+		);
+		fs.writeFileSync(
+			lib("deeper.js"),
+			'module.exports = { refusal: () => readRuleTextOr("deep", "x") };\n',
+		);
+		fs.writeFileSync(
+			lib("guard-cores.json"),
+			JSON.stringify({
+				PreToolUse: [
+					{
+						name: "four",
+						core: "four.js",
+						tools: "Bash",
+						failure: "open",
+						host: "four-host.js",
+					},
+				],
+			}),
+		);
+		fs.mkdirSync(path.join(shared, "docs/agents/rules"), { recursive: true });
+		fs.writeFileSync(
+			path.join(shared, "docs/agents/rules/deep.txt"),
+			"Deep.\n",
+		);
+		fs.writeFileSync(
+			path.join(shared, "scripts/instruction-surface-anchors.json"),
+			JSON.stringify({
+				guards: { [core]: { digest: digestOf(shared, core) } },
+			}),
+		);
+		git("add", "-A");
+		git("commit", "-qm", "anchor the core");
+		fs.writeFileSync(
+			path.join(shared, "docs/agents/rules/deep.txt"),
+			"Deeper.\n",
+		);
+		git("commit", "-qam", "Reword the deep rule (#12)");
+		git("update-ref", "refs/remotes/origin/main", "HEAD");
+		expect(readDenyReason("gh issue close 12", lined)).toContain(`  ${core}\n`);
+	});
+
 	it("allows a close whose --comment carries a Census line", () => {
 		reword();
 		expect(

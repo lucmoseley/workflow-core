@@ -113,6 +113,20 @@ function readDispatchedCores(file = MANIFEST) {
 }
 
 /**
+ * The host module `manifest` binds the core at `rel` to, both paths from the
+ * repo root; null where it binds none.
+ * @param {Manifest} manifest
+ * @param {string} rel
+ * @returns {string | null}
+ */
+function hostOf(manifest, rel) {
+	const row = Object.values(manifest)
+		.flat()
+		.find((r) => r.host && modulePath(r.core) === rel);
+	return row?.host ? modulePath(row.host) : null;
+}
+
+/**
  * `regs` with each registration that runs the dispatcher replaced by one per
  * core of `event`: matcher the core's tools, command line its module's path.
  * @template {{ matcher?: string, commandLine: string }} R
@@ -140,6 +154,7 @@ module.exports = {
 	MANIFEST_REL,
 	corePath,
 	dispatchRows,
+	hostOf,
 	readDispatchedCores,
 	expandDispatched,
 	isCoreFor,
