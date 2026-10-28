@@ -63,10 +63,9 @@ describe("no file under scripts/ regresses to a known-bad spelling", () => {
 	// exemption, extended to the one other deliberate site.
 	const restatementExempt = new Set(["project-slug.js", "proving-run.ts"]);
 
-	// mantahostels#2148 fixed every one of the 17 sites this list used to exempt: each now
-	// derives the slug via scripts/lib/project_slug.py instead of hard-coding
-	// it. Left empty rather than removed, so an eighteenth site regressing
-	// back to the literal is still caught by the case below.
+	// Every measure script derives the slug via scripts/lib/project_slug.py
+	// instead of hard-coding it (mantahostels#2148). The list stays, empty, so a
+	// site regressing to the literal is still caught by the case below.
 	const pyBareLiteralExempt: string[] = [];
 
 	/* TRACKED files only, via git: this suite runs in a shared working tree where

@@ -297,11 +297,10 @@ describe("an install already at its pin owes the supply nothing (#747)", () => {
 });
 
 describe("resolveMarketplace on a git source whose installLocation is not the clone path (#251 item 11)", () => {
-	it("reads the tree installLocation names, which the second copy in check-hook-liveness.js ignored", () => {
-		/* The divergent case itself: that file used to return the
-		 * `plugins/marketplaces/<name>` fallback for every non-directory
-		 * source, so a registry pointing elsewhere sent the two files to
-		 * different trees. */
+	it("reads the tree installLocation names, not the plugins/marketplaces fallback", () => {
+		/* The divergent case itself: a registry pointing elsewhere resolves to
+		 * the tree it names, never the `plugins/marketplaces/<name>` fallback,
+		 * so every reader of it lands on one tree. */
 		const f = fixture({
 			pinRef: "v1.1.8",
 			installedVersion: "1.1.8",

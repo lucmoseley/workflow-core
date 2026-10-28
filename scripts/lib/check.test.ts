@@ -888,7 +888,7 @@ describe("gaps a review pass found", () => {
 });
 
 /*
- * --against <rev> (mantahostels#1801, which settled the convention; mantahostels#1833, which built it).
+ * --against <rev> (mantahostels#1801, mantahostels#1833).
  *
  * Proved here against a fake check. What the hook's own suite still owns is
  * that it CALLS this.

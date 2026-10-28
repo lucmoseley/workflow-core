@@ -104,8 +104,8 @@ function selectsOf(command: string): string[] | null {
 
 /**
  * The tier-1 targets alone, repo-relative. Null where the judge is handed
- * nothing at all — which since mantahostels#2778 also requires the command to
- * name no code path, since one of those reaches the judge on its own.
+ * nothing at all — which also requires the command to name no code path
+ * (mantahostels#2778), since one of those reaches the judge on its own.
  */
 function targets(command: string): string[] | null {
 	return judgeParts(command)?.targets ?? null;

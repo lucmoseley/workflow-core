@@ -1652,7 +1652,7 @@ describe("a region claim's cleanliness is its own region's, not the file's (mant
 		expect(store.subjectDirty(`${rel}#B197`)).toBe(true);
 	});
 
-	it("releases the clean region the file-level test used to pin", () => {
+	it("releases a clean region while another region of the file is dirty", () => {
 		const me = live(sb, "alice");
 		store.acquire(`${rel}#B196`, me);
 		write(doc("B196 as committed.", "B197, edited by a neighbour."));

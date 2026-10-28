@@ -9,7 +9,7 @@
  *
  * MUTATIONS RUN (AGENTS.md: break the fix, confirm THAT test fails, reverse the
  * break). Five, each caught by the test named:
- *   1. `\b` dropped from act-as-a  → "no longer fires on `act` inside another word"
+ *   1. `\b` dropped from act-as-a  → "does not fire on `act` inside another word"
  *   2. HIGH threshold 3 → 4         → "draws the line at exactly three"
  *   3. Read seam unscoped, any path → "scopes to research scratch"
  *   4. EXEMPT_PATH emptied          → "reports severity per file and names
@@ -155,7 +155,7 @@ describe("severity", () => {
 });
 
 describe("the two tunings mantahostels#1766 mandated", () => {
-	it("no longer fires on `act` inside another word — the historical false positive", () => {
+	it("does not fire on `act` inside another word", () => {
 		for (const phrase of [
 			"the gratuitous contract as a recognised species of agreement",
 			"cloud sessions compact as the conversation approaches the limit",

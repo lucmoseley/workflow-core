@@ -460,8 +460,8 @@ describe("what it fails open on, and records", () => {
 	});
 
 	it("records nothing for a gh call that is not a creation", () => {
-		// The roadmap check used to sit before the command was known to be a
-		// create, so every `gh` call in the repo wrote a fail-open record.
+		// The roadmap check waits until the command is known to be a create;
+		// ahead of that, every `gh` call in the repo would write a fail-open record.
 		fs.rmSync(at("docs/reference-roadmap.html"));
 		expect(verdict("gh issue list --state open")).toBe("allow");
 		expect(verdict("gh pr view 5")).toBe("allow");

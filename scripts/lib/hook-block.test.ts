@@ -165,7 +165,7 @@ describe("the counter prefixes, read from hook-block.js's call sites", () => {
 	 * #1474, and the two `charge` calls that spend the non-paying limbs and the
 	 * ceiling —
 	 * guard-session-ceiling.js three times — the tripwire, the turn band and the
-	 * wind-up band, since #1199 dropped its hard block — guard-lost-deny.js once,
+	 * wind-up band (#1199) — guard-lost-deny.js once,
 	 * guard-automode-refusal.js once (#860), guard-unpushed-commits.js once (#766), guard-paste-self-match.js once (#921), guard-inventory.js twice (#988, and its draft-and-act limb's own counter, #989), and
 	 * guard-jev-advisory.js three times — the flag's warn, the outage notice and
 	 * the malformed-reply notice #226 split off it, on three counters kept
@@ -183,7 +183,7 @@ describe("the counter prefixes, read from hook-block.js's call sites", () => {
 	 * RESIDUAL, and it is why the sweep test below was widened to the whole
 	 * corpus: this counts per file, not per call, so a file already declaring
 	 * more prefixes than it has calls — guard-priced-options.js, fourteen against
-	 * three since #1474 — can gain an unreadable one and still pass here. */
+	 * three (#1474) — can gain an unreadable one and still pass here. */
 	it("reads a prefix for every reachable use", () => {
 		expect(total("uses")).toBe(total("calls"));
 		for (const s of scanned) {

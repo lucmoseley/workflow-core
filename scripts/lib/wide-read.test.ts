@@ -2,8 +2,8 @@
 /*
  * lib/wide-read.js (#2791), mantahostels#1562's core: given one opaque shell
  * string, is this command about to pour a whole file, a wide slice or an
- * uncounted glob into the context window? And since mantahostels#2595, the
- * same question of a `Read` tool call, which a Bash-only hook never saw.
+ * uncounted glob into the context window? And the same question of a `Read`
+ * tool call (mantahostels#2595).
  *
  * The fire cases prove it names the shape and the cheaper form; the pass cases
  * prove it stays silent on a bounded read. Every case asserts no

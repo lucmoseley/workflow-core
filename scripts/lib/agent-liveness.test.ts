@@ -361,8 +361,7 @@ describe("requireSelf: false, the opt-in exemption from the self-test (mantahost
 	});
 
 	/* pick-next subtracts self from its session count on the strength of this
-	 * reader listing its own caller (mantahostels#437, which fixed the picker's liveness
-	 * signals). */
+	 * reader listing its own caller (mantahostels#437). */
 	it("does not exempt listedSessionIds, whose callers rely on the self-test", () => {
 		process.env.CLAUDE_CODE_SESSION_ID = "me";
 		fakeClaude(listing("someone-else"));
@@ -552,7 +551,7 @@ describe("listedSessionIds", () => {
 		expect([...liveness.listedSessionIds().finished]).toEqual(["done-1"]);
 	});
 
-	/* The reaper's gate 1 exactly (mantahostels#768, which deleted its `status` limb; doc-map
+	/* The reaper's gate 1 exactly (mantahostels#768; doc-map
 	 * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/session-state-status-skew.md). A `shell` session pairs `state: done` with `status: busy`, and must
 	 * still count here. */
 	it("reads kind and state alone, never status", () => {

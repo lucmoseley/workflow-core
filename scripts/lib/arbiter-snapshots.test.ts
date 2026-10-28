@@ -82,8 +82,8 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 		expect(readBlobContent(after.was)).toBe("alice's sed\n");
 	});
 
-	/* The scan asks git for the raw tiers, which since mantahostels#2103 are wider than the
-	 * watched union: `.claude/tmp/` sits inside `.claude/` and outside both
+	/* The scan asks git for the raw tiers, which are wider than the watched
+	 * union (mantahostels#2103): `.claude/tmp/` sits inside `.claude/` and outside both
 	 * tiers. Scratch has no version worth recovering, so it is baselined by
 	 * nothing — and the sandbox has no .gitignore, so this pins the filter
 	 * itself rather than git's ignore rules standing in for it. */

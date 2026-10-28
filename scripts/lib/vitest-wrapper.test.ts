@@ -124,7 +124,7 @@ describe("what it leaves alone", () => {
 	it.each([
 		["node scripts/run-vitest.js scripts/foo.test.ts", "the wrapper itself"],
 		["npm run test", "goes through the wrapper"],
-		["npm run test:changed", "routed through it since mantahostels#2002"],
+		["npm run test:changed", "routed through it (mantahostels#2002)"],
 		["npm run lint && git status", "an unrelated command"],
 		["node_modules/.bin/vitest-not-vitest run x", "a suffixed name"],
 		["my-vitest run x", "a prefixed name"],

@@ -2,7 +2,7 @@
 /*
  * Pins the substrate-conflict graph: which candidates share a file, which a
  * live session's claims rule out, and the disjoint set it proposes
- * (mantahostels#1002; terminal holders since #637).
+ * (mantahostels#1002; terminal holders, #637).
  *
  * The graph is pure apart from readHeldFiles(), which reads the arbiter's claim
  * store — pointed at a throwaway CLAUDE_CONFIG_DIR here, never the founder's,

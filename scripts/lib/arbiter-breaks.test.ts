@@ -216,8 +216,8 @@ describe("a broken claim — the clobber the content record could not reach (man
 	});
 
 	it("deletes no pin when the break records cannot be read", () => {
-		// Same rule as an unreadable lock store (mantahostels#174, which ruled that unreadable
-		// must not look like empty).
+		// Same rule as an unreadable lock store: unreadable must not look like
+		// empty (mantahostels#174).
 		const { lock } = staleClaim("alice's work\n");
 		locks.breakStale(rel, lock, durably("bob"));
 		fs.rmSync(store.paths.breaksDir(), { recursive: true, force: true });

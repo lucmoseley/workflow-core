@@ -421,8 +421,8 @@ describe("what it stays silent on", () => {
 });
 
 /*
- * THE PRICE OF THE DENY (mantahostels#2436, which measured it). Both of mantahostels#2340's false
- * positives are legitimate root writes, and both are now REFUSED. The escape is
+ * THE PRICE OF THE DENY (mantahostels#2436). Both of mantahostels#2340's false
+ * positives are legitimate root writes, and both are REFUSED. The escape is
  * asserted here beside each refusal.
  */
 describe("the two legitimate root writes the deny now refuses", () => {
@@ -496,13 +496,11 @@ describe("the once-a-session bound, deliberately gone", () => {
 });
 
 /*
- * The context-budget scan called this guard's working latch dead until mantahostels#2446,
- * its DEAD-LATCH rule assuming every latch bounds a store fragment. mantahostels#2436 then
- * removed the latch outright, so the finding must stay absent for the opposite
- * reason — there is no latch to call dead. Against the REAL repo, not a
- * fixture: the scan is lexical, so this core's own comments still discuss the
- * latch it no longer has, and only a real-tree case can see that land as a
- * finding.
+ * The context-budget scan's DEAD-LATCH rule must raise nothing for this
+ * guard, which has no latch to call dead (mantahostels#2436, mantahostels#2446).
+ * Against the REAL repo, not a fixture: the scan is lexical, so only a
+ * real-tree case can see a latch-shaped word in this core's own comments land
+ * as a finding.
  */
 describe("the context-budget scan against this core as it stands (mantahostels#2446)", () => {
 	it("raises no DEAD-LATCH for it", () => {

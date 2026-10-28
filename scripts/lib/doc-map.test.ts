@@ -2,8 +2,8 @@
 /*
  * The parsers the doc-map checkers read docs/doc-map.md with.
  *
- * Pulled into one shared module at mantahostels#239, after per-checker
- * copies drifted apart; the section-reference check since #805.
+ * One shared module, so per-checker copies cannot drift apart
+ * (mantahostels#239; the section-reference check, #805).
  *
  * Every case reads a synthetic map and sidecar (doc-map-testkit) or a
  * throwaway repo, never this repo's own docs/doc-map.md, which every
@@ -1208,9 +1208,9 @@ describe("mapSkipLine", () => {
 });
 
 describe("needlePattern", () => {
-	/* mantahostels#2443: every needle used to match case-sensitively unless it carried no
-	 * digit at all, so a sentence-initial copy of a letter-bearing numeric
-	 * needle was missed. */
+	/* mantahostels#2443: every needle matches case-insensitively, a digit-bearing
+	 * one included, so a sentence-initial copy of a letter-bearing numeric
+	 * needle is found. */
 	it("matches a sentence-initial copy of a letter-and-digit needle", () => {
 		const pattern = needlePattern("call list 23-25");
 		expect("Call list 23-25 goes out Monday.").toMatch(pattern);
@@ -2708,8 +2708,8 @@ describe("the new-entry cap's git readers", () => {
 		});
 
 		/*
-		 * The fallback the pre-commit hook depends on: since mantahostels#1191 it hands the
-		 * checker a `$(mktemp -d)` copy of the INDEX, a path with no git identity,
+		 * The fallback the pre-commit hook depends on: it hands the checker a
+		 * `$(mktemp -d)` copy of the INDEX (mantahostels#1191), a path with no git identity,
 		 * so `HEAD:<that>` resolves to nothing and the tracked path must answer.
 		 */
 		it("falls back to the tracked path for a copy git has never seen", () => {
@@ -3591,7 +3591,7 @@ describe("Section A rendering", () => {
 	});
 
 	describe("rendering §A into the map", () => {
-		/* `Research runs` renders as a list since mantahostels#2743, so the table's own
+		/* `Research runs` renders as a list (mantahostels#2743), so the table's own
 		 * behaviour is asserted through a subsection that is not in
 		 * LIST_SECTIONS. */
 		const tableSection = "Book notes";

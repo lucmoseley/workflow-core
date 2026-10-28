@@ -200,8 +200,8 @@ describe("debt — the record of an edit a denial abandoned", () => {
 			store.ownDebt(docMap, 123, "done, on a closed ticket");
 			expect(store.buildDebtNotice(docMap)).toContain("#123");
 			expect(readDebtEntry(123)).not.toBeNull();
-			// The stub is the negative proof: CLOSED is exactly what used to retire
-			// this entry, and it is never even asked.
+			// The stub is the negative proof: the notice retires nothing on a
+			// CLOSED ticket, because it never even asks gh.
 			expect(ghCallCount(sb)).toBe(0);
 		});
 

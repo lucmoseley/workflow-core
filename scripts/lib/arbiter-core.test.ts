@@ -461,7 +461,7 @@ describe("one naming scheme, one reader, one writer", () => {
 	it("files a lock and a debt for the same path under the same key", () => {
 		const a = store.paths.lock("docs/doc-map.md");
 		const b = store.paths.debt("docs/doc-map.md");
-		// A debt is keyed by (path, issue) since mantahostels#327, so it carries the owner after
+		// A debt is keyed by (path, issue) (mantahostels#327), so it carries the owner after
 		// the shared key rather than being named for the path alone.
 		expect(path.basename(b).startsWith(path.basename(a, ".json"))).toBe(true);
 		expect(path.dirname(a)).not.toBe(path.dirname(b));
@@ -788,7 +788,7 @@ describe("identify — a session entry with no procStart", () => {
 		const log = fs.readFileSync(store.errorLog(), "utf8");
 		expect(log).toContain("procStart");
 		// The full path, not the bare `<pid>.json`: two config dirs share one pid
-		// namespace, so a basename no longer says which file to open (mantahostels#1309).
+		// namespace, so a basename does not say which file to open (mantahostels#1309).
 		expect(log).toContain(
 			path.join(sb.home, "sessions", `${process.pid}.json`),
 		);
@@ -865,8 +865,8 @@ describe("the error log — the only thing that breaks fail-open's silence", () 
 	});
 
 	it("logs something rather than nothing when the stack is not a string", () => {
-		// This one used to throw inside the template and reach the outer catch,
-		// which logged nothing at all.
+		// A throw inside the template would reach the outer catch, which logs
+		// nothing at all.
 		store.logError("where", { stack: 123 });
 		expect(readLoggedLine()).toContain("[object Object]");
 	});

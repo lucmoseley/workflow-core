@@ -465,10 +465,9 @@ describe("the shed ledger's own region", () => {
 });
 
 /*
- * A large, realistic map — built in-test rather than read off HEAD (the removed
- * docs/doc-map.md and docs/doc-map-classes.json no longer exist, #16).
+ * A large, realistic map — built in-test rather than read off HEAD (#16).
  * "tiles it exhaustively" wants >100 REGIONS overall,
- * and §A rows carry none of their own since mantahostels#2422, so it is §B's entry
+ * and §A rows carry none of their own (mantahostels#2422), so it is §B's entry
  * count, not §A's row count, that has to clear that bar.
  */
 describe("against a large synthetic map", () => {
@@ -545,9 +544,8 @@ describe("against a large synthetic map", () => {
 	});
 
 	it("gives the sidecar one region per key, and no other id", () => {
-		// The agreement the map's rows used to carry (mantahostels#1402): a key the checkers
-		// register but the region parser cannot see gets no lock of its own. It
-		// moved here whole when §A stopped splitting (mantahostels#2422).
+		// The sidecar's agreement (mantahostels#1402, mantahostels#2422): a key the checkers
+		// register but the region parser cannot see gets no lock of its own.
 		const keys = Object.keys(JSON.parse(sidecar));
 		expect(keys.length).toBeGreaterThan(100);
 		expect(
@@ -558,8 +556,8 @@ describe("against a large synthetic map", () => {
 	});
 
 	it("gives its ~150 register rows no region of their own (mantahostels#2422)", () => {
-		// The rows are still there and still parse — they simply no longer carry
-		// locks, §A being rendered whole from the sidecar.
+		// The rows parse, but carry no locks, §A being rendered whole from the
+		// sidecar.
 		// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types
 		const docMap: any = createRequire(__filename)("./doc-map.js");
 		expect(docMap.parseRegister(syntheticMap).length).toBeGreaterThan(100);
@@ -722,7 +720,7 @@ describe("review findings", () => {
 });
 
 /*
- * The §A subjects the map no longer offers anybody but the generator (mantahostels#2422).
+ * The §A subjects the map offers nobody but the generator (mantahostels#2422).
  */
 describe("isGeneratorOnlyRegion", () => {
 	const map = "docs/doc-map.md"; // MAP_PATH, doc-map-regions.js

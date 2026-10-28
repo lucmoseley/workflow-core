@@ -1622,8 +1622,7 @@ describe("a bare commit warns only when the index actually holds something", () 
 	it("reads a flag-shaped word after -- as the pathspec it is", () => {
 		writes();
 		// Past a bare `--`, `-weird-file` is a path git will commit, not an
-		// option, so the warn stays down (mantahostels#495, which put this guard on the
-		// shared flag reader).
+		// option, so the warn stays down (mantahostels#495).
 		stageSomething();
 		expect(verdict('git commit -m "msg" -- -weird-file')).toBe("allow");
 		expect(verdict('git commit -am "msg" -- -weird-file')).toBe("deny");
@@ -1985,7 +1984,7 @@ describe("trees this guard has no business in", () => {
 		).toContain(SWEEPS);
 	});
 
-	it("resolves a quoted literal path, which the masking used to destroy", () => {
+	it("resolves a quoted literal path through the quote masking", () => {
 		expect(verdict(`cd "${shared}" && git commit -am "msg"`, elsewhere)).toBe(
 			"deny",
 		);
@@ -2002,7 +2001,7 @@ describe("trees this guard has no business in", () => {
 
 	it("fails open on a path it genuinely cannot resolve", () => {
 		// The deliberate residual (#312): a command substitution, directly or
-		// through a name, stays unjudged. An unset name no longer is.
+		// through a name, stays unjudged. An unset name is judged.
 		expect(verdict('cd "$(mktemp -d)" && git commit -am "msg"')).toBe("allow");
 		expect(verdict('D=$(mktemp -d); cd "$D" && git commit -am "msg"')).toBe(
 			"allow",
@@ -3344,7 +3343,7 @@ describe("the warns that outranked the sweep verdict defectively (mantahostels#3
 			expect(out).not.toContain("#1651");
 		});
 
-		it("falls through to the bare-commit check it used to short-circuit", () => {
+		it("falls through to the bare-commit check rather than short-circuiting it", () => {
 			mixedDir();
 			stageSomething(shared, "staged.md");
 			const out = run('git commit -m "x" -- src && git commit -m "y"');

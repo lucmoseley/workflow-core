@@ -263,8 +263,8 @@ describe("a cached record that does not answer THIS caller", () => {
 	});
 });
 
-/* Reached through `waitForLeader`, the one reader left since mantahostels#1960:
- * `liveness.listedAgents()` no longer reaches these guards. The lock taken
+/* Reached through `waitForLeader`, the one reader (mantahostels#1960):
+ * `liveness.listedAgents()` does not reach these guards. The lock taken
  * here stands in for a leader in another process. */
 describe("what a follower refuses from the cache", () => {
 	const follow = (bin: string) => {
