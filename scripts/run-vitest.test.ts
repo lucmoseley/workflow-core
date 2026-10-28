@@ -50,6 +50,7 @@ import {
 	vi,
 } from "vitest";
 import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { writeEnviron } from "./lib/proc-fake";
 import { isDead } from "./lib/process-fixture";
 import { stubLaunch } from "./lib/suite-handoff-testkit";
 import { WHOLE_SLOT_BOUND } from "./lib/whole-slot-bound";
@@ -60,7 +61,7 @@ const { REFUSAL_NAMED_MAX } = require("./lib/dirty-tree.js");
 const { dirPath } = require("./lib/test-log.js");
 const { main } = require("./run-vitest.js");
 const { launchEnv, readLaunch } = require("./lib/suite-handoff.js");
-const { DEADLINE_ENV } = require("./lib/suite-ceiling.js");
+const { DEADLINE_ENV, sweepAtStart } = require("./lib/suite-ceiling.js");
 
 /* The wrapper's own flags and the filter an empty selection runs under,
  * spelled as a caller types them. */
@@ -1878,16 +1879,16 @@ describe("a reparented worker with no user scope", {
 		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
 	});
 
-	/* A harness kill of the wrapper: vitest leads a group of its own, so the
-	 * harness's group kill never reaches it, and only the wrapper's own
-	 * signal handler can. */
-	it("kills it when the wrapper is SIGTERMed", async () => {
-		const root = repo();
+	/** The wrapper in a process of its own over the stand-in, `prelude` run
+	 * first, resolved once the worker has started; `stderr` collects what the
+	 * wrapper writes there. */
+	async function launchWrapper(root: string, prelude = "") {
 		const wrapper = realSpawn(
 			process.execPath,
 			[
 				"-e",
-				`require(${JSON.stringify(path.resolve("scripts/run-vitest.js"))}).main(
+				`${prelude}
+				require(${JSON.stringify(path.resolve("scripts/run-vitest.js"))}).main(
 					[${JSON.stringify(SHARED_FLAG)}],
 					{
 						root: ${JSON.stringify(root)},
@@ -1901,19 +1902,106 @@ describe("a reparented worker with no user scope", {
 					},
 				);`,
 			],
-			{ stdio: "ignore" },
+			{ stdio: ["ignore", "ignore", "pipe"] },
 		);
+		let stderr = "";
+		wrapper.stderr?.on("data", (chunk) => {
+			stderr += String(chunk);
+		});
 		const ready = path.join(root, "worker");
 		/* As long as the stall case's guess allows the shell to start. */
 		const by = Date.now() + 10_000;
 		while (!fs.existsSync(ready) && Date.now() < by)
 			await new Promise((r) => setTimeout(r, 50));
-		await new Promise<void>((resolve) => {
-			wrapper.on("exit", () => resolve());
-			wrapper.kill("SIGTERM");
-		});
+		return {
+			stderr: () => stderr,
+			kill: (signal: NodeJS.Signals) =>
+				new Promise<void>((resolve) => {
+					wrapper.on("close", () => resolve());
+					wrapper.kill(signal);
+				}),
+		};
+	}
+
+	/* A harness kill of the wrapper: vitest leads a group of its own, so the
+	 * harness's group kill never reaches it, and only the wrapper's own
+	 * signal handler can. */
+	it("kills it when the wrapper is SIGTERMed", async () => {
+		const root = repo();
+		await (await launchWrapper(root)).kill("SIGTERM");
 		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
 	});
+
+	it("names a carrier kill that fails on a SIGTERM (#3528)", async () => {
+		const root = repo();
+		/* Refuses every SIGKILL to a pid, leaving the group kill's through. */
+		const wrapper = await launchWrapper(
+			root,
+			`const kill = process.kill.bind(process);
+			process.kill = (pid, signal) => {
+				if (pid > 0 && signal === "SIGKILL")
+					throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+				return kill(pid, signal);
+			};`,
+		);
+		await wrapper.kill("SIGTERM");
+		const worker = pidIn(root, "worker");
+		const child = pidIn(root, "child");
+		for (const pid of [worker, child])
+			if (!isDead(pid)) process.kill(pid, "SIGKILL");
+		expect(wrapper.stderr()).toMatch(
+			/a process of this run could not be killed \(EPERM\)/,
+		);
+	});
+
+	/* A SIGKILL runs no handler: the next run's start sweep, which the next
+	 * session start's reaper shares, is what reaches it. */
+	it("leaves it to the next run's sweep when the wrapper is SIGKILLed (#3528)", async () => {
+		const root = repo();
+		await (await launchWrapper(root)).kill("SIGKILL");
+		const ours = new Set([pidIn(root, "worker"), pidIn(root, "child")]);
+		let said = "";
+		sweepAtStart({
+			err: {
+				write: (s: string) => {
+					said += s;
+				},
+			},
+			/* Only this case's, and a neighbour's sweep may have beaten it to
+			 * them: either way they are gone. */
+			kill: (pid: number, signal: NodeJS.Signals) => {
+				if (!ours.has(pid))
+					throw Object.assign(new Error("ESRCH"), { code: "ESRCH" });
+				process.kill(pid, signal);
+			},
+		});
+		expect(said).not.toMatch(/could not be killed/);
+		expect(await diedWithin(pidIn(root, "worker"))).toBe(true);
+	});
+});
+
+it("names what the start sweep killed and what it could not (#3528)", () => {
+	const proc = path.join(repo(), "proc");
+	writeEnviron(proc, 300, ["WFC_INFLIGHT_OWNER=900"]);
+	writeEnviron(proc, 301, ["WFC_INFLIGHT_OWNER=900"]);
+	let said = "";
+	sweepAtStart({
+		proc,
+		alive: () => false,
+		err: {
+			write: (s: string) => {
+				said += s;
+			},
+		},
+		kill: (pid: number) => {
+			if (pid === 301)
+				throw Object.assign(new Error("EPERM"), { code: "EPERM" });
+		},
+	});
+	expect(said).toBe(
+		"killed 1 process(es) left by a killed run (wrapper pid 900).\n" +
+			"a killed run's process could not be killed (EPERM); it may still hold memory.\n",
+	);
 });
 
 describe("the per-run in-flight file", () => {
