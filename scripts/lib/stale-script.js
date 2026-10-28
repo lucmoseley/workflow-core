@@ -27,20 +27,17 @@
  * read.
  *
  * LIMITS
- *  - It reads the PARSED command form, never a substring, so a grep, an echo
- *    or a heredoc mentioning a script path passes.
- *  - The routes it knows are: a script run as the command itself, the first
- *    script under node/bash/sh/zsh/python/python3/tsx/ts-node, and
- *    `npm`/`pnpm` `run <name>` whose package.json body names scripts/ files —
- *    read as text, so a body naming a path it does not run buys a false
- *    warning. A script reached any other way — a wrapper, `xargs`, `env`,
- *    `npm --prefix <dir> run <name>`, a script another script runs — is not
- *    seen.
+ *  - The routes it knows are lib/script-runs.js's, under node/bash/sh/zsh/
+ *    dash/ksh/python/python3/tsx/ts-node — a wrapper prefix, a `cd`, a `<`
+ *    redirect and a shell's `-c` text among them — and `npm`/`pnpm`
+ *    `run <name>` whose package.json body names scripts/ files, read as text,
+ *    so a body naming a path it does not run buys a false warning. A script
+ *    reached through `npm --prefix <dir> run <name>`, or one another script
+ *    runs, is not seen.
  *  - A script named as an ARGUMENT is not a run: only the first word that is a
  *    file is read, because everything after it belongs to that script.
- *  - Relative paths resolve against the hook's own directory, never a `cd`
- *    earlier in the command; the file must EXIST to become a candidate, which
- *    makes that failure silent rather than a false warning.
+ *  - A script word with no `/` is passed over, even where it names a file in
+ *    the directory the command stands in.
  *  - In a worktree the paths resolve outside the shared repo root and nothing
  *    warns — right, because a worktree runs its own copy of the file.
  *  - It fails open throughout (mantahostels#103 §6): no session id is
@@ -48,9 +45,9 @@
  *    silence.
  */
 
-const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { absolute, literal } = require("./shell-words.js");
+const { literal } = require("./shell-words.js");
 const { requiredGroup } = require("./regex-group.js");
+const { scriptRuns, SHELL_NAMES } = require("./script-runs.js");
 
 /**
  * @typedef {import("./arbiter-store").ListedLock} Lock
@@ -64,11 +61,9 @@ const { requiredGroup } = require("./regex-group.js");
  */
 
 const INTERPRETERS = new Set([
+	...SHELL_NAMES,
 	"node",
 	"nodejs",
-	"bash",
-	"sh",
-	"zsh",
 	"python",
 	"python3",
 	"tsx",
@@ -84,7 +79,7 @@ const SCRIPT_PATH = /(?:^|[\s'"])(scripts\/[\w./-]+)/g;
  * @returns {import("./guard-dispatch.js").CoreDecision}
  */
 function decide(command, ctx) {
-	const candidates = scriptRuns(command, ctx);
+	const candidates = staleCandidates(command, ctx);
 	/* The overwhelming majority of Bash calls leave here. */
 	if (candidates.length === 0) return null;
 	/* Without it a neighbour's claim is indistinguishable from this session's
@@ -103,38 +98,22 @@ function decide(command, ctx) {
  * @param {string} command
  * @param {StaleContext} ctx
  */
-function scriptRuns(command, ctx) {
-	const parsed = parseCommand(command);
+function staleCandidates(command, ctx) {
 	/** @type {string[]} */
-	const out = [];
-	/** One word, kept only where it names a file that exists. An unreadable
-	 * word — an unexpanded $VAR, a substitution — is dropped, not guessed at.
-	 * @param {string} word */
-	const addPath = (word) => {
-		const lit = literal(word, parsed.spans);
-		if (!lit.known || !lit.text || lit.text.startsWith("-")) return false;
-		if (!lit.text.includes("/")) return false;
-		const abs = absolute(lit.text, ctx.fallbackCwd);
-		if (!ctx.isFile(abs)) return false;
-		out.push(abs);
-		return true;
-	};
-	walkCommands(
-		parsed,
-		({ words }) => {
-			const [first = "", ...rest] = words;
-			const head = literal(first, parsed.spans);
-			if (!head.known) return;
-			const base = head.text.slice(head.text.lastIndexOf("/") + 1);
-			if (INTERPRETERS.has(base)) rest.some(addPath);
-			else if (base === "npm" || base === "pnpm") {
-				const name = npmScript(rest, parsed.spans);
-				if (name !== null) out.push(`npm-script:${name}`);
-			} else addPath(first);
+	const names = [];
+	const paths = scriptRuns(command, ctx, {
+		interpreters: INTERPRETERS,
+		onUnmatched: (head, rest, spans) => {
+			const base = head.slice(head.lastIndexOf("/") + 1);
+			if (base !== "npm" && base !== "pnpm") return;
+			const name = npmScript(rest, spans);
+			if (name !== null) names.push(`npm-script:${name}`);
 		},
-		ctx,
-	);
-	return out;
+	})
+		/* The bare-filename case holds this (#2789); #3417 would re-rule it. */
+		.filter((run) => run.shown.includes("/"))
+		.map((run) => run.abs);
+	return [...paths, ...names];
 }
 
 /**

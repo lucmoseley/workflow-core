@@ -21,11 +21,9 @@
  * flags count from the interpreter's own words (`bash -eu x.sh`), the
  * shebang, or a `set` line.
  *
- * The routes it reads: a script under bash/sh/zsh/dash/ksh, as an argument or
- * on a `<` redirect; through `source` or `.`; as the command itself where the
- * file's shebang names a shell or, with none, its name ends `.sh`; each of
- * those behind a `timeout`, `env`, `nohup`, `nice`, `command`, `exec`,
- * `time`, `sudo` or `xargs` prefix; and inside a shell's `-c` text.
+ * The routes it reads are lib/script-runs.js's, under bash/sh/zsh/dash/ksh; a
+ * script run as the command itself counts where the file's shebang names a
+ * shell or, with none, its name ends `.sh`.
  *
  * `set -e` DEPARTS FROM docs/practice/shell-scripting-and-hooks.md, whose
  * sources advise explicit checks over it: every surprise it carries ends a
@@ -43,13 +41,11 @@
  *    mentioning `git commit` or `.git/` counts as a write, and a git act
  *    spelled through a variable, an alias or a script the script runs is not
  *    seen.
- *  - A script piped in (`cat p.sh | bash`) is not read: the walker hands each
- *    pipeline segment alone. Nor is a heredoc into `bash`.
+ *  - A heredoc into `bash` is not read, nor is any route lib/script-runs.js's
+ *    LIMITS name.
  *  - A `cd` that SUCCEEDS into a scratch directory under the shared tree that
  *    is not a repository still lets git walk up into the shared `.git/`. The
  *    refusal says to build scratch under `mktemp -d`; nothing enforces it.
- *  - A script path resolves against the walker's tracked `cd`, else the
- *    hook's own directory; a word it cannot read literally is skipped.
  *  - A script over the host's read cap, or unreadable, is allowed, logged; so
  *    is one git cannot say is tracked (mantahostels#103 §6).
  *  - `set -e` does not stop a failure inside an `if`, a `&&`/`||` list or a
@@ -57,9 +53,8 @@
  *  - A command run outside Claude Code sees no hook.
  */
 
-const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { requiredGroup } = require("./regex-group.js");
-const { absolute, literal } = require("./shell-words.js");
+const { scriptRuns, SHELL_NAMES, SHELLS } = require("./script-runs.js");
 
 /**
  * @typedef {import("./guard-dispatch.js").CoreContext & {
@@ -68,42 +63,14 @@ const { absolute, literal } = require("./shell-words.js");
  * }} ScratchGitContext the script's text, null where it is absent, unreadable
  *   or over the host's cap; and whether the repository holding it tracks it,
  *   null where git cannot say
- * @typedef {{ abs: string, flags: Set<string>, shown: string, direct: boolean }} Run
- *   `direct` where the script runs as the command itself, so its shebang is
- *   its interpreter
- * @typedef {{ word: string | undefined, opts: string[], direct: boolean }
- *   | { inline: string } | { stdin: true, opts: string[] }} Target
- *   the script word a segment runs, a shell's `-c` text, or a shell reading
- *   its script from a `<` redirect
+ * @typedef {import("./script-runs.js").Run & { flags: Set<string> }} Run
+ *   with the letters its interpreter's own option words turn on
  */
-
-const SHELL_NAMES = ["bash", "sh", "zsh", "dash", "ksh"];
-const SHELLS = new Set(SHELL_NAMES);
 
 /* `#!/bin/bash`, `#!/usr/bin/env bash`, `#!/usr/bin/env -S bash -eu`. */
 const SHELL_SHEBANG = new RegExp(
 	String.raw`^#!\s*\S*?\/(?:env\s+(?:-\S+\s+)*)?(?:${SHELL_NAMES.join("|")})(?:\s|$)`,
 );
-
-/* A shell option that takes the next word as its argument. */
-const ARG_OPTS = new Set(["-o", "+o", "-O", "+O", "--rcfile", "--init-file"]);
-
-/*
- * A prefix that runs the rest of the segment as its command, with the options
- * of its own that take a value. `timeout` and `nice` lead with an operand
- * (`timeout 60`, `nice -n 5`) skipped as a bare number.
- */
-const WRAPPERS = new Map([
-	["timeout", new Set(["-s", "--signal", "-k", "--kill-after"])],
-	["env", new Set(["-u", "--unset", "-C", "--chdir", "-S"])],
-	["nohup", new Set()],
-	["nice", new Set(["-n", "--adjustment"])],
-	["command", new Set()],
-	["exec", new Set(["-a"])],
-	["time", new Set(["-f", "--format", "-o", "--output"])],
-	["sudo", new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-U"])],
-	["xargs", new Set(["-a", "-d", "-E", "-I", "-L", "-n", "-P", "-s"])],
-]);
 
 /* The git subcommands that change a repository, its objects, refs, index or
  * config. */
@@ -195,125 +162,6 @@ function applyOptions(words, on) {
 }
 
 /**
- * The segment's words past any wrapper prefix.
- * @param {string[]} words
- */
-function unwrap(words) {
-	let i = 0;
-	for (
-		let opts = WRAPPERS.get(words[0] ?? "");
-		opts;
-		opts = WRAPPERS.get(words[i] ?? "")
-	) {
-		i++;
-		for (let w = words[i]; w !== undefined; w = words[i]) {
-			const operand =
-				/^\d+(?:\.\d+)?[smhd]?$/.test(w) || /^[A-Za-z_]\w*=/.test(w);
-			if (!operand && !w.startsWith("-")) break;
-			i += opts.has(w) ? 2 : 1;
-		}
-	}
-	return words.slice(i);
-}
-
-/**
- * What a shell's arguments run: the script word and the options ahead of it,
- * a `-c` text, or — with neither — the script on its stdin.
- * @param {string[]} words
- * @returns {Target}
- */
-function shellTarget(words) {
-	/** @type {string[]} */
-	const opts = [];
-	for (let i = 0; i < words.length; i++) {
-		const w = /** @type {string} */ (words[i]);
-		if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(w)) return { inline: words[i + 1] ?? "" };
-		if (w === "--") return { word: words[i + 1], opts, direct: false };
-		if (!/^[-+]/.test(w)) return { word: w, opts, direct: false };
-		opts.push(w);
-		if (ARG_OPTS.has(w)) opts.push(words[++i] ?? "");
-	}
-	return { stdin: true, opts };
-}
-
-/**
- * What one command segment runs as a script, by the route it takes.
- * @param {string} head the command word, read literally
- * @param {string} first the command word as written
- * @param {string[]} rest
- * @returns {Target | null}
- */
-function runTarget(head, first, rest) {
-	const name = head.slice(head.lastIndexOf("/") + 1);
-	if (name === "source" || name === ".")
-		return { word: rest[0], opts: [], direct: false };
-	if (SHELLS.has(name)) return shellTarget(rest);
-	return head.includes("/") ? { word: first, opts: [], direct: true } : null;
-}
-
-/**
- * The scripts a command runs, each with the options its interpreter's own
- * words turn on.
- * @param {string} command
- * @param {ScratchGitContext} ctx
- * @returns {Run[]}
- */
-function scriptRuns(command, ctx) {
-	const parsed = parseCommand(command);
-	/** @type {Run[]} */
-	const out = [];
-	walkCommands(
-		parsed,
-		(segment) => out.push(...segmentRuns(segment, parsed.spans, ctx)),
-		ctx,
-	);
-	return out;
-}
-
-/**
- * The scripts one command segment runs: its own, or a `-c` text's.
- * @param {{ words: string[], cwd?: unknown,
- *   redirects: () => import("./shell-parse.js").Redirect[] }} segment
- * @param {string[]} spans
- * @param {ScratchGitContext} ctx
- * @returns {Run[]}
- */
-function segmentRuns({ words, cwd, redirects }, spans, ctx) {
-	const [first = "", ...rest] = unwrap(words);
-	const head = literal(first, spans);
-	const target = head.known ? runTarget(head.text, first, rest) : null;
-	if (target === null) return [];
-	if ("inline" in target) {
-		const text = literal(target.inline, spans);
-		return text.known ? scriptRuns(text.text, ctx) : [];
-	}
-	const base = typeof cwd === "string" && cwd ? cwd : ctx.fallbackCwd;
-	const found = locate(target, redirects, spans, base);
-	if (!found || !ctx.isFile(found.abs)) return [];
-	const flags = applyOptions(target.opts, new Set());
-	return [{ ...found, flags, direct: "direct" in target && target.direct }];
-}
-
-/**
- * Where a target's script is: its word resolved, or a stdin read's path.
- * @param {Exclude<Target, { inline: string }>} target
- * @param {() => import("./shell-parse.js").Redirect[]} redirects
- * @param {string[]} spans
- * @param {string} base
- * @returns {{ abs: string, shown: string } | null}
- */
-function locate(target, redirects, spans, base) {
-	if ("stdin" in target) {
-		const input = redirects().find((r) => r.kind === "read" && r.path);
-		return input ? { abs: input.path, shown: input.target } : null;
-	}
-	if (target.word === undefined) return null;
-	const lit = literal(target.word, spans);
-	if (!lit.known || !lit.text) return null;
-	return { abs: absolute(lit.text, base), shown: lit.text };
-}
-
-/**
  * Where the script's text writes git state before turning on both flags, the
  * first line it reaches unguarded; null where it writes none or fails closed
  * first.
@@ -355,7 +203,9 @@ function firstUnguarded(lines, on) {
  * @returns {import("./guard-dispatch.js").CoreDecision}
  */
 function decide(command, ctx) {
-	const runs = scriptRuns(command, ctx);
+	const runs = scriptRuns(command, ctx, { interpreters: SHELLS }).map(
+		(run) => ({ ...run, flags: applyOptions(run.opts, new Set()) }),
+	);
 	/* The overwhelming majority of Bash calls leave here. */
 	if (runs.length === 0) return null;
 	for (const run of runs) {

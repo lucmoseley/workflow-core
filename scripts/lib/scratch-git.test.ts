@@ -259,4 +259,10 @@ describe("allows a script that fails closed, writes no git state, or is reviewed
 	it("allows a script that does not exist", () => {
 		expect(refusal("bash .claude/tmp/absent.sh")).toBeNull();
 	});
+
+	it("allows a script word it cannot read, never guessing at the next one", () => {
+		const s = script(UNGUARDED);
+		expect(refusal(`bash $X ${s}`)).toBeNull();
+		expect(refusal(`bash .claude/tmp/absent.sh ${s}`)).toBeNull();
+	});
 });

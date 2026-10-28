@@ -83,18 +83,19 @@ function heldHalfWritten(...rels: string[]) {
 	}
 }
 
-/** The core's run on `command` as session `mine` from the repo root. */
-function run(command: string, session: string | null = "mine") {
+/** The core's run on `command` as session `mine`, from the repo root unless
+ * `cwd` says otherwise. */
+function run(command: string, session: string | null = "mine", cwd?: string) {
 	return runCore(
 		"guard-stale-script",
 		toolCall("Bash", { command }, { session_id: session ?? undefined }),
-		{ root: sb.repo },
+		{ root: sb.repo, ...(cwd ? { cwd } : {}) },
 	);
 }
 
 /** The context the core hands the session, "" where it is silent. */
-function warned(command: string) {
-	const { output } = run(command);
+function warned(command: string, cwd?: string) {
+	const { output } = run(command, "mine", cwd);
 	expect(output?.permissionDecision).toBeUndefined();
 	return output?.additionalContext ?? "";
 }
@@ -141,6 +142,58 @@ describe("the scripts a command runs", () => {
 		expect(
 			named(warned("node scripts/pick-next.js claim scripts/thing.sh")),
 		).toEqual(["scripts/pick-next.js"]);
+	});
+
+	it("reads a run behind a `timeout` prefix", () => {
+		heldHalfWritten("scripts/pick-next.js");
+		expect(named(warned("timeout 60 node scripts/pick-next.js"))).toEqual([
+			"scripts/pick-next.js",
+		]);
+	});
+
+	it("resolves a relative path against a `cd` the command makes", () => {
+		heldHalfWritten("scripts/pick-next.js");
+		expect(
+			named(
+				warned(
+					`cd ${sb.repo} && node scripts/pick-next.js`,
+					path.join(sb.repo, "scripts"),
+				),
+			),
+		).toEqual(["scripts/pick-next.js"]);
+	});
+
+	it("reads a script sourced, and one run under `dash`", () => {
+		heldHalfWritten("scripts/thing.sh");
+		expect(named(warned("source scripts/thing.sh"))).toEqual([
+			"scripts/thing.sh",
+		]);
+		expect(named(warned("dash scripts/thing.sh"))).toEqual([
+			"scripts/thing.sh",
+		]);
+	});
+
+	it("reads a script past `--`, never an argument after the script", () => {
+		heldHalfWritten("scripts/pick-next.js", "scripts/thing.sh");
+		committedScript("scripts/build.js");
+		expect(named(warned("node -- scripts/pick-next.js"))).toEqual([
+			"scripts/pick-next.js",
+		]);
+		expect(warned("node scripts/build.js scripts/thing.sh")).toBe("");
+	});
+
+	it("reads a script a shell reads from a `<` redirect", () => {
+		heldHalfWritten("scripts/thing.sh");
+		expect(named(warned("bash < scripts/thing.sh"))).toEqual([
+			"scripts/thing.sh",
+		]);
+	});
+
+	it("reads a run inside a shell's `-c` text", () => {
+		heldHalfWritten("scripts/pick-next.js");
+		expect(named(warned(`bash -c "node scripts/pick-next.js --json"`))).toEqual(
+			["scripts/pick-next.js"],
+		);
 	});
 
 	it("takes an absolute path as given", () => {
