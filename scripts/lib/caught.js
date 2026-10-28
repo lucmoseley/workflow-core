@@ -84,4 +84,14 @@ function parseErrorText(e) {
 	return c.stderr || c.message;
 }
 
-module.exports = { caught, parseErrorText };
+/**
+ * A thrown value as a log line carries it: an Error's stack, which opens with
+ * its message, else the value itself.
+ *
+ * @param {unknown} e a catch binding
+ * @returns {string}
+ */
+const buildErrorText = (e) =>
+	e instanceof Error ? (e.stack ?? e.message) : String(e);
+
+module.exports = { buildErrorText, caught, parseErrorText };

@@ -13,7 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentRecord } from "./agent-liveness.js";
-import { loopFiles } from "./refill-loop.js";
+import { loopFiles } from "./refill-files.js";
 import type { TickResult, Wake } from "./refill-wake.js";
 import { runTicks, touchWake, wakeWatcher } from "./refill-wake.js";
 

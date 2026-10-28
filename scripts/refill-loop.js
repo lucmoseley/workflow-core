@@ -44,7 +44,7 @@
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./lib/caught.js");
+const { buildErrorText, caught } = require("./lib/caught.js");
 const refillCode = require("./lib/refill-code.js");
 const gates = require("./lib/gate-sweep.js");
 const { parseOrCode } = require("./lib/cli-args.js");
@@ -61,12 +61,24 @@ const wakes = require("./lib/refill-wake.js");
 const { parseIssueNumbers } = require("./lib/issue-number.js");
 const { checkoutEnv, exclusionOf, homeDir } = require("./lib/refill-repos.js");
 const loop = require("./lib/refill-loop.js");
+const {
+	readControlFile,
+	readJson,
+	writeJson,
+} = require("./lib/refill-files.js");
 const refillBatch = require("./lib/refill-batch.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { forgetSession } = require("./lib/session-id.js");
 const { writeFd } = require("./lib/write-fd.js");
 const commands = require("./lib/refill-commands.js");
-const { DISPATCHER, servedRoots, tick } = require("./lib/refill-tick.js");
+const {
+	DISPATCHER,
+	files,
+	log,
+	say,
+	servedRoots,
+	tick,
+} = require("./lib/refill-tick.js");
 
 /* Untraced: the loop's log is cut to its newer half past this. */
 const LOG_MAX_BYTES = 1024 * 1024;
@@ -77,20 +89,7 @@ const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status
   start --away [--exclude <dir>]… [--goal …]   away mode: every included checkout but those named
   <dir> is a checkout's directory name in the home directory`;
 
-const files = loop.loopFiles();
 const lock = pidLock(files.pid, "refill-loop.js");
-
-/** @param {string} line */
-const say = (line) => writeFd(1, `${line}\n`);
-
-/** @param {string} line */
-const log = (line) => say(`${new Date().toISOString()} ${line}`);
-
-/** @param {unknown} err */
-const parseErrText = (err) =>
-	err instanceof Error ? (err.stack ?? err.message) : String(err);
-
-const readControl = () => loop.readControlFile(log);
 
 /**
  * The listing oracle every seat's sessions show in: WFC_CLAUDE_BIN, else the
@@ -155,7 +154,7 @@ function parseStartScope(parsed, root) {
  * @param {string} root
  */
 function buildNextControl(pid, asked, root) {
-	const prior = readControl();
+	const prior = readControlFile(log);
 	/* A loop whose stop is pending is ending: this start begins afresh,
 	 * dropping its scope (#2123). */
 	const running = pid !== null && prior && !prior.stopRequested ? prior : null;
@@ -197,7 +196,7 @@ function start(parsed) {
 	}
 	const pid = lock.holder();
 	const { control, renewed } = buildNextControl(pid, asked, root);
-	loop.writeJson(files.control, control);
+	writeJson(files.control, control);
 	wakes.touchWake(files.wake);
 	const scopeText = commands
 		.buildScopeLines(control, {
@@ -247,10 +246,9 @@ function start(parsed) {
 }
 
 function stop() {
-	const control = readControl();
+	const control = readControlFile(log);
 	const pid = lock.holder();
-	if (control)
-		loop.writeJson(files.control, { ...control, stopRequested: true });
+	if (control) writeJson(files.control, { ...control, stopRequested: true });
 	if (pid !== null) wakes.touchWake(files.wake);
 	say(
 		pid === null
@@ -261,11 +259,11 @@ function stop() {
 }
 
 function status() {
-	const control = readControl();
+	const control = readControlFile(log);
 	const pid = lock.holder();
 	for (const line of commands.buildStatusLines({
 		control,
-		state: loop.parseState(loop.readJson(files.state, log)),
+		state: loop.parseState(readJson(files.state, log)),
 		pid,
 		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
 		runMs: RUN_MS,
@@ -293,7 +291,7 @@ async function printDryRun() {
 	const { decision: d, read } = await tick({ dryRun: true });
 	say(`dry run: ${loop.summaryOf(d)}`);
 	if (read) say(loop.buildFrontierReadText(read));
-	const { reviewRunOn } = loop.parseState(loop.readJson(files.state, log));
+	const { reviewRunOn } = loop.parseState(readJson(files.state, log));
 	say(
 		`morning review: ${loop.isReviewRunDue(new Date(), reviewRunOn) ? "the filing is due, then reversals" : "reversals only"}`,
 	);
@@ -321,7 +319,7 @@ async function printDryRun() {
  * @param {ReturnType<typeof gates.gateSweeper>} sweeper
  */
 function startGateSweep(sweeper) {
-	const control = readControl();
+	const control = readControlFile(log);
 	if (!control || control.stopRequested) return;
 	const started = sweeper.startIfDue(
 		servedRoots(control.scope).roots,
@@ -329,7 +327,7 @@ function startGateSweep(sweeper) {
 	);
 	/* A sweep that fails leaves the readings of the checkout it failed on, and
 	 * any after it, as they were, and the next due sweep runs afresh (#2279). */
-	started?.catch((err) => log(`gate sweep failed: ${parseErrText(err)}`));
+	started?.catch((err) => log(`gate sweep failed: ${buildErrorText(err)}`));
 }
 
 async function run() {
@@ -361,7 +359,7 @@ async function run() {
 		try {
 			/* Before the sweep starts, so the image it replaces has no child. */
 			updater?.adoptIfMoved({
-				hold: sweeper.busy() || readControl()?.stopRequested === true,
+				hold: sweeper.busy() || readControlFile(log)?.stopRequested === true,
 			});
 			startGateSweep(sweeper);
 			const { decision, startedAt, agents } = await tick({ dryRun: false });
@@ -369,10 +367,11 @@ async function run() {
 			/* A `start` that landed mid-tick saw this pid and spawned nothing,
 			 * so the stop it overtook must not end the loop. */
 			const done =
-				"stop" in decision && !loop.isRenewedSince(readControl(), startedAt);
+				"stop" in decision &&
+				!loop.isRenewedSince(readControlFile(log), startedAt);
 			return { done, agents };
 		} catch (err) {
-			log(`tick failed: ${parseErrText(err)}`);
+			log(`tick failed: ${buildErrorText(err)}`);
 			return { done: false, agents: null };
 		}
 	}, watcher);
@@ -426,7 +425,7 @@ if (require.main === module)
 	main().then(
 		() => process.exit(),
 		(err) => {
-			writeFd(2, `${parseErrText(err)}\n`);
+			writeFd(2, `${buildErrorText(err)}\n`);
 			process.exit(1);
 		},
 	);

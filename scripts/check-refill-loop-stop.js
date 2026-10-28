@@ -6,7 +6,7 @@
  *
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
- * READS the loop's state file (lib/refill-loop.js) for its last stop. An
+ * READS the loop's state file (lib/refill-files.js) for its last stop. An
  * expiry or an explicit stop is not named.
  *
  * ONCE PER STOP. A `--notify` run records the stop's time in the stop-seen
@@ -39,6 +39,7 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
 const loop = require("./lib/refill-loop.js");
+const refillFiles = require("./lib/refill-files.js");
 const {
 	expandPastePaths,
 	scriptPath,
@@ -132,14 +133,14 @@ runCheck({
 		/* Read under --notify alone: a plain run's stdin may be a terminal. */
 		if (ctx.notify && hookMessage.readPayload()?.source === "compact")
 			ctx.skip("a compaction is no session start.");
-		const files = loop.loopFiles();
+		const files = refillFiles.loopFiles();
 		/** @param {string} line */
 		const reportDamaged = (line) => {
 			ctx.warn("REFILL-LOOP-FILE-DAMAGED", line);
 			ctx.say(`REFILL-LOOP-FILE-DAMAGED — ${line}.`);
 		};
 		const { stopped } = loop.parseState(
-			loop.readJson(files.state, reportDamaged),
+			refillFiles.readJson(files.state, reportDamaged),
 		);
 		const why = stopped
 			? STOP_REASON_WORDS[
@@ -155,7 +156,7 @@ runCheck({
 		if (fresh) {
 			const at = new Date(stopped.at).toISOString();
 			/* A control-damaged stop's line names the damage already. */
-			const control = loop.readControlFile(
+			const control = refillFiles.readControlFile(
 				stopped.reason === "control-damaged" ? () => undefined : reportDamaged,
 			);
 			const renewed = loop.isRenewedSince(control, stopped.at);

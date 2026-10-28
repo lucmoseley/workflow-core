@@ -1,7 +1,8 @@
 /*
  * refill-tick.js — one tick of the refill loop (#2012, #2123, spec #1995),
  * with the child processes, files and listings it reads and writes:
- * scripts/refill-loop.js's `run` drives it and its `dry-run` prints one.
+ * scripts/refill-loop.js's `run` drives it and its `dry-run` prints one. The
+ * CLI logs through the same say and log, at the same files (#3392).
  *
  * A TICK: reap (the reaper's --not-a-session mode, since the loop has no
  * session id), stop each job that never started, judge the loop's finished
@@ -48,6 +49,7 @@ const { PROBE_TIMEOUT_MS } = require("./usage-probe.js");
 const { readAllowance } = require("./allowance.js");
 const { claudeBin } = require("./claude-bin.js");
 const { buildTypedAttach } = require("./claude-attach.js");
+const { buildErrorText } = require("./caught.js");
 const { childFailure, childVerdict } = require("./child-failure.js");
 const { parseErrLine, gh } = require("./gh.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
@@ -86,6 +88,12 @@ const {
 	homeDir,
 } = require("./refill-repos.js");
 const loop = require("./refill-loop.js");
+const {
+	loopFiles,
+	readControlChecked,
+	readJson,
+	writeJson,
+} = require("./refill-files.js");
 const refillBatch = require("./refill-batch.js");
 const blocks = require("./refill-blocks.js");
 const { localDate } = require("./morning-review.js");
@@ -110,7 +118,7 @@ const SCRIPTS = path.dirname(__dirname);
 const REVIEW_ROOT = path.dirname(SCRIPTS);
 const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.sh");
 
-const files = loop.loopFiles();
+const files = loopFiles();
 
 /** @param {string} line */
 const say = (line) => writeFd(1, `${line}\n`);
@@ -118,11 +126,7 @@ const say = (line) => writeFd(1, `${line}\n`);
 /** @param {string} line */
 const log = (line) => say(`${new Date().toISOString()} ${line}`);
 
-/** @param {unknown} err */
-const parseErrText = (err) =>
-	err instanceof Error ? (err.stack ?? err.message) : String(err);
-
-const readControl = () => loop.readControlChecked(log);
+const readControl = () => readControlChecked(log);
 
 /**
  * @param {string} file
@@ -376,7 +380,7 @@ function readHeadlessSession(jobId) {
 	try {
 		record = runOf(jobId);
 	} catch (err) {
-		log(`headless record unread for job ${jobId}: ${parseErrText(err)}`);
+		log(`headless record unread for job ${jobId}: ${buildErrorText(err)}`);
 	}
 	return record?.sessionId;
 }
@@ -541,7 +545,7 @@ function readTimelineOf(l) {
 	try {
 		text = fs.readFileSync(file, "utf8");
 	} catch (e) {
-		log(`timeline unread for ${l.jobId}: ${parseErrText(e)}`);
+		log(`timeline unread for ${l.jobId}: ${buildErrorText(e)}`);
 		return null;
 	}
 	return jsonlRows(text);
@@ -698,7 +702,7 @@ function readTranscriptRows(l, job) {
 	try {
 		return [...mainChainRecords(readTranscript(file), "main")];
 	} catch (e) {
-		log(`transcript unread for ${l.jobId}: ${parseErrText(e)}`);
+		log(`transcript unread for ${l.jobId}: ${buildErrorText(e)}`);
 		return null;
 	}
 }
@@ -820,7 +824,7 @@ async function tick({ dryRun }) {
 		scope: loop.parseScope(null),
 	};
 	reapFinished(dryRun);
-	const state = loop.parseState(loop.readJson(files.state, log));
+	const state = loop.parseState(readJson(files.state, log));
 	const served = servedRoots(control.scope).roots;
 	/* Relief first, off the registry alone: the CLI listing below can outrun
 	 * its caps under the very pressure relief exists for (#2665). */
@@ -881,7 +885,7 @@ async function tick({ dryRun }) {
 			readControl,
 			launchBatch,
 			runReview,
-			writeState: (next) => loop.writeJson(files.state, next),
+			writeState: (next) => writeJson(files.state, next),
 			log,
 			now: Date.now,
 		},
@@ -893,6 +897,9 @@ async function tick({ dryRun }) {
 
 module.exports = {
 	DISPATCHER,
+	files,
+	log,
+	say,
 	servedRoots,
 	tick,
 };

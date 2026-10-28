@@ -17,7 +17,7 @@
 # first 8 characters (observed; no documented contract).
 #
 # The loop's directory is WFC_REFILL_DIR, else ~/.claude, as
-# lib/refill-loop.js's loopFiles() reads it; a relative HOME wakes nothing,
+# lib/refill-files.js's loopFiles() reads it; a relative HOME wakes nothing,
 # as machineMarkerPath refuses one.
 #
 # IMPLICIT:  appends to the refill loop's wake file when a session it launched ends

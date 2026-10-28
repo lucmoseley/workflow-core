@@ -1,29 +1,18 @@
 /*
- * refill-loop.js — the refill loop's files, the pure readings around
- * lib/refill-decide.js, and the steps that settle a tick and read its seats
- * with their effects and clock passed in (#2012, spec #1995). Launching a tick's picks
- * is lib/refill-batch.js's; what `start` and `status` print, lib/refill-commands.js's.
- *
- * THREE FILES, ONE WRITER EACH, under lib/refill-dir.js's directory, so
- * `start` and `stop` never race the loop's own tick:
- *   - control, written by `start` and `stop`;
- *   - state, written by the loop;
- *   - pidfile, created by the loop exclusively, so a second loop exits.
- * `WFC_REFILL_DIR` moves all three, with the log, the stop-seen stamp
- * check-refill-loop-stop.js writes, and the code directory of worktrees the
- * loop runs from (lib/refill-code.js).
+ * refill-loop.js — the refill loop's logic around lib/refill-decide.js, with
+ * no I/O of its own (#2012, spec #1995, #3392): parsing its files' contents, sizing
+ * its seats, judging its launches and settling its tick, each step taking its
+ * effects and clock as arguments. The files themselves are
+ * lib/refill-files.js's; launching a tick's picks, lib/refill-batch.js's;
+ * what `start` and `status` print, lib/refill-commands.js's.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { parseAct } = require("./act-line.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
-const { caught } = require("./caught.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
-const { writeFileAtomic } = require("./atomic-write.js");
 const { REVIEW_HOUR, localDate } = require("./morning-review.js");
 const { batchesOf } = require("./refill-batch.js");
-const { refillPath } = require("./refill-dir.js");
 const {
 	FULL,
 	UNREAD,
@@ -117,66 +106,6 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
 /** @typedef {import("./refill-decide.js").SizedSeat} SizedSeat */
 /** @typedef {import("./refill-batch.js").BatchOutcome} BatchOutcome */
 
-function loopFiles() {
-	return {
-		control: refillPath(".refill-loop-control.json"),
-		state: refillPath(".refill-loop-state.json"),
-		pid: refillPath(".refill-loop.pid"),
-		log: refillPath(".refill-loop.log"),
-		stopSeen: refillPath(".refill-loop-stop-seen"),
-		wake: refillPath(".refill-loop-wake"),
-		gates: refillPath(".refill-gate-readings.json"),
-		code: refillPath(".refill-loop-code"),
-	};
-}
-
-/**
- * The file's read: `found` false where it is absent, else its parsed `value`,
- * or why it would not read or parse in `damage`.
- * @param {string} file
- * @returns {{found: boolean, value: unknown, damage: string|null}}
- */
-function readJsonOutcome(file) {
-	try {
-		const value = JSON.parse(fs.readFileSync(file, "utf8"));
-		return { found: true, value, damage: null };
-	} catch (err) {
-		const { code, message } = caught(err);
-		return code === "ENOENT"
-			? { found: false, value: null, damage: null }
-			: { found: true, value: null, damage: message };
-	}
-}
-
-/**
- * The parsed file, or null where it is absent or damaged. A damaged file is a
- * fault, so `log` gets a line naming it and the error (#3380).
- * @param {string} file
- * @param {(line: string) => void} log
- * @returns {unknown}
- */
-function readJson(file, log) {
-	/* Fail open (#2012): each caller's parse reads null as its defaults, so a
-	 * damaged file costs the remembered state rather than stopping the loop;
-	 * the control alone stops it, through readControlChecked. */
-	const { value, damage } = readJsonOutcome(file);
-	if (damage !== null)
-		log(
-			`${file} is damaged (${damage}); read as absent, so its defaults stand until its next write replaces it`,
-		);
-	return value;
-}
-
-/**
- * @param {string} file
- * @param {unknown} value
- */
-function writeJson(file, value) {
-	writeFileAtomic(file, `${JSON.stringify(value, null, "\t")}\n`, {
-		mkdir: true,
-	});
-}
-
 /** @param {unknown} raw @returns {raw is Record<string, any>} */
 const isRecord = (raw) => typeof raw === "object" && raw !== null;
 
@@ -207,32 +136,6 @@ function parseScope(raw) {
 		goals,
 	};
 }
-
-/**
- * The control file `start` and `stop` write, parsed, and why where it exists
- * but is not one. A damaged control is no loop nobody started: the tick stops
- * on it under its own reason (#3389).
- * @param {(line: string) => void} log
- * @returns {ControlRead}
- */
-function readControlChecked(log) {
-	const file = loopFiles().control;
-	const { found, value, damage } = readJsonOutcome(file);
-	const control = parseControl(value);
-	const why =
-		damage ??
-		(found && control === null ? "not a control: no startedAt" : null);
-	if (why === null) return { control, damaged: null };
-	const damaged = `${file} is damaged (${why})`;
-	log(`${damaged}; the loop stops on it until a start rewrites it`);
-	return { control: null, damaged };
-}
-
-/**
- * The control file's fields, or null where it is absent or damaged.
- * @param {(line: string) => void} log
- */
-const readControlFile = (log) => readControlChecked(log).control;
 
 /**
  * The control file's fields, or null where it is not one.
@@ -960,14 +863,10 @@ module.exports = {
 	parseCapFits,
 	ceilingsOf,
 	parseControl,
-	readControlChecked,
-	readControlFile,
 	buildFinishLine,
 	isRenewedSince,
 	judgedLaunches,
 	buildLaunchesLine,
-	loopFiles,
-	readJson,
 	buildFrontierReadText,
 	buildSkipText,
 	isReviewRunDue,
@@ -984,5 +883,4 @@ module.exports = {
 	parseState,
 	stopNeverStarted,
 	summaryOf,
-	writeJson,
 };

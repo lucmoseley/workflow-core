@@ -98,7 +98,7 @@ const { runCheck } = require("./lib/check");
 const { listedAgents } = require("./lib/agent-liveness");
 const deliveryStamp = require("./lib/delivery-stamp");
 const { pidLock } = require("./lib/pid-lock");
-const { loopFiles } = require("./lib/refill-loop");
+const { loopFiles } = require("./lib/refill-files");
 const {
 	GHOST_AFTER_MINUTES,
 	HUNG_AFTER_MINUTES,

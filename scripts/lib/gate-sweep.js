@@ -15,7 +15,7 @@
  * as load, changes every sweep too, so an issue is queued at most once per
  * JUDGE_EVERY_MS (#3092).
  *
- * ONE FILE, under the loop's files (lib/refill-loop.js's loopFiles): each
+ * ONE FILE, under the loop's files (lib/refill-files.js's loopFiles): each
  * issue's stored reading and last queuing keyed by checkout and number, the
  * judgements still to launch, and when the last sweep started, so a restart
  * keeps all four.
@@ -24,7 +24,7 @@
 const { spawn } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { readJson, writeJson } = require("./refill-loop.js");
+const { readJson, writeJson } = require("./refill-files.js");
 
 /* A guess: often enough that a met gate waits on its judge about as long as
  * a session takes to start, rare enough that a sweep of slow checks (one runs

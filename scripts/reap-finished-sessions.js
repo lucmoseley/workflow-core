@@ -97,6 +97,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
+const { buildErrorText } = require("./lib/caught.js");
 
 /**
  * @typedef {import("./lib/reaper.js").State} State
@@ -566,8 +567,7 @@ function main(argv) {
 		 * place it will ever be printed. */
 		if (!notify) throw e;
 		outcome = "BROKEN";
-		const said = e instanceof Error ? (e.stack ?? e.message) : String(e);
-		lines.push(`reap: the run threw and reaped nothing — ${said}`);
+		lines.push(`reap: the run threw and reaped nothing — ${buildErrorText(e)}`);
 	}
 	if (notify) persistReport(notify, outcome, lines, began);
 }

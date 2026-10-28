@@ -9,7 +9,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { caught, parseErrorText } from "./caught.js";
+import { buildErrorText, caught, parseErrorText } from "./caught.js";
 
 /** What `fn` threw. */
 function thrownBy(fn: () => unknown): unknown {
@@ -110,5 +110,19 @@ describe("parseErrorText (#2673)", () => {
 
 		expect(caught(e).stderr).toBe("");
 		expect(parseErrorText(e)).toBe("spawnSync sleep ETIMEDOUT");
+	});
+});
+
+describe("buildErrorText", () => {
+	it("is an Error's stack, its message on the first line", () => {
+		const text = buildErrorText(new Error("boom"));
+
+		expect(text.split("\n")[0]).toBe("Error: boom");
+		expect(text).toContain("caught.test.ts");
+	});
+
+	it("is a thrown non-Error as a string", () => {
+		expect(buildErrorText("refused")).toBe("refused");
+		expect(buildErrorText(null)).toBe("null");
 	});
 });
