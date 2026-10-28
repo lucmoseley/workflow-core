@@ -1011,8 +1011,8 @@ function dropClean(
  *
  * THE RESIDUAL IS A LIVE CLAIM BROKEN. Resting on `claude agents --json` alone
  * means a session it lists late, or not at all, has no second reader to save
- * it — the registry would have known, and is not asked. #268 widened it: a
- * finished session stays resumable (docs/environment.md §5), so a holder broken
+ * it — the registry would have known, and is not asked. A finished session
+ * stays resumable (#268; docs/environment.md §5), so a holder broken
  * on `terminal` can come back to a file it no longer holds.
  *
  * Verdicts: "forced" (with `record`, the break written), plus every refusal
@@ -1609,7 +1609,7 @@ function outsideOwnRegionsMatchHead(rel, sessionId) {
 	}
 	// gitRaw, not git(): the trimmed form drops the newline the file ends on, and
 	// the last region of HEAD would then never equal the last region of the tree
-	// (mantahostels#1434, which found that on readSubjectBlobAt).
+	// (mantahostels#1434).
 	const headText = core.gitRaw(["show", `HEAD:${rel}`]);
 	if (headText === null) return "head";
 	let treeText;
@@ -1738,11 +1738,11 @@ function ownRegionsOffPin(rel, sessionId) {
  * overwrite those bytes. The live claims are consulted as well for that reason,
  * which catches the neighbour who took one (mantahostels#364, mantahostels#392) — and off the refusing
  * tier that is the ordinary tool write, cmdCheck claiming on the watched union.
- * The tool write that took NO claim is covered since mantahostels#2333, which mints on the
- * write itself; on the refusing tier it stays uncovered, the observation route
+ * The tool write that took NO claim is covered by a mint on the write itself
+ * (mantahostels#2333); on the refusing tier it stays uncovered, the observation route
  * returning null there.
  * BOTH LIMBS CLEAR A COMMITTED NEIGHBOUR, ON DIFFERENT TESTS — the observation
- * limb per record since mantahostels#2352, the lock limb per REGION since mantahostels#2400, and the
+ * limb per record (mantahostels#2352), the lock limb per REGION (mantahostels#2400), and the
  * lock limb clears every holder at once or none. `claimants` is the subset
  * still blocking that holds a claim, which is who `request` can be addressed
  * to.

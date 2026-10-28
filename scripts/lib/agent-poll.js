@@ -5,8 +5,8 @@
  * production ports are lib/agent-poll-host.js.
  *
  * Why: a notification arriving while a tool call is in flight is folded into
- * that call's result and read — 97% on the forensics window (#845, which
- * overturned mantahostels#2516's 0.7%; https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/waiting-stall-forensics.md).
+ * that call's result and read — 97% on the forensics window (#845;
+ * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/waiting-stall-forensics.md).
  * So a poll learns nothing the notification would not bring, and each look is
  * a full-context turn: that cost is what the three-look cap below rests on.
  * The rule: while something runs in the background, END THE TURN — a turn
@@ -99,7 +99,7 @@
 // deny-timing: delayed — the deny arrives on the THIRD poll, so a session
 // that never read the rule has already polled twice by the time this text
 // reaches it. CLAUDE.md's copy is the only one that arrives in time: do not
-// cut it (mantahostels#964, which settled that test).
+// cut it (mantahostels#964).
 
 const { scratchDir, tabRecords, textOf } = require("./guard-entry.js");
 const { segment } = require("./review-suffix.js");

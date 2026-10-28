@@ -2,7 +2,7 @@
  * issue-phase-scope.js — the guard-issue-phase-scope core (#2798, programme
  * #2733, #3225): does an issue a Bash call creates name, in its title prefix,
  * a roadmap card outside Phase 0 that the founder has not called
- * (mantahostels#1613, which built and ruled it)?
+ * (mantahostels#1613)?
  *
  * Why: on 26 August 2026 decision map mantahostels#1489 (`search-core`)
  * opened nine child issues in one day, against a Phase-1 card nobody had

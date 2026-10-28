@@ -12,10 +12,10 @@
  * session as it finishes, carrying the frontier size that run measured, and the
  * guard reads the marker for the session id its hook payload hands it. Nothing
  * but a real `pick-next.js` run mints one, so no other session is ever examined
- * (mantahostels#844, which built this after the written rule failed twice).
+ * (mantahostels#844).
  *
  * A RUN MADE TO EXERCISE THE TOOLING MINTS NOTHING. `--no-log` already means
- * exactly that (mantahostels#628, which kept such runs out of the warm-fraction sample), so
+ * exactly that, keeping such runs out of the warm-fraction sample (mantahostels#628), so
  * the marker rides the same flag rather than inventing a second opt-out.
  *
  * The marker carries the frontier size so the guard can check the sum against
@@ -41,7 +41,7 @@
  * Decoupled, no marker would ever match and the guard would silently never arm.
  * Re-check by comparing the env var against an artefact written from the
  * payload alone — an arbiter file claim, or `concision-backstop.sh`'s marker
- * file (mantahostels#844, which found them equal).
+ * file (mantahostels#844).
  *
  * EVERY FAILURE PATH IS SILENT — a marker that cannot be written or read leaves
  * the session unarmed.

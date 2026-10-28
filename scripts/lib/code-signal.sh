@@ -62,7 +62,7 @@ unset _cs_dir
 # fills from the Write/Edit tools only — so a session editing through Bash was
 # billed nothing to begin with, and no threshold was consulted (mantahostels#114, deliberate).
 #
-# THAT THIRD ONE IS NARROWED, NOT CLOSED (mantahostels#2778, which measured it).
+# THAT THIRD ONE IS NARROWED, NOT CLOSED (mantahostels#2778).
 # scripts/lib/claimed-bash-write.js credits an uncontended Bash write target
 # to the write ledger, which reaches the spellings its parser reads and no
 # others; a destination no parser can resolve stays billed to nobody

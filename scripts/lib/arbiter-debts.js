@@ -556,8 +556,8 @@ const CLOSED_ISSUES_LIMIT = ISSUE_LIST_LIMIT;
  * catch and retires nothing. Re-derive from that rate, never by scaling this.
  *
  * It can be this generous because a sweep runs by hand or detached from
- * SessionStart, never inside a hook: since mantahostels#1251 nothing on the claim path
- * calls GitHub, so nothing runs under lib/file-claim-host.js's 5 s bound.
+ * SessionStart, never inside a hook: nothing on the claim path calls GitHub
+ * (mantahostels#1251), so nothing runs under lib/file-claim-host.js's 5 s bound.
  */
 const GH_BATCH_TIMEOUT_MS = 300_000;
 
@@ -618,7 +618,7 @@ const STUB_GRACE_MS = 24 * 60 * 60 * 1000;
  * An entry nothing can ever discharge: no issue to close, and no gist saying
  * what was owed. It is the stub `registerDenial` writes, left uncompleted by a
  * session that has since ended — so no later reader can own it, and it prints
- * at every claim on that path forever (mantahostels#1302, which ruled it dropped).
+ * at every claim on that path forever (mantahostels#1302).
  *
  * Fails toward KEEPING: an unparseable or future `createdAt` is not old enough,
  * so the entry stands. The `Number.isFinite` limb is belt-and-braces and

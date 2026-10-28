@@ -45,8 +45,7 @@ const {
 /**
  * Which of `dirty` this session made, and which belong to someone else.
  *
- * ATTRIBUTION IS THE WHOLE POINT (mantahostels#2169, which asked for a refusal on any
- * dirty tree). This tree is never clean, so a whole-tree check would refuse
+ * ATTRIBUTION IS THE WHOLE POINT (mantahostels#2169). This tree is never clean, so a whole-tree check would refuse
  * every isolated run this machine will ever start. The ledger intersection
  * `scripts/guard-uncommitted-work.js` already uses separates the two: `mine`
  * refuses, `theirs` only warns, because escaping a neighbour's churn is what a

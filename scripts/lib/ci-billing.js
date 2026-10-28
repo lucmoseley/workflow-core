@@ -491,7 +491,7 @@ function pushCommitStats(pushes) {
  *
  * GitHub caps that listing at 1,000 runs however many pages are asked for, and
  * a fortnight at this repo's rate reaches it, so a single request for the whole
- * window would under-count in silence (mantahostels#676, which measured the rate).
+ * window would under-count in silence (mantahostels#676).
  *
  * @param {string} since
  * @param {string} until

@@ -172,8 +172,7 @@ function readUntrackedFiles(root, execFn = execFileSync) {
  * Untracked, non-ignored entries as `git status --porcelain` reports them: a
  * directory collapsed to one entry rather than walked into.
  *
- * NO CALLER TODAY, AND KEPT ANYWAY (mantahostels#2340, which deleted its only one — the
- * `Stop`-hook stray-scratch warn, on mantahostels#2338's ruling that nothing ever read it).
+ * NO CALLER TODAY, AND KEPT ANYWAY (mantahostels#2340, mantahostels#2338).
  * mantahostels#2349 is the caller it is being kept for: it moves the same detection to a
  * `SessionStart` report, which needs exactly this reading of the tree and is
  * blocked on mantahostels#2340. Delete this if mantahostels#2349 closes without taking it.

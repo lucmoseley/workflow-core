@@ -100,8 +100,7 @@ function claimDataFile(
 
 /**
  * Releases a claim `claimDataFile` took, so a run that ends does not strand one
- * on a file it is no longer writing (mantahostels#1848 review S3, widened to every generator
- * at mantahostels#2422).
+ * on a file it is no longer writing (mantahostels#1848 review S3, mantahostels#2422).
  *
  * BEST-EFFORT, and silent: a release that fails costs a claim outliving its run,
  * never the run's own exit code.

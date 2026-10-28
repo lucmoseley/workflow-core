@@ -50,8 +50,8 @@ const SCAN_MINT_MAX = 20;
 
 /**
  * The tiers as git pathspecs — what git is ASKED for, which is wider than the
- * watched union since mantahostels#2103 put `.claude/tmp/` inside a tier and outside the
- * union. git has no way to spell that subtraction, so `readTierFiles` filters the
+ * watched union: `.claude/tmp/` sits inside a tier and outside the union
+ * (mantahostels#2103). git has no way to spell that subtraction, so `readTierFiles` filters the
  * listing through `core.isWatched` afterwards; these prefixes only keep the
  * question cheap.
  */

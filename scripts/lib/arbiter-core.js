@@ -1007,7 +1007,7 @@ function gitDirty(rel) {
  * bytes where it names one, the whole file where it does not. True, false, or
  * null when the question could not be answered.
  *
- * WHY NOT gitDirty (mantahostels#1434, which measured the block). mantahostels#63's rule
+ * WHY NOT gitDirty (mantahostels#1434). mantahostels#63's rule
  * (an incident in its closing comment — its title names other work) — releasing
  * a dirty claim hands the next holder your unfinished edit to commit under their
  * own message — is region-scoped too: it is YOUR region being dirty that
@@ -1136,7 +1136,7 @@ function pushDirEntries(dir, names, out) {
 			continue;
 		}
 		// The full path, not the basename: registry files are named <pid>.json and
-		// both plans share one pid namespace, so a bare name no longer says which
+		// both plans share one pid namespace, so a bare name does not say which
 		// file identify()'s diagnostic is complaining about.
 		if (entry) out.push({ file: path.join(dir, file), entry });
 	}

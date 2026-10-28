@@ -93,7 +93,7 @@
  * script read the fixture's copy, never the tracked file.
  *
  * Narrowed, not closed — these shapes still get no edge: a spawned script's
- * dependency that something else selects, which no longer selects a test
+ * dependency that something else selects, which then selects no test
  * driving that script end to end (the sweep catches its break), a spawned
  * script's read that something else selects, a two-hop
  * import chain, a

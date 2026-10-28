@@ -60,7 +60,7 @@ function ledgerPath(root = ledgerRoot()) {
  *
  * Residual: a running session's NAME carries no `/wayfinder`, so a live ticket
  * session still holds its map against `/wayfinder <map>`, while a map-only
- * session or ledger row no longer holds `/wayfinder <map> <ticket>` — only the
+ * session or ledger row does not hold `/wayfinder <map> <ticket>` — only the
  * claim limb's parent-map check refuses that (#2211).
  *
  * Residual: a prompt carrying a non-issue integer records a phantom issue, which

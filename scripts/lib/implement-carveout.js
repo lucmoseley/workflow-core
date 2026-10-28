@@ -1,7 +1,7 @@
 /*
  * implement-carveout.js — the /implement carve-out matcher used to measure
  * how many Opus /implement sessions committed to repo machinery rather than
- * product code (mantahostels#1334's original list; widened at mantahostels#2462).
+ * product code (mantahostels#1334, mantahostels#2462).
  *
  * THIS IS THE MEASUREMENT MATCHER, NOT §6'S ROUTING RULE. §6 of
  * .claude/skills/pick-next/SKILL.md decides, ahead of a launch, which model an

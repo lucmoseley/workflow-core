@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# The one session-kind -> model map (#360, which ruled this file the single
-# source; #361 built it). scripts/launch.sh reads it;
+# The one session-kind -> model map, the single source (#360, #361).
+# scripts/launch.sh reads it;
 # launch-models.test.ts fails where the Model column of
 # docs/effort-guide.md §Which model to launch each session on, or of
 # .claude/skills/pick-next/SKILL.md §6's `takes:` table, or

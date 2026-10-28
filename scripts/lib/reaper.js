@@ -737,7 +737,7 @@ function reap({
 		);
 	};
 
-	/* A claim decides nothing since mantahostels#747, so a store that will not read costs
+	/* A claim decides nothing (mantahostels#747), so a store that will not read costs
 	 * the report alone: the run goes ahead and says no lock can be named. */
 	const claimsUnread = claims.why ?? null;
 	/* Named separately from `claimsUnread`, which is the whole store going dark.

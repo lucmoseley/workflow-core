@@ -160,7 +160,7 @@ const LEFT_BEHIND = new Set([
 	"scripts/release-plugin.js",
 	// times the core's own suite for its own maxWorkers figure (mantahostels#1906)
 	"scripts/idle-maxworkers-bench.sh",
-	// the core's one-off memory-store backup, retired at mantahostels#642
+	// the core's one-off memory-store backup (mantahostels#642)
 	"scripts/snapshot-memory.sh",
 	// cuts mantahostels over, once, from this checkout (#423)
 	"scripts/cut-mantahostels.js",

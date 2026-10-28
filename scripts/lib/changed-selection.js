@@ -776,7 +776,7 @@ function readEdges(loadEdges, diffOf, err) {
 /**
  * Fills `sel` step by step — the diff, then vitest's own selection over it —
  * so a throw part-way leaves the caller what was already known and written
- * (#1389, which split it out of expandChanged).
+ * (#1389).
  *
  * @param {Selection} sel accumulator: the diff, narrowing, override and vitest's selection are filled in turn
  * @param {{ diffOf: () => string[],

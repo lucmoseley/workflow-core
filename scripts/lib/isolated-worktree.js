@@ -197,7 +197,7 @@ function sweepIsolated(
 		const pid = Number(name.slice(ISOLATED_PREFIX.length));
 		if (!Number.isInteger(pid) || pid <= 0) continue;
 		/* THIS PROCESS'S OWN NUMBER IS DEBRIS, NOT A LIVE HOLDER. A pid is not an
-		 * identity over time (mantahostels#2034, which ruled the same for the queue markers),
+		 * identity over time (mantahostels#2034),
 		 * and the one reuse this sweep can resolve for certain is its own: a
 		 * directory named for the pid we are running under was left by a dead
 		 * predecessor, and sparing it would fail `git worktree add` on an existing

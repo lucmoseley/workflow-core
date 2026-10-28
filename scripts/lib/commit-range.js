@@ -1,10 +1,9 @@
 /*
  * commit-range.js — the git half of a red-batch report (mantahostels#945).
  *
- * One scheduled sweep now covers every commit since the last one, so a red run
- * accuses a RANGE rather than a sha (mantahostels#907, which ruled how a batch red gets
- * attributed: report the range well, escalate to a hand-fired bisect only when
- * the read fails).
+ * One scheduled sweep covers every commit since the last one, so a red run
+ * accuses a RANGE rather than a sha: report the range well, escalate to a
+ * hand-fired bisect only when the read fails (mantahostels#907).
  *
  * Its own module, and gh-free on purpose: the range report is pure git, so it
  * is testable against real commits in this repo without stubbing a CLI.
