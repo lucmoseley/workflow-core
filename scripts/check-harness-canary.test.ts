@@ -2,7 +2,8 @@
 /*
  * Pins that check-harness-canary.js goes red when a description-less plugin
  * skill is in the start listing or does not load, records the version only on
- * green, and speaks at session start only while red (#2037).
+ * green, and speaks at session start only while red (#2037) or while its
+ * state file is unreadable (#3436).
  *
  * The live probe is stubbed: WFC_CANARY_CLAUDE points at a stub `claude` that
  * replays the transcript rows recorded from a real 2.1.302 probe
@@ -236,6 +237,15 @@ describe("a hand run", () => {
 		expect(r.stderr).toContain("HARNESS-CANARY");
 	});
 
+	it("reports a corrupt state file rather than reading it silently as unprobed (#3436)", () => {
+		fs.writeFileSync(statePath(), "{ torn");
+		const r = run([]);
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain(`STATE-CORRUPT — ${statePath()} is unreadable`);
+		expect(r.stderr).toMatch(/STATE-CORRUPT.*check-harness-canary\.js --probe/);
+		expect(r.stderr).toContain("NOT-PROBED");
+	});
+
 	it("skips where `claude --version` gives nothing", () => {
 		const r = run([], { STUB_VERSION: "" });
 		expect(r.status).toBe(0);
@@ -290,6 +300,16 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).toBe("");
 		expect(readState().last.verdict).toBe("unprobed");
 		expect(probes()).toBe(0);
+	});
+
+	it("reports a corrupt state file, and the probe it launches rewrites it (#3436)", async () => {
+		fs.writeFileSync(statePath(), "[]");
+		const r = run(["--notify"]);
+		expect(r.stdout).toContain(`STATE-CORRUPT — ${statePath()} is unreadable`);
+		expect(r.stdout).toMatch(/STATE-CORRUPT.*check-harness-canary\.js --probe/);
+		await untilProbed("2.1.302");
+		expect(readState().passed).toBe("2.1.302");
+		expect(run(["--notify"]).stdout).toBe("");
 	});
 
 	it("re-launches the probe once the retry window has passed", async () => {

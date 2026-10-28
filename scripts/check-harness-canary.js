@@ -44,7 +44,7 @@
  * for `claude agents` (lib/oracle-cache.js), which a `-p` turn must not go
  * through.
  *
- * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes. In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 and prints it at each start.
+ * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436). In the core's checkout, also reads the binary once per version for `agent_id` on a subagent's compaction payloads, and on finding it comments once on #1837 and prints it at each start.
  * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block. The agent_id probe replaces #1837's hand re-check per release (#2819).
  * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false; `--probe-agent-id` re-reads the binary for a fixed suspected false.
  */
@@ -106,15 +106,33 @@ const GAP_ISSUE = 1837;
  * @typedef {{ passed?: string, last?: Verdict, agentId?: AgentIdVerdict }} State
  */
 
-/** @returns {State} */
-function readState() {
+/**
+ * The state file, and why it was unreadable where it was. A missing file is
+ * no fault: nothing has been probed yet. Fail-open (#2037): an unreadable one
+ * reads as unprobed, so the next probe rewrites it, and the run that loads it
+ * prints the fault (#3436).
+ * @returns {{ state: State, fault?: string }}
+ */
+function loadState() {
+	let text;
 	try {
-		return JSON.parse(fs.readFileSync(statePath(), "utf8"));
-	} catch {
-		/* No state, or a corrupt one: the next probe rewrites it (#2037). */
-		return {};
+		text = fs.readFileSync(statePath(), "utf8");
+	} catch (e) {
+		if (caught(e).code === "ENOENT") return { state: {} };
+		return { state: {}, fault: caught(e).message };
+	}
+	try {
+		const state = JSON.parse(text);
+		if (state && typeof state === "object" && !Array.isArray(state))
+			return { state };
+		return { state: {}, fault: "it holds no JSON object" };
+	} catch (e) {
+		return { state: {}, fault: caught(e).message };
 	}
 }
+
+/** The state alone: `run` has already printed any fault before this reads. */
+const readState = () => loadState().state;
 
 /** @param {Partial<State>} change */
 function writeState(change) {
@@ -466,8 +484,7 @@ function atStart(ctx, state, version, { okLine, core }) {
 	const agentOwed = core && isAgentIdOwed(state, version);
 	const seen = forVersion(state.last, version);
 	if (seen?.verdict === "red") {
-		ctx.fail("HARNESS-CANARY", seen.reasons.join("; "), seen);
-		ctx.say(buildRedText(seen));
+		reportRed(ctx, seen);
 		if (agentOwed) detachProbe("--probe-agent-id");
 		return {};
 	}
@@ -480,6 +497,62 @@ function atStart(ctx, state, version, { okLine, core }) {
 }
 
 /**
+ * A red listing verdict: a failure, with its text.
+ * @param {import("./lib/check").CheckContext} ctx
+ * @param {Verdict} last
+ */
+function reportRed(ctx, last) {
+	ctx.fail("HARNESS-CANARY", last.reasons.join("; "), last);
+	ctx.say(buildRedText(last));
+}
+
+/**
+ * A warning, printed as well as recorded.
+ * @param {import("./lib/check").CheckContext} ctx
+ * @param {string} tag
+ * @param {string} msg
+ * @param {object} [data]
+ */
+function warnSaying(ctx, tag, msg, data) {
+	ctx.warn(tag, msg, data);
+	ctx.say(`${tag} — ${msg}`);
+}
+
+/**
+ * @typedef {{ prefix: string, name: string, flag: "--probe" | "--probe-agent-id" }} ProbeKind
+ * @type {ProbeKind}
+ */
+const LISTING_PROBE = { prefix: "", name: "the probe", flag: "--probe" };
+/** @type {ProbeKind} */
+const AGENT_ID_PROBE = {
+	prefix: "AGENT-ID-",
+	name: "the agent_id probe",
+	flag: "--probe-agent-id",
+};
+
+/**
+ * The warning on a probe that has not run on `version`, or could not.
+ * @param {import("./lib/check").CheckContext} ctx
+ * @param {string} version
+ * @param {{ verdict: string, reasons: string[] } | undefined} last
+ * @param {ProbeKind} which
+ */
+function warnUnprobed(ctx, version, last, { prefix, name, flag }) {
+	const again = rerun(flag);
+	const [tag, msg] =
+		last?.verdict === "unprobed"
+			? [
+					`${prefix}UNPROBED`,
+					`${name} could not run on Claude Code ${version}: ${last.reasons.join("; ")}. Re-run: \`${again}\`.`,
+				]
+			: [
+					`${prefix}NOT-PROBED`,
+					`${name} has not run on Claude Code ${version}; the next session start launches it, or run \`${again}\`.`,
+				];
+	warnSaying(ctx, tag, msg, last);
+}
+
+/**
  * A hand run's finding on a version that has not passed, or whose re-probe
  * went red.
  * @param {import("./lib/check").CheckContext} ctx
@@ -487,23 +560,8 @@ function atStart(ctx, state, version, { okLine, core }) {
  * @param {Verdict | undefined} last
  */
 function report(ctx, version, last) {
-	if (last?.verdict === "red") {
-		ctx.fail("HARNESS-CANARY", last.reasons.join("; "), last);
-		ctx.say(buildRedText(last));
-		return;
-	}
-	const [tag, msg] =
-		last?.verdict === "unprobed"
-			? [
-					"UNPROBED",
-					`the probe could not run on Claude Code ${version}: ${last.reasons.join("; ")}. Re-run: \`${rerun()}\`.`,
-				]
-			: [
-					"NOT-PROBED",
-					`Claude Code ${version} has not been probed yet; the next session start launches it, or run \`${rerun()}\`.`,
-				];
-	ctx.warn(tag, msg, last);
-	ctx.say(`${tag} — ${msg}`);
+	if (last?.verdict === "red") reportRed(ctx, last);
+	else warnUnprobed(ctx, version, last, LISTING_PROBE);
 }
 
 /**
@@ -519,21 +577,7 @@ function reportAgentId(ctx, version, a) {
 	if (a?.verdict === "fixed") {
 		ctx.warn("AGENT-ID-FIXED", a.reasons.join("; "), a);
 		ctx.say(buildFixedText(a));
-		return "";
-	}
-	const again = rerun("--probe-agent-id");
-	const [tag, msg] =
-		a?.verdict === "unprobed"
-			? [
-					"AGENT-ID-UNPROBED",
-					`the agent_id probe could not read Claude Code ${version}: ${a.reasons.join("; ")}. Re-run: \`${again}\`.`,
-				]
-			: [
-					"AGENT-ID-NOT-PROBED",
-					`the agent_id probe has not run on Claude Code ${version}; the next session start launches it, or run \`${again}\`.`,
-				];
-	ctx.warn(tag, msg, a);
-	ctx.say(`${tag} — ${msg}`);
+	} else warnUnprobed(ctx, version, a, AGENT_ID_PROBE);
 	return "";
 }
 
@@ -571,7 +615,13 @@ runCheck({
 			);
 
 		const core = isInCore();
-		const state = readState();
+		const { state, fault } = loadState();
+		if (fault)
+			warnSaying(
+				ctx,
+				"STATE-CORRUPT",
+				`${statePath()} is unreadable (${fault}), so every verdict reads as unprobed until a probe rewrites it: the next session start launches one, or run \`${rerun()}\`.`,
+			);
 		const seen = forVersion(state.last, version);
 		const okLine = `a description-less plugin skill is unlisted and loads on Claude Code ${version}.`;
 		const probing = ctx.has("--probe") || ctx.has("--probe-agent-id");
