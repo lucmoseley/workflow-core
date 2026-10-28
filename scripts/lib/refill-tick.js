@@ -66,6 +66,7 @@ const { parseResumed } = require("./bg-resume.js");
 const { stopOn } = require("./claude-stop.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
+const { parseJsonl } = require("./jsonl.js");
 const { setParked } = require("./parked.js");
 const { readParkedBy, writeParkedBy } = require("./parked-marker.js");
 const { read: readTranscript } = require("./session-transcript.js");
@@ -560,7 +561,7 @@ function commentOn(l, body) {
 }
 
 /**
- * `l`'s job's timeline rows (jsonlRows). Null where the file will not read, which
+ * `l`'s job's timeline rows. Null where the file will not read, which
  * reads as the typed resume unseen and falls back to stop and resume, logged.
  * @param {import("./refill-blocks.js").JobLaunch} l
  */
@@ -573,24 +574,8 @@ function readTimelineOf(l) {
 		log(`timeline unread for ${l.jobId}: ${buildErrorText(e)}`);
 		return null;
 	}
-	return jsonlRows(text);
+	return parseJsonl(text).rows;
 }
-
-/**
- * The rows of JSONL `text`; a line that will not parse, such as one torn by a
- * write in flight, is skipped.
- * @param {string} text
- * @returns {unknown[]}
- */
-const jsonlRows = (text) =>
-	text.split("\n").flatMap((line) => {
-		try {
-			return line ? [JSON.parse(line)] : [];
-		} catch {
-			/* Skipped, not a fault: typically a line torn by a write in flight (#2707). */
-			return [];
-		}
-	});
 
 /**
  * `l`'s job record, its state.json parsed; null where it has no job or the

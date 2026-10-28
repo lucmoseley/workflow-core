@@ -38,6 +38,7 @@ const deliveryStamp = require("./lib/delivery-stamp");
 const hookRecord = require("./lib/hook-record");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
+const { parseJsonl } = require("./lib/jsonl.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
@@ -98,22 +99,11 @@ function listRecordNames(dir) {
  *   parse
  */
 function parseCrumbLines(raw) {
-	/** @type {Crumb[]} */
-	const crumbs = [];
-	let torn = 0;
-	for (const line of raw.split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			const parsed = JSON.parse(line);
-			if (parsed && typeof parsed === "object") crumbs.push(parsed);
-		} catch {
-			/* A writer killed mid-append. Counted rather than swallowed: a
-			 * dropped line shrinks the denominators below, so an epidemic of
-			 * them would read as health. */
-			torn++;
-		}
-	}
-	return { crumbs, torn };
+	const read = parseJsonl(raw);
+	return {
+		crumbs: /** @type {Crumb[]} */ (read.rows),
+		torn: read.bad.length,
+	};
 }
 
 /**

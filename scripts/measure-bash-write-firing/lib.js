@@ -13,6 +13,8 @@
  * would make it check itself.
  */
 
+const { parseJsonl } = require("../lib/jsonl.js");
+
 /**
  * Is this repo-relative path in the guard's tier 1 — the tier it WARNS about?
  * `scripts/` is detect-only by mantahostels#287 and is deliberately absent.
@@ -88,18 +90,11 @@ const writesSomething = (cmd) => WRITE_CALL.some((re) => re.test(cmd));
  * @returns {{rows: {s: string, c: string}[], unparsed: number}}
  */
 function parseRows(text) {
-	/** @type {{s: string, c: string}[]} */
-	const rows = [];
-	let unparsed = 0;
-	for (const line of text.split("\n")) {
-		if (!line) continue;
-		try {
-			rows.push(JSON.parse(line));
-		} catch {
-			unparsed++;
-		}
-	}
-	return { rows, unparsed };
+	const { rows, bad } = parseJsonl(text);
+	return {
+		rows: /** @type {{s: string, c: string}[]} */ (rows),
+		unparsed: bad.length,
+	};
 }
 
 module.exports = {

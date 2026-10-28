@@ -23,6 +23,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { parseJsonl } = require("./jsonl.js");
 
 /**
  * @typedef {object} Usage
@@ -144,15 +145,9 @@ function* mainChainRecords(text, tier, stats) {
 		throw new TypeError(
 			`mainChainRecords needs tier "main" or "subagent", got ${JSON.stringify(tier)}.`,
 		);
-	for (const line of text.split("\n")) {
-		if (!line) continue;
-		let record;
-		try {
-			record = JSON.parse(line);
-		} catch {
-			if (stats) stats.skipped++;
-			continue;
-		}
+	const { rows, bad } = parseJsonl(text);
+	if (stats) stats.skipped += bad.length;
+	for (const record of rows) {
 		if (tier === "main" && record.isSidechain) continue;
 		yield record;
 	}

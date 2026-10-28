@@ -232,7 +232,7 @@ describe("the weekly retro trigger", () => {
 
 		const { code, output } = run(fx);
 		expect(code).toBe(2);
-		expect(output).toContain("retro-runs.jsonl:2 is not JSON");
+		expect(output).toContain("retro-runs.jsonl:2 is not a JSON object");
 		expect(ghCalls(fx)).toBe("");
 	});
 

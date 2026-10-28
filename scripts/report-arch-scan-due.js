@@ -62,6 +62,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
+const { readJsonl } = require("./lib/jsonl.js");
 const path = require("node:path");
 const { logError } = require("./lib/arbiter-core");
 const { errMessage, now } = require("./lib/check");
@@ -138,22 +139,12 @@ const git = (args) =>
  * @returns {Array<Record<string, unknown>>}
  */
 function readRecord() {
-	const file = path.join(hostRoot(), RECORD);
-	if (!fs.existsSync(file)) return [];
-	/** @type {Array<Record<string, unknown>>} */
-	const rows = [];
-	for (const [i, line] of fs.readFileSync(file, "utf8").split("\n").entries()) {
-		if (!line.trim()) continue;
-		try {
-			rows.push(JSON.parse(line));
-		} catch (e) {
-			throw new Error(
-				`${RECORD}:${i + 1} is not JSON — ${e instanceof Error ? e.message : String(e)}`,
-				{ cause: e },
-			);
-		}
-	}
-	return rows;
+	const read = readJsonl(path.join(hostRoot(), RECORD));
+	if (!read) return [];
+	const [bad] = read.bad;
+	if (bad !== undefined)
+		throw new Error(`${RECORD}:${bad} is not a JSON object`);
+	return read.rows;
 }
 
 /**

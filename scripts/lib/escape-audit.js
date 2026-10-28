@@ -33,6 +33,7 @@ const { markersDir } = require("./marker-root.js");
 const { STOP_FEEDBACK, mainChainRecords } = require("./transcript");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
+const { readJsonl } = require("./jsonl.js");
 
 const ITEMS_NAME = ".escape-audit-items.json";
 const VERDICTS_NAME = ".escape-audit-verdicts.jsonl";
@@ -300,22 +301,8 @@ const ANSWERED = new Set(["bears", "misses", "finding"]);
 function readVerdicts(root) {
 	/** @type {Map<string, Verdict>} */
 	const out = new Map();
-	let raw;
-	try {
-		raw = fs.readFileSync(verdictsPath(root), "utf8");
-	} catch (e) {
-		if (caught(e).code === "ENOENT") return out;
-		throw e;
-	}
-	for (const line of raw.split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			const v = JSON.parse(line);
-			if (typeof v?.key === "string") out.set(v.key, v);
-		} catch {
-			/* a torn tail; the key is retried */
-		}
-	}
+	for (const v of readJsonl(verdictsPath(root))?.rows ?? [])
+		if (typeof v.key === "string") out.set(v.key, /** @type {Verdict} */ (v));
 	return out;
 }
 

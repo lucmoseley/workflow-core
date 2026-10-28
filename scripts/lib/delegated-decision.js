@@ -14,8 +14,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
 const { hostRoot } = require("./host-root.js");
+const { readJsonl } = require("./jsonl.js");
 const { MARKERS_REL, markersDir } = require("./marker-root.js");
 const { repoRoot } = require("./test-pass-marker.js");
 
@@ -143,32 +143,19 @@ const ledgerPath = () => {
  */
 
 /**
- * The ledger's lines, parsed, and a count of the torn ones — a crashed
- * append's half line — which parse to nothing. A missing ledger holds none;
- * an unreadable one throws.
+ * The ledger's lines, parsed, and a count of the bad ones — a crashed
+ * append's half line among them. A missing ledger holds none; an unreadable
+ * one throws.
  * @param {string} file
  * @returns {{lines: LedgerLine[], torn: number}}
  */
 function readLedgerLines(file) {
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (e) {
-		if (caught(e).code === "ENOENT") return { lines: [], torn: 0 };
-		throw e;
-	}
-	/** @type {LedgerLine[]} */
-	const lines = [];
-	let torn = 0;
-	for (const line of text.split("\n")) {
-		if (!line.trim()) continue;
-		try {
-			lines.push(JSON.parse(line));
-		} catch {
-			torn++;
-		}
-	}
-	return { lines, torn };
+	const read = readJsonl(file);
+	if (!read) return { lines: [], torn: 0 };
+	return {
+		lines: /** @type {LedgerLine[]} */ (read.rows),
+		torn: read.bad.length,
+	};
 }
 
 /**

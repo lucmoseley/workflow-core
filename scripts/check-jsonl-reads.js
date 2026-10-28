@@ -6,11 +6,7 @@
  * Usage:
  *   node check-jsonl-reads.js [--root <dir>] [--against <rev>] [--json] [--warn]
  *
- * STOPGAP, DIRECTION-GATED until #3453 makes it whole-tree.
- * `.husky/pre-commit` runs this under `--against HEAD`, so a site a commit
- * adds refuses and an inherited one warns; a bare run FAILs on every site. A
- * site's identity is its file and its line's text with its
- * occurrence number, so an edit elsewhere in the file leaves it inherited.
+ * `.husky/pre-commit` runs it over the whole tree (#3453).
  *
  * LEXICAL. A site is a `.split(...)` on a newline (`"\n"`, `'\n'`, `` `\n` ``,
  * `/\n/` or `/\r?\n/`) with a `JSON.parse` on that line or the WINDOW lines
@@ -21,8 +17,8 @@
  * the line above, for newline-split text that is no JSONL beside an unrelated
  * parse. A marker with no word after it is no marker.
  *
- * IMPLICIT:  on every commit staging a scripts/ program, refuses a hand split-and-parse of JSONL the commit adds, naming the file, line and lib/jsonl.js.
- * JUSTIFIED: fail-safe — each hand parse answers a torn last line its own way; the fix is one readJsonl or parseJsonl call.
+ * IMPLICIT:  on every commit staging a scripts/ program, refuses any hand split-and-parse of JSONL in the tree, naming the file, line, lib/jsonl.js and its exemplar.
+ * JUSTIFIED: fail-safe — each hand parse answers a torn last line its own way; the fix is one readJsonl, parseJsonl or parseJsonlRow call.
  * DEFEAT:    the `jsonl-read-exempt: <why>` marker; --warn caps findings below the gating line; a parse further than WINDOW lines from its split, a split on a variable, or a line-by-line `readline` read.
  */
 
@@ -45,7 +41,7 @@ const PROGRAM = /\.(?:c|m)?js$/;
 const TEST = /\.test\.[cm]?[jt]s$/;
 const READER = "scripts/lib/jsonl.js";
 
-const FIX = `read it through readJsonl (a file) or parseJsonl (text) in ${READER}, as scripts/lib/dispatch-ledger.js's readWindowRows does; or mark it \`jsonl-read-exempt: <why>\` where the text is no JSONL (#3452).`;
+const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readWindowRows does; or mark it \`jsonl-read-exempt: <why>\` where the text is no JSONL (#3452).`;
 
 /**
  * `source` with each comment blanked to spaces, its newlines kept, so a line
@@ -117,8 +113,6 @@ runCheck({
 		/* No scripts/ is zero programs, not SKIP: a SKIP on the HEAD side of
 		 * --against is BROKEN, which would refuse the first program ever added. */
 		const names = fs.existsSync(dir) ? readPrograms(dir) : [];
-		/** @type {string[]} */
-		const faulted = [];
 		for (const name of names) {
 			const rel = `scripts/${name}`;
 			if (rel === READER) continue;
@@ -129,20 +123,16 @@ runCheck({
 			)) {
 				const n = (seen.get(site.text) ?? 0) + 1;
 				seen.set(site.text, n);
-				faulted.push(`${rel}:${site.line}`);
 				ctx.fail(
 					"JSONL-READ",
 					`${rel}:${site.line} hand-parses JSONL (\`${site.text}\`). Fix: ${FIX}`,
-					{ file: rel, match: `${site.text} #${n}` },
+					{ file: rel, line: site.line, match: `${site.text} #${n}` },
 				);
 			}
 		}
-		/* One line, not one per site: under --against every commit staging a
-		 * program prints this report, inherited sites included. The parent
-		 * re-lists a site this commit adds in full. */
-		if (faulted.length > 0)
+		if (ctx.findings.length > 0)
 			ctx.say(
-				`  ${faulted.length} site(s) hand-parse JSONL: ${faulted.join(", ")}.\n  Fix: ${FIX}`,
+				`  ${ctx.findings.length} site(s) hand-parse JSONL: ${ctx.findings.map((f) => `${f.file}:${f.line}`).join(", ")}.\n  Fix: ${FIX}`,
 			);
 		return {
 			okLine: `${names.length} program(s), no hand-parsed JSONL.`,

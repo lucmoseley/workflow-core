@@ -272,7 +272,9 @@ describe("what will not read", () => {
 		);
 		const r = run(T0 + DAY, ["--dry-run"]);
 		expect(r.status).toBe(2);
-		expect(r.stderr).toMatch(/^BROKEN: .*mantahostels.*:2 is not JSON/);
+		expect(r.stderr).toMatch(
+			/^BROKEN: .*mantahostels.*:2 is not a JSON object/,
+		);
 	});
 });
 

@@ -12,6 +12,8 @@
  * must not void a run.
  */
 
+const { parseJsonlRow } = require("./jsonl.js");
+
 /* The four phrases mantahostels#689 counted. Kept verbatim: changing the needle changes
  * what the figure means, and the 8.6% / 15% / 95% reference points were all
  * measured with exactly these. */
@@ -48,10 +50,7 @@ function isCompliant(prompt) {
 function extractDispatches(lines) {
 	const seen = new Set();
 	const out = [];
-	for (const line of lines) {
-		const row = parseRow(line);
-		const content = row?.message?.content;
-		if (!Array.isArray(content)) continue;
+	for (const { row, content } of messageRows(lines)) {
 		for (const block of content) {
 			if (!isDispatch(block)) continue;
 			const id = block.id;
@@ -68,17 +67,18 @@ function extractDispatches(lines) {
 }
 
 /**
- * One JSONL row parsed, or null where it is empty or half-written — not a
- * reason to abandon the corpus.
- *
- * @param {string} line
+ * Each row of `lines` carrying message content, with that content.
+ * @param {Iterable<string>} lines
+ * @returns {Generator<{ row: { timestamp: string }, content: any[] }>}
  */
-function parseRow(line) {
-	if (!line) return null;
-	try {
-		return JSON.parse(line);
-	} catch {
-		return null;
+function* messageRows(lines) {
+	for (const line of lines) {
+		const row =
+			/** @type {{ timestamp: string, message?: { content?: unknown } } | null | undefined} */ (
+				parseJsonlRow(line)
+			);
+		const content = row?.message?.content;
+		if (row && Array.isArray(content)) yield { row, content };
 	}
 }
 

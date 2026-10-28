@@ -623,7 +623,21 @@ describe("refusals", () => {
 		const { code, stderr } = run(r, ["--dry-run"]);
 		expect(code).toBe(2);
 		expect(stderr).toContain(
-			"BROKEN: docs/data/arch-scan-runs.jsonl:1 is not JSON",
+			"BROKEN: docs/data/arch-scan-runs.jsonl:1 is not a JSON object",
+		);
+	});
+
+	it("is BROKEN on a torn last line, rather than reading the run before it as the newest", () => {
+		const r = repo();
+		fs.mkdirSync(path.join(r.root, "docs", "data"), { recursive: true });
+		fs.writeFileSync(
+			path.join(r.root, "docs", "data", "arch-scan-runs.jsonl"),
+			'{"at":"2026-01-01T00:00:00Z"}\n{"at":',
+		);
+		const { code, stderr } = run(r, ["--dry-run"]);
+		expect(code).toBe(2);
+		expect(stderr).toContain(
+			"BROKEN: docs/data/arch-scan-runs.jsonl:2 is not a JSON object",
 		);
 	});
 });
@@ -823,7 +837,7 @@ describe("the daily filing run", () => {
 					"{not json\n",
 				);
 			},
-			"docs/data/arch-scan-runs.jsonl:1 is not JSON",
+			"docs/data/arch-scan-runs.jsonl:1 is not a JSON object",
 		],
 		[
 			"a gh failure",

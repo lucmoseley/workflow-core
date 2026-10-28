@@ -12,6 +12,7 @@ const fs = require("node:fs");
 
 const store = require("./arbiter-store");
 const { findTranscript } = require("./transcript");
+const { parseJsonlRow } = require("./jsonl.js");
 
 /* A whole-file read is affordable at the handful of Stops a session has. The
  * tail exists so a transcript that grows an order of magnitude cannot make a
@@ -120,13 +121,12 @@ function* readWholeLines(fd) {
  * @param {string} line
  */
 function parseStamped(line) {
-	let record;
-	try {
-		record = JSON.parse(line);
-	} catch {
-		return null;
-	}
-	const t = Date.parse(record?.timestamp);
+	const record =
+		/** @type {{ timestamp?: string, attachment?: { hookName?: string } } | null | undefined} */ (
+			parseJsonlRow(line)
+		);
+	if (!record) return null;
+	const t = Date.parse(record.timestamp ?? "");
 	return { record, t: Number.isNaN(t) ? null : t };
 }
 

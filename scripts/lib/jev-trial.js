@@ -66,6 +66,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const jevLog = require("./jev-log.js");
+const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 
 /**
@@ -168,7 +169,7 @@ function inTrial(ms) {
 function readVerdicts(root) {
 	/** @type {Map<string, VerdictLine>} */
 	const byHash = new Map();
-	for (const line of jevLog.readJsonl(verdictsPath(root))?.lines ?? []) {
+	for (const line of readJsonl(verdictsPath(root))?.rows ?? []) {
 		if (typeof line.messageHash !== "string") continue;
 		if (!VERDICTS.includes(String(line.verdict))) continue;
 		byHash.set(line.messageHash, /** @type {VerdictLine} */ (line));

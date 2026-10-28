@@ -34,6 +34,7 @@ const hookBlock = require("./lib/hook-block.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const jevLog = require("./lib/jev-log.js");
+const { readJsonl } = require("./lib/jsonl.js");
 const jevTrial = require("./lib/jev-trial.js");
 
 const USAGE =
@@ -59,7 +60,7 @@ function readFlaggedTurns(root) {
 	/** @type {Record<string, unknown>[]} */
 	const all = [];
 	for (const file of [jevLog.previousLogPath(root), jevLog.logPath(root)])
-		all.push(...(jevLog.readJsonl(file)?.lines ?? []));
+		all.push(...(readJsonl(file)?.rows ?? []));
 	const trial = new Set(jevTrial.sessionsInTrial(all));
 	const limb1Window = new Set(jevTrial.limb1WindowSessions(all));
 	const limb2Window = new Set(jevTrial.limb2WindowSessions(all));
