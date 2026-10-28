@@ -287,11 +287,28 @@ describe("classifyCheckStaged", () => {
 			"holds more than",
 			`'${BIOME_STAGED_COMMAND} --verbose' for the Biome part`,
 		],
-		[
-			"quoted program name",
+		...[
 			'"biome" check --staged',
-			'runs Biome through ""biome""',
-			'bare "biome check --staged …" script',
+			'biome check "--staged"',
+			"biome check '--staged'",
+			"biome check \\--staged",
+			"biome 'check' --staged",
+			"biome check $'--staged'",
+			'biome $"check" --staged',
+			"biome check \\\n--staged",
+			// A quoted flag that would otherwise map is refused, not unquoted.
+			'biome check --staged "--verbose"',
+		].map((script) => [
+			`quoted or backslashed word: ${JSON.stringify(script)} (#3414)`,
+			script,
+			"quotes or backslash-escapes a word",
+			"Declare check_staged with every word unquoted and unescaped.",
+		]),
+		[
+			"quoted word in a composite, the Biome part mapped unquoted (#3414)",
+			'biome check "--staged" "--verbose" && tsc',
+			"holds more than",
+			`'${BIOME_STAGED_COMMAND} --verbose' for the Biome part`,
 		],
 		[
 			"empty value",

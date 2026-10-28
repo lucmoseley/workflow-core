@@ -306,6 +306,17 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		expect(ran("check_staged")).toBe(false);
 	});
 
+	it.each(["b\\iome check --staged", "bi''ome check --staged"])(
+		"refuses %s, whose quoting hides the word biome, before it runs (#3414)",
+		(command) => {
+			const { run: commit } = biomeFixture(command, declaresBiome("unused"));
+			const { code, out, ran } = commit();
+			expect(code).toBe(1);
+			expect(out).toContain("quotes or backslash-escapes a word");
+			expect(ran("check_staged")).toBe(false);
+		},
+	);
+
 	it("runs a biome-staged.js command unclassified", () => {
 		const { root } = biomeFixture(MAPPED);
 		withoutClassifier(root);

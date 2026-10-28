@@ -187,21 +187,37 @@ const BIOME_STAGED_COMMAND = 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js';
  * hunks; biome-staged.js lints the index's (#2429, #2540). A command segment
  * runs it where a `biome check` carries `--staged`. */
 const SEGMENT = /&&|\|\||[;|\n]|(?<![<>])&(?!>)/;
-const BIOME_CHECK =
-	/(?:^|[\s/"'(])(?:@biomejs\/)?biome(?:@\S*)?["']?\s+check(?=\s|$)/;
-const STAGED = /(?:^|\s)--staged(?=[\s="')]|$)/;
+const BIOME_CHECK = /(?:^|[\s/])(?:@biomejs\/)?biome(?:@\S*)?\s+check(?=\s|$)/;
+const STAGED = /(?:^|\s)--staged(?=[\s=]|$)/;
 /* Anything that makes the text more than one command (#2599). */
 const COMPOSITE = /[;&|<>()\n`]/;
 const PINNED = /(?:^|\s)(?:@biomejs\/)?biome@/;
 /* What a segment sheds before it is searched for `biome check --staged`, and
  * a composite's Biome part before it is mapped: a redirect with its target, a
- * subshell's or substitution's brackets, and a group's braces. Either may
- * touch a word with no space between (#3153, #3191). Residual: a quoted
- * target or a here-string is left behind, to be read as a path. */
+ * subshell's or substitution's brackets, a group's braces, and quoting, a
+ * quoted span's spaces joined so it stays one word. Each may touch a word
+ * with no space between (#3153, #3191, #3414). Residual: a quoted redirect
+ * target holding a space, or a here-string, is left behind, to be read as a
+ * path. */
 const REDIRECT = /(?:(?<![^\s(`])\d+)?(?:&>>?|[<>]&|>>?|<)\s*[^\s()`]*/g;
-const SUBSHELL = /\$?[()`]|(?<!\S)[{}](?!\S)/g;
+const BRACKETING = /\$?[()`]|(?<!\S)[{}](?!\S)/g;
+const QUOTED_SPAN = /\$?"([^"]*)"|\$?'([^']*)'/g;
+const QUOTING = /\$?["']|\\/g;
+/* A backslash-newline, read as the space it joins. */
+const CONTINUATION = /\\\n/g;
+/** A quoted span's own commands, which a runner such as `concurrently` runs.
+ * @param {string} text */
+const quotedCommands = (text) =>
+	[...text.matchAll(QUOTED_SPAN)].flatMap((m) =>
+		(m[1] ?? m[2] ?? "").split(SEGMENT),
+	);
 /** @param {string} segment */
-const shed = (segment) => segment.replace(REDIRECT, " ").replace(SUBSHELL, " ");
+const shed = (segment) =>
+	segment
+		.replace(REDIRECT, " ")
+		.replace(BRACKETING, " ")
+		.replace(QUOTED_SPAN, (_, d, q) => (d ?? q).replace(/\s/g, "_"))
+		.replace(QUOTING, "");
 
 /* The names that find the `biome` the hook puts on PATH from
  * `node_modules/.bin` (#2597 §7), as the words before `check`, bare or after
@@ -453,6 +469,25 @@ function mapBiome(text, biome) {
 }
 
 /**
+ * mapBiome on a command as written, which is refused, not unquoted, where it
+ * quotes or escapes a word: split on spaces, a quoted word cannot be judged
+ * against the allowlist (#3414). A composite's Biome part is mapped from its
+ * shed, unquoted segment instead.
+ * @param {string} text
+ * @param {boolean} biome
+ * @returns {MappedCommand | Unmapped}
+ */
+function mapAsWritten(text, biome) {
+	if (text.search(QUOTING) >= 0)
+		return {
+			shape:
+				"quotes or backslash-escapes a word, which this classifier cannot judge against biome-staged.js's allowlist",
+			wayOut: declareCheckStaged("with every word unquoted and unescaped"),
+		};
+	return mapBiome(text, biome);
+}
+
+/**
  * How a `check_staged` command that runs `biome check --staged` — itself or
  * through a `package.json` script it runs — becomes biome-staged.js (#2731):
  * `none` where it runs no such command; `mapped`, with a note where a write
@@ -474,7 +509,9 @@ function classifyCheckStaged(root, command, { inferred }) {
 		/** @param {string} text @param {Hop[]} hops */
 		(text, hops) => {
 			const segment = unrun(text)
+				.replace(CONTINUATION, " ")
 				.split(SEGMENT)
+				.concat(quotedCommands(text))
 				.map(shed)
 				.find((s) => {
 					const m = BIOME_CHECK.exec(s);
@@ -505,7 +542,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 		kind: /** @type {const} */ ("refused"),
 		refusal: `runs biome check --staged${via}, which lints each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), and ${shape}. ${wayOut}`,
 	});
-	if (!single || COMPOSITE.test(hit.text.trim())) {
+	if (!single || COMPOSITE.test(hit.text.replace(CONTINUATION, " ").trim())) {
 		const part = mapBiome(hit.segment, biome);
 		return refused(
 			"holds more than that one command",
@@ -514,7 +551,7 @@ function classifyCheckStaged(root, command, { inferred }) {
 			),
 		);
 	}
-	const mapped = mapBiome(hit.text, biome);
+	const mapped = mapAsWritten(hit.text, biome);
 	if (!("command" in mapped)) return refused(mapped.shape, mapped.wayOut);
 	if (!inferred)
 		return refused(
