@@ -21,7 +21,7 @@ const fs = require("node:fs");
 const nodePath = require("node:path");
 const os = require("node:os");
 const { parseErrLine } = require("./gh");
-const { caught } = require("./caught.js");
+const { readMachineSetting } = require("./machine-setting.js");
 const { readEnvironVar } = require("./proc-environ.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -272,7 +272,7 @@ function readDeclaredMb(key, fallback, root) {
 
 /**
  * The working sessions this machine keeps over the p95 pricing: the integer in
- * `~/.claude/session-floor`, host configuration like `~/.claude/refill-seats`
+ * `~/.claude/session-floor`, a machine setting like `~/.claude/refill-seats`
  * since every repo's sessions share the machine, or `WFC_SESSION_FLOOR` in its
  * place, the suite's injection point. A stopgap the founder
  * ruled on 22 Oct 2026, removed when #2495's spec lands (#2501).
@@ -283,30 +283,18 @@ function readDeclaredMb(key, fallback, root) {
  * @returns {SessionFloor}
  */
 function readDeclaredSessionFloor() {
-	const file = nodePath.join(
-		process.env.HOME || os.homedir(),
-		".claude",
+	const { text, source, problem } = readMachineSetting(
 		"session-floor",
+		"WFC_SESSION_FLOOR",
 	);
-	const env = process.env.WFC_SESSION_FLOOR;
-	let text;
-	if (env === undefined) {
-		try {
-			text = fs.readFileSync(file, "utf8");
-		} catch (e) {
-			if (caught(e).code === "ENOENT") return { sessions: 0 };
-			return { sessions: 0, problem: `${file}: ${parseErrLine(e)}` };
-		}
-	} else {
-		if (env === "") return { sessions: 0 };
-		text = env;
-	}
+	if (text === undefined)
+		return problem ? { sessions: 0, problem } : { sessions: 0 };
 	const n = Number(text.trim());
 	if (text.trim() !== "" && Number.isInteger(n) && n >= 0)
 		return { sessions: n };
 	return {
 		sessions: 0,
-		problem: `${env === undefined ? file : "WFC_SESSION_FLOOR"} holds ${JSON.stringify(text.trim())}, not a non-negative integer`,
+		problem: `${source} holds ${JSON.stringify(text.trim())}, not a non-negative integer`,
 	};
 }
 

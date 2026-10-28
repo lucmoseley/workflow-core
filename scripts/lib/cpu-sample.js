@@ -33,6 +33,7 @@
 
 const fs = require("node:fs");
 const os = require("node:os");
+const { readMachineSetting } = require("./machine-setting.js");
 
 /*
  * The eight fields of `/proc/stat`'s aggregate `cpu` line, in kernel order.
@@ -203,30 +204,22 @@ function loadCeiling(cores = os.cpus()?.length || 0, env = process.env) {
 }
 
 /**
- * The ceiling override: `WFC_LOAD_CEILING` where set, else the host file's
- * text. An empty variable is no override and skips the file. No file is no override; a file that will not read, or holds no
- * number, keeps the default and `problem` says why (#3223).
+ * The ceiling override's text, or no override. A file that will not read, or
+ * text that holds no number, keeps the default and `problem` says why (#3223).
  *
  * @param {NodeJS.ProcessEnv} env
  * @returns {{text?: string, problem?: string}}
  */
 function readLoadCeilingOverride(env) {
-	if (env.WFC_LOAD_CEILING !== undefined) return { text: env.WFC_LOAD_CEILING };
-	/* The live environment falls back to the account's home, as the session
-	 * floor does; an injected one names its own or reads no file. */
-	const home = env.HOME || (env === process.env ? os.homedir() : "");
-	if (!home) return {};
-	const file = `${home}/.claude/load-ceiling`;
-	let text;
-	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (e) {
-		if (/** @type {NodeJS.ErrnoException} */ (e).code === "ENOENT") return {};
-		return { problem: `${file}: ${/** @type {Error} */ (e).message}` };
-	}
+	const { text, source, problem } = readMachineSetting(
+		"load-ceiling",
+		"WFC_LOAD_CEILING",
+		env,
+	);
+	if (text === undefined) return problem ? { problem } : {};
 	if (Number.isFinite(Number.parseFloat(text))) return { text };
 	return {
-		problem: `${file} holds ${JSON.stringify(text.trim())}, not a number`,
+		problem: `${source} holds ${JSON.stringify(text.trim())}, not a number`,
 	};
 }
 

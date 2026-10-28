@@ -238,6 +238,18 @@ describe("overloadReading — the load ceiling new work waits under (#830)", () 
 		).toBe(24);
 	});
 
+	it("names the problem on an unparseable override", () => {
+		expect(
+			buildOverloadText(
+				overloadReading({
+					load1: 30,
+					cores: 8,
+					env: { WFC_LOAD_CEILING: "lots" },
+				}),
+			),
+		).toMatch(/WFC_LOAD_CEILING holds "lots", not a number/);
+	});
+
 	it("fails open on an unreadable load or uncountable cores", () => {
 		expect(overloadReading({ load1: null, cores: 8, env: {} }).overloaded).toBe(
 			false,
