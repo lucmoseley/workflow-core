@@ -67,8 +67,7 @@ name: roadmap-digest
 #                      pre-commit gate, and could not be: release-plugin.js reads
 #                      the bump from `HEAD:`, so the bump must be committed while
 #                      its tag does not yet exist, and a commit gate would refuse
-#                      every release's own bump commit (#260, which placed it
-#                      here).
+#                      every release's own bump commit (#260).
 #   guard-tests      — no guard test lets a fail-open reach the live log.
 #   git-fixture-identity — no raw git fixture commits without its own identity.
 #   skill-frontmatter — every own skill's frontmatter parses under strict YAML.
