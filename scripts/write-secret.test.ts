@@ -242,7 +242,7 @@ describe("write-secret", () => {
 		const r = run(["K"], SECRET);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(
-			`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.\n`,
+			`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.\n`,
 		);
 		expect(read()).toBe("A=1\n");
 	});
@@ -502,7 +502,7 @@ describe("write-secret", () => {
 			const r = run(["K"], SECRET, host, { [name]: value() });
 			expect(r.status).toBe(1);
 			expect(r.stderr).toBe(
-				`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.\n`,
+				`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.\n`,
 			);
 			expect(read()).toBe("A=1\n");
 		},
@@ -545,7 +545,7 @@ describe("write-secret", () => {
 				const r = bare.run(cwd);
 				expect(r.status).toBe(1);
 				expect(r.stderr).toBe(
-					`write-secret: refused, .env untouched — ${tracked} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.\n`,
+					`write-secret: refused, .env untouched — ${tracked} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.\n`,
 				);
 			}
 			expect(fs.readFileSync(tracked, "utf8")).toBe("A=1\n");
@@ -591,7 +591,7 @@ describe("write-secret", () => {
 		const r = run(["K"], SECRET);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(
-			`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.\n`,
+			`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.\n`,
 		);
 		expect(fs.existsSync(env())).toBe(false);
 		expect(fs.readFileSync(upper, "utf8")).toBe("A=1\n");
@@ -603,7 +603,7 @@ describe("write-secret", () => {
 		const r = run(["K"], SECRET, host, { GIT_LITERAL_PATHSPECS: "1" });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(
-			`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.\n`,
+			`write-secret: refused, .env untouched — ${env()} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.\n`,
 		);
 		expect(read()).toBe("A=1\n");
 	});
@@ -626,7 +626,7 @@ describe("write-secret", () => {
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toBe(
-			`write-secret: refused, .env untouched — ${tracked} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.\n`,
+			`write-secret: refused, .env untouched — ${tracked} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.\n`,
 		);
 		expect(fs.readFileSync(tracked, "utf8")).toBe("A=1\n");
 	});
@@ -635,7 +635,7 @@ describe("write-secret", () => {
 		`write-secret: refused, .env untouched — git could not say whether ${file} is tracked, so the secret might be committed. Check git runs in ${dir}, then re-run.\n`;
 
 	const trackedRefusal = (file: string) =>
-		`write-secret: refused, .env untouched — ${file} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.\n`;
+		`write-secret: refused, .env untouched — ${file} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.\n`;
 
 	/**
 	 * A bare store under `home` tracking `.env` in the work tree `home/w`,
@@ -914,6 +914,27 @@ describe("write-secret", () => {
 			);
 		},
 	);
+
+	it("warns where the project dir is a repository ignoring .env only through info/exclude, nested in an outer one that tracks other files under it, where an inherited XDG_CONFIG_HOME reaches a global excludes file listing .env (#3393)", () => {
+		const outer = path.join(home, "outer");
+		const nested = path.join(outer, "pkg");
+		fs.mkdirSync(nested, { recursive: true });
+		gitInit(outer);
+		fs.writeFileSync(path.join(nested, "a"), "x\n");
+		execFileSync("git", ["add", "pkg"], { cwd: outer, env: isolatedEnv() });
+		initExcluding(nested);
+		const xdg = path.join(home, "xdg");
+		fs.mkdirSync(path.join(xdg, "git"), { recursive: true });
+		fs.writeFileSync(path.join(xdg, "git", "ignore"), ".env*\n");
+		const r = run(["K"], SECRET, nested, {
+			CLAUDE_PROJECT_DIR: nested,
+			XDG_CONFIG_HOME: xdg,
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe(
+			`write-secret: warning — git does not ignore .env in ${nested}, so it could be committed. Add .env and .env.*.tmp to .gitignore.\n`,
+		);
+	});
 
 	it("writes silently where the project dir is a repository ignoring .env only through info/exclude, below a dotfiles repository that tracks nothing under it (#3073)", () => {
 		const proj = path.join(home, "proj");
@@ -1465,6 +1486,24 @@ describe("write-secret", () => {
 		},
 	);
 
+	it.each<[string, (dir: string) => string]>([
+		["XDG_CONFIG_HOME", (dir) => path.join(dir, "git")],
+		["HOME", (dir) => path.join(dir, ".config", "git")],
+	])(
+		"still warns that git does not ignore .env where an inherited %s reaches a global excludes file listing it (#3393)",
+		(name, excludesDir) => {
+			const dir = path.join(home, "other");
+			fs.mkdirSync(excludesDir(dir), { recursive: true });
+			fs.writeFileSync(path.join(excludesDir(dir), "ignore"), ".env*\n");
+			fs.writeFileSync(path.join(host, ".gitignore"), "");
+			const r = run(["K"], SECRET, host, { [name]: dir });
+			expect(r.status).toBe(0);
+			expect(r.stderr).toBe(
+				`write-secret: warning — git does not ignore .env in ${host}, so it could be committed. Add .env and .env.*.tmp to .gitignore.\n`,
+			);
+		},
+	);
+
 	/** A `.env` committed under `host/r`, then the index lost. */
 	const buildLostIndex = () => {
 		const proj = path.join(host, "r");
@@ -1560,13 +1599,72 @@ describe("write-secret", () => {
 		expect(fs.readFileSync(file, "utf8")).toBe("A=1\n");
 	});
 
-	it("writes a .env whose removal is staged with git rm --cached, as the refusal says to (#3080)", () => {
+	/** A committed `.env` whose removal `git rm --cached` staged, and ignored. */
+	const buildStagedUntrack = () => {
 		fs.writeFileSync(env(), "A=1\n");
 		git("add", "-f", ".env");
 		commitAll();
 		git("rm", "-q", "--cached", ".env");
+		fs.writeFileSync(path.join(host, ".gitignore"), ".env\n.env.*.tmp\n");
+	};
+
+	it("refuses a .env HEAD tracks whose removal is staged but not committed, which a git reset or git stash brings back (#3393)", () => {
+		buildStagedUntrack();
+		const r = run(["K"], SECRET);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(trackedRefusal(env()));
+		expect(read()).toBe("A=1\n");
+	});
+
+	it.each<[string, (ref: string) => void]>([
+		["emptied", (ref) => fs.writeFileSync(path.join(host, ".git", ref), "")],
+		["deleted", (ref) => fs.rmSync(path.join(host, ".git", ref))],
+		["deleted with git update-ref -d", (ref) => git("update-ref", "-d", ref)],
+	])(
+		"refuses a .env whose removal is staged where the branch ref is %s, which restoring it from a reflog brings back (#3393)",
+		(_l, damage) => {
+			buildStagedUntrack();
+			damage(git("symbolic-ref", "HEAD").toString().trim());
+			const r = run(["K"], SECRET);
+			expect(r.status).toBe(1);
+			expect(r.stderr).toBe(trackedRefusal(env()));
+			expect(read()).toBe("A=1\n");
+		},
+	);
+
+	it("refuses a .env whose removal is staged under an inherited GIT_REPLACE_REF_BASE swapping HEAD for a commit without it (#3393)", () => {
+		buildStagedUntrack();
+		const head = git("rev-parse", "HEAD").toString().trim();
+		const tree = git("write-tree").toString().trim();
+		const fake = execFileSync(
+			"git",
+			[
+				"-c",
+				"user.name=t",
+				"-c",
+				"user.email=t@t",
+				"commit-tree",
+				tree,
+				"-m",
+				"x",
+			],
+			{ cwd: host, env: isolatedEnv() },
+		)
+			.toString()
+			.trim();
+		git("update-ref", `refs/fake/${head}`, fake);
+		const r = run(["K"], SECRET, host, { GIT_REPLACE_REF_BASE: "refs/fake/" });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toBe(trackedRefusal(env()));
+		expect(read()).toBe("A=1\n");
+	});
+
+	it("writes a .env once its git rm --cached is committed, as the refusal says to (#3393)", () => {
+		buildStagedUntrack();
+		commitAll();
 		const r = run(["K"], SECRET);
 		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
 		expect(read()).toBe(`A=1\nK=${SECRET}\n`);
 	});
 

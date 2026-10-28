@@ -54,6 +54,7 @@
  */
 
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const {
@@ -87,8 +88,12 @@ function refuse(why, status) {
 }
 
 /* A git hook sets GIT_DIR and GIT_INDEX_FILE, so a run under one would ask
- * another repository than the host root's. */
+ * another repository than the host root's. The replace-object pair swaps
+ * the commit HEAD reads for one a plain shell's `git reset` does not restore
+ * (#3393). */
 const REDIRECTS = [
+	"GIT_REPLACE_REF_BASE",
+	"GIT_NO_REPLACE_OBJECTS",
 	"GIT_DIR",
 	"GIT_WORK_TREE",
 	"GIT_INDEX_FILE",
@@ -116,6 +121,33 @@ const PATHSPEC_MODES = [
  */
 function isConfigInjection(name) {
 	return /^GIT_CONFIG(_|$)/.test(name) && name !== "GIT_CONFIG_NOSYSTEM";
+}
+
+/**
+ * `env` with git's global config and excludes read where a shell the real
+ * user commits from reads them: XDG_CONFIG_HOME dropped and HOME the passwd
+ * entry's home (#3393). Without a passwd entry HOME is dropped too, so no
+ * global exclude applies, which fails toward the warning. No seam redirects
+ * that home, as one a caller could set would silence the warning again.
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
+function buildUserHomeEnv(env) {
+	const rest = buildEnvWithout(
+		env,
+		(n) => isConfigInjection(n) || n === "XDG_CONFIG_HOME" || n === "HOME",
+	);
+	const home = readPasswdHome();
+	return home ? { ...rest, HOME: home } : rest;
+}
+
+/** The passwd entry's home, or null where there is none (#3393). */
+function readPasswdHome() {
+	try {
+		return os.userInfo().homedir || null;
+	} catch {
+		return null;
+	}
 }
 
 /**
@@ -263,32 +295,30 @@ function buildPinnedQuery(dir) {
 }
 
 /**
- * buildHostQueries less injected config: an exclude it injects is one a
- * shell without it would not apply (#3063). And a pinned query per `.git`
- * above `root` whose index holds entries under it: git descends into a
- * directory it tracks files in even where that directory holds a repository
- * of its own, so `add -A` there stages a `.env` only the nested one ignores
- * (#3073). One that says it tracks nothing under `root`, a dotfiles `~/.git`
- * above every project, never descends, so it is not asked; one that cannot
- * say is, failing toward the warning.
+ * buildHostQueries, plus a pinned query per `.git` above `root` whose index
+ * holds entries under it: git descends into a directory it tracks files in
+ * even where that directory holds a repository of its own, so `add -A` there
+ * stages a `.env` only the nested one ignores (#3073). One that says it
+ * tracks nothing under `root`, a dotfiles `~/.git` above every project, never
+ * descends, so it is not asked; one that cannot say is, failing toward the
+ * warning. Each runs less injected config, its global config read from the
+ * passwd home (#3063, #3393).
  * @param {string} root
  * @returns {GitQuery[]}
  */
 function buildIgnoredQueries(root) {
-	const host = buildHostQueries(root).map((q) => ({
-		...q,
-		env: buildEnvWithout(q.env, isConfigInjection),
-	}));
+	const host = buildHostQueries(root);
 	const outer = readGitEntryDirs(root)
 		.filter((d) => d !== root && isRepoEntry(d))
 		.map(buildPinnedQuery)
-		.filter((q) => {
-			const indexLost = isIndexMissing(q);
-			return buildSpellings(q, root, "").some(
-				(named) => isTrackedBy(q, root, named, indexLost) !== false,
-			);
-		});
-	return host.concat(outer);
+		.filter((q) =>
+			buildSpellings(q, root, "").some(
+				(named) => isTrackedBy(q, root, named) !== false,
+			),
+		);
+	return host
+		.concat(outer)
+		.map((q) => ({ ...q, env: buildUserHomeEnv(q.env) }));
 }
 
 /**
@@ -502,13 +532,14 @@ const NULL_OID = /^0+$/;
 /**
  * The commit the newest entry of reflog `log` moved to, or from where that
  * move deleted the ref: none where the reflog is absent or holds no entry,
- * or the deleted ref was unborn; null where git cannot name it or it cannot
- * be read.
+ * the deleted ref was unborn, or `deletedOnly` asks and the move deleted
+ * nothing; null where git cannot name it or it cannot be read.
  * @param {GitQuery} query
  * @param {string} log
+ * @param {boolean} [deletedOnly]
  * @returns {string[] | null}
  */
-function readReflogTip(query, log) {
+function readReflogTip(query, log, deletedOnly = false) {
 	const p = resolveGitPath(query, log);
 	if (p === null) return null;
 	/** @type {string} */
@@ -522,37 +553,48 @@ function readReflogTip(query, log) {
 	if (last === "") return [];
 	const [from, to] = last.split(" ");
 	if (from === undefined || to === undefined) return null;
-	if (!NULL_OID.test(to)) return [to];
+	if (!NULL_OID.test(to)) return deletedOnly ? [] : [to];
 	return NULL_OID.test(from) ? [] : [from];
 }
 
 /**
  * The commits HEAD would be restored to, or null where git cannot name one.
- * A HEAD that resolves is its commit; one that does not is the tip of each
- * of HEAD's and its branch's reflogs, as restoring a lost ref takes it from
- * there, and none where neither has one: an unborn branch. An orphan has
- * the tip of the branch it left, as checking it out logs no move. A git
- * older than 2.45 echoes `--show-ref-format` back, and knows no other format.
+ * A HEAD that resolves is its commit; one that does not is the tip of its
+ * branch's reflog and of HEAD's, as restoring a lost ref takes it from
+ * there, and none where none has one: an unborn branch. Without `headLog`,
+ * HEAD's counts only where its newest entry deleted the ref, which
+ * `update-ref -d` logs there alone: an orphan has the tip of the branch it
+ * left in HEAD's reflog, as checking it out logs no move. `--no-recurse`
+ * names a branch whose ref is emptied, and without HEAD's reflog a branch it
+ * cannot name is null. A git older than 2.45 echoes `--show-ref-format`
+ * back, and knows no other format.
  * Residual: reftable keeps no reflog files, so its unresolved HEAD is null,
  * and a project dir in a reftable repository whose HEAD is unborn, fresh
  * from `git init` before its first `git add` writes an index among them,
  * refuses as git could not say (#3100, #3098). git's own reflog commands
- * cannot stand in, as they refuse a reflog whose ref is lost.
+ * cannot stand in, as they refuse a reflog whose ref is lost. And a current
+ * branch deleted from another worktree, which logs the deletion in that
+ * worktree's HEAD reflog alone, leaves reflogs no read tells from an
+ * orphan's, so it reads as unborn (#3393).
  * @param {GitQuery} query
+ * @param {boolean} [headLog]
  * @returns {string[] | null}
  */
-function readHeadCommits(query) {
+function readHeadCommits(query, headLog = true) {
 	const head = readGitOutput(query, ["rev-parse", "--verify", "-q", "HEAD"]);
 	if (head !== null) return [head];
 	const format = readGitOutput(query, ["rev-parse", "--show-ref-format"]);
 	if (format !== "files" && format !== "--show-ref-format") return null;
-	const reflogs = ["logs/HEAD"];
-	const ref = readGitOutput(query, ["symbolic-ref", "-q", "HEAD"]);
-	if (ref !== null) reflogs.push(`logs/${ref}`);
+	const reflogs = [{ log: "logs/HEAD", deletedOnly: !headLog }];
+	const ref =
+		readGitOutput(query, ["symbolic-ref", "-q", "--no-recurse", "HEAD"]) ??
+		readGitOutput(query, ["symbolic-ref", "-q", "HEAD"]);
+	if (ref !== null) reflogs.push({ log: `logs/${ref}`, deletedOnly: false });
+	else if (!headLog) return null;
 	/** @type {string[]} */
 	const commits = [];
-	for (const log of reflogs) {
-		const tip = readReflogTip(query, log);
+	for (const { log, deletedOnly } of reflogs) {
+		const tip = readReflogTip(query, log, deletedOnly);
 		if (tip === null) return null;
 		commits.push(...tip);
 	}
@@ -727,12 +769,16 @@ function hasLostSubmodule(query, root) {
  * reads as untracked only where isOutsideAnyRepo says so. Any other 128 (a
  * corrupt index, dubious ownership) and anything else, git missing included,
  * is null: FAILS CLOSED (#640 review, #2777).
- * A LOST INDEX (#3080) hides what HEAD tracks and a `git reset` brings back,
- * so where it is lost `--with-tree=HEAD` counts HEAD's files too; a staged
- * `git rm --cached` keeps the index, as its commit removes the file. A HEAD
- * git cannot resolve counts the commits its and its branch's reflogs would
- * restore a lost or emptied branch ref to, and reads as unborn only where
- * neither has one (#3098).
+ * HEAD'S FILES COUNT TOO (#3393): what HEAD tracks, a `git reset` or `git
+ * stash` puts back, past a lost index (#3080) or an uncommitted `git rm
+ * --cached`. A HEAD git cannot resolve counts the commit its branch's reflog
+ * would restore a lost or emptied branch ref to, and where the index is lost
+ * too HEAD's reflog's, reading as unborn only where none has one (#3098,
+ * #3393): HEAD's reflog tip on a new orphan branch is the branch it left.
+ * Residual: a `git reset HEAD~` past the commit that untracked `.env` tracks
+ * it again, which no check short of every commit sees; the rotate advice
+ * covers its history. Nor is a `git stash --all`, which stores an ignored
+ * `.env` in `refs/stash`.
  * CASE-BLIND (#3063): on a case-insensitive filesystem a tracked `.ENV`, or
  * `.env` under a directory or work tree spelled in another case, is the file
  * a write to `.env` lands in. The pathspec's `icase` covers the path inside
@@ -740,19 +786,24 @@ function hasLostSubmodule(query, root) {
  * @param {GitQuery} query
  * @param {string} root
  * @param {string} file
- * @param {boolean} indexLost
  * @returns {boolean | null}
  */
-function isTrackedBy(query, root, file, indexLost) {
-	const r = runLsFiles(query, file, indexLost ? "HEAD" : null);
+function isTrackedBy(query, root, file) {
+	const r = runLsFiles(query, file, "HEAD");
 	if (r.status === 0) return true;
 	if (r.status === 1) return false;
 	if (
-		indexLost &&
 		r.status === 128 &&
 		r.stderr.startsWith("fatal: tree-ish HEAD not found")
-	)
-		return isTrackedInRestoredHead(query, file);
+	) {
+		const indexLost = isIndexMissing(query);
+		if (!indexLost) {
+			const staged = runLsFiles(query, file, null);
+			if (staged.status === 0) return true;
+			if (staged.status !== 1) return null;
+		}
+		return isTrackedInRestoredHead(query, file, indexLost);
+	}
 	if (
 		r.status === 128 &&
 		(isOutsideAnyRepo(query, root, r.stderr) ||
@@ -788,10 +839,11 @@ function runLsFiles(query, file, tree) {
  * as packed-refs or ORIG_HEAD may restore an older commit that tracks it.
  * @param {GitQuery} query
  * @param {string} file
+ * @param {boolean} headLog
  * @returns {boolean | null}
  */
-function isTrackedInRestoredHead(query, file) {
-	const commits = readHeadCommits(query);
+function isTrackedInRestoredHead(query, file, headLog) {
+	const commits = readHeadCommits(query, headLog);
 	if (commits === null) return null;
 	if (commits.length === 0) return false;
 	return commits.some((c) => runLsFiles(query, file, c).status === 0)
@@ -834,10 +886,7 @@ function isTracked(root, file) {
 	const answers = buildTrackedQueries(root).flatMap((q) => {
 		if (q.kind === "pinned" && !isPinHeld(q)) return [null];
 		if (hasLostSubmodule(q, root)) return [null];
-		const indexLost = isIndexMissing(q);
-		return buildSpellings(q, root, file).map((f) =>
-			isTrackedBy(q, root, f, indexLost),
-		);
+		return buildSpellings(q, root, file).map((f) => isTrackedBy(q, root, f));
 	});
 	if (answers.includes(true)) return true;
 	return answers.includes(null) ? null : false;
@@ -1068,7 +1117,7 @@ function main(argv) {
 	}
 	if (tracked) {
 		return refuse(
-			`${envPath} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env) and ignore it first.`,
+			`${envPath} is tracked by git, so a secret written there would be committed. Untrack it (git rm --cached .env, then commit that) and ignore it first.`,
 			1,
 		);
 	}
