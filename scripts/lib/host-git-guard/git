@@ -20,13 +20,30 @@
 # `PATH`; a write that is no git call, such as `: > .git/refs/heads/main`;
 # a subcommand alias; `clone`, and `init` without `--separate-git-dir`.
 
-# The next `git` on `PATH` after this one. `-ef`, not the path string, so a
-# second spelling of this directory is still skipped.
+# The next `git` on `PATH` AFTER this one, skipping any other checkout's copy
+# of this guard; only where this one is not on `PATH` the first that is no
+# guard. Never one ahead of it (#3400): a fake there that takes `command -v
+# git` as its real git execs this guard, and the two called each other until
+# the fork chain filled the WSL init's pids cap. `-ef`, not the path string, so
+# a second spelling of this directory is still skipped.
 real=
+before=
+mine=
 IFS=: read -ra dirs <<<"$PATH"
 for d in "${dirs[@]}"; do
-  [[ -x "$d/git" && ! "$d/git" -ef "${BASH_SOURCE[0]}" ]] && real="$d/git" && break
+  [[ -x "$d/git" ]] || continue
+  if [[ "$d/git" -ef "${BASH_SOURCE[0]}" ]]; then
+    mine=1
+  elif [[ "${d%/}" == */host-git-guard ]]; then
+    continue
+  elif [[ -n "$mine" ]]; then
+    real="$d/git"
+    break
+  else
+    before="${before:-$d/git}"
+  fi
 done
+[[ -n "$mine" ]] || real="$before"
 [[ -n "$real" ]] || {
   echo "host-git-guard: no git on PATH after this one" >&2
   exit 127 # the shell's status for a command not found

@@ -237,6 +237,51 @@ describe("the host and the real git, unnamed", () => {
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout.trim()).toBe(head(host));
 	});
+
+	/*
+	 * A LOOP HERE NEVER FORKS (#3400): each git below `exec`s, so a regression
+	 * spins one pid, which the spawn's timeout kills.
+	 */
+	const resolves = (dirs: string[]) => {
+		const r = spawnSync(SHIM, ["rev-parse", "HEAD"], {
+			cwd: host,
+			encoding: "utf8",
+			timeout: 10_000,
+			env: {
+				...process.env,
+				WFC_HOST_GIT_DIR: hostCommon,
+				PATH: [...dirs, process.env.PATH].join(path.delimiter),
+			},
+		});
+		expect(
+			r.error,
+			"the shim and a git on PATH called each other",
+		).toBeUndefined();
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stdout.trim()).toBe(head(host));
+	};
+
+	it("never takes a git ahead of it on PATH that execs the shim back (#3400)", () => {
+		const fake = path.join(dir, "fake-git");
+		fs.mkdirSync(fake, { recursive: true });
+		fs.writeFileSync(
+			path.join(fake, "git"),
+			`#!/bin/sh\nexec "${SHIM}" "$@"\n`,
+			{
+				mode: 0o755,
+			},
+		);
+		resolves([fake, path.dirname(SHIM)]);
+	});
+
+	it("skips another checkout's copy of the shim, either side of it (#3400)", () => {
+		const copy = path.join(dir, "checkout-b", "host-git-guard");
+		fs.mkdirSync(copy, { recursive: true });
+		fs.copyFileSync(SHIM, path.join(copy, "git"));
+		fs.chmodSync(path.join(copy, "git"), 0o755);
+		resolves([path.dirname(SHIM), copy]);
+		resolves([copy, path.dirname(SHIM)]);
+	});
 });
 
 describe("the suite's wiring in vitest.setup.ts", () => {
