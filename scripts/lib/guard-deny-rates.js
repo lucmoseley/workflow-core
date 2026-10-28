@@ -16,7 +16,10 @@
  * deny-capable set from each script's own source (`lib/deny-capable.js`), so a
  * guard added after the census joins that set with no edit anywhere — and this
  * table lags it by design. `guard-npm-install.js` is in that position:
- * deny-capable, no row.
+ * deny-capable, no row. So is `guard-dispatch.js`: the census priced the
+ * issue-body, issue-close, issue-create-label and issue-phase-scope guards as
+ * entries of their own, and those figures do not price the dispatcher that
+ * now runs them as cores.
  *
  * NOTHING DETECTS STALENESS AUTOMATICALLY. The signal is the report itself: a
  * guard printed as "deny rate unknown" is a guard this table has not been
@@ -43,34 +46,6 @@ const WORTH_REPLAYING_PCT = 1;
 
 /** @type {Record<string, Rate>} */
 const RATES = {
-	"guard-issue-body.js": {
-		denies: 16,
-		population: 16_057,
-		pct: 0.0996,
-		lowPct: 0.06,
-		highPct: 0.16,
-	},
-	"guard-issue-close.js": {
-		denies: 255,
-		population: 16_057,
-		pct: 1.588,
-		lowPct: 1.41,
-		highPct: 1.79,
-	},
-	"guard-issue-create-label.js": {
-		denies: 208,
-		population: 16_057,
-		pct: 1.295,
-		lowPct: 1.13,
-		highPct: 1.48,
-	},
-	"guard-issue-phase-scope.js": {
-		denies: 9,
-		population: 38_601,
-		pct: 0.0233,
-		lowPct: 0.01,
-		highPct: 0.04,
-	},
 	"guard-pull-form.js": {
 		denies: 0,
 		population: 21_952,
