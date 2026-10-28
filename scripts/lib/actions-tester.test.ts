@@ -131,6 +131,24 @@ it("reads a failed run as red, naming its failing jobs and the tree's failing fi
 	});
 });
 
+it("names a failing file from a log whose colour codes gh printed as literal caret text (#3529)", async () => {
+	/* Verbatim from run 40759126911's `--log-failed`, shard 8/8. */
+	const log =
+		"Full suite / Vitest (8/8)\tUNKNOWN STEP\t2026-10-28T20:01:13.4874989Z ^[[41m^[[1m FAIL ^[[22m^[[49m scripts/refill-loop-run.test.ts^[[2m > ^[[22mrun (#2435)^[[2m > ^[[22mends at the tick whose dispatch a stop landed in, recorded explicit";
+	const r = {
+		...reads(
+			[() => [run(1, "failure")]],
+			[{ name: "Full suite / Vitest (8/8)", conclusion: "failure" }],
+			["scripts/refill-loop-run.test.ts"],
+		),
+		failedLogOf: () => log,
+	};
+	expect(await verdictOf(r)).toMatchObject({
+		kind: "red",
+		files: ["scripts/refill-loop-run.test.ts"],
+	});
+});
+
 it("judges the newest run at the sha, never another sha's", async () => {
 	const runs = [
 		run(3, "success", { headSha: OTHER }),

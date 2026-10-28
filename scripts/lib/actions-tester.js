@@ -136,7 +136,8 @@ function runVerdict(sha, reads, after) {
 
 /**
  * `gh run view --log-failed` output as the runner printed it: each line's
- * job, step and timestamp columns dropped.
+ * job, step and timestamp columns dropped, and the escape codes gh prints as
+ * literal `^[[…` text (#3529).
  * @param {string} log
  * @returns {string}
  */
@@ -146,7 +147,8 @@ const stripLogPrefix = (log) =>
 		.map((line) =>
 			line
 				.slice(line.lastIndexOf("\t") + 1)
-				.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, ""),
+				.replace(/^\d{4}-\d\d-\d\dT[\d:.]+Z ?/, "")
+				.replace(/\^\[\[[0-9;]*[A-Za-z]/g, ""),
 		)
 		.join("\n");
 
