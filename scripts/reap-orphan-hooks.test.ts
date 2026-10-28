@@ -15,7 +15,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readRunningHooks } from "./lib/core-hooks.js";
 import { readRegistry } from "./lib/orphan-hooks.js";
-import { makeProcRoot } from "./lib/proc-fake";
+import { makeProcRoot, writeEnviron } from "./lib/proc-fake";
 import { readProcTable, USER_HZ } from "./lib/proc-table.js";
 import {
 	isGroupDead,
@@ -98,6 +98,21 @@ describe("reap-orphan-hooks", () => {
 		expect(res.stdout).toContain("ORPHAN-HOOK (1)");
 		expect(res.stdout).toContain("pid 4242");
 		expect(res.stdout).toContain("nothing was killed or logged");
+	});
+
+	it("names a suite run's process whose wrapper is gone, killing nothing under a fixture root (#3528)", () => {
+		fixture.proc(4250, { argv: "node worker.js" });
+		/* Past any pid_max, so no live process has it. */
+		writeEnviron(fixture.root, 4250, ["WFC_INFLIGHT_OWNER=99999999"]);
+
+		const res = run(["--json"]);
+		const out = JSON.parse(res.stdout) as {
+			outcome: string;
+			orphanRuns: { killed: { pid: number; owner: number }[] };
+		};
+
+		expect(out.outcome).toBe("WARN");
+		expect(out.orphanRuns.killed).toEqual([{ pid: 4250, owner: 99_999_999 }]);
 	});
 
 	it("leaves a hook run inside the ceiling alone, and says nothing under --notify", () => {

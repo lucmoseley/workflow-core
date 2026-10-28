@@ -12,6 +12,11 @@
  *
  * The signature, what a kill takes and why: lib/orphan-hooks.js.
  *
+ * AND EVERY PROCESS OF A SUITE RUN WHOSE WRAPPER IS GONE (#3528): a SIGKILLed
+ * run-vitest.js runs no handler, so its reparented workers live on until a
+ * sweep from outside it (lib/suite-ceiling.js's sweepOrphanedRuns) finds them.
+ * Those kills are named in the session, never logged.
+ *
  * THE REGISTRY IS THE RUNNING HOOKS — the self-plugin's at the core, the
  * plugin's plus the host's settings at an adopter (lib/core-hooks.js) — read
  * fresh each run.
@@ -21,7 +26,7 @@
  * writes its fields). Lines are kept
  * RETAIN_MS. An unwritable log costs the line, never the kill.
  *
- * WFC_PROC REPLACES /proc (lib/proc-environ.js). A run against it names
+ * WFC_PROC REPLACES /proc (lib/proc-root.js). A run against it names
  * what it would kill and kills and logs nothing — unless WFC_REAP_FAKE_ROOT
  * is `kill`, which a test sets to cross the real kill and log against a fake
  * root that links in only its own orphan (#3057).
@@ -34,7 +39,7 @@
  * starts keeps its orphans until one does. A hook's child running a different
  * script, orphaned with its own parent gone, is not matched.
  *
- * IMPLICIT:  at every session start, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; and names each kill in the session.
+ * IMPLICIT:  at every session start, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; and names each kill in the session.
  * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a run that cannot read /proc kills nothing.
  * DEFEAT:    none at the hook; WFC_PROC on a hand run reads a fixture and kills nothing.
  */
@@ -57,7 +62,8 @@ const {
 	readProcTable,
 	readUptime,
 } = require("./lib/proc-table.js");
-const { procRoot } = require("./lib/proc-environ.js");
+const { procRoot } = require("./lib/proc-root.js");
+const { sweepOrphanedRuns } = require("./lib/suite-ceiling.js");
 
 const REAP_LOG = ".orphan-hook-reaps.jsonl";
 /* 30 days, chosen and not measured: a month of incident traces, the span
@@ -146,9 +152,26 @@ runCheck({
 
 		report(ctx, done, { ceilingS, fixture, logFile });
 
+		const runs = sweepOrphanedRuns({
+			proc: root,
+			kill: fixture
+				? () => undefined
+				: (pid, signal) => process.kill(pid, signal),
+		});
+		for (const k of runs.killed)
+			ctx.warn(
+				"ORPHAN-RUN",
+				`pid ${k.pid} — a suite run's process whose wrapper, pid ${k.owner}, is gone, ${fixture ? "not killed (fixture root)" : "killed"}`,
+				k,
+			);
+		if (runs.unkilled)
+			ctx.say(
+				`ORPHAN-RUN: a suite run's process could not be killed: ${runs.unkilled}`,
+			);
+
 		return {
 			okLine: `no orphaned hook run past ${ceilingS}s in ${read.procs.size} process(es).`,
-			noun: "orphaned hook run(s)",
+			noun: "orphaned hook or suite run(s)",
 			data: {
 				reaps: done.map((r) => ({
 					...r,
@@ -156,6 +179,7 @@ runCheck({
 				})),
 				ceilingS,
 				young,
+				orphanRuns: runs,
 				processes: read.procs.size,
 				procRoot: root,
 				log: logFile,

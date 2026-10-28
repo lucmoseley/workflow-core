@@ -43,7 +43,7 @@ const { requiredGroup } = require("./lib/regex-group");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
-const { procRoot } = require("./lib/proc-environ.js");
+const { procRoot } = require("./lib/proc-root.js");
 const { readOwnJob, stopOn } = require("./lib/claude-stop.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 const {

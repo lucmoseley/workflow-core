@@ -105,7 +105,7 @@ const writeRecord = (lines: string[], sustained?: number | null) => {
 		path.join(home, ".claude", "concurrency.jsonl"),
 		lines.join(""),
 	);
-	if (sustained !== undefined) writeSustained({ sustained });
+	if (sustained !== undefined) writeSustained({ sustained, minutesRead: true });
 };
 
 /** The concurrency segment of one render, colour codes stripped. */
@@ -161,6 +161,12 @@ describe("concurrency segment", () => {
 		expect(render()).toBe("Sess loop off · 24h -");
 		writeRecord(['{"at": "2026-'], 2);
 		expect(render()).toBe("Sess loop off · 24h 2.0");
+	});
+
+	it("shows the 24h figure as ? where the minute record did not read (#3531)", () => {
+		writeRecord([tick(MINUTE_MS)]);
+		writeSustained({ sustained: null, minutesRead: false });
+		expect(render()).toMatch(/ · 24h \?$/);
 	});
 
 	it("spawns no node and no claude on a render", () => {

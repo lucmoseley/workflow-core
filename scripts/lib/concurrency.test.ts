@@ -8,13 +8,12 @@ import { describe, expect, it } from "vitest";
 
 const { FULL, NOTHING_LAUNCHABLE } = require("./refill-decide.js");
 const {
+	STALE_MS,
 	buildBlockText,
 	readout,
 	buildTickRecord,
 } = require("./concurrency.js");
 
-/* lib/concurrency.js's silence bound. */
-const STALE_MS = 15 * 60 * 1000;
 const T0 = Date.parse("2026-10-28T00:00:00Z");
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -235,6 +234,18 @@ describe("readout's verdict (#3317)", () => {
 		});
 		expect(buildBlockText(r, () => ({ count: 0, mb: 0 }))).toMatch(
 			/^unreadable: \/x\/concurrency.jsonl — EACCES\nno refill-loop tick recorded$/m,
+		);
+	});
+
+	it("prints the sustained figure unread where the minute record did not read (mantahostels#1206)", () => {
+		const r = readout({
+			ticks: [tickAt(T0, "allowance", [])],
+			minutes: null,
+			now: T0 + MIN,
+			windowMs: 24 * HOUR,
+		});
+		expect(buildBlockText(r, unread)).toMatch(
+			/^sustained: unread over the last 24 h — memwatch's minute record did not read$/m,
 		);
 	});
 
@@ -528,6 +539,58 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		});
 		expect(r.memory?.unlisted).toEqual({ ...unlisted, unknown: null });
 	});
+
+	const noFit = {
+		limit: "memory",
+		why: "admission's verdict carried no slot count or breakdown, so its fit is unknown",
+	};
+	it.each([
+		{
+			name: "no slots",
+			over: { slots: undefined },
+			working: 6,
+			ceiling: null,
+			failing: [noFit],
+		},
+		{
+			name: "no memory slots",
+			over: { memorySlots: undefined },
+			working: 6,
+			ceiling: 7,
+			failing: [noFit],
+		},
+		{
+			name: "no memory breakdown",
+			over: { memory: undefined },
+			working: null,
+			ceiling: null,
+			failing: [noFit],
+		},
+		{
+			name: "no load or CPU reading",
+			over: { load: undefined, cpu: undefined },
+			working: 6,
+			ceiling: 7,
+			failing: [
+				{
+					limit: "CPU",
+					why: "admission's verdict carried no load or CPU reading, so it is unknown",
+				},
+			],
+		},
+	])(
+		"reads a verdict with $name as unknown, never NaN or a throw (#3531)",
+		({ over, working, ceiling, failing }) => {
+			const r = buildTickRecord({
+				input: input(),
+				decision: idle("no free slot"),
+				admission: admission({ slots: 1, ...over }),
+			});
+			expect(r.working).toBe(working);
+			expect(r.ceiling).toBe(ceiling);
+			expect([r.binding, ...r.also].filter(Boolean)).toEqual(failing);
+		},
+	);
 
 	it("records null counts and memory where admission did not read", () => {
 		const r = buildTickRecord({

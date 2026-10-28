@@ -17,7 +17,9 @@ const {
 	DEADLINE_ENV,
 	armCeiling,
 	ceilingMs,
+	OWNER_ENV,
 	killCarrying,
+	sweepOrphanedRuns,
 } = require("./suite-ceiling.js");
 
 const dirs: string[] = [];
@@ -148,4 +150,36 @@ it("reads a process gone before its kill as no failure, and names any other", ()
 	expect(killCarrying("MARK", "x", { proc: path.join(proc, "none") })).toMatch(
 		/will not list/,
 	);
+});
+
+it("SIGKILLs every process but itself whose run's wrapper is gone, and none whose is live (#3528)", () => {
+	const proc = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-proc-"));
+	dirs.push(proc);
+	writeEnviron(proc, 100, ["A=1"]);
+	writeEnviron(proc, 200, [`${OWNER_ENV}=100`]);
+	writeEnviron(proc, 300, [`${OWNER_ENV}=999`]);
+	writeEnviron(proc, 400, [`${OWNER_ENV}=999`]);
+	writeEnviron(proc, 500, [`${OWNER_ENV}=`]);
+	fs.mkdirSync(path.join(proc, "600"));
+	const killed: [number, string][] = [];
+	const swept = sweepOrphanedRuns({
+		proc,
+		self: 400,
+		alive: (pid: number) => pid === 100,
+		kill: (pid: number, signal: string) => killed.push([pid, signal]),
+	});
+	expect(killed).toEqual([[300, "SIGKILL"]]);
+	expect(swept).toEqual({ killed: [{ pid: 300, owner: 999 }], unkilled: null });
+	expect(sweepOrphanedRuns({ proc: path.join(proc, "none") }).unkilled).toMatch(
+		/will not list/,
+	);
+});
+
+it("asks the real process table, not the fixture's listing, whether an owner lives", () => {
+	const proc = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-proc-"));
+	dirs.push(proc);
+	writeEnviron(proc, 300, [`${OWNER_ENV}=${String(process.pid)}`]);
+	const killed: number[] = [];
+	sweepOrphanedRuns({ proc, self: 0, kill: (pid: number) => killed.push(pid) });
+	expect(killed).toEqual([]);
 });

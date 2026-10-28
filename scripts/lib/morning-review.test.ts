@@ -44,7 +44,7 @@ const closed = (number: number, closedAt: string, door?: string) => ({
 const MIN = 60 * 1000;
 
 /** The readout core's 24-hour and 7-day readouts ending at NOW. */
-const concurrencyOver = (ticks: unknown[], minutes: unknown[]) => {
+const concurrencyOver = (ticks: unknown[], minutes: unknown[] | null) => {
 	const r = (windowMs: number) =>
 		readout({ ticks, minutes, now: Date.parse(NOW), windowMs });
 	return { day: r(DAY), week: r(7 * DAY) };
@@ -221,6 +221,25 @@ describe("renderReview (#2011)", () => {
 		expect(body).toContain(
 			"Share of those hours by how many sessions were working:\n\n- 10 or more working: 100%\n",
 		);
+	});
+
+	it("reads the sustained figures and hours unread where the minute record did not read (mantahostels#1206)", () => {
+		const body = renderReview({
+			since: SINCE,
+			now: NOW,
+			previous: 7,
+			repos: [],
+			failed: [],
+			kills: { incidents: [], tickets: new Map(), why: null },
+			concurrency: concurrencyOver([], null),
+		});
+		expect(body).toContain(
+			"- unread over the last 24 h — memwatch's minute record did not read\n- unread over the last 7 days — memwatch's minute record did not read\n",
+		);
+		expect(body).toContain(
+			"Hours by binding limit and their spread: unread, as memwatch's minute record did not read.",
+		);
+		expect(body).not.toContain("No session worked");
 	});
 
 	it("lists still-caught entries by repo, numbered across repos, and counts the clear ones", () => {

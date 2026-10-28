@@ -7,7 +7,6 @@
 
 const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
-const { procRoot } = require("./proc-environ.js");
 const { requiredGroup } = require("./regex-group.js");
 const {
 	WHOLE_SUITE_WORKERS,
@@ -204,7 +203,7 @@ function runningSuites(rows, isOther, carriedOf = () => null) {
  * @param {number | null} pid
  */
 const readCarriedWeightOf = (pid) =>
-	require("./suite-handoff.js").readCarriedWeight(pid, procRoot());
+	require("./suite-handoff.js").readCarriedWeight(pid);
 
 const PS_PID_LINE = /^\s*(\d+)\s(.*)$/;
 

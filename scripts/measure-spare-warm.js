@@ -52,7 +52,7 @@ const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { readParentOf } = require("./lib/proc-stat.js");
-const { procRoot } = require("./lib/proc-environ.js");
+const { procRoot } = require("./lib/proc-root.js");
 
 /** Sampling interval, in ms. Fast enough to resolve a one-second plateau. */
 const SAMPLE_MS = 250;
@@ -123,7 +123,7 @@ function readChildrenOf(pid) {
 	for (const e of entries) {
 		if (!/^\d+$/.test(e)) continue;
 		/* Unread where the process exited between readdir and read. */
-		if (readParentOf(e, procRoot()) === pid) kids.push(Number(e));
+		if (readParentOf(e) === pid) kids.push(Number(e));
 	}
 	return kids;
 }

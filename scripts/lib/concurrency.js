@@ -44,8 +44,7 @@ const STALE_MS = 15 * MINUTE_MS;
 const RETAIN_MS = 28 * DAY_MS;
 /* The status line's and the morning review's sustained window; untraced
  * (#3315). */
-const SUSTAINED_WINDOW_MS = DAY_MS;
-const SUSTAINED_SPAN = "24 h";
+const SUSTAINED_WINDOW = { ms: DAY_MS, span: "24 h" };
 
 const LOOP_OFF = "loop not running";
 /* Where no limit fails: a slot is free and the loop launches into it. */
@@ -82,7 +81,8 @@ const SPREAD_CAP = 10;
  * @returns {{name: string, mb: number}}
  */
 function largestHolder(a) {
-	const m = a.memory;
+	/* A malformed verdict costs its rows, never a throw (#3531). */
+	const m = a.memory ?? {};
 	/** @type {[string, number|null|undefined][]} */
 	const holders = [
 		["the live sessions' p95 draw", a.drawNeedMb],
@@ -153,12 +153,28 @@ function resourceFailing(a) {
 		];
 	/** @type {Failing[]} */
 	const out = [];
-	if (a.memorySlots === 0) {
+	/* A verdict missing a reading binds on it unknown, as unknown is never
+	 * calm (mantahostels#1206). */
+	if (
+		typeof a.slots !== "number" ||
+		typeof a.memorySlots !== "number" ||
+		!a.memory
+	)
+		out.push({
+			limit: "memory",
+			why: "admission's verdict carried no slot count or breakdown, so its fit is unknown",
+		});
+	else if (a.memorySlots === 0) {
 		const top = largestHolder(a);
 		out.push({ limit: "memory", why: `${top.name} holds most (${top.mb} MB)` });
 	}
 	const { load, cpu } = a;
-	if (load.overloaded)
+	if (!load || !cpu)
+		out.push({
+			limit: "CPU",
+			why: "admission's verdict carried no load or CPU reading, so it is unknown",
+		});
+	else if (load.overloaded)
 		out.push({ limit: "CPU", why: `load1 ${load.load1} over ${load.ceiling}` });
 	else if (cpu.full || cpu.slots === 0)
 		out.push({
@@ -191,11 +207,15 @@ function failingAt({ input, decision, admission }) {
 function buildTickRecord(tick) {
 	const { input, admission: a } = tick;
 	const [binding = null, ...also] = failingAt(tick);
-	const working = a?.memory?.working?.count ?? null;
+	const count = a?.memory?.working?.count;
+	const working = typeof count === "number" ? count : null;
 	return {
 		at: new Date(input.now).toISOString(),
 		working,
-		ceiling: a && working !== null ? working + a.slots : null,
+		ceiling:
+			working !== null && typeof a?.slots === "number"
+				? working + a.slots
+				: null,
 		binding,
 		also,
 		memory: a ? buildTickMemory(a) : null,
@@ -246,9 +266,11 @@ function unlistedOf(u) {
 
 /**
  * The time-weighted readout over the `windowMs` before `now`.
- * @param {{ticks: TickRecord[], minutes: MinuteLine[], now: number,
- *   windowMs: number, unreadable?: string[]}} input `unreadable` names
- *   each record that would not read, carried through for the block to print
+ * @param {{ticks: TickRecord[], minutes: MinuteLine[]|null, now: number,
+ *   windowMs: number, unreadable?: string[]}} input `minutes` null where the
+ *   minute record is missing or would not read, so the sustained figure is
+ *   unread; `unreadable` names each record that would not read, carried
+ *   through for the block to print
  */
 function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 	const from = now - windowMs;
@@ -267,7 +289,7 @@ function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 		return last.t.binding?.limit ?? NONE;
 	};
 
-	const lines = minutes
+	const lines = (minutes ?? [])
 		.map((m) => ({ ms: Date.parse(m.ts), sessions: m.sessions }))
 		.filter(({ ms }) => Number.isFinite(ms) && ms <= now)
 		.sort((x, y) => x.ms - y.ms);
@@ -306,6 +328,7 @@ function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 		stale,
 		verdict,
 		also: stale ? [] : (last?.t.also ?? []),
+		minutesRead: minutes !== null,
 		sustained: activeMs > 0 ? weighted / activeMs : null,
 		activeHours: activeMs / HOUR_MS,
 		hours: Object.fromEntries(
@@ -319,14 +342,18 @@ function readout({ ticks, minutes, now, windowMs, unreadable = [] }) {
 
 /**
  * The sustained figure over `span`, as both the status block and the morning
- * review print it.
+ * review print it; unread where the minute record did not read, as unknown is
+ * never calm (mantahostels#1206).
  * @param {ReturnType<typeof readout>} r
  * @param {string} span
  */
-const buildSustainedText = (r, span) =>
-	r.sustained === null
+function buildSustainedText(r, span) {
+	if (!r.minutesRead)
+		return `unread over the last ${span} — memwatch's minute record did not read`;
+	return r.sustained === null
 		? `no session recorded working over the last ${span}`
 		: `${r.sustained.toFixed(1)} over the last ${span} (${r.activeHours.toFixed(1)} h with any session working)`;
+}
 
 /**
  * `npm run status`'s concurrency block.
@@ -352,7 +379,7 @@ function buildBlockText(r, readLive) {
 		lines.push(`memory:    ${largest.name} holds most (${largest.mb} MB)`);
 	const unlisted = buildUnlistedLine(r, readLive);
 	if (unlisted) lines.push(unlisted);
-	lines.push(`sustained: ${buildSustainedText(r, SUSTAINED_SPAN)}`);
+	lines.push(`sustained: ${buildSustainedText(r, SUSTAINED_WINDOW.span)}`);
 	return lines.join("\n");
 }
 
@@ -390,18 +417,18 @@ function concurrencyFiles() {
 }
 
 /**
- * A record's rows, none where it is missing or would not read; a failed read
- * is named in `unreadable`, so the block never prints it as an empty record.
+ * A record's rows, null where it is missing or would not read.
  * @param {string} file
- * @param {string[]} unreadable
- * @returns {Record<string, unknown>[]}
+ * @param {string[]} unreadable accumulator: a failed read is named here, so
+ *   the block never prints it as an empty record
+ * @returns {Record<string, unknown>[]|null}
  */
 function readJsonLines(file, unreadable) {
 	try {
-		return readJsonl(file)?.rows ?? [];
+		return readJsonl(file)?.rows ?? null;
 	} catch (e) {
 		unreadable.push(`${file} — ${caught(e).code ?? caught(e).message}`);
-		return [];
+		return null;
 	}
 }
 
@@ -410,26 +437,34 @@ function readRecords() {
 	/** @type {string[]} */
 	const unreadable = [];
 	return {
+		/* No tick recorded is the loop off, which the verdict names. */
 		ticks: /** @type {TickRecord[]} */ (
-			readJsonLines(files.record, unreadable)
+			readJsonLines(files.record, unreadable) ?? []
 		),
-		minutes: /** @type {MinuteLine[]} */ (
+		minutes: /** @type {MinuteLine[]|null} */ (
 			readJsonLines(files.minutes, unreadable)
 		),
 		unreadable,
 	};
 }
 
+/** @param {ReturnType<typeof readout>} r */
+function buildSustainedFigure(r) {
+	if (!r.minutesRead) return "?";
+	return r.sustained === null ? "-" : r.sustained.toFixed(1);
+}
+
 /**
  * Write the readout's sustained figure to the precomputed file the status
- * line reads, `-` where none is known.
+ * line reads: `-` where no session worked, `?` where the minute record did
+ * not read.
  * @param {ReturnType<typeof readout>} r
  */
 function writeSustained(r) {
 	try {
 		writeFileAtomic(
 			concurrencyFiles().sustained,
-			`${r.sustained === null ? "-" : r.sustained.toFixed(1)}\n`,
+			`${buildSustainedFigure(r)}\n`,
 		);
 	} catch {
 		/* Unwritable: the status line reads a stale figure, never a wrong one. */
@@ -447,7 +482,7 @@ function appendTick(record) {
 		readout({
 			...readRecords(),
 			now: Date.parse(record.at),
-			windowMs: SUSTAINED_WINDOW_MS,
+			windowMs: SUSTAINED_WINDOW.ms,
 		}),
 	);
 	return landed;
@@ -456,8 +491,8 @@ function appendTick(record) {
 module.exports = {
 	NONE,
 	SPREAD_CAP,
-	SUSTAINED_SPAN,
-	SUSTAINED_WINDOW_MS,
+	STALE_MS,
+	SUSTAINED_WINDOW,
 	appendTick,
 	buildBlockText,
 	buildTickRecord,

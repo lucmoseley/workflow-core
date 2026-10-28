@@ -28,9 +28,9 @@ import { buildMeminfo } from "./lib/meminfo-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
+const { STALE_MS } = require("./lib/concurrency.js");
+
 const SCRIPT = path.resolve(__dirname, "concurrency-readout.js");
-/* lib/concurrency.js's silence bound, past which a tick reads stale. */
-const STALE_MS = 15 * 60 * 1000;
 
 let dir: string;
 
@@ -137,10 +137,23 @@ describe("the sustained figure the status line reads (#3498)", () => {
 	});
 
 	it("writes `-` where no session was recorded working", () => {
+		fs.writeFileSync(
+			path.join(dir, "minutes.jsonl"),
+			`${JSON.stringify({ ts: new Date().toISOString(), sessions: 0 })}\n`,
+		);
 		const r = run({ fresh: true });
 		expect(sustainedFile()).toBe("-\n");
 		expect(r.stdout).toMatch(
 			/^sustained: no session recorded working over the last 24 h$/m,
+		);
+		expect(r.status).toBe(0);
+	});
+
+	it("writes `?` and prints unread where the minute record is missing (mantahostels#1206)", () => {
+		const r = run({ fresh: true });
+		expect(sustainedFile()).toBe("?\n");
+		expect(r.stdout).toMatch(
+			/^sustained: unread over the last 24 h — memwatch's minute record did not read$/m,
 		);
 		expect(r.status).toBe(0);
 	});

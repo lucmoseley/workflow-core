@@ -34,6 +34,7 @@
  */
 
 const { readEnvironVar } = require("./proc-environ.js");
+const { procRoot } = require("./proc-root.js");
 const { FULL_REASONS, FULL_CAUSES } = require("./test-pass-marker.js");
 
 const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
@@ -151,7 +152,7 @@ function readLaunch(env = process.env) {
  * @param {string} [proc]
  * @returns {CarriedWeight | null}
  */
-function readCarriedWeight(pid, proc = "/proc") {
+function readCarriedWeight(pid, proc = procRoot()) {
 	if (pid === null) return null;
 	const record = readEnvironVar(pid, LAUNCH_ENV, proc);
 	/* Unreadable (gone, or another user's) or carrying no record (hand-typed):

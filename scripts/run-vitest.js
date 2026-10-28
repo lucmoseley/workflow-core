@@ -108,14 +108,17 @@ const {
 const {
 	CEILING_CLOSE,
 	DEADLINE_ENV,
+	OWNER_ENV,
 	SETTLE_MS,
 	armCeiling,
+	carrierUnkilled,
 	ceilingHeadline,
 	ceilingMs,
 	deadlineUnwritten,
 	groupUnkilled,
 	killCarrying,
 	killGroup,
+	sweepAtStart,
 } = require("./lib/suite-ceiling.js");
 const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
 const {
@@ -376,6 +379,7 @@ function vitestEnv({ inflightFile, timingsFile, plan, launch }) {
 	return {
 		...inherited,
 		[inflight.INFLIGHT_ENV]: inflightFile,
+		[OWNER_ENV]: String(process.pid),
 		[timings.TIMINGS_ENV]: timingsFile,
 		...launchEnv({
 			...launch,
@@ -649,6 +653,11 @@ function runOnce(
 	 * must read only its own. */
 	timings.clear(timingsFile, err);
 	return new Promise((resolve) => {
+		/* A signal to this process would otherwise leave the group running:
+		 * the handlers exit, and the exit kills every group still held. Armed
+		 * before the spawn, so no signal lands between it and them. */
+		armSignals(fs);
+		heldRuns.add(inflightFile);
 		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
 			bin,
@@ -669,12 +678,6 @@ function runOnce(
 		const spawnedAt = Date.now();
 		const spawnedAtMono = performance.now();
 		const machineStart = sampleCpu();
-		/* A signal to this process would otherwise leave the group running:
-		 * the handlers exit, and the exit kills every group still held. */
-		if (child.pid) {
-			armSignals(fs);
-			heldRuns.add(inflightFile);
-		}
 		onSpawn();
 
 		// ENOENT, EACCES: spawn reports these through an `error` event on an
@@ -824,10 +827,7 @@ function runOnce(
 		child.on("exit", (_code, signal) => {
 			if (!signal) return;
 			const unkilled = killCarrying(inflight.INFLIGHT_ENV, inflightFile);
-			if (unkilled)
-				err.write(
-					`a process of this run could not be killed (${unkilled}); it may outlive this report.\n`,
-				);
+			if (unkilled) err.write(carrierUnkilled(unkilled));
 		});
 
 		let settled = false;
@@ -918,7 +918,10 @@ let signalsArmed = false;
  */
 function releaseAndExit(signal, code, queueFs) {
 	for (const logExit of waitingExits) logExit(signal);
-	for (const file of heldRuns) killCarrying(inflight.INFLIGHT_ENV, file);
+	for (const file of heldRuns) {
+		const unkilled = killCarrying(inflight.INFLIGHT_ENV, file);
+		if (unkilled) process.stderr.write(carrierUnkilled(unkilled));
+	}
 	for (const file of heldMarkers) {
 		try {
 			queueFs.unlinkSync(file);
@@ -2513,7 +2516,8 @@ if (require.main === module) {
 	if (refusal) {
 		process.stderr.write(refusal);
 		process.exitCode = 1;
-	} else
+	} else {
+		sweepAtStart();
 		holdForLoad()
 			.then((go) =>
 				go
@@ -2543,6 +2547,7 @@ if (require.main === module) {
 				process.stderr.write(`run-vitest.js crashed: ${error}\n`);
 				process.exitCode = 1;
 			});
+	}
 }
 
 module.exports = { main };

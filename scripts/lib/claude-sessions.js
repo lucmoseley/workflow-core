@@ -24,6 +24,7 @@
 
 const fs = require("node:fs");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
+const { procRoot } = require("./proc-root.js");
 
 /**
  * claude-argv0.js's three shapes, a Windows argv[0]'s backslashes read as
@@ -164,7 +165,7 @@ const isDaemon = (args) =>
  * @param {string} [proc] the /proc to read, `WFC_PROC`'s stand-in in a test
  * @returns {string | null}
  */
-function readProcCwd(pid, proc = "/proc") {
+function readProcCwd(pid, proc = procRoot()) {
 	try {
 		return fs.readlinkSync(`${proc}/${pid}/cwd`);
 	} catch {

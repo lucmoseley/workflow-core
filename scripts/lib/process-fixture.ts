@@ -13,7 +13,7 @@ import { readProcTable } from "./proc-table.js";
 
 /** A process's state letter and process group, or null where it is gone. */
 function readStat(pid: number | string) {
-	const fields = readStatFields(pid);
+	const fields = readStatFields(pid, "/proc");
 	if (!fields) return null;
 	return { state: fields[FIELD.state], pgrp: Number(fields[FIELD.pgrp]) };
 }

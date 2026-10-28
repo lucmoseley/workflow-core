@@ -16,7 +16,7 @@
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const {
-	SUSTAINED_WINDOW_MS,
+	SUSTAINED_WINDOW,
 	buildBlockText,
 	readRecords,
 	readout,
@@ -50,7 +50,7 @@ function readLiveUnlisted() {
 	try {
 		/* Read off any verdict, a refusal included, which also carries
 		 * `memory`. */
-		/** @type {{memory?: {unlisted?: import("./lib/concurrency.js").UnlistedRead}}} */
+		/** @type {Partial<Pick<import("./lib/admission.js").AdmissionJson, "memory">>} */
 		const verdict = JSON.parse(r.stdout);
 		row = verdict.memory?.unlisted;
 	} catch {
@@ -70,7 +70,7 @@ function main() {
 	const r = readout({
 		...readRecords(),
 		now: Date.now(),
-		windowMs: SUSTAINED_WINDOW_MS,
+		windowMs: SUSTAINED_WINDOW.ms,
 	});
 	writeSustained(r);
 	writeFd(1, `${buildBlockText(r, readLiveUnlisted)}\n`);

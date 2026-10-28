@@ -18,12 +18,17 @@
  * AND EVERY PROCESS CARRYING THE RUN'S MARK (#3494). A worker that left the
  * group, its parent dead, is reparented to init where no group kill reaches
  * it.
+ *
+ * AND, FROM OUTSIDE, EVERY PROCESS OF A RUN WHOSE WRAPPER IS GONE (#3528). A
+ * SIGKILLed wrapper runs no handler, so each run's processes carry its pid
+ * too, and `sweepOrphanedRuns` kills those whose owner no longer exists.
  */
 
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readEnvironVar } = require("./proc-environ.js");
+const { procRoot } = require("./proc-root.js");
 
 /* 14 minutes, so bg-run's backstop at the deadline plus 60 s still lands
  * inside #2667's 15. */
@@ -124,8 +129,51 @@ function killGroup(pgid, signal = "SIGKILL") {
 }
 
 /**
+ * SIGKILLs every process but `self` whose environment sets `key` to a value
+ * `doomed` accepts. An environ that will not read is no carrier, and one
+ * already gone is no failure.
+ * @param {string} key
+ * @param {(value: string) => boolean} doomed
+ * @param {{ proc: string, self: number,
+ *   kill: (pid: number, signal: NodeJS.Signals) => unknown }} options
+ * @returns {{ killed: { pid: number, value: string }[], unkilled: string|null }}
+ *   `unkilled` is why a process may still be running, else null
+ */
+function killWhere(key, doomed, { proc, self, kill }) {
+	let names;
+	try {
+		names = fs.readdirSync(proc);
+	} catch (e) {
+		return {
+			killed: [],
+			unkilled: `${proc} will not list: ${caught(e).message}`,
+		};
+	}
+	/** @type {{ pid: number, value: string }[]} */
+	const killed = [];
+	let unkilled = null;
+	for (const name of names) {
+		const pid = Number(name);
+		if (!/^\d+$/.test(name) || pid === self) continue;
+		const read = readEnvironVar(pid, key, proc);
+		if (!read.ok || read.value === null || !doomed(read.value)) continue;
+		try {
+			kill(pid, "SIGKILL");
+			killed.push({ pid, value: read.value });
+		} catch (e) {
+			if (caught(e).code !== "ESRCH") unkilled ??= caught(e).message;
+		}
+	}
+	return { killed, unkilled };
+}
+
+/** @param {string} reason why a carrier kill failed */
+const carrierUnkilled = (reason) =>
+	`a process of this run could not be killed (${reason}); it may outlive this report.\n`;
+
+/**
  * SIGKILLs every process whose environment sets `key` to `value`, but `self`,
- * which may carry it too. One already gone is no failure.
+ * which may carry it too.
  * @param {string} key
  * @param {string} value
  * @param {{ proc?: string, self?: number,
@@ -136,31 +184,71 @@ function killCarrying(
 	key,
 	value,
 	{
-		proc = "/proc",
+		proc = procRoot(),
 		self = process.pid,
 		kill = (pid, signal) => process.kill(pid, signal),
 	} = {},
 ) {
-	let names;
+	return killWhere(key, (v) => v === value, { proc, self, kill }).unkilled;
+}
+
+/* Names the wrapper pid whose run a process belongs to. */
+const OWNER_ENV = "WFC_INFLIGHT_OWNER";
+
+/** @param {number} pid @returns {boolean} whether `pid` still exists */
+function exists(pid) {
 	try {
-		names = fs.readdirSync(proc);
+		process.kill(pid, 0);
+		return true;
 	} catch (e) {
-		return `${proc} will not list: ${caught(e).message}`;
+		return caught(e).code !== "ESRCH";
 	}
-	let unkilled = null;
-	for (const name of names) {
-		const pid = Number(name);
-		/* An environ that will not read is no carrier. */
-		if (!/^\d+$/.test(name) || pid === self) continue;
-		const read = readEnvironVar(pid, key, proc);
-		if (!read.ok || read.value !== value) continue;
-		try {
-			kill(pid, "SIGKILL");
-		} catch (e) {
-			if (caught(e).code !== "ESRCH") unkilled ??= caught(e).message;
-		}
-	}
-	return unkilled;
+}
+
+/**
+ * SIGKILLs every process but `self` whose OWNER_ENV names a pid that no
+ * longer exists. The owner is asked by signal, never by `proc`'s listing, so
+ * a fixture root that leaves a live owner out kills nothing of its.
+ * RESIDUAL: an owner pid already recycled, or a zombie, reads as live, so its
+ * run's processes wait for a sweep after that pid ends.
+ * @param {{ proc?: string, self?: number, alive?: (pid: number) => boolean,
+ *   kill?: (pid: number, signal: NodeJS.Signals) => unknown }} [options]
+ * @returns {{ killed: { pid: number, owner: number }[], unkilled: string|null }}
+ *   `unkilled` is why a process may still be running, else null
+ */
+function sweepOrphanedRuns({
+	proc = procRoot(),
+	self = process.pid,
+	alive = exists,
+	kill = (pid, signal) => process.kill(pid, signal),
+} = {}) {
+	const { killed, unkilled } = killWhere(
+		OWNER_ENV,
+		(owner) => /^\d+$/.test(owner) && !alive(Number(owner)),
+		{ proc, self, kill },
+	);
+	return {
+		killed: killed.map(({ pid, value }) => ({ pid, owner: Number(value) })),
+		unkilled,
+	};
+}
+
+/**
+ * A run whose wrapper was SIGKILLed ran no handler, so its workers wait for
+ * the next run's start, or the next session's (#3528).
+ * @param {{ err?: { write: (s: string) => unknown } } & Parameters<typeof sweepOrphanedRuns>[0]} [options]
+ */
+function sweepAtStart({ err = process.stderr, ...options } = {}) {
+	/* Its kills are real, so never from an inherited fixture root. */
+	const { killed, unkilled } = sweepOrphanedRuns({ proc: "/proc", ...options });
+	if (killed.length > 0)
+		err.write(
+			`killed ${String(killed.length)} process(es) left by a killed run (wrapper pid ${[...new Set(killed.map((k) => k.owner))].join(", ")}).\n`,
+		);
+	if (unkilled)
+		err.write(
+			`a killed run's process could not be killed (${unkilled}); it may still hold memory.\n`,
+		);
 }
 
 /**
@@ -224,14 +312,18 @@ module.exports = {
 	CEILING_LINE,
 	CEILING_MS,
 	DEADLINE_ENV,
+	OWNER_ENV,
 	SETTLE_MS,
 	TARGET_MS,
 	armCeiling,
 	ceilingHeadline,
+	carrierUnkilled,
 	ceilingMs,
 	deadlineUnwritten,
 	groupUnkilled,
 	killCarrying,
 	killGroup,
 	monotonicMs,
+	sweepAtStart,
+	sweepOrphanedRuns,
 };

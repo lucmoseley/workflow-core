@@ -22,7 +22,8 @@ const nodePath = require("node:path");
 const os = require("node:os");
 const { parseErrLine } = require("./gh");
 const { readMachineSetting } = require("./machine-setting.js");
-const { procRoot, readEnvironVar } = require("./proc-environ.js");
+const { readEnvironVar } = require("./proc-environ.js");
+const { procRoot } = require("./proc-root.js");
 const { configDirFrom } = require("./config-dir.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
@@ -654,7 +655,7 @@ function readPsRows() {
  * @returns {SparePair[]}
  */
 const readSparePairs = (ps) =>
-	ps.ok ? sparePairs(ps.rows, (pid) => readProcCwd(pid, procRoot())) : [];
+	ps.ok ? sparePairs(ps.rows, (pid) => readProcCwd(pid)) : [];
 
 /**
  * Where the spare pairs break the shape the idle test reads (#2502), which is
@@ -1009,7 +1010,7 @@ function readProcessChildren() {
 		if (!/^\d+$/.test(pid)) continue;
 		/* Unread where it exited since the listing: it has no children left to
 		 * count (#2139). */
-		const ppid = String(readParentOf(pid, procRoot()));
+		const ppid = String(readParentOf(pid));
 		if (ppid === "0") continue;
 		const list = children.get(ppid);
 		if (list) list.push(pid);
@@ -2073,11 +2074,7 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		configDirOf: (pair) =>
 			configDirLabel(
 				pair,
-				readEnvironVar(
-					/** @type {string} */ (pair.spare),
-					"CLAUDE_CONFIG_DIR",
-					procRoot(),
-				),
+				readEnvironVar(/** @type {string} */ (pair.spare), "CLAUDE_CONFIG_DIR"),
 				os.homedir(),
 			),
 		reclaimable,
