@@ -70,19 +70,39 @@ function readPackage(root) {
 	};
 }
 
+/* A quoted span, `$'…'` and `$"…"` included (#3422). */
+const QUOTED_SPAN = /\$?(?:"[^"]*"|'[^']*')/g;
+/** A `$'…'` holding an escape is kept as written, for EXPANSION to refuse.
+ * @param {string} span */
+const unquote = (span) =>
+	/^\$'.*\\/s.test(span) ? span : span.replace(/^\$?["']|["']$/g, "");
+const REDIRECT = new RegExp(
+	String.raw`(?:(?<![^\s(\`])\d+)?(?:&>>?|[<>]&|>>?|<)[^\S\n]*(?:${QUOTED_SPAN.source}|[^\s()\`"'])*`,
+	"g",
+);
+/* A backslash-newline, which the shell deletes. */
+const CONTINUATION = /\\\n/g;
+/* A command substitution, a parameter, brace or ANSI-C escape expansion,
+ * whose words are not known until the shell runs it (#3422). */
+const EXPANSION = /\$[({\w@*#?!$'-]|`|\{[^{}\s]*(?:,|\.\.)[^{}\s]*\}/;
+
 /* A command is read through each `npm run`, `pnpm run`, `yarn run` or
  * `bun run` it makes into the script that names, with the runner's flags
  * before the name, and the script is walked with the words the run hands on
  * to it on its end (#3153, #3193). Those words run to the end of the line or
- * an operator; `parseHandedWords` decides which reach the script. Residual: a
- * runner's run-less shorthand (`yarn <script>`), and a script reached
- * through a shell file, are not followed. */
-const RUN_WORD = /(?:"[^"\n]*"|'[^'\n]*'|[^\s;&|<>()`"'])+/g;
-const RUN_SCRIPT = new RegExp(
-	String.raw`\b(npm|pnpm|yarn|bun)(?:\s+(?!run\b)[^\s;&|]+)*?\s+run(?:-script)?(?:\s+-\S+)*\s+["']?([^\s;&|"']+)["']?((?:[^\S\n]+${RUN_WORD.source})*)`,
+ * an operator; `parseHandedWords` decides which reach the script.
+ * Residual: a runner's run-less shorthand (`yarn <script>`), a name quoted in
+ * part (`li"nt"`), and a script reached through a shell file, are not
+ * followed. */
+const RUN_WORD = new RegExp(
+	String.raw`(?:${QUOTED_SPAN.source}|\$\(|[^\s;&|<>()"'])+`,
 	"g",
 );
-const QUOTED = /"([^"]*)"|'([^']*)'/g;
+const RUN_SCRIPT = new RegExp(
+	String.raw`\b(npm|pnpm|yarn|bun)(?:\s+(?!run\b)[^\s;&|]+)*?\s+run(?:-script)?(?:\s+-\S+)*\s+(${QUOTED_SPAN.source}|[^\s;&|<>()"']+)((?:[^\S\n]*${REDIRECT.source}|[^\S\n]+${RUN_WORD.source})*)`,
+	"g",
+);
+const HANDED_TOKEN = new RegExp(`(${REDIRECT.source})|${RUN_WORD.source}`, "g");
 
 /**
  * The words after a run's script name that reach the script, unquoted, each
@@ -94,9 +114,9 @@ const QUOTED = /"([^"]*)"|'([^']*)'/g;
  * @param {string} words
  */
 function parseHandedWords(runner, words) {
-	const all = [...words.matchAll(RUN_WORD)].map((m) =>
-		m[0].replace(QUOTED, (_, d, q) => d ?? q),
-	);
+	const all = [...words.matchAll(HANDED_TOKEN)]
+		.filter((m) => m[1] === undefined)
+		.map((m) => m[0].replace(QUOTED_SPAN, unquote));
 	const cut = all.indexOf("--");
 	const kept =
 		runner === "npm"
@@ -114,13 +134,14 @@ function parseHandedWords(runner, words) {
  * so words a run's own quote does not close, or a missing script's, are
  * still read where they stand (#3413). */
 /** @param {string} text */
-const unrun = (text) => text.replace(RUN_SCRIPT, (...m) => ` ${m[3]}`);
+const replaceRunsWithHandedWords = (text) =>
+	text.replace(RUN_SCRIPT, (...m) => ` ${m[3]}`);
 
 /**
  * @typedef {{name: string|null, text: string, handed: string}} Hop `text` is
  *   the command itself where `name` is null, else `package.json`'s script
- *   `name`; `handed` is the words the run hands on to that script, each
- *   after a space, or "".
+ *   `name`, its backslash-newlines folded; `handed` is the words the run
+ *   hands on to that script, each after a space, or "".
  */
 
 /**
@@ -143,10 +164,14 @@ function walkRunScripts(scripts, command, visit) {
 		const hit = visit(text, hops);
 		if (hit !== undefined) return hit;
 		for (const m of text.matchAll(RUN_SCRIPT)) {
-			const name = requiredGroup(m, 2, RUN_SCRIPT);
-			const script = scripts[name];
-			if (seen.has(name) || typeof script !== "string") continue;
+			const name = requiredGroup(m, 2, RUN_SCRIPT).replace(
+				QUOTED_SPAN,
+				unquote,
+			);
+			const raw = scripts[name];
+			if (seen.has(name) || typeof raw !== "string") continue;
 			seen.add(name);
+			const script = raw.replace(CONTINUATION, "");
 			const handed = parseHandedWords(
 				requiredGroup(m, 1, RUN_SCRIPT),
 				requiredGroup(m, 3, RUN_SCRIPT),
@@ -159,7 +184,8 @@ function walkRunScripts(scripts, command, visit) {
 		}
 		return hit;
 	};
-	return walk([{ name: null, text: command, handed: "" }], command);
+	const folded = command.replace(CONTINUATION, "");
+	return walk([{ name: null, text: folded, handed: "" }], folded);
 }
 
 const LINT_STAGED = /(?:^|[\s;&|(/"'])lint-staged(?=$|[\s;&|)@"'])/;
@@ -175,7 +201,7 @@ function runsLintStaged(root, command) {
 	const { scripts } = readPackage(root);
 	return (
 		walkRunScripts(scripts, command, (text) =>
-			LINT_STAGED.test(unrun(text)) ? true : undefined,
+			LINT_STAGED.test(replaceRunsWithHandedWords(text)) ? true : undefined,
 		) ?? false
 	);
 }
@@ -196,27 +222,22 @@ const PINNED = /(?:^|\s)(?:@biomejs\/)?biome@/;
  * a composite's Biome part before it is mapped: a redirect with its target, a
  * subshell's or substitution's brackets, a group's braces, and quoting, a
  * quoted span's spaces joined so it stays one word. Each may touch a word
- * with no space between (#3153, #3191, #3414). Residual: a quoted redirect
- * target holding a space, or a here-string, is left behind, to be read as a
- * path. */
-const REDIRECT = /(?:(?<![^\s(`])\d+)?(?:&>>?|[<>]&|>>?|<)\s*[^\s()`]*/g;
+ * with no space between (#3153, #3191, #3414). Residual: a here-string's
+ * word after a space is left behind, to be read as a path; and an expansion
+ * inside the command's own words, not handed on (`bi$@ome`, `--sta$@ged`), is
+ * read as written, so the word is no `biome` or `--staged` (#3422). */
 const BRACKETING = /\$?[()`]|(?<!\S)[{}](?!\S)/g;
-const QUOTED_SPAN = /\$?"([^"]*)"|\$?'([^']*)'/g;
 const QUOTING = /\$?["']|\\/g;
-/* A backslash-newline, read as the space it joins. */
-const CONTINUATION = /\\\n/g;
 /** A quoted span's own commands, which a runner such as `concurrently` runs.
  * @param {string} text */
 const quotedCommands = (text) =>
-	[...text.matchAll(QUOTED_SPAN)].flatMap((m) =>
-		(m[1] ?? m[2] ?? "").split(SEGMENT),
-	);
+	[...text.matchAll(QUOTED_SPAN)].flatMap((m) => unquote(m[0]).split(SEGMENT));
 /** @param {string} segment */
 const shed = (segment) =>
 	segment
 		.replace(REDIRECT, " ")
 		.replace(BRACKETING, " ")
-		.replace(QUOTED_SPAN, (_, d, q) => (d ?? q).replace(/\s/g, "_"))
+		.replace(QUOTED_SPAN, (span) => unquote(span).replace(/\s/g, "_"))
 		.replace(QUOTING, "");
 
 /* The names that find the `biome` the hook puts on PATH from
@@ -508,16 +529,18 @@ function classifyCheckStaged(root, command, { inferred }) {
 		command,
 		/** @param {string} text @param {Hop[]} hops */
 		(text, hops) => {
-			const segment = unrun(text)
-				.replace(CONTINUATION, " ")
+			const opaque = hops.some((h) => EXPANSION.test(h.handed));
+			const segment = replaceRunsWithHandedWords(text)
 				.split(SEGMENT)
 				.concat(quotedCommands(text))
 				.map(shed)
 				.find((s) => {
 					const m = BIOME_CHECK.exec(s);
-					return m && STAGED.test(s.slice(m.index + m[0].length));
+					return m && (opaque || STAGED.test(s.slice(m.index + m[0].length)));
 				});
-			return segment === undefined ? undefined : { text, hops, segment };
+			return segment === undefined
+				? undefined
+				: { text, hops, segment, opaque };
 		},
 	);
 	if (!hit) return { kind: "none" };
@@ -529,20 +552,29 @@ function classifyCheckStaged(root, command, { inferred }) {
 		)
 		.join(",");
 	/* Each hop above the Biome command must run that one script and nothing
-	 * else, as must the text holding it. */
-	const single = hit.hops
-		.slice(0, -1)
-		.every(
+	 * else, a redirect among its handed-on words included, as must the text
+	 * holding it. */
+	const above = hit.hops.slice(0, -1);
+	const single =
+		above.every(
 			(h) =>
 				[...h.text.matchAll(RUN_SCRIPT)].length === 1 &&
 				!h.text.replace(RUN_SCRIPT, "").trim(),
+		) &&
+		![...above.map((h) => h.text), hit.text].some((t) =>
+			COMPOSITE.test(t.trim()),
 		);
 	/** @param {string} shape @param {string} wayOut */
 	const refused = (shape, wayOut) => ({
 		kind: /** @type {const} */ ("refused"),
 		refusal: `runs biome check --staged${via}, which lints each staged path's worktree bytes, a neighbour's unstaged hunks included (#2583), and ${shape}. ${wayOut}`,
 	});
-	if (!single || COMPOSITE.test(hit.text.replace(CONTINUATION, " ").trim())) {
+	if (hit.opaque)
+		return refused(
+			"is handed a command substitution, or a parameter, brace or ANSI-C escape expansion, whose words are not known until the shell runs it",
+			declareCheckStaged("with the words it hands on written out"),
+		);
+	if (!single) {
 		const part = mapBiome(hit.segment, biome);
 		return refused(
 			"holds more than that one command",

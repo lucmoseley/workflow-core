@@ -102,6 +102,8 @@ describe("classifyCheckStaged", () => {
 		["biome check --staged", BIOME_STAGED_COMMAND],
 		["npx biome check --staged", BIOME_STAGED_COMMAND],
 		["@biomejs/biome check --staged", BIOME_STAGED_COMMAND],
+		// The shell deletes a backslash-newline (#3422).
+		["biome check \\\n--staged", BIOME_STAGED_COMMAND],
 		[
 			"npx @biomejs/biome check --staged --no-errors-on-unmatched --error-on-warnings",
 			`${BIOME_STAGED_COMMAND} --no-errors-on-unmatched --error-on-warnings`,
@@ -295,7 +297,6 @@ describe("classifyCheckStaged", () => {
 			"biome 'check' --staged",
 			"biome check $'--staged'",
 			'biome $"check" --staged',
-			"biome check \\\n--staged",
 			// A quoted flag that would otherwise map is refused, not unquoted.
 			'biome check --staged "--verbose"',
 		].map((script) => [
@@ -520,7 +521,47 @@ describe("classifyCheckStaged", () => {
 	);
 
 	it.each([
+		["npm run check:staged \\\n-- --staged", "handed --staged,"],
+		["pnpm run check:staged \\\n--staged", "handed --staged,"],
+		["pnpm run check:staged >o --staged", "holds more than"],
+		["npm run check:staged -- 2>&1 --staged", "holds more than"],
+		["pnpm run check:staged $(echo --staged)", "command substitution"],
+		["pnpm run check:staged `echo --staged`", "command substitution"],
+		["pnpm run check:staged $FLAGS", "a parameter, brace"],
+		["yarn run check:staged $'--staged'", "handed --staged,"],
+		['pnpm run check:staged -- $"--staged"', "handed -- --staged,"],
+		["pnpm run check:staged --sta\\\nged", "handed --staged,"],
+		["pnpm run check:staged --{staged,x}", "brace"],
+		["pnpm run check:staged $'\\x2d\\x2dstaged'", "ANSI-C"],
+		['pnpm run check:staged >"o x" --staged', "holds more than"],
+	])(
+		"refuses %j, reading a continuation, redirect, $-quote or expansion in the words a run hands on (#3422)",
+		(command, shape) => {
+			const c = classify("biome check", { command, inferred: false });
+			expect(c.kind === "refused" && c.refusal).toContain(shape);
+		},
+	);
+
+	it.each([
+		["pnpm run check:staged \\\n--verbose", " --verbose"],
+		["yarn run check:staged $'--verbose'", " --verbose"],
+		['pnpm run check:staged $"--verbose"', " --verbose"],
+		["pnpm run $'check:staged' --verbose", " --verbose"],
+	])(
+		"maps an inferred %j, near a refused shape (#3422)",
+		(command, carried) => {
+			expect(classify("biome check --staged", { command })).toEqual({
+				kind: "mapped",
+				command: `${BIOME_STAGED_COMMAND}${carried}`,
+			});
+		},
+	);
+
+	it.each([
 		"pnpm run nosuch\nbiome check",
+		"pnpm run check:staged >o --verbose",
+		"npm run check:staged --silent>o --staged",
+		"pnpm run tsc $(echo --staged)",
 		"npm run check:staged -- --verbose",
 		"npm run check:staged --staged",
 		'yarn run check:staged "--verbose"',
