@@ -14,11 +14,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
-import { armingPattern } from "./lib/precommit-gate-harness";
 
 const CHECKER = "scripts/check-lockfile-sync.js";
 const SCRIPT = path.join(__dirname, "check-lockfile-sync.js");
-const { READS } = require("./check-lockfile-sync.js") as { READS: string[] };
+const HOOK = fs.readFileSync(
+	path.join(__dirname, "..", ".husky", "pre-commit"),
+	"utf8",
+);
 const RULE = fs
 	.readFileSync(
 		path.join(__dirname, "..", "docs", "agents", "rules", "lockfile-sync.txt"),
@@ -49,11 +51,12 @@ const lockfile = (deps: Record<string, string>) => ({
 	packages: { "": { name: "x", version: "1.0.0", dependencies: deps } },
 });
 
+const git = (...args: string[]) =>
+	spawnSync("git", args, { cwd: dir, encoding: "utf8" });
+
 const commit = (...files: string[]) => {
-	const run = (...args: string[]) =>
-		spawnSync("git", args, { cwd: dir, encoding: "utf8" });
-	run("add", "--", ...files);
-	const r = run("commit", "-qm", "c");
+	git("add", "--", ...files);
+	const r = git("commit", "-qm", "c");
 	return { status: r.status, out: r.stdout + r.stderr };
 };
 
@@ -137,8 +140,53 @@ describe("check-lockfile-sync", () => {
 		expectRefused(commit("package.json"), "once is not locked");
 	});
 
-	it("is armed in .husky/pre-commit on every path it reads", () => {
-		const armed = new RegExp(armingPattern(CHECKER));
-		expect(READS.filter((p) => !armed.test(p))).toEqual([]);
+	it("skips a commit staging none of the paths it reads", () => {
+		write("package.json", manifest({ ms: "^2.1.3" }));
+		git("add", "package.json");
+		git("commit", "-qm", "out of step", "--no-verify");
+
+		write("notes.txt", "x");
+		const r = commit("notes.txt");
+		expect(r.status).toBe(0);
+		expect(r.out).not.toContain(RULE);
+	});
+
+	it("skips a commit staging only a package.json below the root", () => {
+		write("package.json", manifest({ ms: "^2.1.3" }));
+		git("add", "package.json");
+		git("commit", "-qm", "out of step", "--no-verify");
+
+		fs.mkdirSync(path.join(dir, "sub"));
+		write("sub/package.json", manifest({ ms: "^2.1.3" }));
+		expect(commit("sub/package.json").status).toBe(0);
+	});
+
+	it.each(["package-lock.json", "npm-shrinkwrap.json"])(
+		"refuses a commit that only deletes %s, naming the missing lockfile",
+		(lock) => {
+			write("package.json", manifest({ ms: "^2.1.3" }));
+			write(lock, lockfile({ ms: "^2.1.3" }));
+			expect(commit("package.json", lock).status).toBe(0);
+
+			git("rm", "-q", lock);
+			const r = git("commit", "-qm", "c");
+			expectRefused(
+				{ status: r.status, out: r.stdout + r.stderr },
+				"declares dependencies, no lockfile",
+			);
+		},
+	);
+
+	/* The checker arms itself on what it reads; an `armed` pattern in the hook
+	 * would be a second list free to drift from it (#3434). */
+	it("runs on every commit in .husky/pre-commit, outside any armed block", () => {
+		const code = HOOK.split("\n").filter(
+			(l) => l.trim() !== "" && !l.trimStart().startsWith("#"),
+		);
+		const at = code.flatMap((l, n) => (l.includes(CHECKER) ? [n] : []));
+		expect(at).toHaveLength(1);
+		const [i] = at as [number];
+		expect(code[i]).toMatch(/^node /);
+		expect(code[i - 1]).not.toMatch(/(&&|\|\||\\|\bthen|\bdo|\belse)\s*$/);
 	});
 });

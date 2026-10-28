@@ -3,8 +3,9 @@
  * the staged path list and each path's blob, never the worktree copy, since
  * the commit carries the blob and in the shared tree a worktree read would
  * judge a neighbour's half-written edit. Shared by scripts/check-ruff-introduced.js (#122),
- * scripts/check-format-staged.js (#1332, #1354) and
- * scripts/check-swallowed-errors.js (#1830).
+ * scripts/check-format-staged.js (#1332, #1354),
+ * scripts/check-swallowed-errors.js (#1830) and
+ * scripts/check-lockfile-sync.js (#3434).
  */
 
 const { spawnSync } = require("node:child_process");

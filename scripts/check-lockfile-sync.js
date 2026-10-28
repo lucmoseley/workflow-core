@@ -19,6 +19,10 @@
  * THE INDEX, NOT THE WORKTREE: a neighbour's half-saved manifest is not this
  * commit's.
  *
+ * ARMING is READS: a commit staging none of them, a deletion included, SKIPs.
+ * The hook runs this on every commit, so the paths it arms on are the ones
+ * read here and cannot drift from them.
+ *
  * IMPLICIT:  on a commit staging package.json or a lockfile, refuses one whose staged pair is out of step.
  * JUSTIFIED: fail-safe — an index git will not read, or a staged file that is not a JSON object, is BROKEN rather than green.
  * DEFEAT:    --warn caps the finding below the gating line, and pre-commit never passes it. Not seen: a package.json below the root (a workspace member), a v1 lockfile's ranges (it has no root entry, so only names are compared), and a pnpm, Yarn or Bun lockfile, whose repo SKIPs.
@@ -28,6 +32,7 @@ const { runCheck } = require("./lib/check.js");
 const { readRuleTextOr } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
 const { spawnGitSync } = require("./lib/git.js");
+const { readStagedDiff } = require("./lib/staged.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
 /** @typedef {Record<string, unknown>} Json */
@@ -42,6 +47,7 @@ const FIELDS = [
 	"optionalDependencies",
 	"peerDependencies",
 ];
+const READS = [MANIFEST, ...NPM_LOCKS, ...OTHER_LOCKS];
 
 /*
  * An unreadable fragment is check-guard-registry.js's assertion, not a reason
@@ -165,6 +171,15 @@ function readStagedNpmLock(ctx) {
 
 /** @param {Ctx} ctx */
 function run(ctx) {
+	const touched = readStagedDiff(ctx, [
+		"--name-only",
+		"--no-renames",
+		"--",
+		...READS.map((f) => `:(top)${f}`),
+	]);
+	if (touched.length === 0) {
+		return ctx.skip(`this commit stages neither ${MANIFEST} nor a lockfile.`);
+	}
 	const manifestText = readStagedBlob(ctx, MANIFEST);
 	if (manifestText === null) return ctx.skip(`no ${MANIFEST} in the index.`);
 	const manifest = parseStaged(ctx, MANIFEST, manifestText);
@@ -197,9 +212,6 @@ function run(ctx) {
 	return { noun: "lockfile disagreement(s)", count: found.length };
 }
 
-/* Every path the checker reads; .husky/pre-commit arms the gate on each. */
-const READS = [MANIFEST, ...NPM_LOCKS, ...OTHER_LOCKS];
-
 if (require.main === module) {
 	runCheck({
 		name: "lockfile-sync",
@@ -207,5 +219,3 @@ if (require.main === module) {
 		run,
 	});
 }
-
-module.exports = { READS };

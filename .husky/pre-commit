@@ -141,12 +141,9 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-citation-tracker.js || exit "$?"
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gate-switches.js || exit "$?"
 
 # A staged lockfile out of step with the staged package.json (#2029). The
-# refusal prints the lockfile rule, whose only delivery this is. Armed on the
-# root manifest and every lockfile the checker reads, so deleting a lockfile
-# arms it too.
-if armed '^(package\.json|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-lockfile-sync.js || exit "$?"
-fi
+# refusal prints the lockfile rule, whose only delivery this is. Unarmed here:
+# the checker arms itself on the paths it reads, so the two cannot drift (#3434).
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-lockfile-sync.js || exit "$?"
 
 # A file added under docs/research/ (#2356): research is posted on its issue,
 # never landed in the tree. The refusal prints the rule.

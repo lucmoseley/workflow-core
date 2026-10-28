@@ -32,7 +32,8 @@
 # EVERY GATE ARMS THROUGH `armed` (#1504). The hook holds no `git diff --cached`
 # of its own — scripts/precommit-gate-input-deletion.test.ts refuses one — so a
 # rule about which staged paths arm a gate is changed here, once, for all of
-# them.
+# them. A checker the hook runs unarmed may arm itself on its own reads, as
+# check-lockfile-sync.js does (#3434); a change here owes it the same change.
 #
 # THE READ IS --no-renames (mantahostels#2903, widened to every gate at #1483).
 # git's rename detection collapses a delete and an add into one `R` entry
