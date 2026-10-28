@@ -81,6 +81,7 @@ const run = (args: string[], g: Gh = {}) =>
 		encoding: "utf8",
 		env: {
 			...process.env,
+			CLAUDE_PROJECT_DIR: dir,
 			PATH: stubGh(g),
 			WFC_LINK_REPO: "owner/repo",
 			WFC_LINK_RETRIES: "3",

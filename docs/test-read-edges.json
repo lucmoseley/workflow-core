@@ -11116,6 +11116,7 @@
 		"scripts/lib/guard-root.sh": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root-test-isolation.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
@@ -13191,6 +13192,7 @@
 		"scripts/lib/marker-root.sh": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/check-host-root-test-isolation.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",

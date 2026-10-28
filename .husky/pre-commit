@@ -313,14 +313,14 @@ if armed '^scripts/.*\.(ts|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
 fi
 
-# A scripts/ test that spawns a hostRoot()-rooted node script must redirect
-# CLAUDE_PROJECT_DIR, or the child roots itself in the real repo and writes
-# into the developer's live .claude/tmp/markers/ (#160, #154's fixed instance).
+# A scripts/ test that spawns a hostRoot()- or gr_root-rooted script must
+# redirect CLAUDE_PROJECT_DIR, or the child roots itself in the real repo
+# (#160, #154's fixed instance; #3311, a bash checker).
 #
 # Whole-repo and on --against for the same reason as the guard-test-isolation
 # gate above: the finding pairs a test with whatever script it spawns, and
 # either half can be the one this commit stages.
-if armed '^scripts/.*\.(test\.ts|js)$'; then
+if armed '^scripts/.*\.(test\.ts|js|sh)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root-test-isolation.js --against HEAD || exit "$?"
 fi
 

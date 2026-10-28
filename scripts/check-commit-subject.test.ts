@@ -27,11 +27,13 @@ const RULE = fs
 let dir: string;
 let hooks: string;
 
+// CLAUDE_PROJECT_DIR is the fixture, never a session's live checkout: the
+// hook's rule_text roots through gr_root (#3311).
 const git = (args: string[], env: NodeJS.ProcessEnv = {}) => {
 	const r = spawnSync("git", args, {
 		cwd: dir,
 		encoding: "utf8",
-		env: { ...process.env, ...env },
+		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
@@ -175,7 +177,11 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 		fs.writeFileSync(file, `${subject(10)}\n`);
 		const r = spawnSync("bash", [SCRIPT, file, "t"], {
 			encoding: "utf8",
-			env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: dir,
+				PATH: `${bin}:${process.env.PATH}`,
+			},
 		});
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(

@@ -280,10 +280,12 @@ describe("check-injector-margin.sh", () => {
 	) {
 		// spawnSync, not execFileSync: the SKIP limbs report on stderr and exit 0,
 		// where execFileSync hands back stdout alone and the message vanishes.
+		// CLAUDE_PROJECT_DIR is the fixture: gr_root answers it before the git
+		// top level, and a session exports it as the live checkout (#3311).
 		const r = spawnSync("bash", [realChecker, ...args], {
 			cwd,
 			encoding: "utf8",
-			env: { ...process.env, ...env },
+			env: { ...process.env, CLAUDE_PROJECT_DIR: cwd, ...env },
 		});
 		return {
 			code: r.status ?? 1,

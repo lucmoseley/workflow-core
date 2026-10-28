@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
- * check-host-root-test-isolation.js — a test that spawns a hostRoot()-rooted
- * node script must redirect CLAUDE_PROJECT_DIR, or the child writes into the
- * developer's live `.claude/tmp/markers/` (#160).
+ * check-host-root-test-isolation.js — a test that spawns a hostRoot()- or
+ * gr_root-rooted script must redirect CLAUDE_PROJECT_DIR, or the child reads
+ * and writes the developer's live checkout instead of its fixture (#160).
  *
  * Usage:
  *   node check-host-root-test-isolation.js [--json] [--warn]
@@ -13,19 +13,24 @@
  * or via `lib/marker-root.js`) then reads and writes the live
  * `.claude/tmp/markers/` tree: marker latches, counters, the test-log store.
  * #154 was one instance, fixed at 757bfc1f by setting CLAUDE_PROJECT_DIR on
- * the child.
+ * the child. `lib/guard-root.sh`'s `gr_root` is the shell twin, sourced
+ * directly or through `lib/marker-root.sh` and `lib/guard-log.sh` (#3311).
  *
  * THE DISCRIMINATOR IS SPAWNING, NOT MENTIONING — the same convention
  * `check-guard-test-isolation.js` uses, and this file borrows its call-site
  * read. A finding needs the path to reach argv[0] of a
  * spawnSync/spawn/execFileSync/execFile call, and needs the script it names
- * to require lib/host-root.js (transitively).
+ * to require lib/host-root.js, or call `gr_root` (transitively).
+ *
+ * NOT SEEN: a hook under `.husky/`, or one a spawned `git` fires; a child a
+ * shell script runs with `bash "$here/x.sh"` rather than sources; a `source`
+ * spelt through a variable (`. "$route_lib"`).
  *
  * FAIL, not WARN: the finding is a one-line fix in the test that caused it,
  * and the damage — a live marker store polluted by a test fixture — is
  * invisible until something reads that store for real (#154).
  *
- * IMPLICIT:  on every commit staging a scripts/ test or script, refuses one where a test spawns a hostRoot()-rooted node script without redirecting CLAUDE_PROJECT_DIR.
+ * IMPLICIT:  on every commit staging a scripts/ test or script, refuses one where a test spawns a hostRoot()- or gr_root-rooted script without redirecting CLAUDE_PROJECT_DIR.
  * JUSTIFIED: fail-safe — mirrors check-guard-test-isolation.js's rationale: a checker that cannot enumerate or read the tracked set is BROKEN rather than green.
  * DEFEAT:    --warn caps findings below the gating line; an `isolation-exempt:` comment in the test file drops that file, and nothing validates the reason it gives.
  */
@@ -85,11 +90,15 @@ function rootsThroughHostRoot(root, rel, cache, seen = new Set()) {
 		cache.set(rel, false);
 		return false;
 	}
-	let answer =
-		/require\(["'][^"']*\/host-root(?:\.js)?["']\)/.test(text) ||
-		/require\(["'][^"']*\/marker-root(?:\.js)?["']\)/.test(text);
+	const shell = rel.endsWith(".sh");
+	let answer = shell
+		? callsGrRoot(text)
+		: /require\(["'][^"']*\/host-root(?:\.js)?["']\)/.test(text) ||
+			/require\(["'][^"']*\/marker-root(?:\.js)?["']\)/.test(text);
 	if (!answer)
-		answer = relativeRequireTargets(rel, text).some(
+		answer = (
+			shell ? sourcedLibTargets(text) : relativeRequireTargets(rel, text)
+		).some(
 			(target) =>
 				fs.existsSync(path.join(root, target)) &&
 				rootsThroughHostRoot(root, target, cache, seen),
@@ -117,6 +126,32 @@ function relativeRequireTargets(
 	return targets;
 }
 
+/**
+ * Does shell `text` call `gr_root`, outside a comment and its own definition?
+ * Calling, not sourcing: a script that sources lib/guard-root.sh for
+ * `gr_config_dir` alone never roots itself in the repo. A `gr_root` inside a
+ * string or a trailing comment still counts: a false FAIL, never a false OK.
+ */
+function callsGrRoot(/** @type {string} */ text) {
+	return text
+		.split("\n")
+		.some((line) => !/^\s*#/.test(line) && /\bgr_root\b(?!\s*\(\))/.test(line));
+}
+
+/**
+ * The `scripts/lib/*.sh` files a shell script's `source`/`.` lines name, by
+ * basename: the sourced path is spelt through a `$here`-style variable, so
+ * the basename is all that can be read. Residual: a sourced file outside
+ * `scripts/lib/`, or in a subdirectory of it, resolves to no file and is not
+ * walked.
+ */
+function sourcedLibTargets(/** @type {string} */ text) {
+	const sourced = /^\s*(?:source|\.)\s+\S*?([\w-]+\.sh)\b/gm;
+	return [...text.matchAll(sourced)].map(
+		(m) => `scripts/lib/${requiredGroup(m, 1, sourced)}`,
+	);
+}
+
 /** A script path as written, anchored under `scripts/`. */
 function scriptsRel(/** @type {string} */ literal) {
 	return literal.startsWith("scripts/")
@@ -124,7 +159,7 @@ function scriptsRel(/** @type {string} */ literal) {
 		: `scripts/${path.basename(literal)}`;
 }
 
-/** Does `rel` exist and root itself through hostRoot()? */
+/** Does `rel` exist and root itself through hostRoot() or gr_root? */
 function isHostRooted(
 	/** @type {string} */ root,
 	/** @type {string} */ rel,
@@ -138,7 +173,8 @@ function isHostRooted(
 
 /**
  * The `const`/`let` bindings in `source` naming a host-root-rooted script,
- * identifier to script path.
+ * identifier to script path — through one more binding where the path sits
+ * in a constant (`const SCRIPT = path.join(ROOT, CHECKER)`, #3311).
  */
 function boundScripts(
 	/** @type {string} */ root,
@@ -147,11 +183,20 @@ function boundScripts(
 ) {
 	const bound = new Map();
 	const binding =
-		/\b(?:const|let)\s+(\w+)\s*=\s*[^;\n]*["']([\w./-]+\.js)["']/g;
+		/\b(?:const|let)\s+(\w+)\s*=\s*[^;\n]*["']([\w./-]+\.(?:js|sh))["']/g;
 	for (const m of source.matchAll(binding)) {
 		const rel = scriptsRel(requiredGroup(m, 2, binding));
 		if (isHostRooted(root, rel, cache)) {
 			bound.set(requiredGroup(m, 1, binding), rel);
+		}
+	}
+	const rebinding = /\b(?:const|let)\s+(\w+)\s*=\s*([^;\n]*)/g;
+	for (const m of source.matchAll(rebinding)) {
+		const id = requiredGroup(m, 1, rebinding);
+		if (bound.has(id)) continue;
+		const rhs = requiredGroup(m, 2, rebinding);
+		for (const [name, rel] of [...bound]) {
+			if (new RegExp(`\\b${name}\\b`).test(rhs)) bound.set(id, rel);
 		}
 	}
 	return bound;
@@ -179,7 +224,7 @@ function spawnedScripts(
 	 * cost a false positive on every such call, not just the guilty one. */
 	const spawnCall =
 		/\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*((?:[^,()]|\([^()]*\))*),\s*\[\s*([^,\]]*)/g;
-	const scriptLiteral = /"([\w./-]+\.js)"/;
+	const scriptLiteral = /"([\w./-]+\.(?:js|sh))"/;
 	for (const m of source.matchAll(spawnCall)) {
 		const interp = requiredGroup(m, 1, spawnCall).trim();
 		const first = requiredGroup(m, 2, spawnCall).trim();
@@ -238,12 +283,12 @@ runCheck({
 
 			ctx.fail(
 				"HOST-ROOT-TEST-ISOLATION",
-				`${rel} spawns ${scripts.join(", ")} without setting CLAUDE_PROJECT_DIR, so the child roots itself in the real repo and writes into the developer's live .claude/tmp/markers/ (#160).`,
+				`${rel} spawns ${scripts.join(", ")} without setting CLAUDE_PROJECT_DIR, so the child roots itself in the real repo: it reads the live checkout and writes into the developer's .claude/tmp/markers/ (#160).`,
 				{ file: rel, scripts },
 			);
 			ctx.say(`${rel} spawns ${scripts.join(", ")}.`);
 			ctx.say(
-				"  Those scripts root through hostRoot() (lib/host-root.js), which falls back to the git top level of the spawn's cwd — the real repo, uncontained.",
+				"  Those scripts root through hostRoot() (lib/host-root.js) or gr_root (lib/guard-root.sh), which answer an inherited CLAUDE_PROJECT_DIR first and fall back to the git top level of the spawn's cwd.",
 			);
 			ctx.say(
 				"  Fix: give the spawn env a CLAUDE_PROJECT_DIR under the case's temp directory (scripts/run-vitest.test.ts and similar spawn helpers show the shape).",
@@ -263,7 +308,7 @@ runCheck({
 				? `${exempt.length} exempt, the rest redirecting CLAUDE_PROJECT_DIR.`
 				: "all redirecting CLAUDE_PROJECT_DIR.";
 		return {
-			okLine: `${checked.length} of ${files.length} scripts/ test files spawn a hostRoot()-rooted script — ${tail}`,
+			okLine: `${checked.length} of ${files.length} scripts/ test files spawn a hostRoot()- or gr_root-rooted script — ${tail}`,
 			noun: "unisolated host-root test",
 			data,
 		};

@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Pins that check-host-root-test-isolation.js fails a test spawning a
- * hostRoot()-rooted script without redirecting CLAUDE_PROJECT_DIR, and never
+ * hostRoot()- or gr_root-rooted script without redirecting CLAUDE_PROJECT_DIR, and never
  * one that merely names such a script.
  *
  * check-host-root-test-isolation.js reads call sites, so a throwaway git repo
@@ -72,7 +72,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-describe("a test that spawns a hostRoot()-rooted script", () => {
+describe("a test that spawns a hostRoot()- or gr_root-rooted script", () => {
 	it("fails when it lets the script inherit the real CLAUDE_PROJECT_DIR, naming the test file", () => {
 		rooted("thing.js");
 		track(
@@ -114,6 +114,24 @@ describe("a test that spawns a hostRoot()-rooted script", () => {
 		]);
 	});
 
+	it("follows a bash checker bound through a constant to its gr_root call in a sourced lib (#3311)", () => {
+		track("scripts/lib/guard-root.sh", "gr_root() {\n  printf .\n}\n");
+		track(
+			"scripts/lib/marker-root.sh",
+			'source "$_mr_here/guard-root.sh"\nroot="$(gr_root)"\n',
+		);
+		track("scripts/check-thing.sh", 'source "$here/lib/marker-root.sh"\n');
+		track(
+			"scripts/check-thing.test.ts",
+			'const CHECKER = "scripts/check-thing.sh";\n' +
+				"const realChecker = path.join(ROOT, CHECKER);\n" +
+				'spawnSync("bash", [realChecker], { env: { ...process.env } });\n',
+		);
+		const r = run("--json");
+		expect(r.status).toBe(1);
+		expect(r.json().findings[0].scripts).toEqual(["scripts/check-thing.sh"]);
+	});
+
 	it('reads process.execPath the same as "node"', () => {
 		rooted("thing.js");
 		track(
@@ -132,6 +150,22 @@ describe("what it declines to flag", () => {
 			"scripts/thing.test.ts",
 			'const SCRIPT = path.resolve(__dirname, "thing.js");\n' +
 				'spawnSync("node", [SCRIPT], {});\n',
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("passes a shell script that sources guard-root.sh but never calls gr_root", () => {
+		track(
+			"scripts/lib/guard-root.sh",
+			"# gr_root is defined here\ngr_root() {\n  printf .\n}\n",
+		);
+		track(
+			"scripts/thing.sh",
+			'source "$here/lib/guard-root.sh"\n# not gr_root\ngr_config_dir d\n',
+		);
+		track(
+			"scripts/thing.test.ts",
+			'spawnSync("bash", ["scripts/thing.sh"], {});\n',
 		);
 		expect(run().status).toBe(0);
 	});
