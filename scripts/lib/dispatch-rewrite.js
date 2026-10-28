@@ -68,11 +68,13 @@ const { injectArtefact, buildWatchNote } = require("./dispatch-artefact.js");
 const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");
 
 /**
- * @typedef {import("./guard-dispatch.js").CoreContext & {
+ * @typedef {Pick<import("./guard-dispatch.js").CoreContext, "agent" |
+ *   "corePaths" | "env" | "input" | "isFile" | "log" | "ruleText"> & {
  *   artefactFile: (description: unknown) => string,
  *   makeDir: (dir: string) => boolean,
  * }} RewriteContext a fresh artefact path for a dispatch's description, and
  *   the making of a directory, false where it could not be made
+ * @typedef {import("./guard-entry.js").Injection} Injection
  */
 
 /**
@@ -191,7 +193,10 @@ const noun = "agent dispatch";
 /**
  * @param {string} _prompt the dispatch's prompt; the whole call is ctx.input
  * @param {RewriteContext} ctx
- * @returns {import("./guard-dispatch.js").CoreDecision}
+ * @returns {import("./guard-entry.js").Deny
+ *   | (Injection & Required<Pick<Injection, "skip" | "prelude">>
+ *     & { updatedInput?: Record<string, unknown> })
+ *   | null}
  */
 function decide(_prompt, ctx) {
 	// A subagent's own calls carry `agent_id`; the parent's never do.

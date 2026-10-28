@@ -11,17 +11,11 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { decide } from "./bg-job.js";
 import { readRuleCap } from "./rule-emission";
 /* The store's Node accessor, so a test asks for the rule by id rather than
  * holding a second copy of its text. */
 import { readRuleText } from "./rule-text";
-
-/* Required with a cast, not imported (#3145): the cases hand `decide` a stub
- * context its checked `CoreContext` type refuses. Residual: the cast's types
- * are hand-written, so nothing checks them against the module. */
-const { decide } = require("./bg-job.js") as {
-	decide: (command: string, ctx: { input: Record<string, unknown> }) => unknown;
-};
 
 const judged = (input: Record<string, unknown>) =>
 	decide(String(input.command ?? ""), { input });

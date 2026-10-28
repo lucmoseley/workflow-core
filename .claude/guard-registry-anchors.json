@@ -39,7 +39,7 @@
 	"scripts/commit-paths.js": "7ffaf86d4672a1d3",
 	"scripts/concision-backstop.sh": "5621ab6c6c4dec8a",
 	"scripts/guard-automode-refusal.js": "cf9e9587b80195ce",
-	"scripts/guard-dispatch.js": "b96641b55caa752c",
+	"scripts/guard-dispatch.js": "8573d7a488766d2c",
 	"scripts/guard-failed-call-rules.js": "8533ed1e520eeef8",
 	"scripts/guard-inventory.js": "ed6c2e41b4dc36e3",
 	"scripts/guard-jev-advisory.js": "de2508a72705292a",

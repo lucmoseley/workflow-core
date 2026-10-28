@@ -27,7 +27,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { runCore, toolCall } from "./guard-core-testkit";
+import { type CoreRun, runCore, toolCall } from "./guard-core-testkit";
 
 let dir: string;
 let repo: string;
@@ -82,7 +82,7 @@ interface Verdict {
 	refusal: string | null;
 }
 
-const refusalOf = (output: Record<string, string> | null) =>
+const refusalOf = (output: CoreRun["output"]) =>
 	/* An `additionalContext` would mean the emission regressed to a warn, and
 	 * reads as null. */
 	output?.permissionDecision === "deny"

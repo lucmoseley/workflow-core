@@ -180,7 +180,7 @@ const WATCHES = {
 
 /**
  * @typedef {Pick<import("./guard-dispatch.js").CoreContext,
- *   "input" | "tool" | "agentLabel" | "log" | "treeClass" | "env" | "corePaths"> & {
+ *   "input" | "tool" | "agentLabel" | "log" | "env" | "corePaths"> & {
  *   now: () => number,
  *   readWindow: (file: string) => string,
  *   makeDir: (dir: string) => boolean,

@@ -27,31 +27,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { decide, type EchoContext } from "./echo-call.js";
 import { buildHostPorts } from "./echo-call-host.js";
 import chain from "./echo-chain.js";
+import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { runCore } from "./guard-core-testkit";
+import type { CoreDecision } from "./guard-dispatch.js";
+import { kitContext } from "./kit-context.js";
 import { resolveScriptPaths } from "./script-path.js";
-
-/* Required with casts, not imported (#3145): `kitContext` is handed empty
- * readers its checked type refuses, and `decide`'s `CoreDecision` is narrowed
- * to the deny this core returns. Residual: the cast's types are hand-written,
- * so nothing checks them against the module. */
-const core = require("./echo-call.js") as {
-	decide: (
-		session: string,
-		ctx: Record<string, unknown>,
-	) => { deny: string } | null;
-};
-const { kitContext } = require("./kit-context.js") as {
-	kitContext: (
-		env: {
-			root: string;
-			payload: Record<string, unknown>;
-			log: (what: string) => void;
-		},
-		readers: Record<string, unknown>,
-	) => Record<string, unknown>;
-};
 
 let dir: string;
 let tmp: string;
@@ -67,16 +50,24 @@ interface Payload {
 
 /** The core's decision on `payload`, over the context lib/guard-entry.js's
  * kitContext builds from it, as the dispatcher composes it. */
-const judge = (payload: Payload, over: Record<string, unknown> = {}) =>
-	core.decide(payload.session_id ?? "", {
-		...kitContext(
-			{ root: dir, payload: { ...payload }, log: (what) => logs.push(what) },
-			{},
-		),
-		corePaths: resolveScriptPaths,
-		...buildHostPorts(dir, (what) => logs.push(what)),
-		...over,
-	});
+const judge = (payload: Payload, over: Partial<EchoContext> = {}) =>
+	refusal(
+		decide(payload.session_id ?? "", {
+			...kitContext(
+				{ root: dir, payload: { ...payload }, log: (what) => logs.push(what) },
+				{ moduleOn: () => false, treeClass: fakeTreeClassifier({}) },
+			),
+			corePaths: resolveScriptPaths,
+			...buildHostPorts(dir, (what) => logs.push(what)),
+			...over,
+		}),
+	);
+
+/** `d` as the refusal this core answers, thrown on any other. */
+const refusal = (d: CoreDecision): { deny: string } | null => {
+	if (d === null || "deny" in d) return d;
+	throw new Error(`not a deny: ${JSON.stringify(d)}`);
+};
 
 /**
  * The real recorder on one completed call, as PostToolUse runs it. Its output

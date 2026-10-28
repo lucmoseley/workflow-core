@@ -9,29 +9,14 @@
  * variables a command expands through and the environment a core reads.
  */
 
+import {
+	dispatch,
+	hostAdapters,
+	loadCores,
+	type Output,
+} from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
 import { readHookPersistChars } from "./rule-emission.js";
-
-/* Required with a cast, not imported (#3145): the adapters handed `dispatch`
- * override kit fields, `fallbackCwd` among them, that its checked `Adapters`
- * type omits, and `output` is read as strings where the JSDoc says unknown.
- * Residual: the cast's types are hand-written, so nothing checks them against
- * the module. */
-const { dispatch, hostAdapters, loadCores } =
-	require("./guard-dispatch.js") as {
-		dispatch: (
-			cores: { name: string }[],
-			env: Record<string, unknown>,
-		) => {
-			output: Record<string, string> | null;
-			latches: { latches: { name: string; text: string }[] }[];
-		};
-		hostAdapters: (
-			root: string,
-			log: (what: string) => void,
-		) => Record<string, unknown>;
-		loadCores: (event: string) => { name: string }[];
-	};
 
 /**
  * The payload of a `tool` call carrying `input`, as the harness sends it;
@@ -50,8 +35,8 @@ export const toolCall = (
 });
 
 export interface CoreRun {
-	/** The merged hook output, hookEventName aside; null where silent. */
-	output: Record<string, string> | null;
+	/** Null where silent. */
+	output: Output | null;
 	logs: string[];
 }
 

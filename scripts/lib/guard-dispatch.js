@@ -81,6 +81,10 @@ const {
  * @typedef {"deny" | "defer" | "ask" | "allow"} Permission
  * @typedef {{ permissionDecision?: Permission, reason?: string,
  *   context?: string, updatedInput?: Record<string, unknown> }} Part
+ * @typedef {{ permissionDecision?: Permission,
+ *   permissionDecisionReason?: string, additionalContext?: string,
+ *   updatedInput?: Record<string, unknown> }} Output the merged hook output,
+ *   hookEventName aside
  * @typedef {{
  *   root: string,
  *   git: import("./git.js").GitReader,
@@ -95,7 +99,11 @@ const {
  *   text, null where it is absent; a path's spelling under the root; whether
  *   a path exists, and whether it is a regular file; and the environment the
  *   entry was run in
- * @typedef {Pick<KitContext, "moduleOn" | "treeClass"> & CorePorts} Adapters
+ * @typedef {Pick<KitContext, "moduleOn" | "treeClass"> & CorePorts
+ *   & Partial<Pick<KitContext, "fallbackCwd" | "vars">>} Adapters
+ *   the hook's own directory and expansion scope, which test support fills
+ *   in place of the hook's; the entry leaves both to the kit's, the process's
+ *   cwd and environment
  * @typedef {KitContext & CorePorts & { session: string }} CoreContext
  *   `session` is the payload's session id, "" where it carries none
  */
@@ -125,10 +133,10 @@ function loadCores(event, keep = () => true) {
 /**
  * The parts merged into one hook output; null where none says anything.
  * @param {Part[]} parts
- * @returns {Record<string, unknown> | null}
+ * @returns {Output | null}
  */
 function merge(parts) {
-	/** @type {Record<string, unknown>} */
+	/** @type {Output} */
 	const out = {};
 	const top = PRECEDENCE.find((p) =>
 		parts.some((x) => x.permissionDecision === p),
@@ -159,7 +167,7 @@ function merge(parts) {
  * Run every enabled core on one payload and merge what they answer.
  * @param {Core[]} cores
  * @param {DispatchEnv} env
- * @returns {{ output: Record<string, unknown> | null, latches: LatchSet[] }}
+ * @returns {{ output: Output | null, latches: LatchSet[] }}
  */
 function dispatch(cores, env) {
 	const { payload, adapters, disabled } = env;

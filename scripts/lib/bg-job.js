@@ -17,7 +17,7 @@
 /**
  * Only a literal `true` backgrounds: a command whose text mentions the flag is not one.
  * @param {string} _command
- * @param {import("./guard-dispatch.js").CoreContext} ctx
+ * @param {Pick<import("./guard-dispatch.js").CoreContext, "input">} ctx
  * @returns {import("./guard-entry.js").Decision}
  */
 function decide(_command, ctx) {

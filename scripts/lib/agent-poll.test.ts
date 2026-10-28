@@ -25,30 +25,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { decide, type PollContext } from "./agent-poll.js";
 import { buildHostPorts } from "./agent-poll-host.js";
+import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { runCore } from "./guard-core-testkit";
+import type { CoreDecision } from "./guard-dispatch.js";
+import { kitContext } from "./kit-context.js";
 import { WAIT_SLOT } from "./wait-text.js";
-
-/* Required with casts, not imported (#3145): `kitContext` is handed empty
- * readers its checked type refuses, and `decide`'s `CoreDecision` is narrowed
- * to the shapes this core returns. Residual: the cast's types are hand-written,
- * so nothing checks them against the module. */
-const core = require("./agent-poll.js") as {
-	decide: (
-		session: string,
-		ctx: Record<string, unknown>,
-	) => { deny: string } | { context: string } | null;
-};
-const { kitContext } = require("./kit-context.js") as {
-	kitContext: (
-		env: {
-			root: string;
-			payload: Record<string, unknown>;
-			log: (what: string) => void;
-		},
-		readers: Record<string, unknown>,
-	) => Record<string, unknown>;
-};
 
 let dir: string;
 let tmp: string;
@@ -63,18 +46,26 @@ interface Payload {
 
 type Verdict = { deny: string } | { context: string } | null;
 
+/** `d` as the refusal or the note this core answers, thrown on any other. */
+const verdict = (d: CoreDecision): Verdict => {
+	if (d === null || "deny" in d || "context" in d) return d;
+	throw new Error(`neither a deny nor a context: ${JSON.stringify(d)}`);
+};
+
 /** The core's decision on `payload`, over the context lib/guard-entry.js's
  * kitContext builds from it. */
-const judge = (payload: Payload, over: Record<string, unknown> = {}): Verdict =>
-	core.decide(payload.session_id ?? "", {
-		...kitContext(
-			{ root: dir, payload: { ...payload }, log: (what) => logs.push(what) },
-			{},
-		),
-		env: { TMPDIR: tmp },
-		...buildHostPorts(),
-		...over,
-	});
+const judge = (payload: Payload, over: Partial<PollContext> = {}): Verdict =>
+	verdict(
+		decide(payload.session_id ?? "", {
+			...kitContext(
+				{ root: dir, payload: { ...payload }, log: (what) => logs.push(what) },
+				{ moduleOn: () => false, treeClass: fakeTreeClassifier({}) },
+			),
+			env: { TMPDIR: tmp },
+			...buildHostPorts(),
+			...over,
+		}),
+	);
 
 /** The shape the guard was first built against: no tool name, no input. */
 const run = (session = "s1") => judge({ session_id: session });

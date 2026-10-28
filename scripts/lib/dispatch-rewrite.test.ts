@@ -24,24 +24,9 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { decide } from "./dispatch-rewrite.js";
 import { runCore } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
-
-/* Required with a cast, not imported (#3145): the cases hand `decide` a stub
- * context its checked `RewriteContext` type refuses, and read the rewrite's
- * fields off a return narrowed to it. Residual: the cast's types are
- * hand-written, so nothing checks them against the module. */
-const core = require("./dispatch-rewrite.js") as {
-	decide: (
-		prompt: string,
-		ctx: Record<string, unknown>,
-	) => {
-		injectRules: string[];
-		skip: string[];
-		prelude: string;
-		updatedInput?: Record<string, unknown>;
-	} | null;
-};
 
 const FILE = "/repo/.claude/tmp/agents/d-0badf00d.md";
 
@@ -54,7 +39,7 @@ const FILE = "/repo/.claude/tmp/agents/d-0badf00d.md";
 function rewrite(input: unknown, { file = FILE, burn = false } = {}) {
 	const made: string[] = [];
 	const logged: string[] = [];
-	const out = core.decide(
+	const out = decide(
 		"",
 		kitContextFake({
 			/* Unchecked: a case may hand the core a malformed input. */
@@ -67,6 +52,7 @@ function rewrite(input: unknown, { file = FILE, burn = false } = {}) {
 			ruleText: () => "",
 		}),
 	);
+	if (out && "deny" in out) throw new Error(`refused: ${out.deny}`);
 	return out
 		? {
 				...out,

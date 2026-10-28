@@ -29,36 +29,20 @@ import {
 	live,
 	store,
 } from "./arbiter-testkit";
+import type { FileClaimContext } from "./file-claim.js";
 import { buildHostPorts } from "./file-claim-host.js";
+import {
+	type Adapters,
+	dispatch,
+	hostAdapters,
+	loadCores,
+	type Output,
+} from "./guard-dispatch.js";
 import { writeLatches } from "./guard-entry.js";
 import { registrationsOf } from "./hook-wiring";
 import { readHookPersistChars, readRuleCap } from "./rule-emission.js";
 import { readRuleText } from "./rule-text.js";
 import { runInProcess } from "./run-in-process";
-
-/* Required with a cast, not imported (#3145): the adapters handed `dispatch`
- * override kit fields, `fallbackCwd` among them, that its checked `Adapters`
- * type omits, and `output` is read as strings where the JSDoc says unknown.
- * Residual: the cast's types are hand-written, so nothing checks them against
- * the module. */
-const { dispatch, hostAdapters, loadCores } =
-	require("./guard-dispatch.js") as {
-		dispatch: (
-			cores: object[],
-			env: Record<string, unknown>,
-		) => {
-			output: Record<string, string> | null;
-			latches: {
-				latches: { name: string; text: string }[];
-				log: (what: string) => void;
-			}[];
-		};
-		hostAdapters: (
-			root: string,
-			log: (what: string) => void,
-		) => Record<string, unknown>;
-		loadCores: (event: string) => { name: string }[];
-	};
 
 type Answer =
 	| { ok: true; stdout: string }
@@ -95,8 +79,8 @@ const standIn =
 	};
 
 interface Run {
-	/** The merged hook output, hookEventName aside; null where silent. */
-	output: Record<string, string> | null;
+	/** Null where silent. */
+	output: Output | null;
 	logs: string[];
 	/** The name every log line was filed under. */
 	names: string[];
@@ -129,18 +113,21 @@ const run = (
 		(c) => c.name === "guard-file-claim",
 	);
 	expect(cores).toHaveLength(1);
+	/* The core's own port rides in with the shared ones, as dispatch spreads
+	 * both into the context; host is cleared below so nothing replaces it. */
+	const adapters: Adapters & Pick<FileClaimContext, "arbiterCheck"> = {
+		...hostAdapters(root, logFor("entry")),
+		fallbackCwd: root,
+		vars: env,
+		env,
+		arbiterCheck,
+	};
 	const { output, latches } = dispatch(
 		cores.map((c) => ({ ...c, host: undefined })),
 		{
 			payload,
 			root,
-			adapters: {
-				...hostAdapters(root, logFor("entry")),
-				fallbackCwd: root,
-				vars: env,
-				env,
-				arbiterCheck,
-			},
+			adapters,
 			logFor,
 			disabled: () => false,
 			persistChars: readHookPersistChars,
@@ -399,7 +386,7 @@ describe("the arbiter's verdict reaches the tool", () => {
 		expect(output?.permissionDecision).toBe("deny");
 		expect(output?.permissionDecisionReason).toContain("alice");
 		// The wait leads, where the block happens (#543).
-		expect(output?.permissionDecisionReason.split("\n")[0]).toContain(
+		expect(output?.permissionDecisionReason?.split("\n")[0]).toContain(
 			"node scripts/session-arbiter.js wait docs/doc-map.md",
 		);
 	});
