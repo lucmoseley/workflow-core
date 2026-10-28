@@ -875,7 +875,11 @@ function anchorHooks({ root, pluginRoot, dryRun, out }) {
 		return true;
 	}
 	try {
-		run(root, [process.execPath, registry, "--review"], { quiet: true });
+		/* Every dirty file is init's own, written this run in a tree no session
+		 * works yet, so none carries a claim to read (#3339). */
+		run(root, [process.execPath, registry, "--review", "--sole-writer"], {
+			quiet: true,
+		});
 		out(`wrote   ${ANCHORS} (the seven hooks anchored)`);
 		return true;
 	} catch (err) {

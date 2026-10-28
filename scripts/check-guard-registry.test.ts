@@ -181,6 +181,28 @@ function lock(rel: string, { alive = true } = {}) {
 	};
 }
 
+/*
+ * The claims a session's own Edit calls take: a live lock held by `session` on
+ * each path dirty in `root`, bar those `except` names.
+ */
+function ownLocks(root: string, session: string, except: string[] = []) {
+	const args = ["status", "--porcelain=v1", "-uall", "--no-renames", "-z"];
+	return execFileSync("git", args, { cwd: root, encoding: "utf8" })
+		.split("\0")
+		.filter((e) => e.length > 3)
+		.map((e) => e.slice(3))
+		.filter((rel) => !except.includes(rel))
+		.map((rel) => ({ ...lock(rel), sessionId: session }));
+}
+
+/** The --review env of a session whose own claims cover every dirty path. */
+function ownClaims(root: string, session = "self-session") {
+	return {
+		CLAUDE_CODE_SESSION_ID: session,
+		WFC_ANCHOR_LOCKS: JSON.stringify(ownLocks(root, session)),
+	};
+}
+
 function run(
 	root: string,
 	extra: string[] = [],
@@ -1134,7 +1156,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		// Both move on disk; only one is named, so only one may be rewritten.
 		dirty(root, "guard-a.sh");
 		dirty(root, "guard-b.sh");
-		reviewIn(root, ["scripts/guard-a.sh"], env([]));
+		reviewIn(root, ["scripts/guard-a.sh"], env(ownLocks(root, self)));
 		const after = fs.readFileSync(path.join(root, ANCHORS), "utf8");
 		expect(after).not.toBe(before);
 		const strip = (raw: string) =>
@@ -1182,7 +1204,10 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		const out = reviewIn(
 			root,
 			["scripts/guard-a.sh"],
-			env([lock("scripts/guard-b.sh")]),
+			env([
+				lock("scripts/guard-b.sh"),
+				...ownLocks(root, self, ["scripts/guard-b.sh"]),
+			]),
 		);
 		expect(out).toContain("anchored scripts/guard-a.sh");
 		expect(out).toContain("1 path(s) re-anchored");
@@ -1218,15 +1243,101 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 		expect(run(root).json.warnings.map((w) => w.kind)).toEqual(["STALE-PROSE"]);
 	});
 
-	it("says so when it could not ask who holds what", () => {
+	it("anchors nothing dirty when it could not ask who holds what, and says so (#3339)", () => {
 		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
 		dirty(root, "guard-a.sh");
-		const out = reviewIn(root, ["scripts/guard-a.sh"], {
-			CLAUDE_CODE_SESSION_ID: "",
-		});
-		expect(out).toContain("claim check skipped");
-		expect(out).toContain("anchored here unnoticed");
-		expect(out).toContain("1 path(s) re-anchored");
+		const out = reviewIn(root, [], { CLAUDE_CODE_SESSION_ID: "" });
+		expect(out).toContain("claim check skipped — this session is unidentified");
+		expect(out).toContain(
+			"not anchored scripts/guard-a.sh — scripts/guard-a.sh is dirty and not claimed by this session",
+		);
+		expect(out).toContain("anchored scripts/guard-b.sh @");
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("anchors nothing through a dirty input no claim covers, so no anchor departs from HEAD's digest (#3339)", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const out = reviewIn(root, [], env([]));
+		expect(out).toContain(
+			"not anchored scripts/guard-a.sh — scripts/guard-a.sh is dirty and not claimed by this session",
+		);
+		expect(out).toContain("claim it if it is yours");
+		expect(out).not.toContain("Re-run once the holder releases");
+		expect(readAnchors(root)).toEqual(before);
+		reviewIn(root, [], env(ownLocks(root, self)));
+		expect(readAnchors(root)["scripts/guard-a.sh"]).not.toBe(
+			before["scripts/guard-a.sh"],
+		);
+	});
+
+	it("--sole-writer reads every dirty input as the caller's, as init-adopter's fresh tree needs", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const out = reviewIn(root, ["--sole-writer"], env([]));
+		expect(out).toContain("anchored scripts/guard-a.sh @");
+		expect(readAnchors(root)["scripts/guard-a.sh"]).not.toBe(
+			before["scripts/guard-a.sh"],
+		);
+	});
+
+	it("--sole-writer is refused where another session holds a live claim, or the claims went unread (#3339)", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const soleWriter = (claimsEnv: Record<string, string>) =>
+			runInProcess(
+				path.join(root, "scripts", "check-guard-registry.js"),
+				["--review", "--sole-writer"],
+				{ env: reviewEnv(root, claimsEnv) },
+			);
+		const held = soleWriter(env([lock("scripts/guard-b.sh")]));
+		expect(held.status).toBe(2);
+		expect(held.stdout).toContain(
+			"--sole-writer refused — another session holds a claim in this tree",
+		);
+		const unread = soleWriter({ CLAUDE_CODE_SESSION_ID: "" });
+		expect(unread.status).toBe(2);
+		expect(unread.stdout).toContain(
+			"--sole-writer refused — this session is unidentified",
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("reads a staged rename's old name as a dirty input (#3339)", () => {
+		const root = committedRepo(TWO_GUARDS, (r) => reviewIn(r));
+		const before = readAnchors(root);
+		execFileSync(
+			"git",
+			["mv", "scripts/lib/deny.sh", "scripts/lib/deny-moved.sh"],
+			{ cwd: root },
+		);
+		const out = reviewIn(root, ["scripts/guard-branch.sh"], env([]));
+		expect(out).toContain(
+			"scripts/lib/deny.sh is dirty and not claimed by this session",
+		);
+		expect(readAnchors(root)).toEqual(before);
+	});
+
+	it("reads a dead neighbour's claim aged past use as nobody's, not as a pass (#3339)", () => {
+		const root = twoGuards();
+		reviewIn(root);
+		const before = readAnchors(root);
+		dirty(root, "guard-a.sh");
+		const aged = {
+			...lock("scripts/guard-a.sh", { alive: false }),
+			claimedAt: "2000-01-01T00:00:00.000Z",
+		};
+		const out = reviewIn(root, ["scripts/guard-a.sh"], env([aged]));
+		expect(out).toContain("is dirty and not claimed by this session");
+		expect(readAnchors(root)).toEqual(before);
 	});
 
 	it("keeps a stale anchor from masking a real enforcement failure", () => {
@@ -1941,7 +2052,7 @@ describe("--touched-by <rev>, the post-commit notice (#2375)", () => {
 			path.join(root, "scripts", "guard-amend.sh"),
 			"#!/bin/sh\nexit 1\n",
 		);
-		reviewIn(root, ["scripts/guard-amend.sh"]);
+		reviewIn(root, ["scripts/guard-amend.sh"], ownClaims(root));
 		commit("scripts/guard-amend.sh", "#!/bin/sh\nexit 1\n", [ANCHORS]);
 		const r = touched(root);
 		expect(r.code).toBe(0);
@@ -2108,7 +2219,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 	const gate = (root: string, locks: unknown[] = []) =>
 		run(root, ["--against", "HEAD"], { cwd: root, env: claims(locks) });
 	const review = (root: string, paths: string[]) =>
-		reviewIn(root, paths, claims());
+		reviewIn(root, paths, ownClaims(root));
 	/* .husky/pre-commit's own guard-registry line, so the case runs what the
 	 * hook runs. */
 	const readHookLine = () => {
@@ -2569,7 +2680,7 @@ describe("scripts/landing-registry-gate.js judges a push to landing on landing's
 			path.join(root, "scripts/lib/deny.sh"),
 			"deny() { exit 0; }\n",
 		);
-		reviewIn(root, [], claims);
+		reviewIn(root, [], ownClaims(root));
 		git("add", "-A");
 		expect(preCommit(root).code).toBe(0);
 		const anchorsOnA = read(ANCHORS);
@@ -2729,7 +2840,7 @@ describe("a lander revert lands with the rows it leaves stale (#3127)", () => {
 			path.join(root, "scripts/guard-branch.sh"),
 			'#!/bin/sh\nsource "$(dirname "$0")/lib/deny.sh"\nsource "$(dirname "$0")/lib/extra.sh"\nexit 2\n',
 		);
-		reviewIn(root, ["scripts/guard-branch.sh"], claims);
+		reviewIn(root, ["scripts/guard-branch.sh"], ownClaims(root));
 		const tip = commit({}, "Source extra, re-anchored");
 		return { root, git, commit, culprit, tip };
 	}

@@ -43,7 +43,11 @@
  *     everything either assertion reaches and drops entries for paths neither
  *     does. Reports in prose, never JSON, and
  *     checks nothing. A target a live neighbour holds dirty is skipped, never
- *     anchored (mantahostels#2636).
+ *     anchored (mantahostels#2636), and so is one any dirty input of which no
+ *     claim of this session's covers (#3339).
+ *   node scripts/check-guard-registry.js --review --sole-writer [<path>…]
+ *     the same, every dirty input read as the caller's own: for a tree no
+ *     session works yet, as init-adopter.js anchors the hooks it just wrote.
  *
  * THE PROBLEM (mantahostels#112, ruled by mantahostels#102).
  * CLAUDE.md rules read with uniform authority while having wildly different
@@ -3215,6 +3219,10 @@ const printLine = (line) => writeFd(1, `${line}\n`);
  * because a run with no `not anchored` line otherwise reads as "nobody holds
  * anything" when it may mean the claim store never answered.
  *
+ * `mine` is every path this session's own claims name, and `othersLive`
+ * whether any other session holds a live or unreadable claim here; both null
+ * where the claims went unread (#3339).
+ *
  * `WFC_ANCHOR_LOCKS` replaces the claim store with a JSON array of lock
  * records. Unguarded, and deliberately at the store boundary rather than at
  * this function's result: `neighbourDirty`'s own filtering, the dirty read and
@@ -3222,45 +3230,136 @@ const printLine = (line) => writeFd(1, `${line}\n`);
  *
  * @param {string[]} targets
  * @param {Map<string, string>} ours each path this commit takes, with its blob
- * @returns {{held: Map<string, HeldEntry>, taken: Map<string, TakenEntry>, unavailable: string|null}}
+ * @returns {HeldRead & { unavailable: string | null }}
  */
 function readHeldElsewhere(targets, ours) {
-	const wanted = new Set(targets);
-	/** @type {Map<string, HeldEntry>} */
-	const held = new Map();
-	/** @type {Map<string, TakenEntry>} */
-	const taken = new Map();
+	/** @type {HeldRead} */
+	const found = {
+		held: new Map(),
+		taken: new Map(),
+		mine: null,
+		othersLive: null,
+	};
 	try {
-		const { readTreeSnapshot, neighbourDirty } = require("./lib/tree-drift.js");
-		const { registryNames } = require("./lib/arbiter-core.js");
-		const self = process.env.CLAUDE_CODE_SESSION_ID || "";
-		if (!self)
-			return { held, taken, unavailable: "this session is unidentified" };
+		const { readTreeSnapshot } = require("./lib/tree-drift.js");
 		const snap = readTreeSnapshot(root);
-		if (!snap)
-			return { held, taken, unavailable: "git would not read this tree" };
-		const injected = process.env.WFC_ANCHOR_LOCKS;
-		const locks = injected
-			? JSON.parse(injected)
-			: require("./lib/arbiter-store.js").listLocks();
-		if (locks === null)
-			return { held, taken, unavailable: "the claim store would not be read" };
-		const nameFor = registryNames();
-		for (const e of neighbourDirty(snap, locks, self) ?? []) {
-			if (!wanted.has(e.path)) continue;
-			const entry = { holder: nameFor(e.sessionId), dead: e.dead };
-			const blob = ours.get(e.path);
-			if (blob === undefined) held.set(e.path, entry);
-			else taken.set(e.path, { ...entry, blob });
-		}
-		return { held, taken, unavailable: null };
+		const unavailable = sortClaims(found, snap, new Set(targets), ours);
+		return {
+			...found,
+			unavailable:
+				unavailable ?? (snap ? null : "git would not read this tree"),
+		};
 	} catch (e) {
 		return {
-			held,
-			taken,
+			...found,
 			unavailable: `the claim read failed: ${caught(e).message}`,
 		};
 	}
+}
+
+/**
+ * @typedef {{
+ *   held: Map<string, HeldEntry>,
+ *   taken: Map<string, TakenEntry>,
+ *   mine: Set<string> | null,
+ *   othersLive: boolean | null,
+ * }} HeldRead
+ */
+
+/**
+ * Sort each dirty target a neighbour's live claim covers into `held`, or
+ * `taken` where `ours` carries it, and record the claims on this tree: an
+ * unborn branch has no snapshot, yet --sole-writer still asks who holds what.
+ *
+ * @param {HeldRead} found accumulator: every field is filled
+ * @param {import("./lib/tree-drift.js").Snapshot | null} snap
+ * @param {Set<string>} wanted
+ * @param {Map<string, string>} ours
+ * @returns {string | null} why the claims went unread, or null
+ */
+function sortClaims(found, snap, wanted, ours) {
+	const self = process.env.CLAUDE_CODE_SESSION_ID || "";
+	if (!self) return "this session is unidentified";
+	const injected = process.env.WFC_ANCHOR_LOCKS;
+	/** @type {import("./lib/tree-drift.js").Lock[] | null} */
+	const locks = injected
+		? JSON.parse(injected)
+		: require("./lib/arbiter-store.js").listLocks();
+	if (locks === null) return "the claim store would not be read";
+	const { neighbourDirty } = require("./lib/tree-drift.js");
+	const nameFor = require("./lib/arbiter-core.js").registryNames();
+	for (const e of (snap && neighbourDirty(snap, locks, self)) ?? []) {
+		if (!wanted.has(e.path)) continue;
+		const entry = { holder: nameFor(e.sessionId), dead: e.dead };
+		const blob = ours.get(e.path);
+		if (blob === undefined) found.held.set(e.path, entry);
+		else found.taken.set(e.path, { ...entry, blob });
+	}
+	const mine = locks.filter((l) => l?.sessionId === self && !l.unreadable);
+	found.mine = new Set(mine.flatMap((l) => (l.path ? [l.path] : [])));
+	found.othersLive = locks.some(
+		(l) => l && l.sessionId !== self && (l.unreadable || l.alive),
+	);
+	return null;
+}
+
+/**
+ * The digest inputs dirty against HEAD, staged or not, untracked included, a
+ * rename's old name too — or why git would not say. None where there is no
+ * HEAD, as outside a repository.
+ *
+ * @param {string[]} inputs
+ * @returns {{ paths: string[], error: string | null }}
+ */
+function readDirtyInputs(inputs) {
+	if (inputs.length === 0) return { paths: [], error: null };
+	const head = spawnGitSync(
+		["-C", root, "rev-parse", "--verify", "-q", "HEAD^{commit}"],
+		{ encoding: "utf8" },
+	);
+	if (head.error) return { paths: [], error: head.error.message };
+	if (head.status !== 0) return { paths: [], error: null };
+	const scope = ["--", ...inputs];
+	const tracked = gitPaths([
+		"--literal-pathspecs",
+		"diff",
+		"--no-renames",
+		"--name-only",
+		"-z",
+		"HEAD",
+		...scope,
+	]);
+	const untracked = gitPaths([
+		"--literal-pathspecs",
+		"ls-files",
+		"--others",
+		"--exclude-standard",
+		"-z",
+		...scope,
+	]);
+	const error = tracked.error ?? untracked.error;
+	return error
+		? { paths: [], error }
+		: { paths: [...tracked.paths, ...untracked.paths], error: null };
+}
+
+/**
+ * The dirty inputs no claim covers: neither this commit's, a neighbour's nor
+ * this session's own (#3339). Every dirty input where the claims went unread,
+ * since nothing then shows one is this session's.
+ *
+ * @param {string[]} dirty
+ * @param {HeldRead} read
+ * @param {Map<string, string>} ours
+ * @returns {Set<string>}
+ */
+function unclaimedOf(dirty, read, ours) {
+	const covered = (/** @type {string} */ p) =>
+		ours.has(p) ||
+		read.held.has(p) ||
+		read.taken.has(p) ||
+		(read.mine?.has(p) ?? false);
+	return new Set(dirty.filter((p) => !covered(p)));
 }
 
 /** @param {string} oid */
@@ -3448,14 +3547,14 @@ const buildHeldLine = (h) =>
  * findings, so it has no outcome and never reaches the reporting below.
  */
 /**
- * @param {{ paths: string[], taking: string[] }} request the paths to anchor, and those this commit carries though a claim holds them
+ * @param {{ paths: string[], taking: string[], soleWriter: boolean }} request the paths to anchor, those this commit carries though a claim holds them, and whether every dirty input is the caller's
  * @param {Map<string, RuleRef[]>} describedBy
  * @param {Map<string, WiredScript>} implicitScripts
  * @param {Record<string, string>} anchors
  * @returns {never}
  */
 function reanchor(request, describedBy, implicitScripts, anchors) {
-	const { paths: reviewPaths, taking } = request;
+	const { paths: reviewPaths, taking, soleWriter } = request;
 	/*
 	 * Re-anchoring asserts a human re-read the rules describing that guard, so
 	 * the command prints them: a reviewer who sees no rule has anchored nothing
@@ -3468,15 +3567,18 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 	const { hashedBy, inputs } = readDigestInputs(targets);
 	const { ours, refused } = checkTaking(taking);
 	for (const line of refused) printLine(line);
-	const { held, taken, unavailable } = readHeldElsewhere(inputs, ours);
+	const read = readHeldElsewhere(inputs, ours);
+	const { held, taken, unavailable } = read;
+	const unclaimed = soleWriter
+		? refuseSoleWriter(read)
+		: readUnclaimed(inputs, read, ours);
 	for (const [p, h] of taken)
 		printLine(
 			`taking ${p} from ${h.holder}${h.dead ? " (GONE)" : ""}'s claim — put it in this commit's pathspec`,
 		);
 	if (unavailable)
 		printLine(
-			`claim check skipped — ${unavailable}, so a path a neighbour holds ` +
-				"dirty would be anchored here unnoticed",
+			`claim check skipped — ${unavailable}, so no dirty input is known to be this session's and none is anchored`,
 		);
 	/** @type {ReviewRun} */
 	const run = {
@@ -3485,10 +3587,13 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 		anchors,
 		hashedBy,
 		held,
+		unclaimed,
 		next: reviewPaths.length > 0 ? { ...anchors } : {},
 		missing: [],
 		skipped: [],
+		anyHeld: false,
 		anyGone: false,
+		anyUnclaimed: false,
 		written: 0,
 	};
 
@@ -3516,6 +3621,39 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
 }
 
 /**
+ * --sole-writer's empty unclaimed set, or the end of the run where another
+ * session holds a claim here or the claims went unread (#3339).
+ *
+ * @param {HeldRead & { unavailable: string | null }} read
+ * @returns {Set<string>}
+ */
+function refuseSoleWriter(read) {
+	if (read.othersLive === false) return new Set();
+	printLine(
+		`--sole-writer refused — ${read.unavailable ?? "another session holds a claim in this tree"}, and the flag is for a tree no session works yet.`,
+	);
+	process.exit(2);
+}
+
+/**
+ * The dirty inputs no claim covers, or the end of the run where git would not
+ * say which inputs are dirty (#3339).
+ *
+ * @param {string[]} inputs
+ * @param {HeldRead} read
+ * @param {Map<string, string>} ours
+ * @returns {Set<string>}
+ */
+function readUnclaimed(inputs, read, ours) {
+	const dirty = readDirtyInputs(inputs);
+	if (dirty.error === null) return unclaimedOf(dirty.paths, read, ours);
+	printLine(
+		`not anchored — git would not say which digest inputs are dirty (${dirty.error}), so any anchor here could hash uncommitted bytes.`,
+	);
+	process.exit(1);
+}
+
+/**
  * One --review run's inputs and tallies, threaded through each target.
  *
  * @typedef {{
@@ -3524,33 +3662,46 @@ function reanchor(request, describedBy, implicitScripts, anchors) {
  *   anchors: Record<string, string>,
  *   hashedBy: Map<string, Set<string>>,
  *   held: Map<string, HeldEntry>,
+ *   unclaimed: Set<string>,
  *   next: Record<string, string>,
  *   missing: string[],
  *   skipped: string[],
+ *   anyHeld: boolean,
  *   anyGone: boolean,
+ *   anyUnclaimed: boolean,
  *   written: number,
  * }} ReviewRun
  */
 
 /**
- * Anchor one target, or skip it as held or missing. Held means the target or
- * any file its digest hashes, as the pre-commit gate's stand-down reads it
- * (#2853), so a held shared library leaves every guard sourcing it unanchored.
+ * Anchor one target, or skip it as held, unclaimed or missing. Held or
+ * unclaimed means the target or any file its digest hashes, as the pre-commit
+ * gate's stand-down reads it (#2853), so a held shared library leaves every
+ * guard sourcing it unanchored.
  *
- * @param {ReviewRun} run accumulator: next, missing, skipped, anyGone and written are filled; the rest is read
+ * @param {ReviewRun} run accumulator: next, missing, skipped, the any* flags and written are filled; the rest is read
  * @param {string} g
  */
 function reanchorTarget(run, g) {
-	const holders = heldInputs(run.hashedBy.get(g), run.held);
-	if (holders.length > 0) {
+	const inputs = run.hashedBy.get(g);
+	const holders = heldInputs(inputs, run.held);
+	const unclaimed = [...(inputs ?? [])].filter((p) => run.unclaimed.has(p));
+	if (holders.length > 0 || unclaimed.length > 0) {
 		run.skipped.push(g);
+		run.anyHeld ||= holders.length > 0;
 		run.anyGone ||= holders.some((h) => h.dead);
+		run.anyUnclaimed ||= unclaimed.length > 0;
 		/* Carried over rather than dropped: a bare --review starts from an
 		 * empty map, so losing the entry would turn a skip into UNANCHORED. */
 		const anchor = run.anchors[g];
 		if (anchor !== undefined) run.next[g] = anchor;
 		printLine(
-			`not anchored ${g} — ${holders.map(buildHeldLine).join("; ")}, so nothing here read the bytes it would hash`,
+			`not anchored ${g} — ${[
+				...holders.map(buildHeldLine),
+				...unclaimed.map(
+					(p) => `${p} is dirty and not claimed by this session`,
+				),
+			].join("; ")}, so nothing here read the bytes it would hash`,
 		);
 		return;
 	}
@@ -3595,7 +3746,10 @@ function printDescriptions({ describedBy, implicitScripts }, g) {
  * @param {number} carried
  * @returns {string[]}
  */
-function buildReviewSummary({ written, skipped, anyGone }, carried) {
+function buildReviewSummary(
+	{ written, skipped, anyHeld, anyGone, anyUnclaimed },
+	carried,
+) {
 	const lines = [
 		`\n${written} path(s) re-anchored in ${ANCHORS}. ` +
 			"Re-anchoring asserts everything printed as anchored above was re-read against the file.",
@@ -3606,10 +3760,19 @@ function buildReviewSummary({ written, skipped, anyGone }, carried) {
 		);
 	if (skipped.length > 0)
 		lines.push(
-			`${skipped.length} named path(s) not anchored: dirty under another session's claim. ` +
-				(anyGone
-					? "A holder marked GONE will never release: commit or revert the file."
-					: "Re-run once the holder releases."),
+			`${skipped.length} named path(s) not anchored: an input is dirty and not this session's.`,
+		);
+	if (anyHeld)
+		lines.push(
+			anyGone
+				? "A holder marked GONE will never release: commit or revert the file."
+				: "Re-run once the holder releases.",
+		);
+	if (anyUnclaimed)
+		lines.push(
+			"A dirty input no claim of this session's covers matches no committed tree: claim it if it is yours " +
+				"(node scripts/session-arbiter.js claim <path>), else re-anchor in a clean worktree of HEAD outside " +
+				"this checkout (git worktree add --detach <dir> HEAD) and carry its anchors file back.",
 		);
 	return lines;
 }
@@ -4287,7 +4450,7 @@ function sayFindings(
 
 runCheck({
 	name: "guard-registry",
-	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [<path>…] [--taking <path>]…`,
+	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [--sole-writer] [<path>…] [--taking <path>]…`,
 	valueFlags: ["--root", "--touched-by", "--taking"],
 	/* Whole-tree, not a pathspec: scanRegistry walks CLAUDE.md, AGENTS.md, docs/
 	 * and .claude/ AND every guard path a rule names, which is a scope no list
@@ -4305,12 +4468,14 @@ runCheck({
 		},
 		settle: settleAdded,
 	},
-	flags: ["--review", "--roster"],
+	flags: ["--review", "--roster", "--sole-writer"],
 	run(ctx) {
 		setRoot(ctx.value("--root"));
 		if (ctx.has("--touched-by")) return runTouched(ctx);
 		const reviewAt = reviewIndex(ctx);
 		const reviewing = reviewAt !== -1;
+		if (ctx.has("--sole-writer") && !reviewing)
+			ctx.usageError("--sole-writer only qualifies --review.");
 
 		const {
 			findings: registryFindings,
@@ -4346,7 +4511,7 @@ runCheck({
 			);
 			const taking = ctx.argv.filter((_, i) => ctx.argv[i - 1] === "--taking");
 			reanchor(
-				{ paths: reviewPaths, taking },
+				{ paths: reviewPaths, taking, soleWriter: ctx.has("--sole-writer") },
 				describedBy,
 				implicitScripts,
 				anchors,
