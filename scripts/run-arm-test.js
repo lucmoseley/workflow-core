@@ -36,8 +36,12 @@
  * records it `hung`, and exits once every pair has started and every run has
  * ended. Past `--limit-min` of its own it stops every run still going and
  * exits, so a run held or stuck cannot leave sessions for days (#3495); a
- * later `run` takes up the pairs not yet started. A build or launch failure
- * exits, since the next pass would repeat it. It drops the starting session's
+ * later `run` takes up the pairs not yet started. A build or launch failure,
+ * or a half-launched pair, starts no more pairs, since the next pass would
+ * repeat it, and exits once every run started has ended, still stopping at
+ * the ceiling and the limit, so no run is left going unwatched (#3503). Where
+ * the plan's CLI is gone nothing can stop a run, so it names each and the
+ * `claude stop` that ends it. It drops the starting session's
  * id, which would outlive that session, and logs why a pair is held each time
  * the reason changes (#2046).
  *
@@ -604,6 +608,12 @@ function readStatesByConfigDir(recs, bin) {
 }
 
 /**
+ * Whether `run` stopped `rec` and marked it, at the ceiling or its limit.
+ * @param {LaunchRecord} rec
+ */
+const stoppedByRun = (rec) => Boolean(rec.hung || rec.limited);
+
+/**
  * Whether a launched run has ended: done, failed or stopped, `blocked` on a
  * question, which nobody answers in either arm (#2045), or stopped at the
  * ceiling (#2046) or `run`'s limit (#3495). A
@@ -613,7 +623,7 @@ function readStatesByConfigDir(recs, bin) {
  * @param {Map<string, JobStates>} states
  */
 function ended(rec, states) {
-	if (rec.hung || rec.limited) return true;
+	if (stoppedByRun(rec)) return true;
 	const job = states.get(rec.configDir)?.get(rec.job);
 	if (job === undefined) return false;
 	return isTerminalAgent(job) || job.state === "blocked";
@@ -882,12 +892,12 @@ function runLimitMs(flags, { runs }, o) {
  * Stop every launched run not yet ended, the unlisted included, since an
  * unreadable listing must not leave one going, trying a failed stop again
  * after a poll up to STOP_TRIES times. Say what is left and return `run`'s
- * exit status.
+ * exit status: `failed`, a failure that had stopped further pairs, else 1.
  * @param {string} root
  * @param {string} bin
- * @param {{ limitMs: number, pollMs: number }} o
+ * @param {{ limitMs: number, pollMs: number, failed: number }} o
  */
-function stopAtLimit(root, bin, { limitMs, pollMs }) {
+function stopAtLimit(root, bin, { limitMs, pollMs, failed }) {
 	const recs = readLaunched(root);
 	const states = readStatesByConfigDir(recs, bin);
 	let left = recs.filter((rec) => !ended(rec, states));
@@ -906,10 +916,68 @@ function stopAtLimit(root, bin, { limitMs, pollMs }) {
 	const minutes = Math.round(limitMs / MS_PER_MIN);
 	const stopped =
 		left.length === 0
-			? "stopped every run still going; run again to start the pairs left"
+			? `stopped every run still going; ${failed === 0 ? "" : "clear the failure above and "}run again to start the pairs left`
 			: `stopped all but ${left.map((r) => `${r.id} (job ${r.job} in ${r.configDir})`).join(", ")}, still running after ${STOP_TRIES} tries: stop each by hand`;
 	writeFd(2, `✗ the run's limit of ${minutes} minutes passed; ${stopped}\n`);
-	return 1;
+	return failed || 1;
+}
+
+/**
+ * Where the plan's CLI is gone, so nothing can list or stop a run: name each
+ * launched run not recorded ended with the `claude stop` that ends it, and
+ * return `run`'s exit status; else null.
+ * @param {Cli | undefined} cli
+ * @param {string} root
+ */
+function refuseGoneCli(cli, root) {
+	const gone = cliGone(cli);
+	if (!gone) return null;
+	for (const rec of readLaunched(root).filter((r) => !stoppedByRun(r)))
+		writeFd(
+			2,
+			`✗ ${rec.id} may still be going: CLAUDE_CONFIG_DIR=${rec.configDir} claude stop ${rec.job}\n`,
+		);
+	return refuse(gone);
+}
+
+/**
+ * Say how `run` ended once every run started has, and return its exit
+ * status: `failed`, the failure that stopped further pairs, or 0.
+ * @param {number} failed
+ */
+function reportEnd(failed) {
+	if (failed === 0) {
+		writeFd(1, "every pair started and every run ended\n");
+		return 0;
+	}
+	writeFd(
+		2,
+		"✗ every run started has ended; clear the failure above and run again to start the pairs left\n",
+	);
+	return failed;
+}
+
+/**
+ * `done` where every launched run has ended, else `wait`.
+ * @param {string} root
+ * @param {string} bin
+ * @returns {"done" | "wait"}
+ */
+function allEnded(root, bin) {
+	const launched = readLaunched(root);
+	const states = readStatesByConfigDir(launched, bin);
+	return launched.every((r) => ended(r, states)) ? "done" : "wait";
+}
+
+/**
+ * A pass of `run` once a failure stops further pairs: stop the hung, and
+ * `done` once every run started has ended.
+ * @param {string} bin
+ * @param {Exclude<ReturnType<typeof runOptions>, string>} o
+ */
+function drainPass(bin, o) {
+	reapHung(o.root, o.ceilingMs, bin);
+	return allEnded(o.root, bin);
 }
 
 /**
@@ -921,21 +989,16 @@ function stopAtLimit(root, bin, { limitMs, pollMs }) {
  * @returns {"done" | "launched" | "wait" | { held: string } | number}
  */
 function runPass({ cli, runs }, o) {
-	const gone = cliGone(cli);
-	if (gone) return refuse(gone);
 	reapHung(o.root, o.ceilingMs, cli.path);
 	const launched = readLaunched(o.root);
 	const started = new Set(launched.map((r) => r.id));
 	const pending = runs.filter((r) => !started.has(r.id));
-	if (pending.length === 0) {
-		const states = readStatesByConfigDir(launched, cli.path);
-		return launched.every((r) => ended(r, states)) ? "done" : "wait";
-	}
+	if (pending.length === 0) return allEnded(o.root, cli.path);
 	const next = Math.min(...pending.map((r) => r.pair));
 	const members = runs.filter((r) => r.pair === next);
 	if (members.some((r) => started.has(r.id)))
 		return refuse(
-			`pair ${next} is half-launched; stop its running member and remove its record from ${path.join(o.root, "launched")}, then run again`,
+			`pair ${next} is half-launched; once its running member has ended, remove its record from ${path.join(o.root, "launched")} and run again`,
 		);
 	const last = Math.max(0, ...launched.map((r) => Date.parse(r.launchedAt)));
 	if (Date.now() - last < o.paceMs) return "wait";
@@ -963,6 +1026,18 @@ function runSetup(flags) {
 	return { o, planned, limitMs };
 }
 
+/**
+ * Log why `step` holds a pair where the reason differs from `lastHeld`, and
+ * return the reason, or "" where it holds none.
+ * @param {ReturnType<typeof runPass>} step
+ * @param {string} lastHeld
+ */
+function logHeld(step, lastHeld) {
+	const held = typeof step === "object" ? step.held : "";
+	if (held && held !== lastHeld) writeFd(1, `${held}\n`);
+	return held;
+}
+
 /** @param {import("./lib/cli-args").Parsed} parsed */
 function runAll({ flags }) {
 	const setup = runSetup(flags);
@@ -971,18 +1046,25 @@ function runAll({ flags }) {
 	// Monotonic, so a wall-clock step neither fires the limit early nor holds it off.
 	const startedAt = performance.now();
 	let lastHeld = "";
+	/** The failure's exit status once one stops further pairs, else 0. */
+	let failed = 0;
 	for (;;) {
+		const exit = refuseGoneCli(planned.cli, o.root);
+		if (exit !== null) return exit;
 		if (performance.now() - startedAt >= limitMs)
-			return stopAtLimit(o.root, planned.cli.path, { ...o, limitMs });
-		const step = runPass(planned, o);
-		if (typeof step === "number") return step;
-		if (step === "done") {
-			writeFd(1, "every pair started and every run ended\n");
-			return 0;
+			return stopAtLimit(o.root, planned.cli.path, { ...o, limitMs, failed });
+		const step =
+			failed === 0 ? runPass(planned, o) : drainPass(planned.cli.path, o);
+		if (typeof step === "number") {
+			failed = step;
+			writeFd(
+				2,
+				"✗ starts no more pairs; waits for every run started to end, stopping any past the ceiling or the run's limit\n",
+			);
+			continue;
 		}
-		const held = typeof step === "object" ? step.held : "";
-		if (held && held !== lastHeld) writeFd(1, `${held}\n`);
-		lastHeld = held;
+		if (step === "done") return reportEnd(failed);
+		lastHeld = logHeld(step, lastHeld);
 		if (step !== "launched") sleep(o.pollMs);
 	}
 }

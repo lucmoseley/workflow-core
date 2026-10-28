@@ -705,15 +705,113 @@ const id="job"+Math.random().toString(16).slice(2,8);fs.appendFileSync(${JSON.st
 		expect(fs.existsSync(jobs)).toBe(false);
 	});
 
-	it("refuses a half-launched pair, naming how to clear it", () => {
+	it("refuses a half-launched pair, naming how to clear it, and stops its running member at the ceiling before exiting (#3503)", () => {
 		const root = path.join(tmp, "p");
 		expect(run(planArgs(root, "3")).code).toBe(0);
-		const { env, jobs } = loopStub();
-		seedLaunched(root, 0, 1);
-		const r = run(runArgs(root), env);
+		const { env, jobs, stops } = loopStub();
+		const { runs, extra } = seedLaunched(root, 42, 1);
+		const r = run(runArgs(root, "--ceiling-min", "40"), {
+			...env,
+			WFC_STUB_EXTRA: extra,
+		});
 		expect(r.code).toBe(2);
 		expect(r.err).toContain("pair 1 is half-launched");
+		expect(r.out).toContain(
+			`${runs[0].id}: still going past the ceiling, stopped as hung`,
+		);
+		expect(r.err).toContain("every run started has ended");
+		expect(fs.readFileSync(stops, "utf8").trim()).toBe("j0");
 		expect(fs.existsSync(jobs)).toBe(false);
+	});
+
+	it("starts no more pairs after a build failure, waits for the runs already going to end, then exits saying so (#3503)", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const { env, jobs, stops } = loopStub();
+		fs.writeFileSync(
+			env.WFC_ARM_TASKS_CLI as string,
+			`console.error("stub build failure");process.exit(1);`,
+		);
+		const { extra } = seedLaunched(root, 0, 2);
+		// Two arms' listings each to reap and to hold on the failing pass, then
+		// two each to reap and to check on the drain's first, which sees both working.
+		const workingListings = 8;
+		const r = run(runArgs(root), {
+			...env,
+			WFC_STUB_EXTRA: extra,
+			WFC_STUB_EXTRA_LISTINGS: String(workingListings),
+		});
+		expect(r.code).toBe(1);
+		expect(r.err).toContain("stub build failure");
+		expect(r.err).toContain(
+			"starts no more pairs; waits for every run started to end",
+		);
+		expect(r.err).toContain(
+			"every run started has ended; clear the failure above and run again to start the pairs left",
+		);
+		expect(r.err.match(/starts no more pairs/g)).toHaveLength(1);
+		// A drain pass after the working ones, so it waited for them to end.
+		expect(
+			fs.readFileSync(path.join(tmp, "listings.log"), "utf8").length,
+		).toBeGreaterThan(workingListings);
+		expect(fs.existsSync(stops)).toBe(false);
+		expect(fs.existsSync(jobs)).toBe(false);
+	});
+
+	it("waits for the member a pair's failed second launch left going, then exits saying so (#3503)", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const launches = path.join(tmp, "launches");
+		const { env, jobs, stops } = loopStub({
+			onLaunch: `fs.appendFileSync(${JSON.stringify(launches)},"x");if(fs.readFileSync(${JSON.stringify(launches)},"utf8").length===2){console.error("stub launch failure");process.exit(1)}`,
+		});
+		const r = run(runArgs(root), env);
+		expect(r.code).toBe(1);
+		expect(r.err).toContain("stub launch failure");
+		expect(r.err).toContain(
+			"every run started has ended; clear the failure above and run again to start the pairs left",
+		);
+		expect(fs.readFileSync(jobs, "utf8").trim().split("\n")).toHaveLength(1);
+		expect(fs.existsSync(stops)).toBe(false);
+	});
+
+	it("stops a run it drains at the whole-run limit and keeps the failure's status and next step (#3503)", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const { env, stops } = loopStub();
+		// Unlisted, so neither the ceiling nor its end can stop the drain: only the limit.
+		const { runs } = seedLaunched(root, 0, 1);
+		// 60 ms: past by the second pass, since the first spawns the listings.
+		const r = run(runArgs(root, "--limit-min", "0.001"), env);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain("pair 1 is half-launched");
+		expect(r.out).toContain(`${runs[0].id}: stopped at the run's limit`);
+		expect(r.err).toContain(
+			"stopped every run still going; clear the failure above and run again to start the pairs left",
+		);
+		expect(fs.readFileSync(stops, "utf8").trim()).toBe("j0");
+	});
+
+	it("names each run that may still be going and the stop that ends it once the plan's binary is gone (#3503)", () => {
+		const root = path.join(tmp, "p");
+		expect(run(planArgs(root, "3")).code).toBe(0);
+		const { env } = loopStub();
+		const { runs } = seedLaunched(root, 0, 2);
+		const hung = path.join(root, "launched", `${runs[1].id}.json`);
+		fs.writeFileSync(
+			hung,
+			JSON.stringify({
+				...JSON.parse(fs.readFileSync(hung, "utf8")),
+				hung: "x",
+			}),
+		);
+		fs.rmSync(readPlan(root).cli.path);
+		const r = run(runArgs(root), env);
+		expect(r.code).toBe(2);
+		expect(r.err).toContain(
+			`${runs[0].id} may still be going: CLAUDE_CONFIG_DIR=${runs[0].configDir} claude stop j0`,
+		);
+		expect(r.err).not.toContain(runs[1].id);
 	});
 });
 
