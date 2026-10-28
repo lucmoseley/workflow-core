@@ -31,8 +31,8 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { gitList } = require("./lib/test-read-edges.js");
-const { execGit, spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
-const { OUT, render } = require("./lib/read-edges-render.js");
+const { execGit, GIT_TIMEOUT_MS } = require("./lib/git.js");
+const { OUT, hasHead, render } = require("./lib/read-edges-render.js");
 
 /**
  * Files this render actually read — every test file `buildManifest` scanned
@@ -88,15 +88,10 @@ function readDirtyContributors(root, read) {
 function readCommittedFiles(root, only) {
 	if (only) return new Set(only);
 	try {
-		const hasHead =
-			spawnGitSync(["rev-parse", "--verify", "-q", "HEAD"], {
-				cwd: root,
-				timeout: GIT_TIMEOUT_MS,
-			}).status === 0;
 		return new Set(
 			gitList(
 				root,
-				hasHead
+				hasHead(root)
 					? ["diff", "--cached", "--name-only", "-z", "--diff-filter=d", "HEAD"]
 					: ["ls-files", "-z"],
 			),

@@ -302,6 +302,52 @@ describe("--check reads the index, the tree the commit carries (#557)", () => {
 		expect(status).toBe(1);
 		expect(stderr).toContain(`${DOC}: 1 -> 2 reader(s)`);
 	});
+
+	it("lands a bare commit beside a neighbour's intent-to-add file a test reads, which no commit carries (#3243)", () => {
+		write("scripts/reader.test.ts", `process.cwd(); read("${DOC2}");`);
+		git("add", "-A");
+		run();
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		write(".hooks/pre-commit", `#!/bin/sh\nexec node "${SCRIPT}" --check\n`);
+		fs.chmodSync(path.join(dir, ".hooks/pre-commit"), 0o755);
+		git("config", "core.hooksPath", ".hooks");
+		write(DOC2, "a neighbour's new document\n");
+		git("add", "-N", DOC2);
+		write("scripts/fixture.test.ts", `tmpdir(); write("${DOC}"); // edited`);
+		git("add", "scripts/fixture.test.ts");
+		const r = spawnSync("git", ["commit", "-q", "-m", "x"], {
+			cwd: dir,
+			encoding: "utf8",
+		});
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+	});
+
+	it("passes over an intent-to-add file before the first commit, with no HEAD to read", () => {
+		write("scripts/reader.test.ts", `process.cwd(); read("${DOC2}");`);
+		git("add", "-A");
+		run();
+		git("add", "-A");
+		write(DOC2, "a neighbour's new document\n");
+		git("add", "-N", DOC2);
+		expect(runFailing("--check").status).toBe(0);
+	});
+
+	it("drops an intent-to-add entry re-added over a tracked path, as the commit does", () => {
+		write("scripts/reader.test.ts", `process.cwd(); read("${DOC2}");`);
+		write(DOC2, "a tracked document\n");
+		git("add", "-A");
+		git("commit", "-q", "-m", "initial");
+		git("rm", "-q", "--cached", DOC2);
+		git("add", "-N", DOC2);
+		run();
+		git("add", OUT);
+		expect(readManifest()[DOC2]).toEqual(["scripts/reader.test.ts"]);
+		const { status, stderr } = runFailing("--check");
+		expect(status).toBe(1);
+		expect(stderr).toContain(`${DOC2}: 1 -> 0 reader(s)`);
+	});
 });
 
 describe("the unseen-read warning and listing (#1881)", () => {

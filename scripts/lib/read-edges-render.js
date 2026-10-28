@@ -16,7 +16,7 @@ const {
 } = require("./test-read-edges.js");
 const { requiredGroup } = require("./regex-group.js");
 const { readObjectBatch, listTree } = require("./git-objects.js");
-const { GIT_TIMEOUT_MS } = require("./git.js");
+const { GIT_TIMEOUT_MS, gitOutcome } = require("./git.js");
 const { GIT_MODE } = require("./git-mode.js");
 
 const OUT = "docs/test-read-edges.json";
@@ -29,18 +29,59 @@ const NOTE =
 const INDEX_LINE = /^(\d+) ([0-9a-f]+) \d\t(.+)$/s;
 
 /**
+ * Whether the repo has a commit yet. A git failure throws rather than reading
+ * as no HEAD, which would drop every tracked path from the index render.
+ *
+ * @param {string} root
+ */
+function hasHead(root) {
+	const r = gitOutcome(["rev-parse", "--verify", "-q", "HEAD"], [1], root);
+	if (!r.ok) throw new Error(`git rev-parse HEAD: ${r.why}`);
+	return r.out.trim() !== "";
+}
+
+/**
+ * Whether an index path is an intent-to-add entry (`git add -N`), which
+ * `ls-files` lists but no commit carries (#3243). The staged diff omits a new
+ * one and calls one over a HEAD path deleted.
+ *
+ * @param {string} root
+ * @returns {(file: string) => boolean}
+ */
+function readIsIntentToAdd(root) {
+	const fields = gitList(root, [
+		"diff",
+		"--cached",
+		"--name-status",
+		"--no-renames",
+		"-z",
+	]);
+	/** @type {Map<string, string>} */
+	const staged = new Map();
+	for (let i = 0; i + 1 < fields.length; i += 2) {
+		const [status, file] = fields.slice(i, i + 2);
+		if (status && file) staged.set(file, status);
+	}
+	const head = hasHead(root) ? readHeadBlobIds(root) : new Map();
+	return (file) =>
+		staged.get(file) === "D" || (!staged.has(file) && !head.has(file));
+}
+
+/**
  * Blob ids by path, from `ls-files -s` (the index). A gitlink has no blob to
- * read, so it is left out.
+ * read, so it is left out, as is an intent-to-add entry.
  *
  * @param {string} root
  */
 function readIndexBlobIds(root) {
+	const isIntentToAdd = readIsIntentToAdd(root);
 	/** @type {Map<string, string>} */
 	const oidByPath = new Map();
 	for (const entry of gitList(root, ["ls-files", "-s", "-z"])) {
 		const m = INDEX_LINE.exec(entry);
 		if (!m || m[1] === GIT_MODE.gitlink) continue;
 		const file = requiredGroup(m, 3, INDEX_LINE);
+		if (isIntentToAdd(file)) continue;
 		if (!oidByPath.has(file))
 			oidByPath.set(file, requiredGroup(m, 2, INDEX_LINE));
 	}
@@ -193,4 +234,4 @@ function render(root, { index = false, only, sites = false } = {}) {
 const buildManifestText = (edges) =>
 	`${JSON.stringify({ $note: NOTE, edges }, null, "\t")}\n`;
 
-module.exports = { OUT, buildManifestText, render };
+module.exports = { OUT, buildManifestText, hasHead, render };
