@@ -961,6 +961,8 @@ function refuseBasisFaults(before, after) {
  * @param {string} after
  */
 function recordNewGate(issue, repo, before, after) {
+	// recordOwnAct checks the session id too; checked first here, it spares a
+	// session-less run the `gh repo view` read below.
 	if (!process.env.CLAUDE_CODE_SESSION_ID || !isNewlyGated(before, after))
 		return;
 	let named = repo;

@@ -104,7 +104,7 @@ function stubGh(
 		"  exit 0",
 		"fi",
 		'if [ "$1" = "repo" ] && [ "$2" = "view" ]; then',
-		`  printf '%s' '{"nameWithOwner":"acme/app"}'`,
+		`  printf '%s' '${asRecorded("repoView", { nameWithOwner: "acme/app" })}'`,
 		"  exit 0",
 		"fi",
 		'if [ "$1" = "issue" ] && [ "$2" = "view" ]; then',

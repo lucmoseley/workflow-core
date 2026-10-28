@@ -28,7 +28,11 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { readConfig, resolveKey } = require("./workflow-core-config.js");
+const {
+	hasConfig,
+	readConfig,
+	resolveKey,
+} = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { isSameRepo } = require("./issue-ref.js");
 
@@ -49,8 +53,7 @@ function readAdopterCheckouts(home) {
 	for (const entry of fs.readdirSync(home, { withFileTypes: true })) {
 		if (!entry.isDirectory()) continue;
 		const root = path.join(home, entry.name);
-		if (!fs.existsSync(path.join(root, ".claude", "workflow-core.json")))
-			continue;
+		if (!hasConfig(root)) continue;
 		const git = fs.statSync(path.join(root, ".git"), {
 			throwIfNoEntry: false,
 		});

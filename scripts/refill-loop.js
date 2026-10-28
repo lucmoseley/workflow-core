@@ -100,7 +100,7 @@ const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { setParked } = require("./lib/parked.js");
 const { read: readTranscript } = require("./lib/session-transcript.js");
 const { mainChainRecords } = require("./lib/transcript.js");
-const { resolveKey } = require("./lib/workflow-core-config.js");
+const { hasConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { readLastTypedAt } = require("./lib/presence.js");
 const {
 	NOTHING_LAUNCHABLE,
@@ -223,10 +223,7 @@ function checkoutsNamed(names) {
 	const roots = [];
 	for (const name of names) {
 		const root = path.join(homeDir(), name);
-		if (
-			name.includes("/") ||
-			!fs.existsSync(path.join(root, ".claude", "workflow-core.json"))
-		)
+		if (name.includes("/") || !hasConfig(root))
 			return `${name} is no workflow-core checkout in ${homeDir()}`;
 		roots.push(root);
 	}
@@ -435,13 +432,13 @@ function stopNeverStarted(registry) {
 
 /**
  * Supervise each checkout's landing queue, in that checkout
- * (scripts/supervise-landing.js). A checkout gone since its launch is skipped.
+ * (scripts/supervise-landing.js). A checkout gone since its launch is skipped
+ * (#3284).
  * @param {string[]} roots
  */
 function superviseLanding(roots) {
 	for (const root of roots) {
-		if (!fs.existsSync(path.join(root, ".claude", "workflow-core.json")))
-			continue;
+		if (!hasConfig(root)) continue;
 		const r = runChild(
 			process.execPath,
 			[path.join(SCRIPTS, "supervise-landing.js")],
@@ -460,8 +457,7 @@ function superviseLanding(roots) {
  * machine's, so one checkout files them. Logged only where it filed or failed.
  */
 function fileKillTickets() {
-	if (!fs.existsSync(path.join(REVIEW_ROOT, ".claude", "workflow-core.json")))
-		return;
+	if (!hasConfig(REVIEW_ROOT)) return;
 	const r = runChild(
 		process.execPath,
 		[path.join(SCRIPTS, "file-memory-kill-tickets.js")],
@@ -645,7 +641,7 @@ function headlessSessionOf(jobId) {
 function runReview(lastRunOn, now) {
 	const due = loop.isReviewRunDue(new Date(now), lastRunOn);
 	const today = localDate(new Date(now));
-	if (!fs.existsSync(path.join(REVIEW_ROOT, ".claude", "workflow-core.json"))) {
+	if (!hasConfig(REVIEW_ROOT)) {
 		if (due)
 			log(
 				`morning review: not run, ${REVIEW_ROOT} has no workflow-core config`,

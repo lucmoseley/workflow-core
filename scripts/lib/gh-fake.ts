@@ -35,6 +35,7 @@ import PARENT_NOT_FOUND from "./fixtures/gh/parent-not-found.json" with {
 };
 import PARENT_PAGE from "./fixtures/gh/parent-page.json" with { type: "json" };
 import REPO from "./fixtures/gh/repo.json" with { type: "json" };
+import REPO_VIEW from "./fixtures/gh/repo-view.json" with { type: "json" };
 import SUB_ISSUES from "./fixtures/gh/sub-issues.json" with { type: "json" };
 import SUB_ISSUES_NOT_FOUND from "./fixtures/gh/sub-issues-not-found.json" with {
 	type: "json",
@@ -264,6 +265,8 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		commentsPage: JSON.parse(${JSON.stringify(COMMENTS_PAGE.stdout)}),
 		subIssuesPage: JSON.parse(${JSON.stringify(SUB_ISSUES.stdout)}),
 		repo: JSON.parse(${JSON.stringify(REPO.stdout)}),
+		// gh repo view --json nameWithOwner, which lib/gh.js's ghDefaultRepo reads.
+		repoView: JSON.parse(${JSON.stringify(REPO_VIEW.stdout)}),
 	};
 	// This tracker holds no pull request to record, so a listed one's key is
 	// GitHub's documented pull_request object (REST, "List repository issues").

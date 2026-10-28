@@ -22,6 +22,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { store as arbiter, freshSandbox } from "./lib/arbiter-testkit";
+import { asRecorded } from "./lib/gh-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -56,7 +57,7 @@ if (a[0] === "repo" && a[1] === "view") {
 		process.stderr.write("gh stub: no default repo\\n");
 		process.exit(1);
 	}
-	process.stdout.write(JSON.stringify({ nameWithOwner: "acme/widgets" }));
+	process.stdout.write(${JSON.stringify(asRecorded("repoView", { nameWithOwner: "acme/widgets" }))});
 	process.exit(0);
 }
 if (a[0] === "issue" && a[1] === "edit") {

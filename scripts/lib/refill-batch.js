@@ -79,9 +79,10 @@ function buildWouldRunLine(call, overflow) {
 
 /* The dispatcher's per-member lines parseRefusalReason keys on, which a test
  * pins to dispatch-sessions.sh's printf formats through launchBatch. */
-const MEMBER_REFUSED = (/** @type {string} */ prompt) =>
+const buildMemberRefused = (/** @type {string} */ prompt) =>
 	`REFUSED: ${prompt} — not launching this member.`;
-const MEMBER_DROPPED = (/** @type {string} */ prompt) => `dropped: ${prompt}`;
+const buildMemberDropped = (/** @type {string} */ prompt) =>
+	`dropped: ${prompt}`;
 /* A set-level refusal or cut: the duplicate gate's REFUSED or DROPPING
  * header, the allowance cap's CAPPED, the launch timeout's REFUSED. */
 const SET_HEADER = /^\s*(REFUSED: |DROPPING |CAPPED: )/;
@@ -99,7 +100,7 @@ function parseRefusalReason(out, prompt, failed) {
 	const lines = out.split("\n");
 	const isSetHeader = (/** @type {string} */ l) =>
 		SET_HEADER.test(l) && !l.endsWith("— not launching this member.");
-	const at = lines.indexOf(MEMBER_REFUSED(prompt));
+	const at = lines.indexOf(buildMemberRefused(prompt));
 	if (at !== -1) {
 		const end = lines.findIndex((l, i) => i > at && !l.startsWith("  "));
 		const block = lines
@@ -109,14 +110,16 @@ function parseRefusalReason(out, prompt, failed) {
 		return (
 			block.find((l) => l.startsWith("slots ")) ??
 			block[0] ??
-			MEMBER_REFUSED(prompt)
+			buildMemberRefused(prompt)
 		);
 	}
-	const dropped = lines.findIndex((l) => l.trim() === MEMBER_DROPPED(prompt));
+	const dropped = lines.findIndex(
+		(l) => l.trim() === buildMemberDropped(prompt),
+	);
 	if (dropped !== -1)
 		return (
 			lines.slice(0, dropped).findLast(isSetHeader)?.trim() ??
-			MEMBER_DROPPED(prompt)
+			buildMemberDropped(prompt)
 		);
 	if (failed)
 		return lines.findLast(isSetHeader)?.trim() ?? `dispatcher ${failed}`;

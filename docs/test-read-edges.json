@@ -10067,6 +10067,10 @@
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/lib/fixtures/gh/repo-view.json": [
+			"scripts/lib/gh.contract.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/lib/fixtures/gh/repo.json": [
 			"scripts/lib/gh.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"

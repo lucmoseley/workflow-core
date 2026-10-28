@@ -188,7 +188,7 @@ it.skipIf(liveSkipReason())(
 /** The live seat's raw `weekly_scoped` bar, parsed by hand because the
  * shape check needs the keys lib/usage-cache.js drops; a seat on no model
  * allowance caches none. */
-function liveScopedLimit(): Record<string, unknown> | undefined {
+function readLiveScopedLimit(): Record<string, unknown> | undefined {
 	const parsed = JSON.parse(
 		fs.readFileSync(path.join(readLiveSeat(), ".claude.json"), "utf8"),
 	);
@@ -201,12 +201,14 @@ function liveScopedLimit(): Record<string, unknown> | undefined {
 // weekly_scoped bar goes unchecked against the live one.
 const scopedSkipReason = () =>
 	liveSkipReason() ??
-	(liveScopedLimit() ? undefined : "the live seat caches no weekly_scoped bar");
+	(readLiveScopedLimit()
+		? undefined
+		: "the live seat caches no weekly_scoped bar");
 
 it.skipIf(scopedSkipReason())(
 	"the live seat's weekly_scoped bar has the recorded shape (#3282)",
 	() => {
-		const live = liveScopedLimit() as Record<string, unknown>;
+		const live = readLiveScopedLimit() as Record<string, unknown>;
 		const recordedScoped = recordedLimit("weekly_scoped");
 		expect(keyTypes(live)).toEqual(keyTypes(recordedScoped));
 		const model = (l: Record<string, unknown>) =>

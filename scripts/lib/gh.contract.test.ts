@@ -70,6 +70,7 @@ const GRAPHQL_NO_REPO = path.join(
 	"fixtures/gh/graphql-no-repo.json",
 );
 const REPO = path.join(__dirname, "fixtures/gh/repo.json");
+const REPO_VIEW = path.join(__dirname, "fixtures/gh/repo-view.json");
 const UNKNOWN_FLAG = path.join(__dirname, "fixtures/gh/unknown-flag.json");
 const VALIDATION_FAILED = path.join(
 	__dirname,
@@ -388,6 +389,11 @@ describe("live: read-only calls", () => {
 			args: ["api", "repos/{owner}/{repo}"],
 		},
 		{
+			what: "the default-repo read",
+			fixture: REPO_VIEW,
+			args: ["repo", "view", "--json", "nameWithOwner"],
+		},
+		{
 			what: "a malformed search",
 			fixture: VALIDATION_FAILED,
 			args: ["api", "search/issues?q="],
@@ -604,6 +610,7 @@ describe("offline: the recorded shapes", () => {
 			COMMENTS_PAGE,
 			SUB_ISSUES,
 			REPO,
+			REPO_VIEW,
 		])
 			expect(RECORDED_SHAPES).toContain(
 				JSON.stringify(ghAnswer(fixture).stdout),

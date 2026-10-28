@@ -41,6 +41,9 @@ const { writeFd } = require("./write-fd.js");
 
 const CONFIG_PATH = path.join(".claude", "workflow-core.json");
 
+/** @param {string} root */
+const hasConfig = (root) => fs.existsSync(path.join(root, CONFIG_PATH));
+
 /** The contract integers this core reads. A removed or renamed key bumps it. */
 const KNOWN_CONTRACTS = [1];
 const CONTRACT = 1;
@@ -1544,6 +1547,7 @@ module.exports = {
 	buildCommandUndeclaredLine,
 	exitUnlessModule,
 	CONFIG_PATH,
+	hasConfig,
 	PYTHON_KINDS,
 	/* For workflow-core-config.test.ts's key-list parity test alone (#1534). */
 	KNOWN_KEYS,
