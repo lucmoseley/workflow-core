@@ -9,7 +9,7 @@
  * test runner cannot carry those, so it carries the data as JSON and a node
  * checker asserts the same predicates.
  *
- * guard-registry-atomicity.js judges a commit against the same host files,
+ * the guard-registry-atomicity core judges a commit against the same host files,
  * through lib/registry-atomicity.js.
  */
 

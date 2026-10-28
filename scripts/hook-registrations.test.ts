@@ -81,34 +81,6 @@ interface Registration {
 const REGISTRATIONS: Registration[] = [
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-registry-atomicity.js",
-		narrowing: "Bash(git *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-registry-atomicity.js",
-		narrowing: "Bash(*commit-paths.js*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-pull-form.js",
-		narrowing: "Bash(git *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-push-rules.js",
-		narrowing: "Bash(git *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
 		id: "scripts/guard-dispatch.js",
 		matcher: "Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task",
 		covers: [
@@ -237,27 +209,6 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "PreToolUse",
-		id: "scripts/guard-node-heap.js",
-		narrowing: "Bash(*max-old-space-size*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-node-heap.js",
-		narrowing: "Bash(*max_old_space_size*)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-rm-unchecked.js",
-		narrowing: "Bash(*rm *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
 		id: "scripts/guard-root-find.js",
 		narrowing: "Bash(*find *)",
 		matcher: "Bash",
@@ -292,20 +243,6 @@ const REGISTRATIONS: Registration[] = [
 		event: "PreToolUse",
 		id: "scripts/guard-wide-read.js",
 		narrowing: "Bash(*awk *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-npm-install.js",
-		narrowing: "Bash(*npm *)",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/guard-npm-install.js",
-		narrowing: "Bash(*npx *)",
 		matcher: "Bash",
 		covers: ["Bash"],
 	},
@@ -358,7 +295,7 @@ const REGISTRATIONS: Registration[] = [
 		/* #289: the refusal itself is only visible in the RESPONSE, so this is
 		 * PostToolUse and not a PreToolUse guard. Narrowed to `git *` because a
 		 * pull reached through a wrapper is unseen anyway — the same blind spot
-		 * guard-pull-form.js carries — so the wider matcher buys nothing. */
+		 * the guard-pull-form core carries — so the wider matcher buys nothing. */
 		event: "PostToolUse",
 		id: "scripts/record-divergence.js",
 		narrowing: "Bash(git *)",

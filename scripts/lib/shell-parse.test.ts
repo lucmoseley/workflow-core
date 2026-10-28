@@ -1899,7 +1899,7 @@ describe("unsetText", () => {
  * a quoted multi-line argument whose prose line begins with any other command
  * name stays one argument. Widen the list and an issue body reaches the deny
  * guards as commands. The heads are illustrative; the bait
- * line is an `npm install`, which guard-npm-install.js refuses.
+ * line is an `npm install`, which the guard-npm-install core refuses.
  */
 describe("the guarded heads stay git and gh (mantahostels#2346)", () => {
 	const Heads = ["cp", "mv", "sed", "perl", "cat", "grep", "awk", "rm", "tee"];

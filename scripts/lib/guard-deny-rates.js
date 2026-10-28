@@ -15,16 +15,18 @@
  * A GUARD WITH NO ROW IS UNKNOWN, NEVER ZERO. `guard-lost-deny.js` derives the
  * deny-capable set from each script's own source (`lib/deny-capable.js`), so a
  * guard added after the census joins that set with no edit anywhere — and this
- * table lags it by design. `guard-npm-install.js` is in that position:
- * deny-capable, no row. So is `guard-dispatch.js`: the census priced the
- * issue-body, issue-close, issue-create-label and issue-phase-scope guards as
- * entries of their own, and those figures do not price the dispatcher that
- * now runs them as cores.
+ * table lags it by design. `guard-dispatch.js` is in that position:
+ * deny-capable, no row. The census priced the issue-body, issue-close,
+ * issue-create-label, issue-phase-scope, pull-form and registry-atomicity
+ * guards as entries of their own, and those figures do not price the
+ * dispatcher that now runs them as cores.
  *
  * NOTHING DETECTS STALENESS AUTOMATICALLY. The signal is the report itself: a
  * guard printed as "deny rate unknown" is a guard this table has not been
  * brought up to.
  */
+
+const fs = require("node:fs");
 
 const { cutAt } = require("./cut-at.js");
 
@@ -46,20 +48,6 @@ const WORTH_REPLAYING_PCT = 1;
 
 /** @type {Record<string, Rate>} */
 const RATES = {
-	"guard-pull-form.js": {
-		denies: 0,
-		population: 21_952,
-		pct: 0,
-		lowPct: 0,
-		highPct: 0.02,
-	},
-	"guard-registry-atomicity.js": {
-		denies: 3,
-		population: 21_952,
-		pct: 0.0137,
-		lowPct: 0,
-		highPct: 0.04,
-	},
 	"guard-suite-concurrency.js": {
 		denies: 736,
 		population: 71_159,
@@ -79,7 +67,19 @@ const RATES = {
  * @returns {Rate | null}
  */
 function forGuard(guard) {
-	return RATES[cutAt(String(guard), " ")[0]] ?? null;
+	return readRateTable()[cutAt(String(guard), " ")[0]] ?? null;
+}
+
+/**
+ * The table a loss is priced from. `WFC_DENY_RATES` names a JSON file read in
+ * place of `RATES`, so a test prices rows under and over the cut that no live
+ * guard still carries (#3272). Pricing alone: `lost-deny-rates.js`'s staleness
+ * audit reads `RATES` itself, since it judges the pinned table.
+ * @returns {Record<string, Rate>}
+ */
+function readRateTable() {
+	const file = process.env.WFC_DENY_RATES;
+	return file ? JSON.parse(fs.readFileSync(file, "utf8")) : RATES;
 }
 
 /**

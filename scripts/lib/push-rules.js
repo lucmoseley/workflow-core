@@ -1,5 +1,5 @@
 /*
- * push-rules.js — guard-push-rules.js's core (#2785): hand a session the push
+ * push-rules.js — the guard-push-rules core (#2785, #3226): hand a session the push
  * rules BEFORE it pushes (mantahostels#1648, spec mantahostels#1762), and
  * warn, ahead of them, of pushed code no review covers (#1163).
  *
@@ -35,6 +35,17 @@
  * standard warn is warned again (#1696), and again for each rejected marker
  * written after a warn, which the marker's checksum beside the latches tells
  * apart (#1772, #1840).
+ *
+ * LIMITS
+ *  - Its lib/guard-cores.json row narrows it to `Bash(git *)`
+ *    (mantahostels#2127) — not loaded unless some segment of the command
+ *    leads with `git`.
+ *  - It FAILS OPEN, RECORDED (mantahostels#147), on anything it cannot
+ *    resolve: a tree git cannot answer for, a config lib/test-gate.js refuses
+ *    (push-green-suite withheld, #758), and the review adapter (the Stop nag
+ *    still fires).
+ *  - The rules are stated ONCE PER SESSION, keyed per agent, so a subagent's
+ *    push is told afresh.
  */
 
 const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
@@ -51,18 +62,19 @@ const REVIEW_SUM = "sum.push-review-warn";
 /**
  * @typedef {import("./push-review.js").ReviewOwed} ReviewOwed
  * @typedef {object} PushPorts
- * @property {string} sessionId the payload's, raw; "" where it has none
- * @property {(tree: string) => ReviewOwed | null} reviewOwed `tree` "" reads
- *   the repo root
- * @property {() => string} markerSum a checksum of the session's review
- *   marker; "" where there is none
+ * @property {(tree: string, session: string) => ReviewOwed | null} reviewOwed
+ *   `tree` "" reads the repo root
+ * @property {(session: string) => string} markerSum a checksum of the
+ *   session's review marker; "" where there is none
  * @property {() => boolean} pushOwesCertificate lib/test-gate.js's push-gate skip
  *   finds a certificate owed, the answer check-test-marker.js warns on
  *   (#758)
  * @property {() => boolean} deploysVercel the host declares a Vercel deploy
  * @property {() => boolean} hasSweep the host runs the scheduled sweep
  *   check-ci-status.js reads
- * @typedef {import("./kit-context.js").KitContext & PushPorts} PushContext
+ * @typedef {import("./kit-context.js").KitContext & PushPorts & {
+ *   session: string }} PushContext `session` is the payload's session id, raw;
+ *   "" where it carries none
  */
 
 /**
@@ -127,11 +139,11 @@ function decide(command, ctx) {
  *   latchWrites?: { name: string, text: string }[] }}
  */
 function reviewWarn(tree, ctx) {
-	const markerSum = ctx.markerSum();
+	const markerSum = ctx.markerSum(ctx.session);
 	const markerChanged = (ctx.readLatch(REVIEW_SUM) ?? "") !== markerSum;
 	const toldEscalated = ctx.told(REVIEW_LATCH_ESCALATED);
 	if (toldEscalated && !markerChanged) return {};
-	const owed = ctx.reviewOwed(tree);
+	const owed = ctx.reviewOwed(tree, ctx.session);
 	if (!owed) return {};
 	const rearm = owed.passFault !== "" && markerChanged;
 	let latch = null;
@@ -140,7 +152,7 @@ function reviewWarn(tree, ctx) {
 	} else if (rearm || !ctx.told(REVIEW_LATCH)) latch = REVIEW_LATCH;
 	if (!latch) return {};
 	return {
-		prelude: warnText(owed, ctx.sessionId),
+		prelude: warnText(owed, ctx.session),
 		latchAfter: latch,
 		latchWrites: [{ name: REVIEW_SUM, text: markerSum }],
 	};
@@ -158,4 +170,4 @@ function warnText(owed, sid) {
 	return `${rejected}This push carries code this session changed (${owed.files}) that no code review covers (#1163). ${owed.tierLine} Run the code-review skill with fixed point ${owed.base} now, before pushing again; its closing step runs node ${owed.markerScript}, which writes ${marker}.${owed.markerMore} This warn is said once a session, once more if the change turns escalated, and again for each marker written after a warn that is rejected.`;
 }
 
-module.exports = { decide };
+module.exports = { field: "command", noun: "command", decide };

@@ -29,7 +29,7 @@ const GATE = path.resolve(__dirname, "review-hold-gate.sh");
 const COMMIT_PATHS = path.resolve(__dirname, "commit-paths.js");
 const MARKER_LIB = path.resolve(__dirname, "lib", "concision-marker.sh");
 const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
-const PUSH_GUARD = path.resolve(__dirname, "guard-push-rules.js");
+const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 const WRITE_MARKER = path.resolve(__dirname, "write-review-marker.js");
 const WIRING = `${coreCall("bash", "scripts/review-hold-gate.sh")} || exit 1`;
@@ -507,10 +507,11 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 		expect(reason).not.toContain("was rejected");
 	};
 	const pushWarn = () => {
-		const r = spawnSync("node", [PUSH_GUARD], {
+		const r = spawnSync("node", [DISPATCH, "--only", "guard-push-rules"], {
 			cwd: repo,
 			encoding: "utf8",
 			input: JSON.stringify({
+				hook_event_name: "PreToolUse",
 				session_id: SID,
 				tool_name: "Bash",
 				tool_input: { command: "git push origin main" },

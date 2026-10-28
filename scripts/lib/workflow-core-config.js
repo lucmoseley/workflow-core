@@ -98,7 +98,7 @@ const TRACKER_SHAPE = /^[\w.-]+\/[\w.-]+$/;
  * tracker. */
 const OWN_MISSING_LINE = `WARN ${CONFIG_PATH}: no own tracker resolves, so "corpus" is ${UPSTREAM_TRACKER} alone — declare "corpus" or "tracker"`;
 
-/* What a host deploys on a push to `main` (#742): guard-push-rules.js hands
+/* What a host deploys on a push to `main` (#742): the guard-push-rules core hands
  * the Vercel rule only where this names it. */
 const DEPLOYS = /** @type {const} */ (["vercel"]);
 const LANDING_TESTERS = /** @type {const} */ (["local", "actions"]);

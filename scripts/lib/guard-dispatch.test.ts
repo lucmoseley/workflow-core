@@ -762,6 +762,12 @@ describe("the manifest", () => {
 			["guard-branch-publish", "Bash", "closed", "function"],
 			["guard-branch", "Bash", "closed", "function"],
 			["guard-commit-form", "Bash", "closed", "function"],
+			["guard-registry-atomicity", "Bash", "open", "function"],
+			["guard-pull-form", "Bash", "closed", "function"],
+			["guard-push-rules", "Bash", "open", "function"],
+			["guard-node-heap", "Bash", "open", "function"],
+			["guard-rm-unchecked", "Bash", "open", "function"],
+			["guard-npm-install", "Bash", "closed", "function"],
 			["guard-anthropic-report", "Bash", "closed", "function"],
 			["guard-cpu-load", "Bash", "closed", "function"],
 			["guard-check-sh", "Bash", "open", "function"],
@@ -781,7 +787,7 @@ describe("the manifest", () => {
 		expect(loadCores("Stop")).toEqual([]);
 	});
 
-	it("narrows each row by the `if` clauses its old registrations carried (#3224)", () => {
+	it("narrows each row by the `if` clauses its old registrations carried (#3224, #3226)", () => {
 		const { dispatchRows } = require("./guard-cores.js") as {
 			dispatchRows: (event: string) => Core[];
 		};
@@ -794,6 +800,15 @@ describe("the manifest", () => {
 		).toEqual({
 			"guard-branch": ["Bash(git *)"],
 			"guard-commit-form": ["Bash(git *)", "Bash(*commit-paths.js*)"],
+			"guard-registry-atomicity": ["Bash(git *)", "Bash(*commit-paths.js*)"],
+			"guard-pull-form": ["Bash(git *)"],
+			"guard-push-rules": ["Bash(git *)"],
+			"guard-node-heap": [
+				"Bash(*max-old-space-size*)",
+				"Bash(*max_old_space_size*)",
+			],
+			"guard-rm-unchecked": ["Bash(*rm *)"],
+			"guard-npm-install": ["Bash(*npm *)", "Bash(*npx *)"],
 			"guard-anthropic-report": ["Bash(*gh *)"],
 			"guard-cpu-load": [
 				"Bash(*yes*)",

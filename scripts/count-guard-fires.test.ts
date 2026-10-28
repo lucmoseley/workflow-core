@@ -64,7 +64,7 @@ const registeredKeys = [
 
 /*
  * The walk itself lives in lib/needle-corpus.js, because
- * guard-registry-atomicity.js judges a commit against this same containment
+ * the guard-registry-atomicity core judges a commit against this same containment
  * (mantahostels#2708) and a second copy of the walk would drift from this one.
  */
 const { needleDrift } = require("./lib/needle-corpus.js");
