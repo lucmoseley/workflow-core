@@ -176,7 +176,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {(FloorProcs & { ok: true }) | { ok: false, error: string }} LenientProcs
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
- * @typedef {{ pids: number[], slotMb: number }} Landers
+ * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {{ ok: true, totalKb: number | null, availableKb: number, swapTotalKb: number | null, swapFreeKb: number | null } | { ok: false, error: string }} MeminfoRead
@@ -1131,17 +1131,16 @@ function descendantsPssKb(pid, { children, sessionPids, pssKbOf }, reached) {
 }
 
 /**
- * What the live landers' suites still need (#2416): each lander's slot less
- * the floor and margin every budget already holds, less the current PSS of
- * the processes it started, which MemAvailable already shows, so the suite
- * counts once. The lander's own process was resident before the dip its slot
- * was measured on, so it earns no credit. A lander a session started stays
- * charged its whole draw, as the session's own PSS already credits it.
+ * What the live landers' suites still need (#2416): each lander's charge
+ * (#3323) less the current PSS of the processes it started, which
+ * MemAvailable already shows, so the suite counts once. The lander's own
+ * process is not in its tester's tree peak, so it earns no credit. A lander a
+ * session started stays charged its whole charge, as the session's own PSS
+ * already credits it.
  * @param {Landers} landers
  * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
  */
-function landerHeldMb({ pids, slotMb }, { pssKbOf, children, sessionPids }) {
-	const drawMb = slotMb - EARLYOOM_FLOOR_MB - DRAW_MARGIN_MB;
+function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
 	/** @type {string[]} */
 	const underSessions = [];
 	for (const pid of sessionPids)
@@ -1151,13 +1150,35 @@ function landerHeldMb({ pids, slotMb }, { pssKbOf, children, sessionPids }) {
 			underSessions,
 		);
 	let mb = 0;
-	for (const pid of pids.map(String)) {
+	for (const { pid: n, chargeMb } of landers) {
+		const pid = String(n);
 		const kb = underSessions.includes(pid)
 			? 0
 			: descendantsPssKb(pid, { children, sessionPids, pssKbOf }, []);
-		mb += Math.max(0, drawMb - Math.floor(kb / 1024));
+		mb += Math.max(0, chargeMb - Math.floor(kb / 1024));
 	}
 	return mb;
+}
+
+/**
+ * The PSS of `pid` and every process under it, in kB, off fresh reads
+ * (#3323). An unreadable process counts nothing.
+ * @param {number} pid
+ */
+function readTreePssKb(pid) {
+	const root = String(pid);
+	return (
+		(readPssKb(root) ?? 0) +
+		descendantsPssKb(
+			root,
+			{
+				children: readProcessChildren(),
+				sessionPids: new Set(),
+				pssKbOf: readPssKb,
+			},
+			[],
+		)
+	);
 }
 
 /**
@@ -2030,6 +2051,7 @@ module.exports = {
 	SUITE_LADDER_MEASURED_AT,
 	suiteRungMb,
 	readAvailableMb,
+	readTreePssKb,
 	buildMemoryBreakdownLines,
 	reclaimableMb,
 	readRunningVitestSuites,

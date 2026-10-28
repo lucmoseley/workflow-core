@@ -23,6 +23,8 @@ import { queueJoin, queueTurn } from "./suite-queue.js";
 
 /** A part-suite's carried weight (#2931). */
 const PART_WEIGHT = { resolvedFiles: 2, wholeSlot: false };
+/* A whole suite's lander charge (#3323). */
+const WHOLE = { chargeMb: 1150 };
 
 let tmp: string;
 let work: string;
@@ -286,6 +288,7 @@ it("holds one slot for the run and releases it, and never runs past a shut gate"
 		root: work,
 		admit: () =>
 			suiteSlot({
+				...WHOLE,
 				gate: () => ({ limb: "count" }),
 				memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 				timeoutMs: 30,
@@ -305,7 +308,13 @@ it("holds one slot for the run and releases it, and never runs past a shut gate"
 });
 
 it("admits only with the gate open, its turn come and the memory there", async () => {
-	const open = { gate: () => null, queueDir: tmp, timeoutMs: 30, pollMs: 10 };
+	const open = {
+		...WHOLE,
+		gate: () => null,
+		queueDir: tmp,
+		timeoutMs: 30,
+		pollMs: 10,
+	};
 	expect(
 		await suiteSlot({ ...open, memory: () => ({ ok: true, mb: 0 }) }),
 	).toMatchObject({ ok: false });
@@ -341,6 +350,7 @@ it("refuses at the ceiling on the limb the guard named, never running anyway (#2
 			});
 		try {
 			const slot = await suiteSlot({
+				...WHOLE,
 				gate: () => denial,
 				memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 				timeoutMs: 30,
@@ -367,6 +377,7 @@ it("refuses at the ceiling on the limb the guard named, never running anyway (#2
 
 it("stamps its slot admitted, so no waiter's turn comes until its suite spawns (#2650)", async () => {
 	const slot = await suiteSlot({
+		...WHOLE,
 		gate: () => null,
 		queueDir: tmp,
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
@@ -427,6 +438,7 @@ it("yields to a waiter whose turn came true on the same poll, launching only onc
 		});
 	try {
 		const slot = await suiteSlot({
+			...WHOLE,
 			gate: () => null,
 			queueDir: tmp,
 			pollMs: 10,
@@ -444,16 +456,86 @@ it("yields to a waiter whose turn came true on the same poll, launching only onc
 
 it("shows session admission the held slot as a lander (#2416)", async () => {
 	const slot = await suiteSlot({
+		...WHOLE,
 		gate: () => null,
 		queueDir: tmp,
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 	});
-	expect(readLiveLanders({ queueDir: tmp })).toEqual({
-		pids: [process.pid],
-		slotMb: 2950,
-	});
+	expect(readLiveLanders({ queueDir: tmp })).toEqual([
+		{ pid: process.pid, chargeMb: 1150 },
+	]);
 	if (slot.ok) slot.release();
-	expect(readLiveLanders({ queueDir: tmp }).pids).toEqual([]);
+	expect(readLiveLanders({ queueDir: tmp })).toEqual([]);
+});
+
+it("charges a whole suite 1,150 MB and a named-file rerun 600 on the marker (#3323)", async () => {
+	const charged: unknown[] = [];
+	const tester = localTester({
+		root: work,
+		admit: async (charge) => {
+			const slot = await suiteSlot({
+				...charge,
+				gate: () => null,
+				queueDir: tmp,
+				memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
+			});
+			charged.push(readLiveLanders({ queueDir: tmp })[0]?.chargeMb);
+			return slot;
+		},
+		exec: recordingExec().exec,
+	});
+	await tester.verdict(passing);
+	await tester.verdict(passing, ["a.check.js"]);
+	expect(charged).toEqual([1150, 600]);
+});
+
+it("opens the gate's memory rung at 2,250 MB for a whole suite and 1,700 for a named-file rerun (#3323)", async () => {
+	const at = (mb: number, chargeMb: number) =>
+		suiteSlot({
+			chargeMb,
+			gate: () => null,
+			queueDir: tmp,
+			timeoutMs: 30,
+			pollMs: 10,
+			memory: () => ({ ok: true, mb }),
+		});
+	const release = (slot: Awaited<ReturnType<typeof suiteSlot>>) => {
+		if (slot.ok) slot.release();
+		return slot.ok;
+	};
+	expect(await at(2249, 1150)).toMatchObject({
+		ok: false,
+		reason: expect.stringContaining("2249 MB available against 2250 MB"),
+	});
+	expect(release(await at(2250, 1150))).toBe(true);
+	expect(await at(1699, 600)).toMatchObject({
+		ok: false,
+		reason: expect.stringContaining("against 1700 MB"),
+	});
+	expect(release(await at(1700, 600))).toBe(true);
+});
+
+it("appends each run's kind, file count and tree-PSS peak to the lander run record (#3323)", async () => {
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+		treePss: () => 700 * 1024,
+	});
+	await tester.verdict(passing);
+	await tester.verdict(passing, ["a.check.js"]);
+	const record = fs
+		.readFileSync(
+			path.join(work, ".claude", "tmp", "markers", ".lander-runs.jsonl"),
+			"utf8",
+		)
+		.trim()
+		.split("\n")
+		.map((l) => JSON.parse(l));
+	expect(record).toMatchObject([
+		{ sha: passing, kind: "whole", files: 0, shards: 1, peakMb: 700 },
+		{ sha: passing, kind: "named", files: 1, shards: 1, peakMb: 700 },
+	]);
 });
 
 it("names the failing files vitest and pytest print", async () => {

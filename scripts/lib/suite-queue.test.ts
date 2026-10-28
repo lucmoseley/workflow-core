@@ -40,7 +40,7 @@ const {
 	queueStamps,
 	queueTurn,
 	passingTurn,
-	readLiveRolePids,
+	readLiveRoleMarkers,
 	gateDenies,
 	heldSeat,
 	SEAT_ENV,
@@ -239,8 +239,12 @@ describe("the queue directory every default reads (#2889)", () => {
 
 		expect(fs.readdirSync(root)).toEqual(["wfc-suite-queue"]);
 		expect(path.dirname(file)).toBe(path.join(root, "wfc-suite-queue"));
-		expect(readLiveRolePids("lander")).toEqual([process.pid]);
-		expect(readLiveLanders().pids).toEqual([process.pid]);
+		expect(
+			readLiveRoleMarkers("lander").map((m: { pid: number }) => m.pid),
+		).toEqual([process.pid]);
+		expect(readLiveLanders().map((l: { pid: number }) => l.pid)).toEqual([
+			process.pid,
+		]);
 		expect(queueAdmit(file)).toBe("admitted");
 		expect(queueTurn()).toBe(true);
 		expect(fs.existsSync(swept)).toBe(false);
@@ -270,18 +274,18 @@ describe("the queue directory every default reads (#2889)", () => {
 	});
 });
 
-describe("readLiveRolePids (#2416)", () => {
-	it("names the live markers of one role, sweeping none", () => {
+describe("readLiveRoleMarkers (#2416)", () => {
+	it("names the live markers of one role with their charge, sweeping none", () => {
 		const queueDir = qdir();
-		queueJoin({ queueDir, pid: 11, role: "lander" });
+		queueJoin({ queueDir, pid: 11, role: "lander", chargeMb: 600 });
 		queueJoin({ queueDir, pid: 22, role: "lander" });
 		queueJoin({ queueDir, pid: 33 });
 		expect(
-			readLiveRolePids("lander", {
+			readLiveRoleMarkers("lander", {
 				queueDir,
 				alive: (pid: number) => pid !== 22,
 			}),
-		).toEqual([11]);
+		).toMatchObject([{ pid: 11, role: "lander", chargeMb: 600 }]);
 		expect(fs.readdirSync(queueDir)).toHaveLength(3);
 	});
 });

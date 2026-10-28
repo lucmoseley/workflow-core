@@ -35,7 +35,7 @@ const { weighCarried } = require("./suite-bounded.js");
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
 /** @typedef {import("./queue-exit-log.js").HeldLimb} HeldLimb */
-/** @typedef {{ pid: number, at: number, start?: number, role?: string, part?: boolean, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean }} QueueRecord */
+/** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
  * admitted on the same poll, which joined `behind` or `ahead` of it (#2622).
@@ -153,8 +153,9 @@ function readMarkers(dir, fsImpl = fs) {
  * since pids recycle (mantahostels#2034). Between them there is still no lease and no
  * expiry.
  *
- * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, weight?: import("./suite-handoff.js").CarriedWeight }} [options]
- *   `role` marks a waiter session admission reads: the lander (#2416);
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight }} [options]
+ *   `role` marks a waiter session admission reads: the lander (#2416),
+ *   `chargeMb` what admission holds back for it (#3323);
  *   `weight` the admission weight the launch carries (#2931), a waiter with
  *   none, such as `queue-run.js`'s, joining whole. One resolving below the
  *   whole-slot bound joins `part`, a part-suite (#2558).
@@ -165,6 +166,7 @@ function queueJoin({
 	pid = process.pid,
 	clock = Date.now,
 	role,
+	chargeMb,
 	weight,
 } = {}) {
 	const part = weight ? weighCarried(weight).part : false;
@@ -178,6 +180,7 @@ function queueJoin({
 				at: clock(),
 				start: readStartTimeOf(pid),
 				...(role ? { role } : {}),
+				...(chargeMb === undefined ? {} : { chargeMb }),
 				...(part ? { part } : {}),
 			}),
 		);
@@ -297,21 +300,20 @@ function queueStamps(file, options = {}) {
 }
 
 /**
- * The pids of the live markers `role` names, waiting or running. Sweeps
- * nothing: a stale marker is `queueTurn`'s to remove.
+ * The live markers `role` names, waiting or running. Sweeps nothing: a stale
+ * marker is `queueTurn`'s to remove.
  *
  * @param {string} role
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {number[]}
+ * @returns {QueueRecord[]}
  */
-function readLiveRolePids(
+function readLiveRoleMarkers(
 	role,
 	{ queueDir = defaultQueueDir(), queueFs = fs, alive = pidAlive } = {},
 ) {
 	return readMarkers(queueDir, queueFs)
 		.markers.map((m) => m.record)
-		.filter((r) => r.role === role && !isMarkerStale(r, { alive }))
-		.map((r) => r.pid);
+		.filter((r) => r.role === role && !isMarkerStale(r, { alive }));
 }
 
 /* The environment variable a seat hands its driver: the seat's marker path
@@ -763,7 +765,7 @@ module.exports = {
 	queueLeave,
 	queueTurn,
 	passingTurn,
-	readLiveRolePids,
+	readLiveRoleMarkers,
 	gateDenies,
 	waitForGate,
 };

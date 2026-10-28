@@ -13310,6 +13310,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/stop-guard.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/park-blocked.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -16122,8 +16123,10 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-pull-form.test.ts",
 			"scripts/lib/git.test.ts",
+			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/suite-queue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"

@@ -19,13 +19,20 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readAvailableMb } = require("./admission.js");
+const {
+	DRAW_MARGIN_MB,
+	EARLYOOM_FLOOR_MB,
+	readAvailableMb,
+	readTreePssKb,
+} = require("./admission.js");
 const { caught } = require("./caught.js");
+const { markersDir } = require("./marker-root.js");
+const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { requiredGroup } = require("./regex-group.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
 const {
 	gateDenies,
-	readLiveRolePids,
+	readLiveRoleMarkers,
 	queueJoin,
 	queueLeave,
 	queueSpawned,
@@ -55,20 +62,33 @@ const rootlessEnv = () => {
 /** @typedef {import("./lander.js").Verdict} Verdict */
 /** @typedef {import("./lander.js").Tester} Tester */
 
-/* Built as the suite ladder's rungs are (docs/environment.md §6): earlyoom's
- * 794 MB + the full run's MemAvailable dip + the 300 MB fitted margin, rounded
- * up to 50 MB. The dip, 1,821 MB, is one run of this tester at 1ff897864
- * (vitest then pytest, 27 min) with neighbours' suites live, so it is an upper
- * bound; the run's own process tree peaked at 923 MB PSS (#2410). Session
- * admission takes the floor and margin back off (#2416), so a replacement
- * figure keeps this shape. */
-const SLOT_MB = 2950;
+/* What admission holds back for a lander, by the kind of run it holds
+ * (#3323): its tester's own tree peak, never a machine-wide MemAvailable dip
+ * (#2508). Whole: 923 MB PSS for one full run (#2410) + 223 MB, the max less
+ * the median of eight reruns of one file set (#2496) = 1,146, rounded up to
+ * 1,150. Named: 552 MB, the highest rerun peak (#2496), + ~10%, set at 600 by
+ * #3323. The lander run record is what a re-size reads. */
+const CHARGE_MB = { whole: 1150, named: 600 };
+/**
+ * The suite gate's memory rung for a run charged `chargeMb`, built as the
+ * suite ladder's rungs are (docs/environment.md §6, #2416).
+ * @param {number} chargeMb
+ */
+const slotMb = (chargeMb) =>
+	Math.ceil((EARLYOOM_FLOOR_MB + chargeMb + DRAW_MARGIN_MB) / 50) * 50;
 /* The queue marker's role, which session admission reads (#2416). */
 const LANDER_ROLE = "lander";
 /* Untraced: room for `npm ci` over a slow link. */
 const INSTALL_TIMEOUT_MS = 15 * 60 * 1000;
 /* Untraced: room for a checkout of the whole tree. */
 const CHECKOUT_TIMEOUT_MS = 120 * 1000;
+/* Untraced: how often a run's tree PSS is sampled for its peak. */
+const PEAK_SAMPLE_MS = 2000;
+/* Each tester run's kind, file count and tree peak, under the canonical
+ * checkout's markers (#3323). Untraced: 90 days, room for many runs to
+ * re-size the charges from. */
+const RUN_RECORD = ".lander-runs.jsonl";
+const RUN_RECORD_RETAIN_MS = 90 * DAY_MS;
 /* Where the install's lockfile hash is kept: inside what it installed, so a
  * deleted `node_modules` takes its stamp with it. */
 const STAMP = path.join("node_modules", ".lander-lock-hash");
@@ -80,7 +100,8 @@ const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
  * @typedef {{ok: true, spawned: () => void, release: () => void}
  *   | {ok: false, reason: string}} Admission
  * @typedef {{code: number|null, signal: string|null, out: string,
- *   error: string|null}} RunResult
+ *   error: string|null, peakKb: number, samples: number}} RunResult
+ *   `peakKb` the run's tree-PSS peak over `samples` reads
  * @typedef {{command: string, args: string[], label?: string}} Run `label`
  *   names the run in a reason where `command` alone would not, as a shard's
  * @typedef {(bin: string, args: string[], cwd: string,
@@ -89,9 +110,11 @@ const PYTEST_FAIL = /^(?:FAILED|ERROR)\s+([^\s:]+)/;
  * @typedef {object} LocalTesterOptions
  * @property {string} root the canonical checkout, whose object store the
  *   worktree shares
- * @property {() => Promise<Admission>} [admit] one suite slot
+ * @property {(slot: {chargeMb: number}) => Promise<Admission>} [admit] one
+ *   suite slot, charged as the run it holds
  * @property {Exec} [exec]
  * @property {string} [pytest] the Python suite's runner
+ * @property {(pid: number) => number} [treePss] the tree PSS under `pid`, kB
  */
 
 /**
@@ -137,37 +160,39 @@ function parseCeilingKillReason(out) {
 
 /**
  * One suite slot: a place in the suite queue, the suite gate open, and
- * MemAvailable at SLOT_MB, all three at once. Memory that cannot be read
+ * MemAvailable at `slotMb(chargeMb)`, all three at once. Memory that cannot be read
  * holds the slot shut. An open slot is stamped admitted, so no other waiter
  * launches beside it before its suite spawns (#2650). At the ceiling it
  * refuses on either limb: the lander then exits with no verdict, leaving the
  * batch for its next run (#2542).
- * @param {{pollMs?: number, timeoutMs?: number,
+ * @param {{chargeMb: number, pollMs?: number, timeoutMs?: number,
  *   gate?: () => import("./suite-queue.js").GateDenial | null,
  *   memory?: () => import("./admission.js").MbResult, queueDir?: string}}
- *   [options] `gate` answers which limb of the suite gate denies a suite, if
+ *   options `gate` answers which limb of the suite gate denies a suite, if
  *   any; the poll and ceiling default to the suite queue's
  * @returns {Promise<Admission>}
  */
 async function suiteSlot({
+	chargeMb,
 	pollMs,
 	timeoutMs,
 	gate = () => gateDenies(),
 	memory = readAvailableMb,
 	queueDir,
-} = {}) {
-	const file = queueJoin({ queueDir, role: LANDER_ROLE });
+}) {
+	const file = queueJoin({ queueDir, role: LANDER_ROLE, chargeMb });
+	const rungMb = slotMb(chargeMb);
 	let mem = memory();
 	const outcome = await waitForGate({
 		pollMs,
 		timeoutMs,
 		gate: () => {
 			mem = memory();
-			if (!mem.ok || mem.mb < SLOT_MB)
+			if (!mem.ok || mem.mb < rungMb)
 				return {
 					limb: "memory",
 					...(mem.ok ? { mb: mem.mb } : {}),
-					rungMb: SLOT_MB,
+					rungMb,
 				};
 			return gate();
 		},
@@ -183,30 +208,37 @@ async function suiteSlot({
 		};
 	queueLeave(file);
 	const memoryRead = mem.ok
-		? `${mem.mb} MB available against ${SLOT_MB} MB`
+		? `${mem.mb} MB available against ${rungMb} MB`
 		: `memory unread: ${mem.error}`;
 	return { ok: false, reason: `no suite slot by the ceiling (${memoryRead})` };
 }
 
 /**
- * The landers holding or waiting for a suite slot, for session admission to
- * hold back (#2416).
+ * The landers holding or waiting for a suite slot, each with the charge its
+ * marker carries, for session admission to hold back (#2416, #3323). A marker
+ * whose charge is not a number is held the larger.
  * @param {{queueDir?: string}} [options]
  * @returns {import("./admission.js").Landers}
  */
 function readLiveLanders({ queueDir } = {}) {
-	return { pids: readLiveRolePids(LANDER_ROLE, { queueDir }), slotMb: SLOT_MB };
+	return readLiveRoleMarkers(LANDER_ROLE, { queueDir }).map((r) => ({
+		pid: r.pid,
+		chargeMb: Number.isFinite(r.chargeMb)
+			? Number(r.chargeMb)
+			: CHARGE_MB.whole,
+	}));
 }
 
 /**
  * `command "$@"` under `sh` in `cwd`, its stdout and stderr passed through to
- * stderr and kept.
+ * stderr and kept, its tree PSS sampled for the peak.
  * @param {Run} run
  * @param {string} cwd
  * @param {() => void} onSpawn
+ * @param {(pid: number) => number} treePss
  * @returns {Promise<RunResult>}
  */
-const shellRun = ({ command, args }, cwd, onSpawn) =>
+const shellRun = ({ command, args }, cwd, onSpawn, treePss) =>
 	new Promise((resolve) => {
 		const child = spawn("sh", ["-c", `${command} "$@"`, "tester", ...args], {
 			cwd,
@@ -219,15 +251,37 @@ const shellRun = ({ command, args }, cwd, onSpawn) =>
 			out += chunk;
 			process.stderr.write(chunk);
 		};
+		let peakKb = 0;
+		let samples = 0;
+		/** @type {NodeJS.Timeout | undefined} */
+		let sampler;
+		const sample = () => {
+			if (child.pid === undefined) return;
+			peakKb = Math.max(peakKb, treePss(child.pid));
+			samples += 1;
+		};
 		child.stdout.on("data", keep);
 		child.stderr.on("data", keep);
-		child.on("spawn", onSpawn);
-		child.on("error", (err) =>
-			resolve({ code: null, signal: null, out, error: err.message }),
-		);
-		child.on("close", (code, signal) =>
-			resolve({ code, signal, out, error: null }),
-		);
+		child.on("spawn", () => {
+			sample();
+			sampler = setInterval(sample, PEAK_SAMPLE_MS);
+			onSpawn();
+		});
+		child.on("error", (err) => {
+			clearInterval(sampler);
+			resolve({
+				code: null,
+				signal: null,
+				out,
+				error: err.message,
+				peakKb,
+				samples,
+			});
+		});
+		child.on("close", (code, signal) => {
+			clearInterval(sampler);
+			resolve({ code, signal, out, error: null, peakKb, samples });
+		});
 	});
 
 /** @type {Exec} */
@@ -369,17 +423,26 @@ function readRunsAt(dir, pytest, files) {
 }
 
 /**
+ * @typedef {object} SlotRuns
+ * @property {() => Promise<Admission>} admit one suite slot
+ * @property {Exec} exec
+ * @property {(pid: number) => number} treePss
+ * @property {{ran: number, peakKb: number, samples: number}} tally
+ *   accumulator: the runs spawned, their highest tree peak and the reads it
+ *   was taken over
+ */
+
+/**
  * Each group of runs in `dir`, in turn, each in a suite slot of its own
  * taken by `admit`, installing in it first: green where every run exits 0,
  * red with the files they name where one fails naming some, and no verdict
  * at the first step that reaches none.
  * @param {Run[][]} groups
  * @param {string} dir
- * @param {() => Promise<Admission>} admit
- * @param {Exec} exec
+ * @param {SlotRuns} slotRuns
  * @returns {Promise<Verdict>}
  */
-async function runEach(groups, dir, admit, exec) {
+async function runEach(groups, dir, { admit, exec, treePss, tally }) {
 	/** @type {Set<string>} */
 	const failing = new Set();
 	for (const runs of groups) {
@@ -403,7 +466,12 @@ async function runEach(groups, dir, admit, exec) {
 					reason: `install failed: ${whyFailed(err)}`,
 				};
 			}
-			const why = await runInSlot(runs, dir, slot.spawned, failing);
+			const why = await runInSlot(runs, dir, {
+				spawned: slot.spawned,
+				treePss,
+				tally,
+				failing,
+			});
 			/* No verdict, never red, though an earlier shard failed: a red
 			 * would send the lander to rerun those files alone, and a pass
 			 * there would land a shard no run judged. */
@@ -426,18 +494,23 @@ async function runEach(groups, dir, admit, exec) {
 
 /**
  * Each of `runs` in `dir`, in turn, adding the files a failing one names to
- * `failing`.
+ * `failing` and its tree peak to `tally`.
  * @param {Run[]} runs
  * @param {string} dir
- * @param {() => void} spawned
- * @param {Set<string>} failing accumulator: the failing files so far
+ * @param {{spawned: () => void, treePss: (pid: number) => number,
+ *   tally: SlotRuns["tally"], failing: Set<string>}} into `tally` and
+ *   `failing` are accumulators: the runs' peak so far and the failing files
+ *   so far
  * @returns {Promise<string|null>} why a run reached no verdict, or null
  */
-async function runInSlot(runs, dir, spawned, failing) {
+async function runInSlot(runs, dir, { spawned, treePss, tally, failing }) {
 	for (const run of runs) {
-		const r = await shellRun(run, dir, spawned);
+		const r = await shellRun(run, dir, spawned, treePss);
+		tally.peakKb = Math.max(tally.peakKb, r.peakKb);
+		tally.samples += r.samples;
 		const command = run.label ?? run.command;
 		if (r.error !== null) return `${command} did not start: ${r.error}`;
+		tally.ran += 1;
 		if (r.code === null)
 			return `${command} was killed by ${r.signal ?? "an unknown signal"}`;
 		if (r.code === 0) continue;
@@ -454,6 +527,24 @@ async function runInSlot(runs, dir, spawned, failing) {
 }
 
 /**
+ * One line of the lander run record (#3323). A line that does not land is
+ * said on stderr and costs the verdict nothing.
+ * @param {string} root
+ * @param {{sha: string, kind: keyof typeof CHARGE_MB, files: number,
+ *   shards: number, peakMb: number, samples: number,
+ *   verdict: Verdict["kind"]}} run
+ */
+function recordRun(root, run) {
+	const file = path.join(markersDir(root), RUN_RECORD);
+	const landed = appendRetained(
+		file,
+		{ at: new Date().toISOString(), ...run },
+		RUN_RECORD_RETAIN_MS,
+	);
+	if (!landed) process.stderr.write(`lander: run record unwritten: ${file}\n`);
+}
+
+/**
  * The lander's tester.
  * @param {LocalTesterOptions} options
  * @returns {Tester}
@@ -463,6 +554,7 @@ function localTester({
 	admit = suiteSlot,
 	exec = execOrThrow,
 	pytest = path.join(__dirname, "..", "run-pytest.js"),
+	treePss = readTreePssKb,
 }) {
 	const dir = path.join(root, ".claude", "worktrees", "lander");
 	return {
@@ -478,7 +570,25 @@ function localTester({
 			const groups = readRunsAt(dir, pytest, files);
 			if (typeof groups === "string")
 				return { kind: "unknown", reason: groups };
-			return runEach(groups, dir, admit, exec);
+			const kind = files.length > 0 ? "named" : "whole";
+			const tally = { ran: 0, peakKb: 0, samples: 0 };
+			const verdict = await runEach(groups, dir, {
+				admit: () => admit({ chargeMb: CHARGE_MB[kind] }),
+				exec,
+				treePss,
+				tally,
+			});
+			if (tally.ran > 0)
+				recordRun(root, {
+					sha,
+					kind,
+					files: files.length,
+					shards: kind === "whole" ? groups.length : 1,
+					peakMb: Math.round(tally.peakKb / 1024),
+					samples: tally.samples,
+					verdict: verdict.kind,
+				});
+			return verdict;
 		},
 	};
 }

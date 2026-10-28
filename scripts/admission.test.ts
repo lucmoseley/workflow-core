@@ -22,6 +22,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	admissionFrom,
 	readRunningVitestSuites,
+	readTreePssKb,
 	SUITE_RESTING_MB,
 	SWAP_HOLD_AVAILABLE_MB,
 	WHOLE_SUITE_WORKERS,
@@ -209,8 +210,9 @@ interface Machine {
 	load?: number | null;
 	/** WFC_SESSION_CEILING (#2141); off unless given, so a case meets it only by asking. */
 	sessionCeiling?: string;
-	/** Pids seeded as lander queue markers (#2416), in the case's own queue dir. */
-	landers?: number[];
+	/** Lander queue markers (#2416), each carrying its charge (#3323), in the
+	 * case's own queue dir. */
+	landers?: Lander[];
 	/** Each listed session's oracle `state`, by id; none where absent. */
 	states?: Record<string, string>;
 	/** `WFC_SESSION_FLOOR`, the machine's session floor (#2501); null unsets it,
@@ -220,16 +222,23 @@ interface Machine {
 	swap?: { totalMb: number; freeMb: number } | null;
 }
 
-/* A temp root whose suite queue holds a lander marker per pid, the root every
+interface Lander {
+	pid: number;
+	chargeMb: number;
+}
+/* This process as a lander holding a whole suite, at its charge (#3323). */
+const WHOLE_LANDER: Lander = { pid: process.pid, chargeMb: 1150 };
+
+/* A temp root whose suite queue holds a marker per lander, the root every
  * case's TMPDIR names, so no case reads the machine's own suite queue. */
-const tmpRootWithLanders = (landers: number[]) => {
+const tmpRootWithLanders = (landers: Lander[]) => {
 	const root = path.join(dir, "tmp");
 	const q = path.join(root, "wfc-suite-queue");
 	fs.mkdirSync(q, { recursive: true });
-	for (const pid of landers)
+	for (const { pid, chargeMb } of landers)
 		fs.writeFileSync(
 			path.join(q, `wfc-suite-queue-${pid}.json`),
-			JSON.stringify({ pid, at: 1, role: "lander" }),
+			JSON.stringify({ pid, at: 1, role: "lander", chargeMb }),
 		);
 	return root;
 };
@@ -265,7 +274,7 @@ const buildIsolatedEnv = ({
 	landers = [],
 	configDir = path.join(dir, "no-such-config"),
 }: {
-	landers?: number[];
+	landers?: Lander[];
 	configDir?: string;
 } = {}) => ({
 	TMPDIR: tmpRootWithLanders(landers),
@@ -502,7 +511,7 @@ describe("the session floor (#2501)", () => {
 	it("prices against memory the lander's suite reserve is not taken from (#2416)", () => {
 		const roomy = { ...three, mb: 6000 + HELD + PAIR };
 		const without = run(roomy).json;
-		const withLander = run({ ...roomy, landers: [process.pid] }).json;
+		const withLander = run({ ...roomy, landers: [WHOLE_LANDER] }).json;
 		expect(withLander.landerMb).toBeGreaterThan(0);
 		expect(withLander.budgetMb).toBeLessThan(without.budgetMb);
 		expect(withLander.sessionFloorSlots).toBe(without.sessionFloorSlots);
@@ -632,9 +641,8 @@ describe("the swap hold on the session floor (#2690)", () => {
 });
 
 describe("the lander's suite reserve (#2416)", () => {
-	/* The lander's draw is lib/local-tester.js's SLOT_MB, 2950, less the
-	 * floor and margin every budget already holds. */
-	const LanderDraw = 2950 - HELD;
+	/* The lander's draw is the charge its marker carries (#3323). */
+	const LanderDraw = WHOLE_LANDER.chargeMb;
 	/* Sessions of 2000 MB beside one live at 640 MB PSS: two more need
 	 * ceil(6000 + 1.645 × 200 × √3 − 640) = 5930 MB, one more 3825 MB. */
 	const big = {
@@ -646,7 +654,7 @@ describe("the lander's suite reserve (#2416)", () => {
 
 	it("admits one fewer session while a lander's marker is live", () => {
 		const without = run(big).json;
-		const withLander = run({ ...big, landers: [process.pid] }).json;
+		const withLander = run({ ...big, landers: [WHOLE_LANDER] }).json;
 		expect(without.slots).toBe(2);
 		expect(withLander.landerMb).toBe(LanderDraw);
 		expect(withLander.budgetMb).toBe(6000 - LanderDraw);
@@ -656,11 +664,30 @@ describe("the lander's suite reserve (#2416)", () => {
 		);
 	});
 
+	it("holds the charge the lander's marker carries (#3323)", () => {
+		const named = { pid: process.pid, chargeMb: 600 };
+		expect(run({ ...big, landers: [named] }).json.landerMb).toBe(600);
+	});
+
+	it("samples a tester run's tree peak as the PSS of its root and every process under it (#3323)", () => {
+		const was = process.env.WFC_PROC;
+		process.env.WFC_PROC = proc(
+			{ "50": 100, "51": 200, "52": 300, "60": 9000 },
+			{ "51": "50", "52": "51", "60": "1" },
+		);
+		try {
+			expect(readTreePssKb(50)).toBe(600);
+		} finally {
+			if (was === undefined) delete process.env.WFC_PROC;
+			else process.env.WFC_PROC = was;
+		}
+	});
+
 	it("credits the lander's suite its current PSS, so it counts once, and the lander itself none", () => {
 		const pid = String(process.pid);
 		const { json } = run({
 			...big,
-			landers: [process.pid],
+			landers: [WHOLE_LANDER],
 			pss: { ...GROWN_PSS, [pid]: mbKb(200), "9001": mbKb(800) },
 			parents: { "9001": pid },
 		});
@@ -671,7 +698,7 @@ describe("the lander's suite reserve (#2416)", () => {
 		const pid = String(process.pid);
 		const { json } = run({
 			...big,
-			landers: [process.pid],
+			landers: [WHOLE_LANDER],
 			pss: { ...GROWN_PSS, "9001": mbKb(800) },
 			parents: { [pid]: "701", "9001": pid },
 		});
@@ -680,11 +707,14 @@ describe("the lander's suite reserve (#2416)", () => {
 
 	it("holds nothing for a dead lander's marker", () => {
 		// Past 2^22, 64-bit Linux's pid_max ceiling, so no process holds it.
-		expect(run({ ...big, landers: [2 ** 22 + 1] }).json.landerMb).toBe(0);
+		expect(
+			run({ ...big, landers: [{ ...WHOLE_LANDER, pid: 2 ** 22 + 1 }] }).json
+				.landerMb,
+		).toBe(0);
 	});
 
 	it("prints the reserve in the slot arithmetic", () => {
-		const { stdout } = run({ ...big, landers: [process.pid], json: false });
+		const { stdout } = run({ ...big, landers: [WHOLE_LANDER], json: false });
 		expect(stdout).toMatch(
 			new RegExp(`− ${PAIR} pool − ${LanderDraw} lander − ${FLOOR} floor`),
 		);
