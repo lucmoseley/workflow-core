@@ -2087,13 +2087,15 @@ function noRegionFindings(st) {
 	 *
 	 * Named per file rather than counted repo-wide. A global count is satisfied by
 	 * ANY region anywhere, so deleting CLAUDE.md's — the one document loaded into
-	 * every session — would still pass on the strength of some region in docs/.
+	 * every session — would still pass on the strength of some region in docs/,
+	 * and deleting the registry document's, which holds every rule a guard
+	 * prints, would pass on CLAUDE.md's.
 	 */
-	const requiredRegionFiles = ["CLAUDE.md"];
+	const requiredRegionFiles = ["CLAUDE.md", "docs/agents/guard-registry.md"];
 
 	for (const required of requiredRegionFiles) {
 		if (st.regionsByFile.get(required)) continue;
-		// Conditional on existing: a repo without CLAUDE.md is not one missing a region.
+		// Conditional on existing: a repo without the file is not one missing a region.
 		if (!fs.existsSync(path.join(root, required))) continue;
 		st.findings.push({
 			kind: "NO-REGION",

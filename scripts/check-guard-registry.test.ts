@@ -823,6 +823,22 @@ describe("the guard-registry document (#2033)", () => {
 		expect(r.kinds).toEqual(["UNMARKED"]);
 		expect(r.json.findings[0]?.file).toBe(registryDoc);
 	});
+
+	it("fails when it has lost its region, CLAUDE.md keeping its own", () => {
+		const root = build({
+			claude: region(
+				"- Show the diff before committing. **Unenforceable**: nobody can see it.",
+			),
+			files: {
+				[registryDoc]:
+					"# Guard registry\n\n- **Stay on `main`.** **Enforced** (#110): `scripts/guard-branch.sh`.\n",
+			},
+		});
+		const r = run(root);
+		expect(r.code).toBe(1);
+		expect(r.kinds).toEqual(["NO-REGION"]);
+		expect(r.json.findings[0]?.file).toBe(registryDoc);
+	});
 });
 
 describe("reporting", () => {
