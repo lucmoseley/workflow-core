@@ -2783,6 +2783,21 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/answer-review-reversals.js": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/refill-loop-run.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/answer-review-reversals.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/arbiter-deadlock.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -9206,7 +9221,6 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/file-morning-review.test.ts",
 			"scripts/lib/earlyoom-journal.contract.test.ts",
 			"scripts/lib/earlyoom-kills.test.ts",
 			"scripts/lib/git.test.ts",
@@ -9742,7 +9756,6 @@
 			"scripts/deliver-to-session-ci.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-memory-kill-tickets.test.ts",
-			"scripts/file-morning-review.test.ts",
 			"scripts/guard-inventory.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
@@ -12947,6 +12960,17 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/morning-review-fixture.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/morning-review.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -15629,6 +15653,20 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/review-issues.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -20802,6 +20840,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/session-arbiter.js": [
+			"scripts/answer-review-reversals.test.ts",
 			"scripts/arbiter-deadlock.test.ts",
 			"scripts/arbiter-request.test.ts",
 			"scripts/arm-tasks.test.ts",

@@ -20,8 +20,9 @@
  * a recorded launch ran in, is supervised
  * (scripts/supervise-landing.js, #2692): a dead lander started, a stall
  * ticketed, and each earlyoom kill incident that is over is ticketed
- * (scripts/file-memory-kill-tickets.js, #3094). Last, the morning review generator runs: in full on the first tick after 07:00,
- * answering reversals only on every other (#2017). Then the tick's line is
+ * (scripts/file-memory-kill-tickets.js, #3094). Last, the morning review is
+ * filed on the first tick after 07:00, and its reversals are answered on
+ * every tick (scripts/answer-review-reversals.js, #2017). Then the tick's line is
  * appended to the concurrency record (lib/concurrency.js, #2497).
  *
  * SEATS, in failover order, are the plan seats `~/.claude/refill-seats`
@@ -396,8 +397,9 @@ function headlessSessionOf(jobId) {
 }
 
 /**
- * Run the morning review generator: in full where due, else for reversals
- * only, returning the date of the last full run (lib/refill-loop.js's
+ * File the morning review where due, then answer its reversals
+ * (scripts/answer-review-reversals.js), returning the date of the last full
+ * run (lib/refill-loop.js's
  * reviewRunRecorded). A missing config at REVIEW_ROOT is logged once a day.
  * @param {string|null} lastRunOn
  * @param {number} now
@@ -412,23 +414,30 @@ function runReview(lastRunOn, now) {
 			);
 		return due ? today : lastRunOn;
 	}
-	const r = runChild(
-		process.execPath,
-		[
-			path.join(SCRIPTS, "file-morning-review.js"),
-			...(due ? [] : ["--reversals-only"]),
-		],
-		{
+	/** @param {string} script */
+	const runInReviewRoot = (script) =>
+		runChild(process.execPath, [path.join(SCRIPTS, script)], {
 			cwd: REVIEW_ROOT,
 			env: checkoutEnv(REVIEW_ROOT),
 			timeout: REVIEW_TIMEOUT_MS,
-		},
-	);
-	if (due || r.out || r.failed)
+		});
+	const filed = due ? runInReviewRoot("file-morning-review.js") : null;
+	if (filed)
 		log(
-			`morning review${due ? "" : " reversals"}: ${r.failed ?? "exit 0"}\n  ${blocks.indented(r.out)}`,
+			`morning review: ${filed.failed ?? "exit 0"}\n  ${blocks.indented(filed.out)}`,
 		);
-	return loop.reviewRunRecorded({ due, status: r.status, lastRunOn, today });
+	const answered = runInReviewRoot("answer-review-reversals.js");
+	if (answered.out || answered.failed)
+		log(
+			`morning review reversals: ${answered.failed ?? "exit 0"}\n  ${blocks.indented(answered.out)}`,
+		);
+	/* A due run is recorded only once its reversals answered too, so a
+	 * failed one is retried with the filing, which files nothing twice. */
+	const statuses = [filed?.status ?? 0, answered.status];
+	const status = statuses.includes(null)
+		? null
+		: Math.max(.../** @type {number[]} */ (statuses));
+	return loop.reviewRunRecorded({ due, status, lastRunOn, today });
 }
 
 /**

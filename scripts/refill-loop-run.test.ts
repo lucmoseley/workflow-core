@@ -348,6 +348,7 @@ describe("run (#2435)", () => {
 process.stdout.write("Memory kill incident from 2026-10-26 03:56: filed #9.");\n`,
 		);
 		stub("file-morning-review.js", "");
+		stub("answer-review-reversals.js", "");
 		const r = await settled(run(1), "run filing kill tickets");
 		expect(r.status).toBe(0);
 		expect(readLines(at("kill-filer"))).toEqual([fs.realpathSync(code)]);

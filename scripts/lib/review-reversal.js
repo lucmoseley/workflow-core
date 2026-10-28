@@ -1,8 +1,8 @@
 /*
  * review-reversal.js — a `reverse <n>` comment on the morning review issue,
  * turned into the ticket that undoes entry n and the reply acknowledging it
- * (#2017, spec #1995 §The morning review issue). Pure: the generator,
- * scripts/file-morning-review.js, reads the issue and the ledgers and files.
+ * (#2017, spec #1995 §The morning review issue). Pure:
+ * scripts/answer-review-reversals.js reads the issue and the ledgers and files.
  *
  * THE ACKNOWLEDGEMENT IS THE RECORD: each reply carries a hidden marker naming
  * the reverse comment and the entry, so a request already answered is never
