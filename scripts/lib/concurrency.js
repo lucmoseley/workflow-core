@@ -62,6 +62,7 @@ const SPREAD_CAP = 10;
  */
 
 /** @typedef {{ts: string, sessions: number|null}} MinuteLine */
+/** @typedef {{dir: string, count: number}} UnlistedDir */
 
 /**
  * The memory component holding most of what admission charges besides the
@@ -79,6 +80,7 @@ function largestHolder(a) {
 		["non-session processes", m.other?.mb],
 		["the spare pool", m.pool?.mb],
 		["finished sessions", m.finished?.mb],
+		["unlisted sessions", m.unlisted?.mb],
 	];
 	let best = { name: "nothing", mb: 0 };
 	for (const [name, mb] of holders)
@@ -199,10 +201,22 @@ function buildTickRecord(tick) {
 						pool: a.memory?.pool?.mb ?? null,
 						other: a.memory?.other?.mb ?? null,
 					},
+					unlisted: unlistedOf(a.memory?.unlisted),
 					largest: largestHolder(a),
 				}
 			: null,
 	};
+}
+
+/**
+ * The breakdown's unlisted row as a tick keeps it (#3322); null where the
+ * admission read carried none.
+ * @param {{count?: number|null, mb?: number|null, dirs?: UnlistedDir[]}|null|undefined} u
+ * @returns {{count: number|null, mb: number|null, dirs: UnlistedDir[]}|null}
+ */
+function unlistedOf(u) {
+	if (!u) return null;
+	return { count: u.count ?? null, mb: u.mb ?? null, dirs: u.dirs ?? [] };
 }
 
 /**
@@ -298,6 +312,16 @@ function buildBlockText(r) {
 	const largest = /** @type {any} */ (t?.memory)?.largest;
 	if (largest)
 		lines.push(`memory:    ${largest.name} holds most (${largest.mb} MB)`);
+	/* The unlisted watch (#3322): whether these sessions owe draw headroom is
+	 * open (#2502), and this line is what raises it. */
+	const unlisted =
+		/** @type {{unlisted?: {count: number|null, mb: number|null}|null}|null|undefined} */ (
+			t?.memory
+		)?.unlisted;
+	if (unlisted?.count && unlisted.count > 0)
+		lines.push(
+			`unlisted:  ${unlisted.count} session(s) outside admission's listing hold ${unlisted.mb ?? "?"} MB, charged no draw headroom (#2502)`,
+		);
 	lines.push(
 		`sustained: ${figure(r.sustained)} over the last 24h (${r.activeHours.toFixed(1)} h with any session working)`,
 	);

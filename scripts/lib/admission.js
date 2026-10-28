@@ -22,6 +22,7 @@ const nodePath = require("node:path");
 const os = require("node:os");
 const { parseErrLine } = require("./gh");
 const { caught } = require("./caught.js");
+const { readEnvironVar } = require("./proc-environ.js");
 const { readParentOf } = require("./proc-stat.js");
 const { isClaudeArgv0 } = require("./claude-argv0.js");
 const {
@@ -1013,6 +1014,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   working: MemRow & { count: number | null, noProcess?: number },
  *   finished: MemRow & { count: number | null, reapable: number | null, reapableUnknown: string | null },
  *   pool: MemRow & { drift: string[] },
+ *   unlisted: MemRow & { count: number | null, dirs: { dir: string, count: number }[] },
  *   other: MemRow & { overlapMb: number, largest: { pid: string, rssMb: number, command: string }[] },
  *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, sessionFloor?: number, sessionFloorLifted?: boolean, slots?: number, overloaded?: boolean },
  *   cpu: CpuSlots,
@@ -1256,8 +1258,61 @@ function slotsRow(verdict) {
 }
 
 /**
+ * The claimed pairs no listing names (#3322): sessions this run's listing
+ * cannot see, most often another config dir's. The listing names a session by
+ * its `bg-spare` pid, so a pair with no `bg-spare` half is left out, its pids
+ * falling to everything else.
+ * @param {SparePair[]} pairs
+ * @param {Map<string, number>} listedPids
+ */
+function unlistedPairs(pairs, listedPids) {
+	const listed = new Set([...listedPids.values()].map(String));
+	return pairs.filter(
+		(p) => !p.idle && p.spare !== null && !listed.has(p.spare),
+	);
+}
+
+/**
+ * The config dir an unlisted pair runs in: `CLAUDE_CONFIG_DIR` from its
+ * `bg-spare`'s environ, `$HOME` shown as `~`; `~/.claude` where that variable
+ * is absent; the daemon's socket-dir hash id where environ will not read, or
+ * the pair's own socket id where it names no claim socket to take one from.
+ * @param {SparePair} pair
+ * @param {ReturnType<typeof readEnvironVar>} configDir its spare's
+ *   `CLAUDE_CONFIG_DIR`
+ * @param {string} home
+ */
+function configDirLabel(pair, configDir, home) {
+	if (!configDir.ok)
+		return pair.dir === null
+			? pair.socket
+			: nodePath.basename(nodePath.dirname(pair.dir));
+	const dir = configDir.value;
+	if (!dir) return "~/.claude";
+	return home && (dir === home || dir.startsWith(`${home}/`))
+		? `~${dir.slice(home.length)}`
+		: dir;
+}
+
+/**
+ * The unlisted pairs counted by config dir, in first-seen order.
+ * @param {SparePair[]} unlisted
+ * @param {(pair: SparePair) => string} configDirOf
+ */
+function unlistedDirs(unlisted, configDirOf) {
+	/** @type {Map<string, number>} */
+	const byDir = new Map();
+	for (const p of unlisted) {
+		const label = configDirOf(p);
+		byDir.set(label, (byDir.get(label) ?? 0) + 1);
+	}
+	return [...byDir].map(([dir, count]) => ({ dir, count }));
+}
+
+/**
  * Where the machine's memory is going (#589): free, working sessions, finished
- * sessions still resident, the daemon and spare pool, everything else, and the
+ * sessions still resident, the daemon and spare pool, sessions the listing
+ * cannot see (#3322), everything else, and the
  * arithmetic from free memory to the slot count, with the CPU limb's slot count
  * beside it (#2141). PURE: every reading comes in.
  *
@@ -1276,6 +1331,8 @@ function slotsRow(verdict) {
  *   listed: { why?: string, ids?: Set<string>, pids?: Map<string, number>, finished?: Set<string> },
  *   pssKbOf: (pid: string) => number | null,
  *   pool: SpareOverhead,
+ *   pairs: SparePair[],
+ *   configDirOf: (pair: SparePair) => string,
  *   reclaimable: { ok: true, mb: number, count: number } | { ok: false, error: string },
  *   verdict: ReturnType<typeof strictAdmission>,
  *   children: Map<string, string[]>,
@@ -1289,6 +1346,8 @@ function memoryBreakdown({
 	listed,
 	pssKbOf,
 	pool,
+	pairs,
+	configDirOf,
 	reclaimable,
 	verdict,
 	children,
@@ -1311,6 +1370,16 @@ function memoryBreakdown({
 	const { ids: listedIds, pids, finished: finishedSet } = listed;
 	const refused =
 		listed.why ?? (listedIds && pids && finishedSet ? null : "no ids listed");
+	const unlisted =
+		refused === null ? unlistedPairs(pairs, pids ?? new Map()) : [];
+	/* Every session's pid, listed or not, keyed by id or by `unlisted:<socket>`,
+	 * so each row's descendant walk stops at every other session. */
+	const allPids = new Map(pids);
+	const unlistedIds = unlisted.map((p) => {
+		const id = `unlisted:${p.socket}`;
+		allPids.set(id, Number(p.spare));
+		return id;
+	});
 	/**
 	 * @param {string[]} ids
 	 * @returns {MemRow & { count: number | null, noProcess?: number }}
@@ -1325,7 +1394,12 @@ function memoryBreakdown({
 					`ps unreadable, so no session can be paired: ${ps.error}`,
 				),
 			};
-		const sum = sessionsPssKb(ids, { pids, spares, pssKbOf, children });
+		const sum = sessionsPssKb(ids, {
+			pids: allPids,
+			spares,
+			pssKbOf,
+			children,
+		});
 		for (const p of sum.reached) sessionPids.add(p);
 		if (sum.kb === null)
 			return { count: ids.length, ...unknownRow(sum.unknown) };
@@ -1351,7 +1425,15 @@ function memoryBreakdown({
 		? { mb: pool.mb, unknown: null, drift: pool.drift }
 		: { ...unknownRow(`spare-pool scan: ${pool.error}`), drift: [] };
 
-	const parts = [free, working, finishedRow, poolMem];
+	/* Shown, never priced: no verdict charges it draw headroom, whether it owes
+	 * some being open (#2502); the concurrency readout raises it when it
+	 * reads above 0. */
+	const unlistedMem = {
+		...sessionsRow(unlistedIds),
+		dirs: unlistedDirs(unlisted, configDirOf),
+	};
+
+	const parts = [free, working, finishedRow, poolMem, unlistedMem];
 	const blocked = parts.find((r) => r.unknown !== null);
 	const other = otherRow({
 		blocked: Boolean(blocked),
@@ -1370,11 +1452,16 @@ function memoryBreakdown({
 		working,
 		finished,
 		pool: poolMem,
+		unlisted: unlistedMem,
 		other,
 		slots,
 		cpu,
 	};
 }
+
+/** @param {MemoryBreakdown["unlisted"]} u */
+const unlistedText = (u) =>
+	`${u.count} session(s), ${u.mb} MB PSS${u.dirs.length > 0 ? ` — ${u.dirs.map((d) => `${d.dir} ${d.count}`).join(", ")}` : ""}`;
 
 /**
  * The breakdown as text rows, for `admission.js`'s report.
@@ -1410,6 +1497,7 @@ function buildMemoryBreakdownLines(m) {
 		`  finished         ${orUnknown(f, `${f.count} session(s) still resident, ${f.mb} MB PSS, ${f.reapable === null ? `unknown (${f.reapableUnknown})` : f.reapable} taken by the next reap`)}`,
 		`  daemon + spares  ${orUnknown(m.pool, `${m.pool.mb} MB PSS`)}`,
 		...m.pool.drift.map((why) => `    spare shape drift: ${why}`),
+		`  unlisted         ${orUnknown(m.unlisted, unlistedText(m.unlisted))}`,
 		`  everything else  ${orUnknown(
 			m.other,
 			`${m.other.mb} MB${m.other.overlapMb ? ` (the rows above overlap by ${m.other.overlapMb} MB of page cache)` : ""}${
@@ -2009,6 +2097,17 @@ function machineAdmission({ listed, reclaimable, pendingSpares = 0, landers }) {
 		listed,
 		pssKbOf: readPssKb,
 		pool,
+		pairs,
+		configDirOf: (pair) =>
+			configDirLabel(
+				pair,
+				readEnvironVar(
+					/** @type {string} */ (pair.spare),
+					"CLAUDE_CONFIG_DIR",
+					PROC(),
+				),
+				os.homedir(),
+			),
 		reclaimable,
 		verdict,
 		children,

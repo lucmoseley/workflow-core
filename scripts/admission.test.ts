@@ -28,7 +28,7 @@ import {
 	WHOLE_SUITE_WORKERS,
 } from "./lib/admission";
 import { writeCache } from "./lib/dispatch-sessions-testkit";
-import { carrying, writeCwd } from "./lib/proc-fake";
+import { carrying, writeCwd, writeEnviron } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -129,8 +129,8 @@ const claude = (
 
 /*
  * A fake `/proc` carrying a `smaps_rollup` per pid in `pss` (kB), a `stat`
- * per pid in `parents`, naming its parent, and a `cwd` symlink per pid in
- * `cwds`. A pid with no rollup is the unreadable case the scan falls back to
+ * per pid in `parents`, naming its parent, a `cwd` symlink per pid in
+ * `cwds`, and an `environ` per pid in `environs`. A pid with no rollup is the unreadable case the scan falls back to
  * RSS for, and one with no `cwd` the unreadable one the spare test reads as
  * claimed. The default is an empty tree, so no test ever reads the real
  * `/proc`.
@@ -139,9 +139,12 @@ const proc = (
 	pss: Record<string, number> = {},
 	parents: Record<string, string> = {},
 	cwds: Record<string, string> = {},
+	environs: Record<string, string[]> = {},
 ) => {
 	const root = path.join(dir, "proc");
 	for (const [pid, cwd] of Object.entries(cwds)) writeCwd(root, pid, cwd);
+	for (const [pid, entries] of Object.entries(environs))
+		writeEnviron(root, Number(pid), entries);
 	for (const [pid, kb] of Object.entries(pss)) {
 		fs.mkdirSync(path.join(root, pid), { recursive: true });
 		fs.writeFileSync(
@@ -195,6 +198,8 @@ interface Machine {
 	parents?: Record<string, string>;
 	/** Each pid's cwd, for the fake `/proc`'s `cwd` symlinks. */
 	cwds?: Record<string, string>;
+	/** Each pid's environment, for the fake `/proc`'s `environ` files. */
+	environs?: Record<string, string[]>;
 	reaped?: Array<{ pss: number | null }> | null;
 	reapFails?: boolean;
 	reapRaw?: string;
@@ -304,6 +309,7 @@ const run = (m: Machine = {}) => {
 		pss = {},
 		parents = {},
 		cwds = {},
+		environs = {},
 		reaped = [],
 		reapFails = false,
 		reapRaw,
@@ -326,7 +332,7 @@ const run = (m: Machine = {}) => {
 			WFC_MEMINFO: meminfo(mb, swap),
 			WFC_PS: ps(psLines, { fails: psFails }),
 			WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
-			WFC_PROC: proc(pss, parents, cwds),
+			WFC_PROC: proc(pss, parents, cwds, environs),
 			WFC_REAP_SCRIPT: reapScript(reaped, { fails: reapFails, raw: reapRaw }),
 			WFC_LOADAVG: loadavg(load),
 			WFC_SESSION_CEILING: sessionCeiling,
@@ -904,6 +910,122 @@ describe("daemon + spare-pool reservation", () => {
 		expect(status).toBe(0);
 		expect(json.reservedMb).toBe(0);
 		expect(json.slots).toBe(3);
+	});
+});
+
+/*
+ * #3322: a claimed pair no listing names is a session admission cannot see,
+ * most often another config dir's. It gets its own row, labelled by that
+ * dir, and leaves everything else, so the rows still sum once.
+ */
+describe("the unlisted row (#3322)", () => {
+	/* `abc` claimed, by pid 111 at /home/u/repo; `def` idle. */
+	const pairs = [
+		"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
+		"110 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock 200 50 --",
+		"120 50000 node vitest",
+		"333 300000 claude bg-spare --bg-spare /tmp/x/spare/def.claim.sock",
+		"332 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/def.pty.sock 200 50 --",
+	];
+	const unlisted = (environs: Record<string, string[]> = {}, m: Machine = {}) =>
+		run({
+			mb: 4000,
+			sessions: [SELF],
+			psLines: pairs,
+			pss: {
+				"111": mbKb(300),
+				"110": mbKb(100),
+				"120": mbKb(50),
+				"333": mbKb(10),
+				"332": mbKb(10),
+			},
+			parents: { "120": "111" },
+			cwds: { "111": "/home/u/repo", ...idleAt("333") },
+			environs,
+			...m,
+		});
+
+	it.each([
+		[
+			"CLAUDE_CONFIG_DIR, $HOME shown as ~",
+			{ "111": ["PATH=/bin", `CLAUDE_CONFIG_DIR=${os.homedir()}/.claude-b`] },
+			"~/.claude-b",
+		],
+		[
+			"~/.claude where CLAUDE_CONFIG_DIR is absent",
+			{ "111": ["PATH=/bin"] },
+			"~/.claude",
+		],
+		["the socket dir's hash id where environ will not read", {}, "x"],
+	])(
+		"sums a claimed unlisted pair and its tree, labelled %s",
+		(_, environs, label) => {
+			const { json } = unlisted(environs);
+			expect(json.memory.unlisted).toEqual({
+				count: 1,
+				mb: 450,
+				unknown: null,
+				dirs: [{ dir: label, count: 1 }],
+			});
+			expect(json.memory.pool.mb).toBe(20);
+		},
+	);
+
+	it("labels a pair naming no claim socket by its socket id where environ will not read", () => {
+		const { json } = unlisted(
+			{},
+			{
+				psLines: [
+					"111 300000 claude bg-spare /tmp/x/spare/abc.claim.sock",
+					"110 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock 200 50 --",
+				],
+			},
+		);
+		expect(json.memory.unlisted.dirs).toEqual([{ dir: "abc", count: 1 }]);
+	});
+
+	it("takes the unlisted pids out of everything else, so the rows sum once", () => {
+		const { json } = unlisted();
+		const m = json.memory;
+		expect(
+			m.free.mb +
+				m.working.mb +
+				m.finished.mb +
+				m.pool.mb +
+				m.unlisted.mb +
+				m.other.mb,
+		).toBe(m.totalMb);
+		expect(m.other.largest.map((p: { pid: string }) => p.pid)).not.toContain(
+			"111",
+		);
+		expect(m.other.largest.map((p: { pid: string }) => p.pid)).not.toContain(
+			"120",
+		);
+	});
+
+	it("prints the row with its config dirs", () => {
+		const { stdout } = unlisted({ "111": ["PATH=/bin"] }, { json: false });
+		expect(stdout).toContain(
+			"  unlisted         1 session(s), 450 MB PSS — ~/.claude 1",
+		);
+	});
+
+	it("reads none where the listing names the claimed pair", () => {
+		const { json } = unlisted({}, { sessions: [SELF, "other@111"] });
+		expect(json.memory.unlisted).toEqual({
+			count: 0,
+			mb: 0,
+			unknown: null,
+			dirs: [],
+		});
+		expect(json.memory.working.mb).toBe(450);
+	});
+
+	it("reads unknown where the listing was refused, as working does", () => {
+		const { json } = unlisted({}, { agentsRaw: "not json" });
+		expect(json.memory.unlisted.unknown).toMatch(/^session listing: /);
+		expect(json.memory.unlisted.mb).toBeNull();
+		expect(json.memory.other.mb).toBeNull();
 	});
 });
 
@@ -2025,7 +2147,7 @@ describe("text output stays a handful of figures", () => {
 		const [figures, memory] = r.stdout.split("\n\n");
 		const lines = figures.split("\n");
 		expect(lines).toHaveLength(8);
-		expect(memory.trim().split("\n")).toHaveLength(8);
+		expect(memory.trim().split("\n")).toHaveLength(9);
 		expect(lines[0]).toMatch(/^available memory\s+4000 MB$/);
 		expect(lines[2]).toMatch(/^session draw\s+mean 600 MB, σ 200 MB — /);
 		expect(lines[3]).toMatch(

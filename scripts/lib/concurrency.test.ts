@@ -222,6 +222,36 @@ describe("readout's verdict (#3317)", () => {
 	});
 });
 
+describe("the unlisted watch (#3322)", () => {
+	const block = (unlisted: unknown) =>
+		buildBlockText(
+			readout({
+				ticks: [
+					{
+						...tickAt(T0, "memory"),
+						memory: { ...tickAt(T0, "memory").memory, unlisted },
+					},
+				],
+				minutes: [],
+				now: T0 + MIN,
+				windowMs: 24 * HOUR,
+			}),
+		);
+
+	it("prints a line naming the count and MB while the newest tick reads unlisted sessions", () => {
+		expect(block({ count: 2, mb: 900, dirs: [] })).toContain(
+			"unlisted:  2 session(s) outside admission's listing hold 900 MB, charged no draw headroom (#2502)",
+		);
+	});
+
+	it.each([
+		["reads none", { count: 0, mb: 0, dirs: [] }],
+		["carries no row", null],
+	])("prints no line where the newest tick %s", (_, unlisted) => {
+		expect(block(unlisted)).not.toContain("unlisted:");
+	});
+});
+
 describe("a tick's failing limits, in their fixed order (#3317)", () => {
 	const Present = { lastPromptAt: T0 - MIN };
 	it.each([
@@ -341,6 +371,25 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			also: [{ limit: "CPU", why: "12 sessions fill the ceiling of 12" }],
 			memory: { rows: { working: 3600, other: 1400, pool: 300, finished: 0 } },
 		});
+	});
+
+	it("carries the breakdown's unlisted row (#3322)", () => {
+		const unlisted = {
+			count: 1,
+			mb: 420,
+			dirs: [{ dir: "~/.claude-b", count: 1 }],
+		};
+		const r = buildTickRecord({
+			input: input(),
+			decision: idle("no free slot"),
+			admission: admission({
+				memory: {
+					...admission().memory,
+					unlisted: { ...unlisted, unknown: null },
+				},
+			}),
+		});
+		expect(r.memory?.unlisted).toEqual(unlisted);
 	});
 
 	it("records null counts and memory where admission did not read", () => {

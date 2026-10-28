@@ -95,9 +95,7 @@ function countSessions(psText, cwdOf) {
  * cwd string is its claim socket's directory, the spare not yet moved to a
  * job's cwd; every other pair is claimed — a cwd that will not read, and a
  * pair with no `bg-spare` half, included. A spare still booting, its socket not yet made, already sits in
- * that directory and reads idle. Residual: a claimed pair no listing names,
- * and so no row prices, lands in admission's everything-else row until #3322
- * gives it one.
+ * that directory and reads idle.
  * @param {{ pid: string, args: string }[]} procs `ps` rows, argv as one string
  * @param {(pid: string) => string | null} cwdOf `pid`'s cwd, null where it
  *   cannot say
