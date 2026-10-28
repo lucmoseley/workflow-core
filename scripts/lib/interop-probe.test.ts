@@ -34,4 +34,12 @@ describe("CLAUDE_INTEROP_PROBE_TIMEOUT", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("12");
 	});
+
+	// `[[ -ge ]]` reads a leading zero as octal, where `08` is an error (#3384).
+	it("honours a zero-padded override as decimal", () => {
+		const r = exported("08");
+		expect(r.status).toBe(0);
+		expect(r.stderr).toBe("");
+		expect(r.stdout).toBe("8");
+	});
 });

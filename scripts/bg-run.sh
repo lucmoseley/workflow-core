@@ -184,7 +184,7 @@ WATCH_CEILING_S="${WFC_BG_WATCH_CEILING_S:-7200}"
 # run itself (#2704): the runner's 14-minute ceiling plus this is #2667's 15.
 # Lower only, as the ceiling is, so no setting stretches the hold.
 CEILING_GRACE_S=60
-if [[ "${WFC_BG_CEILING_GRACE_S:-}" =~ ^[0-9]+$ ]] && [ "$WFC_BG_CEILING_GRACE_S" -lt "$CEILING_GRACE_S" ]; then
+if [[ "${WFC_BG_CEILING_GRACE_S:-}" =~ ^[0-9]+$ ]] && [[ "$WFC_BG_CEILING_GRACE_S" -lt "$CEILING_GRACE_S" ]]; then
   CEILING_GRACE_S="$WFC_BG_CEILING_GRACE_S"
 fi
 # A test seam, unset in production (#1352): a path the watcher waits for
@@ -235,7 +235,7 @@ TOUCHER_KEEPS_TRAP="${WFC_BG_TOUCHER_KEEPS_TRAP:-}"
 # file exists only where a node runner wrote it, so node is there to read it.
 mono_s=""
 mono_now() {
-  if [ -n "$MONO" ]; then
+  if [[ -n "$MONO" ]]; then
     mono_s="$MONO"
   else
     mono_s="$(node -e 'process.stdout.write(String(Math.floor(Number(process.hrtime.bigint()) / 1e9)))' 2>/dev/null)"
@@ -320,15 +320,15 @@ collect_descendants() {
   # buffer its whole child list into $queue in one step, before the
   # visit-count check below ever gets a turn to cap anything.
   for kid in ${CHILDREN_OF[$parent]:-}; do
-    [ "$kid" = "$exclude" ] && continue
-    if [ "${#queue[@]}" -ge "$MAX_DESCENDANTS" ]; then
+    [[ "$kid" = "$exclude" ]] && continue
+    if [[ "${#queue[@]}" -ge "$MAX_DESCENDANTS" ]]; then
       descendants_truncated=true
       break
     fi
     queue+=("$kid")
   done
-  while [ "${#queue[@]}" -gt 0 ]; do
-    if [ "${#descendants[@]}" -ge "$MAX_DESCENDANTS" ]; then
+  while [[ "${#queue[@]}" -gt 0 ]]; do
+    if [[ "${#descendants[@]}" -ge "$MAX_DESCENDANTS" ]]; then
       descendants_truncated=true
       break
     fi
@@ -336,7 +336,7 @@ collect_descendants() {
     queue=("${queue[@]:1}")
     descendants+=("$pid")
     for kid in ${CHILDREN_OF[$pid]:-}; do
-      if [ "${#queue[@]}" -ge "$MAX_DESCENDANTS" ]; then
+      if [[ "${#queue[@]}" -ge "$MAX_DESCENDANTS" ]]; then
         descendants_truncated=true
         break
       fi
@@ -378,9 +378,9 @@ sample_mem() {
 }
 
 run_root() {
-  if [ -n "${WFC_BG_ROOT:-}" ]; then
+  if [[ -n "${WFC_BG_ROOT:-}" ]]; then
     printf '%s\n' "$WFC_BG_ROOT"
-  elif [ -n "${CLAUDE_JOB_DIR:-}" ]; then
+  elif [[ -n "${CLAUDE_JOB_DIR:-}" ]]; then
     printf '%s\n' "$CLAUDE_JOB_DIR/tmp/bg"
   else
     printf '%s\n' "${TMPDIR:-/tmp}/wfc-bg"
@@ -401,7 +401,7 @@ durable_log_path() {
   local base="$1" fallback="$2"
   local common
   common="$(git -C "$(gr_root)" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
-  if [ -n "$common" ]; then
+  if [[ -n "$common" ]]; then
     printf '%s\n' "$common/$base"
     return 0
   fi
@@ -411,7 +411,7 @@ durable_log_path() {
 # WFC_BG_KILL_LOG overrides for a test. The watcher also sets it, to this
 # function's answer, before leaving the repo cwd.
 kill_log_path() {
-  if [ -n "${WFC_BG_KILL_LOG:-}" ]; then
+  if [[ -n "${WFC_BG_KILL_LOG:-}" ]]; then
     printf '%s\n' "$WFC_BG_KILL_LOG"
     return 0
   fi
@@ -421,7 +421,7 @@ kill_log_path() {
 # The kill log's denominator (mantahostels#2763). Same placement and fail-open rules as the
 # kill log, and its own WFC_BG_LAUNCH_LOG test override.
 launch_log_path() {
-  if [ -n "${WFC_BG_LAUNCH_LOG:-}" ]; then
+  if [[ -n "${WFC_BG_LAUNCH_LOG:-}" ]]; then
     printf '%s\n' "$WFC_BG_LAUNCH_LOG"
     return 0
   fi
@@ -494,10 +494,10 @@ record_launch() {
 
   local avail
   avail="$(available_mb)" || avail=""
-  [ -n "$avail" ] || avail="unknown"
+  [[ -n "$avail" ]] || avail="unknown"
 
   local job_dir_set=false
-  [ -n "${CLAUDE_JOB_DIR:-}" ] && job_dir_set=true
+  [[ -n "${CLAUDE_JOB_DIR:-}" ]] && job_dir_set=true
 
   # `+x` rather than `:-`, so an absent variable and one set to the empty
   # string stay distinguishable — the second is its own arm, and the one a
@@ -505,7 +505,7 @@ record_launch() {
   # absent reads as JSON null rather than as the four-letter string a reader
   # could not tell from a real value.
   local escape_field=null
-  if [ -n "${CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP+x}" ]; then
+  if [[ -n "${CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP+x}" ]]; then
     escape_field="\"$(json_escape "$CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP")\""
   fi
 
@@ -603,7 +603,7 @@ on_signal() {
     TERM) sig_num=15 ;;
     HUP) sig_num=1 ;;
   esac
-  if [ -n "$SIGNAL_DIR" ] && [ -n "$sig_num" ] && [ "$code" -eq "$((128 + sig_num))" ]; then
+  if [[ -n "$SIGNAL_DIR" ]] && [[ -n "$sig_num" ]] && [[ "$code" -eq "$((128 + sig_num))" ]]; then
     # An exit code of 128+signum is what the wrapped command's own
     # death by this same signal looks like — the whole-tree kill shape
     # production actually sends (file header, above). Not proof (a
@@ -651,11 +651,11 @@ pinned_run_dir() {
   local name="$1"
   local log
   log="$(launch_log_path)"
-  [ -f "$log" ] || return 1
+  [[ -f "$log" ]] || return 1
   local root
   root="$(grep -F "\"name\":\"$(json_escape "$name")\"" "$log" 2>/dev/null |
     sed -n 's/.*"run_root":"\([^"]*\)".*/\1/p' | tail -1)"
-  [ -n "$root" ] || return 1
+  [[ -n "$root" ]] || return 1
   printf '%s/%s\n' "$root" "$name"
 }
 
@@ -677,7 +677,7 @@ resolve_run_dir() {
   local name="$1"
   local dir pinned
   dir="$(run_root)/$name"
-  [ -d "$dir" ] && {
+  [[ -d "$dir" ]] && {
     printf '%s\n' "$dir"
     return 0
   }
@@ -685,7 +685,7 @@ resolve_run_dir() {
     printf '%s\n' "$dir"
     return 0
   }
-  [ -d "$pinned" ] && {
+  [[ -d "$pinned" ]] && {
     printf '%s\n' "$pinned"
     return 0
   }
@@ -701,7 +701,7 @@ poll_until() {
   shift 2
   local deadline_ns
   deadline_ns=$(($(date +%s%N) + $(awk "BEGIN{printf \"%.0f\", $window * 1000000000}")))
-  while [ "$(date +%s%N)" -lt "$deadline_ns" ]; do
+  while [[ "$(date +%s%N)" -lt "$deadline_ns" ]]; do
     sleep "$interval"
     "$@" && return 0
   done
@@ -711,9 +711,9 @@ poll_until() {
 # require_run_dir's probe: leaves the directory it found in found_dir.
 found_dir=""
 run_dir_appeared() {
-  [ -z "$POLL_LOG" ] || printf 'missing\n' >>"$POLL_LOG"
+  [[ -z "$POLL_LOG" ]] || printf 'missing\n' >>"$POLL_LOG"
   found_dir="$(resolve_run_dir "$1")"
-  [ -d "$found_dir" ]
+  [[ -d "$found_dir" ]]
 }
 
 # cmd_run builds a run in this scratch directory and publishes it by renaming.
@@ -732,19 +732,19 @@ scratch_dir() {
 held_scratch_dir() {
   local tmp pinned
   tmp="$(scratch_dir "$(run_root)/$1")"
-  [ -d "$tmp" ] && {
+  [[ -d "$tmp" ]] && {
     printf '%s\n' "$tmp"
     return 0
   }
   pinned="$(pinned_run_dir "$1")" || return 1
   tmp="$(scratch_dir "$pinned")"
-  [ -d "$tmp" ] && printf '%s\n' "$tmp"
+  [[ -d "$tmp" ]] && printf '%s\n' "$tmp"
 }
 
 # require_run_dir's probe while a publish is held: done once the run directory
 # appears or the scratch directory `$2` is gone.
 publish_settled() {
-  run_dir_appeared "$1" || [ ! -d "$2" ]
+  run_dir_appeared "$1" || [[ ! -d "$2" ]]
 }
 
 # `check` and `wait` each open on this, independently, before either does
@@ -772,7 +772,7 @@ require_run_dir() {
   local name="$1"
   local dir
   dir="$(resolve_run_dir "$name")"
-  [ -d "$dir" ] && {
+  [[ -d "$dir" ]] && {
     printf '%s\n' "$dir"
     return 0
   }
@@ -809,12 +809,12 @@ require_run_dir() {
 # WATCH_READY_S.
 await_watcher() {
   local ready="$1"
-  [ -e "$ready" ] && return 0
+  [[ -e "$ready" ]] && return 0
   poll_until "$WATCH_READY_S" "$WATCH_READY_POLL_S" test -e "$ready"
 }
 
 cmd_run() {
-  [ "$#" -ge 2 ] || die "run needs a name and a command"
+  [[ "$#" -ge 2 ]] || die "run needs a name and a command"
   local name="$1"
   shift
   local dir tmp
@@ -828,7 +828,7 @@ cmd_run() {
   # way; it stays until a person or the job dir's own cleanup removes it.
   local grave
   grave="$(dirname "$dir")/.grave-$(basename "$dir")-$$-$RANDOM"
-  if [ -e "$dir" ]; then
+  if [[ -e "$dir" ]]; then
     mv -T "$dir" "$grave" && rm -rf "$grave"
   fi
   rm -rf "$tmp"
@@ -884,7 +884,7 @@ cmd_run() {
   if command -v setsid >/dev/null 2>&1; then
     local ready="$tmp/.watching-$token"
     (
-      [ -z "$WATCH_FORK_DELAY_S" ] || sleep "$WATCH_FORK_DELAY_S"
+      [[ -z "$WATCH_FORK_DELAY_S" ]] || sleep "$WATCH_FORK_DELAY_S"
       exec setsid --fork "$SCRIPT_PATH" __watch "$dir" "$name" "$$" "$token" "$ready"
     ) </dev/null >/dev/null 2>&1 &
     disown 2>/dev/null || true
@@ -917,7 +917,7 @@ cmd_run() {
   # which a wrapper must leave alone.
   local parent=$$
   (
-    if [ -n "$TOUCHER_KEEPS_TRAP" ]; then
+    if [[ -n "$TOUCHER_KEEPS_TRAP" ]]; then
       trap 'on_signal TERM' TERM
       : >"$TOUCHER_KEEPS_TRAP"
     fi
@@ -956,7 +956,7 @@ cmd_run() {
 # whole line still gets a well-formed `out=` field to fall back on.
 print_inline() {
   local path="$1"
-  if [ "$out_size" -le "$INLINE_CAP" ]; then
+  if [[ "$out_size" -le "$INLINE_CAP" ]]; then
     printf 'out=%s bytes=%s\n' "$path" "$out_size"
   else
     printf 'out=%s bytes=%s (last %s shown)\n' "$path" "$out_size" "$INLINE_CAP"
@@ -984,16 +984,16 @@ record_kill() {
   local now started="" elapsed=""
   clock_now
   now="$clock_s"
-  if [ -f "$dir/started" ]; then
+  if [[ -f "$dir/started" ]]; then
     started="$(cat "$dir/started" 2>/dev/null)"
     [[ "$started" =~ ^[0-9]+$ ]] || started=""
   fi
-  if [ -n "$death_epoch" ] && [ -n "$started" ]; then
+  if [[ -n "$death_epoch" ]] && [[ -n "$started" ]]; then
     elapsed=$((death_epoch - started))
-  elif [ -n "$started" ]; then
+  elif [[ -n "$started" ]]; then
     elapsed=$((now - started))
   fi
-  [ -n "${elapsed:-}" ] || elapsed="unknown"
+  [[ -n "${elapsed:-}" ]] || elapsed="unknown"
 
   # WHEN it died, not only how long it lived (mantahostels#2694). elapsed_s carries no
   # clock, so a record here cannot be joined to anything else on the
@@ -1020,22 +1020,22 @@ record_kill() {
   # started_epoch is "unknown" on a run whose `started` file is missing or
   # malformed, matching elapsed_s.
   local death_out death_source=beat
-  if [ -n "$death_epoch" ]; then
+  if [[ -n "$death_epoch" ]]; then
     death_out="$death_epoch"
   else
     death_out="$now"
     death_source=clock
   fi
-  [ -n "$started" ] || started="unknown"
+  [[ -n "$started" ]] || started="unknown"
 
   local heartbeat="$HEARTBEAT_S"
   [[ "$heartbeat" =~ ^[0-9]+$ ]] || heartbeat=null
 
   local out_exists=false out_size=0
-  if [ -f "$dir/out" ]; then
+  if [[ -f "$dir/out" ]]; then
     out_exists=true
     out_size="$(wc -c <"$dir/out" 2>/dev/null | tr -d ' [:space:]')"
-    [ -n "$out_size" ] || out_size=0
+    [[ -n "$out_size" ]] || out_size=0
   fi
 
   # The wrapped command's own `--queue` chatter (run-vitest.js's
@@ -1048,7 +1048,7 @@ record_kill() {
   # bound, "… — refused, not run", ran nothing, so reads "refused" (#2421,
   # #2714); a wait still announced and unended reads "waiting".
   local queue_state="n/a"
-  if [ "$out_exists" = true ]; then
+  if [[ "$out_exists" = true ]]; then
     if grep -qE -- '--queue: (gate opened|gate still closed after [0-9]+s — running anyway)' "$dir/out" 2>/dev/null; then
       queue_state="passed"
     elif grep -qE -- '--queue: .* — refused, not run' "$dir/out" 2>/dev/null; then
@@ -1059,14 +1059,14 @@ record_kill() {
   fi
 
   local mem_avail rss rss_truncated
-  if [ -f "$dir/mem" ]; then
+  if [[ -f "$dir/mem" ]]; then
     mem_avail="$(sed -n 's/.*mem_available_mb=\([^ ]*\).*/\1/p' "$dir/mem" | tail -1)"
     rss="$(sed -n 's/.*rss_kb=\([^ ]*\).*/\1/p' "$dir/mem" | tail -1)"
     rss_truncated="$(sed -n 's/.*rss_truncated=\([^ ]*\).*/\1/p' "$dir/mem" | tail -1)"
   fi
-  [ -n "${mem_avail:-}" ] || mem_avail="unknown"
-  [ -n "${rss:-}" ] || rss="unknown"
-  [ -n "${rss_truncated:-}" ] || rss_truncated="unknown"
+  [[ -n "${mem_avail:-}" ]] || mem_avail="unknown"
+  [[ -n "${rss:-}" ]] || rss="unknown"
+  [[ -n "${rss_truncated:-}" ]] || rss_truncated="unknown"
 
   # name is caller-chosen and reaches this JSON line unvalidated elsewhere
   # in the script, so it is escaped here rather than trusted.
@@ -1081,9 +1081,9 @@ record_kill() {
   # SIGTERM/SIGHUP" (mantahostels#2691).
   local signal
   signal="unknown"
-  if [ -f "$dir/.signal" ]; then
+  if [[ -f "$dir/.signal" ]]; then
     signal="$(head -1 "$dir/.signal" 2>/dev/null)"
-    [ -n "$signal" ] || signal="unknown"
+    [[ -n "$signal" ]] || signal="unknown"
   fi
   local signal_esc
   signal_esc="${signal//\\/\\\\}"
@@ -1133,7 +1133,7 @@ record_kill() {
 # ITS FIRST ACT IS TO TOUCH THE READY PATH, its fifth argument (#2110), which
 # cmd_run's publish waits on.
 cmd_watch() {
-  [ "$#" -ge 5 ] || die "watch needs a dir, a name, a parent pid, a run token and a ready path"
+  [[ "$#" -ge 5 ]] || die "watch needs a dir, a name, a parent pid, a run token and a ready path"
   local dir="$1" name="$2" parent="$3" launched_for="$4" ready="$5"
   # First, before the git call below: cmd_run's publish is waiting on it. Past
   # WATCH_READY_S, `$tmp` is already published away and the touch fails, unread.
@@ -1143,7 +1143,7 @@ cmd_watch() {
   clock_now
   watch_until=$((clock_s + WATCH_CEILING_S))
   while :; do
-    [ -f "$dir/status" ] && exit 0
+    [[ -f "$dir/status" ]] && exit 0
     if ! kill -0 "$parent" 2>/dev/null; then
       # LOAD-BEARING, not belt and braces (mantahostels#2691):
       # the loop-top check above and this `kill -0` read are two
@@ -1154,12 +1154,12 @@ cmd_watch() {
       # the branch is unreachable — only that the test's timing never
       # hits it. Removing this would occasionally record a clean
       # finish as `stale-beat`.
-      [ -f "$dir/status" ] && exit 0
+      [[ -f "$dir/status" ]] && exit 0
       cd "$dir" 2>/dev/null || exit 0
       local now_token
       now_token="$(cat token 2>/dev/null)"
-      [ "$now_token" = "$launched_for" ] || exit 0
-      [ -n "$WATCH_GATE" ] && hold_at_gate "$WATCH_GATE"
+      [[ "$now_token" = "$launched_for" ]] || exit 0
+      [[ -n "$WATCH_GATE" ]] && hold_at_gate "$WATCH_GATE"
       local beat
       beat="$(date -r beat +%s 2>/dev/null)" || beat=""
       record_kill . "$name" "stale-beat" "$beat"
@@ -1168,14 +1168,14 @@ cmd_watch() {
     clock_now
     if read_deadline "$dir/deadline-$launched_for"; then
       if mono_now; then
-        [ "$mono_s" -ge "$((deadline_s + CEILING_GRACE_S))" ] &&
+        [[ "$mono_s" -ge "$((deadline_s + CEILING_GRACE_S))" ]] &&
           ceiling_kill "$dir" "$name" "$parent" "$launched_for"
       else
-        [ -z "$POLL_LOG" ] || printf 'mono-unread\n' >>"$POLL_LOG"
-        [ -n "$mono_unread_logged" ] || note_mono_unread "$dir" "$launched_for"
+        [[ -z "$POLL_LOG" ]] || printf 'mono-unread\n' >>"$POLL_LOG"
+        [[ -n "$mono_unread_logged" ]] || note_mono_unread "$dir" "$launched_for"
         mono_unread_logged=1
       fi
-    elif [ "$clock_s" -ge "$watch_until" ]; then
+    elif [[ "$clock_s" -ge "$watch_until" ]]; then
       exit 0
     fi
     sleep "$HEARTBEAT_S"
@@ -1189,7 +1189,7 @@ cmd_watch() {
 # newline ends any partial line the command left.
 note_mono_unread() {
   cd "$1" 2>/dev/null || return 0
-  [ "$(cat token 2>/dev/null)" = "$2" ] &&
+  [[ "$(cat token 2>/dev/null)" = "$2" ]] &&
     printf '\n%s\n' "bg-run: the monotonic clock would not read (#2886), so the suite ceiling's backstop skips each poll it fails on (#3160)" >>out
   cd "$OLDPWD" 2>/dev/null || :
 }
@@ -1209,7 +1209,7 @@ read_deadline() {
 # lives keeps the pgid from reuse, so a missing leader still counts.
 group_is_runs() {
   local pgid="$1" started="$2" stat btime
-  [ "$pgid" -gt 1 ] || return 1
+  [[ "$pgid" -gt 1 ]] || return 1
   [[ "$started" =~ ^[0-9]+$ ]] || return 1
   IFS= read -r stat 2>/dev/null <"/proc/$pgid/stat" || return 0
   local -a fields
@@ -1218,7 +1218,7 @@ group_is_runs() {
   # fields[19] is stat's 22nd, the start time in clock ticks since boot. btime
   # is truncated to the second, so a leader started in the launch's own
   # second can read one second early.
-  [ "$((btime + fields[19] / $(getconf CLK_TCK)))" -ge "$((started - 1))" ]
+  [[ "$((btime + fields[19] / $(getconf CLK_TCK)))" -ge "$((started - 1))" ]]
 }
 
 # The backstop's kill (#2704), pinned to the run's directory by its token as
@@ -1227,17 +1227,17 @@ group_is_runs() {
 ceiling_kill() {
   local dir="$1" name="$2" parent="$3" launched_for="$4"
   cd "$dir" 2>/dev/null || exit 0
-  [ "$(cat token 2>/dev/null)" = "$launched_for" ] || exit 0
+  [[ "$(cat token 2>/dev/null)" = "$launched_for" ]] || exit 0
   read_deadline "deadline-$launched_for" || exit 0
   printf 'grace_s=%s\n' "$CEILING_GRACE_S" >ceiling-kill
-  if [ -f status ]; then
+  if [[ -f status ]]; then
     rm -f ceiling-kill
     exit 0
   fi
   group_is_runs "$deadline_pgid" "$(cat started 2>/dev/null)" &&
     kill -KILL -- "-$deadline_pgid" 2>/dev/null
   collect_descendants "$parent" "$(cat .toucher 2>/dev/null)"
-  [ "${#descendants[@]}" -eq 0 ] || kill -KILL "${descendants[@]}" 2>/dev/null
+  [[ "${#descendants[@]}" -eq 0 ]] || kill -KILL "${descendants[@]}" 2>/dev/null
   record_kill . "$name" "ceiling"
   exit 0
 }
@@ -1248,7 +1248,7 @@ hold_at_gate() {
   : >"$1.waiting"
   local i
   for ((i = 0; i < GATE_S * 10; i++)); do
-    [ -e "$1" ] && return 0
+    [[ -e "$1" ]] && return 0
     sleep 0.1
   done
 }
@@ -1257,8 +1257,8 @@ hold_at_gate() {
 # carrying that token, and present after the token read too, so a directory
 # renamed away between the two reads is not taken for a tokenless one.
 holds_run() {
-  [ -d "$1" ] || return 1
-  [ "$(cat "$1/token" 2>/dev/null)" = "$2" ] && [ -d "$1" ]
+  [[ -d "$1" ]] || return 1
+  [[ "$(cat "$1/token" 2>/dev/null)" = "$2" ]] && [[ -d "$1" ]]
 }
 
 # Sets verdict, verdict_code, kill_reason, kill_beat, read_fault, read_token,
@@ -1274,15 +1274,15 @@ read_run() {
   local dir="$1" name="$2" try="$3"
   verdict="" verdict_code=3 kill_reason="" kill_beat="" read_fault=""
   read_token="$(cat "$dir/token" 2>/dev/null)"
-  [ -z "$CHECK_GATE" ] || hold_at_gate "$CHECK_GATE.$try"
+  [[ -z "$CHECK_GATE" ]] || hold_at_gate "$CHECK_GATE.$try"
 
-  if [ -f "$dir/status" ]; then
+  if [[ -f "$dir/status" ]]; then
     local code
     code="$(sed -n 's/^exit=//p' "$dir/status" 2>/dev/null | head -1)"
-    if [ -z "$code" ]; then
+    if [[ -z "$code" ]]; then
       read_fault="status file for $name is unreadable"
     # A zero exit finished on its own, the kill landing after it returned.
-    elif [ -f "$dir/ceiling-kill" ] && [ "$code" != 0 ]; then
+    elif [[ -f "$dir/ceiling-kill" ]] && [[ "$code" != 0 ]]; then
       local grace
       grace="$(sed -n 's/^grace_s=//p' "$dir/ceiling-kill" 2>/dev/null | head -1)"
       verdict="DONE exit=$code ceiling-kill: bg-run killed it ${grace:-?}s past its suite deadline"
@@ -1291,7 +1291,7 @@ read_run() {
       verdict="DONE exit=$code"
       verdict_code=0
     fi
-  elif [ ! -f "$dir/beat" ]; then
+  elif [[ ! -f "$dir/beat" ]]; then
     verdict="KILLED before the first beat"
     verdict_code=1
     kill_reason=before-first-beat
@@ -1300,7 +1300,7 @@ read_run() {
     if beat="$(date -r "$dir/beat" +%s 2>/dev/null)"; then
       clock_now
       age=$((clock_s - beat))
-      if [ "$age" -gt "$STALE_S" ]; then
+      if [[ "$age" -gt "$STALE_S" ]]; then
         verdict="KILLED ${age}s ago"
         verdict_code=1
         kill_reason=stale-beat
@@ -1314,7 +1314,7 @@ read_run() {
     fi
   fi
   out_size="$(wc -c <"$dir/out" 2>/dev/null | tr -d ' [:space:]')"
-  [ -n "$out_size" ] || out_size=0
+  [[ -n "$out_size" ]] || out_size=0
   { out_tail="$(
     tail -c "$INLINE_CAP" "$dir/out" 2>/dev/null
     printf x
@@ -1330,23 +1330,23 @@ read_run() {
 # that ends before a re-run's rename answers for the run being replaced: a
 # caller re-running a name waits for its new `token` before trusting `check`.
 cmd_check() {
-  [ "$#" -ge 1 ] || die "check needs a name"
+  [[ "$#" -ge 1 ]] || die "check needs a name"
   local name="$1"
   local dir try
   for try in 1 2; do
     dir="$(require_run_dir "$name")" || exit $?
     read_run "$dir" "$name" "$try" && break
-    [ "$try" -eq 2 ] && die "run $name was replaced twice while check read it"
+    [[ "$try" -eq 2 ]] && die "run $name was replaced twice while check read it"
   done
-  [ -z "$read_fault" ] || die "$read_fault"
+  [[ -z "$read_fault" ]] || die "$read_fault"
 
   printf '%s\n' "$verdict"
-  if [ -n "$kill_reason" ]; then
-    [ -z "$CHECK_GATE" ] || hold_at_gate "$CHECK_GATE.record"
+  if [[ -n "$kill_reason" ]]; then
+    [[ -z "$CHECK_GATE" ]] || hold_at_gate "$CHECK_GATE.record"
     (
       WFC_BG_KILL_LOG="$(kill_log_path)"
       cd "$dir" 2>/dev/null || exit 0
-      [ "$(cat token 2>/dev/null)" = "$read_token" ] || exit 0
+      [[ "$(cat token 2>/dev/null)" = "$read_token" ]] || exit 0
       record_kill . "$name" "$kill_reason" "$kill_beat"
     )
   fi
@@ -1355,7 +1355,7 @@ cmd_check() {
 }
 
 cmd_wait() {
-  [ "$#" -ge 1 ] || die "wait needs a name"
+  [[ "$#" -ge 1 ]] || die "wait needs a name"
   local name="$1"
   # 60s is a guess: under the Bash tool's 120s default timeout with room for
   # the wrapping call's own overhead, long enough to be worth blocking for.
@@ -1379,18 +1379,18 @@ cmd_wait() {
   while :; do
     cmd_check "$name" >/dev/null
     code=$?
-    [ -z "$POLL_LOG" ] || printf '%s\n' "$code" >>"$POLL_LOG"
-    [ "$code" -ne 2 ] && break
+    [[ -z "$POLL_LOG" ]] || printf '%s\n' "$code" >>"$POLL_LOG"
+    [[ "$code" -ne 2 ]] && break
     clock_now
     now="$clock_s"
-    [ "$((now - start))" -ge "$ceiling" ] && break
+    [[ "$((now - start))" -ge "$ceiling" ]] && break
     sleep "$WAIT_POLL_S"
   done
   cmd_check "$name"
 }
 
 main() {
-  [ "$#" -ge 1 ] || die "usage: bg-run.sh run|check|wait <name> [command...]"
+  [[ "$#" -ge 1 ]] || die "usage: bg-run.sh run|check|wait <name> [command...]"
   local verb="$1"
   shift
   case "$verb" in

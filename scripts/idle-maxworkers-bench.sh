@@ -70,7 +70,7 @@ while :; do
   if suite_running; then
     quiet=0
     say "not idle: a suite is already running"
-  elif [ "$mb" -lt "$FLOOR_MB" ]; then
+  elif [[ "$mb" -lt "$FLOOR_MB" ]]; then
     quiet=0
     say "not idle: ${mb}MB available, need ${FLOOR_MB}"
   elif awk -v a="$ld" -v b="$MAX_LOAD" 'BEGIN{exit !(a>=b)}'; then
@@ -81,9 +81,9 @@ while :; do
     say "quiet ${quiet}/${NEEDED} (${mb}MB, load ${ld})"
   fi
 
-  [ "$quiet" -ge "$NEEDED" ] && break
+  [[ "$quiet" -ge "$NEEDED" ]] && break
 
-  if [ "$waited" -ge "$MAX_WAIT_S" ]; then
+  if [[ "$waited" -ge "$MAX_WAIT_S" ]]; then
     say "gave up waiting after ${waited}s"
     printf '\n## Gave up\n\nNo idle window in %ss.\n' "$waited" >>"$OUT"
     exit 0
@@ -103,7 +103,7 @@ say "idle reached; benchmarking arms: ${ARMS}"
 
 for w in $ARMS; do
   before=$(available_mb)
-  if [ "$before" -lt "$FLOOR_MB" ]; then
+  if [[ "$before" -lt "$FLOOR_MB" ]]; then
     say "skipping maxWorkers=${w}: only ${before}MB available"
     printf '| %s | skipped — %sMB available | | | | |\n' "$w" "$before" >>"$OUT"
     continue

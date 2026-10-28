@@ -50,7 +50,7 @@ source "$here/lib/detach.sh"
 # Each job launched this way writes to the live tracker or deletes from the
 # founder's real scratch directory, and has no test redirection here.
 detach_live() {
-  [ -n "${VITEST:-}" ] || detach "$@"
+  [[ -n "${VITEST:-}" ]] || detach "$@"
 }
 
 detach node "$arbiter" debt sweep
@@ -72,7 +72,7 @@ detach node "$arbiter" debt sweep
 # nothing packed or pruned — while a `.git/gc.log` from a prior run survives
 # (git's own `gc.logExpiry`, a day by default), and this job is what retries a
 # failed gc (mantahostels#1175).
-if command -v git >/dev/null 2>&1 && [ -z "${VITEST:-}" ]; then
+if command -v git >/dev/null 2>&1 && [[ -z "${VITEST:-}" ]]; then
   gc_root="$(gr_root)"
   rm -f "$gc_root/.git/gc.log"
   detach git -C "$gc_root" gc --auto

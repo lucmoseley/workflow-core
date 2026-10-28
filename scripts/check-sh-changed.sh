@@ -32,10 +32,10 @@ paths=()
 while IFS= read -r p; do
   # A path deleted from the worktree is gone, not changed; shellcheck would
   # fail on "does not exist" rather than on a finding.
-  if [ -n "$p" ] && [ -f "$p" ]; then paths+=("$p"); fi
+  if [[ -n "$p" ]] && [[ -f "$p" ]]; then paths+=("$p"); fi
 done <<<"$shell"
 
-if [ "${#paths[@]}" -eq 0 ]; then
+if [[ "${#paths[@]}" -eq 0 ]]; then
   echo "check:sh:changed: no shell file differs from HEAD — nothing to check."
   exit 0
 fi

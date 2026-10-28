@@ -88,7 +88,7 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 # `git show :` fails and a fallback would quietly measure HEAD's copy of a file
 # the commit removes, under a label asserting it came from the index. A deletion
 # has no payload to measure, so it skips.
-if [ "${1:-}" = "--tree" ]; then
+if [[ "${1:-}" = "--tree" ]]; then
   source_desc="the working tree"
   from_tree=1
   cp -- "$INJECTOR" "$tmp/inj.sh" 2>"$tmp/err" ||
@@ -106,14 +106,14 @@ else
 fi
 
 read_source() {
-  if [ -n "$from_tree" ]; then cat -- "$1"; else git show ":$1"; fi
+  if [[ -n "$from_tree" ]]; then cat -- "$1"; else git show ":$1"; fi
 }
 # The integer a `<name>=<n>` line at column zero of <file> assigns.
 lib_const() {
   read_source "$1" 2>/dev/null | sed -n "s/^$2=\([0-9]*\)\$/\1/p"
 }
 LIMIT="$(lib_const scripts/lib/hook-limits.sh HOOK_PERSIST_CHARS)"
-[ -n "$LIMIT" ] || broken "no HOOK_PERSIST_CHARS=<n> line in scripts/lib/hook-limits.sh"
+[[ -n "$LIMIT" ]] || broken "no HOOK_PERSIST_CHARS=<n> line in scripts/lib/hook-limits.sh"
 
 # INCLUSIVE, AND THAT IS A CHOICE RATHER THAN A MEASUREMENT. mantahostels#1868 read the
 # constant and not the comparison, so whether the harness persists at exactly
@@ -130,7 +130,7 @@ OVER_AT="$LIMIT"
 # the first two into BROKEN, the third into a payload the injector cannot match.
 # The suite asserts the live array's shape.
 commands="$(sed -n 's/^COMMANDS=(\(.*\))$/\1/p' "$tmp/inj.sh")"
-[ -n "$commands" ] || broken "no single-line COMMANDS=(...) array in $INJECTOR"
+[[ -n "$commands" ]] || broken "no single-line COMMANDS=(...) array in $INJECTOR"
 
 # The split below is deliberate — it is how the array's elements are separated —
 # so the two things that make an unquoted expansion dangerous are pinned rather
@@ -162,7 +162,7 @@ PROBE_SESSION_ID="check-injector-margin-probe-00000000"
 # where it fires and no commit waits on the network. The command named itself
 # is measured without the line.
 longest=""
-for c in $commands; do [ "${#c}" -gt "${#longest}" ] && longest="$c"; done
+for c in $commands; do [[ "${#c}" -gt "${#longest}" ]] && longest="$c"; done
 # shellcheck disable=SC2015 # broken is right whether printf or chmod fails.
 printf '#!/bin/sh\necho takes:%s\n' "$longest" >"$tmp/gh" && chmod +x "$tmp/gh" ||
   broken "cannot write the stub gh"
@@ -176,7 +176,7 @@ printf '#!/bin/sh\necho takes:%s\n' "$longest" >"$tmp/gh" && chmod +x "$tmp/gh" 
 review_reserve() {
   local cap shape len
   cap="$(lib_const scripts/lib/hook-limits.sh RULE_CAP)"
-  [ -n "$cap" ] || broken "no RULE_CAP=<n> line in scripts/lib/hook-limits.sh"
+  [[ -n "$cap" ]] || broken "no RULE_CAP=<n> line in scripts/lib/hook-limits.sh"
   shape="$(read_source docs/agents/rules/review-dispatch-shape.txt 2>/dev/null)" ||
     broken "cannot read docs/agents/rules/review-dispatch-shape.txt"
   len="$(printf '%s' "$shape" | jq -Rs 'length')" || broken "jq could not measure review-dispatch-shape.txt"
@@ -194,13 +194,13 @@ for cmd in $commands; do
   case "$n" in
     '' | *[!0-9]*) broken "/$cmd emitted no measurable payload" ;;
   esac
-  [ "$cmd" != code-review ] || n=$((n + reserve))
+  [[ "$cmd" != code-review ]] || n=$((n + reserve))
 
   left=$((LIMIT - n))
-  if [ "$n" -ge "$OVER_AT" ]; then
+  if [[ "$n" -ge "$OVER_AT" ]]; then
     note='  ← OVER: this payload is persisted to a file, not delivered inline'
     status=1
-  elif [ "$left" -lt "$TIGHT_HEADROOM_CHARS" ]; then
+  elif [[ "$left" -lt "$TIGHT_HEADROOM_CHARS" ]]; then
     note='  ← tight: under one rule of headroom'
   else
     note=''
@@ -208,7 +208,7 @@ for cmd in $commands; do
   printf '  /%-12s %5d chars, %5d left%s\n' "$cmd" "$n" "$left" "$note"
 done
 
-if [ "$status" -ne 0 ]; then
+if [[ "$status" -ne 0 ]]; then
   cat >&2 <<-'EOF'
 
 		A payload at or over the threshold is written to a file and replaced inline by

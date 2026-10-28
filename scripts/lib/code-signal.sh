@@ -80,7 +80,7 @@ code_signal_floor() {
   cs_threshold="$CODE_THRESHOLD"
   cs_implement=""
   # shellcheck disable=SC2034  # both the caller's to read
-  if [ -f "${TMPDIR:-/tmp}/wfc-tracker-inject-${UID:-0}/${1//[^A-Za-z0-9_-]/_}.implement" ]; then
+  if [[ -f "${TMPDIR:-/tmp}/wfc-tracker-inject-${UID:-0}/${1//[^A-Za-z0-9_-]/_}.implement" ]]; then
     cs_implement=1
     cs_threshold="$IMPLEMENT_THRESHOLD"
   fi
@@ -126,7 +126,7 @@ code_review_owed() {
       attributed_to "$mine"
   )
   # A brand-new file is untracked, so no diff carries it — count it whole.
-  [ -n "$to" ] || mapfile -t new_paths < <(
+  [[ -n "$to" ]] || mapfile -t new_paths < <(
     git -c core.quotePath=false ls-files --others --exclude-standard -- "${CODE[@]}" 2>/dev/null |
       attributed_to "$mine"
   )
@@ -137,11 +137,11 @@ code_review_owed() {
   #
   # Guarded: `git diff $base --` with an empty pathspec list diffs the whole
   # tree, which would restore the misattribution the ledger removes.
-  if [ "${#tracked_paths[@]}" -gt 0 ]; then
+  if [[ "${#tracked_paths[@]}" -gt 0 ]]; then
     cs_churn=$(git diff --numstat "$base" ${to:+"$to"} -- "${tracked_paths[@]}" 2>/dev/null |
       awk '{a += $1; d += $2} END {print a + d + 0}')
   fi
-  if [ "${#new_paths[@]}" -gt 0 ]; then
+  if [[ "${#new_paths[@]}" -gt 0 ]]; then
     cs_churn=$((cs_churn + $(printf '%s\n' "${new_paths[@]}" |
       xargs -d'\n' -r cat 2>/dev/null | wc -l)))
   fi
@@ -152,14 +152,14 @@ code_review_owed() {
   cs_areas=""
   cs_fault=""
   sensitive_match sensitive "$base" "$mine" "$to"
-  [ "${#sensitive[@]}" -gt 0 ] && cs_tier=escalated
+  [[ "${#sensitive[@]}" -gt 0 ]] && cs_tier=escalated
 
   cs_files=$(
     printf '%s\n' "${sensitive[@]}" "${tracked_paths[@]}" "${new_paths[@]}" |
       grep -v '^$' | awk '!seen[$0]++' | head -"$NAMED_PATHS_MAX" | tr '\n' ' '
   )
-  [ "$cs_tier" = escalated ] && return 0
-  [ -n "$cs_files" ] && [ "$cs_churn" -gt "$threshold" ]
+  [[ "$cs_tier" = escalated ]] && return 0
+  [[ -n "$cs_files" ]] && [[ "$cs_churn" -gt "$threshold" ]]
 }
 
 # written_paths <base> <ledger file> [<to>] — every path this session wrote
@@ -169,7 +169,7 @@ written_paths() {
   local base="$1" mine="$2" to="${3:-}"
   {
     git -c core.quotePath=false diff --name-only "$base" ${to:+"$to"} 2>/dev/null
-    [ -n "$to" ] || git -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null
+    [[ -n "$to" ]] || git -c core.quotePath=false ls-files --others --exclude-standard 2>/dev/null
   } | attributed_to "$mine"
 }
 
@@ -180,7 +180,7 @@ sensitive_match() {
   local -n sm_paths="$1"
   local base="$2" mine="$3" to="${4:-}" written match
   written=$(written_paths "$base" "$mine" "$to")
-  [ -n "$written" ] || return 0
+  [[ -n "$written" ]] || return 0
   match=$(printf '%s\n' "$written" | node "$CS_MATCHER" --stdin 2>/dev/null) || {
     # shellcheck disable=SC2034  # the caller's to read
     cs_fault="lib/sensitive-paths.js failed — sensitive paths not checked, standard tier assumed"
@@ -197,7 +197,7 @@ sensitive_match() {
   local -a out=()
   mapfile -t out < <(printf '%s' "$match" | jq -r "$filter" 2>/dev/null)
   local n="${out[0]:-0}"
-  [ "${#out[@]}" -gt $((n + 1)) ] || return 0
+  [[ "${#out[@]}" -gt $((n + 1)) ]] || return 0
   cs_area_names=("${out[@]:1:n}")
   # shellcheck disable=SC2034  # a nameref: the caller's array
   sm_paths=("${out[@]:n+1}")
@@ -259,11 +259,11 @@ review_uncovered() {
   local whole_change_hint="one of the session's whole change sets base=$base, its start point, and names every path this session wrote in paths="
   # A staged review's tree= marks a review of one commit's paths, and its
   # base= is the start point on a session's first commit (#1925).
-  if [ "$rc" -eq 0 ] && marker_has "$marker" tree && ! marker_has "$marker" paths; then
+  if [[ "$rc" -eq 0 ]] && marker_has "$marker" tree && ! marker_has "$marker" paths; then
     cs_pass_fault="it has a tree= line and no paths= line, so it records a staged review and nothing bounds what it vouches for: a staged review names every path its diff named in paths=, and $whole_change_hint"
-  elif [ "$rc" -eq 0 ]; then
+  elif [[ "$rc" -eq 0 ]]; then
     valid=0
-  elif [ "$rc" -eq 2 ] && ! own_commits_owed "$base" "$newer_base" "$mine" "$sid"; then
+  elif [[ "$rc" -eq 2 ]] && ! own_commits_owed "$base" "$newer_base" "$mine" "$sid"; then
     if marker_has "$marker" paths; then
       valid=0
       cs_pass_fault=""
@@ -275,33 +275,33 @@ review_uncovered() {
   # the marker's base=: before a newer one, only the session's own commits
   # count, and those were checked above. Where it cannot be built the marker
   # stands, logged (#1769).
-  if [ "$valid" -eq 0 ] && marker_has "$marker" paths; then
+  if [[ "$valid" -eq 0 ]] && marker_has "$marker" paths; then
     if ! unseen="$(mktemp 2>/dev/null)"; then
       cs_log "could not make a temporary file — the marker's paths= not checked"
     elif
       marker_unlisted "$marker" paths <"$mine" >"$unseen" 2>/dev/null
-      [ $? -eq 2 ]
+      [[ $? -eq 2 ]]
     then
       cs_log "could not filter the write ledger by the marker's paths= — not checked"
     elif code_review_owed "${newer_base:-$base}" "$unseen" "$ANY_CHANGE" "$to"; then
       valid=1
       cs_pass_fault="its paths= leaves out ${cs_files% }, which this session wrote and the review it records never saw: a review of them adds them to paths=, and $whole_change_hint"
     fi
-    [ -z "${unseen:-}" ] || rm -f "$unseen"
+    [[ -z "${unseen:-}" ]] || rm -f "$unseen"
   fi
   code_review_owed "$base" "$mine" "$threshold" "$to"
   rc=$?
-  [ -z "$cs_fault" ] || cs_log "$cs_fault"
-  [ "$rc" -eq 0 ] || return 1
-  if [ "$cs_tier" = escalated ]; then
+  [[ -z "$cs_fault" ]] || cs_log "$cs_fault"
+  [[ "$rc" -eq 0 ]] || return 1
+  if [[ "$cs_tier" = escalated ]]; then
     # shellcheck disable=SC2034  # the caller's to read
     cs_tier_line="The \`escalated\` review tier is owed: this change touches declared sensitive paths (${cs_areas}), which owe it at any size and in any file type (#1618)."
     # shellcheck disable=SC2034  # the caller's to read
     cs_marker_more=" On this escalated change, record it with --tier escalated (or mission-critical) --areas '${cs_areas}' as well, or it counts as no review."
-    if [ "$valid" -eq 0 ]; then
+    if [[ "$valid" -eq 0 ]]; then
       cs_pass_fault="$(marker_tier_fault "$marker" "${cs_area_names[@]}")" ||
         cs_log "could not read the marker's areas= against the areas touched — not checked"
-      [ -n "$cs_pass_fault" ] || return 1
+      [[ -n "$cs_pass_fault" ]] || return 1
     fi
     return 0
   fi
@@ -309,5 +309,5 @@ review_uncovered() {
   cs_tier_line="The \`standard\` review tier is owed."
   # shellcheck disable=SC2034  # the caller's to read
   cs_marker_more=""
-  [ "$valid" -ne 0 ]
+  [[ "$valid" -ne 0 ]]
 }

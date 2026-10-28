@@ -23,19 +23,19 @@ cd "$(dirname "$0")/../.." || exit 1
 ROOT=$PWD
 
 D=$ROOT/.claude/tmp/census-$(date +%Y%m%d-%H%M%S)
-if [ $# -gt 0 ] && [ "$1" != "--" ]; then
+if [[ $# -gt 0 ]] && [[ "$1" != "--" ]]; then
   case "$1" in
     /*) D=$1 ;;
     *) D=$ROOT/$1 ;;
   esac
   shift
 fi
-[ "${1:-}" = "--" ] && shift
+[[ "${1:-}" = "--" ]] && shift
 
 mkdir -p "$D/bin" || exit 1
 cp "$ROOT/scripts/census/git-path-shim.sh" "$D/bin/git" || exit 1
 chmod +x "$D/bin/git" || exit 1
-[ -x "$D/bin/git" ] || {
+[[ -x "$D/bin/git" ]] || {
   echo "run.sh: shim not executable at $D/bin/git" >&2
   exit 1
 }

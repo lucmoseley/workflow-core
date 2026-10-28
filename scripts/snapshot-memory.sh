@@ -38,7 +38,7 @@ default_src() {
 }
 
 src="${1:-$(default_src)}"
-[ -d "$src" ] || {
+[[ -d "$src" ]] || {
   echo "snapshot-memory: no such store: $src" >&2
   exit 1
 }
@@ -52,10 +52,10 @@ mkdir -p "$(dirname "$out")"
 # Refuse to shrink today's snapshot. Re-running after a deletion would otherwise
 # overwrite the copy taken before it — the one failure this whole file exists to
 # prevent, and silent, since the run reads as a success either way.
-if [ -e "$out" ] && [ -z "${WFC_SNAPSHOT_FORCE:-}" ]; then
+if [[ -e "$out" ]] && [[ -z "${WFC_SNAPSHOT_FORCE:-}" ]]; then
   have="$(tar -tzf "$out" | grep -c '[^/]$')"
   want="$(find "$src" -type f | wc -l)"
-  if [ "$want" -lt "$have" ]; then
+  if [[ "$want" -lt "$have" ]]; then
     echo "snapshot-memory: store has $want files, today's snapshot has $have." >&2
     echo "  Refusing to overwrite it. Deliberate? WFC_SNAPSHOT_FORCE=1 $0" >&2
     exit 1

@@ -24,7 +24,7 @@
 
 set -euo pipefail
 
-[ "$#" -le 1 ] || {
+[[ "$#" -le 1 ]] || {
   echo "usage: $(basename "$0") [--check]" >&2
   exit 2
 }
@@ -44,13 +44,13 @@ found=0
 live=0
 
 for hooks in "$HOME"/.claude*/plugins/cache/last30days-skill/last30days/*/hooks/hooks.json; do
-  [ -e "$hooks" ] || continue
+  [[ -e "$hooks" ]] || continue
   found=$((found + 1))
-  if [ "$(cat "$hooks")" = "$silenced" ]; then
+  if [[ "$(cat "$hooks")" = "$silenced" ]]; then
     continue
   fi
   live=$((live + 1))
-  if [ "$check_only" = true ]; then
+  if [[ "$check_only" = true ]]; then
     echo "LIVE  $hooks"
   else
     printf '%s' "$silenced" >"$hooks"
@@ -58,12 +58,12 @@ for hooks in "$HOME"/.claude*/plugins/cache/last30days-skill/last30days/*/hooks/
   fi
 done
 
-if [ "$found" -eq 0 ]; then
+if [[ "$found" -eq 0 ]]; then
   echo "no last30days plugin cache found under ~/.claude*" >&2
   exit 1
 fi
 
-if [ "$check_only" = true ] && [ "$live" -gt 0 ]; then
+if [[ "$check_only" = true ]] && [[ "$live" -gt 0 ]]; then
   echo "$live of $found last30days hook file(s) still fire; run without --check" >&2
   exit 1
 fi

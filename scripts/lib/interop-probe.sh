@@ -34,8 +34,9 @@
 : "${CLAUDE_INTEROP_PROBE_TIMEOUT:=12}"
 case "$CLAUDE_INTEROP_PROBE_TIMEOUT" in
   *[!0-9]* | "") CLAUDE_INTEROP_PROBE_TIMEOUT=12 ;;
+  *) CLAUDE_INTEROP_PROBE_TIMEOUT=$((10#$CLAUDE_INTEROP_PROBE_TIMEOUT)) ;;
 esac
-[ "$CLAUDE_INTEROP_PROBE_TIMEOUT" -ge 1 ] || CLAUDE_INTEROP_PROBE_TIMEOUT=12
+[[ "$CLAUDE_INTEROP_PROBE_TIMEOUT" -ge 1 ]] || CLAUDE_INTEROP_PROBE_TIMEOUT=12
 export CLAUDE_INTEROP_PROBE_TIMEOUT
 
 # The binary the probe calls. Overridable only so the wedge path can be tested
@@ -56,7 +57,7 @@ _claude_interop_probe() {
   # expiry; 137 is 128+SIGKILL, what `-k` escalates to against a target that
   # IGNORES the TERM. Every other code, including 1 for "key does not exist"
   # (the normal case here), means the bridge is alive.
-  [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ]
+  [[ "$rc" -ne 124 ]] && [[ "$rc" -ne 137 ]]
 }
 
 # How many attempts must ALL expire before the bridge is called wedged. The 12s
@@ -66,11 +67,12 @@ _claude_interop_probe() {
 : "${CLAUDE_INTEROP_PROBE_ATTEMPTS:=3}"
 case "$CLAUDE_INTEROP_PROBE_ATTEMPTS" in
   *[!0-9]* | "") CLAUDE_INTEROP_PROBE_ATTEMPTS=3 ;;
+  *) CLAUDE_INTEROP_PROBE_ATTEMPTS=$((10#$CLAUDE_INTEROP_PROBE_ATTEMPTS)) ;;
 esac
 # ARITHMETICALLY, not on the literal `0`: `00` is all-digits and would leave the
 # loop below running zero times, falling through to "wedged" with no probe made
 # at all — a fail-CLOSED in a library whose header promises the opposite.
-[ "$CLAUDE_INTEROP_PROBE_ATTEMPTS" -ge 1 ] || CLAUDE_INTEROP_PROBE_ATTEMPTS=3
+[[ "$CLAUDE_INTEROP_PROBE_ATTEMPTS" -ge 1 ]] || CLAUDE_INTEROP_PROBE_ATTEMPTS=3
 export CLAUDE_INTEROP_PROBE_ATTEMPTS
 
 # 0 = wedged, so do not launch; 1 = healthy, or the probe could not be run at
@@ -79,9 +81,9 @@ export CLAUDE_INTEROP_PROBE_ATTEMPTS
 # report in.
 claude_interop_wedged() {
   local reg="$CLAUDE_INTEROP_REG" i=0
-  [ -x "$reg" ] || return 1
+  [[ -x "$reg" ]] || return 1
   command -v timeout >/dev/null 2>&1 || return 1
-  while [ "$i" -lt "$CLAUDE_INTEROP_PROBE_ATTEMPTS" ]; do
+  while [[ "$i" -lt "$CLAUDE_INTEROP_PROBE_ATTEMPTS" ]]; do
     _claude_interop_probe "$CLAUDE_INTEROP_PROBE_TIMEOUT" && return 1
     i=$((i + 1))
   done

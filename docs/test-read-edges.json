@@ -709,6 +709,9 @@
 			"scripts/stale-write-back-gate.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		".shellcheckrc": [
+			"scripts/markdown-tooling-declined.test.ts"
+		],
 		".sonarcloud.properties": [
 			"scripts/markdown-tooling-declined.test.ts"
 		],

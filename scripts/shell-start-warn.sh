@@ -17,7 +17,7 @@ _wfc_shell_start_warn() {
   avail_kb=$(awk '$1 == "MemAvailable:" { print $2; exit }' "$meminfo" 2>/dev/null)
   case "$avail_kb" in '' | *[!0-9]*) return 0 ;; esac
   local avail_mb=$((avail_kb / 1024))
-  [ "$avail_mb" -lt "$floor_mb" ] || return 0
+  [[ "$avail_mb" -lt "$floor_mb" ]] || return 0
   # Firing path only: one ps call for the diagnostic context. argv[0]
   # matching mirrors _claude_ps in ~/.bashrc — comm is the version string for
   # a backgrounded session (mantahostels#481), and a Windows argv[0] carries

@@ -23,11 +23,11 @@ SRC_DIR="$(cd "$SRC_DIR/win-interop-watchdog" && pwd)"
 PS='/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe'
 SCHTASKS='/mnt/c/Windows/System32/schtasks.exe'
 
-[ -x "$PS" ] || {
+[[ -x "$PS" ]] || {
   echo "error: Windows PowerShell not reachable - is this WSL with interop enabled?" >&2
   exit 1
 }
-[ -x "$SCHTASKS" ] || {
+[[ -x "$SCHTASKS" ]] || {
   echo "error: schtasks.exe not reachable." >&2
   exit 1
 }

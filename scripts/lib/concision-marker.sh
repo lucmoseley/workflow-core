@@ -32,12 +32,12 @@ concision_base_file() { printf '%s' "$1/.concision-base-$2"; }
 concision_session_base() {
   local base_file base
   base_file="$(concision_base_file "$1" "$2")"
-  [ -f "$base_file" ] || return 1
+  [[ -f "$base_file" ]] || return 1
   base=$(cat "$base_file" 2>/dev/null)
-  [ -n "$base" ] || return 1
+  [[ -n "$base" ]] || return 1
   if ! git merge-base --is-ancestor "$base" HEAD 2>/dev/null; then
     base=$(git merge-base "$base" HEAD 2>/dev/null) || return 2
-    [ -n "$base" ] || return 2
+    [[ -n "$base" ]] || return 2
   fi
   printf '%s' "$base"
 }
@@ -91,7 +91,7 @@ marker_list() {
   for v in "${named[@]}"; do
     v="${v#"${v%%[![:space:]]*}"}"
     v="${v%"${v##*[![:space:]]}"}"
-    [ -z "$v" ] || printf '%s\n' "$v"
+    [[ -z "$v" ]] || printf '%s\n' "$v"
   done
 }
 
@@ -116,7 +116,7 @@ pass_valid() {
   local marker="$1" base="$2" recorded findings written
   pass_fault=""
   pass_base=""
-  [ -f "$marker" ] || return 1
+  [[ -f "$marker" ]] || return 1
   recorded=$(marker_field "$marker" base | tr -d '[:space:]')
   # Two forms: the stripped one is compared, the written one is quoted back.
   written=$(marker_field "$marker" findings)
@@ -126,7 +126,7 @@ pass_valid() {
   # it would resolve here to wherever main sits now, vouching for a pass that
   # never covered this range.
   if ! [[ "$recorded" =~ ^[0-9a-f]{40}$ ]]; then
-    if [ -n "$recorded" ]; then
+    if [[ -n "$recorded" ]]; then
       pass_fault="its base= is not a 40-hex sha, $(short_quote "$recorded")"
     else
       pass_fault="it has no readable base= line"
@@ -134,7 +134,7 @@ pass_valid() {
     return 1
   fi
   case "$findings" in '' | *[!0-9]*)
-    if [ -n "$findings" ]; then
+    if [[ -n "$findings" ]]; then
       pass_fault="its findings= is not a number, $(short_quote "$written") — the count of findings, digits only"
     else
       pass_fault="it has no readable findings= line"
@@ -146,7 +146,7 @@ pass_valid() {
     pass_fault="its base= names a commit this repo does not have"
     return 1
   fi
-  [ "$recorded" = "$base" ] && return 0
+  [[ "$recorded" = "$base" ]] && return 0
   # An OLDER fixed point covers a superset of what this session changed, so it
   # still vouches for it. A NEWER one reviewed less than the session wrote —
   # the miss this check exists to catch. A rebase moves the base out from under
@@ -181,10 +181,10 @@ marker_tier_fault() {
       return 0
       ;;
   esac
-  [ "$#" -gt 0 ] || return 0
+  [[ "$#" -gt 0 ]] || return 0
   unnamed="$(printf '%s\n' "$@" | marker_unlisted "$marker" areas)"
-  [ $? -ne 2 ] || return 2
-  [ -n "$unnamed" ] || return 0
+  [[ $? -ne 2 ]] || return 2
+  [[ -n "$unnamed" ]] || return 0
   mapfile -t missing <<<"$unnamed"
   printf 'its areas= does not name %s' "$(join_comma "${missing[@]}")"
 }
