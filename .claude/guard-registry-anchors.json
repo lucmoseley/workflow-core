@@ -60,7 +60,7 @@
 	"scripts/name-issue-session.sh": "43f06ba0d040a399",
 	"scripts/park-on-round.js": "3cc58894524d44ee",
 	"scripts/place-new-issue.sh": "35224ca9019284b5",
-	"scripts/queue-run.js": "133dd3229abb6382",
+	"scripts/queue-run.js": "ec5b5ffd35f08bac",
 	"scripts/reap-finished-sessions.js": "5db38c0f74f5500c",
 	"scripts/reap-orphan-hooks.js": "a6d74d12ca2370f4",
 	"scripts/reconcile-plugin.js": "4b36b9898138c320",
