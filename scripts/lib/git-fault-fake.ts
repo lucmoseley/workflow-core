@@ -1,8 +1,9 @@
 /*
  * git-fault-fake.ts — the fault-injecting `git` a test sets at WFC_GIT
- * (#3067). The wrapper fails, hangs or runs a script body on the one argv its
+ * (#3067). The wrapper fails, hangs or runs a script body on the argv its
  * `match` names, and `exec`s the real git on every other, so a case breaks one
- * git read and leaves the rest of the program's git real.
+ * git read and leaves the rest of the program's git real; an `all` match
+ * catches every call.
  *
  * Its contract, held by git-fault.contract.test.ts (§G7): an argv the match
  * does not name behaves exactly as the real git does — exit code, stdout and
@@ -18,9 +19,10 @@ import path from "node:path";
  * Which calls fault: `words`, those arguments in a row anywhere in the argv
  * (read off `$*`, so an argument holding a space splits); `every`, each of
  * them anywhere, in any order (read the same way); `first`, the first
- * argument; `argPrefix`, any argument starting with it.
+ * argument; `argPrefix`, any argument starting with it; `all`, every call.
  */
 export type GitFaultMatch =
+	| { all: true }
 	| { words: string[] }
 	| { every: string[] }
 	| { first: string }
@@ -61,6 +63,7 @@ export const resolveRealGit = (): string => {
 export const shellQuote = (s: string) => `'${s.replace(/'/g, `'\\''`)}'`;
 
 const matchLines = (match: GitFaultMatch): string[] => {
+	if ("all" in match) return ['fault "$@"'];
 	if ("words" in match)
 		return [
 			`case " $* " in *${shellQuote(` ${match.words.join(" ")} `)}*) fault "$@" ;; esac`,
