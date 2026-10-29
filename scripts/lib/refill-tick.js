@@ -54,7 +54,11 @@ const { childFailure, childVerdict } = require("./child-failure.js");
 const { parseErrLine, gh } = require("./gh.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const gates = require("./gate-sweep.js");
-const { readRecentEntries, release } = require("./dispatch-ledger.js");
+const {
+	readRecentEntries,
+	record: recordLaunch,
+	release,
+} = require("./dispatch-ledger.js");
 const { readJobs } = require("./hung-jobs.js");
 const { readSwapHold } = require("./admission.js");
 const {
@@ -77,6 +81,7 @@ const {
 	decideTick,
 	hasRoom,
 	isParked,
+	routesParked,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -772,6 +777,7 @@ const launchOrResume = (batch) =>
 	refillBatch.launchOrResume(batch, {
 		resume: ({ launch, sessionId, cwd }) =>
 			resumeStopped(launch, PARKED_PROMPT, { sessionId, cwd }),
+		recordLaunch,
 		launchFresh: launchBatch,
 		log,
 		now: Date.now,
@@ -891,9 +897,10 @@ async function decide(input, scope, launches) {
 	const frontier = /** @type {import("./refill-decide.js").MergedRow[]} */ (
 		merged.frontier
 	);
-	/* Away mode skips every parked row, so its markers go unread. */
-	const parkers =
-		input.mode === "normal" ? readParkers(frontier, launches) : [];
+	/* A mode that skips parked rows leaves their markers unread. */
+	const parkers = routesParked(input.mode)
+		? readParkers(frontier, launches)
+		: [];
 	const decision = decideTick({
 		...input,
 		seats: sizeParkerSeats(input.seats, parkers, served.roots[0]),
