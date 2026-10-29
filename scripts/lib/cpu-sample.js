@@ -67,8 +67,9 @@ const NOT_BUSY = new Set(["idle", "iowait"]);
  *
  * Separate from the jiffie read so that a machine with one and not the other
  * still records what it has — they are different files and fail independently.
- * `WFC_LOADAVG` names a stand-in file, the seam `WFC_MEMINFO` gives admission's
- * tests, so a test of the overload ceiling never reads the live machine.
+ * `WFC_LOADAVG` names a stand-in file, the seam `WFC_MEMINFO` gives
+ * lib/proc-root.js's meminfoPath, so a test of the overload ceiling never
+ * reads the live machine.
  *
  * @returns {number|null}
  */

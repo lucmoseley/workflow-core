@@ -37,10 +37,11 @@
  * prints the warning.
  *
  * WFC_KERNEL_LOG replaces both readers with a file in journalctl's short-iso
- * shape, the seam lib/admission.js takes WFC_MEMINFO by; it ignores --boot, and
- * an unreadable or empty one is SKIP, as the readers are. WFC_SCHED_CLOCK
- * replaces the clock's reads with a directory holding `before/` and `after/`,
- * each with a `schedstat` and a `stat` in `/proc`'s shape, and takes no wait.
+ * shape, the seam lib/proc-root.js's meminfoPath takes WFC_MEMINFO by; it
+ * ignores --boot, and an unreadable or empty one is SKIP, as the readers are.
+ * WFC_SCHED_CLOCK replaces the clock's reads with a directory holding
+ * `before/` and `after/`, each with a `schedstat` and a `stat` in `/proc`'s
+ * shape, and takes no wait.
  *
  * --boot <n> reads an earlier boot, journalctl's offset (-1 the last), for the
  * post-incident question docs/environment.md §8 starts from: the boot that
