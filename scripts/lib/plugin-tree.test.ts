@@ -1239,7 +1239,7 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 		).toThrow(`${modDir}/types/index.d.ts opens a brace`);
 	});
 
-	it("refuses, rather than rescanning forever, a block ending in a comment with no newline", () => {
+	it("refuses, rather than rescanning forever, a block ending in a comment with no newline (#3579)", () => {
 		expect(() =>
 			render(
 				{
