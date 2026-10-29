@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # review-tier-stamp.sh — the review hold's stamp: the file in the git directory through which
 # scripts/review-hold-gate.sh hands a passed commit's `Review-Tier:` value to
-# scripts/review-tier-trailer.sh (#3664). This is its one name.
+# scripts/review-tier-trailer.sh (#3664).
 #
 # SOURCED, NEVER RUN.
 

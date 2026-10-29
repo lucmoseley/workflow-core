@@ -4,7 +4,7 @@
  *
  * write-secret.js is its caller and does every read, from fixed paths: any
  * path or variable pointing the reads elsewhere would let the environment
- * vouch for a group. The decision takes what was read as arguments (#3716).
+ * vouch for a group (#3716).
  */
 
 /** systemd's userdb drop-in directories, each of which must be empty. */
@@ -17,7 +17,6 @@ const USERDB_DROP_INS = [
 ];
 /** systemd's userdb service directory, which may hold only QUIET_USERDB. */
 const USERDB_SERVICES = "/run/systemd/userdb";
-/** Every directory whose entries `UserDb.userdb` carries. */
 const USERDB_DIRS = [...USERDB_DROP_INS, USERDB_SERVICES];
 
 /** systemd's userdb services that name no user beyond NSS's own files. */
