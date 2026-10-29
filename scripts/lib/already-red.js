@@ -1,7 +1,7 @@
 /*
  * already-red.js — which of a red run's failing files were already red on
- * the base its launch recorded: the one a narrowed run was narrowed against
- * (#3624), or the one a full run resolved (#3646).
+ * the base its launch recorded (#3624); `readRunBase` in run-vitest.js says
+ * which route records which base.
  *
  * THE EVIDENCE IS WHAT IS ALREADY ON RECORD, never a run of its own:
  * - the red store's earlier runs, any session's, and the certificate store's,

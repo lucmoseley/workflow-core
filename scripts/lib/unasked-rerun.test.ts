@@ -150,15 +150,16 @@ describe("a red run whose every failure was already red on its base (#3633)", ()
 		expect(reason).toContain(
 			`Not run: runs on record already give the verdict on what this run would test at HEAD ${HEAD.slice(0, 12)}, so it can only repeat it.`,
 		);
-		expect(reason).toContain(
-			`The verdict on record from the run at RUN-R on ${HEAD.slice(0, 12)} is a red, not a certificate`,
-		);
-		expect(reason).toContain(
-			`  ALREADY RED on the base ${BASE.slice(0, 12)} (#3624):\n    a.test.ts — by the red store's run at ${NEIGHBOUR.slice(0, 12)}, RUN-EARLIER`,
-		);
-		expect(reason).toContain("repeats only about half the time between runs");
-		expect(reason.split("\n").at(-1)).toBe(
-			"Type the same command again and it runs — this refuses once a session.",
+		const block = `The verdict on record from the run at RUN-R on ${HEAD.slice(0, 12)} is a red, not a certificate: it failed only on files already red on its base.`;
+		expect(reason.slice(reason.indexOf(block))).toBe(
+			[
+				block,
+				`  ALREADY RED on the base ${BASE.slice(0, 12)} (#3624):`,
+				`    a.test.ts — by the red store's run at ${NEIGHBOUR.slice(0, 12)}, RUN-EARLIER`,
+				"  Every failure here was already red on the base, so no rerun is owed to attribute them.",
+				"Evidence, not a licence: a red's failing set repeats only about half the time between runs (mantahostels#2195), so a repeat re-rolls those flakes rather than testing this session's work.",
+				"Type the same command again and it runs — this refuses once a session.",
+			].join("\n"),
 		);
 	});
 
