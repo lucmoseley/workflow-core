@@ -68,6 +68,7 @@ const { launchAuthRefusal } = require("./launch-auth.js");
 const { jobDirPath, readJobRecord } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
 const { setParked } = require("./parked.js");
+const { readParkedBy, writeParkedBy } = require("./parked-marker.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
@@ -520,6 +521,27 @@ function labelParked(l) {
 }
 
 /**
+ * Add `numbers` to session `sessionId`'s `.parked-` marker in `l`'s checkout;
+ * null once written, else why not. Fails open: an unwritten marker leaves the
+ * label for a claim to clear, and the loop line says so (#3584).
+ * @param {import("./refill-loop.js").LoopLaunch} l
+ * @param {string} sessionId
+ * @param {number[]} numbers
+ */
+function recordParked(l, sessionId, numbers) {
+	try {
+		writeParkedBy(
+			sessionId,
+			[...readParkedBy(sessionId, l.root), ...numbers],
+			l.root,
+		);
+		return null;
+	} catch (e) {
+		return buildErrorText(e);
+	}
+}
+
+/**
  * Comment `body` on each of `l`'s issues in its checkout's tracker. A failure
  * is logged, never thrown: the comment tells the founder what the loop did
  * (#2359), and the act it reports has already happened.
@@ -750,6 +772,7 @@ const blockIo = (served) => ({
 	turnedSince: (l, at) =>
 		turnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	labelParked,
+	recordParked,
 	comment: commentOn,
 	postHandOff,
 	release: (l) => release({ jobId: l.copiedFrom ?? l.jobId, root: l.root }),

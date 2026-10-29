@@ -2577,7 +2577,7 @@ function renderParked(state) {
 	console.log(
 		"\n  Choosable here; the refill loop never launches it." +
 			"\n  A loop-stopped park's cause is commented on its ticket. Cleared when the\n" +
-			"  founder types in a session the Stop hook parked, or a session claims the issue.",
+			"  founder types in the parked session, or a session claims the issue.",
 	);
 }
 

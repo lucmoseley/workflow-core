@@ -83,6 +83,9 @@ const PARKED_STATE = "blocked";
  *   lib/block-cause.js's turnedSince on its transcript, false unread
  * @property {(l: LoopLaunch) => {n: number, why: string}[]} labelParked
  *   each of its issues the `parked` label would not go on, with why
+ * @property {(l: LoopLaunch, sessionId: string, numbers: number[]) =>
+ *   string|null} recordParked  add `numbers` to the session's `.parked-`
+ *   marker in its checkout (lib/parked-marker.js)
  * @property {(l: LoopLaunch, body: string) => void} comment  on each of its
  *   issues, a failure logged
  * @property {(l: JobLaunch) => {failed: string|null, out: string}}
@@ -394,20 +397,51 @@ const buildIdleResumeLine = (l, failed) =>
  * The loop log's line for a park it stopped, or could not.
  * @param {BlockedLaunch & {act?: Act}} l
  * @param {"away"|"normal"} mode
- * @param {{failed: string|null, unlabelled: {n: number, why: string}[]}} outcome
+ * @param {{failed: string|null, unlabelled: {n: number, why: string}[],
+ *   unmarkedWhy?: string|null}} outcome  `unmarkedWhy`, why the labelled issues are
+ *   not in the session's marker
  */
-function buildParkStopLine(l, mode, { failed, unlabelled }) {
+function buildParkStopLine(
+	l,
+	mode,
+	{ failed, unlabelled, unmarkedWhy = null },
+) {
 	const tried = l.resumes ? `, ${l.resumes.tries} resumes` : "";
 	const morning = l.act === "park-at-morning" ? ", at the morning cut-off" : "";
 	const what = `${l.block.cause} park ${launchName(l)} (${mode} mode, blocked since ${iso(l.block.since)}${tried}${morning})`;
 	if (failed) return `could not stop ${what}: ${failed}`;
-	const missed = new Set(unlabelled.map((u) => u.n));
-	const labelled = l.issues.filter((n) => !missed.has(n));
+	const labelled = labelledOf(l, unlabelled);
 	return [
 		`stopped ${what}`,
 		`labelled parked: ${labelled.map((n) => `#${n}`).join(", ") || "none"}`,
 		...unlabelled.map((u) => `not labelled #${u.n}: ${u.why}`),
+		...(unmarkedWhy
+			? [`left parked until claimed, not on his typing: ${unmarkedWhy}`]
+			: []),
 	].join("; ");
+}
+
+/**
+ * @param {{issues: number[]}} l
+ * @param {{n: number}[]} unlabelled
+ */
+function labelledOf(l, unlabelled) {
+	const missed = new Set(unlabelled.map((u) => u.n));
+	return l.issues.filter((n) => !missed.has(n));
+}
+
+/**
+ * Add `l`'s labelled issues to its session's `.parked-` marker, so the
+ * founder's typing there takes the label off (unpark-on-prompt.js, #3584);
+ * null once recorded or with none labelled, else why not.
+ * @param {LoopLaunch} l
+ * @param {number[]} labelled
+ * @param {BlockIo} io
+ */
+function markLabelled(l, labelled, io) {
+	if (labelled.length === 0) return null;
+	if (!l.sessionId) return "no session id read";
+	return io.recordParked(l, l.sessionId, labelled);
 }
 
 /**
@@ -424,9 +458,10 @@ function stopJob(l, io) {
 }
 
 /**
- * Stop `l`'s park, and where the stop held label its issues `parked` and
- * comment its cause on them, since a stopped session's own words may not say
- * why it waits (#2846). `l`, marked `parkStopped` once stopped.
+ * Stop `l`'s park, and where the stop held label its issues `parked`, record
+ * them in its session's marker and comment its cause on them, since a stopped
+ * session's own words may not say why it waits (#2846). `l`, marked
+ * `parkStopped` once stopped.
  * @param {BlockedLaunch} l
  * @param {Act} act  stop-and-park or park-at-morning
  * @param {"away"|"normal"} mode
@@ -439,9 +474,11 @@ function stopPark(l, act, mode, { now, io }) {
 		io.log(buildParkStopLine({ ...l, act }, mode, { failed, unlabelled: [] }));
 		return l;
 	}
+	const unlabelled = io.labelParked(l);
 	const line = buildParkStopLine({ ...l, act }, mode, {
 		failed: null,
-		unlabelled: io.labelParked(l),
+		unlabelled,
+		unmarkedWhy: markLabelled(l, labelledOf(l, unlabelled), io),
 	});
 	io.log(line);
 	io.comment(

@@ -82,6 +82,10 @@ function fakeIo(over: Partial<BlockIo> = {}) {
 		idleSince: () => null,
 		turnedSince: () => false,
 		labelParked: () => [],
+		recordParked: (_, sid, ns) => {
+			calls.push(`record ${sid} ${ns.join(",")}`);
+			return null;
+		},
 		comment: (_, body) => calls.push(`comment ${body}`),
 		postHandOff: (l) => {
 			calls.push(`hand-off ${l.jobId}`);
@@ -117,6 +121,7 @@ describe("which parks the loop stops (#2699)", () => {
 	const parkedFor = (cause: Cause, minutes: number, over = {}) =>
 		record({
 			jobId: "p",
+			sessionId: "s-p",
 			parked: true,
 			block: { cause, since: NOW - minutes * MIN },
 			...over,
@@ -168,6 +173,7 @@ describe("which parks the loop stops (#2699)", () => {
 		const line = `stopped PERMISSION park design-vault /implement 42 (away mode, blocked since ${since}); labelled parked: #42`;
 		expect(stopped.calls).toEqual([
 			"stop p",
+			"record s-p 42",
 			`log ${line}`,
 			`comment Refill loop: ${line}. The conversation is kept: \`claude attach\` reopens it.`,
 		]);
@@ -189,6 +195,38 @@ describe("which parks the loop stops (#2699)", () => {
 			),
 		]);
 		expect(failed.out[0]).not.toHaveProperty("parkStopped");
+	});
+
+	it("records the labelled issues in its session's marker, so his typing unparks them (#3584)", () => {
+		const missed = blocks(
+			[parkedFor("QUESTION", 0, { issues: [42, 43] })],
+			blocked,
+			"away",
+			{ io: { labelParked: () => [{ n: 43, why: "HTTP 502" }] } },
+		);
+		expect(missed.calls).toContain("record s-p 42");
+		const none = blocks([parkedFor("QUESTION", 0)], blocked, "away", {
+			io: { labelParked: () => [{ n: 42, why: "HTTP 502" }] },
+		});
+		expect(none.calls.some((c) => c.startsWith("record "))).toBe(false);
+		expect(logs(none.calls)[0]).not.toMatch(/left parked/);
+	});
+
+	it("says in the stop line why the labelled issues are not in the marker (#3584)", () => {
+		const unread = blocks(
+			[parkedFor("QUESTION", 0, { sessionId: undefined })],
+			blocked,
+			"away",
+		);
+		expect(logs(unread.calls)[0]).toMatch(
+			/; left parked until claimed, not on his typing: no session id read$/,
+		);
+		const unwritten = blocks([parkedFor("QUESTION", 0)], blocked, "away", {
+			io: { recordParked: () => "EACCES" },
+		});
+		expect(logs(unwritten.calls)[0]).toMatch(
+			/; left parked until claimed, not on his typing: EACCES$/,
+		);
 	});
 });
 
