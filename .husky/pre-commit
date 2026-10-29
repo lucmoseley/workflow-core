@@ -1209,8 +1209,8 @@ if [ -f .husky/pre-commit.local ]; then
 fi
 
 # The stand-down stamp (mantahostels#1705). `.husky/prepare-commit-msg` runs this whole file
-# again, because that is the one hook `--no-verify` does NOT skip — so without a
-# stamp every ordinary commit would run the ~14 gates twice. This is the last
+# again, because that is the one hook able to refuse a commit that `--no-verify`
+# does NOT skip — so without a stamp every ordinary commit would run the ~14 gates twice. This is the last
 # thing the file does, so it is written only when every gate above passed.
 #
 # Keyed to the INDEX TREE, not a pid or a timestamp: two distinct commits cannot

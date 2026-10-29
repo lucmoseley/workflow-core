@@ -10,8 +10,9 @@
  * `pre-merge-commit` at once, so `git commit --no-verify` and `git merge
  * --no-verify` landed on `main` having run none of `.husky/pre-commit`'s ~14
  * gates — gitleaks among them, and `AGENTS.md` §Secrets boundary makes a
- * committed key permanent. `prepare-commit-msg` is the one hook the flag does
- * NOT skip, so it is the only place either spelling can still be refused.
+ * committed key permanent. `prepare-commit-msg` is the one hook able to refuse
+ * a commit that the flag does NOT skip, so it is the only place either
+ * spelling can still be refused.
  *
  * Every case drives a REAL `git commit`/`git merge` in a throwaway repo with its
  * own `core.hooksPath`, because the class of bug this file guards against is one
