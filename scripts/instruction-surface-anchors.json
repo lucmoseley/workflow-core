@@ -301,7 +301,7 @@
 			"source": "#2790, #3443"
 		},
 		"scripts/lib/unasked-rerun-guard.js": {
-			"digest": "2b5a00cafabd8b75",
+			"digest": "0ceec0c195ef5aae",
 			"verdict": "at need — refuses the redundant run before it starts, once a session: with a full-run vitest certificate at HEAD, `npm run test`, `npm test` and `npm run test -- --queue` each refused (968 B with the landing module on, 1025 B with it off, each printing its own twin of the rule); the same session re-typing it, a run naming a file, `npm run test:changed` with no uncommitted files of its own and a payload with no session id passed, 0 B. With the rule store unreadable it still refuses, 447 B, the rule swapped for the fallback naming docs/agents/rules/unasked-rerun-landing.txt, or unasked-rerun.txt with landing off. A judge that cannot answer allows, logged — with landing on and no origin/landing ref, `could not resolve the merge-base` (fed through scripts/guard-dispatch.js at 5c45b5a16 under #3201; a store with no certificates not re-fed). A throw in the core refuses, 79 B, naming only the core and the error, logged. Byte counts are the deny reason or context text alone, not hook stdout.",
 			"selfSufficient": "yes — names the attesting certificate (date, sha, full run), the escape (re-type it), what is owed before a push (under landing the tests you touched, the lander running the full suite, #2936) and what is never refused",
 			"source": "#3143, #3201"
