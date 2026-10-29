@@ -299,7 +299,9 @@ other_takes="${other_takes#takes:}"
 # same four texts for the sessions neither command reaches, and its test fails
 # where the two differ (#2097).
 # The literal path default and the both-state text, last, are what
-# check-context-budget.js measures: it cannot evaluate a command substitution.
+# check-context-budget.js measures: it cannot evaluate a command substitution,
+# so the four texts shorten docs/agents/rules/review-standards-axis*.txt
+# rather than print them (base §G11).
 # The default is for an unresolved core root, spelt here and not in
 # lib/review-standards.sh because this file's text leaves through an emitter
 # that resolves a doc path, as the lib's does not (script-path-scan.test.ts).
@@ -546,7 +548,9 @@ r_waiting_external_vocabulary=$'- `rule:waiting-external-vocabulary` — reading
 #
 # THE EMPTY-RESULT LINE IS PASTED, NOT INDEXED (#523): an empty result can
 # arrive on the very first \`gh\` call, before a fetched fragment could reach
-# the session.
+# the session. It shortens docs/agents/rules/gh-cli-limits.txt's opening
+# sentence, since the whole fragment would not fit the injected payload's cap
+# (base §G11).
 gh_empty_result_rule="ONE RULE IS PASTED, BECAUSE IT BINDS AT THE FIRST \`gh\` CALL: run \`gh\` in the foreground, and re-run an empty result once before believing it — the tracker-rules guard names the known causes on each call that meets one."
 
 tracker_frame="THE TRACKER RULES ARE NOT BELOW — \`docs/agents/issue-tracker.md\` and \`docs/agents/triage-labels.md\` are their home, which the vendored skills carry none of. ${gh_empty_result_rule} Below is this command's index: every remaining rule with no \`gh\` shape a guard can catch it on, so it is named here instead of routed there. ${never_act_line}"
