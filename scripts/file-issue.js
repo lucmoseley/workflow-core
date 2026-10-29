@@ -73,6 +73,7 @@ const {
 	assignSelf,
 	claimIfFree,
 	readIssue,
+	readParent: readIssueParent,
 	recordOwnAct,
 	scriptIo,
 	similarTitles,
@@ -330,6 +331,33 @@ function checkSecondMap(repo, labels) {
 	}
 }
 
+/* gh refuses a link past 7 layers ("You can't add more than 7 layers of
+ * sub-issues", linkRemedy's case), so no chain holds more ancestors. */
+const MAX_DEPTH = 7;
+
+/**
+ * Where a child of closed `issue` goes instead: its nearest open ancestor in
+ * this repository, which link-sub-issue.sh can link under, or --standalone.
+ * @param {string} repo
+ * @param {ReturnType<typeof readIssue>} issue
+ */
+function openAncestorRemedy(repo, issue) {
+	let at = issue;
+	try {
+		for (let depth = 0; depth < MAX_DEPTH; depth++) {
+			if (!at.parentPath?.startsWith(`repos/${repo}/issues/`)) break;
+			const up = readIssueParent(at);
+			if (!up) break;
+			if (up.state === "open")
+				return `Its nearest open ancestor is #${up.number} (${up.title}): --parent ${up.number}, or --standalone "<why>".`;
+			at = up;
+		}
+	} catch (e) {
+		return `Its ancestors could not be read (${parseErrLine(e)}): place it under an open issue, or --standalone "<why>".`;
+	}
+	return `No ancestor of #${issue.number} in ${repo} is open: place it under another open issue, or --standalone "<why>".`;
+}
+
 /**
  * The --parent issue, refused where it cannot take a child, and the family
  * label it implies.
@@ -351,7 +379,7 @@ function readParent({ repo, number, labels }) {
 		io.fail(`#${number} is a pull request, not an issue. Nothing filed.`, 2);
 	if (parent.state !== "open")
 		io.fail(
-			`#${number} is ${parent.state} — a child filed under it drops off every map. Place it under an open issue, or --standalone. Nothing filed.`,
+			`#${number} is ${parent.state} — a child filed under it drops off every map (#3637). ${openAncestorRemedy(repo, parent)} Nothing filed.`,
 			2,
 		);
 	const added =

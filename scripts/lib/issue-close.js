@@ -1,7 +1,8 @@
 /*
  * issue-close.js — the guard-issue-close core (#2798, programme #2733): may
- * this `gh issue close` go ahead? Five rules, in this order: a roadmap card's
- * own issue is closed by /card-close (mantahostels#220), a completed close
+ * this `gh issue close` go ahead? Six rules, in this order: a roadmap card's
+ * own issue is closed by /card-close (mantahostels#220), no close leaves a
+ * sub-issue open, a not-planned one included (#3637), a completed close
  * leaves no unmet acceptance criteria (#1640), every close says what is still
  * outstanding (mantahostels#185, #984), a completed close leaves no census
  * row its commits expired (#1913), and none whose commits are unpushed
@@ -61,6 +62,10 @@
  * `wayfinder:map` label, and is neither that card's issue nor a map, is
  * denied wrongly; the escape is --reason "not planned", or /card-close
  * itself.
+ *
+ * THE CHILDREN RULE (#3637) reads the payload's `subIssues`, which gh lists to
+ * GitHub's 100-child cap. Its refusal is lib/open-children.js's,
+ * resolve-ticket.js's too.
  *
  * THE CRITERIA, CENSUS AND LANDING RULES are resolve-ticket.js's refusals,
  * read through lib/ticket-criteria.js (#1640), lib/census-digest.js (#1913,
@@ -231,8 +236,7 @@ function judge(run, cmd) {
 	if (!isGhCommand(head)) return;
 	if (sub !== "issue" || verb !== "close") return;
 	const close = scanClose(run, cmd.segment, cmd.words.slice(3));
-
-	if (abandoned(run, close)) return;
+	const notPlanned = abandoned(run, close);
 
 	/* Empty only where gh got no positional argument, or an empty or bare-`#`
 	 * one: gh refuses each and closes nothing, so there is no close to judge
@@ -253,7 +257,9 @@ function judge(run, cmd) {
 		);
 
 	/* mantahostels#220 runs FIRST. */
-	if (!elsewhere(run, close)) judgeCard(run, close);
+	if (!notPlanned && !elsewhere(run, close)) judgeCard(run, close);
+	judgeChildren(run, close, notPlanned);
+	if (notPlanned) return;
 	const criteriaRead = judgeCriteria(run, close);
 	judgeOutstanding(run, close);
 	/* After the Outstanding rule: the census read is the slowest call, and
@@ -389,8 +395,9 @@ function elsewhere(run, close) {
  * differs from the last one fetched. Null where GitHub could not be asked,
  * which is a fail-open the caller records rather than a confident answer.
  *
- * ONE request serves every rule: `title`, `parent` and `body` ride the
- * comments' read, so the card and criteria checks cost no extra call.
+ * ONE request serves every rule: `title`, `parent`, `body` and `subIssues`
+ * ride the comments' read, so the card, children and criteria checks cost no
+ * extra call.
  * @param {Run} run accumulator: issue and fetched are set to this read's
  * @param {Close} close
  * @returns {Issue | null}
@@ -410,7 +417,7 @@ function fetchIssue(run, close) {
 				"view",
 				close.issue,
 				"--json",
-				"comments,title,parent,labels,body",
+				"comments,title,parent,labels,body,subIssues,url",
 				...(close.repo ? ["--repo", close.repo] : []),
 			],
 			left,
@@ -540,6 +547,54 @@ function denyCard(run, close, id, state) {
 Close it with **/card-close ${close.issue}** instead.
 
 ${ruleOrFallback(run.ctx, "card-close-by-hand", "A roadmap card's own issue is closed by /card-close, never by hand")}`,
+	);
+}
+
+/**
+ * Denies a close that leaves a sub-issue open (#3637). An unread issue is the
+ * outage judge() records on a completed close, so only a not-planned one,
+ * which reaches no later rule, records it here.
+ * @param {Run} run
+ * @param {Close} close
+ * @param {boolean} notPlanned
+ */
+function judgeChildren(run, close, notPlanned) {
+	const data = fetchIssue(run, close)?.data;
+	if (!data) {
+		if (notPlanned)
+			run.ctx.log(
+				`could not read ${close.repo}#${close.issue} — open sub-issues unchecked`,
+			);
+		return;
+	}
+	const nodes = record(data.subIssues)?.nodes;
+	if (!Array.isArray(nodes)) {
+		run.ctx.log(
+			`no subIssues in ${close.repo}#${close.issue}'s payload — open sub-issues unchecked`,
+		);
+		return;
+	}
+	if (!nodes.some((k) => field(record(k)?.state) === "OPEN")) return;
+	const { openChildrenRefusal } = require("./open-children.js");
+	const refusal = openChildrenRefusal(
+		close.issue,
+		field(data.url).replace(/[0-9]+$/, ""),
+		nodes.map((/** @type {unknown} */ k) => {
+			const kid = record(k);
+			return {
+				number: field(kid?.number),
+				title: field(kid?.title),
+				url: field(kid?.url),
+				open: field(kid?.state) === "OPEN",
+			};
+		}),
+	);
+	deny(
+		run.ctx,
+		close.segment,
+		`This close leaves a sub-issue open: @CMD@
+
+${refusal}`,
 	);
 }
 

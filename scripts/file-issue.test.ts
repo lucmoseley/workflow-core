@@ -491,16 +491,44 @@ describe("placement", () => {
 	});
 });
 
-describe("a closed parent", () => {
-	it("is refused with exit 2 before any create, pointing at an open parent or --standalone", () => {
-		setUp(["kind:spec"], { state: "closed" });
+describe("a closed parent (#3637)", () => {
+	const Api = "https://api.github.com/repos/acme/widgets/issues/";
+
+	it("is refused with exit 2 before any create, naming its nearest open ancestor", () => {
+		setUp(["kind:spec"], { state: "closed", parent_issue_url: `${Api}500` });
+		serve(
+			"repos/acme/widgets/issues/500",
+			issue(500, [], { state: "closed", parent_issue_url: `${Api}400` }),
+		);
+		serve("repos/acme/widgets/issues/400", issue(400, ["wayfinder:map"]));
 		const r = run(filing(["takes:implement"]));
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("#528 is closed");
 		expect(r.stderr).toContain(
-			"Place it under an open issue, or --standalone.",
+			'Its nearest open ancestor is #400 (issue 400): --parent 400, or --standalone "<why>".',
 		);
 		expect(readCreates()).toEqual([]);
+	});
+
+	it("points at --standalone where no ancestor is open", () => {
+		setUp(["kind:spec"], { state: "closed" });
+		const r = run(filing(["takes:implement"]));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(
+			'No ancestor of #528 in acme/widgets is open: place it under another open issue, or --standalone "<why>".',
+		);
+		expect(readCreates()).toEqual([]);
+	});
+
+	it("never names an ancestor in another repository, which no link can reach", () => {
+		setUp(["kind:spec"], {
+			state: "closed",
+			parent_issue_url: "https://api.github.com/repos/acme/other/issues/7",
+		});
+		const r = run(filing(["takes:implement"]));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("No ancestor of #528 in acme/widgets is open");
+		expect(readGhCalls().some((c) => c.includes("acme/other"))).toBe(false);
 	});
 });
 

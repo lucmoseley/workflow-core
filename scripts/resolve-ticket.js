@@ -12,8 +12,9 @@
  * the guard-issue-close core holds on the hand spelling — the `**Outstanding:**`
  * line's grammar and open carriers, through the same lib/outstanding-line.js
  * (#984), unticked acceptance criteria through lib/ticket-criteria.js (#1640),
- * and a roadmap card's own issue going to /card-close — and does what
- * release-issue-claim.js does after it.
+ * a roadmap card's own issue going to /card-close, and no sub-issue left open
+ * through lib/open-children.js (#3637) — and does what release-issue-claim.js
+ * does after it.
  *
  * A completed close is refused where the ticket's commits — those on HEAD
  * citing `#n` — expired an instruction-surface census row that HEAD has not
@@ -58,7 +59,8 @@
  * A "not planned" close owes no `**Values:**`, `**Practice:**`,
  * `**Outstanding:**` or `**Door:**` line and no ticked criteria — abandoned, not delivered, as
  * check-ticket-criteria.js reads it — and may close a card's own issue, as
- * the guard-issue-close core lets it.
+ * the guard-issue-close core lets it. It is refused over an open sub-issue
+ * all the same.
  *
  * cli-args-exempt: its own parseArgs refuses every unknown flag, `--help`
  * included, before any gh call.
@@ -76,6 +78,8 @@ const issueBody = require("./issue-body.js");
 const { parseErrLine, gh } = require("./lib/gh.js");
 const outstandingLine = require("./lib/outstanding-line.js");
 const { unmetCriteria } = require("./lib/ticket-criteria.js");
+const { openChildrenRefusal } = require("./lib/open-children.js");
+const { isOpenChild, readSubIssues } = require("./lib/issue-tree.js");
 const {
 	censusRefusal,
 	readExpiredRows,
@@ -261,6 +265,35 @@ function checkCompletableOrFail(issue, n) {
 }
 
 /**
+ * Refuses any close, not-planned included, that leaves a sub-issue open
+ * (#3637).
+ * @param {string} repo
+ * @param {number} n
+ */
+function checkNoOpenChildOrFail(repo, n) {
+	let kids;
+	try {
+		kids = readSubIssues(n, repo);
+	} catch (e) {
+		io.fail(
+			`could not read #${n}'s sub-issues (${parseErrLine(e)}). Nothing written.`,
+			1,
+		);
+	}
+	const refusal = openChildrenRefusal(
+		String(n),
+		`https://github.com/${repo}/issues/`,
+		kids.map((k) => ({
+			number: String(k.number),
+			title: String(k.title),
+			url: String(k.html_url),
+			open: isOpenChild(k),
+		})),
+	);
+	if (refusal) io.fail(`${refusal} Nothing written.`, 2);
+}
+
+/**
  * @param {string} comment
  * @param {number} n
  */
@@ -429,6 +462,8 @@ function main() {
 	const repo = io.trackerOrFail();
 
 	const issue = readIssueOrFail(repo, n);
+
+	if (issue.state !== "closed") checkNoOpenChildOrFail(repo, n);
 
 	if (!notPlanned) {
 		checkCompletableOrFail(issue, n);

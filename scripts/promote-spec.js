@@ -10,8 +10,9 @@
  * `wayfinder:map`.
  *
  * NO HOOK SEES A gh CALL A SCRIPT MAKES, so this holds for itself what
- * the guard-issue-close core holds on the hand spelling — `**Outstanding:**`, and a
- * roadmap card's own issue going to /card-close — and does what
+ * the guard-issue-close core holds on the hand spelling — `**Outstanding:**`, a
+ * roadmap card's own issue going to /card-close, and no open child but the
+ * spec it moves (#3637) — and does what
  * release-issue-claim.js does after it.
  *
  * ORDER: every refusal, then re-parent, read-back, comment, close, release.
@@ -45,6 +46,7 @@
 
 const { parseErrLine, gh, ghApiSlurp } = require("./lib/gh.js");
 const { parseIssueNumber } = require("./lib/issue-number.js");
+const { openChildrenRefusal } = require("./lib/open-children.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const {
@@ -64,7 +66,7 @@ const io = scriptIo("promote-spec");
 
 const PAUSE_S = 2;
 
-/** @typedef {{number: number, id: number, state: string, labels?: Array<string|{name: string}>}} SubIssue */
+/** @typedef {{number: number, id: number, state: string, title?: string, html_url?: string, labels?: Array<string|{name: string}>}} SubIssue */
 
 /** @param {SubIssue} raw */
 const isSpec = (raw) => labelNames(raw).includes("kind:spec");
@@ -158,18 +160,17 @@ function readMapOrFail(brief, n) {
 }
 
 /**
- * The brief's open specs and the map's children, refusing more than one spec.
+ * The brief's open specs and the map's children, refusing more than one spec
+ * and any other open child, which the brief's close would strand (#3637).
  * @param {string} repo
  * @param {number} n
  * @param {Issue} map
  */
 function listSpecsOrFail(repo, n, map) {
-	let specs;
+	let kids;
 	let mapKids;
 	try {
-		specs = readSubIssues(repo, n).filter(
-			(k) => k.state === "open" && isSpec(k),
-		);
+		kids = readSubIssues(repo, n);
 		mapKids = readSubIssues(repo, map.number);
 	} catch (e) {
 		io.fail(
@@ -177,6 +178,18 @@ function listSpecsOrFail(repo, n, map) {
 			1,
 		);
 	}
+	const specs = kids.filter((k) => k.state === "open" && isSpec(k));
+	const refusal = openChildrenRefusal(
+		String(n),
+		`https://github.com/${repo}/issues/`,
+		kids.map((k) => ({
+			number: String(k.number),
+			title: String(k.title),
+			url: String(k.html_url),
+			open: k.state === "open" && !isSpec(k),
+		})),
+	);
+	if (refusal) io.fail(`${refusal} Nothing written.`, 2);
 	if (specs.length > 1)
 		io.fail(
 			`#${n} has ${specs.length} open kind:spec children (${specs.map((s) => `#${s.number}`).join(", ")}) — a brief holds one spec: close or re-parent the extra ones by hand, then re-run. Nothing written.`,

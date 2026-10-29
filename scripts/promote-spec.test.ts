@@ -61,7 +61,7 @@ const no = (m) => { process.stderr.write(m + "\\n"); process.exit(1); };
 const load = (n, d) => fs.existsSync(f(n)) ? JSON.parse(fs.readFileSync(f(n), "utf8")) : d;
 const issues = load("issues.json", {});
 const save = () => fs.writeFileSync(f("issues.json"), JSON.stringify(issues));
-const rest = (i) => ({ ...i, id: i.number * 1000, labels: i.labels.map((name) => ({ name })),
+const rest = (i) => ({ ...i, id: i.number * 1000, html_url: "https://github.com/acme/widgets/issues/" + i.number, labels: i.labels.map((name) => ({ name })),
 	parent_issue_url: i.parent ? "https://api.github.com/repos/acme/widgets/issues/" + i.parent : null });
 let m;
 if (a[0] === "api" && a[1] === "--method") {
@@ -161,6 +161,23 @@ const untouched = () => {
 	expect(readWrites()).toEqual([]);
 	expect(claimed()).toBe(true);
 };
+
+describe("an open child besides the spec (#3637)", () => {
+	it("refuses before any write, naming the child the brief's close would strand", () => {
+		setUp({
+			extra: [
+				iss(SPEC + 1, ["kind:ticket", "takes:implement"], { parent: BRIEF }),
+				iss(SPEC + 2, ["kind:ticket"], { parent: BRIEF, state: "closed" }),
+			],
+		});
+		const r = run();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`#${BRIEF} has 1 open sub-issue`);
+		expect(r.stderr).toContain(`#${SPEC + 1} (issue ${SPEC + 1})`);
+		expect(r.stderr).not.toContain(`#${SPEC + 2}`);
+		untouched();
+	});
+});
 
 describe("a successful promote", () => {
 	it("re-parents, reads back, comments, closes and releases, in that order", () => {

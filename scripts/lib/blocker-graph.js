@@ -10,7 +10,8 @@
  * one blocked_by read, plus one issue read where a marker alone names it.
  *
  * An issue holds out what it blocks and its own open parent in the served
- * repo, which cannot close while it is open (#3222), so each open ancestor
+ * repo, which cannot close while it is open (#3222; refused at
+ * lib/issue-close.js and resolve-ticket.js, #3637), so each open ancestor
  * counts in its reach and depth (#3613). A parent in another repo is not read.
  *
  * Callers: scripts/pick-next.js, which ranks on reachOf, inheritance and

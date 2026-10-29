@@ -4,8 +4,9 @@
  * denies a close that says nothing about what is still outstanding
  * (mantahostels#185), a hand close of a roadmap card's own issue
  * (mantahostels#220), a completed close over unticked acceptance criteria
- * (#1640), one over census rows the ticket's commits expired (#1913), and one
- * whose commits are unpushed (#3101).
+ * (#1640), one over census rows the ticket's commits expired (#1913), one
+ * whose commits are unpushed (#3101), and any close, not-planned included,
+ * that leaves a sub-issue open (#3637).
  *
  * A deny is only defensible while it cannot wedge sanctioned work, so every
  * allow-case below is a shape that would otherwise be a false positive — a
@@ -71,7 +72,7 @@ let faults: string[];
 let calls: string[];
 let clock: number;
 
-/** One issue as `gh issue view --json comments,title,parent,labels,body`
+/** One issue as `gh issue view --json comments,title,parent,labels,body,subIssues,url`
  *  describes it. `comments` is oldest first. */
 interface Issue {
 	title?: string;
@@ -79,6 +80,7 @@ interface Issue {
 	body?: string;
 	labels?: string[];
 	parent?: number;
+	subIssues?: { number: number; state: "OPEN" | "CLOSED"; url?: string }[];
 }
 
 /** What gh answers this run's calls. `issue` is every number's, `issues` one
@@ -102,7 +104,10 @@ const DEFAULT_ISSUE: Required<Omit<Issue, "parent">> = {
 	comments: ["a resolution comment with no disposition line"],
 	body: "",
 	labels: [],
+	subIssues: [],
 };
+
+const ISSUES_URL = "https://github.com/acme/tracker/issues/";
 
 /** A fixture's answer with its stdout swapped, for a value the case owns. */
 function answering(stdout: string): string {
@@ -134,6 +139,14 @@ const ghPort = (setup: Gh) => (args: string[]) => {
 		body: issue.body,
 		labels: issue.labels.map((name) => ({ name })),
 		parent: issue.parent ? { number: issue.parent } : null,
+		subIssues: {
+			nodes: issue.subIssues.map((k) => ({
+				title: `child ${k.number}`,
+				url: `${ISSUES_URL}${k.number}`,
+				...k,
+			})),
+		},
+		url: `${ISSUES_URL}${args[2]}`,
 	};
 	return ghFake(answering(JSON.stringify(payload)))(args);
 };
@@ -1075,6 +1088,72 @@ describe("the commits the pushed ref lacks (#3101)", () => {
 	});
 });
 
+describe("the open sub-issues it refuses to strand (#3637)", () => {
+	const Passing = '--comment "**Outstanding:** none"';
+	const parent = (subIssues: Issue["subIssues"]): Gh => ({
+		issue: { subIssues },
+	});
+
+	it("refuses a completed close that leaves a child open, naming it and the remedy", () => {
+		const reason = readDenyReason(
+			`gh issue close 12 ${Passing}`,
+			parent([
+				{ number: 13, state: "CLOSED" },
+				{ number: 14, state: "OPEN" },
+			]),
+		);
+		expect(reason).toContain("This close leaves a sub-issue open");
+		expect(reason).toContain("#14 (child 14)");
+		expect(reason).not.toContain("#13");
+		expect(reason).toContain("takes:children");
+		expect(reason).toContain("retire-stale-containers.js");
+	});
+
+	it("refuses a not-planned close the same way", () => {
+		expect(
+			readDenyReason(
+				'gh issue close 12 --reason "not planned"',
+				parent([{ number: 14, state: "OPEN" }]),
+			),
+		).toContain("#14 (child 14)");
+	});
+
+	it("names a child in another repository by its repo", () => {
+		expect(
+			readDenyReason(
+				`gh issue close 12 ${Passing}`,
+				parent([
+					{
+						number: 7,
+						state: "OPEN",
+						url: "https://github.com/acme/other/issues/7",
+					},
+				]),
+			),
+		).toContain("acme/other#7 (child 7)");
+	});
+
+	it("allows the close once every child is closed", () => {
+		expect(
+			verdict(
+				`gh issue close 12 ${Passing}`,
+				parent([
+					{ number: 13, state: "CLOSED" },
+					{ number: 14, state: "CLOSED" },
+				]),
+			),
+		).toBe("allow");
+		expect(faults).toEqual([]);
+	});
+
+	it("records a not-planned close it could not read, and lets it through", () => {
+		expect(
+			verdict('gh issue close 12 --reason "not planned"', { fail: true }),
+		).toBe("allow");
+		expect(faults).toEqual(["could not read #12 — open sub-issues unchecked"]);
+	});
+});
+
 /*
  * #553: a close naming another repo was judged by THIS repo's issue of the
  * same number — a deny or an allow on the wrong issue.
@@ -1091,7 +1170,7 @@ describe("the repo a close names", () => {
 			calls = [];
 			expect(verdict(command), command).toBe("deny");
 			expect(calls, command).toEqual([
-				"issue view 12 --json comments,title,parent,labels,body --repo owner/other",
+				"issue view 12 --json comments,title,parent,labels,body,subIssues,url --repo owner/other",
 			]);
 		}
 	});
@@ -1099,7 +1178,7 @@ describe("the repo a close names", () => {
 	it("names no repo where the close names none", () => {
 		expect(verdict("gh issue close 12")).toBe("deny");
 		expect(calls).toEqual([
-			"issue view 12 --json comments,title,parent,labels,body",
+			"issue view 12 --json comments,title,parent,labels,body,subIssues,url",
 		]);
 	});
 
@@ -1113,8 +1192,8 @@ describe("the repo a close names", () => {
 			),
 		).toBe("allow");
 		expect(calls).toEqual([
-			"issue view 12 --json comments,title,parent,labels,body --repo owner/other",
-			"issue view 12 --json comments,title,parent,labels,body",
+			"issue view 12 --json comments,title,parent,labels,body,subIssues,url --repo owner/other",
+			"issue view 12 --json comments,title,parent,labels,body,subIssues,url",
 		]);
 	});
 

@@ -57,6 +57,7 @@ const read = (name: string) => fs.readFileSync(state(name), "utf8");
 /**
  * `gh` over one ticket (#534) and its parent (#528), kept in files under
  * STUB_DIR. Levers: `close-fails` and `edit-fails` make that write fail;
+ * `subs.json` is the ticket's sub-issues, none where it is absent;
  * `clobber` is written over the map right after the first map edit — a rival
  * writing from a base older than the neighbour's line.
  */
@@ -78,6 +79,8 @@ if (a[0] === "api") {
 		// Every cited number open, unless the gql-closed file lists it (#984).
 		serveAnswer(answerGraphql(a, fs.existsSync(f("gql-closed")) ? fs.readFileSync(f("gql-closed"), "utf8").split(" ") : [], []));
 	if (a[1] === "repos/acme/widgets/issues/534") say(issue());
+	if (a[1] === "repos/acme/widgets/issues/534/sub_issues")
+		say([fs.existsSync(f("subs.json")) ? JSON.parse(fs.readFileSync(f("subs.json"), "utf8")) : []]);
 	if (a[1] === "repos/acme/widgets/issues/534/comments") say([comments()]);
 	if (a[1] === "repos/acme/widgets/issues/528" && fs.existsSync(f("parent.json")))
 		say({ ...JSON.parse(fs.readFileSync(f("parent.json"), "utf8")), body: fs.readFileSync(f("map.md"), "utf8") });
@@ -182,6 +185,50 @@ const untouched = () => {
 	expect(claimed()).toBe(true);
 	expect(readActs()).toEqual([]);
 };
+
+describe("the open sub-issues it refuses to strand (#3637)", () => {
+	const child = (number: number, kidState: string, repo = "acme/widgets") => ({
+		number,
+		state: kidState,
+		title: `child ${number}`,
+		html_url: `https://github.com/${repo}/issues/${number}`,
+	});
+
+	it.each([
+		["completed", COMMENT, DECISION],
+		[
+			"not planned",
+			"Dropped.\n\n**Bound:** read the ticket.\n",
+			[...DECISION, "--reason", "not planned"],
+		],
+	])(
+		"refuses a %s close with an open child, naming it and the remedy",
+		(_, comment, args) => {
+			setUp();
+			put("subs.json", [
+				child(535, "closed"),
+				child(536, "open"),
+				child(9, "open", "acme/other"),
+			]);
+			const r = run(args, comment);
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain("#534 has 2 open sub-issues");
+			expect(r.stderr).toContain("#536 (child 536)");
+			expect(r.stderr).toContain("acme/other#9 (child 9)");
+			expect(r.stderr).not.toContain("#535");
+			expect(r.stderr).toContain("takes:children");
+			untouched();
+		},
+	);
+
+	it("closes once every child is closed", () => {
+		setUp();
+		put("subs.json", [child(535, "closed"), child(536, "closed")]);
+		const r = run(DECISION);
+		expect(r.status).toBe(0);
+		expect(JSON.parse(read("issue.json")).state).toBe("closed");
+	});
+});
 
 describe("a successful resolve", () => {
 	it("comments, closes, releases the claim and appends one map line, leaving the assignee", () => {
