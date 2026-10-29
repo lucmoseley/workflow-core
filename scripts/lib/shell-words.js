@@ -183,31 +183,6 @@ function commandName(w) {
 /** @param {string} w a command word, read */
 const isGhCommand = (w) => commandName(w) === "gh";
 
-/** Each interpreter's flags whose next word is code, not a script (#3456). */
-const INLINE_CODE = {
-	node: new Set(["-e", "--eval", "-p", "--print"]),
-	bash: new Set(["-c"]),
-	sh: new Set(["-c"]),
-};
-
-/**
- * Whether an interpreter's words run inline code: one of its inline-code
- * flags before the first word that is no flag. False for an interpreter not
- * in INLINE_CODE.
- * @param {string} interpreter
- * @param {string[]} words the words after the interpreter
- */
-function isInlineCode(interpreter, words) {
-	const flags =
-		INLINE_CODE[/** @type {keyof typeof INLINE_CODE} */ (interpreter)];
-	if (!flags) return false;
-	for (const w of words) {
-		if (!w.startsWith("-")) return false;
-		if (flags.has(beforeFirst(w, "="))) return true;
-	}
-	return false;
-}
-
 /**
  * The flags each wrapper takes its value from as a SEPARATE word, so the sweep
  * in unwrap steps two (mantahostels#2552).
@@ -944,7 +919,6 @@ module.exports = {
 	carriesVar,
 	commandName,
 	isGhCommand,
-	isInlineCode,
 	isGitValueOption,
 	gitWords,
 	ghWords,

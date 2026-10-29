@@ -262,7 +262,6 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"report-programs": ["scripts/check-report-programs.js"],
 	primitives: ["scripts/check-primitives.js"],
 	"test-spawn": ["scripts/check-test-spawn.js"],
-	"precommit-exit": ["scripts/check-precommit-exit.js"],
 	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	"context-budget": ["scripts/check-context-budget.js"],
 	"injector-margin": ["scripts/check-injector-margin.sh"],
@@ -430,8 +429,8 @@ describe("the commit-gate refusal table against the gates .husky/pre-commit runs
 		const added = PRE_COMMIT.replace(
 			"\nnode ",
 			[
-				'\nnode scripts/check-new-gate.js || exit "$?"',
-				'node scripts/check-vendored-skills.js --other-mode || exit "$?"',
+				"\nnode scripts/check-new-gate.js || exit 1",
+				"node scripts/check-vendored-skills.js --other-mode || exit 1",
 				"staged_gate new-label live status '' 'true' \"\"",
 				'echo >&2 "pre-commit: the new gate refused this commit."',
 				"node ",
