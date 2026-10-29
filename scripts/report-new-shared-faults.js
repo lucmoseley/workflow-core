@@ -168,8 +168,8 @@ const COSTS = {
 		full: "node scripts/check-cli-args.js",
 	},
 	"test-spawn": {
-		why: "every test's spawn of node on the program under test, direction-gated in .husky/pre-commit (#3458)",
-		cost: "refuses every other session's commit that edits that spawn's line until it runs in-process or states why",
+		why: "every test's spawn of node on the program under test, judged whole-tree in .husky/pre-commit (#3458)",
+		cost: "refuses every other session's commit staging a test until that spawn runs in-process or states why",
 		full: "node scripts/check-test-spawn.js",
 	},
 	registrations: {
