@@ -53,7 +53,8 @@
  * move; and each symlink met must be theirs or root's. Node holds no
  * directory by descriptor across a write (no `openat`), so the chain is
  * checked instead. Group write passes where the group is this user's private
- * one, as under `pam_umask usergroups` (#3676): their primary gid, under the
+ * one (`lib/private-group.js` judges it from the databases read here), as
+ * under `pam_umask usergroups` (#3676): their primary gid, under the
  * one `/etc/passwd` row naming them, listing no other member in `/etc/group`
  * and the primary gid of no other user, as Debian's OpenSSH StrictModes allows;
  * and where the directory carries no ACL, whose named entries the group bits do
@@ -140,7 +141,9 @@ const { asidePid, writeFileAtomic } = require("./lib/atomic-write.js");
 const { NotALock, pidLock } = require("./lib/pid-lock.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { HELP, parseOrCode } = require("./lib/cli-args");
+const { isPrivateGroup, USERDB_DIRS } = require("./lib/private-group.js");
 const { readFdAll } = require("./lib/read-fd.js");
+const { writeFd } = require("./lib/write-fd.js");
 const { maskTokens } = require("./lib/token-shapes.js");
 const {
 	assignsAcrossBreak,
@@ -174,7 +177,7 @@ const USAGE = `usage: write-secret.js <NAME>
  * @returns {number}
  */
 function refuse(file, why, status) {
-	process.stderr.write(`write-secret: refused, ${file} untouched — ${why}\n`);
+	writeFd(2, `write-secret: refused, ${file} untouched — ${why}\n`);
 	return status;
 }
 
@@ -246,7 +249,7 @@ function swappableAbove(dir) {
 	const checked = new Set();
 	for (const hop of walkHops(path.resolve(dir))) {
 		if ("why" in hop) return hop;
-		if (hop.linkStat && !ownedSafely(hop.linkStat))
+		if (hop.linkStat && !isOwnedByMeOrRoot(hop.linkStat))
 			return {
 				dir: hop.dir,
 				why: "is a symlink owned by neither you nor root",
@@ -348,7 +351,7 @@ function swappableWhy(d) {
 		return `could not be checked (${caught(e).code ?? "error"})`;
 	}
 	if (!st.isDirectory()) return null;
-	if (!ownedSafely(st)) return "is owned by neither you nor root";
+	if (!isOwnedByMeOrRoot(st)) return "is owned by neither you nor root";
 	/* Before the sticky pass, which such a server need not honour; nor need
 	 * NFS, where an NFSv4 ACL can grant DELETE_CHILD over it (RFC 8881
 	 * §6.2.1.3.2). */
@@ -359,7 +362,8 @@ function swappableWhy(d) {
 	if ((st.mode & 0o1000) !== 0) return null;
 	const othersWrite =
 		(st.mode & 0o002) !== 0 ||
-		((st.mode & 0o020) !== 0 && !(isPrivateGroup(st.gid) && !hasAcl(d)));
+		((st.mode & 0o020) !== 0 &&
+			!(isPrivateGroup(st.gid, os.userInfo(), readUserDb()) && !hasAcl(d)));
 	if (othersWrite) return "is writable by others and not sticky";
 	return null;
 }
@@ -515,92 +519,29 @@ function isAclUnmarked(d) {
 }
 
 /**
- * Whether `gid` is this user's private group: their primary gid in
- * `/etc/passwd`, under the one row naming them, with no other member in
- * `/etc/group` and no other user's primary gid (#3676, #3715). Only those two
- * files are read, so a host whose user and group lookups can reach another
- * source is judged to have none private.
- * @param {number} gid
- * @returns {boolean}
+ * The user databases private-group.js judges, read from their fixed paths.
+ * @returns {import("./lib/private-group.js").UserDb}
  */
-function isPrivateGroup(gid) {
-	const me = os.userInfo();
-	if (gid !== me.gid || !filesAloneNameUsers()) return false;
-	const groups = readDbRows("/etc/group", [2]);
-	const users = readDbRows("/etc/passwd", [2, 3]);
-	if (groups === null || users === null) return false;
-	const rows = groups.filter((f) => Number(f[2]) === gid);
-	const mine = users.filter((f) => Number(f[2]) === me.uid);
-	const named = users.filter((f) => f[0] === me.username);
-	return (
-		named.length === 1 &&
-		Number(named[0]?.[2]) === me.uid &&
-		rows.length > 0 &&
-		rows.every(
-			([, password, , members]) =>
-				NO_GROUP_PASSWORD.has(password ?? "") &&
-				members?.split(",").every((m) => m === "" || m === me.username),
-		) &&
-		mine.length > 0 &&
-		mine.every((f) => Number(f[3]) === gid) &&
-		users.every((f) => Number(f[3]) !== gid || Number(f[2]) === me.uid)
-	);
+function readUserDb() {
+	return {
+		passwd: readText("/etc/passwd"),
+		group: readText("/etc/group"),
+		nsswitch: readText("/etc/nsswitch.conf"),
+		userdb: Object.fromEntries(USERDB_DIRS.map((d) => [d, readDirEntries(d)])),
+	};
 }
 
-/** A group password field through which no one can `newgrp` in. */
-const NO_GROUP_PASSWORD = new Set(["", "x", "!", "*"]);
-
-/** systemd's userdb services that name no user beyond NSS's own files. */
-const QUIET_USERDB = new Set([
-	"io.systemd.DropIn",
-	"io.systemd.DynamicUser",
-	"io.systemd.Multiplexer",
-	"io.systemd.NameServiceSwitch",
-]);
-
 /**
- * Whether `/etc/passwd` and `/etc/group` are the only sources of users and
- * group members: `nsswitch.conf` names only `files` for each, and for
- * `initgroups` where it is named, or `systemd` too where no userdb record or
- * service beyond dynamic users exists. Any line glibc could read as one of
- * those databases must be in the plain `<db>: <sources>` form, so no looser
- * spelling outranks the one read. A directory service (LDAP, sssd), NIS or a
- * systemd-homed user could hold a member these files never show, and
- * `initgroups` sets each login's groups apart from `group` (#3676, #3715).
- * @returns {boolean}
+ * @param {string} file
+ * @returns {string | null} null where it cannot be read
  */
-function filesAloneNameUsers() {
-	const conf = readLines("/etc/nsswitch.conf");
-	if (conf === null) return false;
-	const dbs = "passwd|group|initgroups";
-	const lines = conf
-		.map((l) => l.replace(/#.*/, ""))
-		.filter((l) =>
-			new RegExp(`^(${dbs})$`).test(l.trim().split(/[\s:]/)[0] ?? ""),
-		);
-	const parsed = lines.map((l) => new RegExp(`^(${dbs}):([^\\\\]*)$`).exec(l));
-	const sources = parsed.flatMap((m) => m?.[2]?.trim().split(/\s+/) ?? []);
-	const named = new Set(parsed.map((m) => m?.[1]));
-	if (
-		parsed.some((m) => m === null) ||
-		!named.has("passwd") ||
-		!named.has("group") ||
-		sources.some((x) => x !== "files" && x !== "systemd")
-	)
-		return false;
-	if (!sources.includes("systemd")) return true;
-	const dropIns = [
-		"/etc/userdb",
-		"/run/userdb",
-		"/run/host/userdb",
-		"/usr/local/lib/userdb",
-		"/usr/lib/userdb",
-	];
-	return (
-		dropIns.every((d) => dirEntries(d)?.length === 0) &&
-		dirEntries("/run/systemd/userdb")?.every((e) => QUIET_USERDB.has(e)) ===
-			true
-	);
+function readText(file) {
+	try {
+		return fs.readFileSync(file, "utf8");
+	} catch {
+		/* Unreadable: no group is judged private, so the parent refuses. */
+		return null;
+	}
 }
 
 /**
@@ -609,7 +550,7 @@ function filesAloneNameUsers() {
  * @param {string} d
  * @returns {string[] | null}
  */
-function dirEntries(d) {
+function readDirEntries(d) {
 	try {
 		return fs.readdirSync(d);
 	} catch (e) {
@@ -618,44 +559,8 @@ function dirEntries(d) {
 	}
 }
 
-/**
- * The colon-split rows of an `/etc` database, or null where it cannot be read,
- * holds a NIS compat row (`+`, `-`), whose entries live elsewhere, a row led
- * by whitespace, whose name glibc reads with it stripped (#3715), or a row
- * whose field at an index in `ids` is not a plain decimal id, which glibc's
- * parse could read as another.
- * @param {string} file
- * @param {number[]} ids
- * @returns {string[][] | null}
- */
-function readDbRows(file, ids) {
-	const lines = readLines(file);
-	if (lines === null || lines.some((l) => /^[+\-\s]/.test(l))) return null;
-	const rows = lines.map((l) => l.split(":"));
-	const plain = rows.every((f) => ids.every((i) => /^\d+$/.test(f[i] ?? "")));
-	return plain ? rows : null;
-}
-
-/**
- * The lines of `file` less blank ones and those glibc skips as comments, or
- * null where it cannot be read.
- * @param {string} file
- * @returns {string[] | null}
- */
-function readLines(file) {
-	try {
-		return fs
-			.readFileSync(file, "utf8")
-			.split("\n")
-			.filter((l) => l.trim() !== "" && !/^\s*#/.test(l));
-	} catch {
-		/* Unreadable: no group is judged private, so the parent refuses. */
-		return null;
-	}
-}
-
 /** @param {fs.Stats} st */
-function ownedSafely(st) {
+function isOwnedByMeOrRoot(st) {
 	return st.uid === process.getuid?.() || st.uid === 0;
 }
 
@@ -776,7 +681,8 @@ function sweepAsides(file) {
 		/* No directory yet, so no aside, and the write creates it; or a file
 		 * where it goes, and the write refuses. */
 		if (caught(e).code === "ENOENT" || caught(e).code === "ENOTDIR") return;
-		process.stderr.write(
+		writeFd(
+			2,
 			`write-secret: warning — ${dir} could not be listed (${caught(e).code ?? "error"}), so ${LEFT} may remain there. Look for ${path.basename(file)}.*.tmp by hand.\n`,
 		);
 		return;
@@ -787,16 +693,18 @@ function sweepAsides(file) {
 		const aside = path.join(dir, name);
 		if (!fs.lstatSync(aside, { throwIfNoEntry: false })?.isFile()) continue;
 		if (pidAlive(pid)) {
-			process.stderr.write(
+			writeFd(
+				2,
 				`write-secret: left ${aside}, a copy of the secrets file: its pid ${pid} is running, so it may be a run still writing. Delete it once no write-secret runs.\n`,
 			);
 			continue;
 		}
 		try {
 			fs.rmSync(aside);
-			process.stderr.write(`write-secret: removed ${aside}, ${LEFT}.\n`);
+			writeFd(2, `write-secret: removed ${aside}, ${LEFT}.\n`);
 		} catch (e) {
-			process.stderr.write(
+			writeFd(
+				2,
 				`write-secret: warning — ${aside}, ${LEFT}, could not be removed (${caught(e).code ?? "error"}). Delete it by hand.\n`,
 			);
 		}
@@ -948,7 +856,8 @@ function storeValue(file, name, value) {
 				if (why !== null) throw new LooseAside(why);
 			},
 		});
-		process.stdout.write(
+		writeFd(
+			1,
 			`write-secret: ${next.replaced ? "replaced" : "added"} ${name} in ${file}\n`,
 		);
 	} catch (e) {
@@ -992,7 +901,7 @@ function main(argv) {
 			"it takes one argument, a shell variable name (letters, digits and underscores, not starting with a digit), and shows none it is given, as one may be the secret. The value is asked for afterwards, never given on the command line.",
 			2,
 		);
-		process.stderr.write(`${USAGE}\n`);
+		writeFd(2, `${USAGE}\n`);
 		return status;
 	}
 	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
@@ -1027,14 +936,14 @@ function main(argv) {
 		}
 		return upsertEnv(file, name, piped, false);
 	}
-	process.stderr.write(`Value for ${name} (typing hidden, Enter to finish): `);
+	writeFd(2, `Value for ${name} (typing hidden, Enter to finish): `);
 	return readHidden(process.stdin).then(
 		(raw) => {
-			process.stderr.write("\n");
+			writeFd(2, "\n");
 			return upsertEnv(file, name, raw, true);
 		},
 		() => {
-			process.stderr.write("\n");
+			writeFd(2, "\n");
 			return refuse(file, "interrupted. Re-run to enter the value.", 2);
 		},
 	);
@@ -1051,7 +960,7 @@ if (require.main === module) {
 				process.exitCode = s;
 			},
 			(e) => {
-				process.stderr.write(`write-secret: ${e}\n`);
+				writeFd(2, `write-secret: ${e}\n`);
 				process.exitCode = 1;
 			},
 		);
