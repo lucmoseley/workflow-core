@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { shellQuote, writeFaultyGit } from "./git-fault-fake";
+import { writeFaultyGit } from "./git-fault-fake";
 import {
 	defineTemplate,
 	mkDirOutsideRepo,
@@ -21,6 +21,7 @@ import {
 	trioTemplate,
 } from "./git-fixture";
 import { patchFiles, treeClassifier } from "./git-tree.js";
+import { shellQuote } from "./sh-quote.js";
 
 const template = defineTemplate(trioTemplate());
 

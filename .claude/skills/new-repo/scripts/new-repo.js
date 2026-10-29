@@ -96,7 +96,7 @@ const {
 const {
 	UNFILLED_DESTINATION,
 } = require("../../../../scripts/lib/issue-gate.js");
-const { shellQuote } = require("../../../../scripts/lib/dispatch-rewrite.js");
+const { shellQuote } = require("../../../../scripts/lib/sh-quote.js");
 const { newestTag } = require("../../../../scripts/lib/release-tags.js");
 const {
 	TRACKER_SHAPE,

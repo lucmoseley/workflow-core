@@ -23,7 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
-import { shellQuote, writeFaultyGit } from "./lib/git-fault-fake";
+import { writeFaultyGit } from "./lib/git-fault-fake";
 import { initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
 import {
@@ -34,6 +34,7 @@ import {
 } from "./lib/precommit-gate-testkit";
 import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const SCRIPT = path.resolve(__dirname, "commit-paths.js");
 

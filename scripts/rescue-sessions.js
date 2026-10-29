@@ -2020,7 +2020,7 @@ async function stopGhost(io, who, { dir, rec, row }, ceiling) {
  * @param {string} kept  where that record was copied
  */
 function buildRedispatchText(rec, kept) {
-	const { shellQuote } = require("./lib/dispatch-rewrite");
+	const { shellQuote } = require("./lib/sh-quote.js");
 	const {
 		DEFAULT_WINDOW_HOURS,
 		commandOf,
