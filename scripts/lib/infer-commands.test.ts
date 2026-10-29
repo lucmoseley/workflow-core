@@ -87,6 +87,14 @@ describe("runsLintStaged", () => {
 	])("does not count %j", (command) => {
 		expect(runsLintStaged(dir, command)).toBe(false);
 	});
+
+	it("does not count a command running no script, reading no unparsable package.json (#3546)", () => {
+		fs.writeFileSync(path.join(dir, "package.json"), "{ not json");
+		expect(runsLintStaged(dir, "eslint .")).toBe(false);
+		expect(() => runsLintStaged(dir, "npm run pre")).toThrow(
+			"package.json does not parse",
+		);
+	});
 });
 
 describe("classifyCheckStaged", () => {
@@ -598,7 +606,7 @@ describe("classifyCheckStaged", () => {
 			'biome check --staged <<< "a b"',
 			`'${BIOME_STAGED_COMMAND}' for the Biome part`,
 		],
-	])("refuses %j, read through the tokeniser (#3445)", (script, shape) => {
+	])("refuses %j, its refusal naming %j (#3445)", (script, shape) => {
 		const c = classify(script);
 		expect(c.kind === "refused" && c.refusal).toContain(shape);
 	});

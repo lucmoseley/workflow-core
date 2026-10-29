@@ -375,6 +375,22 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 		expect(ran("check_staged"), out).toBe(true);
 	});
 
+	it("runs eslint $(…) over an unparsable package.json, which it never reads (#3546)", () => {
+		const { root, run: commit } = biomeFixture(
+			"eslint $(git diff --cached --name-only)",
+		);
+		fs.writeFileSync(path.join(root, "package.json"), "{ not json");
+		/* The plugin's scripts sit under a package.json of their own, as in the
+		 * plugin cache; node refuses to start one under an unparsable one. */
+		fs.writeFileSync(path.join(root, "scripts/package.json"), "{}");
+		fs.writeFileSync(path.join(root, "bin/eslint"), MARKER_STUB, {
+			mode: 0o755,
+		});
+		const { code, out, ran } = commit();
+		expect(code, out).toBe(0);
+		expect(ran("check_staged"), out).toBe(true);
+	});
+
 	it("runs an npm run whose script runs no biome check --staged", () => {
 		const { run: commit } = biomeFixture("npm run check:staged", {
 			scripts: { "check:staged": "touch RAN-check_staged" },
@@ -386,20 +402,37 @@ describe("the pre-commit check_staged gate on a biome check --staged command (#2
 });
 
 describe("infer-commands.js check-staged", () => {
-	it("exits 1 on a package.json that does not parse, naming the hook's way out rather than init's --command (#3192)", () => {
-		const { root } = biomeFixture("npm run check:staged");
+	/* `echo npm run x` runs no script, yet holds a run, so the way out must
+	 * name the text it reads, not what the command runs (#3546). */
+	it.each(["npm run check:staged", "echo npm run x"])(
+		"exits 1 on %j over a package.json that does not parse, naming the hook's way out rather than init's --command (#3192)",
+		(command) => {
+			const { root } = biomeFixture(command);
+			fs.writeFileSync(path.join(root, "package.json"), "{ not json");
+			const r = runInProcess(INFER, ["check-staged", command], {
+				cwd: root,
+			});
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				`pre-commit: check_staged "${command}" (.claude/workflow-core.json) cannot be checked: package.json does not parse (`,
+			);
+			expect(r.stderr).toContain(
+				`Fix it, or declare check_staged in .claude/workflow-core.json as 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js <flags>' or another command holding no npm, pnpm, yarn or bun run and no biome check, which the hook checks without reading package.json.`,
+			);
+			expect(r.stderr).not.toContain("--command");
+		},
+	);
+
+	it("passes a command that runs no script, reading no unparsable package.json (#3546)", () => {
+		const { root } = biomeFixture("eslint $(git diff --cached --name-only)");
 		fs.writeFileSync(path.join(root, "package.json"), "{ not json");
-		const r = runInProcess(INFER, ["check-staged", "npm run check:staged"], {
-			cwd: root,
-		});
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(
-			'pre-commit: check_staged "npm run check:staged" (.claude/workflow-core.json) cannot be checked: package.json does not parse (',
+		const r = runInProcess(
+			INFER,
+			["check-staged", "eslint $(git diff --cached --name-only)"],
+			{ cwd: root },
 		);
-		expect(r.stderr).toContain(
-			`Fix it, or declare check_staged in .claude/workflow-core.json as 'node "$WFC_PLUGIN_ROOT"/scripts/biome-staged.js <flags>' or another command whose text contains neither 'run' nor 'biome'`,
-		);
-		expect(r.stderr).not.toContain("--command");
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
 	});
 
 	it("exits 2 on a missing command, printing the usage", () => {
