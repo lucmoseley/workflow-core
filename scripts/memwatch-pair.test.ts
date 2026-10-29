@@ -160,10 +160,8 @@ describe.skipIf(!present)("memwatch incident block", () => {
 	}
 
 	/*
-	 * Rotation survives a NUL byte in the log (#2669). A torn write left NULs in
-	 * ~/memwatch.log, after which GNU grep reads the file as binary: `-c` still
-	 * counted every header, but `-n` stopped listing them at the NUL, so the trim
-	 * kept the whole log.
+	 * Rotation survives a NUL byte in the log (#2669): GNU grep reads such a
+	 * file as binary, and `-n` stops listing headers at the NUL.
 	 */
 	it("trims to ROTATE_KEEP blocks when the log holds NUL bytes", () => {
 		const blocks = twelve();
@@ -419,10 +417,10 @@ describe.skipIf(!hasProc || !present)("memwatch CPU trigger", () => {
 	});
 
 	/*
-	 * The bug this pins (mantahostels#1953): reading the sampler through
-	 * `read < <(cpu_pct)` ran it in a subshell, so its PREV_* delta state was discarded every iteration and
-	 * no CPU figure was ever available — the trigger could not fire at all. A
-	 * single block proves the state survived.
+	 * The sampler's PREV_* delta state must survive each iteration, or no CPU
+	 * figure exists and the trigger never fires (mantahostels#1953) — so never
+	 * read it through `read < <(cpu_pct)`, whose subshell discards that state. A single
+	 * block proves it did.
 	 */
 	it("carries its delta state across iterations", async () => {
 		const { out } = await runLoop(
