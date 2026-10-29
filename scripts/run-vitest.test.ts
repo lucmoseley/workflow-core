@@ -3536,7 +3536,10 @@ describe("the launch record each route hands the child (#1596)", () => {
 		});
 	});
 
-	it("hands the child the default's narrowing with the test:changed flag cleared", async () => {
+	/* Its failures are classed against its base, so on the `HEAD` fallback,
+	 * which holds the session's own commits, it records none, as a full run
+	 * does (#3660). No pushed ref here, so the default fell back to `HEAD`. */
+	it("hands the child the default's narrowing with the test:changed flag cleared and no base on the HEAD fallback (#3660)", async () => {
 		const env = await childEnv([SHARED_FLAG], {
 			execFn: fakeExec({ diff: ["a.test.ts"], list: ["a.test.ts"] }),
 			loadEdges: () => ({}),
@@ -3554,7 +3557,26 @@ describe("the launch record each route hands the child (#1596)", () => {
 			resolvedFiles: 1,
 			wholeSlot: false,
 			changedPaths: ["a.test.ts"],
-			base: expect.any(String),
+			base: null,
+		});
+	});
+
+	it("hands the child the default's merge-base where one resolved (#3660)", async () => {
+		const env = await childEnv([SHARED_FLAG], {
+			execFn: fakeExec({
+				hasOrigin: true,
+				mergeBase: "d".repeat(40),
+				diff: ["a.test.ts"],
+				list: ["a.test.ts"],
+			}),
+			loadEdges: () => ({}),
+			renderEdges: () => ({}),
+			sessionId: "",
+		});
+		expect(readLaunch(env)).toMatchObject({
+			viaChanged: false,
+			full: null,
+			base: "d".repeat(40),
 		});
 	});
 
@@ -7247,6 +7269,42 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			expect(run.args).toContain("mine.test.js");
 			expect(run.args).not.toContain("theirs.test.js");
 		});
+
+		/* The shared route's cases are the launch record's own (#3660). */
+		it.each([
+			["the overlay", [], 0],
+			["the worktree an --isolated overlay fell back to", ["--isolated"], 1],
+		])(
+			"records the merge-base on %s, and no base on the HEAD fallback (#3660)",
+			async (_route, argv, failedAdds) => {
+				const based = async (pushed: boolean) => {
+					const dir = repoWithDeps();
+					const r = ownRange(dir);
+					if (!pushed)
+						gitIn(dir, ["update-ref", "-d", "refs/remotes/origin/main"]);
+					let adds = 0;
+					const run = await runSeeing(dir, argv, {
+						sessionId: "me",
+						ledger: ledgerOf([]),
+						commitLedger: commitLedgerOf({ me: [r.mine] }),
+						execFn: (file: string, args: string[], opts: { cwd: string }) => {
+							if (
+								args[0] === "worktree" &&
+								args[1] === "add" &&
+								adds++ < failedAdds
+							)
+								throw new Error("worktree add failed");
+							return execFn(file, args, opts);
+						},
+					});
+					expect(run.code).toBe(0);
+					return { base: r.base, recorded: readLaunch(run.env).base };
+				};
+				const merged = await based(true);
+				expect(merged.recorded).toBe(merged.base);
+				expect((await based(false)).recorded).toBeNull();
+			},
+		);
 	});
 
 	describe("what the refusal says, by how many files it names", () => {
