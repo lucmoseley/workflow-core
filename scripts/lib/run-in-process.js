@@ -856,15 +856,22 @@ function runInProcess(scriptPath, args = [], options = {}) {
  * the script's synchronous top level.
  *
  * THE GUARD RUNS DIFFERENTLY HERE, DELIBERATELY, ON THE SHAPE THIS FUNCTION
- * REQUIRES — `pick-next.js`'s, and NOT every async CLI in this repo:
- * `wayfinder-frontier.js` calls `main(argv)` unconditionally,
- * with no `require.main` guard and no export, which is dangerous here — see
- * the pre-load check below. The shape this function needs is:
+ * REQUIRES. A script that calls its `main` unconditionally at load, with no
+ * `require.main` guard, is dangerous here — see the pre-load check below.
+ * The shape this function needs is:
  *
  *     module.exports = { ..., main };
  *     if (require.main === module) {
- *       main().catch((e) => { console.error(...); process.exit(1); });
+ *       main(process.argv.slice(2)).then(
+ *         (code) => { process.exitCode = code; },
+ *         (e) => { console.error(...); process.exitCode = 1; },
+ *       );
  *     }
+ *
+ * This function stands in for that tail: it calls `main` with the argv
+ * beyond the script name, and a number `main` resolves to is the status,
+ * ahead of `process.exitCode` (#3485). A tail that ignores a returned number
+ * would read wrong here.
  *
  * `runInProcess` sets `process.mainModule = entry` BEFORE `entry.load`, so
  * that guard is true and the auto-invoked `main()` is what runs. This
@@ -907,7 +914,7 @@ function runInProcess(scriptPath, args = [], options = {}) {
  * A script with no exported `main` is a harness misuse, not a script failure,
  * so it throws past this function's own error handling rather than being
  * reported as the script's exit status. Where the script carries no
- * `require.main` guard at all — `wayfinder-frontier.js`'s shape — that check
+ * `require.main` guard at all, that check
  * comes too late: `entry.load` would already have run the script's
  * unconditional top-level call for real, unawaited, before this function ever
  * looks for an export. So the source is checked for the substring
@@ -958,10 +965,12 @@ async function runInProcessAsync(scriptPath, args = [], options = {}) {
 
 		process.mainModule = call.entry;
 		try {
-			const pending = main();
+			const pending = main(args);
 			call.resources.flags.inSync = false;
-			await pending;
-			call.state.status = exitCodeOf(process.exitCode);
+			const returned = await pending;
+			call.state.status = exitCodeOf(
+				typeof returned === "number" ? returned : process.exitCode,
+			);
 		} catch (e) {
 			recordEscape(call, e);
 		}

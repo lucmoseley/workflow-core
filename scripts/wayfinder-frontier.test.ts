@@ -6,9 +6,6 @@
  *
  * Run as a program — the frontier query is a shell step in a hash-locked
  * skill, so stdout shape and exit code are the whole interface.
- * spawn-kept: an async entry runInProcessAsync cannot load —
- * wayfinder-frontier.js calls its main() at load, with no require.main guard
- * and no exported main.
  * Loosen a case and `/wayfinder` offers a held issue as free to start, or a
  * finished session's leftover assignee hides work from it for good.
  */
@@ -26,7 +23,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { GH_NOT_FOUND, subIssuesAnswer } from "./lib/gh-fake";
 import { page, printed, type RouteAnswer, stubGhRoutes } from "./lib/gh-stub";
-import { runInProcess } from "./lib/run-in-process.js";
+import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 
 const FRONTIER = path.join(__dirname, "wayfinder-frontier.js");
 // `--map` refuses where it cannot confirm the claim store shares the caller's
@@ -62,8 +59,7 @@ function claimBy(sessionId: string, issue: string) {
 
 /** Run the reader as `alice`, who is the live caller in every case below. */
 const asAlice = (args: string[] = [], cwd = sb.repo) =>
-	spawnSync(process.execPath, [FRONTIER, ...args], {
-		encoding: "utf8",
+	runInProcessAsync(FRONTIER, args, {
 		cwd,
 		env: {
 			...process.env,
@@ -102,8 +98,7 @@ const ghCalls = () =>
 
 /** Run `--map <n>` as `alice`, against the stub gh just written. */
 const mapAsAlice = (n: number, gh: string, args: string[] = []) =>
-	spawnSync(process.execPath, [FRONTIER, "--map", String(n), ...args], {
-		encoding: "utf8",
+	runInProcessAsync(FRONTIER, ["--map", String(n), ...args], {
 		cwd: sb.repo,
 		env: {
 			...process.env,
@@ -135,70 +130,70 @@ function mapWith(map: number, children: [number, string][]) {
 }
 
 describe("wayfinder-frontier — the issues the frontier query may drop (mantahostels#702)", () => {
-	it("names an issue a live session holds a claim on", () => {
+	it("names an issue a live session holds a claim on", async () => {
 		claimBy("alice", "702");
 		fakeClaude(["alice"]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^#702\talice\tsince /m);
 	});
 
-	it("omits the claim of a session the oracle does not list, so that issue reaches the frontier", () => {
+	it("omits the claim of a session the oracle does not list, so that issue reaches the frontier", async () => {
 		claimBy("bob", "633");
 		fakeClaude(["alice"]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("No issues are claimed by a live session.\n");
 	});
 
-	it("omits the claim of a session the oracle lists as stopped (#619)", () => {
+	it("omits the claim of a session the oracle lists as stopped (#619)", async () => {
 		claimBy("bob", "633");
 		fakeClaude([
 			"alice",
 			{ sessionId: "bob", kind: "background", state: "stopped" },
 		]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("No issues are claimed by a live session.\n");
 	});
 
-	it("drops only the dead session's claim, keeping the live one beside it", () => {
+	it("drops only the dead session's claim, keeping the live one beside it", async () => {
 		claimBy("alice", "702");
 		claimBy("bob", "633");
 		fakeClaude(["alice"]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.stdout).toMatch(/#702\talice/);
 		// A bare /633/ also matches the live claim's timestamp when its
 		// millisecond field is 633 (mantahostels#3053).
 		expect(r.stdout).not.toMatch(/#633\tbob/);
 	});
 
-	it("keeps every claim when the oracle cannot be read, and says so", () => {
+	it("keeps every claim when the oracle cannot be read, and says so", async () => {
 		claimBy("bob", "633");
 		fakeClaude([], 1);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^#633\tbob\tsince /m);
 		expect(r.stderr).toMatch(/agents --json/);
 		expect(r.stderr).toMatch(/may in fact be free/);
 	});
 
-	it("keeps every claim when the oracle omits the calling session (mantahostels#437)", () => {
+	it("keeps every claim when the oracle omits the calling session (mantahostels#437)", async () => {
 		claimBy("bob", "633");
 		// A listing missing its own caller is not a listing of what is live, so
 		// nothing may be narrowed on it.
 		fakeClaude(["carol"]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.stdout).toMatch(/^#633\tbob\tsince /m);
 		expect(r.stderr).toMatch(/every claim below stands/);
 	});
 
-	it("never reports an empty exclusion set for a store it could not read (mantahostels#174)", () => {
+	it("never reports an empty exclusion set for a store it could not read (mantahostels#174)", async () => {
 		if (AS_ROOT) return;
 		fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
 		fs.chmodSync(store.paths.issueClaimsDir(), 0o000);
 		try {
-			const r = asAlice();
+			const r = await asAlice();
 			expect(r.status).toBe(1);
 			expect(r.stderr).toMatch(/unknown — not nothing/);
 			expect(r.stdout).not.toMatch(/No issues are claimed/);
@@ -207,69 +202,69 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 		}
 	});
 
-	it("says plainly that nothing is claimed when nothing is", () => {
+	it("says plainly that nothing is claimed when nothing is", async () => {
 		fakeClaude(["alice"]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("No issues are claimed by a live session.\n");
 	});
 
-	it("refuses rather than offering a short frontier on a corrupt claim record (mantahostels#1186)", () => {
+	it("refuses rather than offering a short frontier on a corrupt claim record (mantahostels#1186)", async () => {
 		claimBy("bob", "633");
 		fs.writeFileSync(
 			path.join(store.paths.issueClaimsDir(), "bogus.json"),
 			"not json",
 		);
 		fakeClaude(["alice", "bob"]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toMatch(/could not be read and .* dropped/);
 		expect(r.stdout).toBe("");
 	});
 
-	it("orders the live claims by issue number", () => {
+	it("orders the live claims by issue number", async () => {
 		claimBy("alice", "702");
 		claimBy("carol", "97");
 		claimBy("dave", "645");
 		fakeClaude(["alice", "carol", "dave"]);
-		const numbers = asAlice()
-			.stdout.trim()
+		const numbers = (await asAlice()).stdout
+			.trim()
 			.split("\n")
 			.map((l) => Number(l.split("\t")[0].slice(1)));
 		expect(numbers).toEqual([97, 645, 702]);
 	});
 
-	it("keeps every claim when the oracle lists nobody at all", () => {
+	it("keeps every claim when the oracle lists nobody at all", async () => {
 		claimBy("bob", "633");
 		fakeClaude([]);
-		const r = asAlice();
+		const r = await asAlice();
 		expect(r.stdout).toMatch(/^#633\tbob\tsince /m);
 		expect(r.stderr).toMatch(/every claim below stands/);
 	});
 
 	describe("--numbers, the form the frontier query's shell step consumes", () => {
-		it("prints bare issue numbers, one per line, and nothing else", () => {
+		it("prints bare issue numbers, one per line, and nothing else", async () => {
 			claimBy("alice", "702");
 			claimBy("carol", "97");
 			fakeClaude(["alice", "carol"]);
-			const r = asAlice(["--numbers"]);
+			const r = await asAlice(["--numbers"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("97\n702\n");
 		});
 
-		it("prints nothing at all when nothing is claimed", () => {
+		it("prints nothing at all when nothing is claimed", async () => {
 			fakeClaude(["alice"]);
-			const r = asAlice(["--numbers"]);
+			const r = await asAlice(["--numbers"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("");
 		});
 
-		it("still exits non-zero on an unreadable store, printing no numbers", () => {
+		it("still exits non-zero on an unreadable store, printing no numbers", async () => {
 			if (AS_ROOT) return;
 			fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
 			fs.chmodSync(store.paths.issueClaimsDir(), 0o000);
 			try {
-				const r = asAlice(["--numbers"]);
+				const r = await asAlice(["--numbers"]);
 				expect(r.status).toBe(1);
 				expect(r.stdout).toBe("");
 			} finally {
@@ -278,25 +273,25 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 		});
 	});
 
-	it("announces a claim store belonging to a different tree (mantahostels#703's shape)", () => {
+	it("announces a claim store belonging to a different tree (mantahostels#703's shape)", async () => {
 		// A run from a worktree resolves its store cleanly to the WRONG directory,
 		// so an empty frontier there is indistinguishable from a clear one.
 		const other = path.join(sb.dir, "elsewhere");
 		fs.mkdirSync(other, { recursive: true });
 		spawnSync("git", ["init", "-q"], { cwd: other });
 		fakeClaude(["alice"]);
-		const r = asAlice([], other);
+		const r = await asAlice([], other);
 		expect(r.stderr).toMatch(/not the tree you are in/);
 		expect(r.stderr).toMatch(/not that nothing is claimed/);
 	});
 
-	it("writes no claim of its own, and disturbs none that exist", () => {
+	it("writes no claim of its own, and disturbs none that exist", async () => {
 		// An empty store would pass on absence alone, so the assertion is made
 		// against a store that already holds a claim.
 		claimBy("bob", "610");
 		const before = JSON.stringify(store.listIssueClaims());
 		fakeClaude(["alice"]);
-		asAlice();
+		await asAlice();
 		expect(JSON.stringify(store.listIssueClaims())).toBe(before);
 		expect(
 			store
@@ -305,40 +300,40 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 		).not.toContain("alice");
 	});
 
-	it("refuses an unrecognised argument rather than printing the human format", () => {
+	it("refuses an unrecognised argument rather than printing the human format", async () => {
 		// Ignoring it feeds the human format to a shell step reading bare
 		// numbers, which then drops issues named by no one.
 		fakeClaude(["alice"]);
 		claimBy("bob", "610");
-		const r = asAlice(["--number"]);
+		const r = await asAlice(["--number"]);
 		expect(r.status).toBe(2);
 		expect(r.stdout).toBe("");
 		expect(r.stderr).toMatch(/unknown flag: --number/);
 		expect(r.stderr).toMatch(/usage:/);
 	});
 
-	it("prints each claimed issue once, however many sessions claimed it", () => {
+	it("prints each claimed issue once, however many sessions claimed it", async () => {
 		// The store keeps one record per session per issue, so a shell step would
 		// otherwise see the same number twice.
 		claimBy("bob", "610");
 		claimBy("carol", "610");
 		fakeClaude(["alice", "bob", "carol"]);
-		expect(asAlice(["--numbers"]).stdout).toBe("610\n");
+		expect((await asAlice(["--numbers"])).stdout).toBe("610\n");
 	});
 
-	it("--numbers keeps every claim when the oracle cannot be read, and says so", () => {
+	it("--numbers keeps every claim when the oracle cannot be read, and says so", async () => {
 		// The warning is stderr-only, so a caller discarding stderr sees a plain
 		// list.
 		claimBy("bob", "610");
 		fakeClaude([], 1);
-		const r = asAlice(["--numbers"]);
+		const r = await asAlice(["--numbers"]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("610\n");
 		expect(r.stderr).toMatch(/every claim below stands/);
 	});
 
 	describe("--map, the whole frontier query in one call (mantahostels#1145)", () => {
-		it("prints the map's open, unblocked, unclaimed children in map order", () => {
+		it("prints the map's open, unblocked, unclaimed children in map order", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh(
 				mapWith(1080, [
@@ -347,14 +342,14 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 					[1086, "open"],
 				]),
 			);
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(0);
 			// Map order, NOT numeric order — the sub-issues endpoint's own order
 			// is the order the map lists them.
 			expect(r.stdout).toBe("1145\n1114\n1086\n");
 		});
 
-		it("drops a child that already has an open blocker", () => {
+		it("drops a child that already has an open blocker", async () => {
 			// Break `state === "open"` in blockedChildren, or the
 			// `!blocked.blocked.has(n)` in frontier, and mantahostels#1114 appears here.
 			fakeClaude(["alice"]);
@@ -363,21 +358,21 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 				[1114, "open"],
 			]);
 			routes[blockedBy(1114)] = [{ number: 1086, state: "open" }];
-			const r = mapAsAlice(1080, fakeGh(routes));
+			const r = await mapAsAlice(1080, fakeGh(routes));
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("1145\n");
 		});
 
-		it("keeps a child whose every blocker is closed", () => {
+		it("keeps a child whose every blocker is closed", async () => {
 			// A blocked_by list is not itself proof of blockage, so a filter
 			// reading length rather than state would drop this one.
 			fakeClaude(["alice"]);
 			const routes = mapWith(1080, [[1145, "open"]]);
 			routes[blockedBy(1145)] = [{ number: 1086, state: "closed" }];
-			expect(mapAsAlice(1080, fakeGh(routes)).stdout).toBe("1145\n");
+			expect((await mapAsAlice(1080, fakeGh(routes))).stdout).toBe("1145\n");
 		});
 
-		it("drops a closed child", () => {
+		it("drops a closed child", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh(
 				mapWith(1080, [
@@ -385,10 +380,10 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 					[1114, "closed"],
 				]),
 			);
-			expect(mapAsAlice(1080, gh).stdout).toBe("1145\n");
+			expect((await mapAsAlice(1080, gh)).stdout).toBe("1145\n");
 		});
 
-		it("drops a child a live session holds a claim on", () => {
+		it("drops a child a live session holds a claim on", async () => {
 			claimBy("bob", "1145");
 			fakeClaude(["alice", "bob"]);
 			const gh = fakeGh(
@@ -397,24 +392,24 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 					[1114, "open"],
 				]),
 			);
-			expect(mapAsAlice(1080, gh).stdout).toBe("1114\n");
+			expect((await mapAsAlice(1080, gh)).stdout).toBe("1114\n");
 		});
 
-		it("keeps a child assigned by a session that has finished (mantahostels#633)", () => {
+		it("keeps a child assigned by a session that has finished (mantahostels#633)", async () => {
 			claimBy("bob", "1145");
 			fakeClaude(["alice"]); // bob is gone
 			const gh = fakeGh(mapWith(1080, [[1145, "open"]]));
-			expect(mapAsAlice(1080, gh).stdout).toBe("1145\n");
+			expect((await mapAsAlice(1080, gh)).stdout).toBe("1145\n");
 		});
 
-		it("drops a kind:spec child and an unlabelled one, naming each on stderr (#579)", () => {
+		it("drops a kind:spec child and an unlabelled one, naming each on stderr (#579)", async () => {
 			fakeClaude(["alice"]);
 			const routes = mapWith(1080, [[1145, "open"]]);
 			(routes[subIssues(1080)] as unknown[]).push(
 				{ number: 412, state: "open", labels: [{ name: "kind:spec" }] },
 				{ number: 483, state: "open", labels: [{ name: "takes:children" }] },
 			);
-			const r = mapAsAlice(1080, fakeGh(routes));
+			const r = await mapAsAlice(1080, fakeGh(routes));
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("1145\n");
 			expect(r.stderr).toMatch(/#412 is a kind:spec/);
@@ -425,7 +420,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			expect(calls).not.toMatch(/i412: issue/);
 		});
 
-		it("names a kind:brief child as an expected drop, not a missing label (#579)", () => {
+		it("names a kind:brief child as an expected drop, not a missing label (#579)", async () => {
 			fakeClaude(["alice"]);
 			const routes = mapWith(1080, [[1145, "open"]]);
 			(routes[subIssues(1080)] as unknown[]).push({
@@ -433,33 +428,33 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 				state: "open",
 				labels: [{ name: "kind:brief" }, { name: "takes:children" }],
 			});
-			const r = mapAsAlice(1080, fakeGh(routes));
+			const r = await mapAsAlice(1080, fakeGh(routes));
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("1145\n");
 			expect(r.stderr).toMatch(/#509 is a kind:brief/);
 			expect(r.stderr).not.toMatch(/#509 carries no/);
 		});
 
-		it("is silent at exit 0 when every open child is untyped, bar the drop notes (#579)", () => {
+		it("is silent at exit 0 when every open child is untyped, bar the drop notes (#579)", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh({
 				[subIssues(1080)]: [
 					{ number: 412, state: "open", labels: [{ name: "kind:spec" }] },
 				],
 			});
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toMatch(/#412 is a kind:spec/);
 		});
 
-		it("keeps a nested map, whose wayfinder:map is a wayfinder label (#579)", () => {
+		it("keeps a nested map, whose wayfinder:map is a wayfinder label (#579)", async () => {
 			fakeClaude(["alice"]);
 			const routes = mapWith(1080, [[1145, "open"]]);
 			(routes[subIssues(1080)] as { labels: unknown }[])[0].labels = [
 				{ name: "wayfinder:map" },
 			];
-			const r = mapAsAlice(1080, fakeGh(routes));
+			const r = await mapAsAlice(1080, fakeGh(routes));
 			expect(r.stdout).toBe("1145\n");
 			expect(r.stderr).toBe("");
 		});
@@ -482,25 +477,25 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			return routes;
 		};
 
-		it("drops a child gated until a date still ahead", () => {
+		it("drops a child gated until a date still ahead", async () => {
 			// Break the `until?.active` limb in gatedChildren and mantahostels#1145 returns.
 			fakeClaude(["alice"]);
 			const gh = fakeGh(
 				gatedMap("**Gated until:** 2099-01-01 — the corpus is not deep enough"),
 			);
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("1114\n");
 		});
 
-		it("keeps a child whose gate date has passed", () => {
+		it("keeps a child whose gate date has passed", async () => {
 			// A gate rots by being reached; reading the marker's presence rather
 			// than its date would hide this one for good.
 			fakeClaude(["alice"]);
 			const gh = fakeGh(
 				gatedMap("**Gated until:** 2020-01-01 — long since due"),
 			);
-			expect(mapAsAlice(1080, gh).stdout).toBe("1145\n1114\n");
+			expect((await mapAsAlice(1080, gh)).stdout).toBe("1145\n1114\n");
 		});
 
 		/*
@@ -510,60 +505,60 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 		 * for different reasons: an active `until` gates on its own limb, a
 		 * lapsed one falls through to the condition.
 		 */
-		it("gates nothing when a body carries both markers, and says so (mantahostels#1333)", () => {
+		it("gates nothing when a body carries both markers, and says so (mantahostels#1333)", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh(
 				gatedMap(
 					"**Gated until:** 2099-01-01 — not yet\n\n**Gated on:** the desk replies — abandon if: we ship without them",
 				),
 			);
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("1145\n1114\n");
 			expect(r.stderr).toMatch(/#1145 carries both/);
 		});
 
-		it("gates nothing on both markers even where the date has lapsed (mantahostels#1333)", () => {
+		it("gates nothing on both markers even where the date has lapsed (mantahostels#1333)", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh(
 				gatedMap(
 					"**Gated until:** 2020-01-01 — long past\n\n**Gated on:** the desk replies — abandon if: we ship without them",
 				),
 			);
-			expect(mapAsAlice(1080, gh).stdout).toBe("1145\n1114\n");
+			expect((await mapAsAlice(1080, gh)).stdout).toBe("1145\n1114\n");
 		});
 
-		it("drops a child held by a condition gate (mantahostels#2706)", () => {
+		it("drops a child held by a condition gate (mantahostels#2706)", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh(
 				gatedMap(
 					"**Gated on:** the affiliate desk replies — abandon if: we ship without them",
 				),
 			);
-			expect(mapAsAlice(1080, gh).stdout).toBe("1114\n");
+			expect((await mapAsAlice(1080, gh)).stdout).toBe("1114\n");
 		});
 
-		it("keeps a child whose gate will not parse, and says which (mantahostels#633's shape)", () => {
+		it("keeps a child whose gate will not parse, and says which (mantahostels#633's shape)", async () => {
 			// FAIL OPEN. Failing closed would hide the issue on a typo with
 			// nothing saying so — the hide-forever defect this command exists to
 			// prevent. Invert the `malformed` test and mantahostels#1145 vanishes silently.
 			fakeClaude(["alice"]);
 			const gh = fakeGh(gatedMap("**Gated until:** next Tuesday sometime"));
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("1145\n1114\n");
 			expect(r.stderr).toMatch(/#1145 carries a \*\*Gated until:\*\* line/);
 		});
 
-		it("keeps a child whose condition gate will not parse, and says which (mantahostels#2706)", () => {
+		it("keeps a child whose condition gate will not parse, and says which (mantahostels#2706)", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh(gatedMap("**Gated on:** the desk replies"));
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.stdout).toBe("1145\n1114\n");
 			expect(r.stderr).toMatch(/#1145 carries a \*\*Gated on:\*\* line/);
 		});
 
-		it("spends no extra API call on the gate filter", () => {
+		it("spends no extra API call on the gate filter", async () => {
 			// The body arrives with the sub-issues call, so the gate filter needs
 			// no call of its own. A per-child body fetch would show up as a
 			// `repos/{owner}/{repo}/issues/1145` line in the log.
@@ -571,23 +566,23 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			const gh = fakeGh(
 				gatedMap("**Gated until:** 2099-01-01 — the corpus is not deep enough"),
 			);
-			mapAsAlice(1080, gh);
+			await mapAsAlice(1080, gh);
 			const paths = ghCalls().map((l) => l.split(" ")[1]);
 			expect(paths.sort()).toEqual([subIssues(1080), "graphql"].sort());
 		});
 
-		it("refuses, printing nothing, when the map's children cannot be read", () => {
+		it("refuses, printing nothing, when the map's children cannot be read", async () => {
 			// A 404 on the map would otherwise read as "the frontier is clear".
 			fakeClaude(["alice"]);
 			const gh = fakeGh({}, [subIssues(1080)]);
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toMatch(/could not read the children of #1080/);
 			expect(r.stderr).toMatch(/unknown — not empty/);
 		});
 
-		it("refuses the whole run when one child's blockers cannot be read, naming the child and printing no frontier", () => {
+		it("refuses the whole run when one child's blockers cannot be read, naming the child and printing no frontier", async () => {
 			// Not "skip that child": a frontier missing an entry is what the
 			// caller then works from, and it looks exactly like a correct one.
 			fakeClaude(["alice"]);
@@ -595,13 +590,13 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 				[1145, "open"],
 				[1114, "open"],
 			]);
-			const r = mapAsAlice(1080, fakeGh(routes, [blockedBy(1114)]));
+			const r = await mapAsAlice(1080, fakeGh(routes, [blockedBy(1114)]));
 			expect(r.status).toBe(1);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toMatch(/could not read the blockers of #1114/);
 		});
 
-		it("never reads the stale issue_dependencies_summary field", () => {
+		it("never reads the stale issue_dependencies_summary field", async () => {
 			// The documented trap: the summary is documented as the open-blocker
 			// count and is stale in practice.
 			fakeClaude(["alice"]);
@@ -616,17 +611,17 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 				],
 				[blockedBy(1145)]: [],
 			};
-			expect(mapAsAlice(1080, fakeGh(routes)).stdout).toBe("1145\n");
+			expect((await mapAsAlice(1080, fakeGh(routes))).stdout).toBe("1145\n");
 		});
 
-		it("refuses an unreadable claim store rather than offering a frontier", () => {
+		it("refuses an unreadable claim store rather than offering a frontier", async () => {
 			if (AS_ROOT) return;
 			fakeClaude(["alice"]);
 			const gh = fakeGh(mapWith(1080, [[1145, "open"]]));
 			fs.mkdirSync(store.paths.issueClaimsDir(), { recursive: true });
 			fs.chmodSync(store.paths.issueClaimsDir(), 0o000);
 			try {
-				const r = mapAsAlice(1080, gh);
+				const r = await mapAsAlice(1080, gh);
 				expect(r.status).toBe(1);
 				expect(r.stdout).toBe("");
 				expect(r.stderr).toMatch(/unknown — not nothing/);
@@ -635,7 +630,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			}
 		});
 
-		it("warns on stderr that every claim stands, and still answers, when the liveness oracle cannot be read", () => {
+		it("warns on stderr that every claim stands, and still answers, when the liveness oracle cannot be read", async () => {
 			// Claims stand on doubt, so the frontier printed may be SHORTER than
 			// the truth — never longer. The warning is the only signal of that,
 			// and it is on stderr, which the call form must not redirect away.
@@ -647,13 +642,13 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 					[1114, "open"],
 				]),
 			);
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("1114\n");
 			expect(r.stderr).toMatch(/every claim below stands/);
 		});
 
-		it("refuses outright when the claim store belongs to another tree, printing no frontier", () => {
+		it("refuses outright when the claim store belongs to another tree, printing no frontier", async () => {
 			// `--numbers` only warns here, because its empty claim set drops
 			// nothing. A frontier built on that same empty set is LONGER than the
 			// truth — it offers work another live session is already doing — so
@@ -669,8 +664,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 					[1114, "open"],
 				]),
 			);
-			const r = spawnSync(process.execPath, [FRONTIER, "--map", "1080"], {
-				encoding: "utf8",
+			const r = await runInProcessAsync(FRONTIER, ["--map", "1080"], {
 				cwd: other,
 				env: {
 					...process.env,
@@ -685,7 +679,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			expect(r.stderr).toMatch(/Refusing/);
 		});
 
-		it("refuses when it cannot even tell whose tree the claim store is, saying it is not in a git repository and printing no frontier", () => {
+		it("refuses when it cannot even tell whose tree the claim store is, saying it is not in a git repository and printing no frontier", async () => {
 			// A doubt case must not read as "same tree, nothing claimed", which
 			// is the same empty claim set as a wrong store and lengthens the
 			// frontier the same way. Run from outside any repository.
@@ -694,8 +688,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			const nowhere = path.join(sb.dir, "not-a-repo");
 			fs.mkdirSync(nowhere, { recursive: true });
 			const gh = fakeGh(mapWith(1080, [[1145, "open"]]));
-			const r = spawnSync(process.execPath, [FRONTIER, "--map", "1080"], {
-				encoding: "utf8",
+			const r = await runInProcessAsync(FRONTIER, ["--map", "1080"], {
 				cwd: nowhere,
 				env: {
 					...process.env,
@@ -709,7 +702,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			expect(r.stderr).toMatch(/not in a git repository/);
 		});
 
-		it("refuses a blocker read that exits 0 having printed nothing, and prints no frontier", () => {
+		it("refuses a blocker read that exits 0 having printed nothing, and prints no frontier", async () => {
 			// An empty stdout parses as `[]`, which on this endpoint is
 			// indistinguishable from "no blockers" — a blocked issue reported free.
 			fakeClaude(["alice"]);
@@ -717,59 +710,57 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 				graphql: printed(),
 				"*": printed(),
 			}).gh;
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toMatch(/printed nothing/);
 		});
 
-		it("refuses a map with no sub-issues at all rather than calling it clear", () => {
+		it("refuses a map with no sub-issues at all rather than calling it clear", async () => {
 			// The commonest way to get the wrong answer here is the wrong number:
 			// a non-map issue has no children, and an empty stdout at exit 0 reads
 			// as "nothing is left to do on this map".
 			fakeClaude(["alice"]);
 			const gh = fakeGh({ [subIssues(1080)]: [] });
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toMatch(/no sub-issues at all/);
 		});
 
-		it("is silent at exit 0 for a map whose children exist but are all closed", () => {
+		it("is silent at exit 0 for a map whose children exist but are all closed", async () => {
 			// This map really is worked out.
 			fakeClaude(["alice"]);
 			const gh = fakeGh(mapWith(1080, [[1145, "closed"]]));
-			const r = mapAsAlice(1080, gh);
+			const r = await mapAsAlice(1080, gh);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toBe("");
 		});
 
-		it("writes nothing to the tracker — every call it makes is a GET", () => {
+		it("writes nothing to the tracker — every call it makes is a GET", async () => {
 			// Reading the canonical blocked_by list back in the same chained
 			// command as a POST returns an empty array.
 			fakeClaude(["alice"]);
 			const gh = fakeGh(mapWith(1080, [[1145, "open"]]));
-			mapAsAlice(1080, gh);
+			await mapAsAlice(1080, gh);
 			const calls = ghCalls();
 			expect(calls.join("\n")).not.toMatch(/--method|-X POST/);
 			expect(calls.join("\n")).not.toMatch(/mutation/);
 			expect(calls.length).toBe(2); // the map's children, then the batched blockers read
 		});
 
-		it("refuses --map with no number, and --map with a non-number", () => {
+		it("refuses --map with no number, and --map with a non-number", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh({});
-			const bare = spawnSync(process.execPath, [FRONTIER, "--map"], {
-				encoding: "utf8",
+			const bare = await runInProcessAsync(FRONTIER, ["--map"], {
 				cwd: sb.repo,
 				env: { ...process.env, WFC_CLAUDE_BIN: oracle(), WFC_GH: gh },
 			});
 			expect(bare.status).toBe(2);
 			expect(bare.stderr).toMatch(/--map needs a value/);
 
-			const junk = spawnSync(process.execPath, [FRONTIER, "--map", "wibble"], {
-				encoding: "utf8",
+			const junk = await runInProcessAsync(FRONTIER, ["--map", "wibble"], {
 				cwd: sb.repo,
 				env: { ...process.env, WFC_CLAUDE_BIN: oracle(), WFC_GH: gh },
 			});
@@ -778,10 +769,10 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 			expect(junk.stderr).toMatch(/wants an issue number, not wibble/);
 		});
 
-		it("refuses --numbers and --map together rather than guessing", () => {
+		it("refuses --numbers and --map together rather than guessing", async () => {
 			fakeClaude(["alice"]);
 			const gh = fakeGh({});
-			const r = mapAsAlice(1080, gh, ["--numbers"]);
+			const r = await mapAsAlice(1080, gh, ["--numbers"]);
 			expect(r.status).toBe(2);
 			expect(r.stdout).toBe("");
 			expect(r.stderr).toMatch(/alternatives, not a pair/);

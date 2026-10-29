@@ -18,6 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { writePsStub } from "./lib/ps-stub";
+import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const { main } = require("./queue-run.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
@@ -274,13 +275,9 @@ describe("queue-run.js", () => {
 		expect(f.readLog()).toEqual([]);
 	});
 
-	it("as a program, exits 2 on a refusal and names the queue to use", () => {
+	it("as a program, exits 2 on a refusal and names the queue to use", async () => {
 		const { dir } = fixture();
-		/* spawn-kept: an async entry runInProcessAsync cannot load — main
-		 * returns its exit code for the require.main tail to set, rather than
-		 * setting process.exitCode, and takes argv with no default. */
-		const r = spawnSync("node", [PROGRAM, "--", "npm", "run", "test"], {
-			encoding: "utf8",
+		const r = await runInProcessAsync(PROGRAM, ["--", "npm", "run", "test"], {
 			env: {
 				...process.env,
 				CLAUDE_PROJECT_DIR: dir,

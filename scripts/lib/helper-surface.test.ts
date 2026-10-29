@@ -23,7 +23,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { isShipped } from "./plugin-tree.js";
-import { runInProcess } from "./run-in-process.js";
+import { runInProcess, runInProcessAsync } from "./run-in-process.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const ROOT = path.join(__dirname, "..", "..");
@@ -213,17 +213,18 @@ describe("the helper-surface commands", () => {
 	});
 
 	/*
-	 * In a scratch repo with a stand-in vitest (`WFC_RUN_VITEST_BIN`, as
-	 * run-vitest.test.ts's real-subprocess case uses), which records the argv
+	 * In a scratch repo with a stand-in vitest, which records the argv
 	 * it was handed and exits with the code it is told to. Bare argv as well
 	 * as the listed flag: an adopter's `test` script passes nothing. Bare argv
 	 * is held to its exit code alone: with no read-edge manifest here it
 	 * escalates to an isolated whole-suite run, which needs a commit to build
 	 * its worktree at, and which argv it hands vitest is the runner's to change.
+	 * In-process, `main` alone: the entry point's refusals and load hold stay
+	 * out, as lib/cpu-sample.js asks of any test.
 	 */
 	it(
 		"scripts/run-vitest.js keeps --changed and its exit codes",
-		() => {
+		async () => {
 			const cmd = manifest.commands["scripts/run-vitest.js"];
 			expect(cmd.positionals).toEqual([]);
 			expect(cmd.flags.map((f) => f.name)).toEqual(["--changed"]);
@@ -244,24 +245,20 @@ describe("the helper-surface commands", () => {
 					"init",
 				);
 				const seen = path.join(dir, "argv.json");
-				const bin = path.join(dir, "fake-vitest.js");
+				/* Where run-vitest.js looks for vitest in the tree it runs in. */
+				const bin = path.join(dir, "node_modules", ".bin", "vitest");
+				fs.mkdirSync(path.dirname(bin), { recursive: true });
 				fs.writeFileSync(
 					bin,
 					`#!/usr/bin/env node\nrequire("node:fs").writeFileSync(${JSON.stringify(seen)}, JSON.stringify(process.argv.slice(2)));\nprocess.exitCode = Number(process.env.FAKE_CODE);\n`,
 					{ mode: 0o755 },
 				);
 				const codes = exitCodes();
-				const launch = (argv: string[], code: number) => {
-					/* spawn-kept: an async entry runInProcessAsync cannot load —
-					 * run-vitest.js's `main(argv, deps)` wants arguments that
-					 * seam's bare `main()` does not pass, and its guard runs the
-					 * refusals and the load hold first. */
-					const r = spawnSync(process.execPath, [RUN_VITEST, ...argv], {
+				const launch = async (argv: string[], code: number) => {
+					const r = await runInProcessAsync(RUN_VITEST, argv, {
 						cwd: dir,
-						encoding: "utf8",
 						env: {
 							...process.env,
-							WFC_RUN_VITEST_BIN: bin,
 							CLAUDE_PROJECT_DIR: dir,
 							FAKE_CODE: String(code),
 						},
@@ -271,8 +268,8 @@ describe("the helper-surface commands", () => {
 					return JSON.parse(fs.readFileSync(seen, "utf8")) as string[];
 				};
 				for (const code of [0, 1]) {
-					launch([], code);
-					expect(launch(["--changed"], code)).toContain("--changed");
+					await launch([], code);
+					expect(await launch(["--changed"], code)).toContain("--changed");
 				}
 				codes.expectListed(cmd);
 			} finally {

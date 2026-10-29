@@ -405,12 +405,21 @@ describe("runInProcessAsync", () => {
 	});
 
 	it("refuses a script with no require.main guard, before it can run for real", async () => {
-		// wayfinder-frontier.js's shape: an unconditional top-level call would
-		// otherwise fire, unawaited, the moment entry.load reaches it — before
+		// An unconditional top-level call would otherwise fire, unawaited, the moment entry.load reaches it — before
 		// this seam ever looks for an export.
 		await expect(runInProcessAsync(UNGUARDED_PROBE)).rejects.toThrow(
 			/carries no "require.main" guard/,
 		);
+	});
+
+	it("passes main the argv beyond the script name, as a guard tail does", async () => {
+		const r = await runInProcessAsync(ASYNC_PROBE, ["main-argv", "x"]);
+		expect(r.stdout).toBe('["main-argv","x"]\n');
+	});
+
+	it("takes a number main resolves to as the exit status, as a guard tail does", async () => {
+		const r = await runInProcessAsync(ASYNC_PROBE, ["returns", "4"]);
+		expect(r.status).toBe(4);
 	});
 
 	it("keeps output in order across an await inside main", async () => {

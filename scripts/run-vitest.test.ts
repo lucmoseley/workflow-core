@@ -250,13 +250,13 @@ function fakeFs(base: typeof fs = fs) {
 			written[file] = [];
 			const emitter = new EventEmitter() as EventEmitter & {
 				write: (chunk: Buffer | string) => boolean;
-				end: (cb?: () => void) => void;
+				end: () => void;
 			};
 			emitter.write = (chunk) => {
 				written[file].push(Buffer.from(chunk));
 				return true;
 			};
-			emitter.end = (cb) => cb?.();
+			emitter.end = () => emitter.emit("close");
 			streams.push(emitter);
 			return emitter;
 		},

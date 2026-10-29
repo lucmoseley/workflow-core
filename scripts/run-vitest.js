@@ -886,8 +886,12 @@ function runOnce(
 				 * for ever (#3140). */
 				resolve(killedFor || capped || code === null || code < 0 ? 1 : code);
 			};
-			if (stream) stream.end(finish);
-			else finish();
+			/* On `close`, not `end`'s callback, which fires at `finish`, before
+			 * the fd is closed: a caller handed the code must find the log shut. */
+			if (stream) {
+				stream.once("close", finish);
+				stream.end();
+			} else finish();
 		};
 		child.on("close", settle);
 	});

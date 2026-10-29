@@ -20,7 +20,7 @@ const [mode, arg] = process.argv.slice(2);
 const say = (/** @type {string} */ text) => fs.writeSync(1, `${text}\n`);
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
-/** @type {Record<string, () => Promise<void>>} */
+/** @type {Record<string, (argv: string[]) => Promise<number | void>>} */
 const modes = {
 	exit: async () => {
 		say("before exit");
@@ -41,6 +41,11 @@ const modes = {
 		require("../check");
 		await tick();
 		throw new Error("probe rejected");
+	},
+	/* The status a tail like queue-run.js's takes from main's resolved value. */
+	returns: async () => Number(arg),
+	"main-argv": async (argv) => {
+		say(JSON.stringify(argv));
 	},
 	"entry-module": async () => {
 		say(String(require.main === module));
@@ -67,10 +72,11 @@ const modes = {
 	},
 };
 
-async function main() {
+/** @param {string[]} argv */
+async function main(argv) {
 	const own = mode === undefined ? undefined : modes[mode];
 	const sharedMode = mode === undefined ? undefined : shared.modes[mode];
-	if (own) return own();
+	if (own) return own(argv);
 	if (!sharedMode) {
 		fs.writeSync(2, `unknown mode: ${mode}\n`);
 		process.exit(2);
@@ -83,8 +89,13 @@ async function main() {
 module.exports = { main };
 
 if (require.main === module) {
-	main().catch((e) => {
-		fs.writeSync(2, `FAILED: ${e?.stack || String(e)}\n`);
-		process.exit(1);
-	});
+	main(process.argv.slice(2)).then(
+		(code) => {
+			if (typeof code === "number") process.exitCode = code;
+		},
+		(e) => {
+			fs.writeSync(2, `FAILED: ${e?.stack || String(e)}\n`);
+			process.exit(1);
+		},
+	);
 }

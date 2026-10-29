@@ -352,6 +352,7 @@ function endResultOf(run) {
 module.exports = {
 	endResultOf,
 	launch,
+	main,
 	readLiveAgents,
 	runOf,
 	stop,

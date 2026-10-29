@@ -12,7 +12,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import { isGroupDead } from "./process-fixture";
-import { runInProcess } from "./run-in-process.js";
+import { runInProcessAsync } from "./run-in-process.js";
 
 const {
 	RUN_BUDGETED,
@@ -86,21 +86,18 @@ describe("inside the budget", () => {
 });
 
 describe("its own failures", () => {
-	it("exits 125 with its prefix where the command would not start", () => {
-		/* spawn-kept: an async entry runInProcessAsync cannot load — no exported
-		 * main, and the exit lands in the child's `error` event, under an armed
-		 * budget timer, after the synchronous entry has returned. */
-		const r = spawnSync(
-			process.execPath,
-			[RUN_BUDGETED, "1000", "1000", "no-such-command-2855"],
-			{ encoding: "utf8" },
-		);
+	it("exits 125 with its prefix where the command would not start", async () => {
+		const r = await runInProcessAsync(RUN_BUDGETED, [
+			"1000",
+			"1000",
+			"no-such-command-2855",
+		]);
 		expect(r.status).toBe(APPARATUS_EXIT);
 		expect(r.stderr).toMatch(new RegExp(`^${APPARATUS_PREFIX}.*ENOENT`));
 	});
 
-	it("exits 125 with its prefix on a usage error", () => {
-		const r = runInProcess(RUN_BUDGETED, ["soon", "1000", "true"]);
+	it("exits 125 with its prefix on a usage error", async () => {
+		const r = await runInProcessAsync(RUN_BUDGETED, ["soon", "1000", "true"]);
 		expect(r.status).toBe(APPARATUS_EXIT);
 		expect(r.stderr.startsWith(APPARATUS_PREFIX)).toBe(true);
 	});

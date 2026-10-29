@@ -12,7 +12,9 @@
  * clean, or a finding exits on the wrong code and a gate passes it.
  *
  * spawn-kept: the import-closure block reads the require cache, which this
- * file's own persist tests fill in-process (#459).
+ * file's own persist tests fill in-process (#459). And `spawnRun`'s async
+ * run() cases: runCheck's `beforeExit` listener, which reports a run() that
+ * never settles, fires only in a process the checker has to itself (#1586).
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -584,8 +586,6 @@ const spawnRun = (
 	args: string[] = [],
 	env: Record<string, string> = {},
 ) => {
-	/* spawn-kept: an async entry runInProcessAsync cannot load — the fixture's
-	 * run() is async and it exports no `main` (#1586). */
 	const r = spawnSync("node", [file, ...args], {
 		cwd: dir,
 		encoding: "utf8",
