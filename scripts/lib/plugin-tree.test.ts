@@ -1239,6 +1239,18 @@ describe("a mod's TypeScript in a fixture (#933)", () => {
 		).toThrow(`${modDir}/types/index.d.ts opens a brace`);
 	});
 
+	it("refuses, rather than rescanning forever, a block ending in a comment with no newline", () => {
+		expect(() =>
+			render(
+				{
+					[`${modDir}/types/index.d.ts`]:
+						'declare module "claude-code" {\n\tinterface PluginState {\n\t\t"mod-x": { r: number }; // open',
+				},
+				hostTypes,
+			),
+		).toThrow(`${modDir}/types/index.d.ts opens a brace`);
+	});
+
 	it("reads a member key past a comment or string holding a brace or slashes", () => {
 		const modY = ".claude/skills/mod-y";
 		const contractOf = (mod: string, members: string) =>
