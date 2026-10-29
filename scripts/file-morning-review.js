@@ -33,6 +33,11 @@
  * each incident with its ticket — read once from this machine's journal
  * (lib/earlyoom-kills.js), not per repo.
  *
+ * PRIMITIVES (#3465): each repo's check-primitives.js count line, and every
+ * commit on its HEAD touching either standards file, with the file's text
+ * either side, which
+ * lib/morning-review.js diffs into row changes.
+ *
  * CONCURRENCY (#3321): the 24-hour and 7-day readouts of lib/concurrency.js,
  * the core `npm run status` renders from, over the refill loop's tick record
  * and memwatch's minute record.
@@ -50,11 +55,18 @@
  * (lib/refill-tick.js).
  */
 
+const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { answerReversals } = require("./answer-review-reversals.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { parseErrLine, ghApiSlurp, ghIssueListAll } = require("./lib/gh.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { parseEnvelope } = require("./lib/check-envelope.js");
+const { execGit } = require("./lib/git.js");
+const { requiredGroup } = require("./lib/regex-group.js");
+const { STANDARDS_DOCS } = require("./lib/primitives-table.js");
+const { coreRoot } = require("./lib/script-path.js");
 const { fileThrough } = require("./lib/file-through.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { readLedger } = require("./lib/delegated-decision.js");
@@ -73,6 +85,8 @@ const { REVIEW_LABEL, readReviewIssues } = require("./lib/review-issues.js");
 const USAGE = "usage: node scripts/file-morning-review.js [--dry-run]";
 const DAY_MS = 24 * 60 * 60 * 1000;
 const URGENT = "urgent";
+/* Untraced: the count line runs every enforcing check over the whole tree. */
+const COUNT_TIMEOUT_MS = 5 * 60 * 1000;
 
 const io = scriptIo("file-morning-review");
 
@@ -102,6 +116,7 @@ function readRepo(root, since) {
 		const stalls = readStalls(repo);
 		const urgent = readUrgent(root, repo);
 		const parked = readParked(repo);
+		const primitives = readPrimitives(root, since);
 		return {
 			reading: {
 				repo,
@@ -110,6 +125,7 @@ function readRepo(root, since) {
 				stalls: stalls.read,
 				urgent: urgent.read,
 				parked: parked.read,
+				primitives,
 			},
 			unread: [
 				...(torn === 0
@@ -126,6 +142,104 @@ function readRepo(root, since) {
 			unread: [{ repo, why: parseErrLine(e) }],
 		};
 	}
+}
+
+/**
+ * @param {string} root
+ * @param {string} since
+ * @returns {import("./lib/morning-review.js").PrimitivesReading}
+ */
+function readPrimitives(root, since) {
+	return { count: readCountLine(root), history: readTableHistory(root, since) };
+}
+
+/**
+ * @param {string} root
+ * @returns {import("./lib/morning-review.js").PrimitivesReading["count"]}
+ */
+function readCountLine(root) {
+	const r = spawnSync(
+		process.execPath,
+		[
+			path.join(coreRoot(), "scripts", "check-primitives.js"),
+			"--json",
+			"--root",
+			root,
+		],
+		{
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+			timeout: COUNT_TIMEOUT_MS,
+			maxBuffer: CHILD_MAX_BUFFER,
+		},
+	);
+	if (r.error) return { why: `check-primitives.js: ${r.error.message}` };
+	const envelope = parseEnvelope(r.stdout ?? "");
+	if (typeof envelope?.countLine === "string")
+		return { line: envelope.countLine };
+	return {
+		why: `check-primitives.js: ${envelope?.summary ?? `no --json envelope (exit ${r.status})`}`,
+	};
+}
+
+/* A `git log` line: full sha, short sha, commit time, then the parents. */
+const LOG_LINE = /^([0-9a-f]+) ([0-9a-f]+) (\S+) ?([0-9a-f]*)/;
+
+/**
+ * An adopter's history holds no base file, so its base log is empty. A git
+ * failure is the history's `why`, never read as an absent file (base §N5).
+ * @param {string} root
+ * @param {string} since
+ * @returns {import("./lib/morning-review.js").PrimitivesReading["history"]}
+ */
+function readTableHistory(root, since) {
+	/** @param {string[]} args */
+	const git = (args) =>
+		String(
+			execGit(args, {
+				cwd: root,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+			}),
+		);
+	/** The file's text at `rev`, null where the tree there holds none.
+	 * @param {string} rev @param {string} file */
+	const textAt = (rev, file) =>
+		git(["ls-tree", "--name-only", rev, "--", file]).trim() === ""
+			? null
+			: git(["show", `${rev}:${file}`]);
+	/** @type {import("./lib/morning-review.js").TableCommit[]} */
+	const commits = [];
+	try {
+		for (const side of /** @type {const} */ (["base", "local"])) {
+			const file = STANDARDS_DOCS[side];
+			const log = git([
+				"log",
+				"--reverse",
+				"--format=%H %h %cI %P",
+				`--since=${since}`,
+				"HEAD",
+				"--",
+				file,
+			]);
+			for (const line of log.split("\n").filter(Boolean)) {
+				const m = LOG_LINE.exec(line);
+				if (!m) throw new Error(`unreadable log line: ${line}`);
+				const parent = m[4];
+				commits.push({
+					sha: requiredGroup(m, 2, LOG_LINE),
+					at: requiredGroup(m, 3, LOG_LINE),
+					side,
+					before: parent ? textAt(parent, file) : null,
+					after: textAt(requiredGroup(m, 1, LOG_LINE), file),
+				});
+			}
+		}
+	} catch (e) {
+		return { why: `git: ${parseErrLine(e)}` };
+	}
+	return { commits };
 }
 
 /**

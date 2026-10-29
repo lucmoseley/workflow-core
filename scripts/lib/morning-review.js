@@ -10,6 +10,8 @@
  *
  * Entry numbers run 1…n across every repo, so `reverse <n>` names one entry;
  * each line links the decision's own comment, which keys its ledger line.
+ * The primitives-table row changes (#3465) carry on the numbering after the
+ * still-caught decisions.
  */
 
 const { requiredGroup } = require("./regex-group.js");
@@ -21,6 +23,7 @@ const {
 	buildSustainedText,
 } = require("./concurrency.js");
 const { DAY_MS } = require("./retained-jsonl.js");
+const { rowChanges } = require("./primitives-table.js");
 
 const TITLE = /^Morning review — (\d{4}-\d{2}-\d{2})$/;
 /* An `urgent` older than this is listed as stuck: #2693's figure, a guess,
@@ -78,8 +81,18 @@ function parseOneWayDoor(comments) {
  * @typedef {{number: number, title: string} & ({appliedAt: string}
  *   | {appliedAt: null, ageError: string})} ParkedIssue an open issue carrying
  *   `parked`, and when the label was last applied, or why that did not read
+ * @typedef {import("./primitives-table.js").Side} Side
+ * @typedef {{sha: string, at: string, side: Side, before: string | null,
+ *   after: string | null}} TableCommit a commit touching a side's standards
+ *   file, with the file's text either side of it,
+ *   null where absent
+ * @typedef {{count: {line: string} | {why: string},
+ *   history: {commits: TableCommit[]} | {why: string}}} PrimitivesReading
+ *   check-primitives.js's count line, and the commits touching each
+ *   standards file the repo's history holds; or why either did not read
  * @typedef {{repo: string, entries: LedgerLine[], closed: ClosedIssue[],
- *   stalls: OpenIssue[], urgent: UrgentIssue[], parked: ParkedIssue[]}}
+ *   stalls: OpenIssue[], urgent: UrgentIssue[], parked: ParkedIssue[],
+ *   primitives: PrimitivesReading}}
  *   RepoReading the repo's ledger, its closes, its open stall ticket
  *   (lib/stall-ticket.js, #2692), its urgent issues and its parked ones
  * @typedef {{since: string, now: string, previous: number | null,
@@ -225,6 +238,62 @@ function renderConcurrencyLines({ day, week }) {
 }
 
 /**
+ * One primitives entry line, as PRIMITIVE_LINE reads it back.
+ * @param {number} n
+ * @param {string} repo
+ * @param {TableCommit} commit
+ * @param {import("./primitives-table.js").RowChange} c
+ */
+const primitiveLine = (n, repo, { side, sha }, c) =>
+	`${n}. ${repo} — ${side} row ${c.change}${c.cells.length > 0 ? ` (${c.cells.join(", ")})` : ""}: ${quoted(c.primitive)} — job ${quoted(c.job)} — ${sha}`;
+
+/**
+ * @param {string} repo
+ * @param {PrimitivesReading["history"]} history
+ * @param {(at: string) => boolean} inWindow
+ * @param {() => number} next the next entry number free
+ * @returns {string[]}
+ */
+function renderRowChanges(repo, history, inWindow, next) {
+	if ("why" in history)
+		return [`Row changes not read: ${quoted(history.why)}.`];
+	return history.commits
+		.filter((commit) => inWindow(commit.at))
+		.flatMap((commit) => {
+			const read = rowChanges(commit.side, commit.before, commit.after);
+			return "unreadable" in read
+				? [
+						`- ${commit.sha}: the ${commit.side} table did not read — ${quoted(read.unreadable)}`,
+					]
+				: read.changes.map((c) => primitiveLine(next(), repo, commit, c));
+		});
+}
+
+/**
+ * The "Primitives" lines.
+ * @param {RepoReading[]} repos
+ * @param {(at: string) => boolean} inWindow
+ * @param {number} first the first entry number free
+ * @returns {string[]}
+ */
+function renderPrimitivesLines(repos, inWindow, first) {
+	let n = first;
+	return repos.flatMap(({ repo, primitives: { count, history } }) => {
+		const changed = renderRowChanges(repo, history, inWindow, () => n++);
+		return [
+			`### ${repo}`,
+			"",
+			"line" in count
+				? quoted(count.line)
+				: `Count line not read: ${quoted(count.why)}.`,
+			"",
+			...(changed.length === 0 ? ["No row changed in the window."] : changed),
+			"",
+		];
+	});
+}
+
+/**
  * @param {Reading} r
  * @returns {string}
  */
@@ -314,7 +383,7 @@ function renderReview({
 	return [
 		"## Question",
 		"",
-		"Do you want any delegated decision below reversed? Read the still-caught entries and the one-way closes, comment `reverse <entry number>` against any you disagree with, then close this issue.",
+		"Do you want any delegated decision or primitives-table change below reversed? Read the still-caught entries, the primitives-table changes and the one-way closes, comment `reverse <entry number>` against any you disagree with, then close this issue.",
 		"",
 		`Window: ${since} → ${now}${previous === null ? " (no previous review issue: the last 24 hours)" : `, from #${previous}, the previous review issue`}.`,
 		...(failed.length === 0
@@ -350,6 +419,11 @@ function renderReview({
 		"",
 		clearLine,
 		"",
+		"## Primitives",
+		"",
+		"Each repo's count line, then each primitives-table row added, removed or rewritten in the window, with its commit:",
+		"",
+		...renderPrimitivesLines(repos, inWindow, numbered.length + 1),
 		"## Closed tickets",
 		"",
 		`${closedCount} closed in the window across included repos:`,
@@ -377,24 +451,66 @@ function renderReview({
  * A link numbered other than its entry's issue is no line renderReview wrote,
  * so it is no entry. */
 const ENTRY_LINE = /^(\d+)\. (\S+)#(\d+) — .* — \[#\3 comment\]\((\S+)\)$/;
+/* A primitives entry line, as primitiveLine writes it. */
+const PRIMITIVE_LINE =
+	/^(\d+)\. (\S+) — (base|local) row (added|removed|rewritten)(?: \(([^)]*)\))?: `([^`]*)` — job `([^`]*)` — ([0-9a-f]+)$/;
 
 /**
- * The still-caught entries a review body lists, by entry number: the body the
- * founder read, so `reverse <n>` names what he saw even where a ledger has
- * changed since.
- * @param {string} body
- * @returns {Map<number, {repo: string, issue: number, comment: string}>}
+ * @typedef {{kind: "decision", repo: string, issue: number, comment: string}
+ *   | ({kind: "primitive", repo: string, side: Side, sha: string}
+ *   & import("./primitives-table.js").RowChange)} Entry
  */
-function parseEntries(body) {
-	const entries = new Map();
-	for (const line of body.split("\n")) {
-		const m = ENTRY_LINE.exec(line);
-		if (m)
-			entries.set(Number(requiredGroup(m, 1, ENTRY_LINE)), {
+
+/**
+ * One body line as an entry, or null for any other line.
+ * @param {string} line
+ * @returns {[number, Entry] | null}
+ */
+function parseEntryLine(line) {
+	const m = ENTRY_LINE.exec(line);
+	if (m)
+		return [
+			Number(requiredGroup(m, 1, ENTRY_LINE)),
+			{
+				kind: "decision",
 				repo: requiredGroup(m, 2, ENTRY_LINE),
 				issue: Number(requiredGroup(m, 3, ENTRY_LINE)),
 				comment: requiredGroup(m, 4, ENTRY_LINE),
-			});
+			},
+		];
+	const p = PRIMITIVE_LINE.exec(line);
+	if (!p) return null;
+	const cells = p[5];
+	return [
+		Number(requiredGroup(p, 1, PRIMITIVE_LINE)),
+		{
+			kind: "primitive",
+			repo: requiredGroup(p, 2, PRIMITIVE_LINE),
+			side: /** @type {Side} */ (requiredGroup(p, 3, PRIMITIVE_LINE)),
+			change: /** @type {Extract<Entry, {kind: "primitive"}>["change"]} */ (
+				requiredGroup(p, 4, PRIMITIVE_LINE)
+			),
+			cells: cells === undefined ? [] : cells.split(", "),
+			primitive: requiredGroup(p, 6, PRIMITIVE_LINE),
+			job: requiredGroup(p, 7, PRIMITIVE_LINE),
+			sha: requiredGroup(p, 8, PRIMITIVE_LINE),
+		},
+	];
+}
+
+/**
+ * The entries a review body lists, by entry number: the body the founder
+ * read, so `reverse <n>` names what he saw even where a ledger or a table has
+ * changed since.
+ * @param {string} body
+ * @returns {Map<number, Entry>}
+ */
+function parseEntries(body) {
+	/** @type {Map<number, Entry>} */
+	const entries = new Map();
+	for (const line of body.split("\n")) {
+		const e = parseEntryLine(line);
+		if (e) entries.set(...e);
 	}
 	return entries;
 }

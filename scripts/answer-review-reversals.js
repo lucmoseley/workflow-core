@@ -8,6 +8,9 @@
  *
  *   node scripts/answer-review-reversals.js [--dry-run]
  *
+ * A delegated-decision entry's ticket is built from its ledger line; a
+ * primitives-table entry's from the review line itself (#3465).
+ *
  * Each filing is recorded in this checkout's markers before the reply, so a
  * reply that fails is retried without filing again; a pid lock keeps a hand
  * run and a loop tick from both filing.
@@ -78,6 +81,29 @@ function readFiled() {
 }
 
 /**
+ * The reversal ticket for one listed entry, or why none can be built.
+ * @param {string} root the entry's checkout
+ * @param {Run["review"]} reviewIssue
+ * @param {import("./lib/review-reversal.js").Request} request
+ * @param {import("./lib/morning-review.js").Entry} listed
+ * @returns {{title: string, body: string} | {why: string}}
+ */
+function buildTicket(root, reviewIssue, request, listed) {
+	if (listed.kind === "primitive")
+		return reversal.buildPrimitiveReversalTicket({
+			review: reviewIssue,
+			request,
+			entry: listed,
+		});
+	const entry = readLedger(root).lines.find(
+		(l) => l.comment === listed.comment,
+	);
+	return entry
+		? reversal.buildReversalTicket({ review: reviewIssue, request, entry })
+		: { why: `no delegated-decision ledger line records ${listed.comment}` };
+}
+
+/**
  * File one request's ticket in the entry's repo: the outcome to reply with,
  * or null where it failed on gh and is left for the next run.
  * @param {Run} run
@@ -97,18 +123,8 @@ function fileReversal(run, request) {
 	const root = roots.get(listed.repo);
 	if (!root)
 		return { why: `no included checkout here files on ${listed.repo}` };
-	const entry = readLedger(root).lines.find(
-		(l) => l.comment === listed.comment,
-	);
-	if (!entry)
-		return {
-			why: `no delegated-decision ledger line records ${listed.comment}`,
-		};
-	const ticket = reversal.buildReversalTicket({
-		review: reviewIssue,
-		request,
-		entry,
-	});
+	const ticket = buildTicket(root, reviewIssue, request, listed);
+	if ("why" in ticket) return ticket;
 	if (dryRun) {
 		io.out(`would file in ${listed.repo}: ${ticket.title}\n\n${ticket.body}\n`);
 		return { filed: `${listed.repo}#<new>` };

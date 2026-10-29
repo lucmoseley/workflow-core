@@ -20,11 +20,21 @@
  *
  * A COUNT IS A NUMBER OR A REASON, never a 0 standing in for one it could not
  * read (#3365).
+ *
+ * A ROW CHANGE is keyed by the row's Job cell: a Job only one side of a commit
+ * holds was added or removed, and a changed cell under the same Job is a
+ * rewrite (#3465). Residual: a Job cell reworded
+ * reads as a removal and an addition, two entries to reverse.
  */
 
 const { requiredGroup } = require("./regex-group.js");
 
 const COLUMNS = ["Job", "Primitive", "Exemplar", "Rule", "Enforcing check"];
+
+const STANDARDS_DOCS = {
+	base: "docs/code-standards-base.md",
+	local: "docs/code-standards.md",
+};
 
 /* The Enforcing check cell's one non-path value: the row is a criterion
  * `/code-review`'s Standards axis judges, and no program enforces it. */
@@ -41,6 +51,11 @@ const BACKTICKED = /`([^`]+)`/g;
  *   exemplar: string, rule: string, check: string }} Row
  */
 /** @typedef {{ side: Side, line: number, job: string, message: string }} Finding */
+/**
+ * @typedef {{ change: "added" | "removed" | "rewritten", job: string,
+ *   primitive: string, cells: string[] }} RowChange `cells` names the
+ *   columns a rewrite changed, and is empty otherwise
+ */
 /** @typedef {{ count: number } | { unknown: string }} Count */
 /**
  * @typedef {{
@@ -320,4 +335,70 @@ function judgePrimitives(ports, { counts }) {
 	};
 }
 
-module.exports = { judgePrimitives };
+/** @type {Record<string, keyof Row>} */
+const CELL_KEYS = {
+	Primitive: "primitive",
+	Exemplar: "exemplar",
+	Rule: "rule",
+	"Enforcing check": "check",
+};
+
+/**
+ * @param {Side} side
+ * @param {string | null} text
+ * @returns {{ rows: Map<string, Row> } | { unreadable: string }}
+ */
+function rowsByJob(side, text) {
+	const r = text === null ? { rows: [] } : parseTable(side, text);
+	return "unreadable" in r
+		? r
+		: { rows: new Map(r.rows.map((row) => [jobKey(row.job), row])) };
+}
+
+/**
+ * @param {RowChange["change"]} change
+ * @param {Row} row
+ * @param {string[]} [cells]
+ * @returns {RowChange}
+ */
+const rowChange = (change, { job, primitive }, cells = []) => ({
+	change,
+	job,
+	primitive,
+	cells,
+});
+
+/**
+ * The rows one commit added, removed or rewrote between two texts of a side's
+ * standards file, null for a text the file was absent from; or why either
+ * text's table would not read.
+ * @param {Side} side
+ * @param {string | null} before
+ * @param {string | null} after
+ * @returns {{ changes: RowChange[] } | { unreadable: string }}
+ */
+function rowChanges(side, before, after) {
+	const was = rowsByJob(side, before);
+	if ("unreadable" in was) return { unreadable: `before: ${was.unreadable}` };
+	const is = rowsByJob(side, after);
+	if ("unreadable" in is) return { unreadable: `after: ${is.unreadable}` };
+	const [prior, next] = [was.rows, is.rows];
+	/** @type {RowChange[]} */
+	const changes = [];
+	for (const [key, row] of next) {
+		const old = prior.get(key);
+		if (!old) {
+			changes.push(rowChange("added", row));
+			continue;
+		}
+		const cells = Object.entries(CELL_KEYS)
+			.filter(([, k]) => old[k] !== row[k])
+			.map(([name]) => name);
+		if (cells.length > 0) changes.push(rowChange("rewritten", row, cells));
+	}
+	for (const [key, row] of prior)
+		if (!next.has(key)) changes.push(rowChange("removed", row));
+	return { changes };
+}
+
+module.exports = { STANDARDS_DOCS, judgePrimitives, rowChanges };
