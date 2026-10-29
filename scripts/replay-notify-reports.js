@@ -94,7 +94,7 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
-const { isBackgroundStart } = require("./lib/background-start.js");
+const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
 /** @typedef {import("./lib/check").CheckContext} Ctx */
@@ -175,21 +175,13 @@ const HELD_FOR_STATUS = new Set(["reap-finished-sessions", "reconcile-plugin"]);
 const isHeldForStatus = (key) =>
 	HELD_FOR_STATUS.has(key) || isRepoChecksReport(key);
 
-/*
- * NOTICES FOR THE FOUNDER ALONE, held back from a background job's start
- * (lib/background-start.js) so his own session start shows and stamps them
- * (#3707).
- */
-const FOUNDER_NOTICES = new Set(["idle-efforts"]);
-
 /**
  * Whether a `--notify` start holds this report's text back.
  * @param {Pass} pass
  * @param {string} key
  */
 const isHeldAtStart = (pass, key) =>
-	pass.ctx.notify &&
-	(isHeldForStatus(key) || (FOUNDER_NOTICES.has(key) && isBackgroundStart()));
+	pass.ctx.notify && (isHeldForStatus(key) || isHeldAtBackgroundStart(key));
 
 /*
  * How many starts a producer may go without a new run before it is named as

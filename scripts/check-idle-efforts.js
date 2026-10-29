@@ -26,15 +26,16 @@
  * run under plain `--notify`, and under persist mode by the replay reader, from
  * the signature this run carries. So it is read under persist mode too, which
  * readSeenStamp declines: nothing it records went unshown. A background job's
- * start (lib/background-start.js) is watched by no one, so it records nothing
- * either: the replay holds this report back there (its FOUNDER_NOTICES), and a
- * plain `--notify` run there names what is unseen but writes no stamp, leaving
- * the founder's own session start to show it (#3707, #3725). A plain run, the
- * morning review's included, names every tracker and records nothing. A
- * compaction is no session start: it exits before a persisted run opens, so
- * it neither prints nor replaces a report not yet shown.
+ * start is taken as unwatched, so it records nothing either: this report is
+ * among lib/background-start.js's FOUNDER_NOTICES, which the replay holds back
+ * there, and a plain `--notify` run there names what is unseen but writes no
+ * stamp, leaving the founder's own session start to show it (#3707, #3725).
+ * A plain run, the morning review's included, names every tracker and
+ * records nothing. A compaction is no session start: it exits before a
+ * persisted run opens, so it neither prints nor replaces a report not yet
+ * shown.
  *
- * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a background job's start shows and stamps none of it.
+ * IMPLICIT:  at every session start, reads every adopting checkout's tracker and reports each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a background job's start stamps none of it, and through the hooks shows none of it.
  * JUSTIFIED: fail-safe — a stopped loop, or a route it skips, strands an effort with nothing else to say so.
  * DEFEAT:    none needed — it never blocks; deleting its delivery stamp names today's findings again.
  */
@@ -49,7 +50,7 @@ const {
 } = require("./lib/dispatch-ledger.js");
 const hookMessage = require("./lib/hook-message");
 const deliveryStamp = require("./lib/delivery-stamp.js");
-const { isBackgroundStart } = require("./lib/background-start.js");
+const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
 const { localDate } = require("./lib/morning-review.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
@@ -194,7 +195,7 @@ const SPEC = {
 		report(ctx, unseen, loopRead.running);
 		/* After the report is out, so a run killed between repeats rather than
 		 * swallows it. */
-		if (signature !== null && !isBackgroundStart())
+		if (signature !== null && !isHeldAtBackgroundStart(CHECKER))
 			deliveryStamp.markDelivered(ctx, CHECKER, signature);
 		return {
 			...(signature !== null && { stamp: signature }),

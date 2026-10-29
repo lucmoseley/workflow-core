@@ -17,6 +17,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startEnv } from "./lib/background-start-testkit";
 import { record } from "./lib/dispatch-ledger.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { launchOrResume } from "./lib/refill-batch.js";
@@ -255,6 +256,7 @@ describe("at session start (--notify, #3644)", () => {
 		process.env.WFC_CLAUDE_CONFIG_B = second;
 		process.env.WFC_CLAUDE_CONFIG_C = second;
 		process.env.WFC_NOTIFY_PERSIST = "";
+		Object.assign(process.env, startEnv());
 		checkout("core", "o/core");
 	});
 	afterEach(() => {
@@ -309,6 +311,20 @@ describe("at session start (--notify, #3644)", () => {
 		fs.rmSync(stampPath());
 		await run(oneIdle);
 		expect(fs.existsSync(stampPath())).toBe(false);
+	});
+
+	it("names an unseen finding at a background job's start but stamps nothing, leaving it for the founder's start (#3725)", async () => {
+		Object.assign(process.env, startEnv(path.join(dir, "job")));
+		const job = await run(oneIdle, ["--notify"]);
+		expect(job.status).toBe(0);
+		expect(job.stdout).toContain("o/core: 1 idle past 2 days");
+		expect(fs.existsSync(stampPath())).toBe(false);
+
+		Object.assign(process.env, startEnv());
+		expect((await run(oneIdle, ["--notify"])).stdout).toContain(
+			"o/core: 1 idle past 2 days",
+		);
+		expect(fs.existsSync(stampPath())).toBe(true);
 	});
 
 	describe("under persist mode", () => {

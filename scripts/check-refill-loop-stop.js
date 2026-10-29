@@ -39,7 +39,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const hookMessage = require("./lib/hook-message");
-const { isBackgroundStart } = require("./lib/background-start.js");
+const { isHeldAtBackgroundStart } = require("./lib/background-start.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
 const {
@@ -135,7 +135,7 @@ runCheck({
 		/* Read under --notify alone: a plain run's stdin may be a terminal. */
 		if (ctx.notify && hookMessage.readPayload()?.source === "compact")
 			ctx.skip("a compaction is no session start.");
-		if (ctx.notify && isBackgroundStart())
+		if (ctx.notify && isHeldAtBackgroundStart("refill-loop-stop"))
 			ctx.skip("a background job's start is not the founder's.");
 		const files = refillFiles.loopFiles();
 		/** @param {string} line */
