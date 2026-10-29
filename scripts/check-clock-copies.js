@@ -5,7 +5,7 @@
  * program (#3457).
  *
  * Usage:
- *   node check-clock-copies.js [--root <dir>] [--against <rev>] [--json] [--warn]
+ *   node check-clock-copies.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
  *
  * LEXICAL. A site is a read of WFC_NOW — `.WFC_NOW`, `["WFC_NOW"]` or a
  * destructuring `{ … WFC_NOW … } =` on one line — in the code, comments

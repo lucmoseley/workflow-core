@@ -4,7 +4,7 @@
  * hand split-and-parse with its own answer for a torn last line (#3452).
  *
  * Usage:
- *   node check-jsonl-reads.js [--root <dir>] [--against <rev>] [--json] [--warn]
+ *   node check-jsonl-reads.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
  *
  * `.husky/pre-commit` runs it over the whole tree (#3453).
  *

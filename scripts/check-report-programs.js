@@ -5,7 +5,7 @@
  * own (#3454).
  *
  * Usage:
- *   node check-report-programs.js [--root <dir>] [--against <rev>] [--json] [--warn]
+ *   node check-report-programs.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
  *
  * LEXICAL, over every non-test `scripts/report-*.js`, `.cjs` or `.mjs`, with
  * comments blanked; lib/heresy-scan.js lists and reads the programs (#3555).

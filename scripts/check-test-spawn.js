@@ -5,7 +5,7 @@
  * §X3's house clause, #3458).
  *
  * Usage:
- *   node check-test-spawn.js [--root <dir>] [--against <rev>] [--json] [--warn]
+ *   node check-test-spawn.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
  *
  * `.husky/pre-commit` runs it over the whole tree. Not in the scheduled sweeps.
  *
@@ -206,7 +206,7 @@ function unstatedSpawns(source) {
 runCheck({
 	name: "test-spawn",
 	usage:
-		"node check-test-spawn.js [--root <dir>] [--against <rev>] [--json] [--warn]",
+		"node check-test-spawn.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
 	valueFlags: ["--root"],
 	against: {
 		profile: "test-spawn",

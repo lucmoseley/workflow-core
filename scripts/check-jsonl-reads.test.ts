@@ -11,6 +11,7 @@
  * next hand-rolled reader, with its own answer for a torn last line, land.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -102,5 +103,41 @@ describe("check-jsonl-reads", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("1 site(s) hand-parse JSONL: scripts/bare.js:2.");
+	});
+});
+
+describe("--index (#3687)", () => {
+	const git = (...args: string[]) =>
+		execFileSync("git", args, { cwd: root, stdio: "pipe" });
+
+	beforeEach(() => {
+		git("init", "-q", "-b", "main", ".");
+		git("config", "user.email", "test@example.com");
+		git("config", "user.name", "test");
+		program("on.js", ON_READER);
+		git("add", ".");
+		git("commit", "-qm", "seed");
+	});
+
+	it("passes a hand-parse in an untracked program and in an unstaged edit", () => {
+		program("loose.js", CHAINED);
+		program("on.js", `${ON_READER}${CHAINED}`);
+		expect(run().status).toBe(1);
+		const r = run("--index");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("OK: 1 program(s), no hand-parsed JSONL.");
+	});
+
+	it("refuses the same hand-parse once staged, naming its file and line", () => {
+		program("loose.js", CHAINED);
+		git("add", "scripts/loose.js");
+		const r = run("--index", "--json");
+		expect(r.status).toBe(1);
+		expect(JSON.parse(r.out).findings).toMatchObject([
+			{ file: "scripts/loose.js", line: 1 },
+		]);
+		expect(JSON.parse(r.out).findings[0].message).toContain(
+			"Fix: read it through readJsonl",
+		);
 	});
 });

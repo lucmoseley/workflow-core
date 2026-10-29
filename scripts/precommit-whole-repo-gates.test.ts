@@ -3,7 +3,7 @@
  * Pins the whole-repo pre-commit gates (mantahostels#1753) — guard-registry,
  * guard-test-isolation, git-fixture-identity, jsonl-reads, report-programs, cli-args, test-spawn and gh-route — exercised as the
  * shell they are: each one call, `--against HEAD` for a direction-gated gate
- * and bare for a whole-tree one, refusing with the checker's own exit code,
+ * and `--index` for a whole-tree one, refusing with the checker's own exit code,
  * and, for a direction-gated one, the `--root` each side of the comparison is
  * read through.
  *
@@ -58,13 +58,13 @@ const GATES = [
 		profile: "jsonl-reads",
 		checker: "scripts/check-jsonl-reads.js",
 		staged: "scripts/a.js",
-		args: "",
+		args: "--index",
 	},
 	{
 		profile: "report-programs",
 		checker: "scripts/check-report-programs.js",
 		staged: "scripts/report-a.js",
-		args: "",
+		args: "--index",
 	},
 	{
 		profile: "cli-args",
@@ -76,13 +76,13 @@ const GATES = [
 		profile: "test-spawn",
 		checker: "scripts/check-test-spawn.js",
 		staged: "scripts/a.test.ts",
-		args: "",
+		args: "--index",
 	},
 	{
 		profile: "gh-route",
 		checker: "scripts/check-gh-route.js",
 		staged: "scripts/a.sh",
-		args: "",
+		args: "--index",
 	},
 ];
 
@@ -151,7 +151,7 @@ describe.each(GATES)("the pre-commit $profile gate", (gate) => {
 
 	it("is wired into .husky/pre-commit as one call", () => {
 		expect(HOOK).toContain(
-			`${coreCall("node", gate.checker)}${gate.args ? ` ${gate.args}` : ""} || exit "$?"`,
+			`${coreCall("node", gate.checker)} ${gate.args} || exit "$?"`,
 		);
 	});
 

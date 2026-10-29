@@ -6,7 +6,7 @@
  * a stub at that var (base §X2, §N7; #3455, #3559).
  *
  * Usage:
- *   node check-gh-route.js [--root <dir>] [--against <rev>] [--json] [--warn]
+ *   node check-gh-route.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
  *
  * LEXICAL, comments aside, over scripts/, .claude/skills/, .husky/ and
  * hooks/, shell files being those lib/formatters.js's shellFiles() names.
@@ -347,7 +347,7 @@ function listFiles(root) {
 runCheck({
 	name: "gh-route",
 	usage:
-		"node check-gh-route.js [--root <dir>] [--against <rev>] [--json] [--warn]",
+		"node check-gh-route.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
 	valueFlags: ["--root"],
 	against: {
 		profile: "gh-route",
@@ -355,10 +355,15 @@ runCheck({
 		pathspecs: () => ROOTS,
 	},
 	run(/** @type {Ctx} */ ctx) {
-		const root = path.resolve(ctx.value("--root") ?? hostRoot());
+		const rootFlag = ctx.value("--root");
+		const root = path.resolve(rootFlag ?? hostRoot());
 		const files = listFiles(root);
+		/* A materialised tree's vendored marks are the index's .gitattributes,
+		 * never a neighbour's unstaged edit to it (#3687). */
 		const shell = new Set(
-			shellFiles(files, (rel) => readWorktreeHead(path.join(root, rel))),
+			shellFiles(files, (rel) => readWorktreeHead(path.join(root, rel)), {
+				cached: rootFlag !== null,
+			}),
 		);
 		let scanned = 0;
 		/** @type {Map<string, string>} */
