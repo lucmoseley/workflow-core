@@ -7,9 +7,9 @@
  * dir, a marker that will not read or write, a `WFC_NOW` pin `now()` will not
  * parse, a budget module that will not load — never a throw: a budget that cannot be
  * counted refuses nothing (mantahostels#103 §6), and a throw would take the
- * core's fail-closed policy instead. The module loads on first spend, so a
- * Bash call that fires no sweep pays nothing and a module mid-save is a fault
- * here rather than a crash of the entry.
+ * core's fail-closed policy instead. The budget module and lib/check.js's
+ * `now()` load on first spend, so a Bash call that fires no sweep pays nothing
+ * and a module mid-save is a fault here rather than a crash of the entry.
  */
 
 const { caught } = require("./caught.js");

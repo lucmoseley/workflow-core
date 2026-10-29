@@ -72,6 +72,9 @@ describe("check-clock-copies", () => {
 		expect(r.out).toContain(
 			"1 site(s) read WFC_NOW outside now(): scripts/lib/read.mjs:1.",
 		);
+		expect(r.out).toContain(
+			"in a guard core, pass its env as scripts/lib/sweep-fire-host.js's now(env) does",
+		);
 	});
 
 	it("passes a program on now(), a pin set for a child, one in a comment, a test and lib/check.js itself", () => {
