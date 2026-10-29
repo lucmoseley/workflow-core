@@ -1,8 +1,9 @@
 /*
  * idle-efforts.test.ts — the idle alarm's core (#3641): which efforts count as
  * idle past 2 days, the lines per tracker, and the reading of GitHub's answer,
- * driven through findIdleEfforts, buildIdleLines and parseIssueNodes from
- * plain readings, since the core is pure. A break here either strands an
+ * driven through buildReadings, findIdleEfforts, buildIdleLines,
+ * buildFindingRecords and parseIssueNodes from plain readings, since the core is
+ * pure. A break here either strands an
  * effort unreported or names one that is moving, which teaches the founder to ignore it.
  */
 
@@ -11,7 +12,9 @@ import { describe, expect, it } from "vitest";
 const {
 	IDLE_DAYS,
 	buildIdleLines,
+	buildReadings,
 	findIdleEfforts,
+	buildFindingRecords,
 	parseIssueNodes,
 	selectUnseen,
 } = require("./idle-efforts.js");
@@ -173,6 +176,8 @@ describe("findIdleEfforts", () => {
 });
 
 describe("buildIdleLines", () => {
+	const top = (text: string) => ({ text, nested: false });
+
 	it("gives one line per tracker, naming the oldest and its skip reason", () => {
 		const lines = buildIdleLines(
 			findings([
@@ -188,8 +193,10 @@ describe("buildIdleLines", () => {
 			true,
 		);
 		expect(lines).toEqual([
-			"o/core: 2 idle past 2 days; oldest #2 (issue 2), idle 5.0 days; skip reason: waiting:external",
-			"o/quiet: none idle past 2 days",
+			top(
+				"o/core: 2 idle past 2 days; oldest #2 (issue 2), idle 5.0 days; skip reason: waiting:external",
+			),
+			top("o/quiet: none idle past 2 days"),
 		]);
 	});
 
@@ -208,8 +215,10 @@ describe("buildIdleLines", () => {
 			true,
 		);
 		expect(lines).toEqual([
-			"o/product: 2 idle past 2 days (the refill loop does not serve it); oldest #2 (issue 2), idle 10.0 days; skip reason: none, the launch filter passes it",
-			"  urgent #2 (issue 2), idle 10.0 days",
+			top(
+				"o/product: 2 idle past 2 days (the refill loop does not serve it); oldest #2 (issue 2), idle 10.0 days; skip reason: none, the launch filter passes it",
+			),
+			{ text: "urgent #2 (issue 2), idle 10.0 days", nested: true },
 		]);
 	});
 
@@ -219,8 +228,8 @@ describe("buildIdleLines", () => {
 			false,
 		);
 		expect(lines).toEqual([
-			"The refill loop is not running, so it serves no tracker.",
-			"o/core: none idle past 2 days (the refill loop does not serve it)",
+			top("The refill loop is not running, so it serves no tracker."),
+			top("o/core: none idle past 2 days (the refill loop does not serve it)"),
 		]);
 	});
 
@@ -229,7 +238,92 @@ describe("buildIdleLines", () => {
 			findings([tracker([], { error: "HTTP 502" })]),
 			true,
 		);
-		expect(lines).toEqual(["o/core: unread — HTTP 502"]);
+		expect(lines).toEqual([top("o/core: unread — HTTP 502")]);
+	});
+});
+
+describe("buildFindingRecords", () => {
+	it("gives an unread tracker IDLE-EFFORTS-UNREAD and one with idle efforts IDLE-EFFORTS, a quiet one none", () => {
+		const f = findings([
+			tracker([], { error: "HTTP 502" }),
+			tracker([issue(1)], { repo: OTHER }),
+			tracker([], { repo: "o/quiet" }),
+		]);
+		expect(buildFindingRecords(f)).toEqual([
+			{ code: "IDLE-EFFORTS-UNREAD", text: "o/core would not read: HTTP 502" },
+			{
+				code: "IDLE-EFFORTS",
+				text: "o/product: 1 effort(s) idle past 2 days",
+				data: { repo: OTHER, idle: f[1].idle },
+			},
+		]);
+	});
+});
+
+describe("buildReadings", () => {
+	const ledger = (
+		root: string,
+		launchTimes: [number, number][] = [],
+		recent: number[][] = [],
+	) => ({ root, launchTimes: new Map(launchTimes), recent });
+	const read = (
+		trackers: Record<string, unknown>[],
+		loop: Record<string, unknown> = {},
+	) =>
+		buildReadings({
+			rootsOf: new Map([
+				[REPO, ["/r/core", "/r/core2"]],
+				[OTHER, ["/r/product"]],
+			]),
+			trackers: trackers.map((t) => ({
+				issues: [],
+				error: null,
+				ledgers: [],
+				...t,
+			})),
+			loop: { served: [], launches: [], held: [], ...loop },
+			now: NOW,
+		});
+
+	it("joins each checkout's ledger to its tracker, keeping each issue's latest launch", () => {
+		const r = read([
+			{
+				repo: REPO,
+				ledgers: [
+					ledger("/r/core", [[1, NOW - 3 * DAY]], [[2]]),
+					ledger("/r/core2", [[1, NOW - DAY]]),
+				],
+			},
+			{ repo: OTHER, ledgers: [ledger("/r/product", [[1, NOW - 5 * DAY]])] },
+		]);
+		expect(r.launches).toEqual(
+			new Map([
+				[`${REPO}#1`, NOW - DAY],
+				[`${OTHER}#1`, NOW - 5 * DAY],
+			]),
+		);
+		expect([...r.running]).toEqual([`${REPO}#2`]);
+	});
+
+	it("joins the loop's running launches and holds from checkout to tracker", () => {
+		const r = read([{ repo: REPO }, { repo: OTHER }], {
+			launches: [{ root: "/r/product", issues: [4, 5] }],
+			held: [{ root: "/r/core2", number: 6, why: "seat full", since: NOW }],
+		});
+		expect([...r.running]).toEqual([`${OTHER}#4`, `${OTHER}#5`]);
+		expect(r.holds).toEqual(
+			new Map([[`${REPO}#6`, { why: "seat full", since: NOW }]]),
+		);
+	});
+
+	it("marks a tracker served where the loop serves any of its checkouts", () => {
+		const r = read([{ repo: REPO }, { repo: OTHER, error: "HTTP 502" }], {
+			served: ["/r/core2"],
+		});
+		expect(r.trackers).toEqual([
+			{ repo: REPO, served: true, issues: [], error: null },
+			{ repo: OTHER, served: false, issues: [], error: "HTTP 502" },
+		]);
 	});
 });
 

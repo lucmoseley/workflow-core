@@ -16,6 +16,10 @@
  * The reason printed beside a tracker's oldest is the loop's hold where it
  * holds it, else its own launch filter (lib/refill-decide.js's
  * buildSkipReason).
+ *
+ * The shell hands over raw reads, keyed by checkout; buildReadings joins them
+ * to the trackers those checkouts file to, and buildFindingRecords picks each
+ * tracker's finding code (#3711).
  */
 
 const { buildSkipReason } = require("./refill-decide.js");
@@ -93,6 +97,85 @@ const QUERY =
  * @property {string|null} error
  * @property {Idle[]} idle oldest first
  */
+
+/**
+ * One checkout's dispatch ledger, as the shell read it.
+ * @typedef {object} LedgerReading
+ * @property {string} root the checkout
+ * @property {Map<number, number>} launchTimes issue to its last launch, ms
+ * @property {number[][]} recent the issues of each launch still in the
+ *   ledger's window, so running
+ */
+
+/**
+ * @typedef {object} TrackerRead
+ * @property {string} repo `owner/name`
+ * @property {IssueReading[]} issues
+ * @property {string|null} error
+ * @property {LedgerReading[]} ledgers its checkouts' ledgers, as far as they
+ *   read
+ */
+
+/**
+ * The refill loop as read: nothing where it does not run.
+ * @typedef {object} LoopReading
+ * @property {string[]} served the checkouts its scope serves
+ * @property {{root: string, issues: number[]}[]} launches its running
+ *   launches
+ * @property {{root: string, number: number, why: string, since: number}[]}
+ *   held the parked issues it holds on a full seat
+ */
+
+/**
+ * The readings findIdleEfforts judges, joined from checkout roots to the
+ * trackers they file to.
+ * @param {object} input
+ * @param {Map<string, string[]>} input.rootsOf tracker to its checkouts
+ * @param {TrackerRead[]} input.trackers
+ * @param {LoopReading} input.loop
+ * @param {number} input.now ms
+ * @returns {Readings}
+ */
+function buildReadings({ rootsOf, trackers, loop, now }) {
+	/** The trackers checkout `root` files to. @param {string} root */
+	const reposOf = (root) =>
+		[...rootsOf].filter(([, roots]) => roots.includes(root)).map(([r]) => r);
+	/** @type {Map<string, number>} */
+	const launches = new Map();
+	/** @type {Set<string>} */
+	const running = new Set();
+	/** @param {string} root @param {number[]} issues */
+	const markRunning = (root, issues) => {
+		for (const repo of reposOf(root))
+			for (const n of issues) running.add(refKey({ repo, number: n }));
+	};
+	for (const l of loop.launches) markRunning(l.root, l.issues);
+	/** @type {Readings["holds"]} */
+	const holds = new Map();
+	for (const { root, number, why, since } of loop.held)
+		for (const repo of reposOf(root))
+			holds.set(refKey({ repo, number }), { why, since });
+	for (const t of trackers)
+		for (const { root, launchTimes, recent } of t.ledgers) {
+			for (const [n, at] of launchTimes) {
+				const key = refKey({ repo: t.repo, number: n });
+				launches.set(key, Math.max(launches.get(key) ?? 0, at));
+			}
+			for (const issues of recent) markRunning(root, issues);
+		}
+	return {
+		trackers: trackers.map(({ repo, issues, error }) => ({
+			repo,
+			served: (rootsOf.get(repo) ?? []).some((r) => loop.served.includes(r)),
+			issues,
+			error,
+		})),
+		launches,
+		running,
+		holds,
+		now,
+	};
+}
 
 /**
  * Whether an open blocker holds the issue. A list longer than QUERY reads is
@@ -261,32 +344,83 @@ const days = (ms) => `${(ms / DAY_MS).toFixed(1)} days`;
 const named = (i) => `#${i.number} (${i.title}), idle ${days(i.idleMs)}`;
 
 /**
+ * @typedef {object} IdleLine
+ * @property {string} text
+ * @property {boolean} nested beneath the tracker line before it
+ */
+
+/**
  * One line per tracker, and beneath a tracker the loop does not serve, each
  * `urgent` issue past the threshold; first, where no loop runs, a line saying
  * so.
  * @param {TrackerFinding[]} findings
  * @param {boolean} loopRunning
- * @returns {string[]}
+ * @returns {IdleLine[]}
  */
 function buildIdleLines(findings, loopRunning) {
+	/** @param {string} text */
+	const top = (text) => ({ text, nested: false });
 	const lines = findings.flatMap((f) => {
 		const unserved = f.served ? "" : " (the refill loop does not serve it)";
-		if (f.error !== null) return [`${f.repo}: unread — ${f.error}`];
+		if (f.error !== null) return [top(`${f.repo}: unread — ${f.error}`)];
 		const [oldest] = f.idle;
 		if (oldest === undefined)
-			return [`${f.repo}: none idle past ${IDLE_DAYS} days${unserved}`];
+			return [top(`${f.repo}: none idle past ${IDLE_DAYS} days${unserved}`)];
 		const skip = oldest.skip ?? "none, the launch filter passes it";
 		return [
-			`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,
+			top(
+				`${f.repo}: ${f.idle.length} idle past ${IDLE_DAYS} days${unserved}; oldest ${named(oldest)}; skip reason: ${skip}`,
+			),
 			...(f.served
 				? []
-				: f.idle.filter((i) => i.urgent).map((i) => `  urgent ${named(i)}`)),
+				: f.idle
+						.filter((i) => i.urgent)
+						.map((i) => ({ text: `urgent ${named(i)}`, nested: true }))),
 		];
 	});
 	return loopRunning
 		? lines
-		: ["The refill loop is not running, so it serves no tracker.", ...lines];
+		: [
+				top("The refill loop is not running, so it serves no tracker."),
+				...lines,
+			];
 }
+
+/**
+ * @typedef {object} FindingRecord
+ * @property {"IDLE-EFFORTS"|"IDLE-EFFORTS-UNREAD"} code
+ * @property {string} text
+ * @property {{repo: string, idle: Idle[]}} [data]
+ */
+
+/**
+ * One record per tracker holding a finding: an unread tracker, or one with
+ * efforts idle past the threshold.
+ * @param {TrackerFinding[]} findings
+ * @returns {FindingRecord[]}
+ */
+const buildFindingRecords = (findings) =>
+	findings.flatMap(
+		/** @returns {FindingRecord[]} */
+		(f) => {
+			if (f.error !== null)
+				return [
+					{
+						code: "IDLE-EFFORTS-UNREAD",
+						text: `${f.repo} would not read: ${f.error}`,
+					},
+				];
+			return f.idle.length === 0
+				? []
+				: [
+						{
+							code: "IDLE-EFFORTS",
+							text: `${f.repo}: ${f.idle.length} effort(s) idle past ${IDLE_DAYS} days`,
+							data: { repo: f.repo, idle: f.idle },
+						},
+					];
+		},
+	);
 
 /**
  * @typedef {object} SeenStamp
@@ -347,7 +481,9 @@ module.exports = {
 	IDLE_DAYS,
 	QUERY,
 	buildIdleLines,
+	buildReadings,
 	findIdleEfforts,
+	buildFindingRecords,
 	parseIssueNodes,
 	selectUnseen,
 };

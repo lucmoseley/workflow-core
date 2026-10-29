@@ -389,8 +389,8 @@ function renderReview({
 	const idleLines =
 		"why" in idle
 			? [`Not read: ${quoted(idle.why)}`]
-			: buildIdleLines(idle.trackers, idle.loopRunning).map((l) =>
-					l.startsWith(" ") ? `  - ${quoted(l.trim())}` : `- ${quoted(l)}`,
+			: buildIdleLines(idle.trackers, idle.loopRunning).map(
+					({ text, nested }) => `${nested ? "  " : ""}- ${quoted(text)}`,
 				);
 
 	return [
