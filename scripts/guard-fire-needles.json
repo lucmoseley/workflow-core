@@ -1721,6 +1721,11 @@
 					"id": "uncommitted-tracked",
 					"kind": "block",
 					"text": "tracked file(s) this session wrote still uncommitted"
+				},
+				{
+					"id": "held-clean-claims",
+					"kind": "block",
+					"text": "claim(s) on files with no uncommitted change"
 				}
 			]
 		},

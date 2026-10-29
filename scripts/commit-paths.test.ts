@@ -616,10 +616,13 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(git("diff", "--cached", "--name-only")).toBe("");
 	});
 
-	it("exits 4 where the commit landed but the shared index stayed locked, giving the reset to run and saying never to re-run", () => {
-		const hook = path.join(hooks, "post-commit");
+	it("exits 4 where the commit landed but the shared index stayed locked, giving the reset to run, saying never to re-run, and still running post-commit", () => {
+		const hook = path.join(hooks, "commit-msg");
 		fs.writeFileSync(hook, "#!/bin/sh\ntouch .git/index.lock\n");
 		fs.chmodSync(hook, 0o755);
+		const after = path.join(hooks, "post-commit");
+		fs.writeFileSync(after, "#!/bin/sh\necho post-commit ran >&2\n");
+		fs.chmodSync(after, 0o755);
 		const patch = shared();
 		const r = runInProcess(SCRIPT, ["-m", "mine", "--patch", patch], {
 			cwd: sb.repo,
@@ -630,6 +633,7 @@ describe("--patch: your own lines of a shared file, the working tree never writt
 		expect(r.stderr).toMatch(
 			/Do not re-run this command: the commit has landed.*git reset -q -- ':\(top,literal\)a\.md'/s,
 		);
+		expect(r.stderr).toContain("post-commit ran");
 		fs.rmSync(path.join(sb.repo, ".git", "index.lock"));
 	});
 
@@ -937,6 +941,30 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 
 	it("drops every claim once every hunk the session held has landed", () => {
 		expectReleased(commitHeld());
+	});
+
+	// The hook ran while the shared index still held the old copies, which read
+	// as dirt nothing could prove a neighbour's (#3565).
+	it.each([
+		["written from Bash before its claim", true],
+		["claimed after its first write", false],
+	])("drops them after a --patch commit of files %s", (_, observedFirst) => {
+		const alice = live(sb, "alice");
+		for (const rel of held) {
+			write(rel, "alice's edit\n");
+			if (observedFirst) store.recordObservation(rel, alice, { viaBash: true });
+			store.acquire(rel, alice);
+		}
+		git("add", "-N", "--", ...held);
+		const patch = path.join(sb.dir, "mine.patch");
+		fs.writeFileSync(patch, git("diff", "--", ...held));
+		git("reset", "-q", "--", ...held);
+		expectReleased(
+			runWith(["-m", "mine", "--patch", patch], {
+				...process.env,
+				CLAUDE_CODE_SESSION_ID: "alice",
+			}),
+		);
 	});
 
 	it.each([

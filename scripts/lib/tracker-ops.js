@@ -12,6 +12,8 @@
  * what record-acts.js does — the acts ledger line — by recordOwnAct.
  */
 
+const { spawnSync } = require("node:child_process");
+const path = require("node:path");
 const { parseErrLine, gh, ghApiSlurp, ghJson } = require("./gh.js");
 const { requireKey } = require("./workflow-core-config.js");
 const { listedSessionIds } = require("./agent-liveness.js");
@@ -19,11 +21,13 @@ const { scriptPath } = require("./script-path.js");
 const { similarOpen } = require("./similar-titles.js");
 const { readTrackerTitles } = require("./closed-title-cache.js");
 const issueClaims = require("./arbiter-issue-claims.js");
+const { readHeldClean } = require("./arbiter-locks.js");
 const ledger = require("./arbiter-ledger.js");
 const { buildAct } = require("./act-line.js");
 const { logError } = require("./arbiter-core.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /**
  * @typedef {{number: number, title: string, state: string, labels: string[],
@@ -199,6 +203,48 @@ function releaseOwnClaim(io, n) {
 }
 
 /**
+ * Release every whole-file claim this session holds on a file with no
+ * uncommitted change, through the arbiter's `release-committed`, whose report
+ * names each (#3565). The session's next write to the file re-takes it.
+ * Returns the exit
+ * code to fold into the caller's: 1 where the store would not read or a clean
+ * claim is still held after the release.
+ * @param {ScriptIo} io
+ * @returns {0|1}
+ */
+function releaseCleanFileClaims(io) {
+	const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
+	if (!sessionId) return 0;
+	const clean = readHeldClean(sessionId);
+	if (clean === null) {
+		io.warn(
+			`the claim store would not read, so no file claim was released — node ${scriptPath("session-arbiter.js")} list.`,
+		);
+		return 1;
+	}
+	if (clean.length === 0) return 0;
+	const r = spawnSync(
+		process.execPath,
+		[
+			path.join(__dirname, "..", "session-arbiter.js"),
+			"release-committed",
+			...clean,
+		],
+		{ encoding: "utf8" },
+	);
+	io.out(r.stdout ?? "");
+	if (r.stderr) writeFd(2, r.stderr);
+	// Re-read, never trust the exit: release-committed exits 0 on every claim
+	// it keeps.
+	const kept = readHeldClean(sessionId);
+	if (kept !== null && kept.length === 0) return 0;
+	io.warn(
+		`${kept === null ? "the claim store would not read after the release, so" : `${kept.map(shellQuote).join(" ")}:`} still held on a clean file — node ${scriptPath("session-arbiter.js")} release-committed ${(kept ?? clean).map(shellQuote).join(" ")}`,
+	);
+	return 1;
+}
+
+/**
  * Add a `kind` act on issue `n` of `repo` to this session's acts ledger
  * (#2308). Silent with no session id, and on a failed write, which is logged:
  * the act itself has landed, and a missed line costs the refill loop one launch
@@ -278,6 +324,7 @@ module.exports = {
 	readIssue,
 	readParent,
 	recordOwnAct,
+	releaseCleanFileClaims,
 	releaseOwnClaim,
 	scriptIo,
 };

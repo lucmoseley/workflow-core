@@ -1226,6 +1226,27 @@ function readHeldBy(sessionId) {
 }
 
 /**
+ * The whole-file subjects `sessionId` holds on a file with no uncommitted
+ * change, sorted, or `null` where the store could not be read (#3565). A file
+ * git cannot answer for is left out,
+ * its claim standing. A region claim is left out too: it blocks one region
+ * and a commit never releases it.
+ * @param {string|null} sessionId
+ * @returns {string[]|null}
+ */
+function readHeldClean(sessionId) {
+	const held = readHeldBy(sessionId);
+	if (held === null) return null;
+	return held
+		.filter(
+			(subject) =>
+				core.splitSubject(subject).region === null &&
+				core.subjectDirty(subject) === false,
+		)
+		.sort();
+}
+
+/**
  * Who holds `subject`, as `sessionId` asks — the one answer acquire's conflict
  * check and every arbiter report read (#1492). `null` where the store could not
  * be read.
@@ -1978,6 +1999,7 @@ exports.breakStale = breakStale;
 exports.dropIfUnchanged = dropIfUnchanged;
 exports.forceRelease = forceRelease;
 exports.readHeldBy = readHeldBy;
+exports.readHeldClean = readHeldClean;
 exports.listLocks = listLocks;
 exports.listLocksJudged = listLocksJudged;
 exports.liveClaimElsewhereOnFile = liveClaimElsewhereOnFile;

@@ -161,7 +161,7 @@ const gitignore = new Set(
 describe("the counter prefixes, read from hook-block.js's call sites", () => {
 	/* Today, counting both minting entries: guard-selection-sum.js twice — the
 	 * block and the `charge` for the second stake tier (mantahostels#3431) —
-	 * guard-uncommitted-work.js once, guard-priced-options.js three times — the
+	 * guard-uncommitted-work.js twice — its clean-claim limb (#3565) — guard-priced-options.js three times — the
 	 * one block every refusal emits, its green-suite limb's included since
 	 * #1474, and the two `charge` calls that spend the non-paying limbs and the
 	 * ceiling —
@@ -170,10 +170,10 @@ describe("the counter prefixes, read from hook-block.js's call sites", () => {
 	 * guard-automode-refusal.js once (#860), guard-unpushed-commits.js once (#766), guard-paste-self-match.js once (#921), guard-session-id-prose.js once (#3557), guard-exhausted-map.js once (#3639), guard-inventory.js twice (#988, and its draft-and-act limb's own counter, #989), and
 	 * guard-jev-advisory.js three times — the flag's warn, the outage notice and
 	 * the malformed-reply notice #226 split off it, on three counters kept
-	 * separate. A drop below twenty means a caller went away — deliberately, or
+	 * separate. A drop below twenty-one means a caller went away — deliberately, or
 	 * because the scan stopped seeing it. */
-	it("still finds the twenty call sites", () => {
-		expect(total("calls")).toBe(20);
+	it("still finds the twenty-one call sites", () => {
+		expect(total("calls")).toBe(21);
 	});
 
 	/* Every call must be reachable by ONE of the two readers: the literal prefix

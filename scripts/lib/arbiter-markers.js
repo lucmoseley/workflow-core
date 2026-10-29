@@ -90,6 +90,7 @@ const MARKER_PREFIXES = [
 	".selection-sum-nagged-",
 	".selection-sum-shape-nagged-",
 	".uncommitted-nagged-",
+	".held-clean-nagged-",
 	".session-ceiling-nagged-windup-",
 	".session-ceiling-nagged-hard-",
 	".session-ceiling-nagged-turns-",

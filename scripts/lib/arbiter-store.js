@@ -153,6 +153,7 @@ module.exports = {
 	gitDirty: core.gitDirty,
 	subjectDirty: core.subjectDirty,
 	readHeldBy: locksMod.readHeldBy,
+	readHeldClean: locksMod.readHeldClean,
 	heldIssues: issues.heldIssues,
 	identify: core.identify,
 	isGuarded: core.isGuarded,

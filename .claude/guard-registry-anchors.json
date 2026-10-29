@@ -53,7 +53,7 @@
 	"scripts/guard-selection-sum.js": "be00a6e4a35c9697",
 	"scripts/guard-session-ceiling.js": "2fd94449d701edd9",
 	"scripts/guard-session-id-prose.js": "f7516cb4c570e0db",
-	"scripts/guard-uncommitted-work.js": "58e9dfedb15b6ee3",
+	"scripts/guard-uncommitted-work.js": "97f976bee6370221",
 	"scripts/guard-unpushed-commits.js": "012ec9293e797994",
 	"scripts/inject-compaction-count.js": "072279b776a1fcb1",
 	"scripts/inject-founder-wording.js": "39080eac3694b478",

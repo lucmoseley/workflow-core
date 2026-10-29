@@ -24,6 +24,7 @@ import {
 	freshSandbox,
 	gitRepo,
 	issueClaims,
+	live,
 	store,
 } from "./lib/arbiter-testkit";
 import { GRAPHQL_FAKE } from "./lib/gh-fake";
@@ -296,6 +297,28 @@ describe("a successful resolve", () => {
 			"Superseded by 3dd809ef.\n\n**Bound:** read the ticket.\n",
 		);
 		expect(r.status).toBe(0);
+	});
+
+	it("releases this session's claims on clean files, naming them, and keeps the one on a dirty file (#3565)", () => {
+		setUp();
+		gitRepo(sb);
+		for (const rel of ["clean.md", "dirty.md", "other.md"])
+			fs.writeFileSync(path.join(sb.repo, rel), `${rel}\n`);
+		commitAll(sb, "seed");
+		const me = live(sb, ME);
+		store.acquire("clean.md", me);
+		store.acquire("dirty.md", me);
+		store.acquire("other.md", live(sb, "sess-other"));
+		fs.writeFileSync(path.join(sb.repo, "dirty.md"), "mine\n");
+		const r = run(DECISION);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/^Released clean\.md — /m);
+		expect(
+			store
+				.listLocks()
+				.map((l: { path: string }) => l.path)
+				.sort(),
+		).toEqual(["dirty.md", "other.md"]);
 	});
 
 	it("needs no decision line where the parent is not a map", () => {

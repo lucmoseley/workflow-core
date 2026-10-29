@@ -238,6 +238,7 @@ function removeRunFiles() {
  * @type {(code: number) => never}
  */
 const finish = (code) => {
+	runPostCommit();
 	removeRunFiles();
 	if (treeOnly) process.exit(code);
 	try {
@@ -260,6 +261,12 @@ const finish = (code) => {
 const fail = (text, code) => {
 	err(`${NAME}: ${text}\n`);
 	return finish(code);
+};
+
+/** Set once a --patch commit has landed, until runPostCommit has run. */
+let postCommitOwed = false;
+const owePostCommit = () => {
+	postCommitOwed = true;
 };
 
 /** Set once `git add -N` has run: a fault after it can no longer say "nothing written". */
@@ -1093,6 +1100,7 @@ function commitPatch(message, cut, whole) {
 	warnStagedCopies(changed, patched, landed.on);
 
 	resetSharedIndex(changed);
+	runPostCommit();
 
 	out(git(["show", "--stat", "--format=", sha]).stdout);
 	printCommitted(sha);
@@ -1106,9 +1114,9 @@ function commitPatch(message, cut, whole) {
  * message back from it; a private index takes no shared lock, so a neighbour's
  * commit running alongside overwrote it and each landed under the other's
  * message. Here it lives in this run's own file. The hooks run as git's commit
- * runs them — pre-commit, prepare-commit-msg `<file> message`, commit-msg
- * `<file>`, and once landed post-commit, whose exit git ignores, then the
- * auto maintenance — each seeing the private index and `GIT_EDITOR=:`. The
+ * runs them — pre-commit, prepare-commit-msg `<file> message` and commit-msg
+ * `<file>` — each seeing the private index and `GIT_EDITOR=:`; post-commit is
+ * left owed to runPostCommit. The
  * tree is the index as pre-commit leaves it, refused where it matches the
  * base's. The message is cleaned by `commit.cleanup` as `-m`'s is, before the
  * hooks see it and again after, and signed where `commit.gpgSign` says. The
@@ -1192,9 +1200,34 @@ function commitIndex(message, { index, messageFile }, base, stampEnv) {
 	if (moved.status !== 0 && HEAD_MOVED_UNDER.test(moved.stderr)) return null;
 	stdoutOrRefuse(moved);
 	markTouched();
-	hook("post-commit");
-	run(["maintenance", "run", "--auto", "--quiet"]);
+	owePostCommit();
 	return sha;
+}
+
+/**
+ * What git's commit runs once its commit has landed and the index matches it:
+ * post-commit, whose exit git ignores, then the auto maintenance. Run after
+ * the shared index is reset, because post-commit's claim release reads it, and
+ * before the reset it still holds the old copies, reading every committed file
+ * as dirt nothing proves a neighbour's (#3565). finish runs it too, so a reset
+ * that fails still runs the hook on the commit that landed.
+ *
+ * Residual: after a failed reset the hook reads the old copies still in the
+ * shared index, so its claim release keeps every committed file's claim.
+ */
+function runPostCommit() {
+	if (!postCommitOwed) return;
+	postCommitOwed = false;
+	const env = { GIT_EDITOR: ":" };
+	// git runs every hook with its stdout sent to stderr.
+	const r = git(
+		["hook", "run", "--ignore-missing", "post-commit"],
+		undefined,
+		undefined,
+		env,
+	);
+	err(r.stderr);
+	git(["maintenance", "run", "--auto", "--quiet"], undefined, undefined, env);
 }
 
 /**

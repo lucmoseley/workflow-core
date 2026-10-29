@@ -87,6 +87,22 @@ function ledger(entries: string[] | null, forRoot = root) {
 	fs.writeFileSync(file, entries.map((e) => `${e}\n`).join(""));
 }
 
+/** A lock record the arbiter reads as live and owned by `owner`. */
+function claim(rel: string, owner: string) {
+	const dir = storeDir("locks");
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(
+		path.join(dir, `${rel.replace(/[^A-Za-z0-9_-]/g, "-")}.json`),
+		JSON.stringify({
+			path: rel,
+			sessionId: owner,
+			pid: process.pid,
+			procStart: readProcStartOf(process.pid),
+			bootId: readCurrentBootId(),
+		}),
+	);
+}
+
 interface Run {
 	blocked: boolean;
 	reason: string;
@@ -492,22 +508,6 @@ describe("the payload limb", () => {
 /* The write ledger says "this session wrote this path, ever" — not "this dirt is
  * this session's". A neighbour's live claim is what separates the two (mantahostels#63). */
 describe("a live neighbour's claim subtracts the path", () => {
-	/** A lock record the arbiter reads as live and owned by `owner`. */
-	function claim(rel: string, owner: string) {
-		const dir = storeDir("locks");
-		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, `${rel.replace(/[^A-Za-z0-9_-]/g, "-")}.json`),
-			JSON.stringify({
-				path: rel,
-				sessionId: owner,
-				pid: process.pid,
-				procStart: readProcStartOf(process.pid),
-				bootId: readCurrentBootId(),
-			}),
-		);
-	}
-
 	it("passes when a live OTHER session holds the dirty path", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
@@ -980,5 +980,54 @@ describe("the `waiting:` stand-down (mantahostels#2567)", () => {
 			.readdirSync(markers)
 			.filter((f) => f.startsWith(".uncommitted-nagged-"));
 		expect(counters).toEqual([]);
+	});
+});
+
+describe("a claim left on a committed file (#3565)", () => {
+	const ending = (message: string) =>
+		run(root, {}, { last_assistant_message: `Done.\n\n${message}` });
+
+	it.each(["result: shipped", "needs input: which one — waits on you: #1"])(
+		"blocks a turn ending `%s`, naming each clean file and the release that clears it",
+		(marker) => {
+			claim("tracked.md", sid);
+			claim("other.md", sid);
+			const r = ending(marker);
+			expect(r.blocked).toBe(true);
+			expect(r.reason).toContain(
+				"holds 2 claim(s) on files with no uncommitted change: other.md tracked.md.",
+			);
+			expect(r.reason).toContain(
+				"session-arbiter.js release-committed other.md tracked.md`",
+			);
+		},
+	);
+
+	it("leaves out a dirty file, a region claim and a neighbour's claim", () => {
+		claim("tracked.md", sid);
+		claim("other.md", sid);
+		dirty("other.md");
+		claim("tool.sh", "some-other-session");
+		claim("docs/doc-map.md#B1", sid);
+		const r = ending("result: shipped");
+		expect(r.blocked).toBe(true);
+		expect(r.reason).toContain(
+			"holds 1 claim(s) on files with no uncommitted change: tracked.md.",
+		);
+	});
+
+	it.each([
+		["a `waiting:` turn", "waiting: the suite will wake this session."],
+		["a turn with no marker", "Here is what I found."],
+	])("passes %s", (_, message) => {
+		claim("tracked.md", sid);
+		expect(run(root, {}, { last_assistant_message: message }).blocked).toBe(
+			false,
+		);
+	});
+
+	it("passes once this session holds no clean claim", () => {
+		claim("tracked.md", "some-other-session");
+		expect(ending("result: shipped").blocked).toBe(false);
 	});
 });

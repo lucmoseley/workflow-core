@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 /*
  * guard-uncommitted-work.js — Stop hook. Blocks a turn that ends with this
- * session's own tracked edits still uncommitted in the shared working tree.
+ * session's own tracked edits still uncommitted in the shared working tree,
+ * and a `result:` or `needs input:` turn that ends with this session still
+ * holding a claim on a file whose changes are all committed (#3565).
  *
  * The uncommitted-work half of the turn-end rule, which this guard enforces,
  * lives in docs/agents/guard-registry.md §Conventions (#2034); the
@@ -72,7 +74,9 @@
  * IMPLICIT:  reads git state at Stop and refuses the turn while this session's
  *            own tracked edits sit uncommitted in the shared tree — unless the
  *            turn is the `waiting:` hand-off docs/agents/guard-registry.md §Conventions makes the
- *            one exception, and a launch in this transcript is still out.
+ *            one exception, and a launch in this transcript is still out; and
+ *            refuses a `result:` or `needs input:` turn while this session
+ *            holds a whole-file claim on a clean file.
  * JUSTIFIED: fail-safe — an unattended job that stops mid-edit leaves the work
  *            unrecoverable-by-anyone-else for hours, and the fix is one command.
  * DEFEAT:    this file caps the block at six per session (`BLOCK_CAP`, mantahostels#2791),
@@ -81,7 +85,8 @@
  *            trapped. Before the cap, a path carrying an owned debt this
  *            session recorded is released at once (#1170) — so a session can
  *            also release its own dirt by declaring it, which leaves a debt
- *            standing in the store until its issue closes.
+ *            standing in the store until its issue closes. The clean-claim
+ *            limb takes the house cap of three, on a counter of its own.
  */
 
 const {
@@ -151,6 +156,23 @@ function inSharedTree() {
 }
 
 /**
+ * Read through `hookMessage.readMessageText` for the header's reason. An unreadable
+ * transcript answers no message, logged rather than crumbed (#73).
+ * @param {import('./lib/stop-guard.js').StopPayload} payload
+ * @param {string} sid
+ */
+function readEnding(payload, sid) {
+	const transcript = hookMessage.transcriptPath(payload, sid);
+	const message = hookMessage.readMessageText(payload, transcript, (err) =>
+		require("./lib/arbiter-core").logError(
+			"guard-uncommitted-work message",
+			err,
+		),
+	);
+	return { transcript, message };
+}
+
+/**
  * The `waiting:` STAND-DOWN (mantahostels#2567). docs/agents/guard-registry.md §Conventions makes the one-line
  * `waiting:` hand-off "the exception and the only one" to the rule this guard
  * enforces, and the guard had no exemption for it: most of what it ever
@@ -194,15 +216,7 @@ function inSharedTree() {
  *   message carries, and is null unless the turn tried to hand off and failed.
  */
 function waitingHandoff(payload, sid) {
-	const transcript = hookMessage.transcriptPath(payload, sid);
-	/* An unreadable transcript fails open to blocking, logged rather than
-	 * crumbed (#73). */
-	const message = hookMessage.readMessageText(payload, transcript, (err) =>
-		require("./lib/arbiter-core").logError(
-			"guard-uncommitted-work message",
-			err,
-		),
-	);
+	const { transcript, message } = readEnding(payload, sid);
 	if (!message) return { down: false, why: null };
 
 	const { name, payload: said } = governingMarker(message);
@@ -316,13 +330,45 @@ function refuseUncommitted(payload, sid) {
 }
 
 /**
+ * The second limb (#3565): a turn ending `result:` or `needs input:` while
+ * this session holds a whole-file claim on a file with no uncommitted change.
+ * A `waiting:` turn or one with no marker is passed over: a session between
+ * its own writes holds a clean file legitimately (mantahostels#66).
+ * @param {import('./lib/stop-guard.js').StopPayload} payload
+ * @param {string} sid
+ */
+function refuseHeldClean(payload, sid) {
+	/* The cheap checks first: the claim read costs one `git status` a claim. */
+	if (hookBlock.capSpent({ prefix: ".held-clean-nagged-", sessionId: sid }))
+		return;
+	const { message } = readEnding(payload, sid);
+	if (!message) return;
+	const { name } = governingMarker(message);
+	if (name !== "result:" && name !== "needs input:") return;
+	const clean = store.readHeldClean(sid);
+	if (clean === null || clean.length === 0) return;
+
+	const named = clean.map(shellQuote).join(" ");
+	hookBlock.blockStop({
+		prefix: ".held-clean-nagged-",
+		sessionId: sid,
+		reason:
+			`This turn ends \`${name}\` while this session holds ${String(clean.length)} claim(s) on files with no uncommitted change: ${named}. ` +
+			"Its work on them is committed, so each claim guards nothing and refuses every neighbour who wants the file. " +
+			`Release them: \`node ${scriptPath("session-arbiter.js")} release-committed ${named}\` — a later write of yours re-takes the claim. ` +
+			"Then re-send the message this turn was going to end on, its status marker and any priced question included — this block discarded it.",
+	});
+}
+
+/**
  * The whole of this guard's judgement on one turn; `lib/stop-guard.js` owns
  * everything around it.
  * @param {{sessionId: string, payload: import('./lib/stop-guard.js').StopPayload}} ctx
  */
 function judge({ sessionId: sid, payload }) {
 	if (!inSharedTree()) return;
-	refuseUncommitted(payload, sid);
+	if (refuseUncommitted(payload, sid)) return;
+	refuseHeldClean(payload, sid);
 }
 
 if (require.main === module) stopGuard.onPayload({ review: judge });

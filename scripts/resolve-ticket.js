@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /*
  * resolve-ticket.js — resolve a ticket in one call: post the resolution
- * comment, close, release this session's arbiter claim, and append the
- * ticket's line to its parent map's Decisions so far (#534; spec #528, ruled
- * at #481).
+ * comment, close, release this session's arbiter claim and its whole-file
+ * claims on files with no uncommitted change (#3565), and append the ticket's
+ * line to its parent map's Decisions so far (#534; spec #528, ruled at #481).
  *
  *   node scripts/resolve-ticket.js <n> --comment-file F|- [--decision "<one line>"]
  *     [--reason completed|"not planned"]
@@ -96,6 +96,7 @@ const {
 	readIssue,
 	readParent,
 	recordOwnAct,
+	releaseCleanFileClaims,
 	releaseOwnClaim,
 	scriptIo,
 } = require("./lib/tracker-ops.js");
@@ -489,6 +490,7 @@ function main() {
 	}
 
 	let code = releaseOwnClaim(io, n);
+	if (releaseCleanFileClaims(io) !== 0) code = 1;
 
 	if (map) {
 		if (
