@@ -5,12 +5,12 @@
  * Loosen it and two landers, or two refill loops, run at once, or a dead
  * holder's pidfile locks every later start out.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { pidLock } from "./pid-lock.js";
+import { NotALock, pidLock } from "./pid-lock.js";
 
 let dir: string;
 let file: string;
@@ -34,6 +34,25 @@ describe("pidLock", () => {
 		expect(lock.holder()).toBe(process.pid);
 		lock.release();
 		expect(fs.existsSync(file)).toBe(false);
+	});
+
+	it.each([
+		["a directory", () => fs.mkdirSync(file)],
+		["a FIFO", () => execFileSync("mkfifo", [file])],
+	])(
+		"throws NotALock on %s at the lock's path, moving nothing (#3663)",
+		(_l, make) => {
+			make();
+			expect(() => pidLock(file, "node").acquire()).toThrow(NotALock);
+			expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
+		},
+	);
+
+	it("takes over a dangling symlink at the lock's path as a stale pidfile (#3663)", () => {
+		fs.symlinkSync(path.join(dir, "elsewhere"), file);
+		expect(pidLock(file, "node").acquire()).toBe(true);
+		expect(fs.lstatSync(file).isFile()).toBe(true);
+		expect(fs.readdirSync(dir)).toEqual([".daemon.pid"]);
 	});
 
 	it("refuses while the holder's process lives", () => {
