@@ -395,9 +395,8 @@ function debtsOwnedBy(sid) {
  * or a rate limit all return null here, and the caller then retires nothing.
  * The other way round, an outage would silently empty the register.
  *
- * Not through lib/gh.js, a written exception (#3455): gh.js loads lib/check.js,
- * whose crash handler would turn a session-arbiter hook's crash into exit 2. It
- * reads gh.js's own WFC_GH.
+ * Deliberately not routed through lib/gh.js (mantahostels#154): that seam exits the process
+ * on a gh failure, which is right for a checker and wrong here.
  * @param {string[]} args
  * @param {number} timeoutMs
  * @param {string} where
@@ -405,7 +404,7 @@ function debtsOwnedBy(sid) {
 function ghJson(args, timeoutMs, where) {
 	try {
 		return JSON.parse(
-			execFileSync(process.env.WFC_GH || "gh", args, {
+			execFileSync(process.env.WFC_ARBITER_GH || "gh", args, {
 				cwd: core.repoRoot(),
 				encoding: "utf8",
 				timeout: timeoutMs,
