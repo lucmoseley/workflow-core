@@ -312,7 +312,7 @@ describe("the SessionStart debt drain", () => {
 
 	it("leaves every entry standing when gh cannot answer", async () => {
 		ghClosedList(sb, [73]);
-		process.env.WFC_ARBITER_GH = path.join(sb.dir, "no-such-gh");
+		process.env.WFC_GH = path.join(sb.dir, "no-such-gh");
 		store.ownDebt(REL, 73, "an edit owed on a ticket that has since closed");
 		expect(run().status).toBe(0);
 

@@ -68,6 +68,7 @@ const CHECKERS = {
 	"host-root": path.join(CORE_SCRIPTS, "check-host-root.js"),
 	"skill-frontmatter": path.join(CORE_SCRIPTS, "check-skill-frontmatter.js"),
 	"jsonl-reads": path.join(CORE_SCRIPTS, "check-jsonl-reads.js"),
+	"gh-route": path.join(CORE_SCRIPTS, "check-gh-route.js"),
 	"clock-copies": path.join(CORE_SCRIPTS, "check-clock-copies.js"),
 	"report-programs": path.join(CORE_SCRIPTS, "check-report-programs.js"),
 	"cli-args": path.join(CORE_SCRIPTS, "check-cli-args.js"),
@@ -163,6 +164,11 @@ const COSTS = {
 		why: "every hand split-and-parse of JSONL, judged whole-tree in .husky/pre-commit (#3452, #3453)",
 		cost: "refuses every other session's commit staging a scripts/ program until that site reads through lib/jsonl.js",
 		full: "node scripts/check-jsonl-reads.js",
+	},
+	"gh-route": {
+		why: "every `gh` call off lib/gh.js and WFC_GH, judged whole-tree in .husky/pre-commit (#3455)",
+		cost: "refuses every other session's commit staging scripts/, .claude/skills/, .husky/ or hooks/ until that call reads WFC_GH",
+		full: "node scripts/check-gh-route.js",
 	},
 	"clock-copies": {
 		why: "every WFC_NOW read outside lib/check.js's now(), judged whole-tree in .husky/pre-commit (#3457)",

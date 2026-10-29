@@ -6,7 +6,7 @@
  *
  * The hook is driven exactly as Claude Code drives it: a PostToolUse payload on
  * stdin, its output read back as the injected additionalContext. `gh` is stubbed
- * earlier on PATH.
+ * at WFC_GH.
  *
  * The fixture is the real miss (mantahostels#136): a session working mantahostels#130 — itself a
  * `wayfinder:task` child of the mantahostels#96 map — runs `gh issue create` and the new
@@ -40,8 +40,6 @@ interface IssueView {
 /**
  * Stub `gh issue view <n> --json …`, one fixture per issue number. An issue
  * absent from the map makes the stub exit non-zero — the "gh cannot answer" path.
- * The hook is a shell script that resolves `gh` on PATH, so this test injects
- * the stub via PATH rather than WFC_GH.
  */
 const stubGh = (views: Record<number, IssueView>) => {
 	for (const [n, v] of Object.entries(views))
@@ -55,27 +53,11 @@ const stubGh = (views: Record<number, IssueView>) => {
 	return stubGhScript(
 		dir,
 		`#!/bin/sh\nf="${dir}/issue-$3.json"\n[ -f "$f" ] || exit 1\ncat "$f"\n`,
-	).PATH;
+	).gh;
 };
 
-/**
- * A PATH on which `command -v gh` fails. Emptying PATH would hide `bash` too and
- * the hook would never start, so this symlinks in exactly the tools it calls.
- */
-const pathWithoutGh = () => {
-	const bin = fs.mkdtempSync(path.join(dir, "nogh-"));
-	// Every external command in the hook except gh. Miss one and the hook dies
-	// before it reaches the prompt, which reads as a pass.
-	for (const tool of ["bash", "jq", "grep", "head", "tr", "timeout", "cat"]) {
-		// `type -P` and not `command -v`, which resolves an alias to its own name.
-		const found = spawnSync("bash", ["-c", `type -P ${tool}`], {
-			encoding: "utf8",
-		}).stdout?.trim();
-		if (!found) throw new Error(`no ${tool} on PATH to link`);
-		fs.symlinkSync(found, path.join(bin, tool));
-	}
-	return bin;
-};
+/** A WFC_GH naming no file, where `command -v` fails. */
+const noSuchGh = () => path.join(dir, "no-such-gh");
 
 /** A session named after issue <n>, the way name-issue-session.sh writes it. */
 const sessionOn = (n: number | null) => {
@@ -106,7 +88,7 @@ const run = ({
 	noGh?: boolean;
 	env?: Record<string, string>;
 } = {}) => {
-	const stubPath = noGh ? pathWithoutGh() : stubGh(views);
+	const gh = noGh ? noSuchGh() : stubGh(views);
 	const payload = JSON.stringify({
 		tool_name: "Bash",
 		tool_input: { command },
@@ -121,7 +103,7 @@ const run = ({
 		encoding: "utf8",
 		env: {
 			...process.env,
-			PATH: stubPath,
+			WFC_GH: gh,
 			TMPDIR: dir,
 			CLAUDE_JOB_DIR: sessionOn(session),
 			...env,
@@ -237,7 +219,7 @@ describe("takes: is asked per issue, not per prompt", () => {
 	 * issue this call created, and nags for a label on an issue it did not touch.
 	 */
 	it("ignores a comment permalink in the same output", () => {
-		const stubPath = stubGh({ 137: {}, 900: {} });
+		const gh = stubGh({ 137: {}, 900: {} });
 		const payload = JSON.stringify({
 			tool_name: "Bash",
 			tool_input: { command: "gh issue create -t x && gh issue comment 900" },
@@ -251,7 +233,7 @@ describe("takes: is asked per issue, not per prompt", () => {
 			encoding: "utf8",
 			env: {
 				...process.env,
-				PATH: stubPath,
+				WFC_GH: gh,
 				TMPDIR: dir,
 				CLAUDE_JOB_DIR: sessionOn(130),
 			},
@@ -402,7 +384,7 @@ describe("takes: prompt", () => {
 		expect(run({ views: { 137: {} } }).status).toBe(0);
 	});
 
-	it("still asks, and does not error, with no gh on PATH at all", () => {
+	it("still asks, and does not error, with no gh at all", () => {
 		const r = run({ views: { 137: {} }, noGh: true });
 		expect(r.status).toBe(0);
 		expect(r.context).toContain("If #137 carries no takes: label yet");
@@ -412,7 +394,7 @@ describe("takes: prompt", () => {
 describe("a backgrounded create, whose output carries no issue number", () => {
 	/** Drives the hook with an arbitrary tool_output, which `run` cannot express. */
 	const runWithOutput = (command: string, toolOutput: string) => {
-		const stubPath = stubGh({});
+		const gh = stubGh({});
 		const r = spawnSync("bash", [HOOK], {
 			input: JSON.stringify({
 				tool_name: "Bash",
@@ -424,7 +406,7 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 			encoding: "utf8",
 			env: {
 				...process.env,
-				PATH: stubPath,
+				WFC_GH: gh,
 				TMPDIR: dir,
 				CLAUDE_JOB_DIR: sessionOn(130),
 			},
@@ -509,7 +491,7 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 	it("asks for placement once per prompt, but for a label every time", () => {
 		const promptId = "shared-prompt";
 		const call = () => {
-			const stubPath = stubGh({});
+			const gh = stubGh({});
 			const r = spawnSync("bash", [HOOK], {
 				input: JSON.stringify({
 					tool_name: "Bash",
@@ -521,7 +503,7 @@ describe("a backgrounded create, whose output carries no issue number", () => {
 				encoding: "utf8",
 				env: {
 					...process.env,
-					PATH: stubPath,
+					WFC_GH: gh,
 					TMPDIR: dir,
 					CLAUDE_JOB_DIR: sessionOn(130),
 				},

@@ -1,0 +1,3 @@
+const gh = path.join(dir, "bin", "gh");
+fs.writeFileSync(gh, script, { mode: 0o755 });
+const env = { WFC_GH: gh };
