@@ -209,6 +209,18 @@
 			"lines": ["hand-parses JSONL"]
 		},
 		{
+			"id": "gh-route",
+			"lines": ["off its one route"]
+		},
+		{
+			"id": "clock-copies",
+			"lines": ["reads WFC_NOW itself"]
+		},
+		{
+			"id": "report-programs",
+			"lines": ["report-program breach(es)"]
+		},
+		{
 			"id": "primitives",
 			"lines": ["primitives table fault(s)"]
 		},

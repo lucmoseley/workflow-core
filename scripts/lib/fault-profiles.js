@@ -229,6 +229,12 @@ const PROFILES = {
 	 * inherited site leaves it inherited and a second copy of one is new.
 	 */
 	"jsonl-reads": findingsProfile(on("severity", "tag", "file", "match")),
+	/* One second `gh` route, keyed as jsonl-reads' sites are (#3455). */
+	"gh-route": findingsProfile(on("severity", "tag", "file", "match")),
+	/* One WFC_NOW read, keyed as jsonl-reads' sites are (#3457). */
+	"clock-copies": findingsProfile(on("severity", "tag", "file", "match")),
+	/* One output call or create per finding, keyed as jsonl-reads is (#3454). */
+	"report-programs": findingsProfile(on("severity", "tag", "file", "match")),
 	/* One spawn per finding, at its call's first line, never its line number:
 	 * an edit above an inherited spawn must not read as adding it (#3458). */
 	"test-spawn": findingsProfile(on("severity", "tag", "file", "call", "nth")),

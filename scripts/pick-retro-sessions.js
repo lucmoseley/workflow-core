@@ -58,6 +58,7 @@ const {
 } = require("./lib/transcript");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
 const { execGit } = require("./lib/git.js");
+const { errMessage, now: checkNow } = require("./lib/check");
 
 const USAGE = `Usage: node scripts/pick-retro-sessions.js [--week <date>] [--top <n>]
   [--calibrate [--seed <s>]] [--config-dir <dir>]...
@@ -107,14 +108,13 @@ const LIVENESS_ASK_MAX = 200;
  * test where it is used.
  */
 
-/** @returns {number} */
+/** lib/check.js's clock, a malformed WFC_NOW exiting 2. @returns {number} */
 function now() {
-	const raw = process.env.WFC_NOW;
-	if (!raw) return Date.now();
-	const t = Date.parse(raw);
-	if (Number.isNaN(t))
-		exitWith(new CliExit(2, `WFC_NOW is not a date: ${raw}\n`));
-	return t;
+	try {
+		return checkNow();
+	} catch (e) {
+		return exitWith(new CliExit(2, `${errMessage(e)}\n`));
+	}
 }
 
 /** An absent directory reads empty: a session with no subagents. @param {string} dir */
