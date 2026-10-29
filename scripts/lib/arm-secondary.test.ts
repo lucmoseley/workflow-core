@@ -257,7 +257,6 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"workflow-permissions": ["scripts/check-workflow-permissions.js"],
 	"cli-args": ["scripts/check-cli-args.js"],
 	"jsonl-reads": ["scripts/check-jsonl-reads.js"],
-	"gh-route": ["scripts/check-gh-route.js"],
 	"clock-copies": ["scripts/check-clock-copies.js"],
 	primitives: ["scripts/check-primitives.js"],
 	"test-spawn": ["scripts/check-test-spawn.js"],

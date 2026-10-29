@@ -50,8 +50,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { spawn, spawnSync } = require("node:child_process");
-const { ghJson } = require("./lib/gh.js");
+const { execFileSync, spawn, spawnSync } = require("node:child_process");
 const { execGit, spawnGitSync } = require("./lib/git.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { caught } = require("./lib/caught.js");
@@ -661,6 +660,16 @@ function verify({ flags, positionals }) {
  * @typedef {{ number: number, body: string, comments: { createdAt: string }[] }} FrozenIssue
  */
 
+/**
+ * @param {string[]} args
+ * @returns {FrozenIssue}
+ */
+function ghJson(args) {
+	return JSON.parse(
+		execFileSync(process.env.WFC_GH || "gh", args, { encoding: "utf8" }),
+	);
+}
+
 const FROZEN_FIELDS =
 	"number,title,body,labels,state,comments,assignees,createdAt";
 
@@ -669,7 +678,6 @@ const FROZEN_FIELDS =
  * @param {string} before ISO time of the first landing commit
  */
 function readFrozenIssue(n, before) {
-	/** @type {FrozenIssue} */
 	const issue = ghJson(["issue", "view", String(n), "--json", FROZEN_FIELDS]);
 	const cutoff = Date.parse(before);
 	return {

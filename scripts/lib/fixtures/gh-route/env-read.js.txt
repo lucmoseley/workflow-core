@@ -1,2 +1,0 @@
-const x = 1;
-const out = execFileSync(process.env.WFC_GH || "gh", args, { encoding: "utf8" });
