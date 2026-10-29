@@ -1,9 +1,10 @@
 // @vitest-environment node
 /*
  * oracle-cache.js shortens the oracle read three concurrent SessionStart hooks
- * pay (mantahostels#1924/mantahostels#1921). Since mantahostels#1960 that is ALL it shortens: a plain sequential
- * re-read never takes a cached hit any more, only a genuinely racing follower
- * does. It is allowed to make a read cheaper and never to change its answer:
+ * pay (mantahostels#1924/mantahostels#1921). Since mantahostels#1960 a plain sequential re-read takes a cached
+ * hit only through `wait`'s shared reader (#3561); every other reader takes
+ * one only as a genuinely racing follower. For every strict reader it is
+ * allowed to make a read cheaper and never to change its answer:
  * every failure of the cache — concurrent or not — must land the caller on a
  * live spawn.
  *
@@ -33,13 +34,16 @@ const cache: any = createRequire(__filename)("./oracle-cache.js");
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const liveness: any = createRequire(__filename)("./agent-liveness.js");
 
-/* The keyed paths every process coordinates through, as it finds them on disk. */
-const key = (bin: string) =>
-	crypto.createHash("sha1").update(bin).digest("hex").slice(0, 12);
-const cachePath = (bin: string) =>
-	path.join(dir, `wfc-oracle-cache-${key(bin)}.json`);
-const lockPath = (bin: string) =>
-	path.join(dir, `wfc-oracle-cache-${key(bin)}.lock`);
+/* The keyed paths every process coordinates through, as it finds them on
+ * disk: under a raw key for the cache alone, and under `live(bin)` for the key
+ * agent-liveness.js reads `bin` under in this test's config dir. */
+const hashOf = (key: string) =>
+	crypto.createHash("sha1").update(key).digest("hex").slice(0, 12);
+const cachePath = (key: string) =>
+	path.join(dir, `wfc-oracle-cache-${hashOf(key)}.json`);
+const lockPath = (key: string) =>
+	path.join(dir, `wfc-oracle-cache-${hashOf(key)}.lock`);
+const live = (bin: string): string => liveness.oracleCacheKey(bin);
 
 /* The one field these tests read off a record. */
 interface Rec {
@@ -94,7 +98,7 @@ const listing = (...sessionIds: string[]) =>
 		})),
 	);
 
-describe("no plain TTL hit, for any caller (mantahostels#1960)", () => {
+describe("no plain TTL hit, for any strict caller (mantahostels#1960)", () => {
 	/* mantahostels#1946, via mantahostels#1960. Sequential, not concurrent — the second call starts only
 	 * once the first has fully returned, so single-flight's own-wait-only guard
 	 * does not paper over this; it always re-spawns. */
@@ -125,7 +129,89 @@ describe("no plain TTL hit, for any caller (mantahostels#1960)", () => {
 		process.env.WFC_ORACLE_CACHE = "0";
 		const fake = countingClaude(listing("a"));
 		liveness.listedAgents();
-		expect(fs.existsSync(cachePath(fake.bin))).toBe(false);
+		expect(fs.existsSync(cachePath(live(fake.bin)))).toBe(false);
+	});
+});
+
+describe("the shared reading wait polls (#3561)", () => {
+	it("serves a second reader inside the TTL without a spawn", () => {
+		const fake = countingClaude(listing("a"));
+		expect([...liveness.sharedSessionIds().ids]).toEqual(["a"]);
+		expect([...liveness.sharedSessionIds().ids]).toEqual(["a"]);
+		expect(fake.spawns()).toBe(1);
+	});
+
+	it("spawns past the TTL, so a daemon failing since reads as doubt", () => {
+		process.env.WFC_ORACLE_CACHE_TTL_MS = "50";
+		const fake = countingClaude(listing("a"));
+		fs.writeFileSync(
+			cachePath(live(fake.bin)),
+			JSON.stringify({ at: Date.now() - 1000, raw: listing("a") }),
+		);
+		fs.writeFileSync(fake.bin, "#!/bin/sh\nexit 3\n", { mode: 0o755 });
+		const r = liveness.sharedSessionIds();
+		expect(r.ids).toBeUndefined();
+		expect(r.why).toContain("exit 3");
+	});
+
+	it("spawns past an unreadable record", () => {
+		const fake = countingClaude(listing("a"));
+		fs.writeFileSync(cachePath(live(fake.bin)), "{not json");
+		expect([...liveness.sharedSessionIds().ids]).toEqual(["a"]);
+		expect(fake.spawns()).toBe(1);
+	});
+
+	it("answers doubt, starting nothing, while another reader refreshes", () => {
+		process.env.WFC_ORACLE_CACHE_WAIT_MS = "200";
+		process.env.WFC_ORACLE_CACHE_POLL_MS = "50";
+		const fake = countingClaude(listing("a"));
+		fs.mkdirSync(lockPath(live(fake.bin)));
+		const r = liveness.sharedSessionIds();
+		expect(r.why).toMatch(/another reader is refreshing/);
+		expect(fake.spawns()).toBe(0);
+	});
+
+	it("is never served to a strict reader", () => {
+		const fake = countingClaude(listing("a"));
+		liveness.sharedSessionIds();
+		liveness.listedSessionIds();
+		expect(fake.spawns()).toBe(2);
+	});
+
+	it("serves a failed refresh as doubt for the TTL, starting nothing", () => {
+		const fake = countingClaude(listing("a"));
+		fs.writeFileSync(
+			fake.bin,
+			`#!/bin/sh\necho x >> '${path.join(dir, "spawns")}'\nexit 3\n`,
+			{
+				mode: 0o755,
+			},
+		);
+		expect(liveness.sharedSessionIds().why).toContain("exit 3");
+		const again = liveness.sharedSessionIds();
+		expect(again.why).toMatch(/exit 3.*a shared reading/);
+		expect(fake.spawns()).toBe(1);
+	});
+
+	/* A dir that is no seat reads itself beside the seats, as an overflow
+	 * seat does, so its listing is not the plan seats'. */
+	it("is one record across the plan seats, and none shared with an overflow seat", () => {
+		const [seatA, seatB, overflow] = [".claude", ".claude2", "overflow"].map(
+			(name) => path.join(dir, name),
+		);
+		for (const d of [seatA, seatB, overflow]) fs.mkdirSync(d);
+		process.env.WFC_CLAUDE_CONFIG_A = seatA;
+		process.env.WFC_CLAUDE_CONFIG_B = seatB;
+		const fake = countingClaude(listing("a"));
+		process.env.CLAUDE_CONFIG_DIR = seatB;
+		liveness.sharedSessionIds();
+		const plan = fake.spawns();
+		process.env.CLAUDE_CONFIG_DIR = seatA;
+		expect([...liveness.sharedSessionIds().ids]).toEqual(["a"]);
+		expect(fake.spawns()).toBe(plan);
+		process.env.CLAUDE_CONFIG_DIR = overflow;
+		liveness.sharedSessionIds();
+		expect(fake.spawns()).toBeGreaterThan(plan);
 	});
 });
 
@@ -178,7 +264,7 @@ describe("a cached record that does not answer THIS caller", () => {
 			env: { ...baseEnv, CLAUDE_CODE_SESSION_ID: "" },
 			stdio: "ignore",
 		});
-		const held = lockPath(bin);
+		const held = lockPath(live(bin));
 		const deadline = Date.now() + 5000;
 		while (!fs.existsSync(held) && Date.now() < deadline) {
 			await new Promise((r) => setTimeout(r, 10));
@@ -239,7 +325,7 @@ describe("a cached record that does not answer THIS caller", () => {
 			env: baseEnv,
 			stdio: "ignore",
 		});
-		const held = lockPath(bin);
+		const held = lockPath(live(bin));
 		const deadline = Date.now() + 5000;
 		while (!fs.existsSync(held) && Date.now() < deadline) {
 			await new Promise((r) => setTimeout(r, 10));
@@ -434,7 +520,9 @@ describe("the single-flight lock", () => {
 		process.env.WFC_CLAUDE_BIN = path.join(dir, "no-such-claude");
 		const answer = liveness.listedAgents();
 		expect(answer.why).toMatch(/would not run/);
-		expect(fs.existsSync(lockPath(process.env.WFC_CLAUDE_BIN))).toBe(false);
+		expect(
+			fs.existsSync(lockPath(live(String(process.env.WFC_CLAUDE_BIN)))),
+		).toBe(false);
 	});
 });
 

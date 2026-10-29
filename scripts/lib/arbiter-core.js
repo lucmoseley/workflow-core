@@ -1598,6 +1598,7 @@ module.exports = {
 	splitSubject,
 	stateDir,
 	stateDirFor,
+	storeConfigDir,
 	subjectDirty,
 	subjectFor,
 	subjectPath,

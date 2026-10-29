@@ -1,8 +1,8 @@
 /*
  * oracle-cache.js — single-flight over `claude agents --json`, the oracle
- * agent-liveness.js reads. `readFresh` carries a TTL, but no caller of
- * agent-liveness.js is ever offered a hit from it standing alone (mantahostels#1960) — only
- * `waitForLeader` consults it (below).
+ * agent-liveness.js reads, and the one shared reading `wait` polls
+ * (`readFresh`, #3561). No other caller of agent-liveness.js is offered a hit
+ * standing alone (mantahostels#1960).
  *
  * WHY SINGLE-FLIGHT AND NOT A PLAIN CACHE (mantahostels#1924, measuring mantahostels#1921). It
  * was built for three SessionStart hooks launching at the SAME INSTANT, where a
@@ -12,18 +12,13 @@
  * (`status-report.js`'s `Promise.all`), so the burst moved rather than went
  * (#1446).
  *
- * THE PLAIN TTL HIT IS GONE (mantahostels#1960): IT LET A CACHED SUCCESS OUTLIVE A DAEMON
- * FAILURE (mantahostels#1946).
+ * NO PLAIN TTL HIT FOR A STRICT READER (mantahostels#1960): IT LET A CACHED
+ * SUCCESS OUTLIVE A DAEMON FAILURE (mantahostels#1946).
  *
- * RESIDUAL, ACCEPTED: THE SECOND WIN IS GONE WITH IT. A reader that starts
- * just after the leader has published always spawns its own oracle rather
- * than being served the leader's.
- *
- * DEGRADES TO TODAY'S BEHAVIOUR, NEVER TO A REFUSAL. Every failure here — an
- * unwritable config dir, a wedged leader, a corrupt cache file — ends in the
- * caller running its own oracle. agent-liveness.js's contract is that a bad read
- * degrades to doubt, and a throw from a cache would abort a SessionStart hook
- * mid-pass.
+ * NEVER A THROW. Every failure here — an unwritable config dir, a wedged
+ * leader, a corrupt cache file — ends in the caller running its own oracle,
+ * except that the shared reader following a leader answers doubt rather than
+ * spawn beside it (agent-liveness.js).
  *
  * IT CACHES RAW STDOUT, NEVER A CLASSIFIED LISTING. Every check
  * agent-liveness.js makes — the shape guards and the self-test above all — is
@@ -37,31 +32,37 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { configDir } = require("./config-dir.js");
+const { storeConfigDir } = require("./arbiter-core.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { caught } = require("./caught.js");
 
 /*
- * EVERY PATH IS KEYED TO THE ORACLE BINARY, and that is a correctness guard
- * rather than tidiness. The suite stands a fake `claude` on WFC_CLAUDE_BIN;
- * unkeyed, a fake would be served the real daemon's listing from a session
+ * EVERY PATH IS KEYED TO THE ORACLE BINARY AND THE DIRS IT READS
+ * (agent-liveness.js `oracleCacheKey`). An overflow seat reads its own dir
+ * beside the plan seats', so its listing is not a plan seat's, and one served
+ * the other's would read its own sessions absent (#3561). The suite stands a
+ * fake `claude` on WFC_CLAUDE_BIN; unkeyed, a fake would be served the real daemon's listing from a session
  * start seconds earlier, and — worse — would queue behind that start's lock for
  * the follower wait. Keyed, a fake shares nothing with the real oracle and
  * nothing with another fake.
  */
-/** @param {string} bin */
-const keyOf = (bin) =>
-	crypto.createHash("sha1").update(String(bin)).digest("hex").slice(0, 12);
+/** @param {string} key */
+const keyOf = (key) =>
+	crypto.createHash("sha1").update(String(key)).digest("hex").slice(0, 12);
 
-/** @param {string} bin */
-const cachePath = (bin) =>
-	path.join(configDir(), `wfc-oracle-cache-${keyOf(bin)}.json`);
+/*
+ * UNDER THE SHARED STORE DIR, so a session on any seat reads the one record
+ * for its dirs (#3561).
+ */
+/** @param {string} key */
+const cachePath = (key) =>
+	path.join(storeConfigDir(), `wfc-oracle-cache-${keyOf(key)}.json`);
 
 /* A DIRECTORY, not a file: mkdir is the atomic create-or-fail every platform
  * agrees on, and an O_EXCL open is not on a network-mounted home. */
-/** @param {string} bin */
-const lockPath = (bin) =>
-	path.join(configDir(), `wfc-oracle-cache-${keyOf(bin)}.lock`);
+/** @param {string} key */
+const lockPath = (key) =>
+	path.join(storeConfigDir(), `wfc-oracle-cache-${keyOf(key)}.lock`);
 
 /**
  * A positive millisecond knob from `env`, else `fallback` — a garbled value must
@@ -77,11 +78,16 @@ function capMs(env, fallback) {
 	return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-/* HOW LONG A LISTING STAYS GOOD — `readFresh`'s own outer bound, kept for its
- * stand-alone contract. DEAD AT THE SHIPPED DEFAULTS (mantahostels#1960): nothing asks
- * for a record older than `waitMs` (4 s) — always inside this 20 s figure — so
- * this can only reject anything if the env knob is set below `waitMs`. */
-const ttlMs = () => capMs("WFC_ORACLE_CACHE_TTL_MS", 20_000);
+/*
+ * HOW LONG A LISTING STAYS GOOD for `wait`'s shared read (#3561).
+ *
+ * A GUESS, set to `wait`'s 30 s oracle cadence rather than measured: at that
+ * figure N waiters polling on their own staggered 30 s clocks start one
+ * listing per 30 s between them. Staleness costs a waiter only latency: HOLDER-ENDED is confirmed
+ * by a fresh read before it fires (session-arbiter.js `readOracle`). The knob
+ * has no ceiling, so raising it widens how stale a served reading can be.
+ */
+const ttlMs = () => capMs("WFC_ORACLE_CACHE_TTL_MS", 30_000);
 
 /*
  * HOW LONG A FOLLOWER WAITS ON THE LEADER before spawning its own.
@@ -153,21 +159,46 @@ function trySleep(ms) {
 }
 
 /**
- * The cached stdout if one was written within the TTL, else null.
+ * The cached stdout if one was written within the TTL, else null. A hit
+ * standing alone goes to agent-liveness.js's `sharedSessionIds` only.
  *
  * `minAt` narrows that to records written since a given moment, which is how a
  * follower avoids mistaking a record left by an EARLIER start for the answer the
  * leader it is waiting on has not published yet.
  *
- * @param {string} bin
+ * @param {string} key
  * @param {number} [minAt]
  * @returns {string|null}
  */
-function readFresh(bin, minAt) {
+function readFresh(key, minAt) {
+	const rec = freshRecord(key, minAt);
+	return typeof rec?.raw === "string" ? rec.raw : null;
+}
+
+/**
+ * The refusal a failed refresh published within the TTL, else null. Read by
+ * the shared reader alone (#3561).
+ *
+ * @param {string} key
+ * @returns {string|null}
+ */
+function readRefusal(key) {
+	const rec = freshRecord(key);
+	return typeof rec?.why === "string" ? rec.why : null;
+}
+
+/**
+ * The record written within the TTL, and since `minAt` where given, else null.
+ *
+ * @param {string} key
+ * @param {number} [minAt]
+ * @returns {{raw?: unknown, why?: unknown} | null}
+ */
+function freshRecord(key, minAt) {
 	if (isDisabled()) return null;
 	try {
-		const rec = JSON.parse(fs.readFileSync(cachePath(bin), "utf8"));
-		if (!rec || typeof rec.raw !== "string") return null;
+		const rec = JSON.parse(fs.readFileSync(cachePath(key), "utf8"));
+		if (!rec || typeof rec !== "object") return null;
 		const at = Number(rec.at);
 		if (!Number.isFinite(at)) return null;
 		/* A record dated ahead of the clock is a clock that moved, not a fresh
@@ -175,7 +206,7 @@ function readFresh(bin, minAt) {
 		const age = Date.now() - at;
 		if (age < 0 || age > ttlMs()) return null;
 		if (minAt !== undefined && at < minAt) return null;
-		return rec.raw;
+		return rec;
 	} catch {
 		/* ENOENT on the first read of a start, and a partial or unreadable record
 		 * otherwise. Both mean the same thing to a caller — spawn. */
@@ -186,15 +217,35 @@ function readFresh(bin, minAt) {
 /**
  * Publish stdout for the next reader, atomically.
  *
- * @param {string} bin
+ * @param {string} key
  * @param {string} raw
  */
-function write(bin, raw) {
+function write(key, raw) {
+	publish(key, { raw });
+}
+
+/**
+ * Publish a failed refresh's refusal in place of a listing, for `readRefusal`.
+ *
+ * @param {string} key
+ * @param {string} why
+ */
+function writeRefusal(key, why) {
+	publish(key, { why });
+}
+
+/**
+ * @param {string} key
+ * @param {{raw: string} | {why: string}} fields
+ */
+function publish(key, fields) {
 	if (isDisabled()) return;
 	try {
-		writeFileAtomic(cachePath(bin), JSON.stringify({ at: Date.now(), raw }), {
-			mkdir: true,
-		});
+		writeFileAtomic(
+			cachePath(key),
+			JSON.stringify({ at: Date.now(), ...fields }),
+			{ mkdir: true },
+		);
 		sweep();
 	} catch {
 		/* An unwritable config dir, or a full disk. Publishing is best-effort by
@@ -204,7 +255,7 @@ function write(bin, raw) {
 }
 
 /* HOW LONG A RECORD IS KEPT ON DISK, as against how long it is BELIEVED. Long
- * enough to be irrelevant to any reader — 15x the TTL, so no record still in
+ * enough to be irrelevant to any reader — 10x the TTL, so no record still in
  * use is ever collected — and short enough that the suite's litter does not
  * outlive a run. */
 const keepMs = () => capMs("WFC_ORACLE_CACHE_KEEP_MS", 300_000);
@@ -217,7 +268,7 @@ const keepMs = () => capMs("WFC_ORACLE_CACHE_KEEP_MS", 300_000);
  */
 function sweep() {
 	try {
-		const dir = configDir();
+		const dir = storeConfigDir();
 		const cutoff = Date.now() - keepMs();
 		for (const name of fs.readdirSync(dir)) {
 			if (!name.startsWith("wfc-oracle-cache-")) continue;
@@ -236,21 +287,21 @@ function sweep() {
  * Take the right to spawn. True means this caller leads and MUST call
  * `release`; false means another caller is already spawning.
  *
- * @param {string} bin
+ * @param {string} key
  * @returns {boolean}
  */
-function acquire(bin) {
+function acquire(key) {
 	if (isDisabled()) return true;
 	/* No usable config dir means no lock is possible for anyone, so leading is
 	 * the honest answer: following would wait out a leader that can never
 	 * publish. */
 	try {
-		fs.mkdirSync(configDir(), { recursive: true });
+		fs.mkdirSync(storeConfigDir(), { recursive: true });
 	} catch {
 		return true;
 	}
 	try {
-		fs.mkdirSync(lockPath(bin));
+		fs.mkdirSync(lockPath(key));
 		return true;
 	} catch (e) {
 		/* EEXIST is the only failure that means SOMEBODY ELSE IS SPAWNING. Any
@@ -259,9 +310,9 @@ function acquire(bin) {
 		if (caught(e).code !== "EEXIST") return true;
 		/* Held — unless it is the corpse of a killed leader, which is broken once
 		 * and retaken. A second failure means a live leader took it in between. */
-		if (!breakIfStale(bin)) return false;
+		if (!breakIfStale(key)) return false;
 		try {
-			fs.mkdirSync(lockPath(bin));
+			fs.mkdirSync(lockPath(key));
 			return true;
 		} catch {
 			return false;
@@ -272,14 +323,14 @@ function acquire(bin) {
 /**
  * Remove a lock older than the stale bound. True where one was removed.
  *
- * @param {string} bin
+ * @param {string} key
  * @returns {boolean}
  */
-function breakIfStale(bin) {
+function breakIfStale(key) {
 	try {
-		const age = Date.now() - fs.statSync(lockPath(bin)).mtimeMs;
+		const age = Date.now() - fs.statSync(lockPath(key)).mtimeMs;
 		if (age <= lockStaleMs()) return false;
-		fs.rmSync(lockPath(bin), { recursive: true, force: true });
+		fs.rmSync(lockPath(key), { recursive: true, force: true });
 		return true;
 	} catch {
 		return false;
@@ -294,11 +345,11 @@ function breakIfStale(bin) {
  * module at all, so it is bounded by the thing it optimises. An owner token
  * would fix it and needs a write-and-verify the mkdir does not give.
  */
-/** @param {string} bin */
-function release(bin) {
+/** @param {string} key */
+function release(key) {
 	if (isDisabled()) return;
 	try {
-		fs.rmSync(lockPath(bin), { recursive: true, force: true });
+		fs.rmSync(lockPath(key), { recursive: true, force: true });
 	} catch {
 		/* A lock we cannot remove goes stale on its own bound. */
 	}
@@ -317,40 +368,43 @@ function release(bin) {
  * `sleep` is injected so a test counts the polls rather than timing them (base
  * §X9).
  *
- * @param {string} bin
+ * @param {string} key
  * @param {{ sleep?: (ms: number) => boolean }} [deps]
  * @returns {string|null}
  */
-function waitForLeader(bin, { sleep = trySleep } = {}) {
+function waitForLeader(key, { sleep = trySleep } = {}) {
 	if (isDisabled()) return null;
 	const began = Date.now();
 	const deadline = began + waitMs();
 	const step = pollMs();
 	while (Date.now() < deadline) {
 		if (!sleep(step)) return null;
-		const hit = readFresh(bin, began);
+		const hit = readFresh(key, began);
 		if (hit !== null) return hit;
 		/* Leader gone without publishing — it failed or was killed. Nothing more
 		 * will arrive, so stop waiting and go alone. */
-		if (!isHeldByAnother(bin)) return null;
+		if (!isHeldByAnother(key)) return null;
 	}
 	return null;
 }
 
 /**
- * @param {string} bin
+ * @param {string} key
  * @returns {boolean}
  */
-function isHeldByAnother(bin) {
+function isHeldByAnother(key) {
 	try {
-		return fs.existsSync(lockPath(bin));
+		return fs.existsSync(lockPath(key));
 	} catch {
 		return false;
 	}
 }
 
 module.exports = {
+	readFresh,
+	readRefusal,
 	write,
+	writeRefusal,
 	acquire,
 	release,
 	waitForLeader,

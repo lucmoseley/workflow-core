@@ -46,6 +46,8 @@ import { shellQuote } from "./lib/sh-quote.js";
 /* The breadcrumb directory, from the module that owns it (mantahostels#3382). */
 const hookRecord = createRequire(__filename)("./lib/hook-record.js");
 const markerRoot = createRequire(__filename)("./lib/marker-root.js");
+const oracleCache = createRequire(__filename)("./lib/oracle-cache.js");
+const { oracleCacheKey } = createRequire(__filename)("./lib/agent-liveness.js");
 const { attributeDirty } = createRequire(__filename)("./lib/own-selection.js");
 
 const sb = freshSandbox();
@@ -5187,6 +5189,61 @@ describe("wait: one call waits on a file or issue claim (#540)", () => {
 					{ sessionId: "bob" },
 				]),
 			).done;
+			expect(r.status).toBe(5);
+			expect(oracleReads()).toBe(1);
+		});
+
+		/* #3561: each later waiter starts once
+		 * the first has published, past any single-flight overlap, so only the
+		 * shared reading saves its listing. */
+		it("starts one listing between three staggered waiters inside one TTL", async () => {
+			aliceHolds();
+			live(sb, "carol");
+			live(sb, "dave");
+			const env = {
+				...oracleSays([
+					{ sessionId: "alice", kind: "background", state: "working" },
+					{ sessionId: "bob" },
+					{ sessionId: "carol" },
+					{ sessionId: "dave" },
+				]),
+				WFC_ORACLE_CACHE: "1",
+			};
+			const first = waitAs("bob", [inRepo(rel), "2"], env);
+			const published = () =>
+				oracleCache.readFresh(oracleCacheKey(env.WFC_CLAUDE_BIN)) !== null;
+			for (let i = 0; i < 200 && !published(); i++)
+				await new Promise((r) => setTimeout(r, 25));
+			expect(published()).toBe(true);
+			const later = ["carol", "dave"].map(
+				(sid) => waitAs(sid, [inRepo(rel), "1"], env).done,
+			);
+			const runs = await Promise.all([first.done, ...later]);
+			for (const r of runs) {
+				expect(r.status).toBe(5);
+				expect(r.stdout).not.toContain("UNKNOWN");
+			}
+			expect(oracleReads()).toBe(1);
+		});
+
+		it("confirms a shared reading's HOLDER-ENDED with a fresh one before firing", async () => {
+			aliceHolds();
+			const env = {
+				...oracleSays([
+					{ sessionId: "alice", kind: "background", state: "working" },
+					{ sessionId: "bob" },
+				]),
+				WFC_ORACLE_CACHE: "1",
+			};
+			oracleCache.write(
+				oracleCacheKey(env.WFC_CLAUDE_BIN),
+				JSON.stringify([
+					{ sessionId: "alice", kind: "background", state: "done" },
+					{ sessionId: "bob" },
+				]),
+			);
+			const r = await waitAs("bob", [inRepo(rel), "0.6"], env).done;
+			expect(r.stdout).toMatch(/^CEILING {2}docs\/held\.md/);
 			expect(r.status).toBe(5);
 			expect(oracleReads()).toBe(1);
 		});

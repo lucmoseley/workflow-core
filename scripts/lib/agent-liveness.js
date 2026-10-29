@@ -26,7 +26,7 @@
  * `null` throwing here). No caller may narrow the live set on a partial read.
  *
  * TWO EXEMPTIONS, DELIBERATE. `requireSelf: false` waives the self-test alone.
- * No caller, waived or not, is ever offered an AGED cache hit
+ * No caller but `sharedSessionIds` is offered an AGED cache hit
  * (mantahostels#1960): a cached success can be served back across a daemon
  * failure in between (mantahostels#1946).
  * The self-test protects a reader whose judgement IS an absence — a session
@@ -37,6 +37,12 @@
  * default: mantahostels#535 rejected the fail-open variant where the list carries a caveat
  * every caller must remember to check. The mutations proving the wiring are
  * recorded at mantahostels#540.
+ *
+ * `sharedSessionIds` is `wait`'s alone (#3561): one reading per TTL for every
+ * waiter. A stale record is never served; past the TTL it
+ * spawns or, with another reader already refreshing, answers `{why}`. A
+ * failed refresh is published too, and served as `{why}` for the TTL. Its
+ * one verdict off a hit is confirmed by a fresh read before it fires.
  *
  * The second, `admissionSessionIds`, reads an empty listing as nothing live,
  * outside a session only, where nothing says the list must name anyone
@@ -63,6 +69,7 @@ const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { sessionDirs } = require("./arbiter-core.js");
+const { realKey } = require("./deref.js");
 const cache = require("./oracle-cache");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
@@ -98,7 +105,8 @@ const headless = require("./headless-sessions.js");
  *   states: Map<string, string>, kinds: Map<string, string>,
  *   unvouched?: boolean}} SessionsListed
  * @typedef {SessionsRefused|SessionsListed} ListedSessions
- * @typedef {{read?: (o: {requireSelf: unknown, allowEmpty?: boolean}) => any,
+ * @typedef {{requireSelf?: unknown, allowEmpty?: boolean, shared?: boolean}} ReadOpts
+ * @typedef {{read?: (o: ReadOpts) => any,
  *   requireSelf?: unknown, allowEmpty?: boolean}} Opts
  *   `read` answers `any` on purpose: it is the suite's seam, and its job is to
  *   hand this module shapes the oracle should never produce.
@@ -158,6 +166,19 @@ const BACKSTOP_FACTOR = 2;
  */
 function oracleDirs() {
 	return sessionDirs().filter((d, i) => i === 0 || fs.existsSync(d));
+}
+
+/**
+ * The oracle cache's key: the binary and the dirs it reads, in a fixed order,
+ * so every reader of one set of dirs shares a record and a reader of another
+ * set — an overflow seat, which reads its own dir too — never takes it (#3561).
+ * Exported for the suite, which finds the record on disk through it.
+ * @param {string} [bin]
+ * @param {string[]} [dirs]
+ * @returns {string}
+ */
+function oracleCacheKey(bin = claudeBin(), dirs = oracleDirs()) {
+	return JSON.stringify([bin, ...dirs.map(realKey).sort()]);
 }
 
 /**
@@ -280,7 +301,7 @@ function failure(e) {
  * FINISHED rather than merely live needs `state`, `status` and `kind` too
  * (mantahostels#421, the finished-session pool).
  *
- * @param {Opts} [opts]
+ * @param {ReadOpts} [opts]
  * @returns {Listing}
  */
 function readListing(opts) {
@@ -288,58 +309,89 @@ function readListing(opts) {
 	const call = oracleCall();
 	const runs = readHeadlessRuns();
 	if ("why" in runs) return runs;
+	const dirs = oracleDirs();
+	const key = oracleCacheKey(bin, dirs);
 
-	/* NO PLAIN CACHE HIT HERE (mantahostels#1960, module header above). Single-
-	 * flight only: lead and spawn, or follow and take what the leader publishes
-	 * — three readers launched at one instant otherwise pay three spawns of the
-	 * same binary (mantahostels#1921, #1446). A follower given nothing usable falls through
-	 * and spawns its own. */
-	const leading = cache.acquire(bin);
-	if (!leading) {
-		const followed = cache.waitForLeader(bin);
-		if (followed !== null) {
-			const answer = classifyRaw(followed, call, opts, runs.agents);
-			if (!answer.why) return answer;
-		}
+	/* A plain hit for the shared reader alone (module header). */
+	/** @param {string|null} cached */
+	const served = (cached) => {
+		if (cached === null) return null;
+		const answer = classifyRaw(cached, call, opts, runs.agents);
+		return answer.why ? null : answer;
+	};
+	if (opts?.shared) {
+		const hit = served(cache.readFresh(key));
+		if (hit) return hit;
+		const refused = cache.readRefusal(key);
+		if (refused !== null) return { why: `${refused} (a shared reading)` };
 	}
 
-	const dirs = oracleDirs();
+	/* Otherwise single-flight only: lead and spawn, or follow and take what the
+	 * leader publishes — three readers launched at one instant otherwise pay
+	 * three spawns of the same binary (mantahostels#1921, #1446). A follower
+	 * given nothing usable falls through and spawns its own; a shared one
+	 * answers doubt instead (#3561). */
+	const leading = cache.acquire(key);
+	if (!leading) {
+		const followed = served(cache.waitForLeader(key));
+		if (followed) return followed;
+		if (opts?.shared)
+			return {
+				why: `another reader is refreshing ${call} and has not answered yet`,
+			};
+	}
+
 	let raw;
 	try {
-		let out;
-		try {
-			out = runOracle(bin, oracleTimeoutMs(), dirs);
-		} catch (e) {
-			const err = caught(e);
-			if (err.code !== "ETIMEDOUT")
-				return {
-					why: `${call} would not run (${failure(e)})`,
-				};
-			// Exactly one retry: a second timeout is the wedge the cap exists for, and
-			// a loop here would wedge the SessionStart hook the cap protects.
-			const retryMs = oracleRetryTimeoutMs();
-			try {
-				out = runOracle(bin, retryMs, dirs);
-			} catch (again) {
-				return {
-					why: `${call} would not run (${failure(again)}) — twice, the retry given ${retryMs} ms`,
-				};
-			}
+		const union = spawnUnion(bin, call, dirs);
+		if ("why" in union) {
+			cache.writeRefusal(key, union.why);
+			return union;
 		}
-		const union = unionOf(out, call);
-		if ("why" in union) return union;
 		raw = union.raw;
 		/* PUBLISHED BEFORE THE LOCK IS DROPPED.
 		 * A follower treats "no record and no lock" as a leader that died, and
 		 * spawns; releasing first opens exactly that window on the happy path, so
 		 * the spawn this saves would be given straight back. */
-		cache.write(bin, raw);
+		cache.write(key, raw);
 	} finally {
 		/* A follower must not be held past the spawn it is waiting for. */
-		if (leading) cache.release(bin);
+		if (leading) cache.release(key);
 	}
 
 	return classifyRaw(raw, call, opts, runs.agents);
+}
+
+/**
+ * Every dir's oracle read, unioned, as `{raw}` — or `{why}` where it would not
+ * run or one dir's answer is not a listing.
+ * @param {string} bin
+ * @param {string} call
+ * @param {string[]} dirs
+ * @returns {{raw: string} | {why: string}}
+ */
+function spawnUnion(bin, call, dirs) {
+	let out;
+	try {
+		out = runOracle(bin, oracleTimeoutMs(), dirs);
+	} catch (e) {
+		const err = caught(e);
+		if (err.code !== "ETIMEDOUT")
+			return {
+				why: `${call} would not run (${failure(e)})`,
+			};
+		// Exactly one retry: a second timeout is the wedge the cap exists for, and
+		// a loop here would wedge the SessionStart hook the cap protects.
+		const retryMs = oracleRetryTimeoutMs();
+		try {
+			out = runOracle(bin, retryMs, dirs);
+		} catch (again) {
+			return {
+				why: `${call} would not run (${failure(again)}) — twice, the retry given ${retryMs} ms`,
+			};
+		}
+	}
+	return unionOf(out, call);
 }
 
 /**
@@ -445,13 +497,13 @@ function readHeadlessRuns() {
  * @param {Opts|undefined} opts
  * @param {unknown} requireSelf
  * @param {(listed: Listing) => T} answer
- * @param {boolean} [allowEmpty]
+ * @param {Omit<ReadOpts, "requireSelf">} [how]
  * @returns {T | {why: string}}
  */
-function refuseOnThrow(opts, requireSelf, answer, allowEmpty = false) {
+function refuseOnThrow(opts, requireSelf, answer, how = {}) {
 	const read = opts?.read || readListing;
 	try {
-		return answer(read({ requireSelf, allowEmpty }));
+		return answer(read({ requireSelf, ...how }));
 	} catch (e) {
 		const said = String(caught(e).message || e).slice(0, QUOTE_CHARS);
 		return { why: `${oracleCall()} could not be read: ${said}` };
@@ -582,7 +634,17 @@ function agentFieldMaps(agents) {
  * @returns {ListedSessions}
  */
 function listedSessionIds(opts) {
-	return sessionIdsOf(opts, false);
+	return sessionIdsOf(opts);
+}
+
+/**
+ * `listedSessionIds` off the shared reading, for `wait` alone (#3561): up to the cache TTL old, so a caller acting on what it says
+ * confirms with `listedSessionIds` first.
+ * @param {Opts} [opts]
+ * @returns {ListedSessions}
+ */
+function sharedSessionIds(opts) {
+	return sessionIdsOf(opts, { shared: true });
 }
 
 /**
@@ -594,15 +656,15 @@ function listedSessionIds(opts) {
  * @returns {ListedSessions}
  */
 function admissionSessionIds(opts) {
-	return sessionIdsOf(opts, true);
+	return sessionIdsOf(opts, { allowEmpty: true });
 }
 
 /**
  * @param {Opts | undefined} opts
- * @param {boolean} allowEmpty
+ * @param {Omit<ReadOpts, "requireSelf">} [how]
  * @returns {ListedSessions}
  */
-function sessionIdsOf(opts, allowEmpty) {
+function sessionIdsOf(opts, how = {}) {
 	return refuseOnThrow(
 		opts,
 		true,
@@ -652,7 +714,7 @@ function sessionIdsOf(opts, allowEmpty) {
 				kinds,
 			};
 		},
-		allowEmpty,
+		how,
 	);
 }
 
@@ -723,7 +785,9 @@ module.exports = {
 	listedAgents,
 	listedSessionIds,
 	admissionSessionIds,
+	oracleCacheKey,
 	runOracle,
+	sharedSessionIds,
 	sweepSessionIds,
 	TERMINAL_STATES,
 };

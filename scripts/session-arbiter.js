@@ -44,6 +44,7 @@
 
 const {
 	listedSessionIds,
+	sharedSessionIds,
 	sweepSessionIds,
 } = require("./lib/agent-liveness.js");
 const fs = require("node:fs");
@@ -172,7 +173,8 @@ const {
  * ONE ORACLE READ FOR THE WHOLE PROCESS, and every field a report needs comes
  * off it. `oracle-cache.js` is single-flight, not a plain cache (mantahostels#1960), so a
  * second reader here would pay a second ~465 ms spawn rather than a hit.
- * `wait` alone replaces it, every 30 s, its command outliving any one read.
+ * `wait` alone replaces it, every 30 s off the shared reading (#3561), its
+ * command outliving any one read.
  */
 /** @type {ReturnType<typeof listedSessionIds>|undefined} */
 let listedMemo;
@@ -180,9 +182,12 @@ function listedOnce() {
 	if (listedMemo === undefined) listedMemo = listedSessionIds();
 	return listedMemo;
 }
-/** `wait`'s re-read, kept as the memo so a verdict naming the holder pays no second read. */
-function relistSessions() {
-	listedMemo = listedSessionIds();
+/**
+ * `wait`'s re-read, kept as the memo so a verdict naming the holder pays no second read.
+ * @param {() => ReturnType<typeof listedSessionIds>} read
+ */
+function relistSessions(read) {
+	listedMemo = read();
 	return listedMemo;
 }
 
@@ -3312,11 +3317,25 @@ function deadlockChain(ring, myId) {
 /**
  * HOLDER-ENDED's oracle read: the terminal sessions, or undefined where the
  * oracle refused. The caller keeps the WAIT_ORACLE_EVERY_S cadence.
+ *
+ * OFF THE SHARED READING (#3561), so N waiters start one listing per cache
+ * TTL between them. That reading can be a TTL old, and a holder it calls
+ * ended may have resumed since, so a reading that would end the wait is
+ * confirmed by a fresh one first. RESIDUAL: it stays the memo, so a verdict
+ * line's names and ENDED labels can be that TTL old; they inform, never act.
  * @param {WaitRun} w accumulator: oracleDue and oracleDoubt are advanced
+ * @param {WaitPoll} poll the poll the verdict is judged on
  */
-function readOracle(w) {
+function readOracle(w, poll) {
 	w.oracleDue = Date.now() + WAIT_ORACLE_EVERY_S * 1000;
-	const listed = relistSessions();
+	const shared = relistSessions(sharedSessionIds);
+	const holders = poll.holders ?? (poll.held ? [poll.held] : []);
+	const ended =
+		holders.length > 0 &&
+		holders.every(
+			(h) => h.sessionId !== null && shared.terminal?.has(h.sessionId),
+		);
+	const listed = ended ? relistSessions(listedSessionIds) : shared;
 	w.oracleDoubt = listed.why ?? null;
 	return listed.terminal;
 }
@@ -3391,7 +3410,8 @@ async function waitLoop(w) {
 		const v = waitMod.nextVerdict({
 			poll,
 			ring: () => ringThroughMe(w, poll),
-			terminal: Date.now() < w.oracleDue ? undefined : () => readOracle(w),
+			terminal:
+				Date.now() < w.oracleDue ? undefined : () => readOracle(w, poll),
 			left: () => deadline - Date.now(),
 		});
 		if (v) return sayVerdict(w, poll, v);

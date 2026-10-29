@@ -16,5 +16,5 @@
 	"scripts/lib/standards-pins.js:176": "7033c4610b0d5372",
 	"scripts/lib/suite-handoff.js:200-219": "65147fec3243a221",
 	"scripts/lib/test-pass-marker.js:1256": "53c88662a6833e4d",
-	"scripts/session-arbiter.js:171-181": "b78453e9a4b856a7"
+	"scripts/session-arbiter.js:172-192": "1f625eb545afdac5"
 }
