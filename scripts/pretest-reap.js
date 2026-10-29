@@ -36,10 +36,10 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const {
 	SUITE_MAX,
 	WHOLE_SUITE_WORKERS,
-	readAvailableMb,
 	readRunningVitestSuites,
 	suiteRungMb,
 } = require("./lib/admission");
+const { readAvailableMb } = require("./lib/meminfo.js");
 
 const REAP_SCRIPT = () =>
 	process.env.WFC_REAP_SCRIPT ||

@@ -259,7 +259,7 @@ clock_now() {
 }
 
 # MemAvailable in MB, or nothing on a line it cannot parse. Mirrors
-# lib/suite-concurrency-host.js's readAvailableMb — fails open, never fatal, since a
+# lib/suite-concurrency-host.js's availableMb port — fails open, never fatal, since a
 # kill record with an "unknown" figure beats a toucher that dies on a
 # malformed /proc.
 available_mb() {

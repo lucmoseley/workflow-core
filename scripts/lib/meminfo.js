@@ -5,9 +5,11 @@
  */
 
 const fs = require("node:fs");
+const { caught } = require("./caught.js");
 const { meminfoPath } = require("./proc-root.js");
 
 /**
+ * @typedef {{ ok: true, mb: number } | { ok: false, error: string }} MbResult
  * @typedef {{ ok: true, totalKb: number | null, availableKb: number, swapTotalKb: number | null, swapFreeKb: number | null } | { ok: false, error: string }} MeminfoRead
  */
 
@@ -36,18 +38,24 @@ function readMeminfoKb() {
 			swapFreeKb: kb("SwapFree"),
 		};
 	} catch (e) {
-		return { ok: false, error: e instanceof Error ? e.message : String(e) };
+		return { ok: false, error: caught(e).message };
 	}
 }
 
 /**
  * MemAvailable in MB, from a `readMeminfoKb` read already taken.
  * @param {MeminfoRead} read
- * @returns {{ ok: true, mb: number } | { ok: false, error: string }}
+ * @returns {MbResult}
  */
 const availableFrom = (read) =>
 	read.ok
 		? { ok: true, mb: Math.floor(read.availableKb / 1024) }
 		: { ok: false, error: read.error };
 
-module.exports = { availableFrom, readMeminfoKb };
+/**
+ * MemAvailable, never MemFree — which counts reclaimable cache as spent.
+ * @returns {MbResult}
+ */
+const readAvailableMb = () => availableFrom(readMeminfoKb());
+
+module.exports = { availableFrom, readAvailableMb, readMeminfoKb };

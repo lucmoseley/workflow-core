@@ -12,16 +12,10 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
-const { availableFrom, readMeminfoKb } = require("./meminfo.js");
+const { readAvailableMb } = require("./meminfo.js");
 const { hasWrapperCall } = require("./suite-launch.js");
 const { STANDDOWN_LOG } = require("./suite-concurrency.js");
 const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
-
-/** MemAvailable in MB, or null where no line reads. */
-function readAvailableMb() {
-	const read = availableFrom(readMeminfoKb());
-	return read.ok ? read.mb : null;
-}
 
 /**
  * gl_when's timestamp: whole seconds, UTC.
@@ -85,7 +79,10 @@ function buildLaunchPorts({ root, log }) {
 function buildHostPorts(root, log) {
 	const { readCommandFor } = require("./workflow-core-config.js");
 	return {
-		availableMb: readAvailableMb,
+		availableMb: () => {
+			const read = readAvailableMb();
+			return read.ok ? read.mb : null;
+		},
 		psRows: () => {
 			const ps = readPs();
 			return ps.ok ? ps.rows : null;
