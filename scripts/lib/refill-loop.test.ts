@@ -24,6 +24,7 @@ import { decideTick, FULL } from "./refill-decide.js";
 import {
 	actsOf,
 	buildFinishLine,
+	buildReviewRunLines,
 	capArgs,
 	ceilingsOf,
 	FREE_SLOT_ARGS,
@@ -39,6 +40,7 @@ import {
 	readSizedSeats,
 	reviewRunOf,
 	reviewRunRecorded,
+	reviewSkipOf,
 	runningOf,
 	scopeRoots,
 	seatReadingOf,
@@ -1257,6 +1259,43 @@ describe("when a tick files the morning review (#2017)", () => {
 		expect(run(null)).toBe("2026-10-18");
 		expect(run(0, false)).toBe("2026-10-18");
 	});
+
+	it("logs a missing config once, on the due tick, and records it (#3604)", () => {
+		const skip = (due: boolean) =>
+			reviewSkipOf({
+				due,
+				root: "/repo",
+				lastRunOn: "2026-10-18",
+				today: "2026-10-19",
+			});
+		expect(skip(true)).toEqual({
+			lines: ["morning review: not run, /repo has no workflow-core config"],
+			runOn: "2026-10-19",
+		});
+		expect(skip(false)).toEqual({ lines: [], runOn: "2026-10-18" });
+	});
+
+	it.each([
+		["a due tick, quiet", true, { out: "" }, ["morning review: exit 0\n  "]],
+		[
+			"a not-due tick with output",
+			false,
+			{ out: "answered #9\nanswered #10" },
+			["morning review reversals: exit 0\n  answered #9\n  answered #10"],
+		],
+		[
+			"a not-due tick that failed",
+			false,
+			{ out: "", failed: "exit 1" },
+			["morning review reversals: exit 1\n  "],
+		],
+		["a quiet not-due tick", false, { out: "" }, []],
+	])(
+		"logs the review child's line only where due, printed or failed: %s (#3604)",
+		(_, due, ran, lines) => {
+			expect(buildReviewRunLines(due ? filing : answering, ran)).toEqual(lines);
+		},
+	);
 
 	it("keeps the last run's date across a state round trip", () => {
 		expect(parseState({ reviewRunOn: "2026-10-19" }).reviewRunOn).toBe(

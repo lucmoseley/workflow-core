@@ -398,22 +398,25 @@ function readHeadlessSession(jobId) {
  * @param {number} now
  */
 function runReview(lastRunOn, now) {
-	const { due, script, label } = loop.reviewRunOf(new Date(now), lastRunOn);
+	const run = loop.reviewRunOf(new Date(now), lastRunOn);
+	const { due } = run;
 	const today = localDate(new Date(now));
 	if (!hasConfig(REVIEW_ROOT)) {
-		if (due)
-			log(
-				`morning review: not run, ${REVIEW_ROOT} has no workflow-core config`,
-			);
-		return due ? today : lastRunOn;
+		const skip = loop.reviewSkipOf({
+			due,
+			root: REVIEW_ROOT,
+			lastRunOn,
+			today,
+		});
+		for (const line of skip.lines) log(line);
+		return skip.runOn;
 	}
-	const ran = runChild(process.execPath, [path.join(SCRIPTS, script)], {
+	const ran = runChild(process.execPath, [path.join(SCRIPTS, run.script)], {
 		cwd: REVIEW_ROOT,
 		env: checkoutEnv(REVIEW_ROOT),
 		timeout: REVIEW_TIMEOUT_MS,
 	});
-	if (due || ran.out || ran.failed)
-		log(`${label}: ${ran.failed ?? "exit 0"}\n  ${blocks.indented(ran.out)}`);
+	for (const line of loop.buildReviewRunLines(run, ran)) log(line);
 	return loop.reviewRunRecorded({ due, status: ran.status, lastRunOn, today });
 }
 

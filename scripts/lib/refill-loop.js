@@ -21,7 +21,12 @@ const {
 	fitsLaunch,
 	hasRoom,
 } = require("./refill-decide.js");
-const { isHeld, launchName, markParked } = require("./refill-blocks.js");
+const {
+	indented,
+	isHeld,
+	launchName,
+	markParked,
+} = require("./refill-blocks.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
 /* A finished session drops off the listing; one just launched may not be on
@@ -275,6 +280,34 @@ function reviewRunOf(now, lastRunOn) {
  */
 const reviewRunRecorded = ({ due, status, lastRunOn, today }) =>
 	due && (status === 0 || status === 2) ? today : lastRunOn;
+
+/**
+ * A tick whose review root has no workflow-core config: its log lines, one
+ * on the due tick and none after, and the date it records, today on that
+ * tick so the line is not repeated.
+ * @param {{due: boolean, root: string, lastRunOn: string|null,
+ *   today: string}} skip
+ * @returns {{lines: string[], runOn: string|null}}
+ */
+const reviewSkipOf = ({ due, root, lastRunOn, today }) =>
+	due
+		? {
+				lines: [`morning review: not run, ${root} has no workflow-core config`],
+				runOn: today,
+			}
+		: { lines: [], runOn: lastRunOn };
+
+/**
+ * The review child's log lines: one on a due tick, else one only where it
+ * printed or failed, so a quiet reversals pass logs none.
+ * @param {{due: boolean, label: string}} run reviewRunOf's pick
+ * @param {{out: string, failed?: string|null}} ran
+ * @returns {string[]}
+ */
+const buildReviewRunLines = ({ due, label }, ran) =>
+	due || ran.out || ran.failed
+		? [`${label}: ${ran.failed ?? "exit 0"}\n  ${indented(ran.out)}`]
+		: [];
 
 /** @param {LoopLaunch[]} launches */
 const trimmed = (launches) => launches.slice(-HISTORY_KEPT);
@@ -891,6 +924,8 @@ module.exports = {
 	isReviewRunDue,
 	reviewRunOf,
 	reviewRunRecorded,
+	reviewSkipOf,
+	buildReviewRunLines,
 	runningOf,
 	parseScope,
 	scopeRoots,
