@@ -95,6 +95,7 @@ const {
 	renderClaudeMd,
 	renderAgentsMd,
 	renderDocMap,
+	renderCodeStandards,
 	renderCalledCards,
 	renderRoadmap,
 	RULES_FILE: RULES,
@@ -175,6 +176,12 @@ const CLASSES = {
 	"docs/doc-map.md": {
 		section: "Governance & process docs",
 		class: "source-of-truth",
+		reader: "agent",
+	},
+	"docs/code-standards.md": {
+		section: "Governance & process docs",
+		class: "source-of-truth",
+		role: "The local standards file, read beside the plugin's standards base: its changes to the base, route rows, local rules and primitives table",
 		reader: "agent",
 	},
 	"docs/doc-map-classes.json": {
@@ -729,6 +736,11 @@ function init(at) {
 	});
 	for (const [sidecar, seed] of Object.entries(SIDECARS))
 		w.write(sidecar, seed, { once: true });
+	/* The local standards file, under every module set, so a new adopter
+	 * meets its primitives table at adoption (#3466). */
+	w.write("docs/code-standards.md", renderCodeStandards({ project }), {
+		once: true,
+	});
 	writeClassSidecar({ w, root, sidecar: classRows({ roadmap, anchored }) });
 	renderSectionA({ root, pluginRoot, dryRun, out });
 

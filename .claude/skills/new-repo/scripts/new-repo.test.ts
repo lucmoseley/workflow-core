@@ -167,6 +167,24 @@ describe("new-repo.js on an empty project", () => {
 				"State: pre-launch — the way is being charted on #1 (tides: a tide-table app).",
 			);
 
+			// The local standards file is its header and an empty primitives
+			// table, committed through the hook stack that runs the table
+			// checker (#3466).
+			expect(s.git("show", "HEAD:docs/code-standards.md")).toBe(
+				[
+					"# Code standards — tides",
+					"",
+					"This repo's own choices beside the plugin's standards base, which holds every rule and its §-id. `/code-review`'s Standards axis reads both.",
+					"",
+					"## Primitives",
+					"",
+					"This repo's own primitives, beside the base's table. None yet.",
+					"",
+					"| Job | Primitive | Exemplar | Rule | Enforcing check |",
+					"|---|---|---|---|---|",
+				].join("\n"),
+			);
+
 			// The Read rules are this machine's: written, never committed.
 			const local = JSON.parse(
 				fs.readFileSync(

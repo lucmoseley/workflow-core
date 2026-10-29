@@ -2228,13 +2228,25 @@
 			"scripts/tooling-matrix.test.ts"
 		],
 		"docs/code-standards.md": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			"scripts/adopter-hook-errexit.test.ts",
+			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-code-standards.test.ts",
+			"scripts/check-plugin-gap.test.ts",
 			"scripts/concision-backstop.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/inject-tracker-docs.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/branch-publish.test.ts",
+			"scripts/lib/commit-route.test.ts",
+			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/tooling-matrix.test.ts",
+			"scripts/upgrade.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"docs/data/close-rounds-2026-10-09/answered-close-rounds.json": [
@@ -3958,6 +3970,7 @@
 		"scripts/check-primitives.js": [
 			"scripts/check-primitives.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/git.test.ts",
@@ -21813,6 +21826,11 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/templates/adopter/called-cards.md": [
+			"scripts/lib/residue-patterns.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/templates/adopter/code-standards.md": [
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
