@@ -14,18 +14,14 @@
  * surrogate pair; a combining accent or a ZWJ emoji part goes one at a time.
  */
 
-/** readHidden's rejection messages: Ctrl-C, and bytes that are not valid UTF-8. */
-const INTERRUPTED = "interrupted";
-const NOT_UTF8 = "not UTF-8";
-
 /* `esc` is 0 outside an escape sequence; 1 after ESC; 2 inside `ESC [` or
  * `ESC O`, which the first byte in @..~ ends. */
 /** @typedef {{ value: string, esc: 0 | 1 | 2 }} HiddenLine The line so far. */
 
 /**
  * @param {Pick<NodeJS.ReadStream, "setRawMode" | "on" | "removeListener" | "pause" | "resume">} input
- * @returns {Promise<string>} rejects with INTERRUPTED on Ctrl-C and NOT_UTF8
- *   on bytes that are not valid UTF-8
+ * @returns {Promise<string>} rejects with "interrupted" on Ctrl-C and
+ *   "not UTF-8" on bytes that are not valid UTF-8
  */
 function readHidden(input) {
 	return new Promise((resolve, reject) => {
@@ -44,12 +40,12 @@ function readHidden(input) {
 			try {
 				text = decoder.decode(Buffer.from(chunk), { stream: true });
 			} catch {
-				return done(NOT_UTF8);
+				return done("not UTF-8");
 			}
 			for (const ch of text) {
 				const outcome = readChar(line, ch);
 				if (outcome !== null)
-					return done(outcome === "interrupt" ? INTERRUPTED : null);
+					return done(outcome === "interrupt" ? "interrupted" : null);
 			}
 		};
 		input.setRawMode(true);
@@ -90,4 +86,4 @@ function escStateAfter(esc, ch) {
 	return ch >= "@" && ch <= "~" ? 0 : 2;
 }
 
-module.exports = { NOT_UTF8, readHidden };
+module.exports = { readHidden };

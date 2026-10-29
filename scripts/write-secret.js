@@ -11,8 +11,7 @@
  * accepted too — the test seam; the hand-over never uses it, because a piped
  * value sits in the shell's history. Under Claude Code's `!` prefix stdin is
  * no terminal and carries nothing, and there is no controlling terminal to
- * open instead (#2554). The typed bytes are decoded as strict UTF-8: any that
- * are not valid UTF-8 are refused, never stored as U+FFFD (#3675).
+ * open instead (#2554).
  *
  * TARGET: `lib/env-file.js`'s secrets file, outside every working tree, so a
  * stray relative `.env` write in any checkout cannot destroy it (#3202). Its
@@ -102,7 +101,7 @@ const {
 } = require("./lib/env-file.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { emptyWhy } = require("./lib/empty-secret.js");
-const { NOT_UTF8, readHidden } = require("./lib/read-hidden.js");
+const { readHidden } = require("./lib/read-hidden.js");
 const { caught } = require("./lib/caught.js");
 const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
 
@@ -500,20 +499,12 @@ function main(argv) {
 			process.stderr.write("\n");
 			return upsertEnv(file, name, raw, true);
 		},
-		(e) => {
+		() => {
 			process.stderr.write("\n");
-			if (caught(e).message === NOT_UTF8)
-				return refuse(
-					file,
-					"the typed value holds bytes that are not valid UTF-8, as a terminal set to another encoding sends. Set the terminal to UTF-8, then re-run.",
-					2,
-				);
 			return refuse(file, "interrupted. Re-run to enter the value.", 2);
 		},
 	);
 }
-
-module.exports = { main };
 
 if (require.main === module) {
 	const status = main(process.argv.slice(2));
