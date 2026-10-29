@@ -331,6 +331,21 @@ describe("takeover: a stop that does not take leaves the claim untouched", () =>
 		expect(commented()).toBe(false);
 	});
 
+	it("names the listing's refusal, not a live holder, where the stop's listing omits this session (#3525)", async () => {
+		frozenHolder();
+		fs.writeFileSync(
+			path.join(plan(), "agents-after-stop.json"),
+			JSON.stringify([holderRow({ state: "stopped" })]),
+		);
+		const r = await takeover(["--issue", String(N), "--confirm-within", "0.3"]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"the listing would not read 0.3s after the stop",
+		);
+		expect(r.stderr).toContain("does not list this very session");
+		expect(readHolders()).toEqual([SID]);
+	});
+
 	it("refuses when a third session claimed the ticket meanwhile, naming that session, taking no claim and posting no comment", async () => {
 		frozenHolder();
 		lists(

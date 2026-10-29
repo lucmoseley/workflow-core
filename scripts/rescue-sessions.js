@@ -36,11 +36,11 @@ const {
 	capMs,
 	claudeBin,
 	isTerminalAgent,
+	listedAgents,
 	runOracle,
 } = require("./lib/agent-liveness");
 const { parseOrExit } = require("./lib/cli-args");
 const { requiredGroup } = require("./lib/regex-group");
-const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
 const { parseJsonl } = require("./lib/jsonl.js");
 const { FIELD, readStatFields } = require("./lib/proc-stat.js");
@@ -577,8 +577,8 @@ function deathPoint(narration) {
  * `claude agents --json` is scoped to one config dir, so this is asked of the
  * SOURCE plan with that plan's own dir — the one case where a session missing
  * from the listing really does read dead. So it calls the oracle itself, not
- * `listedAgents`, whose cache is keyed by this process's own config dir and
- * would hand back this plan's listing. Degrades to `null`, never to "all dead".
+ * `listedAgents`, which unions every plan's listing (#3512). Degrades to
+ * `null`, never to "all dead".
  *
  * @param {string} dir
  * @returns {Set<string> | null}
@@ -826,11 +826,11 @@ const TAIL_BYTES = 512 * 1024;
 
 /**
  * @typedef {import("./lib/agent-liveness").AgentRecord} AgentRecord
- * @typedef {{dir: string, agents?: AgentRecord[], why?: string}} PlanListing
+ * @typedef {import("./lib/agent-liveness").Listing} Listing
  * @typedef {{pid: number, ppid: number, start: string, ticks: number, argv: string}} ProcRow
  * @typedef {{
- *   holder: {dir: string, row: AgentRecord} | null,
- *   unread: string[],
+ *   holder: {dir: string | null, row: AgentRecord} | null,
+ *   unread: string | null,
  *   transcript: string | null,
  *   size: number | null,
  *   subs: Map<string, number>,
@@ -842,57 +842,6 @@ const TAIL_BYTES = 512 * 1024;
  */
 
 /**
- * Every existing plan's listing, read in parallel, each through
- * agent-liveness.js in a child so its timeout, single-flight and
- * degrade-to-doubt rules come with it. Each lists every plan's sessions, so
- * the plans agree unless a read fails; one read would do (#3525). The
- * self-test is waived, as it was when each plan listed only its own.
- *
- * @param {string[]} dirs
- * @returns {Promise<PlanListing[]>}
- */
-function readPlanListings(dirs) {
-	const { execFile } = require("node:child_process");
-	const lib = path.join(__dirname, "lib", "agent-liveness.js");
-	const snippet = `process.stdout.write(JSON.stringify(require(${JSON.stringify(lib)}).listedAgents({ requireSelf: false })))`;
-	return Promise.all(
-		dirs
-			.filter((d) => fs.existsSync(d))
-			.map(
-				(dir) =>
-					/** @type {Promise<PlanListing>} */ (
-						new Promise((resolve) => {
-							execFile(
-								process.execPath,
-								["-e", snippet],
-								{
-									env: { ...process.env, CLAUDE_CONFIG_DIR: dir },
-									encoding: "utf8",
-									// Above the reader's own worst case, its 10 s cap, 20 s
-									// retry and follower wait; this bounds only a wedge.
-									timeout: 90_000,
-									maxBuffer: CHILD_MAX_BUFFER,
-								},
-								(err, stdout) => {
-									if (err)
-										return resolve({
-											dir,
-											why: `reader failed (${err.code ?? err.message})`,
-										});
-									try {
-										resolve({ dir, ...JSON.parse(stdout) });
-									} catch {
-										resolve({ dir, why: "reader did not return JSON" });
-									}
-								},
-							);
-						})
-					),
-			),
-	);
-}
-
-/**
  * Whether `sessionId` names `id` — the full id, or its 8-character short form.
  * @param {string} sessionId
  * @param {string} id
@@ -901,22 +850,14 @@ const idMatches = (sessionId, id) =>
 	sessionId === id || (id.length === 8 && sessionId.startsWith(id));
 
 /**
- * The holder's row and plan, or null with the plans that would not read. A
- * plan that would not read is doubt only where no other plan lists the holder.
+ * The holder's row, or null with why the listing would not read.
  *
- * @param {PlanListing[]} listings
+ * @param {Listing} listing
  * @param {string} sessionId
  */
-function findHolder(listings, sessionId) {
-	for (const listing of listings) {
-		const row = listing.agents?.find((a) => a.sessionId === sessionId);
-		if (row) return { holder: { dir: listing.dir, row }, unread: [] };
-	}
-	const unread = listings
-		.filter((listing) => listing.why)
-		.map((listing) => `${listing.dir}: ${listing.why}`);
-	if (listings.length === 0) unread.push("no plan's config dir exists");
-	return { holder: null, unread };
+function findHolder(listing, sessionId) {
+	const row = listing.agents?.find((a) => a.sessionId === sessionId);
+	return { row: row ?? null, unread: listing.why ?? null };
 }
 
 /**
@@ -1144,14 +1085,15 @@ function readLiveProcTree(row) {
  * /proc is read only for a holder that is listed and not terminal: an ended
  * session's pid proves nothing either way.
  *
- * @param {PlanListing[]} listings
+ * @param {Listing} listing
+ * @param {string[]} dirs
  * @param {string} sessionId
  * @returns {ProbeSample}
  */
-function takeSample(listings, sessionId) {
-	const { holder: listed, unread } = findHolder(listings, sessionId);
-	const records = readSessionRecords(listings, listed, sessionId);
-	const holder = listed && { dir: records?.dir ?? listed.dir, row: listed.row };
+function takeSample(listing, dirs, sessionId) {
+	const { row, unread } = findHolder(listing, sessionId);
+	const records = readSessionRecords(dirs, sessionId);
+	const holder = row && { dir: records?.dir ?? null, row };
 	const transcript = records?.transcript ?? null;
 	const live = holder && !isTerminalAgent(holder.row) ? holder.row : null;
 	return {
@@ -1171,19 +1113,14 @@ function takeSample(listings, sessionId) {
  * The plan holding the session's transcript, with its job record where that
  * record names the session.
  *
- * agent-liveness.js lists every plan's sessions under any plan's dir
- * (#3512), so the listing plan need not be the session's own: the plan
- * holding its transcript is, and where two do, the one whose job record
- * names it — a record under the same short id may be another session's
- * (#1146). The listing plan is tried first.
+ * The listing names no plan (#3512), so the session's own is the plan
+ * holding its transcript, and where two do, the one whose job record names
+ * it — a record under the same short id may be another session's (#1146).
  *
- * @param {PlanListing[]} listings
- * @param {{dir: string} | null | undefined} listed
+ * @param {string[]} dirs
  * @param {string} sessionId
  */
-function readSessionRecords(listings, listed, sessionId) {
-	const dirs = new Set(listed ? [listed.dir] : []);
-	for (const l of listings) dirs.add(l.dir);
+function readSessionRecords(dirs, sessionId) {
 	/** @type {{dir: string, transcript: string, state: any} | null} */
 	let records = null;
 	for (const d of dirs) {
@@ -1309,13 +1246,16 @@ function slowWhy(before, after, { grownSubs, busy }, inFlight) {
  */
 function unreadableInputs(s, at) {
 	const out = [];
-	if (!s.holder && s.unread.length > 0)
-		out.push(`${at}: holder in no plan that read, and ${s.unread.join("; ")}`);
+	if (s.unread) out.push(`${at}: the listing would not read: ${s.unread}`);
 	if (s.size === null) out.push(`${at}: transcript would not read`);
 	if (s.tree === null)
 		out.push(`${at}: /proc would not read for the session's process`);
 	return out;
 }
+
+/** `, on plan <dir>`, or nothing where no plan holds the session's records. */
+const onPlan = (/** @type {string | null | undefined} */ dir) =>
+	dir ? `, on plan ${dir}` : "";
 
 /**
  * The evidence lines two samples give, with the subagent transcripts that
@@ -1330,8 +1270,8 @@ function probeEvidence(before, after) {
 	const row = after.holder?.row;
 	evidence.push(
 		row
-			? `oracle: state ${row.state ?? "?"}, kind ${row.kind ?? "?"}, pid ${row.pid ?? "?"}, on plan ${after.holder?.dir}`
-			: "oracle: listed by no plan that read",
+			? `oracle: state ${row.state ?? "?"}, kind ${row.kind ?? "?"}, pid ${row.pid ?? "?"}${onPlan(after.holder?.dir)}`
+			: "oracle: listed by no plan",
 	);
 	evidence.push(
 		after.transcript
@@ -1371,11 +1311,11 @@ function probeEvidence(before, after) {
  *
  * @param {ParsedArgs} args
  * @param {string[]} dirs
- * @param {PlanListing[]} listings
+ * @param {Listing} listing
  * @param {string} cmd  the verb a refusal names: "probe" or "take over"
  * @returns {{sessionId: string, issue: number | null} | {refuse: string}}
  */
-function resolveHolder(args, dirs, listings, cmd) {
+function resolveHolder(args, dirs, listing, cmd) {
 	const me = process.env.CLAUDE_CODE_SESSION_ID || "";
 	const issue = args.issue === undefined ? null : Number(args.issue);
 	if (issue !== null && !(Number.isInteger(issue) && issue > 0))
@@ -1385,7 +1325,7 @@ function resolveHolder(args, dirs, listings, cmd) {
 		return holderOfIssue(issue, me, cmd, dirs);
 
 	const id = args.session;
-	const { full, held } = readSessionsMatching(id, dirs, listings);
+	const { full, held } = readSessionsMatching(id, dirs, listing);
 	const [sessionId, ...others] = full;
 	if (sessionId === undefined)
 		return {
@@ -1478,13 +1418,13 @@ function readJobsOn(dir) {
 
 /**
  * Every full session id `id` widens to — off the issue-claim store, each
- * plan's job records and transcripts, and the listings, in that order — with
+ * plan's job records and transcripts, and the listing, in that order — with
  * the issues the matching claims hold.
  * @param {string} id
  * @param {string[]} dirs
- * @param {PlanListing[]} listings
+ * @param {Listing} listing
  */
-function readSessionsMatching(id, dirs, listings) {
+function readSessionsMatching(id, dirs, listing) {
 	const claims = require("./lib/arbiter-issue-claims");
 	/** @type {Set<string>} */
 	const full = new Set();
@@ -1501,19 +1441,18 @@ function readSessionsMatching(id, dirs, listings) {
 		if (typeof s === "string" && idMatches(s, id)) full.add(s);
 		if (id.length !== 8 && readTranscriptOf(d, id)) full.add(id);
 	}
-	addListedMatches(full, id, listings);
+	addListedMatches(full, id, listing);
 	return { full, held };
 }
 
 /**
  * @param {Set<string>} full accumulator: each listed session id matching `id` is added
  * @param {string} id
- * @param {PlanListing[]} listings
+ * @param {Listing} listing
  */
-function addListedMatches(full, id, listings) {
-	for (const listing of listings)
-		for (const agent of listing.agents ?? [])
-			if (idMatches(agent.sessionId, id)) full.add(agent.sessionId);
+function addListedMatches(full, id, listing) {
+	for (const agent of listing.agents ?? [])
+		if (idMatches(agent.sessionId, id)) full.add(agent.sessionId);
 }
 
 /**
@@ -1581,22 +1520,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 /**
  * The GHOST verdict off one sample, or null where the session is not one:
  * lib/hung-jobs.js's GHOST-JOB test, plus no transcript — a session that wrote
- * one took a turn, so the two samples judge it. A plan that would not read,
- * where no plan lists the session, is doubt, not absence.
- * @param {PlanListing[]} listings
+ * one took a turn, so the two samples judge it. A listing that would not
+ * read is doubt, not absence.
+ * @param {Listing} listing
+ * @param {string[]} dirs
  * @param {string} sessionId
  * @param {ProbeSample} sample
  * @returns {{verdict: "GHOST", why: string, evidence: string[], ghost: GhostJob} | null}
  */
-function ghostVerdict(listings, sessionId, sample) {
+function ghostVerdict(listing, dirs, sessionId, sample) {
 	const { ghostTest, livenessOf } = require("./lib/hung-jobs");
-	if (sample.transcript || (!sample.holder && sample.unread.length > 0))
-		return null;
+	if (sample.transcript || sample.unread) return null;
 	if (sample.holder && isTerminalAgent(sample.holder.row)) return null;
-	const own = readOwnJob(sessionId, { seats: listings.map((l) => l.dir) });
+	const own = readOwnJob(sessionId, { seats: dirs });
 	if (own?.job.state !== "working") return null;
 	const found = { dir: own.seat, rec: own.job };
-	const listed = livenessOf(listings.flatMap((l) => l.agents ?? []));
+	const listed = livenessOf(listing.agents ?? []);
 	if (!listed.ids) return null;
 	const ghost = ghostTest(found.rec, listed);
 	if (typeof ghost === "string") return null;
@@ -1607,7 +1546,7 @@ function ghostVerdict(listings, sessionId, sample) {
 		why: `${ghost.reason}, no transcript, record "working" for ${age}`,
 		evidence: [
 			sample.holder
-				? `oracle: listed ${sample.holder.row.state ?? "?"} with no pid, on plan ${sample.holder.dir}`
+				? `oracle: listed ${sample.holder.row.state ?? "?"} with no pid, on plan ${found.dir}`
 				: "oracle: listed by no plan",
 			"transcript: none found",
 			`job record: ${found.dir}, state working, detail "${found.rec.detail ?? ""}", updated ${found.rec.updatedAt ?? "?"}`,
@@ -1628,16 +1567,19 @@ async function sampleHolder(args, cmd) {
 		args.interval === undefined ? PROBE_INTERVAL_S : Number(args.interval);
 	if (!(Number.isFinite(interval) && interval > 0))
 		die("--interval takes a positive number of seconds");
-	const dirs = sessionDirs();
+	const dirs = sessionDirs().filter((d) => fs.existsSync(d));
 
-	const first = await readPlanListings(dirs);
+	// One listing names every plan's sessions (#3512). Its self-test stands
+	// (#3525): the probe reads a holder missing from it as ended, so a listing
+	// that omits this session leaves every probe and takeover UNKNOWN.
+	const first = listedAgents();
 	const who = resolveHolder(args, dirs, first, cmd);
 	if ("refuse" in who) die(who.refuse);
-	const before = takeSample(first, who.sessionId);
-	const ghost = ghostVerdict(first, who.sessionId, before);
+	const before = takeSample(first, dirs, who.sessionId);
+	const ghost = ghostVerdict(first, dirs, who.sessionId, before);
 	if (ghost) return { who, dirs, after: before, ...ghost };
 	await sleep(interval * 1000);
-	const after = takeSample(await readPlanListings(dirs), who.sessionId);
+	const after = takeSample(listedAgents(), dirs, who.sessionId);
 	return { who, dirs, after, ...probeVerdict(before, after), ghost: null };
 }
 
@@ -1662,8 +1604,8 @@ async function cmdProbe(args) {
  *
  * The probe, then on FROZEN, LIMITED (#2158) or ENDED — or the SLOW or ASKING verdict
  * `--despite` names, once the founder has ruled it stuck (#622): snapshot ->
- * stop (all but an unlisted ENDED) -> confirm the stop off the holder's own
- * plan -> claim -> assign -> comment. Every refusal comes before the snapshot,
+ * stop (all but an unlisted ENDED) -> confirm the stop off the listing ->
+ * claim -> assign -> comment. Every refusal comes before the snapshot,
  * the first write.
  *
  * ON GHOST (#1989): keep its job record -> stop -> confirm -> print the
@@ -1697,17 +1639,16 @@ const VERDICT_REFUSAL = {
 };
 
 /**
- * Re-read `dir`'s oracle until `sessionId` is terminal or unlisted, or
+ * Re-read the listing until `sessionId` is terminal or unlisted, or
  * `ceilingS` passes. A listing that will not read is not yet a confirmation.
  * `requireGone` accepts only unlisted, with `hostPid`, where known, exited.
- * @param {string} dir
  * @param {string} sessionId
  * @param {number} ceilingS
  * @param {{requireGone?: boolean, hostPid?: number | null}} [opts]
- * @returns {Promise<string | null>} how the stop was confirmed, or null
+ * @returns {Promise<{how: string} | {how: null, why: string | null}>} how
+ *   the stop was confirmed, or why the last listing would not read
  */
 async function confirmStopped(
-	dir,
 	sessionId,
 	ceilingS,
 	{ requireGone = false, hostPid = null } = {},
@@ -1717,23 +1658,34 @@ async function confirmStopped(
 	const deadline = Date.now() + ceilingS * 1000;
 	const poll = Math.min(1000, (ceilingS * 1000) / 5);
 	for (;;) {
-		const [listing] = await readPlanListings([dir]);
+		const listing = listedAgents();
 		const how = stopConfirmation(listing, sessionId, requireGone, hostRuns);
-		if (how) return how;
-		if (Date.now() >= deadline) return null;
+		if (how) return { how };
+		if (Date.now() >= deadline) return { how: null, why: listing.why ?? null };
 		await sleep(poll);
 	}
 }
 
 /**
+ * Why the stop went unconfirmed: the listing still names it, or would not read.
+ * @param {string} short
+ * @param {number} ceilingS
+ * @param {string | null} why
+ */
+const unconfirmedWhy = (short, ceilingS, why) =>
+	why
+		? `the listing would not read ${ceilingS}s after the stop: ${why}`
+		: `the oracle still lists ${short} as live ${ceilingS}s after the stop`;
+
+/**
  * How one listing confirms the stop, or null where it does not yet.
- * @param {PlanListing | undefined} listing
+ * @param {Listing} listing
  * @param {string} sessionId
  * @param {boolean} requireGone
  * @param {() => boolean} hostRuns
  */
 function stopConfirmation(listing, sessionId, requireGone, hostRuns) {
-	if (!listing?.agents) return null;
+	if (!listing.agents) return null;
 	const row = listing.agents.find((a) => a.sessionId === sessionId);
 	if (!row && !(requireGone && hostRuns()))
 		return requireGone ? "unlisted, its host exited" : "no longer listed";
@@ -2105,19 +2057,24 @@ async function stopHolder(io, v, s) {
  */
 async function stopEndedHolder(io, s, row) {
 	const stopped = stopOn(s.dir, s.jobId);
-	const how =
-		stopped.ok &&
-		(await confirmStopped(s.dir, s.sessionId, s.ceiling, {
-			requireGone: true,
-			hostPid: row.pid ?? null,
-		}));
-	if (how) {
-		io.out(`stopped: ${s.short} on ${s.dir}, ${how}\n`);
+	if (!stopped.ok) {
+		io.warn(
+			`not stopped: ${stopped.why}. Its file claims stay held while its host runs; free each with node scripts/session-arbiter.js release --force <path>`,
+		);
+		return true;
+	}
+	const confirmed = await confirmStopped(s.sessionId, s.ceiling, {
+		requireGone: true,
+		hostPid: row.pid ?? null,
+	});
+	if (confirmed.how) {
+		io.out(`stopped: ${s.short} on ${s.dir}, ${confirmed.how}\n`);
 		return false;
 	}
-	const why = stopped.ok
-		? `stop sent, but not confirmed gone ${s.ceiling}s after it`
-		: `not stopped: ${stopped.why}`;
+	const why =
+		"why" in confirmed && confirmed.why
+			? `stop sent, but ${unconfirmedWhy(s.short, s.ceiling, confirmed.why)}`
+			: `stop sent, but not confirmed gone ${s.ceiling}s after it`;
 	io.warn(
 		`${why}. Its file claims stay held while its host runs; free each with node scripts/session-arbiter.js release --force <path>`,
 	);
@@ -2136,13 +2093,13 @@ async function stopLiveHolder(io, s) {
 			1,
 		);
 	io.out(`stopped: ${s.short} on ${s.dir} (${stopped.said})\n`);
-	const how = await confirmStopped(s.dir, s.sessionId, s.ceiling);
-	if (!how)
+	const confirmed = await confirmStopped(s.sessionId, s.ceiling);
+	if (!confirmed.how)
 		io.fail(
-			`${s.dir}'s oracle still lists ${s.short} as live ${s.ceiling}s after the stop. ${s.kept} Re-run takeover once it reads stopped.`,
+			`${unconfirmedWhy(s.short, s.ceiling, "why" in confirmed ? confirmed.why : null)}. ${s.kept} Re-run takeover once it reads stopped.`,
 			1,
 		);
-	io.out(`confirmed: ${how}\n`);
+	io.out(`confirmed: ${confirmed.how}\n`);
 }
 
 /**

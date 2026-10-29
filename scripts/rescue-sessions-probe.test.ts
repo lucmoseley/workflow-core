@@ -76,7 +76,7 @@ describe("probe: the verdict table, first match wins", () => {
 		const r = await probe();
 		expect(verdictOf(r)).toBe("UNKNOWN");
 		expect(r.status).toBe(EXIT.UNKNOWN);
-		expect(r.stdout).toContain("holder in no plan that read");
+		expect(r.stdout).toContain("the listing would not read");
 	});
 
 	it("UNKNOWN when the transcript will not read", async () => {
@@ -101,6 +101,17 @@ describe("probe: the verdict table, first match wins", () => {
 		const r = await probe();
 		expect(r.status).toBe(EXIT.UNKNOWN);
 		expect(r.stdout).toContain("second sample: transcript would not read");
+	});
+
+	it("UNKNOWN where the listing does not name this session, the self-test kept (#3525)", async () => {
+		frozenHolder();
+		fs.writeFileSync(
+			path.join(plan(), "agents.json"),
+			JSON.stringify([holderRow()]),
+		);
+		const r = await probe();
+		expect(r.status).toBe(EXIT.UNKNOWN);
+		expect(r.stdout).toContain("does not list this very session");
 	});
 
 	it("ENDED when no plan lists it", async () => {
@@ -282,17 +293,29 @@ describe("probe: the verdict table, first match wins", () => {
 });
 
 describe("probe: finding the plan", () => {
-	it("finds the holder on a second plan while the first will not read", async () => {
+	it("UNKNOWN when one plan's dir will not read, though another lists the holder (#3512)", async () => {
 		frozenHolder();
 		fs.writeFileSync(path.join(plan(), "fail"), "");
+		lists([holderRow()], plan(".claude2"));
+		const r = await probe();
+		expect(r.status).toBe(EXIT.UNKNOWN);
+		expect(r.stdout).toContain("the listing would not read");
+	});
+
+	it("finds the holder on a second plan, SLOW, reading each plan's dir once per sample (#3525)", async () => {
 		const two = plan(".claude2");
+		lists([]);
 		lists([holderRow()], two);
 		writeTranscript([said("waiting: a subagent")], two);
 		jobState({ inFlight: { tasks: 0, queued: 0 } }, two);
+		proc(PID, 1, 1000, "claude");
+		issueClaims.claimIssue(620, { sessionId: SID });
 		between(`printf 'x\\n' >> '${transcript(two)}'`, two);
 		const r = await probe();
 		expect(r.status).toBe(EXIT.SLOW);
 		expect(r.stdout).toContain(`on plan ${two}`);
+		expect(readOracleCalls()).toBe(2);
+		expect(readOracleCalls(two)).toBe(2);
 	});
 
 	it("reads the transcript off the plan whose records hold it, where every plan lists it (#1146)", async () => {
@@ -347,17 +370,6 @@ describe("probe: finding the plan", () => {
 		const r = await probe();
 		expect(r.stdout).toContain(`transcript: ${transcript(two)}`);
 		expect(r.status).toBe(EXIT.FROZEN);
-	});
-
-	it("UNKNOWN when one plan will not read and the others do not list it", async () => {
-		frozenHolder();
-		lists([]);
-		const two = plan(".claude2");
-		fs.mkdirSync(two, { recursive: true });
-		fs.writeFileSync(path.join(two, "fail"), "");
-		const r = await probe();
-		expect(r.status).toBe(EXIT.UNKNOWN);
-		expect(r.stdout).toContain(two);
 	});
 });
 
