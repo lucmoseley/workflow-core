@@ -3,7 +3,8 @@
  * test suite launched under the headroom docs/environment.md §6 says it needs
  * resting, sending it to the queue, warn before a build launches under it —
  * and before a watcher launches (mantahostels#1927). No I/O of its own;
- * lib/suite-concurrency-host.js builds the ports it reads the machine through.
+ * lib/suite-concurrency-hook-host.js builds the ports it reads the machine
+ * through.
  *
  * Why: admission.js prices a NEW session at dispatch time and holds no memory
  * back for the suites it may run (#2305); this covers a test suite or build
@@ -148,10 +149,12 @@ const { trimEndRun, trimRun, trimStartRun } = require("./trim-run.js");
  * @typedef {import("./suite-launch.js").Launch} Launch
  * @typedef {import("./suite-ladder.js").Running} Running
  * @typedef {import("./shell-parse.js").Command} Command
- * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number }} Gate
+ * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, climbMb?: number }} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb MemAvailable, in MB
+ * @property {() => number} climbMb what the queues' running launches have
+ *   yet to draw, in MB, which MemAvailable does not yet count (#3488)
  * @property {() => import("./suite-ladder.js").PsRow[] | null} psRows `ps`,
  *   read once a call
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
@@ -344,6 +347,7 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {import("./suite-launch.js").LaunchPorts} launchPorts
  * @property {() => import("./suite-ladder.js").PsRow[] | null} readPs `ps`,
  *   read once a command
+ * @property {() => number} readClimb
  * @property {string} watcherSegment the first segment opening a watcher
  * @property {boolean} escaped whether the command carries the escape
  * @property {string} trimmedCommand the raw command, comment cut and trimmed
@@ -369,7 +373,9 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {string} segment
  * @property {string[]} words
  * @property {Subject} s
- * @property {number} mb
+ * @property {number} mb MemAvailable less `climbMb`, what the rung reads
+ * @property {number} readMb MemAvailable as read
+ * @property {number} climbMb
  * @property {Running | null} running null where `ps` went unread
  * @property {number} whole
  * @property {number} busy
@@ -396,6 +402,8 @@ function buildState(command, parsed, ctx) {
 	let runners;
 	/** @type {import("./suite-ladder.js").PsRow[] | null | undefined} */
 	let ps;
+	/** @type {number | undefined} */
+	let climb;
 	return {
 		ctx,
 		spans,
@@ -414,6 +422,10 @@ function buildState(command, parsed, ctx) {
 		readPs: () => {
 			if (ps === undefined) ps = ctx.psRows();
 			return ps;
+		},
+		readClimb: () => {
+			climb ??= ctx.climbMb();
+			return climb;
 		},
 		watcherSegment: "",
 		escaped: false,
@@ -666,7 +678,7 @@ function denyBareTsc(st, segment) {
 		st.ctx.log(
 			"MemAvailable unreadable — a `tsc` launch judged off its count alone",
 		);
-	const denial = tscDenial(ps, mb);
+	const denial = tscDenial(ps, mb, mb === null ? 0 : st.readClimb());
 	if (denial === null) return;
 	const launch = queuedLaunch(
 		segment,
@@ -677,13 +689,20 @@ function denyBareTsc(st, segment) {
 	const why =
 		denial.limb === "count"
 			? "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163)."
-			: `MemAvailable is ${denial.mb} MB, under the ~${TSC_RUNG_MB} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
+			: `${readingOf(denial.mb, denial.climbMb)}, under the ~${TSC_RUNG_MB} MB docs/environment.md §6 says a \`tsc\` needs resting.`;
 	return {
 		deny: st.ctx.corePaths(
 			`${line}\n${why} \`queue-run.js --tsc\` waits for the type-check slot, then runs that command.`,
 		),
 	};
 }
+
+/**
+ * @param {number | undefined} mb
+ * @param {number | undefined} climbMb
+ */
+const readingOf = (mb, climbMb) =>
+	`MemAvailable is ${mb} MB${climbMb ? `, less ${climbMb} MB the queues' running launches have yet to draw` : ""}`;
 
 /**
  * A segment's launch as typed: comment cut, quoted spans put back, trimmed.
@@ -788,10 +807,10 @@ function waitLeverOf(running) {
  * @param {{ segment: string, words: string[] }} at the segment and its words,
  *   unwrapped
  * @param {Subject} s
- * @param {number} mb
+ * @param {number} readMb
  * @returns {Judged}
  */
-function judgedOf(st, at, s, mb) {
+function judgedOf(st, at, s, readMb) {
 	const { segment, words } = at;
 	const running = readRunning(st, s);
 	const busy = running?.workers ?? 0;
@@ -802,11 +821,15 @@ function judgedOf(st, at, s, mb) {
 		(!(s.other || s.plain) &&
 			s.launchKind !== "npm-watch" &&
 			hasQueueFlag(words));
+	/* A queued launch's own gate charges the climb its way (#3416). */
+	const climbMb = queued ? 0 : st.readClimb();
 	return {
 		segment,
 		words,
 		s,
-		mb,
+		mb: readMb - climbMb,
+		readMb,
+		climbMb,
 		running,
 		whole: running?.whole ?? 0,
 		busy,
@@ -994,9 +1017,14 @@ function memoryVerdict(st, j) {
 				? "Its `pretest` reaps finished sessions before the wait (`pretest-reap.js`, mantahostels#1840)."
 				: `Reaping finished-but-resident sessions (\`${reapCmd}\`) gives back ${REAP_GAIN} each, and may open the gate at once.`;
 			return denyToQueue(st, j, {
-				gate: { limb: "memory", mb: j.mb, rungMb: j.floor },
+				gate: {
+					limb: "memory",
+					mb: j.readMb,
+					rungMb: j.floor,
+					...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
+				},
 				watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.floor} MB`,
-				why: `MemAvailable is ${j.mb} MB, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
+				why: `${readingOf(j.readMb, j.climbMb)}, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
 				waiter: `${reapNote} Do not write your own waiter.`,
 				escapeLead: "Genuinely need it now?",
 			});
@@ -1008,7 +1036,7 @@ function memoryVerdict(st, j) {
 		: `Reap the finished-but-resident sessions first (\`${reapCmd}\`) and re-read — a stopped session gives back ${REAP_GAIN}, though a shortfall held by LIVE neighbours is reaped by nothing`;
 	return buildWarnVerdict(
 		st,
-		`MemAvailable is ${j.mb} MB, under the ~${j.floor} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
+		`${readingOf(j.readMb, j.climbMb)}, under the ~${j.floor} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
 	);
 }
 

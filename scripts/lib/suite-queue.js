@@ -37,6 +37,7 @@ const { TSC_PEAK_MB, TSC_QUEUE_NAME } = require("./tsc-slot.js");
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
 /** @typedef {import("./queue-exit-log.js").HeldLimb} HeldLimb */
+/** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void }} ClimbOptions */
 /** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, admitted?: boolean, spawned?: boolean, memoryHeld?: boolean }} QueueRecord */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
@@ -123,40 +124,65 @@ function readPeerAdmissions(queueDir, { queueFs = fs, alive = pidAlive } = {}) {
 }
 
 /**
- * What `queueDir`'s peer queues' launches have yet to draw, in MB (#3416):
- * each live marker stamped `spawned` is charged its queue's peak less its
- * process tree's PSS, never below 0. MemAvailable counts a launch only as far
+ * What the launches in `queueDirs` have yet to draw, in MB (#3416): each live
+ * marker stamped `spawned` is charged its queue's peak less its process
+ * tree's PSS, never below 0. MemAvailable counts a launch only as far
  * as it has climbed, so a gate reading it live charges the rest itself. A
  * launch admitted and unspawned closes the turn instead (`readTurn`).
  *
  * CHARGED FOR AS LONG AS ITS MARKER LIVES, not for a climb window: a `tsc`
  * peaks at its end, a marker may hold several in series, and a suite's draw
  * swings back to near its peak late in its run. A tree's PSS reads at most
- * its RSS, against peaks measured as RSS, so the charge errs high.
+ * its RSS, against peaks measured as RSS, so the charge errs high. A
+ * directory that will not read charges none, handed to `onUnread`.
  *
- * @param {string} queueDir
- * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number }} [options]
+ * @param {string[]} queueDirs
+ * @param {ClimbOptions} [options]
  * @returns {number}
  */
-function readPeerClimbMb(
-	queueDir,
+function readClimbMb(
+	queueDirs,
 	{
 		queueFs = fs,
 		alive = pidAlive,
 		/* Required at the call: admission.js costs a hook ~65 ms to load. */
 		treePssKb = (pid) => require("./admission.js").readTreePssKb(pid),
+		onUnread = () => undefined,
 	} = {},
 ) {
 	let mb = 0;
-	for (const dir of peerQueueDirs(queueDir)) {
+	for (const dir of queueDirs) {
 		const peakMb = PEAK_MB[path.basename(dir)] ?? 0;
-		for (const { record } of readMarkers(dir, queueFs).markers) {
+		const { markers, error } = readMarkers(dir, queueFs);
+		if (error) onUnread(dir, error);
+		for (const { record } of markers) {
 			if (record.spawned !== true || isMarkerStale(record, { alive })) continue;
 			mb += Math.max(0, peakMb - Math.floor(treePssKb(record.pid) / 1024));
 		}
 	}
 	return mb;
 }
+
+/**
+ * What `queueDir`'s peer queues' launches have yet to draw, in MB: the charge
+ * a queued gate takes, its own queue's launches being its turn's to order.
+ * @param {string} queueDir
+ * @param {ClimbOptions} [options]
+ */
+const readPeerClimbMb = (queueDir, options) =>
+	readClimbMb(peerQueueDirs(queueDir), options);
+
+/**
+ * What every admitting queue's launches have yet to draw, in MB (#3488): the
+ * charge a launch the guard judges unqueued takes, being in neither queue.
+ * Read at call time, so a caller's `TMPDIR` redirects it.
+ * @param {ClimbOptions} [options]
+ */
+const readQueuesClimbMb = (options) =>
+	readClimbMb(
+		[defaultQueueDir(), ...peerQueueDirs(defaultQueueDir())],
+		options,
+	);
 
 /**
  * A process's start time, in clock ticks since boot, from `/proc/<pid>/stat`.
@@ -918,6 +944,7 @@ module.exports = {
 	queueTurn,
 	passingTurn,
 	readLiveRoleMarkers,
+	readQueuesClimbMb,
 	gateDenies,
 	waitForGate,
 };

@@ -27,7 +27,9 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { kitContextFake } from "./kit-context-fake";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 
-type Gate = { limb: "count" } | { limb: "memory"; mb: number; rungMb: number };
+type Gate =
+	| { limb: "count" }
+	| { limb: "memory"; mb: number; rungMb: number; climbMb?: number };
 type Verdict = {
 	deny?: string;
 	gate?: Gate;
@@ -148,6 +150,7 @@ beforeEach(() => {
 interface Over {
 	mb?: number | null;
 	ps?: string | null;
+	climb?: number;
 	vars?: Record<string, string>;
 	declaredTest?: string | null;
 	modules?: string[];
@@ -169,6 +172,7 @@ function harness(over: Over = {}) {
 		told: (id: string) => (over.told ?? []).includes(id),
 		readLatch: (name: string) => (over.latches ?? LADDER_LATCHES)[name] ?? null,
 		availableMb: () => (over.mb === undefined ? ROOMY_MB : over.mb),
+		climbMb: () => over.climb ?? 0,
 		psRows: () => {
 			const text = over.ps === undefined ? psWith(0) : over.ps;
 			return text
@@ -379,6 +383,22 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		expect(
 			gated("npm run test", ROOMY_MB, NEIGHBOURS_AT_CAP).verdict?.gate,
 		).toEqual({ limb: "count" });
+	});
+
+	it("charges what the queues' running launches have yet to draw (#3488)", () => {
+		expect(gated("npm run test", 3000, 0).verdict?.gate).toBeUndefined();
+		const { verdict: charged, text } = judge("npm run test", 3000, psWith(0), {
+			climb: 500,
+		});
+		expect(charged?.gate).toEqual({
+			limb: "memory",
+			mb: 3000,
+			rungMb: 2900,
+			climbMb: 500,
+		});
+		expect(text).toContain(
+			"MemAvailable is 3000 MB, less 500 MB the queues' running launches have yet to draw, under the ~2900 MB",
+		);
 	});
 
 	it("judges the rung the launch would reach", () => {
@@ -2856,6 +2876,18 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 		const { text } = judge("tsc --noEmit", TSC_RUNG_MB - 1, psWith(0));
 		expect(text).toContain(
 			`MemAvailable is ${TSC_RUNG_MB - 1} MB, under the ~${TSC_RUNG_MB} MB`,
+		);
+	});
+
+	it("is denied where a queued launch's climb leaves it short of its rung (#3488)", () => {
+		const mb = TSC_RUNG_MB + 100;
+		expect(outcome(judge("tsc --noEmit", mb, psWith(0)).verdict)).toBe("allow");
+		const { verdict: charged, text } = judge("tsc --noEmit", mb, psWith(0), {
+			climb: 200,
+		});
+		expect(outcome(charged)).toBe("deny");
+		expect(text).toContain(
+			`MemAvailable is ${mb} MB, less 200 MB the queues' running launches have yet to draw, under the ~${TSC_RUNG_MB} MB`,
 		);
 	});
 
