@@ -1297,7 +1297,7 @@ function parseHighWaterMark(raw) {
 	}
 }
 
-/** How to write a missing high-water mark file, for every reader that finds none. */
+/** How to write a missing high-water mark file. */
 const HIGH_WATER_MARK_REMEDY =
 	'Write it as { "highWaterMark": <n> }, n being the number of the highest ' +
 	"§B id ever removed from the map (0 where none has been).";
