@@ -1,1 +1,0 @@
-spawnSync("gh", ["issue", "list"], { encoding: "utf8" });
