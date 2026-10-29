@@ -25,6 +25,7 @@ import {
 	actsOf,
 	buildFinishLine,
 	buildReviewRunLines,
+	buildReviewSkip,
 	capArgs,
 	ceilingsOf,
 	FREE_SLOT_ARGS,
@@ -40,14 +41,12 @@ import {
 	readSizedSeats,
 	reviewRunOf,
 	reviewRunRecorded,
-	reviewSkipOf,
 	runningOf,
 	scopeRoots,
 	seatReadingOf,
 	settleTick,
 	stopNeverStarted,
 	summaryOf,
-	trimmed,
 } from "./refill-loop.js";
 import {
 	away,
@@ -592,12 +591,14 @@ describe("a tick's log line (#2362)", () => {
 			read = null,
 			writes = [],
 			state = parseState(null),
+			past = [],
 		}: Partial<{
 			dispatch: Io["launchBatch"];
 			readControl: Io["readControl"];
 			read: Tick["read"];
 			writes: Tick["state"][];
 			state: Tick["state"];
+			past: Tick["judged"];
 		}> = {},
 	) {
 		const lines: string[] = [];
@@ -614,11 +615,11 @@ describe("a tick's log line (#2362)", () => {
 					freeSlots,
 					lastPromptAt: null,
 					seats: [],
-					history: [],
+					history: past,
 				},
 				decision,
 				state,
-				judged: [],
+				judged: past,
 				probes,
 				read,
 			},
@@ -633,6 +634,37 @@ describe("a tick's log line (#2362)", () => {
 		);
 		return lines[0];
 	}
+
+	describe("the launches it keeps (#3621)", () => {
+		const at = (n: number, over: Record<string, unknown> = {}) =>
+			({
+				root: WFC,
+				issues: [n],
+				prompt: `/implement ${n}`,
+				seat: "/s",
+				jobId: `job${n}`,
+				launchedAt: n,
+				finishedAt: n + 1,
+				...over,
+			}) as Launch;
+		const history = (extra: Launch[]) => [
+			...extra,
+			...Array.from({ length: 50 }, (_, i) => at(100 + i)),
+		];
+		const kept = (past: Launch[]) => {
+			const writes: Tick["state"][] = [];
+			logged(idle("no free slot"), 0, [], { past, writes });
+			return writes[0].launches;
+		};
+
+		it("keeps an older park the loop stopped until a later launch of its issue follows it", () => {
+			const parked = at(1, { parkStopped: 2 });
+			const older = kept(history([parked, at(3)]));
+			expect(older).toHaveLength(51);
+			expect(older[0]).toBe(parked);
+			expect(kept([...history([parked]), at(1)])).not.toContain(parked);
+		});
+	});
 
 	it("names the free slots on an idle tick and each probed seat's outcome", () => {
 		expect(logged(idle("no free slot"), 0, [])).toBe(
@@ -1317,7 +1349,7 @@ describe("when a tick files the morning review (#2017)", () => {
 
 	it("logs a missing config once, on the due tick, and records it (#3604)", () => {
 		const skip = (due: boolean) =>
-			reviewSkipOf({
+			buildReviewSkip({
 				due,
 				root: "/repo",
 				lastRunOn: "2026-10-18",
@@ -1536,32 +1568,5 @@ describe("the loop's resumes after a transient API stop (#2705)", () => {
 		const [out] = judged([resuming({ resumes })], [agent("p", "working")]);
 		expect(out?.block).toBeUndefined();
 		expect(out?.resumes).toEqual(resumes);
-	});
-});
-
-describe("trimmed (#3621)", () => {
-	const at = (n: number, over: Record<string, unknown> = {}) =>
-		({
-			root: WFC,
-			issues: [n],
-			prompt: `/implement ${n}`,
-			seat: "/s",
-			jobId: `job${n}`,
-			launchedAt: n,
-			finishedAt: n + 1,
-			...over,
-		}) as Launch;
-	const history = (extra: Launch[]) => [
-		...extra,
-		...Array.from({ length: 50 }, (_, i) => at(100 + i)),
-	];
-
-	it("keeps an older park the loop stopped until a later launch of its issue follows it", () => {
-		const parked = at(1, { parkStopped: 2 });
-		const kept = trimmed(history([parked, at(3)]));
-		expect(kept).toHaveLength(51);
-		expect(kept[0]).toBe(parked);
-		const followed = trimmed([...history([parked]), at(1)]);
-		expect(followed).not.toContain(parked);
 	});
 });

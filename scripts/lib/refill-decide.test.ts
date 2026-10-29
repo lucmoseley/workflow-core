@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 const { capSet } = require("./allowance.js");
-const { ALREADY_RUNNING, FULL, decideTick } = require("./refill-decide.js");
+const { FULL, decideTick } = require("./refill-decide.js");
 const { parseCapFits, readSizedSeats } = require("./refill-loop.js");
 const { mergeFrontiers } = require("./frontier-order.js");
 
@@ -606,7 +606,7 @@ describe("decideTick launch filter", () => {
 		});
 		expect(launched(d)).toEqual(["dv#1", "wfc#2"]);
 		expect(d.skipped).toEqual([
-			{ root: "wfc", number: 1, why: ALREADY_RUNNING },
+			{ root: "wfc", number: 1, why: "already running" },
 		]);
 	});
 
@@ -618,7 +618,7 @@ describe("decideTick launch filter", () => {
 		});
 		expect(d.launches).toEqual([]);
 		expect(d.skipped).toEqual([
-			{ root: "wfc", number: 3, why: ALREADY_RUNNING },
+			{ root: "wfc", number: 3, why: "already running" },
 		]);
 	});
 

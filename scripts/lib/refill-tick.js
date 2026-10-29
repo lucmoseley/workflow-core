@@ -253,7 +253,7 @@ function readFreeSlots() {
  * @param {Map<string, string>} [usage]
  * @returns {import("./refill-loop.js").SeatReading[]}
  */
-function seatReadings(seats, usage = new Map()) {
+function readSeatReadings(seats, usage = new Map()) {
 	const now = Date.now();
 	return seats.map((seat) =>
 		loop.seatReadingOf(
@@ -272,7 +272,7 @@ function seatReadings(seats, usage = new Map()) {
  * wrapper's SIGTERM stops the probe's group too.
  * @param {string[]} seats
  */
-function printedUsage(seats) {
+function readPrintedUsage(seats) {
 	const usage = new Map();
 	/** @type {import("./refill-loop.js").Probe[]} */
 	const probes = [];
@@ -302,7 +302,7 @@ function printedUsage(seats) {
  * @param {number} members
  * @param {string} usageText
  */
-function capFits(root, seat, members, usageText) {
+function readCapFits(root, seat, members, usageText) {
 	if (root === undefined) {
 		log(
 			`fault: cap on ${seat} unsized: the loop serves no checkout to size it in`,
@@ -352,10 +352,10 @@ const readOverflowBudget = (seat, root) =>
  */
 function readSeats(seats, slots, root) {
 	return loop.readSizedSeats(slots, {
-		read: (usage) => seatReadings(seats, usage),
-		probe: printedUsage,
+		read: (usage) => readSeatReadings(seats, usage),
+		probe: readPrintedUsage,
 		sizeOf: (seat, members, usageText) =>
-			capFits(root, seat, members, usageText),
+			readCapFits(root, seat, members, usageText),
 	});
 }
 
@@ -413,7 +413,7 @@ function runReview(lastRunOn, now) {
 	const { due } = run;
 	const today = localDate(new Date(now));
 	if (!hasConfig(REVIEW_ROOT)) {
-		const skip = loop.reviewSkipOf({
+		const skip = loop.buildReviewSkip({
 			due,
 			root: REVIEW_ROOT,
 			lastRunOn,
@@ -720,7 +720,7 @@ function resumeStopped(l, prompt, { sessionId, cwd }) {
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @returns {import("./refill-blocks.js").JobLaunch|undefined}
  */
-const parkingLaunchOf = (root, n, launches) =>
+const readParkingLaunch = (root, n, launches) =>
 	/** @type {import("./refill-blocks.js").JobLaunch|undefined} */ (
 		launches.findLast(
 			(r) =>
@@ -734,7 +734,7 @@ const parkingLaunchOf = (root, n, launches) =>
 	);
 
 /**
- * Each parked row's parking launch (parkingLaunchOf), with the session it
+ * Each parked row's parking launch (readParkingLaunch), with the session it
  * resumes, for the decision to route (refill-decide.js's routeParked).
  * @param {import("./refill-decide.js").MergedRow[]} frontier
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
@@ -743,7 +743,7 @@ const parkingLaunchOf = (root, n, launches) =>
 function readParkers(frontier, launches) {
 	return frontier.flatMap((row) => {
 		if (!isParked(row)) return [];
-		const launch = parkingLaunchOf(row.root, row.number, launches);
+		const launch = readParkingLaunch(row.root, row.number, launches);
 		if (!launch) return [];
 		return [
 			{
@@ -769,58 +769,24 @@ const sizeParkerSeats = (seats, parkers, root) =>
 		s.fits === null &&
 		hasRoom(s) &&
 		parkers.some((p) => p.launch.seat === s.seat)
-			? { ...s, fits: capFits(root, s.seat, 1, "") }
+			? { ...s, fits: readCapFits(root, s.seat, 1, "") }
 			: s,
 	);
 
 /**
- * Resume the session that parked `l`'s ticket, in place (#3621): its new
- * launch record, or null, logged, where the decision routed it afresh or the
- * resume failed, for `l` to launch afresh.
- * @param {import("./refill-decide.js").Launch} l
- * @param {NonNullable<import("./refill-decide.js").Launch["parkedRoute"]>} parked
- * @returns {import("./refill-loop.js").LoopLaunch|null}
- */
-function resumeParked(l, parked) {
-	/** @param {string} why */
-	const afresh = (why) => {
-		log(`parked ${blocks.launchName(l)} not resumed: ${why}; launching afresh`);
-		return null;
-	};
-	if ("afresh" in parked) return afresh(parked.afresh);
-	const { launch, sessionId, cwd } = parked.resume;
-	const r = resumeStopped(launch, PARKED_PROMPT, { sessionId, cwd });
-	if (r.failed !== null) return afresh(r.failed);
-	log(`resumed parked ${blocks.launchName(l)} as job ${r.jobId}`);
-	return {
-		root: l.root,
-		issues: l.issues,
-		prompt: l.prompt,
-		seat: launch.seat,
-		jobId: r.jobId,
-		launchedAt: Date.now(),
-		finishedAt: null,
-		...(r.sessionId ? { sessionId: r.sessionId } : {}),
-	};
-}
-
-/**
- * `batch` launched: each parked member resumed (resumeParked), the rest and
- * any not resumed through one dispatcher call (launchBatch).
+ * `batch` launched (lib/refill-batch.js's launchOrResume): each parked member
+ * routed to resume resumed in place (resumeStopped), the rest through one
+ * dispatcher call (launchBatch).
  * @param {import("./refill-decide.js").Launch[]} batch
  */
-function launchOrResume(batch) {
-	const resumed = [];
-	const fresh = [];
-	for (const l of batch) {
-		const r = l.parkedRoute ? resumeParked(l, l.parkedRoute) : null;
-		if (r) resumed.push(r);
-		else fresh.push(l);
-	}
-	const out =
-		fresh.length > 0 ? launchBatch(fresh) : { launched: [], refused: [] };
-	return { ...out, launched: [...resumed, ...out.launched] };
-}
+const launchOrResume = (batch) =>
+	refillBatch.launchOrResume(batch, {
+		resume: ({ launch, sessionId, cwd }) =>
+			resumeStopped(launch, PARKED_PROMPT, { sessionId, cwd }),
+		launchFresh: launchBatch,
+		log,
+		now: Date.now,
+	});
 
 /**
  * Every main-chain row of `l`'s transcript, at the path its job record

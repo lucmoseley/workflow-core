@@ -618,7 +618,6 @@ function decideTick(input) {
 }
 
 module.exports = {
-	ALREADY_RUNNING,
 	FULL,
 	NOTHING_LAUNCHABLE,
 	RUN_MS,

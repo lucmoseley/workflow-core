@@ -119,7 +119,7 @@ const DEFAULT_CEILINGS = { week: 97, session: 90 };
 /** @typedef {import("./refill-decide.js").SizedSeat} SizedSeat */
 /** @typedef {import("./refill-batch.js").BatchOutcome} BatchOutcome */
 
-/** @param {unknown} raw @returns {raw is Record<string, any>} */
+/** @param {unknown} raw @returns {raw is Record<string, unknown>} */
 const isRecord = (raw) => typeof raw === "object" && raw !== null;
 
 /** @param {unknown} raw */
@@ -317,7 +317,7 @@ const reviewRunRecorded = ({ due, status, lastRunOn, today }) =>
  *   today: string}} skip
  * @returns {{lines: string[], runOn: string|null}}
  */
-const reviewSkipOf = ({ due, root, lastRunOn, today }) =>
+const buildReviewSkip = ({ due, root, lastRunOn, today }) =>
 	due
 		? {
 				lines: [`morning review: not run, ${root} has no workflow-core config`],
@@ -336,12 +336,12 @@ const buildReviewRunLines = ({ due, label }, ran) =>
 	due || ran.out || ran.failed ? [buildChildLine(label, ran)] : [];
 
 /**
- * The last HISTORY_KEPT launches, and before them each the loop stopped for a
- * park that no later launch of its issue has followed: a normal-mode loop
- * resumes its session, oldest park first (#3621).
+ * The launches the state keeps: the last HISTORY_KEPT, and before them each
+ * the loop stopped for a park that no later launch of its issue has followed,
+ * a normal-mode loop resuming its session, oldest park first (#3621).
  * @param {LoopLaunch[]} launches
  */
-const trimmed = (launches) => {
+const keptLaunches = (launches) => {
 	const older = launches.slice(0, Math.max(0, launches.length - HISTORY_KEPT));
 	const followed = (/** @type {LoopLaunch} */ l, /** @type {number} */ i) =>
 		launches
@@ -897,7 +897,7 @@ function settleTick({ input, decision, state, judged, probes, read }, io) {
 	});
 	io.log(summary);
 	const next = {
-		launches: trimmed([...judged, ...outcome.launched]),
+		launches: keptLaunches([...judged, ...outcome.launched]),
 		lastTick: {
 			at: input.now,
 			summary,
@@ -971,7 +971,7 @@ module.exports = {
 	isReviewRunDue,
 	reviewRunOf,
 	reviewRunRecorded,
-	reviewSkipOf,
+	buildReviewSkip,
 	buildReviewRunLines,
 	runningOf,
 	parseScope,
@@ -985,5 +985,4 @@ module.exports = {
 	parseState,
 	stopNeverStarted,
 	summaryOf,
-	trimmed,
 };
