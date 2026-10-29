@@ -8,7 +8,10 @@
  * no reader ever sees it empty. A pidfile whose process is gone, or whose
  * command line runs no file named as the daemon's script, is stale and taken
  * over. A process re-exec'd under its own pid (the refill loop's adoption,
- * #2361) already holds it.
+ * #2361) already holds it. A directory, FIFO or socket at the lock's path is
+ * no pidfile, and taking it over would fail midway or block on the read:
+ * `acquire` throws `NotALock`, moving nothing (#3663). A symlink there is
+ * moved aside like any stale pidfile.
  */
 
 const crypto = require("node:crypto");
@@ -28,6 +31,16 @@ function readText(file) {
 		return fs.readFileSync(file, "utf8");
 	} catch {
 		return null;
+	}
+}
+
+/** Thrown where the lock's path holds neither a file nor a symlink. */
+class NotALock extends Error {
+	/** @param {string} file */
+	constructor(file) {
+		super(
+			`${file} is neither a file nor a symlink, so no lock can be taken there`,
+		);
 	}
 }
 
@@ -52,6 +65,13 @@ function pidLock(file, marker) {
 			.split("\0")
 			.some((arg) => path.basename(arg) === marker);
 		return runs ? pid : null;
+	};
+
+	/** The pidfile's text, or null where it cannot be read. @throws {NotALock} */
+	const readPidfile = () => {
+		const st = fs.lstatSync(file, { throwIfNoEntry: false });
+		if (st && !st.isFile() && !st.isSymbolicLink()) throw new NotALock(file);
+		return readText(file);
 	};
 
 	const aside = () =>
@@ -95,11 +115,14 @@ function pidLock(file, marker) {
 
 	return {
 		holder: () => liveHolder(readText(file)),
-		/** @returns {boolean} false where a live holder has the lock */
+		/**
+		 * @returns {boolean} false where a live holder has the lock
+		 * @throws {NotALock}
+		 */
 		acquire() {
 			for (let attempt = 0; attempt < 2; attempt++) {
 				if (create()) return true;
-				const seen = readText(file);
+				const seen = readPidfile();
 				const held = liveHolder(seen);
 				if (held === process.pid) return true;
 				if (held !== null || !removeStale(seen)) return false;
@@ -113,4 +136,4 @@ function pidLock(file, marker) {
 	};
 }
 
-module.exports = { pidLock };
+module.exports = { NotALock, pidLock };

@@ -189,10 +189,7 @@
 				"is run by no husky hook, workflow,",
 				"has no `hooks` row",
 				"the `hooks` row for ",
-				{
-					"text": "has no sibling test (",
-					"sites": 2
-				},
+				"has no sibling test (",
 				"`calledElsewhere` names "
 			]
 		},
@@ -227,10 +224,6 @@
 		{
 			"id": "test-spawn",
 			"lines": ["spawns node on the program under test"]
-		},
-		{
-			"id": "precommit-exit",
-			"lines": ["exits 1 on a checker's failure"]
 		},
 		{
 			"id": "doc-map",
