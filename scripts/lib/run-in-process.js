@@ -20,10 +20,11 @@
  *            git subprocesses it spawns inherit it.
  *   env      `options.env` REPLACES the environment for the call, exactly as
  *            spawnSync's `env` does, and is restored after.
- *   stdin    `options.stdin` is what `fs.readFileSync(0)` returns, which is how
- *            lib/hook-message.js takes a hook's JSON payload. It is spawnSync's
- *            `input` under another name. Only fd 0 and only readFileSync: a
- *            script that reads stdin as a stream still wants a spawn.
+ *   stdin    `options.stdin` is what fd 0 holds, read by `fs.readFileSync(0)`,
+ *            which is how lib/hook-message.js takes a hook's JSON payload, or
+ *            by `fs.readSync(0, …)` calls. It is spawnSync's `input` under
+ *            another name. Only fd 0 and only those
+ *            two: a script that reads stdin as a stream still wants a spawn.
  *   uptime   `process.uptime()` counts from the call's start, as a fresh
  *            node's does, so a clock started at the process's start
  *            (lib/hook-deadline.js) starts at the call.
@@ -538,7 +539,7 @@ function statusOfEscape(e, state, listeners) {
  * @property {string}   [cwd]  working directory for the call (default: unchanged)
  * @property {Record<string, string | undefined>} [env] full environment,
  *           replacing this one
- * @property {string} [stdin] what the script reads off fd 0
+ * @property {string | Buffer} [stdin] what the script reads off fd 0
  * @property {number} [staleMs] how long another call's claim must have been
  *           held before this call takes it over instead of refusing as
  *           re-entrant (default: DEFAULT_STALE_MS, `TEST_TIMEOUT_MS + MARGIN_MS`)
@@ -566,6 +567,7 @@ function statusOfEscape(e, state, listeners) {
  * @property {NodeJS.Module | undefined} mainModule
  * @property {typeof fs.writeSync} writeSync
  * @property {typeof fs.readFileSync} readFileSync
+ * @property {typeof fs.readSync} readSync
  * @property {typeof process.stdout.write} stdout
  * @property {typeof process.stderr.write} stderr
  * @property {Console} console
@@ -590,6 +592,7 @@ function snapshotPatches() {
 		mainModule: process.mainModule,
 		writeSync: fs.writeSync,
 		readFileSync: fs.readFileSync,
+		readSync: fs.readSync,
 		stdout: process.stdout.write,
 		stderr: process.stderr.write,
 		console: globalThis.console,
@@ -615,6 +618,7 @@ function snapshotPatches() {
 		process.mainModule = saved.mainModule;
 		/** @type {any} */ (fs).writeSync = saved.writeSync;
 		/** @type {any} */ (fs).readFileSync = saved.readFileSync;
+		/** @type {any} */ (fs).readSync = saved.readSync;
 		process.stdout.write = saved.stdout;
 		process.stderr.write = saved.stderr;
 		globalThis.console = saved.console;
@@ -697,14 +701,29 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	/* Only fd 0, and only when the caller supplied one: everything else has to
 	 * keep reading the real filesystem, the script's own fixture included. */
 	if (options.stdin !== undefined) {
-		const stdin = options.stdin;
+		const stdin = Buffer.from(options.stdin);
 		/** @type {any} */ (fs).readFileSync = (
 			/** @type {any} */ target,
 			/** @type {any} */ opts,
 		) => {
 			if (target !== 0) return saved.readFileSync(target, opts);
 			const encoding = typeof opts === "string" ? opts : opts?.encoding;
-			return encoding ? stdin : Buffer.from(stdin);
+			return encoding ? stdin.toString(encoding) : Buffer.from(stdin);
+		};
+		let consumed = 0;
+		/** @type {any} */ (fs).readSync = (
+			/** @type {any} */ target,
+			/** @type {any} */ buffer,
+			/** @type {any[]} */ ...rest
+		) => {
+			if (target !== 0) return saved.readSync(target, buffer, ...rest);
+			const [offset = 0, length = buffer.length - offset] =
+				typeof rest[0] === "object" && rest[0] !== null
+					? [rest[0].offset, rest[0].length]
+					: rest;
+			const n = stdin.copy(buffer, offset, consumed, consumed + length);
+			consumed += n;
+			return n;
 		};
 	}
 

@@ -56,7 +56,10 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
 /**
  * `import a.b, c` and `from a.b import c, d` — `from .m import x` included —
  * at a line's start. A parenthesised name list continued past the line is
- * read for its module alone.
+ * read for its module alone. An absent module is exactly one blank before
+ * the blanks ahead of `import`, so the two runs never split one run of
+ * blanks every way (#3383); group 1 is then
+ * undefined, which pythonModules reads as "".
  */
 const PY_IMPORT = /^[ \t]*import[ \t]+([\w.][\w., \t]*)/gm;
 const PY_FROM =
