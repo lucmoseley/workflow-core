@@ -178,7 +178,7 @@ describe("new-repo.js on an empty project", () => {
 					"",
 					"## Primitives",
 					"",
-					"This repo's own primitives, beside the base's table. None yet.",
+					"This repo's own primitives, beside the base's table.",
 					"",
 					"| Job | Primitive | Exemplar | Rule | Enforcing check |",
 					"|---|---|---|---|---|",
