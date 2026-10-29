@@ -71,7 +71,8 @@ const finite = (n) => (Number.isFinite(n) ? n : null);
  * vmmemWSL's working set in MiB. Its CSV is a header row naming each counter
  * as `\\HOST<counter>`, then the time and one quoted value a counter. Read
  * by header name, since typeperf has twice dropped one column under load
- * (#3564): a counter missing or unparseable is null, the rest still read.
+ * (#3564): a counter missing or unparseable is null, the rest still read;
+ * a row whose cells do not match the header's reads all null.
  * @param {string} stdout
  */
 function parseTypeperf(stdout) {
@@ -81,10 +82,14 @@ function parseTypeperf(stdout) {
 		[...(line ?? "").matchAll(/"([^"]*)"/g)].map((m) => m[1] ?? "").slice(1);
 	const names = cells(lines.find((l) => l.startsWith('"(')));
 	const values = cells(lines.find((l) => /^"\d/.test(l)));
+	/* A row out of step with its header would credit a value to the wrong counter. */
+	const aligned = values.length === names.length;
 	/** @param {string} counter */
 	const read = (counter) => {
-		const at = names.findIndex((n) => n.endsWith(counter));
-		return at === -1 ? null : finite(Number.parseFloat(values[at] ?? ""));
+		const column = names.findIndex((n) => n.endsWith(counter));
+		return !aligned || column === -1
+			? null
+			: finite(Number.parseFloat(values[column] ?? ""));
 	};
 	const [cpu = "", available = "", workingSet = ""] = COUNTERS;
 	const wsBytes = read(workingSet);

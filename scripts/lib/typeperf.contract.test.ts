@@ -47,25 +47,28 @@ const CASE_MS = CALL_MS + 5000;
 const CASES = [
 	{
 		name: "one sample is one CSV row whose every named counter parseTypeperf reads",
-		check(bin: string) {
+		/** @param complete whether every counter must be named: the fake's always
+		 * are, while the real typeperf has twice dropped one under load (#3564). */
+		check(bin: string, complete: boolean) {
 			const r = spawnSync(bin, [...COUNTERS, "-sc", "1"], {
 				encoding: "utf8",
 				timeout: CALL_MS,
 			});
 			if (r.error) throw r.error;
 			expect(r.status).toBe(0);
-			const header = r.stdout.split(/\r?\n/).find((l) => l.startsWith('"('));
-			// typeperf has twice dropped one column under load (#3564), which
-			// parseTypeperf reads as that counter alone missing: so every column
-			// the header names must be one asked for, and must parse.
-			const named = COUNTERS.filter((c) => header?.includes(c));
-			expect(named.length, r.stdout).toBeGreaterThan(0);
-			expect(header?.split('","'), r.stdout).toHaveLength(named.length + 1);
-			const parsed = parseTypeperf(r.stdout);
-			const keys = ["cpuPct", "availableMb", "vmmemMb"];
-			for (const [i, c] of COUNTERS.entries())
-				if (named.includes(c))
-					expect(parsed[keys[i] ?? ""], r.stdout).toBeGreaterThanOrEqual(0);
+			const lines = r.stdout.split(/\r?\n/);
+			const header = lines.find((l) => l.startsWith('"(')) ?? "";
+			const row = lines.find((l) => /^"\d/.test(l)) ?? "";
+			const named = COUNTERS.filter((c) => header.includes(`${c}"`));
+			if (complete) expect(named, r.stdout).toEqual(COUNTERS);
+			else expect(named.length, r.stdout).toBeGreaterThan(0);
+			expect(header.split('","'), r.stdout).toHaveLength(named.length + 1);
+			expect(row.split('","'), r.stdout).toHaveLength(named.length + 1);
+			const read = Object.values(parseTypeperf(r.stdout)).filter(
+				(v) => v !== null,
+			);
+			expect(read, r.stdout).toHaveLength(named.length);
+			for (const v of read) expect(v).toBeGreaterThanOrEqual(0);
 		},
 	},
 ];
@@ -79,11 +82,14 @@ describe("the fake", () => {
 					availableMb: 2431,
 					vmmemBytes: 4 * 2 ** 30,
 				}),
+				true,
 			),
 		);
 });
 
 describe("the real typeperf.exe", () => {
 	for (const c of CASES)
-		it.skipIf(!reachable)(c.name, { timeout: CASE_MS }, () => c.check(REAL));
+		it.skipIf(!reachable)(c.name, { timeout: CASE_MS }, () =>
+			c.check(REAL, false),
+		);
 });

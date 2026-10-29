@@ -190,12 +190,20 @@ describe("parseTypeperf", () => {
 		).toEqual({ cpuPct: 62.5, availableMb: 1700, vmmemMb: 6656 });
 	});
 
-	it("reads a dropped counter as null and the rest as read", () => {
+	it("reads a dropped middle counter as null and the rest by name", () => {
 		expect(
 			parseTypeperf(
-				`\r\n${header([COUNTERS[0] ?? "", COUNTERS[1] ?? ""])}\r\n${row(["62.5", "1700.0"])}\r\n`,
+				`\r\n${header([COUNTERS[0] ?? "", COUNTERS[2] ?? ""])}\r\n${row(["62.5", String(6.5 * 2 ** 30)])}\r\n`,
 			),
-		).toEqual({ cpuPct: 62.5, availableMb: 1700, vmmemMb: null });
+		).toEqual({ cpuPct: 62.5, availableMb: null, vmmemMb: 6656 });
+	});
+
+	it("reads nothing from a row out of step with its header", () => {
+		expect(
+			parseTypeperf(
+				`\r\n${header(COUNTERS)}\r\n${row(["62.5", "1700.0"])}\r\n`,
+			),
+		).toEqual({ cpuPct: null, availableMb: null, vmmemMb: null });
 	});
 
 	it("reads nothing from output with no sample row", () => {
