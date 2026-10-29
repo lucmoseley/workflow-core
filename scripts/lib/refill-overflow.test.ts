@@ -34,6 +34,7 @@ const planSeat = (seat: string, weekFull: boolean) => ({
 	weekFull,
 	sessionFull: false,
 	sessionResets: null,
+	weekResets: null,
 });
 
 const overflowSeat = (dir: string) => ({
@@ -143,6 +144,7 @@ describe("the dry run's dispatch line", () => {
 				prompt: "/implement 7",
 				model: "opus",
 				seat: "/home/u/.claude2-api",
+				reason: "overflow",
 			},
 		],
 		"/core/dispatch-sessions.sh",

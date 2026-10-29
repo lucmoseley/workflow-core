@@ -27,6 +27,7 @@ const {
 	launchName,
 	markParked,
 } = require("./refill-blocks.js");
+const { homeDir } = require("./refill-repos.js");
 const { OUTCOME_PREFIX } = require("./usage-probe.js");
 
 /* A finished session drops off the listing; one just launched may not be on
@@ -349,7 +350,8 @@ const ceilingsOf = (env) => ({
  * 100% fresh, or, unfresh, its cached percent is 100 and its cached reset is
  * still ahead: a locked seat's bars age without refreshing, and neither
  * reopens before its reset (#2606). A passed or unparsed reset leaves it
- * unread.
+ * unread. The weekly reset is kept whatever the bar's trust (#3732); one
+ * passed or unparsed reads as unread.
  * @param {string} seat
  * @param {{session: import("./allowance.js").Bar,
  *   weekly_all: import("./allowance.js").Bar}} bars
@@ -365,6 +367,7 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
 		b.percent >= FULL &&
 		(b.trust === "fresh" || Date.parse(b.resetsAt ?? "") > now);
 	const sessionFull = full(session);
+	const weekResets = Date.parse(week.resetsAt ?? "");
 	return {
 		seat,
 		week: fresh(week),
@@ -372,6 +375,7 @@ function seatReadingOf(seat, { session, weekly_all: week }, now) {
 		weekFull: full(week),
 		sessionFull,
 		sessionResets: sessionFull ? session.resetsAt : null,
+		weekResets: weekResets > now ? weekResets : null,
 	};
 }
 
@@ -724,9 +728,33 @@ function launchUntilStopped(batches, readControl, launch) {
 }
 
 /**
+ * @param {string} seat
+ * @param {string} [home]
+ */
+function buildSeatName(seat, home = homeDir()) {
+	const rel = path.relative(home, seat);
+	return rel && !rel.startsWith("..") && !path.isAbsolute(rel)
+		? `~/${rel}`
+		: seat;
+}
+
+/**
+ * A record from before #3732 has no reason.
+ * @param {{seat: string, reason?: string}} l
+ */
+const buildSeatText = (l) =>
+	`on ${buildSeatName(l.seat)}${l.reason ? ` (${l.reason})` : ""}`;
+
+/**
  * @param {{root: string, prompt: string}[]} launches
  */
 const buildLaunchesLine = (launches) => launches.map(launchName).join("; ");
+
+/**
+ * @param {{root: string, prompt: string, seat: string, reason?: string}[]} launches
+ */
+const buildLaunchLine = (launches) =>
+	`launch ${launches.map((l) => `${launchName(l)} ${buildSeatText(l)}`).join("; ")}`;
 
 /**
  * One line naming a decision.
@@ -734,7 +762,7 @@ const buildLaunchesLine = (launches) => launches.map(launchName).join("; ");
  */
 function summaryOf(d) {
 	if ("stop" in d) return `stop: ${d.stop} — ${d.detail}`;
-	if (d.launches.length > 0) return `launch ${buildLaunchesLine(d.launches)}`;
+	if (d.launches.length > 0) return buildLaunchLine(d.launches);
 	return `idle: ${d.idle}`;
 }
 
@@ -799,9 +827,7 @@ function frontierNotes(d, read) {
  */
 const buildOutcomeLine = (o) =>
 	[
-		...(o.launched.length > 0
-			? [`launch ${buildLaunchesLine(o.launched)}`]
-			: []),
+		...(o.launched.length > 0 ? [buildLaunchLine(o.launched)] : []),
 		...o.refused.map(
 			(r) => `refused ${buildLaunchesLine([r.launch])}: ${r.reason}`,
 		),
@@ -946,6 +972,7 @@ module.exports = {
 	isRenewedSince,
 	judgedLaunches,
 	buildLaunchesLine,
+	buildSeatText,
 	buildFrontierReadText,
 	buildSkipText,
 	isReviewRunDue,
@@ -959,6 +986,7 @@ module.exports = {
 	landingRoots,
 	parseProbeOutcome,
 	overflowReadings,
+	buildSeatName,
 	seatReadingOf,
 	settleTick,
 	readSizedSeats,

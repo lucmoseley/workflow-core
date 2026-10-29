@@ -750,6 +750,19 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 		expect(lines[0].model).toBe("sonnet");
 	});
 
+	it("records why each launch went on its seat: its caller's own, else the loop's pick (#3732)", () => {
+		const reasons = () =>
+			fs
+				.readFileSync(ledger(), "utf8")
+				.trim()
+				.split("\n")
+				.map((l) => JSON.parse(l).seatReason);
+		stubClaude({});
+		run(["sonnet", "/implement 341"]);
+		run(["sonnet", "/implement 342"], { WFC_SEAT_REASON: "last typed on" });
+		expect(reasons()).toEqual(["own seat", "last typed on"]);
+	});
+
 	it("refuses a second launch of an issue it already launched, naming the issue", () => {
 		stubClaude({});
 		run(["sonnet", "/implement 341"]);

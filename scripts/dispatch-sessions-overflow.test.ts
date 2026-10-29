@@ -84,6 +84,7 @@ function dispatch(
 		prompt,
 		model: "opus" as const,
 		seat: seat(),
+		reason: "overflow" as const,
 	}));
 	return launchBatch(batch, {
 		dispatcher: SCRIPT,

@@ -54,6 +54,7 @@ const seat = (
 	weekFull: week !== null && week >= FULL,
 	sessionFull: session !== null && session >= FULL,
 	sessionResets: null,
+	weekResets: null,
 	fits,
 });
 
@@ -398,6 +399,89 @@ describe("decideTick seats", () => {
 	it("launches no more than the cap would on the seat (#2278)", () => {
 		const d = tick({ freeSlots: 3, seats: [seat("a", 98, 10, 1)] });
 		expect(launched(d)).toEqual(["wfc#1"]);
+	});
+});
+
+describe("decideTick's seat order and reason (#3732)", () => {
+	const Day = 24 * HOUR;
+	/* A plan seat with room whose week resets `days` from now, null unread. */
+	const on = (
+		name: string,
+		days: number | null,
+		over: Record<string, unknown> = {},
+	) => ({
+		...seat(name, 40, 20),
+		weekResets: days === null ? null : NOW + days * Day,
+		...over,
+	});
+	const picked = (d: { launches?: { seat: string; reason: string }[] }) => [
+		...new Set((d.launches ?? []).map((l) => `${l.seat} ${l.reason}`)),
+	];
+
+	it("launches on the seat the founder last typed on first", () => {
+		const d = tick({ seats: [on("a", 3), on("b", 1)], typedSeat: "a" });
+		expect(picked(d)).toEqual(["a last typed on"]);
+	});
+
+	it("takes the soonest weekly reset next, once the typed seat is past the cut", () => {
+		const d = tick({
+			seats: [on("a", 1, { fits: 0 }), on("b", 3), on("c", 2)],
+			typedSeat: "a",
+		});
+		expect(picked(d)).toEqual(["c soonest reset"]);
+	});
+
+	it("falls back to the soonest reset with no typed seat recorded, or one not listed", () => {
+		const seats = [on("a", 3), on("b", 2), on("c", 5)];
+		expect(picked(tick({ seats }))).toEqual(["b soonest reset"]);
+		expect(picked(tick({ seats, typedSeat: null }))).toEqual([
+			"b soonest reset",
+		]);
+		expect(picked(tick({ seats, typedSeat: "z" }))).toEqual([
+			"b soonest reset",
+		]);
+	});
+
+	it("sorts an unread reset after every read one, ties in seat-file order", () => {
+		expect(
+			picked(tick({ seats: [on("a", null), on("b", 4), on("c", 4)] })),
+		).toEqual(["b soonest reset"]);
+		expect(picked(tick({ seats: [on("a", null), on("b", null)] }))).toEqual([
+			"a soonest reset",
+		]);
+	});
+
+	it("waits through a 5-hour-full typed seat only where no other seat has room", () => {
+		const five = on("a", 1, {
+			session: FULL,
+			sessionFull: true,
+			sessionResets: "3pm",
+		});
+		expect(picked(tick({ seats: [five, on("b", 3)], typedSeat: "a" }))).toEqual(
+			["b soonest reset"],
+		);
+		const d = tick({ seats: [five, on("b", 3, { fits: 0 })], typedSeat: "a" });
+		expect(d).toMatchObject({ launches: [] });
+		expect(d.idle).toContain("the 5-hour bar is full on a");
+	});
+
+	it("overflows only once every plan seat is weekly-full, with its reason", () => {
+		const overflow = [{ seat: "x", fits: 5, spentUntil: null, why: null }];
+		const weekFull = (name: string) =>
+			on(name, 1, { week: FULL, weekFull: true, fits: null });
+		expect(
+			picked(
+				tick({
+					seats: [weekFull("a"), weekFull("b")],
+					typedSeat: "a",
+					overflow,
+				}),
+			),
+		).toEqual(["x overflow"]);
+		const five = on("a", 1, { session: FULL, sessionFull: true, fits: null });
+		expect(
+			picked(tick({ seats: [five, weekFull("b")], typedSeat: "a", overflow })),
+		).toEqual([]);
 	});
 });
 

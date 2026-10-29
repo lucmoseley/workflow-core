@@ -12,8 +12,10 @@
  *                                        dispatch call; running sessions
  *                                        finish
  *   node scripts/refill-loop.js status   mode, repos, goal, stop time,
- *                                        launches, the last stop reason and
- *                                        each overflow seat's budget
+ *                                        launches with their seats, the
+ *                                        last stop reason and each overflow
+ *                                        seat's budget; `--json` the launch
+ *                                        rows alone
  *   node scripts/refill-loop.js dry-run  one tick's decision, printed; reaps
  *                                        and launches nothing
  *
@@ -87,6 +89,7 @@ const SCRIPTS = __dirname;
 const USAGE = `usage: node ${scriptPath("refill-loop.js")} start | stop | status | dry-run
   start [--repo <dir>]… [--goal 116,117]       normal mode: this checkout plus each named one
   start --away [--exclude <dir>]… [--goal …]   away mode: every included checkout but those named
+  status [--json]                              --json: the launch rows, each with its seat and why
   <dir> is a checkout's directory name in the home directory`;
 
 const lock = pidLock(files.pid, "refill-loop.js");
@@ -245,13 +248,19 @@ function stop() {
 	return 0;
 }
 
-function status() {
+/** @param {import("./lib/cli-args").Parsed} parsed */
+function status({ flags }) {
 	const control = readControlFile(log);
 	const served = control ? servedRoots(control.scope).roots : [];
 	const pid = lock.holder();
+	const state = loop.parseState(readJson(files.state, log));
+	if (flags["--json"]) {
+		say(JSON.stringify(commands.buildStatusJson({ control, state, pid })));
+		return 0;
+	}
 	for (const line of commands.buildStatusLines({
 		control,
-		state: loop.parseState(readJson(files.state, log)),
+		state,
 		pid,
 		codeSha: pid === null ? null : refillCode.readRunningCode(pid, files.code),
 		runMs: RUN_MS,
@@ -385,7 +394,7 @@ const CLI = {
 			},
 		},
 		stop: { usage: USAGE },
-		status: { usage: USAGE },
+		status: { usage: USAGE, flags: { "--json": "boolean" } },
 		"dry-run": { usage: USAGE },
 		run: { usage: USAGE },
 	},

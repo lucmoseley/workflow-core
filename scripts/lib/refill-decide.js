@@ -59,6 +59,8 @@ const ALREADY_RUNNING = "already running";
  * @property {boolean} sessionFull
  * @property {string|null} sessionResets the 5-hour bar's reset, as read,
  *   where it is full; else null
+ * @property {number|null} weekResets the weekly bar's reset, ms, from the
+ *   same reading; null where it is unread, will not parse or has passed
  */
 
 /**
@@ -92,6 +94,14 @@ const ALREADY_RUNNING = "already running";
  *   session's acts-ledger lines counted per kind (#2312), or UNREAD where its
  *   session id was never captured or its ledger would not read
  * @property {true} [gate] a gate judgement's launch (#3092)
+ * @property {SeatReason} [reason] why its seat was picked
+ */
+
+/**
+ * The picker's tokens (#3732), then a parked resume's, which goes back to its
+ * own session's seat.
+ * @typedef {"last typed on" | "soonest reset" | "overflow"
+ *   | "parked session's seat"} SeatReason
  */
 
 /**
@@ -107,7 +117,11 @@ const ALREADY_RUNNING = "already running";
  * @property {{root: string, issues: number[]}[]} running
  * @property {number} freeSlots admission's count
  * @property {number|null} lastPromptAt ms of the founder's last typed prompt
- * @property {SizedSeat[]} seats the plan seats, in failover order
+ * @property {string|null} [typedSeat] the plan seat the founder last typed
+ *   on, null or absent where none is recorded (lib/presence.js's
+ *   readLastTyped)
+ * @property {SizedSeat[]} seats the plan seats, seat-file order or any
+ *   order of it: pickSeat orders them
  * @property {OverflowReading[]} [overflow] the overflow seats, in failover
  *   order
  * @property {LaunchRecord[]} history
@@ -126,6 +140,7 @@ const ALREADY_RUNNING = "already running";
  * @property {string} prompt
  * @property {"opus"} model
  * @property {string} seat
+ * @property {SeatReason} reason
  * @property {true} [gate] a gate judgement's launch (#3092)
  * @property {{resume: ResumeTarget}|{afresh: string}} [parkedRoute] a parked
  *   ticket's: the session that parked it to resume in place, else why
@@ -228,22 +243,51 @@ const fitsLaunch = (s) => hasRoom(s) && isFitted(s);
 const readsFull = (s) => s.weekFull || s.sessionFull || s.fits === 0;
 
 /**
- * The first plan seat with room whose cap fits a launch, else, once every
- * plan seat is weekly-full, the first overflow seat whose budget fits one
- * (#2570); else whether every seat is spent, and why the tick waits where
- * not.
- * @param {TickInput} input
+ * The plan seats in the order the loop launches on them (#3732): the seat
+ * the founder last typed on first, where it is one of them, then the rest
+ * by soonest weekly reset, ties and unread resets in seat-file order. The
+ * one order both a launch and a move walk.
+ * @template {{seat: string, weekResets: number|null}} S
+ * @param {S[]} seats in seat-file order
+ * @param {string|null} typedSeat
+ * @returns {S[]}
  */
-function pickSeat({ seats, overflow = [] }) {
-	const plan = pickPlanSeat(seats);
-	if (plan.seat !== null || overflow.length === 0) return plan;
+function orderPlanSeats(seats, typedSeat) {
+	/** @param {S} s */
+	const key = (s) => [
+		s.seat === typedSeat ? 0 : 1,
+		s.weekResets ?? Number.POSITIVE_INFINITY,
+	];
+	return seats
+		.map((s, i) => ({ s, i, k: key(s) }))
+		.sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.i - b.i)
+		.map(({ s }) => s);
+}
+
+/**
+ * The first plan seat, in orderPlanSeats's order, with room whose cap fits a
+ * launch, else, once every plan seat is weekly-full, the first overflow seat
+ * whose budget fits one (#2570); else whether every seat is spent, and why
+ * the tick waits where not.
+ * @param {Pick<TickInput, "seats"|"overflow"|"typedSeat">} input
+ * @returns {{seat: string, fits: number, reason: SeatReason}
+ *   | {seat: null, fits: 0, allCut: boolean, wait: string}}
+ */
+function pickSeat({ seats, overflow = [], typedSeat = null }) {
+	const plan = pickPlanSeat(orderPlanSeats(seats, typedSeat));
+	if (plan.seat !== null)
+		return {
+			...plan,
+			reason: plan.seat === typedSeat ? "last typed on" : "soonest reset",
+		};
+	if (overflow.length === 0) return plan;
 	if (!plan.allCut) {
 		const open = seats.filter((s) => !s.weekFull).map((s) => s.seat);
 		const wait = `no overflow launch: ${open.join(", ")} not weekly-full`;
 		return { ...plan, wait: [plan.wait, wait].filter(Boolean).join("; ") };
 	}
 	const open = overflow.find(isFitted);
-	if (open) return { seat: open.seat, fits: open.fits };
+	if (open) return { seat: open.seat, fits: open.fits, reason: "overflow" };
 	return {
 		seat: null,
 		fits: 0,
@@ -265,7 +309,9 @@ const overflowHolds = (overflow) => overflow.map(overflowHold).join(", ");
  * finishing reopen the third's headroom (#2432). An unsized seat names the
  * wait: the loop probes no seat behind it, so an unread one there was never
  * refreshed (#2362).
- * @param {SizedSeat[]} seats
+ * @param {SizedSeat[]} seats in launch order
+ * @returns {{seat: string, fits: number}
+ *   | {seat: null, fits: 0, allCut: boolean, wait: string}}
  */
 function pickPlanSeat(seats) {
 	/** @type {Record<SeatHold, string[]>} */
@@ -529,12 +575,12 @@ function splitParked(frontier, mode) {
  * enough resumable parked rows to fill every slot hold the judgements back a
  * tick.
  * @param {TickInput} input
- * @param {string} seat
+ * @param {{seat: string, reason: SeatReason}} on
  * @param {number} slots
  */
 function fill(
 	{ frontier, retroBundles, running, judgements = [], mode, seats, parkers },
-	seat,
+	{ seat, reason },
 	slots,
 ) {
 	/** @type {Launch[]} */
@@ -558,6 +604,7 @@ function fill(
 			prompt,
 			model: MODEL,
 			seat,
+			reason,
 			...(gate ? { gate: /** @type {const} */ (true) } : {}),
 			...(parkedRoute ? { parkedRoute } : {}),
 		});
@@ -624,7 +671,7 @@ function decideTick(input) {
 		};
 	/* The cap's fits, so a tick asks no dispatcher call for a member the cap
 	 * would drop: each call launches at least one under 100%. */
-	const out = fill(input, pick.seat, Math.min(pick.fits, free));
+	const out = fill(input, pick, Math.min(pick.fits, free));
 	if (out.launches.length > 0) return { ...out, idle: null, held };
 	const failed = input.failedShortlists ?? [];
 	return {
@@ -652,6 +699,7 @@ module.exports = {
 	fitsLaunch,
 	hasRoom,
 	isParked,
+	orderPlanSeats,
 	pickSeat,
 	isParkRoutingMode,
 };

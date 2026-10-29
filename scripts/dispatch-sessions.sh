@@ -426,6 +426,11 @@ refuse_if_kernel_unhealthy
 # The seat this runs under, from the one reader of `~/.claude/refill-seats`
 # (lib/refill-seats.js).
 seat_dir="${CLAUDE_CONFIG_DIR:-${HOME:-}/.claude}"
+# Why the launches go on this seat, for the ledger: the refill loop names its
+# pick (lib/refill-batch.js); a direct run takes its caller's own seat (#3732).
+# Unset, so a launched session's own dispatch never inherits the loop's.
+seat_reason="${WFC_SEAT_REASON:-own seat}"
+unset WFC_SEAT_REASON
 if ! seat_kind="$(node "$here/lib/refill-seats.js" kind "$seat_dir" 2>/dev/null)"; then
   printf 'REFUSED: the seat file refuses (seat %s):\n' "$seat_dir" >&2
   node "$here/lib/refill-seats.js" kind "$seat_dir" 2>&1 >/dev/null | sed 's/^/  /' >&2
@@ -923,7 +928,8 @@ while [[ $# -gt 0 ]]; do
     # unrelated dispatch of it, under the same command, for the ledger window
     # (#752). `--force` is the way out.
     node "$here/check-duplicate-dispatch.js" --record \
-      --issues "$prompt" --model "$model" --prompt "$prompt" --job-id "$job_id" || true
+      --issues "$prompt" --model "$model" --prompt "$prompt" --job-id "$job_id" \
+      --seat-reason "$seat_reason" || true
     launched_prompts+=("$prompt")
     # AFTER this launch, before the NEXT member's re-read at the top of the
     # loop — not before this spawn, which would leave the very next re-read

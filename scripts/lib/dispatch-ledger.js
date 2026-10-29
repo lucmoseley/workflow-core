@@ -114,7 +114,10 @@ function entryHolds(rec, command) {
  * `jobId` is that job's own short id, the one `claude --bg` prints and
  * `claude stop`/`claude attach` take, or `null` where unknown.
  * @typedef {{ts: string, issues: number[], model: string, prompt: string,
- *            session: string|null, jobId: string|null}} DispatchRecord
+ *            session: string|null, jobId: string|null,
+ *            seatReason?: string}} DispatchRecord `seatReason` is why the
+ *   launch went on its seat: the refill loop's pick (lib/refill-decide.js's
+ *   SeatReason), or `own seat` for a direct dispatch-sessions.sh run (#3732)
  */
 
 /**
@@ -250,7 +253,7 @@ function release(entry) {
 /**
  * `launchedAt` is the launch's epoch ms, from a caller whose own record of the
  * launch reads the same clock; now where absent.
- * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number}} entry
+ * @param {{issues: number[], model: string, prompt: string, root?: string, jobId?: string|null, launchedAt?: number, seatReason?: string}} entry
  * @returns {boolean} whether it was written
  */
 function record(entry) {
@@ -262,6 +265,7 @@ function record(entry) {
 			prompt: entry.prompt,
 			session: process.env.CLAUDE_CODE_SESSION_ID || null,
 			jobId: entry.jobId || null,
+			...(entry.seatReason ? { seatReason: entry.seatReason } : {}),
 		},
 		entry.launchedAt,
 	);

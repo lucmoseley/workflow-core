@@ -38,6 +38,7 @@ const launch = {
 	prompt: "/implement 42",
 	model: "opus" as const,
 	seat: "/home/u/.claude3",
+	reason: "soonest reset" as const,
 };
 
 const entry = (prompt: string, ts: number, jobId: string) => ({
@@ -93,8 +94,9 @@ describe("the dispatcher call for one batch", () => {
 		expect(call.env.WFC_DISPATCH_ROOT).toBeUndefined();
 	});
 
-	it("launches on the picked seat, as no session", () => {
+	it("launches on the picked seat, as no session, naming why for its ledger (#3732)", () => {
 		expect(call.env.CLAUDE_CONFIG_DIR).toBe("/home/u/.claude3");
+		expect(call.env.WFC_SEAT_REASON).toBe("soonest reset");
 		expect(call.env.CLAUDE_CODE_SESSION_ID).toBeUndefined();
 		expect(call.env.PATH).toBe("/usr/bin");
 	});
@@ -194,6 +196,7 @@ done
 		prompt: `/implement ${n}`,
 		model: "opus" as const,
 		seat: onSeat,
+		reason: "soonest reset" as const,
 	});
 
 	/** One tick's `launches`, batched and launched, each repo's plan its FAKE_PLAN. */
@@ -353,6 +356,7 @@ describe("launchBatch's records", () => {
 			prompt,
 			model: "opus" as const,
 			seat: "~/.claude3",
+			reason: "soonest reset" as const,
 			...over,
 		});
 		const batch = [
@@ -444,6 +448,7 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 			issues: [1],
 			prompt: "/implement 1",
 			seat: "/home/u/.claude2",
+			reason: "parked session's seat",
 			jobId: "j-9",
 			launchedAt: NOW,
 			finishedAt: null,

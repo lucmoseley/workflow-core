@@ -8,7 +8,11 @@
  * loop's resumes or hand-off.
  */
 import { describe, expect, it } from "vitest";
-import { buildStatusLines, mergedScope } from "./refill-commands.js";
+import {
+	buildStatusJson,
+	buildStatusLines,
+	mergedScope,
+} from "./refill-commands.js";
 import { parseState } from "./refill-loop.js";
 import {
 	away,
@@ -184,7 +188,9 @@ describe("what status prints", () => {
 			runMs,
 			served,
 		}).join("\n");
-		expect(out).toContain("/implement 42  running  session sess-9");
+		expect(out).toContain(
+			"/implement 42  running  on /home/u/.claude3  session sess-9",
+		);
 	});
 
 	it("names the mode, the repos and the goal", () => {
@@ -376,6 +382,53 @@ describe("the launch lines status shows (#2850)", () => {
 			expect(out).toContain(prompt);
 		expect(out).not.toContain("/implement 4");
 		expect(out).toContain("/implement 100");
+	});
+});
+
+describe("a launch row's seat and reason (#3732)", () => {
+	const control = {
+		startedAt: NOW - 60 * MIN,
+		stopRequested: false,
+		seats: [],
+		scope: normal([DV]),
+	};
+	const stateOf = (launches: Launch[]) => ({
+		launches,
+		lastTick: null,
+		stopped: null,
+		held: [],
+		reviewRunOn: null,
+	});
+	const seat = `${process.env.HOME}/.claude2`;
+	const typed = record({ seat, reason: "last typed on" });
+
+	it("names the seat as a tilde path and why it was picked, in status", () => {
+		const out = buildStatusLines({
+			control,
+			state: stateOf([typed]),
+			pid: 1,
+			runMs: 60 * MIN,
+			served: [DV],
+		}).join("\n");
+		expect(out).toContain("running  on ~/.claude2 (last typed on)");
+	});
+
+	it("gives the same seat and reason in status --json, null on an older record", () => {
+		const json = buildStatusJson({
+			control,
+			state: stateOf([typed, record({ seat })]),
+			pid: 1,
+		});
+		expect(json.running).toBe(true);
+		expect(
+			json.launches.map((l: { seat: string; reason: string | null }) => [
+				l.seat,
+				l.reason,
+			]),
+		).toEqual([
+			["~/.claude2", "last typed on"],
+			["~/.claude2", null],
+		]);
 	});
 });
 

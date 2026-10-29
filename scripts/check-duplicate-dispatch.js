@@ -387,7 +387,7 @@ function dropIndices(prompts, duplicates) {
 }
 
 /**
- * @typedef {{record: boolean, issues: number[], prompts: string[], dropIndexOut: string, model: string, prompt: string, jobId: string, windowHours: number}} Args
+ * @typedef {{record: boolean, issues: number[], prompts: string[], dropIndexOut: string, model: string, prompt: string, jobId: string, seatReason: string, windowHours: number}} Args
  */
 
 /** @typedef {(value: string) => Partial<Args>} SetFlag */
@@ -406,6 +406,7 @@ const VALUE_FLAGS = new Map(
 		["--model", (value) => ({ model: value })],
 		["--prompt", (value) => ({ prompt: value })],
 		["--job-id", (value) => ({ jobId: value })],
+		["--seat-reason", (value) => ({ seatReason: value })],
 		["--window-hours", (value) => ({ windowHours: Number(value) })],
 	]),
 );
@@ -422,6 +423,7 @@ function parseArgs(argv) {
 		model: "",
 		prompt: "",
 		jobId: "",
+		seatReason: "",
 		windowHours: DEFAULT_WINDOW_HOURS,
 	};
 	let i = 0;
@@ -443,7 +445,7 @@ function parseArgs(argv) {
 
 /* --record is the non-checking subcommand §N4 permits: it writes the ledger and
  * checks nothing, so it exits on its own path and never enters runCheck. */
-/** @param {{issues: number[], model: string, prompt: string, jobId: string}} opts */
+/** @param {{issues: number[], model: string, prompt: string, jobId: string, seatReason: string}} opts */
 function recordMain(opts) {
 	if (
 		!record({
@@ -451,6 +453,7 @@ function recordMain(opts) {
 			model: opts.model,
 			prompt: opts.prompt,
 			jobId: opts.jobId || null,
+			seatReason: opts.seatReason,
 		})
 	) {
 		process.stderr.write(

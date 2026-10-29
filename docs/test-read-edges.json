@@ -5000,6 +5000,7 @@
 			"scripts/dispatch-sessions-bridge.test.ts",
 			"scripts/dispatch-sessions.test.ts",
 			"scripts/lib/allowance.test.ts",
+			"scripts/lib/refill-loop.test.ts",
 			"scripts/lib/usage-probe.contract.test.ts",
 			"scripts/lib/usage-probe.test.ts",
 			"scripts/measure-points-per-usd.test.ts",

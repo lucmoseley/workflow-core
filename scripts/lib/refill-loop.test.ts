@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readAllowance } from "./allowance";
 import { AS_ROOT, freshSandbox, store } from "./arbiter-testkit";
 import { decideTick, FULL } from "./refill-decide.js";
 import {
@@ -26,6 +27,7 @@ import {
 	buildFinishLine,
 	buildReviewRunLines,
 	buildReviewSkip,
+	buildSeatName,
 	capArgs,
 	ceilingsOf,
 	FREE_SLOT_ARGS,
@@ -59,6 +61,7 @@ import {
 	record,
 	WFC,
 } from "./refill-loop-fixture";
+import { buildUsageCache } from "./usage-probe-fake";
 
 const agent = (id: string, state: string) => ({
 	sessionId: `s-${id}`,
@@ -362,6 +365,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 					weekFull: false,
 					sessionFull: false,
 					sessionResets: null,
+					weekResets: null,
 					fits: 1,
 				},
 			],
@@ -404,6 +408,49 @@ const seat = (name: string, week: number | null, session: number | null) => ({
 	weekFull: week !== null && week >= FULL,
 	sessionFull: session !== null && session >= FULL,
 	sessionResets: null,
+	weekResets: null,
+});
+
+describe("a seat's weekly reset, from its usage cache (#3732)", () => {
+	let dir: string;
+	beforeEach(() => {
+		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seat-reset-"));
+	});
+	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+	const readAt = (fetchedAtMs: number, week: string, now = Date.now()) => {
+		fs.writeFileSync(
+			path.join(dir, ".claude.json"),
+			JSON.stringify(
+				buildUsageCache({ session: 10, week: 40 }, fetchedAtMs, {
+					resetsAt: { week },
+				}),
+			),
+		);
+		return seatReadingOf(dir, readAllowance({ configDir: dir, now }), now);
+	};
+
+	it("carries the weekly bar's reset, fresh or aged", () => {
+		const now = Date.now();
+		const week = new Date(now + 3 * 24 * 60 * MIN).toISOString();
+		expect(readAt(now, week).weekResets).toBe(Date.parse(week));
+		expect(readAt(now - 60 * MIN, week)).toMatchObject({
+			week: null,
+			weekResets: Date.parse(week),
+		});
+	});
+
+	it("reads unread where the reset has passed", () => {
+		const now = Date.now();
+		const week = new Date(now - MIN).toISOString();
+		expect(readAt(now - 60 * MIN, week).weekResets).toBeNull();
+	});
+});
+
+describe("a seat's name (#3732)", () => {
+	it("is a tilde path under the home, else the dir as it is", () => {
+		expect(buildSeatName("/home/u/.claude2", "/home/u")).toBe("~/.claude2");
+		expect(buildSeatName("/srv/seat", "/home/u")).toBe("/srv/seat");
+	});
 });
 
 describe("a seat's reading (#2606)", () => {
@@ -436,6 +483,7 @@ describe("a seat's reading (#2606)", () => {
 			weekFull: true,
 			sessionFull: false,
 			sessionResets: null,
+			weekResets: Date.parse(Ahead),
 		});
 	});
 
@@ -753,18 +801,21 @@ describe("a tick's log line (#2362)", () => {
 					prompt: "/implement 1",
 					model: "opus" as const,
 					seat: "/s2",
+					reason: "soonest reset" as const,
 				},
 			],
 			skipped: [],
 			idle: null,
 			held: [],
 		};
-		expect(logged(decision, 2, [])).toBe("launch wfc /implement 1");
+		expect(logged(decision, 2, [])).toBe(
+			"launch wfc /implement 1 on /s2 (soonest reset)",
+		);
 		expect(logged(decision, 2, [{ seat: "/s2", outcome: "stopped" }])).toBe(
-			"launch wfc /implement 1 (probed /s2: stopped)",
+			"launch wfc /implement 1 on /s2 (soonest reset) (probed /s2: stopped)",
 		);
 		expect(logged(decision, 2, [], { read: { rows: 4, ms: 212_400 } })).toBe(
-			"launch wfc /implement 1 (frontier: 4 rows in 212.4 s)",
+			"launch wfc /implement 1 on /s2 (soonest reset) (frontier: 4 rows in 212.4 s)",
 		);
 		expect(
 			logged({ stop: "explicit", detail: "stop was requested" }, 0, [
@@ -779,6 +830,7 @@ describe("a tick's log line (#2362)", () => {
 		prompt: `/implement ${n}`,
 		model: "opus" as const,
 		seat: "/s2",
+		reason: "soonest reset" as const,
 	});
 
 	it("logs a member the dispatcher refused as refused, with its reason, never as a launch (#2500)", () => {
@@ -795,7 +847,7 @@ describe("a tick's log line (#2362)", () => {
 			}),
 		});
 		expect(line).toBe(
-			"launch wfc /implement 1; refused wfc /implement 2: slots 0 — HOLD: 1840 MB available",
+			"launch wfc /implement 1 on /s2 (soonest reset); refused wfc /implement 2: slots 0 — HOLD: 1840 MB available",
 		);
 		const none = logged({ ...decision, launches: [wfc(2)] }, 1, [], {
 			dispatch: ([b]) => ({
@@ -826,7 +878,7 @@ describe("a tick's log line (#2362)", () => {
 			}),
 		});
 		expect(line).toBe(
-			"launch wfc /implement 1; not dispatched mh /implement 2: a stop landed first",
+			"launch wfc /implement 1 on /s2 (soonest reset); not dispatched mh /implement 2: a stop landed first",
 		);
 	});
 
@@ -1131,6 +1183,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		running: [],
 		freeSlots: 2,
 		lastPromptAt: null,
+		typedSeat: null,
 		seats: [],
 		history: [],
 	} as Tick["input"];
@@ -1141,6 +1194,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		prompt: `/implement ${n}`,
 		model: "opus" as const,
 		seat: "/s",
+		reason: "soonest reset" as const,
 	});
 	/**
 	 * `stop` writes the stop to the control the tick re-reads; a `refused` pick

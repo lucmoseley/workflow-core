@@ -49,7 +49,11 @@ function dispatchCall(batch, dispatcher, env) {
 	if (!first) throw new Error("dispatchCall: an empty batch");
 	const { root, seat } = first;
 	/** @type {NodeJS.ProcessEnv} */
-	const childEnv = { ...checkoutEnv(root, env), CLAUDE_CONFIG_DIR: seat };
+	const childEnv = {
+		...checkoutEnv(root, env),
+		CLAUDE_CONFIG_DIR: seat,
+		WFC_SEAT_REASON: first.reason,
+	};
 	delete childEnv.CLAUDE_CODE_SESSION_ID;
 	return {
 		file: "bash",
@@ -186,6 +190,7 @@ function launchBatch(batch, io) {
 			issues: l.issues,
 			prompt: l.prompt,
 			seat: l.seat,
+			reason: l.reason,
 			jobId: entry.jobId,
 			launchedAt: Date.parse(entry.ts),
 			finishedAt: null,
@@ -237,6 +242,7 @@ function resumeParked(l, parked, io) {
 		issues: l.issues,
 		prompt: l.prompt,
 		seat: parked.resume.seat,
+		reason: "parked session's seat",
 		jobId: r.jobId,
 		launchedAt,
 		finishedAt: null,

@@ -14,7 +14,11 @@ const {
 	iso,
 	nextResumeAt,
 } = require("./refill-blocks.js");
-const { buildSkipText } = require("./refill-loop.js");
+const {
+	buildSeatText,
+	buildSkipText,
+	buildSeatName,
+} = require("./refill-loop.js");
 
 /* Untraced. */
 const STATUS_LAUNCHES = 10;
@@ -147,6 +151,24 @@ function launchStateOf(l) {
 }
 
 /**
+ * The launches `status` counts, those since the start and any still running
+ * from before a renewal, and of them those it lists: the last
+ * STATUS_LAUNCHES and every unsettled one.
+ * @param {Control} control
+ * @param {LoopState} state
+ */
+function shownLaunches(control, state) {
+	const shown = state.launches.filter(
+		(l) => l.launchedAt >= control.startedAt || l.finishedAt === null,
+	);
+	const listed = shown.filter(
+		(l, i) =>
+			i >= shown.length - STATUS_LAUNCHES || UNSETTLED.has(launchKindOf(l)),
+	);
+	return { shown, listed };
+}
+
+/**
  * The lines a recorded start gives `status`: launches since it, and any still
  * running from before a renewal.
  * @param {Control} control
@@ -159,9 +181,7 @@ function buildControlLines(control, state, opts) {
 	const since = state.launches.filter(
 		(l) => l.launchedAt >= control.startedAt,
 	).length;
-	const shown = state.launches.filter(
-		(l) => l.launchedAt >= control.startedAt || l.finishedAt === null,
-	);
+	const { shown, listed } = shownLaunches(control, state);
 	const kinds = shown.map(launchKindOf);
 	const running = kinds.filter(
 		(k) => k === "running" || k === "resumed-idle",
@@ -172,15 +192,11 @@ function buildControlLines(control, state, opts) {
 	lines.push(
 		`launches:  ${since} since start, ${running} running, ${parked} parked`,
 	);
-	const listed = shown.filter(
-		(l, i) =>
-			i >= shown.length - STATUS_LAUNCHES || UNSETTLED.has(launchKindOf(l)),
-	);
 	for (const l of listed) {
 		const at = launchStateOf(l);
 		const session = l.sessionId ? `  session ${l.sessionId}` : "";
 		lines.push(
-			`  ${iso(l.launchedAt)}  ${path.basename(l.root)}  ${l.prompt}  ${at}${session}`,
+			`  ${iso(l.launchedAt)}  ${path.basename(l.root)}  ${l.prompt}  ${at}  ${buildSeatText(l)}${session}`,
 		);
 	}
 	return lines;
@@ -238,8 +254,33 @@ function buildStatusLines({
 	];
 }
 
+/**
+ * `status --json`: whether the loop runs, and the launch rows `status`
+ * lists, each with its seat as a tilde path and why it was picked (#3732),
+ * null on a record from before that.
+ * @param {{control: Control|null, state: LoopState, pid: number|null}} input
+ */
+function buildStatusJson({ control, state, pid }) {
+	return {
+		running: pid !== null,
+		pid,
+		launches: control
+			? shownLaunches(control, state).listed.map((l) => ({
+					launchedAt: iso(l.launchedAt),
+					root: l.root,
+					prompt: l.prompt,
+					state: launchStateOf(l),
+					seat: buildSeatName(l.seat),
+					reason: l.reason ?? null,
+					sessionId: l.sessionId ?? null,
+				}))
+			: [],
+	};
+}
+
 module.exports = {
 	buildScopeLines,
+	buildStatusJson,
 	buildStatusLines,
 	mergedScope,
 };

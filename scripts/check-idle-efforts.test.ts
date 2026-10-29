@@ -197,6 +197,7 @@ describe("check-idle-efforts.js", () => {
 					prompt: "/implement 1",
 					model: "opus",
 					seat: "/home/u/.claude2",
+					reason: "soonest reset",
 					parkedRoute: {
 						resume: {
 							seat: "/home/u/.claude2",

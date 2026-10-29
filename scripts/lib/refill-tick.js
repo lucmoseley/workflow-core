@@ -87,6 +87,7 @@ const {
 	hasRoom,
 	isParked,
 	isParkRoutingMode,
+	orderPlanSeats,
 } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const {
@@ -345,13 +346,16 @@ function readCapFits(root, seat, members, usageText) {
  * Seats are sized before any repo is picked, so against the first served
  * checkout, `root` (#2937). Residual: a launch into a later served checkout
  * whose cost table differs is capped by the dispatcher on that table instead.
- * @param {string[]} seats
+ * The seats are read in the decision core's launch order (#3732), so the
+ * seats refreshed and sized are those ahead of the one it launches on.
+ * @param {string[]} seats in seat-file order
  * @param {number} slots
  * @param {string|undefined} root
+ * @param {string|null} typedSeat
  */
-function readSeats(seats, slots, root) {
+function readSeats(seats, slots, root, typedSeat) {
 	return loop.readSizedSeats(slots, {
-		read: (usage) => readSeatReadings(seats, usage),
+		read: (usage) => orderPlanSeats(readSeatReadings(seats, usage), typedSeat),
 		probe: readPrintedUsage,
 		sizeOf: (seat, members, usageText) =>
 			readCapFits(root, seat, members, usageText),
@@ -972,8 +976,14 @@ async function tick({ dryRun }) {
 				seen,
 			);
 	const { slots, admission } = readFreeSlots();
-	const { seats, probes } = readSeats(control.seats, slots, served[0]);
 	const declared = readDeclaredSeats();
+	const typed = readLastTyped(declared);
+	const { seats, probes } = readSeats(
+		control.seats,
+		slots,
+		served[0],
+		typed.seat,
+	);
 	const overflow = loop.overflowReadings(declared, seats, (seat) =>
 		seatBudget(seat, served[0]),
 	);
@@ -989,7 +999,8 @@ async function tick({ dryRun }) {
 		retroBundles: [],
 		running: loop.runningOf(judged),
 		freeSlots: slots,
-		lastPromptAt: readLastTyped(declared).at,
+		lastPromptAt: typed.at,
+		typedSeat: typed.seat,
 		seats,
 		overflow,
 		history: judged,
