@@ -1112,18 +1112,31 @@ function withSession(route, options) {
  */
 
 /**
- * A full run's base, against which its failures are classed as already red
- * (#3646): the default's merge-base, null where it fell back to `HEAD`,
- * which holds the session's own commits, so a failure already red there may
- * be its own.
+ * The base a default run records, against which its failures are classed as
+ * already red (#3646, #3660): the default's merge-base, null where it fell
+ * back to `HEAD`, which holds the session's own commits, so a failure already
+ * red there may be its own.
  * @param {string} base
  */
 const committedBase = (base) => (base === "HEAD" ? null : base);
 
 /**
- * The base a run records: its plan's; an escalation's, set when it planned;
- * a typed `--full`'s, the default's read in the tree the run starts in, so a
- * commit made while it queued moves it (#3646).
+ * The launch fields a default run sets once it planned, narrowed or
+ * escalated: its synthesised `--changed <base>` is not the `test:changed`
+ * route it looks like, and its base is `committedBase`'s.
+ * @param {string} base
+ */
+const defaultLaunch = (base) => ({
+	viaChanged: false,
+	base: committedBase(base),
+});
+
+/**
+ * The base a run records: the default's, narrowed or escalated, set when it
+ * planned, before its plan's, which on the `HEAD` fallback is `HEAD`'s sha
+ * where `committedBase` records none (#3660); else its plan's; a typed
+ * `--full`'s, the default's read in the tree the run starts in, so a commit
+ * made while it queued moves it (#3646).
  * @param {LauncherLaunch} launch
  * @param {ReturnType<typeof expandChanged>} plan
  * @param {string} root
@@ -1131,10 +1144,11 @@ const committedBase = (base) => (base === "HEAD" ? null : base);
  * @returns {string|null}
  */
 function readRunBase(launch, plan, root, execFn = execFileSync) {
+	if (launch.base !== undefined) return launch.base;
 	if (plan?.base) return plan.base;
 	if (launch.full === "flag")
 		return committedBase(readDefaultChangedBase(root, execFn));
-	return launch.base ?? null;
+	return null;
 }
 
 /**
@@ -1197,9 +1211,9 @@ function runDefault(route, options = {}) {
 		 */
 		worktree: () =>
 			narrowDefault(route, root, options, {
-				run: (argv) =>
+				run: (argv, _plan, launched) =>
 					runIsolated(argv, {
-						...withLaunch(options, { viaChanged: false }),
+						...launched,
 						/* The worktree's re-expansion leaves out what the plan did. */
 						expand: (a, o = {}) =>
 							expandChanged(a, {
@@ -1216,9 +1230,9 @@ function runDefault(route, options = {}) {
 		 * plan is reused rather than recomputed. */
 		shared: () =>
 			narrowDefault(route, root, options, {
-				run: (argv, plan) =>
+				run: (argv, plan, launched) =>
 					runOnce(argv, {
-						...withLaunch(options, { viaChanged: false }),
+						...launched,
 						expand: () => plan,
 					}),
 			}),
@@ -1355,12 +1369,15 @@ function ownOptions(options) {
 }
 
 /**
- * `teardown` runs before an escalation, after the run, and on a throw.
+ * `teardown` runs before an escalation, after the run, and on a throw. `run`
+ * takes `options` with the launch fields the narrowed run records already
+ * set (`defaultLaunch`).
  *
  * @param {LaunchRoute} route
  * @param {string} at
  * @param {Parameters<typeof runDefault>[1] & {}} options
- * @param {{ run: (argv: string[], plan: NonNullable<ReturnType<typeof expandChanged>>) => Promise<number>,
+ * @param {{ run: (argv: string[], plan: NonNullable<ReturnType<typeof expandChanged>>,
+ *     launched: Parameters<typeof runDefault>[1] & {}) => Promise<number>,
  *   teardown?: () => void }} hooks
  * @returns {Promise<number>}
  */
@@ -1391,7 +1408,11 @@ function narrowDefault(
 			out.write(
 				`OWN WORK ONLY — ${planned.dropped.length} neighbour commit(s) in that range left to their own sessions' certificates, which the push composes (#1216): ${planned.dropped.map(shortSha).join(", ")}. Take one on with \`npm run test -- --changed <ref>\`.\n`,
 			);
-		running = run(planned.argv, planned.plan);
+		running = run(
+			planned.argv,
+			planned.plan,
+			withLaunch(options, defaultLaunch(planned.base)),
+		);
 	} catch (error) {
 		teardown();
 		if (error instanceof SelectionFailed)
@@ -1429,8 +1450,7 @@ function escalateDefault(route, { base, reason }, options) {
 		launch: {
 			...unweighed,
 			full: reason,
-			viaChanged: false,
-			base: committedBase(base),
+			...defaultLaunch(base),
 		},
 	};
 	return route.escalation === "shared"
@@ -1791,9 +1811,9 @@ function runThenTeardown(run, teardown) {
 function runOverlaid(route, options) {
 	return withOverlay(route, options, "narrowed default", (dir, teardown) =>
 		narrowDefault(route, dir, options, {
-			run: (argv, plan) =>
+			run: (argv, plan, launched) =>
 				runOnce(argv, {
-					...withLaunch(options, { isolated: true, viaChanged: false }),
+					...withLaunch(launched, { isolated: true }),
 					root: dir,
 					expand: () => plan,
 				}),
