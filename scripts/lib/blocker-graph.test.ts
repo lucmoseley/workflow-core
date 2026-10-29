@@ -32,10 +32,6 @@ interface Fake {
 	failDeps?: string[];
 	/** `owner/name#n` whose issue read fails */
 	failIssues?: string[];
-	/** `owner/name#n` -> the refs of its sub-issues */
-	subIssues?: Record<string, string[]>;
-	/** `owner/name#n` whose sub-issues read fails */
-	failSubIssues?: string[];
 }
 
 const OWN = "me/served";
@@ -58,19 +54,9 @@ const edge = (fake: Fake, ref: string) => {
 	};
 };
 
-/** A served repo of `served` (number -> its blockers, body, parent, summary's
- * open sub-issue count and map flag), over `fake`. */
+/** A served repo of `served` (number -> its blockers, body and parent), over `fake`. */
 const graphOf = (
-	served: Record<
-		number,
-		{
-			deps?: string[];
-			body?: string;
-			parent?: number;
-			openSubIssues?: number;
-			map?: boolean;
-		}
-	>,
+	served: Record<number, { deps?: string[]; body?: string; parent?: number }>,
 	fake: Fake = {},
 ) => {
 	const reads: string[] = [];
@@ -91,16 +77,6 @@ const graphOf = (
 				return { ok: false, error: "HTTP 404" };
 			return { ok: true, issue: edge(fake, key) };
 		},
-		subIssues: async (ref: { repo: string; number: number }) => {
-			const key = `${ref.repo}#${ref.number}`;
-			reads.push(`subs ${key}`);
-			if (fake.failSubIssues?.includes(key))
-				return { ok: false, error: "HTTP 502" };
-			return {
-				ok: true,
-				edges: (fake.subIssues?.[key] ?? []).map((d) => edge(fake, d)),
-			};
-		},
 		each: <T, R>(items: T[], fn: (item: T) => Promise<R>) =>
 			Promise.all(items.map(fn)),
 	};
@@ -110,8 +86,6 @@ const graphOf = (
 			edges: (s.deps ?? []).map((d) => edge(fake, d)),
 			body: s.body ?? "",
 			parent: s.parent ?? null,
-			openSubIssues: s.openSubIssues ?? 0,
-			map: s.map ?? false,
 		})),
 		OWN,
 		read,
@@ -403,65 +377,5 @@ describe("closesOf (#3613)", () => {
 			4: {},
 		});
 		expect(closesOf(graph, 1)).toBe(2);
-	});
-});
-
-describe("openChildren across repos (#3658)", () => {
-	const subsRead = (reads: string[]) =>
-		reads.filter((r: string) => r.startsWith("subs"));
-
-	it("counts an open sub-issue in another repo", async () => {
-		const { graph } = await graphOf(
-			{ 2: { openSubIssues: 1 } },
-			{ subIssues: { [`${OWN}#2`]: ["o/other#9"] } },
-		);
-		expect(graph.openChildren.get(2)).toBe(1);
-	});
-
-	it("adds a foreign child to the served ones, so closesOf counts no close", async () => {
-		const { graph } = await graphOf(
-			{ 1: { parent: 2 }, 2: { openSubIssues: 2 } },
-			{ subIssues: { [`${OWN}#2`]: [`${OWN}#1`, "o/other#9"] } },
-		);
-		expect(graph.openChildren.get(2)).toBe(2);
-		expect(closesOf(graph, 1)).toBe(0);
-	});
-
-	it("counts nothing where the summary is stale and the foreign child has closed", async () => {
-		const { graph } = await graphOf(
-			{ 2: { openSubIssues: 1 } },
-			{
-				subIssues: { [`${OWN}#2`]: ["o/other#9"] },
-				issues: { "o/other#9": { state: "closed" } },
-			},
-		);
-		expect(graph.openChildren.get(2)).toBeUndefined();
-	});
-
-	it("reads a map with no open served child whatever its summary says", async () => {
-		const { graph, reads } = await graphOf(
-			{ 2: { map: true } },
-			{ subIssues: { [`${OWN}#2`]: ["o/other#9"] } },
-		);
-		expect(subsRead(reads)).toEqual([`subs ${OWN}#2`]);
-		expect(graph.openChildren.get(2)).toBe(1);
-	});
-
-	it("holds on the summary where the sub-issues read fails, recording why", async () => {
-		const { graph } = await graphOf(
-			{ 2: { openSubIssues: 1 } },
-			{ failSubIssues: [`${OWN}#2`] },
-		);
-		expect(graph.openChildren.get(2)).toBe(1);
-		expect(graph.childrenUnread.get(2)).toBe("HTTP 502");
-	});
-
-	it("reads no sub-issues where the served repo holds every open child", async () => {
-		const { graph, reads } = await graphOf({
-			1: { parent: 2 },
-			2: { openSubIssues: 1, map: true },
-		});
-		expect(graph.openChildren.get(2)).toBe(1);
-		expect(subsRead(reads)).toEqual([]);
 	});
 });

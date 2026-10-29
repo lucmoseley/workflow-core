@@ -79,8 +79,6 @@ interface Issue {
 	repoUrl?: string;
 	pull_request?: object;
 	summaryBlockedBy?: number;
-	/** Its `sub_issues_summary` open count, children in every repo (#3658). */
-	openSubIssues?: number;
 }
 
 interface Fixture {
@@ -147,15 +145,6 @@ interface Fixture {
 	 * another repo (#2310); an issue it omits answers GitHub's 404.
 	 */
 	parents?: Record<number, { url: string; labels: string[] }>;
-	/** Issue number -> its `issues/<n>/sub_issues` rows, `repo` naming another (#3658). */
-	subIssues?: Record<
-		number,
-		Array<{ number: number; state: string; repo?: string }>
-	>;
-	/** Issue numbers whose sub_issues call always fails. */
-	failSubIssues?: number[];
-	/** Issue numbers whose sub_issues call exits 0 printing nothing. */
-	emptySubIssues?: number[];
 	/** Debt-store entries for the owed-work count (mantahostels#1206). */
 	debts?: Array<{ path: string; issue?: number; gist?: string }>;
 	/**
@@ -264,12 +253,6 @@ if (/\\/parent$/.test(p)) {
   if (!parent) return answer(${JSON.stringify(GH_PARENT_NOT_FOUND)});
   return page("parentPage", { url: parent.url, labels: parent.labels.map((name) => ({ name })) });
 }
-if (/\\/sub_issues/.test(p)) {
-  const n = num(/issues\\/(\\d+)\\/sub_issues/);
-  if ((fx.failSubIssues || []).includes(n)) return fail();
-  if ((fx.emptySubIssues || []).includes(n)) return;
-  return page("subIssuesPage", edges((fx.subIssues || {})[n] || []));
-}
 if (/\\/timeline/.test(p)) {
   const n = num(/issues\\/(\\d+)\\/timeline/);
   if ((fx.failTimeline || []).includes(n)) return fail();
@@ -296,7 +279,6 @@ if (/issues\\?state=open/.test(p)) {
     repository_url: i.repoUrl,
     pull_request: i.pull_request,
     issue_dependencies_summary: { blocked_by: i.summaryBlockedBy || 0 },
-    sub_issues_summary: { total: i.openSubIssues || 0, completed: 0, percent_completed: 0 },
   })));
 }
 die("unexpected path: " + p);
@@ -999,38 +981,6 @@ describe("what counts as work", () => {
 		});
 		expect(r.order()).toEqual([78, 83]);
 		expect(r.out).toMatch(/#40\s+.*container — 2 open children/);
-	});
-
-	it("excludes a map whose only open child is in another repo (#3658)", async () => {
-		const r = await run({
-			issues: [
-				// A summary of 0: a map is read whatever its summary says.
-				{ number: 40, labels: ["wayfinder:map"] },
-				{ number: 41 },
-			],
-			subIssues: { 40: [{ number: 9, state: "open", repo: "o/other" }] },
-		});
-		expect(r.order()).toEqual([41]);
-		expect(r.out).toMatch(/#40\s+.*container — 1 open children\s{2,}/);
-	});
-
-	it("holds a map back on its summary where its sub-issues cannot be read, saying so (#3658)", async () => {
-		const r = await run({
-			issues: [{ number: 40, openSubIssues: 1 }, { number: 41 }],
-			failSubIssues: [40],
-		});
-		expect(r.order()).toEqual([41]);
-		expect(r.out).toMatch(
-			/#40\s+.*container — 1 open children by its summary; sub-issues unreadable/,
-		);
-	});
-
-	it("reads an empty sub-issues answer as unreadable, not as no children (#3658)", async () => {
-		const r = await run({
-			issues: [{ number: 40, openSubIssues: 1 }, { number: 41 }],
-			emptySubIssues: [40],
-		});
-		expect(r.order()).toEqual([41]);
 	});
 
 	it("re-admits a parent once its last child closes", async () => {

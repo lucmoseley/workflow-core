@@ -13,9 +13,6 @@
  * repo, which cannot close while it is open (#3222; refused at
  * lib/issue-close.js and resolve-ticket.js, #3637), so each open ancestor
  * counts in its reach and depth (#3613). A parent in another repo is not read.
- * A served issue's open children in another repo count toward its
- * openChildren, so a map whose only open child lives elsewhere is still a
- * container (#3658).
  *
  * Callers: scripts/pick-next.js, which ranks on reachOf, inheritance and
  * closesOf,
@@ -41,8 +38,6 @@ const { judgeProseRefs, proseRefsOf } = require("./prose-blockers.js");
  * @property {(ref: IssueRef) => Promise<EdgesRead>} blockedBy a foreign
  *   node's edges, each edge's `repo` resolved against `ref.repo`
  * @property {(ref: IssueRef) => Promise<IssueRead>} issue
- * @property {(ref: IssueRef) => Promise<EdgesRead>} subIssues a served
- *   issue's sub-issues in every repo, each `repo` resolved
  * @property {<T, R>(items: T[], fn: (item: T) => Promise<R>) => Promise<R[]>} each
  *   bounded fan-out, results in input order
  */
@@ -86,11 +81,9 @@ const buildUnreadProse = () => ({ open: [], closed: [], unreadable: [] });
 
 /**
  * The graph over `served`'s open issues and every open blocker they reach.
- * @param {{number: number, edges: Edge[], body: string, parent: number|null, openSubIssues: number, map: boolean}[]} served
+ * @param {{number: number, edges: Edge[], body: string, parent: number|null}[]} served
  *   every open issue in the served repo, its native edges resolved, `parent`
- *   its parent where that is another open issue in the served repo,
- *   `openSubIssues` its open children in every repo by its sub_issues_summary,
- *   `map` whether it is a wayfinder map
+ *   its parent where that is another open issue in the served repo
  * @param {string|null} ownRepo
  * @param {Reads} read
  */
@@ -203,8 +196,8 @@ async function blockerGraph(served, ownRepo, read) {
 		for (const b of n.blockers) holds.get(b.key)?.push(k);
 	/** @type {Map<number, number>} served issue -> its open served parent */
 	const parentOf = new Map();
-	/** @type {Map<number, number>} open served parent -> its open children
-	 * in every repo, pick-next.js's heading test */
+	/** @type {Map<number, number>} open served parent -> its open children,
+	 * pick-next.js's heading test */
 	const openChildren = new Map();
 	for (const s of served) {
 		if (s.parent === null || !openServed.has(s.parent)) continue;
@@ -213,33 +206,7 @@ async function blockerGraph(served, ownRepo, read) {
 		parentOf.set(s.number, s.parent);
 		openChildren.set(s.parent, (openChildren.get(s.parent) ?? 0) + 1);
 	}
-	/*
-	 * The summary only flags where to look, and can be stale either way, so
-	 * the canonical list is what counts, and a map with no open served child,
-	 * which the refill loop would launch, is read whatever its summary says
-	 * (#3658). An unreadable list holds on the summary — launching a
-	 * container is the error a launch cannot take back. Residual: a non-map
-	 * whose summary undercounts its foreign children is never read.
-	 */
-	const toRead = served
-		.map((s) => ({ s, local: openChildren.get(s.number) ?? 0 }))
-		.filter(
-			({ s, local }) => s.openSubIssues > local || (s.map && local === 0),
-		);
-	/** @type {Map<number, string>} served issue -> why its sub-issues could
-	 * not be read, its openChildren then the summary's */
-	const childrenUnread = new Map();
-	const foreignOpen = await read.each(toRead, async ({ s, local }) => {
-		const r = await read.subIssues({ repo: ownRepo, number: s.number });
-		if (r.ok)
-			return r.edges.filter((e) => e.state === "open" && !isServed(e)).length;
-		childrenUnread.set(s.number, r.error);
-		return Math.max(0, s.openSubIssues - local);
-	});
-	toRead.forEach(({ s, local }, i) => {
-		if (foreignOpen[i] > 0) openChildren.set(s.number, local + foreignOpen[i]);
-	});
-	return { nodes, holds, parentOf, openChildren, childrenUnread, ownRepo };
+	return { nodes, holds, parentOf, openChildren, ownRepo };
 }
 
 /**

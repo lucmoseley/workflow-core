@@ -20,11 +20,8 @@
  *      read in batches (lib/blocked-by-batch.js, #2685).
  *      `issue_dependencies_summary.blocked_by` is never read — the staleness
  *      trap (mantahostels#105).
- *   3. Parentage from `parent_issue_url`. /sub_issues is not walked for it: one
- *      call per issue (mantahostels#105). It is read, at per_page=100, only
- *      for an issue whose `sub_issues_summary` counts more open children than
- *      the served repo holds, or a map with none there, to find its children
- *      in other repos (#3658).
+ *   3. Parentage from `parent_issue_url`. /sub_issues is never walked: one call
+ *      per issue, truncated at its per_page=30 default (mantahostels#105).
  *   4. An assigned issue drops out only where the session arbiter holds a claim
  *      on it AND that session is live (mantahostels#633, mantahostels#645);
  *      the assignee alone cannot name the session. A live claim on its parent
@@ -33,8 +30,8 @@
  *      where that is another repo (lib/parent-claims.js). No label is ever a
  *      filter for readiness, `takes:` included: nothing clears one on close
  *      (mantahostels#235).
- *   5. An open issue with >=1 open child, in any repo, is a heading, not work.
- *      Structural, not label-based (mantahostels#105).
+ *   5. An open issue with >=1 open child is a heading, not work. Structural, not
+ *      label-based (mantahostels#105).
  *   6. /dependencies/blocking is never called. Every blocking edge between two
  *      open issues is the inverse of some open issue's blocked_by, so inverting
  *      halves the call count.
@@ -258,8 +255,6 @@ async function ghGet(path) {
  * @property {string[]} labels
  * @property {string} body
  * @property {string|null} parent
- * @property {number} openSubIssues its open children in every repo, by its
- *   sub_issues_summary
  * @property {string|null} repo the repo it lives in, `owner/name`
  */
 
@@ -430,9 +425,6 @@ async function openIssues() {
 				createdAt: i.created_at,
 				assignees: (i.assignees || []).map((/** @type {any} */ a) => a.login),
 				parent: i.parent_issue_url,
-				openSubIssues:
-					(i.sub_issues_summary?.total ?? 0) -
-					(i.sub_issues_summary?.completed ?? 0),
 			}))
 	);
 }
@@ -449,21 +441,6 @@ async function readIssueIn(ref) {
 	const issue = r.out[0];
 	if (!issue) return { ok: false, error: "gh printed no issue" };
 	return { ok: true, issue: edgeOf(issue, ref.repo) };
-}
-
-/**
- * A served issue's sub-issues in every repo, for blocker-graph's container
- * count (#3658). per_page=100 is the sub-issue cap, so one page holds them all.
- * @param {import("./lib/issue-ref").IssueRef} ref
- * @returns {Promise<import("./lib/blocker-graph").EdgesRead>}
- */
-async function readSubIssuesOf(ref) {
-	const r = await ghGetRetrying(
-		`repos/${REPO}/issues/${ref.number}/sub_issues?per_page=100`,
-		{ strict: true },
-	);
-	if (!r.ok) return r;
-	return { ok: true, edges: r.out.map((i) => edgeOf(i, ref.repo)) };
 }
 
 /**
@@ -3127,8 +3104,6 @@ async function resolveBlockers(issues, byNumber) {
 					byNumber.has(parent.number)
 						? parent.number
 						: null,
-				openSubIssues: i.openSubIssues,
-				map: i.labels.includes(MAP_LABEL),
 			};
 		}),
 		ownRepo,
@@ -3137,7 +3112,6 @@ async function resolveBlockers(issues, byNumber) {
 			blockedBy: (ref) =>
 				readBlockedByOne(ref.repo ?? REPO, ref.number, { home: ref.repo }),
 			issue: readIssueIn,
-			subIssues: readSubIssuesOf,
 			each: (items, fn) => mapLimit(items, ISSUE_READ_CONCURRENCY, fn),
 		},
 	);
@@ -3253,10 +3227,8 @@ function exclusionOf(i, ctx, facts) {
 	if (parent)
 		return `claimed through parent map ${parent.label} by ${claimHolder([], parent.sessionId, parent.kept, listed.names)}`;
 	if (dispatchReason) return dispatchReason;
-	if (openChildren.get(i.number)) {
-		const unread = ctx.blockers.childrenUnread.get(i.number);
-		return `container — ${openChildren.get(i.number)} open children${unread ? ` by its summary; sub-issues unreadable (${unread})` : ""}`;
-	}
+	if (openChildren.get(i.number))
+		return `container — ${openChildren.get(i.number)} open children`;
 	if (resolved.gateHolds && gate && !gate.malformed)
 		return `gated until ${gate.iso} (${gate.daysLeft}d) — ${gate.reason || "no reason given"}`;
 	if (resolved.gateOnHolds && gateOn && !gateOn.malformed)
