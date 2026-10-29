@@ -312,6 +312,13 @@ describe("the Stop limb", () => {
 	const bad = "docs/practice/technical-documentation.md";
 	const boundary = "docs/practice/web-frontend-development.md";
 	const lastDay = "docs/practice/data-schema-and-validation.md";
+	const noKind =
+		'is no exempt kind: the line opens with a kind\'s whole phrase, its last word singular or plural, and no word before it but "a", "an" or "the", as in "version bump of biome"';
+	const clause = (phrase: string) =>
+		`adds a second clause to the exempt kind "${phrase}"`;
+	const holds = (char: string) =>
+		`holds "${char}", off the tail's allowlist: ASCII letters and digits, spaces, "#", "'", "@", and a "-", "." or "/" inside a word`;
+	const nbsp = "\u00a0";
 
 	beforeAll(() => {
 		fs.writeFileSync(path.join(repo, ".gitignore"), "scratch/\n");
@@ -413,13 +420,18 @@ describe("the Stop limb", () => {
 			"typo fix in the README's intro",
 			"revert of the so-called fix",
 			"version bump of @biomejs/biome",
-		])("skipped — %s, an exempt kind (#2601, #2806, #3077, #3491)", (kind) => {
-			expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
-		});
+			"propagating already-settled fact",
+			"propagating already-settled facts",
+			"reply that only answers questions",
+		])(
+			"skipped — %s, an exempt kind (#2601, #2806, #3077, #3491, #3594)",
+			(kind) => {
+				expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
+			},
+		);
 
 		it.each([
 			["a non-breaking space", "version bump of biome"],
-			["a zero-width space", "revert of​ one commit"],
 			["a narrow no-break space", "typo fix in the README"],
 		])(
 			"skipped — an exempt kind set off by %s, read as a plain space (#3491)",
@@ -427,6 +439,11 @@ describe("the Stop limb", () => {
 				expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
 			},
 		);
+
+		it("skipped — an exempt kind beside a zero-width space, which is deleted, passes (#3594)", () => {
+			const kind = "revert of\u200b one commit";
+			expect(stop([wrote(code()), declared(`skipped — ${kind}`)])).toBeNull();
+		});
 
 		it("an Edit counts as the session writing the note", () => {
 			const edit = toolUse("Edit", { file_path: path.join(repo, fresh) });
@@ -505,13 +522,6 @@ describe("the Stop limb", () => {
 			expect(stop(session)).toBeNull();
 		});
 
-		const noKind =
-			'is no exempt kind: the line opens with a kind\'s whole phrase, its last word singular or plural, and no word before it but "a", "an" or "the", as in "version bump of biome"';
-		const clause = (phrase: string) =>
-			`adds a second clause to the exempt kind "${phrase}"`;
-		const holds = (char: string) =>
-			`holds "${char}", off the tail's allowlist: ASCII letters and digits, spaces, "#", "'", "@", and a "-", "." or "/" inside a word`;
-		const nbsp = "\u00a0";
 		it.each([
 			...[
 				"typography system overhaul",
@@ -562,8 +572,11 @@ describe("the Stop limb", () => {
 				["revert of one commit 'and' built a scheduler", "revert"],
 				["revert of one commit/and built a scheduler", "revert"],
 				["revert of one commit.Also built a scheduler", "revert"],
+				["revert of x#and built y", "revert"],
+				["revert of x@and built y", "revert"],
+				["revert of one commit a\u200bnd built a scheduler", "revert"],
 			].map(([kind, phrase]) => [
-				`an exempt kind with a second clause: ${kind} (#2806, #3077, #3491)`,
+				`an exempt kind with a second clause: ${kind} (#2806, #3077, #3491, #3594)`,
 				kind,
 				clause(phrase),
 			]),
@@ -623,8 +636,8 @@ describe("the Stop limb", () => {
 			]),
 		])("skipped — %s", (_, kind, says) => {
 			const reason = stop([wrote(code()), declared(`skipped — ${kind}`)]);
-			// fault_in strips an aside's closing bracket before it names the line.
-			const named = kind.replace(/\)$/, "");
+			// fault_in strips an aside's closing bracket and deletes U+200B before it names the line.
+			const named = kind.replace(/\)$/, "").replaceAll("\u200b", "");
 			expect(reason).toContain(`skipped names "${named}", which ${says}`);
 			expect(reason).toContain(list);
 		});
@@ -633,10 +646,6 @@ describe("the Stop limb", () => {
 			[
 				"a non-breaking space",
 				`revert of one commit${nbsp}and${nbsp}built a scheduler`,
-			],
-			[
-				"a zero-width space",
-				"revert of one commit and\u200b built a scheduler",
 			],
 			[
 				"a narrow no-break space",
@@ -720,23 +729,37 @@ describe("the Stop limb", () => {
 			expect(stop([wrote(code()), comment])).toBeNull();
 		});
 
+		/** A gh comment whose $'...' body ends on the declaration `skipped — <kind>`. */
+		const ansiComment = (kind: string) =>
+			toolUse("Bash", {
+				command: `gh issue comment 12 --body $'Done.\\r\\n\\r\\n**Practice:** skipped — ${kind}'`,
+			});
+
+		it.each(["revert", "revert of x\\'s fix", "revert\\r\\n"])(
+			"a gh comment's $'...' body, its \\r, \\n and \\' decoded: skipped — %s (#3491, #3594)",
+			(kind) => {
+				expect(stop([wrote(code()), ansiComment(kind)])).toBeNull();
+			},
+		);
+
 		it.each([
-			["revert", null],
+			["revert and a new hook", "revert and a new hook", clause("revert")],
 			[
-				"revert and a new hook",
-				'which adds a second clause to the exempt kind "revert"',
+				"revert of one commit\\x2c built a scheduler",
+				"revert of one commit\\x2c built a scheduler",
+				holds("\\"),
 			],
-			["revert of x\\'s fix", null],
-			["revert of one commit\\x2c built a scheduler", 'which holds "\\"'],
+			[
+				"revert and a new hook\\r\\n",
+				"revert and a new hook",
+				clause("revert"),
+			],
 		])(
-			"a gh comment's $'...' body, its \\n and \\' decoded and other escapes kept: skipped — %s (#3491)",
-			(kind, says) => {
-				const comment = toolUse("Bash", {
-					command: `gh issue comment 12 --body $'Done.\\n\\n**Practice:** skipped — ${kind}'`,
-				});
-				const reason = stop([wrote(code()), comment]);
-				if (says === null) expect(reason).toBeNull();
-				else expect(reason).toContain(says);
+			"a gh comment's $'...' body, refused where a kept escape or a second clause follows the kind: skipped — %s (#3491, #3594)",
+			(kind, named, says) => {
+				const reason = stop([wrote(code()), ansiComment(kind)]);
+				expect(reason).toContain(`skipped names "${named}", which ${says}`);
+				expect(reason).toContain(list);
 			},
 		);
 
