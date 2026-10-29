@@ -137,6 +137,25 @@ describe("JavaScript", () => {
 			write(name, 'const ROOT = path.resolve(__dirname, "..");\n');
 		expect(run().outcome).toBe("OK");
 	});
+
+	it("judges every JS or TS extension, and passes over their tests (#3628)", () => {
+		clean();
+		for (const ext of ["mts", "cts", "jsx", "tsx"]) {
+			write(
+				`scripts/bad.${ext}`,
+				'const ROOT = path.resolve(__dirname, "..");\n',
+			);
+			write(
+				`scripts/a.test.${ext}`,
+				'const ROOT = path.resolve(__dirname, "..");\n',
+			);
+		}
+		const text = messages(run());
+		for (const ext of ["mts", "cts", "jsx", "tsx"]) {
+			expect(text).toContain(`bad.${ext}:1`);
+			expect(text).not.toContain(`a.test.${ext}`);
+		}
+	});
 });
 
 describe("shell", () => {

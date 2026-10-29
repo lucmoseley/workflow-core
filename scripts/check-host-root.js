@@ -80,7 +80,11 @@ const { runCheck } = require("./lib/check");
 const { isUnder } = require("./lib/is-under.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { hostRoot } = require("./lib/host-root.js");
-const { JS_EXT_SOURCE, JS_TEST_FILE } = require("./lib/test-kind.js");
+const {
+	JS_EXT_SOURCE,
+	JS_EXTENSIONS,
+	JS_TEST_FILE,
+} = require("./lib/test-kind.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
 const CWD_SUITE_CHECKER = {
@@ -232,7 +236,7 @@ const ALLOWED = {
  */
 const SCANNED = ["scripts"];
 
-const JS_EXT = new Set([".js", ".ts", ".mjs", ".cjs"]);
+const JS_EXT = new Set(JS_EXTENSIONS.map((ext) => `.${ext}`));
 
 /* The suite and its apparatus — see WHAT IS NOT SCANNED above. */
 const TEST_FILE = new RegExp(
