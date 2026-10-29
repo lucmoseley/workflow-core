@@ -5231,6 +5231,23 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/guard-exhausted-map.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/guard-exhausted-map.test.ts",
+			"scripts/hook-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/core-deny-text.live.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/guard-exhausted-map.test.ts": [
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/guard-failed-call-rules.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
@@ -10153,6 +10170,7 @@
 			"scripts/deliver-to-session-ci.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-memory-kill-tickets.test.ts",
+			"scripts/guard-exhausted-map.test.ts",
 			"scripts/guard-inventory.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
@@ -21878,6 +21896,7 @@
 			"scripts/file-morning-review.test.ts",
 			"scripts/generate-doc-map-section-a.test.ts",
 			"scripts/guard-commit-form.test.ts",
+			"scripts/guard-exhausted-map.test.ts",
 			"scripts/guard-inventory.test.ts",
 			"scripts/guard-priced-options-close-rivals.test.ts",
 			"scripts/guard-priced-options-round-check.test.ts",

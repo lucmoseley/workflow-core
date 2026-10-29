@@ -103,6 +103,7 @@ const MARKER_PREFIXES = [
 	".automode-refusal-seen-",
 	".unpushed-nagged-",
 	".unpushed-seen-",
+	".exhausted-map-nagged-",
 	".paste-self-match-nagged-",
 	".session-id-prose-nagged-",
 	".parked-blocked-",

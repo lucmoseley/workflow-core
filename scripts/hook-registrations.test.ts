@@ -291,6 +291,12 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "Stop",
+		id: "scripts/guard-exhausted-map.js",
+		matcher: null,
+		covers: [],
+	},
+	{
+		event: "Stop",
 		id: "scripts/guard-paste-self-match.js",
 		matcher: null,
 		covers: [],

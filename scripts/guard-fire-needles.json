@@ -1776,6 +1776,15 @@
 				}
 			]
 		},
+		"guard-exhausted-map.js": {
+			"needles": [
+				{
+					"id": "exhausted-map-unrouted",
+					"kind": "block",
+					"text": "with no open sub-issue, no gate and no"
+				}
+			]
+		},
 		"guard-session-ceiling.js": {
 			"needles": [
 				{

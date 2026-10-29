@@ -30,13 +30,15 @@ function localParentOf(iss) {
 }
 
 /**
- * Every sub-issue of local `n`, closed ones and other repos' included, across
- * every page — the endpoint defaults to 30. Throws as lib/gh.js does.
+ * Every sub-issue of `n` in `repo`, closed ones and other repos' included,
+ * across every page — the endpoint defaults to 30. Throws as lib/gh.js does.
  * @param {number} n
+ * @param {string} [repo] owner/name, gh's default repo where omitted
+ * @param {import("node:child_process").ExecFileSyncOptions} [opts]
  * @returns {any[]}
  */
-const readSubIssues = (n) =>
-	ghApiSlurp([`repos/{owner}/{repo}/issues/${n}/sub_issues`]);
+const readSubIssues = (n, repo = "{owner}/{repo}", opts = {}) =>
+	ghApiSlurp([`repos/${repo}/issues/${n}/sub_issues`], opts);
 
 /** @param {SubIssue} k */
 const isOpenChild = (k) => k.state === "open" && !k.pull_request;
