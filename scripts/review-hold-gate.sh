@@ -29,7 +29,7 @@
 #    holds a comma can never be named there.
 #  - A neighbour's commit moves HEAD and so the tree a pathspec commit carries:
 #    `tree=` is then recomputed, with no new review owed.
-#  - An unset name under -u aborts with 127, which pre-commit's `|| exit "$?"`
+#  - An unset name under -u aborts with 127, which pre-commit's `|| exit 1`
 #    turns into a refusal with no gl_log line: fail closed.
 #
 # FAILS OPEN on its own faults — git that will not answer, a library or the
