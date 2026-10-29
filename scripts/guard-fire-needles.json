@@ -1758,6 +1758,15 @@
 				}
 			]
 		},
+		"guard-session-id-prose.js": {
+			"needles": [
+				{
+					"id": "session-id-prose",
+					"kind": "block",
+					"text": "THIS REPLY NAMES A SESSION BY ITS ID"
+				}
+			]
+		},
 		"guard-unpushed-commits.js": {
 			"needles": [
 				{

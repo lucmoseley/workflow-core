@@ -297,6 +297,12 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "Stop",
+		id: "scripts/guard-session-id-prose.js",
+		matcher: null,
+		covers: [],
+	},
+	{
+		event: "Stop",
 		id: "scripts/park-on-round.js",
 		matcher: null,
 		covers: [],
