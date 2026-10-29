@@ -63,9 +63,11 @@
  * WHAT IT CANNOT SEE. A root passed as a parameter rather than assigned from
  * `hostRoot()` in the same file, a read made inside an imported helper, a
  * constant built from anything but literals, a bare `"scripts"` constant joined
- * as its own segment, and a shell expansion it cannot
- * read as a literal — the scan is lexical. It is a gate against the spellings
- * that drifted, not a proof that no script self-roots.
+ * as its own segment, a shell expansion it cannot read as a literal, and code
+ * hidden by JSX text or a regex literal right after `)` (#3634): JSX text's
+ * `//` or `/*` reads as a comment, and its backtick, or such a regex, can pair
+ * with a later literal's quote — the scan is lexical. It is a gate against the
+ * spellings that drifted, not a proof that no script self-roots.
  * `host-root-plugin-cache.test.ts` is the behavioural half: it runs the rooted
  * scripts from a plugin-cache-shaped path and asserts each resolves the host.
  *
@@ -90,6 +92,7 @@ const {
 	JS_TEST_FILE,
 } = require("./lib/test-kind.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
+const { blankComments } = require("./lib/strip-comments.js");
 
 const CWD_SUITE_CHECKER = {
 	tags: ["SECOND-SEAM-JS"],
@@ -394,92 +397,6 @@ function files(root) {
 }
 
 /**
- * The source with every comment blanked to spaces, so a comment that QUOTES a
- * self-rooting spelling — several of them do, saying why it is wrong — is not a
- * finding. Byte offsets are preserved, so line numbers still resolve. String and
- * template literals are tracked, so a `//` inside one is not read as a comment.
- * @param {string} text
- * @returns {string}
- */
-function withoutComments(text) {
-	const out = text.split("");
-	/** @type {CommentMode} */
-	let mode = null;
-	for (let i = 0; i < text.length; i += 1) {
-		let step;
-		if (mode === null) step = scanCode(text, i);
-		else if (mode === "line") step = scanLineComment(text, i);
-		else if (mode === "block") step = scanBlockComment(text, i);
-		else step = scanString(text, i, mode);
-		mode = step.mode;
-		out.fill(" ", i, i + (step.blank ?? 0));
-		i += step.skip;
-	}
-	return out.join("");
-}
-
-/** @typedef {null | '"' | "'" | "`" | "line" | "block"} CommentMode */
-/** @typedef {{ mode: CommentMode, skip: number, blank?: number }} ScanStep `blank`: how many characters from `i` to blank to spaces */
-
-/**
- * Outside any comment or literal: open a comment (its two-character delimiter
- * blanked) or a string literal at `i`.
- * @param {string} text
- * @param {number} i
- * @returns {ScanStep}
- */
-function scanCode(text, i) {
-	const c = text[i];
-	const next = text[i + 1];
-	if (c === "/" && next === "/") return { mode: "line", skip: 1, blank: 2 };
-	if (c === "/" && next === "*") return { mode: "block", skip: 1, blank: 2 };
-	if (c === '"' || c === "'" || c === "`") return { mode: c, skip: 0 };
-	return { mode: null, skip: 0 };
-}
-
-/**
- * Inside a `//` comment: blank up to the newline, which closes it.
- * @param {string} text
- * @param {number} i
- * @returns {ScanStep}
- */
-function scanLineComment(text, i) {
-	if (text[i] === "\n") return { mode: null, skip: 0 };
-	return { mode: "line", skip: 0, blank: 1 };
-}
-
-/**
- * Inside a block comment: blank everything but newlines, through the `*\/`
- * that closes it.
- * @param {string} text
- * @param {number} i
- * @returns {ScanStep}
- */
-function scanBlockComment(text, i) {
-	const c = text[i];
-	if (c === "*" && text[i + 1] === "/")
-		return { mode: null, skip: 1, blank: 2 };
-	if (c !== "\n") return { mode: "block", skip: 0, blank: 1 };
-	return { mode: "block", skip: 0 };
-}
-
-/**
- * Inside a string literal opened by `quote`.
- * @param {string} text
- * @param {number} i
- * @param {'"' | "'" | "`"} quote
- * @returns {ScanStep}
- */
-function scanString(text, i, quote) {
-	const c = text[i];
-	/* Inside a string: an escape swallows the next character, so an escaped
-	 * quote does not close it. */
-	if (c === "\\") return { mode: quote, skip: 1 };
-	if (c === quote) return { mode: null, skip: 0 };
-	return { mode: quote, skip: 0 };
-}
-
-/**
  * The literal segments of a matched call, in order.
  * @param {string} captured
  * @returns {string[]}
@@ -623,7 +540,7 @@ function judgeSecondSeam(ctx, rel, text) {
  * @returns {boolean} whether anything was reported
  */
 function judgeJs(ctx, root, { rel, source, importable }) {
-	const text = withoutComments(source);
+	const text = blankComments(source);
 	const dir = path.dirname(path.join(root, rel));
 	const scriptsDir = path.join(root, "scripts");
 	let found = false;
@@ -812,9 +729,7 @@ function readImportableConstants(root, scanned) {
 	for (const rel of scanned) {
 		if (!JS_EXT.has(path.extname(rel)) || isTestFile(rel)) continue;
 		try {
-			const text = withoutComments(
-				fs.readFileSync(path.join(root, rel), "utf8"),
-			);
+			const text = blankComments(fs.readFileSync(path.join(root, rel), "utf8"));
 			for (const name of coreConstants(text)) importable.add(name);
 		} catch {
 			/* Unreadable here is unreadable below, where it is skipped too. */

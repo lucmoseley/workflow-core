@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { scanJs, stripComments } from "./strip-comments.js";
+import { blankComments, scanJs, stripComments } from "./strip-comments.js";
 
 describe("stripComments", () => {
 	it("drops line and block comments and keeps a comment opener inside a string", () => {
@@ -27,6 +27,15 @@ describe("stripComments", () => {
 		expect(stripComments("const h = w / 2; // gone\nk")).toBe(
 			"const h = w / 2; \nk",
 		);
+	});
+});
+
+describe("blankComments", () => {
+	it("blanks comments to spaces and keeps every offset and line break (#3634)", () => {
+		const source = 'a /* c\n d */ "//k" // x\nb';
+		const out = blankComments(source);
+		expect(out).toBe('a     \n      "//k"     \nb');
+		expect(out).toHaveLength(source.length);
 	});
 });
 
