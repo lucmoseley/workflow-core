@@ -53,15 +53,18 @@ const guardFile = (name: string, denies: boolean) => {
 	return file;
 };
 
-/** A deny-capable guard-branch.sh that echoes the payload it is handed. */
-const echoGuard = () => {
+/** The core's guard-branch.sh, written with this script body. */
+const branchGuard = (body: string) => {
 	const guard = path.join(core, "scripts", "guard-branch.sh");
-	fs.writeFileSync(
-		guard,
-		'#!/usr/bin/env bash\ncat\necho \'{"permissionDecision":"deny"} is what makes this deny-capable\' >/dev/null\n',
-	);
+	fs.writeFileSync(guard, `#!/usr/bin/env bash\n${body}`);
 	fs.chmodSync(guard, 0o755);
 };
+
+/** A deny-capable guard-branch.sh that echoes the payload it is handed. */
+const echoGuard = () =>
+	branchGuard(
+		'cat\necho \'{"permissionDecision":"deny"} is what makes this deny-capable\' >/dev/null\n',
+	);
 
 /** The payload echoGuard printed during a replay. */
 const sentPayload = (stdout: string) =>
@@ -737,12 +740,9 @@ describe("replay", () => {
 	});
 
 	it("says so, loudly, where the replayed guard denies", () => {
-		const guard = path.join(core, "scripts", "guard-branch.sh");
-		fs.writeFileSync(
-			guard,
-			'#!/usr/bin/env bash\nprintf \'{"hookSpecificOutput":{"permissionDecision":"deny"}}\'\n',
+		branchGuard(
+			'printf \'{"hookSpecificOutput":{"permissionDecision":"deny"}}\'\n',
 		);
-		fs.chmodSync(guard, 0o755);
 		const file = transcript([
 			fileCall("git worktree add /tmp/w", "toolu_A"),
 			killed(),
@@ -751,6 +751,35 @@ describe("replay", () => {
 		const r = replay(file, "toolu_A");
 
 		expect(r.stdout).toContain("1 of 1 DENY this call. Undo it.");
+	});
+
+	it("counts a guard's blocking exit 2 as a deny — #3580", () => {
+		branchGuard("# DENIES-BY: exit 2\necho refused >&2\nexit 2\n");
+		const file = transcript([
+			fileCall("git worktree add /tmp/w", "toolu_A"),
+			killed(),
+		]);
+
+		const r = replay(file, "toolu_A");
+
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("refused\nexit 2\n");
+		expect(r.stdout).toContain("1 of 1 DENY this call. Undo it.");
+	});
+
+	it("counts no other non-zero exit as a deny", () => {
+		branchGuard(
+			'# DENIES-BY: exit 2\n[ -n "$NEVER" ] && exit 2\necho broke >&2\nexit 1\n',
+		);
+		const file = transcript([
+			fileCall("git worktree add /tmp/w", "toolu_A"),
+			killed(),
+		]);
+
+		const r = replay(file, "toolu_A");
+
+		expect(r.stdout).toContain("broke\nexit 1\n");
+		expect(r.stdout).toContain("None of the 1 lost guard(s) deny this call.");
 	});
 
 	it("names an incomplete read rather than let it read as a mistyped id — mantahostels#3311", () => {

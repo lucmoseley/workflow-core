@@ -424,8 +424,13 @@ function replayGuard(guard, payload, dirs) {
 	process.stdout.write(
 		run.status === null ? `killed by ${run.signal}\n` : `exit ${run.status}\n`,
 	);
-	/* A PreToolUse deny is a JSON verdict on stdout, not an exit code. */
-	return /"permissionDecision"\s*:\s*"deny"/.test(run.stdout || "");
+	/* A PreToolUse deny is a JSON verdict on stdout or Claude Code's blocking
+	 * exit 2, which the harness reads as a refusal whatever the guard meant by
+	 * it — `DENIES-BY: exit 2` guards rely on it (lib/deny-capable.js, #3580). */
+	return (
+		run.status === 2 ||
+		/"permissionDecision"\s*:\s*"deny"/.test(run.stdout || "")
+	);
 }
 
 /**
