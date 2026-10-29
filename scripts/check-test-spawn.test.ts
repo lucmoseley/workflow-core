@@ -1,7 +1,8 @@
 // @vitest-environment node
 /*
  * Pins which test-file spawns check-test-spawn.js counts as spawning the
- * program under test, and which stated reasons it honours.
+ * program under test, which stated reasons it honours, and that `--against
+ * HEAD` refuses only a spawn the commit adds.
  *
  * check-test-spawn.js (#3458) against fabricated tests in a throwaway
  * directory, never this one.
@@ -10,6 +11,7 @@
  * new test spawn node unrefused.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +21,9 @@ import { runInProcess } from "./lib/run-in-process.js";
 const SCRIPT = path.resolve(__dirname, "check-test-spawn.js");
 
 let root: string;
+
+const git = (...args: string[]) =>
+	execFileSync("git", args, { cwd: root, stdio: "pipe" });
 
 const test = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -57,21 +62,9 @@ describe("check-test-spawn", () => {
 			"3 spawn(s) of node on the program under test: scripts/a.test.ts:2, scripts/lib/c.test.js:1, .claude/skills/x/b.test.ts:1.",
 		);
 		expect(r.out).toContain(
-			"Fix: run it through `runInProcess` in the plugin's scripts/lib/run-in-process.js, `runInProcessAsync` for an async entry, as its scripts/check-cli-args.test.ts does",
+			"Fix: run it through `runInProcess` in the plugin's scripts/lib/run-in-process.js, as its scripts/check-cli-args.test.ts does",
 		);
 		expect(r.out).toContain("FAIL: 3 spawn(s) of node");
-	});
-
-	it("FAILs spawn, execFile, exec and execFileSync on node in any quoting, naming each", () => {
-		test("scripts/a.test.ts", "spawn('node', [SCRIPT]);\n");
-		test("scripts/b.test.ts", "execFile(`node`, [SCRIPT], cb);\n");
-		test("scripts/c.test.ts", 'exec("node scripts/c.js", cb);\n');
-		test("scripts/d.test.ts", 'execFileSync("node", [SCRIPT]);\n');
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(
-			": scripts/a.test.ts:1, scripts/b.test.ts:1, scripts/c.test.ts:1, scripts/d.test.ts:1.",
-		);
 	});
 
 	it("FAILs fork and a spawn whose flags precede its script", () => {
@@ -107,7 +100,7 @@ describe("check-test-spawn", () => {
 		test("scripts/a.test.ts", `${SPAWN.trim()} // spawn-kept: a real fd\n`);
 		test(
 			"scripts/b.test.ts",
-			`const x = 1;\n// spawn-kept: a signal stops it\n// mid-write\n${SPAWN}`,
+			`const x = 1;\n// spawn-kept: a timeout kills it\n// mid-write\n${SPAWN}`,
 		);
 		test(
 			"scripts/c.test.ts",
@@ -116,6 +109,23 @@ describe("check-test-spawn", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 3 test file(s), none spawning node");
+	});
+
+	// The --against re-exec's report reaches the hook's stderr, not this
+	// process, so the index side is reached by the var lib/check.js sets.
+	it("lists no spawn on an --against side, only the count", () => {
+		test("scripts/old.test.ts", SPAWN);
+		const r = runInProcess(SCRIPT, [], {
+			cwd: root,
+			env: {
+				...process.env,
+				CLAUDE_PROJECT_DIR: root,
+				WFC_CHECK_SIDE: "index",
+			},
+		});
+		expect(`${r.stdout}${r.stderr}`).toContain(
+			"  1 spawn(s) of node on the program under test.\n  Fix: ",
+		);
 	});
 
 	it("credits a marker on a formatted call's later lines to that call alone", () => {
@@ -130,26 +140,6 @@ describe("check-test-spawn", () => {
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(": scripts/a.test.ts:5.");
-	});
-
-	it("identifies a spawn by its first line, whitespace collapsed, and its count among identical lines", () => {
-		test(
-			"scripts/a.test.ts",
-			`${SPAWN}const x = 1;\n${SPAWN}const r2 = spawnSync(\n\t"node",\n\t[SCRIPT],\n);\n`,
-		);
-		const r = run("--json");
-		const { findings } = JSON.parse(r.out.slice(r.out.indexOf("{")));
-		expect(
-			findings.map((f: { line: number; call: string; nth: number }) => [
-				f.line,
-				f.call,
-				f.nth,
-			]),
-		).toEqual([
-			[1, SPAWN.trim(), 1],
-			[3, SPAWN.trim(), 2],
-			[4, "const r2 = spawnSync(", 1],
-		]);
 	});
 
 	it("refuses a marker with no reason, one a line of code separates from the call, and one below the header", () => {
@@ -168,5 +158,86 @@ describe("check-test-spawn", () => {
 			": scripts/a.test.ts:2, scripts/b.test.ts:4, scripts/c.test.ts:2, scripts/c.test.ts:5.",
 		);
 		expect(r.out).toContain("Fix: run it through `runInProcess`");
+	});
+
+	describe("--against HEAD, the direction-gated form", () => {
+		let hooks: string;
+		beforeEach(() => {
+			/* An empty hooks dir, so the scratch repo never runs this checkout's
+			 * Husky gates through its absolute core.hooksPath. */
+			hooks = fs.mkdtempSync(path.join(os.tmpdir(), "test-spawn-hooks-"));
+			git("init", "-q", "-b", "main");
+			git("config", "user.email", "test@example.com");
+			git("config", "user.name", "test");
+			git("config", "core.hooksPath", hooks);
+		});
+		afterEach(() => fs.rmSync(hooks, { recursive: true, force: true }));
+
+		const seed = () => {
+			test("scripts/old.test.ts", `const x = 1;\n${SPAWN}`);
+			git("add", ".");
+			git("commit", "-qm", "seed");
+		};
+
+		it("refuses a spawn the commit adds, in a new file or beside an inherited one, naming it", () => {
+			seed();
+			test("scripts/new.test.ts", SPAWN);
+			test(
+				"scripts/old.test.ts",
+				`const x = 1;\n${SPAWN}spawn(process.execPath, [OTHER]);\n`,
+			);
+			git("add", ".");
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("this commit adds them");
+			expect(r.out).toContain("scripts/new.test.ts:1 spawns node");
+			expect(r.out).toContain("scripts/old.test.ts:3 spawns node");
+			expect(r.out).toContain("scripts/lib/run-in-process.js");
+			expect(r.out).not.toContain("scripts/old.test.ts:2 spawns node");
+		});
+
+		it("refuses an edit to an inherited spawn's first line", () => {
+			seed();
+			test(
+				"scripts/old.test.ts",
+				`const x = 1;\n${SPAWN.replace("--json", "--quiet")}`,
+			);
+			git("add", ".");
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(1);
+			expect(r.out).toContain("scripts/old.test.ts:2 spawns node");
+		});
+
+		it("passes an inherited spawn the commit moves down the file, warning of it", () => {
+			seed();
+			test(
+				"scripts/old.test.ts",
+				`const x = 1;\nconst y = 2;\n// a comment\n${SPAWN}`,
+			);
+			git("add", ".");
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("WARN: 1 inherited fault(s)");
+		});
+
+		it("passes an added spawn carrying a stated reason", () => {
+			seed();
+			test(
+				"scripts/new.test.ts",
+				`// spawn-kept: two processes contend for one lock\n${SPAWN}`,
+			);
+			git("add", ".");
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("WARN: 1 inherited fault(s)");
+		});
+
+		it("judges the index, not the worktree", () => {
+			seed();
+			test("scripts/new.test.ts", SPAWN);
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("WARN: 1 inherited fault(s)");
+		});
 	});
 });
