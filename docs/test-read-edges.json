@@ -3216,7 +3216,8 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-clock-copies.test.ts": [
 			"scripts/lib/helper-surface.test.ts",
