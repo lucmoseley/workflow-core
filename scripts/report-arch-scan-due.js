@@ -65,7 +65,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const path = require("node:path");
 const { logError } = require("./lib/arbiter-core");
-const { errMessage, now } = require("./lib/check");
+const { failureReason, now } = require("./lib/check");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
 const { hostRoot } = require("./lib/host-root");
 const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
@@ -589,18 +589,6 @@ function fileRun() {
 	return `${figure}. ${fileOrRefresh({ title: TITLE, labels: [LABEL], body: body(reading) })}`;
 }
 
-/**
- * A failed git or gh call's message holds its whole argv, a filed body
- * included; its stderr is the reason.
- *
- * @param {unknown} e
- */
-function reason(e) {
-	const stderr =
-		e && typeof e === "object" && "stderr" in e ? String(e.stderr).trim() : "";
-	return stderr || errMessage(e);
-}
-
 function daily() {
 	try {
 		const nowMs = now();
@@ -621,7 +609,7 @@ function daily() {
 		logError(WHERE, e);
 		writeFd(
 			2,
-			`FAILED OPEN: ${reason(e)} — recorded in the guard-error log; the next day's reading retries.\n`,
+			`FAILED OPEN: ${failureReason(e)} — recorded in the guard-error log; the next day's reading retries.\n`,
 		);
 	}
 }
@@ -739,7 +727,7 @@ function main() {
 	try {
 		run(flagValue(flags, flag) ?? "");
 	} catch (e) {
-		writeFd(2, `BROKEN: ${reason(e)}\n`);
+		writeFd(2, `BROKEN: ${failureReason(e)}\n`);
 		process.exit(2);
 	}
 }
